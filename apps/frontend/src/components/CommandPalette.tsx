@@ -7,21 +7,12 @@ import { useTranslation } from '@/i18n'
 export function CommandPalette() {
   const [query, setQuery] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
-  const { hosts, sessions, toggleCommandPalette, setActiveHost, setActiveSession, setActivePane } = useConsoleStore()
+  const { hosts, sessions, toggleCommandPalette, setActiveHost, setActiveSession } = useConsoleStore()
   const { t } = useTranslation()
 
   useEffect(() => {
     inputRef.current?.focus()
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        toggleCommandPalette()
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [toggleCommandPalette])
+  }, [])
 
   const filteredHosts = hosts.filter((h: any) =>
     h.name.toLowerCase().includes(query.toLowerCase())
@@ -44,8 +35,20 @@ export function CommandPalette() {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-start justify-center pt-[20vh] z-50">
-      <div className="bg-bg-1 border border-[var(--line)] rounded-lg w-[500px] shadow-lg overflow-hidden">
+    <div className="fixed inset-0 bg-black/50 flex items-start justify-center pt-[20vh] z-50" onKeyDown={(e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        e.stopPropagation()
+        toggleCommandPalette()
+      }
+    }}>
+      <div className="bg-bg-1 border border-[var(--line)] rounded-lg w-[500px] shadow-lg overflow-hidden" onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          e.stopPropagation()
+          toggleCommandPalette()
+        }
+      }}>
         <div className="p-3 border-b border-[var(--line)]">
           <input
             ref={inputRef}
@@ -54,6 +57,13 @@ export function CommandPalette() {
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t('palette.placeholder')}
             className="w-full bg-transparent text-text-1 outline-none placeholder:text-text-3"
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.preventDefault()
+                e.stopPropagation()
+                toggleCommandPalette()
+              }
+            }}
           />
         </div>
 

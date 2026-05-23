@@ -13,6 +13,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
 
     let ptyProcess: pty.IPty | null = null
     let agentId: string | null = null
+    let outputCarry = ''
     const socket = connection.socket
 
     function send(data: any) {
@@ -26,6 +27,41 @@ export async function streamRoutes(fastify: FastifyInstance) {
         ptyProcess.kill()
         ptyProcess = null
       }
+      outputCarry = ''
+    }
+
+    function sanitizeOutput(chunk: string) {
+      const merged = outputCarry + chunk
+      const cleaned = merged
+        .replace(/\u001b\[[0-9;?]*c/g, '')
+        .replace(/(?:\u001b\[)?\??(?:\d+;)+\d+c/g, '')
+        .replace(/0;(?:\d+;)*\d+c/g, '')
+      const trailingEsc = cleaned.match(/\u001b(?:\[[0-9;?]*)?$/)
+      const trailingDigits = cleaned.match(/[0-9;]{0,32}c?$/)
+      if (trailingEsc && trailingEsc[0] && trailingEsc[0].length < cleaned.length) {
+        outputCarry = trailingEsc[0]
+        return cleaned.slice(0, cleaned.length - trailingEsc[0].length)
+      }
+      if (trailingDigits && trailingDigits[0] && trailingDigits[0].includes(';') && trailingDigits[0].length < cleaned.length) {
+        outputCarry = trailingDigits[0]
+        return cleaned.slice(0, cleaned.length - trailingDigits[0].length)
+      }
+      outputCarry = ''
+      return cleaned
+    }
+
+    async function getSessionWindowSize(sessionName: string) {
+      try {
+        const { stdout } = await execFileAsync('tmux', ['display-message', '-p', '-t', sessionName, '#{window_width}|#{window_height}'])
+        const [colsText, rowsText] = stdout.trim().split('|')
+        const cols = parseInt(colsText, 10)
+        const rows = parseInt(rowsText, 10)
+        if (cols > 0 && rows > 0) {
+          return { cols, rows }
+        }
+      } catch (err) {
+      }
+      return null
     }
 
     socket.on('message', async (message: Buffer) => {
@@ -42,10 +78,20 @@ export async function streamRoutes(fastify: FastifyInstance) {
           case 'attach': {
             cleanup()
             const sessionName = data.sessionName
-            const cols = data.cols || 80
-            const rows = data.rows || 24
-
-            ptyProcess = pty.spawn('tmux', ['attach', '-t', sessionName], {
+            const requestedCols = data.cols || 80
+            const requestedRows = data.rows || 24
+            const exclusive = !!data.exclusive
+            const sharedSize = exclusive ? null : await getSessionWindowSize(sessionName)
+            const cols = sharedSize?.cols || requestedCols
+            const rows = sharedSize?.rows || requestedRows
+            const attachArgs = ['attach']
+            if (exclusive) {
+              attachArgs.push('-d')
+            } else {
+              attachArgs.push('-f', 'ignore-size,active-pane')
+            }
+            attachArgs.push('-t', sessionName)
+            ptyProcess = pty.spawn('tmux', attachArgs, {
               name: 'xterm-256color',
               cols,
               rows,
@@ -53,7 +99,10 @@ export async function streamRoutes(fastify: FastifyInstance) {
             })
 
             ptyProcess.onData((output: string) => {
-              send({ type: 'output', data: output })
+              const filtered = sanitizeOutput(output)
+              if (filtered) {
+                send({ type: 'output', data: filtered })
+              }
             })
 
             ptyProcess.onExit(({ exitCode }) => {
@@ -61,7 +110,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
               ptyProcess = null
             })
 
-            send({ type: 'attached', sessionName })
+            send({ type: 'attached', sessionName, cols, rows, exclusive })
             break
           }
 
@@ -75,6 +124,10 @@ export async function streamRoutes(fastify: FastifyInstance) {
             if (ptyProcess) {
               ptyProcess.write(data.data)
             }
+            break
+          case 'detach':
+            cleanup()
+            send({ type: 'detached' })
             break
 
           case 'sessions':

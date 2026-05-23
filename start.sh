@@ -1,49 +1,109 @@
 #!/bin/bash
-
-# tmuxU Development Server Starter
-
+set -euo pipefail
+ROOT_DIR="/home/user/project/other/tmuxU_20260523"
+LOCK_FILE="/tmp/tmuxu-start.lock"
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+  echo "Another start.sh is running, skip."
+  exit 1
+fi
+cd "$ROOT_DIR"
 echo "Starting tmuxU development servers..."
-
+FRONTEND_LOG="/tmp/tmuxu-frontend.log"
+GATEWAY_LOG="/tmp/tmuxu-gateway.log"
+AGENT_LOG="/tmp/tmuxu-agent.log"
 if command -v tailscale >/dev/null 2>&1; then
-  TAILSCALE_IP=$(tailscale ip -4 2>/dev/null | head -n 1)
+  TAILSCALE_IP=$(tailscale ip -4 2>/dev/null | head -n 1 || true)
 fi
-if [ -z "$TAILSCALE_IP" ]; then
-  TAILSCALE_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+if [ -z "${TAILSCALE_IP:-}" ]; then
+  TAILSCALE_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || true)
 fi
-if [ -z "$TAILSCALE_IP" ]; then
+if [ -z "${TAILSCALE_IP:-}" ]; then
   TAILSCALE_IP="localhost"
 fi
-
-# Kill existing processes
-pkill -f "/node_modules/.bin/next dev" 2>/dev/null
-pkill -f "/node_modules/.bin/tsx watch src/index.ts" 2>/dev/null
+port_in_use() {
+  lsof -i :"$1" >/dev/null 2>&1
+}
+wait_http_ok() {
+  local url=$1
+  local retry=$2
+  for i in $(seq 1 "$retry"); do
+    if curl -fsS "$url" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+kill_port() {
+  local port=$1
+  local pids
+  pids=$(lsof -ti :"$port" 2>/dev/null || true)
+  if [ -n "$pids" ]; then
+    kill -9 $pids 2>/dev/null || true
+  fi
+}
+start_detached() {
+  local log_file=$1
+  shift
+  setsid nohup "$@" 9>&- > "$log_file" 2>&1 < /dev/null &
+}
+stop_existing() {
+  pkill -f "$ROOT_DIR/node_modules/.bin/next dev --hostname 0.0.0.0" 2>/dev/null || true
+  pkill -f "$ROOT_DIR/node_modules/.bin/tsx watch src/index.ts" 2>/dev/null || true
+  kill_port 3000
+  kill_port 3001
+  for i in $(seq 1 20); do
+    if ! pgrep -af "$ROOT_DIR/node_modules/.bin/next dev --hostname 0.0.0.0" >/dev/null 2>&1 && ! pgrep -af "$ROOT_DIR/node_modules/.bin/tsx watch src/index.ts" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 0.2
+  done
+}
+stop_existing
+rm -f "$FRONTEND_LOG" "$GATEWAY_LOG" "$AGENT_LOG"
+rm -rf "$ROOT_DIR/apps/frontend/.next"
+if port_in_use 3001; then
+  echo "Gateway already running on port 3001, skipping..."
+else
+  echo "Starting Gateway on port 3001..."
+  start_detached "$GATEWAY_LOG" npm run dev:gateway
+  if wait_http_ok "http://127.0.0.1:3001/api/hosts" 30; then
+    echo "  Gateway started successfully"
+  else
+    echo "  Gateway failed to start, check $GATEWAY_LOG"
+  fi
+fi
+if port_in_use 3000; then
+  echo "Frontend already running on port 3000, skipping..."
+else
+  echo "Starting Frontend on port 3000..."
+  start_detached "$FRONTEND_LOG" env NEXT_PUBLIC_API_URL="http://${TAILSCALE_IP}:3001" npm run dev:frontend
+  if wait_http_ok "http://127.0.0.1:3000" 45; then
+    echo "  Frontend started successfully"
+  else
+    echo "  Frontend failed to start, check $FRONTEND_LOG"
+  fi
+fi
+echo "Starting Agent..."
+start_detached "$AGENT_LOG" npm run dev:agent
 sleep 2
-
-# Start Gateway
-echo "Starting Gateway on port 3001..."
-nohup env HOST=0.0.0.0 npm run dev:gateway > /tmp/tmuxu-gateway.log 2>&1 &
-GATEWAY_PID=$!
-
-# Wait for Gateway to start
-sleep 2
-
-# Start Frontend
-echo "Starting Frontend on port 3000..."
-nohup env NEXT_PUBLIC_API_URL="http://${TAILSCALE_IP}:3001" npm run dev:frontend > /tmp/tmuxu-frontend.log 2>&1 &
-FRONTEND_PID=$!
-
+if pgrep -af "$ROOT_DIR/node_modules/.bin/tsx watch src/index.ts" | rg -q '/apps/agent/'; then
+  echo "  Agent started successfully"
+else
+  if rg -n "Connected to gateway|registered" "$AGENT_LOG" >/dev/null 2>&1; then
+    echo "  Agent started successfully"
+  else
+    echo "  Agent failed to start, check $AGENT_LOG"
+  fi
+fi
 echo ""
-echo "tmuxU is starting up..."
+echo "tmuxU services:"
 echo ""
 echo "  Frontend:  http://${TAILSCALE_IP}:3000"
 echo "  Gateway:   http://${TAILSCALE_IP}:3001"
 echo ""
 echo "Logs:"
-echo "  Gateway:   /tmp/tmuxu-gateway.log"
-echo "  Frontend:  /tmp/tmuxu-frontend.log"
-echo ""
-echo "Press Ctrl+C to stop all services"
-
-# Wait for interrupt
-trap "kill $GATEWAY_PID $FRONTEND_PID 2>/dev/null; exit" INT TERM
-wait
+echo "  Gateway:   $GATEWAY_LOG"
+echo "  Frontend:  $FRONTEND_LOG"
+echo "  Agent:     $AGENT_LOG"

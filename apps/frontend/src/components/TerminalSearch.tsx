@@ -19,35 +19,15 @@ export function TerminalSearch({ terminal, onClose }: TerminalSearchProps) {
     inputRef.current?.focus()
   }, [])
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose()
-      }
-      if (e.key === 'Enter') {
-        if (e.shiftKey) {
-          navigateResult(-1)
-        } else {
-          navigateResult(1)
-        }
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onClose])
-
   const search = (term: string) => {
     setQuery(term)
     if (!terminal || !term) {
       setResults([])
       return
     }
-
     const searchAddon = terminal._addonManager?._addons?.find(
       (a: any) => a.instance?.findNext
     )?.instance
-
     if (searchAddon) {
       searchAddon.findNext(term, {})
       setResults([0])
@@ -57,11 +37,9 @@ export function TerminalSearch({ terminal, onClose }: TerminalSearchProps) {
 
   const navigateResult = (direction: number) => {
     if (!terminal) return
-
     const searchAddon = terminal._addonManager?._addons?.find(
       (a: any) => a.instance?.findNext
     )?.instance
-
     if (searchAddon) {
       if (direction > 0) {
         searchAddon.findNext(query, {})
@@ -80,7 +58,22 @@ export function TerminalSearch({ terminal, onClose }: TerminalSearchProps) {
   }
 
   return (
-    <div className="absolute top-2 right-2 z-50 bg-bg-1 border border-[var(--line)] rounded-lg shadow-lg p-2 flex items-center gap-2">
+    <div className="absolute top-2 right-2 z-50 bg-bg-1 border border-[var(--line)] rounded-lg shadow-lg p-2 flex items-center gap-2" onKeyDown={(e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        e.stopPropagation()
+        onClose()
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        e.stopPropagation()
+        if (e.shiftKey) {
+          navigateResult(-1)
+        } else {
+          navigateResult(1)
+        }
+      }
+    }}>
       <input
         ref={inputRef}
         type="text"
@@ -88,6 +81,22 @@ export function TerminalSearch({ terminal, onClose }: TerminalSearchProps) {
         onChange={(e) => search(e.target.value)}
         placeholder={t('terminalSearch.placeholder')}
         className="bg-bg-2 text-text-1 text-sm px-2 py-1 rounded outline-none w-48"
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            e.preventDefault()
+            e.stopPropagation()
+            onClose()
+          }
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            e.stopPropagation()
+            if (e.shiftKey) {
+              navigateResult(-1)
+            } else {
+              navigateResult(1)
+            }
+          }
+        }}
       />
       <div className="flex items-center gap-1">
         <button

@@ -104,4 +104,7 @@ export const zh = {
 
   // TerminalSearch
   'terminalSearch.placeholder': '搜索...',
+  'quick.attachModeTitle': '附着模式',
+  'quick.attachShared': '共享附着',
+  'quick.attachExclusive': '独占附着',
 } as const

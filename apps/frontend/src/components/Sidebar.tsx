@@ -6,6 +6,7 @@ import { useCreateSession } from '@/hooks/useApi'
 import { SessionTemplates, type Template } from './SessionTemplates'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useTranslation } from '@/i18n'
+import { QuickActions } from './QuickActions'
 
 export function Sidebar() {
   const { sessions, activeSessionId, setActiveSession, activeHostId, sidebarCollapsed, toggleSidebar } = useConsoleStore()
@@ -22,7 +23,10 @@ export function Sidebar() {
     if (!activeHostId) return
     const name = prompt('Session name:', template.name.toLowerCase())
     if (name) {
-      await createSession.mutateAsync({ hostId: activeHostId, name })
+      const created = await createSession.mutateAsync({ hostId: activeHostId, name })
+      if (created?.id) {
+        setActiveSession(created.id)
+      }
     }
     setShowTemplates(false)
   }
@@ -81,14 +85,7 @@ export function Sidebar() {
         {!sidebarCollapsed && preferences.showQuickActions && (
           <div className="p-3 border-t border-[var(--line)]">
             <div className="text-text-3 text-xs mb-2">{t('sidebar.quickActions')}</div>
-            <div className="grid grid-cols-2 gap-1">
-              <button className="px-2 py-1.5 bg-bg-2 rounded text-text-2 text-xs hover:bg-bg-1">
-                {t('sidebar.splitH')}
-              </button>
-              <button className="px-2 py-1.5 bg-bg-2 rounded text-text-2 text-xs hover:bg-bg-1">
-                {t('sidebar.splitV')}
-              </button>
-            </div>
+            <QuickActions />
           </div>
         )}
       </aside>

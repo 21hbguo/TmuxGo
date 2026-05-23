@@ -7,10 +7,10 @@
 
 基于参考图，tmuxU 前端定位为“终端控制台”风格，而非通用后台。核心目标：
 
-1. 让用户在 3 秒内识别当前主机/会话/pane 状态。  
-2. 高频操作（切会话、开 pane、选 pane）尽量键盘优先。  
+1. 让用户在 3 秒内识别当前主机/会话状态。
+2. 高频操作（切会话）尽量键盘优先。  
 3. 保持“冷静、专业、强控制感”的视觉语言，避免花哨但不牺牲辨识度。  
-4. 在桌面端突出多 pane 并行，在移动端优先“快速连接 + 快速切换”。
+4. 在桌面端突出单终端全屏体验，在移动端优先”快速连接 + 快速切换”。
 
 ## 2. 信息架构（IA）
 
@@ -18,7 +18,7 @@
 
 1. 全局层（Global）：用户、连接状态、快捷命令入口。  
 2. 导航层（Navigation）：主机、session、文件树、最近访问。  
-3. 工作层（Workspace）：多 pane 终端网格 + pane 工具条 + 状态栏。
+3. 工作层（Workspace）：单终端 + 状态栏。
 
 主页面仅一个核心路由：`/console/:host/:session`。  
 其余页面（设置、审计）尽量抽屉化，不打断终端操作流。
@@ -35,9 +35,10 @@
    - Sessions 区：会话列表 + 新建按钮。  
    - Files 区：简化文件树（可选）。  
    - Recent 区：最近 pane / 最近命令模板。
-3. 主工作区（自适应网格）
-   - 默认 2x2 pane 网格。  
-   - 每个 pane 顶部有轻量标题栏（编号、名称、状态、操作按钮）。  
+3. 主工作区（单终端）
+   - 单个终端窗口，连接 tmux session。
+   - tmux 负责管理内部 pane/window 布局，前端只做显示。
+   - 顶部轻量标题栏（session 名称、状态、操作按钮）。
 4. 底部状态栏（28px）
    - 左：当前模式（read-write / read-only）。  
    - 中：TERM、UTF-8、窗口大小。  
@@ -46,9 +47,8 @@
 ## 3.2 移动端（<768）
 
 1. 左侧栏改为抽屉。  
-2. 仅显示单 pane，全屏终端。  
-3. 底部悬浮“快速切换条”：Session、Pane、命令面板。  
-4. 多 pane 以“卡片轮播”切换，不做桌面网格硬缩放。
+2. 仅显示单终端，全屏。
+3. 底部悬浮”快速切换条”：Session、命令面板。
 
 ## 4. 视觉规范（贴合参考图）
 
@@ -83,35 +83,32 @@
 
 ## 5. 核心组件清单
 
-1. `CommandPalette`：`Cmd/Ctrl + K` 打开，全局搜索 host/session/window/pane。  
-2. `SessionList`：支持分组、收藏、状态点（运行中/空闲/异常）。  
-3. `PaneGrid`：拖拽调整、激活高亮、布局记忆。  
-4. `TerminalPane`：xterm.js 容器 + 标题栏 + 快捷操作。  
+1. `CommandPalette`：`Cmd/Ctrl + K` 打开，全局搜索 host/session。
+2. `SessionList`：支持分组、收藏、状态点（运行中/空闲/异常）。
+3. `TerminalPane`：xterm.js 容器 + 标题栏，连接 tmux session，tmux 管理内部 pane/window。
 5. `ConnectionBadge`：在线/重连中/离线，附延迟与丢包提示。  
-6. `QuickActionBar`：新建 session/window/pane、只读切换、同步滚动。  
+6. `QuickActionBar`：新建 session、只读切换、同步滚动。
 7. `StatusBar`：模式、编码、尺寸、tmux 目标标识。
 
 ## 6. 关键交互设计
 
 1. 焦点规则
-   - 当前激活 pane 采用高亮边框 + 轻发光。  
-   - 非激活 pane 降低对比度，减少视觉噪音。
+   - 终端激活时采用高亮边框 + 轻发光。
 2. 键盘优先
-   - `Cmd/Ctrl + K`：命令面板。  
-   - `Cmd/Ctrl + Shift + Enter`：新建 pane。  
-   - `Alt + 1..9`：快速切换 pane。  
+   - `Cmd/Ctrl + K`：命令面板。
    - `Cmd/Ctrl + B`：折叠侧栏。
+   - tmux 操作（pane/window 切换等）使用 tmux 原生快捷键。
 3. 反馈机制
    - 管理动作（新建/删除）使用 toast + 可撤销。  
    - 重连过程显示阶段状态（Connecting / Syncing / Ready）。
 4. 安全防误触
-   - 删除 session、kill pane 需要二次确认。  
+   - 断开 session 需要二次确认。
    - 只读模式下禁用输入并给出明显模式标识。
 
 ## 7. 动效与过渡
 
 1. 页面入场：150ms 淡入 + 纵向轻位移。  
-2. pane 激活：120ms 边框亮度过渡。  
+2. 终端激活：120ms 边框亮度过渡。
 3. 侧栏折叠：180ms 宽度过渡，保留图标定位。  
 4. 命令面板：缩放 + 模糊背景（不超过 200ms）。  
 
@@ -129,21 +126,21 @@
 
 1. 框架：Next.js + React + TypeScript。  
 2. 样式：Tailwind + CSS Variables（Token 化）。  
-3. 终端：xterm.js（按 pane 懒加载）。  
+3. 终端：xterm.js。
 4. 状态管理：Zustand（UI 状态）+ React Query（服务端状态）。  
 5. 实时通信：WebSocket（终端流与事件流复用）。
 
 ## 10. 分阶段落地（前端）
 
-1. F1：页面骨架 + 左侧栏 + 单 pane 终端。  
-2. F2：多 pane 网格 + pane 激活/切换 + 状态栏。  
-3. F3：命令面板 + 快捷键体系 + 最近访问。  
+1. F1：页面骨架 + 左侧栏 + 单终端连接 tmux session。
+2. F2：状态栏 + session 管理。
+3. F3：命令面板 + 快捷键体系 + 最近访问。
 4. F4：移动端适配 + 动效 + 高对比/低动态模式。
 
 ## 11. 验收标准（前端）
 
 1. 新用户首次进入可在 10 秒内定位并进入目标 session。  
-2. 常见操作（新建 pane、切 pane）键盘路径不超过 2 步。  
-3. 桌面端 4 pane 同时输出时界面仍保持流畅可交互。  
+2. 常见操作（切换 session、发送命令）键盘路径不超过 2 步。
+3. 桌面端单终端显示 tmux session 时界面保持流畅可交互。
 4. 移动端可稳定完成“连接 -> 切换 session -> 输入命令”完整流程。  
 

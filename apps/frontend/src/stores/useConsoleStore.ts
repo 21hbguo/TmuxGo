@@ -37,8 +37,18 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
   sidebarCollapsed: false,
   showCommandPalette: false,
 
-  setActiveHost: (id) => set({ activeHostId: id }),
-  setActiveSession: (id) => set({ activeSessionId: id }),
+  setActiveHost: (id) => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('tmuxu-active-host', id)
+    }
+    set({ activeHostId: id })
+  },
+  setActiveSession: (id) => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('tmuxu-active-session', id)
+    }
+    set({ activeSessionId: id })
+  },
   setActivePane: (id) => set({ activePaneId: id }),
   toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
   toggleCommandPalette: () => set((state) => ({ showCommandPalette: !state.showCommandPalette })),

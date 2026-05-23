@@ -73,7 +73,9 @@ a {
 
 /* xterm.js */
 .xterm {
-  padding: 8px;
+  padding: var(--terminal-padding, 8px);
+  height: 100%;
+  width: 100%;
 }
 
 .xterm-viewport::-webkit-scrollbar {

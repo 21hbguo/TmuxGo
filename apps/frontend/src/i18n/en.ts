@@ -104,4 +104,7 @@ export const en = {
 
   // TerminalSearch
   'terminalSearch.placeholder': 'Search...',
+  'quick.attachModeTitle': 'Attach mode',
+  'quick.attachShared': 'Shared',
+  'quick.attachExclusive': 'Exclusive',
 } as const

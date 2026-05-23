@@ -15,8 +15,11 @@ import { useWebSocket } from '@/hooks/useWebSocket'
 import { usePreferences } from '@/hooks/usePreferences'
 
 export function ConsoleLayout() {
-  const store = useConsoleStore()
-  const { activeHostId, activeSessionId, setActiveHost, setActiveSession, showCommandPalette, toggleCommandPalette, toggleSidebar } = store
+  const activeHostId = useConsoleStore((s) => s.activeHostId)
+  const activeSessionId = useConsoleStore((s) => s.activeSessionId)
+  const showCommandPalette = useConsoleStore((s) => s.showCommandPalette)
+  const toggleCommandPalette = useConsoleStore((s) => s.toggleCommandPalette)
+  const toggleSidebar = useConsoleStore((s) => s.toggleSidebar)
   const { preferences } = usePreferences()
 
   const { data: hostsData = [] } = useHosts()
@@ -35,28 +38,46 @@ export function ConsoleLayout() {
     return () => window.removeEventListener('resize', checkMobile)
   }, [])
 
+  // 一次性初始化 hosts + activeHostId
   useEffect(() => {
-    if (hostsData.length > 0) {
-      useConsoleStore.setState({ hosts: hostsData })
-      const localHost = hostsData.find((host: any) => host.id === 'local')
-      if (!activeHostId) {
-        setActiveHost(localHost?.id || hostsData[0].id)
-      }
+    if (hostsData.length > 0 && !activeHostId) {
+      const persistedHost = typeof window !== 'undefined' ? localStorage.getItem('tmuxu-active-host') : null
+      const localHost = hostsData.find((h: any) => h.id === 'local')
+      const restoredHost = persistedHost && hostsData.some((h: any) => h.id === persistedHost) ? persistedHost : null
+      useConsoleStore.setState({
+        hosts: hostsData,
+        activeHostId: restoredHost || localHost?.id || hostsData[0].id,
+      })
     }
-  }, [hostsData, activeHostId, setActiveHost])
+  }, [hostsData, activeHostId])
 
+  // 一次性初始化 sessions + activeSessionId
   useEffect(() => {
-    if (sessionsData.length > 0) {
-      useConsoleStore.setState({ sessions: sessionsData })
-      const currentSession = sessionsData.find((s: any) => s.id === activeSessionId)
-      if (!activeSessionId || !currentSession) {
-        setActiveSession(sessionsData[0].id)
-      }
+    if (sessionsData.length === 0) {
+      return
     }
-  }, [sessionsData, activeSessionId, setActiveSession])
+    const persistedSession = typeof window !== 'undefined' ? localStorage.getItem('tmuxu-active-session') : null
+    const persistedSessionExists = !!persistedSession && sessionsData.some((s: any) => s.id === persistedSession)
+    if (!activeSessionId) {
+      useConsoleStore.setState({
+        sessions: sessionsData,
+        activeSessionId: persistedSessionExists ? persistedSession : sessionsData[0].id,
+      })
+      return
+    }
+    useConsoleStore.setState({ sessions: sessionsData })
+  }, [sessionsData, activeSessionId])
+  useEffect(() => {
+    if (!activeSessionId) return
+    localStorage.setItem('tmuxu-active-session', activeSessionId)
+  }, [activeSessionId])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null
+      if (target?.closest('[data-terminal],.xterm,.xterm-screen')) {
+        return
+      }
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault()
         toggleCommandPalette()
@@ -66,7 +87,6 @@ export function ConsoleLayout() {
         toggleSidebar()
       }
     }
-
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [toggleCommandPalette, toggleSidebar])
@@ -79,15 +99,15 @@ export function ConsoleLayout() {
   const sidebarOrder = preferences.sidebarPosition === 'right' ? 1 : 0
 
   return (
-    <div className="flex flex-col h-screen w-screen">
+    <div className="flex flex-col h-screen w-screen overflow-hidden">
       {!isMobile && <TopBar />}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 min-h-0 overflow-hidden">
         {!isMobile && (
           <div style={{ order: sidebarOrder }}>
             <Sidebar />
           </div>
         )}
-        <main className="flex-1 overflow-hidden">
+        <main className="flex-1 min-h-0 overflow-hidden">
           <PaneGrid />
         </main>
       </div>
