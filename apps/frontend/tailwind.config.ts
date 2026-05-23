@@ -10,20 +10,20 @@ const config: Config = {
     extend: {
       colors: {
         bg: {
-          0: '#030A14',
-          1: '#071224',
-          2: '#0B1A31',
+          0: 'rgb(var(--bg-0) / <alpha-value>)',
+          1: 'rgb(var(--bg-1) / <alpha-value>)',
+          2: 'rgb(var(--bg-2) / <alpha-value>)',
         },
         accent: {
-          DEFAULT: '#1EC8FF',
-          2: '#00E5B4',
+          DEFAULT: 'rgb(var(--accent) / <alpha-value>)',
+          2: 'rgb(var(--accent-2) / <alpha-value>)',
         },
-        warn: '#FFB020',
-        danger: '#FF5D6C',
+        warn: 'rgb(var(--warn) / <alpha-value>)',
+        danger: 'rgb(var(--danger) / <alpha-value>)',
         text: {
-          1: '#E8F3FF',
-          2: '#9CB3C9',
-          3: '#6F859B',
+          1: 'rgb(var(--text-1) / <alpha-value>)',
+          2: 'rgb(var(--text-2) / <alpha-value>)',
+          3: 'rgb(var(--text-3) / <alpha-value>)',
         },
       },
       boxShadow: {
