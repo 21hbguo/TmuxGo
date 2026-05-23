@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useCallback, useState } from 'react'
 import type { Pane } from '@/types'
+import { usePreferences } from '@/hooks/usePreferences'
 
 interface Window {
   id: string
@@ -27,6 +28,7 @@ export function TerminalPane({ pane, isActive, onClick, onInput, windows = [], a
   const fitAddonRef = useRef<any>(null)
   const onInputRef = useRef(onInput)
   const [isReady, setIsReady] = useState(false)
+  const { preferences } = usePreferences()
 
   useEffect(() => {
     onInputRef.current = onInput
@@ -72,9 +74,9 @@ export function TerminalPane({ pane, isActive, onClick, onInput, windows = [], a
             cyan: '#89DDFF',
             white: '#E8F3FF',
           },
-          fontFamily: 'JetBrains Mono, monospace',
-          fontSize: 14,
-          cursorBlink: true,
+          fontFamily: preferences.fontFamily,
+          fontSize: preferences.fontSize,
+          cursorBlink: preferences.cursorBlink,
           cursorStyle: 'bar',
           allowTransparency: true,
         })
@@ -185,7 +187,7 @@ export function TerminalPane({ pane, isActive, onClick, onInput, windows = [], a
           <button className="p-1 hover:bg-bg-1 rounded text-danger text-xs">×</button>
         </div>
       </div>
-      <div ref={terminalRef} onMouseDown={() => terminalInstance.current?.focus?.()} className="h-[calc(100%-32px)] bg-bg-1" />
+      <div ref={terminalRef} onMouseDown={() => terminalInstance.current?.focus?.()} className="h-[calc(100%-32px)] bg-bg-1" style={{ padding: preferences.terminalPadding }} />
     </div>
   )
 }

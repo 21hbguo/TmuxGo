@@ -1,0 +1,94 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-0: #030A14;
+  --bg-1: #071224;
+  --bg-2: #0B1A31;
+  --accent: #1EC8FF;
+  --accent-2: #00E5B4;
+  --warn: #FFB020;
+  --danger: #FF5D6C;
+  --text-1: #E8F3FF;
+  --text-2: #9CB3C9;
+  --text-3: #6F859B;
+  --line: rgba(30,200,255,0.28);
+  --glow: 0 0 20px rgba(30,200,255,0.25);
+}
+
+[data-theme="light"] {
+  --bg-0: #F5F7FA;
+  --bg-1: #FFFFFF;
+  --bg-2: #E8ECF1;
+  --accent: #0078D4;
+  --accent-2: #00A67E;
+  --warn: #D4880F;
+  --danger: #D1345B;
+  --text-1: #1A2332;
+  --text-2: #556677;
+  --text-3: #8899AA;
+  --line: rgba(0,120,212,0.25);
+  --glow: 0 0 20px rgba(0,120,212,0.15);
+}
+
+[data-theme="high-contrast"] {
+  --bg-0: #000000;
+  --bg-1: #0A0A0A;
+  --bg-2: #1A1A1A;
+  --accent: #00FFFF;
+  --accent-2: #00FF88;
+  --warn: #FFD700;
+  --danger: #FF4444;
+  --text-1: #FFFFFF;
+  --text-2: #CCCCCC;
+  --text-3: #999999;
+  --line: rgba(0,255,255,0.4);
+  --glow: 0 0 20px rgba(0,255,255,0.3);
+}
+
+@font-face {
+  font-family: 'Space Grotesk';
+  src: local('Space Grotesk');
+}
+
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+html,
+body {
+  max-width: 100vw;
+  overflow: hidden;
+  background: var(--bg-0);
+  color: var(--text-1);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* xterm.js */
+.xterm {
+  padding: 8px;
+}
+
+.xterm-viewport::-webkit-scrollbar {
+  width: 8px;
+}
+
+.xterm-viewport::-webkit-scrollbar-track {
+  background: var(--bg-1);
+}
+
+.xterm-viewport::-webkit-scrollbar-thumb {
+  background: var(--text-3);
+  border-radius: 4px;
+}
+
+.xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: var(--text-2);
+}

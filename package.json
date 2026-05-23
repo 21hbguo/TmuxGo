@@ -1,0 +1,17 @@
+{
+  "name": "tmuxu",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=frontend & npm run dev --workspace=gateway",
+    "dev:frontend": "npm run dev --workspace=frontend",
+    "dev:gateway": "npm run dev --workspace=gateway",
+    "dev:agent": "npm run dev --workspace=agent",
+    "build": "npm run build --workspaces",
+    "build:frontend": "npm run build --workspace=frontend",
+    "build:gateway": "npm run build --workspace=gateway",
+    "build:agent": "npm run build --workspace=agent"
+  }
+}

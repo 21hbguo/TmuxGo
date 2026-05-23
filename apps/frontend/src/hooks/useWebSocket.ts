@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useCallback } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
+import { usePreferences } from './usePreferences'
 
 const WS_URL = 'ws://localhost:3001/api/stream'
 
@@ -12,6 +13,7 @@ export function useWebSocket() {
   const isConnectingRef = useRef(false)
 
   const updateConnection = useConsoleStore((s) => s.updateConnection)
+  const { preferences } = usePreferences()
 
   const connect = useCallback(() => {
     if (typeof window === 'undefined') return
@@ -92,6 +94,8 @@ export function useWebSocket() {
   }
 
   const scheduleReconnect = useCallback(() => {
+    if (!preferences.autoReconnect) return
+
     if (reconnectTimerRef.current) {
       clearTimeout(reconnectTimerRef.current)
     }
@@ -99,13 +103,13 @@ export function useWebSocket() {
     reconnectCountRef.current++
     updateConnection({ status: 'reconnecting' })
 
-    const delay = Math.min(3000 * reconnectCountRef.current, 30000)
+    const delay = Math.min(preferences.reconnectInterval * reconnectCountRef.current, 30000)
     console.log(`Reconnecting in ${delay}ms (attempt ${reconnectCountRef.current})`)
 
     reconnectTimerRef.current = setTimeout(() => {
       connect()
     }, delay)
-  }, [connect, updateConnection])
+  }, [connect, updateConnection, preferences.autoReconnect, preferences.reconnectInterval])
 
   const send = useCallback((data: any) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
