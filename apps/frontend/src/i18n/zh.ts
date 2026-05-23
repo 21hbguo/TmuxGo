@@ -9,6 +9,8 @@ export const zh = {
   'sidebar.splitH': '横向分割',
   'sidebar.splitV': '纵向分割',
   'sidebar.newSession': '+ 新建会话',
+  'sidebar.deleteSession': '删除会话',
+  'sidebar.deleteConfirm': '确定删除会话 "{name}"？此操作不可撤销。',
   'sidebar.windows': '{count} 个窗口',
 
   // StatusBar
@@ -107,4 +109,20 @@ export const zh = {
   'quick.attachModeTitle': '附着模式',
   'quick.attachShared': '共享附着',
   'quick.attachExclusive': '独占附着',
+  'quick.copy': '复制',
+  'quick.paste': '粘贴',
+  'quick.zoom': '聚焦',
+  'quick.killPane': '删面板',
+  'quick.killConfirm': '确认关闭当前面板？',
+
+  // Custom Shortcuts
+  'shortcut.custom': '自定义快捷键',
+  'shortcut.add': '添加快捷键',
+  'shortcut.label': '按钮名称',
+  'shortcut.keys': '按键组合',
+  'shortcut.recording': '按下组合键...',
+  'shortcut.pressKeys': '点击录制',
+  'shortcut.selectKey': '选择主键...',
+  'shortcut.cancel': '取消',
+  'shortcut.save': '保存',
 } as const

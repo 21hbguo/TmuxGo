@@ -42,6 +42,11 @@ export async function sessionRoutes(fastify: FastifyInstance) {
     const { name } = request.body as { name: string }
 
     try {
+      const existingSessions = await getLocalTmuxSessions()
+      const existingSession = existingSessions.find((s) => s.name === name)
+      if (existingSession) {
+        return existingSession
+      }
       await execAsync(`tmux new-session -d -s ${name}`)
       const sessions = await getLocalTmuxSessions()
       return sessions.find((s) => s.name === name) || {
@@ -53,6 +58,13 @@ export async function sessionRoutes(fastify: FastifyInstance) {
         windowCount: 1,
       }
     } catch (err: any) {
+      if (String(err?.message || '').includes('duplicate session')) {
+        const sessions = await getLocalTmuxSessions()
+        const existingSession = sessions.find((s) => s.name === name)
+        if (existingSession) {
+          return existingSession
+        }
+      }
       throw new Error(err.message)
     }
   })

@@ -9,6 +9,8 @@ export const en = {
   'sidebar.splitH': 'Split H',
   'sidebar.splitV': 'Split V',
   'sidebar.newSession': '+ New Session',
+  'sidebar.deleteSession': 'Delete session',
+  'sidebar.deleteConfirm': 'Delete session "{name}"? This cannot be undone.',
   'sidebar.windows': '{count} windows',
 
   // StatusBar
@@ -107,4 +109,20 @@ export const en = {
   'quick.attachModeTitle': 'Attach mode',
   'quick.attachShared': 'Shared',
   'quick.attachExclusive': 'Exclusive',
+  'quick.copy': 'Copy',
+  'quick.paste': 'Paste',
+  'quick.zoom': 'Zoom',
+  'quick.killPane': 'Kill Pane',
+  'quick.killConfirm': 'Close current pane?',
+
+  // Custom Shortcuts
+  'shortcut.custom': 'Custom Shortcuts',
+  'shortcut.add': 'Add Shortcut',
+  'shortcut.label': 'Button Label',
+  'shortcut.keys': 'Key Combo',
+  'shortcut.recording': 'Press keys...',
+  'shortcut.pressKeys': 'Click to record',
+  'shortcut.selectKey': 'Select key...',
+  'shortcut.cancel': 'Cancel',
+  'shortcut.save': 'Save',
 } as const

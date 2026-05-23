@@ -63,5 +63,18 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ direction }),
       }),
+    zoom: (session?: string) =>
+      fetchApi<any>('/api/panes/zoom', {
+        method: 'POST',
+        body: JSON.stringify({ session }),
+      }),
+    kill: (session?: string) =>
+      fetchApi<any>('/api/panes/kill', {
+        method: 'POST',
+        body: JSON.stringify({ session }),
+      }),
+  },
+  system: {
+    info: () => fetchApi<{ gpu: { used: number; total: number } | null; cpu: number; mem: { used: number; total: number }; disks: { mount: string; used: number; total: number }[] }>('/api/system'),
   },
 }
