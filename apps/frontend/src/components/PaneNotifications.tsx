@@ -68,7 +68,7 @@ export function PaneNotifications() {
   }
 
   return (
-    <div className="fixed bottom-16 right-4 z-50 w-80">
+    <div className="fixed bottom-16 right-4 z-50 w-80 max-w-[calc(100vw-2rem)] lg:bottom-16 bottom-28">
       {notifications.length > 0 && (
         <div className="bg-bg-1 border border-[var(--line)] rounded-lg shadow-lg overflow-hidden">
           <div className="p-2 border-b border-[var(--line)] flex items-center justify-between">

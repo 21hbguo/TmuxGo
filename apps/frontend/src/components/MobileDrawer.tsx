@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
+import { ShortcutBar } from './ShortcutBar'
 
 interface MobileDrawerProps {
   isOpen: boolean
@@ -11,56 +12,112 @@ interface MobileDrawerProps {
 }
 
 export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
-  const { sessions, activeSessionId, setActiveSession, panes, activePaneId, setActivePane } = useConsoleStore()
+  const { sessions, activeSessionId, setActiveSession } = useConsoleStore()
   const { t } = useTranslation()
+  const [visible, setVisible] = useState(false)
+  const [closing, setClosing] = useState(false)
+  const startYRef = useRef(0)
+  const translateYRef = useRef(0)
+  const panelRef = useRef<HTMLDivElement>(null)
 
-  if (!isOpen) return null
+  const resetPanelPosition = useCallback(() => {
+    if (!panelRef.current) return
+    panelRef.current.style.removeProperty('transition-duration')
+    panelRef.current.style.removeProperty('transform')
+  }, [])
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null
+    if (isOpen) {
+      setVisible(true)
+      setClosing(false)
+      document.body.style.overflow = 'hidden'
+    } else if (visible) {
+      setClosing(true)
+      timer = setTimeout(() => {
+        setVisible(false)
+        setClosing(false)
+        resetPanelPosition()
+      }, 200)
+      document.body.style.overflow = ''
+    }
+    return () => {
+      if (timer) clearTimeout(timer)
+      document.body.style.overflow = ''
+    }
+  }, [isOpen, visible, resetPanelPosition])
+
+  const handleClose = useCallback(() => {
+    if (!isOpen) return
+    resetPanelPosition()
+    onClose()
+  }, [isOpen, onClose, resetPanelPosition])
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    startYRef.current = e.touches[0].clientY
+    translateYRef.current = 0
+    if (panelRef.current) panelRef.current.style.setProperty('transition-duration', '0ms')
+  }
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    const dy = Math.max(0, e.touches[0].clientY - startYRef.current)
+    translateYRef.current = dy
+    if (panelRef.current) panelRef.current.style.transform = `translateY(${dy}px)`
+  }
+
+  const handleTouchEnd = () => {
+    if (translateYRef.current > 80) {
+      handleClose()
+      return
+    }
+    resetPanelPosition()
+  }
+
+  if (!visible) return null
 
   return (
-    <div className="fixed inset-0 z-50 lg:hidden">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="absolute bottom-14 left-0 right-0 bg-bg-1 border-t border-[var(--line)] rounded-t-xl max-h-[60vh] overflow-hidden">
-        <div className="p-4">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-text-1 font-medium">
-              {type === 'sessions' ? t('drawer.sessions') : t('drawer.panes')}
-            </h3>
-            <button onClick={onClose} className="text-text-3">✕</button>
-          </div>
-
-          <div className="space-y-2 overflow-y-auto max-h-[40vh]">
-            {type === 'sessions' && sessions.map((session: any) => (
-              <button
-                key={session.id}
-                onClick={() => {
-                  setActiveSession(session.id)
-                  onClose()
-                }}
-                className={`w-full p-3 rounded-lg text-left ${
-                  activeSessionId === session.id ? 'bg-accent/20 border border-accent' : 'bg-bg-2'
-                }`}
-              >
-                <div className="text-text-1">{session.name}</div>
-                <div className="text-text-3 text-xs">{t('drawer.windows', { count: session.windowCount })}</div>
-              </button>
-            ))}
-
-            {type === 'panes' && panes.map((pane: any) => (
-              <button
-                key={pane.id}
-                onClick={() => {
-                  setActivePane(pane.id)
-                  onClose()
-                }}
-                className={`w-full p-3 rounded-lg text-left ${
-                  activePaneId === pane.id ? 'bg-accent/20 border border-accent' : 'bg-bg-2'
-                }`}
-              >
-                <div className="text-text-1">#{pane.index} {pane.title}</div>
-                <div className="text-text-3 text-xs">{pane.size.cols}×{pane.size.rows}</div>
-              </button>
-            ))}
-          </div>
+    <div className="fixed inset-0 z-50">
+      <div
+        className={`absolute inset-0 bg-black/50 transition-opacity duration-200 ${closing ? 'opacity-0' : 'opacity-100'}`}
+        onClick={handleClose}
+      />
+      <div
+        ref={panelRef}
+        className={`absolute bottom-0 left-0 right-0 flex max-h-none flex-col overflow-hidden rounded-t-xl border-t border-[var(--line)] bg-bg-1 transition-transform duration-200 ease-out ${closing ? 'translate-y-full' : ''}`}
+        style={{ maxHeight: 'calc(var(--app-height,100dvh)-12px)', paddingBottom: 'env(safe-area-inset-bottom,0px)' }}
+      >
+        <div className="flex justify-center py-2 touch-none" onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd} onTouchCancel={handleTouchEnd}>
+          <div className="w-10 h-1 rounded-full bg-text-3/30" />
+        </div>
+        <div className="flex items-center justify-between px-4 pb-3">
+          <h3 className="text-text-1 font-medium">
+            {type === 'sessions' ? t('drawer.sessions') : t('drawer.panes')}
+          </h3>
+          <button onClick={handleClose} className="p-1 text-text-3">✕</button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4" style={{ WebkitOverflowScrolling: 'touch' }}>
+          {type === 'sessions' && (
+            <div className="space-y-2">
+              {sessions.map((session: any) => (
+                <button
+                  key={session.id}
+                  onClick={() => {
+                    setActiveSession(session.id)
+                    handleClose()
+                  }}
+                  className={`w-full rounded-lg p-3 text-left transition-transform active:scale-[0.98] ${
+                    activeSessionId === session.id ? 'border border-accent bg-accent/20' : 'bg-bg-2'
+                  }`}
+                >
+                  <div className="text-text-1">{session.name}</div>
+                  <div className="text-text-3 text-xs">{t('drawer.windows', { count: session.windowCount })}</div>
+                </button>
+              ))}
+            </div>
+          )}
+          {type === 'panes' && (
+            <ShortcutBar mode="panel" />
+          )}
         </div>
       </div>
     </div>

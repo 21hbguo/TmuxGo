@@ -73,10 +73,12 @@ export function useWebSocket() {
       ws.onclose = () => {
         wsState.isConnecting = false
         updateConnection({ status: 'disconnected' })
+        scheduleReconnect()
         wsState.onClose?.()
       }
       ws.onerror = () => {
         wsState.isConnecting = false
+        scheduleReconnect()
         wsState.onError?.()
       }
     } catch (err) {
@@ -122,7 +124,18 @@ export function useWebSocket() {
         }
       }, 10000)
     }
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        const ws = wsState.ws
+        if (!ws || ws.readyState === WebSocket.CLOSED) {
+          wsState.reconnectCount = 0
+          connect()
+        }
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
     return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
       wsState.subscribers -= 1
       if (wsState.subscribers <= 0) {
         if (wsState.reconnectTimer) {
