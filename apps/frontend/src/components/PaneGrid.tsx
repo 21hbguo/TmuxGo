@@ -61,7 +61,7 @@ export function PaneGrid() {
 
   if (!activeSessionId) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-text-3 gap-4">
+      <div className="flex-1 flex flex-col items-center justify-center text-text-3 gap-4">
         <div className="text-6xl">⊞</div>
         <div className="text-lg">{t('grid.noWindows')}</div>
         <div className="text-sm">{t('grid.selectSession')}</div>
@@ -70,7 +70,7 @@ export function PaneGrid() {
   }
 
   return (
-    <div className="h-full w-full min-h-0">
+    <div className="flex-1 w-full min-h-0">
       <TerminalPane key={activeSessionId} onInput={handleInput} onResize={handleResize} attachExclusive={preferences.attachExclusive} onReady={handleReady} />
     </div>
   )

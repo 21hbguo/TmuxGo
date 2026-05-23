@@ -83,8 +83,8 @@ export function SessionTemplates({ onSelect, onClose }: SessionTemplatesProps) {
   const { t } = useTranslation()
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-bg-1 border border-[var(--line)] rounded-lg w-[600px] max-h-[80vh] overflow-hidden">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-bg-1 border border-[var(--line)] rounded-lg w-full max-w-[600px] max-h-[85vh] overflow-hidden">
         <div className="p-4 border-b border-[var(--line)]">
           <h2 className="text-text-1 text-lg font-medium">{t('templates.title')}</h2>
           <p className="text-text-3 text-sm mt-1">{t('templates.desc')}</p>

@@ -1,7 +1,9 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useCallback } from 'react'
 import { usePreferences } from '@/hooks/usePreferences'
+import { useMobileKeyboard } from '@/hooks/useMobileKeyboard'
+import { useWebSocket } from '@/hooks/useWebSocket'
 
 interface TerminalPaneProps {
   onInput?: (data: string) => void
@@ -13,6 +15,8 @@ interface TerminalPaneProps {
 export function TerminalPane({ onInput, onResize, attachExclusive = false, onReady }: TerminalPaneProps) {
   const { preferences } = usePreferences()
   const terminalRef = useRef<HTMLDivElement>(null)
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null)
+  const touchMovedRef = useRef(false)
   const terminalInstance = useRef<any>(null)
   const fitAddonRef = useRef<any>(null)
   const onInputRef = useRef(onInput)
@@ -25,6 +29,10 @@ export function TerminalPane({ onInput, onResize, attachExclusive = false, onRea
   const controlCarryRef = useRef('')
   const scheduleFitRef = useRef<() => void>(() => {})
   const syncSharedLayoutRef = useRef<(resetFont: boolean) => void>(() => {})
+
+  const { send } = useWebSocket()
+  const sendInput = useCallback((data: string) => send({ type: 'input', data }), [send])
+  const { textareaRef, focusKeyboard, isMobile: isMobileDevice } = useMobileKeyboard(sendInput, terminalRef)
 
   useEffect(() => {
     onInputRef.current = onInput
@@ -278,6 +286,37 @@ export function TerminalPane({ onInput, onResize, attachExclusive = false, onRea
         syncSharedLayout(false)
       })
       resizeObserver.observe(container)
+      let lastTouchY = 0
+      let touchStartY = 0
+      let touchMoved = false
+      const handleTouchStart = (e: TouchEvent) => {
+        if (!isMobileDevice) return
+        touchStartY = e.touches[0].clientY
+        lastTouchY = touchStartY
+        touchMoved = false
+      }
+      const handleTouchMove = (e: TouchEvent) => {
+        if (!isMobileDevice) return
+        const y = e.touches[0].clientY
+        const dy = y - lastTouchY
+        if (Math.abs(y - touchStartY) > 8) touchMoved = true
+        if (touchMoved && Math.abs(dy) > 1) {
+          e.preventDefault()
+          terminal.scrollLines(dy > 0 ? 1 : -1)
+          lastTouchY = y
+        }
+      }
+      const handleTouchEnd = () => { touchMovedRef.current = touchMoved }
+      container.addEventListener('touchstart', handleTouchStart, { passive: true })
+      container.addEventListener('touchmove', handleTouchMove, { passive: false })
+      container.addEventListener('touchend', handleTouchEnd, { passive: true })
+      disposables.push({
+        dispose: () => {
+          container.removeEventListener('touchstart', handleTouchStart)
+          container.removeEventListener('touchmove', handleTouchMove)
+          container.removeEventListener('touchend', handleTouchEnd)
+        },
+      })
       if (disposed) return
       if (!attachExclusiveRef.current) {
         notifyReady()
@@ -303,9 +342,49 @@ export function TerminalPane({ onInput, onResize, attachExclusive = false, onRea
     <div
       ref={terminalRef}
       data-terminal
-      className="h-full w-full min-h-0 overflow-hidden"
+      className="h-full w-full min-h-0 overflow-hidden relative"
       style={{ ['--terminal-padding' as any]: `${preferences.terminalPadding}px` }}
       onMouseDown={() => terminalInstance.current?.focus?.()}
-    />
+      onTouchEnd={(e) => {
+        if (isMobileDevice && !touchMovedRef.current) {
+          e.preventDefault()
+          focusKeyboard()
+        } else if (!isMobileDevice) {
+          terminalInstance.current?.focus?.()
+        }
+        touchMovedRef.current = false
+      }}
+    >
+      {isMobileDevice && (
+        <textarea
+          ref={textareaRef}
+          className="mobile-kb-input"
+          rows={1}
+          inputMode="text"
+          enterKeyHint="enter"
+          autoComplete="new-password"
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
+          tabIndex={-1}
+          aria-label="Terminal input"
+          style={{
+            position: 'fixed',
+            left: '50%',
+            bottom: 'calc(var(--mobile-keyboard-inset, 0px) + env(safe-area-inset-bottom, 0px) + 10px)',
+            width: 1,
+            height: 1,
+            padding: 0,
+            border: 0,
+            opacity: 0.01,
+            background: 'transparent',
+            color: 'transparent',
+            pointerEvents: 'none',
+            zIndex: 8,
+            transform: 'translateX(-50%)',
+          }}
+        />
+      )}
+    </div>
   )
 }

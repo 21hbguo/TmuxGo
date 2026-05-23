@@ -64,6 +64,9 @@ body {
   overflow: hidden;
   background: rgb(var(--bg-0));
   color: rgb(var(--text-1));
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
 }
 
 a {
@@ -93,4 +96,42 @@ a {
 
 .xterm-viewport::-webkit-scrollbar-thumb:hover {
   background: rgb(var(--text-2));
+}
+.xterm-viewport {
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch;
+  touch-action: none;
+  overscroll-behavior: contain;
+}
+[data-terminal] {
+  touch-action: none;
+}
+
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+.keyboard-open [data-shortcut-bar] {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--mobile-keyboard-inset, 0px));
+  z-index: 50;
+}
+.keyboard-open [data-mobile-nav] {
+  transform: translateY(calc(100% + env(safe-area-inset-bottom, 0px)));
+  pointer-events: none;
+}
+.keyboard-open [data-console-main] {
+  padding-bottom: 0 !important;
+}
+
+@media (orientation: landscape) and (max-height: 500px) {
+  .mobile-nav-landscape-hide {
+    display: none;
+  }
 }

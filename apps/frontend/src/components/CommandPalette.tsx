@@ -4,14 +4,23 @@ import { useState, useEffect, useRef } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
 
-export function CommandPalette() {
+interface CommandPaletteProps {
+  onClose: () => void
+}
+
+export function CommandPalette({ onClose }: CommandPaletteProps) {
   const [query, setQuery] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
   const { hosts, sessions, toggleCommandPalette, setActiveHost, setActiveSession } = useConsoleStore()
   const { t } = useTranslation()
 
+  const close = () => {
+    onClose()
+    toggleCommandPalette()
+  }
+
   useEffect(() => {
-    inputRef.current?.focus()
+    setTimeout(() => inputRef.current?.focus(), 50)
   }, [])
 
   const filteredHosts = hosts.filter((h: any) =>
@@ -31,43 +40,41 @@ export function CommandPalette() {
         setActiveSession(id)
         break
     }
-    toggleCommandPalette()
+    close()
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-start justify-center pt-[20vh] z-50" onKeyDown={(e) => {
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        e.stopPropagation()
-        toggleCommandPalette()
-      }
-    }}>
-      <div className="bg-bg-1 border border-[var(--line)] rounded-lg w-[500px] shadow-lg overflow-hidden" onKeyDown={(e) => {
-        if (e.key === 'Escape') {
-          e.preventDefault()
-          e.stopPropagation()
-          toggleCommandPalette()
-        }
-      }}>
-        <div className="p-3 border-b border-[var(--line)]">
+    <div className="fixed inset-0 bg-black/50 flex items-start justify-center pt-[10vh] z-50 p-4" onClick={close}>
+      <div className="bg-bg-1 border border-[var(--line)] rounded-lg w-full max-w-[500px] shadow-lg overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2 p-3 border-b border-[var(--line)]">
+          <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="text-text-3 flex-shrink-0">
+            <circle cx={11} cy={11} r={8} /><path d="m21 21-4.35-4.35" />
+          </svg>
           <input
             ref={inputRef}
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t('palette.placeholder')}
-            className="w-full bg-transparent text-text-1 outline-none placeholder:text-text-3"
+            className="flex-1 bg-transparent text-text-1 outline-none placeholder:text-text-3 text-sm"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
             onKeyDown={(e) => {
               if (e.key === 'Escape') {
                 e.preventDefault()
-                e.stopPropagation()
-                toggleCommandPalette()
+                close()
               }
             }}
           />
+          <button onClick={close} className="text-text-3 hover:text-text-1 active:text-accent p-1 flex-shrink-0">
+            <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 6 6 18M6 6l12 12" />
+            </svg>
+          </button>
         </div>
 
-        <div className="max-h-[300px] overflow-y-auto">
+        <div className="max-h-[50vh] overflow-y-auto">
           {filteredHosts.length > 0 && (
             <div>
               <div className="px-3 py-2 text-text-3 text-xs">{t('palette.hosts')}</div>
@@ -75,7 +82,7 @@ export function CommandPalette() {
                 <button
                   key={host.id}
                   onClick={() => handleSelect('host', host.id)}
-                  className="w-full px-3 py-2 text-left hover:bg-bg-2 flex items-center gap-3"
+                  className="w-full px-3 py-2.5 text-left active:bg-bg-2 flex items-center gap-3"
                 >
                   <div className={`w-2 h-2 rounded-full ${host.status === 'online' ? 'bg-accent-2' : 'bg-danger'}`} />
                   <div>
@@ -94,9 +101,9 @@ export function CommandPalette() {
                 <button
                   key={session.id}
                   onClick={() => handleSelect('session', session.id)}
-                  className="w-full px-3 py-2 text-left hover:bg-bg-2 flex items-center gap-3"
+                  className="w-full px-3 py-2.5 text-left active:bg-bg-2 flex items-center gap-3"
                 >
-                  <div className="text-accent text-sm">▸</div>
+                  <div className="text-accent text-sm">&#9654;</div>
                   <div>
                     <div className="text-text-1 text-sm">{session.name}</div>
                     <div className="text-text-3 text-xs">{t('palette.windows', { count: session.windowCount })}</div>
@@ -107,13 +114,13 @@ export function CommandPalette() {
           )}
 
           {filteredHosts.length === 0 && filteredSessions.length === 0 && (
-            <div className="px-3 py-4 text-text-3 text-sm text-center">
+            <div className="px-3 py-6 text-text-3 text-sm text-center">
               {t('palette.noResults')}
             </div>
           )}
         </div>
 
-        <div className="p-2 border-t border-[var(--line)] flex items-center justify-between text-text-3 text-xs">
+        <div className="hidden lg:flex p-2 border-t border-[var(--line)] items-center justify-between text-text-3 text-xs">
           <span>{t('palette.navigate')}</span>
           <span>{t('palette.select')}</span>
           <span>{t('palette.close')}</span>

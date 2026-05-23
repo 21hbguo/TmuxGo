@@ -69,8 +69,8 @@ export function CommandSnippets({ onSend, onClose }: CommandSnippetsProps) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-bg-1 border border-[var(--line)] rounded-lg w-[500px] max-h-[80vh] overflow-hidden">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-bg-1 border border-[var(--line)] rounded-lg w-full max-w-[500px] max-h-[85vh] overflow-hidden">
         <div className="p-4 border-b border-[var(--line)]">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-text-1 text-lg font-medium">Command Snippets</h2>
