@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import type { SocketStream } from '@fastify/websocket'
+import * as pty from 'node-pty'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { agentManager } from '../agent-manager.js'
@@ -10,7 +11,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
   fastify.get('/stream', { websocket: true }, (connection: SocketStream) => {
     console.log('Client connected to stream')
 
-    const paneOutputs: Map<string, string[]> = new Map()
+    let ptyProcess: pty.IPty | null = null
     let agentId: string | null = null
     const socket = connection.socket
 
@@ -20,125 +21,90 @@ export async function streamRoutes(fastify: FastifyInstance) {
       }
     }
 
-    function addToBuffer(paneId: string, data: string) {
-      if (!paneOutputs.has(paneId)) {
-        paneOutputs.set(paneId, [])
-      }
-      const buffer = paneOutputs.get(paneId)!
-      buffer.push(data)
-      if (buffer.length > 1000) {
-        buffer.shift()
+    function cleanup() {
+      if (ptyProcess) {
+        ptyProcess.kill()
+        ptyProcess = null
       }
     }
 
     socket.on('message', async (message: Buffer) => {
       try {
         const data = JSON.parse(message.toString())
-        console.log('Received:', data.type)
 
         switch (data.type) {
           case 'register':
             agentId = data.host.id
             agentManager.register(data.host.id, data.host.name, data.host.address, socket)
-            send({
-              type: 'registered',
-              agentId: data.host.id,
+            send({ type: 'registered', agentId: data.host.id })
+            break
+
+          case 'attach': {
+            cleanup()
+            const sessionName = data.sessionName
+            const cols = data.cols || 80
+            const rows = data.rows || 24
+
+            ptyProcess = pty.spawn('tmux', ['attach', '-t', sessionName], {
+              name: 'xterm-256color',
+              cols,
+              rows,
+              env: { ...process.env, TERM: 'xterm-256color' },
             })
+
+            ptyProcess.onData((output: string) => {
+              send({ type: 'output', data: output })
+            })
+
+            ptyProcess.onExit(({ exitCode }) => {
+              send({ type: 'session-exit', exitCode })
+              ptyProcess = null
+            })
+
+            send({ type: 'attached', sessionName })
+            break
+          }
+
+          case 'resize':
+            if (ptyProcess) {
+              ptyProcess.resize(data.cols, data.rows)
+            }
             break
 
           case 'input':
-            addToBuffer(data.paneId, data.data)
-            try {
-              await execFileAsync('tmux', ['send-keys', '-t', data.paneId, '-l', data.data])
-              const { stdout } = await execFileAsync('tmux', ['capture-pane', '-pt', data.paneId, '-p'])
-              send({
-                type: 'output',
-                paneId: data.paneId,
-                data: stdout,
-              })
-            } catch (err) {
+            if (ptyProcess) {
+              ptyProcess.write(data.data)
             }
             break
 
           case 'sessions':
-            send({
-              type: 'sessions-list',
-              sessions: data.sessions,
-            })
+            send({ type: 'sessions-list', sessions: data.sessions })
             break
 
           case 'session-created':
-            send({
-              type: 'session-created',
-              session: data.session,
-            })
-            break
-
-          case 'split':
-            send({
-              type: 'pane-created',
-              parentPaneId: data.paneId,
-              direction: data.direction,
-              newPaneId: `pane-${Date.now()}`,
-            })
-            break
-
-          case 'close-pane':
-            send({
-              type: 'pane-closed',
-              paneId: data.paneId,
-            })
-            break
-
-          case 'resize':
-            send({
-              type: 'resized',
-              paneId: data.paneId,
-              cols: data.cols,
-              rows: data.rows,
-            })
-            break
-
-          case 'get-output':
-            const output = paneOutputs.get(data.paneId) || []
-            send({
-              type: 'output-history',
-              paneId: data.paneId,
-              data: output.join(''),
-            })
+            send({ type: 'session-created', session: data.session })
             break
 
           case 'ping':
-            send({
-              type: 'pong',
-              timestamp: data.timestamp || Date.now(),
-            })
+            send({ type: 'pong', timestamp: data.timestamp || Date.now() })
             break
 
           default:
-            send({
-              type: 'error',
-              message: `Unknown message type: ${data.type}`,
-            })
+            send({ type: 'error', message: `Unknown message type: ${data.type}` })
         }
       } catch (err) {
-        send({
-          type: 'error',
-          message: 'Invalid message format',
-        })
+        send({ type: 'error', message: 'Invalid message format' })
       }
     })
 
     socket.on('close', () => {
       console.log('Client disconnected from stream')
+      cleanup()
       if (agentId) {
         agentManager.unregister(agentId)
       }
     })
 
-    send({
-      type: 'connected',
-      timestamp: Date.now(),
-    })
+    send({ type: 'connected', timestamp: Date.now() })
   })
 }

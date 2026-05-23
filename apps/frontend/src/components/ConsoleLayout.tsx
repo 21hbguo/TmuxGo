@@ -10,7 +10,7 @@ import { MobileNav } from './MobileNav'
 import { MobileDrawer } from './MobileDrawer'
 import { Settings } from './Settings'
 import { useConsoleStore } from '@/stores/useConsoleStore'
-import { useHosts, useSessions, useWindows } from '@/hooks/useApi'
+import { useHosts, useSessions } from '@/hooks/useApi'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { usePreferences } from '@/hooks/usePreferences'
 
@@ -21,7 +21,6 @@ export function ConsoleLayout() {
 
   const { data: hostsData = [] } = useHosts()
   const { data: sessionsData = [] } = useSessions(activeHostId || '')
-  const { data: windowsData = [] } = useWindows(activeHostId || '', activeSessionId || '')
   const { send } = useWebSocket()
 
   const [isMobile, setIsMobile] = useState(false)
@@ -30,9 +29,7 @@ export function ConsoleLayout() {
   const [showSettings, setShowSettings] = useState(false)
 
   useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 1024)
-    }
+    const checkMobile = () => setIsMobile(window.innerWidth < 1024)
     checkMobile()
     window.addEventListener('resize', checkMobile)
     return () => window.removeEventListener('resize', checkMobile)
@@ -57,12 +54,6 @@ export function ConsoleLayout() {
       }
     }
   }, [sessionsData, activeSessionId, setActiveSession])
-
-  useEffect(() => {
-    if (windowsData.length > 0) {
-      useConsoleStore.setState({ windows: windowsData })
-    }
-  }, [windowsData])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

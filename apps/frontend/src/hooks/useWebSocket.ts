@@ -25,18 +25,15 @@ export function useWebSocket() {
     const wsUrl = `${wsProtocol}//${wsHost}:${wsPort}/api/stream`
 
     isConnectingRef.current = true
-    console.log('Connecting to WebSocket:', wsUrl)
 
     try {
       const ws = new WebSocket(wsUrl)
       wsRef.current = ws
 
       ws.onopen = () => {
-        console.log('WebSocket connected')
         isConnectingRef.current = false
         reconnectCountRef.current = 0
         updateConnection({ status: 'connected', latency: 0 })
-
         ws.send(JSON.stringify({ type: 'ping', timestamp: Date.now() }))
       }
 
@@ -49,19 +46,16 @@ export function useWebSocket() {
         }
       }
 
-      ws.onclose = (event) => {
-        console.log('WebSocket disconnected:', event.code, event.reason)
+      ws.onclose = () => {
         isConnectingRef.current = false
         updateConnection({ status: 'disconnected' })
         scheduleReconnect()
       }
 
-      ws.onerror = (err) => {
-        console.error('WebSocket error:', err)
+      ws.onerror = () => {
         isConnectingRef.current = false
       }
     } catch (err) {
-      console.error('Failed to create WebSocket:', err)
       isConnectingRef.current = false
       scheduleReconnect()
     }
@@ -75,23 +69,14 @@ export function useWebSocket() {
         break
 
       case 'output':
-        const terminalElement = document.querySelector(`[data-pane-id="${data.paneId}"]`)
+        const terminalElement = document.querySelector('[data-terminal]')
         if (terminalElement) {
           const event = new CustomEvent('terminal-output', { detail: data.data, bubbles: false })
           terminalElement.dispatchEvent(event)
         }
         break
 
-      case 'output-history':
-        const historyElement = document.querySelector(`[data-pane-id="${data.paneId}"]`)
-        if (historyElement && data.data) {
-          const event = new CustomEvent('terminal-output', { detail: data.data, bubbles: false })
-          historyElement.dispatchEvent(event)
-        }
-        break
-
       case 'connected':
-        console.log('Stream connected:', data)
         break
     }
   }
@@ -107,7 +92,6 @@ export function useWebSocket() {
     updateConnection({ status: 'reconnecting' })
 
     const delay = Math.min(preferences.reconnectInterval * reconnectCountRef.current, 30000)
-    console.log(`Reconnecting in ${delay}ms (attempt ${reconnectCountRef.current})`)
 
     reconnectTimerRef.current = setTimeout(() => {
       connect()
@@ -117,8 +101,6 @@ export function useWebSocket() {
   const send = useCallback((data: any) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(data))
-    } else {
-      console.warn('WebSocket not connected, cannot send:', data)
     }
   }, [])
 
@@ -143,7 +125,7 @@ export function useWebSocket() {
         wsRef.current = null
       }
     }
-  }, []) // Only run once on mount
+  }, [])
 
   return { send }
 }
