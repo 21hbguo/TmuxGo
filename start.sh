@@ -15,13 +15,13 @@ if [ -z "$TAILSCALE_IP" ]; then
 fi
 
 # Kill existing processes
-pkill -f "next dev" 2>/dev/null
-pkill -f "tsx watch" 2>/dev/null
-sleep 1
+pkill -f "/node_modules/.bin/next dev" 2>/dev/null
+pkill -f "/node_modules/.bin/tsx watch src/index.ts" 2>/dev/null
+sleep 2
 
 # Start Gateway
 echo "Starting Gateway on port 3001..."
-HOST=0.0.0.0 npm run dev:gateway > /tmp/tmuxu-gateway.log 2>&1 &
+nohup env HOST=0.0.0.0 npm run dev:gateway > /tmp/tmuxu-gateway.log 2>&1 &
 GATEWAY_PID=$!
 
 # Wait for Gateway to start
@@ -29,7 +29,7 @@ sleep 2
 
 # Start Frontend
 echo "Starting Frontend on port 3000..."
-NEXT_PUBLIC_API_URL="http://${TAILSCALE_IP}:3001" HOST=0.0.0.0 npm run dev:frontend > /tmp/tmuxu-frontend.log 2>&1 &
+nohup env NEXT_PUBLIC_API_URL="http://${TAILSCALE_IP}:3001" npm run dev:frontend > /tmp/tmuxu-frontend.log 2>&1 &
 FRONTEND_PID=$!
 
 echo ""

@@ -1,7 +1,12 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+function getApiBase() {
+  if (typeof window !== 'undefined') {
+    return `${window.location.protocol}//${window.location.hostname}:3001`
+  }
+  return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+}
 
 async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
-  const url = `${API_BASE}${path}`
+  const url = `${getApiBase()}${path}`
   const response = await fetch(url, {
     ...options,
     headers: {
@@ -48,6 +53,7 @@ export const api = {
     list: (windowId: string) => fetchApi<any[]>(`/api/windows/${windowId}/panes`),
     listBySession: (hostId: string, sessionId: string) =>
       fetchApi<any[]>(`/api/hosts/${hostId}/sessions/${sessionId}/panes`),
+    output: (paneId: string) => fetchApi<{ paneId: string; tmuxPaneId?: string; data: string }>(`/api/panes/${encodeURIComponent(paneId)}/output`),
     create: (windowId: string, direction: 'horizontal' | 'vertical') =>
       fetchApi<any>(`/api/windows/${windowId}/panes`, {
         method: 'POST',

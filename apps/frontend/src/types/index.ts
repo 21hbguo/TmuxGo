@@ -26,6 +26,7 @@ export interface Window {
 export interface Pane {
   id: string
   windowId: string
+  tmuxPaneId?: string
   index: number
   title: string
   active: boolean

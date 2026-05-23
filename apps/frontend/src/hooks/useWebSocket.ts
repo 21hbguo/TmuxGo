@@ -4,8 +4,6 @@ import { useEffect, useRef, useCallback } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { usePreferences } from './usePreferences'
 
-const WS_URL = 'ws://localhost:3001/api/stream'
-
 export function useWebSocket() {
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimerRef = useRef<NodeJS.Timeout | null>(null)
@@ -21,11 +19,16 @@ export function useWebSocket() {
       return
     }
 
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const wsHost = window.location.hostname
+    const wsPort = window.location.port === '3000' ? '3001' : window.location.port || '3001'
+    const wsUrl = `${wsProtocol}//${wsHost}:${wsPort}/api/stream`
+
     isConnectingRef.current = true
-    console.log('Connecting to WebSocket:', WS_URL)
+    console.log('Connecting to WebSocket:', wsUrl)
 
     try {
-      const ws = new WebSocket(WS_URL)
+      const ws = new WebSocket(wsUrl)
       wsRef.current = ws
 
       ws.onopen = () => {
