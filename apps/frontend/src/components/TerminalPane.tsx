@@ -23,6 +23,8 @@ export function TerminalPane({ onInput, onResize, attachExclusive = false, onRea
   const lastSizeRef = useRef<{ cols: number; rows: number } | null>(null)
   const sharedSessionSizeRef = useRef<{ cols: number; rows: number } | null>(null)
   const controlCarryRef = useRef('')
+  const scheduleFitRef = useRef<() => void>(() => {})
+  const syncSharedLayoutRef = useRef<(resetFont: boolean) => void>(() => {})
 
   useEffect(() => {
     onInputRef.current = onInput
@@ -39,6 +41,31 @@ export function TerminalPane({ onInput, onResize, attachExclusive = false, onRea
   useEffect(() => {
     preferencesRef.current = preferences
   }, [preferences])
+
+  useEffect(() => {
+    const terminal = terminalInstance.current
+    if (!terminal) return
+    const style = getComputedStyle(document.documentElement)
+    const getVar = (name: string) => style.getPropertyValue(name).trim()
+    terminal.options.theme = {
+      background: `rgb(${getVar('--bg-1')})`,
+      foreground: `rgb(${getVar('--text-1')})`,
+      cursor: `rgb(${getVar('--accent')})`,
+      selectionBackground: `rgb(${getVar('--accent')} / 0.2)`,
+    }
+  }, [preferences.theme])
+
+  useEffect(() => {
+    const terminal = terminalInstance.current
+    if (!terminal) return
+    terminal.options.fontSize = preferences.fontSize
+    terminal.options.fontFamily = preferences.fontFamily
+    if (attachExclusiveRef.current) {
+      scheduleFitRef.current()
+    } else {
+      syncSharedLayoutRef.current(true)
+    }
+  }, [preferences.fontSize, preferences.fontFamily])
 
   useEffect(() => {
     if (!terminalRef.current) return
@@ -108,6 +135,7 @@ export function TerminalPane({ onInput, onResize, attachExclusive = false, onRea
       if (fitTimeout) clearTimeout(fitTimeout)
       fitTimeout = setTimeout(doFit, 50)
     }
+    scheduleFitRef.current = scheduleFit
 
     const syncSharedLayout = (resetFont: boolean, attempt = 0) => {
       if (!terminal || disposed || attachExclusiveRef.current) return
@@ -139,6 +167,7 @@ export function TerminalPane({ onInput, onResize, attachExclusive = false, onRea
         onResizeRef.current?.(size.cols, size.rows)
       })
     }
+    syncSharedLayoutRef.current = (rf) => syncSharedLayout(rf)
 
     const initTerminal = async () => {
       const { Terminal } = await import('@xterm/xterm')
@@ -146,12 +175,14 @@ export function TerminalPane({ onInput, onResize, attachExclusive = false, onRea
       const { WebLinksAddon } = await import('@xterm/addon-web-links')
       await import('@xterm/xterm/css/xterm.css')
       if (!container || !container.isConnected || disposed) return
+      const style = getComputedStyle(document.documentElement)
+      const getVar = (name: string) => style.getPropertyValue(name).trim()
       terminal = new Terminal({
         theme: {
-          background: '#071224',
-          foreground: '#E8F3FF',
-          cursor: '#1EC8FF',
-          selectionBackground: '#1EC8FF33',
+          background: `rgb(${getVar('--bg-1')})`,
+          foreground: `rgb(${getVar('--text-1')})`,
+          cursor: `rgb(${getVar('--accent')})`,
+          selectionBackground: `rgb(${getVar('--accent')} / 0.2)`,
         },
         cursorBlink: preferencesRef.current.cursorBlink,
         cursorStyle: 'bar',
@@ -263,6 +294,8 @@ export function TerminalPane({ onInput, onResize, attachExclusive = false, onRea
       terminal?.dispose()
       terminalInstance.current = null
       fitAddonRef.current = null
+      scheduleFitRef.current = () => {}
+      syncSharedLayoutRef.current = () => {}
     }
   }, [])
 
