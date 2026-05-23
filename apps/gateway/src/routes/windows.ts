@@ -17,7 +17,8 @@ async function getTmuxWindows(sessionName: string) {
       .map((line) => {
         const [id, index, name, active] = line.split('|')
         return {
-          id: `window-${sessionName}-${index}`,
+          id: id,
+          tmuxWindowId: id,
           sessionId: `session-${sessionName}`,
           index: parseInt(index, 10),
           name,
@@ -43,8 +44,9 @@ async function getTmuxPanes(sessionName: string, windowIndex: number) {
       .map((line) => {
         const [id, index, title, active, width, height] = line.split('|')
         return {
-          id: `pane-${sessionName}-${windowIndex}-${index}`,
-          windowId: `window-${sessionName}-${windowIndex}`,
+          id: id,
+          tmuxPaneId: id,
+          windowId: `${sessionName}:${windowIndex}`,
           index: parseInt(index, 10),
           title: title || 'shell',
           active: active === '1',
@@ -92,6 +94,16 @@ export async function windowRoutes(fastify: FastifyInstance) {
     return allPanes
   })
 
+  fastify.get('/panes/:paneId/output', async (request) => {
+    const { paneId } = request.params as { paneId: string }
+    try {
+      const { stdout } = await execAsync(`tmux capture-pane -pt ${paneId} -p`)
+      return { paneId, tmuxPaneId: paneId, data: stdout }
+    } catch (err: any) {
+      return { paneId, tmuxPaneId: paneId, data: '' }
+    }
+  })
+
   fastify.post('/hosts/:hostId/sessions/:sessionId/windows', async (request) => {
     const { sessionId } = request.params as { sessionId: string }
     const { name } = request.body as { name: string }
@@ -109,9 +121,9 @@ export async function windowRoutes(fastify: FastifyInstance) {
   fastify.post('/windows/:windowId/panes', async (request) => {
     const { windowId } = request.params as { windowId: string }
     const { direction } = request.body as { direction: 'horizontal' | 'vertical' }
-    const parts = windowId.split('-')
-    const sessionName = parts[1]
-    const windowIndex = parseInt(parts[2], 10)
+    const parts = windowId.split(':')
+    const sessionName = parts[0]
+    const windowIndex = parseInt(parts[1], 10)
 
     try {
       const flag = direction === 'horizontal' ? '-h' : '-v'

@@ -1,6 +1,10 @@
 import type { FastifyInstance } from 'fastify'
 import type { SocketStream } from '@fastify/websocket'
+import { execFile } from 'child_process'
+import { promisify } from 'util'
 import { agentManager } from '../agent-manager.js'
+
+const execFileAsync = promisify(execFile)
 
 export async function streamRoutes(fastify: FastifyInstance) {
   fastify.get('/stream', { websocket: true }, (connection: SocketStream) => {
@@ -27,7 +31,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
       }
     }
 
-    socket.on('message', (message: Buffer) => {
+    socket.on('message', async (message: Buffer) => {
       try {
         const data = JSON.parse(message.toString())
         console.log('Received:', data.type)
@@ -44,11 +48,16 @@ export async function streamRoutes(fastify: FastifyInstance) {
 
           case 'input':
             addToBuffer(data.paneId, data.data)
-            send({
-              type: 'output',
-              paneId: data.paneId,
-              data: data.data,
-            })
+            try {
+              await execFileAsync('tmux', ['send-keys', '-t', data.paneId, '-l', data.data])
+              const { stdout } = await execFileAsync('tmux', ['capture-pane', '-pt', data.paneId, '-p'])
+              send({
+                type: 'output',
+                paneId: data.paneId,
+                data: stdout,
+              })
+            } catch (err) {
+            }
             break
 
           case 'sessions':

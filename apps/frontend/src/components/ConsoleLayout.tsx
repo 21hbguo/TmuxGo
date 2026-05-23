@@ -52,7 +52,7 @@ export function ConsoleLayout() {
     if (sessionsData.length > 0) {
       useConsoleStore.setState({ sessions: sessionsData })
       const currentSession = sessionsData.find((s: any) => s.id === activeSessionId)
-      if (!currentSession) {
+      if (!activeSessionId || !currentSession) {
         setActiveSession(sessionsData[0].id)
       }
     }

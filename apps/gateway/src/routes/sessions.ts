@@ -27,9 +27,6 @@ async function getLocalTmuxSessions() {
         }
       })
   } catch (err: any) {
-    if (err.message.includes('no server running')) {
-      return []
-    }
     console.error('Failed to list tmux sessions:', err)
     return []
   }
@@ -37,7 +34,6 @@ async function getLocalTmuxSessions() {
 
 export async function sessionRoutes(fastify: FastifyInstance) {
   fastify.get('/hosts/:hostId/sessions', async (request) => {
-    const { hostId } = request.params as { hostId: string }
     return getLocalTmuxSessions()
   })
 

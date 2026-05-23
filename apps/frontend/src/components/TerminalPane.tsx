@@ -3,6 +3,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
 import type { Pane } from '@/types'
 import { usePreferences } from '@/hooks/usePreferences'
+import { api } from '@/lib/api'
 
 interface Window {
   id: string
@@ -99,22 +100,19 @@ export function TerminalPane({ pane, isActive, onClick, onInput, windows = [], a
         })
         disposables.push(dataDisposable)
 
-        terminal.writeln('\x1b[1;36m╔══════════════════════════════════════════╗\x1b[0m')
-        terminal.writeln('\x1b[1;36m║           tmuxU Terminal v0.1            ║\x1b[0m')
-        terminal.writeln('\x1b[1;36m╚══════════════════════════════════════════╝\x1b[0m')
-        terminal.writeln('')
-        terminal.writeln(`\x1b[33mWindow:\x1b[0m ${pane.title}`)
-        terminal.writeln(`\x1b[33mSize:\x1b[0m ${pane.size.cols}×${pane.size.rows}`)
-        terminal.writeln('')
-        terminal.write('\x1b[32m$\x1b[0m ')
-
+        const loadOutput = async () => {
+          const output = await api.panes.output(pane.tmuxPaneId || pane.id)
+          if (terminal && output.data) {
+            terminal.write(output.data)
+          }
+        }
+        loadOutput()
         const handleOutput = (event: Event) => {
           const customEvent = event as CustomEvent
           if (terminal) {
             terminal.write(customEvent.detail)
           }
         }
-
         container.addEventListener('terminal-output', handleOutput)
 
         resizeObserver = new ResizeObserver(() => {
@@ -187,7 +185,7 @@ export function TerminalPane({ pane, isActive, onClick, onInput, windows = [], a
           <button className="p-1 hover:bg-bg-1 rounded text-danger text-xs">×</button>
         </div>
       </div>
-      <div ref={terminalRef} onMouseDown={() => terminalInstance.current?.focus?.()} className="h-[calc(100%-32px)] bg-bg-1" style={{ padding: preferences.terminalPadding }} />
+      <div ref={terminalRef} onMouseDown={() => terminalInstance.current?.focus?.()} className="h-[calc(100%-32px)] bg-bg-1" style={{ padding: preferences.terminalPadding, minHeight: 0 }} />
     </div>
   )
 }
