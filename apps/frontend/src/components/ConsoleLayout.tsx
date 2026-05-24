@@ -16,6 +16,7 @@ import { useWebSocket } from '@/hooks/useWebSocket'
 import { usePreferences } from '@/hooks/usePreferences'
 
 const MOBILE_QUERY = '(max-width: 1023px)'
+const KEYBOARD_EVENT = 'mobile-keyboard-change'
 
 export function ConsoleLayout() {
   const activeHostId = useConsoleStore((s) => s.activeHostId)
@@ -59,7 +60,8 @@ export function ConsoleLayout() {
 
   useEffect(() => {
     const syncAppHeight = () => {
-      const nextHeight = Math.round((window.matchMedia(MOBILE_QUERY).matches ? window.innerHeight : (window.visualViewport?.height || window.innerHeight)))
+      const isMobileViewport = window.matchMedia(MOBILE_QUERY).matches
+      const nextHeight = Math.round(isMobileViewport ? (window.visualViewport?.height || window.innerHeight) : (window.visualViewport?.height || window.innerHeight))
       const nextValue = `${nextHeight}px`
       if (appHeightRef.current === nextValue) return
       appHeightRef.current = nextValue
@@ -68,9 +70,11 @@ export function ConsoleLayout() {
     const handleOrientation = () => window.setTimeout(syncAppHeight, 100)
     syncAppHeight()
     window.addEventListener('resize', syncAppHeight)
+    window.visualViewport?.addEventListener('resize', syncAppHeight)
     window.addEventListener('orientationchange', handleOrientation)
     return () => {
       window.removeEventListener('resize', syncAppHeight)
+      window.visualViewport?.removeEventListener('resize', syncAppHeight)
       window.removeEventListener('orientationchange', handleOrientation)
     }
   }, [])
@@ -158,13 +162,14 @@ export function ConsoleLayout() {
 
   useEffect(() => {
     if (!isMobile) return
-    const syncKeyboardState = () => setKeyboardOpen(document.body.classList.contains('keyboard-open'))
-    syncKeyboardState()
-    window.addEventListener('resize', syncKeyboardState)
-    window.visualViewport?.addEventListener('resize', syncKeyboardState)
+    const handleKeyboardChange = (e: Event) => {
+      const detail = (e as CustomEvent<{ open?: boolean }>).detail
+      setKeyboardOpen(!!detail?.open)
+    }
+    setKeyboardOpen(document.body.classList.contains('keyboard-open'))
+    window.addEventListener(KEYBOARD_EVENT, handleKeyboardChange as EventListener)
     return () => {
-      window.removeEventListener('resize', syncKeyboardState)
-      window.visualViewport?.removeEventListener('resize', syncKeyboardState)
+      window.removeEventListener(KEYBOARD_EVENT, handleKeyboardChange as EventListener)
     }
   }, [isMobile])
 

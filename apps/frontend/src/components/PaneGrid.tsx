@@ -8,6 +8,8 @@ import { useTranslation } from '@/i18n'
 import { usePreferences } from '@/hooks/usePreferences'
 import { isMobileDevice } from '@/hooks/useMobileKeyboard'
 
+const MOBILE_RESIZE_DEBOUNCE = 48
+
 export function PaneGrid() {
   const activeSessionId = useConsoleStore((s) => s.activeSessionId)
   const { send, isConnected } = useWebSocket()
@@ -101,7 +103,7 @@ export function PaneGrid() {
     }
     pendingResizeRef.current = nextSize
     if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current)
-    resizeTimerRef.current = setTimeout(flushResize, 220)
+    resizeTimerRef.current = setTimeout(flushResize, MOBILE_RESIZE_DEBOUNCE)
   }, [isConnected, isMobile, send, preferences.attachExclusive, sessionName, flushResize])
   const handleReady = useCallback(() => {
     terminalReadyRef.current = true
