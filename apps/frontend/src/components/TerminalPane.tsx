@@ -118,6 +118,26 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       if (!canvas?.width || !canvas?.height) return null
       return { width: canvas.width, height: canvas.height }
     }
+    const getFitDimensions = () => {
+      if (!terminal?.element?.parentElement) return null
+      const dims = terminal?._core?._renderService?.dimensions?.css
+      const cellWidth = dims?.cell?.width
+      const cellHeight = dims?.cell?.height
+      if (!cellWidth || !cellHeight) return null
+      const scrollbar = terminal.options.scrollback === 0 ? 0 : terminal._core.viewport.scrollBarWidth
+      const parentStyle = window.getComputedStyle(terminal.element.parentElement)
+      const terminalStyle = window.getComputedStyle(terminal.element)
+      const parentHeight = parseInt(parentStyle.getPropertyValue('height'))
+      const parentWidth = Math.max(0, parseInt(parentStyle.getPropertyValue('width')))
+      const paddingY = parseInt(terminalStyle.getPropertyValue('padding-top')) + parseInt(terminalStyle.getPropertyValue('padding-bottom'))
+      const paddingX = parseInt(terminalStyle.getPropertyValue('padding-left')) + parseInt(terminalStyle.getPropertyValue('padding-right'))
+      const availableHeight = Math.max(0, parentHeight - paddingY)
+      const availableWidth = Math.max(0, parentWidth - paddingX - scrollbar)
+      const cols = Math.max(2, Math.floor(availableWidth / cellWidth))
+      const rawRows = availableHeight / cellHeight
+      const rows = Math.max(1, Math.round(rawRows))
+      return { cols, rows }
+    }
 
     const getAvailableSize = () => {
       const padding = preferencesRef.current.terminalPadding * 2
@@ -174,9 +194,14 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       if (!attachExclusiveRef.current) return
       try {
         applyTerminalOptions()
-        const { cols, rows } = fitAddon.proposeDimensions()
+        const size = getFitDimensions() || fitAddon.proposeDimensions()
+        if (!size) return
+        const { cols, rows } = size
         if (cols && rows && cols > 0 && rows > 0) {
-          fitAddon.fit()
+          if (terminal.cols !== cols || terminal.rows !== rows) {
+            terminal._core._renderService.clear()
+            terminal.resize(cols, rows)
+          }
           const prev = lastSizeRef.current
           if (!prev || prev.cols !== cols || prev.rows !== rows) {
             lastSizeRef.current = { cols, rows }
