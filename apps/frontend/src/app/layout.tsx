@@ -4,8 +4,23 @@ import { QueryProvider } from '@/components/QueryProvider'
 import { I18nProvider } from '@/i18n'
 
 export const metadata: Metadata = {
-  title: 'tmuxU - Web Console',
+  title: 'tmuxU',
   description: 'Web-based tmux session manager',
+  applicationName: 'tmuxU',
+  manifest: '/manifest.webmanifest',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'tmuxU',
+  },
+  formatDetection: {
+    telephone: false,
+    email: false,
+    address: false,
+  },
+  other: {
+    'mobile-web-app-capable': 'yes',
+  },
 }
 
 export const viewport: Viewport = {
@@ -14,6 +29,7 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   viewportFit: 'cover',
+  themeColor: '#071224',
 }
 
 export default function RootLayout({
