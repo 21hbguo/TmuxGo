@@ -17,7 +17,7 @@ interface ConsoleState {
   setActiveSession: (id: string) => void
   setActivePane: (id: string) => void
   toggleSidebar: () => void
-  toggleCommandPalette: () => void
+  setCommandPalette: (open: boolean) => void
   updateConnection: (state: Partial<ConnectionState>) => void
 }
 
@@ -51,7 +51,7 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
   },
   setActivePane: (id) => set({ activePaneId: id }),
   toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
-  toggleCommandPalette: () => set((state) => ({ showCommandPalette: !state.showCommandPalette })),
+  setCommandPalette: (open) => set({ showCommandPalette: open }),
   updateConnection: (newState) =>
     set((state) => ({
       connection: { ...state.connection, ...newState },

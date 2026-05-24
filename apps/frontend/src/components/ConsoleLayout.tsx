@@ -9,7 +9,6 @@ import { CommandPalette } from './CommandPalette'
 import { MobileNav } from './MobileNav'
 import { MobileDrawer } from './MobileDrawer'
 import { Settings } from './Settings'
-import { ShortcutBar } from './ShortcutBar'
 import { InstallAppBanner } from './InstallAppBanner'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useHosts, useSessions, useSessionPanes, useWindows } from '@/hooks/useApi'
@@ -17,13 +16,12 @@ import { useWebSocket } from '@/hooks/useWebSocket'
 import { usePreferences } from '@/hooks/usePreferences'
 
 const MOBILE_QUERY = '(max-width: 1023px)'
-const KEYBOARD_EVENT = 'mobile-keyboard-change'
 
 export function ConsoleLayout() {
   const activeHostId = useConsoleStore((s) => s.activeHostId)
   const activeSessionId = useConsoleStore((s) => s.activeSessionId)
   const showCommandPalette = useConsoleStore((s) => s.showCommandPalette)
-  const toggleCommandPalette = useConsoleStore((s) => s.toggleCommandPalette)
+  const setCommandPalette = useConsoleStore((s) => s.setCommandPalette)
   const toggleSidebar = useConsoleStore((s) => s.toggleSidebar)
   const { preferences } = usePreferences()
 
@@ -38,18 +36,39 @@ export function ConsoleLayout() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerType, setDrawerType] = useState<'sessions' | 'panes'>('sessions')
   const [showSettings, setShowSettings] = useState(false)
-  const [keyboardOpen, setKeyboardOpen] = useState(false)
   const overlayRef = useRef<string[]>([])
   const appHeightRef = useRef('')
 
   const pushOverlay = useCallback((id: string) => {
+    if (overlayRef.current[overlayRef.current.length - 1] === id) return
     overlayRef.current.push(id)
     window.history.pushState({ overlay: id }, '')
   }, [])
 
-  const popOverlay = useCallback(() => {
-    overlayRef.current.pop()
+  const closeOverlay = useCallback((id: string) => {
+    if (overlayRef.current[overlayRef.current.length - 1] !== id) return
+    window.history.back()
   }, [])
+  const openDrawer = useCallback((type: 'sessions' | 'panes') => {
+    if (drawerOpen && drawerType === type) return
+    setDrawerType(type)
+    if (!drawerOpen) {
+      setDrawerOpen(true)
+      pushOverlay('drawer')
+      return
+    }
+    setDrawerOpen(true)
+  }, [drawerOpen, drawerType, pushOverlay])
+  const openSettings = useCallback(() => {
+    if (showSettings) return
+    setShowSettings(true)
+    pushOverlay('settings')
+  }, [showSettings, pushOverlay])
+  const openPalette = useCallback(() => {
+    if (showCommandPalette) return
+    setCommandPalette(true)
+    pushOverlay('palette')
+  }, [showCommandPalette, setCommandPalette, pushOverlay])
 
   useEffect(() => {
     const mql = window.matchMedia(MOBILE_QUERY)
@@ -62,7 +81,7 @@ export function ConsoleLayout() {
   useEffect(() => {
     const syncAppHeight = () => {
       const isMobileViewport = window.matchMedia(MOBILE_QUERY).matches
-      const nextHeight = Math.round(isMobileViewport ? (window.visualViewport?.height || window.innerHeight) : (window.visualViewport?.height || window.innerHeight))
+      const nextHeight = Math.round(isMobileViewport ? window.innerHeight : (window.visualViewport?.height || window.innerHeight))
       const nextValue = `${nextHeight}px`
       if (appHeightRef.current === nextValue) return
       appHeightRef.current = nextValue
@@ -136,7 +155,11 @@ export function ConsoleLayout() {
       if (target?.closest('[data-terminal],.xterm,.xterm-screen')) return
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault()
-        openPalette()
+        if (showCommandPalette) {
+          closeOverlay('palette')
+        } else {
+          openPalette()
+        }
       }
       if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
         e.preventDefault()
@@ -145,7 +168,7 @@ export function ConsoleLayout() {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [toggleCommandPalette, toggleSidebar])
+  }, [showCommandPalette, openPalette, closeOverlay, toggleSidebar])
 
   useEffect(() => {
     const handlePopState = () => {
@@ -154,41 +177,12 @@ export function ConsoleLayout() {
       const top = stack[stack.length - 1]
       if (top === 'settings') setShowSettings(false)
       else if (top === 'drawer') setDrawerOpen(false)
-      else if (top === 'palette') toggleCommandPalette()
+      else if (top === 'palette') setCommandPalette(false)
       stack.pop()
     }
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
-  }, [toggleCommandPalette])
-
-  useEffect(() => {
-    if (!isMobile) return
-    const handleKeyboardChange = (e: Event) => {
-      const detail = (e as CustomEvent<{ open?: boolean }>).detail
-      setKeyboardOpen(!!detail?.open)
-    }
-    setKeyboardOpen(document.body.classList.contains('keyboard-open'))
-    window.addEventListener(KEYBOARD_EVENT, handleKeyboardChange as EventListener)
-    return () => {
-      window.removeEventListener(KEYBOARD_EVENT, handleKeyboardChange as EventListener)
-    }
-  }, [isMobile])
-
-  const openDrawer = useCallback((type: 'sessions' | 'panes') => {
-    setDrawerType(type)
-    setDrawerOpen(true)
-    pushOverlay('drawer')
-  }, [pushOverlay])
-
-  const openSettings = useCallback(() => {
-    setShowSettings(true)
-    pushOverlay('settings')
-  }, [pushOverlay])
-
-  const openPalette = useCallback(() => {
-    if (!showCommandPalette) pushOverlay('palette')
-    toggleCommandPalette()
-  }, [showCommandPalette, pushOverlay, toggleCommandPalette])
+  }, [setCommandPalette])
 
   const sidebarOrder = preferences.sidebarPosition === 'right' ? 1 : 0
 
@@ -202,13 +196,11 @@ export function ConsoleLayout() {
             <Sidebar />
           </div>
         )}
-        <main data-console-main className="flex flex-1 min-h-0 flex-col bg-bg-1" style={isMobile ? { paddingBottom: keyboardOpen ? 'calc(40px + env(safe-area-inset-bottom,0px))' : 'calc(48px + env(safe-area-inset-bottom,0px))' } : undefined}>
+        <main className="flex flex-1 min-h-0 flex-col bg-bg-1" style={isMobile ? { paddingBottom: 'calc(48px + env(safe-area-inset-bottom,0px))' } : undefined}>
           <PaneGrid />
-          {!isMobile && <ShortcutBar />}
         </main>
       </div>
       {!isMobile && preferences.showStatusBar && <StatusBar />}
-      {isMobile && keyboardOpen && <ShortcutBar />}
       {isMobile && (
         <MobileNav
           onOpenDrawer={openDrawer}
@@ -216,11 +208,11 @@ export function ConsoleLayout() {
           onOpenSearch={openPalette}
         />
       )}
-      {showCommandPalette && <CommandPalette onClose={popOverlay} />}
-      {showSettings && <Settings onClose={() => { setShowSettings(false); popOverlay() }} />}
+      {showCommandPalette && <CommandPalette onClose={() => closeOverlay('palette')} />}
+      {showSettings && <Settings onClose={() => closeOverlay('settings')} />}
       <MobileDrawer
         isOpen={drawerOpen}
-        onClose={() => { setDrawerOpen(false); popOverlay() }}
+        onClose={() => closeOverlay('drawer')}
         type={drawerType}
       />
     </div>

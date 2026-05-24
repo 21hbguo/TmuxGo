@@ -11,12 +11,12 @@ interface CommandPaletteProps {
 export function CommandPalette({ onClose }: CommandPaletteProps) {
   const [query, setQuery] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
-  const { hosts, sessions, toggleCommandPalette, setActiveHost, setActiveSession } = useConsoleStore()
+  const { hosts, sessions, setCommandPalette, setActiveHost, setActiveSession } = useConsoleStore()
   const { t } = useTranslation()
 
   const close = () => {
+    setCommandPalette(false)
     onClose()
-    toggleCommandPalette()
   }
 
   useEffect(() => {

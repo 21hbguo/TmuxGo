@@ -99,7 +99,6 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
       />
       <div
         ref={panelRef}
-        data-keep-mobile-keyboard
         className={`absolute bottom-0 left-0 right-0 flex max-h-none flex-col overflow-hidden rounded-t-xl border-t border-[var(--line)] bg-bg-1 transition-transform duration-200 ease-out ${closing ? 'translate-y-full' : ''}`}
         style={{ maxHeight: 'calc(var(--app-height,100dvh)-12px)', paddingBottom: 'env(safe-area-inset-bottom,0px)' }}
       >
@@ -112,7 +111,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
           </h3>
           <button onClick={handleClose} className="p-1 text-text-3">✕</button>
         </div>
-        <div data-keep-mobile-keyboard className="min-h-0 flex-1 overflow-y-auto px-4 pb-4" style={{ WebkitOverflowScrolling: 'touch' }}>
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4" style={{ WebkitOverflowScrolling: 'touch' }}>
           {type === 'sessions' && (
             <div className="space-y-2">
               <button

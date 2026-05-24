@@ -26,6 +26,20 @@ export function useMobileKeyboard(
   const emitKeyboardChange = useCallback((open: boolean, inset: number) => {
     window.dispatchEvent(new CustomEvent(KEYBOARD_EVENT, { detail: { open, inset } }))
   }, [])
+  const closeKeyboard = useCallback(() => {
+    if (!keyboardOpenRef.current) {
+      emitKeyboardChange(false, 0)
+      return
+    }
+    keyboardOpenRef.current = false
+    document.body.classList.remove('keyboard-open')
+    document.documentElement.style.setProperty('--mobile-keyboard-inset', '0px')
+    emitKeyboardChange(false, 0)
+  }, [emitKeyboardChange])
+  const isKeyboardOwnerActive = useCallback(() => {
+    const ta = textareaRef.current
+    return !!ta && (document.activeElement === ta || Date.now() <= keepAliveUntilRef.current)
+  }, [])
 
   const clearValue = useCallback(() => {
     const ta = textareaRef.current
@@ -131,7 +145,10 @@ export function useMobileKeyboard(
       requestAnimationFrame(() => focusKeyboard())
     }
     const handleBlur = () => {
-      if (Date.now() > keepAliveUntilRef.current) return
+      if (Date.now() > keepAliveUntilRef.current) {
+        closeKeyboard()
+        return
+      }
       requestAnimationFrame(() => focusKeyboard())
     }
 
@@ -158,7 +175,7 @@ export function useMobileKeyboard(
       document.removeEventListener('touchstart', handleKeepAliveCapture, true)
       document.removeEventListener('mousedown', handleKeepAliveCapture, true)
     }
-  }, [sendInput, clearValue, focusKeyboard])
+  }, [sendInput, clearValue, focusKeyboard, closeKeyboard])
 
   useEffect(() => {
     if (!isMobile.current) return
@@ -166,6 +183,10 @@ export function useMobileKeyboard(
     const handleViewportResize = () => {
       const vv = window.visualViewport
       if (!vv) return
+      if (!isKeyboardOwnerActive()) {
+        closeKeyboard()
+        return
+      }
       const inset = Math.max(0, window.innerHeight - vv.height)
       const isOpen = keyboardOpenRef.current
       if (!isOpen && inset >= KEYBOARD_OPEN_THRESHOLD) {
@@ -174,10 +195,7 @@ export function useMobileKeyboard(
         document.documentElement.style.setProperty('--mobile-keyboard-inset', `${inset}px`)
         emitKeyboardChange(true, inset)
       } else if (isOpen && inset <= KEYBOARD_CLOSE_THRESHOLD) {
-        keyboardOpenRef.current = false
-        document.body.classList.remove('keyboard-open')
-        document.documentElement.style.setProperty('--mobile-keyboard-inset', '0px')
-        emitKeyboardChange(false, 0)
+        closeKeyboard()
       } else if (isOpen) {
         document.documentElement.style.setProperty('--mobile-keyboard-inset', `${inset}px`)
         emitKeyboardChange(true, inset)
@@ -190,11 +208,9 @@ export function useMobileKeyboard(
     window.visualViewport?.addEventListener('resize', handleViewportResize)
     return () => {
       window.visualViewport?.removeEventListener('resize', handleViewportResize)
-      document.body.classList.remove('keyboard-open')
-      document.documentElement.style.setProperty('--mobile-keyboard-inset', '0px')
-      emitKeyboardChange(false, 0)
+      closeKeyboard()
     }
-  }, [emitKeyboardChange])
+  }, [emitKeyboardChange, closeKeyboard, isKeyboardOwnerActive])
 
   return { textareaRef, focusKeyboard, isMobile: isMobile.current }
 }

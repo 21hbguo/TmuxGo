@@ -7,7 +7,7 @@ import { Settings } from './Settings'
 import { useTranslation } from '@/i18n'
 
 export function TopBar() {
-  const { activeHostId, activeSessionId, hosts, sessions, toggleCommandPalette } = useConsoleStore()
+  const { activeHostId, activeSessionId, hosts, sessions, setCommandPalette } = useConsoleStore()
   const [showSettings, setShowSettings] = useState(false)
   const { t } = useTranslation()
 
@@ -35,7 +35,7 @@ export function TopBar() {
 
         <div className="flex-1 flex justify-center">
           <button
-            onClick={toggleCommandPalette}
+            onClick={() => setCommandPalette(true)}
             className="px-4 py-1.5 bg-bg-2 rounded-lg text-text-3 text-sm hover:bg-bg-1 transition-colors flex items-center gap-2"
           >
             <span>⌕</span>
