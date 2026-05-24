@@ -6,13 +6,14 @@ import { useMobileKeyboard } from '@/hooks/useMobileKeyboard'
 import { useWebSocket } from '@/hooks/useWebSocket'
 
 interface TerminalPaneProps {
+  sessionName?: string
   onInput?: (data: string) => void
   onResize?: (cols: number, rows: number) => void
   attachExclusive?: boolean
   onReady?: () => void
 }
 
-export function TerminalPane({ onInput, onResize, attachExclusive = false, onReady }: TerminalPaneProps) {
+export function TerminalPane({ sessionName, onInput, onResize, attachExclusive = false, onReady }: TerminalPaneProps) {
   const { preferences } = usePreferences()
   const terminalRef = useRef<HTMLDivElement>(null)
   const touchMovedRef = useRef(false)
@@ -22,6 +23,7 @@ export function TerminalPane({ onInput, onResize, attachExclusive = false, onRea
   const onResizeRef = useRef(onResize)
   const attachExclusiveRef = useRef(attachExclusive)
   const onReadyRef = useRef(onReady)
+  const sessionNameRef = useRef(sessionName)
   const preferencesRef = useRef(preferences)
   const lastSizeRef = useRef<{ cols: number; rows: number } | null>(null)
   const sharedSessionSizeRef = useRef<{ cols: number; rows: number } | null>(null)
@@ -45,6 +47,9 @@ export function TerminalPane({ onInput, onResize, attachExclusive = false, onRea
   useEffect(() => {
     onReadyRef.current = onReady
   }, [onReady])
+  useEffect(() => {
+    sessionNameRef.current = sessionName
+  }, [sessionName])
   useEffect(() => {
     preferencesRef.current = preferences
   }, [preferences])
@@ -251,12 +256,6 @@ export function TerminalPane({ onInput, onResize, attachExclusive = false, onRea
       terminal.open(container)
       fitAddonRef.current = fitAddon
       terminalInstance.current = terminal
-      // 禁用 xterm.js 内置触摸处理，由自定义处理器接管
-      const vp = terminal.viewport as any
-      if (vp) {
-        vp.handleTouchStart = () => {}
-        vp.handleTouchMove = () => true
-      }
       const da2Handler = terminal.parser?.registerCsiHandler?.({ prefix: '>', final: 'c' }, () => true)
       if (da2Handler) {
         disposables.push(da2Handler)
@@ -340,34 +339,49 @@ export function TerminalPane({ onInput, onResize, attachExclusive = false, onRea
         syncSharedLayout(false)
       })
       resizeObserver.observe(container)
-      // 触摸滚动：按比例滚动 + 惯性，共享模式保留横向平移
+      // 触摸滚动：通过 tmux copy-mode 实现，支持批量发送 + 惯性
       {
         let startY = 0
         let startX = 0
         let lastY = 0
-        let lastX = 0
-        let accumulated = 0
         let moved = false
         let direction: 'unknown' | 'vertical' | 'horizontal' = 'unknown'
-        const velocitySamples: { y: number; t: number }[] = []
+        let scrollPendingLines = 0
+        let scrollFlushTimer: ReturnType<typeof setTimeout> | null = null
         let momentumId = 0
+        const FLUSH_INTERVAL = 16
+        const MAX_LINES_PER_FLUSH = 18
+        const SCROLL_THRESHOLD = 18
 
-        const getLineHeight = () => {
-          const dim = terminal?._core?._renderService?.dimensions?.css?.cell
-          return dim?.height || 18
+        const flushScroll = () => {
+          scrollFlushTimer = null
+          const lines = Math.trunc(scrollPendingLines)
+          scrollPendingLines = 0
+          if (!lines) return
+          const clamped = Math.max(-MAX_LINES_PER_FLUSH, Math.min(MAX_LINES_PER_FLUSH, lines))
+          send({ type: 'pane_scroll', sessionName: sessionNameRef.current, lines: clamped })
+        }
+
+        const queueScroll = (lines: number) => {
+          scrollPendingLines += lines
+          if (!scrollFlushTimer) {
+            scrollFlushTimer = setTimeout(flushScroll, FLUSH_INTERVAL)
+          }
         }
 
         const handleTouchStart = (e: TouchEvent) => {
           if (!isMobileDevice) return
           momentumId++
+          if (scrollFlushTimer) {
+            clearTimeout(scrollFlushTimer)
+            scrollFlushTimer = null
+          }
+          scrollPendingLines = 0
           startY = e.touches[0].clientY
           startX = e.touches[0].clientX
           lastY = startY
-          lastX = startX
-          accumulated = 0
           moved = false
           direction = 'unknown'
-          velocitySamples.length = 0
         }
 
         const handleTouchMove = (e: TouchEvent) => {
@@ -380,50 +394,40 @@ export function TerminalPane({ onInput, onResize, attachExclusive = false, onRea
           if (direction === 'unknown') {
             direction = dx > dy ? 'horizontal' : 'vertical'
           }
-          if (direction === 'horizontal') {
-            if (!attachExclusiveRef.current && sharedMaxPanX > 0) {
-              moved = true
-              e.preventDefault()
-              sharedPanX = Math.max(0, Math.min(sharedMaxPanX, sharedPanX - (x - lastX)))
-              syncSharedViewport()
-            }
-            lastX = x
-            return
-          }
+          if (direction !== 'vertical') return
           moved = true
           e.preventDefault()
-          const delta = y - lastY
+          const deltaY = y - lastY
           lastY = y
-          accumulated += delta
-          const now = performance.now()
-          velocitySamples.push({ y, t: now })
-          while (velocitySamples.length > 5) velocitySamples.shift()
-          const lh = getLineHeight()
-          if (Math.abs(accumulated) >= lh) {
-            const lines = Math.trunc(accumulated / lh)
-            terminal.scrollLines(-lines)
-            accumulated -= lines * lh
+          const step = Math.trunc(deltaY / SCROLL_THRESHOLD)
+          if (step !== 0) {
+            queueScroll(step * 2)
           }
         }
 
-        const handleTouchEnd = () => {
+        const handleTouchEnd = (e: TouchEvent) => {
+          if (scrollFlushTimer) {
+            clearTimeout(scrollFlushTimer)
+            scrollFlushTimer = null
+          }
+          if (scrollPendingLines) flushScroll()
           touchMovedRef.current = moved
-          if (direction !== 'vertical' || velocitySamples.length < 2) return
-          const first = velocitySamples[0]
-          const last = velocitySamples[velocitySamples.length - 1]
-          const dt = last.t - first.t
-          if (dt <= 0) return
-          let velocity = (last.y - first.y) / dt
+          if (direction !== 'vertical') return
+          // 惯性滚动：swipe up (deltaY<0) → scroll down (lines>0)
+          const touch = e.changedTouches[0]
+          if (!touch) return
+          const dt = 100
+          let velocity = -(touch.clientY - startY) / dt
           if (Math.abs(velocity) < 0.3) return
           const id = ++momentumId
           const decay = () => {
             if (momentumId !== id) return
             velocity *= 0.92
             if (Math.abs(velocity) < 0.3) return
-            terminal.scrollLines(velocity > 0 ? -1 : 1)
-            requestAnimationFrame(decay)
+            send({ type: 'pane_scroll', sessionName: sessionNameRef.current, lines: velocity > 0 ? 2 : -2 })
+            setTimeout(decay, FLUSH_INTERVAL)
           }
-          requestAnimationFrame(decay)
+          setTimeout(decay, FLUSH_INTERVAL)
         }
 
         container.addEventListener('touchstart', handleTouchStart, { passive: true })
@@ -431,6 +435,7 @@ export function TerminalPane({ onInput, onResize, attachExclusive = false, onRea
         container.addEventListener('touchend', handleTouchEnd, { passive: true })
         disposables.push({
           dispose: () => {
+            if (scrollFlushTimer) clearTimeout(scrollFlushTimer)
             container.removeEventListener('touchstart', handleTouchStart)
             container.removeEventListener('touchmove', handleTouchMove)
             container.removeEventListener('touchend', handleTouchEnd)

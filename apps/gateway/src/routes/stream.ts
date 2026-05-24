@@ -125,6 +125,23 @@ export async function streamRoutes(fastify: FastifyInstance) {
               ptyProcess.write(data.data)
             }
             break
+
+          case 'pane_scroll': {
+            const scrollLines = Number(data.lines) || 0
+            if (scrollLines === 0) break
+            const sessionName = data.sessionName
+            if (!sessionName) break
+            try {
+              if (scrollLines > 0) {
+                await execFileAsync('tmux', ['copy-mode', '-e', '-t', sessionName])
+              }
+              const action = scrollLines > 0 ? 'scroll-up' : 'scroll-down'
+              const repeat = String(Math.abs(scrollLines))
+              await execFileAsync('tmux', ['send-keys', '-t', sessionName, '-X', '-N', repeat, action])
+            } catch {}
+            break
+          }
+
           case 'detach':
             cleanup()
             send({ type: 'detached' })
