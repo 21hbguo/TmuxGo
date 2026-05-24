@@ -2,6 +2,12 @@ export const en = {
   // TopBar
   'search.placeholder': 'Search...',
   'search.cmd': '⌘K',
+  'install.title': 'Install tmuxU',
+  'install.desc': 'Install it for a full-screen home screen app experience.',
+  'install.iosDesc': 'In Safari, tap Share and choose Add to Home Screen for full-screen launch.',
+  'install.action': 'Install',
+  'install.gotIt': 'Got it',
+  'install.later': 'Later',
 
   // Sidebar
   'sidebar.sessions': 'Sessions',

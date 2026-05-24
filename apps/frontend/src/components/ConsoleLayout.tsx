@@ -10,6 +10,7 @@ import { MobileNav } from './MobileNav'
 import { MobileDrawer } from './MobileDrawer'
 import { Settings } from './Settings'
 import { ShortcutBar } from './ShortcutBar'
+import { InstallAppBanner } from './InstallAppBanner'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useHosts, useSessions, useSessionPanes, useWindows } from '@/hooks/useApi'
 import { useWebSocket } from '@/hooks/useWebSocket'
@@ -193,6 +194,7 @@ export function ConsoleLayout() {
 
   return (
     <div className="flex w-screen flex-col overflow-hidden" style={{ height: appHeight, ['--app-height' as any]: appHeight }}>
+      <InstallAppBanner />
       {!isMobile && <TopBar />}
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {!isMobile && (
