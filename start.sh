@@ -12,14 +12,22 @@ echo "Starting tmuxU development servers..."
 FRONTEND_LOG="/tmp/tmuxu-frontend.log"
 GATEWAY_LOG="/tmp/tmuxu-gateway.log"
 AGENT_LOG="/tmp/tmuxu-agent.log"
+TAILSCALE_DNS=""
+SECURE_FRONTEND_URL=""
+SECURE_GATEWAY_URL=""
 if command -v tailscale >/dev/null 2>&1; then
   TAILSCALE_IP=$(tailscale ip -4 2>/dev/null | head -n 1 || true)
+  TAILSCALE_DNS=$(tailscale status --json 2>/dev/null | python3 -c 'import json,sys; data=json.load(sys.stdin); print((data.get("Self") or {}).get("DNSName","").rstrip("."))' 2>/dev/null || true)
 fi
 if [ -z "${TAILSCALE_IP:-}" ]; then
   TAILSCALE_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || true)
 fi
 if [ -z "${TAILSCALE_IP:-}" ]; then
   TAILSCALE_IP="localhost"
+fi
+if [ -n "${TAILSCALE_DNS:-}" ]; then
+  SECURE_FRONTEND_URL="https://${TAILSCALE_DNS}"
+  SECURE_GATEWAY_URL="https://${TAILSCALE_DNS}:8443"
 fi
 port_in_use() {
   lsof -i :"$1" >/dev/null 2>&1
@@ -78,11 +86,22 @@ if port_in_use 3000; then
   echo "Frontend already running on port 3000, skipping..."
 else
   echo "Starting Frontend on port 3000..."
-  start_detached "$FRONTEND_LOG" env NEXT_PUBLIC_API_URL="http://${TAILSCALE_IP}:3001" npm run dev:frontend
+  if [ -n "${SECURE_GATEWAY_URL:-}" ]; then
+    start_detached "$FRONTEND_LOG" env NEXT_PUBLIC_API_URL="${SECURE_GATEWAY_URL}" npm run dev:frontend
+  else
+    start_detached "$FRONTEND_LOG" env NEXT_PUBLIC_API_URL="http://${TAILSCALE_IP}:3001" npm run dev:frontend
+  fi
   if wait_http_ok "http://127.0.0.1:3000" 45; then
     echo "  Frontend started successfully"
   else
     echo "  Frontend failed to start, check $FRONTEND_LOG"
+  fi
+fi
+if [ -n "${TAILSCALE_DNS:-}" ]; then
+  if tailscale serve --yes --bg --https=443 http://127.0.0.1:3000 >/dev/null 2>&1 && tailscale serve --yes --bg --https=8443 http://127.0.0.1:3001 >/dev/null 2>&1; then
+    echo "  Tailscale HTTPS enabled"
+  else
+    echo "  Tailscale HTTPS setup failed"
   fi
 fi
 echo "Starting Agent..."
@@ -102,6 +121,10 @@ echo "tmuxU services:"
 echo ""
 echo "  Frontend:  http://${TAILSCALE_IP}:3000"
 echo "  Gateway:   http://${TAILSCALE_IP}:3001"
+if [ -n "${SECURE_FRONTEND_URL:-}" ]; then
+  echo "  Frontend HTTPS: ${SECURE_FRONTEND_URL}"
+  echo "  Gateway HTTPS:  ${SECURE_GATEWAY_URL}"
+fi
 echo ""
 echo "Logs:"
 echo "  Gateway:   $GATEWAY_LOG"
