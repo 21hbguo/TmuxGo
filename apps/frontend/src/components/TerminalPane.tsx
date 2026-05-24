@@ -152,7 +152,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       terminal.options.cursorBlink = preferencesRef.current.cursorBlink
       terminal.options.fontSize = fontSize ?? preferencesRef.current.fontSize
     }
-    const clearSharedViewport = () => {
+    const clearViewportStyles = () => {
       const element = terminal?.element as HTMLElement | null
       if (!element) return
       sharedPanX = 0
@@ -163,11 +163,30 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       element.style.removeProperty('transform-origin')
       element.style.removeProperty('will-change')
     }
+    const syncExclusiveViewport = () => {
+      const element = terminal?.element as HTMLElement | null
+      if (!element) return
+      if (!isMobileDevice || !attachExclusiveRef.current) {
+        clearViewportStyles()
+        return
+      }
+      const canvas = getCanvasSize()
+      if (!canvas) return
+      const available = getAvailableSize()
+      const slackY = Math.max(0, available.height - canvas.height)
+      element.style.transform = slackY > 0 ? `translate3d(0,${slackY}px,0)` : 'translate3d(0,0,0)'
+      element.style.transformOrigin = 'top left'
+      if (slackY > 0) {
+        element.style.willChange = 'transform'
+      } else {
+        element.style.removeProperty('will-change')
+      }
+    }
     const syncSharedViewport = () => {
       const element = terminal?.element as HTMLElement | null
       if (!element) return
       if (!isMobileDevice || attachExclusiveRef.current) {
-        clearSharedViewport()
+        clearViewportStyles()
         return
       }
       const canvas = getCanvasSize()
@@ -208,6 +227,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           }
           requestAnimationFrame(() => {
             if (disposed || !terminal) return
+            syncExclusiveViewport()
             terminal.refresh(0, Math.max(0, terminal.rows - 1))
           })
           notifyReady()
@@ -565,7 +585,10 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       ref={terminalRef}
       data-terminal
       className="h-full w-full min-h-0 overflow-hidden relative"
-      style={{ ['--terminal-padding' as any]: `${preferences.terminalPadding}px` }}
+      style={{
+        ['--terminal-padding' as any]: `${preferences.terminalPadding}px`,
+        ['--terminal-padding-bottom' as any]: isMobileDevice ? '0px' : `${preferences.terminalPadding}px`,
+      }}
       onMouseDown={() => terminalInstance.current?.focus?.()}
       onTouchEnd={(e) => {
         if (isMobileDevice && !touchMovedRef.current) {
