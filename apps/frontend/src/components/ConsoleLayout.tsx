@@ -36,6 +36,7 @@ export function ConsoleLayout() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerType, setDrawerType] = useState<'sessions' | 'panes'>('sessions')
   const [showSettings, setShowSettings] = useState(false)
+  const [keyboardOpen, setKeyboardOpen] = useState(false)
   const overlayRef = useRef<string[]>([])
 
   const pushOverlay = useCallback((id: string) => {
@@ -153,6 +154,18 @@ export function ConsoleLayout() {
     return () => window.removeEventListener('popstate', handlePopState)
   }, [toggleCommandPalette])
 
+  useEffect(() => {
+    if (!isMobile) return
+    const syncKeyboardState = () => setKeyboardOpen(document.body.classList.contains('keyboard-open'))
+    syncKeyboardState()
+    window.addEventListener('resize', syncKeyboardState)
+    window.visualViewport?.addEventListener('resize', syncKeyboardState)
+    return () => {
+      window.removeEventListener('resize', syncKeyboardState)
+      window.visualViewport?.removeEventListener('resize', syncKeyboardState)
+    }
+  }, [isMobile])
+
   const openDrawer = useCallback((type: 'sessions' | 'panes') => {
     setDrawerType(type)
     setDrawerOpen(true)
@@ -180,12 +193,13 @@ export function ConsoleLayout() {
             <Sidebar />
           </div>
         )}
-        <main data-console-main className="flex flex-1 min-h-0 flex-col" style={isMobile ? { paddingBottom: 'calc(56px + env(safe-area-inset-bottom,0px))' } : undefined}>
+        <main data-console-main className="flex flex-1 min-h-0 flex-col" style={isMobile ? { paddingBottom: keyboardOpen ? 'calc(52px + env(safe-area-inset-bottom,0px))' : 'calc(56px + env(safe-area-inset-bottom,0px))' } : undefined}>
           <PaneGrid />
           {!isMobile && <ShortcutBar />}
         </main>
       </div>
       {!isMobile && preferences.showStatusBar && <StatusBar />}
+      {isMobile && keyboardOpen && <ShortcutBar />}
       {isMobile && (
         <MobileNav
           onOpenDrawer={openDrawer}

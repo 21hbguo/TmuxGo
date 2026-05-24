@@ -115,6 +115,14 @@ a {
   user-select: none;
   background: rgb(var(--bg-1));
 }
+@media (max-width: 1023px) {
+  [data-terminal] {
+    touch-action: pan-y;
+  }
+  .xterm-viewport {
+    touch-action: pan-y;
+  }
+}
 [data-terminal] .xterm {
   position: relative;
 }
@@ -163,24 +171,6 @@ a {
 }
 .keyboard-open [data-console-main] {
   padding-bottom: calc(52px + env(safe-area-inset-bottom,0px)) !important;
-}
-@media (max-width: 1023px) {
-  [data-terminal] .xterm {
-    overflow: hidden;
-  }
-  [data-terminal] .xterm-screen {
-    position: absolute;
-    top: 0;
-  }
-  [data-terminal] .xterm-helpers,
-  [data-terminal] .xterm-accessibility,
-  [data-terminal] .xterm-decoration-container,
-  [data-terminal] .xterm-selection-layer,
-  [data-terminal] .xterm-link-layer,
-  [data-terminal] .xterm-cursor-layer {
-    position: absolute;
-    top: 0;
-  }
 }
 
 @media (orientation: landscape) and (max-height: 500px) {
