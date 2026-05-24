@@ -20,6 +20,7 @@ export function useMobileKeyboard(
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const composingRef = useRef(false)
   const keyboardOpenRef = useRef(false)
+  const keepAliveUntilRef = useRef(0)
   const isMobile = useRef(isMobileDevice())
 
   const clearValue = useCallback(() => {
@@ -116,12 +117,17 @@ export function useMobileKeyboard(
     const handleFocus = () => {
       setTimeout(() => clearValue(), 10)
     }
-    const handlePointerDownCapture = (e: PointerEvent) => {
+    const handleKeepAliveCapture = (e: Event) => {
       const target = e.target
       if (!(target instanceof Element)) return
       if (target.closest('input,textarea,select,[contenteditable="true"]')) return
       if (!target.closest('[data-keep-mobile-keyboard]')) return
+      keepAliveUntilRef.current = Date.now() + 500
       if (target.closest('button,a,[role="button"]')) e.preventDefault()
+      requestAnimationFrame(() => focusKeyboard())
+    }
+    const handleBlur = () => {
+      if (Date.now() > keepAliveUntilRef.current) return
       requestAnimationFrame(() => focusKeyboard())
     }
 
@@ -131,7 +137,10 @@ export function useMobileKeyboard(
     ta.addEventListener('compositionstart', handleCompositionStart)
     ta.addEventListener('compositionend', handleCompositionEnd)
     ta.addEventListener('focus', handleFocus)
-    document.addEventListener('pointerdown', handlePointerDownCapture, true)
+    ta.addEventListener('blur', handleBlur)
+    document.addEventListener('pointerdown', handleKeepAliveCapture, true)
+    document.addEventListener('touchstart', handleKeepAliveCapture, true)
+    document.addEventListener('mousedown', handleKeepAliveCapture, true)
 
     return () => {
       ta.removeEventListener('keydown', handleKeyDown)
@@ -140,7 +149,10 @@ export function useMobileKeyboard(
       ta.removeEventListener('compositionstart', handleCompositionStart)
       ta.removeEventListener('compositionend', handleCompositionEnd)
       ta.removeEventListener('focus', handleFocus)
-      document.removeEventListener('pointerdown', handlePointerDownCapture, true)
+      ta.removeEventListener('blur', handleBlur)
+      document.removeEventListener('pointerdown', handleKeepAliveCapture, true)
+      document.removeEventListener('touchstart', handleKeepAliveCapture, true)
+      document.removeEventListener('mousedown', handleKeepAliveCapture, true)
     }
   }, [sendInput, clearValue, focusKeyboard])
 

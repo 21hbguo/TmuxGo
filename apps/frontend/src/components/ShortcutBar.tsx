@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useCallback, useState } from 'react'
+import { useRef, useCallback, useState, type PointerEvent } from 'react'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useTranslation } from '@/i18n'
 import { useConsoleStore } from '@/stores/useConsoleStore'
@@ -62,6 +62,9 @@ export function ShortcutBar({ mode = 'dock' }: ShortcutBarProps) {
   const showToast = useCallback((msg: string) => {
     setToast(msg)
     setTimeout(() => setToast(null), 1500)
+  }, [])
+  const preventFocus = useCallback((e: PointerEvent<HTMLButtonElement>) => {
+    e.preventDefault()
   }, [])
 
   const startRepeat = useCallback((data: string) => {
@@ -130,8 +133,13 @@ export function ShortcutBar({ mode = 'dock' }: ShortcutBarProps) {
         {keys.map((k) => (
           <button
             key={k.label}
+            type="button"
+            tabIndex={-1}
             className={baseClass}
-            onPointerDown={() => handleBtn(k)}
+            onPointerDown={(e) => {
+              preventFocus(e)
+              handleBtn(k)
+            }}
             onPointerUp={stopRepeat}
             onPointerLeave={stopRepeat}
             onPointerCancel={stopRepeat}
@@ -140,14 +148,25 @@ export function ShortcutBar({ mode = 'dock' }: ShortcutBarProps) {
           </button>
         ))}
         <div className={`${isPanel ? 'hidden' : 'w-px'} bg-[var(--line)] mx-1 self-stretch`} />
-        <button className={baseClass + ' bg-accent/20 text-accent'} onPointerDown={handleCopy}>{t('quick.copy')}</button>
-        <button className={baseClass + ' bg-accent/20 text-accent'} onPointerDown={handlePaste}>{t('quick.paste')}</button>
+        <button type="button" tabIndex={-1} className={baseClass + ' bg-accent/20 text-accent'} onPointerDown={(e) => {
+          preventFocus(e)
+          handleCopy()
+        }}>{t('quick.copy')}</button>
+        <button type="button" tabIndex={-1} className={baseClass + ' bg-accent/20 text-accent'} onPointerDown={(e) => {
+          preventFocus(e)
+          handlePaste()
+        }}>{t('quick.paste')}</button>
         <div className={`${isPanel ? 'hidden' : 'w-px'} bg-[var(--line)] mx-1 self-stretch`} />
         {tmuxKeys.map((k) => (
           <button
             key={k.label}
+            type="button"
+            tabIndex={-1}
             className={baseClass}
-            onPointerDown={() => handleBtn(k)}
+            onPointerDown={(e) => {
+              preventFocus(e)
+              handleBtn(k)
+            }}
             onPointerUp={stopRepeat}
             onPointerLeave={stopRepeat}
             onPointerCancel={stopRepeat}
@@ -155,8 +174,14 @@ export function ShortcutBar({ mode = 'dock' }: ShortcutBarProps) {
             {k.i18nKey ? t(k.i18nKey as any) : k.label}
           </button>
         ))}
-        <button className={baseClass} onPointerDown={handleZoom}>{t('shortcut.zoom')}</button>
-        <button className={baseClass + ' text-danger'} onPointerDown={handleKill}>{t('shortcut.kill')}</button>
+        <button type="button" tabIndex={-1} className={baseClass} onPointerDown={(e) => {
+          preventFocus(e)
+          handleZoom()
+        }}>{t('shortcut.zoom')}</button>
+        <button type="button" tabIndex={-1} className={baseClass + ' text-danger'} onPointerDown={(e) => {
+          preventFocus(e)
+          handleKill()
+        }}>{t('shortcut.kill')}</button>
       </div>
       {toast && (
         <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-full bg-bg-2 text-text-1 text-xs px-3 py-1 rounded-t-lg border border-[var(--line)]">
