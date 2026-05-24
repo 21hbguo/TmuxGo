@@ -15,7 +15,6 @@ interface TerminalPaneProps {
 export function TerminalPane({ onInput, onResize, attachExclusive = false, onReady }: TerminalPaneProps) {
   const { preferences } = usePreferences()
   const terminalRef = useRef<HTMLDivElement>(null)
-  const touchStartRef = useRef<{ x: number; y: number } | null>(null)
   const touchMovedRef = useRef(false)
   const terminalInstance = useRef<any>(null)
   const fitAddonRef = useRef<any>(null)
@@ -87,6 +86,8 @@ export function TerminalPane({ onInput, onResize, attachExclusive = false, onRea
     let fitTimers: NodeJS.Timeout[] = []
     let disposed = false
     let readyNotified = false
+    let sharedPanX = 0
+    let sharedMaxPanX = 0
 
     const notifyReady = () => {
       if (disposed || readyNotified) return
@@ -113,6 +114,41 @@ export function TerminalPane({ onInput, onResize, attachExclusive = false, onRea
       terminal.options.fontFamily = preferencesRef.current.fontFamily
       terminal.options.cursorBlink = preferencesRef.current.cursorBlink
       terminal.options.fontSize = fontSize ?? preferencesRef.current.fontSize
+    }
+    const clearSharedViewport = () => {
+      const element = terminal?.element as HTMLElement | null
+      if (!element) return
+      sharedPanX = 0
+      sharedMaxPanX = 0
+      element.style.removeProperty('width')
+      element.style.removeProperty('height')
+      element.style.removeProperty('transform')
+      element.style.removeProperty('transform-origin')
+      element.style.removeProperty('will-change')
+    }
+    const syncSharedViewport = () => {
+      const element = terminal?.element as HTMLElement | null
+      if (!element) return
+      if (!isMobileDevice || attachExclusiveRef.current) {
+        clearSharedViewport()
+        return
+      }
+      const canvas = getCanvasSize()
+      if (!canvas) return
+      const available = getAvailableSize()
+      const maxPanX = Math.max(0, canvas.width - available.width)
+      const maxPanY = Math.max(0, canvas.height - available.height)
+      sharedMaxPanX = maxPanX
+      sharedPanX = Math.min(sharedPanX, maxPanX)
+      element.style.width = `${canvas.width}px`
+      element.style.height = `${canvas.height}px`
+      element.style.transform = `translate3d(${-sharedPanX}px,${-maxPanY}px,0)`
+      element.style.transformOrigin = 'top left'
+      if (maxPanX > 0 || maxPanY > 0) {
+        element.style.willChange = 'transform'
+      } else {
+        element.style.removeProperty('will-change')
+      }
     }
 
     const doFit = () => {
@@ -157,6 +193,15 @@ export function TerminalPane({ onInput, onResize, attachExclusive = false, onRea
         terminal.options.cursorBlink = preferencesRef.current.cursorBlink
       }
       terminal.resize(size.cols, size.rows)
+      if (isMobileDevice) {
+        sharedLayoutFrame = requestAnimationFrame(() => {
+          if (disposed) return
+          syncSharedViewport()
+          lastSizeRef.current = { cols: size.cols, rows: size.rows }
+          onResizeRef.current?.(size.cols, size.rows)
+        })
+        return
+      }
       sharedLayoutFrame = requestAnimationFrame(() => {
         if (disposed) return
         const canvas = getCanvasSize()
@@ -241,6 +286,9 @@ export function TerminalPane({ onInput, onResize, attachExclusive = false, onRea
         const output = controlCarryRef.current ? cleaned.slice(0, cleaned.length - controlCarryRef.current.length) : cleaned
         if (output) {
           terminal.write(output)
+          if (!attachExclusiveRef.current && isMobileDevice) {
+            requestAnimationFrame(syncSharedViewport)
+          }
         }
       }
       container.addEventListener('terminal-output', handleOutput)
@@ -290,12 +338,14 @@ export function TerminalPane({ onInput, onResize, attachExclusive = false, onRea
       let touchStartY = 0
       let touchStartX = 0
       let touchMoved = false
+      let panStartX = 0
       let scrollDirection: 'unknown' | 'vertical' | 'horizontal' = 'unknown'
       const handleTouchStart = (e: TouchEvent) => {
         if (!isMobileDevice) return
         touchStartY = e.touches[0].clientY
         touchStartX = e.touches[0].clientX
         lastTouchY = touchStartY
+        panStartX = sharedPanX
         touchMoved = false
         scrollDirection = 'unknown'
       }
@@ -309,7 +359,15 @@ export function TerminalPane({ onInput, onResize, attachExclusive = false, onRea
         if (scrollDirection === 'unknown') {
           scrollDirection = dx > dy ? 'horizontal' : 'vertical'
         }
-        if (scrollDirection === 'horizontal') return
+        if (scrollDirection === 'horizontal') {
+          if (!attachExclusiveRef.current && sharedMaxPanX > 0) {
+            touchMoved = true
+            e.preventDefault()
+            sharedPanX = Math.max(0, Math.min(sharedMaxPanX, panStartX - (x - touchStartX)))
+            syncSharedViewport()
+          }
+          return
+        }
         touchMoved = true
         const delta = y - lastTouchY
         if (Math.abs(delta) > 1) {
