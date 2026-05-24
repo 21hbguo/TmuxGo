@@ -351,7 +351,10 @@ export function TerminalPane({ onInput, onResize, attachExclusive = false, onRea
           return dim?.height || 18
         }
 
+        console.log('[touch] handler setup, isMobile:', isMobileDevice, 'exclusive:', attachExclusiveRef.current)
+
         const handleTouchStart = (e: TouchEvent) => {
+          console.log('[touch] start, isMobile:', isMobileDevice)
           if (!isMobileDevice) return
           momentumId++
           startY = e.touches[0].clientY
@@ -373,6 +376,7 @@ export function TerminalPane({ onInput, onResize, attachExclusive = false, onRea
           if (dx < 8 && dy < 8) return
           if (direction === 'unknown') {
             direction = dx > dy ? 'horizontal' : 'vertical'
+            console.log('[touch] direction locked:', direction)
           }
           if (direction === 'horizontal') {
             if (!attachExclusiveRef.current && sharedMaxPanX > 0) {
@@ -393,9 +397,11 @@ export function TerminalPane({ onInput, onResize, attachExclusive = false, onRea
           velocitySamples.push({ y, t: now })
           while (velocitySamples.length > 5) velocitySamples.shift()
           const lh = getLineHeight()
-          while (Math.abs(accumulated) >= lh) {
-            terminal.scrollLines(accumulated > 0 ? -1 : 1)
-            accumulated += accumulated > 0 ? -lh : lh
+          if (Math.abs(accumulated) >= lh) {
+            const lines = Math.trunc(accumulated / lh)
+            console.log('[touch] scrolling', lines, 'lines, accumulated:', accumulated.toFixed(1), 'lh:', lh)
+            terminal.scrollLines(-lines)
+            accumulated -= lines * lh
           }
         }
 
