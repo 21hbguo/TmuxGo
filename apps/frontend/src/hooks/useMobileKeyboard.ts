@@ -34,6 +34,12 @@ export function useMobileKeyboard(
     if (!ta || ta.value.includes(SENTINEL.charAt(0))) return
     clearValue()
   }, [clearValue])
+  const focusKeyboard = useCallback(() => {
+    const ta = textareaRef.current
+    if (!ta) return
+    ta.focus({ preventScroll: true })
+    clearValue()
+  }, [clearValue])
 
   useEffect(() => {
     if (!isMobile.current) return
@@ -110,6 +116,14 @@ export function useMobileKeyboard(
     const handleFocus = () => {
       setTimeout(() => clearValue(), 10)
     }
+    const handlePointerDownCapture = (e: PointerEvent) => {
+      const target = e.target
+      if (!(target instanceof Element)) return
+      if (target.closest('input,textarea,select,[contenteditable="true"]')) return
+      if (!target.closest('[data-keep-mobile-keyboard]')) return
+      if (target.closest('button,a,[role="button"]')) e.preventDefault()
+      requestAnimationFrame(() => focusKeyboard())
+    }
 
     ta.addEventListener('keydown', handleKeyDown)
     ta.addEventListener('beforeinput', handleBeforeInput as EventListener)
@@ -117,6 +131,7 @@ export function useMobileKeyboard(
     ta.addEventListener('compositionstart', handleCompositionStart)
     ta.addEventListener('compositionend', handleCompositionEnd)
     ta.addEventListener('focus', handleFocus)
+    document.addEventListener('pointerdown', handlePointerDownCapture, true)
 
     return () => {
       ta.removeEventListener('keydown', handleKeyDown)
@@ -125,8 +140,9 @@ export function useMobileKeyboard(
       ta.removeEventListener('compositionstart', handleCompositionStart)
       ta.removeEventListener('compositionend', handleCompositionEnd)
       ta.removeEventListener('focus', handleFocus)
+      document.removeEventListener('pointerdown', handlePointerDownCapture, true)
     }
-  }, [sendInput, clearValue])
+  }, [sendInput, clearValue, focusKeyboard])
 
   useEffect(() => {
     if (!isMobile.current) return
@@ -156,13 +172,6 @@ export function useMobileKeyboard(
       document.documentElement.style.setProperty('--mobile-keyboard-inset', '0px')
     }
   }, [])
-
-  const focusKeyboard = useCallback(() => {
-    const ta = textareaRef.current
-    if (!ta) return
-    ta.focus({ preventScroll: true })
-    clearValue()
-  }, [clearValue])
 
   return { textareaRef, focusKeyboard, isMobile: isMobile.current }
 }

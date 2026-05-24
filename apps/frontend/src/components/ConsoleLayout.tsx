@@ -38,6 +38,7 @@ export function ConsoleLayout() {
   const [showSettings, setShowSettings] = useState(false)
   const [keyboardOpen, setKeyboardOpen] = useState(false)
   const overlayRef = useRef<string[]>([])
+  const appHeightRef = useRef('')
 
   const pushOverlay = useCallback((id: string) => {
     overlayRef.current.push(id)
@@ -58,18 +59,19 @@ export function ConsoleLayout() {
 
   useEffect(() => {
     const syncAppHeight = () => {
-      const nextHeight = window.visualViewport?.height || window.innerHeight
-      setAppHeight(`${Math.round(nextHeight)}px`)
+      const nextHeight = Math.round((window.matchMedia(MOBILE_QUERY).matches ? window.innerHeight : (window.visualViewport?.height || window.innerHeight)))
+      const nextValue = `${nextHeight}px`
+      if (appHeightRef.current === nextValue) return
+      appHeightRef.current = nextValue
+      setAppHeight(nextValue)
     }
     const handleOrientation = () => window.setTimeout(syncAppHeight, 100)
     syncAppHeight()
     window.addEventListener('resize', syncAppHeight)
     window.addEventListener('orientationchange', handleOrientation)
-    window.visualViewport?.addEventListener('resize', syncAppHeight)
     return () => {
       window.removeEventListener('resize', syncAppHeight)
       window.removeEventListener('orientationchange', handleOrientation)
-      window.visualViewport?.removeEventListener('resize', syncAppHeight)
     }
   }, [])
 

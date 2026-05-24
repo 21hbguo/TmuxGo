@@ -88,7 +88,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     let disposables: any[] = []
     let fitTimeout: NodeJS.Timeout | null = null
     let sharedLayoutFrame: number | null = null
-    let fitTimers: NodeJS.Timeout[] = []
+    let fitFrame: number | null = null
     let disposed = false
     let readyNotified = false
     let sharedPanX = 0
@@ -182,7 +182,17 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     const scheduleFit = () => {
       if (disposed) return
       if (fitTimeout) clearTimeout(fitTimeout)
-      fitTimeout = setTimeout(doFit, 50)
+      fitTimeout = setTimeout(doFit, isMobileDevice ? 80 : 50)
+    }
+    const scheduleInitialFit = () => {
+      if (disposed) return
+      if (fitFrame) cancelAnimationFrame(fitFrame)
+      if (fitTimeout) clearTimeout(fitTimeout)
+      fitFrame = requestAnimationFrame(() => {
+        fitFrame = requestAnimationFrame(() => {
+          doFit()
+        })
+      })
     }
     scheduleFitRef.current = scheduleFit
 
@@ -261,11 +271,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         disposables.push(da2Handler)
       }
       if (attachExclusiveRef.current) {
-        scheduleFit()
-        requestAnimationFrame(() => scheduleFit())
-        fitTimers.push(setTimeout(scheduleFit, 0))
-        fitTimers.push(setTimeout(scheduleFit, 150))
-        fitTimers.push(setTimeout(scheduleFit, 400))
+        scheduleInitialFit()
       }
       disposables.push(
         terminal.onData((data: string) => {
@@ -500,7 +506,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     return () => {
       disposed = true
       if (fitTimeout) clearTimeout(fitTimeout)
-      fitTimers.forEach((timer) => clearTimeout(timer))
+      if (fitFrame) cancelAnimationFrame(fitFrame)
       if (sharedLayoutFrame) cancelAnimationFrame(sharedLayoutFrame)
       resizeObserver?.disconnect()
       disposables.forEach((d) => d?.dispose?.())
