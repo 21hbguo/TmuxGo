@@ -334,73 +334,91 @@ export function TerminalPane({ onInput, onResize, attachExclusive = false, onRea
         syncSharedLayout(false)
       })
       resizeObserver.observe(container)
-      // 移动端独占模式：使用 xterm 原生滚动，只保留轻量触摸检测防止滚动后误弹键盘
-      if (isMobileDevice && attachExclusiveRef.current) {
-        let tapStartY = 0
-        let tapStartX = 0
-        const handleTapStart = (e: TouchEvent) => {
-          tapStartY = e.touches[0].clientY
-          tapStartX = e.touches[0].clientX
-          touchMovedRef.current = false
+      // 触摸滚动：按比例滚动 + 惯性，共享模式保留横向平移
+      {
+        let startY = 0
+        let startX = 0
+        let lastY = 0
+        let lastX = 0
+        let accumulated = 0
+        let moved = false
+        let direction: 'unknown' | 'vertical' | 'horizontal' = 'unknown'
+        const velocitySamples: { y: number; t: number }[] = []
+        let momentumId = 0
+
+        const getLineHeight = () => {
+          const dim = terminal?._core?._renderService?.dimensions?.css?.cell
+          return dim?.height || 18
         }
-        const handleTapEnd = (e: TouchEvent) => {
-          const t = e.changedTouches[0]
-          if (Math.abs(t.clientX - tapStartX) > 8 || Math.abs(t.clientY - tapStartY) > 8) {
-            touchMovedRef.current = true
-          }
-        }
-        container.addEventListener('touchstart', handleTapStart, { passive: true })
-        container.addEventListener('touchend', handleTapEnd, { passive: true })
-        disposables.push({
-          dispose: () => {
-            container.removeEventListener('touchstart', handleTapStart)
-            container.removeEventListener('touchend', handleTapEnd)
-          },
-        })
-      } else if (!isMobileDevice || !attachExclusiveRef.current) {
-        let lastTouchY = 0
-        let touchStartY = 0
-        let touchStartX = 0
-        let touchMoved = false
-        let panStartX = 0
-        let scrollDirection: 'unknown' | 'vertical' | 'horizontal' = 'unknown'
+
         const handleTouchStart = (e: TouchEvent) => {
           if (!isMobileDevice) return
-          touchStartY = e.touches[0].clientY
-          touchStartX = e.touches[0].clientX
-          lastTouchY = touchStartY
-          panStartX = sharedPanX
-          touchMoved = false
-          scrollDirection = 'unknown'
+          momentumId++
+          startY = e.touches[0].clientY
+          startX = e.touches[0].clientX
+          lastY = startY
+          lastX = startX
+          accumulated = 0
+          moved = false
+          direction = 'unknown'
+          velocitySamples.length = 0
         }
+
         const handleTouchMove = (e: TouchEvent) => {
           if (!isMobileDevice) return
           const x = e.touches[0].clientX
           const y = e.touches[0].clientY
-          const dx = Math.abs(x - touchStartX)
-          const dy = Math.abs(y - touchStartY)
+          const dx = Math.abs(x - startX)
+          const dy = Math.abs(y - startY)
           if (dx < 8 && dy < 8) return
-          if (scrollDirection === 'unknown') {
-            scrollDirection = dx > dy ? 'horizontal' : 'vertical'
+          if (direction === 'unknown') {
+            direction = dx > dy ? 'horizontal' : 'vertical'
           }
-          if (scrollDirection === 'horizontal') {
+          if (direction === 'horizontal') {
             if (!attachExclusiveRef.current && sharedMaxPanX > 0) {
-              touchMoved = true
+              moved = true
               e.preventDefault()
-              sharedPanX = Math.max(0, Math.min(sharedMaxPanX, panStartX - (x - touchStartX)))
+              sharedPanX = Math.max(0, Math.min(sharedMaxPanX, sharedPanX - (x - lastX)))
               syncSharedViewport()
             }
+            lastX = x
             return
           }
-          touchMoved = true
-          const delta = y - lastTouchY
-          if (Math.abs(delta) > 1) {
-            e.preventDefault()
-            terminal.scrollLines(delta > 0 ? 1 : -1)
-            lastTouchY = y
+          moved = true
+          e.preventDefault()
+          const delta = y - lastY
+          lastY = y
+          accumulated += delta
+          const now = performance.now()
+          velocitySamples.push({ y, t: now })
+          while (velocitySamples.length > 5) velocitySamples.shift()
+          const lh = getLineHeight()
+          while (Math.abs(accumulated) >= lh) {
+            terminal.scrollLines(accumulated > 0 ? -1 : 1)
+            accumulated += accumulated > 0 ? -lh : lh
           }
         }
-        const handleTouchEnd = () => { touchMovedRef.current = touchMoved }
+
+        const handleTouchEnd = () => {
+          touchMovedRef.current = moved
+          if (direction !== 'vertical' || velocitySamples.length < 2) return
+          const first = velocitySamples[0]
+          const last = velocitySamples[velocitySamples.length - 1]
+          const dt = last.t - first.t
+          if (dt <= 0) return
+          let velocity = (last.y - first.y) / dt
+          if (Math.abs(velocity) < 0.3) return
+          const id = ++momentumId
+          const decay = () => {
+            if (momentumId !== id) return
+            velocity *= 0.92
+            if (Math.abs(velocity) < 0.3) return
+            terminal.scrollLines(velocity > 0 ? -1 : 1)
+            requestAnimationFrame(decay)
+          }
+          requestAnimationFrame(decay)
+        }
+
         container.addEventListener('touchstart', handleTouchStart, { passive: true })
         container.addEventListener('touchmove', handleTouchMove, { passive: false })
         container.addEventListener('touchend', handleTouchEnd, { passive: true })
