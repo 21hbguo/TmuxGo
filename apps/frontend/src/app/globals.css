@@ -105,7 +105,7 @@ a {
 .xterm-viewport {
   overflow-y: auto !important;
   -webkit-overflow-scrolling: touch;
-  touch-action: none;
+  touch-action: pan-y;
   overscroll-behavior: contain;
 }
 [data-terminal] {
