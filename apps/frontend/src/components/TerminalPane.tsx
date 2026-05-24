@@ -28,8 +28,21 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   const lastSizeRef = useRef<{ cols: number; rows: number } | null>(null)
   const sharedSessionSizeRef = useRef<{ cols: number; rows: number } | null>(null)
   const controlCarryRef = useRef('')
+  const lastTapRef = useRef<{ x: number; y: number } | null>(null)
   const scheduleFitRef = useRef<() => void>(() => {})
   const syncSharedLayoutRef = useRef<(resetFont: boolean) => void>(() => {})
+  const dispatchTerminalTap = useCallback((x: number, y: number) => {
+    const container = terminalRef.current
+    if (!container) return
+    const target = document.elementFromPoint(x, y) as HTMLElement | null
+    const terminalTarget = target?.closest('.xterm-screen') || target?.closest('.xterm') || container.querySelector('.xterm-screen') || container.querySelector('.xterm')
+    if (!(terminalTarget instanceof HTMLElement)) return
+    const options = { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: 1, composed: true }
+    terminalTarget.dispatchEvent(new MouseEvent('mousemove', options))
+    terminalTarget.dispatchEvent(new MouseEvent('mousedown', options))
+    terminalTarget.dispatchEvent(new MouseEvent('mouseup', { ...options, buttons: 0 }))
+    terminalTarget.dispatchEvent(new MouseEvent('click', { ...options, buttons: 0, detail: 1 }))
+  }, [])
 
   const { send } = useWebSocket()
   const sendInput = useCallback((data: string) => send({ type: 'input', data }), [send])
@@ -392,6 +405,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
 
         const handleTouchStart = (e: TouchEvent) => {
           if (!isMobileDevice) return
+          lastTapRef.current = null
           clearMomentum()
           if (scrollFlushTimer) {
             clearTimeout(scrollFlushTimer)
@@ -449,7 +463,10 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           if (!touch) return
           const totalDx = Math.abs(touch.clientX - startX)
           const totalDy = Math.abs(touch.clientY - startY)
-          if (totalDx < TAP_THRESHOLD && totalDy < TAP_THRESHOLD && performance.now() - startTime < 250) return
+          if (totalDx < TAP_THRESHOLD && totalDy < TAP_THRESHOLD && performance.now() - startTime < 250) {
+            lastTapRef.current = { x: touch.clientX, y: touch.clientY }
+            return
+          }
           let velocity = lastVelocity
           if (Math.abs(velocity) < MIN_VELOCITY) return
           const id = ++momentumId
@@ -479,6 +496,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           carryY = 0
           moved = false
           direction = 'unknown'
+          lastTapRef.current = null
           touchMovedRef.current = false
         }
 
@@ -528,6 +546,10 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       onTouchEnd={(e) => {
         if (isMobileDevice && !touchMovedRef.current) {
           e.preventDefault()
+          const touch = e.changedTouches[0]
+          const tap = lastTapRef.current || (touch ? { x: touch.clientX, y: touch.clientY } : null)
+          if (tap) dispatchTerminalTap(tap.x, tap.y)
+          lastTapRef.current = null
           focusKeyboard()
         } else if (!isMobileDevice) {
           terminalInstance.current?.focus?.()

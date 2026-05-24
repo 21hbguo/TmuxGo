@@ -17,33 +17,62 @@ export function PaneGrid() {
   const attachedRef = useRef<string | null>(null)
   const sizeRef = useRef<{ cols: number; rows: number } | null>(null)
   const terminalReadyRef = useRef(false)
+  const resizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingResizeRef = useRef<{ cols: number; rows: number } | null>(null)
+  const sentResizeRef = useRef<{ cols: number; rows: number } | null>(null)
 
   const sessionName = activeSessionId?.replace('session-', '') || ''
 
-  // 当 session 变化时重置 attached 状态
+  const clearPendingResize = useCallback(() => {
+    if (resizeTimerRef.current) {
+      clearTimeout(resizeTimerRef.current)
+      resizeTimerRef.current = null
+    }
+    pendingResizeRef.current = null
+  }, [])
+
+  const flushResize = useCallback(() => {
+    resizeTimerRef.current = null
+    const size = pendingResizeRef.current
+    if (!size || !isConnected) return
+    if (attachedRef.current !== sessionName) return
+    const prev = sentResizeRef.current
+    if (prev && prev.cols === size.cols && prev.rows === size.rows) return
+    pendingResizeRef.current = null
+    sentResizeRef.current = size
+    send({ type: 'resize', cols: size.cols, rows: size.rows })
+  }, [isConnected, send, sessionName])
+
   useEffect(() => {
     if (attachedRef.current && attachedRef.current !== sessionName && isConnected) {
       send({ type: 'detach' })
     }
+    clearPendingResize()
     attachedRef.current = null
+    sentResizeRef.current = null
     terminalReadyRef.current = false
-  }, [sessionName, isConnected, send])
+  }, [sessionName, isConnected, send, clearPendingResize])
   useEffect(() => {
     if (!isConnected) {
+      clearPendingResize()
       attachedRef.current = null
+      sentResizeRef.current = null
     }
-  }, [isConnected])
+  }, [isConnected, clearPendingResize])
 
   useEffect(() => {
     const handleReconnect = () => {
+      clearPendingResize()
       attachedRef.current = null
+      sentResizeRef.current = null
       terminalReadyRef.current = true
     }
     window.addEventListener('ws-reconnected', handleReconnect)
     return () => window.removeEventListener('ws-reconnected', handleReconnect)
-  }, [])
+  }, [clearPendingResize])
 
-  // attach: 就绪后立即连接
+  useEffect(() => () => clearPendingResize(), [clearPendingResize])
+
   useEffect(() => {
     if (!sessionName || !isConnected || !terminalReadyRef.current) return
     if (attachedRef.current === sessionName) return
@@ -51,6 +80,7 @@ export function PaneGrid() {
     const exclusive = isMobile || preferences.attachExclusive
     send({ type: 'attach', sessionName, cols: size?.cols || 120, rows: size?.rows || 36, exclusive })
     attachedRef.current = sessionName
+    sentResizeRef.current = size || null
   }, [sessionName, isConnected, isMobile, send, preferences.attachExclusive])
 
   const handleInput = useCallback((data: string) => {
@@ -60,8 +90,19 @@ export function PaneGrid() {
     sizeRef.current = { cols, rows }
     if (!isConnected) return
     if (!isMobile && !preferences.attachExclusive) return
-    send({ type: 'resize', cols, rows })
-  }, [isConnected, isMobile, send, preferences.attachExclusive])
+    if (attachedRef.current !== sessionName) return
+    const nextSize = { cols, rows }
+    if (!isMobile) {
+      const prev = sentResizeRef.current
+      if (prev && prev.cols === cols && prev.rows === rows) return
+      sentResizeRef.current = nextSize
+      send({ type: 'resize', cols, rows })
+      return
+    }
+    pendingResizeRef.current = nextSize
+    if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current)
+    resizeTimerRef.current = setTimeout(flushResize, 220)
+  }, [isConnected, isMobile, send, preferences.attachExclusive, sessionName, flushResize])
   const handleReady = useCallback(() => {
     terminalReadyRef.current = true
     if (!sessionName || !isConnected) return
@@ -70,6 +111,7 @@ export function PaneGrid() {
     const exclusive = isMobile || preferences.attachExclusive
     send({ type: 'attach', sessionName, cols: size?.cols || 120, rows: size?.rows || 36, exclusive })
     attachedRef.current = sessionName
+    sentResizeRef.current = size || null
   }, [isConnected, isMobile, preferences.attachExclusive, send, sessionName])
 
   if (!activeSessionId) {

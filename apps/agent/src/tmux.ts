@@ -12,6 +12,9 @@ export interface TmuxSession {
 }
 
 export class TmuxManager {
+  async enableMouse(name: string): Promise<void> {
+    await execAsync(`tmux set-option -t ${name} -g mouse on`)
+  }
   async listSessions(): Promise<TmuxSession[]> {
     try {
       const { stdout } = await execAsync(
@@ -42,6 +45,7 @@ export class TmuxManager {
 
   async createSession(name: string): Promise<TmuxSession> {
     await execAsync(`tmux new-session -d -s ${name}`)
+    await this.enableMouse(name)
     const sessions = await this.listSessions()
     const session = sessions.find((s) => s.name === name)
     if (!session) {

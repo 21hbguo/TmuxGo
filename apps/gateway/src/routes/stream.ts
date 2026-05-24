@@ -63,6 +63,11 @@ export async function streamRoutes(fastify: FastifyInstance) {
       }
       return null
     }
+    async function enableMouse(sessionName: string) {
+      try {
+        await execFileAsync('tmux', ['set-option', '-t', sessionName, '-g', 'mouse', 'on'])
+      } catch {}
+    }
 
     socket.on('message', async (message: Buffer) => {
       try {
@@ -78,6 +83,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
           case 'attach': {
             cleanup()
             const sessionName = data.sessionName
+            await enableMouse(sessionName)
             const requestedCols = data.cols || 80
             const requestedRows = data.rows || 24
             const exclusive = !!data.exclusive

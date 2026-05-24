@@ -5,6 +5,10 @@ import { promisify } from 'util'
 
 const execAsync = promisify(exec)
 
+async function enableMouse(sessionName: string) {
+  await execAsync(`tmux set-option -t ${sessionName} -g mouse on`)
+}
+
 async function getLocalTmuxSessions() {
   try {
     const { stdout } = await execAsync(
@@ -45,9 +49,11 @@ export async function sessionRoutes(fastify: FastifyInstance) {
       const existingSessions = await getLocalTmuxSessions()
       const existingSession = existingSessions.find((s) => s.name === name)
       if (existingSession) {
+        await enableMouse(existingSession.name)
         return existingSession
       }
       await execAsync(`tmux new-session -d -s ${name}`)
+      await enableMouse(name)
       const sessions = await getLocalTmuxSessions()
       return sessions.find((s) => s.name === name) || {
         id: `session-${name}`,
