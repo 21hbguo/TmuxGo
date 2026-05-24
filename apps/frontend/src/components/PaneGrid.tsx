@@ -32,6 +32,15 @@ export function PaneGrid() {
     }
   }, [isConnected])
 
+  useEffect(() => {
+    const handleReconnect = () => {
+      attachedRef.current = null
+      terminalReadyRef.current = true
+    }
+    window.addEventListener('ws-reconnected', handleReconnect)
+    return () => window.removeEventListener('ws-reconnected', handleReconnect)
+  }, [])
+
   // attach: 就绪后立即连接
   useEffect(() => {
     if (!sessionName || !isConnected || !terminalReadyRef.current) return

@@ -24,6 +24,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="font-sans antialiased">
+        <script dangerouslySetInnerHTML={{ __html: "document.addEventListener('contextmenu',function(e){e.preventDefault()},{passive:false})" }} />
         <QueryProvider>
           <I18nProvider>{children}</I18nProvider>
         </QueryProvider>

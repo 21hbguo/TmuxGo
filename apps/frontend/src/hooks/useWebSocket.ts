@@ -60,6 +60,7 @@ export function useWebSocket() {
         reconnectCountRef.current = 0
         updateConnection({ status: 'connected', latency: 0 })
         ws.send(JSON.stringify({ type: 'ping', timestamp: Date.now() }))
+        window.dispatchEvent(new CustomEvent('ws-reconnected'))
         wsState.onOpen?.()
       }
       ws.onmessage = (event) => {

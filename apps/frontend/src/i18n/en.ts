@@ -28,6 +28,7 @@ export const en = {
   'drawer.sessions': 'Sessions',
   'drawer.panes': 'Panes',
   'drawer.windows': '{count} windows',
+  'drawer.sessionName': 'Session name:',
 
   // ConnectionBadge
   'badge.connected': 'Connected',
@@ -114,6 +115,13 @@ export const en = {
   'quick.zoom': 'Zoom',
   'quick.killPane': 'Kill Pane',
   'quick.killConfirm': 'Close current pane?',
+
+  // ShortcutBar
+  'shortcut.enter': 'Enter',
+  'shortcut.splitH': 'H Split',
+  'shortcut.splitV': 'V Split',
+  'shortcut.zoom': 'Zoom',
+  'shortcut.kill': 'Kill',
 
   // Custom Shortcuts
   'shortcut.custom': 'Custom Shortcuts',

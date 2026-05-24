@@ -288,21 +288,33 @@ export function TerminalPane({ onInput, onResize, attachExclusive = false, onRea
       resizeObserver.observe(container)
       let lastTouchY = 0
       let touchStartY = 0
+      let touchStartX = 0
       let touchMoved = false
+      let scrollDirection: 'unknown' | 'vertical' | 'horizontal' = 'unknown'
       const handleTouchStart = (e: TouchEvent) => {
         if (!isMobileDevice) return
         touchStartY = e.touches[0].clientY
+        touchStartX = e.touches[0].clientX
         lastTouchY = touchStartY
         touchMoved = false
+        scrollDirection = 'unknown'
       }
       const handleTouchMove = (e: TouchEvent) => {
         if (!isMobileDevice) return
+        const x = e.touches[0].clientX
         const y = e.touches[0].clientY
-        const dy = y - lastTouchY
-        if (Math.abs(y - touchStartY) > 8) touchMoved = true
-        if (touchMoved && Math.abs(dy) > 1) {
+        const dx = Math.abs(x - touchStartX)
+        const dy = Math.abs(y - touchStartY)
+        if (dx < 8 && dy < 8) return
+        if (scrollDirection === 'unknown') {
+          scrollDirection = dx > dy ? 'horizontal' : 'vertical'
+        }
+        if (scrollDirection === 'horizontal') return
+        touchMoved = true
+        const delta = y - lastTouchY
+        if (Math.abs(delta) > 1) {
           e.preventDefault()
-          terminal.scrollLines(dy > 0 ? 1 : -1)
+          terminal.scrollLines(delta > 0 ? 1 : -1)
           lastTouchY = y
         }
       }

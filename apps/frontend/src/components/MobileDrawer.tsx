@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
+import { useCreateSession } from '@/hooks/useApi'
+import { SessionTemplates, type Template } from './SessionTemplates'
 import { useTranslation } from '@/i18n'
 import { ShortcutBar } from './ShortcutBar'
 
@@ -12,8 +14,22 @@ interface MobileDrawerProps {
 }
 
 export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
-  const { sessions, activeSessionId, setActiveSession } = useConsoleStore()
+  const { sessions, activeSessionId, setActiveSession, activeHostId } = useConsoleStore()
+  const createSession = useCreateSession()
   const { t } = useTranslation()
+  const [showTemplates, setShowTemplates] = useState(false)
+
+  const handleTemplateSelect = async (template: Template) => {
+    if (!activeHostId) return
+    const name = prompt(t('drawer.sessionName'), template.name.toLowerCase())
+    if (!name) return
+    try {
+      const created = await createSession.mutateAsync({ hostId: activeHostId, name })
+      if (created?.id) setActiveSession(created.id)
+      onClose()
+    } catch {}
+    setShowTemplates(false)
+  }
   const [visible, setVisible] = useState(false)
   const [closing, setClosing] = useState(false)
   const startYRef = useRef(0)
@@ -98,6 +114,12 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
         <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4" style={{ WebkitOverflowScrolling: 'touch' }}>
           {type === 'sessions' && (
             <div className="space-y-2">
+              <button
+                onClick={() => setShowTemplates(true)}
+                className="w-full rounded-lg p-3 text-left border border-dashed border-[var(--line)] text-accent active:bg-accent/10 transition-colors"
+              >
+                + {t('sidebar.newSession')}
+              </button>
               {sessions.map((session: any) => (
                 <button
                   key={session.id}
@@ -120,6 +142,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
           )}
         </div>
       </div>
+      {showTemplates && <SessionTemplates onSelect={handleTemplateSelect} onClose={() => setShowTemplates(false)} />}
     </div>
   )
 }

@@ -28,6 +28,7 @@ export const zh = {
   'drawer.sessions': '会话',
   'drawer.panes': '面板',
   'drawer.windows': '{count} 个窗口',
+  'drawer.sessionName': '会话名称：',
 
   // ConnectionBadge
   'badge.connected': '已连接',
@@ -114,6 +115,13 @@ export const zh = {
   'quick.zoom': '聚焦',
   'quick.killPane': '删面板',
   'quick.killConfirm': '确认关闭当前面板？',
+
+  // ShortcutBar
+  'shortcut.enter': '回车',
+  'shortcut.splitH': '横分',
+  'shortcut.splitV': '竖分',
+  'shortcut.zoom': '聚焦',
+  'shortcut.kill': '关闭',
 
   // Custom Shortcuts
   'shortcut.custom': '自定义快捷键',
