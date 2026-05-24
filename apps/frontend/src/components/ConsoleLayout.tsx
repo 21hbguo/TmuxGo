@@ -195,7 +195,7 @@ export function ConsoleLayout() {
             <Sidebar />
           </div>
         )}
-        <main data-console-main className="flex flex-1 min-h-0 flex-col" style={isMobile ? { paddingBottom: keyboardOpen ? 'calc(52px + env(safe-area-inset-bottom,0px))' : 'calc(56px + env(safe-area-inset-bottom,0px))' } : undefined}>
+        <main data-console-main className="flex flex-1 min-h-0 flex-col bg-bg-1" style={isMobile ? { paddingBottom: keyboardOpen ? 'calc(52px + env(safe-area-inset-bottom,0px))' : 'calc(56px + env(safe-area-inset-bottom,0px))' } : undefined}>
           <PaneGrid />
           {!isMobile && <ShortcutBar />}
         </main>

@@ -125,7 +125,7 @@ export function PaneGrid() {
   }
 
   return (
-    <div className="flex-1 w-full min-h-0">
+    <div className="flex-1 w-full min-h-0 bg-bg-1">
       <TerminalPane key={activeSessionId} sessionName={sessionName} onInput={handleInput} onResize={handleResize} attachExclusive={isMobile || preferences.attachExclusive} onReady={handleReady} />
     </div>
   )
