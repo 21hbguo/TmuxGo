@@ -115,14 +115,6 @@ a {
   user-select: none;
   background: rgb(var(--bg-1));
 }
-@media (max-width: 1023px) {
-  [data-terminal] {
-    touch-action: pan-y;
-  }
-  .xterm-viewport {
-    touch-action: pan-y;
-  }
-}
 [data-terminal] .xterm {
   position: relative;
 }
