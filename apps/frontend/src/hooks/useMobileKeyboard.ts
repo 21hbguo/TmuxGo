@@ -7,7 +7,7 @@ const SENTINEL_CENTER = 1
 const KEYBOARD_OPEN_THRESHOLD = 120
 const KEYBOARD_CLOSE_THRESHOLD = 70
 
-function isMobileDevice(): boolean {
+export function isMobileDevice(): boolean {
   if (typeof window === 'undefined') return false
   if (window.matchMedia('(pointer: coarse)').matches) return true
   return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
