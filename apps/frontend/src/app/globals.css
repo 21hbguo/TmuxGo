@@ -161,7 +161,7 @@ a {
   transition-duration: 0ms !important;
 }
 .keyboard-open [data-console-main] {
-  padding-bottom: calc(52px + env(safe-area-inset-bottom,0px)) !important;
+  padding-bottom: calc(40px + env(safe-area-inset-bottom,0px)) !important;
 }
 
 @media (orientation: landscape) and (max-height: 500px) {
