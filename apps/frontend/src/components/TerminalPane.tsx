@@ -251,6 +251,12 @@ export function TerminalPane({ onInput, onResize, attachExclusive = false, onRea
       terminal.open(container)
       fitAddonRef.current = fitAddon
       terminalInstance.current = terminal
+      // 禁用 xterm.js 内置触摸处理，由自定义处理器接管
+      const vp = terminal.viewport as any
+      if (vp) {
+        vp.handleTouchStart = () => {}
+        vp.handleTouchMove = () => true
+      }
       const da2Handler = terminal.parser?.registerCsiHandler?.({ prefix: '>', final: 'c' }, () => true)
       if (da2Handler) {
         disposables.push(da2Handler)
@@ -351,10 +357,7 @@ export function TerminalPane({ onInput, onResize, attachExclusive = false, onRea
           return dim?.height || 18
         }
 
-        console.log('[touch] handler setup, isMobile:', isMobileDevice, 'exclusive:', attachExclusiveRef.current)
-
         const handleTouchStart = (e: TouchEvent) => {
-          console.log('[touch] start, isMobile:', isMobileDevice)
           if (!isMobileDevice) return
           momentumId++
           startY = e.touches[0].clientY
@@ -376,7 +379,6 @@ export function TerminalPane({ onInput, onResize, attachExclusive = false, onRea
           if (dx < 8 && dy < 8) return
           if (direction === 'unknown') {
             direction = dx > dy ? 'horizontal' : 'vertical'
-            console.log('[touch] direction locked:', direction)
           }
           if (direction === 'horizontal') {
             if (!attachExclusiveRef.current && sharedMaxPanX > 0) {
@@ -399,7 +401,6 @@ export function TerminalPane({ onInput, onResize, attachExclusive = false, onRea
           const lh = getLineHeight()
           if (Math.abs(accumulated) >= lh) {
             const lines = Math.trunc(accumulated / lh)
-            console.log('[touch] scrolling', lines, 'lines, accumulated:', accumulated.toFixed(1), 'lh:', lh)
             terminal.scrollLines(-lines)
             accumulated -= lines * lh
           }
@@ -441,7 +442,7 @@ export function TerminalPane({ onInput, onResize, attachExclusive = false, onRea
         notifyReady()
       }
     }
-    initTerminal()
+    initTerminal().catch(console.error)
     return () => {
       disposed = true
       if (fitTimeout) clearTimeout(fitTimeout)
