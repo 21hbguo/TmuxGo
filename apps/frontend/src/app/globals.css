@@ -113,6 +113,19 @@ a {
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;
+  background: rgb(var(--bg-1));
+}
+[data-terminal] .xterm {
+  position: relative;
+}
+[data-terminal] .xterm-screen,
+[data-terminal] .xterm-helpers,
+[data-terminal] .xterm-accessibility,
+[data-terminal] .xterm-decoration-container,
+[data-terminal] .xterm-selection-layer,
+[data-terminal] .xterm-link-layer,
+[data-terminal] .xterm-cursor-layer {
+  left: 0;
 }
 
 [data-shortcut-bar] {
@@ -141,13 +154,33 @@ a {
   right: 0;
   bottom: calc(var(--mobile-keyboard-inset, 0px));
   z-index: 50;
+  background: rgb(var(--bg-1));
+  box-shadow: 0 -8px 24px rgba(0,0,0,0.22);
 }
 .keyboard-open [data-mobile-nav] {
   transform: translateY(calc(100% + env(safe-area-inset-bottom, 0px)));
   pointer-events: none;
 }
 .keyboard-open [data-console-main] {
-  padding-bottom: 0 !important;
+  padding-bottom: calc(52px + env(safe-area-inset-bottom,0px)) !important;
+}
+@media (max-width: 1023px) {
+  [data-terminal] .xterm {
+    overflow: hidden;
+  }
+  [data-terminal] .xterm-screen {
+    position: absolute;
+    top: 0;
+  }
+  [data-terminal] .xterm-helpers,
+  [data-terminal] .xterm-accessibility,
+  [data-terminal] .xterm-decoration-container,
+  [data-terminal] .xterm-selection-layer,
+  [data-terminal] .xterm-link-layer,
+  [data-terminal] .xterm-cursor-layer {
+    position: absolute;
+    top: 0;
+  }
 }
 
 @media (orientation: landscape) and (max-height: 500px) {
