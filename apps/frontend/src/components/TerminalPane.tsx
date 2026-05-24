@@ -339,19 +339,26 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         syncSharedLayout(false)
       })
       resizeObserver.observe(container)
-      // 触摸滚动：通过 tmux copy-mode 实现，支持批量发送 + 惯性
       {
         let startY = 0
         let startX = 0
         let lastY = 0
+        let carryY = 0
         let moved = false
         let direction: 'unknown' | 'vertical' | 'horizontal' = 'unknown'
         let scrollPendingLines = 0
         let scrollFlushTimer: ReturnType<typeof setTimeout> | null = null
         let momentumId = 0
+        let startTime = 0
+        let lastMoveTime = 0
+        let lastVelocity = 0
         const FLUSH_INTERVAL = 16
         const MAX_LINES_PER_FLUSH = 18
         const SCROLL_THRESHOLD = 18
+        const TAP_THRESHOLD = 10
+        const MIN_VELOCITY = 0.2
+        const MAX_VELOCITY_LINES = 6
+        let momentumTimer: ReturnType<typeof setTimeout> | null = null
 
         const flushScroll = () => {
           scrollFlushTimer = null
@@ -369,17 +376,29 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           }
         }
 
+        const clearMomentum = () => {
+          momentumId++
+          if (momentumTimer) {
+            clearTimeout(momentumTimer)
+            momentumTimer = null
+          }
+        }
+
         const handleTouchStart = (e: TouchEvent) => {
           if (!isMobileDevice) return
-          momentumId++
+          clearMomentum()
           if (scrollFlushTimer) {
             clearTimeout(scrollFlushTimer)
             scrollFlushTimer = null
           }
           scrollPendingLines = 0
+          carryY = 0
           startY = e.touches[0].clientY
           startX = e.touches[0].clientX
           lastY = startY
+          startTime = performance.now()
+          lastMoveTime = startTime
+          lastVelocity = 0
           moved = false
           direction = 'unknown'
         }
@@ -395,12 +414,19 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
             direction = dx > dy ? 'horizontal' : 'vertical'
           }
           if (direction !== 'vertical') return
+          if (dy < TAP_THRESHOLD) return
           moved = true
           e.preventDefault()
+          const now = performance.now()
           const deltaY = y - lastY
+          const deltaTime = Math.max(1, now - lastMoveTime)
           lastY = y
-          const step = Math.trunc(deltaY / SCROLL_THRESHOLD)
+          lastMoveTime = now
+          carryY += deltaY
+          lastVelocity = deltaY / deltaTime
+          const step = Math.trunc(carryY / SCROLL_THRESHOLD)
           if (step !== 0) {
+            carryY -= step * SCROLL_THRESHOLD
             queueScroll(step * 2)
           }
         }
@@ -413,32 +439,55 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           if (scrollPendingLines) flushScroll()
           touchMovedRef.current = moved
           if (direction !== 'vertical') return
-          // 惯性滚动：swipe up (deltaY<0) → scroll down (lines>0)
           const touch = e.changedTouches[0]
           if (!touch) return
-          const dt = 100
-          let velocity = -(touch.clientY - startY) / dt
-          if (Math.abs(velocity) < 0.3) return
+          const totalDx = Math.abs(touch.clientX - startX)
+          const totalDy = Math.abs(touch.clientY - startY)
+          if (totalDx < TAP_THRESHOLD && totalDy < TAP_THRESHOLD && performance.now() - startTime < 250) return
+          let velocity = lastVelocity
+          if (Math.abs(velocity) < MIN_VELOCITY) return
           const id = ++momentumId
           const decay = () => {
             if (momentumId !== id) return
             velocity *= 0.92
-            if (Math.abs(velocity) < 0.3) return
-            send({ type: 'pane_scroll', sessionName: sessionNameRef.current, lines: velocity > 0 ? 2 : -2 })
-            setTimeout(decay, FLUSH_INTERVAL)
+            if (Math.abs(velocity) < MIN_VELOCITY) {
+              momentumTimer = null
+              return
+            }
+            const lines = Math.max(-MAX_VELOCITY_LINES, Math.min(MAX_VELOCITY_LINES, Math.round(velocity * 8)))
+            if (lines !== 0) {
+              send({ type: 'pane_scroll', sessionName: sessionNameRef.current, lines })
+            }
+            momentumTimer = setTimeout(decay, FLUSH_INTERVAL)
           }
-          setTimeout(decay, FLUSH_INTERVAL)
+          momentumTimer = setTimeout(decay, FLUSH_INTERVAL)
+        }
+
+        const handleTouchCancel = () => {
+          if (scrollFlushTimer) {
+            clearTimeout(scrollFlushTimer)
+            scrollFlushTimer = null
+          }
+          clearMomentum()
+          scrollPendingLines = 0
+          carryY = 0
+          moved = false
+          direction = 'unknown'
+          touchMovedRef.current = false
         }
 
         container.addEventListener('touchstart', handleTouchStart, { passive: true })
         container.addEventListener('touchmove', handleTouchMove, { passive: false })
         container.addEventListener('touchend', handleTouchEnd, { passive: true })
+        container.addEventListener('touchcancel', handleTouchCancel, { passive: true })
         disposables.push({
           dispose: () => {
             if (scrollFlushTimer) clearTimeout(scrollFlushTimer)
+            if (momentumTimer) clearTimeout(momentumTimer)
             container.removeEventListener('touchstart', handleTouchStart)
             container.removeEventListener('touchmove', handleTouchMove)
             container.removeEventListener('touchend', handleTouchEnd)
+            container.removeEventListener('touchcancel', handleTouchCancel)
           },
         })
       }

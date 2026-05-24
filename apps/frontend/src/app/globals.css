@@ -103,10 +103,7 @@ a {
   background: rgb(var(--text-2));
 }
 .xterm-viewport {
-  overflow-y: auto !important;
-  -webkit-overflow-scrolling: touch;
-  touch-action: pan-y;
-  overscroll-behavior: contain;
+  overflow: hidden !important;
 }
 [data-terminal] {
   touch-action: none;
