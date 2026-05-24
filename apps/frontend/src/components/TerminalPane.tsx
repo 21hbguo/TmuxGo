@@ -134,8 +134,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const availableHeight = Math.max(0, parentHeight - paddingY)
       const availableWidth = Math.max(0, parentWidth - paddingX - scrollbar)
       const cols = Math.max(2, Math.floor(availableWidth / cellWidth))
-      const rawRows = availableHeight / cellHeight
-      const rows = Math.max(1, Math.round(rawRows))
+      const rows = Math.max(1, Math.floor(availableHeight / cellHeight))
       return { cols, rows }
     }
 
