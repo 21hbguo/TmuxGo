@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useTranslation } from '@/i18n'
 import { useConsoleStore } from '@/stores/useConsoleStore'
@@ -14,6 +14,7 @@ import { api } from '@/lib/api'
 import { analyzePaste, escapePaste } from '@/lib/paste-safety'
 
 const btn = 'px-2 py-1.5 rounded text-xs transition-colors bg-bg-2 text-text-2 hover:bg-bg-1 active:bg-bg-0'
+const repeatBtn = `${btn} touch-none select-none`
 
 export function QuickActions() {
   const { preferences, updatePreferences } = usePreferences()
@@ -32,6 +33,8 @@ export function QuickActions() {
   const [isMobile, setIsMobile] = useState(false)
   const [confirmKillOpen, setConfirmKillOpen] = useState(false)
   const [pendingPaste, setPendingPaste] = useState<{ text: string; meta: string[]; mode?: 'confirm' | 'manual' } | null>(null)
+  const repeatTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const repeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 1024)
     check()
@@ -39,14 +42,42 @@ export function QuickActions() {
     return () => window.removeEventListener('resize', check)
   }, [])
 
-  const sendKey = (data: string) => send({ type: 'input', data })
+  const sendKey = useCallback((data: string) => send({ type: 'input', data }), [send])
   const sendClipboardText = (text: string) => send({ type: 'input', data: text })
+  const refreshSnapshot = useCallback(async () => {
+    if (!activeHostId || !activeSessionId) return
+    const snapshot = await api.snapshot.get(activeHostId, activeSessionId)
+    useConsoleStore.setState((state) => ({
+      windows: snapshot.windows || [],
+      panes: snapshot.panes || [],
+      activePaneId: (snapshot.panes || []).find((pane: any) => pane.active)?.id || ((snapshot.panes || []).some((pane: any) => pane.id === state.activePaneId) ? state.activePaneId : snapshot.activePaneId || snapshot.panes?.[0]?.id || null),
+    }))
+  }, [activeHostId, activeSessionId])
+  const stopRepeat = useCallback(() => {
+    if (repeatTimerRef.current) {
+      clearTimeout(repeatTimerRef.current)
+      repeatTimerRef.current = null
+    }
+    if (repeatIntervalRef.current) {
+      clearInterval(repeatIntervalRef.current)
+      repeatIntervalRef.current = null
+    }
+  }, [])
+  const startRepeat = useCallback((data: string) => {
+    stopRepeat()
+    sendKey(data)
+    repeatTimerRef.current = setTimeout(() => {
+      repeatIntervalRef.current = setInterval(() => sendKey(data), 54)
+    }, 260)
+  }, [sendKey, stopRepeat])
+  useEffect(() => stopRepeat, [stopRepeat])
 
   const handleSplit = async (direction: 'horizontal' | 'vertical') => {
     if (!activePaneId || !activeWindow || pendingDirection) return
     setPendingDirection(direction)
     try {
       await api.panes.split(activePaneId, direction)
+      await refreshSnapshot()
       pushToast({ type: 'success', message: 'Pane split complete' })
     } catch (err) {
       pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Split failed' })
@@ -115,6 +146,7 @@ export function QuickActions() {
     if (!activePaneId) return
     try {
       await api.panes.kill(activePaneId)
+      await refreshSnapshot()
       pushToast({ type: 'success', message: 'Pane closed' })
     } catch (err) {
       pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Kill failed' })
@@ -137,11 +169,11 @@ export function QuickActions() {
 
       <div className="grid grid-cols-3 gap-1">
         <button onClick={() => sendKey('\x1b')} className={btn}>Esc</button>
-        <button onClick={() => sendKey('\x1b[A')} className={btn}>&uarr;</button>
+        <button onPointerDown={() => startRepeat('\x1b[A')} onPointerUp={stopRepeat} onPointerLeave={stopRepeat} onPointerCancel={stopRepeat} className={repeatBtn}>&uarr;</button>
         <button onClick={() => sendKey('\t')} className={btn}>Tab</button>
-        <button onClick={() => sendKey('\x1b[D')} className={btn}>&larr;</button>
-        <button onClick={() => sendKey('\x1b[B')} className={btn}>&darr;</button>
-        <button onClick={() => sendKey('\x1b[C')} className={btn}>&rarr;</button>
+        <button onPointerDown={() => startRepeat('\x1b[D')} onPointerUp={stopRepeat} onPointerLeave={stopRepeat} onPointerCancel={stopRepeat} className={repeatBtn}>&larr;</button>
+        <button onPointerDown={() => startRepeat('\x1b[B')} onPointerUp={stopRepeat} onPointerLeave={stopRepeat} onPointerCancel={stopRepeat} className={repeatBtn}>&darr;</button>
+        <button onPointerDown={() => startRepeat('\x1b[C')} onPointerUp={stopRepeat} onPointerLeave={stopRepeat} onPointerCancel={stopRepeat} className={repeatBtn}>&rarr;</button>
       </div>
 
       <div className="grid grid-cols-3 gap-1">
