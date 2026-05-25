@@ -12,6 +12,7 @@ import { ConfirmDialog } from './ConfirmDialog'
 import { PasteConfirmDialog } from './PasteConfirmDialog'
 import { api } from '@/lib/api'
 import { analyzePaste, escapePaste } from '@/lib/paste-safety'
+import { readClipboardTextOnly } from '@/lib/clipboard-text'
 
 const btn = 'px-2 py-1.5 rounded text-xs transition-colors bg-bg-2 text-text-2 hover:bg-bg-1 active:bg-bg-0'
 const repeatBtn = `${btn} touch-none select-none`
@@ -80,20 +81,47 @@ export function QuickActions() {
       await refreshSnapshot()
       pushToast({ type: 'success', message: 'Pane split complete' })
     } catch (err) {
-      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Split failed' })
+      try {
+        await refreshSnapshot()
+        const paneId = useConsoleStore.getState().activePaneId
+        if (!paneId || paneId === activePaneId) throw err
+        await api.panes.split(paneId, direction)
+        await refreshSnapshot()
+        pushToast({ type: 'success', message: 'Pane split complete' })
+      } catch (retryErr) {
+        pushToast({ type: 'error', message: retryErr instanceof Error ? retryErr.message : 'Split failed' })
+      }
     } finally {
       setPendingDirection(null)
     }
   }
 
-  const handleCopy = () => {
-    const text = window.getSelection()?.toString()
-    if (!text) return
+  const writeClipboard = useCallback((text: string) => {
     if (navigator.clipboard?.writeText) {
       navigator.clipboard.writeText(text).catch(() => fallbackCopy(text))
     } else {
       fallbackCopy(text)
     }
+  }, [])
+  const handleCopy = () => {
+    const requestId = `${Date.now()}-${Math.random().toString(16).slice(2)}`
+    const fallbackText = window.getSelection()?.toString() || ''
+    let handled = false
+    const handleSelection = (event: Event) => {
+      const detail = (event as CustomEvent<{ requestId?: string; selection?: string }>).detail
+      if (detail?.requestId !== requestId) return
+      handled = true
+      window.removeEventListener('tmuxgo-terminal-selection', handleSelection as EventListener)
+      const text = detail.selection || fallbackText
+      if (text) writeClipboard(text)
+    }
+    window.addEventListener('tmuxgo-terminal-selection', handleSelection as EventListener)
+    window.dispatchEvent(new CustomEvent('tmuxgo-copy-terminal-selection', { detail: { requestId } }))
+    setTimeout(() => {
+      if (handled) return
+      window.removeEventListener('tmuxgo-terminal-selection', handleSelection as EventListener)
+      if (fallbackText) writeClipboard(fallbackText)
+    }, 50)
   }
 
   const fallbackCopy = (text: string) => {
@@ -108,18 +136,7 @@ export function QuickActions() {
 
   const handlePaste = async () => {
     try {
-      let text = ''
-      if (navigator.clipboard?.readText) {
-        text = await navigator.clipboard.readText()
-      } else {
-        const ta = document.createElement('textarea')
-        ta.style.cssText = 'position:fixed;left:-9999px'
-        document.body.appendChild(ta)
-        ta.focus()
-        document.execCommand('paste')
-        text = ta.value
-        document.body.removeChild(ta)
-      }
+      const text = await readClipboardTextOnly()
       if (!text) return
       const analysis = analyzePaste(text)
       if (analysis.requiresConfirm) {

@@ -7,6 +7,7 @@ import { api } from '@/lib/api'
 import { ConfirmDialog } from './ConfirmDialog'
 import { analyzePaste, escapePaste } from '@/lib/paste-safety'
 import { PasteConfirmDialog } from './PasteConfirmDialog'
+import { readClipboardTextOnly } from '@/lib/clipboard-text'
 
 interface CommandPaletteProps {
   onClose: () => void
@@ -39,7 +40,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
   }
   const pasteClipboard = async () => {
     try {
-      const text = await navigator.clipboard.readText()
+      const text = await readClipboardTextOnly()
       if (!text) throw new Error('Clipboard is empty')
       const analysis = analyzePaste(text)
       if (analysis.requiresConfirm) {

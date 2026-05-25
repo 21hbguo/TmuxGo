@@ -7,6 +7,7 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import { api } from '@/lib/api'
 import { PasteConfirmDialog } from './PasteConfirmDialog'
 import { analyzePaste, escapePaste } from '@/lib/paste-safety'
+import { readClipboardTextOnly } from '@/lib/clipboard-text'
 
 interface KeyDef {
   label: string
@@ -114,7 +115,7 @@ export function ShortcutBar({ mode = 'dock' }: ShortcutBarProps) {
 
   const handlePaste = async () => {
     try {
-      const text = await navigator.clipboard.readText()
+      const text = await readClipboardTextOnly()
       if (!text) return
       const analysis = analyzePaste(text)
       if (analysis.requiresConfirm) {

@@ -32,6 +32,16 @@ function writeRecentFile(entry: { rootId: string; rootPath: string; name: string
   localStorage.setItem('tmuxgo-recent-files', JSON.stringify(next))
   return next
 }
+function readHideDotFiles() {
+  if (typeof window === 'undefined') return true
+  return localStorage.getItem('tmuxgo-hide-dot-files') !== 'false'
+}
+function writeHideDotFiles(value: boolean) {
+  localStorage.setItem('tmuxgo-hide-dot-files', String(value))
+}
+function isDotPath(path: string) {
+  return path.split(/[\\/]+/).some((part) => part.startsWith('.') && part.length > 1)
+}
 function FileIcon({ type }: { type: 'file' | 'directory' }) {
   return <span className={type === 'directory' ? 'text-accent' : 'text-text-3'}>{type === 'directory' ? '▸' : '·'}</span>
 }
@@ -49,6 +59,7 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
   const [mobileView, setMobileView] = useState<'list' | 'preview'>('list')
   const [recentFiles, setRecentFiles] = useState<{ rootId: string; rootPath: string; name: string; path: string }[]>([])
   const [contentReady, setContentReady] = useState(isMobile)
+  const [hideDotFiles, setHideDotFiles] = useState(readHideDotFiles)
   const resizingRef = useRef(false)
   const touchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { data: listData, isLoading: listLoading } = useFileList(rootId, currentPath)
@@ -57,6 +68,8 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
   const root = roots.find((item) => item.id === rootId)
   const isSearching = query.trim().length > 1
   const items = useMemo(() => isSearching ? searchResults : listData?.items || [], [isSearching, searchResults, listData])
+  const visibleItems = useMemo(() => hideDotFiles ? items.filter((item: any) => !isDotPath(item.path || item.name)) : items, [hideDotFiles, items])
+  const visibleRecentFiles = useMemo(() => hideDotFiles ? recentFiles.filter((item) => !isDotPath(item.path)) : recentFiles, [hideDotFiles, recentFiles])
 
   useEffect(() => {
     if (!rootId && roots[0]) setRootId(roots[0].id)
@@ -121,6 +134,10 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
       insertItemPath(item)
     }
   }
+  const updateHideDotFiles = (value: boolean) => {
+    setHideDotFiles(value)
+    writeHideDotFiles(value)
+  }
   const shellClass = isMobile ? 'flex h-full min-h-0 flex-col bg-bg-1' : 'relative flex h-full shrink-0 flex-col border-l border-[var(--line)] bg-bg-1'
   const shellStyle = isMobile ? undefined : { width: filePanelWidth }
   const previewBlock = preview ? (
@@ -143,9 +160,9 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
   ) : (
     <div className="p-3 text-xs text-text-3">
       <div className="text-text-2">Recent files</div>
-      {recentFiles.length ? (
+      {visibleRecentFiles.length ? (
         <div className="mt-2 space-y-1">
-          {recentFiles.map((item) => (
+          {visibleRecentFiles.map((item) => (
             <button key={`${item.rootId}-${item.path}`} onClick={() => { setRootId(item.rootId); setSelectedPath(item.path) }} className="block w-full truncate rounded bg-bg-2 px-2 py-1.5 text-left font-mono text-[11px] text-text-2 hover:text-accent">{item.name}</button>
           ))}
         </div>
@@ -190,20 +207,24 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
           ))}
         </div>
         <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={searchMode === 'name' ? 'Search file names' : 'Search file content'} className="mt-2 w-full rounded border border-[var(--line)] bg-bg-0 px-2 py-1.5 font-mono text-xs text-text-1 outline-none placeholder:text-text-3 focus:border-accent" />
+        <label className="mt-2 flex items-center justify-between rounded border border-[var(--line)] bg-bg-0 px-2 py-1.5 text-xs text-text-3">
+          <span>Show dotfiles</span>
+          <input type="checkbox" checked={!hideDotFiles} onChange={(e) => updateHideDotFiles(!e.target.checked)} className="h-3.5 w-3.5 accent-[rgb(var(--accent))]" />
+        </label>
       </div>}
       {(!isMobile || mobileView === 'list') && <div className="min-h-0 flex-1 overflow-y-auto">
-        {isMobile && !isSearching && !currentPath && recentFiles.length > 0 && (
+        {isMobile && !isSearching && !currentPath && visibleRecentFiles.length > 0 && (
           <div className="border-b border-[var(--line)] p-3">
             <div className="mb-2 text-[10px] uppercase tracking-[0.18em] text-text-3">Recent</div>
             <div className="space-y-1">
-              {recentFiles.map((item) => (
+              {visibleRecentFiles.map((item) => (
                 <button key={`${item.rootId}-${item.path}`} onClick={() => { setRootId(item.rootId); setSelectedPath(item.path); setMobileView('preview') }} className="w-full truncate rounded bg-bg-2 px-2 py-1.5 text-left font-mono text-xs text-text-2 active:text-accent">{item.name}</button>
               ))}
             </div>
           </div>
         )}
         {(listLoading || searchLoading) && <div className="p-3 text-xs text-text-3">Loading...</div>}
-        {!listLoading && items.map((item: any) => (
+        {!listLoading && visibleItems.map((item: any) => (
           <button
             key={`${item.type}-${item.path}`}
             tabIndex={0}
@@ -239,7 +260,7 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
             {'matches' in item && item.matches?.[0] && <div className="mt-1 truncate pl-5 font-mono text-[10px] text-text-3">L{item.matches[0].number}: {item.matches[0].content}</div>}
           </button>
         ))}
-        {!listLoading && !items.length && <div className="p-3 text-xs text-text-3">{isSearching ? 'No results' : 'Empty directory'}</div>}
+        {!listLoading && !visibleItems.length && <div className="p-3 text-xs text-text-3">{isSearching ? 'No results' : 'Empty directory'}</div>}
       </div>}
       {(!isMobile || mobileView === 'preview') && <div className={isMobile ? 'min-h-0 flex-1 bg-bg-0' : 'max-h-[42%] min-h-[160px] border-t border-[var(--line)] bg-bg-0'}>{previewBlock}</div>}
       {isMobile && mobileView === 'preview' && selectedPath && <div className="border-t border-[var(--line)] p-3"><button onClick={() => insertPath(root ? joinPath(root.path, selectedPath) : selectedPath)} className="w-full rounded-lg bg-accent/20 px-3 py-3 text-sm text-accent active:scale-[0.98]">插入路径到终端</button></div>}
