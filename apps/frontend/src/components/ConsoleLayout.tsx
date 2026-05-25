@@ -172,7 +172,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
 
   useEffect(() => {
     if (hostsData.length > 0 && !activeHostId) {
-      const persistedHost = typeof window !== 'undefined' ? localStorage.getItem('tmuxu-active-host') : null
+      const persistedHost = typeof window !== 'undefined' ? localStorage.getItem('tmuxgo-active-host') : null
       const localHost = hostsData.find((h: any) => h.id === 'local')
       const restoredHost = persistedHost && hostsData.some((h: any) => h.id === persistedHost) ? persistedHost : null
       useConsoleStore.setState({
@@ -184,7 +184,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
 
   useEffect(() => {
     if (sessionsData.length === 0) return
-    const persistedSession = typeof window !== 'undefined' ? localStorage.getItem('tmuxu-active-session') : null
+    const persistedSession = typeof window !== 'undefined' ? localStorage.getItem('tmuxgo-active-session') : null
     const persistedSessionExists = !!persistedSession && sessionsData.some((s: any) => s.id === persistedSession)
     if (!activeSessionId) {
       useConsoleStore.setState({
@@ -198,7 +198,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
 
   useEffect(() => {
     if (!activeSessionId) return
-    localStorage.setItem('tmuxu-active-session', activeSessionId)
+    localStorage.setItem('tmuxgo-active-session', activeSessionId)
   }, [activeSessionId])
 
   useEffect(() => {

@@ -39,13 +39,13 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
 
   setActiveHost: (id) => {
     if (typeof window !== 'undefined') {
-      localStorage.setItem('tmuxu-active-host', id)
+      localStorage.setItem('tmuxgo-active-host', id)
     }
     set({ activeHostId: id })
   },
   setActiveSession: (id) => {
     if (typeof window !== 'undefined') {
-      localStorage.setItem('tmuxu-active-session', id)
+      localStorage.setItem('tmuxgo-active-session', id)
     }
     set({ activeSessionId: id })
   },

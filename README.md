@@ -186,10 +186,10 @@ Pre-built commands ready to use:
 Check service logs:
 
 ```bash
-tail -f /tmp/tmuxu-gateway.log         # :electric_plug: Gateway
-tail -f /tmp/tmuxu-frontend-stable.log  # :globe_with_meridians: Frontend (stable)
-tail -f /tmp/tmuxu-frontend-dev.log     # :hammer_and_wrench: Frontend (dev)
-tail -f /tmp/tmuxu-agent.log            # :satellite: Agent
+tail -f /tmp/tmuxgo-gateway.log         # :electric_plug: Gateway
+tail -f /tmp/tmuxgo-frontend-stable.log  # :globe_with_meridians: Frontend (stable)
+tail -f /tmp/tmuxgo-frontend-dev.log     # :hammer_and_wrench: Frontend (dev)
+tail -f /tmp/tmuxgo-agent.log            # :satellite: Agent
 ```
 
 ## :page_facing_up: License

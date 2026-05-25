@@ -39,7 +39,7 @@ function readStoredPreferences() {
   if (typeof window === 'undefined') {
     return defaultPreferences
   }
-  const stored = localStorage.getItem('tmuxu-preferences')
+  const stored = localStorage.getItem('tmuxgo-preferences')
   if (!stored) {
     return defaultPreferences
   }
@@ -64,7 +64,7 @@ export function usePreferences() {
     emitPreferences(initial)
     setPreferences(initial)
     const handleStorage = (event: StorageEvent) => {
-      if (event.key !== 'tmuxu-preferences') return
+      if (event.key !== 'tmuxgo-preferences') return
       const next = readStoredPreferences()
       emitPreferences(next)
       setPreferences(next)
@@ -83,12 +83,12 @@ export function usePreferences() {
 
   const updatePreferences = useCallback((updates: Partial<Preferences>) => {
     const updated = { ...preferencesStore, ...updates }
-    localStorage.setItem('tmuxu-preferences', JSON.stringify(updated))
+    localStorage.setItem('tmuxgo-preferences', JSON.stringify(updated))
     emitPreferences(updated)
   }, [])
 
   const resetPreferences = useCallback(() => {
-    localStorage.setItem('tmuxu-preferences', JSON.stringify(defaultPreferences))
+    localStorage.setItem('tmuxgo-preferences', JSON.stringify(defaultPreferences))
     emitPreferences(defaultPreferences)
   }, [])
 

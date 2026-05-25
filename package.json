@@ -1,5 +1,5 @@
 {
-  "name": "tmuxu",
+  "name": "tmuxgo",
   "private": true,
   "workspaces": [
     "apps/*"

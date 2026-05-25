@@ -17,7 +17,7 @@ export function PaneNotifications() {
   const { panes, activePaneId } = useConsoleStore()
 
   useEffect(() => {
-    const stored = localStorage.getItem('tmuxu-watched-panes')
+    const stored = localStorage.getItem('tmuxgo-watched-panes')
     if (stored) setWatchedPanes(new Set(JSON.parse(stored)))
   }, [])
 
@@ -29,7 +29,7 @@ export function PaneNotifications() {
       updated.add(paneId)
     }
     setWatchedPanes(updated)
-    localStorage.setItem('tmuxu-watched-panes', JSON.stringify(Array.from(updated)))
+    localStorage.setItem('tmuxgo-watched-panes', JSON.stringify(Array.from(updated)))
   }
 
   const addNotification = useCallback((paneId: string, message: string) => {
@@ -103,7 +103,7 @@ export function WatchButton({ paneId }: { paneId: string }) {
   const [isWatched, setIsWatched] = useState(false)
 
   useEffect(() => {
-    const stored = localStorage.getItem('tmuxu-watched-panes')
+    const stored = localStorage.getItem('tmuxgo-watched-panes')
     if (stored) {
       const watched = JSON.parse(stored)
       setIsWatched(watched.includes(paneId))
@@ -111,10 +111,10 @@ export function WatchButton({ paneId }: { paneId: string }) {
   }, [paneId])
 
   const toggle = () => {
-    const stored = localStorage.getItem('tmuxu-watched-panes')
+    const stored = localStorage.getItem('tmuxgo-watched-panes')
     const watched: string[] = stored ? JSON.parse(stored) : []
     const updated = isWatched ? watched.filter((id) => id !== paneId) : [...watched, paneId]
-    localStorage.setItem('tmuxu-watched-panes', JSON.stringify(updated))
+    localStorage.setItem('tmuxgo-watched-panes', JSON.stringify(updated))
     setIsWatched(!isWatched)
   }
 
