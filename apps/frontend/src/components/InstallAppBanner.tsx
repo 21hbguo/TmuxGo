@@ -8,7 +8,7 @@ type BeforeInstallPromptEvent=Event&{
   userChoice:Promise<{outcome:'accepted'|'dismissed';platform:string}>
 }
 
-const DISMISS_KEY='tmuxu-install-banner-dismissed'
+const DISMISS_KEY='tmuxgo-install-banner-dismissed'
 
 function isStandalone() {
   if (typeof window==='undefined') return false

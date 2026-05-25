@@ -32,12 +32,12 @@ export function CommandSnippets({ onSend, onClose }: CommandSnippetsProps) {
   const [newSnippet, setNewSnippet] = useState({ name: '', command: '', description: '' })
 
   useEffect(() => {
-    const stored = localStorage.getItem('tmuxu-snippets')
+    const stored = localStorage.getItem('tmuxgo-snippets')
     if (stored) {
       setSnippets(JSON.parse(stored))
     } else {
       setSnippets(defaultSnippets)
-      localStorage.setItem('tmuxu-snippets', JSON.stringify(defaultSnippets))
+      localStorage.setItem('tmuxgo-snippets', JSON.stringify(defaultSnippets))
     }
   }, [])
 
@@ -57,7 +57,7 @@ export function CommandSnippets({ onSend, onClose }: CommandSnippetsProps) {
 
     const updated = [...snippets, snippet]
     setSnippets(updated)
-    localStorage.setItem('tmuxu-snippets', JSON.stringify(updated))
+    localStorage.setItem('tmuxgo-snippets', JSON.stringify(updated))
     setNewSnippet({ name: '', command: '', description: '' })
     setIsAdding(false)
   }
@@ -65,7 +65,7 @@ export function CommandSnippets({ onSend, onClose }: CommandSnippetsProps) {
   const deleteSnippet = (id: string) => {
     const updated = snippets.filter((s) => s.id !== id)
     setSnippets(updated)
-    localStorage.setItem('tmuxu-snippets', JSON.stringify(updated))
+    localStorage.setItem('tmuxgo-snippets', JSON.stringify(updated))
   }
 
   return (

@@ -8,7 +8,7 @@ export interface CustomShortcut {
   keys: string
 }
 
-const STORAGE_KEY = 'tmuxu-custom-shortcuts'
+const STORAGE_KEY = 'tmuxgo-custom-shortcuts'
 
 const KEY_MAP: Record<string, string> = {
   'enter': '\r',

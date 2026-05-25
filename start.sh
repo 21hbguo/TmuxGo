@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOCK_FILE="/tmp/tmuxu-start.lock"
+LOCK_FILE="/tmp/tmuxgo-start.lock"
 exec 9>"$LOCK_FILE"
 if ! flock -n 9; then
   echo "Another start.sh is running, skip."
@@ -9,10 +9,10 @@ if ! flock -n 9; then
 fi
 cd "$ROOT_DIR"
 echo "Starting TmuxGo development servers..."
-FRONTEND_STABLE_LOG="/tmp/tmuxu-frontend-stable.log"
-FRONTEND_DEV_LOG="/tmp/tmuxu-frontend-dev.log"
-GATEWAY_LOG="/tmp/tmuxu-gateway.log"
-AGENT_LOG="/tmp/tmuxu-agent.log"
+FRONTEND_STABLE_LOG="/tmp/tmuxgo-frontend-stable.log"
+FRONTEND_DEV_LOG="/tmp/tmuxgo-frontend-dev.log"
+GATEWAY_LOG="/tmp/tmuxgo-gateway.log"
+AGENT_LOG="/tmp/tmuxgo-agent.log"
 TAILSCALE_DNS=""
 SECURE_FRONTEND_URL=""
 SECURE_GATEWAY_URL=""
