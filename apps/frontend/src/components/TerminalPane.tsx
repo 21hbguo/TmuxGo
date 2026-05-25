@@ -265,21 +265,14 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         terminal.options.cursorBlink = preferencesRef.current.cursorBlink
       }
       terminal.resize(size.cols, size.rows)
-      if (isMobileDevice) {
-        sharedLayoutFrame = requestAnimationFrame(() => {
-          if (disposed) return
-          syncSharedViewport()
-          lastSizeRef.current = { cols: size.cols, rows: size.rows }
-          onResizeRef.current?.(size.cols, size.rows)
-        })
-        return
-      }
       sharedLayoutFrame = requestAnimationFrame(() => {
         if (disposed) return
         const canvas = getCanvasSize()
         if (!canvas) return
         const available = getAvailableSize()
-        const scale = Math.min(available.width / canvas.width, available.height / canvas.height)
+        const widthScale = available.width / canvas.width
+        const heightScale = available.height / canvas.height
+        const scale = isMobileDevice ? Math.min(widthScale, Math.max(heightScale, 1)) : Math.min(widthScale, heightScale)
         if (!Number.isFinite(scale) || scale <= 0) return
         const currentFontSize = Number(terminal.options.fontSize) || preferencesRef.current.fontSize
         const nextFontSize = Math.max(6, Math.min(72, Math.round(currentFontSize * scale * 10) / 10))
@@ -287,6 +280,9 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           terminal.options.fontSize = nextFontSize
           syncSharedLayout(false, attempt + 1)
           return
+        }
+        if (isMobileDevice) {
+          syncSharedViewport()
         }
         lastSizeRef.current = { cols: size.cols, rows: size.rows }
         onResizeRef.current?.(size.cols, size.rows)

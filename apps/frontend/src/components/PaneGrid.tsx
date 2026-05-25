@@ -16,6 +16,7 @@ export function PaneGrid() {
   const { t } = useTranslation()
   const { preferences } = usePreferences()
   const isMobile = isMobileDevice()
+  const exclusive = isMobile || preferences.attachExclusive
   const attachedRef = useRef<string | null>(null)
   const sizeRef = useRef<{ cols: number; rows: number } | null>(null)
   const terminalReadyRef = useRef(false)
@@ -79,11 +80,10 @@ export function PaneGrid() {
     if (!sessionName || !isConnected || !terminalReadyRef.current) return
     if (attachedRef.current === sessionName) return
     const size = sizeRef.current
-    const exclusive = isMobile || preferences.attachExclusive
     send({ type: 'attach', sessionName, cols: size?.cols || 120, rows: size?.rows || 36, exclusive })
     attachedRef.current = sessionName
     sentResizeRef.current = size || null
-  }, [sessionName, isConnected, isMobile, send, preferences.attachExclusive])
+  }, [sessionName, isConnected, send, exclusive])
 
   const handleInput = useCallback((data: string) => {
     send({ type: 'input', data })
@@ -91,7 +91,7 @@ export function PaneGrid() {
   const handleResize = useCallback((cols: number, rows: number) => {
     sizeRef.current = { cols, rows }
     if (!isConnected) return
-    if (!isMobile && !preferences.attachExclusive) return
+    if (!exclusive) return
     if (attachedRef.current !== sessionName) return
     const nextSize = { cols, rows }
     if (!isMobile) {
@@ -104,17 +104,16 @@ export function PaneGrid() {
     pendingResizeRef.current = nextSize
     if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current)
     resizeTimerRef.current = setTimeout(flushResize, MOBILE_RESIZE_DEBOUNCE)
-  }, [isConnected, isMobile, send, preferences.attachExclusive, sessionName, flushResize])
+  }, [isConnected, isMobile, send, exclusive, sessionName, flushResize])
   const handleReady = useCallback(() => {
     terminalReadyRef.current = true
     if (!sessionName || !isConnected) return
     if (attachedRef.current === sessionName) return
     const size = sizeRef.current
-    const exclusive = isMobile || preferences.attachExclusive
     send({ type: 'attach', sessionName, cols: size?.cols || 120, rows: size?.rows || 36, exclusive })
     attachedRef.current = sessionName
     sentResizeRef.current = size || null
-  }, [isConnected, isMobile, preferences.attachExclusive, send, sessionName])
+  }, [isConnected, send, sessionName, exclusive])
 
   if (!activeSessionId) {
     return (
@@ -128,7 +127,7 @@ export function PaneGrid() {
 
   return (
     <div className="flex-1 w-full min-h-0 bg-bg-1">
-      <TerminalPane key={activeSessionId} sessionName={sessionName} onInput={handleInput} onResize={handleResize} attachExclusive={isMobile || preferences.attachExclusive} onReady={handleReady} />
+      <TerminalPane key={activeSessionId} sessionName={sessionName} onInput={handleInput} onResize={handleResize} attachExclusive={exclusive} onReady={handleReady} />
     </div>
   )
 }

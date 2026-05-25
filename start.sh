@@ -86,11 +86,7 @@ if port_in_use 3000; then
   echo "Frontend already running on port 3000, skipping..."
 else
   echo "Starting Frontend on port 3000..."
-  if [ -n "${SECURE_GATEWAY_URL:-}" ]; then
-    start_detached "$FRONTEND_LOG" env NEXT_PUBLIC_API_URL="${SECURE_GATEWAY_URL}" npm run dev:frontend
-  else
-    start_detached "$FRONTEND_LOG" env NEXT_PUBLIC_API_URL="http://${TAILSCALE_IP}:3001" npm run dev:frontend
-  fi
+  start_detached "$FRONTEND_LOG" npm run dev:frontend
   if wait_http_ok "http://127.0.0.1:3000" 45; then
     echo "  Frontend started successfully"
   else

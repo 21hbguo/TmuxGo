@@ -1,13 +1,4 @@
-function getApiBase() {
-  const envBase = process.env.NEXT_PUBLIC_API_URL
-  if (envBase) {
-    return envBase
-  }
-  if (typeof window !== 'undefined') {
-    return `${window.location.protocol}//${window.location.hostname}:3001`
-  }
-  return 'http://localhost:3001'
-}
+import { getApiBase } from './runtime-endpoints'
 
 async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   const url = `${getApiBase()}${path}`

@@ -10,6 +10,7 @@ import { MobileNav } from './MobileNav'
 import { MobileDrawer } from './MobileDrawer'
 import { Settings } from './Settings'
 import { InstallAppBanner } from './InstallAppBanner'
+import { ShortcutBar } from './ShortcutBar'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useHosts, useSessions, useSessionPanes, useWindows } from '@/hooks/useApi'
 import { useWebSocket } from '@/hooks/useWebSocket'
@@ -36,6 +37,7 @@ export function ConsoleLayout() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerType, setDrawerType] = useState<'sessions' | 'panes'>('sessions')
   const [showSettings, setShowSettings] = useState(false)
+  const [keyboardOpen, setKeyboardOpen] = useState(false)
   const overlayRef = useRef<string[]>([])
   const appHeightRef = useRef('')
 
@@ -96,6 +98,30 @@ export function ConsoleLayout() {
       window.removeEventListener('resize', syncAppHeight)
       window.visualViewport?.removeEventListener('resize', syncAppHeight)
       window.removeEventListener('orientationchange', handleOrientation)
+    }
+  }, [])
+  useEffect(() => {
+    const handleKeyboardChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ open?: boolean }>).detail
+      setKeyboardOpen(!!detail?.open)
+    }
+    const syncKeyboardOpen = () => {
+      const vv = window.visualViewport
+      const inset = vv ? Math.max(0, window.innerHeight - vv.height) : 0
+      const byViewport = inset >= 80
+      const byClass = document.body.classList.contains('keyboard-open')
+      setKeyboardOpen(byViewport || byClass)
+    }
+    window.addEventListener('mobile-keyboard-change', handleKeyboardChange as EventListener)
+    window.visualViewport?.addEventListener('resize', syncKeyboardOpen)
+    window.addEventListener('focus', syncKeyboardOpen)
+    window.addEventListener('pageshow', syncKeyboardOpen)
+    syncKeyboardOpen()
+    return () => {
+      window.removeEventListener('mobile-keyboard-change', handleKeyboardChange as EventListener)
+      window.visualViewport?.removeEventListener('resize', syncKeyboardOpen)
+      window.removeEventListener('focus', syncKeyboardOpen)
+      window.removeEventListener('pageshow', syncKeyboardOpen)
     }
   }, [])
 
@@ -196,17 +222,13 @@ export function ConsoleLayout() {
             <Sidebar />
           </div>
         )}
-        <main className="flex flex-1 min-h-0 flex-col bg-bg-1" style={isMobile ? { paddingBottom: 'calc(48px + env(safe-area-inset-bottom,0px))' } : undefined}>
+        <main className="flex flex-1 min-h-0 flex-col bg-bg-1" style={isMobile ? { paddingBottom: keyboardOpen ? 'calc(40px + env(safe-area-inset-bottom,0px))' : 'calc(48px + env(safe-area-inset-bottom,0px))' } : undefined}>
           <PaneGrid />
         </main>
       </div>
       {!isMobile && preferences.showStatusBar && <StatusBar />}
       {isMobile && (
-        <MobileNav
-          onOpenDrawer={openDrawer}
-          onOpenSettings={openSettings}
-          onOpenSearch={openPalette}
-        />
+        keyboardOpen ? <ShortcutBar mode="dock" /> : <MobileNav onOpenDrawer={openDrawer} onOpenSettings={openSettings} onOpenSearch={openPalette} />
       )}
       {showCommandPalette && <CommandPalette onClose={() => closeOverlay('palette')} />}
       {showSettings && <Settings onClose={() => closeOverlay('settings')} />}
