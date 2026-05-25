@@ -38,6 +38,7 @@ export function ConsoleLayout() {
   const [drawerType, setDrawerType] = useState<'sessions' | 'panes'>('sessions')
   const [showSettings, setShowSettings] = useState(false)
   const [keyboardOpen, setKeyboardOpen] = useState(false)
+  const [keyboardInset, setKeyboardInset] = useState(0)
   const overlayRef = useRef<string[]>([])
   const appHeightRef = useRef('')
 
@@ -83,7 +84,7 @@ export function ConsoleLayout() {
   useEffect(() => {
     const syncAppHeight = () => {
       const isMobileViewport = window.matchMedia(MOBILE_QUERY).matches
-      const nextHeight = Math.round(isMobileViewport ? window.innerHeight : (window.visualViewport?.height || window.innerHeight))
+      const nextHeight = Math.round(isMobileViewport ? (window.visualViewport?.height || window.innerHeight) : window.innerHeight)
       const nextValue = `${nextHeight}px`
       if (appHeightRef.current === nextValue) return
       appHeightRef.current = nextValue
@@ -102,8 +103,9 @@ export function ConsoleLayout() {
   }, [])
   useEffect(() => {
     const handleKeyboardChange = (event: Event) => {
-      const detail = (event as CustomEvent<{ open?: boolean }>).detail
+      const detail = (event as CustomEvent<{ open?: boolean; inset?: number }>).detail
       setKeyboardOpen(!!detail?.open)
+      setKeyboardInset(detail?.open ? detail?.inset || 0 : 0)
     }
     const syncKeyboardOpen = () => {
       const vv = window.visualViewport
@@ -111,6 +113,7 @@ export function ConsoleLayout() {
       const byViewport = inset >= 80
       const byClass = document.body.classList.contains('keyboard-open')
       setKeyboardOpen(byViewport || byClass)
+      if (byViewport || byClass) setKeyboardInset(inset)
     }
     window.addEventListener('mobile-keyboard-change', handleKeyboardChange as EventListener)
     window.visualViewport?.addEventListener('resize', syncKeyboardOpen)
@@ -222,13 +225,13 @@ export function ConsoleLayout() {
             <Sidebar />
           </div>
         )}
-        <main className="flex flex-1 min-h-0 flex-col bg-bg-1" style={isMobile ? { paddingBottom: keyboardOpen ? 'calc(40px + env(safe-area-inset-bottom,0px))' : 'calc(48px + env(safe-area-inset-bottom,0px))' } : undefined}>
+        <main className="flex flex-1 min-h-0 flex-col bg-bg-1" style={isMobile ? { paddingBottom: keyboardOpen ? '40px' : 'calc(48px + env(safe-area-inset-bottom,0px))' } : undefined}>
           <PaneGrid />
         </main>
       </div>
       {!isMobile && preferences.showStatusBar && <StatusBar />}
       {isMobile && (
-        keyboardOpen ? <ShortcutBar mode="dock" /> : <MobileNav onOpenDrawer={openDrawer} onOpenSettings={openSettings} onOpenSearch={openPalette} />
+        keyboardOpen ? <ShortcutBar mode="dock" keyboardInset={keyboardInset} /> : <MobileNav onOpenDrawer={openDrawer} onOpenSettings={openSettings} onOpenSearch={openPalette} />
       )}
       {showCommandPalette && <CommandPalette onClose={() => closeOverlay('palette')} />}
       {showSettings && <Settings onClose={() => closeOverlay('settings')} />}
