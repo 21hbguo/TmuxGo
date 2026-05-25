@@ -22,7 +22,15 @@ export function useMobileKeyboard(
   const composingRef = useRef(false)
   const keyboardOpenRef = useRef(false)
   const keepAliveUntilRef = useRef(0)
+  const viewportBaseHeightRef = useRef(0)
   const isMobile = useRef(isMobileDevice())
+  const getViewportInset = useCallback(() => {
+    const vv = window.visualViewport
+    if (!vv) return 0
+    const currentHeight = vv.height
+    if (currentHeight > viewportBaseHeightRef.current) viewportBaseHeightRef.current = currentHeight
+    return Math.max(0, viewportBaseHeightRef.current - currentHeight)
+  }, [])
   const emitKeyboardChange = useCallback((open: boolean, inset: number) => {
     window.dispatchEvent(new CustomEvent(KEYBOARD_EVENT, { detail: { open, inset } }))
   }, [])
@@ -64,17 +72,18 @@ export function useMobileKeyboard(
     const ta = textareaRef.current
     if (!ta) return
     keepAliveUntilRef.current = Date.now() + 1500
-    const vv = window.visualViewport
-    const inset = vv ? Math.max(0, window.innerHeight - vv.height) : 0
+    const inset = getViewportInset()
     openKeyboard(inset || KEYBOARD_OPEN_THRESHOLD)
     ta.focus({ preventScroll: true })
     clearValue()
-  }, [clearValue, openKeyboard])
+  }, [clearValue, getViewportInset, openKeyboard])
 
   useEffect(() => {
     if (!isMobile.current) return
     const ta = textareaRef.current
     if (!ta) return
+    const vv = window.visualViewport
+    if (vv?.height) viewportBaseHeightRef.current = vv.height
 
     clearValue()
 
@@ -145,8 +154,7 @@ export function useMobileKeyboard(
 
     const handleFocus = () => {
       keepAliveUntilRef.current = Date.now() + 1500
-      const vv = window.visualViewport
-      const inset = vv ? Math.max(0, window.innerHeight - vv.height) : 0
+      const inset = getViewportInset()
       openKeyboard(inset)
       setTimeout(() => clearValue(), 10)
     }
@@ -190,7 +198,7 @@ export function useMobileKeyboard(
       document.removeEventListener('touchstart', handleKeepAliveCapture, true)
       document.removeEventListener('mousedown', handleKeepAliveCapture, true)
     }
-  }, [sendInput, clearValue, focusKeyboard, closeKeyboard, openKeyboard])
+  }, [sendInput, clearValue, focusKeyboard, closeKeyboard, openKeyboard, getViewportInset])
 
   useEffect(() => {
     if (!isMobile.current) return
@@ -199,10 +207,11 @@ export function useMobileKeyboard(
       const vv = window.visualViewport
       if (!vv) return
       if (!isKeyboardOwnerActive() && Date.now() > keepAliveUntilRef.current) {
+        if (!keyboardOpenRef.current && vv.height > viewportBaseHeightRef.current) viewportBaseHeightRef.current = vv.height
         closeKeyboard()
         return
       }
-      const inset = Math.max(0, window.innerHeight - vv.height)
+      const inset = getViewportInset()
       const isOpen = keyboardOpenRef.current
       if (!isOpen && inset >= KEYBOARD_OPEN_THRESHOLD) {
         openKeyboard(inset)
@@ -222,7 +231,7 @@ export function useMobileKeyboard(
       window.visualViewport?.removeEventListener('resize', handleViewportResize)
       closeKeyboard()
     }
-  }, [emitKeyboardChange, closeKeyboard, isKeyboardOwnerActive, openKeyboard])
+  }, [emitKeyboardChange, closeKeyboard, isKeyboardOwnerActive, openKeyboard, getViewportInset])
 
   return { textareaRef, focusKeyboard, isMobile: isMobile.current }
 }
