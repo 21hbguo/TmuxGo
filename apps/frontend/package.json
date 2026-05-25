@@ -6,7 +6,8 @@
     "dev": "next dev --hostname 0.0.0.0",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "vitest run"
   },
   "dependencies": {
     "next": "^14.0.0",

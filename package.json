@@ -12,6 +12,22 @@
     "build": "npm run build --workspaces",
     "build:frontend": "npm run build --workspace=frontend",
     "build:gateway": "npm run build --workspace=gateway",
-    "build:agent": "npm run build --workspace=agent"
+    "build:agent": "npm run build --workspace=agent",
+    "test:frontend": "npm run test --workspace=frontend",
+    "test:e2e": "playwright test",
+    "verify:next-optimization": "npx tsx scripts/verify-next-optimization.ts",
+    "test": "npx tsx scripts/run-tests.ts",
+    "verify": "npm test && npm run test:frontend && npm run test:e2e && npm run build"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@vitejs/plugin-react": "^6.0.2",
+    "jsdom": "^29.1.1",
+    "tsconfig-paths": "^4.2.0",
+    "vite-tsconfig-paths": "^6.1.1",
+    "vitest": "^4.1.7"
   }
 }
