@@ -3,8 +3,8 @@ import { useEffect, useRef, useCallback } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { usePreferences } from './usePreferences'
 import { getWebSocketBase } from '@/lib/runtime-endpoints'
-type WSState={ws:WebSocket|null,reconnectTimer:ReturnType<typeof setTimeout>|null,reconnectCount:number,isConnecting:boolean,pingTimer:ReturnType<typeof setInterval>|null,pongTimer:ReturnType<typeof setTimeout>|null,subscribers:number,lastPongAt:number,hiddenAt:number,backgroundClosed:boolean,onMessage:((data:any)=>void)|null,onOpen:(()=>void)|null,onClose:(()=>void)|null,onError:(()=>void)|null,closeExpected:boolean}
-const wsState:WSState={ws:null,reconnectTimer:null,reconnectCount:0,isConnecting:false,pingTimer:null,pongTimer:null,subscribers:0,lastPongAt:0,hiddenAt:0,backgroundClosed:false,onMessage:null,onOpen:null,onClose:null,onError:null,closeExpected:false}
+type WSState={ws:WebSocket|null,reconnectTimer:ReturnType<typeof setTimeout>|null,reconnectCount:number,isConnecting:boolean,pingTimer:ReturnType<typeof setInterval>|null,pongTimer:ReturnType<typeof setTimeout>|null,subscribers:number,lastPongAt:number,hiddenAt:number,backgroundClosed:boolean,onMessage:((data:any)=>void)|null,onOpen:(()=>void)|null,onClose:(()=>void)|null,onError:(()=>void)|null,closeExpected:boolean,lastInteractionRecoverAt:number}
+const wsState:WSState={ws:null,reconnectTimer:null,reconnectCount:0,isConnecting:false,pingTimer:null,pongTimer:null,subscribers:0,lastPongAt:0,hiddenAt:0,backgroundClosed:false,onMessage:null,onOpen:null,onClose:null,onError:null,closeExpected:false,lastInteractionRecoverAt:0}
 export function useWebSocket() {
   const reconnectCountRef=useRef(0)
   const updateConnection=useConsoleStore((s)=>s.updateConnection)
@@ -248,17 +248,28 @@ export function useWebSocket() {
     const handleOnline=()=>{
       ensureConnection(true)
     }
+    const handleInteractionRecover=()=>{
+      if (document.visibilityState!=='visible') return
+      const now=Date.now()
+      if (now-wsState.lastInteractionRecoverAt<1200) return
+      wsState.lastInteractionRecoverAt=now
+      ensureConnection(true)
+    }
     document.addEventListener('visibilitychange',handleVisibilityChange)
     window.addEventListener('pagehide',handlePageHide)
     window.addEventListener('pageshow',handlePageShow)
     window.addEventListener('focus',handleFocus)
     window.addEventListener('online',handleOnline)
+    document.addEventListener('pointerdown',handleInteractionRecover,true)
+    document.addEventListener('touchstart',handleInteractionRecover,true)
     return ()=>{
       document.removeEventListener('visibilitychange',handleVisibilityChange)
       window.removeEventListener('pagehide',handlePageHide)
       window.removeEventListener('pageshow',handlePageShow)
       window.removeEventListener('focus',handleFocus)
       window.removeEventListener('online',handleOnline)
+      document.removeEventListener('pointerdown',handleInteractionRecover,true)
+      document.removeEventListener('touchstart',handleInteractionRecover,true)
       wsState.subscribers-=1
       if (wsState.subscribers<=0) {
         if (wsState.reconnectTimer) {
@@ -281,6 +292,7 @@ export function useWebSocket() {
         wsState.hiddenAt=0
         wsState.backgroundClosed=false
         wsState.closeExpected=false
+        wsState.lastInteractionRecoverAt=0
         wsState.onMessage=null
         wsState.onOpen=null
         wsState.onClose=null

@@ -2,7 +2,6 @@ import WebSocket from 'ws'
 import { TmuxManager } from './tmux.js'
 
 const GATEWAY_URL = process.env.GATEWAY_URL || 'ws://localhost:3001/api/stream'
-const AGENT_TOKEN = process.env.AGENT_TOKEN || 'dev-token'
 const RECONNECT_DELAY = 5000
 
 class Agent {
@@ -17,11 +16,7 @@ class Agent {
   connect() {
     console.log(`Connecting to gateway: ${GATEWAY_URL}`)
 
-    this.ws = new WebSocket(GATEWAY_URL, {
-      headers: {
-        Authorization: `Bearer ${AGENT_TOKEN}`,
-      },
-    })
+    this.ws = new WebSocket(GATEWAY_URL)
 
     this.ws.on('open', () => {
       console.log('Connected to gateway')
