@@ -9,6 +9,7 @@ import { usePreferences } from '@/hooks/usePreferences'
 import { isMobileDevice } from '@/hooks/useMobileKeyboard'
 
 const MOBILE_RESIZE_DEBOUNCE = 48
+const DESKTOP_RESIZE_DEBOUNCE = 80
 const ATTACH_TIMEOUT = 5000
 const ATTACH_RETRY_DELAY = 900
 const INPUT_QUEUE_LIMIT = 128
@@ -136,17 +137,14 @@ export function PaneGrid() {
     }
   }, [activeSessionId])
   useEffect(() => {
-    if (attachedRef.current && attachedRef.current !== sessionName && isSocketReady) {
-      send({ type: 'detach' })
-    }
     clearPendingResize()
     clearAttachTimers()
     clearInputFlushTimer()
     attachedRef.current = null
     sentResizeRef.current = null
-    terminalReadyRef.current = false
+    if (!sessionName) terminalReadyRef.current = false
     inputQueueRef.current = []
-  }, [sessionName, isSocketReady, send, clearPendingResize, clearAttachTimers, clearInputFlushTimer])
+  }, [sessionName, clearPendingResize, clearAttachTimers, clearInputFlushTimer])
   useEffect(() => {
     if (connectionStatus === 'disconnected') {
       clearPendingResize()
@@ -231,16 +229,9 @@ export function PaneGrid() {
     if (!exclusive) return
     if (attachedRef.current !== sessionName) return
     const nextSize = { cols, rows }
-    if (!isMobile) {
-      const prev = sentResizeRef.current
-      if (prev && prev.cols === cols && prev.rows === rows) return
-      sentResizeRef.current = nextSize
-      send({ type: 'resize', cols, rows })
-      return
-    }
     pendingResizeRef.current = nextSize
     if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current)
-    resizeTimerRef.current = setTimeout(flushResize, MOBILE_RESIZE_DEBOUNCE)
+    resizeTimerRef.current = setTimeout(flushResize, isMobile ? MOBILE_RESIZE_DEBOUNCE : DESKTOP_RESIZE_DEBOUNCE)
   }, [isConnected, isMobile, send, exclusive, sessionName, flushResize])
   const handleReady = useCallback(() => {
     terminalReadyRef.current = true

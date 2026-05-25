@@ -12,8 +12,8 @@ export async function streamRoutes(fastify: FastifyInstance) {
   fastify.get('/stream', { websocket: true }, (connection: SocketStream) => {
     console.log('Client connected to stream')
 
-    const OUTPUT_FLUSH_INTERVAL = 12
-    const OUTPUT_MAX_CHARS = 32768
+    const OUTPUT_FLUSH_INTERVAL = 4
+    const OUTPUT_MAX_CHARS = 65536
     const SCROLL_FLUSH_INTERVAL = 16
     const SCROLL_MAX_LINES = 24
     let ptyProcess: pty.IPty | null = null
@@ -25,6 +25,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
     let outputCarry = ''
     let outputBuffer = ''
     let outputTimer: ReturnType<typeof setTimeout> | null = null
+    let attachSeq = 0
     const scrollBuffers = new Map<string, number>()
     const scrollTimers = new Map<string, ReturnType<typeof setTimeout>>()
     const socket = connection.socket
@@ -86,9 +87,11 @@ export async function streamRoutes(fastify: FastifyInstance) {
       const timer = setTimeout(() => flushScroll(sessionName), SCROLL_FLUSH_INTERVAL)
       scrollTimers.set(sessionName, timer)
     }
-    function cleanup() {
-      if (ptyProcess) {
-        ptyProcess.kill()
+    function cleanup(notify = false) {
+      const current = ptyProcess
+      attachSeq += 1
+      if (current) {
+        current.kill()
         ptyProcess = null
       }
       attachedSessionName = null
@@ -106,6 +109,9 @@ export async function streamRoutes(fastify: FastifyInstance) {
       }
       scrollTimers.clear()
       scrollBuffers.clear()
+      if (notify) {
+        send({ type: 'detached' })
+      }
     }
 
     function sanitizeOutput(chunk: string) {
@@ -188,8 +194,10 @@ export async function streamRoutes(fastify: FastifyInstance) {
             attachedExclusive = exclusive
             attachedCols = cols
             attachedRows = rows
+            const seq = attachSeq
 
             ptyProcess.onData((output: string) => {
+              if (seq !== attachSeq) return
               const filtered = sanitizeOutput(output)
               if (filtered) {
                 queueOutput(filtered)
@@ -197,6 +205,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
             })
 
             ptyProcess.onExit(({ exitCode }) => {
+              if (seq !== attachSeq) return
               flushOutput()
               send({ type: 'session-exit', exitCode })
               ptyProcess = null
@@ -235,8 +244,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
           }
 
           case 'detach':
-            cleanup()
-            send({ type: 'detached' })
+            cleanup(true)
             break
 
           case 'sessions':

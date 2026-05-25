@@ -62,8 +62,17 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
     ...sessions.filter((s: any) => s.name.toLowerCase().includes(q)).map((session: any) => ({ key: `session-${session.id}`, type: 'session', title: session.name, meta: t('palette.windows', { count: session.windowCount }), action: async () => setActiveSession(session.id) })),
     ...windows.filter((w: any) => w.name.toLowerCase().includes(q)).map((window: any) => ({ key: `window-${window.id}`, type: 'action', title: `Switch window: ${window.name}`, meta: 'Enter', action: async () => {
       if (!activeHostId || !activeSessionId) return
-      const result = await api.windows.select(activeHostId, activeSessionId, window.id)
-      if (result.windows) useConsoleStore.setState({ windows: result.windows })
+      const previousWindows = useConsoleStore.getState().windows
+      useConsoleStore.setState({
+        windows: previousWindows.map((item: any) => item.sessionId === activeSessionId ? { ...item, active: item.id === window.id } : item),
+      })
+      try {
+        const result = await api.windows.select(activeHostId, activeSessionId, window.id)
+        if (result.windows) useConsoleStore.setState({ windows: result.windows })
+      } catch (err) {
+        useConsoleStore.setState({ windows: previousWindows })
+        throw err
+      }
     } })),
     ...['horizontal', 'vertical'].filter((direction) => (`split ${direction}`).includes(q) || q.length === 0).map((direction) => ({ key: `split-${direction}`, type: 'action', title: direction === 'horizontal' ? t('palette.splitHorizontal') : t('palette.splitVertical'), meta: direction === 'horizontal' ? 'Ctrl+Shift+-' : 'Ctrl+Shift+|', action: async () => {
       const paneId = useConsoleStore.getState().activePaneId

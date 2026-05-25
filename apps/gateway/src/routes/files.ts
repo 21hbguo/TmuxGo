@@ -3,13 +3,14 @@ import { opendir, readFile, realpath, stat } from 'fs/promises'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
+const defaultRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..')
 const PREVIEW_LIMIT = 200 * 1024
 const LARGE_FILE_LIMIT = 512 * 1024
 const MAX_DIRS = 8000
 const MAX_FILES = 4000
 const MAX_RESULTS = 200
 const MAX_READ_LINES = 1200
-const rootSpec = process.env.TMUX_WEB_FILE_ROOTS || process.cwd()
+const rootSpec = process.env.TMUX_WEB_FILE_ROOTS || `workspace=${defaultRoot}`
 
 interface FileRoot {
   id: string

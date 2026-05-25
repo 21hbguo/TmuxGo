@@ -149,8 +149,7 @@ export async function windowRoutes(fastify: FastifyInstance) {
       assertSessionAllowed(sessionName)
       await assertTargetAllowed(windowId, sessionName)
       await execFileAsync('tmux', ['select-window', '-t', windowId])
-      const windows = await getTmuxWindows(sessionName)
-      return { ok: true, windows }
+      return { ok: true }
     } catch (err: any) {
       return { ok: false, error: err.message }
     }
