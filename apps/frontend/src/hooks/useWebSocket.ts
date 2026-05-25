@@ -122,6 +122,7 @@ export function useWebSocket() {
   },[connect,updateConnection,preferences.autoReconnect,preferences.reconnectInterval])
   const resetAndReconnect=useCallback(()=>{
     const ws=wsState.ws
+    updateConnection({status:'reconnecting'})
     clearPongTimer()
     if (!ws) {
       connect()

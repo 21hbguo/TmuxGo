@@ -12,6 +12,7 @@ const MOBILE_RESIZE_DEBOUNCE = 48
 
 export function PaneGrid() {
   const activeSessionId = useConsoleStore((s) => s.activeSessionId)
+  const connectionStatus = useConsoleStore((s) => s.connection.status)
   const { send, isConnected } = useWebSocket()
   const { t } = useTranslation()
   const { preferences } = usePreferences()
@@ -33,6 +34,13 @@ export function PaneGrid() {
     }
     pendingResizeRef.current = null
   }, [])
+  const attachNow = useCallback(() => {
+    if (!sessionName || !isConnected || !terminalReadyRef.current) return
+    const size = sizeRef.current
+    send({ type: 'attach', sessionName, cols: size?.cols || 120, rows: size?.rows || 36, exclusive })
+    attachedRef.current = sessionName
+    sentResizeRef.current = size || null
+  }, [exclusive, isConnected, send, sessionName])
 
   const flushResize = useCallback(() => {
     resizeTimerRef.current = null
@@ -69,21 +77,18 @@ export function PaneGrid() {
       attachedRef.current = null
       sentResizeRef.current = null
       terminalReadyRef.current = true
+      attachNow()
     }
     window.addEventListener('ws-reconnected', handleReconnect)
     return () => window.removeEventListener('ws-reconnected', handleReconnect)
-  }, [clearPendingResize])
+  }, [attachNow, clearPendingResize])
 
   useEffect(() => () => clearPendingResize(), [clearPendingResize])
 
   useEffect(() => {
-    if (!sessionName || !isConnected || !terminalReadyRef.current) return
     if (attachedRef.current === sessionName) return
-    const size = sizeRef.current
-    send({ type: 'attach', sessionName, cols: size?.cols || 120, rows: size?.rows || 36, exclusive })
-    attachedRef.current = sessionName
-    sentResizeRef.current = size || null
-  }, [sessionName, isConnected, send, exclusive])
+    attachNow()
+  }, [sessionName, attachNow])
 
   const handleInput = useCallback((data: string) => {
     send({ type: 'input', data })
@@ -107,13 +112,9 @@ export function PaneGrid() {
   }, [isConnected, isMobile, send, exclusive, sessionName, flushResize])
   const handleReady = useCallback(() => {
     terminalReadyRef.current = true
-    if (!sessionName || !isConnected) return
     if (attachedRef.current === sessionName) return
-    const size = sizeRef.current
-    send({ type: 'attach', sessionName, cols: size?.cols || 120, rows: size?.rows || 36, exclusive })
-    attachedRef.current = sessionName
-    sentResizeRef.current = size || null
-  }, [isConnected, send, sessionName, exclusive])
+    attachNow()
+  }, [sessionName, attachNow])
 
   if (!activeSessionId) {
     return (
@@ -126,7 +127,12 @@ export function PaneGrid() {
   }
 
   return (
-    <div className="flex-1 w-full min-h-0 bg-bg-1">
+    <div className="flex-1 w-full min-h-0 bg-bg-1 relative">
+      {isMobile && connectionStatus !== 'connected' && (
+        <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 px-3 py-1 rounded-full bg-bg-2/95 border border-[var(--line)] text-xs text-text-1">
+          {t(`status.${connectionStatus}`)}
+        </div>
+      )}
       <TerminalPane key={activeSessionId} sessionName={sessionName} onInput={handleInput} onResize={handleResize} attachExclusive={exclusive} onReady={handleReady} />
     </div>
   )

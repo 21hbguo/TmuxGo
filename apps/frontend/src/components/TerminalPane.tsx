@@ -239,7 +239,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     const scheduleFit = () => {
       if (disposed) return
       if (fitTimeout) clearTimeout(fitTimeout)
-      fitTimeout = setTimeout(doFit, isMobileDevice ? 80 : 50)
+      fitTimeout = setTimeout(doFit, isMobileDevice ? 220 : 50)
     }
     const scheduleInitialFit = () => {
       if (disposed) return
@@ -356,7 +356,18 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         }
       }
       container.addEventListener('terminal-output', handleOutput)
-      const handleWindowResize = () => scheduleFit()
+      const handleWindowResize = () => {
+        if (isMobileDevice && attachExclusiveRef.current) return
+        scheduleFit()
+      }
+      const handleOrientationChange = () => {
+        if (!attachExclusiveRef.current) return
+        setTimeout(() => scheduleFit(), 90)
+      }
+      const handleKeyboardChange = () => {
+        if (!attachExclusiveRef.current) return
+        setTimeout(() => scheduleFit(), 60)
+      }
       const handleAttached = (event: Event) => {
         const detail = (event as CustomEvent).detail || {}
         const cols = Number(detail.cols)
@@ -381,16 +392,21 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       }
       window.addEventListener('tmux-attached', handleAttached as EventListener)
       window.addEventListener('resize', handleWindowResize)
+      window.addEventListener('orientationchange', handleOrientationChange)
+      window.addEventListener('mobile-keyboard-change', handleKeyboardChange as EventListener)
       document.addEventListener('visibilitychange', handleVisibilityChange)
       disposables.push({
         dispose: () => {
           window.removeEventListener('tmux-attached', handleAttached as EventListener)
           container.removeEventListener('terminal-output', handleOutput)
           window.removeEventListener('resize', handleWindowResize)
+          window.removeEventListener('orientationchange', handleOrientationChange)
+          window.removeEventListener('mobile-keyboard-change', handleKeyboardChange as EventListener)
           document.removeEventListener('visibilitychange', handleVisibilityChange)
         },
       })
       resizeObserver = new ResizeObserver(() => {
+        if (isMobileDevice && attachExclusiveRef.current) return
         if (attachExclusiveRef.current) {
           scheduleFit()
           return
