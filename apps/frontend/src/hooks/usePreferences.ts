@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from 'react'
 export type Language = 'zh' | 'en'
 
 export interface Preferences {
-  theme: 'dark' | 'light' | 'high-contrast'
+  theme: 'dark' | 'light' | 'high-contrast' | 'dracula' | 'nord' | 'catppuccin'
   fontSize: number
   fontFamily: string
   cursorBlink: boolean
