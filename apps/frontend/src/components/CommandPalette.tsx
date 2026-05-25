@@ -18,7 +18,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
   const [pendingKillWindow, setPendingKillWindow] = useState<{ id: string; name: string } | null>(null)
   const [pendingPaste, setPendingPaste] = useState<{ text: string; meta: string[]; mode?: 'confirm' | 'manual' } | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
-  const { hosts, sessions, windows, activeHostId, activeSessionId, activePaneId, setCommandPalette, setActiveHost, setActiveSession, pushToast } = useConsoleStore()
+  const { hosts, sessions, windows, activeHostId, activeSessionId, activePaneId, setCommandPalette, setActiveHost, setActiveSession, pushToast, toggleFilePanel } = useConsoleStore()
   const { t } = useTranslation()
 
   const close = () => {
@@ -77,6 +77,10 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
     } })),
     ...[t('palette.copySelection')].filter((name) => name.toLowerCase().includes(q) || q.length === 0).map(() => ({ key: 'copy-selection', type: 'action', title: t('palette.copySelection'), meta: 'Cmd+C', action: copySelection })),
     ...[t('palette.pasteClipboard')].filter((name) => name.toLowerCase().includes(q) || q.length === 0).map(() => ({ key: 'paste-clipboard', type: 'action', title: t('palette.pasteClipboard'), meta: 'Cmd+V', action: pasteClipboard })),
+    ...['Open files'].filter((name) => name.toLowerCase().includes(q) || q.length === 0).map(() => ({ key: 'open-files', type: 'action', title: 'Open files', meta: 'Cmd+E', action: async () => {
+      if (window.matchMedia('(max-width: 1023px)').matches) useConsoleStore.setState({ mobileFileSheetOpen: true })
+      else toggleFilePanel()
+    } })),
     ...[t('palette.renameWindow')].filter((name) => name.toLowerCase().includes(q) || q.length === 0).map(() => ({ key: 'rename-window', type: 'action', title: t('palette.renameWindow'), meta: activeWindow?.name || '', action: async () => {
       if (!activeHostId || !activeSessionId || !activeWindow) return
       const name = window.prompt(t('palette.renameWindow'), activeWindow.name)

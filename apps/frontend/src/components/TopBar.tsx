@@ -7,7 +7,7 @@ import { Settings } from './Settings'
 import { useTranslation } from '@/i18n'
 
 export function TopBar() {
-  const { activeHostId, activeSessionId, hosts, sessions, setCommandPalette } = useConsoleStore()
+  const { activeHostId, activeSessionId, hosts, sessions, setCommandPalette, toggleFilePanel, filePanelOpen } = useConsoleStore()
   const [showSettings, setShowSettings] = useState(false)
   const { t } = useTranslation()
 
@@ -45,6 +45,9 @@ export function TopBar() {
         </div>
 
         <div className="flex items-center gap-4">
+          <button onClick={toggleFilePanel} className={`rounded-lg px-3 py-1.5 text-sm transition-colors ${filePanelOpen ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-3 hover:text-text-1'}`}>
+            Files
+          </button>
           <ConnectionBadge />
           <button
             onClick={() => setShowSettings(true)}

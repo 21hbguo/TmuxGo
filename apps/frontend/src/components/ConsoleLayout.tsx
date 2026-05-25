@@ -12,6 +12,7 @@ import { Settings } from './Settings'
 import { InstallAppBanner } from './InstallAppBanner'
 import { ShortcutBar } from './ShortcutBar'
 import { ToastViewport } from './ToastViewport'
+import { FilePanel } from './FilePanel'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useHosts, useSessions, useSessionSnapshot } from '@/hooks/useApi'
 import { usePreferences } from '@/hooks/usePreferences'
@@ -24,6 +25,10 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   const showCommandPalette = useConsoleStore((s) => s.showCommandPalette)
   const setCommandPalette = useConsoleStore((s) => s.setCommandPalette)
   const toggleSidebar = useConsoleStore((s) => s.toggleSidebar)
+  const filePanelOpen = useConsoleStore((s) => s.filePanelOpen)
+  const toggleFilePanel = useConsoleStore((s) => s.toggleFilePanel)
+  const mobileFileSheetOpen = useConsoleStore((s) => s.mobileFileSheetOpen)
+  const setMobileFileSheetOpen = useConsoleStore((s) => s.setMobileFileSheetOpen)
   const { preferences } = usePreferences()
 
   const { data: hostsData = [] } = useHosts()
@@ -263,10 +268,15 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
         e.preventDefault()
         toggleSidebar()
       }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'e') {
+        e.preventDefault()
+        if (isMobile) setMobileFileSheetOpen(true)
+        else toggleFilePanel()
+      }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [showCommandPalette, openPalette, closeOverlay, toggleSidebar])
+  }, [showCommandPalette, openPalette, closeOverlay, toggleSidebar, toggleFilePanel, isMobile, setMobileFileSheetOpen])
 
   useEffect(() => {
     const handlePopState = () => {
@@ -314,11 +324,12 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
         <main className="flex flex-1 min-h-0 flex-col bg-bg-1" style={isMobile ? { paddingBottom: 'calc(48px + env(safe-area-inset-bottom,0px))' } : undefined}>
           <PaneGrid />
         </main>
+        {!isMobile && filePanelOpen && <FilePanel />}
       </div>
       {!isMobile && preferences.showStatusBar && <StatusBar />}
       {isMobile && (
         <div className="mobile-nav-landscape-hide fixed left-0 right-0 bottom-0 z-40 h-[calc(48px+env(safe-area-inset-bottom))]">
-          {keyboardOpen ? <ShortcutBar mode="dock" /> : <MobileNav docked onOpenDrawer={openDrawer} onOpenSettings={openSettings} onOpenSearch={openPalette} />}
+          {keyboardOpen ? <ShortcutBar mode="dock" /> : <MobileNav docked onOpenDrawer={openDrawer} onOpenSettings={openSettings} onOpenSearch={openPalette} onOpenFiles={() => setMobileFileSheetOpen(true)} />}
         </div>
       )}
       {showCommandPalette && <CommandPalette onClose={() => closeOverlay('palette')} />}
@@ -328,6 +339,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
         onClose={() => closeOverlay('drawer')}
         type={drawerType}
       />
+      {mobileFileSheetOpen && <div className="fixed inset-0 z-50 bg-black/50"><div className="absolute bottom-0 left-0 right-0 h-[calc(var(--app-height,100dvh)-12px)] overflow-hidden rounded-t-xl border-t border-[var(--line)] bg-bg-1"><div className="flex justify-center py-2"><div className="h-1 w-10 rounded-full bg-text-3/30" /></div><FilePanel mode="mobile" onClose={() => setMobileFileSheetOpen(false)} /></div></div>}
       <ToastViewport />
     </div>
   )

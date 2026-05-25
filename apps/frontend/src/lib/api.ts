@@ -1,4 +1,5 @@
 import { getApiBase } from './runtime-endpoints'
+import type { FileContentMatch, FileItem, FileListResponse, FilePreviewResponse, FileRoot } from '@/types'
 
 async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   const url = `${getApiBase()}${path}`
@@ -114,5 +115,12 @@ export const api = {
   },
   system: {
     info: () => fetchApi<{ gpu: { used: number; total: number } | null; cpu: number; mem: { used: number; total: number }; disks: { mount: string; used: number; total: number }[] }>('/api/system'),
+  },
+  files: {
+    roots: () => fetchApi<FileRoot[]>('/api/files/roots'),
+    list: (root: string, path = '') => fetchApi<FileListResponse>(`/api/files/list?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}`),
+    preview: (root: string, path: string, line = 1) => fetchApi<FilePreviewResponse>(`/api/files/preview?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}&line=${line}`),
+    searchName: (root: string, q: string) => fetchApi<FileItem[]>(`/api/files/search-name?root=${encodeURIComponent(root)}&q=${encodeURIComponent(q)}`),
+    searchContent: (root: string, q: string) => fetchApi<FileContentMatch[]>(`/api/files/search-content?root=${encodeURIComponent(root)}&q=${encodeURIComponent(q)}`),
   },
 }

@@ -86,3 +86,38 @@ export function useSessionSnapshot(hostId: string, sessionId: string) {
     staleTime: 1200,
   })
 }
+
+export function useFileRoots() {
+  return useQuery({
+    queryKey: ['file-roots'],
+    queryFn: api.files.roots,
+    staleTime: 60000,
+  })
+}
+
+export function useFileList(root: string, path: string) {
+  return useQuery({
+    queryKey: ['file-list', root, path],
+    queryFn: () => api.files.list(root, path),
+    enabled: !!root,
+    staleTime: 2000,
+  })
+}
+
+export function useFilePreview(root: string, path: string) {
+  return useQuery({
+    queryKey: ['file-preview', root, path],
+    queryFn: () => api.files.preview(root, path),
+    enabled: !!root && !!path,
+    staleTime: 2000,
+  })
+}
+
+export function useFileSearch(root: string, mode: 'name' | 'content', query: string) {
+  return useQuery({
+    queryKey: ['file-search', root, mode, query],
+    queryFn: () => mode === 'name' ? api.files.searchName(root, query) : api.files.searchContent(root, query),
+    enabled: !!root && query.trim().length > 1,
+    staleTime: 2000,
+  })
+}

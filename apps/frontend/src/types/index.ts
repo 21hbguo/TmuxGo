@@ -49,3 +49,49 @@ export interface ConnectionState {
   latency: number
   lastPing: string
 }
+
+export interface FileRoot {
+  id: string
+  label: string
+  path: string
+}
+
+export interface FileItem {
+  name: string
+  path: string
+  type: 'file' | 'directory'
+  size: number
+  modifiedAt: string
+}
+
+export interface FileBreadcrumb {
+  name: string
+  path: string
+}
+
+export interface FileListResponse {
+  root: FileRoot
+  path: string
+  breadcrumbs: FileBreadcrumb[]
+  items: FileItem[]
+}
+
+export interface FilePreviewLine {
+  number: number
+  content: string
+}
+
+export interface FilePreviewResponse {
+  path: string
+  type: 'file' | 'directory'
+  size: number
+  modifiedAt: string
+  binary: boolean
+  truncated: boolean
+  reason?: string
+  lines: FilePreviewLine[]
+}
+
+export interface FileContentMatch extends FileItem {
+  matches: FilePreviewLine[]
+}

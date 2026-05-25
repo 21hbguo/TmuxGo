@@ -12,6 +12,9 @@ interface ConsoleState {
   connection: ConnectionState
   sidebarCollapsed: boolean
   showCommandPalette: boolean
+  filePanelOpen: boolean
+  mobileFileSheetOpen: boolean
+  filePanelWidth: number
   toasts: { id: string; type: 'success' | 'error' | 'info'; message: string }[]
 
   setActiveHost: (id: string) => void
@@ -19,6 +22,10 @@ interface ConsoleState {
   setActivePane: (id: string) => void
   toggleSidebar: () => void
   setCommandPalette: (open: boolean) => void
+  setFilePanelOpen: (open: boolean) => void
+  toggleFilePanel: () => void
+  setMobileFileSheetOpen: (open: boolean) => void
+  setFilePanelWidth: (width: number) => void
   pushToast: (toast: { type: 'success' | 'error' | 'info'; message: string }) => void
   removeToast: (id: string) => void
   updateConnection: (state: Partial<ConnectionState>) => void
@@ -39,6 +46,9 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
   },
   sidebarCollapsed: false,
   showCommandPalette: false,
+  filePanelOpen: false,
+  mobileFileSheetOpen: false,
+  filePanelWidth: 360,
   toasts: [],
 
   setActiveHost: (id) => {
@@ -56,6 +66,10 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
   setActivePane: (id) => set({ activePaneId: id }),
   toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
   setCommandPalette: (open) => set({ showCommandPalette: open }),
+  setFilePanelOpen: (open) => set({ filePanelOpen: open }),
+  toggleFilePanel: () => set((state) => ({ filePanelOpen: !state.filePanelOpen })),
+  setMobileFileSheetOpen: (open) => set({ mobileFileSheetOpen: open }),
+  setFilePanelWidth: (width) => set({ filePanelWidth: Math.max(320, Math.min(420, width)) }),
   pushToast: (toast) => set((state) => ({ toasts: [...state.toasts, { id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, ...toast }] })),
   removeToast: (id) => set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) })),
   updateConnection: (newState) =>
