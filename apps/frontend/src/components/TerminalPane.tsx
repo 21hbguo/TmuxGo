@@ -414,6 +414,11 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         }
       }
       container.addEventListener('terminal-output', handleOutput)
+      const handleCopySelection = (event: Event) => {
+        const selection = terminal?.getSelection?.() || ''
+        window.dispatchEvent(new CustomEvent('tmuxgo-terminal-selection', { detail: { requestId: (event as CustomEvent).detail?.requestId, selection } }))
+      }
+      window.addEventListener('tmuxgo-copy-terminal-selection', handleCopySelection as EventListener)
       const handleWindowResize = () => {
         if (isMobileDevice && attachExclusiveRef.current) return
         scheduleFit()
@@ -472,10 +477,28 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       container.addEventListener('dragover', handleDragOver)
       container.addEventListener('dragleave', handleDragLeave)
       container.addEventListener('drop', handleDrop)
+      const handlePaste = (e: ClipboardEvent) => {
+        const text = e.clipboardData?.getData('text/plain') || (() => {
+          const html = e.clipboardData?.getData('text/html')
+          if (!html) return ''
+          const doc = new DOMParser().parseFromString(html, 'text/html')
+          return doc.body.textContent || ''
+        })()
+        if (!text) {
+          e.preventDefault()
+          e.stopPropagation()
+          return
+        }
+        e.preventDefault()
+        e.stopPropagation()
+        onInputRef.current?.(text)
+      }
+      container.addEventListener('paste', handlePaste)
       disposables.push({
         dispose: () => {
           window.removeEventListener('tmux-attached', handleAttached as EventListener)
           container.removeEventListener('terminal-output', handleOutput)
+          window.removeEventListener('tmuxgo-copy-terminal-selection', handleCopySelection as EventListener)
           window.removeEventListener('resize', handleWindowResize)
           window.removeEventListener('orientationchange', handleOrientationChange)
           window.removeEventListener('mobile-keyboard-change', handleKeyboardChange as EventListener)
@@ -483,6 +506,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           container.removeEventListener('dragover', handleDragOver)
           container.removeEventListener('dragleave', handleDragLeave)
           container.removeEventListener('drop', handleDrop)
+          container.removeEventListener('paste', handlePaste)
         },
       })
       resizeObserver = new ResizeObserver(() => {

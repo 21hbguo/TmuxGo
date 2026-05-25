@@ -47,6 +47,8 @@
 | :satellite: **Tailscale Remote Access** | Access your sessions securely from anywhere via Tailscale |
 | :iphone: **Mobile Friendly** | Responsive UI with touch support, mobile drawer, and virtual keyboard |
 | :mag: **Command Palette** | Quick search for hosts, sessions, and windows (`Ctrl+K`) |
+| :open_file_folder: **File Browser** | Browse project files, preview text, insert paths, and toggle dotfiles |
+| :clipboard: **Text-Safe Clipboard** | Copy terminal selections and paste text without image/rich-content leaks |
 | :bookmark_tabs: **Session Templates** | One-click session layouts: Dev, Monitoring, ML Training |
 | :art: **Themes** | 6 built-in themes: Dark, Light, High Contrast, Dracula, Nord, Catppuccin |
 | :clipboard: **Command Snippets** | Reusable command library with pre-built and custom snippets |
