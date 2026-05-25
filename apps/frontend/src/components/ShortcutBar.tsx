@@ -35,10 +35,9 @@ const REPEAT_INTERVAL = 80
 
 interface ShortcutBarProps {
   mode?: 'dock' | 'panel'
-  keyboardInset?: number
 }
 
-export function ShortcutBar({ mode = 'dock', keyboardInset = 0 }: ShortcutBarProps) {
+export function ShortcutBar({ mode = 'dock' }: ShortcutBarProps) {
   const { send } = useWebSocket()
   const { t } = useTranslation()
   const activeSessionId = useConsoleStore((s) => s.activeSessionId)
@@ -126,7 +125,7 @@ export function ShortcutBar({ mode = 'dock', keyboardInset = 0 }: ShortcutBarPro
   const baseClass = isPanel ? 'flex min-w-[72px] flex-1 items-center justify-center rounded px-2.5 py-2 text-xs font-mono select-none transition-transform active:scale-95 bg-bg-1 text-text-2 active:bg-accent active:text-bg-0' : 'px-2.5 py-1.5 rounded-md text-[11px] leading-none font-mono whitespace-nowrap select-none active:scale-95 transition-transform bg-bg-2 text-text-2 active:bg-accent active:text-bg-0'
 
   return (
-    <div {...(isPanel ? {} : { 'data-shortcut-bar': true })} data-keep-mobile-keyboard className={shellClass} style={isPanel ? undefined : { minHeight: 40, bottom: 'var(--mobile-keyboard-inset, 0px)' }} onContextMenu={(e) => e.preventDefault()}>
+    <div {...(isPanel ? {} : { 'data-shortcut-bar': true })} data-keep-mobile-keyboard className={shellClass} style={isPanel ? undefined : { minHeight: 40, bottom: 0 }} onContextMenu={(e) => e.preventDefault()}>
       <div
         className={listClass}
         onContextMenu={(e) => e.preventDefault()}

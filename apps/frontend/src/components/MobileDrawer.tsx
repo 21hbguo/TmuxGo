@@ -109,7 +109,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
           <h3 className="text-text-1 font-medium">
             {type === 'sessions' ? t('drawer.sessions') : t('drawer.panes')}
           </h3>
-          <button data-keep-mobile-keyboard onClick={handleClose} className="p-1 text-text-3">✕</button>
+          <button onClick={handleClose} className="p-1 text-text-3">✕</button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4" style={{ WebkitOverflowScrolling: 'touch' }}>
           {type === 'sessions' && (
@@ -122,7 +122,6 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
               </button>
               {sessions.map((session: any) => (
                 <button
-                  data-keep-mobile-keyboard
                   key={session.id}
                   onClick={() => {
                     setActiveSession(session.id)

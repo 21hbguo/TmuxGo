@@ -41,6 +41,7 @@ export function ConsoleLayout() {
   const [keyboardInset, setKeyboardInset] = useState(0)
   const overlayRef = useRef<string[]>([])
   const appHeightRef = useRef('')
+  const viewportBaseHeightRef = useRef(0)
 
   const pushOverlay = useCallback((id: string) => {
     if (overlayRef.current[overlayRef.current.length - 1] === id) return
@@ -84,7 +85,9 @@ export function ConsoleLayout() {
   useEffect(() => {
     const syncAppHeight = () => {
       const isMobileViewport = window.matchMedia(MOBILE_QUERY).matches
-      const nextHeight = Math.round(isMobileViewport ? (window.visualViewport?.height || window.innerHeight) : window.innerHeight)
+      const vv = window.visualViewport
+      if (isMobileViewport && vv?.height && vv.height > viewportBaseHeightRef.current) viewportBaseHeightRef.current = vv.height
+      const nextHeight = Math.round(isMobileViewport ? (vv?.height || window.innerHeight) : window.innerHeight)
       const nextValue = `${nextHeight}px`
       if (appHeightRef.current === nextValue) return
       appHeightRef.current = nextValue
@@ -102,18 +105,23 @@ export function ConsoleLayout() {
     }
   }, [])
   useEffect(() => {
+    const getViewportInset = () => {
+      const vv = window.visualViewport
+      if (!vv) return 0
+      if (vv.height > viewportBaseHeightRef.current) viewportBaseHeightRef.current = vv.height
+      return Math.max(0, viewportBaseHeightRef.current - vv.height)
+    }
     const handleKeyboardChange = (event: Event) => {
       const detail = (event as CustomEvent<{ open?: boolean; inset?: number }>).detail
       setKeyboardOpen(!!detail?.open)
       setKeyboardInset(detail?.open ? detail?.inset || 0 : 0)
     }
     const syncKeyboardOpen = () => {
-      const vv = window.visualViewport
-      const inset = vv ? Math.max(0, window.innerHeight - vv.height) : 0
+      const inset = getViewportInset()
       const byViewport = inset >= 80
       const byClass = document.body.classList.contains('keyboard-open')
       setKeyboardOpen(byViewport || byClass)
-      if (byViewport || byClass) setKeyboardInset(inset)
+      setKeyboardInset(byViewport || byClass ? inset : 0)
     }
     window.addEventListener('mobile-keyboard-change', handleKeyboardChange as EventListener)
     window.visualViewport?.addEventListener('resize', syncKeyboardOpen)
@@ -231,7 +239,7 @@ export function ConsoleLayout() {
       </div>
       {!isMobile && preferences.showStatusBar && <StatusBar />}
       {isMobile && (
-        keyboardOpen ? <ShortcutBar mode="dock" keyboardInset={keyboardInset} /> : <MobileNav onOpenDrawer={openDrawer} onOpenSettings={openSettings} onOpenSearch={openPalette} />
+        keyboardOpen ? <ShortcutBar mode="dock" /> : <MobileNav onOpenDrawer={openDrawer} onOpenSettings={openSettings} onOpenSearch={openPalette} />
       )}
       {showCommandPalette && <CommandPalette onClose={() => closeOverlay('palette')} />}
       {showSettings && <Settings onClose={() => closeOverlay('settings')} />}
