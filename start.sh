@@ -8,7 +8,7 @@ if ! flock -n 9; then
   exit 1
 fi
 cd "$ROOT_DIR"
-echo "Starting tmuxU development servers..."
+echo "Starting TmuxGo development servers..."
 FRONTEND_STABLE_LOG="/tmp/tmuxu-frontend-stable.log"
 FRONTEND_DEV_LOG="/tmp/tmuxu-frontend-dev.log"
 GATEWAY_LOG="/tmp/tmuxu-gateway.log"
@@ -133,7 +133,7 @@ else
   fi
 fi
 echo ""
-echo "tmuxU services:"
+echo "TmuxGo services:"
 echo ""
 echo "  Frontend stable: http://${TAILSCALE_IP}:3000"
 echo "  Frontend dev:    http://${TAILSCALE_IP}:3002"

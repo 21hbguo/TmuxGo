@@ -4,14 +4,14 @@ import { QueryProvider } from '@/components/QueryProvider'
 import { I18nProvider } from '@/i18n'
 
 export const metadata: Metadata = {
-  title: 'tmuxU',
+  title: 'TmuxGo',
   description: 'Web-based tmux session manager',
-  applicationName: 'tmuxU',
+  applicationName: 'TmuxGo',
   manifest: '/manifest.webmanifest',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
-    title: 'tmuxU',
+    title: 'TmuxGo',
   },
   formatDetection: {
     telephone: false,
