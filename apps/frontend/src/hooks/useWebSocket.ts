@@ -3,8 +3,8 @@ import { useEffect, useRef, useCallback } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { usePreferences } from './usePreferences'
 import { getWebSocketBase } from '@/lib/runtime-endpoints'
-type WSState={ws:WebSocket|null,reconnectTimer:ReturnType<typeof setTimeout>|null,reconnectCount:number,isConnecting:boolean,pingTimer:ReturnType<typeof setInterval>|null,pongTimer:ReturnType<typeof setTimeout>|null,subscribers:number,lastPongAt:number,hiddenAt:number,backgroundClosed:boolean,onMessage:((data:any)=>void)|null,onOpen:(()=>void)|null,onClose:(()=>void)|null,onError:(()=>void)|null,closeExpected:boolean,lastInteractionRecoverAt:number}
-const wsState:WSState={ws:null,reconnectTimer:null,reconnectCount:0,isConnecting:false,pingTimer:null,pongTimer:null,subscribers:0,lastPongAt:0,hiddenAt:0,backgroundClosed:false,onMessage:null,onOpen:null,onClose:null,onError:null,closeExpected:false,lastInteractionRecoverAt:0}
+type WSState={ws:WebSocket|null,reconnectTimer:ReturnType<typeof setTimeout>|null,reconnectCount:number,isConnecting:boolean,pingTimer:ReturnType<typeof setInterval>|null,pongTimer:ReturnType<typeof setTimeout>|null,closeTimer:ReturnType<typeof setTimeout>|null,subscribers:number,lastPongAt:number,hiddenAt:number,backgroundClosed:boolean,onMessage:((data:any)=>void)|null,onOpen:(()=>void)|null,onClose:(()=>void)|null,onError:(()=>void)|null,closeExpected:boolean,lastInteractionRecoverAt:number,listenersReady:boolean,cleanupListeners:(()=>void)|null}
+const wsState:WSState={ws:null,reconnectTimer:null,reconnectCount:0,isConnecting:false,pingTimer:null,pongTimer:null,closeTimer:null,subscribers:0,lastPongAt:0,hiddenAt:0,backgroundClosed:false,onMessage:null,onOpen:null,onClose:null,onError:null,closeExpected:false,lastInteractionRecoverAt:0,listenersReady:false,cleanupListeners:null}
 export function useWebSocket() {
   const reconnectCountRef=useRef(0)
   const updateConnection=useConsoleStore((s)=>s.updateConnection)
@@ -163,26 +163,27 @@ export function useWebSocket() {
     wsState.isConnecting=false
     updateConnection({status:'disconnected'})
   },[clearPongTimer,updateConnection])
-  const ensureConnection=useCallback((force=false)=>{
+  const ensureConnection=useCallback((recover=false)=>{
     const ws=wsState.ws
+    const resumed=wsState.backgroundClosed||wsState.hiddenAt>0&&Date.now()-wsState.hiddenAt>1200
+    wsState.hiddenAt=0
+    wsState.backgroundClosed=false
     if (!ws) {
       wsState.reconnectCount=0
       connect()
       return
     }
-    const resumed=wsState.backgroundClosed||wsState.hiddenAt>0&&Date.now()-wsState.hiddenAt>1200
-    wsState.hiddenAt=0
-    wsState.backgroundClosed=false
     if (ws.readyState===WebSocket.OPEN) {
       const stale=Date.now()-wsState.lastPongAt>15000
-      if (force||resumed||stale) {
+      if (stale) {
         resetAndReconnect()
         return
       }
-      sendPing(1500)
+      if (recover||resumed) sendPing(3000)
       return
     }
-    if (force||ws.readyState===WebSocket.CLOSED) {
+    if (ws.readyState===WebSocket.CONNECTING||ws.readyState===WebSocket.CLOSING) return
+    if (recover||ws.readyState===WebSocket.CLOSED) {
       wsState.reconnectCount=0
       connect()
     }
@@ -194,6 +195,10 @@ export function useWebSocket() {
   },[])
   useEffect(()=>{
     if (typeof window==='undefined') return
+    if (wsState.closeTimer) {
+      clearTimeout(wsState.closeTimer)
+      wsState.closeTimer=null
+    }
     wsState.subscribers+=1
     wsState.onMessage=handleMessage
     wsState.onOpen=()=>{}
@@ -240,7 +245,7 @@ export function useWebSocket() {
       closeForBackground()
     }
     const handlePageShow=()=>{
-      ensureConnection(true)
+      ensureConnection(false)
     }
     const handleFocus=()=>{
       ensureConnection(true)
@@ -255,48 +260,61 @@ export function useWebSocket() {
       wsState.lastInteractionRecoverAt=now
       ensureConnection(true)
     }
-    document.addEventListener('visibilitychange',handleVisibilityChange)
-    window.addEventListener('pagehide',handlePageHide)
-    window.addEventListener('pageshow',handlePageShow)
-    window.addEventListener('focus',handleFocus)
-    window.addEventListener('online',handleOnline)
-    document.addEventListener('pointerdown',handleInteractionRecover,true)
-    document.addEventListener('touchstart',handleInteractionRecover,true)
+    if (!wsState.listenersReady) {
+      wsState.listenersReady=true
+      document.addEventListener('visibilitychange',handleVisibilityChange)
+      window.addEventListener('pagehide',handlePageHide)
+      window.addEventListener('pageshow',handlePageShow)
+      window.addEventListener('focus',handleFocus)
+      window.addEventListener('online',handleOnline)
+      document.addEventListener('pointerdown',handleInteractionRecover,true)
+      document.addEventListener('touchstart',handleInteractionRecover,true)
+      wsState.cleanupListeners=()=>{
+        document.removeEventListener('visibilitychange',handleVisibilityChange)
+        window.removeEventListener('pagehide',handlePageHide)
+        window.removeEventListener('pageshow',handlePageShow)
+        window.removeEventListener('focus',handleFocus)
+        window.removeEventListener('online',handleOnline)
+        document.removeEventListener('pointerdown',handleInteractionRecover,true)
+        document.removeEventListener('touchstart',handleInteractionRecover,true)
+      }
+    }
     return ()=>{
-      document.removeEventListener('visibilitychange',handleVisibilityChange)
-      window.removeEventListener('pagehide',handlePageHide)
-      window.removeEventListener('pageshow',handlePageShow)
-      window.removeEventListener('focus',handleFocus)
-      window.removeEventListener('online',handleOnline)
-      document.removeEventListener('pointerdown',handleInteractionRecover,true)
-      document.removeEventListener('touchstart',handleInteractionRecover,true)
       wsState.subscribers-=1
       if (wsState.subscribers<=0) {
-        if (wsState.reconnectTimer) {
-          clearTimeout(wsState.reconnectTimer)
-          wsState.reconnectTimer=null
-        }
-        if (wsState.pingTimer) {
-          clearInterval(wsState.pingTimer)
-          wsState.pingTimer=null
-        }
-        clearPongTimer()
-        if (wsState.ws) {
-          wsState.closeExpected=true
-          wsState.ws.close()
-          wsState.ws=null
-        }
-        wsState.reconnectCount=0
-        wsState.isConnecting=false
-        wsState.lastPongAt=0
-        wsState.hiddenAt=0
-        wsState.backgroundClosed=false
-        wsState.closeExpected=false
-        wsState.lastInteractionRecoverAt=0
-        wsState.onMessage=null
-        wsState.onOpen=null
-        wsState.onClose=null
-        wsState.onError=null
+        if (wsState.closeTimer) clearTimeout(wsState.closeTimer)
+        wsState.closeTimer=setTimeout(()=>{
+          if (wsState.subscribers>0) return
+          wsState.closeTimer=null
+          wsState.cleanupListeners?.()
+          wsState.cleanupListeners=null
+          wsState.listenersReady=false
+          if (wsState.reconnectTimer) {
+            clearTimeout(wsState.reconnectTimer)
+            wsState.reconnectTimer=null
+          }
+          if (wsState.pingTimer) {
+            clearInterval(wsState.pingTimer)
+            wsState.pingTimer=null
+          }
+          clearPongTimer()
+          if (wsState.ws) {
+            wsState.closeExpected=true
+            wsState.ws.close()
+            wsState.ws=null
+          }
+          wsState.reconnectCount=0
+          wsState.isConnecting=false
+          wsState.lastPongAt=0
+          wsState.hiddenAt=0
+          wsState.backgroundClosed=false
+          wsState.closeExpected=false
+          wsState.lastInteractionRecoverAt=0
+          wsState.onMessage=null
+          wsState.onOpen=null
+          wsState.onClose=null
+          wsState.onError=null
+        },250)
       }
     }
   },[connect,ensureConnection,handleMessage,scheduleReconnect,sendPing,clearPongTimer])
