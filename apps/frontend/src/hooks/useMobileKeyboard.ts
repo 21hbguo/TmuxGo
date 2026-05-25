@@ -164,7 +164,6 @@ export function useMobileKeyboard(
       if (target.closest('input,textarea,select,[contenteditable="true"]')) return
       if (!target.closest('[data-keep-mobile-keyboard]')) return
       keepAliveUntilRef.current = Date.now() + 500
-      if (target.closest('button,a,[role="button"]')) e.preventDefault()
       requestAnimationFrame(() => focusKeyboard())
     }
     const handleBlur = () => {
