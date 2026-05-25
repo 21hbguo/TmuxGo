@@ -39,6 +39,7 @@ function FileIcon({ type }: { type: 'file' | 'directory' }) {
 export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobile'; onClose?: () => void }) {
   const { filePanelWidth, setFilePanelWidth, setFilePanelOpen, pushToast } = useConsoleStore()
   const { data: roots = [] } = useFileRoots()
+  const isMobile = mode === 'mobile'
   const [rootId, setRootId] = useState('')
   const [currentPath, setCurrentPath] = useState('')
   const [selectedPath, setSelectedPath] = useState('')
@@ -47,9 +48,9 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: FileItem | FileContentMatch } | null>(null)
   const [mobileView, setMobileView] = useState<'list' | 'preview'>('list')
   const [recentFiles, setRecentFiles] = useState<{ rootId: string; rootPath: string; name: string; path: string }[]>([])
+  const [contentReady, setContentReady] = useState(isMobile)
   const resizingRef = useRef(false)
   const touchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const isMobile = mode === 'mobile'
   const { data: listData, isLoading: listLoading } = useFileList(rootId, currentPath)
   const { data: preview } = useFilePreview(rootId, selectedPath)
   const { data: searchResults = [], isFetching: searchLoading } = useFileSearch(rootId, searchMode, query)
@@ -63,6 +64,11 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
   useEffect(() => {
     setRecentFiles(readRecentFiles())
   }, [])
+  useEffect(() => {
+    if (isMobile) return
+    const frame = requestAnimationFrame(() => setContentReady(true))
+    return () => cancelAnimationFrame(frame)
+  }, [isMobile])
   useEffect(() => {
     const handleMove = (e: MouseEvent) => {
       if (!resizingRef.current) return
@@ -161,6 +167,7 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
           }}
         />
       )}
+      {!contentReady ? <div className="flex h-full items-center justify-center text-xs text-text-3">Loading...</div> : <>
       <div className="border-b border-[var(--line)] px-3 py-2">
         <div className="flex items-center gap-2">
           {isMobile && mobileView === 'preview' && <button onClick={() => setMobileView('list')} className="rounded px-2 py-1 text-text-3 hover:bg-bg-2">‹</button>}
@@ -243,6 +250,7 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
           <button onClick={() => { setSelectedPath(contextMenu.item.path); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">Open preview</button>
         </div>
       )}
+      </>}
     </aside>
   )
 }

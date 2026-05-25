@@ -6,6 +6,10 @@ import { useMobileKeyboard } from '@/hooks/useMobileKeyboard'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { formatDroppedPaths } from '@/lib/path-drop'
 
+const FAST_OUTPUT_LIMIT = 24576
+const OUTPUT_FLUSH_LIMIT = 65536
+const SCROLLBACK_LIMIT = 600
+
 interface TerminalPaneProps {
   sessionName?: string
   onInput?: (data: string) => void
@@ -222,7 +226,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         const { cols, rows } = size
         if (cols && rows && cols > 0 && rows > 0) {
           if (terminal.cols !== cols || terminal.rows !== rows) {
-            terminal._core._renderService.clear()
             terminal.resize(cols, rows)
           }
           const prev = lastSizeRef.current
@@ -257,8 +260,19 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
 
     const scheduleFit = () => {
       if (disposed) return
-      if (fitTimeout) clearTimeout(fitTimeout)
-      fitTimeout = setTimeout(doFit, isMobileDevice ? 220 : 50)
+      if (fitTimeout) {
+        clearTimeout(fitTimeout)
+        fitTimeout = null
+      }
+      if (fitFrame) cancelAnimationFrame(fitFrame)
+      if (isMobileDevice) {
+        fitTimeout = setTimeout(doFit, 160)
+        return
+      }
+      fitFrame = requestAnimationFrame(() => {
+        fitFrame = null
+        doFit()
+      })
     }
     const scheduleInitialFit = () => {
       if (disposed) return
@@ -283,7 +297,9 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         terminal.options.fontFamily = preferencesRef.current.fontFamily
         terminal.options.cursorBlink = preferencesRef.current.cursorBlink
       }
-      terminal.resize(size.cols, size.rows)
+      if (terminal.cols !== size.cols || terminal.rows !== size.rows) {
+        terminal.resize(size.cols, size.rows)
+      }
       sharedLayoutFrame = requestAnimationFrame(() => {
         if (disposed) return
         const canvas = getCanvasSize()
@@ -303,8 +319,11 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         if (isMobileDevice) {
           syncSharedViewport()
         }
+        const prev = lastSizeRef.current
         lastSizeRef.current = { cols: size.cols, rows: size.rows }
-        onResizeRef.current?.(size.cols, size.rows)
+        if (!prev || prev.cols !== size.cols || prev.rows !== size.rows) {
+          onResizeRef.current?.(size.cols, size.rows)
+        }
       })
     }
     syncSharedLayoutRef.current = (rf) => syncSharedLayout(rf)
@@ -330,6 +349,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         fontSize: preferencesRef.current.fontSize,
         fontFamily: preferencesRef.current.fontFamily,
         macOptionIsMeta: true,
+        scrollback: SCROLLBACK_LIMIT,
       })
 
       fitAddon = new FitAddon()
@@ -368,8 +388,15 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         controlCarryRef.current = tailMatch ? tailMatch[0] : ''
         const output = controlCarryRef.current ? cleaned.slice(0, cleaned.length - controlCarryRef.current.length) : cleaned
         if (output) {
+          if (!outputBuffer && output.length <= FAST_OUTPUT_LIMIT) {
+            terminal.write(output)
+            if (!attachExclusiveRef.current && isMobileDevice) {
+              requestAnimationFrame(syncSharedViewport)
+            }
+            return
+          }
           outputBuffer += output
-          if (outputBuffer.length >= 32768) {
+          if (outputBuffer.length >= OUTPUT_FLUSH_LIMIT) {
             if (outputTimer) {
               clearTimeout(outputTimer)
               outputTimer = null
@@ -381,7 +408,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
               outputTimer = setTimeout(() => {
                 outputTimer = null
                 flushOutput()
-              }, 14)
+              }, 4)
             }
           }
         }

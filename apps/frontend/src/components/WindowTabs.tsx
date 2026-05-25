@@ -16,12 +16,17 @@ export function WindowTabs() {
   const sessionWindows = windows.filter((w: any) => w.sessionId === activeSessionId)
   const handleSelect = async (windowId: string) => {
     if (!activeHostId || !activeSessionId) return
+    const previousWindows = useConsoleStore.getState().windows
+    useConsoleStore.setState({
+      windows: previousWindows.map((window: any) => window.sessionId === activeSessionId ? { ...window, active: window.id === windowId } : window),
+    })
     try {
       const result = await api.windows.select(activeHostId, activeSessionId, windowId)
       if (result.windows) {
         useConsoleStore.setState({ windows: result.windows })
       }
     } catch (err) {
+      useConsoleStore.setState({ windows: previousWindows })
       pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Switch window failed' })
     }
   }
