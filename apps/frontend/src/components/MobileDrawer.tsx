@@ -62,6 +62,19 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
       document.body.style.overflow = ''
     }
   }, [isOpen, visible, resetPanelPosition])
+  useEffect(() => {
+    if (!visible) return
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') return
+      if (!isOpen) {
+        setVisible(false)
+        setClosing(false)
+        resetPanelPosition()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }, [isOpen, visible, resetPanelPosition])
 
   const handleClose = useCallback(() => {
     if (!isOpen) return

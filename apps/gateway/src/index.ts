@@ -1,6 +1,5 @@
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
-import jwt from '@fastify/jwt'
 import websocket from '@fastify/websocket'
 import { hostRoutes } from './routes/hosts.js'
 import { sessionRoutes } from './routes/sessions.js'
@@ -15,10 +14,6 @@ const fastify = Fastify({
 
 await fastify.register(cors, {
   origin: true,
-})
-
-await fastify.register(jwt, {
-  secret: process.env.JWT_SECRET || 'tmuxu-dev-secret',
 })
 
 await fastify.register(websocket)
