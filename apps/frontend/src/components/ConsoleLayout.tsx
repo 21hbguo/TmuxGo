@@ -18,7 +18,7 @@ import { usePreferences } from '@/hooks/usePreferences'
 
 const MOBILE_QUERY = '(max-width: 1023px)'
 
-export function ConsoleLayout() {
+export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boolean }) {
   const activeHostId = useConsoleStore((s) => s.activeHostId)
   const activeSessionId = useConsoleStore((s) => s.activeSessionId)
   const showCommandPalette = useConsoleStore((s) => s.showCommandPalette)
@@ -32,8 +32,8 @@ export function ConsoleLayout() {
   const { data: panesData = [] } = useSessionPanes(activeHostId || '', activeSessionId || '')
   const { send } = useWebSocket()
 
-  const [isMobile, setIsMobile] = useState(false)
-  const [appHeight, setAppHeight] = useState<string>('100dvh')
+  const [isMobile, setIsMobile] = useState(initialIsMobile)
+  const [appHeight, setAppHeight] = useState<string>(initialIsMobile?'100svh':'100dvh')
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerType, setDrawerType] = useState<'sessions' | 'panes'>('sessions')
   const [showSettings, setShowSettings] = useState(false)
@@ -42,6 +42,9 @@ export function ConsoleLayout() {
   const overlayRef = useRef<string[]>([])
   const appHeightRef = useRef('')
   const viewportBaseHeightRef = useRef(0)
+  const appHeightNumRef = useRef(0)
+  const keyboardOpenRef = useRef(false)
+  const appHeightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const pushOverlay = useCallback((id: string) => {
     if (overlayRef.current[overlayRef.current.length - 1] === id) return
@@ -73,6 +76,9 @@ export function ConsoleLayout() {
     setCommandPalette(true)
     pushOverlay('palette')
   }, [showCommandPalette, setCommandPalette, pushOverlay])
+  useEffect(() => {
+    keyboardOpenRef.current = keyboardOpen
+  }, [keyboardOpen])
 
   useEffect(() => {
     const mql = window.matchMedia(MOBILE_QUERY)
@@ -83,27 +89,55 @@ export function ConsoleLayout() {
   }, [])
 
   useEffect(() => {
-    const syncAppHeight = () => {
-      const isMobileViewport = window.matchMedia(MOBILE_QUERY).matches
-      const vv = window.visualViewport
-      if (isMobileViewport && vv?.height && vv.height > viewportBaseHeightRef.current) viewportBaseHeightRef.current = vv.height
-      const nextHeight = Math.round(isMobileViewport ? (vv?.height || window.innerHeight) : window.innerHeight)
+    const clearSyncTimer = () => {
+      if (!appHeightTimerRef.current) return
+      clearTimeout(appHeightTimerRef.current)
+      appHeightTimerRef.current = null
+    }
+    const applyAppHeight = (nextHeight: number) => {
       const nextValue = `${nextHeight}px`
       if (appHeightRef.current === nextValue) return
       appHeightRef.current = nextValue
+      appHeightNumRef.current = nextHeight
       setAppHeight(nextValue)
     }
-    const handleOrientation = () => window.setTimeout(syncAppHeight, 100)
+    const syncAppHeight = (deferred=false) => {
+      const isMobileViewport = window.matchMedia(MOBILE_QUERY).matches
+      const vv = window.visualViewport
+      if (isMobileViewport && vv?.height && vv.height > viewportBaseHeightRef.current) viewportBaseHeightRef.current = vv.height
+      const nextHeight = Math.round(
+        !isMobileViewport
+          ? window.innerHeight
+          : keyboardOpenRef.current
+            ? (vv?.height || window.innerHeight)
+            : (viewportBaseHeightRef.current || window.innerHeight)
+      )
+      if (isMobileViewport && appHeightNumRef.current && !keyboardOpenRef.current && Math.abs(nextHeight - appHeightNumRef.current) < 36) return
+      if (isMobileViewport && appHeightNumRef.current && keyboardOpenRef.current && Math.abs(nextHeight - appHeightNumRef.current) < 6) return
+      if (isMobileViewport && !keyboardOpenRef.current && deferred) {
+        clearSyncTimer()
+        appHeightTimerRef.current = setTimeout(() => {
+          appHeightTimerRef.current = null
+          applyAppHeight(nextHeight)
+        }, 120)
+        return
+      }
+      clearSyncTimer()
+      applyAppHeight(nextHeight)
+    }
+    const handleOrientation = () => window.setTimeout(() => syncAppHeight(), 80)
+    const handleResize = () => syncAppHeight(true)
     syncAppHeight()
-    window.addEventListener('resize', syncAppHeight)
-    window.visualViewport?.addEventListener('resize', syncAppHeight)
+    window.addEventListener('resize', handleResize)
+    window.visualViewport?.addEventListener('resize', handleResize)
     window.addEventListener('orientationchange', handleOrientation)
     return () => {
-      window.removeEventListener('resize', syncAppHeight)
-      window.visualViewport?.removeEventListener('resize', syncAppHeight)
+      clearSyncTimer()
+      window.removeEventListener('resize', handleResize)
+      window.visualViewport?.removeEventListener('resize', handleResize)
       window.removeEventListener('orientationchange', handleOrientation)
     }
-  }, [])
+  }, [keyboardOpen])
   useEffect(() => {
     const getViewportInset = () => {
       const vv = window.visualViewport
