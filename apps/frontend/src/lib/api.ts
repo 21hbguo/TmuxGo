@@ -11,24 +11,36 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   })
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: 'Request failed' }))
-    throw new Error(error.message || `HTTP ${response.status}`)
+    const error = await response.json().catch(() => ({ message: 'Request failed', code: 'REQUEST_FAILED' }))
+    const e = new Error(error.message || `HTTP ${response.status}`) as Error & { status?: number; code?: string }
+    e.status = response.status
+    e.code = error.code || 'REQUEST_FAILED'
+    throw e
   }
 
-  return response.json()
+  const data = await response.json()
+  if (data && typeof data === 'object' && 'ok' in data && data.ok === false) {
+    const e = new Error((data as { error?: string }).error || 'Request failed') as Error & { code?: string }
+    e.code = 'REQUEST_FAILED'
+    throw e
+  }
+  return data
 }
 
 export const api = {
+  snapshot: {
+    get: (hostId: string, sessionId: string) => fetchApi<{ sessionId: string; sessionName: string; windows: any[]; panes: any[]; activeWindowId: string | null; activePaneId: string | null }>(`/api/hosts/${hostId}/sessions/${sessionId}/snapshot`),
+  },
   hosts: {
     list: () => fetchApi<any[]>('/api/hosts'),
     get: (id: string) => fetchApi<any>(`/api/hosts/${id}`),
   },
   sessions: {
     list: (hostId: string) => fetchApi<any[]>(`/api/hosts/${hostId}/sessions`),
-    create: (hostId: string, name: string) =>
+    create: (hostId: string, name: string, layout?: { windows: { name: string; panes: { command?: string }[] }[] }) =>
       fetchApi<any>(`/api/hosts/${hostId}/sessions`, {
         method: 'POST',
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, layout }),
       }),
     delete: (hostId: string, sessionId: string) =>
       fetchApi<any>(`/api/hosts/${hostId}/sessions/${sessionId}`, {
@@ -42,6 +54,26 @@ export const api = {
       fetchApi<any>(`/api/hosts/${hostId}/sessions/${sessionId}/windows`, {
         method: 'POST',
         body: JSON.stringify({ name }),
+      }),
+    select: (hostId: string, sessionId: string, windowId: string) =>
+      fetchApi<any>(`/api/hosts/${hostId}/sessions/${sessionId}/windows/select`, {
+        method: 'POST',
+        body: JSON.stringify({ windowId }),
+      }),
+    rename: (hostId: string, sessionId: string, windowId: string, name: string) =>
+      fetchApi<any>(`/api/hosts/${hostId}/sessions/${sessionId}/windows/rename`, {
+        method: 'POST',
+        body: JSON.stringify({ windowId, name }),
+      }),
+    move: (hostId: string, sessionId: string, orderedWindowIds: string[]) =>
+      fetchApi<any>(`/api/hosts/${hostId}/sessions/${sessionId}/windows/move`, {
+        method: 'POST',
+        body: JSON.stringify({ orderedWindowIds }),
+      }),
+    kill: (hostId: string, sessionId: string, windowId: string) =>
+      fetchApi<any>(`/api/hosts/${hostId}/sessions/${sessionId}/windows/kill`, {
+        method: 'POST',
+        body: JSON.stringify({ windowId }),
       }),
   },
   panes: {
@@ -57,12 +89,27 @@ export const api = {
     zoom: (session?: string) =>
       fetchApi<any>('/api/panes/zoom', {
         method: 'POST',
-        body: JSON.stringify({ session }),
+        body: JSON.stringify({ paneId: session }),
       }),
-    kill: (session?: string) =>
+    select: (paneId: string) =>
+      fetchApi<any>('/api/panes/select', {
+        method: 'POST',
+        body: JSON.stringify({ paneId }),
+      }),
+    split: (paneId: string, direction: 'horizontal' | 'vertical') =>
+      fetchApi<any>('/api/panes/split', {
+        method: 'POST',
+        body: JSON.stringify({ paneId, direction }),
+      }),
+    zoomByPane: (paneId: string) =>
+      fetchApi<any>('/api/panes/zoom', {
+        method: 'POST',
+        body: JSON.stringify({ paneId }),
+      }),
+    kill: (paneId?: string) =>
       fetchApi<any>('/api/panes/kill', {
         method: 'POST',
-        body: JSON.stringify({ session }),
+        body: JSON.stringify({ paneId }),
       }),
   },
   system: {

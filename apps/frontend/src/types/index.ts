@@ -45,7 +45,7 @@ export interface User {
 }
 
 export interface ConnectionState {
-  status: 'connected' | 'reconnecting' | 'disconnected'
+  status: 'connected' | 'attaching' | 'reconnecting' | 'disconnected'
   latency: number
   lastPing: string
 }

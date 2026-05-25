@@ -1,19 +1,21 @@
 import type { FastifyInstance } from 'fastify'
 import { agentManager } from '../agent-manager.js'
-import { exec } from 'child_process'
+import { execFile } from 'child_process'
 import { promisify } from 'util'
+import { getTemplateWindowTargets, type SessionTemplateLayout } from '../lib/template-utils.js'
 
-const execAsync = promisify(exec)
+const execFileAsync = promisify(execFile)
+function isValidSessionName(name: string) {
+  return /^[A-Za-z0-9._-]{1,64}$/.test(name)
+}
 
 async function enableMouse(sessionName: string) {
-  await execAsync(`tmux set-option -t ${sessionName} -g mouse on`)
+  await execFileAsync('tmux', ['set-option', '-t', sessionName, '-g', 'mouse', 'on'])
 }
 
 async function getLocalTmuxSessions() {
   try {
-    const { stdout } = await execAsync(
-      'tmux list-sessions -F "#{session_id}|#{session_name}|#{session_windows}|#{session_created}|#{session_attached}"'
-    )
+    const { stdout } = await execFileAsync('tmux', ['list-sessions', '-F', '#{session_id}|#{session_name}|#{session_windows}|#{session_created}|#{session_attached}'])
 
     return stdout
       .trim()
@@ -35,6 +37,38 @@ async function getLocalTmuxSessions() {
     return []
   }
 }
+async function runSendKeys(target: string, command: string) {
+  await execFileAsync('tmux', ['send-keys', '-t', target, command, 'C-m'])
+}
+async function applyTemplateLayout(sessionName: string, layout: SessionTemplateLayout) {
+  if (!layout.windows.length) return
+  const targets = getTemplateWindowTargets(sessionName, layout)
+  for (let i = 0; i < targets.length; i++) {
+    const windowDef = targets[i]
+    if (!windowDef.name) throw new Error(`Template step failed: window[${i}] missing name`)
+    if (i === 0) {
+      await execFileAsync('tmux', ['rename-window', '-t', `${sessionName}:0`, windowDef.name])
+    } else {
+      await execFileAsync('tmux', ['new-window', '-t', sessionName, '-n', windowDef.name])
+    }
+    const { windowTarget, panes } = windowDef
+    for (let p = 1; p < panes.length; p++) {
+      await execFileAsync('tmux', ['split-window', '-t', windowTarget, '-h'])
+    }
+    await execFileAsync('tmux', ['select-layout', '-t', windowTarget, 'tiled'])
+    for (let p = 0; p < panes.length; p++) {
+      const command = panes[p]?.command?.trim()
+      if (!command) continue
+      await runSendKeys(`${windowTarget}.${p}`, command)
+    }
+  }
+  await execFileAsync('tmux', ['select-window', '-t', `${sessionName}:0`])
+}
+async function cleanupSession(sessionName: string) {
+  try {
+    await execFileAsync('tmux', ['kill-session', '-t', sessionName])
+  } catch {}
+}
 
 export async function sessionRoutes(fastify: FastifyInstance) {
   fastify.get('/hosts/:hostId/sessions', async (request) => {
@@ -43,7 +77,10 @@ export async function sessionRoutes(fastify: FastifyInstance) {
 
   fastify.post('/hosts/:hostId/sessions', async (request) => {
     const { hostId } = request.params as { hostId: string }
-    const { name } = request.body as { name: string }
+    const { name, layout } = request.body as { name: string; layout?: SessionTemplateLayout }
+    if (!isValidSessionName(name)) {
+      throw new Error('Invalid session name')
+    }
 
     try {
       const existingSessions = await getLocalTmuxSessions()
@@ -52,7 +89,15 @@ export async function sessionRoutes(fastify: FastifyInstance) {
         await enableMouse(existingSession.name)
         return existingSession
       }
-      await execAsync(`tmux new-session -d -s ${name}`)
+      await execFileAsync('tmux', ['new-session', '-d', '-s', name])
+      if (layout?.windows?.length) {
+        try {
+          await applyTemplateLayout(name, layout)
+        } catch (err: any) {
+          await cleanupSession(name)
+          throw new Error(err?.message || 'Template layout failed')
+        }
+      }
       await enableMouse(name)
       const sessions = await getLocalTmuxSessions()
       return sessions.find((s) => s.name === name) || {
@@ -78,9 +123,12 @@ export async function sessionRoutes(fastify: FastifyInstance) {
   fastify.delete('/hosts/:hostId/sessions/:sessionId', async (request) => {
     const { sessionId } = request.params as { sessionId: string }
     const sessionName = sessionId.replace('session-', '')
+    if (!isValidSessionName(sessionName)) {
+      throw new Error('Invalid session name')
+    }
 
     try {
-      await execAsync(`tmux kill-session -t ${sessionName}`)
+      await execFileAsync('tmux', ['kill-session', '-t', sessionName])
       return { success: true, sessionId }
     } catch (err: any) {
       throw new Error(err.message)

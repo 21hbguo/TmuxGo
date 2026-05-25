@@ -3,12 +3,14 @@ import { useEffect, useRef, useCallback } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { usePreferences } from './usePreferences'
 import { getWebSocketBase } from '@/lib/runtime-endpoints'
-type WSState={ws:WebSocket|null,reconnectTimer:ReturnType<typeof setTimeout>|null,reconnectCount:number,isConnecting:boolean,pingTimer:ReturnType<typeof setInterval>|null,pongTimer:ReturnType<typeof setTimeout>|null,closeTimer:ReturnType<typeof setTimeout>|null,subscribers:number,lastPongAt:number,hiddenAt:number,backgroundClosed:boolean,onMessage:((data:any)=>void)|null,onOpen:(()=>void)|null,onClose:(()=>void)|null,onError:(()=>void)|null,closeExpected:boolean,lastInteractionRecoverAt:number,listenersReady:boolean,cleanupListeners:(()=>void)|null}
-const wsState:WSState={ws:null,reconnectTimer:null,reconnectCount:0,isConnecting:false,pingTimer:null,pongTimer:null,closeTimer:null,subscribers:0,lastPongAt:0,hiddenAt:0,backgroundClosed:false,onMessage:null,onOpen:null,onClose:null,onError:null,closeExpected:false,lastInteractionRecoverAt:0,listenersReady:false,cleanupListeners:null}
+type WSState={ws:WebSocket|null,reconnectTimer:ReturnType<typeof setTimeout>|null,reconnectCount:number,isConnecting:boolean,socketReady:boolean,pingTimer:ReturnType<typeof setInterval>|null,pongTimer:ReturnType<typeof setTimeout>|null,closeTimer:ReturnType<typeof setTimeout>|null,subscribers:number,lastPongAt:number,hiddenAt:number,backgroundClosed:boolean,onMessage:((data:any)=>void)|null,onOpen:(()=>void)|null,onClose:(()=>void)|null,onError:(()=>void)|null,closeExpected:boolean,lastInteractionRecoverAt:number,listenersReady:boolean,cleanupListeners:(()=>void)|null}
+const wsState:WSState={ws:null,reconnectTimer:null,reconnectCount:0,isConnecting:false,socketReady:false,pingTimer:null,pongTimer:null,closeTimer:null,subscribers:0,lastPongAt:0,hiddenAt:0,backgroundClosed:false,onMessage:null,onOpen:null,onClose:null,onError:null,closeExpected:false,lastInteractionRecoverAt:0,listenersReady:false,cleanupListeners:null}
 export function useWebSocket() {
   const reconnectCountRef=useRef(0)
   const updateConnection=useConsoleStore((s)=>s.updateConnection)
-  const isConnected=useConsoleStore((s)=>s.connection.status==='connected')
+  const connectionStatus=useConsoleStore((s)=>s.connection.status)
+  const isConnected=connectionStatus==='connected'
+  const isSocketReady=connectionStatus==='connected'||connectionStatus==='attaching'
   const {preferences}=usePreferences()
   const clearPongTimer=useCallback(()=>{
     if (!wsState.pongTimer) return
@@ -20,7 +22,7 @@ export function useWebSocket() {
       case 'pong':
         wsState.lastPongAt=Date.now()
         clearPongTimer()
-        updateConnection({status:'connected',latency:Date.now()-(data.timestamp||Date.now()),lastPing:new Date().toISOString()})
+        updateConnection({latency:Date.now()-(data.timestamp||Date.now()),lastPing:new Date().toISOString()})
         break
       case 'output': {
         const terminalElement=document.querySelector('[data-terminal]')
@@ -31,10 +33,12 @@ export function useWebSocket() {
         break
       }
       case 'connected':
-        updateConnection({status:'connected'})
+        wsState.socketReady=true
+        updateConnection({status:'attaching'})
         break
       case 'attached':
         window.dispatchEvent(new CustomEvent('tmux-attached',{detail:data}))
+        updateConnection({status:'connected'})
         break
     }
   },[clearPongTimer,updateConnection])
@@ -67,10 +71,11 @@ export function useWebSocket() {
         wsState.isConnecting=false
         wsState.closeExpected=false
         wsState.backgroundClosed=false
+        wsState.socketReady=true
         wsState.reconnectCount=0
         reconnectCountRef.current=0
         wsState.lastPongAt=Date.now()
-        updateConnection({status:'connected',latency:0})
+        updateConnection({status:'attaching',latency:0})
         sendPing()
         window.dispatchEvent(new CustomEvent('ws-reconnected'))
         wsState.onOpen?.()
@@ -88,6 +93,7 @@ export function useWebSocket() {
           wsState.ws=null
         }
         wsState.isConnecting=false
+        wsState.socketReady=false
         clearPongTimer()
         updateConnection({status:'disconnected'})
         const expected=wsState.closeExpected
@@ -137,6 +143,7 @@ export function useWebSocket() {
     } catch {}
     wsState.ws=null
     wsState.isConnecting=false
+    wsState.socketReady=false
     wsState.closeExpected=false
     wsState.reconnectCount=0
     reconnectCountRef.current=0
@@ -161,6 +168,7 @@ export function useWebSocket() {
     } catch {}
     wsState.ws=null
     wsState.isConnecting=false
+    wsState.socketReady=false
     updateConnection({status:'disconnected'})
   },[clearPongTimer,updateConnection])
   const ensureConnection=useCallback((recover=false)=>{
@@ -191,7 +199,9 @@ export function useWebSocket() {
   const send=useCallback((data:any)=>{
     if (wsState.ws?.readyState===WebSocket.OPEN) {
       wsState.ws.send(JSON.stringify(data))
+      return true
     }
+    return false
   },[])
   useEffect(()=>{
     if (typeof window==='undefined') return
@@ -305,6 +315,7 @@ export function useWebSocket() {
           }
           wsState.reconnectCount=0
           wsState.isConnecting=false
+          wsState.socketReady=false
           wsState.lastPongAt=0
           wsState.hiddenAt=0
           wsState.backgroundClosed=false
@@ -318,5 +329,5 @@ export function useWebSocket() {
       }
     }
   },[connect,ensureConnection,handleMessage,scheduleReconnect,sendPing,clearPongTimer])
-  return {send,isConnected}
+  return {send,isConnected,isSocketReady}
 }

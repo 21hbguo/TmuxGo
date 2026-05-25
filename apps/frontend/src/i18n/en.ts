@@ -17,10 +17,13 @@ export const en = {
   'sidebar.newSession': '+ New Session',
   'sidebar.deleteSession': 'Delete session',
   'sidebar.deleteConfirm': 'Delete session "{name}"? This cannot be undone.',
+  'sidebar.deleteTitle': 'Delete session',
+  'sidebar.confirmDelete': 'Delete',
   'sidebar.windows': '{count} windows',
 
   // StatusBar
   'status.connected': 'connected',
+  'status.attaching': 'restoring',
   'status.reconnecting': 'reconnecting',
   'status.disconnected': 'disconnected',
 
@@ -38,6 +41,7 @@ export const en = {
 
   // ConnectionBadge
   'badge.connected': 'Connected',
+  'badge.attaching': 'Restoring',
   'badge.reconnecting': 'Reconnecting',
   'badge.disconnected': 'Disconnected',
 
@@ -124,6 +128,18 @@ export const en = {
   'quick.zoom': 'Zoom',
   'quick.killPane': 'Kill Pane',
   'quick.killConfirm': 'Close current pane?',
+  'quick.killTitle': 'Close pane',
+  'common.cancel': 'Cancel',
+  'common.confirm': 'Confirm',
+  'palette.newSession': 'New session',
+  'palette.splitHorizontal': 'Split pane horizontal',
+  'palette.splitVertical': 'Split pane vertical',
+  'palette.zoomPane': 'Zoom active pane',
+  'palette.copySelection': 'Copy selection',
+  'palette.pasteClipboard': 'Paste clipboard',
+  'palette.renameWindow': 'Rename active window',
+  'palette.killWindow': 'Kill active window',
+  'palette.openSettings': 'Open settings',
 
   // ShortcutBar
   'shortcut.enter': 'Enter',

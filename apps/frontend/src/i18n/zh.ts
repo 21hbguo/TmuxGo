@@ -17,10 +17,13 @@ export const zh = {
   'sidebar.newSession': '+ 新建会话',
   'sidebar.deleteSession': '删除会话',
   'sidebar.deleteConfirm': '确定删除会话 "{name}"？此操作不可撤销。',
+  'sidebar.deleteTitle': '删除会话',
+  'sidebar.confirmDelete': '删除',
   'sidebar.windows': '{count} 个窗口',
 
   // StatusBar
   'status.connected': '已连接',
+  'status.attaching': '恢复终端',
   'status.reconnecting': '重连中',
   'status.disconnected': '已断开',
 
@@ -38,6 +41,7 @@ export const zh = {
 
   // ConnectionBadge
   'badge.connected': '已连接',
+  'badge.attaching': '恢复终端',
   'badge.reconnecting': '重连中',
   'badge.disconnected': '已断开',
 
@@ -124,6 +128,18 @@ export const zh = {
   'quick.zoom': '聚焦',
   'quick.killPane': '删面板',
   'quick.killConfirm': '确认关闭当前面板？',
+  'quick.killTitle': '关闭面板',
+  'common.cancel': '取消',
+  'common.confirm': '确认',
+  'palette.newSession': '新建会话',
+  'palette.splitHorizontal': '横向分割当前面板',
+  'palette.splitVertical': '纵向分割当前面板',
+  'palette.zoomPane': '聚焦当前面板',
+  'palette.copySelection': '复制选中内容',
+  'palette.pasteClipboard': '粘贴剪贴板',
+  'palette.renameWindow': '重命名当前窗口',
+  'palette.killWindow': '关闭当前窗口',
+  'palette.openSettings': '打开设置',
 
   // ShortcutBar
   'shortcut.enter': '回车',

@@ -1,27 +1,30 @@
 'use client'
 
 import { useConsoleStore } from '@/stores/useConsoleStore'
-import { useWebSocket } from '@/hooks/useWebSocket'
+import { api } from '@/lib/api'
 
 export function PaneActions() {
-  const { activePaneId, panes } = useConsoleStore()
-  const { send } = useWebSocket()
+  const activePaneId = useConsoleStore((s) => s.activePaneId)
+  const pushToast = useConsoleStore((s) => s.pushToast)
 
-  const handleSplit = (direction: 'horizontal' | 'vertical') => {
+  const handleSplit = async (direction: 'horizontal' | 'vertical') => {
     if (!activePaneId) return
-    send({
-      type: 'split',
-      paneId: activePaneId,
-      direction,
-    })
+    try {
+      await api.panes.split(activePaneId, direction)
+      pushToast({ type: 'success', message: 'Pane split complete' })
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Split failed' })
+    }
   }
 
-  const handleClose = () => {
+  const handleClose = async () => {
     if (!activePaneId) return
-    send({
-      type: 'close-pane',
-      paneId: activePaneId,
-    })
+    try {
+      await api.panes.kill(activePaneId)
+      pushToast({ type: 'success', message: 'Pane closed' })
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Close failed' })
+    }
   }
 
   const handleFullscreen = () => {

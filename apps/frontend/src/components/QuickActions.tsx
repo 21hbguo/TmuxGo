@@ -8,7 +8,10 @@ import { useWindows } from '@/hooks/useApi'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useCustomShortcuts, keysToEscape } from '@/hooks/useCustomShortcuts'
 import { AddShortcutModal } from './AddShortcutModal'
+import { ConfirmDialog } from './ConfirmDialog'
+import { PasteConfirmDialog } from './PasteConfirmDialog'
 import { api } from '@/lib/api'
+import { analyzePaste, escapePaste } from '@/lib/paste-safety'
 
 const btn = 'px-2 py-1.5 rounded text-xs transition-colors bg-bg-2 text-text-2 hover:bg-bg-1 active:bg-bg-0'
 
@@ -17,15 +20,18 @@ export function QuickActions() {
   const { t } = useTranslation()
   const activeHostId = useConsoleStore((s) => s.activeHostId)
   const activeSessionId = useConsoleStore((s) => s.activeSessionId)
+  const activePaneId = useConsoleStore((s) => s.activePaneId)
+  const pushToast = useConsoleStore((s) => s.pushToast)
   const { data: windowsData = [] } = useWindows(activeHostId || '', activeSessionId || '')
   const [pendingDirection, setPendingDirection] = useState<'horizontal' | 'vertical' | null>(null)
-  const sessionName = activeSessionId?.replace('session-', '') || ''
   const activeWindow = useMemo(() => windowsData.find((w: any) => w.active) || windowsData[0] || null, [windowsData])
-  const canSplit = !!sessionName && !!activeWindow && !pendingDirection
+  const canSplit = !!activePaneId && !!activeWindow && !pendingDirection
   const { send } = useWebSocket()
   const { shortcuts, addShortcut, removeShortcut } = useCustomShortcuts()
   const [showModal, setShowModal] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
+  const [confirmKillOpen, setConfirmKillOpen] = useState(false)
+  const [pendingPaste, setPendingPaste] = useState<{ text: string; meta: string[] } | null>(null)
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 1024)
     check()
@@ -34,12 +40,16 @@ export function QuickActions() {
   }, [])
 
   const sendKey = (data: string) => send({ type: 'input', data })
+  const sendClipboardText = (text: string) => send({ type: 'input', data: text })
 
   const handleSplit = async (direction: 'horizontal' | 'vertical') => {
-    if (!sessionName || !activeWindow || pendingDirection) return
+    if (!activePaneId || !activeWindow || pendingDirection) return
     setPendingDirection(direction)
     try {
-      await api.panes.create(`${sessionName}:${activeWindow.index}`, direction)
+      await api.panes.split(activePaneId, direction)
+      pushToast({ type: 'success', message: 'Pane split complete' })
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Split failed' })
     } finally {
       setPendingDirection(null)
     }
@@ -67,28 +77,48 @@ export function QuickActions() {
 
   const handlePaste = async () => {
     try {
+      let text = ''
       if (navigator.clipboard?.readText) {
-        const text = await navigator.clipboard.readText()
-        if (text) sendKey(text)
+        text = await navigator.clipboard.readText()
       } else {
         const ta = document.createElement('textarea')
         ta.style.cssText = 'position:fixed;left:-9999px'
         document.body.appendChild(ta)
         ta.focus()
         document.execCommand('paste')
-        const text = ta.value
+        text = ta.value
         document.body.removeChild(ta)
-        if (text) sendKey(text)
       }
-    } catch {}
+      if (!text) return
+      const analysis = analyzePaste(text)
+      if (analysis.requiresConfirm) {
+        const meta = []
+        if (analysis.hasNewline) meta.push('multi-line')
+        if (analysis.hasControlChars) meta.push('control chars')
+        if (analysis.isLong) meta.push(`${text.length} chars`)
+        setPendingPaste({ text, meta })
+        return
+      }
+      sendClipboardText(text)
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Paste failed' })
+    }
   }
 
   const handleKillPane = async () => {
-    if (!sessionName) return
-    if (!window.confirm(t('quick.killConfirm'))) return
+    if (!activePaneId) return
+    setConfirmKillOpen(true)
+  }
+
+  const confirmKillPane = async () => {
+    if (!activePaneId) return
     try {
-      await api.panes.kill(sessionName)
-    } catch {}
+      await api.panes.kill(activePaneId)
+      pushToast({ type: 'success', message: 'Pane closed' })
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Kill failed' })
+    }
+    setConfirmKillOpen(false)
   }
 
   return (
@@ -116,8 +146,8 @@ export function QuickActions() {
       <div className="grid grid-cols-3 gap-1">
         <button onClick={() => sendKey('\x03')} className={btn}>Ctrl+C</button>
         <button onClick={() => sendKey('\r')} className={btn}>Enter</button>
-        <button onClick={() => api.panes.zoom(sessionName)} disabled={!sessionName}
-          className={`px-2 py-1.5 rounded text-xs transition-colors ${sessionName ? 'bg-bg-2 text-text-2 hover:bg-bg-1' : 'bg-bg-2/60 text-text-3 cursor-not-allowed'}`}>
+        <button onClick={() => activePaneId && api.panes.zoomByPane(activePaneId).catch((err) => pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Zoom failed' }))} disabled={!activePaneId}
+          className={`px-2 py-1.5 rounded text-xs transition-colors ${activePaneId ? 'bg-bg-2 text-text-2 hover:bg-bg-1' : 'bg-bg-2/60 text-text-3 cursor-not-allowed'}`}>
           {t('quick.zoom')}
         </button>
       </div>
@@ -125,8 +155,8 @@ export function QuickActions() {
       <div className="grid grid-cols-3 gap-1">
         <button onClick={handleCopy} className={btn}>{t('quick.copy')}</button>
         <button onClick={handlePaste} className={btn}>{t('quick.paste')}</button>
-        <button onClick={handleKillPane} disabled={!sessionName}
-          className={`px-2 py-1.5 rounded text-xs transition-colors ${sessionName ? 'bg-red-900/30 text-red-400 hover:bg-red-900/50' : 'bg-bg-2/60 text-text-3 cursor-not-allowed'}`}>
+        <button onClick={handleKillPane} disabled={!activePaneId}
+          className={`px-2 py-1.5 rounded text-xs transition-colors ${activePaneId ? 'bg-red-900/30 text-red-400 hover:bg-red-900/50' : 'bg-bg-2/60 text-text-3 cursor-not-allowed'}`}>
           {t('quick.killPane')}
         </button>
       </div>
@@ -168,6 +198,30 @@ export function QuickActions() {
           onClose={() => setShowModal(false)}
         />
       )}
+      <ConfirmDialog
+        open={confirmKillOpen}
+        title={t('quick.killTitle')}
+        message={t('quick.killConfirm')}
+        confirmLabel={t('common.confirm')}
+        cancelLabel={t('common.cancel')}
+        tone="danger"
+        onCancel={() => setConfirmKillOpen(false)}
+        onConfirm={() => void confirmKillPane()}
+      />
+      <PasteConfirmDialog
+        open={!!pendingPaste}
+        text={pendingPaste?.text || ''}
+        meta={pendingPaste?.meta || []}
+        onCancel={() => setPendingPaste(null)}
+        onSend={() => {
+          if (pendingPaste) sendClipboardText(pendingPaste.text)
+          setPendingPaste(null)
+        }}
+        onEscapeSend={() => {
+          if (pendingPaste) sendClipboardText(escapePaste(pendingPaste.text))
+          setPendingPaste(null)
+        }}
+      />
     </div>
   )
 }

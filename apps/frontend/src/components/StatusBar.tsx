@@ -16,6 +16,7 @@ export function StatusBar() {
 
   const statusColor = {
     connected: 'text-accent-2',
+    attaching: 'text-warn',
     reconnecting: 'text-warn',
     disconnected: 'text-danger',
   }[connection.status]

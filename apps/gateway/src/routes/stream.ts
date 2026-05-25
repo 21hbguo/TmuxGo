@@ -11,9 +11,21 @@ export async function streamRoutes(fastify: FastifyInstance) {
   fastify.get('/stream', { websocket: true }, (connection: SocketStream) => {
     console.log('Client connected to stream')
 
+    const OUTPUT_FLUSH_INTERVAL = 12
+    const OUTPUT_MAX_CHARS = 32768
+    const SCROLL_FLUSH_INTERVAL = 16
+    const SCROLL_MAX_LINES = 24
     let ptyProcess: pty.IPty | null = null
+    let attachedSessionName: string | null = null
+    let attachedExclusive = false
+    let attachedCols = 0
+    let attachedRows = 0
     let agentId: string | null = null
     let outputCarry = ''
+    let outputBuffer = ''
+    let outputTimer: ReturnType<typeof setTimeout> | null = null
+    const scrollBuffers = new Map<string, number>()
+    const scrollTimers = new Map<string, ReturnType<typeof setTimeout>>()
     const socket = connection.socket
 
     function send(data: any) {
@@ -22,12 +34,77 @@ export async function streamRoutes(fastify: FastifyInstance) {
       }
     }
 
+    function flushOutput() {
+      if (!outputBuffer) return
+      send({ type: 'output', data: outputBuffer })
+      outputBuffer = ''
+    }
+    function queueOutput(output: string) {
+      if (!output) return
+      outputBuffer += output
+      if (outputBuffer.length >= OUTPUT_MAX_CHARS) {
+        if (outputTimer) {
+          clearTimeout(outputTimer)
+          outputTimer = null
+        }
+        flushOutput()
+        return
+      }
+      if (outputTimer) return
+      outputTimer = setTimeout(() => {
+        outputTimer = null
+        flushOutput()
+      }, OUTPUT_FLUSH_INTERVAL)
+    }
+    async function applyScroll(sessionName: string, lines: number) {
+      if (!lines) return
+      if (lines > 0) {
+        await execFileAsync('tmux', ['copy-mode', '-e', '-t', sessionName])
+      }
+      const action = lines > 0 ? 'scroll-up' : 'scroll-down'
+      let remaining = Math.abs(lines)
+      while (remaining > 0) {
+        const step = Math.min(remaining, SCROLL_MAX_LINES)
+        await execFileAsync('tmux', ['send-keys', '-t', sessionName, '-X', '-N', String(step), action])
+        remaining -= step
+      }
+    }
+    function flushScroll(sessionName: string) {
+      scrollTimers.delete(sessionName)
+      const lines = scrollBuffers.get(sessionName) || 0
+      scrollBuffers.delete(sessionName)
+      if (!lines) return
+      void applyScroll(sessionName, lines).catch(() => {})
+    }
+    function queueScroll(sessionName: string, lines: number) {
+      if (!sessionName || !lines) return
+      const next = (scrollBuffers.get(sessionName) || 0) + lines
+      scrollBuffers.set(sessionName, Math.max(-SCROLL_MAX_LINES * 4, Math.min(SCROLL_MAX_LINES * 4, next)))
+      const existing = scrollTimers.get(sessionName)
+      if (existing) return
+      const timer = setTimeout(() => flushScroll(sessionName), SCROLL_FLUSH_INTERVAL)
+      scrollTimers.set(sessionName, timer)
+    }
     function cleanup() {
       if (ptyProcess) {
         ptyProcess.kill()
         ptyProcess = null
       }
+      attachedSessionName = null
+      attachedExclusive = false
+      attachedCols = 0
+      attachedRows = 0
+      if (outputTimer) {
+        clearTimeout(outputTimer)
+        outputTimer = null
+      }
+      outputBuffer = ''
       outputCarry = ''
+      for (const timer of scrollTimers.values()) {
+        clearTimeout(timer)
+      }
+      scrollTimers.clear()
+      scrollBuffers.clear()
     }
 
     function sanitizeOutput(chunk: string) {
@@ -81,12 +158,21 @@ export async function streamRoutes(fastify: FastifyInstance) {
             break
 
           case 'attach': {
-            cleanup()
             const sessionName = data.sessionName
             await enableMouse(sessionName)
             const requestedCols = data.cols || 80
             const requestedRows = data.rows || 24
             const exclusive = !!data.exclusive
+            if (ptyProcess && attachedSessionName === sessionName && attachedExclusive === exclusive) {
+              if (exclusive && requestedCols > 0 && requestedRows > 0 && (requestedCols !== attachedCols || requestedRows !== attachedRows)) {
+                ptyProcess.resize(requestedCols, requestedRows)
+                attachedCols = requestedCols
+                attachedRows = requestedRows
+              }
+              send({ type: 'attached', sessionName, cols: attachedCols || requestedCols, rows: attachedRows || requestedRows, exclusive })
+              break
+            }
+            cleanup()
             const sharedSize = exclusive ? null : await getSessionWindowSize(sessionName)
             const cols = sharedSize?.cols || requestedCols
             const rows = sharedSize?.rows || requestedRows
@@ -103,17 +189,26 @@ export async function streamRoutes(fastify: FastifyInstance) {
               rows,
               env: { ...process.env, TERM: 'xterm-256color' },
             })
+            attachedSessionName = sessionName
+            attachedExclusive = exclusive
+            attachedCols = cols
+            attachedRows = rows
 
             ptyProcess.onData((output: string) => {
               const filtered = sanitizeOutput(output)
               if (filtered) {
-                send({ type: 'output', data: filtered })
+                queueOutput(filtered)
               }
             })
 
             ptyProcess.onExit(({ exitCode }) => {
+              flushOutput()
               send({ type: 'session-exit', exitCode })
               ptyProcess = null
+              attachedSessionName = null
+              attachedExclusive = false
+              attachedCols = 0
+              attachedRows = 0
             })
 
             send({ type: 'attached', sessionName, cols, rows, exclusive })
@@ -123,6 +218,8 @@ export async function streamRoutes(fastify: FastifyInstance) {
           case 'resize':
             if (ptyProcess) {
               ptyProcess.resize(data.cols, data.rows)
+              attachedCols = data.cols
+              attachedRows = data.rows
             }
             break
 
@@ -137,14 +234,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
             if (scrollLines === 0) break
             const sessionName = data.sessionName
             if (!sessionName) break
-            try {
-              if (scrollLines > 0) {
-                await execFileAsync('tmux', ['copy-mode', '-e', '-t', sessionName])
-              }
-              const action = scrollLines > 0 ? 'scroll-up' : 'scroll-down'
-              const repeat = String(Math.abs(scrollLines))
-              await execFileAsync('tmux', ['send-keys', '-t', sessionName, '-X', '-N', repeat, action])
-            } catch {}
+            queueScroll(sessionName, scrollLines)
             break
           }
 

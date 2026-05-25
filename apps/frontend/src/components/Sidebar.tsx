@@ -1,20 +1,28 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useCreateSession, useDeleteSession } from '@/hooks/useApi'
 import { SessionTemplates, type Template } from './SessionTemplates'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useTranslation } from '@/i18n'
 import { QuickActions } from './QuickActions'
+import { ConfirmDialog } from './ConfirmDialog'
 
 export function Sidebar() {
-  const { sessions, activeSessionId, setActiveSession, activeHostId, sidebarCollapsed, toggleSidebar } = useConsoleStore()
+  const { sessions, activeSessionId, setActiveSession, activeHostId, sidebarCollapsed, toggleSidebar, pushToast } = useConsoleStore()
   const createSession = useCreateSession()
   const deleteSession = useDeleteSession()
   const [showTemplates, setShowTemplates] = useState(false)
+  const [pendingDeleteSessionId, setPendingDeleteSessionId] = useState<string | null>(null)
   const { preferences } = usePreferences()
   const { t } = useTranslation()
+
+  useEffect(() => {
+    const handleOpenTemplates = () => setShowTemplates(true)
+    window.addEventListener('tmuxgo-open-session-templates', handleOpenTemplates as EventListener)
+    return () => window.removeEventListener('tmuxgo-open-session-templates', handleOpenTemplates as EventListener)
+  }, [])
 
   const handleCreateSession = async () => {
     setShowTemplates(true)
@@ -25,12 +33,13 @@ export function Sidebar() {
     const name = prompt('Session name:', template.name.toLowerCase())
     if (name) {
       try {
-        const created = await createSession.mutateAsync({ hostId: activeHostId, name })
+        const created = await createSession.mutateAsync({ hostId: activeHostId, name, layout: template.layout })
         if (created?.id) {
           setActiveSession(created.id)
+          pushToast({ type: 'success', message: `Session ${name} created` })
         }
       } catch (err) {
-        alert(err instanceof Error ? err.message : 'Request failed')
+        pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Request failed' })
       }
     }
     setShowTemplates(false)
@@ -38,19 +47,24 @@ export function Sidebar() {
 
   const handleDeleteSession = async (sessionId: string, e: React.MouseEvent) => {
     e.stopPropagation()
-    if (!activeHostId) return
-    const session = sessions.find((s: any) => s.id === sessionId)
-    const name = session?.name || sessionId
-    if (!window.confirm(t('sidebar.deleteConfirm', { name }))) return
+    setPendingDeleteSessionId(sessionId)
+  }
+
+  const confirmDeleteSession = async () => {
+    if (!activeHostId || !pendingDeleteSessionId) return
+    const session = sessions.find((s: any) => s.id === pendingDeleteSessionId)
+    const name = session?.name || pendingDeleteSessionId
     try {
-      await deleteSession.mutateAsync({ hostId: activeHostId, sessionId })
-      if (activeSessionId === sessionId) {
-        const remaining = sessions.filter((s: any) => s.id !== sessionId)
+      await deleteSession.mutateAsync({ hostId: activeHostId, sessionId: pendingDeleteSessionId })
+      if (activeSessionId === pendingDeleteSessionId) {
+        const remaining = sessions.filter((s: any) => s.id !== pendingDeleteSessionId)
         setActiveSession(remaining[0]?.id || '')
       }
+      pushToast({ type: 'success', message: `Session ${name} deleted` })
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Request failed')
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Request failed' })
     }
+    setPendingDeleteSessionId(null)
   }
 
   return (
@@ -128,6 +142,16 @@ export function Sidebar() {
           onClose={() => setShowTemplates(false)}
         />
       )}
+      <ConfirmDialog
+        open={!!pendingDeleteSessionId}
+        title={t('sidebar.deleteTitle')}
+        message={t('sidebar.deleteConfirm', { name: sessions.find((s: any) => s.id === pendingDeleteSessionId)?.name || '' })}
+        confirmLabel={t('sidebar.confirmDelete')}
+        cancelLabel={t('common.cancel')}
+        tone="danger"
+        onCancel={() => setPendingDeleteSessionId(null)}
+        onConfirm={() => void confirmDeleteSession()}
+      />
     </>
   )
 }

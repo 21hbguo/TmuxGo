@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { AuditLog } from './AuditLog'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useTranslation } from '@/i18n'
@@ -14,12 +14,21 @@ export function Settings({ onClose }: SettingsProps) {
   const { t } = useTranslation()
   const [activeTab, setActiveTab] = useState<'general' | 'appearance' | 'audit'>('general')
   const [showAuditLog, setShowAuditLog] = useState(false)
+  const [terminalPaddingDraft, setTerminalPaddingDraft] = useState(preferences.terminalPadding)
+  useEffect(() => {
+    setTerminalPaddingDraft(preferences.terminalPadding)
+  }, [preferences.terminalPadding, activeTab])
 
   const tabs = [
     { id: 'general' as const, label: t('settings.general') },
     { id: 'appearance' as const, label: t('settings.appearance') },
     { id: 'audit' as const, label: t('settings.auditLog') },
   ]
+
+  const commitTerminalPadding = () => {
+    if (terminalPaddingDraft === preferences.terminalPadding) return
+    updatePreferences({ terminalPadding: terminalPaddingDraft })
+  }
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -140,11 +149,14 @@ export function Settings({ onClose }: SettingsProps) {
                         type="range"
                         min={0}
                         max={20}
-                        value={preferences.terminalPadding}
-                        onChange={(e) => updatePreferences({ terminalPadding: Number(e.target.value) })}
+                        value={terminalPaddingDraft}
+                        onChange={(e) => setTerminalPaddingDraft(Number(e.target.value))}
+                        onMouseUp={commitTerminalPadding}
+                        onTouchEnd={commitTerminalPadding}
+                        onKeyUp={commitTerminalPadding}
                         className="w-24 accent-accent"
                       />
-                      <span className="text-text-1 text-sm w-8 text-center">{preferences.terminalPadding}px</span>
+                      <span className="text-text-1 text-sm w-8 text-center">{terminalPaddingDraft}px</span>
                     </div>
                   </div>
                 </div>

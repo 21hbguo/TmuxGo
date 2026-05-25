@@ -14,7 +14,7 @@ interface MobileDrawerProps {
 }
 
 export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
-  const { sessions, activeSessionId, setActiveSession, activeHostId } = useConsoleStore()
+  const { sessions, activeSessionId, setActiveSession, activeHostId, pushToast } = useConsoleStore()
   const createSession = useCreateSession()
   const { t } = useTranslation()
   const [showTemplates, setShowTemplates] = useState(false)
@@ -24,10 +24,13 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
     const name = prompt(t('drawer.sessionName'), template.name.toLowerCase())
     if (!name) return
     try {
-      const created = await createSession.mutateAsync({ hostId: activeHostId, name })
+      const created = await createSession.mutateAsync({ hostId: activeHostId, name, layout: template.layout })
       if (created?.id) setActiveSession(created.id)
+      pushToast({ type: 'success', message: `Session ${name} created` })
       onClose()
-    } catch {}
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Request failed' })
+    }
     setShowTemplates(false)
   }
   const [visible, setVisible] = useState(false)
@@ -42,6 +45,11 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
     panelRef.current.style.removeProperty('transform')
   }, [])
 
+  useEffect(() => {
+    const handleOpenTemplates = () => setShowTemplates(true)
+    window.addEventListener('tmuxgo-open-session-templates', handleOpenTemplates as EventListener)
+    return () => window.removeEventListener('tmuxgo-open-session-templates', handleOpenTemplates as EventListener)
+  }, [])
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null
     if (isOpen) {

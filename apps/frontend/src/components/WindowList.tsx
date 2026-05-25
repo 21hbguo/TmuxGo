@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
+import { api } from '@/lib/api'
 
 interface WindowItem {
   id: string
@@ -10,7 +11,10 @@ interface WindowItem {
 }
 
 export function WindowList() {
-  const { windows, activeSessionId } = useConsoleStore()
+  const windows = useConsoleStore((s) => s.windows)
+  const activeHostId = useConsoleStore((s) => s.activeHostId)
+  const activeSessionId = useConsoleStore((s) => s.activeSessionId)
+  const pushToast = useConsoleStore((s) => s.pushToast)
   const [draggedItem, setDraggedItem] = useState<WindowItem | null>(null)
   const [dragOverItem, setDragOverItem] = useState<WindowItem | null>(null)
 
@@ -26,25 +30,22 @@ export function WindowList() {
     setDragOverItem(window)
   }
 
-  const handleDrop = (e: React.DragEvent) => {
+  const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault()
-    if (!draggedItem || !dragOverItem) return
-
+    if (!draggedItem || !dragOverItem || !activeHostId || !activeSessionId) return
     const reordered = [...sessionWindows]
     const dragIndex = reordered.findIndex((w) => w.id === draggedItem.id)
     const dropIndex = reordered.findIndex((w) => w.id === dragOverItem.id)
-
     const [removed] = reordered.splice(dragIndex, 1)
     reordered.splice(dropIndex, 0, removed)
-
-    const updated = reordered.map((w, i) => ({ ...w, index: i }))
-    useConsoleStore.setState((state) => ({
-      windows: state.windows.map((w) => {
-        const found = updated.find((u) => u.id === w.id)
-        return found || w
-      }),
-    }))
-
+    try {
+      const result = await api.windows.move(activeHostId, activeSessionId, reordered.map((window) => window.id))
+      if (result.windows) {
+        useConsoleStore.setState({ windows: result.windows })
+      }
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Reorder failed' })
+    }
     setDraggedItem(null)
     setDragOverItem(null)
   }

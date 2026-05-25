@@ -13,6 +13,11 @@ export function ConnectionBadge() {
       text: t('badge.connected'),
       pulse: false,
     },
+    attaching: {
+      color: 'bg-warn',
+      text: t('badge.attaching'),
+      pulse: true,
+    },
     reconnecting: {
       color: 'bg-warn',
       text: t('badge.reconnecting'),

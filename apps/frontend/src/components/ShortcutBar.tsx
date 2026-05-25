@@ -5,6 +5,8 @@ import { useWebSocket } from '@/hooks/useWebSocket'
 import { useTranslation } from '@/i18n'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { api } from '@/lib/api'
+import { PasteConfirmDialog } from './PasteConfirmDialog'
+import { analyzePaste, escapePaste } from '@/lib/paste-safety'
 
 interface KeyDef {
   label: string
@@ -40,19 +42,19 @@ interface ShortcutBarProps {
 export function ShortcutBar({ mode = 'dock' }: ShortcutBarProps) {
   const { send } = useWebSocket()
   const { t } = useTranslation()
-  const activeSessionId = useConsoleStore((s) => s.activeSessionId)
-  const sessionName = activeSessionId?.replace('session-', '') || ''
+  const activePaneId = useConsoleStore((s) => s.activePaneId)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+  const [pendingPaste, setPendingPaste] = useState<{ text: string; meta: string[] } | null>(null)
 
   const handleZoom = async () => {
-    if (!sessionName) return
-    try { await api.panes.zoom(sessionName) } catch {}
+    if (!activePaneId) return
+    try { await api.panes.zoomByPane(activePaneId) } catch {}
   }
   const handleKill = async () => {
-    if (!sessionName) return
-    try { await api.panes.kill(sessionName) } catch {}
+    if (!activePaneId) return
+    try { await api.panes.kill(activePaneId) } catch {}
   }
 
   const sendKey = useCallback((data: string) => {
@@ -113,14 +115,25 @@ export function ShortcutBar({ mode = 'dock' }: ShortcutBarProps) {
   const handlePaste = async () => {
     try {
       const text = await navigator.clipboard.readText()
-      if (text) sendKey(text)
+      if (!text) return
+      const analysis = analyzePaste(text)
+      if (analysis.requiresConfirm) {
+        const meta = []
+        if (analysis.hasNewline) meta.push('multi-line')
+        if (analysis.hasControlChars) meta.push('control chars')
+        if (analysis.isLong) meta.push(`${text.length} chars`)
+        setPendingPaste({ text, meta })
+        return
+      }
+      sendKey(text)
     } catch {
       showToast('Paste failed - long press in terminal')
     }
   }
 
   const isPanel = mode === 'panel'
-  const shellClass = isPanel ? 'relative overflow-hidden rounded-xl border border-[var(--line)] bg-bg-2/60' : 'mobile-nav-landscape-hide relative z-40 flex-shrink-0 bg-bg-1 border-t border-[var(--line)] overflow-x-auto scrollbar-none pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_rgba(0,0,0,0.28)]'
+  const isDock = mode === 'dock'
+  const shellClass = isPanel ? 'relative overflow-hidden rounded-xl border border-[var(--line)] bg-bg-2/60' : isDock ? 'mobile-nav-landscape-hide h-full bg-bg-1 border-t border-[var(--line)] overflow-x-auto scrollbar-none pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_rgba(0,0,0,0.28)]' : 'mobile-nav-landscape-hide relative z-40 flex-shrink-0 bg-bg-1 border-t border-[var(--line)] overflow-x-auto scrollbar-none pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_rgba(0,0,0,0.28)]'
   const listClass = isPanel ? 'flex flex-wrap gap-1.5 p-2.5' : 'flex gap-1 p-1.5 w-max min-h-[40px] items-center'
   const baseClass = isPanel ? 'flex min-w-[72px] flex-1 items-center justify-center rounded px-2.5 py-2 text-xs font-mono select-none transition-transform active:scale-95 bg-bg-1 text-text-2 active:bg-accent active:text-bg-0' : 'px-2.5 py-1.5 rounded-md text-[11px] leading-none font-mono whitespace-nowrap select-none active:scale-95 transition-transform bg-bg-2 text-text-2 active:bg-accent active:text-bg-0'
 
@@ -188,6 +201,20 @@ export function ShortcutBar({ mode = 'dock' }: ShortcutBarProps) {
           {toast}
         </div>
       )}
+      <PasteConfirmDialog
+        open={!!pendingPaste}
+        text={pendingPaste?.text || ''}
+        meta={pendingPaste?.meta || []}
+        onCancel={() => setPendingPaste(null)}
+        onSend={() => {
+          if (pendingPaste) sendKey(pendingPaste.text)
+          setPendingPaste(null)
+        }}
+        onEscapeSend={() => {
+          if (pendingPaste) sendKey(escapePaste(pendingPaste.text))
+          setPendingPaste(null)
+        }}
+      />
     </div>
   )
 }

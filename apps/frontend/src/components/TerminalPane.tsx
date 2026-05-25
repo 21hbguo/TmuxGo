@@ -45,7 +45,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   }, [])
 
   const { send } = useWebSocket()
-  const sendInput = useCallback((data: string) => send({ type: 'input', data }), [send])
+  const sendInput = useCallback((data: string) => onInputRef.current?.(data), [])
   const { textareaRef, focusKeyboard, isMobile: isMobileDevice } = useMobileKeyboard(sendInput, terminalRef)
 
   useEffect(() => {
@@ -102,6 +102,9 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     let fitTimeout: NodeJS.Timeout | null = null
     let sharedLayoutFrame: number | null = null
     let fitFrame: number | null = null
+    let outputFrame: number | null = null
+    let outputTimer: ReturnType<typeof setTimeout> | null = null
+    let outputBuffer = ''
     let disposed = false
     let readyNotified = false
     let sharedPanX = 0
@@ -235,6 +238,20 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       } catch (e) {
       }
     }
+    const flushOutput = () => {
+      outputFrame = null
+      if (!terminal || disposed || !outputBuffer) return
+      const chunk = outputBuffer
+      outputBuffer = ''
+      terminal.write(chunk)
+      if (!attachExclusiveRef.current && isMobileDevice) {
+        requestAnimationFrame(syncSharedViewport)
+      }
+    }
+    const scheduleOutputFlush = () => {
+      if (outputFrame || disposed) return
+      outputFrame = requestAnimationFrame(flushOutput)
+    }
 
     const scheduleFit = () => {
       if (disposed) return
@@ -349,9 +366,21 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         controlCarryRef.current = tailMatch ? tailMatch[0] : ''
         const output = controlCarryRef.current ? cleaned.slice(0, cleaned.length - controlCarryRef.current.length) : cleaned
         if (output) {
-          terminal.write(output)
-          if (!attachExclusiveRef.current && isMobileDevice) {
-            requestAnimationFrame(syncSharedViewport)
+          outputBuffer += output
+          if (outputBuffer.length >= 32768) {
+            if (outputTimer) {
+              clearTimeout(outputTimer)
+              outputTimer = null
+            }
+            flushOutput()
+          } else {
+            scheduleOutputFlush()
+            if (!outputTimer) {
+              outputTimer = setTimeout(() => {
+                outputTimer = null
+                flushOutput()
+              }, 14)
+            }
           }
         }
       }
@@ -582,6 +611,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       if (fitTimeout) clearTimeout(fitTimeout)
       if (fitFrame) cancelAnimationFrame(fitFrame)
       if (sharedLayoutFrame) cancelAnimationFrame(sharedLayoutFrame)
+      if (outputTimer) clearTimeout(outputTimer)
+      if (outputFrame) cancelAnimationFrame(outputFrame)
       resizeObserver?.disconnect()
       disposables.forEach((d) => d?.dispose?.())
       terminal?.dispose()

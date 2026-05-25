@@ -11,9 +11,9 @@ import { MobileDrawer } from './MobileDrawer'
 import { Settings } from './Settings'
 import { InstallAppBanner } from './InstallAppBanner'
 import { ShortcutBar } from './ShortcutBar'
+import { ToastViewport } from './ToastViewport'
 import { useConsoleStore } from '@/stores/useConsoleStore'
-import { useHosts, useSessions, useSessionPanes, useWindows } from '@/hooks/useApi'
-import { useWebSocket } from '@/hooks/useWebSocket'
+import { useHosts, useSessions, useSessionSnapshot } from '@/hooks/useApi'
 import { usePreferences } from '@/hooks/usePreferences'
 
 const MOBILE_QUERY = '(max-width: 1023px)'
@@ -28,9 +28,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
 
   const { data: hostsData = [] } = useHosts()
   const { data: sessionsData = [] } = useSessions(activeHostId || '')
-  const { data: windowsData = [] } = useWindows(activeHostId || '', activeSessionId || '')
-  const { data: panesData = [] } = useSessionPanes(activeHostId || '', activeSessionId || '')
-  const { send } = useWebSocket()
+  const { data: snapshotData } = useSessionSnapshot(activeHostId || '', activeSessionId || '')
 
   const [isMobile, setIsMobile] = useState(initialIsMobile)
   const [appHeight, setAppHeight] = useState<string>(initialIsMobile?'100svh':'100dvh')
@@ -43,8 +41,11 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   const appHeightRef = useRef('')
   const viewportBaseHeightRef = useRef(0)
   const appHeightNumRef = useRef(0)
-  const keyboardOpenRef = useRef(false)
+  const keyboardStateRef = useRef({ open: false, inset: 0 })
   const appHeightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const viewportFrameRef = useRef<number | null>(null)
+  const viewportTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const viewportNeedsDelayRef = useRef(false)
 
   const pushOverlay = useCallback((id: string) => {
     if (overlayRef.current[overlayRef.current.length - 1] === id) return
@@ -76,9 +77,77 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
     setCommandPalette(true)
     pushOverlay('palette')
   }, [showCommandPalette, setCommandPalette, pushOverlay])
-  useEffect(() => {
-    keyboardOpenRef.current = keyboardOpen
-  }, [keyboardOpen])
+  const clearViewportSchedule = useCallback(() => {
+    if (viewportFrameRef.current) {
+      cancelAnimationFrame(viewportFrameRef.current)
+      viewportFrameRef.current = null
+    }
+    if (viewportTimeoutRef.current) {
+      clearTimeout(viewportTimeoutRef.current)
+      viewportTimeoutRef.current = null
+    }
+  }, [])
+  const scheduleViewportSync = useCallback((deferred=false) => {
+    viewportNeedsDelayRef.current = deferred
+    if (viewportFrameRef.current) return
+    viewportFrameRef.current = requestAnimationFrame(() => {
+      viewportFrameRef.current = null
+      const run = () => {
+        const isMobileViewport = window.matchMedia(MOBILE_QUERY).matches
+        const vv = window.visualViewport
+        if (isMobileViewport && vv?.height && vv.height > viewportBaseHeightRef.current) viewportBaseHeightRef.current = vv.height
+        const inset = (() => {
+          if (!vv) return 0
+          return Math.max(0, (viewportBaseHeightRef.current || vv.height) - vv.height)
+        })()
+        const byClass = document.body.classList.contains('keyboard-open')
+        const open = inset >= 80 || byClass
+        if (keyboardStateRef.current.open !== open || keyboardStateRef.current.inset !== (open ? inset : 0)) {
+          keyboardStateRef.current = { open, inset: open ? inset : 0 }
+          setKeyboardOpen(open)
+          setKeyboardInset(open ? inset : 0)
+        }
+        const nextHeight = Math.round(
+          !isMobileViewport
+            ? window.innerHeight
+            : open
+              ? (vv?.height || window.innerHeight)
+              : (viewportBaseHeightRef.current || window.innerHeight)
+        )
+        if (isMobileViewport && appHeightNumRef.current && !open && Math.abs(nextHeight - appHeightNumRef.current) < 36) return
+        if (isMobileViewport && appHeightNumRef.current && open && Math.abs(nextHeight - appHeightNumRef.current) < 6) return
+        if (isMobileViewport && !open && viewportNeedsDelayRef.current) {
+          if (appHeightTimerRef.current) clearTimeout(appHeightTimerRef.current)
+          appHeightTimerRef.current = setTimeout(() => {
+            appHeightTimerRef.current = null
+            const nextValue = `${nextHeight}px`
+            if (appHeightRef.current === nextValue) return
+            appHeightRef.current = nextValue
+            appHeightNumRef.current = nextHeight
+            setAppHeight(nextValue)
+          }, 120)
+          return
+        }
+        if (appHeightTimerRef.current) {
+          clearTimeout(appHeightTimerRef.current)
+          appHeightTimerRef.current = null
+        }
+        const nextValue = `${nextHeight}px`
+        if (appHeightRef.current === nextValue) return
+        appHeightRef.current = nextValue
+        appHeightNumRef.current = nextHeight
+        setAppHeight(nextValue)
+      }
+      if (viewportNeedsDelayRef.current) {
+        viewportTimeoutRef.current = setTimeout(() => {
+          viewportTimeoutRef.current = null
+          run()
+        }, 0)
+      } else {
+        run()
+      }
+    })
+  }, [])
 
   useEffect(() => {
     const mql = window.matchMedia(MOBILE_QUERY)
@@ -89,86 +158,44 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   }, [])
 
   useEffect(() => {
-    const clearSyncTimer = () => {
-      if (!appHeightTimerRef.current) return
-      clearTimeout(appHeightTimerRef.current)
-      appHeightTimerRef.current = null
-    }
-    const applyAppHeight = (nextHeight: number) => {
-      const nextValue = `${nextHeight}px`
-      if (appHeightRef.current === nextValue) return
-      appHeightRef.current = nextValue
-      appHeightNumRef.current = nextHeight
-      setAppHeight(nextValue)
-    }
-    const syncAppHeight = (deferred=false) => {
-      const isMobileViewport = window.matchMedia(MOBILE_QUERY).matches
-      const vv = window.visualViewport
-      if (isMobileViewport && vv?.height && vv.height > viewportBaseHeightRef.current) viewportBaseHeightRef.current = vv.height
-      const nextHeight = Math.round(
-        !isMobileViewport
-          ? window.innerHeight
-          : keyboardOpenRef.current
-            ? (vv?.height || window.innerHeight)
-            : (viewportBaseHeightRef.current || window.innerHeight)
-      )
-      if (isMobileViewport && appHeightNumRef.current && !keyboardOpenRef.current && Math.abs(nextHeight - appHeightNumRef.current) < 36) return
-      if (isMobileViewport && appHeightNumRef.current && keyboardOpenRef.current && Math.abs(nextHeight - appHeightNumRef.current) < 6) return
-      if (isMobileViewport && !keyboardOpenRef.current && deferred) {
-        clearSyncTimer()
-        appHeightTimerRef.current = setTimeout(() => {
-          appHeightTimerRef.current = null
-          applyAppHeight(nextHeight)
-        }, 120)
-        return
-      }
-      clearSyncTimer()
-      applyAppHeight(nextHeight)
-    }
-    const handleOrientation = () => window.setTimeout(() => syncAppHeight(), 80)
-    const handleResize = () => syncAppHeight(true)
-    syncAppHeight()
+    const handleOrientation = () => window.setTimeout(() => scheduleViewportSync(false), 80)
+    const handleResize = () => scheduleViewportSync(true)
+    scheduleViewportSync(false)
     window.addEventListener('resize', handleResize)
     window.visualViewport?.addEventListener('resize', handleResize)
     window.addEventListener('orientationchange', handleOrientation)
     return () => {
-      clearSyncTimer()
+      clearViewportSchedule()
+      if (appHeightTimerRef.current) {
+        clearTimeout(appHeightTimerRef.current)
+        appHeightTimerRef.current = null
+      }
       window.removeEventListener('resize', handleResize)
       window.visualViewport?.removeEventListener('resize', handleResize)
       window.removeEventListener('orientationchange', handleOrientation)
     }
-  }, [keyboardOpen])
+  }, [clearViewportSchedule, scheduleViewportSync])
   useEffect(() => {
-    const getViewportInset = () => {
-      const vv = window.visualViewport
-      if (!vv) return 0
-      if (vv.height > viewportBaseHeightRef.current) viewportBaseHeightRef.current = vv.height
-      return Math.max(0, viewportBaseHeightRef.current - vv.height)
-    }
     const handleKeyboardChange = (event: Event) => {
       const detail = (event as CustomEvent<{ open?: boolean; inset?: number }>).detail
+      keyboardStateRef.current = { open: !!detail?.open, inset: detail?.open ? detail?.inset || 0 : 0 }
       setKeyboardOpen(!!detail?.open)
       setKeyboardInset(detail?.open ? detail?.inset || 0 : 0)
+      scheduleViewportSync(false)
     }
-    const syncKeyboardOpen = () => {
-      const inset = getViewportInset()
-      const byViewport = inset >= 80
-      const byClass = document.body.classList.contains('keyboard-open')
-      setKeyboardOpen(byViewport || byClass)
-      setKeyboardInset(byViewport || byClass ? inset : 0)
-    }
+    const syncKeyboardOpen = () => scheduleViewportSync(false)
     window.addEventListener('mobile-keyboard-change', handleKeyboardChange as EventListener)
     window.visualViewport?.addEventListener('resize', syncKeyboardOpen)
     window.addEventListener('focus', syncKeyboardOpen)
     window.addEventListener('pageshow', syncKeyboardOpen)
-    syncKeyboardOpen()
+    scheduleViewportSync(false)
     return () => {
       window.removeEventListener('mobile-keyboard-change', handleKeyboardChange as EventListener)
       window.visualViewport?.removeEventListener('resize', syncKeyboardOpen)
       window.removeEventListener('focus', syncKeyboardOpen)
       window.removeEventListener('pageshow', syncKeyboardOpen)
     }
-  }, [])
+  }, [scheduleViewportSync])
 
   useEffect(() => {
     if (hostsData.length > 0 && !activeHostId) {
@@ -206,8 +233,8 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       useConsoleStore.setState({ windows: [] })
       return
     }
-    useConsoleStore.setState({ windows: windowsData })
-  }, [windowsData, activeHostId, activeSessionId])
+    useConsoleStore.setState({ windows: snapshotData?.windows || [] })
+  }, [snapshotData, activeHostId, activeSessionId])
 
   useEffect(() => {
     if (!activeHostId || !activeSessionId) {
@@ -215,10 +242,10 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       return
     }
     useConsoleStore.setState((state) => ({
-      panes: panesData,
-      activePaneId: panesData.find((pane: any) => pane.active)?.id || (panesData.some((pane: any) => pane.id === state.activePaneId) ? state.activePaneId : panesData[0]?.id || null),
+      panes: snapshotData?.panes || [],
+      activePaneId: (snapshotData?.panes || []).find((pane: any) => pane.active)?.id || ((snapshotData?.panes || []).some((pane: any) => pane.id === state.activePaneId) ? state.activePaneId : snapshotData?.activePaneId || snapshotData?.panes?.[0]?.id || null),
     }))
-  }, [panesData, activeHostId, activeSessionId])
+  }, [snapshotData, activeHostId, activeSessionId])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -254,6 +281,23 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
   }, [setCommandPalette])
+  useEffect(() => {
+    const handleOpenSettings = () => openSettings()
+    window.addEventListener('tmuxgo-open-settings', handleOpenSettings as EventListener)
+    return () => window.removeEventListener('tmuxgo-open-settings', handleOpenSettings as EventListener)
+  }, [openSettings])
+  useEffect(() => {
+    const handleNewSession = () => {
+      if (isMobile) {
+        setDrawerType('sessions')
+        setDrawerOpen(true)
+        return
+      }
+      window.dispatchEvent(new CustomEvent('tmuxgo-open-session-templates'))
+    }
+    window.addEventListener('tmuxgo-new-session', handleNewSession as EventListener)
+    return () => window.removeEventListener('tmuxgo-new-session', handleNewSession as EventListener)
+  }, [isMobile])
 
   const sidebarOrder = preferences.sidebarPosition === 'right' ? 1 : 0
 
@@ -267,13 +311,15 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
             <Sidebar />
           </div>
         )}
-        <main className="flex flex-1 min-h-0 flex-col bg-bg-1" style={isMobile ? { paddingBottom: keyboardOpen ? '0px' : 'calc(48px + env(safe-area-inset-bottom,0px))' } : undefined}>
+        <main className="flex flex-1 min-h-0 flex-col bg-bg-1" style={isMobile ? { paddingBottom: 'calc(48px + env(safe-area-inset-bottom,0px))' } : undefined}>
           <PaneGrid />
         </main>
       </div>
       {!isMobile && preferences.showStatusBar && <StatusBar />}
       {isMobile && (
-        keyboardOpen ? <ShortcutBar mode="dock" /> : <MobileNav onOpenDrawer={openDrawer} onOpenSettings={openSettings} onOpenSearch={openPalette} />
+        <div className="mobile-nav-landscape-hide fixed left-0 right-0 bottom-0 z-40 h-[calc(48px+env(safe-area-inset-bottom))]">
+          {keyboardOpen ? <ShortcutBar mode="dock" /> : <MobileNav docked onOpenDrawer={openDrawer} onOpenSettings={openSettings} onOpenSearch={openPalette} />}
+        </div>
       )}
       {showCommandPalette && <CommandPalette onClose={() => closeOverlay('palette')} />}
       {showSettings && <Settings onClose={() => closeOverlay('settings')} />}
@@ -282,6 +328,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
         onClose={() => closeOverlay('drawer')}
         type={drawerType}
       />
+      <ToastViewport />
     </div>
   )
 }
