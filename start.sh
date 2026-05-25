@@ -9,7 +9,8 @@ if ! flock -n 9; then
 fi
 cd "$ROOT_DIR"
 echo "Starting tmuxU development servers..."
-FRONTEND_LOG="/tmp/tmuxu-frontend.log"
+FRONTEND_STABLE_LOG="/tmp/tmuxu-frontend-stable.log"
+FRONTEND_DEV_LOG="/tmp/tmuxu-frontend-dev.log"
 GATEWAY_LOG="/tmp/tmuxu-gateway.log"
 AGENT_LOG="/tmp/tmuxu-agent.log"
 TAILSCALE_DNS=""
@@ -57,20 +58,21 @@ start_detached() {
   setsid nohup "$@" 9>&- > "$log_file" 2>&1 < /dev/null &
 }
 stop_existing() {
-  pkill -f "$ROOT_DIR/node_modules/.bin/next dev --hostname 0.0.0.0" 2>/dev/null || true
+  pkill -f "$ROOT_DIR/node_modules/.bin/next start --hostname 0.0.0.0 --port 3000" 2>/dev/null || true
+  pkill -f "$ROOT_DIR/node_modules/.bin/next dev --hostname 0.0.0.0 --port 3002" 2>/dev/null || true
   pkill -f "$ROOT_DIR/node_modules/.bin/tsx watch src/index.ts" 2>/dev/null || true
   kill_port 3000
+  kill_port 3002
   kill_port 3001
   for i in $(seq 1 20); do
-    if ! pgrep -af "$ROOT_DIR/node_modules/.bin/next dev --hostname 0.0.0.0" >/dev/null 2>&1 && ! pgrep -af "$ROOT_DIR/node_modules/.bin/tsx watch src/index.ts" >/dev/null 2>&1; then
+    if ! pgrep -af "$ROOT_DIR/node_modules/.bin/next start --hostname 0.0.0.0 --port 3000" >/dev/null 2>&1 && ! pgrep -af "$ROOT_DIR/node_modules/.bin/next dev --hostname 0.0.0.0 --port 3002" >/dev/null 2>&1 && ! pgrep -af "$ROOT_DIR/node_modules/.bin/tsx watch src/index.ts" >/dev/null 2>&1; then
       break
     fi
     sleep 0.2
   done
 }
 stop_existing
-rm -f "$FRONTEND_LOG" "$GATEWAY_LOG" "$AGENT_LOG"
-rm -rf "$ROOT_DIR/apps/frontend/.next"
+rm -f "$FRONTEND_STABLE_LOG" "$FRONTEND_DEV_LOG" "$GATEWAY_LOG" "$AGENT_LOG"
 if port_in_use 3001; then
   echo "Gateway already running on port 3001, skipping..."
 else
@@ -83,14 +85,32 @@ else
   fi
 fi
 if port_in_use 3000; then
-  echo "Frontend already running on port 3000, skipping..."
+  echo "Stable frontend already running on port 3000, skipping..."
 else
-  echo "Starting Frontend on port 3000..."
-  start_detached "$FRONTEND_LOG" npm run dev:frontend
-  if wait_http_ok "http://127.0.0.1:3000" 45; then
-    echo "  Frontend started successfully"
+  echo "Building stable frontend..."
+  if npm run build:frontend >/dev/null 2>&1; then
+    echo "  Build completed"
   else
-    echo "  Frontend failed to start, check $FRONTEND_LOG"
+    echo "  Build failed, check output by running: npm run build:frontend"
+    exit 1
+  fi
+  echo "Starting stable frontend on port 3000..."
+  start_detached "$FRONTEND_STABLE_LOG" npm run --workspace=frontend start -- --hostname 0.0.0.0 --port 3000
+  if wait_http_ok "http://127.0.0.1:3000" 45; then
+    echo "  Stable frontend started successfully"
+  else
+    echo "  Stable frontend failed to start, check $FRONTEND_STABLE_LOG"
+  fi
+fi
+if port_in_use 3002; then
+  echo "Dev frontend already running on port 3002, skipping..."
+else
+  echo "Starting dev frontend on port 3002..."
+  start_detached "$FRONTEND_DEV_LOG" npm run --workspace=frontend dev -- --port 3002
+  if wait_http_ok "http://127.0.0.1:3002" 45; then
+    echo "  Dev frontend started successfully"
+  else
+    echo "  Dev frontend failed to start, check $FRONTEND_DEV_LOG"
   fi
 fi
 if [ -n "${TAILSCALE_DNS:-}" ]; then
@@ -115,7 +135,8 @@ fi
 echo ""
 echo "tmuxU services:"
 echo ""
-echo "  Frontend:  http://${TAILSCALE_IP}:3000"
+echo "  Frontend stable: http://${TAILSCALE_IP}:3000"
+echo "  Frontend dev:    http://${TAILSCALE_IP}:3002"
 echo "  Gateway:   http://${TAILSCALE_IP}:3001"
 if [ -n "${SECURE_FRONTEND_URL:-}" ]; then
   echo "  Frontend HTTPS: ${SECURE_FRONTEND_URL}"
@@ -124,5 +145,6 @@ fi
 echo ""
 echo "Logs:"
 echo "  Gateway:   $GATEWAY_LOG"
-echo "  Frontend:  $FRONTEND_LOG"
+echo "  Frontend stable: $FRONTEND_STABLE_LOG"
+echo "  Frontend dev:    $FRONTEND_DEV_LOG"
 echo "  Agent:     $AGENT_LOG"
