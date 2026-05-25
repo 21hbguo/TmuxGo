@@ -3,15 +3,9 @@ import { agentManager } from '../agent-manager.js'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { getTemplateWindowTargets, type SessionTemplateLayout } from '../lib/template-utils.js'
+import { assertSessionAllowed, isValidSessionName, prepareSessionAttach } from '../lib/tmux-policy.js'
 
 const execFileAsync = promisify(execFile)
-function isValidSessionName(name: string) {
-  return /^[A-Za-z0-9._-]{1,64}$/.test(name)
-}
-
-async function enableMouse(sessionName: string) {
-  await execFileAsync('tmux', ['set-option', '-t', sessionName, '-g', 'mouse', 'on'])
-}
 
 async function getLocalTmuxSessions() {
   try {
@@ -21,6 +15,15 @@ async function getLocalTmuxSessions() {
       .trim()
       .split('\n')
       .filter(Boolean)
+      .filter((line) => {
+        const [, name] = line.split('|')
+        try {
+          assertSessionAllowed(name)
+          return true
+        } catch {
+          return false
+        }
+      })
       .map((line) => {
         const [id, name, windows, created, attached] = line.split('|')
         return {
@@ -41,6 +44,7 @@ async function runSendKeys(target: string, command: string) {
   await execFileAsync('tmux', ['send-keys', '-t', target, command, 'C-m'])
 }
 async function applyTemplateLayout(sessionName: string, layout: SessionTemplateLayout) {
+  assertSessionAllowed(sessionName)
   if (!layout.windows.length) return
   const targets = getTemplateWindowTargets(sessionName, layout)
   for (let i = 0; i < targets.length; i++) {
@@ -86,9 +90,10 @@ export async function sessionRoutes(fastify: FastifyInstance) {
       const existingSessions = await getLocalTmuxSessions()
       const existingSession = existingSessions.find((s) => s.name === name)
       if (existingSession) {
-        await enableMouse(existingSession.name)
+        await prepareSessionAttach(existingSession.name)
         return existingSession
       }
+      assertSessionAllowed(name)
       await execFileAsync('tmux', ['new-session', '-d', '-s', name])
       if (layout?.windows?.length) {
         try {
@@ -98,7 +103,7 @@ export async function sessionRoutes(fastify: FastifyInstance) {
           throw new Error(err?.message || 'Template layout failed')
         }
       }
-      await enableMouse(name)
+      await prepareSessionAttach(name)
       const sessions = await getLocalTmuxSessions()
       return sessions.find((s) => s.name === name) || {
         id: `session-${name}`,
@@ -126,6 +131,7 @@ export async function sessionRoutes(fastify: FastifyInstance) {
     if (!isValidSessionName(sessionName)) {
       throw new Error('Invalid session name')
     }
+    assertSessionAllowed(sessionName)
 
     try {
       await execFileAsync('tmux', ['kill-session', '-t', sessionName])

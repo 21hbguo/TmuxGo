@@ -1,9 +1,10 @@
 'use client'
 
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useState } from 'react'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useMobileKeyboard } from '@/hooks/useMobileKeyboard'
 import { useWebSocket } from '@/hooks/useWebSocket'
+import { formatDroppedPaths } from '@/lib/path-drop'
 
 interface TerminalPaneProps {
   sessionName?: string
@@ -25,6 +26,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   const onReadyRef = useRef(onReady)
   const sessionNameRef = useRef(sessionName)
   const preferencesRef = useRef(preferences)
+  const [isDropActive, setIsDropActive] = useState(false)
   const lastSizeRef = useRef<{ cols: number; rows: number } | null>(null)
   const sharedSessionSizeRef = useRef<{ cols: number; rows: number } | null>(null)
   const controlCarryRef = useRef('')
@@ -424,6 +426,25 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       window.addEventListener('orientationchange', handleOrientationChange)
       window.addEventListener('mobile-keyboard-change', handleKeyboardChange as EventListener)
       document.addEventListener('visibilitychange', handleVisibilityChange)
+      const handleDragOver = (e: DragEvent) => {
+        e.preventDefault()
+        e.stopPropagation()
+        setIsDropActive(true)
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+      }
+      const handleDragLeave = (e: DragEvent) => {
+        if (!container.contains(e.relatedTarget as Node | null)) setIsDropActive(false)
+      }
+      const handleDrop = (e: DragEvent) => {
+        e.preventDefault()
+        e.stopPropagation()
+        setIsDropActive(false)
+        const text = formatDroppedPaths(e.dataTransfer)
+        if (text) onInputRef.current?.(text)
+      }
+      container.addEventListener('dragover', handleDragOver)
+      container.addEventListener('dragleave', handleDragLeave)
+      container.addEventListener('drop', handleDrop)
       disposables.push({
         dispose: () => {
           window.removeEventListener('tmux-attached', handleAttached as EventListener)
@@ -432,6 +453,9 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           window.removeEventListener('orientationchange', handleOrientationChange)
           window.removeEventListener('mobile-keyboard-change', handleKeyboardChange as EventListener)
           document.removeEventListener('visibilitychange', handleVisibilityChange)
+          container.removeEventListener('dragover', handleDragOver)
+          container.removeEventListener('dragleave', handleDragLeave)
+          container.removeEventListener('drop', handleDrop)
         },
       })
       resizeObserver = new ResizeObserver(() => {
@@ -647,6 +671,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         touchMovedRef.current = false
       }}
     >
+      {isDropActive && <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-lg border border-dashed border-accent bg-bg-0/70 text-sm text-accent shadow-[var(--glow)]">Drop to insert path</div>}
       {isMobileDevice && (
         <textarea
           ref={textareaRef}

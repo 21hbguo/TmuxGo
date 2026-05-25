@@ -2,10 +2,12 @@ import type { FastifyInstance } from 'fastify'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { getNormalizedWindowMoves } from '../lib/template-utils.js'
+import { assertSessionAllowed, assertTargetAllowed } from '../lib/tmux-policy.js'
 
 const execFileAsync = promisify(execFile)
 
 async function getTmuxWindows(sessionName: string) {
+  assertSessionAllowed(sessionName)
   try {
     const { stdout } = await execFileAsync('tmux', ['list-windows', '-t', sessionName, '-F', '#{window_id}|#{window_index}|#{window_name}|#{window_active}'])
 
@@ -30,12 +32,15 @@ async function getTmuxWindows(sessionName: string) {
   }
 }
 async function normalizeWindowOrder(sessionName: string, orderedWindowIds: string[]) {
+  assertSessionAllowed(sessionName)
   for (const move of getNormalizedWindowMoves(sessionName, orderedWindowIds)) {
+    await assertTargetAllowed(move.source, sessionName)
     await execFileAsync('tmux', ['move-window', '-s', move.source, '-t', move.target])
   }
 }
 
 async function getTmuxPanes(sessionName: string, windowIndex: number) {
+  assertSessionAllowed(sessionName)
   try {
     const { stdout } = await execFileAsync('tmux', ['list-panes', '-t', `${sessionName}:${windowIndex}`, '-F', '#{pane_id}|#{pane_index}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}'])
 
@@ -76,6 +81,7 @@ export async function windowRoutes(fastify: FastifyInstance) {
     const parts = windowId.split('-')
     const sessionName = parts[1]
     const windowIndex = parseInt(parts[2], 10)
+    assertSessionAllowed(sessionName)
     return getTmuxPanes(sessionName, windowIndex)
   })
 
@@ -113,6 +119,7 @@ export async function windowRoutes(fastify: FastifyInstance) {
   fastify.get('/panes/:paneId/output', async (request) => {
     const { paneId } = request.params as { paneId: string }
     try {
+      await assertTargetAllowed(paneId)
       const { stdout } = await execFileAsync('tmux', ['capture-pane', '-pt', paneId, '-p'])
       return { paneId, tmuxPaneId: paneId, data: stdout }
     } catch (err: any) {
@@ -124,6 +131,7 @@ export async function windowRoutes(fastify: FastifyInstance) {
     const { sessionId } = request.params as { sessionId: string }
     const { name } = request.body as { name: string }
     const sessionName = sessionId.replace('session-', '')
+    assertSessionAllowed(sessionName)
 
     try {
       await execFileAsync('tmux', ['new-window', '-t', sessionName, '-n', name || 'new-window'])
@@ -138,6 +146,8 @@ export async function windowRoutes(fastify: FastifyInstance) {
     const { windowId } = request.body as { windowId: string }
     const sessionName = sessionId.replace('session-', '')
     try {
+      assertSessionAllowed(sessionName)
+      await assertTargetAllowed(windowId, sessionName)
       await execFileAsync('tmux', ['select-window', '-t', windowId])
       const windows = await getTmuxWindows(sessionName)
       return { ok: true, windows }
@@ -150,6 +160,8 @@ export async function windowRoutes(fastify: FastifyInstance) {
     const { windowId, name } = request.body as { windowId: string; name: string }
     const sessionName = sessionId.replace('session-', '')
     try {
+      assertSessionAllowed(sessionName)
+      await assertTargetAllowed(windowId, sessionName)
       await execFileAsync('tmux', ['rename-window', '-t', windowId, name])
       const windows = await getTmuxWindows(sessionName)
       return { ok: true, windows }
@@ -162,6 +174,7 @@ export async function windowRoutes(fastify: FastifyInstance) {
     const { orderedWindowIds } = request.body as { orderedWindowIds?: string[] }
     const sessionName = sessionId.replace('session-', '')
     try {
+      assertSessionAllowed(sessionName)
       if (!orderedWindowIds?.length) {
         throw new Error('orderedWindowIds is required')
       }
@@ -177,6 +190,8 @@ export async function windowRoutes(fastify: FastifyInstance) {
     const { windowId } = request.body as { windowId: string }
     const sessionName = sessionId.replace('session-', '')
     try {
+      assertSessionAllowed(sessionName)
+      await assertTargetAllowed(windowId, sessionName)
       await execFileAsync('tmux', ['kill-window', '-t', windowId])
       const windows = await getTmuxWindows(sessionName)
       return { ok: true, windows }
@@ -191,6 +206,7 @@ export async function windowRoutes(fastify: FastifyInstance) {
     const parts = windowId.split(':')
     const sessionName = parts[0]
     const windowIndex = parseInt(parts[1], 10)
+    assertSessionAllowed(sessionName)
 
     try {
       const flag = direction === 'horizontal' ? '-h' : '-v'

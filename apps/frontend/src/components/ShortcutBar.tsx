@@ -46,7 +46,7 @@ export function ShortcutBar({ mode = 'dock' }: ShortcutBarProps) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const [toast, setToast] = useState<string | null>(null)
-  const [pendingPaste, setPendingPaste] = useState<{ text: string; meta: string[] } | null>(null)
+  const [pendingPaste, setPendingPaste] = useState<{ text: string; meta: string[]; mode?: 'confirm' | 'manual' } | null>(null)
 
   const handleZoom = async () => {
     if (!activePaneId) return
@@ -127,7 +127,8 @@ export function ShortcutBar({ mode = 'dock' }: ShortcutBarProps) {
       }
       sendKey(text)
     } catch {
-      showToast('Paste failed - long press in terminal')
+      setPendingPaste({ text: '', meta: ['clipboard unavailable'], mode: 'manual' })
+      showToast('Paste failed')
     }
   }
 
@@ -205,6 +206,9 @@ export function ShortcutBar({ mode = 'dock' }: ShortcutBarProps) {
         open={!!pendingPaste}
         text={pendingPaste?.text || ''}
         meta={pendingPaste?.meta || []}
+        mode={pendingPaste?.mode}
+        onTextChange={(text) => setPendingPaste((current) => current ? { ...current, text } : current)}
+        onRetryPermission={() => void handlePaste()}
         onCancel={() => setPendingPaste(null)}
         onSend={() => {
           if (pendingPaste) sendKey(pendingPaste.text)

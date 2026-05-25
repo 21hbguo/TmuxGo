@@ -16,7 +16,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
   const [query, setQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [pendingKillWindow, setPendingKillWindow] = useState<{ id: string; name: string } | null>(null)
-  const [pendingPaste, setPendingPaste] = useState<{ text: string; meta: string[] } | null>(null)
+  const [pendingPaste, setPendingPaste] = useState<{ text: string; meta: string[]; mode?: 'confirm' | 'manual' } | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const { hosts, sessions, windows, activeHostId, activeSessionId, activePaneId, setCommandPalette, setActiveHost, setActiveSession, pushToast } = useConsoleStore()
   const { t } = useTranslation()
@@ -38,18 +38,24 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
     await navigator.clipboard.writeText(text)
   }
   const pasteClipboard = async () => {
-    const text = await navigator.clipboard.readText()
-    if (!text) throw new Error('Clipboard is empty')
-    const analysis = analyzePaste(text)
-    if (analysis.requiresConfirm) {
-      const meta = []
-      if (analysis.hasNewline) meta.push('multi-line')
-      if (analysis.hasControlChars) meta.push('control chars')
-      if (analysis.isLong) meta.push(`${text.length} chars`)
-      setPendingPaste({ text, meta })
-      return
+    try {
+      const text = await navigator.clipboard.readText()
+      if (!text) throw new Error('Clipboard is empty')
+      const analysis = analyzePaste(text)
+      if (analysis.requiresConfirm) {
+        const meta = []
+        if (analysis.hasNewline) meta.push('multi-line')
+        if (analysis.hasControlChars) meta.push('control chars')
+        if (analysis.isLong) meta.push(`${text.length} chars`)
+        setPendingPaste({ text, meta })
+        return false
+      }
+      window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data: text } }))
+      return true
+    } catch {
+      setPendingPaste({ text: '', meta: ['clipboard unavailable'], mode: 'manual' })
+      return false
     }
-    window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data: text } }))
   }
   const items = [
     ...hosts.filter((h: any) => h.name.toLowerCase().includes(q)).map((host: any) => ({ key: `host-${host.id}`, type: 'host', title: host.name, meta: host.address, action: async () => setActiveHost(host.id) })),
@@ -81,6 +87,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
     ...[t('palette.killWindow')].filter((name) => name.toLowerCase().includes(q) || q.length === 0).map(() => ({ key: 'kill-window', type: 'action', title: t('palette.killWindow'), meta: activeWindow?.name || '', action: async () => {
       if (!activeWindow) return
       setPendingKillWindow({ id: activeWindow.id, name: activeWindow.name })
+      return false
     } })),
     ...[t('palette.openSettings')].filter((name) => name.toLowerCase().includes(q) || q.length === 0).map(() => ({ key: 'open-settings', type: 'action', title: t('palette.openSettings'), meta: 'Esc to close', action: async () => window.dispatchEvent(new CustomEvent('tmuxgo-open-settings')) })),
   ]
@@ -93,8 +100,8 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
     const item = items[index]
     if (!item) return
     try {
-      await item.action()
-      close()
+      const result = await item.action()
+      if (result !== false) close()
     } catch (err) {
       pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Action failed' })
     }
@@ -195,6 +202,9 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
         open={!!pendingPaste}
         text={pendingPaste?.text || ''}
         meta={pendingPaste?.meta || []}
+        mode={pendingPaste?.mode}
+        onTextChange={(text) => setPendingPaste((current) => current ? { ...current, text } : current)}
+        onRetryPermission={() => void pasteClipboard()}
         onCancel={() => setPendingPaste(null)}
         onSend={() => {
           if (pendingPaste) {

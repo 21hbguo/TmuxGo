@@ -4,6 +4,7 @@ import * as pty from 'node-pty'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { agentManager } from '../agent-manager.js'
+import { assertSessionAllowed, prepareSessionAttach } from '../lib/tmux-policy.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -140,12 +141,6 @@ export async function streamRoutes(fastify: FastifyInstance) {
       }
       return null
     }
-    async function enableMouse(sessionName: string) {
-      try {
-        await execFileAsync('tmux', ['set-option', '-t', sessionName, '-g', 'mouse', 'on'])
-      } catch {}
-    }
-
     socket.on('message', async (message: Buffer) => {
       try {
         const data = JSON.parse(message.toString())
@@ -159,7 +154,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
 
           case 'attach': {
             const sessionName = data.sessionName
-            await enableMouse(sessionName)
+            await prepareSessionAttach(sessionName)
             const requestedCols = data.cols || 80
             const requestedRows = data.rows || 24
             const exclusive = !!data.exclusive
@@ -234,6 +229,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
             if (scrollLines === 0) break
             const sessionName = data.sessionName
             if (!sessionName) break
+            assertSessionAllowed(sessionName)
             queueScroll(sessionName, scrollLines)
             break
           }

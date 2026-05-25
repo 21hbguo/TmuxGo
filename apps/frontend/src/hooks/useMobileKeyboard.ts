@@ -7,6 +7,7 @@ const SENTINEL_CENTER = 1
 const KEYBOARD_OPEN_THRESHOLD = 120
 const KEYBOARD_CLOSE_THRESHOLD = 70
 const KEYBOARD_EVENT = 'mobile-keyboard-change'
+const isEdgeAndroid = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent) && /EdgA/i.test(navigator.userAgent)
 
 export function isMobileDevice(): boolean {
   if (typeof window === 'undefined') return false
@@ -24,6 +25,9 @@ export function useMobileKeyboard(
   const keepAliveUntilRef = useRef(0)
   const viewportBaseHeightRef = useRef(0)
   const isMobile = useRef(isMobileDevice())
+  const keyboardLog = useCallback((event: string, data?: unknown) => {
+    if (isEdgeAndroid) console.debug('[mobile-keyboard]', event, data || '')
+  }, [])
   const getViewportInset = useCallback(() => {
     const vv = window.visualViewport
     if (!vv) return 0
@@ -36,6 +40,7 @@ export function useMobileKeyboard(
   }, [])
   const openKeyboard = useCallback((inset: number) => {
     keyboardOpenRef.current = true
+    keyboardLog('open', inset)
     document.body.classList.add('keyboard-open')
     const clamped = Math.max(KEYBOARD_OPEN_THRESHOLD, inset)
     document.documentElement.style.setProperty('--mobile-keyboard-inset', `${clamped}px`)
@@ -47,6 +52,7 @@ export function useMobileKeyboard(
       return
     }
     keyboardOpenRef.current = false
+    keyboardLog('close')
     document.body.classList.remove('keyboard-open')
     document.documentElement.style.setProperty('--mobile-keyboard-inset', '0px')
     emitKeyboardChange(false, 0)
@@ -75,6 +81,7 @@ export function useMobileKeyboard(
     const inset = getViewportInset()
     openKeyboard(inset || KEYBOARD_OPEN_THRESHOLD)
     ta.focus({ preventScroll: true })
+    keyboardLog('focus')
     clearValue()
   }, [clearValue, getViewportInset, openKeyboard])
 
@@ -84,6 +91,19 @@ export function useMobileKeyboard(
     if (!ta) return
     const vv = window.visualViewport
     if (vv?.height) viewportBaseHeightRef.current = vv.height
+    const virtualKeyboard = (navigator as any).virtualKeyboard
+    if (virtualKeyboard) {
+      try {
+        virtualKeyboard.overlaysContent = true
+        virtualKeyboard.addEventListener?.('geometrychange', () => {
+          const rect = virtualKeyboard.boundingRect
+          const inset = rect?.height || 0
+          keyboardLog('geometrychange', inset)
+          if (inset >= KEYBOARD_OPEN_THRESHOLD) openKeyboard(inset)
+          else closeKeyboard()
+        })
+      } catch {}
+    }
 
     clearValue()
 
@@ -203,6 +223,10 @@ export function useMobileKeyboard(
     if (!isMobile.current) return
 
     const handleViewportResize = () => {
+      if (isEdgeAndroid) {
+        keyboardLog('viewport-bypass')
+        return
+      }
       const vv = window.visualViewport
       if (!vv) return
       if (!isKeyboardOwnerActive() && Date.now() > keepAliveUntilRef.current) {

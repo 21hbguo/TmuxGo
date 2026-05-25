@@ -31,7 +31,7 @@ export function QuickActions() {
   const [showModal, setShowModal] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
   const [confirmKillOpen, setConfirmKillOpen] = useState(false)
-  const [pendingPaste, setPendingPaste] = useState<{ text: string; meta: string[] } | null>(null)
+  const [pendingPaste, setPendingPaste] = useState<{ text: string; meta: string[]; mode?: 'confirm' | 'manual' } | null>(null)
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 1024)
     check()
@@ -101,6 +101,7 @@ export function QuickActions() {
       }
       sendClipboardText(text)
     } catch (err) {
+      setPendingPaste({ text: '', meta: ['clipboard unavailable'], mode: 'manual' })
       pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Paste failed' })
     }
   }
@@ -212,6 +213,9 @@ export function QuickActions() {
         open={!!pendingPaste}
         text={pendingPaste?.text || ''}
         meta={pendingPaste?.meta || []}
+        mode={pendingPaste?.mode}
+        onTextChange={(text) => setPendingPaste((current) => current ? { ...current, text } : current)}
+        onRetryPermission={() => void handlePaste()}
         onCancel={() => setPendingPaste(null)}
         onSend={() => {
           if (pendingPaste) sendClipboardText(pendingPaste.text)
