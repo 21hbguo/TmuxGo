@@ -47,7 +47,7 @@ export function PaneNotifications() {
     setNotifications((prev) => [notification, ...prev.slice(0, 49)])
 
     if (Notification.permission === 'granted') {
-      new Notification(`tmuxU: ${notification.paneName}`, {
+      new Notification(`TmuxGo: ${notification.paneName}`, {
         body: notification.message,
       })
     }

@@ -2,7 +2,7 @@ export const zh = {
   // TopBar
   'search.placeholder': '搜索...',
   'search.cmd': '⌘K',
-  'install.title': '安装 tmuxU',
+  'install.title': '安装 TmuxGo',
   'install.desc': '安装后可从主屏幕全屏打开，使用更像原生 App。',
   'install.iosDesc': '在 Safari 点分享，再选“添加到主屏幕”，即可全屏打开。',
   'install.action': '立即安装',

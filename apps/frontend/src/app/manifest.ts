@@ -2,8 +2,8 @@ import type { MetadataRoute } from 'next'
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'tmuxU',
-    short_name: 'tmuxU',
+    name: 'TmuxGo',
+    short_name: 'TmuxGo',
     description: 'Web-based tmux session manager',
     start_url: '/',
     scope: '/',

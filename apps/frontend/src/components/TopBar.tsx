@@ -18,7 +18,7 @@ export function TopBar() {
     <>
       <header className="h-14 bg-bg-1 border-b border-[var(--line)] flex items-center px-4 shrink-0">
         <div className="flex items-center gap-3">
-          <span className="text-accent font-bold text-lg">tmuxU</span>
+          <span className="text-accent font-bold text-lg">TmuxGo</span>
           {activeHost && (
             <>
               <span className="text-text-3">/</span>
