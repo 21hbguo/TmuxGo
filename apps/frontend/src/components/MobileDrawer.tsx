@@ -5,7 +5,7 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useCreateSession } from '@/hooks/useApi'
 import { SessionTemplates, type Template } from './SessionTemplates'
 import { useTranslation } from '@/i18n'
-import { ShortcutBar } from './ShortcutBar'
+import { QuickActions } from './QuickActions'
 
 interface MobileDrawerProps {
   isOpen: boolean
@@ -139,7 +139,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
             </div>
           )}
           {type === 'panes' && (
-            <ShortcutBar mode="panel" />
+            <QuickActions />
           )}
         </div>
       </div>

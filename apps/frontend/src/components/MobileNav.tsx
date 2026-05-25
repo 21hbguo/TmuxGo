@@ -34,7 +34,7 @@ export function MobileNav({ onOpenDrawer, onOpenSettings, onOpenSearch }: Mobile
   const statusText = isConnected ? `${connection.latency ?? 0}ms` : isReconnecting ? '...' : 'Off'
 
   return (
-    <div data-mobile-nav className="mobile-nav-landscape-hide fixed bottom-0 left-0 right-0 z-40 border-t border-[var(--line)] bg-bg-1 pb-[env(safe-area-inset-bottom)] transition-transform duration-200">
+    <div data-mobile-nav className="mobile-nav-landscape-hide fixed left-0 right-0 z-40 border-t border-[var(--line)] bg-bg-1 pb-[env(safe-area-inset-bottom)] transition-transform duration-200" style={{ bottom: 'var(--mobile-keyboard-inset, 0px)' }}>
       <div className="flex items-center justify-around h-12 px-3">
         <button data-keep-mobile-keyboard onClick={() => onOpenDrawer('sessions')} className="flex flex-col items-center gap-px text-text-3 active:text-accent active:scale-95 transition-all">
           <NavIcon d={icons.sessions} />
