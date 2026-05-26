@@ -45,6 +45,17 @@ export function QuickActions() {
 
   const sendKey = useCallback((data: string) => send({ type: 'input', data }), [send])
   const sendClipboardText = (text: string) => send({ type: 'input', data: text })
+  const resolveActivePaneId = useCallback(async () => {
+    if (!activeHostId || !activeSessionId) return useConsoleStore.getState().activePaneId
+    const snapshot = await api.snapshot.get(activeHostId, activeSessionId)
+    const paneId = snapshot.activePaneId || (snapshot.panes || []).find((pane: any) => pane.active)?.id || useConsoleStore.getState().activePaneId
+    useConsoleStore.setState((state) => ({
+      windows: snapshot.windows || state.windows,
+      panes: snapshot.panes || state.panes,
+      activePaneId: paneId || state.activePaneId,
+    }))
+    return paneId
+  }, [activeHostId, activeSessionId])
   const refreshSnapshot = useCallback(async () => {
     if (!activeHostId || !activeSessionId) return
     const snapshot = await api.snapshot.get(activeHostId, activeSessionId)
@@ -74,11 +85,14 @@ export function QuickActions() {
   useEffect(() => stopRepeat, [stopRepeat])
 
   const handleSplit = async (direction: 'horizontal' | 'vertical') => {
-    if (!activePaneId || !activeWindow || pendingDirection) return
+    if (!activeWindow || pendingDirection) return
     setPendingDirection(direction)
     try {
-      await api.panes.split(activePaneId, direction)
+      const paneId = await resolveActivePaneId()
+      if (!paneId) throw new Error('No active pane')
+      await api.panes.split(paneId, direction)
       await refreshSnapshot()
+      window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'split-pane', direction } }))
       pushToast({ type: 'success', message: 'Pane split complete' })
     } catch (err) {
       try {
@@ -87,6 +101,7 @@ export function QuickActions() {
         if (!paneId || paneId === activePaneId) throw err
         await api.panes.split(paneId, direction)
         await refreshSnapshot()
+        window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'split-pane', direction } }))
         pushToast({ type: 'success', message: 'Pane split complete' })
       } catch (retryErr) {
         pushToast({ type: 'error', message: retryErr instanceof Error ? retryErr.message : 'Split failed' })
@@ -155,15 +170,19 @@ export function QuickActions() {
   }
 
   const handleKillPane = async () => {
-    if (!activePaneId) return
+    const paneId = await resolveActivePaneId()
+    if (!paneId) return
+    useConsoleStore.setState({ activePaneId: paneId })
     setConfirmKillOpen(true)
   }
 
   const confirmKillPane = async () => {
-    if (!activePaneId) return
+    const paneId = await resolveActivePaneId()
+    if (!paneId) return
     try {
-      await api.panes.kill(activePaneId)
+      await api.panes.kill(paneId)
       await refreshSnapshot()
+      window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'kill-pane' } }))
       pushToast({ type: 'success', message: 'Pane closed' })
     } catch (err) {
       pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Kill failed' })
@@ -196,7 +215,7 @@ export function QuickActions() {
       <div className="grid grid-cols-3 gap-1">
         <button onClick={() => sendKey('\x03')} className={btn}>Ctrl+C</button>
         <button onClick={() => sendKey('\r')} className={btn}>Enter</button>
-        <button onClick={() => activePaneId && api.panes.zoomByPane(activePaneId).catch((err) => pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Zoom failed' }))} disabled={!activePaneId}
+        <button onClick={() => resolveActivePaneId().then((paneId) => paneId && api.panes.zoomByPane(paneId).then(() => window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'zoom-pane' } })))).catch((err) => pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Zoom failed' }))} disabled={!activePaneId}
           className={`px-2 py-1.5 rounded text-xs transition-colors ${activePaneId ? 'bg-bg-2 text-text-2 hover:bg-bg-1' : 'bg-bg-2/60 text-text-3 cursor-not-allowed'}`}>
           {t('quick.zoom')}
         </button>

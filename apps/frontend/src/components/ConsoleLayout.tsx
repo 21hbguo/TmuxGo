@@ -51,6 +51,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   const viewportFrameRef = useRef<number | null>(null)
   const viewportTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const viewportNeedsDelayRef = useRef(false)
+  const viewportWidthRef = useRef(0)
 
   const pushOverlay = useCallback((id: string) => {
     if (overlayRef.current[overlayRef.current.length - 1] === id) return
@@ -100,7 +101,13 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       const run = () => {
         const isMobileViewport = window.matchMedia(MOBILE_QUERY).matches
         const vv = window.visualViewport
-        if (isMobileViewport && vv?.height && vv.height > viewportBaseHeightRef.current) viewportBaseHeightRef.current = vv.height
+        const viewportWidth = Math.round(vv?.width || window.innerWidth)
+        if (viewportWidthRef.current !== viewportWidth) {
+          viewportWidthRef.current = viewportWidth
+          viewportBaseHeightRef.current = 0
+          appHeightNumRef.current = 0
+        }
+        if (isMobileViewport && vv?.height && (!viewportBaseHeightRef.current || vv.height > viewportBaseHeightRef.current)) viewportBaseHeightRef.current = vv.height
         const inset = (() => {
           if (!vv) return 0
           return Math.max(0, (viewportBaseHeightRef.current || vv.height) - vv.height)
@@ -117,7 +124,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
             ? window.innerHeight
             : open
               ? (vv?.height || window.innerHeight)
-              : (viewportBaseHeightRef.current || window.innerHeight)
+              : (vv?.height || viewportBaseHeightRef.current || window.innerHeight)
         )
         if (isMobileViewport && appHeightNumRef.current && !open && Math.abs(nextHeight - appHeightNumRef.current) < 36) return
         if (isMobileViewport && appHeightNumRef.current && open && Math.abs(nextHeight - appHeightNumRef.current) < 6) return
@@ -296,6 +303,12 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
     window.addEventListener('tmuxgo-open-settings', handleOpenSettings as EventListener)
     return () => window.removeEventListener('tmuxgo-open-settings', handleOpenSettings as EventListener)
   }, [openSettings])
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'file-panel', open: filePanelOpen, mobile: false } }))
+  }, [filePanelOpen])
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'mobile-file-panel', open: mobileFileSheetOpen, mobile: true } }))
+  }, [mobileFileSheetOpen])
   useEffect(() => {
     const handleNewSession = () => {
       if (isMobile) {

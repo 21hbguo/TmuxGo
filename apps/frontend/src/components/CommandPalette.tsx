@@ -33,6 +33,17 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
 
   const q = query.toLowerCase()
   const activeWindow = windows.find((window: any) => window.active) || windows[0] || null
+  const resolveActivePaneId = async () => {
+    if (!activeHostId || !activeSessionId) return useConsoleStore.getState().activePaneId
+    const snapshot = await api.snapshot.get(activeHostId, activeSessionId)
+    const paneId = snapshot.activePaneId || (snapshot.panes || []).find((pane: any) => pane.active)?.id || useConsoleStore.getState().activePaneId
+    useConsoleStore.setState((state) => ({
+      windows: snapshot.windows || state.windows,
+      panes: snapshot.panes || state.panes,
+      activePaneId: paneId || state.activePaneId,
+    }))
+    return paneId
+  }
   const copySelection = async () => {
     const text = window.getSelection()?.toString()
     if (!text) throw new Error('No selection')
@@ -76,14 +87,17 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
       }
     } })),
     ...['horizontal', 'vertical'].filter((direction) => (`split ${direction}`).includes(q) || q.length === 0).map((direction) => ({ key: `split-${direction}`, type: 'action', title: direction === 'horizontal' ? t('palette.splitHorizontal') : t('palette.splitVertical'), meta: direction === 'horizontal' ? 'Ctrl+Shift+-' : 'Ctrl+Shift+|', action: async () => {
-      const paneId = useConsoleStore.getState().activePaneId
+      const paneId = await resolveActivePaneId()
       if (!paneId) return
       await api.panes.split(paneId, direction as 'horizontal' | 'vertical')
+      window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'split-pane', direction } }))
     } })),
     ...[t('palette.newSession')].filter((name) => name.toLowerCase().includes(q) || q.length === 0).map(() => ({ key: 'new-session', type: 'action', title: t('palette.newSession'), meta: '+', action: async () => window.dispatchEvent(new CustomEvent('tmuxgo-new-session')) })),
     ...[t('palette.zoomPane')].filter((name) => name.toLowerCase().includes(q) || q.length === 0).map(() => ({ key: 'zoom-pane', type: 'action', title: t('palette.zoomPane'), meta: 'Z', action: async () => {
-      if (!activePaneId) return
-      await api.panes.zoomByPane(activePaneId)
+      const paneId = await resolveActivePaneId()
+      if (!paneId) return
+      await api.panes.zoomByPane(paneId)
+      window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'zoom-pane' } }))
     } })),
     ...[t('palette.copySelection')].filter((name) => name.toLowerCase().includes(q) || q.length === 0).map(() => ({ key: 'copy-selection', type: 'action', title: t('palette.copySelection'), meta: 'Cmd+C', action: copySelection })),
     ...[t('palette.pasteClipboard')].filter((name) => name.toLowerCase().includes(q) || q.length === 0).map(() => ({ key: 'paste-clipboard', type: 'action', title: t('palette.pasteClipboard'), meta: 'Cmd+V', action: pasteClipboard })),

@@ -37,6 +37,7 @@ export function PaneGrid() {
   const inputFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingResizeRef = useRef<{ cols: number; rows: number } | null>(null)
   const sentResizeRef = useRef<{ cols: number; rows: number } | null>(null)
+  const lastExclusiveRef = useRef(exclusive)
 
   const sessionName = activeSessionId?.replace('session-', '') || ''
 
@@ -169,6 +170,16 @@ export function PaneGrid() {
     return () => window.removeEventListener('ws-reconnected', handleReconnect)
   }, [attachNow, clearPendingResize, clearAttachTimers, clearInputFlushTimer])
   useEffect(() => {
+    if (lastExclusiveRef.current === exclusive) return
+    lastExclusiveRef.current = exclusive
+    if (!sessionName || !terminalReadyRef.current) return
+    clearPendingResize()
+    clearAttachTimers()
+    attachedRef.current = null
+    sentResizeRef.current = null
+    attachNow()
+  }, [exclusive, sessionName, attachNow, clearPendingResize, clearAttachTimers])
+  useEffect(() => {
     const handleAttached = (event: Event) => {
       const detail = (event as CustomEvent).detail || {}
       if (detail.sessionName !== sessionName) return
@@ -177,6 +188,7 @@ export function PaneGrid() {
       pendingSwitchRef.current = false
       updateConnection({ status: 'connected' })
       flushInputQueue()
+      window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'attached', sessionName } }))
     }
     window.addEventListener('tmux-attached', handleAttached as EventListener)
     return () => window.removeEventListener('tmux-attached', handleAttached as EventListener)

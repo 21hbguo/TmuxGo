@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useCallback, useState, type PointerEvent } from 'react'
+import { useEffect, useRef, useCallback, useState, type PointerEvent } from 'react'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useTranslation } from '@/i18n'
 import { useConsoleStore } from '@/stores/useConsoleStore'
@@ -43,19 +43,40 @@ interface ShortcutBarProps {
 export function ShortcutBar({ mode = 'dock' }: ShortcutBarProps) {
   const { send } = useWebSocket()
   const { t } = useTranslation()
+  const activeHostId = useConsoleStore((s) => s.activeHostId)
+  const activeSessionId = useConsoleStore((s) => s.activeSessionId)
   const activePaneId = useConsoleStore((s) => s.activePaneId)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [pendingPaste, setPendingPaste] = useState<{ text: string; meta: string[]; mode?: 'confirm' | 'manual' } | null>(null)
 
+  const resolveActivePaneId = useCallback(async () => {
+    if (!activeHostId || !activeSessionId) return useConsoleStore.getState().activePaneId
+    const snapshot = await api.snapshot.get(activeHostId, activeSessionId)
+    const paneId = snapshot.activePaneId || (snapshot.panes || []).find((pane: any) => pane.active)?.id || useConsoleStore.getState().activePaneId
+    useConsoleStore.setState((state) => ({
+      windows: snapshot.windows || state.windows,
+      panes: snapshot.panes || state.panes,
+      activePaneId: paneId || state.activePaneId,
+    }))
+    return paneId
+  }, [activeHostId, activeSessionId])
   const handleZoom = async () => {
-    if (!activePaneId) return
-    try { await api.panes.zoomByPane(activePaneId) } catch {}
+    const paneId = await resolveActivePaneId()
+    if (!paneId) return
+    try {
+      await api.panes.zoomByPane(paneId)
+      window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'zoom-pane' } }))
+    } catch {}
   }
   const handleKill = async () => {
-    if (!activePaneId) return
-    try { await api.panes.kill(activePaneId) } catch {}
+    const paneId = await resolveActivePaneId()
+    if (!paneId) return
+    try {
+      await api.panes.kill(paneId)
+      window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'kill-pane' } }))
+    } catch {}
   }
 
   const sendKey = useCallback((data: string) => {
@@ -70,18 +91,35 @@ export function ShortcutBar({ mode = 'dock' }: ShortcutBarProps) {
     e.preventDefault()
   }, [])
 
-  const startRepeat = useCallback((data: string) => {
-    timerRef.current = setTimeout(() => {
-      intervalRef.current = setInterval(() => sendKey(data), REPEAT_INTERVAL)
-    }, REPEAT_DELAY)
-  }, [sendKey])
-
   const stopRepeat = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current)
     if (intervalRef.current) clearInterval(intervalRef.current)
     timerRef.current = null
     intervalRef.current = null
   }, [])
+  const startRepeat = useCallback((data: string) => {
+    stopRepeat()
+    timerRef.current = setTimeout(() => {
+      intervalRef.current = setInterval(() => sendKey(data), REPEAT_INTERVAL)
+    }, REPEAT_DELAY)
+  }, [sendKey, stopRepeat])
+  useEffect(() => {
+    window.addEventListener('pointerup', stopRepeat)
+    window.addEventListener('pointercancel', stopRepeat)
+    window.addEventListener('touchend', stopRepeat)
+    window.addEventListener('touchcancel', stopRepeat)
+    window.addEventListener('blur', stopRepeat)
+    document.addEventListener('visibilitychange', stopRepeat)
+    return () => {
+      stopRepeat()
+      window.removeEventListener('pointerup', stopRepeat)
+      window.removeEventListener('pointercancel', stopRepeat)
+      window.removeEventListener('touchend', stopRepeat)
+      window.removeEventListener('touchcancel', stopRepeat)
+      window.removeEventListener('blur', stopRepeat)
+      document.removeEventListener('visibilitychange', stopRepeat)
+    }
+  }, [stopRepeat])
 
   const handleBtn = (def: KeyDef) => {
     sendKey(def.data)
