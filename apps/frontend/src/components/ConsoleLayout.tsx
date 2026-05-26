@@ -42,16 +42,12 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   const [drawerType, setDrawerType] = useState<'sessions' | 'panes'>('sessions')
   const [showSettings, setShowSettings] = useState(false)
   const [keyboardOpen, setKeyboardOpen] = useState(false)
-  const [keyboardInset, setKeyboardInset] = useState(0)
   const overlayRef = useRef<string[]>([])
   const appHeightRef = useRef('')
   const viewportBaseHeightRef = useRef(0)
   const appHeightNumRef = useRef(0)
   const keyboardStateRef = useRef({ open: false, inset: 0 })
-  const appHeightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const viewportFrameRef = useRef<number | null>(null)
-  const viewportTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const viewportNeedsDelayRef = useRef(false)
   const viewportWidthRef = useRef(0)
 
   const pushOverlay = useCallback((id: string) => {
@@ -89,76 +85,44 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       cancelAnimationFrame(viewportFrameRef.current)
       viewportFrameRef.current = null
     }
-    if (viewportTimeoutRef.current) {
-      clearTimeout(viewportTimeoutRef.current)
-      viewportTimeoutRef.current = null
-    }
   }, [])
-  const scheduleViewportSync = useCallback((deferred=false) => {
-    viewportNeedsDelayRef.current = deferred
+  const scheduleViewportSync = useCallback(() => {
     if (viewportFrameRef.current) return
     viewportFrameRef.current = requestAnimationFrame(() => {
       viewportFrameRef.current = null
-      const run = () => {
-        const isMobileViewport = window.matchMedia(MOBILE_QUERY).matches
-        const vv = window.visualViewport
-        const viewportWidth = Math.round(vv?.width || window.innerWidth)
-        if (viewportWidthRef.current !== viewportWidth) {
-          viewportWidthRef.current = viewportWidth
-          viewportBaseHeightRef.current = 0
-          appHeightNumRef.current = 0
-        }
-        if (isMobileViewport && vv?.height && (!viewportBaseHeightRef.current || vv.height > viewportBaseHeightRef.current)) viewportBaseHeightRef.current = vv.height
-        const inset = (() => {
-          if (!vv) return 0
-          return Math.max(0, (viewportBaseHeightRef.current || vv.height) - vv.height)
-        })()
-        const byClass = document.body.classList.contains('keyboard-open')
-        const open = inset >= 80 || byClass
-        if (keyboardStateRef.current.open !== open || keyboardStateRef.current.inset !== (open ? inset : 0)) {
-          keyboardStateRef.current = { open, inset: open ? inset : 0 }
-          setKeyboardOpen(open)
-          setKeyboardInset(open ? inset : 0)
-        }
-        const nextHeight = Math.round(
-          !isMobileViewport
-            ? window.innerHeight
-            : open
-              ? (vv?.height || window.innerHeight)
-              : (vv?.height || viewportBaseHeightRef.current || window.innerHeight)
-        )
-        if (isMobileViewport && appHeightNumRef.current && !open && Math.abs(nextHeight - appHeightNumRef.current) < 36) return
-        if (isMobileViewport && appHeightNumRef.current && open && Math.abs(nextHeight - appHeightNumRef.current) < 6) return
-        if (isMobileViewport && !open && viewportNeedsDelayRef.current) {
-          if (appHeightTimerRef.current) clearTimeout(appHeightTimerRef.current)
-          appHeightTimerRef.current = setTimeout(() => {
-            appHeightTimerRef.current = null
-            const nextValue = `${nextHeight}px`
-            if (appHeightRef.current === nextValue) return
-            appHeightRef.current = nextValue
-            appHeightNumRef.current = nextHeight
-            setAppHeight(nextValue)
-          }, 120)
-          return
-        }
-        if (appHeightTimerRef.current) {
-          clearTimeout(appHeightTimerRef.current)
-          appHeightTimerRef.current = null
-        }
-        const nextValue = `${nextHeight}px`
-        if (appHeightRef.current === nextValue) return
-        appHeightRef.current = nextValue
-        appHeightNumRef.current = nextHeight
-        setAppHeight(nextValue)
+      const isMobileViewport = window.matchMedia(MOBILE_QUERY).matches
+      const vv = window.visualViewport
+      const viewportWidth = Math.round(vv?.width || window.innerWidth)
+      if (viewportWidthRef.current !== viewportWidth) {
+        viewportWidthRef.current = viewportWidth
+        viewportBaseHeightRef.current = 0
+        appHeightNumRef.current = 0
       }
-      if (viewportNeedsDelayRef.current) {
-        viewportTimeoutRef.current = setTimeout(() => {
-          viewportTimeoutRef.current = null
-          run()
-        }, 0)
-      } else {
-        run()
+      if (isMobileViewport && vv?.height && (!viewportBaseHeightRef.current || vv.height > viewportBaseHeightRef.current)) viewportBaseHeightRef.current = vv.height
+      const inset = (() => {
+        if (!vv) return 0
+        return Math.max(0, (viewportBaseHeightRef.current || vv.height) - vv.height)
+      })()
+      const byClass = document.body.classList.contains('keyboard-open')
+      const open = inset >= 80 || byClass
+      if (keyboardStateRef.current.open !== open || keyboardStateRef.current.inset !== (open ? inset : 0)) {
+        keyboardStateRef.current = { open, inset: open ? inset : 0 }
+        setKeyboardOpen(open)
       }
+      const nextHeight = Math.round(
+        !isMobileViewport
+          ? window.innerHeight
+          : open
+            ? (vv?.height || window.innerHeight)
+            : (vv?.height || viewportBaseHeightRef.current || window.innerHeight)
+      )
+      if (isMobileViewport && appHeightNumRef.current && !open && Math.abs(nextHeight - appHeightNumRef.current) < 36) return
+      if (isMobileViewport && appHeightNumRef.current && open && Math.abs(nextHeight - appHeightNumRef.current) < 6) return
+      const nextValue = `${nextHeight}px`
+      if (appHeightRef.current === nextValue) return
+      appHeightRef.current = nextValue
+      appHeightNumRef.current = nextHeight
+      setAppHeight(nextValue)
     })
   }, [])
 
@@ -171,18 +135,14 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   }, [])
 
   useEffect(() => {
-    const handleOrientation = () => window.setTimeout(() => scheduleViewportSync(false), 80)
-    const handleResize = () => scheduleViewportSync(true)
-    scheduleViewportSync(false)
+    const handleOrientation = () => window.setTimeout(() => scheduleViewportSync(), 80)
+    const handleResize = () => scheduleViewportSync()
+    scheduleViewportSync()
     window.addEventListener('resize', handleResize)
     window.visualViewport?.addEventListener('resize', handleResize)
     window.addEventListener('orientationchange', handleOrientation)
     return () => {
       clearViewportSchedule()
-      if (appHeightTimerRef.current) {
-        clearTimeout(appHeightTimerRef.current)
-        appHeightTimerRef.current = null
-      }
       window.removeEventListener('resize', handleResize)
       window.visualViewport?.removeEventListener('resize', handleResize)
       window.removeEventListener('orientationchange', handleOrientation)
@@ -193,15 +153,14 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       const detail = (event as CustomEvent<{ open?: boolean; inset?: number }>).detail
       keyboardStateRef.current = { open: !!detail?.open, inset: detail?.open ? detail?.inset || 0 : 0 }
       setKeyboardOpen(!!detail?.open)
-      setKeyboardInset(detail?.open ? detail?.inset || 0 : 0)
-      scheduleViewportSync(false)
+      scheduleViewportSync()
     }
-    const syncKeyboardOpen = () => scheduleViewportSync(false)
+    const syncKeyboardOpen = () => scheduleViewportSync()
     window.addEventListener('mobile-keyboard-change', handleKeyboardChange as EventListener)
     window.visualViewport?.addEventListener('resize', syncKeyboardOpen)
     window.addEventListener('focus', syncKeyboardOpen)
     window.addEventListener('pageshow', syncKeyboardOpen)
-    scheduleViewportSync(false)
+    scheduleViewportSync()
     return () => {
       window.removeEventListener('mobile-keyboard-change', handleKeyboardChange as EventListener)
       window.visualViewport?.removeEventListener('resize', syncKeyboardOpen)

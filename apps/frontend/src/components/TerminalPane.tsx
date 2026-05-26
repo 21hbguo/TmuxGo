@@ -14,6 +14,9 @@ const FAST_OUTPUT_LIMIT = 24576
 const OUTPUT_FLUSH_LIMIT = 65536
 const SCROLLBACK_LIMIT = 600
 const KEYBOARD_PASTE_FALLBACK_DELAY = 160
+const DELETE_WORD_REPEAT_DELAY = 140
+const DELETE_WORD_REPEAT_MIN_DELAY = 70
+const DELETE_WORD_REPEAT_ACCEL = 0.78
 
 interface TerminalPaneProps {
   sessionName?: string
@@ -167,7 +170,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const input = container.querySelector('.xterm-helper-textarea, textarea')
       if (input instanceof HTMLTextAreaElement) input.focus({ preventScroll: true })
     }
-    const copySelectionIfNeeded = async (preferLiveSelection = false) => {
+    const copySelectionIfNeeded = async (preferLiveSelection = false, force = false) => {
       const liveSelection = terminal?.getSelection?.() || window.getSelection?.()?.toString() || ''
       const selection = preferLiveSelection ? liveSelection || currentSelection : currentSelection || liveSelection
       if (!selection) {
@@ -176,7 +179,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         lastCopyNotice = ''
         return
       }
-      if (selection === lastCopiedSelection) return
+      if (!force && selection === lastCopiedSelection) return
       lastCopiedSelection = selection
       const result = await writeClipboardText(selection,{preferSync:true})
       if (result.unavailable) {
@@ -193,6 +196,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         return
       }
       if (!verified.matches) {
+        lastCopiedSelection = ''
         if (lastCopyNotice === `${selection}:mismatch:${verified.text}`) return
         lastCopyNotice = `${selection}:mismatch:${verified.text}`
         pushToast({ type: 'error', message: `Clipboard mismatch after copy: selected ${selection.length} chars, clipboard has ${verified.text.length}` })
@@ -206,8 +210,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       clearTimeout(copySelectionTimer)
       copySelectionTimer = null
     }
-    const runCopySelection = (preferLiveSelection = false) => {
-      void copySelectionIfNeeded(preferLiveSelection)
+    const runCopySelection = (preferLiveSelection = false, force = false) => {
+      void copySelectionIfNeeded(preferLiveSelection, force)
       requestAnimationFrame(() => {
         void copySelectionIfNeeded(preferLiveSelection)
       })
@@ -245,11 +249,11 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     const startDeleteWordRepeat = () => {
       stopDeleteWordRepeat()
       deleteWordRepeatActive = true
-      let delay = 280
+      let delay = DELETE_WORD_REPEAT_DELAY
       const tick = () => {
         if (disposed || !deleteWordRepeatActive) return
         onInputRef.current?.(DELETE_PREV_WORD_SEQUENCE)
-        delay = Math.max(96, Math.round(delay * 0.82))
+        delay = Math.max(DELETE_WORD_REPEAT_MIN_DELAY, Math.round(delay * DELETE_WORD_REPEAT_ACCEL))
         deleteWordRepeatTimer = setTimeout(tick, delay)
       }
       deleteWordRepeatTimer = setTimeout(tick, delay)
@@ -415,7 +419,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       outputFrame = requestAnimationFrame(flushOutput)
     }
 
-    const scheduleFit = (delay = isMobileDevice ? 120 : 0, force = false) => {
+    const scheduleFit = (delay = 0, force = false) => {
       if (disposed) return
       if (fitTimeout) {
         clearTimeout(fitTimeout)
@@ -425,7 +429,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       if (delay > 0) {
         fitTimeout = setTimeout(() => {
           fitTimeout = null
-          if (!doFit(force) && force) scheduleFit(120, true)
+          if (!doFit(force) && force) scheduleFit(isMobileDevice ? 32 : 0, true)
         }, delay)
         return
       }
@@ -441,9 +445,9 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       fitTimeout = setTimeout(() => {
         fitTimeout = null
         scheduleFit(0, true)
-      }, isMobileDevice ? 220 : 0)
+      }, isMobileDevice ? 80 : 0)
     }
-    const forceStableFit = (attempts = attachExclusiveRef.current ? 6 : 4, interval = isMobileDevice ? 80 : 34) => {
+    const forceStableFit = (attempts = attachExclusiveRef.current ? 6 : 4, interval = 34) => {
       if (disposed) return
       stableFitToken += 1
       const token = stableFitToken
@@ -638,13 +642,13 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       }
       const handleOrientationChange = () => {
         if (!attachExclusiveRef.current) return
-        setTimeout(() => scheduleFit(0, true), 90)
-        setTimeout(() => scheduleFit(0, true), 260)
+        scheduleFit(0, true)
+        setTimeout(() => scheduleFit(0, true), 120)
       }
       const handleKeyboardChange = () => {
         if (!attachExclusiveRef.current) return
-        setTimeout(() => scheduleFit(0, true), 60)
-        setTimeout(() => scheduleFit(0, true), 220)
+        scheduleFit(0, true)
+        setTimeout(() => scheduleFit(0, true), 80)
       }
       const handleAttached = (event: Event) => {
         const detail = (event as CustomEvent).detail || {}
@@ -653,7 +657,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         if (!terminal || disposed) return
         if (attachExclusiveRef.current) {
           scheduleInitialFit()
-          forceStableFit(7, isMobileDevice ? 90 : 34)
+          forceStableFit(5, 34)
           return
         }
         if (cols > 0 && rows > 0) {
@@ -664,7 +668,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       }
       const handleLayoutChange = () => {
         if (attachExclusiveRef.current) {
-          forceStableFit(7, isMobileDevice ? 90 : 34)
+          forceStableFit(5, 34)
           return
         }
         forceStableFit(4, 34)
@@ -675,7 +679,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           return
         }
         if (attachExclusiveRef.current) {
-          forceStableFit(5, isMobileDevice ? 90 : 34)
+          forceStableFit(4, 34)
           return
         }
         forceStableFit(3, 34)
@@ -718,7 +722,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       container.addEventListener('paste', handlePaste)
       const handlePointerSync = () => {
         clearCopySelectionTimer()
-        runCopySelection(true)
+        runCopySelection(true,true)
         void syncActivePane()
       }
       const handleFocusTerminal = () => {
@@ -728,8 +732,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         setTimeout(focusTerminalInput, 32)
         setTimeout(focusTerminalInput, 96)
       }
-      container.addEventListener('mouseup', handlePointerSync)
-      container.addEventListener('touchend', handlePointerSync)
+      window.addEventListener('mouseup', handlePointerSync)
+      window.addEventListener('touchend', handlePointerSync)
       window.addEventListener('tmuxgo-focus-terminal', handleFocusTerminal as EventListener)
       disposables.push({
         dispose: () => {
@@ -747,8 +751,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           container.removeEventListener('dragleave', handleDragLeave)
           container.removeEventListener('drop', handleDrop)
           container.removeEventListener('paste', handlePaste)
-          container.removeEventListener('mouseup', handlePointerSync)
-          container.removeEventListener('touchend', handlePointerSync)
+          window.removeEventListener('mouseup', handlePointerSync)
+          window.removeEventListener('touchend', handlePointerSync)
           window.removeEventListener('tmuxgo-focus-terminal', handleFocusTerminal as EventListener)
           clearCopySelectionTimer()
           clearKeyboardPasteTimer()

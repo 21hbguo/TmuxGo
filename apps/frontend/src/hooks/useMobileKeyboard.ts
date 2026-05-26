@@ -46,15 +46,17 @@ export function useMobileKeyboard(
     document.documentElement.style.setProperty('--mobile-keyboard-inset', `${clamped}px`)
     emitKeyboardChange(true, clamped)
   }, [emitKeyboardChange])
-  const closeKeyboard = useCallback(() => {
+  const closeKeyboard = useCallback((blurInput = false) => {
     if (!keyboardOpenRef.current) {
       emitKeyboardChange(false, 0)
       return
     }
     keyboardOpenRef.current = false
+    keepAliveUntilRef.current = 0
     keyboardLog('close')
     document.body.classList.remove('keyboard-open')
     document.documentElement.style.setProperty('--mobile-keyboard-inset', '0px')
+    if (blurInput && document.activeElement === textareaRef.current) textareaRef.current?.blur()
     emitKeyboardChange(false, 0)
   }, [emitKeyboardChange])
   const isKeyboardOwnerActive = useCallback(() => {
@@ -77,7 +79,6 @@ export function useMobileKeyboard(
   const focusKeyboard = useCallback(() => {
     const ta = textareaRef.current
     if (!ta) return
-    keepAliveUntilRef.current = Date.now() + 1500
     const inset = getViewportInset()
     openKeyboard(inset || KEYBOARD_OPEN_THRESHOLD)
     ta.focus({ preventScroll: true })
@@ -173,7 +174,6 @@ export function useMobileKeyboard(
     }
 
     const handleFocus = () => {
-      keepAliveUntilRef.current = Date.now() + 1500
       const inset = getViewportInset()
       openKeyboard(inset)
       setTimeout(() => clearValue(), 10)
@@ -191,7 +191,9 @@ export function useMobileKeyboard(
         closeKeyboard()
         return
       }
-      requestAnimationFrame(() => focusKeyboard())
+      requestAnimationFrame(() => {
+        if (Date.now() <= keepAliveUntilRef.current) focusKeyboard()
+      })
     }
 
     ta.addEventListener('keydown', handleKeyDown)
@@ -239,7 +241,7 @@ export function useMobileKeyboard(
       if (!isOpen && inset >= KEYBOARD_OPEN_THRESHOLD) {
         openKeyboard(inset)
       } else if (isOpen && inset <= KEYBOARD_CLOSE_THRESHOLD) {
-        closeKeyboard()
+        closeKeyboard(true)
       } else if (isOpen) {
         document.documentElement.style.setProperty('--mobile-keyboard-inset', `${inset}px`)
         emitKeyboardChange(true, inset)

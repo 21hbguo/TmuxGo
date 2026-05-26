@@ -8,7 +8,7 @@ import { useTranslation } from '@/i18n'
 import { usePreferences } from '@/hooks/usePreferences'
 import { isMobileDevice } from '@/hooks/useMobileKeyboard'
 
-const MOBILE_RESIZE_DEBOUNCE = 48
+const MOBILE_RESIZE_DEBOUNCE = 16
 const DESKTOP_RESIZE_DEBOUNCE = 80
 const ATTACH_TIMEOUT = 5000
 const ATTACH_RETRY_DELAY = 900

@@ -1,6 +1,7 @@
 import { fireEvent, render, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TerminalPane } from './TerminalPane'
+import { DELETE_PREV_WORD_SEQUENCE } from '@/lib/terminal-keys'
 
 const onSelectionChangeHandlers: Array<() => void> = []
 let customKeyHandler: ((event: KeyboardEvent) => boolean) | null = null
@@ -136,6 +137,32 @@ describe('TerminalPane', () => {
     expect(clipboardMocks.writeClipboardText).toHaveBeenCalledWith('printf "mouseup_copy_ok"',{preferSync:true})
     await sleep(20)
     expect(clipboardMocks.writeClipboardText).toHaveBeenCalledTimes(1)
+  })
+
+  it('retries system clipboard copy on global mouse release after browser block', async () => {
+    clipboardMocks.writeClipboardText
+      .mockResolvedValueOnce({ copied: true, source: 'memory', unavailable: true })
+      .mockResolvedValue({ copied: true, source: 'system', unavailable: false })
+    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(onSelectionChangeHandlers.length).toBeGreaterThan(0))
+    terminalSelection = 'printf "retry_copy_ok"'
+    onSelectionChangeHandlers[0]()
+    await sleep(60)
+    await waitFor(() => expect(clipboardMocks.writeClipboardText).toHaveBeenCalledTimes(1))
+    fireEvent.mouseUp(window)
+    await waitFor(() => expect(clipboardMocks.writeClipboardText).toHaveBeenCalledTimes(2))
+    expect(clipboardMocks.writeClipboardText).toHaveBeenLastCalledWith('printf "retry_copy_ok"',{preferSync:true})
+  })
+
+  it('repeats ctrl backspace quickly without relying on native repeat', async () => {
+    const onInput = vi.fn()
+    render(<TerminalPane sessionName="dev" onInput={onInput} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    expect(customKeyHandler?.({ key: 'Backspace', ctrlKey: true, metaKey: false, altKey: false, repeat: false } as KeyboardEvent)).toBe(false)
+    await sleep(370)
+    fireEvent.keyUp(window, { key: 'Backspace', ctrlKey: true })
+    expect(onInput.mock.calls.filter((call) => call[0] === DELETE_PREV_WORD_SEQUENCE).length).toBeGreaterThanOrEqual(4)
+    expect(customKeyHandler?.({ key: 'Backspace', ctrlKey: true, metaKey: false, altKey: false, repeat: true } as KeyboardEvent)).toBe(false)
   })
 
   it('routes native paste through unified paste request without fallback replay', async () => {
