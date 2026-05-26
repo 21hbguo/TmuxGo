@@ -1,0 +1,62 @@
+import { describe, expect, it } from 'vitest'
+import { getViewportLayoutState } from './consoleLayoutViewport'
+
+describe('getViewportLayoutState', () => {
+  it('uses visual viewport shrink when keyboard resizes viewport', () => {
+    expect(getViewportLayoutState({
+      isMobileViewport: true,
+      innerHeight: 800,
+      viewportHeight: 520,
+      viewportWidth: 390,
+      previousViewportWidth: 390,
+      baseHeight: 800,
+      keyboardOpen: false,
+      keyboardInset: 0,
+      bodyKeyboardOpen: false,
+    })).toEqual({
+      viewportWidth: 390,
+      baseHeight: 800,
+      inset: 280,
+      open: true,
+      nextHeight: 520,
+    })
+  })
+  it('uses keyboard inset when keyboard overlays content', () => {
+    expect(getViewportLayoutState({
+      isMobileViewport: true,
+      innerHeight: 800,
+      viewportHeight: 800,
+      viewportWidth: 390,
+      previousViewportWidth: 390,
+      baseHeight: 800,
+      keyboardOpen: true,
+      keyboardInset: 280,
+      bodyKeyboardOpen: true,
+    })).toEqual({
+      viewportWidth: 390,
+      baseHeight: 800,
+      inset: 280,
+      open: true,
+      nextHeight: 520,
+    })
+  })
+  it('keeps full height when keyboard is closed', () => {
+    expect(getViewportLayoutState({
+      isMobileViewport: true,
+      innerHeight: 800,
+      viewportHeight: 800,
+      viewportWidth: 390,
+      previousViewportWidth: 390,
+      baseHeight: 800,
+      keyboardOpen: false,
+      keyboardInset: 0,
+      bodyKeyboardOpen: false,
+    })).toEqual({
+      viewportWidth: 390,
+      baseHeight: 800,
+      inset: 0,
+      open: false,
+      nextHeight: 800,
+    })
+  })
+})
