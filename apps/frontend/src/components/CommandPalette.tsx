@@ -48,23 +48,33 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
   const copySelection = async () => {
     const text = await requestTerminalSelection()
     if (!text) throw new Error('No selection')
-    const copied = await writeClipboardText(text)
-    if (!copied) throw new Error('Copy failed')
+    const result = await writeClipboardText(text)
+    if (!result.copied) throw new Error('Copy failed')
+    if (result.unavailable) pushToast({ type: 'info', message: 'Clipboard unavailable, kept in app' })
   }
   const pasteClipboard = async () => {
     try {
-      const text = await readClipboardTextOnly()
-      if (!text) throw new Error('Clipboard is empty')
+      const result = await readClipboardTextOnly()
+      const text = result.text
+      if (!text) {
+        if (result.unavailable) {
+          setPendingPaste({ text: '', meta: ['clipboard unavailable'], mode: 'manual' })
+          return false
+        }
+        throw new Error('Clipboard is empty')
+      }
       const analysis = analyzePaste(text)
       if (analysis.requiresConfirm) {
         const meta = []
         if (analysis.hasNewline) meta.push('multi-line')
         if (analysis.hasControlChars) meta.push('control chars')
         if (analysis.isLong) meta.push(`${text.length} chars`)
+        if (result.source === 'memory') meta.push('app clipboard')
         setPendingPaste({ text, meta })
         return false
       }
       window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data: text } }))
+      if (result.source === 'memory') pushToast({ type: 'info', message: 'Pasted from app clipboard' })
       return true
     } catch {
       setPendingPaste({ text: '', meta: ['clipboard unavailable'], mode: 'manual' })

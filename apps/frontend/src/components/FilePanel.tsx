@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useFileList, useFilePreview, useFileRoots, useFileSearch } from '@/hooks/useApi'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import type { FileContentMatch, FileItem } from '@/types'
+import { writeClipboardText } from '@/lib/clipboard-text'
 import { quoteShellPath } from '@/lib/path-drop'
 
 type SearchMode = 'name' | 'content'
@@ -125,8 +126,12 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
   }
   const copyItemPath = async (item: FileItem | FileContentMatch) => {
     const full = root ? joinPath(root.path, item.path) : item.path
-    await navigator.clipboard.writeText(full)
-    pushToast({ type: 'success', message: 'Path copied' })
+    const result = await writeClipboardText(full)
+    if (!result.copied) {
+      pushToast({ type: 'error', message: 'Copy failed' })
+      return
+    }
+    pushToast({ type: 'success', message: result.unavailable ? 'Path copied in app' : 'Path copied' })
   }
   const selectFromKeyboard = (item: FileItem | FileContentMatch, e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
