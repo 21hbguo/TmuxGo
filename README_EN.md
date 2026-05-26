@@ -2,10 +2,10 @@
 
 # :zap: TmuxGo
 
-### :round_pushpin: Pick up where you left off — anywhere, any device
+### :round_pushpin: Open in browser, seamless handoff across devices
 
-> Your tmux sessions, one tap away.
-> Start on your desktop, continue on your phone, review on your tablet.
+> No client needed — your terminal lives in the browser.
+> Start on desktop, continue on phone, review on tablet.
 > **Never lose a train of thought again.**
 
 ![TmuxGo cover](assets/cover_tmuxgo_vip.png)
@@ -27,7 +27,7 @@
 
 ## :fire: Why TmuxGo?
 
-| :desktop_computer: **Desktop** | :iphone: **Mobile** | :ipad: **Tablet** |
+| :desktop_computer: **Desktop** | :iphone: **Mobile** | 📟 **Tablet** |
 |:---:|:---:|:---:|
 | Full keyboard, multi-pane | Touch-friendly, virtual keys | Split-view, side-by-side |
 
@@ -64,6 +64,8 @@ cd TmuxGo
 ```
 
 Open `http://localhost:3000` in your browser. :tada:
+
+> :bulb: Works directly on your local network; for remote access, set up [Tailscale](https://tailscale.com) first.
 
 ## :shield: Production Deploy
 
@@ -111,7 +113,7 @@ journalctl --user -u tmuxgo-agent.service -f
 |:-----------|:--------|:--------:|:------|
 | :green_circle: Node.js | >= 20 | :white_check_mark: | Runtime |
 | :green_circle: tmux | any | :white_check_mark: | Terminal multiplexer |
-| :blue_circle: Tailscale | latest | :o: | Optional - for remote access |
+| 🔵 Tailscale | latest | :o: | Optional - for remote access |
 | :desktop_computer: OS | Linux / macOS / WSL2 | - | |
 
 ```bash

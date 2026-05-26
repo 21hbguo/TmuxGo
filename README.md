@@ -2,9 +2,9 @@
 
 # :zap: TmuxGo
 
-### :round_pushpin: 随时续上，任意设备无缝接力
+### :round_pushpin: 浏览器打开即用，任意设备无缝接力
 
-> 你的 tmux 会话，打开就能接上。
+> 不用装客户端，浏览器打开就是你的终端。
 > 在桌面开始，在手机继续，在平板查看。
 > **思路不中断，现场不丢失。**
 
@@ -27,7 +27,7 @@
 
 ## :fire: 为什么用 TmuxGo？
 
-| :desktop_computer: **桌面** | :iphone: **手机** | :ipad: **平板** |
+| :desktop_computer: **桌面** | :iphone: **手机** | 📟 **平板** |
 |:---:|:---:|:---:|
 | 全键盘、多窗格高效操作 | 触控友好、虚拟按键补全输入 | 分屏并排，适合查看与跟进 |
 
@@ -64,6 +64,8 @@ cd TmuxGo
 ```
 
 浏览器打开 `http://localhost:3000`。:tada:
+
+> :bulb: 局域网内可直接访问；远程访问请先配置 [Tailscale](https://tailscale.com)。
 
 ## :shield: 生产部署
 
@@ -111,7 +113,7 @@ journalctl --user -u tmuxgo-agent.service -f
 |:-----------|:--------|:--------:|:------|
 | :green_circle: Node.js | >= 20 | :white_check_mark: | 运行时 |
 | :green_circle: tmux | 任意 | :white_check_mark: | 终端复用器 |
-| :blue_circle: Tailscale | 最新版 | :o: | 可选，用于远程访问 |
+| 🔵 Tailscale | 最新版 | :o: | 可选，用于远程访问 |
 | :desktop_computer: 系统 | Linux / macOS / WSL2 | - | 运行环境 |
 
 ```bash

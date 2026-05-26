@@ -132,10 +132,10 @@ async function walk(rootPath: string, startPath: string, visitor: (absolutePath:
     }
   }
 }
-async function searchName(rootId: string, query: string) {
+async function searchName(rootId: string, query: string, basePath = '') {
   const q = query.trim().toLowerCase()
   if (!q) return []
-  const { root, absolutePath } = await resolveInside(rootId, '')
+  const { root, absolutePath } = await resolveInside(rootId, basePath)
   const results: FileItem[] = []
   await walk(root.path, absolutePath, async (current, relativePath) => {
     if (!path.basename(relativePath).toLowerCase().includes(q)) return
@@ -146,11 +146,11 @@ async function searchName(rootId: string, query: string) {
   })
   return results
 }
-async function searchContent(rootId: string, query: string) {
+async function searchContent(rootId: string, query: string, basePath = '') {
   const q = query.trim()
   if (!q) return []
   const qLower = q.toLowerCase()
-  const { root, absolutePath } = await resolveInside(rootId, '')
+  const { root, absolutePath } = await resolveInside(rootId, basePath)
   const results: any[] = []
   await walk(root.path, absolutePath, async (current, relativePath, entryType) => {
     if (entryType !== 'file') return
@@ -186,11 +186,11 @@ export async function fileRoutes(fastify: FastifyInstance) {
     return readPreview(query.root || '', query.path || '', parseInt(query.line || '1', 10))
   })
   fastify.get('/files/search-name', async (request) => {
-    const query = request.query as { root?: string; q?: string }
-    return searchName(query.root || '', query.q || '')
+    const query = request.query as { root?: string; q?: string; basePath?: string }
+    return searchName(query.root || '', query.q || '', query.basePath || '')
   })
   fastify.get('/files/search-content', async (request) => {
-    const query = request.query as { root?: string; q?: string }
-    return searchContent(query.root || '', query.q || '')
+    const query = request.query as { root?: string; q?: string; basePath?: string }
+    return searchContent(query.root || '', query.q || '', query.basePath || '')
   })
 }

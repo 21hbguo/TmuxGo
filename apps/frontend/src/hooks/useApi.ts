@@ -113,10 +113,10 @@ export function useFilePreview(root: string, path: string) {
   })
 }
 
-export function useFileSearch(root: string, mode: 'name' | 'content', query: string) {
+export function useFileSearch(root: string, mode: 'name' | 'content', query: string, basePath = '') {
   return useQuery({
-    queryKey: ['file-search', root, mode, query],
-    queryFn: () => mode === 'name' ? api.files.searchName(root, query) : api.files.searchContent(root, query),
+    queryKey: ['file-search', root, mode, query, basePath],
+    queryFn: () => mode === 'name' ? api.files.searchName(root, query, basePath) : api.files.searchContent(root, query, basePath),
     enabled: !!root && query.trim().length > 1,
     staleTime: 2000,
   })
