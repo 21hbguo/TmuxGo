@@ -12,6 +12,9 @@ const zoomByPane = vi.fn()
 vi.mock('@/hooks/useWebSocket', () => ({
   useWebSocket: () => ({ send, isConnected: true, isSocketReady: true }),
 }))
+vi.mock('@/hooks/useApi', () => ({
+  useWindows: () => ({ data: [] }),
+}))
 vi.mock('@/lib/api', () => ({
   api: {
     snapshot: { get: (...args: any[]) => snapshotGet(...args) },

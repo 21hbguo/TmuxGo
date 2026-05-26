@@ -43,15 +43,25 @@ async function getLocalTmuxSessions() {
 async function runSendKeys(target: string, command: string) {
   await execFileAsync('tmux', ['send-keys', '-t', target, command, 'C-m'])
 }
+async function getFirstWindowTarget(sessionName: string) {
+  const { stdout } = await execFileAsync('tmux', ['list-windows', '-t', sessionName, '-F', '#{window_index}', '-f', '#{==:#{window_active},1}'])
+  const activeIndex = stdout.trim()
+  if (activeIndex) return `${sessionName}:${activeIndex}`
+  const { stdout: fallbackStdout } = await execFileAsync('tmux', ['list-windows', '-t', sessionName, '-F', '#{window_index}'])
+  const fallbackIndex = fallbackStdout.trim().split('\n').find(Boolean)
+  if (!fallbackIndex) throw new Error(`No windows found for session ${sessionName}`)
+  return `${sessionName}:${fallbackIndex}`
+}
 async function applyTemplateLayout(sessionName: string, layout: SessionTemplateLayout) {
   assertSessionAllowed(sessionName)
   if (!layout.windows.length) return
+  const firstWindowTarget = await getFirstWindowTarget(sessionName)
   const targets = getTemplateWindowTargets(sessionName, layout)
   for (let i = 0; i < targets.length; i++) {
     const windowDef = targets[i]
     if (!windowDef.name) throw new Error(`Template step failed: window[${i}] missing name`)
     if (i === 0) {
-      await execFileAsync('tmux', ['rename-window', '-t', `${sessionName}:0`, windowDef.name])
+      await execFileAsync('tmux', ['rename-window', '-t', firstWindowTarget, windowDef.name])
     } else {
       await execFileAsync('tmux', ['new-window', '-t', sessionName, '-n', windowDef.name])
     }
@@ -66,7 +76,7 @@ async function applyTemplateLayout(sessionName: string, layout: SessionTemplateL
       await runSendKeys(`${windowTarget}.${p}`, command)
     }
   }
-  await execFileAsync('tmux', ['select-window', '-t', `${sessionName}:0`])
+  await execFileAsync('tmux', ['select-window', '-t', firstWindowTarget])
 }
 async function cleanupSession(sessionName: string) {
   try {
