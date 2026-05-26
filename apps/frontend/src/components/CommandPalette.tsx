@@ -7,7 +7,8 @@ import { api } from '@/lib/api'
 import { ConfirmDialog } from './ConfirmDialog'
 import { analyzePaste, escapePaste } from '@/lib/paste-safety'
 import { PasteConfirmDialog } from './PasteConfirmDialog'
-import { readClipboardTextOnly } from '@/lib/clipboard-text'
+import { readClipboardTextOnly, writeClipboardText } from '@/lib/clipboard-text'
+import { requestTerminalSelection } from '@/lib/terminal-selection'
 
 interface CommandPaletteProps {
   onClose: () => void
@@ -45,9 +46,10 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
     return paneId
   }
   const copySelection = async () => {
-    const text = window.getSelection()?.toString()
+    const text = await requestTerminalSelection()
     if (!text) throw new Error('No selection')
-    await navigator.clipboard.writeText(text)
+    const copied = await writeClipboardText(text)
+    if (!copied) throw new Error('Copy failed')
   }
   const pasteClipboard = async () => {
     try {

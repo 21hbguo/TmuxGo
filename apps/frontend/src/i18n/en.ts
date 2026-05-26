@@ -125,6 +125,8 @@ export const en = {
   'quick.attachExclusive': 'Exclusive',
   'quick.copy': 'Copy',
   'quick.paste': 'Paste',
+  'quick.clearLine': 'Clear',
+  'quick.deleteWord': 'Del Word',
   'quick.zoom': 'Zoom',
   'quick.killPane': 'Kill Pane',
   'quick.killConfirm': 'Close current pane?',
@@ -143,6 +145,8 @@ export const en = {
 
   // ShortcutBar
   'shortcut.enter': 'Enter',
+  'shortcut.clearLine': 'Clear',
+  'shortcut.deleteWord': 'Del Word',
   'shortcut.splitH': 'H Split',
   'shortcut.splitV': 'V Split',
   'shortcut.zoom': 'Zoom',

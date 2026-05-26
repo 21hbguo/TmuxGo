@@ -21,3 +21,30 @@ export async function readClipboardTextOnly() {
   }
   return ''
 }
+
+export function extractClipboardText(data?: DataTransfer | null) {
+  if (!data) return ''
+  const text = data.getData('text/plain')
+  if (text) return text
+  const html = data.getData('text/html')
+  if (!html) return ''
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  return doc.body.textContent || ''
+}
+
+export async function writeClipboardText(text: string) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {}
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.style.cssText = 'position:fixed;left:-9999px'
+  document.body.appendChild(ta)
+  ta.select()
+  const copied = document.execCommand('copy')
+  document.body.removeChild(ta)
+  return copied
+}

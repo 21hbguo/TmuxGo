@@ -125,6 +125,8 @@ export const zh = {
   'quick.attachExclusive': '独占附着',
   'quick.copy': '复制',
   'quick.paste': '粘贴',
+  'quick.clearLine': '清除',
+  'quick.deleteWord': '删词',
   'quick.zoom': '聚焦',
   'quick.killPane': '删面板',
   'quick.killConfirm': '确认关闭当前面板？',
@@ -143,6 +145,8 @@ export const zh = {
 
   // ShortcutBar
   'shortcut.enter': '回车',
+  'shortcut.clearLine': '清除',
+  'shortcut.deleteWord': '删词',
   'shortcut.splitH': '横分',
   'shortcut.splitV': '竖分',
   'shortcut.zoom': '聚焦',

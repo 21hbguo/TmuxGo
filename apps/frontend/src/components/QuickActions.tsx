@@ -12,7 +12,9 @@ import { ConfirmDialog } from './ConfirmDialog'
 import { PasteConfirmDialog } from './PasteConfirmDialog'
 import { api } from '@/lib/api'
 import { analyzePaste, escapePaste } from '@/lib/paste-safety'
-import { readClipboardTextOnly } from '@/lib/clipboard-text'
+import { readClipboardTextOnly, writeClipboardText } from '@/lib/clipboard-text'
+import { requestTerminalSelection } from '@/lib/terminal-selection'
+import { DELETE_PREV_LINE_SEQUENCE, DELETE_PREV_WORD_SEQUENCE } from '@/lib/terminal-keys'
 
 const btn = 'px-2 py-1.5 rounded text-xs transition-colors bg-bg-2 text-text-2 hover:bg-bg-1 active:bg-bg-0'
 const repeatBtn = `${btn} touch-none select-none`
@@ -111,42 +113,12 @@ export function QuickActions() {
     }
   }
 
-  const writeClipboard = useCallback((text: string) => {
-    if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(text).catch(() => fallbackCopy(text))
-    } else {
-      fallbackCopy(text)
-    }
-  }, [])
   const handleCopy = () => {
-    const requestId = `${Date.now()}-${Math.random().toString(16).slice(2)}`
-    const fallbackText = window.getSelection()?.toString() || ''
-    let handled = false
-    const handleSelection = (event: Event) => {
-      const detail = (event as CustomEvent<{ requestId?: string; selection?: string }>).detail
-      if (detail?.requestId !== requestId) return
-      handled = true
-      window.removeEventListener('tmuxgo-terminal-selection', handleSelection as EventListener)
-      const text = detail.selection || fallbackText
-      if (text) writeClipboard(text)
-    }
-    window.addEventListener('tmuxgo-terminal-selection', handleSelection as EventListener)
-    window.dispatchEvent(new CustomEvent('tmuxgo-copy-terminal-selection', { detail: { requestId } }))
-    setTimeout(() => {
-      if (handled) return
-      window.removeEventListener('tmuxgo-terminal-selection', handleSelection as EventListener)
-      if (fallbackText) writeClipboard(fallbackText)
-    }, 50)
-  }
-
-  const fallbackCopy = (text: string) => {
-    const ta = document.createElement('textarea')
-    ta.value = text
-    ta.style.cssText = 'position:fixed;left:-9999px'
-    document.body.appendChild(ta)
-    ta.select()
-    document.execCommand('copy')
-    document.body.removeChild(ta)
+    void requestTerminalSelection().then(async (text) => {
+      if (!text) return
+      const copied = await writeClipboardText(text)
+      if (!copied) pushToast({ type: 'error', message: 'Copy failed' })
+    })
   }
 
   const handlePaste = async () => {
@@ -214,13 +186,17 @@ export function QuickActions() {
 
       <div className="grid grid-cols-3 gap-1">
         <button onClick={() => sendKey('\x03')} className={btn}>Ctrl+C</button>
+        <button onClick={() => sendKey(DELETE_PREV_LINE_SEQUENCE)} className={btn}>{t('quick.clearLine')}</button>
+        <button onClick={() => sendKey(DELETE_PREV_WORD_SEQUENCE)} className={btn}>{t('quick.deleteWord')}</button>
+      </div>
+      <div className="grid grid-cols-3 gap-1">
         <button onClick={() => sendKey('\r')} className={btn}>Enter</button>
         <button onClick={() => resolveActivePaneId().then((paneId) => paneId && api.panes.zoomByPane(paneId).then(() => window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'zoom-pane' } })))).catch((err) => pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Zoom failed' }))} disabled={!activePaneId}
           className={`px-2 py-1.5 rounded text-xs transition-colors ${activePaneId ? 'bg-bg-2 text-text-2 hover:bg-bg-1' : 'bg-bg-2/60 text-text-3 cursor-not-allowed'}`}>
           {t('quick.zoom')}
         </button>
+        <button onClick={() => sendKey('\x7f')} className={btn}>Backspace</button>
       </div>
-
       <div className="grid grid-cols-3 gap-1">
         <button onClick={handleCopy} className={btn}>{t('quick.copy')}</button>
         <button onClick={handlePaste} className={btn}>{t('quick.paste')}</button>

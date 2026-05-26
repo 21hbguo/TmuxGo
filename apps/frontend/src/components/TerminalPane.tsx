@@ -5,6 +5,8 @@ import { usePreferences } from '@/hooks/usePreferences'
 import { useMobileKeyboard } from '@/hooks/useMobileKeyboard'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { formatDroppedPaths } from '@/lib/path-drop'
+import { extractClipboardText } from '@/lib/clipboard-text'
+import { DELETE_NEXT_WORD_SEQUENCE, DELETE_PREV_WORD_SEQUENCE } from '@/lib/terminal-keys'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { api } from '@/lib/api'
 
@@ -127,11 +129,32 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     let lastContainerSize = { width: 0, height: 0 }
     let lastFitSize = { width: 0, height: 0 }
     let stableFitToken = 0
+    let deleteWordRepeatTimer: ReturnType<typeof setTimeout> | null = null
+    let deleteWordRepeatActive = false
 
     const notifyReady = () => {
       if (disposed || readyNotified) return
       readyNotified = true
       onReadyRef.current?.()
+    }
+    const stopDeleteWordRepeat = () => {
+      deleteWordRepeatActive = false
+      if (deleteWordRepeatTimer) {
+        clearTimeout(deleteWordRepeatTimer)
+        deleteWordRepeatTimer = null
+      }
+    }
+    const startDeleteWordRepeat = () => {
+      stopDeleteWordRepeat()
+      deleteWordRepeatActive = true
+      let delay = 280
+      const tick = () => {
+        if (disposed || !deleteWordRepeatActive) return
+        onInputRef.current?.(DELETE_PREV_WORD_SEQUENCE)
+        delay = Math.max(96, Math.round(delay * 0.82))
+        deleteWordRepeatTimer = setTimeout(tick, delay)
+      }
+      deleteWordRepeatTimer = setTimeout(tick, delay)
     }
     const syncActivePane = async () => {
       const hostId = activeHostIdRef.current
@@ -429,6 +452,20 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         })
       )
       terminal.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+        if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'v') {
+          container.focus()
+          return true
+        }
+        if (e.key === 'Backspace' && e.ctrlKey && !e.metaKey && !e.altKey) {
+          if (e.repeat || deleteWordRepeatActive) return false
+          onInputRef.current?.(DELETE_PREV_WORD_SEQUENCE)
+          startDeleteWordRepeat()
+          return false
+        }
+        if (e.key === 'Delete' && e.ctrlKey && !e.metaKey && !e.altKey) {
+          onInputRef.current?.(DELETE_NEXT_WORD_SEQUENCE)
+          return false
+        }
         if (e.key === 'Delete' && !e.ctrlKey && !e.metaKey && !e.altKey) {
           onInputRef.current?.('\u001b[3~')
           return false
@@ -480,6 +517,9 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const handleWindowResize = () => {
         scheduleFit()
       }
+      const handleKeyUp = (e: KeyboardEvent) => {
+        if (e.key === 'Backspace' || !e.ctrlKey) stopDeleteWordRepeat()
+      }
       const handleOrientationChange = () => {
         if (!attachExclusiveRef.current) return
         setTimeout(() => scheduleFit(0, true), 90)
@@ -514,7 +554,10 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         forceStableFit(4, 34)
       }
       const handleVisibilityChange = () => {
-        if (document.hidden) return
+        if (document.hidden) {
+          stopDeleteWordRepeat()
+          return
+        }
         if (attachExclusiveRef.current) {
           forceStableFit(5, isMobileDevice ? 90 : 34)
           return
@@ -524,6 +567,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       window.addEventListener('tmux-attached', handleAttached as EventListener)
       window.addEventListener('tmuxgo-layout-change', handleLayoutChange as EventListener)
       window.addEventListener('resize', handleWindowResize)
+      window.addEventListener('keyup', handleKeyUp)
+      window.addEventListener('blur', stopDeleteWordRepeat)
       window.addEventListener('orientationchange', handleOrientationChange)
       window.addEventListener('mobile-keyboard-change', handleKeyboardChange as EventListener)
       document.addEventListener('visibilitychange', handleVisibilityChange)
@@ -547,12 +592,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       container.addEventListener('dragleave', handleDragLeave)
       container.addEventListener('drop', handleDrop)
       const handlePaste = (e: ClipboardEvent) => {
-        const text = e.clipboardData?.getData('text/plain') || (() => {
-          const html = e.clipboardData?.getData('text/html')
-          if (!html) return ''
-          const doc = new DOMParser().parseFromString(html, 'text/html')
-          return doc.body.textContent || ''
-        })()
+        const text = extractClipboardText(e.clipboardData)
         if (!text) {
           e.preventDefault()
           e.stopPropagation()
@@ -575,6 +615,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           container.removeEventListener('terminal-output', handleOutput)
           window.removeEventListener('tmuxgo-copy-terminal-selection', handleCopySelection as EventListener)
           window.removeEventListener('resize', handleWindowResize)
+          window.removeEventListener('keyup', handleKeyUp)
+          window.removeEventListener('blur', stopDeleteWordRepeat)
           window.removeEventListener('orientationchange', handleOrientationChange)
           window.removeEventListener('mobile-keyboard-change', handleKeyboardChange as EventListener)
           document.removeEventListener('visibilitychange', handleVisibilityChange)
@@ -763,6 +805,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     initTerminal().catch(console.error)
     return () => {
       disposed = true
+      stopDeleteWordRepeat()
       if (fitTimeout) clearTimeout(fitTimeout)
       if (stableFitTimer) clearTimeout(stableFitTimer)
       if (fitFrame) cancelAnimationFrame(fitFrame)
@@ -784,6 +827,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     <div
       ref={terminalRef}
       data-terminal
+      tabIndex={0}
       className="h-full w-full min-h-0 overflow-hidden relative"
       style={{
         ['--terminal-padding' as any]: `${preferences.terminalPadding}px`,

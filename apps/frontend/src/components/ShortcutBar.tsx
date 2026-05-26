@@ -7,7 +7,9 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import { api } from '@/lib/api'
 import { PasteConfirmDialog } from './PasteConfirmDialog'
 import { analyzePaste, escapePaste } from '@/lib/paste-safety'
-import { readClipboardTextOnly } from '@/lib/clipboard-text'
+import { readClipboardTextOnly, writeClipboardText } from '@/lib/clipboard-text'
+import { requestTerminalSelection } from '@/lib/terminal-selection'
+import { DELETE_PREV_LINE_SEQUENCE, DELETE_PREV_WORD_SEQUENCE } from '@/lib/terminal-keys'
 
 interface KeyDef {
   label: string
@@ -24,7 +26,10 @@ const keys: KeyDef[] = [
   { label: 'Esc', data: '\x1b' },
   { label: 'Tab', data: '\t' },
   { label: 'S-Tab', data: '\x1b[Z' },
+  { label: 'Backspace', data: '\x7f' },
   { label: 'Ctrl+C', data: '\x03' },
+  { label: 'Clear', data: DELETE_PREV_LINE_SEQUENCE, i18nKey: 'shortcut.clearLine' },
+  { label: 'Del Word', data: DELETE_PREV_WORD_SEQUENCE, i18nKey: 'shortcut.deleteWord' },
   { label: 'Enter', data: '\r', i18nKey: 'shortcut.enter' },
 ]
 
@@ -127,28 +132,13 @@ export function ShortcutBar({ mode = 'dock' }: ShortcutBarProps) {
   }
 
   const handleCopy = async () => {
-    try {
-      const sel = window.getSelection()?.toString()
-      const text = sel || ''
-      if (!text) {
-        showToast('No selection')
-        return
-      }
-      await navigator.clipboard.writeText(text)
-      showToast('Copied')
-    } catch {
-      const text = window.getSelection()?.toString() || ''
-      if (text) {
-        const ta = document.createElement('textarea')
-        ta.value = text
-        ta.style.cssText = 'position:fixed;left:-9999px'
-        document.body.appendChild(ta)
-        ta.select()
-        document.execCommand('copy')
-        document.body.removeChild(ta)
-        showToast('Copied')
-      }
+    const text = await requestTerminalSelection()
+    if (!text) {
+      showToast('No selection')
+      return
     }
+    const copied = await writeClipboardText(text)
+    showToast(copied ? 'Copied' : 'Copy failed')
   }
 
   const handlePaste = async () => {
