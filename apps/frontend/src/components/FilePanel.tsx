@@ -3,11 +3,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useFileList, useFilePreview, useFileRoots, useFileSearch } from '@/hooks/useApi'
 import { useConsoleStore } from '@/stores/useConsoleStore'
-import type { FileContentMatch, FileItem } from '@/types'
+import type { FileContentMatch, FileItem, FileRoot } from '@/types'
 import { writeClipboardText } from '@/lib/clipboard-text'
 import { quoteShellPath } from '@/lib/path-drop'
 
 type SearchMode = 'name' | 'content'
+type RecentDirectory = { rootId: string; rootPath: string; name: string; path: string }
+type FileEntry = FileItem | FileContentMatch
 
 function formatSize(size: number) {
   if (size < 1024) return `${size}B`
@@ -18,19 +20,21 @@ function insertPath(path: string) {
   window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data: quoteShellPath(path) } }))
 }
 function joinPath(base: string, name: string) {
-  return [base, name].filter(Boolean).join('/')
+  if (!name) return base
+  if (!base || base === '/') return `/${name.replace(/^\/+/, '')}`
+  return `${base.replace(/\/+$/, '')}/${name.replace(/^\/+/, '')}`
 }
-function readRecentFiles() {
+function readRecentDirectories() {
   if (typeof window === 'undefined') return []
   try {
-    return JSON.parse(localStorage.getItem('tmuxgo-recent-files') || '[]') as { rootId: string; rootPath: string; name: string; path: string }[]
+    return JSON.parse(localStorage.getItem('tmuxgo-recent-directories') || '[]') as { rootId: string; rootPath: string; name: string; path: string }[]
   } catch {
     return []
   }
 }
-function writeRecentFile(entry: { rootId: string; rootPath: string; name: string; path: string }) {
-  const next = [entry, ...readRecentFiles().filter((item) => item.rootId !== entry.rootId || item.path !== entry.path)].slice(0, 8)
-  localStorage.setItem('tmuxgo-recent-files', JSON.stringify(next))
+function writeRecentDirectory(entry: { rootId: string; rootPath: string; name: string; path: string }) {
+  const next = [entry, ...readRecentDirectories().filter((item) => item.rootId !== entry.rootId || item.path !== entry.path)].slice(0, 3)
+  localStorage.setItem('tmuxgo-recent-directories', JSON.stringify(next))
   return next
 }
 function readHideDotFiles() {
@@ -46,6 +50,108 @@ function isDotPath(path: string) {
 function FileIcon({ type }: { type: 'file' | 'directory' }) {
   return <span className={type === 'directory' ? 'text-accent' : 'text-text-3'}>{type === 'directory' ? '▸' : '·'}</span>
 }
+function getRootKind(root: FileRoot) {
+  const label = root.label.toLowerCase()
+  if (label === 'workspace') return 'workspace'
+  if (label === 'home') return 'home'
+  return 'other'
+}
+function getDirectoryName(path: string, root: FileRoot) {
+  if (!path) return root.label
+  const parts = path.split(/[\\/]+/).filter(Boolean)
+  return parts[parts.length - 1] || root.label
+}
+function formatRecentDirectoryLabel(path: string, rootLabel: string) {
+  return `${rootLabel} · ${path || '/'}`
+}
+function TreeDirectoryNode({
+  rootId,
+  item,
+  depth,
+  hideDotFiles,
+  selectedPath,
+  onToggle,
+  onSelectFile,
+  onInsert,
+  onContextMenu,
+  openDirectories,
+}: {
+  rootId: string
+  item: FileItem
+  depth: number
+  hideDotFiles: boolean
+  selectedPath: string
+  onToggle: (path: string) => void
+  onSelectFile: (item: FileEntry) => void
+  onInsert: (item: FileEntry) => void
+  onContextMenu: (event: React.MouseEvent, item: FileEntry) => void
+  openDirectories: Set<string>
+}) {
+  const isOpen = openDirectories.has(item.path)
+  const { data: childList, isLoading } = useFileList(rootId, item.path, isOpen)
+  const childItems = useMemo(() => {
+    const nextItems = childList?.items || []
+    return hideDotFiles ? nextItems.filter((entry) => !isDotPath(entry.path || entry.name)) : nextItems
+  }, [childList, hideDotFiles])
+  return (
+    <div>
+      <button
+        tabIndex={0}
+        onClick={() => onToggle(item.path)}
+        onDoubleClick={() => onInsert(item)}
+        onContextMenu={(e) => onContextMenu(e, item)}
+        className={`group w-full border-l-2 px-3 py-2 text-left text-xs transition-colors hover:bg-bg-2 ${selectedPath === item.path ? 'border-accent bg-bg-2' : 'border-transparent'}`}
+        style={{ paddingLeft: `${12 + depth * 16}px` }}
+      >
+        <div className="flex items-center gap-2">
+          <span className={`text-[10px] ${isOpen ? 'text-accent' : 'text-text-3'}`}>{isOpen ? '▾' : '▸'}</span>
+          <span className="text-accent">▸</span>
+          <span className="min-w-0 flex-1 truncate font-mono text-text-1">{item.name}</span>
+          <span className="text-[10px] text-text-3">dir</span>
+        </div>
+      </button>
+      {isOpen && (
+        <div>
+          {isLoading && <div className="px-3 py-2 text-xs text-text-3" style={{ paddingLeft: `${28 + depth * 16}px` }}>Loading...</div>}
+          {!isLoading && childItems.map((child) => (
+            child.type === 'directory' ? (
+              <TreeDirectoryNode
+                key={child.path}
+                rootId={rootId}
+                item={child}
+                depth={depth + 1}
+                hideDotFiles={hideDotFiles}
+                selectedPath={selectedPath}
+                onToggle={onToggle}
+                onSelectFile={onSelectFile}
+                onInsert={onInsert}
+                onContextMenu={onContextMenu}
+                openDirectories={openDirectories}
+              />
+            ) : (
+              <button
+                key={`${child.type}-${child.path}`}
+                tabIndex={0}
+                onClick={() => onSelectFile(child)}
+                onDoubleClick={() => onInsert(child)}
+                onContextMenu={(e) => onContextMenu(e, child)}
+                className={`group w-full border-l-2 px-3 py-2 text-left text-xs transition-colors hover:bg-bg-2 ${selectedPath === child.path ? 'border-accent bg-bg-2' : 'border-transparent'}`}
+                style={{ paddingLeft: `${28 + (depth + 1) * 16}px` }}
+              >
+                <div className="flex items-center gap-2">
+                  <FileIcon type={child.type} />
+                  <span className="min-w-0 flex-1 truncate font-mono text-text-1">{child.name}</span>
+                  <span className="text-[10px] text-text-3">{formatSize(child.size)}</span>
+                </div>
+              </button>
+            )
+          ))}
+          {!isLoading && childItems.length === 0 && <div className="px-3 py-2 text-xs text-text-3" style={{ paddingLeft: `${28 + depth * 16}px` }}>Empty directory</div>}
+        </div>
+      )}
+    </div>
+  )
+}
 
 export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobile'; onClose?: () => void }) {
   const { filePanelWidth, setFilePanelWidth, setFilePanelOpen, pushToast } = useConsoleStore()
@@ -56,27 +162,34 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
   const [selectedPath, setSelectedPath] = useState('')
   const [query, setQuery] = useState('')
   const [searchMode, setSearchMode] = useState<SearchMode>('name')
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: FileItem | FileContentMatch } | null>(null)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: FileEntry } | null>(null)
   const [mobileView, setMobileView] = useState<'list' | 'preview'>('list')
-  const [recentFiles, setRecentFiles] = useState<{ rootId: string; rootPath: string; name: string; path: string }[]>([])
+  const [recentDirectories, setRecentDirectories] = useState<RecentDirectory[]>([])
   const [contentReady, setContentReady] = useState(isMobile)
   const [hideDotFiles, setHideDotFiles] = useState(readHideDotFiles)
+  const [openDirectories, setOpenDirectories] = useState<Set<string>>(new Set())
   const resizingRef = useRef(false)
   const touchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const { data: listData, isLoading: listLoading } = useFileList(rootId, currentPath)
+  const { data: listData, isLoading: listLoading } = useFileList(rootId, currentPath, true)
   const { data: preview } = useFilePreview(rootId, selectedPath)
   const { data: searchResults = [], isFetching: searchLoading } = useFileSearch(rootId, searchMode, query)
   const root = roots.find((item) => item.id === rootId)
+  const rootLabelById = useMemo(() => Object.fromEntries(roots.map((item) => [item.id, item.label])), [roots])
+  const quickRoots = useMemo(() => {
+    const workspace = roots.find((item) => getRootKind(item) === 'workspace')
+    const home = roots.find((item) => getRootKind(item) === 'home')
+    return [workspace, home].filter(Boolean) as FileRoot[]
+  }, [roots])
   const isSearching = query.trim().length > 1
   const items = useMemo(() => isSearching ? searchResults : listData?.items || [], [isSearching, searchResults, listData])
   const visibleItems = useMemo(() => hideDotFiles ? items.filter((item: any) => !isDotPath(item.path || item.name)) : items, [hideDotFiles, items])
-  const visibleRecentFiles = useMemo(() => hideDotFiles ? recentFiles.filter((item) => !isDotPath(item.path)) : recentFiles, [hideDotFiles, recentFiles])
+  const visibleRecentDirectories = useMemo(() => hideDotFiles ? recentDirectories.filter((item) => !isDotPath(item.path)) : recentDirectories, [hideDotFiles, recentDirectories])
 
   useEffect(() => {
     if (!rootId && roots[0]) setRootId(roots[0].id)
   }, [roots, rootId])
   useEffect(() => {
-    setRecentFiles(readRecentFiles())
+    setRecentDirectories(readRecentDirectories())
   }, [])
   useEffect(() => {
     if (isMobile) return
@@ -105,9 +218,43 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
     window.addEventListener('click', close)
     return () => window.removeEventListener('click', close)
   }, [])
+  useEffect(() => {
+    if (!root) return
+    if (!currentPath) return
+    setRecentDirectories(writeRecentDirectory({ rootId, rootPath: root.path, name: getDirectoryName(currentPath, root), path: currentPath }))
+  }, [currentPath, root, rootId])
 
-  const openItem = (item: FileItem | FileContentMatch) => {
+  const switchRoot = (nextRootId: string) => {
+    setRootId(nextRootId)
+    setCurrentPath('')
+    setSelectedPath('')
+    setQuery('')
+    setMobileView('list')
+    setOpenDirectories(new Set())
+  }
+  const openDirectoryShortcut = (entry: { rootId: string; path: string }) => {
+    setRootId(entry.rootId)
+    if (isMobile) setCurrentPath(entry.path)
+    else setOpenDirectories(new Set(entry.path ? [entry.path] : []))
+    setSelectedPath('')
+    setQuery('')
+    setMobileView('list')
+  }
+  const toggleDesktopDirectory = (path: string) => {
+    setOpenDirectories((current) => {
+      const next = new Set(current)
+      if (next.has(path)) next.delete(path)
+      else next.add(path)
+      return next
+    })
+  }
+
+  const openItem = (item: FileEntry) => {
     if (item.type === 'directory') {
+      if (!isMobile) {
+        toggleDesktopDirectory(item.path)
+        return
+      }
       setCurrentPath(item.path)
       setSelectedPath('')
       setQuery('')
@@ -115,13 +262,11 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
       return
     }
     setSelectedPath(item.path)
-    if (root) setRecentFiles(writeRecentFile({ rootId, rootPath: root.path, name: item.name, path: item.path }))
     if (isMobile) setMobileView('preview')
   }
   const insertItemPath = (item: FileItem | FileContentMatch) => {
     const full = root ? joinPath(root.path, item.path) : item.path
     insertPath(full)
-    if (root && item.type === 'file') setRecentFiles(writeRecentFile({ rootId, rootPath: root.path, name: item.name, path: item.path }))
     pushToast({ type: 'success', message: `Inserted ${item.name}` })
   }
   const copyItemPath = async (item: FileItem | FileContentMatch) => {
@@ -164,15 +309,15 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
     )
   ) : (
     <div className="p-3 text-xs text-text-3">
-      <div className="text-text-2">Recent files</div>
-      {visibleRecentFiles.length ? (
+      <div className="text-text-2">Recent directories</div>
+      {visibleRecentDirectories.length ? (
         <div className="mt-2 space-y-1">
-          {visibleRecentFiles.map((item) => (
-            <button key={`${item.rootId}-${item.path}`} onClick={() => { setRootId(item.rootId); setSelectedPath(item.path) }} className="block w-full truncate rounded bg-bg-2 px-2 py-1.5 text-left font-mono text-[11px] text-text-2 hover:text-accent">{item.name}</button>
+          {visibleRecentDirectories.map((item) => (
+            <button key={`${item.rootId}-${item.path}`} onClick={() => openDirectoryShortcut(item)} className="block w-full truncate rounded bg-bg-2 px-2 py-1.5 text-left font-mono text-[11px] text-text-2 hover:text-accent">{formatRecentDirectoryLabel(item.path, rootLabelById[item.rootId] || item.name)}</button>
           ))}
         </div>
       ) : (
-        <div className="mt-2">Select a file to preview. Double click or press Enter to insert its path.</div>
+        <div className="mt-2">Enter a directory from Workspace or Home to keep it here for quick return.</div>
       )}
     </div>
   )
@@ -194,10 +339,18 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
         <div className="flex items-center gap-2">
           {isMobile && mobileView === 'preview' && <button onClick={() => setMobileView('list')} className="rounded px-2 py-1 text-text-3 hover:bg-bg-2">‹</button>}
           <div className="text-sm font-semibold text-text-1">Files</div>
-          <select value={rootId} onChange={(e) => { setRootId(e.target.value); setCurrentPath(''); setSelectedPath('') }} className="min-w-0 flex-1 rounded border border-[var(--line)] bg-bg-2 px-2 py-1 text-xs text-text-2 outline-none">
+          <select value={rootId} onChange={(e) => switchRoot(e.target.value)} className="min-w-0 flex-1 rounded border border-[var(--line)] bg-bg-2 px-2 py-1 text-xs text-text-2 outline-none">
             {roots.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
           </select>
           <button onClick={onClose || (() => setFilePanelOpen(false))} className="rounded px-2 py-1 text-text-3 hover:bg-bg-2 hover:text-text-1">×</button>
+        </div>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {quickRoots.map((item) => (
+            <button key={item.id} onClick={() => switchRoot(item.id)} className={`rounded px-2 py-1 text-[11px] ${rootId === item.id ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-2 hover:text-text-1'}`}>{item.label}</button>
+          ))}
+          {visibleRecentDirectories.map((item) => (
+            <button key={`recent-${item.rootId}-${item.path || 'root'}`} onClick={() => openDirectoryShortcut(item)} className="max-w-full truncate rounded bg-bg-2 px-2 py-1 text-[11px] text-text-3 hover:text-accent">{formatRecentDirectoryLabel(item.path, rootLabelById[item.rootId] || item.name)}</button>
+          ))}
         </div>
         <div className="mt-2 flex min-w-0 items-center gap-1 overflow-x-auto text-xs text-text-3 scrollbar-none">
           {(listData?.breadcrumbs || [{ name: '/', path: '' }]).map((crumb) => (
@@ -218,52 +371,71 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
         </label>
       </div>}
       {(!isMobile || mobileView === 'list') && <div className="min-h-0 flex-1 overflow-y-auto">
-        {isMobile && !isSearching && !currentPath && visibleRecentFiles.length > 0 && (
+        {isMobile && !isSearching && !currentPath && visibleRecentDirectories.length > 0 && (
           <div className="border-b border-[var(--line)] p-3">
-            <div className="mb-2 text-[10px] uppercase tracking-[0.18em] text-text-3">Recent</div>
+            <div className="mb-2 text-[10px] uppercase tracking-[0.18em] text-text-3">Recent Directories</div>
             <div className="space-y-1">
-              {visibleRecentFiles.map((item) => (
-                <button key={`${item.rootId}-${item.path}`} onClick={() => { setRootId(item.rootId); setSelectedPath(item.path); setMobileView('preview') }} className="w-full truncate rounded bg-bg-2 px-2 py-1.5 text-left font-mono text-xs text-text-2 active:text-accent">{item.name}</button>
+              {visibleRecentDirectories.map((item) => (
+                <button key={`${item.rootId}-${item.path}`} onClick={() => openDirectoryShortcut(item)} className="w-full truncate rounded bg-bg-2 px-2 py-1.5 text-left font-mono text-xs text-text-2 active:text-accent">{formatRecentDirectoryLabel(item.path, rootLabelById[item.rootId] || item.name)}</button>
               ))}
             </div>
           </div>
         )}
         {(listLoading || searchLoading) && <div className="p-3 text-xs text-text-3">Loading...</div>}
         {!listLoading && visibleItems.map((item: any) => (
-          <button
-            key={`${item.type}-${item.path}`}
-            tabIndex={0}
-            onClick={() => openItem(item)}
-            onDoubleClick={() => insertItemPath(item)}
-            onKeyDown={(e) => selectFromKeyboard(item, e)}
-            onContextMenu={(e) => {
-              e.preventDefault()
-              setContextMenu({ x: e.clientX, y: e.clientY, item })
-            }}
-            onTouchStart={(e) => {
-              if (!isMobile) return
-              const touch = e.touches[0]
-              if (!touch) return
-              if (touchTimerRef.current) clearTimeout(touchTimerRef.current)
-              touchTimerRef.current = setTimeout(() => setContextMenu({ x: touch.clientX, y: touch.clientY, item }), 520)
-            }}
-            onTouchMove={() => {
-              if (touchTimerRef.current) clearTimeout(touchTimerRef.current)
-              touchTimerRef.current = null
-            }}
-            onTouchEnd={() => {
-              if (touchTimerRef.current) clearTimeout(touchTimerRef.current)
-              touchTimerRef.current = null
-            }}
-            className={`group w-full border-l-2 px-3 py-2 text-left text-xs transition-colors hover:bg-bg-2 ${selectedPath === item.path ? 'border-accent bg-bg-2' : 'border-transparent'}`}
-          >
-            <div className="flex items-center gap-2">
-              <FileIcon type={item.type} />
-              <span className="min-w-0 flex-1 truncate font-mono text-text-1">{item.name}</span>
-              <span className="text-[10px] text-text-3">{item.type === 'file' ? formatSize(item.size) : 'dir'}</span>
-            </div>
-            {'matches' in item && item.matches?.[0] && <div className="mt-1 truncate pl-5 font-mono text-[10px] text-text-3">L{item.matches[0].number}: {item.matches[0].content}</div>}
-          </button>
+          !isMobile && !isSearching && item.type === 'directory' ? (
+            <TreeDirectoryNode
+              key={item.path}
+              rootId={rootId}
+              item={item}
+              depth={0}
+              hideDotFiles={hideDotFiles}
+              selectedPath={selectedPath}
+              onToggle={toggleDesktopDirectory}
+              onSelectFile={openItem}
+              onInsert={insertItemPath}
+              onContextMenu={(e, entry) => {
+                e.preventDefault()
+                setContextMenu({ x: e.clientX, y: e.clientY, item: entry })
+              }}
+              openDirectories={openDirectories}
+            />
+          ) : (
+            <button
+              key={`${item.type}-${item.path}`}
+              tabIndex={0}
+              onClick={() => openItem(item)}
+              onDoubleClick={() => insertItemPath(item)}
+              onKeyDown={(e) => selectFromKeyboard(item, e)}
+              onContextMenu={(e) => {
+                e.preventDefault()
+                setContextMenu({ x: e.clientX, y: e.clientY, item })
+              }}
+              onTouchStart={(e) => {
+                if (!isMobile) return
+                const touch = e.touches[0]
+                if (!touch) return
+                if (touchTimerRef.current) clearTimeout(touchTimerRef.current)
+                touchTimerRef.current = setTimeout(() => setContextMenu({ x: touch.clientX, y: touch.clientY, item }), 520)
+              }}
+              onTouchMove={() => {
+                if (touchTimerRef.current) clearTimeout(touchTimerRef.current)
+                touchTimerRef.current = null
+              }}
+              onTouchEnd={() => {
+                if (touchTimerRef.current) clearTimeout(touchTimerRef.current)
+                touchTimerRef.current = null
+              }}
+              className={`group w-full border-l-2 px-3 py-2 text-left text-xs transition-colors hover:bg-bg-2 ${selectedPath === item.path ? 'border-accent bg-bg-2' : 'border-transparent'}`}
+            >
+              <div className="flex items-center gap-2">
+                <FileIcon type={item.type} />
+                <span className="min-w-0 flex-1 truncate font-mono text-text-1">{item.name}</span>
+                <span className="text-[10px] text-text-3">{item.type === 'file' ? formatSize(item.size) : 'dir'}</span>
+              </div>
+              {'matches' in item && item.matches?.[0] && <div className="mt-1 truncate pl-5 font-mono text-[10px] text-text-3">L{item.matches[0].number}: {item.matches[0].content}</div>}
+            </button>
+          )
         ))}
         {!listLoading && !visibleItems.length && <div className="p-3 text-xs text-text-3">{isSearching ? 'No results' : 'Empty directory'}</div>}
       </div>}

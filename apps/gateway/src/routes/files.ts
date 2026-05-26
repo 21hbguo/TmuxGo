@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { opendir, readFile, realpath, stat } from 'fs/promises'
+import os from 'os'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
@@ -10,7 +11,8 @@ const MAX_DIRS = 8000
 const MAX_FILES = 4000
 const MAX_RESULTS = 200
 const MAX_READ_LINES = 1200
-const rootSpec = process.env.TMUX_WEB_FILE_ROOTS || `workspace=${defaultRoot}`
+const homeRoot = os.homedir()
+const rootSpec = process.env.TMUX_WEB_FILE_ROOTS || `workspace=${defaultRoot}${path.delimiter}home=${homeRoot}`
 
 interface FileRoot {
   id: string

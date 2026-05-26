@@ -95,11 +95,11 @@ export function useFileRoots() {
   })
 }
 
-export function useFileList(root: string, path: string) {
+export function useFileList(root: string, path: string, enabled = true) {
   return useQuery({
     queryKey: ['file-list', root, path],
     queryFn: () => api.files.list(root, path),
-    enabled: !!root,
+    enabled: !!root && enabled,
     staleTime: 2000,
   })
 }
