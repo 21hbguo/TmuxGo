@@ -1,11 +1,14 @@
-import { render, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { fireEvent, render, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TerminalPane } from './TerminalPane'
 
 const onSelectionChangeHandlers: Array<() => void> = []
+let customKeyHandler: ((event: KeyboardEvent) => boolean) | null = null
+let terminalSelection = 'printf "auto_copy_ok"'
 const clipboardMocks = vi.hoisted(() => ({
   writeClipboardText: vi.fn(async () => ({ copied: true, source: 'system', unavailable: false })),
 }))
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 vi.mock('@/hooks/usePreferences', () => ({
   usePreferences: () => ({
@@ -32,7 +35,7 @@ vi.mock('@/hooks/useWebSocket', () => ({
   useWebSocket: () => ({ send: vi.fn() }),
 }))
 vi.mock('@/stores/useConsoleStore', () => ({
-  useConsoleStore: ((selector: any) => selector({ activeHostId: 'local' })) as any,
+  useConsoleStore: ((selector: any) => selector({ activeHostId: 'local', pushToast: vi.fn() })) as any,
 }))
 vi.mock('@/lib/api', () => ({
   api: { snapshot: { get: vi.fn(async () => ({ windows: [], panes: [], activePaneId: null })) } },
@@ -69,11 +72,12 @@ vi.mock('@xterm/xterm', () => {
       onSelectionChangeHandlers.push(handler)
       return { dispose: vi.fn() }
     }
-    attachCustomKeyEventHandler() {
+    attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean) {
+      customKeyHandler = handler
       return undefined
     }
     getSelection() {
-      return 'printf "auto_copy_ok"'
+      return terminalSelection
     }
     focus() {}
     resize() {}
@@ -98,6 +102,8 @@ vi.mock('@xterm/xterm/css/xterm.css', () => ({}))
 describe('TerminalPane', () => {
   beforeEach(() => {
     onSelectionChangeHandlers.length = 0
+    customKeyHandler = null
+    terminalSelection = 'printf "auto_copy_ok"'
     clipboardMocks.writeClipboardText.mockClear()
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
       cb(0)
@@ -109,11 +115,66 @@ describe('TerminalPane', () => {
       disconnect() {}
     })
   })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
 
-  it('copies selection to clipboard when terminal selection changes', async () => {
-    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+  it('copies selection to clipboard when terminal selection changes without pointer sync', async () => {
+    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(onSelectionChangeHandlers.length).toBeGreaterThan(0))
     onSelectionChangeHandlers[0]()
-    await waitFor(() => expect(clipboardMocks.writeClipboardText).toHaveBeenCalledWith('printf "auto_copy_ok"'))
+    await sleep(60)
+    await waitFor(() => expect(clipboardMocks.writeClipboardText).toHaveBeenCalledWith('printf "auto_copy_ok"',{preferSync:true}))
+    expect(container.firstChild).toBeTruthy()
+  })
+
+  it('copies final selection immediately on pointer release', async () => {
+    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(onSelectionChangeHandlers.length).toBeGreaterThan(0))
+    terminalSelection = 'printf "mouseup_copy_ok"'
+    fireEvent.mouseUp(container.firstChild as Element)
+    expect(clipboardMocks.writeClipboardText).toHaveBeenCalledWith('printf "mouseup_copy_ok"',{preferSync:true})
+    await sleep(20)
+    expect(clipboardMocks.writeClipboardText).toHaveBeenCalledTimes(1)
+  })
+
+  it('routes native paste through unified paste request without fallback replay', async () => {
+    const requestPaste = vi.fn()
+    window.addEventListener('tmuxgo-request-terminal-paste', requestPaste)
+    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    expect(customKeyHandler?.({ ctrlKey: true, metaKey: false, altKey: false, key: 'v' } as KeyboardEvent)).toBe(false)
+    fireEvent.paste(container.firstChild as Element, {
+      clipboardData: {
+        getData: (type: string) => type === 'text/plain' ? 'printf "native_paste_once"' : '',
+      },
+    })
+    await sleep(220)
+    expect(requestPaste).toHaveBeenCalledTimes(1)
+    expect(requestPaste.mock.calls[0][0].detail.text).toBe('printf "native_paste_once"')
+    expect(requestPaste.mock.calls[0][0].detail.source).toBe('system')
+    window.removeEventListener('tmuxgo-request-terminal-paste', requestPaste)
+  })
+
+  it('falls back to app clipboard paste when native paste does not arrive', async () => {
+    const requestPaste = vi.fn()
+    window.addEventListener('tmuxgo-request-terminal-paste', requestPaste)
+    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    expect(customKeyHandler?.({ ctrlKey: true, metaKey: false, altKey: false, key: 'v' } as KeyboardEvent)).toBe(false)
+    await sleep(220)
+    expect(requestPaste).toHaveBeenCalledTimes(1)
+    window.removeEventListener('tmuxgo-request-terminal-paste', requestPaste)
+  })
+
+  it('does not treat Windows Meta+V as terminal paste', async () => {
+    const requestPaste = vi.fn()
+    window.addEventListener('tmuxgo-request-terminal-paste', requestPaste)
+    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    expect(customKeyHandler?.({ ctrlKey: false, metaKey: true, altKey: false, key: 'v' } as KeyboardEvent)).toBe(true)
+    await sleep(220)
+    expect(requestPaste).not.toHaveBeenCalled()
+    window.removeEventListener('tmuxgo-request-terminal-paste', requestPaste)
   })
 })

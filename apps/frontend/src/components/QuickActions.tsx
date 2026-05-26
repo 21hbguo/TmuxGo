@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useTranslation } from '@/i18n'
 import { useConsoleStore } from '@/stores/useConsoleStore'
@@ -38,6 +39,20 @@ export function QuickActions() {
   const [pendingPaste, setPendingPaste] = useState<{ text: string; meta: string[]; mode?: 'confirm' | 'manual' } | null>(null)
   const repeatTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const repeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const focusTerminal = useCallback(() => {
+    const focusNow = () => {
+      window.dispatchEvent(new CustomEvent('tmuxgo-focus-terminal'))
+      const terminal = document.querySelector('[data-terminal]') as HTMLElement | null
+      const input = terminal?.querySelector('.xterm-helper-textarea, textarea') as HTMLTextAreaElement | null
+      terminal?.focus({ preventScroll: true })
+      input?.focus({ preventScroll: true })
+    }
+    focusNow()
+    requestAnimationFrame(focusNow)
+    setTimeout(focusNow, 0)
+    setTimeout(focusNow, 32)
+    setTimeout(focusNow, 96)
+  }, [])
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 1024)
     check()
@@ -270,14 +285,19 @@ export function QuickActions() {
         mode={pendingPaste?.mode}
         onTextChange={(text) => setPendingPaste((current) => current ? { ...current, text } : current)}
         onRetryPermission={() => void handlePaste()}
-        onCancel={() => setPendingPaste(null)}
+        onCancel={() => {
+          flushSync(() => setPendingPaste(null))
+          focusTerminal()
+        }}
         onSend={() => {
           if (pendingPaste) sendClipboardText(pendingPaste.text)
-          setPendingPaste(null)
+          flushSync(() => setPendingPaste(null))
+          focusTerminal()
         }}
         onEscapeSend={() => {
           if (pendingPaste) sendClipboardText(escapePaste(pendingPaste.text))
-          setPendingPaste(null)
+          flushSync(() => setPendingPaste(null))
+          focusTerminal()
         }}
       />
     </div>

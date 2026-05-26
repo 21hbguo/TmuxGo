@@ -5,7 +5,7 @@ import { usePreferences } from '@/hooks/usePreferences'
 import { useMobileKeyboard } from '@/hooks/useMobileKeyboard'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { formatDroppedPaths } from '@/lib/path-drop'
-import { extractClipboardText, writeClipboardText } from '@/lib/clipboard-text'
+import { extractClipboardText, verifyClipboardText, writeClipboardText } from '@/lib/clipboard-text'
 import { DELETE_NEXT_WORD_SEQUENCE, DELETE_PREV_WORD_SEQUENCE } from '@/lib/terminal-keys'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { api } from '@/lib/api'
@@ -13,6 +13,7 @@ import { api } from '@/lib/api'
 const FAST_OUTPUT_LIMIT = 24576
 const OUTPUT_FLUSH_LIMIT = 65536
 const SCROLLBACK_LIMIT = 600
+const KEYBOARD_PASTE_FALLBACK_DELAY = 160
 
 interface TerminalPaneProps {
   sessionName?: string
@@ -22,9 +23,23 @@ interface TerminalPaneProps {
   onReady?: () => void
 }
 
+function isApplePlatform() {
+  const nav = navigator as Navigator & { userAgentData?: { platform?: string } }
+  const platform = nav.userAgentData?.platform || nav.platform || ''
+  return /Mac|iPhone|iPad|iPod/.test(platform)
+}
+
+function isPasteShortcut(e: KeyboardEvent) {
+  if (e.altKey || e.key.toLowerCase() !== 'v') return false
+  if (e.ctrlKey && !e.metaKey) return true
+  if (e.metaKey && !e.ctrlKey && isApplePlatform()) return true
+  return false
+}
+
 export function TerminalPane({ sessionName, onInput, onResize, attachExclusive = false, onReady }: TerminalPaneProps) {
   const { preferences } = usePreferences()
   const activeHostId = useConsoleStore((s) => s.activeHostId)
+  const pushToast = useConsoleStore((s) => s.pushToast)
   const terminalRef = useRef<HTMLDivElement>(null)
   const touchMovedRef = useRef(false)
   const terminalInstance = useRef<any>(null)
@@ -131,7 +146,11 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     let stableFitToken = 0
     let deleteWordRepeatTimer: ReturnType<typeof setTimeout> | null = null
     let deleteWordRepeatActive = false
-    let lastSelection = ''
+    let currentSelection = ''
+    let lastCopiedSelection = ''
+    let lastCopyNotice = ''
+    let copySelectionTimer: ReturnType<typeof setTimeout> | null = null
+    let keyboardPasteTimer: ReturnType<typeof setTimeout> | null = null
 
     const notifyReady = () => {
       if (disposed || readyNotified) return
@@ -145,8 +164,76 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       }
       terminal?.focus?.()
       container.focus()
-      const input = container.querySelector('textarea')
+      const input = container.querySelector('.xterm-helper-textarea, textarea')
       if (input instanceof HTMLTextAreaElement) input.focus({ preventScroll: true })
+    }
+    const copySelectionIfNeeded = async (preferLiveSelection = false) => {
+      const liveSelection = terminal?.getSelection?.() || window.getSelection?.()?.toString() || ''
+      const selection = preferLiveSelection ? liveSelection || currentSelection : currentSelection || liveSelection
+      if (!selection) {
+        currentSelection = ''
+        lastCopiedSelection = ''
+        lastCopyNotice = ''
+        return
+      }
+      if (selection === lastCopiedSelection) return
+      lastCopiedSelection = selection
+      const result = await writeClipboardText(selection,{preferSync:true})
+      if (result.unavailable) {
+        if (lastCopyNotice === selection) return
+        lastCopyNotice = selection
+        pushToast({ type: 'info', message: 'System clipboard blocked by browser, kept in app clipboard' })
+        return
+      }
+      const verified = await verifyClipboardText(selection)
+      if (!verified.allowed) {
+        if (lastCopyNotice === `${selection}:read-blocked`) return
+        lastCopyNotice = `${selection}:read-blocked`
+        pushToast({ type: 'info', message: `Copied ${selection.length} chars; browser disallows clipboard readback verification${window.isSecureContext ? '' : ' (insecure context)'}` })
+        return
+      }
+      if (!verified.matches) {
+        if (lastCopyNotice === `${selection}:mismatch:${verified.text}`) return
+        lastCopyNotice = `${selection}:mismatch:${verified.text}`
+        pushToast({ type: 'error', message: `Clipboard mismatch after copy: selected ${selection.length} chars, clipboard has ${verified.text.length}` })
+        return
+      }
+      lastCopyNotice = ''
+      pushToast({ type: 'success', message: `Copied ${selection.length} chars to system clipboard` })
+    }
+    const clearCopySelectionTimer = () => {
+      if (!copySelectionTimer) return
+      clearTimeout(copySelectionTimer)
+      copySelectionTimer = null
+    }
+    const runCopySelection = (preferLiveSelection = false) => {
+      void copySelectionIfNeeded(preferLiveSelection)
+      requestAnimationFrame(() => {
+        void copySelectionIfNeeded(preferLiveSelection)
+      })
+      setTimeout(() => {
+        void copySelectionIfNeeded(preferLiveSelection)
+      }, 0)
+    }
+    const scheduleCopySelection = (delay = 24) => {
+      clearCopySelectionTimer()
+      copySelectionTimer = setTimeout(() => {
+        copySelectionTimer = null
+        runCopySelection()
+      }, delay)
+    }
+    const clearKeyboardPasteTimer = () => {
+      if (!keyboardPasteTimer) return
+      clearTimeout(keyboardPasteTimer)
+      keyboardPasteTimer = null
+    }
+    const scheduleKeyboardPasteFallback = () => {
+      clearKeyboardPasteTimer()
+      keyboardPasteTimer = setTimeout(() => {
+        keyboardPasteTimer = null
+        terminal?.focus?.()
+        window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-paste'))
+      }, KEYBOARD_PASTE_FALLBACK_DELAY)
     }
     const stopDeleteWordRepeat = () => {
       deleteWordRepeatActive = false
@@ -466,12 +553,13 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         terminal.onSelectionChange(() => {
           const selection = terminal?.getSelection?.() || ''
           if (!selection) {
-            lastSelection = ''
+            clearCopySelectionTimer()
+            currentSelection = ''
+            lastCopiedSelection = ''
             return
           }
-          if (selection === lastSelection) return
-          lastSelection = selection
-          void writeClipboardText(selection)
+          currentSelection = selection
+          scheduleCopySelection()
         })
       )
       terminal.attachCustomKeyEventHandler((e: KeyboardEvent) => {
@@ -479,9 +567,9 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-copy'))
           return false
         }
-        if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'v') {
-          terminal.focus()
-          window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-paste'))
+        if (isPasteShortcut(e)) {
+          if (e.repeat) return false
+          scheduleKeyboardPasteFallback()
           return false
         }
         if (e.key === 'Backspace' && e.ctrlKey && !e.metaKey && !e.altKey) {
@@ -622,17 +710,23 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const handlePaste = (e: ClipboardEvent) => {
         const text = extractClipboardText(e.clipboardData)
         if (!text) return
+        clearKeyboardPasteTimer()
         e.preventDefault()
         e.stopPropagation()
-        onInputRef.current?.(text)
+        window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-paste', { detail: { text, source: 'system' } }))
       }
       container.addEventListener('paste', handlePaste)
       const handlePointerSync = () => {
+        clearCopySelectionTimer()
+        runCopySelection(true)
         void syncActivePane()
       }
       const handleFocusTerminal = () => {
         focusTerminalInput()
         requestAnimationFrame(focusTerminalInput)
+        setTimeout(focusTerminalInput, 0)
+        setTimeout(focusTerminalInput, 32)
+        setTimeout(focusTerminalInput, 96)
       }
       container.addEventListener('mouseup', handlePointerSync)
       container.addEventListener('touchend', handlePointerSync)
@@ -656,6 +750,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           container.removeEventListener('mouseup', handlePointerSync)
           container.removeEventListener('touchend', handlePointerSync)
           window.removeEventListener('tmuxgo-focus-terminal', handleFocusTerminal as EventListener)
+          clearCopySelectionTimer()
+          clearKeyboardPasteTimer()
         },
       })
       resizeObserver = new ResizeObserver(() => {
