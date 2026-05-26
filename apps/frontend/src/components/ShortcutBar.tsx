@@ -38,6 +38,7 @@ const tmuxKeys: KeyDef[] = [
 
 const REPEAT_DELAY = 400
 const REPEAT_INTERVAL = 80
+const DRAG_THRESHOLD = 12
 
 interface ShortcutBarProps {
   mode?: 'dock' | 'panel'
@@ -51,6 +52,7 @@ export function ShortcutBar({ mode = 'dock' }: ShortcutBarProps) {
   const activePaneId = useConsoleStore((s) => s.activePaneId)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const pointerStateRef = useRef({ id: -1, x: 0, y: 0, moved: false })
   const [toast, setToast] = useState<string | null>(null)
 
   const resolveActivePaneId = useCallback(async () => {
@@ -92,6 +94,9 @@ export function ShortcutBar({ mode = 'dock' }: ShortcutBarProps) {
   const preventFocus = useCallback((e: PointerEvent<HTMLButtonElement>) => {
     e.preventDefault()
   }, [])
+  const startPointer = useCallback((e: PointerEvent<HTMLButtonElement>) => {
+    pointerStateRef.current = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: false }
+  }, [])
 
   const stopRepeat = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current)
@@ -99,6 +104,21 @@ export function ShortcutBar({ mode = 'dock' }: ShortcutBarProps) {
     timerRef.current = null
     intervalRef.current = null
   }, [])
+  const resetPointer = useCallback(() => {
+    pointerStateRef.current = { id: -1, x: 0, y: 0, moved: false }
+  }, [])
+  const trackPointer = useCallback((e: PointerEvent<HTMLButtonElement>) => {
+    const state = pointerStateRef.current
+    if (state.id !== e.pointerId || state.moved) return
+    if (Math.abs(e.clientX - state.x) >= DRAG_THRESHOLD || Math.abs(e.clientY - state.y) >= DRAG_THRESHOLD) {
+      state.moved = true
+      stopRepeat()
+    }
+  }, [stopRepeat])
+  const finishPointer = useCallback(() => {
+    stopRepeat()
+    resetPointer()
+  }, [resetPointer, stopRepeat])
   const startRepeat = useCallback((data: string) => {
     stopRepeat()
     timerRef.current = setTimeout(() => {
@@ -120,8 +140,9 @@ export function ShortcutBar({ mode = 'dock' }: ShortcutBarProps) {
       window.removeEventListener('touchcancel', stopRepeat)
       window.removeEventListener('blur', stopRepeat)
       document.removeEventListener('visibilitychange', stopRepeat)
+      resetPointer()
     }
-  }, [stopRepeat])
+  }, [resetPointer, stopRepeat])
 
   const handleBtn = (def: KeyDef) => {
     sendKey(def.data)
@@ -164,11 +185,13 @@ export function ShortcutBar({ mode = 'dock' }: ShortcutBarProps) {
             className={baseClass}
             onPointerDown={(e) => {
               preventFocus(e)
+              startPointer(e)
               handleBtn(k)
             }}
-            onPointerUp={stopRepeat}
-            onPointerLeave={stopRepeat}
-            onPointerCancel={stopRepeat}
+            onPointerMove={trackPointer}
+            onPointerUp={finishPointer}
+            onPointerLeave={finishPointer}
+            onPointerCancel={finishPointer}
           >
             {k.i18nKey ? t(k.i18nKey as any) : k.label}
           </button>
@@ -176,12 +199,20 @@ export function ShortcutBar({ mode = 'dock' }: ShortcutBarProps) {
         <div className={`${isPanel ? 'hidden' : 'w-px'} bg-[var(--line)] mx-1 self-stretch`} />
         <button type="button" tabIndex={-1} className={baseClass + ' bg-accent/20 text-accent'} onPointerDown={(e) => {
           preventFocus(e)
-          handleCopy()
-        }}>{t('quick.copy')}</button>
+          startPointer(e)
+        }} onPointerMove={trackPointer} onPointerUp={() => {
+          const moved = pointerStateRef.current.moved
+          finishPointer()
+          if (!moved) void handleCopy()
+        }} onPointerLeave={finishPointer} onPointerCancel={finishPointer}>{t('quick.copy')}</button>
         <button type="button" tabIndex={-1} className={baseClass + ' bg-accent/20 text-accent'} onPointerDown={(e) => {
           preventFocus(e)
-          handlePaste()
-        }}>{t('quick.paste')}</button>
+          startPointer(e)
+        }} onPointerMove={trackPointer} onPointerUp={() => {
+          const moved = pointerStateRef.current.moved
+          finishPointer()
+          if (!moved) handlePaste()
+        }} onPointerLeave={finishPointer} onPointerCancel={finishPointer}>{t('quick.paste')}</button>
         <div className={`${isPanel ? 'hidden' : 'w-px'} bg-[var(--line)] mx-1 self-stretch`} />
         {tmuxKeys.map((k) => (
           <button
@@ -191,23 +222,33 @@ export function ShortcutBar({ mode = 'dock' }: ShortcutBarProps) {
             className={baseClass}
             onPointerDown={(e) => {
               preventFocus(e)
+              startPointer(e)
               handleBtn(k)
             }}
-            onPointerUp={stopRepeat}
-            onPointerLeave={stopRepeat}
-            onPointerCancel={stopRepeat}
+            onPointerMove={trackPointer}
+            onPointerUp={finishPointer}
+            onPointerLeave={finishPointer}
+            onPointerCancel={finishPointer}
           >
             {k.i18nKey ? t(k.i18nKey as any) : k.label}
           </button>
         ))}
         <button type="button" tabIndex={-1} className={baseClass} onPointerDown={(e) => {
           preventFocus(e)
-          handleZoom()
-        }}>{t('shortcut.zoom')}</button>
+          startPointer(e)
+        }} onPointerMove={trackPointer} onPointerUp={() => {
+          const moved = pointerStateRef.current.moved
+          finishPointer()
+          if (!moved) void handleZoom()
+        }} onPointerLeave={finishPointer} onPointerCancel={finishPointer}>{t('shortcut.zoom')}</button>
         <button type="button" tabIndex={-1} className={baseClass + ' text-danger'} onPointerDown={(e) => {
           preventFocus(e)
-          handleKill()
-        }}>{t('shortcut.kill')}</button>
+          startPointer(e)
+        }} onPointerMove={trackPointer} onPointerUp={() => {
+          const moved = pointerStateRef.current.moved
+          finishPointer()
+          if (!moved) void handleKill()
+        }} onPointerLeave={finishPointer} onPointerCancel={finishPointer}>{t('shortcut.kill')}</button>
       </div>
       {toast && (
         <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-full bg-bg-2 text-text-1 text-xs px-3 py-1 rounded-t-lg border border-[var(--line)]">
