@@ -1,7 +1,6 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { flushSync } from 'react-dom'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useTranslation } from '@/i18n'
 import { useConsoleStore } from '@/stores/useConsoleStore'
@@ -10,10 +9,8 @@ import { useWebSocket } from '@/hooks/useWebSocket'
 import { useCustomShortcuts, keysToEscape } from '@/hooks/useCustomShortcuts'
 import { AddShortcutModal } from './AddShortcutModal'
 import { ConfirmDialog } from './ConfirmDialog'
-import { PasteConfirmDialog } from './PasteConfirmDialog'
 import { api } from '@/lib/api'
-import { analyzePaste, escapePaste } from '@/lib/paste-safety'
-import { readClipboardTextOnly, writeClipboardText } from '@/lib/clipboard-text'
+import { writeClipboardText } from '@/lib/clipboard-text'
 import { requestTerminalSelection } from '@/lib/terminal-selection'
 import { DELETE_PREV_LINE_SEQUENCE, DELETE_PREV_WORD_SEQUENCE } from '@/lib/terminal-keys'
 
@@ -36,23 +33,8 @@ export function QuickActions() {
   const [showModal, setShowModal] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
   const [confirmKillOpen, setConfirmKillOpen] = useState(false)
-  const [pendingPaste, setPendingPaste] = useState<{ text: string; meta: string[]; mode?: 'confirm' | 'manual' } | null>(null)
   const repeatTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const repeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const focusTerminal = useCallback(() => {
-    const focusNow = () => {
-      window.dispatchEvent(new CustomEvent('tmuxgo-focus-terminal'))
-      const terminal = document.querySelector('[data-terminal]') as HTMLElement | null
-      const input = terminal?.querySelector('.xterm-helper-textarea, textarea') as HTMLTextAreaElement | null
-      terminal?.focus({ preventScroll: true })
-      input?.focus({ preventScroll: true })
-    }
-    focusNow()
-    requestAnimationFrame(focusNow)
-    setTimeout(focusNow, 0)
-    setTimeout(focusNow, 32)
-    setTimeout(focusNow, 96)
-  }, [])
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 1024)
     check()
@@ -61,7 +43,6 @@ export function QuickActions() {
   }, [])
 
   const sendKey = useCallback((data: string) => send({ type: 'input', data }), [send])
-  const sendClipboardText = (text: string) => send({ type: 'input', data: text })
   const resolveActivePaneId = useCallback(async () => {
     if (!activeHostId || !activeSessionId) return useConsoleStore.getState().activePaneId
     const snapshot = await api.snapshot.get(activeHostId, activeSessionId)
@@ -140,31 +121,7 @@ export function QuickActions() {
     })
   }
 
-  const handlePaste = async () => {
-    try {
-      const result = await readClipboardTextOnly()
-      const text = result.text
-      if (!text) {
-        if (result.unavailable) setPendingPaste({ text: '', meta: ['clipboard unavailable'], mode: 'manual' })
-        return
-      }
-      const analysis = analyzePaste(text)
-      if (analysis.requiresConfirm) {
-        const meta = []
-        if (analysis.hasNewline) meta.push('multi-line')
-        if (analysis.hasControlChars) meta.push('control chars')
-        if (analysis.isLong) meta.push(`${text.length} chars`)
-        if (result.source === 'memory') meta.push('app clipboard')
-        setPendingPaste({ text, meta })
-        return
-      }
-      sendClipboardText(text)
-      if (result.source === 'memory') pushToast({ type: 'info', message: 'Pasted from app clipboard' })
-    } catch (err) {
-      setPendingPaste({ text: '', meta: ['clipboard unavailable'], mode: 'manual' })
-      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Paste failed' })
-    }
-  }
+  const handlePaste = () => window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-paste'))
 
   const handleKillPane = async () => {
     const paneId = await resolveActivePaneId()
@@ -277,28 +234,6 @@ export function QuickActions() {
         tone="danger"
         onCancel={() => setConfirmKillOpen(false)}
         onConfirm={() => void confirmKillPane()}
-      />
-      <PasteConfirmDialog
-        open={!!pendingPaste}
-        text={pendingPaste?.text || ''}
-        meta={pendingPaste?.meta || []}
-        mode={pendingPaste?.mode}
-        onTextChange={(text) => setPendingPaste((current) => current ? { ...current, text } : current)}
-        onRetryPermission={() => void handlePaste()}
-        onCancel={() => {
-          flushSync(() => setPendingPaste(null))
-          focusTerminal()
-        }}
-        onSend={() => {
-          if (pendingPaste) sendClipboardText(pendingPaste.text)
-          flushSync(() => setPendingPaste(null))
-          focusTerminal()
-        }}
-        onEscapeSend={() => {
-          if (pendingPaste) sendClipboardText(escapePaste(pendingPaste.text))
-          flushSync(() => setPendingPaste(null))
-          focusTerminal()
-        }}
       />
     </div>
   )

@@ -134,6 +134,8 @@ test('can copy into app clipboard and paste back when system clipboard is unavai
   await page.getByRole('button', { name: '复制' }).click()
   await expect(page.getByText('Clipboard unavailable, kept in app')).toBeVisible()
   await page.getByRole('button', { name: '粘贴' }).click()
+  await expect(page.getByText('Confirm paste')).toBeVisible()
+  await page.getByRole('button', { name: 'Send' }).click()
   await expect(page.getByText('Pasted from app clipboard')).toBeVisible()
   await page.getByRole('button', { name: 'Enter' }).click()
   await page.waitForTimeout(700)

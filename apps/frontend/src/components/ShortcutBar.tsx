@@ -1,14 +1,11 @@
 'use client'
 
 import { useEffect, useRef, useCallback, useState, type PointerEvent } from 'react'
-import { flushSync } from 'react-dom'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useTranslation } from '@/i18n'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { api } from '@/lib/api'
-import { PasteConfirmDialog } from './PasteConfirmDialog'
-import { analyzePaste, escapePaste } from '@/lib/paste-safety'
-import { readClipboardTextOnly, writeClipboardText } from '@/lib/clipboard-text'
+import { writeClipboardText } from '@/lib/clipboard-text'
 import { requestTerminalSelection } from '@/lib/terminal-selection'
 import { DELETE_PREV_LINE_SEQUENCE, DELETE_PREV_WORD_SEQUENCE } from '@/lib/terminal-keys'
 
@@ -55,21 +52,6 @@ export function ShortcutBar({ mode = 'dock' }: ShortcutBarProps) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const [toast, setToast] = useState<string | null>(null)
-  const [pendingPaste, setPendingPaste] = useState<{ text: string; meta: string[]; mode?: 'confirm' | 'manual' } | null>(null)
-  const focusTerminal = useCallback(() => {
-    const focusNow = () => {
-      window.dispatchEvent(new CustomEvent('tmuxgo-focus-terminal'))
-      const terminal = document.querySelector('[data-terminal]') as HTMLElement | null
-      const input = terminal?.querySelector('.xterm-helper-textarea, textarea') as HTMLTextAreaElement | null
-      terminal?.focus({ preventScroll: true })
-      input?.focus({ preventScroll: true })
-    }
-    focusNow()
-    requestAnimationFrame(focusNow)
-    setTimeout(focusNow, 0)
-    setTimeout(focusNow, 32)
-    setTimeout(focusNow, 96)
-  }, [])
 
   const resolveActivePaneId = useCallback(async () => {
     if (!activeHostId || !activeSessionId) return useConsoleStore.getState().activePaneId
@@ -160,31 +142,7 @@ export function ShortcutBar({ mode = 'dock' }: ShortcutBarProps) {
     showToast(result.unavailable ? 'Copied in app' : 'Copied')
   }
 
-  const handlePaste = async () => {
-    try {
-      const result = await readClipboardTextOnly()
-      const text = result.text
-      if (!text) {
-        if (result.unavailable) setPendingPaste({ text: '', meta: ['clipboard unavailable'], mode: 'manual' })
-        return
-      }
-      const analysis = analyzePaste(text)
-      if (analysis.requiresConfirm) {
-        const meta = []
-        if (analysis.hasNewline) meta.push('multi-line')
-        if (analysis.hasControlChars) meta.push('control chars')
-        if (analysis.isLong) meta.push(`${text.length} chars`)
-        if (result.source === 'memory') meta.push('app clipboard')
-        setPendingPaste({ text, meta })
-        return
-      }
-      sendKey(text)
-      if (result.source === 'memory') showToast('Pasted from app')
-    } catch {
-      setPendingPaste({ text: '', meta: ['clipboard unavailable'], mode: 'manual' })
-      showToast('Paste failed')
-    }
-  }
+  const handlePaste = () => window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-paste'))
 
   const isPanel = mode === 'panel'
   const isDock = mode === 'dock'
@@ -256,28 +214,6 @@ export function ShortcutBar({ mode = 'dock' }: ShortcutBarProps) {
           {toast}
         </div>
       )}
-      <PasteConfirmDialog
-        open={!!pendingPaste}
-        text={pendingPaste?.text || ''}
-        meta={pendingPaste?.meta || []}
-        mode={pendingPaste?.mode}
-        onTextChange={(text) => setPendingPaste((current) => current ? { ...current, text } : current)}
-        onRetryPermission={() => void handlePaste()}
-        onCancel={() => {
-          flushSync(() => setPendingPaste(null))
-          focusTerminal()
-        }}
-        onSend={() => {
-          if (pendingPaste) sendKey(pendingPaste.text)
-          flushSync(() => setPendingPaste(null))
-          focusTerminal()
-        }}
-        onEscapeSend={() => {
-          if (pendingPaste) sendKey(escapePaste(pendingPaste.text))
-          flushSync(() => setPendingPaste(null))
-          focusTerminal()
-        }}
-      />
     </div>
   )
 }

@@ -29,17 +29,13 @@ export function PasteConfirmDialog({ open, text, meta, mode = 'confirm', onTextC
             <div key={item} className="rounded bg-bg-2 px-2 py-1">{item}</div>
           ))}
         </div>
-        {isManual ? (
-          <textarea
-            value={text}
-            onChange={(e) => onTextChange?.(e.target.value)}
-            className="mt-4 h-48 w-full resize-none rounded border border-[var(--line)] bg-bg-2 p-3 text-xs text-text-2 outline-none focus:border-accent"
-            autoFocus
-            spellCheck={false}
-          />
-        ) : (
-          <pre className="mt-4 max-h-[40vh] overflow-auto rounded bg-bg-2 p-3 text-xs text-text-2 whitespace-pre-wrap break-all">{text}</pre>
-        )}
+        <textarea
+          value={text}
+          onChange={(e) => onTextChange?.(e.target.value)}
+          className="mt-4 h-48 w-full resize-none rounded border border-[var(--line)] bg-bg-2 p-3 text-xs text-text-2 outline-none focus:border-accent"
+          autoFocus
+          spellCheck={false}
+        />
         <div className="mt-5 flex flex-wrap justify-end gap-2">
           <button onPointerDown={preventFocus} onClick={onCancel} className="rounded px-4 py-2 text-sm text-text-3 hover:text-text-1">Cancel</button>
           {isManual && <button onPointerDown={preventFocus} onClick={onRetryPermission} className="rounded bg-bg-2 px-4 py-2 text-sm text-text-1 hover:bg-bg-0">Retry Permission</button>}

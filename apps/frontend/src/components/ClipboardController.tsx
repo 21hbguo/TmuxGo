@@ -10,7 +10,7 @@ import { PasteConfirmDialog } from './PasteConfirmDialog'
 
 export function ClipboardController() {
   const pushToast = useConsoleStore((s) => s.pushToast)
-  const [pendingPaste, setPendingPaste] = useState<{ text: string; meta: string[]; mode?: 'confirm' | 'manual' } | null>(null)
+  const [pendingPaste, setPendingPaste] = useState<{ text: string; meta: string[]; mode?: 'confirm' | 'manual'; source?: 'system' | 'memory' | 'empty' } | null>(null)
   const focusAfterCloseRef = useRef(false)
   const focusTerminal = useCallback(() => {
     const focusNow = () => {
@@ -37,19 +37,14 @@ export function ClipboardController() {
   const routePasteText = useCallback((text: string, source: 'system' | 'memory' | 'empty' = 'system') => {
     if (!text) return false
     const analysis = analyzePaste(text)
-    if (analysis.requiresConfirm) {
-      const meta = []
-      if (analysis.hasNewline) meta.push('multi-line')
-      if (analysis.hasControlChars) meta.push('control chars')
-      if (analysis.isLong) meta.push(`${text.length} chars`)
-      if (source === 'memory') meta.push('app clipboard')
-      setPendingPaste({ text, meta })
-      return false
-    }
-    sendTerminalInput(text)
-    if (source === 'memory') pushToast({ type: 'info', message: 'Pasted from app clipboard' })
-    return true
-  }, [pushToast, sendTerminalInput])
+    const meta = []
+    if (analysis.hasNewline) meta.push('multi-line')
+    if (analysis.hasControlChars) meta.push('control chars')
+    if (analysis.isLong) meta.push(`${text.length} chars`)
+    if (source === 'memory') meta.push('app clipboard')
+    setPendingPaste({ text, meta, source })
+    return false
+  }, [])
   const handleCopy = useCallback(async () => {
     const text = await requestTerminalSelection()
     if (!text) return
@@ -107,11 +102,17 @@ export function ClipboardController() {
       onRetryPermission={() => void handlePaste()}
       onCancel={closePasteDialog}
       onSend={() => {
-        if (pendingPaste) sendTerminalInput(pendingPaste.text)
+        if (pendingPaste) {
+          sendTerminalInput(pendingPaste.text)
+          if (pendingPaste.source === 'memory') pushToast({ type: 'info', message: 'Pasted from app clipboard' })
+        }
         closePasteDialog()
       }}
       onEscapeSend={() => {
-        if (pendingPaste) sendTerminalInput(escapePaste(pendingPaste.text))
+        if (pendingPaste) {
+          sendTerminalInput(escapePaste(pendingPaste.text))
+          if (pendingPaste.source === 'memory') pushToast({ type: 'info', message: 'Pasted from app clipboard' })
+        }
         closePasteDialog()
       }}
     />

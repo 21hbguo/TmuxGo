@@ -5,9 +5,7 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
 import { api } from '@/lib/api'
 import { ConfirmDialog } from './ConfirmDialog'
-import { analyzePaste, escapePaste } from '@/lib/paste-safety'
-import { PasteConfirmDialog } from './PasteConfirmDialog'
-import { readClipboardTextOnly, writeClipboardText } from '@/lib/clipboard-text'
+import { writeClipboardText } from '@/lib/clipboard-text'
 import { requestTerminalSelection } from '@/lib/terminal-selection'
 
 interface CommandPaletteProps {
@@ -18,7 +16,6 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
   const [query, setQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [pendingKillWindow, setPendingKillWindow] = useState<{ id: string; name: string } | null>(null)
-  const [pendingPaste, setPendingPaste] = useState<{ text: string; meta: string[]; mode?: 'confirm' | 'manual' } | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const { hosts, sessions, windows, activeHostId, activeSessionId, activePaneId, setCommandPalette, setActiveHost, setActiveSession, pushToast, toggleFilePanel } = useConsoleStore()
   const { t } = useTranslation()
@@ -52,35 +49,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
     if (!result.copied) throw new Error('Copy failed')
     if (result.unavailable) pushToast({ type: 'info', message: 'Clipboard unavailable, kept in app' })
   }
-  const pasteClipboard = async () => {
-    try {
-      const result = await readClipboardTextOnly()
-      const text = result.text
-      if (!text) {
-        if (result.unavailable) {
-          setPendingPaste({ text: '', meta: ['clipboard unavailable'], mode: 'manual' })
-          return false
-        }
-        throw new Error('Clipboard is empty')
-      }
-      const analysis = analyzePaste(text)
-      if (analysis.requiresConfirm) {
-        const meta = []
-        if (analysis.hasNewline) meta.push('multi-line')
-        if (analysis.hasControlChars) meta.push('control chars')
-        if (analysis.isLong) meta.push(`${text.length} chars`)
-        if (result.source === 'memory') meta.push('app clipboard')
-        setPendingPaste({ text, meta })
-        return false
-      }
-      window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data: text } }))
-      if (result.source === 'memory') pushToast({ type: 'info', message: 'Pasted from app clipboard' })
-      return true
-    } catch {
-      setPendingPaste({ text: '', meta: ['clipboard unavailable'], mode: 'manual' })
-      return false
-    }
-  }
+  const pasteClipboard = async () => window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-paste'))
   const items = [
     ...hosts.filter((h: any) => h.name.toLowerCase().includes(q)).map((host: any) => ({ key: `host-${host.id}`, type: 'host', title: host.name, meta: host.address, action: async () => setActiveHost(host.id) })),
     ...sessions.filter((s: any) => s.name.toLowerCase().includes(q)).map((session: any) => ({ key: `session-${session.id}`, type: 'session', title: session.name, meta: t('palette.windows', { count: session.windowCount }), action: async () => setActiveSession(session.id) })),
@@ -237,27 +206,6 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
         tone="danger"
         onCancel={() => setPendingKillWindow(null)}
         onConfirm={() => void confirmKillWindow()}
-      />
-      <PasteConfirmDialog
-        open={!!pendingPaste}
-        text={pendingPaste?.text || ''}
-        meta={pendingPaste?.meta || []}
-        mode={pendingPaste?.mode}
-        onTextChange={(text) => setPendingPaste((current) => current ? { ...current, text } : current)}
-        onRetryPermission={() => void pasteClipboard()}
-        onCancel={() => setPendingPaste(null)}
-        onSend={() => {
-          if (pendingPaste) {
-            window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data: pendingPaste.text } }))
-          }
-          setPendingPaste(null)
-        }}
-        onEscapeSend={() => {
-          if (pendingPaste) {
-            window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data: escapePaste(pendingPaste.text) } }))
-          }
-          setPendingPaste(null)
-        }}
       />
     </div>
   )
