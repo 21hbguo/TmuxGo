@@ -1,4 +1,7 @@
 let storedClipboardText=''
+export interface ClipboardWriteOptions {
+  preferSync?:boolean
+}
 export interface ClipboardReadResult {
   text:string
   source:'system'|'memory'|'empty'
@@ -8,6 +11,11 @@ export interface ClipboardWriteResult {
   copied:boolean
   source:'system'|'memory'
   unavailable:boolean
+}
+export interface ClipboardVerifyResult {
+  allowed:boolean
+  matches:boolean
+  text:string
 }
 export function getStoredClipboardText() {
   return storedClipboardText
@@ -40,23 +48,35 @@ export function extractClipboardText(data?: DataTransfer | null) {
   return doc.body.textContent || ''
 }
 
-export async function writeClipboardText(text:string):Promise<ClipboardWriteResult> {
+function writeClipboardTextSync(text:string) {
+  if (typeof document.execCommand!=='function') return false
+  const ta=document.createElement('textarea')
+  ta.value=text
+  ta.style.cssText='position:fixed;left:-9999px'
+  document.body.appendChild(ta)
+  ta.select()
+  const copied=document.execCommand('copy')
+  document.body.removeChild(ta)
+  return copied
+}
+export async function writeClipboardText(text:string,options:ClipboardWriteOptions={}):Promise<ClipboardWriteResult> {
   storedClipboardText=text
+  if (options.preferSync&&writeClipboardTextSync(text)) return {copied:true,source:'system',unavailable:false}
   try {
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(text)
       return {copied:true,source:'system',unavailable:false}
     }
   } catch {}
-  if (typeof document.execCommand==='function') {
-    const ta=document.createElement('textarea')
-    ta.value=text
-    ta.style.cssText='position:fixed;left:-9999px'
-    document.body.appendChild(ta)
-    ta.select()
-    const copied=document.execCommand('copy')
-    document.body.removeChild(ta)
-    if (copied) return {copied:true,source:'system',unavailable:false}
-  }
+  if (writeClipboardTextSync(text)) return {copied:true,source:'system',unavailable:false}
   return {copied:!!text,source:'memory',unavailable:true}
+}
+export async function verifyClipboardText(text:string):Promise<ClipboardVerifyResult> {
+  try {
+    if (!navigator.clipboard?.readText) return {allowed:false,matches:false,text:''}
+    const current=await navigator.clipboard.readText()
+    return {allowed:true,matches:current===text,text:current}
+  } catch {
+    return {allowed:false,matches:false,text:''}
+  }
 }

@@ -38,6 +38,7 @@ export function PaneGrid() {
   const pendingResizeRef = useRef<{ cols: number; rows: number } | null>(null)
   const sentResizeRef = useRef<{ cols: number; rows: number } | null>(null)
   const lastExclusiveRef = useRef(exclusive)
+  const lastExternalInputRef = useRef<{ data: string; at: number } | null>(null)
 
   const sessionName = activeSessionId?.replace('session-', '') || ''
 
@@ -230,6 +231,10 @@ export function PaneGrid() {
     const handleTerminalInput = (event: Event) => {
       const detail = (event as CustomEvent<{ data?: string }>).detail
       if (!detail?.data) return
+      const now = Date.now()
+      const last = lastExternalInputRef.current
+      if (last && last.data === detail.data && now - last.at < 120) return
+      lastExternalInputRef.current = { data: detail.data, at: now }
       handleInput(detail.data)
     }
     window.addEventListener('tmuxgo-terminal-input', handleTerminalInput as EventListener)
