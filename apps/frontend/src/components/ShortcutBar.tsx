@@ -55,6 +55,11 @@ export function ShortcutBar({ mode = 'dock' }: ShortcutBarProps) {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [pendingPaste, setPendingPaste] = useState<{ text: string; meta: string[]; mode?: 'confirm' | 'manual' } | null>(null)
+  const focusTerminal = useCallback(() => {
+    requestAnimationFrame(() => window.dispatchEvent(new CustomEvent('tmuxgo-focus-terminal')))
+    setTimeout(() => window.dispatchEvent(new CustomEvent('tmuxgo-focus-terminal')), 0)
+    setTimeout(() => window.dispatchEvent(new CustomEvent('tmuxgo-focus-terminal')), 32)
+  }, [])
 
   const resolveActivePaneId = useCallback(async () => {
     if (!activeHostId || !activeSessionId) return useConsoleStore.getState().activePaneId
@@ -137,24 +142,34 @@ export function ShortcutBar({ mode = 'dock' }: ShortcutBarProps) {
       showToast('No selection')
       return
     }
-    const copied = await writeClipboardText(text)
-    showToast(copied ? 'Copied' : 'Copy failed')
+    const result = await writeClipboardText(text)
+    if (!result.copied) {
+      showToast('Copy failed')
+      return
+    }
+    showToast(result.unavailable ? 'Copied in app' : 'Copied')
   }
 
   const handlePaste = async () => {
     try {
-      const text = await readClipboardTextOnly()
-      if (!text) return
+      const result = await readClipboardTextOnly()
+      const text = result.text
+      if (!text) {
+        if (result.unavailable) setPendingPaste({ text: '', meta: ['clipboard unavailable'], mode: 'manual' })
+        return
+      }
       const analysis = analyzePaste(text)
       if (analysis.requiresConfirm) {
         const meta = []
         if (analysis.hasNewline) meta.push('multi-line')
         if (analysis.hasControlChars) meta.push('control chars')
         if (analysis.isLong) meta.push(`${text.length} chars`)
+        if (result.source === 'memory') meta.push('app clipboard')
         setPendingPaste({ text, meta })
         return
       }
       sendKey(text)
+      if (result.source === 'memory') showToast('Pasted from app')
     } catch {
       setPendingPaste({ text: '', meta: ['clipboard unavailable'], mode: 'manual' })
       showToast('Paste failed')
@@ -238,14 +253,19 @@ export function ShortcutBar({ mode = 'dock' }: ShortcutBarProps) {
         mode={pendingPaste?.mode}
         onTextChange={(text) => setPendingPaste((current) => current ? { ...current, text } : current)}
         onRetryPermission={() => void handlePaste()}
-        onCancel={() => setPendingPaste(null)}
+        onCancel={() => {
+          setPendingPaste(null)
+          focusTerminal()
+        }}
         onSend={() => {
           if (pendingPaste) sendKey(pendingPaste.text)
           setPendingPaste(null)
+          focusTerminal()
         }}
         onEscapeSend={() => {
           if (pendingPaste) sendKey(escapePaste(pendingPaste.text))
           setPendingPaste(null)
+          focusTerminal()
         }}
       />
     </div>

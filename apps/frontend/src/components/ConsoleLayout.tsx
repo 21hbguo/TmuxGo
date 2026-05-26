@@ -6,6 +6,7 @@ import { Sidebar } from './Sidebar'
 import { PaneGrid } from './PaneGrid'
 import { StatusBar } from './StatusBar'
 import { CommandPalette } from './CommandPalette'
+import { ClipboardController } from './ClipboardController'
 import { MobileNav } from './MobileNav'
 import { MobileDrawer } from './MobileDrawer'
 import { Settings } from './Settings'
@@ -347,6 +348,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       )}
       {showCommandPalette && <CommandPalette onClose={() => closeOverlay('palette')} />}
       {showSettings && <Settings onClose={() => closeOverlay('settings')} />}
+      <ClipboardController />
       <MobileDrawer
         isOpen={drawerOpen}
         onClose={() => closeOverlay('drawer')}

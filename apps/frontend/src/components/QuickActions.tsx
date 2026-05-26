@@ -116,25 +116,35 @@ export function QuickActions() {
   const handleCopy = () => {
     void requestTerminalSelection().then(async (text) => {
       if (!text) return
-      const copied = await writeClipboardText(text)
-      if (!copied) pushToast({ type: 'error', message: 'Copy failed' })
+      const result = await writeClipboardText(text)
+      if (!result.copied) {
+        pushToast({ type: 'error', message: 'Copy failed' })
+        return
+      }
+      if (result.unavailable) pushToast({ type: 'info', message: 'Clipboard unavailable, kept in app' })
     })
   }
 
   const handlePaste = async () => {
     try {
-      const text = await readClipboardTextOnly()
-      if (!text) return
+      const result = await readClipboardTextOnly()
+      const text = result.text
+      if (!text) {
+        if (result.unavailable) setPendingPaste({ text: '', meta: ['clipboard unavailable'], mode: 'manual' })
+        return
+      }
       const analysis = analyzePaste(text)
       if (analysis.requiresConfirm) {
         const meta = []
         if (analysis.hasNewline) meta.push('multi-line')
         if (analysis.hasControlChars) meta.push('control chars')
         if (analysis.isLong) meta.push(`${text.length} chars`)
+        if (result.source === 'memory') meta.push('app clipboard')
         setPendingPaste({ text, meta })
         return
       }
       sendClipboardText(text)
+      if (result.source === 'memory') pushToast({ type: 'info', message: 'Pasted from app clipboard' })
     } catch (err) {
       setPendingPaste({ text: '', meta: ['clipboard unavailable'], mode: 'manual' })
       pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Paste failed' })

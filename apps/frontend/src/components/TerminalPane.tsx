@@ -5,7 +5,7 @@ import { usePreferences } from '@/hooks/usePreferences'
 import { useMobileKeyboard } from '@/hooks/useMobileKeyboard'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { formatDroppedPaths } from '@/lib/path-drop'
-import { extractClipboardText } from '@/lib/clipboard-text'
+import { extractClipboardText, writeClipboardText } from '@/lib/clipboard-text'
 import { DELETE_NEXT_WORD_SEQUENCE, DELETE_PREV_WORD_SEQUENCE } from '@/lib/terminal-keys'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { api } from '@/lib/api'
@@ -131,11 +131,22 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     let stableFitToken = 0
     let deleteWordRepeatTimer: ReturnType<typeof setTimeout> | null = null
     let deleteWordRepeatActive = false
+    let lastSelection = ''
 
     const notifyReady = () => {
       if (disposed || readyNotified) return
       readyNotified = true
       onReadyRef.current?.()
+    }
+    const focusTerminalInput = () => {
+      if (isMobileDevice) {
+        focusKeyboard()
+        return
+      }
+      terminal?.focus?.()
+      container.focus()
+      const input = container.querySelector('textarea')
+      if (input instanceof HTMLTextAreaElement) input.focus({ preventScroll: true })
     }
     const stopDeleteWordRepeat = () => {
       deleteWordRepeatActive = false
@@ -451,10 +462,27 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           onInputRef.current?.(data)
         })
       )
+      disposables.push(
+        terminal.onSelectionChange(() => {
+          const selection = terminal?.getSelection?.() || ''
+          if (!selection) {
+            lastSelection = ''
+            return
+          }
+          if (selection === lastSelection) return
+          lastSelection = selection
+          void writeClipboardText(selection)
+        })
+      )
       terminal.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+        if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'c' && terminal.hasSelection?.()) {
+          window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-copy'))
+          return false
+        }
         if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'v') {
-          container.focus()
-          return true
+          terminal.focus()
+          window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-paste'))
+          return false
         }
         if (e.key === 'Backspace' && e.ctrlKey && !e.metaKey && !e.altKey) {
           if (e.repeat || deleteWordRepeatActive) return false
@@ -593,11 +621,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       container.addEventListener('drop', handleDrop)
       const handlePaste = (e: ClipboardEvent) => {
         const text = extractClipboardText(e.clipboardData)
-        if (!text) {
-          e.preventDefault()
-          e.stopPropagation()
-          return
-        }
+        if (!text) return
         e.preventDefault()
         e.stopPropagation()
         onInputRef.current?.(text)
@@ -606,8 +630,13 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const handlePointerSync = () => {
         void syncActivePane()
       }
+      const handleFocusTerminal = () => {
+        focusTerminalInput()
+        requestAnimationFrame(focusTerminalInput)
+      }
       container.addEventListener('mouseup', handlePointerSync)
       container.addEventListener('touchend', handlePointerSync)
+      window.addEventListener('tmuxgo-focus-terminal', handleFocusTerminal as EventListener)
       disposables.push({
         dispose: () => {
           window.removeEventListener('tmux-attached', handleAttached as EventListener)
@@ -626,6 +655,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           container.removeEventListener('paste', handlePaste)
           container.removeEventListener('mouseup', handlePointerSync)
           container.removeEventListener('touchend', handlePointerSync)
+          window.removeEventListener('tmuxgo-focus-terminal', handleFocusTerminal as EventListener)
         },
       })
       resizeObserver = new ResizeObserver(() => {
@@ -834,6 +864,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         ['--terminal-padding-bottom' as any]: isMobileDevice ? '0px' : `${preferences.terminalPadding}px`,
       }}
       onMouseDown={() => terminalInstance.current?.focus?.()}
+      onFocus={() => terminalInstance.current?.focus?.()}
       onTouchEnd={(e) => {
         if (isMobileDevice && !touchMovedRef.current) {
           e.preventDefault()
@@ -843,7 +874,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           lastTapRef.current = null
           focusKeyboard()
         } else if (!isMobileDevice) {
-          terminalInstance.current?.focus?.()
+          terminalRef.current?.focus()
         }
         touchMovedRef.current = false
       }}

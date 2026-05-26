@@ -28,4 +28,19 @@ describe('PasteConfirmDialog', () => {
     await user.click(screen.getByRole('button', { name: 'Send' }))
     expect(onSend).toHaveBeenCalledTimes(1)
   })
+  it('renders manual paste mode', () => {
+    render(
+      React.createElement(PasteConfirmDialog, {
+        open: true,
+        text: '',
+        meta: ['clipboard unavailable'],
+        mode: 'manual',
+        onSend: vi.fn(),
+        onEscapeSend: vi.fn(),
+        onCancel: vi.fn(),
+      })
+    )
+    expect(screen.getByText('Paste manually')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Retry Permission' })).toBeInTheDocument()
+  })
 })
