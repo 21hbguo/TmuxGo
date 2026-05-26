@@ -3,12 +3,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useFileList, useFilePreview, useFileRoots, useFileSearch } from '@/hooks/useApi'
 import { useConsoleStore } from '@/stores/useConsoleStore'
-import type { FileContentMatch, FileItem, FileRoot } from '@/types'
+import type { FileContentMatch, FileItem, FileListResponse, FilePreviewResponse, FileRoot } from '@/types'
 import { writeClipboardText } from '@/lib/clipboard-text'
 import { quoteShellPath } from '@/lib/path-drop'
 
 type SearchMode = 'name' | 'content'
-type RecentDirectory = { rootId: string; rootPath: string; name: string; path: string }
+type FavoriteDirectory = { rootId: string; rootPath: string; name: string; path: string }
+type FileRootOption = FileRoot & { sourceRootId: string; basePath: string }
 type FileEntry = FileItem | FileContentMatch
 
 function formatSize(size: number) {
@@ -24,17 +25,25 @@ function joinPath(base: string, name: string) {
   if (!base || base === '/') return `/${name.replace(/^\/+/, '')}`
   return `${base.replace(/\/+$/, '')}/${name.replace(/^\/+/, '')}`
 }
-function readRecentDirectories() {
+function joinRelativePath(base: string, name: string) {
+  return `${base}/${name}`.split(/[\\/]+/).filter(Boolean).join('/')
+}
+function readFavoriteDirectories() {
   if (typeof window === 'undefined') return []
   try {
-    return JSON.parse(localStorage.getItem('tmuxgo-recent-directories') || '[]') as { rootId: string; rootPath: string; name: string; path: string }[]
+    return JSON.parse(localStorage.getItem('tmuxgo-favorite-directories') || '[]') as FavoriteDirectory[]
   } catch {
     return []
   }
 }
-function writeRecentDirectory(entry: { rootId: string; rootPath: string; name: string; path: string }) {
-  const next = [entry, ...readRecentDirectories().filter((item) => item.rootId !== entry.rootId || item.path !== entry.path)].slice(0, 3)
-  localStorage.setItem('tmuxgo-recent-directories', JSON.stringify(next))
+function writeFavoriteDirectories(entries: FavoriteDirectory[]) {
+  localStorage.setItem('tmuxgo-favorite-directories', JSON.stringify(entries))
+}
+function toggleFavoriteDirectoryEntry(entry: FavoriteDirectory) {
+  const current = readFavoriteDirectories()
+  const exists = current.some((item) => item.rootId === entry.rootId && item.path === entry.path)
+  const next = exists ? current.filter((item) => item.rootId !== entry.rootId || item.path !== entry.path) : [entry, ...current].slice(0, 12)
+  writeFavoriteDirectories(next)
   return next
 }
 function readHideDotFiles() {
@@ -61,38 +70,79 @@ function getDirectoryName(path: string, root: FileRoot) {
   const parts = path.split(/[\\/]+/).filter(Boolean)
   return parts[parts.length - 1] || root.label
 }
-function formatRecentDirectoryLabel(path: string, rootLabel: string) {
+function formatDirectoryShortcutLabel(path: string, rootLabel: string) {
   return `${rootLabel} · ${path || '/'}`
+}
+function getFavoriteRootOptionId(entry: { rootId: string; path: string }) {
+  return `favorite:${entry.rootId}:${encodeURIComponent(entry.path)}`
+}
+function getBreadcrumbs(path: string) {
+  const parts = path.split(/[\\/]+/).filter(Boolean)
+  return [{ name: '/', path: '' }, ...parts.map((name, index) => ({ name, path: parts.slice(0, index + 1).join('/') }))]
+}
+function getDirectoryPathChain(path: string) {
+  const parts = path.split(/[\\/]+/).filter(Boolean)
+  return parts.map((_, index) => parts.slice(0, index + 1).join('/'))
+}
+function stripBasePath(path: string, basePath: string) {
+  const normalizedPath = path.split(/[\\/]+/).filter(Boolean).join('/')
+  const normalizedBasePath = basePath.split(/[\\/]+/).filter(Boolean).join('/')
+  if (!normalizedBasePath) return normalizedPath
+  if (!normalizedPath || normalizedPath === normalizedBasePath) return ''
+  const prefix = `${normalizedBasePath}/`
+  return normalizedPath.startsWith(prefix) ? normalizedPath.slice(prefix.length) : normalizedPath
+}
+function rebaseEntryPath<T extends { path: string }>(entry: T, basePath: string) {
+  const nextPath = stripBasePath(entry.path, basePath)
+  return nextPath === entry.path ? entry : { ...entry, path: nextPath }
+}
+function rebaseListData(listData: FileListResponse | undefined, root: FileRootOption | undefined) {
+  if (!listData || !root) return listData
+  const nextPath = stripBasePath(listData.path, root.basePath)
+  return { ...listData, root: { id: root.id, label: root.label, path: root.path }, path: nextPath, breadcrumbs: getBreadcrumbs(nextPath), items: listData.items.map((item) => rebaseEntryPath(item, root.basePath)) }
+}
+function rebasePreview(preview: FilePreviewResponse | undefined, basePath: string) {
+  if (!preview) return preview
+  return rebaseEntryPath(preview, basePath)
+}
+function FavoriteDirectoryButton({ active, name, onClick }: { active: boolean; name: string; onClick: (event: React.MouseEvent) => void }) {
+  return <button onClick={onClick} className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${active ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-3 hover:text-text-1'}`} aria-label={`${active ? 'Unfavorite' : 'Favorite'} ${name}`}>{active ? '已收藏' : '收藏'}</button>
 }
 function TreeDirectoryNode({
   rootId,
+  rootBasePath,
   item,
   depth,
   hideDotFiles,
   selectedPath,
+  isFavoriteDirectory,
   onToggle,
+  onToggleFavorite,
   onSelectFile,
   onInsert,
   onContextMenu,
   openDirectories,
 }: {
   rootId: string
+  rootBasePath: string
   item: FileItem
   depth: number
   hideDotFiles: boolean
   selectedPath: string
+  isFavoriteDirectory: (entry: { rootId: string; path: string }) => boolean
   onToggle: (path: string) => void
+  onToggleFavorite: (item: FileItem) => void
   onSelectFile: (item: FileEntry) => void
   onInsert: (item: FileEntry) => void
   onContextMenu: (event: React.MouseEvent, item: FileEntry) => void
   openDirectories: Set<string>
 }) {
   const isOpen = openDirectories.has(item.path)
-  const { data: childList, isLoading } = useFileList(rootId, item.path, isOpen)
+  const { data: childList, isLoading } = useFileList(rootId, joinRelativePath(rootBasePath, item.path), isOpen)
   const childItems = useMemo(() => {
-    const nextItems = childList?.items || []
+    const nextItems = (childList?.items || []).map((entry) => rebaseEntryPath(entry, rootBasePath))
     return hideDotFiles ? nextItems.filter((entry) => !isDotPath(entry.path || entry.name)) : nextItems
-  }, [childList, hideDotFiles])
+  }, [childList, hideDotFiles, rootBasePath])
   return (
     <div>
       <button
@@ -107,6 +157,11 @@ function TreeDirectoryNode({
           <span className={`text-[10px] ${isOpen ? 'text-accent' : 'text-text-3'}`}>{isOpen ? '▾' : '▸'}</span>
           <span className="text-accent">▸</span>
           <span className="min-w-0 flex-1 truncate font-mono text-text-1">{item.name}</span>
+          <FavoriteDirectoryButton active={isFavoriteDirectory({ rootId, path: joinRelativePath(rootBasePath, item.path) })} name={item.name} onClick={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            onToggleFavorite(item)
+          }} />
           <span className="text-[10px] text-text-3">dir</span>
         </div>
       </button>
@@ -118,11 +173,14 @@ function TreeDirectoryNode({
               <TreeDirectoryNode
                 key={child.path}
                 rootId={rootId}
+                rootBasePath={rootBasePath}
                 item={child}
                 depth={depth + 1}
                 hideDotFiles={hideDotFiles}
                 selectedPath={selectedPath}
+                isFavoriteDirectory={isFavoriteDirectory}
                 onToggle={onToggle}
+                onToggleFavorite={onToggleFavorite}
                 onSelectFile={onSelectFile}
                 onInsert={onInsert}
                 onContextMenu={onContextMenu}
@@ -157,23 +215,33 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
   const { filePanelWidth, setFilePanelWidth, setFilePanelOpen, pushToast } = useConsoleStore()
   const { data: roots = [] } = useFileRoots()
   const isMobile = mode === 'mobile'
-  const [rootId, setRootId] = useState('')
+  const [selectedRootId, setSelectedRootId] = useState('')
   const [currentPath, setCurrentPath] = useState('')
   const [selectedPath, setSelectedPath] = useState('')
   const [query, setQuery] = useState('')
   const [searchMode, setSearchMode] = useState<SearchMode>('name')
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: FileEntry } | null>(null)
   const [mobileView, setMobileView] = useState<'list' | 'preview'>('list')
-  const [recentDirectories, setRecentDirectories] = useState<RecentDirectory[]>([])
+  const [favoriteDirectories, setFavoriteDirectories] = useState<FavoriteDirectory[]>([])
   const [contentReady, setContentReady] = useState(isMobile)
   const [hideDotFiles, setHideDotFiles] = useState(readHideDotFiles)
   const [openDirectories, setOpenDirectories] = useState<Set<string>>(new Set())
   const resizingRef = useRef(false)
   const touchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const { data: listData, isLoading: listLoading } = useFileList(rootId, currentPath, true)
-  const { data: preview } = useFilePreview(rootId, selectedPath)
-  const { data: searchResults = [], isFetching: searchLoading } = useFileSearch(rootId, searchMode, query)
-  const root = roots.find((item) => item.id === rootId)
+  const virtualRoots = useMemo(() => favoriteDirectories.map((item) => ({ id: getFavoriteRootOptionId(item), label: item.name, path: joinPath(item.rootPath, item.path), sourceRootId: item.rootId, basePath: item.path })), [favoriteDirectories])
+  const rootOptions = useMemo(() => [...roots.map((item) => ({ ...item, sourceRootId: item.id, basePath: '' })), ...virtualRoots], [roots, virtualRoots])
+  const activeRoot = rootOptions.find((item) => item.id === selectedRootId) || rootOptions[0]
+  const activeRootId = activeRoot?.sourceRootId || ''
+  const activeRootBasePath = activeRoot?.basePath || ''
+  const listQueryPath = joinRelativePath(activeRootBasePath, currentPath)
+  const previewQueryPath = joinRelativePath(activeRootBasePath, selectedPath)
+  const { data: rawListData, isLoading: listLoading } = useFileList(activeRootId, listQueryPath, true)
+  const { data: rawPreview } = useFilePreview(activeRootId, previewQueryPath)
+  const { data: rawSearchResults = [], isFetching: searchLoading } = useFileSearch(activeRootId, searchMode, query, activeRootBasePath)
+  const root = activeRoot
+  const listData = useMemo(() => rebaseListData(rawListData, activeRoot), [rawListData, activeRoot])
+  const preview = useMemo(() => rebasePreview(rawPreview, activeRootBasePath), [rawPreview, activeRootBasePath])
+  const searchResults = useMemo(() => rawSearchResults.map((item) => rebaseEntryPath(item, activeRootBasePath)), [rawSearchResults, activeRootBasePath])
   const rootLabelById = useMemo(() => Object.fromEntries(roots.map((item) => [item.id, item.label])), [roots])
   const quickRoots = useMemo(() => {
     const workspace = roots.find((item) => getRootKind(item) === 'workspace')
@@ -183,13 +251,18 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
   const isSearching = query.trim().length > 1
   const items = useMemo(() => isSearching ? searchResults : listData?.items || [], [isSearching, searchResults, listData])
   const visibleItems = useMemo(() => hideDotFiles ? items.filter((item: any) => !isDotPath(item.path || item.name)) : items, [hideDotFiles, items])
-  const visibleRecentDirectories = useMemo(() => hideDotFiles ? recentDirectories.filter((item) => !isDotPath(item.path)) : recentDirectories, [hideDotFiles, recentDirectories])
+  const visibleFavoriteDirectories = useMemo(() => hideDotFiles ? favoriteDirectories.filter((item) => !isDotPath(item.path)) : favoriteDirectories, [hideDotFiles, favoriteDirectories])
 
   useEffect(() => {
-    if (!rootId && roots[0]) setRootId(roots[0].id)
-  }, [roots, rootId])
+    if (!selectedRootId && rootOptions[0]) setSelectedRootId(rootOptions[0].id)
+  }, [rootOptions, selectedRootId])
   useEffect(() => {
-    setRecentDirectories(readRecentDirectories())
+    if (!selectedRootId) return
+    if (rootOptions.some((item) => item.id === selectedRootId)) return
+    setSelectedRootId(rootOptions[0]?.id || '')
+  }, [rootOptions, selectedRootId])
+  useEffect(() => {
+    setFavoriteDirectories(readFavoriteDirectories())
   }, [])
   useEffect(() => {
     if (isMobile) return
@@ -218,14 +291,8 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
     window.addEventListener('click', close)
     return () => window.removeEventListener('click', close)
   }, [])
-  useEffect(() => {
-    if (!root) return
-    if (!currentPath) return
-    setRecentDirectories(writeRecentDirectory({ rootId, rootPath: root.path, name: getDirectoryName(currentPath, root), path: currentPath }))
-  }, [currentPath, root, rootId])
-
   const switchRoot = (nextRootId: string) => {
-    setRootId(nextRootId)
+    setSelectedRootId(nextRootId)
     setCurrentPath('')
     setSelectedPath('')
     setQuery('')
@@ -233,9 +300,26 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
     setOpenDirectories(new Set())
   }
   const openDirectoryShortcut = (entry: { rootId: string; path: string }) => {
-    setRootId(entry.rootId)
-    if (isMobile) setCurrentPath(entry.path)
-    else setOpenDirectories(new Set(entry.path ? [entry.path] : []))
+    const nextRootId = getFavoriteRootOptionId(entry)
+    setSelectedRootId(nextRootId)
+    if (isMobile) setCurrentPath('')
+    else setOpenDirectories(new Set())
+    setSelectedPath('')
+    setQuery('')
+    setMobileView('list')
+  }
+  const isFavoriteDirectory = (entry: { rootId: string; path: string }) => favoriteDirectories.some((item) => item.rootId === entry.rootId && item.path === entry.path)
+  const toggleFavoriteDirectory = (item: FileItem) => {
+    if (!root) return
+    const nextRootId = activeRoot?.sourceRootId || ''
+    const nextRootPath = roots.find((entry) => entry.id === nextRootId)?.path || root.path
+    const nextPath = joinRelativePath(activeRootBasePath, item.path)
+    const nextName = getDirectoryName(nextPath, { ...root, path: nextRootPath })
+    setFavoriteDirectories(toggleFavoriteDirectoryEntry({ rootId: nextRootId, rootPath: nextRootPath, name: nextName, path: nextPath }))
+  }
+  const openDesktopDirectoryPath = (path: string) => {
+    setOpenDirectories(new Set(getDirectoryPathChain(path)))
+    setCurrentPath('')
     setSelectedPath('')
     setQuery('')
     setMobileView('list')
@@ -251,6 +335,10 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
 
   const openItem = (item: FileEntry) => {
     if (item.type === 'directory') {
+      if (!isMobile && isSearching) {
+        openDesktopDirectoryPath(item.path)
+        return
+      }
       if (!isMobile) {
         toggleDesktopDirectory(item.path)
         return
@@ -309,15 +397,15 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
     )
   ) : (
     <div className="p-3 text-xs text-text-3">
-      <div className="text-text-2">Recent directories</div>
-      {visibleRecentDirectories.length ? (
+      <div className="text-text-2">Favorite directories</div>
+      {visibleFavoriteDirectories.length ? (
         <div className="mt-2 space-y-1">
-          {visibleRecentDirectories.map((item) => (
-            <button key={`${item.rootId}-${item.path}`} onClick={() => openDirectoryShortcut(item)} className="block w-full truncate rounded bg-bg-2 px-2 py-1.5 text-left font-mono text-[11px] text-text-2 hover:text-accent">{formatRecentDirectoryLabel(item.path, rootLabelById[item.rootId] || item.name)}</button>
+          {visibleFavoriteDirectories.map((item) => (
+            <button key={`${item.rootId}-${item.path}`} onClick={() => openDirectoryShortcut(item)} className="block w-full truncate rounded bg-bg-2 px-2 py-1.5 text-left font-mono text-[11px] text-text-2 hover:text-accent">{formatDirectoryShortcutLabel(item.path, rootLabelById[item.rootId] || item.name)}</button>
           ))}
         </div>
       ) : (
-        <div className="mt-2">Enter a directory from Workspace or Home to keep it here for quick return.</div>
+        <div className="mt-2">收藏目录后会显示在这里，方便从 Workspace 或 Home 快速返回。</div>
       )}
     </div>
   )
@@ -339,17 +427,17 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
         <div className="flex items-center gap-2">
           {isMobile && mobileView === 'preview' && <button onClick={() => setMobileView('list')} className="rounded px-2 py-1 text-text-3 hover:bg-bg-2">‹</button>}
           <div className="text-sm font-semibold text-text-1">Files</div>
-          <select value={rootId} onChange={(e) => switchRoot(e.target.value)} className="min-w-0 flex-1 rounded border border-[var(--line)] bg-bg-2 px-2 py-1 text-xs text-text-2 outline-none">
-            {roots.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+          <select value={selectedRootId} onChange={(e) => switchRoot(e.target.value)} className="min-w-0 flex-1 rounded border border-[var(--line)] bg-bg-2 px-2 py-1 text-xs text-text-2 outline-none">
+            {rootOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
           </select>
           <button onClick={onClose || (() => setFilePanelOpen(false))} className="rounded px-2 py-1 text-text-3 hover:bg-bg-2 hover:text-text-1">×</button>
         </div>
         <div className="mt-2 flex flex-wrap gap-1.5">
           {quickRoots.map((item) => (
-            <button key={item.id} onClick={() => switchRoot(item.id)} className={`rounded px-2 py-1 text-[11px] ${rootId === item.id ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-2 hover:text-text-1'}`}>{item.label}</button>
+            <button key={item.id} onClick={() => switchRoot(item.id)} className={`rounded px-2 py-1 text-[11px] ${selectedRootId === item.id ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-2 hover:text-text-1'}`}>{item.label}</button>
           ))}
-          {visibleRecentDirectories.map((item) => (
-            <button key={`recent-${item.rootId}-${item.path || 'root'}`} onClick={() => openDirectoryShortcut(item)} className="max-w-full truncate rounded bg-bg-2 px-2 py-1 text-[11px] text-text-3 hover:text-accent">{formatRecentDirectoryLabel(item.path, rootLabelById[item.rootId] || item.name)}</button>
+          {visibleFavoriteDirectories.map((item) => (
+            <button key={`favorite-${item.rootId}-${item.path || 'root'}`} onClick={() => openDirectoryShortcut(item)} className={`max-w-full truncate rounded px-2 py-1 text-[11px] ${selectedRootId === getFavoriteRootOptionId(item) ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-3 hover:text-accent'}`}>{formatDirectoryShortcutLabel(item.path, rootLabelById[item.rootId] || item.name)}</button>
           ))}
         </div>
         <div className="mt-2 flex min-w-0 items-center gap-1 overflow-x-auto text-xs text-text-3 scrollbar-none">
@@ -371,12 +459,12 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
         </label>
       </div>}
       {(!isMobile || mobileView === 'list') && <div className="min-h-0 flex-1 overflow-y-auto">
-        {isMobile && !isSearching && !currentPath && visibleRecentDirectories.length > 0 && (
+        {isMobile && !isSearching && !currentPath && visibleFavoriteDirectories.length > 0 && (
           <div className="border-b border-[var(--line)] p-3">
-            <div className="mb-2 text-[10px] uppercase tracking-[0.18em] text-text-3">Recent Directories</div>
+            <div className="mb-2 text-[10px] uppercase tracking-[0.18em] text-text-3">Favorite Directories</div>
             <div className="space-y-1">
-              {visibleRecentDirectories.map((item) => (
-                <button key={`${item.rootId}-${item.path}`} onClick={() => openDirectoryShortcut(item)} className="w-full truncate rounded bg-bg-2 px-2 py-1.5 text-left font-mono text-xs text-text-2 active:text-accent">{formatRecentDirectoryLabel(item.path, rootLabelById[item.rootId] || item.name)}</button>
+              {visibleFavoriteDirectories.map((item) => (
+                <button key={`${item.rootId}-${item.path}`} onClick={() => openDirectoryShortcut(item)} className="w-full truncate rounded bg-bg-2 px-2 py-1.5 text-left font-mono text-xs text-text-2 active:text-accent">{formatDirectoryShortcutLabel(item.path, rootLabelById[item.rootId] || item.name)}</button>
               ))}
             </div>
           </div>
@@ -386,12 +474,15 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
           !isMobile && !isSearching && item.type === 'directory' ? (
             <TreeDirectoryNode
               key={item.path}
-              rootId={rootId}
+              rootId={activeRootId}
+              rootBasePath={activeRootBasePath}
               item={item}
               depth={0}
               hideDotFiles={hideDotFiles}
               selectedPath={selectedPath}
+              isFavoriteDirectory={isFavoriteDirectory}
               onToggle={toggleDesktopDirectory}
+              onToggleFavorite={toggleFavoriteDirectory}
               onSelectFile={openItem}
               onInsert={insertItemPath}
               onContextMenu={(e, entry) => {
@@ -431,6 +522,11 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
               <div className="flex items-center gap-2">
                 <FileIcon type={item.type} />
                 <span className="min-w-0 flex-1 truncate font-mono text-text-1">{item.name}</span>
+                {item.type === 'directory' && <FavoriteDirectoryButton active={isFavoriteDirectory({ rootId: activeRootId, path: joinRelativePath(activeRootBasePath, item.path) })} name={item.name} onClick={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  toggleFavoriteDirectory(item)
+                }} />}
                 <span className="text-[10px] text-text-3">{item.type === 'file' ? formatSize(item.size) : 'dir'}</span>
               </div>
               {'matches' in item && item.matches?.[0] && <div className="mt-1 truncate pl-5 font-mono text-[10px] text-text-3">L{item.matches[0].number}: {item.matches[0].content}</div>}

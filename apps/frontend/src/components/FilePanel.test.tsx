@@ -39,7 +39,11 @@ vi.mock('@/hooks/useApi', () => ({
     return { data: getListData(nextRootId || 'root-workspace', nextCurrentPath), isLoading: false }
   },
   useFilePreview: () => ({ data: null }),
-  useFileSearch: () => ({ data: [], isFetching: false }),
+  useFileSearch: (_rootId: string, _mode: string, query: string) => {
+    if (query === 'docs') return { data: [{ name: 'docs', path: 'docs', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }], isFetching: false }
+    if (query === 'project') return { data: [{ name: 'project', path: 'project', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }], isFetching: false }
+    return { data: [], isFetching: false }
+  },
 }))
 vi.mock('@/lib/clipboard-text', () => ({
   writeClipboardText: (...args: any[]) => writeClipboardText(...args),
@@ -77,25 +81,46 @@ describe('FilePanel', () => {
     await waitFor(() => expect(screen.queryByText('index.ts')).not.toBeInTheDocument())
   })
 
-  it('stores recent directories when entering directories on mobile and keeps the last three', async () => {
-    render(React.createElement(FilePanel, { mode: 'mobile' }))
-    fireEvent.click((await screen.findByText('src')).closest('button') as HTMLButtonElement)
-    fireEvent.click(screen.getByRole('button', { name: '/' }))
-    fireEvent.click((await screen.findByText('docs')).closest('button') as HTMLButtonElement)
-    fireEvent.click(screen.getByRole('button', { name: 'Home' }))
-    fireEvent.click((await screen.findByText('project')).closest('button') as HTMLButtonElement)
-    fireEvent.click(screen.getByRole('button', { name: '/' }))
-    fireEvent.click((await screen.findByText('downloads')).closest('button') as HTMLButtonElement)
-    const recent = JSON.parse(localStorage.getItem('tmuxgo-recent-directories') || '[]')
-    expect(recent).toHaveLength(3)
-    expect(recent.map((item: any) => `${item.rootId}:${item.path}`)).toEqual(['root-home:downloads', 'root-home:project', 'root-workspace:docs'])
+  it('adds and removes favorite directories on desktop', async () => {
+    render(React.createElement(FilePanel))
+    fireEvent.click(screen.getByRole('button', { name: 'Favorite src' }))
+    let favorites = JSON.parse(localStorage.getItem('tmuxgo-favorite-directories') || '[]')
+    expect(favorites.map((item: any) => `${item.rootId}:${item.path}`)).toEqual(['root-workspace:src'])
+    fireEvent.click(screen.getByRole('button', { name: 'Unfavorite src' }))
+    favorites = JSON.parse(localStorage.getItem('tmuxgo-favorite-directories') || '[]')
+    expect(favorites).toEqual([])
   })
 
-  it('opens a recent directory shortcut on mobile', async () => {
-    localStorage.setItem('tmuxgo-recent-directories', JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]))
+  it('opens a favorite directory shortcut on mobile', async () => {
+    localStorage.setItem('tmuxgo-favorite-directories', JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]))
     render(React.createElement(FilePanel, { mode: 'mobile' }))
-    const recentButtons = await screen.findAllByRole('button', { name: 'Home · project' })
-    fireEvent.click(recentButtons[0])
+    const favoriteButtons = await screen.findAllByRole('button', { name: 'Home · project' })
+    fireEvent.click(favoriteButtons[0])
     await waitFor(() => expect(screen.getByText('demo.txt')).toBeInTheDocument())
+  })
+
+  it('shows favorite directories as selectable roots', async () => {
+    localStorage.setItem('tmuxgo-favorite-directories', JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]))
+    render(React.createElement(FilePanel))
+    expect(await screen.findByRole('option', { name: 'project' })).toBeInTheDocument()
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'favorite:root-home:project' } })
+    await waitFor(() => expect(screen.getByText('demo.txt')).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: '/' })).toBeInTheDocument()
+  })
+
+  it('expands a searched directory on desktop only after click', async () => {
+    render(React.createElement(FilePanel))
+    fireEvent.change(screen.getByPlaceholderText('Search file names'), { target: { value: 'docs' } })
+    expect(screen.queryByText('guide.md')).not.toBeInTheDocument()
+    fireEvent.click((await screen.findByText('docs')).closest('button') as HTMLButtonElement)
+    await waitFor(() => expect(screen.getByText('guide.md')).toBeInTheDocument())
+  })
+
+  it('enters a searched directory on mobile only after click', async () => {
+    render(React.createElement(FilePanel, { mode: 'mobile' }))
+    fireEvent.change(screen.getByPlaceholderText('Search file names'), { target: { value: 'docs' } })
+    expect(screen.queryByText('guide.md')).not.toBeInTheDocument()
+    fireEvent.click((await screen.findByText('docs')).closest('button') as HTMLButtonElement)
+    await waitFor(() => expect(screen.getByText('guide.md')).toBeInTheDocument())
   })
 })

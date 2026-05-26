@@ -15,8 +15,10 @@ const OUTPUT_FLUSH_LIMIT = 65536
 const SCROLLBACK_LIMIT = 600
 const KEYBOARD_PASTE_FALLBACK_DELAY = 160
 const DELETE_WORD_REPEAT_DELAY = 140
-const DELETE_WORD_REPEAT_MIN_DELAY = 70
-const DELETE_WORD_REPEAT_ACCEL = 0.78
+const DELETE_WORD_REPEAT_SECOND_DELAY = 109
+const DELETE_WORD_REPEAT_THIRD_DELAY = 78
+const DELETE_WORD_REPEAT_FOURTH_DELAY = 56
+const DELETE_WORD_REPEAT_MIN_DELAY = 30
 
 interface TerminalPaneProps {
   sessionName?: string
@@ -268,10 +270,12 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       stopDeleteWordRepeat()
       deleteWordRepeatActive = true
       let delay = DELETE_WORD_REPEAT_DELAY
+      let repeatCount = 0
       const tick = () => {
         if (disposed || !deleteWordRepeatActive) return
         onInputRef.current?.(DELETE_PREV_WORD_SEQUENCE)
-        delay = Math.max(DELETE_WORD_REPEAT_MIN_DELAY, Math.round(delay * DELETE_WORD_REPEAT_ACCEL))
+        repeatCount += 1
+        delay = repeatCount === 1 ? DELETE_WORD_REPEAT_SECOND_DELAY : repeatCount === 2 ? DELETE_WORD_REPEAT_THIRD_DELAY : repeatCount === 3 ? DELETE_WORD_REPEAT_FOURTH_DELAY : DELETE_WORD_REPEAT_MIN_DELAY
         deleteWordRepeatTimer = setTimeout(tick, delay)
       }
       deleteWordRepeatTimer = setTimeout(tick, delay)
