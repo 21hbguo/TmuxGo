@@ -154,6 +154,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     let lastCopyNotice = ''
     let copySelectionTimer: ReturnType<typeof setTimeout> | null = null
     let keyboardPasteTimer: ReturnType<typeof setTimeout> | null = null
+    let pointerSyncActive = false
 
     const notifyReady = () => {
       if (disposed || readyNotified) return
@@ -720,7 +721,15 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-paste', { detail: { text, source: 'system' } }))
       }
       container.addEventListener('paste', handlePaste)
+      const clearPointerSync = () => {
+        pointerSyncActive = false
+      }
+      const armPointerSync = () => {
+        pointerSyncActive = true
+      }
       const handlePointerSync = () => {
+        if (!pointerSyncActive) return
+        pointerSyncActive = false
         clearCopySelectionTimer()
         runCopySelection(true,true)
         void syncActivePane()
@@ -732,8 +741,13 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         setTimeout(focusTerminalInput, 32)
         setTimeout(focusTerminalInput, 96)
       }
+      container.addEventListener('mousedown', armPointerSync)
+      container.addEventListener('touchstart', armPointerSync, { passive: true })
       window.addEventListener('mouseup', handlePointerSync)
       window.addEventListener('touchend', handlePointerSync)
+      window.addEventListener('touchcancel', clearPointerSync)
+      window.addEventListener('pointercancel', clearPointerSync)
+      window.addEventListener('blur', clearPointerSync)
       window.addEventListener('tmuxgo-focus-terminal', handleFocusTerminal as EventListener)
       disposables.push({
         dispose: () => {
@@ -751,8 +765,13 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           container.removeEventListener('dragleave', handleDragLeave)
           container.removeEventListener('drop', handleDrop)
           container.removeEventListener('paste', handlePaste)
+          container.removeEventListener('mousedown', armPointerSync)
+          container.removeEventListener('touchstart', armPointerSync)
           window.removeEventListener('mouseup', handlePointerSync)
           window.removeEventListener('touchend', handlePointerSync)
+          window.removeEventListener('touchcancel', clearPointerSync)
+          window.removeEventListener('pointercancel', clearPointerSync)
+          window.removeEventListener('blur', clearPointerSync)
           window.removeEventListener('tmuxgo-focus-terminal', handleFocusTerminal as EventListener)
           clearCopySelectionTimer()
           clearKeyboardPasteTimer()

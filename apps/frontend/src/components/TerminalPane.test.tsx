@@ -133,6 +133,7 @@ describe('TerminalPane', () => {
     const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(onSelectionChangeHandlers.length).toBeGreaterThan(0))
     terminalSelection = 'printf "mouseup_copy_ok"'
+    fireEvent.mouseDown(container.firstChild as Element)
     fireEvent.mouseUp(container.firstChild as Element)
     expect(clipboardMocks.writeClipboardText).toHaveBeenCalledWith('printf "mouseup_copy_ok"',{preferSync:true})
     await sleep(20)
@@ -143,15 +144,30 @@ describe('TerminalPane', () => {
     clipboardMocks.writeClipboardText
       .mockResolvedValueOnce({ copied: true, source: 'memory', unavailable: true })
       .mockResolvedValue({ copied: true, source: 'system', unavailable: false })
-    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(onSelectionChangeHandlers.length).toBeGreaterThan(0))
     terminalSelection = 'printf "retry_copy_ok"'
     onSelectionChangeHandlers[0]()
     await sleep(60)
     await waitFor(() => expect(clipboardMocks.writeClipboardText).toHaveBeenCalledTimes(1))
+    fireEvent.mouseDown(container.firstChild as Element)
     fireEvent.mouseUp(window)
     await waitFor(() => expect(clipboardMocks.writeClipboardText).toHaveBeenCalledTimes(2))
     expect(clipboardMocks.writeClipboardText).toHaveBeenLastCalledWith('printf "retry_copy_ok"',{preferSync:true})
+  })
+  it('does not retry selection copy on unrelated global mouse release', async () => {
+    clipboardMocks.writeClipboardText
+      .mockResolvedValueOnce({ copied: true, source: 'memory', unavailable: true })
+      .mockResolvedValue({ copied: true, source: 'system', unavailable: false })
+    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(onSelectionChangeHandlers.length).toBeGreaterThan(0))
+    terminalSelection = 'printf "no_global_retry_ok"'
+    onSelectionChangeHandlers[0]()
+    await sleep(60)
+    await waitFor(() => expect(clipboardMocks.writeClipboardText).toHaveBeenCalledTimes(1))
+    fireEvent.mouseUp(window)
+    await sleep(20)
+    expect(clipboardMocks.writeClipboardText).toHaveBeenCalledTimes(1)
   })
 
   it('repeats ctrl backspace quickly without relying on native repeat', async () => {

@@ -14,6 +14,7 @@ import { InstallAppBanner } from './InstallAppBanner'
 import { ShortcutBar } from './ShortcutBar'
 import { ToastViewport } from './ToastViewport'
 import { FilePanel } from './FilePanel'
+import { getViewportLayoutState } from './consoleLayoutViewport'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useHosts, useSessions, useSessionSnapshot } from '@/hooks/useApi'
 import { usePreferences } from '@/hooks/usePreferences'
@@ -92,30 +93,27 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       viewportFrameRef.current = null
       const isMobileViewport = window.matchMedia(MOBILE_QUERY).matches
       const vv = window.visualViewport
-      const viewportWidth = Math.round(vv?.width || window.innerWidth)
-      if (viewportWidthRef.current !== viewportWidth) {
-        viewportWidthRef.current = viewportWidth
-        viewportBaseHeightRef.current = 0
-        appHeightNumRef.current = 0
-      }
-      if (isMobileViewport && vv?.height && (!viewportBaseHeightRef.current || vv.height > viewportBaseHeightRef.current)) viewportBaseHeightRef.current = vv.height
-      const inset = (() => {
-        if (!vv) return 0
-        return Math.max(0, (viewportBaseHeightRef.current || vv.height) - vv.height)
-      })()
       const byClass = document.body.classList.contains('keyboard-open')
-      const open = inset >= 80 || byClass
-      if (keyboardStateRef.current.open !== open || keyboardStateRef.current.inset !== (open ? inset : 0)) {
-        keyboardStateRef.current = { open, inset: open ? inset : 0 }
+      const state = getViewportLayoutState({
+        isMobileViewport,
+        innerHeight: window.innerHeight,
+        viewportHeight: vv?.height || window.innerHeight,
+        viewportWidth: vv?.width || window.innerWidth,
+        previousViewportWidth: viewportWidthRef.current,
+        baseHeight: viewportBaseHeightRef.current,
+        keyboardOpen: keyboardStateRef.current.open,
+        keyboardInset: keyboardStateRef.current.inset,
+        bodyKeyboardOpen: byClass,
+      })
+      if (viewportWidthRef.current !== state.viewportWidth) appHeightNumRef.current = 0
+      viewportWidthRef.current = state.viewportWidth
+      viewportBaseHeightRef.current = state.baseHeight
+      const open = state.open
+      if (keyboardStateRef.current.open !== open || keyboardStateRef.current.inset !== state.inset) {
+        keyboardStateRef.current = { open, inset: state.inset }
         setKeyboardOpen(open)
       }
-      const nextHeight = Math.round(
-        !isMobileViewport
-          ? window.innerHeight
-          : open
-            ? (vv?.height || window.innerHeight)
-            : (vv?.height || viewportBaseHeightRef.current || window.innerHeight)
-      )
+      const nextHeight = state.nextHeight
       if (isMobileViewport && appHeightNumRef.current && !open && Math.abs(nextHeight - appHeightNumRef.current) < 36) return
       if (isMobileViewport && appHeightNumRef.current && open && Math.abs(nextHeight - appHeightNumRef.current) < 6) return
       const nextValue = `${nextHeight}px`
