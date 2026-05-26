@@ -198,6 +198,40 @@ describe('TerminalPane', () => {
     expect(requestPaste.mock.calls[0][0].detail.source).toBe('system')
     window.removeEventListener('tmuxgo-request-terminal-paste', requestPaste)
   })
+  it('intercepts paste before target listeners can inject into terminal', async () => {
+    const requestPaste = vi.fn()
+    const targetPaste = vi.fn()
+    window.addEventListener('tmuxgo-request-terminal-paste', requestPaste)
+    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    const target = container.querySelector('textarea') as HTMLTextAreaElement
+    target.addEventListener('paste', targetPaste)
+    fireEvent.paste(target, {
+      clipboardData: {
+        getData: (type: string) => type === 'text/plain' ? 'printf "blocked_direct_paste"' : '',
+      },
+    })
+    await sleep(60)
+    expect(requestPaste).toHaveBeenCalledTimes(1)
+    expect(requestPaste.mock.calls[0][0].detail.text).toBe('printf "blocked_direct_paste"')
+    expect(targetPaste).not.toHaveBeenCalled()
+    window.removeEventListener('tmuxgo-request-terminal-paste', requestPaste)
+  })
+  it('routes insertFromPaste input through unified paste request', async () => {
+    const requestPaste = vi.fn()
+    window.addEventListener('tmuxgo-request-terminal-paste', requestPaste)
+    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    const target = container.querySelector('textarea') as HTMLTextAreaElement
+    target.value = 'printf "input_paste_path"'
+    const event = new InputEvent('input', { bubbles: true, cancelable: true, data: null, inputType: 'insertFromPaste' })
+    target.dispatchEvent(event)
+    await sleep(60)
+    expect(requestPaste).toHaveBeenCalledTimes(1)
+    expect(requestPaste.mock.calls[0][0].detail.text).toBe('printf "input_paste_path"')
+    expect(target.value).toBe('')
+    window.removeEventListener('tmuxgo-request-terminal-paste', requestPaste)
+  })
 
   it('falls back to app clipboard paste when native paste does not arrive', async () => {
     const requestPaste = vi.fn()

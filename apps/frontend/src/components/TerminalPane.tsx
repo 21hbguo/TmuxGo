@@ -154,6 +154,9 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     let lastCopyNotice = ''
     let copySelectionTimer: ReturnType<typeof setTimeout> | null = null
     let keyboardPasteTimer: ReturnType<typeof setTimeout> | null = null
+    let keyboardPastePending = false
+    let lastPasteText = ''
+    let lastPasteAt = 0
     let pointerSyncActive = false
 
     const notifyReady = () => {
@@ -232,12 +235,26 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       clearTimeout(keyboardPasteTimer)
       keyboardPasteTimer = null
     }
+    const requestTerminalPaste = (text?: string) => {
+      if (text) {
+        window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-paste', { detail: { text, source: 'system' } }))
+        return
+      }
+      window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-paste'))
+    }
+    const markPasteForwarded = (text: string) => {
+      lastPasteText = text
+      lastPasteAt = Date.now()
+    }
+    const shouldSkipDuplicatePaste = (text: string) => Date.now() - lastPasteAt < 160 && text === lastPasteText
     const scheduleKeyboardPasteFallback = () => {
       clearKeyboardPasteTimer()
+      keyboardPastePending = true
       keyboardPasteTimer = setTimeout(() => {
         keyboardPasteTimer = null
+        keyboardPastePending = false
         terminal?.focus?.()
-        window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-paste'))
+        requestTerminalPaste()
       }, KEYBOARD_PASTE_FALLBACK_DELAY)
     }
     const stopDeleteWordRepeat = () => {
@@ -714,13 +731,49 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       container.addEventListener('drop', handleDrop)
       const handlePaste = (e: ClipboardEvent) => {
         const text = extractClipboardText(e.clipboardData)
-        if (!text) return
+        keyboardPastePending = false
+        if (!text) {
+          clearKeyboardPasteTimer()
+          e.preventDefault()
+          e.stopPropagation()
+          e.stopImmediatePropagation()
+          requestTerminalPaste()
+          return
+        }
+        if (shouldSkipDuplicatePaste(text)) {
+          clearKeyboardPasteTimer()
+          e.preventDefault()
+          e.stopPropagation()
+          e.stopImmediatePropagation()
+          return
+        }
         clearKeyboardPasteTimer()
         e.preventDefault()
         e.stopPropagation()
-        window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-paste', { detail: { text, source: 'system' } }))
+        e.stopImmediatePropagation()
+        markPasteForwarded(text)
+        requestTerminalPaste(text)
       }
-      container.addEventListener('paste', handlePaste)
+      const handlePasteInput = (e: InputEvent) => {
+        const isPasteInput = e.inputType === 'insertFromPaste' || keyboardPastePending
+        if (!isPasteInput) return
+        const target = e.target
+        const text = typeof e.data === 'string' && e.data ? e.data : target instanceof HTMLTextAreaElement ? target.value : ''
+        keyboardPastePending = false
+        clearKeyboardPasteTimer()
+        e.preventDefault()
+        e.stopPropagation()
+        e.stopImmediatePropagation()
+        if (target instanceof HTMLTextAreaElement) target.value = ''
+        if (text && shouldSkipDuplicatePaste(text)) return
+        if (text) markPasteForwarded(text)
+        requestTerminalPaste(text)
+      }
+      const helperTextarea = terminal.textarea
+      helperTextarea?.addEventListener('paste', handlePaste, true)
+      container.addEventListener('paste', handlePaste, true)
+      container.addEventListener('beforeinput', handlePasteInput as EventListener, true)
+      container.addEventListener('input', handlePasteInput as EventListener, true)
       const clearPointerSync = () => {
         pointerSyncActive = false
       }
@@ -764,7 +817,10 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           container.removeEventListener('dragover', handleDragOver)
           container.removeEventListener('dragleave', handleDragLeave)
           container.removeEventListener('drop', handleDrop)
-          container.removeEventListener('paste', handlePaste)
+          helperTextarea?.removeEventListener('paste', handlePaste, true)
+          container.removeEventListener('paste', handlePaste, true)
+          container.removeEventListener('beforeinput', handlePasteInput as EventListener, true)
+          container.removeEventListener('input', handlePasteInput as EventListener, true)
           container.removeEventListener('mousedown', armPointerSync)
           container.removeEventListener('touchstart', armPointerSync)
           window.removeEventListener('mouseup', handlePointerSync)
