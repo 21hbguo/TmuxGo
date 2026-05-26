@@ -81,6 +81,11 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
     setCommandPalette(true)
     pushOverlay('palette')
   }, [showCommandPalette, setCommandPalette, pushOverlay])
+  const openMobileFiles = useCallback(() => {
+    if (mobileFileSheetOpen) return
+    setMobileFileSheetOpen(true)
+    pushOverlay('mobile-files')
+  }, [mobileFileSheetOpen, setMobileFileSheetOpen, pushOverlay])
   const clearViewportSchedule = useCallback(() => {
     if (viewportFrameRef.current) {
       cancelAnimationFrame(viewportFrameRef.current)
@@ -235,13 +240,13 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'e') {
         e.preventDefault()
-        if (isMobile) setMobileFileSheetOpen(true)
+        if (isMobile) openMobileFiles()
         else toggleFilePanel()
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [showCommandPalette, openPalette, closeOverlay, toggleSidebar, toggleFilePanel, isMobile, setMobileFileSheetOpen])
+  }, [showCommandPalette, openPalette, closeOverlay, toggleSidebar, toggleFilePanel, isMobile, openMobileFiles])
 
   useEffect(() => {
     const handlePopState = () => {
@@ -251,11 +256,12 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       if (top === 'settings') setShowSettings(false)
       else if (top === 'drawer') setDrawerOpen(false)
       else if (top === 'palette') setCommandPalette(false)
+      else if (top === 'mobile-files') setMobileFileSheetOpen(false)
       stack.pop()
     }
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
-  }, [setCommandPalette])
+  }, [setCommandPalette, setMobileFileSheetOpen])
   useEffect(() => {
     const handleOpenSettings = () => openSettings()
     window.addEventListener('tmuxgo-open-settings', handleOpenSettings as EventListener)
@@ -300,7 +306,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       {!isMobile && preferences.showStatusBar && <StatusBar />}
       {isMobile && (
         <div className="mobile-nav-landscape-hide fixed left-0 right-0 bottom-0 z-40 h-[calc(48px+env(safe-area-inset-bottom))]">
-          {keyboardOpen ? <ShortcutBar mode="dock" /> : <MobileNav docked onOpenDrawer={openDrawer} onOpenSettings={openSettings} onOpenSearch={openPalette} onOpenFiles={() => setMobileFileSheetOpen(true)} />}
+          {keyboardOpen ? <ShortcutBar mode="dock" /> : <MobileNav docked onOpenDrawer={openDrawer} onOpenSettings={openSettings} onOpenSearch={openPalette} onOpenFiles={openMobileFiles} />}
         </div>
       )}
       {showCommandPalette && <CommandPalette onClose={() => closeOverlay('palette')} />}
@@ -311,7 +317,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
         onClose={() => closeOverlay('drawer')}
         type={drawerType}
       />
-      {mobileFileSheetOpen && <div className="fixed inset-0 z-50 bg-black/50"><div className="absolute bottom-0 left-0 right-0 h-[calc(var(--app-height,100dvh)-12px)] overflow-hidden rounded-t-xl border-t border-[var(--line)] bg-bg-1"><div className="flex justify-center py-2"><div className="h-1 w-10 rounded-full bg-text-3/30" /></div><FilePanel mode="mobile" onClose={() => setMobileFileSheetOpen(false)} /></div></div>}
+      {mobileFileSheetOpen && <div className="fixed inset-0 z-50 bg-black/50"><div className="absolute bottom-0 left-0 right-0 h-[calc(var(--app-height,100dvh)-12px)] overflow-hidden rounded-t-xl border-t border-[var(--line)] bg-bg-1"><div className="flex justify-center py-2"><div className="h-1 w-10 rounded-full bg-text-3/30" /></div><FilePanel mode="mobile" onClose={() => closeOverlay('mobile-files')} /></div></div>}
       <ToastViewport />
     </div>
   )
