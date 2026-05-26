@@ -2,11 +2,11 @@
 
 # :zap: TmuxGo
 
-### :round_pushpin: Pick up where you left off — anywhere, any device
+### :round_pushpin: 随时续上，任意设备无缝接力
 
-> Your tmux sessions, one tap away.
-> Start on your desktop, continue on your phone, review on your tablet.
-> **Never lose a train of thought again.**
+> 你的 tmux 会话，打开就能接上。
+> 在桌面开始，在手机继续，在平板查看。
+> **思路不中断，现场不丢失。**
 
 ![TmuxGo cover](assets/cover_tmuxgo_vip.png)
 
@@ -25,37 +25,37 @@
 
 ---
 
-## :fire: Why TmuxGo?
+## :fire: 为什么用 TmuxGo？
 
-| :desktop_computer: **Desktop** | :iphone: **Mobile** | :tablet: **Tablet** |
+| :desktop_computer: **桌面** | :iphone: **手机** | :ipad: **平板** |
 |:---:|:---:|:---:|
-| Full keyboard, multi-pane | Touch-friendly, virtual keys | Split-view, side-by-side |
+| 全键盘、多窗格高效操作 | 触控友好、虚拟按键补全输入 | 分屏并排，适合查看与跟进 |
 
-:point_right: **One session, three screens, zero interruption.**
+:point_right: **一个会话，三块屏幕，过程不中断。**
 
-- :globe_with_meridians: **Access from anywhere** — Tailscale-powered secure remote access, no port forwarding needed
-- :electric_plug: **Always-on sessions** — tmux keeps your work alive even when you close the browser
-- :zap: **Instant resume** — Reconnect in seconds, your cursor is exactly where you left it
-- :brain: **Context preserved** — Panes, layouts, history — all intact across devices
-- :lock: **Exclusive attach by default** — desktop and mobile both open sessions in exclusive attach mode by default
+- :globe_with_meridians: **随时访问** - 基于 Tailscale 的安全远程访问，无需手动做端口映射
+- :electric_plug: **会话常驻** - 即使关闭浏览器，tmux 里的工作仍然持续存在
+- :zap: **秒级恢复** - 重新连接后立刻回到上次停下的位置
+- :brain: **上下文保留** - 窗格、布局、历史记录都完整保留
+- :lock: **默认独占附着** - 桌面端和移动端默认都以独占模式打开会话
 
-## :sparkles: Features
+## :sparkles: 功能特性
 
-| Feature | Description |
+| 功能 | 说明 |
 |:--------|:------------|
-| :globe_with_meridians: **Terminal in Browser** | Full xterm.js terminal with tmux session management |
-| :art: **Multi-Pane Grid** | Split, resize, and arrange terminal panes like native tmux |
-| :satellite: **Tailscale Remote Access** | Access your sessions securely from anywhere via Tailscale |
-| :iphone: **Mobile Friendly** | Responsive UI with touch support, mobile drawer, and virtual keyboard |
-| :mag: **Command Palette** | Quick search for hosts, sessions, and windows (`Ctrl+K`) |
-| :open_file_folder: **File Browser** | Browse project files, preview text, insert paths, and toggle dotfiles |
-| :clipboard: **Text-Safe Clipboard** | Copy terminal selections and paste text without image/rich-content leaks |
-| :bookmark_tabs: **Session Templates** | One-click session layouts: Dev, Monitoring, ML Training |
-| :art: **Themes** | 6 built-in themes: Dark, Light, High Contrast, Dracula, Nord, Catppuccin |
-| :clipboard: **Command Snippets** | Reusable command library with pre-built and custom snippets |
-| :ledger: **Audit Log** | Track session activity and user actions |
+| :globe_with_meridians: **浏览器终端** | 基于 xterm.js 的完整终端体验，直接管理 tmux 会话 |
+| :art: **多窗格网格** | 像原生 tmux 一样拆分、缩放、编排终端窗格 |
+| :satellite: **Tailscale 远程访问** | 通过 Tailscale 从任意地点安全接入你的会话 |
+| :iphone: **移动端友好** | 响应式界面、抽屉导航、触控支持、虚拟键盘 |
+| :mag: **命令面板** | 使用 `Ctrl+K` 快速搜索主机、会话和窗口 |
+| :open_file_folder: **文件浏览器** | 浏览项目文件、预览文本、插入路径、切换隐藏文件显示 |
+| :clipboard: **安全文本剪贴板** | 复制终端选区、纯文本粘贴，避免图片和富文本泄漏 |
+| :bookmark_tabs: **会话模板** | 一键创建开发、监控、训练等常用布局 |
+| :art: **主题系统** | 内置 6 套主题：Dark、Light、High Contrast、Dracula、Nord、Catppuccin |
+| :clipboard: **命令片段** | 复用常用命令，支持内置片段和自定义片段 |
+| :ledger: **审计日志** | 跟踪会话活动和关键用户操作 |
 
-## :rocket: Quick Start
+## :rocket: 快速开始
 
 ```bash
 git clone https://github.com/<your-username>/TmuxGo.git
@@ -63,10 +63,11 @@ cd TmuxGo
 ./bootstrap.sh && ./start.sh
 ```
 
-Open `http://localhost:3000` in your browser. :tada:
-## :shield: Production Deploy
+浏览器打开 `http://localhost:3000`。:tada:
 
-For long-running usage on your own machine, use user-level `systemd`:
+## :shield: 生产部署
+
+如果要长期在自己的机器上运行，推荐使用用户级 `systemd`：
 
 ```bash
 git clone https://github.com/<your-username>/TmuxGo.git
@@ -76,19 +77,19 @@ cd TmuxGo
 systemctl --user enable --now tmuxgo.target
 ```
 
-Stop all services:
+停止全部服务：
 
 ```bash
 systemctl --user disable --now tmuxgo.target
 ```
 
-Remove all installed units:
+卸载全部单元：
 
 ```bash
 ./scripts/uninstall-systemd-user.sh
 ```
 
-View service status:
+查看服务状态：
 
 ```bash
 systemctl --user status tmuxgo-gateway.service
@@ -96,7 +97,7 @@ systemctl --user status tmuxgo-frontend.service
 systemctl --user status tmuxgo-agent.service
 ```
 
-View logs:
+查看日志：
 
 ```bash
 journalctl --user -u tmuxgo-gateway.service -f
@@ -104,24 +105,21 @@ journalctl --user -u tmuxgo-frontend.service -f
 journalctl --user -u tmuxgo-agent.service -f
 ```
 
-## :package: Requirements
+## :package: 依赖要求
 
-| Dependency | Version | Required | Notes |
+| 依赖 | 版本 | 必需 | 说明 |
 |:-----------|:--------|:--------:|:------|
-| :green_circle: Node.js | >= 20 | :white_check_mark: | Runtime |
-| :green_circle: tmux | any | :white_check_mark: | Terminal multiplexer |
-| :blue_circle: Tailscale | latest | :o: | Optional — for remote access |
-| :desktop_computer: OS | Linux / macOS / WSL2 | — | |
+| :green_circle: Node.js | >= 20 | :white_check_mark: | 运行时 |
+| :green_circle: tmux | 任意 | :white_check_mark: | 终端复用器 |
+| :blue_circle: Tailscale | 最新版 | :o: | 可选，用于远程访问 |
+| :desktop_computer: 系统 | Linux / macOS / WSL2 | - | 运行环境 |
 
 ```bash
-# Verify dependencies
 node -v && npm -v && tmux -V
-
-# Optional
 tailscale version
 ```
 
-## :jigsaw: Architecture
+## :jigsaw: 架构
 
 ```
 ┌──────────┐   WebSocket    ┌──────────┐   PTY   ┌──────────┐
@@ -130,120 +128,115 @@ tailscale version
 └──────────┘                └──────────┘         └──────────┘
 ```
 
-| Service | Port | Tech Stack |
+| 服务 | 端口 | 技术栈 |
 |:--------|:-----|:-----------|
-| :globe_with_meridians: Frontend (stable) | `3000` | Next.js 14, React 18, xterm.js, Tailwind |
-| :electric_plug: Gateway | `3001` | Fastify, WebSocket, node-pty |
-| :hammer_and_wrench: Frontend (dev) | `3002` | Next.js (hot reload) |
-| :lock: Tailscale HTTPS | `443`, `8443` | Auto-configured by `start.sh` |
+| :globe_with_meridians: Frontend（稳定版） | `3000` | Next.js 14、React 18、xterm.js、Tailwind |
+| :electric_plug: Gateway | `3001` | Fastify、WebSocket、node-pty |
+| :hammer_and_wrench: Frontend（开发版） | `3002` | Next.js 热更新 |
+| :lock: Tailscale HTTPS | `443`、`8443` | 由 `start.sh` 自动配置 |
 
-## :wrench: Development
+## :wrench: 开发
 
 ```bash
-# Start all services
 npm run dev
-
-# Start individual services
-npm run dev:frontend    # Frontend only
-npm run dev:gateway     # Gateway only
-npm run dev:agent       # Agent only
-
-# Build for production
+npm run dev:frontend
+npm run dev:gateway
+npm run dev:agent
 npm run build
 ```
 
-Production local start without `systemd`:
+不使用 `systemd` 的本地生产启动：
 
 ```bash
 ./start-prod.sh
 ```
 
-## :open_file_folder: Project Structure
+## :open_file_folder: 项目结构
 
 ```
 TmuxGo/
 ├── apps/
-│   ├── frontend/       # :large_blue_circle: Next.js 14 + xterm.js + Tailwind
-│   ├── gateway/        # :electric_plug: Fastify + WebSocket + node-pty
-│   └── agent/          # :satellite: Remote host agent
-├── deploy/systemd-user/# :shield: User-level systemd units
-├── bootstrap.sh        # :package: Install dependencies
-├── start-prod.sh       # :shield: Production start without systemd
-├── start.sh            # :rocket: Start all services
-├── scripts/            # :wrench: Install and uninstall helpers
-└── package.json        # :wrench: Workspace root
+│   ├── frontend/
+│   ├── gateway/
+│   └── agent/
+├── deploy/systemd-user/
+├── bootstrap.sh
+├── start-prod.sh
+├── start.sh
+├── scripts/
+└── package.json
 ```
 
-## :art: Themes
+## :art: 主题
 
-| Theme | Preview Style |
+| 主题 | 预览风格 |
 |:------|:--------------|
-| :crescent_moon: Dark (default) | Deep dark background, cyan accents |
-| :sunny: Light | Clean white background |
-| :black_circle: High Contrast | Maximum readability |
-| :vampire: Dracula | Purple-pink palette |
-| :snowflake: Nord | Arctic blue tones |
-| :cat: Catppuccin | Warm pastel colors |
+| :crescent_moon: Dark（默认） | 深色背景，青色点缀 |
+| :sunny: Light | 简洁浅色背景 |
+| :black_circle: High Contrast | 最大化可读性 |
+| :vampire: Dracula | 紫粉色系 |
+| :snowflake: Nord | 冷调蓝色系 |
+| :cat: Catppuccin | 柔和暖色系 |
 
-Themes are persisted in `localStorage` and can be switched from the preferences panel.
+主题会持久化保存到 `localStorage`，可在偏好设置面板中切换。
 
-## :keyboard: Keyboard Shortcuts
+## :keyboard: 快捷键
 
-| Shortcut | Action |
+| 快捷键 | 操作 |
 |:---------|:-------|
-| `Ctrl+K` / `Cmd+K` | Toggle Command Palette |
-| `Ctrl+B` / `Cmd+B` | Toggle Sidebar |
-| :arrow_up: :arrow_down: :arrow_left: :arrow_right: | Navigate (with hold-repeat) |
-| `Ctrl+B %` | Horizontal split |
-| `Ctrl+B "` | Vertical split |
-| `Esc` | Detach / Close |
-| `Tab` / `Shift+Tab` | Cycle panes |
-| `Ctrl+C` | Send interrupt |
+| `Ctrl+K` / `Cmd+K` | 打开或关闭命令面板 |
+| `Ctrl+B` / `Cmd+B` | 打开或关闭侧边栏 |
+| :arrow_up: :arrow_down: :arrow_left: :arrow_right: | 导航移动（支持按住连续触发） |
+| `Ctrl+B %` | 横向分屏 |
+| `Ctrl+B "` | 纵向分屏 |
+| `Esc` | 断开附着或关闭 |
+| `Tab` / `Shift+Tab` | 循环切换窗格 |
+| `Ctrl+C` | 发送中断 |
 
-> :bulb: Custom shortcuts can be defined from the Quick Actions sidebar and are saved to `localStorage`.
+> :bulb: 可在 Quick Actions 侧栏中定义自定义快捷操作，并保存到 `localStorage`。
 
-## :bookmark_tabs: Session Templates
+## :bookmark_tabs: 会话模板
 
-| Template | Panes |
+| 模板 | 窗格布局 |
 |:---------|:------|
-| :page_facing_up: Default | Single pane |
-| :hammer_and_wrench: Development | `vim` + terminal + `npm run dev` |
+| :page_facing_up: Default | 单窗格 |
+| :hammer_and_wrench: Development | `vim` + 终端 + `npm run dev` |
 | :bar_chart: Monitoring | `htop` + `docker stats` |
 | :brain: ML Training | `python train.py` + `nvidia-smi` + `tail -f logs/` |
 
-## :clipboard: Command Snippets
+## :clipboard: 命令片段
 
-Pre-built commands ready to use:
+内置常用命令可直接使用：
 
-| Category | Snippets |
+| 分类 | 示例 |
 |:---------|:---------|
-| :file_folder: File System | `ls -la`, `df -h`, `free -h` |
-| :gear: Process | `ps aux`, `docker ps` |
-| :octocat: Git | `git status`, `git log` |
+| :file_folder: 文件系统 | `ls -la`、`df -h`、`free -h` |
+| :gear: 进程 | `ps aux`、`docker ps` |
+| :octocat: Git | `git status`、`git log` |
 
-> :bulb: Add custom snippets from the Command Snippets panel — they're saved to `localStorage`.
+> :bulb: 可在 Command Snippets 面板中新增自定义片段，数据会保存到 `localStorage`。
 
-## :globe_with_meridians: Environment Variables
+## :globe_with_meridians: 环境变量
 
-| Variable | Service | Default | Description |
+| 变量 | 服务 | 默认值 | 说明 |
 |:---------|:--------|:--------|:------------|
-| `PORT` | Gateway | `3001` | Gateway listen port |
-| `GATEWAY_URL` | Agent | `ws://localhost:3001/api/stream` | Gateway WebSocket URL |
-| `HOST_ID` | Agent | `agent-local` | Unique host identifier |
-| `HOST_NAME` | Agent | `local-machine` | Display name for host |
+| `PORT` | Gateway | `3001` | Gateway 监听端口 |
+| `GATEWAY_URL` | Agent | `ws://localhost:3001/api/stream` | Gateway WebSocket 地址 |
+| `HOST_ID` | Agent | `agent-local` | 主机唯一标识 |
+| `HOST_NAME` | Agent | `local-machine` | 主机显示名称 |
 
-## :beetle: Troubleshooting
+## :beetle: 排障
 
-Check service logs:
+查看服务日志：
 
 ```bash
-tail -f /tmp/tmuxgo-gateway.log         # :electric_plug: Gateway
-tail -f /tmp/tmuxgo-frontend-stable.log  # :globe_with_meridians: Frontend (stable)
-tail -f /tmp/tmuxgo-frontend-dev.log     # :hammer_and_wrench: Frontend (dev)
-tail -f /tmp/tmuxgo-agent.log            # :satellite: Agent
+tail -f /tmp/tmuxgo-gateway.log
+tail -f /tmp/tmuxgo-frontend-stable.log
+tail -f /tmp/tmuxgo-frontend-dev.log
+tail -f /tmp/tmuxgo-agent.log
 ```
 
-For `systemd --user` deployments:
+对于 `systemd --user` 部署：
 
 ```bash
 journalctl --user -u tmuxgo-gateway.service -n 100
