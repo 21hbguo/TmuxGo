@@ -4,6 +4,7 @@ node_modules
 apps/frontend/.next-dev
 dist
 coverage
+test-results
 .env
 .env.*
 !.env.example
