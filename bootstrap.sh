@@ -8,9 +8,25 @@ need_cmd() {
     exit 1
   fi
 }
+install_tmux() {
+  if command -v tmux >/dev/null 2>&1; then return; fi
+  echo "tmux not found, installing..."
+  if command -v apt-get >/dev/null 2>&1; then
+    sudo apt-get update -qq && sudo apt-get install -y -qq tmux
+  elif command -v dnf >/dev/null 2>&1; then
+    sudo dnf install -y tmux
+  elif command -v pacman >/dev/null 2>&1; then
+    sudo pacman -S --noconfirm tmux
+  elif command -v brew >/dev/null 2>&1; then
+    brew install tmux
+  else
+    echo "Cannot install tmux automatically. Please install it manually."
+    exit 1
+  fi
+}
 need_cmd node
 need_cmd npm
-need_cmd tmux
+install_tmux
 if command -v nvm >/dev/null 2>&1; then
   nvm use >/dev/null 2>&1 || true
 fi
