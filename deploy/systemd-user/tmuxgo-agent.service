@@ -1,0 +1,19 @@
+[Unit]
+Description=TmuxGo Agent
+After=network-online.target tmuxgo-gateway.service
+Wants=network-online.target tmuxgo-gateway.service
+PartOf=tmuxgo.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/project/other/TmuxGo
+ExecStart=/usr/bin/env npm run --workspace=agent start
+Restart=always
+RestartSec=3
+Environment=NODE_ENV=production
+Environment=GATEWAY_URL=ws://127.0.0.1:3001/api/stream
+Environment=HOST_ID=agent-local
+Environment=HOST_NAME=%H
+
+[Install]
+WantedBy=tmuxgo.target

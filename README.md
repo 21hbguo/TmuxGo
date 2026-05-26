@@ -8,7 +8,7 @@
 > Start on your desktop, continue on your phone, review on your tablet.
 > **Never lose a train of thought again.**
 
-![TmuxGo cover](assets/cover.png)
+![TmuxGo cover](assets/cover_tmuxgo_vip.png)
 
 <p>
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
@@ -37,6 +37,7 @@
 - :electric_plug: **Always-on sessions** — tmux keeps your work alive even when you close the browser
 - :zap: **Instant resume** — Reconnect in seconds, your cursor is exactly where you left it
 - :brain: **Context preserved** — Panes, layouts, history — all intact across devices
+- :lock: **Exclusive attach by default** — desktop and mobile both open sessions in exclusive attach mode by default
 
 ## :sparkles: Features
 
@@ -63,6 +64,45 @@ cd TmuxGo
 ```
 
 Open `http://localhost:3000` in your browser. :tada:
+## :shield: Production Deploy
+
+For long-running usage on your own machine, use user-level `systemd`:
+
+```bash
+git clone https://github.com/<your-username>/TmuxGo.git
+cd TmuxGo
+./bootstrap.sh
+./scripts/install-systemd-user.sh
+systemctl --user enable --now tmuxgo.target
+```
+
+Stop all services:
+
+```bash
+systemctl --user disable --now tmuxgo.target
+```
+
+Remove all installed units:
+
+```bash
+./scripts/uninstall-systemd-user.sh
+```
+
+View service status:
+
+```bash
+systemctl --user status tmuxgo-gateway.service
+systemctl --user status tmuxgo-frontend.service
+systemctl --user status tmuxgo-agent.service
+```
+
+View logs:
+
+```bash
+journalctl --user -u tmuxgo-gateway.service -f
+journalctl --user -u tmuxgo-frontend.service -f
+journalctl --user -u tmuxgo-agent.service -f
+```
 
 ## :package: Requirements
 
@@ -112,6 +152,12 @@ npm run dev:agent       # Agent only
 npm run build
 ```
 
+Production local start without `systemd`:
+
+```bash
+./start-prod.sh
+```
+
 ## :open_file_folder: Project Structure
 
 ```
@@ -120,8 +166,11 @@ TmuxGo/
 │   ├── frontend/       # :large_blue_circle: Next.js 14 + xterm.js + Tailwind
 │   ├── gateway/        # :electric_plug: Fastify + WebSocket + node-pty
 │   └── agent/          # :satellite: Remote host agent
+├── deploy/systemd-user/# :shield: User-level systemd units
 ├── bootstrap.sh        # :package: Install dependencies
+├── start-prod.sh       # :shield: Production start without systemd
 ├── start.sh            # :rocket: Start all services
+├── scripts/            # :wrench: Install and uninstall helpers
 └── package.json        # :wrench: Workspace root
 ```
 
@@ -192,6 +241,14 @@ tail -f /tmp/tmuxgo-gateway.log         # :electric_plug: Gateway
 tail -f /tmp/tmuxgo-frontend-stable.log  # :globe_with_meridians: Frontend (stable)
 tail -f /tmp/tmuxgo-frontend-dev.log     # :hammer_and_wrench: Frontend (dev)
 tail -f /tmp/tmuxgo-agent.log            # :satellite: Agent
+```
+
+For `systemd --user` deployments:
+
+```bash
+journalctl --user -u tmuxgo-gateway.service -n 100
+journalctl --user -u tmuxgo-frontend.service -n 100
+journalctl --user -u tmuxgo-agent.service -n 100
 ```
 
 ## :page_facing_up: License

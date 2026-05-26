@@ -29,7 +29,7 @@ const defaultPreferences: Preferences = {
   reconnectInterval: 3000,
   terminalPadding: 8,
   language: 'zh',
-  attachExclusive: false,
+  attachExclusive: true,
 }
 
 let preferencesStore:Preferences=defaultPreferences
