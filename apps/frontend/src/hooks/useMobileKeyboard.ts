@@ -6,6 +6,7 @@ const SENTINEL = '\u200b\u200b'
 const SENTINEL_CENTER = 1
 const KEYBOARD_OPEN_THRESHOLD = 120
 const KEYBOARD_CLOSE_THRESHOLD = 70
+const KEYBOARD_VIEWPORT_GRACE_MS = 1500
 const KEYBOARD_EVENT = 'mobile-keyboard-change'
 const isEdgeAndroid = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent) && /EdgA/i.test(navigator.userAgent)
 
@@ -23,6 +24,7 @@ export function useMobileKeyboard(
   const composingRef = useRef(false)
   const keyboardOpenRef = useRef(false)
   const keepAliveUntilRef = useRef(0)
+  const viewportGraceUntilRef = useRef(0)
   const viewportBaseHeightRef = useRef(0)
   const isMobile = useRef(isMobileDevice())
   const keyboardLog = useCallback((event: string, data?: unknown) => {
@@ -53,6 +55,7 @@ export function useMobileKeyboard(
     }
     keyboardOpenRef.current = false
     keepAliveUntilRef.current = 0
+    viewportGraceUntilRef.current = 0
     keyboardLog('close')
     document.body.classList.remove('keyboard-open')
     document.documentElement.style.setProperty('--mobile-keyboard-inset', '0px')
@@ -61,7 +64,7 @@ export function useMobileKeyboard(
   }, [emitKeyboardChange])
   const isKeyboardOwnerActive = useCallback(() => {
     const ta = textareaRef.current
-    return !!ta && (document.activeElement === ta || Date.now() <= keepAliveUntilRef.current)
+    return !!ta && (document.activeElement === ta || Date.now() <= keepAliveUntilRef.current || Date.now() <= viewportGraceUntilRef.current)
   }, [])
 
   const clearValue = useCallback(() => {
@@ -79,6 +82,7 @@ export function useMobileKeyboard(
   const focusKeyboard = useCallback(() => {
     const ta = textareaRef.current
     if (!ta) return
+    viewportGraceUntilRef.current = Date.now() + KEYBOARD_VIEWPORT_GRACE_MS
     const inset = getViewportInset()
     openKeyboard(inset || KEYBOARD_OPEN_THRESHOLD)
     ta.focus({ preventScroll: true })
@@ -174,6 +178,7 @@ export function useMobileKeyboard(
     }
 
     const handleFocus = () => {
+      viewportGraceUntilRef.current = Date.now() + KEYBOARD_VIEWPORT_GRACE_MS
       const inset = getViewportInset()
       openKeyboard(inset)
       setTimeout(() => clearValue(), 10)
