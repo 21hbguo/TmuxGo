@@ -8,7 +8,7 @@
 > Start on desktop, continue on phone, review on tablet.
 > **Never lose a train of thought again.**
 
-![TmuxGo cover](assets/cover_tmuxgo_vip.png)
+![TmuxGo cover](assets/cover_tmuxgo_cn_vip.png)
 
 <p>
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>

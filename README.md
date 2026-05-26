@@ -8,7 +8,7 @@
 > 在桌面开始，在手机继续，在平板查看。
 > **思路不中断，现场不丢失。**
 
-![TmuxGo cover](assets/cover_tmuxgo_vip.png)
+![TmuxGo cover](assets/cover_tmuxgo_cn_vip.png)
 
 <p>
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
