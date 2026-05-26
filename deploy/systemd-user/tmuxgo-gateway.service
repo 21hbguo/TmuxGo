@@ -1,0 +1,17 @@
+[Unit]
+Description=TmuxGo Gateway
+After=network-online.target
+Wants=network-online.target
+PartOf=tmuxgo.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/project/other/TmuxGo
+ExecStart=/usr/bin/env npm run --workspace=gateway start
+Restart=always
+RestartSec=3
+Environment=NODE_ENV=production
+Environment=PORT=3001
+
+[Install]
+WantedBy=tmuxgo.target

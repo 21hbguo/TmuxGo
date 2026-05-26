@@ -1,0 +1,6 @@
+[Unit]
+Description=TmuxGo Suite
+Wants=tmuxgo-gateway.service tmuxgo-frontend.service tmuxgo-agent.service
+
+[Install]
+WantedBy=default.target

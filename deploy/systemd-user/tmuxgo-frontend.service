@@ -1,0 +1,16 @@
+[Unit]
+Description=TmuxGo Frontend
+After=network-online.target
+Wants=network-online.target
+PartOf=tmuxgo.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/project/other/TmuxGo
+ExecStart=/usr/bin/env npm run --workspace=frontend start -- --hostname 0.0.0.0 --port 3000
+Restart=always
+RestartSec=3
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=tmuxgo.target
