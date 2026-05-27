@@ -67,6 +67,7 @@ cd TmuxGo
 
 > :bulb: 局域网内可直接访问；远程访问请先配置 [Tailscale](https://tailscale.com)。
 > :lock: 终端选区复制到系统剪贴板建议使用 HTTPS 域名访问（例如 Tailscale HTTPS），避免浏览器因非安全上下文限制剪贴板能力。
+> :desktop_computer: 部署端需要运行在支持 `tmux` 的环境中（推荐 Linux、macOS、WSL2）；使用端只需要浏览器，Windows、macOS、Linux、手机、平板都可访问。
 
 ## :shield: 生产部署
 
