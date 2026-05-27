@@ -3,14 +3,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useFileList, useFilePreview, useFileRoots, useFileSearch } from '@/hooks/useApi'
 import { useConsoleStore } from '@/stores/useConsoleStore'
-import type { FileContentMatch, FileItem, FileListResponse, FilePreviewResponse, FileRoot } from '@/types'
+import type { FavoriteDirectory, FileContentMatch, FileItem, FileListResponse, FilePreviewResponse, FileRoot } from '@/types'
 import { writeClipboardText } from '@/lib/clipboard-text'
 import { quoteShellPath } from '@/lib/path-drop'
+import { api } from '@/lib/api'
 
 type SearchMode = 'name' | 'content'
-type FavoriteDirectory = { rootId: string; rootPath: string; name: string; path: string }
 type FileRootOption = FileRoot & { sourceRootId: string; basePath: string }
 type FileEntry = FileItem | FileContentMatch
+const FAVORITE_STORAGE_KEY = 'tmuxgo-favorite-directories'
+const FAVORITE_UPDATED_AT_STORAGE_KEY = 'tmuxgo-favorite-directories-updated-at'
+const PREFERENCES_PROFILE = 'default'
 
 function formatSize(size: number) {
   if (size < 1024) return `${size}B`
@@ -31,20 +34,28 @@ function joinRelativePath(base: string, name: string) {
 function readFavoriteDirectories() {
   if (typeof window === 'undefined') return []
   try {
-    return JSON.parse(localStorage.getItem('tmuxgo-favorite-directories') || '[]') as FavoriteDirectory[]
+    const stored = JSON.parse(localStorage.getItem(FAVORITE_STORAGE_KEY) || '[]')
+    return Array.isArray(stored) ? stored as FavoriteDirectory[] : []
   } catch {
     return []
   }
 }
-function writeFavoriteDirectories(entries: FavoriteDirectory[]) {
-  localStorage.setItem('tmuxgo-favorite-directories', JSON.stringify(entries))
+function readFavoriteDirectoriesUpdatedAt() {
+  if (typeof window === 'undefined') return ''
+  return localStorage.getItem(FAVORITE_UPDATED_AT_STORAGE_KEY) || ''
+}
+function writeFavoriteDirectories(entries: FavoriteDirectory[], updatedAt?: string) {
+  const nextUpdatedAt = updatedAt || new Date().toISOString()
+  localStorage.setItem(FAVORITE_STORAGE_KEY, JSON.stringify(entries))
+  localStorage.setItem(FAVORITE_UPDATED_AT_STORAGE_KEY, nextUpdatedAt)
+  return nextUpdatedAt
 }
 function toggleFavoriteDirectoryEntry(entry: FavoriteDirectory) {
   const current = readFavoriteDirectories()
   const exists = current.some((item) => item.rootId === entry.rootId && item.path === entry.path)
   const next = exists ? current.filter((item) => item.rootId !== entry.rootId || item.path !== entry.path) : [entry, ...current].slice(0, 12)
-  writeFavoriteDirectories(next)
-  return next
+  const updatedAt = writeFavoriteDirectories(next)
+  return { entries: next, updatedAt }
 }
 function readHideDotFiles() {
   if (typeof window === 'undefined') return true
@@ -265,6 +276,32 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
     setFavoriteDirectories(readFavoriteDirectories())
   }, [])
   useEffect(() => {
+    const localEntries = readFavoriteDirectories()
+    const localUpdatedAt = readFavoriteDirectoriesUpdatedAt()
+    void (async () => {
+      try {
+        const remote = await api.preferences.get(PREFERENCES_PROFILE)
+        const remoteEntries = Array.isArray(remote.favoriteDirectories) ? remote.favoriteDirectories : []
+        const remoteUpdatedAt = remote.favoriteDirectoriesUpdatedAt || ''
+        const localMs = Date.parse(localUpdatedAt || '')
+        const remoteMs = Date.parse(remoteUpdatedAt || '')
+        if (remoteEntries.length === 0 && localEntries.length > 0) {
+          const pushedAt = localUpdatedAt || new Date().toISOString()
+          await api.preferences.update({ favoriteDirectories: localEntries, favoriteDirectoriesUpdatedAt: pushedAt }, PREFERENCES_PROFILE)
+          return
+        }
+        if (!Number.isNaN(remoteMs) && (Number.isNaN(localMs) || remoteMs >= localMs)) {
+          writeFavoriteDirectories(remoteEntries, remoteUpdatedAt || new Date().toISOString())
+          setFavoriteDirectories(remoteEntries)
+          return
+        }
+        if (!Number.isNaN(localMs) && (Number.isNaN(remoteMs) || localMs > remoteMs)) {
+          await api.preferences.update({ favoriteDirectories: localEntries, favoriteDirectoriesUpdatedAt: localUpdatedAt }, PREFERENCES_PROFILE)
+        }
+      } catch {}
+    })()
+  }, [])
+  useEffect(() => {
     if (isMobile) return
     const frame = requestAnimationFrame(() => setContentReady(true))
     return () => cancelAnimationFrame(frame)
@@ -315,7 +352,9 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
     const nextRootPath = roots.find((entry) => entry.id === nextRootId)?.path || root.path
     const nextPath = joinRelativePath(activeRootBasePath, item.path)
     const nextName = getDirectoryName(nextPath, { ...root, path: nextRootPath })
-    setFavoriteDirectories(toggleFavoriteDirectoryEntry({ rootId: nextRootId, rootPath: nextRootPath, name: nextName, path: nextPath }))
+    const next = toggleFavoriteDirectoryEntry({ rootId: nextRootId, rootPath: nextRootPath, name: nextName, path: nextPath })
+    setFavoriteDirectories(next.entries)
+    void api.preferences.update({ favoriteDirectories: next.entries, favoriteDirectoriesUpdatedAt: next.updatedAt }, PREFERENCES_PROFILE).catch(() => {})
   }
   const openDesktopDirectoryPath = (path: string) => {
     setOpenDirectories(new Set(getDirectoryPathChain(path)))

@@ -95,3 +95,22 @@ export interface FilePreviewResponse {
 export interface FileContentMatch extends FileItem {
   matches: FilePreviewLine[]
 }
+export interface CustomShortcut {
+  id: string
+  label: string
+  keys: string
+}
+export interface FavoriteDirectory {
+  rootId: string
+  rootPath: string
+  name: string
+  path: string
+}
+export interface RemotePreferences {
+  version: 1
+  updatedAt: string
+  customShortcuts: CustomShortcut[]
+  customShortcutsUpdatedAt: string
+  favoriteDirectories: FavoriteDirectory[]
+  favoriteDirectoriesUpdatedAt: string
+}
