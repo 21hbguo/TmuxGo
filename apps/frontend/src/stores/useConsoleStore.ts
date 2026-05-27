@@ -15,7 +15,7 @@ interface ConsoleState {
   filePanelOpen: boolean
   mobileFileSheetOpen: boolean
   filePanelWidth: number
-  toasts: { id: string; type: 'success' | 'error' | 'info'; message: string }[]
+  toasts: { id: string; type: 'success' | 'error' | 'info'; message: string; durationMs?: number }[]
 
   setActiveHost: (id: string) => void
   setActiveSession: (id: string) => void
@@ -26,7 +26,7 @@ interface ConsoleState {
   toggleFilePanel: () => void
   setMobileFileSheetOpen: (open: boolean) => void
   setFilePanelWidth: (width: number) => void
-  pushToast: (toast: { type: 'success' | 'error' | 'info'; message: string }) => void
+  pushToast: (toast: { type: 'success' | 'error' | 'info'; message: string; durationMs?: number }) => void
   removeToast: (id: string) => void
   updateConnection: (state: Partial<ConnectionState>) => void
 }

@@ -66,6 +66,7 @@ cd TmuxGo
 Open `http://localhost:3000` in your browser. :tada:
 
 > :bulb: Works directly on your local network; for remote access, set up [Tailscale](https://tailscale.com) first.
+> :lock: For reliable terminal-selection copy to the system clipboard, prefer HTTPS access (for example via Tailscale HTTPS) to avoid insecure-context clipboard restrictions.
 
 ## :shield: Production Deploy
 
@@ -245,6 +246,13 @@ journalctl --user -u tmuxgo-gateway.service -n 100
 journalctl --user -u tmuxgo-frontend.service -n 100
 journalctl --user -u tmuxgo-agent.service -n 100
 ```
+
+### Clipboard Copy Troubleshooting
+
+1. Use an HTTPS top-level tab whenever possible (avoid iframe or restricted webview containers).
+2. Check site permissions in your browser and allow clipboard read/write.
+3. After selecting text in terminal, use `Ctrl/Cmd+C` for explicit copy; if system clipboard is blocked, TmuxGo falls back to app clipboard for in-app paste.
+4. If it still fails, refresh and retry, then check whether extensions or container policies block clipboard events.
 
 ## :page_facing_up: License
 

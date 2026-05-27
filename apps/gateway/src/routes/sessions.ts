@@ -52,11 +52,28 @@ async function getFirstWindowTarget(sessionName: string) {
   if (!fallbackIndex) throw new Error(`No windows found for session ${sessionName}`)
   return `${sessionName}:${fallbackIndex}`
 }
+async function getFirstWindowIndex(sessionName: string) {
+  const { stdout } = await execFileAsync('tmux', ['list-windows', '-t', sessionName, '-F', '#{window_index}'])
+  const first = stdout.trim().split('\n').find(Boolean)
+  if (!first) throw new Error(`No windows found for session ${sessionName}`)
+  const value = Number(first)
+  if (!Number.isFinite(value)) throw new Error(`Invalid window index for session ${sessionName}`)
+  return value
+}
+async function getFirstPaneIndex(windowTarget: string) {
+  const { stdout } = await execFileAsync('tmux', ['list-panes', '-t', windowTarget, '-F', '#{pane_index}'])
+  const first = stdout.trim().split('\n').find(Boolean)
+  if (!first) throw new Error(`No panes found for window ${windowTarget}`)
+  const value = Number(first)
+  if (!Number.isFinite(value)) throw new Error(`Invalid pane index for window ${windowTarget}`)
+  return value
+}
 async function applyTemplateLayout(sessionName: string, layout: SessionTemplateLayout) {
   assertSessionAllowed(sessionName)
   if (!layout.windows.length) return
   const firstWindowTarget = await getFirstWindowTarget(sessionName)
-  const targets = getTemplateWindowTargets(sessionName, layout)
+  const firstWindowIndex = await getFirstWindowIndex(sessionName)
+  const targets = getTemplateWindowTargets(sessionName, layout, firstWindowIndex)
   for (let i = 0; i < targets.length; i++) {
     const windowDef = targets[i]
     if (!windowDef.name) throw new Error(`Template step failed: window[${i}] missing name`)
@@ -66,6 +83,7 @@ async function applyTemplateLayout(sessionName: string, layout: SessionTemplateL
       await execFileAsync('tmux', ['new-window', '-t', sessionName, '-n', windowDef.name])
     }
     const { windowTarget, panes } = windowDef
+    const paneBaseIndex = i === 0 ? await getFirstPaneIndex(firstWindowTarget) : await getFirstPaneIndex(windowTarget)
     for (let p = 1; p < panes.length; p++) {
       await execFileAsync('tmux', ['split-window', '-t', windowTarget, '-h'])
     }
@@ -73,7 +91,7 @@ async function applyTemplateLayout(sessionName: string, layout: SessionTemplateL
     for (let p = 0; p < panes.length; p++) {
       const command = panes[p]?.command?.trim()
       if (!command) continue
-      await runSendKeys(`${windowTarget}.${p}`, command)
+      await runSendKeys(`${windowTarget}.${paneBaseIndex + p}`, command)
     }
   }
   await execFileAsync('tmux', ['select-window', '-t', firstWindowTarget])

@@ -43,6 +43,15 @@ test('getTemplateWindowTargets preserves window order and pane counts', () => {
   assert.equal(result[0].name, 'main')
   assert.equal(result[1].panes.length, 2)
 })
+test('getTemplateWindowTargets supports non-zero start index', () => {
+  const result = getTemplateWindowTargets('demo', {
+    windows: [
+      { name: 'main', panes: [{}] },
+      { name: 'logs', panes: [{ command: 'tail -f app.log' }, {}] },
+    ],
+  }, 1)
+  assert.deepEqual(result.map((item) => item.windowTarget), ['demo:1', 'demo:2'])
+})
 
 test('getNormalizedWindowMoves generates two-phase stable reorder plan', () => {
   const result = getNormalizedWindowMoves('demo', ['@3', '@1', '@2'])

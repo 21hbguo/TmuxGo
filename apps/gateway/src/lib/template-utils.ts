@@ -5,10 +5,10 @@ export interface SessionTemplateLayout {
   }[]
 }
 
-export function getTemplateWindowTargets(sessionName: string, layout: SessionTemplateLayout) {
+export function getTemplateWindowTargets(sessionName: string, layout: SessionTemplateLayout, startIndex = 0) {
   return layout.windows.map((windowDef, index) => ({
     index,
-    windowTarget: `${sessionName}:${index}`,
+    windowTarget: `${sessionName}:${startIndex + index}`,
     panes: windowDef.panes?.length ? windowDef.panes : [{}],
     name: windowDef.name,
   }))

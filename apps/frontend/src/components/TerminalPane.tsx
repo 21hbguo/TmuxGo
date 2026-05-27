@@ -5,7 +5,7 @@ import { usePreferences } from '@/hooks/usePreferences'
 import { useMobileKeyboard } from '@/hooks/useMobileKeyboard'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { formatDroppedPaths } from '@/lib/path-drop'
-import { extractClipboardText, verifyClipboardText, writeClipboardText } from '@/lib/clipboard-text'
+import { extractClipboardText, writeClipboardText } from '@/lib/clipboard-text'
 import { DELETE_NEXT_WORD_SEQUENCE, DELETE_PREV_WORD_SEQUENCE } from '@/lib/terminal-keys'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { api } from '@/lib/api'
@@ -160,6 +160,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     let lastPasteText = ''
     let lastPasteAt = 0
     let pointerSyncActive = false
+    let lastCopySuccessNotice = ''
 
     const notifyReady = () => {
       if (disposed || readyNotified) return
@@ -176,8 +177,69 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const input = container.querySelector('.xterm-helper-textarea, textarea')
       if (input instanceof HTMLTextAreaElement) input.focus({ preventScroll: true })
     }
+    const getSelectionText = () => terminal?.getSelection?.() || window.getSelection?.()?.toString() || ''
+    const handleNativeCopyEvent = (e: ClipboardEvent) => {
+      const selection = getSelectionText()
+      if (!selection || !e.clipboardData) return false
+      currentSelection = selection
+      lastCopiedSelection = selection
+      lastCopyNotice = ''
+      e.clipboardData.setData('text/plain', selection)
+      e.preventDefault()
+      e.stopPropagation()
+      return true
+    }
+    const triggerNativeCopy = () => {
+      const selection = getSelectionText()
+      if (!selection) return false
+      currentSelection = selection
+      lastCopiedSelection = selection
+      lastCopyNotice = ''
+      if (typeof document.execCommand !== 'function') return false
+      let copyHandled = false
+      const handleCopy = (e: ClipboardEvent) => {
+        if (!e.clipboardData) return
+        e.clipboardData.setData('text/plain', selection)
+        e.preventDefault()
+        copyHandled = true
+      }
+      document.addEventListener('copy', handleCopy, true)
+      const ta = document.createElement('textarea')
+      ta.value = selection
+      ta.readOnly = true
+      ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;pointer-events:none'
+      document.body.appendChild(ta)
+      ta.focus({ preventScroll: true })
+      ta.select()
+      ta.setSelectionRange(0, selection.length)
+      let copied = false
+      try {
+        copied = document.execCommand('copy')
+      } catch {
+        copied = false
+      }
+      document.removeEventListener('copy', handleCopy, true)
+      document.body.removeChild(ta)
+      const helper = terminal?.textarea || container.querySelector('.xterm-helper-textarea, textarea')
+      if (helper instanceof HTMLTextAreaElement) helper.focus({ preventScroll: true })
+      return copied && copyHandled
+    }
+    const getCopyUnavailableMessage = (reason: string, selectionLength: number) => {
+      if (reason === 'permission_denied') return 'System clipboard blocked by browser, kept in app clipboard. Press Ctrl/Cmd+C to copy.'
+      if (reason === 'api_unavailable') return `System clipboard API unavailable${window.isSecureContext ? '' : ' (insecure context)'}, kept in app clipboard`
+      return `System clipboard write failed for ${selectionLength} chars, kept in app clipboard`
+    }
+    const pushCopySuccessToast = (mode: 'native' | 'fallback', selectionLength: number) => {
+      const noticeKey = `${mode}:${selectionLength}`
+      if (lastCopySuccessNotice === noticeKey) return
+      lastCopySuccessNotice = noticeKey
+      pushToast({ type: 'success', message: `Copied ${selectionLength} chars (${mode})`, durationMs: 900 })
+      setTimeout(() => {
+        if (lastCopySuccessNotice === noticeKey) lastCopySuccessNotice = ''
+      }, 920)
+    }
     const copySelectionIfNeeded = async (preferLiveSelection = false, force = false) => {
-      const liveSelection = terminal?.getSelection?.() || window.getSelection?.()?.toString() || ''
+      const liveSelection = getSelectionText()
       const selection = preferLiveSelection ? liveSelection || currentSelection : currentSelection || liveSelection
       if (!selection) {
         currentSelection = ''
@@ -187,36 +249,30 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       }
       if (!force && selection === lastCopiedSelection) return
       lastCopiedSelection = selection
-      const result = await writeClipboardText(selection,{preferSync:true})
+      const result = await writeClipboardText(selection, { preferSync: true })
       if (result.unavailable) {
-        if (lastCopyNotice === selection) return
-        lastCopyNotice = selection
-        pushToast({ type: 'info', message: 'System clipboard blocked by browser, kept in app clipboard' })
-        return
-      }
-      const verified = await verifyClipboardText(selection)
-      if (!verified.allowed) {
-        if (lastCopyNotice === `${selection}:read-blocked`) return
-        lastCopyNotice = `${selection}:read-blocked`
-        pushToast({ type: 'info', message: `Copied ${selection.length} chars; browser disallows clipboard readback verification${window.isSecureContext ? '' : ' (insecure context)'}` })
-        return
-      }
-      if (!verified.matches) {
-        lastCopiedSelection = ''
-        if (lastCopyNotice === `${selection}:mismatch:${verified.text}`) return
-        lastCopyNotice = `${selection}:mismatch:${verified.text}`
-        pushToast({ type: 'error', message: `Clipboard mismatch after copy: selected ${selection.length} chars, clipboard has ${verified.text.length}` })
+        const noticeKey = `${selection}:${result.reason}`
+        if (lastCopyNotice === noticeKey) return
+        lastCopyNotice = noticeKey
+        pushToast({ type: 'info', message: getCopyUnavailableMessage(result.reason, selection.length) })
         return
       }
       lastCopyNotice = ''
-      pushToast({ type: 'success', message: `Copied ${selection.length} chars to system clipboard` })
+      pushCopySuccessToast('fallback', selection.length)
     }
     const clearCopySelectionTimer = () => {
       if (!copySelectionTimer) return
       clearTimeout(copySelectionTimer)
       copySelectionTimer = null
     }
-    const runCopySelection = (preferLiveSelection = false, force = false) => {
+    const runCopySelection = (preferLiveSelection = false, force = false, preferNative = false) => {
+      if (preferNative) {
+        const selection = getSelectionText()
+        if (selection && triggerNativeCopy()) {
+          pushCopySuccessToast('native', selection.length)
+          return
+        }
+      }
       void copySelectionIfNeeded(preferLiveSelection, force)
       requestAnimationFrame(() => {
         void copySelectionIfNeeded(preferLiveSelection)
@@ -554,6 +610,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         fontSize: preferencesRef.current.fontSize,
         fontFamily: preferencesRef.current.fontFamily,
         macOptionIsMeta: true,
+        macOptionClickForcesSelection: true,
         scrollback: SCROLLBACK_LIMIT,
       })
 
@@ -589,9 +646,16 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         })
       )
       terminal.attachCustomKeyEventHandler((e: KeyboardEvent) => {
-        if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'c' && terminal.hasSelection?.()) {
-          window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-copy'))
-          return false
+        if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'c') {
+          if (getSelectionText()) {
+            if (triggerNativeCopy()) {
+              pushCopySuccessToast('native', getSelectionText().length)
+            } else {
+              window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-copy'))
+            }
+            return false
+          }
+          return true
         }
         if (isPasteShortcut(e)) {
           if (e.repeat) return false
@@ -773,7 +837,12 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         if (text) markPasteForwarded(text)
         requestTerminalPaste(text)
       }
+      const handleCopy = (e: ClipboardEvent) => {
+        handleNativeCopyEvent(e)
+      }
       const helperTextarea = terminal.textarea
+      helperTextarea?.addEventListener('copy', handleCopy, true)
+      container.addEventListener('copy', handleCopy, true)
       helperTextarea?.addEventListener('paste', handlePaste, true)
       container.addEventListener('paste', handlePaste, true)
       container.addEventListener('beforeinput', handlePasteInput as EventListener, true)
@@ -784,13 +853,13 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const armPointerSync = () => {
         pointerSyncActive = true
       }
-      const handlePointerSync = () => {
-        if (!pointerSyncActive) return
-        pointerSyncActive = false
-        clearCopySelectionTimer()
-        runCopySelection(true,true)
-        void syncActivePane()
-      }
+    const handlePointerSync = () => {
+      if (!pointerSyncActive) return
+      pointerSyncActive = false
+      clearCopySelectionTimer()
+      runCopySelection(true, true, true)
+      void syncActivePane()
+    }
       const handleFocusTerminal = () => {
         focusTerminalInput()
         requestAnimationFrame(focusTerminalInput)
@@ -821,6 +890,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           container.removeEventListener('dragover', handleDragOver)
           container.removeEventListener('dragleave', handleDragLeave)
           container.removeEventListener('drop', handleDrop)
+          helperTextarea?.removeEventListener('copy', handleCopy, true)
+          container.removeEventListener('copy', handleCopy, true)
           helperTextarea?.removeEventListener('paste', handlePaste, true)
           container.removeEventListener('paste', handlePaste, true)
           container.removeEventListener('beforeinput', handlePasteInput as EventListener, true)

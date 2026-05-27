@@ -23,6 +23,13 @@ const targets = getTemplateWindowTargets('demo', {
 })
 assert.deepEqual(targets.map((item) => item.windowTarget), ['demo:0', 'demo:1'])
 assert.equal(targets[1].panes.length, 2)
+const shiftedTargets = getTemplateWindowTargets('demo', {
+  windows: [
+    { name: 'main', panes: [{}] },
+    { name: 'logs', panes: [{ command: 'tail -f app.log' }, {}] },
+  ],
+}, 1)
+assert.deepEqual(shiftedTargets.map((item) => item.windowTarget), ['demo:1', 'demo:2'])
 
 const moves = getNormalizedWindowMoves('demo', ['@3', '@1', '@2'])
 assert.equal(moves.length, 6)
