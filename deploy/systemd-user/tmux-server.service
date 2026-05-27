@@ -1,0 +1,13 @@
+[Unit]
+Description=tmux server
+After=network-online.target
+
+[Service]
+Type=forking
+ExecStart=/usr/bin/tmux new-session -d -s default
+KillMode=process
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
