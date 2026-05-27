@@ -67,6 +67,7 @@ Open `http://localhost:3000` in your browser. :tada:
 
 > :bulb: Works directly on your local network; for remote access, set up [Tailscale](https://tailscale.com) first.
 > :lock: For reliable terminal-selection copy to the system clipboard, prefer HTTPS access (for example via Tailscale HTTPS) to avoid insecure-context clipboard restrictions.
+> :desktop_computer: The deployment side must run in a `tmux`-capable environment, preferably Linux, macOS, or WSL2. The access side only needs a browser, so Windows, macOS, Linux, phones, and tablets can all connect.
 
 ## :shield: Production Deploy
 
