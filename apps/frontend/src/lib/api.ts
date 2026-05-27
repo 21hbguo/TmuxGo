@@ -1,5 +1,5 @@
 import { getApiBase } from './runtime-endpoints'
-import type { FileContentMatch, FileItem, FileListResponse, FilePreviewResponse, FileRoot } from '@/types'
+import type { CustomShortcut, FavoriteDirectory, FileContentMatch, FileItem, FileListResponse, FilePreviewResponse, FileRoot, RemotePreferences } from '@/types'
 
 async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   const url = `${getApiBase()}${path}`
@@ -122,5 +122,13 @@ export const api = {
     preview: (root: string, path: string, line = 1) => fetchApi<FilePreviewResponse>(`/api/files/preview?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}&line=${line}`),
     searchName: (root: string, q: string, basePath = '') => fetchApi<FileItem[]>(`/api/files/search-name?root=${encodeURIComponent(root)}&q=${encodeURIComponent(q)}&basePath=${encodeURIComponent(basePath)}`),
     searchContent: (root: string, q: string, basePath = '') => fetchApi<FileContentMatch[]>(`/api/files/search-content?root=${encodeURIComponent(root)}&q=${encodeURIComponent(q)}&basePath=${encodeURIComponent(basePath)}`),
+  },
+  preferences: {
+    get: (profile = 'default') => fetchApi<RemotePreferences>(`/api/preferences?profile=${encodeURIComponent(profile)}`),
+    update: (payload: { customShortcuts?: CustomShortcut[]; customShortcutsUpdatedAt?: string; favoriteDirectories?: FavoriteDirectory[]; favoriteDirectoriesUpdatedAt?: string }, profile = 'default') =>
+      fetchApi<RemotePreferences>(`/api/preferences?profile=${encodeURIComponent(profile)}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      }),
   },
 }

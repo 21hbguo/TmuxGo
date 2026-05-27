@@ -8,6 +8,7 @@ import { streamRoutes } from './routes/stream.js'
 import { systemRoutes } from './routes/system.js'
 import { paneRoutes } from './routes/panes.js'
 import { fileRoutes } from './routes/files.js'
+import { preferencesRoutes } from './routes/preferences.js'
 
 const fastify = Fastify({
   logger: true,
@@ -26,6 +27,7 @@ await fastify.register(streamRoutes, { prefix: '/api' })
 await fastify.register(systemRoutes, { prefix: '/api' })
 await fastify.register(paneRoutes, { prefix: '/api' })
 await fastify.register(fileRoutes, { prefix: '/api' })
+await fastify.register(preferencesRoutes, { prefix: '/api' })
 
 fastify.get('/health', async () => {
   return { status: 'ok', timestamp: new Date().toISOString() }

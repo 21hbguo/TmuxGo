@@ -1,14 +1,13 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-
-export interface CustomShortcut {
-  id: string
-  label: string
-  keys: string
-}
+import { api } from '@/lib/api'
+import type { CustomShortcut } from '@/types'
+export type { CustomShortcut } from '@/types'
 
 const STORAGE_KEY = 'tmuxgo-custom-shortcuts'
+const STORAGE_UPDATED_AT_KEY = 'tmuxgo-custom-shortcuts-updated-at'
+const PROFILE = 'default'
 
 const KEY_MAP: Record<string, string> = {
   'enter': '\r',
@@ -86,24 +85,61 @@ export function formatKeyEvent(e: KeyboardEvent): string {
 export function useCustomShortcuts() {
   const [shortcuts, setShortcuts] = useState<CustomShortcut[]>([])
 
-  useEffect(() => {
+  const readLocal = useCallback(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY)
-      if (raw) setShortcuts(JSON.parse(raw))
-    } catch {}
+      const data = raw ? JSON.parse(raw) : []
+      const updatedAt = localStorage.getItem(STORAGE_UPDATED_AT_KEY) || ''
+      return { items: Array.isArray(data) ? data as CustomShortcut[] : [], updatedAt }
+    } catch {
+      return { items: [], updatedAt: '' }
+    }
+  }, [])
+  const writeLocal = useCallback((next: CustomShortcut[], updatedAt: string) => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+    localStorage.setItem(STORAGE_UPDATED_AT_KEY, updatedAt)
   }, [])
 
-  const persist = useCallback((next: CustomShortcut[]) => {
+  useEffect(() => {
+    const local = readLocal()
+    setShortcuts(local.items)
+    void (async () => {
+      try {
+        const remote = await api.preferences.get(PROFILE)
+        const remoteItems = Array.isArray(remote.customShortcuts) ? remote.customShortcuts : []
+        const remoteUpdatedAt = remote.customShortcutsUpdatedAt || ''
+        const localMs = Date.parse(local.updatedAt || '')
+        const remoteMs = Date.parse(remoteUpdatedAt || '')
+        if (remoteItems.length === 0 && local.items.length > 0) {
+          const pushedAt = local.updatedAt || new Date().toISOString()
+          await api.preferences.update({ customShortcuts: local.items, customShortcutsUpdatedAt: pushedAt }, PROFILE)
+          return
+        }
+        if (!Number.isNaN(remoteMs) && (Number.isNaN(localMs) || remoteMs >= localMs)) {
+          setShortcuts(remoteItems)
+          writeLocal(remoteItems, remoteUpdatedAt || new Date().toISOString())
+          return
+        }
+        if (!Number.isNaN(localMs) && (Number.isNaN(remoteMs) || localMs > remoteMs)) {
+          await api.preferences.update({ customShortcuts: local.items, customShortcutsUpdatedAt: local.updatedAt }, PROFILE)
+        }
+      } catch {}
+    })()
+  }, [readLocal, writeLocal])
+
+  const persist = useCallback((next: CustomShortcut[], updatedAt?: string) => {
+    const nextUpdatedAt = updatedAt || new Date().toISOString()
     setShortcuts(next)
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+    writeLocal(next, nextUpdatedAt)
+    void api.preferences.update({ customShortcuts: next, customShortcutsUpdatedAt: nextUpdatedAt }, PROFILE).catch(() => {})
   }, [])
 
   const addShortcut = useCallback((s: Omit<CustomShortcut, 'id'>) => {
-    persist([...shortcuts, { ...s, id: Date.now().toString(36) + Math.random().toString(36).slice(2) }])
+    persist([...shortcuts, { ...s, id: Date.now().toString(36) + Math.random().toString(36).slice(2) }], new Date().toISOString())
   }, [shortcuts, persist])
 
   const removeShortcut = useCallback((id: string) => {
-    persist(shortcuts.filter((s) => s.id !== id))
+    persist(shortcuts.filter((s) => s.id !== id), new Date().toISOString())
   }, [shortcuts, persist])
 
   return { shortcuts, addShortcut, removeShortcut }
