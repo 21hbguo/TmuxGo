@@ -66,6 +66,7 @@ cd TmuxGo
 浏览器打开 `http://localhost:3000`。:tada:
 
 > :bulb: 局域网内可直接访问；远程访问请先配置 [Tailscale](https://tailscale.com)。
+> :lock: 终端选区复制到系统剪贴板建议使用 HTTPS 域名访问（例如 Tailscale HTTPS），避免浏览器因非安全上下文限制剪贴板能力。
 
 ## :shield: 生产部署
 
@@ -245,6 +246,13 @@ journalctl --user -u tmuxgo-gateway.service -n 100
 journalctl --user -u tmuxgo-frontend.service -n 100
 journalctl --user -u tmuxgo-agent.service -n 100
 ```
+
+### 剪贴板复制排障
+
+1. 优先使用 HTTPS 顶层标签页访问（不要放在 iframe 或受限 webview 内）。
+2. 打开浏览器站点权限，确认允许剪贴板读写。
+3. 终端选区后可直接 `Ctrl/Cmd+C` 显式复制；若系统剪贴板受限，会自动回退到应用内剪贴板用于站内粘贴。
+4. 若仍失败，刷新页面后重试，并检查浏览器扩展或容器策略是否拦截剪贴板事件。
 
 ## :page_facing_up: License
 

@@ -8,7 +8,7 @@ export function ToastViewport() {
   const removeToast = useConsoleStore((s) => s.removeToast)
 
   useEffect(() => {
-    const timers = toasts.map((toast) => setTimeout(() => removeToast(toast.id), 2800))
+    const timers = toasts.map((toast) => setTimeout(() => removeToast(toast.id), Math.max(500, toast.durationMs || 2800)))
     return () => timers.forEach((timer) => clearTimeout(timer))
   }, [toasts, removeToast])
 

@@ -2,6 +2,7 @@ let storedClipboardText=''
 export interface ClipboardWriteOptions {
   preferSync?:boolean
 }
+export type ClipboardWriteReason='ok'|'permission_denied'|'api_unavailable'|'sync_copy_failed'
 export interface ClipboardReadResult {
   text:string
   source:'system'|'memory'|'empty'
@@ -11,6 +12,7 @@ export interface ClipboardWriteResult {
   copied:boolean
   source:'system'|'memory'
   unavailable:boolean
+  reason:ClipboardWriteReason
 }
 export interface ClipboardVerifyResult {
   allowed:boolean
@@ -59,17 +61,33 @@ function writeClipboardTextSync(text:string) {
   document.body.removeChild(ta)
   return copied
 }
+function isPermissionDeniedError(error:unknown) {
+  if (!error||typeof error!=='object') return false
+  const name=(error as { name?:string }).name
+  return name==='NotAllowedError'||name==='SecurityError'
+}
 export async function writeClipboardText(text:string,options:ClipboardWriteOptions={}):Promise<ClipboardWriteResult> {
   storedClipboardText=text
-  if (options.preferSync&&writeClipboardTextSync(text)) return {copied:true,source:'system',unavailable:false}
+  let syncTried=false
+  let apiUnavailable=false
+  let permissionDenied=false
+  if (options.preferSync) {
+    syncTried=true
+    if (writeClipboardTextSync(text)) return {copied:true,source:'system',unavailable:false,reason:'ok'}
+  }
   try {
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(text)
-      return {copied:true,source:'system',unavailable:false}
+      return {copied:true,source:'system',unavailable:false,reason:'ok'}
     }
-  } catch {}
-  if (writeClipboardTextSync(text)) return {copied:true,source:'system',unavailable:false}
-  return {copied:!!text,source:'memory',unavailable:true}
+    apiUnavailable=true
+  } catch (error) {
+    permissionDenied=isPermissionDeniedError(error)
+  }
+  if (!syncTried&&writeClipboardTextSync(text)) return {copied:true,source:'system',unavailable:false,reason:'ok'}
+  if (permissionDenied) return {copied:!!text,source:'memory',unavailable:true,reason:'permission_denied'}
+  if (apiUnavailable) return {copied:!!text,source:'memory',unavailable:true,reason:'api_unavailable'}
+  return {copied:!!text,source:'memory',unavailable:true,reason:'sync_copy_failed'}
 }
 export async function verifyClipboardText(text:string):Promise<ClipboardVerifyResult> {
   try {
