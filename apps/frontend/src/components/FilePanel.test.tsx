@@ -107,6 +107,19 @@ describe('FilePanel', () => {
     await waitFor(() => expect(screen.getByText('demo.txt')).toBeInTheDocument())
     expect(screen.getByRole('button', { name: '/' })).toBeInTheDocument()
   })
+  it('removes selected favorite root from header without affecting workspace and home', async () => {
+    localStorage.setItem('tmuxgo-favorite-directories', JSON.stringify([{ rootId: 'root-home', rootPath: '/home/user', name: 'project', path: 'project' }]))
+    render(React.createElement(FilePanel))
+    await screen.findByRole('option', { name: 'project' })
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'favorite:root-home:project' } })
+    const removeBtn = await screen.findByRole('button', { name: '删收藏' })
+    fireEvent.click(removeBtn)
+    await waitFor(() => expect(screen.queryByRole('option', { name: 'project' })).not.toBeInTheDocument())
+    expect(screen.getByRole('button', { name: 'Workspace' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Home' })).toBeInTheDocument()
+    const favorites = JSON.parse(localStorage.getItem('tmuxgo-favorite-directories') || '[]')
+    expect(favorites).toEqual([])
+  })
 
   it('expands a searched directory on desktop only after click', async () => {
     render(React.createElement(FilePanel))

@@ -57,6 +57,41 @@ function toggleFavoriteDirectoryEntry(entry: FavoriteDirectory) {
   const updatedAt = writeFavoriteDirectories(next)
   return { entries: next, updatedAt }
 }
+function removeFavoriteDirectoryEntry(entry: { rootId: string; path: string }) {
+  const current = readFavoriteDirectories()
+  const next = current.filter((item) => item.rootId !== entry.rootId || item.path !== entry.path)
+  const updatedAt = writeFavoriteDirectories(next)
+  return { entries: next, updatedAt }
+}
+function areFavoriteDirectoriesEqual(a: FavoriteDirectory[], b: FavoriteDirectory[]) {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i].rootId !== b[i].rootId || a[i].rootPath !== b[i].rootPath || a[i].name !== b[i].name || a[i].path !== b[i].path) return false
+  }
+  return true
+}
+function sanitizeFavoriteDirectories(entries: FavoriteDirectory[], roots: FileRoot[]) {
+  const rootById = Object.fromEntries(roots.map((item) => [item.id, item]))
+  const seen = new Set<string>()
+  const next: FavoriteDirectory[] = []
+  for (const entry of entries) {
+    const root = rootById[entry.rootId]
+    if (!root) continue
+    const normalizedPath = (entry.path || '').split(/[\\/]+/).filter(Boolean).join('/')
+    if (normalizedPath.split('/').some((part) => part === '..')) continue
+    const key = `${entry.rootId}:${normalizedPath}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    next.push({
+      rootId: entry.rootId,
+      rootPath: root.path,
+      name: entry.name || getDirectoryName(normalizedPath, root),
+      path: normalizedPath,
+    })
+    if (next.length >= 12) break
+  }
+  return next
+}
 function readHideDotFiles() {
   if (typeof window === 'undefined') return true
   return localStorage.getItem('tmuxgo-hide-dot-files') !== 'false'
@@ -86,6 +121,19 @@ function formatDirectoryShortcutLabel(path: string, rootLabel: string) {
 }
 function getFavoriteRootOptionId(entry: { rootId: string; path: string }) {
   return `favorite:${entry.rootId}:${encodeURIComponent(entry.path)}`
+}
+function parseFavoriteRootOptionId(value: string) {
+  if (!value.startsWith('favorite:')) return null
+  const tail = value.slice('favorite:'.length)
+  const sep = tail.indexOf(':')
+  if (sep < 0) return null
+  const rootId = tail.slice(0, sep)
+  const encodedPath = tail.slice(sep + 1)
+  try {
+    return { rootId, path: decodeURIComponent(encodedPath) }
+  } catch {
+    return null
+  }
 }
 function getBreadcrumbs(path: string) {
   const parts = path.split(/[\\/]+/).filter(Boolean)
@@ -244,6 +292,11 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
   const activeRoot = rootOptions.find((item) => item.id === selectedRootId) || rootOptions[0]
   const activeRootId = activeRoot?.sourceRootId || ''
   const activeRootBasePath = activeRoot?.basePath || ''
+  const activeFavorite = useMemo(() => {
+    const parsed = parseFavoriteRootOptionId(selectedRootId)
+    if (!parsed) return null
+    return favoriteDirectories.find((item) => item.rootId === parsed.rootId && item.path === parsed.path) || null
+  }, [favoriteDirectories, selectedRootId])
   const listQueryPath = joinRelativePath(activeRootBasePath, currentPath)
   const previewQueryPath = joinRelativePath(activeRootBasePath, selectedPath)
   const { data: rawListData, isLoading: listLoading } = useFileList(activeRootId, listQueryPath, true)
@@ -273,34 +326,37 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
     setSelectedRootId(rootOptions[0]?.id || '')
   }, [rootOptions, selectedRootId])
   useEffect(() => {
-    setFavoriteDirectories(readFavoriteDirectories())
-  }, [])
-  useEffect(() => {
+    if (!roots.length) return
     const localEntries = readFavoriteDirectories()
+    const sanitizedLocalEntries = sanitizeFavoriteDirectories(localEntries, roots)
+    if (!areFavoriteDirectoriesEqual(localEntries, sanitizedLocalEntries)) writeFavoriteDirectories(sanitizedLocalEntries)
+    setFavoriteDirectories(sanitizedLocalEntries)
     const localUpdatedAt = readFavoriteDirectoriesUpdatedAt()
     void (async () => {
       try {
         const remote = await api.preferences.get(PREFERENCES_PROFILE)
-        const remoteEntries = Array.isArray(remote.favoriteDirectories) ? remote.favoriteDirectories : []
+        const remoteEntriesRaw = Array.isArray(remote.favoriteDirectories) ? remote.favoriteDirectories : []
+        const remoteEntries = sanitizeFavoriteDirectories(remoteEntriesRaw, roots)
         const remoteUpdatedAt = remote.favoriteDirectoriesUpdatedAt || ''
         const localMs = Date.parse(localUpdatedAt || '')
         const remoteMs = Date.parse(remoteUpdatedAt || '')
-        if (remoteEntries.length === 0 && localEntries.length > 0) {
+        if (remoteEntries.length === 0 && sanitizedLocalEntries.length > 0) {
           const pushedAt = localUpdatedAt || new Date().toISOString()
-          await api.preferences.update({ favoriteDirectories: localEntries, favoriteDirectoriesUpdatedAt: pushedAt }, PREFERENCES_PROFILE)
+          await api.preferences.update({ favoriteDirectories: sanitizedLocalEntries, favoriteDirectoriesUpdatedAt: pushedAt }, PREFERENCES_PROFILE)
           return
         }
         if (!Number.isNaN(remoteMs) && (Number.isNaN(localMs) || remoteMs >= localMs)) {
           writeFavoriteDirectories(remoteEntries, remoteUpdatedAt || new Date().toISOString())
           setFavoriteDirectories(remoteEntries)
+          if (!areFavoriteDirectoriesEqual(remoteEntriesRaw, remoteEntries)) await api.preferences.update({ favoriteDirectories: remoteEntries, favoriteDirectoriesUpdatedAt: remoteUpdatedAt || new Date().toISOString() }, PREFERENCES_PROFILE)
           return
         }
         if (!Number.isNaN(localMs) && (Number.isNaN(remoteMs) || localMs > remoteMs)) {
-          await api.preferences.update({ favoriteDirectories: localEntries, favoriteDirectoriesUpdatedAt: localUpdatedAt }, PREFERENCES_PROFILE)
+          await api.preferences.update({ favoriteDirectories: sanitizedLocalEntries, favoriteDirectoriesUpdatedAt: localUpdatedAt }, PREFERENCES_PROFILE)
         }
       } catch {}
     })()
-  }, [])
+  }, [roots])
   useEffect(() => {
     if (isMobile) return
     const frame = requestAnimationFrame(() => setContentReady(true))
@@ -355,6 +411,12 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
     const next = toggleFavoriteDirectoryEntry({ rootId: nextRootId, rootPath: nextRootPath, name: nextName, path: nextPath })
     setFavoriteDirectories(next.entries)
     void api.preferences.update({ favoriteDirectories: next.entries, favoriteDirectoriesUpdatedAt: next.updatedAt }, PREFERENCES_PROFILE).catch(() => {})
+  }
+  const removeFavoriteDirectory = (entry: { rootId: string; path: string }) => {
+    const next = removeFavoriteDirectoryEntry(entry)
+    setFavoriteDirectories(next.entries)
+    void api.preferences.update({ favoriteDirectories: next.entries, favoriteDirectoriesUpdatedAt: next.updatedAt }, PREFERENCES_PROFILE).catch(() => {})
+    if (selectedRootId === getFavoriteRootOptionId(entry)) switchRoot(entry.rootId)
   }
   const openDesktopDirectoryPath = (path: string) => {
     setOpenDirectories(new Set(getDirectoryPathChain(path)))
@@ -469,6 +531,7 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
           <select value={selectedRootId} onChange={(e) => switchRoot(e.target.value)} className="min-w-0 flex-1 rounded border border-[var(--line)] bg-bg-2 px-2 py-1 text-xs text-text-2 outline-none">
             {rootOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
           </select>
+          {activeFavorite && <button onClick={() => removeFavoriteDirectory(activeFavorite)} className="rounded px-2 py-1 text-[11px] text-text-3 hover:bg-bg-2 hover:text-text-1">删收藏</button>}
           <button onClick={onClose || (() => setFilePanelOpen(false))} className="rounded px-2 py-1 text-text-3 hover:bg-bg-2 hover:text-text-1">×</button>
         </div>
         <div className="mt-2 flex flex-wrap gap-1.5">
