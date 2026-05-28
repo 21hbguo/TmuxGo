@@ -15,6 +15,7 @@ import { ToastViewport } from './ToastViewport'
 import { FilePanel } from './FilePanel'
 import { UploadConfirmDialog } from './UploadConfirmDialog'
 import { UploadQueue } from './UploadQueue'
+import { AppVersionGuard } from './AppVersionGuard'
 import { getViewportLayoutState } from './consoleLayoutViewport'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useHosts, useSessions, useSessionSnapshot } from '@/hooks/useApi'
@@ -28,8 +29,8 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   const activeSessionId = useConsoleStore((s) => s.activeSessionId)
   const showCommandPalette = useConsoleStore((s) => s.showCommandPalette)
   const setCommandPalette = useConsoleStore((s) => s.setCommandPalette)
-  const toggleSidebar = useConsoleStore((s) => s.toggleSidebar)
-  const sidebarCollapsed = useConsoleStore((s) => s.sidebarCollapsed)
+  const sessionPanelExpanded = useConsoleStore((s) => s.sessionPanelExpanded)
+  const toggleSessionPanel = useConsoleStore((s) => s.toggleSessionPanel)
   const filePanelOpen = useConsoleStore((s) => s.filePanelOpen)
   const toggleFilePanel = useConsoleStore((s) => s.toggleFilePanel)
   const mobileFileSheetOpen = useConsoleStore((s) => s.mobileFileSheetOpen)
@@ -40,8 +41,12 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   const { data: sessionsData = [] } = useSessions(activeHostId || '')
   const { data: snapshotData } = useSessionSnapshot(activeHostId || '', activeSessionId || '')
 
-  const [isMobile, setIsMobile] = useState(initialIsMobile)
-  const [appHeight, setAppHeight] = useState<string>(initialIsMobile?'100svh':'100dvh')
+  const [isMobile, setIsMobile] = useState(() => typeof window === 'undefined' ? initialIsMobile : window.matchMedia(MOBILE_QUERY).matches)
+  const [appHeight, setAppHeight] = useState(() => {
+    if (typeof window === 'undefined') return initialIsMobile ? '100svh' : '100dvh'
+    const height = Math.round(window.visualViewport?.height || window.innerHeight || 0)
+    return height > 0 ? `${height}px` : window.matchMedia(MOBILE_QUERY).matches ? '100svh' : '100dvh'
+  })
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerType, setDrawerType] = useState<'sessions' | 'panes'>('sessions')
   const [showSettings, setShowSettings] = useState(false)
@@ -134,8 +139,21 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
 
   useEffect(() => {
     const mql = window.matchMedia(MOBILE_QUERY)
-    setIsMobile(mql.matches)
-    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches)
+    const syncViewportMode = () => {
+      const nextMobile = mql.matches
+      setIsMobile(nextMobile)
+      const nextHeight = Math.round(window.visualViewport?.height || window.innerHeight || 0)
+      if (!nextHeight) return
+      const nextValue = `${nextHeight}px`
+      appHeightRef.current = nextValue
+      appHeightNumRef.current = nextHeight
+      setAppHeight(nextValue)
+    }
+    syncViewportMode()
+    const handler = (e: MediaQueryListEvent) => {
+      setIsMobile(e.matches)
+      syncViewportMode()
+    }
     mql.addEventListener('change', handler)
     return () => mql.removeEventListener('change', handler)
   }, [])
@@ -239,7 +257,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       }
       if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
         e.preventDefault()
-        toggleSidebar()
+        toggleSessionPanel()
       }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'e') {
         e.preventDefault()
@@ -249,7 +267,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [showCommandPalette, openPalette, closeOverlay, toggleSidebar, toggleFilePanel, isMobile, openMobileFiles])
+  }, [showCommandPalette, openPalette, closeOverlay, toggleSessionPanel, toggleFilePanel, isMobile, openMobileFiles])
 
   useEffect(() => {
     const handlePopState = () => {
@@ -271,8 +289,8 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
     return () => window.removeEventListener('tmuxgo-open-settings', handleOpenSettings as EventListener)
   }, [openSettings])
   useEffect(() => {
-    window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'session-panel', open: !sidebarCollapsed, mobile: false } }))
-  }, [sidebarCollapsed])
+    window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'session-panel', open: sessionPanelExpanded, mobile: false } }))
+  }, [sessionPanelExpanded])
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'file-panel', open: filePanelOpen, mobile: false } }))
   }, [filePanelOpen])
@@ -311,6 +329,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       {showSettings && <Settings onClose={() => closeOverlay('settings')} />}
       <UploadConfirmDialog />
       <UploadQueue />
+      <AppVersionGuard />
       <ClipboardController />
       <MobileDrawer
         isOpen={drawerOpen}

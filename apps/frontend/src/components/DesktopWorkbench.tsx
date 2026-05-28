@@ -6,45 +6,73 @@ import type { FileDocumentHandle, FileEditorDocument } from '@/types'
 import { ActivityBar } from './ActivityBar'
 import { FilePanel } from './FilePanel'
 import { SessionPanel } from './SessionPanel'
+import { SessionRail } from './SessionRail'
 import { EditorWorkbench } from './EditorWorkbench'
 import { TerminalDock } from './TerminalDock'
 
 function getEditorLanguage(path: string) {
   const name = path.split('/').pop()?.toLowerCase() || ''
+  if (name === 'dockerfile') return 'dockerfile'
+  if (name === 'makefile') return 'plaintext'
+  if (name.endsWith('.c')) return 'c'
+  if (name.endsWith('.cc') || name.endsWith('.cpp') || name.endsWith('.cxx') || name.endsWith('.hpp') || name.endsWith('.h')) return 'cpp'
   if (name.endsWith('.ts')) return 'typescript'
   if (name.endsWith('.tsx')) return 'typescript'
   if (name.endsWith('.js')) return 'javascript'
   if (name.endsWith('.jsx')) return 'javascript'
+  if (name.endsWith('.mjs') || name.endsWith('.cjs')) return 'javascript'
   if (name.endsWith('.json')) return 'json'
+  if (name.endsWith('.jsonc')) return 'json'
   if (name.endsWith('.md')) return 'markdown'
   if (name.endsWith('.css')) return 'css'
+  if (name.endsWith('.scss')) return 'scss'
+  if (name.endsWith('.less')) return 'less'
   if (name.endsWith('.html')) return 'html'
+  if (name.endsWith('.xml') || name.endsWith('.svg')) return 'xml'
   if (name.endsWith('.sh')) return 'shell'
+  if (name.endsWith('.bash') || name.endsWith('.zsh')) return 'shell'
   if (name.endsWith('.py')) return 'python'
   if (name.endsWith('.go')) return 'go'
+  if (name.endsWith('.java')) return 'java'
+  if (name.endsWith('.kt')) return 'kotlin'
+  if (name.endsWith('.rs')) return 'rust'
+  if (name.endsWith('.php')) return 'php'
+  if (name.endsWith('.rb')) return 'ruby'
+  if (name.endsWith('.sql')) return 'sql'
+  if (name.endsWith('.toml')) return 'ini'
+  if (name.endsWith('.ini') || name.endsWith('.cfg') || name.endsWith('.conf')) return 'ini'
   if (name.endsWith('.yml') || name.endsWith('.yaml')) return 'yaml'
   return 'plaintext'
 }
 
 export function DesktopWorkbench() {
-  const sidebarCollapsed = useConsoleStore((state) => state.sidebarCollapsed)
+  const sessionPanelExpanded = useConsoleStore((state) => state.sessionPanelExpanded)
+  const sessionPanelWidth = useConsoleStore((state) => state.sessionPanelWidth)
   const filePanelWidth = useConsoleStore((state) => state.filePanelWidth)
-  const desktopPanel = useConsoleStore((state) => state.desktopPanel)
+  const filePanelOpen = useConsoleStore((state) => state.filePanelOpen)
+  const openEditors = useConsoleStore((state) => state.openEditors)
+  const setSessionPanelWidth = useConsoleStore((state) => state.setSessionPanelWidth)
   const setFilePanelWidth = useConsoleStore((state) => state.setFilePanelWidth)
-  const setDesktopPanel = useConsoleStore((state) => state.setDesktopPanel)
+  const setFilePanelOpen = useConsoleStore((state) => state.setFilePanelOpen)
   const openEditor = useConsoleStore((state) => state.openEditor)
   const setEditorLoaded = useConsoleStore((state) => state.setEditorLoaded)
   const setEditorSaving = useConsoleStore((state) => state.setEditorSaving)
   const markEditorSaved = useConsoleStore((state) => state.markEditorSaved)
   const pushToast = useConsoleStore((state) => state.pushToast)
-  const resizingRef = useRef(false)
+  const resizingRef = useRef<'session' | 'file' | null>(null)
   useEffect(() => {
     const handleMove = (event: MouseEvent) => {
-      if (!resizingRef.current) return
-      setFilePanelWidth(event.clientX - 56)
+      if (resizingRef.current === 'session') {
+        setSessionPanelWidth(event.clientX - 56)
+        return
+      }
+      if (resizingRef.current === 'file') {
+        const sessionOffset = 56 + (sessionPanelExpanded ? sessionPanelWidth : 16 * 4)
+        setFilePanelWidth(event.clientX - sessionOffset)
+      }
     }
     const handleUp = () => {
-      resizingRef.current = false
+      resizingRef.current = null
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
     }
@@ -54,9 +82,12 @@ export function DesktopWorkbench() {
       window.removeEventListener('mousemove', handleMove)
       window.removeEventListener('mouseup', handleUp)
     }
-  }, [setFilePanelWidth])
+  }, [sessionPanelExpanded, sessionPanelWidth, setFilePanelWidth, setSessionPanelWidth])
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'desktop-workbench', sessionPanelExpanded, sessionPanelWidth, filePanelOpen, filePanelWidth, editorsOpen: openEditors.length > 0 } }))
+  }, [filePanelOpen, filePanelWidth, openEditors.length, sessionPanelExpanded, sessionPanelWidth])
   const handleOpenFile = useCallback(async (file: FileDocumentHandle) => {
-    setDesktopPanel('files')
+    setFilePanelOpen(true)
     const existing = useConsoleStore.getState().openEditors.find((item) => item.id === file.id)
     openEditor({ ...file, language: existing?.language || getEditorLanguage(file.path) })
     if (existing && !existing.loading && (!!existing.modifiedAt || !!existing.problem || existing.binary || existing.truncated)) return
@@ -76,7 +107,7 @@ export function DesktopWorkbench() {
       setEditorLoaded(file.id, { loading: false, problem: err instanceof Error ? err.message : 'Open failed' })
       pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Open failed' })
     }
-  }, [openEditor, pushToast, setDesktopPanel, setEditorLoaded])
+  }, [openEditor, pushToast, setEditorLoaded, setFilePanelOpen])
   const handleSaveEditor = useCallback(async (editor: FileEditorDocument) => {
     if (editor.loading || editor.binary || editor.truncated) return
     setEditorSaving(editor.id, true)
@@ -93,23 +124,43 @@ export function DesktopWorkbench() {
   return (
     <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
       <ActivityBar />
-      {!sidebarCollapsed && (
-        <div className="relative shrink-0 border-r border-[var(--line)] bg-bg-1" style={{ width: filePanelWidth }}>
+      {sessionPanelExpanded ? (
+        <div className="relative shrink-0 border-r border-[var(--line)] bg-bg-1" style={{ width: sessionPanelWidth }}>
           <div className="h-full min-h-0">
-            {desktopPanel === 'sessions' ? <SessionPanel /> : <FilePanel mode="explorer" onOpenFile={handleOpenFile} />}
+            <SessionPanel />
           </div>
           <div className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-accent/40" onMouseDown={() => {
-            resizingRef.current = true
+            resizingRef.current = 'session'
+            document.body.style.cursor = 'col-resize'
+            document.body.style.userSelect = 'none'
+          }} />
+        </div>
+      ) : <SessionRail />}
+      {filePanelOpen && (
+        <div className="relative shrink-0 border-r border-[var(--line)] bg-bg-1" style={{ width: filePanelWidth }}>
+          <div className="h-full min-h-0">
+            <FilePanel mode="explorer" onOpenFile={handleOpenFile} />
+          </div>
+          <div className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-accent/40" onMouseDown={() => {
+            resizingRef.current = 'file'
             document.body.style.cursor = 'col-resize'
             document.body.style.userSelect = 'none'
           }} />
         </div>
       )}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-bg-1">
-        <div className="min-h-0 flex-1">
-          <EditorWorkbench onSaveEditor={handleSaveEditor} />
-        </div>
-        <TerminalDock />
+        {openEditors.length > 0 ? (
+          <>
+            <div className="min-h-0 flex-1">
+              <EditorWorkbench onSaveEditor={handleSaveEditor} />
+            </div>
+            <TerminalDock />
+          </>
+        ) : (
+          <div className="min-h-0 flex-1">
+            <TerminalDock fill />
+          </div>
+        )}
       </div>
     </div>
   )

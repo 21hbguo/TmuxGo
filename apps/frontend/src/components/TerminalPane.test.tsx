@@ -339,7 +339,7 @@ describe('TerminalPane', () => {
     const terminalRoot = container.querySelector('.xterm') as HTMLDivElement
     expect(terminalRoot).toBeTruthy()
     expect(terminalRoot.style.transform).toBe('')
-    expect(terminalRoot.style.width).toBe('')
-    expect(terminalRoot.style.height).toBe('')
+    expect(terminalRoot.style.width).toBe('100%')
+    expect(terminalRoot.style.height).toBe('100%')
   })
 })

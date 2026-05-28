@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useCreateSession, useDeleteSession } from '@/hooks/useApi'
 import { SessionTemplates, type Template } from './SessionTemplates'
@@ -44,6 +44,11 @@ export function SessionPanel() {
     }
     setPendingDeleteSessionId(null)
   }
+  useEffect(() => {
+    const handleOpenTemplates = () => setShowTemplates(true)
+    window.addEventListener('tmuxgo-open-session-templates', handleOpenTemplates as EventListener)
+    return () => window.removeEventListener('tmuxgo-open-session-templates', handleOpenTemplates as EventListener)
+  }, [])
   return (
     <>
       <div className="flex h-full min-h-0 flex-col bg-bg-1">
