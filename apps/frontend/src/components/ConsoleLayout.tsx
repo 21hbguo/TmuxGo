@@ -2,8 +2,6 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { TopBar } from './TopBar'
-import { Sidebar } from './Sidebar'
-import { PaneGrid } from './PaneGrid'
 import { StatusBar } from './StatusBar'
 import { CommandPalette } from './CommandPalette'
 import { ClipboardController } from './ClipboardController'
@@ -13,13 +11,15 @@ import { Settings } from './Settings'
 import { InstallAppBanner } from './InstallAppBanner'
 import { ShortcutBar } from './ShortcutBar'
 import { ToastViewport } from './ToastViewport'
-import { FilePanel } from './FilePanel'
 import { UploadConfirmDialog } from './UploadConfirmDialog'
 import { UploadQueue } from './UploadQueue'
 import { getViewportLayoutState } from './consoleLayoutViewport'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useHosts, useSessions, useSessionSnapshot } from '@/hooks/useApi'
 import { usePreferences } from '@/hooks/usePreferences'
+import { PaneGrid } from './PaneGrid'
+import { FilePanel } from './FilePanel'
+import { DesktopWorkbench } from './DesktopWorkbench'
 
 const MOBILE_QUERY = '(max-width: 1023px)'
 
@@ -29,8 +29,10 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   const showCommandPalette = useConsoleStore((s) => s.showCommandPalette)
   const setCommandPalette = useConsoleStore((s) => s.setCommandPalette)
   const toggleSidebar = useConsoleStore((s) => s.toggleSidebar)
+  const setDesktopPanel = useConsoleStore((s) => s.setDesktopPanel)
   const filePanelOpen = useConsoleStore((s) => s.filePanelOpen)
-  const toggleFilePanel = useConsoleStore((s) => s.toggleFilePanel)
+  const sidebarCollapsed = useConsoleStore((s) => s.sidebarCollapsed)
+  const desktopPanel = useConsoleStore((s) => s.desktopPanel)
   const mobileFileSheetOpen = useConsoleStore((s) => s.mobileFileSheetOpen)
   const setMobileFileSheetOpen = useConsoleStore((s) => s.setMobileFileSheetOpen)
   const { preferences } = usePreferences()
@@ -243,12 +245,13 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'e') {
         e.preventDefault()
         if (isMobile) openMobileFiles()
-        else toggleFilePanel()
+        else if (desktopPanel === 'files' && !sidebarCollapsed) toggleSidebar()
+        else setDesktopPanel('files')
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [showCommandPalette, openPalette, closeOverlay, toggleSidebar, toggleFilePanel, isMobile, openMobileFiles])
+  }, [showCommandPalette, openPalette, closeOverlay, toggleSidebar, isMobile, openMobileFiles, desktopPanel, sidebarCollapsed, setDesktopPanel])
 
   useEffect(() => {
     const handlePopState = () => {
@@ -287,24 +290,11 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
     window.addEventListener('tmuxgo-new-session', handleNewSession as EventListener)
     return () => window.removeEventListener('tmuxgo-new-session', handleNewSession as EventListener)
   }, [isMobile])
-
-  const sidebarOrder = preferences.sidebarPosition === 'right' ? 1 : 0
-
   return (
     <div className="flex w-screen flex-col overflow-hidden" style={{ height: appHeight, ['--app-height' as any]: appHeight }}>
       <InstallAppBanner />
       {!isMobile && <TopBar />}
-      <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
-        {!isMobile && (
-          <div style={{ order: sidebarOrder }}>
-            <Sidebar />
-          </div>
-        )}
-        <main className="flex flex-1 min-h-0 min-w-0 flex-col bg-bg-1" style={isMobile ? { paddingBottom: 'calc(48px + env(safe-area-inset-bottom,0px))' } : undefined}>
-          <PaneGrid />
-        </main>
-        {!isMobile && filePanelOpen && <FilePanel />}
-      </div>
+      {!isMobile ? <DesktopWorkbench /> : <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden"><main className="flex flex-1 min-h-0 min-w-0 flex-col bg-bg-1" style={{ paddingBottom: 'calc(48px + env(safe-area-inset-bottom,0px))' }}><PaneGrid /></main></div>}
       {!isMobile && preferences.showStatusBar && <StatusBar />}
       {isMobile && (
         <div className="mobile-nav-landscape-hide fixed left-0 right-0 bottom-0 z-40 h-[calc(48px+env(safe-area-inset-bottom))]">

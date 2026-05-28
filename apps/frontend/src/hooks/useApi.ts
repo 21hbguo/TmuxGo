@@ -104,11 +104,11 @@ export function useFileList(root: string, path: string, enabled = true) {
   })
 }
 
-export function useFilePreview(root: string, path: string, line = 1) {
+export function useFilePreview(root: string, path: string, line = 1, enabled = true) {
   return useQuery({
     queryKey: ['file-preview', root, path, line],
     queryFn: () => api.files.preview(root, path, line),
-    enabled: !!root && !!path,
+    enabled: !!root && !!path && enabled,
     staleTime: 2000,
   })
 }
