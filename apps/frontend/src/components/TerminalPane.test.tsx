@@ -68,6 +68,16 @@ vi.mock('@xterm/xterm', () => {
     loadAddon() {}
     open(container: HTMLDivElement) {
       this.element = document.createElement('div')
+      this.element.className = 'xterm'
+      const viewport = document.createElement('div')
+      viewport.className = 'xterm-viewport'
+      const screen = document.createElement('div')
+      screen.className = 'xterm-screen'
+      const rows = document.createElement('div')
+      rows.className = 'xterm-rows'
+      screen.appendChild(rows)
+      this.element.appendChild(viewport)
+      this.element.appendChild(screen)
       const input = document.createElement('textarea')
       this.element.appendChild(input)
       container.appendChild(this.element)
@@ -322,5 +332,14 @@ describe('TerminalPane', () => {
     await waitFor(() => expect(customKeyHandler).toBeTruthy())
     window.dispatchEvent(new CustomEvent('tmuxgo-terminal-output', { detail: 'printf \"global_output_ok\"\\r\\n' }))
     await waitFor(() => expect(terminalMocks.write).toHaveBeenCalledWith('printf \"global_output_ok\"\\r\\n'))
+  })
+  it('keeps terminal root aligned without transform offsets', async () => {
+    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    const terminalRoot = container.querySelector('.xterm') as HTMLDivElement
+    expect(terminalRoot).toBeTruthy()
+    expect(terminalRoot.style.transform).toBe('')
+    expect(terminalRoot.style.width).toBe('')
+    expect(terminalRoot.style.height).toBe('')
   })
 })
