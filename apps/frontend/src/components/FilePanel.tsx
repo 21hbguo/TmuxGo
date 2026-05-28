@@ -9,6 +9,7 @@ import { quoteShellPath } from '@/lib/path-drop'
 import { api } from '@/lib/api'
 
 type SearchMode = 'name' | 'content'
+type FileTypeFilter = 'all' | 'file' | 'directory'
 type FileRootOption = FileRoot & { sourceRootId: string; basePath: string }
 type FileEntry = FileItem | FileContentMatch
 const FAVORITE_STORAGE_KEY = 'tmuxgo-favorite-directories'
@@ -102,6 +103,10 @@ function writeHideDotFiles(value: boolean) {
 function isDotPath(path: string) {
   return path.split(/[\\/]+/).some((part) => part.startsWith('.') && part.length > 1)
 }
+function matchesFileTypeFilter(item: { type: 'file' | 'directory' }, fileTypeFilter: FileTypeFilter) {
+  if (fileTypeFilter === 'all') return true
+  return item.type === fileTypeFilter
+}
 function FileIcon({ type }: { type: 'file' | 'directory' }) {
   return <span className={type === 'directory' ? 'text-accent' : 'text-text-3'}>{type === 'directory' ? '▸' : '·'}</span>
 }
@@ -177,6 +182,7 @@ function TreeDirectoryNode({
   item,
   depth,
   hideDotFiles,
+  fileTypeFilter,
   selectedPath,
   isFavoriteDirectory,
   onToggle,
@@ -191,6 +197,7 @@ function TreeDirectoryNode({
   item: FileItem
   depth: number
   hideDotFiles: boolean
+  fileTypeFilter: FileTypeFilter
   selectedPath: string
   isFavoriteDirectory: (entry: { rootId: string; path: string }) => boolean
   onToggle: (path: string) => void
@@ -204,8 +211,8 @@ function TreeDirectoryNode({
   const { data: childList, isLoading } = useFileList(rootId, joinRelativePath(rootBasePath, item.path), isOpen)
   const childItems = useMemo(() => {
     const nextItems = (childList?.items || []).map((entry) => rebaseEntryPath(entry, rootBasePath))
-    return hideDotFiles ? nextItems.filter((entry) => !isDotPath(entry.path || entry.name)) : nextItems
-  }, [childList, hideDotFiles, rootBasePath])
+    return nextItems.filter((entry) => (!hideDotFiles || !isDotPath(entry.path || entry.name)) && matchesFileTypeFilter(entry, fileTypeFilter))
+  }, [childList, hideDotFiles, fileTypeFilter, rootBasePath])
   return (
     <div>
       <button
@@ -240,6 +247,7 @@ function TreeDirectoryNode({
                 item={child}
                 depth={depth + 1}
                 hideDotFiles={hideDotFiles}
+                fileTypeFilter={fileTypeFilter}
                 selectedPath={selectedPath}
                 isFavoriteDirectory={isFavoriteDirectory}
                 onToggle={onToggle}
@@ -279,6 +287,7 @@ function SearchDirectoryNode({
   item,
   depth,
   hideDotFiles,
+  fileTypeFilter,
   searchMode,
   query,
   selectedPath,
@@ -295,6 +304,7 @@ function SearchDirectoryNode({
   item: FileItem
   depth: number
   hideDotFiles: boolean
+  fileTypeFilter: FileTypeFilter
   searchMode: SearchMode
   query: string
   selectedPath: string
@@ -311,8 +321,8 @@ function SearchDirectoryNode({
   const { data: rawChildResults = [], isFetching } = useFileSearch(rootId, searchMode, query, searchPath)
   const childItems = useMemo(() => {
     const nextItems = rawChildResults.map((entry) => rebaseEntryPath(entry, rootBasePath))
-    return hideDotFiles ? nextItems.filter((entry: any) => !isDotPath(entry.path || entry.name)) : nextItems
-  }, [rawChildResults, hideDotFiles, rootBasePath])
+    return nextItems.filter((entry: any) => (!hideDotFiles || !isDotPath(entry.path || entry.name)) && matchesFileTypeFilter(entry, fileTypeFilter))
+  }, [rawChildResults, hideDotFiles, fileTypeFilter, rootBasePath])
   return (
     <div>
       <button
@@ -347,6 +357,7 @@ function SearchDirectoryNode({
                 item={child}
                 depth={depth + 1}
                 hideDotFiles={hideDotFiles}
+                fileTypeFilter={fileTypeFilter}
                 searchMode={searchMode}
                 query={query}
                 selectedPath={selectedPath}
@@ -394,6 +405,7 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
   const [selectedPreviewLine, setSelectedPreviewLine] = useState(1)
   const [query, setQuery] = useState('')
   const [searchMode, setSearchMode] = useState<SearchMode>('name')
+  const [fileTypeFilter, setFileTypeFilter] = useState<FileTypeFilter>('all')
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: FileEntry } | null>(null)
   const [mobileView, setMobileView] = useState<'list' | 'preview'>('list')
   const [favoriteDirectories, setFavoriteDirectories] = useState<FavoriteDirectory[]>([])
@@ -431,7 +443,7 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
   }, [roots])
   const isSearching = query.trim().length > 1
   const items = useMemo(() => isSearching ? searchResults : listData?.items || [], [isSearching, searchResults, listData])
-  const visibleItems = useMemo(() => hideDotFiles ? items.filter((item: any) => !isDotPath(item.path || item.name)) : items, [hideDotFiles, items])
+  const visibleItems = useMemo(() => items.filter((item: any) => (!hideDotFiles || !isDotPath(item.path || item.name)) && matchesFileTypeFilter(item, fileTypeFilter)), [fileTypeFilter, hideDotFiles, items])
   const visibleFavoriteDirectories = useMemo(() => hideDotFiles ? favoriteDirectories.filter((item) => !isDotPath(item.path)) : favoriteDirectories, [hideDotFiles, favoriteDirectories])
 
   useEffect(() => {
@@ -675,10 +687,14 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={searchMode === 'name' ? 'Search file names' : 'Search file content'} className="min-w-0 flex-1 rounded border border-[var(--line)] bg-bg-0 px-2 py-1.5 font-mono text-xs text-text-1 outline-none placeholder:text-text-3 focus:border-accent" />
           <button onClick={() => setQuery('')} disabled={!query} aria-label="Clear search" className={`shrink-0 rounded border border-[var(--line)] px-2 py-1.5 text-xs ${query ? 'bg-bg-2 text-text-2 hover:text-accent' : 'bg-bg-0 text-text-3/40'}`}>×</button>
         </div>
-        <label className="mt-2 flex items-center justify-between rounded border border-[var(--line)] bg-bg-0 px-2 py-1.5 text-xs text-text-3">
-          <span>Show dotfiles</span>
-          <input type="checkbox" checked={!hideDotFiles} onChange={(e) => updateHideDotFiles(!e.target.checked)} className="h-3.5 w-3.5 accent-[rgb(var(--accent))]" />
-        </label>
+        <div className="mt-2 flex items-center gap-1.5">
+          <div className="flex min-w-0 flex-1 rounded border border-[var(--line)] bg-bg-0 p-0.5 text-xs">
+            {(['all', 'file', 'directory'] as FileTypeFilter[]).map((item) => (
+              <button key={item} onClick={() => setFileTypeFilter(item)} className={`min-w-0 flex-1 rounded px-2 py-1 ${fileTypeFilter === item ? 'bg-accent/20 text-accent' : 'text-text-3 hover:text-text-1'}`}>{item === 'all' ? 'All' : item === 'file' ? 'File' : 'Dir'}</button>
+            ))}
+          </div>
+          <button onClick={() => updateHideDotFiles(!hideDotFiles)} className={`shrink-0 rounded border border-[var(--line)] px-2 py-1.5 text-xs ${hideDotFiles ? 'bg-bg-0 text-text-3 hover:text-text-1' : 'bg-accent/20 text-accent'}`}>Dotfiles</button>
+        </div>
       </div>}
       {(!isMobile || mobileView === 'list') && <div className="min-h-0 flex-1 overflow-y-auto">
         {isMobile && !isSearching && !currentPath && visibleFavoriteDirectories.length > 0 && (
@@ -701,6 +717,7 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
               item={item}
               depth={0}
               hideDotFiles={hideDotFiles}
+              fileTypeFilter={fileTypeFilter}
               selectedPath={selectedPath}
               isFavoriteDirectory={isFavoriteDirectory}
               onToggle={toggleDesktopDirectory}
@@ -721,6 +738,7 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
               item={item}
               depth={0}
               hideDotFiles={hideDotFiles}
+              fileTypeFilter={fileTypeFilter}
               searchMode={searchMode}
               query={query}
               selectedPath={selectedPath}
