@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useFileList, useFilePreview, useFileRoots, useFileSearch } from '@/hooks/useApi'
 import { useConsoleStore } from '@/stores/useConsoleStore'
-import type { FavoriteDirectory, FileContentMatch, FileItem, FileListResponse, FilePreviewResponse, FileRoot } from '@/types'
+import type { FavoriteDirectory, FileContentMatch, FileDocumentHandle, FileItem, FileListResponse, FilePreviewResponse, FileRoot } from '@/types'
 import { writeClipboardText } from '@/lib/clipboard-text'
 import { quoteShellPath } from '@/lib/path-drop'
 import { api } from '@/lib/api'
@@ -331,7 +331,7 @@ function SearchDirectoryNode({
     />
   )
 }
-export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobile'; onClose?: () => void }) {
+export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile }: { mode?: 'panel' | 'mobile'; dock?: 'left' | 'right'; onClose?: () => void; onOpenFile?: (file: FileDocumentHandle) => void }) {
   const { filePanelWidth, setFilePanelWidth, setFilePanelOpen, openUploadDialog, pushToast } = useConsoleStore()
   const { data: roots = [] } = useFileRoots()
   const isMobile = mode === 'mobile'
@@ -498,6 +498,19 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
     })
   }
 
+  const openInEditor = (item: FileEntry) => {
+    if (!onOpenFile || item.type !== 'file' || !root) return false
+    onOpenFile({
+      id: `${activeRootId}:${item.path}`,
+      rootId: activeRootId,
+      rootLabel: root.label,
+      rootPath: root.path,
+      path: item.path,
+      name: item.name,
+      absolutePath: joinPath(root.path, item.path),
+    })
+    return true
+  }
   const openItem = (item: FileEntry) => {
     if (item.type === 'directory') {
       if (!isMobile) {
@@ -511,6 +524,7 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
       setSearchNavigationPath(isSearching ? item.path : null)
       return
     }
+    if (openInEditor(item)) return
     setSelectedPath(item.path)
     setSelectedPreviewLine(getPreviewLine(item))
     if (isMobile) setMobileView('preview')
@@ -545,7 +559,7 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
     openUploadDialog({ files: selectedFiles, preferredRootId: activeRootId, preferredPath: listQueryPath, insertPaths: true })
     event.target.value = ''
   }
-  const shellClass = isMobile ? 'flex h-full min-h-0 flex-col bg-bg-1' : 'relative flex h-full shrink-0 flex-col border-l border-[var(--line)] bg-bg-1'
+  const shellClass = isMobile ? 'flex h-full min-h-0 flex-col bg-bg-1' : `relative flex h-full shrink-0 flex-col bg-bg-1 ${dock === 'left' ? 'border-r border-[var(--line)]' : 'border-l border-[var(--line)]'}`
   const shellStyle = isMobile ? undefined : { width: filePanelWidth }
   const previewBlock = preview ? (
     preview.binary || preview.reason ? (
@@ -584,7 +598,7 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
       <input ref={uploadInputRef} type="file" multiple className="hidden" onChange={handleUploadSelect} />
       {!isMobile && (
         <div
-          className="absolute left-0 top-0 h-full w-1 cursor-col-resize hover:bg-accent/40"
+          className={`absolute top-0 h-full w-1 cursor-col-resize hover:bg-accent/40 ${dock === 'left' ? 'right-0' : 'left-0'}`}
           onMouseDown={() => {
             resizingRef.current = true
             document.body.style.cursor = 'col-resize'

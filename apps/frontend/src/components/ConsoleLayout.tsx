@@ -20,6 +20,7 @@ import { getViewportLayoutState } from './consoleLayoutViewport'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useHosts, useSessions, useSessionSnapshot } from '@/hooks/useApi'
 import { usePreferences } from '@/hooks/usePreferences'
+import { DesktopWorkspace } from './DesktopWorkspace'
 
 const MOBILE_QUERY = '(max-width: 1023px)'
 
@@ -29,6 +30,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   const showCommandPalette = useConsoleStore((s) => s.showCommandPalette)
   const setCommandPalette = useConsoleStore((s) => s.setCommandPalette)
   const toggleSidebar = useConsoleStore((s) => s.toggleSidebar)
+  const sidebarCollapsed = useConsoleStore((s) => s.sidebarCollapsed)
   const filePanelOpen = useConsoleStore((s) => s.filePanelOpen)
   const toggleFilePanel = useConsoleStore((s) => s.toggleFilePanel)
   const mobileFileSheetOpen = useConsoleStore((s) => s.mobileFileSheetOpen)
@@ -270,6 +272,9 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
     return () => window.removeEventListener('tmuxgo-open-settings', handleOpenSettings as EventListener)
   }, [openSettings])
   useEffect(() => {
+    window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'session-panel', open: !sidebarCollapsed, mobile: false } }))
+  }, [sidebarCollapsed])
+  useEffect(() => {
     window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'file-panel', open: filePanelOpen, mobile: false } }))
   }, [filePanelOpen])
   useEffect(() => {
@@ -295,15 +300,10 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       <InstallAppBanner />
       {!isMobile && <TopBar />}
       <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
-        {!isMobile && (
-          <div style={{ order: sidebarOrder }}>
-            <Sidebar />
-          </div>
-        )}
+        {!isMobile && !sidebarCollapsed && <div style={{ order: sidebarOrder }}><Sidebar /></div>}
         <main className="flex flex-1 min-h-0 min-w-0 flex-col bg-bg-1" style={isMobile ? { paddingBottom: 'calc(48px + env(safe-area-inset-bottom,0px))' } : undefined}>
-          <PaneGrid />
+          {isMobile ? <PaneGrid /> : <DesktopWorkspace />}
         </main>
-        {!isMobile && filePanelOpen && <FilePanel />}
       </div>
       {!isMobile && preferences.showStatusBar && <StatusBar />}
       {isMobile && (
