@@ -293,13 +293,13 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
     <div className="flex w-screen flex-col overflow-hidden" style={{ height: appHeight, ['--app-height' as any]: appHeight }}>
       <InstallAppBanner />
       {!isMobile && <TopBar />}
-      <div className="flex flex-1 min-h-0 overflow-hidden">
+      <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
         {!isMobile && (
           <div style={{ order: sidebarOrder }}>
             <Sidebar />
           </div>
         )}
-        <main className="flex flex-1 min-h-0 flex-col bg-bg-1" style={isMobile ? { paddingBottom: 'calc(48px + env(safe-area-inset-bottom,0px))' } : undefined}>
+        <main className="flex flex-1 min-h-0 min-w-0 flex-col bg-bg-1" style={isMobile ? { paddingBottom: 'calc(48px + env(safe-area-inset-bottom,0px))' } : undefined}>
           <PaneGrid />
         </main>
         {!isMobile && filePanelOpen && <FilePanel />}

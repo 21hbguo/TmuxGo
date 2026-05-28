@@ -266,7 +266,7 @@ export function PaneGrid() {
   }
 
   return (
-    <div className="flex-1 w-full min-h-0 bg-bg-1 relative">
+    <div className="flex-1 w-full min-h-0 min-w-0 bg-bg-1 relative overflow-hidden">
       {pendingSwitchRef.current && (
         <div className="absolute inset-0 z-10 pointer-events-none bg-gradient-to-b from-bg-1/5 via-bg-1/15 to-bg-1/30" />
       )}
