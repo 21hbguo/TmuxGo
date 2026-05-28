@@ -7,12 +7,14 @@ import { Settings } from './Settings'
 import { useTranslation } from '@/i18n'
 
 export function TopBar() {
-  const { activeHostId, activeSessionId, hosts, sessions, setCommandPalette, toggleSidebar, toggleFilePanel, sidebarCollapsed, filePanelOpen } = useConsoleStore()
+  const { activeHostId, activeSessionId, hosts, sessions, setCommandPalette, setDesktopPanel, toggleSidebar, sidebarCollapsed, desktopPanel } = useConsoleStore()
   const [showSettings, setShowSettings] = useState(false)
   const { t } = useTranslation()
 
   const activeHost = hosts.find((h: any) => h.id === activeHostId)
   const activeSession = sessions.find((s: any) => s.id === activeSessionId)
+  const sessionsActive=desktopPanel==='sessions'&&!sidebarCollapsed
+  const filesActive=desktopPanel==='files'&&!sidebarCollapsed
 
   return (
     <>
@@ -45,10 +47,10 @@ export function TopBar() {
         </div>
 
         <div className="flex items-center gap-4">
-          <button onClick={toggleSidebar} className={`rounded-lg px-3 py-1.5 text-sm transition-colors ${!sidebarCollapsed ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-3 hover:text-text-1'}`}>
+          <button onClick={() => { if (sessionsActive) toggleSidebar(); else setDesktopPanel('sessions') }} className={`rounded-lg px-3 py-1.5 text-sm transition-colors ${sessionsActive ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-3 hover:text-text-1'}`}>
             Sessions
           </button>
-          <button onClick={toggleFilePanel} className={`rounded-lg px-3 py-1.5 text-sm transition-colors ${filePanelOpen ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-3 hover:text-text-1'}`}>
+          <button onClick={() => { if (filesActive) toggleSidebar(); else setDesktopPanel('files') }} className={`rounded-lg px-3 py-1.5 text-sm transition-colors ${filesActive ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-3 hover:text-text-1'}`}>
             Files
           </button>
           <ConnectionBadge />

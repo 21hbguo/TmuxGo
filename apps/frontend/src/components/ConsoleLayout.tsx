@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { TopBar } from './TopBar'
-import { Sidebar } from './Sidebar'
 import { PaneGrid } from './PaneGrid'
 import { StatusBar } from './StatusBar'
 import { CommandPalette } from './CommandPalette'
@@ -293,14 +292,11 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
     return () => window.removeEventListener('tmuxgo-new-session', handleNewSession as EventListener)
   }, [isMobile])
 
-  const sidebarOrder = preferences.sidebarPosition === 'right' ? 1 : 0
-
   return (
     <div className="flex w-screen flex-col overflow-hidden" style={{ height: appHeight, ['--app-height' as any]: appHeight }}>
       <InstallAppBanner />
       {!isMobile && <TopBar />}
       <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
-        {!isMobile && !sidebarCollapsed && <div style={{ order: sidebarOrder }}><Sidebar /></div>}
         <main className="flex flex-1 min-h-0 min-w-0 flex-col bg-bg-1" style={isMobile ? { paddingBottom: 'calc(48px + env(safe-area-inset-bottom,0px))' } : undefined}>
           {isMobile ? <PaneGrid /> : <DesktopWorkbench />}
         </main>
