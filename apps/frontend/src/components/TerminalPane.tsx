@@ -142,6 +142,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     let fitFrame: number | null = null
     let outputFrame: number | null = null
     let outputTimer: ReturnType<typeof setTimeout> | null = null
+    let rendererStyleFrame: number | null = null
+    let rendererStyleObserver: MutationObserver | null = null
     let outputBuffer = ''
     let disposed = false
     let readyNotified = false
@@ -412,6 +414,41 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       terminal.options.cursorBlink = preferencesRef.current.cursorBlink
       terminal.options.fontSize = fontSize ?? preferencesRef.current.fontSize
     }
+    const getRendererElements = () => {
+      const element = terminal?.element as HTMLElement | null
+      if (!element) return null
+      const screen = element.querySelector('.xterm-screen') as HTMLElement | null
+      const rows = element.querySelector('.xterm-rows') as HTMLElement | null
+      const viewport = element.querySelector('.xterm-viewport') as HTMLElement | null
+      if (!screen || !rows || !viewport) return null
+      return { element, screen, rows, viewport }
+    }
+    const applyRendererStyleCorrection = () => {
+      if (disposed) return
+      const renderer = getRendererElements()
+      if (!renderer) return
+      const available = getAvailableSize()
+      const screenRect = renderer.screen.getBoundingClientRect()
+      const rowsRect = renderer.rows.getBoundingClientRect()
+      const targetWidth = Math.max(screenRect.width, rowsRect.width, available.width)
+      renderer.rows.style.setProperty('letter-spacing', '0px', 'important')
+      if (targetWidth - Math.max(screenRect.width, rowsRect.width) < 6) {
+        renderer.screen.style.removeProperty('min-width')
+        renderer.rows.style.removeProperty('min-width')
+      } else {
+        const width = `${Math.round(targetWidth)}px`
+        renderer.screen.style.setProperty('min-width', width, 'important')
+        renderer.rows.style.setProperty('min-width', width, 'important')
+      }
+      renderer.viewport.style.setProperty('width', '100%', 'important')
+    }
+    const scheduleRendererStyleCorrection = () => {
+      if (disposed || rendererStyleFrame) return
+      rendererStyleFrame = requestAnimationFrame(() => {
+        rendererStyleFrame = null
+        applyRendererStyleCorrection()
+      })
+    }
     const clearViewportStyles = () => {
       const element = terminal?.element as HTMLElement | null
       if (!element) return
@@ -477,6 +514,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         const currentWidth = container.clientWidth
         const currentHeight = container.clientHeight
         if (!force && currentWidth === lastFitSize.width && currentHeight === lastFitSize.height && lastSizeRef.current) {
+          scheduleRendererStyleCorrection()
           syncExclusiveViewport()
           return true
         }
@@ -496,6 +534,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           }
           requestAnimationFrame(() => {
             if (disposed || !terminal) return
+            scheduleRendererStyleCorrection()
             syncExclusiveViewport()
             terminal.refresh(0, Math.max(0, terminal.rows - 1))
           })
@@ -512,6 +551,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const chunk = outputBuffer
       outputBuffer = ''
       terminal.write(chunk)
+      scheduleRendererStyleCorrection()
       if (!attachExclusiveRef.current && isMobileDevice) {
         requestAnimationFrame(syncSharedViewport)
       }
@@ -602,6 +642,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           return
         }
         if (isMobileDevice) {
+          scheduleRendererStyleCorrection()
           syncSharedViewport()
         }
         const prev = lastSizeRef.current
@@ -633,6 +674,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         allowTransparency: true,
         fontSize: preferencesRef.current.fontSize,
         fontFamily: preferencesRef.current.fontFamily,
+        letterSpacing: 0,
+        lineHeight: 1,
         macOptionIsMeta: true,
         macOptionClickForcesSelection: true,
         scrollback: SCROLLBACK_LIMIT,
@@ -644,6 +687,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       terminal.open(container)
       fitAddonRef.current = fitAddon
       terminalInstance.current = terminal
+      scheduleRendererStyleCorrection()
       const da2Handler = terminal.parser?.registerCsiHandler?.({ prefix: '>', final: 'c' }, () => true)
       if (da2Handler) {
         disposables.push(da2Handler)
@@ -715,6 +759,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         if (output) {
           if (!outputBuffer && output.length <= FAST_OUTPUT_LIMIT) {
             terminal.write(output)
+            scheduleRendererStyleCorrection()
             if (!attachExclusiveRef.current && isMobileDevice) {
               requestAnimationFrame(syncSharedViewport)
             }
@@ -765,6 +810,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         const cols = Number(detail.cols)
         const rows = Number(detail.rows)
         if (!terminal || disposed) return
+        scheduleRendererStyleCorrection()
         if (attachExclusiveRef.current) {
           scheduleInitialFit()
           forceStableFit(5, 34)
@@ -777,6 +823,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         }
       }
       const handleLayoutChange = () => {
+        scheduleRendererStyleCorrection()
         if (attachExclusiveRef.current) {
           forceStableFit(5, 34)
           return
@@ -788,6 +835,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           stopDeleteWordRepeat()
           return
         }
+        scheduleRendererStyleCorrection()
         if (attachExclusiveRef.current) {
           forceStableFit(4, 34)
           return
@@ -941,6 +989,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         const height = container.clientHeight
         if (width === lastContainerSize.width && height === lastContainerSize.height) return
         lastContainerSize = { width, height }
+        scheduleRendererStyleCorrection()
         if (attachExclusiveRef.current) {
           scheduleFit()
           return
@@ -948,6 +997,14 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         syncSharedLayout(false)
       })
       resizeObserver.observe(container)
+      const renderer = getRendererElements()
+      if (renderer) {
+        rendererStyleObserver = new MutationObserver(() => {
+          scheduleRendererStyleCorrection()
+        })
+        rendererStyleObserver.observe(renderer.screen, { attributes: true, attributeFilter: ['style'] })
+        rendererStyleObserver.observe(renderer.rows, { attributes: true, attributeFilter: ['style'] })
+      }
       {
         let startY = 0
         let startX = 0
@@ -1120,6 +1177,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       if (sharedLayoutFrame) cancelAnimationFrame(sharedLayoutFrame)
       if (outputTimer) clearTimeout(outputTimer)
       if (outputFrame) cancelAnimationFrame(outputFrame)
+      if (rendererStyleFrame) cancelAnimationFrame(rendererStyleFrame)
+      rendererStyleObserver?.disconnect()
       resizeObserver?.disconnect()
       disposables.forEach((d) => d?.dispose?.())
       terminal?.dispose()

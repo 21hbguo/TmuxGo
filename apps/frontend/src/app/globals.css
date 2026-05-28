@@ -150,9 +150,6 @@ a {
 .xterm-viewport::-webkit-scrollbar-thumb:hover {
   background: rgb(var(--text-2));
 }
-.xterm-viewport {
-  overflow: hidden !important;
-}
 [data-terminal] {
   touch-action: none;
   -webkit-touch-callout: none;
@@ -162,6 +159,9 @@ a {
 }
 [data-terminal] .xterm {
   position: relative;
+}
+[data-terminal] .xterm-rows {
+  letter-spacing: 0 !important;
 }
 [data-terminal] .xterm-screen,
 [data-terminal] .xterm-helpers,
