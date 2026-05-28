@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { createWriteStream } from 'fs'
-import { mkdir, opendir, readFile, realpath, stat } from 'fs/promises'
+import { mkdir, opendir, readFile, realpath, stat, writeFile } from 'fs/promises'
 import { execFile } from 'child_process'
 import os from 'os'
 import path from 'path'
@@ -122,6 +122,32 @@ async function readPreview(rootId: string, relativePath: string, line = 1) {
   const allLines = text.split(/\r?\n/)
   const lines = allLines.slice(startLine - 1, startLine - 1 + MAX_READ_LINES).map((content, index) => ({ number: startLine + index, content }))
   return { path: toRelative(root.path, absolutePath), type: 'file', size: info.size, modifiedAt: info.mtime.toISOString(), binary: false, truncated: chunk.length > PREVIEW_LIMIT || allLines.length > lines.length, lines }
+}
+async function readContent(rootId: string, relativePath: string) {
+  const { root, absolutePath } = await resolveInside(rootId, relativePath)
+  const info = await stat(absolutePath)
+  if (info.isDirectory()) return { path: toRelative(root.path, absolutePath), type: 'directory', size: info.size, modifiedAt: info.mtime.toISOString(), binary: false, truncated: false, reason: 'directory', encoding: 'utf8', content: '' }
+  if (info.size > LARGE_FILE_LIMIT) return { path: toRelative(root.path, absolutePath), type: 'file', size: info.size, modifiedAt: info.mtime.toISOString(), binary: false, truncated: true, reason: 'large-file', encoding: 'utf8', content: '' }
+  const chunk = await readFile(absolutePath)
+  if (isLikelyBinary(chunk)) return { path: toRelative(root.path, absolutePath), type: 'file', size: info.size, modifiedAt: info.mtime.toISOString(), binary: true, truncated: false, reason: 'binary-file', encoding: 'utf8', content: '' }
+  return { path: toRelative(root.path, absolutePath), type: 'file', size: info.size, modifiedAt: info.mtime.toISOString(), binary: false, truncated: false, encoding: 'utf8', content: chunk.toString('utf8') }
+}
+async function saveContent(rootId: string, relativePath: string, content: string, modifiedAt?: string) {
+  const { absolutePath } = await resolveInside(rootId, relativePath)
+  const info = await stat(absolutePath)
+  if (info.isDirectory()) throw new Error('Directories cannot be saved')
+  if (info.size > LARGE_FILE_LIMIT) throw new Error('Large files are read only')
+  const existing = await readFile(absolutePath)
+  if (isLikelyBinary(existing)) throw new Error('Binary files are read only')
+  const currentModifiedAt = info.mtime.toISOString()
+  if (modifiedAt && modifiedAt !== currentModifiedAt) {
+    const error = new Error('File changed on disk')
+    ;(error as Error & { code?: string }).code = 'FILE_MODIFIED'
+    throw error
+  }
+  await writeFile(absolutePath, content, 'utf8')
+  const nextInfo = await stat(absolutePath)
+  return { ok: true as const, content, modifiedAt: nextInfo.mtime.toISOString(), size: nextInfo.size }
 }
 async function walk(rootPath: string, startPath: string, visitor: (absolutePath: string, relativePath: string, entryType: 'file' | 'directory') => Promise<boolean | void>) {
   const queue = [startPath]
@@ -303,6 +329,20 @@ export async function fileRoutes(fastify: FastifyInstance) {
   fastify.get('/files/preview', async (request) => {
     const query = request.query as { root?: string; path?: string; line?: string }
     return readPreview(query.root || '', query.path || '', parseInt(query.line || '1', 10))
+  })
+  fastify.get('/files/content', async (request) => {
+    const query = request.query as { root?: string; path?: string }
+    return readContent(query.root || '', query.path || '')
+  })
+  fastify.put('/files/content', async (request, reply) => {
+    const body = request.body as { root?: string; path?: string; content?: string; modifiedAt?: string }
+    try {
+      return await saveContent(body.root || '', body.path || '', typeof body.content === 'string' ? body.content : '', body.modifiedAt)
+    } catch (error) {
+      const err = error as Error & { code?: string }
+      if (err.code === 'FILE_MODIFIED') return reply.status(409).send({ message: err.message, code: err.code })
+      return reply.status(400).send({ message: err.message || 'Save failed', code: err.code || 'SAVE_FAILED' })
+    }
   })
   fastify.get('/files/search-name', async (request) => {
     const query = request.query as { root?: string; q?: string; basePath?: string }

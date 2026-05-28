@@ -24,7 +24,7 @@ export function PaneGrid() {
   const { t } = useTranslation()
   const { preferences } = usePreferences()
   const isMobile = isMobileDevice()
-  const exclusive = isMobile || preferences.attachExclusive
+  const exclusive = !isMobile || preferences.attachExclusive
   const attachedRef = useRef<string | null>(null)
   const sizeRef = useRef<{ cols: number; rows: number } | null>(null)
   const terminalReadyRef = useRef(false)
@@ -242,7 +242,6 @@ export function PaneGrid() {
   const handleResize = useCallback((cols: number, rows: number) => {
     sizeRef.current = { cols, rows }
     if (!isConnected) return
-    if (!exclusive) return
     if (attachedRef.current !== sessionName) return
     const nextSize = { cols, rows }
     pendingResizeRef.current = nextSize
