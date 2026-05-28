@@ -356,6 +356,20 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       if (!canvas?.width || !canvas?.height) return null
       return { width: canvas.width, height: canvas.height }
     }
+    const getTerminalPadding = () => {
+      const element = terminal?.element as HTMLElement | null
+      if (!element) {
+        const padding = preferencesRef.current.terminalPadding
+        return { left: padding, right: padding, top: padding, bottom: isMobileDevice ? 0 : padding }
+      }
+      const style = window.getComputedStyle(element)
+      return {
+        left: parseInt(style.getPropertyValue('padding-left')) || 0,
+        right: parseInt(style.getPropertyValue('padding-right')) || 0,
+        top: parseInt(style.getPropertyValue('padding-top')) || 0,
+        bottom: parseInt(style.getPropertyValue('padding-bottom')) || 0,
+      }
+    }
     const getFitDimensions = () => {
       if (!terminal?.element?.parentElement) return null
       const dims = terminal?._core?._renderService?.dimensions?.css
@@ -364,25 +378,24 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       if (!cellWidth || !cellHeight) return null
       const fontSize = Number(terminal.options.fontSize) || preferencesRef.current.fontSize
       if (cellWidth < Math.max(4, fontSize * 0.45) || cellHeight < Math.max(8, fontSize * 0.75)) return null
-      const scrollbar = terminal.options.scrollback === 0 ? 0 : terminal._core.viewport.scrollBarWidth
       const parentStyle = window.getComputedStyle(terminal.element.parentElement)
-      const terminalStyle = window.getComputedStyle(terminal.element)
+      const padding = getTerminalPadding()
       const parentHeight = parseInt(parentStyle.getPropertyValue('height'))
       const parentWidth = Math.max(0, parseInt(parentStyle.getPropertyValue('width')))
-      const paddingY = parseInt(terminalStyle.getPropertyValue('padding-top')) + parseInt(terminalStyle.getPropertyValue('padding-bottom'))
-      const paddingX = parseInt(terminalStyle.getPropertyValue('padding-left')) + parseInt(terminalStyle.getPropertyValue('padding-right'))
+      const paddingY = padding.top + padding.bottom
+      const paddingX = padding.left + padding.right
       const availableHeight = Math.max(0, parentHeight - paddingY)
-      const availableWidth = Math.max(0, parentWidth - paddingX - scrollbar)
+      const availableWidth = Math.max(0, parentWidth - paddingX)
       const cols = Math.max(2, Math.floor(availableWidth / cellWidth))
       const rows = Math.max(1, Math.floor(availableHeight / cellHeight))
       return { cols, rows }
     }
 
     const getAvailableSize = () => {
-      const padding = preferencesRef.current.terminalPadding * 2
+      const padding = getTerminalPadding()
       return {
-        width: Math.max(1, container.clientWidth - padding),
-        height: Math.max(1, container.clientHeight - padding),
+        width: Math.max(1, container.clientWidth - padding.left - padding.right),
+        height: Math.max(1, container.clientHeight - padding.top - padding.bottom),
       }
     }
 
