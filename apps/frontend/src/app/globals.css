@@ -126,10 +126,6 @@ a {
 
 /* xterm.js */
 .xterm {
-  padding-top: var(--terminal-padding-top, var(--terminal-padding, 8px));
-  padding-right: var(--terminal-padding-right, var(--terminal-padding, 8px));
-  padding-bottom: var(--terminal-padding-bottom, var(--terminal-padding, 8px));
-  padding-left: var(--terminal-padding-left, var(--terminal-padding, 8px));
   height: 100%;
   width: 100%;
 }
@@ -156,6 +152,10 @@ a {
   -webkit-user-select: none;
   user-select: none;
   background: rgb(var(--bg-1));
+  padding-top: var(--terminal-padding-top, var(--terminal-padding, 8px));
+  padding-right: var(--terminal-padding-right, var(--terminal-padding, 8px));
+  padding-bottom: var(--terminal-padding-bottom, var(--terminal-padding, 8px));
+  padding-left: var(--terminal-padding-left, var(--terminal-padding, 8px));
 }
 [data-terminal] .xterm {
   position: relative;
@@ -171,6 +171,11 @@ a {
 [data-terminal] .xterm-link-layer,
 [data-terminal] .xterm-cursor-layer {
   left: 0;
+}
+[data-terminal] .xterm-helpers,
+[data-terminal] .xterm-accessibility,
+[data-terminal] .xterm-viewport {
+  inset: 0;
 }
 
 [data-shortcut-bar] {

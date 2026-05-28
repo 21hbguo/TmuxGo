@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useCallback, useState } from 'react'
+import '@xterm/xterm/css/xterm.css'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useMobileKeyboard } from '@/hooks/useMobileKeyboard'
 import { useWebSocket } from '@/hooks/useWebSocket'
@@ -366,12 +367,11 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       return { width: rect.width, height: rect.height }
     }
     const getTerminalPadding = () => {
-      const element = terminal?.element as HTMLElement | null
-      if (!element) {
+      if (!container) {
         const padding = preferencesRef.current.terminalPadding
         return { left: padding, right: padding, top: padding, bottom: isMobileDevice ? 0 : padding }
       }
-      const style = window.getComputedStyle(element)
+      const style = window.getComputedStyle(container)
       return {
         left: parseInt(style.getPropertyValue('padding-left')) || 0,
         right: parseInt(style.getPropertyValue('padding-right')) || 0,
@@ -387,10 +387,10 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       if (!cellWidth || !cellHeight) return null
       const fontSize = Number(terminal.options.fontSize) || preferencesRef.current.fontSize
       if (cellWidth < Math.max(4, fontSize * 0.45) || cellHeight < Math.max(8, fontSize * 0.75)) return null
-      const parentStyle = window.getComputedStyle(terminal.element.parentElement)
+      const parentElement = terminal.element.parentElement
       const padding = getTerminalPadding()
-      const parentHeight = parseInt(parentStyle.getPropertyValue('height'))
-      const parentWidth = Math.max(0, parseInt(parentStyle.getPropertyValue('width')))
+      const parentHeight = Math.max(0, parentElement.clientHeight)
+      const parentWidth = Math.max(0, parentElement.clientWidth)
       const paddingY = padding.top + padding.bottom
       const paddingX = padding.left + padding.right
       const availableHeight = Math.max(0, parentHeight - paddingY)
@@ -427,19 +427,12 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       if (disposed) return
       const renderer = getRendererElements()
       if (!renderer) return
-      const available = getAvailableSize()
-      const screenRect = renderer.screen.getBoundingClientRect()
-      const rowsRect = renderer.rows.getBoundingClientRect()
-      const targetWidth = Math.max(screenRect.width, rowsRect.width, available.width)
       renderer.rows.style.setProperty('letter-spacing', '0px', 'important')
-      if (targetWidth - Math.max(screenRect.width, rowsRect.width) < 6) {
-        renderer.screen.style.removeProperty('min-width')
-        renderer.rows.style.removeProperty('min-width')
-      } else {
-        const width = `${Math.round(targetWidth)}px`
-        renderer.screen.style.setProperty('min-width', width, 'important')
-        renderer.rows.style.setProperty('min-width', width, 'important')
-      }
+      renderer.rows.style.removeProperty('width')
+      renderer.screen.style.removeProperty('width')
+      renderer.screen.style.removeProperty('transform-origin')
+      renderer.screen.style.removeProperty('transform')
+      renderer.screen.style.removeProperty('will-change')
       renderer.viewport.style.setProperty('width', '100%', 'important')
     }
     const scheduleRendererStyleCorrection = () => {
@@ -467,18 +460,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         clearViewportStyles()
         return
       }
-      const renderSize = getScreenSize() || getCanvasSize()
-      if (!renderSize) return
-      const available = getAvailableSize()
-      const slackX = Math.max(0, available.width - renderSize.width)
-      const slackY = Math.max(0, available.height - renderSize.height)
-      element.style.transform = slackX > 0 || slackY > 0 ? `translate3d(${Math.round(slackX / 2)}px,${slackY}px,0)` : 'translate3d(0,0,0)'
-      element.style.transformOrigin = 'top left'
-      if (slackX > 0 || slackY > 0) {
-        element.style.willChange = 'transform'
-      } else {
-        element.style.removeProperty('will-change')
-      }
+      clearViewportStyles()
     }
     const syncSharedViewport = () => {
       const element = terminal?.element as HTMLElement | null
@@ -487,24 +469,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         clearViewportStyles()
         return
       }
-      const renderSize = getScreenSize() || getCanvasSize()
-      if (!renderSize) return
-      const available = getAvailableSize()
-      const maxPanX = Math.max(0, renderSize.width - available.width)
-      const maxPanY = Math.max(0, renderSize.height - available.height)
-      const slackX = Math.max(0, available.width - renderSize.width)
-      const slackY = Math.max(0, available.height - renderSize.height)
-      sharedMaxPanX = maxPanX
-      sharedPanX = Math.min(sharedPanX, maxPanX)
-      element.style.width = `${renderSize.width}px`
-      element.style.height = `${renderSize.height}px`
-      element.style.transform = maxPanX > 0 || maxPanY > 0 ? `translate3d(${-sharedPanX}px,${-maxPanY}px,0)` : `translate3d(${Math.round(slackX / 2)}px,${slackY}px,0)`
-      element.style.transformOrigin = 'top left'
-      if (maxPanX > 0 || maxPanY > 0 || slackX > 0 || slackY > 0) {
-        element.style.willChange = 'transform'
-      } else {
-        element.style.removeProperty('will-change')
-      }
+      clearViewportStyles()
     }
 
     const doFit = (force = false) => {
@@ -520,7 +485,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         }
         lastFitSize = { width: currentWidth, height: currentHeight }
         applyTerminalOptions()
-        const size = getFitDimensions() || fitAddon.proposeDimensions()
+        const size = getFitDimensions()
         if (!size) return false
         const { cols, rows } = size
         if (cols && rows && cols > 0 && rows > 0) {
@@ -658,7 +623,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const { Terminal } = await import('@xterm/xterm')
       const { FitAddon } = await import('@xterm/addon-fit')
       const { WebLinksAddon } = await import('@xterm/addon-web-links')
-      await import('@xterm/xterm/css/xterm.css')
       if (!container || !container.isConnected || disposed) return
       const style = getComputedStyle(document.documentElement)
       const getVar = (name: string) => style.getPropertyValue(name).trim()
@@ -687,6 +651,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       terminal.open(container)
       fitAddonRef.current = fitAddon
       terminalInstance.current = terminal
+      ;(window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal = terminal
       scheduleRendererStyleCorrection()
       const da2Handler = terminal.parser?.registerCsiHandler?.({ prefix: '>', final: 'c' }, () => true)
       if (da2Handler) {
