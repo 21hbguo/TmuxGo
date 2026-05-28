@@ -1,7 +1,9 @@
 node_modules
 .next
 .next-dev
+.next-prod
 apps/frontend/.next-dev
+apps/frontend/.next-prod
 dist
 coverage
 test-results
