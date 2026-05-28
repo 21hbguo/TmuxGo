@@ -1,5 +1,6 @@
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
+import multipart from '@fastify/multipart'
 import websocket from '@fastify/websocket'
 import { hostRoutes } from './routes/hosts.js'
 import { sessionRoutes } from './routes/sessions.js'
@@ -18,6 +19,12 @@ await fastify.register(cors, {
   origin: true,
 })
 
+await fastify.register(multipart, {
+  limits: {
+    fileSize: 200 * 1024 * 1024,
+    files: 20,
+  },
+})
 await fastify.register(websocket)
 
 await fastify.register(hostRoutes, { prefix: '/api' })

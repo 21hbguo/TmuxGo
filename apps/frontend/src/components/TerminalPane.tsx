@@ -45,6 +45,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   const { preferences } = usePreferences()
   const activeHostId = useConsoleStore((s) => s.activeHostId)
   const pushToast = useConsoleStore((s) => s.pushToast)
+  const openUploadDialog = useConsoleStore((s) => s.openUploadDialog)
   const terminalRef = useRef<HTMLDivElement>(null)
   const touchMovedRef = useRef(false)
   const terminalInstance = useRef<any>(null)
@@ -791,6 +792,10 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         e.preventDefault()
         e.stopPropagation()
         setIsDropActive(false)
+        if (e.dataTransfer?.files?.length) {
+          openUploadDialog({ files: Array.from(e.dataTransfer.files), insertPaths: true })
+          return
+        }
         const text = formatDroppedPaths(e.dataTransfer)
         if (text) onInputRef.current?.(text)
       }
@@ -1129,7 +1134,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         touchMovedRef.current = false
       }}
     >
-      {isDropActive && <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-lg border border-dashed border-accent bg-bg-0/70 text-sm text-accent shadow-[var(--glow)]">Drop to insert path</div>}
+      {isDropActive && <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-lg border border-dashed border-accent bg-bg-0/70 text-sm text-accent shadow-[var(--glow)]">Drop files to upload</div>}
       {isMobileDevice && (
         <textarea
           ref={textareaRef}

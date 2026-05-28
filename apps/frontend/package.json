@@ -10,15 +10,18 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@next/env": "^14.2.35",
+    "@swc/helpers": "^0.5.5",
+    "@tanstack/react-query": "^5.17.0",
+    "@xterm/addon-fit": "^0.9.0",
+    "@xterm/addon-web-links": "^0.10.0",
+    "@xterm/xterm": "^5.4.0",
+    "clsx": "^2.1.0",
     "next": "^14.0.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "@xterm/xterm": "^5.4.0",
-    "@xterm/addon-fit": "^0.9.0",
-    "@xterm/addon-web-links": "^0.10.0",
-    "zustand": "^4.4.0",
-    "@tanstack/react-query": "^5.17.0",
-    "clsx": "^2.1.0"
+    "styled-jsx": "^5.1.1",
+    "zustand": "^4.4.0"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",

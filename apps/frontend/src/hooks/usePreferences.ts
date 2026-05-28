@@ -15,6 +15,7 @@ export interface Preferences {
   terminalPadding: number
   language: Language
   attachExclusive: boolean
+  uploadRateLimitKBps: number
 }
 
 const defaultPreferences: Preferences = {
@@ -30,6 +31,7 @@ const defaultPreferences: Preferences = {
   terminalPadding: 8,
   language: 'zh',
   attachExclusive: true,
+  uploadRateLimitKBps: 200,
 }
 
 let preferencesStore:Preferences=defaultPreferences

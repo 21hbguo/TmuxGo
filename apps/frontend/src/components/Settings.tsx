@@ -15,9 +15,11 @@ export function Settings({ onClose }: SettingsProps) {
   const [activeTab, setActiveTab] = useState<'general' | 'appearance' | 'audit'>('general')
   const [showAuditLog, setShowAuditLog] = useState(false)
   const [terminalPaddingDraft, setTerminalPaddingDraft] = useState(preferences.terminalPadding)
+  const [uploadRateLimitDraft, setUploadRateLimitDraft] = useState(preferences.uploadRateLimitKBps)
   useEffect(() => {
     setTerminalPaddingDraft(preferences.terminalPadding)
-  }, [preferences.terminalPadding, activeTab])
+    setUploadRateLimitDraft(preferences.uploadRateLimitKBps)
+  }, [preferences.terminalPadding, preferences.uploadRateLimitKBps, activeTab])
 
   const tabs = [
     { id: 'general' as const, label: t('settings.general') },
@@ -28,6 +30,10 @@ export function Settings({ onClose }: SettingsProps) {
   const commitTerminalPadding = () => {
     if (terminalPaddingDraft === preferences.terminalPadding) return
     updatePreferences({ terminalPadding: terminalPaddingDraft })
+  }
+  const commitUploadRateLimit = () => {
+    if (uploadRateLimitDraft === preferences.uploadRateLimitKBps) return
+    updatePreferences({ uploadRateLimitKBps: uploadRateLimitDraft })
   }
 
   return (
@@ -157,6 +163,24 @@ export function Settings({ onClose }: SettingsProps) {
                         className="w-24 accent-accent"
                       />
                       <span className="text-text-1 text-sm w-8 text-center">{terminalPaddingDraft}px</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-text-2 text-sm">Upload Rate Limit</span>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="range"
+                        min={50}
+                        max={2048}
+                        step={50}
+                        value={uploadRateLimitDraft}
+                        onChange={(e) => setUploadRateLimitDraft(Number(e.target.value))}
+                        onMouseUp={commitUploadRateLimit}
+                        onTouchEnd={commitUploadRateLimit}
+                        onKeyUp={commitUploadRateLimit}
+                        className="w-24 accent-accent"
+                      />
+                      <span className="text-text-1 text-sm w-16 text-center">{uploadRateLimitDraft}KB/s</span>
                     </div>
                   </div>
                 </div>

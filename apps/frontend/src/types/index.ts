@@ -95,6 +95,20 @@ export interface FilePreviewResponse {
 export interface FileContentMatch extends FileItem {
   matches: FilePreviewLine[]
 }
+export interface FileUploadTarget {
+  rootId: string
+  rootLabel: string
+  rootPath: string
+  path: string
+  absolutePath: string
+  source: 'pane' | 'fallback' | 'preferred'
+}
+export interface UploadedFile {
+  name: string
+  path: string
+  absolutePath: string
+  size: number
+}
 export interface CustomShortcut {
   id: string
   label: string
@@ -113,4 +127,5 @@ export interface RemotePreferences {
   customShortcutsUpdatedAt: string
   favoriteDirectories: FavoriteDirectory[]
   favoriteDirectoriesUpdatedAt: string
+  uploadRateLimitKBps: number
 }

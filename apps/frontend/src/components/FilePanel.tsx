@@ -269,9 +269,119 @@ function TreeDirectoryNode({
     </div>
   )
 }
+function SearchDirectoryNode({
+  rootId,
+  rootBasePath,
+  item,
+  depth,
+  hideDotFiles,
+  searchMode,
+  query,
+  selectedPath,
+  isFavoriteDirectory,
+  onToggle,
+  onToggleFavorite,
+  onSelectFile,
+  onInsert,
+  onContextMenu,
+  openDirectories,
+}: {
+  rootId: string
+  rootBasePath: string
+  item: FileItem
+  depth: number
+  hideDotFiles: boolean
+  searchMode: SearchMode
+  query: string
+  selectedPath: string
+  isFavoriteDirectory: (entry: { rootId: string; path: string }) => boolean
+  onToggle: (path: string) => void
+  onToggleFavorite: (item: FileItem) => void
+  onSelectFile: (item: FileEntry) => void
+  onInsert: (item: FileEntry) => void
+  onContextMenu: (event: React.MouseEvent, item: FileEntry) => void
+  openDirectories: Set<string>
+}) {
+  const isOpen = openDirectories.has(item.path)
+  const searchPath = joinRelativePath(rootBasePath, item.path)
+  const { data: rawChildResults = [], isFetching } = useFileSearch(rootId, searchMode, query, searchPath)
+  const childItems = useMemo(() => {
+    const nextItems = rawChildResults.map((entry) => rebaseEntryPath(entry, rootBasePath))
+    return hideDotFiles ? nextItems.filter((entry: any) => !isDotPath(entry.path || entry.name)) : nextItems
+  }, [rawChildResults, hideDotFiles, rootBasePath])
+  return (
+    <div>
+      <button
+        tabIndex={0}
+        onClick={() => onToggle(item.path)}
+        onDoubleClick={() => onInsert(item)}
+        onContextMenu={(e) => onContextMenu(e, item)}
+        className={`group w-full border-l-2 px-3 py-2 text-left text-xs transition-colors hover:bg-bg-2 ${selectedPath === item.path ? 'border-accent bg-bg-2' : 'border-transparent'}`}
+        style={{ paddingLeft: `${12 + depth * 16}px` }}
+      >
+        <div className="flex items-center gap-2">
+          <span className={`text-[10px] ${isOpen ? 'text-accent' : 'text-text-3'}`}>{isOpen ? '▾' : '▸'}</span>
+          <span className="text-accent">▸</span>
+          <span className="min-w-0 flex-1 truncate font-mono text-text-1">{item.name}</span>
+          <FavoriteDirectoryButton active={isFavoriteDirectory({ rootId, path: joinRelativePath(rootBasePath, item.path) })} name={item.name} onClick={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            onToggleFavorite(item)
+          }} />
+          <span className="text-[10px] text-text-3">dir</span>
+        </div>
+      </button>
+      {isOpen && (
+        <div>
+          {isFetching && <div className="px-3 py-2 text-xs text-text-3" style={{ paddingLeft: `${28 + depth * 16}px` }}>Loading...</div>}
+          {!isFetching && childItems.map((child: any) => (
+            child.type === 'directory' ? (
+              <SearchDirectoryNode
+                key={child.path}
+                rootId={rootId}
+                rootBasePath={rootBasePath}
+                item={child}
+                depth={depth + 1}
+                hideDotFiles={hideDotFiles}
+                searchMode={searchMode}
+                query={query}
+                selectedPath={selectedPath}
+                isFavoriteDirectory={isFavoriteDirectory}
+                onToggle={onToggle}
+                onToggleFavorite={onToggleFavorite}
+                onSelectFile={onSelectFile}
+                onInsert={onInsert}
+                onContextMenu={onContextMenu}
+                openDirectories={openDirectories}
+              />
+            ) : (
+              <button
+                key={`${child.type}-${child.path}`}
+                tabIndex={0}
+                onClick={() => onSelectFile(child)}
+                onDoubleClick={() => onInsert(child)}
+                onContextMenu={(e) => onContextMenu(e, child)}
+                className={`group w-full border-l-2 px-3 py-2 text-left text-xs transition-colors hover:bg-bg-2 ${selectedPath === child.path ? 'border-accent bg-bg-2' : 'border-transparent'}`}
+                style={{ paddingLeft: `${28 + (depth + 1) * 16}px` }}
+              >
+                <div className="flex items-center gap-2">
+                  <FileIcon type={child.type} />
+                  <span className="min-w-0 flex-1 truncate font-mono text-text-1">{child.name}</span>
+                  <span className="text-[10px] text-text-3">{formatSize(child.size)}</span>
+                </div>
+                {'matches' in child && child.matches?.[0] && <div className="mt-1 truncate pl-5 font-mono text-[10px] text-text-3">L{child.matches[0].number}: {child.matches[0].content}</div>}
+              </button>
+            )
+          ))}
+          {!isFetching && childItems.length === 0 && <div className="px-3 py-2 text-xs text-text-3" style={{ paddingLeft: `${28 + depth * 16}px` }}>No results</div>}
+        </div>
+      )}
+    </div>
+  )
+}
 
 export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobile'; onClose?: () => void }) {
-  const { filePanelWidth, setFilePanelWidth, setFilePanelOpen, pushToast } = useConsoleStore()
+  const { filePanelWidth, setFilePanelWidth, setFilePanelOpen, openUploadDialog, pushToast } = useConsoleStore()
   const { data: roots = [] } = useFileRoots()
   const isMobile = mode === 'mobile'
   const [selectedRootId, setSelectedRootId] = useState('')
@@ -287,6 +397,7 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
   const [openDirectories, setOpenDirectories] = useState<Set<string>>(new Set())
   const resizingRef = useRef(false)
   const touchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const uploadInputRef = useRef<HTMLInputElement>(null)
   const virtualRoots = useMemo(() => favoriteDirectories.map((item) => ({ id: getFavoriteRootOptionId(item), label: item.name, path: joinPath(item.rootPath, item.path), sourceRootId: item.rootId, basePath: item.path })), [favoriteDirectories])
   const rootOptions = useMemo(() => [...roots.map((item) => ({ ...item, sourceRootId: item.id, basePath: '' })), ...virtualRoots], [roots, virtualRoots])
   const activeRoot = rootOptions.find((item) => item.id === selectedRootId) || rootOptions[0]
@@ -301,7 +412,8 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
   const previewQueryPath = joinRelativePath(activeRootBasePath, selectedPath)
   const { data: rawListData, isLoading: listLoading } = useFileList(activeRootId, listQueryPath, true)
   const { data: rawPreview } = useFilePreview(activeRootId, previewQueryPath)
-  const { data: rawSearchResults = [], isFetching: searchLoading } = useFileSearch(activeRootId, searchMode, query, activeRootBasePath)
+  const searchBasePath = joinRelativePath(activeRootBasePath, currentPath)
+  const { data: rawSearchResults = [], isFetching: searchLoading } = useFileSearch(activeRootId, searchMode, query, searchBasePath)
   const root = activeRoot
   const listData = useMemo(() => rebaseListData(rawListData, activeRoot), [rawListData, activeRoot])
   const preview = useMemo(() => rebasePreview(rawPreview, activeRootBasePath), [rawPreview, activeRootBasePath])
@@ -418,13 +530,6 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
     void api.preferences.update({ favoriteDirectories: next.entries, favoriteDirectoriesUpdatedAt: next.updatedAt }, PREFERENCES_PROFILE).catch(() => {})
     if (selectedRootId === getFavoriteRootOptionId(entry)) switchRoot(entry.rootId)
   }
-  const openDesktopDirectoryPath = (path: string) => {
-    setOpenDirectories(new Set(getDirectoryPathChain(path)))
-    setCurrentPath('')
-    setSelectedPath('')
-    setQuery('')
-    setMobileView('list')
-  }
   const toggleDesktopDirectory = (path: string) => {
     setOpenDirectories((current) => {
       const next = new Set(current)
@@ -436,17 +541,12 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
 
   const openItem = (item: FileEntry) => {
     if (item.type === 'directory') {
-      if (!isMobile && isSearching) {
-        openDesktopDirectoryPath(item.path)
-        return
-      }
       if (!isMobile) {
         toggleDesktopDirectory(item.path)
         return
       }
       setCurrentPath(item.path)
       setSelectedPath('')
-      setQuery('')
       setMobileView('list')
       return
     }
@@ -476,6 +576,12 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
   const updateHideDotFiles = (value: boolean) => {
     setHideDotFiles(value)
     writeHideDotFiles(value)
+  }
+  const handleUploadSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = Array.from(event.target.files || [])
+    if (!selectedFiles.length) return
+    openUploadDialog({ files: selectedFiles, preferredRootId: activeRootId, preferredPath: listQueryPath, insertPaths: true })
+    event.target.value = ''
   }
   const shellClass = isMobile ? 'flex h-full min-h-0 flex-col bg-bg-1' : 'relative flex h-full shrink-0 flex-col border-l border-[var(--line)] bg-bg-1'
   const shellStyle = isMobile ? undefined : { width: filePanelWidth }
@@ -513,6 +619,7 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
 
   return (
     <aside className={shellClass} style={shellStyle}>
+      <input ref={uploadInputRef} type="file" multiple className="hidden" onChange={handleUploadSelect} />
       {!isMobile && (
         <div
           className="absolute left-0 top-0 h-full w-1 cursor-col-resize hover:bg-accent/40"
@@ -531,6 +638,7 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
           <select value={selectedRootId} onChange={(e) => switchRoot(e.target.value)} className="min-w-0 flex-1 rounded border border-[var(--line)] bg-bg-2 px-2 py-1 text-xs text-text-2 outline-none">
             {rootOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
           </select>
+          <button onClick={() => uploadInputRef.current?.click()} className="rounded px-2 py-1 text-[11px] text-accent hover:bg-bg-2">上传</button>
           {activeFavorite && <button onClick={() => removeFavoriteDirectory(activeFavorite)} className="rounded px-2 py-1 text-[11px] text-text-3 hover:bg-bg-2 hover:text-text-1">删收藏</button>}
           <button onClick={onClose || (() => setFilePanelOpen(false))} className="rounded px-2 py-1 text-text-3 hover:bg-bg-2 hover:text-text-1">×</button>
         </div>
@@ -581,6 +689,28 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
               item={item}
               depth={0}
               hideDotFiles={hideDotFiles}
+              selectedPath={selectedPath}
+              isFavoriteDirectory={isFavoriteDirectory}
+              onToggle={toggleDesktopDirectory}
+              onToggleFavorite={toggleFavoriteDirectory}
+              onSelectFile={openItem}
+              onInsert={insertItemPath}
+              onContextMenu={(e, entry) => {
+                e.preventDefault()
+                setContextMenu({ x: e.clientX, y: e.clientY, item: entry })
+              }}
+              openDirectories={openDirectories}
+            />
+          ) : !isMobile && isSearching && item.type === 'directory' ? (
+            <SearchDirectoryNode
+              key={item.path}
+              rootId={activeRootId}
+              rootBasePath={activeRootBasePath}
+              item={item}
+              depth={0}
+              hideDotFiles={hideDotFiles}
+              searchMode={searchMode}
+              query={query}
               selectedPath={selectedPath}
               isFavoriteDirectory={isFavoriteDirectory}
               onToggle={toggleDesktopDirectory}

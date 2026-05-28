@@ -14,6 +14,7 @@ import { InstallAppBanner } from './InstallAppBanner'
 import { ShortcutBar } from './ShortcutBar'
 import { ToastViewport } from './ToastViewport'
 import { FilePanel } from './FilePanel'
+import { UploadConfirmDialog } from './UploadConfirmDialog'
 import { getViewportLayoutState } from './consoleLayoutViewport'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useHosts, useSessions, useSessionSnapshot } from '@/hooks/useApi'
@@ -311,6 +312,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       )}
       {showCommandPalette && <CommandPalette onClose={() => closeOverlay('palette')} />}
       {showSettings && <Settings onClose={() => closeOverlay('settings')} />}
+      <UploadConfirmDialog />
       <ClipboardController />
       <MobileDrawer
         isOpen={drawerOpen}

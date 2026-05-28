@@ -11,6 +11,7 @@
   "dependencies": {
     "@fastify/cors": "^8.5.0",
     "@fastify/jwt": "^7.2.0",
+    "@fastify/multipart": "^8.3.1",
     "@fastify/websocket": "^8.3.1",
     "fastify": "^4.25.0",
     "node-pty": "^1.1.0",

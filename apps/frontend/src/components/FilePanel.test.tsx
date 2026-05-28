@@ -3,10 +3,12 @@ import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FilePanel } from './FilePanel'
 
+const clipboardMocks = vi.hoisted(() => ({
+  writeClipboardText: vi.fn(async () => ({ copied: true, source: 'system', unavailable: false })),
+}))
 const setFilePanelWidth = vi.fn()
 const setFilePanelOpen = vi.fn()
 const pushToast = vi.fn()
-const writeClipboardText = vi.fn(async () => ({ copied: true, source: 'system', unavailable: false }))
 
 const roots = [
   { id: 'root-workspace', label: 'Workspace', path: '/workspace' },
@@ -39,14 +41,16 @@ vi.mock('@/hooks/useApi', () => ({
     return { data: getListData(nextRootId || 'root-workspace', nextCurrentPath), isLoading: false }
   },
   useFilePreview: () => ({ data: null }),
-  useFileSearch: (_rootId: string, _mode: string, query: string) => {
-    if (query === 'docs') return { data: [{ name: 'docs', path: 'docs', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }], isFetching: false }
-    if (query === 'project') return { data: [{ name: 'project', path: 'project', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }], isFetching: false }
+  useFileSearch: (_rootId: string, _mode: string, query: string, basePath = '') => {
+    if (query === 'docs' && !basePath) return { data: [{ name: 'docs', path: 'docs', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }], isFetching: false }
+    if (query === 'docs' && basePath === 'docs') return { data: [{ name: 'guide.md', path: 'docs/guide.md', type: 'file', size: 16, modifiedAt: '2026-05-26T00:00:00.000Z' }], isFetching: false }
+    if (query === 'project' && !basePath) return { data: [{ name: 'project', path: 'project', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }], isFetching: false }
+    if (query === 'project' && basePath === 'project') return { data: [{ name: 'demo.txt', path: 'project/demo.txt', type: 'file', size: 8, modifiedAt: '2026-05-26T00:00:00.000Z' }], isFetching: false }
     return { data: [], isFetching: false }
   },
 }))
 vi.mock('@/lib/clipboard-text', () => ({
-  writeClipboardText: (...args: any[]) => writeClipboardText(...args),
+  writeClipboardText: clipboardMocks.writeClipboardText,
 }))
 
 describe('FilePanel', () => {
@@ -55,7 +59,7 @@ describe('FilePanel', () => {
     setFilePanelWidth.mockReset()
     setFilePanelOpen.mockReset()
     pushToast.mockReset()
-    writeClipboardText.mockClear()
+    clipboardMocks.writeClipboardText.mockClear()
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
       cb(0)
       return 1
@@ -121,19 +125,25 @@ describe('FilePanel', () => {
     expect(favorites).toEqual([])
   })
 
-  it('expands a searched directory on desktop only after click', async () => {
+  it('expands a searched directory on desktop while keeping name search active', async () => {
     render(React.createElement(FilePanel))
-    fireEvent.change(screen.getByPlaceholderText('Search file names'), { target: { value: 'docs' } })
+    const input = screen.getByPlaceholderText('Search file names') as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'docs' } })
     expect(screen.queryByText('guide.md')).not.toBeInTheDocument()
     fireEvent.click((await screen.findByText('docs')).closest('button') as HTMLButtonElement)
     await waitFor(() => expect(screen.getByText('guide.md')).toBeInTheDocument())
+    expect(input.value).toBe('docs')
+    expect(screen.getByRole('button', { name: '/' })).toBeInTheDocument()
   })
 
-  it('enters a searched directory on mobile only after click', async () => {
+  it('enters a searched directory on mobile while keeping name search active', async () => {
     render(React.createElement(FilePanel, { mode: 'mobile' }))
-    fireEvent.change(screen.getByPlaceholderText('Search file names'), { target: { value: 'docs' } })
+    const input = screen.getByPlaceholderText('Search file names') as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'docs' } })
     expect(screen.queryByText('guide.md')).not.toBeInTheDocument()
     fireEvent.click((await screen.findByText('docs')).closest('button') as HTMLButtonElement)
     await waitFor(() => expect(screen.getByText('guide.md')).toBeInTheDocument())
+    expect(input.value).toBe('docs')
+    expect(screen.getByRole('button', { name: 'docs' })).toBeInTheDocument()
   })
 })

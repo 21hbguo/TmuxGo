@@ -12,6 +12,7 @@ type PreferencesStore = {
   customShortcutsUpdatedAt: string
   favoriteDirectories: FavoriteDirectory[]
   favoriteDirectoriesUpdatedAt: string
+  uploadRateLimitKBps: number
 }
 
 const MAX_SHORTCUTS = 100
@@ -26,6 +27,8 @@ const MAX_ROOT_ID_LEN = 64
 const MAX_ROOT_PATH_LEN = 1024
 const MAX_FAVORITE_NAME_LEN = 128
 const MAX_FAVORITE_PATH_LEN = 1024
+const DEFAULT_UPLOAD_RATE_LIMIT_KBPS = 200
+const MAX_UPLOAD_RATE_LIMIT_KBPS = 10 * 1024
 const PROFILE_RE = /^[a-zA-Z0-9_-]+$/
 const STORAGE_DIR = process.env.TMUXGO_PREFERENCES_DIR || path.join(os.homedir(), '.tmuxgo', 'preferences')
 
@@ -41,6 +44,7 @@ function getDefaultStore(): PreferencesStore {
     customShortcutsUpdatedAt: now,
     favoriteDirectories: [],
     favoriteDirectoriesUpdatedAt: now,
+    uploadRateLimitKBps: DEFAULT_UPLOAD_RATE_LIMIT_KBPS,
   }
 }
 function safeString(input: unknown, maxLen: number) {
@@ -86,6 +90,11 @@ function normalizeFavorites(input: unknown) {
   }
   return next
 }
+function normalizeUploadRateLimitKBps(input: unknown) {
+  const value = typeof input === 'number' ? input : typeof input === 'string' ? Number(input) : NaN
+  if (!Number.isFinite(value)) return DEFAULT_UPLOAD_RATE_LIMIT_KBPS
+  return Math.max(1, Math.min(MAX_UPLOAD_RATE_LIMIT_KBPS, Math.round(value)))
+}
 function normalizeStore(input: unknown): PreferencesStore {
   const fallback = getDefaultStore()
   if (!input || typeof input !== 'object') return fallback
@@ -101,6 +110,7 @@ function normalizeStore(input: unknown): PreferencesStore {
     customShortcutsUpdatedAt,
     favoriteDirectories: normalizeFavorites(raw.favoriteDirectories),
     favoriteDirectoriesUpdatedAt,
+    uploadRateLimitKBps: normalizeUploadRateLimitKBps(raw.uploadRateLimitKBps),
   }
 }
 function getProfileName(input: unknown) {
@@ -168,6 +178,7 @@ export async function preferencesRoutes(fastify: FastifyInstance) {
         next.favoriteDirectoriesUpdatedAt = incomingAt
       }
     }
+    if ('uploadRateLimitKBps' in body) next.uploadRateLimitKBps = normalizeUploadRateLimitKBps(body.uploadRateLimitKBps)
     next.updatedAt = new Date(Math.max(parseIsoMs(next.customShortcutsUpdatedAt), parseIsoMs(next.favoriteDirectoriesUpdatedAt))).toISOString()
     try {
       await writeStore(profile, next)

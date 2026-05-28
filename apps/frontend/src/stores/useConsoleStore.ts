@@ -15,6 +15,7 @@ interface ConsoleState {
   filePanelOpen: boolean
   mobileFileSheetOpen: boolean
   filePanelWidth: number
+  uploadRequest: { files: File[]; preferredRootId?: string; preferredPath?: string; insertPaths?: boolean } | null
   toasts: { id: string; type: 'success' | 'error' | 'info'; message: string; durationMs?: number }[]
 
   setActiveHost: (id: string) => void
@@ -26,6 +27,8 @@ interface ConsoleState {
   toggleFilePanel: () => void
   setMobileFileSheetOpen: (open: boolean) => void
   setFilePanelWidth: (width: number) => void
+  openUploadDialog: (request: { files: File[]; preferredRootId?: string; preferredPath?: string; insertPaths?: boolean }) => void
+  closeUploadDialog: () => void
   pushToast: (toast: { type: 'success' | 'error' | 'info'; message: string; durationMs?: number }) => void
   removeToast: (id: string) => void
   updateConnection: (state: Partial<ConnectionState>) => void
@@ -49,6 +52,7 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
   filePanelOpen: false,
   mobileFileSheetOpen: false,
   filePanelWidth: 360,
+  uploadRequest: null,
   toasts: [],
 
   setActiveHost: (id) => {
@@ -70,6 +74,8 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
   toggleFilePanel: () => set((state) => ({ filePanelOpen: !state.filePanelOpen })),
   setMobileFileSheetOpen: (open) => set({ mobileFileSheetOpen: open }),
   setFilePanelWidth: (width) => set({ filePanelWidth: Math.max(320, Math.min(420, width)) }),
+  openUploadDialog: (request) => set({ uploadRequest: request }),
+  closeUploadDialog: () => set({ uploadRequest: null }),
   pushToast: (toast) => set((state) => ({ toasts: [...state.toasts, { id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, ...toast }] })),
   removeToast: (id) => set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) })),
   updateConnection: (newState) =>
