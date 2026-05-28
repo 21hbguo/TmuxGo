@@ -356,6 +356,13 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       if (!canvas?.width || !canvas?.height) return null
       return { width: canvas.width, height: canvas.height }
     }
+    const getScreenSize = () => {
+      const screen = terminal?.element?.querySelector('.xterm-screen') as HTMLElement | null
+      if (!screen) return null
+      const rect = screen.getBoundingClientRect()
+      if (!rect.width || !rect.height) return null
+      return { width: rect.width, height: rect.height }
+    }
     const getTerminalPadding = () => {
       const element = terminal?.element as HTMLElement | null
       if (!element) {
@@ -419,17 +426,18 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     const syncExclusiveViewport = () => {
       const element = terminal?.element as HTMLElement | null
       if (!element) return
-      if (!isMobileDevice || !attachExclusiveRef.current) {
+      if (!attachExclusiveRef.current) {
         clearViewportStyles()
         return
       }
-      const canvas = getCanvasSize()
-      if (!canvas) return
+      const renderSize = getScreenSize() || getCanvasSize()
+      if (!renderSize) return
       const available = getAvailableSize()
-      const slackY = Math.max(0, available.height - canvas.height)
-      element.style.transform = slackY > 0 ? `translate3d(0,${slackY}px,0)` : 'translate3d(0,0,0)'
+      const slackX = Math.max(0, available.width - renderSize.width)
+      const slackY = Math.max(0, available.height - renderSize.height)
+      element.style.transform = slackX > 0 || slackY > 0 ? `translate3d(${Math.round(slackX / 2)}px,${slackY}px,0)` : 'translate3d(0,0,0)'
       element.style.transformOrigin = 'top left'
-      if (slackY > 0) {
+      if (slackX > 0 || slackY > 0) {
         element.style.willChange = 'transform'
       } else {
         element.style.removeProperty('will-change')
@@ -438,22 +446,24 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     const syncSharedViewport = () => {
       const element = terminal?.element as HTMLElement | null
       if (!element) return
-      if (!isMobileDevice || attachExclusiveRef.current) {
+      if (attachExclusiveRef.current) {
         clearViewportStyles()
         return
       }
-      const canvas = getCanvasSize()
-      if (!canvas) return
+      const renderSize = getScreenSize() || getCanvasSize()
+      if (!renderSize) return
       const available = getAvailableSize()
-      const maxPanX = Math.max(0, canvas.width - available.width)
-      const maxPanY = Math.max(0, canvas.height - available.height)
+      const maxPanX = Math.max(0, renderSize.width - available.width)
+      const maxPanY = Math.max(0, renderSize.height - available.height)
+      const slackX = Math.max(0, available.width - renderSize.width)
+      const slackY = Math.max(0, available.height - renderSize.height)
       sharedMaxPanX = maxPanX
       sharedPanX = Math.min(sharedPanX, maxPanX)
-      element.style.width = `${canvas.width}px`
-      element.style.height = `${canvas.height}px`
-      element.style.transform = `translate3d(${-sharedPanX}px,${-maxPanY}px,0)`
+      element.style.width = `${renderSize.width}px`
+      element.style.height = `${renderSize.height}px`
+      element.style.transform = maxPanX > 0 || maxPanY > 0 ? `translate3d(${-sharedPanX}px,${-maxPanY}px,0)` : `translate3d(${Math.round(slackX / 2)}px,${slackY}px,0)`
       element.style.transformOrigin = 'top left'
-      if (maxPanX > 0 || maxPanY > 0) {
+      if (maxPanX > 0 || maxPanY > 0 || slackX > 0 || slackY > 0) {
         element.style.willChange = 'transform'
       } else {
         element.style.removeProperty('will-change')
