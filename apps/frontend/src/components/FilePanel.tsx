@@ -164,6 +164,10 @@ function rebasePreview(preview: FilePreviewResponse | undefined, basePath: strin
   if (!preview) return preview
   return rebaseEntryPath(preview, basePath)
 }
+function getPreviewLine(item: FileEntry | null) {
+  if (!item || !('matches' in item) || !item.matches?.length) return 1
+  return Math.max(1, item.matches[0]?.number || 1)
+}
 function FavoriteDirectoryButton({ active, name, onClick }: { active: boolean; name: string; onClick: (event: React.MouseEvent) => void }) {
   return <button onClick={onClick} className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${active ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-3 hover:text-text-1'}`} aria-label={`${active ? 'Unfavorite' : 'Favorite'} ${name}`}>{active ? '已收藏' : '收藏'}</button>
 }
@@ -387,6 +391,7 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
   const [selectedRootId, setSelectedRootId] = useState('')
   const [currentPath, setCurrentPath] = useState('')
   const [selectedPath, setSelectedPath] = useState('')
+  const [selectedPreviewLine, setSelectedPreviewLine] = useState(1)
   const [query, setQuery] = useState('')
   const [searchMode, setSearchMode] = useState<SearchMode>('name')
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: FileEntry } | null>(null)
@@ -411,7 +416,7 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
   const listQueryPath = joinRelativePath(activeRootBasePath, currentPath)
   const previewQueryPath = joinRelativePath(activeRootBasePath, selectedPath)
   const { data: rawListData, isLoading: listLoading } = useFileList(activeRootId, listQueryPath, true)
-  const { data: rawPreview } = useFilePreview(activeRootId, previewQueryPath)
+  const { data: rawPreview } = useFilePreview(activeRootId, previewQueryPath, selectedPreviewLine)
   const searchBasePath = joinRelativePath(activeRootBasePath, currentPath)
   const { data: rawSearchResults = [], isFetching: searchLoading } = useFileSearch(activeRootId, searchMode, query, searchBasePath)
   const root = activeRoot
@@ -500,6 +505,7 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
     setSelectedRootId(nextRootId)
     setCurrentPath('')
     setSelectedPath('')
+    setSelectedPreviewLine(1)
     setQuery('')
     setMobileView('list')
     setOpenDirectories(new Set())
@@ -510,6 +516,7 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
     if (isMobile) setCurrentPath('')
     else setOpenDirectories(new Set())
     setSelectedPath('')
+    setSelectedPreviewLine(1)
     setQuery('')
     setMobileView('list')
   }
@@ -547,10 +554,12 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
       }
       setCurrentPath(item.path)
       setSelectedPath('')
+      setSelectedPreviewLine(1)
       setMobileView('list')
       return
     }
     setSelectedPath(item.path)
+    setSelectedPreviewLine(getPreviewLine(item))
     if (isMobile) setMobileView('preview')
   }
   const insertItemPath = (item: FileItem | FileContentMatch) => {
@@ -652,7 +661,7 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
         </div>
         <div className="mt-2 flex min-w-0 items-center gap-1 overflow-x-auto text-xs text-text-3 scrollbar-none">
           {(listData?.breadcrumbs || [{ name: '/', path: '' }]).map((crumb) => (
-            <button key={crumb.path || '/'} onClick={() => { setCurrentPath(crumb.path); setSelectedPath(''); setQuery('') }} className="shrink-0 rounded px-1.5 py-0.5 hover:bg-bg-2 hover:text-accent">{crumb.name}</button>
+            <button key={crumb.path || '/'} onClick={() => { setCurrentPath(crumb.path); setSelectedPath(''); setSelectedPreviewLine(1); setQuery('') }} className="shrink-0 rounded px-1.5 py-0.5 hover:bg-bg-2 hover:text-accent">{crumb.name}</button>
           ))}
         </div>
       </div>
@@ -662,7 +671,10 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
             <button key={item} onClick={() => setSearchMode(item)} className={`flex-1 rounded px-2 py-1 capitalize ${searchMode === item ? 'bg-accent/20 text-accent' : 'text-text-3 hover:text-text-1'}`}>{item}</button>
           ))}
         </div>
-        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={searchMode === 'name' ? 'Search file names' : 'Search file content'} className="mt-2 w-full rounded border border-[var(--line)] bg-bg-0 px-2 py-1.5 font-mono text-xs text-text-1 outline-none placeholder:text-text-3 focus:border-accent" />
+        <div className="mt-2 flex items-center gap-1.5">
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={searchMode === 'name' ? 'Search file names' : 'Search file content'} className="min-w-0 flex-1 rounded border border-[var(--line)] bg-bg-0 px-2 py-1.5 font-mono text-xs text-text-1 outline-none placeholder:text-text-3 focus:border-accent" />
+          <button onClick={() => setQuery('')} disabled={!query} aria-label="Clear search" className={`shrink-0 rounded border border-[var(--line)] px-2 py-1.5 text-xs ${query ? 'bg-bg-2 text-text-2 hover:text-accent' : 'bg-bg-0 text-text-3/40'}`}>×</button>
+        </div>
         <label className="mt-2 flex items-center justify-between rounded border border-[var(--line)] bg-bg-0 px-2 py-1.5 text-xs text-text-3">
           <span>Show dotfiles</span>
           <input type="checkbox" checked={!hideDotFiles} onChange={(e) => updateHideDotFiles(!e.target.checked)} className="h-3.5 w-3.5 accent-[rgb(var(--accent))]" />
@@ -773,7 +785,7 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
         <div className="fixed z-[90] w-40 overflow-hidden rounded border border-[var(--line)] bg-bg-1 py-1 text-xs shadow-lg" style={{ left: contextMenu.x, top: contextMenu.y }} onClick={(e) => e.stopPropagation()}>
           <button onClick={() => { insertItemPath(contextMenu.item); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">Insert path</button>
           <button onClick={() => void copyItemPath(contextMenu.item).finally(() => setContextMenu(null))} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">Copy path</button>
-          <button onClick={() => { setSelectedPath(contextMenu.item.path); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">Open preview</button>
+          <button onClick={() => { setSelectedPath(contextMenu.item.path); setSelectedPreviewLine(getPreviewLine(contextMenu.item)); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">Open preview</button>
         </div>
       )}
       </>}

@@ -40,8 +40,9 @@ vi.mock('@/hooks/useApi', () => ({
     if (!enabled) return { data: undefined, isLoading: false }
     return { data: getListData(nextRootId || 'root-workspace', nextCurrentPath), isLoading: false }
   },
-  useFilePreview: () => ({ data: null }),
-  useFileSearch: (_rootId: string, _mode: string, query: string, basePath = '') => {
+  useFilePreview: (_rootId: string, path: string, line = 1) => ({ data: path ? { path, type: 'file', size: 32, modifiedAt: '2026-05-26T00:00:00.000Z', binary: false, truncated: false, lines: [{ number: line, content: `line-${line}` }] } : null }),
+  useFileSearch: (_rootId: string, mode: string, query: string, basePath = '') => {
+    if (mode === 'content' && query === 'needle') return { data: [{ name: 'guide.md', path: 'docs/guide.md', type: 'file', size: 16, modifiedAt: '2026-05-26T00:00:00.000Z', matches: [{ number: 42, content: 'needle here' }] }], isFetching: false }
     if (query === 'docs' && !basePath) return { data: [{ name: 'docs', path: 'docs', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }], isFetching: false }
     if (query === 'docs' && basePath === 'docs') return { data: [{ name: 'guide.md', path: 'docs/guide.md', type: 'file', size: 16, modifiedAt: '2026-05-26T00:00:00.000Z' }], isFetching: false }
     if (query === 'project' && !basePath) return { data: [{ name: 'project', path: 'project', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }], isFetching: false }
@@ -145,5 +146,24 @@ describe('FilePanel', () => {
     await waitFor(() => expect(screen.getByText('guide.md')).toBeInTheDocument())
     expect(input.value).toBe('docs')
     expect(screen.getByRole('button', { name: 'docs' })).toBeInTheDocument()
+  })
+  it('opens content search preview at matched line', async () => {
+    render(React.createElement(FilePanel))
+    fireEvent.click(screen.getByRole('button', { name: 'content' }))
+    fireEvent.change(screen.getByPlaceholderText('Search file content'), { target: { value: 'needle' } })
+    fireEvent.click((await screen.findByText('guide.md')).closest('button') as HTMLButtonElement)
+    expect(await screen.findByText('42')).toBeInTheDocument()
+    expect(screen.getByText('line-42')).toBeInTheDocument()
+  })
+  it('clears search query from compact clear button', async () => {
+    render(React.createElement(FilePanel))
+    const input = screen.getByPlaceholderText('Search file names') as HTMLInputElement
+    const clearButton = screen.getByRole('button', { name: 'Clear search' })
+    expect(clearButton).toBeDisabled()
+    fireEvent.change(input, { target: { value: 'docs' } })
+    expect(clearButton).not.toBeDisabled()
+    fireEvent.click(clearButton)
+    expect(input.value).toBe('')
+    expect(clearButton).toBeDisabled()
   })
 })
