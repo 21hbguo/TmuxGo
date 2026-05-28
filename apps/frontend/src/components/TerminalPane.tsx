@@ -66,6 +66,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   const forceStableFitRef = useRef<() => void>(() => {})
   const syncSharedLayoutRef = useRef<(resetFont: boolean) => void>(() => {})
   const activeHostIdRef = useRef(activeHostId)
+  const exclusiveLineHeightRef = useRef(1)
   const dispatchTerminalTap = useCallback((x: number, y: number) => {
     const container = terminalRef.current
     if (!container) return
@@ -97,6 +98,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   }, [onReady])
   useEffect(() => {
     sessionNameRef.current = sessionName
+    exclusiveLineHeightRef.current = 1
   }, [sessionName])
   useEffect(() => {
     preferencesRef.current = preferences
@@ -413,6 +415,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       terminal.options.fontFamily = preferencesRef.current.fontFamily
       terminal.options.cursorBlink = preferencesRef.current.cursorBlink
       terminal.options.fontSize = fontSize ?? preferencesRef.current.fontSize
+      terminal.options.lineHeight = attachExclusiveRef.current && isMobileDevice ? exclusiveLineHeightRef.current : 1
     }
     const getRendererElements = () => {
       const element = terminal?.element as HTMLElement | null
@@ -433,6 +436,13 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       renderer.screen.style.removeProperty('transform-origin')
       renderer.screen.style.removeProperty('transform')
       renderer.screen.style.removeProperty('will-change')
+      if (attachExclusiveRef.current && isMobileDevice) {
+        renderer.rows.style.setProperty('height', '100%', 'important')
+        renderer.screen.style.setProperty('height', '100%', 'important')
+      } else {
+        renderer.rows.style.removeProperty('height')
+        renderer.screen.style.removeProperty('height')
+      }
       renderer.viewport.style.setProperty('width', '100%', 'important')
     }
     const scheduleRendererStyleCorrection = () => {
@@ -471,6 +481,19 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       }
       clearViewportStyles()
     }
+    const adjustExclusiveLineHeight = () => {
+      if (!attachExclusiveRef.current || !isMobileDevice || !terminal) return false
+      const screen = terminal.element?.querySelector('.xterm-screen') as HTMLElement | null
+      if (!screen) return false
+      const available = getAvailableSize()
+      const currentHeight = screen.getBoundingClientRect().height
+      if (!available.height || !currentHeight) return false
+      const next = Math.max(1, Math.min(1.08, Number((exclusiveLineHeightRef.current * available.height / currentHeight).toFixed(4))))
+      if (Math.abs(next - exclusiveLineHeightRef.current) < 0.001) return false
+      exclusiveLineHeightRef.current = next
+      terminal.options.lineHeight = next
+      return true
+    }
 
     const doFit = (force = false) => {
       if (!fitAddon || !terminal || disposed) return false
@@ -502,6 +525,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
             scheduleRendererStyleCorrection()
             syncExclusiveViewport()
             terminal.refresh(0, Math.max(0, terminal.rows - 1))
+            if (adjustExclusiveLineHeight()) scheduleFit(0, true)
           })
           notifyReady()
           return true

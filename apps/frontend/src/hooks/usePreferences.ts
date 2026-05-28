@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 
 export type Language = 'zh' | 'en'
+const PREFERENCES_VERSION = 2
+type StoredPreferences = Partial<Preferences> & { _v?: number }
 
 export interface Preferences {
   theme: 'dark' | 'light' | 'high-contrast' | 'dracula' | 'nord' | 'catppuccin'
@@ -28,7 +30,7 @@ const defaultPreferences: Preferences = {
   showQuickActions: true,
   autoReconnect: true,
   reconnectInterval: 3000,
-  terminalPadding: 8,
+  terminalPadding: 0,
   language: 'zh',
   attachExclusive: true,
   uploadRateLimitKBps: 200,
@@ -46,7 +48,16 @@ function readStoredPreferences() {
     return defaultPreferences
   }
   try {
-    return { ...defaultPreferences, ...JSON.parse(stored) }
+    const parsed = JSON.parse(stored) as StoredPreferences
+    const version = typeof parsed?._v === 'number' ? parsed._v : 1
+    const next = { ...defaultPreferences, ...parsed }
+    if (version < PREFERENCES_VERSION && parsed.terminalPadding === 8) {
+      next.terminalPadding = 0
+    }
+    if (version !== PREFERENCES_VERSION) {
+      localStorage.setItem('tmuxgo-preferences', JSON.stringify({ ...next, _v: PREFERENCES_VERSION }))
+    }
+    return next
   } catch (err) {
     console.error('Failed to parse preferences:', err)
     return defaultPreferences
@@ -85,12 +96,12 @@ export function usePreferences() {
 
   const updatePreferences = useCallback((updates: Partial<Preferences>) => {
     const updated = { ...preferencesStore, ...updates }
-    localStorage.setItem('tmuxgo-preferences', JSON.stringify(updated))
+    localStorage.setItem('tmuxgo-preferences', JSON.stringify({ ...updated, _v: PREFERENCES_VERSION }))
     emitPreferences(updated)
   }, [])
 
   const resetPreferences = useCallback(() => {
-    localStorage.setItem('tmuxgo-preferences', JSON.stringify(defaultPreferences))
+    localStorage.setItem('tmuxgo-preferences', JSON.stringify({ ...defaultPreferences, _v: PREFERENCES_VERSION }))
     emitPreferences(defaultPreferences)
   }, [])
 

@@ -152,7 +152,7 @@ if wait_http_ok "http://127.0.0.1:3002" 1; then
   echo "Dev frontend already running on port 3002, skipping..."
 else
   echo "Starting dev frontend on port 3002..."
-  DEV_PID=$(start_detached "$FRONTEND_DEV_LOG" env NEXT_DIST_DIR=.next-dev npm run --workspace=frontend dev -- --port 3002)
+  DEV_PID=$(start_detached "$FRONTEND_DEV_LOG" env NODE_ENV=development NEXT_DIST_DIR=.next-dev npm run --workspace=frontend dev -- --port 3002)
   if wait_http_ok "http://127.0.0.1:3002" 45 && ! rg -q "EADDRINUSE|Failed to start server" "$FRONTEND_DEV_LOG"; then
     echo "  Dev frontend started successfully"
   else
