@@ -15,6 +15,7 @@ interface ConsoleState {
   showCommandPalette: boolean
   filePanelOpen: boolean
   mobileFileSheetOpen: boolean
+  sidebarWidth: number
   filePanelWidth: number
   terminalPanelHeight: number
   openEditors: FileEditorDocument[]
@@ -27,17 +28,18 @@ interface ConsoleState {
   setActiveSession: (id: string) => void
   setActivePane: (id: string) => void
   toggleSidebar: () => void
+  setSidebarCollapsed: (collapsed: boolean) => void
   setDesktopPanel: (panel: 'sessions' | 'files') => void
   setCommandPalette: (open: boolean) => void
   setFilePanelOpen: (open: boolean) => void
   toggleFilePanel: () => void
   setMobileFileSheetOpen: (open: boolean) => void
+  setSidebarWidth: (width: number) => void
   setFilePanelWidth: (width: number) => void
   setTerminalPanelHeight: (height: number) => void
   openEditor: (file: FileDocumentHandle & { language: string }) => void
   closeEditor: (id: string) => void
   setActiveEditor: (id: string | null) => void
-  setEditorLoading: (id: string, loading: boolean) => void
   setEditorLoaded: (id: string, patch: Partial<FileEditorDocument>) => void
   setEditorContent: (id: string, content: string) => void
   setEditorSaving: (id: string, saving: boolean) => void
@@ -71,6 +73,7 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
   showCommandPalette: false,
   filePanelOpen: false,
   mobileFileSheetOpen: false,
+  sidebarWidth: 280,
   filePanelWidth: 360,
   terminalPanelHeight: 300,
   openEditors: [],
@@ -93,11 +96,13 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
   },
   setActivePane: (id) => set({ activePaneId: id }),
   toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
+  setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
   setDesktopPanel: (panel) => set({ desktopPanel: panel, sidebarCollapsed: false }),
   setCommandPalette: (open) => set({ showCommandPalette: open }),
   setFilePanelOpen: (open) => set({ filePanelOpen: open }),
   toggleFilePanel: () => set((state) => ({ filePanelOpen: !state.filePanelOpen, desktopPanel: 'files', sidebarCollapsed: false })),
   setMobileFileSheetOpen: (open) => set({ mobileFileSheetOpen: open }),
+  setSidebarWidth: (width) => set({ sidebarWidth: Math.max(220, Math.min(420, width)) }),
   setFilePanelWidth: (width) => set({ filePanelWidth: Math.max(320, Math.min(420, width)) }),
   setTerminalPanelHeight: (height) => set({ terminalPanelHeight: Math.max(180, Math.min(540, height)) }),
   openEditor: (file) => set((state) => {
@@ -125,7 +130,6 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
     return { openEditors: nextEditors, activeEditorId: nextActiveEditorId }
   }),
   setActiveEditor: (id) => set({ activeEditorId: id }),
-  setEditorLoading: (id, loading) => set((state) => ({ openEditors: state.openEditors.map((item) => item.id === id ? { ...item, loading } : item) })),
   setEditorLoaded: (id, patch) => set((state) => ({ openEditors: state.openEditors.map((item) => item.id === id ? { ...item, ...patch } : item) })),
   setEditorContent: (id, content) => set((state) => ({ openEditors: state.openEditors.map((item) => item.id === id ? { ...item, content, dirty: content !== item.savedContent } : item) })),
   setEditorSaving: (id, saving) => set((state) => ({ openEditors: state.openEditors.map((item) => item.id === id ? { ...item, saving } : item) })),
