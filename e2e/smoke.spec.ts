@@ -47,6 +47,23 @@ test('mobile viewport fits visible screen', async ({ browser, baseURL }) => {
   expect(Math.abs(metrics.navBottom - metrics.innerHeight)).toBeLessThanOrEqual(1)
   await context.close()
 })
+test('mobile stable page loads without application error', async ({ browser, baseURL }) => {
+  const context = await browser.newContext({
+    baseURL,
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+  })
+  const page = await context.newPage()
+  const pageErrors: string[] = []
+  page.on('pageerror', (err) => pageErrors.push(err.message))
+  await page.goto('/')
+  await expect(page.locator('[data-mobile-nav]')).toBeVisible()
+  await expect(page.locator('body')).not.toContainText('Application error')
+  expect(pageErrors).toEqual([])
+  await context.close()
+})
 test('mobile terminal stays within viewport and renders active session output', async ({ browser, baseURL, request }) => {
   const name = `tmuxgo_mobile_${Date.now()}`
   await ensureSession(request, name)

@@ -109,6 +109,25 @@ export interface UploadedFile {
   absolutePath: string
   size: number
 }
+export interface UploadJobResult {
+  ok: true
+  target: FileUploadTarget
+  files: UploadedFile[]
+}
+export interface UploadJob {
+  id: string
+  files: { name: string; size: number }[]
+  targetRootId: string
+  targetPath: string
+  insertPaths: boolean
+  loadedBytes: number
+  totalBytes: number
+  status: 'queued' | 'uploading' | 'success' | 'error'
+  createdAt: string
+  finishedAt?: string
+  errorMessage?: string
+  result?: UploadJobResult
+}
 export interface CustomShortcut {
   id: string
   label: string
