@@ -169,6 +169,9 @@ function rebasePreview(preview: FilePreviewResponse | undefined, basePath: strin
   if (!preview) return preview
   return rebaseEntryPath(preview, basePath)
 }
+function resolveRootRelativePath(basePath: string, itemPath: string) {
+  return joinRelativePath(basePath, itemPath)
+}
 function getPreviewLine(item: FileEntry | null) {
   if (!item || !('matches' in item) || !item.matches?.length) return 1
   return Math.max(1, item.matches[0]?.number || 1)
@@ -357,6 +360,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   const activeRoot = rootOptions.find((item) => item.id === selectedRootId) || rootOptions[0]
   const activeRootId = activeRoot?.sourceRootId || ''
   const activeRootBasePath = activeRoot?.basePath || ''
+  const activeSourceRootPath = roots.find((item) => item.id === activeRootId)?.path || activeRoot?.path || ''
   const activeFavorite = useMemo(() => {
     const parsed = parseFavoriteRootOptionId(selectedRootId)
     if (!parsed) return null
@@ -500,14 +504,15 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
 
   const openInEditor = (item: FileEntry) => {
     if (!onOpenFile || item.type !== 'file' || !root) return false
+    const filePath = resolveRootRelativePath(activeRootBasePath, item.path)
     onOpenFile({
-      id: `${activeRootId}:${item.path}`,
+      id: `${activeRootId}:${filePath}`,
       rootId: activeRootId,
       rootLabel: root.label,
       rootPath: root.path,
-      path: item.path,
+      path: filePath,
       name: item.name,
-      absolutePath: joinPath(root.path, item.path),
+      absolutePath: joinPath(activeSourceRootPath, filePath),
     })
     return true
   }
@@ -530,12 +535,14 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     if (isMobile) setMobileView('preview')
   }
   const insertItemPath = (item: FileItem | FileContentMatch) => {
-    const full = root ? joinPath(root.path, item.path) : item.path
+    const rootRelativePath = resolveRootRelativePath(activeRootBasePath, item.path)
+    const full = activeSourceRootPath ? joinPath(activeSourceRootPath, rootRelativePath) : rootRelativePath
     insertPath(full)
     pushToast({ type: 'success', message: `Inserted ${item.name}` })
   }
   const copyItemPath = async (item: FileItem | FileContentMatch) => {
-    const full = root ? joinPath(root.path, item.path) : item.path
+    const rootRelativePath = resolveRootRelativePath(activeRootBasePath, item.path)
+    const full = activeSourceRootPath ? joinPath(activeSourceRootPath, rootRelativePath) : rootRelativePath
     const result = await writeClipboardText(full)
     if (!result.copied) {
       pushToast({ type: 'error', message: 'Copy failed' })
@@ -730,7 +737,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
         {!listLoading && !visibleItems.length && <div className="p-3 text-xs text-text-3">{showSearchResults ? 'No results' : 'Empty directory'}</div>}
       </div>}
       {(!isMobile || mobileView === 'preview') && <div className={isMobile ? 'min-h-0 flex-1 bg-bg-0' : 'max-h-[42%] min-h-[160px] border-t border-[var(--line)] bg-bg-0'}>{previewBlock}</div>}
-      {isMobile && mobileView === 'preview' && selectedPath && <div className="border-t border-[var(--line)] p-3"><button onClick={() => insertPath(root ? joinPath(root.path, selectedPath) : selectedPath)} className="w-full rounded-lg bg-accent/20 px-3 py-3 text-sm text-accent active:scale-[0.98]">插入路径到终端</button></div>}
+      {isMobile && mobileView === 'preview' && selectedPath && <div className="border-t border-[var(--line)] p-3"><button onClick={() => insertPath(activeSourceRootPath ? joinPath(activeSourceRootPath, resolveRootRelativePath(activeRootBasePath, selectedPath)) : resolveRootRelativePath(activeRootBasePath, selectedPath))} className="w-full rounded-lg bg-accent/20 px-3 py-3 text-sm text-accent active:scale-[0.98]">插入路径到终端</button></div>}
       {contextMenu && (
         <div className="fixed z-[90] w-40 overflow-hidden rounded border border-[var(--line)] bg-bg-1 py-1 text-xs shadow-lg" style={{ left: contextMenu.x, top: contextMenu.y }} onClick={(e) => e.stopPropagation()}>
           <button onClick={() => { insertItemPath(contextMenu.item); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">Insert path</button>

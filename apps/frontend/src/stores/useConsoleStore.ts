@@ -10,12 +10,11 @@ interface ConsoleState {
   activeSessionId: string | null
   activePaneId: string | null
   connection: ConnectionState
-  sidebarCollapsed: boolean
-  desktopPanel: 'sessions' | 'files'
   showCommandPalette: boolean
+  sessionPanelExpanded: boolean
   filePanelOpen: boolean
   mobileFileSheetOpen: boolean
-  sidebarWidth: number
+  sessionPanelWidth: number
   filePanelWidth: number
   terminalPanelHeight: number
   openEditors: FileEditorDocument[]
@@ -27,14 +26,13 @@ interface ConsoleState {
   setActiveHost: (id: string) => void
   setActiveSession: (id: string) => void
   setActivePane: (id: string) => void
-  toggleSidebar: () => void
-  setSidebarCollapsed: (collapsed: boolean) => void
-  setDesktopPanel: (panel: 'sessions' | 'files') => void
   setCommandPalette: (open: boolean) => void
+  setSessionPanelExpanded: (expanded: boolean) => void
+  toggleSessionPanel: () => void
   setFilePanelOpen: (open: boolean) => void
   toggleFilePanel: () => void
   setMobileFileSheetOpen: (open: boolean) => void
-  setSidebarWidth: (width: number) => void
+  setSessionPanelWidth: (width: number) => void
   setFilePanelWidth: (width: number) => void
   setTerminalPanelHeight: (height: number) => void
   openEditor: (file: FileDocumentHandle & { language: string }) => void
@@ -68,12 +66,11 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
     latency: 0,
     lastPing: new Date().toISOString(),
   },
-  sidebarCollapsed: false,
-  desktopPanel: 'files',
   showCommandPalette: false,
+  sessionPanelExpanded: true,
   filePanelOpen: false,
   mobileFileSheetOpen: false,
-  sidebarWidth: 280,
+  sessionPanelWidth: 280,
   filePanelWidth: 360,
   terminalPanelHeight: 300,
   openEditors: [],
@@ -95,14 +92,13 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
     set({ activeSessionId: id })
   },
   setActivePane: (id) => set({ activePaneId: id }),
-  toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
-  setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
-  setDesktopPanel: (panel) => set({ desktopPanel: panel, sidebarCollapsed: false, filePanelOpen: panel === 'files' }),
   setCommandPalette: (open) => set({ showCommandPalette: open }),
-  setFilePanelOpen: (open) => set({ filePanelOpen: open }),
-  toggleFilePanel: () => set((state) => state.desktopPanel === 'files' && !state.sidebarCollapsed ? { filePanelOpen: false, sidebarCollapsed: true } : { filePanelOpen: true, desktopPanel: 'files', sidebarCollapsed: false }),
+  setSessionPanelExpanded: (expanded) => set({ sessionPanelExpanded: expanded }),
+  toggleSessionPanel: () => set((state) => ({ sessionPanelExpanded: !state.sessionPanelExpanded })),
+  setFilePanelOpen: (open) => set((state) => open ? { filePanelOpen: true, sessionPanelExpanded: false } : { filePanelOpen: false }),
+  toggleFilePanel: () => set((state) => state.filePanelOpen ? { filePanelOpen: false } : { filePanelOpen: true, sessionPanelExpanded: false }),
   setMobileFileSheetOpen: (open) => set({ mobileFileSheetOpen: open }),
-  setSidebarWidth: (width) => set({ sidebarWidth: Math.max(220, Math.min(420, width)) }),
+  setSessionPanelWidth: (width) => set({ sessionPanelWidth: Math.max(240, Math.min(360, width)) }),
   setFilePanelWidth: (width) => set({ filePanelWidth: Math.max(320, Math.min(420, width)) }),
   setTerminalPanelHeight: (height) => set({ terminalPanelHeight: Math.max(180, Math.min(540, height)) }),
   openEditor: (file) => set((state) => {

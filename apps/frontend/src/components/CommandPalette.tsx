@@ -17,7 +17,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [pendingKillWindow, setPendingKillWindow] = useState<{ id: string; name: string } | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
-  const { hosts, sessions, windows, activeHostId, activeSessionId, activePaneId, setCommandPalette, setActiveHost, setActiveSession, pushToast, toggleSidebar, toggleFilePanel } = useConsoleStore()
+  const { hosts, sessions, windows, activeHostId, activeSessionId, activePaneId, setCommandPalette, setActiveHost, setActiveSession, pushToast, toggleSessionPanel, toggleFilePanel } = useConsoleStore()
   const { t } = useTranslation()
 
   const close = () => {
@@ -86,7 +86,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
       if (window.matchMedia('(max-width: 1023px)').matches) useConsoleStore.setState({ mobileFileSheetOpen: true })
       else toggleFilePanel()
     } })),
-    ...['Toggle sessions'].filter((name) => name.toLowerCase().includes(q) || q.length === 0).map(() => ({ key: 'toggle-sessions', type: 'action', title: 'Toggle sessions', meta: 'Cmd+B', action: async () => toggleSidebar() })),
+    ...['Toggle sessions'].filter((name) => name.toLowerCase().includes(q) || q.length === 0).map(() => ({ key: 'toggle-sessions', type: 'action', title: 'Toggle sessions', meta: 'Cmd+B', action: async () => toggleSessionPanel() })),
     ...[t('palette.renameWindow')].filter((name) => name.toLowerCase().includes(q) || q.length === 0).map(() => ({ key: 'rename-window', type: 'action', title: t('palette.renameWindow'), meta: activeWindow?.name || '', action: async () => {
       if (!activeHostId || !activeSessionId || !activeWindow) return
       const name = window.prompt(t('palette.renameWindow'), activeWindow.name)

@@ -10,7 +10,7 @@ import { QuickActions } from './QuickActions'
 import { ConfirmDialog } from './ConfirmDialog'
 
 export function Sidebar() {
-  const { sessions, activeSessionId, setActiveSession, activeHostId, sidebarWidth, setSidebarWidth, toggleSidebar, pushToast } = useConsoleStore()
+  const { sessions, activeSessionId, setActiveSession, activeHostId, sessionPanelWidth, setSessionPanelWidth, setSessionPanelExpanded, pushToast } = useConsoleStore()
   const createSession = useCreateSession()
   const deleteSession = useDeleteSession()
   const [showTemplates, setShowTemplates] = useState(false)
@@ -22,7 +22,7 @@ export function Sidebar() {
   useEffect(() => {
     const handleMove = (event: MouseEvent) => {
       if (!resizingRef.current) return
-      setSidebarWidth(preferences.sidebarPosition === 'right' ? window.innerWidth - event.clientX : event.clientX)
+      setSessionPanelWidth(preferences.sidebarPosition === 'right' ? window.innerWidth - event.clientX : event.clientX)
     }
     const handleUp = () => {
       resizingRef.current = false
@@ -35,7 +35,7 @@ export function Sidebar() {
       window.removeEventListener('mousemove', handleMove)
       window.removeEventListener('mouseup', handleUp)
     }
-  }, [preferences.sidebarPosition, setSidebarWidth])
+  }, [preferences.sidebarPosition, setSessionPanelWidth])
 
   useEffect(() => {
     const handleOpenTemplates = () => setShowTemplates(true)
@@ -88,10 +88,10 @@ export function Sidebar() {
 
   return (
     <>
-      <aside className={`relative flex shrink-0 flex-col bg-bg-1 ${preferences.sidebarPosition === 'right' ? 'border-l border-[var(--line)]' : 'border-r border-[var(--line)]'}`} style={{ width: sidebarWidth }}>
+      <aside className={`relative flex shrink-0 flex-col bg-bg-1 ${preferences.sidebarPosition === 'right' ? 'border-l border-[var(--line)]' : 'border-r border-[var(--line)]'}`} style={{ width: sessionPanelWidth }}>
         <div className="flex items-center justify-between border-b border-[var(--line)] p-3">
           <span className="text-text-2 text-sm font-medium">{t('sidebar.sessions')}</span>
-          <button onClick={toggleSidebar} className="rounded p-1.5 text-text-3 hover:bg-bg-2">
+          <button onClick={() => setSessionPanelExpanded(false)} className="rounded p-1.5 text-text-3 hover:bg-bg-2">
             ←
           </button>
         </div>

@@ -430,20 +430,18 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       if (disposed) return
       const renderer = getRendererElements()
       if (!renderer) return
+      renderer.element.style.setProperty('width', '100%', 'important')
+      renderer.element.style.setProperty('height', '100%', 'important')
       renderer.rows.style.setProperty('letter-spacing', '0px', 'important')
-      renderer.rows.style.removeProperty('width')
-      renderer.screen.style.removeProperty('width')
+      renderer.rows.style.setProperty('width', '100%', 'important')
+      renderer.rows.style.setProperty('height', '100%', 'important')
+      renderer.screen.style.setProperty('width', '100%', 'important')
+      renderer.screen.style.setProperty('height', '100%', 'important')
       renderer.screen.style.removeProperty('transform-origin')
       renderer.screen.style.removeProperty('transform')
       renderer.screen.style.removeProperty('will-change')
-      if (attachExclusiveRef.current && isMobileDevice) {
-        renderer.rows.style.setProperty('height', '100%', 'important')
-        renderer.screen.style.setProperty('height', '100%', 'important')
-      } else {
-        renderer.rows.style.removeProperty('height')
-        renderer.screen.style.removeProperty('height')
-      }
       renderer.viewport.style.setProperty('width', '100%', 'important')
+      renderer.viewport.style.setProperty('height', '100%', 'important')
     }
     const scheduleRendererStyleCorrection = () => {
       if (disposed || rendererStyleFrame) return
@@ -508,7 +506,9 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         }
         lastFitSize = { width: currentWidth, height: currentHeight }
         applyTerminalOptions()
-        const size = getFitDimensions()
+        fitAddon.fit()
+        let size = terminal.cols > 0 && terminal.rows > 0 ? { cols: terminal.cols, rows: terminal.rows } : null
+        if (!size) size = getFitDimensions()
         if (!size) return false
         const { cols, rows } = size
         if (cols && rows && cols > 0 && rows > 0) {

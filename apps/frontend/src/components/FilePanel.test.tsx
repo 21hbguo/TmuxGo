@@ -9,6 +9,8 @@ const clipboardMocks = vi.hoisted(() => ({
 const setFilePanelWidth = vi.fn()
 const setFilePanelOpen = vi.fn()
 const pushToast = vi.fn()
+const preferencesGet = vi.fn(async () => ({ version: 1, updatedAt: '', customShortcuts: [], customShortcutsUpdatedAt: '', favoriteDirectories: [], favoriteDirectoriesUpdatedAt: '', uploadRateLimitKBps: 200 }))
+const preferencesUpdate = vi.fn(async (payload: any) => ({ version: 1, updatedAt: '', customShortcuts: [], customShortcutsUpdatedAt: '', favoriteDirectories: payload.favoriteDirectories || [], favoriteDirectoriesUpdatedAt: payload.favoriteDirectoriesUpdatedAt || '', uploadRateLimitKBps: 200 }))
 
 const roots = [
   { id: 'root-workspace', label: 'Workspace', path: '/workspace' },
@@ -51,6 +53,14 @@ vi.mock('@/hooks/useApi', () => ({
 vi.mock('@/lib/clipboard-text', () => ({
   writeClipboardText: clipboardMocks.writeClipboardText,
 }))
+vi.mock('@/lib/api', () => ({
+  api: {
+    preferences: {
+      get: (...args: any[]) => preferencesGet(...args),
+      update: (...args: any[]) => preferencesUpdate(...args),
+    },
+  },
+}))
 
 describe('FilePanel', () => {
   beforeEach(() => {
@@ -59,6 +69,8 @@ describe('FilePanel', () => {
     setFilePanelOpen.mockReset()
     pushToast.mockReset()
     clipboardMocks.writeClipboardText.mockClear()
+    preferencesGet.mockClear()
+    preferencesUpdate.mockClear()
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
       cb(0)
       return 1
@@ -109,6 +121,29 @@ describe('FilePanel', () => {
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'favorite:root-home:project' } })
     await waitFor(() => expect(screen.getByText('demo.txt')).toBeInTheDocument())
     expect(screen.getByRole('button', { name: '/' })).toBeInTheDocument()
+  })
+  it('opens file from favorite root with full relative path', async () => {
+    const onOpenFile = vi.fn()
+    localStorage.setItem('tmuxgo-favorite-directories', JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]))
+    render(React.createElement(FilePanel, { onOpenFile }))
+    await screen.findByRole('option', { name: 'project' })
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'favorite:root-home:project' } })
+    fireEvent.click(await screen.findByText('demo.txt'))
+    expect(onOpenFile).toHaveBeenCalledTimes(1)
+    expect(onOpenFile.mock.calls[0][0]).toMatchObject({
+      rootId: 'root-home',
+      path: 'project/demo.txt',
+      absolutePath: '/home/guo/project/demo.txt',
+    })
+  })
+  it('copies file path from favorite root with full absolute path', async () => {
+    localStorage.setItem('tmuxgo-favorite-directories', JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]))
+    render(React.createElement(FilePanel))
+    await screen.findByRole('option', { name: 'project' })
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'favorite:root-home:project' } })
+    fireEvent.contextMenu(await screen.findByText('demo.txt'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy path' }))
+    expect(clipboardMocks.writeClipboardText).toHaveBeenCalledWith('/home/guo/project/demo.txt')
   })
   it('removes selected favorite root from header without affecting workspace and home', async () => {
     localStorage.setItem('tmuxgo-favorite-directories', JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]))
