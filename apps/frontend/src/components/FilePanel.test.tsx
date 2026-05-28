@@ -44,9 +44,7 @@ vi.mock('@/hooks/useApi', () => ({
   useFileSearch: (_rootId: string, mode: string, query: string, basePath = '') => {
     if (mode === 'content' && query === 'needle') return { data: [{ name: 'guide.md', path: 'docs/guide.md', type: 'file', size: 16, modifiedAt: '2026-05-26T00:00:00.000Z', matches: [{ number: 42, content: 'needle here' }] }], isFetching: false }
     if (query === 'docs' && !basePath) return { data: [{ name: 'docs', path: 'docs', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }], isFetching: false }
-    if (query === 'docs' && basePath === 'docs') return { data: [{ name: 'guide.md', path: 'docs/guide.md', type: 'file', size: 16, modifiedAt: '2026-05-26T00:00:00.000Z' }], isFetching: false }
     if (query === 'project' && !basePath) return { data: [{ name: 'project', path: 'project', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }], isFetching: false }
-    if (query === 'project' && basePath === 'project') return { data: [{ name: 'demo.txt', path: 'project/demo.txt', type: 'file', size: 8, modifiedAt: '2026-05-26T00:00:00.000Z' }], isFetching: false }
     return { data: [], isFetching: false }
   },
 }))
@@ -146,6 +144,8 @@ describe('FilePanel', () => {
     await waitFor(() => expect(screen.getByText('guide.md')).toBeInTheDocument())
     expect(input.value).toBe('docs')
     expect(screen.getByRole('button', { name: 'docs' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '/' }))
+    expect(await screen.findByText('docs')).toBeInTheDocument()
   })
   it('opens content search preview at matched line', async () => {
     render(React.createElement(FilePanel))
@@ -172,6 +172,8 @@ describe('FilePanel', () => {
     expect(screen.queryByText('.env')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'File' }))
     expect(screen.queryByText('src')).not.toBeInTheDocument()
+    expect(screen.queryByText('.env')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Dotfiles' }))
     expect(await screen.findByText('.env')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Dir' }))
     expect(await screen.findByText('src')).toBeInTheDocument()
