@@ -1,5 +1,5 @@
 import { getApiBase } from './runtime-endpoints'
-import type { CustomShortcut, FavoriteDirectory, FileContentMatch, FileItem, FileListResponse, FilePreviewResponse, FileRoot, FileUploadTarget, RemotePreferences, UploadedFile } from '@/types'
+import type { CustomShortcut, FavoriteDirectory, FileContentMatch, FileItem, FileListResponse, FilePreviewResponse, FileRoot, FileUploadTarget, RemotePreferences, UploadJobResult, UploadedFile } from '@/types'
 
 async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   const url = `${getApiBase()}${path}`
@@ -28,6 +28,54 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
     throw e
   }
   return data
+}
+function parseApiError(status: number, raw: string) {
+  let message = `HTTP ${status}`
+  let code = 'REQUEST_FAILED'
+  try {
+    const data = JSON.parse(raw)
+    if (data && typeof data === 'object') {
+      if ('message' in data && typeof data.message === 'string' && data.message) message = data.message
+      if ('code' in data && typeof data.code === 'string' && data.code) code = data.code
+      if ('ok' in data && data.ok === false && 'error' in data && typeof data.error === 'string' && data.error) message = data.error
+    }
+  } catch {
+    if (raw.trim()) message = raw.trim()
+  }
+  const error = new Error(message) as Error & { status?: number; code?: string }
+  error.status = status
+  error.code = code
+  return error
+}
+function uploadWithProgress(body: FormData, onProgress?: (loadedBytes: number, totalBytes: number) => void): Promise<UploadJobResult> {
+  const url = `${getApiBase()}/api/files/upload`
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', url, true)
+    xhr.responseType = 'text'
+    xhr.upload.onprogress = (event) => {
+      if (!event.lengthComputable) return
+      onProgress?.(event.loaded, event.total)
+    }
+    xhr.onerror = () => reject(new Error('Network error'))
+    xhr.onload = () => {
+      if (xhr.status < 200 || xhr.status >= 300) {
+        reject(parseApiError(xhr.status, xhr.responseText || ''))
+        return
+      }
+      try {
+        const data = JSON.parse(xhr.responseText || '{}')
+        if (data && typeof data === 'object' && 'ok' in data && data.ok === false) {
+          reject(parseApiError(xhr.status, xhr.responseText || ''))
+          return
+        }
+        resolve(data as UploadJobResult)
+      } catch {
+        reject(new Error('Invalid server response'))
+      }
+    }
+    xhr.send(body)
+  })
 }
 
 export const api = {
@@ -125,10 +173,7 @@ export const api = {
     searchName: (root: string, q: string, basePath = '') => fetchApi<FileItem[]>(`/api/files/search-name?root=${encodeURIComponent(root)}&q=${encodeURIComponent(q)}&basePath=${encodeURIComponent(basePath)}`),
     searchContent: (root: string, q: string, basePath = '') => fetchApi<FileContentMatch[]>(`/api/files/search-content?root=${encodeURIComponent(root)}&q=${encodeURIComponent(q)}&basePath=${encodeURIComponent(basePath)}`),
     defaultUploadTarget: (paneId?: string) => fetchApi<FileUploadTarget>(`/api/files/default-upload-target${paneId ? `?paneId=${encodeURIComponent(paneId)}` : ''}`),
-    upload: (body: FormData) => fetchApi<{ ok: true; target: FileUploadTarget; files: UploadedFile[] }>('/api/files/upload', {
-      method: 'POST',
-      body,
-    }),
+    upload: (body: FormData, onProgress?: (loadedBytes: number, totalBytes: number) => void) => uploadWithProgress(body, onProgress),
   },
   preferences: {
     get: (profile = 'default') => fetchApi<RemotePreferences>(`/api/preferences?profile=${encodeURIComponent(profile)}`),

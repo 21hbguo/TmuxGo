@@ -55,6 +55,13 @@ class Agent {
 
   private async handleMessage(message: any) {
     switch (message.type) {
+      case 'connected':
+        return
+
+      case 'registered':
+        console.log(`Registered as agent ${message.agentId || process.env.HOST_ID || 'agent-local'}`)
+        return
+
       case 'command':
         await this.handleCommand(message)
         break

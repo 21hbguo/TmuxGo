@@ -17,6 +17,7 @@ FRONTEND_STABLE_LOG="/tmp/tmuxgo-frontend-stable.log"
 FRONTEND_DEV_LOG="/tmp/tmuxgo-frontend-dev.log"
 GATEWAY_LOG="/tmp/tmuxgo-gateway.log"
 AGENT_LOG="/tmp/tmuxgo-agent.log"
+FRONTEND_STABLE_DIST_DIR=".next-prod"
 TAILSCALE_DNS=""
 SECURE_FRONTEND_URL=""
 SECURE_GATEWAY_URL=""
@@ -134,14 +135,14 @@ if wait_http_ok "http://127.0.0.1:3000" 1; then
   echo "Stable frontend already running on port 3000, skipping..."
 else
   echo "Building stable frontend..."
-  if npm run build:frontend >/dev/null 2>&1; then
+  if env NEXT_DIST_DIR="$FRONTEND_STABLE_DIST_DIR" npm run build:frontend >/dev/null 2>&1; then
     echo "  Build completed"
   else
     echo "  Build failed, check output by running: npm run build:frontend"
     exit 1
   fi
   echo "Starting stable frontend on port 3000..."
-  STABLE_PID=$(start_detached "$FRONTEND_STABLE_LOG" npm run --workspace=frontend start -- --hostname 0.0.0.0 --port 3000)
+  STABLE_PID=$(start_detached "$FRONTEND_STABLE_LOG" env NEXT_DIST_DIR="$FRONTEND_STABLE_DIST_DIR" npm run --workspace=frontend start -- --hostname 0.0.0.0 --port 3000)
   if wait_http_ok "http://127.0.0.1:3000" 45 && ! rg -q "EADDRINUSE|Failed to start server" "$FRONTEND_STABLE_LOG"; then
     echo "  Stable frontend started successfully"
   else
@@ -173,7 +174,7 @@ else
   rm -f "$AGENT_LOG"
   AGENT_PID=$(start_detached "$AGENT_LOG" npm run dev:agent)
   sleep 2
-  if rg -n "Connected to gateway|registered" "$AGENT_LOG" >/dev/null 2>&1; then
+  if rg -n "Connected to gateway|Registered as agent" "$AGENT_LOG" >/dev/null 2>&1; then
     echo "  Agent started successfully"
   else
     echo "  Agent failed to start, check $AGENT_LOG"

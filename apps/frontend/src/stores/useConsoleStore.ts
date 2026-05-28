@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Host, Session, Window, Pane, ConnectionState } from '@/types'
+import type { Host, Session, Window, Pane, ConnectionState, UploadJob } from '@/types'
 
 interface ConsoleState {
   hosts: Host[]
@@ -16,6 +16,7 @@ interface ConsoleState {
   mobileFileSheetOpen: boolean
   filePanelWidth: number
   uploadRequest: { files: File[]; preferredRootId?: string; preferredPath?: string; insertPaths?: boolean } | null
+  uploadJobs: UploadJob[]
   toasts: { id: string; type: 'success' | 'error' | 'info'; message: string; durationMs?: number }[]
 
   setActiveHost: (id: string) => void
@@ -29,6 +30,10 @@ interface ConsoleState {
   setFilePanelWidth: (width: number) => void
   openUploadDialog: (request: { files: File[]; preferredRootId?: string; preferredPath?: string; insertPaths?: boolean }) => void
   closeUploadDialog: () => void
+  addUploadJob: (job: UploadJob) => void
+  updateUploadJob: (id: string, patch: Partial<UploadJob>) => void
+  removeUploadJob: (id: string) => void
+  clearFinishedUploadJobs: () => void
   pushToast: (toast: { type: 'success' | 'error' | 'info'; message: string; durationMs?: number }) => void
   removeToast: (id: string) => void
   updateConnection: (state: Partial<ConnectionState>) => void
@@ -53,6 +58,7 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
   mobileFileSheetOpen: false,
   filePanelWidth: 360,
   uploadRequest: null,
+  uploadJobs: [],
   toasts: [],
 
   setActiveHost: (id) => {
@@ -76,6 +82,10 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
   setFilePanelWidth: (width) => set({ filePanelWidth: Math.max(320, Math.min(420, width)) }),
   openUploadDialog: (request) => set({ uploadRequest: request }),
   closeUploadDialog: () => set({ uploadRequest: null }),
+  addUploadJob: (job) => set((state) => ({ uploadJobs: [job, ...state.uploadJobs].slice(0, 12) })),
+  updateUploadJob: (id, patch) => set((state) => ({ uploadJobs: state.uploadJobs.map((job) => job.id === id ? { ...job, ...patch } : job) })),
+  removeUploadJob: (id) => set((state) => ({ uploadJobs: state.uploadJobs.filter((job) => job.id !== id) })),
+  clearFinishedUploadJobs: () => set((state) => ({ uploadJobs: state.uploadJobs.filter((job) => job.status === 'queued' || job.status === 'uploading') })),
   pushToast: (toast) => set((state) => ({ toasts: [...state.toasts, { id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, ...toast }] })),
   removeToast: (id) => set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) })),
   updateConnection: (newState) =>

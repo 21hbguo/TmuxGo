@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '@/lib/api'
 import { quoteShellPath } from '@/lib/path-drop'
 import { useConsoleStore } from '@/stores/useConsoleStore'
@@ -17,6 +17,8 @@ export function UploadConfirmDialog() {
   const closeUploadDialog = useConsoleStore((s) => s.closeUploadDialog)
   const activePaneId = useConsoleStore((s) => s.activePaneId)
   const pushToast = useConsoleStore((s) => s.pushToast)
+  const addUploadJob = useConsoleStore((s) => s.addUploadJob)
+  const updateUploadJob = useConsoleStore((s) => s.updateUploadJob)
   const { data: roots = [] } = useFileRoots()
   const { preferences } = usePreferences()
   const [targetRootId, setTargetRootId] = useState('')
@@ -24,16 +26,24 @@ export function UploadConfirmDialog() {
   const [insertPaths, setInsertPaths] = useState(true)
   const [loadingTarget, setLoadingTarget] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const initializedRequestRef = useRef('')
   const files = uploadRequest?.files || []
   const open = files.length > 0
   const totalSize = useMemo(() => files.reduce((sum, file) => sum + file.size, 0), [files])
+  const requestKey = useMemo(() => open ? `${uploadRequest?.preferredRootId || ''}:${uploadRequest?.preferredPath || ''}:${files.map((file) => `${file.name}:${file.size}:${file.lastModified}`).join('|')}` : '', [open, uploadRequest?.preferredRootId, uploadRequest?.preferredPath, files])
 
   useEffect(() => {
-    if (!open) return
+    if (!open) {
+      initializedRequestRef.current = ''
+      return
+    }
+    if (initializedRequestRef.current === requestKey) return
+    initializedRequestRef.current = requestKey
     setInsertPaths(uploadRequest?.insertPaths !== false)
     if (uploadRequest?.preferredRootId) {
       setTargetRootId(uploadRequest.preferredRootId)
       setTargetPath(uploadRequest.preferredPath || '')
+      setLoadingTarget(false)
       return
     }
     let cancelled = false
@@ -54,7 +64,11 @@ export function UploadConfirmDialog() {
     return () => {
       cancelled = true
     }
-  }, [open, uploadRequest, activePaneId, roots, pushToast])
+  }, [open, requestKey, uploadRequest, activePaneId, roots, pushToast])
+  useEffect(() => {
+    if (!open || targetRootId || !roots.length) return
+    setTargetRootId(roots[0].id)
+  }, [open, targetRootId, roots])
 
   const activeRoot = roots.find((item) => item.id === targetRootId) || roots[0] || null
   const pathPreview = useMemo(() => {
@@ -71,6 +85,8 @@ export function UploadConfirmDialog() {
   const handleUpload = async () => {
     if (!uploadRequest || !targetRootId) return
     setSubmitting(true)
+    const jobId = `${Date.now()}-${Math.random().toString(16).slice(2)}`
+    const totalBytes = uploadRequest.files.reduce((sum, file) => sum + file.size, 0)
     try {
       const body = new FormData()
       body.append('targetRootId', targetRootId)
@@ -78,14 +94,29 @@ export function UploadConfirmDialog() {
       body.append('conflictPolicy', 'rename')
       body.append('rateLimitKBps', String(preferences.uploadRateLimitKBps || 200))
       uploadRequest.files.forEach((file) => body.append('files', file))
-      const result = await api.files.upload(body)
+      addUploadJob({
+        id: jobId,
+        files: uploadRequest.files.map((file) => ({ name: file.name, size: file.size })),
+        targetRootId,
+        targetPath,
+        insertPaths,
+        loadedBytes: 0,
+        totalBytes,
+        status: 'queued',
+        createdAt: new Date().toISOString(),
+      })
+      closeUploadDialog()
+      const result = await api.files.upload(body, (loadedBytes, uploadTotalBytes) => {
+        updateUploadJob(jobId, { loadedBytes, totalBytes: uploadTotalBytes || totalBytes, status: 'uploading' })
+      })
+      updateUploadJob(jobId, { loadedBytes: totalBytes, totalBytes, status: 'success', finishedAt: new Date().toISOString(), result })
       if (insertPaths && result.files.length) {
         const data = result.files.map((file) => quoteShellPath(file.absolutePath)).join(' ')
         window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data } }))
       }
       pushToast({ type: 'success', message: `Uploaded ${result.files.length} file${result.files.length > 1 ? 's' : ''}` })
-      closeUploadDialog()
     } catch (err) {
+      updateUploadJob(jobId, { status: 'error', finishedAt: new Date().toISOString(), errorMessage: err instanceof Error ? err.message : 'Upload failed' })
       pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Upload failed' })
     } finally {
       setSubmitting(false)
@@ -131,7 +162,7 @@ export function UploadConfirmDialog() {
         </label>
         <div className="mt-5 flex justify-end gap-2">
           <button onClick={handleCancel} className="rounded px-4 py-2 text-sm text-text-3 hover:text-text-1">Cancel</button>
-          <button onClick={() => void handleUpload()} disabled={submitting || loadingTarget || !targetRootId} className="rounded bg-accent/20 px-4 py-2 text-sm text-accent hover:bg-accent/30 disabled:cursor-not-allowed disabled:opacity-50">{submitting ? 'Uploading...' : 'Upload'}</button>
+          <button onClick={() => void handleUpload()} disabled={submitting || loadingTarget || !targetRootId} className="rounded bg-accent/20 px-4 py-2 text-sm text-accent hover:bg-accent/30 disabled:cursor-not-allowed disabled:opacity-50">{submitting ? 'Starting...' : 'Upload'}</button>
         </div>
       </div>
     </div>
