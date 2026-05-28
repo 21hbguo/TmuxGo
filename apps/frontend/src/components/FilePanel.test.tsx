@@ -16,7 +16,7 @@ const roots = [
 ]
 const getListData = (rootId: string, currentPath: string) => {
   if (rootId === 'root-workspace') {
-    if (!currentPath) return { root: roots[0], path: '', breadcrumbs: [{ name: '/', path: '' }], items: [{ name: 'src', path: 'src', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: 'docs', path: 'docs', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
+    if (!currentPath) return { root: roots[0], path: '', breadcrumbs: [{ name: '/', path: '' }], items: [{ name: 'src', path: 'src', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: 'docs', path: 'docs', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: '.env', path: '.env', type: 'file', size: 4, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
     if (currentPath === 'src') return { root: roots[0], path: 'src', breadcrumbs: [{ name: '/', path: '' }, { name: 'src', path: 'src' }], items: [{ name: 'index.ts', path: 'src/index.ts', type: 'file', size: 12, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
     if (currentPath === 'docs') return { root: roots[0], path: 'docs', breadcrumbs: [{ name: '/', path: '' }, { name: 'docs', path: 'docs' }], items: [{ name: 'guide.md', path: 'docs/guide.md', type: 'file', size: 16, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
   }
@@ -165,5 +165,22 @@ describe('FilePanel', () => {
     fireEvent.click(clearButton)
     expect(input.value).toBe('')
     expect(clearButton).toBeDisabled()
+  })
+  it('filters root list by file type', async () => {
+    render(React.createElement(FilePanel))
+    expect(await screen.findByText('src')).toBeInTheDocument()
+    expect(screen.queryByText('.env')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'File' }))
+    expect(screen.queryByText('src')).not.toBeInTheDocument()
+    expect(await screen.findByText('.env')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Dir' }))
+    expect(await screen.findByText('src')).toBeInTheDocument()
+    expect(screen.queryByText('.env')).not.toBeInTheDocument()
+  })
+  it('toggles dotfiles visibility from compact button', async () => {
+    render(React.createElement(FilePanel))
+    expect(screen.queryByText('.env')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Dotfiles' }))
+    expect(await screen.findByText('.env')).toBeInTheDocument()
   })
 })

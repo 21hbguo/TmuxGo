@@ -715,7 +715,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           }
         }
       }
-      container.addEventListener('terminal-output', handleOutput)
+      window.addEventListener('tmuxgo-terminal-output', handleOutput as EventListener)
       const handleCopySelection = (event: Event) => {
         const selection = terminal?.getSelection?.() || ''
         window.dispatchEvent(new CustomEvent('tmuxgo-terminal-selection', { detail: { requestId: (event as CustomEvent).detail?.requestId, selection } }))
@@ -884,7 +884,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         dispose: () => {
           window.removeEventListener('tmux-attached', handleAttached as EventListener)
           window.removeEventListener('tmuxgo-layout-change', handleLayoutChange as EventListener)
-          container.removeEventListener('terminal-output', handleOutput)
+          window.removeEventListener('tmuxgo-terminal-output', handleOutput as EventListener)
           window.removeEventListener('tmuxgo-copy-terminal-selection', handleCopySelection as EventListener)
           window.removeEventListener('resize', handleWindowResize)
           window.removeEventListener('keyup', handleKeyUp)

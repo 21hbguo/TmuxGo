@@ -6,6 +6,9 @@ import { DELETE_PREV_WORD_SEQUENCE } from '@/lib/terminal-keys'
 const onSelectionChangeHandlers: Array<() => void> = []
 let customKeyHandler: ((event: KeyboardEvent) => boolean) | null = null
 let terminalSelection = 'printf "auto_copy_ok"'
+const terminalMocks = vi.hoisted(() => ({
+  write: vi.fn(),
+}))
 const clipboardMocks = vi.hoisted(() => ({
   writeClipboardText: vi.fn(async () => ({ copied: true, source: 'system', unavailable: false, reason: 'ok' })),
 }))
@@ -86,7 +89,9 @@ vi.mock('@xterm/xterm', () => {
     focus() {}
     resize() {}
     refresh() {}
-    write() {}
+    write(data: string) {
+      terminalMocks.write(data)
+    }
     dispose() {}
   }
   return { Terminal }
@@ -108,6 +113,7 @@ describe('TerminalPane', () => {
     onSelectionChangeHandlers.length = 0
     customKeyHandler = null
     terminalSelection = 'printf "auto_copy_ok"'
+    terminalMocks.write.mockClear()
     clipboardMocks.writeClipboardText.mockClear()
     storeMocks.pushToast.mockClear()
     ;(document as Document & { execCommand?: (command: string) => boolean }).execCommand = vi.fn((command: string) => {
@@ -310,5 +316,11 @@ describe('TerminalPane', () => {
     await sleep(220)
     expect(requestPaste).not.toHaveBeenCalled()
     window.removeEventListener('tmuxgo-request-terminal-paste', requestPaste)
+  })
+  it('renders terminal output from global websocket event', async () => {
+    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    window.dispatchEvent(new CustomEvent('tmuxgo-terminal-output', { detail: 'printf \"global_output_ok\"\\r\\n' }))
+    await waitFor(() => expect(terminalMocks.write).toHaveBeenCalledWith('printf \"global_output_ok\"\\r\\n'))
   })
 })

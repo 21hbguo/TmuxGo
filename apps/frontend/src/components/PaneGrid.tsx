@@ -164,8 +164,7 @@ export function PaneGrid() {
       clearInputFlushTimer()
       attachedRef.current = null
       sentResizeRef.current = null
-      terminalReadyRef.current = true
-      attachNow()
+      if (terminalReadyRef.current) attachNow()
     }
     window.addEventListener('ws-reconnected', handleReconnect)
     return () => window.removeEventListener('ws-reconnected', handleReconnect)

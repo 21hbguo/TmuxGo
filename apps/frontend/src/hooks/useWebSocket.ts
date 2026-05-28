@@ -25,11 +25,7 @@ export function useWebSocket() {
         updateConnection({latency:Date.now()-(data.timestamp||Date.now()),lastPing:new Date().toISOString()})
         break
       case 'output': {
-        const terminalElement=document.querySelector('[data-terminal]')
-        if (terminalElement) {
-          const event=new CustomEvent('terminal-output',{detail:data.data,bubbles:false})
-          terminalElement.dispatchEvent(event)
-        }
+        window.dispatchEvent(new CustomEvent('tmuxgo-terminal-output',{detail:data.data}))
         break
       }
       case 'connected':
