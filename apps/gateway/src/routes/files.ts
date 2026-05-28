@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { createWriteStream } from 'fs'
-import { mkdir, opendir, readFile, realpath, rename, rm, stat, writeFile } from 'fs/promises'
+import { mkdir, opendir, readFile, realpath, stat, writeFile } from 'fs/promises'
 import { execFile } from 'child_process'
 import os from 'os'
 import path from 'path'
@@ -15,8 +15,6 @@ const execFileAsync = promisify(execFile)
 const defaultRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..')
 const PREVIEW_LIMIT = 200 * 1024
 const LARGE_FILE_LIMIT = 512 * 1024
-const EDIT_FILE_LIMIT = 1024 * 1024
-const WRITE_FILE_LIMIT = 1024 * 1024
 const MAX_DIRS = 8000
 const MAX_FILES = 4000
 const MAX_RESULTS = 200
@@ -39,15 +37,8 @@ interface FileItem {
   size: number
   modifiedAt: string
 }
-type FileRouteError = Error & { code?: string; statusCode?: number }
 
 let rootsCache: Promise<FileRoot[]> | null = null
-function createFileRouteError(message: string, code: string, statusCode: number) {
-  const error = new Error(message) as FileRouteError
-  error.code = code
-  error.statusCode = statusCode
-  return error
-}
 
 async function getRoots() {
   if (!rootsCache) {
@@ -135,48 +126,28 @@ async function readPreview(rootId: string, relativePath: string, line = 1) {
 async function readContent(rootId: string, relativePath: string) {
   const { root, absolutePath } = await resolveInside(rootId, relativePath)
   const info = await stat(absolutePath)
-  if (info.isDirectory()) return { path: toRelative(root.path, absolutePath), type: 'directory', size: info.size, modifiedAt: info.mtime.toISOString(), binary: false, truncated: false, encoding: 'utf8', content: '', reason: 'directory' }
-  if (info.size > EDIT_FILE_LIMIT) return { path: toRelative(root.path, absolutePath), type: 'file', size: info.size, modifiedAt: info.mtime.toISOString(), binary: false, truncated: true, encoding: 'utf8', content: '', reason: 'large-file' }
-  const buffer = await readFile(absolutePath)
-  if (isLikelyBinary(buffer)) return { path: toRelative(root.path, absolutePath), type: 'file', size: info.size, modifiedAt: info.mtime.toISOString(), binary: true, truncated: false, encoding: 'utf8', content: '', reason: 'binary-file' }
-  return { path: toRelative(root.path, absolutePath), type: 'file', size: info.size, modifiedAt: info.mtime.toISOString(), binary: false, truncated: false, encoding: 'utf8', content: buffer.toString('utf8') }
+  if (info.isDirectory()) return { path: toRelative(root.path, absolutePath), type: 'directory', size: info.size, modifiedAt: info.mtime.toISOString(), binary: false, truncated: false, reason: 'directory', encoding: 'utf8', content: '' }
+  if (info.size > LARGE_FILE_LIMIT) return { path: toRelative(root.path, absolutePath), type: 'file', size: info.size, modifiedAt: info.mtime.toISOString(), binary: false, truncated: true, reason: 'large-file', encoding: 'utf8', content: '' }
+  const chunk = await readFile(absolutePath)
+  if (isLikelyBinary(chunk)) return { path: toRelative(root.path, absolutePath), type: 'file', size: info.size, modifiedAt: info.mtime.toISOString(), binary: true, truncated: false, reason: 'binary-file', encoding: 'utf8', content: '' }
+  return { path: toRelative(root.path, absolutePath), type: 'file', size: info.size, modifiedAt: info.mtime.toISOString(), binary: false, truncated: false, encoding: 'utf8', content: chunk.toString('utf8') }
 }
-async function saveContent(rootId: string, relativePath: string, content: string, expectedModifiedAt?: string) {
-  if (Buffer.byteLength(content, 'utf8') > WRITE_FILE_LIMIT) throw createFileRouteError('File too large to save', 'FILE_TOO_LARGE', 413)
-  const resolved = await resolveInside(rootId, relativePath)
-  const info = await stat(resolved.absolutePath)
-  if (info.isDirectory()) throw createFileRouteError('Cannot save a directory', 'IS_DIRECTORY', 400)
+async function saveContent(rootId: string, relativePath: string, content: string, modifiedAt?: string) {
+  const { absolutePath } = await resolveInside(rootId, relativePath)
+  const info = await stat(absolutePath)
+  if (info.isDirectory()) throw new Error('Directories cannot be saved')
+  if (info.size > LARGE_FILE_LIMIT) throw new Error('Large files are read only')
+  const existing = await readFile(absolutePath)
+  if (isLikelyBinary(existing)) throw new Error('Binary files are read only')
   const currentModifiedAt = info.mtime.toISOString()
-  if (expectedModifiedAt && expectedModifiedAt !== currentModifiedAt) throw createFileRouteError('File changed on disk', 'FILE_CONFLICT', 409)
-  await writeFile(resolved.absolutePath, content, 'utf8')
-  return readContent(rootId, relativePath)
-}
-async function createEntry(rootId: string, relativePath: string, name: string, type: 'file' | 'directory') {
-  const resolved = await resolveInside(rootId, relativePath)
-  const info = await stat(resolved.absolutePath)
-  if (!info.isDirectory()) throw createFileRouteError('Target path is not a directory', 'INVALID_PARENT', 400)
-  const safeName = sanitizeUploadFileName(name)
-  const absolutePath = path.join(resolved.absolutePath, safeName)
-  if (await fileExists(absolutePath)) throw createFileRouteError('Target already exists', 'FILE_EXISTS', 409)
-  if (type === 'directory') await mkdir(absolutePath, { recursive: false })
-  else await writeFile(absolutePath, '', 'utf8')
-  return toFileItem(resolved.root.path, absolutePath, safeName)
-}
-async function moveEntry(rootId: string, relativePath: string, nextPath: string) {
-  const source = await resolveInside(rootId, relativePath)
-  const nextNormalizedPath = normalizeRelativePath(nextPath)
-  if (!nextNormalizedPath) throw createFileRouteError('Invalid target path', 'INVALID_TARGET', 400)
-  const target = await resolveInside(rootId, nextNormalizedPath)
-  if (await fileExists(target.absolutePath)) throw createFileRouteError('Target already exists', 'FILE_EXISTS', 409)
-  await mkdir(path.dirname(target.absolutePath), { recursive: true })
-  await rename(source.absolutePath, target.absolutePath)
-  return toFileItem(source.root.path, target.absolutePath, path.basename(target.absolutePath))
-}
-async function removeEntry(rootId: string, relativePath: string) {
-  const resolved = await resolveInside(rootId, relativePath)
-  if (!resolved.relativePath) throw createFileRouteError('Cannot remove root', 'INVALID_TARGET', 400)
-  await rm(resolved.absolutePath, { recursive: true, force: false })
-  return { ok: true as const }
+  if (modifiedAt && modifiedAt !== currentModifiedAt) {
+    const error = new Error('File changed on disk')
+    ;(error as Error & { code?: string }).code = 'FILE_MODIFIED'
+    throw error
+  }
+  await writeFile(absolutePath, content, 'utf8')
+  const nextInfo = await stat(absolutePath)
+  return { ok: true as const, content, modifiedAt: nextInfo.mtime.toISOString(), size: nextInfo.size }
 }
 async function walk(rootPath: string, startPath: string, visitor: (absolutePath: string, relativePath: string, entryType: 'file' | 'directory') => Promise<boolean | void>) {
   const queue = [startPath]
@@ -364,39 +335,13 @@ export async function fileRoutes(fastify: FastifyInstance) {
     return readContent(query.root || '', query.path || '')
   })
   fastify.put('/files/content', async (request, reply) => {
-    const body = (request.body && typeof request.body === 'object') ? request.body as { root?: string; path?: string; content?: string; expectedModifiedAt?: string } : {}
+    const body = request.body as { root?: string; path?: string; content?: string; modifiedAt?: string }
     try {
-      return await saveContent(body.root || '', body.path || '', typeof body.content === 'string' ? body.content : '', body.expectedModifiedAt)
+      return await saveContent(body.root || '', body.path || '', typeof body.content === 'string' ? body.content : '', body.modifiedAt)
     } catch (error) {
-      const err = error as FileRouteError
-      return reply.code(err.statusCode || 500).send({ message: err.message, code: err.code || 'FILE_SAVE_FAILED' })
-    }
-  })
-  fastify.post('/files/create', async (request, reply) => {
-    const body = (request.body && typeof request.body === 'object') ? request.body as { root?: string; path?: string; name?: string; type?: 'file' | 'directory' } : {}
-    try {
-      return await createEntry(body.root || '', body.path || '', body.name || '', body.type === 'directory' ? 'directory' : 'file')
-    } catch (error) {
-      const err = error as FileRouteError
-      return reply.code(err.statusCode || 500).send({ message: err.message, code: err.code || 'FILE_CREATE_FAILED' })
-    }
-  })
-  fastify.patch('/files/move', async (request, reply) => {
-    const body = (request.body && typeof request.body === 'object') ? request.body as { root?: string; path?: string; nextPath?: string } : {}
-    try {
-      return await moveEntry(body.root || '', body.path || '', body.nextPath || '')
-    } catch (error) {
-      const err = error as FileRouteError
-      return reply.code(err.statusCode || 500).send({ message: err.message, code: err.code || 'FILE_MOVE_FAILED' })
-    }
-  })
-  fastify.delete('/files/remove', async (request, reply) => {
-    const body = (request.body && typeof request.body === 'object') ? request.body as { root?: string; path?: string } : {}
-    try {
-      return await removeEntry(body.root || '', body.path || '')
-    } catch (error) {
-      const err = error as FileRouteError
-      return reply.code(err.statusCode || 500).send({ message: err.message, code: err.code || 'FILE_REMOVE_FAILED' })
+      const err = error as Error & { code?: string }
+      if (err.code === 'FILE_MODIFIED') return reply.status(409).send({ message: err.message, code: err.code })
+      return reply.status(400).send({ message: err.message || 'Save failed', code: err.code || 'SAVE_FAILED' })
     }
   })
   fastify.get('/files/search-name', async (request) => {
