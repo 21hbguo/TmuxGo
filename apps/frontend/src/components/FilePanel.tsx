@@ -1,9 +1,10 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { QueryClientContext } from '@tanstack/react-query'
 import { useFileList, useFilePreview, useFileRoots, useFileSearch } from '@/hooks/useApi'
 import { useConsoleStore } from '@/stores/useConsoleStore'
-import type { FavoriteDirectory, FileContentMatch, FileItem, FileListResponse, FilePreviewResponse, FileRoot } from '@/types'
+import type { FavoriteDirectory, FileContentMatch, FileDocumentHandle, FileItem, FileListResponse, FilePreviewResponse, FileRoot } from '@/types'
 import { writeClipboardText } from '@/lib/clipboard-text'
 import { quoteShellPath } from '@/lib/path-drop'
 import { api } from '@/lib/api'
@@ -331,10 +332,12 @@ function SearchDirectoryNode({
     />
   )
 }
-export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobile'; onClose?: () => void }) {
+export function FilePanel({ mode = 'panel', onClose, onOpenFile }: { mode?: 'panel' | 'mobile' | 'explorer'; onClose?: () => void; onOpenFile?: (file: FileDocumentHandle) => void }) {
   const { filePanelWidth, setFilePanelWidth, setFilePanelOpen, openUploadDialog, pushToast } = useConsoleStore()
+  const queryClient = useContext(QueryClientContext)
   const { data: roots = [] } = useFileRoots()
   const isMobile = mode === 'mobile'
+  const isExplorer = mode === 'explorer'
   const [selectedRootId, setSelectedRootId] = useState('')
   const [currentPath, setCurrentPath] = useState('')
   const [selectedPath, setSelectedPath] = useState('')
@@ -365,7 +368,7 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
   const listQueryPath = joinRelativePath(activeRootBasePath, currentPath)
   const previewQueryPath = joinRelativePath(activeRootBasePath, selectedPath)
   const { data: rawListData, isLoading: listLoading } = useFileList(activeRootId, listQueryPath, true)
-  const { data: rawPreview } = useFilePreview(activeRootId, previewQueryPath, selectedPreviewLine)
+  const { data: rawPreview } = useFilePreview(activeRootId, previewQueryPath, selectedPreviewLine, !isExplorer)
   const searchBasePath = joinRelativePath(activeRootBasePath, currentPath)
   const { data: rawSearchResults = [], isFetching: searchLoading } = useFileSearch(activeRootId, searchMode, query, searchBasePath)
   const root = activeRoot
@@ -513,6 +516,10 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
     }
     setSelectedPath(item.path)
     setSelectedPreviewLine(getPreviewLine(item))
+    if (isExplorer && onOpenFile) {
+      openEditor(item)
+      return
+    }
     if (isMobile) setMobileView('preview')
   }
   const insertItemPath = (item: FileItem | FileContentMatch) => {
@@ -532,6 +539,18 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
   const selectFromKeyboard = (item: FileItem | FileContentMatch, e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       e.preventDefault()
+      if (isExplorer && item.type === 'file' && onOpenFile && root) {
+        onOpenFile({
+          id: `${activeRootId}:${joinRelativePath(activeRootBasePath, item.path)}`,
+          rootId: activeRootId,
+          rootLabel: rootLabelById[activeRootId] || root.label,
+          rootPath: roots.find((entry) => entry.id === activeRootId)?.path || root.path,
+          path: joinRelativePath(activeRootBasePath, item.path),
+          name: item.name,
+          absolutePath: joinPath(root.path, item.path),
+        })
+        return
+      }
       insertItemPath(item)
     }
   }
@@ -539,14 +558,89 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
     setHideDotFiles(value)
     writeHideDotFiles(value)
   }
+  const refreshFiles = () => {
+    if (!queryClient) return
+    void queryClient.invalidateQueries({ queryKey: ['file-list'] })
+    void queryClient.invalidateQueries({ queryKey: ['file-search'] })
+    void queryClient.invalidateQueries({ queryKey: ['file-preview'] })
+  }
+  const buildOpenFile = (item: FileItem | FileContentMatch): FileDocumentHandle | null => {
+    if (!root || item.type !== 'file') return null
+    const resolvedPath = joinRelativePath(activeRootBasePath, item.path)
+    return {
+      id: `${activeRootId}:${resolvedPath}`,
+      rootId: activeRootId,
+      rootLabel: rootLabelById[activeRootId] || root.label,
+      rootPath: roots.find((entry) => entry.id === activeRootId)?.path || root.path,
+      path: resolvedPath,
+      name: item.name,
+      absolutePath: joinPath(root.path, item.path),
+    }
+  }
+  const openEditor = (item: FileItem | FileContentMatch) => {
+    const nextFile = buildOpenFile(item)
+    if (!nextFile || !onOpenFile) return
+    onOpenFile(nextFile)
+  }
+  const createItem = async (type: 'file' | 'directory', basePath?: string) => {
+    if (!activeRootId) return
+    const placeholder = type === 'file' ? 'new-file.txt' : 'new-folder'
+    const name = prompt(type === 'file' ? 'File name:' : 'Folder name:', placeholder)
+    if (!name) return
+    try {
+      const targetBasePath = typeof basePath === 'string' ? basePath : joinRelativePath(activeRootBasePath, currentPath)
+      const created = await api.files.create(activeRootId, targetBasePath, name, type)
+      refreshFiles()
+      pushToast({ type: 'success', message: `${type === 'file' ? 'File' : 'Folder'} ${created.name} created` })
+      if (isExplorer && type === 'file') {
+        const target = buildOpenFile(rebaseEntryPath(created, activeRootBasePath))
+        if (target && onOpenFile) onOpenFile(target)
+      }
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Create failed' })
+    }
+  }
+  const renameItem = async (item: FileEntry) => {
+    if (!activeRootId) return
+    const currentFullPath = joinRelativePath(activeRootBasePath, item.path)
+    const parts = currentFullPath.split('/')
+    const currentName = parts.pop() || item.name
+    const parentPath = parts.join('/')
+    const nextName = prompt('Rename to:', currentName)
+    if (!nextName || nextName === currentName) return
+    try {
+      const nextPath = [parentPath, nextName].filter(Boolean).join('/')
+      const moved = await api.files.move(activeRootId, currentFullPath, nextPath)
+      refreshFiles()
+      if (selectedPath === item.path) setSelectedPath(stripBasePath(moved.path, activeRootBasePath))
+      pushToast({ type: 'success', message: `${item.name} renamed` })
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Rename failed' })
+    }
+  }
+  const deleteItem = async (item: FileEntry) => {
+    if (!activeRootId) return
+    if (!window.confirm(`Delete ${item.name}?`)) return
+    try {
+      await api.files.remove(activeRootId, joinRelativePath(activeRootBasePath, item.path))
+      refreshFiles()
+      if (selectedPath === item.path) {
+        setSelectedPath('')
+        setSelectedPreviewLine(1)
+      }
+      pushToast({ type: 'success', message: `${item.name} deleted` })
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Delete failed' })
+    }
+  }
   const handleUploadSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = Array.from(event.target.files || [])
     if (!selectedFiles.length) return
     openUploadDialog({ files: selectedFiles, preferredRootId: activeRootId, preferredPath: listQueryPath, insertPaths: true })
     event.target.value = ''
   }
-  const shellClass = isMobile ? 'flex h-full min-h-0 flex-col bg-bg-1' : 'relative flex h-full shrink-0 flex-col border-l border-[var(--line)] bg-bg-1'
-  const shellStyle = isMobile ? undefined : { width: filePanelWidth }
+  const shellClass = isMobile || isExplorer ? 'flex h-full min-h-0 flex-col bg-bg-1' : 'relative flex h-full shrink-0 flex-col border-l border-[var(--line)] bg-bg-1'
+  const shellStyle = isMobile || isExplorer ? undefined : { width: filePanelWidth }
   const previewBlock = preview ? (
     preview.binary || preview.reason ? (
       <div className="p-3 text-xs text-text-3">
@@ -582,7 +676,7 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
   return (
     <aside className={shellClass} style={shellStyle}>
       <input ref={uploadInputRef} type="file" multiple className="hidden" onChange={handleUploadSelect} />
-      {!isMobile && (
+      {!isMobile && !isExplorer && (
         <div
           className="absolute left-0 top-0 h-full w-1 cursor-col-resize hover:bg-accent/40"
           onMouseDown={() => {
@@ -596,13 +690,15 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
       <div className="border-b border-[var(--line)] px-3 py-2">
         <div className="flex items-center gap-2">
           {isMobile && mobileView === 'preview' && <button onClick={() => setMobileView('list')} className="rounded px-2 py-1 text-text-3 hover:bg-bg-2">‹</button>}
-          <div className="text-sm font-semibold text-text-1">Files</div>
+          <div className="text-sm font-semibold text-text-1">{isExplorer ? 'Explorer' : 'Files'}</div>
           <select value={selectedRootId} onChange={(e) => switchRoot(e.target.value)} className="min-w-0 flex-1 rounded border border-[var(--line)] bg-bg-2 px-2 py-1 text-xs text-text-2 outline-none">
             {rootOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
           </select>
+          {isExplorer && <button onClick={() => void createItem('file')} className="rounded px-2 py-1 text-[11px] text-accent hover:bg-bg-2">File</button>}
+          {isExplorer && <button onClick={() => void createItem('directory')} className="rounded px-2 py-1 text-[11px] text-accent hover:bg-bg-2">Dir</button>}
           <button onClick={() => uploadInputRef.current?.click()} className="rounded px-2 py-1 text-[11px] text-accent hover:bg-bg-2">上传</button>
           {activeFavorite && <button onClick={() => removeFavoriteDirectory(activeFavorite)} className="rounded px-2 py-1 text-[11px] text-text-3 hover:bg-bg-2 hover:text-text-1">删收藏</button>}
-          <button onClick={onClose || (() => setFilePanelOpen(false))} className="rounded px-2 py-1 text-text-3 hover:bg-bg-2 hover:text-text-1">×</button>
+          {!isExplorer && <button onClick={onClose || (() => setFilePanelOpen(false))} className="rounded px-2 py-1 text-text-3 hover:bg-bg-2 hover:text-text-1">×</button>}
         </div>
         <div className="mt-2 flex flex-wrap gap-1.5">
           {quickRoots.map((item) => (
@@ -664,7 +760,7 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
               onToggle={toggleDesktopDirectory}
               onToggleFavorite={toggleFavoriteDirectory}
               onSelectFile={openItem}
-              onInsert={insertItemPath}
+              onInsert={isExplorer ? openEditor : insertItemPath}
               onContextMenu={(e, entry) => {
                 e.preventDefault()
                 setContextMenu({ x: e.clientX, y: e.clientY, item: entry })
@@ -676,7 +772,7 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
               key={`${item.type}-${item.path}`}
               tabIndex={0}
               onClick={() => openItem(item)}
-              onDoubleClick={() => insertItemPath(item)}
+              onDoubleClick={() => isExplorer && item.type === 'file' ? openEditor(item) : insertItemPath(item)}
               onKeyDown={(e) => selectFromKeyboard(item, e)}
               onContextMenu={(e) => {
                 e.preventDefault()
@@ -715,13 +811,18 @@ export function FilePanel({ mode = 'panel', onClose }: { mode?: 'panel' | 'mobil
         ))}
         {!listLoading && !visibleItems.length && <div className="p-3 text-xs text-text-3">{showSearchResults ? 'No results' : 'Empty directory'}</div>}
       </div>}
-      {(!isMobile || mobileView === 'preview') && <div className={isMobile ? 'min-h-0 flex-1 bg-bg-0' : 'max-h-[42%] min-h-[160px] border-t border-[var(--line)] bg-bg-0'}>{previewBlock}</div>}
+      {!isExplorer && (!isMobile || mobileView === 'preview') && <div className={isMobile ? 'min-h-0 flex-1 bg-bg-0' : 'max-h-[42%] min-h-[160px] border-t border-[var(--line)] bg-bg-0'}>{previewBlock}</div>}
       {isMobile && mobileView === 'preview' && selectedPath && <div className="border-t border-[var(--line)] p-3"><button onClick={() => insertPath(root ? joinPath(root.path, selectedPath) : selectedPath)} className="w-full rounded-lg bg-accent/20 px-3 py-3 text-sm text-accent active:scale-[0.98]">插入路径到终端</button></div>}
       {contextMenu && (
-        <div className="fixed z-[90] w-40 overflow-hidden rounded border border-[var(--line)] bg-bg-1 py-1 text-xs shadow-lg" style={{ left: contextMenu.x, top: contextMenu.y }} onClick={(e) => e.stopPropagation()}>
+        <div className="fixed z-[90] w-44 overflow-hidden rounded border border-[var(--line)] bg-bg-1 py-1 text-xs shadow-lg" style={{ left: contextMenu.x, top: contextMenu.y }} onClick={(e) => e.stopPropagation()}>
+          {contextMenu.item.type === 'file' && onOpenFile && <button onClick={() => { openEditor(contextMenu.item); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">Open editor</button>}
+          {!isExplorer && <button onClick={() => { setSelectedPath(contextMenu.item.path); setSelectedPreviewLine(getPreviewLine(contextMenu.item)); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">Open preview</button>}
           <button onClick={() => { insertItemPath(contextMenu.item); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">Insert path</button>
           <button onClick={() => void copyItemPath(contextMenu.item).finally(() => setContextMenu(null))} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">Copy path</button>
-          <button onClick={() => { setSelectedPath(contextMenu.item.path); setSelectedPreviewLine(getPreviewLine(contextMenu.item)); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">Open preview</button>
+          {isExplorer && contextMenu.item.type === 'directory' && <button onClick={() => { void createItem('file', joinRelativePath(activeRootBasePath, contextMenu.item.path)).finally(() => setContextMenu(null)) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">New file</button>}
+          {isExplorer && contextMenu.item.type === 'directory' && <button onClick={() => { void createItem('directory', joinRelativePath(activeRootBasePath, contextMenu.item.path)).finally(() => setContextMenu(null)) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">New folder</button>}
+          {isExplorer && <button onClick={() => { void renameItem(contextMenu.item).finally(() => setContextMenu(null)) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">Rename</button>}
+          {isExplorer && <button onClick={() => { void deleteItem(contextMenu.item).finally(() => setContextMenu(null)) }} className="block w-full px-3 py-2 text-left text-danger hover:bg-bg-2">Delete</button>}
         </div>
       )}
       </>}

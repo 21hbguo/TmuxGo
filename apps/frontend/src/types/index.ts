@@ -95,6 +95,39 @@ export interface FilePreviewResponse {
 export interface FileContentMatch extends FileItem {
   matches: FilePreviewLine[]
 }
+export interface FileDocumentHandle {
+  id: string
+  rootId: string
+  rootLabel: string
+  rootPath: string
+  path: string
+  name: string
+  absolutePath: string
+}
+export interface FileContentResponse {
+  path: string
+  type: 'file' | 'directory'
+  size: number
+  modifiedAt: string
+  binary: boolean
+  truncated: boolean
+  reason?: string
+  encoding: string
+  content: string
+}
+export interface FileEditorDocument extends FileDocumentHandle {
+  language: string
+  content: string
+  savedContent: string
+  modifiedAt: string
+  size: number
+  dirty: boolean
+  loading: boolean
+  saving: boolean
+  binary: boolean
+  truncated: boolean
+  problem?: string
+}
 export interface FileUploadTarget {
   rootId: string
   rootLabel: string

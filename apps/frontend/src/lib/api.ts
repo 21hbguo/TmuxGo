@@ -1,5 +1,5 @@
 import { getApiBase } from './runtime-endpoints'
-import type { CustomShortcut, FavoriteDirectory, FileContentMatch, FileItem, FileListResponse, FilePreviewResponse, FileRoot, FileUploadTarget, RemotePreferences, UploadJobResult, UploadedFile } from '@/types'
+import type { CustomShortcut, FavoriteDirectory, FileContentMatch, FileContentResponse, FileItem, FileListResponse, FilePreviewResponse, FileRoot, FileUploadTarget, RemotePreferences, UploadJobResult, UploadedFile } from '@/types'
 
 async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   const url = `${getApiBase()}${path}`
@@ -170,6 +170,27 @@ export const api = {
     roots: () => fetchApi<FileRoot[]>('/api/files/roots'),
     list: (root: string, path = '') => fetchApi<FileListResponse>(`/api/files/list?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}`),
     preview: (root: string, path: string, line = 1) => fetchApi<FilePreviewResponse>(`/api/files/preview?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}&line=${line}`),
+    content: (root: string, path: string) => fetchApi<FileContentResponse>(`/api/files/content?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}`),
+    saveContent: (root: string, path: string, content: string, expectedModifiedAt?: string) =>
+      fetchApi<FileContentResponse>('/api/files/content', {
+        method: 'PUT',
+        body: JSON.stringify({ root, path, content, expectedModifiedAt }),
+      }),
+    create: (root: string, path: string, name: string, type: 'file' | 'directory') =>
+      fetchApi<FileItem>('/api/files/create', {
+        method: 'POST',
+        body: JSON.stringify({ root, path, name, type }),
+      }),
+    move: (root: string, path: string, nextPath: string) =>
+      fetchApi<FileItem>('/api/files/move', {
+        method: 'PATCH',
+        body: JSON.stringify({ root, path, nextPath }),
+      }),
+    remove: (root: string, path: string) =>
+      fetchApi<{ ok: true }>('/api/files/remove', {
+        method: 'DELETE',
+        body: JSON.stringify({ root, path }),
+      }),
     searchName: (root: string, q: string, basePath = '') => fetchApi<FileItem[]>(`/api/files/search-name?root=${encodeURIComponent(root)}&q=${encodeURIComponent(q)}&basePath=${encodeURIComponent(basePath)}`),
     searchContent: (root: string, q: string, basePath = '') => fetchApi<FileContentMatch[]>(`/api/files/search-content?root=${encodeURIComponent(root)}&q=${encodeURIComponent(q)}&basePath=${encodeURIComponent(basePath)}`),
     defaultUploadTarget: (paneId?: string) => fetchApi<FileUploadTarget>(`/api/files/default-upload-target${paneId ? `?paneId=${encodeURIComponent(paneId)}` : ''}`),
