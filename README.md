@@ -63,6 +63,18 @@ cd TmuxGo
 ./bootstrap.sh && ./start.sh
 ```
 
+快速重启默认复用已有稳定版构建产物，不再每次都重新 `next build`：
+
+```bash
+./start.sh --restart
+```
+
+只有需要显式重建稳定版时再执行：
+
+```bash
+./start.sh --restart --rebuild
+```
+
 浏览器打开 `http://localhost:3000`。:tada:
 
 > :bulb: 局域网内可直接访问；远程访问请先配置 [Tailscale](https://tailscale.com)。

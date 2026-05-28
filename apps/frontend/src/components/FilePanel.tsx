@@ -455,6 +455,39 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     window.addEventListener('click', close)
     return () => window.removeEventListener('click', close)
   }, [])
+  const pushMobileNavigationHistory = () => {
+    if (!isMobile || typeof window === 'undefined') return
+    window.dispatchEvent(new CustomEvent('tmuxgo-mobile-files-push-level'))
+  }
+  const goMobileParentDirectory = () => {
+    setCurrentPath((value) => {
+      const parts = value.split(/[\\/]+/).filter(Boolean)
+      return parts.slice(0, -1).join('/')
+    })
+    setSelectedPath('')
+    setSelectedPreviewLine(1)
+    setSearchNavigationPath((value) => {
+      if (!value) return null
+      const parts = value.split(/[\\/]+/).filter(Boolean)
+      return parts.length > 1 ? parts.slice(0, -1).join('/') : null
+    })
+  }
+  useEffect(() => {
+    if (!isMobile) return
+    const handleBack = (event: Event) => {
+      const detail = (event as CustomEvent<{ handled?: boolean }>).detail
+      if (mobileView === 'preview') {
+        detail.handled = true
+        setMobileView('list')
+        return
+      }
+      if (!currentPath) return
+      detail.handled = true
+      goMobileParentDirectory()
+    }
+    window.addEventListener('tmuxgo-mobile-files-back', handleBack as EventListener)
+    return () => window.removeEventListener('tmuxgo-mobile-files-back', handleBack as EventListener)
+  }, [currentPath, isMobile, mobileView])
   const switchRoot = (nextRootId: string) => {
     setSelectedRootId(nextRootId)
     setCurrentPath('')
@@ -522,6 +555,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
         toggleDesktopDirectory(item.path)
         return
       }
+      pushMobileNavigationHistory()
       setCurrentPath(item.path)
       setSelectedPath('')
       setSelectedPreviewLine(1)
@@ -530,6 +564,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
       return
     }
     if (openInEditor(item)) return
+    if (isMobile) pushMobileNavigationHistory()
     setSelectedPath(item.path)
     setSelectedPreviewLine(getPreviewLine(item))
     if (isMobile) setMobileView('preview')
@@ -617,6 +652,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
       <div className="border-b border-[var(--line)] px-3 py-2">
         <div className="flex items-center gap-2">
           {isMobile && mobileView === 'preview' && <button onClick={() => setMobileView('list')} className="rounded px-2 py-1 text-text-3 hover:bg-bg-2">‹</button>}
+          {isMobile && mobileView !== 'preview' && !!currentPath && <button onClick={goMobileParentDirectory} className="rounded px-2 py-1 text-text-3 hover:bg-bg-2">‹</button>}
           <div className="text-sm font-semibold text-text-1">Files</div>
           <select value={selectedRootId} onChange={(e) => switchRoot(e.target.value)} className="min-w-0 flex-1 rounded border border-[var(--line)] bg-bg-2 px-2 py-1 text-xs text-text-2 outline-none">
             {rootOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}

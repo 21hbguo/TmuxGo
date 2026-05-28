@@ -19,7 +19,8 @@ const roots = [
 const getListData = (rootId: string, currentPath: string) => {
   if (rootId === 'root-workspace') {
     if (!currentPath) return { root: roots[0], path: '', breadcrumbs: [{ name: '/', path: '' }], items: [{ name: 'src', path: 'src', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: 'docs', path: 'docs', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: '.env', path: '.env', type: 'file', size: 4, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
-    if (currentPath === 'src') return { root: roots[0], path: 'src', breadcrumbs: [{ name: '/', path: '' }, { name: 'src', path: 'src' }], items: [{ name: 'index.ts', path: 'src/index.ts', type: 'file', size: 12, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
+    if (currentPath === 'src') return { root: roots[0], path: 'src', breadcrumbs: [{ name: '/', path: '' }, { name: 'src', path: 'src' }], items: [{ name: 'nested', path: 'src/nested', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: 'index.ts', path: 'src/index.ts', type: 'file', size: 12, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
+    if (currentPath === 'src/nested') return { root: roots[0], path: 'src/nested', breadcrumbs: [{ name: '/', path: '' }, { name: 'src', path: 'src' }, { name: 'nested', path: 'src/nested' }], items: [{ name: 'deep.ts', path: 'src/nested/deep.ts', type: 'file', size: 7, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
     if (currentPath === 'docs') return { root: roots[0], path: 'docs', breadcrumbs: [{ name: '/', path: '' }, { name: 'docs', path: 'docs' }], items: [{ name: 'guide.md', path: 'docs/guide.md', type: 'file', size: 16, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
   }
   if (rootId === 'root-home') {
@@ -181,6 +182,33 @@ describe('FilePanel', () => {
     expect(screen.getByRole('button', { name: 'docs' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '/' }))
     expect(await screen.findByText('docs')).toBeInTheDocument()
+  })
+  it('uses mobile back event to return from preview and directory levels', async () => {
+    render(React.createElement(FilePanel, { mode: 'mobile' }))
+    fireEvent.click((await screen.findByText('src')).closest('button') as HTMLButtonElement)
+    expect(await screen.findByText('index.ts')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('index.ts'))
+    expect(await screen.findByText('line-1')).toBeInTheDocument()
+    const previewBack = { handled: false }
+    window.dispatchEvent(new CustomEvent('tmuxgo-mobile-files-back', { detail: previewBack }))
+    expect(previewBack.handled).toBe(true)
+    await waitFor(() => expect(screen.queryByText('line-1')).not.toBeInTheDocument())
+    const directoryBack = { handled: false }
+    window.dispatchEvent(new CustomEvent('tmuxgo-mobile-files-back', { detail: directoryBack }))
+    expect(directoryBack.handled).toBe(true)
+    await waitFor(() => expect(screen.getByText('docs')).toBeInTheDocument())
+  })
+  it('returns to previous directory on mobile after entering nested folders', async () => {
+    render(React.createElement(FilePanel, { mode: 'mobile' }))
+    fireEvent.click((await screen.findByText('src')).closest('button') as HTMLButtonElement)
+    expect(await screen.findByText('nested')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('nested'))
+    expect(await screen.findByText('deep.ts')).toBeInTheDocument()
+    const directoryBack = { handled: false }
+    window.dispatchEvent(new CustomEvent('tmuxgo-mobile-files-back', { detail: directoryBack }))
+    expect(directoryBack.handled).toBe(true)
+    await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
+    expect(screen.queryByText('deep.ts')).not.toBeInTheDocument()
   })
   it('opens content search preview at matched line', async () => {
     render(React.createElement(FilePanel))

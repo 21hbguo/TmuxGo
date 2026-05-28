@@ -1,6 +1,52 @@
 import { create } from 'zustand'
 import type { Host, Session, Window, Pane, ConnectionState, FileDocumentHandle, FileEditorDocument, UploadJob } from '@/types'
 
+type PersistedEditor = Pick<FileEditorDocument, 'id' | 'rootId' | 'rootLabel' | 'rootPath' | 'path' | 'name' | 'absolutePath' | 'language'>
+const OPEN_EDITORS_STORAGE_KEY = 'tmuxgo-open-editors'
+const ACTIVE_EDITOR_STORAGE_KEY = 'tmuxgo-active-editor'
+
+function readPersistedEditors() {
+  if (typeof window === 'undefined') return []
+  try {
+    const stored = JSON.parse(localStorage.getItem(OPEN_EDITORS_STORAGE_KEY) || '[]')
+    if (!Array.isArray(stored)) return []
+    return stored.filter((item): item is PersistedEditor => !!item && typeof item.id === 'string' && typeof item.rootId === 'string' && typeof item.rootLabel === 'string' && typeof item.rootPath === 'string' && typeof item.path === 'string' && typeof item.name === 'string' && typeof item.absolutePath === 'string' && typeof item.language === 'string')
+  } catch {
+    return []
+  }
+}
+function readPersistedActiveEditorId() {
+  if (typeof window === 'undefined') return null
+  return localStorage.getItem(ACTIVE_EDITOR_STORAGE_KEY) || null
+}
+function toEditorDocument(file: PersistedEditor): FileEditorDocument {
+  return {
+    ...file,
+    content: '',
+    savedContent: '',
+    modifiedAt: '',
+    size: 0,
+    dirty: false,
+    loading: true,
+    saving: false,
+    binary: false,
+    truncated: false,
+  }
+}
+function writePersistedEditors(openEditors: FileEditorDocument[], activeEditorId: string | null) {
+  if (typeof window === 'undefined') return
+  const nextEditors = openEditors.map(({ id, rootId, rootLabel, rootPath, path, name, absolutePath, language }) => ({ id, rootId, rootLabel, rootPath, path, name, absolutePath, language }))
+  localStorage.setItem(OPEN_EDITORS_STORAGE_KEY, JSON.stringify(nextEditors))
+  if (activeEditorId) localStorage.setItem(ACTIVE_EDITOR_STORAGE_KEY, activeEditorId)
+  else localStorage.removeItem(ACTIVE_EDITOR_STORAGE_KEY)
+}
+
+const initialOpenEditors = readPersistedEditors().map(toEditorDocument)
+const initialActiveEditorId = (() => {
+  const id = readPersistedActiveEditorId()
+  return id && initialOpenEditors.some((item) => item.id === id) ? id : initialOpenEditors[initialOpenEditors.length - 1]?.id || null
+})()
+
 interface ConsoleState {
   hosts: Host[]
   sessions: Session[]
@@ -73,8 +119,8 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
   sessionPanelWidth: 280,
   filePanelWidth: 360,
   terminalPanelHeight: 300,
-  openEditors: [],
-  activeEditorId: null,
+  openEditors: initialOpenEditors,
+  activeEditorId: initialActiveEditorId,
   uploadRequest: null,
   uploadJobs: [],
   toasts: [],
@@ -103,8 +149,11 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
   setTerminalPanelHeight: (height) => set({ terminalPanelHeight: Math.max(180, Math.min(540, height)) }),
   openEditor: (file) => set((state) => {
     const existing = state.openEditors.find((item) => item.id === file.id)
-    if (existing) return { activeEditorId: existing.id }
-    return {
+    if (existing) {
+      writePersistedEditors(state.openEditors, existing.id)
+      return { activeEditorId: existing.id }
+    }
+    const nextState = {
       openEditors: [...state.openEditors, {
         ...file,
         content: '',
@@ -119,13 +168,19 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
       }],
       activeEditorId: file.id,
     }
+    writePersistedEditors(nextState.openEditors, nextState.activeEditorId)
+    return nextState
   }),
   closeEditor: (id) => set((state) => {
     const nextEditors = state.openEditors.filter((item) => item.id !== id)
     const nextActiveEditorId = state.activeEditorId === id ? nextEditors[nextEditors.length - 1]?.id || null : state.activeEditorId
+    writePersistedEditors(nextEditors, nextActiveEditorId)
     return { openEditors: nextEditors, activeEditorId: nextActiveEditorId }
   }),
-  setActiveEditor: (id) => set({ activeEditorId: id }),
+  setActiveEditor: (id) => set((state) => {
+    writePersistedEditors(state.openEditors, id)
+    return { activeEditorId: id }
+  }),
   setEditorLoaded: (id, patch) => set((state) => ({ openEditors: state.openEditors.map((item) => item.id === id ? { ...item, ...patch } : item) })),
   setEditorContent: (id, content) => set((state) => ({ openEditors: state.openEditors.map((item) => item.id === id ? { ...item, content, dirty: content !== item.savedContent } : item) })),
   setEditorSaving: (id, saving) => set((state) => ({ openEditors: state.openEditors.map((item) => item.id === id ? { ...item, saving } : item) })),

@@ -10,9 +10,15 @@ fi
 cd "$ROOT_DIR"
 echo "Starting TmuxGo development servers..."
 RESTART=0
-if [ "${1:-}" = "--restart" ]; then
-  RESTART=1
-fi
+REBUILD_STABLE=0
+for arg in "$@"; do
+  if [ "$arg" = "--restart" ]; then
+    RESTART=1
+  fi
+  if [ "$arg" = "--rebuild" ]; then
+    REBUILD_STABLE=1
+  fi
+done
 FRONTEND_STABLE_LOG="/tmp/tmuxgo-frontend-stable.log"
 FRONTEND_DEV_LOG="/tmp/tmuxgo-frontend-dev.log"
 GATEWAY_LOG="/tmp/tmuxgo-gateway.log"
@@ -86,6 +92,9 @@ process_alive() {
   local pid=$1
   kill -0 "$pid" >/dev/null 2>&1
 }
+stable_build_ready() {
+  [ -f "$ROOT_DIR/apps/frontend/$FRONTEND_STABLE_DIST_DIR/BUILD_ID" ]
+}
 agent_running() {
   pgrep -af "npm run dev:agent" >/dev/null 2>&1
 }
@@ -134,12 +143,20 @@ fi
 if wait_http_ok "http://127.0.0.1:3000" 1; then
   echo "Stable frontend already running on port 3000, skipping..."
 else
-  echo "Building stable frontend..."
-  if env NEXT_DIST_DIR="$FRONTEND_STABLE_DIST_DIR" npm run build:frontend >/dev/null 2>&1; then
-    echo "  Build completed"
+  if [ "$REBUILD_STABLE" = "1" ] || ! stable_build_ready; then
+    if [ "$REBUILD_STABLE" = "1" ]; then
+      echo "Rebuilding stable frontend..."
+    else
+      echo "Stable frontend build missing, building..."
+    fi
+    if env NEXT_DIST_DIR="$FRONTEND_STABLE_DIST_DIR" npm run build:frontend >/dev/null 2>&1; then
+      echo "  Build completed"
+    else
+      echo "  Build failed, check output by running: env NEXT_DIST_DIR=$FRONTEND_STABLE_DIST_DIR npm run build:frontend"
+      exit 1
+    fi
   else
-    echo "  Build failed, check output by running: npm run build:frontend"
-    exit 1
+    echo "Reusing existing stable frontend build"
   fi
   echo "Starting stable frontend on port 3000..."
   STABLE_PID=$(start_detached "$FRONTEND_STABLE_LOG" env NEXT_DIST_DIR="$FRONTEND_STABLE_DIST_DIR" npm run --workspace=frontend start -- --hostname 0.0.0.0 --port 3000)

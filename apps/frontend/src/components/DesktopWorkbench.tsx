@@ -60,6 +60,7 @@ export function DesktopWorkbench() {
   const markEditorSaved = useConsoleStore((state) => state.markEditorSaved)
   const pushToast = useConsoleStore((state) => state.pushToast)
   const resizingRef = useRef<'session' | 'file' | null>(null)
+  const restoredRef = useRef(false)
   useEffect(() => {
     const handleMove = (event: MouseEvent) => {
       if (resizingRef.current === 'session') {
@@ -108,6 +109,14 @@ export function DesktopWorkbench() {
       pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Open failed' })
     }
   }, [openEditor, pushToast, setEditorLoaded, setFilePanelOpen])
+  useEffect(() => {
+    if (restoredRef.current) return
+    restoredRef.current = true
+    const editors = useConsoleStore.getState().openEditors
+    if (!editors.length) return
+    setFilePanelOpen(true)
+    for (const editor of editors) void handleOpenFile(editor)
+  }, [handleOpenFile, setFilePanelOpen])
   const handleSaveEditor = useCallback(async (editor: FileEditorDocument) => {
     if (editor.loading || editor.binary || editor.truncated) return
     setEditorSaving(editor.id, true)
