@@ -7,8 +7,6 @@ import { useWebSocket } from '@/hooks/useWebSocket'
 import { useTranslation } from '@/i18n'
 import { usePreferences } from '@/hooks/usePreferences'
 import { isMobileDevice } from '@/hooks/useMobileKeyboard'
-import { api } from '@/lib/api'
-import { useSessionSnapshotSync } from '@/hooks/useSessionSnapshotSync'
 
 const MOBILE_RESIZE_DEBOUNCE = 16
 const DESKTOP_RESIZE_DEBOUNCE = 80
@@ -17,7 +15,6 @@ const ATTACH_RETRY_DELAY = 900
 const INPUT_QUEUE_LIMIT = 128
 const INPUT_FLUSH_INTERVAL = 10
 const INPUT_BATCH_CHARS = 768
-const ATTACH_HYDRATE_DELAY = 220
 
 export function PaneGrid() {
   const activeSessionId = useConsoleStore((s) => s.activeSessionId)
@@ -27,7 +24,6 @@ export function PaneGrid() {
   const { send, isConnected, isSocketReady, subscribeOutput } = useWebSocket()
   const { t } = useTranslation()
   const { preferences } = usePreferences()
-  const { resolveActivePaneId } = useSessionSnapshotSync()
   const isMobile = isMobileDevice()
   const exclusive = !isMobile || preferences.attachExclusive
   const attachedRef = useRef<string | null>(null)
@@ -40,7 +36,6 @@ export function PaneGrid() {
   const lastSessionRef = useRef<string | null>(activeSessionId || null)
   const inputQueueRef = useRef<string[]>([])
   const inputFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const attachHydrateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingResizeRef = useRef<{ cols: number; rows: number } | null>(null)
   const sentResizeRef = useRef<{ cols: number; rows: number } | null>(null)
   const lastExclusiveRef = useRef(exclusive)
@@ -70,11 +65,6 @@ export function PaneGrid() {
     if (!inputFlushTimerRef.current) return
     clearTimeout(inputFlushTimerRef.current)
     inputFlushTimerRef.current = null
-  }, [])
-  const clearAttachHydrateTimer = useCallback(() => {
-    if (!attachHydrateTimerRef.current) return
-    clearTimeout(attachHydrateTimerRef.current)
-    attachHydrateTimerRef.current = null
   }, [])
   const flushInputQueue = useCallback(() => {
     clearInputFlushTimer()
@@ -155,36 +145,33 @@ export function PaneGrid() {
     clearPendingResize()
     clearAttachTimers()
     clearInputFlushTimer()
-    clearAttachHydrateTimer()
     attachedRef.current = null
     sentResizeRef.current = null
     terminalReadyRef.current = false
     inputQueueRef.current = []
-  }, [sessionName, clearPendingResize, clearAttachTimers, clearInputFlushTimer, clearAttachHydrateTimer])
+  }, [sessionName, clearPendingResize, clearAttachTimers, clearInputFlushTimer])
   useEffect(() => {
     if (connectionStatus === 'disconnected') {
       clearPendingResize()
       clearAttachTimers()
       clearInputFlushTimer()
-      clearAttachHydrateTimer()
       attachedRef.current = null
       sentResizeRef.current = null
     }
-  }, [connectionStatus, clearPendingResize, clearAttachTimers, clearInputFlushTimer, clearAttachHydrateTimer])
+  }, [connectionStatus, clearPendingResize, clearAttachTimers, clearInputFlushTimer])
 
   useEffect(() => {
     const handleReconnect = () => {
       clearPendingResize()
       clearAttachTimers()
       clearInputFlushTimer()
-      clearAttachHydrateTimer()
       attachedRef.current = null
       sentResizeRef.current = null
       if (terminalReadyRef.current) attachNow()
     }
     window.addEventListener('ws-reconnected', handleReconnect)
     return () => window.removeEventListener('ws-reconnected', handleReconnect)
-  }, [attachNow, clearPendingResize, clearAttachTimers, clearInputFlushTimer, clearAttachHydrateTimer])
+  }, [attachNow, clearPendingResize, clearAttachTimers, clearInputFlushTimer])
   useEffect(() => {
     if (lastExclusiveRef.current === exclusive) return
     lastExclusiveRef.current = exclusive
@@ -207,36 +194,21 @@ export function PaneGrid() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
   }, [isMobile, isSocketReady, send])
   useEffect(() => {
-    const scheduleAttachHydration = (attachedSessionName: string) => {
-      clearAttachHydrateTimer()
-      attachHydrateTimerRef.current = setTimeout(async () => {
-        if (attachedRef.current !== attachedSessionName || activeSessionId !== `session-${attachedSessionName}`) return
-        try {
-          const paneId = await resolveActivePaneId()
-          if (!paneId || attachedRef.current !== attachedSessionName || activeSessionId !== `session-${attachedSessionName}`) return
-          const output = await api.panes.output(paneId)
-          if (!output.data || attachedRef.current !== attachedSessionName || activeSessionId !== `session-${attachedSessionName}`) return
-          window.dispatchEvent(new CustomEvent('tmuxgo-terminal-hydrate', { detail: { sessionName: attachedSessionName, data: output.data } }))
-        } catch {}
-      }, ATTACH_HYDRATE_DELAY)
-    }
     const handleAttached = (event: Event) => {
       const detail = (event as CustomEvent).detail || {}
       if (detail.sessionName !== sessionName) return
       clearAttachTimers()
-      clearAttachHydrateTimer()
       attachedRef.current = sessionName
       pendingSwitchRef.current = false
       const attachLatency = Math.max(0, Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - attachStartedAtRef.current))
       updateConnection({ status: 'connected' })
       updateTerminalPerf({ attachLatency })
       flushInputQueue()
-      scheduleAttachHydration(sessionName)
       window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'attached', sessionName } }))
     }
     window.addEventListener('tmux-attached', handleAttached as EventListener)
     return () => window.removeEventListener('tmux-attached', handleAttached as EventListener)
-  }, [activeSessionId, clearAttachHydrateTimer, sessionName, clearAttachTimers, resolveActivePaneId, updateConnection, updateTerminalPerf, flushInputQueue])
+  }, [sessionName, clearAttachTimers, updateConnection, updateTerminalPerf, flushInputQueue])
   useEffect(() => {
     if (isConnected) flushInputQueue()
   }, [isConnected, flushInputQueue])
@@ -245,8 +217,7 @@ export function PaneGrid() {
     clearPendingResize()
     clearAttachTimers()
     clearInputFlushTimer()
-    clearAttachHydrateTimer()
-  }, [clearPendingResize, clearAttachTimers, clearInputFlushTimer, clearAttachHydrateTimer])
+  }, [clearPendingResize, clearAttachTimers, clearInputFlushTimer])
 
   const handleInput = useCallback((data: string) => {
     if (isConnected) {

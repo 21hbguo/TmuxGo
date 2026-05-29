@@ -60,10 +60,7 @@ export function StatusBar() {
           <div className={`w-1.5 h-1.5 rounded-full ${statusColor.replace('text-', 'bg-')}`} />
           <span className={statusColor}>{t(`status.${connection.status}`)}</span>
         </div>
-        <span className="text-text-3">{connection.latency}ms</span>
         <span className="text-text-3">ATT {terminalPerf.attachLatency}ms</span>
-        <span className="text-text-3">OUT {terminalPerf.outputEvents}</span>
-        <span className="text-text-3">BUF {terminalPerf.outputBacklog}</span>
       </div>
     </footer>
   )

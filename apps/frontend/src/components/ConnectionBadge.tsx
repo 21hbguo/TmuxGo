@@ -5,7 +5,6 @@ import { useTranslation } from '@/i18n'
 
 export function ConnectionBadge() {
   const connection = useConsoleStore((state) => state.connection)
-  const terminalPerf = useConsoleStore((state) => state.terminalPerf)
   const { t } = useTranslation()
 
   const statusConfig = {
@@ -42,9 +41,6 @@ export function ConnectionBadge() {
         )}
       </div>
       <span className="text-text-2 text-xs">{config.text}</span>
-      {connection.status === 'connected' && (
-        <span className="text-text-3 text-xs">{connection.latency}ms/{terminalPerf.attachLatency}ms</span>
-      )}
     </div>
   )
 }
