@@ -1,7 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { useConsoleStore } from '@/stores/useConsoleStore'
+import { useEffect, useState } from 'react'
 
 interface Notification {
   id: string
@@ -13,51 +12,6 @@ interface Notification {
 
 export function PaneNotifications() {
   const [notifications, setNotifications] = useState<Notification[]>([])
-  const [watchedPanes, setWatchedPanes] = useState<Set<string>>(new Set())
-  const { panes, activePaneId } = useConsoleStore()
-
-  useEffect(() => {
-    const stored = localStorage.getItem('tmuxgo-watched-panes')
-    if (stored) setWatchedPanes(new Set(JSON.parse(stored)))
-  }, [])
-
-  const toggleWatch = (paneId: string) => {
-    const updated = new Set(watchedPanes)
-    if (updated.has(paneId)) {
-      updated.delete(paneId)
-    } else {
-      updated.add(paneId)
-    }
-    setWatchedPanes(updated)
-    localStorage.setItem('tmuxgo-watched-panes', JSON.stringify(Array.from(updated)))
-  }
-
-  const addNotification = useCallback((paneId: string, message: string) => {
-    const pane = panes.find((p: any) => p.id === paneId)
-    if (!pane) return
-
-    const notification: Notification = {
-      id: Date.now().toString(),
-      paneId,
-      paneName: pane.title || `Pane ${pane.index}`,
-      message: message.slice(0, 100),
-      timestamp: new Date(),
-    }
-
-    setNotifications((prev) => [notification, ...prev.slice(0, 49)])
-
-    if (Notification.permission === 'granted') {
-      new Notification(`TmuxGo: ${notification.paneName}`, {
-        body: notification.message,
-      })
-    }
-  }, [panes])
-
-  useEffect(() => {
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission()
-    }
-  }, [])
 
   const dismissNotification = (id: string) => {
     setNotifications((prev) => prev.filter((n) => n.id !== id))

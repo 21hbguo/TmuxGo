@@ -164,27 +164,6 @@ a {
 }
 [data-terminal] .xterm-rows {
   letter-spacing: 0 !important;
-  width: 100% !important;
-  height: 100% !important;
-}
-[data-terminal] .xterm-screen,
-[data-terminal] .xterm-helpers,
-[data-terminal] .xterm-accessibility,
-[data-terminal] .xterm-decoration-container,
-[data-terminal] .xterm-selection-layer,
-[data-terminal] .xterm-link-layer,
-[data-terminal] .xterm-cursor-layer {
-  left: 0;
-  top: 0;
-  width: 100% !important;
-  height: 100% !important;
-}
-[data-terminal] .xterm-helpers,
-[data-terminal] .xterm-accessibility,
-[data-terminal] .xterm-viewport {
-  inset: 0;
-  width: 100% !important;
-  height: 100% !important;
 }
 
 [data-shortcut-bar] {

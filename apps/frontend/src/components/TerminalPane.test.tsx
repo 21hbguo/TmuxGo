@@ -9,6 +9,14 @@ let terminalSelection = 'printf "auto_copy_ok"'
 const terminalMocks = vi.hoisted(() => ({
   write: vi.fn(),
 }))
+const webSocketMocks = vi.hoisted(() => ({
+  send: vi.fn(),
+  subscribeOutput: vi.fn((listener: (message: { data: string; sessionName?: string | null }) => void) => {
+    ;(webSocketMocks as any).lastOutputListener = listener
+    return vi.fn()
+  }),
+  lastOutputListener: null as ((message: { data: string; sessionName?: string | null }) => void) | null,
+}))
 const clipboardMocks = vi.hoisted(() => ({
   writeClipboardText: vi.fn(async () => ({ copied: true, source: 'system', unavailable: false, reason: 'ok' })),
 }))
@@ -39,10 +47,10 @@ vi.mock('@/hooks/useMobileKeyboard', () => ({
   useMobileKeyboard: () => ({ textareaRef: { current: null }, focusKeyboard: vi.fn(), isMobile: false }),
 }))
 vi.mock('@/hooks/useWebSocket', () => ({
-  useWebSocket: () => ({ send: vi.fn() }),
+  useWebSocket: () => ({ send: webSocketMocks.send, subscribeOutput: webSocketMocks.subscribeOutput }),
 }))
 vi.mock('@/stores/useConsoleStore', () => ({
-  useConsoleStore: ((selector: any) => selector({ activeHostId: 'local', pushToast: storeMocks.pushToast })) as any,
+  useConsoleStore: ((selector: any) => selector({ activeHostId: 'local', pushToast: storeMocks.pushToast, updateTerminalPerf: vi.fn(), terminalPerf: { attachLatency: 0, outputBytes: 0, outputEvents: 0, outputBacklog: 0, layoutFitCount: 0, lastOutputAt: '' } })) as any,
 }))
 vi.mock('@/lib/api', () => ({
   api: { snapshot: { get: vi.fn(async () => ({ windows: [], panes: [], activePaneId: null })) } },
@@ -332,6 +340,15 @@ describe('TerminalPane', () => {
     await waitFor(() => expect(customKeyHandler).toBeTruthy())
     window.dispatchEvent(new CustomEvent('tmuxgo-terminal-output', { detail: 'printf \"global_output_ok\"\\r\\n' }))
     await waitFor(() => expect(terminalMocks.write).toHaveBeenCalledWith('printf \"global_output_ok\"\\r\\n'))
+  })
+  it('renders websocket output for matching session only', async () => {
+    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} subscribeOutput={webSocketMocks.subscribeOutput} />)
+    await waitFor(() => expect(webSocketMocks.lastOutputListener).toBeTruthy())
+    webSocketMocks.lastOutputListener?.({ data: 'printf "dev_only_output_ok"\\r\\n', sessionName: 'other' })
+    await sleep(20)
+    expect(terminalMocks.write).not.toHaveBeenCalled()
+    webSocketMocks.lastOutputListener?.({ data: 'printf "dev_only_output_ok"\\r\\n', sessionName: 'dev' })
+    await waitFor(() => expect(terminalMocks.write).toHaveBeenCalledWith('printf "dev_only_output_ok"\\r\\n'))
   })
   it('keeps terminal root aligned without transform offsets', async () => {
     const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)

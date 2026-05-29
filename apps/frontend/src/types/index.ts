@@ -49,6 +49,14 @@ export interface ConnectionState {
   latency: number
   lastPing: string
 }
+export interface TerminalPerfState {
+  attachLatency: number
+  outputBytes: number
+  outputEvents: number
+  outputBacklog: number
+  layoutFitCount: number
+  lastOutputAt: string
+}
 
 export interface FileRoot {
   id: string

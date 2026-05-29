@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
-import { useCreateSession, useDeleteSession } from '@/hooks/useApi'
+import { useCreateSession, useDeleteSession, useSessions } from '@/hooks/useApi'
 import { SessionTemplates, type Template } from './SessionTemplates'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useTranslation } from '@/i18n'
@@ -10,7 +10,14 @@ import { QuickActions } from './QuickActions'
 import { ConfirmDialog } from './ConfirmDialog'
 
 export function Sidebar() {
-  const { sessions, activeSessionId, setActiveSession, activeHostId, sessionPanelWidth, setSessionPanelWidth, setSessionPanelExpanded, pushToast } = useConsoleStore()
+  const activeSessionId = useConsoleStore((state) => state.activeSessionId)
+  const setActiveSession = useConsoleStore((state) => state.setActiveSession)
+  const activeHostId = useConsoleStore((state) => state.activeHostId)
+  const sessionPanelWidth = useConsoleStore((state) => state.sessionPanelWidth)
+  const setSessionPanelWidth = useConsoleStore((state) => state.setSessionPanelWidth)
+  const setSessionPanelExpanded = useConsoleStore((state) => state.setSessionPanelExpanded)
+  const pushToast = useConsoleStore((state) => state.pushToast)
+  const { data: sessions = [] } = useSessions(activeHostId || '')
   const createSession = useCreateSession()
   const deleteSession = useDeleteSession()
   const [showTemplates, setShowTemplates] = useState(false)

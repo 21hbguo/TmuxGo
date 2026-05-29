@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Host, Session, Window, Pane, ConnectionState, FileDocumentHandle, FileEditorDocument, UploadJob } from '@/types'
+import type { ConnectionState, FileDocumentHandle, FileEditorDocument, UploadJob, TerminalPerfState } from '@/types'
 
 type PersistedEditor = Pick<FileEditorDocument, 'id' | 'rootId' | 'rootLabel' | 'rootPath' | 'path' | 'name' | 'absolutePath' | 'language'>
 const OPEN_EDITORS_STORAGE_KEY = 'tmuxgo-open-editors'
@@ -40,7 +40,6 @@ function writePersistedEditors(openEditors: FileEditorDocument[], activeEditorId
   if (activeEditorId) localStorage.setItem(ACTIVE_EDITOR_STORAGE_KEY, activeEditorId)
   else localStorage.removeItem(ACTIVE_EDITOR_STORAGE_KEY)
 }
-
 const initialOpenEditors = readPersistedEditors().map(toEditorDocument)
 const initialActiveEditorId = (() => {
   const id = readPersistedActiveEditorId()
@@ -48,14 +47,11 @@ const initialActiveEditorId = (() => {
 })()
 
 interface ConsoleState {
-  hosts: Host[]
-  sessions: Session[]
-  windows: Window[]
-  panes: Pane[]
   activeHostId: string | null
   activeSessionId: string | null
   activePaneId: string | null
   connection: ConnectionState
+  terminalPerf: TerminalPerfState
   showCommandPalette: boolean
   sessionPanelExpanded: boolean
   filePanelOpen: boolean
@@ -97,13 +93,10 @@ interface ConsoleState {
   pushToast: (toast: { type: 'success' | 'error' | 'info'; message: string; durationMs?: number }) => void
   removeToast: (id: string) => void
   updateConnection: (state: Partial<ConnectionState>) => void
+  updateTerminalPerf: (state: Partial<TerminalPerfState>) => void
 }
 
 export const useConsoleStore = create<ConsoleState>((set) => ({
-  hosts: [],
-  sessions: [],
-  windows: [],
-  panes: [],
   activeHostId: null,
   activeSessionId: null,
   activePaneId: null,
@@ -111,6 +104,14 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
     status: 'disconnected',
     latency: 0,
     lastPing: new Date().toISOString(),
+  },
+  terminalPerf: {
+    attachLatency: 0,
+    outputBytes: 0,
+    outputEvents: 0,
+    outputBacklog: 0,
+    layoutFitCount: 0,
+    lastOutputAt: '',
   },
   showCommandPalette: false,
   sessionPanelExpanded: true,
@@ -196,5 +197,9 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
   updateConnection: (newState) =>
     set((state) => ({
       connection: { ...state.connection, ...newState },
+    })),
+  updateTerminalPerf: (newState) =>
+    set((state) => ({
+      terminalPerf: { ...state.terminalPerf, ...newState },
     })),
 }))

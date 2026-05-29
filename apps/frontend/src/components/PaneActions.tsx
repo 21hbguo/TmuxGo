@@ -2,32 +2,12 @@
 
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { api } from '@/lib/api'
+import { useSessionSnapshotSync } from '@/hooks/useSessionSnapshotSync'
 
 export function PaneActions() {
   const activePaneId = useConsoleStore((s) => s.activePaneId)
-  const activeHostId = useConsoleStore((s) => s.activeHostId)
-  const activeSessionId = useConsoleStore((s) => s.activeSessionId)
   const pushToast = useConsoleStore((s) => s.pushToast)
-  const refreshSnapshot = async () => {
-    if (!activeHostId || !activeSessionId) return
-    const snapshot = await api.snapshot.get(activeHostId, activeSessionId)
-    useConsoleStore.setState((state) => ({
-      windows: snapshot.windows || [],
-      panes: snapshot.panes || [],
-      activePaneId: (snapshot.panes || []).find((pane: any) => pane.active)?.id || ((snapshot.panes || []).some((pane: any) => pane.id === state.activePaneId) ? state.activePaneId : snapshot.activePaneId || snapshot.panes?.[0]?.id || null),
-    }))
-  }
-  const resolveActivePaneId = async () => {
-    if (!activeHostId || !activeSessionId) return useConsoleStore.getState().activePaneId
-    const snapshot = await api.snapshot.get(activeHostId, activeSessionId)
-    const paneId = snapshot.activePaneId || (snapshot.panes || []).find((pane: any) => pane.active)?.id || useConsoleStore.getState().activePaneId
-    useConsoleStore.setState((state) => ({
-      windows: snapshot.windows || state.windows,
-      panes: snapshot.panes || state.panes,
-      activePaneId: paneId || state.activePaneId,
-    }))
-    return paneId
-  }
+  const { refreshSnapshot, resolveActivePaneId } = useSessionSnapshotSync()
 
   const handleSplit = async (direction: 'horizontal' | 'vertical') => {
     const initialPaneId = await resolveActivePaneId()

@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { api } from '@/lib/api'
+import { useWindows } from '@/hooks/useApi'
+import { useWindowQueryState } from '@/hooks/useWindowQueryState'
 
 interface WindowItem {
   id: string
@@ -11,10 +13,11 @@ interface WindowItem {
 }
 
 export function WindowList() {
-  const windows = useConsoleStore((s) => s.windows)
   const activeHostId = useConsoleStore((s) => s.activeHostId)
   const activeSessionId = useConsoleStore((s) => s.activeSessionId)
   const pushToast = useConsoleStore((s) => s.pushToast)
+  const { data: windows = [] } = useWindows(activeHostId || '', activeSessionId || '')
+  const { setWindows } = useWindowQueryState(activeHostId || '', activeSessionId || '')
   const [draggedItem, setDraggedItem] = useState<WindowItem | null>(null)
   const [dragOverItem, setDragOverItem] = useState<WindowItem | null>(null)
 
@@ -40,9 +43,7 @@ export function WindowList() {
     reordered.splice(dropIndex, 0, removed)
     try {
       const result = await api.windows.move(activeHostId, activeSessionId, reordered.map((window) => window.id))
-      if (result.windows) {
-        useConsoleStore.setState({ windows: result.windows })
-      }
+      if (result.windows) setWindows(result.windows)
     } catch (err) {
       pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Reorder failed' })
     }

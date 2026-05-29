@@ -2,12 +2,15 @@
 
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { api } from '@/lib/api'
+import { useWindows } from '@/hooks/useApi'
+import { useWindowQueryState } from '@/hooks/useWindowQueryState'
 
 export function WindowTabs() {
-  const windows = useConsoleStore((s) => s.windows)
   const activeHostId = useConsoleStore((s) => s.activeHostId)
   const activeSessionId = useConsoleStore((s) => s.activeSessionId)
   const pushToast = useConsoleStore((s) => s.pushToast)
+  const { data: windows = [] } = useWindows(activeHostId || '', activeSessionId || '')
+  const { getWindows, setWindows } = useWindowQueryState(activeHostId || '', activeSessionId || '')
 
   if (!activeSessionId || windows.length === 0) {
     return null
@@ -16,17 +19,13 @@ export function WindowTabs() {
   const sessionWindows = windows.filter((w: any) => w.sessionId === activeSessionId)
   const handleSelect = async (windowId: string) => {
     if (!activeHostId || !activeSessionId) return
-    const previousWindows = useConsoleStore.getState().windows
-    useConsoleStore.setState({
-      windows: previousWindows.map((window: any) => window.sessionId === activeSessionId ? { ...window, active: window.id === windowId } : window),
-    })
+    const previousWindows = getWindows()
+    setWindows(previousWindows.map((window: any) => window.sessionId === activeSessionId ? { ...window, active: window.id === windowId } : window))
     try {
       const result = await api.windows.select(activeHostId, activeSessionId, windowId)
-      if (result.windows) {
-        useConsoleStore.setState({ windows: result.windows })
-      }
+      if (result.windows) setWindows(result.windows)
     } catch (err) {
-      useConsoleStore.setState({ windows: previousWindows })
+      setWindows(previousWindows)
       pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Switch window failed' })
     }
   }

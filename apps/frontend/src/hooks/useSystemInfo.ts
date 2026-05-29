@@ -8,6 +8,22 @@ export interface SystemInfo {
   cpu: number
   mem: { used: number; total: number }
   disks: { mount: string; used: number; total: number }[]
+  stream: {
+    outputBytes: number
+    outputChunks: number
+    outputFlushes: number
+    sanitizeCalls: number
+    sanitizeChars: number
+    attachRequests: number
+    resizeRequests: number
+    inputMessages: number
+    backpressureSignals: number
+    profileUpdates: number
+    activeClients: number
+    activeProfile: 'foreground' | 'background' | 'mobile'
+    activeFlushInterval: number
+    activeMaxChars: number
+  }
 }
 
 export function useSystemInfo(interval = 2000) {

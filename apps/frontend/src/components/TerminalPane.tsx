@@ -1,25 +1,27 @@
 'use client'
 
-import { useEffect, useRef, useCallback, useState } from 'react'
+import { useEffect, useRef, useCallback } from 'react'
 import '@xterm/xterm/css/xterm.css'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useMobileKeyboard } from '@/hooks/useMobileKeyboard'
 import { useWebSocket } from '@/hooks/useWebSocket'
-import { formatDroppedPaths } from '@/lib/path-drop'
-import { extractClipboardText, writeClipboardText } from '@/lib/clipboard-text'
 import { DELETE_NEXT_WORD_SEQUENCE, DELETE_PREV_WORD_SEQUENCE } from '@/lib/terminal-keys'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { api } from '@/lib/api'
+import { useTerminalOutput } from '@/hooks/useTerminalOutput'
+import { useTerminalDrop } from '@/hooks/useTerminalDrop'
+import { useTerminalPasteBridge } from '@/hooks/useTerminalPasteBridge'
+import { useOptionalQueryClient } from '@/hooks/useOptionalQueryClient'
+import { useTerminalSelectionSync } from '@/hooks/useTerminalSelectionSync'
+import { useTerminalTouchScroll } from '@/hooks/useTerminalTouchScroll'
 
-const FAST_OUTPUT_LIMIT = 24576
-const OUTPUT_FLUSH_LIMIT = 65536
 const SCROLLBACK_LIMIT = 600
-const KEYBOARD_PASTE_FALLBACK_DELAY = 160
 const DELETE_WORD_REPEAT_DELAY = 140
 const DELETE_WORD_REPEAT_SECOND_DELAY = 109
 const DELETE_WORD_REPEAT_THIRD_DELAY = 78
 const DELETE_WORD_REPEAT_FOURTH_DELAY = 56
 const DELETE_WORD_REPEAT_MIN_DELAY = 30
+const DEFAULT_TERMINAL_PERF = { attachLatency: 0, outputBytes: 0, outputEvents: 0, outputBacklog: 0, layoutFitCount: 0, lastOutputAt: '' }
 
 interface TerminalPaneProps {
   sessionName?: string
@@ -27,6 +29,7 @@ interface TerminalPaneProps {
   onResize?: (cols: number, rows: number) => void
   attachExclusive?: boolean
   onReady?: () => void
+  subscribeOutput?: (listener: (message: { data: string; sessionName?: string | null }) => void) => () => void
 }
 
 function isApplePlatform() {
@@ -42,11 +45,16 @@ function isPasteShortcut(e: KeyboardEvent) {
   return false
 }
 
-export function TerminalPane({ sessionName, onInput, onResize, attachExclusive = false, onReady }: TerminalPaneProps) {
+export function TerminalPane({ sessionName, onInput, onResize, attachExclusive = false, onReady, subscribeOutput }: TerminalPaneProps) {
   const { preferences } = usePreferences()
   const activeHostId = useConsoleStore((s) => s.activeHostId)
   const pushToast = useConsoleStore((s) => s.pushToast)
   const openUploadDialog = useConsoleStore((s) => s.openUploadDialog)
+  const terminalPerf = useConsoleStore((s) => s.terminalPerf)
+  const setActivePane = useConsoleStore((s) => s.setActivePane)
+  const updateTerminalPerf = useConsoleStore((s) => s.updateTerminalPerf)
+  const recordTerminalOutput = useTerminalOutput()
+  const queryClient = useOptionalQueryClient()
   const terminalRef = useRef<HTMLDivElement>(null)
   const touchMovedRef = useRef(false)
   const terminalInstance = useRef<any>(null)
@@ -57,7 +65,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   const onReadyRef = useRef(onReady)
   const sessionNameRef = useRef(sessionName)
   const preferencesRef = useRef(preferences)
-  const [isDropActive, setIsDropActive] = useState(false)
+  const subscribeOutputRef = useRef(subscribeOutput)
+  const terminalPerfRef = useRef(terminalPerf || DEFAULT_TERMINAL_PERF)
   const lastSizeRef = useRef<{ cols: number; rows: number } | null>(null)
   const sharedSessionSizeRef = useRef<{ cols: number; rows: number } | null>(null)
   const controlCarryRef = useRef('')
@@ -83,7 +92,19 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   const { send } = useWebSocket()
   const sendInput = useCallback((data: string) => onInputRef.current?.(data), [])
   const { textareaRef, focusKeyboard, isMobile: isMobileDevice } = useMobileKeyboard(sendInput, terminalRef)
-
+  const dropState = useTerminalDrop((data) => onInputRef.current?.(data), openUploadDialog)
+  const pasteBridge = useTerminalPasteBridge()
+  const selectionSync = useTerminalSelectionSync(pushToast)
+  const touchScroll = useTerminalTouchScroll({
+    isMobile: isMobileDevice,
+    onScroll: (lines) => send({ type: 'pane_scroll', sessionName: sessionNameRef.current, lines }),
+    onTap: (x, y) => {
+      lastTapRef.current = { x, y }
+    },
+    onTouchMovedChange: (moved) => {
+      touchMovedRef.current = moved
+    },
+  })
   useEffect(() => {
     onInputRef.current = onInput
   }, [onInput])
@@ -103,6 +124,12 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   useEffect(() => {
     preferencesRef.current = preferences
   }, [preferences])
+  useEffect(() => {
+    terminalPerfRef.current = terminalPerf || DEFAULT_TERMINAL_PERF
+  }, [terminalPerf])
+  useEffect(() => {
+    subscribeOutputRef.current = subscribeOutput
+  }, [subscribeOutput])
   useEffect(() => {
     activeHostIdRef.current = activeHostId
   }, [activeHostId])
@@ -143,11 +170,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     let stableFitTimer: ReturnType<typeof setTimeout> | null = null
     let sharedLayoutFrame: number | null = null
     let fitFrame: number | null = null
-    let outputFrame: number | null = null
-    let outputTimer: ReturnType<typeof setTimeout> | null = null
-    let rendererStyleFrame: number | null = null
-    let rendererStyleObserver: MutationObserver | null = null
-    let outputBuffer = ''
     let disposed = false
     let readyNotified = false
     let sharedPanX = 0
@@ -157,16 +179,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     let stableFitToken = 0
     let deleteWordRepeatTimer: ReturnType<typeof setTimeout> | null = null
     let deleteWordRepeatActive = false
-    let currentSelection = ''
-    let lastCopiedSelection = ''
-    let lastCopyNotice = ''
-    let copySelectionTimer: ReturnType<typeof setTimeout> | null = null
-    let keyboardPasteTimer: ReturnType<typeof setTimeout> | null = null
-    let keyboardPastePending = false
-    let lastPasteText = ''
-    let lastPasteAt = 0
     let pointerSyncActive = false
-    let lastCopySuccessNotice = ''
 
     const notifyReady = () => {
       if (disposed || readyNotified) return
@@ -184,143 +197,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       if (input instanceof HTMLTextAreaElement) input.focus({ preventScroll: true })
     }
     const getSelectionText = () => terminal?.getSelection?.() || window.getSelection?.()?.toString() || ''
-    const handleNativeCopyEvent = (e: ClipboardEvent) => {
-      const selection = getSelectionText()
-      if (!selection || !e.clipboardData) return false
-      currentSelection = selection
-      lastCopiedSelection = selection
-      lastCopyNotice = ''
-      e.clipboardData.setData('text/plain', selection)
-      e.preventDefault()
-      e.stopPropagation()
-      return true
-    }
-    const triggerNativeCopy = () => {
-      const selection = getSelectionText()
-      if (!selection) return false
-      currentSelection = selection
-      lastCopiedSelection = selection
-      lastCopyNotice = ''
-      if (typeof document.execCommand !== 'function') return false
-      let copyHandled = false
-      const handleCopy = (e: ClipboardEvent) => {
-        if (!e.clipboardData) return
-        e.clipboardData.setData('text/plain', selection)
-        e.preventDefault()
-        copyHandled = true
-      }
-      document.addEventListener('copy', handleCopy, true)
-      const ta = document.createElement('textarea')
-      ta.value = selection
-      ta.readOnly = true
-      ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;pointer-events:none'
-      document.body.appendChild(ta)
-      ta.focus({ preventScroll: true })
-      ta.select()
-      ta.setSelectionRange(0, selection.length)
-      let copied = false
-      try {
-        copied = document.execCommand('copy')
-      } catch {
-        copied = false
-      }
-      document.removeEventListener('copy', handleCopy, true)
-      document.body.removeChild(ta)
-      const helper = terminal?.textarea || container.querySelector('.xterm-helper-textarea, textarea')
-      if (helper instanceof HTMLTextAreaElement) helper.focus({ preventScroll: true })
-      return copied && copyHandled
-    }
-    const getCopyUnavailableMessage = (reason: string, selectionLength: number) => {
-      if (reason === 'permission_denied') return 'System clipboard blocked by browser, kept in app clipboard. Press Ctrl/Cmd+C to copy.'
-      if (reason === 'api_unavailable') return `System clipboard API unavailable${window.isSecureContext ? '' : ' (insecure context)'}, kept in app clipboard`
-      return `System clipboard write failed for ${selectionLength} chars, kept in app clipboard`
-    }
-    const pushCopySuccessToast = (mode: 'native' | 'fallback', selectionLength: number) => {
-      const noticeKey = `${mode}:${selectionLength}`
-      if (lastCopySuccessNotice === noticeKey) return
-      lastCopySuccessNotice = noticeKey
-      pushToast({ type: 'success', message: `Copied ${selectionLength} chars (${mode})`, durationMs: 900 })
-      setTimeout(() => {
-        if (lastCopySuccessNotice === noticeKey) lastCopySuccessNotice = ''
-      }, 920)
-    }
-    const copySelectionIfNeeded = async (preferLiveSelection = false, force = false) => {
-      const liveSelection = getSelectionText()
-      const selection = preferLiveSelection ? liveSelection || currentSelection : currentSelection || liveSelection
-      if (!selection) {
-        currentSelection = ''
-        lastCopiedSelection = ''
-        lastCopyNotice = ''
-        return
-      }
-      if (!force && selection === lastCopiedSelection) return
-      lastCopiedSelection = selection
-      const result = await writeClipboardText(selection, { preferSync: true })
-      if (result.unavailable) {
-        const noticeKey = `${selection}:${result.reason}`
-        if (lastCopyNotice === noticeKey) return
-        lastCopyNotice = noticeKey
-        pushToast({ type: 'info', message: getCopyUnavailableMessage(result.reason, selection.length) })
-        return
-      }
-      lastCopyNotice = ''
-      pushCopySuccessToast('fallback', selection.length)
-    }
-    const clearCopySelectionTimer = () => {
-      if (!copySelectionTimer) return
-      clearTimeout(copySelectionTimer)
-      copySelectionTimer = null
-    }
-    const runCopySelection = (preferLiveSelection = false, force = false, preferNative = false) => {
-      if (preferNative) {
-        const selection = getSelectionText()
-        if (selection && triggerNativeCopy()) {
-          pushCopySuccessToast('native', selection.length)
-          return
-        }
-      }
-      void copySelectionIfNeeded(preferLiveSelection, force)
-      requestAnimationFrame(() => {
-        void copySelectionIfNeeded(preferLiveSelection)
-      })
-      setTimeout(() => {
-        void copySelectionIfNeeded(preferLiveSelection)
-      }, 0)
-    }
-    const scheduleCopySelection = (delay = 24) => {
-      clearCopySelectionTimer()
-      copySelectionTimer = setTimeout(() => {
-        copySelectionTimer = null
-        runCopySelection()
-      }, delay)
-    }
-    const clearKeyboardPasteTimer = () => {
-      if (!keyboardPasteTimer) return
-      clearTimeout(keyboardPasteTimer)
-      keyboardPasteTimer = null
-    }
-    const requestTerminalPaste = (text?: string) => {
-      if (text) {
-        window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-paste', { detail: { text, source: 'system' } }))
-        return
-      }
-      window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-paste'))
-    }
-    const markPasteForwarded = (text: string) => {
-      lastPasteText = text
-      lastPasteAt = Date.now()
-    }
-    const shouldSkipDuplicatePaste = (text: string) => Date.now() - lastPasteAt < 160 && text === lastPasteText
-    const scheduleKeyboardPasteFallback = () => {
-      clearKeyboardPasteTimer()
-      keyboardPastePending = true
-      keyboardPasteTimer = setTimeout(() => {
-        keyboardPasteTimer = null
-        keyboardPastePending = false
-        terminal?.focus?.()
-        requestTerminalPaste()
-      }, KEYBOARD_PASTE_FALLBACK_DELAY)
-    }
     const stopDeleteWordRepeat = () => {
       deleteWordRepeatActive = false
       if (deleteWordRepeatTimer) {
@@ -348,11 +224,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       if (!hostId || !currentSessionName) return
       try {
         const snapshot = await api.snapshot.get(hostId, `session-${currentSessionName}`)
-        useConsoleStore.setState((state) => ({
-          windows: snapshot.windows || state.windows,
-          panes: snapshot.panes || state.panes,
-          activePaneId: snapshot.activePaneId || (snapshot.panes || []).find((pane: any) => pane.active)?.id || state.activePaneId,
-        }))
+        queryClient?.setQueryData(['session-snapshot', hostId, `session-${currentSessionName}`], snapshot)
+        if (snapshot.activePaneId) setActivePane(snapshot.activePaneId)
       } catch {}
     }
 
@@ -417,46 +290,13 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       terminal.options.fontSize = fontSize ?? preferencesRef.current.fontSize
       terminal.options.lineHeight = attachExclusiveRef.current && isMobileDevice ? exclusiveLineHeightRef.current : 1
     }
-    const getRendererElements = () => {
-      const element = terminal?.element as HTMLElement | null
-      if (!element) return null
-      const screen = element.querySelector('.xterm-screen') as HTMLElement | null
-      const rows = element.querySelector('.xterm-rows') as HTMLElement | null
-      const viewport = element.querySelector('.xterm-viewport') as HTMLElement | null
-      if (!screen || !rows || !viewport) return null
-      return { element, screen, rows, viewport }
-    }
-    const applyRendererStyleCorrection = () => {
-      if (disposed) return
-      const renderer = getRendererElements()
-      if (!renderer) return
-      renderer.element.style.setProperty('width', '100%', 'important')
-      renderer.element.style.setProperty('height', '100%', 'important')
-      renderer.rows.style.setProperty('letter-spacing', '0px', 'important')
-      renderer.rows.style.setProperty('width', '100%', 'important')
-      renderer.rows.style.setProperty('height', '100%', 'important')
-      renderer.screen.style.setProperty('width', '100%', 'important')
-      renderer.screen.style.setProperty('height', '100%', 'important')
-      renderer.screen.style.removeProperty('transform-origin')
-      renderer.screen.style.removeProperty('transform')
-      renderer.screen.style.removeProperty('will-change')
-      renderer.viewport.style.setProperty('width', '100%', 'important')
-      renderer.viewport.style.setProperty('height', '100%', 'important')
-    }
-    const scheduleRendererStyleCorrection = () => {
-      if (disposed || rendererStyleFrame) return
-      rendererStyleFrame = requestAnimationFrame(() => {
-        rendererStyleFrame = null
-        applyRendererStyleCorrection()
-      })
-    }
     const clearViewportStyles = () => {
       const element = terminal?.element as HTMLElement | null
       if (!element) return
       sharedPanX = 0
       sharedMaxPanX = 0
-      element.style.removeProperty('width')
-      element.style.removeProperty('height')
+      element.style.width = '100%'
+      element.style.height = '100%'
       element.style.removeProperty('transform')
       element.style.removeProperty('transform-origin')
       element.style.removeProperty('will-change')
@@ -500,7 +340,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         const currentWidth = container.clientWidth
         const currentHeight = container.clientHeight
         if (!force && currentWidth === lastFitSize.width && currentHeight === lastFitSize.height && lastSizeRef.current) {
-          scheduleRendererStyleCorrection()
           syncExclusiveViewport()
           return true
         }
@@ -522,7 +361,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           }
           requestAnimationFrame(() => {
             if (disposed || !terminal) return
-            scheduleRendererStyleCorrection()
             syncExclusiveViewport()
             terminal.refresh(0, Math.max(0, terminal.rows - 1))
             if (adjustExclusiveLineHeight()) scheduleFit(0, true)
@@ -534,22 +372,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       }
       return false
     }
-    const flushOutput = () => {
-      outputFrame = null
-      if (!terminal || disposed || !outputBuffer) return
-      const chunk = outputBuffer
-      outputBuffer = ''
-      terminal.write(chunk)
-      scheduleRendererStyleCorrection()
-      if (!attachExclusiveRef.current && isMobileDevice) {
-        requestAnimationFrame(syncSharedViewport)
-      }
-    }
-    const scheduleOutputFlush = () => {
-      if (outputFrame || disposed) return
-      outputFrame = requestAnimationFrame(flushOutput)
-    }
-
     const scheduleFit = (delay = 0, force = false) => {
       if (disposed) return
       if (fitTimeout) {
@@ -630,10 +452,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           syncSharedLayout(false, attempt + 1)
           return
         }
-        if (isMobileDevice) {
-          scheduleRendererStyleCorrection()
-          syncSharedViewport()
-        }
+        if (isMobileDevice) syncSharedViewport()
         const prev = lastSizeRef.current
         lastSizeRef.current = { cols: size.cols, rows: size.rows }
         if (!prev || prev.cols !== size.cols || prev.rows !== size.rows) {
@@ -673,10 +492,13 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       terminal.loadAddon(fitAddon)
       terminal.loadAddon(new WebLinksAddon())
       terminal.open(container)
+      if (terminal.element instanceof HTMLElement) {
+        terminal.element.style.width = '100%'
+        terminal.element.style.height = '100%'
+      }
       fitAddonRef.current = fitAddon
       terminalInstance.current = terminal
       ;(window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal = terminal
-      scheduleRendererStyleCorrection()
       const da2Handler = terminal.parser?.registerCsiHandler?.({ prefix: '>', final: 'c' }, () => true)
       if (da2Handler) {
         disposables.push(da2Handler)
@@ -693,30 +515,25 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         terminal.onSelectionChange(() => {
           const selection = terminal?.getSelection?.() || ''
           if (!selection) {
-            clearCopySelectionTimer()
-            currentSelection = ''
-            lastCopiedSelection = ''
+            selectionSync.setSelection('')
             return
           }
-          currentSelection = selection
-          scheduleCopySelection()
+          selectionSync.setSelection(selection)
+          selectionSync.scheduleCopySelection(selection)
         })
       )
       terminal.attachCustomKeyEventHandler((e: KeyboardEvent) => {
         if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'c') {
-          if (getSelectionText()) {
-            if (triggerNativeCopy()) {
-              pushCopySuccessToast('native', getSelectionText().length)
-            } else {
-              window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-copy'))
-            }
+          const selection = getSelectionText()
+          if (selection) {
+            selectionSync.runCopySelection(selection, true, true, focusTerminalInput)
             return false
           }
           return true
         }
         if (isPasteShortcut(e)) {
           if (e.repeat) return false
-          scheduleKeyboardPasteFallback()
+          pasteBridge.scheduleKeyboardPasteFallback(() => terminal?.focus?.())
           return false
         }
         if (e.key === 'Backspace' && e.ctrlKey && !e.metaKey && !e.altKey) {
@@ -735,44 +552,21 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         }
         return true
       })
-      const handleOutput = (event: Event) => {
-        const raw = String((event as CustomEvent).detail || '')
-        const merged = controlCarryRef.current + raw
-        const cleaned = merged
-          .replace(/\u001b\[[0-9;?]*c/g, '')
-          .replace(/(?:\u001b\[)?\??(?:\d+;)+\d+c/g, '')
-          .replace(/0;(?:\d+;)*\d+c/g, '')
-        const tailMatch = merged.match(/(?:\u001b\[[0-9;?]*)?$/)
-        controlCarryRef.current = tailMatch ? tailMatch[0] : ''
-        const output = controlCarryRef.current ? cleaned.slice(0, cleaned.length - controlCarryRef.current.length) : cleaned
-        if (output) {
-          if (!outputBuffer && output.length <= FAST_OUTPUT_LIMIT) {
-            terminal.write(output)
-            scheduleRendererStyleCorrection()
-            if (!attachExclusiveRef.current && isMobileDevice) {
-              requestAnimationFrame(syncSharedViewport)
-            }
-            return
-          }
-          outputBuffer += output
-          if (outputBuffer.length >= OUTPUT_FLUSH_LIMIT) {
-            if (outputTimer) {
-              clearTimeout(outputTimer)
-              outputTimer = null
-            }
-            flushOutput()
-          } else {
-            scheduleOutputFlush()
-            if (!outputTimer) {
-              outputTimer = setTimeout(() => {
-                outputTimer = null
-                flushOutput()
-              }, 4)
-            }
-          }
-        }
+      const handleOutput = (event: Event | string | { data: string; sessionName?: string | null }) => {
+        const payload = typeof event === 'string' ? { data: event, sessionName: null } : event instanceof Event ? { data: String((event as CustomEvent).detail || ''), sessionName: null } : event
+        if (payload.sessionName && payload.sessionName !== sessionNameRef.current) return
+        const raw = payload.data
+        if (!raw || !terminal?.write) return
+        controlCarryRef.current = ''
+        recordTerminalOutput(terminalPerfRef.current, raw, raw.length, 0)
+        terminal.write(raw, () => {
+          if (!terminal || disposed) return
+          terminal.refresh(0, Math.max(0, terminal.rows - 1))
+        })
+        if (!attachExclusiveRef.current && isMobileDevice) requestAnimationFrame(syncSharedViewport)
       }
-      window.addEventListener('tmuxgo-terminal-output', handleOutput as EventListener)
+      const unsubscribeOutput = subscribeOutputRef.current ? subscribeOutputRef.current(handleOutput) : () => {}
+      if (!subscribeOutputRef.current) window.addEventListener('tmuxgo-terminal-output', handleOutput as EventListener)
       const handleCopySelection = (event: Event) => {
         const selection = terminal?.getSelection?.() || ''
         window.dispatchEvent(new CustomEvent('tmuxgo-terminal-selection', { detail: { requestId: (event as CustomEvent).detail?.requestId, selection } }))
@@ -799,7 +593,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         const cols = Number(detail.cols)
         const rows = Number(detail.rows)
         if (!terminal || disposed) return
-        scheduleRendererStyleCorrection()
         if (attachExclusiveRef.current) {
           scheduleInitialFit()
           forceStableFit(5, 34)
@@ -812,7 +605,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         }
       }
       const handleLayoutChange = () => {
-        scheduleRendererStyleCorrection()
+        const perf = terminalPerfRef.current
+        updateTerminalPerf({ layoutFitCount: perf.layoutFitCount + 1 })
         if (attachExclusiveRef.current) {
           forceStableFit(5, 34)
           return
@@ -824,7 +618,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           stopDeleteWordRepeat()
           return
         }
-        scheduleRendererStyleCorrection()
         if (attachExclusiveRef.current) {
           forceStableFit(4, 34)
           return
@@ -839,79 +632,22 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       window.addEventListener('orientationchange', handleOrientationChange)
       window.addEventListener('mobile-keyboard-change', handleKeyboardChange as EventListener)
       document.addEventListener('visibilitychange', handleVisibilityChange)
-      const handleDragOver = (e: DragEvent) => {
-        e.preventDefault()
-        e.stopPropagation()
-        setIsDropActive(true)
-        if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
-      }
       const handleDragLeave = (e: DragEvent) => {
-        if (!container.contains(e.relatedTarget as Node | null)) setIsDropActive(false)
+        dropState.handleDragLeave(e, container)
       }
-      const handleDrop = (e: DragEvent) => {
-        e.preventDefault()
-        e.stopPropagation()
-        setIsDropActive(false)
-        if (e.dataTransfer?.files?.length) {
-          openUploadDialog({ files: Array.from(e.dataTransfer.files), insertPaths: true })
-          return
-        }
-        const text = formatDroppedPaths(e.dataTransfer)
-        if (text) onInputRef.current?.(text)
-      }
-      container.addEventListener('dragover', handleDragOver)
+      container.addEventListener('dragover', dropState.handleDragOver)
       container.addEventListener('dragleave', handleDragLeave)
-      container.addEventListener('drop', handleDrop)
-      const handlePaste = (e: ClipboardEvent) => {
-        const text = extractClipboardText(e.clipboardData)
-        keyboardPastePending = false
-        if (!text) {
-          clearKeyboardPasteTimer()
-          e.preventDefault()
-          e.stopPropagation()
-          e.stopImmediatePropagation()
-          requestTerminalPaste()
-          return
-        }
-        if (shouldSkipDuplicatePaste(text)) {
-          clearKeyboardPasteTimer()
-          e.preventDefault()
-          e.stopPropagation()
-          e.stopImmediatePropagation()
-          return
-        }
-        clearKeyboardPasteTimer()
-        e.preventDefault()
-        e.stopPropagation()
-        e.stopImmediatePropagation()
-        markPasteForwarded(text)
-        requestTerminalPaste(text)
-      }
-      const handlePasteInput = (e: InputEvent) => {
-        const isPasteInput = e.inputType === 'insertFromPaste' || keyboardPastePending
-        if (!isPasteInput) return
-        const target = e.target
-        const text = typeof e.data === 'string' && e.data ? e.data : target instanceof HTMLTextAreaElement ? target.value : ''
-        keyboardPastePending = false
-        clearKeyboardPasteTimer()
-        e.preventDefault()
-        e.stopPropagation()
-        e.stopImmediatePropagation()
-        if (target instanceof HTMLTextAreaElement) target.value = ''
-        if (text && shouldSkipDuplicatePaste(text)) return
-        if (text) markPasteForwarded(text)
-        requestTerminalPaste(text)
-      }
+      container.addEventListener('drop', dropState.handleDrop)
       const handleCopy = (e: ClipboardEvent) => {
-        handleNativeCopyEvent(e)
+        selectionSync.handleNativeCopyEvent(getSelectionText(), e)
       }
       const helperTextarea = terminal.textarea
       helperTextarea?.addEventListener('copy', handleCopy, true)
       container.addEventListener('copy', handleCopy, true)
-      helperTextarea?.addEventListener('paste', handlePaste, true)
-      container.addEventListener('paste', handlePaste, true)
-      container.addEventListener('beforeinput', handlePasteInput as EventListener, true)
-      container.addEventListener('input', handlePasteInput as EventListener, true)
+      helperTextarea?.addEventListener('paste', pasteBridge.handlePaste, true)
+      container.addEventListener('paste', pasteBridge.handlePaste, true)
+      container.addEventListener('beforeinput', pasteBridge.handlePasteInput as EventListener, true)
+      container.addEventListener('input', pasteBridge.handlePasteInput as EventListener, true)
       const clearPointerSync = () => {
         pointerSyncActive = false
       }
@@ -921,8 +657,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     const handlePointerSync = () => {
       if (!pointerSyncActive) return
       pointerSyncActive = false
-      clearCopySelectionTimer()
-      runCopySelection(true, true, true)
+      selectionSync.clearCopySelectionTimer()
+      selectionSync.runCopySelection(getSelectionText() || selectionSync.currentSelectionRef.current, true, true, focusTerminalInput)
       void syncActivePane()
     }
       const handleFocusTerminal = () => {
@@ -944,7 +680,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         dispose: () => {
           window.removeEventListener('tmux-attached', handleAttached as EventListener)
           window.removeEventListener('tmuxgo-layout-change', handleLayoutChange as EventListener)
-          window.removeEventListener('tmuxgo-terminal-output', handleOutput as EventListener)
+          unsubscribeOutput()
+          if (!subscribeOutputRef.current) window.removeEventListener('tmuxgo-terminal-output', handleOutput as EventListener)
           window.removeEventListener('tmuxgo-copy-terminal-selection', handleCopySelection as EventListener)
           window.removeEventListener('resize', handleWindowResize)
           window.removeEventListener('keyup', handleKeyUp)
@@ -952,15 +689,15 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           window.removeEventListener('orientationchange', handleOrientationChange)
           window.removeEventListener('mobile-keyboard-change', handleKeyboardChange as EventListener)
           document.removeEventListener('visibilitychange', handleVisibilityChange)
-          container.removeEventListener('dragover', handleDragOver)
+          container.removeEventListener('dragover', dropState.handleDragOver)
           container.removeEventListener('dragleave', handleDragLeave)
-          container.removeEventListener('drop', handleDrop)
+          container.removeEventListener('drop', dropState.handleDrop)
           helperTextarea?.removeEventListener('copy', handleCopy, true)
           container.removeEventListener('copy', handleCopy, true)
-          helperTextarea?.removeEventListener('paste', handlePaste, true)
-          container.removeEventListener('paste', handlePaste, true)
-          container.removeEventListener('beforeinput', handlePasteInput as EventListener, true)
-          container.removeEventListener('input', handlePasteInput as EventListener, true)
+          helperTextarea?.removeEventListener('paste', pasteBridge.handlePaste, true)
+          container.removeEventListener('paste', pasteBridge.handlePaste, true)
+          container.removeEventListener('beforeinput', pasteBridge.handlePasteInput as EventListener, true)
+          container.removeEventListener('input', pasteBridge.handlePasteInput as EventListener, true)
           container.removeEventListener('mousedown', armPointerSync)
           container.removeEventListener('touchstart', armPointerSync)
           window.removeEventListener('mouseup', handlePointerSync)
@@ -969,8 +706,9 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           window.removeEventListener('pointercancel', clearPointerSync)
           window.removeEventListener('blur', clearPointerSync)
           window.removeEventListener('tmuxgo-focus-terminal', handleFocusTerminal as EventListener)
-          clearCopySelectionTimer()
-          clearKeyboardPasteTimer()
+          selectionSync.clearCopySelectionTimer()
+          pasteBridge.dispose()
+          selectionSync.dispose()
         },
       })
       resizeObserver = new ResizeObserver(() => {
@@ -978,7 +716,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         const height = container.clientHeight
         if (width === lastContainerSize.width && height === lastContainerSize.height) return
         lastContainerSize = { width, height }
-        scheduleRendererStyleCorrection()
         if (attachExclusiveRef.current) {
           scheduleFit()
           return
@@ -986,171 +723,19 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         syncSharedLayout(false)
       })
       resizeObserver.observe(container)
-      const renderer = getRendererElements()
-      if (renderer) {
-        rendererStyleObserver = new MutationObserver(() => {
-          scheduleRendererStyleCorrection()
-        })
-        rendererStyleObserver.observe(renderer.screen, { attributes: true, attributeFilter: ['style'] })
-        rendererStyleObserver.observe(renderer.rows, { attributes: true, attributeFilter: ['style'] })
-      }
-      {
-        let startY = 0
-        let startX = 0
-        let lastY = 0
-        let carryY = 0
-        let moved = false
-        let direction: 'unknown' | 'vertical' | 'horizontal' = 'unknown'
-        let scrollPendingLines = 0
-        let scrollFlushTimer: ReturnType<typeof setTimeout> | null = null
-        let momentumId = 0
-        let startTime = 0
-        let lastMoveTime = 0
-        let lastVelocity = 0
-        const FLUSH_INTERVAL = 16
-        const MAX_LINES_PER_FLUSH = 18
-        const SCROLL_THRESHOLD = 18
-        const TAP_THRESHOLD = 10
-        const MIN_VELOCITY = 0.2
-        const MAX_VELOCITY_LINES = 6
-        let momentumTimer: ReturnType<typeof setTimeout> | null = null
-
-        const flushScroll = () => {
-          scrollFlushTimer = null
-          const lines = Math.trunc(scrollPendingLines)
-          scrollPendingLines = 0
-          if (!lines) return
-          const clamped = Math.max(-MAX_LINES_PER_FLUSH, Math.min(MAX_LINES_PER_FLUSH, lines))
-          send({ type: 'pane_scroll', sessionName: sessionNameRef.current, lines: clamped })
-        }
-
-        const queueScroll = (lines: number) => {
-          scrollPendingLines += lines
-          if (!scrollFlushTimer) {
-            scrollFlushTimer = setTimeout(flushScroll, FLUSH_INTERVAL)
-          }
-        }
-
-        const clearMomentum = () => {
-          momentumId++
-          if (momentumTimer) {
-            clearTimeout(momentumTimer)
-            momentumTimer = null
-          }
-        }
-
-        const handleTouchStart = (e: TouchEvent) => {
-          if (!isMobileDevice) return
-          lastTapRef.current = null
-          clearMomentum()
-          if (scrollFlushTimer) {
-            clearTimeout(scrollFlushTimer)
-            scrollFlushTimer = null
-          }
-          scrollPendingLines = 0
-          carryY = 0
-          startY = e.touches[0].clientY
-          startX = e.touches[0].clientX
-          lastY = startY
-          startTime = performance.now()
-          lastMoveTime = startTime
-          lastVelocity = 0
-          moved = false
-          direction = 'unknown'
-        }
-
-        const handleTouchMove = (e: TouchEvent) => {
-          if (!isMobileDevice) return
-          const x = e.touches[0].clientX
-          const y = e.touches[0].clientY
-          const dx = Math.abs(x - startX)
-          const dy = Math.abs(y - startY)
-          if (dx < 8 && dy < 8) return
-          if (direction === 'unknown') {
-            direction = dx > dy ? 'horizontal' : 'vertical'
-          }
-          if (direction !== 'vertical') return
-          if (dy < TAP_THRESHOLD) return
-          moved = true
-          e.preventDefault()
-          const now = performance.now()
-          const deltaY = y - lastY
-          const deltaTime = Math.max(1, now - lastMoveTime)
-          lastY = y
-          lastMoveTime = now
-          carryY += deltaY
-          lastVelocity = deltaY / deltaTime
-          const step = Math.trunc(carryY / SCROLL_THRESHOLD)
-          if (step !== 0) {
-            carryY -= step * SCROLL_THRESHOLD
-            queueScroll(step * 2)
-          }
-        }
-
-        const handleTouchEnd = (e: TouchEvent) => {
-          if (scrollFlushTimer) {
-            clearTimeout(scrollFlushTimer)
-            scrollFlushTimer = null
-          }
-          if (scrollPendingLines) flushScroll()
-          touchMovedRef.current = moved
-          if (direction !== 'vertical') return
-          const touch = e.changedTouches[0]
-          if (!touch) return
-          const totalDx = Math.abs(touch.clientX - startX)
-          const totalDy = Math.abs(touch.clientY - startY)
-          if (totalDx < TAP_THRESHOLD && totalDy < TAP_THRESHOLD && performance.now() - startTime < 250) {
-            lastTapRef.current = { x: touch.clientX, y: touch.clientY }
-            return
-          }
-          let velocity = lastVelocity
-          if (Math.abs(velocity) < MIN_VELOCITY) return
-          const id = ++momentumId
-          const decay = () => {
-            if (momentumId !== id) return
-            velocity *= 0.92
-            if (Math.abs(velocity) < MIN_VELOCITY) {
-              momentumTimer = null
-              return
-            }
-            const lines = Math.max(-MAX_VELOCITY_LINES, Math.min(MAX_VELOCITY_LINES, Math.round(velocity * 8)))
-            if (lines !== 0) {
-              send({ type: 'pane_scroll', sessionName: sessionNameRef.current, lines })
-            }
-            momentumTimer = setTimeout(decay, FLUSH_INTERVAL)
-          }
-          momentumTimer = setTimeout(decay, FLUSH_INTERVAL)
-        }
-
-        const handleTouchCancel = () => {
-          if (scrollFlushTimer) {
-            clearTimeout(scrollFlushTimer)
-            scrollFlushTimer = null
-          }
-          clearMomentum()
-          scrollPendingLines = 0
-          carryY = 0
-          moved = false
-          direction = 'unknown'
-          lastTapRef.current = null
-          touchMovedRef.current = false
-        }
-
-        container.addEventListener('touchstart', handleTouchStart, { passive: true })
-        container.addEventListener('touchmove', handleTouchMove, { passive: false })
-        container.addEventListener('touchend', handleTouchEnd, { passive: true })
-        container.addEventListener('touchcancel', handleTouchCancel, { passive: true })
-        disposables.push({
-          dispose: () => {
-            if (scrollFlushTimer) clearTimeout(scrollFlushTimer)
-            if (momentumTimer) clearTimeout(momentumTimer)
-            container.removeEventListener('touchstart', handleTouchStart)
-            container.removeEventListener('touchmove', handleTouchMove)
-            container.removeEventListener('touchend', handleTouchEnd)
-            container.removeEventListener('touchcancel', handleTouchCancel)
-          },
-        })
-      }
+      container.addEventListener('touchstart', touchScroll.handleTouchStart, { passive: true })
+      container.addEventListener('touchmove', touchScroll.handleTouchMove, { passive: false })
+      container.addEventListener('touchend', touchScroll.handleTouchEnd, { passive: true })
+      container.addEventListener('touchcancel', touchScroll.handleTouchCancel, { passive: true })
+      disposables.push({
+        dispose: () => {
+          touchScroll.dispose()
+          container.removeEventListener('touchstart', touchScroll.handleTouchStart)
+          container.removeEventListener('touchmove', touchScroll.handleTouchMove)
+          container.removeEventListener('touchend', touchScroll.handleTouchEnd)
+          container.removeEventListener('touchcancel', touchScroll.handleTouchCancel)
+        },
+      })
       if (disposed) return
       if (!attachExclusiveRef.current) {
         notifyReady()
@@ -1164,10 +749,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       if (stableFitTimer) clearTimeout(stableFitTimer)
       if (fitFrame) cancelAnimationFrame(fitFrame)
       if (sharedLayoutFrame) cancelAnimationFrame(sharedLayoutFrame)
-      if (outputTimer) clearTimeout(outputTimer)
-      if (outputFrame) cancelAnimationFrame(outputFrame)
-      if (rendererStyleFrame) cancelAnimationFrame(rendererStyleFrame)
-      rendererStyleObserver?.disconnect()
       resizeObserver?.disconnect()
       disposables.forEach((d) => d?.dispose?.())
       terminal?.dispose()
@@ -1177,7 +758,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       forceStableFitRef.current = () => {}
       syncSharedLayoutRef.current = () => {}
     }
-  }, [])
+  }, [openUploadDialog, pushToast, queryClient, recordTerminalOutput, selectionSync, setActivePane, touchScroll, updateTerminalPerf])
 
   return (
     <div
@@ -1205,7 +786,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         touchMovedRef.current = false
       }}
     >
-      {isDropActive && <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-lg border border-dashed border-accent bg-bg-0/70 text-sm text-accent shadow-[var(--glow)]">Drop files to upload</div>}
+      {dropState.isDropActive && <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-lg border border-dashed border-accent bg-bg-0/70 text-sm text-accent shadow-[var(--glow)]">Drop files to upload</div>}
       {isMobileDevice && (
         <textarea
           ref={textareaRef}

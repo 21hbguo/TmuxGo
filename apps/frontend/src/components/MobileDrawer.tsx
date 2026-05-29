@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
-import { useCreateSession } from '@/hooks/useApi'
+import { useCreateSession, useSessions } from '@/hooks/useApi'
 import { SessionTemplates, type Template } from './SessionTemplates'
 import { useTranslation } from '@/i18n'
 import { QuickActions } from './QuickActions'
@@ -14,7 +14,11 @@ interface MobileDrawerProps {
 }
 
 export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
-  const { sessions, activeSessionId, setActiveSession, activeHostId, pushToast } = useConsoleStore()
+  const activeSessionId = useConsoleStore((state) => state.activeSessionId)
+  const setActiveSession = useConsoleStore((state) => state.setActiveSession)
+  const activeHostId = useConsoleStore((state) => state.activeHostId)
+  const pushToast = useConsoleStore((state) => state.pushToast)
+  const { data: sessions = [] } = useSessions(activeHostId || '')
   const createSession = useCreateSession()
   const { t } = useTranslation()
   const [showTemplates, setShowTemplates] = useState(false)

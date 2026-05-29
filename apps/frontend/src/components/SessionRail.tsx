@@ -1,11 +1,16 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
-import { useCreateSession } from '@/hooks/useApi'
+import { useCreateSession, useSessions } from '@/hooks/useApi'
 import { SessionTemplates, type Template } from './SessionTemplates'
 
 export function SessionRail() {
-  const { sessions, activeSessionId, setActiveSession, activeHostId, pushToast, setSessionPanelExpanded } = useConsoleStore()
+  const activeSessionId = useConsoleStore((state) => state.activeSessionId)
+  const setActiveSession = useConsoleStore((state) => state.setActiveSession)
+  const activeHostId = useConsoleStore((state) => state.activeHostId)
+  const pushToast = useConsoleStore((state) => state.pushToast)
+  const setSessionPanelExpanded = useConsoleStore((state) => state.setSessionPanelExpanded)
+  const { data: sessions = [] } = useSessions(activeHostId || '')
   const createSession = useCreateSession()
   const [showTemplates, setShowTemplates] = useState(false)
   const handleTemplateSelect = async (template: Template) => {

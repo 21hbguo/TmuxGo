@@ -3,13 +3,21 @@
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
 import { useSystemInfo } from '@/hooks/useSystemInfo'
+import { useHosts, useSessionSnapshot } from '@/hooks/useApi'
 
 const gb = (mb: number) => (mb / 1024).toFixed(1)
 
 export function StatusBar() {
-  const { activePaneId, panes, connection, activeHostId, hosts } = useConsoleStore()
+  const activePaneId = useConsoleStore((state) => state.activePaneId)
+  const connection = useConsoleStore((state) => state.connection)
+  const activeHostId = useConsoleStore((state) => state.activeHostId)
+  const activeSessionId = useConsoleStore((state) => state.activeSessionId)
+  const terminalPerf = useConsoleStore((state) => state.terminalPerf)
   const { t } = useTranslation()
   const sys = useSystemInfo(2000)
+  const { data: hosts = [] } = useHosts()
+  const { data: snapshotData } = useSessionSnapshot(activeHostId || '', activeSessionId || '')
+  const panes = snapshotData?.panes || []
 
   const activePane = panes.find((p: any) => p.id === activePaneId)
   const activeHost = hosts.find((h: any) => h.id === activeHostId)
@@ -40,6 +48,9 @@ export function StatusBar() {
             {sys.disks.map((d) => (
               <span key={d.mount}>{d.mount} {gb(d.used)}/{gb(d.total)}G</span>
             ))}
+            <span>WS {sys.stream.activeProfile}/{sys.stream.activeFlushInterval}ms/{sys.stream.activeMaxChars}</span>
+            <span>FL {sys.stream.outputFlushes}</span>
+            <span>BP {sys.stream.backpressureSignals}</span>
           </span>
         )}
       </div>
@@ -50,6 +61,9 @@ export function StatusBar() {
           <span className={statusColor}>{t(`status.${connection.status}`)}</span>
         </div>
         <span className="text-text-3">{connection.latency}ms</span>
+        <span className="text-text-3">ATT {terminalPerf.attachLatency}ms</span>
+        <span className="text-text-3">OUT {terminalPerf.outputEvents}</span>
+        <span className="text-text-3">BUF {terminalPerf.outputBacklog}</span>
       </div>
     </footer>
   )

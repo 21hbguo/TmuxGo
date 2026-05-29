@@ -3,6 +3,7 @@ import { execFile } from 'child_process'
 import { promisify } from 'util'
 import os from 'os'
 import fs from 'fs'
+import { streamPerfMetrics } from '../lib/perf-metrics.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -74,6 +75,6 @@ export async function systemRoutes(fastify: FastifyInstance) {
       getMemory(),
       getDisk(),
     ])
-    return { gpu, cpu, mem, disks: disk }
+    return { gpu, cpu, mem, disks: disk, stream: streamPerfMetrics }
   })
 }

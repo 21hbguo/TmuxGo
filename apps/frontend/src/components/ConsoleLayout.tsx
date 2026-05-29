@@ -29,6 +29,8 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   const activeSessionId = useConsoleStore((s) => s.activeSessionId)
   const showCommandPalette = useConsoleStore((s) => s.showCommandPalette)
   const setCommandPalette = useConsoleStore((s) => s.setCommandPalette)
+  const setActiveHost = useConsoleStore((s) => s.setActiveHost)
+  const setActiveSession = useConsoleStore((s) => s.setActiveSession)
   const sessionPanelExpanded = useConsoleStore((s) => s.sessionPanelExpanded)
   const toggleSessionPanel = useConsoleStore((s) => s.toggleSessionPanel)
   const filePanelOpen = useConsoleStore((s) => s.filePanelOpen)
@@ -198,50 +200,23 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       const persistedHost = typeof window !== 'undefined' ? localStorage.getItem('tmuxgo-active-host') : null
       const localHost = hostsData.find((h: any) => h.id === 'local')
       const restoredHost = persistedHost && hostsData.some((h: any) => h.id === persistedHost) ? persistedHost : null
-      useConsoleStore.setState({
-        hosts: hostsData,
-        activeHostId: restoredHost || localHost?.id || hostsData[0].id,
-      })
+      setActiveHost(restoredHost || localHost?.id || hostsData[0].id)
     }
-  }, [hostsData, activeHostId])
+  }, [hostsData, activeHostId, setActiveHost])
 
   useEffect(() => {
     if (sessionsData.length === 0) return
     const persistedSession = typeof window !== 'undefined' ? localStorage.getItem('tmuxgo-active-session') : null
     const persistedSessionExists = !!persistedSession && sessionsData.some((s: any) => s.id === persistedSession)
     if (!activeSessionId) {
-      useConsoleStore.setState({
-        sessions: sessionsData,
-        activeSessionId: persistedSessionExists ? persistedSession : sessionsData[0].id,
-      })
-      return
+      setActiveSession(persistedSessionExists ? persistedSession! : sessionsData[0].id)
     }
-    useConsoleStore.setState({ sessions: sessionsData })
-  }, [sessionsData, activeSessionId])
+  }, [sessionsData, activeSessionId, setActiveSession])
 
   useEffect(() => {
     if (!activeSessionId) return
     localStorage.setItem('tmuxgo-active-session', activeSessionId)
   }, [activeSessionId])
-
-  useEffect(() => {
-    if (!activeHostId || !activeSessionId) {
-      useConsoleStore.setState({ windows: [] })
-      return
-    }
-    useConsoleStore.setState({ windows: snapshotData?.windows || [] })
-  }, [snapshotData, activeHostId, activeSessionId])
-
-  useEffect(() => {
-    if (!activeHostId || !activeSessionId) {
-      useConsoleStore.setState({ panes: [], activePaneId: null })
-      return
-    }
-    useConsoleStore.setState((state) => ({
-      panes: snapshotData?.panes || [],
-      activePaneId: (snapshotData?.panes || []).find((pane: any) => pane.active)?.id || ((snapshotData?.panes || []).some((pane: any) => pane.id === state.activePaneId) ? state.activePaneId : snapshotData?.activePaneId || snapshotData?.panes?.[0]?.id || null),
-    }))
-  }, [snapshotData, activeHostId, activeSessionId])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

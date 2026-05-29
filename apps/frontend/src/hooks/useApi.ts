@@ -100,7 +100,8 @@ export function useFileList(root: string, path: string, enabled = true) {
     queryKey: ['file-list', root, path],
     queryFn: () => api.files.list(root, path),
     enabled: !!root && enabled,
-    staleTime: 2000,
+    staleTime: 8000,
+    gcTime: 60000,
   })
 }
 
@@ -109,7 +110,8 @@ export function useFilePreview(root: string, path: string, line = 1, enabled = t
     queryKey: ['file-preview', root, path, line],
     queryFn: () => api.files.preview(root, path, line),
     enabled: !!root && !!path && enabled,
-    staleTime: 2000,
+    staleTime: 8000,
+    gcTime: 60000,
   })
 }
 
@@ -118,6 +120,7 @@ export function useFileSearch(root: string, mode: 'name' | 'content', query: str
     queryKey: ['file-search', root, mode, query, basePath],
     queryFn: () => mode === 'name' ? api.files.searchName(root, query, basePath) : api.files.searchContent(root, query, basePath),
     enabled: !!root && query.trim().length > 1,
-    staleTime: 2000,
+    staleTime: 8000,
+    gcTime: 60000,
   })
 }

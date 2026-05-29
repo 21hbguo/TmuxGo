@@ -5,14 +5,16 @@ import { CommandPalette } from './CommandPalette'
 import { I18nProvider } from '@/i18n'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 
+vi.mock('@/hooks/useApi', () => ({
+  useHosts: () => ({ data: [{ id: 'local', name: 'Local', address: '127.0.0.1', status: 'online', tags: [] }] }),
+  useSessions: () => ({ data: [{ id: 'session-dev', hostId: 'local', name: 'Dev', createdAt: '', lastActiveAt: '', windowCount: 1 }] }),
+  useWindows: () => ({ data: [] }),
+}))
+
 describe('CommandPalette', () => {
   beforeEach(() => {
     localStorage.setItem('tmuxgo-preferences', JSON.stringify({ language: 'en' }))
     useConsoleStore.setState({
-      hosts: [{ id: 'local', name: 'Local', address: '127.0.0.1', status: 'online', tags: [] }],
-      sessions: [{ id: 'session-dev', hostId: 'local', name: 'Dev', createdAt: '', lastActiveAt: '', windowCount: 1 }],
-      windows: [],
-      panes: [],
       activeHostId: null,
       activeSessionId: null,
       activePaneId: null,

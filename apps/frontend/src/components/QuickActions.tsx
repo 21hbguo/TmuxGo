@@ -6,6 +6,7 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useWindows } from '@/hooks/useApi'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useCustomShortcuts, keysToEscape } from '@/hooks/useCustomShortcuts'
+import { useSessionSnapshotSync } from '@/hooks/useSessionSnapshotSync'
 import { AddShortcutModal } from './AddShortcutModal'
 import { ConfirmDialog } from './ConfirmDialog'
 import { api } from '@/lib/api'
@@ -37,6 +38,7 @@ function useQuickActionController() {
   const activeWindow=useMemo(()=>windowsData.find((w:any)=>w.active)||windowsData[0]||null,[windowsData])
   const canSplit=!!activePaneId&&!!activeWindow&&!pendingDirection
   const { send }=useWebSocket()
+  const { refreshSnapshot, resolveActivePaneId } = useSessionSnapshotSync()
   const { shortcuts,addShortcut,removeShortcut }=useCustomShortcuts()
   const [showModal,setShowModal]=useState(false)
   const [isMobile,setIsMobile]=useState(false)
@@ -53,26 +55,6 @@ function useQuickActionController() {
   },[])
 
   const sendKey=useCallback((data:string)=>send({ type:'input',data }),[send])
-  const resolveActivePaneId=useCallback(async()=>{
-    if(!activeHostId||!activeSessionId)return useConsoleStore.getState().activePaneId
-    const snapshot=await api.snapshot.get(activeHostId,activeSessionId)
-    const paneId=snapshot.activePaneId||(snapshot.panes||[]).find((pane:any)=>pane.active)?.id||useConsoleStore.getState().activePaneId
-    useConsoleStore.setState((state)=>({
-      windows:snapshot.windows||state.windows,
-      panes:snapshot.panes||state.panes,
-      activePaneId:paneId||state.activePaneId,
-    }))
-    return paneId
-  },[activeHostId,activeSessionId])
-  const refreshSnapshot=useCallback(async()=>{
-    if(!activeHostId||!activeSessionId)return
-    const snapshot=await api.snapshot.get(activeHostId,activeSessionId)
-    useConsoleStore.setState((state)=>({
-      windows:snapshot.windows||[],
-      panes:snapshot.panes||[],
-      activePaneId:(snapshot.panes||[]).find((pane:any)=>pane.active)?.id||((snapshot.panes||[]).some((pane:any)=>pane.id===state.activePaneId)?state.activePaneId:snapshot.activePaneId||snapshot.panes?.[0]?.id||null),
-    }))
-  },[activeHostId,activeSessionId])
   const stopRepeat=useCallback(()=>{
     if(repeatTimerRef.current){
       clearTimeout(repeatTimerRef.current)
