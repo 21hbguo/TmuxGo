@@ -3,14 +3,19 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { PaneGrid } from './PaneGrid'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 
-const sendMock = vi.hoisted(() => vi.fn(() => true))
+const sendMock = vi.hoisted(() => vi.fn((_message: any) => true))
 const subscribeOutputMock = vi.hoisted(() => vi.fn(() => vi.fn()))
+const socketState = vi.hoisted(() => ({ isConnected: false, isSocketReady: true }))
+const terminalProps = vi.hoisted(() => ({ current: null as null | { sessionName?: string; onReady?: () => void; onResize?: (cols: number, rows: number) => void } }))
 
 vi.mock('./TerminalPane', () => ({
-  TerminalPane: ({ sessionName, onReady }: { sessionName?: string; onReady?: () => void }) => <button onClick={onReady}>{sessionName || 'empty-session'}</button>,
+  TerminalPane: (props: { sessionName?: string; onReady?: () => void; onResize?: (cols: number, rows: number) => void }) => {
+    terminalProps.current = props
+    return <button onClick={props.onReady}>{props.sessionName || 'empty-session'}</button>
+  },
 }))
 vi.mock('@/hooks/useWebSocket', () => ({
-  useWebSocket: () => ({ send: sendMock, isConnected: false, isSocketReady: true, subscribeOutput: subscribeOutputMock }),
+  useWebSocket: () => ({ send: sendMock, isConnected: socketState.isConnected, isSocketReady: socketState.isSocketReady, subscribeOutput: subscribeOutputMock }),
 }))
 vi.mock('@/i18n', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -26,6 +31,9 @@ describe('PaneGrid', () => {
   beforeEach(() => {
     sendMock.mockClear()
     subscribeOutputMock.mockClear()
+    socketState.isConnected = false
+    socketState.isSocketReady = true
+    terminalProps.current = null
     useConsoleStore.setState({
       activeHostId: 'local',
       activeSessionId: 'session-dev1',
@@ -47,5 +55,19 @@ describe('PaneGrid', () => {
     fireEvent.click(screen.getByRole('button', { name: 'dev2' }))
     await waitFor(() => expect(sendMock).toHaveBeenCalledWith({ type: 'attach', sessionName: 'dev2', cols: 120, rows: 36, exclusive: true }))
     expect(sendMock.mock.calls.filter(([message]) => message?.type === 'attach').length).toBe(attachCallsBeforeSwitch + 1)
+  })
+  it('sends terminal resize immediately after attach', async () => {
+    socketState.isConnected = true
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    await waitFor(() => expect(sendMock).toHaveBeenCalledWith({ type: 'attach', sessionName: 'dev1', cols: 120, rows: 36, exclusive: true }))
+    act(() => {
+      window.dispatchEvent(new CustomEvent('tmux-attached', { detail: { sessionName: 'dev1', cols: 120, rows: 36 } }))
+    })
+    sendMock.mockClear()
+    act(() => {
+      terminalProps.current?.onResize?.(121, 36)
+    })
+    expect(sendMock).toHaveBeenCalledWith({ type: 'resize', cols: 121, rows: 36 })
   })
 })
