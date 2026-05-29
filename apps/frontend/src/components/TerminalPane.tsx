@@ -250,13 +250,11 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         terminal.refresh(0, Math.max(0, terminal.rows - 1))
       } catch {}
     }
-    const resetTerminalRenderer = () => {
+    const repaintTerminalRenderer = () => {
       if (!terminal || disposed) return
       try {
         if (attachExclusiveRef.current) syncExclusiveViewport()
         else syncSharedViewport()
-        terminal.clearTextureAtlas?.()
-        terminal._core?._renderService?.clear?.()
         refreshTerminalRows()
       } catch {}
     }
@@ -281,14 +279,14 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         if (delay <= 0) {
           repaintFrame = requestAnimationFrame(() => {
             repaintFrame = null
-            resetTerminalRenderer()
+            repaintTerminalRenderer()
             requestRedrawOnce()
           })
           continue
         }
         const timer = setTimeout(() => {
           repaintTimers = repaintTimers.filter((item) => item !== timer)
-          resetTerminalRenderer()
+          repaintTerminalRenderer()
           requestRedrawOnce()
         }, delay)
         repaintTimers.push(timer)
@@ -407,7 +405,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         const currentHeight = container.clientHeight
         if (!force && currentWidth === lastFitSize.width && currentHeight === lastFitSize.height && lastSizeRef.current) {
           syncExclusiveViewport()
-          resetTerminalRenderer()
+          repaintTerminalRenderer()
           return true
         }
         lastFitSize = { width: currentWidth, height: currentHeight }
@@ -429,7 +427,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           requestAnimationFrame(() => {
             if (disposed || !terminal) return
             syncExclusiveViewport()
-            resetTerminalRenderer()
+            repaintTerminalRenderer()
             if (adjustExclusiveLineHeight()) scheduleFit(0, true)
           })
           notifyReady()
@@ -520,7 +518,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           return
         }
         if (isMobileDevice) syncSharedViewport()
-        resetTerminalRenderer()
+        repaintTerminalRenderer()
         const prev = lastSizeRef.current
         lastSizeRef.current = { cols: size.cols, rows: size.rows }
         if (!prev || prev.cols !== size.cols || prev.rows !== size.rows) {
@@ -547,7 +545,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         },
         cursorBlink: preferencesRef.current.cursorBlink,
         cursorStyle: 'bar',
-        allowTransparency: true,
+        allowTransparency: false,
         fontSize: preferencesRef.current.fontSize,
         fontFamily: preferencesRef.current.fontFamily,
         letterSpacing: 0,
@@ -681,11 +679,11 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         updateTerminalPerf({ layoutFitCount: perf.layoutFitCount + 1 })
         if (attachExclusiveRef.current) {
           forceStableFit(5, 34)
-          scheduleTerminalRepaint(TERMINAL_REPAINT_DELAYS, true)
+          scheduleTerminalRepaint(TERMINAL_REPAINT_DELAYS)
           return
         }
         forceStableFit(4, 34)
-        scheduleTerminalRepaint(TERMINAL_REPAINT_DELAYS, true)
+        scheduleTerminalRepaint(TERMINAL_REPAINT_DELAYS)
       }
       const handleVisibilityChange = () => {
         if (document.hidden) {
@@ -694,11 +692,11 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         }
         if (attachExclusiveRef.current) {
           forceStableFit(4, 34)
-          scheduleTerminalRepaint(TERMINAL_REPAINT_DELAYS, true)
+          scheduleTerminalRepaint(TERMINAL_REPAINT_DELAYS)
           return
         }
         forceStableFit(3, 34)
-        scheduleTerminalRepaint(TERMINAL_REPAINT_DELAYS, true)
+        scheduleTerminalRepaint(TERMINAL_REPAINT_DELAYS)
       }
       window.addEventListener('tmux-attached', handleAttached as EventListener)
       window.addEventListener('tmuxgo-layout-change', handleLayoutChange as EventListener)
