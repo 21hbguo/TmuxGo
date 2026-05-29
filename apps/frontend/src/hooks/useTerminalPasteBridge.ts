@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useRef } from 'react'
+import { useCallback, useMemo, useRef } from 'react'
 import { extractClipboardText } from '@/lib/clipboard-text'
 
 const KEYBOARD_PASTE_FALLBACK_DELAY = 160
@@ -80,5 +80,5 @@ export function useTerminalPasteBridge() {
     clearKeyboardPasteTimer()
     keyboardPastePendingRef.current = false
   }, [clearKeyboardPasteTimer])
-  return { scheduleKeyboardPasteFallback, handlePaste, handlePasteInput, dispose }
+  return useMemo(() => ({ scheduleKeyboardPasteFallback, handlePaste, handlePasteInput, dispose }), [scheduleKeyboardPasteFallback, handlePaste, handlePasteInput, dispose])
 }

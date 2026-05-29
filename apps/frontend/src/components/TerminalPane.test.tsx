@@ -6,11 +6,13 @@ import { DELETE_PREV_WORD_SEQUENCE } from '@/lib/terminal-keys'
 const onSelectionChangeHandlers: Array<() => void> = []
 let customKeyHandler: ((event: KeyboardEvent) => boolean) | null = null
 let terminalSelection = 'printf "auto_copy_ok"'
+let resizeObserverCallback: (() => void) | null = null
 const terminalMocks = vi.hoisted(() => ({
   write: vi.fn(),
   refresh: vi.fn(),
   renderClear: vi.fn(),
   clearTextureAtlas: vi.fn(),
+  focus: vi.fn(),
 }))
 const terminalLifecycleMocks = vi.hoisted(() => ({
   open: vi.fn(),
@@ -33,6 +35,11 @@ const storeMocks = vi.hoisted(() => ({
   setActivePane: vi.fn(),
   openUploadDialog: vi.fn(),
 }))
+const mobileKeyboardMocks = vi.hoisted(() => ({
+  focusKeyboard: vi.fn(),
+  textareaRef: { current: null as HTMLTextAreaElement | null },
+  isMobile: false,
+}))
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 vi.mock('@/hooks/usePreferences', () => ({
@@ -54,13 +61,13 @@ vi.mock('@/hooks/usePreferences', () => ({
   }),
 }))
 vi.mock('@/hooks/useMobileKeyboard', () => ({
-  useMobileKeyboard: () => ({ textareaRef: { current: null }, focusKeyboard: vi.fn(), isMobile: false }),
+  useMobileKeyboard: () => ({ textareaRef: mobileKeyboardMocks.textareaRef, focusKeyboard: mobileKeyboardMocks.focusKeyboard, isMobile: mobileKeyboardMocks.isMobile }),
 }))
 vi.mock('@/hooks/useWebSocket', () => ({
   useWebSocket: () => ({ send: webSocketMocks.send, subscribeOutput: webSocketMocks.subscribeOutput }),
 }))
 vi.mock('@/stores/useConsoleStore', () => ({
-  useConsoleStore: ((selector: any) => selector({ activeHostId: 'local', pushToast: storeMocks.pushToast, updateTerminalPerf: storeMocks.updateTerminalPerf, setActivePane: storeMocks.setActivePane, openUploadDialog: storeMocks.openUploadDialog, terminalPerf: { attachLatency: 0, outputBytes: 0, outputEvents: 0, outputBacklog: 0, layoutFitCount: 0, lastOutputAt: '' } })) as any,
+  useConsoleStore: Object.assign(((selector: any) => selector({ activeHostId: 'local', pushToast: storeMocks.pushToast, updateTerminalPerf: storeMocks.updateTerminalPerf, setActivePane: storeMocks.setActivePane, openUploadDialog: storeMocks.openUploadDialog, terminalPerf: { attachLatency: 0, outputBytes: 0, outputEvents: 0, outputBacklog: 0, layoutFitCount: 0, lastOutputAt: '' } })) as any, { getState: () => ({ terminalPerf: { attachLatency: 0, outputBytes: 0, outputEvents: 0, outputBacklog: 0, layoutFitCount: 0, lastOutputAt: '' } }) }),
 }))
 vi.mock('@/lib/api', () => ({
   api: { snapshot: { get: vi.fn(async () => ({ windows: [], panes: [], activePaneId: null })) } },
@@ -115,7 +122,9 @@ vi.mock('@xterm/xterm', () => {
     getSelection() {
       return terminalSelection
     }
-    focus() {}
+    focus() {
+      terminalMocks.focus()
+    }
     resize() {}
     refresh(start: number, end: number) {
       terminalMocks.refresh(start, end)
@@ -152,11 +161,13 @@ describe('TerminalPane', () => {
   beforeEach(() => {
     onSelectionChangeHandlers.length = 0
     customKeyHandler = null
+    resizeObserverCallback = null
     terminalSelection = 'printf "auto_copy_ok"'
     terminalMocks.write.mockClear()
     terminalMocks.refresh.mockClear()
     terminalMocks.renderClear.mockClear()
     terminalMocks.clearTextureAtlas.mockClear()
+    terminalMocks.focus.mockClear()
     terminalLifecycleMocks.open.mockClear()
     terminalLifecycleMocks.dispose.mockClear()
     webSocketMocks.send.mockClear()
@@ -167,6 +178,9 @@ describe('TerminalPane', () => {
     storeMocks.updateTerminalPerf.mockClear()
     storeMocks.setActivePane.mockClear()
     storeMocks.openUploadDialog.mockClear()
+    mobileKeyboardMocks.focusKeyboard.mockClear()
+    mobileKeyboardMocks.textareaRef.current = null
+    mobileKeyboardMocks.isMobile = false
     ;(document as Document & { execCommand?: (command: string) => boolean }).execCommand = vi.fn((command: string) => {
       if (command !== 'copy') return false
       const event = new Event('copy', { bubbles: true, cancelable: true }) as ClipboardEvent
@@ -183,6 +197,9 @@ describe('TerminalPane', () => {
     })
     vi.stubGlobal('cancelAnimationFrame', vi.fn())
     vi.stubGlobal('ResizeObserver', class {
+      constructor(callback: () => void) {
+        resizeObserverCallback = callback
+      }
       observe() {}
       disconnect() {}
     })
@@ -205,6 +222,17 @@ describe('TerminalPane', () => {
     const { rerender } = render(<TerminalPane sessionName="dev" onInput={onInput} onResize={onResize} />)
     await waitFor(() => expect(terminalLifecycleMocks.open).toHaveBeenCalledTimes(1))
     rerender(<TerminalPane sessionName="dev" onInput={onInput} onResize={onResize} />)
+    await sleep(20)
+    expect(terminalLifecycleMocks.open).toHaveBeenCalledTimes(1)
+    expect(terminalLifecycleMocks.dispose).toHaveBeenCalledTimes(0)
+  })
+  it('does not recreate terminal instance after terminal perf updates', async () => {
+    const { rerender } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} subscribeOutput={webSocketMocks.subscribeOutput} />)
+    await waitFor(() => expect(terminalLifecycleMocks.open).toHaveBeenCalledTimes(1))
+    terminalMocks.write.mockClear()
+    webSocketMocks.lastOutputListener?.({ data: 'printf "rerender_output_ok"\\r\\n', sessionName: 'dev' })
+    await waitFor(() => expect(terminalMocks.write).toHaveBeenCalledWith('printf "rerender_output_ok"\\r\\n'))
+    rerender(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} subscribeOutput={webSocketMocks.subscribeOutput} />)
     await sleep(20)
     expect(terminalLifecycleMocks.open).toHaveBeenCalledTimes(1)
     expect(terminalLifecycleMocks.dispose).toHaveBeenCalledTimes(0)
@@ -422,5 +450,36 @@ describe('TerminalPane', () => {
     expect(terminalRoot.style.transform).toBe('')
     expect(terminalRoot.style.width).toBe('100%')
     expect(terminalRoot.style.height).toBe('100%')
+  })
+  it('does not repaint on unchanged mobile resize observations', async () => {
+    mobileKeyboardMocks.isMobile = true
+    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    const root = container.firstChild as HTMLElement
+    Object.defineProperty(root, 'clientWidth', { configurable: true, value: 390 })
+    Object.defineProperty(root, 'clientHeight', { configurable: true, value: 700 })
+    resizeObserverCallback?.()
+    await sleep(140)
+    terminalMocks.refresh.mockClear()
+    resizeObserverCallback?.()
+    await sleep(140)
+    expect(terminalMocks.refresh).not.toHaveBeenCalled()
+  })
+  it('does not steal mobile keyboard input focus back to xterm', async () => {
+    mobileKeyboardMocks.isMobile = true
+    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    terminalMocks.focus.mockClear()
+    const mobileInput = container.querySelector('.mobile-kb-input') as HTMLTextAreaElement
+    expect(mobileInput).toBeTruthy()
+    fireEvent.focus(mobileInput)
+    expect(terminalMocks.focus).not.toHaveBeenCalled()
+  })
+  it('keeps desktop terminal focus behavior', async () => {
+    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    terminalMocks.focus.mockClear()
+    fireEvent.focus(container.firstChild as Element)
+    expect(terminalMocks.focus).toHaveBeenCalled()
   })
 })

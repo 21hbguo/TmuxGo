@@ -10,9 +10,9 @@ describe('getViewportLayoutState', () => {
       viewportWidth: 390,
       previousViewportWidth: 390,
       baseHeight: 800,
-      keyboardOpen: false,
+      keyboardOpen: true,
       keyboardInset: 0,
-      bodyKeyboardOpen: false,
+      bodyKeyboardOpen: true,
     })).toEqual({
       viewportWidth: 390,
       baseHeight: 800,
@@ -45,6 +45,44 @@ describe('getViewportLayoutState', () => {
       isMobileViewport: true,
       innerHeight: 800,
       viewportHeight: 800,
+      viewportWidth: 390,
+      previousViewportWidth: 390,
+      baseHeight: 800,
+      keyboardOpen: false,
+      keyboardInset: 0,
+      bodyKeyboardOpen: false,
+    })).toEqual({
+      viewportWidth: 390,
+      baseHeight: 800,
+      inset: 0,
+      open: false,
+      nextHeight: 800,
+    })
+  })
+  it('ignores mobile browser chrome viewport shrink when no input owns focus', () => {
+    expect(getViewportLayoutState({
+      isMobileViewport: true,
+      innerHeight: 800,
+      viewportHeight: 760,
+      viewportWidth: 390,
+      previousViewportWidth: 390,
+      baseHeight: 800,
+      keyboardOpen: false,
+      keyboardInset: 0,
+      bodyKeyboardOpen: false,
+    })).toEqual({
+      viewportWidth: 390,
+      baseHeight: 800,
+      inset: 0,
+      open: false,
+      nextHeight: 800,
+    })
+  })
+  it('ignores focused editable viewport shrink until keyboard state is confirmed', () => {
+    expect(getViewportLayoutState({
+      isMobileViewport: true,
+      innerHeight: 800,
+      viewportHeight: 520,
       viewportWidth: 390,
       previousViewportWidth: 390,
       baseHeight: 800,

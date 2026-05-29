@@ -21,8 +21,18 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useHosts, useSessions, useSessionSnapshot } from '@/hooks/useApi'
 import { usePreferences } from '@/hooks/usePreferences'
 import { DesktopWorkbench } from './DesktopWorkbench'
+import { recordMobileDiagnostic, startMobileFlickerDiagnostics } from '@/lib/mobile-diagnostics'
 
 const MOBILE_QUERY = '(max-width: 1023px)'
+function recordMobileDebug(event: string, data?: Record<string, unknown>) {
+  recordMobileDiagnostic(event, data)
+  if (typeof window === 'undefined' || !window.localStorage.getItem('tmuxgo-debug-mobile')) return
+  const target = window as typeof window & { __tmuxgoMobileDebug?: { events: Array<Record<string, unknown>> } }
+  const state = target.__tmuxgoMobileDebug || { events: [] }
+  state.events.push({ event, at: Math.round(performance.now()), ...data })
+  state.events = state.events.slice(-240)
+  target.__tmuxgoMobileDebug = state
+}
 
 export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boolean }) {
   const activeHostId = useConsoleStore((s) => s.activeHostId)
@@ -43,18 +53,14 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   const { data: sessionsData = [] } = useSessions(activeHostId || '')
   const { data: snapshotData } = useSessionSnapshot(activeHostId || '', activeSessionId || '')
 
-  const [isMobile, setIsMobile] = useState(() => typeof window === 'undefined' ? initialIsMobile : window.matchMedia(MOBILE_QUERY).matches)
-  const [appHeight, setAppHeight] = useState(() => {
-    if (typeof window === 'undefined') return initialIsMobile ? '100svh' : '100dvh'
-    const height = Math.round(window.visualViewport?.height || window.innerHeight || 0)
-    return height > 0 ? `${height}px` : window.matchMedia(MOBILE_QUERY).matches ? '100svh' : '100dvh'
-  })
+  const [isMobile, setIsMobile] = useState(initialIsMobile)
+  const [appHeight, setAppHeight] = useState(initialIsMobile ? '100svh' : '100dvh')
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerType, setDrawerType] = useState<'sessions' | 'panes'>('sessions')
   const [showSettings, setShowSettings] = useState(false)
   const [keyboardOpen, setKeyboardOpen] = useState(false)
   const overlayRef = useRef<string[]>([])
-  const appHeightRef = useRef('')
+  const appHeightRef = useRef(appHeight)
   const viewportBaseHeightRef = useRef(0)
   const appHeightNumRef = useRef(0)
   const keyboardStateRef = useRef({ open: false, inset: 0 })
@@ -109,6 +115,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       const isMobileViewport = window.matchMedia(MOBILE_QUERY).matches
       const vv = window.visualViewport
       const byClass = document.body.classList.contains('keyboard-open')
+      recordMobileDebug('viewport-sync', { innerHeight: window.innerHeight, vvHeight: vv?.height || 0, vvWidth: vv?.width || 0, keyboardOpen: keyboardStateRef.current.open, keyboardInset: keyboardStateRef.current.inset, bodyKeyboardOpen: byClass })
       const state = getViewportLayoutState({
         isMobileViewport,
         innerHeight: window.innerHeight,
@@ -135,6 +142,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       if (appHeightRef.current === nextValue) return
       appHeightRef.current = nextValue
       appHeightNumRef.current = nextHeight
+      recordMobileDebug('app-height', { height: nextHeight, open })
       setAppHeight(nextValue)
     })
   }, [])
@@ -174,6 +182,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       window.removeEventListener('orientationchange', handleOrientation)
     }
   }, [clearViewportSchedule, scheduleViewportSync])
+  useEffect(() => startMobileFlickerDiagnostics(), [])
   useEffect(() => {
     const handleKeyboardChange = (event: Event) => {
       const detail = (event as CustomEvent<{ open?: boolean; inset?: number }>).detail

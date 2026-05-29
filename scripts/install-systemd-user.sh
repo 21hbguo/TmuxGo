@@ -12,7 +12,9 @@ cp "$UNIT_SRC_DIR"/tmux-server.service "$UNIT_DST_DIR"/
 mkdir -p "$HOME/tmux_backups"
 cd "$ROOT_DIR"
 npm install
-npm run build
+npm run build:gateway
+env NEXT_DIST_DIR=.next-prod npm run build:frontend
+npm run build:agent
 systemctl --user daemon-reload
 systemctl --user enable tmuxgo.target
 systemctl --user enable tmuxgo-gateway.service

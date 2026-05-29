@@ -3,10 +3,21 @@ import { useEffect, useRef, useCallback } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { usePreferences } from './usePreferences'
 import { getWebSocketBase } from '@/lib/runtime-endpoints'
-type WSState={ws:WebSocket|null,reconnectTimer:ReturnType<typeof setTimeout>|null,reconnectCount:number,isConnecting:boolean,socketReady:boolean,pingTimer:ReturnType<typeof setInterval>|null,pongTimer:ReturnType<typeof setTimeout>|null,closeTimer:ReturnType<typeof setTimeout>|null,subscribers:number,lastPongAt:number,hiddenAt:number,backgroundClosed:boolean,onMessage:((data:any)=>void)|null,onOpen:(()=>void)|null,onClose:(()=>void)|null,onError:(()=>void)|null,closeExpected:boolean,lastInteractionRecoverAt:number,listenersReady:boolean,cleanupListeners:(()=>void)|null}
-const wsState:WSState={ws:null,reconnectTimer:null,reconnectCount:0,isConnecting:false,socketReady:false,pingTimer:null,pongTimer:null,closeTimer:null,subscribers:0,lastPongAt:0,hiddenAt:0,backgroundClosed:false,onMessage:null,onOpen:null,onClose:null,onError:null,closeExpected:false,lastInteractionRecoverAt:0,listenersReady:false,cleanupListeners:null}
+import { recordMobileDiagnostic } from '@/lib/mobile-diagnostics'
+type WSState={ws:WebSocket|null,reconnectTimer:ReturnType<typeof setTimeout>|null,reconnectCount:number,isConnecting:boolean,socketReady:boolean,pingTimer:ReturnType<typeof setInterval>|null,pongTimer:ReturnType<typeof setTimeout>|null,closeTimer:ReturnType<typeof setTimeout>|null,backgroundCloseTimer:ReturnType<typeof setTimeout>|null,subscribers:number,lastPongAt:number,hiddenAt:number,backgroundClosed:boolean,onMessage:((data:any)=>void)|null,onOpen:(()=>void)|null,onClose:(()=>void)|null,onError:(()=>void)|null,closeExpected:boolean,lastInteractionRecoverAt:number,listenersReady:boolean,cleanupListeners:(()=>void)|null}
+const wsState:WSState={ws:null,reconnectTimer:null,reconnectCount:0,isConnecting:false,socketReady:false,pingTimer:null,pongTimer:null,closeTimer:null,backgroundCloseTimer:null,subscribers:0,lastPongAt:0,hiddenAt:0,backgroundClosed:false,onMessage:null,onOpen:null,onClose:null,onError:null,closeExpected:false,lastInteractionRecoverAt:0,listenersReady:false,cleanupListeners:null}
 type OutputMessage={data:string,sessionName?:string|null}
 const outputListeners=new Set<(message:OutputMessage)=>void>()
+const BACKGROUND_CLOSE_DELAY_MS=12000
+function recordMobileDebug(event:string,data?:Record<string,unknown>) {
+  recordMobileDiagnostic(event,data,event.includes('close')||event.includes('error')||event.includes('background'))
+  if (typeof window==='undefined'||!window.localStorage.getItem('tmuxgo-debug-mobile')) return
+  const target=window as typeof window&{__tmuxgoMobileDebug?:{events:Array<Record<string,unknown>>}}
+  const state=target.__tmuxgoMobileDebug||{events:[]}
+  state.events.push({event,at:Math.round(performance.now()),...data})
+  state.events=state.events.slice(-300)
+  target.__tmuxgoMobileDebug=state
+}
 export function useWebSocket() {
   const reconnectCountRef=useRef(0)
   const updateConnection=useConsoleStore((s)=>s.updateConnection)
@@ -18,6 +29,11 @@ export function useWebSocket() {
     if (!wsState.pongTimer) return
     clearTimeout(wsState.pongTimer)
     wsState.pongTimer=null
+  },[])
+  const clearBackgroundCloseTimer=useCallback(()=>{
+    if (!wsState.backgroundCloseTimer) return
+    clearTimeout(wsState.backgroundCloseTimer)
+    wsState.backgroundCloseTimer=null
   },[])
   const handleMessage=useCallback((data:any)=>{
     switch (data.type) {
@@ -53,6 +69,7 @@ export function useWebSocket() {
   },[clearPongTimer])
   const connect=useCallback(()=>{
     if (typeof window==='undefined'||wsState.subscribers<=0) return
+    if (document.visibilityState==='hidden') return
     const current=wsState.ws
     if (current&&(current.readyState===WebSocket.OPEN||current.readyState===WebSocket.CONNECTING||current.readyState===WebSocket.CLOSING)) return
     if (wsState.reconnectTimer) {
@@ -61,6 +78,7 @@ export function useWebSocket() {
     }
     const wsUrl=getWebSocketBase()
     wsState.isConnecting=true
+    recordMobileDebug('ws-connect')
     try {
       const ws=new WebSocket(wsUrl)
       wsState.ws=ws
@@ -74,6 +92,7 @@ export function useWebSocket() {
         reconnectCountRef.current=0
         wsState.lastPongAt=Date.now()
         updateConnection({status:'attaching',latency:0})
+        recordMobileDebug('ws-open')
         sendPing()
         window.dispatchEvent(new CustomEvent('ws-reconnected'))
         wsState.onOpen?.()
@@ -93,9 +112,15 @@ export function useWebSocket() {
         wsState.isConnecting=false
         wsState.socketReady=false
         clearPongTimer()
-        updateConnection({status:'disconnected'})
         const expected=wsState.closeExpected
         wsState.closeExpected=false
+        recordMobileDebug('ws-close',{expected,visibility:document.visibilityState})
+        if (!expected&&document.visibilityState==='hidden') {
+          wsState.hiddenAt=Date.now()
+          wsState.backgroundClosed=true
+          return
+        }
+        updateConnection({status:'disconnected'})
         if (!expected) {
           wsState.onClose?.()
         }
@@ -104,15 +129,22 @@ export function useWebSocket() {
         if (wsState.ws===ws) {
           wsState.isConnecting=false
         }
+        recordMobileDebug('ws-error',{visibility:document.visibilityState})
         wsState.onError?.()
       }
     } catch (err) {
       wsState.isConnecting=false
+      recordMobileDebug('ws-connect-error')
       wsState.onError?.()
     }
   },[clearPongTimer,sendPing,updateConnection])
   const scheduleReconnect=useCallback(()=>{
     if (!preferences.autoReconnect||wsState.subscribers<=0) return
+    if (typeof document!=='undefined'&&document.visibilityState==='hidden') {
+      wsState.hiddenAt=Date.now()
+      wsState.backgroundClosed=true
+      return
+    }
     if (wsState.reconnectTimer||wsState.isConnecting) return
     wsState.reconnectCount+=1
     reconnectCountRef.current=wsState.reconnectCount
@@ -147,7 +179,8 @@ export function useWebSocket() {
     reconnectCountRef.current=0
     connect()
   },[clearPongTimer,connect])
-  const closeForBackground=useCallback(()=>{
+  const closeForBackgroundNow=useCallback(()=>{
+    wsState.backgroundCloseTimer=null
     wsState.hiddenAt=Date.now()
     wsState.backgroundClosed=true
     clearPongTimer()
@@ -156,6 +189,7 @@ export function useWebSocket() {
       wsState.reconnectTimer=null
     }
     const ws=wsState.ws
+    recordMobileDebug('ws-background-close',{readyState:ws?.readyState??-1})
     if (!ws) return
     ws.onopen=null
     ws.onmessage=null
@@ -169,11 +203,25 @@ export function useWebSocket() {
     wsState.socketReady=false
     updateConnection({status:'disconnected'})
   },[clearPongTimer,updateConnection])
+  const scheduleBackgroundClose=useCallback((source:string)=>{
+    wsState.hiddenAt=Date.now()
+    recordMobileDebug('ws-background-schedule',{source,visibility:document.visibilityState})
+    if (wsState.backgroundCloseTimer) clearTimeout(wsState.backgroundCloseTimer)
+    wsState.backgroundCloseTimer=setTimeout(()=>{
+      if (document.visibilityState==='visible') {
+        wsState.backgroundCloseTimer=null
+        return
+      }
+      closeForBackgroundNow()
+    },BACKGROUND_CLOSE_DELAY_MS)
+  },[closeForBackgroundNow])
   const ensureConnection=useCallback((recover=false)=>{
+    clearBackgroundCloseTimer()
     const ws=wsState.ws
     const resumed=wsState.backgroundClosed||wsState.hiddenAt>0&&Date.now()-wsState.hiddenAt>1200
     wsState.hiddenAt=0
     wsState.backgroundClosed=false
+    recordMobileDebug('ws-ensure',{recover,resumed,readyState:ws?.readyState??-1})
     if (!ws) {
       wsState.reconnectCount=0
       connect()
@@ -193,7 +241,7 @@ export function useWebSocket() {
       wsState.reconnectCount=0
       connect()
     }
-  },[connect,resetAndReconnect,sendPing])
+  },[clearBackgroundCloseTimer,connect,resetAndReconnect,sendPing])
   const send=useCallback((data:any)=>{
     if (wsState.ws?.readyState===WebSocket.OPEN) {
       wsState.ws.send(JSON.stringify(data))
@@ -246,7 +294,7 @@ export function useWebSocket() {
     }
     const handleVisibilityChange=()=>{
       if (document.visibilityState==='hidden') {
-        closeForBackground()
+        scheduleBackgroundClose('visibility')
         return
       }
       if (document.visibilityState==='visible') {
@@ -254,7 +302,7 @@ export function useWebSocket() {
       }
     }
     const handlePageHide=()=>{
-      closeForBackground()
+      scheduleBackgroundClose('pagehide')
     }
     const handlePageShow=()=>{
       ensureConnection(false)
@@ -305,6 +353,10 @@ export function useWebSocket() {
             clearTimeout(wsState.reconnectTimer)
             wsState.reconnectTimer=null
           }
+          if (wsState.backgroundCloseTimer) {
+            clearTimeout(wsState.backgroundCloseTimer)
+            wsState.backgroundCloseTimer=null
+          }
           if (wsState.pingTimer) {
             clearInterval(wsState.pingTimer)
             wsState.pingTimer=null
@@ -330,6 +382,6 @@ export function useWebSocket() {
         },250)
       }
     }
-  },[connect,ensureConnection,handleMessage,scheduleReconnect,sendPing,clearPongTimer])
+  },[connect,ensureConnection,handleMessage,scheduleReconnect,sendPing,clearPongTimer,scheduleBackgroundClose])
   return {send,isConnected,isSocketReady,subscribeOutput}
 }
