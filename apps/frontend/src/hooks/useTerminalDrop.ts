@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { formatDroppedPaths } from '@/lib/path-drop'
 
 export function useTerminalDrop(onInput: (data: string) => void, openUploadDialog: (request: { files: File[]; preferredRootId?: string; preferredPath?: string; insertPaths?: boolean }) => void) {
@@ -24,5 +24,5 @@ export function useTerminalDrop(onInput: (data: string) => void, openUploadDialo
     const text = formatDroppedPaths(e.dataTransfer)
     if (text) onInput(text)
   }, [onInput, openUploadDialog])
-  return { isDropActive, handleDragOver, handleDragLeave, handleDrop }
+  return useMemo(() => ({ isDropActive, handleDragOver, handleDragLeave, handleDrop }), [isDropActive, handleDragOver, handleDragLeave, handleDrop])
 }

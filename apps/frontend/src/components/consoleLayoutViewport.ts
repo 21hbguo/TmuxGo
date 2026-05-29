@@ -26,7 +26,7 @@ export function getViewportLayoutState({
   const resolvedBaseHeight = nextBaseHeight || viewportHeight || innerHeight
   const viewportInset = viewportHeight ? Math.max(0, resolvedBaseHeight - viewportHeight) : 0
   const effectiveInset = Math.max(viewportInset, keyboardOpen ? keyboardInset : 0)
-  const open = isMobileViewport && (effectiveInset >= 80 || keyboardOpen || bodyKeyboardOpen)
+  const open = isMobileViewport && (keyboardOpen || bodyKeyboardOpen)
   const nextHeight = Math.round(!isMobileViewport ? innerHeight : open ? Math.max(0, resolvedBaseHeight - effectiveInset) : resolvedBaseHeight)
   return { viewportWidth: nextViewportWidth, baseHeight: nextBaseHeight, inset: open ? effectiveInset : 0, open, nextHeight }
 }

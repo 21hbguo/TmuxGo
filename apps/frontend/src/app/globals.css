@@ -130,21 +130,16 @@ a {
   width: 100%;
 }
 
-.xterm-viewport::-webkit-scrollbar {
-  width: 8px;
+.xterm .xterm-viewport,
+[data-terminal] .xterm .xterm-viewport {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
 }
-
-.xterm-viewport::-webkit-scrollbar-track {
-  background: rgb(var(--bg-1));
-}
-
-.xterm-viewport::-webkit-scrollbar-thumb {
-  background: rgb(var(--text-3));
-  border-radius: 4px;
-}
-
-.xterm-viewport::-webkit-scrollbar-thumb:hover {
-  background: rgb(var(--text-2));
+.xterm .xterm-viewport::-webkit-scrollbar,
+[data-terminal] .xterm .xterm-viewport::-webkit-scrollbar {
+  display: none;
+  width: 0 !important;
+  height: 0 !important;
 }
 [data-terminal] {
   touch-action: none;

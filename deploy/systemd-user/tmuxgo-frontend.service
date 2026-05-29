@@ -10,6 +10,7 @@ ExecStart=/usr/bin/env npm run --workspace=frontend start -- --hostname 0.0.0.0 
 Restart=always
 RestartSec=3
 Environment=NODE_ENV=production
+Environment=NEXT_DIST_DIR=.next-prod
 
 [Install]
 WantedBy=tmuxgo.target
