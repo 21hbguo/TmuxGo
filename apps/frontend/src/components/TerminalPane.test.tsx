@@ -9,6 +9,10 @@ let terminalSelection = 'printf "auto_copy_ok"'
 const terminalMocks = vi.hoisted(() => ({
   write: vi.fn(),
 }))
+const terminalLifecycleMocks = vi.hoisted(() => ({
+  open: vi.fn(),
+  dispose: vi.fn(),
+}))
 const webSocketMocks = vi.hoisted(() => ({
   send: vi.fn(),
   subscribeOutput: vi.fn((listener: (message: { data: string; sessionName?: string | null }) => void) => {
@@ -22,6 +26,9 @@ const clipboardMocks = vi.hoisted(() => ({
 }))
 const storeMocks = vi.hoisted(() => ({
   pushToast: vi.fn(),
+  updateTerminalPerf: vi.fn(),
+  setActivePane: vi.fn(),
+  openUploadDialog: vi.fn(),
 }))
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -50,7 +57,7 @@ vi.mock('@/hooks/useWebSocket', () => ({
   useWebSocket: () => ({ send: webSocketMocks.send, subscribeOutput: webSocketMocks.subscribeOutput }),
 }))
 vi.mock('@/stores/useConsoleStore', () => ({
-  useConsoleStore: ((selector: any) => selector({ activeHostId: 'local', pushToast: storeMocks.pushToast, updateTerminalPerf: vi.fn(), terminalPerf: { attachLatency: 0, outputBytes: 0, outputEvents: 0, outputBacklog: 0, layoutFitCount: 0, lastOutputAt: '' } })) as any,
+  useConsoleStore: ((selector: any) => selector({ activeHostId: 'local', pushToast: storeMocks.pushToast, updateTerminalPerf: storeMocks.updateTerminalPerf, setActivePane: storeMocks.setActivePane, openUploadDialog: storeMocks.openUploadDialog, terminalPerf: { attachLatency: 0, outputBytes: 0, outputEvents: 0, outputBacklog: 0, layoutFitCount: 0, lastOutputAt: '' } })) as any,
 }))
 vi.mock('@/lib/api', () => ({
   api: { snapshot: { get: vi.fn(async () => ({ windows: [], panes: [], activePaneId: null })) } },
@@ -75,6 +82,7 @@ vi.mock('@xterm/xterm', () => {
     }
     loadAddon() {}
     open(container: HTMLDivElement) {
+      terminalLifecycleMocks.open()
       this.element = document.createElement('div')
       this.element.className = 'xterm'
       const viewport = document.createElement('div')
@@ -110,7 +118,9 @@ vi.mock('@xterm/xterm', () => {
     write(data: string) {
       terminalMocks.write(data)
     }
-    dispose() {}
+    dispose() {
+      terminalLifecycleMocks.dispose()
+    }
   }
   return { Terminal }
 })
@@ -132,8 +142,13 @@ describe('TerminalPane', () => {
     customKeyHandler = null
     terminalSelection = 'printf "auto_copy_ok"'
     terminalMocks.write.mockClear()
+    terminalLifecycleMocks.open.mockClear()
+    terminalLifecycleMocks.dispose.mockClear()
     clipboardMocks.writeClipboardText.mockClear()
     storeMocks.pushToast.mockClear()
+    storeMocks.updateTerminalPerf.mockClear()
+    storeMocks.setActivePane.mockClear()
+    storeMocks.openUploadDialog.mockClear()
     ;(document as Document & { execCommand?: (command: string) => boolean }).execCommand = vi.fn((command: string) => {
       if (command !== 'copy') return false
       const event = new Event('copy', { bubbles: true, cancelable: true }) as ClipboardEvent
@@ -165,6 +180,16 @@ describe('TerminalPane', () => {
     await sleep(60)
     await waitFor(() => expect(clipboardMocks.writeClipboardText).toHaveBeenCalledWith('printf "auto_copy_ok"',{preferSync:true}))
     expect(container.firstChild).toBeTruthy()
+  })
+  it('does not recreate terminal instance on noop rerender', async () => {
+    const onInput = vi.fn()
+    const onResize = vi.fn()
+    const { rerender } = render(<TerminalPane sessionName="dev" onInput={onInput} onResize={onResize} />)
+    await waitFor(() => expect(terminalLifecycleMocks.open).toHaveBeenCalledTimes(1))
+    rerender(<TerminalPane sessionName="dev" onInput={onInput} onResize={onResize} />)
+    await sleep(20)
+    expect(terminalLifecycleMocks.open).toHaveBeenCalledTimes(1)
+    expect(terminalLifecycleMocks.dispose).toHaveBeenCalledTimes(0)
   })
 
   it('copies final selection immediately on pointer release', async () => {

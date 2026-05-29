@@ -95,15 +95,18 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   const dropState = useTerminalDrop((data) => onInputRef.current?.(data), openUploadDialog)
   const pasteBridge = useTerminalPasteBridge()
   const selectionSync = useTerminalSelectionSync(pushToast)
+  const handleTouchScroll = useCallback((lines: number) => send({ type: 'pane_scroll', sessionName: sessionNameRef.current, lines }), [send])
+  const handleTouchTap = useCallback((x: number, y: number) => {
+    lastTapRef.current = { x, y }
+  }, [])
+  const handleTouchMovedChange = useCallback((moved: boolean) => {
+    touchMovedRef.current = moved
+  }, [])
   const touchScroll = useTerminalTouchScroll({
     isMobile: isMobileDevice,
-    onScroll: (lines) => send({ type: 'pane_scroll', sessionName: sessionNameRef.current, lines }),
-    onTap: (x, y) => {
-      lastTapRef.current = { x, y }
-    },
-    onTouchMovedChange: (moved) => {
-      touchMovedRef.current = moved
-    },
+    onScroll: handleTouchScroll,
+    onTap: handleTouchTap,
+    onTouchMovedChange: handleTouchMovedChange,
   })
   useEffect(() => {
     onInputRef.current = onInput
@@ -567,10 +570,16 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       }
       const unsubscribeOutput = subscribeOutputRef.current ? subscribeOutputRef.current(handleOutput) : () => {}
       if (!subscribeOutputRef.current) window.addEventListener('tmuxgo-terminal-output', handleOutput as EventListener)
+      const handleHydrate = (event: Event) => {
+        const detail = (event as CustomEvent<{ sessionName?: string | null; data?: string }>).detail
+        if (!detail?.data || !detail.sessionName || detail.sessionName !== sessionNameRef.current) return
+        handleOutput({ data: detail.data, sessionName: detail.sessionName })
+      }
       const handleCopySelection = (event: Event) => {
         const selection = terminal?.getSelection?.() || ''
         window.dispatchEvent(new CustomEvent('tmuxgo-terminal-selection', { detail: { requestId: (event as CustomEvent).detail?.requestId, selection } }))
       }
+      window.addEventListener('tmuxgo-terminal-hydrate', handleHydrate as EventListener)
       window.addEventListener('tmuxgo-copy-terminal-selection', handleCopySelection as EventListener)
       const handleWindowResize = () => {
         scheduleFit()
@@ -682,6 +691,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           window.removeEventListener('tmuxgo-layout-change', handleLayoutChange as EventListener)
           unsubscribeOutput()
           if (!subscribeOutputRef.current) window.removeEventListener('tmuxgo-terminal-output', handleOutput as EventListener)
+          window.removeEventListener('tmuxgo-terminal-hydrate', handleHydrate as EventListener)
           window.removeEventListener('tmuxgo-copy-terminal-selection', handleCopySelection as EventListener)
           window.removeEventListener('resize', handleWindowResize)
           window.removeEventListener('keyup', handleKeyUp)
