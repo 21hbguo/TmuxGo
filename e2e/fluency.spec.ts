@@ -37,7 +37,8 @@ test('fluency telemetry remains available during repeated output sampling', asyn
   await page.waitForTimeout(1200)
   const telemetry = await page.evaluate(async () => {
     const sys = await fetch('http://127.0.0.1:3001/api/system').then((res) => res.json())
-    const perf = document.body.innerText.includes('BUF')
+    const text = document.body.innerText
+    const perf = text.includes('WS ') && text.includes('FL ') && text.includes('ATT ')
     return { sys, perf }
   })
   expect(telemetry.perf).toBeTruthy()

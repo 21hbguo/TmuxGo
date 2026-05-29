@@ -28,6 +28,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
     let outputCarry = ''
     let outputBuffer = ''
     let outputTimer: ReturnType<typeof setTimeout> | null = null
+    let redrawTimers: ReturnType<typeof setTimeout>[] = []
     let outputProfile: keyof typeof OUTPUT_PROFILES = 'foreground'
     let attachSeq = 0
     const scrollBuffers = new Map<string, number>()
@@ -114,9 +115,41 @@ export async function streamRoutes(fastify: FastifyInstance) {
       const timer = setTimeout(() => flushScroll(sessionName), SCROLL_FLUSH_INTERVAL)
       scrollTimers.set(sessionName, timer)
     }
+    function clearRedrawTimers() {
+      for (const timer of redrawTimers) clearTimeout(timer)
+      redrawTimers = []
+    }
+    async function refreshAttachedClient(sessionName: string) {
+      if (!ptyProcess || !sessionName) return
+      const pid = String(ptyProcess.pid)
+      const { stdout } = await execFileAsync('tmux', ['list-clients', '-t', sessionName, '-F', '#{client_pid}|#{client_name}'])
+      const clients = String(stdout).trim().split('\n').filter(Boolean).map((line) => {
+        const [clientPid, ...nameParts] = line.split('|')
+        return { pid: clientPid, name: nameParts.join('|') }
+      }).filter((client) => client.name)
+      const owned = clients.filter((client) => client.pid === pid)
+      const targets = (owned.length ? owned : clients).map((client) => client.name)
+      for (const target of targets) {
+        await execFileAsync('tmux', ['refresh-client', '-t', target])
+      }
+    }
+    function scheduleClientRedraw(sessionName: string | null = attachedSessionName, delays = [16, 80, 180, 360]) {
+      if (!sessionName) return
+      clearRedrawTimers()
+      const seq = attachSeq
+      for (const delay of delays) {
+        const timer = setTimeout(() => {
+          redrawTimers = redrawTimers.filter((item) => item !== timer)
+          if (seq !== attachSeq || attachedSessionName !== sessionName) return
+          void refreshAttachedClient(sessionName).catch(() => {})
+        }, delay)
+        redrawTimers.push(timer)
+      }
+    }
     function cleanup(notify = false) {
       const current = ptyProcess
       attachSeq += 1
+      clearRedrawTimers()
       if (current) {
         current.kill()
         ptyProcess = null
@@ -201,6 +234,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
                 attachedRows = requestedRows
               }
               send({ type: 'attached', sessionName, cols: attachedCols || requestedCols, rows: attachedRows || requestedRows, exclusive })
+              scheduleClientRedraw(sessionName)
               break
             }
             cleanup()
@@ -243,9 +277,11 @@ export async function streamRoutes(fastify: FastifyInstance) {
               attachedExclusive = false
               attachedCols = 0
               attachedRows = 0
+              clearRedrawTimers()
             })
 
             send({ type: 'attached', sessionName, cols, rows, exclusive })
+            scheduleClientRedraw(sessionName)
             break
           }
 
@@ -255,8 +291,16 @@ export async function streamRoutes(fastify: FastifyInstance) {
               ptyProcess.resize(data.cols, data.rows)
               attachedCols = data.cols
               attachedRows = data.rows
+              scheduleClientRedraw(attachedSessionName, [20, 90, 180])
             }
             break
+          case 'redraw': {
+            const sessionName = data.sessionName
+            if (!sessionName) break
+            assertSessionAllowed(sessionName)
+            if (sessionName === attachedSessionName) scheduleClientRedraw(sessionName, [0, 32, 120])
+            break
+          }
 
           case 'input':
             recordStreamMetric('inputMessages')
