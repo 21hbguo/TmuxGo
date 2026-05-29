@@ -271,18 +271,25 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     const scheduleTerminalRepaint = (delays = TERMINAL_REPAINT_DELAYS, serverRedraw = false) => {
       if (disposed) return
       clearTerminalRepaint()
-      if (serverRedraw) requestServerRedraw()
+      let redrawRequested = false
+      const requestRedrawOnce = () => {
+        if (!serverRedraw || redrawRequested) return
+        redrawRequested = true
+        requestServerRedraw()
+      }
       for (const delay of delays) {
         if (delay <= 0) {
           repaintFrame = requestAnimationFrame(() => {
             repaintFrame = null
             resetTerminalRenderer()
+            requestRedrawOnce()
           })
           continue
         }
         const timer = setTimeout(() => {
           repaintTimers = repaintTimers.filter((item) => item !== timer)
           resetTerminalRenderer()
+          requestRedrawOnce()
         }, delay)
         repaintTimers.push(timer)
       }
