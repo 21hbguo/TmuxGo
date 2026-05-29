@@ -533,6 +533,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     const initTerminal = async () => {
       const { Terminal } = await import('@xterm/xterm')
       const { FitAddon } = await import('@xterm/addon-fit')
+      const { CanvasAddon } = await import('@xterm/addon-canvas')
       const { WebLinksAddon } = await import('@xterm/addon-web-links')
       if (!container || !container.isConnected || disposed) return
       const style = getComputedStyle(document.documentElement)
@@ -560,6 +561,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       terminal.loadAddon(fitAddon)
       terminal.loadAddon(new WebLinksAddon())
       terminal.open(container)
+      terminal.loadAddon(new CanvasAddon())
       if (terminal.element instanceof HTMLElement) {
         terminal.element.style.width = '100%'
         terminal.element.style.height = '100%'

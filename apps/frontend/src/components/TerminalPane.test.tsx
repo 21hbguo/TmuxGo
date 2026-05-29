@@ -140,6 +140,9 @@ vi.mock('@xterm/addon-fit', () => ({
     }
   },
 }))
+vi.mock('@xterm/addon-canvas', () => ({
+  CanvasAddon: class {},
+}))
 vi.mock('@xterm/addon-web-links', () => ({
   WebLinksAddon: class {},
 }))
