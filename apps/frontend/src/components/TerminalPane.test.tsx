@@ -8,6 +8,9 @@ let customKeyHandler: ((event: KeyboardEvent) => boolean) | null = null
 let terminalSelection = 'printf "auto_copy_ok"'
 const terminalMocks = vi.hoisted(() => ({
   write: vi.fn(),
+  refresh: vi.fn(),
+  renderClear: vi.fn(),
+  clearTextureAtlas: vi.fn(),
 }))
 const terminalLifecycleMocks = vi.hoisted(() => ({
   open: vi.fn(),
@@ -74,7 +77,7 @@ vi.mock('@xterm/xterm', () => {
     element: HTMLDivElement | null = null
     parser = { registerCsiHandler: vi.fn(() => ({ dispose: vi.fn() })) }
     _core = {
-      _renderService: { dimensions: { css: { canvas: { width: 800, height: 600 }, cell: { width: 8, height: 16 } } } },
+      _renderService: { dimensions: { css: { canvas: { width: 800, height: 600 }, cell: { width: 8, height: 16 } } }, clear: terminalMocks.renderClear },
       viewport: { scrollBarWidth: 0 },
     }
     constructor(options: any) {
@@ -114,7 +117,12 @@ vi.mock('@xterm/xterm', () => {
     }
     focus() {}
     resize() {}
-    refresh() {}
+    refresh(start: number, end: number) {
+      terminalMocks.refresh(start, end)
+    }
+    clearTextureAtlas() {
+      terminalMocks.clearTextureAtlas()
+    }
     write(data: string) {
       terminalMocks.write(data)
     }
@@ -126,6 +134,7 @@ vi.mock('@xterm/xterm', () => {
 })
 vi.mock('@xterm/addon-fit', () => ({
   FitAddon: class {
+    fit() {}
     proposeDimensions() {
       return { cols: 120, rows: 36 }
     }
@@ -142,8 +151,14 @@ describe('TerminalPane', () => {
     customKeyHandler = null
     terminalSelection = 'printf "auto_copy_ok"'
     terminalMocks.write.mockClear()
+    terminalMocks.refresh.mockClear()
+    terminalMocks.renderClear.mockClear()
+    terminalMocks.clearTextureAtlas.mockClear()
     terminalLifecycleMocks.open.mockClear()
     terminalLifecycleMocks.dispose.mockClear()
+    webSocketMocks.send.mockClear()
+    webSocketMocks.subscribeOutput.mockClear()
+    webSocketMocks.lastOutputListener = null
     clipboardMocks.writeClipboardText.mockClear()
     storeMocks.pushToast.mockClear()
     storeMocks.updateTerminalPerf.mockClear()
@@ -374,6 +389,18 @@ describe('TerminalPane', () => {
     expect(terminalMocks.write).not.toHaveBeenCalled()
     webSocketMocks.lastOutputListener?.({ data: 'printf "dev_only_output_ok"\\r\\n', sessionName: 'dev' })
     await waitFor(() => expect(terminalMocks.write).toHaveBeenCalledWith('printf "dev_only_output_ok"\\r\\n'))
+  })
+  it('resets renderer cache on attach and layout repaint', async () => {
+    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    window.dispatchEvent(new CustomEvent('tmux-attached', { detail: { sessionName: 'dev', cols: 120, rows: 36, exclusive: true } }))
+    await waitFor(() => expect(terminalMocks.clearTextureAtlas).toHaveBeenCalled())
+    expect(terminalMocks.renderClear).toHaveBeenCalled()
+    expect(terminalMocks.refresh).toHaveBeenCalledWith(0, 35)
+    expect(webSocketMocks.send).toHaveBeenCalledWith({ type: 'redraw', sessionName: 'dev' })
+    terminalMocks.clearTextureAtlas.mockClear()
+    window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'desktop-workbench' } }))
+    await waitFor(() => expect(terminalMocks.clearTextureAtlas).toHaveBeenCalled())
   })
   it('keeps terminal root aligned without transform offsets', async () => {
     const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)

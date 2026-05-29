@@ -9,10 +9,10 @@ async function ensureSession(request: any, name: string) {
 test('home page smoke flow', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByText('TmuxGo')).toBeVisible()
-  await expect(page.locator('aside').getByText('会话', { exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: '+ 新建会话' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Sessions' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'New' })).toBeVisible()
   await expect(page.locator('main').nth(1)).toBeVisible()
-  await expect(page.getByRole('button', { name: '⚙' })).toBeVisible()
+  await expect(page.locator('header').getByRole('button', { name: '⚙' })).toBeVisible()
 })
 test('mobile viewport fits visible screen', async ({ browser, baseURL }) => {
   const context = await browser.newContext({

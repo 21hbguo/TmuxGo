@@ -22,6 +22,8 @@ const DELETE_WORD_REPEAT_THIRD_DELAY = 78
 const DELETE_WORD_REPEAT_FOURTH_DELAY = 56
 const DELETE_WORD_REPEAT_MIN_DELAY = 30
 const DEFAULT_TERMINAL_PERF = { attachLatency: 0, outputBytes: 0, outputEvents: 0, outputBacklog: 0, layoutFitCount: 0, lastOutputAt: '' }
+const TERMINAL_REPAINT_DELAYS = [0, 16, 48, 120, 260]
+const TERMINAL_ATTACH_REPAINT_DELAYS = [0, 16, 48, 120, 260, 520]
 
 interface TerminalPaneProps {
   sessionName?: string
@@ -90,6 +92,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   }, [])
 
   const { send } = useWebSocket()
+  const sendRef = useRef(send)
   const sendInput = useCallback((data: string) => onInputRef.current?.(data), [])
   const { textareaRef, focusKeyboard, isMobile: isMobileDevice } = useMobileKeyboard(sendInput, terminalRef)
   const dropState = useTerminalDrop((data) => onInputRef.current?.(data), openUploadDialog)
@@ -136,6 +139,9 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   useEffect(() => {
     activeHostIdRef.current = activeHostId
   }, [activeHostId])
+  useEffect(() => {
+    sendRef.current = send
+  }, [send])
 
   useEffect(() => {
     const terminal = terminalInstance.current
@@ -173,6 +179,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     let stableFitTimer: ReturnType<typeof setTimeout> | null = null
     let sharedLayoutFrame: number | null = null
     let fitFrame: number | null = null
+    let repaintFrame: number | null = null
+    let repaintTimers: ReturnType<typeof setTimeout>[] = []
     let disposed = false
     let readyNotified = false
     let sharedPanX = 0
@@ -230,6 +238,54 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         queryClient?.setQueryData(['session-snapshot', hostId, `session-${currentSessionName}`], snapshot)
         if (snapshot.activePaneId) setActivePane(snapshot.activePaneId)
       } catch {}
+    }
+    const requestServerRedraw = () => {
+      const currentSessionName = sessionNameRef.current
+      if (!currentSessionName) return
+      sendRef.current({ type: 'redraw', sessionName: currentSessionName })
+    }
+    const refreshTerminalRows = () => {
+      if (!terminal || disposed) return
+      try {
+        terminal.refresh(0, Math.max(0, terminal.rows - 1))
+      } catch {}
+    }
+    const resetTerminalRenderer = () => {
+      if (!terminal || disposed) return
+      try {
+        if (attachExclusiveRef.current) syncExclusiveViewport()
+        else syncSharedViewport()
+        terminal.clearTextureAtlas?.()
+        terminal._core?._renderService?.clear?.()
+        refreshTerminalRows()
+      } catch {}
+    }
+    const clearTerminalRepaint = () => {
+      if (repaintFrame) {
+        cancelAnimationFrame(repaintFrame)
+        repaintFrame = null
+      }
+      for (const timer of repaintTimers) clearTimeout(timer)
+      repaintTimers = []
+    }
+    const scheduleTerminalRepaint = (delays = TERMINAL_REPAINT_DELAYS, serverRedraw = false) => {
+      if (disposed) return
+      clearTerminalRepaint()
+      if (serverRedraw) requestServerRedraw()
+      for (const delay of delays) {
+        if (delay <= 0) {
+          repaintFrame = requestAnimationFrame(() => {
+            repaintFrame = null
+            resetTerminalRenderer()
+          })
+          continue
+        }
+        const timer = setTimeout(() => {
+          repaintTimers = repaintTimers.filter((item) => item !== timer)
+          resetTerminalRenderer()
+        }, delay)
+        repaintTimers.push(timer)
+      }
     }
 
     const getCanvasSize = () => {
@@ -344,6 +400,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         const currentHeight = container.clientHeight
         if (!force && currentWidth === lastFitSize.width && currentHeight === lastFitSize.height && lastSizeRef.current) {
           syncExclusiveViewport()
+          resetTerminalRenderer()
           return true
         }
         lastFitSize = { width: currentWidth, height: currentHeight }
@@ -365,7 +422,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           requestAnimationFrame(() => {
             if (disposed || !terminal) return
             syncExclusiveViewport()
-            terminal.refresh(0, Math.max(0, terminal.rows - 1))
+            resetTerminalRenderer()
             if (adjustExclusiveLineHeight()) scheduleFit(0, true)
           })
           notifyReady()
@@ -456,6 +513,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           return
         }
         if (isMobileDevice) syncSharedViewport()
+        resetTerminalRenderer()
         const prev = lastSizeRef.current
         lastSizeRef.current = { cols: size.cols, rows: size.rows }
         if (!prev || prev.cols !== size.cols || prev.rows !== size.rows) {
@@ -564,7 +622,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         recordTerminalOutput(terminalPerfRef.current, raw, raw.length, 0)
         terminal.write(raw, () => {
           if (!terminal || disposed) return
-          terminal.refresh(0, Math.max(0, terminal.rows - 1))
+          refreshTerminalRows()
         })
         if (!attachExclusiveRef.current && isMobileDevice) requestAnimationFrame(syncSharedViewport)
       }
@@ -599,12 +657,14 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         if (attachExclusiveRef.current) {
           scheduleInitialFit()
           forceStableFit(5, 34)
+          scheduleTerminalRepaint(TERMINAL_ATTACH_REPAINT_DELAYS, true)
           return
         }
         if (cols > 0 && rows > 0) {
           sharedSessionSizeRef.current = { cols, rows }
           syncSharedLayout(true)
           forceStableFit(4, 34)
+          scheduleTerminalRepaint(TERMINAL_ATTACH_REPAINT_DELAYS, true)
         }
       }
       const handleLayoutChange = () => {
@@ -612,9 +672,11 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         updateTerminalPerf({ layoutFitCount: perf.layoutFitCount + 1 })
         if (attachExclusiveRef.current) {
           forceStableFit(5, 34)
+          scheduleTerminalRepaint(TERMINAL_REPAINT_DELAYS, true)
           return
         }
         forceStableFit(4, 34)
+        scheduleTerminalRepaint(TERMINAL_REPAINT_DELAYS, true)
       }
       const handleVisibilityChange = () => {
         if (document.hidden) {
@@ -623,9 +685,11 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         }
         if (attachExclusiveRef.current) {
           forceStableFit(4, 34)
+          scheduleTerminalRepaint(TERMINAL_REPAINT_DELAYS, true)
           return
         }
         forceStableFit(3, 34)
+        scheduleTerminalRepaint(TERMINAL_REPAINT_DELAYS, true)
       }
       window.addEventListener('tmux-attached', handleAttached as EventListener)
       window.addEventListener('tmuxgo-layout-change', handleLayoutChange as EventListener)
@@ -751,6 +815,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       if (fitTimeout) clearTimeout(fitTimeout)
       if (stableFitTimer) clearTimeout(stableFitTimer)
       if (fitFrame) cancelAnimationFrame(fitFrame)
+      clearTerminalRepaint()
       if (sharedLayoutFrame) cancelAnimationFrame(sharedLayoutFrame)
       resizeObserver?.disconnect()
       disposables.forEach((d) => d?.dispose?.())
