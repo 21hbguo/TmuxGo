@@ -1,6 +1,30 @@
 import { getApiBase } from './runtime-endpoints'
 import type { CustomShortcut, FavoriteDirectory, FileContentMatch, FileContentResponse, FileItem, FileListResponse, FilePreviewResponse, FileRoot, FileUploadTarget, RemotePreferences, UploadJobResult, UploadedFile } from '@/types'
 
+export interface StreamSystemInfo {
+  outputBytes: number
+  outputChunks: number
+  outputFlushes: number
+  sanitizeCalls: number
+  sanitizeChars: number
+  attachRequests: number
+  resizeRequests: number
+  inputMessages: number
+  backpressureSignals: number
+  profileUpdates: number
+  activeClients: number
+  activeProfile: 'foreground' | 'background' | 'mobile'
+  activeFlushInterval: number
+  activeMaxChars: number
+}
+export interface SystemInfoResponse {
+  gpu: { used: number; total: number } | null
+  cpu: number
+  mem: { used: number; total: number }
+  disks: { mount: string; used: number; total: number }[]
+  stream: StreamSystemInfo
+}
+
 async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   const url = `${getApiBase()}${path}`
   const isFormData = typeof FormData !== 'undefined' && options?.body instanceof FormData
@@ -164,7 +188,7 @@ export const api = {
       }),
   },
   system: {
-    info: () => fetchApi<{ gpu: { used: number; total: number } | null; cpu: number; mem: { used: number; total: number }; disks: { mount: string; used: number; total: number }[] }>('/api/system'),
+    info: () => fetchApi<SystemInfoResponse>('/api/system'),
   },
   files: {
     roots: () => fetchApi<FileRoot[]>('/api/files/roots'),

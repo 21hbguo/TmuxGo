@@ -5,9 +5,18 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import { ConnectionBadge } from './ConnectionBadge'
 import { Settings } from './Settings'
 import { useTranslation } from '@/i18n'
+import { useHosts, useSessions } from '@/hooks/useApi'
 
 export function TopBar() {
-  const { activeHostId, activeSessionId, hosts, sessions, setCommandPalette, sessionPanelExpanded, toggleSessionPanel, filePanelOpen, toggleFilePanel } = useConsoleStore()
+  const activeHostId = useConsoleStore((state) => state.activeHostId)
+  const activeSessionId = useConsoleStore((state) => state.activeSessionId)
+  const setCommandPalette = useConsoleStore((state) => state.setCommandPalette)
+  const sessionPanelExpanded = useConsoleStore((state) => state.sessionPanelExpanded)
+  const toggleSessionPanel = useConsoleStore((state) => state.toggleSessionPanel)
+  const filePanelOpen = useConsoleStore((state) => state.filePanelOpen)
+  const toggleFilePanel = useConsoleStore((state) => state.toggleFilePanel)
+  const { data: hosts = [] } = useHosts()
+  const { data: sessions = [] } = useSessions(activeHostId || '')
   const [showSettings, setShowSettings] = useState(false)
   const { t } = useTranslation()
 

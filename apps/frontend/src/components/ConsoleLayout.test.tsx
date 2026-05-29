@@ -42,10 +42,6 @@ describe('ConsoleLayout mobile files overlay stack', () => {
       sessionPanelExpanded: false,
       filePanelOpen: false,
       mobileFileSheetOpen: false,
-      panes: [],
-      windows: [],
-      sessions: [],
-      hosts: [],
       toasts: [],
       connection: { status: 'disconnected', latency: 0, lastPing: new Date().toISOString() },
     } as any)

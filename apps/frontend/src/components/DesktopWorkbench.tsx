@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { api } from '@/lib/api'
 import type { FileDocumentHandle, FileEditorDocument } from '@/types'
@@ -61,18 +61,45 @@ export function DesktopWorkbench() {
   const pushToast = useConsoleStore((state) => state.pushToast)
   const resizingRef = useRef<'session' | 'file' | null>(null)
   const restoredRef = useRef(false)
+  const pendingSessionWidthRef = useRef(sessionPanelWidth)
+  const pendingFileWidthRef = useRef(filePanelWidth)
+  const frameRef = useRef<number | null>(null)
+  const [previewSessionWidth, setPreviewSessionWidth] = useState<number | null>(null)
+  const [previewFileWidth, setPreviewFileWidth] = useState<number | null>(null)
   useEffect(() => {
     const handleMove = (event: MouseEvent) => {
       if (resizingRef.current === 'session') {
-        setSessionPanelWidth(event.clientX - 56)
+        pendingSessionWidthRef.current = Math.max(240, Math.min(360, event.clientX - 56))
+        if (frameRef.current) return
+        frameRef.current = requestAnimationFrame(() => {
+          frameRef.current = null
+          setPreviewSessionWidth(pendingSessionWidthRef.current)
+        })
         return
       }
       if (resizingRef.current === 'file') {
-        const sessionOffset = 56 + (sessionPanelExpanded ? sessionPanelWidth : 16 * 4)
-        setFilePanelWidth(event.clientX - sessionOffset)
+        const sessionOffset = 56 + (sessionPanelExpanded ? (previewSessionWidth ?? pendingSessionWidthRef.current ?? sessionPanelWidth) : 16 * 4)
+        pendingFileWidthRef.current = Math.max(320, Math.min(420, event.clientX - sessionOffset))
+        if (frameRef.current) return
+        frameRef.current = requestAnimationFrame(() => {
+          frameRef.current = null
+          setPreviewFileWidth(pendingFileWidthRef.current)
+        })
       }
     }
     const handleUp = () => {
+      if (frameRef.current) {
+        cancelAnimationFrame(frameRef.current)
+        frameRef.current = null
+      }
+      if (resizingRef.current === 'session') {
+        setSessionPanelWidth(pendingSessionWidthRef.current)
+        setPreviewSessionWidth(null)
+      }
+      if (resizingRef.current === 'file') {
+        setFilePanelWidth(pendingFileWidthRef.current)
+        setPreviewFileWidth(null)
+      }
       resizingRef.current = null
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
@@ -80,10 +107,11 @@ export function DesktopWorkbench() {
     window.addEventListener('mousemove', handleMove)
     window.addEventListener('mouseup', handleUp)
     return () => {
+      if (frameRef.current) cancelAnimationFrame(frameRef.current)
       window.removeEventListener('mousemove', handleMove)
       window.removeEventListener('mouseup', handleUp)
     }
-  }, [sessionPanelExpanded, sessionPanelWidth, setFilePanelWidth, setSessionPanelWidth])
+  }, [previewSessionWidth, sessionPanelExpanded, sessionPanelWidth, setFilePanelWidth, setSessionPanelWidth])
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'desktop-workbench', sessionPanelExpanded, sessionPanelWidth, filePanelOpen, filePanelWidth, editorsOpen: openEditors.length > 0 } }))
   }, [filePanelOpen, filePanelWidth, openEditors.length, sessionPanelExpanded, sessionPanelWidth])
@@ -130,28 +158,34 @@ export function DesktopWorkbench() {
       pushToast({ type: 'error', message })
     }
   }, [markEditorSaved, pushToast, setEditorSaving])
+  const renderedSessionPanelWidth = previewSessionWidth ?? sessionPanelWidth
+  const renderedFilePanelWidth = previewFileWidth ?? filePanelWidth
   return (
     <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
       <ActivityBar />
       {sessionPanelExpanded ? (
-        <div className="relative shrink-0 border-r border-[var(--line)] bg-bg-1" style={{ width: sessionPanelWidth }}>
+        <div className="relative shrink-0 border-r border-[var(--line)] bg-bg-1" style={{ width: renderedSessionPanelWidth }}>
           <div className="h-full min-h-0">
             <SessionPanel />
           </div>
           <div className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-accent/40" onMouseDown={() => {
             resizingRef.current = 'session'
+            pendingSessionWidthRef.current = sessionPanelWidth
+            setPreviewSessionWidth(sessionPanelWidth)
             document.body.style.cursor = 'col-resize'
             document.body.style.userSelect = 'none'
           }} />
         </div>
       ) : <SessionRail />}
       {filePanelOpen && (
-        <div className="relative shrink-0 border-r border-[var(--line)] bg-bg-1" style={{ width: filePanelWidth }}>
+        <div className="relative shrink-0 border-r border-[var(--line)] bg-bg-1" style={{ width: renderedFilePanelWidth }}>
           <div className="h-full min-h-0">
             <FilePanel mode="explorer" onOpenFile={handleOpenFile} />
           </div>
           <div className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-accent/40" onMouseDown={() => {
             resizingRef.current = 'file'
+            pendingFileWidthRef.current = filePanelWidth
+            setPreviewFileWidth(filePanelWidth)
             document.body.style.cursor = 'col-resize'
             document.body.style.userSelect = 'none'
           }} />

@@ -28,7 +28,7 @@ describe('ShortcutBar', () => {
     send.mockClear()
     snapshotGet.mockReset()
     zoomByPane.mockReset()
-    useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-dev', activePaneId: 'old-pane', windows: [], panes: [] })
+    useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-dev', activePaneId: 'old-pane' })
   })
   afterEach(() => {
     vi.runOnlyPendingTimers()

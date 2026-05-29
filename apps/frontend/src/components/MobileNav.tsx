@@ -28,13 +28,14 @@ const icons = {
 }
 
 export function MobileNav({ onOpenDrawer, onOpenSettings, onOpenSearch, onOpenFiles, docked = false }: MobileNavProps) {
-  const { connection } = useConsoleStore()
+  const connection = useConsoleStore((state) => state.connection)
+  const terminalPerf = useConsoleStore((state) => state.terminalPerf)
   const { t } = useTranslation()
 
   const isConnected = connection.status === 'connected'
   const isRecovering = connection.status === 'reconnecting' || connection.status === 'attaching'
   const statusColor = isConnected ? 'bg-accent-2' : isRecovering ? 'bg-warn' : 'bg-danger'
-  const statusText = isConnected ? `${connection.latency ?? 0}ms` : isRecovering ? '...' : 'Off'
+  const statusText = isConnected ? `${connection.latency ?? 0}/${terminalPerf.attachLatency}ms` : isRecovering ? '...' : 'Off'
   const containerClass = docked
     ? 'mobile-nav-landscape-hide h-full border-t border-[var(--line)] bg-bg-1 pb-[env(safe-area-inset-bottom)] transition-transform duration-200'
     : 'mobile-nav-landscape-hide fixed left-0 right-0 z-40 border-t border-[var(--line)] bg-bg-1 pb-[env(safe-area-inset-bottom)] transition-transform duration-200'

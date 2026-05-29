@@ -1,14 +1,18 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
-import { useCreateSession, useDeleteSession } from '@/hooks/useApi'
+import { useCreateSession, useDeleteSession, useSessions } from '@/hooks/useApi'
 import { SessionTemplates, type Template } from './SessionTemplates'
 import { ConfirmDialog } from './ConfirmDialog'
 import { QuickActions } from './QuickActions'
 import { usePreferences } from '@/hooks/usePreferences'
 
 export function SessionPanel() {
-  const { sessions, activeSessionId, setActiveSession, activeHostId, pushToast } = useConsoleStore()
+  const activeSessionId = useConsoleStore((state) => state.activeSessionId)
+  const setActiveSession = useConsoleStore((state) => state.setActiveSession)
+  const activeHostId = useConsoleStore((state) => state.activeHostId)
+  const pushToast = useConsoleStore((state) => state.pushToast)
+  const { data: sessions = [] } = useSessions(activeHostId || '')
   const createSession = useCreateSession()
   const deleteSession = useDeleteSession()
   const { preferences } = usePreferences()

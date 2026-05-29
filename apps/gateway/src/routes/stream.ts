@@ -5,17 +5,20 @@ import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { agentManager } from '../agent-manager.js'
 import { assertSessionAllowed, prepareSessionAttach } from '../lib/tmux-policy.js'
+import { recordStreamMetric, updateStreamMetric } from '../lib/perf-metrics.js'
 
 const execFileAsync = promisify(execFile)
 
 export async function streamRoutes(fastify: FastifyInstance) {
   fastify.get('/stream', { websocket: true }, (connection: SocketStream) => {
     console.log('Client connected to stream')
-
-    const OUTPUT_FLUSH_INTERVAL = 4
-    const OUTPUT_MAX_CHARS = 65536
     const SCROLL_FLUSH_INTERVAL = 16
     const SCROLL_MAX_LINES = 24
+    const OUTPUT_PROFILES = {
+      foreground: { flushInterval: 4, maxChars: 24576 },
+      background: { flushInterval: 24, maxChars: 98304 },
+      mobile: { flushInterval: 12, maxChars: 32768 },
+    } as const
     let ptyProcess: pty.IPty | null = null
     let attachedSessionName: string | null = null
     let attachedExclusive = false
@@ -25,10 +28,30 @@ export async function streamRoutes(fastify: FastifyInstance) {
     let outputCarry = ''
     let outputBuffer = ''
     let outputTimer: ReturnType<typeof setTimeout> | null = null
+    let outputProfile: keyof typeof OUTPUT_PROFILES = 'foreground'
     let attachSeq = 0
     const scrollBuffers = new Map<string, number>()
     const scrollTimers = new Map<string, ReturnType<typeof setTimeout>>()
     const socket = connection.socket
+    updateStreamMetric('activeClients', streamPerfMetricsActiveClientsDelta(1))
+    syncOutputProfile(outputProfile)
+
+    function streamPerfMetricsActiveClientsDelta(delta: number) {
+      const next = Math.max(0, Number((globalThis as any).__tmuxgoActiveClients || 0) + delta)
+      ;(globalThis as any).__tmuxgoActiveClients = next
+      return next
+    }
+    function syncOutputProfile(profile: keyof typeof OUTPUT_PROFILES) {
+      outputProfile = profile
+      const current = OUTPUT_PROFILES[profile]
+      updateStreamMetric('activeProfile', profile)
+      updateStreamMetric('activeFlushInterval', current.flushInterval)
+      updateStreamMetric('activeMaxChars', current.maxChars)
+      recordStreamMetric('profileUpdates')
+    }
+    function getOutputProfileConfig() {
+      return OUTPUT_PROFILES[outputProfile]
+    }
 
     function send(data: any) {
       if (socket.readyState === 1) {
@@ -37,14 +60,18 @@ export async function streamRoutes(fastify: FastifyInstance) {
     }
 
     function flushOutput() {
-      if (!outputBuffer) return
-      send({ type: 'output', data: outputBuffer })
+      if (!outputBuffer || !attachedSessionName) return
+      recordStreamMetric('outputFlushes')
+      recordStreamMetric('outputChunks')
+      recordStreamMetric('outputBytes', outputBuffer.length)
+      send({ type: 'output', data: outputBuffer, sessionName: attachedSessionName })
       outputBuffer = ''
     }
     function queueOutput(output: string) {
       if (!output) return
       outputBuffer += output
-      if (outputBuffer.length >= OUTPUT_MAX_CHARS) {
+      const profile = getOutputProfileConfig()
+      if (outputBuffer.length >= profile.maxChars) {
         if (outputTimer) {
           clearTimeout(outputTimer)
           outputTimer = null
@@ -56,7 +83,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
       outputTimer = setTimeout(() => {
         outputTimer = null
         flushOutput()
-      }, OUTPUT_FLUSH_INTERVAL)
+      }, profile.flushInterval)
     }
     async function applyScroll(sessionName: string, lines: number) {
       if (!lines) return
@@ -115,6 +142,8 @@ export async function streamRoutes(fastify: FastifyInstance) {
     }
 
     function sanitizeOutput(chunk: string) {
+      recordStreamMetric('sanitizeCalls')
+      recordStreamMetric('sanitizeChars', chunk.length)
       const merged = outputCarry + chunk
       const cleaned = merged
         .replace(/\u001b\[[0-9;?]*c/g, '')
@@ -159,6 +188,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
             break
 
           case 'attach': {
+            recordStreamMetric('attachRequests')
             const sessionName = data.sessionName
             await prepareSessionAttach(sessionName)
             const requestedCols = data.cols || 80
@@ -220,6 +250,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
           }
 
           case 'resize':
+            recordStreamMetric('resizeRequests')
             if (ptyProcess) {
               ptyProcess.resize(data.cols, data.rows)
               attachedCols = data.cols
@@ -228,9 +259,20 @@ export async function streamRoutes(fastify: FastifyInstance) {
             break
 
           case 'input':
+            recordStreamMetric('inputMessages')
             if (ptyProcess) {
               ptyProcess.write(data.data)
             }
+            break
+          case 'stream_profile':
+            if (data.profile === 'foreground' || data.profile === 'background' || data.profile === 'mobile') {
+              syncOutputProfile(data.profile)
+            }
+            break
+          case 'stream_backpressure':
+            recordStreamMetric('backpressureSignals')
+            if (data.level === 'high') syncOutputProfile(data.mobile ? 'mobile' : 'background')
+            if (data.level === 'normal') syncOutputProfile(data.mobile ? 'mobile' : 'foreground')
             break
 
           case 'pane_scroll': {
@@ -270,6 +312,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
     socket.on('close', () => {
       console.log('Client disconnected from stream')
       cleanup()
+      updateStreamMetric('activeClients', streamPerfMetricsActiveClientsDelta(-1))
       if (agentId) {
         agentManager.unregister(agentId)
       }

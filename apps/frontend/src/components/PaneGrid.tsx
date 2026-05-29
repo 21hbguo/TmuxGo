@@ -20,7 +20,8 @@ export function PaneGrid() {
   const activeSessionId = useConsoleStore((s) => s.activeSessionId)
   const connectionStatus = useConsoleStore((s) => s.connection.status)
   const updateConnection = useConsoleStore((s) => s.updateConnection)
-  const { send, isConnected, isSocketReady } = useWebSocket()
+  const updateTerminalPerf = useConsoleStore((s) => s.updateTerminalPerf)
+  const { send, isConnected, isSocketReady, subscribeOutput } = useWebSocket()
   const { t } = useTranslation()
   const { preferences } = usePreferences()
   const isMobile = isMobileDevice()
@@ -39,6 +40,7 @@ export function PaneGrid() {
   const sentResizeRef = useRef<{ cols: number; rows: number } | null>(null)
   const lastExclusiveRef = useRef(exclusive)
   const lastExternalInputRef = useRef<{ data: string; at: number } | null>(null)
+  const attachStartedAtRef = useRef(0)
 
   const sessionName = activeSessionId?.replace('session-', '') || ''
 
@@ -95,6 +97,7 @@ export function PaneGrid() {
     if (!sessionName || !isSocketReady || !terminalReadyRef.current) return
     const size = sizeRef.current
     clearAttachTimers()
+    attachStartedAtRef.current = typeof performance !== 'undefined' ? performance.now() : Date.now()
     updateConnection({ status: 'attaching' })
     const sent = send({ type: 'attach', sessionName, cols: size?.cols || 120, rows: size?.rows || 36, exclusive })
     if (!sent) return
@@ -144,7 +147,7 @@ export function PaneGrid() {
     clearInputFlushTimer()
     attachedRef.current = null
     sentResizeRef.current = null
-    if (!sessionName) terminalReadyRef.current = false
+    terminalReadyRef.current = false
     inputQueueRef.current = []
   }, [sessionName, clearPendingResize, clearAttachTimers, clearInputFlushTimer])
   useEffect(() => {
@@ -180,19 +183,32 @@ export function PaneGrid() {
     attachNow()
   }, [exclusive, sessionName, attachNow, clearPendingResize, clearAttachTimers])
   useEffect(() => {
+    if (!isSocketReady) return
+    const profile = isMobile ? 'mobile' : document.visibilityState === 'visible' ? 'foreground' : 'background'
+    send({ type: 'stream_profile', profile })
+    const handleVisibilityChange = () => {
+      const nextProfile = isMobile ? 'mobile' : document.visibilityState === 'visible' ? 'foreground' : 'background'
+      send({ type: 'stream_profile', profile: nextProfile })
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }, [isMobile, isSocketReady, send])
+  useEffect(() => {
     const handleAttached = (event: Event) => {
       const detail = (event as CustomEvent).detail || {}
       if (detail.sessionName !== sessionName) return
       clearAttachTimers()
       attachedRef.current = sessionName
       pendingSwitchRef.current = false
+      const attachLatency = Math.max(0, Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - attachStartedAtRef.current))
       updateConnection({ status: 'connected' })
+      updateTerminalPerf({ attachLatency })
       flushInputQueue()
       window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'attached', sessionName } }))
     }
     window.addEventListener('tmux-attached', handleAttached as EventListener)
     return () => window.removeEventListener('tmux-attached', handleAttached as EventListener)
-  }, [sessionName, clearAttachTimers, updateConnection, flushInputQueue])
+  }, [sessionName, clearAttachTimers, updateConnection, updateTerminalPerf, flushInputQueue])
   useEffect(() => {
     if (isConnected) flushInputQueue()
   }, [isConnected, flushInputQueue])
@@ -274,7 +290,7 @@ export function PaneGrid() {
           {t(`status.${connectionStatus}`)}
         </div>
       )}
-      <TerminalPane sessionName={sessionName} onInput={handleInput} onResize={handleResize} attachExclusive={exclusive} onReady={handleReady} />
+      <TerminalPane key={sessionName || 'empty-session'} sessionName={sessionName} onInput={handleInput} onResize={handleResize} attachExclusive={exclusive} onReady={handleReady} subscribeOutput={subscribeOutput} />
     </div>
   )
 }

@@ -5,6 +5,8 @@ import { usePreferences } from './usePreferences'
 import { getWebSocketBase } from '@/lib/runtime-endpoints'
 type WSState={ws:WebSocket|null,reconnectTimer:ReturnType<typeof setTimeout>|null,reconnectCount:number,isConnecting:boolean,socketReady:boolean,pingTimer:ReturnType<typeof setInterval>|null,pongTimer:ReturnType<typeof setTimeout>|null,closeTimer:ReturnType<typeof setTimeout>|null,subscribers:number,lastPongAt:number,hiddenAt:number,backgroundClosed:boolean,onMessage:((data:any)=>void)|null,onOpen:(()=>void)|null,onClose:(()=>void)|null,onError:(()=>void)|null,closeExpected:boolean,lastInteractionRecoverAt:number,listenersReady:boolean,cleanupListeners:(()=>void)|null}
 const wsState:WSState={ws:null,reconnectTimer:null,reconnectCount:0,isConnecting:false,socketReady:false,pingTimer:null,pongTimer:null,closeTimer:null,subscribers:0,lastPongAt:0,hiddenAt:0,backgroundClosed:false,onMessage:null,onOpen:null,onClose:null,onError:null,closeExpected:false,lastInteractionRecoverAt:0,listenersReady:false,cleanupListeners:null}
+type OutputMessage={data:string,sessionName?:string|null}
+const outputListeners=new Set<(message:OutputMessage)=>void>()
 export function useWebSocket() {
   const reconnectCountRef=useRef(0)
   const updateConnection=useConsoleStore((s)=>s.updateConnection)
@@ -25,7 +27,7 @@ export function useWebSocket() {
         updateConnection({latency:Date.now()-(data.timestamp||Date.now()),lastPing:new Date().toISOString()})
         break
       case 'output': {
-        window.dispatchEvent(new CustomEvent('tmuxgo-terminal-output',{detail:data.data}))
+        Array.from(outputListeners).forEach((listener)=>listener({data:data.data,sessionName:data.sessionName??null}))
         break
       }
       case 'connected':
@@ -199,6 +201,10 @@ export function useWebSocket() {
     }
     return false
   },[])
+  const subscribeOutput=useCallback((listener:(message:OutputMessage)=>void)=>{
+    outputListeners.add(listener)
+    return ()=>outputListeners.delete(listener)
+  },[])
   useEffect(()=>{
     if (typeof window==='undefined') return
     if (wsState.closeTimer) {
@@ -325,5 +331,5 @@ export function useWebSocket() {
       }
     }
   },[connect,ensureConnection,handleMessage,scheduleReconnect,sendPing,clearPongTimer])
-  return {send,isConnected,isSocketReady}
+  return {send,isConnected,isSocketReady,subscribeOutput}
 }
