@@ -143,7 +143,7 @@ export function UploadConfirmDialog() {
             {roots.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
           </select>
           <label className="text-sm text-text-2">{t('upload.directory')}</label>
-          <input value={targetPath} onChange={(e) => setTargetPath(e.target.value)} placeholder="uploads" className="rounded border border-[var(--line)] bg-bg-2 px-3 py-2 font-mono text-sm text-text-1 outline-none placeholder:text-text-3 focus:border-accent" />
+          <input value={targetPath} onChange={(e) => setTargetPath(e.target.value)} placeholder={t('upload.directory')} className="rounded border border-[var(--line)] bg-bg-2 px-3 py-2 font-mono text-sm text-text-1 outline-none placeholder:text-text-3 focus:border-accent" />
           <label className="text-sm text-text-2">{t('upload.target')}</label>
           <div className="rounded border border-[var(--line)] bg-bg-0 px-3 py-2 font-mono text-xs text-text-2">{loadingTarget ? t('upload.resolving') : pathPreview || '-'}</div>
         </div>

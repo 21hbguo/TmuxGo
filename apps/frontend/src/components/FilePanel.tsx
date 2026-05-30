@@ -268,12 +268,12 @@ function TreeDirectoryNode({
             event.stopPropagation()
             onToggleFavorite(item)
           }} />
-          <span className="invisible text-[10px] text-text-3 group-hover:visible">dir</span>
+          <span className="invisible text-[10px] text-text-3 group-hover:visible">{t('file.dir')}</span>
         </div>
       </button>
       {isOpen && (
         <div>
-          {isLoading && <div className="px-2 py-1 text-[11px] text-text-3" style={{ paddingLeft: `${20 + depth * 12}px` }}>Loading...</div>}
+          {isLoading && <div className="px-2 py-1 text-[11px] text-text-3" style={{ paddingLeft: `${20 + depth * 12}px` }}>{t('file.loading')}</div>}
           {!isLoading && childItems.items.map((child) => (
             child.type === 'directory' ? (
               <TreeDirectoryNode
@@ -634,7 +634,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     const rootRelativePath = resolveRootRelativePath(activeRootBasePath, item.path)
     const full = activeSourceRootPath ? joinPath(activeSourceRootPath, rootRelativePath) : rootRelativePath
     insertPath(full)
-    pushToast({ type: 'success', message: `Inserted ${item.name}` })
+    pushToast({ type: 'success', message: t('file.inserted', { name: item.name }) })
   }
   const copyItemPath = async (item: FileItem | FileContentMatch) => {
     const rootRelativePath = resolveRootRelativePath(activeRootBasePath, item.path)
@@ -822,7 +822,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
         </div>
         <div className="mt-1.5 flex items-center gap-1">
           <input value={query} onChange={(e) => { setQuery(e.target.value); setSearchNavigationPath(null) }} placeholder={searchMode === 'name' ? t('file.searchName') : t('file.searchContent')} className="min-w-0 flex-1 rounded border border-[var(--line)] bg-bg-0 px-2 py-1 font-mono text-[11px] text-text-1 outline-none placeholder:text-text-3 focus:border-accent" />
-          <button onClick={() => { setQuery(''); setDebouncedQuery(''); setSearchNavigationPath(null) }} disabled={!query} aria-label="Clear search" className={`shrink-0 rounded border border-[var(--line)] px-2 py-1 text-[11px] ${query ? 'bg-bg-2 text-text-2 hover:text-accent' : 'bg-bg-0 text-text-3/40'}`}>×</button>
+          <button onClick={() => { setQuery(''); setDebouncedQuery(''); setSearchNavigationPath(null) }} disabled={!query} aria-label={t('file.searchName')} className={`shrink-0 rounded border border-[var(--line)] px-2 py-1 text-[11px] ${query ? 'bg-bg-2 text-text-2 hover:text-accent' : 'bg-bg-0 text-text-3/40'}`}>×</button>
         </div>
         <div className="mt-1.5 flex items-center gap-1">
           <div className="flex min-w-0 flex-1 rounded border border-[var(--line)] bg-bg-0 p-0.5 text-[11px]">

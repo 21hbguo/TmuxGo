@@ -35,7 +35,7 @@ export function MobileNav({ onOpenDrawer, onOpenSettings, onOpenSearch, onOpenFi
   const isConnected = connection.status === 'connected'
   const isRecovering = connection.status === 'reconnecting' || connection.status === 'attaching'
   const statusColor = isConnected ? 'bg-accent-2' : isRecovering ? 'bg-warn' : 'bg-danger'
-  const statusText = isConnected ? `${connection.latency ?? 0}/${attachLatency}ms` : isRecovering ? '...' : 'Off'
+  const statusText = isConnected ? `${connection.latency ?? 0}/${attachLatency}ms` : isRecovering ? '...' : t('nav.off')
   const containerClass = docked
     ? 'mobile-nav-landscape-hide h-full border-t border-[var(--line)] bg-bg-1 pb-[env(safe-area-inset-bottom)] transition-transform duration-200'
     : 'mobile-nav-landscape-hide fixed left-0 right-0 z-40 border-t border-[var(--line)] bg-bg-1 pb-[env(safe-area-inset-bottom)] transition-transform duration-200'
@@ -55,7 +55,7 @@ export function MobileNav({ onOpenDrawer, onOpenSettings, onOpenSearch, onOpenFi
 
         <button onClick={onOpenFiles} className="flex flex-col items-center gap-px text-text-3 active:text-accent active:scale-95 transition-all">
           <NavIcon d={icons.files} />
-          <span className="text-[9px] leading-none">Files</span>
+          <span className="text-[9px] leading-none">{t('nav.files')}</span>
         </button>
 
         <button onClick={onOpenSearch} className="flex flex-col items-center gap-px text-text-3 active:text-accent active:scale-95 transition-all">

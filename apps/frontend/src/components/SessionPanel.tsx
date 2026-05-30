@@ -38,10 +38,10 @@ export function SessionPanel() {
       const created = await createSession.mutateAsync({ hostId: activeHostId, name, layout: template.layout })
       if (created?.id) {
         setActiveSession(created.id)
-        pushToast({ type: 'success', message: `Session ${name} created` })
+        pushToast({ type: 'success', message: t('session.created', { name }) })
       }
     } catch (err) {
-      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Request failed' })
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('session.requestFailed') })
     }
     setShowTemplates(false)
   }
@@ -51,9 +51,9 @@ export function SessionPanel() {
     try {
       await deleteSession.mutateAsync({ hostId: activeHostId, sessionId: pendingDeleteSessionId })
       if (activeSessionId === pendingDeleteSessionId) setActiveSession(sessions.find((item) => item.id !== pendingDeleteSessionId)?.id || '')
-      pushToast({ type: 'success', message: `Session ${session?.name || pendingDeleteSessionId} deleted` })
+      pushToast({ type: 'success', message: t('session.deleted', { name: session?.name || pendingDeleteSessionId }) })
     } catch (err) {
-      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Request failed' })
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('session.requestFailed') })
     }
     setPendingDeleteSessionId(null)
   }
@@ -69,7 +69,7 @@ export function SessionPanel() {
       setSelectedSessionIds([])
       setBatchMode(false)
     } catch (err) {
-      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Request failed' })
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('session.requestFailed') })
     }
     setBatchDeleteConfirmOpen(false)
   }
@@ -81,9 +81,9 @@ export function SessionPanel() {
     try {
       const renamed = await renameSession.mutateAsync({ hostId: activeHostId, sessionId, name })
       if (activeSessionId === sessionId && renamed?.id) setActiveSession(renamed.id)
-      pushToast({ type: 'success', message: `Session ${session?.name || sessionId} renamed to ${name}` })
+      pushToast({ type: 'success', message: t('session.renamed', { from: session?.name || sessionId, to: name }) })
     } catch (err) {
-      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Request failed' })
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('session.requestFailed') })
     }
   }
   const toggleBatchMode = () => {

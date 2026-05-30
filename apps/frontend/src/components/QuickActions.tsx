@@ -115,7 +115,7 @@ function useQuickActionController() {
       await api.panes.split(paneId,direction)
       await refreshSnapshot()
       window.dispatchEvent(new CustomEvent('tmuxgo-layout-change',{ detail:{ reason:'split-pane',direction } }))
-      pushToast({ type:'success',message:'Pane split complete' })
+      pushToast({ type:'success',message:t('pane.splitSuccess') })
     }catch(err){
       try{
         await refreshSnapshot()
@@ -124,9 +124,9 @@ function useQuickActionController() {
         await api.panes.split(paneId,direction)
         await refreshSnapshot()
         window.dispatchEvent(new CustomEvent('tmuxgo-layout-change',{ detail:{ reason:'split-pane',direction } }))
-        pushToast({ type:'success',message:'Pane split complete' })
+        pushToast({ type:'success',message:t('pane.splitSuccess') })
       }catch(retryErr){
-        pushToast({ type:'error',message:retryErr instanceof Error?retryErr.message:'Split failed' })
+        pushToast({ type:'error',message:retryErr instanceof Error?retryErr.message:t('pane.splitFailed') })
       }
     }finally{
       setPendingDirection(null)
@@ -137,10 +137,10 @@ function useQuickActionController() {
       if(!text)return
       const result=await writeClipboardText(text)
       if(!result.copied){
-        pushToast({ type:'error',message:'Copy failed' })
+        pushToast({ type:'error',message:t('clipboard.copyFailed') })
         return
       }
-      if(result.unavailable)pushToast({ type:'info',message:'Clipboard unavailable, kept in app' })
+      if(result.unavailable)pushToast({ type:'info',message:t('clipboard.unavailable') })
     })
   },[pushToast])
   const handlePaste=useCallback(()=>window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-paste')),[])
@@ -157,9 +157,9 @@ function useQuickActionController() {
       await api.panes.kill(paneId)
       await refreshSnapshot()
       window.dispatchEvent(new CustomEvent('tmuxgo-layout-change',{ detail:{ reason:'kill-pane' } }))
-      pushToast({ type:'success',message:'Pane closed' })
+      pushToast({ type:'success',message:t('pane.closed') })
     }catch(err){
-      pushToast({ type:'error',message:err instanceof Error?err.message:'Kill failed' })
+      pushToast({ type:'error',message:err instanceof Error?err.message:t('pane.closeFailed') })
     }
     setConfirmKillOpen(false)
   },[pushToast,refreshSnapshot,resolveActivePaneId])
@@ -170,7 +170,7 @@ function useQuickActionController() {
       await api.panes.zoomByPane(paneId)
       window.dispatchEvent(new CustomEvent('tmuxgo-layout-change',{ detail:{ reason:'zoom-pane' } }))
     }catch(err){
-      pushToast({ type:'error',message:err instanceof Error?err.message:'Zoom failed' })
+      pushToast({ type:'error',message:err instanceof Error?err.message:t('pane.zoomFailed') })
     }
   },[pushToast,resolveActivePaneId])
 

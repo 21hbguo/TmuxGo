@@ -52,10 +52,10 @@ export function TopBar() {
 
         <div className="flex items-center gap-4">
           <button onClick={toggleSessionPanel} className={`rounded-lg px-3 py-1.5 text-sm transition-colors ${sessionPanelExpanded ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-3 hover:text-text-1'}`}>
-            Sessions
+            {t('topBar.sessions')}
           </button>
           <button onClick={toggleFilePanel} className={`rounded-lg px-3 py-1.5 text-sm transition-colors ${filePanelOpen ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-3 hover:text-text-1'}`}>
-            Files
+            {t('topBar.files')}
           </button>
           <ConnectionBadge />
           <button

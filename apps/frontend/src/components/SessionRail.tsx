@@ -20,7 +20,7 @@ export function SessionRail() {
   const [showTemplates, setShowTemplates] = useState(false)
   const handleTemplateSelect = async (template: Template) => {
     if (!activeHostId) return
-    const name = prompt('Session name:', template.name.toLowerCase())
+    const name = prompt(t('drawer.sessionName'), template.name.toLowerCase())
     if (!name) {
       setShowTemplates(false)
       return
@@ -29,10 +29,10 @@ export function SessionRail() {
       const created = await createSession.mutateAsync({ hostId: activeHostId, name, layout: template.layout })
       if (created?.id) {
         setActiveSession(created.id)
-        pushToast({ type: 'success', message: `Session ${name} created` })
+        pushToast({ type: 'success', message: t('session.created', { name }) })
       }
     } catch (err) {
-      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Request failed' })
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('session.requestFailed') })
     }
     setShowTemplates(false)
   }
@@ -44,9 +44,9 @@ export function SessionRail() {
     try {
       const renamed = await renameSession.mutateAsync({ hostId: activeHostId, sessionId, name })
       if (activeSessionId === sessionId && renamed?.id) setActiveSession(renamed.id)
-      pushToast({ type: 'success', message: `Session ${session?.name || sessionId} renamed to ${name}` })
+      pushToast({ type: 'success', message: t('session.renamed', { from: session?.name || sessionId, to: name }) })
     } catch (err) {
-      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Request failed' })
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('session.requestFailed') })
     }
   }
   useEffect(() => {

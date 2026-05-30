@@ -169,7 +169,7 @@ export function EditorWorkbench({ onSaveEditor }:{ onSaveEditor: (editor: FileEd
               <span className="min-w-0 flex-1 truncate">{editor.name}</span>
             </button>
             <button onClick={() => {
-              if (editor.dirty && !window.confirm(`Close ${editor.name} without saving?`)) return
+              if (editor.dirty && !window.confirm(t('editor.closeConfirm', { name: editor.name }))) return
               closeEditor(editor.id)
             }} className="mr-2 shrink-0 rounded px-1.5 py-1 text-xs text-text-3 opacity-0 hover:bg-bg-2 hover:text-text-1 group-hover:opacity-100">×</button>
           </div>

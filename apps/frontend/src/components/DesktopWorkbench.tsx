@@ -195,7 +195,7 @@ export function DesktopWorkbench() {
     try {
       const result = await api.files.saveContent(editor.rootId, editor.path, editor.content, editor.modifiedAt || undefined)
       markEditorSaved(editor.id, result.content, result.modifiedAt, result.size)
-      pushToast({ type: 'success', message: `${editor.name} saved` })
+      pushToast({ type: 'success', message: t('editor.saved') })
     } catch (err) {
       setEditorSaving(editor.id, false)
       const message = err instanceof Error ? err.message : t('desktop.saveFailed')

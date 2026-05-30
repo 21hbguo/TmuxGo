@@ -40,10 +40,10 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
     try {
       const created = await createSession.mutateAsync({ hostId: activeHostId, name, layout: template.layout })
       if (created?.id) setActiveSession(created.id)
-      pushToast({ type: 'success', message: `Session ${name} created` })
+      pushToast({ type: 'success', message: t('session.created', { name }) })
       onClose()
     } catch (err) {
-      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Request failed' })
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('session.requestFailed') })
     }
     setShowTemplates(false)
   }
@@ -131,9 +131,9 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
     try {
       const renamed = await renameSession.mutateAsync({ hostId: activeHostId, sessionId, name })
       if (activeSessionId === sessionId && renamed?.id) setActiveSession(renamed.id)
-      pushToast({ type: 'success', message: `Session ${session?.name || sessionId} renamed to ${name}` })
+      pushToast({ type: 'success', message: t('session.renamed', { from: session?.name || sessionId, to: name }) })
     } catch (err) {
-      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Request failed' })
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('session.requestFailed') })
     }
   }
   const confirmDeleteSession = async () => {
@@ -142,10 +142,10 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
     try {
       await deleteSession.mutateAsync({ hostId: activeHostId, sessionId: pendingDeleteSessionId })
       if (activeSessionId === pendingDeleteSessionId) setActiveSession(sessions.find((item: any) => item.id !== pendingDeleteSessionId)?.id || '')
-      pushToast({ type: 'success', message: `Session ${session?.name || pendingDeleteSessionId} deleted` })
+      pushToast({ type: 'success', message: t('session.deleted', { name: session?.name || pendingDeleteSessionId }) })
       onClose()
     } catch (err) {
-      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Request failed' })
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('session.requestFailed') })
     }
     setPendingDeleteSessionId(null)
   }
@@ -162,7 +162,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
       setBatchMode(false)
       onClose()
     } catch (err) {
-      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Request failed' })
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('session.requestFailed') })
     }
     setBatchDeleteConfirmOpen(false)
   }
