@@ -1,9 +1,7 @@
 'use client'
 
-import { useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { ConnectionBadge } from './ConnectionBadge'
-import { Settings } from './Settings'
 import { useTranslation } from '@/i18n'
 import { useHosts, useSessions } from '@/hooks/useApi'
 
@@ -17,7 +15,6 @@ export function TopBar() {
   const toggleFilePanel = useConsoleStore((state) => state.toggleFilePanel)
   const { data: hosts = [] } = useHosts()
   const { data: sessions = [] } = useSessions(activeHostId || '')
-  const [showSettings, setShowSettings] = useState(false)
   const { t } = useTranslation()
 
   const activeHost = hosts.find((h: any) => h.id === activeHostId)
@@ -62,7 +59,7 @@ export function TopBar() {
           </button>
           <ConnectionBadge />
           <button
-            onClick={() => setShowSettings(true)}
+            onClick={() => window.dispatchEvent(new CustomEvent('tmuxgo-open-settings'))}
             className="w-8 h-8 rounded-full bg-bg-2 flex items-center justify-center text-text-3 hover:text-text-1"
           >
             ⚙
@@ -72,8 +69,6 @@ export function TopBar() {
           </div>
         </div>
       </header>
-
-      {showSettings && <Settings onClose={() => setShowSettings(false)} />}
     </>
   )
 }
