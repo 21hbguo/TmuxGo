@@ -257,9 +257,10 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     terminal.options.fontSize = preferences.fontSize
     terminal.options.fontFamily = preferences.fontFamily
     if (attachExclusiveRef.current) {
-      scheduleFitRef.current()
+      scheduleFitRef.current(0, true)
     } else {
       syncSharedLayoutRef.current(true)
+      terminal.refresh?.(0, Math.max(0, terminal.rows - 1))
     }
   }, [preferences.fontSize, preferences.fontFamily])
 
@@ -664,7 +665,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       if (!terminal || disposed) return
       terminal.options.fontFamily = preferencesRef.current.fontFamily
       terminal.options.cursorBlink = preferencesRef.current.cursorBlink
-      terminal.options.fontSize = fontSize ?? preferencesRef.current.fontSize
+      const nextFontSize = (fontSize ?? Number(terminal.options.fontSize)) || preferencesRef.current.fontSize
+      terminal.options.fontSize = nextFontSize
       terminal.options.lineHeight = 1
     }
     const clearTerminalRendererCache = () => {
