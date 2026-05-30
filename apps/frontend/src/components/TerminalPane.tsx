@@ -24,11 +24,12 @@ const DELETE_WORD_REPEAT_FOURTH_DELAY = 56
 const DELETE_WORD_REPEAT_MIN_DELAY = 30
 const DEFAULT_TERMINAL_PERF = { attachLatency: 0, outputBytes: 0, outputEvents: 0, outputBacklog: 0, layoutFitCount: 0, lastOutputAt: '' }
 const TERMINAL_REPAINT_DELAYS = [0, 16, 48, 120, 260]
-const TERMINAL_ATTACH_REPAINT_DELAYS = [0, 16, 48, 120, 260, 520]
 const MOBILE_TERMINAL_REPAINT_DELAYS = [96]
-const MOBILE_TERMINAL_ATTACH_REPAINT_DELAYS = [120]
+const TERMINAL_RECOVERY_REPAINT_DELAYS = [0, 16, 64, 180]
+const MOBILE_TERMINAL_RECOVERY_REPAINT_DELAYS = [48, 160]
 const MOBILE_FIT_DEBOUNCE_MS = 96
 const MOBILE_FIT_SIZE_TOLERANCE = 2
+const DEVICE_PIXEL_RATIO_TOLERANCE = 0.01
 function recordMobileDebug(event: string, data?: Record<string, unknown>) {
   recordMobileDiagnostic(event, data)
   if (typeof window === 'undefined' || !window.localStorage.getItem('tmuxgo-debug-mobile')) return
@@ -197,6 +198,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     let pendingFitSize = { width: 0, height: 0 }
     let stableFitToken = 0
     let lastRefreshAt = 0
+    let lastDevicePixelRatio = window.devicePixelRatio || 1
     let deleteWordRepeatTimer: ReturnType<typeof setTimeout> | null = null
     let deleteWordRepeatActive = false
     let pointerSyncActive = false
@@ -360,13 +362,45 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         height: Math.max(1, container.clientHeight - padding.top - padding.bottom),
       }
     }
-
     const applyTerminalOptions = (fontSize?: number) => {
       if (!terminal || disposed) return
       terminal.options.fontFamily = preferencesRef.current.fontFamily
       terminal.options.cursorBlink = preferencesRef.current.cursorBlink
       terminal.options.fontSize = fontSize ?? preferencesRef.current.fontSize
       terminal.options.lineHeight = 1
+    }
+    const clearTerminalRendererCache = () => {
+      if (!terminal || disposed) return
+      try {
+        terminal.clearTextureAtlas?.()
+      } catch {}
+      try {
+        terminal._core?._renderService?.clear?.()
+      } catch {}
+    }
+    const recoverTerminalScreen = (reason: string, serverRedraw = true) => {
+      if (!terminal || disposed) return
+      controlCarryRef.current = ''
+      recordMobileDebug('terminal-recover', { reason, cols: terminal.cols, rows: terminal.rows, dpr: window.devicePixelRatio || 1 })
+      clearTerminalRendererCache()
+      try {
+        terminal.clearSelection?.()
+      } catch {}
+      try {
+        terminal.clear?.()
+      } catch {}
+      try {
+        terminal.reset?.()
+      } catch {}
+      applyTerminalOptions()
+      scheduleTerminalRepaint(isMobileDevice ? MOBILE_TERMINAL_RECOVERY_REPAINT_DELAYS : TERMINAL_RECOVERY_REPAINT_DELAYS, serverRedraw)
+    }
+    const syncRenderEnvironment = (reason: string) => {
+      const dpr = window.devicePixelRatio || 1
+      if (Math.abs(dpr - lastDevicePixelRatio) <= DEVICE_PIXEL_RATIO_TOLERANCE) return false
+      lastDevicePixelRatio = dpr
+      recoverTerminalScreen(reason, true)
+      return true
     }
     const clearViewportStyles = () => {
       const element = terminal?.element as HTMLElement | null
@@ -658,6 +692,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       }
       window.addEventListener('tmuxgo-copy-terminal-selection', handleCopySelection as EventListener)
       const handleWindowResize = () => {
+        syncRenderEnvironment('window-resize')
         if (!attachExclusiveRef.current) {
           syncSharedLayout(false)
           return
@@ -668,9 +703,15 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         if (e.key === 'Backspace' || !e.ctrlKey) stopDeleteWordRepeat()
       }
       const handleOrientationChange = () => {
-        if (!attachExclusiveRef.current) return
-        scheduleFit(0, true)
-        setTimeout(() => scheduleFit(0, true), 120)
+        if (attachExclusiveRef.current) {
+          scheduleFit(0, true)
+          setTimeout(() => scheduleFit(0, true), 120)
+        } else {
+          syncSharedLayout(true)
+          setTimeout(() => syncSharedLayout(true), 120)
+        }
+        recoverTerminalScreen('orientationchange', true)
+        setTimeout(() => recoverTerminalScreen('orientationchange-stable', true), 140)
       }
       const handleKeyboardChange = (event: Event) => {
         if (!attachExclusiveRef.current) return
@@ -690,14 +731,14 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         if (attachExclusiveRef.current) {
           scheduleInitialFit()
           if (!isMobileDevice) forceStableFit(5, 34)
-          scheduleTerminalRepaint(isMobileDevice ? MOBILE_TERMINAL_ATTACH_REPAINT_DELAYS : TERMINAL_ATTACH_REPAINT_DELAYS, true)
+          recoverTerminalScreen('attached', true)
           return
         }
         if (cols > 0 && rows > 0) {
           sharedSessionSizeRef.current = { cols, rows }
           syncSharedLayout(true)
           if (!isMobileDevice) forceStableFit(4, 34)
-          scheduleTerminalRepaint(isMobileDevice ? MOBILE_TERMINAL_ATTACH_REPAINT_DELAYS : TERMINAL_ATTACH_REPAINT_DELAYS, true)
+          recoverTerminalScreen('attached', true)
         }
       }
       const handleLayoutChange = (event: Event) => {
@@ -729,14 +770,30 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           stopDeleteWordRepeat()
           return
         }
+        const recovered = syncRenderEnvironment('visibilitychange')
         if (attachExclusiveRef.current) {
           if (isMobileDevice) scheduleFit(MOBILE_FIT_DEBOUNCE_MS)
           else forceStableFit(4, 34)
+          if (isMobileDevice && !recovered) {
+            recoverTerminalScreen('visibilitychange', true)
+            return
+          }
+          if (recovered) return
           scheduleTerminalRepaint(isMobileDevice ? MOBILE_TERMINAL_REPAINT_DELAYS : TERMINAL_REPAINT_DELAYS)
           return
         }
         if (!isMobileDevice) forceStableFit(3, 34)
+        if (isMobileDevice && !recovered) {
+          recoverTerminalScreen('visibilitychange', true)
+          return
+        }
+        if (recovered) return
         scheduleTerminalRepaint(isMobileDevice ? MOBILE_TERMINAL_REPAINT_DELAYS : TERMINAL_REPAINT_DELAYS)
+      }
+      const handlePageShow = () => {
+        const recovered = syncRenderEnvironment('pageshow')
+        if (attachExclusiveRef.current) scheduleFit(isMobileDevice ? MOBILE_FIT_DEBOUNCE_MS : 0, true)
+        if (isMobileDevice && !recovered) recoverTerminalScreen('pageshow', true)
       }
       window.addEventListener('tmux-attached', handleAttached as EventListener)
       window.addEventListener('tmuxgo-layout-change', handleLayoutChange as EventListener)
@@ -745,6 +802,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       window.addEventListener('blur', stopDeleteWordRepeat)
       window.addEventListener('orientationchange', handleOrientationChange)
       window.addEventListener('mobile-keyboard-change', handleKeyboardChange as EventListener)
+      window.addEventListener('pageshow', handlePageShow)
       document.addEventListener('visibilitychange', handleVisibilityChange)
       const handleDragLeave = (e: DragEvent) => {
         dropState.handleDragLeave(e, container)
@@ -802,6 +860,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           window.removeEventListener('blur', stopDeleteWordRepeat)
           window.removeEventListener('orientationchange', handleOrientationChange)
           window.removeEventListener('mobile-keyboard-change', handleKeyboardChange as EventListener)
+          window.removeEventListener('pageshow', handlePageShow)
           document.removeEventListener('visibilitychange', handleVisibilityChange)
           container.removeEventListener('dragover', dropState.handleDragOver)
           container.removeEventListener('dragleave', handleDragLeave)

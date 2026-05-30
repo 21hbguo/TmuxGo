@@ -10,7 +10,7 @@ test('home page smoke flow', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByText('TmuxGo')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Sessions' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'New' })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^(New|新建)$/ })).toBeVisible()
   await expect(page.locator('main').nth(1)).toBeVisible()
   await expect(page.locator('header').getByRole('button', { name: '⚙' })).toBeVisible()
 })
