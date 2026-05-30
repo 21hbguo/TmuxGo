@@ -258,6 +258,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     if (!terminal) return
     terminal.options.fontSize = preferences.fontSize
     terminal.options.fontFamily = preferences.fontFamily
+    try { terminal.clearTextureAtlas?.() } catch {}
     if (attachExclusiveRef.current) {
       scheduleFitRef.current(0, true)
     } else {
