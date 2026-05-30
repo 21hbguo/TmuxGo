@@ -7,9 +7,11 @@ interface UseTerminalTouchScrollOptions {
   onScroll: (lines: number) => void
   onTap: (x: number, y: number) => void
   onTouchMovedChange: (moved: boolean) => void
+  onSwipeLeft?: () => void
+  onSwipeRight?: () => void
 }
 
-export function useTerminalTouchScroll({ isMobile, onScroll, onTap, onTouchMovedChange }: UseTerminalTouchScrollOptions) {
+export function useTerminalTouchScroll({ isMobile, onScroll, onTap, onTouchMovedChange, onSwipeLeft, onSwipeRight }: UseTerminalTouchScrollOptions) {
   const lastTapRef = useRef<{ x: number; y: number } | null>(null)
   const stateRef = useRef({
     startY: 0,
@@ -95,7 +97,10 @@ export function useTerminalTouchScroll({ isMobile, onScroll, onTap, onTouchMoved
     if (stateRef.current.direction === 'unknown') {
       stateRef.current.direction = dx > dy ? 'horizontal' : 'vertical'
     }
-    if (stateRef.current.direction !== 'vertical') return
+    if (stateRef.current.direction !== 'vertical') {
+      if (stateRef.current.direction === 'horizontal') e.preventDefault()
+      return
+    }
     if (dy < 10) return
     stateRef.current.moved = true
     onTouchMovedChange(true)
@@ -112,16 +117,24 @@ export function useTerminalTouchScroll({ isMobile, onScroll, onTap, onTouchMoved
     stateRef.current.carryY -= step * 18
     queueScroll(step * 2)
   }, [isMobile, onTouchMovedChange, queueScroll])
+  const SWIPE_THRESHOLD = 50
   const handleTouchEnd = useCallback((e: TouchEvent) => {
     clearScrollFlush()
     if (stateRef.current.scrollPendingLines) flushScroll()
     onTouchMovedChange(stateRef.current.moved)
-    if (stateRef.current.direction !== 'vertical') return
     const touch = e.changedTouches[0]
     if (!touch) return
-    const totalDx = Math.abs(touch.clientX - stateRef.current.startX)
+    const totalDx = touch.clientX - stateRef.current.startX
     const totalDy = Math.abs(touch.clientY - stateRef.current.startY)
-    if (totalDx < 10 && totalDy < 10 && performance.now() - stateRef.current.startTime < 250) {
+    if (stateRef.current.direction === 'horizontal') {
+      if (Math.abs(totalDx) >= SWIPE_THRESHOLD && totalDy < 80) {
+        if (totalDx < 0) onSwipeLeft?.()
+        else onSwipeRight?.()
+      }
+      return
+    }
+    if (stateRef.current.direction !== 'vertical') return
+    if (Math.abs(totalDx) < 10 && totalDy < 10 && performance.now() - stateRef.current.startTime < 250) {
       lastTapRef.current = { x: touch.clientX, y: touch.clientY }
       onTap(touch.clientX, touch.clientY)
       return
@@ -141,7 +154,7 @@ export function useTerminalTouchScroll({ isMobile, onScroll, onTap, onTouchMoved
       stateRef.current.momentumTimer = setTimeout(decay, 16)
     }
     stateRef.current.momentumTimer = setTimeout(decay, 16)
-  }, [clearScrollFlush, flushScroll, onScroll, onTap, onTouchMovedChange])
+  }, [clearScrollFlush, flushScroll, onScroll, onTap, onTouchMovedChange, onSwipeLeft, onSwipeRight])
   const handleTouchCancel = useCallback(() => {
     clearScrollFlush()
     clearMomentum()

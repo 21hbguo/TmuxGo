@@ -52,6 +52,8 @@ interface TerminalPaneProps {
   attachExclusive?: boolean
   onReady?: () => void
   subscribeOutput?: (listener: (message: { data: string; sessionName?: string | null }) => void) => () => void
+  onSwipeLeft?: () => void
+  onSwipeRight?: () => void
 }
 
 function isApplePlatform() {
@@ -67,7 +69,7 @@ function isPasteShortcut(e: KeyboardEvent) {
   return false
 }
 
-export function TerminalPane({ sessionName, onInput, onResize, attachExclusive = false, onReady, subscribeOutput }: TerminalPaneProps) {
+export function TerminalPane({ sessionName, onInput, onResize, attachExclusive = false, onReady, subscribeOutput, onSwipeLeft, onSwipeRight }: TerminalPaneProps) {
   const { preferences, updatePreferences } = usePreferences()
   const { t } = useTranslation()
   const activeHostId = useConsoleStore((s) => s.activeHostId)
@@ -208,6 +210,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     onScroll: handleTouchScroll,
     onTap: handleTouchTap,
     onTouchMovedChange: handleTouchMovedChange,
+    onSwipeLeft,
+    onSwipeRight,
   })
   useEffect(() => {
     onInputRef.current = onInput
