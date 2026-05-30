@@ -8,6 +8,7 @@ import { SessionTemplates, type Template } from './SessionTemplates'
 import { useTranslation } from '@/i18n'
 import { QuickActions } from './QuickActions'
 import { ConfirmDialog } from './ConfirmDialog'
+import { SessionSortableList } from './SessionSortableList'
 
 interface MobileDrawerProps {
   isOpen: boolean
@@ -44,19 +45,9 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
   }
   const [visible, setVisible] = useState(false)
   const [closing, setClosing] = useState(false)
-  const [draggedSessionId, setDraggedSessionId] = useState<string | null>(null)
-  const [dragOverSessionId, setDragOverSessionId] = useState<string | null>(null)
   const startYRef = useRef(0)
   const translateYRef = useRef(0)
   const panelRef = useRef<HTMLDivElement>(null)
-  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const suppressSessionTapRef = useRef(false)
-
-  const clearLongPressTimer = useCallback(() => {
-    if (!longPressTimerRef.current) return
-    clearTimeout(longPressTimerRef.current)
-    longPressTimerRef.current = null
-  }, [])
 
   const resetPanelPosition = useCallback(() => {
     if (!panelRef.current) return
@@ -87,9 +78,8 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
     return () => {
       if (timer) clearTimeout(timer)
       document.body.style.overflow = ''
-      clearLongPressTimer()
     }
-  }, [clearLongPressTimer, isOpen, visible, resetPanelPosition])
+  }, [isOpen, visible, resetPanelPosition])
   useEffect(() => {
     if (!visible) return
     const handleVisibilityChange = () => {
@@ -128,35 +118,6 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
       return
     }
     resetPanelPosition()
-  }
-  const handleSessionTouchStart = (sessionId: string, event: React.TouchEvent<HTMLDivElement>) => {
-    if ((event.target as HTMLElement | null)?.closest('[data-session-action]')) return
-    clearLongPressTimer()
-    longPressTimerRef.current = setTimeout(() => {
-      suppressSessionTapRef.current = true
-      setDraggedSessionId(sessionId)
-      setDragOverSessionId(sessionId)
-      if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') navigator.vibrate(10)
-    }, 240)
-  }
-  const handleSessionTouchMove = (event: React.TouchEvent<HTMLDivElement>) => {
-    if (!draggedSessionId) return
-    event.preventDefault()
-    const touch = event.touches[0]
-    const target = document.elementFromPoint(touch.clientX, touch.clientY)?.closest('[data-session-id]') as HTMLElement | null
-    const targetSessionId = target?.dataset.sessionId || null
-    if (!targetSessionId || targetSessionId === dragOverSessionId) return
-    setDragOverSessionId(targetSessionId)
-    if (targetSessionId !== draggedSessionId) moveSession(draggedSessionId, targetSessionId)
-  }
-  const handleSessionTouchEnd = () => {
-    clearLongPressTimer()
-    if (!draggedSessionId) return
-    setDraggedSessionId(null)
-    setDragOverSessionId(null)
-    window.setTimeout(() => {
-      suppressSessionTapRef.current = false
-    }, 0)
   }
   const handleRenameSession = async (sessionId: string) => {
     if (!activeHostId) return
@@ -216,25 +177,28 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
               >
                 + {t('sidebar.newSession')}
               </button>
-              {sessions.map((session: any) => (
-                <div key={session.id} data-session-id={session.id} onTouchStart={(event) => handleSessionTouchStart(session.id, event)} onTouchMove={handleSessionTouchMove} onTouchEnd={handleSessionTouchEnd} onTouchCancel={handleSessionTouchEnd} className={`flex items-center gap-2 rounded-lg p-2 transition-transform ${draggedSessionId === session.id ? 'scale-[0.98] opacity-55' : 'active:scale-[0.98]'} ${activeSessionId === session.id ? 'border border-accent bg-accent/20' : 'bg-bg-2'} ${dragOverSessionId === session.id && draggedSessionId !== session.id ? 'ring-1 ring-accent shadow-[inset_0_2px_0_var(--accent)]' : ''}`}>
-                  <button
-                    onClick={() => {
-                      if (suppressSessionTapRef.current) return
+              <SessionSortableList
+                sessions={sessions}
+                onMove={moveSession}
+                listClassName="space-y-2"
+                getItemClassName={({ session, isDragging, isOverlay }) => `rounded-lg ${isDragging && !isOverlay ? 'opacity-40' : ''} ${isOverlay ? 'shadow-[0_20px_48px_rgba(0,0,0,0.42)]' : ''}`}
+                renderItem={({ session, dragHandleProps, isOverlay }) => (
+                  <div className={`flex items-center gap-2 rounded-lg p-2 transition-[transform,box-shadow,background-color,border-color] duration-200 ${activeSessionId === session.id ? 'border border-accent bg-accent/20' : 'bg-bg-2'} ${isOverlay ? 'border border-accent bg-bg-1 shadow-[0_20px_48px_rgba(0,0,0,0.42)]' : ''}`}>
+                    <button ref={dragHandleProps.ref} {...dragHandleProps.attributes} {...dragHandleProps.listeners} aria-label={t('sidebar.reorderSession')} title={t('sidebar.reorderSession')} className="flex h-9 w-7 shrink-0 items-center justify-center rounded text-sm leading-none text-text-3 transition-colors active:bg-bg-1 touch-none">⋮⋮</button>
+                    <button onClick={() => {
                       setActiveSession(session.id)
                       handleClose()
-                    }}
-                    className="min-w-0 flex-1 px-1 py-1 text-left"
-                  >
-                    <div className="truncate text-text-1">{session.name}</div>
-                    <div className="text-text-3 text-xs">{t('drawer.windows', { count: session.windowCount })}</div>
-                  </button>
-                  <div className="flex shrink-0 items-center gap-1">
-                    <button data-session-action onClick={() => void handleRenameSession(session.id)} className="rounded px-2 py-2 text-xs text-text-2 active:bg-bg-1" aria-label={t('sidebar.renameSession')} title={t('sidebar.renameSession')}>✎</button>
-                    <button data-session-action onClick={() => setPendingDeleteSessionId(session.id)} className="rounded px-2 py-2 text-sm text-text-2 active:bg-bg-1" aria-label={t('sidebar.deleteSession')} title={t('sidebar.deleteSession')}>×</button>
+                    }} className="min-w-0 flex-1 px-1 py-1 text-left">
+                      <div className="truncate text-text-1">{session.name}</div>
+                      <div className="text-text-3 text-xs">{t('drawer.windows', { count: session.windowCount })}</div>
+                    </button>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <button onClick={() => void handleRenameSession(session.id)} className="rounded px-2 py-2 text-xs text-text-2 active:bg-bg-1" aria-label={t('sidebar.renameSession')} title={t('sidebar.renameSession')}>✎</button>
+                      <button onClick={() => setPendingDeleteSessionId(session.id)} className="rounded px-2 py-2 text-sm text-text-2 active:bg-bg-1" aria-label={t('sidebar.deleteSession')} title={t('sidebar.deleteSession')}>×</button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                )}
+              />
             </div>
           )}
           {type === 'panes' && (

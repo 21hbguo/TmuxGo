@@ -18,6 +18,7 @@ export const en = {
   'sidebar.newAction': 'New',
   'sidebar.deleteSession': 'Delete session',
   'sidebar.renameSession': 'Rename session',
+  'sidebar.reorderSession': 'Reorder session',
   'sidebar.deleteConfirm': 'Delete session "{name}"? This cannot be undone.',
   'sidebar.deleteTitle': 'Delete session',
   'sidebar.confirmDelete': 'Delete',

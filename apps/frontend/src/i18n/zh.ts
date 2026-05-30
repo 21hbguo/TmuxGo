@@ -18,6 +18,7 @@ export const zh = {
   'sidebar.newAction': '新建',
   'sidebar.deleteSession': '删除会话',
   'sidebar.renameSession': '重命名会话',
+  'sidebar.reorderSession': '拖动排序会话',
   'sidebar.deleteConfirm': '确定删除会话 "{name}"？此操作不可撤销。',
   'sidebar.deleteTitle': '删除会话',
   'sidebar.confirmDelete': '删除',
