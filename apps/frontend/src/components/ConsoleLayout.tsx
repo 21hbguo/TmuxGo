@@ -347,7 +347,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       </div>
       {!isMobile && preferences.showStatusBar && <StatusBar />}
       {isMobile && (
-        <div data-mobile-dock className="mobile-nav-landscape-hide fixed bottom-0 left-0 right-0 z-40 min-h-[calc(48px+env(safe-area-inset-bottom))]" style={{bottom:'var(--mobile-keyboard-inset, 0px)'}}>
+        <div data-mobile-dock className="mobile-nav-landscape-hide fixed bottom-0 left-0 right-0 z-40 min-h-[calc(48px+env(safe-area-inset-bottom))]">
           <div className={keyboardOpen ? 'hidden' : 'h-[calc(48px+env(safe-area-inset-bottom))]'}>
             <MobileNav docked onOpenDrawer={openDrawer} onOpenSettings={openSettings} onOpenSearch={openPalette} onOpenFiles={openMobileFiles} />
           </div>
