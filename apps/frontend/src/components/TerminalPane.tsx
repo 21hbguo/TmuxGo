@@ -910,17 +910,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           onInputRef.current?.(data)
         })
       )
-      disposables.push(
-        terminal.onSelectionChange(() => {
-          const selection = getSelectionText()
-          if (!selection) {
-            selectionSync.setSelection('')
-            return
-          }
-          selectionSync.setSelection(selection)
-          selectionSync.scheduleCopySelection(selection)
-        })
-      )
       terminal.attachCustomKeyEventHandler((e: KeyboardEvent) => {
         if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'c') {
           const selection = getSelectionText()
