@@ -295,6 +295,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     let paneResizeDrag: any = null
     let paneBoundsCache: { snapshot: any; windowId: string; bounds: any[] } | null = null
     let paneResizeHoverThrottle = 0
+    let writeBuffer = ''
+    let writePending = false
     let attachEventCount = 0
     let outputSinceLastAttach = false
 
@@ -940,6 +942,13 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         }
         return true
       })
+      const flushWriteBuffer = () => {
+        if (!writeBuffer || !terminal?.write) { writeBuffer = ''; writePending = false; return }
+        const data = writeBuffer
+        writeBuffer = ''
+        writePending = false
+        terminal.write(data)
+      }
       const handleOutput = (event: Event | string | { data: string; sessionName?: string | null }) => {
         const payload = typeof event === 'string' ? { data: event, sessionName: null } : event instanceof Event ? { data: String((event as CustomEvent).detail || ''), sessionName: null } : event
         if (payload.sessionName && payload.sessionName !== sessionNameRef.current) return
@@ -948,6 +957,14 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         outputSinceLastAttach = true
         controlCarryRef.current = ''
         recordTerminalOutput(useConsoleStore.getState().terminalPerf || DEFAULT_TERMINAL_PERF, raw, raw.length, 0)
+        if (pointerSyncActive) {
+          writeBuffer += raw
+          if (!writePending) {
+            writePending = true
+            requestAnimationFrame(flushWriteBuffer)
+          }
+          return
+        }
         terminal.write(raw)
         if (!attachExclusiveRef.current && isMobileDevice) requestAnimationFrame(syncSharedViewport)
       }
@@ -1100,6 +1117,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       container.addEventListener('input', pasteBridge.handlePasteInput as EventListener, true)
       const clearPointerSync = () => {
         pointerSyncActive = false
+        flushWriteBuffer()
       }
       const armPointerSync = () => {
         pointerSyncActive = true
@@ -1107,6 +1125,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     const handlePointerSync = () => {
       if (!pointerSyncActive) return
       pointerSyncActive = false
+      flushWriteBuffer()
       selectionSync.clearCopySelectionTimer()
       selectionSync.runCopySelection(getSelectionText() || selectionSync.currentSelectionRef.current, true, true, focusTerminalInput)
       void syncActivePane()
