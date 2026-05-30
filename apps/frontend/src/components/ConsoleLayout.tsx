@@ -16,7 +16,7 @@ import { FilePanel } from './FilePanel'
 import { UploadConfirmDialog } from './UploadConfirmDialog'
 import { UploadQueue } from './UploadQueue'
 import { AppVersionGuard } from './AppVersionGuard'
-import { getViewportLayoutState } from './consoleLayoutViewport'
+import { getViewportLayoutState, normalizeKeyboardViewportState } from './consoleLayoutViewport'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useHosts, useSessionSnapshot } from '@/hooks/useApi'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
@@ -130,6 +130,15 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       const isMobileViewport = window.matchMedia(MOBILE_QUERY).matches
       const vv = window.visualViewport
       const byClass = document.body.classList.contains('keyboard-open')
+      const activeElement = document.activeElement
+      const keyboardOwnerActive = activeElement instanceof HTMLElement && activeElement.classList.contains('mobile-kb-input')
+      const normalizedKeyboard = normalizeKeyboardViewportState({
+        keyboardOpen: keyboardStateRef.current.open,
+        keyboardInset: keyboardStateRef.current.inset,
+        bodyKeyboardOpen: byClass,
+        keyboardOwnerActive,
+      })
+      if (normalizedKeyboard.keyboardOpen !== keyboardStateRef.current.open || normalizedKeyboard.keyboardInset !== keyboardStateRef.current.inset) keyboardStateRef.current = { open: normalizedKeyboard.keyboardOpen, inset: normalizedKeyboard.keyboardInset }
       recordMobileDebug('viewport-sync', { innerHeight: window.innerHeight, vvHeight: vv?.height || 0, vvWidth: vv?.width || 0, keyboardOpen: keyboardStateRef.current.open, keyboardInset: keyboardStateRef.current.inset, bodyKeyboardOpen: byClass })
       const state = getViewportLayoutState({
         isMobileViewport,

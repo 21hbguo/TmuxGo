@@ -180,9 +180,3 @@ a {
 .scrollbar-none::-webkit-scrollbar {
   display: none;
 }
-
-@media (orientation: landscape) and (max-height: 500px) {
-  .mobile-nav-landscape-hide {
-    display: none;
-  }
-}

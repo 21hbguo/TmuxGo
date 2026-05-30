@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getViewportLayoutState } from './consoleLayoutViewport'
+import { getViewportLayoutState, normalizeKeyboardViewportState } from './consoleLayoutViewport'
 
 describe('getViewportLayoutState', () => {
   it('uses visual viewport shrink when keyboard resizes viewport', () => {
@@ -96,5 +96,31 @@ describe('getViewportLayoutState', () => {
       open: false,
       nextHeight: 800,
     })
+  })
+})
+describe('normalizeKeyboardViewportState', () => {
+  it('closes stale keyboard state when body class is not open and owner is inactive', () => {
+    expect(normalizeKeyboardViewportState({
+      keyboardOpen: true,
+      keyboardInset: 280,
+      bodyKeyboardOpen: false,
+      keyboardOwnerActive: false,
+    })).toEqual({ keyboardOpen: false, keyboardInset: 0 })
+  })
+  it('keeps keyboard state when owner is active', () => {
+    expect(normalizeKeyboardViewportState({
+      keyboardOpen: true,
+      keyboardInset: 280,
+      bodyKeyboardOpen: false,
+      keyboardOwnerActive: true,
+    })).toEqual({ keyboardOpen: true, keyboardInset: 280 })
+  })
+  it('keeps keyboard state when body class reports open', () => {
+    expect(normalizeKeyboardViewportState({
+      keyboardOpen: true,
+      keyboardInset: 280,
+      bodyKeyboardOpen: true,
+      keyboardOwnerActive: false,
+    })).toEqual({ keyboardOpen: true, keyboardInset: 280 })
   })
 })

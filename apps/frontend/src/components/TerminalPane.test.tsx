@@ -6,6 +6,9 @@ import { DELETE_PREV_WORD_SEQUENCE } from '@/lib/terminal-keys'
 const onSelectionChangeHandlers: Array<() => void> = []
 let customKeyHandler: ((event: KeyboardEvent) => boolean) | null = null
 let terminalSelection = 'printf "auto_copy_ok"'
+let terminalSelectionPosition: any = null
+let terminalBufferLines: string[] = []
+let terminalBaseY = 0
 let resizeObserverCallback: (() => void) | null = null
 const terminalMocks = vi.hoisted(() => ({
   write: vi.fn(),
@@ -36,6 +39,14 @@ const storeMocks = vi.hoisted(() => ({
   updateTerminalPerf: vi.fn(),
   setActivePane: vi.fn(),
   openUploadDialog: vi.fn(),
+}))
+const queryClientMocks = vi.hoisted(() => ({
+  getQueryData: vi.fn(),
+  setQueryData: vi.fn(),
+}))
+const apiMocks = vi.hoisted(() => ({
+  snapshotGet: vi.fn(async () => ({ windows: [], panes: [], activePaneId: null })),
+  paneResize: vi.fn(async () => ({ ok: true })),
 }))
 const mobileKeyboardMocks = vi.hoisted(() => ({
   focusKeyboard: vi.fn(),
@@ -72,7 +83,10 @@ vi.mock('@/stores/useConsoleStore', () => ({
   useConsoleStore: Object.assign(((selector: any) => selector({ activeHostId: 'local', pushToast: storeMocks.pushToast, updateTerminalPerf: storeMocks.updateTerminalPerf, setActivePane: storeMocks.setActivePane, openUploadDialog: storeMocks.openUploadDialog, terminalPerf: { attachLatency: 0, outputBytes: 0, outputEvents: 0, outputBacklog: 0, layoutFitCount: 0, lastOutputAt: '' } })) as any, { getState: () => ({ terminalPerf: { attachLatency: 0, outputBytes: 0, outputEvents: 0, outputBacklog: 0, layoutFitCount: 0, lastOutputAt: '' } }) }),
 }))
 vi.mock('@/lib/api', () => ({
-  api: { snapshot: { get: vi.fn(async () => ({ windows: [], panes: [], activePaneId: null })) } },
+  api: { snapshot: { get: apiMocks.snapshotGet }, panes: { resize: apiMocks.paneResize } },
+}))
+vi.mock('@/hooks/useOptionalQueryClient', () => ({
+  useOptionalQueryClient: () => queryClientMocks,
 }))
 vi.mock('@/lib/clipboard-text', async () => {
   const actual = await vi.importActual<typeof import('@/lib/clipboard-text')>('@/lib/clipboard-text')
@@ -87,7 +101,28 @@ vi.mock('@xterm/xterm', () => {
     parser = { registerCsiHandler: vi.fn(() => ({ dispose: vi.fn() })) }
     _core = {
       _renderService: { dimensions: { css: { canvas: { width: 800, height: 600 }, cell: { width: 8, height: 16 } } }, clear: terminalMocks.renderClear },
+      _selectionService: { _activeSelectionMode: 0 },
       viewport: { scrollBarWidth: 0 },
+    }
+    buffer = {
+      active: {
+        get baseY() {
+          return terminalBaseY
+        },
+        get length() {
+          return terminalBufferLines.length
+        },
+        getLine: (index: number) => {
+          const value = terminalBufferLines[index]
+          if (typeof value !== 'string') return null
+          return {
+            translateToString: (trimRight = false, startColumn = 0, endColumn = value.length) => {
+              const text = value.slice(startColumn, endColumn)
+              return trimRight ? text.replace(/\s+$/g, '') : text
+            },
+          }
+        },
+      },
     }
     constructor(options: any) {
       this.options = options
@@ -123,6 +158,9 @@ vi.mock('@xterm/xterm', () => {
     }
     getSelection() {
       return terminalSelection
+    }
+    getSelectionPosition() {
+      return terminalSelectionPosition
     }
     focus() {
       terminalMocks.focus()
@@ -171,6 +209,9 @@ describe('TerminalPane', () => {
     customKeyHandler = null
     resizeObserverCallback = null
     terminalSelection = 'printf "auto_copy_ok"'
+    terminalSelectionPosition = null
+    terminalBufferLines = []
+    terminalBaseY = 0
     terminalMocks.write.mockClear()
     terminalMocks.refresh.mockClear()
     terminalMocks.renderClear.mockClear()
@@ -188,6 +229,13 @@ describe('TerminalPane', () => {
     storeMocks.updateTerminalPerf.mockClear()
     storeMocks.setActivePane.mockClear()
     storeMocks.openUploadDialog.mockClear()
+    queryClientMocks.getQueryData.mockReset()
+    queryClientMocks.setQueryData.mockReset()
+    queryClientMocks.getQueryData.mockReturnValue(null)
+    apiMocks.snapshotGet.mockClear()
+    apiMocks.snapshotGet.mockResolvedValue({ windows: [], panes: [], activePaneId: null })
+    apiMocks.paneResize.mockClear()
+    apiMocks.paneResize.mockResolvedValue({ ok: true })
     mobileKeyboardMocks.focusKeyboard.mockClear()
     mobileKeyboardMocks.textareaRef.current = null
     mobileKeyboardMocks.isMobile = false
@@ -226,6 +274,74 @@ describe('TerminalPane', () => {
     await sleep(60)
     await waitFor(() => expect(clipboardMocks.writeClipboardText).toHaveBeenCalledWith('printf "auto_copy_ok"',{preferSync:true}))
     expect(container.firstChild).toBeTruthy()
+  })
+  it('copies multiline selection within the tmux pane that contains the selection start', async () => {
+    terminalSelection = 'raw selection including another pane'
+    terminalSelectionPosition = { start: { x: 2, y: 0 }, end: { x: 5, y: 2 } }
+    terminalBufferLines = [
+      'aa0123456789|right-pane-0',
+      'bb0123456789|right-pane-1',
+      'cc0123456789|right-pane-2',
+    ]
+    queryClientMocks.getQueryData.mockReturnValue({
+      sessionName: 'dev',
+      activeWindowId: '@1',
+      windows: [{ id: '@1', index: 0, active: true }],
+      panes: [
+        { id: '%1', windowId: 'dev:0', left: 0, top: 0, size: { cols: 12, rows: 10 } },
+        { id: '%2', windowId: 'dev:0', left: 13, top: 0, size: { cols: 12, rows: 10 } },
+      ],
+    })
+    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(onSelectionChangeHandlers.length).toBeGreaterThan(0))
+    onSelectionChangeHandlers[0]()
+    await waitFor(() => expect(clipboardMocks.writeClipboardText).toHaveBeenCalledWith('0123456789\nbb0123456789\ncc012',{preferSync:true}))
+  })
+  it('resizes tmux pane through frontend border drag', async () => {
+    queryClientMocks.getQueryData.mockReturnValue({
+      sessionName: 'dev',
+      activeWindowId: '@1',
+      windows: [{ id: '@1', index: 0, active: true }],
+      panes: [
+        { id: '%1', windowId: 'dev:0', left: 0, top: 0, size: { cols: 12, rows: 10 } },
+        { id: '%2', windowId: 'dev:0', left: 13, top: 0, size: { cols: 12, rows: 10 } },
+      ],
+    })
+    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    const screen = container.querySelector('.xterm-screen') as HTMLElement
+    screen.getBoundingClientRect = vi.fn(() => ({ x: 0, y: 0, left: 0, top: 0, width: 960, height: 576, right: 960, bottom: 576, toJSON: () => ({}) } as DOMRect))
+    fireEvent.mouseDown(screen, { button: 0, clientX: 100, clientY: 20 })
+    fireEvent.mouseMove(window, { button: 0, clientX: 124, clientY: 20 })
+    await waitFor(() => expect(apiMocks.paneResize).toHaveBeenCalledWith('%1', { cols: 15 }))
+    fireEvent.mouseUp(window)
+  })
+  it('sends final pane resize after mouseup while resize request is pending', async () => {
+    let resolveFirst: (value: unknown) => void = () => {}
+    apiMocks.paneResize.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveFirst = resolve
+    })).mockResolvedValue({ ok: true })
+    queryClientMocks.getQueryData.mockReturnValue({
+      sessionName: 'dev',
+      activeWindowId: '@1',
+      windows: [{ id: '@1', index: 0, active: true }],
+      panes: [
+        { id: '%1', windowId: 'dev:0', left: 0, top: 0, size: { cols: 12, rows: 10 } },
+        { id: '%2', windowId: 'dev:0', left: 13, top: 0, size: { cols: 12, rows: 10 } },
+      ],
+    })
+    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    const screen = container.querySelector('.xterm-screen') as HTMLElement
+    screen.getBoundingClientRect = vi.fn(() => ({ x: 0, y: 0, left: 0, top: 0, width: 960, height: 576, right: 960, bottom: 576, toJSON: () => ({}) } as DOMRect))
+    fireEvent.mouseDown(screen, { button: 0, clientX: 100, clientY: 20 })
+    fireEvent.mouseMove(window, { button: 0, clientX: 108, clientY: 20 })
+    await waitFor(() => expect(apiMocks.paneResize).toHaveBeenCalledWith('%1', { cols: 13 }))
+    fireEvent.mouseMove(window, { button: 0, clientX: 124, clientY: 20 })
+    fireEvent.mouseUp(window)
+    expect(apiMocks.paneResize).toHaveBeenCalledTimes(1)
+    resolveFirst({ ok: true })
+    await waitFor(() => expect(apiMocks.paneResize).toHaveBeenCalledWith('%1', { cols: 15 }))
   })
   it('does not recreate terminal instance on noop rerender', async () => {
     const onInput = vi.fn()

@@ -30,6 +30,8 @@ export interface Pane {
   index: number
   title: string
   active: boolean
+  left?: number
+  top?: number
   size: {
     cols: number
     rows: number

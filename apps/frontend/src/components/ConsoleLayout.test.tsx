@@ -86,9 +86,13 @@ describe('ConsoleLayout mobile files overlay stack', () => {
   it('restores mobile nav after keyboard closes', async () => {
     render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
     expect(screen.getByText('open-files')).toBeTruthy()
+    document.body.classList.add('keyboard-open')
     window.dispatchEvent(new CustomEvent('mobile-keyboard-change', { detail: { open: true, inset: 280 } }))
     await waitFor(() => expect(screen.getByText('shortcut-bar')).toBeTruthy())
+    expect(screen.getByText('open-files').parentElement?.className).toContain('hidden')
+    document.body.classList.remove('keyboard-open')
     window.dispatchEvent(new CustomEvent('mobile-keyboard-change', { detail: { open: false, inset: 0 } }))
     await waitFor(() => expect(screen.getByText('open-files')).toBeTruthy())
+    expect(screen.getByText('open-files').parentElement?.className).not.toContain('hidden')
   })
 })

@@ -68,6 +68,17 @@ describe('useMobileKeyboard', () => {
     expect(document.activeElement).toBe(api.textarea)
     button.remove()
   })
+  it('closes stale keyboard state after viewport recovers without blur event', async () => {
+    render(<Harness />)
+    await waitFor(() => expect(api.focusKeyboard).toBeTruthy())
+    api.focusKeyboard?.()
+    ;(window.visualViewport as any).height = 520
+    window.visualViewport?.dispatchEvent(new Event('resize'))
+    expect(document.body.classList.contains('keyboard-open')).toBe(true)
+    ;(window.visualViewport as any).height = 760
+    await waitFor(() => expect(document.body.classList.contains('keyboard-open')).toBe(false), { timeout: 1200 })
+    expect(document.activeElement).not.toBe(api.textarea)
+  })
   it('does not emit keyboard close events for closed viewport resize', async () => {
     const events: Array<{ open?: boolean; inset?: number }> = []
     window.addEventListener('mobile-keyboard-change', ((event: CustomEvent) => events.push(event.detail || {})) as EventListener)

@@ -41,6 +41,21 @@ export async function paneRoutes(fastify: FastifyInstance) {
       return { ok: false, error: err.message }
     }
   })
+  fastify.post('/panes/resize', async (request) => {
+    const { paneId, cols, rows } = request.body as { paneId?: string; cols?: number; rows?: number }
+    try {
+      if (!paneId) throw new Error('paneId required')
+      await assertTargetAllowed(paneId)
+      const args = ['resize-pane', '-t', paneId]
+      if (typeof cols === 'number' && Number.isFinite(cols)) args.push('-x', String(Math.max(2, Math.round(cols))))
+      if (typeof rows === 'number' && Number.isFinite(rows)) args.push('-y', String(Math.max(2, Math.round(rows))))
+      if (args.length <= 3) return { ok: true }
+      await execFileAsync('tmux', args)
+      return { ok: true }
+    } catch (err: any) {
+      return { ok: false, error: err.message }
+    }
+  })
 
   fastify.post('/panes/kill', async (request) => {
     const { paneId } = request.body as { paneId?: string }

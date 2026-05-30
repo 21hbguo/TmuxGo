@@ -90,6 +90,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   const forceStableFitRef = useRef<() => void>(() => {})
   const syncSharedLayoutRef = useRef<(resetFont: boolean) => void>(() => {})
   const activeHostIdRef = useRef(activeHostId)
+  const sessionSnapshotRef = useRef<any | null>(null)
   const dispatchTerminalTap = useCallback((x: number, y: number) => {
     const container = terminalRef.current
     if (!container) return
@@ -203,6 +204,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     let deleteWordRepeatActive = false
     let pointerSyncActive = false
     let lastKeyboardOpen = document.body.classList.contains('keyboard-open')
+    let paneResizeDrag: any = null
 
     const notifyReady = () => {
       if (disposed || readyNotified) return
@@ -219,7 +221,218 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const input = container.querySelector('.xterm-helper-textarea, textarea')
       if (input instanceof HTMLTextAreaElement) input.focus({ preventScroll: true })
     }
-    const getSelectionText = () => terminal?.getSelection?.() || window.getSelection?.()?.toString() || ''
+    const getSessionSnapshotKey = () => {
+      const hostId = activeHostIdRef.current
+      const currentSessionName = sessionNameRef.current
+      if (!hostId || !currentSessionName) return null
+      return ['session-snapshot', hostId, `session-${currentSessionName}`]
+    }
+    const readSessionSnapshot = () => {
+      const key = getSessionSnapshotKey()
+      const cached = key ? queryClient?.getQueryData?.(key) : null
+      if (cached) sessionSnapshotRef.current = cached
+      return sessionSnapshotRef.current
+    }
+    const loadSessionSnapshot = async () => {
+      const key = getSessionSnapshotKey()
+      const hostId = activeHostIdRef.current
+      const currentSessionName = sessionNameRef.current
+      if (!key || !hostId || !currentSessionName) return null
+      const snapshot = await api.snapshot.get(hostId, `session-${currentSessionName}`)
+      sessionSnapshotRef.current = snapshot
+      queryClient?.setQueryData(key, snapshot)
+      return snapshot
+    }
+    const getActiveWindowPanes = (snapshot: any) => {
+      const panes = Array.isArray(snapshot?.panes) ? snapshot.panes : []
+      const windows = Array.isArray(snapshot?.windows) ? snapshot.windows : []
+      const activeWindow = windows.find((item: any) => item.id === snapshot?.activeWindowId) || windows.find((item: any) => item.active)
+      const index = Number(activeWindow?.index)
+      if (!Number.isFinite(index)) return panes
+      const session = snapshot?.sessionName || sessionNameRef.current || ''
+      const windowId = `${session}:${index}`
+      return panes.filter((pane: any) => {
+        const id = String(pane.windowId || '')
+        return id === windowId || id.endsWith(`:${index}`)
+      })
+    }
+    const getPaneBounds = (pane: any) => {
+      const id = String(pane?.id ?? pane?.tmuxPaneId ?? '')
+      const left = Number(pane?.left ?? pane?.position?.left)
+      const top = Number(pane?.top ?? pane?.position?.top)
+      const cols = Number(pane?.size?.cols ?? pane?.cols)
+      const rows = Number(pane?.size?.rows ?? pane?.rows)
+      if (![left, top, cols, rows].every(Number.isFinite) || cols <= 0 || rows <= 0) return null
+      return { id, left, top, cols, rows }
+    }
+    const getSelectionRange = () => {
+      const range = terminal?.getSelectionPosition?.()
+      if (!range?.start || !range?.end) return null
+      let startX = Number(range.start.x)
+      let startY = Number(range.start.y)
+      let endX = Number(range.end.x)
+      let endY = Number(range.end.y)
+      if (![startX, startY, endX, endY].every(Number.isFinite)) return null
+      if (startY > endY || (startY === endY && startX > endX)) {
+        const nextStartX = endX
+        const nextStartY = endY
+        endX = startX
+        endY = startY
+        startX = nextStartX
+        startY = nextStartY
+      }
+      return { startX, startY, endX, endY }
+    }
+    const getPaneScopedSelection = (raw: string) => {
+      if (!terminal || !raw) return raw
+      if (terminal?._core?._selectionService?._activeSelectionMode === 3) return raw
+      const range = getSelectionRange()
+      if (!range) return raw
+      const snapshot = readSessionSnapshot()
+      const baseY = Number(terminal?.buffer?.active?.baseY || 0)
+      const screenStartY = range.startY - baseY
+      if (screenStartY < 0 || screenStartY >= terminal.rows) return raw
+      const panes = getActiveWindowPanes(snapshot)
+      const pane = panes.map(getPaneBounds).find((item: any) => item && range.startX >= item.left && range.startX < item.left + item.cols && screenStartY >= item.top && screenStartY < item.top + item.rows)
+      if (!pane) return raw
+      const buffer = terminal?.buffer?.active
+      if (!buffer?.getLine) return raw
+      const paneTop = baseY + pane.top
+      const paneBottom = paneTop + pane.rows - 1
+      const startY = Math.max(range.startY, paneTop)
+      const endY = Math.min(range.endY, paneBottom)
+      if (startY > endY) return raw
+      const lines: string[] = []
+      for (let row = startY; row <= endY; row += 1) {
+        const line = buffer.getLine(row)
+        if (!line?.translateToString) {
+          lines.push('')
+          continue
+        }
+        const lineStart = row === range.startY ? range.startX : 0
+        const lineEnd = row === range.endY ? range.endX : terminal.cols
+        const startCol = Math.max(pane.left, lineStart)
+        const endCol = Math.min(pane.left + pane.cols, lineEnd)
+        lines.push(endCol > startCol ? line.translateToString(true, startCol, endCol).replace(/\u00a0/g, ' ') : '')
+      }
+      const scoped = lines.join(raw.includes('\r\n') ? '\r\n' : '\n')
+      return scoped.trim() ? scoped : raw
+    }
+    const getSelectionText = () => getPaneScopedSelection(terminal?.getSelection?.() || window.getSelection?.()?.toString() || '')
+    const getMouseCell = (event: MouseEvent) => {
+      const screen = terminal?.element?.querySelector('.xterm-screen') as HTMLElement | null
+      if (!screen || !terminal?.cols || !terminal?.rows) return null
+      const rect = screen.getBoundingClientRect()
+      if (!rect.width || !rect.height) return null
+      const dims = terminal?._core?._renderService?.dimensions?.css
+      const cellWidth = Number(dims?.cell?.width) || rect.width / terminal.cols
+      const cellHeight = Number(dims?.cell?.height) || rect.height / terminal.rows
+      if (!Number.isFinite(cellWidth) || !Number.isFinite(cellHeight) || cellWidth <= 0 || cellHeight <= 0) return null
+      const x = Math.floor((event.clientX - rect.left) / cellWidth)
+      const y = Math.floor((event.clientY - rect.top) / cellHeight)
+      if (x < 0 || y < 0 || x >= terminal.cols || y >= terminal.rows) return null
+      return { x, y }
+    }
+    const rangesOverlap = (aStart: number, aEnd: number, bStart: number, bEnd: number) => Math.max(aStart, bStart) <= Math.min(aEnd, bEnd)
+    const getPaneResizeTarget = (event: MouseEvent) => {
+      if (event.button !== 0 || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return null
+      const cell = getMouseCell(event)
+      const snapshot = readSessionSnapshot()
+      if (!cell || !snapshot) return null
+      const panes = getActiveWindowPanes(snapshot).map(getPaneBounds).filter(Boolean) as any[]
+      const vertical = panes.find((pane) => {
+        if (!pane.id) return false
+        const edge = pane.left + pane.cols
+        if (Math.abs(cell.x - edge) > 1 || cell.y < pane.top || cell.y >= pane.top + pane.rows) return false
+        return panes.some((other) => other.left === edge + 1 && rangesOverlap(pane.top, pane.top + pane.rows - 1, other.top, other.top + other.rows - 1))
+      })
+      if (vertical) return { axis: 'x', paneId: vertical.id, startCell: vertical.left + vertical.cols, startSize: vertical.cols }
+      const horizontal = panes.find((pane) => {
+        if (!pane.id) return false
+        const edge = pane.top + pane.rows
+        if (Math.abs(cell.y - edge) > 1 || cell.x < pane.left || cell.x >= pane.left + pane.cols) return false
+        return panes.some((other) => other.top === edge + 1 && rangesOverlap(pane.left, pane.left + pane.cols - 1, other.left, other.left + other.cols - 1))
+      })
+      if (horizontal) return { axis: 'y', paneId: horizontal.id, startCell: horizontal.top + horizontal.rows, startSize: horizontal.rows }
+      return null
+    }
+    const sendPaneResize = (drag: any) => {
+      if (!drag || drag.inFlight || !drag.pendingSize || drag.pendingSize === drag.sentSize) return
+      const size = drag.pendingSize
+      drag.sentSize = size
+      drag.inFlight = true
+      void api.panes.resize(drag.paneId, drag.axis === 'x' ? { cols: size } : { rows: size }).catch(() => {}).finally(() => {
+        drag.inFlight = false
+        void loadSessionSnapshot()
+        if (paneResizeDrag === drag && drag.pendingSize !== drag.sentSize) {
+          sendPaneResize(drag)
+          return
+        }
+        if (paneResizeDrag === drag && drag.released) paneResizeDrag = null
+      })
+    }
+    const schedulePaneResize = (drag: any) => {
+      if (drag.frame) return
+      drag.frame = requestAnimationFrame(() => {
+        drag.frame = null
+        sendPaneResize(drag)
+      })
+    }
+    const updatePaneResizeDrag = (event: MouseEvent) => {
+      const drag = paneResizeDrag
+      if (!drag) return
+      const cell = getMouseCell(event)
+      if (!cell) return
+      const delta = (drag.axis === 'x' ? cell.x : cell.y) - drag.startCell
+      const nextSize = Math.max(4, drag.startSize + delta)
+      if (nextSize === drag.pendingSize) return
+      drag.pendingSize = nextSize
+      schedulePaneResize(drag)
+    }
+    const handlePaneResizeMove = (event: MouseEvent) => {
+      if (!paneResizeDrag) return
+      event.preventDefault()
+      updatePaneResizeDrag(event)
+    }
+    const endPaneResizeDrag = () => {
+      const drag = paneResizeDrag
+      if (!drag) return
+      if (drag.frame) cancelAnimationFrame(drag.frame)
+      drag.released = true
+      sendPaneResize(drag)
+      if (!drag.inFlight && drag.pendingSize === drag.sentSize) paneResizeDrag = null
+      container.style.cursor = ''
+      window.removeEventListener('mousemove', handlePaneResizeMove)
+      window.removeEventListener('mouseup', endPaneResizeDrag)
+      window.removeEventListener('blur', endPaneResizeDrag)
+      window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'tmux-pane-resize' } }))
+      setTimeout(() => void loadSessionSnapshot(), 80)
+    }
+    const handlePaneResizeStart = (event: MouseEvent) => {
+      const target = getPaneResizeTarget(event)
+      if (!target) return
+      event.preventDefault()
+      event.stopPropagation()
+      event.stopImmediatePropagation()
+      pointerSyncActive = false
+      selectionSync.clearCopySelectionTimer()
+      try {
+        terminal?.clearSelection?.()
+      } catch {}
+      paneResizeDrag = { ...target, pendingSize: target.startSize, sentSize: target.startSize, inFlight: false, frame: null }
+      container.style.cursor = target.axis === 'x' ? 'col-resize' : 'row-resize'
+      window.addEventListener('mousemove', handlePaneResizeMove)
+      window.addEventListener('mouseup', endPaneResizeDrag)
+      window.addEventListener('blur', endPaneResizeDrag)
+    }
+    const handlePaneResizeHover = (event: MouseEvent) => {
+      if (paneResizeDrag) return
+      const target = getPaneResizeTarget(event)
+      container.style.cursor = target ? target.axis === 'x' ? 'col-resize' : 'row-resize' : ''
+    }
+    const clearPaneResizeHover = () => {
+      if (!paneResizeDrag) container.style.cursor = ''
+    }
     const stopDeleteWordRepeat = () => {
       deleteWordRepeatActive = false
       if (deleteWordRepeatTimer) {
@@ -246,9 +459,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const currentSessionName = sessionNameRef.current
       if (!hostId || !currentSessionName) return
       try {
-        const snapshot = await api.snapshot.get(hostId, `session-${currentSessionName}`)
-        queryClient?.setQueryData(['session-snapshot', hostId, `session-${currentSessionName}`], snapshot)
-        if (snapshot.activePaneId) setActivePane(snapshot.activePaneId)
+        const snapshot = await loadSessionSnapshot()
+        if (snapshot?.activePaneId) setActivePane(snapshot.activePaneId)
       } catch {}
     }
     const requestServerRedraw = () => {
@@ -621,6 +833,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       fitAddonRef.current = fitAddon
       terminalInstance.current = terminal
       ;(window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal = terminal
+      void loadSessionSnapshot()
       const da2Handler = terminal.parser?.registerCsiHandler?.({ prefix: '>', final: 'c' }, () => true)
       if (da2Handler) {
         disposables.push(da2Handler)
@@ -635,7 +848,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       )
       disposables.push(
         terminal.onSelectionChange(() => {
-          const selection = terminal?.getSelection?.() || ''
+          const selection = getSelectionText()
           if (!selection) {
             selectionSync.setSelection('')
             return
@@ -687,7 +900,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const unsubscribeOutput = subscribeOutputRef.current ? subscribeOutputRef.current(handleOutput) : () => {}
       if (!subscribeOutputRef.current) window.addEventListener('tmuxgo-terminal-output', handleOutput as EventListener)
       const handleCopySelection = (event: Event) => {
-        const selection = terminal?.getSelection?.() || ''
+        const selection = getSelectionText()
         window.dispatchEvent(new CustomEvent('tmuxgo-terminal-selection', { detail: { requestId: (event as CustomEvent).detail?.requestId, selection } }))
       }
       window.addEventListener('tmuxgo-copy-terminal-selection', handleCopySelection as EventListener)
@@ -728,6 +941,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         const cols = Number(detail.cols)
         const rows = Number(detail.rows)
         if (!terminal || disposed) return
+        void loadSessionSnapshot()
         if (attachExclusiveRef.current) {
           scheduleInitialFit()
           if (!isMobileDevice) forceStableFit(5, 34)
@@ -807,6 +1021,9 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const handleDragLeave = (e: DragEvent) => {
         dropState.handleDragLeave(e, container)
       }
+      container.addEventListener('mousedown', handlePaneResizeStart, true)
+      container.addEventListener('mousemove', handlePaneResizeHover)
+      container.addEventListener('mouseleave', clearPaneResizeHover)
       container.addEventListener('dragover', dropState.handleDragOver)
       container.addEventListener('dragleave', handleDragLeave)
       container.addEventListener('drop', dropState.handleDrop)
@@ -862,6 +1079,15 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           window.removeEventListener('mobile-keyboard-change', handleKeyboardChange as EventListener)
           window.removeEventListener('pageshow', handlePageShow)
           document.removeEventListener('visibilitychange', handleVisibilityChange)
+          if (paneResizeDrag?.frame) cancelAnimationFrame(paneResizeDrag.frame)
+          paneResizeDrag = null
+          container.style.cursor = ''
+          window.removeEventListener('mousemove', handlePaneResizeMove)
+          window.removeEventListener('mouseup', endPaneResizeDrag)
+          window.removeEventListener('blur', endPaneResizeDrag)
+          container.removeEventListener('mousedown', handlePaneResizeStart, true)
+          container.removeEventListener('mousemove', handlePaneResizeHover)
+          container.removeEventListener('mouseleave', clearPaneResizeHover)
           container.removeEventListener('dragover', dropState.handleDragOver)
           container.removeEventListener('dragleave', handleDragLeave)
           container.removeEventListener('drop', dropState.handleDrop)

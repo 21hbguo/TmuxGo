@@ -1,3 +1,17 @@
+export function normalizeKeyboardViewportState({
+  keyboardOpen,
+  keyboardInset,
+  bodyKeyboardOpen,
+  keyboardOwnerActive,
+}: {
+  keyboardOpen: boolean
+  keyboardInset: number
+  bodyKeyboardOpen: boolean
+  keyboardOwnerActive: boolean
+}) {
+  if (!bodyKeyboardOpen && keyboardOpen && !keyboardOwnerActive) return { keyboardOpen: false, keyboardInset: 0 }
+  return { keyboardOpen, keyboardInset }
+}
 export function getViewportLayoutState({
   isMobileViewport,
   innerHeight,
