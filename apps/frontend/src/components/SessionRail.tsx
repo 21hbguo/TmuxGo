@@ -1,7 +1,8 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
-import { useCreateSession, useSessions } from '@/hooks/useApi'
+import { useCreateSession, useRenameSession } from '@/hooks/useApi'
+import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import { SessionTemplates, type Template } from './SessionTemplates'
 import { useTranslation } from '@/i18n'
 
@@ -11,10 +12,13 @@ export function SessionRail() {
   const activeHostId = useConsoleStore((state) => state.activeHostId)
   const pushToast = useConsoleStore((state) => state.pushToast)
   const setSessionPanelExpanded = useConsoleStore((state) => state.setSessionPanelExpanded)
-  const { data: sessions = [] } = useSessions(activeHostId || '')
+  const { data: sessions = [], moveSession } = useOrderedSessions(activeHostId || '')
   const createSession = useCreateSession()
+  const renameSession = useRenameSession()
   const { t } = useTranslation()
   const [showTemplates, setShowTemplates] = useState(false)
+  const [draggedSessionId, setDraggedSessionId] = useState<string | null>(null)
+  const [dragOverSessionId, setDragOverSessionId] = useState<string | null>(null)
   const handleTemplateSelect = async (template: Template) => {
     if (!activeHostId) return
     const name = prompt('Session name:', template.name.toLowerCase())
@@ -33,6 +37,19 @@ export function SessionRail() {
     }
     setShowTemplates(false)
   }
+  const handleRenameSession = async (sessionId: string) => {
+    if (!activeHostId) return
+    const session = sessions.find((item) => item.id === sessionId)
+    const name = window.prompt(t('drawer.renamePrompt'), session?.name || '')
+    if (!name || name === session?.name) return
+    try {
+      const renamed = await renameSession.mutateAsync({ hostId: activeHostId, sessionId, name })
+      if (activeSessionId === sessionId && renamed?.id) setActiveSession(renamed.id)
+      pushToast({ type: 'success', message: `Session ${session?.name || sessionId} renamed to ${name}` })
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Request failed' })
+    }
+  }
   useEffect(() => {
     const handleOpenTemplates = () => setShowTemplates(true)
     window.addEventListener('tmuxgo-open-session-templates', handleOpenTemplates as EventListener)
@@ -47,7 +64,19 @@ export function SessionRail() {
             {sessions.map((session) => {
               const active = session.id === activeSessionId
               return (
-                <button key={session.id} title={session.name} onClick={() => setActiveSession(session.id)} className={`flex h-11 min-w-0 items-center gap-2 rounded-lg border px-2 text-left transition-colors ${active ? 'border-[var(--line)] bg-bg-2 text-accent' : 'border-transparent bg-transparent text-text-3 hover:bg-bg-2 hover:text-text-1'}`}>
+                <button key={session.id} title={session.name} draggable onDragStart={(event) => {
+                  setDraggedSessionId(session.id)
+                  setDragOverSessionId(session.id)
+                  event.dataTransfer.effectAllowed = 'move'
+                }} onDragEnter={() => setDragOverSessionId(session.id)} onDragOver={(event) => event.preventDefault()} onDrop={() => {
+                  if (!draggedSessionId) return
+                  moveSession(draggedSessionId, session.id)
+                  setDraggedSessionId(null)
+                  setDragOverSessionId(null)
+                }} onDragEnd={() => {
+                  setDraggedSessionId(null)
+                  setDragOverSessionId(null)
+                }} onClick={() => setActiveSession(session.id)} onDoubleClick={() => void handleRenameSession(session.id)} className={`flex h-11 min-w-0 items-center gap-2 rounded-lg border px-2 text-left transition-colors ${active ? 'border-[var(--line)] bg-bg-2 text-accent' : 'border-transparent bg-transparent text-text-3 hover:bg-bg-2 hover:text-text-1'} ${draggedSessionId === session.id ? 'opacity-50' : ''} ${dragOverSessionId === session.id && draggedSessionId !== session.id ? 'border-accent bg-accent/10 shadow-[inset_0_2px_0_var(--accent)]' : ''}`}>
                   <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[11px] font-semibold ${active ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-2'}`}>{session.name.slice(0, 2).toUpperCase()}</span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-xs font-medium text-text-1">{session.name}</span>

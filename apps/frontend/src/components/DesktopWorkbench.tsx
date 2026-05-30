@@ -87,7 +87,11 @@ export function DesktopWorkbench() {
   const filePanelMin = clampValue(Math.floor(viewportWidth * 0.24), 240, Math.min(320, filePanelMax))
   const renderedFilePanelWidth = clampValue(previewFileWidth ?? filePanelWidth, filePanelMin, filePanelMax)
   const terminalMinHeight = clampValue(Math.floor(viewportHeight * 0.22), 150, 220)
-  const terminalMaxHeight = clampValue(Math.floor(viewportHeight * 0.58), terminalMinHeight, 760)
+  const terminalInlineMaxHeight = clampValue(Math.floor(viewportHeight * 0.58), terminalMinHeight, 760)
+  const terminalMaxHeight = clampValue(viewportHeight - 12, terminalInlineMaxHeight, 2000)
+  const terminalPanelHeight = useConsoleStore((state) => state.terminalPanelHeight)
+  const terminalOverlay = openEditors.length > 0 && terminalPanelHeight > terminalInlineMaxHeight
+  const terminalOverlayTopOffset = clampValue(viewportHeight - terminalPanelHeight, 0, viewportHeight)
   useEffect(() => {
     const element = containerRef.current
     if (!element) return
@@ -227,13 +231,13 @@ export function DesktopWorkbench() {
           }} />
         </div>
       )}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-bg-1">
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-bg-1">
         {openEditors.length > 0 ? (
           <>
-            <div className="min-h-0 flex-1">
+            <div className={`min-h-0 flex-1 ${terminalOverlay ? 'pointer-events-none select-none opacity-50' : ''}`}>
               <EditorWorkbench onSaveEditor={handleSaveEditor} />
             </div>
-            <TerminalDock minHeight={terminalMinHeight} maxHeight={terminalMaxHeight} />
+            <TerminalDock minHeight={terminalMinHeight} maxHeight={terminalMaxHeight} overlay={terminalOverlay} dragViewportHeight={viewportHeight} overlayTopOffset={terminalOverlayTopOffset} />
           </>
         ) : (
           <div className="min-h-0 flex-1">

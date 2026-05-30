@@ -75,6 +75,14 @@ cd TmuxGo
 ./start.sh --restart --rebuild
 ```
 
+运行规则：
+
+- 改了前端、gateway、agent 源码后，仅仅 `build/test` 不会让 `3000/3001` 上的常驻服务自动更新
+- 你实际在看的稳定版地址默认是 `3000`，开发版热更新地址是 `3002`
+- 改完想让稳定版立即生效，执行 `./start.sh --restart`
+- 如果改动涉及稳定版前端构建产物，或怀疑 `3000` 仍在跑旧包，执行 `./start.sh --restart --rebuild`
+- 重启后再访问 `3000`，必要时浏览器执行一次强刷 `Ctrl+Shift+R`
+
 浏览器打开 `http://localhost:3000`。:tada:
 
 > :bulb: 局域网内可直接访问；远程访问请先配置 [Tailscale](https://tailscale.com)。
@@ -166,6 +174,11 @@ npm run build
 ```bash
 ./start-prod.sh
 ```
+
+交付建议：
+
+- 只要改动影响运行结果，默认执行 `test/build -> ./start.sh --restart -> 健康检查`
+- 不要只验证 `3002` 就认为稳定版 `3000` 已经更新
 
 ## :open_file_folder: 项目结构
 
