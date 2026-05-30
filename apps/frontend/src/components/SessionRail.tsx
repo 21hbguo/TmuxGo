@@ -67,11 +67,10 @@ export function SessionRail() {
               const active = session.id === activeSessionId
               return `rounded-lg ${isOverlay ? 'shadow-[0_18px_44px_rgba(0,0,0,0.42)]' : ''} ${isDragging && !isOverlay ? 'opacity-40' : ''}`
             }}
-            renderItem={({ session, dragHandleProps, isOverlay }) => {
+            renderItem={({ session, isOverlay }) => {
               const active = session.id === activeSessionId
               return (
                 <div title={session.name} className={`flex h-11 min-w-0 items-center gap-2 rounded-lg border px-2 text-left transition-[transform,box-shadow,background-color,border-color,color] duration-200 ${active ? 'border-[var(--line)] bg-bg-2 text-accent' : 'border-transparent bg-transparent text-text-3 hover:bg-bg-2 hover:text-text-1'} ${isOverlay ? 'border-accent bg-bg-1 text-text-1 shadow-[0_18px_44px_rgba(0,0,0,0.42)]' : ''}`}>
-                  <button ref={dragHandleProps.ref} {...dragHandleProps.attributes} {...dragHandleProps.listeners} aria-label={t('sidebar.reorderSession')} title={t('sidebar.reorderSession')} className="flex h-7 w-5 shrink-0 items-center justify-center rounded text-[11px] leading-none text-text-3 transition-colors hover:bg-bg-0 hover:text-text-1 touch-none">⋮⋮</button>
                   <button onClick={() => setActiveSession(session.id)} onDoubleClick={() => void handleRenameSession(session.id)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
                     <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[11px] font-semibold ${active ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-2'}`}>{session.name.slice(0, 2).toUpperCase()}</span>
                     <span className="min-w-0 flex-1">

@@ -5,17 +5,10 @@ import { CSS } from '@dnd-kit/utilities'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { Session } from '@/types'
 
-type DragHandleProps = {
-  ref: (node: HTMLElement | null) => void
-  attributes: Record<string, any>
-  listeners: Record<string, any> | undefined
-}
-
 type RenderSessionArgs = {
   session: Session
   isDragging: boolean
   isOverlay: boolean
-  dragHandleProps: DragHandleProps
 }
 
 type GetClassNameArgs = {
@@ -38,20 +31,15 @@ function arraysEqual(a: string[], b: string[]) {
 }
 
 function SortableSessionItem({ session, renderItem, className }: { session: Session; renderItem: (args: RenderSessionArgs) => ReactNode; className?: string }) {
-  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id: session.id })
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: session.id })
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
     zIndex: isDragging ? 20 : undefined,
   }
   return (
-    <div ref={setNodeRef} style={style} className={className}>
-      {renderItem({
-        session,
-        isDragging,
-        isOverlay: false,
-        dragHandleProps: { ref: setActivatorNodeRef, attributes, listeners },
-      })}
+    <div ref={setNodeRef} style={style} className={`touch-none select-none cursor-grab active:cursor-grabbing ${className ?? ''}`} {...attributes} {...listeners}>
+      {renderItem({ session, isDragging, isOverlay: false })}
     </div>
   )
 }
@@ -102,7 +90,7 @@ export function SessionSortableList({ sessions, onMove, listClassName, getItemCl
         </div>
       </SortableContext>
       <DragOverlay dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.22,1,0.36,1)' }}>
-        {activeSession ? <div className={getItemClassName?.({ session: activeSession, isDragging: true, isOverlay: true })}>{renderItem({ session: activeSession, isDragging: true, isOverlay: true, dragHandleProps: { ref: () => {}, attributes: {}, listeners: undefined } })}</div> : null}
+        {activeSession ? <div className={getItemClassName?.({ session: activeSession, isDragging: true, isOverlay: true })}>{renderItem({ session: activeSession, isDragging: true, isOverlay: true })}</div> : null}
       </DragOverlay>
     </DndContext>
   )
