@@ -41,6 +41,7 @@ export const zh = {
 
   // MobileNav
   'nav.sessions': '会话',
+  'nav.windows': '窗口',
   'nav.panes': '面板',
   'nav.search': '搜索',
   'nav.settings': '设置',
@@ -49,6 +50,8 @@ export const zh = {
   'drawer.sessions': '会话',
   'drawer.panes': '面板',
   'drawer.windows': '{count} 个窗口',
+  'drawer.windowsTitle': '窗口',
+  'drawer.noWindows': '没有窗口',
   'drawer.sessionName': '会话名称：',
   'drawer.renamePrompt': '重命名会话：',
 

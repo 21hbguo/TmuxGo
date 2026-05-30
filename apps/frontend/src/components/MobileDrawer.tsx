@@ -2,10 +2,12 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
-import { useBatchDeleteSessions, useCreateSession, useDeleteSession, useRenameSession } from '@/hooks/useApi'
+import { useBatchDeleteSessions, useCreateSession, useDeleteSession, useRenameSession, useWindows } from '@/hooks/useApi'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import { SessionTemplates, type Template } from './SessionTemplates'
 import { useTranslation } from '@/i18n'
+import { useWindowQueryState } from '@/hooks/useWindowQueryState'
+import { api } from '@/lib/api'
 import { QuickActions } from './QuickActions'
 import { ConfirmDialog } from './ConfirmDialog'
 import { SessionSortableList } from './SessionSortableList'
@@ -13,7 +15,7 @@ import { SessionSortableList } from './SessionSortableList'
 interface MobileDrawerProps {
   isOpen: boolean
   onClose: () => void
-  type: 'sessions' | 'panes'
+  type: 'sessions' | 'panes' | 'windows'
 }
 
 export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
@@ -22,6 +24,8 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
   const activeHostId = useConsoleStore((state) => state.activeHostId)
   const pushToast = useConsoleStore((state) => state.pushToast)
   const { data: sessions = [], moveSession } = useOrderedSessions(activeHostId || '')
+  const { data: windowsData = [] } = useWindows(activeHostId || '', activeSessionId || '')
+  const { getWindows, setWindows } = useWindowQueryState(activeHostId || '', activeSessionId || '')
   const createSession = useCreateSession()
   const renameSession = useRenameSession()
   const deleteSession = useDeleteSession()
@@ -172,6 +176,23 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
   useEffect(() => {
     setSelectedSessionIds((prev) => prev.filter((id) => sessions.some((item) => item.id === id)))
   }, [sessions])
+
+  const sessionWindows = windowsData.filter((w: any) => w.sessionId === activeSessionId)
+  const handleSelectWindow = async (windowId: string) => {
+    if (!activeHostId || !activeSessionId) return
+    const previousWindows = getWindows()
+    setWindows(previousWindows.map((w: any) =>
+      w.sessionId === activeSessionId ? { ...w, active: w.id === windowId } : w
+    ))
+    try {
+      const result = await api.windows.select(activeHostId, activeSessionId, windowId)
+      if (result.windows) setWindows(result.windows)
+    } catch {
+      setWindows(previousWindows)
+      pushToast({ type: 'error', message: t('window.switchFailed') })
+    }
+    handleClose()
+  }
   useEffect(() => {
     if (isOpen && type === 'sessions') return
     setBatchMode(false)
@@ -197,7 +218,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
         </div>
         <div className="flex items-center justify-between px-4 pb-3">
           <h3 className="text-text-1 font-medium">
-            {type === 'sessions' ? batchMode ? t('sidebar.batchSelectedCount', { count: selectedSessionIds.length }) : t('drawer.sessions') : t('drawer.panes')}
+            {type === 'sessions' ? batchMode ? t('sidebar.batchSelectedCount', { count: selectedSessionIds.length }) : t('drawer.sessions') : type === 'windows' ? t('drawer.windowsTitle') : t('drawer.panes')}
           </h3>
           <div className="flex items-center gap-2">
             {type === 'sessions' && <button onClick={() => {
@@ -251,6 +272,24 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
           )}
           {type === 'panes' && (
             <QuickActions />
+          )}
+          {type === 'windows' && (
+            <div className="space-y-2">
+              {sessionWindows.length === 0 ? (
+                <div className="text-center text-text-3 py-4">{t('drawer.noWindows')}</div>
+              ) : (
+                sessionWindows.map((window: any) => (
+                  <button
+                    key={window.id}
+                    onClick={() => void handleSelectWindow(window.id)}
+                    className={`w-full rounded-lg p-3 text-left transition-colors ${window.active ? 'border border-accent bg-accent/20' : 'bg-bg-2 active:bg-bg-1'}`}
+                  >
+                    <div className="truncate text-text-1">{window.name}</div>
+                    <div className="text-text-3 text-xs">#{window.index + 1}</div>
+                  </button>
+                ))
+              )}
+            </div>
           )}
         </div>
       </div>

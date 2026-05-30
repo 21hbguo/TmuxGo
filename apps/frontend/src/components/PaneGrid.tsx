@@ -1,12 +1,15 @@
 'use client'
 
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { TerminalPane } from './TerminalPane'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useTranslation } from '@/i18n'
 import { usePreferences } from '@/hooks/usePreferences'
 import { isMobileDevice } from '@/hooks/useMobileKeyboard'
+import { useWindows } from '@/hooks/useApi'
+import { useWindowQueryState } from '@/hooks/useWindowQueryState'
+import { api } from '@/lib/api'
 
 const ATTACH_TIMEOUT = 5000
 const ATTACH_RETRY_DELAY = 900
@@ -15,6 +18,7 @@ const INPUT_FLUSH_INTERVAL = 10
 const INPUT_BATCH_CHARS = 768
 
 export function PaneGrid() {
+  const activeHostId = useConsoleStore((s) => s.activeHostId)
   const activeSessionId = useConsoleStore((s) => s.activeSessionId)
   const connectionStatus = useConsoleStore((s) => s.connection.status)
   const updateConnection = useConsoleStore((s) => s.updateConnection)
@@ -23,6 +27,9 @@ export function PaneGrid() {
   const { t } = useTranslation()
   const { preferences } = usePreferences()
   const isMobile = isMobileDevice()
+  const { data: windowsData = [] } = useWindows(activeHostId || '', activeSessionId || '')
+  const { getWindows, setWindows } = useWindowQueryState(activeHostId || '', activeSessionId || '')
+  const pushToast = useConsoleStore((s) => s.pushToast)
   const exclusive = !isMobile || preferences.attachExclusive
   const attachedRef = useRef<string | null>(null)
   const sizeRef = useRef<{ cols: number; rows: number } | null>(null)
@@ -39,6 +46,34 @@ export function PaneGrid() {
   const attachStartedAtRef = useRef(0)
 
   const sessionName = activeSessionId?.replace('session-', '') || ''
+
+  const sessionWindows = useMemo(() =>
+    windowsData.filter((w: any) => w.sessionId === activeSessionId),
+    [windowsData, activeSessionId]
+  )
+  const activeWindowIndex = useMemo(() =>
+    sessionWindows.findIndex((w: any) => w.active),
+    [sessionWindows]
+  )
+  const switchWindow = useCallback(async (direction: -1 | 1) => {
+    if (!activeHostId || !activeSessionId || sessionWindows.length <= 1) return
+    const nextIndex = (activeWindowIndex + direction + sessionWindows.length) % sessionWindows.length
+    const targetWindow = sessionWindows[nextIndex]
+    if (!targetWindow) return
+    const previousWindows = getWindows()
+    setWindows(previousWindows.map((w: any) =>
+      w.sessionId === activeSessionId ? { ...w, active: w.id === targetWindow.id } : w
+    ))
+    try {
+      const result = await api.windows.select(activeHostId, activeSessionId, targetWindow.id)
+      if (result.windows) setWindows(result.windows)
+    } catch {
+      setWindows(previousWindows)
+      pushToast({ type: 'error', message: t('window.switchFailed') })
+    }
+  }, [activeHostId, activeSessionId, sessionWindows, activeWindowIndex, getWindows, setWindows, pushToast, t])
+  const handleSwipeLeft = useCallback(() => { void switchWindow(1) }, [switchWindow])
+  const handleSwipeRight = useCallback(() => { void switchWindow(-1) }, [switchWindow])
 
   const sendResizeNow = useCallback((size: { cols: number; rows: number }) => {
     if (!size.cols || !size.rows) return
@@ -271,7 +306,7 @@ export function PaneGrid() {
           {t(`status.${connectionStatus}`)}
         </div>
       )}
-      <TerminalPane key={sessionName || 'empty-session'} sessionName={sessionName} onInput={handleInput} onResize={handleResize} attachExclusive={exclusive} onReady={handleReady} subscribeOutput={subscribeOutput} />
+      <TerminalPane key={sessionName || 'empty-session'} sessionName={sessionName} onInput={handleInput} onResize={handleResize} attachExclusive={exclusive} onReady={handleReady} subscribeOutput={subscribeOutput} onSwipeLeft={sessionWindows.length > 1 ? handleSwipeLeft : undefined} onSwipeRight={sessionWindows.length > 1 ? handleSwipeRight : undefined} />
     </div>
   )
 }

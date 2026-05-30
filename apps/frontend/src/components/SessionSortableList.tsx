@@ -38,7 +38,7 @@ function SortableSessionItem({ session, renderItem, className }: { session: Sess
     zIndex: isDragging ? 20 : undefined,
   }
   return (
-    <div ref={setNodeRef} style={style} className={`touch-none select-none cursor-grab active:cursor-grabbing ${className ?? ''}`} {...attributes} {...listeners}>
+    <div ref={setNodeRef} style={style} className={`touch-pan-y select-none cursor-grab active:cursor-grabbing ${className ?? ''}`} {...attributes} {...listeners}>
       {renderItem({ session, isDragging, isOverlay: false })}
     </div>
   )

@@ -57,7 +57,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   const [isMobile, setIsMobile] = useState(initialIsMobile)
   const [appHeight, setAppHeight] = useState(initialIsMobile ? '100svh' : '100dvh')
   const [drawerOpen, setDrawerOpen] = useState(false)
-  const [drawerType, setDrawerType] = useState<'sessions' | 'panes'>('sessions')
+  const [drawerType, setDrawerType] = useState<'sessions' | 'panes' | 'windows'>('sessions')
   const [showSettings, setShowSettings] = useState(false)
   const [keyboardOpen, setKeyboardOpen] = useState(false)
   const overlayRef = useRef<string[]>([])
@@ -79,7 +79,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
     if (overlayRef.current[overlayRef.current.length - 1] !== id) return
     window.history.back()
   }, [])
-  const openDrawer = useCallback((type: 'sessions' | 'panes') => {
+  const openDrawer = useCallback((type: 'sessions' | 'panes' | 'windows') => {
     if (drawerOpen && drawerType === type) return
     setDrawerType(type)
     if (!drawerOpen) {

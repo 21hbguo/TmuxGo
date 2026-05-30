@@ -41,6 +41,7 @@ export const en = {
 
   // MobileNav
   'nav.sessions': 'Sessions',
+  'nav.windows': 'Windows',
   'nav.panes': 'Panes',
   'nav.search': 'Search',
   'nav.settings': 'Settings',
@@ -49,6 +50,8 @@ export const en = {
   'drawer.sessions': 'Sessions',
   'drawer.panes': 'Panes',
   'drawer.windows': '{count} windows',
+  'drawer.windowsTitle': 'Windows',
+  'drawer.noWindows': 'No windows',
   'drawer.sessionName': 'Session name:',
   'drawer.renamePrompt': 'Rename session:',
 
