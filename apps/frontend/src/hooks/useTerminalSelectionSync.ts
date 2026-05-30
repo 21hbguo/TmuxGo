@@ -89,7 +89,7 @@ export function useTerminalSelectionSync(pushToast: PushToast) {
     }
     if (!force && selection === lastCopiedSelectionRef.current) return
     lastCopiedSelectionRef.current = selection
-    const result = await writeClipboardText(selection, { preferSync: true })
+    const result = await writeClipboardText(selection)
     if (result.unavailable) {
       const noticeKey = `${selection}:${result.reason}`
       if (lastCopyNoticeRef.current === noticeKey) return
