@@ -22,6 +22,15 @@ export const en = {
   'sidebar.deleteConfirm': 'Delete session "{name}"? This cannot be undone.',
   'sidebar.deleteTitle': 'Delete session',
   'sidebar.confirmDelete': 'Delete',
+  'sidebar.batchDeleteAction': 'Batch Delete',
+  'sidebar.batchCancelAction': 'Cancel Batch',
+  'sidebar.batchDeleteSelected': 'Delete Selected',
+  'sidebar.batchSelectAll': 'Select All',
+  'sidebar.batchClearAll': 'Clear',
+  'sidebar.batchSelectedCount': '{count} selected',
+  'sidebar.batchDeleteTitle': 'Delete Sessions',
+  'sidebar.batchDeleteConfirm': 'Delete {count} selected sessions? This cannot be undone.',
+  'sidebar.batchDeleteSuccess': 'Deleted {count} sessions',
   'sidebar.windows': '{count} windows',
 
   // StatusBar

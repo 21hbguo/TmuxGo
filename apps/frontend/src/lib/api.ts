@@ -24,6 +24,44 @@ export interface SystemInfoResponse {
   disks: { mount: string; used: number; total: number }[]
   stream: StreamSystemInfo
 }
+export interface BatchDeleteSessionFilters {
+  createdBefore?: string
+  inactiveBefore?: string
+  nameIncludes?: string
+  includeAttached?: boolean
+}
+export interface BatchDeleteSessionsRequest {
+  mode?: 'preview' | 'execute'
+  sessionIds?: string[]
+  filters?: BatchDeleteSessionFilters
+  limit?: number
+  force?: boolean
+}
+export interface BatchDeleteSessionItem {
+  sessionId: string
+  name: string
+  createdAt?: string
+  lastActiveAt?: string
+  windowCount?: number
+  attached?: boolean
+  reason?: string
+}
+export interface BatchDeleteSessionsResponse {
+  mode: 'preview' | 'execute'
+  limit: number
+  forceRequired?: boolean
+  forceUsed?: boolean
+  matchedCount?: number
+  deletableCount?: number
+  deleteCount?: number
+  attemptedCount?: number
+  deletedCount?: number
+  failedCount?: number
+  skipped?: BatchDeleteSessionItem[]
+  sessions?: BatchDeleteSessionItem[]
+  deleted?: BatchDeleteSessionItem[]
+  failed?: BatchDeleteSessionItem[]
+}
 
 async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   const url = `${getApiBase()}${path}`
@@ -125,6 +163,11 @@ export const api = {
     delete: (hostId: string, sessionId: string) =>
       fetchApi<any>(`/api/hosts/${hostId}/sessions/${sessionId}`, {
         method: 'DELETE',
+      }),
+    batchDelete: (hostId: string, payload: BatchDeleteSessionsRequest) =>
+      fetchApi<BatchDeleteSessionsResponse>(`/api/hosts/${hostId}/sessions/batch-delete`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
       }),
   },
   windows: {
