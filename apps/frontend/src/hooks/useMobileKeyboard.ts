@@ -196,6 +196,14 @@ export function useMobileKeyboard(
 
     clearValue()
 
+    const ARROW_KEYS: Record<string, string> = {
+      ArrowUp: '\x1b[A',
+      ArrowDown: '\x1b[B',
+      ArrowRight: '\x1b[C',
+      ArrowLeft: '\x1b[D',
+      Home: '\x1b[H',
+      End: '\x1b[F',
+    }
     const handleKeyDown = (e: KeyboardEvent) => {
       if (composingRef.current || e.isComposing) return
       if (e.key === 'Backspace') {
@@ -209,6 +217,10 @@ export function useMobileKeyboard(
       } else if (e.key === 'Tab') {
         e.preventDefault()
         sendInput('\t')
+        clearValue()
+      } else if (ARROW_KEYS[e.key]) {
+        e.preventDefault()
+        sendInput(ARROW_KEYS[e.key])
         clearValue()
       }
     }
