@@ -11,6 +11,7 @@ cd "$ROOT_DIR"
 echo "Starting TmuxGo development servers..."
 RESTART=0
 REBUILD_STABLE=0
+FRONTEND_STABLE_DIST_DIR=".next-prod"
 for arg in "$@"; do
   if [ "$arg" = "--restart" ]; then
     RESTART=1
@@ -19,6 +20,27 @@ for arg in "$@"; do
     REBUILD_STABLE=1
   fi
 done
+stable_build_ready() {
+  [ -f "$ROOT_DIR/apps/frontend/$FRONTEND_STABLE_DIST_DIR/BUILD_ID" ]
+}
+stable_build_stale() {
+  stable_build_ready || return 0
+  local build_marker="$ROOT_DIR/apps/frontend/$FRONTEND_STABLE_DIST_DIR/BUILD_ID"
+  find "$ROOT_DIR/apps/frontend/src" \
+    "$ROOT_DIR/apps/frontend/package.json" \
+    "$ROOT_DIR/apps/frontend/next.config.js" \
+    "$ROOT_DIR/apps/frontend/next.config.mjs" \
+    "$ROOT_DIR/apps/frontend/next.config.ts" \
+    "$ROOT_DIR/apps/frontend/tsconfig.json" \
+    "$ROOT_DIR/apps/frontend/tailwind.config.js" \
+    "$ROOT_DIR/apps/frontend/tailwind.config.ts" \
+    "$ROOT_DIR/apps/frontend/postcss.config.js" \
+    -type f -newer "$build_marker" 2>/dev/null | rg -q .
+}
+if [ "$RESTART" = "1" ] && [ "$REBUILD_STABLE" = "0" ] && stable_build_stale; then
+  REBUILD_STABLE=1
+  echo "Detected frontend source changes newer than $FRONTEND_STABLE_DIST_DIR; auto-enabling stable rebuild."
+fi
 if [ "$RESTART" = "1" ] && [ "$REBUILD_STABLE" = "1" ]; then
   echo "Mode: restart services and rebuild stable frontend artifacts for port 3000."
 elif [ "$RESTART" = "1" ]; then
@@ -30,7 +52,6 @@ FRONTEND_STABLE_LOG="/tmp/tmuxgo-frontend-stable.log"
 FRONTEND_DEV_LOG="/tmp/tmuxgo-frontend-dev.log"
 GATEWAY_LOG="/tmp/tmuxgo-gateway.log"
 AGENT_LOG="/tmp/tmuxgo-agent.log"
-FRONTEND_STABLE_DIST_DIR=".next-prod"
 TAILSCALE_DNS=""
 SECURE_FRONTEND_URL=""
 SECURE_GATEWAY_URL=""
@@ -105,9 +126,6 @@ start_detached() {
 process_alive() {
   local pid=$1
   kill -0 "$pid" >/dev/null 2>&1
-}
-stable_build_ready() {
-  [ -f "$ROOT_DIR/apps/frontend/$FRONTEND_STABLE_DIST_DIR/BUILD_ID" ]
 }
 stable_build_id() {
   cat "$ROOT_DIR/apps/frontend/$FRONTEND_STABLE_DIST_DIR/BUILD_ID" 2>/dev/null || true

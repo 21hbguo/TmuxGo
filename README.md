@@ -79,8 +79,11 @@ cd TmuxGo
 
 - 改了前端、gateway、agent 源码后，仅仅 `build/test` 不会让 `3000/3001` 上的常驻服务自动更新
 - 你实际在看的稳定版地址默认是 `3000`，开发版热更新地址是 `3002`
+- Tailscale / systemd 默认对外暴露的是稳定版 `3000`，它运行的是预构建产物，不是源码目录本身
+- 只执行 `./start.sh --restart` 只能重启服务；如果 `.next-prod` 没有重建，`3000` 仍然可能继续跑旧前端
 - 改完想让稳定版立即生效，执行 `./start.sh --restart`
-- 如果改动涉及稳定版前端构建产物，或怀疑 `3000` 仍在跑旧包，执行 `./start.sh --restart --rebuild`
+- 如果前端源码比 `.next-prod` 新，`start.sh --restart` 现在会自动升级为重建稳定版
+- 如果你想显式强制重建，仍然可以执行 `./start.sh --restart --rebuild`
 - 重启后再访问 `3000`，必要时浏览器执行一次强刷 `Ctrl+Shift+R`
 
 浏览器打开 `http://localhost:3000`。:tada:
@@ -178,6 +181,7 @@ npm run build
 交付建议：
 
 - 只要改动影响运行结果，默认执行 `test/build -> ./start.sh --restart -> 健康检查`
+- 如果改动包含前端稳定版页面，交付标准是“`3000`/Tailscale 已加载新构建”，不是“源码已经修改”
 - 不要只验证 `3002` 就认为稳定版 `3000` 已经更新
 
 ## :open_file_folder: 项目结构
