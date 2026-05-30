@@ -59,23 +59,23 @@ describe('getViewportLayoutState', () => {
       nextHeight: 800,
     })
   })
-  it('ignores mobile browser chrome viewport shrink when no input owns focus', () => {
+  it('uses visual viewport when keyboard is closed and shrink is small', () => {
     expect(getViewportLayoutState({
       isMobileViewport: true,
-      innerHeight: 800,
+      innerHeight: 844,
       viewportHeight: 760,
       viewportWidth: 390,
       previousViewportWidth: 390,
-      baseHeight: 800,
+      baseHeight: 844,
       keyboardOpen: false,
       keyboardInset: 0,
       bodyKeyboardOpen: false,
     })).toEqual({
       viewportWidth: 390,
-      baseHeight: 800,
+      baseHeight: 844,
       inset: 0,
       open: false,
-      nextHeight: 800,
+      nextHeight: 760,
     })
   })
   it('ignores focused editable viewport shrink until keyboard state is confirmed', () => {
