@@ -883,7 +883,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       className="h-full w-full min-h-0 overflow-hidden relative"
       style={{
         ['--terminal-padding' as any]: `${preferences.terminalPadding}px`,
-        ['--terminal-padding-bottom' as any]: isMobileDevice ? 'calc(48px + env(safe-area-inset-bottom,0px))' : `${preferences.terminalPadding}px`,
+        ['--terminal-padding-bottom' as any]: `${preferences.terminalPadding}px`,
       }}
       onMouseDown={() => {
         if (!isMobileDevice) terminalInstance.current?.focus?.()
