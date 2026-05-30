@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useTranslation } from '@/i18n'
 
 interface Notification {
   id: string
@@ -12,6 +13,7 @@ interface Notification {
 
 export function PaneNotifications() {
   const [notifications, setNotifications] = useState<Notification[]>([])
+  const { t } = useTranslation()
 
   const dismissNotification = (id: string) => {
     setNotifications((prev) => prev.filter((n) => n.id !== id))
@@ -26,9 +28,9 @@ export function PaneNotifications() {
       {notifications.length > 0 && (
         <div className="bg-bg-1 border border-[var(--line)] rounded-lg shadow-lg overflow-hidden">
           <div className="p-2 border-b border-[var(--line)] flex items-center justify-between">
-            <span className="text-text-2 text-xs">Notifications</span>
+            <span className="text-text-2 text-xs">{t('notification.title')}</span>
             <button onClick={clearAll} className="text-text-3 text-xs hover:text-text-1">
-              Clear all
+              {t('notification.clearAll')}
             </button>
           </div>
           <div className="max-h-60 overflow-y-auto">
@@ -55,6 +57,7 @@ export function PaneNotifications() {
 
 export function WatchButton({ paneId }: { paneId: string }) {
   const [isWatched, setIsWatched] = useState(false)
+  const { t } = useTranslation()
 
   useEffect(() => {
     const stored = localStorage.getItem('tmuxgo-watched-panes')
@@ -76,7 +79,7 @@ export function WatchButton({ paneId }: { paneId: string }) {
     <button
       onClick={toggle}
       className={`p-1 rounded text-xs ${isWatched ? 'text-accent' : 'text-text-3'}`}
-      title={isWatched ? 'Unwatch' : 'Watch for notifications'}
+      title={isWatched ? t('notification.unwatch') : t('notification.watch')}
     >
       {isWatched ? '🔔' : '🔕'}
     </button>

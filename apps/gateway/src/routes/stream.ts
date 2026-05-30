@@ -14,6 +14,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
     console.log('Client connected to stream')
     const SCROLL_FLUSH_INTERVAL = 16
     const SCROLL_MAX_LINES = 24
+    const ATTACH_SNAPSHOT_DELAY = 180
     const ATTACH_REDRAW_DELAYS = [0, 32, 96, 220]
     const RESIZE_REDRAW_DELAYS = [0, 40, 120]
     const REQUEST_REDRAW_DELAYS = [0, 32, 96]
@@ -34,6 +35,8 @@ export async function streamRoutes(fastify: FastifyInstance) {
     let redrawTimers: ReturnType<typeof setTimeout>[] = []
     let outputProfile: keyof typeof OUTPUT_PROFILES = 'foreground'
     let attachSeq = 0
+    let attachOutputObserved = false
+    let attachSnapshotTimer: ReturnType<typeof setTimeout> | null = null
     const scrollBuffers = new Map<string, number>()
     const scrollTimers = new Map<string, ReturnType<typeof setTimeout>>()
     const socket = connection.socket
@@ -58,8 +61,12 @@ export async function streamRoutes(fastify: FastifyInstance) {
     }
 
     function send(data: any) {
-      if (socket.readyState === 1) {
+      if (socket.readyState !== 1) return false
+      try {
         socket.send(JSON.stringify(data))
+        return true
+      } catch (err) {
+        return false
       }
     }
 
@@ -122,6 +129,31 @@ export async function streamRoutes(fastify: FastifyInstance) {
       for (const timer of redrawTimers) clearTimeout(timer)
       redrawTimers = []
     }
+    function clearAttachSnapshotTimer() {
+      if (!attachSnapshotTimer) return
+      clearTimeout(attachSnapshotTimer)
+      attachSnapshotTimer = null
+    }
+    async function captureAttachedSnapshot(sessionName: string, seq: number) {
+      if (!ptyProcess || !sessionName || attachOutputObserved || seq !== attachSeq || attachedSessionName !== sessionName) return
+      try {
+        const { stdout } = await execFileAsync('tmux', ['capture-pane', '-e', '-pt', sessionName, '-p'])
+        if (!ptyProcess || !sessionName || attachOutputObserved || seq !== attachSeq || attachedSessionName !== sessionName) return
+        const snapshot = String(stdout || '')
+        if (!snapshot) return
+        attachOutputObserved = true
+        queueOutput(`\u001b[H\u001b[2J${snapshot}`)
+      } catch (err) {
+      }
+    }
+    function scheduleAttachSnapshot(sessionName: string, seq: number, delay = ATTACH_SNAPSHOT_DELAY) {
+      if (!sessionName) return
+      clearAttachSnapshotTimer()
+      attachSnapshotTimer = setTimeout(() => {
+        attachSnapshotTimer = null
+        void captureAttachedSnapshot(sessionName, seq)
+      }, delay)
+    }
     async function refreshAttachedClient(sessionName: string) {
       if (!ptyProcess || !sessionName) return
       const pid = String(ptyProcess.pid)
@@ -153,10 +185,12 @@ export async function streamRoutes(fastify: FastifyInstance) {
       const current = ptyProcess
       attachSeq += 1
       clearRedrawTimers()
+      clearAttachSnapshotTimer()
       if (current) {
         current.kill()
         ptyProcess = null
       }
+      attachOutputObserved = false
       attachedSessionName = null
       attachedExclusive = false
       attachedCols = 0
@@ -231,6 +265,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
             const requestedRows = data.rows || 24
             const exclusive = !!data.exclusive
             if (ptyProcess && attachedSessionName === sessionName && attachedExclusive === exclusive) {
+              attachOutputObserved = false
               if (exclusive && requestedCols > 0 && requestedRows > 0 && (requestedCols !== attachedCols || requestedRows !== attachedRows)) {
                 ptyProcess.resize(requestedCols, requestedRows)
                 attachedCols = requestedCols
@@ -238,6 +273,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
               }
               send({ type: 'attached', sessionName, cols: attachedCols || requestedCols, rows: attachedRows || requestedRows, exclusive })
               scheduleClientRedraw(sessionName, ATTACH_REDRAW_DELAYS)
+              scheduleAttachSnapshot(sessionName, attachSeq)
               break
             }
             cleanup()
@@ -261,12 +297,14 @@ export async function streamRoutes(fastify: FastifyInstance) {
             attachedExclusive = exclusive
             attachedCols = cols
             attachedRows = rows
+            attachOutputObserved = false
             const seq = attachSeq
 
             ptyProcess.onData((output: string) => {
               if (seq !== attachSeq) return
               const filtered = sanitizeOutput(output)
               if (filtered) {
+                attachOutputObserved = true
                 queueOutput(filtered)
               }
             })
@@ -280,11 +318,13 @@ export async function streamRoutes(fastify: FastifyInstance) {
               attachedExclusive = false
               attachedCols = 0
               attachedRows = 0
+              clearAttachSnapshotTimer()
               clearRedrawTimers()
             })
 
             send({ type: 'attached', sessionName, cols, rows, exclusive })
             scheduleClientRedraw(sessionName, ATTACH_REDRAW_DELAYS)
+            scheduleAttachSnapshot(sessionName, seq)
             break
           }
 

@@ -5,6 +5,7 @@ import { quoteShellPath } from '@/lib/path-drop'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useFileRoots } from '@/hooks/useApi'
 import { usePreferences } from '@/hooks/usePreferences'
+import { useTranslation } from '@/i18n'
 
 function formatSize(size: number) {
   if (size < 1024) return `${size}B`
@@ -21,6 +22,7 @@ export function UploadConfirmDialog() {
   const updateUploadJob = useConsoleStore((s) => s.updateUploadJob)
   const { data: roots = [] } = useFileRoots()
   const { preferences } = usePreferences()
+  const { t } = useTranslation()
   const [targetRootId, setTargetRootId] = useState('')
   const [targetPath, setTargetPath] = useState('')
   const [insertPaths, setInsertPaths] = useState(true)
@@ -57,7 +59,7 @@ export function UploadConfirmDialog() {
       const fallbackRoot = roots[0]
       setTargetRootId(fallbackRoot?.id || '')
       setTargetPath('')
-      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Failed to resolve upload target' })
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('upload.resolveFailed') })
     }).finally(() => {
       if (!cancelled) setLoadingTarget(false)
     })
@@ -114,10 +116,10 @@ export function UploadConfirmDialog() {
         const data = result.files.map((file) => quoteShellPath(file.absolutePath)).join(' ')
         window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data } }))
       }
-      pushToast({ type: 'success', message: `Uploaded ${result.files.length} file${result.files.length > 1 ? 's' : ''}` })
+      pushToast({ type: 'success', message: t('upload.uploaded', { count: result.files.length }) })
     } catch (err) {
-      updateUploadJob(jobId, { status: 'error', finishedAt: new Date().toISOString(), errorMessage: err instanceof Error ? err.message : 'Upload failed' })
-      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Upload failed' })
+      updateUploadJob(jobId, { status: 'error', finishedAt: new Date().toISOString(), errorMessage: err instanceof Error ? err.message : t('upload.failed') })
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('upload.failed') })
     } finally {
       setSubmitting(false)
     }
@@ -128,25 +130,25 @@ export function UploadConfirmDialog() {
   return (
     <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/60 p-4" onClick={handleCancel}>
       <div className="w-full max-w-2xl rounded-lg border border-[var(--line)] bg-bg-1 p-5" onClick={(e) => e.stopPropagation()}>
-        <div className="text-lg text-text-1">Confirm upload</div>
+        <div className="text-lg text-text-1">{t('upload.title')}</div>
         <div className="mt-2 flex flex-wrap gap-2 text-xs text-text-3">
-          <div className="rounded bg-bg-2 px-2 py-1">{files.length} file{files.length > 1 ? 's' : ''}</div>
+          <div className="rounded bg-bg-2 px-2 py-1">{t('upload.file', { count: files.length })}</div>
           <div className="rounded bg-bg-2 px-2 py-1">{formatSize(totalSize)}</div>
-          <div className="rounded bg-bg-2 px-2 py-1">Rename on conflict</div>
+          <div className="rounded bg-bg-2 px-2 py-1">{t('upload.renameConflict')}</div>
           <div className="rounded bg-bg-2 px-2 py-1">{preferences.uploadRateLimitKBps}KB/s</div>
         </div>
         <div className="mt-4 grid gap-3 md:grid-cols-[160px_1fr]">
-          <label className="text-sm text-text-2">Root</label>
+          <label className="text-sm text-text-2">{t('upload.root')}</label>
           <select value={targetRootId} onChange={(e) => setTargetRootId(e.target.value)} className="rounded border border-[var(--line)] bg-bg-2 px-3 py-2 text-sm text-text-1 outline-none focus:border-accent">
             {roots.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
           </select>
-          <label className="text-sm text-text-2">Directory</label>
+          <label className="text-sm text-text-2">{t('upload.directory')}</label>
           <input value={targetPath} onChange={(e) => setTargetPath(e.target.value)} placeholder="uploads" className="rounded border border-[var(--line)] bg-bg-2 px-3 py-2 font-mono text-sm text-text-1 outline-none placeholder:text-text-3 focus:border-accent" />
-          <label className="text-sm text-text-2">Target</label>
-          <div className="rounded border border-[var(--line)] bg-bg-0 px-3 py-2 font-mono text-xs text-text-2">{loadingTarget ? 'Resolving default target...' : pathPreview || '-'}</div>
+          <label className="text-sm text-text-2">{t('upload.target')}</label>
+          <div className="rounded border border-[var(--line)] bg-bg-0 px-3 py-2 font-mono text-xs text-text-2">{loadingTarget ? t('upload.resolving') : pathPreview || '-'}</div>
         </div>
         <div className="mt-4 rounded border border-[var(--line)] bg-bg-0 p-3">
-          <div className="mb-2 text-xs text-text-3">Files</div>
+          <div className="mb-2 text-xs text-text-3">{t('upload.filesLabel')}</div>
           <div className="max-h-48 space-y-1 overflow-auto">
             {files.map((file) => (
               <div key={`${file.name}-${file.size}-${file.lastModified}`} className="flex items-center gap-3 rounded bg-bg-2 px-3 py-2 text-xs">
@@ -157,12 +159,12 @@ export function UploadConfirmDialog() {
           </div>
         </div>
         <label className="mt-4 flex items-center justify-between rounded border border-[var(--line)] bg-bg-0 px-3 py-2 text-sm text-text-2">
-          <span>Insert uploaded paths into terminal</span>
+          <span>{t('upload.insertPaths')}</span>
           <input type="checkbox" checked={insertPaths} onChange={(e) => setInsertPaths(e.target.checked)} className="h-4 w-4 accent-[rgb(var(--accent))]" />
         </label>
         <div className="mt-5 flex justify-end gap-2">
-          <button onClick={handleCancel} className="rounded px-4 py-2 text-sm text-text-3 hover:text-text-1">Cancel</button>
-          <button onClick={() => void handleUpload()} disabled={submitting || loadingTarget || !targetRootId} className="rounded bg-accent/20 px-4 py-2 text-sm text-accent hover:bg-accent/30 disabled:cursor-not-allowed disabled:opacity-50">{submitting ? 'Starting...' : 'Upload'}</button>
+          <button onClick={handleCancel} className="rounded px-4 py-2 text-sm text-text-3 hover:text-text-1">{t('upload.cancel')}</button>
+          <button onClick={() => void handleUpload()} disabled={submitting || loadingTarget || !targetRootId} className="rounded bg-accent/20 px-4 py-2 text-sm text-accent hover:bg-accent/30 disabled:cursor-not-allowed disabled:opacity-50">{submitting ? t('upload.starting') : t('upload.upload')}</button>
         </div>
       </div>
     </div>

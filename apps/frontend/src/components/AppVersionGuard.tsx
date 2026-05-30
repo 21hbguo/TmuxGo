@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
+import { useTranslation } from '@/i18n'
 
 const BUILD_ID = process.env.NEXT_PUBLIC_APP_BUILD_ID || 'dev'
 const VERSION_URL = '/api/version'
@@ -10,6 +11,7 @@ const VERSION_ACK_KEY = 'tmuxgo-version-ack'
 
 export function AppVersionGuard() {
   const pushToast = useConsoleStore((state) => state.pushToast)
+  const { t } = useTranslation()
 
   useEffect(() => {
     let stopped = false
@@ -24,7 +26,7 @@ export function AppVersionGuard() {
         if (ack === data.buildId) return
         notified = true
         window.sessionStorage.setItem(VERSION_ACK_KEY, data.buildId)
-        pushToast({ type: 'info', message: 'New frontend version available. Refresh to update.', durationMs: 6000 })
+        pushToast({ type: 'info', message: t('version.newAvailable'), durationMs: 6000 })
       } catch {}
     }
     void checkVersion()
@@ -33,7 +35,7 @@ export function AppVersionGuard() {
       stopped = true
       window.clearInterval(timer)
     }
-  }, [pushToast])
+  }, [pushToast, t])
 
   return null
 }
