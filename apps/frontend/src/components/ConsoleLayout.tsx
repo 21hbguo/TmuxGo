@@ -340,7 +340,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
     <div className="flex w-screen flex-col overflow-hidden" style={{ height: appHeight, ['--app-height' as any]: appHeight }}>
       <InstallAppBanner />
       {!isMobile && <TopBar />}
-      <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden" style={isMobile?{height:'calc(100% - (48px + env(safe-area-inset-bottom)))'}:undefined}>
+      <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
         <main data-workspace-main className="flex flex-1 min-h-0 min-w-0 flex-col bg-bg-1">
           {isMobile ? <PaneGrid /> : <DesktopWorkbench />}
         </main>
