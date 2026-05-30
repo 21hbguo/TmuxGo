@@ -8,6 +8,7 @@ import { ConfirmDialog } from './ConfirmDialog'
 import { QuickActions } from './QuickActions'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useTranslation } from '@/i18n'
+import { SessionSortableList } from './SessionSortableList'
 
 export function SessionPanel() {
   const activeSessionId = useConsoleStore((state) => state.activeSessionId)
@@ -22,8 +23,6 @@ export function SessionPanel() {
   const { t } = useTranslation()
   const [showTemplates, setShowTemplates] = useState(false)
   const [pendingDeleteSessionId, setPendingDeleteSessionId] = useState<string | null>(null)
-  const [draggedSessionId, setDraggedSessionId] = useState<string | null>(null)
-  const [dragOverSessionId, setDragOverSessionId] = useState<string | null>(null)
   const handleTemplateSelect = async (template: Template) => {
     if (!activeHostId) return
     const name = prompt(t('drawer.sessionName'), template.name.toLowerCase())
@@ -80,28 +79,23 @@ export function SessionPanel() {
           <button onClick={() => setShowTemplates(true)} className="rounded bg-bg-2 px-2 py-1 text-[11px] text-accent hover:text-text-1">{t('sidebar.newAction')}</button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {sessions.map((session) => (
-            <div key={session.id} draggable onDragStart={(event) => {
-              setDraggedSessionId(session.id)
-              setDragOverSessionId(session.id)
-              event.dataTransfer.effectAllowed = 'move'
-            }} onDragEnter={() => setDragOverSessionId(session.id)} onDragOver={(event) => event.preventDefault()} onDrop={() => {
-              if (!draggedSessionId) return
-              moveSession(draggedSessionId, session.id)
-              setDraggedSessionId(null)
-              setDragOverSessionId(null)
-            }} onDragEnd={() => {
-              setDraggedSessionId(null)
-              setDragOverSessionId(null)
-            }} className={`flex items-center gap-1 border-b border-[rgba(255,255,255,0.03)] pr-2 ${activeSessionId === session.id ? 'bg-bg-2/80' : ''} ${draggedSessionId === session.id ? 'opacity-50' : ''} ${dragOverSessionId === session.id && draggedSessionId !== session.id ? 'bg-accent/10 shadow-[inset_0_2px_0_var(--accent)]' : ''}`}>
-              <button onClick={() => setActiveSession(session.id)} onDoubleClick={() => void handleRenameSession(session.id)} className={`min-w-0 flex-1 border-l-2 px-3 py-2 text-left ${activeSessionId === session.id ? 'border-accent' : 'border-transparent hover:bg-bg-2/60'}`}>
-                <div className="truncate text-sm text-text-1">{session.name}</div>
-                <div className="mt-0.5 text-[11px] text-text-3">{t('sidebar.windows', { count: session.windowCount })}</div>
-              </button>
-              <button onClick={() => void handleRenameSession(session.id)} className="rounded px-1.5 py-1 text-[11px] text-text-3 hover:bg-bg-0 hover:text-text-1" aria-label={t('sidebar.renameSession')} title={t('sidebar.renameSession')}>✎</button>
-              <button onClick={() => setPendingDeleteSessionId(session.id)} className="rounded px-1.5 py-1 text-[11px] text-text-3 hover:bg-bg-0 hover:text-danger" aria-label={t('sidebar.deleteSession')} title={t('sidebar.deleteSession')}>×</button>
-            </div>
-          ))}
+          <SessionSortableList
+            sessions={sessions}
+            onMove={moveSession}
+            listClassName="min-h-full"
+            getItemClassName={({ session, isDragging, isOverlay }) => `border-b border-[rgba(255,255,255,0.03)] ${activeSessionId === session.id ? 'bg-bg-2/80' : ''} ${isDragging && !isOverlay ? 'opacity-40' : ''} ${isOverlay ? 'rounded-lg border border-accent bg-bg-1 shadow-[0_20px_48px_rgba(0,0,0,0.42)]' : ''}`}
+            renderItem={({ session, dragHandleProps }) => (
+              <div className="flex items-center gap-1 pr-2">
+                <button ref={dragHandleProps.ref} {...dragHandleProps.attributes} {...dragHandleProps.listeners} aria-label={t('sidebar.reorderSession')} title={t('sidebar.reorderSession')} className="ml-2 flex h-7 w-5 shrink-0 items-center justify-center rounded text-[11px] leading-none text-text-3 transition-colors hover:bg-bg-0 hover:text-text-1 touch-none">⋮⋮</button>
+                <button onClick={() => setActiveSession(session.id)} onDoubleClick={() => void handleRenameSession(session.id)} className={`min-w-0 flex-1 border-l-2 px-3 py-2 text-left ${activeSessionId === session.id ? 'border-accent' : 'border-transparent hover:bg-bg-2/60'}`}>
+                  <div className="truncate text-sm text-text-1">{session.name}</div>
+                  <div className="mt-0.5 text-[11px] text-text-3">{t('sidebar.windows', { count: session.windowCount })}</div>
+                </button>
+                <button onClick={() => void handleRenameSession(session.id)} className="rounded px-1.5 py-1 text-[11px] text-text-3 hover:bg-bg-0 hover:text-text-1" aria-label={t('sidebar.renameSession')} title={t('sidebar.renameSession')}>✎</button>
+                <button onClick={() => setPendingDeleteSessionId(session.id)} className="rounded px-1.5 py-1 text-[11px] text-text-3 hover:bg-bg-0 hover:text-danger" aria-label={t('sidebar.deleteSession')} title={t('sidebar.deleteSession')}>×</button>
+              </div>
+            )}
+          />
         </div>
         {preferences.showQuickActions && <div className="border-t border-[var(--line)] p-3"><div className="mb-2 text-[10px] uppercase tracking-[0.18em] text-text-3">{t('sidebar.quickActions')}</div><QuickActions /></div>}
       </div>

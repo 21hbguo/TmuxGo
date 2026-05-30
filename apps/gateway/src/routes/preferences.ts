@@ -5,6 +5,7 @@ import { mkdir, readFile, rename, stat, writeFile } from 'fs/promises'
 
 type CustomShortcut = { id: string; label: string; keys: string }
 type FavoriteDirectory = { rootId: string; rootPath: string; name: string; path: string }
+type SessionOrder = { hostId: string; orderedSessionIds: string[] }
 type PreferencesStore = {
   version: 1
   updatedAt: string
@@ -12,11 +13,15 @@ type PreferencesStore = {
   customShortcutsUpdatedAt: string
   favoriteDirectories: FavoriteDirectory[]
   favoriteDirectoriesUpdatedAt: string
+  sessionOrders: SessionOrder[]
+  sessionOrdersUpdatedAt: string
   uploadRateLimitKBps: number
 }
 
 const MAX_SHORTCUTS = 100
 const MAX_FAVORITES = 100
+const MAX_SESSION_ORDERS = 200
+const MAX_SESSION_ORDER_IDS = 500
 const MAX_BODY_BYTES = 256 * 1024
 const MAX_FILE_BYTES = 512 * 1024
 const MAX_PROFILE_LEN = 64
@@ -27,6 +32,7 @@ const MAX_ROOT_ID_LEN = 64
 const MAX_ROOT_PATH_LEN = 1024
 const MAX_FAVORITE_NAME_LEN = 128
 const MAX_FAVORITE_PATH_LEN = 1024
+const MAX_SESSION_ID_LEN = 128
 const DEFAULT_UPLOAD_RATE_LIMIT_KBPS = 200
 const MAX_UPLOAD_RATE_LIMIT_KBPS = 10 * 1024
 const PROFILE_RE = /^[a-zA-Z0-9_-]+$/
@@ -44,6 +50,8 @@ function getDefaultStore(): PreferencesStore {
     customShortcutsUpdatedAt: now,
     favoriteDirectories: [],
     favoriteDirectoriesUpdatedAt: now,
+    sessionOrders: [],
+    sessionOrdersUpdatedAt: now,
     uploadRateLimitKBps: DEFAULT_UPLOAD_RATE_LIMIT_KBPS,
   }
 }
@@ -90,6 +98,26 @@ function normalizeFavorites(input: unknown) {
   }
   return next
 }
+function normalizeSessionOrders(input: unknown) {
+  if (!Array.isArray(input)) return []
+  const next: SessionOrder[] = []
+  for (const entry of input) {
+    if (!entry || typeof entry !== 'object') continue
+    const hostId = safeString((entry as Record<string, unknown>).hostId, MAX_ID_LEN)
+    const orderedSessionIdsRaw = Array.isArray((entry as Record<string, unknown>).orderedSessionIds) ? (entry as Record<string, unknown>).orderedSessionIds as unknown[] : []
+    if (!hostId) continue
+    const orderedSessionIds: string[] = []
+    for (const item of orderedSessionIdsRaw) {
+      const sessionId = safeString(item, MAX_SESSION_ID_LEN)
+      if (!sessionId || orderedSessionIds.includes(sessionId)) continue
+      orderedSessionIds.push(sessionId)
+      if (orderedSessionIds.length >= MAX_SESSION_ORDER_IDS) break
+    }
+    next.push({ hostId, orderedSessionIds })
+    if (next.length >= MAX_SESSION_ORDERS) break
+  }
+  return next
+}
 function normalizeUploadRateLimitKBps(input: unknown) {
   const value = typeof input === 'number' ? input : typeof input === 'string' ? Number(input) : NaN
   if (!Number.isFinite(value)) return DEFAULT_UPLOAD_RATE_LIMIT_KBPS
@@ -101,8 +129,9 @@ function normalizeStore(input: unknown): PreferencesStore {
   const raw = input as Record<string, unknown>
   const customShortcutsUpdatedAt = normalizeIso(raw.customShortcutsUpdatedAt, fallback.customShortcutsUpdatedAt)
   const favoriteDirectoriesUpdatedAt = normalizeIso(raw.favoriteDirectoriesUpdatedAt, fallback.favoriteDirectoriesUpdatedAt)
+  const sessionOrdersUpdatedAt = normalizeIso(raw.sessionOrdersUpdatedAt, fallback.sessionOrdersUpdatedAt)
   const updatedAtRaw = normalizeIso(raw.updatedAt, fallback.updatedAt)
-  const updatedAt = new Date(Math.max(parseIsoMs(updatedAtRaw), parseIsoMs(customShortcutsUpdatedAt), parseIsoMs(favoriteDirectoriesUpdatedAt))).toISOString()
+  const updatedAt = new Date(Math.max(parseIsoMs(updatedAtRaw), parseIsoMs(customShortcutsUpdatedAt), parseIsoMs(favoriteDirectoriesUpdatedAt), parseIsoMs(sessionOrdersUpdatedAt))).toISOString()
   return {
     version: 1,
     updatedAt,
@@ -110,6 +139,8 @@ function normalizeStore(input: unknown): PreferencesStore {
     customShortcutsUpdatedAt,
     favoriteDirectories: normalizeFavorites(raw.favoriteDirectories),
     favoriteDirectoriesUpdatedAt,
+    sessionOrders: normalizeSessionOrders(raw.sessionOrders),
+    sessionOrdersUpdatedAt,
     uploadRateLimitKBps: normalizeUploadRateLimitKBps(raw.uploadRateLimitKBps),
   }
 }
@@ -178,8 +209,16 @@ export async function preferencesRoutes(fastify: FastifyInstance) {
         next.favoriteDirectoriesUpdatedAt = incomingAt
       }
     }
+    if ('sessionOrders' in body) {
+      const incoming = normalizeSessionOrders(body.sessionOrders)
+      const incomingAt = normalizeIso(body.sessionOrdersUpdatedAt, nowIso())
+      if (parseIsoMs(incomingAt) >= parseIsoMs(current.sessionOrdersUpdatedAt)) {
+        next.sessionOrders = incoming
+        next.sessionOrdersUpdatedAt = incomingAt
+      }
+    }
     if ('uploadRateLimitKBps' in body) next.uploadRateLimitKBps = normalizeUploadRateLimitKBps(body.uploadRateLimitKBps)
-    next.updatedAt = new Date(Math.max(parseIsoMs(next.customShortcutsUpdatedAt), parseIsoMs(next.favoriteDirectoriesUpdatedAt))).toISOString()
+    next.updatedAt = new Date(Math.max(parseIsoMs(next.customShortcutsUpdatedAt), parseIsoMs(next.favoriteDirectoriesUpdatedAt), parseIsoMs(next.sessionOrdersUpdatedAt))).toISOString()
     try {
       await writeStore(profile, next)
     } catch (err) {

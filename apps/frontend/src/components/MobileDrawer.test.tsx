@@ -24,6 +24,7 @@ vi.mock('@/i18n', () => ({
     if (key === 'sidebar.newSession') return '+ New Session'
     if (key === 'sidebar.renameSession') return 'Rename session'
     if (key === 'sidebar.deleteSession') return 'Delete session'
+    if (key === 'sidebar.reorderSession') return 'Reorder session'
     if (key === 'sidebar.deleteTitle') return 'Delete session'
     if (key === 'sidebar.deleteConfirm') return `Delete ${params?.name || ''}?`
     if (key === 'sidebar.confirmDelete') return 'Delete'

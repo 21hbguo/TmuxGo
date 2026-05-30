@@ -180,6 +180,10 @@ export interface FavoriteDirectory {
   name: string
   path: string
 }
+export interface SessionOrderPreference {
+  hostId: string
+  orderedSessionIds: string[]
+}
 export interface RemotePreferences {
   version: 1
   updatedAt: string
@@ -187,5 +191,7 @@ export interface RemotePreferences {
   customShortcutsUpdatedAt: string
   favoriteDirectories: FavoriteDirectory[]
   favoriteDirectoriesUpdatedAt: string
+  sessionOrders: SessionOrderPreference[]
+  sessionOrdersUpdatedAt: string
   uploadRateLimitKBps: number
 }

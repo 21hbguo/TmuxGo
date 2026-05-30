@@ -5,6 +5,7 @@ import { useCreateSession, useRenameSession } from '@/hooks/useApi'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import { SessionTemplates, type Template } from './SessionTemplates'
 import { useTranslation } from '@/i18n'
+import { SessionSortableList } from './SessionSortableList'
 
 export function SessionRail() {
   const activeSessionId = useConsoleStore((state) => state.activeSessionId)
@@ -17,8 +18,6 @@ export function SessionRail() {
   const renameSession = useRenameSession()
   const { t } = useTranslation()
   const [showTemplates, setShowTemplates] = useState(false)
-  const [draggedSessionId, setDraggedSessionId] = useState<string | null>(null)
-  const [dragOverSessionId, setDragOverSessionId] = useState<string | null>(null)
   const handleTemplateSelect = async (template: Template) => {
     if (!activeHostId) return
     const name = prompt('Session name:', template.name.toLowerCase())
@@ -60,32 +59,30 @@ export function SessionRail() {
       <aside className="flex h-full w-[clamp(88px,13vw,176px)] shrink-0 flex-col border-r border-[var(--line)] bg-bg-1">
         <button onClick={() => setSessionPanelExpanded(true)} className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--line)] px-3 text-left text-xs font-semibold text-text-3 hover:bg-bg-2 hover:text-text-1"><span>▸</span><span className="min-w-0 truncate">{t('sidebar.sessions')}</span></button>
         <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2 scrollbar-none">
-          <div className="flex min-h-full flex-col gap-2">
-            {sessions.map((session) => {
+          <SessionSortableList
+            sessions={sessions}
+            onMove={moveSession}
+            listClassName="flex min-h-full flex-col gap-2"
+            getItemClassName={({ session, isDragging, isOverlay }) => {
+              const active = session.id === activeSessionId
+              return `rounded-lg ${isOverlay ? 'shadow-[0_18px_44px_rgba(0,0,0,0.42)]' : ''} ${isDragging && !isOverlay ? 'opacity-40' : ''}`
+            }}
+            renderItem={({ session, dragHandleProps, isOverlay }) => {
               const active = session.id === activeSessionId
               return (
-                <button key={session.id} title={session.name} draggable onDragStart={(event) => {
-                  setDraggedSessionId(session.id)
-                  setDragOverSessionId(session.id)
-                  event.dataTransfer.effectAllowed = 'move'
-                }} onDragEnter={() => setDragOverSessionId(session.id)} onDragOver={(event) => event.preventDefault()} onDrop={() => {
-                  if (!draggedSessionId) return
-                  moveSession(draggedSessionId, session.id)
-                  setDraggedSessionId(null)
-                  setDragOverSessionId(null)
-                }} onDragEnd={() => {
-                  setDraggedSessionId(null)
-                  setDragOverSessionId(null)
-                }} onClick={() => setActiveSession(session.id)} onDoubleClick={() => void handleRenameSession(session.id)} className={`flex h-11 min-w-0 items-center gap-2 rounded-lg border px-2 text-left transition-colors ${active ? 'border-[var(--line)] bg-bg-2 text-accent' : 'border-transparent bg-transparent text-text-3 hover:bg-bg-2 hover:text-text-1'} ${draggedSessionId === session.id ? 'opacity-50' : ''} ${dragOverSessionId === session.id && draggedSessionId !== session.id ? 'border-accent bg-accent/10 shadow-[inset_0_2px_0_var(--accent)]' : ''}`}>
-                  <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[11px] font-semibold ${active ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-2'}`}>{session.name.slice(0, 2).toUpperCase()}</span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-xs font-medium text-text-1">{session.name}</span>
-                    <span className="block truncate text-[10px] text-text-3">{t('sidebar.windows', { count: session.windowCount })}</span>
-                  </span>
-                </button>
+                <div title={session.name} className={`flex h-11 min-w-0 items-center gap-2 rounded-lg border px-2 text-left transition-[transform,box-shadow,background-color,border-color,color] duration-200 ${active ? 'border-[var(--line)] bg-bg-2 text-accent' : 'border-transparent bg-transparent text-text-3 hover:bg-bg-2 hover:text-text-1'} ${isOverlay ? 'border-accent bg-bg-1 text-text-1 shadow-[0_18px_44px_rgba(0,0,0,0.42)]' : ''}`}>
+                  <button ref={dragHandleProps.ref} {...dragHandleProps.attributes} {...dragHandleProps.listeners} aria-label={t('sidebar.reorderSession')} title={t('sidebar.reorderSession')} className="flex h-7 w-5 shrink-0 items-center justify-center rounded text-[11px] leading-none text-text-3 transition-colors hover:bg-bg-0 hover:text-text-1 touch-none">⋮⋮</button>
+                  <button onClick={() => setActiveSession(session.id)} onDoubleClick={() => void handleRenameSession(session.id)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+                    <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[11px] font-semibold ${active ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-2'}`}>{session.name.slice(0, 2).toUpperCase()}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-xs font-medium text-text-1">{session.name}</span>
+                      <span className="block truncate text-[10px] text-text-3">{t('sidebar.windows', { count: session.windowCount })}</span>
+                    </span>
+                  </button>
+                </div>
               )
-            })}
-          </div>
+            }}
+          />
         </div>
         <div className="shrink-0 border-t border-[var(--line)] p-2">
           <button onClick={() => setShowTemplates(true)} className="flex h-10 w-full items-center justify-center rounded-lg bg-bg-2 text-sm text-accent hover:text-text-1">+</button>
