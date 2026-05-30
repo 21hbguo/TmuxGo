@@ -704,6 +704,16 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         if (isMobileDevice && detail.reason === 'attached') return
         const perf = useConsoleStore.getState().terminalPerf || DEFAULT_TERMINAL_PERF
         updateTerminalPerf({ layoutFitCount: perf.layoutFitCount + 1 })
+        if (detail.reason === 'terminal-panel-resize') {
+          if (attachExclusiveRef.current) {
+            scheduleFit(0, true)
+            scheduleTerminalRepaint([0, 16, 48])
+            return
+          }
+          syncSharedLayout(true)
+          scheduleTerminalRepaint([0, 16, 48])
+          return
+        }
         if (attachExclusiveRef.current) {
           if (isMobileDevice) scheduleFit(MOBILE_FIT_DEBOUNCE_MS)
           else forceStableFit(5, 34)
