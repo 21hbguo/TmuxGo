@@ -15,7 +15,9 @@ export const zh = {
   'sidebar.splitH': '横向分割',
   'sidebar.splitV': '纵向分割',
   'sidebar.newSession': '+ 新建会话',
+  'sidebar.newAction': '新建',
   'sidebar.deleteSession': '删除会话',
+  'sidebar.renameSession': '重命名会话',
   'sidebar.deleteConfirm': '确定删除会话 "{name}"？此操作不可撤销。',
   'sidebar.deleteTitle': '删除会话',
   'sidebar.confirmDelete': '删除',
@@ -38,6 +40,7 @@ export const zh = {
   'drawer.panes': '面板',
   'drawer.windows': '{count} 个窗口',
   'drawer.sessionName': '会话名称：',
+  'drawer.renamePrompt': '重命名会话：',
 
   // ConnectionBadge
   'badge.connected': '已连接',

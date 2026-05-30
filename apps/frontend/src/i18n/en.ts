@@ -15,7 +15,9 @@ export const en = {
   'sidebar.splitH': 'Split H',
   'sidebar.splitV': 'Split V',
   'sidebar.newSession': '+ New Session',
+  'sidebar.newAction': 'New',
   'sidebar.deleteSession': 'Delete session',
+  'sidebar.renameSession': 'Rename session',
   'sidebar.deleteConfirm': 'Delete session "{name}"? This cannot be undone.',
   'sidebar.deleteTitle': 'Delete session',
   'sidebar.confirmDelete': 'Delete',
@@ -38,6 +40,7 @@ export const en = {
   'drawer.panes': 'Panes',
   'drawer.windows': '{count} windows',
   'drawer.sessionName': 'Session name:',
+  'drawer.renamePrompt': 'Rename session:',
 
   // ConnectionBadge
   'badge.connected': 'Connected',

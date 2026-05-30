@@ -50,6 +50,16 @@ export function useDeleteSession() {
     },
   })
 }
+export function useRenameSession() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ hostId, sessionId, name }: { hostId: string; sessionId: string; name: string }) =>
+      api.sessions.rename(hostId, sessionId, name),
+    onSuccess: (_, { hostId }) => {
+      queryClient.invalidateQueries({ queryKey: ['sessions', hostId] })
+    },
+  })
+}
 
 export function useWindows(hostId: string, sessionId: string) {
   return useQuery({

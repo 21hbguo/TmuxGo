@@ -117,6 +117,11 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ name, layout }),
       }),
+    rename: (hostId: string, sessionId: string, name: string) =>
+      fetchApi<any>(`/api/hosts/${hostId}/sessions/rename`, {
+        method: 'POST',
+        body: JSON.stringify({ sessionId, name }),
+      }),
     delete: (hostId: string, sessionId: string) =>
       fetchApi<any>(`/api/hosts/${hostId}/sessions/${sessionId}`, {
         method: 'DELETE',

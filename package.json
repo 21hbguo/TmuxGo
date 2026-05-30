@@ -18,6 +18,8 @@
     "test:fluency-e2e": "./start.sh --restart --rebuild >/tmp/tmuxgo-start-fluency.log 2>&1 && playwright test e2e/fluency.spec.ts",
     "verify:next-optimization": "npx tsx scripts/verify-next-optimization.ts",
     "verify:fluency": "npx tsx scripts/verify-fluency-metrics.ts",
+    "proto:status": "npx tsx scripts/tmux-pane-status-prototype.ts",
+    "proto:state": "npx tsx scripts/tmux-pane-state.ts",
     "test": "npx tsx scripts/run-tests.ts",
     "verify": "npm test && npm run test:frontend && npm run test:e2e && npm run build"
   },

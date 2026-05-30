@@ -152,6 +152,29 @@ export async function sessionRoutes(fastify: FastifyInstance) {
       throw new Error(err.message)
     }
   })
+  fastify.post('/hosts/:hostId/sessions/rename', async (request) => {
+    const { hostId } = request.params as { hostId: string }
+    const { sessionId, name } = request.body as { sessionId: string; name: string }
+    const sessionName = sessionId.replace('session-', '')
+    if (!isValidSessionName(sessionName) || !isValidSessionName(name)) throw new Error('Invalid session name')
+    assertSessionAllowed(sessionName)
+    assertSessionAllowed(name)
+    try {
+      await execFileAsync('tmux', ['rename-session', '-t', sessionName, name])
+      await prepareSessionAttach(name)
+      const sessions = await getLocalTmuxSessions()
+      return sessions.find((session) => session.name === name) || {
+        id: `session-${name}`,
+        hostId,
+        name,
+        createdAt: new Date().toISOString(),
+        lastActiveAt: new Date().toISOString(),
+        windowCount: 1,
+      }
+    } catch (err: any) {
+      throw new Error(err.message)
+    }
+  })
 
   fastify.delete('/hosts/:hostId/sessions/:sessionId', async (request) => {
     const { sessionId } = request.params as { sessionId: string }

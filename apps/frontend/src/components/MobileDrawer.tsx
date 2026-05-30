@@ -2,10 +2,11 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
-import { useCreateSession, useSessions } from '@/hooks/useApi'
+import { useCreateSession, useDeleteSession, useRenameSession, useSessions } from '@/hooks/useApi'
 import { SessionTemplates, type Template } from './SessionTemplates'
 import { useTranslation } from '@/i18n'
 import { QuickActions } from './QuickActions'
+import { ConfirmDialog } from './ConfirmDialog'
 
 interface MobileDrawerProps {
   isOpen: boolean
@@ -20,8 +21,11 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
   const pushToast = useConsoleStore((state) => state.pushToast)
   const { data: sessions = [] } = useSessions(activeHostId || '')
   const createSession = useCreateSession()
+  const renameSession = useRenameSession()
+  const deleteSession = useDeleteSession()
   const { t } = useTranslation()
   const [showTemplates, setShowTemplates] = useState(false)
+  const [pendingDeleteSessionId, setPendingDeleteSessionId] = useState<string | null>(null)
 
   const handleTemplateSelect = async (template: Template) => {
     if (!activeHostId) return
@@ -113,6 +117,32 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
     }
     resetPanelPosition()
   }
+  const handleRenameSession = async (sessionId: string) => {
+    if (!activeHostId) return
+    const session = sessions.find((item: any) => item.id === sessionId)
+    const name = window.prompt(t('drawer.renamePrompt'), session?.name || '')
+    if (!name || name === session?.name) return
+    try {
+      const renamed = await renameSession.mutateAsync({ hostId: activeHostId, sessionId, name })
+      if (activeSessionId === sessionId && renamed?.id) setActiveSession(renamed.id)
+      pushToast({ type: 'success', message: `Session ${session?.name || sessionId} renamed to ${name}` })
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Request failed' })
+    }
+  }
+  const confirmDeleteSession = async () => {
+    if (!activeHostId || !pendingDeleteSessionId) return
+    const session = sessions.find((item: any) => item.id === pendingDeleteSessionId)
+    try {
+      await deleteSession.mutateAsync({ hostId: activeHostId, sessionId: pendingDeleteSessionId })
+      if (activeSessionId === pendingDeleteSessionId) setActiveSession(sessions.find((item: any) => item.id !== pendingDeleteSessionId)?.id || '')
+      pushToast({ type: 'success', message: `Session ${session?.name || pendingDeleteSessionId} deleted` })
+      onClose()
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Request failed' })
+    }
+    setPendingDeleteSessionId(null)
+  }
 
   if (!visible) return null
 
@@ -146,19 +176,22 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
                 + {t('sidebar.newSession')}
               </button>
               {sessions.map((session: any) => (
-                <button
-                  key={session.id}
-                  onClick={() => {
-                    setActiveSession(session.id)
-                    handleClose()
-                  }}
-                  className={`w-full rounded-lg p-3 text-left transition-transform active:scale-[0.98] ${
-                    activeSessionId === session.id ? 'border border-accent bg-accent/20' : 'bg-bg-2'
-                  }`}
-                >
-                  <div className="text-text-1">{session.name}</div>
-                  <div className="text-text-3 text-xs">{t('drawer.windows', { count: session.windowCount })}</div>
-                </button>
+                <div key={session.id} className={`flex items-center gap-2 rounded-lg p-2 transition-transform active:scale-[0.98] ${activeSessionId === session.id ? 'border border-accent bg-accent/20' : 'bg-bg-2'}`}>
+                  <button
+                    onClick={() => {
+                      setActiveSession(session.id)
+                      handleClose()
+                    }}
+                    className="min-w-0 flex-1 px-1 py-1 text-left"
+                  >
+                    <div className="truncate text-text-1">{session.name}</div>
+                    <div className="text-text-3 text-xs">{t('drawer.windows', { count: session.windowCount })}</div>
+                  </button>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <button onClick={() => void handleRenameSession(session.id)} className="rounded px-2 py-2 text-xs text-text-2 active:bg-bg-1" aria-label={t('sidebar.renameSession')} title={t('sidebar.renameSession')}>✎</button>
+                    <button onClick={() => setPendingDeleteSessionId(session.id)} className="rounded px-2 py-2 text-sm text-text-2 active:bg-bg-1" aria-label={t('sidebar.deleteSession')} title={t('sidebar.deleteSession')}>×</button>
+                  </div>
+                </div>
               ))}
             </div>
           )}
@@ -168,6 +201,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
         </div>
       </div>
       {showTemplates && <SessionTemplates onSelect={handleTemplateSelect} onClose={() => setShowTemplates(false)} />}
+      <ConfirmDialog open={!!pendingDeleteSessionId} title={t('sidebar.deleteTitle')} message={t('sidebar.deleteConfirm', { name: sessions.find((item: any) => item.id === pendingDeleteSessionId)?.name || '' })} confirmLabel={t('sidebar.confirmDelete')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setPendingDeleteSessionId(null)} onConfirm={() => void confirmDeleteSession()} />
     </div>
   )
 }

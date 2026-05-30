@@ -121,8 +121,8 @@ export function EditorWorkbench({ onSaveEditor }:{ onSaveEditor: (editor: FileEd
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || !activeEditor) return
-      const target = event.target as HTMLElement | null
-      if (target?.closest('[data-terminal],.xterm,.xterm-screen')) return
+      const target = event.target
+      if (target instanceof Element && target.closest('[data-terminal],.xterm,.xterm-screen')) return
       if (event.key.toLowerCase() === 's') {
         event.preventDefault()
         if (!activeEditor.loading && !activeEditor.saving && !activeEditor.binary && !activeEditor.truncated) void onSaveEditor(activeEditor)
@@ -131,11 +131,29 @@ export function EditorWorkbench({ onSaveEditor }:{ onSaveEditor: (editor: FileEd
       if (event.key.toLowerCase() === 'f' && event.shiftKey) {
         event.preventDefault()
         void editorRef.current?.getAction?.('editor.action.formatDocument')?.run?.()
+        return
+      }
+      if (event.key.toLowerCase() === 'w') {
+        event.preventDefault()
+        event.stopPropagation()
+        event.stopImmediatePropagation?.()
+        if (activeEditor.dirty && !window.confirm(`Close ${activeEditor.name} without saving?`)) return
+        closeEditor(activeEditor.id)
       }
     }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [activeEditor, onSaveEditor])
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!activeEditor) return
+      const nativeEvent = event as BeforeUnloadEvent & { ctrlKey?: boolean; metaKey?: boolean; key?: string }
+      if (!(nativeEvent.ctrlKey || nativeEvent.metaKey) || nativeEvent.key?.toLowerCase() !== 'w') return
+      event.preventDefault()
+    }
+    window.addEventListener('keydown', handleKeyDown, true)
+    window.addEventListener('beforeunload', handleBeforeUnload, true)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, true)
+      window.removeEventListener('beforeunload', handleBeforeUnload, true)
+    }
+  }, [activeEditor, closeEditor, onSaveEditor])
 
   if (!activeEditor) return null
 

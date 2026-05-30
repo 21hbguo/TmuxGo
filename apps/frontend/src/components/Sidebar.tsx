@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
-import { useCreateSession, useDeleteSession, useSessions } from '@/hooks/useApi'
+import { useCreateSession, useDeleteSession, useRenameSession, useSessions } from '@/hooks/useApi'
 import { SessionTemplates, type Template } from './SessionTemplates'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useTranslation } from '@/i18n'
@@ -20,6 +20,7 @@ export function Sidebar() {
   const { data: sessions = [] } = useSessions(activeHostId || '')
   const createSession = useCreateSession()
   const deleteSession = useDeleteSession()
+  const renameSession = useRenameSession()
   const [showTemplates, setShowTemplates] = useState(false)
   const [pendingDeleteSessionId, setPendingDeleteSessionId] = useState<string | null>(null)
   const { preferences } = usePreferences()
@@ -75,6 +76,20 @@ export function Sidebar() {
     e.stopPropagation()
     setPendingDeleteSessionId(sessionId)
   }
+  const handleRenameSession = async (sessionId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!activeHostId) return
+    const session = sessions.find((item: any) => item.id === sessionId)
+    const name = window.prompt(t('drawer.renamePrompt'), session?.name || '')
+    if (!name || name === session?.name) return
+    try {
+      const renamed = await renameSession.mutateAsync({ hostId: activeHostId, sessionId, name })
+      if (activeSessionId === sessionId && renamed?.id) setActiveSession(renamed.id)
+      pushToast({ type: 'success', message: `Session ${session?.name || sessionId} renamed to ${name}` })
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Request failed' })
+    }
+  }
 
   const confirmDeleteSession = async () => {
     if (!activeHostId || !pendingDeleteSessionId) return
@@ -104,7 +119,7 @@ export function Sidebar() {
         </div>
         <div className="flex-1 overflow-y-auto">
           {sessions.map((session: any) => (
-            <div key={session.id} className="group relative">
+            <div key={session.id} className="relative flex items-center gap-1 pr-2">
               <button
                 onClick={() => setActiveSession(session.id)}
                 className={`w-full px-3 py-2 text-left hover:bg-bg-2 transition-colors ${
@@ -117,9 +132,18 @@ export function Sidebar() {
                 </div>
               </button>
               <button
+                onClick={(e) => void handleRenameSession(session.id, e)}
+                className="rounded p-1 text-text-3 hover:bg-bg-0 hover:text-text-1"
+                title={t('sidebar.renameSession')}
+                aria-label={t('sidebar.renameSession')}
+              >
+                ✎
+              </button>
+              <button
                 onClick={(e) => handleDeleteSession(session.id, e)}
-                className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded text-text-3 hover:text-red-400 hover:bg-red-900/30 opacity-0 group-hover:opacity-100 transition-opacity"
+                className="rounded p-1 text-text-3 hover:text-red-400 hover:bg-red-900/30"
                 title={t('sidebar.deleteSession')}
+                aria-label={t('sidebar.deleteSession')}
               >
                 ✕
               </button>
