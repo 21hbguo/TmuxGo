@@ -650,8 +650,9 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     openUploadDialog({ files: selectedFiles, preferredRootId: activeRootId, preferredPath: listQueryPath, insertPaths: true })
     event.target.value = ''
   }
-  const shellClass = isMobile ? 'flex h-full min-h-0 flex-col bg-bg-1' : `relative flex h-full shrink-0 flex-col bg-bg-1 ${dock === 'left' ? 'border-r border-[var(--line)]' : 'border-l border-[var(--line)]'}`
-  const shellStyle = isMobile ? undefined : { width: filePanelWidth }
+  const embedded = mode === 'explorer'
+  const shellClass = isMobile ? 'flex h-full min-h-0 flex-col bg-bg-1' : `relative flex h-full ${embedded ? 'min-w-0 flex-1' : 'shrink-0'} flex-col bg-bg-1 ${dock === 'left' ? 'border-r border-[var(--line)]' : 'border-l border-[var(--line)]'}`
+  const shellStyle = isMobile || embedded ? undefined : { width: filePanelWidth }
   const previewBlock = preview ? (
     preview.binary || preview.reason ? (
       <div className="p-3 text-xs text-text-3">
@@ -687,7 +688,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   return (
     <aside className={shellClass} style={shellStyle}>
       <input ref={uploadInputRef} type="file" multiple className="hidden" onChange={handleUploadSelect} />
-      {!isMobile && (
+      {!isMobile && !embedded && (
         <div
           className={`absolute top-0 h-full w-1 cursor-col-resize hover:bg-accent/40 ${dock === 'left' ? 'right-0' : 'left-0'}`}
           onMouseDown={() => {

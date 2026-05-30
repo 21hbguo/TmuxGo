@@ -50,7 +50,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   const { preferences } = usePreferences()
 
   const { data: hostsData = [] } = useHosts()
-  const { data: sessionsData = [] } = useSessions(activeHostId || '')
+  const { data: sessionsData = [], isFetched: sessionsFetched } = useSessions(activeHostId || '')
   const { data: snapshotData } = useSessionSnapshot(activeHostId || '', activeSessionId || '')
 
   const [isMobile, setIsMobile] = useState(initialIsMobile)
@@ -144,6 +144,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       appHeightNumRef.current = nextHeight
       recordMobileDebug('app-height', { height: nextHeight, open })
       setAppHeight(nextValue)
+      window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'viewport-sync', height: nextHeight, keyboardOpen: open, mobile: isMobileViewport } }))
     })
   }, [])
 
@@ -214,13 +215,18 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   }, [hostsData, activeHostId, setActiveHost])
 
   useEffect(() => {
-    if (sessionsData.length === 0) return
+    if (!sessionsFetched) return
+    if (sessionsData.length === 0) {
+      if (activeSessionId) setActiveSession('')
+      return
+    }
     const persistedSession = typeof window !== 'undefined' ? localStorage.getItem('tmuxgo-active-session') : null
     const persistedSessionExists = !!persistedSession && sessionsData.some((s: any) => s.id === persistedSession)
-    if (!activeSessionId) {
+    const activeSessionExists = !!activeSessionId && sessionsData.some((s: any) => s.id === activeSessionId)
+    if (!activeSessionId || !activeSessionExists) {
       setActiveSession(persistedSessionExists ? persistedSession! : sessionsData[0].id)
     }
-  }, [sessionsData, activeSessionId, setActiveSession])
+  }, [sessionsData, sessionsFetched, activeSessionId, setActiveSession])
 
   useEffect(() => {
     if (!activeSessionId) return
@@ -295,6 +301,10 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
     window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'mobile-file-panel', open: mobileFileSheetOpen, mobile: true } }))
   }, [mobileFileSheetOpen])
   useEffect(() => {
+    if (!isMobile) return
+    window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'mobile-keyboard-dock', open: keyboardOpen, mobile: true } }))
+  }, [isMobile, keyboardOpen])
+  useEffect(() => {
     const handleNewSession = () => {
       if (isMobile) {
         setDrawerType('sessions')
@@ -312,13 +322,13 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       <InstallAppBanner />
       {!isMobile && <TopBar />}
       <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
-        <main className="flex flex-1 min-h-0 min-w-0 flex-col bg-bg-1" style={isMobile ? { paddingBottom: 'calc(48px + env(safe-area-inset-bottom,0px))' } : undefined}>
+        <main data-workspace-main className="flex flex-1 min-h-0 min-w-0 flex-col bg-bg-1">
           {isMobile ? <PaneGrid /> : <DesktopWorkbench />}
         </main>
       </div>
       {!isMobile && preferences.showStatusBar && <StatusBar />}
       {isMobile && (
-        <div className="mobile-nav-landscape-hide fixed left-0 right-0 bottom-0 z-40 h-[calc(48px+env(safe-area-inset-bottom))]">
+        <div data-mobile-dock className={`mobile-nav-landscape-hide z-40 shrink-0 ${keyboardOpen ? '' : 'h-[calc(48px+env(safe-area-inset-bottom))]'}`}>
           {keyboardOpen ? <ShortcutBar mode="dock" /> : <MobileNav docked onOpenDrawer={openDrawer} onOpenSettings={openSettings} onOpenSearch={openPalette} onOpenFiles={openMobileFiles} />}
         </div>
       )}
@@ -333,7 +343,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
         onClose={() => closeOverlay('drawer')}
         type={drawerType}
       />
-      {mobileFileSheetOpen && <div className="fixed inset-0 z-50 bg-black/50"><div className="absolute bottom-0 left-0 right-0 h-[min(78vh,calc(var(--app-height,100dvh)-64px))] overflow-hidden rounded-t-xl border-t border-[var(--line)] bg-bg-1"><div className="flex justify-center py-2"><div className="h-1 w-10 rounded-full bg-text-3/30" /></div><FilePanel mode="mobile" onClose={() => closeOverlay('mobile-files')} /></div></div>}
+      {mobileFileSheetOpen && <div className="fixed left-0 right-0 top-0 z-50 bg-black/50" style={{ height: 'var(--app-height,100dvh)' }}><div className="absolute bottom-0 left-0 right-0 flex h-[65%] flex-col overflow-hidden rounded-t-xl border-t border-[var(--line)] bg-bg-1"><div className="flex shrink-0 justify-center py-2"><div className="h-1 w-10 rounded-full bg-text-3/30" /></div><div className="min-h-0 flex-1"><FilePanel mode="mobile" onClose={() => closeOverlay('mobile-files')} /></div></div></div>}
       <ToastViewport />
     </div>
   )

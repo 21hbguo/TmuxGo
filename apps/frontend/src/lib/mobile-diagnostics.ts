@@ -150,6 +150,7 @@ export function startMobileFlickerDiagnostics() {
     observedTerminal=terminal
     observedMain=main
     if (resizeObserver) resizeObserver.disconnect()
+    if (typeof ResizeObserver==='undefined') return
     resizeObserver=new ResizeObserver((entries) => {
       let changed=false
       for (const entry of entries) {

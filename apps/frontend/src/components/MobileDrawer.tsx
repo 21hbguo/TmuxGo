@@ -147,15 +147,15 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
   if (!visible) return null
 
   return (
-    <div className="fixed inset-0 z-50">
+    <div className="fixed left-0 right-0 top-0 z-50" style={{ height: 'var(--app-height,100dvh)' }}>
       <div
         className={`absolute inset-0 bg-black/50 transition-opacity duration-200 ${closing ? 'opacity-0' : 'opacity-100'}`}
         onClick={handleClose}
       />
       <div
         ref={panelRef}
-        className={`absolute bottom-0 left-0 right-0 flex max-h-none flex-col overflow-hidden rounded-t-xl border-t border-[var(--line)] bg-bg-1 transition-transform duration-200 ease-out ${closing ? 'translate-y-full' : ''}`}
-        style={{ maxHeight: 'calc(var(--app-height,100dvh)-12px)', paddingBottom: 'env(safe-area-inset-bottom,0px)' }}
+        className={`absolute bottom-0 left-0 right-0 flex max-h-[65%] flex-col overflow-hidden rounded-t-xl border-t border-[var(--line)] bg-bg-1 transition-transform duration-200 ease-out ${closing ? 'translate-y-full' : ''}`}
+        style={{ paddingBottom: 'env(safe-area-inset-bottom,0px)' }}
       >
         <div className="flex justify-center py-2 touch-none" onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd} onTouchCancel={handleTouchEnd}>
           <div className="w-10 h-1 rounded-full bg-text-3/30" />

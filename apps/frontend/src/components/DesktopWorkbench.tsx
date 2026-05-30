@@ -10,6 +10,11 @@ import { SessionRail } from './SessionRail'
 import { EditorWorkbench } from './EditorWorkbench'
 import { TerminalDock } from './TerminalDock'
 
+const ACTIVITY_BAR_WIDTH = 56
+const SESSION_RAIL_WIDTH = 176
+function clampValue(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value))
+}
 function getEditorLanguage(path: string) {
   const name = path.split('/').pop()?.toLowerCase() || ''
   if (name === 'dockerfile') return 'dockerfile'
@@ -59,6 +64,7 @@ export function DesktopWorkbench() {
   const setEditorSaving = useConsoleStore((state) => state.setEditorSaving)
   const markEditorSaved = useConsoleStore((state) => state.markEditorSaved)
   const pushToast = useConsoleStore((state) => state.pushToast)
+  const containerRef = useRef<HTMLDivElement>(null)
   const resizingRef = useRef<'session' | 'file' | null>(null)
   const restoredRef = useRef(false)
   const pendingSessionWidthRef = useRef(sessionPanelWidth)
@@ -66,10 +72,42 @@ export function DesktopWorkbench() {
   const frameRef = useRef<number | null>(null)
   const [previewSessionWidth, setPreviewSessionWidth] = useState<number | null>(null)
   const [previewFileWidth, setPreviewFileWidth] = useState<number | null>(null)
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 })
+  const viewportWidth = containerSize.width || 1440
+  const viewportHeight = containerSize.height || 820
+  const minWorkspaceWidth = viewportWidth < 1180 ? 420 : 560
+  const sessionPanelMin = clampValue(Math.floor(viewportWidth * 0.18), 208, 240)
+  const sessionPanelMax = clampValue(Math.floor(viewportWidth * 0.26), sessionPanelMin, 360)
+  const renderedSessionPanelWidth = clampValue(previewSessionWidth ?? sessionPanelWidth, sessionPanelMin, sessionPanelMax)
+  const compactSessionWidth = clampValue(Math.floor(viewportWidth * 0.13), 88, SESSION_RAIL_WIDTH)
+  const leftWidth = ACTIVITY_BAR_WIDTH + (sessionPanelExpanded ? renderedSessionPanelWidth : compactSessionWidth)
+  const filePanelAvailable = viewportWidth - leftWidth - minWorkspaceWidth
+  const filePanelMaxBase = clampValue(Math.floor(viewportWidth * 0.32), 280, 420)
+  const filePanelMax = clampValue(Math.min(filePanelMaxBase, filePanelAvailable), 260, filePanelMaxBase)
+  const filePanelMin = clampValue(Math.floor(viewportWidth * 0.24), 240, Math.min(320, filePanelMax))
+  const renderedFilePanelWidth = clampValue(previewFileWidth ?? filePanelWidth, filePanelMin, filePanelMax)
+  const terminalMinHeight = clampValue(Math.floor(viewportHeight * 0.22), 150, 220)
+  const terminalMaxHeight = clampValue(Math.floor(viewportHeight * 0.42), terminalMinHeight, 520)
+  useEffect(() => {
+    const element = containerRef.current
+    if (!element) return
+    const update = () => setContainerSize({ width: Math.round(element.clientWidth), height: Math.round(element.clientHeight) })
+    update()
+    let observer: ResizeObserver | null = null
+    if (typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(update)
+      observer.observe(element)
+    }
+    window.addEventListener('resize', update)
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', update)
+    }
+  }, [])
   useEffect(() => {
     const handleMove = (event: MouseEvent) => {
       if (resizingRef.current === 'session') {
-        pendingSessionWidthRef.current = Math.max(240, Math.min(360, event.clientX - 56))
+        pendingSessionWidthRef.current = clampValue(event.clientX - ACTIVITY_BAR_WIDTH, sessionPanelMin, sessionPanelMax)
         if (frameRef.current) return
         frameRef.current = requestAnimationFrame(() => {
           frameRef.current = null
@@ -78,8 +116,8 @@ export function DesktopWorkbench() {
         return
       }
       if (resizingRef.current === 'file') {
-        const sessionOffset = 56 + (sessionPanelExpanded ? (previewSessionWidth ?? pendingSessionWidthRef.current ?? sessionPanelWidth) : 16 * 4)
-        pendingFileWidthRef.current = Math.max(320, Math.min(420, event.clientX - sessionOffset))
+        const sessionOffset = ACTIVITY_BAR_WIDTH + (sessionPanelExpanded ? (previewSessionWidth ?? pendingSessionWidthRef.current ?? renderedSessionPanelWidth) : compactSessionWidth)
+        pendingFileWidthRef.current = clampValue(event.clientX - sessionOffset, filePanelMin, filePanelMax)
         if (frameRef.current) return
         frameRef.current = requestAnimationFrame(() => {
           frameRef.current = null
@@ -111,7 +149,7 @@ export function DesktopWorkbench() {
       window.removeEventListener('mousemove', handleMove)
       window.removeEventListener('mouseup', handleUp)
     }
-  }, [previewSessionWidth, sessionPanelExpanded, sessionPanelWidth, setFilePanelWidth, setSessionPanelWidth])
+  }, [compactSessionWidth, filePanelMax, filePanelMin, previewSessionWidth, renderedSessionPanelWidth, sessionPanelExpanded, sessionPanelMax, sessionPanelMin, setFilePanelWidth, setSessionPanelWidth])
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'desktop-workbench', sessionPanelExpanded, sessionPanelWidth, filePanelOpen, filePanelWidth, editorsOpen: openEditors.length > 0 } }))
   }, [filePanelOpen, filePanelWidth, openEditors.length, sessionPanelExpanded, sessionPanelWidth])
@@ -158,10 +196,8 @@ export function DesktopWorkbench() {
       pushToast({ type: 'error', message })
     }
   }, [markEditorSaved, pushToast, setEditorSaving])
-  const renderedSessionPanelWidth = previewSessionWidth ?? sessionPanelWidth
-  const renderedFilePanelWidth = previewFileWidth ?? filePanelWidth
   return (
-    <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
+    <div ref={containerRef} className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
       <ActivityBar />
       {sessionPanelExpanded ? (
         <div className="relative shrink-0 border-r border-[var(--line)] bg-bg-1" style={{ width: renderedSessionPanelWidth }}>
@@ -197,7 +233,7 @@ export function DesktopWorkbench() {
             <div className="min-h-0 flex-1">
               <EditorWorkbench onSaveEditor={handleSaveEditor} />
             </div>
-            <TerminalDock />
+            <TerminalDock minHeight={terminalMinHeight} maxHeight={terminalMaxHeight} />
           </>
         ) : (
           <div className="min-h-0 flex-1">

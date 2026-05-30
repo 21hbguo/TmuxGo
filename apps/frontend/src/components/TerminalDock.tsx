@@ -4,7 +4,10 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import { WindowTabs } from './WindowTabs'
 import { PaneGrid } from './PaneGrid'
 
-export function TerminalDock({ fill=false }:{ fill?: boolean }) {
+function clampValue(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value))
+}
+export function TerminalDock({ fill=false,minHeight=180,maxHeight=540 }:{ fill?: boolean; minHeight?: number; maxHeight?: number }) {
   const terminalPanelHeight = useConsoleStore((state) => state.terminalPanelHeight)
   const setTerminalPanelHeight = useConsoleStore((state) => state.setTerminalPanelHeight)
   const resizingRef = useRef(false)
@@ -15,7 +18,7 @@ export function TerminalDock({ fill=false }:{ fill?: boolean }) {
     if (fill) return
     const handleMove = (event: MouseEvent) => {
       if (!resizingRef.current) return
-      pendingHeightRef.current = Math.max(180, Math.min(540, window.innerHeight - event.clientY - 28))
+      pendingHeightRef.current = clampValue(window.innerHeight - event.clientY - 28, minHeight, maxHeight)
       if (frameRef.current) return
       frameRef.current = requestAnimationFrame(() => {
         frameRef.current = null
@@ -43,8 +46,8 @@ export function TerminalDock({ fill=false }:{ fill?: boolean }) {
       window.removeEventListener('mousemove', handleMove)
       window.removeEventListener('mouseup', handleUp)
     }
-  }, [fill, setTerminalPanelHeight])
-  const panelHeight = previewHeight ?? terminalPanelHeight
+  }, [fill, maxHeight, minHeight, setTerminalPanelHeight])
+  const panelHeight = fill ? terminalPanelHeight : clampValue(previewHeight ?? terminalPanelHeight, minHeight, maxHeight)
   return (
     <section className={`relative bg-bg-1 ${fill ? 'flex h-full min-h-0 flex-1 flex-col' : 'shrink-0 border-t border-[var(--line)]'}`} style={fill ? undefined : { height: panelHeight }}>
       {!fill && <div className="absolute left-0 right-0 top-0 z-10 h-1 cursor-row-resize hover:bg-accent/50" onMouseDown={() => {
