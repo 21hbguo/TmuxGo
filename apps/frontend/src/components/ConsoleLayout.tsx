@@ -341,13 +341,13 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       <InstallAppBanner />
       {!isMobile && <TopBar />}
       <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
-        <main data-workspace-main className="flex flex-1 min-h-0 min-w-0 flex-col bg-bg-1">
+        <main data-workspace-main className="flex flex-1 min-h-0 min-w-0 flex-col bg-bg-1" style={isMobile?{paddingBottom:'calc(48px + env(safe-area-inset-bottom))'}:undefined}>
           {isMobile ? <PaneGrid /> : <DesktopWorkbench />}
         </main>
       </div>
       {!isMobile && preferences.showStatusBar && <StatusBar />}
       {isMobile && (
-        <div data-mobile-dock className="mobile-nav-landscape-hide relative z-40 shrink-0 min-h-[calc(48px+env(safe-area-inset-bottom))]">
+        <div data-mobile-dock className="mobile-nav-landscape-hide fixed bottom-0 left-0 right-0 z-40 min-h-[calc(48px+env(safe-area-inset-bottom))]" style={{bottom:'var(--mobile-keyboard-inset, 0px)'}}>
           <div className={keyboardOpen ? 'hidden' : 'h-[calc(48px+env(safe-area-inset-bottom))]'}>
             <MobileNav docked onOpenDrawer={openDrawer} onOpenSettings={openSettings} onOpenSearch={openPalette} onOpenFiles={openMobileFiles} />
           </div>
