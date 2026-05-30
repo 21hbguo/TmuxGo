@@ -294,6 +294,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     let pointerSyncActive = false
     let lastKeyboardOpen = document.body.classList.contains('keyboard-open')
     let paneResizeDrag: any = null
+    let paneBoundsCache: { snapshot: any; windowId: string; bounds: any[] } | null = null
+    let paneResizeHoverThrottle = 0
     let attachEventCount = 0
     let outputSinceLastAttach = false
 
@@ -356,6 +358,26 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       if (![left, top, cols, rows].every(Number.isFinite) || cols <= 0 || rows <= 0) return null
       return { id, left, top, cols, rows }
     }
+    const getCachedPaneBounds = () => {
+      const snapshot = readSessionSnapshot()
+      if (!snapshot) return [] as any[]
+      const session = snapshot?.sessionName || sessionNameRef.current || ''
+      const windows = Array.isArray(snapshot?.windows) ? snapshot.windows : []
+      const activeWindow = windows.find((item: any) => item.id === snapshot?.activeWindowId) || windows.find((item: any) => item.active)
+      const index = Number(activeWindow?.index)
+      const windowId = Number.isFinite(index) ? `${session}:${index}` : ''
+      if (paneBoundsCache && paneBoundsCache.snapshot === snapshot && paneBoundsCache.windowId === windowId) {
+        return paneBoundsCache.bounds
+      }
+      const panes = Array.isArray(snapshot?.panes) ? snapshot.panes : []
+      const filtered = windowId ? panes.filter((pane: any) => {
+        const id = String(pane.windowId || '')
+        return id === windowId || id.endsWith(`:${index}`)
+      }) : panes
+      const bounds = filtered.map(getPaneBounds).filter(Boolean) as any[]
+      paneBoundsCache = { snapshot, windowId, bounds }
+      return bounds
+    }
     const getSelectionRange = () => {
       const range = terminal?.getSelectionPosition?.()
       if (!range?.start || !range?.end) return null
@@ -379,12 +401,11 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       if (terminal?._core?._selectionService?._activeSelectionMode === 3) return raw
       const range = getSelectionRange()
       if (!range) return raw
-      const snapshot = readSessionSnapshot()
       const baseY = Number(terminal?.buffer?.active?.baseY || 0)
       const screenStartY = range.startY - baseY
       if (screenStartY < 0 || screenStartY >= terminal.rows) return raw
-      const panes = getActiveWindowPanes(snapshot)
-      const pane = panes.map(getPaneBounds).find((item: any) => item && range.startX >= item.left && range.startX < item.left + item.cols && screenStartY >= item.top && screenStartY < item.top + item.rows)
+      const panes = getCachedPaneBounds()
+      const pane = panes.find((item: any) => item && range.startX >= item.left && range.startX < item.left + item.cols && screenStartY >= item.top && screenStartY < item.top + item.rows)
       if (!pane) return raw
       const buffer = terminal?.buffer?.active
       if (!buffer?.getLine) return raw
@@ -428,9 +449,9 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     const getPaneResizeTarget = (event: MouseEvent) => {
       if (event.button !== 0 || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return null
       const cell = getMouseCell(event)
-      const snapshot = readSessionSnapshot()
-      if (!cell || !snapshot) return null
-      const panes = getActiveWindowPanes(snapshot).map(getPaneBounds).filter(Boolean) as any[]
+      if (!cell) return null
+      const panes = getCachedPaneBounds()
+      if (!panes.length) return null
       const vertical = panes.find((pane) => {
         if (!pane.id) return false
         const edge = pane.left + pane.cols
@@ -518,6 +539,9 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     }
     const handlePaneResizeHover = (event: MouseEvent) => {
       if (paneResizeDrag) return
+      const now = performance.now()
+      if (now - paneResizeHoverThrottle < 50) return
+      paneResizeHoverThrottle = now
       const target = getPaneResizeTarget(event)
       container.style.cursor = target ? target.axis === 'x' ? 'col-resize' : 'row-resize' : ''
     }
