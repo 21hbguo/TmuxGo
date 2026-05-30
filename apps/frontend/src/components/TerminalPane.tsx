@@ -292,6 +292,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     let pointerSyncActive = false
     let lastKeyboardOpen = document.body.classList.contains('keyboard-open')
     let paneResizeDrag: any = null
+    let attachEventCount = 0
+    let outputSinceLastAttach = false
 
     const notifyReady = () => {
       if (disposed || readyNotified) return
@@ -980,6 +982,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         if (payload.sessionName && payload.sessionName !== sessionNameRef.current) return
         const raw = payload.data
         if (!raw || !terminal?.write) return
+        outputSinceLastAttach = true
         controlCarryRef.current = ''
         recordTerminalOutput(useConsoleStore.getState().terminalPerf || DEFAULT_TERMINAL_PERF, raw, raw.length, 0)
         terminal.write(raw)
@@ -1029,18 +1032,25 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         const cols = Number(detail.cols)
         const rows = Number(detail.rows)
         if (!terminal || disposed) return
+        const hadOutputBeforeAttach = outputSinceLastAttach
+        outputSinceLastAttach = false
+        attachEventCount += 1
+        const initialAttach = attachEventCount === 1
+        const softRecover = initialAttach && hadOutputBeforeAttach
         void loadSessionSnapshot()
         if (attachExclusiveRef.current) {
           scheduleInitialFit()
           if (!isMobileDevice) forceStableFit(5, 34)
-          recoverTerminalScreen('attached', true)
+          if (softRecover) scheduleTerminalRepaint(isMobileDevice ? MOBILE_TERMINAL_REPAINT_DELAYS : TERMINAL_REPAINT_DELAYS, true)
+          else recoverTerminalScreen('attached', true)
           return
         }
         if (cols > 0 && rows > 0) {
           sharedSessionSizeRef.current = { cols, rows }
           syncSharedLayout(true)
           if (!isMobileDevice) forceStableFit(4, 34)
-          recoverTerminalScreen('attached', true)
+          if (softRecover) scheduleTerminalRepaint(isMobileDevice ? MOBILE_TERMINAL_REPAINT_DELAYS : TERMINAL_REPAINT_DELAYS, true)
+          else recoverTerminalScreen('attached', true)
         }
       }
       const handleLayoutChange = (event: Event) => {
