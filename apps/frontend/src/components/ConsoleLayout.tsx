@@ -18,7 +18,8 @@ import { UploadQueue } from './UploadQueue'
 import { AppVersionGuard } from './AppVersionGuard'
 import { getViewportLayoutState } from './consoleLayoutViewport'
 import { useConsoleStore } from '@/stores/useConsoleStore'
-import { useHosts, useSessions, useSessionSnapshot } from '@/hooks/useApi'
+import { useHosts, useSessionSnapshot } from '@/hooks/useApi'
+import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import { usePreferences } from '@/hooks/usePreferences'
 import { DesktopWorkbench } from './DesktopWorkbench'
 import { recordMobileDiagnostic, startMobileFlickerDiagnostics } from '@/lib/mobile-diagnostics'
@@ -50,7 +51,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   const { preferences } = usePreferences()
 
   const { data: hostsData = [] } = useHosts()
-  const { data: sessionsData = [], isFetched: sessionsFetched } = useSessions(activeHostId || '')
+  const { data: sessionsData = [], isFetched: sessionsFetched } = useOrderedSessions(activeHostId || '')
   const { data: snapshotData } = useSessionSnapshot(activeHostId || '', activeSessionId || '')
 
   const [isMobile, setIsMobile] = useState(initialIsMobile)

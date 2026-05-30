@@ -1,7 +1,8 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
-import { useCreateSession, useDeleteSession, useRenameSession, useSessions } from '@/hooks/useApi'
+import { useCreateSession, useDeleteSession, useRenameSession } from '@/hooks/useApi'
+import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import { SessionTemplates, type Template } from './SessionTemplates'
 import { ConfirmDialog } from './ConfirmDialog'
 import { QuickActions } from './QuickActions'
@@ -13,7 +14,7 @@ export function SessionPanel() {
   const setActiveSession = useConsoleStore((state) => state.setActiveSession)
   const activeHostId = useConsoleStore((state) => state.activeHostId)
   const pushToast = useConsoleStore((state) => state.pushToast)
-  const { data: sessions = [] } = useSessions(activeHostId || '')
+  const { data: sessions = [], moveSession } = useOrderedSessions(activeHostId || '')
   const createSession = useCreateSession()
   const deleteSession = useDeleteSession()
   const renameSession = useRenameSession()
@@ -21,6 +22,8 @@ export function SessionPanel() {
   const { t } = useTranslation()
   const [showTemplates, setShowTemplates] = useState(false)
   const [pendingDeleteSessionId, setPendingDeleteSessionId] = useState<string | null>(null)
+  const [draggedSessionId, setDraggedSessionId] = useState<string | null>(null)
+  const [dragOverSessionId, setDragOverSessionId] = useState<string | null>(null)
   const handleTemplateSelect = async (template: Template) => {
     if (!activeHostId) return
     const name = prompt(t('drawer.sessionName'), template.name.toLowerCase())
@@ -78,7 +81,19 @@ export function SessionPanel() {
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
           {sessions.map((session) => (
-            <div key={session.id} className={`flex items-center gap-1 border-b border-[rgba(255,255,255,0.03)] pr-2 ${activeSessionId === session.id ? 'bg-bg-2/80' : ''}`}>
+            <div key={session.id} draggable onDragStart={(event) => {
+              setDraggedSessionId(session.id)
+              setDragOverSessionId(session.id)
+              event.dataTransfer.effectAllowed = 'move'
+            }} onDragEnter={() => setDragOverSessionId(session.id)} onDragOver={(event) => event.preventDefault()} onDrop={() => {
+              if (!draggedSessionId) return
+              moveSession(draggedSessionId, session.id)
+              setDraggedSessionId(null)
+              setDragOverSessionId(null)
+            }} onDragEnd={() => {
+              setDraggedSessionId(null)
+              setDragOverSessionId(null)
+            }} className={`flex items-center gap-1 border-b border-[rgba(255,255,255,0.03)] pr-2 ${activeSessionId === session.id ? 'bg-bg-2/80' : ''} ${draggedSessionId === session.id ? 'opacity-50' : ''} ${dragOverSessionId === session.id && draggedSessionId !== session.id ? 'bg-accent/10 shadow-[inset_0_2px_0_var(--accent)]' : ''}`}>
               <button onClick={() => setActiveSession(session.id)} onDoubleClick={() => void handleRenameSession(session.id)} className={`min-w-0 flex-1 border-l-2 px-3 py-2 text-left ${activeSessionId === session.id ? 'border-accent' : 'border-transparent hover:bg-bg-2/60'}`}>
                 <div className="truncate text-sm text-text-1">{session.name}</div>
                 <div className="mt-0.5 text-[11px] text-text-3">{t('sidebar.windows', { count: session.windowCount })}</div>

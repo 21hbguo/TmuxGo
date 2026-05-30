@@ -8,7 +8,8 @@ import { ConfirmDialog } from './ConfirmDialog'
 import { writeClipboardText } from '@/lib/clipboard-text'
 import { requestTerminalSelection } from '@/lib/terminal-selection'
 import { useSessionSnapshotSync } from '@/hooks/useSessionSnapshotSync'
-import { useHosts, useSessions, useWindows } from '@/hooks/useApi'
+import { useHosts, useWindows } from '@/hooks/useApi'
+import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import { useWindowQueryState } from '@/hooks/useWindowQueryState'
 
 interface CommandPaletteProps {
@@ -29,7 +30,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
   const toggleSessionPanel = useConsoleStore((state) => state.toggleSessionPanel)
   const toggleFilePanel = useConsoleStore((state) => state.toggleFilePanel)
   const { data: hosts = [] } = useHosts()
-  const { data: sessions = [] } = useSessions(activeHostId || '')
+  const { data: sessions = [] } = useOrderedSessions(activeHostId || '')
   const { data: windows = [] } = useWindows(activeHostId || '', activeSessionId || '')
   const { getWindows, setWindows } = useWindowQueryState(activeHostId || '', activeSessionId || '')
   const { t } = useTranslation()

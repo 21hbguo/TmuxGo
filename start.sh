@@ -19,6 +19,13 @@ for arg in "$@"; do
     REBUILD_STABLE=1
   fi
 done
+if [ "$RESTART" = "1" ] && [ "$REBUILD_STABLE" = "1" ]; then
+  echo "Mode: restart services and rebuild stable frontend artifacts for port 3000."
+elif [ "$RESTART" = "1" ]; then
+  echo "Mode: restart running services and reuse existing stable frontend build when possible."
+else
+  echo "Hint: after changing frontend/gateway/agent source, run ./start.sh --restart to refresh stable services on ports 3000/3001."
+fi
 FRONTEND_STABLE_LOG="/tmp/tmuxgo-frontend-stable.log"
 FRONTEND_DEV_LOG="/tmp/tmuxgo-frontend-dev.log"
 GATEWAY_LOG="/tmp/tmuxgo-gateway.log"
