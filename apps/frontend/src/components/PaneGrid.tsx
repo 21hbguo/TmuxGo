@@ -262,7 +262,7 @@ export function PaneGrid() {
   }
 
   return (
-    <div className="h-full w-full min-h-0 min-w-0 bg-bg-1 relative overflow-hidden">
+    <div className="h-full w-full min-h-0 min-w-0 bg-bg-1 relative overflow-hidden" style={isMobile?{paddingBottom:'calc(48px + env(safe-area-inset-bottom))'}:undefined}>
       {pendingSwitchRef.current && (
         <div className="absolute inset-0 z-10 pointer-events-none bg-gradient-to-b from-bg-1/5 via-bg-1/15 to-bg-1/30" />
       )}
