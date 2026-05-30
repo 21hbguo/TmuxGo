@@ -42,14 +42,14 @@ async function normalizeWindowOrder(sessionName: string, orderedWindowIds: strin
 async function getTmuxPanes(sessionName: string, windowIndex: number) {
   assertSessionAllowed(sessionName)
   try {
-    const { stdout } = await execFileAsync('tmux', ['list-panes', '-t', `${sessionName}:${windowIndex}`, '-F', '#{pane_id}|#{pane_index}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}'])
+    const { stdout } = await execFileAsync('tmux', ['list-panes', '-t', `${sessionName}:${windowIndex}`, '-F', '#{pane_id}|#{pane_index}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}|#{pane_left}|#{pane_top}'])
 
     return stdout
       .trim()
       .split('\n')
       .filter(Boolean)
       .map((line) => {
-        const [id, index, title, active, width, height] = line.split('|')
+        const [id, index, title, active, width, height, left, top] = line.split('|')
         return {
           id: id,
           tmuxPaneId: id,
@@ -57,6 +57,8 @@ async function getTmuxPanes(sessionName: string, windowIndex: number) {
           index: parseInt(index, 10),
           title: title || 'shell',
           active: active === '1',
+          left: parseInt(left, 10) || 0,
+          top: parseInt(top, 10) || 0,
           size: {
             cols: parseInt(width, 10) || 80,
             rows: parseInt(height, 10) || 24,

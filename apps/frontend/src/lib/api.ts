@@ -186,6 +186,11 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ paneId }),
       }),
+    resize: (paneId: string, size: { cols?: number; rows?: number }) =>
+      fetchApi<any>('/api/panes/resize', {
+        method: 'POST',
+        body: JSON.stringify({ paneId, ...size }),
+      }),
     kill: (paneId?: string) =>
       fetchApi<any>('/api/panes/kill', {
         method: 'POST',
