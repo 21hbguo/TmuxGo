@@ -187,6 +187,7 @@ export const en = {
   'pane.splitFailed': 'Split failed',
   'pane.closed': 'Pane closed',
   'pane.closeFailed': 'Close failed',
+  'pane.zoomFailed': 'Zoom failed',
 
   // CommandSnippets
   'snippets.title': 'Command Snippets',
@@ -347,4 +348,39 @@ export const en = {
 
   // TerminalPane
   'terminal.dropUpload': 'Drop files to upload',
+
+  // Clipboard
+  'clipboard.copyFailed': 'Copy failed',
+  'clipboard.unavailable': 'Clipboard unavailable, kept in app',
+  'clipboard.empty': 'Clipboard is empty',
+  'clipboard.pasteFailed': 'Paste failed',
+  'clipboard.pastedFromApp': 'Pasted from app clipboard',
+  'clipboard.meta.multiline': 'multi-line',
+  'clipboard.meta.controlChars': 'control chars',
+  'clipboard.meta.appClipboard': 'app clipboard',
+  'clipboard.meta.unavailable': 'clipboard unavailable',
+
+  // Session CRUD
+  'session.created': 'Session {name} created',
+  'session.deleted': 'Session {name} deleted',
+  'session.renamed': 'Session {from} renamed to {to}',
+  'session.requestFailed': 'Request failed',
+
+  // CommandPalette extra
+  'palette.switchWindow': 'Switch window: {name}',
+  'palette.openFiles': 'Open files',
+  'palette.toggleSessions': 'Toggle sessions',
+  'palette.escToClose': 'Esc to close',
+  'palette.actionFailed': 'Action failed',
+
+  // TopBar
+  'topBar.sessions': 'Sessions',
+  'topBar.files': 'Files',
+
+  // MobileNav extra
+  'nav.files': 'Files',
+  'nav.off': 'Off',
+
+  // FilePanel extra
+  'file.inserted': 'Inserted {name}',
 } as const

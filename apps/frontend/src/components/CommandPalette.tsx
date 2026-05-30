@@ -51,14 +51,14 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
     const text = await requestTerminalSelection()
     if (!text) throw new Error('No selection')
     const result = await writeClipboardText(text)
-    if (!result.copied) throw new Error('Copy failed')
-    if (result.unavailable) pushToast({ type: 'info', message: 'Clipboard unavailable, kept in app' })
+    if (!result.copied) throw new Error(t('clipboard.copyFailed'))
+    if (result.unavailable) pushToast({ type: 'info', message: t('clipboard.unavailable') })
   }
   const pasteClipboard = async () => window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-paste'))
   const items = [
     ...hosts.filter((h: any) => h.name.toLowerCase().includes(q)).map((host: any) => ({ key: `host-${host.id}`, type: 'host', title: host.name, meta: host.address, action: async () => setActiveHost(host.id) })),
     ...sessions.filter((s: any) => s.name.toLowerCase().includes(q)).map((session: any) => ({ key: `session-${session.id}`, type: 'session', title: session.name, meta: t('palette.windows', { count: session.windowCount }), action: async () => setActiveSession(session.id) })),
-    ...windows.filter((w: any) => w.name.toLowerCase().includes(q)).map((window: any) => ({ key: `window-${window.id}`, type: 'action', title: `Switch window: ${window.name}`, meta: 'Enter', action: async () => {
+    ...windows.filter((w: any) => w.name.toLowerCase().includes(q)).map((window: any) => ({ key: `window-${window.id}`, type: 'action', title: t('palette.switchWindow', { name: window.name }), meta: 'Enter', action: async () => {
       if (!activeHostId || !activeSessionId) return
       const previousWindows = getWindows()
       setWindows(previousWindows.map((item: any) => item.sessionId === activeSessionId ? { ...item, active: item.id === window.id } : item))
@@ -85,11 +85,11 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
     } })),
     ...[t('palette.copySelection')].filter((name) => name.toLowerCase().includes(q) || q.length === 0).map(() => ({ key: 'copy-selection', type: 'action', title: t('palette.copySelection'), meta: 'Cmd+C', action: copySelection })),
     ...[t('palette.pasteClipboard')].filter((name) => name.toLowerCase().includes(q) || q.length === 0).map(() => ({ key: 'paste-clipboard', type: 'action', title: t('palette.pasteClipboard'), meta: 'Cmd+V', action: pasteClipboard })),
-    ...['Open files'].filter((name) => name.toLowerCase().includes(q) || q.length === 0).map(() => ({ key: 'open-files', type: 'action', title: 'Open files', meta: 'Cmd+E', action: async () => {
+    ...[t('palette.openFiles')].filter((name) => name.toLowerCase().includes(q) || q.length === 0).map(() => ({ key: 'open-files', type: 'action', title: t('palette.openFiles'), meta: 'Cmd+E', action: async () => {
       if (window.matchMedia('(max-width: 1023px)').matches) useConsoleStore.setState({ mobileFileSheetOpen: true })
       else toggleFilePanel()
     } })),
-    ...['Toggle sessions'].filter((name) => name.toLowerCase().includes(q) || q.length === 0).map(() => ({ key: 'toggle-sessions', type: 'action', title: 'Toggle sessions', meta: 'Cmd+B', action: async () => toggleSessionPanel() })),
+    ...[t('palette.toggleSessions')].filter((name) => name.toLowerCase().includes(q) || q.length === 0).map(() => ({ key: 'toggle-sessions', type: 'action', title: t('palette.toggleSessions'), meta: 'Cmd+B', action: async () => toggleSessionPanel() })),
     ...[t('palette.renameWindow')].filter((name) => name.toLowerCase().includes(q) || q.length === 0).map(() => ({ key: 'rename-window', type: 'action', title: t('palette.renameWindow'), meta: activeWindow?.name || '', action: async () => {
       if (!activeHostId || !activeSessionId || !activeWindow) return
       const name = window.prompt(t('palette.renameWindow'), activeWindow.name)
@@ -102,7 +102,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
       setPendingKillWindow({ id: activeWindow.id, name: activeWindow.name })
       return false
     } })),
-    ...[t('palette.openSettings')].filter((name) => name.toLowerCase().includes(q) || q.length === 0).map(() => ({ key: 'open-settings', type: 'action', title: t('palette.openSettings'), meta: 'Esc to close', action: async () => window.dispatchEvent(new CustomEvent('tmuxgo-open-settings')) })),
+    ...[t('palette.openSettings')].filter((name) => name.toLowerCase().includes(q) || q.length === 0).map(() => ({ key: 'open-settings', type: 'action', title: t('palette.openSettings'), meta: t('palette.escToClose'), action: async () => window.dispatchEvent(new CustomEvent('tmuxgo-open-settings')) })),
   ]
 
   useEffect(() => {
@@ -116,7 +116,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
       const result = await item.action()
       if (result !== false) close()
     } catch (err) {
-      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Action failed' })
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('palette.actionFailed') })
     }
   }
   const confirmKillWindow = async () => {
@@ -127,7 +127,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
       setPendingKillWindow(null)
       close()
     } catch (err) {
-      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Action failed' })
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('palette.actionFailed') })
     }
   }
 

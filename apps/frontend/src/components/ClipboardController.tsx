@@ -6,9 +6,11 @@ import { analyzePaste, escapePaste } from '@/lib/paste-safety'
 import { readClipboardTextOnly, writeClipboardText } from '@/lib/clipboard-text'
 import { requestTerminalSelection } from '@/lib/terminal-selection'
 import { useConsoleStore } from '@/stores/useConsoleStore'
+import { useTranslation } from '@/i18n'
 import { PasteConfirmDialog } from './PasteConfirmDialog'
 
 export function ClipboardController() {
+  const { t } = useTranslation()
   const pushToast = useConsoleStore((s) => s.pushToast)
   const [pendingPaste, setPendingPaste] = useState<{ text: string; meta: string[]; mode?: 'confirm' | 'manual'; source?: 'system' | 'memory' | 'empty' } | null>(null)
   const focusAfterCloseRef = useRef(false)
@@ -38,10 +40,10 @@ export function ClipboardController() {
     if (!text) return false
     const analysis = analyzePaste(text)
     const meta = []
-    if (analysis.hasNewline) meta.push('multi-line')
-    if (analysis.hasControlChars) meta.push('control chars')
+    if (analysis.hasNewline) meta.push(t('clipboard.meta.multiline'))
+    if (analysis.hasControlChars) meta.push(t('clipboard.meta.controlChars'))
     if (analysis.isLong) meta.push(`${text.length} chars`)
-    if (source === 'memory') meta.push('app clipboard')
+    if (source === 'memory') meta.push(t('clipboard.meta.appClipboard'))
     setPendingPaste({ text, meta, source })
     return false
   }, [])
@@ -50,24 +52,24 @@ export function ClipboardController() {
     if (!text) return
     const result = await writeClipboardText(text)
     if (!result.copied) {
-      pushToast({ type: 'error', message: 'Copy failed' })
+      pushToast({ type: 'error', message: t('clipboard.copyFailed') })
       return
     }
-    if (result.unavailable) pushToast({ type: 'info', message: 'Clipboard unavailable, kept in app' })
+    if (result.unavailable) pushToast({ type: 'info', message: t('clipboard.unavailable') })
   }, [pushToast])
   const handlePaste = useCallback(async () => {
     try {
       const result = await readClipboardTextOnly()
       const text = result.text
       if (!text) {
-        if (result.unavailable) setPendingPaste({ text: '', meta: ['clipboard unavailable'], mode: 'manual' })
-        else pushToast({ type: 'info', message: 'Clipboard is empty' })
+        if (result.unavailable) setPendingPaste({ text: '', meta: [t('clipboard.meta.unavailable')], mode: 'manual' })
+        else pushToast({ type: 'info', message: t('clipboard.empty') })
         return
       }
       routePasteText(text, result.source)
     } catch (err) {
-      setPendingPaste({ text: '', meta: ['clipboard unavailable'], mode: 'manual' })
-      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Paste failed' })
+      setPendingPaste({ text: '', meta: [t('clipboard.meta.unavailable')], mode: 'manual' })
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('clipboard.pasteFailed') })
     }
   }, [pushToast, routePasteText])
   useEffect(() => {
@@ -104,14 +106,14 @@ export function ClipboardController() {
       onSend={() => {
         if (pendingPaste) {
           sendTerminalInput(pendingPaste.text)
-          if (pendingPaste.source === 'memory') pushToast({ type: 'info', message: 'Pasted from app clipboard' })
+          if (pendingPaste.source === 'memory') pushToast({ type: 'info', message: t('clipboard.pastedFromApp') })
         }
         closePasteDialog()
       }}
       onEscapeSend={() => {
         if (pendingPaste) {
           sendTerminalInput(escapePaste(pendingPaste.text))
-          if (pendingPaste.source === 'memory') pushToast({ type: 'info', message: 'Pasted from app clipboard' })
+          if (pendingPaste.source === 'memory') pushToast({ type: 'info', message: t('clipboard.pastedFromApp') })
         }
         closePasteDialog()
       }}

@@ -187,6 +187,7 @@ export const zh = {
   'pane.splitFailed': '分割失败',
   'pane.closed': '面板已关闭',
   'pane.closeFailed': '关闭失败',
+  'pane.zoomFailed': '聚焦失败',
 
   // CommandSnippets
   'snippets.title': '命令片段',
@@ -347,4 +348,39 @@ export const zh = {
 
   // TerminalPane
   'terminal.dropUpload': '拖放文件以上传',
+
+  // Clipboard
+  'clipboard.copyFailed': '复制失败',
+  'clipboard.unavailable': '剪贴板不可用，已保存到应用',
+  'clipboard.empty': '剪贴板为空',
+  'clipboard.pasteFailed': '粘贴失败',
+  'clipboard.pastedFromApp': '已从应用剪贴板粘贴',
+  'clipboard.meta.multiline': '多行',
+  'clipboard.meta.controlChars': '控制字符',
+  'clipboard.meta.appClipboard': '应用剪贴板',
+  'clipboard.meta.unavailable': '剪贴板不可用',
+
+  // Session CRUD
+  'session.created': '会话 {name} 已创建',
+  'session.deleted': '会话 {name} 已删除',
+  'session.renamed': '会话 {from} 已重命名为 {to}',
+  'session.requestFailed': '请求失败',
+
+  // CommandPalette extra
+  'palette.switchWindow': '切换窗口：{name}',
+  'palette.openFiles': '打开文件',
+  'palette.toggleSessions': '切换会话面板',
+  'palette.escToClose': 'Esc 关闭',
+  'palette.actionFailed': '操作失败',
+
+  // TopBar
+  'topBar.sessions': '会话',
+  'topBar.files': '文件',
+
+  // MobileNav extra
+  'nav.files': '文件',
+  'nav.off': '离线',
+
+  // FilePanel extra
+  'file.inserted': '已插入 {name}',
 } as const
