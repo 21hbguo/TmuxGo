@@ -18,6 +18,7 @@ export interface Preferences {
   language: Language
   attachExclusive: boolean
   uploadRateLimitKBps: number
+  downloadRateLimitKBps: number
 }
 
 const defaultPreferences: Preferences = {
@@ -34,6 +35,7 @@ const defaultPreferences: Preferences = {
   language: 'zh',
   attachExclusive: true,
   uploadRateLimitKBps: 200,
+  downloadRateLimitKBps: 200,
 }
 
 let preferencesStore:Preferences=defaultPreferences

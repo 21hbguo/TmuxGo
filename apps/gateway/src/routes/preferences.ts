@@ -16,6 +16,7 @@ type PreferencesStore = {
   sessionOrders: SessionOrder[]
   sessionOrdersUpdatedAt: string
   uploadRateLimitKBps: number
+  downloadRateLimitKBps: number
 }
 
 const MAX_SHORTCUTS = 100
@@ -53,6 +54,7 @@ function getDefaultStore(): PreferencesStore {
     sessionOrders: [],
     sessionOrdersUpdatedAt: now,
     uploadRateLimitKBps: DEFAULT_UPLOAD_RATE_LIMIT_KBPS,
+    downloadRateLimitKBps: DEFAULT_UPLOAD_RATE_LIMIT_KBPS,
   }
 }
 function safeString(input: unknown, maxLen: number) {
@@ -142,6 +144,7 @@ function normalizeStore(input: unknown): PreferencesStore {
     sessionOrders: normalizeSessionOrders(raw.sessionOrders),
     sessionOrdersUpdatedAt,
     uploadRateLimitKBps: normalizeUploadRateLimitKBps(raw.uploadRateLimitKBps),
+    downloadRateLimitKBps: normalizeUploadRateLimitKBps(raw.downloadRateLimitKBps),
   }
 }
 function getProfileName(input: unknown) {
@@ -218,6 +221,7 @@ export async function preferencesRoutes(fastify: FastifyInstance) {
       }
     }
     if ('uploadRateLimitKBps' in body) next.uploadRateLimitKBps = normalizeUploadRateLimitKBps(body.uploadRateLimitKBps)
+    if ('downloadRateLimitKBps' in body) next.downloadRateLimitKBps = normalizeUploadRateLimitKBps(body.downloadRateLimitKBps)
     next.updatedAt = new Date(Math.max(parseIsoMs(next.customShortcutsUpdatedAt), parseIsoMs(next.favoriteDirectoriesUpdatedAt), parseIsoMs(next.sessionOrdersUpdatedAt))).toISOString()
     try {
       await writeStore(profile, next)

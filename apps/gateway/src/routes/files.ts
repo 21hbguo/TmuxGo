@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
-import { createWriteStream } from 'fs'
-import { mkdir, opendir, readFile, realpath, stat, writeFile } from 'fs/promises'
+import { createReadStream, createWriteStream } from 'fs'
+import { mkdir, opendir, readFile, realpath, rename, rm, stat, unlink, writeFile } from 'fs/promises'
 import { execFile } from 'child_process'
 import os from 'os'
 import path from 'path'
@@ -61,6 +61,11 @@ async function getRoots() {
 }
 function normalizeRelativePath(relativePath = '') {
   return relativePath.split(/[\\/]+/).filter(Boolean).join('/')
+}
+function sanitizePathSegment(name: string) {
+  const normalized = (name || '').replace(/\0/g, '').trim()
+  if (!normalized || normalized === '.' || normalized === '..' || /[\\/]/.test(normalized)) throw new Error('Invalid name')
+  return normalized
 }
 function getRootPrefix(rootPath: string) {
   return rootPath.endsWith(path.sep) ? rootPath : `${rootPath}${path.sep}`
@@ -157,6 +162,44 @@ async function saveContent(rootId: string, relativePath: string, content: string
   await writeFile(absolutePath, content, 'utf8')
   const nextInfo = await stat(absolutePath)
   return { ok: true as const, content, modifiedAt: nextInfo.mtime.toISOString(), size: nextInfo.size }
+}
+async function createFile(rootId: string, directoryPath: string, name: string) {
+  const safeName = sanitizePathSegment(name)
+  const { root, absolutePath, relativePath } = await resolveInside(rootId, directoryPath)
+  const info = await stat(absolutePath)
+  if (!info.isDirectory()) throw new Error('Target directory not found')
+  const targetPath = path.join(absolutePath, safeName)
+  if (await fileExists(targetPath)) throw new Error('File already exists')
+  await writeFile(targetPath, '', 'utf8')
+  return { ok: true as const, item: await toFileItem(root.path, targetPath, safeName), parentPath: relativePath }
+}
+async function createDirectory(rootId: string, directoryPath: string, name: string) {
+  const safeName = sanitizePathSegment(name)
+  const { root, absolutePath, relativePath } = await resolveInside(rootId, directoryPath)
+  const info = await stat(absolutePath)
+  if (!info.isDirectory()) throw new Error('Target directory not found')
+  const targetPath = path.join(absolutePath, safeName)
+  if (await fileExists(targetPath)) throw new Error('Directory already exists')
+  await mkdir(targetPath, { recursive: false })
+  return { ok: true as const, item: await toFileItem(root.path, targetPath, safeName), parentPath: relativePath }
+}
+async function renameEntry(rootId: string, relativePath: string, name: string) {
+  const safeName = sanitizePathSegment(name)
+  const { root, absolutePath, relativePath: currentPath } = await resolveInside(rootId, relativePath)
+  const targetPath = path.join(path.dirname(absolutePath), safeName)
+  if (absolutePath === root.path) throw new Error('Root cannot be renamed')
+  if (targetPath === absolutePath) return { ok: true as const, item: await toFileItem(root.path, absolutePath, safeName), previousPath: currentPath }
+  if (await fileExists(targetPath)) throw new Error('Target already exists')
+  await rename(absolutePath, targetPath)
+  return { ok: true as const, item: await toFileItem(root.path, targetPath, safeName), previousPath: currentPath }
+}
+async function removeEntry(rootId: string, relativePath: string) {
+  const { root, absolutePath, relativePath: currentPath } = await resolveInside(rootId, relativePath)
+  if (absolutePath === root.path) throw new Error('Root cannot be removed')
+  const info = await stat(absolutePath)
+  if (info.isDirectory()) await rm(absolutePath, { recursive: true, force: false })
+  else await unlink(absolutePath)
+  return { ok: true as const, path: currentPath, type: info.isDirectory() ? 'directory' as const : 'file' as const }
 }
 async function walk(rootPath: string, startPath: string, visitor: (absolutePath: string, relativePath: string, entryType: 'file' | 'directory') => Promise<boolean | void>) {
   const queue = [startPath]
@@ -372,6 +415,17 @@ async function readStoredUploadRateLimitKBps(profile = 'default') {
     return DEFAULT_UPLOAD_RATE_LIMIT_KBPS
   }
 }
+async function readStoredDownloadRateLimitKBps(profile = 'default') {
+  const preferencesDir = process.env.TMUXGO_PREFERENCES_DIR || path.join(os.homedir(), '.tmuxgo', 'preferences')
+  const file = path.join(preferencesDir, `${profile}.json`)
+  try {
+    const content = await readPreferencesFile(file, 'utf8')
+    const parsed = JSON.parse(content)
+    return normalizeUploadRateLimitKBps(parsed?.downloadRateLimitKBps)
+  } catch {
+    return DEFAULT_UPLOAD_RATE_LIMIT_KBPS
+  }
+}
 function createRateLimitStream(rateLimitKBps: number) {
   const bytesPerSecond = Math.max(1, rateLimitKBps) * 1024
   let budget = bytesPerSecond
@@ -405,6 +459,11 @@ function createRateLimitStream(rateLimitKBps: number) {
     },
   })
 }
+async function resolveDownloadRateLimitKBps(queryRateLimitKBps?: unknown, profile = 'default') {
+  const value = typeof queryRateLimitKBps === 'number' ? queryRateLimitKBps : typeof queryRateLimitKBps === 'string' && queryRateLimitKBps.trim() ? Number(queryRateLimitKBps) : NaN
+  if (Number.isFinite(value)) return normalizeUploadRateLimitKBps(value)
+  return readStoredDownloadRateLimitKBps(profile)
+}
 
 export async function fileRoutes(fastify: FastifyInstance) {
   fastify.get('/files/roots', async () => {
@@ -430,6 +489,42 @@ export async function fileRoutes(fastify: FastifyInstance) {
       const err = error as Error & { code?: string }
       if (err.code === 'FILE_MODIFIED') return reply.status(409).send({ message: err.message, code: err.code })
       return reply.status(400).send({ message: err.message || 'Save failed', code: err.code || 'SAVE_FAILED' })
+    }
+  })
+  fastify.post('/files/create-file', async (request, reply) => {
+    const body = request.body as { root?: string; path?: string; name?: string }
+    try {
+      return await createFile(body.root || '', body.path || '', typeof body.name === 'string' ? body.name : '')
+    } catch (error) {
+      const err = error as Error
+      return reply.status(400).send({ message: err.message || 'Create failed', code: 'CREATE_FILE_FAILED' })
+    }
+  })
+  fastify.post('/files/create-directory', async (request, reply) => {
+    const body = request.body as { root?: string; path?: string; name?: string }
+    try {
+      return await createDirectory(body.root || '', body.path || '', typeof body.name === 'string' ? body.name : '')
+    } catch (error) {
+      const err = error as Error
+      return reply.status(400).send({ message: err.message || 'Create failed', code: 'CREATE_DIRECTORY_FAILED' })
+    }
+  })
+  fastify.post('/files/rename', async (request, reply) => {
+    const body = request.body as { root?: string; path?: string; name?: string }
+    try {
+      return await renameEntry(body.root || '', body.path || '', typeof body.name === 'string' ? body.name : '')
+    } catch (error) {
+      const err = error as Error
+      return reply.status(400).send({ message: err.message || 'Rename failed', code: 'RENAME_FAILED' })
+    }
+  })
+  fastify.delete('/files/remove', async (request, reply) => {
+    const query = request.query as { root?: string; path?: string }
+    try {
+      return await removeEntry(query.root || '', query.path || '')
+    } catch (error) {
+      const err = error as Error
+      return reply.status(400).send({ message: err.message || 'Remove failed', code: 'REMOVE_FAILED' })
     }
   })
   fastify.get('/files/search-name', async (request) => {
@@ -490,6 +585,22 @@ export async function fileRoutes(fastify: FastifyInstance) {
         source: 'preferred' as const,
       },
       files: uploadedFiles,
+    }
+  })
+  fastify.get('/files/download', async (request, reply) => {
+    const query = request.query as { root?: string; path?: string; profile?: string; rateLimitKBps?: string }
+    try {
+      const { absolutePath } = await resolveInside(query.root || '', query.path || '')
+      const info = await stat(absolutePath)
+      if (!info.isFile()) return reply.status(400).send({ message: 'Directories are not downloadable here', code: 'DOWNLOAD_UNSUPPORTED' })
+      const rateLimitKBps = await resolveDownloadRateLimitKBps(query.rateLimitKBps, query.profile || 'default')
+      reply.header('Content-Type', 'application/octet-stream')
+      reply.header('Content-Length', String(info.size))
+      reply.header('Content-Disposition', `attachment; filename="${encodeURIComponent(path.basename(absolutePath)).replace(/%20/g, ' ')}"`)
+      return reply.send(createReadStream(absolutePath).pipe(createRateLimitStream(rateLimitKBps)))
+    } catch (error) {
+      const err = error as Error
+      return reply.status(400).send({ message: err.message || 'Download failed', code: 'DOWNLOAD_FAILED' })
     }
   })
 }
