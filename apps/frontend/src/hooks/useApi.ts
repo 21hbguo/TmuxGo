@@ -50,6 +50,16 @@ export function useDeleteSession() {
     },
   })
 }
+export function useBatchDeleteSessions() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ hostId, payload }: { hostId: string; payload: { mode?: 'preview' | 'execute'; sessionIds?: string[]; filters?: { createdBefore?: string; inactiveBefore?: string; nameIncludes?: string; includeAttached?: boolean }; limit?: number; force?: boolean } }) =>
+      api.sessions.batchDelete(hostId, payload),
+    onSuccess: (_, { hostId }) => {
+      queryClient.invalidateQueries({ queryKey: ['sessions', hostId] })
+    },
+  })
+}
 export function useRenameSession() {
   const queryClient = useQueryClient()
   return useMutation({

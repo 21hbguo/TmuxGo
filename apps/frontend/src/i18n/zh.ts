@@ -22,6 +22,15 @@ export const zh = {
   'sidebar.deleteConfirm': '确定删除会话 "{name}"？此操作不可撤销。',
   'sidebar.deleteTitle': '删除会话',
   'sidebar.confirmDelete': '删除',
+  'sidebar.batchDeleteAction': '批量删',
+  'sidebar.batchCancelAction': '取消批量',
+  'sidebar.batchDeleteSelected': '删除选中',
+  'sidebar.batchSelectAll': '全选',
+  'sidebar.batchClearAll': '清空',
+  'sidebar.batchSelectedCount': '已选 {count} 项',
+  'sidebar.batchDeleteTitle': '批量删除会话',
+  'sidebar.batchDeleteConfirm': '确定删除选中的 {count} 个会话？此操作不可撤销。',
+  'sidebar.batchDeleteSuccess': '已删除 {count} 个会话',
   'sidebar.windows': '{count} 个窗口',
 
   // StatusBar
