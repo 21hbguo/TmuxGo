@@ -14,6 +14,9 @@ export async function streamRoutes(fastify: FastifyInstance) {
     console.log('Client connected to stream')
     const SCROLL_FLUSH_INTERVAL = 16
     const SCROLL_MAX_LINES = 24
+    const ATTACH_REDRAW_DELAYS = [0, 32, 96, 220]
+    const RESIZE_REDRAW_DELAYS = [0, 40, 120]
+    const REQUEST_REDRAW_DELAYS = [0, 32, 96]
     const OUTPUT_PROFILES = {
       foreground: { flushInterval: 4, maxChars: 24576 },
       background: { flushInterval: 24, maxChars: 98304 },
@@ -120,7 +123,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
       redrawTimers = []
     }
     async function refreshAttachedClient(sessionName: string) {
-      if (!ptyProcess || !sessionName || attachedExclusive) return
+      if (!ptyProcess || !sessionName) return
       const pid = String(ptyProcess.pid)
       const { stdout } = await execFileAsync('tmux', ['list-clients', '-t', sessionName, '-F', '#{client_pid}|#{client_name}'])
       const clients = String(stdout).trim().split('\n').filter(Boolean).map((line) => {
@@ -234,7 +237,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
                 attachedRows = requestedRows
               }
               send({ type: 'attached', sessionName, cols: attachedCols || requestedCols, rows: attachedRows || requestedRows, exclusive })
-              if (!exclusive) scheduleClientRedraw(sessionName)
+              scheduleClientRedraw(sessionName, ATTACH_REDRAW_DELAYS)
               break
             }
             cleanup()
@@ -281,7 +284,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
             })
 
             send({ type: 'attached', sessionName, cols, rows, exclusive })
-            if (!exclusive) scheduleClientRedraw(sessionName)
+            scheduleClientRedraw(sessionName, ATTACH_REDRAW_DELAYS)
             break
           }
 
@@ -291,14 +294,14 @@ export async function streamRoutes(fastify: FastifyInstance) {
               ptyProcess.resize(data.cols, data.rows)
               attachedCols = data.cols
               attachedRows = data.rows
-              if (!attachedExclusive) scheduleClientRedraw(attachedSessionName, [40])
+              scheduleClientRedraw(attachedSessionName, RESIZE_REDRAW_DELAYS)
             }
             break
           case 'redraw': {
             const sessionName = data.sessionName
             if (!sessionName) break
             assertSessionAllowed(sessionName)
-            if (sessionName === attachedSessionName && !attachedExclusive) scheduleClientRedraw(sessionName, [0])
+            if (sessionName === attachedSessionName) scheduleClientRedraw(sessionName, REQUEST_REDRAW_DELAYS)
             break
           }
 

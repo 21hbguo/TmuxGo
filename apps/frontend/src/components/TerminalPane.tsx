@@ -683,6 +683,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       }
       const handleAttached = (event: Event) => {
         const detail = (event as CustomEvent).detail || {}
+        if (detail.sessionName && detail.sessionName !== sessionNameRef.current) return
         const cols = Number(detail.cols)
         const rows = Number(detail.rows)
         if (!terminal || disposed) return
