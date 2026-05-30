@@ -5,6 +5,7 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import { api } from '@/lib/api'
 import { useWindows } from '@/hooks/useApi'
 import { useWindowQueryState } from '@/hooks/useWindowQueryState'
+import { useTranslation } from '@/i18n'
 
 interface WindowItem {
   id: string
@@ -20,6 +21,7 @@ export function WindowList() {
   const { setWindows } = useWindowQueryState(activeHostId || '', activeSessionId || '')
   const [draggedItem, setDraggedItem] = useState<WindowItem | null>(null)
   const [dragOverItem, setDragOverItem] = useState<WindowItem | null>(null)
+  const { t } = useTranslation()
 
   const sessionWindows = windows.filter((w: any) => w.sessionId === activeSessionId)
 
@@ -45,7 +47,7 @@ export function WindowList() {
       const result = await api.windows.move(activeHostId, activeSessionId, reordered.map((window) => window.id))
       if (result.windows) setWindows(result.windows)
     } catch (err) {
-      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Reorder failed' })
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('window.reorderFailed') })
     }
     setDraggedItem(null)
     setDragOverItem(null)

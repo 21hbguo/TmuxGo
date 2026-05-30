@@ -9,6 +9,7 @@ import { SessionPanel } from './SessionPanel'
 import { SessionRail } from './SessionRail'
 import { EditorWorkbench } from './EditorWorkbench'
 import { TerminalDock } from './TerminalDock'
+import { useTranslation } from '@/i18n'
 
 const ACTIVITY_BAR_WIDTH = 56
 const SESSION_RAIL_WIDTH = 136
@@ -51,6 +52,7 @@ function getEditorLanguage(path: string) {
 }
 
 export function DesktopWorkbench() {
+  const { t } = useTranslation()
   const sessionPanelExpanded = useConsoleStore((state) => state.sessionPanelExpanded)
   const sessionPanelWidth = useConsoleStore((state) => state.sessionPanelWidth)
   const filePanelWidth = useConsoleStore((state) => state.filePanelWidth)
@@ -172,11 +174,11 @@ export function DesktopWorkbench() {
         size: result.size,
         binary: result.binary,
         truncated: result.truncated,
-        problem: result.reason === 'large-file' ? 'Large files stay in preview mode for now.' : result.reason === 'binary-file' ? 'Binary files are not editable here.' : result.reason === 'directory' ? 'Directories cannot be opened in the editor.' : undefined,
+        problem: result.reason === 'large-file' ? t('desktop.largePreviewMode') : result.reason === 'binary-file' ? t('desktop.binaryNotEditable') : result.reason === 'directory' ? t('desktop.directoryNotEditable') : undefined,
       })
     } catch (err) {
-      setEditorLoaded(file.id, { loading: false, problem: err instanceof Error ? err.message : 'Open failed' })
-      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Open failed' })
+      setEditorLoaded(file.id, { loading: false, problem: err instanceof Error ? err.message : t('desktop.openFailed') })
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('desktop.openFailed') })
     }
   }, [openEditor, pushToast, setEditorLoaded, setFilePanelOpen])
   useEffect(() => {
@@ -196,7 +198,7 @@ export function DesktopWorkbench() {
       pushToast({ type: 'success', message: `${editor.name} saved` })
     } catch (err) {
       setEditorSaving(editor.id, false)
-      const message = err instanceof Error ? err.message : 'Save failed'
+      const message = err instanceof Error ? err.message : t('desktop.saveFailed')
       pushToast({ type: 'error', message })
     }
   }, [markEditorSaved, pushToast, setEditorSaving])

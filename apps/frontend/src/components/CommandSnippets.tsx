@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useTranslation } from '@/i18n'
 
 interface Snippet {
   id: string
@@ -10,14 +11,14 @@ interface Snippet {
   category?: string
 }
 
-const defaultSnippets: Snippet[] = [
-  { id: '1', name: 'List files', command: 'ls -la', category: 'basic' },
-  { id: '2', name: 'Disk usage', command: 'df -h', category: 'system' },
-  { id: '3', name: 'Memory usage', command: 'free -h', category: 'system' },
-  { id: '4', name: 'Process list', command: 'ps aux | head -20', category: 'system' },
-  { id: '5', name: 'Docker containers', command: 'docker ps', category: 'docker' },
-  { id: '6', name: 'Git status', command: 'git status', category: 'git' },
-  { id: '7', name: 'Git log', command: 'git log --oneline -10', category: 'git' },
+const defaultSnippetCommands = [
+  { id: '1', nameKey: 'snippets.listFiles' as const, command: 'ls -la', category: 'basic' },
+  { id: '2', nameKey: 'snippets.diskUsage' as const, command: 'df -h', category: 'system' },
+  { id: '3', nameKey: 'snippets.memoryUsage' as const, command: 'free -h', category: 'system' },
+  { id: '4', nameKey: 'snippets.processList' as const, command: 'ps aux | head -20', category: 'system' },
+  { id: '5', nameKey: 'snippets.dockerContainers' as const, command: 'docker ps', category: 'docker' },
+  { id: '6', nameKey: 'snippets.gitStatus' as const, command: 'git status', category: 'git' },
+  { id: '7', nameKey: 'snippets.gitLog' as const, command: 'git log --oneline -10', category: 'git' },
 ]
 
 interface CommandSnippetsProps {
@@ -30,14 +31,16 @@ export function CommandSnippets({ onSend, onClose }: CommandSnippetsProps) {
   const [search, setSearch] = useState('')
   const [isAdding, setIsAdding] = useState(false)
   const [newSnippet, setNewSnippet] = useState({ name: '', command: '', description: '' })
+  const { t } = useTranslation()
 
   useEffect(() => {
     const stored = localStorage.getItem('tmuxgo-snippets')
     if (stored) {
       setSnippets(JSON.parse(stored))
     } else {
-      setSnippets(defaultSnippets)
-      localStorage.setItem('tmuxgo-snippets', JSON.stringify(defaultSnippets))
+      const defaults: Snippet[] = defaultSnippetCommands.map((s) => ({ id: s.id, name: s.nameKey, command: s.command, category: s.category }))
+      setSnippets(defaults)
+      localStorage.setItem('tmuxgo-snippets', JSON.stringify(defaults))
     }
   }, [])
 
@@ -68,19 +71,25 @@ export function CommandSnippets({ onSend, onClose }: CommandSnippetsProps) {
     localStorage.setItem('tmuxgo-snippets', JSON.stringify(updated))
   }
 
+  const getSnippetName = (snippet: Snippet) => {
+    const defaultEntry = defaultSnippetCommands.find((d) => d.id === snippet.id)
+    if (defaultEntry) return t(defaultEntry.nameKey)
+    return snippet.name
+  }
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-bg-1 border border-[var(--line)] rounded-lg w-full max-w-[500px] max-h-[85vh] overflow-hidden">
         <div className="p-4 border-b border-[var(--line)]">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-text-1 text-lg font-medium">Command Snippets</h2>
+            <h2 className="text-text-1 text-lg font-medium">{t('snippets.title')}</h2>
             <button onClick={onClose} className="text-text-3 hover:text-text-1">✕</button>
           </div>
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search snippets..."
+            placeholder={t('snippets.search')}
             className="w-full bg-bg-2 text-text-1 text-sm px-3 py-2 rounded outline-none"
           />
         </div>
@@ -96,7 +105,7 @@ export function CommandSnippets({ onSend, onClose }: CommandSnippetsProps) {
               }}
             >
               <div>
-                <div className="text-text-1 text-sm">{snippet.name}</div>
+                <div className="text-text-1 text-sm">{getSnippetName(snippet)}</div>
                 <div className="text-text-3 text-xs font-mono mt-0.5">{snippet.command}</div>
               </div>
               <button
@@ -117,14 +126,14 @@ export function CommandSnippets({ onSend, onClose }: CommandSnippetsProps) {
             <div className="space-y-2">
               <input
                 type="text"
-                placeholder="Name"
+                placeholder={t('snippets.name')}
                 value={newSnippet.name}
                 onChange={(e) => setNewSnippet({ ...newSnippet, name: e.target.value })}
                 className="w-full bg-bg-2 text-text-1 text-sm px-3 py-2 rounded outline-none"
               />
               <input
                 type="text"
-                placeholder="Command"
+                placeholder={t('snippets.command')}
                 value={newSnippet.command}
                 onChange={(e) => setNewSnippet({ ...newSnippet, command: e.target.value })}
                 className="w-full bg-bg-2 text-text-1 text-sm px-3 py-2 rounded outline-none font-mono"
@@ -134,13 +143,13 @@ export function CommandSnippets({ onSend, onClose }: CommandSnippetsProps) {
                   onClick={addSnippet}
                   className="px-3 py-1.5 bg-accent text-bg-0 rounded text-sm"
                 >
-                  Add
+                  {t('snippets.add')}
                 </button>
                 <button
                   onClick={() => setIsAdding(false)}
                   className="px-3 py-1.5 bg-bg-2 text-text-2 rounded text-sm"
                 >
-                  Cancel
+                  {t('snippets.cancel')}
                 </button>
               </div>
             </div>
@@ -149,7 +158,7 @@ export function CommandSnippets({ onSend, onClose }: CommandSnippetsProps) {
               onClick={() => setIsAdding(true)}
               className="w-full px-3 py-2 bg-bg-2 rounded text-text-2 text-sm hover:bg-bg-1"
             >
-              + Add Snippet
+              {t('snippets.addSnippet')}
             </button>
           )}
         </div>

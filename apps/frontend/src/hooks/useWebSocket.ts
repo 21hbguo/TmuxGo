@@ -362,6 +362,7 @@ export function useWebSocket() {
             wsState.pingTimer=null
           }
           clearPongTimer()
+          wsState.closeExpected=false
           if (wsState.ws) {
             wsState.closeExpected=true
             wsState.ws.close()
@@ -373,7 +374,6 @@ export function useWebSocket() {
           wsState.lastPongAt=0
           wsState.hiddenAt=0
           wsState.backgroundClosed=false
-          wsState.closeExpected=false
           wsState.lastInteractionRecoverAt=0
           wsState.onMessage=null
           wsState.onOpen=null

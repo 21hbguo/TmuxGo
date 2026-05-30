@@ -9,6 +9,7 @@ import type { FavoriteDirectory, FileContentMatch, FileDocumentHandle, FileItem,
 import { writeClipboardText } from '@/lib/clipboard-text'
 import { quoteShellPath } from '@/lib/path-drop'
 import { api } from '@/lib/api'
+import { useTranslation } from '@/i18n'
 
 type SearchMode = 'name' | 'content'
 type FileTypeFilter = 'all' | 'file' | 'directory'
@@ -235,6 +236,7 @@ function TreeDirectoryNode({
   directoryCache: Map<string, FileItem[]>
   onDirectoryLoaded: (rootId: string, rootBasePath: string, itemPath: string, items: FileItem[]) => void
 }) {
+  const { t } = useTranslation()
   const isOpen = openDirectories.has(item.path)
   const { data: childList, isLoading } = useFileList(rootId, joinRelativePath(rootBasePath, item.path), isOpen)
   const cachedChildren = readDirectoryChildrenFromCache(directoryCache, rootId, rootBasePath, item.path)
@@ -311,8 +313,8 @@ function TreeDirectoryNode({
               </button>
             )
           ))}
-          {!isLoading && childItems.truncated && <div className="px-2 py-1 text-[11px] text-text-3" style={{ paddingLeft: `${20 + depth * 12}px` }}>Large directory, showing first {DIRECTORY_RENDER_LIMIT} items</div>}
-          {!isLoading && childItems.items.length === 0 && <div className="px-2 py-1 text-[11px] text-text-3" style={{ paddingLeft: `${20 + depth * 12}px` }}>Empty directory</div>}
+          {!isLoading && childItems.truncated && <div className="px-2 py-1 text-[11px] text-text-3" style={{ paddingLeft: `${20 + depth * 12}px` }}>{t('file.largeDir', { count: DIRECTORY_RENDER_LIMIT })}</div>}
+          {!isLoading && childItems.items.length === 0 && <div className="px-2 py-1 text-[11px] text-text-3" style={{ paddingLeft: `${20 + depth * 12}px` }}>{t('file.emptyDir')}</div>}
         </div>
       )}
     </div>
@@ -382,6 +384,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   const pushToast = useConsoleStore((state) => state.pushToast)
   const queryClient = useQueryClient()
   const { preferences } = usePreferences()
+  const { t } = useTranslation()
   const { data: roots = [] } = useFileRoots()
   const isMobile = mode === 'mobile'
   const [selectedRootId, setSelectedRootId] = useState('')
@@ -638,26 +641,26 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     const full = activeSourceRootPath ? joinPath(activeSourceRootPath, rootRelativePath) : rootRelativePath
     const result = await writeClipboardText(full)
     if (!result.copied) {
-      pushToast({ type: 'error', message: 'Copy failed' })
+      pushToast({ type: 'error', message: t('file.copyFailed') })
       return
     }
-    pushToast({ type: 'success', message: result.unavailable ? 'Path copied in app' : 'Path copied' })
+    pushToast({ type: 'success', message: result.unavailable ? t('file.pathCopied') : t('file.pathCopied') })
   }
   const copyItemName = async (item: FileItem | FileContentMatch) => {
     const result = await writeClipboardText(item.name)
     if (!result.copied) {
-      pushToast({ type: 'error', message: 'Copy failed' })
+      pushToast({ type: 'error', message: t('file.copyFailed') })
       return
     }
-    pushToast({ type: 'success', message: result.unavailable ? 'File name copied in app' : 'File name copied' })
+    pushToast({ type: 'success', message: result.unavailable ? t('file.nameCopiedInApp') : t('file.nameCopied') })
   }
   const copyItemRelativePath = async (item: FileItem | FileContentMatch) => {
     const result = await writeClipboardText(resolveRootRelativePath(activeRootBasePath, item.path))
     if (!result.copied) {
-      pushToast({ type: 'error', message: 'Copy failed' })
+      pushToast({ type: 'error', message: t('file.copyFailed') })
       return
     }
-    pushToast({ type: 'success', message: result.unavailable ? 'Relative path copied in app' : 'Relative path copied' })
+    pushToast({ type: 'success', message: result.unavailable ? t('file.relativePathCopiedInApp') : t('file.relativePathCopied') })
   }
   const refreshFiles = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: ['file-list', activeRootId] })
@@ -666,7 +669,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   }, [activeRootId, queryClient])
   const startDownload = (item: FileItem | FileContentMatch) => {
     if (item.type !== 'file') {
-      pushToast({ type: 'error', message: 'Only files can be downloaded right now' })
+      pushToast({ type: 'error', message: t('file.onlyFilesDownload') })
       return
     }
     const anchor = document.createElement('a')
@@ -677,34 +680,34 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     document.body.appendChild(anchor)
     anchor.click()
     anchor.remove()
-    pushToast({ type: 'success', message: `Downloading ${item.name}` })
+    pushToast({ type: 'success', message: t('file.downloading', { name: item.name }) })
   }
   const createEntry = async (kind: 'file' | 'directory', directoryPath: string) => {
-    const name = window.prompt(kind === 'file' ? 'New file name:' : 'New folder name:', '')
+    const name = window.prompt(kind === 'file' ? t('file.newFileName') : t('file.newFolderName'), '')
     if (!name?.trim()) return
     try {
       if (kind === 'file') await api.files.createFile(activeRootId, joinRelativePath(activeRootBasePath, directoryPath), name.trim())
       else await api.files.createDirectory(activeRootId, joinRelativePath(activeRootBasePath, directoryPath), name.trim())
       refreshFiles()
-      pushToast({ type: 'success', message: `${kind === 'file' ? 'File' : 'Folder'} created` })
+      pushToast({ type: 'success', message: kind === 'file' ? t('file.fileCreated') : t('file.folderCreated') })
     } catch (err) {
-      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Create failed' })
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('file.createFailed') })
     }
   }
   const renameItem = async (item: FileItem | FileContentMatch) => {
-    const name = window.prompt(`Rename ${item.name}:`, item.name)
+    const name = window.prompt(t('file.renamePrompt', { name: item.name }), item.name)
     if (!name?.trim() || name.trim() === item.name) return
     try {
       const result = await api.files.rename(activeRootId, resolveRootRelativePath(activeRootBasePath, item.path), name.trim())
       if (selectedPath === item.path) setSelectedPath(stripBasePath(result.item.path, activeRootBasePath))
       refreshFiles()
-      pushToast({ type: 'success', message: `${item.name} renamed` })
+      pushToast({ type: 'success', message: t('file.renamed', { name: item.name }) })
     } catch (err) {
-      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Rename failed' })
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('file.renameFailed') })
     }
   }
   const removeItem = async (item: FileItem | FileContentMatch) => {
-    if (!window.confirm(`Delete ${item.type === 'directory' ? 'folder' : 'file'} "${resolveRootRelativePath(activeRootBasePath, item.path)}"?`)) return
+    if (!window.confirm(t('file.deleteConfirm', { type: item.type === 'directory' ? t('file.newFolder').toLowerCase() : t('file.file').toLowerCase(), path: resolveRootRelativePath(activeRootBasePath, item.path) }))) return
     try {
       await api.files.remove(activeRootId, resolveRootRelativePath(activeRootBasePath, item.path))
       if (selectedPath === item.path) {
@@ -712,9 +715,9 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
         setSelectedPreviewLine(1)
       }
       refreshFiles()
-      pushToast({ type: 'success', message: `${item.name} deleted` })
+      pushToast({ type: 'success', message: t('file.deleted', { name: item.name }) })
     } catch (err) {
-      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Delete failed' })
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('file.deleteFailed') })
     }
   }
   const showContextMenu = (x: number, y: number, item: FileEntry | null, directoryPath: string) => {
@@ -743,7 +746,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     preview.binary || preview.reason ? (
       <div className="p-3 text-xs text-text-3">
         <div className="font-mono text-text-1">{preview.path}</div>
-        <div className="mt-2">{preview.reason === 'large-file' ? 'Large file preview skipped' : preview.reason === 'binary-file' ? 'Binary file preview skipped' : 'Preview unavailable'}</div>
+        <div className="mt-2">{preview.reason === 'large-file' ? t('file.previewSkippedLarge') : preview.reason === 'binary-file' ? t('file.previewSkippedBinary') : t('file.previewUnavailable')}</div>
         <div className="mt-1">{formatSize(preview.size)}</div>
       </div>
     ) : (
@@ -758,7 +761,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     )
   ) : (
     <div className="p-3 text-xs text-text-3">
-      <div className="text-text-2">Favorite directories</div>
+      <div className="text-text-2">{t('file.favorites')}</div>
       {visibleFavoriteDirectories.length ? (
         <div className="mt-2 space-y-1">
           {visibleFavoriteDirectories.map((item) => (
@@ -766,7 +769,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
           ))}
         </div>
       ) : (
-        <div className="mt-2">收藏目录后会显示在这里，方便从 Workspace 或 Home 快速返回。</div>
+        <div className="mt-2">{t('file.favoritesHint')}</div>
       )}
     </div>
   )
@@ -784,17 +787,17 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
           }}
         />
       )}
-      {!contentReady ? <div className="flex h-full items-center justify-center text-xs text-text-3">Loading...</div> : <>
+      {!contentReady ? <div className="flex h-full items-center justify-center text-xs text-text-3">{t('file.loading')}</div> : <>
       <div className="border-b border-[var(--line)] px-2 py-2">
         <div className="flex items-center gap-1.5">
           {isMobile && mobileView === 'preview' && <button onClick={() => setMobileView('list')} className="rounded px-2 py-1 text-text-3 hover:bg-bg-2">‹</button>}
           {isMobile && mobileView !== 'preview' && !!currentPath && <button onClick={goMobileParentDirectory} className="rounded px-2 py-1 text-text-3 hover:bg-bg-2">‹</button>}
-          <div className="text-sm font-semibold text-text-1">Files</div>
+          <div className="text-sm font-semibold text-text-1">{t('file.title')}</div>
           <select value={selectedRootId} onChange={(e) => switchRoot(e.target.value)} className="min-w-0 flex-1 rounded border border-[var(--line)] bg-bg-2 px-2 py-1 text-[11px] text-text-2 outline-none">
             {rootOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
           </select>
-          <button onClick={() => uploadInputRef.current?.click()} className="rounded px-1.5 py-1 text-[11px] text-accent hover:bg-bg-2">上传</button>
-          {activeFavorite && <button onClick={() => removeFavoriteDirectory(activeFavorite)} className="rounded px-1.5 py-1 text-[11px] text-text-3 hover:bg-bg-2 hover:text-text-1">删收藏</button>}
+          <button onClick={() => uploadInputRef.current?.click()} className="rounded px-1.5 py-1 text-[11px] text-accent hover:bg-bg-2">{t('file.upload')}</button>
+          {activeFavorite && <button onClick={() => removeFavoriteDirectory(activeFavorite)} className="rounded px-1.5 py-1 text-[11px] text-text-3 hover:bg-bg-2 hover:text-text-1">{t('file.removeFavorite')}</button>}
           <button onClick={onClose || (() => setFilePanelOpen(false))} className="rounded px-1.5 py-1 text-text-3 hover:bg-bg-2 hover:text-text-1">×</button>
         </div>
         <div className="mt-1.5 flex gap-1 overflow-x-auto text-[11px] scrollbar-none">
@@ -818,16 +821,16 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
           ))}
         </div>
         <div className="mt-1.5 flex items-center gap-1">
-          <input value={query} onChange={(e) => { setQuery(e.target.value); setSearchNavigationPath(null) }} placeholder={searchMode === 'name' ? 'Search file names' : 'Search file content'} className="min-w-0 flex-1 rounded border border-[var(--line)] bg-bg-0 px-2 py-1 font-mono text-[11px] text-text-1 outline-none placeholder:text-text-3 focus:border-accent" />
+          <input value={query} onChange={(e) => { setQuery(e.target.value); setSearchNavigationPath(null) }} placeholder={searchMode === 'name' ? t('file.searchName') : t('file.searchContent')} className="min-w-0 flex-1 rounded border border-[var(--line)] bg-bg-0 px-2 py-1 font-mono text-[11px] text-text-1 outline-none placeholder:text-text-3 focus:border-accent" />
           <button onClick={() => { setQuery(''); setDebouncedQuery(''); setSearchNavigationPath(null) }} disabled={!query} aria-label="Clear search" className={`shrink-0 rounded border border-[var(--line)] px-2 py-1 text-[11px] ${query ? 'bg-bg-2 text-text-2 hover:text-accent' : 'bg-bg-0 text-text-3/40'}`}>×</button>
         </div>
         <div className="mt-1.5 flex items-center gap-1">
           <div className="flex min-w-0 flex-1 rounded border border-[var(--line)] bg-bg-0 p-0.5 text-[11px]">
             {(['all', 'file', 'directory'] as FileTypeFilter[]).map((item) => (
-              <button key={item} onClick={() => setFileTypeFilter(item)} className={`min-w-0 flex-1 rounded px-2 py-0.5 ${fileTypeFilter === item ? 'bg-accent/20 text-accent' : 'text-text-3 hover:text-text-1'}`}>{item === 'all' ? 'All' : item === 'file' ? 'File' : 'Dir'}</button>
+              <button key={item} onClick={() => setFileTypeFilter(item)} className={`min-w-0 flex-1 rounded px-2 py-0.5 ${fileTypeFilter === item ? 'bg-accent/20 text-accent' : 'text-text-3 hover:text-text-1'}`}>{item === 'all' ? t('file.all') : item === 'file' ? t('file.file') : t('file.dir')}</button>
             ))}
           </div>
-          <button onClick={() => updateHideDotFiles(!hideDotFiles)} className={`shrink-0 rounded border border-[var(--line)] px-2 py-1 text-[11px] ${hideDotFiles ? 'bg-bg-0 text-text-3 hover:text-text-1' : 'bg-accent/20 text-accent'}`}>Dotfiles</button>
+          <button onClick={() => updateHideDotFiles(!hideDotFiles)} className={`shrink-0 rounded border border-[var(--line)] px-2 py-1 text-[11px] ${hideDotFiles ? 'bg-bg-0 text-text-3 hover:text-text-1' : 'bg-accent/20 text-accent'}`}>{t('file.dotfiles')}</button>
         </div>
       </div>}
       {(!isMobile || mobileView === 'list') && <div className="min-h-0 flex-1 overflow-y-auto" onContextMenu={(e) => {
@@ -837,7 +840,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
       }}>
         {isMobile && !showSearchResults && !currentPath && visibleFavoriteDirectories.length > 0 && (
           <div className="border-b border-[var(--line)] p-3">
-            <div className="mb-2 text-[10px] uppercase tracking-[0.18em] text-text-3">Favorite Directories</div>
+            <div className="mb-2 text-[10px] uppercase tracking-[0.18em] text-text-3">{t('file.favoriteDirs')}</div>
             <div className="space-y-1">
               {visibleFavoriteDirectories.map((item) => (
                 <button key={`${item.rootId}-${item.path}`} onClick={() => openDirectoryShortcut(item)} className="w-full truncate rounded bg-bg-2 px-2 py-1.5 text-left font-mono text-xs text-text-2 active:text-accent">{formatDirectoryShortcutLabel(item.path, rootLabelById[item.rootId] || item.name)}</button>
@@ -845,7 +848,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
             </div>
           </div>
         )}
-        {(listLoading || searchLoading) && <div className="p-3 text-xs text-text-3">Loading...</div>}
+        {(listLoading || searchLoading) && <div className="p-3 text-xs text-text-3">{t('file.loading')}</div>}
         {!listLoading && visibleItems.map((item: any) => (
           !isMobile && item.type === 'directory' ? (
             <SearchDirectoryNode
@@ -912,24 +915,24 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
             </button>
           )
         ))}
-        {!listLoading && !visibleItems.length && <div className="p-3 text-xs text-text-3">{showSearchResults ? 'No results' : 'Empty directory'}</div>}
-        {showSearchResults && rawSearchResults.length > SEARCH_RESULT_LIMIT && <div className="border-t border-[var(--line)] px-3 py-2 text-[11px] text-text-3">Too many results, showing first {SEARCH_RESULT_LIMIT}</div>}
+        {!listLoading && !visibleItems.length && <div className="p-3 text-xs text-text-3">{showSearchResults ? t('file.noResults') : t('file.emptyDir')}</div>}
+        {showSearchResults && rawSearchResults.length > SEARCH_RESULT_LIMIT && <div className="border-t border-[var(--line)] px-3 py-2 text-[11px] text-text-3">{t('file.tooManyResults', { count: SEARCH_RESULT_LIMIT })}</div>}
       </div>}
       {(!isMobile || mobileView === 'preview') && <div className={isMobile ? 'min-h-0 flex-1 bg-bg-0' : 'max-h-[42%] min-h-[160px] border-t border-[var(--line)] bg-bg-0'}>{previewBlock}</div>}
-      {isMobile && mobileView === 'preview' && selectedPath && <div className="border-t border-[var(--line)] p-3"><button onClick={() => insertPath(activeSourceRootPath ? joinPath(activeSourceRootPath, resolveRootRelativePath(activeRootBasePath, selectedPath)) : resolveRootRelativePath(activeRootBasePath, selectedPath))} className="w-full rounded-lg bg-accent/20 px-3 py-3 text-sm text-accent active:scale-[0.98]">插入路径到终端</button></div>}
+      {isMobile && mobileView === 'preview' && selectedPath && <div className="border-t border-[var(--line)] p-3"><button onClick={() => insertPath(activeSourceRootPath ? joinPath(activeSourceRootPath, resolveRootRelativePath(activeRootBasePath, selectedPath)) : resolveRootRelativePath(activeRootBasePath, selectedPath))} className="w-full rounded-lg bg-accent/20 px-3 py-3 text-sm text-accent active:scale-[0.98]">{t('file.insertPath')}</button></div>}
       {contextMenu && (
         <div className="fixed z-[90] w-44 overflow-hidden rounded border border-[var(--line)] bg-bg-1 py-1 text-xs shadow-lg" style={{ left: contextMenu.x, top: contextMenu.y }} onClick={(e) => e.stopPropagation()}>
-          {contextMenu.item?.type === 'file' && <button onClick={() => { openInEditor(contextMenu.item!); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">Open in editor</button>}
-          {contextMenu.item && <button onClick={() => { insertItemPath(contextMenu.item!); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">Insert path</button>}
-          {contextMenu.item && <button onClick={() => void copyItemName(contextMenu.item!).finally(() => setContextMenu(null))} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">Copy file name</button>}
-          {contextMenu.item && <button onClick={() => void copyItemRelativePath(contextMenu.item!).finally(() => setContextMenu(null))} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">Copy relative path</button>}
-          {contextMenu.item && <button onClick={() => void copyItemPath(contextMenu.item!).finally(() => setContextMenu(null))} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">Copy path</button>}
-          {contextMenu.item?.type === 'file' && <button onClick={() => { setSelectedPath(contextMenu.item!.path); setSelectedPreviewLine(getPreviewLine(contextMenu.item!)); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">Open preview</button>}
-          {contextMenu.item?.type === 'file' && <button onClick={() => { startDownload(contextMenu.item!); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">Download</button>}
-          {contextMenu.item && <button onClick={() => { void renameItem(contextMenu.item!); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">Rename</button>}
-          <button onClick={() => { void createEntry('file', contextMenu.directoryPath); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">New file</button>
-          <button onClick={() => { void createEntry('directory', contextMenu.directoryPath); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">New folder</button>
-          {contextMenu.item && <button onClick={() => { void removeItem(contextMenu.item!); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-danger hover:bg-bg-2">Delete</button>}
+          {contextMenu.item?.type === 'file' && <button onClick={() => { openInEditor(contextMenu.item!); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">{t('file.openEditor')}</button>}
+          {contextMenu.item && <button onClick={() => { insertItemPath(contextMenu.item!); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">{t('file.insertPathCtx')}</button>}
+          {contextMenu.item && <button onClick={() => void copyItemName(contextMenu.item!).finally(() => setContextMenu(null))} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">{t('file.copyName')}</button>}
+          {contextMenu.item && <button onClick={() => void copyItemRelativePath(contextMenu.item!).finally(() => setContextMenu(null))} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">{t('file.copyRelativePath')}</button>}
+          {contextMenu.item && <button onClick={() => void copyItemPath(contextMenu.item!).finally(() => setContextMenu(null))} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">{t('file.copyPath')}</button>}
+          {contextMenu.item?.type === 'file' && <button onClick={() => { setSelectedPath(contextMenu.item!.path); setSelectedPreviewLine(getPreviewLine(contextMenu.item!)); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">{t('file.openPreview')}</button>}
+          {contextMenu.item?.type === 'file' && <button onClick={() => { startDownload(contextMenu.item!); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">{t('file.download')}</button>}
+          {contextMenu.item && <button onClick={() => { void renameItem(contextMenu.item!); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">{t('file.rename')}</button>}
+          <button onClick={() => { void createEntry('file', contextMenu.directoryPath); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">{t('file.newFile')}</button>
+          <button onClick={() => { void createEntry('directory', contextMenu.directoryPath); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">{t('file.newFolder')}</button>
+          {contextMenu.item && <button onClick={() => { void removeItem(contextMenu.item!); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-danger hover:bg-bg-2">{t('file.delete')}</button>}
         </div>
       )}
       </>}

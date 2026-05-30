@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useTranslation } from '@/i18n'
 
 interface FavoriteItem {
   id: string
@@ -22,6 +23,7 @@ export function Favorites() {
   const [favorites, setFavorites] = useState<FavoriteItem[]>([])
   const [recentItems, setRecentItems] = useState<RecentItem[]>([])
   const [activeTab, setActiveTab] = useState<'favorites' | 'recent'>('favorites')
+  const { t } = useTranslation()
 
   useEffect(() => {
     const stored = localStorage.getItem('tmuxgo-favorites')
@@ -51,7 +53,7 @@ export function Favorites() {
             activeTab === 'favorites' ? 'bg-accent text-bg-0' : 'bg-bg-2 text-text-2'
           }`}
         >
-          Favorites
+          {t('favorites.title')}
         </button>
         <button
           onClick={() => setActiveTab('recent')}
@@ -59,14 +61,14 @@ export function Favorites() {
             activeTab === 'recent' ? 'bg-accent text-bg-0' : 'bg-bg-2 text-text-2'
           }`}
         >
-          Recent
+          {t('favorites.recent')}
         </button>
       </div>
 
       {activeTab === 'favorites' && (
         <div className="space-y-2">
           {favorites.length === 0 ? (
-            <div className="text-text-3 text-sm text-center py-4">No favorites yet</div>
+            <div className="text-text-3 text-sm text-center py-4">{t('favorites.noFavorites')}</div>
           ) : (
             favorites.map((fav) => (
               <div key={fav.id} className="flex items-center justify-between p-2 bg-bg-2 rounded">
@@ -89,12 +91,12 @@ export function Favorites() {
       {activeTab === 'recent' && (
         <div className="space-y-2">
           {recentItems.length === 0 ? (
-            <div className="text-text-3 text-sm text-center py-4">No recent items</div>
+            <div className="text-text-3 text-sm text-center py-4">{t('favorites.noRecent')}</div>
           ) : (
             <>
               <div className="flex justify-end mb-2">
                 <button onClick={clearRecent} className="text-text-3 text-xs hover:text-text-1">
-                  Clear all
+                  {t('favorites.clearAll')}
                 </button>
               </div>
               {recentItems.map((item) => (

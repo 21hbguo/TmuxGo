@@ -3,11 +3,13 @@
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { api } from '@/lib/api'
 import { useSessionSnapshotSync } from '@/hooks/useSessionSnapshotSync'
+import { useTranslation } from '@/i18n'
 
 export function PaneActions() {
   const activePaneId = useConsoleStore((s) => s.activePaneId)
   const pushToast = useConsoleStore((s) => s.pushToast)
   const { refreshSnapshot, resolveActivePaneId } = useSessionSnapshotSync()
+  const { t } = useTranslation()
 
   const handleSplit = async (direction: 'horizontal' | 'vertical') => {
     const initialPaneId = await resolveActivePaneId()
@@ -15,7 +17,7 @@ export function PaneActions() {
     try {
       await api.panes.split(initialPaneId, direction)
       await refreshSnapshot()
-      pushToast({ type: 'success', message: 'Pane split complete' })
+      pushToast({ type: 'success', message: t('pane.splitSuccess') })
     } catch (err) {
       try {
         await refreshSnapshot()
@@ -23,9 +25,9 @@ export function PaneActions() {
         if (!paneId || paneId === activePaneId) throw err
         await api.panes.split(paneId, direction)
         await refreshSnapshot()
-        pushToast({ type: 'success', message: 'Pane split complete' })
+        pushToast({ type: 'success', message: t('pane.splitSuccess') })
       } catch (retryErr) {
-        pushToast({ type: 'error', message: retryErr instanceof Error ? retryErr.message : 'Split failed' })
+        pushToast({ type: 'error', message: retryErr instanceof Error ? retryErr.message : t('pane.splitFailed') })
       }
     }
   }
@@ -36,9 +38,9 @@ export function PaneActions() {
     try {
       await api.panes.kill(paneId)
       await refreshSnapshot()
-      pushToast({ type: 'success', message: 'Pane closed' })
+      pushToast({ type: 'success', message: t('pane.closed') })
     } catch (err) {
-      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Close failed' })
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('pane.closeFailed') })
     }
   }
 
@@ -56,21 +58,21 @@ export function PaneActions() {
       <button
         onClick={() => handleSplit('horizontal')}
         className="p-1.5 hover:bg-bg-2 rounded text-text-3 text-xs"
-        title="Split Horizontal"
+        title={t('pane.splitH')}
       >
         ◧
       </button>
       <button
         onClick={() => handleSplit('vertical')}
         className="p-1.5 hover:bg-bg-2 rounded text-text-3 text-xs"
-        title="Split Vertical"
+        title={t('pane.splitV')}
       >
         ◨
       </button>
       <button
         onClick={handleFullscreen}
         className="p-1.5 hover:bg-bg-2 rounded text-text-3 text-xs"
-        title="Fullscreen"
+        title={t('pane.fullscreen')}
       >
         ⛶
       </button>
@@ -78,7 +80,7 @@ export function PaneActions() {
       <button
         onClick={handleClose}
         className="p-1.5 hover:bg-bg-2 rounded text-danger text-xs"
-        title="Close Pane"
+        title={t('pane.close')}
       >
         ×
       </button>

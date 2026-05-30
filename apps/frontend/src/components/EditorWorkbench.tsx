@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FileEditorDocument } from '@/types'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { usePreferences } from '@/hooks/usePreferences'
+import { useTranslation } from '@/i18n'
 
 const MonacoEditor=dynamic(() => import('@monaco-editor/react').then((mod) => mod.default), { ssr: false })
 
@@ -110,6 +111,7 @@ export function EditorWorkbench({ onSaveEditor }:{ onSaveEditor: (editor: FileEd
   const closeEditor = useConsoleStore((state) => state.closeEditor)
   const setEditorContent = useConsoleStore((state) => state.setEditorContent)
   const { preferences } = usePreferences()
+  const { t } = useTranslation()
   const editorRef = useRef<any>(null)
   const [previewOpenById, setPreviewOpenById] = useState<Record<string, boolean>>({})
   const [cursorById, setCursorById] = useState<Record<string, { line: number; column: number }>>({})
@@ -137,7 +139,7 @@ export function EditorWorkbench({ onSaveEditor }:{ onSaveEditor: (editor: FileEd
         event.preventDefault()
         event.stopPropagation()
         event.stopImmediatePropagation?.()
-        if (activeEditor.dirty && !window.confirm(`Close ${activeEditor.name} without saving?`)) return
+        if (activeEditor.dirty && !window.confirm(t('editor.closeConfirm', { name: activeEditor.name }))) return
         closeEditor(activeEditor.id)
       }
     }
@@ -179,18 +181,18 @@ export function EditorWorkbench({ onSaveEditor }:{ onSaveEditor: (editor: FileEd
           <div className="mt-0.5 text-[11px] text-text-3">{activeEditor.language.toUpperCase()} · {activeEditor.size || 0}B{cursor ? ` · Ln ${cursor.line}, Col ${cursor.column}` : ''}{activeEditor.modifiedAt ? ` · ${new Date(activeEditor.modifiedAt).toLocaleString()}` : ''}</div>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => void editorRef.current?.getAction?.('actions.find')?.run?.()} className="rounded px-3 py-1.5 text-xs bg-bg-2 text-text-2 hover:text-text-1">Find</button>
-          <button onClick={() => void editorRef.current?.getAction?.('editor.action.formatDocument')?.run?.()} className="rounded px-3 py-1.5 text-xs bg-bg-2 text-text-2 hover:text-text-1">Format</button>
-          {activeEditor.language === 'markdown' && <button onClick={() => setPreviewOpenById((current) => ({ ...current, [activeEditor.id]: !current[activeEditor.id] }))} className={`rounded px-3 py-1.5 text-xs ${markdownPreviewOpen ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-2 hover:text-text-1'}`}>Preview</button>}
-          <button disabled={activeEditor.loading || activeEditor.saving || activeEditor.binary || activeEditor.truncated || !activeEditor.dirty} onClick={() => void onSaveEditor(activeEditor)} className={`rounded px-3 py-1.5 text-xs ${activeEditor.loading || activeEditor.saving || activeEditor.binary || activeEditor.truncated || !activeEditor.dirty ? 'bg-bg-2 text-text-3/50' : 'bg-accent/20 text-accent hover:text-text-1'}`}>{activeEditor.saving ? 'Saving...' : activeEditor.dirty ? 'Save' : 'Saved'}</button>
+          <button onClick={() => void editorRef.current?.getAction?.('actions.find')?.run?.()} className="rounded px-3 py-1.5 text-xs bg-bg-2 text-text-2 hover:text-text-1">{t('editor.find')}</button>
+          <button onClick={() => void editorRef.current?.getAction?.('editor.action.formatDocument')?.run?.()} className="rounded px-3 py-1.5 text-xs bg-bg-2 text-text-2 hover:text-text-1">{t('editor.format')}</button>
+          {activeEditor.language === 'markdown' && <button onClick={() => setPreviewOpenById((current) => ({ ...current, [activeEditor.id]: !current[activeEditor.id] }))} className={`rounded px-3 py-1.5 text-xs ${markdownPreviewOpen ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-2 hover:text-text-1'}`}>{t('editor.preview')}</button>}
+          <button disabled={activeEditor.loading || activeEditor.saving || activeEditor.binary || activeEditor.truncated || !activeEditor.dirty} onClick={() => void onSaveEditor(activeEditor)} className={`rounded px-3 py-1.5 text-xs ${activeEditor.loading || activeEditor.saving || activeEditor.binary || activeEditor.truncated || !activeEditor.dirty ? 'bg-bg-2 text-text-3/50' : 'bg-accent/20 text-accent hover:text-text-1'}`}>{activeEditor.saving ? t('editor.saving') : activeEditor.dirty ? t('editor.save') : t('editor.saved')}</button>
         </div>
       </div>
       <div className="min-h-0 flex-1 bg-bg-0">
-        {activeEditor.loading ? <div className="flex h-full items-center justify-center text-sm text-text-3">Loading {activeEditor.name}...</div> : activeEditor.problem || activeEditor.binary || activeEditor.truncated ? (
+        {activeEditor.loading ? <div className="flex h-full items-center justify-center text-sm text-text-3">{t('editor.loading', { name: activeEditor.name })}</div> : activeEditor.problem || activeEditor.binary || activeEditor.truncated ? (
           <div className="flex h-full items-center justify-center p-6">
             <div className="max-w-xl rounded-lg border border-[var(--line)] bg-bg-1 p-5">
               <div className="text-sm text-text-1">{activeEditor.name}</div>
-              <div className="mt-2 text-sm text-text-3">{activeEditor.problem || (activeEditor.binary ? 'Binary files are not editable here.' : 'Large files open in preview only for now.')}</div>
+              <div className="mt-2 text-sm text-text-3">{activeEditor.problem || (activeEditor.binary ? t('editor.binaryNotEditable') : t('editor.largePreviewOnly'))}</div>
             </div>
           </div>
         ) : (
@@ -255,12 +257,12 @@ export function EditorWorkbench({ onSaveEditor }:{ onSaveEditor: (editor: FileEd
                   smoothScrolling: true,
                   cursorBlinking: preferences.cursorBlink ? 'blink' : 'solid',
                   cursorStyle: 'line',
-                  readOnlyMessage: { value: 'This file is read only.' },
+                  readOnlyMessage: { value: t('editor.readOnly') },
                   padding: { top: 16, bottom: 16 },
                 }}
               />
             </div>
-            {markdownPreviewOpen && <div className="min-w-0 flex-1 overflow-auto bg-bg-1/60 px-6 py-5"><article className="prose prose-invert max-w-none text-sm text-text-2 [&_a]:text-accent [&_blockquote]:border-l-2 [&_blockquote]:border-[var(--line)] [&_blockquote]:pl-3 [&_code]:rounded [&_code]:bg-bg-2 [&_code]:px-1.5 [&_code]:py-0.5 [&_h1]:mb-4 [&_h1]:text-3xl [&_h1]:text-text-1 [&_h2]:mb-3 [&_h2]:mt-6 [&_h2]:text-2xl [&_h2]:text-text-1 [&_h3]:mb-2 [&_h3]:mt-5 [&_h3]:text-xl [&_h3]:text-text-1 [&_li]:mb-1 [&_p]:mb-3 [&_pre]:overflow-auto [&_pre]:rounded-lg [&_pre]:bg-bg-0 [&_pre]:p-4 [&_strong]:text-text-1" dangerouslySetInnerHTML={{ __html: markdownPreview || '<p>Nothing to preview.</p>' }} /></div>}
+            {markdownPreviewOpen && <div className="min-w-0 flex-1 overflow-auto bg-bg-1/60 px-6 py-5"><article className="prose prose-invert max-w-none text-sm text-text-2 [&_a]:text-accent [&_blockquote]:border-l-2 [&_blockquote]:border-[var(--line)] [&_blockquote]:pl-3 [&_code]:rounded [&_code]:bg-bg-2 [&_code]:px-1.5 [&_code]:py-0.5 [&_h1]:mb-4 [&_h1]:text-3xl [&_h1]:text-text-1 [&_h2]:mb-3 [&_h2]:mt-6 [&_h2]:text-2xl [&_h2]:text-text-1 [&_h3]:mb-2 [&_h3]:mt-5 [&_h3]:text-xl [&_h3]:text-text-1 [&_li]:mb-1 [&_p]:mb-3 [&_pre]:overflow-auto [&_pre]:rounded-lg [&_pre]:bg-bg-0 [&_pre]:p-4 [&_strong]:text-text-1" dangerouslySetInnerHTML={{ __html: markdownPreview || `<p>${t('editor.nothingToPreview')}</p>` }} /></div>}
           </div>
         )}
       </div>

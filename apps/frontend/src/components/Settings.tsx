@@ -176,7 +176,7 @@ export function Settings({ onClose }: SettingsProps) {
                     </div>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-text-2 text-sm">Upload Rate Limit</span>
+                    <span className="text-text-2 text-sm">{t('settings.uploadRateLimit')}</span>
                     <div className="flex items-center gap-2">
                       <input
                         type="range"
@@ -194,7 +194,7 @@ export function Settings({ onClose }: SettingsProps) {
                     </div>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-text-2 text-sm">Download Rate Limit</span>
+                    <span className="text-text-2 text-sm">{t('settings.downloadRateLimit')}</span>
                     <div className="flex items-center gap-2">
                       <input
                         type="range"

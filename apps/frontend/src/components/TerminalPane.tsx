@@ -13,6 +13,7 @@ import { useTerminalDrop } from '@/hooks/useTerminalDrop'
 import { useTerminalPasteBridge } from '@/hooks/useTerminalPasteBridge'
 import { useOptionalQueryClient } from '@/hooks/useOptionalQueryClient'
 import { useTerminalSelectionSync } from '@/hooks/useTerminalSelectionSync'
+import { useTranslation } from '@/i18n'
 import { useTerminalTouchScroll } from '@/hooks/useTerminalTouchScroll'
 import { recordMobileDiagnostic } from '@/lib/mobile-diagnostics'
 
@@ -68,6 +69,7 @@ function isPasteShortcut(e: KeyboardEvent) {
 
 export function TerminalPane({ sessionName, onInput, onResize, attachExclusive = false, onReady, subscribeOutput }: TerminalPaneProps) {
   const { preferences, updatePreferences } = usePreferences()
+  const { t } = useTranslation()
   const activeHostId = useConsoleStore((s) => s.activeHostId)
   const pushToast = useConsoleStore((s) => s.pushToast)
   const openUploadDialog = useConsoleStore((s) => s.openUploadDialog)
@@ -928,6 +930,20 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       if (da2Handler) {
         disposables.push(da2Handler)
       }
+      const osc52Handler = terminal.parser?.registerOscHandler?.(52, (data: string) => {
+        const sep = data.indexOf(';')
+        if (sep < 0) return true
+        const base64 = data.slice(sep + 1)
+        if (!base64) return true
+        try {
+          const text = decodeURIComponent(atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''))
+          navigator.clipboard?.writeText(text)
+        } catch {}
+        return true
+      })
+      if (osc52Handler) {
+        disposables.push(osc52Handler)
+      }
       if (attachExclusiveRef.current) {
         scheduleInitialFit()
       }
@@ -1298,7 +1314,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         touchMovedRef.current = false
       }}
     >
-      {dropState.isDropActive && <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-lg border border-dashed border-accent bg-bg-0/70 text-sm text-accent shadow-[var(--glow)]">Drop files to upload</div>}
+      {dropState.isDropActive && <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-lg border border-dashed border-accent bg-bg-0/70 text-sm text-accent shadow-[var(--glow)]">{t('terminal.dropUpload')}</div>}
       {isMobileDevice && (
         <textarea
           ref={textareaRef}

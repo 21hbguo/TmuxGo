@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { WindowTabs } from './WindowTabs'
 import { PaneGrid } from './PaneGrid'
+import { useTranslation } from '@/i18n'
 
 function clampValue(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value))
@@ -10,6 +11,7 @@ function clampValue(value: number, min: number, max: number) {
 export function TerminalDock({ fill=false,minHeight=180,maxHeight=540,overlay=false,dragViewportHeight,overlayTopOffset=0 }:{ fill?: boolean; minHeight?: number; maxHeight?: number; overlay?: boolean; dragViewportHeight?: number; overlayTopOffset?: number }) {
   const terminalPanelHeight = useConsoleStore((state) => state.terminalPanelHeight)
   const setTerminalPanelHeight = useConsoleStore((state) => state.setTerminalPanelHeight)
+  const { t } = useTranslation()
   const resizingRef = useRef(false)
   const pendingHeightRef = useRef(terminalPanelHeight)
   const restoreHeightRef = useRef(terminalPanelHeight)
@@ -75,8 +77,8 @@ export function TerminalDock({ fill=false,minHeight=180,maxHeight=540,overlay=fa
       {!fill && <div className="absolute left-0 right-0 top-0 z-10 h-1 cursor-row-resize hover:bg-accent/50" onMouseDown={handleMouseDown} onDoubleClick={handleDoubleClick} />}
       <div className="flex h-full min-h-0 flex-col">
         <div className="flex items-center justify-between border-b border-[var(--line)] px-3 py-2">
-          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-text-3">Terminal</div>
-          <div className="text-[11px] text-text-3">{fill ? 'Full' : overlay ? `Overlay ${panelHeight}px` : `${panelHeight}px`}</div>
+          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-text-3">{t('dock.terminal')}</div>
+          <div className="text-[11px] text-text-3">{fill ? t('dock.full') : overlay ? t('dock.overlay', { height: panelHeight }) : `${panelHeight}px`}</div>
         </div>
         <WindowTabs />
         <div className="min-h-0 flex-1">
