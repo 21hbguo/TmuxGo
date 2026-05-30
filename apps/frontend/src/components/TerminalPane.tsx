@@ -336,19 +336,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       queryClient?.setQueryData(key, snapshot)
       return snapshot
     }
-    const getActiveWindowPanes = (snapshot: any) => {
-      const panes = Array.isArray(snapshot?.panes) ? snapshot.panes : []
-      const windows = Array.isArray(snapshot?.windows) ? snapshot.windows : []
-      const activeWindow = windows.find((item: any) => item.id === snapshot?.activeWindowId) || windows.find((item: any) => item.active)
-      const index = Number(activeWindow?.index)
-      if (!Number.isFinite(index)) return panes
-      const session = snapshot?.sessionName || sessionNameRef.current || ''
-      const windowId = `${session}:${index}`
-      return panes.filter((pane: any) => {
-        const id = String(pane.windowId || '')
-        return id === windowId || id.endsWith(`:${index}`)
-      })
-    }
     const getPaneBounds = (pane: any) => {
       const id = String(pane?.id ?? pane?.tmuxPaneId ?? '')
       const left = Number(pane?.left ?? pane?.position?.left)
@@ -378,59 +365,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       paneBoundsCache = { snapshot, windowId, bounds }
       return bounds
     }
-    const getSelectionRange = () => {
-      const range = terminal?.getSelectionPosition?.()
-      if (!range?.start || !range?.end) return null
-      let startX = Number(range.start.x)
-      let startY = Number(range.start.y)
-      let endX = Number(range.end.x)
-      let endY = Number(range.end.y)
-      if (![startX, startY, endX, endY].every(Number.isFinite)) return null
-      if (startY > endY || (startY === endY && startX > endX)) {
-        const nextStartX = endX
-        const nextStartY = endY
-        endX = startX
-        endY = startY
-        startX = nextStartX
-        startY = nextStartY
-      }
-      return { startX, startY, endX, endY }
-    }
-    const getPaneScopedSelection = (raw: string) => {
-      if (!terminal || !raw) return raw
-      if (terminal?._core?._selectionService?._activeSelectionMode === 3) return raw
-      const range = getSelectionRange()
-      if (!range) return raw
-      const baseY = Number(terminal?.buffer?.active?.baseY || 0)
-      const screenStartY = range.startY - baseY
-      if (screenStartY < 0 || screenStartY >= terminal.rows) return raw
-      const panes = getCachedPaneBounds()
-      const pane = panes.find((item: any) => item && range.startX >= item.left && range.startX < item.left + item.cols && screenStartY >= item.top && screenStartY < item.top + item.rows)
-      if (!pane) return raw
-      const buffer = terminal?.buffer?.active
-      if (!buffer?.getLine) return raw
-      const paneTop = baseY + pane.top
-      const paneBottom = paneTop + pane.rows - 1
-      const startY = Math.max(range.startY, paneTop)
-      const endY = Math.min(range.endY, paneBottom)
-      if (startY > endY) return raw
-      const lines: string[] = []
-      for (let row = startY; row <= endY; row += 1) {
-        const line = buffer.getLine(row)
-        if (!line?.translateToString) {
-          lines.push('')
-          continue
-        }
-        const lineStart = row === range.startY ? range.startX : 0
-        const lineEnd = row === range.endY ? range.endX : terminal.cols
-        const startCol = Math.max(pane.left, lineStart)
-        const endCol = Math.min(pane.left + pane.cols, lineEnd)
-        lines.push(endCol > startCol ? line.translateToString(true, startCol, endCol).replace(/\u00a0/g, ' ') : '')
-      }
-      const scoped = lines.join(raw.includes('\r\n') ? '\r\n' : '\n')
-      return scoped.trim() ? scoped : raw
-    }
-    const getSelectionText = () => getPaneScopedSelection(terminal?.getSelection?.() || window.getSelection?.()?.toString() || '')
+    const getSelectionText = () => terminal?.getSelection?.() || window.getSelection?.()?.toString() || ''
     const getMouseCell = (event: MouseEvent) => {
       const screen = terminal?.element?.querySelector('.xterm-screen') as HTMLElement | null
       if (!screen || !terminal?.cols || !terminal?.rows) return null

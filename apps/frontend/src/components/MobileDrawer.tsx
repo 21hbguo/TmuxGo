@@ -226,9 +226,9 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
                 onMove={moveSession}
                 listClassName="space-y-2"
                 getItemClassName={({ session, isDragging, isOverlay }) => `rounded-lg ${batchMode ? selectedSessionIds.includes(session.id) ? 'bg-red-900/15' : '' : ''} ${isDragging && !isOverlay ? 'opacity-40' : ''} ${isOverlay ? 'shadow-[0_20px_48px_rgba(0,0,0,0.42)]' : ''}`}
-                renderItem={({ session, dragHandleProps, isOverlay }) => (
+                renderItem={({ session, isOverlay }) => (
                   <div className={`flex items-center gap-2 rounded-lg p-2 transition-[transform,box-shadow,background-color,border-color] duration-200 ${batchMode ? selectedSessionIds.includes(session.id) ? 'border border-red-400 bg-red-900/15' : 'bg-bg-2' : activeSessionId === session.id ? 'border border-accent bg-accent/20' : 'bg-bg-2'} ${isOverlay ? 'border border-accent bg-bg-1 shadow-[0_20px_48px_rgba(0,0,0,0.42)]' : ''}`}>
-                    {batchMode ? <button onClick={() => toggleBatchSession(session.id)} className={`flex h-9 w-7 shrink-0 items-center justify-center rounded text-sm leading-none ${selectedSessionIds.includes(session.id) ? 'text-red-300' : 'text-text-3'} active:bg-bg-1`}>{selectedSessionIds.includes(session.id) ? '☑' : '☐'}</button> : <button ref={dragHandleProps.ref} {...dragHandleProps.attributes} {...dragHandleProps.listeners} aria-label={t('sidebar.reorderSession')} title={t('sidebar.reorderSession')} className="flex h-9 w-7 shrink-0 items-center justify-center rounded text-sm leading-none text-text-3 transition-colors active:bg-bg-1 touch-none">⋮⋮</button>}
+                    {batchMode && <button onClick={() => toggleBatchSession(session.id)} className={`flex h-9 w-7 shrink-0 items-center justify-center rounded text-sm leading-none ${selectedSessionIds.includes(session.id) ? 'text-red-300' : 'text-text-3'} active:bg-bg-1`}>{selectedSessionIds.includes(session.id) ? '☑' : '☐'}</button>}
                     <button onClick={() => {
                       if (batchMode) {
                         toggleBatchSession(session.id)
