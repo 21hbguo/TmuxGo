@@ -53,6 +53,9 @@ const mobileKeyboardMocks = vi.hoisted(() => ({
   textareaRef: { current: null as HTMLTextAreaElement | null },
   isMobile: false,
 }))
+const preferenceMocks = vi.hoisted(() => ({
+  updatePreferences: vi.fn(),
+}))
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 vi.mock('@/hooks/usePreferences', () => ({
@@ -71,6 +74,7 @@ vi.mock('@/hooks/usePreferences', () => ({
       language: 'zh',
       attachExclusive: true,
     },
+    updatePreferences: preferenceMocks.updatePreferences,
   }),
 }))
 vi.mock('@/hooks/useMobileKeyboard', () => ({
@@ -239,6 +243,7 @@ describe('TerminalPane', () => {
     mobileKeyboardMocks.focusKeyboard.mockClear()
     mobileKeyboardMocks.textareaRef.current = null
     mobileKeyboardMocks.isMobile = false
+    preferenceMocks.updatePreferences.mockClear()
     Object.defineProperty(window, 'devicePixelRatio', { configurable: true, value: 1 })
     ;(document as Document & { execCommand?: (command: string) => boolean }).execCommand = vi.fn((command: string) => {
       if (command !== 'copy') return false
@@ -642,6 +647,33 @@ describe('TerminalPane', () => {
     expect(mobileInput).toBeTruthy()
     fireEvent.focus(mobileInput)
     expect(terminalMocks.focus).not.toHaveBeenCalled()
+  })
+  it('updates terminal font size by pinch and persists on gesture end', async () => {
+    mobileKeyboardMocks.isMobile = true
+    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    const root = container.firstChild as HTMLElement
+    fireEvent.touchStart(root, {
+      touches: [
+        { identifier: 1, clientX: 0, clientY: 0 },
+        { identifier: 2, clientX: 100, clientY: 0 },
+      ],
+    })
+    fireEvent.touchMove(root, {
+      touches: [
+        { identifier: 1, clientX: 0, clientY: 0 },
+        { identifier: 2, clientX: 150, clientY: 0 },
+      ],
+    })
+    fireEvent.touchEnd(root, {
+      touches: [],
+      changedTouches: [
+        { identifier: 2, clientX: 150, clientY: 0 },
+      ],
+    })
+    await waitFor(() => expect(preferenceMocks.updatePreferences).toHaveBeenCalled())
+    const lastCall = preferenceMocks.updatePreferences.mock.calls[preferenceMocks.updatePreferences.mock.calls.length - 1]
+    expect(lastCall?.[0].fontSize).toBeGreaterThan(14)
   })
   it('keeps desktop terminal focus behavior', async () => {
     const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
