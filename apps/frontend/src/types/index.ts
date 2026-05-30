@@ -194,4 +194,5 @@ export interface RemotePreferences {
   sessionOrders: SessionOrderPreference[]
   sessionOrdersUpdatedAt: string
   uploadRateLimitKBps: number
+  downloadRateLimitKBps: number
 }

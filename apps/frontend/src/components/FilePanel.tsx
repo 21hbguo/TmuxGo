@@ -1,7 +1,9 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { useFileList, useFilePreview, useFileRoots, useFileSearch } from '@/hooks/useApi'
+import { usePreferences } from '@/hooks/usePreferences'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import type { FavoriteDirectory, FileContentMatch, FileDocumentHandle, FileItem, FileListResponse, FilePreviewResponse, FileRoot } from '@/types'
 import { writeClipboardText } from '@/lib/clipboard-text'
@@ -185,6 +187,11 @@ function trimDirectoryItems(items: FileItem[]) {
 }
 function resolveRootRelativePath(basePath: string, itemPath: string) {
   return joinRelativePath(basePath, itemPath)
+}
+function getParentRelativePath(item: FileEntry, currentPath: string) {
+  if (item.type === 'directory') return item.path
+  const parts = item.path.split(/[\\/]+/).filter(Boolean)
+  return parts.slice(0, -1).join('/') || currentPath
 }
 function getPreviewLine(item: FileEntry | null) {
   if (!item || !('matches' in item) || !item.matches?.length) return 1
@@ -373,6 +380,8 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   const setFilePanelOpen = useConsoleStore((state) => state.setFilePanelOpen)
   const openUploadDialog = useConsoleStore((state) => state.openUploadDialog)
   const pushToast = useConsoleStore((state) => state.pushToast)
+  const queryClient = useQueryClient()
+  const { preferences } = usePreferences()
   const { data: roots = [] } = useFileRoots()
   const isMobile = mode === 'mobile'
   const [selectedRootId, setSelectedRootId] = useState('')
@@ -383,7 +392,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   const [debouncedQuery, setDebouncedQuery] = useState('')
   const [searchMode, setSearchMode] = useState<SearchMode>('name')
   const [fileTypeFilter, setFileTypeFilter] = useState<FileTypeFilter>('all')
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: FileEntry } | null>(null)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: FileEntry | null; directoryPath: string } | null>(null)
   const [mobileView, setMobileView] = useState<'list' | 'preview'>('list')
   const [favoriteDirectories, setFavoriteDirectories] = useState<FavoriteDirectory[]>([])
   const [contentReady, setContentReady] = useState(isMobile)
@@ -634,6 +643,83 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     }
     pushToast({ type: 'success', message: result.unavailable ? 'Path copied in app' : 'Path copied' })
   }
+  const copyItemName = async (item: FileItem | FileContentMatch) => {
+    const result = await writeClipboardText(item.name)
+    if (!result.copied) {
+      pushToast({ type: 'error', message: 'Copy failed' })
+      return
+    }
+    pushToast({ type: 'success', message: result.unavailable ? 'File name copied in app' : 'File name copied' })
+  }
+  const copyItemRelativePath = async (item: FileItem | FileContentMatch) => {
+    const result = await writeClipboardText(resolveRootRelativePath(activeRootBasePath, item.path))
+    if (!result.copied) {
+      pushToast({ type: 'error', message: 'Copy failed' })
+      return
+    }
+    pushToast({ type: 'success', message: result.unavailable ? 'Relative path copied in app' : 'Relative path copied' })
+  }
+  const refreshFiles = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ['file-list', activeRootId] })
+    void queryClient.invalidateQueries({ queryKey: ['file-preview', activeRootId] })
+    void queryClient.invalidateQueries({ queryKey: ['file-search', activeRootId] })
+  }, [activeRootId, queryClient])
+  const startDownload = (item: FileItem | FileContentMatch) => {
+    if (item.type !== 'file') {
+      pushToast({ type: 'error', message: 'Only files can be downloaded right now' })
+      return
+    }
+    const anchor = document.createElement('a')
+    anchor.href = api.files.downloadUrl(activeRootId, resolveRootRelativePath(activeRootBasePath, item.path), preferences.downloadRateLimitKBps)
+    anchor.download = item.name
+    anchor.rel = 'noopener'
+    anchor.style.display = 'none'
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    pushToast({ type: 'success', message: `Downloading ${item.name}` })
+  }
+  const createEntry = async (kind: 'file' | 'directory', directoryPath: string) => {
+    const name = window.prompt(kind === 'file' ? 'New file name:' : 'New folder name:', '')
+    if (!name?.trim()) return
+    try {
+      if (kind === 'file') await api.files.createFile(activeRootId, joinRelativePath(activeRootBasePath, directoryPath), name.trim())
+      else await api.files.createDirectory(activeRootId, joinRelativePath(activeRootBasePath, directoryPath), name.trim())
+      refreshFiles()
+      pushToast({ type: 'success', message: `${kind === 'file' ? 'File' : 'Folder'} created` })
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Create failed' })
+    }
+  }
+  const renameItem = async (item: FileItem | FileContentMatch) => {
+    const name = window.prompt(`Rename ${item.name}:`, item.name)
+    if (!name?.trim() || name.trim() === item.name) return
+    try {
+      const result = await api.files.rename(activeRootId, resolveRootRelativePath(activeRootBasePath, item.path), name.trim())
+      if (selectedPath === item.path) setSelectedPath(stripBasePath(result.item.path, activeRootBasePath))
+      refreshFiles()
+      pushToast({ type: 'success', message: `${item.name} renamed` })
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Rename failed' })
+    }
+  }
+  const removeItem = async (item: FileItem | FileContentMatch) => {
+    if (!window.confirm(`Delete ${item.type === 'directory' ? 'folder' : 'file'} "${resolveRootRelativePath(activeRootBasePath, item.path)}"?`)) return
+    try {
+      await api.files.remove(activeRootId, resolveRootRelativePath(activeRootBasePath, item.path))
+      if (selectedPath === item.path) {
+        setSelectedPath('')
+        setSelectedPreviewLine(1)
+      }
+      refreshFiles()
+      pushToast({ type: 'success', message: `${item.name} deleted` })
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : 'Delete failed' })
+    }
+  }
+  const showContextMenu = (x: number, y: number, item: FileEntry | null, directoryPath: string) => {
+    setContextMenu({ x, y, item, directoryPath })
+  }
   const selectFromKeyboard = (item: FileItem | FileContentMatch, e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       e.preventDefault()
@@ -744,7 +830,11 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
           <button onClick={() => updateHideDotFiles(!hideDotFiles)} className={`shrink-0 rounded border border-[var(--line)] px-2 py-1 text-[11px] ${hideDotFiles ? 'bg-bg-0 text-text-3 hover:text-text-1' : 'bg-accent/20 text-accent'}`}>Dotfiles</button>
         </div>
       </div>}
-      {(!isMobile || mobileView === 'list') && <div className="min-h-0 flex-1 overflow-y-auto">
+      {(!isMobile || mobileView === 'list') && <div className="min-h-0 flex-1 overflow-y-auto" onContextMenu={(e) => {
+        if ((e.target as HTMLElement).closest('button')) return
+        e.preventDefault()
+        showContextMenu(e.clientX, e.clientY, null, currentPath)
+      }}>
         {isMobile && !showSearchResults && !currentPath && visibleFavoriteDirectories.length > 0 && (
           <div className="border-b border-[var(--line)] p-3">
             <div className="mb-2 text-[10px] uppercase tracking-[0.18em] text-text-3">Favorite Directories</div>
@@ -774,7 +864,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
               onInsert={insertItemPath}
               onContextMenu={(e, entry) => {
                 e.preventDefault()
-                setContextMenu({ x: e.clientX, y: e.clientY, item: entry })
+                showContextMenu(e.clientX, e.clientY, entry, getParentRelativePath(entry, currentPath))
               }}
               openDirectories={openDirectories}
               directoryCache={directoryCacheRef.current}
@@ -789,14 +879,14 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
               onKeyDown={(e) => selectFromKeyboard(item, e)}
               onContextMenu={(e) => {
                 e.preventDefault()
-                setContextMenu({ x: e.clientX, y: e.clientY, item })
+                showContextMenu(e.clientX, e.clientY, item, getParentRelativePath(item, currentPath))
               }}
               onTouchStart={(e) => {
                 if (!isMobile) return
                 const touch = e.touches[0]
                 if (!touch) return
                 if (touchTimerRef.current) clearTimeout(touchTimerRef.current)
-                touchTimerRef.current = setTimeout(() => setContextMenu({ x: touch.clientX, y: touch.clientY, item }), 520)
+                touchTimerRef.current = setTimeout(() => showContextMenu(touch.clientX, touch.clientY, item, getParentRelativePath(item, currentPath)), 520)
               }}
               onTouchMove={() => {
                 if (touchTimerRef.current) clearTimeout(touchTimerRef.current)
@@ -828,10 +918,18 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
       {(!isMobile || mobileView === 'preview') && <div className={isMobile ? 'min-h-0 flex-1 bg-bg-0' : 'max-h-[42%] min-h-[160px] border-t border-[var(--line)] bg-bg-0'}>{previewBlock}</div>}
       {isMobile && mobileView === 'preview' && selectedPath && <div className="border-t border-[var(--line)] p-3"><button onClick={() => insertPath(activeSourceRootPath ? joinPath(activeSourceRootPath, resolveRootRelativePath(activeRootBasePath, selectedPath)) : resolveRootRelativePath(activeRootBasePath, selectedPath))} className="w-full rounded-lg bg-accent/20 px-3 py-3 text-sm text-accent active:scale-[0.98]">插入路径到终端</button></div>}
       {contextMenu && (
-        <div className="fixed z-[90] w-40 overflow-hidden rounded border border-[var(--line)] bg-bg-1 py-1 text-xs shadow-lg" style={{ left: contextMenu.x, top: contextMenu.y }} onClick={(e) => e.stopPropagation()}>
-          <button onClick={() => { insertItemPath(contextMenu.item); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">Insert path</button>
-          <button onClick={() => void copyItemPath(contextMenu.item).finally(() => setContextMenu(null))} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">Copy path</button>
-          <button onClick={() => { setSelectedPath(contextMenu.item.path); setSelectedPreviewLine(getPreviewLine(contextMenu.item)); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">Open preview</button>
+        <div className="fixed z-[90] w-44 overflow-hidden rounded border border-[var(--line)] bg-bg-1 py-1 text-xs shadow-lg" style={{ left: contextMenu.x, top: contextMenu.y }} onClick={(e) => e.stopPropagation()}>
+          {contextMenu.item?.type === 'file' && <button onClick={() => { openInEditor(contextMenu.item!); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">Open in editor</button>}
+          {contextMenu.item && <button onClick={() => { insertItemPath(contextMenu.item!); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">Insert path</button>}
+          {contextMenu.item && <button onClick={() => void copyItemName(contextMenu.item!).finally(() => setContextMenu(null))} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">Copy file name</button>}
+          {contextMenu.item && <button onClick={() => void copyItemRelativePath(contextMenu.item!).finally(() => setContextMenu(null))} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">Copy relative path</button>}
+          {contextMenu.item && <button onClick={() => void copyItemPath(contextMenu.item!).finally(() => setContextMenu(null))} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">Copy path</button>}
+          {contextMenu.item?.type === 'file' && <button onClick={() => { setSelectedPath(contextMenu.item!.path); setSelectedPreviewLine(getPreviewLine(contextMenu.item!)); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">Open preview</button>}
+          {contextMenu.item?.type === 'file' && <button onClick={() => { startDownload(contextMenu.item!); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">Download</button>}
+          {contextMenu.item && <button onClick={() => { void renameItem(contextMenu.item!); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">Rename</button>}
+          <button onClick={() => { void createEntry('file', contextMenu.directoryPath); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">New file</button>
+          <button onClick={() => { void createEntry('directory', contextMenu.directoryPath); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">New folder</button>
+          {contextMenu.item && <button onClick={() => { void removeItem(contextMenu.item!); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-danger hover:bg-bg-2">Delete</button>}
         </div>
       )}
       </>}

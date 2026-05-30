@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { AuditLog } from './AuditLog'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useTranslation } from '@/i18n'
+import { api } from '@/lib/api'
 
 interface SettingsProps {
   onClose: () => void
@@ -16,10 +17,12 @@ export function Settings({ onClose }: SettingsProps) {
   const [showAuditLog, setShowAuditLog] = useState(false)
   const [terminalPaddingDraft, setTerminalPaddingDraft] = useState(preferences.terminalPadding)
   const [uploadRateLimitDraft, setUploadRateLimitDraft] = useState(preferences.uploadRateLimitKBps)
+  const [downloadRateLimitDraft, setDownloadRateLimitDraft] = useState(preferences.downloadRateLimitKBps)
   useEffect(() => {
     setTerminalPaddingDraft(preferences.terminalPadding)
     setUploadRateLimitDraft(preferences.uploadRateLimitKBps)
-  }, [preferences.terminalPadding, preferences.uploadRateLimitKBps, activeTab])
+    setDownloadRateLimitDraft(preferences.downloadRateLimitKBps)
+  }, [preferences.terminalPadding, preferences.uploadRateLimitKBps, preferences.downloadRateLimitKBps, activeTab])
 
   const tabs = [
     { id: 'general' as const, label: t('settings.general') },
@@ -34,6 +37,12 @@ export function Settings({ onClose }: SettingsProps) {
   const commitUploadRateLimit = () => {
     if (uploadRateLimitDraft === preferences.uploadRateLimitKBps) return
     updatePreferences({ uploadRateLimitKBps: uploadRateLimitDraft })
+    void api.preferences.update({ uploadRateLimitKBps: uploadRateLimitDraft }).catch(() => {})
+  }
+  const commitDownloadRateLimit = () => {
+    if (downloadRateLimitDraft === preferences.downloadRateLimitKBps) return
+    updatePreferences({ downloadRateLimitKBps: downloadRateLimitDraft })
+    void api.preferences.update({ downloadRateLimitKBps: downloadRateLimitDraft }).catch(() => {})
   }
 
   return (
@@ -181,6 +190,24 @@ export function Settings({ onClose }: SettingsProps) {
                         className="w-24 accent-accent"
                       />
                       <span className="text-text-1 text-sm w-16 text-center">{uploadRateLimitDraft}KB/s</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-text-2 text-sm">Download Rate Limit</span>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="range"
+                        min={50}
+                        max={2048}
+                        step={50}
+                        value={downloadRateLimitDraft}
+                        onChange={(e) => setDownloadRateLimitDraft(Number(e.target.value))}
+                        onMouseUp={commitDownloadRateLimit}
+                        onTouchEnd={commitDownloadRateLimit}
+                        onKeyUp={commitDownloadRateLimit}
+                        className="w-24 accent-accent"
+                      />
+                      <span className="text-text-1 text-sm w-16 text-center">{downloadRateLimitDraft}KB/s</span>
                     </div>
                   </div>
                 </div>

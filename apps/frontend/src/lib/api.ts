@@ -204,14 +204,30 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ root, path, content, modifiedAt }),
     }),
+    createFile: (root: string, path: string, name: string) => fetchApi<{ ok: true; item: FileItem; parentPath: string }>(`/api/files/create-file`, {
+      method: 'POST',
+      body: JSON.stringify({ root, path, name }),
+    }),
+    createDirectory: (root: string, path: string, name: string) => fetchApi<{ ok: true; item: FileItem; parentPath: string }>(`/api/files/create-directory`, {
+      method: 'POST',
+      body: JSON.stringify({ root, path, name }),
+    }),
+    rename: (root: string, path: string, name: string) => fetchApi<{ ok: true; item: FileItem; previousPath: string }>(`/api/files/rename`, {
+      method: 'POST',
+      body: JSON.stringify({ root, path, name }),
+    }),
+    remove: (root: string, path: string) => fetchApi<{ ok: true; path: string; type: 'file' | 'directory' }>(`/api/files/remove?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}`, {
+      method: 'DELETE',
+    }),
     searchName: (root: string, q: string, basePath = '') => fetchApi<FileItem[]>(`/api/files/search-name?root=${encodeURIComponent(root)}&q=${encodeURIComponent(q)}&basePath=${encodeURIComponent(basePath)}`),
     searchContent: (root: string, q: string, basePath = '') => fetchApi<FileContentMatch[]>(`/api/files/search-content?root=${encodeURIComponent(root)}&q=${encodeURIComponent(q)}&basePath=${encodeURIComponent(basePath)}`),
     defaultUploadTarget: (paneId?: string) => fetchApi<FileUploadTarget>(`/api/files/default-upload-target${paneId ? `?paneId=${encodeURIComponent(paneId)}` : ''}`),
     upload: (body: FormData, onProgress?: (loadedBytes: number, totalBytes: number) => void) => uploadWithProgress(body, onProgress),
+    downloadUrl: (root: string, path: string, rateLimitKBps?: number, profile = 'default') => `${getApiBase()}/api/files/download?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}&profile=${encodeURIComponent(profile)}${typeof rateLimitKBps === 'number' ? `&rateLimitKBps=${encodeURIComponent(String(rateLimitKBps))}` : ''}`,
   },
   preferences: {
     get: (profile = 'default') => fetchApi<RemotePreferences>(`/api/preferences?profile=${encodeURIComponent(profile)}`),
-    update: (payload: { customShortcuts?: CustomShortcut[]; customShortcutsUpdatedAt?: string; favoriteDirectories?: FavoriteDirectory[]; favoriteDirectoriesUpdatedAt?: string; sessionOrders?: SessionOrderPreference[]; sessionOrdersUpdatedAt?: string }, profile = 'default') =>
+    update: (payload: { customShortcuts?: CustomShortcut[]; customShortcutsUpdatedAt?: string; favoriteDirectories?: FavoriteDirectory[]; favoriteDirectoriesUpdatedAt?: string; sessionOrders?: SessionOrderPreference[]; sessionOrdersUpdatedAt?: string; uploadRateLimitKBps?: number; downloadRateLimitKBps?: number }, profile = 'default') =>
       fetchApi<RemotePreferences>(`/api/preferences?profile=${encodeURIComponent(profile)}`, {
         method: 'PUT',
         body: JSON.stringify(payload),

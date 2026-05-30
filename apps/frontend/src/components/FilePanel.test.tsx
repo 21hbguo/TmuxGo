@@ -9,8 +9,9 @@ const clipboardMocks = vi.hoisted(() => ({
 const setFilePanelWidth = vi.fn()
 const setFilePanelOpen = vi.fn()
 const pushToast = vi.fn()
-const preferencesGet = vi.fn(async () => ({ version: 1, updatedAt: '', customShortcuts: [], customShortcutsUpdatedAt: '', favoriteDirectories: [], favoriteDirectoriesUpdatedAt: '', uploadRateLimitKBps: 200 }))
-const preferencesUpdate = vi.fn(async (payload: any) => ({ version: 1, updatedAt: '', customShortcuts: [], customShortcutsUpdatedAt: '', favoriteDirectories: payload.favoriteDirectories || [], favoriteDirectoriesUpdatedAt: payload.favoriteDirectoriesUpdatedAt || '', uploadRateLimitKBps: 200 }))
+const invalidateQueries = vi.fn()
+const preferencesGet = vi.fn(async () => ({ version: 1, updatedAt: '', customShortcuts: [], customShortcutsUpdatedAt: '', favoriteDirectories: [], favoriteDirectoriesUpdatedAt: '', sessionOrders: [], sessionOrdersUpdatedAt: '', uploadRateLimitKBps: 200, downloadRateLimitKBps: 200 }))
+const preferencesUpdate = vi.fn(async (payload: any) => ({ version: 1, updatedAt: '', customShortcuts: [], customShortcutsUpdatedAt: '', favoriteDirectories: payload.favoriteDirectories || [], favoriteDirectoriesUpdatedAt: payload.favoriteDirectoriesUpdatedAt || '', sessionOrders: [], sessionOrdersUpdatedAt: '', uploadRateLimitKBps: payload.uploadRateLimitKBps || 200, downloadRateLimitKBps: payload.downloadRateLimitKBps || 200 }))
 
 const roots = [
   { id: 'root-workspace', label: 'Workspace', path: '/workspace' },
@@ -37,6 +38,9 @@ vi.mock('@/stores/useConsoleStore', () => ({
     return typeof selector === 'function' ? selector(state) : state
   }) as any,
 }))
+vi.mock('@tanstack/react-query', () => ({
+  useQueryClient: () => ({ invalidateQueries }),
+}))
 vi.mock('@/hooks/useApi', () => ({
   useFileRoots: () => ({ data: roots }),
   useFileList: (nextRootId: string, nextCurrentPath: string, enabled = true) => {
@@ -56,6 +60,13 @@ vi.mock('@/lib/clipboard-text', () => ({
 }))
 vi.mock('@/lib/api', () => ({
   api: {
+    files: {
+      createFile: vi.fn(async () => ({ ok: true })),
+      createDirectory: vi.fn(async () => ({ ok: true })),
+      rename: vi.fn(async () => ({ ok: true, item: { path: 'renamed.txt' } })),
+      remove: vi.fn(async () => ({ ok: true })),
+      downloadUrl: vi.fn(() => '/api/files/download'),
+    },
     preferences: {
       get: (...args: any[]) => preferencesGet(...args),
       update: (...args: any[]) => preferencesUpdate(...args),
