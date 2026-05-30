@@ -37,8 +37,8 @@ export function Settings({ onClose }: SettingsProps) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-bg-1 border border-[var(--line)] rounded-lg w-full max-w-[700px] max-h-[85vh] overflow-hidden">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-bg-1 border border-[var(--line)] rounded-lg w-full max-w-[700px] max-h-[85vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
         <div className="p-4 border-b border-[var(--line)] flex items-center justify-between">
           <h2 className="text-text-1 text-lg font-medium">{t('settings.title')}</h2>
           <button onClick={onClose} className="text-text-3 hover:text-text-1">✕</button>

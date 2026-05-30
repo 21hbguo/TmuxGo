@@ -161,15 +161,15 @@ export function EditorWorkbench({ onSaveEditor }:{ onSaveEditor: (editor: FileEd
     <section className="flex h-full min-h-0 flex-col bg-bg-0">
       <div className="flex min-h-[42px] items-stretch overflow-x-auto border-b border-[var(--line)] bg-bg-1">
         {openEditors.map((editor) => (
-          <div key={editor.id} className={`group flex shrink-0 items-center border-r border-[rgba(255,255,255,0.04)] ${editor.id === activeEditor.id ? 'bg-bg-0' : 'bg-bg-1/80'}`}>
-            <button onClick={() => setActiveEditor(editor.id)} className={`flex items-center gap-2 px-3 py-2 text-sm ${editor.id === activeEditor.id ? 'text-text-1' : 'text-text-3 hover:text-text-1'}`}>
+          <div key={editor.id} className={`group flex h-[42px] w-44 shrink-0 items-center border-r border-[rgba(255,255,255,0.04)] ${editor.id === activeEditor.id ? 'bg-bg-0' : 'bg-bg-1/80'}`}>
+            <button onClick={() => setActiveEditor(editor.id)} className={`flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-sm ${editor.id === activeEditor.id ? 'text-text-1' : 'text-text-3 hover:text-text-1'}`}>
               <span className={`h-2 w-2 rounded-full ${editor.dirty ? 'bg-warn' : editor.saving ? 'bg-accent' : 'border border-[var(--line)] bg-transparent'}`} />
-              <span className="max-w-[220px] truncate">{editor.name}</span>
+              <span className="min-w-0 flex-1 truncate">{editor.name}</span>
             </button>
             <button onClick={() => {
               if (editor.dirty && !window.confirm(`Close ${editor.name} without saving?`)) return
               closeEditor(editor.id)
-            }} className="mr-2 rounded px-1.5 py-1 text-xs text-text-3 opacity-0 hover:bg-bg-2 hover:text-text-1 group-hover:opacity-100">×</button>
+            }} className="mr-2 shrink-0 rounded px-1.5 py-1 text-xs text-text-3 opacity-0 hover:bg-bg-2 hover:text-text-1 group-hover:opacity-100">×</button>
           </div>
         ))}
       </div>

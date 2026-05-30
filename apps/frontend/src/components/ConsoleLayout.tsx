@@ -60,6 +60,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   const [showSettings, setShowSettings] = useState(false)
   const [keyboardOpen, setKeyboardOpen] = useState(false)
   const overlayRef = useRef<string[]>([])
+  const ignoreNextPopRef = useRef(false)
   const appHeightRef = useRef(appHeight)
   const viewportBaseHeightRef = useRef(0)
   const appHeightNumRef = useRef(0)
@@ -92,6 +93,19 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
     setShowSettings(true)
     pushOverlay('settings')
   }, [showSettings, pushOverlay])
+  const dismissSettings = useCallback(() => {
+    setShowSettings(false)
+    const stack = overlayRef.current
+    const index = stack.lastIndexOf('settings')
+    if (index === -1) return
+    if (index === stack.length - 1) {
+      stack.pop()
+      ignoreNextPopRef.current = true
+      window.history.back()
+      return
+    }
+    stack.splice(index, 1)
+  }, [])
   const openPalette = useCallback(() => {
     if (showCommandPalette) return
     setCommandPalette(true)
@@ -266,6 +280,10 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   }, [pushOverlay])
   useEffect(() => {
     const handlePopState = () => {
+      if (ignoreNextPopRef.current) {
+        ignoreNextPopRef.current = false
+        return
+      }
       const stack = overlayRef.current
       if (stack.length === 0) return
       const top = stack[stack.length - 1]
@@ -333,7 +351,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
         </div>
       )}
       {showCommandPalette && <CommandPalette onClose={() => closeOverlay('palette')} />}
-      {showSettings && <Settings onClose={() => closeOverlay('settings')} />}
+      {showSettings && <Settings onClose={dismissSettings} />}
       <UploadConfirmDialog />
       <UploadQueue />
       <AppVersionGuard />

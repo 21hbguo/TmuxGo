@@ -120,7 +120,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
       redrawTimers = []
     }
     async function refreshAttachedClient(sessionName: string) {
-      if (!ptyProcess || !sessionName) return
+      if (!ptyProcess || !sessionName || attachedExclusive) return
       const pid = String(ptyProcess.pid)
       const { stdout } = await execFileAsync('tmux', ['list-clients', '-t', sessionName, '-F', '#{client_pid}|#{client_name}'])
       const clients = String(stdout).trim().split('\n').filter(Boolean).map((line) => {
@@ -133,7 +133,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
         await execFileAsync('tmux', ['refresh-client', '-t', target])
       }
     }
-    function scheduleClientRedraw(sessionName: string | null = attachedSessionName, delays = [16, 80, 180, 360]) {
+    function scheduleClientRedraw(sessionName: string | null = attachedSessionName, delays = [48]) {
       if (!sessionName) return
       clearRedrawTimers()
       const seq = attachSeq
@@ -234,7 +234,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
                 attachedRows = requestedRows
               }
               send({ type: 'attached', sessionName, cols: attachedCols || requestedCols, rows: attachedRows || requestedRows, exclusive })
-              scheduleClientRedraw(sessionName)
+              if (!exclusive) scheduleClientRedraw(sessionName)
               break
             }
             cleanup()
@@ -281,7 +281,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
             })
 
             send({ type: 'attached', sessionName, cols, rows, exclusive })
-            scheduleClientRedraw(sessionName)
+            if (!exclusive) scheduleClientRedraw(sessionName)
             break
           }
 
@@ -291,14 +291,14 @@ export async function streamRoutes(fastify: FastifyInstance) {
               ptyProcess.resize(data.cols, data.rows)
               attachedCols = data.cols
               attachedRows = data.rows
-              scheduleClientRedraw(attachedSessionName, [20, 90, 180])
+              if (!attachedExclusive) scheduleClientRedraw(attachedSessionName, [40])
             }
             break
           case 'redraw': {
             const sessionName = data.sessionName
             if (!sessionName) break
             assertSessionAllowed(sessionName)
-            if (sessionName === attachedSessionName) scheduleClientRedraw(sessionName, [0, 32, 120])
+            if (sessionName === attachedSessionName && !attachedExclusive) scheduleClientRedraw(sessionName, [0])
             break
           }
 

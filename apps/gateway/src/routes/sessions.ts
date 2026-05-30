@@ -9,7 +9,7 @@ const execFileAsync = promisify(execFile)
 
 async function getLocalTmuxSessions() {
   try {
-    const { stdout } = await execFileAsync('tmux', ['list-sessions', '-F', '#{session_id}|#{session_name}|#{session_windows}|#{session_created}|#{session_attached}'])
+    const { stdout } = await execFileAsync('tmux', ['list-sessions', '-F', '#{session_id}|#{session_name}|#{session_windows}|#{session_created}|#{session_activity}|#{session_attached}'])
 
     return stdout
       .trim()
@@ -25,13 +25,15 @@ async function getLocalTmuxSessions() {
         }
       })
       .map((line) => {
-        const [id, name, windows, created, attached] = line.split('|')
+        const [id, name, windows, created, activity] = line.split('|')
+        const createdAt = new Date(parseInt(created, 10) * 1000).toISOString()
+        const lastActiveAt = Number.isFinite(parseInt(activity, 10)) ? new Date(parseInt(activity, 10) * 1000).toISOString() : createdAt
         return {
           id: `session-${name}`,
           hostId: 'local',
           name,
-          createdAt: new Date(parseInt(created, 10) * 1000).toISOString(),
-          lastActiveAt: new Date().toISOString(),
+          createdAt,
+          lastActiveAt,
           windowCount: parseInt(windows, 10),
         }
       })

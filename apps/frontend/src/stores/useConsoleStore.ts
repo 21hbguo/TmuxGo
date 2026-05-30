@@ -147,7 +147,7 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
   setMobileFileSheetOpen: (open) => set({ mobileFileSheetOpen: open }),
   setSessionPanelWidth: (width) => set({ sessionPanelWidth: Math.max(240, Math.min(360, width)) }),
   setFilePanelWidth: (width) => set({ filePanelWidth: Math.max(320, Math.min(420, width)) }),
-  setTerminalPanelHeight: (height) => set({ terminalPanelHeight: Math.max(180, Math.min(540, height)) }),
+  setTerminalPanelHeight: (height) => set({ terminalPanelHeight: Math.max(180, Math.min(760, height)) }),
   openEditor: (file) => set((state) => {
     const existing = state.openEditors.find((item) => item.id === file.id)
     if (existing) {

@@ -87,7 +87,7 @@ export function DesktopWorkbench() {
   const filePanelMin = clampValue(Math.floor(viewportWidth * 0.24), 240, Math.min(320, filePanelMax))
   const renderedFilePanelWidth = clampValue(previewFileWidth ?? filePanelWidth, filePanelMin, filePanelMax)
   const terminalMinHeight = clampValue(Math.floor(viewportHeight * 0.22), 150, 220)
-  const terminalMaxHeight = clampValue(Math.floor(viewportHeight * 0.42), terminalMinHeight, 520)
+  const terminalMaxHeight = clampValue(Math.floor(viewportHeight * 0.58), terminalMinHeight, 760)
   useEffect(() => {
     const element = containerRef.current
     if (!element) return
