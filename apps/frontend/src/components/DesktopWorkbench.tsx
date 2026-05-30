@@ -11,7 +11,7 @@ import { EditorWorkbench } from './EditorWorkbench'
 import { TerminalDock } from './TerminalDock'
 
 const ACTIVITY_BAR_WIDTH = 56
-const SESSION_RAIL_WIDTH = 176
+const SESSION_RAIL_WIDTH = 136
 function clampValue(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value))
 }
@@ -76,15 +76,15 @@ export function DesktopWorkbench() {
   const viewportWidth = containerSize.width || 1440
   const viewportHeight = containerSize.height || 820
   const minWorkspaceWidth = viewportWidth < 1180 ? 420 : 560
-  const sessionPanelMin = clampValue(Math.floor(viewportWidth * 0.18), 208, 240)
-  const sessionPanelMax = clampValue(Math.floor(viewportWidth * 0.26), sessionPanelMin, 360)
+  const sessionPanelMin = clampValue(Math.floor(viewportWidth * 0.16), 208, 232)
+  const sessionPanelMax = clampValue(Math.floor(viewportWidth * 0.22), sessionPanelMin, 320)
   const renderedSessionPanelWidth = clampValue(previewSessionWidth ?? sessionPanelWidth, sessionPanelMin, sessionPanelMax)
   const compactSessionWidth = clampValue(Math.floor(viewportWidth * 0.13), 88, SESSION_RAIL_WIDTH)
   const leftWidth = ACTIVITY_BAR_WIDTH + (sessionPanelExpanded ? renderedSessionPanelWidth : compactSessionWidth)
   const filePanelAvailable = viewportWidth - leftWidth - minWorkspaceWidth
-  const filePanelMaxBase = clampValue(Math.floor(viewportWidth * 0.32), 280, 420)
+  const filePanelMaxBase = clampValue(Math.floor(viewportWidth * 0.28), 260, 380)
   const filePanelMax = clampValue(Math.min(filePanelMaxBase, filePanelAvailable), 260, filePanelMaxBase)
-  const filePanelMin = clampValue(Math.floor(viewportWidth * 0.24), 240, Math.min(320, filePanelMax))
+  const filePanelMin = clampValue(Math.floor(viewportWidth * 0.2), 240, Math.min(300, filePanelMax))
   const renderedFilePanelWidth = clampValue(previewFileWidth ?? filePanelWidth, filePanelMin, filePanelMax)
   const terminalMinHeight = clampValue(Math.floor(viewportHeight * 0.22), 150, 220)
   const terminalInlineMaxHeight = clampValue(Math.floor(viewportHeight * 0.58), terminalMinHeight, 760)
