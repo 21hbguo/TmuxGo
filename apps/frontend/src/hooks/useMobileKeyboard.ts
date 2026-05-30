@@ -34,6 +34,7 @@ export function useMobileKeyboard(
 ) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const composingRef = useRef(false)
+  const composingLengthRef = useRef(0)
   const keyboardOpenRef = useRef(false)
   const keyboardInsetRef = useRef(0)
   const keyboardPeakInsetRef = useRef(0)
@@ -268,7 +269,12 @@ export function useMobileKeyboard(
 
     const handleCompositionStart = () => {
       composingRef.current = true
+      composingLengthRef.current = 0
       if (ta) ta.value = ''
+    }
+
+    const handleCompositionUpdate = () => {
+      if (ta) composingLengthRef.current = ta.value.length
     }
 
     const handleCompositionEnd = () => {
@@ -277,7 +283,11 @@ export function useMobileKeyboard(
       const text = raw.replace(/\u200b/g, '')
       if (text) {
         sendInput(text)
+      } else {
+        const count = composingLengthRef.current
+        if (count > 0) sendInput('\x7f'.repeat(count))
       }
+      composingLengthRef.current = 0
       clearValue()
     }
 
@@ -316,6 +326,7 @@ export function useMobileKeyboard(
     ta.addEventListener('beforeinput', handleBeforeInput as EventListener)
     ta.addEventListener('input', handleInput)
     ta.addEventListener('compositionstart', handleCompositionStart)
+    ta.addEventListener('compositionupdate', handleCompositionUpdate)
     ta.addEventListener('compositionend', handleCompositionEnd)
     ta.addEventListener('focus', handleFocus)
     ta.addEventListener('blur', handleBlur)
@@ -328,6 +339,7 @@ export function useMobileKeyboard(
       ta.removeEventListener('beforeinput', handleBeforeInput as EventListener)
       ta.removeEventListener('input', handleInput)
       ta.removeEventListener('compositionstart', handleCompositionStart)
+      ta.removeEventListener('compositionupdate', handleCompositionUpdate)
       ta.removeEventListener('compositionend', handleCompositionEnd)
       ta.removeEventListener('focus', handleFocus)
       ta.removeEventListener('blur', handleBlur)
