@@ -6,11 +6,82 @@ import { getTemplateWindowTargets, type SessionTemplateLayout } from '../lib/tem
 import { assertSessionAllowed, isValidSessionName, prepareSessionAttach } from '../lib/tmux-policy.js'
 
 const execFileAsync = promisify(execFile)
+const batchDeleteLimitDefault = 1000
+const batchDeleteLimitMax = 5000
 
-async function getLocalTmuxSessions() {
+type BatchDeleteMode = 'preview' | 'execute'
+interface LocalTmuxSession {
+  id: string
+  hostId: string
+  name: string
+  createdAt: string
+  lastActiveAt: string
+  windowCount: number
+  attached: boolean
+}
+interface BatchDeleteFilters {
+  createdBefore?: string
+  inactiveBefore?: string
+  nameIncludes?: string
+  includeAttached?: boolean
+}
+interface BatchDeleteRequest {
+  mode?: BatchDeleteMode
+  sessionIds?: string[]
+  filters?: BatchDeleteFilters
+  limit?: number
+  force?: boolean
+}
+interface BatchDeleteSkip {
+  sessionId: string
+  name: string
+  reason: string
+}
+interface BatchDeleteTarget {
+  sessionId: string
+  name: string
+  createdAt: string
+  lastActiveAt: string
+  windowCount: number
+  attached: boolean
+}
+
+function normalizeSessionName(sessionRef: string) {
+  const sessionName = sessionRef.startsWith('session-') ? sessionRef.slice('session-'.length) : sessionRef
+  if (!isValidSessionName(sessionName)) throw new Error('Invalid session name')
+  return sessionName
+}
+function parseOptionalDate(value: string | undefined, fieldName: string) {
+  if (!value) return null
+  const timestamp = Date.parse(value)
+  if (!Number.isFinite(timestamp)) throw new Error(`Invalid ${fieldName}`)
+  return timestamp
+}
+function normalizeBatchLimit(limit: number | undefined) {
+  if (typeof limit !== 'number' || !Number.isFinite(limit)) return batchDeleteLimitDefault
+  return Math.max(1, Math.min(batchDeleteLimitMax, Math.floor(limit)))
+}
+function hasBatchDeleteFilter(filters: BatchDeleteFilters | undefined) {
+  if (!filters) return false
+  if (filters.createdBefore) return true
+  if (filters.inactiveBefore) return true
+  if (typeof filters.nameIncludes === 'string' && filters.nameIncludes.trim()) return true
+  if (filters.includeAttached === true) return true
+  return false
+}
+function toBatchDeleteTarget(session: LocalTmuxSession): BatchDeleteTarget {
+  return {
+    sessionId: session.id,
+    name: session.name,
+    createdAt: session.createdAt,
+    lastActiveAt: session.lastActiveAt,
+    windowCount: session.windowCount,
+    attached: session.attached,
+  }
+}
+async function getLocalTmuxSessions(): Promise<LocalTmuxSession[]> {
   try {
     const { stdout } = await execFileAsync('tmux', ['list-sessions', '-F', '#{session_id}|#{session_name}|#{session_windows}|#{session_created}|#{session_activity}|#{session_attached}'])
-
     return stdout
       .trim()
       .split('\n')
@@ -25,9 +96,12 @@ async function getLocalTmuxSessions() {
         }
       })
       .map((line) => {
-        const [id, name, windows, created, activity] = line.split('|')
-        const createdAt = new Date(parseInt(created, 10) * 1000).toISOString()
-        const lastActiveAt = Number.isFinite(parseInt(activity, 10)) ? new Date(parseInt(activity, 10) * 1000).toISOString() : createdAt
+        const [id, name, windows, created, activity, attached] = line.split('|')
+        const createdAtUnix = parseInt(created, 10)
+        const activityUnix = parseInt(activity, 10)
+        const attachedCount = parseInt(attached, 10)
+        const createdAt = Number.isFinite(createdAtUnix) ? new Date(createdAtUnix * 1000).toISOString() : new Date().toISOString()
+        const lastActiveAt = Number.isFinite(activityUnix) ? new Date(activityUnix * 1000).toISOString() : createdAt
         return {
           id: `session-${name}`,
           hostId: 'local',
@@ -35,12 +109,49 @@ async function getLocalTmuxSessions() {
           createdAt,
           lastActiveAt,
           windowCount: parseInt(windows, 10),
+          attached: Number.isFinite(attachedCount) && attachedCount > 0,
         }
       })
   } catch (err: any) {
     console.error('Failed to list tmux sessions:', err)
     return []
   }
+}
+function getBatchDeleteSelection(sessions: LocalTmuxSession[], body: BatchDeleteRequest) {
+  const filters = body.filters
+  const includeAttached = filters?.includeAttached === true
+  const createdBeforeTs = parseOptionalDate(filters?.createdBefore, 'filters.createdBefore')
+  const inactiveBeforeTs = parseOptionalDate(filters?.inactiveBefore, 'filters.inactiveBefore')
+  const nameIncludes = typeof filters?.nameIncludes === 'string' ? filters.nameIncludes.trim().toLowerCase() : ''
+  const selectedSessionNames = new Set<string>()
+  if (Array.isArray(body.sessionIds)) {
+    for (const sessionId of body.sessionIds) {
+      if (typeof sessionId !== 'string' || !sessionId.trim()) continue
+      selectedSessionNames.add(normalizeSessionName(sessionId.trim()))
+    }
+  }
+  if (!selectedSessionNames.size && !hasBatchDeleteFilter(filters)) throw new Error('sessionIds or filters is required')
+  let matched = sessions
+  if (selectedSessionNames.size) matched = matched.filter((session) => selectedSessionNames.has(session.name))
+  if (nameIncludes) matched = matched.filter((session) => session.name.toLowerCase().includes(nameIncludes))
+  if (createdBeforeTs !== null) matched = matched.filter((session) => Date.parse(session.createdAt) < createdBeforeTs)
+  if (inactiveBeforeTs !== null) matched = matched.filter((session) => Date.parse(session.lastActiveAt) < inactiveBeforeTs)
+  const skipped: BatchDeleteSkip[] = []
+  if (selectedSessionNames.size) {
+    const existingNames = new Set(sessions.map((session) => session.name))
+    for (const sessionName of selectedSessionNames) {
+      if (!existingNames.has(sessionName)) skipped.push({ sessionId: `session-${sessionName}`, name: sessionName, reason: 'not_found' })
+    }
+  }
+  const eligible: LocalTmuxSession[] = []
+  for (const session of matched) {
+    if (session.attached && !includeAttached) {
+      skipped.push({ sessionId: session.id, name: session.name, reason: 'attached' })
+      continue
+    }
+    eligible.push(session)
+  }
+  return { matched, eligible, skipped }
 }
 async function runSendKeys(target: string, command: string) {
   await execFileAsync('tmux', ['send-keys', '-t', target, command, 'C-m'])
@@ -142,6 +253,7 @@ export async function sessionRoutes(fastify: FastifyInstance) {
         createdAt: new Date().toISOString(),
         lastActiveAt: new Date().toISOString(),
         windowCount: 1,
+        attached: false,
       }
     } catch (err: any) {
       if (String(err?.message || '').includes('duplicate session')) {
@@ -157,8 +269,8 @@ export async function sessionRoutes(fastify: FastifyInstance) {
   fastify.post('/hosts/:hostId/sessions/rename', async (request) => {
     const { hostId } = request.params as { hostId: string }
     const { sessionId, name } = request.body as { sessionId: string; name: string }
-    const sessionName = sessionId.replace('session-', '')
-    if (!isValidSessionName(sessionName) || !isValidSessionName(name)) throw new Error('Invalid session name')
+    const sessionName = normalizeSessionName(sessionId)
+    if (!isValidSessionName(name)) throw new Error('Invalid session name')
     assertSessionAllowed(sessionName)
     assertSessionAllowed(name)
     try {
@@ -172,23 +284,70 @@ export async function sessionRoutes(fastify: FastifyInstance) {
         createdAt: new Date().toISOString(),
         lastActiveAt: new Date().toISOString(),
         windowCount: 1,
+        attached: false,
       }
     } catch (err: any) {
       throw new Error(err.message)
     }
   })
+  fastify.post('/hosts/:hostId/sessions/batch-delete', async (request) => {
+    const body = (request.body || {}) as BatchDeleteRequest
+    const mode: BatchDeleteMode = body.mode === 'execute' ? 'execute' : 'preview'
+    const limit = normalizeBatchLimit(body.limit)
+    const sessions = await getLocalTmuxSessions()
+    const { matched, eligible, skipped } = getBatchDeleteSelection(sessions, body)
+    const forceRequired = eligible.length > limit
+    const limited = eligible.slice(0, limit)
+    if (mode === 'preview') {
+      return {
+        mode,
+        limit,
+        forceRequired,
+        matchedCount: matched.length,
+        deletableCount: eligible.length,
+        deleteCount: limited.length,
+        skipped,
+        sessions: limited.map(toBatchDeleteTarget),
+      }
+    }
+    if (forceRequired && body.force !== true) {
+      throw new Error(`Delete candidate count ${eligible.length} exceeds limit ${limit}, set force=true to continue`)
+    }
+    const targets = forceRequired && body.force === true ? eligible : limited
+    const deleted: BatchDeleteTarget[] = []
+    const failed: BatchDeleteSkip[] = []
+    for (const session of targets) {
+      try {
+        await execFileAsync('tmux', ['kill-session', '-t', session.name])
+        deleted.push(toBatchDeleteTarget(session))
+      } catch (err: any) {
+        failed.push({ sessionId: session.id, name: session.name, reason: err?.message || 'delete_failed' })
+      }
+    }
+    return {
+      mode,
+      limit,
+      forceUsed: body.force === true,
+      forceRequired,
+      matchedCount: matched.length,
+      deletableCount: eligible.length,
+      attemptedCount: targets.length,
+      deletedCount: deleted.length,
+      failedCount: failed.length,
+      skipped,
+      deleted,
+      failed,
+    }
+  })
 
   fastify.delete('/hosts/:hostId/sessions/:sessionId', async (request) => {
     const { sessionId } = request.params as { sessionId: string }
-    const sessionName = sessionId.replace('session-', '')
-    if (!isValidSessionName(sessionName)) {
-      throw new Error('Invalid session name')
-    }
+    const sessionName = normalizeSessionName(sessionId)
     assertSessionAllowed(sessionName)
 
     try {
       await execFileAsync('tmux', ['kill-session', '-t', sessionName])
-      return { success: true, sessionId }
+      return { success: true, sessionId: `session-${sessionName}` }
     } catch (err: any) {
       throw new Error(err.message)
     }
