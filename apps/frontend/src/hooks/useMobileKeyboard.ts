@@ -227,13 +227,18 @@ export function useMobileKeyboard(
 
     const handleBeforeInput = (e: InputEvent) => {
       if (composingRef.current) return
-      if (e.inputType === 'insertText' || e.inputType === 'insertReplacementText') {
+      const inputType = e.inputType
+      if (inputType === 'insertText' || inputType === 'insertReplacementText') {
         const text = e.data
         if (text) {
           e.preventDefault()
           sendInput(text)
           clearValue()
         }
+      } else if (inputType?.startsWith('delete')) {
+        e.preventDefault()
+        sendInput('\x7f')
+        clearValue()
       }
     }
 
@@ -243,7 +248,8 @@ export function useMobileKeyboard(
         return
       }
       const inputEvent = e as InputEvent
-      if (inputEvent.inputType === 'deleteContentBackward') {
+      const inputType = inputEvent.inputType
+      if (inputType === 'deleteContentBackward' || inputType === 'deleteContentForward' || inputType === 'deleteByCut' || inputType === 'deleteByDrag' || inputType === 'deleteContent') {
         sendInput('\x7f')
         clearValue()
         return
@@ -254,6 +260,8 @@ export function useMobileKeyboard(
       const text = raw.replace(/\u200b/g, '')
       if (text) {
         sendInput(text)
+      } else if (inputType?.startsWith('delete')) {
+        sendInput('\x7f')
       }
       clearValue()
     }
