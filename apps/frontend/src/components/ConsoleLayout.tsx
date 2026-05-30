@@ -347,8 +347,13 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       </div>
       {!isMobile && preferences.showStatusBar && <StatusBar />}
       {isMobile && (
-        <div data-mobile-dock className={`mobile-nav-landscape-hide z-40 shrink-0 ${keyboardOpen ? '' : 'h-[calc(48px+env(safe-area-inset-bottom))]'}`}>
-          {keyboardOpen ? <ShortcutBar mode="dock" /> : <MobileNav docked onOpenDrawer={openDrawer} onOpenSettings={openSettings} onOpenSearch={openPalette} onOpenFiles={openMobileFiles} />}
+        <div data-mobile-dock className="mobile-nav-landscape-hide relative z-40 shrink-0 min-h-[calc(48px+env(safe-area-inset-bottom))]">
+          <div className={keyboardOpen ? 'hidden' : 'h-[calc(48px+env(safe-area-inset-bottom))]'}>
+            <MobileNav docked onOpenDrawer={openDrawer} onOpenSettings={openSettings} onOpenSearch={openPalette} onOpenFiles={openMobileFiles} />
+          </div>
+          <div className={keyboardOpen ? 'block' : 'hidden'}>
+            <ShortcutBar mode="dock" />
+          </div>
         </div>
       )}
       {showCommandPalette && <CommandPalette onClose={() => closeOverlay('palette')} />}
