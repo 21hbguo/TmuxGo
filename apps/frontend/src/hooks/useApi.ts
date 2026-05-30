@@ -129,7 +129,7 @@ export function useFileSearch(root: string, mode: 'name' | 'content', query: str
   return useQuery({
     queryKey: ['file-search', root, mode, query, basePath],
     queryFn: () => mode === 'name' ? api.files.searchName(root, query, basePath) : api.files.searchContent(root, query, basePath),
-    enabled: !!root && query.trim().length > 1,
+    enabled: !!root && query.trim().length > 0,
     staleTime: 8000,
     gcTime: 60000,
   })

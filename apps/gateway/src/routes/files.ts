@@ -15,13 +15,15 @@ const execFileAsync = promisify(execFile)
 const defaultRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..')
 const PREVIEW_LIMIT = 200 * 1024
 const LARGE_FILE_LIMIT = 512 * 1024
-const MAX_DIRS = 8000
-const MAX_FILES = 4000
+const MAX_DIRS = 50000
+const MAX_FILES = 50000
 const MAX_RESULTS = 200
 const MAX_READ_LINES = 1200
 const DEFAULT_UPLOAD_DIR = 'uploads'
 const DEFAULT_UPLOAD_RATE_LIMIT_KBPS = 200
 const MAX_UPLOAD_RATE_LIMIT_KBPS = 10 * 1024
+const SEARCH_MATCH_LIMIT = 3
+const RG_MAX_BUFFER = 16 * 1024 * 1024
 const homeRoot = os.homedir()
 const rootSpec = process.env.TMUX_WEB_FILE_ROOTS || `workspace=${defaultRoot}${path.delimiter}home=${homeRoot}`
 
@@ -36,6 +38,13 @@ interface FileItem {
   type: 'file' | 'directory'
   size: number
   modifiedAt: string
+}
+interface SearchMatchLine {
+  number: number
+  content: string
+}
+interface ContentSearchResult extends FileItem {
+  matches: SearchMatchLine[]
 }
 
 let rootsCache: Promise<FileRoot[]> | null = null
@@ -176,13 +185,27 @@ async function walk(rootPath: string, startPath: string, visitor: (absolutePath:
     }
   }
 }
+function parseSearchQuery(query: string) {
+  return query.split('|').map((part) => {
+    const tokens = Array.from(part.matchAll(/"([^"]+)"|(\S+)/g)).map((match) => (match[1] || match[2] || '').trim().toLowerCase()).filter(Boolean)
+    return [...new Set(tokens)]
+  }).filter((tokens) => tokens.length > 0)
+}
+function matchesSearchQuery(value: string, clauses: string[][]) {
+  const target = value.toLowerCase()
+  return clauses.some((terms) => terms.every((term) => target.includes(term)))
+}
+function matchesAnySearchTerm(value: string, clauses: string[][]) {
+  const target = value.toLowerCase()
+  return clauses.some((terms) => terms.some((term) => target.includes(term)))
+}
 async function searchName(rootId: string, query: string, basePath = '') {
-  const q = query.trim().toLowerCase()
-  if (!q) return []
+  const clauses = parseSearchQuery(query)
+  if (!clauses.length) return []
   const { root, absolutePath } = await resolveInside(rootId, basePath)
   const results: FileItem[] = []
   await walk(root.path, absolutePath, async (current, relativePath) => {
-    if (!path.basename(relativePath).toLowerCase().includes(q)) return
+    if (!matchesSearchQuery(path.basename(relativePath), clauses)) return
     try {
       results.push(await toFileItem(root.path, current, path.basename(current)))
     } catch {}
@@ -190,31 +213,96 @@ async function searchName(rootId: string, query: string, basePath = '') {
   })
   return results
 }
-async function searchContent(rootId: string, query: string, basePath = '') {
-  const q = query.trim()
-  if (!q) return []
-  const qLower = q.toLowerCase()
+async function searchContentWithRg(rootPath: string, absolutePath: string, clauses: string[][]) {
+  const results = new Map<string, ContentSearchResult>()
+  for (const terms of clauses) {
+    const args = ['--json', '-n', '-i', '--fixed-strings', '--hidden', '-uu']
+    for (const term of terms) args.push('-e', term)
+    args.push('.')
+    try {
+      const { stdout } = await execFileAsync('rg', args, { cwd: absolutePath, maxBuffer: RG_MAX_BUFFER })
+      const matchesByPath = new Map<string, { path: string; name: string; termHits: Set<string>; matches: SearchMatchLine[] }>()
+      for (const line of stdout.split('\n')) {
+        if (!line) continue
+        let payload: any
+        try {
+          payload = JSON.parse(line)
+        } catch {
+          continue
+        }
+        if (payload.type !== 'match') continue
+        const rawPath = typeof payload.data?.path?.text === 'string' ? payload.data.path.text : ''
+        if (!rawPath) continue
+        const resolvedPath = path.resolve(absolutePath, rawPath)
+        const relativePath = toRelative(rootPath, resolvedPath)
+        const lineNumber = Number(payload.data?.line_number || 0)
+        const content = typeof payload.data?.lines?.text === 'string' ? payload.data.lines.text.replace(/\r?\n$/, '').slice(0, 240) : ''
+        const item = matchesByPath.get(relativePath) || { path: relativePath, name: path.basename(relativePath), termHits: new Set<string>(), matches: [] }
+        const lowerContent = content.toLowerCase()
+        for (const term of terms) {
+          if (lowerContent.includes(term)) item.termHits.add(term)
+        }
+        if (lineNumber > 0 && content && item.matches.length < SEARCH_MATCH_LIMIT && !item.matches.some((entry) => entry.number === lineNumber)) {
+          item.matches.push({ number: lineNumber, content })
+        }
+        matchesByPath.set(relativePath, item)
+      }
+      for (const item of matchesByPath.values()) {
+        if (item.termHits.size !== terms.length) continue
+        if (results.has(item.path)) {
+          const current = results.get(item.path)!
+          for (const match of item.matches) {
+            if (current.matches.length >= SEARCH_MATCH_LIMIT) break
+            if (!current.matches.some((entry) => entry.number === match.number)) current.matches.push(match)
+          }
+          continue
+        }
+        try {
+          const info = await stat(path.join(rootPath, item.path))
+          results.set(item.path, { name: item.name, path: item.path, type: 'file', size: info.size, modifiedAt: info.mtime.toISOString(), matches: item.matches })
+        } catch {}
+        if (results.size >= MAX_RESULTS) return [...results.values()]
+      }
+    } catch (error) {
+      const err = error as Error & { code?: number }
+      if (err.code === 1) continue
+      throw error
+    }
+  }
+  return [...results.values()]
+}
+async function searchContentFallback(rootId: string, clauses: string[][], basePath = '') {
   const { root, absolutePath } = await resolveInside(rootId, basePath)
-  const results: any[] = []
+  const results: ContentSearchResult[] = []
   await walk(root.path, absolutePath, async (current, relativePath, entryType) => {
     if (entryType !== 'file') return
-    let info
     try {
-      info = await stat(current)
+      const info = await stat(current)
       if (info.size > LARGE_FILE_LIMIT) return
       const buffer = await readFile(current)
       if (isLikelyBinary(buffer)) return
       const text = buffer.toString('utf8')
+      if (!matchesSearchQuery(text, clauses)) return
       const lines = text.split(/\r?\n/)
-      const matches = []
-      for (let i = 0; i < lines.length && matches.length < 3; i++) {
-        if (lines[i].toLowerCase().includes(qLower)) matches.push({ number: i + 1, content: lines[i].slice(0, 240) })
+      const matches: SearchMatchLine[] = []
+      for (let i = 0; i < lines.length && matches.length < SEARCH_MATCH_LIMIT; i++) {
+        if (matchesAnySearchTerm(lines[i], clauses)) matches.push({ number: i + 1, content: lines[i].slice(0, 240) })
       }
       if (matches.length) results.push({ path: relativePath, name: path.basename(current), type: 'file', size: info.size, modifiedAt: info.mtime.toISOString(), matches })
     } catch {}
     return results.length < MAX_RESULTS
   })
   return results
+}
+async function searchContent(rootId: string, query: string, basePath = '') {
+  const clauses = parseSearchQuery(query)
+  if (!clauses.length) return []
+  const { root, absolutePath } = await resolveInside(rootId, basePath)
+  try {
+    return await searchContentWithRg(root.path, absolutePath, clauses)
+  } catch {
+    return searchContentFallback(rootId, clauses, basePath)
+  }
 }
 function getFallbackRoot(roots: FileRoot[]) {
   return roots.find((item) => item.label.toLowerCase() === 'workspace') || roots[0]

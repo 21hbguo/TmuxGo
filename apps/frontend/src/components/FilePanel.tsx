@@ -191,7 +191,7 @@ function getPreviewLine(item: FileEntry | null) {
   return Math.max(1, item.matches[0]?.number || 1)
 }
 function FavoriteDirectoryButton({ active, name, onClick }: { active: boolean; name: string; onClick: (event: React.MouseEvent) => void }) {
-  return <button onClick={onClick} className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${active ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-3 hover:text-text-1'}`} aria-label={`${active ? 'Unfavorite' : 'Favorite'} ${name}`}>{active ? '已收藏' : '收藏'}</button>
+  return <button onClick={onClick} className={`shrink-0 rounded px-1 py-0 text-[10px] leading-4 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 ${active ? 'bg-accent/20 text-accent opacity-100' : 'bg-bg-2 text-text-3 hover:text-text-1'}`} aria-label={`${active ? 'Unfavorite' : 'Favorite'} ${name}`}>{active ? '★' : '☆'}</button>
 }
 function TreeDirectoryNode({
   rootId,
@@ -247,10 +247,10 @@ function TreeDirectoryNode({
         onClick={() => onToggle(item.path)}
         onDoubleClick={() => onInsert(item)}
         onContextMenu={(e) => onContextMenu(e, item)}
-        className={`group w-full border-l-2 px-3 py-2 text-left text-xs transition-colors hover:bg-bg-2 ${selectedPath === item.path ? 'border-accent bg-bg-2' : 'border-transparent'}`}
-        style={{ paddingLeft: `${12 + depth * 16}px` }}
+        className={`group w-full border-l-2 px-2 py-1 text-left text-[11px] leading-5 transition-colors hover:bg-bg-2 ${selectedPath === item.path ? 'border-accent bg-bg-2' : 'border-transparent'}`}
+        style={{ paddingLeft: `${8 + depth * 12}px` }}
       >
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <span className={`text-[10px] ${isOpen ? 'text-accent' : 'text-text-3'}`}>{isOpen ? '▾' : '▸'}</span>
           <span className="text-accent">▸</span>
           <span className="min-w-0 flex-1 truncate font-mono text-text-1">{item.name}</span>
@@ -259,12 +259,12 @@ function TreeDirectoryNode({
             event.stopPropagation()
             onToggleFavorite(item)
           }} />
-          <span className="text-[10px] text-text-3">dir</span>
+          <span className="invisible text-[10px] text-text-3 group-hover:visible">dir</span>
         </div>
       </button>
       {isOpen && (
         <div>
-          {isLoading && <div className="px-3 py-2 text-xs text-text-3" style={{ paddingLeft: `${28 + depth * 16}px` }}>Loading...</div>}
+          {isLoading && <div className="px-2 py-1 text-[11px] text-text-3" style={{ paddingLeft: `${20 + depth * 12}px` }}>Loading...</div>}
           {!isLoading && childItems.items.map((child) => (
             child.type === 'directory' ? (
               <TreeDirectoryNode
@@ -293,19 +293,19 @@ function TreeDirectoryNode({
                 onClick={() => onSelectFile(child)}
                 onDoubleClick={() => onInsert(child)}
                 onContextMenu={(e) => onContextMenu(e, child)}
-                className={`group w-full border-l-2 px-3 py-2 text-left text-xs transition-colors hover:bg-bg-2 ${selectedPath === child.path ? 'border-accent bg-bg-2' : 'border-transparent'}`}
-                style={{ paddingLeft: `${28 + (depth + 1) * 16}px` }}
+                className={`group w-full border-l-2 px-2 py-1 text-left text-[11px] leading-5 transition-colors hover:bg-bg-2 ${selectedPath === child.path ? 'border-accent bg-bg-2' : 'border-transparent'}`}
+                style={{ paddingLeft: `${20 + (depth + 1) * 12}px` }}
               >
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
                   <FileIcon type={child.type} />
                   <span className="min-w-0 flex-1 truncate font-mono text-text-1">{child.name}</span>
-                  <span className="text-[10px] text-text-3">{formatSize(child.size)}</span>
+                  <span className="invisible text-[10px] text-text-3 group-hover:visible">{formatSize(child.size)}</span>
                 </div>
               </button>
             )
           ))}
-          {!isLoading && childItems.truncated && <div className="px-3 py-2 text-xs text-text-3" style={{ paddingLeft: `${28 + depth * 16}px` }}>Large directory, showing first {DIRECTORY_RENDER_LIMIT} items</div>}
-          {!isLoading && childItems.items.length === 0 && <div className="px-3 py-2 text-xs text-text-3" style={{ paddingLeft: `${28 + depth * 16}px` }}>Empty directory</div>}
+          {!isLoading && childItems.truncated && <div className="px-2 py-1 text-[11px] text-text-3" style={{ paddingLeft: `${20 + depth * 12}px` }}>Large directory, showing first {DIRECTORY_RENDER_LIMIT} items</div>}
+          {!isLoading && childItems.items.length === 0 && <div className="px-2 py-1 text-[11px] text-text-3" style={{ paddingLeft: `${20 + depth * 12}px` }}>Empty directory</div>}
         </div>
       )}
     </div>
@@ -421,7 +421,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     const home = roots.find((item) => getRootKind(item) === 'home')
     return [workspace, home].filter(Boolean) as FileRoot[]
   }, [roots])
-  const isSearching = debouncedQuery.trim().length > 1
+  const isSearching = debouncedQuery.trim().length > 0
   const showSearchResults = isSearching && !searchNavigationPath
   const items = useMemo(() => showSearchResults ? searchResults : listData?.items || [], [showSearchResults, searchResults, listData])
   const visibleItems = useMemo(() => items.filter((item: any) => (!hideDotFiles || !isDotPath(item.path || item.name)) && matchesFileTypeFilter(item, fileTypeFilter)), [fileTypeFilter, hideDotFiles, items])
@@ -699,49 +699,49 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
         />
       )}
       {!contentReady ? <div className="flex h-full items-center justify-center text-xs text-text-3">Loading...</div> : <>
-      <div className="border-b border-[var(--line)] px-3 py-2">
-        <div className="flex items-center gap-2">
+      <div className="border-b border-[var(--line)] px-2 py-2">
+        <div className="flex items-center gap-1.5">
           {isMobile && mobileView === 'preview' && <button onClick={() => setMobileView('list')} className="rounded px-2 py-1 text-text-3 hover:bg-bg-2">‹</button>}
           {isMobile && mobileView !== 'preview' && !!currentPath && <button onClick={goMobileParentDirectory} className="rounded px-2 py-1 text-text-3 hover:bg-bg-2">‹</button>}
           <div className="text-sm font-semibold text-text-1">Files</div>
-          <select value={selectedRootId} onChange={(e) => switchRoot(e.target.value)} className="min-w-0 flex-1 rounded border border-[var(--line)] bg-bg-2 px-2 py-1 text-xs text-text-2 outline-none">
+          <select value={selectedRootId} onChange={(e) => switchRoot(e.target.value)} className="min-w-0 flex-1 rounded border border-[var(--line)] bg-bg-2 px-2 py-1 text-[11px] text-text-2 outline-none">
             {rootOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
           </select>
-          <button onClick={() => uploadInputRef.current?.click()} className="rounded px-2 py-1 text-[11px] text-accent hover:bg-bg-2">上传</button>
-          {activeFavorite && <button onClick={() => removeFavoriteDirectory(activeFavorite)} className="rounded px-2 py-1 text-[11px] text-text-3 hover:bg-bg-2 hover:text-text-1">删收藏</button>}
-          <button onClick={onClose || (() => setFilePanelOpen(false))} className="rounded px-2 py-1 text-text-3 hover:bg-bg-2 hover:text-text-1">×</button>
+          <button onClick={() => uploadInputRef.current?.click()} className="rounded px-1.5 py-1 text-[11px] text-accent hover:bg-bg-2">上传</button>
+          {activeFavorite && <button onClick={() => removeFavoriteDirectory(activeFavorite)} className="rounded px-1.5 py-1 text-[11px] text-text-3 hover:bg-bg-2 hover:text-text-1">删收藏</button>}
+          <button onClick={onClose || (() => setFilePanelOpen(false))} className="rounded px-1.5 py-1 text-text-3 hover:bg-bg-2 hover:text-text-1">×</button>
         </div>
-        <div className="mt-2 flex flex-wrap gap-1.5">
+        <div className="mt-1.5 flex gap-1 overflow-x-auto text-[11px] scrollbar-none">
           {quickRoots.map((item) => (
-            <button key={item.id} onClick={() => switchRoot(item.id)} className={`rounded px-2 py-1 text-[11px] ${selectedRootId === item.id ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-2 hover:text-text-1'}`}>{item.label}</button>
+            <button key={item.id} onClick={() => switchRoot(item.id)} className={`shrink-0 rounded px-1.5 py-0.5 ${selectedRootId === item.id ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-2 hover:text-text-1'}`}>{item.label}</button>
           ))}
           {visibleFavoriteDirectories.map((item) => (
-            <button key={`favorite-${item.rootId}-${item.path || 'root'}`} onClick={() => openDirectoryShortcut(item)} className={`max-w-full truncate rounded px-2 py-1 text-[11px] ${selectedRootId === getFavoriteRootOptionId(item) ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-3 hover:text-accent'}`}>{formatDirectoryShortcutLabel(item.path, rootLabelById[item.rootId] || item.name)}</button>
+            <button key={`favorite-${item.rootId}-${item.path || 'root'}`} onClick={() => openDirectoryShortcut(item)} className={`max-w-full shrink-0 truncate rounded px-1.5 py-0.5 ${selectedRootId === getFavoriteRootOptionId(item) ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-3 hover:text-accent'}`}>{formatDirectoryShortcutLabel(item.path, rootLabelById[item.rootId] || item.name)}</button>
           ))}
         </div>
-        <div className="mt-2 flex min-w-0 items-center gap-1 overflow-x-auto text-xs text-text-3 scrollbar-none">
+        <div className="mt-1.5 flex min-w-0 items-center gap-1 overflow-x-auto text-[11px] text-text-3 scrollbar-none">
           {(listData?.breadcrumbs || [{ name: '/', path: '' }]).map((crumb) => (
-            <button key={crumb.path || '/'} onClick={() => { setCurrentPath(crumb.path); setSelectedPath(''); setSelectedPreviewLine(1); setSearchNavigationPath(query.trim().length > 1 && crumb.path ? crumb.path : null); if (!crumb.path) setOpenDirectories(new Set()) }} className="shrink-0 rounded px-1.5 py-0.5 hover:bg-bg-2 hover:text-accent">{crumb.name}</button>
+            <button key={crumb.path || '/'} onClick={() => { setCurrentPath(crumb.path); setSelectedPath(''); setSelectedPreviewLine(1); setSearchNavigationPath(query.trim().length > 0 && crumb.path ? crumb.path : null); if (!crumb.path) setOpenDirectories(new Set()) }} className="shrink-0 rounded px-1.5 py-0.5 hover:bg-bg-2 hover:text-accent">{crumb.name}</button>
           ))}
         </div>
       </div>
-      {(!isMobile || mobileView === 'list') && <div className="border-b border-[var(--line)] p-3">
-        <div className="flex rounded border border-[var(--line)] bg-bg-2 p-0.5 text-xs">
+      {(!isMobile || mobileView === 'list') && <div className="border-b border-[var(--line)] px-2 py-2">
+        <div className="flex rounded border border-[var(--line)] bg-bg-2 p-0.5 text-[11px]">
           {(['name', 'content'] as SearchMode[]).map((item) => (
-            <button key={item} onClick={() => { setSearchMode(item); setSearchNavigationPath(null) }} className={`flex-1 rounded px-2 py-1 capitalize ${searchMode === item ? 'bg-accent/20 text-accent' : 'text-text-3 hover:text-text-1'}`}>{item}</button>
+            <button key={item} onClick={() => { setSearchMode(item); setSearchNavigationPath(null) }} className={`flex-1 rounded px-2 py-0.5 capitalize ${searchMode === item ? 'bg-accent/20 text-accent' : 'text-text-3 hover:text-text-1'}`}>{item}</button>
           ))}
         </div>
-        <div className="mt-2 flex items-center gap-1.5">
-          <input value={query} onChange={(e) => { setQuery(e.target.value); setSearchNavigationPath(null) }} placeholder={searchMode === 'name' ? 'Search file names' : 'Search file content'} className="min-w-0 flex-1 rounded border border-[var(--line)] bg-bg-0 px-2 py-1.5 font-mono text-xs text-text-1 outline-none placeholder:text-text-3 focus:border-accent" />
-          <button onClick={() => { setQuery(''); setDebouncedQuery(''); setSearchNavigationPath(null) }} disabled={!query} aria-label="Clear search" className={`shrink-0 rounded border border-[var(--line)] px-2 py-1.5 text-xs ${query ? 'bg-bg-2 text-text-2 hover:text-accent' : 'bg-bg-0 text-text-3/40'}`}>×</button>
+        <div className="mt-1.5 flex items-center gap-1">
+          <input value={query} onChange={(e) => { setQuery(e.target.value); setSearchNavigationPath(null) }} placeholder={searchMode === 'name' ? 'Search file names' : 'Search file content'} className="min-w-0 flex-1 rounded border border-[var(--line)] bg-bg-0 px-2 py-1 font-mono text-[11px] text-text-1 outline-none placeholder:text-text-3 focus:border-accent" />
+          <button onClick={() => { setQuery(''); setDebouncedQuery(''); setSearchNavigationPath(null) }} disabled={!query} aria-label="Clear search" className={`shrink-0 rounded border border-[var(--line)] px-2 py-1 text-[11px] ${query ? 'bg-bg-2 text-text-2 hover:text-accent' : 'bg-bg-0 text-text-3/40'}`}>×</button>
         </div>
-        <div className="mt-2 flex items-center gap-1.5">
-          <div className="flex min-w-0 flex-1 rounded border border-[var(--line)] bg-bg-0 p-0.5 text-xs">
+        <div className="mt-1.5 flex items-center gap-1">
+          <div className="flex min-w-0 flex-1 rounded border border-[var(--line)] bg-bg-0 p-0.5 text-[11px]">
             {(['all', 'file', 'directory'] as FileTypeFilter[]).map((item) => (
-              <button key={item} onClick={() => setFileTypeFilter(item)} className={`min-w-0 flex-1 rounded px-2 py-1 ${fileTypeFilter === item ? 'bg-accent/20 text-accent' : 'text-text-3 hover:text-text-1'}`}>{item === 'all' ? 'All' : item === 'file' ? 'File' : 'Dir'}</button>
+              <button key={item} onClick={() => setFileTypeFilter(item)} className={`min-w-0 flex-1 rounded px-2 py-0.5 ${fileTypeFilter === item ? 'bg-accent/20 text-accent' : 'text-text-3 hover:text-text-1'}`}>{item === 'all' ? 'All' : item === 'file' ? 'File' : 'Dir'}</button>
             ))}
           </div>
-          <button onClick={() => updateHideDotFiles(!hideDotFiles)} className={`shrink-0 rounded border border-[var(--line)] px-2 py-1.5 text-xs ${hideDotFiles ? 'bg-bg-0 text-text-3 hover:text-text-1' : 'bg-accent/20 text-accent'}`}>Dotfiles</button>
+          <button onClick={() => updateHideDotFiles(!hideDotFiles)} className={`shrink-0 rounded border border-[var(--line)] px-2 py-1 text-[11px] ${hideDotFiles ? 'bg-bg-0 text-text-3 hover:text-text-1' : 'bg-accent/20 text-accent'}`}>Dotfiles</button>
         </div>
       </div>}
       {(!isMobile || mobileView === 'list') && <div className="min-h-0 flex-1 overflow-y-auto">
@@ -806,9 +806,9 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
                 if (touchTimerRef.current) clearTimeout(touchTimerRef.current)
                 touchTimerRef.current = null
               }}
-              className={`group w-full border-l-2 px-3 py-2 text-left text-xs transition-colors hover:bg-bg-2 ${selectedPath === item.path ? 'border-accent bg-bg-2' : 'border-transparent'}`}
+            className={`group w-full border-l-2 px-2 py-1 text-left text-[11px] leading-5 transition-colors hover:bg-bg-2 ${selectedPath === item.path ? 'border-accent bg-bg-2' : 'border-transparent'}`}
             >
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
                 <FileIcon type={item.type} />
                 <span className="min-w-0 flex-1 truncate font-mono text-text-1">{item.name}</span>
                 {item.type === 'directory' && <FavoriteDirectoryButton active={isFavoriteDirectory({ rootId: activeRootId, path: joinRelativePath(activeRootBasePath, item.path) })} name={item.name} onClick={(event) => {
@@ -816,9 +816,9 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
                   event.stopPropagation()
                   toggleFavoriteDirectory(item)
                 }} />}
-                <span className="text-[10px] text-text-3">{item.type === 'file' ? formatSize(item.size) : 'dir'}</span>
+                <span className="invisible text-[10px] text-text-3 group-hover:visible">{item.type === 'file' ? formatSize(item.size) : 'dir'}</span>
               </div>
-              {'matches' in item && item.matches?.[0] && <div className="mt-1 truncate pl-5 font-mono text-[10px] text-text-3">L{item.matches[0].number}: {item.matches[0].content}</div>}
+              {'matches' in item && item.matches?.[0] && <div className="truncate pl-4 font-mono text-[10px] text-text-3">L{item.matches[0].number}: {item.matches[0].content}</div>}
             </button>
           )
         ))}
