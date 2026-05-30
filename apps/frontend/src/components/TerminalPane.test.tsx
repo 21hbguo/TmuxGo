@@ -12,6 +12,8 @@ const terminalMocks = vi.hoisted(() => ({
   refresh: vi.fn(),
   renderClear: vi.fn(),
   clearTextureAtlas: vi.fn(),
+  reset: vi.fn(),
+  clear: vi.fn(),
   focus: vi.fn(),
 }))
 const terminalLifecycleMocks = vi.hoisted(() => ({
@@ -132,6 +134,12 @@ vi.mock('@xterm/xterm', () => {
     clearTextureAtlas() {
       terminalMocks.clearTextureAtlas()
     }
+    reset() {
+      terminalMocks.reset()
+    }
+    clear() {
+      terminalMocks.clear()
+    }
     write(data: string) {
       terminalMocks.write(data)
     }
@@ -167,6 +175,8 @@ describe('TerminalPane', () => {
     terminalMocks.refresh.mockClear()
     terminalMocks.renderClear.mockClear()
     terminalMocks.clearTextureAtlas.mockClear()
+    terminalMocks.reset.mockClear()
+    terminalMocks.clear.mockClear()
     terminalMocks.focus.mockClear()
     terminalLifecycleMocks.open.mockClear()
     terminalLifecycleMocks.dispose.mockClear()
@@ -181,6 +191,7 @@ describe('TerminalPane', () => {
     mobileKeyboardMocks.focusKeyboard.mockClear()
     mobileKeyboardMocks.textareaRef.current = null
     mobileKeyboardMocks.isMobile = false
+    Object.defineProperty(window, 'devicePixelRatio', { configurable: true, value: 1 })
     ;(document as Document & { execCommand?: (command: string) => boolean }).execCommand = vi.fn((command: string) => {
       if (command !== 'copy') return false
       const event = new Event('copy', { bubbles: true, cancelable: true }) as ClipboardEvent
@@ -434,26 +445,54 @@ describe('TerminalPane', () => {
     await waitFor(() => expect(terminalMocks.refresh).toHaveBeenCalled())
     expect(webSocketMocks.send).toHaveBeenCalledWith({ type: 'redraw', sessionName: 'dev' })
   })
-  it('repaints without clearing renderer cache on attach and layout changes', async () => {
+  it('recovers terminal renderer on attach and keeps ordinary layout changes soft', async () => {
     render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(customKeyHandler).toBeTruthy())
     terminalMocks.refresh.mockClear()
     terminalMocks.clearTextureAtlas.mockClear()
     terminalMocks.renderClear.mockClear()
+    terminalMocks.reset.mockClear()
+    terminalMocks.clear.mockClear()
     webSocketMocks.send.mockClear()
     window.dispatchEvent(new CustomEvent('tmux-attached', { detail: { sessionName: 'dev', cols: 120, rows: 36, exclusive: true } }))
     await waitFor(() => expect(terminalMocks.refresh).toHaveBeenCalled())
-    expect(terminalMocks.clearTextureAtlas).not.toHaveBeenCalled()
-    expect(terminalMocks.renderClear).not.toHaveBeenCalled()
+    expect(terminalMocks.clearTextureAtlas).toHaveBeenCalled()
+    expect(terminalMocks.renderClear).toHaveBeenCalled()
+    expect(terminalMocks.reset).toHaveBeenCalled()
+    expect(terminalMocks.clear).toHaveBeenCalled()
     expect(terminalMocks.refresh).toHaveBeenCalledWith(0, 35)
     expect(webSocketMocks.send).toHaveBeenCalledWith({ type: 'redraw', sessionName: 'dev' })
     terminalMocks.refresh.mockClear()
+    terminalMocks.clearTextureAtlas.mockClear()
+    terminalMocks.renderClear.mockClear()
+    terminalMocks.reset.mockClear()
+    terminalMocks.clear.mockClear()
     webSocketMocks.send.mockClear()
     window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'desktop-workbench' } }))
     await waitFor(() => expect(terminalMocks.refresh).toHaveBeenCalled())
     expect(terminalMocks.clearTextureAtlas).not.toHaveBeenCalled()
     expect(terminalMocks.renderClear).not.toHaveBeenCalled()
+    expect(terminalMocks.reset).not.toHaveBeenCalled()
+    expect(terminalMocks.clear).not.toHaveBeenCalled()
     expect(webSocketMocks.send).not.toHaveBeenCalledWith({ type: 'redraw', sessionName: 'dev' })
+  })
+  it('recovers terminal renderer when device pixel ratio changes', async () => {
+    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    terminalMocks.refresh.mockClear()
+    terminalMocks.clearTextureAtlas.mockClear()
+    terminalMocks.renderClear.mockClear()
+    terminalMocks.reset.mockClear()
+    terminalMocks.clear.mockClear()
+    webSocketMocks.send.mockClear()
+    Object.defineProperty(window, 'devicePixelRatio', { configurable: true, value: 2 })
+    fireEvent.resize(window)
+    await waitFor(() => expect(terminalMocks.clearTextureAtlas).toHaveBeenCalled())
+    expect(terminalMocks.renderClear).toHaveBeenCalled()
+    expect(terminalMocks.reset).toHaveBeenCalled()
+    expect(terminalMocks.clear).toHaveBeenCalled()
+    expect(terminalMocks.refresh).toHaveBeenCalledWith(0, 35)
+    expect(webSocketMocks.send).toHaveBeenCalledWith({ type: 'redraw', sessionName: 'dev' })
   })
   it('keeps terminal root aligned without transform offsets', async () => {
     const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
