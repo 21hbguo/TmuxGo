@@ -341,10 +341,11 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       <InstallAppBanner />
       {!isMobile && <TopBar />}
       <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
-        <main data-workspace-main className="flex flex-1 min-h-0 min-w-0 flex-col bg-bg-1" style={isMobile?{paddingBottom:'calc(48px + env(safe-area-inset-bottom))'}:undefined}>
+        <main data-workspace-main className="flex flex-1 min-h-0 min-w-0 flex-col bg-bg-1">
           {isMobile ? <PaneGrid /> : <DesktopWorkbench />}
         </main>
       </div>
+      {isMobile && <div aria-hidden className="mobile-nav-landscape-hide shrink-0 h-[calc(48px+env(safe-area-inset-bottom))]" />}
       {!isMobile && preferences.showStatusBar && <StatusBar />}
       {isMobile && (
         <div data-mobile-dock className="mobile-nav-landscape-hide fixed bottom-0 left-0 right-0 z-40 min-h-[calc(48px+env(safe-area-inset-bottom))]">
