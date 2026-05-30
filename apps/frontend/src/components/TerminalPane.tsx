@@ -30,6 +30,10 @@ const MOBILE_TERMINAL_RECOVERY_REPAINT_DELAYS = [48, 160]
 const MOBILE_FIT_DEBOUNCE_MS = 96
 const MOBILE_FIT_SIZE_TOLERANCE = 2
 const DEVICE_PIXEL_RATIO_TOLERANCE = 0.01
+const MOBILE_PINCH_MIN_FONT_SIZE = 12
+const MOBILE_PINCH_MAX_FONT_SIZE = 20
+const MOBILE_PINCH_FONT_SIZE_EPSILON = 0.04
+const MOBILE_PINCH_DISTANCE_EPSILON = 2
 function recordMobileDebug(event: string, data?: Record<string, unknown>) {
   recordMobileDiagnostic(event, data)
   if (typeof window === 'undefined' || !window.localStorage.getItem('tmuxgo-debug-mobile')) return
@@ -63,7 +67,7 @@ function isPasteShortcut(e: KeyboardEvent) {
 }
 
 export function TerminalPane({ sessionName, onInput, onResize, attachExclusive = false, onReady, subscribeOutput }: TerminalPaneProps) {
-  const { preferences } = usePreferences()
+  const { preferences, updatePreferences } = usePreferences()
   const activeHostId = useConsoleStore((s) => s.activeHostId)
   const pushToast = useConsoleStore((s) => s.pushToast)
   const openUploadDialog = useConsoleStore((s) => s.openUploadDialog)
@@ -86,11 +90,13 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   const sharedSessionSizeRef = useRef<{ cols: number; rows: number } | null>(null)
   const controlCarryRef = useRef('')
   const lastTapRef = useRef<{ x: number; y: number } | null>(null)
-  const scheduleFitRef = useRef<() => void>(() => {})
+  const scheduleFitRef = useRef<(delay?: number, force?: boolean) => void>(() => {})
   const forceStableFitRef = useRef<() => void>(() => {})
   const syncSharedLayoutRef = useRef<(resetFont: boolean) => void>(() => {})
   const activeHostIdRef = useRef(activeHostId)
   const sessionSnapshotRef = useRef<any | null>(null)
+  const updatePreferencesRef = useRef(updatePreferences)
+  const pinchStateRef = useRef({ active: false, startDistance: 0, startFontSize: preferences.fontSize, lastFontSize: preferences.fontSize })
   const dispatchTerminalTap = useCallback((x: number, y: number) => {
     const container = terminalRef.current
     if (!container) return
@@ -118,6 +124,83 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   const handleTouchMovedChange = useCallback((moved: boolean) => {
     touchMovedRef.current = moved
   }, [])
+  const clampMobileFontSize = useCallback((value: number) => {
+    const rounded = Math.round(value * 10) / 10
+    return Math.max(MOBILE_PINCH_MIN_FONT_SIZE, Math.min(MOBILE_PINCH_MAX_FONT_SIZE, rounded))
+  }, [])
+  const getPinchDistance = useCallback((touches: TouchList) => {
+    if (touches.length < 2) return 0
+    const dx = touches[0].clientX - touches[1].clientX
+    const dy = touches[0].clientY - touches[1].clientY
+    return Math.hypot(dx, dy)
+  }, [])
+  const applyPinchFontSize = useCallback((fontSize: number) => {
+    const terminal = terminalInstance.current
+    if (!terminal) return
+    terminal.options.fontSize = fontSize
+    if (attachExclusiveRef.current) scheduleFitRef.current(0, true)
+    else syncSharedLayoutRef.current(true)
+  }, [])
+  const beginPinch = useCallback((touches: TouchList) => {
+    if (!isMobileDevice || touches.length < 2) return
+    const distance = getPinchDistance(touches)
+    if (!Number.isFinite(distance) || distance < MOBILE_PINCH_DISTANCE_EPSILON) return
+    const currentFontSize = Number(terminalInstance.current?.options?.fontSize) || preferencesRef.current.fontSize
+    const startFontSize = clampMobileFontSize(currentFontSize)
+    pinchStateRef.current.active = true
+    pinchStateRef.current.startDistance = distance
+    pinchStateRef.current.startFontSize = startFontSize
+    pinchStateRef.current.lastFontSize = startFontSize
+    touchMovedRef.current = true
+  }, [clampMobileFontSize, getPinchDistance, isMobileDevice])
+  const commitPinch = useCallback(() => {
+    const state = pinchStateRef.current
+    if (!state.active) return
+    state.active = false
+    const nextFontSize = clampMobileFontSize(state.lastFontSize || state.startFontSize || preferencesRef.current.fontSize)
+    state.startDistance = 0
+    state.startFontSize = nextFontSize
+    state.lastFontSize = nextFontSize
+    if (Math.abs(nextFontSize - preferencesRef.current.fontSize) < MOBILE_PINCH_FONT_SIZE_EPSILON) return
+    updatePreferencesRef.current({ fontSize: nextFontSize })
+  }, [clampMobileFontSize])
+  const handlePinchTouchStart = useCallback((e: TouchEvent) => {
+    if (!isMobileDevice) return
+    if (e.touches.length < 2) return
+    beginPinch(e.touches)
+  }, [beginPinch, isMobileDevice])
+  const handlePinchTouchMove = useCallback((e: TouchEvent) => {
+    if (!isMobileDevice || e.touches.length < 2) return
+    if (!pinchStateRef.current.active) beginPinch(e.touches)
+    if (!pinchStateRef.current.active) return
+    e.preventDefault()
+    touchMovedRef.current = true
+    const state = pinchStateRef.current
+    const distance = getPinchDistance(e.touches)
+    if (!Number.isFinite(distance) || distance < MOBILE_PINCH_DISTANCE_EPSILON || state.startDistance < MOBILE_PINCH_DISTANCE_EPSILON) return
+    const nextFontSize = clampMobileFontSize(state.startFontSize * (distance / state.startDistance))
+    if (Math.abs(nextFontSize - state.lastFontSize) < MOBILE_PINCH_FONT_SIZE_EPSILON) return
+    state.lastFontSize = nextFontSize
+    applyPinchFontSize(nextFontSize)
+  }, [applyPinchFontSize, beginPinch, clampMobileFontSize, getPinchDistance, isMobileDevice])
+  const handlePinchTouchEnd = useCallback((e: TouchEvent) => {
+    if (!pinchStateRef.current.active) return
+    touchMovedRef.current = true
+    if (e.touches.length >= 2) {
+      const distance = getPinchDistance(e.touches)
+      if (Number.isFinite(distance) && distance >= MOBILE_PINCH_DISTANCE_EPSILON) {
+        pinchStateRef.current.startDistance = distance
+        pinchStateRef.current.startFontSize = pinchStateRef.current.lastFontSize
+      }
+      return
+    }
+    commitPinch()
+  }, [commitPinch, getPinchDistance])
+  const handlePinchTouchCancel = useCallback(() => {
+    if (!pinchStateRef.current.active) return
+    touchMovedRef.current = true
+    commitPinch()
+  }, [commitPinch])
   const touchScroll = useTerminalTouchScroll({
     isMobile: isMobileDevice,
     onScroll: handleTouchScroll,
@@ -151,6 +234,9 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   useEffect(() => {
     sendRef.current = send
   }, [send])
+  useEffect(() => {
+    updatePreferencesRef.current = updatePreferences
+  }, [updatePreferences])
 
   useEffect(() => {
     const terminal = terminalInstance.current
@@ -1123,12 +1209,20 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         syncSharedLayout(false)
       })
       resizeObserver.observe(container)
+      container.addEventListener('touchstart', handlePinchTouchStart, { passive: true })
+      container.addEventListener('touchmove', handlePinchTouchMove, { passive: false })
+      container.addEventListener('touchend', handlePinchTouchEnd, { passive: true })
+      container.addEventListener('touchcancel', handlePinchTouchCancel, { passive: true })
       container.addEventListener('touchstart', touchScroll.handleTouchStart, { passive: true })
       container.addEventListener('touchmove', touchScroll.handleTouchMove, { passive: false })
       container.addEventListener('touchend', touchScroll.handleTouchEnd, { passive: true })
       container.addEventListener('touchcancel', touchScroll.handleTouchCancel, { passive: true })
       disposables.push({
         dispose: () => {
+          container.removeEventListener('touchstart', handlePinchTouchStart)
+          container.removeEventListener('touchmove', handlePinchTouchMove)
+          container.removeEventListener('touchend', handlePinchTouchEnd)
+          container.removeEventListener('touchcancel', handlePinchTouchCancel)
           touchScroll.dispose()
           container.removeEventListener('touchstart', touchScroll.handleTouchStart)
           container.removeEventListener('touchmove', touchScroll.handleTouchMove)
@@ -1159,7 +1253,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       forceStableFitRef.current = () => {}
       syncSharedLayoutRef.current = () => {}
     }
-  }, [openUploadDialog, pushToast, queryClient, recordTerminalOutput, selectionSync, setActivePane, touchScroll, updateTerminalPerf])
+  }, [handlePinchTouchCancel, handlePinchTouchEnd, handlePinchTouchMove, handlePinchTouchStart, openUploadDialog, pushToast, queryClient, recordTerminalOutput, selectionSync, setActivePane, touchScroll, updateTerminalPerf])
 
   return (
     <div
@@ -1170,6 +1264,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       style={{
         ['--terminal-padding' as any]: `${preferences.terminalPadding}px`,
         ['--terminal-padding-bottom' as any]: `${preferences.terminalPadding}px`,
+        touchAction: isMobileDevice ? 'none' : 'auto',
       }}
       onMouseDown={() => {
         if (!isMobileDevice) terminalInstance.current?.focus?.()

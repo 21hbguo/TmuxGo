@@ -18,6 +18,7 @@ export function Settings({ onClose }: SettingsProps) {
   const [terminalPaddingDraft, setTerminalPaddingDraft] = useState(preferences.terminalPadding)
   const [uploadRateLimitDraft, setUploadRateLimitDraft] = useState(preferences.uploadRateLimitKBps)
   const [downloadRateLimitDraft, setDownloadRateLimitDraft] = useState(preferences.downloadRateLimitKBps)
+  const fontSizeLabel = Number.isInteger(preferences.fontSize) ? `${preferences.fontSize}` : preferences.fontSize.toFixed(1)
   useEffect(() => {
     setTerminalPaddingDraft(preferences.terminalPadding)
     setUploadRateLimitDraft(preferences.uploadRateLimitKBps)
@@ -116,14 +117,14 @@ export function Settings({ onClose }: SettingsProps) {
                     <span className="text-text-2 text-sm">{t('settings.fontSize')}</span>
                     <div className="flex items-center gap-2">
                       <button
-                        onClick={() => updatePreferences({ fontSize: Math.max(12, preferences.fontSize - 1) })}
+                        onClick={() => updatePreferences({ fontSize: Math.max(12, Math.round((preferences.fontSize - 1) * 10) / 10) })}
                         className="px-2 py-1 bg-bg-2 rounded text-text-2"
                       >
                         -
                       </button>
-                      <span className="text-text-1 text-sm w-8 text-center">{preferences.fontSize}px</span>
+                      <span className="text-text-1 text-sm w-12 text-center">{fontSizeLabel}px</span>
                       <button
-                        onClick={() => updatePreferences({ fontSize: Math.min(20, preferences.fontSize + 1) })}
+                        onClick={() => updatePreferences({ fontSize: Math.min(20, Math.round((preferences.fontSize + 1) * 10) / 10) })}
                         className="px-2 py-1 bg-bg-2 rounded text-text-2"
                       >
                         +

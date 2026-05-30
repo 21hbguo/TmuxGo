@@ -58,6 +58,18 @@ export function useTerminalTouchScroll({ isMobile, onScroll, onTap, onTouchMoved
     clearScrollFlush()
     stateRef.current.scrollPendingLines = 0
     stateRef.current.carryY = 0
+    if (e.touches.length !== 1) {
+      stateRef.current.startY = 0
+      stateRef.current.startX = 0
+      stateRef.current.lastY = 0
+      stateRef.current.startTime = performance.now()
+      stateRef.current.lastMoveTime = stateRef.current.startTime
+      stateRef.current.lastVelocity = 0
+      stateRef.current.moved = true
+      stateRef.current.direction = 'horizontal'
+      onTouchMovedChange(true)
+      return
+    }
     stateRef.current.startY = e.touches[0].clientY
     stateRef.current.startX = e.touches[0].clientX
     stateRef.current.lastY = stateRef.current.startY
@@ -70,6 +82,11 @@ export function useTerminalTouchScroll({ isMobile, onScroll, onTap, onTouchMoved
   }, [clearMomentum, clearScrollFlush, isMobile, onTouchMovedChange])
   const handleTouchMove = useCallback((e: TouchEvent) => {
     if (!isMobile) return
+    if (e.touches.length !== 1) {
+      stateRef.current.moved = true
+      onTouchMovedChange(true)
+      return
+    }
     const x = e.touches[0].clientX
     const y = e.touches[0].clientY
     const dx = Math.abs(x - stateRef.current.startX)
