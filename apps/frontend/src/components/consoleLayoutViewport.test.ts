@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getViewportLayoutState, normalizeKeyboardViewportState } from './consoleLayoutViewport'
+import { createViewportStableState, getNextViewportStableState, getViewportLayoutState, normalizeKeyboardViewportState } from './consoleLayoutViewport'
 
 describe('getViewportLayoutState', () => {
   it('uses visual viewport shrink when keyboard resizes viewport', () => {
@@ -96,6 +96,96 @@ describe('getViewportLayoutState', () => {
       open: false,
       nextHeight: 800,
     })
+  })
+  it('does not use stale keyboard inset when visual viewport already resized', () => {
+    expect(getViewportLayoutState({
+      isMobileViewport: true,
+      innerHeight: 725,
+      viewportHeight: 448,
+      viewportWidth: 390,
+      previousViewportWidth: 390,
+      baseHeight: 670,
+      keyboardOpen: true,
+      keyboardInset: 277,
+      bodyKeyboardOpen: true,
+    })).toEqual({
+      viewportWidth: 390,
+      baseHeight: 670,
+      inset: 222,
+      open: true,
+      nextHeight: 448,
+    })
+  })
+  it('rejects keyboard-close overshoot and settles back to the previous closed height', () => {
+    let stable = createViewportStableState(670)
+    let baseHeight = 670
+    const sample = (viewportHeight: number, keyboardOpen: boolean, keyboardInset: number, now: number) => {
+      stable = getNextViewportStableState({
+        state: stable,
+        isMobileViewport: true,
+        innerHeight: viewportHeight,
+        viewportHeight,
+        viewportWidth: 390,
+        previousViewportWidth: 390,
+        baseHeight,
+        keyboardOpen,
+        bodyKeyboardOpen: keyboardOpen,
+        currentAppHeight: baseHeight,
+        now,
+      })
+      const layout = getViewportLayoutState({
+        isMobileViewport: true,
+        innerHeight: viewportHeight,
+        viewportHeight,
+        viewportWidth: 390,
+        previousViewportWidth: 390,
+        baseHeight: stable.stableClosedHeight,
+        keyboardOpen,
+        keyboardInset,
+        bodyKeyboardOpen: keyboardOpen,
+      })
+      baseHeight = layout.baseHeight
+      return layout
+    }
+    expect(sample(670, false, 0, 0).nextHeight).toBe(670)
+    expect(sample(448, true, 222, 16).nextHeight).toBe(448)
+    expect(sample(393, true, 277, 32).nextHeight).toBe(393)
+    const overshoot = sample(725, false, 0, 48)
+    expect(overshoot.nextHeight).toBe(670)
+    expect(overshoot.nextHeight).not.toBe(725)
+    expect(sample(670, false, 0, 64).nextHeight).toBe(670)
+    expect(stable.stableClosedHeight).toBe(670)
+  })
+  it('waits before accepting a large viewport after keyboard-open class is removed', () => {
+    let stable = { ...createViewportStableState(670), wasOpen: true }
+    stable = getNextViewportStableState({
+      state: stable,
+      isMobileViewport: true,
+      innerHeight: 725,
+      viewportHeight: 725,
+      viewportWidth: 390,
+      previousViewportWidth: 390,
+      baseHeight: 670,
+      keyboardOpen: false,
+      bodyKeyboardOpen: false,
+      currentAppHeight: 393,
+      now: 100,
+    })
+    expect(stable.stableClosedHeight).toBe(670)
+    stable = getNextViewportStableState({
+      state: stable,
+      isMobileViewport: true,
+      innerHeight: 725,
+      viewportHeight: 725,
+      viewportWidth: 390,
+      previousViewportWidth: 390,
+      baseHeight: stable.stableClosedHeight,
+      keyboardOpen: false,
+      bodyKeyboardOpen: false,
+      currentAppHeight: 670,
+      now: 430,
+    })
+    expect(stable.stableClosedHeight).toBe(725)
   })
 })
 describe('normalizeKeyboardViewportState', () => {
