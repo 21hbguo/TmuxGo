@@ -1,5 +1,6 @@
 let storedClipboardText=''
 export interface ClipboardWriteOptions {
+  preferSync?:boolean
 }
 export type ClipboardWriteReason='ok'|'permission_denied'|'api_unavailable'|'sync_copy_failed'
 export interface ClipboardReadResult {
@@ -67,7 +68,9 @@ function isPermissionDeniedError(error:unknown) {
 }
 export async function writeClipboardText(text:string,options:ClipboardWriteOptions={}):Promise<ClipboardWriteResult> {
   storedClipboardText=text
+  if (options.preferSync&&writeClipboardTextSync(text)) return {copied:true,source:'system',unavailable:false,reason:'ok'}
   let permissionDenied=false
+  let apiFailed=false
   try {
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(text)
@@ -75,9 +78,11 @@ export async function writeClipboardText(text:string,options:ClipboardWriteOptio
     }
   } catch (error) {
     permissionDenied=isPermissionDeniedError(error)
+    apiFailed=true
   }
   if (writeClipboardTextSync(text)) return {copied:true,source:'system',unavailable:false,reason:'ok'}
   if (permissionDenied) return {copied:!!text,source:'memory',unavailable:true,reason:'permission_denied'}
+  if (apiFailed) return {copied:!!text,source:'memory',unavailable:true,reason:'sync_copy_failed'}
   return {copied:!!text,source:'memory',unavailable:true,reason:'api_unavailable'}
 }
 export async function verifyClipboardText(text:string):Promise<ClipboardVerifyResult> {

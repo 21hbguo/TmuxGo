@@ -1,14 +1,15 @@
-import { fireEvent, render, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useEffect, useRef } from 'react'
 import { useMobileKeyboard } from './useMobileKeyboard'
 
 let api: { focusKeyboard?: () => void; textarea?: HTMLTextAreaElement | null } = {}
 let viewportTarget: EventTarget
+let sendInputMock: ReturnType<typeof vi.fn>
 
 function Harness() {
   const terminalRef = useRef<HTMLDivElement>(null)
-  const { textareaRef, focusKeyboard } = useMobileKeyboard(vi.fn(), terminalRef)
+  const { textareaRef, focusKeyboard } = useMobileKeyboard(sendInputMock, terminalRef)
   useEffect(() => {
     api = { focusKeyboard, textarea: textareaRef.current }
   }, [focusKeyboard, textareaRef])
@@ -18,6 +19,7 @@ function Harness() {
 describe('useMobileKeyboard', () => {
   beforeEach(() => {
     api = {}
+    sendInputMock = vi.fn()
     viewportTarget = new EventTarget()
     vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
@@ -37,6 +39,7 @@ describe('useMobileKeyboard', () => {
     })
   })
   afterEach(() => {
+    vi.useRealTimers()
     document.body.classList.remove('keyboard-open')
     document.documentElement.style.removeProperty('--mobile-keyboard-inset')
     vi.unstubAllGlobals()
@@ -87,5 +90,40 @@ describe('useMobileKeyboard', () => {
     window.visualViewport?.dispatchEvent(new Event('resize'))
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(events).toEqual([])
+  })
+  it('keeps composition text until compositionend', async () => {
+    render(<Harness />)
+    await waitFor(() => expect(api.textarea).toBeTruthy())
+    const textarea = api.textarea as HTMLTextAreaElement
+    act(() => {
+      fireEvent.compositionStart(textarea)
+      textarea.value = 'zhong'
+      textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertCompositionText', data: 'zhong' }))
+    })
+    expect(textarea.value).toBe('zhong')
+    expect(sendInputMock).not.toHaveBeenCalled()
+    act(() => {
+      textarea.value = '中'
+      fireEvent.compositionEnd(textarea)
+    })
+    expect(sendInputMock).toHaveBeenCalledWith('中')
+    expect(textarea.value).toBe('\u200b\u200b')
+  })
+  it('defers replacement text so voice input is not cleared mid-session', async () => {
+    render(<Harness />)
+    await waitFor(() => expect(api.textarea).toBeTruthy())
+    vi.useFakeTimers()
+    const textarea = api.textarea as HTMLTextAreaElement
+    act(() => {
+      textarea.value = '\u200bhello world\u200b'
+      textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertReplacementText', data: 'hello world' }))
+    })
+    expect(textarea.value).toContain('hello world')
+    expect(sendInputMock).not.toHaveBeenCalled()
+    act(() => {
+      vi.advanceTimersByTime(650)
+    })
+    expect(sendInputMock).toHaveBeenCalledWith('hello world')
+    expect(textarea.value).toBe('\u200b\u200b')
   })
 })

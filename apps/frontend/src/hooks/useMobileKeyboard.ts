@@ -10,6 +10,7 @@ const KEYBOARD_CLOSE_THRESHOLD = 70
 const KEYBOARD_VIEWPORT_GRACE_MS = 1500
 const KEYBOARD_PROBE_MS = 700
 const KEYBOARD_VERIFY_MS = 360
+const DEFERRED_INPUT_COMMIT_MS = 650
 const KEYBOARD_EVENT = 'mobile-keyboard-change'
 const isEdgeAndroid = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent) && /EdgA/i.test(navigator.userAgent)
 function recordMobileDebug(event: string, data?: Record<string, unknown>) {
@@ -41,6 +42,8 @@ export function useMobileKeyboard(
   const focusingRef = useRef(false)
   const keyboardProbeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const keyboardVerifyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const deferredInputTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const deferredInputActiveRef = useRef(false)
   const keepAliveUntilRef = useRef(0)
   const viewportGraceUntilRef = useRef(0)
   const viewportBaseHeightRef = useRef(0)
@@ -139,12 +142,31 @@ export function useMobileKeyboard(
     ta.value = SENTINEL
     try { ta.setSelectionRange(SENTINEL_CENTER, SENTINEL_CENTER) } catch {}
   }, [])
-
-  const ensureSentinel = useCallback(() => {
-    const ta = textareaRef.current
-    if (!ta || ta.value.includes(SENTINEL.charAt(0))) return
+  const getInputText = useCallback(() => textareaRef.current?.value.replace(/\u200b/g, '') || '', [])
+  const clearDeferredInputTimer = useCallback(() => {
+    if (!deferredInputTimerRef.current) return
+    clearTimeout(deferredInputTimerRef.current)
+    deferredInputTimerRef.current = null
+  }, [])
+  const flushDeferredInput = useCallback(() => {
+    clearDeferredInputTimer()
+    const text = getInputText()
+    deferredInputActiveRef.current = false
+    if (text) sendInput(text)
     clearValue()
-  }, [clearValue])
+  }, [clearDeferredInputTimer, clearValue, getInputText, sendInput])
+  const scheduleDeferredInputFlush = useCallback(() => {
+    clearDeferredInputTimer()
+    deferredInputActiveRef.current = true
+    deferredInputTimerRef.current = setTimeout(() => {
+      deferredInputTimerRef.current = null
+      const text = getInputText()
+      deferredInputActiveRef.current = false
+      if (text) sendInput(text)
+      clearValue()
+    }, DEFERRED_INPUT_COMMIT_MS)
+  }, [clearDeferredInputTimer, clearValue, getInputText, sendInput])
+  const shouldDeferInput = useCallback((inputType?: string, text?: string | null) => inputType === 'insertCompositionText' || inputType === 'insertReplacementText' || !!text && text.length > 1, [])
   const confirmKeyboardOpen = useCallback(() => {
     const ta = textareaRef.current
     if (!ta || document.activeElement !== ta) return false
@@ -171,7 +193,7 @@ export function useMobileKeyboard(
     if (document.activeElement !== ta) return
     keyboardLog('focus')
     recordMobileDebug('keyboard-focus')
-    clearValue()
+    if (!deferredInputActiveRef.current) clearValue()
     if (!confirmKeyboardOpen()) scheduleKeyboardProbe(true)
   }, [clearValue, confirmKeyboardOpen, keyboardLog, scheduleKeyboardProbe])
 
@@ -207,6 +229,15 @@ export function useMobileKeyboard(
     }
     const handleKeyDown = (e: KeyboardEvent) => {
       if (composingRef.current || e.isComposing) return
+      if (deferredInputActiveRef.current) {
+        if (e.key === 'Enter' || e.key === 'Tab' || ARROW_KEYS[e.key]) {
+          e.preventDefault()
+          flushDeferredInput()
+          sendInput(e.key === 'Enter' ? '\r' : e.key === 'Tab' ? '\t' : ARROW_KEYS[e.key])
+          clearValue()
+        }
+        return
+      }
       if (e.key === 'Backspace') {
         e.preventDefault()
         sendInput('\x7f')
@@ -227,10 +258,11 @@ export function useMobileKeyboard(
     }
 
     const handleBeforeInput = (e: InputEvent) => {
-      if (composingRef.current) return
+      if (composingRef.current || deferredInputActiveRef.current) return
       const inputType = e.inputType
       if (inputType === 'insertText' || inputType === 'insertReplacementText') {
         const text = e.data
+        if (shouldDeferInput(inputType, text)) return
         if (text) {
           e.preventDefault()
           sendInput(text)
@@ -245,20 +277,26 @@ export function useMobileKeyboard(
 
     const handleInput = (e: Event) => {
       if (composingRef.current) {
-        clearValue()
+        composingLengthRef.current = getInputText().length
         return
       }
       const inputEvent = e as InputEvent
       const inputType = inputEvent.inputType
+      const text = getInputText()
+      if (deferredInputActiveRef.current || shouldDeferInput(inputType, inputEvent.data) || inputType === 'insertText' && text.length > 1) {
+        if (text) scheduleDeferredInputFlush()
+        else {
+          clearDeferredInputTimer()
+          deferredInputActiveRef.current = false
+          clearValue()
+        }
+        return
+      }
       if (inputType === 'deleteContentBackward' || inputType === 'deleteContentForward' || inputType === 'deleteByCut' || inputType === 'deleteByDrag' || inputType === 'deleteContent') {
         sendInput('\x7f')
         clearValue()
         return
       }
-      const ta = textareaRef.current
-      if (!ta) return
-      const raw = ta.value
-      const text = raw.replace(/\u200b/g, '')
       if (text) {
         sendInput(text)
       } else if (inputType?.startsWith('delete')) {
@@ -268,6 +306,8 @@ export function useMobileKeyboard(
     }
 
     const handleCompositionStart = () => {
+      clearDeferredInputTimer()
+      deferredInputActiveRef.current = false
       composingRef.current = true
       composingLengthRef.current = 0
       if (ta) ta.value = ''
@@ -279,6 +319,8 @@ export function useMobileKeyboard(
 
     const handleCompositionEnd = () => {
       composingRef.current = false
+      clearDeferredInputTimer()
+      deferredInputActiveRef.current = false
       const raw = ta.value
       const text = raw.replace(/\u200b/g, '')
       if (text) {
@@ -295,13 +337,15 @@ export function useMobileKeyboard(
       viewportGraceUntilRef.current = Date.now() + KEYBOARD_VIEWPORT_GRACE_MS
       if (focusingRef.current) {
         setTimeout(() => {
-          clearValue()
+          if (!deferredInputActiveRef.current) clearValue()
           if (!confirmKeyboardOpen()) scheduleKeyboardProbe(true)
         }, 10)
         return
       }
       if (!confirmKeyboardOpen()) scheduleKeyboardProbe(true)
-      setTimeout(() => clearValue(), 10)
+      setTimeout(() => {
+        if (!deferredInputActiveRef.current) clearValue()
+      }, 10)
     }
     const handleKeepAliveCapture = (e: Event) => {
       const target = e.target
@@ -313,6 +357,7 @@ export function useMobileKeyboard(
     }
     const handleBlur = () => {
       clearKeyboardProbe()
+      if (deferredInputActiveRef.current) flushDeferredInput()
       if (Date.now() > keepAliveUntilRef.current) {
         closeKeyboard()
         return
@@ -346,8 +391,9 @@ export function useMobileKeyboard(
       document.removeEventListener('pointerdown', handleKeepAliveCapture, true)
       document.removeEventListener('touchstart', handleKeepAliveCapture, true)
       document.removeEventListener('mousedown', handleKeepAliveCapture, true)
+      clearDeferredInputTimer()
     }
-  }, [sendInput, clearValue, focusKeyboard, closeKeyboard, confirmKeyboardOpen, scheduleKeyboardProbe, openKeyboard, keyboardLog])
+  }, [sendInput, clearValue, focusKeyboard, closeKeyboard, confirmKeyboardOpen, scheduleKeyboardProbe, openKeyboard, keyboardLog, getInputText, flushDeferredInput, scheduleDeferredInputFlush, clearDeferredInputTimer, shouldDeferInput])
 
   useEffect(() => {
     if (!isMobile.current) return
