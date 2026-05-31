@@ -9,6 +9,7 @@ let terminalSelection = 'printf "auto_copy_ok"'
 let terminalSelectionPosition: any = null
 let terminalBufferLines: string[] = []
 let terminalBaseY = 0
+let terminalViewportY = 0
 let resizeObserverCallback: (() => void) | null = null
 const terminalMocks = vi.hoisted(() => ({
   write: vi.fn(),
@@ -18,6 +19,7 @@ const terminalMocks = vi.hoisted(() => ({
   reset: vi.fn(),
   clear: vi.fn(),
   focus: vi.fn(),
+  scrollToBottom: vi.fn(),
 }))
 const terminalLifecycleMocks = vi.hoisted(() => ({
   open: vi.fn(),
@@ -113,6 +115,9 @@ vi.mock('@xterm/xterm', () => {
         get baseY() {
           return terminalBaseY
         },
+        get viewportY() {
+          return terminalViewportY
+        },
         get length() {
           return terminalBufferLines.length
         },
@@ -182,6 +187,10 @@ vi.mock('@xterm/xterm', () => {
     clear() {
       terminalMocks.clear()
     }
+    scrollToBottom() {
+      terminalViewportY = terminalBaseY
+      terminalMocks.scrollToBottom()
+    }
     write(data: string, callback?: () => void) {
       terminalMocks.write(data)
       callback?.()
@@ -217,6 +226,7 @@ describe('TerminalPane', () => {
     terminalSelectionPosition = null
     terminalBufferLines = []
     terminalBaseY = 0
+    terminalViewportY = 0
     terminalMocks.write.mockClear()
     terminalMocks.refresh.mockClear()
     terminalMocks.renderClear.mockClear()
@@ -224,6 +234,7 @@ describe('TerminalPane', () => {
     terminalMocks.reset.mockClear()
     terminalMocks.clear.mockClear()
     terminalMocks.focus.mockClear()
+    terminalMocks.scrollToBottom.mockClear()
     terminalLifecycleMocks.open.mockClear()
     terminalLifecycleMocks.dispose.mockClear()
     webSocketMocks.send.mockClear()
@@ -671,6 +682,67 @@ describe('TerminalPane', () => {
     resizeObserverCallback?.()
     await sleep(140)
     expect(terminalMocks.refresh).not.toHaveBeenCalled()
+  })
+  it('cancels tmux copy mode before focusing the mobile keyboard', async () => {
+    mobileKeyboardMocks.isMobile = true
+    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    webSocketMocks.send.mockClear()
+    const root = container.firstChild as HTMLElement
+    fireEvent.touchEnd(root, { changedTouches: [{ identifier: 1, clientX: 12, clientY: 18 }] })
+    expect(webSocketMocks.send).toHaveBeenCalledWith({ type: 'copy_mode_cancel', sessionName: 'dev' })
+    expect(mobileKeyboardMocks.focusKeyboard).toHaveBeenCalled()
+  })
+  it('cancels tmux copy mode when the mobile keyboard opens', async () => {
+    mobileKeyboardMocks.isMobile = true
+    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    webSocketMocks.send.mockClear()
+    window.dispatchEvent(new CustomEvent('mobile-keyboard-change', { detail: { open: true } }))
+    expect(webSocketMocks.send).toHaveBeenCalledWith({ type: 'copy_mode_cancel', sessionName: 'dev' })
+  })
+  it('cancels tmux copy mode when the mobile keyboard closes', async () => {
+    mobileKeyboardMocks.isMobile = true
+    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    window.dispatchEvent(new CustomEvent('mobile-keyboard-change', { detail: { open: true } }))
+    webSocketMocks.send.mockClear()
+    window.dispatchEvent(new CustomEvent('mobile-keyboard-change', { detail: { open: false } }))
+    expect(webSocketMocks.send).toHaveBeenCalledWith({ type: 'copy_mode_cancel', sessionName: 'dev' })
+  })
+  it('soft-recovers mobile renderer changes without clearing terminal state', async () => {
+    mobileKeyboardMocks.isMobile = true
+    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    terminalBaseY = 40
+    terminalViewportY = 40
+    terminalMocks.refresh.mockClear()
+    terminalMocks.clearTextureAtlas.mockClear()
+    terminalMocks.renderClear.mockClear()
+    terminalMocks.reset.mockClear()
+    terminalMocks.clear.mockClear()
+    Object.defineProperty(window, 'devicePixelRatio', { configurable: true, value: 2 })
+    fireEvent.resize(window)
+    await waitFor(() => expect(terminalMocks.refresh).toHaveBeenCalled())
+    expect(terminalMocks.clearTextureAtlas).toHaveBeenCalled()
+    expect(terminalMocks.renderClear).toHaveBeenCalled()
+    expect(terminalMocks.reset).not.toHaveBeenCalled()
+    expect(terminalMocks.clear).not.toHaveBeenCalled()
+  })
+  it('pins mobile keyboard layout repaint to bottom only when already at bottom', async () => {
+    mobileKeyboardMocks.isMobile = true
+    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    terminalBaseY = 80
+    terminalViewportY = 80
+    terminalMocks.scrollToBottom.mockClear()
+    window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'viewport-sync', mobile: true, keyboardOpen: true } }))
+    await waitFor(() => expect(terminalMocks.scrollToBottom).toHaveBeenCalled())
+    terminalViewportY = 60
+    terminalMocks.scrollToBottom.mockClear()
+    window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'viewport-sync', mobile: true, keyboardOpen: true } }))
+    await sleep(180)
+    expect(terminalMocks.scrollToBottom).not.toHaveBeenCalled()
   })
   it('does not steal mobile keyboard input focus back to xterm', async () => {
     mobileKeyboardMocks.isMobile = true
