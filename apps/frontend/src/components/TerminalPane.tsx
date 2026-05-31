@@ -370,7 +370,31 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       paneBoundsCache = { snapshot, windowId, bounds }
       return bounds
     }
-    const getSelectionText = () => terminal?.getSelection?.() || window.getSelection?.()?.toString() || ''
+    const getPaneSelectionText = () => {
+      const position = terminal?.getSelectionPosition?.()
+      const start = position?.start
+      const end = position?.end
+      if (!start || !end) return ''
+      const startBeforeEnd = start.y < end.y || start.y === end.y && start.x <= end.x
+      const first = startBeforeEnd ? start : end
+      const last = startBeforeEnd ? end : start
+      const pane = getCachedPaneBounds().find((item) => first.x >= item.left && first.x < item.left + item.cols && first.y >= item.top && first.y < item.top + item.rows)
+      if (!pane) return ''
+      const baseY = Number(terminal?.buffer?.active?.baseY) || 0
+      const fromY = Math.max(pane.top, first.y)
+      const toY = Math.min(pane.top + pane.rows - 1, last.y)
+      const lines: string[] = []
+      for (let y = fromY; y <= toY; y += 1) {
+        const line = terminal?.buffer?.active?.getLine?.(baseY + y)
+        if (!line) continue
+        const fromX = y === first.y ? Math.max(pane.left, first.x) : pane.left
+        const toX = y === last.y ? Math.min(pane.left + pane.cols, last.x) : pane.left + pane.cols
+        if (toX < fromX) continue
+        lines.push(line.translateToString(true, fromX, toX))
+      }
+      return lines.join('\n')
+    }
+    const getSelectionText = () => getPaneSelectionText() || terminal?.getSelection?.() || window.getSelection?.()?.toString() || ''
     const getMouseCell = (event: MouseEvent) => {
       const screen = terminal?.element?.querySelector('.xterm-screen') as HTMLElement | null
       if (!screen || !terminal?.cols || !terminal?.rows) return null
@@ -946,6 +970,12 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         }
         return true
       })
+      disposables.push(terminal.onSelectionChange(() => {
+        const selection = getSelectionText()
+        selectionSync.setSelection(selection)
+        if (pointerSyncActive) return
+        selectionSync.scheduleCopySelection(selection, 24, true)
+      }))
       const flushWriteBuffer = () => {
         if (!writeBuffer || !terminal?.write) { writeBuffer = ''; writePending = false; return }
         const data = writeBuffer

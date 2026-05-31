@@ -80,7 +80,7 @@ export function useTerminalSelectionSync(pushToast: PushToast) {
     restoreFocus?.()
     return copied && copyHandled
   }, [])
-  const copySelectionIfNeeded = useCallback(async (selection: string, force = false) => {
+  const copySelectionIfNeeded = useCallback(async (selection: string, force = false, preferSync = false) => {
     if (!selection) {
       currentSelectionRef.current = ''
       lastCopiedSelectionRef.current = ''
@@ -89,7 +89,7 @@ export function useTerminalSelectionSync(pushToast: PushToast) {
     }
     if (!force && selection === lastCopiedSelectionRef.current) return
     lastCopiedSelectionRef.current = selection
-    const result = await writeClipboardText(selection)
+    const result = preferSync ? await writeClipboardText(selection, { preferSync: true }) : await writeClipboardText(selection)
     if (result.unavailable) {
       const noticeKey = `${selection}:${result.reason}`
       if (lastCopyNoticeRef.current === noticeKey) return
@@ -100,24 +100,24 @@ export function useTerminalSelectionSync(pushToast: PushToast) {
     lastCopyNoticeRef.current = ''
     pushCopySuccessToast('fallback', selection.length)
   }, [getCopyUnavailableMessage, pushCopySuccessToast, pushToast])
-  const runCopySelection = useCallback((selection: string, force = false, preferNative = false, restoreFocus?: () => void) => {
+  const runCopySelection = useCallback((selection: string, force = false, preferNative = false, restoreFocus?: () => void, preferSync = preferNative) => {
     if (preferNative && selection && triggerNativeCopy(selection, restoreFocus)) {
       pushCopySuccessToast('native', selection.length)
       return
     }
-    void copySelectionIfNeeded(selection, force)
+    void copySelectionIfNeeded(selection, force, preferSync)
     requestAnimationFrame(() => {
-      void copySelectionIfNeeded(selection)
+      void copySelectionIfNeeded(selection, false, preferSync)
     })
     setTimeout(() => {
-      void copySelectionIfNeeded(selection)
+      void copySelectionIfNeeded(selection, false, preferSync)
     }, 0)
   }, [copySelectionIfNeeded, pushCopySuccessToast, triggerNativeCopy])
-  const scheduleCopySelection = useCallback((selection: string, delay = 24) => {
+  const scheduleCopySelection = useCallback((selection: string, delay = 24, preferSync = false) => {
     clearCopySelectionTimer()
     copySelectionTimerRef.current = setTimeout(() => {
       copySelectionTimerRef.current = null
-      runCopySelection(selection)
+      runCopySelection(selection, false, false, undefined, preferSync)
     }, delay)
   }, [clearCopySelectionTimer, runCopySelection])
   const dispose = useCallback(() => {
