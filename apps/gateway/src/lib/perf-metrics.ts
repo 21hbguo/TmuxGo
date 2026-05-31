@@ -9,6 +9,8 @@ export const streamPerfMetrics = {
   inputMessages: 0,
   backpressureSignals: 0,
   profileUpdates: 0,
+  deferredFlushes: 0,
+  socketBufferedBytes: 0,
   activeClients: 0,
   activeProfile: 'foreground' as 'foreground' | 'background' | 'mobile',
   activeFlushInterval: 4,

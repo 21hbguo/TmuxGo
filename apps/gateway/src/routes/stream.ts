@@ -15,9 +15,12 @@ export async function streamRoutes(fastify: FastifyInstance) {
     const SCROLL_FLUSH_INTERVAL = 16
     const SCROLL_MAX_LINES = 24
     const ATTACH_SNAPSHOT_DELAY = 180
-    const ATTACH_REDRAW_DELAYS = [0, 32, 96, 220]
+    const ATTACH_REDRAW_DELAYS = [48]
     const RESIZE_REDRAW_DELAYS = [100]
-    const REQUEST_REDRAW_DELAYS = [0, 32, 96]
+    const REQUEST_REDRAW_DELAYS = [48]
+    const SOCKET_BUFFER_HIGH_WATERMARK = 1048576
+    const SOCKET_BUFFER_EXTREME_WATERMARK = 4194304
+    const SOCKET_FLUSH_DEFER_MS = 24
     const OUTPUT_PROFILES = {
       foreground: { flushInterval: 4, maxChars: 24576 },
       background: { flushInterval: 24, maxChars: 98304 },
@@ -32,6 +35,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
     let outputCarry = ''
     let outputBuffer = ''
     let outputTimer: ReturnType<typeof setTimeout> | null = null
+    let deferredFlushTimer: ReturnType<typeof setTimeout> | null = null
     let redrawTimers: ReturnType<typeof setTimeout>[] = []
     let outputProfile: keyof typeof OUTPUT_PROFILES = 'foreground'
     let attachSeq = 0
@@ -59,24 +63,48 @@ export async function streamRoutes(fastify: FastifyInstance) {
     function getOutputProfileConfig() {
       return OUTPUT_PROFILES[outputProfile]
     }
+    function getSocketBufferedBytes() {
+      const buffered = Math.max(0, Number(socket.bufferedAmount) || 0)
+      updateStreamMetric('socketBufferedBytes', buffered)
+      if (buffered >= SOCKET_BUFFER_EXTREME_WATERMARK && outputProfile === 'foreground') syncOutputProfile('background')
+      return buffered
+    }
 
     function send(data: any) {
       if (socket.readyState !== 1) return false
       try {
+        getSocketBufferedBytes()
         socket.send(JSON.stringify(data))
+        getSocketBufferedBytes()
         return true
       } catch (err) {
         return false
       }
     }
+    function scheduleDeferredFlush() {
+      if (deferredFlushTimer) return
+      recordStreamMetric('deferredFlushes')
+      deferredFlushTimer = setTimeout(() => {
+        deferredFlushTimer = null
+        flushOutput()
+      }, SOCKET_FLUSH_DEFER_MS)
+    }
 
     function flushOutput() {
       if (!outputBuffer || !attachedSessionName) return
+      if (getSocketBufferedBytes() >= SOCKET_BUFFER_HIGH_WATERMARK) {
+        scheduleDeferredFlush()
+        return
+      }
+      const data = outputBuffer
+      outputBuffer = ''
+      if (!send({ type: 'output', data, sessionName: attachedSessionName })) {
+        outputBuffer = data + outputBuffer
+        return
+      }
       recordStreamMetric('outputFlushes')
       recordStreamMetric('outputChunks')
-      recordStreamMetric('outputBytes', outputBuffer.length)
-      send({ type: 'output', data: outputBuffer, sessionName: attachedSessionName })
-      outputBuffer = ''
+      recordStreamMetric('outputBytes', data.length)
     }
     function queueOutput(output: string) {
       if (!output) return
@@ -198,6 +226,10 @@ export async function streamRoutes(fastify: FastifyInstance) {
       if (outputTimer) {
         clearTimeout(outputTimer)
         outputTimer = null
+      }
+      if (deferredFlushTimer) {
+        clearTimeout(deferredFlushTimer)
+        deferredFlushTimer = null
       }
       outputBuffer = ''
       outputCarry = ''

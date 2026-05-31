@@ -168,11 +168,12 @@ function useQuickActionController() {
       const paneId=await resolveActivePaneId()
       if(!paneId)return
       await api.panes.zoomByPane(paneId)
+      await refreshSnapshot()
       window.dispatchEvent(new CustomEvent('tmuxgo-layout-change',{ detail:{ reason:'zoom-pane' } }))
     }catch(err){
       pushToast({ type:'error',message:err instanceof Error?err.message:t('pane.zoomFailed') })
     }
-  },[pushToast,resolveActivePaneId])
+  },[pushToast,refreshSnapshot,resolveActivePaneId])
 
   const primaryButtons:ActionButtonDef[]=[
     { key:'split-h',label:t('sidebar.splitH'),onPress:()=>handleSplit('horizontal'),disabled:!canSplit },

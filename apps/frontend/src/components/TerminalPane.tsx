@@ -16,6 +16,7 @@ import { useTerminalSelectionSync } from '@/hooks/useTerminalSelectionSync'
 import { useTranslation } from '@/i18n'
 import { useTerminalTouchScroll } from '@/hooks/useTerminalTouchScroll'
 import { recordMobileDiagnostic } from '@/lib/mobile-diagnostics'
+import { useTerminalOutputScheduler } from '@/hooks/useTerminalOutputScheduler'
 
 const SCROLLBACK_LIMIT = 600
 const DELETE_WORD_REPEAT_DELAY = 140
@@ -100,6 +101,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   const activeHostIdRef = useRef(activeHostId)
   const sessionSnapshotRef = useRef<any | null>(null)
   const updatePreferencesRef = useRef(updatePreferences)
+  const afterTerminalWriteRef = useRef<() => void>(() => {})
   const pinchStateRef = useRef({ active: false, startDistance: 0, startFontSize: preferences.fontSize, lastFontSize: preferences.fontSize })
   const dispatchTerminalTap = useCallback((x: number, y: number) => {
     const container = terminalRef.current
@@ -121,6 +123,38 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   const dropState = useTerminalDrop(sendInput, openUploadDialog)
   const pasteBridge = useTerminalPasteBridge()
   const selectionSync = useTerminalSelectionSync(pushToast)
+  const writeTerminalOutput = useCallback((chunk: string, done?: () => void) => {
+    const terminal = terminalInstance.current
+    if (!terminal?.write) {
+      done?.()
+      return
+    }
+    try {
+      if (terminal.write.length >= 2) terminal.write(chunk, done)
+      else {
+        terminal.write(chunk)
+        done?.()
+      }
+    } catch {
+      done?.()
+    }
+  }, [])
+  const handleTerminalWriteComplete = useCallback(() => {
+    afterTerminalWriteRef.current()
+  }, [])
+  const handleTerminalMetrics = useCallback((raw: string, outputLength: number, backlogLength: number) => {
+    recordTerminalOutput(useConsoleStore.getState().terminalPerf || DEFAULT_TERMINAL_PERF, raw, outputLength, backlogLength)
+  }, [recordTerminalOutput])
+  const handleTerminalBackpressure = useCallback((level: 'high' | 'normal', backlog: number) => {
+    updateTerminalPerf({ outputBacklog: backlog })
+    sendRef.current({ type: 'stream_backpressure', level, mobile: isMobileDevice })
+  }, [isMobileDevice, updateTerminalPerf])
+  const { push: pushTerminalOutput, dispose: disposeTerminalOutput } = useTerminalOutputScheduler({
+    write: writeTerminalOutput,
+    onWrite: handleTerminalWriteComplete,
+    onMetrics: handleTerminalMetrics,
+    onBackpressure: handleTerminalBackpressure,
+  })
   const handleTouchScroll = useCallback((lines: number) => send({ type: 'pane_scroll', sessionName: sessionNameRef.current, lines }), [send])
   const handleTouchTap = useCallback((x: number, y: number) => {
     lastTapRef.current = { x, y }
@@ -670,7 +704,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         terminal._core?._renderService?.clear?.()
       } catch {}
     }
-    const recoverTerminalScreen = (reason: string, serverRedraw = true) => {
+    const recoverTerminalScreen = (reason: string, serverRedraw = false) => {
       if (!terminal || disposed) return
       controlCarryRef.current = ''
       recordMobileDebug('terminal-recover', { reason, cols: terminal.cols, rows: terminal.rows, dpr: window.devicePixelRatio || 1 })
@@ -722,6 +756,9 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         return
       }
       clearViewportStyles()
+    }
+    afterTerminalWriteRef.current = () => {
+      if (!attachExclusiveRef.current && isMobileDevice) requestAnimationFrame(syncSharedViewport)
     }
     const doFit = (force = false) => {
       if (!fitAddon || !terminal || disposed) return false
@@ -981,7 +1018,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         const data = writeBuffer
         writeBuffer = ''
         writePending = false
-        terminal.write(data)
+        pushTerminalOutput(data)
       }
       const handleOutput = (event: Event | string | { data: string; sessionName?: string | null }) => {
         const payload = typeof event === 'string' ? { data: event, sessionName: null } : event instanceof Event ? { data: String((event as CustomEvent).detail || ''), sessionName: null } : event
@@ -990,7 +1027,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         if (!raw || !terminal?.write) return
         outputSinceLastAttach = true
         controlCarryRef.current = ''
-        recordTerminalOutput(useConsoleStore.getState().terminalPerf || DEFAULT_TERMINAL_PERF, raw, raw.length, 0)
         if (pointerSyncActive) {
           writeBuffer += raw
           if (!writePending) {
@@ -999,8 +1035,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           }
           return
         }
-        terminal.write(raw)
-        if (!attachExclusiveRef.current && isMobileDevice) requestAnimationFrame(syncSharedViewport)
+        pushTerminalOutput(raw)
       }
       const unsubscribeOutput = subscribeOutputRef.current ? subscribeOutputRef.current(handleOutput) : () => {}
       if (!subscribeOutputRef.current) window.addEventListener('tmuxgo-terminal-output', handleOutput as EventListener)
@@ -1029,7 +1064,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           setTimeout(() => syncSharedLayout(true), 120)
         }
         recoverTerminalScreen('orientationchange', true)
-        setTimeout(() => recoverTerminalScreen('orientationchange-stable', true), 140)
+        setTimeout(() => recoverTerminalScreen('orientationchange-stable'), 140)
       }
       const handleKeyboardChange = (event: Event) => {
         if (!attachExclusiveRef.current) return
@@ -1053,7 +1088,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         if (attachExclusiveRef.current) {
           scheduleInitialFit()
           if (!isMobileDevice) forceStableFit(5, 34)
-          if (softRecover) scheduleTerminalRepaint(isMobileDevice ? MOBILE_TERMINAL_REPAINT_DELAYS : TERMINAL_REPAINT_DELAYS, true)
+          if (softRecover) scheduleTerminalRepaint(isMobileDevice ? MOBILE_TERMINAL_REPAINT_DELAYS : TERMINAL_REPAINT_DELAYS)
           else recoverTerminalScreen('attached', true)
           return
         }
@@ -1061,7 +1096,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           sharedSessionSizeRef.current = { cols, rows }
           syncSharedLayout(true)
           if (!isMobileDevice) forceStableFit(4, 34)
-          if (softRecover) scheduleTerminalRepaint(isMobileDevice ? MOBILE_TERMINAL_REPAINT_DELAYS : TERMINAL_REPAINT_DELAYS, true)
+          if (softRecover) scheduleTerminalRepaint(isMobileDevice ? MOBILE_TERMINAL_REPAINT_DELAYS : TERMINAL_REPAINT_DELAYS)
           else recoverTerminalScreen('attached', true)
         }
       }
@@ -1099,7 +1134,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           if (isMobileDevice) scheduleFit(MOBILE_FIT_DEBOUNCE_MS)
           else forceStableFit(4, 34)
           if (isMobileDevice && !recovered) {
-            recoverTerminalScreen('visibilitychange', true)
+            recoverTerminalScreen('visibilitychange')
             return
           }
           if (recovered) return
@@ -1108,7 +1143,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         }
         if (!isMobileDevice) forceStableFit(3, 34)
         if (isMobileDevice && !recovered) {
-          recoverTerminalScreen('visibilitychange', true)
+          recoverTerminalScreen('visibilitychange')
           return
         }
         if (recovered) return
@@ -1117,7 +1152,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const handlePageShow = () => {
         const recovered = syncRenderEnvironment('pageshow')
         if (attachExclusiveRef.current) scheduleFit(isMobileDevice ? MOBILE_FIT_DEBOUNCE_MS : 0, true)
-        if (isMobileDevice && !recovered) recoverTerminalScreen('pageshow', true)
+        if (isMobileDevice && !recovered) recoverTerminalScreen('pageshow')
       }
       window.addEventListener('tmux-attached', handleAttached as EventListener)
       window.addEventListener('tmuxgo-layout-change', handleLayoutChange as EventListener)
@@ -1271,6 +1306,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       if (fitFrame) cancelAnimationFrame(fitFrame)
       clearTerminalRepaint()
       if (sharedLayoutFrame) cancelAnimationFrame(sharedLayoutFrame)
+      afterTerminalWriteRef.current = () => {}
+      disposeTerminalOutput()
       resizeObserver?.disconnect()
       disposables.forEach((d) => d?.dispose?.())
       terminal?.dispose()
@@ -1280,7 +1317,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       forceStableFitRef.current = () => {}
       syncSharedLayoutRef.current = () => {}
     }
-  }, [handlePinchTouchCancel, handlePinchTouchEnd, handlePinchTouchMove, handlePinchTouchStart, openUploadDialog, pushToast, queryClient, recordTerminalOutput, selectionSync, setActivePane, touchScroll, updateTerminalPerf])
+  }, [disposeTerminalOutput, handlePinchTouchCancel, handlePinchTouchEnd, handlePinchTouchMove, handlePinchTouchStart, openUploadDialog, pushToast, pushTerminalOutput, queryClient, selectionSync, setActivePane, touchScroll, updateTerminalPerf])
 
   return (
     <div

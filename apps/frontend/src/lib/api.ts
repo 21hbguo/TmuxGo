@@ -12,6 +12,8 @@ export interface StreamSystemInfo {
   inputMessages: number
   backpressureSignals: number
   profileUpdates: number
+  deferredFlushes: number
+  socketBufferedBytes: number
   activeClients: number
   activeProfile: 'foreground' | 'background' | 'mobile'
   activeFlushInterval: number
