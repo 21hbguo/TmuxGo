@@ -182,8 +182,9 @@ vi.mock('@xterm/xterm', () => {
     clear() {
       terminalMocks.clear()
     }
-    write(data: string) {
+    write(data: string, callback?: () => void) {
       terminalMocks.write(data)
+      callback?.()
     }
     dispose() {
       terminalLifecycleMocks.dispose()
@@ -553,6 +554,18 @@ describe('TerminalPane', () => {
     webSocketMocks.lastOutputListener?.({ data: 'printf "dev_only_output_ok"\\r\\n', sessionName: 'dev' })
     await waitFor(() => expect(terminalMocks.write).toHaveBeenCalledWith('printf "dev_only_output_ok"\\r\\n'))
   })
+  it('routes websocket output through scheduler and reports backpressure', async () => {
+    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} subscribeOutput={webSocketMocks.subscribeOutput} />)
+    await waitFor(() => expect(webSocketMocks.lastOutputListener).toBeTruthy())
+    terminalMocks.write.mockClear()
+    webSocketMocks.send.mockClear()
+    const output = 'x'.repeat(150000)
+    webSocketMocks.lastOutputListener?.({ data: output, sessionName: 'dev' })
+    await waitFor(() => expect(terminalMocks.write.mock.calls.length).toBeGreaterThan(1))
+    expect(terminalMocks.write).not.toHaveBeenCalledWith(output)
+    expect(webSocketMocks.send).toHaveBeenCalledWith({ type: 'stream_backpressure', level: 'high', mobile: false })
+    expect(webSocketMocks.send).toHaveBeenCalledWith({ type: 'stream_backpressure', level: 'normal', mobile: false })
+  })
   it('keeps rendered output when output arrives before first attached event', async () => {
     render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} subscribeOutput={webSocketMocks.subscribeOutput} />)
     await waitFor(() => expect(webSocketMocks.lastOutputListener).toBeTruthy())
@@ -570,7 +583,7 @@ describe('TerminalPane', () => {
     expect(terminalMocks.renderClear).not.toHaveBeenCalled()
     expect(terminalMocks.reset).not.toHaveBeenCalled()
     expect(terminalMocks.clear).not.toHaveBeenCalled()
-    expect(webSocketMocks.send).toHaveBeenCalledWith({ type: 'redraw', sessionName: 'dev' })
+    expect(webSocketMocks.send).not.toHaveBeenCalledWith({ type: 'redraw', sessionName: 'dev' })
   })
   it('ignores stale attach events from another session', async () => {
     render(<TerminalPane sessionName="dev" attachExclusive={false} onInput={vi.fn()} onResize={vi.fn()} />)
@@ -584,6 +597,7 @@ describe('TerminalPane', () => {
     window.dispatchEvent(new CustomEvent('tmux-attached', { detail: { sessionName: 'dev', cols: 120, rows: 36, exclusive: false } }))
     await waitFor(() => expect(terminalMocks.refresh).toHaveBeenCalled())
     expect(webSocketMocks.send).toHaveBeenCalledWith({ type: 'redraw', sessionName: 'dev' })
+    expect(webSocketMocks.send.mock.calls.filter((call) => call[0]?.type === 'redraw' && call[0]?.sessionName === 'dev')).toHaveLength(1)
   })
   it('recovers terminal renderer on attach and keeps ordinary layout changes soft', async () => {
     render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
@@ -602,6 +616,7 @@ describe('TerminalPane', () => {
     expect(terminalMocks.clear).toHaveBeenCalled()
     expect(terminalMocks.refresh).toHaveBeenCalledWith(0, 35)
     expect(webSocketMocks.send).toHaveBeenCalledWith({ type: 'redraw', sessionName: 'dev' })
+    expect(webSocketMocks.send.mock.calls.filter((call) => call[0]?.type === 'redraw' && call[0]?.sessionName === 'dev')).toHaveLength(1)
     terminalMocks.refresh.mockClear()
     terminalMocks.clearTextureAtlas.mockClear()
     terminalMocks.renderClear.mockClear()

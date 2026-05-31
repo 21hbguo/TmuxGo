@@ -77,6 +77,7 @@ export function useTerminalOutputScheduler({
       return
     }
     bufferRef.current += output
+    if (bufferRef.current.length >= BACKPRESSURE_HIGH_WATERMARK) emitBackpressure('high', bufferRef.current.length)
     if (bufferRef.current.length >= outputFlushLimit) {
       clearTimer()
       if (frameRef.current) cancelAnimationFrame(frameRef.current)
@@ -91,7 +92,6 @@ export function useTerminalOutputScheduler({
         if (!frameRef.current) flush()
       }, flushDelay)
     }
-    if (bufferRef.current.length >= BACKPRESSURE_HIGH_WATERMARK) emitBackpressure('high', bufferRef.current.length)
   }, [clearTimer, emitBackpressure, fastOutputLimit, flush, flushDelay, onMetrics, onWrite, outputFlushLimit, schedule, write])
   const dispose = useCallback(() => {
     clearTimer()

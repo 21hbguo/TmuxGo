@@ -34,7 +34,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
   const { data: windows = [] } = useWindows(activeHostId || '', activeSessionId || '')
   const { getWindows, setWindows } = useWindowQueryState(activeHostId || '', activeSessionId || '')
   const { t } = useTranslation()
-  const { resolveActivePaneId } = useSessionSnapshotSync()
+  const { refreshSnapshot, resolveActivePaneId } = useSessionSnapshotSync()
 
   const close = () => {
     setCommandPalette(false)
@@ -74,6 +74,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
       const paneId = await resolveActivePaneId()
       if (!paneId) return
       await api.panes.split(paneId, direction as 'horizontal' | 'vertical')
+      await refreshSnapshot()
       window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'split-pane', direction } }))
     } })),
     ...[t('palette.newSession')].filter((name) => name.toLowerCase().includes(q) || q.length === 0).map(() => ({ key: 'new-session', type: 'action', title: t('palette.newSession'), meta: '+', action: async () => window.dispatchEvent(new CustomEvent('tmuxgo-new-session')) })),
@@ -81,6 +82,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
       const paneId = await resolveActivePaneId()
       if (!paneId) return
       await api.panes.zoomByPane(paneId)
+      await refreshSnapshot()
       window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'zoom-pane' } }))
     } })),
     ...[t('palette.copySelection')].filter((name) => name.toLowerCase().includes(q) || q.length === 0).map(() => ({ key: 'copy-selection', type: 'action', title: t('palette.copySelection'), meta: 'Cmd+C', action: copySelection })),

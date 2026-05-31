@@ -10,13 +10,22 @@ let flushTimer:ReturnType<typeof setTimeout>|null=null
 let diagnosticsStarted=false
 let sessionId=''
 
-function isMobileRuntime() {
+function isMobileDebugEnabled() {
   if (typeof window==='undefined') return false
   try {
-    if (window.localStorage.getItem('tmuxgo-debug-mobile')) return true
-  } catch {}
+    return !!window.localStorage.getItem('tmuxgo-debug-mobile')
+  } catch {
+    return false
+  }
+}
+function isMobileRuntime() {
+  if (typeof window==='undefined') return false
+  if (isMobileDebugEnabled()) return true
   if (typeof window.matchMedia==='function'&&window.matchMedia('(pointer: coarse)').matches) return true
   return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+}
+function isKeyDiagnostic(event:string,urgent:boolean) {
+  return urgent||event.includes('close')||event.includes('error')||event.includes('background')||event==='flicker-suspect'||event==='longtask'||event==='layout-shift'||event==='frame-jank'
 }
 function getSessionId() {
   if (sessionId) return sessionId
@@ -57,6 +66,7 @@ function scheduleFlush(delay=600) {
 export function recordMobileDiagnostic(event:string,data?:Record<string, unknown>,urgent=false) {
   try {
     if (typeof window==='undefined'||!isMobileRuntime()) return
+    if (!isMobileDebugEnabled()&&!isKeyDiagnostic(event,urgent)) return
     const entry:DiagnosticEvent={event,at:Math.round(performance.now()),wallAt:Date.now(),sessionId:getSessionId(),...getMetrics(),...(data||{})}
     expose(entry)
     buffer.push(entry)
@@ -100,7 +110,7 @@ function sameRectData(a:ReturnType<typeof rectData>|undefined,b:ReturnType<typeo
   return a.x===b.x&&a.y===b.y&&a.w===b.w&&a.h===b.h
 }
 export function startMobileFlickerDiagnostics() {
-  if (typeof window==='undefined'||diagnosticsStarted||!isMobileRuntime()) return () => {}
+  if (typeof window==='undefined'||diagnosticsStarted||!isMobileDebugEnabled()||!isMobileRuntime()) return () => {}
   diagnosticsStarted=true
   let frame=0
   let sampleUntil=performance.now()+6000
