@@ -1007,8 +1007,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         const nextOpen = typeof detail?.open === 'boolean' ? detail.open : document.body.classList.contains('keyboard-open')
         if (nextOpen === lastKeyboardOpen) return
         lastKeyboardOpen = nextOpen
-        scheduleFit(0, true)
-        setTimeout(() => scheduleFit(0, true), 80)
       }
       const handleAttached = (event: Event) => {
         const detail = (event as CustomEvent).detail || {}
@@ -1201,7 +1199,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         if (Math.abs(width - lastContainerSize.width) <= MOBILE_FIT_SIZE_TOLERANCE && Math.abs(height - lastContainerSize.height) <= MOBILE_FIT_SIZE_TOLERANCE) return
         lastContainerSize = { width, height }
         if (attachExclusiveRef.current) {
-          scheduleFit(isMobileDevice ? MOBILE_FIT_DEBOUNCE_MS : 0)
+          if (isMobileDevice) { doFit(true); return }
+          scheduleFit(0)
           return
         }
         syncSharedLayout(false)
