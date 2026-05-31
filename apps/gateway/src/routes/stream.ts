@@ -16,7 +16,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
     const SCROLL_MAX_LINES = 24
     const ATTACH_SNAPSHOT_DELAY = 180
     const ATTACH_REDRAW_DELAYS = [0, 32, 96, 220]
-    const RESIZE_REDRAW_DELAYS = [0, 40, 120]
+    const RESIZE_REDRAW_DELAYS = [100]
     const REQUEST_REDRAW_DELAYS = [0, 32, 96]
     const OUTPUT_PROFILES = {
       foreground: { flushInterval: 4, maxChars: 24576 },
