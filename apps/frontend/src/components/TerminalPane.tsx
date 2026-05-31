@@ -29,6 +29,7 @@ const TERMINAL_REPAINT_DELAYS = [0, 16, 48, 120, 260]
 const MOBILE_TERMINAL_REPAINT_DELAYS = [96]
 const TERMINAL_RECOVERY_REPAINT_DELAYS = [0, 16, 64, 180]
 const MOBILE_TERMINAL_RECOVERY_REPAINT_DELAYS = [48, 160]
+const MOBILE_TERMINAL_KEYBOARD_REPAINT_DELAYS = [0, 48, 160]
 const MOBILE_FIT_DEBOUNCE_MS = 96
 const MOBILE_FIT_SIZE_TOLERANCE = 2
 const DEVICE_PIXEL_RATIO_TOLERANCE = 0.01
@@ -106,7 +107,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   const dispatchTerminalTap = useCallback((x: number, y: number) => {
     const container = terminalRef.current
     if (!container) return
-    const target = document.elementFromPoint(x, y) as HTMLElement | null
+    const target = typeof document.elementFromPoint === 'function' ? document.elementFromPoint(x, y) as HTMLElement | null : null
     const terminalTarget = target?.closest('.xterm-screen') || target?.closest('.xterm') || container.querySelector('.xterm-screen') || container.querySelector('.xterm')
     if (!(terminalTarget instanceof HTMLElement)) return
     const options = { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: 1, composed: true }
@@ -345,6 +346,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     }
     const focusTerminalInput = () => {
       if (isMobileDevice) {
+        cancelTmuxCopyMode()
         focusKeyboard()
         return
       }
@@ -581,22 +583,46 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       if (!currentSessionName) return
       sendRef.current({ type: 'redraw', sessionName: currentSessionName })
     }
-    const refreshTerminalRows = () => {
+    const cancelTmuxCopyMode = () => {
+      const currentSessionName = sessionNameRef.current
+      if (!currentSessionName) return
+      recordMobileDebug('tmux-copy-mode-cancel', { sessionName: currentSessionName })
+      sendRef.current({ type: 'copy_mode_cancel', sessionName: currentSessionName })
+    }
+    const isTerminalScrolledBack = () => {
+      const activeBuffer = terminal?.buffer?.active
+      const baseY = Number(activeBuffer?.baseY)
+      const viewportY = Number(activeBuffer?.viewportY)
+      if (Number.isFinite(baseY) && Number.isFinite(viewportY)) return viewportY < baseY - 1
+      const viewport = terminal?.element?.querySelector('.xterm-viewport') as HTMLElement | null
+      if (!viewport) return false
+      return viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop > 2
+    }
+    const scrollTerminalToBottom = () => {
+      if (!terminal || disposed) return
+      try {
+        terminal.scrollToBottom?.()
+      } catch {}
+      const viewport = terminal?.element?.querySelector('.xterm-viewport') as HTMLElement | null
+      if (viewport) viewport.scrollTop = viewport.scrollHeight
+    }
+    const refreshTerminalRows = (force = false) => {
       if (!terminal || disposed) return
       try {
         const now = performance.now()
-        if (isMobileDevice && now - lastRefreshAt < 120) return
+        if (!force && isMobileDevice && now - lastRefreshAt < 120) return
         lastRefreshAt = now
         recordMobileDebug('terminal-refresh', { rows: terminal.rows })
         terminal.refresh(0, Math.max(0, terminal.rows - 1))
       } catch {}
     }
-    const repaintTerminalRenderer = () => {
+    const repaintTerminalRenderer = (forceRefresh = false, stickToBottom = false) => {
       if (!terminal || disposed) return
       try {
         if (attachExclusiveRef.current) syncExclusiveViewport()
         else syncSharedViewport()
-        refreshTerminalRows()
+        if (stickToBottom) scrollTerminalToBottom()
+        refreshTerminalRows(forceRefresh)
       } catch {}
     }
     const clearTerminalRepaint = () => {
@@ -607,7 +633,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       for (const timer of repaintTimers) clearTimeout(timer)
       repaintTimers = []
     }
-    const scheduleTerminalRepaint = (delays = TERMINAL_REPAINT_DELAYS, serverRedraw = false) => {
+    const scheduleTerminalRepaint = (delays = TERMINAL_REPAINT_DELAYS, serverRedraw = false, stickToBottom = false, forceRefresh = false) => {
       if (disposed) return
       clearTerminalRepaint()
       let redrawRequested = false
@@ -620,14 +646,14 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         if (delay <= 0) {
           repaintFrame = requestAnimationFrame(() => {
             repaintFrame = null
-            repaintTerminalRenderer()
+            repaintTerminalRenderer(forceRefresh, stickToBottom)
             requestRedrawOnce()
           })
           continue
         }
         const timer = setTimeout(() => {
           repaintTimers = repaintTimers.filter((item) => item !== timer)
-          repaintTerminalRenderer()
+          repaintTerminalRenderer(forceRefresh, stickToBottom)
           requestRedrawOnce()
         }, delay)
         repaintTimers.push(timer)
@@ -721,11 +747,24 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       applyTerminalOptions()
       scheduleTerminalRepaint(isMobileDevice ? MOBILE_TERMINAL_RECOVERY_REPAINT_DELAYS : TERMINAL_RECOVERY_REPAINT_DELAYS, serverRedraw)
     }
+    const softRecoverTerminalScreen = (reason: string, serverRedraw = false) => {
+      if (!terminal || disposed) return
+      controlCarryRef.current = ''
+      const stickToBottom = isMobileDevice && !isTerminalScrolledBack()
+      recordMobileDebug('terminal-soft-recover', { reason, cols: terminal.cols, rows: terminal.rows, dpr: window.devicePixelRatio || 1, stickToBottom })
+      clearTerminalRendererCache()
+      try {
+        terminal.clearSelection?.()
+      } catch {}
+      applyTerminalOptions()
+      scheduleTerminalRepaint(isMobileDevice ? MOBILE_TERMINAL_RECOVERY_REPAINT_DELAYS : TERMINAL_RECOVERY_REPAINT_DELAYS, serverRedraw, stickToBottom, isMobileDevice)
+    }
     const syncRenderEnvironment = (reason: string) => {
       const dpr = window.devicePixelRatio || 1
       if (Math.abs(dpr - lastDevicePixelRatio) <= DEVICE_PIXEL_RATIO_TOLERANCE) return false
       lastDevicePixelRatio = dpr
-      recoverTerminalScreen(reason, true)
+      if (isMobileDevice) softRecoverTerminalScreen(reason, true)
+      else recoverTerminalScreen(reason, true)
       return true
     }
     const clearViewportStyles = () => {
@@ -764,6 +803,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       if (!fitAddon || !terminal || disposed) return false
       if (!attachExclusiveRef.current) return false
       try {
+        const stickToBottom = isMobileDevice && !isTerminalScrolledBack()
         const currentWidth = container.clientWidth
         const currentHeight = container.clientHeight
         recordMobileDebug('terminal-fit', { force, width: currentWidth, height: currentHeight })
@@ -790,7 +830,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           requestAnimationFrame(() => {
             if (disposed || !terminal) return
             syncExclusiveViewport()
-            repaintTerminalRenderer()
+            repaintTerminalRenderer(force && isMobileDevice, stickToBottom)
           })
           notifyReady()
           return true
@@ -866,6 +906,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       if (!terminal || disposed || attachExclusiveRef.current) return
       const size = sharedSessionSizeRef.current
       if (!size || size.cols <= 0 || size.rows <= 0) return
+      const stickToBottom = isMobileDevice && !isTerminalScrolledBack()
       if (sharedLayoutFrame) cancelAnimationFrame(sharedLayoutFrame)
       if (resetFont) {
         applyTerminalOptions()
@@ -893,7 +934,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           return
         }
         if (isMobileDevice) syncSharedViewport()
-        repaintTerminalRenderer()
+        repaintTerminalRenderer(isMobileDevice, stickToBottom)
         const prev = lastSizeRef.current
         lastSizeRef.current = { cols: size.cols, rows: size.rows }
         if (!prev || prev.cols !== size.cols || prev.rows !== size.rows) {
@@ -1067,11 +1108,12 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         setTimeout(() => recoverTerminalScreen('orientationchange-stable'), 140)
       }
       const handleKeyboardChange = (event: Event) => {
-        if (!attachExclusiveRef.current) return
         const detail = (event as CustomEvent<{ open?: boolean }>).detail
         const nextOpen = typeof detail?.open === 'boolean' ? detail.open : document.body.classList.contains('keyboard-open')
         if (nextOpen === lastKeyboardOpen) return
         lastKeyboardOpen = nextOpen
+        if (isMobileDevice) cancelTmuxCopyMode()
+        if (!attachExclusiveRef.current) return
       }
       const handleAttached = (event: Event) => {
         const detail = (event as CustomEvent).detail || {}
@@ -1103,6 +1145,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const handleLayoutChange = (event: Event) => {
         const detail = (event as CustomEvent).detail || {}
         if (isMobileDevice && detail.reason === 'attached') return
+        const mobileKeyboardLayout = isMobileDevice && (detail.reason === 'viewport-sync' || detail.reason === 'mobile-keyboard-dock')
+        const stickToBottom = isMobileDevice && !isTerminalScrolledBack()
         const perf = useConsoleStore.getState().terminalPerf || DEFAULT_TERMINAL_PERF
         updateTerminalPerf({ layoutFitCount: perf.layoutFitCount + 1 })
         if (detail.reason === 'terminal-panel-resize') {
@@ -1116,13 +1160,13 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           return
         }
         if (attachExclusiveRef.current) {
-          if (isMobileDevice) scheduleFit(MOBILE_FIT_DEBOUNCE_MS)
+          if (isMobileDevice) scheduleFit(mobileKeyboardLayout ? 0 : MOBILE_FIT_DEBOUNCE_MS, mobileKeyboardLayout)
           else forceStableFit(5, 34)
-          scheduleTerminalRepaint(isMobileDevice ? MOBILE_TERMINAL_REPAINT_DELAYS : TERMINAL_REPAINT_DELAYS)
+          scheduleTerminalRepaint(mobileKeyboardLayout ? MOBILE_TERMINAL_KEYBOARD_REPAINT_DELAYS : isMobileDevice ? MOBILE_TERMINAL_REPAINT_DELAYS : TERMINAL_REPAINT_DELAYS, false, stickToBottom, mobileKeyboardLayout)
           return
         }
         if (!isMobileDevice) forceStableFit(4, 34)
-        scheduleTerminalRepaint(isMobileDevice ? MOBILE_TERMINAL_REPAINT_DELAYS : TERMINAL_REPAINT_DELAYS)
+        scheduleTerminalRepaint(mobileKeyboardLayout ? MOBILE_TERMINAL_KEYBOARD_REPAINT_DELAYS : isMobileDevice ? MOBILE_TERMINAL_REPAINT_DELAYS : TERMINAL_REPAINT_DELAYS, false, stickToBottom, mobileKeyboardLayout)
       }
       const handleVisibilityChange = () => {
         if (document.hidden) {

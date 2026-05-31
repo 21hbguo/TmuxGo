@@ -400,7 +400,16 @@ export async function streamRoutes(fastify: FastifyInstance) {
             const sessionName = data.sessionName
             if (!sessionName) break
             assertSessionAllowed(sessionName)
+            recordStreamMetric('paneScrollRequests')
             queueScroll(sessionName, scrollLines)
+            break
+          }
+          case 'copy_mode_cancel': {
+            const sessionName = data.sessionName
+            if (!sessionName) break
+            assertSessionAllowed(sessionName)
+            recordStreamMetric('copyModeCancelRequests')
+            void execFileAsync('tmux', ['send-keys', '-t', sessionName, '-X', 'cancel']).catch(() => {})
             break
           }
 

@@ -36,6 +36,9 @@ function getMetrics() {
   const vv=window.visualViewport
   const terminal=document.querySelector('[data-terminal]') as HTMLElement|null
   const xterm=terminal?.querySelector('.xterm') as HTMLElement|null
+  const xtermViewport=xterm?.querySelector('.xterm-viewport') as HTMLElement|null
+  const xtermTerminal=(window as typeof window&{__tmuxgoTerminal?:any}).__tmuxgoTerminal
+  const activeBuffer=xtermTerminal?.buffer?.active
   const termRect=terminal?.getBoundingClientRect()
   const xtermRect=xterm?.getBoundingClientRect()
   return {
@@ -50,6 +53,8 @@ function getMetrics() {
     keyboardOpen: document.body.classList.contains('keyboard-open'),
     term: termRect ? { x: Math.round(termRect.x), y: Math.round(termRect.y), w: Math.round(termRect.width), h: Math.round(termRect.height) } : null,
     xterm: xtermRect ? { x: Math.round(xtermRect.x), y: Math.round(xtermRect.y), w: Math.round(xtermRect.width), h: Math.round(xtermRect.height) } : null,
+    xtermBuffer: activeBuffer ? { baseY: Number(activeBuffer.baseY)||0, viewportY: Number(activeBuffer.viewportY)||0, rows: Number(xtermTerminal?.rows)||0, cols: Number(xtermTerminal?.cols)||0 } : null,
+    xtermViewport: xtermViewport ? { top: Math.round(xtermViewport.scrollTop), height: Math.round(xtermViewport.clientHeight), scrollHeight: Math.round(xtermViewport.scrollHeight) } : null,
   }
 }
 function expose(event:DiagnosticEvent) {

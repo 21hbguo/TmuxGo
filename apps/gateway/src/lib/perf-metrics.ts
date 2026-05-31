@@ -6,6 +6,8 @@ export const streamPerfMetrics = {
   sanitizeChars: 0,
   attachRequests: 0,
   resizeRequests: 0,
+  paneScrollRequests: 0,
+  copyModeCancelRequests: 0,
   inputMessages: 0,
   backpressureSignals: 0,
   profileUpdates: 0,
