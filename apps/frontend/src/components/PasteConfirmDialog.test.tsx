@@ -4,6 +4,19 @@ import React from 'react'
 import { vi } from 'vitest'
 import { PasteConfirmDialog } from './PasteConfirmDialog'
 
+vi.mock('@/i18n', () => ({
+  useTranslation: () => ({ t: (key: string) => {
+    if (key === 'paste.title') return 'Confirm paste'
+    if (key === 'paste.manualTitle') return 'Paste manually'
+    if (key === 'paste.manualDesc') return 'Paste into box'
+    if (key === 'paste.cancel') return 'Cancel'
+    if (key === 'paste.retryPermission') return 'Retry Permission'
+    if (key === 'paste.escapePaste') return 'Escape Paste'
+    if (key === 'paste.send') return 'Send'
+    return key
+  } }),
+}))
+
 describe('PasteConfirmDialog', () => {
   it('renders metadata and invokes send actions', async () => {
     const user = userEvent.setup()

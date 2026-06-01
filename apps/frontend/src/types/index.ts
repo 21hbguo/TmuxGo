@@ -4,6 +4,11 @@ export interface Host {
   address: string
   status: 'online' | 'offline' | 'unreachable'
   tags: string[]
+  user?: string
+  port?: number
+  auth?: 'auto'
+  hasPassword?: boolean
+  passwordEnv?: string
 }
 
 export interface Session {
@@ -186,6 +191,34 @@ export interface SessionOrderPreference {
   hostId: string
   orderedSessionIds: string[]
 }
+export interface Snippet {
+  id: string
+  name: string
+  command: string
+  description?: string
+  category?: string
+}
+export interface FavoriteItem {
+  id: string
+  type: 'host' | 'session' | 'pane'
+  name: string
+  target: string
+  addedAt: string
+}
+export interface UiPreferences {
+  theme?: string
+  fontSize?: number
+  fontFamily?: string
+  cursorBlink?: boolean
+  sidebarPosition?: string
+  showStatusBar?: boolean
+  showQuickActions?: boolean
+  autoReconnect?: boolean
+  reconnectInterval?: number
+  terminalPadding?: number
+  language?: string
+  attachExclusive?: boolean
+}
 export interface RemotePreferences {
   version: 1
   updatedAt: string
@@ -195,6 +228,12 @@ export interface RemotePreferences {
   favoriteDirectoriesUpdatedAt: string
   sessionOrders: SessionOrderPreference[]
   sessionOrdersUpdatedAt: string
+  snippets: Snippet[]
+  snippetsUpdatedAt: string
+  favorites: FavoriteItem[]
+  favoritesUpdatedAt: string
+  uiPreferences: UiPreferences
+  uiPreferencesUpdatedAt: string
   uploadRateLimitKBps: number
   downloadRateLimitKBps: number
 }

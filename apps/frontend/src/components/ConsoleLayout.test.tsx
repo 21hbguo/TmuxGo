@@ -22,8 +22,11 @@ vi.mock('./DesktopWorkbench', () => ({ DesktopWorkbench: () => React.createEleme
 vi.mock('@/hooks/usePreferences', () => ({ usePreferences: () => ({ preferences: { showStatusBar: false } }) }))
 vi.mock('@/hooks/useApi', () => ({
   useHosts: () => ({ data: [{ id: 'local', name: 'Local', address: '127.0.0.1', status: 'online', tags: [] }] }),
-  useSessions: () => ({ data: [] }),
+  useSessions: () => ({ data: [], isFetched: true }),
   useSessionSnapshot: () => ({ data: { windows: [], panes: [], activePaneId: null } }),
+}))
+vi.mock('@/hooks/useOrderedSessions', () => ({
+  useOrderedSessions: () => ({ data: [], isFetched: true }),
 }))
 vi.mock('./FilePanel', () => ({
   FilePanel: () => React.createElement('div', null,

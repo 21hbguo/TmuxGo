@@ -17,6 +17,7 @@ import { useTranslation } from '@/i18n'
 import { useTerminalTouchScroll } from '@/hooks/useTerminalTouchScroll'
 import { recordMobileDiagnostic } from '@/lib/mobile-diagnostics'
 import { useTerminalOutputScheduler } from '@/hooks/useTerminalOutputScheduler'
+import { buildSessionId } from '@/lib/session-id'
 
 const SCROLLBACK_LIMIT = 600
 const DELETE_WORD_REPEAT_DELAY = 140
@@ -53,7 +54,7 @@ interface TerminalPaneProps {
   onResize?: (cols: number, rows: number) => void
   attachExclusive?: boolean
   onReady?: () => void
-  subscribeOutput?: (listener: (message: { data: string; sessionName?: string | null }) => void) => () => void
+  subscribeOutput?: (listener: (message: { data: string; sessionName?: string | null; hostId?: string | null }) => void) => () => void
   onSwipeLeft?: () => void
   onSwipeRight?: () => void
 }
@@ -156,7 +157,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     onMetrics: handleTerminalMetrics,
     onBackpressure: handleTerminalBackpressure,
   })
-  const handleTouchScroll = useCallback((lines: number) => send({ type: 'pane_scroll', sessionName: sessionNameRef.current, lines }), [send])
+  const handleTouchScroll = useCallback((lines: number) => send({ type: 'pane_scroll', hostId: activeHostIdRef.current || 'local', sessionName: sessionNameRef.current, lines }), [send])
   const handleTouchTap = useCallback((x: number, y: number) => {
     lastTapRef.current = { x, y }
   }, [])
@@ -359,7 +360,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const hostId = activeHostIdRef.current
       const currentSessionName = sessionNameRef.current
       if (!hostId || !currentSessionName) return null
-      return ['session-snapshot', hostId, `session-${currentSessionName}`]
+      return ['session-snapshot', hostId, buildSessionId(hostId, currentSessionName)]
     }
     const readSessionSnapshot = () => {
       const key = getSessionSnapshotKey()
@@ -372,7 +373,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const hostId = activeHostIdRef.current
       const currentSessionName = sessionNameRef.current
       if (!key || !hostId || !currentSessionName) return null
-      const snapshot = await api.snapshot.get(hostId, `session-${currentSessionName}`)
+      const snapshot = await api.snapshot.get(hostId, buildSessionId(hostId, currentSessionName))
       sessionSnapshotRef.current = snapshot
       queryClient?.setQueryData(key, snapshot)
       return snapshot
@@ -393,7 +394,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const windows = Array.isArray(snapshot?.windows) ? snapshot.windows : []
       const activeWindow = windows.find((item: any) => item.id === snapshot?.activeWindowId) || windows.find((item: any) => item.active)
       const index = Number(activeWindow?.index)
-      const windowId = Number.isFinite(index) ? `${session}:${index}` : ''
+      const windowId = Number.isFinite(index) ? `${activeHostIdRef.current || 'local'}:${session}:${index}` : ''
       if (paneBoundsCache && paneBoundsCache.snapshot === snapshot && paneBoundsCache.windowId === windowId) {
         return paneBoundsCache.bounds
       }
@@ -581,13 +582,13 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     const requestServerRedraw = () => {
       const currentSessionName = sessionNameRef.current
       if (!currentSessionName) return
-      sendRef.current({ type: 'redraw', sessionName: currentSessionName })
+      sendRef.current({ type: 'redraw', hostId: activeHostIdRef.current || 'local', sessionName: currentSessionName })
     }
     const cancelTmuxCopyMode = () => {
       const currentSessionName = sessionNameRef.current
       if (!currentSessionName) return
       recordMobileDebug('tmux-copy-mode-cancel', { sessionName: currentSessionName })
-      sendRef.current({ type: 'copy_mode_cancel', sessionName: currentSessionName })
+      sendRef.current({ type: 'copy_mode_cancel', hostId: activeHostIdRef.current || 'local', sessionName: currentSessionName })
     }
     const isTerminalScrolledBack = () => {
       const activeBuffer = terminal?.buffer?.active
@@ -1061,8 +1062,9 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         writePending = false
         pushTerminalOutput(data)
       }
-      const handleOutput = (event: Event | string | { data: string; sessionName?: string | null }) => {
-        const payload = typeof event === 'string' ? { data: event, sessionName: null } : event instanceof Event ? { data: String((event as CustomEvent).detail || ''), sessionName: null } : event
+      const handleOutput = (event: Event | string | { data: string; sessionName?: string | null; hostId?: string | null }) => {
+        const payload = typeof event === 'string' ? { data: event, sessionName: null, hostId: null } : event instanceof Event ? { data: String((event as CustomEvent).detail || ''), sessionName: null, hostId: null } : event
+        if (payload.hostId && payload.hostId !== (activeHostIdRef.current || 'local')) return
         if (payload.sessionName && payload.sessionName !== sessionNameRef.current) return
         const raw = payload.data
         if (!raw || !terminal?.write) return
@@ -1117,6 +1119,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       }
       const handleAttached = (event: Event) => {
         const detail = (event as CustomEvent).detail || {}
+        if (detail.hostId && detail.hostId !== (activeHostIdRef.current || 'local')) return
         if (detail.sessionName && detail.sessionName !== sessionNameRef.current) return
         const cols = Number(detail.cols)
         const rows = Number(detail.rows)

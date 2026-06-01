@@ -255,6 +255,12 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       setActiveHost(restoredHost || localHost?.id || hostsData[0].id)
     }
   }, [hostsData, activeHostId, setActiveHost])
+  useEffect(() => {
+    if (!activeHostId || !hostsData.length) return
+    if (hostsData.some((host: any) => host.id === activeHostId)) return
+    const localHost = hostsData.find((host: any) => host.id === 'local')
+    setActiveHost(localHost?.id || hostsData[0].id)
+  }, [activeHostId, hostsData, setActiveHost])
 
   useEffect(() => {
     if (!sessionsFetched) return
@@ -262,18 +268,13 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       if (activeSessionId) setActiveSession('')
       return
     }
-    const persistedSession = typeof window !== 'undefined' ? localStorage.getItem('tmuxgo-active-session') : null
+    const persistedSession = typeof window !== 'undefined' && activeHostId ? localStorage.getItem(`tmuxgo-active-session:${activeHostId}`) || localStorage.getItem('tmuxgo-active-session') : null
     const persistedSessionExists = !!persistedSession && sessionsData.some((s: any) => s.id === persistedSession)
     const activeSessionExists = !!activeSessionId && sessionsData.some((s: any) => s.id === activeSessionId)
     if (!activeSessionId || !activeSessionExists) {
       setActiveSession(persistedSessionExists ? persistedSession! : sessionsData[0].id)
     }
-  }, [sessionsData, sessionsFetched, activeSessionId, setActiveSession])
-
-  useEffect(() => {
-    if (!activeSessionId) return
-    localStorage.setItem('tmuxgo-active-session', activeSessionId)
-  }, [activeSessionId])
+  }, [sessionsData, sessionsFetched, activeSessionId, activeHostId, setActiveSession])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

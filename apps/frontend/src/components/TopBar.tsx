@@ -9,10 +9,6 @@ export function TopBar() {
   const activeHostId = useConsoleStore((state) => state.activeHostId)
   const activeSessionId = useConsoleStore((state) => state.activeSessionId)
   const setCommandPalette = useConsoleStore((state) => state.setCommandPalette)
-  const sessionPanelExpanded = useConsoleStore((state) => state.sessionPanelExpanded)
-  const toggleSessionPanel = useConsoleStore((state) => state.toggleSessionPanel)
-  const filePanelOpen = useConsoleStore((state) => state.filePanelOpen)
-  const toggleFilePanel = useConsoleStore((state) => state.toggleFilePanel)
   const { data: hosts = [] } = useHosts()
   const { data: sessions = [] } = useSessions(activeHostId || '')
   const { t } = useTranslation()
@@ -51,12 +47,6 @@ export function TopBar() {
         </div>
 
         <div className="flex items-center gap-4">
-          <button onClick={toggleSessionPanel} className={`rounded-lg px-3 py-1.5 text-sm transition-colors ${sessionPanelExpanded ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-3 hover:text-text-1'}`}>
-            {t('topBar.sessions')}
-          </button>
-          <button onClick={toggleFilePanel} className={`rounded-lg px-3 py-1.5 text-sm transition-colors ${filePanelOpen ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-3 hover:text-text-1'}`}>
-            {t('topBar.files')}
-          </button>
           <ConnectionBadge />
           <button
             onClick={() => window.dispatchEvent(new CustomEvent('tmuxgo-open-settings'))}

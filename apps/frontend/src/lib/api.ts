@@ -1,5 +1,5 @@
 import { getApiBase } from './runtime-endpoints'
-import type { CustomShortcut, FavoriteDirectory, FileContentMatch, FileContentResponse, FileItem, FileListResponse, FilePreviewResponse, FileRoot, FileUploadTarget, RemotePreferences, SessionOrderPreference, UploadJobResult, UploadedFile } from '@/types'
+import type { CustomShortcut, FavoriteDirectory, FavoriteItem, FileContentMatch, FileContentResponse, FileItem, FileListResponse, FilePreviewResponse, FileRoot, FileUploadTarget, RemotePreferences, SessionOrderPreference, Snippet, UiPreferences, UploadJobResult, UploadedFile } from '@/types'
 
 export interface StreamSystemInfo {
   outputBytes: number
@@ -64,14 +64,22 @@ export interface BatchDeleteSessionsResponse {
   deleted?: BatchDeleteSessionItem[]
   failed?: BatchDeleteSessionItem[]
 }
+export interface HostPayload {
+  id: string
+  name?: string
+  address: string
+  user: string
+  port?: number
+  password?: string
+  passwordEnv?: string
+}
 
 async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   const url = `${getApiBase()}${path}`
   const isFormData = typeof FormData !== 'undefined' && options?.body instanceof FormData
-  const headers = isFormData ? { ...options?.headers } : {
-    'Content-Type': 'application/json',
-    ...options?.headers,
-  }
+  const hasBody = options?.body !== undefined && options?.body !== null
+  const headers = new Headers(options?.headers)
+  if (!isFormData && hasBody && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
   const response = await fetch(url, {
     ...options,
     headers,
@@ -149,6 +157,19 @@ export const api = {
   hosts: {
     list: () => fetchApi<any[]>('/api/hosts'),
     get: (id: string) => fetchApi<any>(`/api/hosts/${id}`),
+    create: (payload: HostPayload) =>
+      fetchApi<any>('/api/hosts', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    remove: (id: string) =>
+      fetchApi<{ success: boolean }>(`/api/hosts/${id}`, {
+        method: 'DELETE',
+      }),
+    test: (id: string) =>
+      fetchApi<{ ok: boolean; message: string; mode: 'local' | 'key' | 'password' }>(`/api/hosts/${id}/test`, {
+        method: 'POST',
+      }),
   },
   sessions: {
     list: (hostId: string) => fetchApi<any[]>(`/api/hosts/${hostId}/sessions`),
@@ -277,7 +298,7 @@ export const api = {
   },
   preferences: {
     get: (profile = 'default') => fetchApi<RemotePreferences>(`/api/preferences?profile=${encodeURIComponent(profile)}`),
-    update: (payload: { customShortcuts?: CustomShortcut[]; customShortcutsUpdatedAt?: string; favoriteDirectories?: FavoriteDirectory[]; favoriteDirectoriesUpdatedAt?: string; sessionOrders?: SessionOrderPreference[]; sessionOrdersUpdatedAt?: string; uploadRateLimitKBps?: number; downloadRateLimitKBps?: number }, profile = 'default') =>
+    update: (payload: { customShortcuts?: CustomShortcut[]; customShortcutsUpdatedAt?: string; favoriteDirectories?: FavoriteDirectory[]; favoriteDirectoriesUpdatedAt?: string; sessionOrders?: SessionOrderPreference[]; sessionOrdersUpdatedAt?: string; snippets?: Snippet[]; snippetsUpdatedAt?: string; favorites?: FavoriteItem[]; favoritesUpdatedAt?: string; uiPreferences?: UiPreferences; uiPreferencesUpdatedAt?: string; uploadRateLimitKBps?: number; downloadRateLimitKBps?: number }, profile = 'default') =>
       fetchApi<RemotePreferences>(`/api/preferences?profile=${encodeURIComponent(profile)}`, {
         method: 'PUT',
         body: JSON.stringify(payload),

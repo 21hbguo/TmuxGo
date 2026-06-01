@@ -4,7 +4,8 @@ import { useState, useEffect } from 'react'
 import { AuditLog } from './AuditLog'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useTranslation } from '@/i18n'
-import { api } from '@/lib/api'
+
+import { useCreateHost, useDeleteHost, useHosts, useTestHost } from '@/hooks/useApi'
 
 interface SettingsProps {
   onClose: () => void
@@ -15,6 +16,19 @@ export function Settings({ onClose }: SettingsProps) {
   const { t } = useTranslation()
   const [activeTab, setActiveTab] = useState<'general' | 'appearance' | 'audit'>('general')
   const [showAuditLog, setShowAuditLog] = useState(false)
+  const [hostIdDraft, setHostIdDraft] = useState('')
+  const [hostNameDraft, setHostNameDraft] = useState('')
+  const [hostAddressDraft, setHostAddressDraft] = useState('')
+  const [hostUserDraft, setHostUserDraft] = useState('')
+  const [hostPortDraft, setHostPortDraft] = useState('22')
+  const [hostPasswordDraft, setHostPasswordDraft] = useState('')
+  const [hostDialogOpen, setHostDialogOpen] = useState(false)
+  const [hostDialogMode, setHostDialogMode] = useState<'create' | 'edit'>('create')
+  const [hostActionMessage, setHostActionMessage] = useState('')
+  const { data: hosts = [] } = useHosts()
+  const createHost = useCreateHost()
+  const deleteHost = useDeleteHost()
+  const testHost = useTestHost()
   const [terminalPaddingDraft, setTerminalPaddingDraft] = useState(preferences.terminalPadding)
   const [uploadRateLimitDraft, setUploadRateLimitDraft] = useState(preferences.uploadRateLimitKBps)
   const [downloadRateLimitDraft, setDownloadRateLimitDraft] = useState(preferences.downloadRateLimitKBps)
@@ -38,12 +52,57 @@ export function Settings({ onClose }: SettingsProps) {
   const commitUploadRateLimit = () => {
     if (uploadRateLimitDraft === preferences.uploadRateLimitKBps) return
     updatePreferences({ uploadRateLimitKBps: uploadRateLimitDraft })
-    void api.preferences.update({ uploadRateLimitKBps: uploadRateLimitDraft }).catch(() => {})
   }
   const commitDownloadRateLimit = () => {
     if (downloadRateLimitDraft === preferences.downloadRateLimitKBps) return
     updatePreferences({ downloadRateLimitKBps: downloadRateLimitDraft })
-    void api.preferences.update({ downloadRateLimitKBps: downloadRateLimitDraft }).catch(() => {})
+  }
+  const resetHostDraft = () => {
+    setHostIdDraft('')
+    setHostNameDraft('')
+    setHostAddressDraft('')
+    setHostUserDraft('')
+    setHostPortDraft('22')
+    setHostPasswordDraft('')
+  }
+  const openCreateHostDialog = () => {
+    resetHostDraft()
+    setHostDialogMode('create')
+    setHostDialogOpen(true)
+    setHostActionMessage('')
+  }
+  const openEditHostDialog = (host: any) => {
+    setHostIdDraft(host.id || '')
+    setHostNameDraft(host.name || '')
+    setHostAddressDraft(host.address || '')
+    setHostUserDraft(host.user || '')
+    setHostPortDraft(String(host.port || 22))
+    setHostPasswordDraft('')
+    setHostDialogMode('edit')
+    setHostDialogOpen(true)
+    setHostActionMessage('')
+  }
+  const closeHostDialog = () => {
+    setHostDialogOpen(false)
+    setHostPasswordDraft('')
+  }
+  const saveHost = async () => {
+    setHostActionMessage('')
+    try {
+      await createHost.mutateAsync({
+        id: hostIdDraft.trim(),
+        name: hostNameDraft.trim() || undefined,
+        address: hostAddressDraft.trim(),
+        user: hostUserDraft.trim(),
+        port: Number(hostPortDraft || '22') || 22,
+        password: hostPasswordDraft ? hostPasswordDraft : undefined,
+      })
+      setHostActionMessage(t('settings.hostSaved'))
+      closeHostDialog()
+      resetHostDraft()
+    } catch (err: any) {
+      setHostActionMessage(err?.message || t('settings.hostSaveFailed'))
+    }
   }
 
   return (
@@ -107,6 +166,58 @@ export function Settings({ onClose }: SettingsProps) {
                     <span className="text-text-2 text-sm">{t('settings.reconnectInterval')}</span>
                     <span className="text-text-1 text-sm">{preferences.reconnectInterval / 1000}s</span>
                   </div>
+                </div>
+              </div>
+              <div>
+                <h3 className="text-text-1 text-sm font-medium mb-3">{t('settings.hosts')}</h3>
+                <div className="space-y-3 rounded border border-[var(--line)] p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-text-3">{t('settings.hosts')}</span>
+                    <button onClick={openCreateHostDialog} className="rounded bg-accent px-3 py-1.5 text-sm text-bg-0">{t('settings.hostNew')}</button>
+                  </div>
+                  <div className="space-y-2">
+                    {hosts.filter((host: any) => host.id !== 'local').map((host: any) => (
+                      <div key={host.id} className="rounded border border-[var(--line)] bg-bg-2 px-2 py-2">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm text-text-1">{host.name || host.id}</div>
+                          <div className="truncate text-xs text-text-3">{host.id} {host.user ? `${host.user}@` : ''}{host.address}:{host.port || 22}</div>
+                          {!!host.hasPassword && <div className="truncate text-xs text-text-3">{t('settings.hostPasswordSaved')}</div>}
+                        </div>
+                        <div className="mt-2 flex items-center gap-1">
+                          <button onClick={() => openEditHostDialog(host)} className="rounded bg-bg-1 px-2 py-1 text-xs text-text-1">{t('settings.hostEdit')}</button>
+                          <button
+                            onClick={async () => {
+                              setHostActionMessage('')
+                              try {
+                                const result = await testHost.mutateAsync(host.id)
+                                setHostActionMessage(`${host.id}: ${result.ok ? t('settings.hostTestOk') : result.message}`)
+                              } catch (err: any) {
+                                setHostActionMessage(err?.message || t('settings.hostTestFailed'))
+                              }
+                            }}
+                            className="rounded bg-bg-1 px-2 py-1 text-xs text-text-1"
+                          >
+                            {t('settings.hostTest')}
+                          </button>
+                          <button
+                            onClick={async () => {
+                              setHostActionMessage('')
+                              try {
+                                await deleteHost.mutateAsync(host.id)
+                                setHostActionMessage(t('settings.hostRemoved'))
+                              } catch (err: any) {
+                                setHostActionMessage(err?.message || t('settings.hostRemoveFailed'))
+                              }
+                            }}
+                            className="rounded bg-red-900/30 px-2 py-1 text-xs text-red-200"
+                          >
+                            {t('settings.hostRemove')}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {!!hostActionMessage && <span className="block text-xs text-text-2">{hostActionMessage}</span>}
                 </div>
               </div>
 
@@ -324,6 +435,29 @@ export function Settings({ onClose }: SettingsProps) {
         </div>
       </div>
 
+      {hostDialogOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 p-4" onClick={closeHostDialog}>
+          <div className="w-full max-w-[420px] rounded-lg border border-[var(--line)] bg-bg-1 p-4" onClick={(event) => event.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-base font-medium text-text-1">{hostDialogMode === 'create' ? t('settings.hostCreate') : t('settings.hostEdit')}</h3>
+              <button onClick={closeHostDialog} className="text-text-3 hover:text-text-1">✕</button>
+            </div>
+            <div className="space-y-2">
+              <input value={hostIdDraft} disabled={hostDialogMode === 'edit'} onChange={(event) => setHostIdDraft(event.target.value)} placeholder={t('settings.hostId')} className="w-full rounded border border-[var(--line)] bg-bg-2 px-2 py-1.5 text-sm text-text-1 outline-none disabled:cursor-not-allowed disabled:opacity-60" />
+              <input value={hostNameDraft} onChange={(event) => setHostNameDraft(event.target.value)} placeholder={t('settings.hostNameOptional')} className="w-full rounded border border-[var(--line)] bg-bg-2 px-2 py-1.5 text-sm text-text-1 outline-none" />
+              <input value={hostAddressDraft} onChange={(event) => setHostAddressDraft(event.target.value)} placeholder={t('settings.hostAddress')} className="w-full rounded border border-[var(--line)] bg-bg-2 px-2 py-1.5 text-sm text-text-1 outline-none" />
+              <input value={hostUserDraft} onChange={(event) => setHostUserDraft(event.target.value)} placeholder={t('settings.hostUser')} className="w-full rounded border border-[var(--line)] bg-bg-2 px-2 py-1.5 text-sm text-text-1 outline-none" />
+              <input value={hostPortDraft} onChange={(event) => setHostPortDraft(event.target.value)} placeholder={t('settings.hostPort')} className="w-full rounded border border-[var(--line)] bg-bg-2 px-2 py-1.5 text-sm text-text-1 outline-none" />
+              <input type="password" value={hostPasswordDraft} onChange={(event) => setHostPasswordDraft(event.target.value)} placeholder={t('settings.hostPassword')} className="w-full rounded border border-[var(--line)] bg-bg-2 px-2 py-1.5 text-sm text-text-1 outline-none" />
+              {hostDialogMode === 'edit' && <div className="text-xs text-text-3">{t('settings.hostPasswordKeep')}</div>}
+            </div>
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button onClick={closeHostDialog} className="rounded bg-bg-2 px-3 py-1.5 text-sm text-text-2">{t('common.cancel')}</button>
+              <button onClick={() => void saveHost()} className="rounded bg-accent px-3 py-1.5 text-sm text-bg-0">{t('settings.hostSave')}</button>
+            </div>
+          </div>
+        </div>
+      )}
       {showAuditLog && <AuditLog onClose={() => setShowAuditLog(false)} />}
     </div>
   )

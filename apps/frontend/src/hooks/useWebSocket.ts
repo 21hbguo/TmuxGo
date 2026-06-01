@@ -6,7 +6,7 @@ import { getWebSocketBase } from '@/lib/runtime-endpoints'
 import { recordMobileDiagnostic } from '@/lib/mobile-diagnostics'
 type WSState={ws:WebSocket|null,reconnectTimer:ReturnType<typeof setTimeout>|null,reconnectCount:number,isConnecting:boolean,socketReady:boolean,pingTimer:ReturnType<typeof setInterval>|null,pongTimer:ReturnType<typeof setTimeout>|null,closeTimer:ReturnType<typeof setTimeout>|null,backgroundCloseTimer:ReturnType<typeof setTimeout>|null,subscribers:number,lastPongAt:number,hiddenAt:number,backgroundClosed:boolean,onMessage:((data:any)=>void)|null,onOpen:(()=>void)|null,onClose:(()=>void)|null,onError:(()=>void)|null,closeExpected:boolean,lastInteractionRecoverAt:number,listenersReady:boolean,cleanupListeners:(()=>void)|null}
 const wsState:WSState={ws:null,reconnectTimer:null,reconnectCount:0,isConnecting:false,socketReady:false,pingTimer:null,pongTimer:null,closeTimer:null,backgroundCloseTimer:null,subscribers:0,lastPongAt:0,hiddenAt:0,backgroundClosed:false,onMessage:null,onOpen:null,onClose:null,onError:null,closeExpected:false,lastInteractionRecoverAt:0,listenersReady:false,cleanupListeners:null}
-type OutputMessage={data:string,sessionName?:string|null}
+type OutputMessage={data:string,sessionName?:string|null,hostId?:string|null}
 const outputListeners=new Set<(message:OutputMessage)=>void>()
 const BACKGROUND_CLOSE_DELAY_MS=12000
 function recordMobileDebug(event:string,data?:Record<string,unknown>) {
@@ -43,7 +43,7 @@ export function useWebSocket() {
         updateConnection({latency:Date.now()-(data.timestamp||Date.now()),lastPing:new Date().toISOString()})
         break
       case 'output': {
-        Array.from(outputListeners).forEach((listener)=>listener({data:data.data,sessionName:data.sessionName??null}))
+        Array.from(outputListeners).forEach((listener)=>listener({data:data.data,sessionName:data.sessionName??null,hostId:data.hostId??null}))
         break
       }
       case 'connected':

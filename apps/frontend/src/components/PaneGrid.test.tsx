@@ -26,6 +26,12 @@ vi.mock('@/hooks/usePreferences', () => ({
 vi.mock('@/hooks/useMobileKeyboard', () => ({
   isMobileDevice: () => false,
 }))
+vi.mock('@/hooks/useApi', () => ({
+  useWindows: () => ({ data: [] }),
+}))
+vi.mock('@/hooks/useWindowQueryState', () => ({
+  useWindowQueryState: () => ({ getWindows: () => [], setWindows: vi.fn() }),
+}))
 
 describe('PaneGrid', () => {
   beforeEach(() => {
@@ -45,7 +51,7 @@ describe('PaneGrid', () => {
   it('waits for the new terminal instance before attaching after session switch', async () => {
     render(<PaneGrid />)
     fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
-    await waitFor(() => expect(sendMock).toHaveBeenCalledWith({ type: 'attach', sessionName: 'dev1', cols: 120, rows: 36, exclusive: true }))
+    await waitFor(() => expect(sendMock).toHaveBeenCalledWith({ type: 'attach', hostId: 'local', sessionName: 'dev1', cols: 120, rows: 36, exclusive: true }))
     const attachCallsBeforeSwitch = sendMock.mock.calls.filter(([message]) => message?.type === 'attach').length
     act(() => {
       useConsoleStore.setState({ activeSessionId: 'session-dev2' })
@@ -53,14 +59,14 @@ describe('PaneGrid', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'dev2' })).toBeInTheDocument())
     expect(sendMock.mock.calls.filter(([message]) => message?.type === 'attach').length).toBe(attachCallsBeforeSwitch)
     fireEvent.click(screen.getByRole('button', { name: 'dev2' }))
-    await waitFor(() => expect(sendMock).toHaveBeenCalledWith({ type: 'attach', sessionName: 'dev2', cols: 120, rows: 36, exclusive: true }))
+    await waitFor(() => expect(sendMock).toHaveBeenCalledWith({ type: 'attach', hostId: 'local', sessionName: 'dev2', cols: 120, rows: 36, exclusive: true }))
     expect(sendMock.mock.calls.filter(([message]) => message?.type === 'attach').length).toBe(attachCallsBeforeSwitch + 1)
   })
   it('sends terminal resize immediately after attach', async () => {
     socketState.isConnected = true
     render(<PaneGrid />)
     fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
-    await waitFor(() => expect(sendMock).toHaveBeenCalledWith({ type: 'attach', sessionName: 'dev1', cols: 120, rows: 36, exclusive: true }))
+    await waitFor(() => expect(sendMock).toHaveBeenCalledWith({ type: 'attach', hostId: 'local', sessionName: 'dev1', cols: 120, rows: 36, exclusive: true }))
     act(() => {
       window.dispatchEvent(new CustomEvent('tmux-attached', { detail: { sessionName: 'dev1', cols: 120, rows: 36 } }))
     })
@@ -68,6 +74,6 @@ describe('PaneGrid', () => {
     act(() => {
       terminalProps.current?.onResize?.(121, 36)
     })
-    expect(sendMock).toHaveBeenCalledWith({ type: 'resize', cols: 121, rows: 36 })
+    expect(sendMock).toHaveBeenCalledWith({ type: 'resize', hostId: 'local', cols: 121, rows: 36 })
   })
 })

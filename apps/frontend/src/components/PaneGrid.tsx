@@ -10,6 +10,7 @@ import { isMobileDevice } from '@/hooks/useMobileKeyboard'
 import { useWindows } from '@/hooks/useApi'
 import { useWindowQueryState } from '@/hooks/useWindowQueryState'
 import { api } from '@/lib/api'
+import { parseSessionName } from '@/lib/session-id'
 
 const ATTACH_TIMEOUT = 5000
 const ATTACH_RETRY_DELAY = 900
@@ -45,7 +46,7 @@ export function PaneGrid() {
   const lastExternalInputRef = useRef<{ data: string; at: number } | null>(null)
   const attachStartedAtRef = useRef(0)
 
-  const sessionName = activeSessionId?.replace('session-', '') || ''
+  const sessionName = parseSessionName(activeHostId || 'local', activeSessionId || '')
 
   const sessionWindows = useMemo(() =>
     windowsData.filter((w: any) => w.sessionId === activeSessionId),
@@ -80,8 +81,8 @@ export function PaneGrid() {
     const prev = sentResizeRef.current
     if (prev && prev.cols === size.cols && prev.rows === size.rows) return
     sentResizeRef.current = size
-    send({ type: 'resize', cols: size.cols, rows: size.rows })
-  }, [send])
+    send({ type: 'resize', hostId: activeHostId || 'local', cols: size.cols, rows: size.rows })
+  }, [activeHostId, send])
   const clearAttachTimers = useCallback(() => {
     if (attachTimerRef.current) {
       clearTimeout(attachTimerRef.current)
@@ -130,7 +131,7 @@ export function PaneGrid() {
     clearAttachTimers()
     attachStartedAtRef.current = typeof performance !== 'undefined' ? performance.now() : Date.now()
     updateConnection({ status: 'attaching' })
-    const sent = send({ type: 'attach', sessionName, cols: size?.cols || 120, rows: size?.rows || 36, exclusive })
+    const sent = send({ type: 'attach', hostId: activeHostId || 'local', sessionName, cols: size?.cols || 120, rows: size?.rows || 36, exclusive })
     if (!sent) return
     sentResizeRef.current = size || null
     attachTimerRef.current = setTimeout(() => {
@@ -143,7 +144,7 @@ export function PaneGrid() {
         attachNow()
       }, ATTACH_RETRY_DELAY)
     }, ATTACH_TIMEOUT)
-  }, [clearAttachTimers, exclusive, isSocketReady, send, sessionName, updateConnection])
+  }, [activeHostId, clearAttachTimers, exclusive, isSocketReady, send, sessionName, updateConnection])
 
   useEffect(() => {
     if (!activeSessionId) {
@@ -200,18 +201,19 @@ export function PaneGrid() {
   useEffect(() => {
     if (!isSocketReady) return
     const profile = isMobile ? 'mobile' : document.visibilityState === 'visible' ? 'foreground' : 'background'
-    send({ type: 'stream_profile', profile })
+    send({ type: 'stream_profile', hostId: activeHostId || 'local', profile })
     const handleVisibilityChange = () => {
       const nextProfile = isMobile ? 'mobile' : document.visibilityState === 'visible' ? 'foreground' : 'background'
-      send({ type: 'stream_profile', profile: nextProfile })
+      send({ type: 'stream_profile', hostId: activeHostId || 'local', profile: nextProfile })
     }
     document.addEventListener('visibilitychange', handleVisibilityChange)
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
-  }, [isMobile, isSocketReady, send])
+  }, [activeHostId, isMobile, isSocketReady, send])
   useEffect(() => {
     const handleAttached = (event: Event) => {
       const detail = (event as CustomEvent).detail || {}
       if (detail.sessionName !== sessionName) return
+      if ((detail.hostId || 'local') !== (activeHostId || 'local')) return
       clearAttachTimers()
       attachedRef.current = sessionName
       pendingSwitchRef.current = false
@@ -227,7 +229,7 @@ export function PaneGrid() {
     }
     window.addEventListener('tmux-attached', handleAttached as EventListener)
     return () => window.removeEventListener('tmux-attached', handleAttached as EventListener)
-  }, [exclusive, sessionName, clearAttachTimers, updateConnection, updateTerminalPerf, flushInputQueue, sendResizeNow])
+  }, [activeHostId, exclusive, sessionName, clearAttachTimers, updateConnection, updateTerminalPerf, flushInputQueue, sendResizeNow])
   useEffect(() => {
     if (isConnected) flushInputQueue()
   }, [isConnected, flushInputQueue])

@@ -7,12 +7,22 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 const mutateCreateSession = vi.fn()
 const mutateRenameSession = vi.fn()
 const mutateDeleteSession = vi.fn()
+const mutateBatchDeleteSessions = vi.fn()
 
 vi.mock('@/hooks/useApi', () => ({
+  useHosts: () => ({ data: [{ id: 'local', name: 'Local', address: '127.0.0.1', status: 'online', tags: [] }] }),
   useSessions: () => ({ data: [{ id: 'session-dev', name: 'dev', windowCount: 2 }] }),
   useCreateSession: () => ({ mutateAsync: mutateCreateSession }),
   useRenameSession: () => ({ mutateAsync: mutateRenameSession }),
   useDeleteSession: () => ({ mutateAsync: mutateDeleteSession }),
+  useBatchDeleteSessions: () => ({ mutateAsync: mutateBatchDeleteSessions }),
+  useWindows: () => ({ data: [] }),
+}))
+vi.mock('@/hooks/useWindowQueryState', () => ({
+  useWindowQueryState: () => ({ getWindows: () => [], setWindows: vi.fn() }),
+}))
+vi.mock('@/hooks/useOrderedSessions', () => ({
+  useOrderedSessions: () => ({ data: [{ id: 'session-dev', name: 'dev', windowCount: 2 }], moveSession: vi.fn() }),
 }))
 vi.mock('@/i18n', () => ({
   useTranslation: () => ({ t: (key: string, params?: Record<string, string | number>) => {
@@ -41,12 +51,16 @@ vi.mock('./QuickActions', () => ({
 vi.mock('./ConfirmDialog', () => ({
   ConfirmDialog: ({ open, onConfirm }: { open: boolean; onConfirm: () => void }) => open ? React.createElement('button', { onClick: onConfirm }, 'confirm-delete') : null,
 }))
+vi.mock('./SessionSortableList', () => ({
+  SessionSortableList: ({ sessions, renderItem }: { sessions: any[]; renderItem: (args: { session: any; isDragging: boolean; isOverlay: boolean }) => React.ReactNode }) => React.createElement('div', null, sessions.map((session) => React.createElement('div', { key: session.id }, renderItem({ session, isDragging: false, isOverlay: false })))),
+}))
 
 describe('MobileDrawer session actions', () => {
   beforeEach(() => {
     mutateCreateSession.mockReset()
     mutateRenameSession.mockReset()
     mutateDeleteSession.mockReset()
+    mutateBatchDeleteSessions.mockReset()
     mutateRenameSession.mockResolvedValue({ id: 'session-dev-renamed' })
     mutateDeleteSession.mockResolvedValue({ success: true })
     useConsoleStore.setState({

@@ -1,16 +1,16 @@
 import type { FastifyInstance } from 'fastify'
-import { execFile } from 'child_process'
-import { promisify } from 'util'
 import { getNormalizedWindowMoves } from '../lib/template-utils.js'
 import { assertSessionAllowed, assertTargetAllowed } from '../lib/tmux-policy.js'
+import { buildSessionId, parseSessionRef } from '../lib/tmux-target.js'
+import { execTmux } from '../lib/tmux-executor.js'
 
-const execFileAsync = promisify(execFile)
-
-async function getTmuxWindows(sessionName: string) {
+function parseSessionName(hostId: string, sessionRef: string) {
+  return parseSessionRef(hostId, sessionRef).sessionName
+}
+async function getTmuxWindows(hostId: string, sessionName: string) {
   assertSessionAllowed(sessionName)
   try {
-    const { stdout } = await execFileAsync('tmux', ['list-windows', '-t', sessionName, '-F', '#{window_id}|#{window_index}|#{window_name}|#{window_active}'])
-
+    const { stdout } = await execTmux(hostId, ['list-windows', '-t', sessionName, '-F', '#{window_id}|#{window_index}|#{window_name}|#{window_active}'])
     return stdout
       .trim()
       .split('\n')
@@ -18,9 +18,9 @@ async function getTmuxWindows(sessionName: string) {
       .map((line) => {
         const [id, index, name, active] = line.split('|')
         return {
-          id: id,
+          id: `${hostId}:${id}`,
           tmuxWindowId: id,
-          sessionId: `session-${sessionName}`,
+          sessionId: buildSessionId(hostId, sessionName),
           index: parseInt(index, 10),
           name,
           active: active === '1',
@@ -31,19 +31,21 @@ async function getTmuxWindows(sessionName: string) {
     return []
   }
 }
-async function normalizeWindowOrder(sessionName: string, orderedWindowIds: string[]) {
+async function normalizeWindowOrder(hostId: string, sessionName: string, orderedWindowIds: string[]) {
   assertSessionAllowed(sessionName)
-  for (const move of getNormalizedWindowMoves(sessionName, orderedWindowIds)) {
-    await assertTargetAllowed(move.source, sessionName)
-    await execFileAsync('tmux', ['move-window', '-s', move.source, '-t', move.target])
+  const tmuxOrderedIds = orderedWindowIds.map((item) => {
+    if (!item.startsWith(`${hostId}:`)) throw new Error('Window does not belong to host')
+    return item.slice(hostId.length + 1)
+  })
+  for (const move of getNormalizedWindowMoves(sessionName, tmuxOrderedIds)) {
+    if (hostId === 'local') await assertTargetAllowed(move.source, sessionName)
+    await execTmux(hostId, ['move-window', '-s', move.source, '-t', move.target])
   }
 }
-
-async function getTmuxPanes(sessionName: string, windowIndex: number) {
+async function getTmuxPanes(hostId: string, sessionName: string, windowIndex: number) {
   assertSessionAllowed(sessionName)
   try {
-    const { stdout } = await execFileAsync('tmux', ['list-panes', '-t', `${sessionName}:${windowIndex}`, '-F', '#{pane_id}|#{pane_index}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}|#{pane_left}|#{pane_top}'])
-
+    const { stdout } = await execTmux(hostId, ['list-panes', '-t', `${sessionName}:${windowIndex}`, '-F', '#{pane_id}|#{pane_index}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}|#{pane_left}|#{pane_top}'])
     return stdout
       .trim()
       .split('\n')
@@ -51,9 +53,9 @@ async function getTmuxPanes(sessionName: string, windowIndex: number) {
       .map((line) => {
         const [id, index, title, active, width, height, left, top] = line.split('|')
         return {
-          id: id,
+          id: `${hostId}:${id}`,
           tmuxPaneId: id,
-          windowId: `${sessionName}:${windowIndex}`,
+          windowId: `${hostId}:${sessionName}:${windowIndex}`,
           index: parseInt(index, 10),
           title: title || 'shell',
           active: active === '1',
@@ -70,43 +72,60 @@ async function getTmuxPanes(sessionName: string, windowIndex: number) {
     return []
   }
 }
-
+function parseWindowRef(hostId: string, windowRef: string) {
+  if (!windowRef.startsWith(`${hostId}:`)) throw new Error('Window does not belong to host')
+  const value = windowRef.slice(hostId.length + 1)
+  if (!value.startsWith('@')) throw new Error('Invalid window id')
+  return value
+}
+function parseWindowRouteParam(windowId: string) {
+  const sep = windowId.indexOf(':')
+  if (sep <= 0 || sep === windowId.length - 1) throw new Error('Invalid window id')
+  const hostId = windowId.slice(0, sep)
+  const windowName = windowId.slice(sep + 1)
+  if (!windowName.startsWith('@')) throw new Error('Invalid window id')
+  return { hostId, windowName }
+}
+async function parsePaneTarget(hostId: string, paneId: string) {
+  if (!paneId.startsWith(`${hostId}:`)) throw new Error('Pane does not belong to host')
+  const tmuxPaneId = paneId.slice(hostId.length + 1)
+  if (!tmuxPaneId.startsWith('%')) throw new Error('Invalid pane id')
+  return tmuxPaneId
+}
 export async function windowRoutes(fastify: FastifyInstance) {
   fastify.get('/hosts/:hostId/sessions/:sessionId/windows', async (request) => {
-    const { sessionId } = request.params as { sessionId: string }
-    const sessionName = sessionId.replace('session-', '')
-    return getTmuxWindows(sessionName)
+    const { hostId, sessionId } = request.params as { hostId: string; sessionId: string }
+    const sessionName = parseSessionName(hostId, sessionId)
+    return getTmuxWindows(hostId, sessionName)
   })
-
   fastify.get('/windows/:windowId/panes', async (request) => {
     const { windowId } = request.params as { windowId: string }
-    const parts = windowId.split('-')
-    const sessionName = parts[1]
-    const windowIndex = parseInt(parts[2], 10)
-    assertSessionAllowed(sessionName)
-    return getTmuxPanes(sessionName, windowIndex)
+    const { hostId, windowName } = parseWindowRouteParam(windowId)
+    const { stdout } = await execTmux(hostId, ['display-message', '-p', '-t', windowName, '#{session_name}|#{window_index}'])
+    const [sessionName, windowIndexText] = stdout.trim().split('|')
+    const windowIndex = parseInt(windowIndexText, 10)
+    if (!sessionName || !Number.isFinite(windowIndex)) return []
+    return getTmuxPanes(hostId, sessionName, windowIndex)
   })
-
   fastify.get('/hosts/:hostId/sessions/:sessionId/panes', async (request) => {
-    const { sessionId } = request.params as { sessionId: string }
-    const sessionName = sessionId.replace('session-', '')
-    const windows = await getTmuxWindows(sessionName)
+    const { hostId, sessionId } = request.params as { hostId: string; sessionId: string }
+    const sessionName = parseSessionName(hostId, sessionId)
+    const windows = await getTmuxWindows(hostId, sessionName)
     const allPanesNested = await Promise.all(windows.map(async (window) => {
-      const panes = await getTmuxPanes(sessionName, window.index)
+      const panes = await getTmuxPanes(hostId, sessionName, window.index)
       return panes.map((pane) => ({
         ...pane,
         windowName: window.name,
       }))
     }))
-    const allPanes = allPanesNested.flat()
-    return allPanes
+    return allPanesNested.flat()
   })
   fastify.get('/hosts/:hostId/sessions/:sessionId/snapshot', async (request) => {
-    const { sessionId } = request.params as { sessionId: string }
-    const sessionName = sessionId.replace('session-', '')
-    const windows = await getTmuxWindows(sessionName)
+    const { hostId, sessionId } = request.params as { hostId: string; sessionId: string }
+    const sessionName = parseSessionName(hostId, sessionId)
+    const windows = await getTmuxWindows(hostId, sessionName)
     const panesNested = await Promise.all(windows.map(async (window) => {
-      const panes = await getTmuxPanes(sessionName, window.index)
+      const panes = await getTmuxPanes(hostId, sessionName, window.index)
       return panes.map((pane) => ({
         ...pane,
         windowName: window.name,
@@ -115,104 +134,107 @@ export async function windowRoutes(fastify: FastifyInstance) {
     const panes = panesNested.flat()
     const activeWindow = windows.find((window) => window.active) || windows[0] || null
     const activePane = panes.find((pane) => pane.active) || panes[0] || null
-    return { sessionId, sessionName, windows, panes, activeWindowId: activeWindow?.id || null, activePaneId: activePane?.id || null }
+    return { sessionId: buildSessionId(hostId, sessionName), sessionName, windows, panes, activeWindowId: activeWindow?.id || null, activePaneId: activePane?.id || null }
   })
-
   fastify.get('/panes/:paneId/output', async (request) => {
     const { paneId } = request.params as { paneId: string }
     try {
-      await assertTargetAllowed(paneId)
-      const { stdout } = await execFileAsync('tmux', ['capture-pane', '-pt', paneId, '-p'])
-      return { paneId, tmuxPaneId: paneId, data: stdout }
-    } catch (err: any) {
-      return { paneId, tmuxPaneId: paneId, data: '' }
+      const sep = paneId.indexOf(':')
+      if (sep <= 0 || sep === paneId.length - 1) throw new Error('Invalid pane id')
+      const hostId = paneId.slice(0, sep)
+      const tmuxPaneId = await parsePaneTarget(hostId, paneId)
+      if (hostId === 'local') await assertTargetAllowed(tmuxPaneId)
+      const { stdout } = await execTmux(hostId, ['capture-pane', '-pt', tmuxPaneId, '-p'])
+      return { paneId, tmuxPaneId, data: stdout }
+    } catch {
+      return { paneId, data: '' }
     }
   })
-
   fastify.post('/hosts/:hostId/sessions/:sessionId/windows', async (request) => {
-    const { sessionId } = request.params as { sessionId: string }
+    const { hostId, sessionId } = request.params as { hostId: string; sessionId: string }
     const { name } = request.body as { name: string }
-    const sessionName = sessionId.replace('session-', '')
+    const sessionName = parseSessionName(hostId, sessionId)
     assertSessionAllowed(sessionName)
-
     try {
-      await execFileAsync('tmux', ['new-window', '-t', sessionName, '-n', name || 'new-window'])
-      const windows = await getTmuxWindows(sessionName)
+      await execTmux(hostId, ['new-window', '-t', sessionName, '-n', name || 'new-window'])
+      const windows = await getTmuxWindows(hostId, sessionName)
       return windows[windows.length - 1]
     } catch (err: any) {
       throw new Error(err.message)
     }
   })
   fastify.post('/hosts/:hostId/sessions/:sessionId/windows/select', async (request) => {
-    const { sessionId } = request.params as { sessionId: string }
+    const { hostId, sessionId } = request.params as { hostId: string; sessionId: string }
     const { windowId } = request.body as { windowId: string }
-    const sessionName = sessionId.replace('session-', '')
+    const sessionName = parseSessionName(hostId, sessionId)
+    const tmuxWindowId = parseWindowRef(hostId, windowId)
     try {
       assertSessionAllowed(sessionName)
-      await assertTargetAllowed(windowId, sessionName)
-      await execFileAsync('tmux', ['select-window', '-t', windowId])
-      return { ok: true }
+      if (hostId === 'local') await assertTargetAllowed(tmuxWindowId, sessionName)
+      await execTmux(hostId, ['select-window', '-t', tmuxWindowId])
+      const windows = await getTmuxWindows(hostId, sessionName)
+      return { ok: true, windows }
     } catch (err: any) {
       return { ok: false, error: err.message }
     }
   })
   fastify.post('/hosts/:hostId/sessions/:sessionId/windows/rename', async (request) => {
-    const { sessionId } = request.params as { sessionId: string }
+    const { hostId, sessionId } = request.params as { hostId: string; sessionId: string }
     const { windowId, name } = request.body as { windowId: string; name: string }
-    const sessionName = sessionId.replace('session-', '')
+    const sessionName = parseSessionName(hostId, sessionId)
+    const tmuxWindowId = parseWindowRef(hostId, windowId)
     try {
       assertSessionAllowed(sessionName)
-      await assertTargetAllowed(windowId, sessionName)
-      await execFileAsync('tmux', ['rename-window', '-t', windowId, name])
-      const windows = await getTmuxWindows(sessionName)
+      if (hostId === 'local') await assertTargetAllowed(tmuxWindowId, sessionName)
+      await execTmux(hostId, ['rename-window', '-t', tmuxWindowId, name])
+      const windows = await getTmuxWindows(hostId, sessionName)
       return { ok: true, windows }
     } catch (err: any) {
       return { ok: false, error: err.message }
     }
   })
   fastify.post('/hosts/:hostId/sessions/:sessionId/windows/move', async (request) => {
-    const { sessionId } = request.params as { sessionId: string }
+    const { hostId, sessionId } = request.params as { hostId: string; sessionId: string }
     const { orderedWindowIds } = request.body as { orderedWindowIds?: string[] }
-    const sessionName = sessionId.replace('session-', '')
+    const sessionName = parseSessionName(hostId, sessionId)
     try {
       assertSessionAllowed(sessionName)
-      if (!orderedWindowIds?.length) {
-        throw new Error('orderedWindowIds is required')
-      }
-      await normalizeWindowOrder(sessionName, orderedWindowIds)
-      const windows = await getTmuxWindows(sessionName)
+      if (!orderedWindowIds?.length) throw new Error('orderedWindowIds is required')
+      await normalizeWindowOrder(hostId, sessionName, orderedWindowIds)
+      const windows = await getTmuxWindows(hostId, sessionName)
       return { ok: true, windows }
     } catch (err: any) {
       return { ok: false, error: err.message }
     }
   })
   fastify.post('/hosts/:hostId/sessions/:sessionId/windows/kill', async (request) => {
-    const { sessionId } = request.params as { sessionId: string }
+    const { hostId, sessionId } = request.params as { hostId: string; sessionId: string }
     const { windowId } = request.body as { windowId: string }
-    const sessionName = sessionId.replace('session-', '')
+    const sessionName = parseSessionName(hostId, sessionId)
+    const tmuxWindowId = parseWindowRef(hostId, windowId)
     try {
       assertSessionAllowed(sessionName)
-      await assertTargetAllowed(windowId, sessionName)
-      await execFileAsync('tmux', ['kill-window', '-t', windowId])
-      const windows = await getTmuxWindows(sessionName)
+      if (hostId === 'local') await assertTargetAllowed(tmuxWindowId, sessionName)
+      await execTmux(hostId, ['kill-window', '-t', tmuxWindowId])
+      const windows = await getTmuxWindows(hostId, sessionName)
       return { ok: true, windows }
     } catch (err: any) {
       return { ok: false, error: err.message }
     }
   })
-
   fastify.post('/windows/:windowId/panes', async (request) => {
     const { windowId } = request.params as { windowId: string }
     const { direction } = request.body as { direction: 'horizontal' | 'vertical' }
-    const parts = windowId.split(':')
-    const sessionName = parts[0]
-    const windowIndex = parseInt(parts[1], 10)
+    const { hostId, windowName } = parseWindowRouteParam(windowId)
+    const { stdout } = await execTmux(hostId, ['display-message', '-p', '-t', windowName, '#{session_name}|#{window_index}'])
+    const [sessionName, windowIndexText] = stdout.trim().split('|')
+    const windowIndex = parseInt(windowIndexText, 10)
+    if (!sessionName || !Number.isFinite(windowIndex)) throw new Error('Invalid window target')
     assertSessionAllowed(sessionName)
-
     try {
       const flag = direction === 'horizontal' ? '-h' : '-v'
-      await execFileAsync('tmux', ['split-window', '-t', `${sessionName}:${windowIndex}`, flag])
-      const panes = await getTmuxPanes(sessionName, windowIndex)
+      await execTmux(hostId, ['split-window', '-t', `${sessionName}:${windowIndex}`, flag])
+      const panes = await getTmuxPanes(hostId, sessionName, windowIndex)
       return panes[panes.length - 1]
     } catch (err: any) {
       throw new Error(err.message)

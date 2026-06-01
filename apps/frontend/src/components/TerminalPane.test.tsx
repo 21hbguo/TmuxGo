@@ -27,11 +27,11 @@ const terminalLifecycleMocks = vi.hoisted(() => ({
 }))
 const webSocketMocks = vi.hoisted(() => ({
   send: vi.fn(),
-  subscribeOutput: vi.fn((listener: (message: { data: string; sessionName?: string | null }) => void) => {
+  subscribeOutput: vi.fn((listener: (message: { data: string; sessionName?: string | null; hostId?: string | null }) => void) => {
     ;(webSocketMocks as any).lastOutputListener = listener
     return vi.fn()
   }),
-  lastOutputListener: null as ((message: { data: string; sessionName?: string | null }) => void) | null,
+  lastOutputListener: null as ((message: { data: string; sessionName?: string | null; hostId?: string | null }) => void) | null,
 }))
 const clipboardMocks = vi.hoisted(() => ({
   writeClipboardText: vi.fn(async () => ({ copied: true, source: 'system', unavailable: false, reason: 'ok' })),
@@ -594,7 +594,7 @@ describe('TerminalPane', () => {
     expect(terminalMocks.renderClear).not.toHaveBeenCalled()
     expect(terminalMocks.reset).not.toHaveBeenCalled()
     expect(terminalMocks.clear).not.toHaveBeenCalled()
-    expect(webSocketMocks.send).not.toHaveBeenCalledWith({ type: 'redraw', sessionName: 'dev' })
+    expect(webSocketMocks.send).not.toHaveBeenCalledWith({ type: 'redraw', hostId: 'local', sessionName: 'dev' })
   })
   it('ignores stale attach events from another session', async () => {
     render(<TerminalPane sessionName="dev" attachExclusive={false} onInput={vi.fn()} onResize={vi.fn()} />)
@@ -604,10 +604,10 @@ describe('TerminalPane', () => {
     window.dispatchEvent(new CustomEvent('tmux-attached', { detail: { sessionName: 'other', cols: 120, rows: 36, exclusive: false } }))
     await sleep(140)
     expect(terminalMocks.refresh).not.toHaveBeenCalled()
-    expect(webSocketMocks.send).not.toHaveBeenCalledWith({ type: 'redraw', sessionName: 'dev' })
+    expect(webSocketMocks.send).not.toHaveBeenCalledWith({ type: 'redraw', hostId: 'local', sessionName: 'dev' })
     window.dispatchEvent(new CustomEvent('tmux-attached', { detail: { sessionName: 'dev', cols: 120, rows: 36, exclusive: false } }))
     await waitFor(() => expect(terminalMocks.refresh).toHaveBeenCalled())
-    expect(webSocketMocks.send).toHaveBeenCalledWith({ type: 'redraw', sessionName: 'dev' })
+    expect(webSocketMocks.send).toHaveBeenCalledWith({ type: 'redraw', hostId: 'local', sessionName: 'dev' })
     expect(webSocketMocks.send.mock.calls.filter((call) => call[0]?.type === 'redraw' && call[0]?.sessionName === 'dev')).toHaveLength(1)
   })
   it('recovers terminal renderer on attach and keeps ordinary layout changes soft', async () => {
@@ -626,7 +626,7 @@ describe('TerminalPane', () => {
     expect(terminalMocks.reset).toHaveBeenCalled()
     expect(terminalMocks.clear).toHaveBeenCalled()
     expect(terminalMocks.refresh).toHaveBeenCalledWith(0, 35)
-    expect(webSocketMocks.send).toHaveBeenCalledWith({ type: 'redraw', sessionName: 'dev' })
+    expect(webSocketMocks.send).toHaveBeenCalledWith({ type: 'redraw', hostId: 'local', sessionName: 'dev' })
     expect(webSocketMocks.send.mock.calls.filter((call) => call[0]?.type === 'redraw' && call[0]?.sessionName === 'dev')).toHaveLength(1)
     terminalMocks.refresh.mockClear()
     terminalMocks.clearTextureAtlas.mockClear()
@@ -640,7 +640,7 @@ describe('TerminalPane', () => {
     expect(terminalMocks.renderClear).not.toHaveBeenCalled()
     expect(terminalMocks.reset).not.toHaveBeenCalled()
     expect(terminalMocks.clear).not.toHaveBeenCalled()
-    expect(webSocketMocks.send).not.toHaveBeenCalledWith({ type: 'redraw', sessionName: 'dev' })
+    expect(webSocketMocks.send).not.toHaveBeenCalledWith({ type: 'redraw', hostId: 'local', sessionName: 'dev' })
   })
   it('recovers terminal renderer when device pixel ratio changes', async () => {
     render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
@@ -658,7 +658,7 @@ describe('TerminalPane', () => {
     expect(terminalMocks.reset).toHaveBeenCalled()
     expect(terminalMocks.clear).toHaveBeenCalled()
     expect(terminalMocks.refresh).toHaveBeenCalledWith(0, 35)
-    expect(webSocketMocks.send).toHaveBeenCalledWith({ type: 'redraw', sessionName: 'dev' })
+    expect(webSocketMocks.send).toHaveBeenCalledWith({ type: 'redraw', hostId: 'local', sessionName: 'dev' })
   })
   it('keeps terminal root aligned without transform offsets', async () => {
     const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
@@ -690,7 +690,7 @@ describe('TerminalPane', () => {
     webSocketMocks.send.mockClear()
     const root = container.firstChild as HTMLElement
     fireEvent.touchEnd(root, { changedTouches: [{ identifier: 1, clientX: 12, clientY: 18 }] })
-    expect(webSocketMocks.send).toHaveBeenCalledWith({ type: 'copy_mode_cancel', sessionName: 'dev' })
+    expect(webSocketMocks.send).toHaveBeenCalledWith({ type: 'copy_mode_cancel', hostId: 'local', sessionName: 'dev' })
     expect(mobileKeyboardMocks.focusKeyboard).toHaveBeenCalled()
   })
   it('cancels tmux copy mode when the mobile keyboard opens', async () => {
@@ -699,7 +699,7 @@ describe('TerminalPane', () => {
     await waitFor(() => expect(customKeyHandler).toBeTruthy())
     webSocketMocks.send.mockClear()
     window.dispatchEvent(new CustomEvent('mobile-keyboard-change', { detail: { open: true } }))
-    expect(webSocketMocks.send).toHaveBeenCalledWith({ type: 'copy_mode_cancel', sessionName: 'dev' })
+    expect(webSocketMocks.send).toHaveBeenCalledWith({ type: 'copy_mode_cancel', hostId: 'local', sessionName: 'dev' })
   })
   it('cancels tmux copy mode when the mobile keyboard closes', async () => {
     mobileKeyboardMocks.isMobile = true
@@ -708,7 +708,7 @@ describe('TerminalPane', () => {
     window.dispatchEvent(new CustomEvent('mobile-keyboard-change', { detail: { open: true } }))
     webSocketMocks.send.mockClear()
     window.dispatchEvent(new CustomEvent('mobile-keyboard-change', { detail: { open: false } }))
-    expect(webSocketMocks.send).toHaveBeenCalledWith({ type: 'copy_mode_cancel', sessionName: 'dev' })
+    expect(webSocketMocks.send).toHaveBeenCalledWith({ type: 'copy_mode_cancel', hostId: 'local', sessionName: 'dev' })
   })
   it('soft-recovers mobile renderer changes without clearing terminal state', async () => {
     mobileKeyboardMocks.isMobile = true

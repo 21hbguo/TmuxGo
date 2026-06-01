@@ -6,9 +6,10 @@ import { promisify } from 'util'
 import { agentManager } from '../agent-manager.js'
 import { assertSessionAllowed, prepareSessionAttach } from '../lib/tmux-policy.js'
 import { recordStreamMetric, updateStreamMetric } from '../lib/perf-metrics.js'
+import { getHostById } from '../lib/hosts.js'
+import { parseSessionRef } from '../lib/tmux-target.js'
 
 const execFileAsync = promisify(execFile)
-
 export async function streamRoutes(fastify: FastifyInstance) {
   fastify.get('/stream', { websocket: true }, (connection: SocketStream) => {
     console.log('Client connected to stream')
@@ -28,6 +29,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
     } as const
     let ptyProcess: pty.IPty | null = null
     let attachedSessionName: string | null = null
+    let attachedHostId = 'local'
     let attachedExclusive = false
     let attachedCols = 0
     let attachedRows = 0
@@ -46,7 +48,6 @@ export async function streamRoutes(fastify: FastifyInstance) {
     const socket = connection.socket
     updateStreamMetric('activeClients', streamPerfMetricsActiveClientsDelta(1))
     syncOutputProfile(outputProfile)
-
     function streamPerfMetricsActiveClientsDelta(delta: number) {
       const next = Math.max(0, Number((globalThis as any).__tmuxgoActiveClients || 0) + delta)
       ;(globalThis as any).__tmuxgoActiveClients = next
@@ -69,7 +70,6 @@ export async function streamRoutes(fastify: FastifyInstance) {
       if (buffered >= SOCKET_BUFFER_EXTREME_WATERMARK && outputProfile === 'foreground') syncOutputProfile('background')
       return buffered
     }
-
     function send(data: any) {
       if (socket.readyState !== 1) return false
       try {
@@ -77,7 +77,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
         socket.send(JSON.stringify(data))
         getSocketBufferedBytes()
         return true
-      } catch (err) {
+      } catch {
         return false
       }
     }
@@ -89,7 +89,6 @@ export async function streamRoutes(fastify: FastifyInstance) {
         flushOutput()
       }, SOCKET_FLUSH_DEFER_MS)
     }
-
     function flushOutput() {
       if (!outputBuffer || !attachedSessionName) return
       if (getSocketBufferedBytes() >= SOCKET_BUFFER_HIGH_WATERMARK) {
@@ -98,7 +97,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
       }
       const data = outputBuffer
       outputBuffer = ''
-      if (!send({ type: 'output', data, sessionName: attachedSessionName })) {
+      if (!send({ type: 'output', data, sessionName: attachedSessionName, hostId: attachedHostId })) {
         outputBuffer = data + outputBuffer
         return
       }
@@ -124,16 +123,34 @@ export async function streamRoutes(fastify: FastifyInstance) {
         flushOutput()
       }, profile.flushInterval)
     }
+    function resolveHostPassword(host: { password?: string; passwordEnv?: string }) {
+      if (host.password) return host.password
+      const envName = (host.passwordEnv || '').trim()
+      if (!envName) return ''
+      return process.env[envName] || ''
+    }
+    async function hasSshPass() {
+      try {
+        await execFileAsync('sshpass', ['-V'])
+        return true
+      } catch {
+        return false
+      }
+    }
+    async function runTmuxOnHost(hostId: string, args: string[]) {
+      if (hostId !== 'local') return
+      await execFileAsync('tmux', args)
+    }
     async function applyScroll(sessionName: string, lines: number) {
       if (!lines) return
       if (lines > 0) {
-        await execFileAsync('tmux', ['copy-mode', '-e', '-t', sessionName])
+        await runTmuxOnHost(attachedHostId, ['copy-mode', '-e', '-t', sessionName])
       }
       const action = lines > 0 ? 'scroll-up' : 'scroll-down'
       let remaining = Math.abs(lines)
       while (remaining > 0) {
         const step = Math.min(remaining, SCROLL_MAX_LINES)
-        await execFileAsync('tmux', ['send-keys', '-t', sessionName, '-X', '-N', String(step), action])
+        await runTmuxOnHost(attachedHostId, ['send-keys', '-t', sessionName, '-X', '-N', String(step), action])
         remaining -= step
       }
     }
@@ -164,6 +181,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
     }
     async function captureAttachedSnapshot(sessionName: string, seq: number) {
       if (!ptyProcess || !sessionName || attachOutputObserved || seq !== attachSeq || attachedSessionName !== sessionName) return
+      if (attachedHostId !== 'local') return
       try {
         const { stdout } = await execFileAsync('tmux', ['capture-pane', '-e', '-pt', sessionName, '-p'])
         if (!ptyProcess || !sessionName || attachOutputObserved || seq !== attachSeq || attachedSessionName !== sessionName) return
@@ -171,8 +189,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
         if (!snapshot) return
         attachOutputObserved = true
         queueOutput(`\u001b[H\u001b[2J${snapshot}`)
-      } catch (err) {
-      }
+      } catch {}
     }
     function scheduleAttachSnapshot(sessionName: string, seq: number, delay = ATTACH_SNAPSHOT_DELAY) {
       if (!sessionName) return
@@ -184,6 +201,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
     }
     async function refreshAttachedClient(sessionName: string) {
       if (!ptyProcess || !sessionName) return
+      if (attachedHostId !== 'local') return
       const pid = String(ptyProcess.pid)
       const { stdout } = await execFileAsync('tmux', ['list-clients', '-t', sessionName, '-F', '#{client_pid}|#{client_name}'])
       const clients = String(stdout).trim().split('\n').filter(Boolean).map((line) => {
@@ -198,6 +216,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
     }
     function scheduleClientRedraw(sessionName: string | null = attachedSessionName, delays = [48]) {
       if (!sessionName) return
+      if (attachedHostId !== 'local') return
       clearRedrawTimers()
       const seq = attachSeq
       for (const delay of delays) {
@@ -220,6 +239,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
       }
       attachOutputObserved = false
       attachedSessionName = null
+      attachedHostId = 'local'
       attachedExclusive = false
       attachedCols = 0
       attachedRows = 0
@@ -233,16 +253,11 @@ export async function streamRoutes(fastify: FastifyInstance) {
       }
       outputBuffer = ''
       outputCarry = ''
-      for (const timer of scrollTimers.values()) {
-        clearTimeout(timer)
-      }
+      for (const timer of scrollTimers.values()) clearTimeout(timer)
       scrollTimers.clear()
       scrollBuffers.clear()
-      if (notify) {
-        send({ type: 'detached' })
-      }
+      if (notify) send({ type: 'detached' })
     }
-
     function sanitizeOutput(chunk: string) {
       recordStreamMetric('sanitizeCalls')
       recordStreamMetric('sanitizeChars', chunk.length)
@@ -264,74 +279,111 @@ export async function streamRoutes(fastify: FastifyInstance) {
       outputCarry = ''
       return cleaned
     }
-
-    async function getSessionWindowSize(sessionName: string) {
+    async function getSessionWindowSize(sessionName: string, hostId: string) {
+      if (hostId !== 'local') return null
       try {
         const { stdout } = await execFileAsync('tmux', ['display-message', '-p', '-t', sessionName, '#{window_width}|#{window_height}'])
         const [colsText, rowsText] = stdout.trim().split('|')
         const cols = parseInt(colsText, 10)
         const rows = parseInt(rowsText, 10)
-        if (cols > 0 && rows > 0) {
-          return { cols, rows }
-        }
-      } catch (err) {
-      }
+        if (cols > 0 && rows > 0) return { cols, rows }
+      } catch {}
       return null
+    }
+    async function resolveAttachTarget(data: any) {
+      const hostId = typeof data.hostId === 'string' && data.hostId.trim() ? data.hostId.trim() : 'local'
+      const sessionNameRaw = String(data.sessionName || '').trim()
+      if (!sessionNameRaw) throw new Error('Missing session name')
+      if (sessionNameRaw.startsWith('session-')) {
+        const parsed = parseSessionRef(hostId, sessionNameRaw)
+        return { hostId: parsed.hostId, sessionName: parsed.sessionName }
+      }
+      if (hostId !== 'local') {
+        const parsed = parseSessionRef(hostId, sessionNameRaw)
+        return { hostId: parsed.hostId, sessionName: parsed.sessionName }
+      }
+      assertSessionAllowed(sessionNameRaw)
+      return { hostId, sessionName: sessionNameRaw }
     }
     socket.on('message', async (message: Buffer) => {
       try {
         const data = JSON.parse(message.toString())
-
         switch (data.type) {
           case 'register':
             agentId = data.host.id
             agentManager.register(data.host.id, data.host.name, data.host.address, socket)
             send({ type: 'registered', agentId: data.host.id })
             break
-
           case 'attach': {
             recordStreamMetric('attachRequests')
-            const sessionName = data.sessionName
-            await prepareSessionAttach(sessionName)
+            const { hostId, sessionName } = await resolveAttachTarget(data)
+            if (hostId === 'local') await prepareSessionAttach(sessionName)
             const requestedCols = data.cols || 80
             const requestedRows = data.rows || 24
             const exclusive = !!data.exclusive
-            if (ptyProcess && attachedSessionName === sessionName && attachedExclusive === exclusive) {
+            if (ptyProcess && attachedSessionName === sessionName && attachedExclusive === exclusive && attachedHostId === hostId) {
               attachOutputObserved = false
               if (exclusive && requestedCols > 0 && requestedRows > 0 && (requestedCols !== attachedCols || requestedRows !== attachedRows)) {
                 ptyProcess.resize(requestedCols, requestedRows)
                 attachedCols = requestedCols
                 attachedRows = requestedRows
               }
-              send({ type: 'attached', sessionName, cols: attachedCols || requestedCols, rows: attachedRows || requestedRows, exclusive })
+              send({ type: 'attached', sessionName, hostId, cols: attachedCols || requestedCols, rows: attachedRows || requestedRows, exclusive })
               scheduleClientRedraw(sessionName, ATTACH_REDRAW_DELAYS)
               scheduleAttachSnapshot(sessionName, attachSeq)
               break
             }
             cleanup()
-            const sharedSize = exclusive ? null : await getSessionWindowSize(sessionName)
+            const sharedSize = exclusive ? null : await getSessionWindowSize(sessionName, hostId)
             const cols = sharedSize?.cols || requestedCols
             const rows = sharedSize?.rows || requestedRows
-            const attachArgs = ['attach']
-            if (exclusive) {
-              attachArgs.push('-d')
+            if (hostId !== 'local') {
+              const host = await getHostById(hostId)
+              if (!host) throw new Error('Host not found')
+              const target = `${host.user}@${host.address}`
+              const sshBaseArgs = ['-p', String(host.port), '-tt', '-o', 'ConnectTimeout=8', '-o', 'ServerAliveInterval=30', '-o', 'ServerAliveCountMax=3', '-o', 'StrictHostKeyChecking=accept-new', target, '--', 'tmux', 'attach']
+              if (exclusive) sshBaseArgs.push('-d')
+              else sshBaseArgs.push('-f', 'ignore-size,active-pane')
+              sshBaseArgs.push('-t', sessionName)
+              const hostPassword = resolveHostPassword(host)
+              if (hostPassword) {
+                if (!await hasSshPass()) throw new Error('sshpass is required for password auth')
+                ptyProcess = pty.spawn('sshpass', ['-e', 'ssh', '-o', 'BatchMode=no', ...sshBaseArgs], {
+                  name: 'xterm-256color',
+                  cols,
+                  rows,
+                  env: { ...process.env, SSHPASS: hostPassword, TERM: 'xterm-256color' },
+                })
+              } else {
+                ptyProcess = pty.spawn('ssh', ['-o', 'BatchMode=yes', ...sshBaseArgs], {
+                  name: 'xterm-256color',
+                  cols,
+                  rows,
+                  env: { ...process.env, TERM: 'xterm-256color' },
+                })
+              }
             } else {
-              attachArgs.push('-f', 'ignore-size,active-pane')
+              const attachArgs = ['attach']
+              if (exclusive) {
+                attachArgs.push('-d')
+              } else {
+                attachArgs.push('-f', 'ignore-size,active-pane')
+              }
+              attachArgs.push('-t', sessionName)
+              ptyProcess = pty.spawn('tmux', attachArgs, {
+                name: 'xterm-256color',
+                cols,
+                rows,
+                env: { ...process.env, TERM: 'xterm-256color' },
+              })
             }
-            attachArgs.push('-t', sessionName)
-            ptyProcess = pty.spawn('tmux', attachArgs, {
-              name: 'xterm-256color',
-              cols,
-              rows,
-              env: { ...process.env, TERM: 'xterm-256color' },
-            })
             attachedSessionName = sessionName
+            attachedHostId = hostId
             attachedExclusive = exclusive
             attachedCols = cols
             attachedRows = rows
             attachOutputObserved = false
             const seq = attachSeq
-
             ptyProcess.onData((output: string) => {
               if (seq !== attachSeq) return
               const filtered = sanitizeOutput(output)
@@ -340,26 +392,24 @@ export async function streamRoutes(fastify: FastifyInstance) {
                 queueOutput(filtered)
               }
             })
-
             ptyProcess.onExit(({ exitCode }) => {
               if (seq !== attachSeq) return
               flushOutput()
-              send({ type: 'session-exit', exitCode })
+              send({ type: 'session-exit', exitCode, hostId })
               ptyProcess = null
               attachedSessionName = null
+              attachedHostId = 'local'
               attachedExclusive = false
               attachedCols = 0
               attachedRows = 0
               clearAttachSnapshotTimer()
               clearRedrawTimers()
             })
-
-            send({ type: 'attached', sessionName, cols, rows, exclusive })
+            send({ type: 'attached', sessionName, hostId, cols, rows, exclusive })
             scheduleClientRedraw(sessionName, ATTACH_REDRAW_DELAYS)
             scheduleAttachSnapshot(sessionName, seq)
             break
           }
-
           case 'resize':
             recordStreamMetric('resizeRequests')
             if (ptyProcess) {
@@ -373,33 +423,28 @@ export async function streamRoutes(fastify: FastifyInstance) {
             const sessionName = data.sessionName
             if (!sessionName) break
             assertSessionAllowed(sessionName)
-            if (sessionName === attachedSessionName) scheduleClientRedraw(sessionName, REQUEST_REDRAW_DELAYS)
+            if (sessionName === attachedSessionName && data.hostId === attachedHostId) scheduleClientRedraw(sessionName, REQUEST_REDRAW_DELAYS)
             break
           }
-
           case 'input':
             recordStreamMetric('inputMessages')
-            if (ptyProcess) {
-              ptyProcess.write(data.data)
-            }
+            if (ptyProcess) ptyProcess.write(data.data)
             break
           case 'stream_profile':
-            if (data.profile === 'foreground' || data.profile === 'background' || data.profile === 'mobile') {
-              syncOutputProfile(data.profile)
-            }
+            if (data.profile === 'foreground' || data.profile === 'background' || data.profile === 'mobile') syncOutputProfile(data.profile)
             break
           case 'stream_backpressure':
             recordStreamMetric('backpressureSignals')
             if (data.level === 'high') syncOutputProfile(data.mobile ? 'mobile' : 'background')
             if (data.level === 'normal') syncOutputProfile(data.mobile ? 'mobile' : 'foreground')
             break
-
           case 'pane_scroll': {
             const scrollLines = Number(data.lines) || 0
             if (scrollLines === 0) break
             const sessionName = data.sessionName
             if (!sessionName) break
             assertSessionAllowed(sessionName)
+            if (data.hostId !== attachedHostId) break
             recordStreamMetric('paneScrollRequests')
             queueScroll(sessionName, scrollLines)
             break
@@ -408,44 +453,36 @@ export async function streamRoutes(fastify: FastifyInstance) {
             const sessionName = data.sessionName
             if (!sessionName) break
             assertSessionAllowed(sessionName)
+            if (data.hostId !== attachedHostId) break
             recordStreamMetric('copyModeCancelRequests')
-            void execFileAsync('tmux', ['send-keys', '-t', sessionName, '-X', 'cancel']).catch(() => {})
+            if (attachedHostId === 'local') void execFileAsync('tmux', ['send-keys', '-t', sessionName, '-X', 'cancel']).catch(() => {})
             break
           }
-
           case 'detach':
             cleanup(true)
             break
-
           case 'sessions':
             send({ type: 'sessions-list', sessions: data.sessions })
             break
-
           case 'session-created':
             send({ type: 'session-created', session: data.session })
             break
-
           case 'ping':
             send({ type: 'pong', timestamp: data.timestamp || Date.now() })
             break
-
           default:
             send({ type: 'error', message: `Unknown message type: ${data.type}` })
         }
-      } catch (err) {
+      } catch {
         send({ type: 'error', message: 'Invalid message format' })
       }
     })
-
     socket.on('close', () => {
       console.log('Client disconnected from stream')
       cleanup()
       updateStreamMetric('activeClients', streamPerfMetricsActiveClientsDelta(-1))
-      if (agentId) {
-        agentManager.unregister(agentId)
-      }
+      if (agentId) agentManager.unregister(agentId)
     })
-
     send({ type: 'connected', timestamp: Date.now() })
   })
 }
