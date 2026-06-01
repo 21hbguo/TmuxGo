@@ -9,6 +9,7 @@ import { QuickActions } from './QuickActions'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useTranslation } from '@/i18n'
 import { SessionSortableList } from './SessionSortableList'
+import { HostSwitcher } from './HostSwitcher'
 
 export function SessionPanel() {
   const activeSessionId = useConsoleStore((state) => state.activeSessionId)
@@ -104,22 +105,25 @@ export function SessionPanel() {
   return (
     <>
       <div className="flex h-full min-h-0 flex-col bg-bg-1">
-        <div className="flex items-center justify-between border-b border-[var(--line)] px-3 py-2">
-          <div className="text-sm font-semibold text-text-1">{batchMode ? t('sidebar.batchSelectedCount', { count: selectedSessionIds.length }) : t('sidebar.sessions')}</div>
-          <div className="flex items-center gap-1">
-            {batchMode ? (
-              <>
-                <button onClick={() => setSelectedSessionIds(sessions.map((session) => session.id))} className="rounded bg-bg-2 px-2 py-1 text-[11px] text-text-3 hover:text-text-1">{t('sidebar.batchSelectAll')}</button>
-                <button onClick={() => setSelectedSessionIds([])} className="rounded bg-bg-2 px-2 py-1 text-[11px] text-text-3 hover:text-text-1">{t('sidebar.batchClearAll')}</button>
-                <button onClick={() => setBatchDeleteConfirmOpen(true)} disabled={!selectedSessionIds.length} className="rounded bg-red-900/30 px-2 py-1 text-[11px] text-red-300 hover:bg-red-900/50 disabled:cursor-not-allowed disabled:opacity-50">{t('sidebar.batchDeleteSelected')}</button>
-                <button onClick={toggleBatchMode} className="rounded bg-bg-2 px-2 py-1 text-[11px] text-accent hover:text-text-1">{t('sidebar.batchCancelAction')}</button>
-              </>
-            ) : (
-              <>
-                <button onClick={() => setShowTemplates(true)} className="rounded bg-bg-2 px-2 py-1 text-[11px] text-accent hover:text-text-1">{t('sidebar.newAction')}</button>
-                <button onClick={toggleBatchMode} className="rounded bg-bg-2 px-2 py-1 text-[11px] text-text-3 hover:text-text-1">{t('sidebar.batchDeleteAction')}</button>
-              </>
-            )}
+        <div className="border-b border-[var(--line)] px-3 py-2">
+          <HostSwitcher />
+          <div className="mt-2 flex items-center justify-between">
+            <div className="text-sm font-semibold text-text-1">{batchMode ? t('sidebar.batchSelectedCount', { count: selectedSessionIds.length }) : t('sidebar.sessions')}</div>
+            <div className="flex items-center gap-1">
+              {batchMode ? (
+                <>
+                  <button onClick={() => setSelectedSessionIds(sessions.map((session) => session.id))} className="rounded bg-bg-2 px-2 py-1 text-[11px] text-text-3 hover:text-text-1">{t('sidebar.batchSelectAll')}</button>
+                  <button onClick={() => setSelectedSessionIds([])} className="rounded bg-bg-2 px-2 py-1 text-[11px] text-text-3 hover:text-text-1">{t('sidebar.batchClearAll')}</button>
+                  <button onClick={() => setBatchDeleteConfirmOpen(true)} disabled={!selectedSessionIds.length} className="rounded bg-red-900/30 px-2 py-1 text-[11px] text-red-300 hover:bg-red-900/50 disabled:cursor-not-allowed disabled:opacity-50">{t('sidebar.batchDeleteSelected')}</button>
+                  <button onClick={toggleBatchMode} className="rounded bg-bg-2 px-2 py-1 text-[11px] text-accent hover:text-text-1">{t('sidebar.batchCancelAction')}</button>
+                </>
+              ) : (
+                <>
+                  <button onClick={() => setShowTemplates(true)} className="rounded bg-bg-2 px-2 py-1 text-[11px] text-accent hover:text-text-1">{t('sidebar.newAction')}</button>
+                  <button onClick={toggleBatchMode} className="rounded bg-bg-2 px-2 py-1 text-[11px] text-text-3 hover:text-text-1">{t('sidebar.batchDeleteAction')}</button>
+                </>
+              )}
+            </div>
           </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">

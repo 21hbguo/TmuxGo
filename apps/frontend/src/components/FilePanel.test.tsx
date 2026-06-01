@@ -73,6 +73,19 @@ vi.mock('@/lib/api', () => ({
     },
   },
 }))
+vi.mock('@/i18n', () => ({
+  useTranslation: () => ({ t: (key: string) => {
+    if (key === 'file.searchName') return 'Search file names'
+    if (key === 'file.searchContent') return 'Search file content'
+    if (key === 'file.all') return 'All'
+    if (key === 'file.file') return 'File'
+    if (key === 'file.dir') return 'Dir'
+    if (key === 'file.dotfiles') return 'Dotfiles'
+    if (key === 'file.removeFavorite') return 'Unfavorite'
+    if (key === 'file.copyPath') return 'Copy path'
+    return key
+  } }),
+}))
 
 describe('FilePanel', () => {
   beforeEach(() => {

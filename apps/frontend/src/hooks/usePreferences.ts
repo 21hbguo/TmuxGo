@@ -1,7 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
+import { api } from '@/lib/api'
+import type { UiPreferences } from '@/types'
 
 export type Language = 'zh' | 'en'
 const PREFERENCES_VERSION = 2
+const STORAGE_KEY = 'tmuxgo-preferences'
+const STORAGE_UPDATED_AT_KEY = 'tmuxgo-preferences-updated-at'
+const PROFILE = 'default'
 type StoredPreferences = Partial<Preferences> & { _v?: number }
 
 export interface Preferences {
@@ -38,14 +43,32 @@ const defaultPreferences: Preferences = {
   downloadRateLimitKBps: 200,
 }
 
-let preferencesStore:Preferences=defaultPreferences
-const listeners=new Set<(preferences:Preferences)=>void>()
+let preferencesStore: Preferences = defaultPreferences
+const listeners = new Set<(preferences: Preferences) => void>()
+let syncedWithServer = false
+
+function toUiPreferences(p: Preferences): UiPreferences {
+  return {
+    theme: p.theme,
+    fontSize: p.fontSize,
+    fontFamily: p.fontFamily,
+    cursorBlink: p.cursorBlink,
+    sidebarPosition: p.sidebarPosition,
+    showStatusBar: p.showStatusBar,
+    showQuickActions: p.showQuickActions,
+    autoReconnect: p.autoReconnect,
+    reconnectInterval: p.reconnectInterval,
+    terminalPadding: p.terminalPadding,
+    language: p.language,
+    attachExclusive: p.attachExclusive,
+  }
+}
 
 function readStoredPreferences() {
   if (typeof window === 'undefined') {
     return defaultPreferences
   }
-  const stored = localStorage.getItem('tmuxgo-preferences')
+  const stored = localStorage.getItem(STORAGE_KEY)
   if (!stored) {
     return defaultPreferences
   }
@@ -57,7 +80,7 @@ function readStoredPreferences() {
       next.terminalPadding = 0
     }
     if (version !== PREFERENCES_VERSION) {
-      localStorage.setItem('tmuxgo-preferences', JSON.stringify({ ...next, _v: PREFERENCES_VERSION }))
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...next, _v: PREFERENCES_VERSION }))
     }
     return next
   } catch (err) {
@@ -79,13 +102,47 @@ export function usePreferences() {
     emitPreferences(initial)
     setPreferences(initial)
     const handleStorage = (event: StorageEvent) => {
-      if (event.key !== 'tmuxgo-preferences') return
+      if (event.key !== STORAGE_KEY) return
       const next = readStoredPreferences()
       emitPreferences(next)
       setPreferences(next)
     }
     listeners.add(setPreferences)
     window.addEventListener('storage', handleStorage)
+
+    if (!syncedWithServer) {
+      syncedWithServer = true
+      void (async () => {
+        try {
+          const remote = await api.preferences.get(PROFILE)
+          const remoteUi = remote.uiPreferences
+          const remoteUpdatedAt = remote.uiPreferencesUpdatedAt || ''
+          const localUpdatedAt = localStorage.getItem(STORAGE_UPDATED_AT_KEY) || ''
+          const localMs = Date.parse(localUpdatedAt)
+          const remoteMs = Date.parse(remoteUpdatedAt)
+          if (remoteUi && Object.keys(remoteUi).length > 0) {
+            if (!Number.isNaN(remoteMs) && (Number.isNaN(localMs) || remoteMs >= localMs)) {
+              const merged = { ...defaultPreferences, ...remoteUi } as Preferences
+              localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...merged, _v: PREFERENCES_VERSION }))
+              localStorage.setItem(STORAGE_UPDATED_AT_KEY, remoteUpdatedAt || new Date().toISOString())
+              emitPreferences(merged)
+              setPreferences(merged)
+              return
+            }
+            if (!Number.isNaN(localMs) && (Number.isNaN(remoteMs) || localMs > remoteMs)) {
+              const current = readStoredPreferences()
+              await api.preferences.update({ uiPreferences: toUiPreferences(current), uiPreferencesUpdatedAt: localUpdatedAt }, PROFILE)
+            }
+          } else {
+            const current = readStoredPreferences()
+            const now = new Date().toISOString()
+            await api.preferences.update({ uiPreferences: toUiPreferences(current), uiPreferencesUpdatedAt: now }, PROFILE)
+            localStorage.setItem(STORAGE_UPDATED_AT_KEY, now)
+          }
+        } catch {}
+      })()
+    }
+
     return () => {
       listeners.delete(setPreferences)
       window.removeEventListener('storage', handleStorage)
@@ -98,13 +155,19 @@ export function usePreferences() {
 
   const updatePreferences = useCallback((updates: Partial<Preferences>) => {
     const updated = { ...preferencesStore, ...updates }
-    localStorage.setItem('tmuxgo-preferences', JSON.stringify({ ...updated, _v: PREFERENCES_VERSION }))
+    const now = new Date().toISOString()
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...updated, _v: PREFERENCES_VERSION }))
+    localStorage.setItem(STORAGE_UPDATED_AT_KEY, now)
     emitPreferences(updated)
+    void api.preferences.update({ uiPreferences: toUiPreferences(updated), uiPreferencesUpdatedAt: now }, PROFILE).catch(() => {})
   }, [])
 
   const resetPreferences = useCallback(() => {
-    localStorage.setItem('tmuxgo-preferences', JSON.stringify({ ...defaultPreferences, _v: PREFERENCES_VERSION }))
+    const now = new Date().toISOString()
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...defaultPreferences, _v: PREFERENCES_VERSION }))
+    localStorage.setItem(STORAGE_UPDATED_AT_KEY, now)
     emitPreferences(defaultPreferences)
+    void api.preferences.update({ uiPreferences: toUiPreferences(defaultPreferences), uiPreferencesUpdatedAt: now }, PROFILE).catch(() => {})
   }, [])
 
   return { preferences, updatePreferences, resetPreferences }

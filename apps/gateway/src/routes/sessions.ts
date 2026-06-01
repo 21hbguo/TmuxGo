@@ -1,16 +1,13 @@
 import type { FastifyInstance } from 'fastify'
-import { agentManager } from '../agent-manager.js'
-import { execFile } from 'child_process'
-import { promisify } from 'util'
 import { getTemplateWindowTargets, type SessionTemplateLayout } from '../lib/template-utils.js'
 import { assertSessionAllowed, isValidSessionName, prepareSessionAttach } from '../lib/tmux-policy.js'
+import { buildSessionId, parseSessionRef } from '../lib/tmux-target.js'
+import { execTmux } from '../lib/tmux-executor.js'
 
-const execFileAsync = promisify(execFile)
 const batchDeleteLimitDefault = 1000
 const batchDeleteLimitMax = 5000
-
 type BatchDeleteMode = 'preview' | 'execute'
-interface LocalTmuxSession {
+interface HostTmuxSession {
   id: string
   hostId: string
   name: string
@@ -45,11 +42,8 @@ interface BatchDeleteTarget {
   windowCount: number
   attached: boolean
 }
-
-function normalizeSessionName(sessionRef: string) {
-  const sessionName = sessionRef.startsWith('session-') ? sessionRef.slice('session-'.length) : sessionRef
-  if (!isValidSessionName(sessionName)) throw new Error('Invalid session name')
-  return sessionName
+function normalizeSessionName(hostId: string, sessionRef: string) {
+  return parseSessionRef(hostId, sessionRef).sessionName
 }
 function parseOptionalDate(value: string | undefined, fieldName: string) {
   if (!value) return null
@@ -69,7 +63,7 @@ function hasBatchDeleteFilter(filters: BatchDeleteFilters | undefined) {
   if (filters.includeAttached === true) return true
   return false
 }
-function toBatchDeleteTarget(session: LocalTmuxSession): BatchDeleteTarget {
+function toBatchDeleteTarget(session: HostTmuxSession): BatchDeleteTarget {
   return {
     sessionId: session.id,
     name: session.name,
@@ -79,9 +73,9 @@ function toBatchDeleteTarget(session: LocalTmuxSession): BatchDeleteTarget {
     attached: session.attached,
   }
 }
-async function getLocalTmuxSessions(): Promise<LocalTmuxSession[]> {
+async function getHostTmuxSessions(hostId: string): Promise<HostTmuxSession[]> {
   try {
-    const { stdout } = await execFileAsync('tmux', ['list-sessions', '-F', '#{session_id}|#{session_name}|#{session_windows}|#{session_created}|#{session_activity}|#{session_attached}'])
+    const { stdout } = await execTmux(hostId, ['list-sessions', '-F', '#{session_id}|#{session_name}|#{session_windows}|#{session_created}|#{session_activity}|#{session_attached}'])
     return stdout
       .trim()
       .split('\n')
@@ -96,15 +90,15 @@ async function getLocalTmuxSessions(): Promise<LocalTmuxSession[]> {
         }
       })
       .map((line) => {
-        const [id, name, windows, created, activity, attached] = line.split('|')
+        const [, name, windows, created, activity, attached] = line.split('|')
         const createdAtUnix = parseInt(created, 10)
         const activityUnix = parseInt(activity, 10)
         const attachedCount = parseInt(attached, 10)
         const createdAt = Number.isFinite(createdAtUnix) ? new Date(createdAtUnix * 1000).toISOString() : new Date().toISOString()
         const lastActiveAt = Number.isFinite(activityUnix) ? new Date(activityUnix * 1000).toISOString() : createdAt
         return {
-          id: `session-${name}`,
-          hostId: 'local',
+          id: buildSessionId(hostId, name),
+          hostId,
           name,
           createdAt,
           lastActiveAt,
@@ -117,7 +111,7 @@ async function getLocalTmuxSessions(): Promise<LocalTmuxSession[]> {
     return []
   }
 }
-function getBatchDeleteSelection(sessions: LocalTmuxSession[], body: BatchDeleteRequest) {
+function getBatchDeleteSelection(hostId: string, sessions: HostTmuxSession[], body: BatchDeleteRequest) {
   const filters = body.filters
   const includeAttached = filters?.includeAttached === true
   const createdBeforeTs = parseOptionalDate(filters?.createdBefore, 'filters.createdBefore')
@@ -127,7 +121,7 @@ function getBatchDeleteSelection(sessions: LocalTmuxSession[], body: BatchDelete
   if (Array.isArray(body.sessionIds)) {
     for (const sessionId of body.sessionIds) {
       if (typeof sessionId !== 'string' || !sessionId.trim()) continue
-      selectedSessionNames.add(normalizeSessionName(sessionId.trim()))
+      selectedSessionNames.add(normalizeSessionName(hostId, sessionId.trim()))
     }
   }
   if (!selectedSessionNames.size && !hasBatchDeleteFilter(filters)) throw new Error('sessionIds or filters is required')
@@ -140,10 +134,10 @@ function getBatchDeleteSelection(sessions: LocalTmuxSession[], body: BatchDelete
   if (selectedSessionNames.size) {
     const existingNames = new Set(sessions.map((session) => session.name))
     for (const sessionName of selectedSessionNames) {
-      if (!existingNames.has(sessionName)) skipped.push({ sessionId: `session-${sessionName}`, name: sessionName, reason: 'not_found' })
+      if (!existingNames.has(sessionName)) skipped.push({ sessionId: buildSessionId(hostId, sessionName), name: sessionName, reason: 'not_found' })
     }
   }
-  const eligible: LocalTmuxSession[] = []
+  const eligible: HostTmuxSession[] = []
   for (const session of matched) {
     if (session.attached && !includeAttached) {
       skipped.push({ sessionId: session.id, name: session.name, reason: 'attached' })
@@ -153,101 +147,101 @@ function getBatchDeleteSelection(sessions: LocalTmuxSession[], body: BatchDelete
   }
   return { matched, eligible, skipped }
 }
-async function runSendKeys(target: string, command: string) {
-  await execFileAsync('tmux', ['send-keys', '-t', target, command, 'C-m'])
+async function runSendKeys(hostId: string, target: string, command: string) {
+  await execTmux(hostId, ['send-keys', '-t', target, command, 'C-m'])
 }
-async function getFirstWindowTarget(sessionName: string) {
-  const { stdout } = await execFileAsync('tmux', ['list-windows', '-t', sessionName, '-F', '#{window_index}', '-f', '#{==:#{window_active},1}'])
+async function getFirstWindowTarget(hostId: string, sessionName: string) {
+  const { stdout } = await execTmux(hostId, ['list-windows', '-t', sessionName, '-F', '#{window_index}', '-f', '#{==:#{window_active},1}'])
   const activeIndex = stdout.trim()
   if (activeIndex) return `${sessionName}:${activeIndex}`
-  const { stdout: fallbackStdout } = await execFileAsync('tmux', ['list-windows', '-t', sessionName, '-F', '#{window_index}'])
+  const { stdout: fallbackStdout } = await execTmux(hostId, ['list-windows', '-t', sessionName, '-F', '#{window_index}'])
   const fallbackIndex = fallbackStdout.trim().split('\n').find(Boolean)
   if (!fallbackIndex) throw new Error(`No windows found for session ${sessionName}`)
   return `${sessionName}:${fallbackIndex}`
 }
-async function getFirstWindowIndex(sessionName: string) {
-  const { stdout } = await execFileAsync('tmux', ['list-windows', '-t', sessionName, '-F', '#{window_index}'])
+async function getFirstWindowIndex(hostId: string, sessionName: string) {
+  const { stdout } = await execTmux(hostId, ['list-windows', '-t', sessionName, '-F', '#{window_index}'])
   const first = stdout.trim().split('\n').find(Boolean)
   if (!first) throw new Error(`No windows found for session ${sessionName}`)
   const value = Number(first)
   if (!Number.isFinite(value)) throw new Error(`Invalid window index for session ${sessionName}`)
   return value
 }
-async function getFirstPaneIndex(windowTarget: string) {
-  const { stdout } = await execFileAsync('tmux', ['list-panes', '-t', windowTarget, '-F', '#{pane_index}'])
+async function getFirstPaneIndex(hostId: string, windowTarget: string) {
+  const { stdout } = await execTmux(hostId, ['list-panes', '-t', windowTarget, '-F', '#{pane_index}'])
   const first = stdout.trim().split('\n').find(Boolean)
   if (!first) throw new Error(`No panes found for window ${windowTarget}`)
   const value = Number(first)
   if (!Number.isFinite(value)) throw new Error(`Invalid pane index for window ${windowTarget}`)
   return value
 }
-async function applyTemplateLayout(sessionName: string, layout: SessionTemplateLayout) {
+async function applyTemplateLayout(hostId: string, sessionName: string, layout: SessionTemplateLayout) {
   assertSessionAllowed(sessionName)
   if (!layout.windows.length) return
-  const firstWindowTarget = await getFirstWindowTarget(sessionName)
-  const firstWindowIndex = await getFirstWindowIndex(sessionName)
+  const firstWindowTarget = await getFirstWindowTarget(hostId, sessionName)
+  const firstWindowIndex = await getFirstWindowIndex(hostId, sessionName)
   const targets = getTemplateWindowTargets(sessionName, layout, firstWindowIndex)
   for (let i = 0; i < targets.length; i++) {
     const windowDef = targets[i]
     if (!windowDef.name) throw new Error(`Template step failed: window[${i}] missing name`)
     if (i === 0) {
-      await execFileAsync('tmux', ['rename-window', '-t', firstWindowTarget, windowDef.name])
+      await execTmux(hostId, ['rename-window', '-t', firstWindowTarget, windowDef.name])
     } else {
-      await execFileAsync('tmux', ['new-window', '-t', sessionName, '-n', windowDef.name])
+      await execTmux(hostId, ['new-window', '-t', sessionName, '-n', windowDef.name])
     }
     const { windowTarget, panes } = windowDef
-    const paneBaseIndex = i === 0 ? await getFirstPaneIndex(firstWindowTarget) : await getFirstPaneIndex(windowTarget)
+    const paneBaseIndex = i === 0 ? await getFirstPaneIndex(hostId, firstWindowTarget) : await getFirstPaneIndex(hostId, windowTarget)
     for (let p = 1; p < panes.length; p++) {
-      await execFileAsync('tmux', ['split-window', '-t', windowTarget, '-h'])
+      await execTmux(hostId, ['split-window', '-t', windowTarget, '-h'])
     }
-    await execFileAsync('tmux', ['select-layout', '-t', windowTarget, 'tiled'])
+    await execTmux(hostId, ['select-layout', '-t', windowTarget, 'tiled'])
     for (let p = 0; p < panes.length; p++) {
       const command = panes[p]?.command?.trim()
       if (!command) continue
-      await runSendKeys(`${windowTarget}.${paneBaseIndex + p}`, command)
+      await runSendKeys(hostId, `${windowTarget}.${paneBaseIndex + p}`, command)
     }
   }
-  await execFileAsync('tmux', ['select-window', '-t', firstWindowTarget])
+  await execTmux(hostId, ['select-window', '-t', firstWindowTarget])
 }
-async function cleanupSession(sessionName: string) {
+async function cleanupSession(hostId: string, sessionName: string) {
   try {
-    await execFileAsync('tmux', ['kill-session', '-t', sessionName])
+    await execTmux(hostId, ['kill-session', '-t', sessionName])
   } catch {}
 }
-
+async function safePrepareSessionAttach(hostId: string, sessionName: string) {
+  if (hostId !== 'local') return
+  await prepareSessionAttach(sessionName)
+}
 export async function sessionRoutes(fastify: FastifyInstance) {
   fastify.get('/hosts/:hostId/sessions', async (request) => {
-    return getLocalTmuxSessions()
+    const { hostId } = request.params as { hostId: string }
+    return getHostTmuxSessions(hostId)
   })
-
   fastify.post('/hosts/:hostId/sessions', async (request) => {
     const { hostId } = request.params as { hostId: string }
     const { name, layout } = request.body as { name: string; layout?: SessionTemplateLayout }
-    if (!isValidSessionName(name)) {
-      throw new Error('Invalid session name')
-    }
-
+    if (!isValidSessionName(name)) throw new Error('Invalid session name')
     try {
-      const existingSessions = await getLocalTmuxSessions()
+      const existingSessions = await getHostTmuxSessions(hostId)
       const existingSession = existingSessions.find((s) => s.name === name)
       if (existingSession) {
-        await prepareSessionAttach(existingSession.name)
+        await safePrepareSessionAttach(hostId, existingSession.name)
         return existingSession
       }
       assertSessionAllowed(name)
-      await execFileAsync('tmux', ['new-session', '-d', '-s', name])
+      await execTmux(hostId, ['new-session', '-d', '-s', name])
       if (layout?.windows?.length) {
         try {
-          await applyTemplateLayout(name, layout)
+          await applyTemplateLayout(hostId, name, layout)
         } catch (err: any) {
-          await cleanupSession(name)
+          await cleanupSession(hostId, name)
           throw new Error(err?.message || 'Template layout failed')
         }
       }
-      await prepareSessionAttach(name)
-      const sessions = await getLocalTmuxSessions()
+      await safePrepareSessionAttach(hostId, name)
+      const sessions = await getHostTmuxSessions(hostId)
       return sessions.find((s) => s.name === name) || {
-        id: `session-${name}`,
+        id: buildSessionId(hostId, name),
         hostId,
         name,
         createdAt: new Date().toISOString(),
@@ -257,11 +251,9 @@ export async function sessionRoutes(fastify: FastifyInstance) {
       }
     } catch (err: any) {
       if (String(err?.message || '').includes('duplicate session')) {
-        const sessions = await getLocalTmuxSessions()
+        const sessions = await getHostTmuxSessions(hostId)
         const existingSession = sessions.find((s) => s.name === name)
-        if (existingSession) {
-          return existingSession
-        }
+        if (existingSession) return existingSession
       }
       throw new Error(err.message)
     }
@@ -269,16 +261,16 @@ export async function sessionRoutes(fastify: FastifyInstance) {
   fastify.post('/hosts/:hostId/sessions/rename', async (request) => {
     const { hostId } = request.params as { hostId: string }
     const { sessionId, name } = request.body as { sessionId: string; name: string }
-    const sessionName = normalizeSessionName(sessionId)
+    const sessionName = normalizeSessionName(hostId, sessionId)
     if (!isValidSessionName(name)) throw new Error('Invalid session name')
     assertSessionAllowed(sessionName)
     assertSessionAllowed(name)
     try {
-      await execFileAsync('tmux', ['rename-session', '-t', sessionName, name])
-      await prepareSessionAttach(name)
-      const sessions = await getLocalTmuxSessions()
+      await execTmux(hostId, ['rename-session', '-t', sessionName, name])
+      await safePrepareSessionAttach(hostId, name)
+      const sessions = await getHostTmuxSessions(hostId)
       return sessions.find((session) => session.name === name) || {
-        id: `session-${name}`,
+        id: buildSessionId(hostId, name),
         hostId,
         name,
         createdAt: new Date().toISOString(),
@@ -291,11 +283,12 @@ export async function sessionRoutes(fastify: FastifyInstance) {
     }
   })
   fastify.post('/hosts/:hostId/sessions/batch-delete', async (request) => {
+    const { hostId } = request.params as { hostId: string }
     const body = (request.body || {}) as BatchDeleteRequest
     const mode: BatchDeleteMode = body.mode === 'execute' ? 'execute' : 'preview'
     const limit = normalizeBatchLimit(body.limit)
-    const sessions = await getLocalTmuxSessions()
-    const { matched, eligible, skipped } = getBatchDeleteSelection(sessions, body)
+    const sessions = await getHostTmuxSessions(hostId)
+    const { matched, eligible, skipped } = getBatchDeleteSelection(hostId, sessions, body)
     const forceRequired = eligible.length > limit
     const limited = eligible.slice(0, limit)
     if (mode === 'preview') {
@@ -310,15 +303,13 @@ export async function sessionRoutes(fastify: FastifyInstance) {
         sessions: limited.map(toBatchDeleteTarget),
       }
     }
-    if (forceRequired && body.force !== true) {
-      throw new Error(`Delete candidate count ${eligible.length} exceeds limit ${limit}, set force=true to continue`)
-    }
+    if (forceRequired && body.force !== true) throw new Error(`Delete candidate count ${eligible.length} exceeds limit ${limit}, set force=true to continue`)
     const targets = forceRequired && body.force === true ? eligible : limited
     const deleted: BatchDeleteTarget[] = []
     const failed: BatchDeleteSkip[] = []
     for (const session of targets) {
       try {
-        await execFileAsync('tmux', ['kill-session', '-t', session.name])
+        await execTmux(hostId, ['kill-session', '-t', session.name])
         deleted.push(toBatchDeleteTarget(session))
       } catch (err: any) {
         failed.push({ sessionId: session.id, name: session.name, reason: err?.message || 'delete_failed' })
@@ -339,15 +330,13 @@ export async function sessionRoutes(fastify: FastifyInstance) {
       failed,
     }
   })
-
   fastify.delete('/hosts/:hostId/sessions/:sessionId', async (request) => {
-    const { sessionId } = request.params as { sessionId: string }
-    const sessionName = normalizeSessionName(sessionId)
+    const { hostId, sessionId } = request.params as { hostId: string; sessionId: string }
+    const sessionName = normalizeSessionName(hostId, sessionId)
     assertSessionAllowed(sessionName)
-
     try {
-      await execFileAsync('tmux', ['kill-session', '-t', sessionName])
-      return { success: true, sessionId: `session-${sessionName}` }
+      await execTmux(hostId, ['kill-session', '-t', sessionName])
+      return { success: true, sessionId: buildSessionId(hostId, sessionName) }
     } catch (err: any) {
       throw new Error(err.message)
     }

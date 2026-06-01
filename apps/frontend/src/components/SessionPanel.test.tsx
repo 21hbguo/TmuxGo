@@ -7,15 +7,21 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 const mutateCreateSession = vi.fn()
 const mutateRenameSession = vi.fn()
 const mutateDeleteSession = vi.fn()
+const mutateBatchDeleteSessions = vi.fn()
 
 vi.mock('@/hooks/useApi', () => ({
+  useHosts: () => ({ data: [{ id: 'local', name: 'Local', address: '127.0.0.1', status: 'online', tags: [] }] }),
   useSessions: () => ({ data: [{ id: 'session-dev', name: 'dev', windowCount: 2 }] }),
   useCreateSession: () => ({ mutateAsync: mutateCreateSession }),
   useRenameSession: () => ({ mutateAsync: mutateRenameSession }),
   useDeleteSession: () => ({ mutateAsync: mutateDeleteSession }),
+  useBatchDeleteSessions: () => ({ mutateAsync: mutateBatchDeleteSessions }),
 }))
 vi.mock('@/hooks/usePreferences', () => ({
   usePreferences: () => ({ preferences: { showQuickActions: false } }),
+}))
+vi.mock('@/hooks/useOrderedSessions', () => ({
+  useOrderedSessions: () => ({ data: [{ id: 'session-dev', name: 'dev', windowCount: 2 }], moveSession: vi.fn() }),
 }))
 vi.mock('@/i18n', () => ({
   useTranslation: () => ({ t: (key: string, params?: Record<string, string | number>) => {
@@ -35,7 +41,7 @@ vi.mock('@/i18n', () => ({
   } }),
 }))
 vi.mock('./SessionTemplates', () => ({
-  SessionTemplates: () => React.createElement('div'),
+  SessionTemplates: ({ onSelect }: { onSelect: (template: { id: string; name: string; layout: { windows: { name: string; panes: {}[] }[] } }) => void }) => React.createElement('button', { onClick: () => onSelect({ id: 'default', name: 'default', layout: { windows: [{ name: 'main', panes: [{}] }] } }) }, 'select-template'),
 }))
 vi.mock('./ConfirmDialog', () => ({
   ConfirmDialog: ({ open, onConfirm }: { open: boolean; onConfirm: () => void }) => open ? React.createElement('button', { onClick: onConfirm }, 'confirm-delete') : null,
@@ -43,12 +49,16 @@ vi.mock('./ConfirmDialog', () => ({
 vi.mock('./QuickActions', () => ({
   QuickActions: () => React.createElement('div'),
 }))
+vi.mock('./SessionSortableList', () => ({
+  SessionSortableList: ({ sessions, renderItem }: { sessions: any[]; renderItem: (args: { session: any; isDragging: boolean; isOverlay: boolean }) => React.ReactNode }) => React.createElement('div', null, sessions.map((session) => React.createElement('div', { key: session.id }, renderItem({ session, isDragging: false, isOverlay: false })))),
+}))
 
 describe('SessionPanel session actions', () => {
   beforeEach(() => {
     mutateCreateSession.mockReset()
     mutateRenameSession.mockReset()
     mutateDeleteSession.mockReset()
+    mutateBatchDeleteSessions.mockReset()
     mutateRenameSession.mockResolvedValue({ id: 'session-dev-renamed' })
     useConsoleStore.setState({
       activeHostId: 'local',
@@ -73,6 +83,17 @@ describe('SessionPanel session actions', () => {
     fireEvent.doubleClick(screen.getByText('dev'))
     expect(mutateRenameSession).toHaveBeenCalledWith({ hostId: 'local', sessionId: 'session-dev', name: 'dev-double' })
     await waitFor(() => expect(useConsoleStore.getState().activeSessionId).toBe('session-dev-double'))
+    promptSpy.mockRestore()
+  })
+
+  it('activates the newly created session', async () => {
+    const promptSpy = vi.spyOn(window, 'prompt').mockReturnValue('default')
+    mutateCreateSession.mockResolvedValueOnce({ id: 'session-default', name: 'default', windowCount: 1 })
+    render(<SessionPanel />)
+    fireEvent.click(screen.getByText('New'))
+    fireEvent.click(screen.getByText('select-template'))
+    expect(mutateCreateSession).toHaveBeenCalledWith({ hostId: 'local', name: 'default', layout: expect.any(Object) })
+    await waitFor(() => expect(useConsoleStore.getState().activeSessionId).toBe('session-default'))
     promptSpy.mockRestore()
   })
 })

@@ -17,6 +17,32 @@ export function useHost(id: string) {
     staleTime: 60000,
   })
 }
+export function useCreateHost() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: { id: string; name?: string; address: string; user: string; port?: number; password?: string; passwordEnv?: string }) =>
+      api.hosts.create(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['hosts'] })
+    },
+  })
+}
+export function useDeleteHost() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (hostId: string) =>
+      api.hosts.remove(hostId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['hosts'] })
+    },
+  })
+}
+export function useTestHost() {
+  return useMutation({
+    mutationFn: (hostId: string) =>
+      api.hosts.test(hostId),
+  })
+}
 
 export function useSessions(hostId: string) {
   return useQuery({
@@ -33,7 +59,15 @@ export function useCreateSession() {
   return useMutation({
     mutationFn: ({ hostId, name, layout }: { hostId: string; name: string; layout?: { windows: { name: string; panes: { command?: string }[] }[] } }) =>
       api.sessions.create(hostId, name, layout),
-    onSuccess: (_, { hostId }) => {
+    onSuccess: (created, { hostId }) => {
+      queryClient.setQueryData(['sessions', hostId], (prev: any[] | undefined) => {
+        if (!created?.id) return prev || []
+        if (!Array.isArray(prev) || prev.length === 0) return [created]
+        if (prev.some((session) => session?.id === created.id)) {
+          return prev.map((session) => session?.id === created.id ? { ...session, ...created } : session)
+        }
+        return [...prev, created]
+      })
       queryClient.invalidateQueries({ queryKey: ['sessions', hostId] })
     },
   })

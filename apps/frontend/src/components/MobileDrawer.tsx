@@ -11,6 +11,7 @@ import { api } from '@/lib/api'
 import { QuickActions } from './QuickActions'
 import { ConfirmDialog } from './ConfirmDialog'
 import { SessionSortableList } from './SessionSortableList'
+import { HostSwitcher } from './HostSwitcher'
 
 interface MobileDrawerProps {
   isOpen: boolean
@@ -231,6 +232,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
         <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4" style={{ WebkitOverflowScrolling: 'touch' }}>
           {type === 'sessions' && (
             <div className="space-y-2">
+              <HostSwitcher mode="mobile" />
               {!batchMode && <button
                 onClick={() => setShowTemplates(true)}
                 className="w-full rounded-lg p-3 text-left border border-dashed border-[var(--line)] text-accent active:bg-accent/10 transition-colors"

@@ -2,46 +2,21 @@
 
 import { useState, useEffect } from 'react'
 import { useTranslation } from '@/i18n'
-
-interface FavoriteItem {
-  id: string
-  type: 'host' | 'session' | 'pane'
-  name: string
-  target: string
-  addedAt: string
-}
-
-interface RecentItem {
-  id: string
-  type: 'host' | 'session' | 'pane'
-  name: string
-  target: string
-  visitedAt: string
-}
+import { useFavorites, getRecentItems, clearRecent, type RecentItem } from '@/hooks/useFavorites'
 
 export function Favorites() {
-  const [favorites, setFavorites] = useState<FavoriteItem[]>([])
+  const { favorites, removeFavorite } = useFavorites()
   const [recentItems, setRecentItems] = useState<RecentItem[]>([])
   const [activeTab, setActiveTab] = useState<'favorites' | 'recent'>('favorites')
   const { t } = useTranslation()
 
   useEffect(() => {
-    const stored = localStorage.getItem('tmuxgo-favorites')
-    if (stored) setFavorites(JSON.parse(stored))
-
-    const recent = localStorage.getItem('tmuxgo-recent')
-    if (recent) setRecentItems(JSON.parse(recent))
+    setRecentItems(getRecentItems())
   }, [])
 
-  const removeFavorite = (id: string) => {
-    const updated = favorites.filter((f) => f.id !== id)
-    setFavorites(updated)
-    localStorage.setItem('tmuxgo-favorites', JSON.stringify(updated))
-  }
-
-  const clearRecent = () => {
+  const handleClearRecent = () => {
+    clearRecent()
     setRecentItems([])
-    localStorage.setItem('tmuxgo-recent', JSON.stringify([]))
   }
 
   return (
@@ -95,7 +70,7 @@ export function Favorites() {
           ) : (
             <>
               <div className="flex justify-end mb-2">
-                <button onClick={clearRecent} className="text-text-3 text-xs hover:text-text-1">
+                <button onClick={handleClearRecent} className="text-text-3 text-xs hover:text-text-1">
                   {t('favorites.clearAll')}
                 </button>
               </div>
@@ -111,35 +86,4 @@ export function Favorites() {
       )}
     </div>
   )
-}
-
-export function addToRecent(type: 'host' | 'session' | 'pane', id: string, name: string, target: string) {
-  const recent: RecentItem[] = JSON.parse(localStorage.getItem('tmuxgo-recent') || '[]')
-  const existing = recent.findIndex((r) => r.id === id)
-  if (existing >= 0) recent.splice(existing, 1)
-
-  recent.unshift({
-    id,
-    type,
-    name,
-    target,
-    visitedAt: new Date().toISOString(),
-  })
-
-  localStorage.setItem('tmuxgo-recent', JSON.stringify(recent.slice(0, 20)))
-}
-
-export function addToFavorites(type: 'host' | 'session' | 'pane', id: string, name: string, target: string) {
-  const favorites: FavoriteItem[] = JSON.parse(localStorage.getItem('tmuxgo-favorites') || '[]')
-  if (favorites.some((f) => f.id === id)) return
-
-  favorites.unshift({
-    id,
-    type,
-    name,
-    target,
-    addedAt: new Date().toISOString(),
-  })
-
-  localStorage.setItem('tmuxgo-favorites', JSON.stringify(favorites))
 }

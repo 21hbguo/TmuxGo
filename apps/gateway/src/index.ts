@@ -2,6 +2,7 @@ import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import multipart from '@fastify/multipart'
 import websocket from '@fastify/websocket'
+import { cleanupMultiplexSockets } from './lib/tmux-executor.js'
 import { hostRoutes } from './routes/hosts.js'
 import { sessionRoutes } from './routes/sessions.js'
 import { windowRoutes } from './routes/windows.js'
@@ -54,3 +55,10 @@ const start = async () => {
 }
 
 start()
+
+const shutdown = async () => {
+  await cleanupMultiplexSockets()
+  process.exit(0)
+}
+process.on('SIGINT', shutdown)
+process.on('SIGTERM', shutdown)

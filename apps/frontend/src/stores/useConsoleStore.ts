@@ -4,6 +4,10 @@ import type { ConnectionState, FileDocumentHandle, FileEditorDocument, UploadJob
 type PersistedEditor = Pick<FileEditorDocument, 'id' | 'rootId' | 'rootLabel' | 'rootPath' | 'path' | 'name' | 'absolutePath' | 'language'>
 const OPEN_EDITORS_STORAGE_KEY = 'tmuxgo-open-editors'
 const ACTIVE_EDITOR_STORAGE_KEY = 'tmuxgo-active-editor'
+const ACTIVE_SESSION_STORAGE_KEY = 'tmuxgo-active-session'
+function getActiveSessionStorageKey(hostId: string) {
+  return `${ACTIVE_SESSION_STORAGE_KEY}:${hostId}`
+}
 
 function readPersistedEditors() {
   if (typeof window === 'undefined') return []
@@ -127,17 +131,24 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
   toasts: [],
 
   setActiveHost: (id) => {
+    let activeSessionId = ''
     if (typeof window !== 'undefined') {
       localStorage.setItem('tmuxgo-active-host', id)
+      activeSessionId = localStorage.getItem(getActiveSessionStorageKey(id)) || ''
     }
-    set({ activeHostId: id })
+    set({ activeHostId: id, activeSessionId, activePaneId: null })
   },
-  setActiveSession: (id) => {
+  setActiveSession: (id) => set((state) => {
     if (typeof window !== 'undefined') {
-      localStorage.setItem('tmuxgo-active-session', id)
+      if (id) localStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, id)
+      else localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY)
+      if (state.activeHostId) {
+        if (id) localStorage.setItem(getActiveSessionStorageKey(state.activeHostId), id)
+        else localStorage.removeItem(getActiveSessionStorageKey(state.activeHostId))
+      }
     }
-    set({ activeSessionId: id })
-  },
+    return { activeSessionId: id }
+  }),
   setActivePane: (id) => set({ activePaneId: id }),
   setCommandPalette: (open) => set({ showCommandPalette: open }),
   setSessionPanelExpanded: (expanded) => set({ sessionPanelExpanded: expanded }),

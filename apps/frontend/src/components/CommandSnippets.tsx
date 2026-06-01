@@ -1,25 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useTranslation } from '@/i18n'
-
-interface Snippet {
-  id: string
-  name: string
-  command: string
-  description?: string
-  category?: string
-}
-
-const defaultSnippetCommands = [
-  { id: '1', nameKey: 'snippets.listFiles' as const, command: 'ls -la', category: 'basic' },
-  { id: '2', nameKey: 'snippets.diskUsage' as const, command: 'df -h', category: 'system' },
-  { id: '3', nameKey: 'snippets.memoryUsage' as const, command: 'free -h', category: 'system' },
-  { id: '4', nameKey: 'snippets.processList' as const, command: 'ps aux | head -20', category: 'system' },
-  { id: '5', nameKey: 'snippets.dockerContainers' as const, command: 'docker ps', category: 'docker' },
-  { id: '6', nameKey: 'snippets.gitStatus' as const, command: 'git status', category: 'git' },
-  { id: '7', nameKey: 'snippets.gitLog' as const, command: 'git log --oneline -10', category: 'git' },
-]
+import { useSnippets, SNIPPET_NAME_KEYS } from '@/hooks/useSnippets'
 
 interface CommandSnippetsProps {
   onSend: (command: string) => void
@@ -27,22 +10,11 @@ interface CommandSnippetsProps {
 }
 
 export function CommandSnippets({ onSend, onClose }: CommandSnippetsProps) {
-  const [snippets, setSnippets] = useState<Snippet[]>([])
+  const { snippets, addSnippet, removeSnippet } = useSnippets()
   const [search, setSearch] = useState('')
   const [isAdding, setIsAdding] = useState(false)
   const [newSnippet, setNewSnippet] = useState({ name: '', command: '', description: '' })
   const { t } = useTranslation()
-
-  useEffect(() => {
-    const stored = localStorage.getItem('tmuxgo-snippets')
-    if (stored) {
-      setSnippets(JSON.parse(stored))
-    } else {
-      const defaults: Snippet[] = defaultSnippetCommands.map((s) => ({ id: s.id, name: s.nameKey, command: s.command, category: s.category }))
-      setSnippets(defaults)
-      localStorage.setItem('tmuxgo-snippets', JSON.stringify(defaults))
-    }
-  }, [])
 
   const filtered = snippets.filter(
     (s) =>
@@ -50,30 +22,16 @@ export function CommandSnippets({ onSend, onClose }: CommandSnippetsProps) {
       s.command.toLowerCase().includes(search.toLowerCase())
   )
 
-  const addSnippet = () => {
+  const handleAdd = () => {
     if (!newSnippet.name || !newSnippet.command) return
-
-    const snippet: Snippet = {
-      id: Date.now().toString(),
-      ...newSnippet,
-    }
-
-    const updated = [...snippets, snippet]
-    setSnippets(updated)
-    localStorage.setItem('tmuxgo-snippets', JSON.stringify(updated))
+    addSnippet(newSnippet)
     setNewSnippet({ name: '', command: '', description: '' })
     setIsAdding(false)
   }
 
-  const deleteSnippet = (id: string) => {
-    const updated = snippets.filter((s) => s.id !== id)
-    setSnippets(updated)
-    localStorage.setItem('tmuxgo-snippets', JSON.stringify(updated))
-  }
-
-  const getSnippetName = (snippet: Snippet) => {
-    const defaultEntry = defaultSnippetCommands.find((d) => d.id === snippet.id)
-    if (defaultEntry) return t(defaultEntry.nameKey)
+  const getSnippetName = (snippet: { id: string; name: string }) => {
+    const nameKey = SNIPPET_NAME_KEYS[snippet.id]
+    if (nameKey) return t(nameKey as any)
     return snippet.name
   }
 
@@ -111,7 +69,7 @@ export function CommandSnippets({ onSend, onClose }: CommandSnippetsProps) {
               <button
                 onClick={(e) => {
                   e.stopPropagation()
-                  deleteSnippet(snippet.id)
+                  removeSnippet(snippet.id)
                 }}
                 className="text-text-3 hover:text-danger opacity-0 group-hover:opacity-100"
               >
@@ -140,7 +98,7 @@ export function CommandSnippets({ onSend, onClose }: CommandSnippetsProps) {
               />
               <div className="flex gap-2">
                 <button
-                  onClick={addSnippet}
+                  onClick={handleAdd}
                   className="px-3 py-1.5 bg-accent text-bg-0 rounded text-sm"
                 >
                   {t('snippets.add')}
