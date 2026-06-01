@@ -555,8 +555,6 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     setCurrentPath('')
     setSelectedPath('')
     setSelectedPreviewLine(1)
-    setQuery('')
-    setDebouncedQuery('')
     setMobileView('list')
     setOpenDirectories(new Set())
     setSearchNavigationPath(null)
@@ -569,8 +567,6 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     else setOpenDirectories(new Set())
     setSelectedPath('')
     setSelectedPreviewLine(1)
-    setQuery('')
-    setDebouncedQuery('')
     setMobileView('list')
     setSearchNavigationPath(null)
   }
@@ -831,7 +827,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
         </div>
         <div className="mt-1.5 flex items-center gap-1">
           <input value={query} onChange={(e) => { setQuery(e.target.value); setSearchNavigationPath(null) }} placeholder={searchMode === 'name' ? t('file.searchName') : t('file.searchContent')} className="tmuxgo-control tmuxgo-input min-w-0 flex-1 rounded px-2 py-1 font-mono text-[11px]" />
-          <button onClick={() => { setQuery(''); setDebouncedQuery(''); setSearchNavigationPath(null) }} disabled={!query} aria-label={t('file.searchName')} className={`shrink-0 rounded border border-[var(--line)] px-2 py-1 text-[11px] ${query ? 'bg-bg-2 text-text-2 hover:text-accent' : 'bg-bg-0 text-text-3/40'}`}>×</button>
+          <button onClick={() => { setQuery(''); setDebouncedQuery(''); setSearchNavigationPath(null) }} disabled={!query} aria-label={t('file.clearSearch')} className={`shrink-0 rounded border border-[var(--line)] px-2 py-1 text-[11px] ${query ? 'bg-bg-2 text-text-2 hover:text-accent' : 'bg-bg-0 text-text-3/40'}`}>×</button>
         </div>
         <div className="mt-1.5 flex items-center gap-1">
           <div className="flex min-w-0 flex-1 rounded border border-[var(--line)] bg-bg-0 p-0.5 text-[11px]">

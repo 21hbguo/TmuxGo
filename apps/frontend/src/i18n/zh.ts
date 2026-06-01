@@ -242,6 +242,7 @@ export const zh = {
   'file.title': '文件',
   'file.upload': '上传',
   'file.removeFavorite': '删收藏',
+  'file.clearSearch': '清空搜索',
   'file.searchName': '搜索文件名',
   'file.searchContent': '搜索文件内容',
   'file.all': '全部',
