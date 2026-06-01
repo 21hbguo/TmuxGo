@@ -184,6 +184,8 @@ async function applyTemplateLayout(hostId: string, sessionName: string, layout: 
   for (let i = 0; i < targets.length; i++) {
     const windowDef = targets[i]
     if (!windowDef.name) throw new Error(`Template step failed: window[${i}] missing name`)
+    const splitFlag = windowDef.splitDirection === 'vertical' ? '-v' : '-h'
+    const layoutPreset = windowDef.layoutPreset || 'tiled'
     if (i === 0) {
       await execTmux(hostId, ['rename-window', '-t', firstWindowTarget, windowDef.name])
     } else {
@@ -192,9 +194,9 @@ async function applyTemplateLayout(hostId: string, sessionName: string, layout: 
     const { windowTarget, panes } = windowDef
     const paneBaseIndex = i === 0 ? await getFirstPaneIndex(hostId, firstWindowTarget) : await getFirstPaneIndex(hostId, windowTarget)
     for (let p = 1; p < panes.length; p++) {
-      await execTmux(hostId, ['split-window', '-t', windowTarget, '-h'])
+      await execTmux(hostId, ['split-window', '-t', windowTarget, splitFlag])
     }
-    await execTmux(hostId, ['select-layout', '-t', windowTarget, 'tiled'])
+    await execTmux(hostId, ['select-layout', '-t', windowTarget, layoutPreset])
     for (let p = 0; p < panes.length; p++) {
       const command = panes[p]?.command?.trim()
       if (!command) continue
