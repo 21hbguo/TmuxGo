@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { AuditLog } from './AuditLog'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useTranslation } from '@/i18n'
+import { useSessionContinuity } from '@/hooks/useSessionContinuity'
 
 import { useCreateHost, useDeleteHost, useHosts, useTestHost } from '@/hooks/useApi'
 
@@ -13,6 +14,7 @@ interface SettingsProps {
 
 export function Settings({ onClose }: SettingsProps) {
   const { preferences, updatePreferences, resetPreferences } = usePreferences()
+  const { sessionContinuity, updateSessionContinuity } = useSessionContinuity()
   const { t } = useTranslation()
   const [activeTab, setActiveTab] = useState<'general' | 'appearance' | 'audit'>('general')
   const [showAuditLog, setShowAuditLog] = useState(false)
@@ -165,6 +167,64 @@ export function Settings({ onClose }: SettingsProps) {
                   <div className="flex items-center justify-between">
                     <span className="text-text-2 text-sm">{t('settings.reconnectInterval')}</span>
                     <span className="text-text-1 text-sm">{preferences.reconnectInterval / 1000}s</span>
+                  </div>
+                </div>
+              </div>
+              <div>
+                <h3 className="text-text-1 text-sm font-medium mb-3">{t('settings.sessionContinuity')}</h3>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-text-2 text-sm">{t('settings.sessionContinuityEnabled')}</span>
+                    <button
+                      onClick={() => updateSessionContinuity({ enabled: !sessionContinuity.enabled })}
+                      className={`w-10 h-6 rounded-full relative ${sessionContinuity.enabled ? 'bg-accent' : 'bg-bg-2'}`}
+                    >
+                      <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${sessionContinuity.enabled ? 'right-1' : 'left-1'}`} />
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-text-2 text-sm">{t('settings.resumeOnReconnect')}</span>
+                    <button
+                      onClick={() => updateSessionContinuity({ resumeOnReconnect: !sessionContinuity.resumeOnReconnect })}
+                      className={`w-10 h-6 rounded-full relative ${sessionContinuity.resumeOnReconnect ? 'bg-accent' : 'bg-bg-2'}`}
+                    >
+                      <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${sessionContinuity.resumeOnReconnect ? 'right-1' : 'left-1'}`} />
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-text-2 text-sm">{t('settings.resumeOnNewDevice')}</span>
+                    <button
+                      onClick={() => updateSessionContinuity({ resumeOnNewDevice: !sessionContinuity.resumeOnNewDevice })}
+                      className={`w-10 h-6 rounded-full relative ${sessionContinuity.resumeOnNewDevice ? 'bg-accent' : 'bg-bg-2'}`}
+                    >
+                      <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${sessionContinuity.resumeOnNewDevice ? 'right-1' : 'left-1'}`} />
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-text-2 text-sm">{t('settings.resumePointCount')}</span>
+                    <span className="text-text-1 text-sm">{sessionContinuity.resumePoints.length}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-text-2 text-sm">{t('settings.maxResumePoints')}</span>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="range"
+                        min={1}
+                        max={100}
+                        value={sessionContinuity.maxResumePoints}
+                        onChange={(event) => updateSessionContinuity({ maxResumePoints: Number(event.target.value) })}
+                        className="w-24 accent-accent"
+                      />
+                      <span className="text-text-1 text-sm w-8 text-center">{sessionContinuity.maxResumePoints}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-end">
+                    <button
+                      onClick={() => updateSessionContinuity({ resumePoints: [] })}
+                      className="rounded bg-bg-2 px-3 py-1.5 text-sm text-text-2 hover:bg-bg-1"
+                    >
+                      {t('settings.clearResumePoints')}
+                    </button>
                   </div>
                 </div>
               </div>
