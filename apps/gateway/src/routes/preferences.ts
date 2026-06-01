@@ -8,6 +8,34 @@ type FavoriteDirectory = { rootId: string; rootPath: string; name: string; path:
 type SessionOrder = { hostId: string; orderedSessionIds: string[] }
 type Snippet = { id: string; name: string; command: string; description?: string; category?: string }
 type FavoriteItem = { id: string; type: 'host' | 'session' | 'pane'; name: string; target: string; addedAt: string }
+type SessionResumePoint = {
+  hostId: string
+  sessionId: string
+  sessionName: string
+  windowId: string | null
+  paneId: string | null
+  cols: number
+  rows: number
+  exclusive: boolean
+  lastSeenAt: string
+  lastOutputAt: string
+}
+type SessionArchivePolicy = {
+  enabled: boolean
+  captureMode: 'none' | 'visible' | 'history'
+  maxBytesPerSession: number
+  retentionDays: number
+}
+type SessionContinuity = {
+  enabled: boolean
+  syncToServer: boolean
+  resumeOnReconnect: boolean
+  resumeOnNewDevice: boolean
+  maxResumePoints: number
+  archive: SessionArchivePolicy
+  resumePoints: SessionResumePoint[]
+  updatedAt: string
+}
 type UiPreferences = {
   theme?: string
   fontSize?: number
@@ -35,6 +63,8 @@ type PreferencesStore = {
   snippetsUpdatedAt: string
   favorites: FavoriteItem[]
   favoritesUpdatedAt: string
+  sessionContinuity: SessionContinuity
+  sessionContinuityUpdatedAt: string
   uiPreferences: UiPreferences
   uiPreferencesUpdatedAt: string
   uploadRateLimitKBps: number
@@ -47,6 +77,7 @@ const MAX_SESSION_ORDERS = 200
 const MAX_SESSION_ORDER_IDS = 500
 const MAX_SNIPPETS = 200
 const MAX_BOOKMARK_FAVORITES = 200
+const MAX_RESUME_POINTS = 200
 const MAX_BODY_BYTES = 256 * 1024
 const MAX_FILE_BYTES = 512 * 1024
 const MAX_PROFILE_LEN = 64
@@ -58,6 +89,9 @@ const MAX_ROOT_PATH_LEN = 1024
 const MAX_FAVORITE_NAME_LEN = 128
 const MAX_FAVORITE_PATH_LEN = 1024
 const MAX_SESSION_ID_LEN = 128
+const MAX_SESSION_NAME_LEN = 128
+const MAX_WINDOW_ID_LEN = 128
+const MAX_PANE_ID_LEN = 128
 const MAX_SNIPPET_NAME_LEN = 128
 const MAX_SNIPPET_COMMAND_LEN = 4096
 const MAX_SNIPPET_DESC_LEN = 512
@@ -66,6 +100,7 @@ const MAX_FAVORITE_TARGET_LEN = 1024
 const VALID_THEMES = ['dark', 'light', 'high-contrast', 'dracula', 'nord', 'catppuccin']
 const VALID_SIDEBAR = ['left', 'right']
 const VALID_LANGUAGE = ['zh', 'en']
+const VALID_CAPTURE_MODES = ['none', 'visible', 'history']
 const DEFAULT_UPLOAD_RATE_LIMIT_KBPS = 200
 const MAX_UPLOAD_RATE_LIMIT_KBPS = 10 * 1024
 const PROFILE_RE = /^[a-zA-Z0-9_-]+$/
@@ -73,6 +108,27 @@ const STORAGE_DIR = process.env.TMUXGO_PREFERENCES_DIR || path.join(os.homedir()
 
 function nowIso() {
   return new Date().toISOString()
+}
+function getDefaultSessionArchivePolicy(): SessionArchivePolicy {
+  return {
+    enabled: false,
+    captureMode: 'none',
+    maxBytesPerSession: 256 * 1024,
+    retentionDays: 7,
+  }
+}
+function getDefaultSessionContinuity(): SessionContinuity {
+  const now = nowIso()
+  return {
+    enabled: true,
+    syncToServer: true,
+    resumeOnReconnect: true,
+    resumeOnNewDevice: true,
+    maxResumePoints: 20,
+    archive: getDefaultSessionArchivePolicy(),
+    resumePoints: [],
+    updatedAt: now,
+  }
 }
 function getDefaultStore(): PreferencesStore {
   const now = nowIso()
@@ -89,6 +145,8 @@ function getDefaultStore(): PreferencesStore {
     snippetsUpdatedAt: now,
     favorites: [],
     favoritesUpdatedAt: now,
+    sessionContinuity: getDefaultSessionContinuity(),
+    sessionContinuityUpdatedAt: now,
     uiPreferences: {},
     uiPreferencesUpdatedAt: now,
     uploadRateLimitKBps: DEFAULT_UPLOAD_RATE_LIMIT_KBPS,
@@ -108,6 +166,11 @@ function normalizeIso(input: unknown, fallback: string) {
 function parseIsoMs(input: string) {
   const t = Date.parse(input)
   return Number.isNaN(t) ? 0 : t
+}
+function normalizeInt(input: unknown, fallback: number, min: number, max: number) {
+  const value = typeof input === 'number' ? input : typeof input === 'string' ? Number(input) : NaN
+  if (!Number.isFinite(value)) return fallback
+  return Math.max(min, Math.min(max, Math.round(value)))
 }
 function normalizeShortcuts(input: unknown) {
   if (!Array.isArray(input)) return []
@@ -194,6 +257,64 @@ function normalizeBookmarkFavorites(input: unknown) {
   }
   return next
 }
+function normalizeSessionArchivePolicy(input: unknown): SessionArchivePolicy {
+  const fallback = getDefaultSessionArchivePolicy()
+  if (!input || typeof input !== 'object') return fallback
+  const raw = input as Record<string, unknown>
+  const enabled = typeof raw.enabled === 'boolean' ? raw.enabled : fallback.enabled
+  const captureMode = typeof raw.captureMode === 'string' && VALID_CAPTURE_MODES.includes(raw.captureMode) ? raw.captureMode as 'none' | 'visible' | 'history' : fallback.captureMode
+  const maxBytesPerSession = normalizeInt(raw.maxBytesPerSession, fallback.maxBytesPerSession, 0, 32 * 1024 * 1024)
+  const retentionDays = normalizeInt(raw.retentionDays, fallback.retentionDays, 1, 3650)
+  return { enabled, captureMode, maxBytesPerSession, retentionDays }
+}
+function normalizeSessionResumePoints(input: unknown, maxResumePoints: number) {
+  if (!Array.isArray(input)) return []
+  const dedup = new Map<string, SessionResumePoint>()
+  for (const entry of input) {
+    if (!entry || typeof entry !== 'object') continue
+    const raw = entry as Record<string, unknown>
+    const hostId = safeString(raw.hostId, MAX_ID_LEN)
+    const sessionId = safeString(raw.sessionId, MAX_SESSION_ID_LEN)
+    const sessionName = safeString(raw.sessionName, MAX_SESSION_NAME_LEN)
+    if (!hostId || !sessionId || !sessionName) continue
+    const windowIdRaw = safeString(raw.windowId, MAX_WINDOW_ID_LEN)
+    const paneIdRaw = safeString(raw.paneId, MAX_PANE_ID_LEN)
+    const cols = normalizeInt(raw.cols, 120, 2, 1000)
+    const rows = normalizeInt(raw.rows, 36, 2, 1000)
+    const exclusive = typeof raw.exclusive === 'boolean' ? raw.exclusive : true
+    const lastSeenAt = normalizeIso(raw.lastSeenAt, nowIso())
+    const lastOutputAt = normalizeIso(raw.lastOutputAt, lastSeenAt)
+    dedup.set(`${hostId}:${sessionId}`, {
+      hostId,
+      sessionId,
+      sessionName,
+      windowId: windowIdRaw || null,
+      paneId: paneIdRaw || null,
+      cols,
+      rows,
+      exclusive,
+      lastSeenAt,
+      lastOutputAt,
+    })
+  }
+  return [...dedup.values()]
+    .sort((a, b) => Date.parse(b.lastSeenAt) - Date.parse(a.lastSeenAt))
+    .slice(0, Math.max(1, Math.min(MAX_RESUME_POINTS, maxResumePoints)))
+}
+function normalizeSessionContinuity(input: unknown): SessionContinuity {
+  const fallback = getDefaultSessionContinuity()
+  if (!input || typeof input !== 'object') return fallback
+  const raw = input as Record<string, unknown>
+  const enabled = typeof raw.enabled === 'boolean' ? raw.enabled : fallback.enabled
+  const syncToServer = typeof raw.syncToServer === 'boolean' ? raw.syncToServer : fallback.syncToServer
+  const resumeOnReconnect = typeof raw.resumeOnReconnect === 'boolean' ? raw.resumeOnReconnect : fallback.resumeOnReconnect
+  const resumeOnNewDevice = typeof raw.resumeOnNewDevice === 'boolean' ? raw.resumeOnNewDevice : fallback.resumeOnNewDevice
+  const maxResumePoints = normalizeInt(raw.maxResumePoints, fallback.maxResumePoints, 1, MAX_RESUME_POINTS)
+  const archive = normalizeSessionArchivePolicy(raw.archive)
+  const resumePoints = normalizeSessionResumePoints(raw.resumePoints, maxResumePoints)
+  const updatedAt = normalizeIso(raw.updatedAt, fallback.updatedAt)
+  return { enabled, syncToServer, resumeOnReconnect, resumeOnNewDevice, maxResumePoints, archive, resumePoints, updatedAt }
+}
 function normalizeUiPreferences(input: unknown): UiPreferences {
   if (!input || typeof input !== 'object') return {}
   const raw = input as Record<string, unknown>
@@ -226,11 +347,13 @@ function normalizeStore(input: unknown): PreferencesStore {
   const sessionOrdersUpdatedAt = normalizeIso(raw.sessionOrdersUpdatedAt, fallback.sessionOrdersUpdatedAt)
   const snippetsUpdatedAt = normalizeIso(raw.snippetsUpdatedAt, fallback.snippetsUpdatedAt)
   const favoritesUpdatedAt = normalizeIso(raw.favoritesUpdatedAt, fallback.favoritesUpdatedAt)
+  const sessionContinuityUpdatedAt = normalizeIso(raw.sessionContinuityUpdatedAt, fallback.sessionContinuityUpdatedAt)
   const uiPreferencesUpdatedAt = normalizeIso(raw.uiPreferencesUpdatedAt, fallback.uiPreferencesUpdatedAt)
   const updatedAtRaw = normalizeIso(raw.updatedAt, fallback.updatedAt)
   const updatedAt = new Date(Math.max(
     parseIsoMs(updatedAtRaw), parseIsoMs(customShortcutsUpdatedAt), parseIsoMs(favoriteDirectoriesUpdatedAt),
-    parseIsoMs(sessionOrdersUpdatedAt), parseIsoMs(snippetsUpdatedAt), parseIsoMs(favoritesUpdatedAt), parseIsoMs(uiPreferencesUpdatedAt),
+    parseIsoMs(sessionOrdersUpdatedAt), parseIsoMs(snippetsUpdatedAt), parseIsoMs(favoritesUpdatedAt),
+    parseIsoMs(sessionContinuityUpdatedAt), parseIsoMs(uiPreferencesUpdatedAt),
   )).toISOString()
   return {
     version: 1,
@@ -245,6 +368,8 @@ function normalizeStore(input: unknown): PreferencesStore {
     snippetsUpdatedAt,
     favorites: normalizeBookmarkFavorites(raw.favorites),
     favoritesUpdatedAt,
+    sessionContinuity: normalizeSessionContinuity(raw.sessionContinuity),
+    sessionContinuityUpdatedAt,
     uiPreferences: normalizeUiPreferences(raw.uiPreferences),
     uiPreferencesUpdatedAt,
     uploadRateLimitKBps: normalizeUploadRateLimitKBps(raw.uploadRateLimitKBps),
@@ -340,6 +465,14 @@ export async function preferencesRoutes(fastify: FastifyInstance) {
         next.favoritesUpdatedAt = incomingAt
       }
     }
+    if ('sessionContinuity' in body) {
+      const incoming = normalizeSessionContinuity(body.sessionContinuity)
+      const incomingAt = normalizeIso(body.sessionContinuityUpdatedAt, nowIso())
+      if (parseIsoMs(incomingAt) >= parseIsoMs(current.sessionContinuityUpdatedAt)) {
+        next.sessionContinuity = incoming
+        next.sessionContinuityUpdatedAt = incomingAt
+      }
+    }
     if ('uiPreferences' in body) {
       const incoming = normalizeUiPreferences(body.uiPreferences)
       const incomingAt = normalizeIso(body.uiPreferencesUpdatedAt, nowIso())
@@ -353,7 +486,7 @@ export async function preferencesRoutes(fastify: FastifyInstance) {
     next.updatedAt = new Date(Math.max(
       parseIsoMs(next.customShortcutsUpdatedAt), parseIsoMs(next.favoriteDirectoriesUpdatedAt),
       parseIsoMs(next.sessionOrdersUpdatedAt), parseIsoMs(next.snippetsUpdatedAt),
-      parseIsoMs(next.favoritesUpdatedAt), parseIsoMs(next.uiPreferencesUpdatedAt),
+      parseIsoMs(next.favoritesUpdatedAt), parseIsoMs(next.sessionContinuityUpdatedAt), parseIsoMs(next.uiPreferencesUpdatedAt),
     )).toISOString()
     try {
       await writeStore(profile, next)

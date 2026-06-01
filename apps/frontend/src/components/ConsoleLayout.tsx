@@ -21,6 +21,7 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useHosts, useSessionSnapshot } from '@/hooks/useApi'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import { usePreferences } from '@/hooks/usePreferences'
+import { useSessionContinuity } from '@/hooks/useSessionContinuity'
 import { DesktopWorkbench } from './DesktopWorkbench'
 import { recordMobileDiagnostic, startMobileFlickerDiagnostics } from '@/lib/mobile-diagnostics'
 
@@ -49,6 +50,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   const mobileFileSheetOpen = useConsoleStore((s) => s.mobileFileSheetOpen)
   const setMobileFileSheetOpen = useConsoleStore((s) => s.setMobileFileSheetOpen)
   const { preferences } = usePreferences()
+  const { sessionContinuity } = useSessionContinuity()
 
   const { data: hostsData = [] } = useHosts()
   const { data: sessionsData = [], isFetched: sessionsFetched } = useOrderedSessions(activeHostId || '')
@@ -270,11 +272,13 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
     }
     const persistedSession = typeof window !== 'undefined' && activeHostId ? localStorage.getItem(`tmuxgo-active-session:${activeHostId}`) || localStorage.getItem('tmuxgo-active-session') : null
     const persistedSessionExists = !!persistedSession && sessionsData.some((s: any) => s.id === persistedSession)
+    const continuityPoint = activeHostId && sessionContinuity.enabled && (sessionContinuity.resumeOnReconnect || sessionContinuity.resumeOnNewDevice) ? sessionContinuity.resumePoints.find((item) => item.hostId === activeHostId) : null
+    const continuitySessionExists = !!continuityPoint?.sessionId && sessionsData.some((s: any) => s.id === continuityPoint.sessionId)
     const activeSessionExists = !!activeSessionId && sessionsData.some((s: any) => s.id === activeSessionId)
     if (!activeSessionId || !activeSessionExists) {
-      setActiveSession(persistedSessionExists ? persistedSession! : sessionsData[0].id)
+      setActiveSession(continuitySessionExists ? continuityPoint!.sessionId : persistedSessionExists ? persistedSession! : sessionsData[0].id)
     }
-  }, [sessionsData, sessionsFetched, activeSessionId, activeHostId, setActiveSession])
+  }, [sessionsData, sessionsFetched, activeSessionId, activeHostId, setActiveSession, sessionContinuity])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
