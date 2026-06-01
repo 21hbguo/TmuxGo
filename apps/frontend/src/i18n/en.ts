@@ -242,6 +242,7 @@ export const en = {
   'file.title': 'Files',
   'file.upload': 'Upload',
   'file.removeFavorite': 'Unfavorite',
+  'file.clearSearch': 'Clear search',
   'file.searchName': 'Search file names',
   'file.searchContent': 'Search file content',
   'file.all': 'All',
