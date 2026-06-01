@@ -219,6 +219,35 @@ export interface UiPreferences {
   language?: string
   attachExclusive?: boolean
 }
+export type SessionCaptureMode = 'none' | 'visible' | 'history'
+export interface SessionResumePoint {
+  hostId: string
+  sessionId: string
+  sessionName: string
+  windowId: string | null
+  paneId: string | null
+  cols: number
+  rows: number
+  exclusive: boolean
+  lastSeenAt: string
+  lastOutputAt: string
+}
+export interface SessionArchivePolicy {
+  enabled: boolean
+  captureMode: SessionCaptureMode
+  maxBytesPerSession: number
+  retentionDays: number
+}
+export interface SessionContinuityConfig {
+  enabled: boolean
+  syncToServer: boolean
+  resumeOnReconnect: boolean
+  resumeOnNewDevice: boolean
+  maxResumePoints: number
+  archive: SessionArchivePolicy
+  resumePoints: SessionResumePoint[]
+  updatedAt: string
+}
 export interface RemotePreferences {
   version: 1
   updatedAt: string
@@ -232,6 +261,8 @@ export interface RemotePreferences {
   snippetsUpdatedAt: string
   favorites: FavoriteItem[]
   favoritesUpdatedAt: string
+  sessionContinuity: SessionContinuityConfig
+  sessionContinuityUpdatedAt: string
   uiPreferences: UiPreferences
   uiPreferencesUpdatedAt: string
   uploadRateLimitKBps: number

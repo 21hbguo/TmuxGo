@@ -11,6 +11,7 @@ import { useWindows } from '@/hooks/useApi'
 import { useWindowQueryState } from '@/hooks/useWindowQueryState'
 import { api } from '@/lib/api'
 import { parseSessionName } from '@/lib/session-id'
+import { useSessionContinuity } from '@/hooks/useSessionContinuity'
 
 const ATTACH_TIMEOUT = 5000
 const ATTACH_RETRY_DELAY = 900
@@ -27,6 +28,7 @@ export function PaneGrid() {
   const { send, isConnected, isSocketReady, subscribeOutput } = useWebSocket()
   const { t } = useTranslation()
   const { preferences } = usePreferences()
+  const { sessionContinuity, upsertResumePoint } = useSessionContinuity()
   const isMobile = isMobileDevice()
   const { data: windowsData = [] } = useWindows(activeHostId || '', activeSessionId || '')
   const { getWindows, setWindows } = useWindowQueryState(activeHostId || '', activeSessionId || '')
@@ -45,6 +47,8 @@ export function PaneGrid() {
   const lastExclusiveRef = useRef(exclusive)
   const lastExternalInputRef = useRef<{ data: string; at: number } | null>(null)
   const attachStartedAtRef = useRef(0)
+  const lastOutputAtRef = useRef('')
+  const continuityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const sessionName = parseSessionName(activeHostId || 'local', activeSessionId || '')
 
@@ -98,6 +102,38 @@ export function PaneGrid() {
     clearTimeout(inputFlushTimerRef.current)
     inputFlushTimerRef.current = null
   }, [])
+  const clearContinuityTimer = useCallback(() => {
+    if (!continuityTimerRef.current) return
+    clearTimeout(continuityTimerRef.current)
+    continuityTimerRef.current = null
+  }, [])
+  const flushResumePoint = useCallback(() => {
+    if (!sessionContinuity.enabled) return
+    if (!activeHostId || !activeSessionId || !sessionName) return
+    const activeWindow = sessionWindows.find((item: any) => item.active) || sessionWindows[0] || null
+    const now = new Date().toISOString()
+    const size = sizeRef.current
+    upsertResumePoint({
+      hostId: activeHostId,
+      sessionId: activeSessionId,
+      sessionName,
+      windowId: activeWindow?.id || null,
+      paneId: useConsoleStore.getState().activePaneId || null,
+      cols: size?.cols || 120,
+      rows: size?.rows || 36,
+      exclusive,
+      lastSeenAt: now,
+      lastOutputAt: lastOutputAtRef.current || now,
+    })
+  }, [activeHostId, activeSessionId, sessionContinuity.enabled, sessionName, sessionWindows, upsertResumePoint, exclusive])
+  const scheduleContinuityFlush = useCallback((delay = 0) => {
+    if (!sessionContinuity.enabled) return
+    if (continuityTimerRef.current) return
+    continuityTimerRef.current = setTimeout(() => {
+      continuityTimerRef.current = null
+      flushResumePoint()
+    }, Math.max(0, delay))
+  }, [flushResumePoint, sessionContinuity.enabled])
   const flushInputQueue = useCallback(() => {
     clearInputFlushTimer()
     if (inputQueueRef.current.length === 0) return
@@ -164,31 +200,35 @@ export function PaneGrid() {
   useEffect(() => {
     clearAttachTimers()
     clearInputFlushTimer()
+    clearContinuityTimer()
     attachedRef.current = null
     sentResizeRef.current = null
     terminalReadyRef.current = false
     inputQueueRef.current = []
-  }, [sessionName, clearAttachTimers, clearInputFlushTimer])
+  }, [sessionName, clearAttachTimers, clearInputFlushTimer, clearContinuityTimer])
   useEffect(() => {
     if (connectionStatus === 'disconnected') {
       clearAttachTimers()
       clearInputFlushTimer()
+      clearContinuityTimer()
       attachedRef.current = null
       sentResizeRef.current = null
+      flushResumePoint()
     }
-  }, [connectionStatus, clearAttachTimers, clearInputFlushTimer])
+  }, [connectionStatus, clearAttachTimers, clearInputFlushTimer, clearContinuityTimer, flushResumePoint])
 
   useEffect(() => {
     const handleReconnect = () => {
       clearAttachTimers()
       clearInputFlushTimer()
+      clearContinuityTimer()
       attachedRef.current = null
       sentResizeRef.current = null
       if (terminalReadyRef.current) attachNow()
     }
     window.addEventListener('ws-reconnected', handleReconnect)
     return () => window.removeEventListener('ws-reconnected', handleReconnect)
-  }, [attachNow, clearAttachTimers, clearInputFlushTimer])
+  }, [attachNow, clearAttachTimers, clearInputFlushTimer, clearContinuityTimer])
   useEffect(() => {
     if (lastExclusiveRef.current === exclusive) return
     lastExclusiveRef.current = exclusive
@@ -225,11 +265,12 @@ export function PaneGrid() {
       updateTerminalPerf({ attachLatency })
       flushInputQueue()
       if (exclusive && sizeRef.current) sendResizeNow(sizeRef.current)
+      scheduleContinuityFlush(0)
       window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'attached', sessionName } }))
     }
     window.addEventListener('tmux-attached', handleAttached as EventListener)
     return () => window.removeEventListener('tmux-attached', handleAttached as EventListener)
-  }, [activeHostId, exclusive, sessionName, clearAttachTimers, updateConnection, updateTerminalPerf, flushInputQueue, sendResizeNow])
+  }, [activeHostId, exclusive, sessionName, clearAttachTimers, updateConnection, updateTerminalPerf, flushInputQueue, sendResizeNow, scheduleContinuityFlush])
   useEffect(() => {
     if (isConnected) flushInputQueue()
   }, [isConnected, flushInputQueue])
@@ -237,9 +278,12 @@ export function PaneGrid() {
   useEffect(() => () => {
     clearAttachTimers()
     clearInputFlushTimer()
-  }, [clearAttachTimers, clearInputFlushTimer])
+    clearContinuityTimer()
+    flushResumePoint()
+  }, [clearAttachTimers, clearInputFlushTimer, clearContinuityTimer, flushResumePoint])
 
   const handleInput = useCallback((data: string) => {
+    scheduleContinuityFlush(100)
     if (isConnected) {
       if (data.length <= 12 && inputQueueRef.current.length === 0) {
         send({ type: 'input', data })
@@ -257,7 +301,7 @@ export function PaneGrid() {
       inputQueueRef.current.splice(0, inputQueueRef.current.length - INPUT_QUEUE_LIMIT)
     }
     if (isSocketReady) attachNow()
-  }, [attachNow, isConnected, isSocketReady, send, scheduleInputFlush])
+  }, [attachNow, isConnected, isSocketReady, send, scheduleInputFlush, scheduleContinuityFlush])
   useEffect(() => {
     if (attachedRef.current === sessionName) return
     attachNow()
@@ -281,12 +325,35 @@ export function PaneGrid() {
     if (!isConnected) return
     if (attachedRef.current !== sessionName) return
     sendResizeNow(nextSize)
-  }, [isConnected, sessionName, sendResizeNow])
+    scheduleContinuityFlush(100)
+  }, [isConnected, sessionName, sendResizeNow, scheduleContinuityFlush])
   const handleReady = useCallback(() => {
     terminalReadyRef.current = true
     if (attachedRef.current === sessionName) return
     attachNow()
-  }, [sessionName, attachNow])
+    scheduleContinuityFlush(50)
+  }, [sessionName, attachNow, scheduleContinuityFlush])
+  useEffect(() => {
+    if (!sessionContinuity.enabled) return
+    const timer = setInterval(() => {
+      if (attachedRef.current !== sessionName) return
+      flushResumePoint()
+    }, 8000)
+    return () => clearInterval(timer)
+  }, [flushResumePoint, sessionContinuity.enabled, sessionName])
+  useEffect(() => {
+    const handleOutput = (message: { data: string; sessionName?: string | null; hostId?: string | null }) => {
+      if ((message.hostId || activeHostId || 'local') !== (activeHostId || 'local')) return
+      if (message.sessionName && message.sessionName !== sessionName) return
+      if (!message.data) return
+      lastOutputAtRef.current = new Date().toISOString()
+      scheduleContinuityFlush(150)
+    }
+    const unsubscribe = subscribeOutput(handleOutput)
+    return () => {
+      unsubscribe()
+    }
+  }, [activeHostId, scheduleContinuityFlush, sessionName, subscribeOutput])
 
   if (!activeSessionId) {
     return (
