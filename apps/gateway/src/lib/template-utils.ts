@@ -2,6 +2,8 @@ export interface SessionTemplateLayout {
   windows: {
     name: string
     panes: { command?: string }[]
+    splitDirection?: 'horizontal' | 'vertical'
+    layoutPreset?: 'tiled' | 'even-horizontal' | 'even-vertical' | 'main-horizontal' | 'main-vertical'
   }[]
 }
 
@@ -11,6 +13,8 @@ export function getTemplateWindowTargets(sessionName: string, layout: SessionTem
     windowTarget: `${sessionName}:${startIndex + index}`,
     panes: windowDef.panes?.length ? windowDef.panes : [{}],
     name: windowDef.name,
+    splitDirection: windowDef.splitDirection,
+    layoutPreset: windowDef.layoutPreset,
   }))
 }
 

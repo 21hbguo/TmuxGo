@@ -19,6 +19,17 @@ export interface Session {
   lastActiveAt: string
   windowCount: number
 }
+export type SessionWindowSplitDirection = 'horizontal' | 'vertical'
+export type SessionWindowLayoutPreset = 'tiled' | 'even-horizontal' | 'even-vertical' | 'main-horizontal' | 'main-vertical'
+export interface SessionLayoutWindow {
+  name: string
+  panes: { command?: string }[]
+  splitDirection?: SessionWindowSplitDirection
+  layoutPreset?: SessionWindowLayoutPreset
+}
+export interface SessionLayout {
+  windows: SessionLayoutWindow[]
+}
 
 export interface Window {
   id: string

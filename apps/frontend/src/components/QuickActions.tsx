@@ -7,8 +7,10 @@ import { useWindows } from '@/hooks/useApi'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useCustomShortcuts, keysToEscape } from '@/hooks/useCustomShortcuts'
 import { useSessionSnapshotSync } from '@/hooks/useSessionSnapshotSync'
+import { useWindowQueryState } from '@/hooks/useWindowQueryState'
 import { AddShortcutModal } from './AddShortcutModal'
 import { ConfirmDialog } from './ConfirmDialog'
+import { PromptDialog } from './PromptDialog'
 import { api } from '@/lib/api'
 import { writeClipboardText } from '@/lib/clipboard-text'
 import { requestTerminalSelection } from '@/lib/terminal-selection'
@@ -34,6 +36,7 @@ function useQuickActionController() {
   const activePaneId=useConsoleStore((s)=>s.activePaneId)
   const pushToast=useConsoleStore((s)=>s.pushToast)
   const { data: windowsData=[] }=useWindows(activeHostId||'',activeSessionId||'')
+  const { setWindows }=useWindowQueryState(activeHostId||'',activeSessionId||'')
   const [pendingDirection,setPendingDirection]=useState<'horizontal'|'vertical'|null>(null)
   const activeWindow=useMemo(()=>windowsData.find((w:any)=>w.active)||windowsData[0]||null,[windowsData])
   const canSplit=!!activePaneId&&!!activeWindow&&!pendingDirection
@@ -43,6 +46,8 @@ function useQuickActionController() {
   const [showModal,setShowModal]=useState(false)
   const [isMobile,setIsMobile]=useState(false)
   const [confirmKillOpen,setConfirmKillOpen]=useState(false)
+  const [newWindowPromptOpen,setNewWindowPromptOpen]=useState(false)
+  const [newWindowName,setNewWindowName]=useState('')
   const repeatTimerRef=useRef<ReturnType<typeof setTimeout>|null>(null)
   const repeatIntervalRef=useRef<ReturnType<typeof setInterval>|null>(null)
   const pointerStateRef=useRef({id:-1,x:0,y:0,moved:false})
@@ -174,10 +179,47 @@ function useQuickActionController() {
       pushToast({ type:'error',message:err instanceof Error?err.message:t('pane.zoomFailed') })
     }
   },[pushToast,refreshSnapshot,resolveActivePaneId])
+  const handleOpenNewWindowPrompt=useCallback(()=>{
+    if(!activeHostId||!activeSessionId){
+      pushToast({ type:'error',message:t('window.createMissingSession') })
+      return
+    }
+    const baseCount=windowsData.filter((item:any)=>item.sessionId===activeSessionId).length
+    setNewWindowName(`win-${baseCount+1}`)
+    setNewWindowPromptOpen(true)
+  },[activeHostId,activeSessionId,pushToast,t,windowsData])
+  const confirmCreateWindow=useCallback(async(inputName?:string)=>{
+    if(!activeHostId||!activeSessionId){
+      setNewWindowPromptOpen(false)
+      return
+    }
+    const name=(typeof inputName==='string'?inputName:newWindowName||'').trim()||'new-window'
+    try{
+      const created=await api.windows.create(activeHostId,activeSessionId,name)
+      if(created?.id){
+        const selected=await api.windows.select(activeHostId,activeSessionId,created.id)
+        if(selected?.windows)setWindows(selected.windows)
+        else{
+          const latest=await api.windows.list(activeHostId,activeSessionId)
+          if(Array.isArray(latest))setWindows(latest)
+        }
+      }else{
+        const latest=await api.windows.list(activeHostId,activeSessionId)
+        if(Array.isArray(latest))setWindows(latest)
+      }
+      await refreshSnapshot()
+      window.dispatchEvent(new CustomEvent('tmuxgo-layout-change',{ detail:{ reason:'new-window' } }))
+      pushToast({ type:'success',message:t('window.created',{ name }) })
+    }catch(err){
+      pushToast({ type:'error',message:err instanceof Error?err.message:t('window.createFailed') })
+    }
+    setNewWindowPromptOpen(false)
+  },[activeHostId,activeSessionId,newWindowName,pushToast,refreshSnapshot,setWindows,t])
 
   const primaryButtons:ActionButtonDef[]=[
     { key:'split-h',label:t('sidebar.splitH'),onPress:()=>handleSplit('horizontal'),disabled:!canSplit },
     { key:'split-v',label:t('sidebar.splitV'),onPress:()=>handleSplit('vertical'),disabled:!canSplit },
+    { key:'new-window',label:t('quick.newWindow'),onPress:()=>void handleOpenNewWindowPrompt(),tone:'accent',disabled:!activeSessionId },
     { key:'esc',label:'Esc',data:'\x1b' },
     { key:'up',label:'↑',data:'\x1b[A',repeat:true },
     { key:'tab',label:'Tab',data:'\t' },
@@ -196,7 +238,7 @@ function useQuickActionController() {
   ]
   const attachButton:ActionButtonDef={ key:'attach-mode',label:preferences.attachExclusive?t('quick.attachExclusive'):t('quick.attachShared'),onPress:()=>updatePreferences({ attachExclusive:!preferences.attachExclusive }),tone:'accent' }
 
-  return { t,shortcuts,addShortcut,removeShortcut,showModal,setShowModal,isMobile,confirmKillOpen,setConfirmKillOpen,confirmKillPane,sendKey,startRepeat,stopRepeat,preventFocus,startPointer,trackPointer,finishPointer,pointerStateRef,primaryButtons,attachButton }
+  return { t,shortcuts,addShortcut,removeShortcut,showModal,setShowModal,isMobile,confirmKillOpen,setConfirmKillOpen,confirmKillPane,newWindowPromptOpen,setNewWindowPromptOpen,newWindowName,setNewWindowName,confirmCreateWindow,sendKey,startRepeat,stopRepeat,preventFocus,startPointer,trackPointer,finishPointer,pointerStateRef,primaryButtons,attachButton }
 }
 
 function getDockClass(def:ActionButtonDef){
@@ -227,7 +269,7 @@ function renderDockButton(def:ActionButtonDef,controller:ReturnType<typeof useQu
 
 export function QuickActions({ mode='panel' }:{ mode?:QuickActionsMode }){
   const controller=useQuickActionController()
-  const { t,shortcuts,addShortcut,removeShortcut,showModal,setShowModal,isMobile,confirmKillOpen,setConfirmKillOpen,confirmKillPane,sendKey,primaryButtons,attachButton }=controller
+  const { t,shortcuts,addShortcut,removeShortcut,showModal,setShowModal,isMobile,confirmKillOpen,setConfirmKillOpen,confirmKillPane,newWindowPromptOpen,setNewWindowPromptOpen,newWindowName,setNewWindowName,confirmCreateWindow,sendKey,primaryButtons,attachButton }=controller
   if(mode==='dock'){
     return (
       <>
@@ -240,25 +282,26 @@ export function QuickActions({ mode='panel' }:{ mode?:QuickActionsMode }){
           </div>
         </div>
         <ConfirmDialog open={confirmKillOpen} title={t('quick.killTitle')} message={t('quick.killConfirm')} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} tone="danger" onCancel={()=>setConfirmKillOpen(false)} onConfirm={()=>void confirmKillPane()} />
+        <PromptDialog open={newWindowPromptOpen} title={t('window.createTitle')} defaultValue={newWindowName} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} onCancel={()=>setNewWindowPromptOpen(false)} onConfirm={(value)=>{ setNewWindowName(value); void confirmCreateWindow(value) }} />
       </>
     )
   }
   return (
     <div className="space-y-2">
-      <div className="grid grid-cols-2 gap-1">
-        {primaryButtons.slice(0,2).map((def)=>renderPanelButton(def,controller))}
+      <div className="grid grid-cols-3 gap-1">
+        {primaryButtons.slice(0,3).map((def)=>renderPanelButton(def,controller))}
       </div>
       <div className="grid grid-cols-3 gap-1">
-        {primaryButtons.slice(2,8).map((def)=>renderPanelButton(def,controller))}
+        {primaryButtons.slice(3,9).map((def)=>renderPanelButton(def,controller))}
       </div>
       <div className="grid grid-cols-3 gap-1">
-        {primaryButtons.slice(8,11).map((def)=>renderPanelButton(def,controller))}
+        {primaryButtons.slice(9,12).map((def)=>renderPanelButton(def,controller))}
       </div>
       <div className="grid grid-cols-3 gap-1">
-        {primaryButtons.slice(11,14).map((def)=>renderPanelButton(def,controller))}
+        {primaryButtons.slice(12,15).map((def)=>renderPanelButton(def,controller))}
       </div>
       <div className="grid grid-cols-3 gap-1">
-        {primaryButtons.slice(14,17).map((def)=>renderPanelButton(def,controller))}
+        {primaryButtons.slice(15,18).map((def)=>renderPanelButton(def,controller))}
       </div>
       <button onClick={()=>attachButton.onPress?.()} className="w-full px-2 py-1.5 rounded text-xs transition-colors bg-accent/20 text-accent border border-accent/40 hover:bg-accent/25">
         {attachButton.label}
@@ -292,6 +335,7 @@ export function QuickActions({ mode='panel' }:{ mode?:QuickActionsMode }){
         />
       )}
       <ConfirmDialog open={confirmKillOpen} title={t('quick.killTitle')} message={t('quick.killConfirm')} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} tone="danger" onCancel={()=>setConfirmKillOpen(false)} onConfirm={()=>void confirmKillPane()} />
+      <PromptDialog open={newWindowPromptOpen} title={t('window.createTitle')} defaultValue={newWindowName} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} onCancel={()=>setNewWindowPromptOpen(false)} onConfirm={(value)=>{ setNewWindowName(value); void confirmCreateWindow(value) }} />
     </div>
   )
 }

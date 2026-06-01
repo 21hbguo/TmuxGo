@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
+import type { SessionLayout } from '@/types'
 
 export function useHosts() {
   return useQuery({
@@ -57,7 +58,7 @@ export function useCreateSession() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: ({ hostId, name, layout }: { hostId: string; name: string; layout?: { windows: { name: string; panes: { command?: string }[] }[] } }) =>
+    mutationFn: ({ hostId, name, layout }: { hostId: string; name: string; layout?: SessionLayout }) =>
       api.sessions.create(hostId, name, layout),
     onSuccess: (created, { hostId }) => {
       queryClient.setQueryData(['sessions', hostId], (prev: any[] | undefined) => {
