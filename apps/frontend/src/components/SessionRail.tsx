@@ -5,6 +5,7 @@ import { useCreateSession, useRenameSession } from '@/hooks/useApi'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import { SessionTemplates, type Template } from './SessionTemplates'
 import { useTranslation } from '@/i18n'
+import { usePrompt } from '@/hooks/usePrompt'
 import { SessionSortableList } from './SessionSortableList'
 
 export function SessionRail() {
@@ -17,10 +18,11 @@ export function SessionRail() {
   const createSession = useCreateSession()
   const renameSession = useRenameSession()
   const { t } = useTranslation()
+  const { prompt, PromptElement } = usePrompt()
   const [showTemplates, setShowTemplates] = useState(false)
   const handleTemplateSelect = async (template: Template) => {
     if (!activeHostId) return
-    const name = prompt(t('drawer.sessionName'), template.name.toLowerCase())
+    const name = await prompt(t('drawer.sessionName'), template.name.toLowerCase())
     if (!name) {
       setShowTemplates(false)
       return
@@ -39,7 +41,7 @@ export function SessionRail() {
   const handleRenameSession = async (sessionId: string) => {
     if (!activeHostId) return
     const session = sessions.find((item) => item.id === sessionId)
-    const name = window.prompt(t('drawer.renamePrompt'), session?.name || '')
+    const name = await prompt(t('drawer.renamePrompt'), session?.name || '')
     if (!name || name === session?.name) return
     try {
       const renamed = await renameSession.mutateAsync({ hostId: activeHostId, sessionId, name })
@@ -88,6 +90,7 @@ export function SessionRail() {
         </div>
       </aside>
       {showTemplates && <SessionTemplates onSelect={handleTemplateSelect} onClose={() => setShowTemplates(false)} />}
+      {PromptElement}
     </>
   )
 }

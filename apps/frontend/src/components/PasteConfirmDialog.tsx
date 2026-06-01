@@ -31,7 +31,7 @@ export function PasteConfirmDialog({ open, text, meta, mode = 'confirm', onTextC
         <textarea
           value={text}
           onChange={(e) => onTextChange?.(e.target.value)}
-          className="mt-4 h-48 w-full resize-none rounded border border-[var(--line)] bg-bg-2 p-3 text-xs text-text-2 outline-none focus:border-accent"
+          className="tmuxgo-control tmuxgo-textarea mt-4 h-48 w-full resize-none rounded p-3 text-xs"
           autoFocus
           spellCheck={false}
         />

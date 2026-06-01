@@ -5,6 +5,7 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
 import { api } from '@/lib/api'
 import { ConfirmDialog } from './ConfirmDialog'
+import { PromptDialog } from './PromptDialog'
 import { writeClipboardText } from '@/lib/clipboard-text'
 import { requestTerminalSelection } from '@/lib/terminal-selection'
 import { useSessionSnapshotSync } from '@/hooks/useSessionSnapshotSync'
@@ -20,6 +21,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
   const [query, setQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [pendingKillWindow, setPendingKillWindow] = useState<{ id: string; name: string } | null>(null)
+  const [pendingRenameWindow, setPendingRenameWindow] = useState<{ id: string; name: string } | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const activeHostId = useConsoleStore((state) => state.activeHostId)
   const activeSessionId = useConsoleStore((state) => state.activeSessionId)
@@ -94,10 +96,8 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
     ...[t('palette.toggleSessions')].filter((name) => name.toLowerCase().includes(q) || q.length === 0).map(() => ({ key: 'toggle-sessions', type: 'action', title: t('palette.toggleSessions'), meta: 'Cmd+B', action: async () => toggleSessionPanel() })),
     ...[t('palette.renameWindow')].filter((name) => name.toLowerCase().includes(q) || q.length === 0).map(() => ({ key: 'rename-window', type: 'action', title: t('palette.renameWindow'), meta: activeWindow?.name || '', action: async () => {
       if (!activeHostId || !activeSessionId || !activeWindow) return
-      const name = window.prompt(t('palette.renameWindow'), activeWindow.name)
-      if (!name) return
-      const result = await api.windows.rename(activeHostId, activeSessionId, activeWindow.id, name)
-      if (result.windows) setWindows(result.windows)
+      setPendingRenameWindow({ id: activeWindow.id, name: activeWindow.name })
+      return false
     } })),
     ...[t('palette.killWindow')].filter((name) => name.toLowerCase().includes(q) || q.length === 0).map(() => ({ key: 'kill-window', type: 'action', title: t('palette.killWindow'), meta: activeWindow?.name || '', action: async () => {
       if (!activeWindow) return
@@ -127,6 +127,17 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
       const result = await api.windows.kill(activeHostId, activeSessionId, pendingKillWindow.id)
       if (result.windows) setWindows(result.windows)
       setPendingKillWindow(null)
+      close()
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('palette.actionFailed') })
+    }
+  }
+  const confirmRenameWindow = async (name: string) => {
+    if (!activeHostId || !activeSessionId || !pendingRenameWindow || !name) { setPendingRenameWindow(null); return }
+    try {
+      const result = await api.windows.rename(activeHostId, activeSessionId, pendingRenameWindow.id, name)
+      if (result.windows) setWindows(result.windows)
+      setPendingRenameWindow(null)
       close()
     } catch (err) {
       pushToast({ type: 'error', message: err instanceof Error ? err.message : t('palette.actionFailed') })
@@ -212,6 +223,15 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
         tone="danger"
         onCancel={() => setPendingKillWindow(null)}
         onConfirm={() => void confirmKillWindow()}
+      />
+      <PromptDialog
+        open={!!pendingRenameWindow}
+        title={t('palette.renameWindow')}
+        defaultValue={pendingRenameWindow?.name || ''}
+        confirmLabel={t('common.confirm')}
+        cancelLabel={t('common.cancel')}
+        onCancel={() => setPendingRenameWindow(null)}
+        onConfirm={(value) => void confirmRenameWindow(value)}
       />
     </div>
   )

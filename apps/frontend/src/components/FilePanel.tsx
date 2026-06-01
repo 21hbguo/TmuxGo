@@ -10,6 +10,8 @@ import { writeClipboardText } from '@/lib/clipboard-text'
 import { quoteShellPath } from '@/lib/path-drop'
 import { api } from '@/lib/api'
 import { useTranslation } from '@/i18n'
+import { usePrompt } from '@/hooks/usePrompt'
+import { ConfirmDialog } from './ConfirmDialog'
 
 type SearchMode = 'name' | 'content'
 type FileTypeFilter = 'all' | 'file' | 'directory'
@@ -385,6 +387,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   const queryClient = useQueryClient()
   const { preferences } = usePreferences()
   const { t } = useTranslation()
+  const { prompt, PromptElement } = usePrompt()
   const { data: roots = [] } = useFileRoots()
   const isMobile = mode === 'mobile'
   const [selectedRootId, setSelectedRootId] = useState('')
@@ -406,6 +409,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   const resizingRef = useRef(false)
   const touchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const uploadInputRef = useRef<HTMLInputElement>(null)
+  const [pendingDeleteItem, setPendingDeleteItem] = useState<FileEntry | null>(null)
   const virtualRoots = useMemo(() => favoriteDirectories.map((item) => ({ id: getFavoriteRootOptionId(item), label: item.name, path: joinPath(item.rootPath, item.path), sourceRootId: item.rootId, basePath: item.path })), [favoriteDirectories])
   const rootOptions = useMemo(() => [...roots.map((item) => ({ ...item, sourceRootId: item.id, basePath: '' })), ...virtualRoots], [roots, virtualRoots])
   const activeRoot = rootOptions.find((item) => item.id === selectedRootId) || rootOptions[0]
@@ -683,7 +687,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     pushToast({ type: 'success', message: t('file.downloading', { name: item.name }) })
   }
   const createEntry = async (kind: 'file' | 'directory', directoryPath: string) => {
-    const name = window.prompt(kind === 'file' ? t('file.newFileName') : t('file.newFolderName'), '')
+    const name = await prompt(kind === 'file' ? t('file.newFileName') : t('file.newFolderName'), '')
     if (!name?.trim()) return
     try {
       if (kind === 'file') await api.files.createFile(activeRootId, joinRelativePath(activeRootBasePath, directoryPath), name.trim())
@@ -695,7 +699,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     }
   }
   const renameItem = async (item: FileItem | FileContentMatch) => {
-    const name = window.prompt(t('file.renamePrompt', { name: item.name }), item.name)
+    const name = await prompt(t('file.renamePrompt', { name: item.name }), item.name)
     if (!name?.trim() || name.trim() === item.name) return
     try {
       const result = await api.files.rename(activeRootId, resolveRootRelativePath(activeRootBasePath, item.path), name.trim())
@@ -707,7 +711,12 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     }
   }
   const removeItem = async (item: FileItem | FileContentMatch) => {
-    if (!window.confirm(t('file.deleteConfirm', { type: item.type === 'directory' ? t('file.newFolder').toLowerCase() : t('file.file').toLowerCase(), path: resolveRootRelativePath(activeRootBasePath, item.path) }))) return
+    setPendingDeleteItem(item)
+  }
+  const confirmRemoveItem = async () => {
+    const item = pendingDeleteItem
+    if (!item) return
+    setPendingDeleteItem(null)
     try {
       await api.files.remove(activeRootId, resolveRootRelativePath(activeRootBasePath, item.path))
       if (selectedPath === item.path) {
@@ -793,7 +802,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
           {isMobile && mobileView === 'preview' && <button onClick={() => setMobileView('list')} className="rounded px-2 py-1 text-text-3 hover:bg-bg-2">‹</button>}
           {isMobile && mobileView !== 'preview' && !!currentPath && <button onClick={goMobileParentDirectory} className="rounded px-2 py-1 text-text-3 hover:bg-bg-2">‹</button>}
           <div className="text-sm font-semibold text-text-1">{t('file.title')}</div>
-          <select value={selectedRootId} onChange={(e) => switchRoot(e.target.value)} className="min-w-0 flex-1 rounded border border-[var(--line)] bg-bg-2 px-2 py-1 text-[11px] text-text-2 outline-none">
+          <select value={selectedRootId} onChange={(e) => switchRoot(e.target.value)} className="tmuxgo-control tmuxgo-select min-w-0 flex-1 rounded px-2 py-1 text-[11px]">
             {rootOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
           </select>
           <button onClick={() => uploadInputRef.current?.click()} className="rounded px-1.5 py-1 text-[11px] text-accent hover:bg-bg-2">{t('file.upload')}</button>
@@ -821,7 +830,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
           ))}
         </div>
         <div className="mt-1.5 flex items-center gap-1">
-          <input value={query} onChange={(e) => { setQuery(e.target.value); setSearchNavigationPath(null) }} placeholder={searchMode === 'name' ? t('file.searchName') : t('file.searchContent')} className="min-w-0 flex-1 rounded border border-[var(--line)] bg-bg-0 px-2 py-1 font-mono text-[11px] text-text-1 outline-none placeholder:text-text-3 focus:border-accent" />
+          <input value={query} onChange={(e) => { setQuery(e.target.value); setSearchNavigationPath(null) }} placeholder={searchMode === 'name' ? t('file.searchName') : t('file.searchContent')} className="tmuxgo-control tmuxgo-input min-w-0 flex-1 rounded px-2 py-1 font-mono text-[11px]" />
           <button onClick={() => { setQuery(''); setDebouncedQuery(''); setSearchNavigationPath(null) }} disabled={!query} aria-label={t('file.searchName')} className={`shrink-0 rounded border border-[var(--line)] px-2 py-1 text-[11px] ${query ? 'bg-bg-2 text-text-2 hover:text-accent' : 'bg-bg-0 text-text-3/40'}`}>×</button>
         </div>
         <div className="mt-1.5 flex items-center gap-1">
@@ -936,6 +945,17 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
         </div>
       )}
       </>}
+      {PromptElement}
+      <ConfirmDialog
+        open={!!pendingDeleteItem}
+        title={t('file.delete')}
+        message={t('file.deleteConfirm', { type: pendingDeleteItem?.type === 'directory' ? t('file.newFolder').toLowerCase() : t('file.file').toLowerCase(), path: pendingDeleteItem ? resolveRootRelativePath(activeRootBasePath, pendingDeleteItem.path) : '' })}
+        confirmLabel={t('common.confirm')}
+        cancelLabel={t('common.cancel')}
+        tone="danger"
+        onCancel={() => setPendingDeleteItem(null)}
+        onConfirm={() => void confirmRemoveItem()}
+      />
     </aside>
   )
 }

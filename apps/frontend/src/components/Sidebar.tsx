@@ -6,6 +6,7 @@ import { useCreateSession, useDeleteSession, useRenameSession, useSessions } fro
 import { SessionTemplates, type Template } from './SessionTemplates'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useTranslation } from '@/i18n'
+import { usePrompt } from '@/hooks/usePrompt'
 import { QuickActions } from './QuickActions'
 import { ConfirmDialog } from './ConfirmDialog'
 
@@ -25,6 +26,7 @@ export function Sidebar() {
   const [pendingDeleteSessionId, setPendingDeleteSessionId] = useState<string | null>(null)
   const { preferences } = usePreferences()
   const { t } = useTranslation()
+  const { prompt, PromptElement } = usePrompt()
   const resizingRef = useRef(false)
 
   useEffect(() => {
@@ -57,7 +59,7 @@ export function Sidebar() {
 
   const handleTemplateSelect = async (template: Template) => {
     if (!activeHostId) return
-    const name = prompt(t('drawer.sessionName'), template.name.toLowerCase())
+    const name = await prompt(t('drawer.sessionName'), template.name.toLowerCase())
     if (name) {
       try {
         const created = await createSession.mutateAsync({ hostId: activeHostId, name, layout: template.layout })
@@ -80,7 +82,7 @@ export function Sidebar() {
     e.stopPropagation()
     if (!activeHostId) return
     const session = sessions.find((item: any) => item.id === sessionId)
-    const name = window.prompt(t('drawer.renamePrompt'), session?.name || '')
+    const name = await prompt(t('drawer.renamePrompt'), session?.name || '')
     if (!name || name === session?.name) return
     try {
       const renamed = await renameSession.mutateAsync({ hostId: activeHostId, sessionId, name })
@@ -188,6 +190,7 @@ export function Sidebar() {
         onCancel={() => setPendingDeleteSessionId(null)}
         onConfirm={() => void confirmDeleteSession()}
       />
+      {PromptElement}
     </>
   )
 }

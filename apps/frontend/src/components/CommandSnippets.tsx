@@ -48,7 +48,7 @@ export function CommandSnippets({ onSend, onClose }: CommandSnippetsProps) {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={t('snippets.search')}
-            className="w-full bg-bg-2 text-text-1 text-sm px-3 py-2 rounded outline-none"
+            className="tmuxgo-control tmuxgo-input w-full rounded px-3 py-2 text-sm"
           />
         </div>
 
@@ -87,14 +87,14 @@ export function CommandSnippets({ onSend, onClose }: CommandSnippetsProps) {
                 placeholder={t('snippets.name')}
                 value={newSnippet.name}
                 onChange={(e) => setNewSnippet({ ...newSnippet, name: e.target.value })}
-                className="w-full bg-bg-2 text-text-1 text-sm px-3 py-2 rounded outline-none"
+                className="tmuxgo-control tmuxgo-input w-full rounded px-3 py-2 text-sm"
               />
               <input
                 type="text"
                 placeholder={t('snippets.command')}
                 value={newSnippet.command}
                 onChange={(e) => setNewSnippet({ ...newSnippet, command: e.target.value })}
-                className="w-full bg-bg-2 text-text-1 text-sm px-3 py-2 rounded outline-none font-mono"
+                className="tmuxgo-control tmuxgo-input w-full rounded px-3 py-2 font-mono text-sm"
               />
               <div className="flex gap-2">
                 <button

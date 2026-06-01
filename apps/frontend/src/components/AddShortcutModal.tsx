@@ -92,7 +92,7 @@ export function AddShortcutModal({ onSave, onClose, isMobile }: Props) {
               <select
                 value={mainKey}
                 onChange={(e) => setMainKey(e.target.value)}
-                className="w-full px-2 py-1.5 rounded bg-bg-2 text-text-1 text-sm border border-[var(--line)] outline-none focus:border-accent"
+                className="tmuxgo-control tmuxgo-select w-full rounded px-2 py-1.5 text-sm"
               >
                 <option value="">{t('shortcut.selectKey')}</option>
                 {MAIN_KEYS.map((k) => <option key={k} value={k}>{k}</option>)}
@@ -107,7 +107,7 @@ export function AddShortcutModal({ onSave, onClose, isMobile }: Props) {
                 className={`w-full px-2 py-1.5 rounded text-sm text-left border transition-colors ${
                   recording
                     ? 'bg-accent/20 border-accent text-accent animate-pulse'
-                    : 'bg-bg-2 border-[var(--line)] text-text-1 hover:border-accent/50'
+                    : 'tmuxgo-control'
                 }`}
               >
                 {recording ? t('shortcut.recording') : keys || t('shortcut.pressKeys')}
@@ -120,7 +120,7 @@ export function AddShortcutModal({ onSave, onClose, isMobile }: Props) {
             <input
               value={label}
               onChange={(e) => setLabel(e.target.value)}
-              className="w-full px-2 py-1.5 rounded bg-bg-2 text-text-1 text-sm border border-[var(--line)] outline-none focus:border-accent"
+              className="tmuxgo-control tmuxgo-input w-full rounded px-2 py-1.5 text-sm"
               placeholder={keys || 'e.g. Shift+Tab'}
             />
           </div>

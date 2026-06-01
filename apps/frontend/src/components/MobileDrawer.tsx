@@ -6,6 +6,7 @@ import { useBatchDeleteSessions, useCreateSession, useDeleteSession, useRenameSe
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import { SessionTemplates, type Template } from './SessionTemplates'
 import { useTranslation } from '@/i18n'
+import { usePrompt } from '@/hooks/usePrompt'
 import { useWindowQueryState } from '@/hooks/useWindowQueryState'
 import { api } from '@/lib/api'
 import { QuickActions } from './QuickActions'
@@ -32,6 +33,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
   const deleteSession = useDeleteSession()
   const batchDeleteSessions = useBatchDeleteSessions()
   const { t } = useTranslation()
+  const { prompt, PromptElement } = usePrompt()
   const [showTemplates, setShowTemplates] = useState(false)
   const [pendingDeleteSessionId, setPendingDeleteSessionId] = useState<string | null>(null)
   const [batchMode, setBatchMode] = useState(false)
@@ -40,7 +42,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
 
   const handleTemplateSelect = async (template: Template) => {
     if (!activeHostId) return
-    const name = prompt(t('drawer.sessionName'), template.name.toLowerCase())
+    const name = await prompt(t('drawer.sessionName'), template.name.toLowerCase())
     if (!name) return
     try {
       const created = await createSession.mutateAsync({ hostId: activeHostId, name, layout: template.layout })
@@ -131,7 +133,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
   const handleRenameSession = async (sessionId: string) => {
     if (!activeHostId) return
     const session = sessions.find((item: any) => item.id === sessionId)
-    const name = window.prompt(t('drawer.renamePrompt'), session?.name || '')
+    const name = await prompt(t('drawer.renamePrompt'), session?.name || '')
     if (!name || name === session?.name) return
     try {
       const renamed = await renameSession.mutateAsync({ hostId: activeHostId, sessionId, name })
@@ -298,6 +300,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
       {showTemplates && <SessionTemplates onSelect={handleTemplateSelect} onClose={() => setShowTemplates(false)} />}
       <ConfirmDialog open={!!pendingDeleteSessionId} title={t('sidebar.deleteTitle')} message={t('sidebar.deleteConfirm', { name: sessions.find((item: any) => item.id === pendingDeleteSessionId)?.name || '' })} confirmLabel={t('sidebar.confirmDelete')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setPendingDeleteSessionId(null)} onConfirm={() => void confirmDeleteSession()} />
       <ConfirmDialog open={batchDeleteConfirmOpen} title={t('sidebar.batchDeleteTitle')} message={t('sidebar.batchDeleteConfirm', { count: selectedSessionIds.length })} confirmLabel={t('sidebar.batchDeleteSelected')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setBatchDeleteConfirmOpen(false)} onConfirm={() => void confirmBatchDeleteSession()} />
+      {PromptElement}
     </div>
   )
 }

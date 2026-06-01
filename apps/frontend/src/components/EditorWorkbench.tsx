@@ -5,6 +5,7 @@ import type { FileEditorDocument } from '@/types'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useTranslation } from '@/i18n'
+import { ConfirmDialog } from './ConfirmDialog'
 
 const MonacoEditor=dynamic(() => import('@monaco-editor/react').then((mod) => mod.default), { ssr: false })
 
@@ -113,6 +114,7 @@ export function EditorWorkbench({ onSaveEditor }:{ onSaveEditor: (editor: FileEd
   const { preferences } = usePreferences()
   const { t } = useTranslation()
   const editorRef = useRef<any>(null)
+  const [pendingCloseEditorId, setPendingCloseEditorId] = useState<string | null>(null)
   const [previewOpenById, setPreviewOpenById] = useState<Record<string, boolean>>({})
   const [cursorById, setCursorById] = useState<Record<string, { line: number; column: number }>>({})
   const activeEditor = openEditors.find((item) => item.id === activeEditorId) || openEditors[openEditors.length - 1] || null
@@ -139,7 +141,7 @@ export function EditorWorkbench({ onSaveEditor }:{ onSaveEditor: (editor: FileEd
         event.preventDefault()
         event.stopPropagation()
         event.stopImmediatePropagation?.()
-        if (activeEditor.dirty && !window.confirm(t('editor.closeConfirm', { name: activeEditor.name }))) return
+        if (activeEditor.dirty) { setPendingCloseEditorId(activeEditor.id); return }
         closeEditor(activeEditor.id)
       }
     }
@@ -169,7 +171,7 @@ export function EditorWorkbench({ onSaveEditor }:{ onSaveEditor: (editor: FileEd
               <span className="min-w-0 flex-1 truncate">{editor.name}</span>
             </button>
             <button onClick={() => {
-              if (editor.dirty && !window.confirm(t('editor.closeConfirm', { name: editor.name }))) return
+              if (editor.dirty) { setPendingCloseEditorId(editor.id); return }
               closeEditor(editor.id)
             }} className="mr-2 shrink-0 rounded px-1.5 py-1 text-xs text-text-3 opacity-0 hover:bg-bg-2 hover:text-text-1 group-hover:opacity-100">×</button>
           </div>
@@ -266,6 +268,16 @@ export function EditorWorkbench({ onSaveEditor }:{ onSaveEditor: (editor: FileEd
           </div>
         )}
       </div>
+      <ConfirmDialog
+        open={!!pendingCloseEditorId}
+        title={t('editor.closeConfirm', { name: openEditors.find((e) => e.id === pendingCloseEditorId)?.name || '' })}
+        message=""
+        confirmLabel={t('common.confirm')}
+        cancelLabel={t('common.cancel')}
+        tone="danger"
+        onCancel={() => setPendingCloseEditorId(null)}
+        onConfirm={() => { if (pendingCloseEditorId) { closeEditor(pendingCloseEditorId); setPendingCloseEditorId(null) } }}
+      />
     </section>
   )
 }
