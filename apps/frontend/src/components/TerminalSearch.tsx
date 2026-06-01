@@ -80,7 +80,7 @@ export function TerminalSearch({ terminal, onClose }: TerminalSearchProps) {
         value={query}
         onChange={(e) => search(e.target.value)}
         placeholder={t('terminalSearch.placeholder')}
-        className="bg-bg-2 text-text-1 text-sm px-2 py-1 rounded outline-none w-48"
+        className="tmuxgo-control tmuxgo-input w-48 rounded px-2 py-1 text-sm"
         onKeyDown={(e) => {
           if (e.key === 'Escape') {
             e.preventDefault()

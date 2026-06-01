@@ -139,11 +139,11 @@ export function UploadConfirmDialog() {
         </div>
         <div className="mt-4 grid gap-3 md:grid-cols-[160px_1fr]">
           <label className="text-sm text-text-2">{t('upload.root')}</label>
-          <select value={targetRootId} onChange={(e) => setTargetRootId(e.target.value)} className="rounded border border-[var(--line)] bg-bg-2 px-3 py-2 text-sm text-text-1 outline-none focus:border-accent">
+          <select value={targetRootId} onChange={(e) => setTargetRootId(e.target.value)} className="tmuxgo-control tmuxgo-select rounded px-3 py-2 text-sm">
             {roots.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
           </select>
           <label className="text-sm text-text-2">{t('upload.directory')}</label>
-          <input value={targetPath} onChange={(e) => setTargetPath(e.target.value)} placeholder={t('upload.directory')} className="rounded border border-[var(--line)] bg-bg-2 px-3 py-2 font-mono text-sm text-text-1 outline-none placeholder:text-text-3 focus:border-accent" />
+          <input value={targetPath} onChange={(e) => setTargetPath(e.target.value)} placeholder={t('upload.directory')} className="tmuxgo-control tmuxgo-input rounded px-3 py-2 font-mono text-sm" />
           <label className="text-sm text-text-2">{t('upload.target')}</label>
           <div className="rounded border border-[var(--line)] bg-bg-0 px-3 py-2 font-mono text-xs text-text-2">{loadingTarget ? t('upload.resolving') : pathPreview || '-'}</div>
         </div>

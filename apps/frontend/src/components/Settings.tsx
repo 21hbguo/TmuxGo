@@ -137,7 +137,7 @@ export function Settings({ onClose }: SettingsProps) {
                 <select
                   value={preferences.language}
                   onChange={(e) => updatePreferences({ language: e.target.value as 'zh' | 'en' })}
-                  className="bg-bg-2 text-text-1 text-sm px-3 py-2 rounded outline-none border border-[var(--line)]"
+                  className="tmuxgo-control tmuxgo-select rounded px-3 py-2 text-sm"
                 >
                   <option value="zh">中文</option>
                   <option value="en">English</option>
@@ -247,7 +247,7 @@ export function Settings({ onClose }: SettingsProps) {
                     <select
                       value={preferences.fontFamily}
                       onChange={(e) => updatePreferences({ fontFamily: e.target.value })}
-                      className="bg-bg-2 text-text-1 text-sm px-3 py-1.5 rounded outline-none border border-[var(--line)]"
+                      className="tmuxgo-control tmuxgo-select rounded px-3 py-1.5 text-sm"
                     >
                       <option value="JetBrains Mono, monospace">JetBrains Mono</option>
                       <option value="Fira Code, monospace">Fira Code</option>
@@ -443,12 +443,12 @@ export function Settings({ onClose }: SettingsProps) {
               <button onClick={closeHostDialog} className="text-text-3 hover:text-text-1">✕</button>
             </div>
             <div className="space-y-2">
-              <input value={hostIdDraft} disabled={hostDialogMode === 'edit'} onChange={(event) => setHostIdDraft(event.target.value)} placeholder={t('settings.hostId')} className="w-full rounded border border-[var(--line)] bg-bg-2 px-2 py-1.5 text-sm text-text-1 outline-none disabled:cursor-not-allowed disabled:opacity-60" />
-              <input value={hostNameDraft} onChange={(event) => setHostNameDraft(event.target.value)} placeholder={t('settings.hostNameOptional')} className="w-full rounded border border-[var(--line)] bg-bg-2 px-2 py-1.5 text-sm text-text-1 outline-none" />
-              <input value={hostAddressDraft} onChange={(event) => setHostAddressDraft(event.target.value)} placeholder={t('settings.hostAddress')} className="w-full rounded border border-[var(--line)] bg-bg-2 px-2 py-1.5 text-sm text-text-1 outline-none" />
-              <input value={hostUserDraft} onChange={(event) => setHostUserDraft(event.target.value)} placeholder={t('settings.hostUser')} className="w-full rounded border border-[var(--line)] bg-bg-2 px-2 py-1.5 text-sm text-text-1 outline-none" />
-              <input value={hostPortDraft} onChange={(event) => setHostPortDraft(event.target.value)} placeholder={t('settings.hostPort')} className="w-full rounded border border-[var(--line)] bg-bg-2 px-2 py-1.5 text-sm text-text-1 outline-none" />
-              <input type="password" value={hostPasswordDraft} onChange={(event) => setHostPasswordDraft(event.target.value)} placeholder={t('settings.hostPassword')} className="w-full rounded border border-[var(--line)] bg-bg-2 px-2 py-1.5 text-sm text-text-1 outline-none" />
+              <input value={hostIdDraft} disabled={hostDialogMode === 'edit'} onChange={(event) => setHostIdDraft(event.target.value)} placeholder={t('settings.hostId')} className="tmuxgo-control tmuxgo-input w-full rounded px-2 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-60" />
+              <input value={hostNameDraft} onChange={(event) => setHostNameDraft(event.target.value)} placeholder={t('settings.hostNameOptional')} className="tmuxgo-control tmuxgo-input w-full rounded px-2 py-1.5 text-sm" />
+              <input value={hostAddressDraft} onChange={(event) => setHostAddressDraft(event.target.value)} placeholder={t('settings.hostAddress')} className="tmuxgo-control tmuxgo-input w-full rounded px-2 py-1.5 text-sm" />
+              <input value={hostUserDraft} onChange={(event) => setHostUserDraft(event.target.value)} placeholder={t('settings.hostUser')} className="tmuxgo-control tmuxgo-input w-full rounded px-2 py-1.5 text-sm" />
+              <input value={hostPortDraft} onChange={(event) => setHostPortDraft(event.target.value)} placeholder={t('settings.hostPort')} className="tmuxgo-control tmuxgo-input w-full rounded px-2 py-1.5 text-sm" />
+              <input type="password" value={hostPasswordDraft} onChange={(event) => setHostPasswordDraft(event.target.value)} placeholder={t('settings.hostPassword')} className="tmuxgo-control tmuxgo-input w-full rounded px-2 py-1.5 text-sm" />
               {hostDialogMode === 'edit' && <div className="text-xs text-text-3">{t('settings.hostPasswordKeep')}</div>}
             </div>
             <div className="mt-4 flex items-center justify-end gap-2">
