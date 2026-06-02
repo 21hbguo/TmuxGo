@@ -59,7 +59,7 @@ export function WindowList() {
   }
 
   return (
-    <div className="flex items-center gap-1 overflow-x-auto p-1 bg-bg-1 border-b border-[var(--line)]">
+    <div className="tmuxgo-scrollbar-subtle flex items-center gap-1 overflow-x-auto border-b border-[var(--line)] bg-bg-1 p-1">
       {sessionWindows.map((window: any) => (
         <div
           key={window.id}

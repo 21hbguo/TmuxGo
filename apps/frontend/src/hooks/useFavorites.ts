@@ -85,7 +85,8 @@ export function useFavorites() {
 
 export function getRecentItems(): RecentItem[] {
   try {
-    return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]')
+    const raw = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]')
+    return Array.isArray(raw) ? raw.filter((item): item is RecentItem => !!item && typeof item.id === 'string' && (item.type === 'host' || item.type === 'session' || item.type === 'pane') && typeof item.name === 'string' && typeof item.target === 'string' && typeof item.visitedAt === 'string') : []
   } catch {
     return []
   }
