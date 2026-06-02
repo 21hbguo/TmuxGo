@@ -7,6 +7,9 @@ interface GitFileChange {
   oldPath?: string
   staged: boolean
 }
+const gitLogFieldSeparator = '\x1f'
+const gitLogRecordSeparator = '\x1e'
+const gitBranchFieldSeparator = '\x1f'
 
 function mapStatusCode(code: string): GitFileChange['status'] {
   switch (code) {
@@ -87,6 +90,43 @@ function parseNumStat(stdout: string) {
       deletions,
     }
   }).filter((item) => item.filename)
+}
+function parseGitLog(stdout: string) {
+  return stdout.split(gitLogRecordSeparator).filter(Boolean).map((record) => {
+    const [hash = '', shortHash = '', subject = '', body = '', author = '', authorEmail = '', date = '', rawParents = ''] = record.split(gitLogFieldSeparator)
+    const cleanHash = hash.trim()
+    const cleanShortHash = shortHash.trim()
+    const cleanSubject = subject.replace(/\n/g, ' ').trim()
+    const cleanBody = body.replace(/^\n+|\n+$/g, '')
+    const cleanAuthor = author.trim()
+    const cleanAuthorEmail = authorEmail.trim()
+    const cleanDate = date.trim()
+    const parents = rawParents.trim() ? rawParents.trim().split(/\s+/).filter(Boolean) : []
+    return cleanHash && cleanShortHash && cleanAuthor && cleanDate ? {
+      hash: cleanHash,
+      shortHash: cleanShortHash,
+      subject: cleanSubject,
+      body: cleanBody,
+      author: cleanAuthor,
+      authorEmail: cleanAuthorEmail,
+      date: cleanDate,
+      parents,
+    } : null
+  }).filter(Boolean)
+}
+function parseGitBranches(stdout: string) {
+  return stdout.split('\n').filter(Boolean).map((line) => {
+    const [head = '', name = '', commitHash = '', remote = '', trackingBranch = '', lastCommitSubject = ''] = line.split(gitBranchFieldSeparator)
+    if (!name.trim() || !commitHash.trim()) return null
+    return {
+      name: name.trim(),
+      current: head.trim() === '*',
+      remote: remote.trim() || undefined,
+      commitHash: commitHash.trim(),
+      trackingBranch: trackingBranch.trim() || undefined,
+      lastCommitSubject: lastCommitSubject.trim(),
+    }
+  }).filter(Boolean)
 }
 
 export async function gitRoutes(fastify: FastifyInstance) {
@@ -173,24 +213,10 @@ export async function gitRoutes(fastify: FastifyInstance) {
     if (!repoPath) throw new Error('Missing path parameter')
     const n = Math.min(Math.max(parseInt(limit || '50', 10) || 50, 1), 200)
     const s = Math.max(parseInt(skip || '0', 10) || 0, 0)
-    const args = ['log', '--format=%H%x1e%h%x1e%s%x1e%b%x1e%an%x1e%ae%x1e%ai%x1e%P', `-n${n}`]
+    const args = ['log', `--format=%H%x1f%h%x1f%s%x1f%b%x1f%an%x1f%ae%x1f%ai%x1f%P%x1e`, `-n${n}`]
     if (s > 0) args.push(`--skip=${s}`)
     const { stdout } = await execGit(hostId, args, repoPath)
-    const fields = stdout.split('\x1e')
-    const commits = []
-    for (let i = 0; i + 7 < fields.length; i += 8) {
-      const rawParents = fields[i + 7].replace(/\n/g, ' ').trim()
-      commits.push({
-        hash: fields[i].replace(/\n/g, '').trim(),
-        shortHash: fields[i + 1].replace(/\n/g, '').trim(),
-        subject: fields[i + 2].replace(/\n/g, ' ').trim(),
-        body: fields[i + 3].replace(/^\n+|\n+$/g, ''),
-        author: fields[i + 4].replace(/\n/g, '').trim(),
-        authorEmail: fields[i + 5].replace(/\n/g, '').trim(),
-        date: fields[i + 6].replace(/\n/g, '').trim(),
-        parents: rawParents ? rawParents.split(/\s+/) : [],
-      })
-    }
+    const commits = parseGitLog(stdout)
     const hasMore = commits.length === n
     return { commits, hasMore }
   })
@@ -199,15 +225,8 @@ export async function gitRoutes(fastify: FastifyInstance) {
     const { hostId } = request.params as { hostId: string }
     const { path: repoPath } = request.query as { path?: string }
     if (!repoPath) throw new Error('Missing path parameter')
-    const { stdout } = await execGit(hostId, ['branch', '-vv', '--sort=-committerdate'], repoPath)
-    const branches = stdout.split('\n').filter(Boolean).map((line) => {
-      const current = line.startsWith('* ')
-      const clean = line.replace(/^\*?\s+/, '')
-      const match = clean.match(/^(\S+)\s+([a-f0-9]+)\s+(?:\[(.+?)(?::\s*(.+))?\])?\s*(.*)$/)
-      if (!match) return null
-      const [, name, commitHash, remote, trackingBranch, rest] = match
-      return { name, current, remote, commitHash, trackingBranch, lastCommitSubject: rest.trim() }
-    }).filter(Boolean)
+    const { stdout } = await execGit(hostId, ['for-each-ref', '--sort=-committerdate', `--format=%(if)%(HEAD)%(then)*%(else) %(end)${gitBranchFieldSeparator}%(refname:short)${gitBranchFieldSeparator}%(objectname)${gitBranchFieldSeparator}%(upstream:short)${gitBranchFieldSeparator}%(upstream:track)${gitBranchFieldSeparator}%(contents:subject)`, 'refs/heads'], repoPath)
+    const branches = parseGitBranches(stdout)
     const current = branches.find((b) => b?.current)?.name || ''
     return { branches, current }
   })
