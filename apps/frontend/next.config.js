@@ -8,7 +8,7 @@ const appBuildId = process.env.NEXT_PUBLIC_APP_BUILD_ID || (() => {
     return `${pkg.version}`
   }
 })()
-const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:3002'
+const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:3001'
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,

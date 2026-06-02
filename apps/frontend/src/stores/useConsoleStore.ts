@@ -153,7 +153,7 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
   gitByHost: {},
   mobileFileSheetOpen: false,
   sessionPanelWidth: 248,
-  filePanelWidth: 300,
+  filePanelWidth: 240,
   terminalPanelHeight: 300,
   openEditors: [],
   activeEditorId: null,
@@ -229,7 +229,7 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
   })),
   setMobileFileSheetOpen: (open) => set({ mobileFileSheetOpen: open }),
   setSessionPanelWidth: (width) => set({ sessionPanelWidth: Math.max(208, Math.min(320, width)) }),
-  setFilePanelWidth: (width) => set({ filePanelWidth: Math.max(240, Math.min(380, width)) }),
+  setFilePanelWidth: (width) => set({ filePanelWidth: Math.max(200, Math.min(520, width)) }),
   setTerminalPanelHeight: (height) => set({ terminalPanelHeight: Math.max(180, Math.min(2000, height)) }),
   hydrateEditorsFromStorage: () => set((state) => {
     if (state.editorsHydrated) return state

@@ -9,7 +9,7 @@ WorkingDirectory=%h/project/other/TmuxGo
 ExecStart=/usr/bin/env npm run --workspace=gateway start
 Restart=always
 RestartSec=3
-KillMode=process
+KillMode=control-group
 Environment=NODE_ENV=production
 Environment=PORT=3001
 

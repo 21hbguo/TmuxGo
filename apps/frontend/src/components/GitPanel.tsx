@@ -11,6 +11,22 @@ import type { CommitNode } from 'commit-graph'
 import { api } from '@/lib/api'
 
 type GitTab = 'status' | 'history' | 'branches'
+type GitGraphCommit = {
+  sha: string
+  commit: {
+    author: {
+      name: string
+      date: string
+      email?: string
+    }
+    message: string
+  }
+  parents: { sha: string }[]
+}
+
+function isValidGitCommitInfo(commit: GitCommitInfo | null | undefined): commit is GitCommitInfo {
+  return !!commit?.hash && !!commit.author && !!commit.date
+}
 
 function statusIcon(status: GitFileChange['status']) {
   switch (status) {
@@ -117,7 +133,9 @@ function HistoryTab({ hostId, repoPath, t }: { hostId: string; repoPath: string;
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage } = useGitLogPaged(hostId, repoPath)
   const { data: branchesData } = useGitBranches(hostId, repoPath)
   if (!data) return <div className="p-3 text-[11px] text-text-3">{t('git.detecting')}</div>
-  const commits = data.map((c) => ({
+  const validCommits = data.filter(isValidGitCommitInfo)
+  const commitSet = new Set(validCommits.map((c) => c.hash))
+  const commits: GitGraphCommit[] = validCommits.map((c) => ({
     sha: c.hash,
     commit: {
       author: {
@@ -127,9 +145,9 @@ function HistoryTab({ hostId, repoPath, t }: { hostId: string; repoPath: string;
       },
       message: c.subject,
     },
-    parents: c.parents.map((sha) => ({ sha })),
+    parents: (c.parents || []).filter((sha) => !!sha && commitSet.has(sha)).map((sha) => ({ sha })),
   }))
-  const branchHeads = (branchesData?.branches || []).map((branch) => ({
+  const branchHeads = (branchesData?.branches || []).filter((branch) => !!branch?.name && !!branch?.commitHash && commitSet.has(branch.commitHash)).map((branch) => ({
     name: branch.name,
     commit: { sha: branch.commitHash },
   }))
@@ -153,6 +171,7 @@ function HistoryTab({ hostId, repoPath, t }: { hostId: string; repoPath: string;
 
   return (
     <div className="h-full overflow-y-auto">
+      {commits.length === 0 ? <div className="p-3 text-[11px] text-text-3">{t('git.noChanges')}</div> : (
       <CommitGraph.WithInfiniteScroll
         commits={commits}
         branchHeads={branchHeads}
@@ -164,6 +183,7 @@ function HistoryTab({ hostId, repoPath, t }: { hostId: string; repoPath: string;
         onCommitClick={openCommitDiff}
         graphStyle={{ commitSpacing: 36, branchSpacing: 20, nodeRadius: 3, branchColors: ['#3b82f6','#f59e0b','#10b981','#ef4444','#8b5cf6','#ec4899','#06b6d4','#f97316'] }}
       />
+      )}
     </div>
   )
 }
@@ -183,7 +203,12 @@ function useGitLogPaged(hostId: string, repoPath: string) {
 
   const allCommits = pagesRef.current.flat()
   const seen = new Set<string>()
-  const uniqueCommits = allCommits.filter((c) => { if (seen.has(c.hash)) return false; seen.add(c.hash); return true })
+  const uniqueCommits = allCommits.filter((c) => {
+    if (!isValidGitCommitInfo(c)) return false
+    if (seen.has(c.hash)) return false
+    seen.add(c.hash)
+    return true
+  })
 
   return {
     data: uniqueCommits,
