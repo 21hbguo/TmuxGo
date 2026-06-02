@@ -5,6 +5,7 @@ import { GitPanel } from './GitPanel'
 import { I18nProvider } from '@/i18n'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { api } from '@/lib/api'
 
 const graphSpy = vi.fn()
 
@@ -13,6 +14,13 @@ vi.mock('commit-graph', () => ({
     WithInfiniteScroll: (props: any) => {
       graphSpy(props)
       return React.createElement('div', { 'data-testid': 'commit-graph' })
+    },
+  },
+}))
+vi.mock('@/lib/api', () => ({
+  api: {
+    git: {
+      diffStats: vi.fn(async () => ({ files: [{ filename: 'src/index.ts', status: 'modified', additions: 3, deletions: 1 }] })),
     },
   },
 }))
@@ -66,5 +74,9 @@ describe('GitPanel', () => {
     expect(props.commits[1]).toMatchObject({ sha: 'b2', parents: [{ sha: 'a1' }] })
     expect(props.branchHeads).toEqual([{ name: 'main', commit: { sha: 'b2' } }])
     expect(props.currentBranch).toBe('main')
+    await expect(props.getDiff('a1', 'b2')).resolves.toEqual({ files: [{ filename: 'src/index.ts', status: 'modified', additions: 3, deletions: 1 }] })
+    expect(api.git.diffStats).toHaveBeenCalledWith('local', '/workspace/app', 'a1', 'b2')
+    props.onCommitClick({ sha: 'b2', message: 'second' })
+    expect(useConsoleStore.getState().openEditors.at(-1)).toMatchObject({ id: expect.stringContaining('git-diff?'), language: 'diff', rootPath: '/workspace/app' })
   })
 })

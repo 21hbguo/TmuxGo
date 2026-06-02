@@ -1,5 +1,5 @@
 import { getApiBase } from './runtime-endpoints'
-import type { CustomShortcut, FavoriteDirectory, FavoriteItem, FileContentMatch, FileContentResponse, FileItem, FileListResponse, FilePreviewResponse, FileRoot, FileUploadTarget, GitBranchesResponse, GitCommitResponse, GitDetectResponse, GitDiffResponse, GitLogResponse, GitMergeResponse, GitStatusResponse, RemotePreferences, SessionContinuityConfig, SessionLayout, SessionOrderPreference, Snippet, UiPreferences, UploadJobResult, UploadedFile } from '@/types'
+import type { CustomShortcut, FavoriteDirectory, FavoriteItem, FileContentMatch, FileContentResponse, FileItem, FileListResponse, FilePreviewResponse, FileRoot, FileUploadTarget, GitBranchesResponse, GitCommitResponse, GitDetectResponse, GitDiffResponse, GitDiffStatsResponse, GitLogResponse, GitMergeResponse, GitStatusResponse, RemotePreferences, SessionContinuityConfig, SessionLayout, SessionOrderPreference, Snippet, UiPreferences, UploadJobResult, UploadedFile } from '@/types'
 
 export interface StreamSystemInfo {
   outputBytes: number
@@ -318,6 +318,8 @@ export const api = {
       if (options?.commit) params.set('commit', options.commit)
       return fetchApi<GitDiffResponse>(`/api/hosts/${hostId}/git/diff?${params}`)
     },
+    diffStats: (hostId: string, path: string, base: string, head: string) =>
+      fetchApi<GitDiffStatsResponse>(`/api/hosts/${hostId}/git/diff-stats?path=${encodeURIComponent(path)}&base=${encodeURIComponent(base)}&head=${encodeURIComponent(head)}`),
     stage: (hostId: string, path: string, filePaths: string[]) =>
       fetchApi<{ ok: true }>(`/api/hosts/${hostId}/git/stage`, { method: 'POST', body: JSON.stringify({ path, filePaths }) }),
     unstage: (hostId: string, path: string, filePaths: string[]) =>

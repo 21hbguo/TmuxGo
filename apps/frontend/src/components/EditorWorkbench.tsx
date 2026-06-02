@@ -124,18 +124,14 @@ function getAutoScrollStep(distance: number) {
 }
 
 function parseGitDiffId(id: string) {
-  const rest = id.slice('git-diff:'.length)
-  const isStaged = rest.includes(':staged:')
-  const cleaned = isStaged ? rest.replace(':staged:', ':') : rest
-  const firstColon = cleaned.indexOf(':')
-  if (firstColon === -1) return null
-  const hostId = cleaned.slice(0, firstColon)
-  const afterHost = cleaned.slice(firstColon + 1)
-  const pathSep = afterHost.indexOf(':')
-  if (pathSep === -1) return null
-  const repoPath = afterHost.slice(0, pathSep)
-  const filePath = afterHost.slice(pathSep + 1)
-  return { hostId, repoPath, filePath, staged: isStaged }
+  if (!id.startsWith('git-diff?')) return null
+  const params = new URLSearchParams(id.slice('git-diff?'.length))
+  const hostId = params.get('hostId') || ''
+  const repoPath = params.get('repoPath') || ''
+  const filePath = params.get('filePath') || ''
+  const commit = params.get('commit') || ''
+  if (!hostId || !repoPath) return null
+  return { hostId, repoPath, filePath, staged: params.get('staged') === '1', commit: commit || undefined }
 }
 
 export function EditorWorkbench({ onSaveEditor }:{ onSaveEditor: (editor: FileEditorDocument) => Promise<void> }) {
@@ -321,7 +317,7 @@ export function EditorWorkbench({ onSaveEditor }:{ onSaveEditor: (editor: FileEd
       </div>
       <div className="min-h-0 flex-1 bg-bg-0">
         {gitDiff ? (
-          <DiffViewer hostId={gitDiff.hostId} repoPath={gitDiff.repoPath} filePath={gitDiff.filePath} staged={gitDiff.staged} />
+          <DiffViewer hostId={gitDiff.hostId} repoPath={gitDiff.repoPath} filePath={gitDiff.filePath} staged={gitDiff.staged} commit={gitDiff.commit} />
         ) : activeEditor.loading ? <div className="flex h-full items-center justify-center text-sm text-text-3">{t('editor.loading', { name: activeEditor.name })}</div> : activeEditor.problem || activeEditor.binary || activeEditor.truncated ? (
           <div className="flex h-full items-center justify-center p-6">
             <div className="max-w-xl rounded-lg border border-[var(--line)] bg-bg-1 p-5">
