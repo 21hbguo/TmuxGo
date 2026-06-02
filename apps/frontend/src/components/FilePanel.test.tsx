@@ -57,6 +57,7 @@ vi.mock('@/lib/clipboard-text', () => ({
 vi.mock('@/lib/api', () => ({
   api: {
     files: {
+      list: vi.fn(async (rootId: string, path = '') => getListData(rootId, path)),
       createFile: vi.fn(async () => ({ ok: true })),
       createDirectory: vi.fn(async () => ({ ok: true })),
       rename: vi.fn(async () => ({ ok: true, item: { path: 'renamed.txt' } })),
@@ -113,7 +114,7 @@ describe('FilePanel', () => {
     render(React.createElement(FilePanel))
     expect(screen.queryByText('index.ts')).not.toBeInTheDocument()
     fireEvent.click(await screen.findByText('src'))
-    expect(await screen.findByText('index.ts')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
     fireEvent.click(await screen.findByText('src'))
     await waitFor(() => expect(screen.queryByText('index.ts')).not.toBeInTheDocument())
   })
@@ -158,13 +159,17 @@ describe('FilePanel', () => {
       absolutePath: '/home/guo/project/demo.txt',
     })
   })
-  it('previews images in panel instead of opening editor', async () => {
+  it('opens images in editor area instead of file panel preview', async () => {
     const onOpenFile = vi.fn()
     render(React.createElement(FilePanel, { onOpenFile }))
     fireEvent.click(await screen.findByText('downloads'))
     fireEvent.click(await screen.findByText('photo.png'))
-    expect(onOpenFile).not.toHaveBeenCalled()
-    expect(await screen.findByAltText('downloads/photo.png')).toBeInTheDocument()
+    expect(onOpenFile).toHaveBeenCalledTimes(1)
+    expect(onOpenFile.mock.calls[0][0]).toMatchObject({
+      rootId: 'root-home',
+      path: 'downloads/photo.png',
+      absolutePath: '/home/guo/downloads/photo.png',
+    })
   })
   it('copies file path from favorite root with full absolute path', async () => {
     localStorage.setItem('tmuxgo-favorite-directories', JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]))
@@ -262,8 +267,8 @@ describe('FilePanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'content' }))
     fireEvent.change(screen.getByPlaceholderText('Search file content'), { target: { value: 'needle' } })
     fireEvent.click((await screen.findByText('guide.md')).closest('button') as HTMLButtonElement)
-    expect(await screen.findByText('42')).toBeInTheDocument()
-    expect(screen.getByText('line-42')).toBeInTheDocument()
+    expect(await screen.findByText(/L42:/)).toBeInTheDocument()
+    expect(screen.getByText(/needle here/)).toBeInTheDocument()
   })
   it('clears search query from compact clear button', async () => {
     render(React.createElement(FilePanel))
