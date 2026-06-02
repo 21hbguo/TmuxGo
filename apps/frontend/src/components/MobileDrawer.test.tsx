@@ -8,10 +8,11 @@ const mutateCreateSession = vi.fn()
 const mutateRenameSession = vi.fn()
 const mutateDeleteSession = vi.fn()
 const mutateBatchDeleteSessions = vi.fn()
+const promptMock = vi.fn()
 
 vi.mock('@/hooks/useApi', () => ({
   useHosts: () => ({ data: [{ id: 'local', name: 'Local', address: '127.0.0.1', status: 'online', tags: [] }] }),
-  useSessions: () => ({ data: [{ id: 'session-dev', name: 'dev', windowCount: 2 }] }),
+  useSessions: () => ({ data: [{ id: 'session-dev', name: 'dev', windowCount: 2 }, { id: 'session-next', name: 'next', windowCount: 1 }] }),
   useCreateSession: () => ({ mutateAsync: mutateCreateSession }),
   useRenameSession: () => ({ mutateAsync: mutateRenameSession }),
   useDeleteSession: () => ({ mutateAsync: mutateDeleteSession }),
@@ -22,7 +23,7 @@ vi.mock('@/hooks/useWindowQueryState', () => ({
   useWindowQueryState: () => ({ getWindows: () => [], setWindows: vi.fn() }),
 }))
 vi.mock('@/hooks/useOrderedSessions', () => ({
-  useOrderedSessions: () => ({ data: [{ id: 'session-dev', name: 'dev', windowCount: 2 }], moveSession: vi.fn() }),
+  useOrderedSessions: () => ({ data: [{ id: 'session-dev', name: 'dev', windowCount: 2 }, { id: 'session-next', name: 'next', windowCount: 1 }], moveSession: vi.fn() }),
 }))
 vi.mock('@/i18n', () => ({
   useTranslation: () => ({ t: (key: string, params?: Record<string, string | number>) => {
@@ -45,6 +46,12 @@ vi.mock('@/i18n', () => ({
 vi.mock('./SessionTemplates', () => ({
   SessionTemplates: () => React.createElement('div'),
 }))
+vi.mock('@/hooks/usePrompt', () => ({
+  usePrompt: () => ({
+    prompt: promptMock,
+    PromptElement: null,
+  }),
+}))
 vi.mock('./QuickActions', () => ({
   QuickActions: () => React.createElement('div'),
 }))
@@ -61,6 +68,7 @@ describe('MobileDrawer session actions', () => {
     mutateRenameSession.mockReset()
     mutateDeleteSession.mockReset()
     mutateBatchDeleteSessions.mockReset()
+    promptMock.mockReset()
     mutateRenameSession.mockResolvedValue({ id: 'session-dev-renamed' })
     mutateDeleteSession.mockResolvedValue({ success: true })
     useConsoleStore.setState({
@@ -77,12 +85,11 @@ describe('MobileDrawer session actions', () => {
   })
 
   it('renames the active session from the mobile action button', async () => {
-    const promptSpy = vi.spyOn(window, 'prompt').mockReturnValue('dev-renamed')
+    promptMock.mockResolvedValueOnce('dev-renamed')
     render(<MobileDrawer isOpen onClose={vi.fn()} type="sessions" />)
     fireEvent.click(screen.getByLabelText('Rename session'))
-    expect(mutateRenameSession).toHaveBeenCalledWith({ hostId: 'local', sessionId: 'session-dev', name: 'dev-renamed' })
+    await waitFor(() => expect(mutateRenameSession).toHaveBeenCalledWith({ hostId: 'local', sessionId: 'session-dev', name: 'dev-renamed' }))
     await waitFor(() => expect(useConsoleStore.getState().activeSessionId).toBe('session-dev-renamed'))
-    promptSpy.mockRestore()
   })
 
   it('deletes the active session from the mobile action button', async () => {
@@ -90,5 +97,13 @@ describe('MobileDrawer session actions', () => {
     fireEvent.click(screen.getByLabelText('Delete session'))
     fireEvent.click(screen.getByText('confirm-delete'))
     await waitFor(() => expect(mutateDeleteSession).toHaveBeenCalledWith({ hostId: 'local', sessionId: 'session-dev' }))
+  })
+
+  it('switches to the next session after deleting the active session', async () => {
+    render(<MobileDrawer isOpen onClose={vi.fn()} type="sessions" />)
+    fireEvent.click(screen.getAllByLabelText('Delete session')[0])
+    fireEvent.click(screen.getByText('confirm-delete'))
+    await waitFor(() => expect(mutateDeleteSession).toHaveBeenCalledWith({ hostId: 'local', sessionId: 'session-dev' }))
+    await waitFor(() => expect(useConsoleStore.getState().activeSessionId).toBe('session-next'))
   })
 })

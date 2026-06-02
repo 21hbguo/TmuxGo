@@ -3,6 +3,22 @@ import { api } from '@/lib/api'
 import type { SessionLayout } from '@/types'
 import type { GitBranchesResponse, GitCommitResponse, GitDetectResponse, GitDiffResponse, GitLogResponse, GitMergeResponse, GitStatusResponse } from '@/types'
 
+function upsertSessionList(prev: any[] | undefined, session: any) {
+  if (!session?.id) return prev || []
+  if (!Array.isArray(prev) || prev.length === 0) return [session]
+  if (prev.some((item) => item?.id === session.id)) return prev.map((item) => item?.id === session.id ? { ...item, ...session } : item)
+  return [...prev, session]
+}
+function removeSessionListItem(prev: any[] | undefined, sessionId: string) {
+  if (!Array.isArray(prev) || !sessionId) return prev || []
+  return prev.filter((item) => item?.id !== sessionId)
+}
+function clearSessionQueries(queryClient: ReturnType<typeof useQueryClient>, hostId: string, sessionId: string) {
+  queryClient.removeQueries({ queryKey: ['session-snapshot', hostId, sessionId] })
+  queryClient.removeQueries({ queryKey: ['windows', hostId, sessionId] })
+  queryClient.removeQueries({ queryKey: ['session-panes', hostId, sessionId] })
+}
+
 export function useHosts() {
   return useQuery({
     queryKey: ['hosts'],
@@ -57,31 +73,23 @@ export function useSessions(hostId: string) {
 
 export function useCreateSession() {
   const queryClient = useQueryClient()
-
   return useMutation({
     mutationFn: ({ hostId, name, layout }: { hostId: string; name: string; layout?: SessionLayout }) =>
       api.sessions.create(hostId, name, layout),
     onSuccess: (created, { hostId }) => {
-      queryClient.setQueryData(['sessions', hostId], (prev: any[] | undefined) => {
-        if (!created?.id) return prev || []
-        if (!Array.isArray(prev) || prev.length === 0) return [created]
-        if (prev.some((session) => session?.id === created.id)) {
-          return prev.map((session) => session?.id === created.id ? { ...session, ...created } : session)
-        }
-        return [...prev, created]
-      })
+      queryClient.setQueryData(['sessions', hostId], (prev: any[] | undefined) => upsertSessionList(prev, created))
       queryClient.invalidateQueries({ queryKey: ['sessions', hostId] })
     },
   })
 }
-
 export function useDeleteSession() {
   const queryClient = useQueryClient()
-
   return useMutation({
     mutationFn: ({ hostId, sessionId }: { hostId: string; sessionId: string }) =>
       api.sessions.delete(hostId, sessionId),
-    onSuccess: (_, { hostId }) => {
+    onSuccess: (_, { hostId, sessionId }) => {
+      queryClient.setQueryData(['sessions', hostId], (prev: any[] | undefined) => removeSessionListItem(prev, sessionId))
+      clearSessionQueries(queryClient, hostId, sessionId)
       queryClient.invalidateQueries({ queryKey: ['sessions', hostId] })
     },
   })
@@ -91,7 +99,16 @@ export function useBatchDeleteSessions() {
   return useMutation({
     mutationFn: ({ hostId, payload }: { hostId: string; payload: { mode?: 'preview' | 'execute'; sessionIds?: string[]; filters?: { createdBefore?: string; inactiveBefore?: string; nameIncludes?: string; includeAttached?: boolean }; limit?: number; force?: boolean } }) =>
       api.sessions.batchDelete(hostId, payload),
-    onSuccess: (_, { hostId }) => {
+    onSuccess: (result, { hostId, payload }) => {
+      if (result.mode === 'execute') {
+        const deletedIds = new Set((result.deleted || []).map((item) => item.sessionId).filter(Boolean))
+        if (deletedIds.size) {
+          queryClient.setQueryData(['sessions', hostId], (prev: any[] | undefined) => Array.isArray(prev) ? prev.filter((item) => !deletedIds.has(item?.id)) : prev || [])
+          for (const sessionId of deletedIds) clearSessionQueries(queryClient, hostId, sessionId)
+        } else if (Array.isArray(payload.sessionIds) && payload.sessionIds.length) {
+          queryClient.setQueryData(['sessions', hostId], (prev: any[] | undefined) => Array.isArray(prev) ? prev.filter((item) => !payload.sessionIds?.includes(item?.id)) : prev || [])
+        }
+      }
       queryClient.invalidateQueries({ queryKey: ['sessions', hostId] })
     },
   })
@@ -101,7 +118,12 @@ export function useRenameSession() {
   return useMutation({
     mutationFn: ({ hostId, sessionId, name }: { hostId: string; sessionId: string; name: string }) =>
       api.sessions.rename(hostId, sessionId, name),
-    onSuccess: (_, { hostId }) => {
+    onSuccess: (renamed, { hostId, sessionId }) => {
+      queryClient.setQueryData(['sessions', hostId], (prev: any[] | undefined) => {
+        const next = upsertSessionList(removeSessionListItem(prev, sessionId), renamed)
+        return next
+      })
+      if (renamed?.id && renamed.id !== sessionId) clearSessionQueries(queryClient, hostId, sessionId)
       queryClient.invalidateQueries({ queryKey: ['sessions', hostId] })
     },
   })

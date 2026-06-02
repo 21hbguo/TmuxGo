@@ -12,6 +12,11 @@ import { usePrompt } from '@/hooks/usePrompt'
 import { SessionSortableList } from './SessionSortableList'
 import { HostSwitcher } from './HostSwitcher'
 
+function getNextSessionId(sessions: { id: string }[], removedIds: string[]) {
+  const removed = new Set(removedIds)
+  return sessions.find((item) => !removed.has(item.id))?.id || ''
+}
+
 export function SessionPanel() {
   const activeSessionId = useConsoleStore((state) => state.activeSessionId)
   const setActiveSession = useConsoleStore((state) => state.setActiveSession)
@@ -53,7 +58,7 @@ export function SessionPanel() {
     const session = sessions.find((item) => item.id === pendingDeleteSessionId)
     try {
       await deleteSession.mutateAsync({ hostId: activeHostId, sessionId: pendingDeleteSessionId })
-      if (activeSessionId === pendingDeleteSessionId) setActiveSession(sessions.find((item) => item.id !== pendingDeleteSessionId)?.id || '')
+      if (activeSessionId === pendingDeleteSessionId) setActiveSession(getNextSessionId(sessions, [pendingDeleteSessionId]))
       pushToast({ type: 'success', message: t('session.deleted', { name: session?.name || pendingDeleteSessionId }) })
     } catch (err) {
       pushToast({ type: 'error', message: err instanceof Error ? err.message : t('session.requestFailed') })
@@ -67,7 +72,7 @@ export function SessionPanel() {
       const execute = await batchDeleteSessions.mutateAsync({ hostId: activeHostId, payload: { mode: 'execute', sessionIds: selectedSessionIds, force: preview.forceRequired === true } })
       const deletedIds = new Set((execute.deleted || []).map((item) => item.sessionId))
       const deletedCount = typeof execute.deletedCount === 'number' ? execute.deletedCount : deletedIds.size
-      if (activeSessionId && deletedIds.has(activeSessionId)) setActiveSession(sessions.find((item) => !deletedIds.has(item.id))?.id || '')
+      if (activeSessionId && deletedIds.has(activeSessionId)) setActiveSession(getNextSessionId(sessions, Array.from(deletedIds)))
       pushToast({ type: 'success', message: t('sidebar.batchDeleteSuccess', { count: deletedCount }) })
       setSelectedSessionIds([])
       setBatchMode(false)
