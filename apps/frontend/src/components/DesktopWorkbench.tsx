@@ -113,8 +113,6 @@ export function DesktopWorkbench() {
   const terminalPanelHeight = useConsoleStore((state) => state.terminalPanelHeight)
   const editorsHydrated = useConsoleStore((state) => state.editorsHydrated)
   const hydrateEditorsFromStorage = useConsoleStore((state) => state.hydrateEditorsFromStorage)
-  const terminalOverlay = openEditors.length > 0 && terminalPanelHeight > terminalInlineMaxHeight
-  const terminalOverlayTopOffset = clampValue(viewportHeight - terminalPanelHeight, 0, viewportHeight)
   useEffect(() => {
     const element = containerRef.current
     if (!element) return
@@ -193,8 +191,8 @@ export function DesktopWorkbench() {
     }
   }, [compactSessionWidth, filePanelMax, filePanelMin, previewSessionWidth, renderedSessionPanelWidth, sessionPanelExpanded, sessionPanelMax, sessionPanelMin, setFilePanelWidth, setSessionPanelWidth])
   useEffect(() => {
-    window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'desktop-workbench', sessionPanelExpanded, sessionPanelWidth, filePanelOpen, filePanelWidth, gitPanelOpen, gitPanelWidth, editorsOpen: openEditors.length > 0, terminalPanelHeight, terminalOverlay } }))
-  }, [filePanelOpen, filePanelWidth, gitPanelOpen, gitPanelWidth, openEditors.length, sessionPanelExpanded, sessionPanelWidth, terminalOverlay, terminalPanelHeight])
+    window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'desktop-workbench', sessionPanelExpanded, sessionPanelWidth, filePanelOpen, filePanelWidth, gitPanelOpen, gitPanelWidth, editorsOpen: openEditors.length > 0, terminalPanelHeight } }))
+  }, [filePanelOpen, filePanelWidth, gitPanelOpen, gitPanelWidth, openEditors.length, sessionPanelExpanded, sessionPanelWidth, terminalPanelHeight])
   const handleOpenFile = useCallback(async (file: FileDocumentHandle) => {
     setFilePanelOpen(true)
     const existing = useConsoleStore.getState().openEditors.find((item) => item.id === file.id)
@@ -330,10 +328,10 @@ export function DesktopWorkbench() {
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-bg-1">
         {openEditors.length > 0 ? (
           <>
-            <div className={`min-h-0 flex-1 ${terminalOverlay ? 'pointer-events-none select-none opacity-50' : ''}`}>
+            <div className="min-h-0 flex-1">
               <EditorWorkbench onSaveEditor={handleSaveEditor} />
             </div>
-            <TerminalDock minHeight={terminalMinHeight} maxHeight={terminalMaxHeight} overlay={terminalOverlay} dragViewportHeight={viewportHeight} overlayTopOffset={terminalOverlayTopOffset} />
+            <TerminalDock minHeight={terminalMinHeight} maxHeight={terminalMaxHeight} dragViewportHeight={viewportHeight} />
           </>
         ) : (
           <div className="min-h-0 flex-1">
