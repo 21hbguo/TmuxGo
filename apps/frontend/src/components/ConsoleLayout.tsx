@@ -254,14 +254,14 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       const persistedHost = typeof window !== 'undefined' ? localStorage.getItem('tmuxgo-active-host') : null
       const localHost = hostsData.find((h: any) => h.id === 'local')
       const restoredHost = persistedHost && hostsData.some((h: any) => h.id === persistedHost) ? persistedHost : null
-      setActiveHost(restoredHost || localHost?.id || hostsData[0].id)
+      setActiveHost(restoredHost || localHost?.id || hostsData[0]?.id || '')
     }
   }, [hostsData, activeHostId, setActiveHost])
   useEffect(() => {
     if (!activeHostId || !hostsData.length) return
     if (hostsData.some((host: any) => host.id === activeHostId)) return
     const localHost = hostsData.find((host: any) => host.id === 'local')
-    setActiveHost(localHost?.id || hostsData[0].id)
+    setActiveHost(localHost?.id || hostsData[0]?.id || '')
   }, [activeHostId, hostsData, setActiveHost])
 
   useEffect(() => {
@@ -276,7 +276,8 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
     const continuitySessionExists = !!continuityPoint?.sessionId && sessionsData.some((s: any) => s.id === continuityPoint.sessionId)
     const activeSessionExists = !!activeSessionId && sessionsData.some((s: any) => s.id === activeSessionId)
     if (!activeSessionId || !activeSessionExists) {
-      setActiveSession(continuitySessionExists ? continuityPoint!.sessionId : persistedSessionExists ? persistedSession! : sessionsData[0].id)
+      const fallback = sessionsData[0]?.id || ''
+      setActiveSession(continuitySessionExists && continuityPoint ? continuityPoint.sessionId : persistedSessionExists && persistedSession ? persistedSession : fallback)
     }
   }, [sessionsData, sessionsFetched, activeSessionId, activeHostId, setActiveSession, sessionContinuity])
 

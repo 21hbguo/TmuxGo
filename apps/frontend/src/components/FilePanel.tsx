@@ -460,18 +460,19 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
       return next
     })
   }
-  const handleDesktopDirectoryToggle = async (item: FileItem) => {
-    await loadDirectoryChildren(item)
-    toggleDesktopDirectory(item.path)
-    setSelectedPath(item.path)
+  const setDesktopDirectoryExpanded = (path: string, expanded: boolean) => {
+    setOpenDirectories((current) => {
+      const next = new Set(current)
+      if (expanded) next.add(path)
+      else next.delete(path)
+      return next
+    })
   }
-  const loadTreeDirectory = async (node: EventDataNode<FileTreeNode>) => {
-    const item = node.item
-    if (!item || item.type !== 'directory') return
-    const cache = readDirectoryChildrenFromCache(directoryCache, activeRootId, activeRootBasePath, item.path)
-    if (cache) return
-    const result = await api.files.list(fileHostId, activeRootId, joinRelativePath(activeRootBasePath, item.path))
-    storeDirectoryChildren(activeRootId, activeRootBasePath, item.path, result.items)
+  const handleDesktopDirectoryToggle = async (item: FileItem) => {
+    const nextExpanded = !openDirectories.has(item.path)
+    setDesktopDirectoryExpanded(item.path, nextExpanded)
+    if (nextExpanded) void loadDirectoryChildren(item)
+    setSelectedPath(item.path)
   }
   const loadDirectoryChildren = async (item: FileItem) => {
     const cache = readDirectoryChildrenFromCache(directoryCache, activeRootId, activeRootBasePath, item.path)
@@ -866,12 +867,11 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
             treeData={desktopTreeData}
             expandedKeys={Array.from(openDirectories)}
             selectedKeys={selectedPath ? [selectedPath] : []}
-            loadData={loadTreeDirectory}
             onExpand={(keys, info) => {
-              const next = new Set(keys.map(String))
               const item = (info.node as EventDataNode<FileTreeNode>).item
-              if (item?.type === 'directory' && info.expanded) next.add(item.path)
-              setOpenDirectories(next)
+              if (!item || item.type !== 'directory') return
+              setDesktopDirectoryExpanded(item.path, info.expanded)
+              if (info.expanded) void loadDirectoryChildren(item)
             }}
             onSelect={(keys, info) => {
               const node = info.node as EventDataNode<FileTreeNode>

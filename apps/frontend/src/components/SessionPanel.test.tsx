@@ -8,10 +8,13 @@ const mutateCreateSession = vi.fn()
 const mutateRenameSession = vi.fn()
 const mutateDeleteSession = vi.fn()
 const mutateBatchDeleteSessions = vi.fn()
+const promptMock = vi.fn()
+const orderedSessions = [{ id: 'session-dev', name: 'dev', windowCount: 2 }]
+const moveSessionMock = vi.fn()
 
 vi.mock('@/hooks/useApi', () => ({
   useHosts: () => ({ data: [{ id: 'local', name: 'Local', address: '127.0.0.1', status: 'online', tags: [] }] }),
-  useSessions: () => ({ data: [{ id: 'session-dev', name: 'dev', windowCount: 2 }] }),
+  useSessions: () => ({ data: orderedSessions }),
   useCreateSession: () => ({ mutateAsync: mutateCreateSession }),
   useRenameSession: () => ({ mutateAsync: mutateRenameSession }),
   useDeleteSession: () => ({ mutateAsync: mutateDeleteSession }),
@@ -21,7 +24,7 @@ vi.mock('@/hooks/usePreferences', () => ({
   usePreferences: () => ({ preferences: { showQuickActions: false } }),
 }))
 vi.mock('@/hooks/useOrderedSessions', () => ({
-  useOrderedSessions: () => ({ data: [{ id: 'session-dev', name: 'dev', windowCount: 2 }], moveSession: vi.fn() }),
+  useOrderedSessions: () => ({ data: orderedSessions, moveSession: moveSessionMock }),
 }))
 vi.mock('@/i18n', () => ({
   useTranslation: () => ({ t: (key: string, params?: Record<string, string | number>) => {
@@ -49,6 +52,15 @@ vi.mock('./ConfirmDialog', () => ({
 vi.mock('./QuickActions', () => ({
   QuickActions: () => React.createElement('div'),
 }))
+vi.mock('@/hooks/usePrompt', () => ({
+  usePrompt: () => ({
+    prompt: promptMock,
+    PromptElement: null,
+  }),
+}))
+vi.mock('./HostSwitcher', () => ({
+  HostSwitcher: () => React.createElement('div'),
+}))
 vi.mock('./SessionSortableList', () => ({
   SessionSortableList: ({ sessions, renderItem }: { sessions: any[]; renderItem: (args: { session: any; isDragging: boolean; isOverlay: boolean }) => React.ReactNode }) => React.createElement('div', null, sessions.map((session) => React.createElement('div', { key: session.id }, renderItem({ session, isDragging: false, isOverlay: false })))),
 }))
@@ -59,6 +71,8 @@ describe('SessionPanel session actions', () => {
     mutateRenameSession.mockReset()
     mutateDeleteSession.mockReset()
     mutateBatchDeleteSessions.mockReset()
+    promptMock.mockReset()
+    moveSessionMock.mockReset()
     mutateRenameSession.mockResolvedValue({ id: 'session-dev-renamed' })
     useConsoleStore.setState({
       activeHostId: 'local',
@@ -66,34 +80,36 @@ describe('SessionPanel session actions', () => {
       toasts: [],
     } as any)
   })
+  it('renders base panel', () => {
+    render(<SessionPanel />)
+    expect(screen.getByText('Sessions')).toBeInTheDocument()
+    expect(screen.getByText('dev')).toBeInTheDocument()
+  })
 
   it('renames the active session from the desktop rename button', async () => {
-    const promptSpy = vi.spyOn(window, 'prompt').mockReturnValue('dev-renamed')
+    promptMock.mockResolvedValueOnce('dev-renamed')
     render(<SessionPanel />)
     fireEvent.click(screen.getByLabelText('Rename session'))
-    expect(mutateRenameSession).toHaveBeenCalledWith({ hostId: 'local', sessionId: 'session-dev', name: 'dev-renamed' })
+    await waitFor(() => expect(mutateRenameSession).toHaveBeenCalledWith({ hostId: 'local', sessionId: 'session-dev', name: 'dev-renamed' }))
     await waitFor(() => expect(useConsoleStore.getState().activeSessionId).toBe('session-dev-renamed'))
-    promptSpy.mockRestore()
   })
 
   it('renames the session on double click', async () => {
-    const promptSpy = vi.spyOn(window, 'prompt').mockReturnValue('dev-double')
+    promptMock.mockResolvedValueOnce('dev-double')
     mutateRenameSession.mockResolvedValueOnce({ id: 'session-dev-double' })
     render(<SessionPanel />)
     fireEvent.doubleClick(screen.getByText('dev'))
-    expect(mutateRenameSession).toHaveBeenCalledWith({ hostId: 'local', sessionId: 'session-dev', name: 'dev-double' })
+    await waitFor(() => expect(mutateRenameSession).toHaveBeenCalledWith({ hostId: 'local', sessionId: 'session-dev', name: 'dev-double' }))
     await waitFor(() => expect(useConsoleStore.getState().activeSessionId).toBe('session-dev-double'))
-    promptSpy.mockRestore()
   })
 
   it('activates the newly created session', async () => {
-    const promptSpy = vi.spyOn(window, 'prompt').mockReturnValue('default')
+    promptMock.mockResolvedValueOnce('default')
     mutateCreateSession.mockResolvedValueOnce({ id: 'session-default', name: 'default', windowCount: 1 })
     render(<SessionPanel />)
     fireEvent.click(screen.getByText('New'))
     fireEvent.click(screen.getByText('select-template'))
-    expect(mutateCreateSession).toHaveBeenCalledWith({ hostId: 'local', name: 'default', layout: expect.any(Object) })
+    await waitFor(() => expect(mutateCreateSession).toHaveBeenCalledWith({ hostId: 'local', name: 'default', layout: expect.any(Object) }))
     await waitFor(() => expect(useConsoleStore.getState().activeSessionId).toBe('session-default'))
-    promptSpy.mockRestore()
   })
 })

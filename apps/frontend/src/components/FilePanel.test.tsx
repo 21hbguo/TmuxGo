@@ -10,6 +10,7 @@ const setFilePanelWidth = vi.fn()
 const setFilePanelOpen = vi.fn()
 const pushToast = vi.fn()
 const invalidateQueries = vi.fn()
+const delayedSrcResolvers: Array<() => void> = []
 const preferencesGet = vi.fn(async () => ({ version: 1, updatedAt: '', customShortcuts: [], customShortcutsUpdatedAt: '', favoriteDirectories: [], favoriteDirectoriesUpdatedAt: '', sessionOrders: [], sessionOrdersUpdatedAt: '', uploadRateLimitKBps: 200, downloadRateLimitKBps: 200 }))
 const preferencesUpdate = vi.fn(async (payload: any) => ({ version: 1, updatedAt: '', customShortcuts: [], customShortcutsUpdatedAt: '', favoriteDirectories: payload.favoriteDirectories || [], favoriteDirectoriesUpdatedAt: payload.favoriteDirectoriesUpdatedAt || '', sessionOrders: [], sessionOrdersUpdatedAt: '', uploadRateLimitKBps: payload.uploadRateLimitKBps || 200, downloadRateLimitKBps: payload.downloadRateLimitKBps || 200 }))
 
@@ -95,6 +96,7 @@ describe('FilePanel', () => {
     clipboardMocks.writeClipboardText.mockClear()
     preferencesGet.mockClear()
     preferencesUpdate.mockClear()
+    delayedSrcResolvers.length = 0
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
       return window.setTimeout(() => cb(0), 0)
     })
@@ -315,5 +317,21 @@ describe('FilePanel', () => {
     expect(screen.queryByText('.env')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Dotfiles' }))
     expect(await screen.findByText('.env')).toBeInTheDocument()
+  })
+  it('keeps directory collapsed when async child loading resolves after collapse', async () => {
+    const { api } = await import('@/lib/api')
+    vi.mocked(api.files.list).mockImplementation(async (_hostId: string, rootId: string, path = '') => {
+      if (rootId === 'root-home' && path === 'src') {
+        await new Promise<void>((resolve) => delayedSrcResolvers.push(resolve))
+      }
+      return getListData(rootId, path)
+    })
+    render(React.createElement(FilePanel))
+    const src = await screen.findByText('src')
+    fireEvent.click(src)
+    fireEvent.click(src)
+    expect(screen.queryByText('index.ts')).not.toBeInTheDocument()
+    delayedSrcResolvers.splice(0).forEach((resolve) => resolve())
+    await waitFor(() => expect(screen.queryByText('index.ts')).not.toBeInTheDocument())
   })
 })
