@@ -1,13 +1,17 @@
 'use client'
 import dynamic from 'next/dynamic'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { MouseEvent as ReactMouseEvent } from 'react'
 import type { FileEditorDocument } from '@/types'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useTranslation } from '@/i18n'
 import { ConfirmDialog } from './ConfirmDialog'
+import { DiffViewer } from './DiffViewer'
 
 const MonacoEditor=dynamic(() => import('@monaco-editor/react').then((mod) => mod.default), { ssr: false })
+const AUTO_SCROLL_DEADZONE = 10
+const AUTO_SCROLL_MAX_STEP = 42
 
 function getMonacoTheme(theme: string) {
   if (theme === 'light') return 'vs'
@@ -104,6 +108,28 @@ function renderMarkdown(content: string) {
   flushCode()
   return html.join('')
 }
+function getAutoScrollStep(distance: number) {
+  const absDistance = Math.abs(distance)
+  if (absDistance <= AUTO_SCROLL_DEADZONE) return 0
+  const direction = distance > 0 ? 1 : -1
+  const speed = Math.min(AUTO_SCROLL_MAX_STEP, (absDistance - AUTO_SCROLL_DEADZONE) * 0.45)
+  return speed * direction
+}
+
+function parseGitDiffId(id: string) {
+  const rest = id.slice('git-diff:'.length)
+  const isStaged = rest.includes(':staged:')
+  const cleaned = isStaged ? rest.replace(':staged:', ':') : rest
+  const firstColon = cleaned.indexOf(':')
+  if (firstColon === -1) return null
+  const hostId = cleaned.slice(0, firstColon)
+  const afterHost = cleaned.slice(firstColon + 1)
+  const pathSep = afterHost.indexOf(':')
+  if (pathSep === -1) return null
+  const repoPath = afterHost.slice(0, pathSep)
+  const filePath = afterHost.slice(pathSep + 1)
+  return { hostId, repoPath, filePath, staged: isStaged }
+}
 
 export function EditorWorkbench({ onSaveEditor }:{ onSaveEditor: (editor: FileEditorDocument) => Promise<void> }) {
   const openEditors = useConsoleStore((state) => state.openEditors)
@@ -114,13 +140,58 @@ export function EditorWorkbench({ onSaveEditor }:{ onSaveEditor: (editor: FileEd
   const { preferences } = usePreferences()
   const { t } = useTranslation()
   const editorRef = useRef<any>(null)
+  const editorViewportRef = useRef<HTMLDivElement | null>(null)
+  const autoScrollFrameRef = useRef<number | null>(null)
+  const autoScrollStateRef = useRef<{ active: boolean; anchorY: number; pointerY: number }>({ active: false, anchorY: 0, pointerY: 0 })
   const [pendingCloseEditorId, setPendingCloseEditorId] = useState<string | null>(null)
   const [previewOpenById, setPreviewOpenById] = useState<Record<string, boolean>>({})
   const [cursorById, setCursorById] = useState<Record<string, { line: number; column: number }>>({})
+  const [autoScrollIndicator, setAutoScrollIndicator] = useState<{ active: boolean; x: number; y: number }>({ active: false, x: 0, y: 0 })
   const activeEditor = openEditors.find((item) => item.id === activeEditorId) || openEditors[openEditors.length - 1] || null
+  const gitDiff = activeEditor?.id.startsWith('git-diff:') ? parseGitDiffId(activeEditor.id) : null
   const markdownPreviewOpen = !!activeEditor && activeEditor.language === 'markdown' && !!previewOpenById[activeEditor.id]
   const cursor = activeEditor ? cursorById[activeEditor.id] : null
   const markdownPreview = useMemo(() => activeEditor?.language === 'markdown' ? renderMarkdown(escapeHtml(activeEditor.content)) : '', [activeEditor])
+  const stopAutoScroll = () => {
+    if (autoScrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(autoScrollFrameRef.current)
+      autoScrollFrameRef.current = null
+    }
+    autoScrollStateRef.current.active = false
+    setAutoScrollIndicator((current) => current.active ? { ...current, active: false } : current)
+  }
+  const runAutoScroll = () => {
+    if (!autoScrollStateRef.current.active) return
+    const editor = editorRef.current
+    if (editor) {
+      const step = getAutoScrollStep(autoScrollStateRef.current.pointerY - autoScrollStateRef.current.anchorY)
+      if (step) {
+        const scrollTop = Number(editor.getScrollTop?.() || 0)
+        editor.setScrollTop?.(scrollTop + step)
+      }
+    }
+    autoScrollFrameRef.current = window.requestAnimationFrame(runAutoScroll)
+  }
+  const startAutoScroll = (clientX: number, clientY: number) => {
+    const viewport = editorViewportRef.current
+    if (!viewport) return
+    const rect = viewport.getBoundingClientRect()
+    autoScrollStateRef.current.active = true
+    autoScrollStateRef.current.anchorY = clientY
+    autoScrollStateRef.current.pointerY = clientY
+    setAutoScrollIndicator({ active: true, x: clientX - rect.left, y: clientY - rect.top })
+    autoScrollFrameRef.current = window.requestAnimationFrame(runAutoScroll)
+  }
+  const handleEditorMouseDown = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (event.button !== 1) return
+    event.preventDefault()
+    event.stopPropagation()
+    if (autoScrollStateRef.current.active) {
+      stopAutoScroll()
+      return
+    }
+    startAutoScroll(event.clientX, event.clientY)
+  }
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -129,12 +200,12 @@ export function EditorWorkbench({ onSaveEditor }:{ onSaveEditor: (editor: FileEd
       if (target instanceof Element && target.closest('[data-terminal],.xterm,.xterm-screen')) return
       if (event.key.toLowerCase() === 's') {
         event.preventDefault()
-        if (!activeEditor.loading && !activeEditor.saving && !activeEditor.binary && !activeEditor.truncated) void onSaveEditor(activeEditor)
+        if (!gitDiff && !activeEditor.loading && !activeEditor.saving && !activeEditor.binary && !activeEditor.truncated) void onSaveEditor(activeEditor)
         return
       }
       if (event.key.toLowerCase() === 'f' && event.shiftKey) {
         event.preventDefault()
-        void editorRef.current?.getAction?.('editor.action.formatDocument')?.run?.()
+        if (!gitDiff) void editorRef.current?.getAction?.('editor.action.formatDocument')?.run?.()
         return
       }
       if (event.key.toLowerCase() === 'w') {
@@ -157,7 +228,38 @@ export function EditorWorkbench({ onSaveEditor }:{ onSaveEditor: (editor: FileEd
       window.removeEventListener('keydown', handleKeyDown, true)
       window.removeEventListener('beforeunload', handleBeforeUnload, true)
     }
-  }, [activeEditor, closeEditor, onSaveEditor])
+  }, [activeEditor, closeEditor, gitDiff, onSaveEditor])
+  useEffect(() => {
+    if (!autoScrollIndicator.active) return
+    const handlePointerMove = (event: PointerEvent) => {
+      autoScrollStateRef.current.pointerY = event.clientY
+    }
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.button !== 1) stopAutoScroll()
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') stopAutoScroll()
+    }
+    const handleVisibilityChange = () => {
+      if (document.hidden) stopAutoScroll()
+    }
+    window.addEventListener('pointermove', handlePointerMove, true)
+    window.addEventListener('pointerdown', handlePointerDown, true)
+    window.addEventListener('keydown', handleKeyDown, true)
+    window.addEventListener('blur', stopAutoScroll)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove, true)
+      window.removeEventListener('pointerdown', handlePointerDown, true)
+      window.removeEventListener('keydown', handleKeyDown, true)
+      window.removeEventListener('blur', stopAutoScroll)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [autoScrollIndicator.active])
+  useEffect(() => () => stopAutoScroll(), [])
+  useEffect(() => {
+    stopAutoScroll()
+  }, [activeEditor?.id, markdownPreviewOpen])
 
   if (!activeEditor) return null
 
@@ -183,14 +285,20 @@ export function EditorWorkbench({ onSaveEditor }:{ onSaveEditor: (editor: FileEd
           <div className="mt-0.5 text-[11px] text-text-3">{activeEditor.language.toUpperCase()} · {activeEditor.size || 0}B{cursor ? ` · Ln ${cursor.line}, Col ${cursor.column}` : ''}{activeEditor.modifiedAt ? ` · ${new Date(activeEditor.modifiedAt).toLocaleString()}` : ''}</div>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => void editorRef.current?.getAction?.('actions.find')?.run?.()} className="rounded px-3 py-1.5 text-xs bg-bg-2 text-text-2 hover:text-text-1">{t('editor.find')}</button>
-          <button onClick={() => void editorRef.current?.getAction?.('editor.action.formatDocument')?.run?.()} className="rounded px-3 py-1.5 text-xs bg-bg-2 text-text-2 hover:text-text-1">{t('editor.format')}</button>
-          {activeEditor.language === 'markdown' && <button onClick={() => setPreviewOpenById((current) => ({ ...current, [activeEditor.id]: !current[activeEditor.id] }))} className={`rounded px-3 py-1.5 text-xs ${markdownPreviewOpen ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-2 hover:text-text-1'}`}>{t('editor.preview')}</button>}
-          <button disabled={activeEditor.loading || activeEditor.saving || activeEditor.binary || activeEditor.truncated || !activeEditor.dirty} onClick={() => void onSaveEditor(activeEditor)} className={`rounded px-3 py-1.5 text-xs ${activeEditor.loading || activeEditor.saving || activeEditor.binary || activeEditor.truncated || !activeEditor.dirty ? 'bg-bg-2 text-text-3/50' : 'bg-accent/20 text-accent hover:text-text-1'}`}>{activeEditor.saving ? t('editor.saving') : activeEditor.dirty ? t('editor.save') : t('editor.saved')}</button>
+          {!gitDiff && (
+            <>
+              <button onClick={() => void editorRef.current?.getAction?.('actions.find')?.run?.()} className="rounded px-3 py-1.5 text-xs bg-bg-2 text-text-2 hover:text-text-1">{t('editor.find')}</button>
+              <button onClick={() => void editorRef.current?.getAction?.('editor.action.formatDocument')?.run?.()} className="rounded px-3 py-1.5 text-xs bg-bg-2 text-text-2 hover:text-text-1">{t('editor.format')}</button>
+              {activeEditor.language === 'markdown' && <button onClick={() => setPreviewOpenById((current) => ({ ...current, [activeEditor.id]: !current[activeEditor.id] }))} className={`rounded px-3 py-1.5 text-xs ${markdownPreviewOpen ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-2 hover:text-text-1'}`}>{t('editor.preview')}</button>}
+              <button disabled={activeEditor.loading || activeEditor.saving || activeEditor.binary || activeEditor.truncated || !activeEditor.dirty} onClick={() => void onSaveEditor(activeEditor)} className={`rounded px-3 py-1.5 text-xs ${activeEditor.loading || activeEditor.saving || activeEditor.binary || activeEditor.truncated || !activeEditor.dirty ? 'bg-bg-2 text-text-3/50' : 'bg-accent/20 text-accent hover:text-text-1'}`}>{activeEditor.saving ? t('editor.saving') : activeEditor.dirty ? t('editor.save') : t('editor.saved')}</button>
+            </>
+          )}
         </div>
       </div>
       <div className="min-h-0 flex-1 bg-bg-0">
-        {activeEditor.loading ? <div className="flex h-full items-center justify-center text-sm text-text-3">{t('editor.loading', { name: activeEditor.name })}</div> : activeEditor.problem || activeEditor.binary || activeEditor.truncated ? (
+        {gitDiff ? (
+          <DiffViewer hostId={gitDiff.hostId} repoPath={gitDiff.repoPath} filePath={gitDiff.filePath} staged={gitDiff.staged} />
+        ) : activeEditor.loading ? <div className="flex h-full items-center justify-center text-sm text-text-3">{t('editor.loading', { name: activeEditor.name })}</div> : activeEditor.problem || activeEditor.binary || activeEditor.truncated ? (
           <div className="flex h-full items-center justify-center p-6">
             <div className="max-w-xl rounded-lg border border-[var(--line)] bg-bg-1 p-5">
               <div className="text-sm text-text-1">{activeEditor.name}</div>
@@ -199,7 +307,7 @@ export function EditorWorkbench({ onSaveEditor }:{ onSaveEditor: (editor: FileEd
           </div>
         ) : (
           <div className={`flex h-full min-h-0 ${markdownPreviewOpen ? 'flex-row' : 'flex-col'}`}>
-            <div className={`${markdownPreviewOpen ? 'min-w-0 flex-1 border-r border-[var(--line)]' : 'h-full'}`}>
+            <div ref={editorViewportRef} data-testid="editor-auto-scroll-zone" onMouseDown={handleEditorMouseDown} className={`relative ${markdownPreviewOpen ? 'min-w-0 flex-1 border-r border-[var(--line)]' : 'h-full'}`}>
               <MonacoEditor
                 key={activeEditor.id}
                 path={activeEditor.absolutePath}
@@ -263,6 +371,12 @@ export function EditorWorkbench({ onSaveEditor }:{ onSaveEditor: (editor: FileEd
                   padding: { top: 16, bottom: 16 },
                 }}
               />
+              {autoScrollIndicator.active && (
+                <span data-testid="editor-auto-scroll-indicator" className="pointer-events-none absolute z-20 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-accent/70 bg-bg-0/85 shadow-[0_0_0_1px_rgba(30,200,255,0.22)]" style={{ left: autoScrollIndicator.x, top: autoScrollIndicator.y }}>
+                  <span className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-accent/70" />
+                  <span className="absolute left-0 top-1/2 h-px w-full -translate-y-1/2 bg-accent/70" />
+                </span>
+              )}
             </div>
             {markdownPreviewOpen && <div className="min-w-0 flex-1 overflow-auto bg-bg-1/60 px-6 py-5"><article className="prose prose-invert max-w-none text-sm text-text-2 [&_a]:text-accent [&_blockquote]:border-l-2 [&_blockquote]:border-[var(--line)] [&_blockquote]:pl-3 [&_code]:rounded [&_code]:bg-bg-2 [&_code]:px-1.5 [&_code]:py-0.5 [&_h1]:mb-4 [&_h1]:text-3xl [&_h1]:text-text-1 [&_h2]:mb-3 [&_h2]:mt-6 [&_h2]:text-2xl [&_h2]:text-text-1 [&_h3]:mb-2 [&_h3]:mt-5 [&_h3]:text-xl [&_h3]:text-text-1 [&_li]:mb-1 [&_p]:mb-3 [&_pre]:overflow-auto [&_pre]:rounded-lg [&_pre]:bg-bg-0 [&_pre]:p-4 [&_strong]:text-text-1" dangerouslySetInnerHTML={{ __html: markdownPreview || `<p>${t('editor.nothingToPreview')}</p>` }} /></div>}
           </div>

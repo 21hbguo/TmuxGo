@@ -279,3 +279,64 @@ export interface RemotePreferences {
   uploadRateLimitKBps: number
   downloadRateLimitKBps: number
 }
+
+// Git types
+export interface GitFileChange {
+  path: string
+  status: 'added' | 'modified' | 'deleted' | 'renamed' | 'copied' | 'unmerged'
+  oldPath?: string
+  staged: boolean
+}
+export interface GitStatusResponse {
+  branch: string
+  ahead: number
+  behind: number
+  staged: GitFileChange[]
+  unstaged: GitFileChange[]
+  untracked: string[]
+  conflicted: GitFileChange[]
+}
+export interface GitDiffResponse {
+  raw: string
+}
+export interface GitDetectResponse {
+  isGitRepo: boolean
+  rootPath?: string
+  branch?: string
+}
+export interface GitCommitResponse {
+  ok: true
+  hash: string
+  message: string
+}
+export interface GitCommitInfo {
+  hash: string
+  shortHash: string
+  subject: string
+  body: string
+  author: string
+  authorEmail: string
+  date: string
+  parents: string[]
+}
+export interface GitBranch {
+  name: string
+  current: boolean
+  remote?: string
+  commitHash: string
+  lastCommitSubject: string
+}
+export interface GitLogResponse {
+  commits: GitCommitInfo[]
+  hasMore: boolean
+}
+export interface GitBranchesResponse {
+  branches: GitBranch[]
+  current: string
+}
+export interface GitMergeResponse {
+  ok: boolean
+  fastForward: boolean
+  conflicts: boolean
+  message: string
+}
