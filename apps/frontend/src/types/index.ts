@@ -143,6 +143,7 @@ export interface FileContentResponse {
   content: string
 }
 export interface FileEditorDocument extends FileDocumentHandle {
+  kind?: 'file' | 'compare'
   language: string
   content: string
   savedContent: string
@@ -155,6 +156,8 @@ export interface FileEditorDocument extends FileDocumentHandle {
   truncated: boolean
   problem?: string
   previewUrl?: string
+  compareLeftId?: string
+  compareRightId?: string
 }
 export interface FileUploadTarget {
   rootId: string

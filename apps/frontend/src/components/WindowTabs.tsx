@@ -4,6 +4,7 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import { api } from '@/lib/api'
 import { useWindows } from '@/hooks/useApi'
 import { useWindowQueryState } from '@/hooks/useWindowQueryState'
+import { useSessionSnapshotSync } from '@/hooks/useSessionSnapshotSync'
 import { useTranslation } from '@/i18n'
 
 export function WindowTabs() {
@@ -12,6 +13,7 @@ export function WindowTabs() {
   const pushToast = useConsoleStore((s) => s.pushToast)
   const { data: windows = [] } = useWindows(activeHostId || '', activeSessionId || '')
   const { getWindows, setWindows } = useWindowQueryState(activeHostId || '', activeSessionId || '')
+  const { syncAfterWindowChange } = useSessionSnapshotSync()
   const { t } = useTranslation()
 
   if (!activeSessionId || windows.length === 0) {
@@ -26,6 +28,7 @@ export function WindowTabs() {
     try {
       const result = await api.windows.select(activeHostId, activeSessionId, windowId)
       if (result.windows) setWindows(result.windows)
+      await syncAfterWindowChange()
     } catch (err) {
       setWindows(previousWindows)
       pushToast({ type: 'error', message: err instanceof Error ? err.message : t('window.switchFailed') })

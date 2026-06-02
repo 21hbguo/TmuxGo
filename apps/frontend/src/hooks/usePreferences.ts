@@ -29,7 +29,7 @@ export interface Preferences {
 const defaultPreferences: Preferences = {
   theme: 'dark',
   fontSize: 14,
-  fontFamily: 'JetBrains Mono, monospace',
+  fontFamily: 'Consolas, "Cascadia Mono", "Cascadia Code", "SF Mono", Monaco, Menlo, "DejaVu Sans Mono", "Liberation Mono", "Courier New", monospace',
   cursorBlink: true,
   sidebarPosition: 'left',
   showStatusBar: true,

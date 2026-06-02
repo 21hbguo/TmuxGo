@@ -39,7 +39,7 @@ function toEditorDocument(file: PersistedEditor): FileEditorDocument {
 }
 function writePersistedEditors(openEditors: FileEditorDocument[], activeEditorId: string | null) {
   if (typeof window === 'undefined') return
-  const nextEditors = openEditors.map(({ id, hostId, rootId, rootLabel, rootPath, path, name, absolutePath, language }) => ({ id, hostId, rootId, rootLabel, rootPath, path, name, absolutePath, language }))
+  const nextEditors = openEditors.filter((item) => !item.kind || item.kind === 'file').map(({ id, hostId, rootId, rootLabel, rootPath, path, name, absolutePath, language }) => ({ id, hostId, rootId, rootLabel, rootPath, path, name, absolutePath, language }))
   localStorage.setItem(OPEN_EDITORS_STORAGE_KEY, JSON.stringify(nextEditors))
   if (activeEditorId) localStorage.setItem(ACTIVE_EDITOR_STORAGE_KEY, activeEditorId)
   else localStorage.removeItem(ACTIVE_EDITOR_STORAGE_KEY)
@@ -70,7 +70,7 @@ interface ConsoleState {
 
   setActiveHost: (id: string) => void
   setActiveSession: (id: string) => void
-  setActivePane: (id: string) => void
+  setActivePane: (id: string | null) => void
   setCommandPalette: (open: boolean) => void
   setSessionPanelExpanded: (expanded: boolean) => void
   toggleSessionPanel: () => void
@@ -90,6 +90,7 @@ interface ConsoleState {
   setTerminalPanelHeight: (height: number) => void
   hydrateEditorsFromStorage: () => void
   openEditor: (file: FileDocumentHandle & { language: string }) => void
+  openCompareEditor: (leftId: string, rightId: string) => string | null
   closeEditor: (id: string) => void
   setActiveEditor: (id: string | null) => void
   setEditorLoaded: (id: string, patch: Partial<FileEditorDocument>) => void
@@ -179,7 +180,7 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
         else localStorage.removeItem(getActiveSessionStorageKey(state.activeHostId))
       }
     }
-    return { activeSessionId: id }
+    return { activeSessionId: id, activePaneId: null }
   }),
   setActivePane: (id) => set({ activePaneId: id }),
   setCommandPalette: (open) => set({ showCommandPalette: open }),
@@ -264,6 +265,48 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
     writePersistedEditors(nextState.openEditors, nextState.activeEditorId)
     return nextState
   }),
+  openCompareEditor: (leftId, rightId) => {
+    const left = useConsoleStore.getState().openEditors.find((item) => item.id === leftId)
+    const right = useConsoleStore.getState().openEditors.find((item) => item.id === rightId)
+    if (!left || !right) return null
+    const compareId = `compare:${[leftId, rightId].sort().join('::')}`
+    set((state) => {
+      const existing = state.openEditors.find((item) => item.id === compareId)
+      if (existing) {
+        writePersistedEditors(state.openEditors, existing.id)
+        return { activeEditorId: existing.id }
+      }
+      const nextState = {
+        openEditors: [...state.openEditors, {
+          id: compareId,
+          hostId: left.hostId,
+          rootId: left.rootId,
+          rootLabel: left.rootLabel,
+          rootPath: left.rootPath,
+          path: left.path,
+          name: `${left.name} <> ${right.name}`,
+          absolutePath: '',
+          language: left.language === right.language ? left.language : 'plaintext',
+          content: '',
+          savedContent: '',
+          modifiedAt: '',
+          size: 0,
+          dirty: false,
+          loading: false,
+          saving: false,
+          binary: false,
+          truncated: false,
+          kind: 'compare' as const,
+          compareLeftId: leftId,
+          compareRightId: rightId,
+        }],
+        activeEditorId: compareId,
+      }
+      writePersistedEditors(nextState.openEditors, nextState.activeEditorId)
+      return nextState
+    })
+    return compareId
+  },
   closeEditor: (id) => set((state) => {
     const nextEditors = state.openEditors.filter((item) => item.id !== id)
     const nextActiveEditorId = state.activeEditorId === id ? nextEditors[nextEditors.length - 1]?.id || null : state.activeEditorId

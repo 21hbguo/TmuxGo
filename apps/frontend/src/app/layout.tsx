@@ -40,7 +40,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="zh-CN">
-      <body className="font-sans antialiased">
+      <body>
         <script dangerouslySetInnerHTML={{ __html: "document.addEventListener('contextmenu',function(e){e.preventDefault()},{passive:false})" }} />
         <script dangerouslySetInnerHTML={{ __html: "addEventListener('dragover',function(e){var t=e.target&&e.target.closest&&e.target.closest('[data-terminal]');if(!t){e.preventDefault();e.stopPropagation();if(e.dataTransfer)e.dataTransfer.dropEffect='none'}},true);addEventListener('drop',function(e){var t=e.target&&e.target.closest&&e.target.closest('[data-terminal]');if(!t){e.preventDefault();e.stopPropagation()}},true)" }} />
         <QueryProvider>

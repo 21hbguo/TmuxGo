@@ -65,7 +65,7 @@ vi.mock('@/hooks/usePreferences', () => ({
     preferences: {
       theme: 'dark',
       fontSize: 14,
-      fontFamily: 'JetBrains Mono, monospace',
+      fontFamily: 'Consolas, "Cascadia Mono", "Cascadia Code", "SF Mono", Monaco, Menlo, "DejaVu Sans Mono", "Liberation Mono", "Courier New", monospace',
       cursorBlink: true,
       sidebarPosition: 'left',
       showStatusBar: true,
@@ -334,7 +334,7 @@ describe('TerminalPane', () => {
     fireEvent.mouseUp(window)
   })
   it('sends final pane resize after mouseup while resize request is pending', async () => {
-    let resolveFirst: (value: unknown) => void = () => {}
+    let resolveFirst: (value: { ok: boolean }) => void = () => {}
     apiMocks.paneResize.mockImplementationOnce(() => new Promise((resolve) => {
       resolveFirst = resolve
     })).mockResolvedValue({ ok: true })

@@ -717,10 +717,15 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     const applyTerminalOptions = (fontSize?: number) => {
       if (!terminal || disposed) return
       terminal.options.fontFamily = preferencesRef.current.fontFamily
+      terminal.options.fontWeight = '400'
+      terminal.options.fontWeightBold = '700'
       terminal.options.cursorBlink = preferencesRef.current.cursorBlink
       const nextFontSize = (fontSize ?? Number(terminal.options.fontSize)) || preferencesRef.current.fontSize
       terminal.options.fontSize = nextFontSize
+      terminal.options.letterSpacing = 0
       terminal.options.lineHeight = 1
+      terminal.options.minimumContrastRatio = 4.5
+      terminal.options.customGlyphs = true
     }
     const clearTerminalRendererCache = () => {
       if (!terminal || disposed) return
@@ -913,6 +918,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         applyTerminalOptions()
       } else {
         terminal.options.fontFamily = preferencesRef.current.fontFamily
+        terminal.options.fontWeight = '400'
+        terminal.options.fontWeightBold = '700'
         terminal.options.cursorBlink = preferencesRef.current.cursorBlink
       }
       if (terminal.cols !== size.cols || terminal.rows !== size.rows) {
@@ -964,8 +971,12 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         allowTransparency: false,
         fontSize: preferencesRef.current.fontSize,
         fontFamily: preferencesRef.current.fontFamily,
+        fontWeight: '400',
+        fontWeightBold: '700',
         letterSpacing: 0,
         lineHeight: 1,
+        minimumContrastRatio: 4.5,
+        customGlyphs: true,
         macOptionIsMeta: true,
         macOptionClickForcesSelection: true,
         scrollback: SCROLLBACK_LIMIT,

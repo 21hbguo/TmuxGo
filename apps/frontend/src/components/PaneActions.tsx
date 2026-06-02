@@ -6,7 +6,6 @@ import { useSessionSnapshotSync } from '@/hooks/useSessionSnapshotSync'
 import { useTranslation } from '@/i18n'
 
 export function PaneActions() {
-  const activePaneId = useConsoleStore((s) => s.activePaneId)
   const pushToast = useConsoleStore((s) => s.pushToast)
   const { refreshSnapshot, resolveActivePaneId } = useSessionSnapshotSync()
   const { t } = useTranslation()
@@ -20,9 +19,9 @@ export function PaneActions() {
       pushToast({ type: 'success', message: t('pane.splitSuccess') })
     } catch (err) {
       try {
-        await refreshSnapshot()
-        const paneId = useConsoleStore.getState().activePaneId
-        if (!paneId || paneId === activePaneId) throw err
+        const snapshot = await refreshSnapshot()
+        const paneId = snapshot?.activePaneId || useConsoleStore.getState().activePaneId
+        if (!paneId || paneId === initialPaneId) throw err
         await api.panes.split(paneId, direction)
         await refreshSnapshot()
         pushToast({ type: 'success', message: t('pane.splitSuccess') })

@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FilePanel } from './FilePanel'
+import type { FileListResponse } from '@/types'
 
 const clipboardMocks = vi.hoisted(() => ({
   writeClipboardText: vi.fn(async () => ({ copied: true, source: 'system', unavailable: false })),
@@ -17,7 +18,7 @@ const preferencesUpdate = vi.fn(async (payload: any) => ({ version: 1, updatedAt
 const roots = [
   { id: 'root-home', label: 'Home', path: '/home/guo' },
 ]
-const getListData = (rootId: string, currentPath: string) => {
+const getListData = (rootId: string, currentPath: string): FileListResponse => {
   if (rootId === 'root-home') {
     if (!currentPath) return { root: roots[0], path: '', breadcrumbs: [{ name: '/', path: '' }], items: [{ name: 'src', path: 'src', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: 'docs', path: 'docs', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: 'project', path: 'project', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: 'downloads', path: 'downloads', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: '.env', path: '.env', type: 'file', size: 4, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
     if (currentPath === 'src') return { root: roots[0], path: 'src', breadcrumbs: [{ name: '/', path: '' }, { name: 'src', path: 'src' }], items: [{ name: 'nested', path: 'src/nested', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: 'index.ts', path: 'src/index.ts', type: 'file', size: 12, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
@@ -67,8 +68,8 @@ vi.mock('@/lib/api', () => ({
       imageUrl: vi.fn(() => '/api/files/image'),
     },
     preferences: {
-      get: (...args: any[]) => preferencesGet(...args),
-      update: (...args: any[]) => preferencesUpdate(...args),
+      get: (payload?: any) => preferencesGet(payload),
+      update: (payload?: any, profile?: any) => preferencesUpdate(payload, profile),
     },
   },
 }))

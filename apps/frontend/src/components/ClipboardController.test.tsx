@@ -18,6 +18,22 @@ vi.mock('@/lib/clipboard-text', () => ({
 vi.mock('@/lib/terminal-selection', () => ({
   requestTerminalSelection: vi.fn(),
 }))
+vi.mock('@/i18n', () => ({
+  useTranslation: () => ({ t: (key: string) => {
+    if (key === 'paste.title') return 'Confirm paste'
+    if (key === 'paste.manualTitle') return 'Paste manually'
+    if (key === 'paste.manualDesc') return 'Paste into box'
+    if (key === 'paste.cancel') return 'Cancel'
+    if (key === 'paste.retryPermission') return 'Retry Permission'
+    if (key === 'paste.escapePaste') return 'Escape Paste'
+    if (key === 'paste.send') return 'Send'
+    if (key === 'clipboard.meta.multiline') return 'multi-line'
+    if (key === 'clipboard.meta.controlChars') return 'control chars'
+    if (key === 'clipboard.meta.appClipboard') return 'app clipboard'
+    if (key === 'clipboard.meta.unavailable') return 'clipboard unavailable'
+    return key
+  } }),
+}))
 
 describe('ClipboardController', () => {
   beforeEach(() => {
