@@ -94,4 +94,26 @@ describe('GitPanel', () => {
     expect(props.commits).toHaveLength(2)
     expect(props.commits.map((commit: { sha: string }) => commit.sha)).toEqual(['a1', 'b2'])
   })
+
+  it('filters invalid dates and unreachable branch heads from history graph data', async () => {
+    useGitLogMock.mockReturnValue({ data: { commits: [
+      { hash: 'a1', shortHash: 'a1', subject: 'first', body: '', author: 'dev', authorEmail: 'dev@test', date: 'invalid-date', parents: [] },
+      { hash: 'b2', shortHash: 'b2', subject: 'second', body: '', author: 'dev', authorEmail: 'dev@test', date: '2024-01-02T00:00:00Z', parents: ['a1', 'a1', 'missing'] },
+      { hash: 'c3', shortHash: 'c3', subject: '', body: '', author: 'dev', authorEmail: 'dev@test', date: '2024-01-03T00:00:00Z', parents: ['b2'] },
+    ], hasMore: false }, isLoading: false })
+    vi.mocked(api.git.diffStats).mockResolvedValue({ files: [] })
+    const hooks = await import('@/hooks/useApi')
+    vi.spyOn(hooks, 'useGitBranches').mockReturnValue({ data: { current: 'ghost', branches: [{ name: 'ghost', current: true, commitHash: 'missing', lastCommitSubject: 'ghost' }, { name: 'main', current: false, commitHash: 'c3', lastCommitSubject: 'third' }, { name: 'main', current: false, commitHash: 'c3', lastCommitSubject: 'duplicate' }] } } as any)
+    const user = userEvent.setup()
+    const queryClient = new QueryClient()
+    render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(I18nProvider, null, React.createElement(GitPanel))))
+    await user.click(screen.getByText('历史'))
+    const props = graphSpy.mock.calls.at(-1)?.[0]
+    expect(props.commits).toEqual([
+      { sha: 'b2', commit: { author: { name: 'dev', date: '2024-01-02T00:00:00Z', email: 'dev@test' }, message: 'second' }, parents: [] },
+      { sha: 'c3', commit: { author: { name: 'dev', date: '2024-01-03T00:00:00Z', email: 'dev@test' }, message: 'c3' }, parents: [{ sha: 'b2' }] },
+    ])
+    expect(props.branchHeads).toEqual([{ name: 'main', commit: { sha: 'c3' } }])
+    expect(props.currentBranch).toBeUndefined()
+  })
 })
