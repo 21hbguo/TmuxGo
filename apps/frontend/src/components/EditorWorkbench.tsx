@@ -137,6 +137,11 @@ function decodeDraggedFile(event: DragEvent | ReactDragEvent) {
     return null
   }
 }
+function hasDraggedFile(event: DragEvent | ReactDragEvent) {
+  const types = event.dataTransfer?.types
+  if (!types) return false
+  return Array.from(types).includes(FILE_DRAG_MIME)
+}
 function getDropPlacement(rect: DOMRect, clientX: number, clientY: number) {
   if (rect.width <= 0 || rect.height <= 0) return 'center'
   const localX = clientX - rect.left
@@ -339,8 +344,9 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
         event.dataTransfer.effectAllowed = 'copy'
         event.dataTransfer.setData(FILE_DRAG_MIME, JSON.stringify({ id: editor.id, hostId: editor.hostId, rootId: editor.rootId, rootLabel: editor.rootLabel, rootPath: editor.rootPath, path: editor.path, name: editor.name, absolutePath: editor.absolutePath } satisfies FileDocumentHandle))
       }} onDragOver={(event) => {
+        if (!hasDraggedFile(event) || editor.kind === 'compare') return
         const dragged = decodeDraggedFile(event)
-        if (!dragged || dragged.id === editor.id || editor.kind === 'compare') return
+        if (dragged && dragged.id === editor.id) return
         event.preventDefault()
         event.dataTransfer.dropEffect = 'move'
       }} onDrop={(event) => {
@@ -360,8 +366,7 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
     </div>
   )
   const renderTabStrip = (editors: FileEditorDocument[], group: 'primary' | 'secondary') => <div data-testid={`editor-group-${group}`} className={`tmuxgo-scrollbar-subtle relative flex min-h-[42px] items-stretch overflow-x-auto border-b border-[var(--line)] bg-bg-1 ${tabDropTarget?.group === group ? 'ring-1 ring-accent/40 ring-inset' : ''}`} onDragOver={(event) => {
-    const dragged = decodeDraggedFile(event)
-    if (!dragged) return
+    if (!hasDraggedFile(event)) return
     event.preventDefault()
     event.dataTransfer.dropEffect = 'move'
     setTabDropTarget({ group, placement: getDropPlacement((event.currentTarget as HTMLDivElement).getBoundingClientRect(), event.clientX, event.clientY) })
@@ -453,8 +458,7 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
         </div>
       </div>
       <div className="relative min-h-0 flex-1 bg-bg-0" onDragOver={(event) => {
-        const dragged = decodeDraggedFile(event)
-        if (!dragged) return
+        if (!hasDraggedFile(event)) return
         event.preventDefault()
         event.dataTransfer.dropEffect = 'copy'
         setDropTarget(getDropPlacement((event.currentTarget as HTMLDivElement).getBoundingClientRect(), event.clientX, event.clientY))

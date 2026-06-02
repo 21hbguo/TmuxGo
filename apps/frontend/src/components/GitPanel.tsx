@@ -6,30 +6,10 @@ import { useGitStatus, useGitStage, useGitUnstage, useGitCommit, useGitDiscard, 
 import { useQueryClient } from '@tanstack/react-query'
 import { ConfirmDialog } from './ConfirmDialog'
 import type { GitFileChange, GitCommitInfo } from '@/types'
-import { CommitGraph } from 'commit-graph'
-import type { CommitNode } from 'commit-graph'
-import { api } from '@/lib/api'
+import { GitHistoryGraph } from './GitHistoryGraph'
+import type { GitGraphBranchHead, GitGraphCommit } from '@/lib/gitGraph'
 
 type GitTab = 'status' | 'history' | 'branches'
-type GitGraphCommit = {
-  sha: string
-  commit: {
-    author: {
-      name: string
-      date: string
-      email?: string
-    }
-    message: string
-  }
-  parents: { sha: string }[]
-}
-type GitBranchHead = {
-  name: string
-  commit: {
-    sha: string
-  }
-}
-
 function isValidGitCommitInfo(commit: GitCommitInfo | null | undefined): commit is GitCommitInfo {
   return !!commit?.hash && !!commit.author && !!commit.date
 }
@@ -42,25 +22,24 @@ function normalizeGitGraphCommits(commits: GitCommitInfo[]) {
   const commitSet = new Set(validCommits.map((commit) => commit.hash))
   return validCommits.map((commit) => ({
     sha: commit.hash,
-    commit: {
-      author: {
-        name: commit.author,
-        date: commit.date,
-        email: commit.authorEmail,
-      },
-      message: commit.subject || commit.hash.slice(0, 7),
+    shortSha: commit.shortHash || commit.hash.slice(0, 7),
+    subject: commit.subject || commit.hash.slice(0, 7),
+    author: {
+      name: commit.author,
+      date: commit.date,
+      email: commit.authorEmail,
     },
     parents: (commit.parents || []).filter((sha, index, arr) => !!sha && commitSet.has(sha) && arr.indexOf(sha) === index).map((sha) => ({ sha })),
   }))
 }
-function normalizeBranchHeads(branches: Array<{ name?: string; commitHash?: string }>, commitSet: Set<string>) {
+function normalizeBranchHeads(branches: Array<{ name?: string; commitHash?: string }>, commitSet: Set<string>): GitGraphBranchHead[] {
   const seen = new Set<string>()
   return branches.filter((branch): branch is { name: string; commitHash: string } => !!branch?.name && !!branch?.commitHash && commitSet.has(branch.commitHash) && !seen.has(branch.name) && !!seen.add(branch.name)).map((branch) => ({
     name: branch.name,
     commit: { sha: branch.commitHash },
   }))
 }
-function normalizeCurrentBranch(currentBranch: string | undefined, branchHeads: GitBranchHead[]) {
+function normalizeCurrentBranch(currentBranch: string | undefined, branchHeads: GitGraphBranchHead[]) {
   if (!currentBranch) return undefined
   return branchHeads.some((branch) => branch.name === currentBranch) ? currentBranch : undefined
 }
@@ -175,12 +154,9 @@ function HistoryTab({ hostId, repoPath, t }: { hostId: string; repoPath: string;
   const commitSet = new Set(commits.map((commit) => commit.sha))
   const branchHeads = normalizeBranchHeads(branchesData?.branches || [], commitSet)
   const currentBranch = normalizeCurrentBranch(branchesData?.current, branchHeads)
-  const getDiff = async (base: string, head: string) => api.git.diffStats(hostId, repoPath, base, head)
-  const getCommitHash = (commit: CommitNode | { sha?: string; hash?: string }) => 'hash' in commit ? commit.hash : commit.sha || ''
-  const openCommitDiff = (commit: CommitNode | { sha?: string; hash?: string; message?: string }) => {
-    const hash = getCommitHash(commit)
-    if (!hash) return
-    const params = new URLSearchParams({ hostId, repoPath, commit: `${hash}^!` })
+  const openCommitDiff = (commit: GitGraphCommit) => {
+    if (!commit.sha) return
+    const params = new URLSearchParams({ hostId, repoPath, commit: `${commit.sha}^!` })
     useConsoleStore.getState().openEditor({
       id: `git-diff?${params.toString()}`,
       hostId,
@@ -188,25 +164,23 @@ function HistoryTab({ hostId, repoPath, t }: { hostId: string; repoPath: string;
       rootLabel: 'Git',
       rootPath: repoPath,
       path: '',
-      name: `${hash.slice(0, 7)} ${commit.message || 'commit diff'}`,
-      absolutePath: `${repoPath}@${hash.slice(0, 7)}`,
+      name: `${commit.shortSha} ${commit.subject || 'commit diff'}`,
+      absolutePath: `${repoPath}@${commit.shortSha}`,
       language: 'diff',
     })
   }
-
   return (
-    <div className="tmuxgo-scrollbar h-full overflow-y-auto">
+    <div className="tmuxgo-scrollbar h-full overflow-y-auto" data-git-history-scroll="1">
       {commits.length === 0 ? <div className="p-3 text-[11px] text-text-3">{t('git.noChanges')}</div> : (
-      <CommitGraph.WithInfiniteScroll
+      <GitHistoryGraph
         commits={commits}
         branchHeads={branchHeads}
-        loadMore={fetchNextPage}
-        hasMore={hasNextPage && !isFetchingNextPage}
+        onLoadMore={fetchNextPage}
+        hasMore={hasNextPage}
+        isFetchingMore={isFetchingNextPage}
         currentBranch={currentBranch}
-        dateFormatFn={formatDate}
-        getDiff={getDiff}
         onCommitClick={openCommitDiff}
-        graphStyle={{ commitSpacing: 36, branchSpacing: 20, nodeRadius: 3, branchColors: ['#3b82f6','#f59e0b','#10b981','#ef4444','#8b5cf6','#ec4899','#06b6d4','#f97316'] }}
+        formatDate={formatDate}
       />
       )}
     </div>
@@ -216,7 +190,8 @@ function HistoryTab({ hostId, repoPath, t }: { hostId: string; repoPath: string;
 function useGitLogPaged(hostId: string, repoPath: string) {
   const [page, setPage] = useState(0)
   const pagesRef = useRef<GitCommitInfo[][]>([])
-  const { data, isLoading } = useGitLog(hostId, repoPath, { limit: 50, skip: page * 50 }, true)
+  const pageSize = 200
+  const { data, isLoading } = useGitLog(hostId, repoPath, { limit: pageSize, skip: page * pageSize }, true)
 
   if (data && data.commits.length > 0) {
     const existing = pagesRef.current[page]
