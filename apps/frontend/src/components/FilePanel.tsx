@@ -121,9 +121,6 @@ function matchesFileTypeFilter(item: { type: 'file' | 'directory' }, fileTypeFil
   if (fileTypeFilter === 'all') return true
   return item.type === fileTypeFilter
 }
-function FileIcon({ type }: { type: 'file' | 'directory' }) {
-  return <span className={type === 'directory' ? 'text-accent' : 'text-text-3'}>{type === 'directory' ? '▸' : '·'}</span>
-}
 function getFileVisual(path: string, type: 'file' | 'directory') {
   if (type === 'directory') return { icon: <FolderFilled className="text-[12px] text-[#dcb67a]" />, tone: 'text-text-1' }
   const lower = path.toLowerCase()
@@ -229,7 +226,6 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   const setFilePanelOpen = useConsoleStore((state) => state.setFilePanelOpen)
   const openUploadDialog = useConsoleStore((state) => state.openUploadDialog)
   const pushToast = useConsoleStore((state) => state.pushToast)
-  const queryClient = useQueryClient()
   const { preferences } = usePreferences()
   const { t } = useTranslation()
   const { prompt, PromptElement } = usePrompt()
@@ -540,10 +536,8 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     pushToast({ type: 'success', message: result.unavailable ? t('file.relativePathCopiedInApp') : t('file.relativePathCopied') })
   }
   const refreshFiles = useCallback(() => {
-    void queryClient.invalidateQueries({ queryKey: ['file-list', fileHostId, activeRootId] })
-    void queryClient.invalidateQueries({ queryKey: ['file-preview', fileHostId, activeRootId] })
-    void queryClient.invalidateQueries({ queryKey: ['file-search', fileHostId, activeRootId] })
-  }, [activeRootId, fileHostId, queryClient])
+    setDirectoryCache(new Map())
+  }, [])
   const startDownload = (item: FileItem | FileContentMatch) => {
     if (item.type !== 'file') {
       pushToast({ type: 'error', message: t('file.onlyFilesDownload') })
