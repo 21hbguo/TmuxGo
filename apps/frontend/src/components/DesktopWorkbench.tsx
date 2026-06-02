@@ -14,8 +14,15 @@ import { useTranslation } from '@/i18n'
 
 const ACTIVITY_BAR_WIDTH = 56
 const SESSION_RAIL_WIDTH = 136
+const IMAGE_EXTENSIONS = new Set(['.avif','.bmp','.gif','.ico','.jpeg','.jpg','.png','.tif','.tiff','.webp'])
 function clampValue(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value))
+}
+function isImagePath(path: string) {
+  const lower = path.toLowerCase()
+  const dot = lower.lastIndexOf('.')
+  if (dot < 0) return false
+  return IMAGE_EXTENSIONS.has(lower.slice(dot))
 }
 function getEditorLanguage(path: string) {
   const name = path.split('/').pop()?.toLowerCase() || ''
@@ -191,6 +198,20 @@ export function DesktopWorkbench() {
     setFilePanelOpen(true)
     const existing = useConsoleStore.getState().openEditors.find((item) => item.id === file.id)
     openEditor({ ...file, language: existing?.language || getEditorLanguage(file.path) })
+    if (isImagePath(file.path)) {
+      setEditorLoaded(file.id, {
+        loading: false,
+        content: '',
+        savedContent: '',
+        modifiedAt: existing?.modifiedAt || '',
+        size: existing?.size || 0,
+        binary: true,
+        truncated: false,
+        problem: undefined,
+        previewUrl: api.files.imageUrl(file.rootId, file.path),
+      })
+      return
+    }
     if (existing && !existing.loading && (!!existing.modifiedAt || !!existing.problem || existing.binary || existing.truncated)) return
     try {
       const result = await api.files.content(file.rootId, file.path)
@@ -203,6 +224,7 @@ export function DesktopWorkbench() {
         binary: result.binary,
         truncated: result.truncated,
         problem: result.reason === 'large-file' ? t('desktop.largePreviewMode') : result.reason === 'binary-file' ? t('desktop.binaryNotEditable') : result.reason === 'directory' ? t('desktop.directoryNotEditable') : undefined,
+        previewUrl: undefined,
       })
     } catch (err) {
       setEditorLoaded(file.id, { loading: false, problem: err instanceof Error ? err.message : t('desktop.openFailed') })

@@ -30,6 +30,9 @@ function getTabSize(language: string) {
   if (language === 'go') return 4
   return 2
 }
+function isImagePreviewable(editor: FileEditorDocument) {
+  return !!editor.previewUrl
+}
 function escapeHtml(value: string) {
   return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;')
 }
@@ -318,7 +321,11 @@ export function EditorWorkbench({ onSaveEditor }:{ onSaveEditor: (editor: FileEd
       <div className="min-h-0 flex-1 bg-bg-0">
         {gitDiff ? (
           <DiffViewer hostId={gitDiff.hostId} repoPath={gitDiff.repoPath} filePath={gitDiff.filePath} staged={gitDiff.staged} commit={gitDiff.commit} />
-        ) : activeEditor.loading ? <div className="flex h-full items-center justify-center text-sm text-text-3">{t('editor.loading', { name: activeEditor.name })}</div> : activeEditor.problem || activeEditor.binary || activeEditor.truncated ? (
+        ) : activeEditor.loading ? <div className="flex h-full items-center justify-center text-sm text-text-3">{t('editor.loading', { name: activeEditor.name })}</div> : isImagePreviewable(activeEditor) ? (
+          <div className="flex h-full items-center justify-center bg-bg-0 p-4">
+            <img src={activeEditor.previewUrl} alt={activeEditor.name} className="max-h-full max-w-full rounded border border-[var(--line)] bg-bg-1 object-contain" />
+          </div>
+        ) : activeEditor.problem || activeEditor.binary || activeEditor.truncated ? (
           <div className="flex h-full items-center justify-center p-6">
             <div className="max-w-xl rounded-lg border border-[var(--line)] bg-bg-1 p-5">
               <div className="text-sm text-text-1">{activeEditor.name}</div>

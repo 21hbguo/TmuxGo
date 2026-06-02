@@ -153,6 +153,7 @@ export interface FileEditorDocument extends FileDocumentHandle {
   binary: boolean
   truncated: boolean
   problem?: string
+  previewUrl?: string
 }
 export interface FileUploadTarget {
   rootId: string

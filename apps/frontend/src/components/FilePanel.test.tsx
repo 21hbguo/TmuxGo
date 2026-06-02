@@ -95,10 +95,9 @@ describe('FilePanel', () => {
     preferencesGet.mockClear()
     preferencesUpdate.mockClear()
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
-      cb(0)
-      return 1
+      return window.setTimeout(() => cb(0), 0)
     })
-    vi.stubGlobal('cancelAnimationFrame', vi.fn())
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => window.clearTimeout(id))
   })
   afterEach(() => {
     vi.unstubAllGlobals()
