@@ -417,6 +417,7 @@ export const en = {
 
   // TerminalPane
   'terminal.dropUpload': 'Drop files to upload',
+  'terminal.linkOpenBlocked': 'Browser blocked the new window. Allow pop-ups and try again.',
 
   // Clipboard
   'clipboard.copyFailed': 'Copy failed',

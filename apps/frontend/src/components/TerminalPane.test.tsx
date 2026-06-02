@@ -11,6 +11,8 @@ let terminalBufferLines: string[] = []
 let terminalBaseY = 0
 let terminalViewportY = 0
 let resizeObserverCallback: (() => void) | null = null
+let terminalLinkProviders: Array<{ provideLinks: (bufferLineNumber: number, callback: (links: any[] | undefined) => void) => void }> = []
+let terminalAddonHandlers: Array<(event: MouseEvent, uri: string) => void> = []
 const terminalMocks = vi.hoisted(() => ({
   write: vi.fn(),
   refresh: vi.fn(),
@@ -68,6 +70,27 @@ const preferenceMocks = vi.hoisted(() => ({
 }))
 const openWindowMock = vi.hoisted(() => vi.fn())
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+async function activateTerminalLink(container: HTMLElement, line: number, column: number, eventInit: MouseEventInit = {}) {
+  const screen = container.querySelector('.xterm-screen') as HTMLElement
+  const providers = [...terminalLinkProviders]
+  for (const provider of providers) {
+    const result = await new Promise<any[] | undefined>((resolve) => provider.provideLinks(line, resolve))
+    const link = result?.find((item) => {
+      const start = Number(item?.range?.start?.x) || 0
+      const end = Number(item?.range?.end?.x) || 0
+      return column >= start && column <= end
+    })
+    if (!link) continue
+    const event = new MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0, ...eventInit })
+    Object.defineProperty(event, 'target', { configurable: true, value: screen })
+    link.activate(event, link.text)
+    return link
+  }
+  return null
+}
+function getTerminalLinks(line: number) {
+  return Promise.all(terminalLinkProviders.map((provider) => new Promise<any[] | undefined>((resolve) => provider.provideLinks(line, resolve)))).then((results) => results.flatMap((item) => item || []))
+}
 
 vi.mock('@/hooks/usePreferences', () => ({
   usePreferences: () => ({
@@ -113,6 +136,7 @@ vi.mock('@xterm/xterm', () => {
     cols = 120
     rows = 36
     element: HTMLDivElement | null = null
+    textarea: HTMLTextAreaElement | null = null
     parser = { registerCsiHandler: vi.fn(() => ({ dispose: vi.fn() })) }
     _core = {
       _renderService: { dimensions: { css: { canvas: { width: 800, height: 600 }, cell: { width: 8, height: 16 } } }, clear: terminalMocks.renderClear },
@@ -145,7 +169,9 @@ vi.mock('@xterm/xterm', () => {
     constructor(options: any) {
       this.options = options
     }
-    loadAddon() {}
+    loadAddon(addon?: { activate?: (terminal: any) => void }) {
+      addon?.activate?.(this)
+    }
     open(container: HTMLDivElement) {
       terminalLifecycleMocks.open()
       this.element = document.createElement('div')
@@ -160,6 +186,7 @@ vi.mock('@xterm/xterm', () => {
       this.element.appendChild(viewport)
       this.element.appendChild(screen)
       const input = document.createElement('textarea')
+      this.textarea = input
       this.element.appendChild(input)
       container.appendChild(this.element)
     }
@@ -204,6 +231,12 @@ vi.mock('@xterm/xterm', () => {
       terminalMocks.write(data)
       callback?.()
     }
+    registerLinkProvider(provider: { provideLinks: (bufferLineNumber: number, callback: (links: any[] | undefined) => void) => void }) {
+      terminalLinkProviders.push(provider)
+      return { dispose: vi.fn(() => {
+        terminalLinkProviders = terminalLinkProviders.filter((item) => item !== provider)
+      }) }
+    }
     dispose() {
       terminalLifecycleMocks.dispose()
     }
@@ -222,7 +255,16 @@ vi.mock('@xterm/addon-canvas', () => ({
   CanvasAddon: class {},
 }))
 vi.mock('@xterm/addon-web-links', () => ({
-  WebLinksAddon: class {},
+  WebLinksAddon: class {
+    handler?: (event: MouseEvent, uri: string) => void
+    constructor(handler?: (event: MouseEvent, uri: string) => void) {
+      this.handler = handler
+    }
+    activate() {
+      if (this.handler) terminalAddonHandlers.push(this.handler)
+    }
+    dispose() {}
+  },
 }))
 vi.mock('@xterm/xterm/css/xterm.css', () => ({}))
 
@@ -236,6 +278,8 @@ describe('TerminalPane', () => {
     terminalBufferLines = []
     terminalBaseY = 0
     terminalViewportY = 0
+    terminalLinkProviders = []
+    terminalAddonHandlers = []
     terminalMocks.write.mockClear()
     terminalMocks.refresh.mockClear()
     terminalMocks.renderClear.mockClear()
@@ -837,20 +881,61 @@ describe('TerminalPane', () => {
     const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(terminalLifecycleMocks.open).toHaveBeenCalled())
     terminalBufferLines = ['visit https://example.com/docs now']
-    const screen = container.querySelector('.xterm-screen') as HTMLElement
-    screen.getBoundingClientRect = vi.fn(() => ({ x: 0, y: 0, left: 0, top: 0, width: 960, height: 576, right: 960, bottom: 576, toJSON: () => ({}) } as DOMRect))
-    fireEvent.click(screen, { button: 0, ctrlKey: true, clientX: 140, clientY: 8 })
+    const initialHref = window.location.href
+    terminalAddonHandlers[0]?.(new MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0, ctrlKey: true }), 'https://example.com/docs')
     await waitFor(() => expect(openWindowMock).toHaveBeenCalledWith('https://example.com/docs', '_blank', 'noopener,noreferrer'))
+    expect(window.location.href).toBe(initialHref)
+  })
+  it('does not navigate current app when browser blocks new window', async () => {
+    openWindowMock.mockReturnValueOnce(null)
+    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(terminalLifecycleMocks.open).toHaveBeenCalled())
+    terminalBufferLines = ['visit https://example.com/docs now']
+    const initialHref = window.location.href
+    terminalAddonHandlers[0]?.(new MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0, ctrlKey: true }), 'https://example.com/docs')
+    await waitFor(() => expect(storeMocks.pushToast).toHaveBeenCalledWith({ type: 'error', message: 'terminal.linkOpenBlocked' }))
+    expect(window.location.href).toBe(initialHref)
   })
   it('opens file path on ctrl click', async () => {
     const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(terminalLifecycleMocks.open).toHaveBeenCalled())
     terminalBufferLines = ['cat ./src/index.ts:12:3']
-    const screen = container.querySelector('.xterm-screen') as HTMLElement
-    screen.getBoundingClientRect = vi.fn(() => ({ x: 0, y: 0, left: 0, top: 0, width: 960, height: 576, right: 960, bottom: 576, toJSON: () => ({}) } as DOMRect))
-    fireEvent.click(screen, { button: 0, ctrlKey: true, clientX: 52, clientY: 8 })
+    await activateTerminalLink(container, 1, 7, { ctrlKey: true })
     await waitFor(() => expect(storeMocks.openEditor).toHaveBeenCalled())
     expect(storeMocks.openEditor.mock.calls[0][0]).toMatchObject({ path: 'src/index.ts', absolutePath: '/workspace/src/index.ts' })
     expect(storeMocks.setFilePanelOpen).toHaveBeenCalledWith(true)
+  })
+  it('opens workspace relative file path with line number on ctrl click', async () => {
+    apiMocks.fileRoots.mockResolvedValue([
+      { id: 'root-home', label: 'home', path: '/home/guo' },
+      { id: 'root-workspace', label: 'workspace', path: '/workspace' },
+    ])
+    apiMocks.defaultUploadTarget.mockResolvedValue({ rootId: 'root-home', rootLabel: 'home', rootPath: '/home/guo', path: 'project/other/TmuxGo', absolutePath: '/home/guo/project/other/TmuxGo', source: 'pane' })
+    apiMocks.filePreview.mockImplementation((async (_hostId: string, rootId: string, path: string) => {
+      if (rootId === 'root-home' && path === 'project/other/TmuxGo/apps/frontend/src/components/TerminalPane.tsx') throw new Error('not found')
+      if (rootId === 'root-workspace' && path === 'apps/frontend/src/components/TerminalPane.tsx') return { path, type: 'file', size: 4096, modifiedAt: '2026-06-02T00:00:00.000Z', binary: false, truncated: false, lines: [] }
+      throw new Error('not found')
+    }) as any)
+    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(terminalLifecycleMocks.open).toHaveBeenCalled())
+    terminalBufferLines = ['apps/frontend/src/components/TerminalPane.tsx:145']
+    await activateTerminalLink(container, 1, 20, { ctrlKey: true })
+    await waitFor(() => expect(storeMocks.openEditor).toHaveBeenCalled())
+    expect(storeMocks.openEditor.mock.calls[0][0]).toMatchObject({
+      rootId: 'root-workspace',
+      path: 'apps/frontend/src/components/TerminalPane.tsx',
+      absolutePath: '/workspace/apps/frontend/src/components/TerminalPane.tsx',
+    })
+    expect(apiMocks.filePreview).toHaveBeenCalledWith('local', 'root-home', 'apps/frontend/src/components/TerminalPane.tsx', 145)
+    expect(apiMocks.filePreview).toHaveBeenCalledWith('local', 'root-workspace', 'apps/frontend/src/components/TerminalPane.tsx', 145)
+  })
+  it('registers file links with underline and pointer cursor decorations', async () => {
+    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(terminalLifecycleMocks.open).toHaveBeenCalled())
+    terminalBufferLines = ['apps/frontend/src/components/TerminalPane.tsx:145']
+    const links = await getTerminalLinks(1)
+    const fileLink = links.find((item) => item.text === 'apps/frontend/src/components/TerminalPane.tsx:145')
+    expect(fileLink).toBeTruthy()
+    expect(fileLink?.decorations).toEqual({ pointerCursor: true, underline: true })
   })
 })
