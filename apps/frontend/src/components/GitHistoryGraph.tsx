@@ -12,6 +12,7 @@ type GitHistoryGraphProps={
   onLoadMore:()=>void
   onCommitClick:(commit:GitGraphCommit)=>void
   formatDate:(date:string|number|Date)=>string
+  formatDateFull:(date:string|number|Date)=>string
 }
 
 const rowHeight=54
@@ -27,7 +28,7 @@ function edgePath(fromX:number,fromY:number,toX:number,toY:number){
   return `M ${fromX} ${fromY} C ${fromX} ${midY} ${toX} ${midY} ${toX} ${toY}`
 }
 
-export function GitHistoryGraph({ commits, branchHeads, currentBranch, hasMore, isFetchingMore, onLoadMore, onCommitClick, formatDate }:GitHistoryGraphProps){
+export function GitHistoryGraph({ commits, branchHeads, currentBranch, hasMore, isFetchingMore, onLoadMore, onCommitClick, formatDate, formatDateFull }:GitHistoryGraphProps){
   const sentinelRef=useRef<HTMLDivElement|null>(null)
   const layout=useMemo(()=>buildGitGraphLayout(commits,branchHeads,currentBranch),[branchHeads,commits,currentBranch])
   const graphWidth=graphPaddingX*2+Math.max(layout.laneCount,1)*laneGap
@@ -53,8 +54,8 @@ export function GitHistoryGraph({ commits, branchHeads, currentBranch, hasMore, 
   })
   const rowNodes=layout.rows.map((row)=>{
     const color=graphColors[row.colorIndex%graphColors.length]
-    const committedLabel=`Commit ${formatDate(row.commit.committedAt)}`
-    const authoredLabel=row.commit.authoredAt!==row.commit.committedAt?`Author ${formatDate(row.commit.authoredAt)}`:''
+    const committedLabel=`Commit ${formatDateFull(row.commit.committedAt)}`
+    const authoredLabel=row.commit.authoredAt!==row.commit.committedAt?`Author ${formatDateFull(row.commit.authoredAt)}`:''
     const tooltipText=[row.commit.subject||row.commit.shortSha,`${row.commit.shortSha} · ${row.commit.author.name}`,committedLabel,authoredLabel].filter(Boolean).join('\n')
     return (
       <button key={row.commit.sha} type="button" title={tooltipText} onClick={()=>onCommitClick(row.commit)} className="flex h-[54px] w-full items-stretch gap-3 px-0 py-0 text-left hover:bg-bg-2">
