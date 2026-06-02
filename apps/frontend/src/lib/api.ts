@@ -171,6 +171,8 @@ export const api = {
       fetchApi<{ ok: boolean; message: string; mode: 'local' | 'key' | 'password' }>(`/api/hosts/${id}/test`, {
         method: 'POST',
       }),
+    githubAuthStatus: (id: string) =>
+      fetchApi<{ ok: boolean; available: boolean; loggedIn: boolean | null }>(`/api/hosts/${encodeURIComponent(id)}/github/auth-status`),
   },
   sessions: {
     list: (hostId: string) => fetchApi<any[]>(`/api/hosts/${hostId}/sessions`),

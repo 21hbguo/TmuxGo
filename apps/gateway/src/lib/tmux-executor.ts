@@ -103,6 +103,10 @@ async function runLocalTmux(args: string[], options: TmuxExecOptions = {}) {
   const { stdout, stderr } = await execFileAsync('tmux', args, { timeout: options.timeoutMs || defaultTimeoutMs, maxBuffer: 8 * 1024 * 1024 })
   return { stdout, stderr }
 }
+async function runLocalShell(command: string, options: TmuxExecOptions = {}) {
+  const { stdout, stderr } = await execFileAsync('sh', ['-lc', command], { timeout: options.timeoutMs || defaultTimeoutMs, maxBuffer: 8 * 1024 * 1024 })
+  return { stdout, stderr }
+}
 async function runRemoteTmux(host: HostRecord, args: string[], options: TmuxExecOptions = {}) {
   await ensureMultiplexDir()
   const remoteCommand = `tmux ${args.map((item) => escapeShellSingleQuoted(item)).join(' ')}`
@@ -110,6 +114,41 @@ async function runRemoteTmux(host: HostRecord, args: string[], options: TmuxExec
   const hasPassword = !!passwordEnv
   const canUseSshPass = hasPassword && await hasSshPass()
   const sshArgs = buildSshArgs(host, remoteCommand, options, canUseSshPass)
+  if (canUseSshPass) {
+    try {
+      const { stdout, stderr } = await execFileAsync('sshpass', ['-e', 'ssh', ...sshArgs], {
+        timeout: options.timeoutMs || defaultTimeoutMs,
+        env: { ...process.env, ...passwordEnv },
+        maxBuffer: 8 * 1024 * 1024,
+      })
+      return { stdout, stderr }
+    } catch (err: any) {
+      const stderr = String(err?.stderr || '')
+      const stdout = String(err?.stdout || '')
+      throw new Error(normalizeErrorMessage(`${stderr}\n${stdout}`, err?.message || 'SSH command failed'))
+    }
+  }
+  if (hasPassword && !canUseSshPass) {
+    throw new Error('SSH password env configured but sshpass is not installed')
+  }
+  try {
+    const { stdout, stderr } = await execFileAsync('ssh', sshArgs, {
+      timeout: options.timeoutMs || defaultTimeoutMs,
+      maxBuffer: 8 * 1024 * 1024,
+    })
+    return { stdout, stderr }
+  } catch (err: any) {
+    const stderr = String(err?.stderr || '')
+    const stdout = String(err?.stdout || '')
+    throw new Error(normalizeErrorMessage(`${stderr}\n${stdout}`, err?.message || 'SSH command failed'))
+  }
+}
+async function runRemoteShell(host: HostRecord, command: string, options: TmuxExecOptions = {}) {
+  await ensureMultiplexDir()
+  const passwordEnv = buildPasswordEnv(host)
+  const hasPassword = !!passwordEnv
+  const canUseSshPass = hasPassword && await hasSshPass()
+  const sshArgs = buildSshArgs(host, `sh -lc ${escapeShellSingleQuoted(command)}`, options, canUseSshPass)
   if (canUseSshPass) {
     try {
       const { stdout, stderr } = await execFileAsync('sshpass', ['-e', 'ssh', ...sshArgs], {
@@ -150,6 +189,19 @@ export async function execTmux(hostIdRaw: string, args: string[], options: TmuxE
     }
   }
   const result = await runRemoteTmux(host, args, options)
+  return { ...result, host }
+}
+export async function execHostShell(hostIdRaw: string, command: string, options: TmuxExecOptions = {}): Promise<TmuxExecResult> {
+  const host = await getResolvedHost(hostIdRaw)
+  if (host.id === 'local') {
+    try {
+      const result = await runLocalShell(command, options)
+      return { ...result, host }
+    } catch (err: any) {
+      throw new Error(normalizeErrorMessage(String(err?.stderr || err?.message || ''), 'shell command failed'))
+    }
+  }
+  const result = await runRemoteShell(host, command, options)
   return { ...result, host }
 }
 function extractErrorSummary(stderr: string, stdout: string, fallback: string) {
