@@ -155,7 +155,7 @@ export function EditorWorkbench({ onSaveEditor }:{ onSaveEditor: (editor: FileEd
   const [cursorById, setCursorById] = useState<Record<string, { line: number; column: number }>>({})
   const [autoScrollIndicator, setAutoScrollIndicator] = useState<{ active: boolean; x: number; y: number }>({ active: false, x: 0, y: 0 })
   const activeEditor = openEditors.find((item) => item.id === activeEditorId) || openEditors[openEditors.length - 1] || null
-  const gitDiff = activeEditor?.id.startsWith('git-diff:') ? parseGitDiffId(activeEditor.id) : null
+  const gitDiff = activeEditor?.id.startsWith('git-diff?') ? parseGitDiffId(activeEditor.id) : null
   const followFilePath = !gitDiff && activeEditor?.absolutePath ? getParentDir(activeEditor.absolutePath) : ''
   const gitMode = activeHostId ? gitByHost[activeHostId]?.mode || 'follow-editor' : 'follow-editor'
   const { data: detectResult } = useGitDetect(activeHostId || '', followFilePath)
