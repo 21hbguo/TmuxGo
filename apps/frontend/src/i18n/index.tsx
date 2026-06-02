@@ -39,7 +39,15 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 export function useTranslation() {
   const ctx = useContext(I18nContext)
   if (!ctx) {
-    return { t: (key: string) => key, language: 'zh' as Language }
+    return { t: ((key: TranslationKey, params?: Record<string, string | number>) => {
+      let text = String(key)
+      if (params) {
+        Object.entries(params).forEach(([k, v]) => {
+          text = text.replace(`{${k}}`, String(v))
+        })
+      }
+      return text
+    }) as I18nContextValue['t'], language: 'zh' as Language }
   }
   return ctx
 }

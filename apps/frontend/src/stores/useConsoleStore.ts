@@ -44,11 +44,6 @@ function writePersistedEditors(openEditors: FileEditorDocument[], activeEditorId
   if (activeEditorId) localStorage.setItem(ACTIVE_EDITOR_STORAGE_KEY, activeEditorId)
   else localStorage.removeItem(ACTIVE_EDITOR_STORAGE_KEY)
 }
-const initialOpenEditors = readPersistedEditors().map(toEditorDocument)
-const initialActiveEditorId = (() => {
-  const id = readPersistedActiveEditorId()
-  return id && initialOpenEditors.some((item) => item.id === id) ? id : initialOpenEditors[initialOpenEditors.length - 1]?.id || null
-})()
 
 interface ConsoleState {
   activeHostId: string | null
@@ -68,6 +63,7 @@ interface ConsoleState {
   terminalPanelHeight: number
   openEditors: FileEditorDocument[]
   activeEditorId: string | null
+  editorsHydrated: boolean
   uploadRequest: { files: File[]; preferredRootId?: string; preferredPath?: string; insertPaths?: boolean } | null
   uploadJobs: UploadJob[]
   toasts: { id: string; type: 'success' | 'error' | 'info'; message: string; durationMs?: number }[]
@@ -88,6 +84,7 @@ interface ConsoleState {
   setSessionPanelWidth: (width: number) => void
   setFilePanelWidth: (width: number) => void
   setTerminalPanelHeight: (height: number) => void
+  hydrateEditorsFromStorage: () => void
   openEditor: (file: FileDocumentHandle & { language: string }) => void
   closeEditor: (id: string) => void
   setActiveEditor: (id: string | null) => void
@@ -134,8 +131,9 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
   sessionPanelWidth: 248,
   filePanelWidth: 300,
   terminalPanelHeight: 300,
-  openEditors: initialOpenEditors,
-  activeEditorId: initialActiveEditorId,
+  openEditors: [],
+  activeEditorId: null,
+  editorsHydrated: false,
   uploadRequest: null,
   uploadJobs: [],
   toasts: [],
@@ -173,6 +171,15 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
   setSessionPanelWidth: (width) => set({ sessionPanelWidth: Math.max(208, Math.min(320, width)) }),
   setFilePanelWidth: (width) => set({ filePanelWidth: Math.max(240, Math.min(380, width)) }),
   setTerminalPanelHeight: (height) => set({ terminalPanelHeight: Math.max(180, Math.min(2000, height)) }),
+  hydrateEditorsFromStorage: () => set((state) => {
+    if (state.editorsHydrated) return state
+    const nextEditors = readPersistedEditors().map(toEditorDocument)
+    const nextActiveEditorId = (() => {
+      const id = readPersistedActiveEditorId()
+      return id && nextEditors.some((item) => item.id === id) ? id : nextEditors[nextEditors.length - 1]?.id || null
+    })()
+    return { openEditors: nextEditors, activeEditorId: nextActiveEditorId, editorsHydrated: true }
+  }),
   openEditor: (file) => set((state) => {
     const existing = state.openEditors.find((item) => item.id === file.id)
     if (existing) {
