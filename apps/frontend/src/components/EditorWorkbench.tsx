@@ -6,6 +6,7 @@ import type { FileDocumentHandle, FileEditorDocument } from '@/types'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useGitDetect } from '@/hooks/useApi'
+import { clearActiveDraggedFile, getActiveDraggedFile, setActiveDraggedFile } from '@/lib/editor-drag'
 import { useTranslation } from '@/i18n'
 import { ConfirmDialog } from './ConfirmDialog'
 import { DiffViewer } from './DiffViewer'
@@ -130,17 +131,17 @@ function parseGitDiffId(id: string) {
 }
 function decodeDraggedFile(event: DragEvent | ReactDragEvent) {
   const raw = event.dataTransfer?.getData(FILE_DRAG_MIME)
-  if (!raw) return null
+  if (!raw) return getActiveDraggedFile()
   try {
     return JSON.parse(raw) as FileDocumentHandle
   } catch {
-    return null
+    return getActiveDraggedFile()
   }
 }
 function hasDraggedFile(event: DragEvent | ReactDragEvent) {
   const types = event.dataTransfer?.types
-  if (!types) return false
-  return Array.from(types).includes(FILE_DRAG_MIME)
+  if (types && (Array.from(types).includes(FILE_DRAG_MIME) || Array.from(types).includes('text/plain'))) return true
+  return !!getActiveDraggedFile()
 }
 function getDropPlacement(rect: DOMRect, clientX: number, clientY: number) {
   if (rect.width <= 0 || rect.height <= 0) return 'center'
@@ -341,8 +342,13 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
     <div key={editor.id} className={`group flex h-[42px] w-44 shrink-0 items-center border-r border-[rgba(255,255,255,0.04)] ${editor.id === activeEditor?.id ? 'bg-bg-0' : 'bg-bg-1/80'}`}>
       <button draggable={editor.kind !== 'compare'} onDragStart={(event) => {
         if (editor.kind === 'compare') return
+        const handle = { id: editor.id, hostId: editor.hostId, rootId: editor.rootId, rootLabel: editor.rootLabel, rootPath: editor.rootPath, path: editor.path, name: editor.name, absolutePath: editor.absolutePath } satisfies FileDocumentHandle
+        setActiveDraggedFile(handle)
         event.dataTransfer.effectAllowed = 'copy'
-        event.dataTransfer.setData(FILE_DRAG_MIME, JSON.stringify({ id: editor.id, hostId: editor.hostId, rootId: editor.rootId, rootLabel: editor.rootLabel, rootPath: editor.rootPath, path: editor.path, name: editor.name, absolutePath: editor.absolutePath } satisfies FileDocumentHandle))
+        event.dataTransfer.setData(FILE_DRAG_MIME, JSON.stringify(handle))
+        event.dataTransfer.setData('text/plain', handle.absolutePath)
+      }} onDragEnd={() => {
+        clearActiveDraggedFile()
       }} onDragOver={(event) => {
         if (!hasDraggedFile(event) || editor.kind === 'compare') return
         const dragged = decodeDraggedFile(event)
@@ -376,6 +382,7 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
     const dragged = decodeDraggedFile(event)
     if (!dragged) return
     event.preventDefault()
+    clearActiveDraggedFile()
     const placement = getDropPlacement((event.currentTarget as HTMLDivElement).getBoundingClientRect(), event.clientX, event.clientY)
     setTabDropTarget(null)
     if (placement === 'center') moveEditorToGroup(dragged.id, group)
@@ -470,6 +477,7 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
         event.preventDefault()
         const placement = getDropPlacement((event.currentTarget as HTMLDivElement).getBoundingClientRect(), event.clientX, event.clientY)
         setDropTarget(null)
+        clearActiveDraggedFile()
         void onOpenFileAtPosition(dragged, placement)
       }}>
         {dropTarget && <div className="pointer-events-none absolute inset-[16px] z-20">

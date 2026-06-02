@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
 import { useGitStatus, useGitStage, useGitUnstage, useGitCommit, useGitDiscard, useGitLog, useGitBranches, useGitCheckout, useGitCreateBranch, useGitDeleteBranch, useGitMerge, useGitFetch, useGitPull, useGitPush } from '@/hooks/useApi'
@@ -192,6 +192,11 @@ function useGitLogPaged(hostId: string, repoPath: string) {
   const pagesRef = useRef<GitCommitInfo[][]>([])
   const pageSize = 200
   const { data, isLoading } = useGitLog(hostId, repoPath, { limit: pageSize, skip: page * pageSize }, true)
+
+  useEffect(() => {
+    pagesRef.current = []
+    setPage(0)
+  }, [hostId, repoPath])
 
   if (data && data.commits.length > 0) {
     const existing = pagesRef.current[page]
