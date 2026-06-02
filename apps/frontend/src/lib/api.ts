@@ -95,8 +95,9 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
 
   const data = await response.json()
   if (data && typeof data === 'object' && 'ok' in data && data.ok === false) {
-    const e = new Error((data as { error?: string }).error || 'Request failed') as Error & { code?: string }
-    e.code = 'REQUEST_FAILED'
+    const body = data as { error?: string; message?: string; code?: string }
+    const e = new Error(body.error || body.message || 'Request failed') as Error & { code?: string }
+    e.code = body.code || 'REQUEST_FAILED'
     throw e
   }
   return data
