@@ -78,8 +78,10 @@ export function buildGitGraphLayout(commits:GitGraphCommit[],branchHeads:GitGrap
     if(lane===-1){
       lane=firstEmptyLane(active,0)
       active[lane]=commit.sha
-      laneColors[lane]??=nextColor
-      if(laneColors[lane]===nextColor) nextColor+=1
+      if(laneColors[lane]===undefined){
+        laneColors[lane]=nextColor
+        nextColor+=1
+      }
     }
     const colorIndex=laneColors[lane]??0
     const rowData={commit,row,lane,colorIndex,branches:(branchMap.get(commit.sha)||[]).slice().sort((a,b)=>{
@@ -103,8 +105,10 @@ export function buildGitGraphLayout(commits:GitGraphCommit[],branchHeads:GitGrap
       if(active.includes(parent)) continue
       const parentLane=firstEmptyLane(active,lane+1)
       active[parentLane]=parent
-      laneColors[parentLane]??=nextColor
-      if(laneColors[parentLane]===nextColor) nextColor+=1
+      if(laneColors[parentLane]===undefined){
+        laneColors[parentLane]=nextColor
+        nextColor+=1
+      }
     }
     trimTrailing(active)
   }

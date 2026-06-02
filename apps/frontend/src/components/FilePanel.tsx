@@ -12,6 +12,7 @@ import type { FavoriteDirectory, FileContentMatch, FileDocumentHandle, FileItem,
 import { writeClipboardText } from '@/lib/clipboard-text'
 import { quoteShellPath } from '@/lib/path-drop'
 import { api } from '@/lib/api'
+import { clearActiveDraggedFile, setActiveDraggedFile } from '@/lib/editor-drag'
 import { useTranslation } from '@/i18n'
 import { usePrompt } from '@/hooks/usePrompt'
 import { ConfirmDialog } from './ConfirmDialog'
@@ -505,9 +506,13 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   const bindFileDrag = (item: FileEntry) => item.type !== 'file' || isMobile ? {} : {
     draggable: true,
     onDragStart: (event: React.DragEvent<HTMLElement>) => {
+      const handle = createFileHandle(item)
+      setActiveDraggedFile(handle)
       event.dataTransfer.effectAllowed = 'copy'
-      event.dataTransfer.setData(FILE_DRAG_MIME, JSON.stringify(createFileHandle(item)))
+      event.dataTransfer.setData(FILE_DRAG_MIME, JSON.stringify(handle))
+      event.dataTransfer.setData('text/plain', handle.absolutePath)
     },
+    onDragEnd: () => clearActiveDraggedFile(),
   }
   const openItem = (item: FileEntry) => {
     if (item.type === 'directory') {
