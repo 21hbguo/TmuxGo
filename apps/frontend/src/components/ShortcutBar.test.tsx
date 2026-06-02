@@ -53,12 +53,55 @@ describe('ShortcutBar', () => {
   it('does not trigger button action while dragging across shortcut bar', () => {
     render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))
     const button = screen.getByRole('button', { name: '聚焦' })
-    fireEvent.pointerDown(button, { pointerId: 1, clientX: 10, clientY: 10 })
+    fireEvent.pointerDown(button, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
     send.mockClear()
-    fireEvent.pointerMove(button, { pointerId: 1, clientX: 28, clientY: 10 })
-    fireEvent.pointerUp(button, { pointerId: 1, clientX: 28, clientY: 10 })
+    fireEvent.pointerMove(button, { pointerId: 1, pointerType: 'touch', clientX: 28, clientY: 10 })
+    fireEvent.pointerUp(button, { pointerId: 1, pointerType: 'touch', clientX: 28, clientY: 10 })
     expect(send).not.toHaveBeenCalled()
     expect(zoomByPane).not.toHaveBeenCalled()
+  })
+  it('does not trigger shortcut when the bar itself scrolls', () => {
+    render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))
+    const bar=document.querySelector('[data-shortcut-bar]') as HTMLDivElement
+    const button=screen.getByRole('button', { name: 'Enter' })
+    fireEvent.pointerDown(button, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
+    bar.scrollLeft=42
+    fireEvent.scroll(bar)
+    fireEvent.pointerUp(button, { pointerId: 1, pointerType: 'touch', clientX: 12, clientY: 10 })
+    expect(send).not.toHaveBeenCalled()
+  })
+  it('waits until touch release before sending non-repeat shortcut data', () => {
+    render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))
+    const button = screen.getByRole('button', { name: 'Enter' })
+    fireEvent.pointerDown(button, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
+    expect(send).not.toHaveBeenCalled()
+    fireEvent.pointerMove(button, { pointerId: 1, pointerType: 'touch', clientX: 26, clientY: 10 })
+    fireEvent.pointerUp(button, { pointerId: 1, pointerType: 'touch', clientX: 26, clientY: 10 })
+    expect(send).not.toHaveBeenCalled()
+  })
+  it('sends a single repeat key on touch tap release', () => {
+    render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))
+    const button = screen.getByRole('button', { name: '↑' })
+    fireEvent.pointerDown(button, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
+    expect(send).not.toHaveBeenCalled()
+    fireEvent.pointerUp(button, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(send).toHaveBeenCalledWith({ type: 'input', data: '\u001b[A' })
+  })
+  it('starts repeating after hold delay on touch', () => {
+    render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))
+    const button = screen.getByRole('button', { name: '↑' })
+    fireEvent.pointerDown(button, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
+    act(() => {
+      vi.advanceTimersByTime(520)
+    })
+    expect(send.mock.calls.length).toBeGreaterThan(1)
+    const beforeRelease = send.mock.calls.length
+    fireEvent.pointerUp(button, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
+    act(() => {
+      vi.advanceTimersByTime(240)
+    })
+    expect(send.mock.calls.length).toBe(beforeRelease)
   })
   it('uses latest active pane from snapshot for zoom', async () => {
     snapshotGet.mockResolvedValue({ windows: [], panes: [{ id: '%2', active: true }], activePaneId: '%2' })
