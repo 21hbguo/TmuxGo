@@ -25,13 +25,15 @@ vi.mock('@/lib/api', () => ({
   },
 }))
 
+const useGitLogMock = vi.fn()
+
 vi.mock('@/hooks/useApi', () => ({
   useGitStatus: () => ({ data: { branch: 'main', ahead: 1, behind: 0, staged: [], unstaged: [], untracked: [], conflicted: [] } }),
   useGitStage: () => ({ mutate: vi.fn() }),
   useGitUnstage: () => ({ mutate: vi.fn() }),
   useGitCommit: () => ({ mutate: vi.fn() }),
   useGitDiscard: () => ({ mutate: vi.fn() }),
-  useGitLog: () => ({ data: { commits: [{ hash: 'a1', shortHash: 'a1', subject: 'first', body: '', author: 'dev', authorEmail: 'dev@test', date: '2024-01-01T00:00:00Z', parents: [] }, { hash: 'b2', shortHash: 'b2', subject: 'second', body: '', author: 'dev', authorEmail: 'dev@test', date: '2024-01-02T00:00:00Z', parents: ['a1'] }], hasMore: false }, isLoading: false }),
+  useGitLog: (...args: any[]) => useGitLogMock(...args),
   useGitBranches: () => ({ data: { current: 'main', branches: [{ name: 'main', current: true, commitHash: 'b2', lastCommitSubject: 'second' }] } }),
   useGitCheckout: () => ({ mutate: vi.fn() }),
   useGitCreateBranch: () => ({ mutate: vi.fn() }),
@@ -45,6 +47,7 @@ vi.mock('@/hooks/useApi', () => ({
 describe('GitPanel', () => {
   beforeEach(() => {
     graphSpy.mockClear()
+    useGitLogMock.mockReturnValue({ data: { commits: [{ hash: 'a1', shortHash: 'a1', subject: 'first', body: '', author: 'dev', authorEmail: 'dev@test', date: '2024-01-01T00:00:00Z', parents: [] }, { hash: 'b2', shortHash: 'b2', subject: 'second', body: '', author: 'dev', authorEmail: 'dev@test', date: '2024-01-02T00:00:00Z', parents: ['a1'] }], hasMore: false }, isLoading: false })
     useConsoleStore.setState({
       activeHostId: 'local',
       gitByHost: {
@@ -78,5 +81,17 @@ describe('GitPanel', () => {
     expect(api.git.diffStats).toHaveBeenCalledWith('local', '/workspace/app', 'a1', 'b2')
     props.onCommitClick({ sha: 'b2', message: 'second' })
     expect(useConsoleStore.getState().openEditors.at(-1)).toMatchObject({ id: expect.stringContaining('git-diff?'), language: 'diff', rootPath: '/workspace/app' })
+  })
+
+  it('ignores invalid commit entries in history data', async () => {
+    useGitLogMock.mockReturnValue({ data: { commits: [null, { shortHash: 'x1', subject: 'broken', body: '', author: '', authorEmail: 'dev@test', date: '', parents: [] }, { hash: 'a1', shortHash: 'a1', subject: 'first', body: '', author: 'dev', authorEmail: 'dev@test', date: '2024-01-01T00:00:00Z', parents: [] }, undefined, { hash: 'b2', shortHash: 'b2', subject: 'second', body: '', author: 'dev', authorEmail: 'dev@test', date: '2024-01-02T00:00:00Z', parents: ['a1'] }] as any, hasMore: false }, isLoading: false })
+    const user = userEvent.setup()
+    const queryClient = new QueryClient()
+    render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(I18nProvider, null, React.createElement(GitPanel))))
+    await user.click(screen.getByText('历史'))
+    expect(screen.getByTestId('commit-graph')).toBeInTheDocument()
+    const props = graphSpy.mock.calls.at(-1)?.[0]
+    expect(props.commits).toHaveLength(2)
+    expect(props.commits.map((commit: { sha: string }) => commit.sha)).toEqual(['a1', 'b2'])
   })
 })

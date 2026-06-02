@@ -14,27 +14,23 @@ const preferencesGet = vi.fn(async () => ({ version: 1, updatedAt: '', customSho
 const preferencesUpdate = vi.fn(async (payload: any) => ({ version: 1, updatedAt: '', customShortcuts: [], customShortcutsUpdatedAt: '', favoriteDirectories: payload.favoriteDirectories || [], favoriteDirectoriesUpdatedAt: payload.favoriteDirectoriesUpdatedAt || '', sessionOrders: [], sessionOrdersUpdatedAt: '', uploadRateLimitKBps: payload.uploadRateLimitKBps || 200, downloadRateLimitKBps: payload.downloadRateLimitKBps || 200 }))
 
 const roots = [
-  { id: 'root-workspace', label: 'Workspace', path: '/workspace' },
   { id: 'root-home', label: 'Home', path: '/home/guo' },
 ]
 const getListData = (rootId: string, currentPath: string) => {
-  if (rootId === 'root-workspace') {
-    if (!currentPath) return { root: roots[0], path: '', breadcrumbs: [{ name: '/', path: '' }], items: [{ name: 'src', path: 'src', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: 'docs', path: 'docs', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: '.env', path: '.env', type: 'file', size: 4, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
+  if (rootId === 'root-home') {
+    if (!currentPath) return { root: roots[0], path: '', breadcrumbs: [{ name: '/', path: '' }], items: [{ name: 'src', path: 'src', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: 'docs', path: 'docs', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: 'project', path: 'project', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: 'downloads', path: 'downloads', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: '.env', path: '.env', type: 'file', size: 4, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
     if (currentPath === 'src') return { root: roots[0], path: 'src', breadcrumbs: [{ name: '/', path: '' }, { name: 'src', path: 'src' }], items: [{ name: 'nested', path: 'src/nested', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: 'index.ts', path: 'src/index.ts', type: 'file', size: 12, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
     if (currentPath === 'src/nested') return { root: roots[0], path: 'src/nested', breadcrumbs: [{ name: '/', path: '' }, { name: 'src', path: 'src' }, { name: 'nested', path: 'src/nested' }], items: [{ name: 'deep.ts', path: 'src/nested/deep.ts', type: 'file', size: 7, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
     if (currentPath === 'docs') return { root: roots[0], path: 'docs', breadcrumbs: [{ name: '/', path: '' }, { name: 'docs', path: 'docs' }], items: [{ name: 'guide.md', path: 'docs/guide.md', type: 'file', size: 16, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
-  }
-  if (rootId === 'root-home') {
-    if (!currentPath) return { root: roots[1], path: '', breadcrumbs: [{ name: '/', path: '' }], items: [{ name: 'project', path: 'project', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: 'downloads', path: 'downloads', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
-    if (currentPath === 'project') return { root: roots[1], path: 'project', breadcrumbs: [{ name: '/', path: '' }, { name: 'project', path: 'project' }], items: [{ name: 'demo.txt', path: 'project/demo.txt', type: 'file', size: 8, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
-    if (currentPath === 'downloads') return { root: roots[1], path: 'downloads', breadcrumbs: [{ name: '/', path: '' }, { name: 'downloads', path: 'downloads' }], items: [{ name: 'archive.zip', path: 'downloads/archive.zip', type: 'file', size: 32, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
+    if (currentPath === 'project') return { root: roots[0], path: 'project', breadcrumbs: [{ name: '/', path: '' }, { name: 'project', path: 'project' }], items: [{ name: 'demo.txt', path: 'project/demo.txt', type: 'file', size: 8, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
+    if (currentPath === 'downloads') return { root: roots[0], path: 'downloads', breadcrumbs: [{ name: '/', path: '' }, { name: 'downloads', path: 'downloads' }], items: [{ name: 'archive.zip', path: 'downloads/archive.zip', type: 'file', size: 32, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: 'photo.png', path: 'downloads/photo.png', type: 'file', size: 48, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
   }
   return { root: roots.find((item) => item.id === rootId) || roots[0], path: currentPath, breadcrumbs: [{ name: '/', path: '' }], items: [] }
 }
 
 vi.mock('@/stores/useConsoleStore', () => ({
   useConsoleStore: ((selector?: any) => {
-    const state = { filePanelWidth: 360, setFilePanelWidth, setFilePanelOpen, pushToast }
+    const state = { activeHostId: 'local', filePanelWidth: 360, setFilePanelWidth, setFilePanelOpen, pushToast }
     return typeof selector === 'function' ? selector(state) : state
   }) as any,
 }))
@@ -43,12 +39,12 @@ vi.mock('@tanstack/react-query', () => ({
 }))
 vi.mock('@/hooks/useApi', () => ({
   useFileRoots: () => ({ data: roots }),
-  useFileList: (nextRootId: string, nextCurrentPath: string, enabled = true) => {
+  useFileList: (_hostId: string, nextRootId: string, nextCurrentPath: string, enabled = true) => {
     if (!enabled) return { data: undefined, isLoading: false }
-    return { data: getListData(nextRootId || 'root-workspace', nextCurrentPath), isLoading: false }
+    return { data: getListData(nextRootId || 'root-home', nextCurrentPath), isLoading: false }
   },
-  useFilePreview: (_rootId: string, path: string, line = 1) => ({ data: path ? { path, type: 'file', size: 32, modifiedAt: '2026-05-26T00:00:00.000Z', binary: false, truncated: false, lines: [{ number: line, content: `line-${line}` }] } : null }),
-  useFileSearch: (_rootId: string, mode: string, query: string, basePath = '') => {
+  useFilePreview: (_hostId: string, _rootId: string, path: string, line = 1) => ({ data: path ? path.endsWith('.png') ? { path, type: 'file', size: 48, modifiedAt: '2026-05-26T00:00:00.000Z', binary: true, truncated: false, reason: 'binary-file', lines: [] } : { path, type: 'file', size: 32, modifiedAt: '2026-05-26T00:00:00.000Z', binary: false, truncated: false, lines: [{ number: line, content: `line-${line}` }] } : null }),
+  useFileSearch: (_hostId: string, _rootId: string, mode: string, query: string, basePath = '') => {
     if (mode === 'content' && query === 'needle') return { data: [{ name: 'guide.md', path: 'docs/guide.md', type: 'file', size: 16, modifiedAt: '2026-05-26T00:00:00.000Z', matches: [{ number: 42, content: 'needle here' }] }], isFetching: false }
     if (query === 'docs' && !basePath) return { data: [{ name: 'docs', path: 'docs', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }], isFetching: false }
     if (query === 'project' && !basePath) return { data: [{ name: 'project', path: 'project', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }], isFetching: false }
@@ -66,6 +62,7 @@ vi.mock('@/lib/api', () => ({
       rename: vi.fn(async () => ({ ok: true, item: { path: 'renamed.txt' } })),
       remove: vi.fn(async () => ({ ok: true })),
       downloadUrl: vi.fn(() => '/api/files/download'),
+      imageUrl: vi.fn(() => '/api/files/image'),
     },
     preferences: {
       get: (...args: any[]) => preferencesGet(...args),
@@ -107,18 +104,18 @@ describe('FilePanel', () => {
     vi.unstubAllGlobals()
   })
 
-  it('shows workspace and home quick access roots', async () => {
+  it('shows home as the default quick access root', async () => {
     render(React.createElement(FilePanel))
-    expect(await screen.findByRole('button', { name: 'Workspace' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Home' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Home' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Workspace' })).not.toBeInTheDocument()
   })
 
   it('expands and collapses directories on desktop', async () => {
     render(React.createElement(FilePanel))
     expect(screen.queryByText('index.ts')).not.toBeInTheDocument()
-    fireEvent.click((await screen.findByText('src')).closest('button') as HTMLButtonElement)
+    fireEvent.click(await screen.findByText('src'))
     expect(await screen.findByText('index.ts')).toBeInTheDocument()
-    fireEvent.click((await screen.findByText('src')).closest('button') as HTMLButtonElement)
+    fireEvent.click(await screen.findByText('src'))
     await waitFor(() => expect(screen.queryByText('index.ts')).not.toBeInTheDocument())
   })
 
@@ -126,7 +123,7 @@ describe('FilePanel', () => {
     render(React.createElement(FilePanel))
     fireEvent.click(screen.getByRole('button', { name: 'Favorite src' }))
     let favorites = JSON.parse(localStorage.getItem('tmuxgo-favorite-directories') || '[]')
-    expect(favorites.map((item: any) => `${item.rootId}:${item.path}`)).toEqual(['root-workspace:src'])
+    expect(favorites.map((item: any) => `${item.rootId}:${item.path}`)).toEqual(['root-home:src'])
     fireEvent.click(screen.getByRole('button', { name: 'Unfavorite src' }))
     favorites = JSON.parse(localStorage.getItem('tmuxgo-favorite-directories') || '[]')
     expect(favorites).toEqual([])
@@ -162,16 +159,24 @@ describe('FilePanel', () => {
       absolutePath: '/home/guo/project/demo.txt',
     })
   })
+  it('previews images in panel instead of opening editor', async () => {
+    const onOpenFile = vi.fn()
+    render(React.createElement(FilePanel, { onOpenFile }))
+    fireEvent.click(await screen.findByText('downloads'))
+    fireEvent.click(await screen.findByText('photo.png'))
+    expect(onOpenFile).not.toHaveBeenCalled()
+    expect(await screen.findByAltText('downloads/photo.png')).toBeInTheDocument()
+  })
   it('copies file path from favorite root with full absolute path', async () => {
     localStorage.setItem('tmuxgo-favorite-directories', JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]))
     render(React.createElement(FilePanel))
     await screen.findByRole('option', { name: 'project' })
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'favorite:root-home:project' } })
     fireEvent.contextMenu(await screen.findByText('demo.txt'))
-    fireEvent.click(await screen.findByRole('button', { name: 'Copy path' }))
+    fireEvent.click(await screen.findByText('Copy path'))
     expect(clipboardMocks.writeClipboardText).toHaveBeenCalledWith('/home/guo/project/demo.txt')
   })
-  it('removes selected favorite root from header without affecting workspace and home', async () => {
+  it('removes selected favorite root from header without affecting home', async () => {
     localStorage.setItem('tmuxgo-favorite-directories', JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]))
     render(React.createElement(FilePanel))
     await screen.findByRole('option', { name: 'project' })
@@ -179,7 +184,6 @@ describe('FilePanel', () => {
     const removeBtn = await screen.findByRole('button', { name: 'Unfavorite' })
     fireEvent.click(removeBtn)
     await waitFor(() => expect(screen.queryByRole('option', { name: 'project' })).not.toBeInTheDocument())
-    expect(screen.getByRole('button', { name: 'Workspace' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Home' })).toBeInTheDocument()
     const favorites = JSON.parse(localStorage.getItem('tmuxgo-favorite-directories') || '[]')
     expect(favorites).toEqual([])
@@ -190,7 +194,7 @@ describe('FilePanel', () => {
     const input = screen.getByPlaceholderText('Search file names') as HTMLInputElement
     fireEvent.change(input, { target: { value: 'docs' } })
     expect(screen.queryByText('guide.md')).not.toBeInTheDocument()
-    fireEvent.click((await screen.findByText('docs')).closest('button') as HTMLButtonElement)
+    fireEvent.click(await screen.findByText('docs'))
     await waitFor(() => expect(screen.getByText('guide.md')).toBeInTheDocument())
     expect(input.value).toBe('docs')
     expect(screen.getByRole('button', { name: '/' })).toBeInTheDocument()

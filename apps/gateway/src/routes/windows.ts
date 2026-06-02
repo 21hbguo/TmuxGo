@@ -233,7 +233,7 @@ export async function windowRoutes(fastify: FastifyInstance) {
     assertSessionAllowed(sessionName)
     try {
       const flag = direction === 'horizontal' ? '-h' : '-v'
-      await execTmux(hostId, ['split-window', '-t', `${sessionName}:${windowIndex}`, flag])
+      await execTmux(hostId, ['split-window', '-c', '#{pane_current_path}', '-t', `${sessionName}:${windowIndex}`, flag])
       const panes = await getTmuxPanes(hostId, sessionName, windowIndex)
       return panes[panes.length - 1]
     } catch (err: any) {

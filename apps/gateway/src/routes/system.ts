@@ -67,14 +67,52 @@ async function getDisk(): Promise<{ mount: string; used: number; total: number }
   return []
 }
 
+function safeNumber(value: unknown) {
+  const num = Number(value)
+  return Number.isFinite(num) ? num : 0
+}
+
+function getSafeStreamMetrics() {
+  return {
+    outputBytes: safeNumber(streamPerfMetrics.outputBytes),
+    outputChunks: safeNumber(streamPerfMetrics.outputChunks),
+    outputFlushes: safeNumber(streamPerfMetrics.outputFlushes),
+    sanitizeCalls: safeNumber(streamPerfMetrics.sanitizeCalls),
+    sanitizeChars: safeNumber(streamPerfMetrics.sanitizeChars),
+    attachRequests: safeNumber(streamPerfMetrics.attachRequests),
+    resizeRequests: safeNumber(streamPerfMetrics.resizeRequests),
+    paneScrollRequests: safeNumber(streamPerfMetrics.paneScrollRequests),
+    copyModeCancelRequests: safeNumber(streamPerfMetrics.copyModeCancelRequests),
+    inputMessages: safeNumber(streamPerfMetrics.inputMessages),
+    backpressureSignals: safeNumber(streamPerfMetrics.backpressureSignals),
+    profileUpdates: safeNumber(streamPerfMetrics.profileUpdates),
+    deferredFlushes: safeNumber(streamPerfMetrics.deferredFlushes),
+    socketBufferedBytes: safeNumber(streamPerfMetrics.socketBufferedBytes),
+    activeClients: safeNumber(streamPerfMetrics.activeClients),
+    activeProfile: streamPerfMetrics.activeProfile === 'background' || streamPerfMetrics.activeProfile === 'mobile' ? streamPerfMetrics.activeProfile : 'foreground',
+    activeFlushInterval: safeNumber(streamPerfMetrics.activeFlushInterval),
+    activeMaxChars: safeNumber(streamPerfMetrics.activeMaxChars),
+  }
+}
+
 export async function systemRoutes(fastify: FastifyInstance) {
   fastify.get('/system', async () => {
-    const [gpu, cpu, mem, disk] = await Promise.all([
-      getGpuInfo(),
-      getCpuUsage(),
-      getMemory(),
-      getDisk(),
-    ])
-    return { gpu, cpu, mem, disks: disk, stream: streamPerfMetrics }
+    try {
+      const [gpu, cpu, mem, disk] = await Promise.all([
+        getGpuInfo(),
+        getCpuUsage(),
+        getMemory(),
+        getDisk(),
+      ])
+      return { gpu, cpu, mem, disks: disk, stream: getSafeStreamMetrics() }
+    } catch {
+      return {
+        gpu: null,
+        cpu: 0,
+        mem: { used: 0, total: 0 },
+        disks: [],
+        stream: getSafeStreamMetrics(),
+      }
+    }
   })
 }

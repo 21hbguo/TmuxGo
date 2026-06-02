@@ -7,7 +7,7 @@ export function getApiBase() {
   }
   const envBase=process.env.NEXT_PUBLIC_API_URL
   if (envBase) return envBase
-  return 'http://127.0.0.1:3002'
+  return 'http://127.0.0.1:3001'
 }
 export function getWebSocketBase() {
   if (typeof window!=='undefined') {

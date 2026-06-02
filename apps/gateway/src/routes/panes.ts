@@ -28,7 +28,7 @@ export async function paneRoutes(fastify: FastifyInstance) {
       const { hostId, tmuxPaneId } = parsePaneId(paneId)
       if (hostId === 'local') await assertTargetAllowed(tmuxPaneId)
       const flag = direction === 'horizontal' ? '-h' : '-v'
-      await execTmux(hostId, ['split-window', '-t', tmuxPaneId, flag])
+      await execTmux(hostId, ['split-window', '-c', '#{pane_current_path}', '-t', tmuxPaneId, flag])
       return { ok: true }
     } catch (err: any) {
       return { ok: false, error: err.message }

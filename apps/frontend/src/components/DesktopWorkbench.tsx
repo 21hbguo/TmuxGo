@@ -95,9 +95,9 @@ export function DesktopWorkbench() {
   const gitPanelMax = 400
   const renderedGitPanelWidth = clampValue(previewGitWidth ?? gitPanelWidth, gitPanelMin, gitPanelMax)
   const filePanelAvailable = viewportWidth - leftWidth - (gitPanelOpen ? renderedGitPanelWidth : 0) - minWorkspaceWidth
-  const filePanelMaxBase = clampValue(Math.floor(viewportWidth * 0.28), 260, 380)
-  const filePanelMax = clampValue(Math.min(filePanelMaxBase, filePanelAvailable), 260, filePanelMaxBase)
-  const filePanelMin = clampValue(Math.floor(viewportWidth * 0.2), 240, Math.min(300, filePanelMax))
+  const filePanelMaxBase = clampValue(Math.floor(viewportWidth * 0.36), 320, 520)
+  const filePanelMax = clampValue(Math.min(filePanelMaxBase, filePanelAvailable), 240, filePanelMaxBase)
+  const filePanelMin = clampValue(Math.floor(viewportWidth * 0.16), 200, Math.min(320, filePanelMax))
   const renderedFilePanelWidth = clampValue(previewFileWidth ?? filePanelWidth, filePanelMin, filePanelMax)
   const terminalMinHeight = clampValue(Math.floor(viewportHeight * 0.22), 150, 220)
   const terminalInlineMaxHeight = clampValue(Math.floor(viewportHeight * 0.58), terminalMinHeight, 760)

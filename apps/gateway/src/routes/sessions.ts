@@ -194,7 +194,7 @@ async function applyTemplateLayout(hostId: string, sessionName: string, layout: 
     const { windowTarget, panes } = windowDef
     const paneBaseIndex = i === 0 ? await getFirstPaneIndex(hostId, firstWindowTarget) : await getFirstPaneIndex(hostId, windowTarget)
     for (let p = 1; p < panes.length; p++) {
-      await execTmux(hostId, ['split-window', '-t', windowTarget, splitFlag])
+      await execTmux(hostId, ['split-window', '-c', '#{pane_current_path}', '-t', windowTarget, splitFlag])
     }
     await execTmux(hostId, ['select-layout', '-t', windowTarget, layoutPreset])
     for (let p = 0; p < panes.length; p++) {
