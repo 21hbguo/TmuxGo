@@ -1,5 +1,5 @@
 import { getApiBase } from './runtime-endpoints'
-import type { CustomShortcut, FavoriteDirectory, FavoriteItem, FileContentMatch, FileContentResponse, FileItem, FileListResponse, FilePreviewResponse, FileRoot, FileUploadTarget, GitBranchesResponse, GitCommitResponse, GitDetectResponse, GitDiffResponse, GitDiffStatsResponse, GitLogResponse, GitMergeResponse, GitStatusResponse, RemotePreferences, SessionContinuityConfig, SessionLayout, SessionOrderPreference, Snippet, UiPreferences, UploadJobResult, UploadedFile } from '@/types'
+import type { CustomShortcut, FavoriteDirectory, FavoriteItem, FileContentMatch, FileContentResponse, FileItem, FileListResponse, FilePreviewResponse, FileRoot, FileUploadTarget, GitBranchesResponse, GitCommitResponse, GitDetectResponse, GitDiffResponse, GitDiffStatsResponse, GitHostState, GitLogResponse, GitMergeResponse, GitStatusResponse, RemotePreferences, SessionContinuityConfig, SessionLayout, SessionOrderPreference, Snippet, UiPreferences, UploadJobResult, UploadedFile } from '@/types'
 
 export interface StreamSystemInfo {
   outputBytes: number
@@ -300,7 +300,7 @@ export const api = {
   },
   preferences: {
     get: (profile = 'default') => fetchApi<RemotePreferences>(`/api/preferences?profile=${encodeURIComponent(profile)}`),
-    update: (payload: { customShortcuts?: CustomShortcut[]; customShortcutsUpdatedAt?: string; favoriteDirectories?: FavoriteDirectory[]; favoriteDirectoriesUpdatedAt?: string; sessionOrders?: SessionOrderPreference[]; sessionOrdersUpdatedAt?: string; snippets?: Snippet[]; snippetsUpdatedAt?: string; favorites?: FavoriteItem[]; favoritesUpdatedAt?: string; sessionContinuity?: SessionContinuityConfig; sessionContinuityUpdatedAt?: string; uiPreferences?: UiPreferences; uiPreferencesUpdatedAt?: string; uploadRateLimitKBps?: number; downloadRateLimitKBps?: number }, profile = 'default') =>
+    update: (payload: { customShortcuts?: CustomShortcut[]; customShortcutsUpdatedAt?: string; favoriteDirectories?: FavoriteDirectory[]; favoriteDirectoriesUpdatedAt?: string; sessionOrders?: SessionOrderPreference[]; sessionOrdersUpdatedAt?: string; snippets?: Snippet[]; snippetsUpdatedAt?: string; favorites?: FavoriteItem[]; favoritesUpdatedAt?: string; sessionContinuity?: SessionContinuityConfig; sessionContinuityUpdatedAt?: string; gitByHost?: Record<string, GitHostState>; gitByHostUpdatedAt?: string; uiPreferences?: UiPreferences; uiPreferencesUpdatedAt?: string; uploadRateLimitKBps?: number; downloadRateLimitKBps?: number }, profile = 'default') =>
       fetchApi<RemotePreferences>(`/api/preferences?profile=${encodeURIComponent(profile)}`, {
         method: 'PUT',
         body: JSON.stringify(payload),

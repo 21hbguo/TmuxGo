@@ -305,7 +305,7 @@ describe('FilePanel', () => {
     expect(await screen.findByText('src')).toBeInTheDocument()
     expect(screen.queryByText('.env')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'File' }))
-    expect(screen.queryByText('src')).not.toBeInTheDocument()
+    expect(await screen.findByText('src')).toBeInTheDocument()
     expect(screen.queryByText('.env')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Dotfiles' }))
     expect(await screen.findByText('.env')).toBeInTheDocument()

@@ -279,6 +279,8 @@ export interface RemotePreferences {
   favoritesUpdatedAt: string
   sessionContinuity: SessionContinuityConfig
   sessionContinuityUpdatedAt: string
+  gitByHost: Record<string, GitHostState>
+  gitByHostUpdatedAt: string
   uiPreferences: UiPreferences
   uiPreferencesUpdatedAt: string
   uploadRateLimitKBps: number

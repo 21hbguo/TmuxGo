@@ -62,6 +62,8 @@ describe('EditorWorkbench', () => {
         kind: 'file',
       }],
       activeEditorId: 'editor-1',
+      editorPrimaryGroupIds: ['editor-1'],
+      editorSecondaryGroupIds: [],
       editorPrimaryId: 'editor-1',
       editorSecondaryId: null,
       editorSplitDirection: null,
@@ -121,13 +123,45 @@ describe('EditorWorkbench', () => {
     vi.advanceTimersByTime(32)
     await vi.waitFor(() => expect(setScrollTop).toHaveBeenCalled())
   })
-  it('creates compare when dropping a file onto an editor tab', () => {
-    const onCreateCompare = vi.fn(async () => {})
+  it('moves a dragged tab into the secondary group', () => {
     render(React.createElement(EditorWorkbench, {
       onSaveEditor: vi.fn(async () => {}),
       onOpenFile: vi.fn(async (file) => file.id),
-      onCreateCompare,
+      onCreateCompare: vi.fn(async () => {}),
     }))
+    useConsoleStore.setState({
+      openEditors: [
+        ...useConsoleStore.getState().openEditors,
+        {
+          id: 'editor-2',
+          hostId: 'local',
+          rootId: 'root-workspace',
+          rootLabel: 'Workspace',
+          rootPath: '/workspace',
+          path: 'src/other.ts',
+          name: 'other.ts',
+          absolutePath: '/workspace/src/other.ts',
+          language: 'typescript',
+          content: 'const value=2',
+          savedContent: 'const value=2',
+          modifiedAt: '',
+          size: 13,
+          dirty: false,
+          loading: false,
+          saving: false,
+          binary: false,
+          truncated: false,
+          kind: 'file',
+        },
+      ],
+      activeEditorId: 'editor-2',
+      editorPrimaryGroupIds: ['editor-1'],
+      editorSecondaryGroupIds: ['editor-2'],
+      editorPrimaryId: 'editor-1',
+      editorSecondaryId: 'editor-2',
+      editorSplitDirection: 'horizontal',
+      activeEditorSlot: 'secondary',
+    } as any)
     const button = screen.getByRole('button', { name: /index\.ts/i })
     const dataTransfer = createDataTransfer({
       'application/x-tmuxgo-file': JSON.stringify({
@@ -142,7 +176,8 @@ describe('EditorWorkbench', () => {
       }),
     })
     fireEvent.drop(button, { dataTransfer })
-    expect(onCreateCompare).toHaveBeenCalledWith(expect.objectContaining({ id: 'editor-2', name: 'other.ts' }), 'editor-1')
+    expect(useConsoleStore.getState().editorPrimaryGroupIds).toEqual(['editor-2', 'editor-1'])
+    expect(useConsoleStore.getState().editorSecondaryGroupIds).toEqual([])
   })
   it('opens a dropped file in the editor area', () => {
     const onOpenFile = vi.fn(async (file) => file.id)
@@ -221,6 +256,8 @@ describe('EditorWorkbench', () => {
         },
       ],
       activeEditorId: 'editor-2',
+      editorPrimaryGroupIds: ['editor-1'],
+      editorSecondaryGroupIds: ['editor-2'],
       editorPrimaryId: 'editor-1',
       editorSecondaryId: 'editor-2',
       editorSplitDirection: 'horizontal',
@@ -279,6 +316,11 @@ describe('EditorWorkbench', () => {
         },
       ],
       activeEditorId: 'compare:editor-1::editor-2',
+      editorPrimaryGroupIds: ['editor-1', 'editor-2', 'compare:editor-1::editor-2'],
+      editorSecondaryGroupIds: [],
+      editorPrimaryId: 'compare:editor-1::editor-2',
+      editorSecondaryId: null,
+      editorSplitDirection: null,
     } as any)
     renderWorkbench()
     await vi.waitFor(() => expect(screen.getByTestId('diff-editor')).toBeInTheDocument())
