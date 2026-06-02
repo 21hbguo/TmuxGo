@@ -12,15 +12,21 @@ export function TerminalDock({ fill=false,minHeight=180,maxHeight=540,dragViewpo
   const terminalPanelHeight = useConsoleStore((state) => state.terminalPanelHeight)
   const setTerminalPanelHeight = useConsoleStore((state) => state.setTerminalPanelHeight)
   const { t } = useTranslation()
+  const panelRef = useRef<HTMLElement>(null)
   const resizingRef = useRef(false)
   const pendingHeightRef = useRef(terminalPanelHeight)
   const frameRef = useRef<number | null>(null)
   const [previewHeight,setPreviewHeight] = useState<number | null>(null)
+  const getResizeHeight = (clientY: number) => {
+    const bottom = panelRef.current?.getBoundingClientRect().bottom
+    if (bottom && Number.isFinite(bottom)) return clampValue(bottom-clientY,minHeight,maxHeight)
+    return clampValue((dragViewportHeight || window.innerHeight)-clientY-28,minHeight,maxHeight)
+  }
   useEffect(() => {
     if (fill) return
     const handleMove = (event: MouseEvent) => {
       if (!resizingRef.current) return
-      pendingHeightRef.current = clampValue((dragViewportHeight || window.innerHeight) - event.clientY - 28, minHeight, maxHeight)
+      pendingHeightRef.current = getResizeHeight(event.clientY)
       if (frameRef.current) return
       frameRef.current = requestAnimationFrame(() => {
         frameRef.current = null
@@ -66,7 +72,7 @@ export function TerminalDock({ fill=false,minHeight=180,maxHeight=540,dragViewpo
     setTerminalPanelHeight(maxHeight)
   }
   return (
-    <section className={`bg-bg-1 ${fill ? 'relative flex h-full min-h-0 flex-1 flex-col' : 'relative shrink-0 border-t border-[var(--line)]'}`} style={fill ? undefined : { height: panelHeight }}>
+    <section ref={panelRef} className={`bg-bg-1 ${fill ? 'relative flex h-full min-h-0 flex-1 flex-col' : 'relative shrink-0 border-t border-[var(--line)]'}`} style={fill ? undefined : { height: panelHeight }}>
       {!fill && <div className="absolute left-0 right-0 top-0 z-10 h-1 cursor-row-resize hover:bg-accent/50" onMouseDown={handleMouseDown} onDoubleClick={handleDoubleClick} />}
       <div className="flex h-full min-h-0 flex-col">
         <div className="flex items-center justify-between border-b border-[var(--line)] px-3 py-2">
