@@ -1,6 +1,6 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import React from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EditorWorkbench } from './EditorWorkbench'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 
@@ -8,7 +8,10 @@ const setScrollTop = vi.fn()
 const getScrollTop = vi.fn(() => 0)
 vi.mock('@monaco-editor/react', () => ({
   default: ({ value, onChange, onMount }: any) => {
+    const mountedRef = React.useRef(false)
     React.useEffect(() => {
+      if (mountedRef.current) return
+      mountedRef.current = true
       onMount?.({ getScrollTop, setScrollTop, onDidChangeCursorPosition: vi.fn(() => ({ dispose: vi.fn() })), getAction: vi.fn(() => ({ run: vi.fn() })), getPosition: vi.fn(() => ({ lineNumber: 1, column: 1 })) })
     }, [onMount])
     return React.createElement('textarea', { 'aria-label': 'editor', value, onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => onChange?.(event.target.value) })
@@ -23,6 +26,8 @@ vi.mock('@/hooks/useApi', () => ({
 
 describe('EditorWorkbench', () => {
   beforeEach(() => {
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => window.setTimeout(() => cb(0), 0))
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => window.clearTimeout(id))
     useConsoleStore.setState({
       openEditors: [{
         id: 'editor-1',
@@ -48,6 +53,10 @@ describe('EditorWorkbench', () => {
     } as any)
     setScrollTop.mockClear()
     getScrollTop.mockClear()
+  })
+  afterEach(() => {
+    cleanup()
+    vi.unstubAllGlobals()
   })
 
   it('closes the active editor on ctrl+w', () => {
