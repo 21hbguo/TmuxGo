@@ -40,6 +40,7 @@ function recordMobileDebug(event: string, data?: Record<string, unknown>) {
 export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boolean }) {
   const activeHostId = useConsoleStore((s) => s.activeHostId)
   const activeSessionId = useConsoleStore((s) => s.activeSessionId)
+  const setActivePane = useConsoleStore((s) => s.setActivePane)
   const showCommandPalette = useConsoleStore((s) => s.showCommandPalette)
   const setCommandPalette = useConsoleStore((s) => s.setCommandPalette)
   const setActiveHost = useConsoleStore((s) => s.setActiveHost)
@@ -282,6 +283,11 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       setActiveSession(continuitySessionExists && continuityPoint ? continuityPoint.sessionId : persistedSessionExists && persistedSession ? persistedSession : fallback)
     }
   }, [sessionsData, sessionsFetched, activeSessionId, activeHostId, setActiveSession, sessionContinuity])
+  useEffect(() => {
+    if (!activeHostId || !activeSessionId || !snapshotData) return
+    const paneId = snapshotData.activePaneId || snapshotData.panes?.find?.((pane: any) => pane.active)?.id || null
+    setActivePane(paneId)
+  }, [activeHostId, activeSessionId, setActivePane, snapshotData])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

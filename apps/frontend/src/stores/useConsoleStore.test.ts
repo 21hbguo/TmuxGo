@@ -11,6 +11,21 @@ const sampleEditor = {
   absolutePath: '/workspace/src/index.ts',
   language: 'typescript',
 }
+function createEditor(id: string, path: string, language = 'typescript') {
+  return {
+    ...sampleEditor,
+    id,
+    path,
+    name: path.split('/').pop() || path,
+    absolutePath: `/workspace/${path}`,
+    language,
+  }
+}
+function collectGroupIds(node: any): string[] {
+  if (!node) return []
+  if (node.type === 'group') return [node.groupId]
+  return [...collectGroupIds(node.first), ...collectGroupIds(node.second)]
+}
 
 describe('useConsoleStore editor persistence', () => {
   beforeEach(() => {
@@ -53,5 +68,51 @@ describe('useConsoleStore editor persistence', () => {
     expect(useConsoleStore.getState().gitByHost.local).toMatchObject({ mode: 'locked', currentRepoPath: '/workspace/other', lockedRepoPath: '/workspace/other', source: 'manual' })
     useConsoleStore.getState().resumeGitFollowEditor('local')
     expect(useConsoleStore.getState().gitByHost.local).toMatchObject({ mode: 'follow-editor', lockedRepoPath: null, currentRepoPath: '/workspace/other' })
+  })
+  it('creates nested editor groups when splitting multiple times', async () => {
+    const { useConsoleStore } = await import('./useConsoleStore')
+    const editor2 = createEditor('local:root-workspace:src/other.ts', 'src/other.ts')
+    const editor3 = createEditor('local:root-workspace:src/third.ts', 'src/third.ts')
+    useConsoleStore.getState().openEditor(sampleEditor)
+    useConsoleStore.getState().openEditor(editor2)
+    useConsoleStore.getState().placeEditorInSplit(editor2.id, 'right')
+    useConsoleStore.getState().openEditor(editor3)
+    useConsoleStore.getState().placeEditorInSplit(editor3.id, 'bottom')
+    const state = useConsoleStore.getState()
+    expect(state.editorGroups).toHaveLength(3)
+    expect(collectGroupIds(state.editorLayout)).toHaveLength(3)
+    expect(state.editorLayout?.type).toBe('split')
+    expect(state.activeEditorId).toBe(editor3.id)
+    expect(state.activeEditorGroupId).toBe(state.editorGroups.find((group) => group.editorIds.includes(editor3.id))?.id || null)
+  })
+  it('collapses empty groups after moving the last editor out', async () => {
+    const { useConsoleStore } = await import('./useConsoleStore')
+    const editor2 = createEditor('local:root-workspace:src/other.ts', 'src/other.ts')
+    useConsoleStore.getState().openEditor(sampleEditor)
+    useConsoleStore.getState().openEditor(editor2)
+    useConsoleStore.getState().placeEditorInSplit(editor2.id, 'right')
+    const primaryGroupId = useConsoleStore.getState().editorGroups.find((group) => group.editorIds.includes(sampleEditor.id))?.id
+    expect(primaryGroupId).toBeTruthy()
+    useConsoleStore.getState().moveEditorToGroup(editor2.id, primaryGroupId as string)
+    const state = useConsoleStore.getState()
+    expect(state.editorGroups).toHaveLength(1)
+    expect(state.editorLayout?.type).toBe('group')
+    expect(state.editorPrimaryGroupIds).toEqual([sampleEditor.id, editor2.id])
+    expect(state.editorSecondaryGroupIds).toEqual([])
+  })
+  it('updates split ratio by split id and clamps the value', async () => {
+    const { useConsoleStore } = await import('./useConsoleStore')
+    const editor2 = createEditor('local:root-workspace:src/other.ts', 'src/other.ts')
+    useConsoleStore.getState().openEditor(sampleEditor)
+    useConsoleStore.getState().openEditor(editor2)
+    useConsoleStore.getState().placeEditorInSplit(editor2.id, 'right')
+    const layout = useConsoleStore.getState().editorLayout
+    const splitId = layout?.type === 'split' ? layout.id : null
+    expect(splitId).toBeTruthy()
+    useConsoleStore.getState().setEditorSplitRatio(splitId as string, 0.95)
+    const state = useConsoleStore.getState()
+    expect(state.editorLayout?.type).toBe('split')
+    expect(state.editorLayout?.type === 'split' ? state.editorLayout.ratio : null).toBe(0.8)
+    expect(state.editorSplitRatio).toBe(0.8)
   })
 })

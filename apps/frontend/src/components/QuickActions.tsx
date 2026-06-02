@@ -39,7 +39,7 @@ function useQuickActionController() {
   const { setWindows }=useWindowQueryState(activeHostId||'',activeSessionId||'')
   const [pendingDirection,setPendingDirection]=useState<'horizontal'|'vertical'|null>(null)
   const activeWindow=useMemo(()=>windowsData.find((w:any)=>w.active)||windowsData[0]||null,[windowsData])
-  const canSplit=!!activePaneId&&!!activeWindow&&!pendingDirection
+  const canSplit=!!activeSessionId&&!!activeWindow&&!pendingDirection
   const { send }=useWebSocket()
   const { refreshSnapshot, resolveActivePaneId } = useSessionSnapshotSync()
   const { shortcuts,addShortcut,removeShortcut }=useCustomShortcuts()
@@ -230,11 +230,11 @@ function useQuickActionController() {
     { key:'clear-line',label:t('quick.clearLine'),data:DELETE_PREV_LINE_SEQUENCE },
     { key:'delete-word',label:t('quick.deleteWord'),data:DELETE_PREV_WORD_SEQUENCE },
     { key:'enter',label:'Enter',data:'\r' },
-    { key:'zoom',label:t('quick.zoom'),onPress:()=>void handleZoom(),disabled:!activePaneId },
+    { key:'zoom',label:t('quick.zoom'),onPress:()=>void handleZoom(),disabled:!activeSessionId },
     { key:'backspace',label:'Backspace',data:'\x7f' },
     { key:'copy',label:t('quick.copy'),onPress:handleCopy,tone:'accent' },
     { key:'paste',label:t('quick.paste'),onPress:handlePaste,tone:'accent' },
-    { key:'kill-pane',label:t('quick.killPane'),onPress:()=>void handleKillPane(),tone:'danger',disabled:!activePaneId },
+    { key:'kill-pane',label:t('quick.killPane'),onPress:()=>void handleKillPane(),tone:'danger',disabled:!activeSessionId },
   ]
   const attachButton:ActionButtonDef={ key:'attach-mode',label:preferences.attachExclusive?t('quick.attachExclusive'):t('quick.attachShared'),onPress:()=>updatePreferences({ attachExclusive:!preferences.attachExclusive }),tone:'accent' }
 

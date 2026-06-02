@@ -3,6 +3,7 @@ import dynamic from 'next/dynamic'
 import { useEffect, useRef, useState } from 'react'
 import type { DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent } from 'react'
 import type { FileDocumentHandle, FileEditorDocument } from '@/types'
+import type { EditorLayoutNode, EditorLayoutSplit } from '@/stores/useConsoleStore'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useGitDetect } from '@/hooks/useApi'
@@ -17,9 +18,16 @@ const AUTO_SCROLL_DEADZONE = 10
 const AUTO_SCROLL_MAX_STEP = 42
 const FILE_DRAG_MIME = 'application/x-tmuxgo-file'
 const EDGE_DROP_RATIO = 0.22
-type EditorGroup = 'primary' | 'secondary'
 type DropPlacement = 'center' | 'left' | 'right' | 'top' | 'bottom'
 type TabInsertSide = 'before' | 'after'
+function isEditorLayoutSplit(node: EditorLayoutNode): node is EditorLayoutSplit {
+  return node.type === 'split'
+}
+function collectEditorLayoutGroupIds(node: EditorLayoutNode | null): string[] {
+  if (!node) return []
+  if (!isEditorLayoutSplit(node)) return [node.groupId]
+  return [...collectEditorLayoutGroupIds(node.first), ...collectEditorLayoutGroupIds(node.second)]
+}
 function getParentDir(path: string) {
   const normalized = path.replace(/\/+$/,'')
   const index = normalized.lastIndexOf('/')
@@ -162,12 +170,9 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
   const activeHostId = useConsoleStore((state) => state.activeHostId)
   const openEditors = useConsoleStore((state) => state.openEditors)
   const activeEditorId = useConsoleStore((state) => state.activeEditorId)
-  const editorPrimaryGroupIds = useConsoleStore((state) => state.editorPrimaryGroupIds)
-  const editorSecondaryGroupIds = useConsoleStore((state) => state.editorSecondaryGroupIds)
-  const editorPrimaryId = useConsoleStore((state) => state.editorPrimaryId)
-  const editorSecondaryId = useConsoleStore((state) => state.editorSecondaryId)
-  const editorSplitDirection = useConsoleStore((state) => state.editorSplitDirection)
-  const editorSplitRatio = useConsoleStore((state) => state.editorSplitRatio)
+  const editorGroups = useConsoleStore((state) => state.editorGroups)
+  const editorLayout = useConsoleStore((state) => state.editorLayout)
+  const activeEditorGroupId = useConsoleStore((state) => state.activeEditorGroupId)
   const placeEditorInSplit = useConsoleStore((state) => state.placeEditorInSplit)
   const setEditorSplitRatio = useConsoleStore((state) => state.setEditorSplitRatio)
   const setActiveEditor = useConsoleStore((state) => state.setActiveEditor)
@@ -188,24 +193,41 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
   const [cursorById, setCursorById] = useState<Record<string, { line: number; column: number }>>({})
   const [autoScrollIndicator, setAutoScrollIndicator] = useState<{ active: boolean; x: number; y: number }>({ active: false, x: 0, y: 0 })
   const [dropTarget, setDropTarget] = useState<DropPlacement | null>(null)
-  const [tabDropTarget, setTabDropTarget] = useState<{ group: EditorGroup; placement: DropPlacement } | null>(null)
-  const [tabInsertionTarget, setTabInsertionTarget] = useState<{ group: EditorGroup; editorId: string; side: TabInsertSide } | null>(null)
+  const [paneDropTarget, setPaneDropTarget] = useState<{ groupId: string; placement: DropPlacement } | null>(null)
+  const [tabDropTarget, setTabDropTarget] = useState<{ groupId: string; placement: DropPlacement } | null>(null)
+  const [tabInsertionTarget, setTabInsertionTarget] = useState<{ groupId: string; editorId: string; side: TabInsertSide } | null>(null)
   const [imageScale, setImageScale] = useState(1)
   const [imageOffset, setImageOffset] = useState({ x: 0, y: 0 })
   const imageViewportRef = useRef<HTMLDivElement | null>(null)
   const imageDragRef = useRef<{ pointerId: number; startX: number; startY: number; originX: number; originY: number } | null>(null)
-  const splitContainerRef = useRef<HTMLDivElement | null>(null)
-  const splitResizeRef = useRef<{ active: boolean; direction: 'horizontal' | 'vertical'; startRatio: number } | null>(null)
-  const activeEditor = openEditors.find((item) => item.id === activeEditorId) || openEditors[openEditors.length - 1] || null
-  const primaryGroupEditors = editorPrimaryGroupIds.map((id) => openEditors.find((item) => item.id === id) || null).filter(Boolean) as FileEditorDocument[]
-  const secondaryGroupEditors = editorSecondaryGroupIds.map((id) => openEditors.find((item) => item.id === id) || null).filter(Boolean) as FileEditorDocument[]
-  const primaryEditor = editorPrimaryId ? openEditors.find((item) => item.id === editorPrimaryId) || null : activeEditor
-  const secondaryEditor = editorSecondaryId ? openEditors.find((item) => item.id === editorSecondaryId) || null : null
+  const splitResizeRef = useRef<{ active: boolean; direction: 'horizontal' | 'vertical'; splitId: string; container: HTMLDivElement | null } | null>(null)
+  const editorById = new Map(openEditors.map((item) => [item.id, item]))
+  const groupById = new Map(editorGroups.map((group) => [group.id, group]))
+  const orderedGroupIds = collectEditorLayoutGroupIds(editorLayout)
+  const activeEditor = activeEditorId ? editorById.get(activeEditorId) || null : openEditors[openEditors.length - 1] || null
   const gitDiff = activeEditor?.id.startsWith('git-diff?') ? parseGitDiffId(activeEditor.id) : null
   const followFilePath = !gitDiff && activeEditor?.absolutePath ? getParentDir(activeEditor.absolutePath) : ''
   const gitMode = activeHostId ? gitByHost[activeHostId]?.mode || 'follow-editor' : 'follow-editor'
   const { data: detectResult } = useGitDetect(activeHostId || '', followFilePath)
   const cursor = activeEditor ? cursorById[activeEditor.id] : null
+  const getLegacyGroupName = (groupId: string) => {
+    const index = orderedGroupIds.indexOf(groupId)
+    if (index === 0) return 'primary'
+    if (index === 1) return 'secondary'
+    return groupId
+  }
+  const getGroupEditors = (groupId: string) => {
+    const group = groupById.get(groupId)
+    return (group?.editorIds || []).map((id) => editorById.get(id) || null).filter(Boolean) as FileEditorDocument[]
+  }
+  const getGroupActiveEditor = (groupId: string) => {
+    const group = groupById.get(groupId)
+    if (!group) return null
+    if (group.activeEditorId && editorById.has(group.activeEditorId)) return editorById.get(group.activeEditorId) || null
+    const fallbackId = group.editorIds.filter((id) => editorById.has(id)).at(-1) || null
+    return fallbackId ? editorById.get(fallbackId) || null : null
+  }
+  const resolveDropGroupId = (groupId?: string | null) => groupId && groupById.has(groupId) ? groupId : activeEditorGroupId && groupById.has(activeEditorGroupId) ? activeEditorGroupId : orderedGroupIds[0] || editorGroups[0]?.id || null
   const isOpenEditorId = (id: string) => openEditors.some((item) => item.id === id)
   const getDragDropEffect = (dragged: FileDocumentHandle | null) => dragged && isOpenEditorId(dragged.id) ? 'move' : 'copy'
   const getTabInsertSide = (rect: DOMRect, clientX: number) => clientX <= rect.left + rect.width / 2 ? 'before' as const : 'after' as const
@@ -215,26 +237,53 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
     const targetIndex = baseIds.indexOf(targetId)
     return targetIndex >= 0 ? baseIds[targetIndex + 1] || null : null
   }
-  const openDraggedFileInGroup = async (dragged: FileDocumentHandle, group: EditorGroup, targetId?: string | null) => {
+  const openDraggedFileInGroup = async (dragged: FileDocumentHandle, groupId: string, targetId?: string | null) => {
     const id = await onOpenFile(dragged)
-    moveEditorToGroup(id, group, targetId)
+    moveEditorToGroup(id, groupId, targetId)
   }
-  const handleTabButtonDrop = async (dragged: FileDocumentHandle, groupEditors: FileEditorDocument[], group: EditorGroup, targetEditor: FileEditorDocument, side: TabInsertSide) => {
+  const openDraggedFileAtPlacement = async (dragged: FileDocumentHandle, placement: DropPlacement, groupId?: string | null) => {
+    const resolvedGroupId = resolveDropGroupId(groupId)
+    if (!resolvedGroupId) {
+      await onOpenFileAtPosition(dragged, placement)
+      return
+    }
+    if (placement === 'center') {
+      await openDraggedFileInGroup(dragged, resolvedGroupId)
+      return
+    }
+    const id = await onOpenFile(dragged)
+    placeEditorInSplit(id, placement, resolvedGroupId)
+  }
+  const handleGroupDrop = async (dragged: FileDocumentHandle, placement: DropPlacement, groupId?: string | null) => {
+    const resolvedGroupId = resolveDropGroupId(groupId)
+    if (isOpenEditorId(dragged.id)) {
+      if (!resolvedGroupId) {
+        if (placement === 'center') setActiveEditor(dragged.id)
+        else placeEditorInSplit(dragged.id, placement)
+        return
+      }
+      if (placement === 'center') moveEditorToGroup(dragged.id, resolvedGroupId)
+      else placeEditorInSplit(dragged.id, placement, resolvedGroupId)
+      return
+    }
+    await openDraggedFileAtPlacement(dragged, placement, resolvedGroupId)
+  }
+  const handleTabButtonDrop = async (dragged: FileDocumentHandle, groupEditors: FileEditorDocument[], groupId: string, targetEditor: FileEditorDocument, side: TabInsertSide) => {
     const insertTargetId = resolveTabInsertTargetId(groupEditors, dragged.id, targetEditor.id, side)
     if (isOpenEditorId(dragged.id)) {
-      moveEditorToGroup(dragged.id, group, insertTargetId)
+      moveEditorToGroup(dragged.id, groupId, insertTargetId)
       return
     }
-    await openDraggedFileInGroup(dragged, group, insertTargetId)
+    await openDraggedFileInGroup(dragged, groupId, insertTargetId)
   }
-  const handleTabStripDrop = async (dragged: FileDocumentHandle, group: EditorGroup, placement: DropPlacement) => {
+  const handleTabStripDrop = async (dragged: FileDocumentHandle, groupId: string, placement: DropPlacement) => {
     if (placement === 'center') {
-      if (isOpenEditorId(dragged.id)) moveEditorToGroup(dragged.id, group)
-      else await openDraggedFileInGroup(dragged, group)
+      if (isOpenEditorId(dragged.id)) moveEditorToGroup(dragged.id, groupId)
+      else await openDraggedFileInGroup(dragged, groupId)
       return
     }
-    if (isOpenEditorId(dragged.id)) placeEditorInSplit(dragged.id, placement)
-    else await onOpenFileAtPosition(dragged, placement)
+    if (isOpenEditorId(dragged.id)) placeEditorInSplit(dragged.id, placement, groupId)
+    else await openDraggedFileAtPlacement(dragged, placement, groupId)
   }
   const stopAutoScroll = () => {
     if (autoScrollFrameRef.current !== null) {
@@ -335,11 +384,11 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
       const resize = splitResizeRef.current
-      const container = splitContainerRef.current
+      const container = resize?.container
       if (!resize || !resize.active || !container) return
       const rect = container.getBoundingClientRect()
-      if (resize.direction === 'horizontal' && rect.width > 0) setEditorSplitRatio((event.clientX - rect.left) / rect.width)
-      if (resize.direction === 'vertical' && rect.height > 0) setEditorSplitRatio((event.clientY - rect.top) / rect.height)
+      if (resize.direction === 'horizontal' && rect.width > 0) setEditorSplitRatio(resize.splitId, (event.clientX - rect.left) / rect.width)
+      if (resize.direction === 'vertical' && rect.height > 0) setEditorSplitRatio(resize.splitId, (event.clientY - rect.top) / rect.height)
     }
     const handlePointerUp = () => {
       splitResizeRef.current = null
@@ -358,6 +407,7 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
   useEffect(() => {
     stopAutoScroll()
     setDropTarget(null)
+    setPaneDropTarget(null)
     setTabDropTarget(null)
     setTabInsertionTarget(null)
     setImageScale(1)
@@ -373,7 +423,7 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
     const repoPath = detectResult?.isGitRepo ? detectResult.rootPath || activeEditor.absolutePath : null
     setGitFollowEditorRepo(activeHostId, repoPath, activeEditor.absolutePath)
   }, [activeEditor?.absolutePath, activeHostId, detectResult?.isGitRepo, detectResult?.rootPath, gitDiff, gitMode, setGitFollowEditorRepo])
-  const renderTab = (editor: FileEditorDocument, groupEditors: FileEditorDocument[], group: EditorGroup) => (
+  const renderTab = (editor: FileEditorDocument, groupEditors: FileEditorDocument[], groupId: string) => (
     <div key={editor.id} className={`group relative flex h-[42px] w-44 shrink-0 items-center border-r border-[rgba(255,255,255,0.04)] ${editor.id === activeEditor?.id ? 'bg-bg-0' : 'bg-bg-1/80'}`}>
       <button draggable={editor.kind !== 'compare'} onDragStart={(event) => {
         if (editor.kind === 'compare') return
@@ -386,6 +436,7 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
         clearActiveDraggedFile()
         setTabDropTarget(null)
         setTabInsertionTarget(null)
+        setPaneDropTarget(null)
         setDropTarget(null)
       }} onDragOver={(event) => {
         if (!hasDraggedFile(event) || editor.kind === 'compare') return
@@ -395,10 +446,11 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
         event.preventDefault()
         event.stopPropagation()
         event.dataTransfer.dropEffect = getDragDropEffect(dragged)
+        setPaneDropTarget(null)
         setTabDropTarget(null)
-        setTabInsertionTarget({ group, editorId: editor.id, side })
+        setTabInsertionTarget({ groupId, editorId: editor.id, side })
       }} onDragLeave={(event) => {
-        if (!(event.currentTarget as HTMLButtonElement).contains(event.relatedTarget as Node | null)) setTabInsertionTarget((current) => current?.editorId === editor.id && current.group === group ? null : current)
+        if (!(event.currentTarget as HTMLButtonElement).contains(event.relatedTarget as Node | null)) setTabInsertionTarget((current) => current?.editorId === editor.id && current.groupId === groupId ? null : current)
       }} onDrop={(event) => {
         const dragged = decodeDraggedFile(event)
         if (!dragged || dragged.id === editor.id || editor.kind === 'compare') return
@@ -407,7 +459,7 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
         event.stopPropagation()
         clearActiveDraggedFile()
         setTabInsertionTarget(null)
-        void handleTabButtonDrop(dragged, groupEditors, group, editor, side)
+        void handleTabButtonDrop(dragged, groupEditors, groupId, editor, side)
       }} onClick={() => setActiveEditor(editor.id)} className={`flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-sm ${editor.id === activeEditor?.id ? 'text-text-1' : 'text-text-3 hover:text-text-1'}`}>
         <span className={`h-2 w-2 rounded-full ${editor.dirty ? 'bg-warn' : editor.saving ? 'bg-accent' : 'border border-[var(--line)] bg-transparent'}`} />
         <span className="min-w-0 flex-1 truncate">{editor.name}</span>
@@ -416,38 +468,83 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
         if (editor.dirty) { setPendingCloseEditorId(editor.id); return }
         closeEditor(editor.id)
       }} className="mr-2 shrink-0 rounded px-1.5 py-1 text-xs text-text-3 opacity-0 hover:bg-bg-2 hover:text-text-1 group-hover:opacity-100">×</button>
-      {tabInsertionTarget?.group === group && tabInsertionTarget.editorId === editor.id && <span className={`pointer-events-none absolute inset-y-1 z-20 w-[2px] rounded-full bg-accent shadow-[0_0_0_1px_rgba(30,200,255,0.2)] ${tabInsertionTarget.side === 'before' ? 'left-0' : 'right-0'}`} />}
+      {tabInsertionTarget?.groupId === groupId && tabInsertionTarget.editorId === editor.id && <span className={`pointer-events-none absolute inset-y-1 z-20 w-[2px] rounded-full bg-accent shadow-[0_0_0_1px_rgba(30,200,255,0.2)] ${tabInsertionTarget.side === 'before' ? 'left-0' : 'right-0'}`} />}
     </div>
   )
-  const renderTabStrip = (editors: FileEditorDocument[], group: EditorGroup) => <div data-testid={`editor-group-${group}`} className={`tmuxgo-scrollbar-subtle relative flex min-h-[42px] items-stretch overflow-x-auto border-b border-[var(--line)] bg-bg-1 ${tabDropTarget?.group === group ? 'ring-1 ring-accent/40 ring-inset' : ''}`} onDragOver={(event) => {
+  const renderTabStrip = (editors: FileEditorDocument[], groupId: string) => <div data-testid={`editor-group-${getLegacyGroupName(groupId)}`} data-editor-group-id={groupId} className={`tmuxgo-scrollbar-subtle relative flex min-h-[42px] items-stretch overflow-x-auto border-b border-[var(--line)] bg-bg-1 ${tabDropTarget?.groupId === groupId ? 'ring-1 ring-accent/40 ring-inset' : ''}`} onDragOver={(event) => {
     if (!hasDraggedFile(event)) return
     const dragged = decodeDraggedFile(event)
     event.preventDefault()
     event.dataTransfer.dropEffect = getDragDropEffect(dragged)
+    setPaneDropTarget(null)
     setTabInsertionTarget(null)
-    setTabDropTarget({ group, placement: getDropPlacement((event.currentTarget as HTMLDivElement).getBoundingClientRect(), event.clientX, event.clientY) })
+    setTabDropTarget({ groupId, placement: getDropPlacement((event.currentTarget as HTMLDivElement).getBoundingClientRect(), event.clientX, event.clientY) })
   }} onDragLeave={(event) => {
     if (!(event.currentTarget as HTMLDivElement).contains(event.relatedTarget as Node | null)) {
-      setTabDropTarget((current) => current?.group === group ? null : current)
-      setTabInsertionTarget((current) => current?.group === group ? null : current)
+      setTabDropTarget((current) => current?.groupId === groupId ? null : current)
+      setTabInsertionTarget((current) => current?.groupId === groupId ? null : current)
     }
   }} onDrop={(event) => {
     const dragged = decodeDraggedFile(event)
     if (!dragged) return
     event.preventDefault()
+    event.stopPropagation()
     clearActiveDraggedFile()
     const placement = getDropPlacement((event.currentTarget as HTMLDivElement).getBoundingClientRect(), event.clientX, event.clientY)
     setTabDropTarget(null)
     setTabInsertionTarget(null)
-    void handleTabStripDrop(dragged, group, placement)
-  }}>{tabDropTarget?.group === group && <div className="pointer-events-none absolute inset-0 z-10">
+    void handleTabStripDrop(dragged, groupId, placement)
+  }}>{tabDropTarget?.groupId === groupId && <div className="pointer-events-none absolute inset-0 z-10">
     <div className={`absolute inset-y-0 left-0 w-[18%] ${tabDropTarget.placement === 'left' ? 'bg-accent/15' : ''}`} />
     <div className={`absolute inset-y-0 right-0 w-[18%] ${tabDropTarget.placement === 'right' ? 'bg-accent/15' : ''}`} />
     <div className={`absolute inset-x-0 top-0 h-[38%] ${tabDropTarget.placement === 'top' ? 'bg-accent/15' : ''}`} />
     <div className={`absolute inset-x-0 bottom-0 h-[38%] ${tabDropTarget.placement === 'bottom' ? 'bg-accent/15' : ''}`} />
     <div className={`absolute inset-[24%] rounded-md ${tabDropTarget.placement === 'center' ? 'bg-accent/12 border border-accent/40' : ''}`} />
-  </div>}{editors.map((editor) => renderTab(editor, editors, group))}</div>
-  const renderPane = (editor: FileEditorDocument, groupEditors: FileEditorDocument[], group: EditorGroup) => <div className="flex min-h-0 flex-1 flex-col">{renderTabStrip(groupEditors, group)}<button onClick={() => setActiveEditor(editor.id)} className="relative min-h-0 min-w-0 flex-1 overflow-hidden text-left">{renderSurface(editor, activeEditor?.id === editor.id)}{activeEditor?.id === editor.id && <span className="pointer-events-none absolute inset-0 border border-accent/35" />}</button></div>
+  </div>}{editors.map((editor) => renderTab(editor, editors, groupId))}</div>
+  const renderPane = (groupId: string) => {
+    const groupEditors = getGroupEditors(groupId)
+    const editor = getGroupActiveEditor(groupId)
+    return <div className="flex min-h-0 flex-1 flex-col">{renderTabStrip(groupEditors, groupId)}<button onClick={() => editor && setActiveEditor(editor.id)} className="relative min-h-0 min-w-0 flex-1 overflow-hidden text-left" onDragOver={(event) => {
+      if (!hasDraggedFile(event)) return
+      const dragged = decodeDraggedFile(event)
+      event.preventDefault()
+      event.stopPropagation()
+      event.dataTransfer.dropEffect = getDragDropEffect(dragged)
+      setDropTarget(null)
+      setTabDropTarget(null)
+      setTabInsertionTarget(null)
+      setPaneDropTarget({ groupId, placement: getDropPlacement((event.currentTarget as HTMLButtonElement).getBoundingClientRect(), event.clientX, event.clientY) })
+    }} onDragLeave={(event) => {
+      if (!(event.currentTarget as HTMLButtonElement).contains(event.relatedTarget as Node | null)) setPaneDropTarget((current) => current?.groupId === groupId ? null : current)
+    }} onDrop={(event) => {
+      const dragged = decodeDraggedFile(event)
+      if (!dragged) return
+      event.preventDefault()
+      event.stopPropagation()
+      clearActiveDraggedFile()
+      const placement = getDropPlacement((event.currentTarget as HTMLButtonElement).getBoundingClientRect(), event.clientX, event.clientY)
+      setPaneDropTarget(null)
+      void handleGroupDrop(dragged, placement, groupId)
+    }}>{editor ? renderSurface(editor, activeEditor?.id === editor.id) : <div className="flex h-full items-center justify-center text-sm text-text-3">{t('editor.drop.center' as never)}</div>}{editor && activeEditor?.id === editor.id && <span className="pointer-events-none absolute inset-0 border border-accent/35" />}{paneDropTarget?.groupId === groupId && <div className="pointer-events-none absolute inset-[16px] z-20">
+      <div className={`absolute inset-[28%] rounded-2xl border border-dashed ${paneDropTarget.placement === 'center' ? 'border-accent bg-accent/12' : 'border-[var(--line)] bg-bg-1/35'}`} />
+      <div className={`absolute inset-y-0 left-0 w-[22%] rounded-l-2xl border border-dashed ${paneDropTarget.placement === 'left' ? 'border-accent bg-accent/12' : 'border-[var(--line)] bg-bg-1/30'}`} />
+      <div className={`absolute inset-y-0 right-0 w-[22%] rounded-r-2xl border border-dashed ${paneDropTarget.placement === 'right' ? 'border-accent bg-accent/12' : 'border-[var(--line)] bg-bg-1/30'}`} />
+      <div className={`absolute inset-x-0 top-0 h-[22%] rounded-t-2xl border border-dashed ${paneDropTarget.placement === 'top' ? 'border-accent bg-accent/12' : 'border-[var(--line)] bg-bg-1/30'}`} />
+      <div className={`absolute inset-x-0 bottom-0 h-[22%] rounded-b-2xl border border-dashed ${paneDropTarget.placement === 'bottom' ? 'border-accent bg-accent/12' : 'border-[var(--line)] bg-bg-1/30'}`} />
+      <div className="absolute inset-0 flex items-center justify-center"><div className="rounded-full border border-accent/40 bg-bg-0/92 px-4 py-2 text-xs tracking-[0.24em] text-accent">{t(`editor.drop.${paneDropTarget.placement}` as never)}</div></div>
+    </div>}</button></div>
+  }
+  const renderLayout = (node: EditorLayoutNode | null): React.ReactNode => {
+    if (!node) return null
+    if (!isEditorLayoutSplit(node)) return renderPane(node.groupId)
+    return <div key={node.id} className={`flex h-full min-h-0 ${node.direction === 'horizontal' ? 'flex-row' : 'flex-col'}`}><div style={{ flexBasis: `${node.ratio * 100}%` }} className="min-h-0 min-w-0 flex shrink-0 grow-0">{renderLayout(node.first)}</div><div data-testid="editor-split-resizer" onPointerDown={(event) => {
+      splitResizeRef.current = { active: true, direction: node.direction, splitId: node.id, container: event.currentTarget.parentElement as HTMLDivElement | null }
+      document.body.style.cursor = node.direction === 'horizontal' ? 'col-resize' : 'row-resize'
+      document.body.style.userSelect = 'none'
+      event.preventDefault()
+      event.stopPropagation()
+    }} className={node.direction === 'horizontal' ? 'w-1 cursor-col-resize bg-[var(--line)] hover:bg-accent/40' : 'h-1 cursor-row-resize bg-[var(--line)] hover:bg-accent/40'} /><div className="min-h-0 min-w-0 flex flex-1">{renderLayout(node.second)}</div></div>
+  }
   const renderSurface = (editor: FileEditorDocument, focused: boolean) => {
     const markdownPreviewOpen = editor.language === 'markdown' && !!previewOpenById[editor.id]
     const compareLeft = editor.compareLeftId ? openEditors.find((item) => item.id === editor.compareLeftId) || null : null
@@ -522,6 +619,7 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
         const dragged = decodeDraggedFile(event)
         event.preventDefault()
         event.dataTransfer.dropEffect = getDragDropEffect(dragged)
+        setPaneDropTarget(null)
         setDropTarget(getDropPlacement((event.currentTarget as HTMLDivElement).getBoundingClientRect(), event.clientX, event.clientY))
       }} onDragLeave={(event) => {
         if (!(event.currentTarget as HTMLDivElement).contains(event.relatedTarget as Node | null)) setDropTarget(null)
@@ -532,7 +630,7 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
         const placement = getDropPlacement((event.currentTarget as HTMLDivElement).getBoundingClientRect(), event.clientX, event.clientY)
         setDropTarget(null)
         clearActiveDraggedFile()
-        void onOpenFileAtPosition(dragged, placement)
+        void handleGroupDrop(dragged, placement)
       }}>
         {dropTarget && <div className="pointer-events-none absolute inset-[16px] z-20">
           <div className={`absolute inset-[28%] rounded-2xl border border-dashed ${dropTarget === 'center' ? 'border-accent bg-accent/12' : 'border-[var(--line)] bg-bg-1/35'}`} />
@@ -542,13 +640,7 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
           <div className={`absolute inset-x-0 bottom-0 h-[22%] rounded-b-2xl border border-dashed ${dropTarget === 'bottom' ? 'border-accent bg-accent/12' : 'border-[var(--line)] bg-bg-1/30'}`} />
           <div className="absolute inset-0 flex items-center justify-center"><div className="rounded-full border border-accent/40 bg-bg-0/92 px-4 py-2 text-xs tracking-[0.24em] text-accent">{t(`editor.drop.${dropTarget}` as never)}</div></div>
         </div>}
-        {primaryEditor && secondaryEditor && editorSplitDirection ? <div ref={splitContainerRef} className={`flex h-full min-h-0 ${editorSplitDirection === 'horizontal' ? 'flex-row' : 'flex-col'}`}><div style={editorSplitDirection === 'horizontal' ? { flexBasis: `${editorSplitRatio * 100}%` } : { flexBasis: `${editorSplitRatio * 100}%` }} className="min-h-0 min-w-0 flex shrink-0 grow-0">{renderPane(primaryEditor, primaryGroupEditors, 'primary')}</div><div data-testid="editor-split-resizer" onPointerDown={(event) => {
-          splitResizeRef.current = { active: true, direction: editorSplitDirection, startRatio: editorSplitRatio }
-          document.body.style.cursor = editorSplitDirection === 'horizontal' ? 'col-resize' : 'row-resize'
-          document.body.style.userSelect = 'none'
-          event.preventDefault()
-          event.stopPropagation()
-        }} className={editorSplitDirection === 'horizontal' ? 'w-1 cursor-col-resize bg-[var(--line)] hover:bg-accent/40' : 'h-1 cursor-row-resize bg-[var(--line)] hover:bg-accent/40'} /><div className="min-h-0 min-w-0 flex flex-1">{renderPane(secondaryEditor, secondaryGroupEditors, 'secondary')}</div></div> : <div className="flex h-full min-h-0 flex-col">{renderTabStrip(primaryGroupEditors.length ? primaryGroupEditors : [activeEditor], 'primary')}{renderSurface(activeEditor, true)}</div>}
+        {renderLayout(editorLayout)}
       </div>
       <ConfirmDialog open={!!pendingCloseEditorId} title={t('editor.closeConfirm', { name: openEditors.find((e) => e.id === pendingCloseEditorId)?.name || '' })} message="" confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setPendingCloseEditorId(null)} onConfirm={() => { if (pendingCloseEditorId) { closeEditor(pendingCloseEditorId); setPendingCloseEditorId(null) } }} />
     </section>
