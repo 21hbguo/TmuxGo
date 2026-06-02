@@ -75,6 +75,19 @@ function parsePorcelainV2(stdout: string) {
 
   return { branch, ahead, behind, staged, unstaged, untracked, conflicted }
 }
+function parseNumStat(stdout: string) {
+  return stdout.split('\n').filter(Boolean).map((line) => {
+    const [additionsRaw, deletionsRaw, filename] = line.split('\t')
+    const additions = additionsRaw === '-' ? 0 : parseInt(additionsRaw || '0', 10) || 0
+    const deletions = deletionsRaw === '-' ? 0 : parseInt(deletionsRaw || '0', 10) || 0
+    return {
+      filename: filename || '',
+      status: additionsRaw === '-' || deletionsRaw === '-' ? 'binary' : additions > 0 && deletions > 0 ? 'modified' : additions > 0 ? 'added' : deletions > 0 ? 'deleted' : 'modified',
+      additions,
+      deletions,
+    }
+  }).filter((item) => item.filename)
+}
 
 export async function gitRoutes(fastify: FastifyInstance) {
   fastify.get('/hosts/:hostId/git/detect', async (request) => {
@@ -109,6 +122,13 @@ export async function gitRoutes(fastify: FastifyInstance) {
     if (filePath) args.push('--', filePath)
     const { stdout } = await execGit(hostId, args, repoPath)
     return { raw: stdout }
+  })
+  fastify.get('/hosts/:hostId/git/diff-stats', async (request) => {
+    const { hostId } = request.params as { hostId: string }
+    const { path: repoPath, base, head } = request.query as { path?: string; base?: string; head?: string }
+    if (!repoPath || !base || !head) throw new Error('Missing path, base or head parameter')
+    const { stdout } = await execGit(hostId, ['diff', '--numstat', `${base}..${head}`], repoPath)
+    return { files: parseNumStat(stdout) }
   })
 
   fastify.post('/hosts/:hostId/git/stage', async (request) => {

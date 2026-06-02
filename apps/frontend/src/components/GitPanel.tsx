@@ -7,6 +7,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { ConfirmDialog } from './ConfirmDialog'
 import type { GitFileChange, GitCommitInfo } from '@/types'
 import { CommitGraph } from 'commit-graph'
+import { api } from '@/lib/api'
 
 type GitTab = 'status' | 'history' | 'branches'
 
@@ -130,6 +131,20 @@ function HistoryTab({ hostId, repoPath, t }: { hostId: string; repoPath: string;
     name: branch.name,
     commit: { sha: branch.commitHash },
   }))
+  const getDiff = async (base: string, head: string) => api.git.diffStats(hostId, repoPath, base, head)
+  const openCommitDiff = (commit: { sha: string; message?: string }) => {
+    const params = new URLSearchParams({ hostId, repoPath, commit: `${commit.sha}^!` })
+    useConsoleStore.getState().openEditor({
+      id: `git-diff?${params.toString()}`,
+      rootId: 'git',
+      rootLabel: 'Git',
+      rootPath: repoPath,
+      path: '',
+      name: `${commit.sha.slice(0, 7)} ${commit.message || 'commit diff'}`,
+      absolutePath: `${repoPath}@${commit.sha.slice(0, 7)}`,
+      language: 'diff',
+    })
+  }
 
   return (
     <div className="h-full overflow-y-auto">
@@ -140,6 +155,8 @@ function HistoryTab({ hostId, repoPath, t }: { hostId: string; repoPath: string;
         hasMore={hasNextPage && !isFetchingNextPage}
         currentBranch={branchesData?.current}
         dateFormatFn={formatDate}
+        getDiff={getDiff}
+        onCommitClick={openCommitDiff}
         graphStyle={{ commitSpacing: 36, branchSpacing: 20, nodeRadius: 3, branchColors: ['#3b82f6','#f59e0b','#10b981','#ef4444','#8b5cf6','#ec4899','#06b6d4','#f97316'] }}
       />
     </div>

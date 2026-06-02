@@ -299,6 +299,15 @@ export interface GitStatusResponse {
 export interface GitDiffResponse {
   raw: string
 }
+export interface GitDiffStatItem {
+  filename: string
+  status: string
+  additions: number
+  deletions: number
+}
+export interface GitDiffStatsResponse {
+  files: GitDiffStatItem[]
+}
 export interface GitDetectResponse {
   isGitRepo: boolean
   rootPath?: string
