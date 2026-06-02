@@ -214,7 +214,7 @@ export async function gitRoutes(fastify: FastifyInstance) {
     if (!repoPath) throw new Error('Missing path parameter')
     const n = Math.min(Math.max(parseInt(limit || '50', 10) || 50, 1), 200)
     const s = Math.max(parseInt(skip || '0', 10) || 0, 0)
-    const args = ['log', `--format=%H%x1f%h%x1f%s%x1f%b%x1f%an%x1f%ae%x1f%ai%x1f%P%x1e`, `-n${n}`]
+    const args = ['log', '--all', '--topo-order', `--format=%H%x1f%h%x1f%s%x1f%b%x1f%an%x1f%ae%x1f%ai%x1f%P%x1e`, `-n${n}`]
     if (s > 0) args.push(`--skip=${s}`)
     const { stdout } = await execGit(hostId, args, repoPath)
     const commits = parseGitLog(stdout)
