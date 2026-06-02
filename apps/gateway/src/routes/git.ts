@@ -153,13 +153,24 @@ export async function gitRoutes(fastify: FastifyInstance) {
     if (!repoPath) throw new Error('Missing path parameter')
     const n = Math.min(Math.max(parseInt(limit || '50', 10) || 50, 1), 200)
     const s = Math.max(parseInt(skip || '0', 10) || 0, 0)
-    const args = ['log', `--format=%H|%h|%s|%b|%an|%ae|%ai|%P`, `-n${n}`]
+    const args = ['log', '--format=%H%x1e%h%x1e%s%x1e%b%x1e%an%x1e%ae%x1e%ai%x1e%P', `-n${n}`]
     if (s > 0) args.push(`--skip=${s}`)
     const { stdout } = await execGit(hostId, args, repoPath)
-    const commits = stdout.split('\n').filter(Boolean).map((line) => {
-      const [hash, shortHash, subject, body, author, authorEmail, date, parents] = line.split('|')
-      return { hash, shortHash, subject, body, author, authorEmail, date, parents: parents ? parents.split(' ') : [] }
-    })
+    const fields = stdout.split('\x1e')
+    const commits = []
+    for (let i = 0; i + 7 < fields.length; i += 8) {
+      const rawParents = fields[i + 7].replace(/\n/g, ' ').trim()
+      commits.push({
+        hash: fields[i].replace(/\n/g, '').trim(),
+        shortHash: fields[i + 1].replace(/\n/g, '').trim(),
+        subject: fields[i + 2].replace(/\n/g, ' ').trim(),
+        body: fields[i + 3].replace(/^\n+|\n+$/g, ''),
+        author: fields[i + 4].replace(/\n/g, '').trim(),
+        authorEmail: fields[i + 5].replace(/\n/g, '').trim(),
+        date: fields[i + 6].replace(/\n/g, '').trim(),
+        parents: rawParents ? rawParents.split(/\s+/) : [],
+      })
+    }
     const hasMore = commits.length === n
     return { commits, hasMore }
   })
