@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { ConnectionState, FileDocumentHandle, FileEditorDocument, GitHostState, GitMode, GitSource, UploadJob, TerminalPerfState } from '@/types'
 
-type PersistedEditor = Pick<FileEditorDocument, 'id' | 'rootId' | 'rootLabel' | 'rootPath' | 'path' | 'name' | 'absolutePath' | 'language'>
+type PersistedEditor = Pick<FileEditorDocument, 'id' | 'hostId' | 'rootId' | 'rootLabel' | 'rootPath' | 'path' | 'name' | 'absolutePath' | 'language'>
 const OPEN_EDITORS_STORAGE_KEY = 'tmuxgo-open-editors'
 const ACTIVE_EDITOR_STORAGE_KEY = 'tmuxgo-active-editor'
 const ACTIVE_SESSION_STORAGE_KEY = 'tmuxgo-active-session'
@@ -14,7 +14,7 @@ function readPersistedEditors() {
   try {
     const stored = JSON.parse(localStorage.getItem(OPEN_EDITORS_STORAGE_KEY) || '[]')
     if (!Array.isArray(stored)) return []
-    return stored.filter((item): item is PersistedEditor => !!item && typeof item.id === 'string' && typeof item.rootId === 'string' && typeof item.rootLabel === 'string' && typeof item.rootPath === 'string' && typeof item.path === 'string' && typeof item.name === 'string' && typeof item.absolutePath === 'string' && typeof item.language === 'string')
+    return stored.filter((item): item is PersistedEditor => !!item && typeof item.id === 'string' && typeof item.hostId === 'string' && typeof item.rootId === 'string' && typeof item.rootLabel === 'string' && typeof item.rootPath === 'string' && typeof item.path === 'string' && typeof item.name === 'string' && typeof item.absolutePath === 'string' && typeof item.language === 'string')
   } catch {
     return []
   }
@@ -39,7 +39,7 @@ function toEditorDocument(file: PersistedEditor): FileEditorDocument {
 }
 function writePersistedEditors(openEditors: FileEditorDocument[], activeEditorId: string | null) {
   if (typeof window === 'undefined') return
-  const nextEditors = openEditors.map(({ id, rootId, rootLabel, rootPath, path, name, absolutePath, language }) => ({ id, rootId, rootLabel, rootPath, path, name, absolutePath, language }))
+  const nextEditors = openEditors.map(({ id, hostId, rootId, rootLabel, rootPath, path, name, absolutePath, language }) => ({ id, hostId, rootId, rootLabel, rootPath, path, name, absolutePath, language }))
   localStorage.setItem(OPEN_EDITORS_STORAGE_KEY, JSON.stringify(nextEditors))
   if (activeEditorId) localStorage.setItem(ACTIVE_EDITOR_STORAGE_KEY, activeEditorId)
   else localStorage.removeItem(ACTIVE_EDITOR_STORAGE_KEY)

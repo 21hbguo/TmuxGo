@@ -57,7 +57,7 @@ vi.mock('@/lib/clipboard-text', () => ({
 vi.mock('@/lib/api', () => ({
   api: {
     files: {
-      list: vi.fn(async (rootId: string, path = '') => getListData(rootId, path)),
+      list: vi.fn(async (_hostId: string, rootId: string, path = '') => getListData(rootId, path)),
       createFile: vi.fn(async () => ({ ok: true })),
       createDirectory: vi.fn(async () => ({ ok: true })),
       rename: vi.fn(async () => ({ ok: true, item: { path: 'renamed.txt' } })),
@@ -154,6 +154,7 @@ describe('FilePanel', () => {
     fireEvent.click(await screen.findByText('demo.txt'))
     expect(onOpenFile).toHaveBeenCalledTimes(1)
     expect(onOpenFile.mock.calls[0][0]).toMatchObject({
+      hostId: 'local',
       rootId: 'root-home',
       path: 'project/demo.txt',
       absolutePath: '/home/guo/project/demo.txt',
@@ -166,6 +167,7 @@ describe('FilePanel', () => {
     fireEvent.click(await screen.findByText('photo.png'))
     expect(onOpenFile).toHaveBeenCalledTimes(1)
     expect(onOpenFile.mock.calls[0][0]).toMatchObject({
+      hostId: 'local',
       rootId: 'root-home',
       path: 'downloads/photo.png',
       absolutePath: '/home/guo/downloads/photo.png',

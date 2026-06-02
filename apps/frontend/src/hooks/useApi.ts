@@ -146,7 +146,7 @@ export function useSessionSnapshot(hostId: string, sessionId: string) {
 export function useFileRoots(hostId = 'local') {
   return useQuery({
     queryKey: ['file-roots', hostId],
-    queryFn: api.files.roots,
+    queryFn: () => api.files.roots(hostId),
     staleTime: 60000,
   })
 }
@@ -154,7 +154,7 @@ export function useFileRoots(hostId = 'local') {
 export function useFileList(hostId: string, root: string, path: string, enabled = true) {
   return useQuery({
     queryKey: ['file-list', hostId, root, path],
-    queryFn: () => api.files.list(root, path),
+    queryFn: () => api.files.list(hostId, root, path),
     enabled: !!root && enabled,
     staleTime: 8000,
     gcTime: 60000,
@@ -164,7 +164,7 @@ export function useFileList(hostId: string, root: string, path: string, enabled 
 export function useFilePreview(hostId: string, root: string, path: string, line = 1, enabled = true) {
   return useQuery({
     queryKey: ['file-preview', hostId, root, path, line],
-    queryFn: () => api.files.preview(root, path, line),
+    queryFn: () => api.files.preview(hostId, root, path, line),
     enabled: !!root && !!path && enabled,
     staleTime: 8000,
     gcTime: 60000,
@@ -174,7 +174,7 @@ export function useFilePreview(hostId: string, root: string, path: string, line 
 export function useFileSearch(hostId: string, root: string, mode: 'name' | 'content', query: string, basePath = '') {
   return useQuery({
     queryKey: ['file-search', hostId, root, mode, query, basePath],
-    queryFn: () => mode === 'name' ? api.files.searchName(root, query, basePath) : api.files.searchContent(root, query, basePath),
+    queryFn: () => mode === 'name' ? api.files.searchName(hostId, root, query, basePath) : api.files.searchContent(hostId, root, query, basePath),
     enabled: !!root && query.trim().length > 0,
     staleTime: 8000,
     gcTime: 60000,

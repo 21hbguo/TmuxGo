@@ -90,6 +90,7 @@ function StatusTab({ hostId, repoPath, t }: { hostId: string; repoPath: string; 
     if (isStaged) params.set('staged', '1')
     useConsoleStore.getState().openEditor({
       id: `git-diff?${params.toString()}`,
+      hostId,
       rootId: 'git',
       rootLabel: 'Git',
       rootPath: repoPath,
@@ -159,6 +160,7 @@ function HistoryTab({ hostId, repoPath, t }: { hostId: string; repoPath: string;
     const params = new URLSearchParams({ hostId, repoPath, commit: `${hash}^!` })
     useConsoleStore.getState().openEditor({
       id: `git-diff?${params.toString()}`,
+      hostId,
       rootId: 'git',
       rootLabel: 'Git',
       rootPath: repoPath,

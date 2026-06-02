@@ -465,7 +465,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     if (!item || item.type !== 'directory') return
     const cache = readDirectoryChildrenFromCache(directoryCache, activeRootId, activeRootBasePath, item.path)
     if (cache) return
-    const result = await api.files.list(activeRootId, joinRelativePath(activeRootBasePath, item.path))
+    const result = await api.files.list(fileHostId, activeRootId, joinRelativePath(activeRootBasePath, item.path))
     storeDirectoryChildren(activeRootId, activeRootBasePath, item.path, result.items)
   }
 
@@ -473,7 +473,8 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     if (!onOpenFile || item.type !== 'file' || !root) return false
     const filePath = resolveRootRelativePath(activeRootBasePath, item.path)
     onOpenFile({
-      id: `${activeRootId}:${filePath}`,
+      id: `${fileHostId}:${activeRootId}:${filePath}`,
+      hostId: fileHostId,
       rootId: activeRootId,
       rootLabel: root.label,
       rootPath: root.path,
@@ -544,7 +545,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
       return
     }
     const anchor = document.createElement('a')
-    anchor.href = api.files.downloadUrl(activeRootId, resolveRootRelativePath(activeRootBasePath, item.path), preferences.downloadRateLimitKBps)
+    anchor.href = api.files.downloadUrl(fileHostId, activeRootId, resolveRootRelativePath(activeRootBasePath, item.path), preferences.downloadRateLimitKBps)
     anchor.download = item.name
     anchor.rel = 'noopener'
     anchor.style.display = 'none'
@@ -557,8 +558,8 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     const name = await prompt(kind === 'file' ? t('file.newFileName') : t('file.newFolderName'), '')
     if (!name?.trim()) return
     try {
-      if (kind === 'file') await api.files.createFile(activeRootId, joinRelativePath(activeRootBasePath, directoryPath), name.trim())
-      else await api.files.createDirectory(activeRootId, joinRelativePath(activeRootBasePath, directoryPath), name.trim())
+      if (kind === 'file') await api.files.createFile(fileHostId, activeRootId, joinRelativePath(activeRootBasePath, directoryPath), name.trim())
+      else await api.files.createDirectory(fileHostId, activeRootId, joinRelativePath(activeRootBasePath, directoryPath), name.trim())
       refreshFiles()
       pushToast({ type: 'success', message: kind === 'file' ? t('file.fileCreated') : t('file.folderCreated') })
     } catch (err) {
@@ -569,7 +570,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     const name = await prompt(t('file.renamePrompt', { name: item.name }), item.name)
     if (!name?.trim() || name.trim() === item.name) return
     try {
-      const result = await api.files.rename(activeRootId, resolveRootRelativePath(activeRootBasePath, item.path), name.trim())
+      const result = await api.files.rename(fileHostId, activeRootId, resolveRootRelativePath(activeRootBasePath, item.path), name.trim())
       if (selectedPath === item.path) setSelectedPath(stripBasePath(result.item.path, activeRootBasePath))
       refreshFiles()
       pushToast({ type: 'success', message: t('file.renamed', { name: item.name }) })
@@ -585,7 +586,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     if (!item) return
     setPendingDeleteItem(null)
     try {
-      await api.files.remove(activeRootId, resolveRootRelativePath(activeRootBasePath, item.path))
+      await api.files.remove(fileHostId, activeRootId, resolveRootRelativePath(activeRootBasePath, item.path))
       if (selectedPath === item.path) {
         setSelectedPath('')
         setSelectedPreviewLine(1)
@@ -618,7 +619,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   const embedded = mode === 'explorer'
   const shellClass = isMobile ? 'flex h-full min-h-0 flex-col bg-bg-1' : `relative flex h-full ${embedded ? 'min-w-0 flex-1' : 'shrink-0'} flex-col bg-bg-1 ${dock === 'left' ? 'border-r border-[var(--line)]' : 'border-l border-[var(--line)]'}`
   const shellStyle = isMobile || embedded ? undefined : { width: filePanelWidth }
-  const imagePreviewUrl = preview?.path && preview.type === 'file' && isImagePath(preview.path) && (preview.binary || preview.reason === 'binary-file' || preview.reason === 'large-file') ? api.files.imageUrl(activeRootId, resolveRootRelativePath(activeRootBasePath, preview.path), preview.modifiedAt) : ''
+  const imagePreviewUrl = preview?.path && preview.type === 'file' && isImagePath(preview.path) && (preview.binary || preview.reason === 'binary-file' || preview.reason === 'large-file') ? api.files.imageUrl(fileHostId, activeRootId, resolveRootRelativePath(activeRootBasePath, preview.path), preview.modifiedAt) : ''
   const previewBlock = preview ? (
     imagePreviewUrl ? (
       <div className="flex h-full min-h-0 flex-col">
@@ -666,9 +667,20 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     const favoritePath = { rootId: activeRootId, path: joinRelativePath(activeRootBasePath, item.path) }
     return (
       <div
+        role="button"
+        tabIndex={0}
         onClick={(e) => {
           e.preventDefault()
           e.stopPropagation()
+          if (item.type === 'directory') void handleDesktopDirectoryToggle(item)
+          else {
+            setSelectedPath(item.path)
+            openItem(item)
+          }
+        }}
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter' && e.key !== ' ') return
+          e.preventDefault()
           if (item.type === 'directory') void handleDesktopDirectoryToggle(item)
           else {
             setSelectedPath(item.path)
@@ -781,7 +793,12 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
             expandedKeys={Array.from(openDirectories)}
             selectedKeys={selectedPath ? [selectedPath] : []}
             loadData={loadTreeDirectory}
-            onExpand={(keys) => setOpenDirectories(new Set(keys.map(String)))}
+            onExpand={(keys, info) => {
+              const next = new Set(keys.map(String))
+              const item = (info.node as EventDataNode<FileTreeNode>).item
+              if (item?.type === 'directory' && info.expanded) next.add(item.path)
+              setOpenDirectories(next)
+            }}
             onSelect={(keys, info) => {
               const node = info.node as EventDataNode<FileTreeNode>
               if (!node.item) return

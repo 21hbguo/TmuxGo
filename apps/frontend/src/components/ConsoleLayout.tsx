@@ -399,7 +399,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
         onClose={() => closeOverlay('drawer')}
         type={drawerType}
       />
-      {mobileFileSheetOpen && <div className="fixed left-0 right-0 top-0 z-50 bg-black/50" style={{ height: 'var(--app-height,100dvh)' }}><div className="absolute bottom-0 left-0 right-0 flex h-[65%] flex-col overflow-hidden rounded-t-xl border-t border-[var(--line)] bg-bg-1"><div className="flex shrink-0 justify-center py-2"><div className="h-1 w-10 rounded-full bg-text-3/30" /></div><div className="min-h-0 flex-1"><FilePanel mode="mobile" onClose={() => closeOverlay('mobile-files')} /></div></div></div>}
+      {mobileFileSheetOpen && <div className="fixed left-0 right-0 top-0 z-50 bg-black/50" style={{ height: 'var(--app-height,100dvh)' }}><div className="absolute bottom-0 left-0 right-0 flex h-[75%] flex-col overflow-hidden rounded-t-xl border-t border-[var(--line)] bg-bg-1"><div className="flex shrink-0 justify-center py-2"><div className="h-1 w-10 rounded-full bg-text-3/30" /></div><div className="min-h-0 flex-1"><FilePanel mode="mobile" onClose={() => closeOverlay('mobile-files')} /></div></div></div>}
       <ToastViewport />
     </div>
   )

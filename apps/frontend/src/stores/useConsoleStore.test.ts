@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const sampleEditor = {
-  id: 'root-workspace:src/index.ts',
+  id: 'local:root-workspace:src/index.ts',
+  hostId: 'local',
   rootId: 'root-workspace',
   rootLabel: 'Workspace',
   rootPath: '/workspace',
@@ -39,7 +40,7 @@ describe('useConsoleStore editor persistence', () => {
   it('updates persisted active editor when switching tabs', async () => {
     const { useConsoleStore } = await import('./useConsoleStore')
     useConsoleStore.getState().openEditor(sampleEditor)
-    useConsoleStore.getState().openEditor({ ...sampleEditor, id: 'root-workspace:docs/guide.md', path: 'docs/guide.md', name: 'guide.md', absolutePath: '/workspace/docs/guide.md', language: 'markdown' })
+    useConsoleStore.getState().openEditor({ ...sampleEditor, id: 'local:root-workspace:docs/guide.md', path: 'docs/guide.md', name: 'guide.md', absolutePath: '/workspace/docs/guide.md', language: 'markdown' })
     useConsoleStore.getState().setActiveEditor(sampleEditor.id)
     expect(localStorage.getItem('tmuxgo-active-editor')).toBe(sampleEditor.id)
   })

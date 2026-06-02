@@ -9,6 +9,7 @@ import { pipeline } from 'stream/promises'
 import { promisify } from 'util'
 import { fileURLToPath } from 'url'
 import { assertTargetAllowed } from '../lib/tmux-policy.js'
+import { getHostById, type HostRecord } from '../lib/hosts.js'
 import { readFile as readPreferencesFile } from 'fs/promises'
 
 const execFileAsync = promisify(execFile)
@@ -60,6 +61,10 @@ interface ContentSearchResult extends FileItem {
 }
 
 let rootsCache: Promise<FileRoot[]> | null = null
+const knownAuthMarkers = ['Permission denied']
+const knownHostKeyMarkers = ['Host key verification failed', 'REMOTE HOST IDENTIFICATION HAS CHANGED']
+const knownTimeoutMarkers = ['Connection timed out', 'Operation timed out', 'No route to host']
+const knownNetworkMarkers = ['Could not resolve hostname', 'Connection refused', 'Network is unreachable']
 
 async function getRoots() {
   if (!rootsCache) {
@@ -70,6 +75,232 @@ async function getRoots() {
     }))
   }
   return rootsCache
+}
+function escapeShellSingleQuoted(input: string) {
+  return `'${input.replace(/'/g, `'\\''`)}'`
+}
+function normalizeRemoteErrorMessage(raw: string, fallback: string) {
+  const value = raw.trim() || fallback
+  if (knownHostKeyMarkers.some((m) => value.includes(m))) return 'Host key verification failed'
+  if (knownTimeoutMarkers.some((m) => value.includes(m))) return 'SSH connection timed out'
+  if (knownNetworkMarkers.some((m) => value.includes(m))) return 'SSH network is unreachable'
+  if (knownAuthMarkers.some((m) => value.includes(m))) return 'SSH authentication failed'
+  return value
+}
+function resolveHostPassword(host: HostRecord) {
+  if (host.password) return host.password
+  const envName = host.passwordEnv.trim()
+  if (!envName) return ''
+  return process.env[envName] || ''
+}
+async function hasSshPass() {
+  try {
+    await execFileAsync('sshpass', ['-V'])
+    return true
+  } catch {
+    return false
+  }
+}
+async function getResolvedHost(hostIdRaw: string) {
+  const hostId = hostIdRaw.trim()
+  if (!hostId) throw new Error('Missing host id')
+  const host = await getHostById(hostId)
+  if (!host) throw new Error(`Host "${hostId}" not found`)
+  return host
+}
+async function runRemoteCommand(host: HostRecord, remoteCommand: string, binary = false) {
+  const sshArgs = ['-p', String(host.port), '-o', 'ConnectTimeout=8', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=accept-new', '-T', `${host.user}@${host.address}`, '--', remoteCommand]
+  const password = resolveHostPassword(host)
+  try {
+    if (password) {
+      if (!await hasSshPass()) throw new Error('SSH password configured but sshpass is not installed')
+      return await execFileAsync('sshpass', ['-e', 'ssh', ...sshArgs], { env: { ...process.env, SSHPASS: password }, maxBuffer: 32 * 1024 * 1024, encoding: binary ? 'buffer' : 'utf8' } as any)
+    }
+    return await execFileAsync('ssh', sshArgs, { maxBuffer: 32 * 1024 * 1024, encoding: binary ? 'buffer' : 'utf8' } as any)
+  } catch (err: any) {
+    throw new Error(normalizeRemoteErrorMessage(`${err?.stderr || ''}\n${err?.stdout || ''}`, err?.message || 'SSH file command failed'))
+  }
+}
+async function runRemotePython<T>(hostId: string, script: string, args: string[]): Promise<T> {
+  const host = await getResolvedHost(hostId)
+  const remoteCommand = `python3 -c ${escapeShellSingleQuoted(script)} -- ${args.map((arg) => escapeShellSingleQuoted(arg)).join(' ')}`
+  const { stdout } = await runRemoteCommand(host, remoteCommand)
+  return JSON.parse(String(stdout)) as T
+}
+async function readRemoteBinary(hostId: string, absolutePath: string) {
+  const host = await getResolvedHost(hostId)
+  const remoteCommand = `python3 -c ${escapeShellSingleQuoted(`import pathlib,sys;sys.stdout.buffer.write(pathlib.Path(sys.argv[1]).read_bytes())`)} -- ${escapeShellSingleQuoted(absolutePath)}`
+  const { stdout } = await runRemoteCommand(host, remoteCommand, true)
+  return Buffer.from(stdout as Uint8Array)
+}
+const REMOTE_FILE_SCRIPT = `import base64,datetime,json,os,pathlib,shutil,sys
+PREVIEW_LIMIT=200*1024
+LARGE_FILE_LIMIT=512*1024
+MAX_RESULTS=200
+MAX_READ_LINES=1200
+SEARCH_MATCH_LIMIT=3
+DEFAULT_UPLOAD_DIR='uploads'
+payload=json.loads(base64.b64decode(sys.argv[1]).decode())
+def iso(ts):
+ return datetime.datetime.fromtimestamp(ts,datetime.timezone.utc).isoformat(timespec='milliseconds').replace('+00:00','Z')
+def root_spec():
+ return os.environ.get('TMUX_WEB_FILE_ROOTS') or f"workspace={os.getcwd()}{os.pathsep}home={os.path.expanduser('~')}"
+def roots():
+ out=[]
+ for i,entry in enumerate([e.strip() for e in root_spec().split(os.pathsep) if e.strip()]):
+  if '=' in entry: label,p=entry.split('=',1)
+  else: label,p='',entry
+  resolved=str(pathlib.Path(p).expanduser().resolve())
+  out.append({'id':f'root-{i}','label':label or pathlib.Path(resolved).name or resolved,'path':resolved})
+ return out
+def norm_rel(value=''):
+ return '/'.join([part for part in str(value).replace('\\\\','/').split('/') if part and part!='.'])
+def get_root(root_id):
+ for item in roots():
+  if item['id']==root_id: return item
+ raise Exception('Invalid root')
+def resolve_inside(root_id, rel=''):
+ root=get_root(root_id)
+ base=pathlib.Path(root['path']).resolve()
+ target=(base / norm_rel(rel)).resolve()
+ if str(target)!=str(base) and str(target)[:len(str(base))+1]!=str(base)+os.sep: raise Exception('Path escapes root')
+ return root,str(target),norm_rel(os.path.relpath(str(target),str(base)))
+def is_binary(data):
+ return b'\\0' in data[:min(len(data),4096)]
+def file_item(root_path, abs_path, name):
+ st=os.stat(abs_path)
+ return {'name':name,'path':norm_rel(os.path.relpath(abs_path,root_path)),'type':'directory' if pathlib.Path(abs_path).is_dir() else 'file','size':st.st_size,'modifiedAt':iso(st.st_mtime)}
+def breadcrumbs(rel):
+ parts=[p for p in rel.split('/') if p]
+ out=[{'name':'/','path':''}]
+ for i,name in enumerate(parts): out.append({'name':name,'path':'/'.join(parts[:i+1])})
+ return out
+op=payload['op']
+if op=='roots':
+ print(json.dumps(roots()));sys.exit(0)
+if op=='default-upload-target':
+ items=roots();root=next((item for item in items if item['label'].lower()=='workspace'),items[0] if items else None)
+ if not root: raise Exception('No file roots configured')
+ abs_path=str((pathlib.Path(root['path'])/DEFAULT_UPLOAD_DIR).resolve())
+ print(json.dumps({'rootId':root['id'],'rootLabel':root['label'],'rootPath':root['path'],'path':DEFAULT_UPLOAD_DIR,'absolutePath':abs_path,'source':'fallback'}));sys.exit(0)
+root,abs_path,rel=resolve_inside(payload.get('root',''),payload.get('path',''))
+st=os.stat(abs_path)
+if op=='list':
+ items=[]
+ for entry in os.scandir(abs_path):
+  if entry.name in ('.','..'): continue
+  try: items.append(file_item(root['path'],entry.path,entry.name))
+  except: pass
+ items.sort(key=lambda item:(0 if item['type']=='directory' else 1,item['name'].lower()))
+ print(json.dumps({'root':root,'path':rel,'breadcrumbs':breadcrumbs(rel),'items':items}));sys.exit(0)
+if op=='preview':
+ if pathlib.Path(abs_path).is_dir():
+  print(json.dumps({'path':rel,'type':'directory','size':st.st_size,'modifiedAt':iso(st.st_mtime),'binary':False,'truncated':False,'lines':[]}));sys.exit(0)
+ if st.st_size>LARGE_FILE_LIMIT:
+  print(json.dumps({'path':rel,'type':'file','size':st.st_size,'modifiedAt':iso(st.st_mtime),'binary':False,'truncated':True,'reason':'large-file','lines':[]}));sys.exit(0)
+ data=pathlib.Path(abs_path).read_bytes()
+ if is_binary(data):
+  print(json.dumps({'path':rel,'type':'file','size':st.st_size,'modifiedAt':iso(st.st_mtime),'binary':True,'truncated':False,'reason':'binary-file','lines':[]}));sys.exit(0)
+ start=max(1,int(payload.get('line',1) or 1))
+ text=data[:PREVIEW_LIMIT].decode('utf-8',errors='replace')
+ all_lines=text.splitlines()
+ sliced=all_lines[start-1:start-1+MAX_READ_LINES]
+ lines=[{'number':start+i,'content':content} for i,content in enumerate(sliced)]
+ print(json.dumps({'path':rel,'type':'file','size':st.st_size,'modifiedAt':iso(st.st_mtime),'binary':False,'truncated':len(data)>PREVIEW_LIMIT or len(all_lines)>len(lines),'lines':lines}));sys.exit(0)
+if op=='content':
+ if pathlib.Path(abs_path).is_dir():
+  print(json.dumps({'path':rel,'type':'directory','size':st.st_size,'modifiedAt':iso(st.st_mtime),'binary':False,'truncated':False,'reason':'directory','encoding':'utf8','content':''}));sys.exit(0)
+ if st.st_size>LARGE_FILE_LIMIT:
+  print(json.dumps({'path':rel,'type':'file','size':st.st_size,'modifiedAt':iso(st.st_mtime),'binary':False,'truncated':True,'reason':'large-file','encoding':'utf8','content':''}));sys.exit(0)
+ data=pathlib.Path(abs_path).read_bytes()
+ if is_binary(data):
+  print(json.dumps({'path':rel,'type':'file','size':st.st_size,'modifiedAt':iso(st.st_mtime),'binary':True,'truncated':False,'reason':'binary-file','encoding':'utf8','content':''}));sys.exit(0)
+ print(json.dumps({'path':rel,'type':'file','size':st.st_size,'modifiedAt':iso(st.st_mtime),'binary':False,'truncated':False,'encoding':'utf8','content':data.decode('utf-8')}));sys.exit(0)
+if op=='save':
+ if pathlib.Path(abs_path).is_dir(): raise Exception('Directories cannot be saved')
+ if st.st_size>LARGE_FILE_LIMIT: raise Exception('Large files are read only')
+ current=pathlib.Path(abs_path).read_bytes()
+ if is_binary(current): raise Exception('Binary files are read only')
+ current_m=iso(st.st_mtime)
+ if payload.get('modifiedAt') and payload['modifiedAt']!=current_m: raise Exception('FILE_MODIFIED:File changed on disk')
+ pathlib.Path(abs_path).write_text(payload.get('content',''),encoding='utf-8')
+ next_st=os.stat(abs_path)
+ print(json.dumps({'ok':True,'content':payload.get('content',''),'modifiedAt':iso(next_st.st_mtime),'size':next_st.st_size}));sys.exit(0)
+if op=='create-file':
+ name=payload.get('name','').strip()
+ if not name or '/' in name or '\\\\' in name or name in ('.','..'): raise Exception('Invalid name')
+ if not pathlib.Path(abs_path).is_dir(): raise Exception('Target directory not found')
+ target=pathlib.Path(abs_path)/name
+ if target.exists(): raise Exception('File already exists')
+ target.write_text('',encoding='utf-8')
+ print(json.dumps({'ok':True,'item':file_item(root['path'],str(target),name),'parentPath':rel}));sys.exit(0)
+if op=='create-directory':
+ name=payload.get('name','').strip()
+ if not name or '/' in name or '\\\\' in name or name in ('.','..'): raise Exception('Invalid name')
+ if not pathlib.Path(abs_path).is_dir(): raise Exception('Target directory not found')
+ target=pathlib.Path(abs_path)/name
+ if target.exists(): raise Exception('Directory already exists')
+ target.mkdir()
+ print(json.dumps({'ok':True,'item':file_item(root['path'],str(target),name),'parentPath':rel}));sys.exit(0)
+if op=='rename':
+ name=payload.get('name','').strip()
+ if not name or '/' in name or '\\\\' in name or name in ('.','..'): raise Exception('Invalid name')
+ if str(pathlib.Path(abs_path).resolve())==str(pathlib.Path(root['path']).resolve()): raise Exception('Root cannot be renamed')
+ target=str(pathlib.Path(abs_path).with_name(name))
+ if target!=abs_path and pathlib.Path(target).exists(): raise Exception('Target already exists')
+ if target!=abs_path: pathlib.Path(abs_path).rename(target)
+ print(json.dumps({'ok':True,'item':file_item(root['path'],target,name),'previousPath':rel}));sys.exit(0)
+if op=='remove':
+ if str(pathlib.Path(abs_path).resolve())==str(pathlib.Path(root['path']).resolve()): raise Exception('Root cannot be removed')
+ typ='directory' if pathlib.Path(abs_path).is_dir() else 'file'
+ shutil.rmtree(abs_path) if typ=='directory' else pathlib.Path(abs_path).unlink()
+ print(json.dumps({'ok':True,'path':rel,'type':typ}));sys.exit(0)
+if op=='resolve-file':
+ print(json.dumps({'root':root,'absolutePath':abs_path,'relativePath':rel,'size':st.st_size,'isFile':pathlib.Path(abs_path).is_file()}));sys.exit(0)
+query=str(payload.get('query','')).lower().strip()
+clauses=[[token.strip().lower() for token in part.split() if token.strip()] for part in query.split('|') if part.strip()]
+def match_name(name):
+ low=name.lower()
+ return any(all(term in low for term in clause) for clause in clauses)
+def match_content(text):
+ low=text.lower()
+ return any(all(term in low for term in clause) for clause in clauses)
+def match_line(text):
+ low=text.lower()
+ return any(any(term in low for term in clause) for clause in clauses)
+results=[]
+for current_root,dirs,files in os.walk(abs_path):
+ for name in list(dirs)+list(files):
+  current=os.path.join(current_root,name)
+  is_dir=os.path.isdir(current)
+  relative=norm_rel(os.path.relpath(current,root['path']))
+  if op=='search-name':
+   if not match_name(name): continue
+   try: results.append(file_item(root['path'],current,name))
+   except: pass
+  else:
+   if is_dir: continue
+   try:
+    info=os.stat(current)
+    if info.st_size>LARGE_FILE_LIMIT: continue
+    data=pathlib.Path(current).read_bytes()
+    if is_binary(data): continue
+    text=data.decode('utf-8',errors='replace')
+    if not match_content(text): continue
+    matches=[]
+    for i,line in enumerate(text.splitlines()):
+     if len(matches)>=SEARCH_MATCH_LIMIT: break
+     if match_line(line): matches.append({'number':i+1,'content':line[:240]})
+    if matches: results.append({'name':name,'path':relative,'type':'file','size':info.st_size,'modifiedAt':iso(info.st_mtime),'matches':matches})
+   except: pass
+  if len(results)>=MAX_RESULTS: break
+ if len(results)>=MAX_RESULTS: break
+print(json.dumps(results[:MAX_RESULTS]))`
+function encodeRemotePayload(payload: Record<string, unknown>) {
+  return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64')
+}
+async function runRemoteFileJson<T>(hostId: string, payload: Record<string, unknown>) {
+  return runRemotePython<T>(hostId, REMOTE_FILE_SCRIPT, [encodeRemotePayload(payload)])
 }
 function normalizeRelativePath(relativePath = '') {
   return relativePath.split(/[\\/]+/).filter(Boolean).join('/')
@@ -479,82 +710,158 @@ async function resolveDownloadRateLimitKBps(queryRateLimitKBps?: unknown, profil
 function getImageMimeType(filePath: string) {
   return IMAGE_MIME_BY_EXT[path.extname(filePath).toLowerCase()] || ''
 }
+async function listDirectoryForHost(hostId: string, rootId: string, relativePath: string) {
+  if (hostId === 'local') return listDirectory(rootId, relativePath)
+  return runRemoteFileJson(hostId, { op: 'list', root: rootId, path: relativePath })
+}
+async function readPreviewForHost(hostId: string, rootId: string, relativePath: string, line = 1) {
+  if (hostId === 'local') return readPreview(rootId, relativePath, line)
+  return runRemoteFileJson(hostId, { op: 'preview', root: rootId, path: relativePath, line })
+}
+async function readContentForHost(hostId: string, rootId: string, relativePath: string) {
+  if (hostId === 'local') return readContent(rootId, relativePath)
+  return runRemoteFileJson(hostId, { op: 'content', root: rootId, path: relativePath })
+}
+async function saveContentForHost(hostId: string, rootId: string, relativePath: string, content: string, modifiedAt?: string) {
+  if (hostId === 'local') return saveContent(rootId, relativePath, content, modifiedAt)
+  try {
+    return await runRemoteFileJson(hostId, { op: 'save', root: rootId, path: relativePath, content, modifiedAt })
+  } catch (error) {
+    const err = error as Error & { code?: string }
+    if (err.message.startsWith('FILE_MODIFIED:')) {
+      err.message = err.message.slice('FILE_MODIFIED:'.length)
+      err.code = 'FILE_MODIFIED'
+    }
+    throw err
+  }
+}
+async function createFileForHost(hostId: string, rootId: string, directoryPath: string, name: string) {
+  if (hostId === 'local') return createFile(rootId, directoryPath, name)
+  return runRemoteFileJson(hostId, { op: 'create-file', root: rootId, path: directoryPath, name })
+}
+async function createDirectoryForHost(hostId: string, rootId: string, directoryPath: string, name: string) {
+  if (hostId === 'local') return createDirectory(rootId, directoryPath, name)
+  return runRemoteFileJson(hostId, { op: 'create-directory', root: rootId, path: directoryPath, name })
+}
+async function renameEntryForHost(hostId: string, rootId: string, relativePath: string, name: string) {
+  if (hostId === 'local') return renameEntry(rootId, relativePath, name)
+  return runRemoteFileJson(hostId, { op: 'rename', root: rootId, path: relativePath, name })
+}
+async function removeEntryForHost(hostId: string, rootId: string, relativePath: string) {
+  if (hostId === 'local') return removeEntry(rootId, relativePath)
+  return runRemoteFileJson(hostId, { op: 'remove', root: rootId, path: relativePath })
+}
+async function searchNameForHost(hostId: string, rootId: string, query: string, basePath = '') {
+  if (hostId === 'local') return searchName(rootId, query, basePath)
+  return runRemoteFileJson(hostId, { op: 'search-name', root: rootId, path: basePath, query })
+}
+async function searchContentForHost(hostId: string, rootId: string, query: string, basePath = '') {
+  if (hostId === 'local') return searchContent(rootId, query, basePath)
+  return runRemoteFileJson(hostId, { op: 'search-content', root: rootId, path: basePath, query })
+}
+async function resolveDefaultUploadTargetForHost(hostId: string, paneId?: string) {
+  if (hostId === 'local') return resolveDefaultUploadTarget(paneId)
+  return runRemoteFileJson(hostId, { op: 'default-upload-target' })
+}
+async function resolveFileForHost(hostId: string, rootId: string, relativePath: string) {
+  if (hostId === 'local') {
+    const resolved = await resolveInside(rootId, relativePath)
+    const info = await stat(resolved.absolutePath)
+    return { ...resolved, size: info.size, isFile: info.isFile() }
+  }
+  return runRemoteFileJson<{ root: FileRoot; absolutePath: string; relativePath: string; size: number; isFile: boolean }>(hostId, { op: 'resolve-file', root: rootId, path: relativePath })
+}
 
 export async function fileRoutes(fastify: FastifyInstance) {
-  fastify.get('/files/roots', async () => {
-    return getRoots()
+  fastify.get('/hosts/:hostId/files/roots', async (request) => {
+    const { hostId } = request.params as { hostId: string }
+    if (hostId === 'local') return getRoots()
+    return runRemoteFileJson<FileRoot[]>(hostId, { op: 'roots' })
   })
-  fastify.get('/files/list', async (request) => {
+  fastify.get('/hosts/:hostId/files/list', async (request) => {
+    const { hostId } = request.params as { hostId: string }
     const query = request.query as { root?: string; path?: string }
-    return listDirectory(query.root || '', query.path || '')
+    return listDirectoryForHost(hostId, query.root || '', query.path || '')
   })
-  fastify.get('/files/preview', async (request) => {
+  fastify.get('/hosts/:hostId/files/preview', async (request) => {
+    const { hostId } = request.params as { hostId: string }
     const query = request.query as { root?: string; path?: string; line?: string }
-    return readPreview(query.root || '', query.path || '', parseInt(query.line || '1', 10))
+    return readPreviewForHost(hostId, query.root || '', query.path || '', parseInt(query.line || '1', 10))
   })
-  fastify.get('/files/content', async (request) => {
+  fastify.get('/hosts/:hostId/files/content', async (request) => {
+    const { hostId } = request.params as { hostId: string }
     const query = request.query as { root?: string; path?: string }
-    return readContent(query.root || '', query.path || '')
+    return readContentForHost(hostId, query.root || '', query.path || '')
   })
-  fastify.put('/files/content', async (request, reply) => {
+  fastify.put('/hosts/:hostId/files/content', async (request, reply) => {
+    const { hostId } = request.params as { hostId: string }
     const body = request.body as { root?: string; path?: string; content?: string; modifiedAt?: string }
     try {
-      return await saveContent(body.root || '', body.path || '', typeof body.content === 'string' ? body.content : '', body.modifiedAt)
+      return await saveContentForHost(hostId, body.root || '', body.path || '', typeof body.content === 'string' ? body.content : '', body.modifiedAt)
     } catch (error) {
       const err = error as Error & { code?: string }
       if (err.code === 'FILE_MODIFIED') return reply.status(409).send({ message: err.message, code: err.code })
       return reply.status(400).send({ message: err.message || 'Save failed', code: err.code || 'SAVE_FAILED' })
     }
   })
-  fastify.post('/files/create-file', async (request, reply) => {
+  fastify.post('/hosts/:hostId/files/create-file', async (request, reply) => {
+    const { hostId } = request.params as { hostId: string }
     const body = request.body as { root?: string; path?: string; name?: string }
     try {
-      return await createFile(body.root || '', body.path || '', typeof body.name === 'string' ? body.name : '')
+      return await createFileForHost(hostId, body.root || '', body.path || '', typeof body.name === 'string' ? body.name : '')
     } catch (error) {
       const err = error as Error
       return reply.status(400).send({ message: err.message || 'Create failed', code: 'CREATE_FILE_FAILED' })
     }
   })
-  fastify.post('/files/create-directory', async (request, reply) => {
+  fastify.post('/hosts/:hostId/files/create-directory', async (request, reply) => {
+    const { hostId } = request.params as { hostId: string }
     const body = request.body as { root?: string; path?: string; name?: string }
     try {
-      return await createDirectory(body.root || '', body.path || '', typeof body.name === 'string' ? body.name : '')
+      return await createDirectoryForHost(hostId, body.root || '', body.path || '', typeof body.name === 'string' ? body.name : '')
     } catch (error) {
       const err = error as Error
       return reply.status(400).send({ message: err.message || 'Create failed', code: 'CREATE_DIRECTORY_FAILED' })
     }
   })
-  fastify.post('/files/rename', async (request, reply) => {
+  fastify.post('/hosts/:hostId/files/rename', async (request, reply) => {
+    const { hostId } = request.params as { hostId: string }
     const body = request.body as { root?: string; path?: string; name?: string }
     try {
-      return await renameEntry(body.root || '', body.path || '', typeof body.name === 'string' ? body.name : '')
+      return await renameEntryForHost(hostId, body.root || '', body.path || '', typeof body.name === 'string' ? body.name : '')
     } catch (error) {
       const err = error as Error
       return reply.status(400).send({ message: err.message || 'Rename failed', code: 'RENAME_FAILED' })
     }
   })
-  fastify.delete('/files/remove', async (request, reply) => {
+  fastify.delete('/hosts/:hostId/files/remove', async (request, reply) => {
+    const { hostId } = request.params as { hostId: string }
     const query = request.query as { root?: string; path?: string }
     try {
-      return await removeEntry(query.root || '', query.path || '')
+      return await removeEntryForHost(hostId, query.root || '', query.path || '')
     } catch (error) {
       const err = error as Error
       return reply.status(400).send({ message: err.message || 'Remove failed', code: 'REMOVE_FAILED' })
     }
   })
-  fastify.get('/files/search-name', async (request) => {
+  fastify.get('/hosts/:hostId/files/search-name', async (request) => {
+    const { hostId } = request.params as { hostId: string }
     const query = request.query as { root?: string; q?: string; basePath?: string }
-    return searchName(query.root || '', query.q || '', query.basePath || '')
+    return searchNameForHost(hostId, query.root || '', query.q || '', query.basePath || '')
   })
-  fastify.get('/files/search-content', async (request) => {
+  fastify.get('/hosts/:hostId/files/search-content', async (request) => {
+    const { hostId } = request.params as { hostId: string }
     const query = request.query as { root?: string; q?: string; basePath?: string }
-    return searchContent(query.root || '', query.q || '', query.basePath || '')
+    return searchContentForHost(hostId, query.root || '', query.q || '', query.basePath || '')
   })
-  fastify.get('/files/default-upload-target', async (request) => {
+  fastify.get('/hosts/:hostId/files/default-upload-target', async (request) => {
+    const { hostId } = request.params as { hostId: string }
     const query = request.query as { paneId?: string }
-    return resolveDefaultUploadTarget(query.paneId)
+    return resolveDefaultUploadTargetForHost(hostId, query.paneId)
   })
-  fastify.post('/files/upload', async (request) => {
+  fastify.post('/hosts/:hostId/files/upload', async (request, reply) => {
+    const { hostId } = request.params as { hostId: string }
+    if (hostId !== 'local') return reply.status(400).send({ message: 'Remote upload is not supported yet', code: 'REMOTE_UPLOAD_UNSUPPORTED' })
     const parts = request.parts()
     let targetRootId = ''
     let targetPath = ''
@@ -602,36 +909,40 @@ export async function fileRoutes(fastify: FastifyInstance) {
       files: uploadedFiles,
     }
   })
-  fastify.get('/files/download', async (request, reply) => {
+  fastify.get('/hosts/:hostId/files/download', async (request, reply) => {
+    const { hostId } = request.params as { hostId: string }
     const query = request.query as { root?: string; path?: string; profile?: string; rateLimitKBps?: string }
     try {
-      const { absolutePath } = await resolveInside(query.root || '', query.path || '')
-      const info = await stat(absolutePath)
-      if (!info.isFile()) return reply.status(400).send({ message: 'Directories are not downloadable here', code: 'DOWNLOAD_UNSUPPORTED' })
+      const fileInfo = await resolveFileForHost(hostId, query.root || '', query.path || '')
+      if (!fileInfo.isFile) return reply.status(400).send({ message: 'Directories are not downloadable here', code: 'DOWNLOAD_UNSUPPORTED' })
       const rateLimitKBps = await resolveDownloadRateLimitKBps(query.rateLimitKBps, query.profile || 'default')
       reply.header('Content-Type', 'application/octet-stream')
-      reply.header('Content-Length', String(info.size))
-      reply.header('Content-Disposition', `attachment; filename="${encodeURIComponent(path.basename(absolutePath)).replace(/%20/g, ' ')}"`)
-      return reply.send(createReadStream(absolutePath).pipe(createRateLimitStream(rateLimitKBps)))
+      reply.header('Content-Length', String(fileInfo.size))
+      reply.header('Content-Disposition', `attachment; filename="${encodeURIComponent(path.basename(fileInfo.absolutePath)).replace(/%20/g, ' ')}"`)
+      if (hostId === 'local') return reply.send(createReadStream(fileInfo.absolutePath).pipe(createRateLimitStream(rateLimitKBps)))
+      const buffer = await readRemoteBinary(hostId, fileInfo.absolutePath)
+      return reply.send(buffer)
     } catch (error) {
       const err = error as Error
       return reply.status(400).send({ message: err.message || 'Download failed', code: 'DOWNLOAD_FAILED' })
     }
   })
-  fastify.get('/files/image', async (request, reply) => {
+  fastify.get('/hosts/:hostId/files/image', async (request, reply) => {
+    const { hostId } = request.params as { hostId: string }
     const query = request.query as { root?: string; path?: string }
     try {
-      const { absolutePath } = await resolveInside(query.root || '', query.path || '')
-      const info = await stat(absolutePath)
-      if (!info.isFile()) return reply.status(400).send({ message: 'Directories are not previewable here', code: 'IMAGE_PREVIEW_UNSUPPORTED' })
-      const mimeType = getImageMimeType(absolutePath)
+      const fileInfo = await resolveFileForHost(hostId, query.root || '', query.path || '')
+      if (!fileInfo.isFile) return reply.status(400).send({ message: 'Directories are not previewable here', code: 'IMAGE_PREVIEW_UNSUPPORTED' })
+      const mimeType = getImageMimeType(fileInfo.absolutePath)
       if (!mimeType) return reply.status(400).send({ message: 'Image preview unavailable for this file type', code: 'IMAGE_TYPE_UNSUPPORTED' })
       reply.header('Content-Type', mimeType)
-      reply.header('Content-Length', String(info.size))
-      reply.header('Content-Disposition', `inline; filename="${encodeURIComponent(path.basename(absolutePath)).replace(/%20/g, ' ')}"`)
+      reply.header('Content-Length', String(fileInfo.size))
+      reply.header('Content-Disposition', `inline; filename="${encodeURIComponent(path.basename(fileInfo.absolutePath)).replace(/%20/g, ' ')}"`)
       reply.header('Cache-Control', 'no-store')
       reply.header('X-Content-Type-Options', 'nosniff')
-      return reply.send(createReadStream(absolutePath))
+      if (hostId === 'local') return reply.send(createReadStream(fileInfo.absolutePath))
+      const buffer = await readRemoteBinary(hostId, fileInfo.absolutePath)
+      return reply.send(buffer)
     } catch (error) {
       const err = error as Error
       return reply.status(400).send({ message: err.message || 'Image preview failed', code: 'IMAGE_PREVIEW_FAILED' })

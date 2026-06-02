@@ -123,6 +123,7 @@ export interface FileContentMatch extends FileItem {
 }
 export interface FileDocumentHandle {
   id: string
+  hostId: string
   rootId: string
   rootLabel: string
   rootPath: string
