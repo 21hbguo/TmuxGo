@@ -195,7 +195,7 @@ describe('FilePanel', () => {
     expect(favorites).toEqual([])
   })
 
-  it('expands a searched directory on desktop while keeping name search active', async () => {
+  it('expands a searched directory in place on desktop while keeping name search active', async () => {
     render(React.createElement(FilePanel))
     const input = screen.getByPlaceholderText('Search file names') as HTMLInputElement
     fireEvent.change(input, { target: { value: 'docs' } })
@@ -204,6 +204,7 @@ describe('FilePanel', () => {
     await waitFor(() => expect(screen.getByText('guide.md')).toBeInTheDocument())
     expect(input.value).toBe('docs')
     expect(screen.getByRole('button', { name: '/' })).toBeInTheDocument()
+    expect(screen.getByText('docs')).toBeInTheDocument()
   })
 
   it('enters a searched directory on mobile while keeping name search active', async () => {

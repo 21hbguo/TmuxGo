@@ -198,6 +198,12 @@ function trimDirectoryItems(items: FileItem[]) {
   if (items.length <= LARGE_DIRECTORY_LIMIT) return { items, truncated: false }
   return { items: items.slice(0, DIRECTORY_RENDER_LIMIT), truncated: true }
 }
+function matchesSearchEntry(item: FileItem, query: string, mode: SearchMode, results: FileEntry[]) {
+  if (!query.trim()) return true
+  if (results.some((entry) => entry.path === item.path)) return true
+  if (mode === 'content') return false
+  return item.name.toLowerCase().includes(query.trim().toLowerCase())
+}
 function resolveRootRelativePath(basePath: string, itemPath: string) {
   return joinRelativePath(basePath, itemPath)
 }
@@ -455,8 +461,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     })
   }
   const handleDesktopDirectoryToggle = async (item: FileItem) => {
-    const cache = readDirectoryChildrenFromCache(directoryCache, activeRootId, activeRootBasePath, item.path)
-    if (!cache) await loadTreeDirectory({ item } as EventDataNode<FileTreeNode>)
+    await loadDirectoryChildren(item)
     toggleDesktopDirectory(item.path)
     setSelectedPath(item.path)
   }
@@ -467,6 +472,13 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     if (cache) return
     const result = await api.files.list(fileHostId, activeRootId, joinRelativePath(activeRootBasePath, item.path))
     storeDirectoryChildren(activeRootId, activeRootBasePath, item.path, result.items)
+  }
+  const loadDirectoryChildren = async (item: FileItem) => {
+    const cache = readDirectoryChildrenFromCache(directoryCache, activeRootId, activeRootBasePath, item.path)
+    if (cache) return cache
+    const result = await api.files.list(fileHostId, activeRootId, joinRelativePath(activeRootBasePath, item.path))
+    storeDirectoryChildren(activeRootId, activeRootBasePath, item.path, result.items)
+    return result.items
   }
 
   const openInEditor = (item: FileEntry) => {
@@ -487,10 +499,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   const openItem = (item: FileEntry) => {
     if (item.type === 'directory') {
       if (!isMobile && showSearchResults) {
-        setCurrentPath(item.path)
-        setSelectedPath('')
-        setSelectedPreviewLine(1)
-        setSearchNavigationPath(item.path)
+        void handleDesktopDirectoryToggle(item)
         return
       }
       if (!isMobile) {
@@ -712,6 +721,53 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
       </div>
     )
   }
+  const renderSearchList = (entries: FileEntry[], depth = 0): React.ReactNode[] => entries.filter((item) => (!hideDotFiles || !isDotPath(item.path || item.name)) && matchesFileTypeFilter(item, fileTypeFilter)).flatMap((item) => {
+    const cache = item.type === 'directory' ? readDirectoryChildrenFromCache(directoryCache, activeRootId, activeRootBasePath, item.path) : undefined
+    const nested = item.type === 'directory' && openDirectories.has(item.path) && cache ? renderSearchList(cache.filter((entry) => matchesSearchEntry(entry, debouncedQuery, searchMode, searchResults)).map((entry) => rebaseEntryPath(entry, activeRootBasePath)), depth + 1) : []
+    return [
+      <button
+        key={`${item.type}-${item.path}`}
+        tabIndex={0}
+        onClick={() => openItem(item)}
+        onDoubleClick={() => insertItemPath(item)}
+        onKeyDown={(e) => selectFromKeyboard(item, e)}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          showContextMenu(e.clientX, e.clientY, item, getParentRelativePath(item, currentPath))
+        }}
+        onTouchStart={(e) => {
+          if (!isMobile) return
+          const touch = e.touches[0]
+          if (!touch) return
+          if (touchTimerRef.current) clearTimeout(touchTimerRef.current)
+          touchTimerRef.current = setTimeout(() => showContextMenu(touch.clientX, touch.clientY, item, getParentRelativePath(item, currentPath)), 520)
+        }}
+        onTouchMove={() => {
+          if (touchTimerRef.current) clearTimeout(touchTimerRef.current)
+          touchTimerRef.current = null
+        }}
+        onTouchEnd={() => {
+          if (touchTimerRef.current) clearTimeout(touchTimerRef.current)
+          touchTimerRef.current = null
+        }}
+        className={`group w-full border-l-2 px-2 py-[3px] text-left text-[11px] leading-4 transition-colors hover:bg-bg-2 ${selectedPath === item.path ? 'border-accent bg-bg-2' : 'border-transparent'}`}
+        style={!isMobile && showSearchResults ? { paddingLeft: `${8 + depth * 14}px` } : undefined}
+      >
+        <div className="flex items-center gap-1.5">
+          <span className="shrink-0">{item.type === 'directory' ? <span className="text-[#dcb67a]">{openDirectories.has(item.path) ? '▾' : '▸'}</span> : getFileVisual(item.path, item.type).icon}</span>
+          <span className={`min-w-0 flex-1 truncate font-mono ${item.type === 'directory' ? 'text-text-1' : getFileVisual(item.path, item.type).tone}`}>{item.name}</span>
+          {item.type === 'directory' && <FavoriteDirectoryButton active={isFavoriteDirectory({ rootId: activeRootId, path: joinRelativePath(activeRootBasePath, item.path) })} name={item.name} onClick={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            toggleFavoriteDirectory(item)
+          }} />}
+          <span className="invisible text-[10px] text-text-3 group-hover:visible">{item.type === 'file' ? formatSize(item.size) : 'dir'}</span>
+        </div>
+        {'matches' in item && item.matches?.[0] && <div className="truncate pl-4 font-mono text-[10px] text-text-3">L{item.matches[0].number}: {item.matches[0].content}</div>}
+      </button>,
+      ...nested,
+    ]
+  })
 
   return (
     <aside className={shellClass} style={shellStyle}>
@@ -815,7 +871,8 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
             titleRender={(node) => renderTreeTitle(node as FileTreeNode)}
           />
         )}
-        {!listLoading && (isMobile || showSearchResults) && visibleItems.map((item: any) => (
+        {!listLoading && showSearchResults && !isMobile && renderSearchList(visibleItems)}
+        {!listLoading && isMobile && visibleItems.map((item: any) => (
           !isMobile && item.type === 'directory' ? (
             <button
               key={`${item.type}-${item.path}`}
