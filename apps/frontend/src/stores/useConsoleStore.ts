@@ -54,6 +54,7 @@ interface ConsoleState {
   editorPrimaryId: string | null
   editorSecondaryId: string | null
   editorSplitDirection: 'horizontal' | 'vertical' | null
+  editorSplitRatio: number
   activeEditorSlot: 'primary' | 'secondary'
   editorsHydrated: boolean
   uploadRequest: { files: File[]; preferredRootId?: string; preferredPath?: string; insertPaths?: boolean } | null
@@ -85,6 +86,7 @@ interface ConsoleState {
   openCompareEditor: (leftId: string, rightId: string) => string | null
   placeEditorInSplit: (id: string, placement: 'center' | 'left' | 'right' | 'top' | 'bottom') => void
   moveEditorToGroup: (id: string, targetGroup: 'primary' | 'secondary', targetId?: string | null) => void
+  setEditorSplitRatio: (ratio: number) => void
   closeEditor: (id: string) => void
   setActiveEditor: (id: string | null) => void
   setEditorLoaded: (id: string, patch: Partial<FileEditorDocument>) => void
@@ -146,6 +148,7 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
   editorPrimaryId: null,
   editorSecondaryId: null,
   editorSplitDirection: null,
+  editorSplitRatio: 0.5,
   activeEditorSlot: 'primary',
   editorsHydrated: false,
   uploadRequest: null,
@@ -199,7 +202,7 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
       const id = readPersistedActiveEditorId()
       return id && nextEditors.some((item) => item.id === id) ? id : nextEditors[nextEditors.length - 1]?.id || null
     })()
-    return { openEditors: nextEditors, activeEditorId: nextActiveEditorId, editorPrimaryGroupIds: nextEditors.map((item) => item.id), editorSecondaryGroupIds: [], editorPrimaryId: nextActiveEditorId, editorSecondaryId: null, editorSplitDirection: null, activeEditorSlot: 'primary' as const, editorsHydrated: true }
+    return { openEditors: nextEditors, activeEditorId: nextActiveEditorId, editorPrimaryGroupIds: nextEditors.map((item) => item.id), editorSecondaryGroupIds: [], editorPrimaryId: nextActiveEditorId, editorSecondaryId: null, editorSplitDirection: null, editorSplitRatio: 0.5, activeEditorSlot: 'primary' as const, editorsHydrated: true }
   }),
   openEditor: (file) => set((state) => {
     const existing = state.openEditors.find((item) => item.id === file.id)
@@ -263,17 +266,17 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
     if (!state.editorSplitDirection) {
       if (placement === 'left' || placement === 'top') {
         writePersistedEditors(state.openEditors, id)
-        return { activeEditorId: id, editorPrimaryGroupIds: [id], editorSecondaryGroupIds: basePrimaryGroupIds, editorPrimaryId: id, editorSecondaryId: basePrimaryGroupIds.at(-1) || null, editorSplitDirection: nextDirection, activeEditorSlot: 'primary' as const }
+        return { activeEditorId: id, editorPrimaryGroupIds: [id], editorSecondaryGroupIds: basePrimaryGroupIds, editorPrimaryId: id, editorSecondaryId: basePrimaryGroupIds.at(-1) || null, editorSplitDirection: nextDirection, editorSplitRatio: 0.5, activeEditorSlot: 'primary' as const }
       }
       writePersistedEditors(state.openEditors, id)
-      return { activeEditorId: id, editorPrimaryGroupIds: basePrimaryGroupIds, editorSecondaryGroupIds: [id], editorPrimaryId: basePrimaryGroupIds.at(-1) || null, editorSecondaryId: id, editorSplitDirection: nextDirection, activeEditorSlot: 'secondary' as const }
+      return { activeEditorId: id, editorPrimaryGroupIds: basePrimaryGroupIds, editorSecondaryGroupIds: [id], editorPrimaryId: basePrimaryGroupIds.at(-1) || null, editorSecondaryId: id, editorSplitDirection: nextDirection, editorSplitRatio: 0.5, activeEditorSlot: 'secondary' as const }
     }
     if (placement === 'left' || placement === 'top') {
       writePersistedEditors(state.openEditors, id)
-      return { activeEditorId: id, editorPrimaryGroupIds: [...nextPrimaryGroupIds, id], editorSecondaryGroupIds: nextSecondaryGroupIds, editorPrimaryId: id, editorSecondaryId: nextSecondaryGroupIds.at(-1) || null, editorSplitDirection: nextDirection, activeEditorSlot: 'primary' as const }
+      return { activeEditorId: id, editorPrimaryGroupIds: [...nextPrimaryGroupIds, id], editorSecondaryGroupIds: nextSecondaryGroupIds, editorPrimaryId: id, editorSecondaryId: nextSecondaryGroupIds.at(-1) || null, editorSplitDirection: nextDirection, editorSplitRatio: state.editorSplitRatio, activeEditorSlot: 'primary' as const }
     }
     writePersistedEditors(state.openEditors, id)
-    return { activeEditorId: id, editorPrimaryGroupIds: nextPrimaryGroupIds, editorSecondaryGroupIds: [...nextSecondaryGroupIds, id], editorPrimaryId: nextPrimaryGroupIds.at(-1) || null, editorSecondaryId: id, editorSplitDirection: nextDirection, activeEditorSlot: 'secondary' as const }
+    return { activeEditorId: id, editorPrimaryGroupIds: nextPrimaryGroupIds, editorSecondaryGroupIds: [...nextSecondaryGroupIds, id], editorPrimaryId: nextPrimaryGroupIds.at(-1) || null, editorSecondaryId: id, editorSplitDirection: nextDirection, editorSplitRatio: state.editorSplitRatio, activeEditorSlot: 'secondary' as const }
   }),
   moveEditorToGroup: (id, targetGroup, targetId) => set((state) => {
     if (!state.openEditors.some((item) => item.id === id)) return state
@@ -290,8 +293,9 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
     if (!nextSecondaryGroupIds.length) nextSplitDirection = null
     else if (!nextSplitDirection) nextSplitDirection = 'horizontal'
     writePersistedEditors(state.openEditors, id)
-    return { activeEditorId: id, editorPrimaryGroupIds: nextPrimaryGroupIds, editorSecondaryGroupIds: nextSecondaryGroupIds, editorPrimaryId: nextActiveEditorSlot === 'primary' ? id : nextPrimaryGroupIds.at(-1) || null, editorSecondaryId: nextActiveEditorSlot === 'secondary' ? id : nextSecondaryGroupIds.at(-1) || null, editorSplitDirection: nextSplitDirection, activeEditorSlot: nextActiveEditorSlot }
+    return { activeEditorId: id, editorPrimaryGroupIds: nextPrimaryGroupIds, editorSecondaryGroupIds: nextSecondaryGroupIds, editorPrimaryId: nextActiveEditorSlot === 'primary' ? id : nextPrimaryGroupIds.at(-1) || null, editorSecondaryId: nextActiveEditorSlot === 'secondary' ? id : nextSecondaryGroupIds.at(-1) || null, editorSplitDirection: nextSplitDirection, editorSplitRatio: state.editorSplitRatio, activeEditorSlot: nextActiveEditorSlot }
   }),
+  setEditorSplitRatio: (ratio) => set({ editorSplitRatio: Math.max(0.2, Math.min(0.8, ratio)) }),
   closeEditor: (id) => set((state) => {
     const nextEditors = state.openEditors.filter((item) => item.id !== id)
     let nextPrimaryGroupIds = state.editorPrimaryGroupIds.filter((item) => item !== id)
@@ -313,7 +317,7 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
     let nextActiveEditorId = state.activeEditorId === id ? null : state.activeEditorId
     if (!nextActiveEditorId || !nextEditors.some((item) => item.id === nextActiveEditorId)) nextActiveEditorId = nextActiveEditorSlot === 'secondary' && nextSecondaryId ? nextSecondaryId : nextPrimaryId
     writePersistedEditors(nextEditors, nextActiveEditorId)
-    return { openEditors: nextEditors, activeEditorId: nextActiveEditorId, editorPrimaryGroupIds: nextPrimaryGroupIds, editorSecondaryGroupIds: nextSecondaryGroupIds, editorPrimaryId: nextPrimaryId, editorSecondaryId: nextSecondaryId, editorSplitDirection: nextSplitDirection, activeEditorSlot: nextActiveEditorSlot }
+    return { openEditors: nextEditors, activeEditorId: nextActiveEditorId, editorPrimaryGroupIds: nextPrimaryGroupIds, editorSecondaryGroupIds: nextSecondaryGroupIds, editorPrimaryId: nextPrimaryId, editorSecondaryId: nextSecondaryId, editorSplitDirection: nextSplitDirection, editorSplitRatio: nextSplitDirection ? state.editorSplitRatio : 0.5, activeEditorSlot: nextActiveEditorSlot }
   }),
   setActiveEditor: (id) => set((state) => {
     writePersistedEditors(state.openEditors, id)
