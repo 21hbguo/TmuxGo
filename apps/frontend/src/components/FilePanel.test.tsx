@@ -109,8 +109,9 @@ describe('FilePanel', () => {
 
   it('shows home as the default quick access root', async () => {
     render(React.createElement(FilePanel))
-    expect(await screen.findByRole('button', { name: 'Home' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Workspace' })).not.toBeInTheDocument()
+    expect(await screen.findByRole('option', { name: 'Home' })).toBeInTheDocument()
+    expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('root-home')
+    expect(screen.queryByRole('option', { name: 'Workspace' })).not.toBeInTheDocument()
   })
 
   it('expands and collapses directories on desktop', async () => {
@@ -193,7 +194,7 @@ describe('FilePanel', () => {
     const removeBtn = await screen.findByRole('button', { name: 'Unfavorite' })
     fireEvent.click(removeBtn)
     await waitFor(() => expect(screen.queryByRole('option', { name: 'project' })).not.toBeInTheDocument())
-    expect(screen.getByRole('button', { name: 'Home' })).toBeInTheDocument()
+    expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('root-home')
     const favorites = JSON.parse(localStorage.getItem('tmuxgo-favorite-directories') || '[]')
     expect(favorites).toEqual([])
   })
@@ -236,13 +237,15 @@ describe('FilePanel', () => {
     expect(await screen.findByText('docs')).toBeInTheDocument()
   })
   it('keeps search query after switching root', async () => {
+    localStorage.setItem('tmuxgo-favorite-directories', JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]))
     render(React.createElement(FilePanel))
     const input = screen.getByPlaceholderText('Search file names') as HTMLInputElement
-    fireEvent.change(input, { target: { value: 'docs' } })
-    expect(input.value).toBe('docs')
-    fireEvent.click(await screen.findByRole('button', { name: 'Home' }))
+    await screen.findByRole('option', { name: 'project' })
+    fireEvent.change(input, { target: { value: 'project' } })
+    expect(input.value).toBe('project')
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'favorite:root-home:project' } })
     await waitFor(() => expect(screen.getByText('project')).toBeInTheDocument())
-    expect(input.value).toBe('docs')
+    expect(input.value).toBe('project')
   })
   it('keeps search query after opening favorite directory shortcut', async () => {
     localStorage.setItem('tmuxgo-favorite-directories', JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]))
@@ -250,7 +253,7 @@ describe('FilePanel', () => {
     const input = screen.getByPlaceholderText('Search file names') as HTMLInputElement
     fireEvent.change(input, { target: { value: 'project' } })
     expect(input.value).toBe('project')
-    fireEvent.click((await screen.findAllByRole('button', { name: 'Home · project' }))[0])
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'favorite:root-home:project' } })
     await waitFor(() => expect(screen.getByText('demo.txt')).toBeInTheDocument())
     expect(input.value).toBe('project')
   })

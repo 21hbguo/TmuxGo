@@ -158,7 +158,9 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
   const editorPrimaryId = useConsoleStore((state) => state.editorPrimaryId)
   const editorSecondaryId = useConsoleStore((state) => state.editorSecondaryId)
   const editorSplitDirection = useConsoleStore((state) => state.editorSplitDirection)
+  const editorSplitRatio = useConsoleStore((state) => state.editorSplitRatio)
   const placeEditorInSplit = useConsoleStore((state) => state.placeEditorInSplit)
+  const setEditorSplitRatio = useConsoleStore((state) => state.setEditorSplitRatio)
   const setActiveEditor = useConsoleStore((state) => state.setActiveEditor)
   const moveEditorToGroup = useConsoleStore((state) => state.moveEditorToGroup)
   const closeEditor = useConsoleStore((state) => state.closeEditor)
@@ -182,6 +184,8 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
   const [imageOffset, setImageOffset] = useState({ x: 0, y: 0 })
   const imageViewportRef = useRef<HTMLDivElement | null>(null)
   const imageDragRef = useRef<{ pointerId: number; startX: number; startY: number; originX: number; originY: number } | null>(null)
+  const splitContainerRef = useRef<HTMLDivElement | null>(null)
+  const splitResizeRef = useRef<{ active: boolean; direction: 'horizontal' | 'vertical'; startRatio: number } | null>(null)
   const activeEditor = openEditors.find((item) => item.id === activeEditorId) || openEditors[openEditors.length - 1] || null
   const primaryGroupEditors = editorPrimaryGroupIds.map((id) => openEditors.find((item) => item.id === id) || null).filter(Boolean) as FileEditorDocument[]
   const secondaryGroupEditors = editorSecondaryGroupIds.map((id) => openEditors.find((item) => item.id === id) || null).filter(Boolean) as FileEditorDocument[]
@@ -288,6 +292,29 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
     }
   }, [autoScrollIndicator.active])
   useEffect(() => () => stopAutoScroll(), [])
+  useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      const resize = splitResizeRef.current
+      const container = splitContainerRef.current
+      if (!resize || !resize.active || !container) return
+      const rect = container.getBoundingClientRect()
+      if (resize.direction === 'horizontal' && rect.width > 0) setEditorSplitRatio((event.clientX - rect.left) / rect.width)
+      if (resize.direction === 'vertical' && rect.height > 0) setEditorSplitRatio((event.clientY - rect.top) / rect.height)
+    }
+    const handlePointerUp = () => {
+      splitResizeRef.current = null
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    window.addEventListener('pointermove', handlePointerMove, true)
+    window.addEventListener('pointerup', handlePointerUp, true)
+    window.addEventListener('pointercancel', handlePointerUp, true)
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove, true)
+      window.removeEventListener('pointerup', handlePointerUp, true)
+      window.removeEventListener('pointercancel', handlePointerUp, true)
+    }
+  }, [setEditorSplitRatio])
   useEffect(() => {
     stopAutoScroll()
     setDropTarget(null)
@@ -449,7 +476,13 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
           <div className={`absolute inset-x-0 bottom-0 h-[22%] rounded-b-2xl border border-dashed ${dropTarget === 'bottom' ? 'border-accent bg-accent/12' : 'border-[var(--line)] bg-bg-1/30'}`} />
           <div className="absolute inset-0 flex items-center justify-center"><div className="rounded-full border border-accent/40 bg-bg-0/92 px-4 py-2 text-xs tracking-[0.24em] text-accent">{t(`editor.drop.${dropTarget}` as never)}</div></div>
         </div>}
-        {primaryEditor && secondaryEditor && editorSplitDirection ? <div className={`flex h-full min-h-0 ${editorSplitDirection === 'horizontal' ? 'flex-row' : 'flex-col'}`}>{renderPane(primaryEditor, primaryGroupEditors, 'primary')}<div className={editorSplitDirection === 'horizontal' ? 'w-px bg-[var(--line)]' : 'h-px bg-[var(--line)]'} />{renderPane(secondaryEditor, secondaryGroupEditors, 'secondary')}</div> : <div className="flex h-full min-h-0 flex-col">{renderTabStrip(primaryGroupEditors.length ? primaryGroupEditors : [activeEditor], 'primary')}{renderSurface(activeEditor, true)}</div>}
+        {primaryEditor && secondaryEditor && editorSplitDirection ? <div ref={splitContainerRef} className={`flex h-full min-h-0 ${editorSplitDirection === 'horizontal' ? 'flex-row' : 'flex-col'}`}><div style={editorSplitDirection === 'horizontal' ? { flexBasis: `${editorSplitRatio * 100}%` } : { flexBasis: `${editorSplitRatio * 100}%` }} className="min-h-0 min-w-0 flex shrink-0 grow-0">{renderPane(primaryEditor, primaryGroupEditors, 'primary')}</div><div data-testid="editor-split-resizer" onPointerDown={(event) => {
+          splitResizeRef.current = { active: true, direction: editorSplitDirection, startRatio: editorSplitRatio }
+          document.body.style.cursor = editorSplitDirection === 'horizontal' ? 'col-resize' : 'row-resize'
+          document.body.style.userSelect = 'none'
+          event.preventDefault()
+          event.stopPropagation()
+        }} className={editorSplitDirection === 'horizontal' ? 'w-1 cursor-col-resize bg-[var(--line)] hover:bg-accent/40' : 'h-1 cursor-row-resize bg-[var(--line)] hover:bg-accent/40'} /><div className="min-h-0 min-w-0 flex flex-1">{renderPane(secondaryEditor, secondaryGroupEditors, 'secondary')}</div></div> : <div className="flex h-full min-h-0 flex-col">{renderTabStrip(primaryGroupEditors.length ? primaryGroupEditors : [activeEditor], 'primary')}{renderSurface(activeEditor, true)}</div>}
       </div>
       <ConfirmDialog open={!!pendingCloseEditorId} title={t('editor.closeConfirm', { name: openEditors.find((e) => e.id === pendingCloseEditorId)?.name || '' })} message="" confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setPendingCloseEditorId(null)} onConfirm={() => { if (pendingCloseEditorId) { closeEditor(pendingCloseEditorId); setPendingCloseEditorId(null) } }} />
     </section>
