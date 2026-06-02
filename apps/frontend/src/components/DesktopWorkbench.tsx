@@ -13,7 +13,7 @@ import { TerminalDock } from './TerminalDock'
 import { useTranslation } from '@/i18n'
 
 const ACTIVITY_BAR_WIDTH = 56
-const SESSION_RAIL_WIDTH = 136
+const SESSION_RAIL_WIDTH = 109
 const IMAGE_EXTENSIONS = new Set(['.avif','.bmp','.gif','.ico','.jpeg','.jpg','.png','.tif','.tiff','.webp'])
 function clampValue(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value))
@@ -97,7 +97,7 @@ export function DesktopWorkbench() {
   const sessionPanelMin = clampValue(Math.floor(viewportWidth * 0.16), 208, 232)
   const sessionPanelMax = clampValue(Math.floor(viewportWidth * 0.22), sessionPanelMin, 320)
   const renderedSessionPanelWidth = clampValue(previewSessionWidth ?? sessionPanelWidth, sessionPanelMin, sessionPanelMax)
-  const compactSessionWidth = clampValue(Math.floor(viewportWidth * 0.13), 88, SESSION_RAIL_WIDTH)
+  const compactSessionWidth = clampValue(Math.floor(viewportWidth * 0.10), 70, SESSION_RAIL_WIDTH)
   const leftWidth = ACTIVITY_BAR_WIDTH + (sessionPanelExpanded ? renderedSessionPanelWidth : compactSessionWidth)
   const gitPanelMin = 260
   const gitPanelMax = 400

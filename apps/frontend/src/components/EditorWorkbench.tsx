@@ -288,7 +288,7 @@ export function EditorWorkbench({ onSaveEditor }:{ onSaveEditor: (editor: FileEd
 
   return (
     <section className="flex h-full min-h-0 flex-col bg-bg-0">
-      <div className="flex min-h-[42px] items-stretch overflow-x-auto border-b border-[var(--line)] bg-bg-1">
+      <div className="tmuxgo-scrollbar-subtle flex min-h-[42px] items-stretch overflow-x-auto border-b border-[var(--line)] bg-bg-1">
         {openEditors.map((editor) => (
           <div key={editor.id} className={`group flex h-[42px] w-44 shrink-0 items-center border-r border-[rgba(255,255,255,0.04)] ${editor.id === activeEditor.id ? 'bg-bg-0' : 'bg-bg-1/80'}`}>
             <button onClick={() => setActiveEditor(editor.id)} className={`flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-sm ${editor.id === activeEditor.id ? 'text-text-1' : 'text-text-3 hover:text-text-1'}`}>
@@ -405,7 +405,7 @@ export function EditorWorkbench({ onSaveEditor }:{ onSaveEditor: (editor: FileEd
                 </span>
               )}
             </div>
-            {markdownPreviewOpen && <div className="min-w-0 flex-1 overflow-auto bg-bg-1/60 px-6 py-5"><article className="prose prose-invert max-w-none text-sm text-text-2 [&_a]:text-accent [&_blockquote]:border-l-2 [&_blockquote]:border-[var(--line)] [&_blockquote]:pl-3 [&_code]:rounded [&_code]:bg-bg-2 [&_code]:px-1.5 [&_code]:py-0.5 [&_h1]:mb-4 [&_h1]:text-3xl [&_h1]:text-text-1 [&_h2]:mb-3 [&_h2]:mt-6 [&_h2]:text-2xl [&_h2]:text-text-1 [&_h3]:mb-2 [&_h3]:mt-5 [&_h3]:text-xl [&_h3]:text-text-1 [&_li]:mb-1 [&_p]:mb-3 [&_pre]:overflow-auto [&_pre]:rounded-lg [&_pre]:bg-bg-0 [&_pre]:p-4 [&_strong]:text-text-1" dangerouslySetInnerHTML={{ __html: markdownPreview || `<p>${t('editor.nothingToPreview')}</p>` }} /></div>}
+            {markdownPreviewOpen && <div className="tmuxgo-scrollbar min-w-0 flex-1 overflow-auto bg-bg-1/60 px-6 py-5"><article className="prose prose-invert max-w-none text-sm text-text-2 [&_a]:text-accent [&_blockquote]:border-l-2 [&_blockquote]:border-[var(--line)] [&_blockquote]:pl-3 [&_code]:rounded [&_code]:bg-bg-2 [&_code]:px-1.5 [&_code]:py-0.5 [&_h1]:mb-4 [&_h1]:text-3xl [&_h1]:text-text-1 [&_h2]:mb-3 [&_h2]:mt-6 [&_h2]:text-2xl [&_h2]:text-text-1 [&_h3]:mb-2 [&_h3]:mt-5 [&_h3]:text-xl [&_h3]:text-text-1 [&_li]:mb-1 [&_p]:mb-3 [&_pre]:overflow-auto [&_pre]:rounded-lg [&_pre]:bg-bg-0 [&_pre]:p-4 [&_strong]:text-text-1" dangerouslySetInnerHTML={{ __html: markdownPreview || `<p>${t('editor.nothingToPreview')}</p>` }} /></div>}
           </div>
         )}
       </div>

@@ -37,7 +37,7 @@ export function WindowTabs() {
   }
 
   return (
-    <div className="flex items-center gap-1 px-2 py-1 bg-bg-1 border-b border-[var(--line)] overflow-x-auto">
+    <div className="tmuxgo-scrollbar-subtle flex items-center gap-1 overflow-x-auto border-b border-[var(--line)] bg-bg-1 px-2 py-1">
       {sessionWindows.map((window: any) => (
         <button
           key={window.id}

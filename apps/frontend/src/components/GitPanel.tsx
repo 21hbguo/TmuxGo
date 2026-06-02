@@ -172,7 +172,7 @@ function HistoryTab({ hostId, repoPath, t }: { hostId: string; repoPath: string;
   }
 
   return (
-    <div className="h-full overflow-y-auto">
+    <div className="tmuxgo-scrollbar h-full overflow-y-auto">
       {commits.length === 0 ? <div className="p-3 text-[11px] text-text-3">{t('git.noChanges')}</div> : (
       <CommitGraph.WithInfiniteScroll
         commits={commits}
@@ -387,7 +387,7 @@ export function GitPanel() {
               </button>
             ))}
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-y-auto">
             {activeTab === 'status' && <StatusTab hostId={activeHostId} repoPath={repoPath} t={t as TFunc} />}
             {activeTab === 'history' && <HistoryTab hostId={activeHostId} repoPath={repoPath} t={t as TFunc} />}
             {activeTab === 'branches' && <BranchesTab hostId={activeHostId} repoPath={repoPath} t={t as TFunc} />}

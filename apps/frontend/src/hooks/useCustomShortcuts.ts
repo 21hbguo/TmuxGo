@@ -90,7 +90,7 @@ export function useCustomShortcuts() {
       const raw = localStorage.getItem(STORAGE_KEY)
       const data = raw ? JSON.parse(raw) : []
       const updatedAt = localStorage.getItem(STORAGE_UPDATED_AT_KEY) || ''
-      return { items: Array.isArray(data) ? data as CustomShortcut[] : [], updatedAt }
+      return { items: Array.isArray(data) ? data.filter((item): item is CustomShortcut => !!item && typeof item.id === 'string' && typeof item.label === 'string' && typeof item.keys === 'string' && typeof item.action === 'string') : [], updatedAt }
     } catch {
       return { items: [], updatedAt: '' }
     }

@@ -36,7 +36,7 @@ export function useSnippets() {
       const raw = localStorage.getItem(STORAGE_KEY)
       const data = raw ? JSON.parse(raw) : []
       const updatedAt = localStorage.getItem(STORAGE_UPDATED_AT_KEY) || ''
-      return { items: Array.isArray(data) ? data as Snippet[] : [], updatedAt }
+      return { items: Array.isArray(data) ? data.filter((item): item is Snippet => !!item && typeof item.id === 'string' && typeof item.name === 'string' && typeof item.command === 'string' && typeof item.category === 'string') : [], updatedAt }
     } catch {
       return { items: [] as Snippet[], updatedAt: '' }
     }

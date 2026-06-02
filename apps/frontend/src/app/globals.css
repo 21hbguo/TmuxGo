@@ -219,6 +219,52 @@ a {
 .tmuxgo-file-tree .ant-tree-list-holder-inner {
   gap: 0;
 }
+.tmuxgo-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--accent) / 0.5) rgb(var(--bg-2) / 0.55);
+}
+.tmuxgo-scrollbar::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.tmuxgo-scrollbar::-webkit-scrollbar-track {
+  border-radius: 999px;
+  background: rgb(var(--bg-2) / 0.4);
+}
+.tmuxgo-scrollbar::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgb(var(--accent) / 0.7), rgb(var(--accent-2) / 0.55));
+  background-clip: padding-box;
+}
+.tmuxgo-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgb(var(--accent) / 0.9), rgb(var(--accent-2) / 0.75));
+  background-clip: padding-box;
+}
+.tmuxgo-scrollbar::-webkit-scrollbar-corner {
+  background: transparent;
+}
+.tmuxgo-scrollbar-subtle {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--text-3) / 0.55) transparent;
+}
+.tmuxgo-scrollbar-subtle::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.tmuxgo-scrollbar-subtle::-webkit-scrollbar-track {
+  background: transparent;
+}
+.tmuxgo-scrollbar-subtle::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgb(var(--text-3) / 0.4);
+  background-clip: padding-box;
+}
+.tmuxgo-scrollbar-subtle::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--accent) / 0.55);
+  background-clip: padding-box;
+}
 
 /* xterm.js */
 .xterm {

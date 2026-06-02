@@ -206,6 +206,19 @@ describe('FilePanel', () => {
     expect(screen.getByRole('button', { name: '/' })).toBeInTheDocument()
     expect(screen.getByText('docs')).toBeInTheDocument()
   })
+  it('shows directory children in desktop search results after expanding folder hit', async () => {
+    render(React.createElement(FilePanel))
+    const input = screen.getByPlaceholderText('Search file names') as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'src' } })
+    const directory = await screen.findByText('src')
+    expect(screen.queryByText('nested')).not.toBeInTheDocument()
+    expect(screen.queryByText('index.ts')).not.toBeInTheDocument()
+    fireEvent.click(directory)
+    await waitFor(() => expect(screen.getByText('nested')).toBeInTheDocument())
+    expect(screen.getByText('index.ts')).toBeInTheDocument()
+    expect(input.value).toBe('src')
+    expect(screen.getByRole('button', { name: '/' })).toBeInTheDocument()
+  })
 
   it('enters a searched directory on mobile while keeping name search active', async () => {
     render(React.createElement(FilePanel, { mode: 'mobile' }))

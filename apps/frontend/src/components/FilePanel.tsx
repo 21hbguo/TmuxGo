@@ -50,7 +50,7 @@ function readFavoriteDirectories() {
   if (typeof window === 'undefined') return []
   try {
     const stored = JSON.parse(localStorage.getItem(FAVORITE_STORAGE_KEY) || '[]')
-    return Array.isArray(stored) ? stored as FavoriteDirectory[] : []
+    return Array.isArray(stored) ? stored.filter((item): item is FavoriteDirectory => !!item && typeof item.rootId === 'string' && typeof item.rootPath === 'string' && typeof item.name === 'string' && typeof item.path === 'string') : []
   } catch {
     return []
   }
@@ -643,7 +643,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
           <div className="font-mono text-text-1">{preview.path}</div>
           <div className="mt-1">{formatSize(preview.size)}</div>
         </div>
-        <div className="min-h-0 flex-1 overflow-auto px-3 pb-3">
+        <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-auto px-3 pb-3">
           <img src={imagePreviewUrl} alt={preview.path} className="mx-auto block max-h-full max-w-full rounded border border-[var(--line)] bg-bg-1 object-contain" />
         </div>
       </div>
@@ -654,7 +654,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
         <div className="mt-1">{formatSize(preview.size)}</div>
       </div>
     ) : (
-      <div className="h-full overflow-auto p-2 font-mono text-[11px] leading-5">
+      <div className="tmuxgo-scrollbar h-full overflow-auto p-2 font-mono text-[11px] leading-5">
         {preview.lines.map((line) => (
           <div key={line.number} className="grid grid-cols-[42px_1fr] gap-2">
             <span className="select-none text-right text-text-3">{line.number}</span>
@@ -723,14 +723,22 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   }
   const renderSearchList = (entries: FileEntry[], depth = 0): React.ReactNode[] => entries.filter((item) => (!hideDotFiles || !isDotPath(item.path || item.name)) && matchesFileTypeFilter(item, fileTypeFilter)).flatMap((item) => {
     const cache = item.type === 'directory' ? readDirectoryChildrenFromCache(directoryCache, activeRootId, activeRootBasePath, item.path) : undefined
-    const nested = item.type === 'directory' && openDirectories.has(item.path) && cache ? renderSearchList(cache.filter((entry) => matchesSearchEntry(entry, debouncedQuery, searchMode, searchResults)).map((entry) => rebaseEntryPath(entry, activeRootBasePath)), depth + 1) : []
+    const nested = item.type === 'directory' && openDirectories.has(item.path) && cache ? renderSearchList(cache.map((entry) => rebaseEntryPath(entry, activeRootBasePath)), depth + 1) : []
+    const visual = getFileVisual(item.path, item.type)
     return [
       <button
         key={`${item.type}-${item.path}`}
         tabIndex={0}
         onClick={() => openItem(item)}
-        onDoubleClick={() => insertItemPath(item)}
-        onKeyDown={(e) => selectFromKeyboard(item, e)}
+        onDoubleClick={() => item.type === 'directory' ? void handleDesktopDirectoryToggle(item) : insertItemPath(item)}
+        onKeyDown={(e) => {
+          if (item.type === 'directory' && (e.key === 'Enter' || e.key === ' ')) {
+            e.preventDefault()
+            void handleDesktopDirectoryToggle(item)
+            return
+          }
+          selectFromKeyboard(item, e)
+        }}
         onContextMenu={(e) => {
           e.preventDefault()
           showContextMenu(e.clientX, e.clientY, item, getParentRelativePath(item, currentPath))
@@ -754,8 +762,11 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
         style={!isMobile && showSearchResults ? { paddingLeft: `${8 + depth * 14}px` } : undefined}
       >
         <div className="flex items-center gap-1.5">
-          <span className="shrink-0">{item.type === 'directory' ? <span className="text-[#dcb67a]">{openDirectories.has(item.path) ? '▾' : '▸'}</span> : getFileVisual(item.path, item.type).icon}</span>
-          <span className={`min-w-0 flex-1 truncate font-mono ${item.type === 'directory' ? 'text-text-1' : getFileVisual(item.path, item.type).tone}`}>{item.name}</span>
+          <span className="flex shrink-0 items-center gap-1">
+            {item.type === 'directory' && <span className="w-2 text-[#dcb67a]">{openDirectories.has(item.path) ? '▾' : '▸'}</span>}
+            <span>{visual.icon}</span>
+          </span>
+          <span className={`min-w-0 flex-1 truncate font-mono ${item.type === 'directory' ? 'text-text-1' : visual.tone}`}>{item.name}</span>
           {item.type === 'directory' && <FavoriteDirectoryButton active={isFavoriteDirectory({ rootId: activeRootId, path: joinRelativePath(activeRootBasePath, item.path) })} name={item.name} onClick={(event) => {
             event.preventDefault()
             event.stopPropagation()
@@ -795,7 +806,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
           {activeFavorite && <button onClick={() => removeFavoriteDirectory(activeFavorite)} className="rounded px-1.5 py-1 text-[11px] text-text-3 hover:bg-bg-2 hover:text-text-1">{t('file.removeFavorite')}</button>}
           <button onClick={onClose || (() => setFilePanelOpen(false))} className="rounded px-1.5 py-1 text-text-3 hover:bg-bg-2 hover:text-text-1">×</button>
         </div>
-        <div className="mt-1.5 flex gap-1 overflow-x-auto text-[11px] scrollbar-none">
+        <div className="tmuxgo-scrollbar-subtle mt-1.5 flex gap-1 overflow-x-auto text-[11px]">
           {quickRoots.map((item) => (
             <button key={item.id} onClick={() => switchRoot(item.id)} className={`shrink-0 rounded px-1.5 py-0.5 ${selectedRootId === item.id ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-2 hover:text-text-1'}`}>{item.label}</button>
           ))}
@@ -803,7 +814,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
             <button key={`favorite-${item.rootId}-${item.path || 'root'}`} onClick={() => openDirectoryShortcut(item)} className={`max-w-full shrink-0 truncate rounded px-1.5 py-0.5 ${selectedRootId === getFavoriteRootOptionId(item) ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-3 hover:text-accent'}`}>{formatDirectoryShortcutLabel(item.path, rootLabelById[item.rootId] || item.name)}</button>
           ))}
         </div>
-        <div className="mt-1.5 flex min-w-0 items-center gap-1 overflow-x-auto text-[11px] text-text-3 scrollbar-none">
+        <div className="tmuxgo-scrollbar-subtle mt-1.5 flex min-w-0 items-center gap-1 overflow-x-auto text-[11px] text-text-3">
           {(listData?.breadcrumbs || [{ name: '/', path: '' }]).map((crumb) => (
             <button key={crumb.path || '/'} onClick={() => { setCurrentPath(crumb.path); setSelectedPath(''); setSelectedPreviewLine(1); setSearchNavigationPath(query.trim().length > 0 && crumb.path ? crumb.path : null); if (!crumb.path) setOpenDirectories(new Set()) }} className="shrink-0 rounded px-1.5 py-0.5 hover:bg-bg-2 hover:text-accent">{crumb.name}</button>
           ))}
@@ -828,7 +839,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
           <button onClick={() => updateHideDotFiles(!hideDotFiles)} className={`shrink-0 rounded border border-[var(--line)] px-2 py-1 text-[11px] ${hideDotFiles ? 'bg-bg-0 text-text-3 hover:text-text-1' : 'bg-accent/20 text-accent'}`}>{t('file.dotfiles')}</button>
         </div>
       </div>}
-      {(!isMobile || mobileView === 'list') && <div className="min-h-0 flex-1 overflow-y-auto" onContextMenu={(e) => {
+      {(!isMobile || mobileView === 'list') && <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-y-auto" onContextMenu={(e) => {
         if ((e.target as HTMLElement).closest('button')) return
         e.preventDefault()
         showContextMenu(e.clientX, e.clientY, null, currentPath)
