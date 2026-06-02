@@ -104,7 +104,7 @@ export function useBatchDeleteSessions() {
         const deletedIds = new Set((result.deleted || []).map((item) => item.sessionId).filter(Boolean))
         if (deletedIds.size) {
           queryClient.setQueryData(['sessions', hostId], (prev: any[] | undefined) => Array.isArray(prev) ? prev.filter((item) => !deletedIds.has(item?.id)) : prev || [])
-          for (const sessionId of deletedIds) clearSessionQueries(queryClient, hostId, sessionId)
+          Array.from(deletedIds).forEach((sessionId) => clearSessionQueries(queryClient, hostId, sessionId))
         } else if (Array.isArray(payload.sessionIds) && payload.sessionIds.length) {
           queryClient.setQueryData(['sessions', hostId], (prev: any[] | undefined) => Array.isArray(prev) ? prev.filter((item) => !payload.sessionIds?.includes(item?.id)) : prev || [])
         }
