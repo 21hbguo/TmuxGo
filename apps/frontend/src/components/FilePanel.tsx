@@ -452,14 +452,6 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     void api.preferences.update({ favoriteDirectories: next.entries, favoriteDirectoriesUpdatedAt: next.updatedAt }, PREFERENCES_PROFILE).catch(() => {})
     if (selectedRootId === getFavoriteRootOptionId(entry)) switchRoot(entry.rootId)
   }
-  const toggleDesktopDirectory = (path: string) => {
-    setOpenDirectories((current) => {
-      const next = new Set(current)
-      if (next.has(path)) next.delete(path)
-      else next.add(path)
-      return next
-    })
-  }
   const setDesktopDirectoryExpanded = (path: string, expanded: boolean) => {
     setOpenDirectories((current) => {
       const next = new Set(current)
@@ -468,18 +460,27 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
       return next
     })
   }
-  const handleDesktopDirectoryToggle = async (item: FileItem) => {
-    const nextExpanded = !openDirectories.has(item.path)
-    setDesktopDirectoryExpanded(item.path, nextExpanded)
-    if (nextExpanded) void loadDirectoryChildren(item)
+  const handleDesktopDirectoryToggle = (item: FileItem) => {
+    let expanding = false
+    setOpenDirectories((current) => {
+      const next = new Set(current)
+      if (next.has(item.path)) next.delete(item.path)
+      else { next.add(item.path); expanding = true }
+      return next
+    })
+    if (expanding) void loadDirectoryChildren(item)
     setSelectedPath(item.path)
   }
   const loadDirectoryChildren = async (item: FileItem) => {
     const cache = readDirectoryChildrenFromCache(directoryCache, activeRootId, activeRootBasePath, item.path)
     if (cache) return cache
-    const result = await api.files.list(fileHostId, activeRootId, joinRelativePath(activeRootBasePath, item.path))
-    storeDirectoryChildren(activeRootId, activeRootBasePath, item.path, result.items)
-    return result.items
+    try {
+      const result = await api.files.list(fileHostId, activeRootId, joinRelativePath(activeRootBasePath, item.path))
+      storeDirectoryChildren(activeRootId, activeRootBasePath, item.path, result.items)
+      return result.items
+    } catch {
+      return []
+    }
   }
 
   const openInEditor = (item: FileEntry) => {
@@ -688,7 +689,6 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
         tabIndex={0}
         onClick={(e) => {
           e.preventDefault()
-          e.stopPropagation()
           if (item.type === 'directory') void handleDesktopDirectoryToggle(item)
           else {
             setSelectedPath(item.path)
@@ -876,7 +876,6 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
             onSelect={(keys, info) => {
               const node = info.node as EventDataNode<FileTreeNode>
               if (!node.item) return
-              if (node.item.type === 'file') openItem(node.item)
               if (keys[0]) setSelectedPath(String(keys[0]))
             }}
             titleRender={(node) => renderTreeTitle(node as FileTreeNode)}
@@ -884,7 +883,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
         )}
         {!listLoading && showSearchResults && !isMobile && renderSearchList(visibleItems)}
         {!listLoading && isMobile && visibleItems.map((item: any) => (
-          !isMobile && item.type === 'directory' ? (
+          item.type === 'directory' ? (
             <button
               key={`${item.type}-${item.path}`}
               tabIndex={0}

@@ -9,7 +9,7 @@ const mutateRenameSession = vi.fn()
 const mutateDeleteSession = vi.fn()
 const mutateBatchDeleteSessions = vi.fn()
 const promptMock = vi.fn()
-const orderedSessions = [{ id: 'session-dev', name: 'dev', windowCount: 2 }]
+const orderedSessions = [{ id: 'session-dev', name: 'dev', windowCount: 2 }, { id: 'session-next', name: 'next', windowCount: 1 }]
 const moveSessionMock = vi.fn()
 
 vi.mock('@/hooks/useApi', () => ({
@@ -89,7 +89,7 @@ describe('SessionPanel session actions', () => {
   it('renames the active session from the desktop rename button', async () => {
     promptMock.mockResolvedValueOnce('dev-renamed')
     render(<SessionPanel />)
-    fireEvent.click(screen.getByLabelText('Rename session'))
+    fireEvent.click(screen.getAllByLabelText('Rename session')[0])
     await waitFor(() => expect(mutateRenameSession).toHaveBeenCalledWith({ hostId: 'local', sessionId: 'session-dev', name: 'dev-renamed' }))
     await waitFor(() => expect(useConsoleStore.getState().activeSessionId).toBe('session-dev-renamed'))
   })
@@ -111,5 +111,14 @@ describe('SessionPanel session actions', () => {
     fireEvent.click(screen.getByText('select-template'))
     await waitFor(() => expect(mutateCreateSession).toHaveBeenCalledWith({ hostId: 'local', name: 'default', layout: expect.any(Object) }))
     await waitFor(() => expect(useConsoleStore.getState().activeSessionId).toBe('session-default'))
+  })
+
+  it('switches to the next session after deleting the active session', async () => {
+    mutateDeleteSession.mockResolvedValueOnce({ success: true, sessionId: 'session-dev' })
+    render(<SessionPanel />)
+    fireEvent.click(screen.getAllByLabelText('Delete session')[0])
+    fireEvent.click(screen.getByText('confirm-delete'))
+    await waitFor(() => expect(mutateDeleteSession).toHaveBeenCalledWith({ hostId: 'local', sessionId: 'session-dev' }))
+    await waitFor(() => expect(useConsoleStore.getState().activeSessionId).toBe('session-next'))
   })
 })
