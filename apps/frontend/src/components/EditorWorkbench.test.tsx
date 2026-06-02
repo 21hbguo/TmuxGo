@@ -62,6 +62,10 @@ describe('EditorWorkbench', () => {
         kind: 'file',
       }],
       activeEditorId: 'editor-1',
+      editorPrimaryId: 'editor-1',
+      editorSecondaryId: null,
+      editorSplitDirection: null,
+      activeEditorSlot: 'primary',
     } as any)
     setScrollTop.mockClear()
     getScrollTop.mockClear()
@@ -88,6 +92,13 @@ describe('EditorWorkbench', () => {
       setData: vi.fn(),
       getData: (type: string) => payload[type] || '',
     }
+  }
+  function dispatchDragEvent(target: Element, type: 'dragover' | 'drop', dataTransfer: any, coords?: { clientX: number; clientY: number }) {
+    const event = new Event(type, { bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'dataTransfer', { value: dataTransfer })
+    Object.defineProperty(event, 'clientX', { value: coords?.clientX ?? 0 })
+    Object.defineProperty(event, 'clientY', { value: coords?.clientY ?? 0 })
+    target.dispatchEvent(event)
   }
 
   it('closes the active editor on ctrl+w', () => {
@@ -155,10 +166,68 @@ describe('EditorWorkbench', () => {
       }),
     })
     const dropZone = view.container.querySelector('section > .min-h-0.flex-1.bg-bg-0') as Element
-    fireEvent.dragOver(dropZone, { dataTransfer })
-    expect(screen.getByText('editor.drop.center')).toBeInTheDocument()
-    fireEvent.drop(dropZone, { dataTransfer })
+    dispatchDragEvent(dropZone, 'drop', dataTransfer, { clientX: 500, clientY: 300 })
     expect(onOpenFileAtPosition).toHaveBeenCalledWith(expect.objectContaining({ id: 'editor-3', name: 'drop.ts' }), 'center')
+  })
+  it('detects left split drop placement', () => {
+    const onOpenFileAtPosition = vi.fn(async (file) => file.id)
+    const view = render(React.createElement(EditorWorkbench, {
+      onSaveEditor: vi.fn(async () => {}),
+      onOpenFile: vi.fn(async (file) => file.id),
+      onOpenFileAtPosition,
+      onCreateCompare: vi.fn(async () => {}),
+    }))
+    const dropZone = view.container.querySelector('section > .relative.min-h-0.flex-1.bg-bg-0') as HTMLDivElement
+    dropZone.getBoundingClientRect = vi.fn(() => ({ left: 0, top: 0, width: 1000, height: 600, right: 1000, bottom: 600, x: 0, y: 0, toJSON: () => ({}) } as DOMRect))
+    const dataTransfer = createDataTransfer({
+      'application/x-tmuxgo-file': JSON.stringify({
+        id: 'editor-4',
+        hostId: 'local',
+        rootId: 'root-workspace',
+        rootLabel: 'Workspace',
+        rootPath: '/workspace',
+        path: 'src/left.ts',
+        name: 'left.ts',
+        absolutePath: '/workspace/src/left.ts',
+      }),
+    })
+    dispatchDragEvent(dropZone, 'drop', dataTransfer, { clientX: 40, clientY: 300 })
+    expect(onOpenFileAtPosition).toHaveBeenCalledWith(expect.objectContaining({ id: 'editor-4', name: 'left.ts' }), 'left')
+  })
+  it('renders split panes from store state', () => {
+    useConsoleStore.setState({
+      openEditors: [
+        ...useConsoleStore.getState().openEditors,
+        {
+          id: 'editor-2',
+          hostId: 'local',
+          rootId: 'root-workspace',
+          rootLabel: 'Workspace',
+          rootPath: '/workspace',
+          path: 'src/other.ts',
+          name: 'other.ts',
+          absolutePath: '/workspace/src/other.ts',
+          language: 'typescript',
+          content: 'const value=2',
+          savedContent: 'const value=2',
+          modifiedAt: '',
+          size: 13,
+          dirty: false,
+          loading: false,
+          saving: false,
+          binary: false,
+          truncated: false,
+          kind: 'file',
+        },
+      ],
+      activeEditorId: 'editor-2',
+      editorPrimaryId: 'editor-1',
+      editorSecondaryId: 'editor-2',
+      editorSplitDirection: 'horizontal',
+    } as any)
+    renderWorkbench()
+    expect(screen.getAllByLabelText('editor')).toHaveLength(2)
+    expect(screen.getByText('/workspace/src/other.ts')).toBeInTheDocument()
   })
   it('renders compare editor content for compare tabs', async () => {
     useConsoleStore.setState({
