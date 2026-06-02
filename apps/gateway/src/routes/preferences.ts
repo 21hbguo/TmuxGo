@@ -8,6 +8,10 @@ type FavoriteDirectory = { rootId: string; rootPath: string; name: string; path:
 type SessionOrder = { hostId: string; orderedSessionIds: string[] }
 type Snippet = { id: string; name: string; command: string; description?: string; category?: string }
 type FavoriteItem = { id: string; type: 'host' | 'session' | 'pane'; name: string; target: string; addedAt: string }
+type GitMode = 'follow-editor' | 'locked'
+type GitSource = 'editor' | 'manual' | null
+type GitRepoEntry = { repoPath: string; label: string; lastUsedAt: number; pinned: boolean }
+type GitHostState = { mode: GitMode; currentRepoPath: string | null; currentFilePath: string | null; source: GitSource; lockedRepoPath: string | null; recentRepos: GitRepoEntry[] }
 type SessionResumePoint = {
   hostId: string
   sessionId: string
@@ -65,6 +69,8 @@ type PreferencesStore = {
   favoritesUpdatedAt: string
   sessionContinuity: SessionContinuity
   sessionContinuityUpdatedAt: string
+  gitByHost: Record<string, GitHostState>
+  gitByHostUpdatedAt: string
   uiPreferences: UiPreferences
   uiPreferencesUpdatedAt: string
   uploadRateLimitKBps: number
@@ -78,6 +84,8 @@ const MAX_SESSION_ORDER_IDS = 500
 const MAX_SNIPPETS = 200
 const MAX_BOOKMARK_FAVORITES = 200
 const MAX_RESUME_POINTS = 200
+const MAX_GIT_HOSTS = 64
+const MAX_GIT_RECENT_REPOS = 12
 const MAX_BODY_BYTES = 256 * 1024
 const MAX_FILE_BYTES = 512 * 1024
 const MAX_PROFILE_LEN = 64
@@ -147,6 +155,8 @@ function getDefaultStore(): PreferencesStore {
     favoritesUpdatedAt: now,
     sessionContinuity: getDefaultSessionContinuity(),
     sessionContinuityUpdatedAt: now,
+    gitByHost: {},
+    gitByHostUpdatedAt: now,
     uiPreferences: {},
     uiPreferencesUpdatedAt: now,
     uploadRateLimitKBps: DEFAULT_UPLOAD_RATE_LIMIT_KBPS,
@@ -315,6 +325,48 @@ function normalizeSessionContinuity(input: unknown): SessionContinuity {
   const updatedAt = normalizeIso(raw.updatedAt, fallback.updatedAt)
   return { enabled, syncToServer, resumeOnReconnect, resumeOnNewDevice, maxResumePoints, archive, resumePoints, updatedAt }
 }
+function normalizeGitRepoEntries(input: unknown) {
+  if (!Array.isArray(input)) return []
+  const next: GitRepoEntry[] = []
+  const seen = new Set<string>()
+  for (const entry of input) {
+    if (!entry || typeof entry !== 'object') continue
+    const raw = entry as Record<string, unknown>
+    const repoPath = safeString(raw.repoPath, MAX_ROOT_PATH_LEN)
+    if (!repoPath || seen.has(repoPath)) continue
+    seen.add(repoPath)
+    next.push({
+      repoPath,
+      label: safeString(raw.label, MAX_FAVORITE_NAME_LEN) || repoPath.split('/').filter(Boolean).pop() || repoPath,
+      lastUsedAt: normalizeInt(raw.lastUsedAt, 0, 0, 8640000000000000),
+      pinned: raw.pinned === true,
+    })
+    if (next.length >= MAX_GIT_RECENT_REPOS) break
+  }
+  return next
+}
+function normalizeGitHostState(input: unknown): GitHostState {
+  if (!input || typeof input !== 'object') return { mode: 'follow-editor', currentRepoPath: null, currentFilePath: null, source: null, lockedRepoPath: null, recentRepos: [] }
+  const raw = input as Record<string, unknown>
+  const mode = raw.mode === 'locked' ? 'locked' : 'follow-editor'
+  const currentRepoPath = safeString(raw.currentRepoPath, MAX_ROOT_PATH_LEN) || null
+  const currentFilePath = safeString(raw.currentFilePath, MAX_ROOT_PATH_LEN) || null
+  const source = raw.source === 'editor' || raw.source === 'manual' ? raw.source : null
+  const lockedRepoPath = safeString(raw.lockedRepoPath, MAX_ROOT_PATH_LEN) || null
+  const recentRepos = normalizeGitRepoEntries(raw.recentRepos)
+  return { mode, currentRepoPath, currentFilePath, source, lockedRepoPath, recentRepos }
+}
+function normalizeGitByHost(input: unknown) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return {}
+  const next: Record<string, GitHostState> = {}
+  for (const [hostId, rawState] of Object.entries(input)) {
+    const safeHostId = safeString(hostId, MAX_ID_LEN)
+    if (!safeHostId) continue
+    next[safeHostId] = normalizeGitHostState(rawState)
+    if (Object.keys(next).length >= MAX_GIT_HOSTS) break
+  }
+  return next
+}
 function normalizeUiPreferences(input: unknown): UiPreferences {
   if (!input || typeof input !== 'object') return {}
   const raw = input as Record<string, unknown>
@@ -348,12 +400,13 @@ function normalizeStore(input: unknown): PreferencesStore {
   const snippetsUpdatedAt = normalizeIso(raw.snippetsUpdatedAt, fallback.snippetsUpdatedAt)
   const favoritesUpdatedAt = normalizeIso(raw.favoritesUpdatedAt, fallback.favoritesUpdatedAt)
   const sessionContinuityUpdatedAt = normalizeIso(raw.sessionContinuityUpdatedAt, fallback.sessionContinuityUpdatedAt)
+  const gitByHostUpdatedAt = normalizeIso(raw.gitByHostUpdatedAt, fallback.gitByHostUpdatedAt)
   const uiPreferencesUpdatedAt = normalizeIso(raw.uiPreferencesUpdatedAt, fallback.uiPreferencesUpdatedAt)
   const updatedAtRaw = normalizeIso(raw.updatedAt, fallback.updatedAt)
   const updatedAt = new Date(Math.max(
     parseIsoMs(updatedAtRaw), parseIsoMs(customShortcutsUpdatedAt), parseIsoMs(favoriteDirectoriesUpdatedAt),
     parseIsoMs(sessionOrdersUpdatedAt), parseIsoMs(snippetsUpdatedAt), parseIsoMs(favoritesUpdatedAt),
-    parseIsoMs(sessionContinuityUpdatedAt), parseIsoMs(uiPreferencesUpdatedAt),
+    parseIsoMs(sessionContinuityUpdatedAt), parseIsoMs(gitByHostUpdatedAt), parseIsoMs(uiPreferencesUpdatedAt),
   )).toISOString()
   return {
     version: 1,
@@ -370,6 +423,8 @@ function normalizeStore(input: unknown): PreferencesStore {
     favoritesUpdatedAt,
     sessionContinuity: normalizeSessionContinuity(raw.sessionContinuity),
     sessionContinuityUpdatedAt,
+    gitByHost: normalizeGitByHost(raw.gitByHost),
+    gitByHostUpdatedAt,
     uiPreferences: normalizeUiPreferences(raw.uiPreferences),
     uiPreferencesUpdatedAt,
     uploadRateLimitKBps: normalizeUploadRateLimitKBps(raw.uploadRateLimitKBps),
@@ -473,6 +528,14 @@ export async function preferencesRoutes(fastify: FastifyInstance) {
         next.sessionContinuityUpdatedAt = incomingAt
       }
     }
+    if ('gitByHost' in body) {
+      const incoming = normalizeGitByHost(body.gitByHost)
+      const incomingAt = normalizeIso(body.gitByHostUpdatedAt, nowIso())
+      if (parseIsoMs(incomingAt) >= parseIsoMs(current.gitByHostUpdatedAt)) {
+        next.gitByHost = incoming
+        next.gitByHostUpdatedAt = incomingAt
+      }
+    }
     if ('uiPreferences' in body) {
       const incoming = normalizeUiPreferences(body.uiPreferences)
       const incomingAt = normalizeIso(body.uiPreferencesUpdatedAt, nowIso())
@@ -486,7 +549,7 @@ export async function preferencesRoutes(fastify: FastifyInstance) {
     next.updatedAt = new Date(Math.max(
       parseIsoMs(next.customShortcutsUpdatedAt), parseIsoMs(next.favoriteDirectoriesUpdatedAt),
       parseIsoMs(next.sessionOrdersUpdatedAt), parseIsoMs(next.snippetsUpdatedAt),
-      parseIsoMs(next.favoritesUpdatedAt), parseIsoMs(next.sessionContinuityUpdatedAt), parseIsoMs(next.uiPreferencesUpdatedAt),
+      parseIsoMs(next.favoritesUpdatedAt), parseIsoMs(next.sessionContinuityUpdatedAt), parseIsoMs(next.gitByHostUpdatedAt), parseIsoMs(next.uiPreferencesUpdatedAt),
     )).toISOString()
     try {
       await writeStore(profile, next)

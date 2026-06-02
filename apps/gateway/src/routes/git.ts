@@ -9,7 +9,7 @@ interface GitFileChange {
 }
 const gitLogFieldSeparator = '\x1f'
 const gitLogRecordSeparator = '\x1e'
-const gitBranchFieldSeparator = '\x1f'
+const gitBranchFieldSeparator = '\t'
 
 function mapStatusCode(code: string): GitFileChange['status'] {
   switch (code) {
@@ -116,7 +116,8 @@ function parseGitLog(stdout: string) {
 }
 function parseGitBranches(stdout: string) {
   return stdout.split('\n').filter(Boolean).map((line) => {
-    const [head = '', name = '', commitHash = '', remote = '', trackingBranch = '', lastCommitSubject = ''] = line.split(gitBranchFieldSeparator)
+    const [head = '', name = '', commitHash = '', remote = '', trackingBranch = '', ...subjectParts] = line.split(gitBranchFieldSeparator)
+    const lastCommitSubject = subjectParts.join(gitBranchFieldSeparator)
     if (!name.trim() || !commitHash.trim()) return null
     return {
       name: name.trim(),
@@ -225,7 +226,7 @@ export async function gitRoutes(fastify: FastifyInstance) {
     const { hostId } = request.params as { hostId: string }
     const { path: repoPath } = request.query as { path?: string }
     if (!repoPath) throw new Error('Missing path parameter')
-    const { stdout } = await execGit(hostId, ['for-each-ref', '--sort=-committerdate', `--format=%(if)%(HEAD)%(then)*%(else) %(end)${gitBranchFieldSeparator}%(refname:short)${gitBranchFieldSeparator}%(objectname)${gitBranchFieldSeparator}%(upstream:short)${gitBranchFieldSeparator}%(upstream:track)${gitBranchFieldSeparator}%(contents:subject)`, 'refs/heads'], repoPath)
+    const { stdout } = await execGit(hostId, ['for-each-ref', '--sort=-committerdate', `--format=%(if)%(HEAD)%(then)*%(else) %(end)${gitBranchFieldSeparator}%(refname:short)${gitBranchFieldSeparator}%(objectname)${gitBranchFieldSeparator}%(upstream:short)${gitBranchFieldSeparator}%(upstream:trackshort)${gitBranchFieldSeparator}%(contents:subject)`, 'refs/heads'], repoPath)
     const branches = parseGitBranches(stdout)
     const current = branches.find((b) => b?.current)?.name || ''
     return { branches, current }

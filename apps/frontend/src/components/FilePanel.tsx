@@ -119,6 +119,7 @@ function isDotPath(path: string) {
 }
 function matchesFileTypeFilter(item: { type: 'file' | 'directory' }, fileTypeFilter: FileTypeFilter) {
   if (fileTypeFilter === 'all') return true
+  if (fileTypeFilter === 'file' && item.type === 'directory') return true
   return item.type === fileTypeFilter
 }
 function getFileVisual(path: string, type: 'file' | 'directory') {
@@ -285,7 +286,6 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   const preview = useMemo(() => rebasePreview(rawPreview, activeRootBasePath), [rawPreview, activeRootBasePath])
   const searchResults = useMemo(() => rawSearchResults.slice(0, SEARCH_RESULT_LIMIT).map((item) => rebaseEntryPath(item, activeRootBasePath)), [rawSearchResults, activeRootBasePath])
   const rootLabelById = useMemo(() => Object.fromEntries(visibleRoots.map((item) => [item.id, item.label])), [visibleRoots])
-  const quickRoots = visibleRoots
   const isSearching = debouncedQuery.trim().length > 0
   const showSearchResults = isSearching && !searchNavigationPath
   const items = useMemo(() => showSearchResults ? searchResults : listData?.items || [], [showSearchResults, searchResults, listData])
@@ -819,14 +819,6 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
           <button onClick={() => uploadInputRef.current?.click()} className="rounded px-1.5 py-1 text-[11px] text-accent hover:bg-bg-2">{t('file.upload')}</button>
           {activeFavorite && <button onClick={() => removeFavoriteDirectory(activeFavorite)} className="rounded px-1.5 py-1 text-[11px] text-text-3 hover:bg-bg-2 hover:text-text-1">{t('file.removeFavorite')}</button>}
           <button onClick={onClose || (() => setFilePanelOpen(false))} className="rounded px-1.5 py-1 text-text-3 hover:bg-bg-2 hover:text-text-1">×</button>
-        </div>
-        <div className="tmuxgo-scrollbar-subtle mt-1.5 flex gap-1 overflow-x-auto text-[11px]">
-          {quickRoots.map((item) => (
-            <button key={item.id} onClick={() => switchRoot(item.id)} className={`shrink-0 rounded px-1.5 py-0.5 ${selectedRootId === item.id ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-2 hover:text-text-1'}`}>{item.label}</button>
-          ))}
-          {visibleFavoriteDirectories.map((item) => (
-            <button key={`favorite-${item.rootId}-${item.path || 'root'}`} onClick={() => openDirectoryShortcut(item)} className={`max-w-full shrink-0 truncate rounded px-1.5 py-0.5 ${selectedRootId === getFavoriteRootOptionId(item) ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-3 hover:text-accent'}`}>{formatDirectoryShortcutLabel(item.path, rootLabelById[item.rootId] || item.name)}</button>
-          ))}
         </div>
         <div className="tmuxgo-scrollbar-subtle mt-1.5 flex min-w-0 items-center gap-1 overflow-x-auto text-[11px] text-text-3">
           {(listData?.breadcrumbs || [{ name: '/', path: '' }]).map((crumb) => (

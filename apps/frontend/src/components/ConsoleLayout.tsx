@@ -22,6 +22,7 @@ import { useHosts, useSessionSnapshot } from '@/hooks/useApi'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useSessionContinuity } from '@/hooks/useSessionContinuity'
+import { useGitPreferencesSync } from '@/hooks/useGitPreferencesSync'
 import { DesktopWorkbench } from './DesktopWorkbench'
 import { recordMobileDiagnostic, startMobileFlickerDiagnostics } from '@/lib/mobile-diagnostics'
 
@@ -51,6 +52,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   const setMobileFileSheetOpen = useConsoleStore((s) => s.setMobileFileSheetOpen)
   const { preferences } = usePreferences()
   const { sessionContinuity } = useSessionContinuity()
+  useGitPreferencesSync()
 
   const { data: hostsData = [] } = useHosts()
   const { data: sessionsData = [], isFetched: sessionsFetched } = useOrderedSessions(activeHostId || '')
