@@ -486,6 +486,13 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   }
   const openItem = (item: FileEntry) => {
     if (item.type === 'directory') {
+      if (!isMobile && showSearchResults) {
+        setCurrentPath(item.path)
+        setSelectedPath('')
+        setSelectedPreviewLine(1)
+        setSearchNavigationPath(item.path)
+        return
+      }
       if (!isMobile) {
         void handleDesktopDirectoryToggle(item)
         return
