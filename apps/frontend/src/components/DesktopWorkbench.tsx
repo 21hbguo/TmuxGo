@@ -54,6 +54,8 @@ function getEditorLanguage(path: string) {
 
 export function DesktopWorkbench() {
   const { t } = useTranslation()
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
   const sessionPanelExpanded = useConsoleStore((state) => state.sessionPanelExpanded)
   const sessionPanelWidth = useConsoleStore((state) => state.sessionPanelWidth)
   const filePanelWidth = useConsoleStore((state) => state.filePanelWidth)
@@ -101,6 +103,8 @@ export function DesktopWorkbench() {
   const terminalInlineMaxHeight = clampValue(Math.floor(viewportHeight * 0.58), terminalMinHeight, 760)
   const terminalMaxHeight = clampValue(viewportHeight - 12, terminalInlineMaxHeight, 2000)
   const terminalPanelHeight = useConsoleStore((state) => state.terminalPanelHeight)
+  const editorsHydrated = useConsoleStore((state) => state.editorsHydrated)
+  const hydrateEditorsFromStorage = useConsoleStore((state) => state.hydrateEditorsFromStorage)
   const terminalOverlay = openEditors.length > 0 && terminalPanelHeight > terminalInlineMaxHeight
   const terminalOverlayTopOffset = clampValue(viewportHeight - terminalPanelHeight, 0, viewportHeight)
   useEffect(() => {
@@ -206,13 +210,17 @@ export function DesktopWorkbench() {
     }
   }, [openEditor, pushToast, setEditorLoaded, setFilePanelOpen])
   useEffect(() => {
+    hydrateEditorsFromStorage()
+  }, [hydrateEditorsFromStorage])
+  useEffect(() => {
+    if (!editorsHydrated) return
     if (restoredRef.current) return
     restoredRef.current = true
     const editors = useConsoleStore.getState().openEditors
     if (!editors.length) return
     setFilePanelOpen(true)
     for (const editor of editors) void handleOpenFile(editor)
-  }, [handleOpenFile, setFilePanelOpen])
+  }, [editorsHydrated, handleOpenFile, setFilePanelOpen])
   const handleSaveEditor = useCallback(async (editor: FileEditorDocument) => {
     if (editor.loading || editor.binary || editor.truncated) return
     setEditorSaving(editor.id, true)
@@ -226,6 +234,16 @@ export function DesktopWorkbench() {
       pushToast({ type: 'error', message })
     }
   }, [markEditorSaved, pushToast, setEditorSaving])
+  if (!mounted) {
+    return (
+      <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
+        <ActivityBar />
+        <SessionRail />
+        <div className="min-h-0 flex-1 bg-bg-1" />
+      </div>
+    )
+  }
+
   return (
     <div ref={containerRef} className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
       <ActivityBar />
