@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useEffect, useMemo, useRef, useState,type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState,type PointerEvent as ReactPointerEvent,type UIEvent as ReactUIEvent } from 'react'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useTranslation } from '@/i18n'
 import { useConsoleStore } from '@/stores/useConsoleStore'
@@ -18,12 +18,13 @@ import { DELETE_PREV_LINE_SEQUENCE, DELETE_PREV_WORD_SEQUENCE } from '@/lib/term
 
 const btn='px-2 py-1.5 rounded text-xs transition-colors bg-bg-2 text-text-2 hover:bg-bg-1 active:bg-bg-0'
 const repeatBtn=`${btn} touch-none select-none`
-const dockBtn='px-2.5 py-1.5 rounded-md text-[11px] leading-none whitespace-nowrap select-none transition-colors bg-bg-2 text-text-2 active:bg-bg-0 touch-none'
-const dockDangerBtn='px-2.5 py-1.5 rounded-md text-[11px] leading-none whitespace-nowrap select-none transition-colors bg-red-900/30 text-red-400 active:bg-red-900/50 touch-none'
-const dockAccentBtn='px-2.5 py-1.5 rounded-md text-[11px] leading-none whitespace-nowrap select-none transition-colors bg-accent/20 text-accent active:bg-accent/30 touch-none'
+const dockBtn='px-2.5 py-1.5 rounded-md text-[11px] leading-none whitespace-nowrap select-none transition-colors bg-bg-2 text-text-2 active:bg-bg-0 touch-pan-x'
+const dockDangerBtn='px-2.5 py-1.5 rounded-md text-[11px] leading-none whitespace-nowrap select-none transition-colors bg-red-900/30 text-red-400 active:bg-red-900/50 touch-pan-x'
+const dockAccentBtn='px-2.5 py-1.5 rounded-md text-[11px] leading-none whitespace-nowrap select-none transition-colors bg-accent/20 text-accent active:bg-accent/30 touch-pan-x'
 const repeatDelay=260
 const repeatInterval=54
 const dragThreshold=12
+const scrollSuppressWindow=180
 
 type QuickActionsMode='panel'|'dock'
 type ActionButtonDef={key:string,label:string,data?:string,repeat?:boolean,tone?:'default'|'accent'|'danger',disabled?:boolean,onPress?:()=>void|Promise<void>}
@@ -50,7 +51,8 @@ function useQuickActionController() {
   const [newWindowName,setNewWindowName]=useState('')
   const repeatTimerRef=useRef<ReturnType<typeof setTimeout>|null>(null)
   const repeatIntervalRef=useRef<ReturnType<typeof setInterval>|null>(null)
-  const pointerStateRef=useRef({id:-1,x:0,y:0,moved:false})
+  const pointerStateRef=useRef({id:-1,x:0,y:0,moved:false,pointerType:'',repeatFired:false})
+  const dockScrollRef=useRef({pointerId:-1,startScrollLeft:0,scrolling:false,suppressUntil:0})
 
   useEffect(()=>{
     const check=()=>setIsMobile(window.innerWidth<1024)
@@ -77,10 +79,43 @@ function useQuickActionController() {
       repeatIntervalRef.current=setInterval(()=>sendKey(data),repeatInterval)
     },repeatDelay)
   },[sendKey,stopRepeat])
+  const armTouchRepeat=useCallback((data:string)=>{
+    stopRepeat()
+    pointerStateRef.current.repeatFired=false
+    repeatTimerRef.current=setTimeout(()=>{
+      pointerStateRef.current.repeatFired=true
+      sendKey(data)
+      repeatIntervalRef.current=setInterval(()=>sendKey(data),repeatInterval)
+    },repeatDelay)
+  },[sendKey,stopRepeat])
   useEffect(()=>stopRepeat,[stopRepeat])
-  const preventFocus=useCallback((e:ReactPointerEvent<HTMLButtonElement>)=>{e.preventDefault()},[])
-  const startPointer=useCallback((e:ReactPointerEvent<HTMLButtonElement>)=>{pointerStateRef.current={id:e.pointerId,x:e.clientX,y:e.clientY,moved:false}},[])
-  const resetPointer=useCallback(()=>{pointerStateRef.current={id:-1,x:0,y:0,moved:false}},[])
+  const preventFocus=useCallback((e:ReactPointerEvent<HTMLButtonElement>)=>{if(e.pointerType==='mouse')e.preventDefault()},[])
+  const startPointer=useCallback((e:ReactPointerEvent<HTMLButtonElement>)=>{pointerStateRef.current={id:e.pointerId,x:e.clientX,y:e.clientY,moved:false,pointerType:e.pointerType||'',repeatFired:false}},[])
+  const resetPointer=useCallback(()=>{pointerStateRef.current={id:-1,x:0,y:0,moved:false,pointerType:'',repeatFired:false}},[])
+  const startDockGesture=useCallback((e:ReactPointerEvent<HTMLDivElement>)=>{
+    if(e.pointerType==='mouse')return
+    dockScrollRef.current={pointerId:e.pointerId,startScrollLeft:e.currentTarget.scrollLeft,scrolling:false,suppressUntil:dockScrollRef.current.suppressUntil}
+  },[])
+  const trackDockScroll=useCallback((e:ReactUIEvent<HTMLDivElement>)=>{
+    const state=dockScrollRef.current
+    if(state.pointerId===-1){
+      state.suppressUntil=Date.now()+scrollSuppressWindow
+      return
+    }
+    if(Math.abs(e.currentTarget.scrollLeft-state.startScrollLeft)>0){
+      state.scrolling=true
+      state.suppressUntil=Date.now()+scrollSuppressWindow
+    }
+  },[])
+  const finishDockGesture=useCallback((pointerId:number)=>{
+    const state=dockScrollRef.current
+    if(state.pointerId!==-1&&state.pointerId!==pointerId)return
+    if(state.scrolling)state.suppressUntil=Date.now()+scrollSuppressWindow
+    state.pointerId=-1
+    state.startScrollLeft=0
+    state.scrolling=false
+  },[])
+  const isDockScrollBlocked=useCallback(()=>dockScrollRef.current.suppressUntil>Date.now(),[])
   const trackPointer=useCallback((e:ReactPointerEvent<HTMLButtonElement>)=>{
     const state=pointerStateRef.current
     if(state.id!==e.pointerId||state.moved)return
@@ -238,7 +273,7 @@ function useQuickActionController() {
   ]
   const attachButton:ActionButtonDef={ key:'attach-mode',label:preferences.attachExclusive?t('quick.attachExclusive'):t('quick.attachShared'),onPress:()=>updatePreferences({ attachExclusive:!preferences.attachExclusive }),tone:'accent' }
 
-  return { t,shortcuts,addShortcut,removeShortcut,showModal,setShowModal,isMobile,confirmKillOpen,setConfirmKillOpen,confirmKillPane,newWindowPromptOpen,setNewWindowPromptOpen,newWindowName,setNewWindowName,confirmCreateWindow,sendKey,startRepeat,stopRepeat,preventFocus,startPointer,trackPointer,finishPointer,pointerStateRef,primaryButtons,attachButton }
+  return { t,shortcuts,addShortcut,removeShortcut,showModal,setShowModal,isMobile,confirmKillOpen,setConfirmKillOpen,confirmKillPane,newWindowPromptOpen,setNewWindowPromptOpen,newWindowName,setNewWindowName,confirmCreateWindow,sendKey,startRepeat,armTouchRepeat,stopRepeat,preventFocus,startPointer,startDockGesture,trackDockScroll,finishDockGesture,isDockScrollBlocked,trackPointer,finishPointer,pointerStateRef,primaryButtons,attachButton }
 }
 
 function getDockClass(def:ActionButtonDef){
@@ -263,8 +298,8 @@ function renderPanelButton(def:ActionButtonDef,controller:ReturnType<typeof useQ
 }
 
 function renderDockButton(def:ActionButtonDef,controller:ReturnType<typeof useQuickActionController>){
-  const { sendKey,startRepeat,preventFocus,startPointer,trackPointer,finishPointer,pointerStateRef }=controller
-  return <button key={def.key} type="button" tabIndex={-1} className={getDockClass(def)} onPointerDown={(e)=>{ preventFocus(e); startPointer(e); if(def.disabled)return; if(def.repeat&&def.data){ startRepeat(def.data); return } if(def.data)sendKey(def.data) }} onPointerMove={trackPointer} onPointerUp={()=>{ const moved=pointerStateRef.current.moved; finishPointer(); if(moved||def.disabled||def.repeat||!def.onPress)return; void def.onPress() }} onPointerLeave={finishPointer} onPointerCancel={finishPointer}>{def.label}</button>
+  const { sendKey,startRepeat,armTouchRepeat,preventFocus,startPointer,trackPointer,finishPointer,finishDockGesture,isDockScrollBlocked,pointerStateRef }=controller
+  return <button key={def.key} type="button" tabIndex={-1} className={getDockClass(def)} onPointerDown={(e)=>{ preventFocus(e); startPointer(e); if(def.disabled)return; if(def.repeat&&def.data){ if(e.pointerType!=='mouse'){ armTouchRepeat(def.data); return } startRepeat(def.data); return } }} onPointerMove={trackPointer} onPointerUp={(e)=>{ const { moved,pointerType,repeatFired }=pointerStateRef.current; const blocked=isDockScrollBlocked(); finishPointer(); finishDockGesture(e.pointerId); if(moved||blocked||def.disabled)return; if(def.repeat&&def.data){ if(pointerType!=='mouse'){ if(!repeatFired)sendKey(def.data); return } return } if(def.onPress){ void def.onPress(); return } if(def.data)sendKey(def.data) }} onPointerLeave={finishPointer} onPointerCancel={(e)=>{ finishPointer(); finishDockGesture(e.pointerId) }}>{def.label}</button>
 }
 
 export function QuickActions({ mode='panel' }:{ mode?:QuickActionsMode }){
@@ -273,7 +308,7 @@ export function QuickActions({ mode='panel' }:{ mode?:QuickActionsMode }){
   if(mode==='dock'){
     return (
       <>
-        <div data-shortcut-bar data-keep-mobile-keyboard className="mobile-nav-landscape-hide relative z-40 flex-shrink-0 bg-bg-1 border-t border-[var(--line)] overflow-x-auto scrollbar-none pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_rgba(0,0,0,0.28)]" style={{ minHeight:40 }} onContextMenu={(e)=>e.preventDefault()}>
+        <div data-shortcut-bar data-keep-mobile-keyboard className="mobile-nav-landscape-hide relative z-40 flex-shrink-0 bg-bg-1 border-t border-[var(--line)] overflow-x-auto scrollbar-none pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_rgba(0,0,0,0.28)]" style={{ minHeight:40 }} onPointerDownCapture={controller.startDockGesture} onPointerUpCapture={(e)=>controller.finishDockGesture(e.pointerId)} onPointerCancelCapture={(e)=>controller.finishDockGesture(e.pointerId)} onScroll={controller.trackDockScroll} onContextMenu={(e)=>e.preventDefault()}>
           <div className="flex gap-1 p-1.5 w-max min-h-[40px] items-center" onContextMenu={(e)=>e.preventDefault()}>
             {primaryButtons.map((def)=>renderDockButton(def,controller))}
             <div className="w-px bg-[var(--line)] mx-1 self-stretch" />
