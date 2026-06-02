@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { api } from '@/lib/api'
 import type { FileDocumentHandle, FileEditorDocument } from '@/types'
+import { getEditorLanguage, openFileInEditor } from '@/lib/editor-open'
 import { ActivityBar } from './ActivityBar'
 import { FilePanel } from './FilePanel'
 import { GitPanel } from './GitPanel'
@@ -14,49 +15,8 @@ import { useTranslation } from '@/i18n'
 
 const ACTIVITY_BAR_WIDTH = 56
 const SESSION_RAIL_WIDTH = 109
-const IMAGE_EXTENSIONS = new Set(['.avif','.bmp','.gif','.ico','.jpeg','.jpg','.png','.tif','.tiff','.webp'])
 function clampValue(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value))
-}
-function isImagePath(path: string) {
-  const lower = path.toLowerCase()
-  const dot = lower.lastIndexOf('.')
-  if (dot < 0) return false
-  return IMAGE_EXTENSIONS.has(lower.slice(dot))
-}
-function getEditorLanguage(path: string) {
-  const name = path.split('/').pop()?.toLowerCase() || ''
-  if (name === 'dockerfile') return 'dockerfile'
-  if (name === 'makefile') return 'plaintext'
-  if (name.endsWith('.c')) return 'c'
-  if (name.endsWith('.cc') || name.endsWith('.cpp') || name.endsWith('.cxx') || name.endsWith('.hpp') || name.endsWith('.h')) return 'cpp'
-  if (name.endsWith('.ts')) return 'typescript'
-  if (name.endsWith('.tsx')) return 'typescript'
-  if (name.endsWith('.js')) return 'javascript'
-  if (name.endsWith('.jsx')) return 'javascript'
-  if (name.endsWith('.mjs') || name.endsWith('.cjs')) return 'javascript'
-  if (name.endsWith('.json')) return 'json'
-  if (name.endsWith('.jsonc')) return 'json'
-  if (name.endsWith('.md')) return 'markdown'
-  if (name.endsWith('.css')) return 'css'
-  if (name.endsWith('.scss')) return 'scss'
-  if (name.endsWith('.less')) return 'less'
-  if (name.endsWith('.html')) return 'html'
-  if (name.endsWith('.xml') || name.endsWith('.svg')) return 'xml'
-  if (name.endsWith('.sh')) return 'shell'
-  if (name.endsWith('.bash') || name.endsWith('.zsh')) return 'shell'
-  if (name.endsWith('.py')) return 'python'
-  if (name.endsWith('.go')) return 'go'
-  if (name.endsWith('.java')) return 'java'
-  if (name.endsWith('.kt')) return 'kotlin'
-  if (name.endsWith('.rs')) return 'rust'
-  if (name.endsWith('.php')) return 'php'
-  if (name.endsWith('.rb')) return 'ruby'
-  if (name.endsWith('.sql')) return 'sql'
-  if (name.endsWith('.toml')) return 'ini'
-  if (name.endsWith('.ini') || name.endsWith('.cfg') || name.endsWith('.conf')) return 'ini'
-  if (name.endsWith('.yml') || name.endsWith('.yaml')) return 'yaml'
-  return 'plaintext'
 }
 
 export function DesktopWorkbench() {
@@ -75,8 +35,6 @@ export function DesktopWorkbench() {
   const setSessionPanelWidth = useConsoleStore((state) => state.setSessionPanelWidth)
   const setFilePanelWidth = useConsoleStore((state) => state.setFilePanelWidth)
   const setFilePanelOpen = useConsoleStore((state) => state.setFilePanelOpen)
-  const openEditor = useConsoleStore((state) => state.openEditor)
-  const setEditorLoaded = useConsoleStore((state) => state.setEditorLoaded)
   const setEditorSaving = useConsoleStore((state) => state.setEditorSaving)
   const markEditorSaved = useConsoleStore((state) => state.markEditorSaved)
   const openCompareEditor = useConsoleStore((state) => state.openCompareEditor)
@@ -196,57 +154,8 @@ export function DesktopWorkbench() {
     window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'desktop-workbench', sessionPanelExpanded, sessionPanelWidth, filePanelOpen, filePanelWidth, gitPanelOpen, gitPanelWidth, editorsOpen: openEditors.length > 0, terminalPanelHeight } }))
   }, [filePanelOpen, filePanelWidth, gitPanelOpen, gitPanelWidth, openEditors.length, sessionPanelExpanded, sessionPanelWidth, terminalPanelHeight])
   const handleOpenFile = useCallback(async (file: FileDocumentHandle) => {
-    setFilePanelOpen(true)
-    const existing = useConsoleStore.getState().openEditors.find((item) => item.id === file.id)
-    openEditor({ ...file, language: existing?.language || getEditorLanguage(file.path) })
-    if (existing?.dirty) return
-    setEditorLoaded(file.id, {
-      loading: true,
-      saving: false,
-      dirty: false,
-      binary: false,
-      truncated: false,
-      problem: undefined,
-      previewUrl: undefined,
-    })
-    if (isImagePath(file.path)) {
-      try {
-        const result = await api.files.preview(file.hostId, file.rootId, file.path)
-        setEditorLoaded(file.id, {
-          loading: false,
-          content: '',
-          savedContent: '',
-          modifiedAt: result.modifiedAt,
-          size: result.size,
-          binary: true,
-          truncated: false,
-          problem: undefined,
-          previewUrl: api.files.imageUrl(file.hostId, file.rootId, file.path, result.modifiedAt),
-        })
-      } catch (err) {
-        setEditorLoaded(file.id, { loading: false, problem: err instanceof Error ? err.message : t('desktop.openFailed') })
-        pushToast({ type: 'error', message: err instanceof Error ? err.message : t('desktop.openFailed') })
-      }
-      return
-    }
-    try {
-      const result = await api.files.content(file.hostId, file.rootId, file.path)
-      setEditorLoaded(file.id, {
-        loading: false,
-        content: result.content,
-        savedContent: result.content,
-        modifiedAt: result.modifiedAt,
-        size: result.size,
-        binary: result.binary,
-        truncated: result.truncated,
-        problem: result.reason === 'large-file' ? t('desktop.largePreviewMode') : result.reason === 'binary-file' ? t('desktop.binaryNotEditable') : result.reason === 'directory' ? t('desktop.directoryNotEditable') : undefined,
-        previewUrl: undefined,
-      })
-    } catch (err) {
-      setEditorLoaded(file.id, { loading: false, problem: err instanceof Error ? err.message : t('desktop.openFailed') })
-      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('desktop.openFailed') })
-    }
-  }, [openEditor, pushToast, setEditorLoaded, setFilePanelOpen, t])
+    await openFileInEditor(file, { t, pushToast, openPanel: true })
+  }, [pushToast, t])
   const handleOpenFileForDrop = useCallback(async (file: FileDocumentHandle) => {
     const existing = useConsoleStore.getState().openEditors.find((item) => item.id === file.id)
     if (existing && !existing.loading) {

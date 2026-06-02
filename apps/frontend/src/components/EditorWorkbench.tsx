@@ -8,6 +8,7 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useGitDetect } from '@/hooks/useApi'
 import { clearActiveDraggedFile, getActiveDraggedFile, setActiveDraggedFile } from '@/lib/editor-drag'
+import { OPEN_EDITOR_LOCATION_EVENT } from '@/lib/editor-open'
 import { useTranslation } from '@/i18n'
 import { ConfirmDialog } from './ConfirmDialog'
 import { DiffViewer } from './DiffViewer'
@@ -423,6 +424,24 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
     const repoPath = detectResult?.isGitRepo ? detectResult.rootPath || activeEditor.absolutePath : null
     setGitFollowEditorRepo(activeHostId, repoPath, activeEditor.absolutePath)
   }, [activeEditor?.absolutePath, activeHostId, detectResult?.isGitRepo, detectResult?.rootPath, gitDiff, gitMode, setGitFollowEditorRepo])
+  useEffect(() => {
+    const handleOpenEditorLocation = (event: Event) => {
+      const detail = (event as CustomEvent<{ editorId?: string; line?: number; column?: number }>).detail
+      const editorId = detail?.editorId
+      const line = Number(detail?.line)
+      const column = Number(detail?.column) || 1
+      if (!editorId || !Number.isFinite(line) || line < 1) return
+      setActiveEditor(editorId)
+      requestAnimationFrame(() => {
+        const editor = editorRefs.current[editorId]
+        editor?.setPosition?.({ lineNumber: line, column: Math.max(1, column) })
+        editor?.revealPositionInCenter?.({ lineNumber: line, column: Math.max(1, column) })
+        editor?.focus?.()
+      })
+    }
+    window.addEventListener(OPEN_EDITOR_LOCATION_EVENT, handleOpenEditorLocation as EventListener)
+    return () => window.removeEventListener(OPEN_EDITOR_LOCATION_EVENT, handleOpenEditorLocation as EventListener)
+  }, [setActiveEditor])
   const renderTab = (editor: FileEditorDocument, groupEditors: FileEditorDocument[], groupId: string) => (
     <div key={editor.id} className={`group relative flex h-[42px] w-44 shrink-0 items-center border-r border-[rgba(255,255,255,0.04)] ${editor.id === activeEditor?.id ? 'bg-bg-0' : 'bg-bg-1/80'}`}>
       <button draggable={editor.kind !== 'compare'} onDragStart={(event) => {
