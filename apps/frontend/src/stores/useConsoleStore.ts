@@ -1,9 +1,37 @@
 import { create } from 'zustand'
 import type { ConnectionState, FileDocumentHandle, FileEditorDocument, GitHostState, GitMode, GitSource, UploadJob, TerminalPerfState } from '@/types'
 type PersistedEditor = Pick<FileEditorDocument, 'id' | 'hostId' | 'rootId' | 'rootLabel' | 'rootPath' | 'path' | 'name' | 'absolutePath' | 'language'>
+export interface EditorGroupState {
+  id: string
+  editorIds: string[]
+  activeEditorId: string | null
+}
+export interface EditorLayoutLeaf {
+  id: string
+  type: 'group'
+  groupId: string
+}
+export interface EditorLayoutSplit {
+  id: string
+  type: 'split'
+  direction: 'horizontal' | 'vertical'
+  ratio: number
+  first: EditorLayoutNode
+  second: EditorLayoutNode
+}
+export type EditorLayoutNode = EditorLayoutLeaf | EditorLayoutSplit
+interface EditorWorkspaceState {
+  openEditors: FileEditorDocument[]
+  activeEditorId: string | null
+  editorGroups: EditorGroupState[]
+  editorLayout: EditorLayoutNode | null
+  activeEditorGroupId: string | null
+}
 const OPEN_EDITORS_STORAGE_KEY = 'tmuxgo-open-editors'
 const ACTIVE_EDITOR_STORAGE_KEY = 'tmuxgo-active-editor'
 const ACTIVE_SESSION_STORAGE_KEY = 'tmuxgo-active-session'
+let editorGroupCounter = 0
+let editorLayoutCounter = 0
 function getActiveSessionStorageKey(hostId: string) {
   return `${ACTIVE_SESSION_STORAGE_KEY}:${hostId}`
 }
@@ -31,6 +59,156 @@ function writePersistedEditors(openEditors: FileEditorDocument[], activeEditorId
   if (activeEditorId) localStorage.setItem(ACTIVE_EDITOR_STORAGE_KEY, activeEditorId)
   else localStorage.removeItem(ACTIVE_EDITOR_STORAGE_KEY)
 }
+function createEditorGroup(editorIds: string[] = [], activeEditorId: string | null = editorIds.at(-1) || null): EditorGroupState {
+  const nextEditorIds = editorIds.filter((item, index, items) => items.indexOf(item) === index)
+  return { id: `editor-group-${++editorGroupCounter}`, editorIds: nextEditorIds, activeEditorId: activeEditorId && nextEditorIds.includes(activeEditorId) ? activeEditorId : nextEditorIds.at(-1) || null }
+}
+function createEditorLayoutLeaf(groupId: string): EditorLayoutLeaf {
+  return { id: `editor-layout-${++editorLayoutCounter}`, type: 'group', groupId }
+}
+function createEditorLayoutSplit(direction: 'horizontal' | 'vertical', first: EditorLayoutNode, second: EditorLayoutNode, ratio = 0.5): EditorLayoutSplit {
+  return { id: `editor-layout-${++editorLayoutCounter}`, type: 'split', direction, ratio, first, second }
+}
+function isEditorLayoutSplit(node: EditorLayoutNode | null | undefined): node is EditorLayoutSplit {
+  return !!node && node.type === 'split'
+}
+function collectEditorLayoutGroupIds(node: EditorLayoutNode | null): string[] {
+  if (!node) return []
+  if (!isEditorLayoutSplit(node)) return [node.groupId]
+  return [...collectEditorLayoutGroupIds(node.first), ...collectEditorLayoutGroupIds(node.second)]
+}
+function normalizeEditorGroup(group: EditorGroupState): EditorGroupState {
+  const editorIds = group.editorIds.filter((item, index, items) => items.indexOf(item) === index)
+  return { ...group, editorIds, activeEditorId: group.activeEditorId && editorIds.includes(group.activeEditorId) ? group.activeEditorId : editorIds.at(-1) || null }
+}
+function getEditorGroupById(groups: EditorGroupState[], groupId: string | null | undefined) {
+  if (!groupId) return null
+  return groups.find((group) => group.id === groupId) || null
+}
+function findEditorGroupIdByEditor(groups: EditorGroupState[], editorId: string) {
+  return groups.find((group) => group.editorIds.includes(editorId))?.id || null
+}
+function getExistingEditorGroupId(groups: EditorGroupState[], groupId: string | null | undefined) {
+  return getEditorGroupById(groups, groupId)?.id || null
+}
+function removeEditorGroupFromLayout(node: EditorLayoutNode | null, groupId: string): EditorLayoutNode | null {
+  if (!node) return null
+  if (!isEditorLayoutSplit(node)) return node.groupId === groupId ? null : node
+  const nextFirst = removeEditorGroupFromLayout(node.first, groupId)
+  const nextSecond = removeEditorGroupFromLayout(node.second, groupId)
+  if (!nextFirst && !nextSecond) return null
+  if (!nextFirst) return nextSecond
+  if (!nextSecond) return nextFirst
+  if (nextFirst === node.first && nextSecond === node.second) return node
+  return { ...node, first: nextFirst, second: nextSecond }
+}
+function splitEditorLayout(node: EditorLayoutNode, targetGroupId: string, direction: 'horizontal' | 'vertical', newGroupId: string, side: 'before' | 'after'): { node: EditorLayoutNode; inserted: boolean } {
+  if (!isEditorLayoutSplit(node)) {
+    if (node.groupId !== targetGroupId) return { node, inserted: false }
+    const currentLeaf = node
+    const newLeaf = createEditorLayoutLeaf(newGroupId)
+    return { node: side === 'before' ? createEditorLayoutSplit(direction, newLeaf, currentLeaf) : createEditorLayoutSplit(direction, currentLeaf, newLeaf), inserted: true }
+  }
+  const first = splitEditorLayout(node.first, targetGroupId, direction, newGroupId, side)
+  if (first.inserted) return { node: { ...node, first: first.node }, inserted: true }
+  const second = splitEditorLayout(node.second, targetGroupId, direction, newGroupId, side)
+  if (second.inserted) return { node: { ...node, second: second.node }, inserted: true }
+  return { node, inserted: false }
+}
+function updateEditorLayoutSplitRatio(node: EditorLayoutNode, splitId: string, ratio: number): { node: EditorLayoutNode; updated: boolean } {
+  if (!isEditorLayoutSplit(node)) return { node, updated: false }
+  if (node.id === splitId) return { node: { ...node, ratio: Math.max(0.2, Math.min(0.8, ratio)) }, updated: true }
+  const first = updateEditorLayoutSplitRatio(node.first, splitId, ratio)
+  if (first.updated) return { node: { ...node, first: first.node }, updated: true }
+  const second = updateEditorLayoutSplitRatio(node.second, splitId, ratio)
+  if (second.updated) return { node: { ...node, second: second.node }, updated: true }
+  return { node, updated: false }
+}
+function pruneEmptyEditorGroups(groups: EditorGroupState[], layout: EditorLayoutNode | null) {
+  let nextGroups = groups.map(normalizeEditorGroup)
+  let nextLayout = layout
+  for (const group of [...nextGroups]) {
+    if (group.editorIds.length || nextGroups.length <= 1) continue
+    nextGroups = nextGroups.filter((item) => item.id !== group.id)
+    nextLayout = removeEditorGroupFromLayout(nextLayout, group.id)
+  }
+  if (!nextGroups.length) {
+    const group = createEditorGroup()
+    return { editorGroups: [group], editorLayout: createEditorLayoutLeaf(group.id) }
+  }
+  if (!nextLayout) nextLayout = createEditorLayoutLeaf(nextGroups[0].id)
+  return { editorGroups: nextGroups.map(normalizeEditorGroup), editorLayout: nextLayout }
+}
+function finalizeEditorWorkspace(state: EditorWorkspaceState): Pick<EditorWorkspaceState, 'activeEditorId' | 'editorGroups' | 'editorLayout' | 'activeEditorGroupId'> {
+  const openEditorIds = new Set(state.openEditors.map((item) => item.id))
+  let editorGroups = state.editorGroups.map((group) => normalizeEditorGroup({ ...group, editorIds: group.editorIds.filter((id) => openEditorIds.has(id)) }))
+  let editorLayout = state.editorLayout
+  const pruned = pruneEmptyEditorGroups(editorGroups, editorLayout)
+  editorGroups = pruned.editorGroups
+  editorLayout = pruned.editorLayout
+  let activeEditorId = state.activeEditorId && openEditorIds.has(state.activeEditorId) ? state.activeEditorId : null
+  let activeEditorGroupId = getExistingEditorGroupId(editorGroups, state.activeEditorGroupId) || editorGroups[0]?.id || null
+  if (activeEditorId) {
+    const groupId = findEditorGroupIdByEditor(editorGroups, activeEditorId)
+    if (groupId) {
+      activeEditorGroupId = groupId
+      editorGroups = editorGroups.map((group) => group.id === groupId ? { ...group, activeEditorId } : group)
+    } else activeEditorId = null
+  }
+  if (!activeEditorId && activeEditorGroupId) activeEditorId = getEditorGroupById(editorGroups, activeEditorGroupId)?.activeEditorId || null
+  if (!activeEditorId) {
+    const fallbackGroup = editorGroups.find((group) => group.editorIds.length)
+    if (fallbackGroup) {
+      activeEditorGroupId = fallbackGroup.id
+      activeEditorId = fallbackGroup.activeEditorId || fallbackGroup.editorIds.at(-1) || null
+      editorGroups = editorGroups.map((group) => group.id === fallbackGroup.id ? { ...group, activeEditorId } : group)
+    }
+  }
+  if (!activeEditorGroupId && editorGroups[0]) activeEditorGroupId = editorGroups[0].id
+  return { activeEditorId, editorGroups: editorGroups.map(normalizeEditorGroup), editorLayout, activeEditorGroupId }
+}
+function createLegacyEditorState(editorGroups: EditorGroupState[], editorLayout: EditorLayoutNode | null, activeEditorGroupId: string | null) {
+  const orderedGroupIds = collectEditorLayoutGroupIds(editorLayout)
+  const primaryGroup = getEditorGroupById(editorGroups, orderedGroupIds[0]) || editorGroups[0] || null
+  const secondaryGroup = getEditorGroupById(editorGroups, orderedGroupIds[1]) || null
+  const rootSplit = isEditorLayoutSplit(editorLayout) ? editorLayout : null
+  return {
+    editorPrimaryGroupIds: primaryGroup?.editorIds || [],
+    editorSecondaryGroupIds: secondaryGroup?.editorIds || [],
+    editorPrimaryId: primaryGroup?.activeEditorId || null,
+    editorSecondaryId: secondaryGroup?.activeEditorId || null,
+    editorSplitDirection: secondaryGroup ? rootSplit?.direction || 'horizontal' : null,
+    editorSplitRatio: secondaryGroup ? rootSplit?.ratio || 0.5 : 0.5,
+    activeEditorSlot: secondaryGroup && activeEditorGroupId === secondaryGroup.id ? 'secondary' as const : 'primary' as const,
+  }
+}
+function withLegacyEditorState<T extends Pick<EditorWorkspaceState, 'editorGroups' | 'editorLayout' | 'activeEditorGroupId'>>(state: T) {
+  return { ...state, ...createLegacyEditorState(state.editorGroups, state.editorLayout, state.activeEditorGroupId) }
+}
+function createEmptyEditorWorkspace() {
+  const group = createEditorGroup()
+  return withLegacyEditorState({ editorGroups: [group], editorLayout: createEditorLayoutLeaf(group.id), activeEditorGroupId: group.id, activeEditorId: null as string | null })
+}
+function createEditorWorkspaceFromEditors(openEditors: FileEditorDocument[], activeEditorId: string | null) {
+  const group = createEditorGroup(openEditors.map((item) => item.id), activeEditorId)
+  return withLegacyEditorState(finalizeEditorWorkspace({ openEditors, activeEditorId, editorGroups: [group], editorLayout: createEditorLayoutLeaf(group.id), activeEditorGroupId: group.id }))
+}
+function moveEditorBetweenGroups(state: EditorWorkspaceState, id: string, targetGroupId: string, targetId?: string | null) {
+  const sourceGroupId = findEditorGroupIdByEditor(state.editorGroups, id)
+  const resolvedTargetGroupId = getExistingEditorGroupId(state.editorGroups, targetGroupId) || sourceGroupId || state.activeEditorGroupId || state.editorGroups[0]?.id || null
+  if (!sourceGroupId || !resolvedTargetGroupId) return null
+  let editorGroups = state.editorGroups.map(normalizeEditorGroup)
+  if (sourceGroupId === resolvedTargetGroupId) {
+    editorGroups = editorGroups.map((group) => group.id === resolvedTargetGroupId ? { ...group, editorIds: insertEditorId(group.editorIds, id, targetId), activeEditorId: id } : group)
+    return finalizeEditorWorkspace({ ...state, editorGroups, activeEditorId: id, activeEditorGroupId: resolvedTargetGroupId })
+  }
+  editorGroups = editorGroups.map((group) => {
+    if (group.id === sourceGroupId) return { ...group, editorIds: group.editorIds.filter((item) => item !== id), activeEditorId: group.activeEditorId === id ? null : group.activeEditorId }
+    if (group.id === resolvedTargetGroupId) return { ...group, editorIds: insertEditorId(group.editorIds, id, targetId), activeEditorId: id }
+    return group
+  })
+  return finalizeEditorWorkspace({ ...state, editorGroups, activeEditorId: id, activeEditorGroupId: resolvedTargetGroupId })
+}
 interface ConsoleState {
   activeHostId: string | null
   activeSessionId: string | null
@@ -49,6 +227,9 @@ interface ConsoleState {
   terminalPanelHeight: number
   openEditors: FileEditorDocument[]
   activeEditorId: string | null
+  editorGroups: EditorGroupState[]
+  editorLayout: EditorLayoutNode | null
+  activeEditorGroupId: string | null
   editorPrimaryGroupIds: string[]
   editorSecondaryGroupIds: string[]
   editorPrimaryId: string | null
@@ -84,9 +265,9 @@ interface ConsoleState {
   hydrateEditorsFromStorage: () => void
   openEditor: (file: FileDocumentHandle & { language: string }) => void
   openCompareEditor: (leftId: string, rightId: string) => string | null
-  placeEditorInSplit: (id: string, placement: 'center' | 'left' | 'right' | 'top' | 'bottom') => void
-  moveEditorToGroup: (id: string, targetGroup: 'primary' | 'secondary', targetId?: string | null) => void
-  setEditorSplitRatio: (ratio: number) => void
+  placeEditorInSplit: (id: string, placement: 'center' | 'left' | 'right' | 'top' | 'bottom', targetGroupId?: string | null) => void
+  moveEditorToGroup: (id: string, targetGroupId: string, targetId?: string | null) => void
+  setEditorSplitRatio: (splitId: string, ratio: number) => void
   closeEditor: (id: string) => void
   setActiveEditor: (id: string | null) => void
   setEditorLoaded: (id: string, patch: Partial<FileEditorDocument>) => void
@@ -142,14 +323,7 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
   filePanelWidth: 240,
   terminalPanelHeight: 300,
   openEditors: [],
-  activeEditorId: null,
-  editorPrimaryGroupIds: [],
-  editorSecondaryGroupIds: [],
-  editorPrimaryId: null,
-  editorSecondaryId: null,
-  editorSplitDirection: null,
-  editorSplitRatio: 0.5,
-  activeEditorSlot: 'primary',
+  ...createEmptyEditorWorkspace(),
   editorsHydrated: false,
   uploadRequest: null,
   uploadJobs: [],
@@ -202,28 +376,31 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
       const id = readPersistedActiveEditorId()
       return id && nextEditors.some((item) => item.id === id) ? id : nextEditors[nextEditors.length - 1]?.id || null
     })()
-    return { openEditors: nextEditors, activeEditorId: nextActiveEditorId, editorPrimaryGroupIds: nextEditors.map((item) => item.id), editorSecondaryGroupIds: [], editorPrimaryId: nextActiveEditorId, editorSecondaryId: null, editorSplitDirection: null, editorSplitRatio: 0.5, activeEditorSlot: 'primary' as const, editorsHydrated: true }
+    return { openEditors: nextEditors, ...createEditorWorkspaceFromEditors(nextEditors, nextActiveEditorId), editorsHydrated: true }
   }),
   openEditor: (file) => set((state) => {
     const existing = state.openEditors.find((item) => item.id === file.id)
     if (existing) {
-      writePersistedEditors(state.openEditors, existing.id)
-      if (state.editorSecondaryGroupIds.includes(existing.id)) return { activeEditorId: existing.id, editorSecondaryId: existing.id, activeEditorSlot: 'secondary' as const }
-      const nextPrimaryGroupIds = state.editorPrimaryGroupIds.includes(existing.id) ? state.editorPrimaryGroupIds : [...state.editorPrimaryGroupIds, existing.id]
-      return { activeEditorId: existing.id, editorPrimaryGroupIds: nextPrimaryGroupIds, editorPrimaryId: existing.id, activeEditorSlot: 'primary' as const }
+      let editorGroups = state.editorGroups.map(normalizeEditorGroup)
+      const existingGroupId = findEditorGroupIdByEditor(editorGroups, existing.id)
+      if (existingGroupId) {
+        const nextState = withLegacyEditorState(finalizeEditorWorkspace({ ...state, editorGroups: editorGroups.map((group) => group.id === existingGroupId ? { ...group, activeEditorId: existing.id } : group), activeEditorId: existing.id, activeEditorGroupId: existingGroupId }))
+        writePersistedEditors(state.openEditors, nextState.activeEditorId)
+        return nextState
+      }
+      const targetGroupId = getExistingEditorGroupId(editorGroups, state.activeEditorGroupId) || editorGroups[0]?.id || null
+      if (!targetGroupId) return state
+      const nextState = withLegacyEditorState(finalizeEditorWorkspace({ ...state, editorGroups: editorGroups.map((group) => group.id === targetGroupId ? { ...group, editorIds: [...group.editorIds, existing.id], activeEditorId: existing.id } : group), activeEditorId: existing.id, activeEditorGroupId: targetGroupId }))
+      writePersistedEditors(state.openEditors, nextState.activeEditorId)
+      return nextState
     }
-    const targetSlot:'primary'|'secondary' = state.editorSplitDirection && state.activeEditorSlot === 'secondary' ? 'secondary' : 'primary'
-    const nextState = {
-      openEditors: [...state.openEditors, { ...file, content: '', savedContent: '', modifiedAt: '', size: 0, dirty: false, loading: true, saving: false, binary: false, truncated: false }],
-      activeEditorId: file.id,
-      editorPrimaryGroupIds: targetSlot === 'primary' ? [...state.editorPrimaryGroupIds, file.id] : state.editorPrimaryGroupIds,
-      editorSecondaryGroupIds: targetSlot === 'secondary' ? [...state.editorSecondaryGroupIds, file.id] : state.editorSecondaryGroupIds,
-      editorPrimaryId: targetSlot === 'primary' ? file.id : state.editorPrimaryId || state.editorPrimaryGroupIds.at(-1) || file.id,
-      editorSecondaryId: targetSlot === 'secondary' ? file.id : state.editorSecondaryId,
-      activeEditorSlot: targetSlot,
-    }
-    writePersistedEditors(nextState.openEditors, nextState.activeEditorId)
-    return nextState
+    const targetGroupId = getExistingEditorGroupId(state.editorGroups, state.activeEditorGroupId) || state.editorGroups[0]?.id || null
+    const nextOpenEditors = [...state.openEditors, { ...file, content: '', savedContent: '', modifiedAt: '', size: 0, dirty: false, loading: true, saving: false, binary: false, truncated: false }]
+    let editorGroups = state.editorGroups.map(normalizeEditorGroup)
+    if (targetGroupId) editorGroups = editorGroups.map((group) => group.id === targetGroupId ? { ...group, editorIds: [...group.editorIds, file.id], activeEditorId: file.id } : group)
+    const nextState = withLegacyEditorState(finalizeEditorWorkspace({ ...state, openEditors: nextOpenEditors, editorGroups, activeEditorId: file.id, activeEditorGroupId: targetGroupId }))
+    writePersistedEditors(nextOpenEditors, nextState.activeEditorId)
+    return { openEditors: nextOpenEditors, ...nextState }
   }),
   openCompareEditor: (leftId, rightId) => {
     const left = useConsoleStore.getState().openEditors.find((item) => item.id === leftId)
@@ -233,98 +410,79 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
     set((state) => {
       const existing = state.openEditors.find((item) => item.id === compareId)
       if (existing) {
-        writePersistedEditors(state.openEditors, existing.id)
-        if (state.editorSecondaryGroupIds.includes(existing.id)) return { activeEditorId: existing.id, editorSecondaryId: existing.id, activeEditorSlot: 'secondary' as const }
-        return { activeEditorId: existing.id, editorPrimaryId: existing.id, activeEditorSlot: 'primary' as const }
+        let editorGroups = state.editorGroups.map(normalizeEditorGroup)
+        const existingGroupId = findEditorGroupIdByEditor(editorGroups, existing.id)
+        if (existingGroupId) {
+          const nextState = withLegacyEditorState(finalizeEditorWorkspace({ ...state, editorGroups: editorGroups.map((group) => group.id === existingGroupId ? { ...group, activeEditorId: existing.id } : group), activeEditorId: existing.id, activeEditorGroupId: existingGroupId }))
+          writePersistedEditors(state.openEditors, nextState.activeEditorId)
+          return nextState
+        }
       }
-      const targetSlot:'primary'|'secondary' = state.editorSplitDirection && state.activeEditorSlot === 'secondary' ? 'secondary' : 'primary'
-      const nextState = {
-        openEditors: [...state.openEditors, { id: compareId, hostId: left.hostId, rootId: left.rootId, rootLabel: left.rootLabel, rootPath: left.rootPath, path: left.path, name: `${left.name} <> ${right.name}`, absolutePath: '', language: left.language === right.language ? left.language : 'plaintext', content: '', savedContent: '', modifiedAt: '', size: 0, dirty: false, loading: false, saving: false, binary: false, truncated: false, kind: 'compare' as const, compareLeftId: leftId, compareRightId: rightId }],
-        activeEditorId: compareId,
-        editorPrimaryGroupIds: targetSlot === 'primary' ? [...state.editorPrimaryGroupIds, compareId] : state.editorPrimaryGroupIds,
-        editorSecondaryGroupIds: targetSlot === 'secondary' ? [...state.editorSecondaryGroupIds, compareId] : state.editorSecondaryGroupIds,
-        editorPrimaryId: targetSlot === 'primary' ? compareId : state.editorPrimaryId || state.editorPrimaryGroupIds.at(-1) || compareId,
-        editorSecondaryId: targetSlot === 'secondary' ? compareId : state.editorSecondaryId,
-        activeEditorSlot: targetSlot,
-      }
-      writePersistedEditors(nextState.openEditors, nextState.activeEditorId)
-      return nextState
+      const targetGroupId = getExistingEditorGroupId(state.editorGroups, state.activeEditorGroupId) || state.editorGroups[0]?.id || null
+      const nextOpenEditors = [...state.openEditors, { id: compareId, hostId: left.hostId, rootId: left.rootId, rootLabel: left.rootLabel, rootPath: left.rootPath, path: left.path, name: `${left.name} <> ${right.name}`, absolutePath: '', language: left.language === right.language ? left.language : 'plaintext', content: '', savedContent: '', modifiedAt: '', size: 0, dirty: false, loading: false, saving: false, binary: false, truncated: false, kind: 'compare' as const, compareLeftId: leftId, compareRightId: rightId }]
+      let editorGroups = state.editorGroups.map(normalizeEditorGroup)
+      if (targetGroupId) editorGroups = editorGroups.map((group) => group.id === targetGroupId ? { ...group, editorIds: [...group.editorIds, compareId], activeEditorId: compareId } : group)
+      const nextState = withLegacyEditorState(finalizeEditorWorkspace({ ...state, openEditors: nextOpenEditors, editorGroups, activeEditorId: compareId, activeEditorGroupId: targetGroupId }))
+      writePersistedEditors(nextOpenEditors, nextState.activeEditorId)
+      return { openEditors: nextOpenEditors, ...nextState }
     })
     return compareId
   },
-  placeEditorInSplit: (id, placement) => set((state) => {
+  placeEditorInSplit: (id, placement, targetGroupId) => set((state) => {
     if (!state.openEditors.some((item) => item.id === id)) return state
-    const nextPrimaryGroupIds = state.editorPrimaryGroupIds.filter((item) => item !== id)
-    const nextSecondaryGroupIds = state.editorSecondaryGroupIds.filter((item) => item !== id)
+    const resolvedTargetGroupId = getExistingEditorGroupId(state.editorGroups, targetGroupId) || getExistingEditorGroupId(state.editorGroups, state.activeEditorGroupId) || findEditorGroupIdByEditor(state.editorGroups, id) || state.editorGroups[0]?.id || null
+    if (!resolvedTargetGroupId) return state
     if (placement === 'center') {
-      writePersistedEditors(state.openEditors, id)
-      if (state.editorSplitDirection && state.activeEditorSlot === 'secondary') return { activeEditorId: id, editorPrimaryGroupIds: nextPrimaryGroupIds, editorSecondaryGroupIds: [...nextSecondaryGroupIds, id], editorPrimaryId: state.editorPrimaryId, editorSecondaryId: id, activeEditorSlot: 'secondary' as const }
-      return { activeEditorId: id, editorPrimaryGroupIds: [...nextPrimaryGroupIds, id], editorSecondaryGroupIds: nextSecondaryGroupIds, editorPrimaryId: id, editorSecondaryId: state.editorSecondaryId, activeEditorSlot: 'primary' as const }
+      const nextState = moveEditorBetweenGroups(state, id, resolvedTargetGroupId)
+      if (!nextState) return state
+      const nextLegacyState = withLegacyEditorState(nextState)
+      writePersistedEditors(state.openEditors, nextLegacyState.activeEditorId)
+      return nextLegacyState
     }
-    const nextDirection = placement === 'left' || placement === 'right' ? 'horizontal' : 'vertical'
-    const basePrimaryGroupIds = nextPrimaryGroupIds.length ? nextPrimaryGroupIds : nextSecondaryGroupIds
-    if (!state.editorSplitDirection) {
-      if (placement === 'left' || placement === 'top') {
-        writePersistedEditors(state.openEditors, id)
-        return { activeEditorId: id, editorPrimaryGroupIds: [id], editorSecondaryGroupIds: basePrimaryGroupIds, editorPrimaryId: id, editorSecondaryId: basePrimaryGroupIds.at(-1) || null, editorSplitDirection: nextDirection, editorSplitRatio: 0.5, activeEditorSlot: 'primary' as const }
-      }
-      writePersistedEditors(state.openEditors, id)
-      return { activeEditorId: id, editorPrimaryGroupIds: basePrimaryGroupIds, editorSecondaryGroupIds: [id], editorPrimaryId: basePrimaryGroupIds.at(-1) || null, editorSecondaryId: id, editorSplitDirection: nextDirection, editorSplitRatio: 0.5, activeEditorSlot: 'secondary' as const }
-    }
-    if (placement === 'left' || placement === 'top') {
-      writePersistedEditors(state.openEditors, id)
-      return { activeEditorId: id, editorPrimaryGroupIds: [...nextPrimaryGroupIds, id], editorSecondaryGroupIds: nextSecondaryGroupIds, editorPrimaryId: id, editorSecondaryId: nextSecondaryGroupIds.at(-1) || null, editorSplitDirection: nextDirection, editorSplitRatio: state.editorSplitRatio, activeEditorSlot: 'primary' as const }
-    }
-    writePersistedEditors(state.openEditors, id)
-    return { activeEditorId: id, editorPrimaryGroupIds: nextPrimaryGroupIds, editorSecondaryGroupIds: [...nextSecondaryGroupIds, id], editorPrimaryId: nextPrimaryGroupIds.at(-1) || null, editorSecondaryId: id, editorSplitDirection: nextDirection, editorSplitRatio: state.editorSplitRatio, activeEditorSlot: 'secondary' as const }
+    const sourceGroupId = findEditorGroupIdByEditor(state.editorGroups, id)
+    if (!sourceGroupId) return state
+    const direction = placement === 'left' || placement === 'right' ? 'horizontal' : 'vertical'
+    const side = placement === 'left' || placement === 'top' ? 'before' as const : 'after' as const
+    const newGroup = createEditorGroup([id], id)
+    let editorGroups = [...state.editorGroups.map(normalizeEditorGroup).map((group) => group.id === sourceGroupId ? { ...group, editorIds: group.editorIds.filter((item) => item !== id), activeEditorId: group.activeEditorId === id ? null : group.activeEditorId } : group), newGroup]
+    let editorLayout = state.editorLayout || createEditorLayoutLeaf(resolvedTargetGroupId)
+    const split = splitEditorLayout(editorLayout, resolvedTargetGroupId, direction, newGroup.id, side)
+    editorLayout = split.inserted ? split.node : side === 'before' ? createEditorLayoutSplit(direction, createEditorLayoutLeaf(newGroup.id), editorLayout) : createEditorLayoutSplit(direction, editorLayout, createEditorLayoutLeaf(newGroup.id))
+    const nextState = withLegacyEditorState(finalizeEditorWorkspace({ ...state, editorGroups, editorLayout, activeEditorId: id, activeEditorGroupId: newGroup.id }))
+    writePersistedEditors(state.openEditors, nextState.activeEditorId)
+    return nextState
   }),
-  moveEditorToGroup: (id, targetGroup, targetId) => set((state) => {
+  moveEditorToGroup: (id, targetGroupId, targetId) => set((state) => {
     if (!state.openEditors.some((item) => item.id === id)) return state
-    let nextPrimaryGroupIds = targetGroup === 'primary' ? insertEditorId(state.editorPrimaryGroupIds, id, targetId) : state.editorPrimaryGroupIds.filter((item) => item !== id)
-    let nextSecondaryGroupIds = targetGroup === 'secondary' ? insertEditorId(state.editorSecondaryGroupIds, id, targetId) : state.editorSecondaryGroupIds.filter((item) => item !== id)
-    let nextSplitDirection = state.editorSplitDirection
-    let nextActiveEditorSlot:'primary'|'secondary' = targetGroup
-    if (!nextPrimaryGroupIds.length && nextSecondaryGroupIds.length) {
-      nextPrimaryGroupIds = nextSecondaryGroupIds
-      nextSecondaryGroupIds = []
-      nextSplitDirection = null
-      nextActiveEditorSlot = 'primary'
-    }
-    if (!nextSecondaryGroupIds.length) nextSplitDirection = null
-    else if (!nextSplitDirection) nextSplitDirection = 'horizontal'
-    writePersistedEditors(state.openEditors, id)
-    return { activeEditorId: id, editorPrimaryGroupIds: nextPrimaryGroupIds, editorSecondaryGroupIds: nextSecondaryGroupIds, editorPrimaryId: nextActiveEditorSlot === 'primary' ? id : nextPrimaryGroupIds.at(-1) || null, editorSecondaryId: nextActiveEditorSlot === 'secondary' ? id : nextSecondaryGroupIds.at(-1) || null, editorSplitDirection: nextSplitDirection, editorSplitRatio: state.editorSplitRatio, activeEditorSlot: nextActiveEditorSlot }
+    const nextState = moveEditorBetweenGroups(state, id, targetGroupId, targetId)
+    if (!nextState) return state
+    const nextLegacyState = withLegacyEditorState(nextState)
+    writePersistedEditors(state.openEditors, nextLegacyState.activeEditorId)
+    return nextLegacyState
   }),
-  setEditorSplitRatio: (ratio) => set({ editorSplitRatio: Math.max(0.2, Math.min(0.8, ratio)) }),
+  setEditorSplitRatio: (splitId, ratio) => set((state) => {
+    if (!state.editorLayout) return state
+    const nextLayout = updateEditorLayoutSplitRatio(state.editorLayout, splitId, ratio)
+    if (!nextLayout.updated) return state
+    return withLegacyEditorState({ editorGroups: state.editorGroups, editorLayout: nextLayout.node, activeEditorGroupId: state.activeEditorGroupId })
+  }),
   closeEditor: (id) => set((state) => {
     const nextEditors = state.openEditors.filter((item) => item.id !== id)
-    let nextPrimaryGroupIds = state.editorPrimaryGroupIds.filter((item) => item !== id)
-    let nextSecondaryGroupIds = state.editorSecondaryGroupIds.filter((item) => item !== id)
-    let nextSplitDirection = state.editorSplitDirection
-    let nextActiveEditorSlot:'primary'|'secondary' = state.activeEditorSlot
-    if (!nextPrimaryGroupIds.length && nextSecondaryGroupIds.length) {
-      nextPrimaryGroupIds = nextSecondaryGroupIds
-      nextSecondaryGroupIds = []
-      nextSplitDirection = null
-      nextActiveEditorSlot = 'primary'
-    }
-    if (!nextSecondaryGroupIds.length) {
-      nextSplitDirection = null
-      nextActiveEditorSlot = 'primary'
-    }
-    const nextPrimaryId = state.editorPrimaryId && nextPrimaryGroupIds.includes(state.editorPrimaryId) ? state.editorPrimaryId : nextPrimaryGroupIds.at(-1) || null
-    const nextSecondaryId = state.editorSecondaryId && nextSecondaryGroupIds.includes(state.editorSecondaryId) ? state.editorSecondaryId : nextSecondaryGroupIds.at(-1) || null
-    let nextActiveEditorId = state.activeEditorId === id ? null : state.activeEditorId
-    if (!nextActiveEditorId || !nextEditors.some((item) => item.id === nextActiveEditorId)) nextActiveEditorId = nextActiveEditorSlot === 'secondary' && nextSecondaryId ? nextSecondaryId : nextPrimaryId
-    writePersistedEditors(nextEditors, nextActiveEditorId)
-    return { openEditors: nextEditors, activeEditorId: nextActiveEditorId, editorPrimaryGroupIds: nextPrimaryGroupIds, editorSecondaryGroupIds: nextSecondaryGroupIds, editorPrimaryId: nextPrimaryId, editorSecondaryId: nextSecondaryId, editorSplitDirection: nextSplitDirection, editorSplitRatio: nextSplitDirection ? state.editorSplitRatio : 0.5, activeEditorSlot: nextActiveEditorSlot }
+    const nextState = withLegacyEditorState(finalizeEditorWorkspace({
+      ...state,
+      openEditors: nextEditors,
+      editorGroups: state.editorGroups.map((group) => group.id === findEditorGroupIdByEditor(state.editorGroups, id) ? { ...group, editorIds: group.editorIds.filter((item) => item !== id), activeEditorId: group.activeEditorId === id ? null : group.activeEditorId } : group),
+      activeEditorId: state.activeEditorId === id ? null : state.activeEditorId,
+    }))
+    writePersistedEditors(nextEditors, nextState.activeEditorId)
+    return { openEditors: nextEditors, ...nextState }
   }),
   setActiveEditor: (id) => set((state) => {
     writePersistedEditors(state.openEditors, id)
-    if (!id) return { activeEditorId: id }
-    if (state.editorSecondaryGroupIds.includes(id)) return { activeEditorId: id, editorSecondaryId: id, activeEditorSlot: 'secondary' as const }
-    const nextPrimaryGroupIds = state.editorPrimaryGroupIds.includes(id) ? state.editorPrimaryGroupIds : [...state.editorPrimaryGroupIds, id]
-    return { activeEditorId: id, editorPrimaryGroupIds: nextPrimaryGroupIds, editorPrimaryId: id, activeEditorSlot: 'primary' as const }
+    if (!id) return { activeEditorId: null }
+    const groupId = findEditorGroupIdByEditor(state.editorGroups, id)
+    if (!groupId) return state
+    return withLegacyEditorState(finalizeEditorWorkspace({ ...state, editorGroups: state.editorGroups.map((group) => group.id === groupId ? { ...group, activeEditorId: id } : group), activeEditorId: id, activeEditorGroupId: groupId }))
   }),
   setEditorLoaded: (id, patch) => set((state) => ({ openEditors: state.openEditors.map((item) => item.id === id ? { ...item, ...patch } : item) })),
   setEditorContent: (id, content) => set((state) => ({ openEditors: state.openEditors.map((item) => item.id === id ? { ...item, content, dirty: content !== item.savedContent } : item) })),

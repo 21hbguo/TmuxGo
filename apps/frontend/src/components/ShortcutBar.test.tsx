@@ -8,12 +8,13 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 const send = vi.fn()
 const snapshotGet = vi.fn()
 const zoomByPane = vi.fn()
+let windowsDataMock:any[]=[{ id:'win-1',sessionId:'session-dev',active:true }]
 
 vi.mock('@/hooks/useWebSocket', () => ({
   useWebSocket: () => ({ send, isConnected: true, isSocketReady: true }),
 }))
 vi.mock('@/hooks/useApi', () => ({
-  useWindows: () => ({ data: [] }),
+  useWindows: () => ({ data: windowsDataMock }),
 }))
 vi.mock('@/lib/api', () => ({
   api: {
@@ -28,6 +29,7 @@ describe('ShortcutBar', () => {
     send.mockClear()
     snapshotGet.mockReset()
     zoomByPane.mockReset()
+    windowsDataMock=[{ id:'win-1',sessionId:'session-dev',active:true }]
     useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-dev', activePaneId: 'old-pane' })
   })
   afterEach(() => {
@@ -69,5 +71,12 @@ describe('ShortcutBar', () => {
     })
     expect(zoomByPane).toHaveBeenCalledWith('%2')
     expect(useConsoleStore.getState().activePaneId).toBe('%2')
+  })
+  it('keeps split and zoom available while active pane is being resynced after session switch', () => {
+    useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-dev', activePaneId: null })
+    render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))
+    expect(screen.getByRole('button', { name: '横向分割' })).not.toBeDisabled()
+    expect(screen.getByRole('button', { name: '聚焦' })).not.toBeDisabled()
+    expect(screen.getByRole('button', { name: '删面板' })).not.toBeDisabled()
   })
 })

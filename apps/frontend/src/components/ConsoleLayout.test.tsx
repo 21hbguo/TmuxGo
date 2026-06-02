@@ -4,6 +4,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConsoleLayout } from './ConsoleLayout'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 
+let snapshotDataMock:any={ windows: [], panes: [], activePaneId: null }
+let sessionsDataMock:any[]=[]
+
 vi.mock('./TopBar', () => ({ TopBar: () => React.createElement('div') }))
 vi.mock('./PaneGrid', () => ({ PaneGrid: () => React.createElement('div') }))
 vi.mock('./StatusBar', () => ({ StatusBar: () => React.createElement('div') }))
@@ -23,10 +26,10 @@ vi.mock('@/hooks/usePreferences', () => ({ usePreferences: () => ({ preferences:
 vi.mock('@/hooks/useApi', () => ({
   useHosts: () => ({ data: [{ id: 'local', name: 'Local', address: '127.0.0.1', status: 'online', tags: [] }] }),
   useSessions: () => ({ data: [], isFetched: true }),
-  useSessionSnapshot: () => ({ data: { windows: [], panes: [], activePaneId: null } }),
+  useSessionSnapshot: () => ({ data: snapshotDataMock }),
 }))
 vi.mock('@/hooks/useOrderedSessions', () => ({
-  useOrderedSessions: () => ({ data: [], isFetched: true }),
+  useOrderedSessions: () => ({ data: sessionsDataMock, isFetched: true }),
 }))
 vi.mock('./FilePanel', () => ({
   FilePanel: () => React.createElement('div', null,
@@ -37,6 +40,8 @@ vi.mock('./FilePanel', () => ({
 
 describe('ConsoleLayout mobile files overlay stack', () => {
   beforeEach(() => {
+    snapshotDataMock={ windows: [], panes: [], activePaneId: null }
+    sessionsDataMock=[]
     useConsoleStore.setState({
       activeHostId: null,
       activeSessionId: null,
@@ -60,6 +65,18 @@ describe('ConsoleLayout mobile files overlay stack', () => {
       writable: true,
       value: { height: 800, width: 390, addEventListener: vi.fn(), removeEventListener: vi.fn() },
     })
+  })
+  it('restores active pane from snapshot after switching session', async () => {
+    sessionsDataMock=[{ id:'session-a',name:'A' },{ id:'session-b',name:'B' }]
+    snapshotDataMock={ windows: [], panes: [{ id: 'pane-a', active: true }], activePaneId: 'pane-a' }
+    useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-a', activePaneId: 'pane-a' } as any)
+    const view=render(React.createElement(ConsoleLayout, { initialIsMobile: false }))
+    await waitFor(() => expect(useConsoleStore.getState().activePaneId).toBe('pane-a'))
+    snapshotDataMock={ windows: [], panes: [{ id: 'pane-b', active: true }], activePaneId: 'pane-b' }
+    useConsoleStore.getState().setActiveSession('session-b')
+    expect(useConsoleStore.getState().activePaneId).toBeNull()
+    view.rerender(React.createElement(ConsoleLayout, { initialIsMobile: false }))
+    await waitFor(() => expect(useConsoleStore.getState().activePaneId).toBe('pane-b'))
   })
   it('allows repeated mobile file levels and pops them one by one', async () => {
     const backSpy = vi.spyOn(window.history, 'back')

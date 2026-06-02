@@ -1,8 +1,9 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EditorWorkbench } from './EditorWorkbench'
 import { useConsoleStore } from '@/stores/useConsoleStore'
+import type { EditorGroupState, EditorLayoutNode, EditorLayoutSplit } from '@/stores/useConsoleStore'
 
 const setScrollTop = vi.fn()
 const getScrollTop = vi.fn(() => 0)
@@ -34,41 +35,124 @@ vi.mock('@/hooks/useApi', () => ({
   useGitDetect: () => ({ data: { isGitRepo: false } }),
 }))
 
+function createEditor(id: string, path: string, content: string, overrides: Record<string, any> = {}) {
+  const name = path.split('/').pop() || path
+  return {
+    id,
+    hostId: 'local',
+    rootId: 'root-workspace',
+    rootLabel: 'Workspace',
+    rootPath: '/workspace',
+    path,
+    name,
+    absolutePath: `/workspace/${path}`,
+    language: 'typescript',
+    content,
+    savedContent: content,
+    modifiedAt: '',
+    size: content.length,
+    dirty: false,
+    loading: false,
+    saving: false,
+    binary: false,
+    truncated: false,
+    kind: 'file',
+    ...overrides,
+  }
+}
+function createCompareEditor(id: string, leftId: string, rightId: string) {
+  return {
+    id,
+    hostId: 'local',
+    rootId: 'root-workspace',
+    rootLabel: 'Workspace',
+    rootPath: '/workspace',
+    path: 'src/index.ts',
+    name: 'index.ts <> other.ts',
+    absolutePath: '',
+    language: 'typescript',
+    content: '',
+    savedContent: '',
+    modifiedAt: '',
+    size: 0,
+    dirty: false,
+    loading: false,
+    saving: false,
+    binary: false,
+    truncated: false,
+    kind: 'compare',
+    compareLeftId: leftId,
+    compareRightId: rightId,
+  }
+}
+function createGroup(id: string, editorIds: string[], activeEditorId: string | null = editorIds.at(-1) || null): EditorGroupState {
+  return { id, editorIds, activeEditorId }
+}
+function createLeaf(id: string, groupId: string): EditorLayoutNode {
+  return { id, type: 'group', groupId }
+}
+function createSplit(id: string, direction: 'horizontal' | 'vertical', first: EditorLayoutNode, second: EditorLayoutNode, ratio = 0.5): EditorLayoutSplit {
+  return { id, type: 'split', direction, ratio, first, second }
+}
+function collectGroupIds(node: EditorLayoutNode | null): string[] {
+  if (!node) return []
+  if (node.type === 'group') return [node.groupId]
+  return [...collectGroupIds(node.first), ...collectGroupIds(node.second)]
+}
+function setWorkbenchState({ openEditors, activeEditorId, editorGroups, editorLayout, activeEditorGroupId }: { openEditors: any[]; activeEditorId: string | null; editorGroups: EditorGroupState[]; editorLayout: EditorLayoutNode | null; activeEditorGroupId: string | null }) {
+  const orderedGroupIds = collectGroupIds(editorLayout)
+  const primaryGroup = editorGroups.find((group) => group.id === orderedGroupIds[0]) || editorGroups[0] || null
+  const secondaryGroup = editorGroups.find((group) => group.id === orderedGroupIds[1]) || null
+  const rootSplit = editorLayout?.type === 'split' ? editorLayout : null
+  useConsoleStore.setState({
+    openEditors,
+    activeEditorId,
+    editorGroups,
+    editorLayout,
+    activeEditorGroupId,
+    editorPrimaryGroupIds: primaryGroup?.editorIds || [],
+    editorSecondaryGroupIds: secondaryGroup?.editorIds || [],
+    editorPrimaryId: primaryGroup?.activeEditorId || null,
+    editorSecondaryId: secondaryGroup?.activeEditorId || null,
+    editorSplitDirection: secondaryGroup ? rootSplit?.direction || 'horizontal' : null,
+    editorSplitRatio: secondaryGroup ? rootSplit?.ratio || 0.5 : 0.5,
+    activeEditorSlot: secondaryGroup && activeEditorGroupId === secondaryGroup.id ? 'secondary' : 'primary',
+  } as any)
+}
+function createDataTransfer(payload: Record<string, string>) {
+  return {
+    effectAllowed: 'all',
+    dropEffect: 'copy',
+    types: Object.keys(payload),
+    setData: vi.fn(),
+    getData: (type: string) => payload[type] || '',
+  }
+}
+async function dispatchDragEvent(target: Element, type: 'dragover' | 'drop', dataTransfer: any, coords?: { clientX: number; clientY: number }) {
+  const event = new Event(type, { bubbles: true, cancelable: true })
+  Object.defineProperty(event, 'dataTransfer', { value: dataTransfer })
+  Object.defineProperty(event, 'clientX', { value: coords?.clientX ?? 0 })
+  Object.defineProperty(event, 'clientY', { value: coords?.clientY ?? 0 })
+  await act(async () => {
+    target.dispatchEvent(event)
+  })
+}
+
 describe('EditorWorkbench', () => {
+  const editor1 = createEditor('editor-1', 'src/index.ts', 'const value=1', { modifiedAt: '2026-05-29T00:00:00.000Z', size: 13 })
+  const editor2 = createEditor('editor-2', 'src/other.ts', 'const value=2')
+  const editor3 = createEditor('editor-3', 'src/third.ts', 'const value=3')
   beforeEach(() => {
     vi.useFakeTimers()
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => window.setTimeout(() => cb(0), 0))
     vi.stubGlobal('cancelAnimationFrame', (id: number) => window.clearTimeout(id))
-    useConsoleStore.setState({
-      openEditors: [{
-        id: 'editor-1',
-        hostId: 'local',
-        rootId: 'root-workspace',
-        rootLabel: 'Workspace',
-        rootPath: '/workspace',
-        path: 'src/index.ts',
-        name: 'index.ts',
-        absolutePath: '/workspace/src/index.ts',
-        language: 'typescript',
-        content: 'const value=1',
-        savedContent: 'const value=1',
-        modifiedAt: '2026-05-29T00:00:00.000Z',
-        size: 13,
-        dirty: false,
-        loading: false,
-        saving: false,
-        binary: false,
-        truncated: false,
-        kind: 'file',
-      }],
-      activeEditorId: 'editor-1',
-      editorPrimaryGroupIds: ['editor-1'],
-      editorSecondaryGroupIds: [],
-      editorPrimaryId: 'editor-1',
-      editorSecondaryId: null,
-      editorSplitDirection: null,
-      activeEditorSlot: 'primary',
-    } as any)
+    setWorkbenchState({
+      openEditors: [editor1],
+      activeEditorId: editor1.id,
+      editorGroups: [createGroup('group-1', [editor1.id], editor1.id)],
+      editorLayout: createLeaf('layout-1', 'group-1'),
+      activeEditorGroupId: 'group-1',
+    })
     setScrollTop.mockClear()
     getScrollTop.mockClear()
     diffPropsRef.current = []
@@ -79,34 +163,21 @@ describe('EditorWorkbench', () => {
     vi.useRealTimers()
     vi.unstubAllGlobals()
   })
-  function renderWorkbench() {
+  function renderWorkbench(overrides: Partial<React.ComponentProps<typeof EditorWorkbench>> = {}) {
     return render(React.createElement(EditorWorkbench, {
       onSaveEditor: vi.fn(async () => {}),
       onOpenFile: vi.fn(async (file) => file.id),
       onOpenFileAtPosition: vi.fn(async (file) => file.id),
       onCreateCompare: vi.fn(async () => {}),
+      ...overrides,
     }))
   }
   function createOpenFileHandler() {
     return vi.fn(async (file) => {
       useConsoleStore.getState().openEditor({ ...file, language: 'typescript' })
+      useConsoleStore.getState().setEditorLoaded(file.id, { content: '', savedContent: '', modifiedAt: '', size: 0, dirty: false, loading: false, saving: false, binary: false, truncated: false })
       return file.id
     })
-  }
-  function createDataTransfer(payload: Record<string, string>) {
-    return {
-      effectAllowed: 'all',
-      dropEffect: 'copy',
-      setData: vi.fn(),
-      getData: (type: string) => payload[type] || '',
-    }
-  }
-  function dispatchDragEvent(target: Element, type: 'dragover' | 'drop', dataTransfer: any, coords?: { clientX: number; clientY: number }) {
-    const event = new Event(type, { bubbles: true, cancelable: true })
-    Object.defineProperty(event, 'dataTransfer', { value: dataTransfer })
-    Object.defineProperty(event, 'clientX', { value: coords?.clientX ?? 0 })
-    Object.defineProperty(event, 'clientY', { value: coords?.clientY ?? 0 })
-    target.dispatchEvent(event)
   }
 
   it('closes the active editor on ctrl+w', () => {
@@ -129,74 +200,41 @@ describe('EditorWorkbench', () => {
     vi.advanceTimersByTime(32)
     await vi.waitFor(() => expect(setScrollTop).toHaveBeenCalled())
   })
-  it('moves a dragged tab into the secondary group', () => {
-    useConsoleStore.setState({
-      openEditors: [
-        ...useConsoleStore.getState().openEditors,
-        {
-          id: 'editor-2',
-          hostId: 'local',
-          rootId: 'root-workspace',
-          rootLabel: 'Workspace',
-          rootPath: '/workspace',
-          path: 'src/other.ts',
-          name: 'other.ts',
-          absolutePath: '/workspace/src/other.ts',
-          language: 'typescript',
-          content: 'const value=2',
-          savedContent: 'const value=2',
-          modifiedAt: '',
-          size: 13,
-          dirty: false,
-          loading: false,
-          saving: false,
-          binary: false,
-          truncated: false,
-          kind: 'file',
-        },
-      ],
-      activeEditorId: 'editor-2',
-      editorPrimaryGroupIds: ['editor-1'],
-      editorSecondaryGroupIds: ['editor-2'],
-      editorPrimaryId: 'editor-1',
-      editorSecondaryId: 'editor-2',
-      editorSplitDirection: 'horizontal',
-      activeEditorSlot: 'secondary',
-    } as any)
-    render(React.createElement(EditorWorkbench, {
-      onSaveEditor: vi.fn(async () => {}),
-      onOpenFile: vi.fn(async (file) => file.id),
-      onCreateCompare: vi.fn(async () => {}),
-    }))
+  it('moves a dragged tab into the primary group and collapses the source split', async () => {
+    setWorkbenchState({
+      openEditors: [editor1, editor2],
+      activeEditorId: editor2.id,
+      editorGroups: [createGroup('group-1', [editor1.id], editor1.id), createGroup('group-2', [editor2.id], editor2.id)],
+      editorLayout: createSplit('layout-1', 'horizontal', createLeaf('layout-2', 'group-1'), createLeaf('layout-3', 'group-2')),
+      activeEditorGroupId: 'group-2',
+    })
+    renderWorkbench()
     const button = screen.getByRole('button', { name: /index\.ts/i })
     const dataTransfer = createDataTransfer({
       'application/x-tmuxgo-file': JSON.stringify({
-        id: 'editor-2',
-        hostId: 'local',
-        rootId: 'root-workspace',
-        rootLabel: 'Workspace',
-        rootPath: '/workspace',
-        path: 'src/other.ts',
-        name: 'other.ts',
-        absolutePath: '/workspace/src/other.ts',
+        id: editor2.id,
+        hostId: editor2.hostId,
+        rootId: editor2.rootId,
+        rootLabel: editor2.rootLabel,
+        rootPath: editor2.rootPath,
+        path: editor2.path,
+        name: editor2.name,
+        absolutePath: editor2.absolutePath,
       }),
+      'text/plain': editor2.absolutePath,
     })
     ;(button as HTMLButtonElement).getBoundingClientRect = vi.fn(() => ({ left: 0, top: 0, width: 100, height: 42, right: 100, bottom: 42, x: 0, y: 0, toJSON: () => ({}) } as DOMRect))
-    dispatchDragEvent(button, 'drop', dataTransfer, { clientX: 0, clientY: 0 })
-    expect(useConsoleStore.getState().editorPrimaryGroupIds).toEqual(['editor-2', 'editor-1'])
+    await dispatchDragEvent(button, 'drop', dataTransfer, { clientX: 0, clientY: 0 })
+    expect(useConsoleStore.getState().editorPrimaryGroupIds).toEqual([editor2.id, editor1.id])
     expect(useConsoleStore.getState().editorSecondaryGroupIds).toEqual([])
   })
   it('opens a dragged file when dropped on an existing tab', async () => {
     const onOpenFile = createOpenFileHandler()
-    render(React.createElement(EditorWorkbench, {
-      onSaveEditor: vi.fn(async () => {}),
-      onOpenFile,
-      onCreateCompare: vi.fn(async () => {}),
-    }))
+    renderWorkbench({ onOpenFile })
     const button = screen.getByRole('button', { name: /index\.ts/i })
     const dataTransfer = createDataTransfer({
       'application/x-tmuxgo-file': JSON.stringify({
-        id: 'editor-3',
+        id: 'editor-4',
         hostId: 'local',
         rootId: 'root-workspace',
         rootLabel: 'Workspace',
@@ -205,101 +243,46 @@ describe('EditorWorkbench', () => {
         name: 'drop-tab.ts',
         absolutePath: '/workspace/src/drop-tab.ts',
       }),
+      'text/plain': '/workspace/src/drop-tab.ts',
     })
     ;(button as HTMLButtonElement).getBoundingClientRect = vi.fn(() => ({ left: 0, top: 0, width: 100, height: 42, right: 100, bottom: 42, x: 0, y: 0, toJSON: () => ({}) } as DOMRect))
-    dispatchDragEvent(button, 'drop', dataTransfer, { clientX: 0, clientY: 0 })
-    await vi.waitFor(() => expect(onOpenFile).toHaveBeenCalledWith(expect.objectContaining({ id: 'editor-3', name: 'drop-tab.ts' })))
-    expect(useConsoleStore.getState().editorPrimaryGroupIds).toEqual(['editor-3', 'editor-1'])
+    await dispatchDragEvent(button, 'drop', dataTransfer, { clientX: 0, clientY: 0 })
+    await vi.waitFor(() => expect(onOpenFile).toHaveBeenCalledWith(expect.objectContaining({ id: 'editor-4', name: 'drop-tab.ts' })))
+    expect(useConsoleStore.getState().editorPrimaryGroupIds).toEqual(['editor-4', editor1.id])
   })
-  it('moves a dragged tab after the hovered tab on right-half drop', () => {
-    useConsoleStore.setState({
-      openEditors: [
-        ...useConsoleStore.getState().openEditors,
-        {
-          id: 'editor-2',
-          hostId: 'local',
-          rootId: 'root-workspace',
-          rootLabel: 'Workspace',
-          rootPath: '/workspace',
-          path: 'src/other.ts',
-          name: 'other.ts',
-          absolutePath: '/workspace/src/other.ts',
-          language: 'typescript',
-          content: 'const value=2',
-          savedContent: 'const value=2',
-          modifiedAt: '',
-          size: 13,
-          dirty: false,
-          loading: false,
-          saving: false,
-          binary: false,
-          truncated: false,
-          kind: 'file',
-        },
-        {
-          id: 'editor-3',
-          hostId: 'local',
-          rootId: 'root-workspace',
-          rootLabel: 'Workspace',
-          rootPath: '/workspace',
-          path: 'src/third.ts',
-          name: 'third.ts',
-          absolutePath: '/workspace/src/third.ts',
-          language: 'typescript',
-          content: 'const value=3',
-          savedContent: 'const value=3',
-          modifiedAt: '',
-          size: 13,
-          dirty: false,
-          loading: false,
-          saving: false,
-          binary: false,
-          truncated: false,
-          kind: 'file',
-        },
-      ],
-      activeEditorId: 'editor-3',
-      editorPrimaryGroupIds: ['editor-1', 'editor-2', 'editor-3'],
-      editorSecondaryGroupIds: [],
-      editorPrimaryId: 'editor-3',
-      editorSecondaryId: null,
-      editorSplitDirection: null,
-      activeEditorSlot: 'primary',
-    } as any)
-    render(React.createElement(EditorWorkbench, {
-      onSaveEditor: vi.fn(async () => {}),
-      onOpenFile: vi.fn(async (file) => file.id),
-      onCreateCompare: vi.fn(async () => {}),
-    }))
+  it('moves a dragged tab after the hovered tab on right-half drop', async () => {
+    setWorkbenchState({
+      openEditors: [editor1, editor2, editor3],
+      activeEditorId: editor3.id,
+      editorGroups: [createGroup('group-1', [editor1.id, editor2.id, editor3.id], editor3.id)],
+      editorLayout: createLeaf('layout-1', 'group-1'),
+      activeEditorGroupId: 'group-1',
+    })
+    renderWorkbench()
     const button = screen.getByRole('button', { name: /other\.ts/i })
     ;(button as HTMLButtonElement).getBoundingClientRect = vi.fn(() => ({ left: 0, top: 0, width: 100, height: 42, right: 100, bottom: 42, x: 0, y: 0, toJSON: () => ({}) } as DOMRect))
     const dataTransfer = createDataTransfer({
       'application/x-tmuxgo-file': JSON.stringify({
-        id: 'editor-1',
-        hostId: 'local',
-        rootId: 'root-workspace',
-        rootLabel: 'Workspace',
-        rootPath: '/workspace',
-        path: 'src/index.ts',
-        name: 'index.ts',
-        absolutePath: '/workspace/src/index.ts',
+        id: editor1.id,
+        hostId: editor1.hostId,
+        rootId: editor1.rootId,
+        rootLabel: editor1.rootLabel,
+        rootPath: editor1.rootPath,
+        path: editor1.path,
+        name: editor1.name,
+        absolutePath: editor1.absolutePath,
       }),
+      'text/plain': editor1.absolutePath,
     })
-    fireEvent.drop(button, { dataTransfer, clientX: 80 })
-    expect(useConsoleStore.getState().editorPrimaryGroupIds).toEqual(['editor-2', 'editor-1', 'editor-3'])
+    await dispatchDragEvent(button, 'drop', dataTransfer, { clientX: 80, clientY: 0 })
+    expect(useConsoleStore.getState().editorPrimaryGroupIds).toEqual([editor2.id, editor1.id, editor3.id])
   })
-  it('opens a dropped file in the editor area', () => {
-    const onOpenFile = vi.fn(async (file) => file.id)
-    const onOpenFileAtPosition = vi.fn(async (file) => file.id)
-    const view = render(React.createElement(EditorWorkbench, {
-      onSaveEditor: vi.fn(async () => {}),
-      onOpenFile,
-      onOpenFileAtPosition,
-      onCreateCompare: vi.fn(async () => {}),
-    }))
+  it('opens a dropped file in the editor area center group', async () => {
+    const onOpenFile = createOpenFileHandler()
+    const view = renderWorkbench({ onOpenFile })
     const dataTransfer = createDataTransfer({
       'application/x-tmuxgo-file': JSON.stringify({
-        id: 'editor-3',
+        id: 'editor-4',
         hostId: 'local',
         rootId: 'root-workspace',
         rootLabel: 'Workspace',
@@ -308,51 +291,24 @@ describe('EditorWorkbench', () => {
         name: 'drop.ts',
         absolutePath: '/workspace/src/drop.ts',
       }),
+      'text/plain': '/workspace/src/drop.ts',
     })
-    const dropZone = view.container.querySelector('section > .min-h-0.flex-1.bg-bg-0') as Element
-    dispatchDragEvent(dropZone, 'drop', dataTransfer, { clientX: 500, clientY: 300 })
-    expect(onOpenFileAtPosition).toHaveBeenCalledWith(expect.objectContaining({ id: 'editor-3', name: 'drop.ts' }), 'center')
+    const dropZone = view.container.querySelector('section > .relative.min-h-0.flex-1.bg-bg-0') as Element
+    ;(dropZone as HTMLDivElement).getBoundingClientRect = vi.fn(() => ({ left: 0, top: 0, width: 1000, height: 600, right: 1000, bottom: 600, x: 0, y: 0, toJSON: () => ({}) } as DOMRect))
+    await dispatchDragEvent(dropZone, 'drop', dataTransfer, { clientX: 500, clientY: 300 })
+    await vi.waitFor(() => expect(onOpenFile).toHaveBeenCalledWith(expect.objectContaining({ id: 'editor-4', name: 'drop.ts' })))
+    expect(useConsoleStore.getState().editorPrimaryGroupIds).toEqual([editor1.id, 'editor-4'])
   })
-  it('opens a dragged file when dropped on the tab strip', async () => {
+  it('opens a dragged file when dropped on the secondary tab strip', async () => {
     const onOpenFile = createOpenFileHandler()
-    useConsoleStore.setState({
-      openEditors: [
-        ...useConsoleStore.getState().openEditors,
-        {
-          id: 'editor-2',
-          hostId: 'local',
-          rootId: 'root-workspace',
-          rootLabel: 'Workspace',
-          rootPath: '/workspace',
-          path: 'src/other.ts',
-          name: 'other.ts',
-          absolutePath: '/workspace/src/other.ts',
-          language: 'typescript',
-          content: 'const value=2',
-          savedContent: 'const value=2',
-          modifiedAt: '',
-          size: 13,
-          dirty: false,
-          loading: false,
-          saving: false,
-          binary: false,
-          truncated: false,
-          kind: 'file',
-        },
-      ],
-      activeEditorId: 'editor-2',
-      editorPrimaryGroupIds: ['editor-1'],
-      editorSecondaryGroupIds: ['editor-2'],
-      editorPrimaryId: 'editor-1',
-      editorSecondaryId: 'editor-2',
-      editorSplitDirection: 'horizontal',
-      activeEditorSlot: 'secondary',
-    } as any)
-    render(React.createElement(EditorWorkbench, {
-      onSaveEditor: vi.fn(async () => {}),
-      onOpenFile,
-      onCreateCompare: vi.fn(async () => {}),
-    }))
+    setWorkbenchState({
+      openEditors: [editor1, editor2],
+      activeEditorId: editor2.id,
+      editorGroups: [createGroup('group-1', [editor1.id], editor1.id), createGroup('group-2', [editor2.id], editor2.id)],
+      editorLayout: createSplit('layout-1', 'horizontal', createLeaf('layout-2', 'group-1'), createLeaf('layout-3', 'group-2')),
+      activeEditorGroupId: 'group-2',
+    })
+    renderWorkbench({ onOpenFile })
     const strip = screen.getByTestId('editor-group-secondary') as HTMLDivElement
     strip.getBoundingClientRect = vi.fn(() => ({ left: 0, top: 0, width: 1000, height: 42, right: 1000, bottom: 42, x: 0, y: 0, toJSON: () => ({}) } as DOMRect))
     const dataTransfer = createDataTransfer({
@@ -366,19 +322,15 @@ describe('EditorWorkbench', () => {
         name: 'strip.ts',
         absolutePath: '/workspace/src/strip.ts',
       }),
+      'text/plain': '/workspace/src/strip.ts',
     })
-    dispatchDragEvent(strip, 'drop', dataTransfer, { clientX: 500, clientY: 21 })
+    await dispatchDragEvent(strip, 'drop', dataTransfer, { clientX: 500, clientY: 21 })
     await vi.waitFor(() => expect(onOpenFile).toHaveBeenCalledWith(expect.objectContaining({ id: 'editor-4', name: 'strip.ts' })))
-    expect(useConsoleStore.getState().editorSecondaryGroupIds).toEqual(['editor-2', 'editor-4'])
+    expect(useConsoleStore.getState().editorSecondaryGroupIds).toEqual([editor2.id, 'editor-4'])
   })
-  it('detects left split drop placement', () => {
-    const onOpenFileAtPosition = vi.fn(async (file) => file.id)
-    const view = render(React.createElement(EditorWorkbench, {
-      onSaveEditor: vi.fn(async () => {}),
-      onOpenFile: vi.fn(async (file) => file.id),
-      onOpenFileAtPosition,
-      onCreateCompare: vi.fn(async () => {}),
-    }))
+  it('splits the active group when dropped on the left edge of the editor area', async () => {
+    const onOpenFile = createOpenFileHandler()
+    const view = renderWorkbench({ onOpenFile })
     const dropZone = view.container.querySelector('section > .relative.min-h-0.flex-1.bg-bg-0') as HTMLDivElement
     dropZone.getBoundingClientRect = vi.fn(() => ({ left: 0, top: 0, width: 1000, height: 600, right: 1000, bottom: 600, x: 0, y: 0, toJSON: () => ({}) } as DOMRect))
     const dataTransfer = createDataTransfer({
@@ -392,103 +344,35 @@ describe('EditorWorkbench', () => {
         name: 'left.ts',
         absolutePath: '/workspace/src/left.ts',
       }),
+      'text/plain': '/workspace/src/left.ts',
     })
-    dispatchDragEvent(dropZone, 'drop', dataTransfer, { clientX: 40, clientY: 300 })
-    expect(onOpenFileAtPosition).toHaveBeenCalledWith(expect.objectContaining({ id: 'editor-4', name: 'left.ts' }), 'left')
+    await dispatchDragEvent(dropZone, 'drop', dataTransfer, { clientX: 40, clientY: 300 })
+    await vi.waitFor(() => expect(onOpenFile).toHaveBeenCalledWith(expect.objectContaining({ id: 'editor-4', name: 'left.ts' })))
+    expect(useConsoleStore.getState().editorSplitDirection).toBe('horizontal')
+    expect(useConsoleStore.getState().editorPrimaryGroupIds).toEqual(['editor-4'])
+    expect(useConsoleStore.getState().editorSecondaryGroupIds).toEqual([editor1.id])
   })
   it('renders split panes from store state', () => {
-    useConsoleStore.setState({
-      openEditors: [
-        ...useConsoleStore.getState().openEditors,
-        {
-          id: 'editor-2',
-          hostId: 'local',
-          rootId: 'root-workspace',
-          rootLabel: 'Workspace',
-          rootPath: '/workspace',
-          path: 'src/other.ts',
-          name: 'other.ts',
-          absolutePath: '/workspace/src/other.ts',
-          language: 'typescript',
-          content: 'const value=2',
-          savedContent: 'const value=2',
-          modifiedAt: '',
-          size: 13,
-          dirty: false,
-          loading: false,
-          saving: false,
-          binary: false,
-          truncated: false,
-          kind: 'file',
-        },
-      ],
-      activeEditorId: 'editor-2',
-      editorPrimaryGroupIds: ['editor-1'],
-      editorSecondaryGroupIds: ['editor-2'],
-      editorPrimaryId: 'editor-1',
-      editorSecondaryId: 'editor-2',
-      editorSplitDirection: 'horizontal',
-    } as any)
+    setWorkbenchState({
+      openEditors: [editor1, editor2],
+      activeEditorId: editor2.id,
+      editorGroups: [createGroup('group-1', [editor1.id], editor1.id), createGroup('group-2', [editor2.id], editor2.id)],
+      editorLayout: createSplit('layout-1', 'horizontal', createLeaf('layout-2', 'group-1'), createLeaf('layout-3', 'group-2')),
+      activeEditorGroupId: 'group-2',
+    })
     renderWorkbench()
     expect(screen.getAllByLabelText('editor')).toHaveLength(2)
     expect(screen.getByText('/workspace/src/other.ts')).toBeInTheDocument()
   })
   it('renders compare editor content for compare tabs', async () => {
-    useConsoleStore.setState({
-      openEditors: [
-        ...useConsoleStore.getState().openEditors,
-        {
-          id: 'editor-2',
-          hostId: 'local',
-          rootId: 'root-workspace',
-          rootLabel: 'Workspace',
-          rootPath: '/workspace',
-          path: 'src/other.ts',
-          name: 'other.ts',
-          absolutePath: '/workspace/src/other.ts',
-          language: 'typescript',
-          content: 'const value=2',
-          savedContent: 'const value=2',
-          modifiedAt: '',
-          size: 13,
-          dirty: false,
-          loading: false,
-          saving: false,
-          binary: false,
-          truncated: false,
-          kind: 'file',
-        },
-        {
-          id: 'compare:editor-1::editor-2',
-          hostId: 'local',
-          rootId: 'root-workspace',
-          rootLabel: 'Workspace',
-          rootPath: '/workspace',
-          path: 'src/index.ts',
-          name: 'index.ts <> other.ts',
-          absolutePath: '',
-          language: 'typescript',
-          content: '',
-          savedContent: '',
-          modifiedAt: '',
-          size: 0,
-          dirty: false,
-          loading: false,
-          saving: false,
-          binary: false,
-          truncated: false,
-          kind: 'compare',
-          compareLeftId: 'editor-1',
-          compareRightId: 'editor-2',
-        },
-      ],
-      activeEditorId: 'compare:editor-1::editor-2',
-      editorPrimaryGroupIds: ['editor-1', 'editor-2', 'compare:editor-1::editor-2'],
-      editorSecondaryGroupIds: [],
-      editorPrimaryId: 'compare:editor-1::editor-2',
-      editorSecondaryId: null,
-      editorSplitDirection: null,
-    } as any)
+    const compareEditor = createCompareEditor('compare:editor-1::editor-2', editor1.id, editor2.id)
+    setWorkbenchState({
+      openEditors: [editor1, editor2, compareEditor],
+      activeEditorId: compareEditor.id,
+      editorGroups: [createGroup('group-1', [editor1.id, editor2.id, compareEditor.id], compareEditor.id)],
+      editorLayout: createLeaf('layout-1', 'group-1'),
+      activeEditorGroupId: 'group-1',
+    })
     renderWorkbench()
     await vi.waitFor(() => expect(screen.getByTestId('diff-editor')).toBeInTheDocument())
     expect(diffPropsRef.current.at(-1)).toMatchObject({ original: 'const value=1', modified: 'const value=2', language: 'typescript' })
