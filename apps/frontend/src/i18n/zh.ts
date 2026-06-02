@@ -236,6 +236,14 @@ export const zh = {
   'pane.closed': '面板已关闭',
   'pane.closeFailed': '关闭失败',
   'pane.zoomFailed': '聚焦失败',
+  'githubAuth.title': 'GitHub 登录',
+  'githubAuth.desc': '打开 GitHub 设备登录页并输入这组验证码。',
+  'githubAuth.code': '设备验证码',
+  'githubAuth.open': '打开 GitHub',
+  'githubAuth.copy': '复制验证码',
+  'githubAuth.dismiss': '关闭',
+  'githubAuth.copied': '已复制 GitHub 验证码',
+  'githubAuth.copiedInApp': 'GitHub 验证码已保存到应用剪贴板',
 
   // CommandSnippets
   'snippets.title': '命令片段',

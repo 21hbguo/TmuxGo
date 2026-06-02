@@ -1,6 +1,5 @@
 'use client'
-
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useState } from 'react'
 import '@xterm/xterm/css/xterm.css'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useMobileKeyboard } from '@/hooks/useMobileKeyboard'
@@ -18,6 +17,7 @@ import { useTerminalTouchScroll } from '@/hooks/useTerminalTouchScroll'
 import { recordMobileDiagnostic } from '@/lib/mobile-diagnostics'
 import { useTerminalOutputScheduler } from '@/hooks/useTerminalOutputScheduler'
 import { buildSessionId } from '@/lib/session-id'
+import { writeClipboardText } from '@/lib/clipboard-text'
 
 const SCROLLBACK_LIMIT = 600
 const DELETE_WORD_REPEAT_DELAY = 140
@@ -38,6 +38,22 @@ const MOBILE_PINCH_MIN_FONT_SIZE = 12
 const MOBILE_PINCH_MAX_FONT_SIZE = 20
 const MOBILE_PINCH_FONT_SIZE_EPSILON = 0.04
 const MOBILE_PINCH_DISTANCE_EPSILON = 2
+const GITHUB_DEVICE_LOGIN_URL = 'https://github.com/login/device'
+const ANSI_ESCAPE_REGEX = /\u001b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\u0007]*(?:\u0007|\u001b\\))/g
+function normalizeTerminalText(value: string) {
+  return value.replace(ANSI_ESCAPE_REGEX, '').replace(/\r/g, '\n')
+}
+function extractGithubDeviceLogin(text: string) {
+  const codePattern = /one-time code:\s*([A-Z0-9]{4}-[A-Z0-9]{4})/ig
+  const urlPattern = /https:\/\/github\.com\/login\/device\b/ig
+  let code = ''
+  let url = ''
+  let match: RegExpExecArray | null
+  while ((match = codePattern.exec(text))) code = match[1]?.toUpperCase() || code
+  if (!code) return null
+  while ((match = urlPattern.exec(text))) url = match[0] || url
+  return { code, url: url || GITHUB_DEVICE_LOGIN_URL }
+}
 function recordMobileDebug(event: string, data?: Record<string, unknown>) {
   recordMobileDiagnostic(event, data)
   if (typeof window === 'undefined' || !window.localStorage.getItem('tmuxgo-debug-mobile')) return
@@ -86,6 +102,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   const touchMovedRef = useRef(false)
   const terminalInstance = useRef<any>(null)
   const fitAddonRef = useRef<any>(null)
+  const [githubDeviceLogin, setGithubDeviceLogin] = useState<{ code: string; url: string } | null>(null)
   const onInputRef = useRef(onInput)
   const onResizeRef = useRef(onResize)
   const attachExclusiveRef = useRef(attachExclusive)
@@ -105,6 +122,44 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   const updatePreferencesRef = useRef(updatePreferences)
   const afterTerminalWriteRef = useRef<() => void>(() => {})
   const pinchStateRef = useRef({ active: false, startDistance: 0, startFontSize: preferences.fontSize, lastFontSize: preferences.fontSize })
+  const githubDeviceLoginRef = useRef<{ code: string; url: string } | null>(null)
+  const githubDeviceLoginDismissedRef = useRef('')
+  const githubDeviceLoginBufferRef = useRef('')
+  const setGithubDeviceLoginState = useCallback((next: { code: string; url: string } | null) => {
+    githubDeviceLoginRef.current = next
+    setGithubDeviceLogin(next)
+  }, [])
+  const dismissGithubDeviceLogin = useCallback(() => {
+    if (githubDeviceLoginRef.current?.code) githubDeviceLoginDismissedRef.current = githubDeviceLoginRef.current.code
+    setGithubDeviceLoginState(null)
+  }, [setGithubDeviceLoginState])
+  const openGithubDeviceLogin = useCallback(() => {
+    const url = githubDeviceLoginRef.current?.url || GITHUB_DEVICE_LOGIN_URL
+    const opened = window.open(url, '_blank', 'noopener,noreferrer')
+    if (!opened) window.location.href = url
+  }, [])
+  const copyGithubDeviceLogin = useCallback(async () => {
+    const code = githubDeviceLoginRef.current?.code
+    if (!code) return
+    const result = await writeClipboardText(code)
+    if (!result.copied) {
+      pushToast({ type: 'error', message: t('clipboard.copyFailed') })
+      return
+    }
+    pushToast({ type: result.unavailable ? 'info' : 'success', message: result.unavailable ? t('githubAuth.copiedInApp') : t('githubAuth.copied') })
+  }, [pushToast, t])
+  const updateGithubDeviceLogin = useCallback((raw: string) => {
+    const normalized = normalizeTerminalText(raw)
+    if (!normalized) return
+    githubDeviceLoginBufferRef.current = (githubDeviceLoginBufferRef.current + normalized).slice(-4096)
+    const detected = extractGithubDeviceLogin(githubDeviceLoginBufferRef.current)
+    if (!detected) return
+    if (detected.code === githubDeviceLoginDismissedRef.current && githubDeviceLoginRef.current?.code !== detected.code) return
+    const current = githubDeviceLoginRef.current
+    if (current?.code === detected.code && current.url === detected.url) return
+    githubDeviceLoginDismissedRef.current = ''
+    setGithubDeviceLoginState(detected)
+  }, [setGithubDeviceLoginState])
   const dispatchTerminalTap = useCallback((x: number, y: number) => {
     const container = terminalRef.current
     if (!container) return
@@ -279,6 +334,11 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   useEffect(() => {
     updatePreferencesRef.current = updatePreferences
   }, [updatePreferences])
+  useEffect(() => {
+    githubDeviceLoginBufferRef.current = ''
+    githubDeviceLoginDismissedRef.current = ''
+    setGithubDeviceLoginState(null)
+  }, [activeHostId, sessionName, setGithubDeviceLoginState])
 
   useEffect(() => {
     const terminal = terminalInstance.current
@@ -1079,6 +1139,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         if (payload.sessionName && payload.sessionName !== sessionNameRef.current) return
         const raw = payload.data
         if (!raw || !terminal?.write) return
+        updateGithubDeviceLogin(raw)
         outputSinceLastAttach = true
         controlCarryRef.current = ''
         if (pointerSyncActive) {
@@ -1392,7 +1453,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       forceStableFitRef.current = () => {}
       syncSharedLayoutRef.current = () => {}
     }
-  }, [disposeTerminalOutput, handlePinchTouchCancel, handlePinchTouchEnd, handlePinchTouchMove, handlePinchTouchStart, openUploadDialog, pushToast, pushTerminalOutput, queryClient, selectionSync, setActivePane, touchScroll, updateTerminalPerf])
+  }, [disposeTerminalOutput, handlePinchTouchCancel, handlePinchTouchEnd, handlePinchTouchMove, handlePinchTouchStart, openUploadDialog, pushToast, pushTerminalOutput, queryClient, selectionSync, setActivePane, touchScroll, updateGithubDeviceLogin, updateTerminalPerf])
 
   return (
     <div
@@ -1426,6 +1487,23 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       }}
     >
       {dropState.isDropActive && <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-lg border border-dashed border-accent bg-bg-0/70 text-sm text-accent shadow-[var(--glow)]">{t('terminal.dropUpload')}</div>}
+      {githubDeviceLogin && <div data-testid="github-device-login-card" className="absolute inset-x-3 bottom-3 z-20 ml-auto w-auto max-w-sm rounded-2xl border border-accent/30 bg-bg-0/92 p-3 shadow-[0_18px_48px_rgba(0,0,0,0.38)] backdrop-blur" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} onTouchEnd={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-text-1">{t('githubAuth.title')}</div>
+            <div className="mt-1 text-xs leading-5 text-text-3">{t('githubAuth.desc')}</div>
+          </div>
+          <button type="button" aria-label={t('githubAuth.dismiss')} onClick={dismissGithubDeviceLogin} className="shrink-0 rounded px-1.5 py-0.5 text-text-3 transition-colors hover:bg-bg-1 hover:text-text-1">✕</button>
+        </div>
+        <div className="mt-3 rounded-xl border border-[var(--line)] bg-bg-1 px-3 py-2">
+          <div className="text-[10px] uppercase tracking-[0.24em] text-text-3">{t('githubAuth.code')}</div>
+          <div className="mt-1 font-mono text-base tracking-[0.22em] text-accent">{githubDeviceLogin.code}</div>
+        </div>
+        <div className="mt-3 flex gap-2">
+          <button type="button" data-testid="github-device-login-open" onClick={openGithubDeviceLogin} className="flex-1 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-bg-0 transition-transform active:scale-[0.98]">{t('githubAuth.open')}</button>
+          <button type="button" data-testid="github-device-login-copy" onClick={() => void copyGithubDeviceLogin()} className="flex-1 rounded-lg border border-[var(--line)] bg-bg-1 px-3 py-2 text-sm text-text-2 transition-transform active:scale-[0.98]">{t('githubAuth.copy')}</button>
+        </div>
+      </div>}
       {isMobileDevice && (
         <textarea
           ref={textareaRef}

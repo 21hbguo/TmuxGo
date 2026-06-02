@@ -1,4 +1,4 @@
-import { fireEvent, render, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TerminalPane } from './TerminalPane'
 import { DELETE_PREV_WORD_SEQUENCE } from '@/lib/terminal-keys'
@@ -58,6 +58,7 @@ const mobileKeyboardMocks = vi.hoisted(() => ({
 const preferenceMocks = vi.hoisted(() => ({
   updatePreferences: vi.fn(),
 }))
+const openWindowMock = vi.hoisted(() => vi.fn())
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 vi.mock('@/hooks/usePreferences', () => ({
@@ -256,7 +257,10 @@ describe('TerminalPane', () => {
     mobileKeyboardMocks.textareaRef.current = null
     mobileKeyboardMocks.isMobile = false
     preferenceMocks.updatePreferences.mockClear()
+    openWindowMock.mockReset()
+    openWindowMock.mockReturnValue({ closed: false } as Window)
     Object.defineProperty(window, 'devicePixelRatio', { configurable: true, value: 1 })
+    Object.defineProperty(window, 'open', { configurable: true, value: openWindowMock })
     ;(document as Document & { execCommand?: (command: string) => boolean }).execCommand = vi.fn((command: string) => {
       if (command !== 'copy') return false
       const event = new Event('copy', { bubbles: true, cancelable: true }) as ClipboardEvent
@@ -313,6 +317,18 @@ describe('TerminalPane', () => {
     await waitFor(() => expect(onSelectionChangeHandlers.length).toBeGreaterThan(0))
     onSelectionChangeHandlers[0]()
     await waitFor(() => expect(clipboardMocks.writeClipboardText).toHaveBeenCalledWith('0123456789\nbb0123456789\ncc012',{preferSync:true}))
+  })
+  it('shows GitHub device login helper from terminal output and supports open and copy', async () => {
+    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(terminalLifecycleMocks.open).toHaveBeenCalled())
+    window.dispatchEvent(new CustomEvent('tmuxgo-terminal-output', { detail: '! First copy your one-time code: CFFE-7ABD\r\nPress Enter to open github.com in your browser...\r\n' }))
+    await waitFor(() => expect(screen.getByTestId('github-device-login-card')).toBeTruthy())
+    expect(screen.getByText('CFFE-7ABD')).toBeTruthy()
+    fireEvent.click(screen.getByTestId('github-device-login-open'))
+    expect(openWindowMock).toHaveBeenCalledWith('https://github.com/login/device', '_blank', 'noopener,noreferrer')
+    clipboardMocks.writeClipboardText.mockClear()
+    fireEvent.click(screen.getByTestId('github-device-login-copy'))
+    await waitFor(() => expect(clipboardMocks.writeClipboardText).toHaveBeenCalledWith('CFFE-7ABD'))
   })
   it('resizes tmux pane through frontend border drag', async () => {
     queryClientMocks.getQueryData.mockReturnValue({
