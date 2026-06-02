@@ -68,8 +68,8 @@ vi.mock('@/lib/api', () => ({
       imageUrl: vi.fn(() => '/api/files/image'),
     },
     preferences: {
-      get: (payload?: any) => preferencesGet(payload),
-      update: (payload?: any, profile?: any) => preferencesUpdate(payload, profile),
+      get: () => preferencesGet(),
+      update: (payload?: any) => preferencesUpdate(payload),
     },
   },
 }))

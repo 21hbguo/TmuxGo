@@ -18,6 +18,8 @@ import { recordMobileDiagnostic } from '@/lib/mobile-diagnostics'
 import { useTerminalOutputScheduler } from '@/hooks/useTerminalOutputScheduler'
 import { buildSessionId } from '@/lib/session-id'
 import { writeClipboardText } from '@/lib/clipboard-text'
+import { openFileInEditor } from '@/lib/editor-open'
+import type { FileDocumentHandle, FileRoot } from '@/types'
 
 const SCROLLBACK_LIMIT = 600
 const DELETE_WORD_REPEAT_DELAY = 140
@@ -87,6 +89,68 @@ function isPasteShortcut(e: KeyboardEvent) {
   if (e.metaKey && !e.ctrlKey && isApplePlatform()) return true
   return false
 }
+function stripWrappedQuotes(value: string) {
+  return value.replace(/^['"(]+/, '').replace(/['"),.;]+$/, '')
+}
+function normalizeAbsolutePath(value: string) {
+  const raw = stripWrappedQuotes(value.trim())
+  if (!raw) return ''
+  const stack: string[] = []
+  if (!raw.startsWith('/')) return ''
+  const base = raw
+  for (const part of base.split('/')) {
+    if (!part || part === '.') continue
+    if (part === '..') {
+      stack.pop()
+      continue
+    }
+    stack.push(part)
+  }
+  return `/${stack.join('/')}`
+}
+function getRootRelativePath(rootPath: string, absolutePath: string) {
+  const normalizedRoot = rootPath === '/' ? '/' : rootPath.replace(/\/+$/, '')
+  const normalizedPath = absolutePath.replace(/\/+$/, '')
+  if (normalizedRoot !== '/' && normalizedPath !== normalizedRoot && !normalizedPath.startsWith(`${normalizedRoot}/`)) return null
+  return normalizedRoot === '/' ? normalizedPath.replace(/^\/+/, '') : normalizedPath.slice(normalizedRoot.length).replace(/^\/+/, '')
+}
+function chooseFileRoot(roots: FileRoot[], absolutePath: string) {
+  let match: FileRoot | null = null
+  let matchLength = -1
+  for (const root of roots) {
+    const relativePath = getRootRelativePath(root.path, absolutePath)
+    if (relativePath == null) continue
+    if (root.path.length > matchLength) {
+      match = root
+      matchLength = root.path.length
+    }
+  }
+  return match
+}
+function looksLikeFilePath(value: string) {
+  if (!value || /^https?:\/\//i.test(value)) return false
+  if (value.startsWith('/') || value.startsWith('./') || value.startsWith('../') || value.startsWith('~/')) return true
+  if (value.includes('/')) return true
+  if (/^(Dockerfile|Makefile|README(?:\.[A-Za-z0-9_-]+)?|LICENSE(?:\.[A-Za-z0-9_-]+)?|\.env(?:\.[A-Za-z0-9_-]+)?)$/.test(value)) return true
+  return /^[A-Za-z0-9_.-]+\.[A-Za-z0-9_-]{1,12}$/.test(value)
+}
+function resolveHomePath(path: string, cwd: string, roots: FileRoot[]) {
+  if (!path.startsWith('~/')) return ''
+  const cwdHome = cwd.match(/^((?:\/home|\/Users)\/[^/]+)(?:\/|$)/)?.[1] || ''
+  if (cwdHome) return normalizeAbsolutePath(`${cwdHome}/${path.slice(2)}`)
+  const homeRoot = roots.find((item) => /home/i.test(item.label)) || roots.find((item) => /^(?:\/home|\/Users)\/[^/]+$/.test(item.path)) || null
+  if (!homeRoot) return ''
+  return normalizeAbsolutePath(`${homeRoot.path}/${path.slice(2)}`)
+}
+function resolveCandidateAbsolutePath(path: string, cwd: string, roots: FileRoot[]) {
+  if (path.startsWith('/')) return normalizeAbsolutePath(path)
+  if (path.startsWith('~/')) return resolveHomePath(path, cwd, roots)
+  if (!cwd) return ''
+  return normalizeAbsolutePath(`${cwd.replace(/\/+$/, '')}/${path}`)
+}
+function extractRangeText(text: string, start: number, end: number) {
+  return stripWrappedQuotes(text.slice(start, end))
+}
 
 export function TerminalPane({ sessionName, onInput, onResize, attachExclusive = false, onReady, subscribeOutput, onSwipeLeft, onSwipeRight }: TerminalPaneProps) {
   const { preferences, updatePreferences } = usePreferences()
@@ -120,12 +184,15 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   const activeHostIdRef = useRef(activeHostId)
   const sessionSnapshotRef = useRef<any | null>(null)
   const updatePreferencesRef = useRef(updatePreferences)
+  const tRef = useRef(t)
   const afterTerminalWriteRef = useRef<() => void>(() => {})
   const pinchStateRef = useRef({ active: false, startDistance: 0, startFontSize: preferences.fontSize, lastFontSize: preferences.fontSize })
   const githubDeviceLoginRef = useRef<{ code: string; url: string } | null>(null)
   const githubDeviceLoginDismissedRef = useRef('')
   const githubDeviceLoginBufferRef = useRef('')
   const githubAuthLoggedInRef = useRef<boolean | null>(null)
+  const fileRootsRef = useRef<FileRoot[] | null>(null)
+  const paneCwdRef = useRef<string>('')
   const setGithubDeviceLoginState = useCallback((next: { code: string; url: string } | null) => {
     githubDeviceLoginRef.current = next
     setGithubDeviceLogin(next)
@@ -168,6 +235,21 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     githubDeviceLoginBufferRef.current = (githubDeviceLoginBufferRef.current + normalized).slice(-4096)
     syncGithubDeviceLogin()
   }, [syncGithubDeviceLogin])
+  const ensureFileRoots = useCallback(async () => {
+    if (fileRootsRef.current) return fileRootsRef.current
+    const roots = await api.files.roots(activeHostIdRef.current || 'local')
+    fileRootsRef.current = roots
+    return roots
+  }, [])
+  const syncPaneCwd = useCallback(async () => {
+    const paneId = useConsoleStore.getState().activePaneId
+    if (!paneId) return paneCwdRef.current
+    try {
+      const target = await api.files.defaultUploadTarget(activeHostIdRef.current || 'local', paneId)
+      paneCwdRef.current = target?.absolutePath || paneCwdRef.current
+    } catch {}
+    return paneCwdRef.current
+  }, [])
   const dispatchTerminalTap = useCallback((x: number, y: number) => {
     const container = terminalRef.current
     if (!container) return
@@ -342,6 +424,9 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   useEffect(() => {
     updatePreferencesRef.current = updatePreferences
   }, [updatePreferences])
+  useEffect(() => {
+    tRef.current = t
+  }, [t])
   useEffect(() => {
     githubDeviceLoginBufferRef.current = ''
     githubDeviceLoginDismissedRef.current = ''
@@ -531,6 +616,84 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const y = Math.floor((event.clientY - rect.top) / cellHeight)
       if (x < 0 || y < 0 || x >= terminal.cols || y >= terminal.rows) return null
       return { x, y }
+    }
+    const getBufferLineText = (lineIndex: number) => {
+      const line = terminal?.buffer?.active?.getLine?.(lineIndex)
+      if (!line) return ''
+      try {
+        return String(line.translateToString(true))
+      } catch {
+        return ''
+      }
+    }
+    const getLineTextAtCell = (cell: { x: number; y: number }) => {
+      const baseY = Number(terminal?.buffer?.active?.baseY) || 0
+      return getBufferLineText(baseY + cell.y)
+    }
+    const getTokenRangeAtIndex = (line: string, index: number) => {
+      if (!line || index < 0 || index >= line.length) return null
+      let start = index
+      let end = index
+      while (start > 0 && !/\s/.test(line[start - 1])) start -= 1
+      while (end < line.length && !/\s/.test(line[end])) end += 1
+      return { start, end, text: extractRangeText(line, start, end) }
+    }
+    const findFileAtCell = async (cell: { x: number; y: number }) => {
+      const line = getLineTextAtCell(cell)
+      if (!line) return null
+      const token = getTokenRangeAtIndex(line, cell.x)
+      if (!token?.text) return null
+      try {
+        const url = new URL(token.text)
+        if (/^https?:$/i.test(url.protocol)) return { url: token.text }
+      } catch {}
+      if (!looksLikeFilePath(token.text)) return null
+      const suffixMatch = token.text.match(/^(.*?)(?::(\d+))?(?::(\d+))?$/)
+      const pathText = stripWrappedQuotes(suffixMatch?.[1] || token.text)
+      if (!pathText || !looksLikeFilePath(pathText)) return null
+      const cwd = await syncPaneCwd()
+      const roots = await ensureFileRoots()
+      const absolutePath = resolveCandidateAbsolutePath(pathText, cwd, roots)
+      if (!absolutePath) return null
+      const root = chooseFileRoot(roots, absolutePath)
+      if (!root) return null
+      const relativePath = getRootRelativePath(root.path, absolutePath)
+      if (relativePath == null) return null
+      const name = relativePath.split('/').filter(Boolean).pop() || absolutePath.split('/').pop() || absolutePath
+      const lineNumber = suffixMatch?.[2] ? Number(suffixMatch[2]) : null
+      const columnNumber = suffixMatch?.[3] ? Number(suffixMatch[3]) : null
+      return {
+        file: {
+          id: `${activeHostIdRef.current || 'local'}:${root.id}:${relativePath}`,
+          hostId: activeHostIdRef.current || 'local',
+          rootId: root.id,
+          rootLabel: root.label,
+          rootPath: root.path,
+          path: relativePath,
+          name,
+          absolutePath,
+        } satisfies FileDocumentHandle,
+        position: { line: lineNumber, column: columnNumber },
+      }
+    }
+    const handleCtrlClickOpen = (event: MouseEvent) => {
+      if (event.button !== 0 || (!event.ctrlKey && !event.metaKey) || event.altKey || event.shiftKey || isMobileDevice) return
+      const cell = getMouseCell(event)
+      if (!cell) return
+      event.preventDefault()
+      event.stopPropagation()
+      event.stopImmediatePropagation()
+      void findFileAtCell(cell).then((result) => {
+        if (!result) return
+        if ('url' in result) {
+          const url = result.url || ''
+          const opened = window.open(url, '_blank', 'noopener,noreferrer')
+          if (!opened) window.location.href = url
+          return
+        }
+        if (!result.file) return
+        return openFileInEditor(result.file, { t: tRef.current, pushToast, position: result.position, openPanel: true })
+      })
     }
     const rangesOverlap = (aStart: number, aEnd: number, bStart: number, bEnd: number) => Math.max(aStart, bStart) <= Math.min(aEnd, bEnd)
     const getPaneResizeTarget = (event: MouseEvent) => {
@@ -1070,7 +1233,14 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
 
       fitAddon = new FitAddon()
       terminal.loadAddon(fitAddon)
-      terminal.loadAddon(new WebLinksAddon())
+      terminal.loadAddon(new WebLinksAddon((event: MouseEvent, uri: string) => {
+        if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || isMobileDevice) return
+        event.preventDefault()
+        event.stopPropagation()
+        event.stopImmediatePropagation?.()
+        const opened = window.open(uri, '_blank', 'noopener,noreferrer')
+        if (!opened) window.location.href = uri
+      }))
       terminal.open(container)
       if (!isMobileDevice) {
         const { CanvasAddon } = await import('@xterm/addon-canvas')
@@ -1329,6 +1499,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         dropState.handleDragLeave(e, container)
       }
       container.addEventListener('mousedown', handlePaneResizeStart, true)
+      container.addEventListener('click', handleCtrlClickOpen, true)
       container.addEventListener('mousemove', handlePaneResizeHover)
       container.addEventListener('mouseleave', clearPaneResizeHover)
       container.addEventListener('dragover', dropState.handleDragOver)
@@ -1395,6 +1566,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           window.removeEventListener('mouseup', endPaneResizeDrag)
           window.removeEventListener('blur', endPaneResizeDrag)
           container.removeEventListener('mousedown', handlePaneResizeStart, true)
+          container.removeEventListener('click', handleCtrlClickOpen, true)
           container.removeEventListener('mousemove', handlePaneResizeHover)
           container.removeEventListener('mouseleave', clearPaneResizeHover)
           container.removeEventListener('dragover', dropState.handleDragOver)
@@ -1479,7 +1651,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       forceStableFitRef.current = () => {}
       syncSharedLayoutRef.current = () => {}
     }
-  }, [disposeTerminalOutput, handlePinchTouchCancel, handlePinchTouchEnd, handlePinchTouchMove, handlePinchTouchStart, openUploadDialog, pushToast, pushTerminalOutput, queryClient, selectionSync, setActivePane, touchScroll, updateGithubDeviceLogin, updateTerminalPerf])
+  }, [disposeTerminalOutput, ensureFileRoots, handlePinchTouchCancel, handlePinchTouchEnd, handlePinchTouchMove, handlePinchTouchStart, openUploadDialog, pushToast, pushTerminalOutput, queryClient, selectionSync, setActivePane, syncPaneCwd, touchScroll, updateGithubDeviceLogin, updateTerminalPerf])
 
   return (
     <div
