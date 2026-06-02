@@ -247,11 +247,11 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: FileEntry | null; directoryPath: string } | null>(null)
   const [mobileView, setMobileView] = useState<'list' | 'preview'>('list')
   const [favoriteDirectories, setFavoriteDirectories] = useState<FavoriteDirectory[]>([])
-  const [contentReady, setContentReady] = useState(isMobile)
+  const [contentReady] = useState(true)
   const [hideDotFiles, setHideDotFiles] = useState(readHideDotFiles)
   const [openDirectories, setOpenDirectories] = useState<Set<string>>(new Set())
   const [searchNavigationPath, setSearchNavigationPath] = useState<string | null>(null)
-  const directoryCacheRef = useRef<Map<string, FileItem[]>>(new Map())
+  const [directoryCache, setDirectoryCache] = useState<Map<string, FileItem[]>>(new Map())
   const resizingRef = useRef(false)
   const touchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const uploadInputRef = useRef<HTMLInputElement>(null)
@@ -289,13 +289,17 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   const visibleItems = useMemo(() => items.filter((item: any) => (!hideDotFiles || !isDotPath(item.path || item.name)) && matchesFileTypeFilter(item, fileTypeFilter)), [fileTypeFilter, hideDotFiles, items])
   const visibleFavoriteDirectories = useMemo(() => hideDotFiles ? favoriteDirectories.filter((item) => !isDotPath(item.path)) : favoriteDirectories, [hideDotFiles, favoriteDirectories])
   const storeDirectoryChildren = useCallback((rootId: string, rootBasePath: string, itemPath: string, items: FileItem[]) => {
-    directoryCacheRef.current.set(getDirectoryCacheKey(rootId, rootBasePath, itemPath), items)
+    setDirectoryCache((current) => {
+      const next = new Map(current)
+      next.set(getDirectoryCacheKey(rootId, rootBasePath, itemPath), items)
+      return next
+    })
   }, [])
   const createTreeNodes = useCallback((items: FileItem[]): FileTreeNode[] => items.filter((item) => (!hideDotFiles || !isDotPath(item.path || item.name)) && matchesFileTypeFilter(item, fileTypeFilter)).map((item) => {
-    const children = item.type === 'directory' ? readDirectoryChildrenFromCache(directoryCacheRef.current, activeRootId, activeRootBasePath, item.path) : undefined
+    const children = item.type === 'directory' ? readDirectoryChildrenFromCache(directoryCache, activeRootId, activeRootBasePath, item.path) : undefined
     const nextChildren = children ? createTreeNodes(children.map((entry) => rebaseEntryPath(entry, activeRootBasePath))) : undefined
     return { key: item.path, title: item.name, isLeaf: item.type === 'file', children: nextChildren, item }
-  }), [activeRootBasePath, activeRootId, fileTypeFilter, hideDotFiles])
+  }), [activeRootBasePath, activeRootId, directoryCache, fileTypeFilter, hideDotFiles])
   const desktopTreeData = useMemo(() => !isMobile && !showSearchResults ? createTreeNodes(listData?.items || []) : [], [createTreeNodes, isMobile, listData?.items, showSearchResults])
 
   useEffect(() => {
@@ -311,7 +315,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     setMobileView('list')
     setOpenDirectories(new Set())
     setSearchNavigationPath(null)
-    directoryCacheRef.current.clear()
+    setDirectoryCache(new Map())
   }, [fileHostId])
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedQuery(query.trim()), SEARCH_INPUT_DEBOUNCE_MS)
@@ -354,11 +358,6 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
       } catch {}
     })()
   }, [roots])
-  useEffect(() => {
-    if (isMobile) return
-    const frame = requestAnimationFrame(() => setContentReady(true))
-    return () => cancelAnimationFrame(frame)
-  }, [isMobile])
   useEffect(() => {
     const handleMove = (e: MouseEvent) => {
       if (!resizingRef.current) return
@@ -422,7 +421,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     setMobileView('list')
     setOpenDirectories(new Set())
     setSearchNavigationPath(null)
-    directoryCacheRef.current.clear()
+    setDirectoryCache(new Map())
   }
   const openDirectoryShortcut = (entry: { rootId: string; path: string }) => {
     const nextRootId = getFavoriteRootOptionId(entry)
@@ -459,21 +458,23 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
       return next
     })
   }
+  const handleDesktopDirectoryToggle = async (item: FileItem) => {
+    const cache = readDirectoryChildrenFromCache(directoryCache, activeRootId, activeRootBasePath, item.path)
+    if (!cache) await loadTreeDirectory({ item } as EventDataNode<FileTreeNode>)
+    toggleDesktopDirectory(item.path)
+    setSelectedPath(item.path)
+  }
   const loadTreeDirectory = async (node: EventDataNode<FileTreeNode>) => {
     const item = node.item
     if (!item || item.type !== 'directory') return
-    const cache = readDirectoryChildrenFromCache(directoryCacheRef.current, activeRootId, activeRootBasePath, item.path)
+    const cache = readDirectoryChildrenFromCache(directoryCache, activeRootId, activeRootBasePath, item.path)
     if (cache) return
-    const result = await queryClient.fetchQuery({
-      queryKey: ['file-list', fileHostId, activeRootId, joinRelativePath(activeRootBasePath, item.path)],
-      queryFn: () => api.files.list(activeRootId, joinRelativePath(activeRootBasePath, item.path)),
-    })
+    const result = await api.files.list(activeRootId, joinRelativePath(activeRootBasePath, item.path))
     storeDirectoryChildren(activeRootId, activeRootBasePath, item.path, result.items)
   }
 
   const openInEditor = (item: FileEntry) => {
     if (!onOpenFile || item.type !== 'file' || !root) return false
-    if (isImagePath(item.path)) return false
     const filePath = resolveRootRelativePath(activeRootBasePath, item.path)
     onOpenFile({
       id: `${activeRootId}:${filePath}`,
@@ -489,7 +490,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   const openItem = (item: FileEntry) => {
     if (item.type === 'directory') {
       if (!isMobile) {
-        toggleDesktopDirectory(item.path)
+        void handleDesktopDirectoryToggle(item)
         return
       }
       pushMobileNavigationHistory()
@@ -500,7 +501,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
       setSearchNavigationPath(isSearching ? item.path : null)
       return
     }
-    if (openInEditor(item)) return
+    if (!isMobile && openInEditor(item)) return
     if (isMobile) pushMobileNavigationHistory()
     setSelectedPath(item.path)
     setSelectedPreviewLine(getPreviewLine(item))
@@ -671,12 +672,21 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     const favoritePath = { rootId: activeRootId, path: joinRelativePath(activeRootBasePath, item.path) }
     return (
       <div
+        onClick={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          if (item.type === 'directory') void handleDesktopDirectoryToggle(item)
+          else {
+            setSelectedPath(item.path)
+            openItem(item)
+          }
+        }}
         onContextMenu={(e) => {
           e.preventDefault()
           e.stopPropagation()
           showContextMenu(e.clientX, e.clientY, item, getParentRelativePath(item, currentPath))
         }}
-        onDoubleClick={() => item.type === 'directory' ? toggleDesktopDirectory(item.path) : insertItemPath(item)}
+        onDoubleClick={() => item.type === 'directory' ? void handleDesktopDirectoryToggle(item) : insertItemPath(item)}
         className="group flex min-w-0 items-center gap-1.5 px-2 py-[2px]"
       >
         <span className="shrink-0">{visual.icon}</span>
@@ -770,6 +780,8 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
             className="tmuxgo-file-tree"
             showIcon={false}
             blockNode
+            motion={null}
+            virtual={false}
             switcherIcon={<CaretRightOutlined className="text-[10px]" />}
             treeData={desktopTreeData}
             expandedKeys={Array.from(openDirectories)}
@@ -779,12 +791,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
             onSelect={(keys, info) => {
               const node = info.node as EventDataNode<FileTreeNode>
               if (!node.item) return
-              openItem(node.item)
-              if (node.item.type === 'directory') setOpenDirectories((current) => {
-                const next = new Set(Array.from(current))
-                next.add(node.item.path)
-                return next
-              })
+              if (node.item.type === 'file') openItem(node.item)
               if (keys[0]) setSelectedPath(String(keys[0]))
             }}
             titleRender={(node) => renderTreeTitle(node as FileTreeNode)}
@@ -859,7 +866,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
         {!listLoading && !visibleItems.length && <div className="p-3 text-xs text-text-3">{showSearchResults ? t('file.noResults') : t('file.emptyDir')}</div>}
         {showSearchResults && rawSearchResults.length > SEARCH_RESULT_LIMIT && <div className="border-t border-[var(--line)] px-3 py-2 text-[11px] text-text-3">{t('file.tooManyResults', { count: SEARCH_RESULT_LIMIT })}</div>}
       </div>}
-      {(!isMobile || mobileView === 'preview') && <div className={isMobile ? 'min-h-0 flex-1 bg-bg-0' : 'max-h-[42%] min-h-[160px] border-t border-[var(--line)] bg-bg-0'}>{previewBlock}</div>}
+      {isMobile && mobileView === 'preview' && <div className="min-h-0 flex-1 bg-bg-0">{previewBlock}</div>}
       {isMobile && mobileView === 'preview' && selectedPath && <div className="border-t border-[var(--line)] p-3"><button onClick={() => insertPath(activeSourceRootPath ? joinPath(activeSourceRootPath, resolveRootRelativePath(activeRootBasePath, selectedPath)) : resolveRootRelativePath(activeRootBasePath, selectedPath))} className="w-full rounded-lg bg-accent/20 px-3 py-3 text-sm text-accent active:scale-[0.98]">{t('file.insertPath')}</button></div>}
       {contextMenu && (
         <div className="fixed z-[90] w-44 overflow-hidden rounded border border-[var(--line)] bg-bg-1 py-1 text-xs shadow-lg" style={{ left: contextMenu.x, top: contextMenu.y }} onClick={(e) => e.stopPropagation()}>
