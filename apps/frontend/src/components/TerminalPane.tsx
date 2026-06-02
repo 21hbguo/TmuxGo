@@ -1153,12 +1153,29 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         const perf = useConsoleStore.getState().terminalPerf || DEFAULT_TERMINAL_PERF
         updateTerminalPerf({ layoutFitCount: perf.layoutFitCount + 1 })
         if (detail.reason === 'terminal-panel-resize') {
+          if (!isMobileDevice) {
+            if (attachExclusiveRef.current) scheduleFit(0, false)
+            else syncSharedLayout(false)
+            return
+          }
           if (attachExclusiveRef.current) {
             scheduleFit(0, true)
             scheduleTerminalRepaint([0, 16, 48])
             return
           }
           syncSharedLayout(true)
+          scheduleTerminalRepaint([0, 16, 48])
+          return
+        }
+        if (detail.reason === 'terminal-panel-resize-end') {
+          if (attachExclusiveRef.current) {
+            if (isMobileDevice) scheduleFit(0, true)
+            else forceStableFit(3, 24)
+            scheduleTerminalRepaint([0, 16, 48])
+            return
+          }
+          syncSharedLayout(true)
+          if (!isMobileDevice) forceStableFit(2, 24)
           scheduleTerminalRepaint([0, 16, 48])
           return
         }
