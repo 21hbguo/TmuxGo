@@ -42,6 +42,9 @@ const MOBILE_PINCH_FONT_SIZE_EPSILON = 0.04
 const MOBILE_PINCH_DISTANCE_EPSILON = 2
 const GITHUB_DEVICE_LOGIN_URL = 'https://github.com/login/device'
 const ANSI_ESCAPE_REGEX = /\u001b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\u0007]*(?:\u0007|\u001b\\))/g
+const TERMINAL_URL_REGEX = /(https?|HTTPS?):[/]{2}[^\s"'!*(){}|\\^<>`]*[^\s"':,.!?{}|\\^~\[\]`()<>]/g
+const TERMINAL_FILE_LINK_REGEX = /(^|[\s([{'"`])((?:\/|\.{1,2}\/|~\/)?[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*(?::\d+){0,2})(?=$|[\s)\]}'"`,;.!?，。；、])/g
+type TerminalLineLink={kind:'url';text:string;start:number;end:number;url:string}|{kind:'file';text:string;start:number;end:number;pathText:string;line:number|null;column:number|null}
 function normalizeTerminalText(value: string) {
   return value.replace(ANSI_ESCAPE_REGEX, '').replace(/\r/g, '\n')
 }
@@ -90,7 +93,7 @@ function isPasteShortcut(e: KeyboardEvent) {
   return false
 }
 function stripWrappedQuotes(value: string) {
-  return value.replace(/^['"(]+/, '').replace(/['"),.;]+$/, '')
+  return value.replace(/^[\s'"([{<]+/, '').replace(/[\s'")\]}>.,;!?，。；、]+$/, '')
 }
 function normalizeAbsolutePath(value: string) {
   const raw = stripWrappedQuotes(value.trim())
@@ -148,8 +151,71 @@ function resolveCandidateAbsolutePath(path: string, cwd: string, roots: FileRoot
   if (!cwd) return ''
   return normalizeAbsolutePath(`${cwd.replace(/\/+$/, '')}/${path}`)
 }
-function extractRangeText(text: string, start: number, end: number) {
-  return stripWrappedQuotes(text.slice(start, end))
+function openUrlInNewWindow(url: string, pushToast: (toast: { type: 'success' | 'error' | 'info'; message: string; durationMs?: number }) => void, t: ReturnType<typeof useTranslation>['t']) {
+  const opened = window.open(url, '_blank', 'noopener,noreferrer')
+  if (opened) return true
+  pushToast({ type: 'error', message: t('terminal.linkOpenBlocked') })
+  return false
+}
+function parseTerminalFileLink(text: string, start: number, end: number): Extract<TerminalLineLink,{kind:'file'}> | null {
+  const suffixMatch = text.match(/^(.*?)(?::(\d+))?(?::(\d+))?$/)
+  const pathText = stripWrappedQuotes(suffixMatch?.[1] || text)
+  if (!pathText || !looksLikeFilePath(pathText)) return null
+  return {
+    kind: 'file',
+    text,
+    start,
+    end,
+    pathText,
+    line: suffixMatch?.[2] ? Number(suffixMatch[2]) : null,
+    column: suffixMatch?.[3] ? Number(suffixMatch[3]) : null,
+  }
+}
+function collectTerminalLineLinks(line: string) {
+  if (!line) return [] as TerminalLineLink[]
+  const urlLinks: TerminalLineLink[] = []
+  const urlMatches = Array.from(line.matchAll(new RegExp(TERMINAL_URL_REGEX.source, 'g')))
+  for (const match of urlMatches) {
+    const text = match[0] || ''
+    const start = match.index ?? -1
+    if (!text || start < 0) continue
+    urlLinks.push({ kind: 'url', text, start, end: start + text.length, url: text })
+  }
+  const fileLinks: TerminalLineLink[] = []
+  const fileMatches = Array.from(line.matchAll(new RegExp(TERMINAL_FILE_LINK_REGEX.source, 'g')))
+  for (const match of fileMatches) {
+    const text = match[2] || ''
+    const prefix = match[1] || ''
+    const start = (match.index ?? -1) + prefix.length
+    if (!text || start < 0) continue
+    const end = start + text.length
+    if (urlLinks.some((item) => start < item.end && end > item.start)) continue
+    const parsed = parseTerminalFileLink(text, start, end)
+    if (parsed) fileLinks.push(parsed)
+  }
+  return [...urlLinks, ...fileLinks].sort((a, b) => a.start - b.start || (a.kind === 'url' ? -1 : 1))
+}
+function resolveCandidateAbsolutePaths(path: string, cwd: string, roots: FileRoot[]) {
+  const candidates: string[] = []
+  const push = (value: string) => {
+    const normalized = normalizeAbsolutePath(value)
+    if (normalized) candidates.push(normalized)
+  }
+  if (path.startsWith('/')) push(path)
+  else if (path.startsWith('~/')) {
+    const homePath = resolveHomePath(path, cwd, roots)
+    if (homePath) push(homePath)
+  } else if (path.startsWith('./') || path.startsWith('../')) {
+    if (cwd) push(`${cwd.replace(/\/+$/, '')}/${path}`)
+    for (const root of roots) push(`${root.path.replace(/\/+$/, '')}/${path}`)
+  } else if (path.includes('/')) {
+    for (const root of roots) push(`${root.path.replace(/\/+$/, '')}/${path}`)
+    if (cwd) push(`${cwd.replace(/\/+$/, '')}/${path}`)
+  } else {
+    if (cwd) push(`${cwd.replace(/\/+$/, '')}/${path}`)
+    for (const root of roots) push(`${root.path.replace(/\/+$/, '')}/${path}`)
+  }
+  return Array.from(new Set(candidates))
 }
 
 export function TerminalPane({ sessionName, onInput, onResize, attachExclusive = false, onReady, subscribeOutput, onSwipeLeft, onSwipeRight }: TerminalPaneProps) {
@@ -192,6 +258,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   const githubDeviceLoginBufferRef = useRef('')
   const githubAuthLoggedInRef = useRef<boolean | null>(null)
   const fileRootsRef = useRef<FileRoot[] | null>(null)
+  const fileRootsHostIdRef = useRef('')
   const paneCwdRef = useRef<string>('')
   const setGithubDeviceLoginState = useCallback((next: { code: string; url: string } | null) => {
     githubDeviceLoginRef.current = next
@@ -203,9 +270,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   }, [setGithubDeviceLoginState])
   const openGithubDeviceLogin = useCallback(() => {
     const url = githubDeviceLoginRef.current?.url || GITHUB_DEVICE_LOGIN_URL
-    const opened = window.open(url, '_blank', 'noopener,noreferrer')
-    if (!opened) window.location.href = url
-  }, [])
+    openUrlInNewWindow(url, pushToast, t)
+  }, [pushToast, t])
   const copyGithubDeviceLogin = useCallback(async () => {
     const code = githubDeviceLoginRef.current?.code
     if (!code) return
@@ -236,9 +302,11 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     syncGithubDeviceLogin()
   }, [syncGithubDeviceLogin])
   const ensureFileRoots = useCallback(async () => {
-    if (fileRootsRef.current) return fileRootsRef.current
-    const roots = await api.files.roots(activeHostIdRef.current || 'local')
+    const hostId = activeHostIdRef.current || 'local'
+    if (fileRootsRef.current && fileRootsHostIdRef.current === hostId) return fileRootsRef.current
+    const roots = await api.files.roots(hostId)
     fileRootsRef.current = roots
+    fileRootsHostIdRef.current = hostId
     return roots
   }, [])
   const syncPaneCwd = useCallback(async () => {
@@ -418,6 +486,9 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   useEffect(() => {
     activeHostIdRef.current = activeHostId
   }, [activeHostId])
+  useEffect(() => {
+    paneCwdRef.current = ''
+  }, [activeHostId, sessionName])
   useEffect(() => {
     sendRef.current = send
   }, [send])
@@ -626,74 +697,55 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         return ''
       }
     }
-    const getLineTextAtCell = (cell: { x: number; y: number }) => {
-      const baseY = Number(terminal?.buffer?.active?.baseY) || 0
-      return getBufferLineText(baseY + cell.y)
-    }
-    const getTokenRangeAtIndex = (line: string, index: number) => {
-      if (!line || index < 0 || index >= line.length) return null
-      let start = index
-      let end = index
-      while (start > 0 && !/\s/.test(line[start - 1])) start -= 1
-      while (end < line.length && !/\s/.test(line[end])) end += 1
-      return { start, end, text: extractRangeText(line, start, end) }
-    }
-    const findFileAtCell = async (cell: { x: number; y: number }) => {
-      const line = getLineTextAtCell(cell)
-      if (!line) return null
-      const token = getTokenRangeAtIndex(line, cell.x)
-      if (!token?.text) return null
-      try {
-        const url = new URL(token.text)
-        if (/^https?:$/i.test(url.protocol)) return { url: token.text }
-      } catch {}
-      if (!looksLikeFilePath(token.text)) return null
-      const suffixMatch = token.text.match(/^(.*?)(?::(\d+))?(?::(\d+))?$/)
-      const pathText = stripWrappedQuotes(suffixMatch?.[1] || token.text)
-      if (!pathText || !looksLikeFilePath(pathText)) return null
+    const isLinkOpenGesture = (event: MouseEvent) => event.button === 0 && (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && !isMobileDevice
+    const resolveTerminalFileLink = async (link: Extract<TerminalLineLink,{kind:'file'}>) => {
       const cwd = await syncPaneCwd()
       const roots = await ensureFileRoots()
-      const absolutePath = resolveCandidateAbsolutePath(pathText, cwd, roots)
-      if (!absolutePath) return null
-      const root = chooseFileRoot(roots, absolutePath)
-      if (!root) return null
-      const relativePath = getRootRelativePath(root.path, absolutePath)
-      if (relativePath == null) return null
-      const name = relativePath.split('/').filter(Boolean).pop() || absolutePath.split('/').pop() || absolutePath
-      const lineNumber = suffixMatch?.[2] ? Number(suffixMatch[2]) : null
-      const columnNumber = suffixMatch?.[3] ? Number(suffixMatch[3]) : null
-      return {
-        file: {
-          id: `${activeHostIdRef.current || 'local'}:${root.id}:${relativePath}`,
-          hostId: activeHostIdRef.current || 'local',
-          rootId: root.id,
-          rootLabel: root.label,
-          rootPath: root.path,
-          path: relativePath,
-          name,
-          absolutePath,
-        } satisfies FileDocumentHandle,
-        position: { line: lineNumber, column: columnNumber },
+      const hostId = activeHostIdRef.current || 'local'
+      const absolutePaths = resolveCandidateAbsolutePaths(link.pathText, cwd, roots)
+      for (const absolutePath of absolutePaths) {
+        const root = chooseFileRoot(roots, absolutePath)
+        if (!root) continue
+        const relativePath = getRootRelativePath(root.path, absolutePath)
+        if (relativePath == null) continue
+        try {
+          const preview = await api.files.preview(hostId, root.id, relativePath, link.line || 1)
+          if (preview.type !== 'file') continue
+          const name = relativePath.split('/').filter(Boolean).pop() || absolutePath.split('/').pop() || absolutePath
+          return {
+            file: {
+              id: `${hostId}:${root.id}:${relativePath}`,
+              hostId,
+              rootId: root.id,
+              rootLabel: root.label,
+              rootPath: root.path,
+              path: relativePath,
+              name,
+              absolutePath,
+            } satisfies FileDocumentHandle,
+            position: { line: link.line, column: link.column },
+          }
+        } catch {}
       }
+      return null
     }
-    const handleCtrlClickOpen = (event: MouseEvent) => {
-      if (event.button !== 0 || (!event.ctrlKey && !event.metaKey) || event.altKey || event.shiftKey || isMobileDevice) return
-      const cell = getMouseCell(event)
-      if (!cell) return
-      event.preventDefault()
-      event.stopPropagation()
-      event.stopImmediatePropagation()
-      void findFileAtCell(cell).then((result) => {
-        if (!result) return
-        if ('url' in result) {
-          const url = result.url || ''
-          const opened = window.open(url, '_blank', 'noopener,noreferrer')
-          if (!opened) window.location.href = url
-          return
-        }
-        if (!result.file) return
-        return openFileInEditor(result.file, { t: tRef.current, pushToast, position: result.position, openPanel: true })
-      })
+    const createTerminalFileLinks = (bufferLineNumber: number) => {
+      const line = getBufferLineText(bufferLineNumber - 1)
+      return collectTerminalLineLinks(line).filter((item): item is Extract<TerminalLineLink,{kind:'file'}> => item.kind === 'file').map((item) => ({
+        range: { start: { x: item.start + 1, y: bufferLineNumber }, end: { x: item.end, y: bufferLineNumber } },
+        text: item.text,
+        decorations: { pointerCursor: true, underline: true },
+        activate: (event: MouseEvent) => {
+          if (!isLinkOpenGesture(event)) return
+          event.preventDefault()
+          event.stopPropagation()
+          event.stopImmediatePropagation?.()
+          void resolveTerminalFileLink(item).then((result) => {
+            if (!result?.file) return
+            return openFileInEditor(result.file, { t: tRef.current, pushToast, position: result.position, openPanel: true })
+          })
+        },
+      }))
     }
     const rangesOverlap = (aStart: number, aEnd: number, bStart: number, bEnd: number) => Math.max(aStart, bStart) <= Math.min(aEnd, bEnd)
     const getPaneResizeTarget = (event: MouseEvent) => {
@@ -1234,14 +1286,19 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       fitAddon = new FitAddon()
       terminal.loadAddon(fitAddon)
       terminal.loadAddon(new WebLinksAddon((event: MouseEvent, uri: string) => {
-        if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || isMobileDevice) return
         event.preventDefault()
         event.stopPropagation()
         event.stopImmediatePropagation?.()
-        const opened = window.open(uri, '_blank', 'noopener,noreferrer')
-        if (!opened) window.location.href = uri
+        if (!isLinkOpenGesture(event)) return
+        openUrlInNewWindow(uri, pushToast, tRef.current)
       }))
       terminal.open(container)
+      disposables.push(terminal.registerLinkProvider({
+        provideLinks: (bufferLineNumber: number, callback: (links: any[] | undefined) => void) => {
+          const links = createTerminalFileLinks(bufferLineNumber)
+          callback(links.length ? links : undefined)
+        },
+      }))
       if (!isMobileDevice) {
         const { CanvasAddon } = await import('@xterm/addon-canvas')
         terminal.loadAddon(new CanvasAddon())
@@ -1499,7 +1556,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         dropState.handleDragLeave(e, container)
       }
       container.addEventListener('mousedown', handlePaneResizeStart, true)
-      container.addEventListener('click', handleCtrlClickOpen, true)
       container.addEventListener('mousemove', handlePaneResizeHover)
       container.addEventListener('mouseleave', clearPaneResizeHover)
       container.addEventListener('dragover', dropState.handleDragOver)
@@ -1566,7 +1622,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           window.removeEventListener('mouseup', endPaneResizeDrag)
           window.removeEventListener('blur', endPaneResizeDrag)
           container.removeEventListener('mousedown', handlePaneResizeStart, true)
-          container.removeEventListener('click', handleCtrlClickOpen, true)
           container.removeEventListener('mousemove', handlePaneResizeHover)
           container.removeEventListener('mouseleave', clearPaneResizeHover)
           container.removeEventListener('dragover', dropState.handleDragOver)

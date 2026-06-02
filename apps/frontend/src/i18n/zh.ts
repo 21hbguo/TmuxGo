@@ -417,6 +417,7 @@ export const zh = {
 
   // TerminalPane
   'terminal.dropUpload': '拖放文件以上传',
+  'terminal.linkOpenBlocked': '浏览器阻止了新窗口，请允许弹窗后重试',
 
   // Clipboard
   'clipboard.copyFailed': '复制失败',
