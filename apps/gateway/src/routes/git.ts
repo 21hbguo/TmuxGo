@@ -93,23 +93,25 @@ function parseNumStat(stdout: string) {
 }
 function parseGitLog(stdout: string) {
   return stdout.split(gitLogRecordSeparator).filter(Boolean).map((record) => {
-    const [hash = '', shortHash = '', subject = '', body = '', author = '', authorEmail = '', date = '', rawParents = ''] = record.split(gitLogFieldSeparator)
+    const [hash = '', shortHash = '', subject = '', body = '', author = '', authorEmail = '', authorDate = '', committedDate = '', rawParents = ''] = record.split(gitLogFieldSeparator)
     const cleanHash = hash.trim()
     const cleanShortHash = shortHash.trim()
     const cleanSubject = subject.replace(/\n/g, ' ').trim()
     const cleanBody = body.replace(/^\n+|\n+$/g, '')
     const cleanAuthor = author.trim()
     const cleanAuthorEmail = authorEmail.trim()
-    const cleanDate = date.trim()
+    const cleanAuthorDate = authorDate.trim()
+    const cleanCommittedDate = committedDate.trim()
     const parents = rawParents.trim() ? rawParents.trim().split(/\s+/).filter(Boolean) : []
-    return cleanHash && cleanShortHash && cleanAuthor && cleanDate ? {
+    return cleanHash && cleanShortHash && cleanAuthor && cleanCommittedDate ? {
       hash: cleanHash,
       shortHash: cleanShortHash,
       subject: cleanSubject,
       body: cleanBody,
       author: cleanAuthor,
       authorEmail: cleanAuthorEmail,
-      date: cleanDate,
+      authorDate: cleanAuthorDate || cleanCommittedDate,
+      date: cleanCommittedDate,
       parents,
     } : null
   }).filter(Boolean)
@@ -214,7 +216,7 @@ export async function gitRoutes(fastify: FastifyInstance) {
     if (!repoPath) throw new Error('Missing path parameter')
     const n = Math.min(Math.max(parseInt(limit || '50', 10) || 50, 1), 200)
     const s = Math.max(parseInt(skip || '0', 10) || 0, 0)
-    const args = ['log', '--all', '--topo-order', `--format=%H%x1f%h%x1f%s%x1f%b%x1f%an%x1f%ae%x1f%ai%x1f%P%x1e`, `-n${n}`]
+    const args = ['log', '--all', '--date-order', `--format=%H%x1f%h%x1f%s%x1f%b%x1f%an%x1f%ae%x1f%ai%x1f%ci%x1f%P%x1e`, `-n${n}`]
     if (s > 0) args.push(`--skip=${s}`)
     const { stdout } = await execGit(hostId, args, repoPath)
     const commits = parseGitLog(stdout)

@@ -33,7 +33,7 @@ describe('GitPanel', () => {
       disconnect = vi.fn()
     }
     vi.stubGlobal('IntersectionObserver', MockIntersectionObserver as any)
-    useGitLogMock.mockReturnValue({ data: { commits: [{ hash: 'a1', shortHash: 'a1', subject: 'first', body: '', author: 'dev', authorEmail: 'dev@test', date: '2024-01-01T00:00:00Z', parents: [] }, { hash: 'b2', shortHash: 'b2', subject: 'second', body: '', author: 'dev', authorEmail: 'dev@test', date: '2024-01-02T00:00:00Z', parents: ['a1'] }], hasMore: false }, isLoading: false })
+    useGitLogMock.mockReturnValue({ data: { commits: [{ hash: 'a1', shortHash: 'a1', subject: 'first', body: '', author: 'dev', authorEmail: 'dev@test', authorDate: '2024-01-01T00:00:00Z', date: '2024-01-01T00:00:00Z', parents: [] }, { hash: 'b2', shortHash: 'b2', subject: 'second', body: '', author: 'dev', authorEmail: 'dev@test', authorDate: '2024-01-02T00:00:00Z', date: '2024-01-02T00:00:00Z', parents: ['a1'] }], hasMore: false }, isLoading: false })
     useGitBranchesMock.mockReturnValue({ data: { current: 'main', branches: [{ name: 'main', current: true, commitHash: 'b2', lastCommitSubject: 'second' }] } })
     useConsoleStore.setState({
       activeHostId: 'local',
@@ -69,7 +69,7 @@ describe('GitPanel', () => {
   })
 
   it('ignores invalid commit entries in history data', async () => {
-    useGitLogMock.mockReturnValue({ data: { commits: [null, { shortHash: 'x1', subject: 'broken', body: '', author: '', authorEmail: 'dev@test', date: '', parents: [] }, { hash: 'a1', shortHash: 'a1', subject: 'first', body: '', author: 'dev', authorEmail: 'dev@test', date: '2024-01-01T00:00:00Z', parents: [] }, undefined, { hash: 'b2', shortHash: 'b2', subject: 'second', body: '', author: 'dev', authorEmail: 'dev@test', date: '2024-01-02T00:00:00Z', parents: ['a1'] }] as any, hasMore: false }, isLoading: false })
+    useGitLogMock.mockReturnValue({ data: { commits: [null, { shortHash: 'x1', subject: 'broken', body: '', author: '', authorEmail: 'dev@test', authorDate: '', date: '', parents: [] }, { hash: 'a1', shortHash: 'a1', subject: 'first', body: '', author: 'dev', authorEmail: 'dev@test', authorDate: '2024-01-01T00:00:00Z', date: '2024-01-01T00:00:00Z', parents: [] }, undefined, { hash: 'b2', shortHash: 'b2', subject: 'second', body: '', author: 'dev', authorEmail: 'dev@test', authorDate: '2024-01-02T00:00:00Z', date: '2024-01-02T00:00:00Z', parents: ['a1'] }] as any, hasMore: false }, isLoading: false })
     const user = userEvent.setup()
     const queryClient = new QueryClient()
     render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(I18nProvider, null, React.createElement(GitPanel))))
@@ -81,9 +81,9 @@ describe('GitPanel', () => {
 
   it('filters invalid dates and unreachable branch heads from history graph data', async () => {
     useGitLogMock.mockReturnValue({ data: { commits: [
-      { hash: 'a1', shortHash: 'a1', subject: 'first', body: '', author: 'dev', authorEmail: 'dev@test', date: 'invalid-date', parents: [] },
-      { hash: 'b2', shortHash: 'b2', subject: 'second', body: '', author: 'dev', authorEmail: 'dev@test', date: '2024-01-02T00:00:00Z', parents: ['a1', 'a1', 'missing'] },
-      { hash: 'c3', shortHash: 'c3', subject: '', body: '', author: 'dev', authorEmail: 'dev@test', date: '2024-01-03T00:00:00Z', parents: ['b2'] },
+      { hash: 'a1', shortHash: 'a1', subject: 'first', body: '', author: 'dev', authorEmail: 'dev@test', authorDate: 'invalid-date', date: 'invalid-date', parents: [] },
+      { hash: 'b2', shortHash: 'b2', subject: 'second', body: '', author: 'dev', authorEmail: 'dev@test', authorDate: '2024-01-01T23:59:59Z', date: '2024-01-02T00:00:00Z', parents: ['a1', 'a1', 'missing'] },
+      { hash: 'c3', shortHash: 'c3', subject: '', body: '', author: 'dev', authorEmail: 'dev@test', authorDate: '2024-01-02T23:59:59Z', date: '2024-01-03T00:00:00Z', parents: ['b2'] },
     ], hasMore: false }, isLoading: false })
     useGitBranchesMock.mockReturnValue({ data: { current: 'ghost', branches: [{ name: 'ghost', current: true, commitHash: 'missing', lastCommitSubject: 'ghost' }, { name: 'main', current: false, commitHash: 'c3', lastCommitSubject: 'third' }, { name: 'main', current: false, commitHash: 'c3', lastCommitSubject: 'duplicate' }] } })
     const user = userEvent.setup()
@@ -94,5 +94,6 @@ describe('GitPanel', () => {
     expect(screen.getAllByText('c3').length).toBeGreaterThan(0)
     expect(screen.getAllByText('main').length).toBeGreaterThan(0)
     expect(screen.queryByText('ghost')).toBeNull()
+    expect(screen.getByText('second').closest('button')?.getAttribute('title')).toContain('Author')
   })
 })

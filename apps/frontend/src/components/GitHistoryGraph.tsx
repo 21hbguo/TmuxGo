@@ -53,8 +53,11 @@ export function GitHistoryGraph({ commits, branchHeads, currentBranch, hasMore, 
   })
   const rowNodes=layout.rows.map((row)=>{
     const color=graphColors[row.colorIndex%graphColors.length]
+    const committedLabel=`Commit ${formatDate(row.commit.committedAt)}`
+    const authoredLabel=row.commit.authoredAt!==row.commit.committedAt?`Author ${formatDate(row.commit.authoredAt)}`:''
+    const tooltipText=[row.commit.subject||row.commit.shortSha,`${row.commit.shortSha} · ${row.commit.author.name}`,committedLabel,authoredLabel].filter(Boolean).join('\n')
     return (
-      <button key={row.commit.sha} type="button" onClick={()=>onCommitClick(row.commit)} className="flex h-[54px] w-full items-stretch gap-3 px-0 py-0 text-left hover:bg-bg-2">
+      <button key={row.commit.sha} type="button" title={tooltipText} onClick={()=>onCommitClick(row.commit)} className="flex h-[54px] w-full items-stretch gap-3 px-0 py-0 text-left hover:bg-bg-2">
         <div className="shrink-0" style={{ width: graphWidth, height: rowHeight }} />
         <div className="min-w-0 flex-1 border-b border-[var(--line)]/50 pr-3">
           <div className="flex h-full flex-col justify-center">
@@ -67,9 +70,9 @@ export function GitHistoryGraph({ commits, branchHeads, currentBranch, hasMore, 
                 ))}
               </div>
             )}
-            <span className="ml-auto shrink-0 text-[10px] text-text-3">{formatDate(row.commit.author.date)}</span>
+            <span className="ml-auto shrink-0 text-[10px] text-text-3">{formatDate(row.commit.committedAt)}</span>
           </div>
-          <div className="truncate text-[12px] text-text-1">{row.commit.subject || row.commit.shortSha}</div>
+          <div className="truncate text-[12px] text-text-1" title={row.commit.subject || row.commit.shortSha}>{row.commit.subject || row.commit.shortSha}</div>
           <div className="truncate text-[10px] text-text-3">{row.commit.author.name}</div>
         </div>
         </div>

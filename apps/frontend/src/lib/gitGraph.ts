@@ -1,6 +1,5 @@
 export type GitGraphCommitAuthor={
   name:string
-  date:string
   email?:string
 }
 export type GitGraphCommit={
@@ -8,6 +7,8 @@ export type GitGraphCommit={
   shortSha:string
   subject:string
   author:GitGraphCommitAuthor
+  authoredAt:string
+  committedAt:string
   parents:{sha:string}[]
 }
 export type GitGraphBranchHead={
