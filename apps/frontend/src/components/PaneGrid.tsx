@@ -12,6 +12,7 @@ import { useWindowQueryState } from '@/hooks/useWindowQueryState'
 import { api } from '@/lib/api'
 import { parseSessionName } from '@/lib/session-id'
 import { useSessionContinuity } from '@/hooks/useSessionContinuity'
+import { useSessionSnapshotSync } from '@/hooks/useSessionSnapshotSync'
 
 const ATTACH_TIMEOUT = 5000
 const ATTACH_RETRY_DELAY = 900
@@ -32,6 +33,7 @@ export function PaneGrid() {
   const isMobile = isMobileDevice()
   const { data: windowsData = [] } = useWindows(activeHostId || '', activeSessionId || '')
   const { getWindows, setWindows } = useWindowQueryState(activeHostId || '', activeSessionId || '')
+  const { syncAfterWindowChange } = useSessionSnapshotSync()
   const pushToast = useConsoleStore((s) => s.pushToast)
   const exclusive = !isMobile || preferences.attachExclusive
   const attachedRef = useRef<string | null>(null)
@@ -72,11 +74,12 @@ export function PaneGrid() {
     try {
       const result = await api.windows.select(activeHostId, activeSessionId, targetWindow.id)
       if (result.windows) setWindows(result.windows)
+      await syncAfterWindowChange()
     } catch {
       setWindows(previousWindows)
       pushToast({ type: 'error', message: t('window.switchFailed') })
     }
-  }, [activeHostId, activeSessionId, sessionWindows, activeWindowIndex, getWindows, setWindows, pushToast, t])
+  }, [activeHostId, activeSessionId, sessionWindows, activeWindowIndex, getWindows, setWindows, pushToast, syncAfterWindowChange, t])
   const handleSwipeLeft = useCallback(() => { void switchWindow(1) }, [switchWindow])
   const handleSwipeRight = useCallback(() => { void switchWindow(-1) }, [switchWindow])
 

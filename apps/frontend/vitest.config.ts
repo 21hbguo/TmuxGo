@@ -9,6 +9,11 @@ export default defineConfig({
     setupFiles: ['./vitest.setup.ts'],
     include: ['./src/**/*.test.{ts,tsx}'],
     globals: true,
+    pool: 'forks',
+    fileParallelism: false,
+    maxWorkers: 1,
+    maxConcurrency: 1,
+    execArgv: ['--max-old-space-size=4096'],
     env: {
       NODE_ENV: 'test',
     },

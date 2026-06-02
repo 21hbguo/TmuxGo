@@ -16,18 +16,15 @@ export function useSessionSnapshotSync() {
     const paneId = getPaneId(snapshot)
     const key = getSnapshotKey()
     if (key) queryClient?.setQueryData(key, snapshot)
-    if (paneId) setActivePane(paneId)
+    setActivePane(paneId)
     return paneId
   }, [getPaneId, getSnapshotKey, queryClient, setActivePane])
   const readCachedPaneId = useCallback(() => {
     const key = getSnapshotKey()
     const cached = key ? queryClient?.getQueryData?.(key) : null
     const paneId = getPaneId(cached)
-    if (paneId) {
-      setActivePane(paneId)
-      return paneId
-    }
-    return null
+    setActivePane(paneId)
+    return paneId
   }, [getPaneId, getSnapshotKey, queryClient, setActivePane])
   const refreshSnapshot = useCallback(async () => {
     if (!activeHostId || !activeSessionId) return null
@@ -52,5 +49,9 @@ export function useSessionSnapshotSync() {
       return useConsoleStore.getState().activePaneId
     }
   }, [activeHostId, activeSessionId, getPaneId, readCachedPaneId, refreshSnapshot])
-  return { refreshSnapshot, resolveActivePaneId }
+  const syncAfterWindowChange = useCallback(async () => {
+    const snapshot = await refreshSnapshot()
+    return applySnapshot(snapshot)
+  }, [applySnapshot, refreshSnapshot])
+  return { refreshSnapshot, resolveActivePaneId, syncAfterWindowChange }
 }

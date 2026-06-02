@@ -36,7 +36,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
   const { data: windows = [] } = useWindows(activeHostId || '', activeSessionId || '')
   const { getWindows, setWindows } = useWindowQueryState(activeHostId || '', activeSessionId || '')
   const { t } = useTranslation()
-  const { refreshSnapshot, resolveActivePaneId } = useSessionSnapshotSync()
+  const { refreshSnapshot, resolveActivePaneId, syncAfterWindowChange } = useSessionSnapshotSync()
 
   const close = () => {
     setCommandPalette(false)
@@ -67,6 +67,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
       try {
         const result = await api.windows.select(activeHostId, activeSessionId, window.id)
         if (result.windows) setWindows(result.windows)
+        await syncAfterWindowChange()
       } catch (err) {
         setWindows(previousWindows)
         throw err

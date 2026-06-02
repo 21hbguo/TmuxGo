@@ -2,7 +2,8 @@
 import dynamic from 'next/dynamic'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent } from 'react'
-import type { FileEditorDocument } from '@/types'
+import type { DragEvent as ReactDragEvent } from 'react'
+import type { FileDocumentHandle, FileEditorDocument } from '@/types'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useGitDetect } from '@/hooks/useApi'
@@ -11,8 +12,10 @@ import { ConfirmDialog } from './ConfirmDialog'
 import { DiffViewer } from './DiffViewer'
 
 const MonacoEditor=dynamic(() => import('@monaco-editor/react').then((mod) => mod.default), { ssr: false })
+const MonacoDiffEditor=dynamic(() => import('@monaco-editor/react').then((mod) => mod.DiffEditor), { ssr: false })
 const AUTO_SCROLL_DEADZONE = 10
 const AUTO_SCROLL_MAX_STEP = 42
+const FILE_DRAG_MIME = 'application/x-tmuxgo-file'
 function getParentDir(path: string) {
   const normalized = path.replace(/\/+$/,'')
   const index = normalized.lastIndexOf('/')
@@ -136,8 +139,16 @@ function parseGitDiffId(id: string) {
   if (!hostId || !repoPath) return null
   return { hostId, repoPath, filePath, staged: params.get('staged') === '1', commit: commit || undefined }
 }
-
-export function EditorWorkbench({ onSaveEditor }:{ onSaveEditor: (editor: FileEditorDocument) => Promise<void> }) {
+function decodeDraggedFile(event: DragEvent | ReactDragEvent) {
+  const raw = event.dataTransfer?.getData(FILE_DRAG_MIME)
+  if (!raw) return null
+  try {
+    return JSON.parse(raw) as FileDocumentHandle
+  } catch {
+    return null
+  }
+}
+export function EditorWorkbench({ onSaveEditor, onOpenFile, onCreateCompare }:{ onSaveEditor: (editor: FileEditorDocument) => Promise<void>; onOpenFile: (file: FileDocumentHandle) => Promise<string>; onCreateCompare: (source: FileDocumentHandle, targetId: string) => Promise<void> }) {
   const activeHostId = useConsoleStore((state) => state.activeHostId)
   const openEditors = useConsoleStore((state) => state.openEditors)
   const activeEditorId = useConsoleStore((state) => state.activeEditorId)
@@ -157,7 +168,14 @@ export function EditorWorkbench({ onSaveEditor }:{ onSaveEditor: (editor: FileEd
   const [previewOpenById, setPreviewOpenById] = useState<Record<string, boolean>>({})
   const [cursorById, setCursorById] = useState<Record<string, { line: number; column: number }>>({})
   const [autoScrollIndicator, setAutoScrollIndicator] = useState<{ active: boolean; x: number; y: number }>({ active: false, x: 0, y: 0 })
+  const [dropTarget, setDropTarget] = useState<'editor' | null>(null)
+  const [imageScale, setImageScale] = useState(1)
+  const [imageOffset, setImageOffset] = useState({ x: 0, y: 0 })
+  const imageViewportRef = useRef<HTMLDivElement | null>(null)
+  const imageDragRef = useRef<{ pointerId: number; startX: number; startY: number; originX: number; originY: number } | null>(null)
   const activeEditor = openEditors.find((item) => item.id === activeEditorId) || openEditors[openEditors.length - 1] || null
+  const compareLeft = activeEditor?.compareLeftId ? openEditors.find((item) => item.id === activeEditor.compareLeftId) || null : null
+  const compareRight = activeEditor?.compareRightId ? openEditors.find((item) => item.id === activeEditor.compareRightId) || null : null
   const gitDiff = activeEditor?.id.startsWith('git-diff?') ? parseGitDiffId(activeEditor.id) : null
   const followFilePath = !gitDiff && activeEditor?.absolutePath ? getParentDir(activeEditor.absolutePath) : ''
   const gitMode = activeHostId ? gitByHost[activeHostId]?.mode || 'follow-editor' : 'follow-editor'
@@ -274,6 +292,11 @@ export function EditorWorkbench({ onSaveEditor }:{ onSaveEditor: (editor: FileEd
     stopAutoScroll()
   }, [activeEditor?.id, markdownPreviewOpen])
   useEffect(() => {
+    setDropTarget(null)
+    setImageScale(1)
+    setImageOffset({ x: 0, y: 0 })
+  }, [activeEditor?.id])
+  useEffect(() => {
     if (!activeHostId) return
     ensureGitHostState(activeHostId)
   }, [activeHostId, ensureGitHostState])
@@ -291,7 +314,30 @@ export function EditorWorkbench({ onSaveEditor }:{ onSaveEditor: (editor: FileEd
       <div className="tmuxgo-scrollbar-subtle flex min-h-[42px] items-stretch overflow-x-auto border-b border-[var(--line)] bg-bg-1">
         {openEditors.map((editor) => (
           <div key={editor.id} className={`group flex h-[42px] w-44 shrink-0 items-center border-r border-[rgba(255,255,255,0.04)] ${editor.id === activeEditor.id ? 'bg-bg-0' : 'bg-bg-1/80'}`}>
-            <button onClick={() => setActiveEditor(editor.id)} className={`flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-sm ${editor.id === activeEditor.id ? 'text-text-1' : 'text-text-3 hover:text-text-1'}`}>
+            <button draggable={editor.kind !== 'compare'} onDragStart={(event) => {
+              if (editor.kind === 'compare') return
+              event.dataTransfer.effectAllowed = 'copy'
+              event.dataTransfer.setData(FILE_DRAG_MIME, JSON.stringify({
+                id: editor.id,
+                hostId: editor.hostId,
+                rootId: editor.rootId,
+                rootLabel: editor.rootLabel,
+                rootPath: editor.rootPath,
+                path: editor.path,
+                name: editor.name,
+                absolutePath: editor.absolutePath,
+              } satisfies FileDocumentHandle))
+            }} onDragOver={(event) => {
+              const dragged = decodeDraggedFile(event)
+              if (!dragged || dragged.id === editor.id || editor.kind === 'compare') return
+              event.preventDefault()
+              event.dataTransfer.dropEffect = 'copy'
+            }} onDrop={(event) => {
+              const dragged = decodeDraggedFile(event)
+              if (!dragged || dragged.id === editor.id || editor.kind === 'compare') return
+              event.preventDefault()
+              void onCreateCompare(dragged, editor.id)
+            }} onClick={() => setActiveEditor(editor.id)} className={`flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-sm ${editor.id === activeEditor.id ? 'text-text-1' : 'text-text-3 hover:text-text-1'}`}>
               <span className={`h-2 w-2 rounded-full ${editor.dirty ? 'bg-warn' : editor.saving ? 'bg-accent' : 'border border-[var(--line)] bg-transparent'}`} />
               <span className="min-w-0 flex-1 truncate">{editor.name}</span>
             </button>
@@ -318,12 +364,83 @@ export function EditorWorkbench({ onSaveEditor }:{ onSaveEditor: (editor: FileEd
           )}
         </div>
       </div>
-      <div className="min-h-0 flex-1 bg-bg-0">
+      <div className="min-h-0 flex-1 bg-bg-0" onDragOver={(event) => {
+        const dragged = decodeDraggedFile(event)
+        if (!dragged) return
+        event.preventDefault()
+        event.dataTransfer.dropEffect = 'copy'
+        setDropTarget('editor')
+      }} onDragLeave={(event) => {
+        if (!(event.currentTarget as HTMLDivElement).contains(event.relatedTarget as Node | null)) setDropTarget(null)
+      }} onDrop={(event) => {
+        const dragged = decodeDraggedFile(event)
+        if (!dragged) return
+        event.preventDefault()
+        setDropTarget(null)
+        void onOpenFile(dragged)
+      }}>
+        {dropTarget === 'editor' && <div className="pointer-events-none absolute inset-[84px_16px_16px_16px] z-20 rounded-2xl border border-dashed border-accent bg-accent/8 shadow-[inset_0_0_0_1px_rgba(74,222,255,0.24)]"><div className="flex h-full items-center justify-center"><div className="rounded-full border border-accent/40 bg-bg-0/90 px-4 py-2 text-xs tracking-[0.24em] text-accent">{t('editor.dropOpen')}</div></div></div>}
         {gitDiff ? (
           <DiffViewer hostId={gitDiff.hostId} repoPath={gitDiff.repoPath} filePath={gitDiff.filePath} staged={gitDiff.staged} commit={gitDiff.commit} />
+        ) : activeEditor.kind === 'compare' ? (
+          compareLeft && compareRight ? (
+            <MonacoDiffEditor
+              key={activeEditor.id}
+              original={compareLeft.content}
+              modified={compareRight.content}
+              language={activeEditor.language}
+              theme={getMonacoTheme(preferences.theme)}
+              options={{
+                readOnly: true,
+                renderSideBySide: true,
+                automaticLayout: true,
+                minimap: { enabled: false },
+                fontFamily: preferences.fontFamily,
+                fontSize: Math.max(12, preferences.fontSize),
+                fontWeight: '400',
+                fontLigatures: false,
+                lineHeight: Math.round(Math.max(12, preferences.fontSize) * 1.5),
+                cursorWidth: 2,
+                scrollBeyondLastLine: false,
+                wordWrap: 'off',
+                renderOverviewRuler: false,
+                scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10, alwaysConsumeMouseWheel: false },
+              }}
+            />
+          ) : <div className="flex h-full items-center justify-center text-sm text-text-3">{t('editor.compareMissing')}</div>
         ) : activeEditor.loading ? <div className="flex h-full items-center justify-center text-sm text-text-3">{t('editor.loading', { name: activeEditor.name })}</div> : isImagePreviewable(activeEditor) ? (
-          <div className="flex h-full items-center justify-center bg-bg-0 p-4">
-            <img src={activeEditor.previewUrl} alt={activeEditor.name} className="max-h-full max-w-full rounded border border-[var(--line)] bg-bg-1 object-contain" />
+          <div ref={imageViewportRef} className="flex h-full items-center justify-center overflow-hidden bg-bg-0 p-4" onWheel={(event) => {
+            if (!(event.ctrlKey || event.metaKey)) return
+            event.preventDefault()
+            const viewport = imageViewportRef.current
+            if (!viewport) return
+            const rect = viewport.getBoundingClientRect()
+            const pointX = event.clientX - rect.left - rect.width / 2 - imageOffset.x
+            const pointY = event.clientY - rect.top - rect.height / 2 - imageOffset.y
+            const nextScale = Math.max(0.25, Math.min(8, imageScale * (event.deltaY < 0 ? 1.12 : 0.9)))
+            const ratio = nextScale / imageScale
+            setImageScale(nextScale)
+            setImageOffset({ x: imageOffset.x - pointX * (ratio - 1), y: imageOffset.y - pointY * (ratio - 1) })
+          }} onDoubleClick={() => {
+            if (Math.abs(imageScale - 1) < 0.01) setImageScale(2)
+            else {
+              setImageScale(1)
+              setImageOffset({ x: 0, y: 0 })
+            }
+          }} onPointerDown={(event) => {
+            imageDragRef.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, originX: imageOffset.x, originY: imageOffset.y }
+            event.currentTarget.setPointerCapture(event.pointerId)
+          }} onPointerMove={(event) => {
+            const drag = imageDragRef.current
+            if (!drag || drag.pointerId !== event.pointerId || imageScale <= 1) return
+            setImageOffset({ x: drag.originX + event.clientX - drag.startX, y: drag.originY + event.clientY - drag.startY })
+          }} onPointerUp={(event) => {
+            if (imageDragRef.current?.pointerId === event.pointerId) imageDragRef.current = null
+          }} onPointerCancel={(event) => {
+            if (imageDragRef.current?.pointerId === event.pointerId) imageDragRef.current = null
+          }}>
+            <img src={activeEditor.previewUrl} alt={activeEditor.name} className="max-h-full max-w-full rounded border border-[var(--line)] bg-bg-1 object-contain select-none" style={{ transform: `translate(${imageOffset.x}px,${imageOffset.y}px) scale(${imageScale})`, transformOrigin: 'center center' }} />
+            <div className="absolute right-4 top-3 rounded-full border border-[var(--line)] bg-bg-1/90 px-3 py-1 text-[11px] text-text-2">{Math.round(imageScale * 100)}%</div>
           </div>
         ) : activeEditor.problem || activeEditor.binary || activeEditor.truncated ? (
           <div className="flex h-full items-center justify-center p-6">
@@ -355,6 +472,9 @@ export function EditorWorkbench({ onSaveEditor }:{ onSaveEditor: (editor: FileEd
                   minimap: { enabled: false },
                   fontFamily: preferences.fontFamily,
                   fontSize: Math.max(12, preferences.fontSize),
+                  fontWeight: '400',
+                  fontLigatures: false,
+                  lineHeight: Math.round(Math.max(12, preferences.fontSize) * 1.5),
                   lineNumbers: 'on',
                   lineNumbersMinChars: 4,
                   glyphMargin: false,
@@ -394,6 +514,7 @@ export function EditorWorkbench({ onSaveEditor }:{ onSaveEditor: (editor: FileEd
                   smoothScrolling: true,
                   cursorBlinking: preferences.cursorBlink ? 'blink' : 'solid',
                   cursorStyle: 'line',
+                  cursorWidth: 2,
                   readOnlyMessage: { value: t('editor.readOnly') },
                   padding: { top: 16, bottom: 16 },
                 }}

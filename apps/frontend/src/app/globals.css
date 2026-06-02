@@ -15,6 +15,8 @@
   --text-3: 111 133 155;
   --line: rgba(30,200,255,0.28);
   --glow: 0 0 20px rgba(30,200,255,0.25);
+  --font-ui: "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-mono: Consolas, "Cascadia Mono", "Cascadia Code", "SF Mono", Monaco, Menlo, "DejaVu Sans Mono", "Liberation Mono", "Courier New", monospace;
 }
 
 [data-theme="light"] {
@@ -109,6 +111,9 @@ body {
   overflow: hidden;
   background: rgb(var(--bg-0));
   color: rgb(var(--text-1));
+  font-family: var(--font-ui);
+  font-weight: 400;
+  text-rendering: optimizeLegibility;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior: none;
@@ -119,9 +124,57 @@ body {
   -webkit-touch-callout: none;
 }
 
+body {
+  -webkit-font-smoothing: auto;
+  -moz-osx-font-smoothing: auto;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  font-weight: 400;
+}
+
 a {
   color: inherit;
   text-decoration: none;
+}
+
+.xterm,
+.xterm .xterm-rows,
+.xterm .xterm-helper-textarea,
+.xterm .xterm-accessibility,
+.xterm .xterm-accessibility-tree {
+  font-family: var(--font-mono);
+  font-weight: 400;
+  text-rendering: geometricPrecision;
+  font-variant-ligatures: none;
+  -webkit-font-smoothing: auto;
+  -moz-osx-font-smoothing: auto;
+}
+
+.monaco-editor,
+.monaco-diff-editor,
+.monaco-editor .view-lines,
+.monaco-diff-editor .view-lines,
+.monaco-editor .margin,
+.monaco-diff-editor .margin {
+  font-family: var(--font-mono) !important;
+  font-weight: 400;
+  -webkit-font-smoothing: auto;
+  -moz-osx-font-smoothing: auto;
+}
+
+.monaco-editor .monaco-editor-background,
+.monaco-diff-editor .monaco-editor-background {
+  background: rgb(var(--bg-0));
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+  font-weight: 400;
 }
 
 .tmuxgo-control {

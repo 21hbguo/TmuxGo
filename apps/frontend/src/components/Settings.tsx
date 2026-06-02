@@ -309,8 +309,9 @@ export function Settings({ onClose }: SettingsProps) {
                       onChange={(e) => updatePreferences({ fontFamily: e.target.value })}
                       className="tmuxgo-control tmuxgo-select rounded px-3 py-1.5 text-sm"
                     >
-                      <option value="JetBrains Mono, monospace">JetBrains Mono</option>
-                      <option value="Fira Code, monospace">Fira Code</option>
+                      <option value='Consolas, "Cascadia Mono", "Cascadia Code", "SF Mono", Monaco, Menlo, "DejaVu Sans Mono", "Liberation Mono", "Courier New", monospace'>VS Code Mono</option>
+                      <option value='JetBrains Mono, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace'>JetBrains Mono</option>
+                      <option value='Fira Code, "Cascadia Code", Consolas, monospace'>Fira Code</option>
                       <option value="monospace">Monospace</option>
                     </select>
                   </div>

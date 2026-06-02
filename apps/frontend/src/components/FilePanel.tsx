@@ -225,6 +225,7 @@ function FavoriteDirectoryButton({ active, name, onClick }: { active: boolean; n
   return <button onClick={onClick} className={`shrink-0 rounded px-1 py-0 text-[10px] leading-4 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 ${active ? 'bg-accent/20 text-accent opacity-100' : 'bg-bg-2 text-text-3 hover:text-text-1'}`} aria-label={`${active ? 'Unfavorite' : 'Favorite'} ${name}`}>{active ? '★' : '☆'}</button>
 }
 type FileTreeNode = DataNode & { item: FileItem; isLeaf?: boolean }
+const FILE_DRAG_MIME = 'application/x-tmuxgo-file'
 export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile }: { mode?: 'panel' | 'mobile' | 'explorer'; dock?: 'left' | 'right'; onClose?: () => void; onOpenFile?: (file: FileDocumentHandle) => void }) {
   const activeHostId = useConsoleStore((state) => state.activeHostId)
   const filePanelWidth = useConsoleStore((state) => state.filePanelWidth)
@@ -485,8 +486,12 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
 
   const openInEditor = (item: FileEntry) => {
     if (!onOpenFile || item.type !== 'file' || !root) return false
+    onOpenFile(createFileHandle(item))
+    return true
+  }
+  const createFileHandle = (item: FileEntry): FileDocumentHandle => {
     const filePath = resolveRootRelativePath(activeRootBasePath, item.path)
-    onOpenFile({
+    return {
       id: `${fileHostId}:${activeRootId}:${filePath}`,
       hostId: fileHostId,
       rootId: activeRootId,
@@ -495,8 +500,14 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
       path: filePath,
       name: item.name,
       absolutePath: joinPath(activeSourceRootPath, filePath),
-    })
-    return true
+    }
+  }
+  const bindFileDrag = (item: FileEntry) => item.type !== 'file' || isMobile ? {} : {
+    draggable: true,
+    onDragStart: (event: React.DragEvent<HTMLElement>) => {
+      event.dataTransfer.effectAllowed = 'copy'
+      event.dataTransfer.setData(FILE_DRAG_MIME, JSON.stringify(createFileHandle(item)))
+    },
   }
   const openItem = (item: FileEntry) => {
     if (item.type === 'directory') {
@@ -687,6 +698,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
       <div
         role="button"
         tabIndex={0}
+        {...bindFileDrag(item)}
         onClick={(e) => {
           e.preventDefault()
           if (item.type === 'directory') void handleDesktopDirectoryToggle(item)
@@ -730,6 +742,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
       <button
         key={`${item.type}-${item.path}`}
         tabIndex={0}
+        {...bindFileDrag(item)}
         onClick={() => openItem(item)}
         onDoubleClick={() => item.type === 'directory' ? void handleDesktopDirectoryToggle(item) : insertItemPath(item)}
         onKeyDown={(e) => {

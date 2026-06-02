@@ -79,6 +79,7 @@ export function DesktopWorkbench() {
   const setEditorLoaded = useConsoleStore((state) => state.setEditorLoaded)
   const setEditorSaving = useConsoleStore((state) => state.setEditorSaving)
   const markEditorSaved = useConsoleStore((state) => state.markEditorSaved)
+  const openCompareEditor = useConsoleStore((state) => state.openCompareEditor)
   const pushToast = useConsoleStore((state) => state.pushToast)
   const containerRef = useRef<HTMLDivElement>(null)
   const resizingRef = useRef<'session' | 'file' | 'git' | null>(null)
@@ -244,7 +245,28 @@ export function DesktopWorkbench() {
       setEditorLoaded(file.id, { loading: false, problem: err instanceof Error ? err.message : t('desktop.openFailed') })
       pushToast({ type: 'error', message: err instanceof Error ? err.message : t('desktop.openFailed') })
     }
-  }, [openEditor, pushToast, setEditorLoaded, setFilePanelOpen])
+  }, [openEditor, pushToast, setEditorLoaded, setFilePanelOpen, t])
+  const handleOpenFileForDrop = useCallback(async (file: FileDocumentHandle) => {
+    const existing = useConsoleStore.getState().openEditors.find((item) => item.id === file.id)
+    if (existing && !existing.loading) {
+      useConsoleStore.getState().setActiveEditor(existing.id)
+      return existing.id
+    }
+    await handleOpenFile(file)
+    return useConsoleStore.getState().openEditors.find((item) => item.id === file.id)?.id || file.id
+  }, [handleOpenFile])
+  const handleCreateCompare = useCallback(async (source: FileDocumentHandle, targetId: string) => {
+    const target = useConsoleStore.getState().openEditors.find((item) => item.id === targetId)
+    if (!target || target.kind === 'compare') return
+    const sourceId = await handleOpenFileForDrop(source)
+    const openedSource = useConsoleStore.getState().openEditors.find((item) => item.id === sourceId)
+    const openedTarget = useConsoleStore.getState().openEditors.find((item) => item.id === targetId)
+    if (!openedSource || !openedTarget || openedSource.binary || openedTarget.binary || openedSource.truncated || openedTarget.truncated || openedSource.loading || openedTarget.loading) {
+      pushToast({ type: 'error', message: t('editor.compareUnavailable') })
+      return
+    }
+    openCompareEditor(openedSource.id, openedTarget.id)
+  }, [handleOpenFileForDrop, openCompareEditor, pushToast, t])
   useEffect(() => {
     hydrateEditorsFromStorage()
   }, [hydrateEditorsFromStorage])
@@ -329,7 +351,7 @@ export function DesktopWorkbench() {
         {openEditors.length > 0 ? (
           <>
             <div className="min-h-0 flex-1">
-              <EditorWorkbench onSaveEditor={handleSaveEditor} />
+              <EditorWorkbench onSaveEditor={handleSaveEditor} onOpenFile={handleOpenFileForDrop} onCreateCompare={handleCreateCompare} />
             </div>
             <TerminalDock minHeight={terminalMinHeight} maxHeight={terminalMaxHeight} dragViewportHeight={viewportHeight} />
           </>

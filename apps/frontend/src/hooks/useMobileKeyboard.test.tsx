@@ -5,7 +5,7 @@ import { useMobileKeyboard } from './useMobileKeyboard'
 
 let api: { focusKeyboard?: () => void; textarea?: HTMLTextAreaElement | null } = {}
 let viewportTarget: EventTarget
-let sendInputMock: ReturnType<typeof vi.fn>
+let sendInputMock:(data: string) => void
 
 function Harness() {
   const terminalRef = useRef<HTMLDivElement>(null)
@@ -84,7 +84,7 @@ describe('useMobileKeyboard', () => {
   })
   it('does not emit keyboard close events for closed viewport resize', async () => {
     const events: Array<{ open?: boolean; inset?: number }> = []
-    window.addEventListener('mobile-keyboard-change', ((event: CustomEvent) => events.push(event.detail || {})) as EventListener)
+    window.addEventListener('mobile-keyboard-change', ((event: Event) => events.push(((event as CustomEvent).detail || {}))) as EventListener)
     render(<Harness />)
     await waitFor(() => expect(api.focusKeyboard).toBeTruthy())
     window.visualViewport?.dispatchEvent(new Event('resize'))
