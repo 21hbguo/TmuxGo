@@ -63,6 +63,7 @@ export function DesktopWorkbench() {
   const { t } = useTranslation()
   const [mounted, setMounted] = useState(false)
   useEffect(() => { setMounted(true) }, [])
+  const activeHostId = useConsoleStore((state) => state.activeHostId)
   const sessionPanelExpanded = useConsoleStore((state) => state.sessionPanelExpanded)
   const sessionPanelWidth = useConsoleStore((state) => state.sessionPanelWidth)
   const filePanelWidth = useConsoleStore((state) => state.filePanelWidth)
@@ -208,13 +209,13 @@ export function DesktopWorkbench() {
         binary: true,
         truncated: false,
         problem: undefined,
-        previewUrl: api.files.imageUrl(file.rootId, file.path),
+        previewUrl: api.files.imageUrl(file.hostId, file.rootId, file.path),
       })
       return
     }
     if (existing && !existing.loading && (!!existing.modifiedAt || !!existing.problem || existing.binary || existing.truncated)) return
     try {
-      const result = await api.files.content(file.rootId, file.path)
+      const result = await api.files.content(file.hostId, file.rootId, file.path)
       setEditorLoaded(file.id, {
         loading: false,
         content: result.content,
@@ -247,7 +248,7 @@ export function DesktopWorkbench() {
     if (editor.loading || editor.binary || editor.truncated) return
     setEditorSaving(editor.id, true)
     try {
-      const result = await api.files.saveContent(editor.rootId, editor.path, editor.content, editor.modifiedAt || undefined)
+      const result = await api.files.saveContent(editor.hostId, editor.rootId, editor.path, editor.content, editor.modifiedAt || undefined)
       markEditorSaved(editor.id, result.content, result.modifiedAt, result.size)
       pushToast({ type: 'success', message: t('editor.saved') })
     } catch (err) {

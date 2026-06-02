@@ -120,8 +120,8 @@ function parseApiError(status: number, raw: string) {
   error.code = code
   return error
 }
-function uploadWithProgress(body: FormData, onProgress?: (loadedBytes: number, totalBytes: number) => void): Promise<UploadJobResult> {
-  const url = `${getApiBase()}/api/files/upload`
+function uploadWithProgress(hostId: string, body: FormData, onProgress?: (loadedBytes: number, totalBytes: number) => void): Promise<UploadJobResult> {
+  const url = `${getApiBase()}/api/hosts/${encodeURIComponent(hostId)}/files/upload`
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     xhr.open('POST', url, true)
@@ -268,35 +268,35 @@ export const api = {
     info: () => fetchApi<SystemInfoResponse>('/api/system'),
   },
   files: {
-    roots: () => fetchApi<FileRoot[]>('/api/files/roots'),
-    list: (root: string, path = '') => fetchApi<FileListResponse>(`/api/files/list?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}`),
-    preview: (root: string, path: string, line = 1) => fetchApi<FilePreviewResponse>(`/api/files/preview?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}&line=${line}`),
-    content: (root: string, path: string) => fetchApi<FileContentResponse>(`/api/files/content?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}`),
-    saveContent: (root: string, path: string, content: string, modifiedAt?: string) => fetchApi<{ ok: true; content: string; modifiedAt: string; size: number }>(`/api/files/content`, {
+    roots: (hostId: string) => fetchApi<FileRoot[]>(`/api/hosts/${encodeURIComponent(hostId)}/files/roots`),
+    list: (hostId: string, root: string, path = '') => fetchApi<FileListResponse>(`/api/hosts/${encodeURIComponent(hostId)}/files/list?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}`),
+    preview: (hostId: string, root: string, path: string, line = 1) => fetchApi<FilePreviewResponse>(`/api/hosts/${encodeURIComponent(hostId)}/files/preview?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}&line=${line}`),
+    content: (hostId: string, root: string, path: string) => fetchApi<FileContentResponse>(`/api/hosts/${encodeURIComponent(hostId)}/files/content?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}`),
+    saveContent: (hostId: string, root: string, path: string, content: string, modifiedAt?: string) => fetchApi<{ ok: true; content: string; modifiedAt: string; size: number }>(`/api/hosts/${encodeURIComponent(hostId)}/files/content`, {
       method: 'PUT',
       body: JSON.stringify({ root, path, content, modifiedAt }),
     }),
-    createFile: (root: string, path: string, name: string) => fetchApi<{ ok: true; item: FileItem; parentPath: string }>(`/api/files/create-file`, {
+    createFile: (hostId: string, root: string, path: string, name: string) => fetchApi<{ ok: true; item: FileItem; parentPath: string }>(`/api/hosts/${encodeURIComponent(hostId)}/files/create-file`, {
       method: 'POST',
       body: JSON.stringify({ root, path, name }),
     }),
-    createDirectory: (root: string, path: string, name: string) => fetchApi<{ ok: true; item: FileItem; parentPath: string }>(`/api/files/create-directory`, {
+    createDirectory: (hostId: string, root: string, path: string, name: string) => fetchApi<{ ok: true; item: FileItem; parentPath: string }>(`/api/hosts/${encodeURIComponent(hostId)}/files/create-directory`, {
       method: 'POST',
       body: JSON.stringify({ root, path, name }),
     }),
-    rename: (root: string, path: string, name: string) => fetchApi<{ ok: true; item: FileItem; previousPath: string }>(`/api/files/rename`, {
+    rename: (hostId: string, root: string, path: string, name: string) => fetchApi<{ ok: true; item: FileItem; previousPath: string }>(`/api/hosts/${encodeURIComponent(hostId)}/files/rename`, {
       method: 'POST',
       body: JSON.stringify({ root, path, name }),
     }),
-    remove: (root: string, path: string) => fetchApi<{ ok: true; path: string; type: 'file' | 'directory' }>(`/api/files/remove?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}`, {
+    remove: (hostId: string, root: string, path: string) => fetchApi<{ ok: true; path: string; type: 'file' | 'directory' }>(`/api/hosts/${encodeURIComponent(hostId)}/files/remove?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}`, {
       method: 'DELETE',
     }),
-    searchName: (root: string, q: string, basePath = '') => fetchApi<FileItem[]>(`/api/files/search-name?root=${encodeURIComponent(root)}&q=${encodeURIComponent(q)}&basePath=${encodeURIComponent(basePath)}`),
-    searchContent: (root: string, q: string, basePath = '') => fetchApi<FileContentMatch[]>(`/api/files/search-content?root=${encodeURIComponent(root)}&q=${encodeURIComponent(q)}&basePath=${encodeURIComponent(basePath)}`),
-    defaultUploadTarget: (paneId?: string) => fetchApi<FileUploadTarget>(`/api/files/default-upload-target${paneId ? `?paneId=${encodeURIComponent(paneId)}` : ''}`),
-    upload: (body: FormData, onProgress?: (loadedBytes: number, totalBytes: number) => void) => uploadWithProgress(body, onProgress),
-    downloadUrl: (root: string, path: string, rateLimitKBps?: number, profile = 'default') => `${getApiBase()}/api/files/download?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}&profile=${encodeURIComponent(profile)}${typeof rateLimitKBps === 'number' ? `&rateLimitKBps=${encodeURIComponent(String(rateLimitKBps))}` : ''}`,
-    imageUrl: (root: string, path: string, modifiedAt?: string) => `${getApiBase()}/api/files/image?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}${modifiedAt ? `&modifiedAt=${encodeURIComponent(modifiedAt)}` : ''}`,
+    searchName: (hostId: string, root: string, q: string, basePath = '') => fetchApi<FileItem[]>(`/api/hosts/${encodeURIComponent(hostId)}/files/search-name?root=${encodeURIComponent(root)}&q=${encodeURIComponent(q)}&basePath=${encodeURIComponent(basePath)}`),
+    searchContent: (hostId: string, root: string, q: string, basePath = '') => fetchApi<FileContentMatch[]>(`/api/hosts/${encodeURIComponent(hostId)}/files/search-content?root=${encodeURIComponent(root)}&q=${encodeURIComponent(q)}&basePath=${encodeURIComponent(basePath)}`),
+    defaultUploadTarget: (hostId: string, paneId?: string) => fetchApi<FileUploadTarget>(`/api/hosts/${encodeURIComponent(hostId)}/files/default-upload-target${paneId ? `?paneId=${encodeURIComponent(paneId)}` : ''}`),
+    upload: (hostId: string, body: FormData, onProgress?: (loadedBytes: number, totalBytes: number) => void) => uploadWithProgress(hostId, body, onProgress),
+    downloadUrl: (hostId: string, root: string, path: string, rateLimitKBps?: number, profile = 'default') => `${getApiBase()}/api/hosts/${encodeURIComponent(hostId)}/files/download?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}&profile=${encodeURIComponent(profile)}${typeof rateLimitKBps === 'number' ? `&rateLimitKBps=${encodeURIComponent(String(rateLimitKBps))}` : ''}`,
+    imageUrl: (hostId: string, root: string, path: string, modifiedAt?: string) => `${getApiBase()}/api/hosts/${encodeURIComponent(hostId)}/files/image?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}${modifiedAt ? `&modifiedAt=${encodeURIComponent(modifiedAt)}` : ''}`,
   },
   preferences: {
     get: (profile = 'default') => fetchApi<RemotePreferences>(`/api/preferences?profile=${encodeURIComponent(profile)}`),

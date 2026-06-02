@@ -17,10 +17,12 @@ export function UploadConfirmDialog() {
   const uploadRequest = useConsoleStore((s) => s.uploadRequest)
   const closeUploadDialog = useConsoleStore((s) => s.closeUploadDialog)
   const activePaneId = useConsoleStore((s) => s.activePaneId)
+  const activeHostId = useConsoleStore((s) => s.activeHostId)
   const pushToast = useConsoleStore((s) => s.pushToast)
   const addUploadJob = useConsoleStore((s) => s.addUploadJob)
   const updateUploadJob = useConsoleStore((s) => s.updateUploadJob)
-  const { data: roots = [] } = useFileRoots()
+  const hostId = activeHostId || 'local'
+  const { data: roots = [] } = useFileRoots(hostId)
   const { preferences } = usePreferences()
   const { t } = useTranslation()
   const [targetRootId, setTargetRootId] = useState('')
@@ -50,7 +52,7 @@ export function UploadConfirmDialog() {
     }
     let cancelled = false
     setLoadingTarget(true)
-    void api.files.defaultUploadTarget(activePaneId || undefined).then((target) => {
+    void api.files.defaultUploadTarget(hostId, activePaneId || undefined).then((target) => {
       if (cancelled) return
       setTargetRootId(target.rootId)
       setTargetPath(target.path)
@@ -66,7 +68,7 @@ export function UploadConfirmDialog() {
     return () => {
       cancelled = true
     }
-  }, [open, requestKey, uploadRequest, activePaneId, roots, pushToast])
+  }, [open, requestKey, uploadRequest, activePaneId, hostId, roots, pushToast])
   useEffect(() => {
     if (!open || targetRootId || !roots.length) return
     setTargetRootId(roots[0].id)
@@ -108,7 +110,7 @@ export function UploadConfirmDialog() {
         createdAt: new Date().toISOString(),
       })
       closeUploadDialog()
-      const result = await api.files.upload(body, (loadedBytes, uploadTotalBytes) => {
+      const result = await api.files.upload(hostId, body, (loadedBytes, uploadTotalBytes) => {
         updateUploadJob(jobId, { loadedBytes, totalBytes: uploadTotalBytes || totalBytes, status: 'uploading' })
       })
       updateUploadJob(jobId, { loadedBytes: totalBytes, totalBytes, status: 'success', finishedAt: new Date().toISOString(), result })

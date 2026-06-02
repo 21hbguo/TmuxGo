@@ -17,12 +17,16 @@ vi.mock('@monaco-editor/react', () => ({
 vi.mock('@/hooks/usePreferences', () => ({
   usePreferences: () => ({ preferences: { theme: 'dark', fontFamily: 'monospace', fontSize: 14 } }),
 }))
+vi.mock('@/hooks/useApi', () => ({
+  useGitDetect: () => ({ data: { isGitRepo: false } }),
+}))
 
 describe('EditorWorkbench', () => {
   beforeEach(() => {
     useConsoleStore.setState({
       openEditors: [{
         id: 'editor-1',
+        hostId: 'local',
         rootId: 'root-workspace',
         rootLabel: 'Workspace',
         rootPath: '/workspace',
