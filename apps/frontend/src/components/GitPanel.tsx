@@ -26,9 +26,10 @@ function normalizeGitGraphCommits(commits: GitCommitInfo[]) {
     subject: commit.subject || commit.hash.slice(0, 7),
     author: {
       name: commit.author,
-      date: commit.date,
       email: commit.authorEmail,
     },
+    authoredAt: commit.authorDate || commit.date,
+    committedAt: commit.date,
     parents: (commit.parents || []).filter((sha, index, arr) => !!sha && commitSet.has(sha) && arr.indexOf(sha) === index).map((sha) => ({ sha })),
   }))
 }

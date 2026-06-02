@@ -332,6 +332,7 @@ export interface GitCommitInfo {
   body: string
   author: string
   authorEmail: string
+  authorDate: string
   date: string
   parents: string[]
 }

@@ -9,9 +9,9 @@ function loadRepoGraphData(){
   const field='\x1f'
   const branchField='\t'
   const record='\x1e'
-  const logOut=execFileSync('git',['-C',repo,'log','--all','--topo-order','--format=%H%x1f%h%x1f%s%x1f%b%x1f%an%x1f%ae%x1f%ai%x1f%P%x1e','-n120'],{encoding:'utf8'})
+  const logOut=execFileSync('git',['-C',repo,'log','--all','--date-order','--format=%H%x1f%h%x1f%s%x1f%b%x1f%an%x1f%ae%x1f%ai%x1f%ci%x1f%P%x1e','-n120'],{encoding:'utf8'})
   const commitsRaw=logOut.split(record).filter(Boolean).map((line)=>{
-    const [hash='',shortHash='',subject='',body='',author='',authorEmail='',date='',rawParents='']=line.split(field)
+    const [hash='',shortHash='',subject='',body='',author='',authorEmail='',authorDate='',committedDate='',rawParents='']=line.split(field)
     return {
       hash:hash.trim(),
       shortHash:shortHash.trim(),
@@ -19,10 +19,11 @@ function loadRepoGraphData(){
       body:body.replace(/^\n+|\n+$/g,''),
       author:author.trim(),
       authorEmail:authorEmail.trim(),
-      date:date.trim(),
+      authorDate:authorDate.trim(),
+      committedDate:committedDate.trim(),
       parents:rawParents.trim()?rawParents.trim().split(/\s+/).filter(Boolean):[],
     }
-  }).filter((commit)=>commit.hash&&commit.shortHash&&commit.author&&commit.date&&Number.isFinite(new Date(commit.date).getTime()))
+  }).filter((commit)=>commit.hash&&commit.shortHash&&commit.author&&commit.committedDate&&Number.isFinite(new Date(commit.committedDate).getTime()))
   const seen=new Set<string>()
   const commitsValid=commitsRaw.filter((commit)=>!seen.has(commit.hash)&&seen.add(commit.hash))
   const commitSet=new Set(commitsValid.map((commit)=>commit.hash))
@@ -32,9 +33,10 @@ function loadRepoGraphData(){
     subject:commit.subject||commit.shortHash,
     author:{
       name:commit.author,
-      date:commit.date,
       email:commit.authorEmail,
     },
+    authoredAt:commit.authorDate||commit.committedDate,
+    committedAt:commit.committedDate,
     parents:commit.parents.filter((sha,index,arr)=>sha&&commitSet.has(sha)&&arr.indexOf(sha)===index).map((sha)=>({sha})),
   }))
   const branchOut=execFileSync('git',['-C',repo,'for-each-ref','--sort=-committerdate','--format=%(if)%(HEAD)%(then)*%(else) %(end)\t%(refname:short)\t%(objectname)\t%(upstream:short)\t%(upstream:trackshort)\t%(contents:subject)','refs/heads'],{encoding:'utf8'})
