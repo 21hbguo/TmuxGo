@@ -7,6 +7,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { ConfirmDialog } from './ConfirmDialog'
 import type { GitFileChange, GitCommitInfo } from '@/types'
 import { CommitGraph } from 'commit-graph'
+import type { CommitNode } from 'commit-graph'
 import { api } from '@/lib/api'
 
 type GitTab = 'status' | 'history' | 'branches'
@@ -69,9 +70,10 @@ function StatusTab({ hostId, repoPath, t }: { hostId: string; repoPath: string; 
   const [pendingDiscard, setPendingDiscard] = useState<string | null>(null)
 
   const openDiff = useCallback((file: GitFileChange, isStaged: boolean) => {
-    const editorId = `git-diff:${hostId}:${repoPath}:${isStaged ? 'staged:' : ''}${file.path}`
+    const params = new URLSearchParams({ hostId, repoPath, filePath: file.path })
+    if (isStaged) params.set('staged', '1')
     useConsoleStore.getState().openEditor({
-      id: editorId,
+      id: `git-diff?${params.toString()}`,
       rootId: 'git',
       rootLabel: 'Git',
       rootPath: repoPath,
@@ -132,16 +134,19 @@ function HistoryTab({ hostId, repoPath, t }: { hostId: string; repoPath: string;
     commit: { sha: branch.commitHash },
   }))
   const getDiff = async (base: string, head: string) => api.git.diffStats(hostId, repoPath, base, head)
-  const openCommitDiff = (commit: { sha: string; message?: string }) => {
-    const params = new URLSearchParams({ hostId, repoPath, commit: `${commit.sha}^!` })
+  const getCommitHash = (commit: CommitNode | { sha?: string; hash?: string }) => 'hash' in commit ? commit.hash : commit.sha || ''
+  const openCommitDiff = (commit: CommitNode | { sha?: string; hash?: string; message?: string }) => {
+    const hash = getCommitHash(commit)
+    if (!hash) return
+    const params = new URLSearchParams({ hostId, repoPath, commit: `${hash}^!` })
     useConsoleStore.getState().openEditor({
       id: `git-diff?${params.toString()}`,
       rootId: 'git',
       rootLabel: 'Git',
       rootPath: repoPath,
       path: '',
-      name: `${commit.sha.slice(0, 7)} ${commit.message || 'commit diff'}`,
-      absolutePath: `${repoPath}@${commit.sha.slice(0, 7)}`,
+      name: `${hash.slice(0, 7)} ${commit.message || 'commit diff'}`,
+      absolutePath: `${repoPath}@${hash.slice(0, 7)}`,
       language: 'diff',
     })
   }
@@ -188,9 +193,9 @@ function useGitLogPaged(hostId: string, repoPath: string) {
   }
 }
 
-function formatDate(dateStr: string) {
+function formatDate(dateValue: string | number | Date) {
   try {
-    const d = new Date(dateStr)
+    const d = new Date(dateValue)
     const now = new Date()
     const diffMs = now.getTime() - d.getTime()
     const diffMins = Math.floor(diffMs / 60000)
@@ -202,7 +207,7 @@ function formatDate(dateStr: string) {
     if (diffDays < 7) return `${diffDays}d ago`
     return d.toLocaleDateString()
   } catch {
-    return dateStr
+    return String(dateValue)
   }
 }
 
