@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import React from 'react'
 import { vi } from 'vitest'
@@ -39,6 +39,32 @@ describe('PasteConfirmDialog', () => {
     await user.click(screen.getByRole('button', { name: 'Escape Paste' }))
     expect(onEscapeSend).toHaveBeenCalledTimes(1)
     await user.click(screen.getByRole('button', { name: 'Send' }))
+    expect(onSend).toHaveBeenCalledTimes(1)
+  })
+  it('sends on enter and keeps shift enter as newline', async () => {
+    const user = userEvent.setup()
+    const onSend = vi.fn()
+    function DialogHarness() {
+      const [text, setText] = React.useState('printf ok')
+      return React.createElement(PasteConfirmDialog, {
+        open: true,
+        text,
+        meta: [],
+        onTextChange: setText,
+        onSend,
+        onEscapeSend: vi.fn(),
+        onCancel: vi.fn(),
+      })
+    }
+    render(React.createElement(DialogHarness))
+    const textarea = screen.getByRole('textbox')
+    await waitFor(() => expect(document.activeElement).toBe(textarea))
+    await waitFor(() => expect(textarea).toHaveProperty('selectionStart', 'printf ok'.length))
+    await waitFor(() => expect(textarea).toHaveProperty('selectionEnd', 'printf ok'.length))
+    await user.keyboard('{Shift>}{Enter}{/Shift}')
+    expect(onSend).toHaveBeenCalledTimes(0)
+    expect(textarea).toHaveValue('printf ok\n')
+    await user.keyboard('{Enter}')
     expect(onSend).toHaveBeenCalledTimes(1)
   })
   it('renders manual paste mode', () => {

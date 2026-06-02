@@ -502,7 +502,7 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
   }
   if (!activeEditor) return null
   return (
-    <section className="flex h-full min-h-0 flex-col bg-bg-0">
+    <section data-editor-drop className="flex h-full min-h-0 flex-col bg-bg-0">
       <div className="flex items-center justify-between border-b border-[rgba(255,255,255,0.04)] bg-bg-1/70 px-3 py-2">
         <div className="min-w-0">
           <div className="truncate text-sm text-text-1">{activeEditor.absolutePath}</div>

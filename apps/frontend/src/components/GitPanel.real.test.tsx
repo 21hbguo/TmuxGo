@@ -78,6 +78,7 @@ describe('GitPanel real graph render',()=>{
       onLoadMore:()=>{},
       onCommitClick:()=>{},
       formatDate:(value)=>String(value),
+      formatDateFull:(value)=>String(value),
     })))
     expect(commits.length).toBeGreaterThan(100)
     expect(branchHeads.length).toBeGreaterThan(3)

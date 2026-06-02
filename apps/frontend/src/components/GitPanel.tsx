@@ -182,6 +182,7 @@ function HistoryTab({ hostId, repoPath, t }: { hostId: string; repoPath: string;
         currentBranch={currentBranch}
         onCommitClick={openCommitDiff}
         formatDate={formatDate}
+        formatDateFull={formatDateFull}
       />
       )}
     </div>
@@ -229,15 +230,38 @@ function formatDate(dateValue: string | number | Date) {
     const d = new Date(dateValue)
     if (!Number.isFinite(d.getTime())) return String(dateValue)
     const now = new Date()
-    const diffMs = now.getTime() - d.getTime()
-    const diffMins = Math.floor(diffMs / 60000)
-    if (diffMins < 1) return 'just now'
-    if (diffMins < 60) return `${diffMins}m ago`
-    const diffHours = Math.floor(diffMins / 60)
-    if (diffHours < 24) return `${diffHours}h ago`
-    const diffDays = Math.floor(diffHours / 24)
-    if (diffDays < 7) return `${diffDays}d ago`
-    return d.toLocaleDateString()
+    const sameYear = d.getFullYear() === now.getFullYear()
+    return d.toLocaleString([], sameYear ? {
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    } : {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    })
+  } catch {
+    return String(dateValue)
+  }
+}
+function formatDateFull(dateValue: string | number | Date) {
+  try {
+    const d = new Date(dateValue)
+    if (!Number.isFinite(d.getTime())) return String(dateValue)
+    return d.toLocaleString([], {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    })
   } catch {
     return String(dateValue)
   }

@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useRef } from 'react'
 import { useTranslation } from '@/i18n'
 
 interface PasteConfirmDialogProps {
@@ -15,12 +16,44 @@ interface PasteConfirmDialogProps {
 }
 
 export function PasteConfirmDialog({ open, text, meta, mode = 'confirm', onTextChange, onRetryPermission, onSend, onEscapeSend, onCancel }: PasteConfirmDialogProps) {
+  const { t } = useTranslation()
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const focusToEnd = () => {
+      const textarea = textareaRef.current
+      if (!textarea) return
+      const pos = textarea.value.length
+      textarea.focus()
+      textarea.setSelectionRange(pos, pos)
+    }
+    focusToEnd()
+    const frame = requestAnimationFrame(focusToEnd)
+    const timer = setTimeout(focusToEnd, 0)
+    return () => {
+      cancelAnimationFrame(frame)
+      clearTimeout(timer)
+    }
+  }, [open])
   if (!open) return null
   const isManual = mode === 'manual'
-  const { t } = useTranslation()
   return (
     <div className="fixed inset-0 z-[85] flex items-center justify-center bg-black/60 p-4" onClick={onCancel}>
-      <div className="w-full max-w-2xl rounded-lg border border-[var(--line)] bg-bg-1 p-5" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="w-full max-w-2xl rounded-lg border border-[var(--line)] bg-bg-1 p-5"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDownCapture={(e) => {
+          e.stopPropagation()
+          if (e.key === 'Escape') {
+            e.preventDefault()
+            onCancel()
+            return
+          }
+          if (e.key !== 'Enter' || e.nativeEvent.isComposing || e.shiftKey) return
+          e.preventDefault()
+          if (text) onSend()
+        }}
+      >
         <div className="text-lg text-text-1">{isManual ? t('paste.manualTitle') : t('paste.title')}</div>
         {isManual && <div className="mt-2 text-sm text-text-3">{t('paste.manualDesc')}</div>}
         <div className="mt-2 flex flex-wrap gap-2 text-xs text-text-3">
@@ -29,6 +62,7 @@ export function PasteConfirmDialog({ open, text, meta, mode = 'confirm', onTextC
           ))}
         </div>
         <textarea
+          ref={textareaRef}
           value={text}
           onChange={(e) => onTextChange?.(e.target.value)}
           className="tmuxgo-control tmuxgo-textarea mt-4 h-48 w-full resize-none rounded p-3 text-xs"
