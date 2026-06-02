@@ -22,12 +22,12 @@ export function StatusBar() {
   const activePane = panes.find((p: any) => p.id === activePaneId)
   const activeHost = hosts.find((h: any) => h.id === activeHostId)
 
-  const statusColor = {
+  const statusColor = ({
     connected: 'text-accent-2',
     attaching: 'text-warn',
     reconnecting: 'text-warn',
     disconnected: 'text-danger',
-  }[connection.status]
+  } as Record<string, string>)[connection.status] || 'text-text-3'
 
   return (
     <footer className="h-7 bg-bg-1 border-t border-[var(--line)] flex items-center px-4 text-xs shrink-0">

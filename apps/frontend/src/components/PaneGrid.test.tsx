@@ -23,6 +23,12 @@ vi.mock('@/i18n', () => ({
 vi.mock('@/hooks/usePreferences', () => ({
   usePreferences: () => ({ preferences: { attachExclusive: true } }),
 }))
+vi.mock('@/hooks/useSessionContinuity', () => ({
+  useSessionContinuity: () => ({
+    sessionContinuity: { enabled: false },
+    upsertResumePoint: vi.fn(),
+  }),
+}))
 vi.mock('@/hooks/useMobileKeyboard', () => ({
   isMobileDevice: () => false,
 }))

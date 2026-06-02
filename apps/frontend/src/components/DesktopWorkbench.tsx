@@ -199,21 +199,36 @@ export function DesktopWorkbench() {
     setFilePanelOpen(true)
     const existing = useConsoleStore.getState().openEditors.find((item) => item.id === file.id)
     openEditor({ ...file, language: existing?.language || getEditorLanguage(file.path) })
+    if (existing?.dirty) return
+    setEditorLoaded(file.id, {
+      loading: true,
+      saving: false,
+      dirty: false,
+      binary: false,
+      truncated: false,
+      problem: undefined,
+      previewUrl: undefined,
+    })
     if (isImagePath(file.path)) {
-      setEditorLoaded(file.id, {
-        loading: false,
-        content: '',
-        savedContent: '',
-        modifiedAt: existing?.modifiedAt || '',
-        size: existing?.size || 0,
-        binary: true,
-        truncated: false,
-        problem: undefined,
-        previewUrl: api.files.imageUrl(file.hostId, file.rootId, file.path),
-      })
+      try {
+        const result = await api.files.preview(file.hostId, file.rootId, file.path)
+        setEditorLoaded(file.id, {
+          loading: false,
+          content: '',
+          savedContent: '',
+          modifiedAt: result.modifiedAt,
+          size: result.size,
+          binary: true,
+          truncated: false,
+          problem: undefined,
+          previewUrl: api.files.imageUrl(file.hostId, file.rootId, file.path, result.modifiedAt),
+        })
+      } catch (err) {
+        setEditorLoaded(file.id, { loading: false, problem: err instanceof Error ? err.message : t('desktop.openFailed') })
+        pushToast({ type: 'error', message: err instanceof Error ? err.message : t('desktop.openFailed') })
+      }
       return
     }
-    if (existing && !existing.loading && (!!existing.modifiedAt || !!existing.problem || existing.binary || existing.truncated)) return
     try {
       const result = await api.files.content(file.hostId, file.rootId, file.path)
       setEditorLoaded(file.id, {
