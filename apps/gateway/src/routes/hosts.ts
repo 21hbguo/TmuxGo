@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { agentManager } from '../agent-manager.js'
 import { getHostById, listAllHosts, removeRemoteHost, upsertRemoteHost } from '../lib/hosts.js'
-import { verifyHostConnectivity } from '../lib/tmux-executor.js'
+import { execHostShell, verifyHostConnectivity } from '../lib/tmux-executor.js'
 
 export async function hostRoutes(fastify: FastifyInstance) {
   fastify.get('/hosts', async () => {
@@ -105,5 +105,18 @@ export async function hostRoutes(fastify: FastifyInstance) {
     const { id } = request.params as { id: string }
     const result = await verifyHostConnectivity(id)
     return result
+  })
+  fastify.get('/hosts/:id/github/auth-status', async (request) => {
+    const { id } = request.params as { id: string }
+    try {
+      const { stdout } = await execHostShell(id, `if ! command -v gh >/dev/null 2>&1; then printf '__TMUXGO_GH_MISSING__'; elif gh auth status >/dev/null 2>&1; then printf '__TMUXGO_GH_LOGGED_IN__'; else printf '__TMUXGO_GH_NOT_LOGGED_IN__'; fi`, { timeoutMs: 8000 })
+      const marker = stdout.trim()
+      if (marker === '__TMUXGO_GH_LOGGED_IN__') return { ok: true, available: true, loggedIn: true }
+      if (marker === '__TMUXGO_GH_NOT_LOGGED_IN__') return { ok: true, available: true, loggedIn: false }
+      if (marker === '__TMUXGO_GH_MISSING__') return { ok: true, available: false, loggedIn: false }
+      return { ok: false, available: false, loggedIn: null }
+    } catch {
+      return { ok: false, available: false, loggedIn: null }
+    }
   })
 }

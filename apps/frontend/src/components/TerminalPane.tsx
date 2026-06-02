@@ -125,6 +125,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   const githubDeviceLoginRef = useRef<{ code: string; url: string } | null>(null)
   const githubDeviceLoginDismissedRef = useRef('')
   const githubDeviceLoginBufferRef = useRef('')
+  const githubAuthLoggedInRef = useRef<boolean | null>(null)
   const setGithubDeviceLoginState = useCallback((next: { code: string; url: string } | null) => {
     githubDeviceLoginRef.current = next
     setGithubDeviceLogin(next)
@@ -148,10 +149,11 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     }
     pushToast({ type: result.unavailable ? 'info' : 'success', message: result.unavailable ? t('githubAuth.copiedInApp') : t('githubAuth.copied') })
   }, [pushToast, t])
-  const updateGithubDeviceLogin = useCallback((raw: string) => {
-    const normalized = normalizeTerminalText(raw)
-    if (!normalized) return
-    githubDeviceLoginBufferRef.current = (githubDeviceLoginBufferRef.current + normalized).slice(-4096)
+  const syncGithubDeviceLogin = useCallback(() => {
+    if (githubAuthLoggedInRef.current !== false) {
+      if (githubAuthLoggedInRef.current === true && githubDeviceLoginRef.current) setGithubDeviceLoginState(null)
+      return
+    }
     const detected = extractGithubDeviceLogin(githubDeviceLoginBufferRef.current)
     if (!detected) return
     if (detected.code === githubDeviceLoginDismissedRef.current && githubDeviceLoginRef.current?.code !== detected.code) return
@@ -160,6 +162,12 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     githubDeviceLoginDismissedRef.current = ''
     setGithubDeviceLoginState(detected)
   }, [setGithubDeviceLoginState])
+  const updateGithubDeviceLogin = useCallback((raw: string) => {
+    const normalized = normalizeTerminalText(raw)
+    if (!normalized) return
+    githubDeviceLoginBufferRef.current = (githubDeviceLoginBufferRef.current + normalized).slice(-4096)
+    syncGithubDeviceLogin()
+  }, [syncGithubDeviceLogin])
   const dispatchTerminalTap = useCallback((x: number, y: number) => {
     const container = terminalRef.current
     if (!container) return
@@ -337,8 +345,26 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   useEffect(() => {
     githubDeviceLoginBufferRef.current = ''
     githubDeviceLoginDismissedRef.current = ''
+    githubAuthLoggedInRef.current = null
     setGithubDeviceLoginState(null)
   }, [activeHostId, sessionName, setGithubDeviceLoginState])
+  useEffect(() => {
+    let disposed = false
+    const hostId = activeHostId || 'local'
+    githubAuthLoggedInRef.current = null
+    void api.hosts.githubAuthStatus(hostId).then((status) => {
+      if (disposed) return
+      githubAuthLoggedInRef.current = status.ok ? status.loggedIn : null
+      syncGithubDeviceLogin()
+    }).catch(() => {
+      if (disposed) return
+      githubAuthLoggedInRef.current = null
+      syncGithubDeviceLogin()
+    })
+    return () => {
+      disposed = true
+    }
+  }, [activeHostId, syncGithubDeviceLogin])
 
   useEffect(() => {
     const terminal = terminalInstance.current

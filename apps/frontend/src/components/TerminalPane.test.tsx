@@ -49,6 +49,7 @@ const queryClientMocks = vi.hoisted(() => ({
 const apiMocks = vi.hoisted(() => ({
   snapshotGet: vi.fn(async () => ({ windows: [], panes: [], activePaneId: null })),
   paneResize: vi.fn(async () => ({ ok: true })),
+  githubAuthStatus: vi.fn(async () => ({ ok: true, available: true, loggedIn: false })),
 }))
 const mobileKeyboardMocks = vi.hoisted(() => ({
   focusKeyboard: vi.fn(),
@@ -90,7 +91,7 @@ vi.mock('@/stores/useConsoleStore', () => ({
   useConsoleStore: Object.assign(((selector: any) => selector({ activeHostId: 'local', pushToast: storeMocks.pushToast, updateTerminalPerf: storeMocks.updateTerminalPerf, setActivePane: storeMocks.setActivePane, openUploadDialog: storeMocks.openUploadDialog, terminalPerf: { attachLatency: 0, outputBytes: 0, outputEvents: 0, outputBacklog: 0, layoutFitCount: 0, lastOutputAt: '' } })) as any, { getState: () => ({ terminalPerf: { attachLatency: 0, outputBytes: 0, outputEvents: 0, outputBacklog: 0, layoutFitCount: 0, lastOutputAt: '' } }) }),
 }))
 vi.mock('@/lib/api', () => ({
-  api: { snapshot: { get: apiMocks.snapshotGet }, panes: { resize: apiMocks.paneResize } },
+  api: { snapshot: { get: apiMocks.snapshotGet }, panes: { resize: apiMocks.paneResize }, hosts: { githubAuthStatus: apiMocks.githubAuthStatus } },
 }))
 vi.mock('@/hooks/useOptionalQueryClient', () => ({
   useOptionalQueryClient: () => queryClientMocks,
@@ -253,6 +254,8 @@ describe('TerminalPane', () => {
     apiMocks.snapshotGet.mockResolvedValue({ windows: [], panes: [], activePaneId: null })
     apiMocks.paneResize.mockClear()
     apiMocks.paneResize.mockResolvedValue({ ok: true })
+    apiMocks.githubAuthStatus.mockClear()
+    apiMocks.githubAuthStatus.mockResolvedValue({ ok: true, available: true, loggedIn: false })
     mobileKeyboardMocks.focusKeyboard.mockClear()
     mobileKeyboardMocks.textareaRef.current = null
     mobileKeyboardMocks.isMobile = false
@@ -329,6 +332,14 @@ describe('TerminalPane', () => {
     clipboardMocks.writeClipboardText.mockClear()
     fireEvent.click(screen.getByTestId('github-device-login-copy'))
     await waitFor(() => expect(clipboardMocks.writeClipboardText).toHaveBeenCalledWith('CFFE-7ABD'))
+  })
+  it('does not show GitHub device login helper when gh is already logged in', async () => {
+    apiMocks.githubAuthStatus.mockResolvedValue({ ok: true, available: true, loggedIn: true })
+    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(terminalLifecycleMocks.open).toHaveBeenCalled())
+    await waitFor(() => expect(apiMocks.githubAuthStatus).toHaveBeenCalledWith('local'))
+    window.dispatchEvent(new CustomEvent('tmuxgo-terminal-output', { detail: '! First copy your one-time code: CFFE-7ABD\r\nPress Enter to open github.com in your browser...\r\n' }))
+    await waitFor(() => expect(screen.queryByTestId('github-device-login-card')).toBeNull())
   })
   it('resizes tmux pane through frontend border drag', async () => {
     queryClientMocks.getQueryData.mockReturnValue({
