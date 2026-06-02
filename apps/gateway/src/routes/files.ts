@@ -26,6 +26,18 @@ const SEARCH_MATCH_LIMIT = 3
 const RG_MAX_BUFFER = 16 * 1024 * 1024
 const homeRoot = os.homedir()
 const rootSpec = process.env.TMUX_WEB_FILE_ROOTS || `workspace=${defaultRoot}${path.delimiter}home=${homeRoot}`
+const IMAGE_MIME_BY_EXT: Record<string, string> = {
+  '.avif': 'image/avif',
+  '.bmp': 'image/bmp',
+  '.gif': 'image/gif',
+  '.ico': 'image/x-icon',
+  '.jpeg': 'image/jpeg',
+  '.jpg': 'image/jpeg',
+  '.png': 'image/png',
+  '.tif': 'image/tiff',
+  '.tiff': 'image/tiff',
+  '.webp': 'image/webp',
+}
 
 interface FileRoot {
   id: string
@@ -464,6 +476,9 @@ async function resolveDownloadRateLimitKBps(queryRateLimitKBps?: unknown, profil
   if (Number.isFinite(value)) return normalizeUploadRateLimitKBps(value)
   return readStoredDownloadRateLimitKBps(profile)
 }
+function getImageMimeType(filePath: string) {
+  return IMAGE_MIME_BY_EXT[path.extname(filePath).toLowerCase()] || ''
+}
 
 export async function fileRoutes(fastify: FastifyInstance) {
   fastify.get('/files/roots', async () => {
@@ -601,6 +616,25 @@ export async function fileRoutes(fastify: FastifyInstance) {
     } catch (error) {
       const err = error as Error
       return reply.status(400).send({ message: err.message || 'Download failed', code: 'DOWNLOAD_FAILED' })
+    }
+  })
+  fastify.get('/files/image', async (request, reply) => {
+    const query = request.query as { root?: string; path?: string }
+    try {
+      const { absolutePath } = await resolveInside(query.root || '', query.path || '')
+      const info = await stat(absolutePath)
+      if (!info.isFile()) return reply.status(400).send({ message: 'Directories are not previewable here', code: 'IMAGE_PREVIEW_UNSUPPORTED' })
+      const mimeType = getImageMimeType(absolutePath)
+      if (!mimeType) return reply.status(400).send({ message: 'Image preview unavailable for this file type', code: 'IMAGE_TYPE_UNSUPPORTED' })
+      reply.header('Content-Type', mimeType)
+      reply.header('Content-Length', String(info.size))
+      reply.header('Content-Disposition', `inline; filename="${encodeURIComponent(path.basename(absolutePath)).replace(/%20/g, ' ')}"`)
+      reply.header('Cache-Control', 'no-store')
+      reply.header('X-Content-Type-Options', 'nosniff')
+      return reply.send(createReadStream(absolutePath))
+    } catch (error) {
+      const err = error as Error
+      return reply.status(400).send({ message: err.message || 'Image preview failed', code: 'IMAGE_PREVIEW_FAILED' })
     }
   })
 }

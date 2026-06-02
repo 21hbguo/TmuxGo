@@ -59,6 +59,9 @@ interface ConsoleState {
   showCommandPalette: boolean
   sessionPanelExpanded: boolean
   filePanelOpen: boolean
+  gitPanelOpen: boolean
+  gitPanelWidth: number
+  gitRepoPath: string | null
   mobileFileSheetOpen: boolean
   sessionPanelWidth: number
   filePanelWidth: number
@@ -77,6 +80,10 @@ interface ConsoleState {
   toggleSessionPanel: () => void
   setFilePanelOpen: (open: boolean) => void
   toggleFilePanel: () => void
+  setGitPanelOpen: (open: boolean) => void
+  toggleGitPanel: () => void
+  setGitPanelWidth: (width: number) => void
+  setGitRepoPath: (path: string | null) => void
   setMobileFileSheetOpen: (open: boolean) => void
   setSessionPanelWidth: (width: number) => void
   setFilePanelWidth: (width: number) => void
@@ -120,6 +127,9 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
   showCommandPalette: false,
   sessionPanelExpanded: true,
   filePanelOpen: false,
+  gitPanelOpen: false,
+  gitPanelWidth: 320,
+  gitRepoPath: null,
   mobileFileSheetOpen: false,
   sessionPanelWidth: 248,
   filePanelWidth: 300,
@@ -152,9 +162,13 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
   setActivePane: (id) => set({ activePaneId: id }),
   setCommandPalette: (open) => set({ showCommandPalette: open }),
   setSessionPanelExpanded: (expanded) => set({ sessionPanelExpanded: expanded }),
-  toggleSessionPanel: () => set((state) => ({ sessionPanelExpanded: !state.sessionPanelExpanded })),
-  setFilePanelOpen: (open) => set((state) => open ? { filePanelOpen: true, sessionPanelExpanded: false } : { filePanelOpen: false }),
-  toggleFilePanel: () => set((state) => state.filePanelOpen ? { filePanelOpen: false } : { filePanelOpen: true, sessionPanelExpanded: false }),
+  toggleSessionPanel: () => set((state) => ({ sessionPanelExpanded: !state.sessionPanelExpanded, gitPanelOpen: state.sessionPanelExpanded ? state.gitPanelOpen : false })),
+  setFilePanelOpen: (open) => set((state) => open ? { filePanelOpen: true, sessionPanelExpanded: false, gitPanelOpen: false } : { filePanelOpen: false }),
+  toggleFilePanel: () => set((state) => state.filePanelOpen ? { filePanelOpen: false } : { filePanelOpen: true, sessionPanelExpanded: false, gitPanelOpen: false }),
+  setGitPanelOpen: (open) => set((state) => open ? { gitPanelOpen: true, sessionPanelExpanded: false, filePanelOpen: false } : { gitPanelOpen: false }),
+  toggleGitPanel: () => set((state) => state.gitPanelOpen ? { gitPanelOpen: false } : { gitPanelOpen: true, sessionPanelExpanded: false, filePanelOpen: false }),
+  setGitPanelWidth: (width) => set({ gitPanelWidth: Math.max(260, Math.min(400, width)) }),
+  setGitRepoPath: (path) => set({ gitRepoPath: path }),
   setMobileFileSheetOpen: (open) => set({ mobileFileSheetOpen: open }),
   setSessionPanelWidth: (width) => set({ sessionPanelWidth: Math.max(208, Math.min(320, width)) }),
   setFilePanelWidth: (width) => set({ filePanelWidth: Math.max(240, Math.min(380, width)) }),

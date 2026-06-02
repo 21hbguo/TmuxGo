@@ -1,5 +1,5 @@
 import { getApiBase } from './runtime-endpoints'
-import type { CustomShortcut, FavoriteDirectory, FavoriteItem, FileContentMatch, FileContentResponse, FileItem, FileListResponse, FilePreviewResponse, FileRoot, FileUploadTarget, RemotePreferences, SessionContinuityConfig, SessionLayout, SessionOrderPreference, Snippet, UiPreferences, UploadJobResult, UploadedFile } from '@/types'
+import type { CustomShortcut, FavoriteDirectory, FavoriteItem, FileContentMatch, FileContentResponse, FileItem, FileListResponse, FilePreviewResponse, FileRoot, FileUploadTarget, GitBranchesResponse, GitCommitResponse, GitDetectResponse, GitDiffResponse, GitLogResponse, GitMergeResponse, GitStatusResponse, RemotePreferences, SessionContinuityConfig, SessionLayout, SessionOrderPreference, Snippet, UiPreferences, UploadJobResult, UploadedFile } from '@/types'
 
 export interface StreamSystemInfo {
   outputBytes: number
@@ -295,6 +295,7 @@ export const api = {
     defaultUploadTarget: (paneId?: string) => fetchApi<FileUploadTarget>(`/api/files/default-upload-target${paneId ? `?paneId=${encodeURIComponent(paneId)}` : ''}`),
     upload: (body: FormData, onProgress?: (loadedBytes: number, totalBytes: number) => void) => uploadWithProgress(body, onProgress),
     downloadUrl: (root: string, path: string, rateLimitKBps?: number, profile = 'default') => `${getApiBase()}/api/files/download?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}&profile=${encodeURIComponent(profile)}${typeof rateLimitKBps === 'number' ? `&rateLimitKBps=${encodeURIComponent(String(rateLimitKBps))}` : ''}`,
+    imageUrl: (root: string, path: string, modifiedAt?: string) => `${getApiBase()}/api/files/image?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}${modifiedAt ? `&modifiedAt=${encodeURIComponent(modifiedAt)}` : ''}`,
   },
   preferences: {
     get: (profile = 'default') => fetchApi<RemotePreferences>(`/api/preferences?profile=${encodeURIComponent(profile)}`),
@@ -303,5 +304,50 @@ export const api = {
         method: 'PUT',
         body: JSON.stringify(payload),
       }),
+  },
+  git: {
+    detect: (hostId: string, path: string) =>
+      fetchApi<GitDetectResponse>(`/api/hosts/${hostId}/git/detect?path=${encodeURIComponent(path)}`),
+    status: (hostId: string, path: string) =>
+      fetchApi<GitStatusResponse>(`/api/hosts/${hostId}/git/status?path=${encodeURIComponent(path)}`),
+    diff: (hostId: string, path: string, options?: { filePath?: string; staged?: boolean; commit?: string }) => {
+      const params = new URLSearchParams({ path })
+      if (options?.filePath) params.set('filePath', options.filePath)
+      if (options?.staged) params.set('staged', 'true')
+      if (options?.commit) params.set('commit', options.commit)
+      return fetchApi<GitDiffResponse>(`/api/hosts/${hostId}/git/diff?${params}`)
+    },
+    stage: (hostId: string, path: string, filePaths: string[]) =>
+      fetchApi<{ ok: true }>(`/api/hosts/${hostId}/git/stage`, { method: 'POST', body: JSON.stringify({ path, filePaths }) }),
+    unstage: (hostId: string, path: string, filePaths: string[]) =>
+      fetchApi<{ ok: true }>(`/api/hosts/${hostId}/git/unstage`, { method: 'POST', body: JSON.stringify({ path, filePaths }) }),
+    commit: (hostId: string, path: string, message: string, amend?: boolean) =>
+      fetchApi<GitCommitResponse>(`/api/hosts/${hostId}/git/commit`, { method: 'POST', body: JSON.stringify({ path, message, amend }) }),
+    discard: (hostId: string, path: string, filePaths: string[]) =>
+      fetchApi<{ ok: true }>(`/api/hosts/${hostId}/git/discard`, { method: 'POST', body: JSON.stringify({ path, filePaths }) }),
+    log: (hostId: string, path: string, options?: { limit?: number; skip?: number }) => {
+      const params = new URLSearchParams({ path })
+      if (options?.limit) params.set('limit', String(options.limit))
+      if (options?.skip) params.set('skip', String(options.skip))
+      return fetchApi<GitLogResponse>(`/api/hosts/${hostId}/git/log?${params}`)
+    },
+    branches: (hostId: string, path: string) =>
+      fetchApi<GitBranchesResponse>(`/api/hosts/${hostId}/git/branches?path=${encodeURIComponent(path)}`),
+    checkout: (hostId: string, path: string, branch: string) =>
+      fetchApi<{ ok: true; branch: string }>(`/api/hosts/${hostId}/git/checkout`, { method: 'POST', body: JSON.stringify({ path, branch }) }),
+    createBranch: (hostId: string, path: string, name: string, startPoint?: string) =>
+      fetchApi<{ ok: true; branch: string }>(`/api/hosts/${hostId}/git/create-branch`, { method: 'POST', body: JSON.stringify({ path, name, startPoint }) }),
+    deleteBranch: (hostId: string, path: string, name: string, force?: boolean) =>
+      fetchApi<{ ok: true }>(`/api/hosts/${hostId}/git/delete-branch`, { method: 'POST', body: JSON.stringify({ path, name, force }) }),
+    merge: (hostId: string, path: string, branch: string, noFF?: boolean) =>
+      fetchApi<GitMergeResponse>(`/api/hosts/${hostId}/git/merge`, { method: 'POST', body: JSON.stringify({ path, branch, noFF }) }),
+    fetch: (hostId: string, path: string, options?: { remote?: string; prune?: boolean }) =>
+      fetchApi<{ ok: true; message: string }>(`/api/hosts/${hostId}/git/fetch`, { method: 'POST', body: JSON.stringify({ path, ...options }) }),
+    pull: (hostId: string, path: string, options?: { remote?: string; branch?: string; rebase?: boolean }) =>
+      fetchApi<{ ok: boolean; conflicts: boolean; message: string }>(`/api/hosts/${hostId}/git/pull`, { method: 'POST', body: JSON.stringify({ path, ...options }) }),
+    push: (hostId: string, path: string, options?: { remote?: string; branch?: string; force?: boolean; setUpstream?: boolean }) =>
+      fetchApi<{ ok: boolean; rejected: boolean; message: string }>(`/api/hosts/${hostId}/git/push`, { method: 'POST', body: JSON.stringify({ path, ...options }) }),
+    remotes: (hostId: string, path: string) =>
+      fetchApi<{ remotes: { name: string; fetchUrl: string; pushUrl: string }[] }>(`/api/hosts/${hostId}/git/remotes?path=${encodeURIComponent(path)}`),
   },
 }

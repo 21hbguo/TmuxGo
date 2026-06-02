@@ -5,6 +5,7 @@ import { api } from '@/lib/api'
 import type { FileDocumentHandle, FileEditorDocument } from '@/types'
 import { ActivityBar } from './ActivityBar'
 import { FilePanel } from './FilePanel'
+import { GitPanel } from './GitPanel'
 import { SessionPanel } from './SessionPanel'
 import { SessionRail } from './SessionRail'
 import { EditorWorkbench } from './EditorWorkbench'
@@ -57,6 +58,9 @@ export function DesktopWorkbench() {
   const sessionPanelWidth = useConsoleStore((state) => state.sessionPanelWidth)
   const filePanelWidth = useConsoleStore((state) => state.filePanelWidth)
   const filePanelOpen = useConsoleStore((state) => state.filePanelOpen)
+  const gitPanelOpen = useConsoleStore((state) => state.gitPanelOpen)
+  const gitPanelWidth = useConsoleStore((state) => state.gitPanelWidth)
+  const setGitPanelWidth = useConsoleStore((state) => state.setGitPanelWidth)
   const openEditors = useConsoleStore((state) => state.openEditors)
   const setSessionPanelWidth = useConsoleStore((state) => state.setSessionPanelWidth)
   const setFilePanelWidth = useConsoleStore((state) => state.setFilePanelWidth)
@@ -67,13 +71,15 @@ export function DesktopWorkbench() {
   const markEditorSaved = useConsoleStore((state) => state.markEditorSaved)
   const pushToast = useConsoleStore((state) => state.pushToast)
   const containerRef = useRef<HTMLDivElement>(null)
-  const resizingRef = useRef<'session' | 'file' | null>(null)
+  const resizingRef = useRef<'session' | 'file' | 'git' | null>(null)
   const restoredRef = useRef(false)
   const pendingSessionWidthRef = useRef(sessionPanelWidth)
   const pendingFileWidthRef = useRef(filePanelWidth)
+  const pendingGitWidthRef = useRef(gitPanelWidth)
   const frameRef = useRef<number | null>(null)
   const [previewSessionWidth, setPreviewSessionWidth] = useState<number | null>(null)
   const [previewFileWidth, setPreviewFileWidth] = useState<number | null>(null)
+  const [previewGitWidth, setPreviewGitWidth] = useState<number | null>(null)
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 })
   const viewportWidth = containerSize.width || 1440
   const viewportHeight = containerSize.height || 820
@@ -83,7 +89,10 @@ export function DesktopWorkbench() {
   const renderedSessionPanelWidth = clampValue(previewSessionWidth ?? sessionPanelWidth, sessionPanelMin, sessionPanelMax)
   const compactSessionWidth = clampValue(Math.floor(viewportWidth * 0.13), 88, SESSION_RAIL_WIDTH)
   const leftWidth = ACTIVITY_BAR_WIDTH + (sessionPanelExpanded ? renderedSessionPanelWidth : compactSessionWidth)
-  const filePanelAvailable = viewportWidth - leftWidth - minWorkspaceWidth
+  const gitPanelMin = 260
+  const gitPanelMax = 400
+  const renderedGitPanelWidth = clampValue(previewGitWidth ?? gitPanelWidth, gitPanelMin, gitPanelMax)
+  const filePanelAvailable = viewportWidth - leftWidth - (gitPanelOpen ? renderedGitPanelWidth : 0) - minWorkspaceWidth
   const filePanelMaxBase = clampValue(Math.floor(viewportWidth * 0.28), 260, 380)
   const filePanelMax = clampValue(Math.min(filePanelMaxBase, filePanelAvailable), 260, filePanelMaxBase)
   const filePanelMin = clampValue(Math.floor(viewportWidth * 0.2), 240, Math.min(300, filePanelMax))
@@ -129,6 +138,17 @@ export function DesktopWorkbench() {
           frameRef.current = null
           setPreviewFileWidth(pendingFileWidthRef.current)
         })
+        return
+      }
+      if (resizingRef.current === 'git') {
+        const sessionOffset = ACTIVITY_BAR_WIDTH + (sessionPanelExpanded ? (previewSessionWidth ?? pendingSessionWidthRef.current ?? renderedSessionPanelWidth) : compactSessionWidth)
+        const fileOffset = sessionOffset + (filePanelOpen ? (previewFileWidth ?? pendingFileWidthRef.current ?? renderedFilePanelWidth) : 0)
+        pendingGitWidthRef.current = clampValue(event.clientX - fileOffset, gitPanelMin, gitPanelMax)
+        if (frameRef.current) return
+        frameRef.current = requestAnimationFrame(() => {
+          frameRef.current = null
+          setPreviewGitWidth(pendingGitWidthRef.current)
+        })
       }
     }
     const handleUp = () => {
@@ -144,6 +164,10 @@ export function DesktopWorkbench() {
         setFilePanelWidth(pendingFileWidthRef.current)
         setPreviewFileWidth(null)
       }
+      if (resizingRef.current === 'git') {
+        setGitPanelWidth(pendingGitWidthRef.current)
+        setPreviewGitWidth(null)
+      }
       resizingRef.current = null
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
@@ -157,8 +181,8 @@ export function DesktopWorkbench() {
     }
   }, [compactSessionWidth, filePanelMax, filePanelMin, previewSessionWidth, renderedSessionPanelWidth, sessionPanelExpanded, sessionPanelMax, sessionPanelMin, setFilePanelWidth, setSessionPanelWidth])
   useEffect(() => {
-    window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'desktop-workbench', sessionPanelExpanded, sessionPanelWidth, filePanelOpen, filePanelWidth, editorsOpen: openEditors.length > 0, terminalPanelHeight, terminalOverlay } }))
-  }, [filePanelOpen, filePanelWidth, openEditors.length, sessionPanelExpanded, sessionPanelWidth, terminalOverlay, terminalPanelHeight])
+    window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'desktop-workbench', sessionPanelExpanded, sessionPanelWidth, filePanelOpen, filePanelWidth, gitPanelOpen, gitPanelWidth, editorsOpen: openEditors.length > 0, terminalPanelHeight, terminalOverlay } }))
+  }, [filePanelOpen, filePanelWidth, gitPanelOpen, gitPanelWidth, openEditors.length, sessionPanelExpanded, sessionPanelWidth, terminalOverlay, terminalPanelHeight])
   const handleOpenFile = useCallback(async (file: FileDocumentHandle) => {
     setFilePanelOpen(true)
     const existing = useConsoleStore.getState().openEditors.find((item) => item.id === file.id)
@@ -228,6 +252,20 @@ export function DesktopWorkbench() {
             resizingRef.current = 'file'
             pendingFileWidthRef.current = filePanelWidth
             setPreviewFileWidth(filePanelWidth)
+            document.body.style.cursor = 'col-resize'
+            document.body.style.userSelect = 'none'
+          }} />
+        </div>
+      )}
+      {gitPanelOpen && (
+        <div className="relative shrink-0 border-r border-[var(--line)] bg-bg-1" style={{ width: renderedGitPanelWidth }}>
+          <div className="h-full min-h-0">
+            <GitPanel />
+          </div>
+          <div className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-accent/40" onMouseDown={() => {
+            resizingRef.current = 'git'
+            pendingGitWidthRef.current = gitPanelWidth
+            setPreviewGitWidth(gitPanelWidth)
             document.body.style.cursor = 'col-resize'
             document.body.style.userSelect = 'none'
           }} />

@@ -8,6 +8,7 @@ const appBuildId = process.env.NEXT_PUBLIC_APP_BUILD_ID || (() => {
     return `${pkg.version}`
   }
 })()
+const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:3002'
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -43,6 +44,14 @@ const nextConfig = {
             value: 'no-store, max-age=0',
           },
         ],
+      },
+    ]
+  },
+  async rewrites() {
+    return [
+      {
+        source: '/api/:path*',
+        destination: `${apiBase}/api/:path*`,
       },
     ]
   },

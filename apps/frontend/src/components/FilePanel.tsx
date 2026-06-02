@@ -24,6 +24,7 @@ const SEARCH_INPUT_DEBOUNCE_MS = 160
 const SEARCH_RESULT_LIMIT = 200
 const LARGE_DIRECTORY_LIMIT = 120
 const DIRECTORY_RENDER_LIMIT = 80
+const IMAGE_EXTENSIONS = new Set(['.avif', '.bmp', '.gif', '.ico', '.jpeg', '.jpg', '.png', '.tif', '.tiff', '.webp'])
 
 function formatSize(size: number) {
   if (size < 1024) return `${size}B`
@@ -199,6 +200,11 @@ function getParentRelativePath(item: FileEntry, currentPath: string) {
 function getPreviewLine(item: FileEntry | null) {
   if (!item || !('matches' in item) || !item.matches?.length) return 1
   return Math.max(1, item.matches[0]?.number || 1)
+}
+function isImagePath(path: string) {
+  const dot = path.lastIndexOf('.')
+  if (dot < 0) return false
+  return IMAGE_EXTENSIONS.has(path.slice(dot).toLowerCase())
 }
 function FavoriteDirectoryButton({ active, name, onClick }: { active: boolean; name: string; onClick: (event: React.MouseEvent) => void }) {
   return <button onClick={onClick} className={`shrink-0 rounded px-1 py-0 text-[10px] leading-4 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 ${active ? 'bg-accent/20 text-accent opacity-100' : 'bg-bg-2 text-text-3 hover:text-text-1'}`} aria-label={`${active ? 'Unfavorite' : 'Favorite'} ${name}`}>{active ? '★' : '☆'}</button>
@@ -747,8 +753,19 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   const embedded = mode === 'explorer'
   const shellClass = isMobile ? 'flex h-full min-h-0 flex-col bg-bg-1' : `relative flex h-full ${embedded ? 'min-w-0 flex-1' : 'shrink-0'} flex-col bg-bg-1 ${dock === 'left' ? 'border-r border-[var(--line)]' : 'border-l border-[var(--line)]'}`
   const shellStyle = isMobile || embedded ? undefined : { width: filePanelWidth }
+  const imagePreviewUrl = preview?.path && preview.type === 'file' && isImagePath(preview.path) && (preview.binary || preview.reason === 'binary-file' || preview.reason === 'large-file') ? api.files.imageUrl(activeRootId, resolveRootRelativePath(activeRootBasePath, preview.path), preview.modifiedAt) : ''
   const previewBlock = preview ? (
-    preview.binary || preview.reason ? (
+    imagePreviewUrl ? (
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="shrink-0 p-3 text-xs text-text-3">
+          <div className="font-mono text-text-1">{preview.path}</div>
+          <div className="mt-1">{formatSize(preview.size)}</div>
+        </div>
+        <div className="min-h-0 flex-1 overflow-auto px-3 pb-3">
+          <img src={imagePreviewUrl} alt={preview.path} className="mx-auto block max-h-full max-w-full rounded border border-[var(--line)] bg-bg-1 object-contain" />
+        </div>
+      </div>
+    ) : preview.binary || preview.reason ? (
       <div className="p-3 text-xs text-text-3">
         <div className="font-mono text-text-1">{preview.path}</div>
         <div className="mt-2">{preview.reason === 'large-file' ? t('file.previewSkippedLarge') : preview.reason === 'binary-file' ? t('file.previewSkippedBinary') : t('file.previewUnavailable')}</div>
