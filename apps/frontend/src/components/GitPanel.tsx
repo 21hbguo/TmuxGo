@@ -23,9 +23,46 @@ type GitGraphCommit = {
   }
   parents: { sha: string }[]
 }
+type GitBranchHead = {
+  name: string
+  commit: {
+    sha: string
+  }
+}
 
 function isValidGitCommitInfo(commit: GitCommitInfo | null | undefined): commit is GitCommitInfo {
   return !!commit?.hash && !!commit.author && !!commit.date
+}
+function isValidCommitDate(date: string) {
+  return Number.isFinite(new Date(date).getTime())
+}
+function normalizeGitGraphCommits(commits: GitCommitInfo[]) {
+  const seen = new Set<string>()
+  const validCommits = commits.filter((commit) => isValidGitCommitInfo(commit) && isValidCommitDate(commit.date) && !seen.has(commit.hash) && !!seen.add(commit.hash))
+  const commitSet = new Set(validCommits.map((commit) => commit.hash))
+  return validCommits.map((commit) => ({
+    sha: commit.hash,
+    commit: {
+      author: {
+        name: commit.author,
+        date: commit.date,
+        email: commit.authorEmail,
+      },
+      message: commit.subject || commit.hash.slice(0, 7),
+    },
+    parents: (commit.parents || []).filter((sha, index, arr) => !!sha && commitSet.has(sha) && arr.indexOf(sha) === index).map((sha) => ({ sha })),
+  }))
+}
+function normalizeBranchHeads(branches: Array<{ name?: string; commitHash?: string }>, commitSet: Set<string>) {
+  const seen = new Set<string>()
+  return branches.filter((branch): branch is { name: string; commitHash: string } => !!branch?.name && !!branch?.commitHash && commitSet.has(branch.commitHash) && !seen.has(branch.name) && !!seen.add(branch.name)).map((branch) => ({
+    name: branch.name,
+    commit: { sha: branch.commitHash },
+  }))
+}
+function normalizeCurrentBranch(currentBranch: string | undefined, branchHeads: GitBranchHead[]) {
+  if (!currentBranch) return undefined
+  return branchHeads.some((branch) => branch.name === currentBranch) ? currentBranch : undefined
 }
 
 function statusIcon(status: GitFileChange['status']) {
@@ -134,24 +171,10 @@ function HistoryTab({ hostId, repoPath, t }: { hostId: string; repoPath: string;
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage } = useGitLogPaged(hostId, repoPath)
   const { data: branchesData } = useGitBranches(hostId, repoPath)
   if (!data) return <div className="p-3 text-[11px] text-text-3">{t('git.detecting')}</div>
-  const validCommits = data.filter(isValidGitCommitInfo)
-  const commitSet = new Set(validCommits.map((c) => c.hash))
-  const commits: GitGraphCommit[] = validCommits.map((c) => ({
-    sha: c.hash,
-    commit: {
-      author: {
-        name: c.author,
-        date: c.date,
-        email: c.authorEmail,
-      },
-      message: c.subject,
-    },
-    parents: (c.parents || []).filter((sha) => !!sha && commitSet.has(sha)).map((sha) => ({ sha })),
-  }))
-  const branchHeads = (branchesData?.branches || []).filter((branch) => !!branch?.name && !!branch?.commitHash && commitSet.has(branch.commitHash)).map((branch) => ({
-    name: branch.name,
-    commit: { sha: branch.commitHash },
-  }))
+  const commits = normalizeGitGraphCommits(data)
+  const commitSet = new Set(commits.map((commit) => commit.sha))
+  const branchHeads = normalizeBranchHeads(branchesData?.branches || [], commitSet)
+  const currentBranch = normalizeCurrentBranch(branchesData?.current, branchHeads)
   const getDiff = async (base: string, head: string) => api.git.diffStats(hostId, repoPath, base, head)
   const getCommitHash = (commit: CommitNode | { sha?: string; hash?: string }) => 'hash' in commit ? commit.hash : commit.sha || ''
   const openCommitDiff = (commit: CommitNode | { sha?: string; hash?: string; message?: string }) => {
@@ -179,7 +202,7 @@ function HistoryTab({ hostId, repoPath, t }: { hostId: string; repoPath: string;
         branchHeads={branchHeads}
         loadMore={fetchNextPage}
         hasMore={hasNextPage && !isFetchingNextPage}
-        currentBranch={branchesData?.current}
+        currentBranch={currentBranch}
         dateFormatFn={formatDate}
         getDiff={getDiff}
         onCommitClick={openCommitDiff}
@@ -206,7 +229,7 @@ function useGitLogPaged(hostId: string, repoPath: string) {
   const allCommits = pagesRef.current.flat()
   const seen = new Set<string>()
   const uniqueCommits = allCommits.filter((c) => {
-    if (!isValidGitCommitInfo(c)) return false
+    if (!isValidGitCommitInfo(c) || !isValidCommitDate(c.date)) return false
     if (seen.has(c.hash)) return false
     seen.add(c.hash)
     return true
@@ -223,6 +246,7 @@ function useGitLogPaged(hostId: string, repoPath: string) {
 function formatDate(dateValue: string | number | Date) {
   try {
     const d = new Date(dateValue)
+    if (!Number.isFinite(d.getTime())) return String(dateValue)
     const now = new Date()
     const diffMs = now.getTime() - d.getTime()
     const diffMins = Math.floor(diffMs / 60000)

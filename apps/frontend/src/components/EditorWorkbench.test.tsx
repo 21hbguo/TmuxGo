@@ -77,6 +77,7 @@ describe('EditorWorkbench', () => {
     return render(React.createElement(EditorWorkbench, {
       onSaveEditor: vi.fn(async () => {}),
       onOpenFile: vi.fn(async (file) => file.id),
+      onOpenFileAtPosition: vi.fn(async (file) => file.id),
       onCreateCompare: vi.fn(async () => {}),
     }))
   }
@@ -134,9 +135,11 @@ describe('EditorWorkbench', () => {
   })
   it('opens a dropped file in the editor area', () => {
     const onOpenFile = vi.fn(async (file) => file.id)
+    const onOpenFileAtPosition = vi.fn(async (file) => file.id)
     const view = render(React.createElement(EditorWorkbench, {
       onSaveEditor: vi.fn(async () => {}),
       onOpenFile,
+      onOpenFileAtPosition,
       onCreateCompare: vi.fn(async () => {}),
     }))
     const dataTransfer = createDataTransfer({
@@ -153,9 +156,9 @@ describe('EditorWorkbench', () => {
     })
     const dropZone = view.container.querySelector('section > .min-h-0.flex-1.bg-bg-0') as Element
     fireEvent.dragOver(dropZone, { dataTransfer })
-    expect(screen.getByText('editor.dropOpen')).toBeInTheDocument()
+    expect(screen.getByText('editor.drop.center')).toBeInTheDocument()
     fireEvent.drop(dropZone, { dataTransfer })
-    expect(onOpenFile).toHaveBeenCalledWith(expect.objectContaining({ id: 'editor-3', name: 'drop.ts' }))
+    expect(onOpenFileAtPosition).toHaveBeenCalledWith(expect.objectContaining({ id: 'editor-3', name: 'drop.ts' }), 'center')
   })
   it('renders compare editor content for compare tabs', async () => {
     useConsoleStore.setState({

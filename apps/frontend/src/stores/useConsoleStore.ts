@@ -63,6 +63,10 @@ interface ConsoleState {
   terminalPanelHeight: number
   openEditors: FileEditorDocument[]
   activeEditorId: string | null
+  editorPrimaryId: string | null
+  editorSecondaryId: string | null
+  editorSplitDirection: 'horizontal' | 'vertical' | null
+  activeEditorSlot: 'primary' | 'secondary'
   editorsHydrated: boolean
   uploadRequest: { files: File[]; preferredRootId?: string; preferredPath?: string; insertPaths?: boolean } | null
   uploadJobs: UploadJob[]
@@ -91,6 +95,7 @@ interface ConsoleState {
   hydrateEditorsFromStorage: () => void
   openEditor: (file: FileDocumentHandle & { language: string }) => void
   openCompareEditor: (leftId: string, rightId: string) => string | null
+  placeEditorInSplit: (id: string, placement: 'center' | 'left' | 'right' | 'top' | 'bottom') => void
   closeEditor: (id: string) => void
   setActiveEditor: (id: string | null) => void
   setEditorLoaded: (id: string, patch: Partial<FileEditorDocument>) => void
@@ -158,6 +163,10 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
   terminalPanelHeight: 300,
   openEditors: [],
   activeEditorId: null,
+  editorPrimaryId: null,
+  editorSecondaryId: null,
+  editorSplitDirection: null,
+  activeEditorSlot: 'primary',
   editorsHydrated: false,
   uploadRequest: null,
   uploadJobs: [],
@@ -239,13 +248,13 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
       const id = readPersistedActiveEditorId()
       return id && nextEditors.some((item) => item.id === id) ? id : nextEditors[nextEditors.length - 1]?.id || null
     })()
-    return { openEditors: nextEditors, activeEditorId: nextActiveEditorId, editorsHydrated: true }
+    return { openEditors: nextEditors, activeEditorId: nextActiveEditorId, editorPrimaryId: nextActiveEditorId, editorSecondaryId: null, editorSplitDirection: null, activeEditorSlot: 'primary', editorsHydrated: true }
   }),
   openEditor: (file) => set((state) => {
     const existing = state.openEditors.find((item) => item.id === file.id)
     if (existing) {
       writePersistedEditors(state.openEditors, existing.id)
-      return { activeEditorId: existing.id }
+      return { activeEditorId: existing.id, editorPrimaryId: state.editorPrimaryId || existing.id }
     }
     const nextState = {
       openEditors: [...state.openEditors, {
@@ -261,6 +270,7 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
         truncated: false,
       }],
       activeEditorId: file.id,
+      editorPrimaryId: state.editorPrimaryId || file.id,
     }
     writePersistedEditors(nextState.openEditors, nextState.activeEditorId)
     return nextState
@@ -301,21 +311,47 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
           compareRightId: rightId,
         }],
         activeEditorId: compareId,
+        editorPrimaryId: state.editorPrimaryId || compareId,
       }
       writePersistedEditors(nextState.openEditors, nextState.activeEditorId)
       return nextState
     })
     return compareId
   },
+  placeEditorInSplit: (id, placement) => set((state) => {
+    if (!state.openEditors.some((item) => item.id === id)) return state
+    if (placement === 'center') {
+      writePersistedEditors(state.openEditors, id)
+      return { activeEditorId: id, editorPrimaryId: id, editorSecondaryId: null, editorSplitDirection: null, activeEditorSlot: 'primary' }
+    }
+    const anchorId = state.activeEditorId && state.openEditors.some((item) => item.id === state.activeEditorId) ? state.activeEditorId : state.editorPrimaryId || id
+    const nextDirection = placement === 'left' || placement === 'right' ? 'horizontal' : 'vertical'
+    if (placement === 'left' || placement === 'top') {
+      writePersistedEditors(state.openEditors, id)
+      return { activeEditorId: id, editorPrimaryId: id, editorSecondaryId: anchorId === id ? state.editorSecondaryId : anchorId, editorSplitDirection: nextDirection, activeEditorSlot: 'primary' }
+    }
+    writePersistedEditors(state.openEditors, id)
+    return { activeEditorId: id, editorPrimaryId: anchorId, editorSecondaryId: id === anchorId ? state.editorSecondaryId : id, editorSplitDirection: nextDirection, activeEditorSlot: 'secondary' }
+  }),
   closeEditor: (id) => set((state) => {
     const nextEditors = state.openEditors.filter((item) => item.id !== id)
     const nextActiveEditorId = state.activeEditorId === id ? nextEditors[nextEditors.length - 1]?.id || null : state.activeEditorId
     writePersistedEditors(nextEditors, nextActiveEditorId)
+    if (state.editorPrimaryId === id && state.editorSecondaryId === id) return { openEditors: nextEditors, activeEditorId: nextActiveEditorId, editorPrimaryId: nextActiveEditorId, editorSecondaryId: null, editorSplitDirection: null, activeEditorSlot: 'primary' }
+    if (state.editorPrimaryId === id) return { openEditors: nextEditors, activeEditorId: nextActiveEditorId, editorPrimaryId: state.editorSecondaryId && state.editorSecondaryId !== id ? state.editorSecondaryId : nextActiveEditorId, editorSecondaryId: null, editorSplitDirection: null, activeEditorSlot: 'primary' }
+    if (state.editorSecondaryId === id) return { openEditors: nextEditors, activeEditorId: nextActiveEditorId, editorPrimaryId: state.editorPrimaryId, editorSecondaryId: null, editorSplitDirection: null, activeEditorSlot: 'primary' }
     return { openEditors: nextEditors, activeEditorId: nextActiveEditorId }
   }),
   setActiveEditor: (id) => set((state) => {
     writePersistedEditors(state.openEditors, id)
-    return { activeEditorId: id }
+    if (!id) return { activeEditorId: id }
+    if (state.editorSecondaryId === id) return { activeEditorId: id, activeEditorSlot: 'secondary' }
+    if (state.editorPrimaryId === id) return { activeEditorId: id, activeEditorSlot: 'primary' }
+    if (state.editorSecondaryId) {
+      if (state.activeEditorSlot === 'secondary') return { activeEditorId: id, editorSecondaryId: id }
+      return { activeEditorId: id, editorPrimaryId: id, activeEditorSlot: 'primary' }
+    }
+    return { activeEditorId: id, editorPrimaryId: state.editorPrimaryId || id, activeEditorSlot: 'primary' }
   }),
   setEditorLoaded: (id, patch) => set((state) => ({ openEditors: state.openEditors.map((item) => item.id === id ? { ...item, ...patch } : item) })),
   setEditorContent: (id, content) => set((state) => ({ openEditors: state.openEditors.map((item) => item.id === id ? { ...item, content, dirty: content !== item.savedContent } : item) })),

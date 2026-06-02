@@ -80,6 +80,7 @@ export function DesktopWorkbench() {
   const setEditorSaving = useConsoleStore((state) => state.setEditorSaving)
   const markEditorSaved = useConsoleStore((state) => state.markEditorSaved)
   const openCompareEditor = useConsoleStore((state) => state.openCompareEditor)
+  const placeEditorInSplit = useConsoleStore((state) => state.placeEditorInSplit)
   const pushToast = useConsoleStore((state) => state.pushToast)
   const containerRef = useRef<HTMLDivElement>(null)
   const resizingRef = useRef<'session' | 'file' | 'git' | null>(null)
@@ -255,6 +256,11 @@ export function DesktopWorkbench() {
     await handleOpenFile(file)
     return useConsoleStore.getState().openEditors.find((item) => item.id === file.id)?.id || file.id
   }, [handleOpenFile])
+  const handleOpenFileAtPosition = useCallback(async (file: FileDocumentHandle, placement: 'center' | 'left' | 'right' | 'top' | 'bottom') => {
+    const id = await handleOpenFileForDrop(file)
+    placeEditorInSplit(id, placement)
+    return id
+  }, [handleOpenFileForDrop, placeEditorInSplit])
   const handleCreateCompare = useCallback(async (source: FileDocumentHandle, targetId: string) => {
     const target = useConsoleStore.getState().openEditors.find((item) => item.id === targetId)
     if (!target || target.kind === 'compare') return
@@ -351,7 +357,7 @@ export function DesktopWorkbench() {
         {openEditors.length > 0 ? (
           <>
             <div className="min-h-0 flex-1">
-              <EditorWorkbench onSaveEditor={handleSaveEditor} onOpenFile={handleOpenFileForDrop} onCreateCompare={handleCreateCompare} />
+              <EditorWorkbench onSaveEditor={handleSaveEditor} onOpenFile={handleOpenFileForDrop} onOpenFileAtPosition={handleOpenFileAtPosition} onCreateCompare={handleCreateCompare} />
             </div>
             <TerminalDock minHeight={terminalMinHeight} maxHeight={terminalMaxHeight} dragViewportHeight={viewportHeight} />
           </>
