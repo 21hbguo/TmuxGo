@@ -8,13 +8,12 @@ import { useTranslation } from '@/i18n'
 function clampValue(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value))
 }
-export function TerminalDock({ fill=false,minHeight=180,maxHeight=540,overlay=false,dragViewportHeight,overlayTopOffset=0 }:{ fill?: boolean; minHeight?: number; maxHeight?: number; overlay?: boolean; dragViewportHeight?: number; overlayTopOffset?: number }) {
+export function TerminalDock({ fill=false,minHeight=180,maxHeight=540,dragViewportHeight }:{ fill?: boolean; minHeight?: number; maxHeight?: number; dragViewportHeight?: number }) {
   const terminalPanelHeight = useConsoleStore((state) => state.terminalPanelHeight)
   const setTerminalPanelHeight = useConsoleStore((state) => state.setTerminalPanelHeight)
   const { t } = useTranslation()
   const resizingRef = useRef(false)
   const pendingHeightRef = useRef(terminalPanelHeight)
-  const restoreHeightRef = useRef(terminalPanelHeight)
   const frameRef = useRef<number | null>(null)
   const [previewHeight,setPreviewHeight] = useState<number | null>(null)
   useEffect(() => {
@@ -53,32 +52,26 @@ export function TerminalDock({ fill=false,minHeight=180,maxHeight=540,overlay=fa
   const panelHeight = fill ? terminalPanelHeight : clampValue(previewHeight ?? terminalPanelHeight, minHeight, maxHeight)
   useEffect(() => {
     if (fill) return
-    window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'terminal-panel-resize', height: panelHeight, overlay } }))
-  }, [fill, overlay, panelHeight])
+    window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'terminal-panel-resize', height: panelHeight } }))
+  }, [fill, panelHeight])
   const handleMouseDown = () => {
     resizingRef.current = true
     pendingHeightRef.current = terminalPanelHeight
-    if (!overlay) restoreHeightRef.current = terminalPanelHeight
     setPreviewHeight(terminalPanelHeight)
     document.body.style.cursor = 'row-resize'
     document.body.style.userSelect = 'none'
   }
   const handleDoubleClick = () => {
     if (fill) return
-    if (overlay) {
-      setTerminalPanelHeight(clampValue(restoreHeightRef.current, minHeight, maxHeight))
-      return
-    }
-    restoreHeightRef.current = terminalPanelHeight
     setTerminalPanelHeight(maxHeight)
   }
   return (
-    <section className={`bg-bg-1 ${fill ? 'relative flex h-full min-h-0 flex-1 flex-col' : overlay ? 'absolute left-0 right-0 z-30 flex flex-col overflow-hidden rounded-t-xl border border-b-0 border-[var(--line)] shadow-[0_-20px_60px_rgba(0,0,0,0.45)]' : 'relative shrink-0 border-t border-[var(--line)]'}`} style={fill ? undefined : overlay ? { height: panelHeight, top: overlayTopOffset } : { height: panelHeight }}>
+    <section className={`bg-bg-1 ${fill ? 'relative flex h-full min-h-0 flex-1 flex-col' : 'relative shrink-0 border-t border-[var(--line)]'}`} style={fill ? undefined : { height: panelHeight }}>
       {!fill && <div className="absolute left-0 right-0 top-0 z-10 h-1 cursor-row-resize hover:bg-accent/50" onMouseDown={handleMouseDown} onDoubleClick={handleDoubleClick} />}
       <div className="flex h-full min-h-0 flex-col">
         <div className="flex items-center justify-between border-b border-[var(--line)] px-3 py-2">
           <div className="text-xs font-semibold uppercase tracking-[0.18em] text-text-3">{t('dock.terminal')}</div>
-          <div className="text-[11px] text-text-3">{fill ? t('dock.full') : overlay ? t('dock.overlay', { height: panelHeight }) : `${panelHeight}px`}</div>
+          <div className="text-[11px] text-text-3">{fill ? t('dock.full') : `${panelHeight}px`}</div>
         </div>
         <WindowTabs />
         <div className="min-h-0 flex-1">
