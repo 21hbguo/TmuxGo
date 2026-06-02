@@ -448,6 +448,8 @@ export const zh = {
   'git.conflicted': '冲突',
   'git.noChanges': '没有更改',
   'git.noRepo': '未检测到 Git 仓库',
+  'git.noActiveEditor': '当前没有激活的编辑器文件',
+  'git.fileNotInRepo': '当前文件不在 Git 仓库中',
   'git.selectRepo': '请输入 Git 仓库路径',
   'git.commit': '提交',
   'git.commitMessage': '提交信息...',
@@ -492,4 +494,9 @@ export const zh = {
   'git.pullSuccess': '拉取成功',
   'git.pushSuccess': '推送成功',
   'git.pushRejected': '推送被拒绝',
+  'git.modeFollowingFile': '跟随当前文件',
+  'git.modeLocked': '已锁定仓库',
+  'git.followCurrentFile': '跟随当前文件',
+  'git.pinnedRepos': '固定仓库',
+  'git.recentRepos': '最近仓库',
 } as const

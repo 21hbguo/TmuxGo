@@ -448,6 +448,8 @@ export const en = {
   'git.conflicted': 'Conflicted',
   'git.noChanges': 'No changes',
   'git.noRepo': 'No Git repository detected',
+  'git.noActiveEditor': 'No active editor file',
+  'git.fileNotInRepo': 'Current file is not in a Git repository',
   'git.selectRepo': 'Enter a Git repository path',
   'git.commit': 'Commit',
   'git.commitMessage': 'Commit message...',
@@ -492,4 +494,9 @@ export const en = {
   'git.pullSuccess': 'Pull successful',
   'git.pushSuccess': 'Push successful',
   'git.pushRejected': 'Push rejected',
+  'git.modeFollowingFile': 'Following current file',
+  'git.modeLocked': 'Repository locked',
+  'git.followCurrentFile': 'Follow Current File',
+  'git.pinnedRepos': 'Pinned Repositories',
+  'git.recentRepos': 'Recent Repositories',
 } as const

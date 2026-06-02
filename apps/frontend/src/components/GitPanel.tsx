@@ -1,11 +1,12 @@
 'use client'
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
-import { useGitDetect, useGitStatus, useGitStage, useGitUnstage, useGitCommit, useGitDiscard, useGitLog, useGitBranches, useGitCheckout, useGitCreateBranch, useGitDeleteBranch, useGitMerge, useGitFetch, useGitPull, useGitPush } from '@/hooks/useApi'
+import { useGitStatus, useGitStage, useGitUnstage, useGitCommit, useGitDiscard, useGitLog, useGitBranches, useGitCheckout, useGitCreateBranch, useGitDeleteBranch, useGitMerge, useGitFetch, useGitPull, useGitPush } from '@/hooks/useApi'
 import { useQueryClient } from '@tanstack/react-query'
 import { ConfirmDialog } from './ConfirmDialog'
-import type { GitFileChange, GitCommitInfo, GitBranch } from '@/types'
+import type { GitFileChange, GitCommitInfo } from '@/types'
+import { CommitGraph } from 'commit-graph'
 
 type GitTab = 'status' | 'history' | 'branches'
 
@@ -111,21 +112,36 @@ function StatusTab({ hostId, repoPath, t }: { hostId: string; repoPath: string; 
 
 function HistoryTab({ hostId, repoPath, t }: { hostId: string; repoPath: string; t: TFunc }) {
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage } = useGitLogPaged(hostId, repoPath)
+  const { data: branchesData } = useGitBranches(hostId, repoPath)
   if (!data) return <div className="p-3 text-[11px] text-text-3">{t('git.detecting')}</div>
+  const commits = data.map((c) => ({
+    sha: c.hash,
+    commit: {
+      author: {
+        name: c.author,
+        date: c.date,
+        email: c.authorEmail,
+      },
+      message: c.subject,
+    },
+    parents: c.parents.map((sha) => ({ sha })),
+  }))
+  const branchHeads = (branchesData?.branches || []).map((branch) => ({
+    name: branch.name,
+    commit: { sha: branch.commitHash },
+  }))
+
   return (
-    <div>
-      {data.map((c) => (
-        <div key={c.hash} className="flex items-start gap-2 px-3 py-1.5 hover:bg-bg-2">
-          <div className="mt-1 h-2 w-2 shrink-0 rounded-full bg-accent" />
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-[12px] text-text-1">{c.subject}</div>
-            <div className="text-[10px] text-text-3">{c.shortHash} · {c.author} · {formatDate(c.date)}</div>
-          </div>
-        </div>
-      ))}
-      {hasNextPage && (
-        <button onClick={() => fetchNextPage()} disabled={isFetchingNextPage} className="w-full py-2 text-[11px] text-accent hover:bg-bg-2">{isFetchingNextPage ? '...' : t('git.loadMore')}</button>
-      )}
+    <div className="h-full overflow-y-auto">
+      <CommitGraph.WithInfiniteScroll
+        commits={commits}
+        branchHeads={branchHeads}
+        loadMore={fetchNextPage}
+        hasMore={hasNextPage && !isFetchingNextPage}
+        currentBranch={branchesData?.current}
+        dateFormatFn={formatDate}
+        graphStyle={{ commitSpacing: 36, branchSpacing: 20, nodeRadius: 3, branchColors: ['#3b82f6','#f59e0b','#10b981','#ef4444','#8b5cf6','#ec4899','#06b6d4','#f97316'] }}
+      />
     </div>
   )
 }
@@ -233,14 +249,14 @@ function BranchesTab({ hostId, repoPath, t }: { hostId: string; repoPath: string
 export function GitPanel() {
   const { t } = useTranslation()
   const activeHostId = useConsoleStore((state) => state.activeHostId)
-  const gitRepoPath = useConsoleStore((state) => state.gitRepoPath)
-  const setGitRepoPath = useConsoleStore((state) => state.setGitRepoPath)
+  const gitByHost = useConsoleStore((state) => state.gitByHost)
+  const setGitLockedRepo = useConsoleStore((state) => state.setGitLockedRepo)
+  const resumeGitFollowEditor = useConsoleStore((state) => state.resumeGitFollowEditor)
   const pushToast = useConsoleStore((state) => state.pushToast)
   const [activeTab, setActiveTab] = useState<GitTab>('status')
   const [commitMessage, setCommitMessage] = useState('')
-
-  const { data: detectResult } = useGitDetect(activeHostId || '', gitRepoPath || '')
-  const repoPath = detectResult?.isGitRepo ? (detectResult.rootPath || gitRepoPath) : null
+  const gitState = activeHostId ? gitByHost[activeHostId] : undefined
+  const repoPath = gitState?.currentRepoPath || null
   const { data: status } = useGitStatus(activeHostId || '', repoPath || '', !!repoPath)
   const commit = useGitCommit()
   const stageAll = useGitStage()
@@ -249,6 +265,8 @@ export function GitPanel() {
   const pull = useGitPull()
   const push = useGitPush()
   const queryClient = useQueryClient()
+  const pinnedRepos = useMemo(() => (gitState?.recentRepos || []).filter((item) => item.pinned), [gitState?.recentRepos])
+  const otherRepos = useMemo(() => (gitState?.recentRepos || []).filter((item) => !item.pinned), [gitState?.recentRepos])
 
   const handleCommit = () => {
     if (!activeHostId || !repoPath || !commitMessage.trim()) return
@@ -262,11 +280,15 @@ export function GitPanel() {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-bg-1">
-      {/* Header */}
       <div className="border-b border-[var(--line)] px-3 py-2">
         <div className="flex items-center justify-between">
-          <div className="text-sm font-semibold text-text-1">
-            {status?.branch || detectResult?.branch || (repoPath ? t('git.detecting') : t('git.noRepo'))}
+          <div className="min-w-0">
+            <div className="truncate text-sm font-semibold text-text-1">
+              {status?.branch || (repoPath ? t('git.detecting') : t('git.noRepo'))}
+            </div>
+            <div className="mt-0.5 text-[10px] text-text-3">
+              {gitState?.mode === 'locked' ? t('git.modeLocked') : t('git.modeFollowingFile')}
+            </div>
           </div>
           <div className="flex items-center gap-2">
             {status && status.ahead > 0 && <span className="text-[11px] text-green-400">↑{status.ahead}</span>}
@@ -274,25 +296,39 @@ export function GitPanel() {
           </div>
         </div>
         {repoPath && (
-          <div className="mt-1.5 flex items-center gap-1">
+          <div className="mt-1 truncate text-[11px] text-text-3" title={repoPath}>{repoPath}</div>
+        )}
+        {repoPath && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-1">
+            {gitState?.mode === 'locked' && (
+              <button onClick={() => activeHostId && resumeGitFollowEditor(activeHostId)} className="rounded px-2 py-0.5 text-[10px] text-accent hover:bg-bg-2 hover:text-text-1">{t('git.followCurrentFile')}</button>
+            )}
             <button onClick={() => activeHostId && fetch.mutate({ hostId: activeHostId, path: repoPath }, { onSuccess: () => { pushToast({ type: 'success', message: t('git.fetchSuccess') }); queryClient.invalidateQueries({ queryKey: ['git-status'] }) }, onError: (err) => pushToast({ type: 'error', message: err.message }) })} className="rounded px-2 py-0.5 text-[10px] text-text-3 hover:bg-bg-2 hover:text-text-1">{t('git.fetch')}</button>
             <button onClick={() => activeHostId && pull.mutate({ hostId: activeHostId, path: repoPath }, { onSuccess: () => { pushToast({ type: 'success', message: t('git.pullSuccess') }); queryClient.invalidateQueries({ queryKey: ['git-status'] }) }, onError: (err) => pushToast({ type: 'error', message: err.message }) })} className="rounded px-2 py-0.5 text-[10px] text-text-3 hover:bg-bg-2 hover:text-text-1">{t('git.pull')}</button>
             <button onClick={() => activeHostId && push.mutate({ hostId: activeHostId, path: repoPath }, { onSuccess: () => { pushToast({ type: 'success', message: t('git.pushSuccess') }); queryClient.invalidateQueries({ queryKey: ['git-status'] }) }, onError: (err) => pushToast({ type: 'error', message: err.message.includes('rejected') ? t('git.pushRejected') : err.message }) })} className="rounded px-2 py-0.5 text-[10px] text-text-3 hover:bg-bg-2 hover:text-text-1">{t('git.push')}</button>
           </div>
         )}
-        {!repoPath && (
+        {!!pinnedRepos.length && (
           <div className="mt-2">
-            <input
-              value={gitRepoPath || ''}
-              onChange={(e) => setGitRepoPath(e.target.value || null)}
-              placeholder={t('git.selectRepo')}
-              className="w-full rounded border border-[var(--line)] bg-bg-0 px-2 py-1 text-[12px] text-text-1 outline-none focus:border-accent"
-            />
+            <div className="mb-1 text-[10px] text-text-3">{t('git.pinnedRepos')}</div>
+            <div className="flex flex-wrap gap-1">
+              {pinnedRepos.map((item) => (
+                <button key={item.repoPath} onClick={() => activeHostId && setGitLockedRepo(activeHostId, item.repoPath)} className={`rounded px-2 py-0.5 text-[10px] ${repoPath === item.repoPath ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-3 hover:text-text-1'}`}>{item.label}</button>
+              ))}
+            </div>
+          </div>
+        )}
+        {!!otherRepos.length && (
+          <div className="mt-2">
+            <div className="mb-1 text-[10px] text-text-3">{t('git.recentRepos')}</div>
+            <div className="flex flex-wrap gap-1">
+              {otherRepos.map((item) => (
+                <button key={item.repoPath} onClick={() => activeHostId && setGitLockedRepo(activeHostId, item.repoPath)} className={`rounded px-2 py-0.5 text-[10px] ${repoPath === item.repoPath ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-3 hover:text-text-1'}`}>{item.label}</button>
+              ))}
+            </div>
           </div>
         )}
       </div>
-
-      {/* Tabs */}
       {repoPath && (
         <>
           <div className="flex border-b border-[var(--line)]">
@@ -302,15 +338,11 @@ export function GitPanel() {
               </button>
             ))}
           </div>
-
-          {/* Tab content */}
           <div className="min-h-0 flex-1 overflow-y-auto">
             {activeTab === 'status' && <StatusTab hostId={activeHostId} repoPath={repoPath} t={t as TFunc} />}
             {activeTab === 'history' && <HistoryTab hostId={activeHostId} repoPath={repoPath} t={t as TFunc} />}
             {activeTab === 'branches' && <BranchesTab hostId={activeHostId} repoPath={repoPath} t={t as TFunc} />}
           </div>
-
-          {/* Commit area */}
           {activeTab === 'status' && (
             <div className="border-t border-[var(--line)] p-3">
               <textarea
@@ -339,6 +371,9 @@ export function GitPanel() {
             </div>
           )}
         </>
+      )}
+      {!repoPath && (
+        <div className="flex h-full items-center justify-center p-3 text-[11px] text-text-3">{gitState?.currentFilePath ? t('git.fileNotInRepo') : t('git.noActiveEditor')}</div>
       )}
     </div>
   )

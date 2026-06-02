@@ -340,3 +340,19 @@ export interface GitMergeResponse {
   conflicts: boolean
   message: string
 }
+export type GitMode='follow-editor'|'locked'
+export type GitSource='editor'|'manual'|null
+export interface GitRepoEntry {
+  repoPath: string
+  label: string
+  lastUsedAt: number
+  pinned: boolean
+}
+export interface GitHostState {
+  mode: GitMode
+  currentRepoPath: string | null
+  currentFilePath: string | null
+  source: GitSource
+  lockedRepoPath: string | null
+  recentRepos: GitRepoEntry[]
+}

@@ -5,6 +5,7 @@ import type { MouseEvent as ReactMouseEvent } from 'react'
 import type { FileEditorDocument } from '@/types'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { usePreferences } from '@/hooks/usePreferences'
+import { useGitDetect } from '@/hooks/useApi'
 import { useTranslation } from '@/i18n'
 import { ConfirmDialog } from './ConfirmDialog'
 import { DiffViewer } from './DiffViewer'
@@ -12,6 +13,12 @@ import { DiffViewer } from './DiffViewer'
 const MonacoEditor=dynamic(() => import('@monaco-editor/react').then((mod) => mod.default), { ssr: false })
 const AUTO_SCROLL_DEADZONE = 10
 const AUTO_SCROLL_MAX_STEP = 42
+function getParentDir(path: string) {
+  const normalized = path.replace(/\/+$/,'')
+  const index = normalized.lastIndexOf('/')
+  if (index <= 0) return '/'
+  return normalized.slice(0, index)
+}
 
 function getMonacoTheme(theme: string) {
   if (theme === 'light') return 'vs'
@@ -132,11 +139,15 @@ function parseGitDiffId(id: string) {
 }
 
 export function EditorWorkbench({ onSaveEditor }:{ onSaveEditor: (editor: FileEditorDocument) => Promise<void> }) {
+  const activeHostId = useConsoleStore((state) => state.activeHostId)
   const openEditors = useConsoleStore((state) => state.openEditors)
   const activeEditorId = useConsoleStore((state) => state.activeEditorId)
   const setActiveEditor = useConsoleStore((state) => state.setActiveEditor)
   const closeEditor = useConsoleStore((state) => state.closeEditor)
   const setEditorContent = useConsoleStore((state) => state.setEditorContent)
+  const ensureGitHostState = useConsoleStore((state) => state.ensureGitHostState)
+  const setGitFollowEditorRepo = useConsoleStore((state) => state.setGitFollowEditorRepo)
+  const gitByHost = useConsoleStore((state) => state.gitByHost)
   const { preferences } = usePreferences()
   const { t } = useTranslation()
   const editorRef = useRef<any>(null)
@@ -149,6 +160,9 @@ export function EditorWorkbench({ onSaveEditor }:{ onSaveEditor: (editor: FileEd
   const [autoScrollIndicator, setAutoScrollIndicator] = useState<{ active: boolean; x: number; y: number }>({ active: false, x: 0, y: 0 })
   const activeEditor = openEditors.find((item) => item.id === activeEditorId) || openEditors[openEditors.length - 1] || null
   const gitDiff = activeEditor?.id.startsWith('git-diff:') ? parseGitDiffId(activeEditor.id) : null
+  const followFilePath = !gitDiff && activeEditor?.absolutePath ? getParentDir(activeEditor.absolutePath) : ''
+  const gitMode = activeHostId ? gitByHost[activeHostId]?.mode || 'follow-editor' : 'follow-editor'
+  const { data: detectResult } = useGitDetect(activeHostId || '', followFilePath)
   const markdownPreviewOpen = !!activeEditor && activeEditor.language === 'markdown' && !!previewOpenById[activeEditor.id]
   const cursor = activeEditor ? cursorById[activeEditor.id] : null
   const markdownPreview = useMemo(() => activeEditor?.language === 'markdown' ? renderMarkdown(escapeHtml(activeEditor.content)) : '', [activeEditor])
@@ -260,6 +274,16 @@ export function EditorWorkbench({ onSaveEditor }:{ onSaveEditor: (editor: FileEd
   useEffect(() => {
     stopAutoScroll()
   }, [activeEditor?.id, markdownPreviewOpen])
+  useEffect(() => {
+    if (!activeHostId) return
+    ensureGitHostState(activeHostId)
+  }, [activeHostId, ensureGitHostState])
+  useEffect(() => {
+    if (!activeHostId || gitMode !== 'follow-editor' || gitDiff) return
+    if (!activeEditor?.absolutePath) return
+    const repoPath = detectResult?.isGitRepo ? detectResult.rootPath || activeEditor.absolutePath : null
+    setGitFollowEditorRepo(activeHostId, repoPath, activeEditor.absolutePath)
+  }, [activeEditor?.absolutePath, activeHostId, detectResult?.isGitRepo, detectResult?.rootPath, gitDiff, gitMode, setGitFollowEditorRepo])
 
   if (!activeEditor) return null
 
