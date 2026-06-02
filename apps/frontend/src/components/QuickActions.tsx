@@ -89,7 +89,7 @@ function useQuickActionController() {
     },repeatDelay)
   },[sendKey,stopRepeat])
   useEffect(()=>stopRepeat,[stopRepeat])
-  const preventFocus=useCallback((e:ReactPointerEvent<HTMLButtonElement>)=>{if(e.pointerType==='mouse')e.preventDefault()},[])
+  const preventFocus=useCallback((e:ReactPointerEvent<HTMLButtonElement>)=>{e.preventDefault()},[])
   const startPointer=useCallback((e:ReactPointerEvent<HTMLButtonElement>)=>{pointerStateRef.current={id:e.pointerId,x:e.clientX,y:e.clientY,moved:false,pointerType:e.pointerType||'',repeatFired:false}},[])
   const resetPointer=useCallback(()=>{pointerStateRef.current={id:-1,x:0,y:0,moved:false,pointerType:'',repeatFired:false}},[])
   const startDockGesture=useCallback((e:ReactPointerEvent<HTMLDivElement>)=>{

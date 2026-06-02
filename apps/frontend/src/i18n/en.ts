@@ -236,6 +236,14 @@ export const en = {
   'pane.closed': 'Pane closed',
   'pane.closeFailed': 'Close failed',
   'pane.zoomFailed': 'Zoom failed',
+  'githubAuth.title': 'GitHub login',
+  'githubAuth.desc': 'Open GitHub device login and enter this code.',
+  'githubAuth.code': 'Device Code',
+  'githubAuth.open': 'Open GitHub',
+  'githubAuth.copy': 'Copy Code',
+  'githubAuth.dismiss': 'Dismiss',
+  'githubAuth.copied': 'GitHub code copied',
+  'githubAuth.copiedInApp': 'GitHub code saved in app clipboard',
 
   // CommandSnippets
   'snippets.title': 'Command Snippets',

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, createEvent, fireEvent, render, screen } from '@testing-library/react'
 import React from 'react'
 import { vi } from 'vitest'
 import { ShortcutBar } from './ShortcutBar'
@@ -102,6 +102,13 @@ describe('ShortcutBar', () => {
       vi.advanceTimersByTime(240)
     })
     expect(send.mock.calls.length).toBe(beforeRelease)
+  })
+  it('prevents default on touch pointerdown so mobile keyboard stays open', () => {
+    render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))
+    const button=screen.getByRole('button', { name: 'Enter' })
+    const event=createEvent.pointerDown(button, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
+    fireEvent(button, event)
+    expect(event.defaultPrevented).toBe(true)
   })
   it('uses latest active pane from snapshot for zoom', async () => {
     snapshotGet.mockResolvedValue({ windows: [], panes: [{ id: '%2', active: true }], activePaneId: '%2' })

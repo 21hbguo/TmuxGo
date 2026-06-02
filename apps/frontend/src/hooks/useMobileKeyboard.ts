@@ -416,6 +416,13 @@ export function useMobileKeyboard(
       if (!isOpen && inset >= KEYBOARD_OPEN_THRESHOLD) {
         openKeyboard(inset)
       } else if (isOpen && inset <= KEYBOARD_CLOSE_THRESHOLD) {
+        if (Date.now() <= keepAliveUntilRef.current) {
+          requestAnimationFrame(() => {
+            if (Date.now() <= keepAliveUntilRef.current) focusKeyboard()
+          })
+          scheduleKeyboardVerify()
+          return
+        }
         closeKeyboard(true)
       } else if (isOpen) {
         updateKeyboardInset(inset)
@@ -428,7 +435,7 @@ export function useMobileKeyboard(
       window.visualViewport?.removeEventListener('resize', handleViewportResize)
       closeKeyboard()
     }
-  }, [closeKeyboard, isKeyboardOwnerActive, openKeyboard, getViewportInset, updateKeyboardInset])
+  }, [closeKeyboard, focusKeyboard, isKeyboardOwnerActive, openKeyboard, getViewportInset, scheduleKeyboardVerify, updateKeyboardInset])
 
   return { textareaRef, focusKeyboard, isMobile: isMobile.current }
 }
