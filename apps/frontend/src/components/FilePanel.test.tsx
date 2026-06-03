@@ -2,18 +2,20 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FilePanel } from './FilePanel'
-import type { FileListResponse } from '@/types'
+import type { FileEditorDocument, FileListResponse } from '@/types'
 
 const clipboardMocks = vi.hoisted(() => ({
   writeClipboardText: vi.fn(async () => ({ copied: true, source: 'system', unavailable: false })),
 }))
 const setFilePanelWidth = vi.fn()
 const setFilePanelOpen = vi.fn()
+const openUploadDialog = vi.fn()
 const pushToast = vi.fn()
 const invalidateQueries = vi.fn()
 const delayedSrcResolvers: Array<() => void> = []
 const preferencesGet = vi.fn(async () => ({ version: 1, updatedAt: '', customShortcuts: [], customShortcutsUpdatedAt: '', favoriteDirectories: [], favoriteDirectoriesUpdatedAt: '', sessionOrders: [], sessionOrdersUpdatedAt: '', uploadRateLimitKBps: 200, downloadRateLimitKBps: 200 }))
 const preferencesUpdate = vi.fn(async (payload: any) => ({ version: 1, updatedAt: '', customShortcuts: [], customShortcutsUpdatedAt: '', favoriteDirectories: payload.favoriteDirectories || [], favoriteDirectoriesUpdatedAt: payload.favoriteDirectoriesUpdatedAt || '', sessionOrders: [], sessionOrdersUpdatedAt: '', uploadRateLimitKBps: payload.uploadRateLimitKBps || 200, downloadRateLimitKBps: payload.downloadRateLimitKBps || 200 }))
+const consoleStoreState: { activeHostId: string; filePanelWidth: number; setFilePanelWidth: typeof setFilePanelWidth; setFilePanelOpen: typeof setFilePanelOpen; openUploadDialog: typeof openUploadDialog; pushToast: typeof pushToast; openEditors: FileEditorDocument[]; activeEditorId: string | null } = { activeHostId: 'local', filePanelWidth: 360, setFilePanelWidth, setFilePanelOpen, openUploadDialog, pushToast, openEditors: [], activeEditorId: null }
 
 const roots = [
   { id: 'root-home', label: 'Home', path: '/home/guo' },
@@ -32,8 +34,7 @@ const getListData = (rootId: string, currentPath: string): FileListResponse => {
 
 vi.mock('@/stores/useConsoleStore', () => ({
   useConsoleStore: ((selector?: any) => {
-    const state = { activeHostId: 'local', filePanelWidth: 360, setFilePanelWidth, setFilePanelOpen, pushToast }
-    return typeof selector === 'function' ? selector(state) : state
+    return typeof selector === 'function' ? selector(consoleStoreState) : consoleStoreState
   }) as any,
 }))
 vi.mock('@tanstack/react-query', () => ({
@@ -94,11 +95,16 @@ describe('FilePanel', () => {
     localStorage.clear()
     setFilePanelWidth.mockReset()
     setFilePanelOpen.mockReset()
+    openUploadDialog.mockReset()
     pushToast.mockReset()
     clipboardMocks.writeClipboardText.mockClear()
     preferencesGet.mockClear()
     preferencesUpdate.mockClear()
     delayedSrcResolvers.length = 0
+    consoleStoreState.activeHostId = 'local'
+    consoleStoreState.filePanelWidth = 360
+    consoleStoreState.openEditors = []
+    consoleStoreState.activeEditorId = null
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
       return window.setTimeout(() => cb(0), 0)
     })
@@ -198,6 +204,65 @@ describe('FilePanel', () => {
     expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('root-home')
     const favorites = JSON.parse(localStorage.getItem('tmuxgo-favorite-directories') || '[]')
     expect(favorites).toEqual([])
+  })
+  it('follows the active editor and expands nested directories in explorer', async () => {
+    consoleStoreState.openEditors = [{
+      id: 'local:root-home:src/nested/deep.ts',
+      hostId: 'local',
+      rootId: 'root-home',
+      rootLabel: 'Home',
+      rootPath: '/home/guo',
+      path: 'src/nested/deep.ts',
+      name: 'deep.ts',
+      absolutePath: '/home/guo/src/nested/deep.ts',
+      language: 'typescript',
+      content: '',
+      savedContent: '',
+      modifiedAt: '',
+      size: 0,
+      dirty: false,
+      loading: false,
+      saving: false,
+      binary: false,
+      truncated: false,
+    }]
+    consoleStoreState.activeEditorId = 'local:root-home:src/nested/deep.ts'
+    render(React.createElement(FilePanel))
+    await waitFor(() => expect(screen.getByText('deep.ts')).toBeInTheDocument())
+    expect(screen.getByText('nested')).toBeInTheDocument()
+    expect(document.querySelector('.tmuxgo-file-tree .ant-tree-node-selected')?.textContent).toContain('deep.ts')
+  })
+  it('switches to the matching favorite root for the active editor', async () => {
+    localStorage.setItem('tmuxgo-favorite-directories', JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'docs', path: 'docs' }, { rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]))
+    const view = render(React.createElement(FilePanel))
+    await screen.findByRole('option', { name: 'docs' })
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'favorite:root-home:docs' } })
+    await waitFor(() => expect(screen.getByText('guide.md')).toBeInTheDocument())
+    consoleStoreState.openEditors = [{
+      id: 'local:root-home:project/demo.txt',
+      hostId: 'local',
+      rootId: 'root-home',
+      rootLabel: 'Home',
+      rootPath: '/home/guo',
+      path: 'project/demo.txt',
+      name: 'demo.txt',
+      absolutePath: '/home/guo/project/demo.txt',
+      language: 'plaintext',
+      content: '',
+      savedContent: '',
+      modifiedAt: '',
+      size: 0,
+      dirty: false,
+      loading: false,
+      saving: false,
+      binary: false,
+      truncated: false,
+    }]
+    consoleStoreState.activeEditorId = 'local:root-home:project/demo.txt'
+    view.rerender(React.createElement(FilePanel))
+    await waitFor(() => expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('favorite:root-home:project'))
+    expect(screen.getByText('demo.txt')).toBeInTheDocument()
+    expect(document.querySelector('.tmuxgo-file-tree .ant-tree-node-selected')?.textContent).toContain('demo.txt')
   })
 
   it('expands a searched directory in place on desktop while keeping name search active', async () => {
@@ -365,6 +430,20 @@ describe('FilePanel', () => {
     expect(screen.queryByText('index.ts')).not.toBeInTheDocument()
     delayedSrcResolvers.splice(0).forEach((resolve) => resolve())
     await waitFor(() => expect(screen.queryByText('index.ts')).not.toBeInTheDocument())
+  })
+  it('shows directory children after async loading without requiring a second toggle', async () => {
+    const { api } = await import('@/lib/api')
+    vi.mocked(api.files.list).mockImplementation(async (_hostId: string, rootId: string, path = '') => {
+      if (rootId === 'root-home' && path === 'src') {
+        await new Promise<void>((resolve) => delayedSrcResolvers.push(resolve))
+      }
+      return getListData(rootId, path)
+    })
+    render(React.createElement(FilePanel))
+    fireEvent.click(await screen.findByText('src'))
+    expect(screen.queryByText('index.ts')).not.toBeInTheDocument()
+    delayedSrcResolvers.splice(0).forEach((resolve) => resolve())
+    await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
   })
   it('reuses in-flight directory loading when toggled repeatedly', async () => {
     const { api } = await import('@/lib/api')

@@ -497,10 +497,18 @@ describe('TerminalPane', () => {
   it('copies final selection immediately on pointer release', async () => {
     const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(onSelectionChangeHandlers.length).toBeGreaterThan(0))
+    const helper = container.querySelector('textarea') as HTMLTextAreaElement
+    const removeAllRanges = vi.fn()
+    const originalGetSelection = window.getSelection
+    expect(helper.style.caretColor).toBe('transparent')
+    expect(helper.style.background).toBe('transparent')
+    Object.defineProperty(window, 'getSelection', { configurable: true, value: () => ({ anchorNode: helper, focusNode: helper, removeAllRanges }) })
     terminalSelection = 'printf "mouseup_copy_ok"'
     fireEvent.mouseDown(container.firstChild as Element)
     fireEvent.mouseUp(container.firstChild as Element)
+    Object.defineProperty(window, 'getSelection', { configurable: true, value: originalGetSelection })
     expect(document.execCommand).toHaveBeenCalledWith('copy')
+    expect(removeAllRanges).toHaveBeenCalled()
     expect(storeMocks.pushToast).toHaveBeenCalledWith({ type: 'success', message: 'Copied 24 chars (native)', durationMs: 900 })
     await sleep(20)
     expect(clipboardMocks.writeClipboardText).toHaveBeenCalledTimes(0)

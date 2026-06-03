@@ -177,6 +177,21 @@ function stripBasePath(path: string, basePath: string) {
   const prefix = `${normalizedBasePath}/`
   return normalizedPath.startsWith(prefix) ? normalizedPath.slice(prefix.length) : normalizedPath
 }
+function pathIncludesBasePath(path: string, basePath: string) {
+  const normalizedPath = path.split(/[\\/]+/).filter(Boolean).join('/')
+  const normalizedBasePath = basePath.split(/[\\/]+/).filter(Boolean).join('/')
+  if (!normalizedBasePath) return true
+  return normalizedPath === normalizedBasePath || normalizedPath.startsWith(`${normalizedBasePath}/`)
+}
+function getParentPath(path: string) {
+  const parts = path.split(/[\\/]+/).filter(Boolean)
+  return parts.slice(0, -1).join('/')
+}
+function getMatchingRootOption(rootOptions: FileRootOption[], rootId: string, path: string) {
+  const candidates = rootOptions.filter((item) => item.sourceRootId === rootId && pathIncludesBasePath(path, item.basePath))
+  if (!candidates.length) return null
+  return candidates.reduce((best, item) => item.basePath.length > best.basePath.length ? item : best)
+}
 function rebaseEntryPath<T extends { path: string }>(entry: T, basePath: string) {
   const nextPath = stripBasePath(entry.path, basePath)
   return nextPath === entry.path ? entry : { ...entry, path: nextPath }
@@ -230,6 +245,8 @@ type FileTreeNode = DataNode & { item: FileItem; isLeaf?: boolean }
 export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile }: { mode?: 'panel' | 'mobile' | 'explorer'; dock?: 'left' | 'right'; onClose?: () => void; onOpenFile?: (file: FileDocumentHandle) => void }) {
   const queryClient = useQueryClient()
   const activeHostId = useConsoleStore((state) => state.activeHostId)
+  const openEditors = useConsoleStore((state) => state.openEditors)
+  const activeEditorId = useConsoleStore((state) => state.activeEditorId)
   const filePanelWidth = useConsoleStore((state) => state.filePanelWidth)
   const setFilePanelWidth = useConsoleStore((state) => state.setFilePanelWidth)
   const setFilePanelOpen = useConsoleStore((state) => state.setFilePanelOpen)
@@ -261,6 +278,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   const directoryLoadingRef = useRef<Map<string, Promise<FileItem[]>>>(new Map())
   const touchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const uploadInputRef = useRef<HTMLInputElement>(null)
+  const lastFollowedEditorKeyRef = useRef('')
   const [pendingDeleteItem, setPendingDeleteItem] = useState<FileEntry | null>(null)
   const virtualRoots = useMemo(() => favoriteDirectories.map((item) => ({ id: getFavoriteRootOptionId(item), label: item.name, path: joinPath(item.rootPath, item.path), sourceRootId: item.rootId, basePath: item.path })), [favoriteDirectories])
   const visibleRoots = useMemo(() => {
@@ -288,6 +306,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   const preview = useMemo(() => rebasePreview(rawPreview, activeRootBasePath), [rawPreview, activeRootBasePath])
   const searchResults = useMemo(() => rawSearchResults.slice(0, SEARCH_RESULT_LIMIT).map((item) => rebaseEntryPath(item, activeRootBasePath)), [rawSearchResults, activeRootBasePath])
   const rootLabelById = useMemo(() => Object.fromEntries(visibleRoots.map((item) => [item.id, item.label])), [visibleRoots])
+  const activeEditor = useMemo(() => activeEditorId ? openEditors.find((item) => item.id === activeEditorId) || null : null, [activeEditorId, openEditors])
   const isSearching = debouncedQuery.trim().length > 0
   const showSearchResults = isSearching && !searchNavigationPath
   const items = useMemo(() => showSearchResults ? searchResults : listData?.items || [], [showSearchResults, searchResults, listData])
@@ -321,6 +340,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     setOpenDirectories(new Set())
     setSearchNavigationPath(null)
     setDirectoryCache(new Map())
+    lastFollowedEditorKeyRef.current = ''
     directoryLoadingRef.current.clear()
   }, [fileHostId])
   useEffect(() => {
@@ -476,7 +496,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     if (expanding) void loadDirectoryChildren(item)
     setSelectedPath(item.path)
   }
-  const loadDirectoryChildren = async (item: FileItem) => {
+  const loadDirectoryChildren = useCallback(async (item: FileItem) => {
     const cacheKey = getDirectoryCacheKey(activeRootId, activeRootBasePath, item.path)
     const cache = directoryCache.get(cacheKey)
     if (cache) return cache
@@ -495,7 +515,44 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     } catch {
       return []
     }
-  }
+  }, [activeRootBasePath, activeRootId, directoryCache, fileHostId, storeDirectoryChildren])
+  const activeEditorFollowTarget = useMemo(() => {
+    if (!activeEditor || activeEditor.kind === 'compare' || activeEditor.hostId !== fileHostId || !rootOptions.length) return null
+    const matchedRoot = getMatchingRootOption(rootOptions, activeEditor.rootId, activeEditor.path)
+    if (!matchedRoot) return null
+    const nextPath = stripBasePath(activeEditor.path, matchedRoot.basePath)
+    const parentPath = getParentPath(nextPath)
+    return { key: `${activeEditor.id}:${matchedRoot.id}`, rootId: matchedRoot.id, path: nextPath, parentPath, basePath: matchedRoot.basePath }
+  }, [activeEditor, fileHostId, rootOptions])
+  useEffect(() => {
+    if (isMobile || !activeEditorFollowTarget) return
+    if (activeEditorFollowTarget.rootId !== selectedRootId) {
+      if (lastFollowedEditorKeyRef.current === activeEditorFollowTarget.key) return
+      switchRoot(activeEditorFollowTarget.rootId)
+      return
+    }
+    if (lastFollowedEditorKeyRef.current === activeEditorFollowTarget.key) return
+    lastFollowedEditorKeyRef.current = activeEditorFollowTarget.key
+    const nextSearchNavigationPath = query.trim() ? activeEditorFollowTarget.parentPath || '/' : null
+    setCurrentPath((value) => value === '' ? value : '')
+    setSelectedPath((value) => value === activeEditorFollowTarget.path ? value : activeEditorFollowTarget.path)
+    setSelectedPreviewLine((value) => value === 1 ? value : 1)
+    setSearchNavigationPath((value) => value === nextSearchNavigationPath ? value : nextSearchNavigationPath)
+    setOpenDirectories((current) => {
+      const next = new Set(current)
+      for (const path of getDirectoryPathChain(activeEditorFollowTarget.parentPath)) next.add(path)
+      return current.size === next.size && [...current].every((item) => next.has(item)) ? current : next
+    })
+    void Promise.all(getDirectoryPathChain(activeEditorFollowTarget.parentPath).map((path) => loadDirectoryChildren({ name: getDirectoryName(path, activeRoot || roots[0] || { id: '', label: '', path: '' }), path, type: 'directory', size: 0, modifiedAt: '' })))
+  }, [activeEditorFollowTarget, activeRoot, isMobile, loadDirectoryChildren, query, roots, selectedRootId])
+  useEffect(() => {
+    if (isMobile || showSearchResults || !selectedPath || typeof window === 'undefined') return
+    const frame = window.requestAnimationFrame(() => {
+      const element = document.querySelector('.tmuxgo-file-tree .ant-tree-node-selected') as HTMLElement | null
+      element?.scrollIntoView?.({ block: 'nearest' })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [desktopTreeData, isMobile, selectedPath, showSearchResults])
 
   const openInEditor = (item: FileEntry) => {
     if (!onOpenFile || item.type !== 'file' || !root) return false
