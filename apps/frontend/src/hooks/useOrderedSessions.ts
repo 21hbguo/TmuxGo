@@ -63,6 +63,7 @@ export function useOrderedSessions(hostId: string) {
   const sessions = query.data || []
   const [sessionOrder, setSessionOrder] = useState<string[]>([])
   const syncHostRef = useRef('')
+  const hydratedHostRef = useRef('')
   const persistRemoteOrder = useCallback((orderedSessionIds: string[], updatedAt?: string, remoteSessionOrders?: SessionOrderPreference[]) => {
     if (!hostId) return
     const nextUpdatedAt = updatedAt || new Date().toISOString()
@@ -77,6 +78,7 @@ export function useOrderedSessions(hostId: string) {
   useEffect(() => {
     setSessionOrder(readSessionOrder(hostId))
     syncHostRef.current = ''
+    hydratedHostRef.current = ''
   }, [hostId])
   const orderedSessions = useMemo(() => orderSessions(sessions, sessionOrder), [sessionOrder, sessions])
   const normalizedOrder = useMemo(() => orderedSessions.map((session) => session.id), [orderedSessions])
@@ -86,7 +88,7 @@ export function useOrderedSessions(hostId: string) {
     const nextUpdatedAt = new Date().toISOString()
     setSessionOrder(normalizedOrder)
     writeSessionOrder(hostId, normalizedOrder, nextUpdatedAt)
-    if (syncHostRef.current === hostId) persistRemoteOrder(normalizedOrder, nextUpdatedAt)
+    if (syncHostRef.current === hostId && hydratedHostRef.current === hostId) persistRemoteOrder(normalizedOrder, nextUpdatedAt)
   }, [hostId, normalizedOrder, persistRemoteOrder, sessionOrder])
   useEffect(() => {
     if (!hostId || !sessions.length || syncHostRef.current === hostId) return
@@ -102,11 +104,11 @@ export function useOrderedSessions(hostId: string) {
         const localMs = Date.parse(localUpdatedAt || '')
         const remoteMs = Date.parse(remoteUpdatedAt || '')
         syncHostRef.current = hostId
+        hydratedHostRef.current = hostId
         if (!remoteOrderRaw.length && localOrder.length) {
           const nextUpdatedAt = localUpdatedAt || new Date().toISOString()
           setSessionOrder(localOrder)
           writeSessionOrder(hostId, localOrder, nextUpdatedAt)
-          persistRemoteOrder(localOrder, nextUpdatedAt, remoteEntries)
           return
         }
         if (!Number.isNaN(remoteMs) && (Number.isNaN(localMs) || remoteMs >= localMs)) {
@@ -122,6 +124,7 @@ export function useOrderedSessions(hostId: string) {
         if (!Number.isNaN(localMs) && (Number.isNaN(remoteMs) || localMs > remoteMs)) persistRemoteOrder(localOrder, nextUpdatedAt, remoteEntries)
       } catch {
         syncHostRef.current = hostId
+        hydratedHostRef.current = hostId
         writeSessionOrder(hostId, localOrder, localUpdatedAt || new Date().toISOString())
         setSessionOrder(localOrder)
       }
