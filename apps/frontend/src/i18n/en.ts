@@ -380,6 +380,7 @@ export const en = {
 
   // EditorWorkbench
   'editor.find': 'Find',
+  'editor.clear': 'Clear',
   'editor.format': 'Format',
   'editor.preview': 'Preview',
   'editor.saving': 'Saving...',

@@ -380,6 +380,7 @@ export const zh = {
 
   // EditorWorkbench
   'editor.find': '查找',
+  'editor.clear': '清空',
   'editor.format': '格式化',
   'editor.preview': '预览',
   'editor.saving': '保存中...',

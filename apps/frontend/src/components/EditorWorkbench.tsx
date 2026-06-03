@@ -444,7 +444,7 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
     return () => window.removeEventListener(OPEN_EDITOR_LOCATION_EVENT, handleOpenEditorLocation as EventListener)
   }, [setActiveEditor])
   const renderTab = (editor: FileEditorDocument, groupEditors: FileEditorDocument[], groupId: string) => (
-    <div key={editor.id} className={`group relative flex h-[42px] w-44 shrink-0 items-center border-r border-[rgba(255,255,255,0.04)] ${editor.id === activeEditor?.id ? 'bg-bg-0' : 'bg-bg-1/80'}`}>
+    <div key={editor.id} className={`group relative flex h-7 w-44 shrink-0 items-center border-r border-[rgba(255,255,255,0.04)] ${editor.id === activeEditor?.id ? 'bg-bg-0' : 'bg-bg-1/80'}`}>
       <button draggable={editor.kind !== 'compare'} onDragStart={(event) => {
         if (editor.kind === 'compare') return
         const handle = { id: editor.id, hostId: editor.hostId, rootId: editor.rootId, rootLabel: editor.rootLabel, rootPath: editor.rootPath, path: editor.path, name: editor.name, absolutePath: editor.absolutePath } satisfies FileDocumentHandle
@@ -479,18 +479,18 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
         clearActiveDraggedFile()
         setTabInsertionTarget(null)
         void handleTabButtonDrop(dragged, groupEditors, groupId, editor, side)
-      }} onClick={() => setActiveEditor(editor.id)} className={`flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-sm ${editor.id === activeEditor?.id ? 'text-text-1' : 'text-text-3 hover:text-text-1'}`}>
+      }} onClick={() => setActiveEditor(editor.id)} className={`flex min-w-0 flex-1 items-center gap-2 px-2.5 py-1.5 text-[13px] ${editor.id === activeEditor?.id ? 'text-text-1' : 'text-text-3 hover:text-text-1'}`}>
         <span className={`h-2 w-2 rounded-full ${editor.dirty ? 'bg-warn' : editor.saving ? 'bg-accent' : 'border border-[var(--line)] bg-transparent'}`} />
         <span className="min-w-0 flex-1 truncate">{editor.name}</span>
       </button>
-      <button onClick={() => {
+      <button aria-label={`Close ${editor.name}`} onClick={() => {
         if (editor.dirty) { setPendingCloseEditorId(editor.id); return }
         closeEditor(editor.id)
-      }} className="mr-2 shrink-0 rounded px-1.5 py-1 text-xs text-text-3 opacity-0 hover:bg-bg-2 hover:text-text-1 group-hover:opacity-100">×</button>
+      }} className="mr-1.5 shrink-0 rounded px-1 py-0.5 text-[11px] text-text-3 opacity-0 hover:bg-bg-2 hover:text-text-1 group-hover:opacity-100">×</button>
       {tabInsertionTarget?.groupId === groupId && tabInsertionTarget.editorId === editor.id && <span className={`pointer-events-none absolute inset-y-1 z-20 w-[2px] rounded-full bg-accent shadow-[0_0_0_1px_rgba(30,200,255,0.2)] ${tabInsertionTarget.side === 'before' ? 'left-0' : 'right-0'}`} />}
     </div>
   )
-  const renderTabStrip = (editors: FileEditorDocument[], groupId: string) => <div data-testid={`editor-group-${getLegacyGroupName(groupId)}`} data-editor-group-id={groupId} className={`tmuxgo-scrollbar-subtle relative flex min-h-[42px] items-stretch overflow-x-auto border-b border-[var(--line)] bg-bg-1 ${tabDropTarget?.groupId === groupId ? 'ring-1 ring-accent/40 ring-inset' : ''}`} onDragOver={(event) => {
+  const renderTabStrip = (editors: FileEditorDocument[], groupId: string) => <div data-testid={`editor-group-${getLegacyGroupName(groupId)}`} data-editor-group-id={groupId} className={`tmuxgo-scrollbar-subtle relative flex min-h-7 items-stretch overflow-x-auto border-b border-[var(--line)] bg-bg-1 ${tabDropTarget?.groupId === groupId ? 'ring-1 ring-accent/40 ring-inset' : ''}`} onDragOver={(event) => {
     if (!hasDraggedFile(event)) return
     const dragged = decodeDraggedFile(event)
     event.preventDefault()
@@ -616,6 +616,9 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
       })
     }} onChange={(value) => setEditorContent(editor.id, value || '')} options={{ automaticLayout: true, minimap: { enabled: false }, fontFamily: preferences.fontFamily, fontSize: Math.max(12, preferences.fontSize), lineNumbers: 'on', lineNumbersMinChars: 4, glyphMargin: false, folding: true, guides: { indentation: true, bracketPairs: true }, bracketPairColorization: { enabled: true }, matchBrackets: 'always', renderLineHighlight: 'line', renderValidationDecorations: 'on', occurrencesHighlight: 'singleFile', selectionHighlight: true, codeLens: false, contextmenu: true, links: true, mouseWheelZoom: true, cursorSmoothCaretAnimation: 'on', scrollBeyondLastLine: false, scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10, alwaysConsumeMouseWheel: false }, overviewRulerBorder: false, wordWrap: 'off', wordWrapColumn: 120, wrappingIndent: 'same', tabSize: getTabSize(editor.language), insertSpaces: editor.language !== 'go', detectIndentation: true, formatOnPaste: true, formatOnType: true, trimAutoWhitespace: true, renderWhitespace: 'boundary', renderControlCharacters: false, smoothScrolling: true, cursorBlinking: preferences.cursorBlink ? 'blink' : 'solid', cursorStyle: 'line', dragAndDrop: false, dropIntoEditor: { enabled: false }, readOnlyMessage: { value: t('editor.readOnly') }, padding: { top: 16, bottom: 16 } }} />{autoScrollIndicator.active && autoScrollStateRef.current.editorId === editor.id && <span data-testid="editor-auto-scroll-indicator" className="pointer-events-none absolute z-20 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-accent/70 bg-bg-0/85 shadow-[0_0_0_1px_rgba(30,200,255,0.22)]" style={{ left: autoScrollIndicator.x, top: autoScrollIndicator.y }}><span className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-accent/70" /><span className="absolute left-0 top-1/2 h-px w-full -translate-y-1/2 bg-accent/70" /></span>}</div>{markdownPreviewOpen && <div className="tmuxgo-scrollbar min-w-0 flex-1 overflow-auto bg-bg-1/60 px-6 py-5"><article className="prose prose-invert max-w-none text-sm text-text-2 [&_a]:text-accent [&_blockquote]:border-l-2 [&_blockquote]:border-[var(--line)] [&_blockquote]:pl-3 [&_code]:rounded [&_code]:bg-bg-2 [&_code]:px-1.5 [&_code]:py-0.5 [&_h1]:mb-4 [&_h1]:text-3xl [&_h1]:text-text-1 [&_h2]:mb-3 [&_h2]:mt-6 [&_h2]:text-2xl [&_h2]:text-text-1 [&_h3]:mb-2 [&_h3]:mt-5 [&_h3]:text-xl [&_h3]:text-text-1 [&_li]:mb-1 [&_p]:mb-3 [&_pre]:overflow-auto [&_pre]:rounded-lg [&_pre]:bg-bg-0 [&_pre]:p-4 [&_strong]:text-text-1" dangerouslySetInnerHTML={{ __html: renderMarkdown(escapeHtml(editor.content)) || `<p>${t('editor.nothingToPreview')}</p>` }} /></div>}</div>
   }
+  const closeAllEditors = () => {
+    for (const editor of [...openEditors]) closeEditor(editor.id)
+  }
   if (!activeEditor) return null
   return (
     <section data-editor-drop className="flex h-full min-h-0 flex-col bg-bg-0">
@@ -626,6 +629,7 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
         </div>
         <div className="flex items-center gap-2">
           {!gitDiff && <>
+            <button onClick={closeAllEditors} className="rounded px-3 py-1.5 text-xs bg-bg-2 text-text-2 hover:text-text-1">{t('editor.clear')}</button>
             <button onClick={() => void editorRefs.current[activeEditor.id]?.getAction?.('actions.find')?.run?.()} className="rounded px-3 py-1.5 text-xs bg-bg-2 text-text-2 hover:text-text-1">{t('editor.find')}</button>
             <button onClick={() => void editorRefs.current[activeEditor.id]?.getAction?.('editor.action.formatDocument')?.run?.()} className="rounded px-3 py-1.5 text-xs bg-bg-2 text-text-2 hover:text-text-1">{t('editor.format')}</button>
             {activeEditor.language === 'markdown' && <button onClick={() => setPreviewOpenById((current) => ({ ...current, [activeEditor.id]: !current[activeEditor.id] }))} className={`rounded px-3 py-1.5 text-xs ${previewOpenById[activeEditor.id] ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-2 hover:text-text-1'}`}>{t('editor.preview')}</button>}
