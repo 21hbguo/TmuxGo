@@ -1324,8 +1324,17 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       if (terminal.element instanceof HTMLElement) {
         terminal.element.style.width = '100%'
         terminal.element.style.height = '100%'
+        terminal.element.style.display = 'block'
+        const screen = terminal.element.querySelector('.xterm-screen') as HTMLElement | null
         const viewport = terminal.element.querySelector('.xterm-viewport') as HTMLElement | null
+        if (screen) {
+          screen.style.width = '100%'
+          screen.style.height = '100%'
+        }
         if (viewport) {
+          viewport.style.width = '100%'
+          viewport.style.height = '100%'
+          viewport.style.overflow = 'hidden'
           viewport.style.scrollbarWidth = 'none'
           viewport.style.setProperty('-ms-overflow-style', 'none')
         }
