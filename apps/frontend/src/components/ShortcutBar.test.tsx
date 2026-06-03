@@ -8,6 +8,7 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 const send = vi.fn()
 const snapshotGet = vi.fn()
 const zoomByPane = vi.fn()
+const killPane = vi.fn()
 let windowsDataMock:any[]=[{ id:'win-1',sessionId:'session-dev',active:true }]
 
 vi.mock('@/hooks/useWebSocket', () => ({
@@ -19,7 +20,7 @@ vi.mock('@/hooks/useApi', () => ({
 vi.mock('@/lib/api', () => ({
   api: {
     snapshot: { get: (...args: any[]) => snapshotGet(...args) },
-    panes: { zoomByPane: (...args: any[]) => zoomByPane(...args), kill: vi.fn() },
+    panes: { zoomByPane: (...args: any[]) => zoomByPane(...args), kill: (...args: any[]) => killPane(...args) },
   },
 }))
 
@@ -29,6 +30,7 @@ describe('ShortcutBar', () => {
     send.mockClear()
     snapshotGet.mockReset()
     zoomByPane.mockReset()
+    killPane.mockReset()
     windowsDataMock=[{ id:'win-1',sessionId:'session-dev',active:true }]
     useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-dev', activePaneId: 'old-pane' })
   })
@@ -111,7 +113,7 @@ describe('ShortcutBar', () => {
     expect(event.defaultPrevented).toBe(true)
   })
   it('uses latest active pane from snapshot for zoom', async () => {
-    snapshotGet.mockResolvedValue({ windows: [], panes: [{ id: '%2', active: true }], activePaneId: '%2' })
+    snapshotGet.mockResolvedValue({ windows: [], panes: [{ id: 'local:%2', active: true }], activePaneId: 'local:%2' })
     zoomByPane.mockResolvedValue({ ok: true })
     render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))
     await act(async () => {
@@ -119,8 +121,24 @@ describe('ShortcutBar', () => {
       fireEvent.pointerDown(button, { pointerId: 1, clientX: 10, clientY: 10 })
       fireEvent.pointerUp(button, { pointerId: 1, clientX: 10, clientY: 10 })
     })
-    expect(zoomByPane).toHaveBeenCalledWith('%2')
-    expect(useConsoleStore.getState().activePaneId).toBe('%2')
+    expect(zoomByPane).toHaveBeenCalledWith('local:%2')
+    expect(useConsoleStore.getState().activePaneId).toBe('local:%2')
+  })
+  it('does not show error when kill succeeds but snapshot refresh fails afterward', async () => {
+    snapshotGet.mockResolvedValueOnce({ windows: [], panes: [{ id: 'local:%3', active: true }], activePaneId: 'local:%3' }).mockRejectedValueOnce(new Error('Request failed'))
+    killPane.mockResolvedValue({ ok: true })
+    render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))
+    await act(async () => {
+      const button = screen.getByRole('button', { name: '删面板' })
+      fireEvent.pointerDown(button, { pointerId: 1, clientX: 10, clientY: 10 })
+      fireEvent.pointerUp(button, { pointerId: 1, clientX: 10, clientY: 10 })
+    })
+    expect(killPane).not.toHaveBeenCalled()
+    expect(screen.getByText('确认')).toBeTruthy()
+    await act(async () => {
+      fireEvent.click(screen.getByText('确认'))
+    })
+    expect(killPane).toHaveBeenCalledWith('local:%3')
   })
   it('keeps split and zoom available while active pane is being resynced after session switch', () => {
     useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-dev', activePaneId: null })

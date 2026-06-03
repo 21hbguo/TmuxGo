@@ -39,6 +39,11 @@ export function useSessionSnapshotSync() {
     applySnapshot(snapshot)
     return snapshot
   }, [activeHostId, activeSessionId, applySnapshot])
+  const readSnapshotPaneId = useCallback((snapshot: any) => {
+    const paneId = getPaneId(snapshot)
+    setActivePane(paneId)
+    return paneId
+  }, [getPaneId, setActivePane])
   const resolveActivePaneId = useCallback(async () => {
     const cachedPaneId = readCachedPaneId()
     if (cachedPaneId || !activeHostId || !activeSessionId) return cachedPaneId
@@ -49,9 +54,18 @@ export function useSessionSnapshotSync() {
       return useConsoleStore.getState().activePaneId
     }
   }, [activeHostId, activeSessionId, getPaneId, readCachedPaneId, refreshSnapshot])
+  const resolveFreshActivePaneId = useCallback(async () => {
+    if (!activeHostId || !activeSessionId) return useConsoleStore.getState().activePaneId
+    try {
+      const snapshot = await refreshSnapshot()
+      return readSnapshotPaneId(snapshot) || useConsoleStore.getState().activePaneId
+    } catch {
+      return useConsoleStore.getState().activePaneId
+    }
+  }, [activeHostId, activeSessionId, readSnapshotPaneId, refreshSnapshot])
   const syncAfterWindowChange = useCallback(async () => {
     const snapshot = await refreshSnapshot()
     return applySnapshot(snapshot)
   }, [applySnapshot, refreshSnapshot])
-  return { refreshSnapshot, resolveActivePaneId, syncAfterWindowChange }
+  return { refreshSnapshot, resolveActivePaneId, resolveFreshActivePaneId, syncAfterWindowChange }
 }

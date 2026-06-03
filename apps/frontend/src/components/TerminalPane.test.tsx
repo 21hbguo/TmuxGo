@@ -54,6 +54,7 @@ const queryClientMocks = vi.hoisted(() => ({
 const apiMocks = vi.hoisted(() => ({
   snapshotGet: vi.fn(async () => ({ windows: [], panes: [], activePaneId: null })),
   paneResize: vi.fn(async () => ({ ok: true })),
+  paneSelect: vi.fn(async () => ({ ok: true })),
   githubAuthStatus: vi.fn(async () => ({ ok: true, available: true, loggedIn: false })),
   fileRoots: vi.fn(async () => [{ id: 'root-workspace', label: 'workspace', path: '/workspace' }]),
   defaultUploadTarget: vi.fn(async () => ({ rootId: 'root-workspace', rootLabel: 'workspace', rootPath: '/workspace', path: '', absolutePath: '/workspace', source: 'pane' })),
@@ -121,7 +122,7 @@ vi.mock('@/stores/useConsoleStore', () => ({
   useConsoleStore: Object.assign(((selector: any) => selector({ activeHostId: 'local', activePaneId: 'local:%1', pushToast: storeMocks.pushToast, updateTerminalPerf: storeMocks.updateTerminalPerf, setActivePane: storeMocks.setActivePane, openUploadDialog: storeMocks.openUploadDialog, terminalPerf: { attachLatency: 0, outputBytes: 0, outputEvents: 0, outputBacklog: 0, layoutFitCount: 0, lastOutputAt: '' } })) as any, { getState: () => ({ activePaneId: 'local:%1', terminalPerf: { attachLatency: 0, outputBytes: 0, outputEvents: 0, outputBacklog: 0, layoutFitCount: 0, lastOutputAt: '' }, openEditors: [], openEditor: storeMocks.openEditor, setEditorLoaded: storeMocks.setEditorLoaded, setFilePanelOpen: storeMocks.setFilePanelOpen }) }),
 }))
 vi.mock('@/lib/api', () => ({
-  api: { snapshot: { get: apiMocks.snapshotGet }, panes: { resize: apiMocks.paneResize }, hosts: { githubAuthStatus: apiMocks.githubAuthStatus }, files: { roots: apiMocks.fileRoots, defaultUploadTarget: apiMocks.defaultUploadTarget, content: apiMocks.fileContent, preview: apiMocks.filePreview, imageUrl: vi.fn(() => '/api/files/image') } },
+  api: { snapshot: { get: apiMocks.snapshotGet }, panes: { resize: apiMocks.paneResize, select: apiMocks.paneSelect }, hosts: { githubAuthStatus: apiMocks.githubAuthStatus }, files: { roots: apiMocks.fileRoots, defaultUploadTarget: apiMocks.defaultUploadTarget, content: apiMocks.fileContent, preview: apiMocks.filePreview, imageUrl: vi.fn(() => '/api/files/image') } },
 }))
 vi.mock('@/hooks/useOptionalQueryClient', () => ({
   useOptionalQueryClient: () => queryClientMocks,
@@ -308,6 +309,8 @@ describe('TerminalPane', () => {
     apiMocks.snapshotGet.mockResolvedValue({ windows: [], panes: [], activePaneId: null })
     apiMocks.paneResize.mockClear()
     apiMocks.paneResize.mockResolvedValue({ ok: true })
+    apiMocks.paneSelect.mockClear()
+    apiMocks.paneSelect.mockResolvedValue({ ok: true })
     apiMocks.githubAuthStatus.mockClear()
     apiMocks.githubAuthStatus.mockResolvedValue({ ok: true, available: true, loggedIn: false })
     apiMocks.fileRoots.mockClear()
@@ -448,6 +451,26 @@ describe('TerminalPane', () => {
     expect(apiMocks.paneResize).toHaveBeenCalledTimes(1)
     resolveFirst({ ok: true })
     await waitFor(() => expect(apiMocks.paneResize).toHaveBeenCalledWith('%1', { cols: 15 }))
+  })
+  it('syncs clicked pane immediately before snapshot refresh completes', async () => {
+    queryClientMocks.getQueryData.mockReturnValue({
+      sessionName: 'dev',
+      activeWindowId: '@1',
+      windows: [{ id: '@1', index: 0, active: true }],
+      panes: [
+        { id: 'local:%1', windowId: 'local:dev:0', left: 0, top: 0, size: { cols: 12, rows: 10 } },
+        { id: 'local:%2', windowId: 'local:dev:0', left: 13, top: 0, size: { cols: 12, rows: 10 } },
+      ],
+    })
+    apiMocks.snapshotGet.mockResolvedValue({ windows: [], panes: [{ id: 'local:%2', active: true }], activePaneId: 'local:%2' })
+    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    const screen = container.querySelector('.xterm-screen') as HTMLElement
+    screen.getBoundingClientRect = vi.fn(() => ({ x: 0, y: 0, left: 0, top: 0, width: 960, height: 576, right: 960, bottom: 576, toJSON: () => ({}) } as DOMRect))
+    fireEvent.mouseDown(container.firstChild as Element, { button: 0, clientX: 120, clientY: 20 })
+    fireEvent.mouseUp(window, { button: 0, clientX: 120, clientY: 20 })
+    await waitFor(() => expect(storeMocks.setActivePane).toHaveBeenCalledWith('local:%2'))
+    expect(apiMocks.paneSelect).toHaveBeenCalledWith('local:%2')
   })
   it('does not recreate terminal instance on noop rerender', async () => {
     const onInput = vi.fn()

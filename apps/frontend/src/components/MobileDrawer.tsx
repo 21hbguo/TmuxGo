@@ -18,6 +18,13 @@ function getNextSessionId(sessions: { id: string }[], removedIds: string[]) {
   const removed = new Set(removedIds)
   return sessions.find((item) => !removed.has(item.id))?.id || ''
 }
+function sameIds(a: string[], b: string[]) {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false
+  }
+  return true
+}
 
 interface MobileDrawerProps {
   isOpen: boolean
@@ -182,7 +189,10 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
     setSelectedSessionIds((prev) => prev.includes(sessionId) ? prev.filter((id) => id !== sessionId) : [...prev, sessionId])
   }
   useEffect(() => {
-    setSelectedSessionIds((prev) => prev.filter((id) => sessions.some((item) => item.id === id)))
+    setSelectedSessionIds((prev) => {
+      const next = prev.filter((id) => sessions.some((item) => item.id === id))
+      return sameIds(prev, next) ? prev : next
+    })
   }, [sessions])
 
   const sessionWindows = windowsData.filter((w: any) => w.sessionId === activeSessionId)

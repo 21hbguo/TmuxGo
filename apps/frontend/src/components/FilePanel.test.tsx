@@ -223,6 +223,15 @@ describe('FilePanel', () => {
     expect(input.value).toBe('src')
     expect(screen.getByRole('button', { name: '/' })).toBeInTheDocument()
   })
+  it('shows full path on hover for filtered directories and files', async () => {
+    render(React.createElement(FilePanel))
+    const input = screen.getByPlaceholderText('Search file names') as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'src' } })
+    const directory = await screen.findByTitle('/home/guo/src')
+    expect(directory).toHaveTextContent('src')
+    fireEvent.click(directory)
+    expect(await screen.findByTitle('/home/guo/src/index.ts')).toHaveTextContent('index.ts')
+  })
 
   it('enters a searched directory on mobile while keeping name search active', async () => {
     render(React.createElement(FilePanel, { mode: 'mobile' }))

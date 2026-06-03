@@ -200,6 +200,18 @@ describe('EditorWorkbench', () => {
     vi.advanceTimersByTime(32)
     await vi.waitFor(() => expect(setScrollTop).toHaveBeenCalled())
   })
+  it('keeps single-group editor surface stretched to the available height', () => {
+    const { container } = renderWorkbench()
+    const body = container.querySelector('section[data-editor-drop] > .relative.min-h-0.flex-1.bg-bg-0 > .flex.h-full.min-h-0.flex-col') as HTMLDivElement | null
+    const pane = body?.firstElementChild as HTMLDivElement | null
+    const surface = pane?.querySelector('button.relative.min-h-0.min-w-0.flex-1.overflow-hidden.text-left') as HTMLButtonElement | null
+    expect(body).toBeTruthy()
+    expect(pane).toBeTruthy()
+    expect(surface).toBeTruthy()
+    expect(body?.className).toContain('h-full')
+    expect(pane?.className).toContain('flex-1')
+    expect(surface?.className).toContain('flex-1')
+  })
   it('moves a dragged tab into the primary group and collapses the source split', async () => {
     setWorkbenchState({
       openEditors: [editor1, editor2],

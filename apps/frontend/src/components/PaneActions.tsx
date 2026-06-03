@@ -7,23 +7,27 @@ import { useTranslation } from '@/i18n'
 
 export function PaneActions() {
   const pushToast = useConsoleStore((s) => s.pushToast)
-  const { refreshSnapshot, resolveActivePaneId } = useSessionSnapshotSync()
+  const { refreshSnapshot, resolveActivePaneId, resolveFreshActivePaneId } = useSessionSnapshotSync()
   const { t } = useTranslation()
+  const refreshSnapshotSafely = async () => {
+    try {
+      await refreshSnapshot()
+    } catch {}
+  }
 
   const handleSplit = async (direction: 'horizontal' | 'vertical') => {
-    const initialPaneId = await resolveActivePaneId()
+    const initialPaneId = await resolveFreshActivePaneId()
     if (!initialPaneId) return
     try {
       await api.panes.split(initialPaneId, direction)
-      await refreshSnapshot()
+      await refreshSnapshotSafely()
       pushToast({ type: 'success', message: t('pane.splitSuccess') })
     } catch (err) {
       try {
-        const snapshot = await refreshSnapshot()
-        const paneId = snapshot?.activePaneId || useConsoleStore.getState().activePaneId
+        const paneId = await resolveFreshActivePaneId()
         if (!paneId || paneId === initialPaneId) throw err
         await api.panes.split(paneId, direction)
-        await refreshSnapshot()
+        await refreshSnapshotSafely()
         pushToast({ type: 'success', message: t('pane.splitSuccess') })
       } catch (retryErr) {
         pushToast({ type: 'error', message: retryErr instanceof Error ? retryErr.message : t('pane.splitFailed') })
@@ -32,11 +36,11 @@ export function PaneActions() {
   }
 
   const handleClose = async () => {
-    const paneId = await resolveActivePaneId()
+    const paneId = await resolveFreshActivePaneId()
     if (!paneId) return
     try {
       await api.panes.kill(paneId)
-      await refreshSnapshot()
+      await refreshSnapshotSafely()
       pushToast({ type: 'success', message: t('pane.closed') })
     } catch (err) {
       pushToast({ type: 'error', message: err instanceof Error ? err.message : t('pane.closeFailed') })
