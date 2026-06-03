@@ -557,8 +557,8 @@ describe('EditorWorkbench', () => {
     expect(state.editorLayout?.type).toBe('split')
     expect(state.editorLayout?.type === 'split' ? state.editorLayout.direction : null).toBe('horizontal')
     expect(state.editorLayout?.type === 'split' && state.editorLayout.second.type === 'split' ? state.editorLayout.second.direction : null).toBe('vertical')
-    expect(state.editorLayout?.type === 'split' && state.editorLayout.second.type === 'split' ? state.editorLayout.second.first.groupId : null).toBe(newGroupId)
-    expect(state.editorLayout?.type === 'split' && state.editorLayout.second.type === 'split' ? state.editorLayout.second.second.groupId : null).toBe('group-2')
+    expect(state.editorLayout?.type === 'split' && state.editorLayout.second.type === 'split' && state.editorLayout.second.first.type === 'group' ? state.editorLayout.second.first.groupId : null).toBe(newGroupId)
+    expect(state.editorLayout?.type === 'split' && state.editorLayout.second.type === 'split' && state.editorLayout.second.second.type === 'group' ? state.editorLayout.second.second.groupId : null).toBe('group-2')
     expect(screen.getAllByLabelText('editor')).toHaveLength(3)
     const splits = Array.from(container.querySelectorAll('[data-editor-split]')) as HTMLDivElement[]
     expect(splits).toHaveLength(2)
@@ -597,8 +597,8 @@ describe('EditorWorkbench', () => {
     expect(state.editorLayout?.type).toBe('split')
     expect(state.editorLayout?.type === 'split' ? state.editorLayout.direction : null).toBe('horizontal')
     expect(state.editorLayout?.type === 'split' && state.editorLayout.second.type === 'split' ? state.editorLayout.second.direction : null).toBe('vertical')
-    expect(state.editorLayout?.type === 'split' && state.editorLayout.second.type === 'split' ? state.editorLayout.second.first.groupId : null).toBe('group-2')
-    expect(state.editorLayout?.type === 'split' && state.editorLayout.second.type === 'split' ? state.editorLayout.second.second.groupId : null).toBe(newGroupId)
+    expect(state.editorLayout?.type === 'split' && state.editorLayout.second.type === 'split' && state.editorLayout.second.first.type === 'group' ? state.editorLayout.second.first.groupId : null).toBe('group-2')
+    expect(state.editorLayout?.type === 'split' && state.editorLayout.second.type === 'split' && state.editorLayout.second.second.type === 'group' ? state.editorLayout.second.second.groupId : null).toBe(newGroupId)
     expect(screen.getAllByLabelText('editor')).toHaveLength(3)
   })
   it('splits the middle group vertically in a nested 3-group layout and reaches 4 groups', async () => {
