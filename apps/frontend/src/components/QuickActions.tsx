@@ -42,7 +42,7 @@ function useQuickActionController() {
   const activeWindow=useMemo(()=>windowsData.find((w:any)=>w.active)||windowsData[0]||null,[windowsData])
   const canSplit=!!activeSessionId&&!!activeWindow&&!pendingDirection
   const { send }=useWebSocket()
-  const { refreshSnapshot, resolveActivePaneId } = useSessionSnapshotSync()
+  const { refreshSnapshot, resolveActivePaneId, resolveFreshActivePaneId } = useSessionSnapshotSync()
   const { shortcuts,addShortcut,removeShortcut }=useCustomShortcuts()
   const [showModal,setShowModal]=useState(false)
   const [isMobile,setIsMobile]=useState(false)
@@ -146,23 +146,27 @@ function useQuickActionController() {
       resetPointer()
     }
   },[resetPointer,stopRepeat])
+  const refreshSnapshotSafely=useCallback(async()=>{
+    try{
+      await refreshSnapshot()
+    }catch{}
+  },[refreshSnapshot])
   const handleSplit=useCallback(async(direction:'horizontal'|'vertical')=>{
     if(!activeWindow||pendingDirection)return
     setPendingDirection(direction)
     try{
-      const paneId=await resolveActivePaneId()
+      const paneId=await resolveFreshActivePaneId()
       if(!paneId)throw new Error('No active pane')
       await api.panes.split(paneId,direction)
-      await refreshSnapshot()
+      await refreshSnapshotSafely()
       window.dispatchEvent(new CustomEvent('tmuxgo-layout-change',{ detail:{ reason:'split-pane',direction } }))
       pushToast({ type:'success',message:t('pane.splitSuccess') })
     }catch(err){
       try{
-        await refreshSnapshot()
-        const paneId=useConsoleStore.getState().activePaneId
+        const paneId=await resolveFreshActivePaneId()
         if(!paneId||paneId===activePaneId)throw err
         await api.panes.split(paneId,direction)
-        await refreshSnapshot()
+        await refreshSnapshotSafely()
         window.dispatchEvent(new CustomEvent('tmuxgo-layout-change',{ detail:{ reason:'split-pane',direction } }))
         pushToast({ type:'success',message:t('pane.splitSuccess') })
       }catch(retryErr){
@@ -171,7 +175,7 @@ function useQuickActionController() {
     }finally{
       setPendingDirection(null)
     }
-  },[activePaneId,activeWindow,pendingDirection,pushToast,refreshSnapshot,resolveActivePaneId])
+  },[activePaneId,activeWindow,pendingDirection,pushToast,refreshSnapshotSafely,resolveFreshActivePaneId,t])
   const handleCopy=useCallback(()=>{
     void requestTerminalSelection().then(async(text)=>{
       if(!text)return
@@ -191,29 +195,29 @@ function useQuickActionController() {
     setConfirmKillOpen(true)
   },[resolveActivePaneId])
   const confirmKillPane=useCallback(async()=>{
-    const paneId=await resolveActivePaneId()
+    const paneId=await resolveFreshActivePaneId()
     if(!paneId)return
     try{
       await api.panes.kill(paneId)
-      await refreshSnapshot()
+      await refreshSnapshotSafely()
       window.dispatchEvent(new CustomEvent('tmuxgo-layout-change',{ detail:{ reason:'kill-pane' } }))
       pushToast({ type:'success',message:t('pane.closed') })
     }catch(err){
       pushToast({ type:'error',message:err instanceof Error?err.message:t('pane.closeFailed') })
     }
     setConfirmKillOpen(false)
-  },[pushToast,refreshSnapshot,resolveActivePaneId])
+  },[pushToast,refreshSnapshotSafely,resolveFreshActivePaneId,t])
   const handleZoom=useCallback(async()=>{
     try{
-      const paneId=await resolveActivePaneId()
+      const paneId=await resolveFreshActivePaneId()
       if(!paneId)return
       await api.panes.zoomByPane(paneId)
-      await refreshSnapshot()
+      await refreshSnapshotSafely()
       window.dispatchEvent(new CustomEvent('tmuxgo-layout-change',{ detail:{ reason:'zoom-pane' } }))
     }catch(err){
       pushToast({ type:'error',message:err instanceof Error?err.message:t('pane.zoomFailed') })
     }
-  },[pushToast,refreshSnapshot,resolveActivePaneId])
+  },[pushToast,refreshSnapshotSafely,resolveFreshActivePaneId,t])
   const handleOpenNewWindowPrompt=useCallback(()=>{
     if(!activeHostId||!activeSessionId){
       pushToast({ type:'error',message:t('window.createMissingSession') })
@@ -242,14 +246,14 @@ function useQuickActionController() {
         const latest=await api.windows.list(activeHostId,activeSessionId)
         if(Array.isArray(latest))setWindows(latest)
       }
-      await refreshSnapshot()
+      await refreshSnapshotSafely()
       window.dispatchEvent(new CustomEvent('tmuxgo-layout-change',{ detail:{ reason:'new-window' } }))
       pushToast({ type:'success',message:t('window.created',{ name }) })
     }catch(err){
       pushToast({ type:'error',message:err instanceof Error?err.message:t('window.createFailed') })
     }
     setNewWindowPromptOpen(false)
-  },[activeHostId,activeSessionId,newWindowName,pushToast,refreshSnapshot,setWindows,t])
+  },[activeHostId,activeSessionId,newWindowName,pushToast,refreshSnapshotSafely,setWindows,t])
 
   const primaryButtons:ActionButtonDef[]=[
     { key:'split-h',label:t('sidebar.splitH'),onPress:()=>handleSplit('horizontal'),disabled:!canSplit },

@@ -80,21 +80,21 @@ describe('MobileDrawer session actions', () => {
 
   it('renders visible rename and delete buttons for each mobile session row', () => {
     render(<MobileDrawer isOpen onClose={vi.fn()} type="sessions" />)
-    expect(screen.getByLabelText('Rename session')).toBeInTheDocument()
-    expect(screen.getByLabelText('Delete session')).toBeInTheDocument()
+    expect(screen.getAllByLabelText('Rename session')).toHaveLength(2)
+    expect(screen.getAllByLabelText('Delete session')).toHaveLength(2)
   })
 
   it('renames the active session from the mobile action button', async () => {
     promptMock.mockResolvedValueOnce('dev-renamed')
     render(<MobileDrawer isOpen onClose={vi.fn()} type="sessions" />)
-    fireEvent.click(screen.getByLabelText('Rename session'))
+    fireEvent.click(screen.getAllByLabelText('Rename session')[0])
     await waitFor(() => expect(mutateRenameSession).toHaveBeenCalledWith({ hostId: 'local', sessionId: 'session-dev', name: 'dev-renamed' }))
     await waitFor(() => expect(useConsoleStore.getState().activeSessionId).toBe('session-dev-renamed'))
   })
 
   it('deletes the active session from the mobile action button', async () => {
     render(<MobileDrawer isOpen onClose={vi.fn()} type="sessions" />)
-    fireEvent.click(screen.getByLabelText('Delete session'))
+    fireEvent.click(screen.getAllByLabelText('Delete session')[0])
     fireEvent.click(screen.getByText('confirm-delete'))
     await waitFor(() => expect(mutateDeleteSession).toHaveBeenCalledWith({ hostId: 'local', sessionId: 'session-dev' }))
   })

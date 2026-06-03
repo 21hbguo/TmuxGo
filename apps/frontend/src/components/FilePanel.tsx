@@ -573,6 +573,10 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   const refreshFiles = useCallback(() => {
     setDirectoryCache(new Map())
   }, [])
+  const getItemFullPath = (item: FileEntry) => {
+    const rootRelativePath = resolveRootRelativePath(activeRootBasePath, item.path)
+    return activeSourceRootPath ? joinPath(activeSourceRootPath, rootRelativePath) : rootRelativePath
+  }
   const startDownload = (item: FileItem | FileContentMatch) => {
     if (item.type !== 'file') {
       pushToast({ type: 'error', message: t('file.onlyFilesDownload') })
@@ -703,6 +707,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
       <div
         role="button"
         tabIndex={0}
+        title={getItemFullPath(item)}
         {...bindFileDrag(item)}
         onClick={(e) => {
           e.preventDefault()
@@ -747,6 +752,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
       <button
         key={`${item.type}-${item.path}`}
         tabIndex={0}
+        title={getItemFullPath(item)}
         {...bindFileDrag(item)}
         onClick={() => openItem(item)}
         onDoubleClick={() => item.type === 'directory' ? void handleDesktopDirectoryToggle(item) : insertItemPath(item)}
@@ -897,6 +903,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
             <button
               key={`${item.type}-${item.path}`}
               tabIndex={0}
+              title={getItemFullPath(item)}
               onClick={() => openItem(item)}
               onDoubleClick={() => insertItemPath(item)}
               onKeyDown={(e) => selectFromKeyboard(item, e)}
@@ -920,6 +927,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
             <button
               key={`${item.type}-${item.path}`}
               tabIndex={0}
+              title={getItemFullPath(item)}
               onClick={() => openItem(item)}
               onDoubleClick={() => insertItemPath(item)}
               onKeyDown={(e) => selectFromKeyboard(item, e)}

@@ -688,6 +688,11 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       if (x < 0 || y < 0 || x >= terminal.cols || y >= terminal.rows) return null
       return { x, y }
     }
+    const getPaneIdByMouseCell = (cell: { x: number; y: number } | null) => {
+      if (!cell) return null
+      const pane = getCachedPaneBounds().find((item) => cell.x >= item.left && cell.x < item.left + item.cols && cell.y >= item.top && cell.y < item.top + item.rows)
+      return pane?.id || null
+    }
     const getBufferLineText = (lineIndex: number) => {
       const line = terminal?.buffer?.active?.getLine?.(lineIndex)
       if (!line) return ''
@@ -1578,12 +1583,19 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const armPointerSync = () => {
         pointerSyncActive = true
       }
-    const handlePointerSync = () => {
+    const handlePointerSync = (event?: MouseEvent | TouchEvent) => {
       if (!pointerSyncActive) return
       pointerSyncActive = false
       flushWriteBuffer()
       selectionSync.clearCopySelectionTimer()
       selectionSync.runCopySelection(getSelectionText() || selectionSync.currentSelectionRef.current, true, true, focusTerminalInput)
+      if (event instanceof MouseEvent) {
+        const paneId = getPaneIdByMouseCell(getMouseCell(event))
+        if (paneId) {
+          setActivePane(paneId)
+          void api.panes.select(paneId).catch(() => {})
+        }
+      }
       void syncActivePane()
     }
       const handleFocusTerminal = () => {
