@@ -54,6 +54,12 @@ export function useWebSocket() {
         window.dispatchEvent(new CustomEvent('tmux-attached',{detail:data}))
         updateConnection({status:'connected'})
         break
+      case 'detached':
+        window.dispatchEvent(new CustomEvent('tmux-detached',{detail:data}))
+        break
+      case 'session-exit':
+        window.dispatchEvent(new CustomEvent('tmux-session-exit',{detail:data}))
+        break
     }
   },[clearPongTimer,updateConnection])
   const sendPing=useCallback((timeout=8000)=>{

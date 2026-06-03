@@ -231,6 +231,8 @@ export async function streamRoutes(fastify: FastifyInstance) {
     }
     function cleanup(notify = false) {
       const current = ptyProcess
+      const detachedSessionName = attachedSessionName
+      const detachedHostId = attachedHostId
       attachSeq += 1
       clearRedrawTimers()
       clearAttachSnapshotTimer()
@@ -257,7 +259,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
       for (const timer of scrollTimers.values()) clearTimeout(timer)
       scrollTimers.clear()
       scrollBuffers.clear()
-      if (notify) send({ type: 'detached' })
+      if (notify) send({ type: 'detached', sessionName: detachedSessionName, hostId: detachedHostId })
     }
     function sanitizeOutput(chunk: string) {
       recordStreamMetric('sanitizeCalls')
@@ -395,8 +397,12 @@ export async function streamRoutes(fastify: FastifyInstance) {
             })
             ptyProcess.onExit(({ exitCode }) => {
               if (seq !== attachSeq) return
+              const exitedSessionName = attachedSessionName
+              const exitedHostId = attachedHostId
+              const exitedExclusive = attachedExclusive
               flushOutput()
-              send({ type: 'session-exit', exitCode, hostId })
+              send({ type: 'session-exit', exitCode, hostId: exitedHostId, sessionName: exitedSessionName, exclusive: exitedExclusive })
+              send({ type: 'detached', hostId: exitedHostId, sessionName: exitedSessionName, exitCode })
               ptyProcess = null
               attachedSessionName = null
               attachedHostId = 'local'
