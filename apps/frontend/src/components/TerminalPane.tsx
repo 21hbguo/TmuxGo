@@ -251,6 +251,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   const forceStableFitRef = useRef<() => void>(() => {})
   const syncSharedLayoutRef = useRef<(resetFont: boolean) => void>(() => {})
   const activeHostIdRef = useRef(activeHostId)
+  const exclusiveFontSizeRef = useRef(preferences.fontSize)
   const exclusiveLineHeightRef = useRef(1)
   const sessionSnapshotRef = useRef<any | null>(null)
   const updatePreferencesRef = useRef(updatePreferences)
@@ -480,6 +481,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   }, [onReady])
   useEffect(() => {
     sessionNameRef.current = sessionName
+    exclusiveFontSizeRef.current = preferencesRef.current.fontSize
     exclusiveLineHeightRef.current = 1
   }, [sessionName])
   useEffect(() => {
@@ -1040,7 +1042,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       terminal.options.fontWeight = '400'
       terminal.options.fontWeightBold = '700'
       terminal.options.cursorBlink = preferencesRef.current.cursorBlink
-      const nextFontSize = (fontSize ?? Number(terminal.options.fontSize)) || preferencesRef.current.fontSize
+      const nextFontSize = (fontSize ?? (attachExclusiveRef.current ? exclusiveFontSizeRef.current : Number(terminal.options.fontSize))) || preferencesRef.current.fontSize
       terminal.options.fontSize = nextFontSize
       terminal.options.letterSpacing = 0
       terminal.options.lineHeight = attachExclusiveRef.current && isMobileDevice ? exclusiveLineHeightRef.current : 1
@@ -1133,9 +1135,16 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       sharedMaxPanX = 0
       if (element.style.width !== '100%') element.style.width = '100%'
       if (element.style.height !== '100%') element.style.height = '100%'
-      if (element.style.transform) element.style.removeProperty('transform')
-      if (element.style.transformOrigin) element.style.removeProperty('transform-origin')
-      if (element.style.willChange) element.style.removeProperty('will-change')
+      const screen = element.querySelector('.xterm-screen') as HTMLElement | null
+      const canvases = screen ? Array.from(screen.querySelectorAll('canvas')) as HTMLCanvasElement[] : []
+      if (screen?.style.transform) screen.style.removeProperty('transform')
+      if (screen?.style.transformOrigin) screen.style.removeProperty('transform-origin')
+      if (screen?.style.willChange) screen.style.removeProperty('will-change')
+      for (const canvas of canvases) {
+        if (canvas.style.transform) canvas.style.removeProperty('transform')
+        if (canvas.style.transformOrigin) canvas.style.removeProperty('transform-origin')
+        if (canvas.style.willChange) canvas.style.removeProperty('will-change')
+      }
     }
     const syncExclusiveViewport = () => {
       const element = terminal?.element as HTMLElement | null
@@ -1144,7 +1153,20 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         clearViewportStyles()
         return
       }
+      const screen = element.querySelector('.xterm-screen') as HTMLElement | null
+      const canvas = getCanvasSize()
+      const available = getAvailableSize()
       clearViewportStyles()
+      if (!screen || !canvas?.width || !canvas?.height || !available.width || !available.height) return
+      const scaleX = available.width / canvas.width
+      const scaleY = available.height / canvas.height
+      if (Math.abs(scaleX - 1) < 0.001 && Math.abs(scaleY - 1) < 0.001) return
+      const canvases = Array.from(screen.querySelectorAll('canvas')) as HTMLCanvasElement[]
+      for (const canvasElement of canvases) {
+        canvasElement.style.transformOrigin = 'top left'
+        canvasElement.style.transform = `scale(${scaleX},${scaleY})`
+        canvasElement.style.willChange = 'transform'
+      }
     }
     const syncSharedViewport = () => {
       const element = terminal?.element as HTMLElement | null
@@ -1156,16 +1178,38 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       clearViewportStyles()
     }
     const adjustExclusiveLineHeight = () => {
-      if (!attachExclusiveRef.current || !isMobileDevice || !terminal) return false
+      if (!attachExclusiveRef.current || !terminal) return false
       const screen = terminal.element?.querySelector('.xterm-screen') as HTMLElement | null
       if (!screen) return false
       const available = getAvailableSize()
       const currentHeight = screen.getBoundingClientRect().height
       if (!available.height || !currentHeight) return false
-      const next = Math.max(1, Math.min(1.08, Number((exclusiveLineHeightRef.current * available.height / currentHeight).toFixed(4))))
+      const next = Math.max(0.92, Math.min(1.12, Number((exclusiveLineHeightRef.current * available.height / currentHeight).toFixed(4))))
       if (Math.abs(next - exclusiveLineHeightRef.current) < 0.001) return false
       exclusiveLineHeightRef.current = next
       terminal.options.lineHeight = next
+      return true
+    }
+    const adjustExclusiveTypography = () => {
+      if (!attachExclusiveRef.current || !terminal) return false
+      const canvas = getCanvasSize()
+      const available = getAvailableSize()
+      if (!canvas || !available.width || !available.height) return false
+      const widthScale = available.width / canvas.width
+      const heightScale = available.height / canvas.height
+      if (!Number.isFinite(widthScale) || !Number.isFinite(heightScale)) return false
+      const currentFontSize = Number(terminal.options.fontSize) || exclusiveFontSizeRef.current || preferencesRef.current.fontSize
+      const currentLineHeight = Number(terminal.options.lineHeight) || exclusiveLineHeightRef.current || 1
+      const nextFontSize = Math.max(8, Math.min(28, Math.round(currentFontSize * widthScale * 10) / 10))
+      const normalizedHeightScale = heightScale / (nextFontSize / currentFontSize || 1)
+      const nextLineHeight = Math.max(0.92, Math.min(1.12, Number((currentLineHeight * normalizedHeightScale).toFixed(4))))
+      const fontChanged = Math.abs(nextFontSize - currentFontSize) >= 0.1
+      const lineChanged = Math.abs(nextLineHeight - currentLineHeight) >= 0.001
+      if (!fontChanged && !lineChanged) return false
+      exclusiveFontSizeRef.current = nextFontSize
+      exclusiveLineHeightRef.current = nextLineHeight
+      terminal.options.fontSize = nextFontSize
+      terminal.options.lineHeight = nextLineHeight
       return true
     }
     afterTerminalWriteRef.current = () => {
@@ -1204,7 +1248,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
             scheduleRendererStyleCorrection()
             syncExclusiveViewport()
             repaintTerminalRenderer(force && isMobileDevice, stickToBottom)
-            if (adjustExclusiveLineHeight()) scheduleFit(0, true)
+            if (adjustExclusiveTypography() || adjustExclusiveLineHeight()) scheduleFit(0, true)
           })
           notifyReady()
           return true
