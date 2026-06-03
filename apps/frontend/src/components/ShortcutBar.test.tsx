@@ -124,6 +124,19 @@ describe('ShortcutBar', () => {
     expect(zoomByPane).toHaveBeenCalledWith('local:%2')
     expect(useConsoleStore.getState().activePaneId).toBe('local:%2')
   })
+  it('does not reuse stale pane id when snapshot refresh fails', async () => {
+    snapshotGet.mockRejectedValue(new Error('Request failed'))
+    zoomByPane.mockResolvedValue({ ok: true })
+    render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))
+    await act(async () => {
+      const button = screen.getByRole('button', { name: '聚焦' })
+      fireEvent.pointerDown(button, { pointerId: 1, clientX: 10, clientY: 10 })
+      fireEvent.pointerUp(button, { pointerId: 1, clientX: 10, clientY: 10 })
+    })
+    expect(zoomByPane).not.toHaveBeenCalled()
+    expect(useConsoleStore.getState().activePaneId).toBeNull()
+    expect(useConsoleStore.getState().toasts.at(-1)?.message).toBe('当前没有可操作的面板')
+  })
   it('does not show error when kill succeeds but snapshot refresh fails afterward', async () => {
     snapshotGet.mockResolvedValueOnce({ windows: [], panes: [{ id: 'local:%3', active: true }], activePaneId: 'local:%3' }).mockRejectedValueOnce(new Error('Request failed'))
     killPane.mockResolvedValue({ ok: true })

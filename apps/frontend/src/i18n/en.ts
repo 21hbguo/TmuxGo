@@ -251,6 +251,7 @@ export const en = {
   'pane.closed': 'Pane closed',
   'pane.closeFailed': 'Close failed',
   'pane.zoomFailed': 'Zoom failed',
+  'pane.noActive': 'No active pane available',
   'githubAuth.title': 'GitHub login',
   'githubAuth.desc': 'Open GitHub device login and enter this code.',
   'githubAuth.code': 'Device Code',

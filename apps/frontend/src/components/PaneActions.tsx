@@ -17,7 +17,10 @@ export function PaneActions() {
 
   const handleSplit = async (direction: 'horizontal' | 'vertical') => {
     const initialPaneId = await resolveFreshActivePaneId()
-    if (!initialPaneId) return
+    if (!initialPaneId) {
+      pushToast({ type: 'error', message: t('pane.noActive') })
+      return
+    }
     try {
       await api.panes.split(initialPaneId, direction)
       await refreshSnapshotSafely()
@@ -37,7 +40,10 @@ export function PaneActions() {
 
   const handleClose = async () => {
     const paneId = await resolveFreshActivePaneId()
-    if (!paneId) return
+    if (!paneId) {
+      pushToast({ type: 'error', message: t('pane.noActive') })
+      return
+    }
     try {
       await api.panes.kill(paneId)
       await refreshSnapshotSafely()
@@ -49,7 +55,10 @@ export function PaneActions() {
 
   const handleFullscreen = async () => {
     const paneId = await resolveActivePaneId()
-    if (!paneId) return
+    if (!paneId) {
+      pushToast({ type: 'error', message: t('pane.noActive') })
+      return
+    }
     const paneElement = document.querySelector(`[data-pane-id="${paneId}"]`)
     if (paneElement) {
       paneElement.requestFullscreen?.()

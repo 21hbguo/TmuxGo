@@ -47,6 +47,7 @@ function useQuickActionController() {
   const [showModal,setShowModal]=useState(false)
   const [isMobile,setIsMobile]=useState(false)
   const [confirmKillOpen,setConfirmKillOpen]=useState(false)
+  const [pendingKillPaneId,setPendingKillPaneId]=useState<string|null>(null)
   const [newWindowPromptOpen,setNewWindowPromptOpen]=useState(false)
   const [newWindowName,setNewWindowName]=useState('')
   const repeatTimerRef=useRef<ReturnType<typeof setTimeout>|null>(null)
@@ -156,7 +157,7 @@ function useQuickActionController() {
     setPendingDirection(direction)
     try{
       const paneId=await resolveFreshActivePaneId()
-      if(!paneId)throw new Error('No active pane')
+      if(!paneId)throw new Error(t('pane.noActive'))
       await api.panes.split(paneId,direction)
       await refreshSnapshotSafely()
       window.dispatchEvent(new CustomEvent('tmuxgo-layout-change',{ detail:{ reason:'split-pane',direction } }))
@@ -190,13 +191,22 @@ function useQuickActionController() {
   const handlePaste=useCallback(()=>window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-paste')),[])
   const handleKillPane=useCallback(async()=>{
     const paneId=await resolveActivePaneId()
-    if(!paneId)return
+    if(!paneId){
+      pushToast({ type:'error',message:t('pane.noActive') })
+      return
+    }
     useConsoleStore.setState({ activePaneId:paneId })
+    setPendingKillPaneId(paneId)
     setConfirmKillOpen(true)
-  },[resolveActivePaneId])
+  },[pushToast,resolveActivePaneId,t])
   const confirmKillPane=useCallback(async()=>{
-    const paneId=await resolveFreshActivePaneId()
-    if(!paneId)return
+    const paneId=pendingKillPaneId||await resolveFreshActivePaneId()
+    if(!paneId){
+      setPendingKillPaneId(null)
+      setConfirmKillOpen(false)
+      pushToast({ type:'error',message:t('pane.noActive') })
+      return
+    }
     try{
       await api.panes.kill(paneId)
       await refreshSnapshotSafely()
@@ -205,12 +215,13 @@ function useQuickActionController() {
     }catch(err){
       pushToast({ type:'error',message:err instanceof Error?err.message:t('pane.closeFailed') })
     }
+    setPendingKillPaneId(null)
     setConfirmKillOpen(false)
-  },[pushToast,refreshSnapshotSafely,resolveFreshActivePaneId,t])
+  },[pendingKillPaneId,pushToast,refreshSnapshotSafely,resolveFreshActivePaneId,t])
   const handleZoom=useCallback(async()=>{
     try{
       const paneId=await resolveFreshActivePaneId()
-      if(!paneId)return
+      if(!paneId)throw new Error(t('pane.noActive'))
       await api.panes.zoomByPane(paneId)
       await refreshSnapshotSafely()
       window.dispatchEvent(new CustomEvent('tmuxgo-layout-change',{ detail:{ reason:'zoom-pane' } }))
@@ -277,7 +288,7 @@ function useQuickActionController() {
   ]
   const attachButton:ActionButtonDef={ key:'attach-mode',label:preferences.attachExclusive?t('quick.attachExclusive'):t('quick.attachShared'),onPress:()=>updatePreferences({ attachExclusive:!preferences.attachExclusive }),tone:'accent' }
 
-  return { t,shortcuts,addShortcut,removeShortcut,showModal,setShowModal,isMobile,confirmKillOpen,setConfirmKillOpen,confirmKillPane,newWindowPromptOpen,setNewWindowPromptOpen,newWindowName,setNewWindowName,confirmCreateWindow,sendKey,startRepeat,armTouchRepeat,stopRepeat,preventFocus,startPointer,startDockGesture,trackDockScroll,finishDockGesture,isDockScrollBlocked,trackPointer,finishPointer,pointerStateRef,primaryButtons,attachButton }
+  return { t,shortcuts,addShortcut,removeShortcut,showModal,setShowModal,isMobile,confirmKillOpen,setConfirmKillOpen,pendingKillPaneId,setPendingKillPaneId,confirmKillPane,newWindowPromptOpen,setNewWindowPromptOpen,newWindowName,setNewWindowName,confirmCreateWindow,sendKey,startRepeat,armTouchRepeat,stopRepeat,preventFocus,startPointer,startDockGesture,trackDockScroll,finishDockGesture,isDockScrollBlocked,trackPointer,finishPointer,pointerStateRef,primaryButtons,attachButton }
 }
 
 function getDockClass(def:ActionButtonDef){
@@ -308,7 +319,7 @@ function renderDockButton(def:ActionButtonDef,controller:ReturnType<typeof useQu
 
 export function QuickActions({ mode='panel' }:{ mode?:QuickActionsMode }){
   const controller=useQuickActionController()
-  const { t,shortcuts,addShortcut,removeShortcut,showModal,setShowModal,isMobile,confirmKillOpen,setConfirmKillOpen,confirmKillPane,newWindowPromptOpen,setNewWindowPromptOpen,newWindowName,setNewWindowName,confirmCreateWindow,sendKey,primaryButtons,attachButton }=controller
+  const { t,shortcuts,addShortcut,removeShortcut,showModal,setShowModal,isMobile,confirmKillOpen,setConfirmKillOpen,pendingKillPaneId,setPendingKillPaneId,confirmKillPane,newWindowPromptOpen,setNewWindowPromptOpen,newWindowName,setNewWindowName,confirmCreateWindow,sendKey,primaryButtons,attachButton }=controller
   if(mode==='dock'){
     return (
       <>
@@ -320,7 +331,7 @@ export function QuickActions({ mode='panel' }:{ mode?:QuickActionsMode }){
             {shortcuts.map((s)=>renderDockButton({ key:s.id,label:s.label,onPress:()=>{ sendKey(keysToEscape(s.keys)) } },controller))}
           </div>
         </div>
-        <ConfirmDialog open={confirmKillOpen} title={t('quick.killTitle')} message={t('quick.killConfirm')} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} tone="danger" onCancel={()=>setConfirmKillOpen(false)} onConfirm={()=>void confirmKillPane()} />
+        <ConfirmDialog open={confirmKillOpen} title={t('quick.killTitle')} message={t('quick.killConfirm')} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} tone="danger" onCancel={()=>{ setPendingKillPaneId(null); setConfirmKillOpen(false) }} onConfirm={()=>void confirmKillPane()} />
         <PromptDialog open={newWindowPromptOpen} title={t('window.createTitle')} defaultValue={newWindowName} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} onCancel={()=>setNewWindowPromptOpen(false)} onConfirm={(value)=>{ setNewWindowName(value); void confirmCreateWindow(value) }} />
       </>
     )
@@ -373,7 +384,7 @@ export function QuickActions({ mode='panel' }:{ mode?:QuickActionsMode }){
           onClose={()=>setShowModal(false)}
         />
       )}
-      <ConfirmDialog open={confirmKillOpen} title={t('quick.killTitle')} message={t('quick.killConfirm')} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} tone="danger" onCancel={()=>setConfirmKillOpen(false)} onConfirm={()=>void confirmKillPane()} />
+      <ConfirmDialog open={confirmKillOpen} title={t('quick.killTitle')} message={t('quick.killConfirm')} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} tone="danger" onCancel={()=>{ setPendingKillPaneId(null); setConfirmKillOpen(false) }} onConfirm={()=>void confirmKillPane()} />
       <PromptDialog open={newWindowPromptOpen} title={t('window.createTitle')} defaultValue={newWindowName} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} onCancel={()=>setNewWindowPromptOpen(false)} onConfirm={(value)=>{ setNewWindowName(value); void confirmCreateWindow(value) }} />
     </div>
   )
