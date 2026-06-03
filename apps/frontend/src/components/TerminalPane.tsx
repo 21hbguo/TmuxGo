@@ -1157,13 +1157,15 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       clearViewportStyles()
     }
     const adjustExclusiveLineHeight = () => {
-      if (!attachExclusiveRef.current || !isMobileDevice || !terminal) return false
+      if (!attachExclusiveRef.current || !terminal) return false
       const screen = terminal.element?.querySelector('.xterm-screen') as HTMLElement | null
       if (!screen) return false
       const available = getAvailableSize()
       const currentHeight = screen.getBoundingClientRect().height
       if (!available.height || !currentHeight) return false
-      const next = Math.max(1, Math.min(1.08, Number((exclusiveLineHeightRef.current * available.height / currentHeight).toFixed(4))))
+      const min = isMobileDevice ? 1 : 0.98
+      const max = isMobileDevice ? 1.08 : 1.04
+      const next = Math.max(min, Math.min(max, Number((exclusiveLineHeightRef.current * available.height / currentHeight).toFixed(4))))
       if (Math.abs(next - exclusiveLineHeightRef.current) < 0.001) return false
       exclusiveLineHeightRef.current = next
       terminal.options.lineHeight = next
@@ -1187,8 +1189,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         lastFitSize = { width: currentWidth, height: currentHeight }
         applyTerminalOptions()
         fitAddon.fit()
-        let size = terminal.cols > 0 && terminal.rows > 0 ? { cols: terminal.cols, rows: terminal.rows } : null
-        if (!size) size = getFitDimensions()
+        const size = getFitDimensions()
         if (!size) return false
         const { cols, rows } = size
         if (cols && rows && cols > 0 && rows > 0) {

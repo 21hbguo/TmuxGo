@@ -63,6 +63,17 @@ test('debug terminal gutter metrics', async ({ page, request }) => {
           rows: t?.rows || 0,
           fontSize: t?.options?.fontSize || 0,
           lineHeight: t?.options?.lineHeight || 0,
+          proposed: (() => {
+            try {
+              return t?._addonManager?._addons?.find((item: any) => item?.instance?.proposeDimensions)?.instance?.proposeDimensions?.() || null
+            } catch {
+              return null
+            }
+          })(),
+          cell: {
+            width: t?._core?._renderService?.dimensions?.css?.cell?.width || 0,
+            height: t?._core?._renderService?.dimensions?.css?.cell?.height || 0,
+          },
         }
       })(),
       state: (() => {
