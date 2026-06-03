@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+<key>Label</key>
+<string>com.tmuxgo.agent</string>
+<key>ProgramArguments</key>
+<array>
+<string>/bin/bash</string>
+<string>-c</string>
+<string>cd "__TMUXGO_ROOT__" &amp;&amp; exec "__TMUXGO_NPM__" run --workspace=agent start</string>
+</array>
+<key>WorkingDirectory</key>
+<string>__TMUXGO_ROOT__</string>
+<key>EnvironmentVariables</key>
+<dict>
+<key>NODE_ENV</key>
+<string>production</string>
+<key>GATEWAY_URL</key>
+<string>ws://127.0.0.1:3001/api/stream</string>
+<key>HOST_ID</key>
+<string>agent-local</string>
+<key>HOST_NAME</key>
+<string>__TMUXGO_HOST_NAME__</string>
+<key>PATH</key>
+<string>__TMUXGO_PATH__</string>
+</dict>
+<key>RunAtLoad</key>
+<true/>
+<key>KeepAlive</key>
+<true/>
+<key>StandardOutPath</key>
+<string>__TMUXGO_LOG_DIR__/agent.log</string>
+<key>StandardErrorPath</key>
+<string>__TMUXGO_LOG_DIR__/agent.log</string>
+</dict>
+</plist>

@@ -1,4 +1,5 @@
 import { getApiBase } from './runtime-endpoints'
+import { buildSessionId } from './session-id'
 import type { CustomShortcut, FavoriteDirectory, FavoriteItem, FileContentMatch, FileContentResponse, FileItem, FileListResponse, FilePreviewResponse, FileRoot, FileUploadTarget, GitBranchesResponse, GitCommitResponse, GitDetectResponse, GitDiffResponse, GitDiffStatsResponse, GitHostState, GitLogResponse, GitMergeResponse, GitStatusResponse, RemotePreferences, SessionContinuityConfig, SessionLayout, SessionOrderPreference, Snippet, UiPreferences, UploadJobResult, UploadedFile } from '@/types'
 
 export interface StreamSystemInfo {
@@ -73,7 +74,39 @@ export interface HostPayload {
   password?: string
   passwordEnv?: string
 }
-
+async function readResponseBody(response: Response) {
+  if (typeof response.text === 'function') {
+    const raw = await response.text()
+    if (!raw.trim()) return undefined
+    try {
+      return JSON.parse(raw)
+    } catch {
+      return raw
+    }
+  }
+  if (typeof response.json === 'function') return response.json().catch(() => undefined)
+  return undefined
+}
+async function listHostSessions(hostId: string) {
+  const sessions = await fetchApi<any[]>(`/api/hosts/${hostId}/sessions`)
+  return Array.isArray(sessions) ? sessions : []
+}
+async function findHostSessionByName(hostId: string, name: string) {
+  const sessions = await listHostSessions(hostId)
+  return sessions.find((item) => item?.name === name) || null
+}
+function buildSessionFallback(hostId: string, name: string, session?: any) {
+  return {
+    id: buildSessionId(hostId, name),
+    hostId,
+    name,
+    createdAt: session?.createdAt || new Date().toISOString(),
+    lastActiveAt: session?.lastActiveAt || new Date().toISOString(),
+    windowCount: typeof session?.windowCount === 'number' ? session.windowCount : 1,
+    attached: !!session?.attached,
+    ...session,
+  }
+}
 async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   const url = `${getApiBase()}${path}`
   const isFormData = typeof FormData !== 'undefined' && options?.body instanceof FormData
@@ -84,16 +117,15 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
     ...options,
     headers,
   })
-
+  const data = await readResponseBody(response)
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: 'Request failed', code: 'REQUEST_FAILED' }))
+    if (typeof data === 'string') throw parseApiError(response.status, data)
+    const error = data && typeof data === 'object' ? data as { message?: string; code?: string } : { message: 'Request failed', code: 'REQUEST_FAILED' }
     const e = new Error(error.message || `HTTP ${response.status}`) as Error & { status?: number; code?: string }
     e.status = response.status
     e.code = error.code || 'REQUEST_FAILED'
     throw e
   }
-
-  const data = await response.json()
   if (data && typeof data === 'object' && 'ok' in data && data.ok === false) {
     const body = data as { error?: string; message?: string; code?: string }
     const e = new Error(body.error || body.message || 'Request failed') as Error & { code?: string }
@@ -176,20 +208,48 @@ export const api = {
   },
   sessions: {
     list: (hostId: string) => fetchApi<any[]>(`/api/hosts/${hostId}/sessions`),
-    create: (hostId: string, name: string, layout?: SessionLayout) =>
-      fetchApi<any>(`/api/hosts/${hostId}/sessions`, {
-        method: 'POST',
-        body: JSON.stringify({ name, layout }),
-      }),
-    rename: (hostId: string, sessionId: string, name: string) =>
-      fetchApi<any>(`/api/hosts/${hostId}/sessions/rename`, {
-        method: 'POST',
-        body: JSON.stringify({ sessionId, name }),
-      }),
-    delete: (hostId: string, sessionId: string) =>
-      fetchApi<any>(`/api/hosts/${hostId}/sessions/${sessionId}`, {
-        method: 'DELETE',
-      }),
+    create: async (hostId: string, name: string, layout?: SessionLayout) => {
+      try {
+        const created = await fetchApi<any>(`/api/hosts/${hostId}/sessions`, {
+          method: 'POST',
+          body: JSON.stringify({ name, layout }),
+        })
+        if (created?.id) return created
+        const existing = await findHostSessionByName(hostId, name).catch(() => null)
+        return existing || buildSessionFallback(hostId, name, created)
+      } catch (error) {
+        const existing = await findHostSessionByName(hostId, name).catch(() => null)
+        if (existing) return existing
+        throw error
+      }
+    },
+    rename: async (hostId: string, sessionId: string, name: string) => {
+      try {
+        const renamed = await fetchApi<any>(`/api/hosts/${hostId}/sessions/rename`, {
+          method: 'POST',
+          body: JSON.stringify({ sessionId, name }),
+        })
+        if (renamed?.id) return renamed
+        const existing = await findHostSessionByName(hostId, name).catch(() => null)
+        return existing || buildSessionFallback(hostId, name, renamed)
+      } catch (error) {
+        const existing = await findHostSessionByName(hostId, name).catch(() => null)
+        if (existing) return existing
+        throw error
+      }
+    },
+    delete: async (hostId: string, sessionId: string) => {
+      try {
+        const removed = await fetchApi<any>(`/api/hosts/${hostId}/sessions/${sessionId}`, {
+          method: 'DELETE',
+        })
+        return removed && typeof removed === 'object' ? removed : { success: true, sessionId }
+      } catch (error) {
+        const sessions = await listHostSessions(hostId).catch(() => null)
+        if (sessions && !sessions.some((item) => item?.id === sessionId)) return { success: true, sessionId }
+        throw error
+      }
+    },
     batchDelete: (hostId: string, payload: BatchDeleteSessionsRequest) =>
       fetchApi<BatchDeleteSessionsResponse>(`/api/hosts/${hostId}/sessions/batch-delete`, {
         method: 'POST',

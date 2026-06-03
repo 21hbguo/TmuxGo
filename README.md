@@ -68,8 +68,9 @@ cd TmuxGo
 - 安装或校正 Node.js 20
 - 安装 `tmux`、`ripgrep`、`lsof/ss`、`python3` 和原生构建工具链
 - 执行 `npm install`
-- 在支持 `systemd --user` 的环境里安装并启动常驻服务
-- 在不支持 `systemd --user` 的环境里自动回退到本地启动脚本
+- 在 Linux 上安装并启动 `systemd --user` 常驻服务
+- 在 macOS 上安装并启动 `launchd` 常驻服务
+- 在不支持上述常驻服务管理器的环境里自动回退到本地启动脚本
 - 完成 `3000/3001` 健康检查并输出可访问地址
 
 浏览器打开 `http://localhost:3000`。:tada:
@@ -118,27 +119,57 @@ cd TmuxGo
 ./install.sh
 ```
 
-如果你已经完成依赖安装，只想重装用户级 `systemd` 单元：
+如果你已经完成依赖安装，只想重装常驻服务：
+
+Linux:
 
 ```bash
-./scripts/install-systemd-user.sh
+./scripts/install-systemd-user-linux.sh
 ```
 
-`install-systemd-user.sh` 现在会按当前仓库真实路径生成单元文件，不要求固定部署到某个目录。
+macOS:
+
+```bash
+./scripts/install-launchd-user-mac.sh
+```
+
+Linux:
+`install-systemd-user-linux.sh` 会按当前仓库真实路径生成 `systemd` 用户单元，不要求固定部署到某个目录。
+
+macOS:
+`install-launchd-user-mac.sh` 会按当前仓库真实路径生成用户级 `LaunchAgents`，并写入 `~/Library/Logs/TmuxGo` 日志。
 
 停止全部服务：
 
+Linux:
+
 ```bash
-systemctl --user disable --now tmuxgo.target
+./scripts/stop-systemd-user-linux.sh
+```
+
+macOS:
+
+```bash
+./scripts/stop-launchd-user-mac.sh
 ```
 
 卸载全部单元：
 
+Linux:
+
 ```bash
-./scripts/uninstall-systemd-user.sh
+./scripts/uninstall-systemd-user-linux.sh
+```
+
+macOS:
+
+```bash
+./scripts/uninstall-launchd-user-mac.sh
 ```
 
 查看服务状态：
+
+Linux:
 
 ```bash
 systemctl --user status tmuxgo-gateway.service
@@ -146,12 +177,30 @@ systemctl --user status tmuxgo-frontend.service
 systemctl --user status tmuxgo-agent.service
 ```
 
+macOS:
+
+```bash
+launchctl print gui/$(id -u)/com.tmuxgo.gateway || launchctl print user/$(id -u)/com.tmuxgo.gateway
+launchctl print gui/$(id -u)/com.tmuxgo.frontend || launchctl print user/$(id -u)/com.tmuxgo.frontend
+launchctl print gui/$(id -u)/com.tmuxgo.agent || launchctl print user/$(id -u)/com.tmuxgo.agent
+```
+
 查看日志：
+
+Linux:
 
 ```bash
 journalctl --user -u tmuxgo-gateway.service -f
 journalctl --user -u tmuxgo-frontend.service -f
 journalctl --user -u tmuxgo-agent.service -f
+```
+
+macOS:
+
+```bash
+tail -f ~/Library/Logs/TmuxGo/gateway.log
+tail -f ~/Library/Logs/TmuxGo/frontend.log
+tail -f ~/Library/Logs/TmuxGo/agent.log
 ```
 
 ## :package: 依赖要求
@@ -216,8 +265,10 @@ TmuxGo/
 │   ├── frontend/
 │   ├── gateway/
 │   └── agent/
+├── deploy/launchd-user/
 ├── deploy/systemd-user/
 ├── bootstrap.sh
+├── install.sh
 ├── start-prod.sh
 ├── start.sh
 ├── scripts/

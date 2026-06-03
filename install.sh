@@ -2,6 +2,9 @@
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
+has_cmd() {
+  command -v "$1" >/dev/null 2>&1
+}
 wait_http_ok() {
   local url=$1
   local retry=$2
@@ -14,12 +17,16 @@ wait_http_ok() {
   return 1
 }
 systemd_user_ready() {
-  command -v systemctl >/dev/null 2>&1 || return 1
+  has_cmd systemctl || return 1
   systemctl --user show-environment >/dev/null 2>&1 || systemctl --user daemon-reload >/dev/null 2>&1
+}
+launchd_user_ready() {
+  [ "$(uname -s)" = "Darwin" ] || return 1
+  has_cmd launchctl
 }
 resolve_host() {
   local host_ip
-  host_ip="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
+  host_ip="$(python3 -c 'import socket; s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); s.settimeout(0); s.connect(("8.8.8.8",80)); print(s.getsockname()[0]); s.close()' 2>/dev/null || true)"
   if [ -z "$host_ip" ]; then
     host_ip="localhost"
   fi
@@ -33,7 +40,9 @@ resolve_tailscale_dns() {
 }
 "$ROOT_DIR/bootstrap.sh"
 if systemd_user_ready; then
-  "$ROOT_DIR/scripts/install-systemd-user.sh"
+  "$ROOT_DIR/scripts/install-systemd-user-linux.sh"
+elif launchd_user_ready; then
+  "$ROOT_DIR/scripts/install-launchd-user-mac.sh"
 else
   "$ROOT_DIR/start.sh" --restart --rebuild
 fi
