@@ -5,7 +5,7 @@ Wants=network-online.target tmuxgo-gateway.service
 
 [Service]
 Type=simple
-WorkingDirectory=%h/project/other/TmuxGo
+WorkingDirectory=__TMUXGO_ROOT__
 ExecStart=/usr/bin/env npm run --workspace=agent start
 Restart=always
 RestartSec=3

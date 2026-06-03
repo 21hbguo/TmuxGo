@@ -60,8 +60,17 @@
 ```bash
 git clone https://github.com/<your-username>/TmuxGo.git
 cd TmuxGo
-./bootstrap.sh && ./start.sh
+./install.sh
 ```
+
+`install.sh` will automatically:
+
+- install or switch to Node.js 20
+- install `tmux`, `ripgrep`, `lsof/ss`, `python3`, and native build tools
+- run `npm install`
+- install and start user-level services when `systemd --user` is available
+- fall back to the local start script when `systemd --user` is unavailable
+- verify ports `3000/3001` and print reachable URLs
 
 Open `http://localhost:3000` in your browser. :tada:
 
@@ -69,17 +78,30 @@ Open `http://localhost:3000` in your browser. :tada:
 > :lock: For reliable terminal-selection copy to the system clipboard, prefer HTTPS access (for example via Tailscale HTTPS) to avoid insecure-context clipboard restrictions.
 > :desktop_computer: The deployment side must run in a `tmux`-capable environment, preferably Linux, macOS, or WSL2. The access side only needs a browser, so Windows, macOS, Linux, phones, and tablets can all connect.
 
+Manual local startup is still available:
+
+```bash
+./bootstrap.sh
+./start.sh
+```
+
 ## :shield: Production Deploy
 
-For long-running usage on your own machine, use user-level `systemd`:
+For a fresh machine, run:
 
 ```bash
 git clone https://github.com/<your-username>/TmuxGo.git
 cd TmuxGo
-./bootstrap.sh
-./scripts/install-systemd-user.sh
-systemctl --user enable --now tmuxgo.target
+./install.sh
 ```
+
+If dependencies are already installed and you only want to reinstall user-level `systemd` units:
+
+```bash
+./scripts/install-systemd-user.sh
+```
+
+`install-systemd-user.sh` now renders units with the actual repository path, so the repo no longer has to live in a fixed directory.
 
 Stop all services:
 
@@ -115,6 +137,8 @@ journalctl --user -u tmuxgo-agent.service -f
 |:-----------|:--------|:--------:|:------|
 | :green_circle: Node.js | >= 20 | :white_check_mark: | Runtime |
 | :green_circle: tmux | any | :white_check_mark: | Terminal multiplexer |
+| :green_circle: Build toolchain | make / g++ / pkg-config | :white_check_mark: | Required by `node-pty` |
+| :green_circle: Base tools | `curl` / `python3` / `ripgrep` / `lsof` or `ss` | :white_check_mark: | Used by install/start scripts |
 | 🔵 Tailscale | latest | :o: | Optional - for remote access |
 | :desktop_computer: OS | Linux / macOS / WSL2 | - | |
 
