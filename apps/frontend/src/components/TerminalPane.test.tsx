@@ -818,6 +818,7 @@ describe('TerminalPane', () => {
     expect(terminalViewport.style.overflow).toBe('hidden')
     expect(terminalViewport.style.width).toBe('100%')
     expect(terminalViewport.style.height).toBe('100%')
+    expect(terminalViewport.style.background).toBe('transparent')
     expect(terminalScreen.style.width).toBe('100%')
     expect(terminalScreen.style.height).toBe('100%')
   })

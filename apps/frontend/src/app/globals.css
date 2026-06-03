@@ -334,6 +334,7 @@ a {
 
 .xterm .xterm-viewport,
 [data-terminal] .xterm .xterm-viewport {
+  background: transparent !important;
   overflow: hidden !important;
   scrollbar-width: none !important;
   -ms-overflow-style: none !important;
@@ -362,6 +363,8 @@ a {
   width: 100% !important;
 }
 [data-terminal] .xterm-screen {
+  position: absolute !important;
+  inset: 0 !important;
   height: 100% !important;
   width: 100% !important;
 }
