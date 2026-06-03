@@ -5,8 +5,10 @@ systemctl --user disable --now tmuxgo.target 2>/dev/null || true
 systemctl --user disable --now tmuxgo-gateway.service 2>/dev/null || true
 systemctl --user disable --now tmuxgo-frontend.service 2>/dev/null || true
 systemctl --user disable --now tmuxgo-agent.service 2>/dev/null || true
+systemctl --user disable --now tmux-server.service 2>/dev/null || true
 rm -f "$UNIT_DST_DIR"/tmuxgo.target
 rm -f "$UNIT_DST_DIR"/tmuxgo-gateway.service
 rm -f "$UNIT_DST_DIR"/tmuxgo-frontend.service
 rm -f "$UNIT_DST_DIR"/tmuxgo-agent.service
+rm -f "$UNIT_DST_DIR"/tmux-server.service
 systemctl --user daemon-reload

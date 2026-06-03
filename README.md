@@ -60,7 +60,29 @@
 ```bash
 git clone https://github.com/<your-username>/TmuxGo.git
 cd TmuxGo
-./bootstrap.sh && ./start.sh
+./install.sh
+```
+
+`install.sh` 会自动完成这些事情：
+
+- 安装或校正 Node.js 20
+- 安装 `tmux`、`ripgrep`、`lsof/ss`、`python3` 和原生构建工具链
+- 执行 `npm install`
+- 在支持 `systemd --user` 的环境里安装并启动常驻服务
+- 在不支持 `systemd --user` 的环境里自动回退到本地启动脚本
+- 完成 `3000/3001` 健康检查并输出可访问地址
+
+浏览器打开 `http://localhost:3000`。:tada:
+
+> :bulb: 局域网内可直接访问；远程访问请先配置 [Tailscale](https://tailscale.com)。
+> :lock: 终端选区复制到系统剪贴板建议使用 HTTPS 域名访问（例如 Tailscale HTTPS），避免浏览器因非安全上下文限制剪贴板能力。
+> :desktop_computer: 部署端需要运行在支持 `tmux` 的环境中（推荐 Linux、macOS、WSL2）；使用端只需要浏览器，Windows、macOS、Linux、手机、平板都可访问。
+
+手动本地启动仍然保留：
+
+```bash
+./bootstrap.sh
+./start.sh
 ```
 
 快速重启默认复用已有稳定版构建产物，不再每次都重新 `next build`：
@@ -86,23 +108,23 @@ cd TmuxGo
 - 如果你想显式强制重建，仍然可以执行 `./start.sh --restart --rebuild`
 - 重启后再访问 `3000`，必要时浏览器执行一次强刷 `Ctrl+Shift+R`
 
-浏览器打开 `http://localhost:3000`。:tada:
-
-> :bulb: 局域网内可直接访问；远程访问请先配置 [Tailscale](https://tailscale.com)。
-> :lock: 终端选区复制到系统剪贴板建议使用 HTTPS 域名访问（例如 Tailscale HTTPS），避免浏览器因非安全上下文限制剪贴板能力。
-> :desktop_computer: 部署端需要运行在支持 `tmux` 的环境中（推荐 Linux、macOS、WSL2）；使用端只需要浏览器，Windows、macOS、Linux、手机、平板都可访问。
-
 ## :shield: 生产部署
 
-如果要长期在自己的机器上运行，推荐使用用户级 `systemd`：
+对新人或新机器，直接执行：
 
 ```bash
 git clone https://github.com/<your-username>/TmuxGo.git
 cd TmuxGo
-./bootstrap.sh
-./scripts/install-systemd-user.sh
-systemctl --user enable --now tmuxgo.target
+./install.sh
 ```
+
+如果你已经完成依赖安装，只想重装用户级 `systemd` 单元：
+
+```bash
+./scripts/install-systemd-user.sh
+```
+
+`install-systemd-user.sh` 现在会按当前仓库真实路径生成单元文件，不要求固定部署到某个目录。
 
 停止全部服务：
 
@@ -138,6 +160,8 @@ journalctl --user -u tmuxgo-agent.service -f
 |:-----------|:--------|:--------:|:------|
 | :green_circle: Node.js | >= 20 | :white_check_mark: | 运行时 |
 | :green_circle: tmux | 任意 | :white_check_mark: | 终端复用器 |
+| :green_circle: 构建工具链 | make / g++ / pkg-config | :white_check_mark: | `node-pty` 原生依赖 |
+| :green_circle: 基础工具 | `curl` / `python3` / `ripgrep` / `lsof` 或 `ss` | :white_check_mark: | 安装脚本与启动脚本依赖 |
 | 🔵 Tailscale | 最新版 | :o: | 可选，用于远程访问 |
 | :desktop_computer: 系统 | Linux / macOS / WSL2 | - | 运行环境 |
 
