@@ -21,6 +21,7 @@ type SearchMode = 'name' | 'content'
 type FileTypeFilter = 'all' | 'file' | 'directory'
 type FileRootOption = FileRoot & { sourceRootId: string; basePath: string }
 type FileEntry = FileItem | FileContentMatch
+type DirectoryStatus = { state: 'loading' | 'error'; message: string }
 const FAVORITE_STORAGE_KEY = 'tmuxgo-favorite-directories'
 const FAVORITE_UPDATED_AT_STORAGE_KEY = 'tmuxgo-favorite-directories-updated-at'
 const PREFERENCES_PROFILE = 'default'
@@ -211,6 +212,9 @@ function getDirectoryCacheKey(rootId: string, rootBasePath: string, itemPath: st
 function readDirectoryChildrenFromCache(cache: Map<string, FileItem[]>, rootId: string, rootBasePath: string, itemPath: string) {
   return cache.get(getDirectoryCacheKey(rootId, rootBasePath, itemPath))
 }
+function readDirectoryStatusFromCache(cache: Map<string, DirectoryStatus>, rootId: string, rootBasePath: string, itemPath: string) {
+  return cache.get(getDirectoryCacheKey(rootId, rootBasePath, itemPath))
+}
 function trimDirectoryItems(items: FileItem[]) {
   if (items.length <= LARGE_DIRECTORY_LIMIT) return { items, truncated: false }
   return { items: items.slice(0, DIRECTORY_RENDER_LIMIT), truncated: true }
@@ -241,7 +245,7 @@ function isImagePath(path: string) {
 function FavoriteDirectoryButton({ active, name, onClick }: { active: boolean; name: string; onClick: (event: React.MouseEvent) => void }) {
   return <button onClick={onClick} className={`shrink-0 rounded px-1 py-0 text-[10px] leading-4 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 ${active ? 'bg-accent/20 text-accent opacity-100' : 'bg-bg-2 text-text-3 hover:text-text-1'}`} aria-label={`${active ? 'Unfavorite' : 'Favorite'} ${name}`}>{active ? '★' : '☆'}</button>
 }
-type FileTreeNode = DataNode & { item: FileItem; isLeaf?: boolean }
+type FileTreeNode = DataNode & { item?: FileItem; isLeaf?: boolean }
 export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile }: { mode?: 'panel' | 'mobile' | 'explorer'; dock?: 'left' | 'right'; onClose?: () => void; onOpenFile?: (file: FileDocumentHandle) => void }) {
   const queryClient = useQueryClient()
   const activeHostId = useConsoleStore((state) => state.activeHostId)
@@ -274,6 +278,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   const [openDirectories, setOpenDirectories] = useState<Set<string>>(new Set())
   const [searchNavigationPath, setSearchNavigationPath] = useState<string | null>(null)
   const [directoryCache, setDirectoryCache] = useState<Map<string, FileItem[]>>(new Map())
+  const [directoryStatus, setDirectoryStatusState] = useState<Map<string, DirectoryStatus>>(new Map())
   const resizingRef = useRef(false)
   const directoryLoadingRef = useRef<Map<string, Promise<FileItem[]>>>(new Map())
   const touchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -319,11 +324,55 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
       return next
     })
   }, [])
+  const setDirectoryStatus = useCallback((rootId: string, rootBasePath: string, itemPath: string, status: DirectoryStatus | null) => {
+    setDirectoryStatusState((current) => {
+      const next = new Map(current)
+      const key = getDirectoryCacheKey(rootId, rootBasePath, itemPath)
+      if (status) next.set(key, status)
+      else next.delete(key)
+      return next
+    })
+  }, [])
+  const loadDirectoryChildren = useCallback(async (item: FileItem) => {
+    const cacheKey = getDirectoryCacheKey(activeRootId, activeRootBasePath, item.path)
+    const cache = directoryCache.get(cacheKey)
+    if (cache) return cache
+    const pending = directoryLoadingRef.current.get(cacheKey)
+    if (pending) return pending
+    setDirectoryStatus(activeRootId, activeRootBasePath, item.path, { state: 'loading', message: '' })
+    const request = api.files.list(fileHostId, activeRootId, joinRelativePath(activeRootBasePath, item.path)).then((result) => {
+      const nextItems = result.items.map((entry) => rebaseEntryPath(entry, activeRootBasePath))
+      storeDirectoryChildren(activeRootId, activeRootBasePath, item.path, nextItems)
+      setDirectoryStatus(activeRootId, activeRootBasePath, item.path, null)
+      return nextItems
+    }).catch((err) => {
+      setDirectoryStatus(activeRootId, activeRootBasePath, item.path, { state: 'error', message: err instanceof Error ? err.message : t('file.treeLoadFailed') })
+      return []
+    }).finally(() => {
+      directoryLoadingRef.current.delete(cacheKey)
+    })
+    directoryLoadingRef.current.set(cacheKey, request)
+    try {
+      return await request
+    } catch {
+      return []
+    }
+  }, [activeRootBasePath, activeRootId, directoryCache, fileHostId, setDirectoryStatus, storeDirectoryChildren, t])
   const createTreeNodes = useCallback((items: FileItem[]): FileTreeNode[] => items.filter((item) => (!hideDotFiles || !isDotPath(item.path || item.name)) && matchesFileTypeFilter(item, fileTypeFilter)).map((item) => {
-    const children = item.type === 'directory' && openDirectories.has(item.path) ? readDirectoryChildrenFromCache(directoryCache, activeRootId, activeRootBasePath, item.path) : undefined
-    const nextChildren = children ? createTreeNodes(children) : undefined
-    return { key: item.path, title: item.name, isLeaf: item.type === 'file', children: nextChildren, item }
-  }), [activeRootBasePath, activeRootId, directoryCache, fileTypeFilter, hideDotFiles, openDirectories])
+    let children: FileTreeNode[] | undefined
+    if (item.type === 'directory' && openDirectories.has(item.path)) {
+      const cached = readDirectoryChildrenFromCache(directoryCache, activeRootId, activeRootBasePath, item.path)
+      const status = readDirectoryStatusFromCache(directoryStatus, activeRootId, activeRootBasePath, item.path)
+      if (cached) children = cached.length ? createTreeNodes(cached) : [{ key: `${item.path}::__empty`, title: <div className="px-2 py-[2px] font-mono text-[11px] text-text-3">{t('file.emptyDir')}</div>, isLeaf: true, selectable: false }]
+      else if (status?.state === 'error') children = [{ key: `${item.path}::__error`, title: <div className="flex items-center gap-2 px-2 py-[2px] font-mono text-[11px]"><span className="text-danger">{t('file.treeLoadFailed')}</span><button type="button" title={status.message} onClick={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        void loadDirectoryChildren(item)
+      }} className="text-accent hover:text-text-1">{t('file.retryLoad')}</button></div>, isLeaf: true, selectable: false }]
+      else children = [{ key: `${item.path}::__loading`, title: <div className="px-2 py-[2px] font-mono text-[11px] text-text-3">{t('file.loading')}</div>, isLeaf: true, selectable: false }]
+    }
+    return { key: item.path, title: item.name, isLeaf: item.type === 'file', children, item }
+  }), [activeRootBasePath, activeRootId, directoryCache, directoryStatus, fileTypeFilter, hideDotFiles, loadDirectoryChildren, openDirectories, t])
   const desktopTreeData = useMemo(() => !isMobile && !showSearchResults ? createTreeNodes(listData?.items || []) : [], [createTreeNodes, isMobile, listData?.items, showSearchResults])
 
   useEffect(() => {
@@ -340,6 +389,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     setOpenDirectories(new Set())
     setSearchNavigationPath(null)
     setDirectoryCache(new Map())
+    setDirectoryStatusState(new Map())
     lastFollowedEditorKeyRef.current = ''
     directoryLoadingRef.current.clear()
   }, [fileHostId])
@@ -448,13 +498,17 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     setOpenDirectories(new Set())
     setSearchNavigationPath(null)
     setDirectoryCache(new Map())
+    setDirectoryStatusState(new Map())
     directoryLoadingRef.current.clear()
   }
   const openDirectoryShortcut = (entry: { rootId: string; path: string }) => {
     const nextRootId = getFavoriteRootOptionId(entry)
     setSelectedRootId(nextRootId)
     if (isMobile) setCurrentPath('')
-    else setOpenDirectories(new Set())
+    else {
+      setOpenDirectories(new Set())
+      setDirectoryStatusState(new Map())
+    }
     setSelectedPath('')
     setSelectedPreviewLine(1)
     setMobileView('list')
@@ -496,26 +550,6 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     if (expanding) void loadDirectoryChildren(item)
     setSelectedPath(item.path)
   }
-  const loadDirectoryChildren = useCallback(async (item: FileItem) => {
-    const cacheKey = getDirectoryCacheKey(activeRootId, activeRootBasePath, item.path)
-    const cache = directoryCache.get(cacheKey)
-    if (cache) return cache
-    const pending = directoryLoadingRef.current.get(cacheKey)
-    if (pending) return pending
-    const request = api.files.list(fileHostId, activeRootId, joinRelativePath(activeRootBasePath, item.path)).then((result) => {
-      const nextItems = result.items.map((entry) => rebaseEntryPath(entry, activeRootBasePath))
-      storeDirectoryChildren(activeRootId, activeRootBasePath, item.path, nextItems)
-      return nextItems
-    }).catch(() => []).finally(() => {
-      directoryLoadingRef.current.delete(cacheKey)
-    })
-    directoryLoadingRef.current.set(cacheKey, request)
-    try {
-      return await request
-    } catch {
-      return []
-    }
-  }, [activeRootBasePath, activeRootId, directoryCache, fileHostId, storeDirectoryChildren])
   const activeEditorFollowTarget = useMemo(() => {
     if (!activeEditor || activeEditor.kind === 'compare' || activeEditor.hostId !== fileHostId || !rootOptions.length) return null
     const matchedRoot = getMatchingRootOption(rootOptions, activeEditor.rootId, activeEditor.path)
@@ -640,6 +674,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   }
   const refreshFiles = useCallback(() => {
     setDirectoryCache(new Map())
+    setDirectoryStatusState(new Map())
     directoryLoadingRef.current.clear()
     void queryClient.invalidateQueries({ queryKey: ['file-list', fileHostId, activeRootId] })
     void queryClient.invalidateQueries({ queryKey: ['file-search', fileHostId, activeRootId] })
@@ -648,6 +683,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   const clearExpandedDirectories = () => {
     setOpenDirectories(new Set())
     setDirectoryCache(new Map())
+    setDirectoryStatusState(new Map())
     directoryLoadingRef.current.clear()
   }
   const getItemFullPath = (item: FileEntry) => {
@@ -777,6 +813,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     </div>
   )
   const renderTreeTitle = (node: FileTreeNode) => {
+    if (!node.item) return node.title
     const item = node.item
     const visual = getFileVisual(item.path, item.type)
     const favoritePath = { rootId: activeRootId, path: joinRelativePath(activeRootBasePath, item.path) }
