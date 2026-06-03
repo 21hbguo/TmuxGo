@@ -51,6 +51,7 @@ export function PaneGrid() {
   const attachStartedAtRef = useRef(0)
   const lastOutputAtRef = useRef('')
   const continuityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isSessionAttachedRef = useRef(false)
 
   const sessionName = parseSessionName(activeHostId || 'local', activeSessionId || '')
 
@@ -139,6 +140,7 @@ export function PaneGrid() {
   }, [flushResumePoint, sessionContinuity.enabled])
   const flushInputQueue = useCallback(() => {
     clearInputFlushTimer()
+    if (!isConnected || !isSessionAttachedRef.current || attachedRef.current !== sessionName) return
     if (inputQueueRef.current.length === 0) return
     const queued = inputQueueRef.current.splice(0)
     let batch = ''
@@ -155,20 +157,20 @@ export function PaneGrid() {
       }
     }
     if (batch) send({ type: 'input', data: batch })
-  }, [clearInputFlushTimer, send])
+  }, [clearInputFlushTimer, isConnected, send, sessionName])
   const scheduleInputFlush = useCallback(() => {
     if (inputFlushTimerRef.current) return
     inputFlushTimerRef.current = setTimeout(() => {
       inputFlushTimerRef.current = null
-      if (!isConnected) return
       flushInputQueue()
     }, INPUT_FLUSH_INTERVAL)
-  }, [flushInputQueue, isConnected])
+  }, [flushInputQueue])
   const attachNow = useCallback(() => {
     if (!sessionName || !isSocketReady || !terminalReadyRef.current) return
     const size = sizeRef.current
     clearAttachTimers()
     attachStartedAtRef.current = typeof performance !== 'undefined' ? performance.now() : Date.now()
+    isSessionAttachedRef.current = false
     updateConnection({ status: 'attaching' })
     const sent = send({ type: 'attach', hostId: activeHostId || 'local', sessionName, cols: size?.cols || 120, rows: size?.rows || 36, exclusive })
     if (!sent) return
@@ -205,6 +207,7 @@ export function PaneGrid() {
     clearInputFlushTimer()
     clearContinuityTimer()
     attachedRef.current = null
+    isSessionAttachedRef.current = false
     sentResizeRef.current = null
     terminalReadyRef.current = false
     inputQueueRef.current = []
@@ -215,6 +218,7 @@ export function PaneGrid() {
       clearInputFlushTimer()
       clearContinuityTimer()
       attachedRef.current = null
+      isSessionAttachedRef.current = false
       sentResizeRef.current = null
       flushResumePoint()
     }
@@ -226,6 +230,7 @@ export function PaneGrid() {
       clearInputFlushTimer()
       clearContinuityTimer()
       attachedRef.current = null
+      isSessionAttachedRef.current = false
       sentResizeRef.current = null
       if (terminalReadyRef.current) attachNow()
     }
@@ -236,10 +241,11 @@ export function PaneGrid() {
     if (lastExclusiveRef.current === exclusive) return
     lastExclusiveRef.current = exclusive
     if (!sessionName || !terminalReadyRef.current) return
-    clearAttachTimers()
-    attachedRef.current = null
-    sentResizeRef.current = null
-    attachNow()
+      clearAttachTimers()
+      attachedRef.current = null
+      isSessionAttachedRef.current = false
+      sentResizeRef.current = null
+      attachNow()
   }, [exclusive, sessionName, attachNow, clearAttachTimers])
   useEffect(() => {
     if (!isSocketReady) return
@@ -259,6 +265,7 @@ export function PaneGrid() {
       if ((detail.hostId || 'local') !== (activeHostId || 'local')) return
       clearAttachTimers()
       attachedRef.current = sessionName
+      isSessionAttachedRef.current = true
       pendingSwitchRef.current = false
       const attachedCols = Number(detail.cols)
       const attachedRows = Number(detail.rows)
@@ -275,6 +282,21 @@ export function PaneGrid() {
     return () => window.removeEventListener('tmux-attached', handleAttached as EventListener)
   }, [activeHostId, exclusive, sessionName, clearAttachTimers, updateConnection, updateTerminalPerf, flushInputQueue, sendResizeNow, scheduleContinuityFlush])
   useEffect(() => {
+    const handleDetached = (event: Event) => {
+      const detail = (event as CustomEvent).detail || {}
+      if ((detail.hostId || 'local') !== (activeHostId || 'local')) return
+      if (detail.sessionName && detail.sessionName !== sessionName) return
+      attachedRef.current = null
+      isSessionAttachedRef.current = false
+      sentResizeRef.current = null
+      clearAttachTimers()
+      updateConnection({ status: 'attaching' })
+      if (terminalReadyRef.current && isSocketReady) attachNow()
+    }
+    window.addEventListener('tmux-detached', handleDetached as EventListener)
+    return () => window.removeEventListener('tmux-detached', handleDetached as EventListener)
+  }, [activeHostId, attachNow, clearAttachTimers, isSocketReady, sessionName, updateConnection])
+  useEffect(() => {
     if (isConnected) flushInputQueue()
   }, [isConnected, flushInputQueue])
 
@@ -287,7 +309,8 @@ export function PaneGrid() {
 
   const handleInput = useCallback((data: string) => {
     scheduleContinuityFlush(100)
-    if (isConnected) {
+    const canWriteDirectly = isConnected && isSessionAttachedRef.current && attachedRef.current === sessionName
+    if (canWriteDirectly) {
       if (data.length <= 12 && inputQueueRef.current.length === 0) {
         send({ type: 'input', data })
         return
@@ -303,8 +326,8 @@ export function PaneGrid() {
     if (inputQueueRef.current.length > INPUT_QUEUE_LIMIT) {
       inputQueueRef.current.splice(0, inputQueueRef.current.length - INPUT_QUEUE_LIMIT)
     }
-    if (isSocketReady) attachNow()
-  }, [attachNow, isConnected, isSocketReady, send, scheduleInputFlush, scheduleContinuityFlush])
+    if (isSocketReady && terminalReadyRef.current) attachNow()
+  }, [attachNow, isConnected, isSocketReady, send, sessionName, scheduleInputFlush, scheduleContinuityFlush])
   useEffect(() => {
     if (attachedRef.current === sessionName) return
     attachNow()
