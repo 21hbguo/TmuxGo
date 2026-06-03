@@ -541,7 +541,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     setOpenDirectories((current) => {
       const next = new Set(current)
       for (const path of getDirectoryPathChain(activeEditorFollowTarget.parentPath)) next.add(path)
-      return current.size === next.size && [...current].every((item) => next.has(item)) ? current : next
+      return current.size === next.size && Array.from(current).every((item) => next.has(item)) ? current : next
     })
     void Promise.all(getDirectoryPathChain(activeEditorFollowTarget.parentPath).map((path) => loadDirectoryChildren({ name: getDirectoryName(path, activeRoot || roots[0] || { id: '', label: '', path: '' }), path, type: 'directory', size: 0, modifiedAt: '' })))
   }, [activeEditorFollowTarget, activeRoot, isMobile, loadDirectoryChildren, query, roots, selectedRootId])
