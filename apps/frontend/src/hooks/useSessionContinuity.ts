@@ -1,15 +1,19 @@
 'use client'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { SessionContinuityConfig, SessionResumePoint } from '@/types'
 import { api } from '@/lib/api'
 
 const PROFILE='default'
 const STORAGE_KEY='tmuxgo-session-continuity'
 const STORAGE_UPDATED_AT_KEY='tmuxgo-session-continuity-updated-at'
+const REMOTE_PUSH_DEBOUNCE_MS=1000
 const defaultSessionContinuity=():SessionContinuityConfig=>({enabled:true,syncToServer:true,resumeOnReconnect:true,resumeOnNewDevice:true,maxResumePoints:20,archive:{enabled:false,captureMode:'none',maxBytesPerSession:262144,retentionDays:7},resumePoints:[],updatedAt:new Date().toISOString()})
 let continuityStore:SessionContinuityConfig=defaultSessionContinuity()
 const listeners=new Set<(value:SessionContinuityConfig)=>void>()
 let syncedWithServer=false
+let remotePushTimer:ReturnType<typeof setTimeout>|null=null
+let remotePushInFlight:Promise<void>|null=null
+let remotePushPending:{next:SessionContinuityConfig;at:string}|null=null
 
 function readLocalContinuity() {
   if (typeof window==='undefined') return defaultSessionContinuity()
@@ -66,19 +70,40 @@ function mergeResumePoints(current:SessionResumePoint[],point:SessionResumePoint
   const dedup=[point,...current.filter((item)=>!(item.hostId===point.hostId&&item.sessionId===point.sessionId))]
   return dedup.sort((a,b)=>Date.parse(b.lastSeenAt)-Date.parse(a.lastSeenAt)).slice(0,Math.max(1,Math.min(200,maxResumePoints)))
 }
+function clearRemotePushTimer() {
+  if (!remotePushTimer) return
+  clearTimeout(remotePushTimer)
+  remotePushTimer=null
+}
+function scheduleRemotePush() {
+  if (typeof window==='undefined') return
+  clearRemotePushTimer()
+  remotePushTimer=setTimeout(()=>{
+    remotePushTimer=null
+    if (remotePushInFlight||!remotePushPending) return
+    const pending=remotePushPending
+    remotePushPending=null
+    remotePushInFlight=(async()=>{
+      try {
+        await api.preferences.update({sessionContinuity:pending.next,sessionContinuityUpdatedAt:pending.at},PROFILE)
+      } catch {}
+      remotePushInFlight=null
+      if (remotePushPending) scheduleRemotePush()
+    })()
+  },REMOTE_PUSH_DEBOUNCE_MS)
+}
 
 export function useSessionContinuity() {
   const [sessionContinuity,setSessionContinuity]=useState<SessionContinuityConfig>(continuityStore)
-  const inFlightRef=useRef<Promise<void>|null>(null)
   const pushRemote=useCallback((next:SessionContinuityConfig,at:string)=>{
-    if (!next.syncToServer) return
-    if (inFlightRef.current) return
-    inFlightRef.current=(async()=>{
-      try {
-        await api.preferences.update({sessionContinuity:next,sessionContinuityUpdatedAt:at},PROFILE)
-      } catch {}
-      inFlightRef.current=null
-    })()
+    if (!next.syncToServer) {
+      remotePushPending=null
+      clearRemotePushTimer()
+      return
+    }
+    remotePushPending={next,at}
+    if (remotePushInFlight) return
+    scheduleRemotePush()
   },[])
   const updateSessionContinuity=useCallback((patch:Partial<SessionContinuityConfig>)=>{
     const now=new Date().toISOString()
