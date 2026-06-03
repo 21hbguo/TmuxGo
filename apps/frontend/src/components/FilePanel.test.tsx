@@ -82,6 +82,9 @@ vi.mock('@/i18n', () => ({
     if (key === 'file.file') return 'File'
     if (key === 'file.dir') return 'Dir'
     if (key === 'file.dotfiles') return 'Dotfiles'
+    if (key === 'file.loading') return 'Loading...'
+    if (key === 'file.treeLoadFailed') return 'Load failed'
+    if (key === 'file.retryLoad') return 'Retry'
     if (key === 'file.removeFavorite') return 'Unfavorite'
     if (key === 'file.clearExpanded') return 'Collapse all'
     if (key === 'file.clearSearch') return 'Clear search'
@@ -444,6 +447,37 @@ describe('FilePanel', () => {
     expect(screen.queryByText('index.ts')).not.toBeInTheDocument()
     delayedSrcResolvers.splice(0).forEach((resolve) => resolve())
     await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
+  })
+  it('shows loading state while directory children are pending', async () => {
+    const { api } = await import('@/lib/api')
+    vi.mocked(api.files.list).mockImplementation(async (_hostId: string, rootId: string, path = '') => {
+      if (rootId === 'root-home' && path === 'src') {
+        await new Promise<void>((resolve) => delayedSrcResolvers.push(resolve))
+      }
+      return getListData(rootId, path)
+    })
+    render(React.createElement(FilePanel))
+    fireEvent.click(await screen.findByText('src'))
+    expect(await screen.findByText('Loading...')).toBeInTheDocument()
+    delayedSrcResolvers.splice(0).forEach((resolve) => resolve())
+    await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
+  })
+  it('shows retry state after directory loading fails and recovers on retry', async () => {
+    const { api } = await import('@/lib/api')
+    let attempts = 0
+    vi.mocked(api.files.list).mockImplementation(async (_hostId: string, rootId: string, path = '') => {
+      if (rootId === 'root-home' && path === 'src') {
+        attempts += 1
+        if (attempts === 1) throw new Error('temporary failure')
+      }
+      return getListData(rootId, path)
+    })
+    render(React.createElement(FilePanel))
+    fireEvent.click(await screen.findByText('src'))
+    expect(await screen.findByText('Load failed')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
+    expect(attempts).toBe(2)
   })
   it('reuses in-flight directory loading when toggled repeatedly', async () => {
     const { api } = await import('@/lib/api')

@@ -359,19 +359,8 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     }
   }, [activeRootBasePath, activeRootId, directoryCache, fileHostId, setDirectoryStatus, storeDirectoryChildren, t])
   const createTreeNodes = useCallback((items: FileItem[]): FileTreeNode[] => items.filter((item) => (!hideDotFiles || !isDotPath(item.path || item.name)) && matchesFileTypeFilter(item, fileTypeFilter)).map((item) => {
-    let children: FileTreeNode[] | undefined
-    if (item.type === 'directory' && openDirectories.has(item.path)) {
-      const cached = readDirectoryChildrenFromCache(directoryCache, activeRootId, activeRootBasePath, item.path)
-      const status = readDirectoryStatusFromCache(directoryStatus, activeRootId, activeRootBasePath, item.path)
-      if (cached) children = cached.length ? createTreeNodes(cached) : [{ key: `${item.path}::__empty`, title: <div className="px-2 py-[2px] font-mono text-[11px] text-text-3">{t('file.emptyDir')}</div>, isLeaf: true, selectable: false }]
-      else if (status?.state === 'error') children = [{ key: `${item.path}::__error`, title: <div className="flex items-center gap-2 px-2 py-[2px] font-mono text-[11px]"><span className="text-danger">{t('file.treeLoadFailed')}</span><button type="button" title={status.message} onClick={(event) => {
-        event.preventDefault()
-        event.stopPropagation()
-        void loadDirectoryChildren(item)
-      }} className="text-accent hover:text-text-1">{t('file.retryLoad')}</button></div>, isLeaf: true, selectable: false }]
-      else children = [{ key: `${item.path}::__loading`, title: <div className="px-2 py-[2px] font-mono text-[11px] text-text-3">{t('file.loading')}</div>, isLeaf: true, selectable: false }]
-    }
-    return { key: item.path, title: item.name, isLeaf: item.type === 'file', children, item }
+    const children = item.type === 'directory' && openDirectories.has(item.path) ? readDirectoryChildrenFromCache(directoryCache, activeRootId, activeRootBasePath, item.path) : undefined
+    return { key: item.path, title: item.name, isLeaf: item.type === 'file', children: children ? createTreeNodes(children) : undefined, item }
   }), [activeRootBasePath, activeRootId, directoryCache, directoryStatus, fileTypeFilter, hideDotFiles, loadDirectoryChildren, openDirectories, t])
   const desktopTreeData = useMemo(() => !isMobile && !showSearchResults ? createTreeNodes(listData?.items || []) : [], [createTreeNodes, isMobile, listData?.items, showSearchResults])
 
@@ -402,6 +391,16 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     if (rootOptions.some((item) => item.id === selectedRootId)) return
     setSelectedRootId(rootOptions[0]?.id || '')
   }, [rootOptions, selectedRootId])
+  useEffect(() => {
+    if (!openDirectories.size) return
+    for (const itemPath of Array.from(openDirectories)) {
+      if (readDirectoryChildrenFromCache(directoryCache, activeRootId, activeRootBasePath, itemPath)) continue
+      if (readDirectoryStatusFromCache(directoryStatus, activeRootId, activeRootBasePath, itemPath)?.state === 'error') continue
+      const cacheKey = getDirectoryCacheKey(activeRootId, activeRootBasePath, itemPath)
+      if (directoryLoadingRef.current.has(cacheKey)) continue
+      void loadDirectoryChildren({ name: getDirectoryName(itemPath, activeRoot || roots[0] || { id: '', label: '', path: '' }), path: itemPath, type: 'directory', size: 0, modifiedAt: '' })
+    }
+  }, [activeRoot, activeRootBasePath, activeRootId, directoryCache, directoryStatus, loadDirectoryChildren, openDirectories, roots])
   useEffect(() => {
     if (!roots.length) return
     const localEntries = readFavoriteDirectories()
@@ -813,10 +812,12 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     </div>
   )
   const renderTreeTitle = (node: FileTreeNode) => {
-    if (!node.item) return null
+    if (!node.item) return typeof node.title === 'function' ? node.title(node) : node.title ?? null
     const item = node.item
     const visual = getFileVisual(item.path, item.type)
     const favoritePath = { rootId: activeRootId, path: joinRelativePath(activeRootBasePath, item.path) }
+    const cachedChildren = item.type === 'directory' && openDirectories.has(item.path) ? readDirectoryChildrenFromCache(directoryCache, activeRootId, activeRootBasePath, item.path) : undefined
+    const loadStatus = item.type === 'directory' && openDirectories.has(item.path) ? readDirectoryStatusFromCache(directoryStatus, activeRootId, activeRootBasePath, item.path) : undefined
     return (
       <div
         role="button"
@@ -850,6 +851,16 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
       >
         <span className="shrink-0">{visual.icon}</span>
         <span className={`min-w-0 flex-1 truncate font-mono ${visual.tone}`}>{item.name}</span>
+        {item.type === 'directory' && cachedChildren?.length === 0 && <span className="shrink-0 font-mono text-[10px] text-text-3">{t('file.emptyDir')}</span>}
+        {item.type === 'directory' && !cachedChildren && loadStatus?.state === 'loading' && <span className="shrink-0 font-mono text-[10px] text-text-3">{t('file.loading')}</span>}
+        {item.type === 'directory' && !cachedChildren && loadStatus?.state === 'error' && <div className="flex shrink-0 items-center gap-1">
+          <span className="font-mono text-[10px] text-danger">{t('file.treeLoadFailed')}</span>
+          <button type="button" title={loadStatus.message} onClick={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            void loadDirectoryChildren(item)
+          }} className="font-mono text-[10px] text-accent hover:text-text-1">{t('file.retryLoad')}</button>
+        </div>}
         {item.type === 'directory' ? <FavoriteDirectoryButton active={isFavoriteDirectory(favoritePath)} name={item.name} onClick={(event) => {
           event.preventDefault()
           event.stopPropagation()
