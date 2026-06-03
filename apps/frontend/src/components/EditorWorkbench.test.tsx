@@ -142,6 +142,7 @@ describe('EditorWorkbench', () => {
   const editor1 = createEditor('editor-1', 'src/index.ts', 'const value=1', { modifiedAt: '2026-05-29T00:00:00.000Z', size: 13 })
   const editor2 = createEditor('editor-2', 'src/other.ts', 'const value=2')
   const editor3 = createEditor('editor-3', 'src/third.ts', 'const value=3')
+  const editor4 = createEditor('editor-4', 'src/fourth.ts', 'const value=4')
   beforeEach(() => {
     vi.useFakeTimers()
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => window.setTimeout(() => cb(0), 0))
@@ -289,6 +290,47 @@ describe('EditorWorkbench', () => {
     await dispatchDragEvent(button, 'drop', dataTransfer, { clientX: 80, clientY: 0 })
     expect(useConsoleStore.getState().editorPrimaryGroupIds).toEqual([editor2.id, editor1.id, editor3.id])
   })
+  it('moves a dragged tab across a nested 4-group layout and collapses the emptied group', async () => {
+    setWorkbenchState({
+      openEditors: [editor1, editor2, editor3, editor4],
+      activeEditorId: editor4.id,
+      editorGroups: [createGroup('group-1', [editor1.id], editor1.id), createGroup('group-2', [editor2.id], editor2.id), createGroup('group-3', [editor3.id], editor3.id), createGroup('group-4', [editor4.id], editor4.id)],
+      editorLayout: createSplit('layout-1', 'horizontal', createLeaf('layout-2', 'group-1'), createSplit('layout-3', 'vertical', createLeaf('layout-4', 'group-2'), createSplit('layout-5', 'horizontal', createLeaf('layout-6', 'group-3'), createLeaf('layout-7', 'group-4')))),
+      activeEditorGroupId: 'group-4',
+    })
+    const { container } = renderWorkbench()
+    const strip = screen.getByTestId('editor-group-secondary') as HTMLDivElement
+    strip.getBoundingClientRect = vi.fn(() => ({ left: 0, top: 0, width: 1000, height: 42, right: 1000, bottom: 42, x: 0, y: 0, toJSON: () => ({}) } as DOMRect))
+    const dataTransfer = createDataTransfer({
+      'application/x-tmuxgo-file': JSON.stringify({
+        id: editor4.id,
+        hostId: editor4.hostId,
+        rootId: editor4.rootId,
+        rootLabel: editor4.rootLabel,
+        rootPath: editor4.rootPath,
+        path: editor4.path,
+        name: editor4.name,
+        absolutePath: editor4.absolutePath,
+      }),
+      'text/plain': editor4.absolutePath,
+    })
+    await dispatchDragEvent(strip, 'drop', dataTransfer, { clientX: 500, clientY: 21 })
+    const state = useConsoleStore.getState()
+    expect(state.editorGroups).toHaveLength(3)
+    expect(collectGroupIds(state.editorLayout)).toEqual(['group-1', 'group-2', 'group-3'])
+    expect(state.editorGroups.find((group) => group.id === 'group-2')?.editorIds).toEqual([editor2.id, editor4.id])
+    expect(state.activeEditorId).toBe(editor4.id)
+    expect(state.activeEditorGroupId).toBe('group-2')
+    expect(screen.queryByTestId('editor-group-group-4')).not.toBeInTheDocument()
+    expect(screen.getAllByLabelText('editor')).toHaveLength(3)
+    const splits = Array.from(container.querySelectorAll('[data-editor-split]')) as HTMLDivElement[]
+    expect(splits).toHaveLength(2)
+    for (const split of splits) {
+      expect(split.className).toContain('flex-1')
+      expect(split.className).toContain('min-w-0')
+      expect(split.className).toContain('w-full')
+    }
+  })
   it('opens a dropped file in the editor area center group', async () => {
     const onOpenFile = createOpenFileHandler()
     const view = renderWorkbench({ onOpenFile })
@@ -363,6 +405,84 @@ describe('EditorWorkbench', () => {
     expect(useConsoleStore.getState().editorSplitDirection).toBe('horizontal')
     expect(useConsoleStore.getState().editorPrimaryGroupIds).toEqual(['editor-4'])
     expect(useConsoleStore.getState().editorSecondaryGroupIds).toEqual([editor1.id])
+  })
+  it('splits the secondary group vertically when dropped on its top edge', async () => {
+    const onOpenFile = createOpenFileHandler()
+    setWorkbenchState({
+      openEditors: [editor1, editor2],
+      activeEditorId: editor2.id,
+      editorGroups: [createGroup('group-1', [editor1.id], editor1.id), createGroup('group-2', [editor2.id], editor2.id)],
+      editorLayout: createSplit('layout-1', 'horizontal', createLeaf('layout-2', 'group-1'), createLeaf('layout-3', 'group-2')),
+      activeEditorGroupId: 'group-2',
+    })
+    const { container } = renderWorkbench({ onOpenFile })
+    const strip = screen.getByTestId('editor-group-secondary') as HTMLDivElement
+    const pane = strip.nextElementSibling as HTMLButtonElement
+    pane.getBoundingClientRect = vi.fn(() => ({ left: 0, top: 0, width: 1000, height: 600, right: 1000, bottom: 600, x: 0, y: 0, toJSON: () => ({}) } as DOMRect))
+    const dataTransfer = createDataTransfer({
+      'application/x-tmuxgo-file': JSON.stringify({
+        id: 'editor-5',
+        hostId: 'local',
+        rootId: 'root-workspace',
+        rootLabel: 'Workspace',
+        rootPath: '/workspace',
+        path: 'src/top.ts',
+        name: 'top.ts',
+        absolutePath: '/workspace/src/top.ts',
+      }),
+      'text/plain': '/workspace/src/top.ts',
+    })
+    await dispatchDragEvent(pane, 'drop', dataTransfer, { clientX: 500, clientY: 40 })
+    await vi.waitFor(() => expect(onOpenFile).toHaveBeenCalledWith(expect.objectContaining({ id: 'editor-5', name: 'top.ts' })))
+    const state = useConsoleStore.getState()
+    const newGroupId = state.editorGroups.find((group) => group.editorIds.includes('editor-5'))?.id
+    expect(newGroupId).toBeTruthy()
+    expect(state.editorLayout?.type).toBe('split')
+    expect(state.editorLayout?.type === 'split' ? state.editorLayout.direction : null).toBe('horizontal')
+    expect(state.editorLayout?.type === 'split' && state.editorLayout.second.type === 'split' ? state.editorLayout.second.direction : null).toBe('vertical')
+    expect(state.editorLayout?.type === 'split' && state.editorLayout.second.type === 'split' ? state.editorLayout.second.first.groupId : null).toBe(newGroupId)
+    expect(state.editorLayout?.type === 'split' && state.editorLayout.second.type === 'split' ? state.editorLayout.second.second.groupId : null).toBe('group-2')
+    expect(screen.getAllByLabelText('editor')).toHaveLength(3)
+    const splits = Array.from(container.querySelectorAll('[data-editor-split]')) as HTMLDivElement[]
+    expect(splits).toHaveLength(2)
+  })
+  it('splits the secondary group vertically when dropped on its bottom edge', async () => {
+    const onOpenFile = createOpenFileHandler()
+    setWorkbenchState({
+      openEditors: [editor1, editor2],
+      activeEditorId: editor2.id,
+      editorGroups: [createGroup('group-1', [editor1.id], editor1.id), createGroup('group-2', [editor2.id], editor2.id)],
+      editorLayout: createSplit('layout-1', 'horizontal', createLeaf('layout-2', 'group-1'), createLeaf('layout-3', 'group-2')),
+      activeEditorGroupId: 'group-2',
+    })
+    renderWorkbench({ onOpenFile })
+    const strip = screen.getByTestId('editor-group-secondary') as HTMLDivElement
+    const pane = strip.nextElementSibling as HTMLButtonElement
+    pane.getBoundingClientRect = vi.fn(() => ({ left: 0, top: 0, width: 1000, height: 600, right: 1000, bottom: 600, x: 0, y: 0, toJSON: () => ({}) } as DOMRect))
+    const dataTransfer = createDataTransfer({
+      'application/x-tmuxgo-file': JSON.stringify({
+        id: 'editor-6',
+        hostId: 'local',
+        rootId: 'root-workspace',
+        rootLabel: 'Workspace',
+        rootPath: '/workspace',
+        path: 'src/bottom.ts',
+        name: 'bottom.ts',
+        absolutePath: '/workspace/src/bottom.ts',
+      }),
+      'text/plain': '/workspace/src/bottom.ts',
+    })
+    await dispatchDragEvent(pane, 'drop', dataTransfer, { clientX: 500, clientY: 560 })
+    await vi.waitFor(() => expect(onOpenFile).toHaveBeenCalledWith(expect.objectContaining({ id: 'editor-6', name: 'bottom.ts' })))
+    const state = useConsoleStore.getState()
+    const newGroupId = state.editorGroups.find((group) => group.editorIds.includes('editor-6'))?.id
+    expect(newGroupId).toBeTruthy()
+    expect(state.editorLayout?.type).toBe('split')
+    expect(state.editorLayout?.type === 'split' ? state.editorLayout.direction : null).toBe('horizontal')
+    expect(state.editorLayout?.type === 'split' && state.editorLayout.second.type === 'split' ? state.editorLayout.second.direction : null).toBe('vertical')
+    expect(state.editorLayout?.type === 'split' && state.editorLayout.second.type === 'split' ? state.editorLayout.second.first.groupId : null).toBe('group-2')
+    expect(state.editorLayout?.type === 'split' && state.editorLayout.second.type === 'split' ? state.editorLayout.second.second.groupId : null).toBe(newGroupId)
+    expect(screen.getAllByLabelText('editor')).toHaveLength(3)
   })
   it('renders split panes from store state', () => {
     setWorkbenchState({
