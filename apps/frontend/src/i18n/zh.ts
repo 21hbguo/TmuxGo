@@ -265,6 +265,7 @@ export const zh = {
   'file.title': '文件',
   'file.upload': '上传',
   'file.removeFavorite': '删收藏',
+  'file.clearExpanded': '全部收起',
   'file.clearSearch': '清空搜索',
   'editor.dropOpen': '松开打开文件',
   'editor.drop.center': '松开打开文件',

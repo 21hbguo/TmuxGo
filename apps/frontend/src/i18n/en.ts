@@ -265,6 +265,7 @@ export const en = {
   'file.title': 'Files',
   'file.upload': 'Upload',
   'file.removeFavorite': 'Unfavorite',
+  'file.clearExpanded': 'Collapse all',
   'file.clearSearch': 'Clear search',
   'editor.dropOpen': 'DROP TO OPEN',
   'editor.drop.center': 'DROP TO OPEN',

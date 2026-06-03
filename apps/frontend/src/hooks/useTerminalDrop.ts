@@ -1,6 +1,7 @@
 'use client'
 import { useCallback, useMemo, useState } from 'react'
-import { formatDroppedPaths } from '@/lib/path-drop'
+import { formatDroppedPaths, quoteShellPath } from '@/lib/path-drop'
+import { readDraggedFile } from '@/lib/editor-drag'
 
 export function useTerminalDrop(onInput: (data: string) => void, openUploadDialog: (request: { files: File[]; preferredRootId?: string; preferredPath?: string; insertPaths?: boolean }) => void) {
   const [isDropActive, setIsDropActive] = useState(false)
@@ -19,6 +20,11 @@ export function useTerminalDrop(onInput: (data: string) => void, openUploadDialo
     setIsDropActive(false)
     if (e.dataTransfer?.files?.length) {
       openUploadDialog({ files: Array.from(e.dataTransfer.files), insertPaths: true })
+      return
+    }
+    const draggedFile = readDraggedFile(e.dataTransfer)
+    if (draggedFile?.absolutePath) {
+      onInput(quoteShellPath(draggedFile.absolutePath))
       return
     }
     const text = formatDroppedPaths(e.dataTransfer)

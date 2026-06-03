@@ -1,8 +1,6 @@
 'use client'
 import { useEffect } from 'react'
-import { getActiveDraggedFile } from '@/lib/editor-drag'
-
-const FILE_DRAG_MIME='application/x-tmuxgo-file'
+import { FILE_DRAG_MIME, getActiveDraggedFile } from '@/lib/editor-drag'
 
 export function DropGuard() {
   useEffect(() => {

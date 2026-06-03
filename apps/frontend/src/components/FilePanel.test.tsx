@@ -82,6 +82,7 @@ vi.mock('@/i18n', () => ({
     if (key === 'file.dir') return 'Dir'
     if (key === 'file.dotfiles') return 'Dotfiles'
     if (key === 'file.removeFavorite') return 'Unfavorite'
+    if (key === 'file.clearExpanded') return 'Collapse all'
     if (key === 'file.clearSearch') return 'Clear search'
     if (key === 'file.copyPath') return 'Copy path'
     return key
@@ -330,6 +331,24 @@ describe('FilePanel', () => {
     expect(screen.queryByText('.env')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Dotfiles' }))
     expect(await screen.findByText('.env')).toBeInTheDocument()
+  })
+  it('collapses expanded directories and clears cached children', async () => {
+    const { api } = await import('@/lib/api')
+    vi.mocked(api.files.list).mockClear()
+    render(React.createElement(FilePanel))
+    const collapseAll = screen.getByRole('button', { name: 'Collapse all' })
+    expect(collapseAll).toBeDisabled()
+    const src = await screen.findByText('src')
+    fireEvent.click(src)
+    await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
+    expect(collapseAll).not.toBeDisabled()
+    expect(vi.mocked(api.files.list).mock.calls.filter(([, rootId, path]) => rootId === 'root-home' && path === 'src')).toHaveLength(1)
+    fireEvent.click(collapseAll)
+    await waitFor(() => expect(screen.queryByText('index.ts')).not.toBeInTheDocument())
+    expect(collapseAll).toBeDisabled()
+    fireEvent.click(screen.getByText('src'))
+    await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
+    expect(vi.mocked(api.files.list).mock.calls.filter(([, rootId, path]) => rootId === 'root-home' && path === 'src')).toHaveLength(2)
   })
   it('keeps directory collapsed when async child loading resolves after collapse', async () => {
     const { api } = await import('@/lib/api')
