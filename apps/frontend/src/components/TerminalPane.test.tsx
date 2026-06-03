@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TerminalPane } from './TerminalPane'
 import { DELETE_PREV_WORD_SEQUENCE } from '@/lib/terminal-keys'
+import type { Pane, Window as TmuxWindow } from '@/types'
 
 const onSelectionChangeHandlers: Array<() => void> = []
 let customKeyHandler: ((event: KeyboardEvent) => boolean) | null = null
@@ -13,6 +14,7 @@ let terminalViewportY = 0
 let resizeObserverCallback: (() => void) | null = null
 let terminalLinkProviders: Array<{ provideLinks: (bufferLineNumber: number, callback: (links: any[] | undefined) => void) => void }> = []
 let terminalAddonHandlers: Array<(event: MouseEvent, uri: string) => void> = []
+type SessionSnapshotMock = { sessionName?: string; activeWindowId?: string | null; windows: TmuxWindow[]; panes: Array<Partial<Pane> & { id: string; active?: boolean }>; activePaneId: string | null }
 const terminalMocks = vi.hoisted(() => ({
   write: vi.fn(),
   refresh: vi.fn(),
@@ -52,7 +54,7 @@ const queryClientMocks = vi.hoisted(() => ({
   setQueryData: vi.fn(),
 }))
 const apiMocks = vi.hoisted(() => ({
-  snapshotGet: vi.fn(async () => ({ windows: [], panes: [], activePaneId: null })),
+  snapshotGet: vi.fn(async (): Promise<SessionSnapshotMock> => ({ windows: [], panes: [], activePaneId: null })),
   paneResize: vi.fn(async () => ({ ok: true })),
   paneSelect: vi.fn(async () => ({ ok: true })),
   githubAuthStatus: vi.fn(async () => ({ ok: true, available: true, loggedIn: false })),
