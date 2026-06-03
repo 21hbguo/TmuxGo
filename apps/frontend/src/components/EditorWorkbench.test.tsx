@@ -376,6 +376,24 @@ describe('EditorWorkbench', () => {
     expect(screen.getAllByLabelText('editor')).toHaveLength(2)
     expect(screen.getByText('/workspace/src/other.ts')).toBeInTheDocument()
   })
+  it('keeps nested split containers stretched for 3-group layouts', () => {
+    setWorkbenchState({
+      openEditors: [editor1, editor2, editor3],
+      activeEditorId: editor3.id,
+      editorGroups: [createGroup('group-1', [editor1.id], editor1.id), createGroup('group-2', [editor2.id], editor2.id), createGroup('group-3', [editor3.id], editor3.id)],
+      editorLayout: createSplit('layout-1', 'horizontal', createLeaf('layout-2', 'group-1'), createSplit('layout-3', 'vertical', createLeaf('layout-4', 'group-2'), createLeaf('layout-5', 'group-3'))),
+      activeEditorGroupId: 'group-3',
+    })
+    const { container } = renderWorkbench()
+    expect(screen.getAllByLabelText('editor')).toHaveLength(3)
+    const splits = Array.from(container.querySelectorAll('[data-editor-split]')) as HTMLDivElement[]
+    expect(splits).toHaveLength(2)
+    for (const split of splits) {
+      expect(split.className).toContain('flex-1')
+      expect(split.className).toContain('min-w-0')
+      expect(split.className).toContain('w-full')
+    }
+  })
   it('renders compare editor content for compare tabs', async () => {
     const compareEditor = createCompareEditor('compare:editor-1::editor-2', editor1.id, editor2.id)
     setWorkbenchState({
