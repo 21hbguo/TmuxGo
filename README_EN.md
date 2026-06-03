@@ -2,13 +2,15 @@
 
 # :zap: TmuxGo
 
-### :round_pushpin: Open in browser, seamless handoff across devices
+### :round_pushpin: A browser-native tmux workspace with seamless handoff across desktop, phone, and tablet
 
-> No client needed — your terminal lives in the browser.
-> Start on desktop, continue on phone, review on tablet.
-> **Never lose a train of thought again.**
+<p><a href="README.md">简体中文</a> · <strong>English</strong></p>
 
-![TmuxGo cover](assets/cover_tmuxgo_cn_vip.png)
+> No client required. Open a browser and get your terminal, file workspace, and Git tools in one place.  
+> Start on desktop, continue on phone, review on tablet.  
+> **Same session, same context, no broken flow.**
+
+![TmuxGo cover](assets/cover_tmuxgo_vip.png)
 
 <p>
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
@@ -17,7 +19,7 @@
 </p>
 <p>
 <a href="https://nextjs.org"><img src="https://img.shields.io/badge/Next.js-14-black?logo=next.js" alt="Next.js"></a>
-<a href="https://www.typescriptlang.org"><img src="https://img.shields.io/badge/TypeScript-5.3-3178C6?logo=typescript&logoColor=white" alt="TypeScript"></a>
+<a href="https://www.typescriptlang.org"><img src="https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white" alt="TypeScript"></a>
 <a href="https://tailwindcss.com"><img src="https://img.shields.io/badge/Tailwind-3.4-06B6D4?logo=tailwindcss&logoColor=white" alt="Tailwind CSS"></a>
 </p>
 
@@ -29,36 +31,34 @@
 
 | :desktop_computer: **Desktop** | :iphone: **Mobile** | 📟 **Tablet** |
 |:---:|:---:|:---:|
-| Full keyboard, multi-pane | Touch-friendly, virtual keys | Split-view, side-by-side |
+| Multiple panes, editors, and side panels | Touch-friendly navigation, virtual keys, drawer UI | Side-by-side logs, code, and Git history |
 
-:point_right: **One session, three screens, zero interruption.**
+:point_right: **One session, three screens, no interruption.**
 
-- :globe_with_meridians: **Access from anywhere** - Tailscale-powered secure remote access, no port forwarding needed
-- :electric_plug: **Always-on sessions** - tmux keeps your work alive even when you close the browser
-- :zap: **Instant resume** - Reconnect in seconds, your cursor is exactly where you left it
-- :brain: **Context preserved** - Panes, layouts, history - all intact across devices
-- :lock: **Exclusive attach by default** - desktop and mobile both open sessions in exclusive attach mode by default
+- :globe_with_meridians: **Reach it anywhere** - browser access over localhost, LAN, or Tailscale
+- :electric_plug: **Sessions stay alive** - your `tmux` work continues after the browser closes
+- :repeat: **Cross-device continuity** - sessions, layouts, active panes, and resume points carry over
+- :lock: **Exclusive attach by default** - desktop and mobile restore in exclusive mode to avoid focus conflicts
 
-## :sparkles: Features
+## :sparkles: Feature Overview
 
-| Feature | Description |
-|:--------|:------------|
-| :globe_with_meridians: **Terminal in Browser** | Full xterm.js terminal with tmux session management |
-| :art: **Multi-Pane Grid** | Split, resize, and arrange terminal panes like native tmux |
-| :satellite: **Tailscale Remote Access** | Access your sessions securely from anywhere via Tailscale |
-| :iphone: **Mobile Friendly** | Responsive UI with touch support, mobile drawer, and virtual keyboard |
-| :mag: **Command Palette** | Quick search for hosts, sessions, and windows (`Ctrl+K`) |
-| :open_file_folder: **File Browser** | Browse project files, preview text, insert paths, and toggle dotfiles |
-| :clipboard: **Text-Safe Clipboard** | Copy terminal selections and paste text without image/rich-content leaks |
-| :bookmark_tabs: **Session Templates** | One-click session layouts: Dev, Monitoring, ML Training |
-| :art: **Themes** | 6 built-in themes: Dark, Light, High Contrast, Dracula, Nord, Catppuccin |
-| :clipboard: **Command Snippets** | Reusable command library with pre-built and custom snippets |
-| :ledger: **Audit Log** | Track session activity and user actions |
+| Area | Current capabilities |
+|:-----|:---------------------|
+| :globe_with_meridians: **Terminal and tmux** | Browser terminal powered by `xterm.js`, tmux attach, pane/window split and zoom, shared/exclusive attach, command palette, quick actions |
+| :bookmark_tabs: **Session management** | Create, rename, drag-sort, batch delete, audit log, and custom session templates with window count, pane count, layout, and startup commands |
+| :desktop_computer: **Desktop workspace** | Activity Bar, Session Rail, resizable Session/File/Git panels, embedded Terminal Dock |
+| :open_file_folder: **File workspace** | `workspace` / `home` roots, filename and content search, favorite directories, dotfile toggle, text and image preview, create/rename/delete, insert path into terminal, downloads, upload queue |
+| :pencil2: **Built-in editor** | Monaco editor, split editor groups, drag-to-open in a specific split, Markdown preview, image preview, Git diff viewer, read-only protection for large or binary files |
+| :octocat: **Git workbench** | Status, history graph, branches, stage/unstage, commit, discard, fetch/pull/push/merge, checkout/create/delete branch, pinned repos, follow-current-file repo mode, `gh` device-login helper |
+| :satellite: **Multi-host** | Built-in local host plus SSH remote hosts, connectivity test, host switching that propagates to terminal, files, and Git |
+| :iphone: **Mobile / PWA** | Drawer navigation, touch scrolling, virtual keyboard, mobile shortcut bar, clipboard safety, install-to-home-screen banner |
+| :brain: **Persistence and sync** | Theme, shortcuts, favorites, snippets, session order, Git workspace state, and session continuity sync between browser storage and `~/.tmuxgo/preferences` |
+| :package: **Version and release awareness** | Stable/dev frontend split, build version checks, refresh prompt when a newer build is deployed |
 
 ## :rocket: Quick Start
 
 ```bash
-git clone https://github.com/<your-username>/TmuxGo.git
+git clone https://github.com/21hbguo/TmuxGo.git
 cd TmuxGo
 ./install.sh
 ```
@@ -68,30 +68,50 @@ cd TmuxGo
 - install or switch to Node.js 20
 - install `tmux`, `ripgrep`, `lsof/ss`, `python3`, and native build tools
 - run `npm install`
+- build Gateway, the stable Frontend (`.next-prod`), and Agent
 - install and start user-level `systemd` services on Linux
 - install and start user-level `launchd` services on macOS
-- fall back to the local start script when neither background service manager is available
-- verify ports `3000/3001` and print reachable URLs
+- fall back to the local startup script when a background service manager is unavailable
+- verify `3000/3001` and print local URLs plus Tailscale HTTPS URLs when available
 
-Open `http://localhost:3000` in your browser. :tada:
+After installation, open `http://localhost:3000`.
 
-> :bulb: Works directly on your local network; for remote access, set up [Tailscale](https://tailscale.com) first.
-> :lock: For reliable terminal-selection copy to the system clipboard, prefer HTTPS access (for example via Tailscale HTTPS) to avoid insecure-context clipboard restrictions.
-> :desktop_computer: The deployment side must run in a `tmux`-capable environment, preferably Linux, macOS, or WSL2. The access side only needs a browser, so Windows, macOS, Linux, phones, and tablets can all connect.
+> :bulb: LAN access works directly; for remote access, configure [Tailscale](https://tailscale.com) first.
+> :lock: For reliable copy to the system clipboard, prefer HTTPS access such as Tailscale HTTPS.
+> :desktop_computer: The deployment side must run in a `tmux`-capable environment, ideally Linux, macOS, or WSL2. The access side only needs a browser.
 
-Manual local startup is still available:
+If you only want dependencies and manual startup:
 
 ```bash
 ./bootstrap.sh
 ./start.sh
 ```
 
+## :traffic_light: Runtime Modes and Restart Rules
+
+- `3000` is the stable frontend, served from the prebuilt `.next-prod` output and exposed by `systemd`, `launchd`, and Tailscale
+- `3001` is the Gateway API and WebSocket service
+- `3002` is the development frontend with hot reload when you run local startup or `npm run dev:frontend`
+- Running only `build` or `test` does not refresh an already running stable `3000/3001`
+- To apply source changes to the stable stack, run `./start.sh --restart`
+- If frontend sources are newer than `.next-prod`, `./start.sh --restart` auto-upgrades to a stable rebuild
+- To force a rebuild explicitly, run `./start.sh --restart --rebuild`
+- For local production startup without `systemd` or `launchd`, use `./start-prod.sh`
+
+## :satellite: Multi-Host and Remote SSH
+
+- `local` is available by default, so sessions, files, and Git work out of the box on the host machine
+- Add remote hosts from Settings with `id / address / user / port / password / passwordEnv`
+- Once you switch host, session lists, file trees, editor targets, and Git state switch with it
+- SSH keys are the preferred path; password or password-env hosts require `sshpass`
+- Host definitions are stored in `~/.tmuxgo/hosts.json` by default, or under `TMUXGO_CONFIG_DIR`
+
 ## :shield: Production Deploy
 
-For a fresh machine, run:
+For a new machine, the recommended path is:
 
 ```bash
-git clone https://github.com/<your-username>/TmuxGo.git
+git clone https://github.com/21hbguo/TmuxGo.git
 cd TmuxGo
 ./install.sh
 ```
@@ -109,12 +129,6 @@ macOS:
 ```bash
 ./scripts/install-launchd-user-mac.sh
 ```
-
-Linux:
-`install-systemd-user-linux.sh` renders user `systemd` units with the actual repository path, so the repo no longer has to live in a fixed directory.
-
-macOS:
-`install-launchd-user-mac.sh` renders user LaunchAgents with the actual repository path and writes logs to `~/Library/Logs/TmuxGo`.
 
 Stop all services:
 
@@ -186,10 +200,12 @@ tail -f ~/Library/Logs/TmuxGo/agent.log
 |:-----------|:--------|:--------:|:------|
 | :green_circle: Node.js | >= 20 | :white_check_mark: | Runtime |
 | :green_circle: tmux | any | :white_check_mark: | Terminal multiplexer |
-| :green_circle: Build toolchain | make / g++ / pkg-config | :white_check_mark: | Required by `node-pty` |
-| :green_circle: Base tools | `curl` / `python3` / `ripgrep` / `lsof` or `ss` | :white_check_mark: | Used by install/start scripts |
-| 🔵 Tailscale | latest | :o: | Optional - for remote access |
-| :desktop_computer: OS | Linux / macOS / WSL2 | - | |
+| :green_circle: Build toolchain | `make` / `g++` / `pkg-config` | :white_check_mark: | Required by `node-pty` |
+| :green_circle: Base tools | `git` / `curl` / `python3` / `ripgrep` / `lsof` or `ss` | :white_check_mark: | Needed by install, file search, and startup scripts |
+| :blue_circle: Tailscale | latest | :o: | Remote access and HTTPS exposure |
+| :blue_circle: sshpass | latest | :o: | Only required for password-based SSH hosts |
+| :blue_circle: GitHub CLI (`gh`) | latest | :o: | GitHub device-login helper and auth-state detection |
+| :desktop_computer: OS | Linux / macOS / WSL2 | - | Deployment-side runtime environment |
 
 ```bash
 node -v && npm -v && tmux -V
@@ -198,21 +214,22 @@ tailscale version
 
 ## :jigsaw: Architecture
 
-```
-┌──────────┐   WebSocket    ┌──────────┐   PTY   ┌──────────┐
-│ Frontend │ ◄────────────► │ Gateway  │ ◄──────► │  Agent   │
-│ (Next.js)│                │ (Fastify)│         │ (tmux)   │
-└──────────┘                └──────────┘         └──────────┘
+```text
+┌──────────┐   WebSocket    ┌──────────┐   PTY / SSH / Git / Files   ┌──────────┐
+│ Frontend │ ◄────────────► │ Gateway  │ ◄──────────────────────────► │  Agent   │
+│ (Next.js)│                │ (Fastify)│                               │ (tmux)   │
+└──────────┘                └──────────┘                               └──────────┘
 ```
 
-| Service | Port | Tech Stack |
-|:--------|:-----|:-----------|
-| :globe_with_meridians: Frontend (stable) | `3000` | Next.js 14, React 18, xterm.js, Tailwind |
-| :electric_plug: Gateway | `3001` | Fastify, WebSocket, node-pty |
-| :hammer_and_wrench: Frontend (dev) | `3002` | Next.js (hot reload) |
-| :lock: Tailscale HTTPS | `443`, `8443` | Auto-configured by `start.sh` |
+| Service | Port | Stack |
+|:--------|:-----|:------|
+| :globe_with_meridians: Frontend (stable) | `3000` | Next.js 14, React 18, xterm.js, Monaco, Tailwind, Ant Design |
+| :hammer_and_wrench: Frontend (dev) | `3002` | Next.js hot reload |
+| :electric_plug: Gateway | `3001` | Fastify, WebSocket, node-pty, SSH, file and Git routes |
+| :satellite: Agent | - | `tmux` attach, host registration, terminal stream forwarding |
+| :lock: Tailscale HTTPS | `443`, `8443` | Auto-configured by `start.sh` for frontend and Gateway |
 
-## :wrench: Development
+## :wrench: Development and Verification
 
 ```bash
 npm run dev
@@ -220,93 +237,55 @@ npm run dev:frontend
 npm run dev:gateway
 npm run dev:agent
 npm run build
+npm test
+npm run test:frontend
+npm run test:e2e
+npm run verify
 ```
 
-Production local start without `systemd`:
+Recommended delivery checklist:
 
-```bash
-./start-prod.sh
-```
+1. `npm test` / `npm run test:frontend` / `npm run test:e2e` when relevant
+2. `./start.sh --restart`
+3. Verify that `3000` or the Tailscale HTTPS URL is serving the new build, not just `3002`
 
-## :open_file_folder: Project Structure
-
-```
-TmuxGo/
-├── apps/
-│   ├── frontend/
-│   ├── gateway/
-│   └── agent/
-├── deploy/launchd-user/
-├── deploy/systemd-user/
-├── bootstrap.sh
-├── install.sh
-├── start-prod.sh
-├── start.sh
-├── scripts/
-└── package.json
-```
-
-## :art: Themes
-
-| Theme | Preview Style |
-|:------|:--------------|
-| :crescent_moon: Dark (default) | Deep dark background, cyan accents |
-| :sunny: Light | Clean white background |
-| :black_circle: High Contrast | Maximum readability |
-| :vampire: Dracula | Purple-pink palette |
-| :snowflake: Nord | Arctic blue tones |
-| :cat: Catppuccin | Warm pastel colors |
-
-Themes are persisted in `localStorage` and can be switched from the preferences panel.
-
-## :keyboard: Keyboard Shortcuts
+## :keyboard: Common Shortcuts
 
 | Shortcut | Action |
 |:---------|:-------|
-| `Ctrl+K` / `Cmd+K` | Toggle Command Palette |
-| `Ctrl+B` / `Cmd+B` | Toggle Sidebar |
-| :arrow_up: :arrow_down: :arrow_left: :arrow_right: | Navigate (with hold-repeat) |
-| `Ctrl+B %` | Horizontal split |
-| `Ctrl+B "` | Vertical split |
-| `Esc` | Detach / Close |
-| `Tab` / `Shift+Tab` | Cycle panes |
-| `Ctrl+C` | Send interrupt |
+| `Ctrl+K` / `Cmd+K` | Open or close the command palette |
+| `Ctrl+B` / `Cmd+B` | Toggle the session sidebar |
+| `Ctrl+E` / `Cmd+E` | Toggle the file explorer |
+| Quick Actions / Mobile Shortcut Bar | Send Enter, delete word, clear line, split pane, zoom, kill pane |
 
-> :bulb: Custom shortcuts can be defined from the Quick Actions sidebar and are saved to `localStorage`.
+> :bulb: Native `tmux` shortcuts still work inside the terminal. Custom shortcuts are persisted through the preference store.
 
-## :bookmark_tabs: Session Templates
+## :gear: Configuration and Persistence
 
-| Template | Panes |
-|:---------|:------|
-| :page_facing_up: Default | Single pane |
-| :hammer_and_wrench: Development | `vim` + terminal + `npm run dev` |
-| :bar_chart: Monitoring | `htop` + `docker stats` |
-| :brain: ML Training | `python train.py` + `nvidia-smi` + `tail -f logs/` |
+### Environment Variables
 
-## :clipboard: Command Snippets
+| Variable | Default | Description |
+|:---------|:--------|:------------|
+| `PORT` | `3001` | Gateway listen port |
+| `NEXT_PUBLIC_API_URL` | `http://127.0.0.1:3001` | Frontend base URL for Gateway |
+| `NEXT_DIST_DIR` | `.next` / `.next-prod` | Frontend build output directory |
+| `GATEWAY_URL` | `ws://localhost:3001/api/stream` | Agent WebSocket URL for Gateway |
+| `HOST_ID` | `agent-local` | Agent registration host ID |
+| `HOST_NAME` | `local-machine` or hostname | Agent display name |
+| `TMUX_WEB_FILE_ROOTS` | `workspace=<repo>:home=<home>` | File tree roots, for example `workspace=/srv/code:home=/home/guo` |
+| `TMUXGO_PREFERENCES_DIR` | `~/.tmuxgo/preferences` | Synced store for preferences, favorites, and session continuity |
+| `TMUXGO_CONFIG_DIR` | `~/.tmuxgo` | Host configuration directory, including `hosts.json` |
+| `TMUX_WEB_ALLOWED_SESSIONS` | empty | Comma-separated tmux session allowlist |
 
-Pre-built commands ready to use:
+### Where Data Lives
 
-| Category | Snippets |
-|:---------|:---------|
-| :file_folder: File System | `ls -la`, `df -h`, `free -h` |
-| :gear: Process | `ps aux`, `docker ps` |
-| :octocat: Git | `git status`, `git log` |
-
-> :bulb: Add custom snippets from the Command Snippets panel - they're saved to `localStorage`.
-
-## :globe_with_meridians: Environment Variables
-
-| Variable | Service | Default | Description |
-|:---------|:--------|:--------|:------------|
-| `PORT` | Gateway | `3001` | Gateway listen port |
-| `GATEWAY_URL` | Agent | `ws://localhost:3001/api/stream` | Gateway WebSocket URL |
-| `HOST_ID` | Agent | `agent-local` | Unique host identifier |
-| `HOST_NAME` | Agent | `local-machine` | Display name for host |
+- Remote host definitions: `~/.tmuxgo/hosts.json`
+- Preferences and synced metadata: `~/.tmuxgo/preferences`
+- Browser-local cache: `localStorage` / `sessionStorage`
 
 ## :beetle: Troubleshooting
 
-Check service logs:
+Local startup logs:
 
 ```bash
 tail -f /tmp/tmuxgo-gateway.log
@@ -315,20 +294,12 @@ tail -f /tmp/tmuxgo-frontend-dev.log
 tail -f /tmp/tmuxgo-agent.log
 ```
 
-For `systemd --user` deployments:
+Common issues:
 
-```bash
-journalctl --user -u tmuxgo-gateway.service -n 100
-journalctl --user -u tmuxgo-frontend.service -n 100
-journalctl --user -u tmuxgo-agent.service -n 100
-```
-
-### Clipboard Copy Troubleshooting
-
-1. Use an HTTPS top-level tab whenever possible (avoid iframe or restricted webview containers).
-2. Check site permissions in your browser and allow clipboard read/write.
-3. After selecting text in terminal, use `Ctrl/Cmd+C` for explicit copy; if system clipboard is blocked, TmuxGo falls back to app clipboard for in-app paste.
-4. If it still fails, refresh and retry, then check whether extensions or container policies block clipboard events.
+1. `3002` shows the new UI but `3000` is still old: run `./start.sh --restart`, add `--rebuild` if needed
+2. System clipboard copy fails: prefer an HTTPS top-level tab and confirm clipboard permission in the browser
+3. Remote host connection fails: verify SSH reachability and confirm the target has `tmux`, `git`, and `python3`; install `sshpass` for password-based auth
+4. Git push or pull behaves unexpectedly: verify `git` and `gh` auth on the target host first, then retry from TmuxGo
 
 ## :page_facing_up: License
 

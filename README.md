@@ -2,11 +2,13 @@
 
 # :zap: TmuxGo
 
-### :round_pushpin: 浏览器打开即用，任意设备无缝接力
+### :round_pushpin: 浏览器里的 tmux 工作台，桌面/手机/平板无缝接力
 
-> 不用装客户端，浏览器打开就是你的终端。
-> 在桌面开始，在手机继续，在平板查看。
-> **思路不中断，现场不丢失。**
+<p><strong>简体中文</strong> · <a href="README_EN.md">English</a></p>
+
+> 不用装客户端，浏览器打开就是你的终端、文件区和 Git 工作台。  
+> 在桌面开始，在手机继续，在平板查看。  
+> **同一套会话，同一套上下文，不再断片。**
 
 ![TmuxGo cover](assets/cover_tmuxgo_cn_vip.png)
 
@@ -17,7 +19,7 @@
 </p>
 <p>
 <a href="https://nextjs.org"><img src="https://img.shields.io/badge/Next.js-14-black?logo=next.js" alt="Next.js"></a>
-<a href="https://www.typescriptlang.org"><img src="https://img.shields.io/badge/TypeScript-5.3-3178C6?logo=typescript&logoColor=white" alt="TypeScript"></a>
+<a href="https://www.typescriptlang.org"><img src="https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white" alt="TypeScript"></a>
 <a href="https://tailwindcss.com"><img src="https://img.shields.io/badge/Tailwind-3.4-06B6D4?logo=tailwindcss&logoColor=white" alt="Tailwind CSS"></a>
 </p>
 
@@ -29,97 +31,92 @@
 
 | :desktop_computer: **桌面** | :iphone: **手机** | 📟 **平板** |
 |:---:|:---:|:---:|
-| 全键盘、多窗格高效操作 | 触控友好、虚拟按键补全输入 | 分屏并排，适合查看与跟进 |
+| 多窗格、多编辑器、多侧栏并行工作 | 触控友好、虚拟按键、抽屉导航 | 分屏查看日志、代码、Git 历史 |
 
-:point_right: **一个会话，三块屏幕，过程不中断。**
+:point_right: **一个会话，三块屏幕，状态不丢、思路不断。**
 
-- :globe_with_meridians: **随时访问** - 基于 Tailscale 的安全远程访问，无需手动做端口映射
-- :electric_plug: **会话常驻** - 即使关闭浏览器，tmux 里的工作仍然持续存在
-- :zap: **秒级恢复** - 重新连接后立刻回到上次停下的位置
-- :brain: **上下文保留** - 窗格、布局、历史记录都完整保留
-- :lock: **默认独占附着** - 桌面端和移动端默认都以独占模式打开会话
+- :globe_with_meridians: **随时访问** - 浏览器即可接入，本地、局域网、Tailscale 都可用
+- :electric_plug: **会话常驻** - 浏览器关掉后，`tmux` 里的工作仍继续
+- :repeat: **跨设备接力** - 会话、布局、活动窗格、恢复点都可延续
+- :lock: **默认独占附着** - 桌面和移动端默认以独占模式恢复，避免误抢焦点
 
-## :sparkles: 功能特性
+## :sparkles: 功能总览
 
-| 功能 | 说明 |
-|:--------|:------------|
-| :globe_with_meridians: **浏览器终端** | 基于 xterm.js 的完整终端体验，直接管理 tmux 会话 |
-| :art: **多窗格网格** | 像原生 tmux 一样拆分、缩放、编排终端窗格 |
-| :satellite: **Tailscale 远程访问** | 通过 Tailscale 从任意地点安全接入你的会话 |
-| :iphone: **移动端友好** | 响应式界面、抽屉导航、触控支持、虚拟键盘 |
-| :mag: **命令面板** | 使用 `Ctrl+K` 快速搜索主机、会话和窗口 |
-| :open_file_folder: **文件浏览器** | 浏览项目文件、预览文本、插入路径、切换隐藏文件显示 |
-| :clipboard: **安全文本剪贴板** | 复制终端选区、纯文本粘贴，避免图片和富文本泄漏 |
-| :bookmark_tabs: **会话模板** | 一键创建开发、监控、训练等常用布局 |
-| :art: **主题系统** | 内置 6 套主题：Dark、Light、High Contrast、Dracula、Nord、Catppuccin |
-| :clipboard: **命令片段** | 复用常用命令，支持内置片段和自定义片段 |
-| :ledger: **审计日志** | 跟踪会话活动和关键用户操作 |
+| 模块 | 当前能力 |
+|:-----|:---------|
+| :globe_with_meridians: **终端与 tmux** | 基于 `xterm.js` 的浏览器终端、tmux 会话附着、窗口/窗格拆分、缩放、共享/独占附着、命令面板与快捷操作 |
+| :bookmark_tabs: **会话管理** | 新建、重命名、拖拽排序、批量删除、审计日志、自定义会话模板（窗口数、面板数、布局、初始命令） |
+| :desktop_computer: **桌面工作区** | Activity Bar、Session Rail、可调整宽度的 Session/File/Git 面板、内嵌终端 Dock |
+| :open_file_folder: **文件工作区** | `workspace` / `home` 根目录、文件名/内容搜索、收藏目录、点文件开关、文本/图片预览、新建/重命名/删除、路径插入终端、下载与上传队列 |
+| :pencil2: **内置编辑器** | Monaco 编辑器、分栏编辑、拖拽打开到指定分屏、Markdown 预览、图片预览、Git Diff 查看、大文件/二进制只读保护 |
+| :octocat: **Git 工作台** | 状态、历史图、分支、暂存/取消暂存、提交、丢弃改动、拉取/推送/合并、切换/新建/删除分支、固定仓库、跟随当前文件仓库、`gh` 设备登录辅助提示 |
+| :satellite: **多主机** | 默认本地主机 + SSH 远端主机、连接测试、主机切换后终端/文件/Git 同步切换 |
+| :iphone: **移动端 / PWA** | 抽屉导航、触控滚动、虚拟键盘、移动快捷条、剪贴板保护、添加到主屏幕安装横幅 |
+| :brain: **持续化与同步** | 主题、快捷键、收藏、命令片段、会话顺序、Git 工作区状态、会话持续化会同步到浏览器本地与 `~/.tmuxgo/preferences` |
+| :package: **版本与发布感知** | 稳定版/开发版前端分离、构建版本检查、发现新构建后前端提示刷新 |
 
 ## :rocket: 快速开始
 
 ```bash
-git clone https://github.com/<your-username>/TmuxGo.git
+git clone https://github.com/21hbguo/TmuxGo.git
 cd TmuxGo
 ./install.sh
 ```
 
 `install.sh` 会自动完成这些事情：
 
-- 安装或校正 Node.js 20
+- 安装或切换到 Node.js 20
 - 安装 `tmux`、`ripgrep`、`lsof/ss`、`python3` 和原生构建工具链
 - 执行 `npm install`
-- 在 Linux 上安装并启动 `systemd --user` 常驻服务
-- 在 macOS 上安装并启动 `launchd` 常驻服务
-- 在不支持上述常驻服务管理器的环境里自动回退到本地启动脚本
-- 完成 `3000/3001` 健康检查并输出可访问地址
+- 构建 Gateway、稳定版 Frontend（`.next-prod`）和 Agent
+- 在 Linux 上安装并启动 `systemd --user` 服务
+- 在 macOS 上安装并启动 `launchd` 服务
+- 在没有常驻服务管理器的环境中回退到本地启动脚本
+- 完成 `3000/3001` 健康检查，并输出本地地址与可用的 Tailscale HTTPS 地址
 
-浏览器打开 `http://localhost:3000`。:tada:
+安装完成后直接打开 `http://localhost:3000`。
 
-> :bulb: 局域网内可直接访问；远程访问请先配置 [Tailscale](https://tailscale.com)。
-> :lock: 终端选区复制到系统剪贴板建议使用 HTTPS 域名访问（例如 Tailscale HTTPS），避免浏览器因非安全上下文限制剪贴板能力。
-> :desktop_computer: 部署端需要运行在支持 `tmux` 的环境中（推荐 Linux、macOS、WSL2）；使用端只需要浏览器，Windows、macOS、Linux、手机、平板都可访问。
+> :bulb: 局域网可直接访问；远程访问建议先配置 [Tailscale](https://tailscale.com)。
+> :lock: 若要稳定使用系统剪贴板复制，建议通过 HTTPS 域名访问，例如 Tailscale HTTPS。
+> :desktop_computer: 部署端需要运行在支持 `tmux` 的环境中，推荐 Linux、macOS、WSL2；访问端只需要浏览器。
 
-手动本地启动仍然保留：
+只安装依赖但不装常驻服务时，也可以手动启动：
 
 ```bash
 ./bootstrap.sh
 ./start.sh
 ```
 
-快速重启默认复用已有稳定版构建产物，不再每次都重新 `next build`：
+## :traffic_light: 运行模式与重启规则
 
-```bash
-./start.sh --restart
-```
+- `3000` 是稳定版前端，默认由 `.next-prod` 预构建产物提供服务，也是 `systemd`、`launchd`、Tailscale 对外暴露的地址
+- `3001` 是 Gateway API 与 WebSocket 服务
+- `3002` 是开发版前端地址，使用本地启动或 `npm run dev:frontend` 时启用热更新
+- 只执行 `build` / `test` 不会让已经运行的稳定版 `3000/3001` 自动更新
+- 改完源码要让稳定版立即生效，执行 `./start.sh --restart`
+- 如果前端源码比 `.next-prod` 新，`./start.sh --restart` 会自动升级为重建稳定版
+- 需要显式强制重建时执行 `./start.sh --restart --rebuild`
+- 不使用 `systemd` / `launchd` 的本地生产启动可执行 `./start-prod.sh`
 
-只有需要显式重建稳定版时再执行：
+## :satellite: 多主机与远程 SSH
 
-```bash
-./start.sh --restart --rebuild
-```
-
-运行规则：
-
-- 改了前端、gateway、agent 源码后，仅仅 `build/test` 不会让 `3000/3001` 上的常驻服务自动更新
-- 你实际在看的稳定版地址默认是 `3000`，开发版热更新地址是 `3002`
-- Tailscale / systemd 默认对外暴露的是稳定版 `3000`，它运行的是预构建产物，不是源码目录本身
-- 只执行 `./start.sh --restart` 只能重启服务；如果 `.next-prod` 没有重建，`3000` 仍然可能继续跑旧前端
-- 改完想让稳定版立即生效，执行 `./start.sh --restart`
-- 如果前端源码比 `.next-prod` 新，`start.sh --restart` 现在会自动升级为重建稳定版
-- 如果你想显式强制重建，仍然可以执行 `./start.sh --restart --rebuild`
-- 重启后再访问 `3000`，必要时浏览器执行一次强刷 `Ctrl+Shift+R`
+- 默认内置 `local` 主机，所有会话、文件和 Git 操作都先在本机可用
+- 可以在设置面板里新增远端主机：`id / address / user / port / password / passwordEnv`
+- 主机切换后，Session 列表、文件树、编辑器打开目标、Git 状态都会跟随切换
+- 优先推荐 SSH Key；如果使用密码或密码环境变量，需要额外安装 `sshpass`
+- 主机配置默认保存在 `~/.tmuxgo/hosts.json`，也可以通过 `TMUXGO_CONFIG_DIR` 改位置
 
 ## :shield: 生产部署
 
-对新人或新机器，直接执行：
+新机器推荐直接执行：
 
 ```bash
-git clone https://github.com/<your-username>/TmuxGo.git
+git clone https://github.com/21hbguo/TmuxGo.git
 cd TmuxGo
 ./install.sh
 ```
 
-如果你已经完成依赖安装，只想重装常驻服务：
+如果依赖已经装好，只想重装常驻服务：
 
 Linux:
 
@@ -132,12 +129,6 @@ macOS:
 ```bash
 ./scripts/install-launchd-user-mac.sh
 ```
-
-Linux:
-`install-systemd-user-linux.sh` 会按当前仓库真实路径生成 `systemd` 用户单元，不要求固定部署到某个目录。
-
-macOS:
-`install-launchd-user-mac.sh` 会按当前仓库真实路径生成用户级 `LaunchAgents`，并写入 `~/Library/Logs/TmuxGo` 日志。
 
 停止全部服务：
 
@@ -206,13 +197,15 @@ tail -f ~/Library/Logs/TmuxGo/agent.log
 ## :package: 依赖要求
 
 | 依赖 | 版本 | 必需 | 说明 |
-|:-----------|:--------|:--------:|:------|
+|:-----|:-----|:----:|:-----|
 | :green_circle: Node.js | >= 20 | :white_check_mark: | 运行时 |
 | :green_circle: tmux | 任意 | :white_check_mark: | 终端复用器 |
-| :green_circle: 构建工具链 | make / g++ / pkg-config | :white_check_mark: | `node-pty` 原生依赖 |
-| :green_circle: 基础工具 | `curl` / `python3` / `ripgrep` / `lsof` 或 `ss` | :white_check_mark: | 安装脚本与启动脚本依赖 |
-| 🔵 Tailscale | 最新版 | :o: | 可选，用于远程访问 |
-| :desktop_computer: 系统 | Linux / macOS / WSL2 | - | 运行环境 |
+| :green_circle: 构建工具链 | `make` / `g++` / `pkg-config` | :white_check_mark: | `node-pty` 原生依赖 |
+| :green_circle: 基础工具 | `git` / `curl` / `python3` / `ripgrep` / `lsof` 或 `ss` | :white_check_mark: | 安装、文件搜索、启动脚本依赖 |
+| :blue_circle: Tailscale | 最新版 | :o: | 远程访问、HTTPS 暴露 |
+| :blue_circle: sshpass | 最新版 | :o: | 仅密码式 SSH 远端主机需要 |
+| :blue_circle: GitHub CLI (`gh`) | 最新版 | :o: | GitHub 设备登录辅助与认证状态检测 |
+| :desktop_computer: 系统 | Linux / macOS / WSL2 | - | 部署端运行环境 |
 
 ```bash
 node -v && npm -v && tmux -V
@@ -221,21 +214,22 @@ tailscale version
 
 ## :jigsaw: 架构
 
-```
-┌──────────┐   WebSocket    ┌──────────┐   PTY   ┌──────────┐
-│ Frontend │ ◄────────────► │ Gateway  │ ◄──────► │  Agent   │
-│ (Next.js)│                │ (Fastify)│         │ (tmux)   │
-└──────────┘                └──────────┘         └──────────┘
+```text
+┌──────────┐   WebSocket    ┌──────────┐   PTY / SSH / Git / Files   ┌──────────┐
+│ Frontend │ ◄────────────► │ Gateway  │ ◄──────────────────────────► │  Agent   │
+│ (Next.js)│                │ (Fastify)│                               │ (tmux)   │
+└──────────┘                └──────────┘                               └──────────┘
 ```
 
 | 服务 | 端口 | 技术栈 |
-|:--------|:-----|:-----------|
-| :globe_with_meridians: Frontend（稳定版） | `3000` | Next.js 14、React 18、xterm.js、Tailwind |
-| :electric_plug: Gateway | `3001` | Fastify、WebSocket、node-pty |
+|:-----|:-----|:-------|
+| :globe_with_meridians: Frontend（稳定版） | `3000` | Next.js 14、React 18、xterm.js、Monaco、Tailwind、Ant Design |
 | :hammer_and_wrench: Frontend（开发版） | `3002` | Next.js 热更新 |
-| :lock: Tailscale HTTPS | `443`、`8443` | 由 `start.sh` 自动配置 |
+| :electric_plug: Gateway | `3001` | Fastify、WebSocket、node-pty、SSH、文件与 Git 路由 |
+| :satellite: Agent | - | `tmux` 附着、主机注册、终端流转发 |
+| :lock: Tailscale HTTPS | `443`、`8443` | `start.sh` 自动配置到前端与 Gateway |
 
-## :wrench: 开发
+## :wrench: 开发与验证
 
 ```bash
 npm run dev
@@ -243,99 +237,55 @@ npm run dev:frontend
 npm run dev:gateway
 npm run dev:agent
 npm run build
+npm test
+npm run test:frontend
+npm run test:e2e
+npm run verify
 ```
 
-不使用 `systemd` 的本地生产启动：
+交付时建议按这个顺序验证：
 
-```bash
-./start-prod.sh
-```
+1. `npm test` / `npm run test:frontend` / 必要时 `npm run test:e2e`
+2. `./start.sh --restart`
+3. 检查 `3000` 或 Tailscale HTTPS 是否已经加载新构建，而不是只看 `3002`
 
-交付建议：
+## :keyboard: 常用快捷键
 
-- 只要改动影响运行结果，默认执行 `test/build -> ./start.sh --restart -> 健康检查`
-- 如果改动包含前端稳定版页面，交付标准是“`3000`/Tailscale 已加载新构建”，不是“源码已经修改”
-- 不要只验证 `3002` 就认为稳定版 `3000` 已经更新
-
-## :open_file_folder: 项目结构
-
-```
-TmuxGo/
-├── apps/
-│   ├── frontend/
-│   ├── gateway/
-│   └── agent/
-├── deploy/launchd-user/
-├── deploy/systemd-user/
-├── bootstrap.sh
-├── install.sh
-├── start-prod.sh
-├── start.sh
-├── scripts/
-└── package.json
-```
-
-## :art: 主题
-
-| 主题 | 预览风格 |
-|:------|:--------------|
-| :crescent_moon: Dark（默认） | 深色背景，青色点缀 |
-| :sunny: Light | 简洁浅色背景 |
-| :black_circle: High Contrast | 最大化可读性 |
-| :vampire: Dracula | 紫粉色系 |
-| :snowflake: Nord | 冷调蓝色系 |
-| :cat: Catppuccin | 柔和暖色系 |
-
-主题会持久化保存到 `localStorage`，可在偏好设置面板中切换。
-
-## :keyboard: 快捷键
-
-| 快捷键 | 操作 |
-|:---------|:-------|
+| 快捷键 | 作用 |
+|:-------|:-----|
 | `Ctrl+K` / `Cmd+K` | 打开或关闭命令面板 |
-| `Ctrl+B` / `Cmd+B` | 打开或关闭侧边栏 |
-| :arrow_up: :arrow_down: :arrow_left: :arrow_right: | 导航移动（支持按住连续触发） |
-| `Ctrl+B %` | 横向分屏 |
-| `Ctrl+B "` | 纵向分屏 |
-| `Esc` | 断开附着或关闭 |
-| `Tab` / `Shift+Tab` | 循环切换窗格 |
-| `Ctrl+C` | 发送中断 |
+| `Ctrl+B` / `Cmd+B` | 打开或关闭会话侧栏 |
+| `Ctrl+E` / `Cmd+E` | 打开或关闭文件资源管理器 |
+| Quick Actions / 移动快捷条 | 发送回车、删词、清行、分屏、聚焦、关闭面板 |
 
-> :bulb: 可在 Quick Actions 侧栏中定义自定义快捷操作，并保存到 `localStorage`。
+> :bulb: `tmux` 原生快捷键仍然可以在终端内继续使用；自定义快捷键会同步保存到偏好存储。
 
-## :bookmark_tabs: 会话模板
+## :gear: 配置与持久化
 
-| 模板 | 窗格布局 |
-|:---------|:------|
-| :page_facing_up: Default | 单窗格 |
-| :hammer_and_wrench: Development | `vim` + 终端 + `npm run dev` |
-| :bar_chart: Monitoring | `htop` + `docker stats` |
-| :brain: ML Training | `python train.py` + `nvidia-smi` + `tail -f logs/` |
+### 环境变量
 
-## :clipboard: 命令片段
+| 变量 | 默认值 | 说明 |
+|:-----|:-------|:-----|
+| `PORT` | `3001` | Gateway 监听端口 |
+| `NEXT_PUBLIC_API_URL` | `http://127.0.0.1:3001` | 前端访问 Gateway 的基地址 |
+| `NEXT_DIST_DIR` | `.next` / `.next-prod` | 前端构建输出目录 |
+| `GATEWAY_URL` | `ws://localhost:3001/api/stream` | Agent 连接 Gateway 的 WebSocket 地址 |
+| `HOST_ID` | `agent-local` | Agent 注册主机 ID |
+| `HOST_NAME` | `local-machine` 或机器名 | Agent 注册显示名 |
+| `TMUX_WEB_FILE_ROOTS` | `workspace=<repo>:home=<home>` | 文件树根目录列表，例如 `workspace=/srv/code:home=/home/guo` |
+| `TMUXGO_PREFERENCES_DIR` | `~/.tmuxgo/preferences` | 偏好、收藏、会话持续化等同步存储目录 |
+| `TMUXGO_CONFIG_DIR` | `~/.tmuxgo` | 主机配置目录，默认包含 `hosts.json` |
+| `TMUX_WEB_ALLOWED_SESSIONS` | 空 | 逗号分隔的 tmux 会话白名单 |
 
-内置常用命令可直接使用：
+### 数据落点
 
-| 分类 | 示例 |
-|:---------|:---------|
-| :file_folder: 文件系统 | `ls -la`、`df -h`、`free -h` |
-| :gear: 进程 | `ps aux`、`docker ps` |
-| :octocat: Git | `git status`、`git log` |
-
-> :bulb: 可在 Command Snippets 面板中新增自定义片段，数据会保存到 `localStorage`。
-
-## :globe_with_meridians: 环境变量
-
-| 变量 | 服务 | 默认值 | 说明 |
-|:---------|:--------|:--------|:------------|
-| `PORT` | Gateway | `3001` | Gateway 监听端口 |
-| `GATEWAY_URL` | Agent | `ws://localhost:3001/api/stream` | Gateway WebSocket 地址 |
-| `HOST_ID` | Agent | `agent-local` | 主机唯一标识 |
-| `HOST_NAME` | Agent | `local-machine` | 主机显示名称 |
+- 远端主机配置：`~/.tmuxgo/hosts.json`
+- 偏好与同步数据：`~/.tmuxgo/preferences`
+- 浏览器本地缓存：`localStorage` / `sessionStorage`
 
 ## :beetle: 排障
 
-查看服务日志：
+本地启动日志：
 
 ```bash
 tail -f /tmp/tmuxgo-gateway.log
@@ -344,20 +294,12 @@ tail -f /tmp/tmuxgo-frontend-dev.log
 tail -f /tmp/tmuxgo-agent.log
 ```
 
-对于 `systemd --user` 部署：
+常见问题：
 
-```bash
-journalctl --user -u tmuxgo-gateway.service -n 100
-journalctl --user -u tmuxgo-frontend.service -n 100
-journalctl --user -u tmuxgo-agent.service -n 100
-```
-
-### 剪贴板复制排障
-
-1. 优先使用 HTTPS 顶层标签页访问（不要放在 iframe 或受限 webview 内）。
-2. 打开浏览器站点权限，确认允许剪贴板读写。
-3. 终端选区后可直接 `Ctrl/Cmd+C` 显式复制；若系统剪贴板受限，会自动回退到应用内剪贴板用于站内粘贴。
-4. 若仍失败，刷新页面后重试，并检查浏览器扩展或容器策略是否拦截剪贴板事件。
+1. `3002` 看到了新页面，但 `3000` 还是旧版本：执行 `./start.sh --restart`，必要时加 `--rebuild`
+2. 系统剪贴板复制失败：优先使用 HTTPS 顶层标签页，确认浏览器站点权限允许剪贴板访问
+3. 远端主机连接失败：检查 SSH 连通性、目标机是否安装 `tmux` / `git` / `python3`，密码式连接确认 `sshpass` 已安装
+4. Git 推送/拉取异常：先在目标主机确认 `git` 与 `gh` 认证状态，再回到 TmuxGo 操作
 
 ## :page_facing_up: License
 
