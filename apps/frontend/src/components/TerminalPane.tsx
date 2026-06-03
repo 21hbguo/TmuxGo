@@ -92,6 +92,9 @@ function isPasteShortcut(e: KeyboardEvent) {
   if (e.metaKey && !e.ctrlKey && isApplePlatform()) return true
   return false
 }
+function isImeKeyEvent(e: KeyboardEvent) {
+  return e.isComposing || e.key === 'Process' || e.keyCode === 229 || e.which === 229
+}
 function stripWrappedQuotes(value: string) {
   return value.replace(/^[\s'"([{<]+/, '').replace(/[\s'")\]}>.,;!?，。；、]+$/, '')
 }
@@ -1358,6 +1361,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         })
       )
       terminal.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+        if (isImeKeyEvent(e)) return true
         if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'c') {
           const selection = getSelectionText()
           if (selection) {
