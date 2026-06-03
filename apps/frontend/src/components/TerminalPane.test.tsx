@@ -577,6 +577,22 @@ describe('TerminalPane', () => {
     expect(handled).toBe(true)
     expect(document.execCommand).not.toHaveBeenCalled()
   })
+  it('does not intercept ime process key events in terminal shortcut handler', async () => {
+    const onInput = vi.fn()
+    render(<TerminalPane sessionName="dev" onInput={onInput} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    const handled = customKeyHandler?.({ key: 'Process', code: 'Enter', ctrlKey: true, metaKey: false, altKey: false, isComposing: false, keyCode: 229, which: 229 } as KeyboardEvent)
+    expect(handled).toBe(true)
+    expect(onInput).not.toHaveBeenCalled()
+  })
+  it('does not remap delete while ime composition key event is active', async () => {
+    const onInput = vi.fn()
+    render(<TerminalPane sessionName="dev" onInput={onInput} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    const handled = customKeyHandler?.({ key: 'Delete', ctrlKey: false, metaKey: false, altKey: false, isComposing: false, keyCode: 229, which: 229 } as KeyboardEvent)
+    expect(handled).toBe(true)
+    expect(onInput).not.toHaveBeenCalled()
+  })
   it('deduplicates auto-copy failure toast by reason and selection', async () => {
     clipboardMocks.writeClipboardText.mockResolvedValue({ copied: true, source: 'memory', unavailable: true, reason: 'permission_denied' })
     render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)

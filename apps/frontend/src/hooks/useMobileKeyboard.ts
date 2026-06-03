@@ -13,6 +13,9 @@ const KEYBOARD_VERIFY_MS = 360
 const DEFERRED_INPUT_COMMIT_MS = 650
 const KEYBOARD_EVENT = 'mobile-keyboard-change'
 const isEdgeAndroid = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent) && /EdgA/i.test(navigator.userAgent)
+function isImeKeyEvent(e: KeyboardEvent) {
+  return e.isComposing || e.key === 'Process' || e.keyCode === 229 || e.which === 229
+}
 function recordMobileDebug(event: string, data?: Record<string, unknown>) {
   recordMobileDiagnostic(event, data)
   if (typeof window === 'undefined' || !window.localStorage.getItem('tmuxgo-debug-mobile')) return
@@ -228,7 +231,7 @@ export function useMobileKeyboard(
       End: '\x1b[F',
     }
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (composingRef.current || e.isComposing) return
+      if (composingRef.current || isImeKeyEvent(e)) return
       if (deferredInputActiveRef.current) {
         if (e.key === 'Enter' || e.key === 'Tab' || ARROW_KEYS[e.key]) {
           e.preventDefault()
@@ -258,8 +261,14 @@ export function useMobileKeyboard(
     }
 
     const handleBeforeInput = (e: InputEvent) => {
-      if (composingRef.current || deferredInputActiveRef.current) return
       const inputType = e.inputType
+      if (inputType === 'insertCompositionText') {
+        clearDeferredInputTimer()
+        deferredInputActiveRef.current = false
+        composingRef.current = true
+        return
+      }
+      if (composingRef.current || deferredInputActiveRef.current) return
       if (inputType === 'insertText' || inputType === 'insertReplacementText') {
         const text = e.data
         if (shouldDeferInput(inputType, text)) return
@@ -276,13 +285,20 @@ export function useMobileKeyboard(
     }
 
     const handleInput = (e: Event) => {
-      if (composingRef.current) {
-        composingLengthRef.current = getInputText().length
-        return
-      }
       const inputEvent = e as InputEvent
       const inputType = inputEvent.inputType
       const text = getInputText()
+      if (inputType === 'insertCompositionText') {
+        clearDeferredInputTimer()
+        deferredInputActiveRef.current = false
+        composingRef.current = true
+        composingLengthRef.current = text.length
+        return
+      }
+      if (composingRef.current) {
+        composingLengthRef.current = text.length
+        return
+      }
       if (deferredInputActiveRef.current || shouldDeferInput(inputType, inputEvent.data) || inputType === 'insertText' && text.length > 1) {
         if (text) scheduleDeferredInputFlush()
         else {

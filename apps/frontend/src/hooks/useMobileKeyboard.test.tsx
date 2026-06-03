@@ -125,6 +125,39 @@ describe('useMobileKeyboard', () => {
     expect(sendInputMock).toHaveBeenCalledWith('中')
     expect(textarea.value).toBe('\u200b\u200b')
   })
+  it('does not send enter while ime confirmation keydown is still composing', async () => {
+    render(<Harness />)
+    await waitFor(() => expect(api.textarea).toBeTruthy())
+    const textarea = api.textarea as HTMLTextAreaElement
+    act(() => {
+      fireEvent.compositionStart(textarea)
+      fireEvent.keyDown(textarea, { key: 'Enter', keyCode: 229, which: 229 })
+      textarea.value = '中'
+      fireEvent.compositionEnd(textarea)
+    })
+    expect(sendInputMock.mock.calls.map((call) => call[0])).toEqual(['中'])
+    expect(textarea.value).toBe('\u200b\u200b')
+  })
+  it('does not flush raw composition text as english when compositionstart is missing', async () => {
+    render(<Harness />)
+    await waitFor(() => expect(api.textarea).toBeTruthy())
+    vi.useFakeTimers()
+    const textarea = api.textarea as HTMLTextAreaElement
+    act(() => {
+      textarea.value = 'zhong'
+      textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertCompositionText', data: 'zhong' }))
+    })
+    act(() => {
+      vi.advanceTimersByTime(650)
+    })
+    expect(sendInputMock).not.toHaveBeenCalled()
+    act(() => {
+      textarea.value = '中'
+      fireEvent.compositionEnd(textarea)
+    })
+    expect(sendInputMock.mock.calls.map((call) => call[0])).toEqual(['中'])
+    expect(textarea.value).toBe('\u200b\u200b')
+  })
   it('defers replacement text so voice input is not cleared mid-session', async () => {
     render(<Harness />)
     await waitFor(() => expect(api.textarea).toBeTruthy())
