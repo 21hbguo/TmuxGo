@@ -6,11 +6,12 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=__TMUXGO_ROOT__
-ExecStart=/usr/bin/env npm run --workspace=frontend start -- --hostname 0.0.0.0 --port 3000
+ExecStart=__TMUXGO_NPM__ run --workspace=frontend start -- --hostname 0.0.0.0 --port 3000
 Restart=always
 RestartSec=3
 Environment=NODE_ENV=production
 Environment=NEXT_DIST_DIR=.next-prod
+Environment=PATH=__TMUXGO_PATH__
 
 [Install]
 WantedBy=tmuxgo.target

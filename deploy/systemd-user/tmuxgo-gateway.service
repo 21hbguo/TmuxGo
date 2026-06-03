@@ -6,12 +6,13 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=__TMUXGO_ROOT__
-ExecStart=/usr/bin/env npm run --workspace=gateway start
+ExecStart=__TMUXGO_NPM__ run --workspace=gateway start
 Restart=always
 RestartSec=3
 KillMode=control-group
 Environment=NODE_ENV=production
 Environment=PORT=3001
+Environment=PATH=__TMUXGO_PATH__
 
 [Install]
 WantedBy=tmuxgo.target

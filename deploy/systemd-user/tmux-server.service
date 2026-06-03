@@ -4,10 +4,11 @@ After=network-online.target
 
 [Service]
 Type=forking
-ExecStart=/usr/bin/tmux new-session -d -s default
+ExecStart=__TMUXGO_TMUX__ new-session -d -s default
 KillMode=process
 Restart=on-failure
 RestartSec=3
+Environment=PATH=__TMUXGO_PATH__
 
 [Install]
 WantedBy=default.target

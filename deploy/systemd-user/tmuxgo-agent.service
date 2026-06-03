@@ -6,7 +6,7 @@ Wants=network-online.target tmuxgo-gateway.service
 [Service]
 Type=simple
 WorkingDirectory=__TMUXGO_ROOT__
-ExecStart=/usr/bin/env npm run --workspace=agent start
+ExecStart=__TMUXGO_NPM__ run --workspace=agent start
 Restart=always
 RestartSec=3
 KillMode=process
@@ -14,6 +14,7 @@ Environment=NODE_ENV=production
 Environment=GATEWAY_URL=ws://127.0.0.1:3001/api/stream
 Environment=HOST_ID=agent-local
 Environment=HOST_NAME=%H
+Environment=PATH=__TMUXGO_PATH__
 
 [Install]
 WantedBy=tmuxgo.target

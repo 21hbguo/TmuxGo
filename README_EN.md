@@ -68,8 +68,9 @@ cd TmuxGo
 - install or switch to Node.js 20
 - install `tmux`, `ripgrep`, `lsof/ss`, `python3`, and native build tools
 - run `npm install`
-- install and start user-level services when `systemd --user` is available
-- fall back to the local start script when `systemd --user` is unavailable
+- install and start user-level `systemd` services on Linux
+- install and start user-level `launchd` services on macOS
+- fall back to the local start script when neither background service manager is available
 - verify ports `3000/3001` and print reachable URLs
 
 Open `http://localhost:3000` in your browser. :tada:
@@ -95,27 +96,57 @@ cd TmuxGo
 ./install.sh
 ```
 
-If dependencies are already installed and you only want to reinstall user-level `systemd` units:
+If dependencies are already installed and you only want to reinstall background services:
+
+Linux:
 
 ```bash
-./scripts/install-systemd-user.sh
+./scripts/install-systemd-user-linux.sh
 ```
 
-`install-systemd-user.sh` now renders units with the actual repository path, so the repo no longer has to live in a fixed directory.
+macOS:
+
+```bash
+./scripts/install-launchd-user-mac.sh
+```
+
+Linux:
+`install-systemd-user-linux.sh` renders user `systemd` units with the actual repository path, so the repo no longer has to live in a fixed directory.
+
+macOS:
+`install-launchd-user-mac.sh` renders user LaunchAgents with the actual repository path and writes logs to `~/Library/Logs/TmuxGo`.
 
 Stop all services:
 
+Linux:
+
 ```bash
-systemctl --user disable --now tmuxgo.target
+./scripts/stop-systemd-user-linux.sh
+```
+
+macOS:
+
+```bash
+./scripts/stop-launchd-user-mac.sh
 ```
 
 Remove all installed units:
 
+Linux:
+
 ```bash
-./scripts/uninstall-systemd-user.sh
+./scripts/uninstall-systemd-user-linux.sh
+```
+
+macOS:
+
+```bash
+./scripts/uninstall-launchd-user-mac.sh
 ```
 
 View service status:
+
+Linux:
 
 ```bash
 systemctl --user status tmuxgo-gateway.service
@@ -123,12 +154,30 @@ systemctl --user status tmuxgo-frontend.service
 systemctl --user status tmuxgo-agent.service
 ```
 
+macOS:
+
+```bash
+launchctl print gui/$(id -u)/com.tmuxgo.gateway || launchctl print user/$(id -u)/com.tmuxgo.gateway
+launchctl print gui/$(id -u)/com.tmuxgo.frontend || launchctl print user/$(id -u)/com.tmuxgo.frontend
+launchctl print gui/$(id -u)/com.tmuxgo.agent || launchctl print user/$(id -u)/com.tmuxgo.agent
+```
+
 View logs:
+
+Linux:
 
 ```bash
 journalctl --user -u tmuxgo-gateway.service -f
 journalctl --user -u tmuxgo-frontend.service -f
 journalctl --user -u tmuxgo-agent.service -f
+```
+
+macOS:
+
+```bash
+tail -f ~/Library/Logs/TmuxGo/gateway.log
+tail -f ~/Library/Logs/TmuxGo/frontend.log
+tail -f ~/Library/Logs/TmuxGo/agent.log
 ```
 
 ## :package: Requirements
@@ -187,8 +236,10 @@ TmuxGo/
 │   ├── frontend/
 │   ├── gateway/
 │   └── agent/
+├── deploy/launchd-user/
 ├── deploy/systemd-user/
 ├── bootstrap.sh
+├── install.sh
 ├── start-prod.sh
 ├── start.sh
 ├── scripts/
