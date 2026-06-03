@@ -7,6 +7,7 @@ import { agentManager } from '../agent-manager.js'
 import { assertSessionAllowed, prepareSessionAttach } from '../lib/tmux-policy.js'
 import { recordStreamMetric, updateStreamMetric } from '../lib/perf-metrics.js'
 import { getHostById } from '../lib/hosts.js'
+import { hasVisibleTerminalContent } from '../lib/terminal-output.js'
 import { parseSessionRef } from '../lib/tmux-target.js'
 
 const execFileAsync = promisify(execFile)
@@ -41,7 +42,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
     let redrawTimers: ReturnType<typeof setTimeout>[] = []
     let outputProfile: keyof typeof OUTPUT_PROFILES = 'foreground'
     let attachSeq = 0
-    let attachOutputObserved = false
+    let attachVisibleOutputObserved = false
     let attachSnapshotTimer: ReturnType<typeof setTimeout> | null = null
     const scrollBuffers = new Map<string, number>()
     const scrollTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -180,14 +181,14 @@ export async function streamRoutes(fastify: FastifyInstance) {
       attachSnapshotTimer = null
     }
     async function captureAttachedSnapshot(sessionName: string, seq: number) {
-      if (!ptyProcess || !sessionName || attachOutputObserved || seq !== attachSeq || attachedSessionName !== sessionName) return
+      if (!ptyProcess || !sessionName || attachVisibleOutputObserved || seq !== attachSeq || attachedSessionName !== sessionName) return
       if (attachedHostId !== 'local') return
       try {
         const { stdout } = await execFileAsync('tmux', ['capture-pane', '-e', '-pt', sessionName, '-p'])
-        if (!ptyProcess || !sessionName || attachOutputObserved || seq !== attachSeq || attachedSessionName !== sessionName) return
+        if (!ptyProcess || !sessionName || attachVisibleOutputObserved || seq !== attachSeq || attachedSessionName !== sessionName) return
         const snapshot = String(stdout || '')
         if (!snapshot) return
-        attachOutputObserved = true
+        attachVisibleOutputObserved = true
         queueOutput(`\u001b[H\u001b[2J${snapshot}`)
       } catch {}
     }
@@ -237,7 +238,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
         current.kill()
         ptyProcess = null
       }
-      attachOutputObserved = false
+      attachVisibleOutputObserved = false
       attachedSessionName = null
       attachedHostId = 'local'
       attachedExclusive = false
@@ -322,7 +323,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
             const requestedRows = data.rows || 24
             const exclusive = !!data.exclusive
             if (ptyProcess && attachedSessionName === sessionName && attachedExclusive === exclusive && attachedHostId === hostId) {
-              attachOutputObserved = false
+              attachVisibleOutputObserved = false
               if (exclusive && requestedCols > 0 && requestedRows > 0 && (requestedCols !== attachedCols || requestedRows !== attachedRows)) {
                 ptyProcess.resize(requestedCols, requestedRows)
                 attachedCols = requestedCols
@@ -382,13 +383,13 @@ export async function streamRoutes(fastify: FastifyInstance) {
             attachedExclusive = exclusive
             attachedCols = cols
             attachedRows = rows
-            attachOutputObserved = false
+            attachVisibleOutputObserved = false
             const seq = attachSeq
             ptyProcess.onData((output: string) => {
               if (seq !== attachSeq) return
               const filtered = sanitizeOutput(output)
               if (filtered) {
-                attachOutputObserved = true
+                if (hasVisibleTerminalContent(filtered)) attachVisibleOutputObserved = true
                 queueOutput(filtered)
               }
             })

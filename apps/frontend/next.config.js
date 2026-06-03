@@ -1,11 +1,12 @@
 const { execSync } = require('child_process')
 const pkg = require('./package.json')
+const appVersion = pkg.version
 const appBuildId = process.env.NEXT_PUBLIC_APP_BUILD_ID || (() => {
   try {
     const sha = execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim()
-    return `${pkg.version}-${sha}`
+    return `${appVersion}-${sha}`
   } catch {
-    return `${pkg.version}`
+    return `${appVersion}`
   }
 })()
 const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:3001'
@@ -14,6 +15,7 @@ const nextConfig = {
   reactStrictMode: true,
   distDir: process.env.NEXT_DIST_DIR || '.next',
   env: {
+    NEXT_PUBLIC_APP_VERSION: appVersion,
     NEXT_PUBLIC_APP_BUILD_ID: appBuildId,
   },
   async headers() {

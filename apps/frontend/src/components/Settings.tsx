@@ -5,7 +5,10 @@ import { AuditLog } from './AuditLog'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useTranslation } from '@/i18n'
 import { useSessionContinuity } from '@/hooks/useSessionContinuity'
-
+import { useConsoleStore } from '@/stores/useConsoleStore'
+import { useClipboard } from '@/hooks/useClipboard'
+import { useAppVersion } from '@/hooks/useAppVersion'
+import { APP_BUILD_ID, APP_NAME, APP_VERSION } from '@/lib/app-version'
 import { useCreateHost, useDeleteHost, useHosts, useTestHost } from '@/hooks/useApi'
 
 interface SettingsProps {
@@ -16,7 +19,9 @@ export function Settings({ onClose }: SettingsProps) {
   const { preferences, updatePreferences, resetPreferences } = usePreferences()
   const { sessionContinuity, updateSessionContinuity } = useSessionContinuity()
   const { t } = useTranslation()
-  const [activeTab, setActiveTab] = useState<'general' | 'appearance' | 'audit'>('general')
+  const pushToast = useConsoleStore((state) => state.pushToast)
+  const { copy } = useClipboard()
+  const [activeTab, setActiveTab] = useState<'general' | 'appearance' | 'audit' | 'about'>('general')
   const [showAuditLog, setShowAuditLog] = useState(false)
   const [hostIdDraft, setHostIdDraft] = useState('')
   const [hostNameDraft, setHostNameDraft] = useState('')
@@ -31,10 +36,13 @@ export function Settings({ onClose }: SettingsProps) {
   const createHost = useCreateHost()
   const deleteHost = useDeleteHost()
   const testHost = useTestHost()
+  const { data: appVersionData, isLoading: appVersionLoading, error: appVersionError } = useAppVersion(activeTab === 'about')
   const [terminalPaddingDraft, setTerminalPaddingDraft] = useState(preferences.terminalPadding)
   const [uploadRateLimitDraft, setUploadRateLimitDraft] = useState(preferences.uploadRateLimitKBps)
   const [downloadRateLimitDraft, setDownloadRateLimitDraft] = useState(preferences.downloadRateLimitKBps)
   const fontSizeLabel = Number.isInteger(preferences.fontSize) ? `${preferences.fontSize}` : preferences.fontSize.toFixed(1)
+  const appUpdateAvailable = !!appVersionData?.buildId && appVersionData.buildId !== APP_BUILD_ID
+  const aboutStatus = appVersionError ? t('settings.aboutLoadFailed') : appVersionLoading && !appVersionData ? t('settings.aboutChecking') : appUpdateAvailable ? t('settings.aboutUpdateAvailable') : t('settings.aboutUpdateCurrent')
   useEffect(() => {
     setTerminalPaddingDraft(preferences.terminalPadding)
     setUploadRateLimitDraft(preferences.uploadRateLimitKBps)
@@ -45,6 +53,7 @@ export function Settings({ onClose }: SettingsProps) {
     { id: 'general' as const, label: t('settings.general') },
     { id: 'appearance' as const, label: t('settings.appearance') },
     { id: 'audit' as const, label: t('settings.auditLog') },
+    { id: 'about' as const, label: t('settings.about') },
   ]
 
   const commitTerminalPadding = () => {
@@ -58,6 +67,22 @@ export function Settings({ onClose }: SettingsProps) {
   const commitDownloadRateLimit = () => {
     if (downloadRateLimitDraft === preferences.downloadRateLimitKBps) return
     updatePreferences({ downloadRateLimitKBps: downloadRateLimitDraft })
+  }
+  const copyVersionInfo = async () => {
+    const text = [
+      `${t('settings.aboutAppName')}: ${APP_NAME}`,
+      `${t('settings.aboutCurrentVersion')}: ${APP_VERSION}`,
+      `${t('settings.aboutCurrentBuild')}: ${APP_BUILD_ID}`,
+      `${t('settings.aboutUpdateStatus')}: ${aboutStatus}`,
+      `${t('settings.aboutLatestVersion')}: ${appVersionData?.version || '-'}`,
+      `${t('settings.aboutLatestBuild')}: ${appVersionData?.buildId || '-'}`,
+    ].join('\n')
+    const copied = await copy(text)
+    if (!copied) {
+      pushToast({ type: 'error', message: t('clipboard.copyFailed') })
+      return
+    }
+    pushToast({ type: 'success', message: t('settings.aboutCopied') })
   }
   const resetHostDraft = () => {
     setHostIdDraft('')
@@ -490,6 +515,41 @@ export function Settings({ onClose }: SettingsProps) {
                 >
                   {t('settings.viewLog')}
                 </button>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'about' && (
+            <div className="space-y-4">
+              <div className="rounded border border-[var(--line)] bg-bg-2 p-4">
+                <div className="text-base font-medium text-text-1">{APP_NAME}</div>
+                <div className="mt-1 text-xs text-text-3">{t('settings.aboutDesc')}</div>
+              </div>
+              <div className="rounded border border-[var(--line)]">
+                <div className="flex items-center justify-between gap-4 px-4 py-3">
+                  <span className="text-sm text-text-2">{t('settings.aboutCurrentVersion')}</span>
+                  <span className="text-sm text-text-1">{APP_VERSION}</span>
+                </div>
+                <div className="border-t border-[var(--line)] flex items-center justify-between gap-4 px-4 py-3">
+                  <span className="text-sm text-text-2">{t('settings.aboutCurrentBuild')}</span>
+                  <span className="text-sm text-text-1">{APP_BUILD_ID}</span>
+                </div>
+                <div className="border-t border-[var(--line)] flex items-center justify-between gap-4 px-4 py-3">
+                  <span className="text-sm text-text-2">{t('settings.aboutLatestVersion')}</span>
+                  <span className="text-sm text-text-1">{appVersionLoading && !appVersionData ? '...' : appVersionData?.version || '-'}</span>
+                </div>
+                <div className="border-t border-[var(--line)] flex items-center justify-between gap-4 px-4 py-3">
+                  <span className="text-sm text-text-2">{t('settings.aboutLatestBuild')}</span>
+                  <span className="text-sm text-text-1">{appVersionLoading && !appVersionData ? '...' : appVersionData?.buildId || '-'}</span>
+                </div>
+                <div className="border-t border-[var(--line)] flex items-center justify-between gap-4 px-4 py-3">
+                  <span className="text-sm text-text-2">{t('settings.aboutUpdateStatus')}</span>
+                  <span className={`text-sm ${appUpdateAvailable ? 'text-warn' : appVersionError ? 'text-danger' : 'text-accent-2'}`}>{aboutStatus}</span>
+                </div>
+              </div>
+              {appUpdateAvailable && <div className="text-xs text-text-3">{t('settings.aboutRefresh')}</div>}
+              <div className="flex items-center justify-end">
+                <button onClick={() => void copyVersionInfo()} className="rounded bg-accent px-4 py-2 text-sm text-bg-0">{t('settings.aboutCopy')}</button>
               </div>
             </div>
           )}
