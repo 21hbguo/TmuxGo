@@ -523,7 +523,7 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
   const renderPane = (groupId: string) => {
     const groupEditors = getGroupEditors(groupId)
     const editor = getGroupActiveEditor(groupId)
-    return <div className="flex min-h-0 flex-1 flex-col">{renderTabStrip(groupEditors, groupId)}<button onClick={() => editor && setActiveEditor(editor.id)} className="relative min-h-0 min-w-0 flex-1 overflow-hidden text-left" onDragOver={(event) => {
+    return <div className="flex min-h-0 min-w-0 flex-1 flex-col">{renderTabStrip(groupEditors, groupId)}<button onClick={() => editor && setActiveEditor(editor.id)} className="relative min-h-0 min-w-0 flex-1 overflow-hidden text-left" onDragOver={(event) => {
       if (!hasDraggedFile(event)) return
       const dragged = decodeDraggedFile(event)
       event.preventDefault()
@@ -556,7 +556,7 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
   const renderLayout = (node: EditorLayoutNode | null): React.ReactNode => {
     if (!node) return null
     if (!isEditorLayoutSplit(node)) return renderPane(node.groupId)
-    return <div key={node.id} className={`flex h-full min-h-0 ${node.direction === 'horizontal' ? 'flex-row' : 'flex-col'}`}><div style={{ flexBasis: `${node.ratio * 100}%` }} className="min-h-0 min-w-0 flex shrink-0 grow-0">{renderLayout(node.first)}</div><div data-testid="editor-split-resizer" onPointerDown={(event) => {
+    return <div key={node.id} data-editor-split={node.direction} className={`flex h-full min-h-0 min-w-0 w-full flex-1 ${node.direction === 'horizontal' ? 'flex-row' : 'flex-col'}`}><div style={{ flexBasis: `${node.ratio * 100}%` }} className="min-h-0 min-w-0 flex shrink-0 grow-0">{renderLayout(node.first)}</div><div data-testid="editor-split-resizer" onPointerDown={(event) => {
       splitResizeRef.current = { active: true, direction: node.direction, splitId: node.id, container: event.currentTarget.parentElement as HTMLDivElement | null }
       document.body.style.cursor = node.direction === 'horizontal' ? 'col-resize' : 'row-resize'
       document.body.style.userSelect = 'none'
