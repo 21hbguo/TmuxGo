@@ -352,17 +352,6 @@ a {
   height: 100% !important;
   width: 100% !important;
 }
-[data-terminal] .xterm .xterm-helper-textarea {
-  color: transparent !important;
-  background: transparent !important;
-  caret-color: transparent !important;
-  outline: none !important;
-  box-shadow: none !important;
-}
-[data-terminal] .xterm .xterm-helper-textarea::selection {
-  color: transparent;
-  background: transparent;
-}
 [data-terminal] .xterm-rows {
   letter-spacing: 0 !important;
 }

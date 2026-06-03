@@ -502,8 +502,8 @@ describe('TerminalPane', () => {
     const helper = container.querySelector('textarea') as HTMLTextAreaElement
     const removeAllRanges = vi.fn()
     const originalGetSelection = window.getSelection
-    expect(helper.style.caretColor).toBe('transparent')
-    expect(helper.style.background).toBe('transparent')
+    expect(helper.style.caretColor).toBe('')
+    expect(helper.style.background).toBe('')
     Object.defineProperty(window, 'getSelection', { configurable: true, value: () => ({ anchorNode: helper, focusNode: helper, removeAllRanges }) })
     terminalSelection = 'printf "mouseup_copy_ok"'
     fireEvent.mouseDown(container.firstChild as Element)

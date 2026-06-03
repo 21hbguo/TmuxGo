@@ -1307,13 +1307,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         openUrlInNewWindow(uri, pushToast, tRef.current)
       }))
       terminal.open(container)
-      if (terminal.textarea instanceof HTMLTextAreaElement) {
-        terminal.textarea.style.color = 'transparent'
-        terminal.textarea.style.background = 'transparent'
-        terminal.textarea.style.caretColor = 'transparent'
-        terminal.textarea.style.outline = 'none'
-        terminal.textarea.style.boxShadow = 'none'
-      }
       disposables.push(terminal.registerLinkProvider({
         provideLinks: (bufferLineNumber: number, callback: (links: any[] | undefined) => void) => {
           const links = createTerminalFileLinks(bufferLineNumber)
