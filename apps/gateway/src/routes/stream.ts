@@ -7,7 +7,7 @@ import { agentManager } from '../agent-manager.js'
 import { assertSessionAllowed, prepareSessionAttach } from '../lib/tmux-policy.js'
 import { recordStreamMetric, updateStreamMetric } from '../lib/perf-metrics.js'
 import { getHostById } from '../lib/hosts.js'
-import { hasVisibleTerminalContent } from '../lib/terminal-output.js'
+import { hasSubstantiveTerminalContent } from '../lib/terminal-output.js'
 import { parseSessionRef } from '../lib/tmux-target.js'
 
 const execFileAsync = promisify(execFile)
@@ -389,7 +389,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
               if (seq !== attachSeq) return
               const filtered = sanitizeOutput(output)
               if (filtered) {
-                if (hasVisibleTerminalContent(filtered)) attachVisibleOutputObserved = true
+                if (hasSubstantiveTerminalContent(filtered)) attachVisibleOutputObserved = true
                 queueOutput(filtered)
               }
             })
