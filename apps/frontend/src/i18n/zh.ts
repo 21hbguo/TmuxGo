@@ -282,6 +282,8 @@ export const zh = {
   'file.dir': '目录',
   'file.dotfiles': '点文件',
   'file.loading': '加载中...',
+  'file.treeLoadFailed': '加载失败',
+  'file.retryLoad': '重试',
   'file.largeDir': '目录较大，显示前 {count} 项',
   'file.emptyDir': '空目录',
   'file.favorites': '收藏目录',

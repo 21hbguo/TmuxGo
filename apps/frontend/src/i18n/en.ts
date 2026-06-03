@@ -282,6 +282,8 @@ export const en = {
   'file.dir': 'Dir',
   'file.dotfiles': 'Dotfiles',
   'file.loading': 'Loading...',
+  'file.treeLoadFailed': 'Load failed',
+  'file.retryLoad': 'Retry',
   'file.largeDir': 'Large directory, showing first {count} items',
   'file.emptyDir': 'Empty directory',
   'file.favorites': 'Favorite directories',
