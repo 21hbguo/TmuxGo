@@ -12,7 +12,7 @@ import type { FavoriteDirectory, FileContentMatch, FileDocumentHandle, FileItem,
 import { writeClipboardText } from '@/lib/clipboard-text'
 import { quoteShellPath } from '@/lib/path-drop'
 import { api } from '@/lib/api'
-import { clearActiveDraggedFile, setActiveDraggedFile } from '@/lib/editor-drag'
+import { clearActiveDraggedFile, FILE_DRAG_MIME, setActiveDraggedFile } from '@/lib/editor-drag'
 import { useTranslation } from '@/i18n'
 import { usePrompt } from '@/hooks/usePrompt'
 import { ConfirmDialog } from './ConfirmDialog'
@@ -227,7 +227,6 @@ function FavoriteDirectoryButton({ active, name, onClick }: { active: boolean; n
   return <button onClick={onClick} className={`shrink-0 rounded px-1 py-0 text-[10px] leading-4 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 ${active ? 'bg-accent/20 text-accent opacity-100' : 'bg-bg-2 text-text-3 hover:text-text-1'}`} aria-label={`${active ? 'Unfavorite' : 'Favorite'} ${name}`}>{active ? '★' : '☆'}</button>
 }
 type FileTreeNode = DataNode & { item: FileItem; isLeaf?: boolean }
-const FILE_DRAG_MIME = 'application/x-tmuxgo-file'
 export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile }: { mode?: 'panel' | 'mobile' | 'explorer'; dock?: 'left' | 'right'; onClose?: () => void; onOpenFile?: (file: FileDocumentHandle) => void }) {
   const queryClient = useQueryClient()
   const activeHostId = useConsoleStore((state) => state.activeHostId)
@@ -523,7 +522,6 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
       setActiveDraggedFile(handle)
       event.dataTransfer.effectAllowed = 'copy'
       event.dataTransfer.setData(FILE_DRAG_MIME, JSON.stringify(handle))
-      event.dataTransfer.setData('text/plain', handle.absolutePath)
     },
     onDragEnd: () => clearActiveDraggedFile(),
   }
@@ -590,6 +588,11 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     void queryClient.invalidateQueries({ queryKey: ['file-search', fileHostId, activeRootId] })
     void queryClient.invalidateQueries({ queryKey: ['file-preview', fileHostId, activeRootId] })
   }, [activeRootId, fileHostId, queryClient])
+  const clearExpandedDirectories = () => {
+    setOpenDirectories(new Set())
+    setDirectoryCache(new Map())
+    directoryLoadingRef.current.clear()
+  }
   const getItemFullPath = (item: FileEntry) => {
     const rootRelativePath = resolveRootRelativePath(activeRootBasePath, item.path)
     return activeSourceRootPath ? joinPath(activeSourceRootPath, rootRelativePath) : rootRelativePath
@@ -862,6 +865,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
         </div>
         <div className="mt-1.5 flex items-center gap-1">
           <input value={query} onChange={(e) => { setQuery(e.target.value); setSearchNavigationPath(null) }} placeholder={searchMode === 'name' ? t('file.searchName') : t('file.searchContent')} className="tmuxgo-control tmuxgo-input min-w-0 flex-1 rounded px-2 py-1 font-mono text-[11px]" />
+          <button onClick={clearExpandedDirectories} disabled={!openDirectories.size && !directoryCache.size} aria-label={t('file.clearExpanded')} className={`shrink-0 rounded border border-[var(--line)] px-2 py-1 text-[11px] ${openDirectories.size || directoryCache.size ? 'bg-bg-2 text-text-2 hover:text-accent' : 'bg-bg-0 text-text-3/40'}`}>⌂</button>
           <button onClick={() => { setQuery(''); setDebouncedQuery(''); setSearchNavigationPath(null) }} disabled={!query} aria-label={t('file.clearSearch')} className={`shrink-0 rounded border border-[var(--line)] px-2 py-1 text-[11px] ${query ? 'bg-bg-2 text-text-2 hover:text-accent' : 'bg-bg-0 text-text-3/40'}`}>×</button>
         </div>
         <div className="mt-1.5 flex items-center gap-1">

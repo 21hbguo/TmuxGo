@@ -7,7 +7,7 @@ import type { EditorLayoutNode, EditorLayoutSplit } from '@/stores/useConsoleSto
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useGitDetect } from '@/hooks/useApi'
-import { clearActiveDraggedFile, getActiveDraggedFile, setActiveDraggedFile } from '@/lib/editor-drag'
+import { clearActiveDraggedFile, FILE_DRAG_MIME, getActiveDraggedFile, readDraggedFile, setActiveDraggedFile } from '@/lib/editor-drag'
 import { OPEN_EDITOR_LOCATION_EVENT } from '@/lib/editor-open'
 import { useTranslation } from '@/i18n'
 import { ConfirmDialog } from './ConfirmDialog'
@@ -17,7 +17,6 @@ const MonacoEditor=dynamic(() => import('@monaco-editor/react').then((mod) => mo
 const MonacoDiffEditor=dynamic(() => import('@monaco-editor/react').then((mod) => mod.DiffEditor), { ssr: false })
 const AUTO_SCROLL_DEADZONE = 10
 const AUTO_SCROLL_MAX_STEP = 42
-const FILE_DRAG_MIME = 'application/x-tmuxgo-file'
 const EDGE_DROP_RATIO = 0.22
 type DropPlacement = 'center' | 'left' | 'right' | 'top' | 'bottom'
 type TabInsertSide = 'before' | 'after'
@@ -142,17 +141,11 @@ function parseGitDiffId(id: string) {
   return { hostId, repoPath, filePath, staged: params.get('staged') === '1', commit: commit || undefined }
 }
 function decodeDraggedFile(event: DragEvent | ReactDragEvent) {
-  const raw = event.dataTransfer?.getData(FILE_DRAG_MIME)
-  if (!raw) return getActiveDraggedFile()
-  try {
-    return JSON.parse(raw) as FileDocumentHandle
-  } catch {
-    return getActiveDraggedFile()
-  }
+  return readDraggedFile(event.dataTransfer)
 }
 function hasDraggedFile(event: DragEvent | ReactDragEvent) {
   const types = event.dataTransfer?.types
-  if (types && (Array.from(types).includes(FILE_DRAG_MIME) || Array.from(types).includes('text/plain'))) return true
+  if (types && Array.from(types).includes(FILE_DRAG_MIME)) return true
   return !!getActiveDraggedFile()
 }
 function getDropPlacement(rect: DOMRect, clientX: number, clientY: number) {
@@ -188,7 +181,7 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
   const editorRefs = useRef<Record<string, any>>({})
   const editorViewportRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const autoScrollFrameRef = useRef<number | null>(null)
-  const autoScrollStateRef = useRef<{ active: boolean; editorId: string | null; anchorY: number; pointerY: number }>({ active: false, editorId: null, anchorY: 0, pointerY: 0 })
+  const autoScrollStateRef = useRef<{ active: boolean; editorId: string | null; anchorX: number; anchorY: number; pointerX: number; pointerY: number }>({ active: false, editorId: null, anchorX: 0, anchorY: 0, pointerX: 0, pointerY: 0 })
   const [pendingCloseEditorId, setPendingCloseEditorId] = useState<string | null>(null)
   const [previewOpenById, setPreviewOpenById] = useState<Record<string, boolean>>({})
   const [cursorById, setCursorById] = useState<Record<string, { line: number; column: number }>>({})
@@ -299,10 +292,15 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
     if (!autoScrollStateRef.current.active) return
     const editor = autoScrollStateRef.current.editorId ? editorRefs.current[autoScrollStateRef.current.editorId] : null
     if (editor) {
-      const step = getAutoScrollStep(autoScrollStateRef.current.pointerY - autoScrollStateRef.current.anchorY)
-      if (step) {
+      const horizontalStep = getAutoScrollStep(autoScrollStateRef.current.pointerX - autoScrollStateRef.current.anchorX)
+      const verticalStep = getAutoScrollStep(autoScrollStateRef.current.pointerY - autoScrollStateRef.current.anchorY)
+      if (horizontalStep) {
+        const scrollLeft = Number(editor.getScrollLeft?.() || 0)
+        editor.setScrollLeft?.(scrollLeft + horizontalStep)
+      }
+      if (verticalStep) {
         const scrollTop = Number(editor.getScrollTop?.() || 0)
-        editor.setScrollTop?.(scrollTop + step)
+        editor.setScrollTop?.(scrollTop + verticalStep)
       }
     }
     autoScrollFrameRef.current = window.requestAnimationFrame(runAutoScroll)
@@ -313,7 +311,9 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
     const rect = viewport.getBoundingClientRect()
     autoScrollStateRef.current.active = true
     autoScrollStateRef.current.editorId = editorId
+    autoScrollStateRef.current.anchorX = clientX
     autoScrollStateRef.current.anchorY = clientY
+    autoScrollStateRef.current.pointerX = clientX
     autoScrollStateRef.current.pointerY = clientY
     setAutoScrollIndicator({ active: true, x: clientX - rect.left, y: clientY - rect.top })
     autoScrollFrameRef.current = window.requestAnimationFrame(runAutoScroll)
@@ -357,6 +357,7 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
   useEffect(() => {
     if (!autoScrollIndicator.active) return
     const handlePointerMove = (event: PointerEvent) => {
+      autoScrollStateRef.current.pointerX = event.clientX
       autoScrollStateRef.current.pointerY = event.clientY
     }
     const handlePointerDown = (event: PointerEvent) => {
@@ -450,7 +451,6 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
         setActiveDraggedFile(handle)
         event.dataTransfer.effectAllowed = 'move'
         event.dataTransfer.setData(FILE_DRAG_MIME, JSON.stringify(handle))
-        event.dataTransfer.setData('text/plain', handle.absolutePath)
       }} onDragEnd={() => {
         clearActiveDraggedFile()
         setTabDropTarget(null)
@@ -523,7 +523,7 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
   const renderPane = (groupId: string) => {
     const groupEditors = getGroupEditors(groupId)
     const editor = getGroupActiveEditor(groupId)
-    return <div className="flex min-h-0 min-w-0 flex-1 flex-col">{renderTabStrip(groupEditors, groupId)}<button onClick={() => editor && setActiveEditor(editor.id)} className="relative min-h-0 min-w-0 flex-1 overflow-hidden text-left" onDragOver={(event) => {
+    return <div className="flex min-h-0 min-w-0 flex-1 flex-col">{renderTabStrip(groupEditors, groupId)}<button onClick={() => editor && setActiveEditor(editor.id)} className="relative min-h-0 min-w-0 flex-1 overflow-hidden text-left" onDragOverCapture={(event) => {
       if (!hasDraggedFile(event)) return
       const dragged = decodeDraggedFile(event)
       event.preventDefault()
@@ -535,7 +535,7 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
       setPaneDropTarget({ groupId, placement: getDropPlacement((event.currentTarget as HTMLButtonElement).getBoundingClientRect(), event.clientX, event.clientY) })
     }} onDragLeave={(event) => {
       if (!(event.currentTarget as HTMLButtonElement).contains(event.relatedTarget as Node | null)) setPaneDropTarget((current) => current?.groupId === groupId ? null : current)
-    }} onDrop={(event) => {
+    }} onDropCapture={(event) => {
       const dragged = decodeDraggedFile(event)
       if (!dragged) return
       event.preventDefault()
@@ -614,7 +614,7 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
       instance.onDidChangeCursorPosition?.((event: any) => {
         setCursorById((current) => ({ ...current, [editor.id]: { line: event.position.lineNumber, column: event.position.column } }))
       })
-    }} onChange={(value) => setEditorContent(editor.id, value || '')} options={{ automaticLayout: true, minimap: { enabled: false }, fontFamily: preferences.fontFamily, fontSize: Math.max(12, preferences.fontSize), lineNumbers: 'on', lineNumbersMinChars: 4, glyphMargin: false, folding: true, guides: { indentation: true, bracketPairs: true }, bracketPairColorization: { enabled: true }, matchBrackets: 'always', renderLineHighlight: 'line', renderValidationDecorations: 'on', occurrencesHighlight: 'singleFile', selectionHighlight: true, codeLens: false, contextmenu: true, links: true, mouseWheelZoom: true, cursorSmoothCaretAnimation: 'on', scrollBeyondLastLine: false, scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10, alwaysConsumeMouseWheel: false }, overviewRulerBorder: false, wordWrap: 'off', wordWrapColumn: 120, wrappingIndent: 'same', tabSize: getTabSize(editor.language), insertSpaces: editor.language !== 'go', detectIndentation: true, formatOnPaste: true, formatOnType: true, trimAutoWhitespace: true, renderWhitespace: 'boundary', renderControlCharacters: false, smoothScrolling: true, cursorBlinking: preferences.cursorBlink ? 'blink' : 'solid', cursorStyle: 'line', readOnlyMessage: { value: t('editor.readOnly') }, padding: { top: 16, bottom: 16 } }} />{autoScrollIndicator.active && autoScrollStateRef.current.editorId === editor.id && <span data-testid="editor-auto-scroll-indicator" className="pointer-events-none absolute z-20 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-accent/70 bg-bg-0/85 shadow-[0_0_0_1px_rgba(30,200,255,0.22)]" style={{ left: autoScrollIndicator.x, top: autoScrollIndicator.y }}><span className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-accent/70" /><span className="absolute left-0 top-1/2 h-px w-full -translate-y-1/2 bg-accent/70" /></span>}</div>{markdownPreviewOpen && <div className="tmuxgo-scrollbar min-w-0 flex-1 overflow-auto bg-bg-1/60 px-6 py-5"><article className="prose prose-invert max-w-none text-sm text-text-2 [&_a]:text-accent [&_blockquote]:border-l-2 [&_blockquote]:border-[var(--line)] [&_blockquote]:pl-3 [&_code]:rounded [&_code]:bg-bg-2 [&_code]:px-1.5 [&_code]:py-0.5 [&_h1]:mb-4 [&_h1]:text-3xl [&_h1]:text-text-1 [&_h2]:mb-3 [&_h2]:mt-6 [&_h2]:text-2xl [&_h2]:text-text-1 [&_h3]:mb-2 [&_h3]:mt-5 [&_h3]:text-xl [&_h3]:text-text-1 [&_li]:mb-1 [&_p]:mb-3 [&_pre]:overflow-auto [&_pre]:rounded-lg [&_pre]:bg-bg-0 [&_pre]:p-4 [&_strong]:text-text-1" dangerouslySetInnerHTML={{ __html: renderMarkdown(escapeHtml(editor.content)) || `<p>${t('editor.nothingToPreview')}</p>` }} /></div>}</div>
+    }} onChange={(value) => setEditorContent(editor.id, value || '')} options={{ automaticLayout: true, minimap: { enabled: false }, fontFamily: preferences.fontFamily, fontSize: Math.max(12, preferences.fontSize), lineNumbers: 'on', lineNumbersMinChars: 4, glyphMargin: false, folding: true, guides: { indentation: true, bracketPairs: true }, bracketPairColorization: { enabled: true }, matchBrackets: 'always', renderLineHighlight: 'line', renderValidationDecorations: 'on', occurrencesHighlight: 'singleFile', selectionHighlight: true, codeLens: false, contextmenu: true, links: true, mouseWheelZoom: true, cursorSmoothCaretAnimation: 'on', scrollBeyondLastLine: false, scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10, alwaysConsumeMouseWheel: false }, overviewRulerBorder: false, wordWrap: 'off', wordWrapColumn: 120, wrappingIndent: 'same', tabSize: getTabSize(editor.language), insertSpaces: editor.language !== 'go', detectIndentation: true, formatOnPaste: true, formatOnType: true, trimAutoWhitespace: true, renderWhitespace: 'boundary', renderControlCharacters: false, smoothScrolling: true, cursorBlinking: preferences.cursorBlink ? 'blink' : 'solid', cursorStyle: 'line', dragAndDrop: false, dropIntoEditor: { enabled: false }, readOnlyMessage: { value: t('editor.readOnly') }, padding: { top: 16, bottom: 16 } }} />{autoScrollIndicator.active && autoScrollStateRef.current.editorId === editor.id && <span data-testid="editor-auto-scroll-indicator" className="pointer-events-none absolute z-20 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-accent/70 bg-bg-0/85 shadow-[0_0_0_1px_rgba(30,200,255,0.22)]" style={{ left: autoScrollIndicator.x, top: autoScrollIndicator.y }}><span className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-accent/70" /><span className="absolute left-0 top-1/2 h-px w-full -translate-y-1/2 bg-accent/70" /></span>}</div>{markdownPreviewOpen && <div className="tmuxgo-scrollbar min-w-0 flex-1 overflow-auto bg-bg-1/60 px-6 py-5"><article className="prose prose-invert max-w-none text-sm text-text-2 [&_a]:text-accent [&_blockquote]:border-l-2 [&_blockquote]:border-[var(--line)] [&_blockquote]:pl-3 [&_code]:rounded [&_code]:bg-bg-2 [&_code]:px-1.5 [&_code]:py-0.5 [&_h1]:mb-4 [&_h1]:text-3xl [&_h1]:text-text-1 [&_h2]:mb-3 [&_h2]:mt-6 [&_h2]:text-2xl [&_h2]:text-text-1 [&_h3]:mb-2 [&_h3]:mt-5 [&_h3]:text-xl [&_h3]:text-text-1 [&_li]:mb-1 [&_p]:mb-3 [&_pre]:overflow-auto [&_pre]:rounded-lg [&_pre]:bg-bg-0 [&_pre]:p-4 [&_strong]:text-text-1" dangerouslySetInnerHTML={{ __html: renderMarkdown(escapeHtml(editor.content)) || `<p>${t('editor.nothingToPreview')}</p>` }} /></div>}</div>
   }
   if (!activeEditor) return null
   return (
