@@ -807,10 +807,19 @@ describe('TerminalPane', () => {
     const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(customKeyHandler).toBeTruthy())
     const terminalRoot = container.querySelector('.xterm') as HTMLDivElement
+    const terminalViewport = container.querySelector('.xterm-viewport') as HTMLDivElement
+    const terminalScreen = container.querySelector('.xterm-screen') as HTMLDivElement
     expect(terminalRoot).toBeTruthy()
+    expect(terminalViewport).toBeTruthy()
+    expect(terminalScreen).toBeTruthy()
     expect(terminalRoot.style.transform).toBe('')
     expect(terminalRoot.style.width).toBe('100%')
     expect(terminalRoot.style.height).toBe('100%')
+    expect(terminalViewport.style.overflow).toBe('hidden')
+    expect(terminalViewport.style.width).toBe('100%')
+    expect(terminalViewport.style.height).toBe('100%')
+    expect(terminalScreen.style.width).toBe('100%')
+    expect(terminalScreen.style.height).toBe('100%')
   })
   it('does not repaint on unchanged mobile resize observations', async () => {
     mobileKeyboardMocks.isMobile = true
