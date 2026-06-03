@@ -80,7 +80,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
     } })),
     ...['horizontal', 'vertical'].filter((direction) => (`split ${direction}`).includes(q) || q.length === 0).map((direction) => ({ key: `split-${direction}`, type: 'action', title: direction === 'horizontal' ? t('palette.splitHorizontal') : t('palette.splitVertical'), meta: direction === 'horizontal' ? 'Ctrl+Shift+-' : 'Ctrl+Shift+|', action: async () => {
       const paneId = await resolveFreshActivePaneId()
-      if (!paneId) return
+      if (!paneId) throw new Error(t('pane.noActive'))
       await api.panes.split(paneId, direction as 'horizontal' | 'vertical')
       await refreshSnapshotSafely()
       window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'split-pane', direction } }))
@@ -88,7 +88,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
     ...[t('palette.newSession')].filter((name) => name.toLowerCase().includes(q) || q.length === 0).map(() => ({ key: 'new-session', type: 'action', title: t('palette.newSession'), meta: '+', action: async () => window.dispatchEvent(new CustomEvent('tmuxgo-new-session')) })),
     ...[t('palette.zoomPane')].filter((name) => name.toLowerCase().includes(q) || q.length === 0).map(() => ({ key: 'zoom-pane', type: 'action', title: t('palette.zoomPane'), meta: 'Z', action: async () => {
       const paneId = await resolveFreshActivePaneId()
-      if (!paneId) return
+      if (!paneId) throw new Error(t('pane.noActive'))
       await api.panes.zoomByPane(paneId)
       await refreshSnapshotSafely()
       window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'zoom-pane' } }))

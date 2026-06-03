@@ -251,6 +251,7 @@ export const zh = {
   'pane.closed': '面板已关闭',
   'pane.closeFailed': '关闭失败',
   'pane.zoomFailed': '聚焦失败',
+  'pane.noActive': '当前没有可操作的面板',
   'githubAuth.title': 'GitHub 登录',
   'githubAuth.desc': '打开 GitHub 设备登录页并输入这组验证码。',
   'githubAuth.code': '设备验证码',
