@@ -495,6 +495,11 @@ describe('TerminalPane', () => {
     expect(terminalLifecycleMocks.open).toHaveBeenCalledTimes(1)
     expect(terminalLifecycleMocks.dispose).toHaveBeenCalledTimes(0)
   })
+  it('does not render mobile keyboard textarea on desktop', async () => {
+    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(terminalLifecycleMocks.open).toHaveBeenCalledTimes(1))
+    expect(container.querySelector('.mobile-kb-input')).toBeNull()
+  })
 
   it('copies final selection immediately on pointer release', async () => {
     const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
