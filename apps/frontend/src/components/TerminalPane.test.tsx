@@ -819,8 +819,8 @@ describe('TerminalPane', () => {
     expect(terminalViewport.style.width).toBe('100%')
     expect(terminalViewport.style.height).toBe('100%')
     expect(terminalViewport.style.background).toBe('transparent')
-    expect(terminalScreen.style.width).toBe('100%')
-    expect(terminalScreen.style.height).toBe('100%')
+    expect(terminalScreen.style.position).toBe('absolute')
+    expect(terminalScreen.style.inset).toBe('0px')
   })
   it('does not repaint on unchanged mobile resize observations', async () => {
     mobileKeyboardMocks.isMobile = true
