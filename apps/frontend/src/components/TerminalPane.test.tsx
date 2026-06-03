@@ -424,14 +424,11 @@ describe('TerminalPane', () => {
     screen.getBoundingClientRect = vi.fn(() => ({ x: 0, y: 0, left: 0, top: 0, width: 960, height: 576, right: 960, bottom: 576, toJSON: () => ({}) } as DOMRect))
     fireEvent.mouseDown(screen, { button: 0, clientX: 100, clientY: 20 })
     fireEvent.mouseMove(window, { button: 0, clientX: 124, clientY: 20 })
-    await waitFor(() => expect(apiMocks.paneResize).toHaveBeenCalledWith('%1', { cols: 15 }))
+    expect(apiMocks.paneResize).not.toHaveBeenCalled()
     fireEvent.mouseUp(window)
+    await waitFor(() => expect(apiMocks.paneResize).toHaveBeenCalledWith('%1', { cols: 15 }))
   })
   it('sends final pane resize after mouseup while resize request is pending', async () => {
-    let resolveFirst: (value: { ok: boolean }) => void = () => {}
-    apiMocks.paneResize.mockImplementationOnce(() => new Promise((resolve) => {
-      resolveFirst = resolve
-    })).mockResolvedValue({ ok: true })
     queryClientMocks.getQueryData.mockReturnValue({
       sessionName: 'dev',
       activeWindowId: '@1',
@@ -447,12 +444,11 @@ describe('TerminalPane', () => {
     screen.getBoundingClientRect = vi.fn(() => ({ x: 0, y: 0, left: 0, top: 0, width: 960, height: 576, right: 960, bottom: 576, toJSON: () => ({}) } as DOMRect))
     fireEvent.mouseDown(screen, { button: 0, clientX: 100, clientY: 20 })
     fireEvent.mouseMove(window, { button: 0, clientX: 108, clientY: 20 })
-    await waitFor(() => expect(apiMocks.paneResize).toHaveBeenCalledWith('%1', { cols: 13 }))
     fireEvent.mouseMove(window, { button: 0, clientX: 124, clientY: 20 })
+    expect(apiMocks.paneResize).not.toHaveBeenCalled()
     fireEvent.mouseUp(window)
-    expect(apiMocks.paneResize).toHaveBeenCalledTimes(1)
-    resolveFirst({ ok: true })
     await waitFor(() => expect(apiMocks.paneResize).toHaveBeenCalledWith('%1', { cols: 15 }))
+    expect(apiMocks.paneResize).toHaveBeenCalledTimes(1)
   })
   it('syncs clicked pane immediately before snapshot refresh completes', async () => {
     queryClientMocks.getQueryData.mockReturnValue({

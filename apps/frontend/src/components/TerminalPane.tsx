@@ -789,28 +789,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       if (horizontal) return { axis: 'y', paneId: horizontal.id, startCell: horizontal.top + horizontal.rows, startSize: horizontal.rows }
       return null
     }
-    const sendPaneResize = (drag: any) => {
-      if (!drag || drag.inFlight || !drag.pendingSize || drag.pendingSize === drag.sentSize) return
-      const size = drag.pendingSize
-      drag.sentSize = size
-      drag.inFlight = true
-      void api.panes.resize(drag.paneId, drag.axis === 'x' ? { cols: size } : { rows: size }).catch(() => {}).finally(() => {
-        drag.inFlight = false
-        void loadSessionSnapshot()
-        if (paneResizeDrag === drag && drag.pendingSize !== drag.sentSize) {
-          sendPaneResize(drag)
-          return
-        }
-        if (paneResizeDrag === drag && drag.released) paneResizeDrag = null
-      })
-    }
-    const schedulePaneResize = (drag: any) => {
-      if (drag.frame) return
-      drag.frame = requestAnimationFrame(() => {
-        drag.frame = null
-        sendPaneResize(drag)
-      })
-    }
     const updatePaneResizeDrag = (event: MouseEvent) => {
       const drag = paneResizeDrag
       if (!drag) return
@@ -820,7 +798,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const nextSize = Math.max(4, drag.startSize + delta)
       if (nextSize === drag.pendingSize) return
       drag.pendingSize = nextSize
-      schedulePaneResize(drag)
     }
     const handlePaneResizeMove = (event: MouseEvent) => {
       if (!paneResizeDrag) return
@@ -830,10 +807,21 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     const endPaneResizeDrag = () => {
       const drag = paneResizeDrag
       if (!drag) return
-      if (drag.frame) cancelAnimationFrame(drag.frame)
       drag.released = true
-      sendPaneResize(drag)
-      if (!drag.inFlight && drag.pendingSize === drag.sentSize) paneResizeDrag = null
+      if (!drag.pendingSize || drag.pendingSize === drag.sentSize) {
+        paneResizeDrag = null
+        container.style.cursor = ''
+        window.removeEventListener('mousemove', handlePaneResizeMove)
+        window.removeEventListener('mouseup', endPaneResizeDrag)
+        window.removeEventListener('blur', endPaneResizeDrag)
+        return
+      }
+      const size = drag.pendingSize
+      drag.sentSize = size
+      void api.panes.resize(drag.paneId, drag.axis === 'x' ? { cols: size } : { rows: size }).catch(() => {}).finally(() => {
+        void loadSessionSnapshot()
+      })
+      paneResizeDrag = null
       container.style.cursor = ''
       window.removeEventListener('mousemove', handlePaneResizeMove)
       window.removeEventListener('mouseup', endPaneResizeDrag)
@@ -852,7 +840,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       try {
         terminal?.clearSelection?.()
       } catch {}
-      paneResizeDrag = { ...target, pendingSize: target.startSize, sentSize: target.startSize, inFlight: false, frame: null }
+      paneResizeDrag = { ...target, pendingSize: target.startSize, sentSize: target.startSize, released: false }
       container.style.cursor = target.axis === 'x' ? 'col-resize' : 'row-resize'
       window.addEventListener('mousemove', handlePaneResizeMove)
       window.addEventListener('mouseup', endPaneResizeDrag)
@@ -1705,7 +1693,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           window.removeEventListener('mobile-keyboard-change', handleKeyboardChange as EventListener)
           window.removeEventListener('pageshow', handlePageShow)
           document.removeEventListener('visibilitychange', handleVisibilityChange)
-          if (paneResizeDrag?.frame) cancelAnimationFrame(paneResizeDrag.frame)
           paneResizeDrag = null
           container.style.cursor = ''
           window.removeEventListener('mousemove', handlePaneResizeMove)
