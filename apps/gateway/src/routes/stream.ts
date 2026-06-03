@@ -9,6 +9,7 @@ import { recordStreamMetric, updateStreamMetric } from '../lib/perf-metrics.js'
 import { getHostById } from '../lib/hosts.js'
 import { hasSubstantiveTerminalContent } from '../lib/terminal-output.js'
 import { parseSessionRef } from '../lib/tmux-target.js'
+import { getAttachSnapshotDelays } from '../lib/attach-snapshot.js'
 
 const execFileAsync = promisify(execFile)
 export async function streamRoutes(fastify: FastifyInstance) {
@@ -16,7 +17,6 @@ export async function streamRoutes(fastify: FastifyInstance) {
     console.log('Client connected to stream')
     const SCROLL_FLUSH_INTERVAL = 16
     const SCROLL_MAX_LINES = 24
-    const ATTACH_SNAPSHOT_DELAY = 180
     const ATTACH_REDRAW_DELAYS = [48]
     const RESIZE_REDRAW_DELAYS = [100]
     const REQUEST_REDRAW_DELAYS = [48]
@@ -43,7 +43,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
     let outputProfile: keyof typeof OUTPUT_PROFILES = 'foreground'
     let attachSeq = 0
     let attachVisibleOutputObserved = false
-    let attachSnapshotTimer: ReturnType<typeof setTimeout> | null = null
+    let attachSnapshotTimers: ReturnType<typeof setTimeout>[] = []
     const scrollBuffers = new Map<string, number>()
     const scrollTimers = new Map<string, ReturnType<typeof setTimeout>>()
     const socket = connection.socket
@@ -175,10 +175,9 @@ export async function streamRoutes(fastify: FastifyInstance) {
       for (const timer of redrawTimers) clearTimeout(timer)
       redrawTimers = []
     }
-    function clearAttachSnapshotTimer() {
-      if (!attachSnapshotTimer) return
-      clearTimeout(attachSnapshotTimer)
-      attachSnapshotTimer = null
+    function clearAttachSnapshotTimers() {
+      for (const timer of attachSnapshotTimers) clearTimeout(timer)
+      attachSnapshotTimers = []
     }
     async function captureAttachedSnapshot(sessionName: string, seq: number) {
       if (!ptyProcess || !sessionName || attachVisibleOutputObserved || seq !== attachSeq || attachedSessionName !== sessionName) return
@@ -192,13 +191,17 @@ export async function streamRoutes(fastify: FastifyInstance) {
         queueOutput(`\u001b[H\u001b[2J${snapshot}`)
       } catch {}
     }
-    function scheduleAttachSnapshot(sessionName: string, seq: number, delay = ATTACH_SNAPSHOT_DELAY) {
+    function scheduleAttachSnapshot(sessionName: string, seq: number, delays = getAttachSnapshotDelays()) {
       if (!sessionName) return
-      clearAttachSnapshotTimer()
-      attachSnapshotTimer = setTimeout(() => {
-        attachSnapshotTimer = null
-        void captureAttachedSnapshot(sessionName, seq)
-      }, delay)
+      clearAttachSnapshotTimers()
+      for (const delay of delays) {
+        const timer = setTimeout(() => {
+          attachSnapshotTimers = attachSnapshotTimers.filter((item) => item !== timer)
+          if (attachVisibleOutputObserved || seq !== attachSeq || attachedSessionName !== sessionName) return
+          void captureAttachedSnapshot(sessionName, seq)
+        }, delay)
+        attachSnapshotTimers.push(timer)
+      }
     }
     async function refreshAttachedClient(sessionName: string) {
       if (!ptyProcess || !sessionName) return
@@ -235,7 +238,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
       const detachedHostId = attachedHostId
       attachSeq += 1
       clearRedrawTimers()
-      clearAttachSnapshotTimer()
+      clearAttachSnapshotTimers()
       if (current) {
         current.kill()
         ptyProcess = null
@@ -409,7 +412,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
               attachedExclusive = false
               attachedCols = 0
               attachedRows = 0
-              clearAttachSnapshotTimer()
+              clearAttachSnapshotTimers()
               clearRedrawTimers()
             })
             send({ type: 'attached', sessionName, hostId, cols, rows, exclusive })
