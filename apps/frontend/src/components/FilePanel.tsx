@@ -813,7 +813,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     </div>
   )
   const renderTreeTitle = (node: FileTreeNode) => {
-    if (!node.item) return node.title
+    if (!node.item) return null
     const item = node.item
     const visual = getFileVisual(item.path, item.type)
     const favoritePath = { rootId: activeRootId, path: joinRelativePath(activeRootBasePath, item.path) }
@@ -860,7 +860,12 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   }
   const renderSearchList = (entries: FileEntry[], depth = 0): React.ReactNode[] => entries.filter((item) => (!hideDotFiles || !isDotPath(item.path || item.name)) && matchesFileTypeFilter(item, fileTypeFilter)).flatMap((item) => {
     const cache = item.type === 'directory' ? readDirectoryChildrenFromCache(directoryCache, activeRootId, activeRootBasePath, item.path) : undefined
-    const nested = item.type === 'directory' && openDirectories.has(item.path) && cache ? renderSearchList(cache, depth + 1) : []
+    const status = item.type === 'directory' ? readDirectoryStatusFromCache(directoryStatus, activeRootId, activeRootBasePath, item.path) : undefined
+    const nested = item.type !== 'directory' || !openDirectories.has(item.path) ? [] : cache ? cache.length ? renderSearchList(cache, depth + 1) : [<div key={`${item.path}::__empty`} className="px-2 py-[3px] font-mono text-[11px] text-text-3" style={!isMobile ? { paddingLeft: `${22 + (depth + 1) * 14}px` } : undefined}>{t('file.emptyDir')}</div>] : status?.state === 'error' ? [<div key={`${item.path}::__error`} className="flex items-center gap-2 px-2 py-[3px] font-mono text-[11px]" style={!isMobile ? { paddingLeft: `${22 + (depth + 1) * 14}px` } : undefined}><span className="text-danger">{t('file.treeLoadFailed')}</span><button type="button" title={status.message} onClick={(event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      void loadDirectoryChildren(item)
+    }} className="text-accent hover:text-text-1">{t('file.retryLoad')}</button></div>] : [<div key={`${item.path}::__loading`} className="px-2 py-[3px] font-mono text-[11px] text-text-3" style={!isMobile ? { paddingLeft: `${22 + (depth + 1) * 14}px` } : undefined}>{t('file.loading')}</div>]
     const visual = getFileVisual(item.path, item.type)
     return [
       <button
