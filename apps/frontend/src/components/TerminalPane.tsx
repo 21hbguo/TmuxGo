@@ -1328,6 +1328,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         const screen = terminal.element.querySelector('.xterm-screen') as HTMLElement | null
         const viewport = terminal.element.querySelector('.xterm-viewport') as HTMLElement | null
         if (screen) {
+          screen.style.position = 'absolute'
+          screen.style.inset = '0'
           screen.style.width = '100%'
           screen.style.height = '100%'
         }
@@ -1335,6 +1337,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           viewport.style.width = '100%'
           viewport.style.height = '100%'
           viewport.style.overflow = 'hidden'
+          viewport.style.background = 'transparent'
           viewport.style.scrollbarWidth = 'none'
           viewport.style.setProperty('-ms-overflow-style', 'none')
         }
