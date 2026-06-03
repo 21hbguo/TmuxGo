@@ -22,3 +22,5 @@ Thumbs.db
 tmp
 *.local
 .tmuxgo
+uploads
+uploads-rate-test
