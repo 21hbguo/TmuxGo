@@ -749,7 +749,7 @@ describe('TerminalPane', () => {
     expect(webSocketMocks.send).toHaveBeenCalledWith({ type: 'redraw', hostId: 'local', sessionName: 'dev' })
     expect(webSocketMocks.send.mock.calls.filter((call) => call[0]?.type === 'redraw' && call[0]?.sessionName === 'dev')).toHaveLength(1)
   })
-  it('recovers terminal renderer on attach and keeps ordinary layout changes soft', async () => {
+  it('keeps attach rendering soft and keeps ordinary layout changes soft', async () => {
     render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(customKeyHandler).toBeTruthy())
     terminalMocks.refresh.mockClear()
@@ -762,8 +762,8 @@ describe('TerminalPane', () => {
     await waitFor(() => expect(terminalMocks.refresh).toHaveBeenCalled())
     expect(terminalMocks.clearTextureAtlas).toHaveBeenCalled()
     expect(terminalMocks.renderClear).toHaveBeenCalled()
-    expect(terminalMocks.reset).toHaveBeenCalled()
-    expect(terminalMocks.clear).toHaveBeenCalled()
+    expect(terminalMocks.reset).not.toHaveBeenCalled()
+    expect(terminalMocks.clear).not.toHaveBeenCalled()
     expect(terminalMocks.refresh).toHaveBeenCalledWith(0, 35)
     expect(webSocketMocks.send).toHaveBeenCalledWith({ type: 'redraw', hostId: 'local', sessionName: 'dev' })
     expect(webSocketMocks.send.mock.calls.filter((call) => call[0]?.type === 'redraw' && call[0]?.sessionName === 'dev')).toHaveLength(1)

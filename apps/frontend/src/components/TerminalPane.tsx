@@ -1530,7 +1530,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           scheduleInitialFit()
           if (!isMobileDevice) forceStableFit(5, 34)
           if (softRecover) scheduleTerminalRepaint(isMobileDevice ? MOBILE_TERMINAL_REPAINT_DELAYS : TERMINAL_REPAINT_DELAYS)
-          else recoverTerminalScreen('attached', true)
+          else softRecoverTerminalScreen('attached', true)
           return
         }
         if (cols > 0 && rows > 0) {
@@ -1538,7 +1538,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           syncSharedLayout(true)
           if (!isMobileDevice) forceStableFit(4, 34)
           if (softRecover) scheduleTerminalRepaint(isMobileDevice ? MOBILE_TERMINAL_REPAINT_DELAYS : TERMINAL_REPAINT_DELAYS)
-          else recoverTerminalScreen('attached', true)
+          else softRecoverTerminalScreen('attached', true)
         }
       }
       const handleLayoutChange = (event: Event) => {
