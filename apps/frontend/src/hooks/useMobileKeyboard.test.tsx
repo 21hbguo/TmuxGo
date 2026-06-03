@@ -3,16 +3,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useEffect, useRef } from 'react'
 import { useMobileKeyboard } from './useMobileKeyboard'
 
-let api: { focusKeyboard?: () => void; textarea?: HTMLTextAreaElement | null } = {}
+let api: { focusKeyboard?: () => void; textarea?: HTMLTextAreaElement | null; isMobile?: boolean } = {}
 let viewportTarget: EventTarget
 let sendInputMock:(data: string) => void
 
 function Harness() {
   const terminalRef = useRef<HTMLDivElement>(null)
-  const { textareaRef, focusKeyboard } = useMobileKeyboard(sendInputMock, terminalRef)
+  const { textareaRef, focusKeyboard, isMobile } = useMobileKeyboard(sendInputMock, terminalRef)
   useEffect(() => {
-    api = { focusKeyboard, textarea: textareaRef.current }
-  }, [focusKeyboard, textareaRef])
+    api = { focusKeyboard, textarea: textareaRef.current, isMobile }
+  }, [focusKeyboard, isMobile, textareaRef])
   return <div ref={terminalRef}><textarea ref={textareaRef} /></div>
 }
 
@@ -174,5 +174,12 @@ describe('useMobileKeyboard', () => {
     })
     expect(sendInputMock).toHaveBeenCalledWith('hello world')
     expect(textarea.value).toBe('\u200b\u200b')
+  })
+  it('does not enable mobile keyboard mode on coarse-pointer desktop user agents', async () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+    Object.defineProperty(window.navigator, 'userAgent', { configurable: true, value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36' })
+    render(<Harness />)
+    await waitFor(() => expect(api.focusKeyboard).toBeTruthy())
+    expect(api.isMobile).toBe(false)
   })
 })

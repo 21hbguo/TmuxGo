@@ -28,8 +28,11 @@ function recordMobileDebug(event: string, data?: Record<string, unknown>) {
 
 export function isMobileDevice(): boolean {
   if (typeof window === 'undefined') return false
-  if (window.matchMedia('(pointer: coarse)').matches) return true
-  return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+  const ua = navigator.userAgent || ''
+  if (/Android|iPhone|iPad|iPod|Mobile/i.test(ua)) return true
+  const coarsePointer = window.matchMedia('(pointer: coarse)').matches
+  const desktopPlatform = /Windows NT|Macintosh|X11|Linux x86_64|Linux i[3-6]86/i.test(ua)
+  return coarsePointer && !desktopPlatform
 }
 
 export function useMobileKeyboard(
