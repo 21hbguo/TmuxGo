@@ -251,6 +251,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   const forceStableFitRef = useRef<() => void>(() => {})
   const syncSharedLayoutRef = useRef<(resetFont: boolean) => void>(() => {})
   const activeHostIdRef = useRef(activeHostId)
+  const exclusiveLineHeightRef = useRef(1)
   const sessionSnapshotRef = useRef<any | null>(null)
   const updatePreferencesRef = useRef(updatePreferences)
   const tRef = useRef(t)
@@ -479,6 +480,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   }, [onReady])
   useEffect(() => {
     sessionNameRef.current = sessionName
+    exclusiveLineHeightRef.current = 1
   }, [sessionName])
   useEffect(() => {
     preferencesRef.current = preferences
@@ -1041,9 +1043,42 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const nextFontSize = (fontSize ?? Number(terminal.options.fontSize)) || preferencesRef.current.fontSize
       terminal.options.fontSize = nextFontSize
       terminal.options.letterSpacing = 0
-      terminal.options.lineHeight = 1
+      terminal.options.lineHeight = attachExclusiveRef.current && isMobileDevice ? exclusiveLineHeightRef.current : 1
       terminal.options.minimumContrastRatio = 4.5
       terminal.options.customGlyphs = true
+    }
+    const getRendererElements = () => {
+      const element = terminal?.element as HTMLElement | null
+      if (!element) return null
+      const screen = element.querySelector('.xterm-screen') as HTMLElement | null
+      const rows = element.querySelector('.xterm-rows') as HTMLElement | null
+      const viewport = element.querySelector('.xterm-viewport') as HTMLElement | null
+      if (!screen || !rows || !viewport) return null
+      return { element, screen, rows, viewport }
+    }
+    const applyRendererStyleCorrection = () => {
+      if (disposed) return
+      const renderer = getRendererElements()
+      if (!renderer) return
+      renderer.rows.style.setProperty('letter-spacing', '0px', 'important')
+      renderer.rows.style.removeProperty('width')
+      renderer.screen.style.removeProperty('width')
+      renderer.screen.style.removeProperty('transform-origin')
+      renderer.screen.style.removeProperty('transform')
+      renderer.screen.style.removeProperty('will-change')
+      if (attachExclusiveRef.current && isMobileDevice) {
+        renderer.rows.style.setProperty('height', '100%', 'important')
+        renderer.screen.style.setProperty('height', '100%', 'important')
+      } else {
+        renderer.rows.style.removeProperty('height')
+        renderer.screen.style.removeProperty('height')
+      }
+      renderer.viewport.style.setProperty('width', '100%', 'important')
+    }
+    const scheduleRendererStyleCorrection = () => {
+      requestAnimationFrame(() => {
+        applyRendererStyleCorrection()
+      })
     }
     const clearTerminalRendererCache = () => {
       if (!terminal || disposed) return
@@ -1120,6 +1155,19 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       }
       clearViewportStyles()
     }
+    const adjustExclusiveLineHeight = () => {
+      if (!attachExclusiveRef.current || !isMobileDevice || !terminal) return false
+      const screen = terminal.element?.querySelector('.xterm-screen') as HTMLElement | null
+      if (!screen) return false
+      const available = getAvailableSize()
+      const currentHeight = screen.getBoundingClientRect().height
+      if (!available.height || !currentHeight) return false
+      const next = Math.max(1, Math.min(1.08, Number((exclusiveLineHeightRef.current * available.height / currentHeight).toFixed(4))))
+      if (Math.abs(next - exclusiveLineHeightRef.current) < 0.001) return false
+      exclusiveLineHeightRef.current = next
+      terminal.options.lineHeight = next
+      return true
+    }
     afterTerminalWriteRef.current = () => {
       if (!attachExclusiveRef.current && isMobileDevice) requestAnimationFrame(syncSharedViewport)
     }
@@ -1153,8 +1201,10 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           }
           requestAnimationFrame(() => {
             if (disposed || !terminal) return
+            scheduleRendererStyleCorrection()
             syncExclusiveViewport()
             repaintTerminalRenderer(force && isMobileDevice, stickToBottom)
+            if (adjustExclusiveLineHeight()) scheduleFit(0, true)
           })
           notifyReady()
           return true
@@ -1341,6 +1391,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           viewport.style.scrollbarWidth = 'none'
           viewport.style.setProperty('-ms-overflow-style', 'none')
         }
+        scheduleRendererStyleCorrection()
       }
       fitAddonRef.current = fitAddon
       terminalInstance.current = terminal
