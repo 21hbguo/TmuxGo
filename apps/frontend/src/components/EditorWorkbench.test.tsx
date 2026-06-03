@@ -40,6 +40,20 @@ vi.mock('@/hooks/usePreferences', () => ({
 vi.mock('@/hooks/useApi', () => ({
   useGitDetect: () => ({ data: { isGitRepo: false } }),
 }))
+vi.mock('@/i18n', () => ({
+  useTranslation: () => ({ t: (key: string) => {
+    if (key === 'editor.clear') return 'Clear'
+    if (key === 'editor.find') return 'Find'
+    if (key === 'editor.format') return 'Format'
+    if (key === 'editor.preview') return 'Preview'
+    if (key === 'editor.saved') return 'Saved'
+    if (key === 'editor.save') return 'Save'
+    if (key === 'editor.saving') return 'Saving'
+    if (key === 'common.confirm') return 'Confirm'
+    if (key === 'common.cancel') return 'Cancel'
+    return key
+  } }),
+}))
 
 function createEditor(id: string, path: string, content: string, overrides: Record<string, any> = {}) {
   const name = path.split('/').pop() || path
@@ -251,6 +265,39 @@ describe('EditorWorkbench', () => {
     expect(pane?.className).toContain('flex-1')
     expect(surface?.className).toContain('flex-1')
   })
+  it('clears all opened editors from the toolbar button', async () => {
+    setWorkbenchState({
+      openEditors: [editor1, editor2, editor3],
+      activeEditorId: editor3.id,
+      editorGroups: [createGroup('group-1', [editor1.id], editor1.id), createGroup('group-2', [editor2.id], editor2.id), createGroup('group-3', [editor3.id], editor3.id)],
+      editorLayout: createSplit('layout-1', 'horizontal', createLeaf('layout-2', 'group-1'), createSplit('layout-3', 'vertical', createLeaf('layout-4', 'group-2'), createLeaf('layout-5', 'group-3'))),
+      activeEditorGroupId: 'group-3',
+    })
+    renderWorkbench()
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }))
+    expect(useConsoleStore.getState().openEditors).toHaveLength(0)
+  })
+  it('renders compact tab strip height for single and split groups', () => {
+    setWorkbenchState({
+      openEditors: [editor1, editor2],
+      activeEditorId: editor2.id,
+      editorGroups: [createGroup('group-1', [editor1.id], editor1.id), createGroup('group-2', [editor2.id], editor2.id)],
+      editorLayout: createSplit('layout-1', 'horizontal', createLeaf('layout-2', 'group-1'), createLeaf('layout-3', 'group-2')),
+      activeEditorGroupId: 'group-2',
+    })
+    renderWorkbench()
+    const strips = [
+      screen.getByTestId('editor-group-primary') as HTMLDivElement,
+      screen.getByTestId('editor-group-secondary') as HTMLDivElement,
+    ]
+    for (const strip of strips) {
+      expect(strip.className).toContain('min-h-7')
+    }
+    const tabs = ['index.ts', 'other.ts'].map((name) => screen.getByRole('button', { name }).parentElement as HTMLDivElement)
+    for (const tab of tabs) {
+      expect(tab.className).toContain('h-7')
+    }
+  })
   it('moves a dragged tab into the primary group and collapses the source split', async () => {
     setWorkbenchState({
       openEditors: [editor1, editor2],
@@ -260,7 +307,7 @@ describe('EditorWorkbench', () => {
       activeEditorGroupId: 'group-2',
     })
     renderWorkbench()
-    const button = screen.getByRole('button', { name: /index\.ts/i })
+    const button = screen.getByRole('button', { name: 'index.ts' })
     const dataTransfer = createDataTransfer({
       'application/x-tmuxgo-file': JSON.stringify({
         id: editor2.id,
@@ -282,7 +329,7 @@ describe('EditorWorkbench', () => {
   it('opens a dragged file when dropped on an existing tab', async () => {
     const onOpenFile = createOpenFileHandler()
     renderWorkbench({ onOpenFile })
-    const button = screen.getByRole('button', { name: /index\.ts/i })
+    const button = screen.getByRole('button', { name: 'index.ts' })
     const dataTransfer = createDataTransfer({
       'application/x-tmuxgo-file': JSON.stringify({
         id: 'editor-4',
@@ -310,7 +357,7 @@ describe('EditorWorkbench', () => {
       activeEditorGroupId: 'group-1',
     })
     renderWorkbench()
-    const button = screen.getByRole('button', { name: /other\.ts/i })
+    const button = screen.getByRole('button', { name: 'other.ts' })
     ;(button as HTMLButtonElement).getBoundingClientRect = vi.fn(() => ({ left: 0, top: 0, width: 100, height: 42, right: 100, bottom: 42, x: 0, y: 0, toJSON: () => ({}) } as DOMRect))
     const dataTransfer = createDataTransfer({
       'application/x-tmuxgo-file': JSON.stringify({
