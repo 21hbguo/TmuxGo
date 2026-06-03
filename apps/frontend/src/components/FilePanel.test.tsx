@@ -347,4 +347,22 @@ describe('FilePanel', () => {
     delayedSrcResolvers.splice(0).forEach((resolve) => resolve())
     await waitFor(() => expect(screen.queryByText('index.ts')).not.toBeInTheDocument())
   })
+  it('reuses in-flight directory loading when toggled repeatedly', async () => {
+    const { api } = await import('@/lib/api')
+    vi.mocked(api.files.list).mockClear()
+    vi.mocked(api.files.list).mockImplementation(async (_hostId: string, rootId: string, path = '') => {
+      if (rootId === 'root-home' && path === 'src') {
+        await new Promise<void>((resolve) => delayedSrcResolvers.push(resolve))
+      }
+      return getListData(rootId, path)
+    })
+    render(React.createElement(FilePanel))
+    const src = await screen.findByText('src')
+    fireEvent.click(src)
+    fireEvent.click(src)
+    fireEvent.click(src)
+    expect(vi.mocked(api.files.list).mock.calls.filter(([, rootId, path]) => rootId === 'root-home' && path === 'src')).toHaveLength(1)
+    delayedSrcResolvers.splice(0).forEach((resolve) => resolve())
+    await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
+  })
 })
