@@ -1448,8 +1448,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       disposables.push(terminal.onSelectionChange(() => {
         const selection = getSelectionText()
         selectionSync.setSelection(selection)
-        if (pointerSyncActive) return
-        selectionSync.scheduleCopySelection(selection, 24, true)
       }))
       const flushWriteBuffer = () => {
         if (!writeBuffer || !terminal?.write) { writeBuffer = ''; writePending = false; return }
