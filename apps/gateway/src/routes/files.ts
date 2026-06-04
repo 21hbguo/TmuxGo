@@ -65,6 +65,9 @@ const knownAuthMarkers = ['Permission denied']
 const knownHostKeyMarkers = ['Host key verification failed', 'REMOTE HOST IDENTIFICATION HAS CHANGED']
 const knownTimeoutMarkers = ['Connection timed out', 'Operation timed out', 'No route to host']
 const knownNetworkMarkers = ['Could not resolve hostname', 'Connection refused', 'Network is unreachable']
+function isDotPath(relativePath: string) {
+  return relativePath.split(/[\\/]+/).some((part) => part.startsWith('.') && part.length > 1)
+}
 
 async function getRoots() {
   if (!rootsCache) {
@@ -175,6 +178,8 @@ def breadcrumbs(rel):
  out=[{'name':'/','path':''}]
  for i,name in enumerate(parts): out.append({'name':name,'path':'/'.join(parts[:i+1])})
  return out
+include_dotfiles=payload.get('includeDotFiles',True)
+if isinstance(include_dotfiles,str): include_dotfiles=include_dotfiles.lower()!='false'
 op=payload['op']
 if op=='roots':
  print(json.dumps(roots()));sys.exit(0)
@@ -270,10 +275,13 @@ def match_line(text):
  return any(any(term in low for term in clause) for clause in clauses)
 results=[]
 for current_root,dirs,files in os.walk(abs_path):
+ if not include_dotfiles:
+  dirs[:]=[name for name in dirs if not any(part.startswith('.') and len(part)>1 for part in name.replace('\\\\','/').split('/'))]
  for name in list(dirs)+list(files):
   current=os.path.join(current_root,name)
   is_dir=os.path.isdir(current)
   relative=norm_rel(os.path.relpath(current,root['path']))
+  if not include_dotfiles and any(part.startswith('.') and len(part)>1 for part in relative.split('/')): continue
   if op=='search-name':
    if not match_name(name): continue
    try: results.append(file_item(root['path'],current,name))
@@ -444,7 +452,7 @@ async function removeEntry(rootId: string, relativePath: string) {
   else await unlink(absolutePath)
   return { ok: true as const, path: currentPath, type: info.isDirectory() ? 'directory' as const : 'file' as const }
 }
-async function walk(rootPath: string, startPath: string, visitor: (absolutePath: string, relativePath: string, entryType: 'file' | 'directory') => Promise<boolean | void>) {
+async function walk(rootPath: string, startPath: string, visitor: (absolutePath: string, relativePath: string, entryType: 'file' | 'directory') => Promise<boolean | 'skip' | void>) {
   const queue = [startPath]
   let dirs = 0
   let files = 0
@@ -461,7 +469,9 @@ async function walk(rootPath: string, startPath: string, visitor: (absolutePath:
       const absolutePath = path.join(current, entry.name)
       const relativePath = toRelative(rootPath, absolutePath)
       if (entry.isDirectory()) {
-        if (await visitor(absolutePath, relativePath, 'directory') === false) return
+        const result = await visitor(absolutePath, relativePath, 'directory')
+        if (result === false) return
+        if (result === 'skip') continue
         queue.push(absolutePath)
       } else if (entry.isFile()) {
         files++
@@ -485,12 +495,13 @@ function matchesAnySearchTerm(value: string, clauses: string[][]) {
   const target = value.toLowerCase()
   return clauses.some((terms) => terms.some((term) => target.includes(term)))
 }
-async function searchName(rootId: string, query: string, basePath = '') {
+async function searchName(rootId: string, query: string, basePath = '', includeDotFiles = true) {
   const clauses = parseSearchQuery(query)
   if (!clauses.length) return []
   const { root, absolutePath } = await resolveInside(rootId, basePath)
   const results: FileItem[] = []
-  await walk(root.path, absolutePath, async (current, relativePath) => {
+  await walk(root.path, absolutePath, async (current, relativePath, entryType) => {
+    if (!includeDotFiles && isDotPath(relativePath)) return entryType === 'directory' ? 'skip' : undefined
     if (!matchesSearchQuery(path.basename(relativePath), clauses)) return
     try {
       results.push(await toFileItem(root.path, current, path.basename(current)))
@@ -499,7 +510,7 @@ async function searchName(rootId: string, query: string, basePath = '') {
   })
   return results
 }
-async function searchContentWithRg(rootPath: string, absolutePath: string, clauses: string[][]) {
+async function searchContentWithRg(rootPath: string, absolutePath: string, clauses: string[][], includeDotFiles = true) {
   const results = new Map<string, ContentSearchResult>()
   for (const terms of clauses) {
     const args = ['--json', '-n', '-i', '--fixed-strings', '--hidden', '-uu']
@@ -521,6 +532,7 @@ async function searchContentWithRg(rootPath: string, absolutePath: string, claus
         if (!rawPath) continue
         const resolvedPath = path.resolve(absolutePath, rawPath)
         const relativePath = toRelative(rootPath, resolvedPath)
+        if (!includeDotFiles && isDotPath(relativePath)) continue
         const lineNumber = Number(payload.data?.line_number || 0)
         const content = typeof payload.data?.lines?.text === 'string' ? payload.data.lines.text.replace(/\r?\n$/, '').slice(0, 240) : ''
         const item = matchesByPath.get(relativePath) || { path: relativePath, name: path.basename(relativePath), termHits: new Set<string>(), matches: [] }
@@ -557,10 +569,11 @@ async function searchContentWithRg(rootPath: string, absolutePath: string, claus
   }
   return [...results.values()]
 }
-async function searchContentFallback(rootId: string, clauses: string[][], basePath = '') {
+async function searchContentFallback(rootId: string, clauses: string[][], basePath = '', includeDotFiles = true) {
   const { root, absolutePath } = await resolveInside(rootId, basePath)
   const results: ContentSearchResult[] = []
   await walk(root.path, absolutePath, async (current, relativePath, entryType) => {
+    if (!includeDotFiles && isDotPath(relativePath)) return entryType === 'directory' ? 'skip' : undefined
     if (entryType !== 'file') return
     try {
       const info = await stat(current)
@@ -580,14 +593,14 @@ async function searchContentFallback(rootId: string, clauses: string[][], basePa
   })
   return results
 }
-async function searchContent(rootId: string, query: string, basePath = '') {
+async function searchContent(rootId: string, query: string, basePath = '', includeDotFiles = true) {
   const clauses = parseSearchQuery(query)
   if (!clauses.length) return []
   const { root, absolutePath } = await resolveInside(rootId, basePath)
   try {
-    return await searchContentWithRg(root.path, absolutePath, clauses)
+    return await searchContentWithRg(root.path, absolutePath, clauses, includeDotFiles)
   } catch {
-    return searchContentFallback(rootId, clauses, basePath)
+    return searchContentFallback(rootId, clauses, basePath, includeDotFiles)
   }
 }
 function getFallbackRoot(roots: FileRoot[]) {
@@ -751,13 +764,13 @@ async function removeEntryForHost(hostId: string, rootId: string, relativePath: 
   if (hostId === 'local') return removeEntry(rootId, relativePath)
   return runRemoteFileJson(hostId, { op: 'remove', root: rootId, path: relativePath })
 }
-async function searchNameForHost(hostId: string, rootId: string, query: string, basePath = '') {
-  if (hostId === 'local') return searchName(rootId, query, basePath)
-  return runRemoteFileJson(hostId, { op: 'search-name', root: rootId, path: basePath, query })
+async function searchNameForHost(hostId: string, rootId: string, query: string, basePath = '', includeDotFiles = true) {
+  if (hostId === 'local') return searchName(rootId, query, basePath, includeDotFiles)
+  return runRemoteFileJson(hostId, { op: 'search-name', root: rootId, path: basePath, query, includeDotFiles })
 }
-async function searchContentForHost(hostId: string, rootId: string, query: string, basePath = '') {
-  if (hostId === 'local') return searchContent(rootId, query, basePath)
-  return runRemoteFileJson(hostId, { op: 'search-content', root: rootId, path: basePath, query })
+async function searchContentForHost(hostId: string, rootId: string, query: string, basePath = '', includeDotFiles = true) {
+  if (hostId === 'local') return searchContent(rootId, query, basePath, includeDotFiles)
+  return runRemoteFileJson(hostId, { op: 'search-content', root: rootId, path: basePath, query, includeDotFiles })
 }
 async function resolveDefaultUploadTargetForHost(hostId: string, paneId?: string) {
   if (hostId === 'local') return resolveDefaultUploadTarget(paneId)
@@ -846,13 +859,13 @@ export async function fileRoutes(fastify: FastifyInstance) {
   })
   fastify.get('/hosts/:hostId/files/search-name', async (request) => {
     const { hostId } = request.params as { hostId: string }
-    const query = request.query as { root?: string; q?: string; basePath?: string }
-    return searchNameForHost(hostId, query.root || '', query.q || '', query.basePath || '')
+    const query = request.query as { root?: string; q?: string; basePath?: string; includeDotFiles?: string }
+    return searchNameForHost(hostId, query.root || '', query.q || '', query.basePath || '', query.includeDotFiles !== 'false')
   })
   fastify.get('/hosts/:hostId/files/search-content', async (request) => {
     const { hostId } = request.params as { hostId: string }
-    const query = request.query as { root?: string; q?: string; basePath?: string }
-    return searchContentForHost(hostId, query.root || '', query.q || '', query.basePath || '')
+    const query = request.query as { root?: string; q?: string; basePath?: string; includeDotFiles?: string }
+    return searchContentForHost(hostId, query.root || '', query.q || '', query.basePath || '', query.includeDotFiles !== 'false')
   })
   fastify.get('/hosts/:hostId/files/default-upload-target', async (request) => {
     const { hostId } = request.params as { hostId: string }

@@ -193,10 +193,10 @@ export function useFilePreview(hostId: string, root: string, path: string, line 
   })
 }
 
-export function useFileSearch(hostId: string, root: string, mode: 'name' | 'content', query: string, basePath = '') {
+export function useFileSearch(hostId: string, root: string, mode: 'name' | 'content', query: string, basePath = '', includeDotFiles = true) {
   return useQuery({
-    queryKey: ['file-search', hostId, root, mode, query, basePath],
-    queryFn: () => mode === 'name' ? api.files.searchName(hostId, root, query, basePath) : api.files.searchContent(hostId, root, query, basePath),
+    queryKey: ['file-search', hostId, root, mode, query, basePath, includeDotFiles],
+    queryFn: () => mode === 'name' ? api.files.searchName(hostId, root, query, basePath, includeDotFiles) : api.files.searchContent(hostId, root, query, basePath, includeDotFiles),
     enabled: !!root && query.trim().length > 0,
     staleTime: 8000,
     gcTime: 60000,

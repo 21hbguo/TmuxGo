@@ -1,5 +1,9 @@
 function getBrowserApiBase() {
-  return ''
+  const envBase=process.env.NEXT_PUBLIC_API_URL
+  if (envBase) return envBase
+  const protocol=window.location.protocol==='https:'?'https:':'http:'
+  const port=protocol==='https:'?'8443':'3001'
+  return `${protocol}//${window.location.hostname}:${port}`
 }
 export function getApiBase() {
   if (typeof window!=='undefined') {
