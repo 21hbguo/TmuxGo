@@ -1,5 +1,6 @@
 'use client'
 import { useCallback, useMemo, useRef } from 'react'
+import { extractClipboardImageFiles } from '@/lib/clipboard-files'
 import { extractClipboardText } from '@/lib/clipboard-text'
 
 const KEYBOARD_PASTE_FALLBACK_DELAY = 160
@@ -7,7 +8,7 @@ function clearTextareaTarget(target: EventTarget | null) {
   if (target instanceof HTMLTextAreaElement) target.value = ''
 }
 
-export function useTerminalPasteBridge() {
+export function useTerminalPasteBridge(onPasteFiles?: (files: File[]) => void) {
   const keyboardPasteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const keyboardPastePendingRef = useRef(false)
   const lastPasteTextRef = useRef('')
@@ -39,6 +40,17 @@ export function useTerminalPasteBridge() {
     }, KEYBOARD_PASTE_FALLBACK_DELAY)
   }, [clearKeyboardPasteTimer, requestTerminalPaste])
   const handlePaste = useCallback((e: ClipboardEvent) => {
+    const files = extractClipboardImageFiles(e.clipboardData)
+    if (files.length) {
+      keyboardPastePendingRef.current = false
+      clearKeyboardPasteTimer()
+      e.preventDefault()
+      e.stopPropagation()
+      e.stopImmediatePropagation()
+      clearTextareaTarget(e.target)
+      onPasteFiles?.(files)
+      return
+    }
     const text = extractClipboardText(e.clipboardData)
     const target = e.target
     keyboardPastePendingRef.current = false
@@ -66,7 +78,7 @@ export function useTerminalPasteBridge() {
     clearTextareaTarget(target)
     markPasteForwarded(text)
     requestTerminalPaste(text)
-  }, [clearKeyboardPasteTimer, markPasteForwarded, requestTerminalPaste, shouldSkipDuplicatePaste])
+  }, [clearKeyboardPasteTimer, markPasteForwarded, onPasteFiles, requestTerminalPaste, shouldSkipDuplicatePaste])
   const handlePasteInput = useCallback((e: InputEvent) => {
     const isPasteInput = e.inputType === 'insertFromPaste'
     if (!isPasteInput && keyboardPastePendingRef.current) {

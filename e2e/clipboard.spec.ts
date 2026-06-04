@@ -93,6 +93,25 @@ test('send keeps terminal focus so typing can continue immediately', async ({ pa
   expect(pane.data).toContain('focus_more_ok')
 })
 
+test('send restores desktop ime helper geometry after confirmed paste', async ({ page, request }) => {
+  const session = await ensureSession(request, 'tmuxgo_e2e_clip')
+  await openSession(page, session)
+  await page.waitForFunction(() => !!document.querySelector('[data-terminal] .xterm-helper-textarea'))
+  await page.evaluate(() => {
+    window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-paste', { detail: { text: 'printf "ime_geometry_ok"', source: 'system' } }))
+  })
+  await expect(page.getByText(confirmPasteTitle)).toBeVisible()
+  await page.getByRole('button', { name: sendButtonName }).click()
+  const metrics = await page.waitForFunction(() => {
+    const helper = document.querySelector('[data-terminal] .xterm-helper-textarea') as HTMLTextAreaElement | null
+    if (!helper) return null
+    const rect = helper.getBoundingClientRect()
+    return document.activeElement === helper && rect.width > 0 && rect.height > 0 && helper.style.left !== '-9999em' ? { left: helper.style.left, top: helper.style.top, width: helper.style.width, height: helper.style.height, zIndex: helper.style.zIndex } : null
+  })
+  const value = await metrics.jsonValue()
+  expect(value).toMatchObject({ width: expect.stringMatching(/px$/), height: expect.stringMatching(/px$/), zIndex: '-5' })
+})
+
 test('can copy into app clipboard and paste back when system clipboard is unavailable', async ({ page, request }) => {
   const session = await ensureSession(request, 'tmuxgo_e2e_clip')
   await openSession(page, session)

@@ -6,6 +6,7 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useFileRoots } from '@/hooks/useApi'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useTranslation } from '@/i18n'
+import type { FileUploadTarget } from '@/types'
 
 function formatSize(size: number) {
   if (size < 1024) return `${size}B`
@@ -30,12 +31,17 @@ export function UploadConfirmDialog() {
   const [insertPaths, setInsertPaths] = useState(true)
   const [loadingTarget, setLoadingTarget] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [temporaryTarget, setTemporaryTarget] = useState<FileUploadTarget | null>(null)
   const initializedRequestRef = useRef('')
+  const rootsRef = useRef(roots)
   const files = uploadRequest?.files || []
   const open = files.length > 0
   const totalSize = useMemo(() => files.reduce((sum, file) => sum + file.size, 0), [files])
-  const requestKey = useMemo(() => open ? `${uploadRequest?.preferredRootId || ''}:${uploadRequest?.preferredPath || ''}:${files.map((file) => `${file.name}:${file.size}:${file.lastModified}`).join('|')}` : '', [open, uploadRequest?.preferredRootId, uploadRequest?.preferredPath, files])
+  const requestKey = useMemo(() => open ? `${uploadRequest?.temporary ? 'tmp' : 'default'}:${uploadRequest?.preferredRootId || ''}:${uploadRequest?.preferredPath || ''}:${files.map((file) => `${file.name}:${file.size}:${file.lastModified}`).join('|')}` : '', [open, uploadRequest?.temporary, uploadRequest?.preferredRootId, uploadRequest?.preferredPath, files])
 
+  useEffect(() => {
+    rootsRef.current = roots
+  }, [roots])
   useEffect(() => {
     if (!open) {
       initializedRequestRef.current = ''
@@ -44,6 +50,26 @@ export function UploadConfirmDialog() {
     if (initializedRequestRef.current === requestKey) return
     initializedRequestRef.current = requestKey
     setInsertPaths(uploadRequest?.insertPaths !== false)
+    setTemporaryTarget(null)
+    if (uploadRequest?.temporary) {
+      let cancelled = false
+      setTargetRootId('')
+      setTargetPath('')
+      setLoadingTarget(true)
+      void api.files.temporaryUploadTarget(hostId).then((target) => {
+        if (cancelled) return
+        setTemporaryTarget(target)
+        setTargetRootId(target.rootId)
+        setTargetPath(target.path)
+      }).catch((err) => {
+        if (!cancelled) pushToast({ type: 'error', message: err instanceof Error ? err.message : t('upload.resolveFailed') })
+      }).finally(() => {
+        if (!cancelled) setLoadingTarget(false)
+      })
+      return () => {
+        cancelled = true
+      }
+    }
     if (uploadRequest?.preferredRootId) {
       setTargetRootId(uploadRequest.preferredRootId)
       setTargetPath(uploadRequest.preferredPath || '')
@@ -58,7 +84,7 @@ export function UploadConfirmDialog() {
       setTargetPath(target.path)
     }).catch((err) => {
       if (cancelled) return
-      const fallbackRoot = roots[0]
+      const fallbackRoot = rootsRef.current[0]
       setTargetRootId(fallbackRoot?.id || '')
       setTargetPath('')
       pushToast({ type: 'error', message: err instanceof Error ? err.message : t('upload.resolveFailed') })
@@ -68,13 +94,13 @@ export function UploadConfirmDialog() {
     return () => {
       cancelled = true
     }
-  }, [open, requestKey, uploadRequest, activePaneId, hostId, roots, pushToast])
+  }, [open, requestKey, uploadRequest, activePaneId, hostId, pushToast, t])
   useEffect(() => {
-    if (!open || targetRootId || !roots.length) return
+    if (!open || uploadRequest?.temporary || targetRootId || !roots.length) return
     setTargetRootId(roots[0].id)
-  }, [open, targetRootId, roots])
+  }, [open, uploadRequest?.temporary, targetRootId, roots])
 
-  const activeRoot = roots.find((item) => item.id === targetRootId) || roots[0] || null
+  const activeRoot = temporaryTarget && temporaryTarget.rootId === targetRootId ? { id: temporaryTarget.rootId, label: temporaryTarget.rootLabel, path: temporaryTarget.rootPath } : roots.find((item) => item.id === targetRootId) || roots[0] || null
   const pathPreview = useMemo(() => {
     if (!activeRoot) return ''
     const normalized = targetPath.split(/[\\/]+/).filter(Boolean).join('/')
@@ -141,11 +167,11 @@ export function UploadConfirmDialog() {
         </div>
         <div className="mt-4 grid gap-3 md:grid-cols-[160px_1fr]">
           <label className="text-sm text-text-2">{t('upload.root')}</label>
-          <select value={targetRootId} onChange={(e) => setTargetRootId(e.target.value)} className="tmuxgo-control tmuxgo-select rounded px-3 py-2 text-sm">
-            {roots.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+          <select value={targetRootId} onChange={(e) => setTargetRootId(e.target.value)} disabled={!!uploadRequest?.temporary} className="tmuxgo-control tmuxgo-select rounded px-3 py-2 text-sm disabled:opacity-70">
+            {temporaryTarget && uploadRequest?.temporary ? <option value={temporaryTarget.rootId}>{temporaryTarget.rootLabel}</option> : roots.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
           </select>
           <label className="text-sm text-text-2">{t('upload.directory')}</label>
-          <input value={targetPath} onChange={(e) => setTargetPath(e.target.value)} placeholder={t('upload.directory')} className="tmuxgo-control tmuxgo-input rounded px-3 py-2 font-mono text-sm" />
+          <input value={targetPath} onChange={(e) => setTargetPath(e.target.value)} disabled={!!uploadRequest?.temporary} placeholder={t('upload.directory')} className="tmuxgo-control tmuxgo-input rounded px-3 py-2 font-mono text-sm disabled:opacity-70" />
           <label className="text-sm text-text-2">{t('upload.target')}</label>
           <div className="rounded border border-[var(--line)] bg-bg-0 px-3 py-2 font-mono text-xs text-text-2">{loadingTarget ? t('upload.resolving') : pathPreview || '-'}</div>
         </div>

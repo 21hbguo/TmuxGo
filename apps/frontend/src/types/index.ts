@@ -165,7 +165,7 @@ export interface FileUploadTarget {
   rootPath: string
   path: string
   absolutePath: string
-  source: 'pane' | 'fallback' | 'preferred'
+  source: 'pane' | 'fallback' | 'preferred' | 'temporary'
 }
 export interface UploadedFile {
   name: string
