@@ -358,15 +358,15 @@ describe('TerminalPane', () => {
     vi.unstubAllGlobals()
   })
 
-  it('copies selection to clipboard when terminal selection changes without pointer sync', async () => {
+  it('does not copy selection to clipboard on passive selection change', async () => {
     const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(onSelectionChangeHandlers.length).toBeGreaterThan(0))
     onSelectionChangeHandlers[0]()
     await sleep(60)
-    await waitFor(() => expect(clipboardMocks.writeClipboardText).toHaveBeenCalledWith('printf "auto_copy_ok"',{preferSync:true}))
+    expect(clipboardMocks.writeClipboardText).not.toHaveBeenCalled()
     expect(container.firstChild).toBeTruthy()
   })
-  it('copies multiline selection within the tmux pane that contains the selection start', async () => {
+  it('copies multiline selection within the tmux pane that contains the selection start on pointer release', async () => {
     terminalSelection = 'raw selection including another pane'
     terminalSelectionPosition = { start: { x: 2, y: 0 }, end: { x: 5, y: 2 } }
     terminalBufferLines = [
@@ -383,10 +383,11 @@ describe('TerminalPane', () => {
         { id: '%2', windowId: 'dev:0', left: 13, top: 0, size: { cols: 12, rows: 10 } },
       ],
     })
-    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(onSelectionChangeHandlers.length).toBeGreaterThan(0))
-    onSelectionChangeHandlers[0]()
-    await waitFor(() => expect(clipboardMocks.writeClipboardText).toHaveBeenCalledWith('0123456789\nbb0123456789\ncc012',{preferSync:true}))
+    fireEvent.mouseDown(container.firstChild as Element)
+    fireEvent.mouseUp(container.firstChild as Element)
+    expect(document.execCommand).toHaveBeenCalledWith('copy')
   })
   it('shows GitHub device login helper from terminal output and supports open and copy', async () => {
     render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
@@ -517,37 +518,25 @@ describe('TerminalPane', () => {
     expect(clipboardMocks.writeClipboardText).toHaveBeenCalledTimes(0)
   })
 
-  it('retries system clipboard copy on global mouse release after browser block', async () => {
+  it('falls back to clipboard write on pointer release after native copy block', async () => {
     ;(document as Document & { execCommand?: (command: string) => boolean }).execCommand = vi.fn(() => false)
-    clipboardMocks.writeClipboardText
-      .mockResolvedValueOnce({ copied: true, source: 'memory', unavailable: true, reason: 'permission_denied' })
-      .mockResolvedValue({ copied: true, source: 'system', unavailable: false, reason: 'ok' })
     const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(onSelectionChangeHandlers.length).toBeGreaterThan(0))
     terminalSelection = 'printf "retry_copy_ok"'
     onSelectionChangeHandlers[0]()
-    await sleep(60)
-    const beforePointerRelease = clipboardMocks.writeClipboardText.mock.calls.length
-    expect(beforePointerRelease).toBeGreaterThan(0)
+    expect(clipboardMocks.writeClipboardText).not.toHaveBeenCalled()
     fireEvent.mouseDown(container.firstChild as Element)
     fireEvent.mouseUp(window)
-    await waitFor(() => expect(clipboardMocks.writeClipboardText.mock.calls.length).toBeGreaterThan(beforePointerRelease))
-    expect(clipboardMocks.writeClipboardText).toHaveBeenLastCalledWith('printf "retry_copy_ok"',{preferSync:true})
+    await waitFor(() => expect(clipboardMocks.writeClipboardText).toHaveBeenCalledWith('printf "retry_copy_ok"',{preferSync:true}))
   })
   it('does not retry selection copy on unrelated global mouse release', async () => {
-    clipboardMocks.writeClipboardText
-      .mockResolvedValueOnce({ copied: true, source: 'memory', unavailable: true, reason: 'permission_denied' })
-      .mockResolvedValue({ copied: true, source: 'system', unavailable: false, reason: 'ok' })
     render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(onSelectionChangeHandlers.length).toBeGreaterThan(0))
     terminalSelection = 'printf "no_global_retry_ok"'
     onSelectionChangeHandlers[0]()
-    await sleep(60)
-    const beforeMouseUp = clipboardMocks.writeClipboardText.mock.calls.length
-    expect(beforeMouseUp).toBeGreaterThan(0)
     fireEvent.mouseUp(window)
     await sleep(20)
-    expect(clipboardMocks.writeClipboardText).toHaveBeenCalledTimes(beforeMouseUp)
+    expect(clipboardMocks.writeClipboardText).not.toHaveBeenCalled()
   })
   it('writes terminal selection into clipboardData on native copy event', async () => {
     const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
@@ -594,12 +583,14 @@ describe('TerminalPane', () => {
     expect(handled).toBe(true)
     expect(onInput).not.toHaveBeenCalled()
   })
-  it('deduplicates auto-copy failure toast by reason and selection', async () => {
+  it('deduplicates explicit copy failure toast by reason and selection', async () => {
+    ;(document as Document & { execCommand?: (command: string) => boolean }).execCommand = vi.fn(() => false)
     clipboardMocks.writeClipboardText.mockResolvedValue({ copied: true, source: 'memory', unavailable: true, reason: 'permission_denied' })
     render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
-    await waitFor(() => expect(onSelectionChangeHandlers.length).toBeGreaterThan(0))
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
     terminalSelection = 'printf "dedupe_toast_ok"'
-    onSelectionChangeHandlers[0]()
+    customKeyHandler?.({ key: 'c', ctrlKey: true, metaKey: false, altKey: false } as KeyboardEvent)
+    customKeyHandler?.({ key: 'c', ctrlKey: true, metaKey: false, altKey: false } as KeyboardEvent)
     await sleep(80)
     expect(storeMocks.pushToast).toHaveBeenCalledTimes(1)
     expect(storeMocks.pushToast).toHaveBeenCalledWith({ type: 'info', message: 'System clipboard blocked by browser, kept in app clipboard. Press Ctrl/Cmd+C to copy.' })

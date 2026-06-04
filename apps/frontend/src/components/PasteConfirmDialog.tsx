@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type MouseEvent, type TouchEvent } from 'react'
 import { useTranslation } from '@/i18n'
 
 interface PasteConfirmDialogProps {
@@ -18,8 +18,9 @@ interface PasteConfirmDialogProps {
 export function PasteConfirmDialog({ open, text, meta, mode = 'confirm', onTextChange, onRetryPermission, onSend, onEscapeSend, onCancel }: PasteConfirmDialogProps) {
   const { t } = useTranslation()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const isManual = mode === 'manual'
   useEffect(() => {
-    if (!open) return
+    if (!open || !isManual) return
     const focusToEnd = () => {
       const textarea = textareaRef.current
       if (!textarea) return
@@ -34,9 +35,11 @@ export function PasteConfirmDialog({ open, text, meta, mode = 'confirm', onTextC
       cancelAnimationFrame(frame)
       clearTimeout(timer)
     }
-  }, [open])
+  }, [open, isManual])
   if (!open) return null
-  const isManual = mode === 'manual'
+  const preventFocus = (e: MouseEvent<HTMLButtonElement> | TouchEvent<HTMLButtonElement>) => {
+    e.preventDefault()
+  }
   return (
     <div className="fixed inset-0 z-[85] flex items-center justify-center bg-black/60 p-4" onClick={onCancel}>
       <div
@@ -61,19 +64,12 @@ export function PasteConfirmDialog({ open, text, meta, mode = 'confirm', onTextC
             <div key={item} className="rounded bg-bg-2 px-2 py-1">{item}</div>
           ))}
         </div>
-        <textarea
-          ref={textareaRef}
-          value={text}
-          onChange={(e) => onTextChange?.(e.target.value)}
-          className="tmuxgo-control tmuxgo-textarea mt-4 h-48 w-full resize-none rounded p-3 text-xs"
-          autoFocus
-          spellCheck={false}
-        />
+        {isManual ? <textarea ref={textareaRef} value={text} onChange={(e) => onTextChange?.(e.target.value)} className="tmuxgo-control tmuxgo-textarea mt-4 h-48 w-full resize-none rounded p-3 text-xs" autoFocus spellCheck={false} /> : <pre className="mt-4 max-h-[40vh] overflow-auto rounded bg-bg-2 p-3 text-xs text-text-2 whitespace-pre-wrap break-all">{text}</pre>}
         <div className="mt-5 flex flex-wrap justify-end gap-2">
-          <button onClick={onCancel} className="rounded px-4 py-2 text-sm text-text-3 hover:text-text-1">{t('paste.cancel')}</button>
-          {isManual && <button onClick={onRetryPermission} className="rounded bg-bg-2 px-4 py-2 text-sm text-text-1 hover:bg-bg-0">{t('paste.retryPermission')}</button>}
-          <button onClick={onEscapeSend} className="rounded bg-bg-2 px-4 py-2 text-sm text-text-1 hover:bg-bg-0">{t('paste.escapePaste')}</button>
-          <button onClick={onSend} disabled={!text} className="rounded bg-accent/20 px-4 py-2 text-sm text-accent hover:bg-accent/30 disabled:cursor-not-allowed disabled:opacity-50">{t('paste.send')}</button>
+          <button onMouseDown={preventFocus} onTouchStart={preventFocus} onClick={onCancel} className="rounded px-4 py-2 text-sm text-text-3 hover:text-text-1">{t('paste.cancel')}</button>
+          {isManual && <button onMouseDown={preventFocus} onTouchStart={preventFocus} onClick={onRetryPermission} className="rounded bg-bg-2 px-4 py-2 text-sm text-text-1 hover:bg-bg-0">{t('paste.retryPermission')}</button>}
+          <button onMouseDown={preventFocus} onTouchStart={preventFocus} onClick={onEscapeSend} className="rounded bg-bg-2 px-4 py-2 text-sm text-text-1 hover:bg-bg-0">{t('paste.escapePaste')}</button>
+          <button onMouseDown={preventFocus} onTouchStart={preventFocus} onClick={onSend} disabled={!text} className="rounded bg-accent/20 px-4 py-2 text-sm text-accent hover:bg-accent/30 disabled:cursor-not-allowed disabled:opacity-50">{t('paste.send')}</button>
         </div>
       </div>
     </div>
