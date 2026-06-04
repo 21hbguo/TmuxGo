@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import React from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -81,7 +81,7 @@ describe('ClipboardController', () => {
     expect(terminalInput.mock.calls[0][0].detail.data).toBe('echo a\necho b')
     window.removeEventListener('tmuxgo-terminal-input', terminalInput)
   })
-  it('does not request terminal focus after confirm paste closes', async () => {
+  it('requests terminal focus once after confirmed paste sends', async () => {
     const user = userEvent.setup()
     const terminalInput = vi.fn()
     const focusTerminal = vi.fn()
@@ -96,7 +96,7 @@ describe('ClipboardController', () => {
       await new Promise((resolve) => setTimeout(resolve, 130))
     })
     expect(terminalInput).toHaveBeenCalledTimes(1)
-    expect(focusTerminal).not.toHaveBeenCalled()
+    expect(focusTerminal).toHaveBeenCalledTimes(1)
     window.removeEventListener('tmuxgo-focus-terminal', focusTerminal)
     window.removeEventListener('tmuxgo-terminal-input', terminalInput)
   })
@@ -142,12 +142,14 @@ describe('ClipboardController', () => {
     })
     const textarea = await screen.findByRole('textbox')
     expect(textarea).toHaveValue('printf clipboard')
+    await waitFor(() => expect(document.activeElement).toBe(textarea))
+    await waitFor(() => expect(textarea).toHaveProperty('selectionStart', 'printf clipboard'.length))
+    await waitFor(() => expect(textarea).toHaveProperty('selectionEnd', 'printf clipboard'.length))
     expect(terminalInput).not.toHaveBeenCalled()
-    await user.clear(textarea)
-    await user.type(textarea, 'printf edited')
-    await user.click(screen.getByRole('button', { name: 'Send' }))
+    await user.keyboard(' edited')
+    await user.keyboard('{Enter}')
     expect(terminalInput).toHaveBeenCalledTimes(1)
-    expect(terminalInput.mock.calls[0][0].detail.data).toBe('printf edited')
+    expect(terminalInput.mock.calls[0][0].detail.data).toBe('printf clipboard edited')
     window.removeEventListener('tmuxgo-terminal-input', terminalInput)
   })
   it('keeps manual clipboard fallback editable', async () => {

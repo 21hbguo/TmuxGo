@@ -18,6 +18,9 @@ export function ClipboardController() {
   const sendTerminalInput = useCallback((data: string) => {
     window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data } }))
   }, [])
+  const requestTerminalFocus = useCallback(() => {
+    window.dispatchEvent(new CustomEvent('tmuxgo-focus-terminal'))
+  }, [])
   const routePasteText = useCallback((text: string, source: 'system' | 'memory' | 'empty' = 'system') => {
     if (!text) return false
     const analysis = analyzePaste(text)
@@ -86,6 +89,7 @@ export function ClipboardController() {
           if (pendingPaste.source === 'memory') pushToast({ type: 'info', message: t('clipboard.pastedFromApp') })
         }
         closePasteDialog()
+        requestTerminalFocus()
       }}
       onEscapeSend={() => {
         if (pendingPaste) {
@@ -93,6 +97,7 @@ export function ClipboardController() {
           if (pendingPaste.source === 'memory') pushToast({ type: 'info', message: t('clipboard.pastedFromApp') })
         }
         closePasteDialog()
+        requestTerminalFocus()
       }}
     />
   )
