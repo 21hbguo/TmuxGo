@@ -12,6 +12,7 @@ let terminalBufferLines: string[] = []
 let terminalBaseY = 0
 let terminalViewportY = 0
 let terminalUnicodeActiveVersion = '6'
+let terminalConstructorOptions: any = null
 let terminalCellWidth = 8
 let terminalCellHeight = 16
 let resizeObserverCallback: (() => void) | null = null
@@ -192,6 +193,7 @@ vi.mock('@xterm/xterm', () => {
       },
     }
     constructor(options: any) {
+      terminalConstructorOptions = options
       this.options = options
     }
     loadAddon(addon?: { activate?: (terminal: any) => void }) {
@@ -312,6 +314,7 @@ describe('TerminalPane', () => {
     terminalBaseY = 0
     terminalViewportY = 0
     terminalUnicodeActiveVersion = '6'
+    terminalConstructorOptions = null
     terminalCellWidth = 8
     terminalCellHeight = 16
     terminalLinkProviders = []
@@ -539,6 +542,11 @@ describe('TerminalPane', () => {
     render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(terminalLifecycleMocks.open).toHaveBeenCalledTimes(1))
     expect(terminalUnicodeActiveVersion).toBe('11')
+  })
+  it('enables proposed xterm api required by unicode11 addon', async () => {
+    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(terminalLifecycleMocks.open).toHaveBeenCalledTimes(1))
+    expect(terminalConstructorOptions?.allowProposedApi).toBe(true)
   })
   it('prefers webgl renderer on desktop when available', async () => {
     window.localStorage.setItem('tmuxgo-debug-mobile', '1')

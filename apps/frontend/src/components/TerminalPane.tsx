@@ -1337,6 +1337,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         lineHeight: 1,
         minimumContrastRatio: 4.5,
         customGlyphs: true,
+        allowProposedApi: true,
         macOptionIsMeta: true,
         macOptionClickForcesSelection: true,
         scrollback: SCROLLBACK_LIMIT,

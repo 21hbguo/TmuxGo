@@ -18,16 +18,18 @@ const preferencesUpdate = vi.fn(async (payload: any) => ({ version: 1, updatedAt
 const consoleStoreState: { activeHostId: string; activeSessionId: string; filePanelWidth: number; setFilePanelWidth: typeof setFilePanelWidth; setFilePanelOpen: typeof setFilePanelOpen; openUploadDialog: typeof openUploadDialog; pushToast: typeof pushToast; openEditors: FileEditorDocument[]; activeEditorId: string | null } = { activeHostId: 'local', activeSessionId: 'session-a', filePanelWidth: 360, setFilePanelWidth, setFilePanelOpen, openUploadDialog, pushToast, openEditors: [], activeEditorId: null }
 
 const roots = [
+  { id: 'root-workspace', label: 'Workspace', path: '/workspace' },
   { id: 'root-home', label: 'Home', path: '/home/guo' },
 ]
 const getListData = (rootId: string, currentPath: string): FileListResponse => {
-  if (rootId === 'root-home') {
-    if (!currentPath) return { root: roots[0], path: '', breadcrumbs: [{ name: '/', path: '' }], items: [{ name: 'src', path: 'src', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: 'docs', path: 'docs', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: 'project', path: 'project', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: 'downloads', path: 'downloads', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: '.env', path: '.env', type: 'file', size: 4, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
-    if (currentPath === 'src') return { root: roots[0], path: 'src', breadcrumbs: [{ name: '/', path: '' }, { name: 'src', path: 'src' }], items: [{ name: 'nested', path: 'src/nested', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: 'index.ts', path: 'src/index.ts', type: 'file', size: 12, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
-    if (currentPath === 'src/nested') return { root: roots[0], path: 'src/nested', breadcrumbs: [{ name: '/', path: '' }, { name: 'src', path: 'src' }, { name: 'nested', path: 'src/nested' }], items: [{ name: 'deep.ts', path: 'src/nested/deep.ts', type: 'file', size: 7, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
-    if (currentPath === 'docs') return { root: roots[0], path: 'docs', breadcrumbs: [{ name: '/', path: '' }, { name: 'docs', path: 'docs' }], items: [{ name: 'guide.md', path: 'docs/guide.md', type: 'file', size: 16, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
-    if (currentPath === 'project') return { root: roots[0], path: 'project', breadcrumbs: [{ name: '/', path: '' }, { name: 'project', path: 'project' }], items: [{ name: 'demo.txt', path: 'project/demo.txt', type: 'file', size: 8, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
-    if (currentPath === 'downloads') return { root: roots[0], path: 'downloads', breadcrumbs: [{ name: '/', path: '' }, { name: 'downloads', path: 'downloads' }], items: [{ name: 'archive.zip', path: 'downloads/archive.zip', type: 'file', size: 32, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: 'photo.png', path: 'downloads/photo.png', type: 'file', size: 48, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
+  if (rootId === 'root-home' || rootId === 'root-workspace') {
+    const root = roots.find((item) => item.id === rootId) || roots[0]
+    if (!currentPath) return { root, path: '', breadcrumbs: [{ name: '/', path: '' }], items: [{ name: 'src', path: 'src', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: 'docs', path: 'docs', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: 'project', path: 'project', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: 'downloads', path: 'downloads', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: '.env', path: '.env', type: 'file', size: 4, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
+    if (currentPath === 'src') return { root, path: 'src', breadcrumbs: [{ name: '/', path: '' }, { name: 'src', path: 'src' }], items: [{ name: 'nested', path: 'src/nested', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: 'index.ts', path: 'src/index.ts', type: 'file', size: 12, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
+    if (currentPath === 'src/nested') return { root, path: 'src/nested', breadcrumbs: [{ name: '/', path: '' }, { name: 'src', path: 'src' }, { name: 'nested', path: 'src/nested' }], items: [{ name: 'deep.ts', path: 'src/nested/deep.ts', type: 'file', size: 7, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
+    if (currentPath === 'docs') return { root, path: 'docs', breadcrumbs: [{ name: '/', path: '' }, { name: 'docs', path: 'docs' }], items: [{ name: 'guide.md', path: 'docs/guide.md', type: 'file', size: 16, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
+    if (currentPath === 'project') return { root, path: 'project', breadcrumbs: [{ name: '/', path: '' }, { name: 'project', path: 'project' }], items: [{ name: 'demo.txt', path: 'project/demo.txt', type: 'file', size: 8, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
+    if (currentPath === 'downloads') return { root, path: 'downloads', breadcrumbs: [{ name: '/', path: '' }, { name: 'downloads', path: 'downloads' }], items: [{ name: 'archive.zip', path: 'downloads/archive.zip', type: 'file', size: 32, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: 'photo.png', path: 'downloads/photo.png', type: 'file', size: 48, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
   }
   return { root: roots.find((item) => item.id === rootId) || roots[0], path: currentPath, breadcrumbs: [{ name: '/', path: '' }], items: [] }
 }
@@ -44,7 +46,7 @@ vi.mock('@/hooks/useApi', () => ({
   useFileRoots: () => ({ data: roots }),
   useFileList: (_hostId: string, nextRootId: string, nextCurrentPath: string, enabled = true) => {
     if (!enabled) return { data: undefined, isLoading: false }
-    return { data: getListData(nextRootId || 'root-home', nextCurrentPath), isLoading: false }
+    return { data: getListData(nextRootId || 'root-workspace', nextCurrentPath), isLoading: false }
   },
   useFilePreview: (_hostId: string, _rootId: string, path: string, line = 1) => ({ data: path ? path.endsWith('.png') ? { path, type: 'file', size: 48, modifiedAt: '2026-05-26T00:00:00.000Z', binary: true, truncated: false, reason: 'binary-file', lines: [] } : { path, type: 'file', size: 32, modifiedAt: '2026-05-26T00:00:00.000Z', binary: false, truncated: false, lines: [{ number: line, content: `line-${line}` }] } : null }),
   useFileSearch: (_hostId: string, _rootId: string, mode: string, query: string, basePath = '', includeDotFiles = true) => {
@@ -122,11 +124,11 @@ describe('FilePanel', () => {
     vi.unstubAllGlobals()
   })
 
-  it('shows home as the default quick access root', async () => {
+  it('shows workspace as the default quick access root', async () => {
     render(React.createElement(FilePanel))
+    expect(await screen.findByRole('option', { name: 'Workspace' })).toBeInTheDocument()
     expect(await screen.findByRole('option', { name: 'Home' })).toBeInTheDocument()
-    expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('root-home')
-    expect(screen.queryByRole('option', { name: 'Workspace' })).not.toBeInTheDocument()
+    expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('root-workspace')
   })
 
   it('expands and collapses directories on desktop', async () => {
@@ -142,7 +144,7 @@ describe('FilePanel', () => {
     render(React.createElement(FilePanel))
     fireEvent.click(screen.getByRole('button', { name: 'Favorite src' }))
     let favorites = JSON.parse(localStorage.getItem('tmuxgo-favorite-directories') || '[]')
-    expect(favorites.map((item: any) => `${item.rootId}:${item.path}`)).toEqual(['root-home:src'])
+    expect(favorites.map((item: any) => `${item.rootId}:${item.path}`)).toEqual(['root-workspace:src'])
     fireEvent.click(screen.getByRole('button', { name: 'Unfavorite src' }))
     favorites = JSON.parse(localStorage.getItem('tmuxgo-favorite-directories') || '[]')
     expect(favorites).toEqual([])
@@ -187,9 +189,9 @@ describe('FilePanel', () => {
     expect(onOpenFile).toHaveBeenCalledTimes(1)
     expect(onOpenFile.mock.calls[0][0]).toMatchObject({
       hostId: 'local',
-      rootId: 'root-home',
+      rootId: 'root-workspace',
       path: 'downloads/photo.png',
-      absolutePath: '/home/guo/downloads/photo.png',
+      absolutePath: '/workspace/downloads/photo.png',
     })
   })
   it('copies file path from favorite root with full absolute path', async () => {
@@ -204,7 +206,7 @@ describe('FilePanel', () => {
   it('hides desktop preview action in explorer context menu', async () => {
     render(React.createElement(FilePanel, { onOpenFile: vi.fn() }))
     fireEvent.click(await screen.findByText('src'))
-    const file = await screen.findByTitle('/home/guo/src/index.ts')
+    const file = await screen.findByTitle('/workspace/src/index.ts')
     fireEvent.contextMenu(file)
     expect(screen.getByText('Open in editor')).toBeInTheDocument()
     expect(screen.queryByText('Open preview')).not.toBeInTheDocument()
@@ -309,10 +311,10 @@ describe('FilePanel', () => {
     render(React.createElement(FilePanel))
     const input = screen.getByPlaceholderText('Search file names') as HTMLInputElement
     fireEvent.change(input, { target: { value: 'src' } })
-    const directory = await screen.findByTitle('/home/guo/src')
+    const directory = await screen.findByTitle('/workspace/src')
     expect(directory).toHaveTextContent('src')
     fireEvent.click(directory)
-    expect(await screen.findByTitle('/home/guo/src/index.ts')).toHaveTextContent('index.ts')
+    expect(await screen.findByTitle('/workspace/src/index.ts')).toHaveTextContent('index.ts')
   })
 
   it('enters a searched directory on mobile while keeping name search active', async () => {
@@ -468,18 +470,18 @@ describe('FilePanel', () => {
     fireEvent.click(src)
     await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
     expect(collapseAll).not.toBeDisabled()
-    expect(vi.mocked(api.files.list).mock.calls.filter(([, rootId, path]) => rootId === 'root-home' && path === 'src')).toHaveLength(1)
+    expect(vi.mocked(api.files.list).mock.calls.filter(([, rootId, path]) => rootId === 'root-workspace' && path === 'src')).toHaveLength(1)
     fireEvent.click(collapseAll)
     await waitFor(() => expect(screen.queryByText('index.ts')).not.toBeInTheDocument())
     expect(collapseAll).toBeDisabled()
     fireEvent.click(screen.getByText('src'))
     await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
-    expect(vi.mocked(api.files.list).mock.calls.filter(([, rootId, path]) => rootId === 'root-home' && path === 'src')).toHaveLength(2)
+    expect(vi.mocked(api.files.list).mock.calls.filter(([, rootId, path]) => rootId === 'root-workspace' && path === 'src')).toHaveLength(2)
   })
   it('keeps directory collapsed when async child loading resolves after collapse', async () => {
     const { api } = await import('@/lib/api')
     vi.mocked(api.files.list).mockImplementation(async (_hostId: string, rootId: string, path = '') => {
-      if (rootId === 'root-home' && path === 'src') {
+      if (rootId === 'root-workspace' && path === 'src') {
         await new Promise<void>((resolve) => delayedSrcResolvers.push(resolve))
       }
       return getListData(rootId, path)
@@ -495,7 +497,7 @@ describe('FilePanel', () => {
   it('shows directory children after async loading without requiring a second toggle', async () => {
     const { api } = await import('@/lib/api')
     vi.mocked(api.files.list).mockImplementation(async (_hostId: string, rootId: string, path = '') => {
-      if (rootId === 'root-home' && path === 'src') {
+      if (rootId === 'root-workspace' && path === 'src') {
         await new Promise<void>((resolve) => delayedSrcResolvers.push(resolve))
       }
       return getListData(rootId, path)
@@ -509,7 +511,7 @@ describe('FilePanel', () => {
   it('shows loading state while directory children are pending', async () => {
     const { api } = await import('@/lib/api')
     vi.mocked(api.files.list).mockImplementation(async (_hostId: string, rootId: string, path = '') => {
-      if (rootId === 'root-home' && path === 'src') {
+      if (rootId === 'root-workspace' && path === 'src') {
         await new Promise<void>((resolve) => delayedSrcResolvers.push(resolve))
       }
       return getListData(rootId, path)
@@ -524,7 +526,7 @@ describe('FilePanel', () => {
     const { api } = await import('@/lib/api')
     let attempts = 0
     vi.mocked(api.files.list).mockImplementation(async (_hostId: string, rootId: string, path = '') => {
-      if (rootId === 'root-home' && path === 'src') {
+      if (rootId === 'root-workspace' && path === 'src') {
         attempts += 1
         if (attempts === 1) throw new Error('temporary failure')
       }
@@ -541,7 +543,7 @@ describe('FilePanel', () => {
     const { api } = await import('@/lib/api')
     vi.mocked(api.files.list).mockClear()
     vi.mocked(api.files.list).mockImplementation(async (_hostId: string, rootId: string, path = '') => {
-      if (rootId === 'root-home' && path === 'src') {
+      if (rootId === 'root-workspace' && path === 'src') {
         await new Promise<void>((resolve) => delayedSrcResolvers.push(resolve))
       }
       return getListData(rootId, path)
@@ -551,7 +553,7 @@ describe('FilePanel', () => {
     fireEvent.click(src)
     fireEvent.click(src)
     fireEvent.click(src)
-    expect(vi.mocked(api.files.list).mock.calls.filter(([, rootId, path]) => rootId === 'root-home' && path === 'src')).toHaveLength(1)
+    expect(vi.mocked(api.files.list).mock.calls.filter(([, rootId, path]) => rootId === 'root-workspace' && path === 'src')).toHaveLength(1)
     delayedSrcResolvers.splice(0).forEach((resolve) => resolve())
     await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
   })
