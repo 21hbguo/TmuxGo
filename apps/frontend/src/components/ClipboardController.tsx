@@ -17,10 +17,6 @@ export function ClipboardController() {
   const focusTerminal = useCallback(() => {
     const focusNow = () => {
       window.dispatchEvent(new CustomEvent('tmuxgo-focus-terminal'))
-      const terminal = document.querySelector('[data-terminal]') as HTMLElement | null
-      const input = terminal?.querySelector('.xterm-helper-textarea, textarea') as HTMLTextAreaElement | null
-      terminal?.focus({ preventScroll: true })
-      input?.focus({ preventScroll: true })
     }
     focusNow()
     requestAnimationFrame(focusNow)

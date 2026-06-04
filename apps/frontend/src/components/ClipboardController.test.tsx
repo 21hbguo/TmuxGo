@@ -81,6 +81,35 @@ describe('ClipboardController', () => {
     expect(terminalInput.mock.calls[0][0].detail.data).toBe('echo a\necho b')
     window.removeEventListener('tmuxgo-terminal-input', terminalInput)
   })
+  it('does not blur an active terminal ime composition after paste send focus restore', async () => {
+    const user = userEvent.setup()
+    const terminalInput = vi.fn()
+    const terminal = document.createElement('div')
+    const helper = document.createElement('textarea')
+    terminal.setAttribute('data-terminal', 'true')
+    terminal.tabIndex = 0
+    helper.className = 'xterm-helper-textarea'
+    terminal.appendChild(helper)
+    document.body.appendChild(terminal)
+    const blur = vi.fn()
+    helper.addEventListener('blur', blur)
+    window.addEventListener('tmuxgo-terminal-input', terminalInput)
+    render(React.createElement(ClipboardController))
+    act(() => {
+      window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-paste', { detail: { text: 'printf ok', source: 'system' } }))
+    })
+    await user.click(await screen.findByRole('button', { name: 'Send' }))
+    helper.focus()
+    helper.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: 'zhong' }))
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 130))
+    })
+    expect(terminalInput).toHaveBeenCalledTimes(1)
+    expect(blur).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(helper)
+    window.removeEventListener('tmuxgo-terminal-input', terminalInput)
+    terminal.remove()
+  })
 
   it('reads clipboard requests into the paste editor before sending', async () => {
     const user = userEvent.setup()
