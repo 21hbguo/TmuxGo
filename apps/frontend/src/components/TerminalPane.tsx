@@ -340,7 +340,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   const sendInput = useCallback((data: string) => onInputRef.current?.(data), [])
   const { textareaRef, focusKeyboard, isMobile: isMobileDevice } = useMobileKeyboard(sendInput, terminalRef)
   const dropState = useTerminalDrop(sendInput, openUploadDialog)
-  const pasteBridge = useTerminalPasteBridge()
+  const handlePasteFiles = useCallback((files: File[]) => openUploadDialog({ files, insertPaths: true, temporary: true }), [openUploadDialog])
+  const pasteBridge = useTerminalPasteBridge(handlePasteFiles)
   const selectionSync = useTerminalSelectionSync(pushToast)
   const writeTerminalOutput = useCallback((chunk: string, done?: () => void) => {
     const terminal = terminalInstance.current
@@ -579,6 +580,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     let deleteWordRepeatActive = false
     let pointerSyncActive = false
     let helperTextareaComposing = false
+    let helperTextarea: HTMLTextAreaElement | null | undefined = null
     let lastKeyboardOpen = document.body.classList.contains('keyboard-open')
     let paneResizeDrag: any = null
     let paneBoundsCache: { snapshot: any; windowId: string; bounds: any[] } | null = null
@@ -600,16 +602,44 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const focusNode = selection.focusNode
       if (anchorNode && container.contains(anchorNode) || focusNode && container.contains(focusNode)) selection.removeAllRanges()
     }
+    const syncHelperTextareaGeometry = () => {
+      const input = helperTextarea || container.querySelector('.xterm-helper-textarea, textarea')
+      if (!(input instanceof HTMLTextAreaElement) || !terminal) return
+      if (helperTextareaComposing) return
+      const activeBuffer = terminal.buffer?.active
+      const cursorXRaw = Number(activeBuffer?.cursorX)
+      const cursorYRaw = Number(activeBuffer?.cursorY)
+      const cellWidth = Number(terminal._core?._renderService?.dimensions?.css?.cell?.width)
+      const cellHeight = Number(terminal._core?._renderService?.dimensions?.css?.cell?.height)
+      if (!Number.isFinite(cellWidth) || !Number.isFinite(cellHeight) || cellWidth <= 0 || cellHeight <= 0) return
+      const maxX = Math.max(0, (Number(terminal.cols) || 1) - 1)
+      const maxY = Math.max(0, (Number(terminal.rows) || 1) - 1)
+      const cursorX = Math.max(0, Math.min(maxX, Number.isFinite(cursorXRaw) ? cursorXRaw : 0))
+      const cursorY = Math.max(0, Math.min(maxY, Number.isFinite(cursorYRaw) ? cursorYRaw : 0))
+      input.style.left = `${cursorX * cellWidth}px`
+      input.style.top = `${cursorY * cellHeight}px`
+      input.style.width = `${cellWidth}px`
+      input.style.height = `${cellHeight}px`
+      input.style.lineHeight = `${cellHeight}px`
+      input.style.zIndex = '-5'
+    }
     const focusTerminalInput = () => {
       if (isMobileDevice) {
         cancelTmuxCopyMode()
         focusKeyboard()
         return
       }
+      const input = helperTextarea || container.querySelector('.xterm-helper-textarea, textarea')
+      if (input instanceof HTMLTextAreaElement && helperTextareaComposing) return
       terminal?.focus?.()
-      const input = container.querySelector('.xterm-helper-textarea, textarea')
+      if (input instanceof HTMLTextAreaElement) syncHelperTextareaGeometry()
       if (document.activeElement !== input && !(input instanceof HTMLTextAreaElement && helperTextareaComposing)) container.focus()
       if (input instanceof HTMLTextAreaElement && document.activeElement !== input) input.focus({ preventScroll: true })
+      if (input instanceof HTMLTextAreaElement) {
+        syncHelperTextareaGeometry()
+        requestAnimationFrame(syncHelperTextareaGeometry)
+        setTimeout(syncHelperTextareaGeometry, 0)
+      }
       clearTerminalBrowserSelection()
       requestAnimationFrame(clearTerminalBrowserSelection)
     }
@@ -1642,7 +1672,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const handleCopy = (e: ClipboardEvent) => {
         selectionSync.handleNativeCopyEvent(getSelectionText(), e)
       }
-      const helperTextarea = terminal.textarea
+      helperTextarea = terminal.textarea
       helperTextarea?.addEventListener('copy', handleCopy, true)
       container.addEventListener('copy', handleCopy, true)
       const handleHelperCompositionStart = () => {

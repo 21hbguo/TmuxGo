@@ -11,6 +11,8 @@ let terminalSelectionPosition: any = null
 let terminalBufferLines: string[] = []
 let terminalBaseY = 0
 let terminalViewportY = 0
+let terminalCursorX = 0
+let terminalCursorY = 0
 let terminalUnicodeActiveVersion = '6'
 let terminalConstructorOptions: any = null
 let terminalCellWidth = 8
@@ -177,6 +179,12 @@ vi.mock('@xterm/xterm', () => {
         get viewportY() {
           return terminalViewportY
         },
+        get cursorX() {
+          return terminalCursorX
+        },
+        get cursorY() {
+          return terminalCursorY
+        },
         get length() {
           return terminalBufferLines.length
         },
@@ -213,6 +221,7 @@ vi.mock('@xterm/xterm', () => {
       this.element.appendChild(viewport)
       this.element.appendChild(screen)
       const input = document.createElement('textarea')
+      input.className = 'xterm-helper-textarea'
       this.textarea = input
       this.element.appendChild(input)
       container.appendChild(this.element)
@@ -313,6 +322,8 @@ describe('TerminalPane', () => {
     terminalBufferLines = []
     terminalBaseY = 0
     terminalViewportY = 0
+    terminalCursorX = 0
+    terminalCursorY = 0
     terminalUnicodeActiveVersion = '6'
     terminalConstructorOptions = null
     terminalCellWidth = 8
@@ -396,6 +407,7 @@ describe('TerminalPane', () => {
     })
   })
   afterEach(() => {
+    vi.useRealTimers()
     vi.unstubAllGlobals()
   })
 
@@ -709,6 +721,29 @@ describe('TerminalPane', () => {
     expect(requestPaste).toHaveBeenCalledTimes(1)
     expect(requestPaste.mock.calls[0][0].detail.text).toBe('printf "blocked_direct_paste"')
     expect(targetPaste).not.toHaveBeenCalled()
+    window.removeEventListener('tmuxgo-request-terminal-paste', requestPaste)
+  })
+  it('opens temporary upload dialog when pasted clipboard contains an image', async () => {
+    const requestPaste = vi.fn()
+    window.addEventListener('tmuxgo-request-terminal-paste', requestPaste)
+    vi.setSystemTime(new Date('2026-06-04T08:09:10.000Z'))
+    const image = new File(['png-bytes'], 'image.png', { type: 'image/png' })
+    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    const target = container.querySelector('textarea') as HTMLTextAreaElement
+    fireEvent.paste(target, {
+      clipboardData: {
+        items: [{ kind: 'file', type: 'image/png', getAsFile: () => image }],
+        files: [image],
+        getData: () => '',
+      },
+    })
+    await sleep(60)
+    expect(storeMocks.openUploadDialog).toHaveBeenCalledTimes(1)
+    expect(storeMocks.openUploadDialog.mock.calls[0][0]).toMatchObject({ insertPaths: true, temporary: true })
+    expect(storeMocks.openUploadDialog.mock.calls[0][0].files[0].name).toBe('pasted-20260604-080910.png')
+    expect(requestPaste).not.toHaveBeenCalled()
+    vi.useRealTimers()
     window.removeEventListener('tmuxgo-request-terminal-paste', requestPaste)
   })
   it('clears helper textarea after intercepted paste so desktop ime can compose cleanly', async () => {
@@ -1095,6 +1130,67 @@ describe('TerminalPane', () => {
     window.dispatchEvent(new CustomEvent('tmuxgo-focus-terminal'))
     expect(blur).not.toHaveBeenCalled()
     expect(document.activeElement).toBe(helper)
+  })
+  it('restores helper textarea ime geometry on terminal focus request after paste', async () => {
+    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    const helper = container.querySelector('.xterm-helper-textarea') as HTMLTextAreaElement
+    terminalCursorX = 4
+    terminalCursorY = 2
+    terminalCellWidth = 9
+    terminalCellHeight = 17
+    helper.style.left = '-9999em'
+    helper.style.top = '0px'
+    helper.style.width = '0px'
+    helper.style.height = '0px'
+    helper.style.zIndex = '1000'
+    window.dispatchEvent(new CustomEvent('tmuxgo-focus-terminal'))
+    expect(helper.style.left).toBe('36px')
+    expect(helper.style.top).toBe('34px')
+    expect(helper.style.width).toBe('9px')
+    expect(helper.style.height).toBe('17px')
+    expect(helper.style.lineHeight).toBe('17px')
+    expect(helper.style.zIndex).toBe('-5')
+    expect(document.activeElement).toBe(helper)
+  })
+  it('does not clear helper textarea preedit text during focus retry', async () => {
+    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    const helper = container.querySelector('.xterm-helper-textarea') as HTMLTextAreaElement
+    helper.focus()
+    helper.value = 'zhong'
+    window.dispatchEvent(new CustomEvent('tmuxgo-focus-terminal'))
+    expect(helper.value).toBe('zhong')
+  })
+  it('does not clear helper textarea preedit text during delayed focus retries', async () => {
+    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    const helper = container.querySelector('.xterm-helper-textarea') as HTMLTextAreaElement
+    helper.focus()
+    window.dispatchEvent(new CustomEvent('tmuxgo-focus-terminal'))
+    helper.value = 'zhong'
+    await sleep(140)
+    expect(helper.value).toBe('zhong')
+  })
+  it('stops delayed focus retries after desktop ime composition starts', async () => {
+    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    vi.useFakeTimers()
+    const helper = container.querySelector('.xterm-helper-textarea') as HTMLTextAreaElement
+    helper.focus()
+    window.dispatchEvent(new CustomEvent('tmuxgo-focus-terminal'))
+    terminalMocks.focus.mockClear()
+    helper.style.left = '88px'
+    helper.style.top = '22px'
+    helper.style.width = '44px'
+    helper.style.height = '18px'
+    fireEvent.compositionStart(helper)
+    await vi.advanceTimersByTimeAsync(140)
+    expect(terminalMocks.focus).not.toHaveBeenCalled()
+    expect(helper.style.left).toBe('88px')
+    expect(helper.style.top).toBe('22px')
+    expect(helper.style.width).toBe('44px')
+    expect(helper.style.height).toBe('18px')
   })
   it('opens web link on ctrl click', async () => {
     const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)

@@ -25,6 +25,10 @@ const DEFAULT_UPLOAD_RATE_LIMIT_KBPS = 200
 const MAX_UPLOAD_RATE_LIMIT_KBPS = 10 * 1024
 const SEARCH_MATCH_LIMIT = 3
 const RG_MAX_BUFFER = 16 * 1024 * 1024
+export const TEMP_UPLOAD_ROOT_ID = 'app-tmp'
+const TEMP_UPLOAD_ROOT_LABEL = 'tmp'
+const DEFAULT_TEMP_UPLOAD_TTL_MS = 24 * 60 * 60 * 1000
+const DEFAULT_TEMP_UPLOAD_CLEANUP_INTERVAL_MS = 60 * 60 * 1000
 const homeRoot = os.homedir()
 const rootSpec = process.env.TMUX_WEB_FILE_ROOTS || `workspace=${defaultRoot}${path.delimiter}home=${homeRoot}`
 const IMAGE_MIME_BY_EXT: Record<string, string> = {
@@ -61,6 +65,7 @@ interface ContentSearchResult extends FileItem {
 }
 
 let rootsCache: Promise<FileRoot[]> | null = null
+let tempUploadCleanupTimer: NodeJS.Timeout | null = null
 const knownAuthMarkers = ['Permission denied']
 const knownHostKeyMarkers = ['Host key verification failed', 'REMOTE HOST IDENTIFICATION HAS CHANGED']
 const knownTimeoutMarkers = ['Connection timed out', 'Operation timed out', 'No route to host']
@@ -321,7 +326,60 @@ function sanitizePathSegment(name: string) {
 function getRootPrefix(rootPath: string) {
   return rootPath.endsWith(path.sep) ? rootPath : `${rootPath}${path.sep}`
 }
+function readPositiveIntegerEnv(name: string, fallback: number) {
+  const value = Number(process.env[name])
+  return Number.isFinite(value) && value > 0 ? Math.round(value) : fallback
+}
+function getTemporaryUploadDir() {
+  return path.resolve(process.env.TMUXGO_TMP_DIR || path.join(os.homedir(), '.tmuxgo', 'tmp', 'paste'))
+}
+async function getTemporaryUploadTarget() {
+  const absolutePath = getTemporaryUploadDir()
+  await mkdir(absolutePath, { recursive: true })
+  return { rootId: TEMP_UPLOAD_ROOT_ID, rootLabel: TEMP_UPLOAD_ROOT_LABEL, rootPath: absolutePath, path: '', absolutePath, source: 'temporary' as const }
+}
+async function resolveTemporaryInside(relativePath = '') {
+  const target = await getTemporaryUploadTarget()
+  const root = { id: target.rootId, label: target.rootLabel, path: target.rootPath }
+  const normalizedPath = normalizeRelativePath(relativePath)
+  const requested = path.resolve(root.path, normalizedPath || '.')
+  const normalizedRoot = getRootPrefix(root.path)
+  if (requested !== root.path && !requested.startsWith(normalizedRoot)) throw new Error('Path escapes root')
+  let actual = requested
+  try {
+    actual = await realpath(requested)
+  } catch {
+    actual = requested
+  }
+  if (actual !== root.path && !actual.startsWith(normalizedRoot)) throw new Error('Path escapes root')
+  return { root, absolutePath: actual, relativePath: normalizeRelativePath(path.relative(root.path, actual)) }
+}
+export async function cleanupExpiredTemporaryUploads(now = Date.now()) {
+  const ttlMs = readPositiveIntegerEnv('TMUXGO_TMP_TTL_MS', DEFAULT_TEMP_UPLOAD_TTL_MS)
+  const dir = getTemporaryUploadDir()
+  let entries
+  try {
+    entries = await opendir(dir)
+  } catch {
+    return
+  }
+  for await (const entry of entries) {
+    const entryPath = path.join(dir, entry.name)
+    try {
+      const info = await stat(entryPath)
+      if (now - info.mtimeMs > ttlMs) await rm(entryPath, { recursive: true, force: true })
+    } catch {}
+  }
+}
+function startTemporaryUploadCleanup() {
+  if (tempUploadCleanupTimer) return
+  void cleanupExpiredTemporaryUploads()
+  const intervalMs = readPositiveIntegerEnv('TMUXGO_TMP_CLEANUP_INTERVAL_MS', DEFAULT_TEMP_UPLOAD_CLEANUP_INTERVAL_MS)
+  tempUploadCleanupTimer = setInterval(() => void cleanupExpiredTemporaryUploads(), intervalMs)
+  tempUploadCleanupTimer.unref?.()
+}
 async function resolveInside(rootId: string, relativePath = '') {
+  if (rootId === TEMP_UPLOAD_ROOT_ID) return resolveTemporaryInside(relativePath)
   const roots = await getRoots()
   const root = roots.find((item) => item.id === rootId)
   if (!root) throw new Error('Invalid root')
@@ -776,6 +834,10 @@ async function resolveDefaultUploadTargetForHost(hostId: string, paneId?: string
   if (hostId === 'local') return resolveDefaultUploadTarget(paneId)
   return runRemoteFileJson(hostId, { op: 'default-upload-target' })
 }
+async function resolveTemporaryUploadTargetForHost(hostId: string) {
+  if (hostId !== 'local') throw new Error('Remote upload is not supported yet')
+  return getTemporaryUploadTarget()
+}
 async function resolveFileForHost(hostId: string, rootId: string, relativePath: string) {
   if (hostId === 'local') {
     const resolved = await resolveInside(rootId, relativePath)
@@ -786,6 +848,7 @@ async function resolveFileForHost(hostId: string, rootId: string, relativePath: 
 }
 
 export async function fileRoutes(fastify: FastifyInstance) {
+  startTemporaryUploadCleanup()
   fastify.get('/hosts/:hostId/files/roots', async (request) => {
     const { hostId } = request.params as { hostId: string }
     if (hostId === 'local') return getRoots()
@@ -872,6 +935,15 @@ export async function fileRoutes(fastify: FastifyInstance) {
     const query = request.query as { paneId?: string }
     return resolveDefaultUploadTargetForHost(hostId, query.paneId)
   })
+  fastify.get('/hosts/:hostId/files/temporary-upload-target', async (request, reply) => {
+    const { hostId } = request.params as { hostId: string }
+    try {
+      return await resolveTemporaryUploadTargetForHost(hostId)
+    } catch (error) {
+      const err = error as Error
+      return reply.status(400).send({ message: err.message || 'Temporary upload target failed', code: 'TEMP_UPLOAD_TARGET_FAILED' })
+    }
+  })
   fastify.post('/hosts/:hostId/files/upload', async (request, reply) => {
     const { hostId } = request.params as { hostId: string }
     if (hostId !== 'local') return reply.status(400).send({ message: 'Remote upload is not supported yet', code: 'REMOTE_UPLOAD_UNSUPPORTED' })
@@ -917,7 +989,7 @@ export async function fileRoutes(fastify: FastifyInstance) {
         rootPath: resolvedTarget.root.path,
         path: resolvedTarget.relativePath,
         absolutePath: resolvedTarget.absolutePath,
-        source: 'preferred' as const,
+        source: resolvedTarget.root.id === TEMP_UPLOAD_ROOT_ID ? 'temporary' as const : 'preferred' as const,
       },
       files: uploadedFiles,
     }

@@ -238,7 +238,7 @@ interface ConsoleState {
   editorSplitRatio: number
   activeEditorSlot: 'primary' | 'secondary'
   editorsHydrated: boolean
-  uploadRequest: { files: File[]; preferredRootId?: string; preferredPath?: string; insertPaths?: boolean } | null
+  uploadRequest: { files: File[]; preferredRootId?: string; preferredPath?: string; insertPaths?: boolean; temporary?: boolean } | null
   uploadJobs: UploadJob[]
   toasts: { id: string; type: 'success' | 'error' | 'info'; message: string; durationMs?: number }[]
   setActiveHost: (id: string) => void
@@ -274,7 +274,7 @@ interface ConsoleState {
   setEditorContent: (id: string, content: string) => void
   setEditorSaving: (id: string, saving: boolean) => void
   markEditorSaved: (id: string, content: string, modifiedAt: string, size: number) => void
-  openUploadDialog: (request: { files: File[]; preferredRootId?: string; preferredPath?: string; insertPaths?: boolean }) => void
+  openUploadDialog: (request: { files: File[]; preferredRootId?: string; preferredPath?: string; insertPaths?: boolean; temporary?: boolean }) => void
   closeUploadDialog: () => void
   addUploadJob: (job: UploadJob) => void
   updateUploadJob: (id: string, patch: Partial<UploadJob>) => void
