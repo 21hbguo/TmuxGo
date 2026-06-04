@@ -1,10 +1,5 @@
 import { test, expect } from '@playwright/test'
-
-async function ensureSession(request: any, name: string) {
-  await request.post('http://127.0.0.1:3001/api/hosts/local/sessions', {
-    data: { name },
-  })
-}
+import { ensureSession, openSession } from './session'
 
 test('home page smoke flow', async ({ page }) => {
   await page.goto('/')
@@ -85,7 +80,6 @@ test('mobile dock restores nav after keyboard closes in compact viewport', async
 })
 test('mobile terminal stays within viewport and renders active session output', async ({ browser, baseURL, request }) => {
   const name = `tmuxgo_mobile_${Date.now()}`
-  await ensureSession(request, name)
   const context = await browser.newContext({
     baseURL,
     viewport: { width: 390, height: 844 },
@@ -94,12 +88,8 @@ test('mobile terminal stays within viewport and renders active session output', 
     userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
   })
   const page = await context.newPage()
-  await page.goto('/')
-  await page.evaluate((sessionName) => {
-    localStorage.setItem('tmuxgo-active-host', 'local')
-    localStorage.setItem('tmuxgo-active-session', `session-${sessionName}`)
-  }, name)
-  await page.goto('/')
+  const session = await ensureSession(request, name)
+  await openSession(page, session, { expectHeader: false })
   await page.waitForFunction(() => {
     const t = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
     const line = t?.buffer?.active?.getLine?.(0)?.translateToString?.(true) || ''

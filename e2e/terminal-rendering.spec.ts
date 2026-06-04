@@ -1,21 +1,5 @@
 import { test, expect } from '@playwright/test'
-
-async function ensureSession(request: any, name: string) {
-  await request.post('http://127.0.0.1:3001/api/hosts/local/sessions', { data: { name } })
-}
-async function openSession(page: any, name: string) {
-  await page.goto('/')
-  await page.evaluate((sessionName) => {
-    localStorage.setItem('tmuxgo-debug-mobile', '1')
-    localStorage.setItem('tmuxgo-active-host', 'local')
-    localStorage.setItem('tmuxgo-active-session', `session-${sessionName}`)
-  }, name)
-  await page.goto('/')
-  await page.waitForFunction(() => {
-    const t = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
-    return !!t?.cols && !!t?.rows
-  }, undefined, { timeout: 15000 })
-}
+import { ensureSession, openSession } from './session'
 async function writeMarker(page: any, marker: string) {
   await page.evaluate((value) => {
     window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data: `printf "${value}\\n"\r` } }))
@@ -68,7 +52,7 @@ test('mobile terminal remains visibly rendered after viewport and dpr switch', a
   const name = `tmuxgo_render_${Date.now()}`
   const before = `${name}_before`
   const after = `${name}_after`
-  await ensureSession(request, name)
+  const session = await ensureSession(request, name)
   const context = await browser.newContext({
     baseURL,
     viewport: { width: 390, height: 844 },
@@ -78,7 +62,11 @@ test('mobile terminal remains visibly rendered after viewport and dpr switch', a
     userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
   })
   const page = await context.newPage()
-  await openSession(page, name)
+  await openSession(page, session, { debugMobile: true, expectHeader: false })
+  await page.waitForFunction(() => {
+    const t = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
+    return !!t?.cols && !!t?.rows
+  }, undefined, { timeout: 15000 })
   await writeMarker(page, before)
   const recoverCount = await page.evaluate(() => ((window as typeof window & { __tmuxgoMobileDebug?: { events?: any[] } }).__tmuxgoMobileDebug?.events || []).filter((item) => item.event === 'terminal-recover').length)
   const client = await context.newCDPSession(page)

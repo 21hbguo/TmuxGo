@@ -1,17 +1,10 @@
 import { test } from '@playwright/test'
-async function ensureSession(request: any, name: string) {
-  await request.post('http://127.0.0.1:3001/api/hosts/local/sessions', { data: { name } })
-}
+import { ensureSession, openSession } from './session'
 
 test('debug terminal gutter metrics', async ({ page, request }) => {
   const name = `tmuxgo_gutter_${Date.now()}`
-  await ensureSession(request, name)
-  await page.goto('/')
-  await page.evaluate((sessionName) => {
-    localStorage.setItem('tmuxgo-active-host', 'local')
-    localStorage.setItem('tmuxgo-active-session', `session-${sessionName}`)
-  }, name)
-  await page.goto('/')
+  const session = await ensureSession(request, name)
+  await openSession(page, session, { expectHeader: false })
   await page.waitForFunction(() => {
     const t = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
     return !!t?.cols && !!t?.rows && document.querySelector('[data-terminal] canvas')
