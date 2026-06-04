@@ -711,6 +711,33 @@ describe('TerminalPane', () => {
     expect(targetPaste).not.toHaveBeenCalled()
     window.removeEventListener('tmuxgo-request-terminal-paste', requestPaste)
   })
+  it('clears helper textarea after intercepted paste so desktop ime can compose cleanly', async () => {
+    const requestPaste = vi.fn()
+    window.addEventListener('tmuxgo-request-terminal-paste', requestPaste)
+    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    const target = container.querySelector('textarea') as HTMLTextAreaElement
+    target.focus()
+    target.value = 'stale-ime-buffer'
+    target.setSelectionRange(target.value.length, target.value.length)
+    fireEvent.paste(target, {
+      clipboardData: {
+        getData: (type: string) => type === 'text/plain' ? 'printf "desktop_ime_after_paste"' : '',
+      },
+    })
+    await sleep(60)
+    expect(requestPaste).toHaveBeenCalledTimes(1)
+    expect(requestPaste.mock.calls[0][0].detail.text).toBe('printf "desktop_ime_after_paste"')
+    expect(target.value).toBe('')
+    expect(document.activeElement).toBe(target)
+    fireEvent.compositionStart(target)
+    target.value = 'zhong'
+    const composing = new InputEvent('input', { bubbles: true, cancelable: true, data: 'zhong', inputType: 'insertCompositionText' })
+    target.dispatchEvent(composing)
+    expect(composing.defaultPrevented).toBe(false)
+    expect(target.value).toBe('zhong')
+    window.removeEventListener('tmuxgo-request-terminal-paste', requestPaste)
+  })
   it('routes insertFromPaste input through unified paste request', async () => {
     const requestPaste = vi.fn()
     window.addEventListener('tmuxgo-request-terminal-paste', requestPaste)
