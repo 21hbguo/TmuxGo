@@ -326,7 +326,6 @@ a {
 }
 .xterm .xterm-screen,
 .xterm .xterm-helpers,
-.xterm .xterm-helper-textarea,
 .xterm .xterm-viewport {
   width: 100%;
   height: 100%;

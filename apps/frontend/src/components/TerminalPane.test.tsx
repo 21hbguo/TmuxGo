@@ -667,7 +667,28 @@ describe('TerminalPane', () => {
     expect(target.value).toBe('')
     window.removeEventListener('tmuxgo-request-terminal-paste', requestPaste)
   })
-
+  it('does not intercept desktop ime input events as paste', async () => {
+    const requestPaste = vi.fn()
+    const targetInput = vi.fn()
+    window.addEventListener('tmuxgo-request-terminal-paste', requestPaste)
+    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    const target = container.querySelector('textarea') as HTMLTextAreaElement
+    target.addEventListener('input', targetInput)
+    target.value = 'zhong'
+    const composing = new InputEvent('input', { bubbles: true, cancelable: true, data: 'zhong', inputType: 'insertCompositionText' })
+    target.dispatchEvent(composing)
+    target.value = '中'
+    const committed = new InputEvent('input', { bubbles: true, cancelable: true, data: '中', inputType: 'insertText' })
+    target.dispatchEvent(committed)
+    await sleep(60)
+    expect(composing.defaultPrevented).toBe(false)
+    expect(committed.defaultPrevented).toBe(false)
+    expect(targetInput).toHaveBeenCalledTimes(2)
+    expect(requestPaste).not.toHaveBeenCalled()
+    expect(target.value).toBe('中')
+    window.removeEventListener('tmuxgo-request-terminal-paste', requestPaste)
+  })
   it('falls back to app clipboard paste when native paste does not arrive', async () => {
     const requestPaste = vi.fn()
     window.addEventListener('tmuxgo-request-terminal-paste', requestPaste)
@@ -936,6 +957,18 @@ describe('TerminalPane', () => {
     terminalMocks.focus.mockClear()
     fireEvent.focus(container.firstChild as Element)
     expect(terminalMocks.focus).toHaveBeenCalled()
+  })
+  it('does not blur active helper textarea during ime composition focus restore', async () => {
+    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    const helper = container.querySelector('textarea') as HTMLTextAreaElement
+    const blur = vi.fn()
+    helper.addEventListener('blur', blur)
+    helper.focus()
+    fireEvent.compositionStart(helper)
+    window.dispatchEvent(new CustomEvent('tmuxgo-focus-terminal'))
+    expect(blur).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(helper)
   })
   it('opens web link on ctrl click', async () => {
     const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)

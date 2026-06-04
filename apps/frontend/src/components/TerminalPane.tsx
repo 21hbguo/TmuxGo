@@ -578,6 +578,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     let deleteWordRepeatTimer: ReturnType<typeof setTimeout> | null = null
     let deleteWordRepeatActive = false
     let pointerSyncActive = false
+    let helperTextareaComposing = false
     let lastKeyboardOpen = document.body.classList.contains('keyboard-open')
     let paneResizeDrag: any = null
     let paneBoundsCache: { snapshot: any; windowId: string; bounds: any[] } | null = null
@@ -606,9 +607,9 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         return
       }
       terminal?.focus?.()
-      container.focus()
       const input = container.querySelector('.xterm-helper-textarea, textarea')
-      if (input instanceof HTMLTextAreaElement) input.focus({ preventScroll: true })
+      if (document.activeElement !== input && !(input instanceof HTMLTextAreaElement && helperTextareaComposing)) container.focus()
+      if (input instanceof HTMLTextAreaElement && document.activeElement !== input) input.focus({ preventScroll: true })
       clearTerminalBrowserSelection()
       requestAnimationFrame(clearTerminalBrowserSelection)
     }
@@ -1638,6 +1639,14 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const helperTextarea = terminal.textarea
       helperTextarea?.addEventListener('copy', handleCopy, true)
       container.addEventListener('copy', handleCopy, true)
+      const handleHelperCompositionStart = () => {
+        helperTextareaComposing = true
+      }
+      const handleHelperCompositionEnd = () => {
+        helperTextareaComposing = false
+      }
+      helperTextarea?.addEventListener('compositionstart', handleHelperCompositionStart)
+      helperTextarea?.addEventListener('compositionend', handleHelperCompositionEnd)
       helperTextarea?.addEventListener('paste', pasteBridge.handlePaste, true)
       container.addEventListener('paste', pasteBridge.handlePaste, true)
       container.addEventListener('beforeinput', pasteBridge.handlePasteInput as EventListener, true)
@@ -1706,6 +1715,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           container.removeEventListener('drop', dropState.handleDrop)
           helperTextarea?.removeEventListener('copy', handleCopy, true)
           container.removeEventListener('copy', handleCopy, true)
+          helperTextarea?.removeEventListener('compositionstart', handleHelperCompositionStart)
+          helperTextarea?.removeEventListener('compositionend', handleHelperCompositionEnd)
           helperTextarea?.removeEventListener('paste', pasteBridge.handlePaste, true)
           container.removeEventListener('paste', pasteBridge.handlePaste, true)
           container.removeEventListener('beforeinput', pasteBridge.handlePasteInput as EventListener, true)
