@@ -3,6 +3,9 @@ import { useCallback, useMemo, useRef } from 'react'
 import { extractClipboardText } from '@/lib/clipboard-text'
 
 const KEYBOARD_PASTE_FALLBACK_DELAY = 160
+function clearTextareaTarget(target: EventTarget | null) {
+  if (target instanceof HTMLTextAreaElement) target.value = ''
+}
 
 export function useTerminalPasteBridge() {
   const keyboardPasteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -37,12 +40,14 @@ export function useTerminalPasteBridge() {
   }, [clearKeyboardPasteTimer, requestTerminalPaste])
   const handlePaste = useCallback((e: ClipboardEvent) => {
     const text = extractClipboardText(e.clipboardData)
+    const target = e.target
     keyboardPastePendingRef.current = false
     if (!text) {
       clearKeyboardPasteTimer()
       e.preventDefault()
       e.stopPropagation()
       e.stopImmediatePropagation()
+      clearTextareaTarget(target)
       requestTerminalPaste()
       return
     }
@@ -51,12 +56,14 @@ export function useTerminalPasteBridge() {
       e.preventDefault()
       e.stopPropagation()
       e.stopImmediatePropagation()
+      clearTextareaTarget(target)
       return
     }
     clearKeyboardPasteTimer()
     e.preventDefault()
     e.stopPropagation()
     e.stopImmediatePropagation()
+    clearTextareaTarget(target)
     markPasteForwarded(text)
     requestTerminalPaste(text)
   }, [clearKeyboardPasteTimer, markPasteForwarded, requestTerminalPaste, shouldSkipDuplicatePaste])
@@ -74,7 +81,7 @@ export function useTerminalPasteBridge() {
     e.preventDefault()
     e.stopPropagation()
     e.stopImmediatePropagation()
-    if (target instanceof HTMLTextAreaElement) target.value = ''
+    clearTextareaTarget(target)
     if (text && shouldSkipDuplicatePaste(text)) return
     if (text) markPasteForwarded(text)
     requestTerminalPaste(text)
