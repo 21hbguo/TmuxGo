@@ -62,7 +62,11 @@ export function useTerminalPasteBridge() {
     requestTerminalPaste(text)
   }, [clearKeyboardPasteTimer, markPasteForwarded, requestTerminalPaste, shouldSkipDuplicatePaste])
   const handlePasteInput = useCallback((e: InputEvent) => {
-    const isPasteInput = e.inputType === 'insertFromPaste' || keyboardPastePendingRef.current
+    const isPasteInput = e.inputType === 'insertFromPaste'
+    if (!isPasteInput && keyboardPastePendingRef.current) {
+      keyboardPastePendingRef.current = false
+      clearKeyboardPasteTimer()
+    }
     if (!isPasteInput) return
     const target = e.target
     const text = typeof e.data === 'string' && e.data ? e.data : target instanceof HTMLTextAreaElement ? target.value : ''
