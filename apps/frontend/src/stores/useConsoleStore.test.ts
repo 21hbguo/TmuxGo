@@ -59,6 +59,18 @@ describe('useConsoleStore editor persistence', () => {
     useConsoleStore.getState().setActiveEditor(sampleEditor.id)
     expect(localStorage.getItem('tmuxgo-active-editor')).toBe(sampleEditor.id)
   })
+  it('ignores selecting the already active session', async () => {
+    const { useConsoleStore } = await import('./useConsoleStore')
+    useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-a', activePaneId: 'pane-a' })
+    localStorage.setItem('tmuxgo-active-session', 'session-a')
+    localStorage.setItem('tmuxgo-active-session:local', 'session-a')
+    useConsoleStore.getState().setActiveSession('session-a')
+    const state = useConsoleStore.getState()
+    expect(state.activeSessionId).toBe('session-a')
+    expect(state.activePaneId).toBe('pane-a')
+    expect(localStorage.getItem('tmuxgo-active-session')).toBe('session-a')
+    expect(localStorage.getItem('tmuxgo-active-session:local')).toBe('session-a')
+  })
   it('tracks git follow-editor and locked repo state per host', async () => {
     const { useConsoleStore } = await import('./useConsoleStore')
     useConsoleStore.getState().ensureGitHostState('local')

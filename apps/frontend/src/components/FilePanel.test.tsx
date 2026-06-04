@@ -15,7 +15,7 @@ const invalidateQueries = vi.fn()
 const delayedSrcResolvers: Array<() => void> = []
 const preferencesGet = vi.fn(async () => ({ version: 1, updatedAt: '', customShortcuts: [], customShortcutsUpdatedAt: '', favoriteDirectories: [], favoriteDirectoriesUpdatedAt: '', sessionOrders: [], sessionOrdersUpdatedAt: '', uploadRateLimitKBps: 200, downloadRateLimitKBps: 200 }))
 const preferencesUpdate = vi.fn(async (payload: any) => ({ version: 1, updatedAt: '', customShortcuts: [], customShortcutsUpdatedAt: '', favoriteDirectories: payload.favoriteDirectories || [], favoriteDirectoriesUpdatedAt: payload.favoriteDirectoriesUpdatedAt || '', sessionOrders: [], sessionOrdersUpdatedAt: '', uploadRateLimitKBps: payload.uploadRateLimitKBps || 200, downloadRateLimitKBps: payload.downloadRateLimitKBps || 200 }))
-const consoleStoreState: { activeHostId: string; filePanelWidth: number; setFilePanelWidth: typeof setFilePanelWidth; setFilePanelOpen: typeof setFilePanelOpen; openUploadDialog: typeof openUploadDialog; pushToast: typeof pushToast; openEditors: FileEditorDocument[]; activeEditorId: string | null } = { activeHostId: 'local', filePanelWidth: 360, setFilePanelWidth, setFilePanelOpen, openUploadDialog, pushToast, openEditors: [], activeEditorId: null }
+const consoleStoreState: { activeHostId: string; activeSessionId: string; filePanelWidth: number; setFilePanelWidth: typeof setFilePanelWidth; setFilePanelOpen: typeof setFilePanelOpen; openUploadDialog: typeof openUploadDialog; pushToast: typeof pushToast; openEditors: FileEditorDocument[]; activeEditorId: string | null } = { activeHostId: 'local', activeSessionId: 'session-a', filePanelWidth: 360, setFilePanelWidth, setFilePanelOpen, openUploadDialog, pushToast, openEditors: [], activeEditorId: null }
 
 const roots = [
   { id: 'root-home', label: 'Home', path: '/home/guo' },
@@ -47,8 +47,10 @@ vi.mock('@/hooks/useApi', () => ({
     return { data: getListData(nextRootId || 'root-home', nextCurrentPath), isLoading: false }
   },
   useFilePreview: (_hostId: string, _rootId: string, path: string, line = 1) => ({ data: path ? path.endsWith('.png') ? { path, type: 'file', size: 48, modifiedAt: '2026-05-26T00:00:00.000Z', binary: true, truncated: false, reason: 'binary-file', lines: [] } : { path, type: 'file', size: 32, modifiedAt: '2026-05-26T00:00:00.000Z', binary: false, truncated: false, lines: [{ number: line, content: `line-${line}` }] } : null }),
-  useFileSearch: (_hostId: string, _rootId: string, mode: string, query: string, basePath = '') => {
+  useFileSearch: (_hostId: string, _rootId: string, mode: string, query: string, basePath = '', includeDotFiles = true) => {
     if (mode === 'content' && query === 'needle') return { data: [{ name: 'guide.md', path: 'docs/guide.md', type: 'file', size: 16, modifiedAt: '2026-05-26T00:00:00.000Z', matches: [{ number: 42, content: 'needle here' }] }], isFetching: false }
+    if (mode === 'content' && query === 'tmuxgo') return { data: includeDotFiles ? [{ name: '.history', path: '.history', type: 'file', size: 16, modifiedAt: '2026-05-26T00:00:00.000Z', matches: [{ number: 7, content: 'tmuxgo hidden' }] }] : [{ name: 'README.md', path: 'README.md', type: 'file', size: 32, modifiedAt: '2026-05-26T00:00:00.000Z', matches: [{ number: 3, content: 'TmuxGo visible' }] }], isFetching: false }
+    if (mode === 'content' && query === 'slow') return { data: [], isFetching: true }
     if (query === 'docs' && !basePath) return { data: [{ name: 'docs', path: 'docs', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }], isFetching: false }
     if (query === 'project' && !basePath) return { data: [{ name: 'project', path: 'project', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }], isFetching: false }
     return { data: [], isFetching: false }
@@ -89,6 +91,8 @@ vi.mock('@/i18n', () => ({
     if (key === 'file.clearExpanded') return 'Collapse all'
     if (key === 'file.clearSearch') return 'Clear search'
     if (key === 'file.copyPath') return 'Copy path'
+    if (key === 'file.openPreview') return 'Open preview'
+    if (key === 'file.openEditor') return 'Open in editor'
     return key
   } }),
 }))
@@ -105,6 +109,7 @@ describe('FilePanel', () => {
     preferencesUpdate.mockClear()
     delayedSrcResolvers.length = 0
     consoleStoreState.activeHostId = 'local'
+    consoleStoreState.activeSessionId = 'session-a'
     consoleStoreState.filePanelWidth = 360
     consoleStoreState.openEditors = []
     consoleStoreState.activeEditorId = null
@@ -195,6 +200,14 @@ describe('FilePanel', () => {
     fireEvent.contextMenu(await screen.findByText('demo.txt'))
     fireEvent.click(await screen.findByText('Copy path'))
     expect(clipboardMocks.writeClipboardText).toHaveBeenCalledWith('/home/guo/project/demo.txt')
+  })
+  it('hides desktop preview action in explorer context menu', async () => {
+    render(React.createElement(FilePanel, { onOpenFile: vi.fn() }))
+    fireEvent.click(await screen.findByText('src'))
+    const file = await screen.findByTitle('/home/guo/src/index.ts')
+    fireEvent.contextMenu(file)
+    expect(screen.getByText('Open in editor')).toBeInTheDocument()
+    expect(screen.queryByText('Open preview')).not.toBeInTheDocument()
   })
   it('removes selected favorite root from header without affecting home', async () => {
     localStorage.setItem('tmuxgo-favorite-directories', JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]))
@@ -325,6 +338,37 @@ describe('FilePanel', () => {
     await waitFor(() => expect(screen.getByText('project')).toBeInTheDocument())
     expect(input.value).toBe('project')
   })
+  it('falls back to source root when session changes from a favorite root', async () => {
+    localStorage.setItem('tmuxgo-favorite-directories', JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]))
+    consoleStoreState.openEditors = [{
+      id: 'local:root-home:project/demo.txt',
+      hostId: 'local',
+      rootId: 'root-home',
+      rootLabel: 'Home',
+      rootPath: '/home/guo',
+      path: 'project/demo.txt',
+      name: 'demo.txt',
+      absolutePath: '/home/guo/project/demo.txt',
+      language: 'plaintext',
+      content: '',
+      savedContent: '',
+      modifiedAt: '',
+      size: 0,
+      dirty: false,
+      loading: false,
+      saving: false,
+      binary: false,
+      truncated: false,
+    }]
+    consoleStoreState.activeEditorId = 'local:root-home:project/demo.txt'
+    const view = render(React.createElement(FilePanel))
+    await screen.findByRole('option', { name: 'project' })
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'favorite:root-home:project' } })
+    await waitFor(() => expect(screen.getByText('demo.txt')).toBeInTheDocument())
+    consoleStoreState.activeSessionId = 'session-b'
+    view.rerender(React.createElement(FilePanel))
+    await waitFor(() => expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('root-home'))
+  })
   it('keeps search query after opening favorite directory shortcut', async () => {
     localStorage.setItem('tmuxgo-favorite-directories', JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]))
     render(React.createElement(FilePanel))
@@ -386,13 +430,27 @@ describe('FilePanel', () => {
     expect(await screen.findByText('src')).toBeInTheDocument()
     expect(screen.queryByText('.env')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'File' }))
-    expect(await screen.findByText('src')).toBeInTheDocument()
+    expect(screen.queryByText('src')).not.toBeInTheDocument()
     expect(screen.queryByText('.env')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Dotfiles' }))
     expect(await screen.findByText('.env')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Dir' }))
     expect(await screen.findByText('src')).toBeInTheDocument()
     expect(screen.queryByText('.env')).not.toBeInTheDocument()
+  })
+  it('shows visible content search results when dotfiles are hidden', async () => {
+    render(React.createElement(FilePanel))
+    fireEvent.click(screen.getByRole('button', { name: 'content' }))
+    fireEvent.change(screen.getByPlaceholderText('Search file content'), { target: { value: 'tmuxgo' } })
+    expect(await screen.findByText('README.md')).toBeInTheDocument()
+    expect(screen.queryByText('.history')).not.toBeInTheDocument()
+  })
+  it('does not show no-results while content search is still loading', async () => {
+    render(React.createElement(FilePanel))
+    fireEvent.click(screen.getByRole('button', { name: 'content' }))
+    fireEvent.change(screen.getByPlaceholderText('Search file content'), { target: { value: 'slow' } })
+    expect(await screen.findByText('Loading...')).toBeInTheDocument()
+    expect(screen.queryByText('file.noResults')).not.toBeInTheDocument()
   })
   it('toggles dotfiles visibility from compact button', async () => {
     render(React.createElement(FilePanel))

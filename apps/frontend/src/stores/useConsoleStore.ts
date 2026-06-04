@@ -337,6 +337,7 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
     set({ activeHostId: id, activeSessionId, activePaneId: null })
   },
   setActiveSession: (id) => set((state) => {
+    if (state.activeSessionId === id) return state
     if (typeof window !== 'undefined') {
       if (id) localStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, id)
       else localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY)
