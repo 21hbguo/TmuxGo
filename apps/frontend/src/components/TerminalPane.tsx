@@ -1360,11 +1360,15 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           callback(links.length ? links : undefined)
         },
       }))
+      let rendererType:'dom'|'webgl' = 'dom'
       if (!isMobileDevice) {
-        const { CanvasAddon } = await import('@xterm/addon-canvas')
-        terminal.loadAddon(new CanvasAddon())
+        try {
+          const { WebglAddon } = await import('@xterm/addon-webgl')
+          terminal.loadAddon(new WebglAddon())
+          rendererType = 'webgl'
+        } catch {}
       }
-      recordMobileDebug('terminal-renderer', { renderer: isMobileDevice ? 'dom' : 'canvas' })
+      recordMobileDebug('terminal-renderer', { renderer: rendererType })
       if (terminal.element instanceof HTMLElement) {
         terminal.element.style.width = '100%'
         terminal.element.style.height = '100%'
