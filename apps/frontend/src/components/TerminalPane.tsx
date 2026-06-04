@@ -1315,6 +1315,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const { Terminal } = await import('@xterm/xterm')
       const { FitAddon } = await import('@xterm/addon-fit')
       const { WebLinksAddon } = await import('@xterm/addon-web-links')
+      const { Unicode11Addon } = await import('@xterm/addon-unicode11')
       if (!container || !container.isConnected || disposed) return
       const style = getComputedStyle(document.documentElement)
       const getVar = (name: string) => style.getPropertyValue(name).trim()
@@ -1342,6 +1343,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       })
 
       fitAddon = new FitAddon()
+      terminal.loadAddon(new Unicode11Addon())
+      terminal.unicode.activeVersion = '11'
       terminal.loadAddon(fitAddon)
       terminal.loadAddon(new WebLinksAddon((event: MouseEvent, uri: string) => {
         event.preventDefault()

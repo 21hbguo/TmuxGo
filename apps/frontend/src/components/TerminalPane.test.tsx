@@ -11,6 +11,7 @@ let terminalSelectionPosition: any = null
 let terminalBufferLines: string[] = []
 let terminalBaseY = 0
 let terminalViewportY = 0
+let terminalUnicodeActiveVersion = '6'
 let resizeObserverCallback: (() => void) | null = null
 let terminalLinkProviders: Array<{ provideLinks: (bufferLineNumber: number, callback: (links: any[] | undefined) => void) => void }> = []
 let terminalAddonHandlers: Array<(event: MouseEvent, uri: string) => void> = []
@@ -141,6 +142,18 @@ vi.mock('@xterm/xterm', () => {
     element: HTMLDivElement | null = null
     textarea: HTMLTextAreaElement | null = null
     parser = { registerCsiHandler: vi.fn(() => ({ dispose: vi.fn() })) }
+    unicode = {
+      get activeVersion() {
+        return terminalUnicodeActiveVersion
+      },
+      set activeVersion(version: string) {
+        terminalUnicodeActiveVersion = version
+      },
+      get versions() {
+        return [terminalUnicodeActiveVersion]
+      },
+      register: vi.fn(),
+    }
     _core = {
       _renderService: { dimensions: { css: { canvas: { width: 800, height: 600 }, cell: { width: 8, height: 16 } } }, clear: terminalMocks.renderClear },
       _selectionService: { _activeSelectionMode: 0 },
@@ -281,6 +294,7 @@ describe('TerminalPane', () => {
     terminalBufferLines = []
     terminalBaseY = 0
     terminalViewportY = 0
+    terminalUnicodeActiveVersion = '6'
     terminalLinkProviders = []
     terminalAddonHandlers = []
     terminalMocks.write.mockClear()
@@ -496,6 +510,11 @@ describe('TerminalPane', () => {
     const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(terminalLifecycleMocks.open).toHaveBeenCalledTimes(1))
     expect(container.querySelector('.mobile-kb-input')).toBeNull()
+  })
+  it('uses unicode11 width tables for wide terminal glyph alignment', async () => {
+    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(terminalLifecycleMocks.open).toHaveBeenCalledTimes(1))
+    expect(terminalUnicodeActiveVersion).toBe('11')
   })
 
   it('copies final selection immediately on pointer release', async () => {
