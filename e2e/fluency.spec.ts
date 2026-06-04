@@ -1,29 +1,14 @@
 import { test, expect } from '@playwright/test'
+import { ensureSession, openSession } from './session'
 
-async function ensureSession(request: any, name: string) {
-  await request.post('http://127.0.0.1:3001/api/hosts/local/sessions', { data: { name } })
-}
-
-async function openSession(page: any, name: string) {
-  await page.goto('/')
-  await page.evaluate((sessionName) => {
-    localStorage.setItem('tmuxgo-active-host', 'local')
-    localStorage.setItem('tmuxgo-active-session', `session-${sessionName}`)
-  }, name)
-  await page.goto('/')
-  await page.waitForFunction((sessionName) => {
-    return localStorage.getItem('tmuxgo-active-session') === `session-${sessionName}`
-  }, name, { timeout: 15000 })
+test('fluency telemetry remains available during repeated output sampling', async ({ page, request }) => {
+  const name = `tmuxgo_fluency_${Date.now()}`
+  const session = await ensureSession(request, name)
+  await openSession(page, session)
   await page.waitForFunction(() => {
     const text = document.body.innerText
     return !text.includes('没有打开的窗口') && !text.includes('No open window')
   }, undefined, { timeout: 15000 })
-}
-
-test('fluency telemetry remains available during repeated output sampling', async ({ page, request }) => {
-  const name = `tmuxgo_fluency_${Date.now()}`
-  await ensureSession(request, name)
-  await openSession(page, name)
   await page.waitForFunction(() => {
     const t = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
     return !!t?.cols && !!t?.rows
