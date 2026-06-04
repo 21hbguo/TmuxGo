@@ -41,7 +41,7 @@ describe('PasteConfirmDialog', () => {
     await user.click(screen.getByRole('button', { name: 'Send' }))
     expect(onSend).toHaveBeenCalledTimes(1)
   })
-  it('focuses confirm text at end for direct edit and enter send', async () => {
+  it('does not steal terminal helper focus in confirm mode but remains editable', async () => {
     const user = userEvent.setup()
     const helper = document.createElement('textarea')
     document.body.appendChild(helper)
@@ -62,9 +62,8 @@ describe('PasteConfirmDialog', () => {
       }
       const { container } = render(React.createElement(DialogHarness))
       const textarea = within(container).getByRole('textbox')
-      await waitFor(() => expect(document.activeElement).toBe(textarea))
-      await waitFor(() => expect(textarea).toHaveProperty('selectionStart', 'printf ok'.length))
-      await waitFor(() => expect(textarea).toHaveProperty('selectionEnd', 'printf ok'.length))
+      await waitFor(() => expect(document.activeElement).toBe(helper))
+      await user.click(textarea)
       await user.keyboard(' edited')
       expect(textarea).toHaveValue('printf ok edited')
       await user.keyboard('{Enter}')
