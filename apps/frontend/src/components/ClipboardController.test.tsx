@@ -63,8 +63,7 @@ describe('ClipboardController', () => {
       window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-paste', { detail: { text: 'printf ok', source: 'system' } }))
     })
     expect(await screen.findByText('Confirm paste')).toBeInTheDocument()
-    expect(screen.getByText('printf ok')).toBeInTheDocument()
-    expect(screen.queryByRole('textbox')).toBeNull()
+    expect(screen.getByRole('textbox')).toHaveValue('printf ok')
     expect(terminalInput).not.toHaveBeenCalled()
     window.removeEventListener('tmuxgo-terminal-input', terminalInput)
   })
@@ -82,7 +81,26 @@ describe('ClipboardController', () => {
     expect(terminalInput.mock.calls[0][0].detail.data).toBe('echo a\necho b')
     window.removeEventListener('tmuxgo-terminal-input', terminalInput)
   })
-  it('does not blur an active terminal ime composition after paste send focus restore', async () => {
+  it('does not request terminal focus after confirm paste closes', async () => {
+    const user = userEvent.setup()
+    const terminalInput = vi.fn()
+    const focusTerminal = vi.fn()
+    window.addEventListener('tmuxgo-focus-terminal', focusTerminal)
+    window.addEventListener('tmuxgo-terminal-input', terminalInput)
+    render(React.createElement(ClipboardController))
+    act(() => {
+      window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-paste', { detail: { text: 'printf ok', source: 'system' } }))
+    })
+    await user.click(await screen.findByRole('button', { name: 'Send' }))
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 130))
+    })
+    expect(terminalInput).toHaveBeenCalledTimes(1)
+    expect(focusTerminal).not.toHaveBeenCalled()
+    window.removeEventListener('tmuxgo-focus-terminal', focusTerminal)
+    window.removeEventListener('tmuxgo-terminal-input', terminalInput)
+  })
+  it('does not blur an active terminal ime composition after paste send', async () => {
     const user = userEvent.setup()
     const terminalInput = vi.fn()
     const terminal = document.createElement('div')
@@ -112,7 +130,7 @@ describe('ClipboardController', () => {
     terminal.remove()
   })
 
-  it('reads clipboard requests into confirmation before sending', async () => {
+  it('reads clipboard requests into editable confirmation before sending', async () => {
     const user = userEvent.setup()
     const terminalInput = vi.fn()
     readClipboardTextOnly.mockResolvedValue({ text: 'printf clipboard', source: 'system', unavailable: false })
@@ -122,12 +140,14 @@ describe('ClipboardController', () => {
       window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-paste'))
       await Promise.resolve()
     })
-    expect(await screen.findByText('printf clipboard')).toBeInTheDocument()
-    expect(screen.queryByRole('textbox')).toBeNull()
+    const textarea = await screen.findByRole('textbox')
+    expect(textarea).toHaveValue('printf clipboard')
     expect(terminalInput).not.toHaveBeenCalled()
+    await user.clear(textarea)
+    await user.type(textarea, 'printf edited')
     await user.click(screen.getByRole('button', { name: 'Send' }))
     expect(terminalInput).toHaveBeenCalledTimes(1)
-    expect(terminalInput.mock.calls[0][0].detail.data).toBe('printf clipboard')
+    expect(terminalInput.mock.calls[0][0].detail.data).toBe('printf edited')
     window.removeEventListener('tmuxgo-terminal-input', terminalInput)
   })
   it('keeps manual clipboard fallback editable', async () => {

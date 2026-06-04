@@ -26,13 +26,12 @@ export function useTerminalPasteBridge() {
     lastPasteAtRef.current = Date.now()
   }, [])
   const shouldSkipDuplicatePaste = useCallback((text: string) => Date.now() - lastPasteAtRef.current < 160 && text === lastPasteTextRef.current, [])
-  const scheduleKeyboardPasteFallback = useCallback((focus: () => void) => {
+  const scheduleKeyboardPasteFallback = useCallback(() => {
     clearKeyboardPasteTimer()
     keyboardPastePendingRef.current = true
     keyboardPasteTimerRef.current = setTimeout(() => {
       keyboardPasteTimerRef.current = null
       keyboardPastePendingRef.current = false
-      focus()
       requestTerminalPaste()
     }, KEYBOARD_PASTE_FALLBACK_DELAY)
   }, [clearKeyboardPasteTimer, requestTerminalPaste])

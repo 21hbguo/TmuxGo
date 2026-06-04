@@ -305,11 +305,11 @@ function getPanelClass(def:ActionButtonDef){
 }
 
 function renderPanelButton(def:ActionButtonDef,controller:ReturnType<typeof useQuickActionController>){
-  const { sendKey,startRepeat,stopRepeat }=controller
+  const { sendKey,startRepeat,stopRepeat,preventFocus }=controller
   if(def.repeat&&def.data){
-    return <button key={def.key} onPointerDown={()=>startRepeat(def.data!)} onPointerUp={stopRepeat} onPointerLeave={stopRepeat} onPointerCancel={stopRepeat} className={getPanelClass(def)} disabled={def.disabled}>{def.label}</button>
+    return <button key={def.key} onPointerDown={(e)=>{ preventFocus(e); startRepeat(def.data!) }} onPointerUp={stopRepeat} onPointerLeave={stopRepeat} onPointerCancel={stopRepeat} className={getPanelClass(def)} disabled={def.disabled}>{def.label}</button>
   }
-  return <button key={def.key} onClick={()=>{ if(def.disabled)return; if(def.onPress)return def.onPress(); if(def.data)sendKey(def.data) }} className={getPanelClass(def)} disabled={def.disabled}>{def.label}</button>
+  return <button key={def.key} onPointerDown={preventFocus} onClick={()=>{ if(def.disabled)return; if(def.onPress)return def.onPress(); if(def.data)sendKey(def.data) }} className={getPanelClass(def)} disabled={def.disabled}>{def.label}</button>
 }
 
 function renderDockButton(def:ActionButtonDef,controller:ReturnType<typeof useQuickActionController>){
