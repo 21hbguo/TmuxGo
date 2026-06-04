@@ -290,8 +290,11 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   const [pendingDeleteItem, setPendingDeleteItem] = useState<FileEntry | null>(null)
   const virtualRoots = useMemo(() => favoriteDirectories.map((item) => ({ id: getFavoriteRootOptionId(item), label: item.name, path: joinPath(item.rootPath, item.path), sourceRootId: item.rootId, basePath: item.path })), [favoriteDirectories])
   const visibleRoots = useMemo(() => {
-    const home = roots.find((item) => getRootKind(item) === 'home')
-    return home ? [home] : roots.slice(0, 1)
+    const workspace = roots.find((item) => getRootKind(item) === 'workspace') || null
+    const home = roots.find((item) => getRootKind(item) === 'home') || null
+    const pinned = [workspace, home].filter((item): item is FileRoot => !!item)
+    const extras = roots.filter((item) => !pinned.some((entry) => entry.id === item.id))
+    return pinned.length ? [...pinned, ...extras] : roots
   }, [roots])
   const rootOptions = useMemo(() => [...visibleRoots.map((item) => ({ ...item, sourceRootId: item.id, basePath: '' })), ...virtualRoots], [visibleRoots, virtualRoots])
   const activeRoot = rootOptions.find((item) => item.id === selectedRootId) || rootOptions[0]
