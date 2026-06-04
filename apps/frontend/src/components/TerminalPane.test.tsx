@@ -723,9 +723,11 @@ describe('TerminalPane', () => {
     window.addEventListener('tmuxgo-request-terminal-paste', requestPaste)
     render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    terminalMocks.focus.mockClear()
     expect(customKeyHandler?.({ ctrlKey: true, metaKey: false, altKey: false, key: 'v' } as KeyboardEvent)).toBe(false)
     await sleep(220)
     expect(requestPaste).toHaveBeenCalledTimes(1)
+    expect(terminalMocks.focus).not.toHaveBeenCalled()
     window.removeEventListener('tmuxgo-request-terminal-paste', requestPaste)
   })
 

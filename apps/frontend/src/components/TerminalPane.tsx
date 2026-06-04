@@ -1426,7 +1426,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         }
         if (isPasteShortcut(e)) {
           if (e.repeat) return false
-          pasteBridge.scheduleKeyboardPasteFallback(() => terminal?.focus?.())
+          pasteBridge.scheduleKeyboardPasteFallback()
           return false
         }
         if (e.key === 'Backspace' && e.ctrlKey && !e.metaKey && !e.altKey) {

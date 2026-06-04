@@ -1,7 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { flushSync } from 'react-dom'
+import { useCallback, useEffect, useState } from 'react'
 import { analyzePaste, escapePaste } from '@/lib/paste-safety'
 import { readClipboardTextOnly, writeClipboardText } from '@/lib/clipboard-text'
 import { requestTerminalSelection } from '@/lib/terminal-selection'
@@ -13,22 +12,9 @@ export function ClipboardController() {
   const { t } = useTranslation()
   const pushToast = useConsoleStore((s) => s.pushToast)
   const [pendingPaste, setPendingPaste] = useState<{ text: string; meta: string[]; mode?: 'confirm' | 'manual'; source?: 'system' | 'memory' | 'empty' } | null>(null)
-  const focusAfterCloseRef = useRef(false)
-  const focusTerminal = useCallback(() => {
-    const focusNow = () => {
-      window.dispatchEvent(new CustomEvent('tmuxgo-focus-terminal'))
-    }
-    focusNow()
-    requestAnimationFrame(focusNow)
-    setTimeout(focusNow, 0)
-    setTimeout(focusNow, 32)
-    setTimeout(focusNow, 96)
-  }, [])
   const closePasteDialog = useCallback(() => {
-    focusAfterCloseRef.current = true
-    flushSync(() => setPendingPaste(null))
-    focusTerminal()
-  }, [focusTerminal])
+    setPendingPaste(null)
+  }, [])
   const sendTerminalInput = useCallback((data: string) => {
     window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data } }))
   }, [])
@@ -68,11 +54,6 @@ export function ClipboardController() {
       pushToast({ type: 'error', message: err instanceof Error ? err.message : t('clipboard.pasteFailed') })
     }
   }, [pushToast, routePasteText])
-  useEffect(() => {
-    if (pendingPaste || !focusAfterCloseRef.current) return
-    focusAfterCloseRef.current = false
-    focusTerminal()
-  }, [focusTerminal, pendingPaste])
   useEffect(() => {
     const onCopy = () => void handleCopy()
     const onPaste = (event: Event) => {

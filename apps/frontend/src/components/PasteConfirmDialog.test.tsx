@@ -41,24 +41,31 @@ describe('PasteConfirmDialog', () => {
     await user.click(screen.getByRole('button', { name: 'Send' }))
     expect(onSend).toHaveBeenCalledTimes(1)
   })
-  it('does not focus editable text in confirm mode', async () => {
+  it('keeps confirm text editable without autofocus', async () => {
     const helper = document.createElement('textarea')
     document.body.appendChild(helper)
     helper.focus()
     try {
-      const { container } = render(
-        React.createElement(PasteConfirmDialog, {
+      const onSend = vi.fn()
+      function DialogHarness() {
+        const [text, setText] = React.useState('printf ok')
+        return React.createElement(PasteConfirmDialog, {
           open: true,
-          text: 'printf ok',
+          text,
           meta: [],
-          onSend: vi.fn(),
+          onTextChange: setText,
+          onSend,
           onEscapeSend: vi.fn(),
           onCancel: vi.fn(),
         })
-      )
-      expect(within(container).queryByRole('textbox')).toBeNull()
-      expect(within(container).getByText('printf ok')).toBeInTheDocument()
+      }
+      const { container } = render(React.createElement(DialogHarness))
+      const textarea = within(container).getByRole('textbox')
       await waitFor(() => expect(document.activeElement).toBe(helper))
+      await userEvent.setup().type(textarea, ' edited')
+      expect(textarea).toHaveValue('printf ok edited')
+      await userEvent.setup().keyboard('{Enter}')
+      expect(onSend).toHaveBeenCalledTimes(1)
     } finally {
       helper.remove()
     }
