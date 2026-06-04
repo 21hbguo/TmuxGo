@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { analyzePaste, escapePaste } from '@/lib/paste-safety'
 import { readClipboardTextOnly, writeClipboardText } from '@/lib/clipboard-text'
 import { requestTerminalSelection } from '@/lib/terminal-selection'
@@ -12,15 +12,29 @@ export function ClipboardController() {
   const { t } = useTranslation()
   const pushToast = useConsoleStore((s) => s.pushToast)
   const [pendingPaste, setPendingPaste] = useState<{ text: string; meta: string[]; mode?: 'confirm' | 'manual'; source?: 'system' | 'memory' | 'empty' } | null>(null)
+  const focusAfterCloseRef = useRef(false)
   const closePasteDialog = useCallback(() => {
     setPendingPaste(null)
   }, [])
+  const closePasteDialogAndFocus = useCallback(() => {
+    focusAfterCloseRef.current = true
+    closePasteDialog()
+  }, [closePasteDialog])
   const sendTerminalInput = useCallback((data: string) => {
     window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data } }))
   }, [])
   const requestTerminalFocus = useCallback(() => {
     window.dispatchEvent(new CustomEvent('tmuxgo-focus-terminal'))
   }, [])
+  useEffect(() => {
+    if (pendingPaste || !focusAfterCloseRef.current) return
+    const timer = window.setTimeout(() => {
+      if (!focusAfterCloseRef.current) return
+      focusAfterCloseRef.current = false
+      requestTerminalFocus()
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [pendingPaste, requestTerminalFocus])
   const routePasteText = useCallback((text: string, source: 'system' | 'memory' | 'empty' = 'system') => {
     if (!text) return false
     const analysis = analyzePaste(text)
@@ -88,16 +102,14 @@ export function ClipboardController() {
           sendTerminalInput(pendingPaste.text)
           if (pendingPaste.source === 'memory') pushToast({ type: 'info', message: t('clipboard.pastedFromApp') })
         }
-        closePasteDialog()
-        requestTerminalFocus()
+        closePasteDialogAndFocus()
       }}
       onEscapeSend={() => {
         if (pendingPaste) {
           sendTerminalInput(escapePaste(pendingPaste.text))
           if (pendingPaste.source === 'memory') pushToast({ type: 'info', message: t('clipboard.pastedFromApp') })
         }
-        closePasteDialog()
-        requestTerminalFocus()
+        closePasteDialogAndFocus()
       }}
     />
   )

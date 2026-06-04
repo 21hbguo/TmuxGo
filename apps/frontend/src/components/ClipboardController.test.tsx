@@ -100,6 +100,22 @@ describe('ClipboardController', () => {
     window.removeEventListener('tmuxgo-focus-terminal', focusTerminal)
     window.removeEventListener('tmuxgo-terminal-input', terminalInput)
   })
+  it('requests terminal focus after paste dialog unmounts', async () => {
+    const user = userEvent.setup()
+    const focusStates: boolean[] = []
+    const focusTerminal = () => {
+      focusStates.push(!!screen.queryByRole('textbox'))
+    }
+    window.addEventListener('tmuxgo-focus-terminal', focusTerminal)
+    render(React.createElement(ClipboardController))
+    act(() => {
+      window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-paste', { detail: { text: 'printf ok', source: 'system' } }))
+    })
+    await user.click(await screen.findByRole('button', { name: 'Send' }))
+    await waitFor(() => expect(focusStates.length).toBe(1))
+    expect(focusStates).toEqual([false])
+    window.removeEventListener('tmuxgo-focus-terminal', focusTerminal)
+  })
   it('does not blur an active terminal ime composition after paste send', async () => {
     const user = userEvent.setup()
     const terminalInput = vi.fn()
@@ -130,7 +146,7 @@ describe('ClipboardController', () => {
     terminal.remove()
   })
 
-  it('reads clipboard requests into editable confirmation before sending', async () => {
+  it('keeps clipboard confirmation editable without stealing focus', async () => {
     const user = userEvent.setup()
     const terminalInput = vi.fn()
     readClipboardTextOnly.mockResolvedValue({ text: 'printf clipboard', source: 'system', unavailable: false })
@@ -142,10 +158,9 @@ describe('ClipboardController', () => {
     })
     const textarea = await screen.findByRole('textbox')
     expect(textarea).toHaveValue('printf clipboard')
-    await waitFor(() => expect(document.activeElement).toBe(textarea))
-    await waitFor(() => expect(textarea).toHaveProperty('selectionStart', 'printf clipboard'.length))
-    await waitFor(() => expect(textarea).toHaveProperty('selectionEnd', 'printf clipboard'.length))
+    expect(document.activeElement).not.toBe(textarea)
     expect(terminalInput).not.toHaveBeenCalled()
+    await user.click(textarea)
     await user.keyboard(' edited')
     await user.keyboard('{Enter}')
     expect(terminalInput).toHaveBeenCalledTimes(1)
