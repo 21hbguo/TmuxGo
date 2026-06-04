@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PaneGrid } from './PaneGrid'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 
@@ -53,6 +53,9 @@ describe('PaneGrid', () => {
       connection: { status: 'attaching', latency: 0, lastPing: new Date().toISOString() },
       terminalPerf: { attachLatency: 0, outputBytes: 0, outputEvents: 0, outputBacklog: 0, layoutFitCount: 0, lastOutputAt: '' },
     } as any)
+  })
+  afterEach(() => {
+    vi.useRealTimers()
   })
   it('waits for the new terminal instance before attaching after session switch', async () => {
     render(<PaneGrid />)
@@ -119,5 +122,31 @@ describe('PaneGrid', () => {
       window.dispatchEvent(new CustomEvent('tmux-attached', { detail: { sessionName: 'dev1', cols: 120, rows: 36, hostId: 'local' } }))
     })
     await waitFor(() => expect(sendMock).toHaveBeenCalledWith({ type: 'input', data: 'pwd' }))
+  })
+  it('stops attach retry loop and shows the previous session when attach fails', async () => {
+    vi.useFakeTimers()
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    expect(sendMock).toHaveBeenCalledWith({ type: 'attach', hostId: 'local', sessionName: 'dev1', cols: 120, rows: 36, exclusive: true })
+    act(() => {
+      window.dispatchEvent(new CustomEvent('tmux-attached', { detail: { sessionName: 'dev1', cols: 120, rows: 36, hostId: 'local' } }))
+    })
+    expect(useConsoleStore.getState().connection.status).toBe('connected')
+    sendMock.mockClear()
+    act(() => {
+      useConsoleStore.setState({ activeSessionId: 'session-dev2' })
+    })
+    expect(sendMock).toHaveBeenCalledWith({ type: 'attach', hostId: 'local', sessionName: 'dev2', cols: 120, rows: 36, exclusive: true })
+    act(() => {
+      window.dispatchEvent(new CustomEvent('tmux-error', { detail: { hostId: 'local', sessionName: 'dev2', message: 'Session not found' } }))
+    })
+    expect(useConsoleStore.getState().activeSessionId).toBe('session-dev1')
+    expect(useConsoleStore.getState().toasts.at(-1)?.message).toBe('Session not found')
+    expect(screen.getByRole('button', { name: 'dev1' })).toBeInTheDocument()
+    sendMock.mockClear()
+    act(() => {
+      vi.advanceTimersByTime(7000)
+    })
+    expect(sendMock).not.toHaveBeenCalledWith({ type: 'attach', hostId: 'local', sessionName: 'dev2', cols: 120, rows: 36, exclusive: true })
   })
 })

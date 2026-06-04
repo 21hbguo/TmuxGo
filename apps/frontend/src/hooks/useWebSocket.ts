@@ -23,7 +23,7 @@ export function useWebSocket() {
   const updateConnection=useConsoleStore((s)=>s.updateConnection)
   const connectionStatus=useConsoleStore((s)=>s.connection.status)
   const isConnected=connectionStatus==='connected'
-  const isSocketReady=connectionStatus==='connected'||connectionStatus==='attaching'
+  const isSocketReady=wsState.socketReady||connectionStatus==='connected'||connectionStatus==='attaching'
   const {preferences}=usePreferences()
   const clearPongTimer=useCallback(()=>{
     if (!wsState.pongTimer) return
@@ -53,6 +53,10 @@ export function useWebSocket() {
       case 'attached':
         window.dispatchEvent(new CustomEvent('tmux-attached',{detail:data}))
         updateConnection({status:'connected'})
+        break
+      case 'error':
+        window.dispatchEvent(new CustomEvent('tmux-error',{detail:data}))
+        updateConnection({status:'disconnected'})
         break
       case 'detached':
         window.dispatchEvent(new CustomEvent('tmux-detached',{detail:data}))

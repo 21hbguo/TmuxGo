@@ -12,6 +12,7 @@ import { api } from '@/lib/api'
 import { parseSessionName } from '@/lib/session-id'
 import { useSessionContinuity } from '@/hooks/useSessionContinuity'
 import { useSessionSnapshotSync } from '@/hooks/useSessionSnapshotSync'
+import { useOptionalQueryClient } from '@/hooks/useOptionalQueryClient'
 
 const ATTACH_TIMEOUT = 5000
 const ATTACH_RETRY_DELAY = 900
@@ -30,10 +31,12 @@ export function PaneGrid() {
   const { preferences } = usePreferences()
   const { sessionContinuity, upsertResumePoint } = useSessionContinuity()
   const isMobile = isMobileDevice()
+  const queryClient = useOptionalQueryClient()
   const { data: windowsData = [] } = useWindows(activeHostId || '', activeSessionId || '')
   const { getWindows, setWindows } = useWindowQueryState(activeHostId || '', activeSessionId || '')
   const { syncAfterWindowChange } = useSessionSnapshotSync()
   const pushToast = useConsoleStore((s) => s.pushToast)
+  const setActiveSession = useConsoleStore((s) => s.setActiveSession)
   const exclusive = !isMobile || preferences.attachExclusive
   const attachedRef = useRef<string | null>(null)
   const sizeRef = useRef<{ cols: number; rows: number } | null>(null)
@@ -318,6 +321,28 @@ export function PaneGrid() {
     window.addEventListener('tmux-detached', handleDetached as EventListener)
     return () => window.removeEventListener('tmux-detached', handleDetached as EventListener)
   }, [activeHostId, attachNow, clearAttachTimers, isSocketReady, targetSessionName, updateConnection])
+  useEffect(() => {
+    const handleError = (event: Event) => {
+      const detail = (event as CustomEvent<{ hostId?: string; sessionName?: string; message?: string }>).detail || {}
+      if ((detail.hostId || 'local') !== (activeHostId || 'local')) return
+      if (detail.sessionName && detail.sessionName !== targetSessionName) return
+      clearAttachTimers()
+      attachedRef.current = null
+      isSessionAttachedRef.current = false
+      sentResizeRef.current = null
+      pendingSwitchRef.current = false
+      if (pendingSessionNameRef.current === detail.sessionName) {
+        pendingSessionIdRef.current = null
+        pendingSessionNameRef.current = null
+      }
+      if (visibleSessionId && visibleSessionId !== activeSessionId) setActiveSession(visibleSessionId)
+      updateConnection({ status: 'disconnected' })
+      pushToast({ type: 'error', message: detail.message || t('session.requestFailed') })
+      void queryClient?.invalidateQueries({ queryKey: ['sessions', activeHostId || 'local'] })
+    }
+    window.addEventListener('tmux-error', handleError as EventListener)
+    return () => window.removeEventListener('tmux-error', handleError as EventListener)
+  }, [activeHostId, activeSessionId, clearAttachTimers, pushToast, queryClient, setActiveSession, t, targetSessionName, updateConnection, visibleSessionId])
   useEffect(() => {
     if (isConnected) flushInputQueue()
   }, [isConnected, flushInputQueue])

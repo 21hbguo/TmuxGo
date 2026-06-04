@@ -12,6 +12,8 @@ let terminalBufferLines: string[] = []
 let terminalBaseY = 0
 let terminalViewportY = 0
 let terminalUnicodeActiveVersion = '6'
+let terminalCellWidth = 8
+let terminalCellHeight = 16
 let resizeObserverCallback: (() => void) | null = null
 let terminalLinkProviders: Array<{ provideLinks: (bufferLineNumber: number, callback: (links: any[] | undefined) => void) => void }> = []
 let terminalAddonHandlers: Array<(event: MouseEvent, uri: string) => void> = []
@@ -28,6 +30,13 @@ const terminalMocks = vi.hoisted(() => ({
 }))
 const terminalLifecycleMocks = vi.hoisted(() => ({
   open: vi.fn(),
+  dispose: vi.fn(),
+}))
+const webglAddonState = vi.hoisted(() => ({
+  throwOnActivate: false,
+}))
+const webglAddonMocks = vi.hoisted(() => ({
+  activate: vi.fn(),
   dispose: vi.fn(),
 }))
 const webSocketMocks = vi.hoisted(() => ({
@@ -155,7 +164,7 @@ vi.mock('@xterm/xterm', () => {
       register: vi.fn(),
     }
     _core = {
-      _renderService: { dimensions: { css: { canvas: { width: 800, height: 600 }, cell: { width: 8, height: 16 } } }, clear: terminalMocks.renderClear },
+      _renderService: { dimensions: { css: { canvas: { width: 800, height: 600 }, cell: { get width() { return terminalCellWidth }, get height() { return terminalCellHeight } } } }, clear: terminalMocks.renderClear },
       _selectionService: { _activeSelectionMode: 0 },
       viewport: { scrollBarWidth: 0 },
     }
@@ -267,8 +276,16 @@ vi.mock('@xterm/addon-fit', () => ({
     }
   },
 }))
-vi.mock('@xterm/addon-canvas', () => ({
-  CanvasAddon: class {},
+vi.mock('@xterm/addon-webgl', () => ({
+  WebglAddon: class {
+    activate() {
+      webglAddonMocks.activate()
+      if (webglAddonState.throwOnActivate) throw new Error('webgl unavailable')
+    }
+    dispose() {
+      webglAddonMocks.dispose()
+    }
+  },
 }))
 vi.mock('@xterm/addon-web-links', () => ({
   WebLinksAddon: class {
@@ -295,6 +312,8 @@ describe('TerminalPane', () => {
     terminalBaseY = 0
     terminalViewportY = 0
     terminalUnicodeActiveVersion = '6'
+    terminalCellWidth = 8
+    terminalCellHeight = 16
     terminalLinkProviders = []
     terminalAddonHandlers = []
     terminalMocks.write.mockClear()
@@ -307,6 +326,9 @@ describe('TerminalPane', () => {
     terminalMocks.scrollToBottom.mockClear()
     terminalLifecycleMocks.open.mockClear()
     terminalLifecycleMocks.dispose.mockClear()
+    webglAddonState.throwOnActivate = false
+    webglAddonMocks.activate.mockClear()
+    webglAddonMocks.dispose.mockClear()
     webSocketMocks.send.mockClear()
     webSocketMocks.subscribeOutput.mockClear()
     webSocketMocks.lastOutputListener = null
@@ -343,6 +365,8 @@ describe('TerminalPane', () => {
     preferenceMocks.updatePreferences.mockClear()
     openWindowMock.mockReset()
     openWindowMock.mockReturnValue({ closed: false } as Window)
+    window.localStorage.clear()
+    delete (window as typeof window & { __tmuxgoMobileDebug?: { events: Array<Record<string, unknown>> } }).__tmuxgoMobileDebug
     Object.defineProperty(window, 'devicePixelRatio', { configurable: true, value: 1 })
     Object.defineProperty(window, 'open', { configurable: true, value: openWindowMock })
     ;(document as Document & { execCommand?: (command: string) => boolean }).execCommand = vi.fn((command: string) => {
@@ -515,6 +539,23 @@ describe('TerminalPane', () => {
     render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(terminalLifecycleMocks.open).toHaveBeenCalledTimes(1))
     expect(terminalUnicodeActiveVersion).toBe('11')
+  })
+  it('prefers webgl renderer on desktop when available', async () => {
+    window.localStorage.setItem('tmuxgo-debug-mobile', '1')
+    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(terminalLifecycleMocks.open).toHaveBeenCalledTimes(1))
+    expect(webglAddonMocks.activate).toHaveBeenCalledTimes(1)
+    const events = ((window as typeof window & { __tmuxgoMobileDebug?: { events?: Array<Record<string, unknown>> } }).__tmuxgoMobileDebug?.events || [])
+    expect(events.some((item) => item.event === 'terminal-renderer' && item.renderer === 'webgl')).toBe(true)
+  })
+  it('falls back to dom renderer when desktop webgl activation fails', async () => {
+    window.localStorage.setItem('tmuxgo-debug-mobile', '1')
+    webglAddonState.throwOnActivate = true
+    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(terminalLifecycleMocks.open).toHaveBeenCalledTimes(1))
+    expect(webglAddonMocks.activate).toHaveBeenCalledTimes(1)
+    const events = ((window as typeof window & { __tmuxgoMobileDebug?: { events?: Array<Record<string, unknown>> } }).__tmuxgoMobileDebug?.events || [])
+    expect(events.some((item) => item.event === 'terminal-renderer' && item.renderer === 'dom')).toBe(true)
   })
 
   it('copies final selection immediately on pointer release', async () => {

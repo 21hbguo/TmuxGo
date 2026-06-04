@@ -322,6 +322,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
             break
           case 'attach': {
             recordStreamMetric('attachRequests')
+            console.log('Attach requested', { hostId: data?.hostId, sessionName: data?.sessionName, exclusive: !!data?.exclusive, cols: data?.cols, rows: data?.rows })
             const { hostId, sessionName } = await resolveAttachTarget(data)
             if (hostId === 'local') await prepareSessionAttach(sessionName)
             const requestedCols = data.cols || 80
@@ -483,8 +484,16 @@ export async function streamRoutes(fastify: FastifyInstance) {
           default:
             send({ type: 'error', message: `Unknown message type: ${data.type}` })
         }
-      } catch {
-        send({ type: 'error', message: 'Invalid message format' })
+      } catch (err) {
+        const errorMessage = err instanceof Error && err.message ? err.message : 'Invalid message format'
+        console.error('Stream message error', errorMessage)
+        const payload: Record<string, unknown> = { type: 'error', message: errorMessage }
+        try {
+          const data = JSON.parse(message.toString())
+          if (typeof data?.hostId === 'string' && data.hostId.trim()) payload.hostId = data.hostId.trim()
+          if (typeof data?.sessionName === 'string' && data.sessionName.trim()) payload.sessionName = data.sessionName.trim()
+        } catch {}
+        send(payload)
       }
     })
     socket.on('close', () => {
