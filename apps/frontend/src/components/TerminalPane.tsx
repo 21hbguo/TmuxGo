@@ -680,6 +680,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const session = snapshot?.sessionName || sessionNameRef.current || ''
       const windows = Array.isArray(snapshot?.windows) ? snapshot.windows : []
       const activeWindow = windows.find((item: any) => item.id === snapshot?.activeWindowId) || windows.find((item: any) => item.active)
+      const activePaneId = String(snapshot?.activePaneId || '')
       const index = Number(activeWindow?.index)
       const windowId = Number.isFinite(index) ? `${activeHostIdRef.current || 'local'}:${session}:${index}` : ''
       if (paneBoundsCache && paneBoundsCache.snapshot === snapshot && paneBoundsCache.windowId === windowId) {
@@ -690,7 +691,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         const id = String(pane.windowId || '')
         return id === windowId || id.endsWith(`:${index}`)
       }) : panes
-      const bounds = filtered.map(getPaneBounds).filter(Boolean) as any[]
+      const visiblePanes = activeWindow?.zoomed && activePaneId ? filtered.filter((pane: any) => String(pane?.id || pane?.tmuxPaneId || '') === activePaneId) : filtered
+      const bounds = visiblePanes.map(getPaneBounds).filter(Boolean) as any[]
       paneBoundsCache = { snapshot, windowId, bounds }
       return bounds
     }

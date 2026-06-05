@@ -37,6 +37,7 @@ export interface Window {
   index: number
   name: string
   active: boolean
+  zoomed?: boolean
 }
 
 export interface Pane {

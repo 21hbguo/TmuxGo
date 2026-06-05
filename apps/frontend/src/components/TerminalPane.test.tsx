@@ -524,6 +524,28 @@ describe('TerminalPane', () => {
     await waitFor(() => expect(storeMocks.setActivePane).toHaveBeenCalledWith('local:%2'))
     expect(apiMocks.paneSelect).toHaveBeenCalledWith('local:%2')
   })
+  it('does not select a hidden pane from stale bounds when active window is zoomed', async () => {
+    queryClientMocks.getQueryData.mockReturnValue({
+      sessionName: 'dev',
+      activeWindowId: '@1',
+      windows: [{ id: '@1', index: 0, active: true, zoomed: true }],
+      panes: [
+        { id: 'local:%1', windowId: 'local:dev:0', left: 0, top: 0, size: { cols: 12, rows: 10 } },
+        { id: 'local:%2', windowId: 'local:dev:0', left: 13, top: 0, size: { cols: 12, rows: 10 }, active: true },
+      ],
+      activePaneId: 'local:%2',
+    })
+    apiMocks.snapshotGet.mockResolvedValue({ windows: [], panes: [{ id: 'local:%2', active: true }], activePaneId: 'local:%2' })
+    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    const screen = container.querySelector('.xterm-screen') as HTMLElement
+    screen.getBoundingClientRect = vi.fn(() => ({ x: 0, y: 0, left: 0, top: 0, width: 960, height: 576, right: 960, bottom: 576, toJSON: () => ({}) } as DOMRect))
+    fireEvent.mouseDown(container.firstChild as Element, { button: 0, clientX: 20, clientY: 20 })
+    fireEvent.mouseUp(window, { button: 0, clientX: 20, clientY: 20 })
+    await waitFor(() => expect(storeMocks.setActivePane).toHaveBeenCalledWith('local:%2'))
+    expect(apiMocks.paneSelect).not.toHaveBeenCalled()
+    expect(apiMocks.paneSelect).not.toHaveBeenCalledWith('local:%1')
+  })
   it('does not recreate terminal instance on noop rerender', async () => {
     const onInput = vi.fn()
     const onResize = vi.fn()
