@@ -2,8 +2,12 @@
 import { useCallback, useMemo, useRef } from 'react'
 import { extractClipboardImageFiles } from '@/lib/clipboard-files'
 import { extractClipboardText } from '@/lib/clipboard-text'
+import { armImeDiagnostics, recordImeDiagnostic } from '@/lib/ime-diagnostics'
 
 const KEYBOARD_PASTE_FALLBACK_DELAY = 160
+function recordImeDebug(event: string, data?: Record<string, unknown>) {
+  recordImeDiagnostic('paste-bridge', event, data)
+}
 function clearTextareaTarget(target: EventTarget | null) {
   if (target instanceof HTMLTextAreaElement) target.value = ''
 }
@@ -33,14 +37,19 @@ export function useTerminalPasteBridge(onPasteFiles?: (files: File[]) => void) {
   const scheduleKeyboardPasteFallback = useCallback(() => {
     clearKeyboardPasteTimer()
     keyboardPastePendingRef.current = true
+    armImeDiagnostics('keyboard-paste-fallback')
+    recordImeDebug('schedule-keyboard-paste-fallback')
     keyboardPasteTimerRef.current = setTimeout(() => {
       keyboardPasteTimerRef.current = null
       keyboardPastePendingRef.current = false
+      recordImeDebug('keyboard-paste-fallback-fire')
       requestTerminalPaste()
     }, KEYBOARD_PASTE_FALLBACK_DELAY)
   }, [clearKeyboardPasteTimer, requestTerminalPaste])
   const handlePaste = useCallback((e: ClipboardEvent) => {
     const files = extractClipboardImageFiles(e.clipboardData)
+    armImeDiagnostics('native-paste')
+    recordImeDebug('paste', { hasFiles: files.length > 0, textLength: extractClipboardText(e.clipboardData).length, target: e.target instanceof HTMLElement ? `${e.target.tagName}.${e.target.className}` : '' })
     if (files.length) {
       keyboardPastePendingRef.current = false
       clearKeyboardPasteTimer()
@@ -55,6 +64,7 @@ export function useTerminalPasteBridge(onPasteFiles?: (files: File[]) => void) {
     const target = e.target
     keyboardPastePendingRef.current = false
     if (!text) {
+      recordImeDebug('paste-empty')
       clearKeyboardPasteTimer()
       e.preventDefault()
       e.stopPropagation()
@@ -64,40 +74,32 @@ export function useTerminalPasteBridge(onPasteFiles?: (files: File[]) => void) {
       return
     }
     if (shouldSkipDuplicatePaste(text)) {
+      recordImeDebug('paste-skip-duplicate', { textLength: text.length })
       clearKeyboardPasteTimer()
       e.preventDefault()
       e.stopPropagation()
       e.stopImmediatePropagation()
-      clearTextareaTarget(target)
       return
     }
     clearKeyboardPasteTimer()
     e.preventDefault()
     e.stopPropagation()
     e.stopImmediatePropagation()
-    clearTextareaTarget(target)
+    recordImeDebug('paste-forward', { textLength: text.length })
     markPasteForwarded(text)
     requestTerminalPaste(text)
   }, [clearKeyboardPasteTimer, markPasteForwarded, onPasteFiles, requestTerminalPaste, shouldSkipDuplicatePaste])
   const handlePasteInput = useCallback((e: InputEvent) => {
     const isPasteInput = e.inputType === 'insertFromPaste'
+    recordImeDebug('paste-input', { inputType: e.inputType || '', data: e.data || '', pending: keyboardPastePendingRef.current })
     if (!isPasteInput && keyboardPastePendingRef.current) {
       keyboardPastePendingRef.current = false
       clearKeyboardPasteTimer()
     }
     if (!isPasteInput) return
-    const target = e.target
-    const text = typeof e.data === 'string' && e.data ? e.data : target instanceof HTMLTextAreaElement ? target.value : ''
     keyboardPastePendingRef.current = false
     clearKeyboardPasteTimer()
-    e.preventDefault()
-    e.stopPropagation()
-    e.stopImmediatePropagation()
-    clearTextareaTarget(target)
-    if (text && shouldSkipDuplicatePaste(text)) return
-    if (text) markPasteForwarded(text)
-    requestTerminalPaste(text)
-  }, [clearKeyboardPasteTimer, markPasteForwarded, requestTerminalPaste, shouldSkipDuplicatePaste])
+  }, [clearKeyboardPasteTimer])
   const dispose = useCallback(() => {
     clearKeyboardPasteTimer()
     keyboardPastePendingRef.current = false
