@@ -182,7 +182,6 @@ export function PaneGrid() {
     updateConnection({ status: 'attaching' })
     const sent = send({ type: 'attach', hostId: activeHostId || 'local', sessionName: targetSessionName, cols: size?.cols || 120, rows: size?.rows || 36, exclusive })
     if (!sent) return
-    sentResizeRef.current = size || null
     attachTimerRef.current = setTimeout(() => {
       attachedRef.current = null
       sentResizeRef.current = null
@@ -294,7 +293,6 @@ export function PaneGrid() {
       pendingSwitchRef.current = false
       const attachedCols = Number(detail.cols)
       const attachedRows = Number(detail.rows)
-      if (attachedCols > 0 && attachedRows > 0) sentResizeRef.current = { cols: attachedCols, rows: attachedRows }
       const attachLatency = Math.max(0, Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - attachStartedAtRef.current))
       updateConnection({ status: 'connected' })
       updateTerminalPerf({ attachLatency })

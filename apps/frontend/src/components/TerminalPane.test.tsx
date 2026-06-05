@@ -768,7 +768,7 @@ describe('TerminalPane', () => {
     vi.useRealTimers()
     window.removeEventListener('tmuxgo-request-terminal-paste', requestPaste)
   })
-  it('clears helper textarea after intercepted paste so desktop ime can compose cleanly', async () => {
+  it('preserves helper textarea value after intercepted paste so desktop ime state is not reset', async () => {
     const requestPaste = vi.fn()
     window.addEventListener('tmuxgo-request-terminal-paste', requestPaste)
     const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
@@ -785,7 +785,7 @@ describe('TerminalPane', () => {
     await sleep(60)
     expect(requestPaste).toHaveBeenCalledTimes(1)
     expect(requestPaste.mock.calls[0][0].detail.text).toBe('printf "desktop_ime_after_paste"')
-    expect(target.value).toBe('')
+    expect(target.value).toBe('stale-ime-buffer')
     expect(document.activeElement).toBe(target)
     fireEvent.compositionStart(target)
     target.value = 'zhong'
@@ -795,7 +795,7 @@ describe('TerminalPane', () => {
     expect(target.value).toBe('zhong')
     window.removeEventListener('tmuxgo-request-terminal-paste', requestPaste)
   })
-  it('routes insertFromPaste input through unified paste request', async () => {
+  it('ignores insertFromPaste input follow-up so helper textarea is not force-cleared', async () => {
     const requestPaste = vi.fn()
     window.addEventListener('tmuxgo-request-terminal-paste', requestPaste)
     const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
@@ -805,9 +805,95 @@ describe('TerminalPane', () => {
     const event = new InputEvent('input', { bubbles: true, cancelable: true, data: null, inputType: 'insertFromPaste' })
     target.dispatchEvent(event)
     await sleep(60)
+    expect(requestPaste).not.toHaveBeenCalled()
+    expect(target.value).toBe('printf "input_paste_path"')
+    window.removeEventListener('tmuxgo-request-terminal-paste', requestPaste)
+  })
+  it('keeps ime composition usable immediately after intercepted paste', async () => {
+    const requestPaste = vi.fn()
+    const targetInput = vi.fn()
+    window.addEventListener('tmuxgo-request-terminal-paste', requestPaste)
+    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    const target = container.querySelector('textarea') as HTMLTextAreaElement
+    target.addEventListener('input', targetInput)
+    target.focus()
+    target.value = 'preedit-buffer'
+    fireEvent.paste(target, {
+      clipboardData: {
+        getData: (type: string) => type === 'text/plain' ? 'printf "paste_then_ime"' : '',
+      },
+    })
+    await sleep(60)
     expect(requestPaste).toHaveBeenCalledTimes(1)
-    expect(requestPaste.mock.calls[0][0].detail.text).toBe('printf "input_paste_path"')
-    expect(target.value).toBe('')
+    expect(target.value).toBe('preedit-buffer')
+    fireEvent.compositionStart(target)
+    target.value = 'zhong'
+    const composing = new InputEvent('input', { bubbles: true, cancelable: true, data: 'zhong', inputType: 'insertCompositionText' })
+    target.dispatchEvent(composing)
+    target.value = '中'
+    fireEvent.compositionEnd(target)
+    const committed = new InputEvent('input', { bubbles: true, cancelable: true, data: '中', inputType: 'insertText' })
+    target.dispatchEvent(committed)
+    await sleep(60)
+    expect(composing.defaultPrevented).toBe(false)
+    expect(committed.defaultPrevented).toBe(false)
+    expect(targetInput).toHaveBeenCalledTimes(2)
+    expect(requestPaste).toHaveBeenCalledTimes(1)
+    expect(target.value).toBe('中')
+    window.removeEventListener('tmuxgo-request-terminal-paste', requestPaste)
+  })
+  it('does not re-route paste follow-up input before ime composition resumes', async () => {
+    const requestPaste = vi.fn()
+    const targetInput = vi.fn()
+    window.addEventListener('tmuxgo-request-terminal-paste', requestPaste)
+    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    const target = container.querySelector('textarea') as HTMLTextAreaElement
+    target.addEventListener('input', targetInput)
+    target.focus()
+    fireEvent.paste(target, {
+      clipboardData: {
+        getData: (type: string) => type === 'text/plain' ? 'printf "paste_followup"' : '',
+      },
+    })
+    await sleep(60)
+    target.value = 'printf "paste_followup"'
+    const pasteInput = new InputEvent('input', { bubbles: true, cancelable: true, data: null, inputType: 'insertFromPaste' })
+    target.dispatchEvent(pasteInput)
+    target.value = 'zhong'
+    fireEvent.compositionStart(target)
+    const composing = new InputEvent('input', { bubbles: true, cancelable: true, data: 'zhong', inputType: 'insertCompositionText' })
+    target.dispatchEvent(composing)
+    await sleep(60)
+    expect(pasteInput.defaultPrevented).toBe(false)
+    expect(composing.defaultPrevented).toBe(false)
+    expect(requestPaste).toHaveBeenCalledTimes(1)
+    expect(targetInput).toHaveBeenCalledTimes(2)
+    expect(target.value).toBe('zhong')
+    window.removeEventListener('tmuxgo-request-terminal-paste', requestPaste)
+  })
+  it('restores terminal focus after paste when clicking outside and back', async () => {
+    const requestPaste = vi.fn()
+    window.addEventListener('tmuxgo-request-terminal-paste', requestPaste)
+    const { container } = render(<><button type="button">outside</button><TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} /></>)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    const target = container.querySelector('textarea') as HTMLTextAreaElement
+    const outside = screen.getByRole('button', { name: 'outside' })
+    target.focus()
+    target.value = 'ime-buffer'
+    fireEvent.paste(target, {
+      clipboardData: {
+        getData: (type: string) => type === 'text/plain' ? 'printf "paste_focus_roundtrip"' : '',
+      },
+    })
+    await sleep(60)
+    expect(requestPaste).toHaveBeenCalledTimes(1)
+    expect(target.value).toBe('ime-buffer')
+    outside.focus()
+    fireEvent.focus(container.firstChild as Element)
+    expect(terminalMocks.focus).toHaveBeenCalled()
+    expect(target.value).toBe('ime-buffer')
     window.removeEventListener('tmuxgo-request-terminal-paste', requestPaste)
   })
   it('does not intercept desktop ime input events as paste', async () => {

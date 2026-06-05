@@ -15,6 +15,7 @@ import { useTerminalSelectionSync } from '@/hooks/useTerminalSelectionSync'
 import { useTranslation } from '@/i18n'
 import { useTerminalTouchScroll } from '@/hooks/useTerminalTouchScroll'
 import { recordMobileDiagnostic } from '@/lib/mobile-diagnostics'
+import { recordImeDiagnostic } from '@/lib/ime-diagnostics'
 import { useTerminalOutputScheduler } from '@/hooks/useTerminalOutputScheduler'
 import { buildSessionId } from '@/lib/session-id'
 import { writeClipboardText } from '@/lib/clipboard-text'
@@ -67,6 +68,9 @@ function recordMobileDebug(event: string, data?: Record<string, unknown>) {
   state.events.push({ event, at: Math.round(performance.now()), ...data })
   state.events = state.events.slice(-240)
   target.__tmuxgoMobileDebug = state
+}
+function recordImeDebug(event: string, data?: Record<string, unknown>) {
+  recordImeDiagnostic('terminal-pane', event, data)
 }
 
 interface TerminalPaneProps {
@@ -624,6 +628,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       input.style.zIndex = '-5'
     }
     const focusTerminalInput = () => {
+      recordImeDebug('focus-terminal-input', { mobile: isMobileDevice, composing: helperTextareaComposing })
       if (isMobileDevice) {
         cancelTmuxCopyMode()
         focusKeyboard()
@@ -1455,6 +1460,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         })
       )
       terminal.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+        recordImeDebug('custom-key-handler', { key: e.key, code: e.code, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, keyCode: e.keyCode, isComposing: e.isComposing })
         if (isImeKeyEvent(e)) return true
         if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'c') {
           const selection = getSelectionText()
@@ -1531,6 +1537,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         scheduleFit(isMobileDevice ? MOBILE_FIT_DEBOUNCE_MS : 0)
       }
       const handleKeyUp = (e: KeyboardEvent) => {
+        recordImeDebug('window-keyup', { key: e.key, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, isComposing: e.isComposing })
         if (e.key === 'Backspace' || !e.ctrlKey) stopDeleteWordRepeat()
       }
       const handleOrientationChange = () => {
@@ -1679,12 +1686,42 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       container.addEventListener('copy', handleCopy, true)
       const handleHelperCompositionStart = () => {
         helperTextareaComposing = true
+        recordImeDebug('helper-compositionstart', { value: helperTextarea?.value || '' })
       }
       const handleHelperCompositionEnd = () => {
         helperTextareaComposing = false
+        recordImeDebug('helper-compositionend', { value: helperTextarea?.value || '' })
+      }
+      const handleHelperCompositionUpdate = (event: CompositionEvent) => {
+        recordImeDebug('helper-compositionupdate', { data: event.data || '', value: helperTextarea?.value || '' })
+      }
+      const handleHelperFocus = () => {
+        recordImeDebug('helper-focus', { value: helperTextarea?.value || '' })
+      }
+      const handleHelperBlur = () => {
+        recordImeDebug('helper-blur', { value: helperTextarea?.value || '' })
+      }
+      const handleHelperBeforeInput = (event: InputEvent) => {
+        recordImeDebug('helper-beforeinput', { inputType: event.inputType || '', data: event.data || '', value: helperTextarea?.value || '', composing: event.isComposing })
+      }
+      const handleHelperInput = (event: InputEvent) => {
+        recordImeDebug('helper-input', { inputType: event.inputType || '', data: event.data || '', value: helperTextarea?.value || '', composing: event.isComposing })
+      }
+      const handleHelperKeyDown = (event: KeyboardEvent) => {
+        recordImeDebug('helper-keydown', { key: event.key, code: event.code, ctrlKey: event.ctrlKey, metaKey: event.metaKey, altKey: event.altKey, keyCode: event.keyCode, isComposing: event.isComposing })
+      }
+      const handleHelperKeyUp = (event: KeyboardEvent) => {
+        recordImeDebug('helper-keyup', { key: event.key, code: event.code, ctrlKey: event.ctrlKey, metaKey: event.metaKey, altKey: event.altKey, keyCode: event.keyCode, isComposing: event.isComposing })
       }
       helperTextarea?.addEventListener('compositionstart', handleHelperCompositionStart)
+      helperTextarea?.addEventListener('compositionupdate', handleHelperCompositionUpdate)
       helperTextarea?.addEventListener('compositionend', handleHelperCompositionEnd)
+      helperTextarea?.addEventListener('focus', handleHelperFocus)
+      helperTextarea?.addEventListener('blur', handleHelperBlur)
+      helperTextarea?.addEventListener('beforeinput', handleHelperBeforeInput as EventListener, true)
+      helperTextarea?.addEventListener('input', handleHelperInput as EventListener, true)
+      helperTextarea?.addEventListener('keydown', handleHelperKeyDown, true)
+      helperTextarea?.addEventListener('keyup', handleHelperKeyUp, true)
       helperTextarea?.addEventListener('paste', pasteBridge.handlePaste, true)
       container.addEventListener('paste', pasteBridge.handlePaste, true)
       container.addEventListener('beforeinput', pasteBridge.handlePasteInput as EventListener, true)
@@ -1754,7 +1791,14 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           helperTextarea?.removeEventListener('copy', handleCopy, true)
           container.removeEventListener('copy', handleCopy, true)
           helperTextarea?.removeEventListener('compositionstart', handleHelperCompositionStart)
+          helperTextarea?.removeEventListener('compositionupdate', handleHelperCompositionUpdate)
           helperTextarea?.removeEventListener('compositionend', handleHelperCompositionEnd)
+          helperTextarea?.removeEventListener('focus', handleHelperFocus)
+          helperTextarea?.removeEventListener('blur', handleHelperBlur)
+          helperTextarea?.removeEventListener('beforeinput', handleHelperBeforeInput as EventListener, true)
+          helperTextarea?.removeEventListener('input', handleHelperInput as EventListener, true)
+          helperTextarea?.removeEventListener('keydown', handleHelperKeyDown, true)
+          helperTextarea?.removeEventListener('keyup', handleHelperKeyUp, true)
           helperTextarea?.removeEventListener('paste', pasteBridge.handlePaste, true)
           container.removeEventListener('paste', pasteBridge.handlePaste, true)
           container.removeEventListener('beforeinput', pasteBridge.handlePasteInput as EventListener, true)

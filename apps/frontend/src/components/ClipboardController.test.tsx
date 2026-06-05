@@ -81,11 +81,13 @@ describe('ClipboardController', () => {
     expect(terminalInput.mock.calls[0][0].detail.data).toBe('echo a\necho b')
     window.removeEventListener('tmuxgo-terminal-input', terminalInput)
   })
-  it('requests terminal focus once after confirmed paste sends', async () => {
+  it('does not force terminal focus after confirmed paste sends', async () => {
     const user = userEvent.setup()
     const terminalInput = vi.fn()
     const focusTerminal = vi.fn()
+    const recoverIme = vi.fn()
     window.addEventListener('tmuxgo-focus-terminal', focusTerminal)
+    window.addEventListener('tmuxgo-recover-terminal-ime', recoverIme)
     window.addEventListener('tmuxgo-terminal-input', terminalInput)
     render(React.createElement(ClipboardController))
     act(() => {
@@ -96,24 +98,26 @@ describe('ClipboardController', () => {
       await new Promise((resolve) => setTimeout(resolve, 130))
     })
     expect(terminalInput).toHaveBeenCalledTimes(1)
-    expect(focusTerminal).toHaveBeenCalledTimes(1)
+    expect(focusTerminal).not.toHaveBeenCalled()
+    expect(recoverIme).not.toHaveBeenCalled()
     window.removeEventListener('tmuxgo-focus-terminal', focusTerminal)
+    window.removeEventListener('tmuxgo-recover-terminal-ime', recoverIme)
     window.removeEventListener('tmuxgo-terminal-input', terminalInput)
   })
-  it('requests terminal focus after paste dialog unmounts', async () => {
+  it('closes paste dialog without refocusing terminal after unmount', async () => {
     const user = userEvent.setup()
-    const focusStates: boolean[] = []
-    const focusTerminal = () => {
-      focusStates.push(!!screen.queryByRole('textbox'))
-    }
+    const focusTerminal = vi.fn()
     window.addEventListener('tmuxgo-focus-terminal', focusTerminal)
     render(React.createElement(ClipboardController))
     act(() => {
       window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-paste', { detail: { text: 'printf ok', source: 'system' } }))
     })
     await user.click(await screen.findByRole('button', { name: 'Send' }))
-    await waitFor(() => expect(focusStates.length).toBe(1))
-    expect(focusStates).toEqual([false])
+    await waitFor(() => expect(screen.queryByRole('textbox')).not.toBeInTheDocument())
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 130))
+    })
+    expect(focusTerminal).not.toHaveBeenCalled()
     window.removeEventListener('tmuxgo-focus-terminal', focusTerminal)
   })
   it('does not blur an active terminal ime composition after paste send', async () => {
