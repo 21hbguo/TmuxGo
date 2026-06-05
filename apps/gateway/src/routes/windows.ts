@@ -10,13 +10,13 @@ function parseSessionName(hostId: string, sessionRef: string) {
 async function getTmuxWindows(hostId: string, sessionName: string) {
   assertSessionAllowed(sessionName)
   try {
-    const { stdout } = await execTmux(hostId, ['list-windows', '-t', sessionName, '-F', '#{window_id}|#{window_index}|#{window_name}|#{window_active}'])
+    const { stdout } = await execTmux(hostId, ['list-windows', '-t', sessionName, '-F', '#{window_id}|#{window_index}|#{window_name}|#{window_active}|#{window_zoomed_flag}'])
     return stdout
       .trim()
       .split('\n')
       .filter(Boolean)
       .map((line) => {
-        const [id, index, name, active] = line.split('|')
+        const [id, index, name, active, zoomed] = line.split('|')
         return {
           id: `${hostId}:${id}`,
           tmuxWindowId: id,
@@ -24,6 +24,7 @@ async function getTmuxWindows(hostId: string, sessionName: string) {
           index: parseInt(index, 10),
           name,
           active: active === '1',
+          zoomed: zoomed === '1',
         }
       })
   } catch (err) {
