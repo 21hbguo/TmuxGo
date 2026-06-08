@@ -126,6 +126,18 @@ stable_server_matches_build() {
   [ -n "$build_id" ] || return 1
   curl -fsS "http://127.0.0.1:3000/_next/static/$build_id/_buildManifest.js" >/dev/null 2>&1
 }
+tmux_server_ready() {
+  tmux list-sessions >/dev/null 2>&1
+}
+ensure_tmux_server() {
+  if tmux_server_ready; then
+    return 0
+  fi
+  if ! tmux_server_ready; then
+    tmux new-session -d -s "${TMUXGO_DEFAULT_SESSION:-default}" >/dev/null 2>&1 || true
+  fi
+  tmux_server_ready
+}
 agent_running() {
   pgrep -f "npm run dev:agent" >/dev/null 2>&1
 }
@@ -213,6 +225,11 @@ if [ -n "${TAILSCALE_DNS:-}" ]; then
   SECURE_GATEWAY_URL="https://${TAILSCALE_DNS}:8443"
 fi
 if systemd_tmuxgo_active; then
+  if ensure_tmux_server; then
+    echo "tmux server ready"
+  else
+    echo "Warning: tmux server unavailable"
+  fi
   if [ "$REBUILD_STABLE" = "1" ]; then
     echo "Building systemd services..."
     npm run build:gateway >/dev/null 2>&1
@@ -258,6 +275,11 @@ if systemd_tmuxgo_active; then
   exit 0
 fi
 if launchd_tmuxgo_active; then
+  if ensure_tmux_server; then
+    echo "tmux server ready"
+  else
+    echo "Warning: tmux server unavailable"
+  fi
   if [ "$REBUILD_STABLE" = "1" ]; then
     echo "Building launchd services..."
     npm run build:gateway >/dev/null 2>&1
@@ -303,6 +325,11 @@ if launchd_tmuxgo_active; then
 fi
 if [ "$RESTART" = "1" ]; then
   stop_existing
+fi
+if ensure_tmux_server; then
+  echo "tmux server ready"
+else
+  echo "Warning: tmux server unavailable"
 fi
 if [ "$REBUILD_STABLE" = "1" ] && port_in_use 3000; then
   kill_port 3000
