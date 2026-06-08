@@ -27,6 +27,14 @@ export interface SystemInfoResponse {
   disks: { mount: string; used: number; total: number }[]
   stream: StreamSystemInfo
 }
+export interface RestartRebuildTaskResponse {
+  status: 'idle' | 'running' | 'success' | 'error'
+  startedAt: string | null
+  finishedAt: string | null
+  summaryLines: string[]
+  exitCode: number | null
+  errorMessage: string | null
+}
 export interface BatchDeleteSessionFilters {
   createdBefore?: string
   inactiveBefore?: string
@@ -328,6 +336,8 @@ export const api = {
   },
   system: {
     info: () => fetchApi<SystemInfoResponse>('/api/system'),
+    restartRebuildStatus: () => fetchApi<RestartRebuildTaskResponse>('/api/system/restart-rebuild'),
+    restartRebuild: () => fetchApi<RestartRebuildTaskResponse>('/api/system/restart-rebuild', { method: 'POST' }),
   },
   files: {
     roots: (hostId: string) => fetchApi<FileRoot[]>(`/api/hosts/${encodeURIComponent(hostId)}/files/roots`),

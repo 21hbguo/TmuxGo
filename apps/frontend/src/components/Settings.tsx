@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { AuditLog } from './AuditLog'
+import { ConfirmDialog } from './ConfirmDialog'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useTranslation } from '@/i18n'
 import { useSessionContinuity } from '@/hooks/useSessionContinuity'
@@ -9,7 +10,7 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useClipboard } from '@/hooks/useClipboard'
 import { useAppVersion } from '@/hooks/useAppVersion'
 import { APP_BUILD_ID, APP_NAME, APP_VERSION } from '@/lib/app-version'
-import { useCreateHost, useDeleteHost, useHosts, useTestHost } from '@/hooks/useApi'
+import { useCreateHost, useDeleteHost, useHosts, useRestartRebuild, useRestartRebuildStatus, useTestHost } from '@/hooks/useApi'
 
 interface SettingsProps {
   onClose: () => void
@@ -32,22 +33,34 @@ export function Settings({ onClose }: SettingsProps) {
   const [hostDialogOpen, setHostDialogOpen] = useState(false)
   const [hostDialogMode, setHostDialogMode] = useState<'create' | 'edit'>('create')
   const [hostActionMessage, setHostActionMessage] = useState('')
+  const [restartConfirmOpen, setRestartConfirmOpen] = useState(false)
   const { data: hosts = [] } = useHosts()
   const createHost = useCreateHost()
   const deleteHost = useDeleteHost()
   const testHost = useTestHost()
+  const restartRebuild = useRestartRebuild()
   const { data: appVersionData, isLoading: appVersionLoading, error: appVersionError } = useAppVersion(activeTab === 'about')
+  const restartStatusQuery = useRestartRebuildStatus(activeTab === 'about')
   const [terminalPaddingDraft, setTerminalPaddingDraft] = useState(preferences.terminalPadding)
   const [uploadRateLimitDraft, setUploadRateLimitDraft] = useState(preferences.uploadRateLimitKBps)
   const [downloadRateLimitDraft, setDownloadRateLimitDraft] = useState(preferences.downloadRateLimitKBps)
   const fontSizeLabel = Number.isInteger(preferences.fontSize) ? `${preferences.fontSize}` : preferences.fontSize.toFixed(1)
   const appUpdateAvailable = !!appVersionData?.buildId && appVersionData.buildId !== APP_BUILD_ID
   const aboutStatus = appVersionError ? t('settings.aboutLoadFailed') : appVersionLoading && !appVersionData ? t('settings.aboutChecking') : appUpdateAvailable ? t('settings.aboutUpdateAvailable') : t('settings.aboutUpdateCurrent')
+  const restartStatus = restartStatusQuery.data || { status: 'idle', startedAt: null, finishedAt: null, summaryLines: [], exitCode: null, errorMessage: null }
+  const restartRunning = restartStatus.status === 'running' || restartRebuild.isPending
   useEffect(() => {
     setTerminalPaddingDraft(preferences.terminalPadding)
     setUploadRateLimitDraft(preferences.uploadRateLimitKBps)
     setDownloadRateLimitDraft(preferences.downloadRateLimitKBps)
   }, [preferences.terminalPadding, preferences.uploadRateLimitKBps, preferences.downloadRateLimitKBps, activeTab])
+  useEffect(() => {
+    if (activeTab !== 'about' || restartStatus.status !== 'running') return
+    const timer = window.setInterval(() => {
+      void restartStatusQuery.refetch()
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [activeTab, restartStatus.status, restartStatusQuery])
 
   const tabs = [
     { id: 'general' as const, label: t('settings.general') },
@@ -113,6 +126,17 @@ export function Settings({ onClose }: SettingsProps) {
     setHostDialogOpen(false)
     setHostPasswordDraft('')
   }
+  const triggerRestartRebuild = async () => {
+    try {
+      const next = await restartRebuild.mutateAsync()
+      setRestartConfirmOpen(false)
+      if (next.status === 'success') pushToast({ type: 'success', message: t('settings.restartSuccess') })
+      if (next.status === 'error') pushToast({ type: 'error', message: next.errorMessage || t('settings.restartFailed') })
+      void restartStatusQuery.refetch()
+    } catch (err: any) {
+      pushToast({ type: 'error', message: err?.message || t('settings.restartFailed') })
+    }
+  }
   const saveHost = async () => {
     setHostActionMessage('')
     try {
@@ -131,6 +155,7 @@ export function Settings({ onClose }: SettingsProps) {
       setHostActionMessage(err?.message || t('settings.hostSaveFailed'))
     }
   }
+  const restartStatusLabel = restartStatus.status === 'running' ? t('settings.restartStatusRunning') : restartStatus.status === 'success' ? t('settings.restartStatusSuccess') : restartStatus.status === 'error' ? t('settings.restartStatusFailed') : t('settings.restartStatusIdle')
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
@@ -547,6 +572,26 @@ export function Settings({ onClose }: SettingsProps) {
                   <span className={`text-sm ${appUpdateAvailable ? 'text-warn' : appVersionError ? 'text-danger' : 'text-accent-2'}`}>{aboutStatus}</span>
                 </div>
               </div>
+              <div className="rounded border border-[var(--line)] bg-bg-2 p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-text-1">{t('settings.restartTitle')}</div>
+                    <div className="mt-1 text-xs text-text-3">{t('settings.restartDesc')}</div>
+                  </div>
+                  <button onClick={() => setRestartConfirmOpen(true)} disabled={restartRunning} className="rounded bg-accent px-4 py-2 text-sm text-bg-0 disabled:cursor-not-allowed disabled:opacity-60">{t('settings.restartAction')}</button>
+                </div>
+                <div className="mt-4 rounded border border-[var(--line)] px-3 py-2">
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-sm text-text-2">{t('settings.restartStatus')}</span>
+                    <span className={`text-sm ${restartStatus.status === 'success' ? 'text-accent-2' : restartStatus.status === 'error' ? 'text-danger' : restartStatus.status === 'running' ? 'text-warn' : 'text-text-1'}`}>{restartStatusLabel}</span>
+                  </div>
+                  {restartStatus.summaryLines.length > 0 && (
+                    <div className="mt-2 rounded bg-bg-1 px-2 py-2 font-mono text-xs text-text-2">
+                      {restartStatus.summaryLines.map((line, index) => <div key={`${index}-${line}`}>{line}</div>)}
+                    </div>
+                  )}
+                </div>
+              </div>
               {appUpdateAvailable && <div className="text-xs text-text-3">{t('settings.aboutRefresh')}</div>}
               <div className="flex items-center justify-end">
                 <button onClick={() => void copyVersionInfo()} className="rounded bg-accent px-4 py-2 text-sm text-bg-0">{t('settings.aboutCopy')}</button>
@@ -579,6 +624,7 @@ export function Settings({ onClose }: SettingsProps) {
           </div>
         </div>
       )}
+      <ConfirmDialog open={restartConfirmOpen} title={t('settings.restartConfirmTitle')} message={t('settings.restartConfirmMessage')} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} onCancel={() => setRestartConfirmOpen(false)} onConfirm={() => void triggerRestartRebuild()} />
       {showAuditLog && <AuditLog onClose={() => setShowAuditLog(false)} />}
     </div>
   )

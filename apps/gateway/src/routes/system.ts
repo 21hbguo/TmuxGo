@@ -4,6 +4,7 @@ import { promisify } from 'util'
 import os from 'os'
 import fs from 'fs'
 import { streamPerfMetrics } from '../lib/perf-metrics.js'
+import { createRestartTaskRunner, type RestartTaskRunner } from '../lib/restart-task.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -95,7 +96,11 @@ function getSafeStreamMetrics() {
   }
 }
 
-export async function systemRoutes(fastify: FastifyInstance) {
+interface SystemRoutesOptions {
+  createRestartRunner?: () => RestartTaskRunner
+}
+export async function systemRoutes(fastify: FastifyInstance, options: SystemRoutesOptions = {}) {
+  const restartRunner=(options.createRestartRunner||createRestartTaskRunner)()
   fastify.get('/system', async () => {
     try {
       const [gpu, cpu, mem, disk] = await Promise.all([
@@ -115,4 +120,6 @@ export async function systemRoutes(fastify: FastifyInstance) {
       }
     }
   })
+  fastify.get('/system/restart-rebuild', async () => restartRunner.getState())
+  fastify.post('/system/restart-rebuild', async () => restartRunner.start())
 }
