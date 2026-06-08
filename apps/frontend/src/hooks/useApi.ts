@@ -61,6 +61,24 @@ export function useTestHost() {
       api.hosts.test(hostId),
   })
 }
+export function useRestartRebuildStatus(enabled = true, refetchInterval: number | false = false) {
+  return useQuery({
+    queryKey: ['restart-rebuild-status'],
+    queryFn: api.system.restartRebuildStatus,
+    enabled,
+    staleTime: 0,
+    refetchInterval,
+  })
+}
+export function useRestartRebuild() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.system.restartRebuild(),
+    onSuccess: (data) => {
+      queryClient.setQueryData(['restart-rebuild-status'], data)
+    },
+  })
+}
 
 export function useSessions(hostId: string) {
   return useQuery({
