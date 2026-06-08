@@ -1,6 +1,9 @@
 'use client'
+import { recoverFromChunkLoadError } from '@/lib/chunk-recovery'
 
 export default function GlobalError({ error, reset }: { error: Error; reset: () => void }) {
+  const recovered=typeof window!=='undefined'&&recoverFromChunkLoadError(error.message||'',window.sessionStorage,()=>window.location.reload())
+  if (recovered) return null
   return (
     <html lang="zh-CN">
       <body style={{ background: '#071224', color: '#c9d1d9', fontFamily: 'system-ui, sans-serif', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', margin: 0 }}>

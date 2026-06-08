@@ -9,7 +9,7 @@ WorkingDirectory=__TMUXGO_ROOT__
 ExecStart=__TMUXGO_NPM__ run --workspace=agent start
 Restart=always
 RestartSec=3
-KillMode=process
+KillMode=control-group
 Environment=NODE_ENV=production
 Environment=GATEWAY_URL=ws://127.0.0.1:3001/api/stream
 Environment=HOST_ID=agent-local

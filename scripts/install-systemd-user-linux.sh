@@ -4,7 +4,6 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 UNIT_SRC_DIR="$ROOT_DIR/deploy/systemd-user"
 UNIT_DST_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 NPM_BIN="$(command -v npm)"
-TMUX_BIN="$(command -v tmux)"
 SERVICE_PATH="${PATH:-/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin}"
 escape_sed_replacement() {
   printf '%s' "$1" | sed 's/[&|]/\\&/g'
@@ -15,7 +14,6 @@ render_unit() {
   sed \
     -e "s|__TMUXGO_ROOT__|$ROOT_DIR_ESCAPED|g" \
     -e "s|__TMUXGO_NPM__|$NPM_BIN_ESCAPED|g" \
-    -e "s|__TMUXGO_TMUX__|$TMUX_BIN_ESCAPED|g" \
     -e "s|__TMUXGO_PATH__|$SERVICE_PATH_ESCAPED|g" \
     "$src" > "$dst"
 }
@@ -25,14 +23,12 @@ if ! command -v systemctl >/dev/null 2>&1; then
 fi
 ROOT_DIR_ESCAPED="$(escape_sed_replacement "$ROOT_DIR")"
 NPM_BIN_ESCAPED="$(escape_sed_replacement "$NPM_BIN")"
-TMUX_BIN_ESCAPED="$(escape_sed_replacement "$TMUX_BIN")"
 SERVICE_PATH_ESCAPED="$(escape_sed_replacement "$SERVICE_PATH")"
 mkdir -p "$UNIT_DST_DIR"
 render_unit "$UNIT_SRC_DIR"/tmuxgo-frontend.service "$UNIT_DST_DIR"/tmuxgo-frontend.service
 render_unit "$UNIT_SRC_DIR"/tmuxgo-gateway.service "$UNIT_DST_DIR"/tmuxgo-gateway.service
 render_unit "$UNIT_SRC_DIR"/tmuxgo-agent.service "$UNIT_DST_DIR"/tmuxgo-agent.service
 cp "$UNIT_SRC_DIR"/tmuxgo.target "$UNIT_DST_DIR"/
-render_unit "$UNIT_SRC_DIR"/tmux-server.service "$UNIT_DST_DIR"/tmux-server.service
 mkdir -p "$HOME/tmux_backups"
 cd "$ROOT_DIR"
 npm install
@@ -44,8 +40,9 @@ systemctl --user enable tmuxgo.target
 systemctl --user enable tmuxgo-gateway.service
 systemctl --user enable tmuxgo-frontend.service
 systemctl --user enable tmuxgo-agent.service
-systemctl --user enable tmux-server.service
-systemctl --user start tmux-server.service
 systemctl --user start tmuxgo-gateway.service
 systemctl --user start tmuxgo-frontend.service
 systemctl --user start tmuxgo-agent.service
+systemctl --user disable --now tmux-server.service 2>/dev/null || true
+rm -f "$UNIT_DST_DIR"/tmux-server.service
+systemctl --user daemon-reload

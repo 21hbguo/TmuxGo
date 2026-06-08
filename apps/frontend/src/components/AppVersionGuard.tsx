@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
 import { APP_BUILD_ID, fetchAppVersion } from '@/lib/app-version'
+import { clearChunkReloadFlag } from '@/lib/chunk-recovery'
 
 const VERSION_CHECK_MS = 60000
 const VERSION_ACK_KEY = 'tmuxgo-version-ack'
@@ -12,6 +13,9 @@ export function AppVersionGuard() {
   const pushToast = useConsoleStore((state) => state.pushToast)
   const { t } = useTranslation()
 
+  useEffect(() => {
+    clearChunkReloadFlag(window.sessionStorage)
+  }, [])
   useEffect(() => {
     let stopped = false
     let notified = false
