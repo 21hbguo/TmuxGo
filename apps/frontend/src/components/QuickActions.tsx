@@ -42,7 +42,7 @@ function useQuickActionController() {
   const activeWindow=useMemo(()=>windowsData.find((w:any)=>w.active)||windowsData[0]||null,[windowsData])
   const canSplit=!!activeSessionId&&!!activeWindow&&!pendingDirection
   const { send }=useWebSocket()
-  const { refreshSnapshot, resolveActivePaneId, resolveFreshActivePaneId } = useSessionSnapshotSync()
+  const { refreshSnapshot, resolveActivePaneId, resolveFreshActivePaneId, optimisticallyToggleWindowZoom } = useSessionSnapshotSync()
   const { shortcuts,addShortcut,removeShortcut }=useCustomShortcuts()
   const [showModal,setShowModal]=useState(false)
   const [isMobile,setIsMobile]=useState(false)
@@ -219,16 +219,19 @@ function useQuickActionController() {
     setConfirmKillOpen(false)
   },[pendingKillPaneId,pushToast,refreshSnapshotSafely,resolveFreshActivePaneId,t])
   const handleZoom=useCallback(async()=>{
+    let paneId:string|null=null
     try{
-      const paneId=await resolveFreshActivePaneId()
+      paneId=await resolveFreshActivePaneId()
       if(!paneId)throw new Error(t('pane.noActive'))
+      optimisticallyToggleWindowZoom(paneId)
       await api.panes.zoomByPane(paneId)
       await refreshSnapshotSafely()
       window.dispatchEvent(new CustomEvent('tmuxgo-layout-change',{ detail:{ reason:'zoom-pane' } }))
     }catch(err){
+      if(paneId)await refreshSnapshotSafely()
       pushToast({ type:'error',message:err instanceof Error?err.message:t('pane.zoomFailed') })
     }
-  },[pushToast,refreshSnapshotSafely,resolveFreshActivePaneId,t])
+  },[optimisticallyToggleWindowZoom,pushToast,refreshSnapshotSafely,resolveFreshActivePaneId,t])
   const handleOpenNewWindowPrompt=useCallback(()=>{
     if(!activeHostId||!activeSessionId){
       pushToast({ type:'error',message:t('window.createMissingSession') })

@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, createEvent, fireEvent, render, screen } from '@testing-library/react'
 import React from 'react'
 import { vi } from 'vitest'
@@ -123,6 +124,36 @@ describe('ShortcutBar', () => {
     })
     expect(zoomByPane).toHaveBeenCalledWith('local:%2')
     expect(useConsoleStore.getState().activePaneId).toBe('local:%2')
+  })
+  it('marks cached snapshot zoomed before the zoom request resolves', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    const snapshot = {
+      sessionName: 'dev',
+      activeWindowId: 'local:@1',
+      windows: [{ id: 'local:@1', sessionId: 'session-dev', index: 0, active: true, zoomed: false }],
+      panes: [{ id: 'local:%2', windowId: 'local:@1', active: true }],
+      activePaneId: 'local:%2',
+    }
+    queryClient.setQueryData(['session-snapshot', 'local', 'session-dev'], snapshot)
+    snapshotGet.mockResolvedValue(snapshot)
+    let resolveZoom: ((value: { ok: boolean }) => void) | null = null
+    zoomByPane.mockReturnValue(new Promise((resolve) => {
+      resolveZoom = resolve
+    }))
+    render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(I18nProvider, null, React.createElement(ShortcutBar))))
+    await act(async () => {
+      const button = screen.getByRole('button', { name: '聚焦' })
+      fireEvent.pointerDown(button, { pointerId: 1, clientX: 10, clientY: 10 })
+      fireEvent.pointerUp(button, { pointerId: 1, clientX: 10, clientY: 10 })
+      await Promise.resolve()
+    })
+    const cached: any = queryClient.getQueryData(['session-snapshot', 'local', 'session-dev'])
+    expect(cached?.windows?.[0]?.zoomed).toBe(true)
+    expect(cached?.activePaneId).toBe('local:%2')
+    resolveZoom?.({ ok: true })
+    await act(async () => {
+      await Promise.resolve()
+    })
   })
   it('does not reuse stale pane id when snapshot refresh fails', async () => {
     snapshotGet.mockRejectedValue(new Error('Request failed'))

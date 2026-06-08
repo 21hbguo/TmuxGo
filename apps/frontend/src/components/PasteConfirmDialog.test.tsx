@@ -63,11 +63,13 @@ describe('PasteConfirmDialog', () => {
       const { container } = render(React.createElement(DialogHarness))
       const textarea = within(container).getByRole('textbox')
       await waitFor(() => expect(document.activeElement).toBe(helper))
+      await user.keyboard('{Enter}')
+      expect(onSend).toHaveBeenCalledTimes(1)
       await user.click(textarea)
       await user.keyboard(' edited')
       expect(textarea).toHaveValue('printf ok edited')
       await user.keyboard('{Enter}')
-      expect(onSend).toHaveBeenCalledTimes(1)
+      expect(onSend).toHaveBeenCalledTimes(2)
     } finally {
       helper.remove()
     }
