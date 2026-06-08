@@ -10,7 +10,7 @@ const KEYBOARD_CLOSE_THRESHOLD = 70
 const KEYBOARD_VIEWPORT_GRACE_MS = 1500
 const KEYBOARD_PROBE_MS = 700
 const KEYBOARD_VERIFY_MS = 360
-const DEFERRED_INPUT_COMMIT_MS = 650
+const DEFERRED_INPUT_COMMIT_MS = 80
 const KEYBOARD_EVENT = 'mobile-keyboard-change'
 const isEdgeAndroid = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent) && /EdgA/i.test(navigator.userAgent)
 function isImeKeyEvent(e: KeyboardEvent) {

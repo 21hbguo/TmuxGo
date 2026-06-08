@@ -158,7 +158,7 @@ describe('useMobileKeyboard', () => {
     expect(sendInputMock.mock.calls.map((call) => call[0])).toEqual(['中'])
     expect(textarea.value).toBe('\u200b\u200b')
   })
-  it('defers replacement text so voice input is not cleared mid-session', async () => {
+  it('commits replacement text after a short debounce so mobile prediction input stays responsive', async () => {
     render(<Harness />)
     await waitFor(() => expect(api.textarea).toBeTruthy())
     vi.useFakeTimers()
@@ -170,7 +170,11 @@ describe('useMobileKeyboard', () => {
     expect(textarea.value).toContain('hello world')
     expect(sendInputMock).not.toHaveBeenCalled()
     act(() => {
-      vi.advanceTimersByTime(650)
+      vi.advanceTimersByTime(79)
+    })
+    expect(sendInputMock).not.toHaveBeenCalled()
+    act(() => {
+      vi.advanceTimersByTime(1)
     })
     expect(sendInputMock).toHaveBeenCalledWith('hello world')
     expect(textarea.value).toBe('\u200b\u200b')

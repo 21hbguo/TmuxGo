@@ -4,6 +4,29 @@ import { api } from '@/lib/api'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useOptionalQueryClient } from './useOptionalQueryClient'
 
+export function toggleCachedSnapshotZoom(snapshot: any, paneId: string) {
+  if (!snapshot || typeof snapshot !== 'object' || !paneId) return snapshot
+  const panes = Array.isArray(snapshot.panes) ? snapshot.panes : []
+  const windows = Array.isArray(snapshot.windows) ? snapshot.windows : []
+  const targetPane = panes.find((pane: any) => pane?.id === paneId) || null
+  const activeWindow = windows.find((window: any) => window?.id === snapshot.activeWindowId) || windows.find((window: any) => window?.active) || null
+  const targetWindowId = String(targetPane?.windowId || (snapshot.activePaneId === paneId ? activeWindow?.id : '') || '')
+  if (!targetWindowId) return snapshot
+  const targetWindow = windows.find((window: any) => window?.id === targetWindowId) || activeWindow
+  const nextZoomed = !Boolean(targetWindow?.zoomed)
+  return {
+    ...snapshot,
+    activeWindowId: targetWindowId,
+    activePaneId: paneId,
+    windows: windows.map((window: any) => window?.id === targetWindowId ? { ...window, active: true, zoomed: nextZoomed } : window?.active ? { ...window, active: false } : window),
+    panes: panes.map((pane: any) => {
+      const sameWindow = String(pane?.windowId || '') === targetWindowId
+      if (sameWindow) return { ...pane, active: pane?.id === paneId }
+      return pane?.active ? { ...pane, active: false } : pane
+    }),
+  }
+}
+
 export function useSessionSnapshotSync() {
   const activeHostId = useConsoleStore((state) => state.activeHostId)
   const activeSessionId = useConsoleStore((state) => state.activeSessionId)
@@ -39,6 +62,17 @@ export function useSessionSnapshotSync() {
     applySnapshot(snapshot)
     return snapshot
   }, [activeHostId, activeSessionId, applySnapshot])
+  const optimisticallyToggleWindowZoom = useCallback((paneId: string | null) => {
+    const key = getSnapshotKey()
+    if (!key || !paneId || !queryClient) return null
+    let nextSnapshot: any = null
+    queryClient.setQueryData(key, (current: any) => {
+      nextSnapshot = toggleCachedSnapshotZoom(current, paneId)
+      return nextSnapshot
+    })
+    if (nextSnapshot?.activePaneId) setActivePane(nextSnapshot.activePaneId)
+    return nextSnapshot
+  }, [getSnapshotKey, queryClient, setActivePane])
   const readSnapshotPaneId = useCallback((snapshot: any) => {
     const paneId = getPaneId(snapshot)
     setActivePane(paneId)
@@ -71,5 +105,5 @@ export function useSessionSnapshotSync() {
     const snapshot = await refreshSnapshot()
     return applySnapshot(snapshot)
   }, [applySnapshot, refreshSnapshot])
-  return { refreshSnapshot, resolveActivePaneId, resolveFreshActivePaneId, syncAfterWindowChange }
+  return { refreshSnapshot, resolveActivePaneId, resolveFreshActivePaneId, syncAfterWindowChange, optimisticallyToggleWindowZoom }
 }

@@ -36,7 +36,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
   const { data: windows = [] } = useWindows(activeHostId || '', activeSessionId || '')
   const { getWindows, setWindows } = useWindowQueryState(activeHostId || '', activeSessionId || '')
   const { t } = useTranslation()
-  const { refreshSnapshot, resolveActivePaneId, resolveFreshActivePaneId, syncAfterWindowChange } = useSessionSnapshotSync()
+  const { refreshSnapshot, resolveActivePaneId, resolveFreshActivePaneId, syncAfterWindowChange, optimisticallyToggleWindowZoom } = useSessionSnapshotSync()
   const refreshSnapshotSafely = async () => {
     try {
       await refreshSnapshot()
@@ -89,9 +89,15 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
     ...[t('palette.zoomPane')].filter((name) => name.toLowerCase().includes(q) || q.length === 0).map(() => ({ key: 'zoom-pane', type: 'action', title: t('palette.zoomPane'), meta: 'Z', action: async () => {
       const paneId = await resolveFreshActivePaneId()
       if (!paneId) throw new Error(t('pane.noActive'))
-      await api.panes.zoomByPane(paneId)
-      await refreshSnapshotSafely()
-      window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'zoom-pane' } }))
+      try {
+        optimisticallyToggleWindowZoom(paneId)
+        await api.panes.zoomByPane(paneId)
+        await refreshSnapshotSafely()
+        window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'zoom-pane' } }))
+      } catch (err) {
+        await refreshSnapshotSafely()
+        throw err
+      }
     } })),
     ...[t('palette.copySelection')].filter((name) => name.toLowerCase().includes(q) || q.length === 0).map(() => ({ key: 'copy-selection', type: 'action', title: t('palette.copySelection'), meta: 'Cmd+C', action: copySelection })),
     ...[t('palette.pasteClipboard')].filter((name) => name.toLowerCase().includes(q) || q.length === 0).map(() => ({ key: 'paste-clipboard', type: 'action', title: t('palette.pasteClipboard'), meta: 'Cmd+V', action: pasteClipboard })),

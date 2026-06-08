@@ -18,6 +18,7 @@ interface PasteConfirmDialogProps {
 export function PasteConfirmDialog({ open, text, meta, mode = 'confirm', onTextChange, onRetryPermission, onSend, onEscapeSend, onCancel }: PasteConfirmDialogProps) {
   const { t } = useTranslation()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
   const isManual = mode === 'manual'
   useEffect(() => {
     if (!open || !isManual) return
@@ -36,6 +37,23 @@ export function PasteConfirmDialog({ open, text, meta, mode = 'confirm', onTextC
       clearTimeout(timer)
     }
   }, [open, isManual])
+  useEffect(() => {
+    if (!open || isManual) return
+    const handleDocumentKeyDown = (e: KeyboardEvent) => {
+      if (dialogRef.current?.contains(e.target as Node)) return
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        onCancel()
+        return
+      }
+      if (e.key !== 'Enter' || e.isComposing || e.shiftKey) return
+      e.preventDefault()
+      e.stopPropagation()
+      if (text) onSend()
+    }
+    document.addEventListener('keydown', handleDocumentKeyDown, true)
+    return () => document.removeEventListener('keydown', handleDocumentKeyDown, true)
+  }, [open, isManual, text, onSend, onCancel])
   if (!open) return null
   const preventFocus = (e: MouseEvent<HTMLButtonElement> | TouchEvent<HTMLButtonElement>) => {
     e.preventDefault()
@@ -43,6 +61,7 @@ export function PasteConfirmDialog({ open, text, meta, mode = 'confirm', onTextC
   return (
     <div className="fixed inset-0 z-[85] flex items-center justify-center bg-black/60 p-4" onClick={onCancel}>
       <div
+        ref={dialogRef}
         className="w-full max-w-2xl rounded-lg border border-[var(--line)] bg-bg-1 p-5"
         onClick={(e) => e.stopPropagation()}
         onKeyDownCapture={(e) => {
