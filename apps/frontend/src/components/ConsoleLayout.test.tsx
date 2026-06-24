@@ -6,6 +6,8 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 
 let snapshotDataMock:any={ windows: [], panes: [], activePaneId: null }
 let sessionsDataMock:any[]=[]
+const renameSessionMock = vi.fn()
+const deleteSessionMock = vi.fn()
 
 vi.mock('./TopBar', () => ({ TopBar: () => React.createElement('div') }))
 vi.mock('./PaneGrid', () => ({ PaneGrid: () => React.createElement('div') }))
@@ -27,8 +29,8 @@ vi.mock('@/hooks/useApi', () => ({
   useHosts: () => ({ data: [{ id: 'local', name: 'Local', address: '127.0.0.1', status: 'online', tags: [] }] }),
   useSessions: () => ({ data: [], isFetched: true }),
   useSessionSnapshot: () => ({ data: snapshotDataMock }),
-  useRenameSession: () => ({ mutateAsync: vi.fn() }),
-  useDeleteSession: () => ({ mutateAsync: vi.fn() }),
+  useRenameSession: () => ({ mutateAsync: renameSessionMock }),
+  useDeleteSession: () => ({ mutateAsync: deleteSessionMock }),
 }))
 vi.mock('@/hooks/useOrderedSessions', () => ({
   useOrderedSessions: () => ({ data: sessionsDataMock, isFetched: true }),
@@ -47,6 +49,8 @@ describe('ConsoleLayout mobile files overlay stack', () => {
   beforeEach(() => {
     snapshotDataMock={ windows: [], panes: [], activePaneId: null }
     sessionsDataMock=[]
+    renameSessionMock.mockReset()
+    deleteSessionMock.mockReset()
     window.localStorage.clear()
     useConsoleStore.setState({
       activeHostId: null,
@@ -167,5 +171,26 @@ describe('ConsoleLayout mobile files overlay stack', () => {
     fireEvent.contextMenu(sessionButton)
     expect(screen.getByText('nav.sessions')).toBeTruthy()
     fireEvent.click(screen.getByText('nav.sessions'))
+  })
+  it('keeps pinned quick sessions ahead of recent sessions', async () => {
+    sessionsDataMock=[
+      { id:'session-a',name:'alpha' },
+      { id:'session-b',name:'beta' },
+      { id:'session-c',name:'gamma' },
+      { id:'session-d',name:'delta' },
+      { id:'session-e',name:'epsilon' },
+      { id:'session-f',name:'zeta' },
+    ]
+    useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-a' } as any)
+    const view=render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
+    const betaButton = await screen.findByRole('button', { name: 'beta' })
+    fireEvent.contextMenu(betaButton)
+    fireEvent.click(screen.getByText('mobile.quickSessionPin'))
+    view.rerender(React.createElement(ConsoleLayout, { initialIsMobile: true }))
+    expect(screen.getByRole('button', { name: '★ beta' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'epsilon' }))
+    view.rerender(React.createElement(ConsoleLayout, { initialIsMobile: true }))
+    const buttons = screen.getAllByRole('button').map((item) => item.textContent)
+    expect(buttons.indexOf('★ beta')).toBeLessThan(buttons.indexOf('epsilon'))
   })
 })

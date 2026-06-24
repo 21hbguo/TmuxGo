@@ -30,10 +30,14 @@ import { useTranslation } from '@/i18n'
 
 const MOBILE_QUERY = '(max-width: 1023px)'
 const MOBILE_RECENT_SESSIONS_KEY_PREFIX = 'tmuxgo-mobile-recent-sessions:'
+const MOBILE_PINNED_SESSIONS_KEY_PREFIX = 'tmuxgo-mobile-pinned-sessions:'
 const MOBILE_QUICK_SESSION_LIMIT = 5
 const MOBILE_QUICK_SESSION_LONG_PRESS_MS = 420
 function getMobileRecentSessionsKey(hostId: string) {
   return `${MOBILE_RECENT_SESSIONS_KEY_PREFIX}${hostId}`
+}
+function getMobilePinnedSessionsKey(hostId: string) {
+  return `${MOBILE_PINNED_SESSIONS_KEY_PREFIX}${hostId}`
 }
 function readMobileRecentSessions(hostId: string) {
   if (typeof window === 'undefined' || !hostId) return []
@@ -47,6 +51,19 @@ function readMobileRecentSessions(hostId: string) {
 function writeMobileRecentSessions(hostId: string, sessionIds: string[]) {
   if (typeof window === 'undefined' || !hostId) return
   localStorage.setItem(getMobileRecentSessionsKey(hostId), JSON.stringify(sessionIds))
+}
+function readMobilePinnedSessions(hostId: string) {
+  if (typeof window === 'undefined' || !hostId) return []
+  try {
+    const raw = JSON.parse(localStorage.getItem(getMobilePinnedSessionsKey(hostId)) || '[]')
+    return Array.isArray(raw) ? raw.filter((item): item is string => typeof item === 'string' && item.length > 0) : []
+  } catch {
+    return []
+  }
+}
+function writeMobilePinnedSessions(hostId: string, sessionIds: string[]) {
+  if (typeof window === 'undefined' || !hostId) return
+  localStorage.setItem(getMobilePinnedSessionsKey(hostId), JSON.stringify(sessionIds))
 }
 function recordMobileDebug(event: string, data?: Record<string, unknown>) {
   recordMobileDiagnostic(event, data)
@@ -92,6 +109,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   const [showSettings, setShowSettings] = useState(false)
   const [keyboardOpen, setKeyboardOpen] = useState(false)
   const [mobileRecentSessionIds, setMobileRecentSessionIds] = useState<string[]>([])
+  const [mobilePinnedSessionIds, setMobilePinnedSessionIds] = useState<string[]>([])
   const [mobileSessionMenuId, setMobileSessionMenuId] = useState<string | null>(null)
   const [pendingDeleteSessionId, setPendingDeleteSessionId] = useState<string | null>(null)
   const overlayRef = useRef<string[]>([])
@@ -107,12 +125,16 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   const mobileSessionLongPressFiredRef = useRef(false)
   const mobileQuickSessions = (() => {
     const sessionMap = new Map(sessionsData.map((session: any) => [session.id, session]))
+    const pinned = mobilePinnedSessionIds.map((id) => sessionMap.get(id)).filter(Boolean)
     const recent = mobileRecentSessionIds.map((id) => sessionMap.get(id)).filter(Boolean)
-    const seen = new Set(recent.map((session: any) => session.id))
+    const seen = new Set(pinned.map((session: any) => session.id))
+    const mergedRecent = recent.filter((session: any) => !seen.has(session.id))
+    mergedRecent.forEach((session: any) => seen.add(session.id))
     const fallback = sessionsData.filter((session: any) => !seen.has(session.id))
-    return [...recent, ...fallback].slice(0, MOBILE_QUICK_SESSION_LIMIT)
+    return [...pinned, ...mergedRecent, ...fallback].slice(0, MOBILE_QUICK_SESSION_LIMIT)
   })()
   const mobileSessionMenu = mobileSessionMenuId ? sessionsData.find((session: any) => session.id === mobileSessionMenuId) || null : null
+  const mobileSessionPinned = !!mobileSessionMenuId && mobilePinnedSessionIds.includes(mobileSessionMenuId)
 
   const pushOverlay = useCallback((id: string) => {
     if (id !== 'mobile-files-level' && overlayRef.current[overlayRef.current.length - 1] === id) return
@@ -195,6 +217,14 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
     }
     setPendingDeleteSessionId(null)
   }, [activeHostId, activeSessionId, deleteSession, pendingDeleteSessionId, pushToast, sessionsData, setActiveSession, t])
+  const togglePinnedQuickSession = useCallback((sessionId: string) => {
+    if (!activeHostId) return
+    setMobilePinnedSessionIds((prev) => {
+      const next = prev.includes(sessionId) ? prev.filter((id) => id !== sessionId) : [...prev, sessionId]
+      writeMobilePinnedSessions(activeHostId, next)
+      return next
+    })
+  }, [activeHostId])
   const clearViewportSchedule = useCallback(() => {
     if (viewportFrameRef.current) {
       cancelAnimationFrame(viewportFrameRef.current)
@@ -438,6 +468,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   }, [isMobile, keyboardOpen])
   useEffect(() => {
     setMobileRecentSessionIds(readMobileRecentSessions(activeHostId || ''))
+    setMobilePinnedSessionIds(readMobilePinnedSessions(activeHostId || ''))
   }, [activeHostId])
   useEffect(() => () => clearMobileSessionLongPress(), [clearMobileSessionLongPress])
   useEffect(() => {
@@ -454,6 +485,15 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       return next
     })
   }, [activeHostId, activeSessionId, sessionsData])
+  useEffect(() => {
+    if (!activeHostId) return
+    const validIds = new Set(sessionsData.map((session: any) => session.id))
+    setMobilePinnedSessionIds((prev) => {
+      const next = prev.filter((id) => validIds.has(id))
+      if (next.length !== prev.length) writeMobilePinnedSessions(activeHostId, next)
+      return next
+    })
+  }, [activeHostId, sessionsData])
   useEffect(() => {
     const handleNewSession = () => {
       if (isMobile) {
@@ -513,7 +553,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
                       }}
                       className={`min-w-0 shrink-0 rounded-lg border px-3 py-1.5 text-xs transition-colors ${active ? 'border-accent bg-accent/18 text-accent' : 'border-[var(--line)] bg-bg-2/80 text-text-2 active:bg-bg-2'}`}
                     >
-                      <span className="block max-w-[22vw] truncate">{session.name}</span>
+                      <span className="block max-w-[22vw] truncate">{mobilePinnedSessionIds.includes(session.id) ? `★ ${session.name}` : session.name}</span>
                     </button>
                   )
                 })}
@@ -535,6 +575,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
           <div className="absolute bottom-0 left-0 right-0 rounded-t-2xl border-t border-[var(--line)] bg-bg-1 p-3" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-center pb-2"><div className="h-1 w-10 rounded-full bg-text-3/30" /></div>
             <div className="px-1 pb-2 text-sm text-text-1">{mobileSessionMenu.name}</div>
+            <button onClick={() => { togglePinnedQuickSession(mobileSessionMenu.id); setMobileSessionMenuId(null) }} className="block w-full rounded-lg px-3 py-3 text-left text-sm text-text-1 hover:bg-bg-2">{mobileSessionPinned ? t('mobile.quickSessionUnpin') : t('mobile.quickSessionPin')}</button>
             <button onClick={() => { const sessionId = mobileSessionMenu.id; setMobileSessionMenuId(null); void handleQuickSessionRename(sessionId) }} className="block w-full rounded-lg px-3 py-3 text-left text-sm text-text-1 hover:bg-bg-2">{t('drawer.renamePrompt')}</button>
             <button onClick={() => { setMobileSessionMenuId(null); setPendingDeleteSessionId(mobileSessionMenu.id) }} className="mt-1 block w-full rounded-lg px-3 py-3 text-left text-sm text-danger hover:bg-red-900/20">{t('sidebar.confirmDelete')}</button>
             <button onClick={() => { setMobileSessionMenuId(null); openDrawer('sessions') }} className="mt-1 block w-full rounded-lg px-3 py-3 text-left text-sm text-text-2 hover:bg-bg-2">{t('nav.sessions')}</button>

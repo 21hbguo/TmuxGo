@@ -467,6 +467,8 @@ export const en = {
   'session.deleted': 'Session {name} deleted',
   'session.renamed': 'Session {from} renamed to {to}',
   'session.requestFailed': 'Request failed',
+  'mobile.quickSessionPin': 'Pin to quick bar',
+  'mobile.quickSessionUnpin': 'Unpin',
 
   // CommandPalette extra
   'palette.switchWindow': 'Switch window: {name}',
