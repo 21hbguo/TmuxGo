@@ -1,9 +1,10 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
-import { useCreateSession, useRenameSession } from '@/hooks/useApi'
+import { useCreateSession, useDeleteSession, useRenameSession } from '@/hooks/useApi'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import { SessionTemplates, type Template } from './SessionTemplates'
+import { ConfirmDialog } from './ConfirmDialog'
 import { useTranslation } from '@/i18n'
 import { usePrompt } from '@/hooks/usePrompt'
 import { SessionSortableList } from './SessionSortableList'
@@ -16,10 +17,13 @@ export function SessionRail() {
   const setSessionPanelExpanded = useConsoleStore((state) => state.setSessionPanelExpanded)
   const { data: sessions = [], moveSession } = useOrderedSessions(activeHostId || '')
   const createSession = useCreateSession()
+  const deleteSession = useDeleteSession()
   const renameSession = useRenameSession()
   const { t } = useTranslation()
   const { prompt, PromptElement } = usePrompt()
   const [showTemplates, setShowTemplates] = useState(false)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; sessionId: string } | null>(null)
+  const [pendingDeleteSessionId, setPendingDeleteSessionId] = useState<string | null>(null)
   const handleTemplateSelect = async (template: Template) => {
     if (!activeHostId) return
     const name = await prompt(t('drawer.sessionName'), template.name.toLowerCase())
@@ -51,6 +55,27 @@ export function SessionRail() {
       pushToast({ type: 'error', message: err instanceof Error ? err.message : t('session.requestFailed') })
     }
   }
+  const confirmDeleteSession = async () => {
+    if (!activeHostId || !pendingDeleteSessionId) return
+    const session = sessions.find((item) => item.id === pendingDeleteSessionId)
+    try {
+      await deleteSession.mutateAsync({ hostId: activeHostId, sessionId: pendingDeleteSessionId })
+      if (activeSessionId === pendingDeleteSessionId) {
+        const next = sessions.find((item) => item.id !== pendingDeleteSessionId)?.id || ''
+        setActiveSession(next)
+      }
+      pushToast({ type: 'success', message: t('session.deleted', { name: session?.name || pendingDeleteSessionId }) })
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('session.requestFailed') })
+    }
+    setPendingDeleteSessionId(null)
+  }
+  useEffect(() => {
+    if (!contextMenu) return
+    const close = () => setContextMenu(null)
+    window.addEventListener('mousedown', close)
+    return () => window.removeEventListener('mousedown', close)
+  }, [contextMenu])
   useEffect(() => {
     const handleOpenTemplates = () => setShowTemplates(true)
     window.addEventListener('tmuxgo-open-session-templates', handleOpenTemplates as EventListener)
@@ -72,7 +97,7 @@ export function SessionRail() {
             renderItem={({ session, isOverlay }) => {
               const active = session.id === activeSessionId
               return (
-                <button title={session.name} onClick={() => setActiveSession(session.id)} onDoubleClick={() => void handleRenameSession(session.id)} className={`flex h-11 min-w-0 w-full items-center gap-2 rounded-lg border px-2 text-left transition-[transform,box-shadow,background-color,border-color,color] duration-200 ${active ? 'border-[var(--line)] bg-bg-2 text-accent' : 'border-transparent bg-transparent text-text-3 hover:bg-bg-2 hover:text-text-1'} ${isOverlay ? 'border-accent bg-bg-1 text-text-1 shadow-[0_18px_44px_rgba(0,0,0,0.42)]' : ''}`}>
+                <button title={session.name} onClick={() => setActiveSession(session.id)} onDoubleClick={() => void handleRenameSession(session.id)} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, sessionId: session.id }) }} className={`flex h-11 min-w-0 w-full items-center gap-2 rounded-lg border px-2 text-left transition-[transform,box-shadow,background-color,border-color,color] duration-200 ${active ? 'border-[var(--line)] bg-bg-2 text-accent' : 'border-transparent bg-transparent text-text-3 hover:bg-bg-2 hover:text-text-1'} ${isOverlay ? 'border-accent bg-bg-1 text-text-1 shadow-[0_18px_44px_rgba(0,0,0,0.42)]' : ''}`}>
                   <span className="flex min-w-0 flex-1 items-center gap-2 text-left">
                     <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[11px] font-semibold ${active ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-2'}`}>{session.name.slice(0, 2).toUpperCase()}</span>
                     <span className="min-w-0 flex-1">
@@ -90,6 +115,20 @@ export function SessionRail() {
         </div>
       </aside>
       {showTemplates && <SessionTemplates onSelect={handleTemplateSelect} onClose={() => setShowTemplates(false)} />}
+      {contextMenu && (
+        <div className="fixed z-[90] w-40 overflow-hidden rounded-lg border border-[var(--line)] bg-bg-1 py-1 text-xs shadow-lg" style={{ left: contextMenu.x, top: contextMenu.y }} onClick={(e) => e.stopPropagation()}>
+          <button onClick={() => { setSessionPanelExpanded(true); setContextMenu(null) }} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-text-2 hover:bg-bg-2 hover:text-text-1">
+            <span className="text-[10px]">▸</span>{t('sidebar.sessions')}
+          </button>
+          <button onClick={() => { void handleRenameSession(contextMenu.sessionId); setContextMenu(null) }} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-text-2 hover:bg-bg-2 hover:text-text-1">
+            <span className="text-[10px]">✎</span>{t('sidebar.renameSession')}
+          </button>
+          <button onClick={() => { setPendingDeleteSessionId(contextMenu.sessionId); setContextMenu(null) }} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-danger hover:bg-red-900/20">
+            <span className="text-[10px]">×</span>{t('sidebar.deleteSession')}
+          </button>
+        </div>
+      )}
+      <ConfirmDialog open={!!pendingDeleteSessionId} title={t('sidebar.deleteTitle')} message={t('sidebar.deleteConfirm', { name: sessions.find((item) => item.id === pendingDeleteSessionId)?.name || '' })} confirmLabel={t('sidebar.confirmDelete')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setPendingDeleteSessionId(null)} onConfirm={() => void confirmDeleteSession()} />
       {PromptElement}
     </>
   )
