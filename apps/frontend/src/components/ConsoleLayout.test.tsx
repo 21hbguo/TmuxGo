@@ -27,9 +27,14 @@ vi.mock('@/hooks/useApi', () => ({
   useHosts: () => ({ data: [{ id: 'local', name: 'Local', address: '127.0.0.1', status: 'online', tags: [] }] }),
   useSessions: () => ({ data: [], isFetched: true }),
   useSessionSnapshot: () => ({ data: snapshotDataMock }),
+  useRenameSession: () => ({ mutateAsync: vi.fn() }),
+  useDeleteSession: () => ({ mutateAsync: vi.fn() }),
 }))
 vi.mock('@/hooks/useOrderedSessions', () => ({
   useOrderedSessions: () => ({ data: sessionsDataMock, isFetched: true }),
+}))
+vi.mock('@/hooks/usePrompt', () => ({
+  usePrompt: () => ({ prompt: vi.fn(), PromptElement: null }),
 }))
 vi.mock('./FilePanel', () => ({
   FilePanel: () => React.createElement('div', null,
@@ -153,5 +158,14 @@ describe('ConsoleLayout mobile files overlay stack', () => {
     window.dispatchEvent(new CustomEvent('mobile-keyboard-change', { detail: { open: true, inset: 280 } }))
     await waitFor(() => expect(screen.getByText('shortcut-bar')).toBeTruthy())
     expect(screen.getByRole('button', { name: 'epsilon' })).toBeTruthy()
+  })
+  it('opens quick session menu from context menu and can jump to sessions drawer', async () => {
+    sessionsDataMock=[{ id:'session-a',name:'alpha' }]
+    useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-a' } as any)
+    render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
+    const sessionButton = await screen.findByRole('button', { name: 'alpha' })
+    fireEvent.contextMenu(sessionButton)
+    expect(screen.getByText('nav.sessions')).toBeTruthy()
+    fireEvent.click(screen.getByText('nav.sessions'))
   })
 })
