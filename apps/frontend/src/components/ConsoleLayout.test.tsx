@@ -42,6 +42,7 @@ describe('ConsoleLayout mobile files overlay stack', () => {
   beforeEach(() => {
     snapshotDataMock={ windows: [], panes: [], activePaneId: null }
     sessionsDataMock=[]
+    window.localStorage.clear()
     useConsoleStore.setState({
       activeHostId: null,
       activeSessionId: null,
@@ -114,5 +115,43 @@ describe('ConsoleLayout mobile files overlay stack', () => {
     window.dispatchEvent(new CustomEvent('mobile-keyboard-change', { detail: { open: false, inset: 0 } }))
     await waitFor(() => expect(screen.getByText('open-files')).toBeTruthy())
     expect(screen.getByText('open-files').parentElement?.className).not.toContain('hidden')
+  })
+  it('does not render quick session bar when there are no sessions', () => {
+    render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
+    expect(screen.queryByRole('button', { name: 'alpha' })).toBeNull()
+  })
+  it('renders up to available sessions when fewer than five exist', async () => {
+    sessionsDataMock=[{ id:'session-a',name:'alpha' },{ id:'session-b',name:'beta' }]
+    useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-a' } as any)
+    render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'alpha' })).toBeTruthy())
+    expect(screen.getByRole('button', { name: 'beta' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'gamma' })).toBeNull()
+  })
+  it('limits quick session bar to five most recent sessions and keeps it visible above shortcut bar', async () => {
+    sessionsDataMock=[
+      { id:'session-a',name:'alpha' },
+      { id:'session-b',name:'beta' },
+      { id:'session-c',name:'gamma' },
+      { id:'session-d',name:'delta' },
+      { id:'session-e',name:'epsilon' },
+      { id:'session-f',name:'zeta' },
+    ]
+    useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-a' } as any)
+    const view=render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'alpha' })).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: 'epsilon' }))
+    view.rerender(React.createElement(ConsoleLayout, { initialIsMobile: true }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'epsilon' })).toBeTruthy())
+    expect(screen.getByRole('button', { name: 'epsilon' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'alpha' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'beta' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'gamma' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'delta' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'zeta' })).toBeNull()
+    document.body.classList.add('keyboard-open')
+    window.dispatchEvent(new CustomEvent('mobile-keyboard-change', { detail: { open: true, inset: 280 } }))
+    await waitFor(() => expect(screen.getByText('shortcut-bar')).toBeTruthy())
+    expect(screen.getByRole('button', { name: 'epsilon' })).toBeTruthy()
   })
 })

@@ -31,6 +31,7 @@ vi.mock('@/hooks/useOrderedSessions', () => ({
 }))
 vi.mock('@/hooks/useApi', () => ({
   useCreateSession: () => ({ mutateAsync: vi.fn() }),
+  useDeleteSession: () => ({ mutateAsync: vi.fn() }),
   useRenameSession: () => ({ mutateAsync: vi.fn() }),
 }))
 vi.mock('./SessionTemplates', () => ({
