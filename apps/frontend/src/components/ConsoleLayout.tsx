@@ -1,5 +1,4 @@
 'use client'
-
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { TopBar } from './TopBar'
 import { PaneGrid } from './PaneGrid'
@@ -27,6 +26,24 @@ import { DesktopWorkbench } from './DesktopWorkbench'
 import { recordMobileDiagnostic, startMobileFlickerDiagnostics } from '@/lib/mobile-diagnostics'
 
 const MOBILE_QUERY = '(max-width: 1023px)'
+const MOBILE_RECENT_SESSIONS_KEY_PREFIX = 'tmuxgo-mobile-recent-sessions:'
+const MOBILE_QUICK_SESSION_LIMIT = 5
+function getMobileRecentSessionsKey(hostId: string) {
+  return `${MOBILE_RECENT_SESSIONS_KEY_PREFIX}${hostId}`
+}
+function readMobileRecentSessions(hostId: string) {
+  if (typeof window === 'undefined' || !hostId) return []
+  try {
+    const raw = JSON.parse(localStorage.getItem(getMobileRecentSessionsKey(hostId)) || '[]')
+    return Array.isArray(raw) ? raw.filter((item): item is string => typeof item === 'string' && item.length > 0) : []
+  } catch {
+    return []
+  }
+}
+function writeMobileRecentSessions(hostId: string, sessionIds: string[]) {
+  if (typeof window === 'undefined' || !hostId) return
+  localStorage.setItem(getMobileRecentSessionsKey(hostId), JSON.stringify(sessionIds))
+}
 function recordMobileDebug(event: string, data?: Record<string, unknown>) {
   recordMobileDiagnostic(event, data)
   if (typeof window === 'undefined' || !window.localStorage.getItem('tmuxgo-debug-mobile')) return
@@ -65,6 +82,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   const [drawerType, setDrawerType] = useState<'sessions' | 'panes' | 'windows'>('sessions')
   const [showSettings, setShowSettings] = useState(false)
   const [keyboardOpen, setKeyboardOpen] = useState(false)
+  const [mobileRecentSessionIds, setMobileRecentSessionIds] = useState<string[]>([])
   const overlayRef = useRef<string[]>([])
   const ignoreNextPopRef = useRef(false)
   const appHeightRef = useRef(appHeight)
@@ -74,6 +92,13 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   const viewportFrameRef = useRef<number | null>(null)
   const viewportWidthRef = useRef(0)
   const viewportStableRef = useRef(createViewportStableState())
+  const mobileQuickSessions = (() => {
+    const sessionMap = new Map(sessionsData.map((session: any) => [session.id, session]))
+    const recent = mobileRecentSessionIds.map((id) => sessionMap.get(id)).filter(Boolean)
+    const seen = new Set(recent.map((session: any) => session.id))
+    const fallback = sessionsData.filter((session: any) => !seen.has(session.id))
+    return [...recent, ...fallback].slice(0, MOBILE_QUICK_SESSION_LIMIT)
+  })()
 
   const pushOverlay = useCallback((id: string) => {
     if (id !== 'mobile-files-level' && overlayRef.current[overlayRef.current.length - 1] === id) return
@@ -365,6 +390,23 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
     window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'mobile-keyboard-dock', open: keyboardOpen, mobile: true } }))
   }, [isMobile, keyboardOpen])
   useEffect(() => {
+    setMobileRecentSessionIds(readMobileRecentSessions(activeHostId || ''))
+  }, [activeHostId])
+  useEffect(() => {
+    if (!activeHostId) return
+    const validIds = new Set(sessionsData.map((session: any) => session.id))
+    setMobileRecentSessionIds((prev) => {
+      const next = prev.filter((id) => validIds.has(id))
+      if (activeSessionId && validIds.has(activeSessionId)) {
+        const merged = [activeSessionId, ...next.filter((id) => id !== activeSessionId)]
+        writeMobileRecentSessions(activeHostId, merged)
+        return merged
+      }
+      if (next.length !== prev.length) writeMobileRecentSessions(activeHostId, next)
+      return next
+    })
+  }, [activeHostId, activeSessionId, sessionsData])
+  useEffect(() => {
     const handleNewSession = () => {
       if (isMobile) {
         setDrawerType('sessions')
@@ -389,6 +431,25 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       {!isMobile && preferences.showStatusBar && <StatusBar />}
       {isMobile && (
         <div data-mobile-dock className="mobile-nav-landscape-hide relative z-40 w-full shrink-0">
+          {mobileQuickSessions.length > 0 && (
+            <div className="border-t border-[var(--line)] bg-bg-1/96 px-2 pt-1.5 pb-1 backdrop-blur">
+              <div className="flex gap-1 overflow-x-auto scrollbar-none">
+                {mobileQuickSessions.map((session: any) => {
+                  const active = session.id === activeSessionId
+                  return (
+                    <button
+                      key={session.id}
+                      type="button"
+                      onClick={() => setActiveSession(session.id)}
+                      className={`min-w-0 shrink-0 rounded-lg border px-3 py-1.5 text-xs transition-colors ${active ? 'border-accent bg-accent/18 text-accent' : 'border-[var(--line)] bg-bg-2/80 text-text-2 active:bg-bg-2'}`}
+                    >
+                      <span className="block max-w-[22vw] truncate">{session.name}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
           <div className={keyboardOpen ? 'hidden' : 'h-[calc(48px+env(safe-area-inset-bottom))]'}>
             <MobileNav docked onOpenDrawer={openDrawer} onOpenSettings={openSettings} onOpenSearch={openPalette} onOpenFiles={openMobileFiles} />
           </div>
