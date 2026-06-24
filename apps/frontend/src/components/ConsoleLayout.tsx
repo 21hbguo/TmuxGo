@@ -27,6 +27,7 @@ import { useGitPreferencesSync } from '@/hooks/useGitPreferencesSync'
 import { DesktopWorkbench } from './DesktopWorkbench'
 import { recordMobileDiagnostic, startMobileFlickerDiagnostics } from '@/lib/mobile-diagnostics'
 import { useTranslation } from '@/i18n'
+import { readActiveHostId, readActiveSessionId } from '@/lib/console-device-state'
 
 const MOBILE_QUERY = '(max-width: 1023px)'
 const MOBILE_RECENT_SESSIONS_KEY_PREFIX = 'tmuxgo-mobile-recent-sessions:'
@@ -356,7 +357,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
 
   useEffect(() => {
     if (hostsData.length > 0 && !activeHostId) {
-      const persistedHost = typeof window !== 'undefined' ? localStorage.getItem('tmuxgo-active-host') : null
+      const persistedHost = readActiveHostId()
       const localHost = hostsData.find((h: any) => h.id === 'local')
       const restoredHost = persistedHost && hostsData.some((h: any) => h.id === persistedHost) ? persistedHost : null
       setActiveHost(restoredHost || localHost?.id || hostsData[0]?.id || '')
@@ -375,7 +376,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       if (activeSessionId) setActiveSession('')
       return
     }
-    const persistedSession = typeof window !== 'undefined' && activeHostId ? localStorage.getItem(`tmuxgo-active-session:${activeHostId}`) || localStorage.getItem('tmuxgo-active-session') : null
+    const persistedSession = activeHostId ? readActiveSessionId(activeHostId) : null
     const persistedSessionExists = !!persistedSession && sessionsData.some((s: any) => s.id === persistedSession)
     const continuityPoint = activeHostId && sessionContinuity.enabled && (sessionContinuity.resumeOnReconnect || sessionContinuity.resumeOnNewDevice) ? sessionContinuity.resumePoints.find((item) => item.hostId === activeHostId) : null
     const continuitySessionExists = !!continuityPoint?.sessionId && sessionsData.some((s: any) => s.id === continuityPoint.sessionId)

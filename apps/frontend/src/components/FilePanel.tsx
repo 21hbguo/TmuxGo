@@ -1,9 +1,6 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { CaretRightOutlined, FileImageOutlined, FileMarkdownOutlined, FileOutlined, FileTextOutlined, FolderFilled } from '@ant-design/icons'
-import type { DataNode, EventDataNode } from 'antd/es/tree'
-import { Tree } from 'antd'
 import { useQueryClient } from '@tanstack/react-query'
 import { useFileList, useFilePreview, useFileRoots, useFileSearch } from '@/hooks/useApi'
 import { usePreferences } from '@/hooks/usePreferences'
@@ -29,7 +26,6 @@ const SEARCH_INPUT_DEBOUNCE_MS = 160
 const SEARCH_RESULT_LIMIT = 200
 const LARGE_DIRECTORY_LIMIT = 120
 const DIRECTORY_RENDER_LIMIT = 80
-const EMPTY_TREE_KEYS: string[] = []
 const IMAGE_EXTENSIONS = new Set(['.avif', '.bmp', '.gif', '.ico', '.jpeg', '.jpg', '.png', '.tif', '.tiff', '.webp'])
 const CODE_EXTENSIONS = new Set(['.c', '.cc', '.conf', '.cpp', '.css', '.go', '.h', '.hpp', '.html', '.ini', '.java', '.js', '.json', '.jsx', '.kt', '.md', '.php', '.py', '.rb', '.rs', '.scss', '.sh', '.sql', '.svg', '.toml', '.ts', '.tsx', '.xml', '.yaml', '.yml', '.zsh'])
 
@@ -125,12 +121,12 @@ function matchesFileTypeFilter(item: { type: 'file' | 'directory' }, fileTypeFil
   return item.type === fileTypeFilter
 }
 function getFileVisual(path: string, type: 'file' | 'directory') {
-  if (type === 'directory') return { icon: <FolderFilled className="text-[12px] text-[#dcb67a]" />, tone: 'text-text-1' }
+  if (type === 'directory') return { icon: <span className="inline-flex h-3 w-3 items-center justify-center font-mono text-[10px] leading-none text-[#dcb67a]">▣</span>, tone: 'text-text-1' }
   const lower = path.toLowerCase()
-  if (isImagePath(lower)) return { icon: <FileImageOutlined className="text-[12px] text-[#61c7ff]" />, tone: 'text-[#8fdcff]' }
-  if (lower.endsWith('.md')) return { icon: <FileMarkdownOutlined className="text-[12px] text-[#79d2a6]" />, tone: 'text-[#9de1bf]' }
-  if (CODE_EXTENSIONS.has(lower.slice(lower.lastIndexOf('.')))) return { icon: <FileTextOutlined className="text-[12px] text-[#c2d1ff]" />, tone: 'text-text-1' }
-  return { icon: <FileOutlined className="text-[12px] text-text-3" />, tone: 'text-text-2' }
+  if (isImagePath(lower)) return { icon: <span className="inline-flex h-3 w-3 items-center justify-center font-mono text-[10px] leading-none text-[#61c7ff]">▧</span>, tone: 'text-[#8fdcff]' }
+  if (lower.endsWith('.md')) return { icon: <span className="inline-flex h-3 w-3 items-center justify-center font-mono text-[10px] leading-none text-[#79d2a6]">M</span>, tone: 'text-[#9de1bf]' }
+  if (CODE_EXTENSIONS.has(lower.slice(lower.lastIndexOf('.')))) return { icon: <span className="inline-flex h-3 w-3 items-center justify-center font-mono text-[10px] leading-none text-[#c2d1ff]">&lt;&gt;</span>, tone: 'text-text-1' }
+  return { icon: <span className="inline-flex h-3 w-3 items-center justify-center font-mono text-[10px] leading-none text-text-3">□</span>, tone: 'text-text-2' }
 }
 function getRootKind(root: FileRoot) {
   const label = root.label.toLowerCase()
@@ -245,7 +241,7 @@ function isImagePath(path: string) {
 function FavoriteDirectoryButton({ active, name, onClick }: { active: boolean; name: string; onClick: (event: React.MouseEvent) => void }) {
   return <button onClick={onClick} className={`shrink-0 rounded px-1 py-0 text-[10px] leading-4 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 ${active ? 'bg-accent/20 text-accent opacity-100' : 'bg-bg-2 text-text-3 hover:text-text-1'}`} aria-label={`${active ? 'Unfavorite' : 'Favorite'} ${name}`}>{active ? '★' : '☆'}</button>
 }
-type FileTreeNode = DataNode & { item?: FileItem; isLeaf?: boolean }
+type FileTreeNode = { key: string; item: FileItem; children?: FileTreeNode[] }
 export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile }: { mode?: 'panel' | 'mobile' | 'explorer'; dock?: 'left' | 'right'; onClose?: () => void; onOpenFile?: (file: FileDocumentHandle) => void }) {
   const queryClient = useQueryClient()
   const activeHostId = useConsoleStore((state) => state.activeHostId)
@@ -366,12 +362,9 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   }, [activeRootBasePath, activeRootId, directoryCache, fileHostId, setDirectoryStatus, storeDirectoryChildren, t])
   const createTreeNodes = useCallback((items: FileItem[]): FileTreeNode[] => items.filter((item) => (!hideDotFiles || !isDotPath(item.path || item.name)) && matchesFileTypeFilter(item, fileTypeFilter)).map((item) => {
     const children = item.type === 'directory' && openDirectories.has(item.path) ? readDirectoryChildrenFromCache(directoryCache, activeRootId, activeRootBasePath, item.path) : undefined
-    return { key: item.path, title: item.name, isLeaf: item.type === 'file', children: children ? createTreeNodes(children) : undefined, item }
-  }), [activeRootBasePath, activeRootId, directoryCache, directoryStatus, fileTypeFilter, hideDotFiles, loadDirectoryChildren, openDirectories, t])
+    return { key: item.path, children: children ? createTreeNodes(children) : undefined, item }
+  }), [activeRootBasePath, activeRootId, directoryCache, fileTypeFilter, hideDotFiles, openDirectories])
   const desktopTreeData = useMemo(() => !isMobile && !showSearchResults ? createTreeNodes(listData?.items || []) : [], [createTreeNodes, isMobile, listData?.items, showSearchResults])
-  const treeExpandedKeys = useMemo(() => Array.from(openDirectories), [openDirectories])
-  const treeSelectedKeys = useMemo(() => selectedPath ? [selectedPath] : EMPTY_TREE_KEYS, [selectedPath])
-  const treeInstanceKey = useMemo(() => `${fileHostId}:${activeSessionId || ''}:${selectedRootId}:${activeRootBasePath}`, [activeRootBasePath, activeSessionId, fileHostId, selectedRootId])
 
   useEffect(() => {
     if (!selectedRootId && rootOptions[0]) setSelectedRootId(rootOptions[0].id)
@@ -564,14 +557,6 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     void api.preferences.update({ favoriteDirectories: next.entries, favoriteDirectoriesUpdatedAt: next.updatedAt }, PREFERENCES_PROFILE).catch(() => {})
     if (selectedRootId === getFavoriteRootOptionId(entry)) switchRoot(entry.rootId)
   }
-  const setDesktopDirectoryExpanded = (path: string, expanded: boolean) => {
-    setOpenDirectories((current) => {
-      const next = new Set(current)
-      if (expanded) next.add(path)
-      else next.delete(path)
-      return next
-    })
-  }
   const handleDesktopDirectoryToggle = (item: FileItem) => {
     let expanding = false
     setOpenDirectories((current) => {
@@ -619,7 +604,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   useEffect(() => {
     if (isMobile || showSearchResults || !selectedPath || typeof window === 'undefined') return
     const frame = window.requestAnimationFrame(() => {
-      const element = document.querySelector('.tmuxgo-file-tree .ant-tree-node-selected') as HTMLElement | null
+      const element = document.querySelector('.tmuxgo-file-tree [data-selected="true"]') as HTMLElement | null
       element?.scrollIntoView?.({ block: 'nearest' })
     })
     return () => window.cancelAnimationFrame(frame)
@@ -849,64 +834,74 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
       )}
     </div>
   )
-  const renderTreeTitle = (node: FileTreeNode) => {
-    if (!node.item) return typeof node.title === 'function' ? node.title(node) : node.title ?? null
+  const renderDesktopTree = (nodes: FileTreeNode[], depth = 0): React.ReactNode[] => nodes.flatMap((node) => {
     const item = node.item
     const visual = getFileVisual(item.path, item.type)
     const favoritePath = { rootId: activeRootId, path: joinRelativePath(activeRootBasePath, item.path) }
-    const cachedChildren = item.type === 'directory' && openDirectories.has(item.path) ? readDirectoryChildrenFromCache(directoryCache, activeRootId, activeRootBasePath, item.path) : undefined
-    const loadStatus = item.type === 'directory' && openDirectories.has(item.path) ? readDirectoryStatusFromCache(directoryStatus, activeRootId, activeRootBasePath, item.path) : undefined
-    return (
-      <div
-        role="button"
-        tabIndex={0}
-        title={getItemFullPath(item)}
-        {...bindFileDrag(item)}
-        onClick={(e) => {
-          e.preventDefault()
-          if (item.type === 'directory') void handleDesktopDirectoryToggle(item)
-          else {
-            setSelectedPath(item.path)
-            openItem(item)
-          }
-        }}
-        onKeyDown={(e) => {
-          if (e.key !== 'Enter' && e.key !== ' ') return
-          e.preventDefault()
-          if (item.type === 'directory') void handleDesktopDirectoryToggle(item)
-          else {
-            setSelectedPath(item.path)
-            openItem(item)
-          }
-        }}
-        onContextMenu={(e) => {
-          e.preventDefault()
-          e.stopPropagation()
-          showContextMenu(e.clientX, e.clientY, item, getParentRelativePath(item, currentPath))
-        }}
-        onDoubleClick={() => item.type === 'directory' ? void handleDesktopDirectoryToggle(item) : insertItemPath(item)}
-        className="group flex min-w-0 items-center gap-1.5 px-2 py-[2px]"
-      >
-        <span className="shrink-0">{visual.icon}</span>
-        <span className={`min-w-0 flex-1 truncate font-mono ${visual.tone}`}>{item.name}</span>
-        {item.type === 'directory' && cachedChildren?.length === 0 && <span className="shrink-0 font-mono text-[10px] text-text-3">{t('file.emptyDir')}</span>}
-        {item.type === 'directory' && !cachedChildren && loadStatus?.state === 'loading' && <span className="shrink-0 font-mono text-[10px] text-text-3">{t('file.loading')}</span>}
-        {item.type === 'directory' && !cachedChildren && loadStatus?.state === 'error' && <div className="flex shrink-0 items-center gap-1">
-          <span className="font-mono text-[10px] text-danger">{t('file.treeLoadFailed')}</span>
-          <button type="button" title={loadStatus.message} onClick={(event) => {
-            event.preventDefault()
-            event.stopPropagation()
-            void loadDirectoryChildren(item)
-          }} className="font-mono text-[10px] text-accent hover:text-text-1">{t('file.retryLoad')}</button>
-        </div>}
-        {item.type === 'directory' ? <FavoriteDirectoryButton active={isFavoriteDirectory(favoritePath)} name={item.name} onClick={(event) => {
+    const expanded = item.type === 'directory' && openDirectories.has(item.path)
+    const cachedChildren = expanded ? readDirectoryChildrenFromCache(directoryCache, activeRootId, activeRootBasePath, item.path) : undefined
+    const loadStatus = expanded ? readDirectoryStatusFromCache(directoryStatus, activeRootId, activeRootBasePath, item.path) : undefined
+    const selected = selectedPath === item.path
+    const row = (
+      <div key={`${item.path}::__row`} data-selected={selected ? 'true' : undefined} className={`tmuxgo-file-tree-node group flex min-h-[22px] w-full items-center transition-colors ${selected ? 'tmuxgo-file-tree-node-selected' : ''}`} style={{ paddingLeft: `${depth * 12}px` }}>
+        <button type="button" disabled={item.type !== 'directory'} onClick={(event) => {
           event.preventDefault()
           event.stopPropagation()
-          toggleFavoriteDirectory(item)
-        }} /> : <span className="invisible text-[10px] text-text-3 group-hover:visible">{formatSize(item.size)}</span>}
+          if (item.type === 'directory') void handleDesktopDirectoryToggle(item)
+        }} className={`flex h-[22px] w-[14px] shrink-0 items-center justify-center font-mono text-[10px] ${item.type === 'directory' ? 'text-text-3 hover:text-accent' : 'text-transparent'}`}>{item.type === 'directory' ? expanded ? '▾' : '▸' : ''}</button>
+        <div
+          role="button"
+          tabIndex={0}
+          title={getItemFullPath(item)}
+          {...bindFileDrag(item)}
+          onClick={(e) => {
+            e.preventDefault()
+            if (item.type === 'directory') void handleDesktopDirectoryToggle(item)
+            else {
+              setSelectedPath(item.path)
+              openItem(item)
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter' && e.key !== ' ') return
+            e.preventDefault()
+            if (item.type === 'directory') void handleDesktopDirectoryToggle(item)
+            else {
+              setSelectedPath(item.path)
+              openItem(item)
+            }
+          }}
+          onContextMenu={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            showContextMenu(e.clientX, e.clientY, item, getParentRelativePath(item, currentPath))
+          }}
+          onDoubleClick={() => item.type === 'directory' ? void handleDesktopDirectoryToggle(item) : insertItemPath(item)}
+          className="flex min-w-0 flex-1 items-center gap-1.5 py-[2px] pr-2"
+        >
+          <span className="shrink-0">{visual.icon}</span>
+          <span className={`min-w-0 flex-1 truncate font-mono ${visual.tone}`}>{item.name}</span>
+          {item.type === 'directory' && cachedChildren?.length === 0 && <span className="shrink-0 font-mono text-[10px] text-text-3">{t('file.emptyDir')}</span>}
+          {item.type === 'directory' && !cachedChildren && loadStatus?.state === 'loading' && <span className="shrink-0 font-mono text-[10px] text-text-3">{t('file.loading')}</span>}
+          {item.type === 'directory' && !cachedChildren && loadStatus?.state === 'error' && <div className="flex shrink-0 items-center gap-1">
+            <span className="font-mono text-[10px] text-danger">{t('file.treeLoadFailed')}</span>
+            <button type="button" title={loadStatus.message} onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              void loadDirectoryChildren(item)
+            }} className="font-mono text-[10px] text-accent hover:text-text-1">{t('file.retryLoad')}</button>
+          </div>}
+          {item.type === 'directory' ? <FavoriteDirectoryButton active={isFavoriteDirectory(favoritePath)} name={item.name} onClick={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            toggleFavoriteDirectory(item)
+          }} /> : <span className="invisible text-[10px] text-text-3 group-hover:visible">{formatSize(item.size)}</span>}
+        </div>
       </div>
     )
-  }
+    const nested = item.type === 'directory' && expanded && node.children?.length ? renderDesktopTree(node.children, depth + 1) : []
+    return [row, ...nested]
+  })
   const renderSearchList = (entries: FileEntry[], depth = 0): React.ReactNode[] => entries.filter((item) => (!hideDotFiles || !isDotPath(item.path || item.name)) && matchesFileTypeFilter(item, fileTypeFilter)).flatMap((item) => {
     const cache = item.type === 'directory' ? readDirectoryChildrenFromCache(directoryCache, activeRootId, activeRootBasePath, item.path) : undefined
     const status = item.type === 'directory' ? readDirectoryStatusFromCache(directoryStatus, activeRootId, activeRootBasePath, item.path) : undefined
@@ -1042,30 +1037,9 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
         )}
         {(listLoading || searchLoading) && <div className="p-3 text-xs text-text-3">{t('file.loading')}</div>}
         {!isMobile && !showSearchResults && !listLoading && (
-          <Tree
-            key={treeInstanceKey}
-            className="tmuxgo-file-tree"
-            showIcon={false}
-            blockNode
-            motion={null}
-            virtual={false}
-            switcherIcon={<CaretRightOutlined className="text-[10px]" />}
-            treeData={desktopTreeData}
-            expandedKeys={treeExpandedKeys}
-            selectedKeys={treeSelectedKeys}
-            onExpand={(keys, info) => {
-              const item = (info.node as EventDataNode<FileTreeNode>).item
-              if (!item || item.type !== 'directory') return
-              setDesktopDirectoryExpanded(item.path, info.expanded)
-              if (info.expanded) void loadDirectoryChildren(item)
-            }}
-            onSelect={(keys, info) => {
-              const node = info.node as EventDataNode<FileTreeNode>
-              if (!node.item) return
-              if (keys[0]) setSelectedPath(String(keys[0]))
-            }}
-            titleRender={(node) => renderTreeTitle(node as FileTreeNode)}
-          />
+          <div className="tmuxgo-file-tree">
+            {renderDesktopTree(desktopTreeData)}
+          </div>
         )}
         {!listLoading && showSearchResults && !isMobile && renderSearchList(visibleItems)}
         {!listLoading && isMobile && visibleItems.map((item: any) => (

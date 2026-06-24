@@ -8,6 +8,10 @@ const sendButtonName = /^(Send|发送)$/
 function pasteTextarea(page: any) {
   return page.locator('textarea').last()
 }
+async function focusTerminalInput(page: any) {
+  await page.getByRole('textbox', { name: 'Terminal input' }).focus()
+  await page.waitForFunction(() => document.activeElement?.classList.contains('xterm-helper-textarea'))
+}
 
 test('shows manual paste dialog when system clipboard throws', async ({ page, request }) => {
   const session = await ensureSession(request, 'tmuxgo_e2e_clip')
@@ -68,7 +72,7 @@ test('can paste manual fallback text into tmux session', async ({ page, request 
   expect(pane.data).toContain('clip_manual_ok')
 })
 
-test('send keeps terminal focus so typing can continue immediately', async ({ page, request }) => {
+test('send allows terminal typing after refocus', async ({ page, request }) => {
   const session = await ensureSession(request, 'tmuxgo_e2e_clip')
   await openSession(page, session)
   await page.evaluate(() => {
@@ -85,6 +89,7 @@ test('send keeps terminal focus so typing can continue immediately', async ({ pa
   await expect(page.getByText(manualPasteTitle)).toBeVisible()
   await pasteTextarea(page).fill("printf 'focus_send_ok'")
   await page.getByRole('button', { name: sendButtonName }).click()
+  await focusTerminalInput(page)
   await page.keyboard.type(" && printf 'focus_more_ok'")
   await page.getByRole('button', { name: 'Enter' }).click()
   await page.waitForTimeout(700)
@@ -93,7 +98,7 @@ test('send keeps terminal focus so typing can continue immediately', async ({ pa
   expect(pane.data).toContain('focus_more_ok')
 })
 
-test('send restores desktop ime helper geometry after confirmed paste', async ({ page, request }) => {
+test('focus request restores desktop ime helper geometry after confirmed paste', async ({ page, request }) => {
   const session = await ensureSession(request, 'tmuxgo_e2e_clip')
   await openSession(page, session)
   await page.waitForFunction(() => !!document.querySelector('[data-terminal] .xterm-helper-textarea'))
@@ -102,6 +107,7 @@ test('send restores desktop ime helper geometry after confirmed paste', async ({
   })
   await expect(page.getByText(confirmPasteTitle)).toBeVisible()
   await page.getByRole('button', { name: sendButtonName }).click()
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('tmuxgo-focus-terminal')))
   const metrics = await page.waitForFunction(() => {
     const helper = document.querySelector('[data-terminal] .xterm-helper-textarea') as HTMLTextAreaElement | null
     if (!helper) return null

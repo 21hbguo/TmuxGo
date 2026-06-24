@@ -12,7 +12,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@ant-design/icons": "^6.2.5",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
@@ -25,7 +24,6 @@
     "@xterm/addon-web-links": "^0.10.0",
     "@xterm/addon-webgl": "^0.17.0",
     "@xterm/xterm": "^5.4.0",
-    "antd": "^6.4.3",
     "clsx": "^2.1.0",
     "commit-graph": "^2.4.0",
     "monaco-editor": "^0.55.1",
