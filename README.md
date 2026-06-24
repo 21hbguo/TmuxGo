@@ -68,13 +68,14 @@ cd TmuxGo
 - 安装或切换到 Node.js 20
 - 安装 `tmux`、`ripgrep`、`lsof/ss`、`python3` 和原生构建工具链
 - 执行 `npm install`
-- 构建 Gateway、稳定版 Frontend（`.next-prod`）和 Agent
+- 构建 Gateway 和稳定版 Frontend（`.next-prod`），设置 `TMUXGO_ENABLE_AGENT=1` 时同时构建 Agent
 - 在 Linux 上安装并启动 `systemd --user` 服务
 - 在 macOS 上安装并启动 `launchd` 服务
 - 在没有常驻服务管理器的环境中回退到本地启动脚本
 - 完成 `3000/3001` 健康检查，并输出本地地址与可用的 Tailscale HTTPS 地址
 
 安装完成后直接打开 `http://localhost:3000`。
+Agent 默认不安装启动；需要本机 agent 时执行 `TMUXGO_ENABLE_AGENT=1 ./install.sh` 或 `TMUXGO_ENABLE_AGENT=1 ./start.sh --restart`。
 
 > :bulb: 局域网可直接访问；远程访问建议先配置 [Tailscale](https://tailscale.com)。
 > :lock: 若要稳定使用系统剪贴板复制，建议通过 HTTPS 域名访问，例如 Tailscale HTTPS。
@@ -129,6 +130,8 @@ macOS:
 ```bash
 ./scripts/install-launchd-user-mac.sh
 ```
+
+需要同时安装并启动 Agent 时，在安装命令前加 `TMUXGO_ENABLE_AGENT=1`。
 
 停止全部服务：
 
@@ -223,10 +226,10 @@ tailscale version
 
 | 服务 | 端口 | 技术栈 |
 |:-----|:-----|:-------|
-| :globe_with_meridians: Frontend（稳定版） | `3000` | Next.js 14、React 18、xterm.js、Monaco、Tailwind、Ant Design |
+| :globe_with_meridians: Frontend（稳定版） | `3000` | Next.js 14、React 18、xterm.js、Monaco、Tailwind |
 | :hammer_and_wrench: Frontend（开发版） | `3002` | Next.js 热更新 |
 | :electric_plug: Gateway | `3001` | Fastify、WebSocket、node-pty、SSH、文件与 Git 路由 |
-| :satellite: Agent | - | `tmux` 附着、主机注册、终端流转发 |
+| :satellite: Agent（可选） | - | `tmux` 附着、主机注册、终端流转发 |
 | :lock: Tailscale HTTPS | `443`、`8443` | `start.sh` 自动配置到前端与 Gateway |
 
 ## :wrench: 开发与验证
@@ -269,6 +272,7 @@ npm run verify
 | `PORT` | `3001` | Gateway 监听端口 |
 | `NEXT_PUBLIC_API_URL` | `http://127.0.0.1:3001` | 前端访问 Gateway 的基地址 |
 | `NEXT_DIST_DIR` | `.next` / `.next-prod` | 前端构建输出目录 |
+| `TMUXGO_ENABLE_AGENT` | `0` | 设为 `1` 时启动或安装 Agent |
 | `GATEWAY_URL` | `ws://localhost:3001/api/stream` | Agent 连接 Gateway 的 WebSocket 地址 |
 | `HOST_ID` | `agent-local` | Agent 注册主机 ID |
 | `HOST_NAME` | `local-machine` 或机器名 | Agent 注册显示名 |

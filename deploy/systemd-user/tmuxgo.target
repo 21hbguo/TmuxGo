@@ -1,6 +1,6 @@
 [Unit]
 Description=TmuxGo Suite
-Wants=tmuxgo-gateway.service tmuxgo-frontend.service tmuxgo-agent.service
+Wants=tmuxgo-gateway.service tmuxgo-frontend.service
 
 [Install]
 WantedBy=default.target

@@ -240,37 +240,16 @@ a {
 .tmuxgo-select-inline:focus {
   color: rgb(var(--text-1));
 }
-.tmuxgo-file-tree.ant-tree {
+.tmuxgo-file-tree {
   background: transparent;
   color: rgb(var(--text-2));
   font-size: 11px;
 }
-.tmuxgo-file-tree .ant-tree-treenode {
-  width: 100%;
-  padding: 0;
-}
-.tmuxgo-file-tree .ant-tree-indent-unit {
-  width: 12px;
-}
-.tmuxgo-file-tree .ant-tree-switcher {
-  width: 14px;
-  color: rgb(var(--text-3));
-}
-.tmuxgo-file-tree .ant-tree-node-content-wrapper {
-  min-height: 22px;
-  padding: 0;
-  border-radius: 0;
-  flex: 1;
-}
-.tmuxgo-file-tree .ant-tree-node-content-wrapper:hover {
+.tmuxgo-file-tree-node:hover {
   background: rgb(var(--bg-2) / 0.7);
 }
-.tmuxgo-file-tree .ant-tree-treenode-selected .ant-tree-node-content-wrapper,
-.tmuxgo-file-tree .ant-tree-node-content-wrapper.ant-tree-node-selected {
+.tmuxgo-file-tree-node-selected {
   background: rgb(var(--bg-2));
-}
-.tmuxgo-file-tree .ant-tree-list-holder-inner {
-  gap: 0;
 }
 .tmuxgo-scrollbar {
   scrollbar-width: thin;

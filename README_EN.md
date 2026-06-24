@@ -68,13 +68,14 @@ cd TmuxGo
 - install or switch to Node.js 20
 - install `tmux`, `ripgrep`, `lsof/ss`, `python3`, and native build tools
 - run `npm install`
-- build Gateway, the stable Frontend (`.next-prod`), and Agent
+- build Gateway and the stable Frontend (`.next-prod`), plus Agent when `TMUXGO_ENABLE_AGENT=1`
 - install and start user-level `systemd` services on Linux
 - install and start user-level `launchd` services on macOS
 - fall back to the local startup script when a background service manager is unavailable
 - verify `3000/3001` and print local URLs plus Tailscale HTTPS URLs when available
 
 After installation, open `http://localhost:3000`.
+Agent is not installed or started by default; use `TMUXGO_ENABLE_AGENT=1 ./install.sh` or `TMUXGO_ENABLE_AGENT=1 ./start.sh --restart` when you need it.
 
 > :bulb: LAN access works directly; for remote access, configure [Tailscale](https://tailscale.com) first.
 > :lock: For reliable copy to the system clipboard, prefer HTTPS access such as Tailscale HTTPS.
@@ -129,6 +130,8 @@ macOS:
 ```bash
 ./scripts/install-launchd-user-mac.sh
 ```
+
+Prefix the install command with `TMUXGO_ENABLE_AGENT=1` to install and start Agent as well.
 
 Stop all services:
 
@@ -223,10 +226,10 @@ tailscale version
 
 | Service | Port | Stack |
 |:--------|:-----|:------|
-| :globe_with_meridians: Frontend (stable) | `3000` | Next.js 14, React 18, xterm.js, Monaco, Tailwind, Ant Design |
+| :globe_with_meridians: Frontend (stable) | `3000` | Next.js 14, React 18, xterm.js, Monaco, Tailwind |
 | :hammer_and_wrench: Frontend (dev) | `3002` | Next.js hot reload |
 | :electric_plug: Gateway | `3001` | Fastify, WebSocket, node-pty, SSH, file and Git routes |
-| :satellite: Agent | - | `tmux` attach, host registration, terminal stream forwarding |
+| :satellite: Agent (optional) | - | `tmux` attach, host registration, terminal stream forwarding |
 | :lock: Tailscale HTTPS | `443`, `8443` | Auto-configured by `start.sh` for frontend and Gateway |
 
 ## :wrench: Development and Verification
@@ -269,6 +272,7 @@ Recommended delivery checklist:
 | `PORT` | `3001` | Gateway listen port |
 | `NEXT_PUBLIC_API_URL` | `http://127.0.0.1:3001` | Frontend base URL for Gateway |
 | `NEXT_DIST_DIR` | `.next` / `.next-prod` | Frontend build output directory |
+| `TMUXGO_ENABLE_AGENT` | `0` | Set to `1` to start or install Agent |
 | `GATEWAY_URL` | `ws://localhost:3001/api/stream` | Agent WebSocket URL for Gateway |
 | `HOST_ID` | `agent-local` | Agent registration host ID |
 | `HOST_NAME` | `local-machine` or hostname | Agent display name |

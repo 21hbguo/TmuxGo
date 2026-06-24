@@ -87,6 +87,11 @@ function sanitizePassword(value: string | undefined) {
   if (value.length > 1024) throw new Error('Invalid password length')
   return value
 }
+function nextUpdatedAt(previous: string | undefined) {
+  const now = Date.now()
+  const previousMs = Date.parse(previous || '')
+  return new Date(!Number.isNaN(previousMs) && now <= previousMs ? previousMs + 1 : now).toISOString()
+}
 function normalizeHostRecord(raw: any): HostRecord {
   const id = sanitizeHostId(String(raw?.id || ''))
   return {
@@ -142,9 +147,9 @@ export async function getHostById(hostId: string) {
 }
 export async function upsertRemoteHost(input: HostInput) {
   const hostId = sanitizeHostId(input.id)
-  const now = new Date().toISOString()
   const store = await readHostStore()
   const existing = store.hosts.find((item) => item.id === hostId) || null
+  const now = nextUpdatedAt(existing?.updatedAt)
   const host: HostRecord = {
     id: hostId,
     name: sanitizeHostName(input.name, hostId),

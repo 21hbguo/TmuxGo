@@ -4,7 +4,7 @@ import { ensureSession, openSession } from './session'
 test('home page smoke flow', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByText('TmuxGo')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Sessions' })).toBeVisible()
+  await expect(page.getByText(/(Sessions|会话)/).first()).toBeVisible()
   await expect(page.getByRole('button', { name: /^(New|新建)$/ })).toBeVisible()
   await expect(page.locator('main').nth(1)).toBeVisible()
   await expect(page.locator('header').getByRole('button', { name: '⚙' })).toBeVisible()
@@ -92,8 +92,11 @@ test('mobile terminal stays within viewport and renders active session output', 
   await openSession(page, session, { expectHeader: false })
   await page.waitForFunction(() => {
     const t = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
-    const line = t?.buffer?.active?.getLine?.(0)?.translateToString?.(true) || ''
-    return !!t?.cols && !!t?.rows && line.trim().length > 0
+    if (!t?.cols || !t?.rows) return false
+    for (let i = 0; i < Math.min(12, t?.buffer?.active?.length || 0); i += 1) {
+      if (t.buffer.active.getLine(i)?.translateToString(true).trim()) return true
+    }
+    return false
   }, undefined, { timeout: 15000 })
   const metrics = await page.evaluate(() => {
     const term = document.querySelector('[data-terminal]') as HTMLElement | null

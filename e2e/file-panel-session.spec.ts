@@ -37,6 +37,7 @@ test('file explorer stays interactive across session switches and file opens', a
     await page.getByRole('button', { name: '≡', exact: true }).click()
     const rootSelect = page.locator('select').first()
     await expect(rootSelect).toBeVisible()
+    await rootSelect.selectOption(homeRoot.id)
     await page.locator('input').nth(1).fill(dirName)
     await expect(page.locator(`[title="${tempDir}"]`)).toBeVisible()
     await page.locator(`button[aria-label="Favorite ${dirName}"]`).click({ force: true })

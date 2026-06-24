@@ -248,7 +248,7 @@ describe('FilePanel', () => {
     render(React.createElement(FilePanel))
     await waitFor(() => expect(screen.getByText('deep.ts')).toBeInTheDocument())
     expect(screen.getByText('nested')).toBeInTheDocument()
-    expect(document.querySelector('.tmuxgo-file-tree .ant-tree-node-selected')?.textContent).toContain('deep.ts')
+    expect(document.querySelector('.tmuxgo-file-tree [data-selected="true"]')?.textContent).toContain('deep.ts')
   })
   it('switches to the matching favorite root for the active editor', async () => {
     localStorage.setItem('tmuxgo-favorite-directories', JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'docs', path: 'docs' }, { rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]))
@@ -280,7 +280,7 @@ describe('FilePanel', () => {
     view.rerender(React.createElement(FilePanel))
     await waitFor(() => expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('favorite:root-home:project'))
     expect(screen.getByText('demo.txt')).toBeInTheDocument()
-    expect(document.querySelector('.tmuxgo-file-tree .ant-tree-node-selected')?.textContent).toContain('demo.txt')
+    expect(document.querySelector('.tmuxgo-file-tree [data-selected="true"]')?.textContent).toContain('demo.txt')
   })
 
   it('expands a searched directory in place on desktop while keeping name search active', async () => {

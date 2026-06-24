@@ -6,6 +6,7 @@ LAUNCHD_FRONTEND_LABEL="com.tmuxgo.frontend"
 LAUNCHD_GATEWAY_LABEL="com.tmuxgo.gateway"
 LAUNCHD_AGENT_LABEL="com.tmuxgo.agent"
 LAUNCHD_LOG_DIR="$HOME/Library/Logs/TmuxGo"
+TMUXGO_ENABLE_AGENT="${TMUXGO_ENABLE_AGENT:-0}"
 acquire_lock() {
   if mkdir "$LOCK_DIR" 2>/dev/null; then
     trap 'rm -rf "$LOCK_DIR"' EXIT INT TERM
@@ -16,6 +17,12 @@ acquire_lock() {
 }
 has_cmd() {
   command -v "$1" >/dev/null 2>&1
+}
+agent_enabled() {
+  case "$TMUXGO_ENABLE_AGENT" in
+    1|true|TRUE|True|yes|YES|Yes|on|ON|On) return 0 ;;
+  esac
+  return 1
 }
 launchd_domain() {
   local uid
@@ -161,12 +168,19 @@ restart_launchd_service() {
     launchctl kickstart -k "$(launchd_domain)/$label" >/dev/null 2>&1 || true
   fi
 }
+stop_launchd_service() {
+  local label=$1
+  if launchd_service_active "$label"; then
+    launchctl bootout "$(launchd_domain)/$label" >/dev/null 2>&1 || true
+  fi
+}
 stop_existing() {
   pkill -f "$ROOT_DIR/node_modules/.bin/next .*--port 3000" 2>/dev/null || true
   pkill -f "$ROOT_DIR/node_modules/.bin/next .*--port 3002" 2>/dev/null || true
   pkill -f "next start --hostname 0.0.0.0 --port 3000" 2>/dev/null || true
   pkill -f "next dev --hostname 0.0.0.0 --port 3002" 2>/dev/null || true
   pkill -f "$ROOT_DIR/node_modules/.bin/tsx watch src/index.ts" 2>/dev/null || true
+  pkill -f "npm run dev:agent" 2>/dev/null || true
   kill_port 3000
   kill_port 3002
   kill_port 3001
@@ -234,7 +248,9 @@ if systemd_tmuxgo_active; then
     echo "Building systemd services..."
     npm run build:gateway >/dev/null 2>&1
     env NEXT_DIST_DIR="$FRONTEND_STABLE_DIST_DIR" npm run build:frontend >/dev/null 2>&1
-    npm run build:agent >/dev/null 2>&1
+    if agent_enabled; then
+      npm run build:agent >/dev/null 2>&1
+    fi
   elif ! stable_build_ready; then
     echo "Systemd frontend build missing, building..."
     env NEXT_DIST_DIR="$FRONTEND_STABLE_DIST_DIR" npm run build:frontend >/dev/null 2>&1
@@ -244,7 +260,11 @@ if systemd_tmuxgo_active; then
     systemctl --user daemon-reload
     systemctl --user restart tmuxgo-gateway.service
     systemctl --user restart tmuxgo-frontend.service
-    systemctl --user restart tmuxgo-agent.service
+    if agent_enabled; then
+      systemctl --user restart tmuxgo-agent.service
+    else
+      systemctl --user stop tmuxgo-agent.service 2>/dev/null || true
+    fi
   fi
   if [ -n "${TAILSCALE_DNS:-}" ]; then
     if tailscale serve --yes --bg --https=443 http://127.0.0.1:3000 >/dev/null 2>&1 && tailscale serve --yes --bg --https=8443 http://127.0.0.1:3001 >/dev/null 2>&1; then
@@ -271,7 +291,9 @@ if systemd_tmuxgo_active; then
   echo "Logs:"
   echo "  Gateway:   journalctl --user -u tmuxgo-gateway.service -f"
   echo "  Frontend stable: journalctl --user -u tmuxgo-frontend.service -f"
-  echo "  Agent:     journalctl --user -u tmuxgo-agent.service -f"
+  if agent_enabled; then
+    echo "  Agent:     journalctl --user -u tmuxgo-agent.service -f"
+  fi
   exit 0
 fi
 if launchd_tmuxgo_active; then
@@ -284,7 +306,9 @@ if launchd_tmuxgo_active; then
     echo "Building launchd services..."
     npm run build:gateway >/dev/null 2>&1
     env NEXT_DIST_DIR="$FRONTEND_STABLE_DIST_DIR" npm run build:frontend >/dev/null 2>&1
-    npm run build:agent >/dev/null 2>&1
+    if agent_enabled; then
+      npm run build:agent >/dev/null 2>&1
+    fi
   elif ! stable_build_ready; then
     echo "Launchd frontend build missing, building..."
     env NEXT_DIST_DIR="$FRONTEND_STABLE_DIST_DIR" npm run build:frontend >/dev/null 2>&1
@@ -293,7 +317,11 @@ if launchd_tmuxgo_active; then
     echo "Restarting launchd TmuxGo services..."
     restart_launchd_service "$LAUNCHD_GATEWAY_LABEL"
     restart_launchd_service "$LAUNCHD_FRONTEND_LABEL"
-    restart_launchd_service "$LAUNCHD_AGENT_LABEL"
+    if agent_enabled; then
+      restart_launchd_service "$LAUNCHD_AGENT_LABEL"
+    else
+      stop_launchd_service "$LAUNCHD_AGENT_LABEL"
+    fi
   fi
   if [ -n "${TAILSCALE_DNS:-}" ]; then
     if tailscale serve --yes --bg --https=443 http://127.0.0.1:3000 >/dev/null 2>&1 && tailscale serve --yes --bg --https=8443 http://127.0.0.1:3001 >/dev/null 2>&1; then
@@ -320,7 +348,9 @@ if launchd_tmuxgo_active; then
   echo "Logs:"
   echo "  Gateway:   tail -f $LAUNCHD_LOG_DIR/gateway.log"
   echo "  Frontend stable: tail -f $LAUNCHD_LOG_DIR/frontend.log"
-  echo "  Agent:     tail -f $LAUNCHD_LOG_DIR/agent.log"
+  if agent_enabled; then
+    echo "  Agent:     tail -f $LAUNCHD_LOG_DIR/agent.log"
+  fi
   exit 0
 fi
 if [ "$RESTART" = "1" ]; then
@@ -408,18 +438,22 @@ if [ -n "${TAILSCALE_DNS:-}" ]; then
     echo "  Tailscale HTTPS setup failed"
   fi
 fi
-echo "Starting Agent..."
-if agent_running; then
-  echo "  Agent already running, skipping..."
-else
-  rm -f "$AGENT_LOG"
-  AGENT_PID=$(start_detached "$AGENT_LOG" npm run dev:agent)
-  sleep 2
-  if rg -n "Connected to gateway|Registered as agent" "$AGENT_LOG" >/dev/null 2>&1; then
-    echo "  Agent started successfully"
+if agent_enabled; then
+  echo "Starting Agent..."
+  if agent_running; then
+    echo "  Agent already running, skipping..."
   else
-    echo "  Agent failed to start, check $AGENT_LOG"
+    rm -f "$AGENT_LOG"
+    AGENT_PID=$(start_detached "$AGENT_LOG" npm run dev:agent)
+    sleep 2
+    if rg -n "Connected to gateway|Registered as agent" "$AGENT_LOG" >/dev/null 2>&1; then
+      echo "  Agent started successfully"
+    else
+      echo "  Agent failed to start, check $AGENT_LOG"
+    fi
   fi
+else
+  echo "Agent disabled. Set TMUXGO_ENABLE_AGENT=1 to start it."
 fi
 echo ""
 echo "TmuxGo services:"
@@ -436,4 +470,6 @@ echo "Logs:"
 echo "  Gateway:   $GATEWAY_LOG"
 echo "  Frontend stable: $FRONTEND_STABLE_LOG"
 echo "  Frontend dev:    $FRONTEND_DEV_LOG"
-echo "  Agent:     $AGENT_LOG"
+if agent_enabled || agent_running; then
+  echo "  Agent:     $AGENT_LOG"
+fi
