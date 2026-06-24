@@ -15,19 +15,23 @@ import { FilePanel } from './FilePanel'
 import { UploadConfirmDialog } from './UploadConfirmDialog'
 import { UploadQueue } from './UploadQueue'
 import { AppVersionGuard } from './AppVersionGuard'
+import { ConfirmDialog } from './ConfirmDialog'
 import { createViewportStableState, getNextViewportStableState, getViewportLayoutState, normalizeKeyboardViewportState } from './consoleLayoutViewport'
 import { useConsoleStore } from '@/stores/useConsoleStore'
-import { useHosts, useSessionSnapshot } from '@/hooks/useApi'
+import { useDeleteSession, useHosts, useRenameSession, useSessionSnapshot } from '@/hooks/useApi'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import { usePreferences } from '@/hooks/usePreferences'
+import { usePrompt } from '@/hooks/usePrompt'
 import { useSessionContinuity } from '@/hooks/useSessionContinuity'
 import { useGitPreferencesSync } from '@/hooks/useGitPreferencesSync'
 import { DesktopWorkbench } from './DesktopWorkbench'
 import { recordMobileDiagnostic, startMobileFlickerDiagnostics } from '@/lib/mobile-diagnostics'
+import { useTranslation } from '@/i18n'
 
 const MOBILE_QUERY = '(max-width: 1023px)'
 const MOBILE_RECENT_SESSIONS_KEY_PREFIX = 'tmuxgo-mobile-recent-sessions:'
 const MOBILE_QUICK_SESSION_LIMIT = 5
+const MOBILE_QUICK_SESSION_LONG_PRESS_MS = 420
 function getMobileRecentSessionsKey(hostId: string) {
   return `${MOBILE_RECENT_SESSIONS_KEY_PREFIX}${hostId}`
 }
@@ -68,13 +72,18 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   const toggleFilePanel = useConsoleStore((s) => s.toggleFilePanel)
   const mobileFileSheetOpen = useConsoleStore((s) => s.mobileFileSheetOpen)
   const setMobileFileSheetOpen = useConsoleStore((s) => s.setMobileFileSheetOpen)
+  const pushToast = useConsoleStore((s) => s.pushToast)
   const { preferences } = usePreferences()
   const { sessionContinuity } = useSessionContinuity()
+  const { t } = useTranslation()
+  const { prompt, PromptElement } = usePrompt()
   useGitPreferencesSync()
 
   const { data: hostsData = [] } = useHosts()
   const { data: sessionsData = [], isFetched: sessionsFetched } = useOrderedSessions(activeHostId || '')
   const { data: snapshotData } = useSessionSnapshot(activeHostId || '', activeSessionId || '')
+  const renameSession = useRenameSession()
+  const deleteSession = useDeleteSession()
 
   const [isMobile, setIsMobile] = useState(initialIsMobile)
   const [appHeight, setAppHeight] = useState(initialIsMobile ? '100svh' : '100dvh')
@@ -83,6 +92,8 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   const [showSettings, setShowSettings] = useState(false)
   const [keyboardOpen, setKeyboardOpen] = useState(false)
   const [mobileRecentSessionIds, setMobileRecentSessionIds] = useState<string[]>([])
+  const [mobileSessionMenuId, setMobileSessionMenuId] = useState<string | null>(null)
+  const [pendingDeleteSessionId, setPendingDeleteSessionId] = useState<string | null>(null)
   const overlayRef = useRef<string[]>([])
   const ignoreNextPopRef = useRef(false)
   const appHeightRef = useRef(appHeight)
@@ -92,6 +103,8 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   const viewportFrameRef = useRef<number | null>(null)
   const viewportWidthRef = useRef(0)
   const viewportStableRef = useRef(createViewportStableState())
+  const mobileSessionLongPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const mobileSessionLongPressFiredRef = useRef(false)
   const mobileQuickSessions = (() => {
     const sessionMap = new Map(sessionsData.map((session: any) => [session.id, session]))
     const recent = mobileRecentSessionIds.map((id) => sessionMap.get(id)).filter(Boolean)
@@ -99,6 +112,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
     const fallback = sessionsData.filter((session: any) => !seen.has(session.id))
     return [...recent, ...fallback].slice(0, MOBILE_QUICK_SESSION_LIMIT)
   })()
+  const mobileSessionMenu = mobileSessionMenuId ? sessionsData.find((session: any) => session.id === mobileSessionMenuId) || null : null
 
   const pushOverlay = useCallback((id: string) => {
     if (id !== 'mobile-files-level' && overlayRef.current[overlayRef.current.length - 1] === id) return
@@ -148,6 +162,39 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
     setMobileFileSheetOpen(true)
     pushOverlay('mobile-files')
   }, [mobileFileSheetOpen, setMobileFileSheetOpen, pushOverlay])
+  const clearMobileSessionLongPress = useCallback(() => {
+    if (!mobileSessionLongPressTimerRef.current) return
+    clearTimeout(mobileSessionLongPressTimerRef.current)
+    mobileSessionLongPressTimerRef.current = null
+  }, [])
+  const handleQuickSessionRename = useCallback(async (sessionId: string) => {
+    if (!activeHostId) return
+    const session = sessionsData.find((item: any) => item.id === sessionId)
+    const name = await prompt(t('drawer.renamePrompt'), session?.name || '')
+    if (!name || name === session?.name) return
+    try {
+      const renamed = await renameSession.mutateAsync({ hostId: activeHostId, sessionId, name })
+      if (activeSessionId === sessionId && renamed?.id) setActiveSession(renamed.id)
+      pushToast({ type: 'success', message: t('session.renamed', { from: session?.name || sessionId, to: name }) })
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('session.requestFailed') })
+    }
+  }, [activeHostId, activeSessionId, prompt, pushToast, renameSession, sessionsData, setActiveSession, t])
+  const confirmDeleteSession = useCallback(async () => {
+    if (!activeHostId || !pendingDeleteSessionId) return
+    const session = sessionsData.find((item: any) => item.id === pendingDeleteSessionId)
+    try {
+      await deleteSession.mutateAsync({ hostId: activeHostId, sessionId: pendingDeleteSessionId })
+      if (activeSessionId === pendingDeleteSessionId) {
+        const next = sessionsData.find((item: any) => item.id !== pendingDeleteSessionId)?.id || ''
+        setActiveSession(next)
+      }
+      pushToast({ type: 'success', message: t('session.deleted', { name: session?.name || pendingDeleteSessionId }) })
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('session.requestFailed') })
+    }
+    setPendingDeleteSessionId(null)
+  }, [activeHostId, activeSessionId, deleteSession, pendingDeleteSessionId, pushToast, sessionsData, setActiveSession, t])
   const clearViewportSchedule = useCallback(() => {
     if (viewportFrameRef.current) {
       cancelAnimationFrame(viewportFrameRef.current)
@@ -392,6 +439,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   useEffect(() => {
     setMobileRecentSessionIds(readMobileRecentSessions(activeHostId || ''))
   }, [activeHostId])
+  useEffect(() => () => clearMobileSessionLongPress(), [clearMobileSessionLongPress])
   useEffect(() => {
     if (!activeHostId) return
     const validIds = new Set(sessionsData.map((session: any) => session.id))
@@ -440,7 +488,29 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
                     <button
                       key={session.id}
                       type="button"
-                      onClick={() => setActiveSession(session.id)}
+                      onPointerDown={(e) => {
+                        if (e.pointerType === 'mouse') return
+                        mobileSessionLongPressFiredRef.current = false
+                        clearMobileSessionLongPress()
+                        mobileSessionLongPressTimerRef.current = setTimeout(() => {
+                          mobileSessionLongPressFiredRef.current = true
+                          setMobileSessionMenuId(session.id)
+                        }, MOBILE_QUICK_SESSION_LONG_PRESS_MS)
+                      }}
+                      onPointerUp={() => clearMobileSessionLongPress()}
+                      onPointerCancel={() => clearMobileSessionLongPress()}
+                      onPointerLeave={() => clearMobileSessionLongPress()}
+                      onContextMenu={(e) => {
+                        e.preventDefault()
+                        setMobileSessionMenuId(session.id)
+                      }}
+                      onClick={() => {
+                        if (mobileSessionLongPressFiredRef.current) {
+                          mobileSessionLongPressFiredRef.current = false
+                          return
+                        }
+                        setActiveSession(session.id)
+                      }}
                       className={`min-w-0 shrink-0 rounded-lg border px-3 py-1.5 text-xs transition-colors ${active ? 'border-accent bg-accent/18 text-accent' : 'border-[var(--line)] bg-bg-2/80 text-text-2 active:bg-bg-2'}`}
                     >
                       <span className="block max-w-[22vw] truncate">{session.name}</span>
@@ -460,10 +530,22 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       )}
       {showCommandPalette && <CommandPalette onClose={() => closeOverlay('palette')} />}
       {showSettings && <Settings onClose={dismissSettings} />}
+      {mobileSessionMenu && (
+        <div className="fixed inset-0 z-[85] bg-black/40" onClick={() => setMobileSessionMenuId(null)}>
+          <div className="absolute bottom-0 left-0 right-0 rounded-t-2xl border-t border-[var(--line)] bg-bg-1 p-3" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-center pb-2"><div className="h-1 w-10 rounded-full bg-text-3/30" /></div>
+            <div className="px-1 pb-2 text-sm text-text-1">{mobileSessionMenu.name}</div>
+            <button onClick={() => { const sessionId = mobileSessionMenu.id; setMobileSessionMenuId(null); void handleQuickSessionRename(sessionId) }} className="block w-full rounded-lg px-3 py-3 text-left text-sm text-text-1 hover:bg-bg-2">{t('drawer.renamePrompt')}</button>
+            <button onClick={() => { setMobileSessionMenuId(null); setPendingDeleteSessionId(mobileSessionMenu.id) }} className="mt-1 block w-full rounded-lg px-3 py-3 text-left text-sm text-danger hover:bg-red-900/20">{t('sidebar.confirmDelete')}</button>
+            <button onClick={() => { setMobileSessionMenuId(null); openDrawer('sessions') }} className="mt-1 block w-full rounded-lg px-3 py-3 text-left text-sm text-text-2 hover:bg-bg-2">{t('nav.sessions')}</button>
+          </div>
+        </div>
+      )}
       <UploadConfirmDialog />
       <UploadQueue />
       <AppVersionGuard />
       <ClipboardController />
+      <ConfirmDialog open={!!pendingDeleteSessionId} title={t('sidebar.deleteTitle')} message={t('sidebar.deleteConfirm', { name: sessionsData.find((item: any) => item.id === pendingDeleteSessionId)?.name || '' })} confirmLabel={t('sidebar.confirmDelete')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setPendingDeleteSessionId(null)} onConfirm={() => void confirmDeleteSession()} />
       <MobileDrawer
         isOpen={drawerOpen}
         onClose={() => closeOverlay('drawer')}
@@ -471,6 +553,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       />
       {mobileFileSheetOpen && <div className="fixed left-0 right-0 top-0 z-50 bg-black/50" style={{ height: 'var(--app-height,100dvh)' }}><div className="absolute bottom-0 left-0 right-0 flex h-[75%] flex-col overflow-hidden rounded-t-xl border-t border-[var(--line)] bg-bg-1"><div className="flex shrink-0 justify-center py-2"><div className="h-1 w-10 rounded-full bg-text-3/30" /></div><div className="min-h-0 flex-1"><FilePanel mode="mobile" onClose={() => closeOverlay('mobile-files')} /></div></div></div>}
       <ToastViewport />
+      {PromptElement}
     </div>
   )
 }
