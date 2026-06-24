@@ -25,6 +25,8 @@ const repeatDelay=260
 const repeatInterval=54
 const dragThreshold=12
 const scrollSuppressWindow=180
+const RECENT_DOCK_SHORTCUTS_KEY = 'tmuxgo-recent-dock-shortcuts'
+const RECENT_DOCK_SHORTCUT_LIMIT = 6
 
 type QuickActionsMode='panel'|'dock'
 type ActionButtonDef={key:string,label:string,data?:string,repeat?:boolean,tone?:'default'|'accent'|'danger',disabled?:boolean,onPress?:()=>void|Promise<void>}
@@ -46,6 +48,7 @@ function useQuickActionController() {
   const { shortcuts,addShortcut,removeShortcut }=useCustomShortcuts()
   const [showModal,setShowModal]=useState(false)
   const [isMobile,setIsMobile]=useState(false)
+  const [recentDockShortcutKeys,setRecentDockShortcutKeys]=useState<string[]>([])
   const [confirmKillOpen,setConfirmKillOpen]=useState(false)
   const [pendingKillPaneId,setPendingKillPaneId]=useState<string|null>(null)
   const [newWindowPromptOpen,setNewWindowPromptOpen]=useState(false)
@@ -61,8 +64,25 @@ function useQuickActionController() {
     window.addEventListener('resize',check)
     return ()=>window.removeEventListener('resize',check)
   },[])
+  useEffect(()=>{
+    if(typeof window==='undefined')return
+    try{
+      const raw=JSON.parse(localStorage.getItem(RECENT_DOCK_SHORTCUTS_KEY)||'[]')
+      setRecentDockShortcutKeys(Array.isArray(raw)?raw.filter((item):item is string=>typeof item==='string'&&item.length>0):[])
+    }catch{
+      setRecentDockShortcutKeys([])
+    }
+  },[])
 
   const sendKey=useCallback((data:string)=>send({ type:'input',data }),[send])
+  const trackDockShortcutUse=useCallback((key:string)=>{
+    if(typeof window==='undefined'||!key)return
+    setRecentDockShortcutKeys((prev)=>{
+      const next=[key,...prev.filter((item)=>item!==key)].slice(0,RECENT_DOCK_SHORTCUT_LIMIT)
+      localStorage.setItem(RECENT_DOCK_SHORTCUTS_KEY,JSON.stringify(next))
+      return next
+    })
+  },[])
   const stopRepeat=useCallback(()=>{
     if(repeatTimerRef.current){
       clearTimeout(repeatTimerRef.current)
@@ -290,8 +310,20 @@ function useQuickActionController() {
     { key:'kill-pane',label:t('quick.killPane'),onPress:()=>void handleKillPane(),tone:'danger',disabled:!activeSessionId },
   ]
   const attachButton:ActionButtonDef={ key:'attach-mode',label:preferences.attachExclusive?t('quick.attachExclusive'):t('quick.attachShared'),onPress:()=>updatePreferences({ attachExclusive:!preferences.attachExclusive }),tone:'accent' }
+  const dockCoreButtons:ActionButtonDef[]=[
+    { key:'dock-esc',label:'Esc',data:'\x1b' },
+    { key:'dock-tab',label:'Tab',data:'\t' },
+    { key:'dock-ctrl-c',label:'Ctrl+C',data:'\x03' },
+    { key:'dock-ctrl-d',label:'Ctrl+D',data:'\x04' },
+    { key:'dock-ctrl-z',label:'Ctrl+Z',data:'\x1a' },
+  ]
+  const recentShortcutButtons=useMemo(()=>{
+    const mapped=recentDockShortcutKeys.map((key)=>shortcuts.find((item)=>item.id===key)).filter(Boolean) as typeof shortcuts
+    const seen=new Set(mapped.map((item)=>item.id))
+    return [...mapped,...shortcuts.filter((item)=>!seen.has(item.id))]
+  },[recentDockShortcutKeys,shortcuts])
 
-  return { t,shortcuts,addShortcut,removeShortcut,showModal,setShowModal,isMobile,confirmKillOpen,setConfirmKillOpen,pendingKillPaneId,setPendingKillPaneId,confirmKillPane,newWindowPromptOpen,setNewWindowPromptOpen,newWindowName,setNewWindowName,confirmCreateWindow,sendKey,startRepeat,armTouchRepeat,stopRepeat,preventFocus,startPointer,startDockGesture,trackDockScroll,finishDockGesture,isDockScrollBlocked,trackPointer,finishPointer,pointerStateRef,primaryButtons,attachButton }
+  return { t,shortcuts,recentShortcutButtons,addShortcut,removeShortcut,showModal,setShowModal,isMobile,confirmKillOpen,setConfirmKillOpen,pendingKillPaneId,setPendingKillPaneId,confirmKillPane,newWindowPromptOpen,setNewWindowPromptOpen,newWindowName,setNewWindowName,confirmCreateWindow,sendKey,trackDockShortcutUse,startRepeat,armTouchRepeat,stopRepeat,preventFocus,startPointer,startDockGesture,trackDockScroll,finishDockGesture,isDockScrollBlocked,trackPointer,finishPointer,pointerStateRef,primaryButtons,attachButton,dockCoreButtons }
 }
 
 function getDockClass(def:ActionButtonDef){
@@ -316,22 +348,24 @@ function renderPanelButton(def:ActionButtonDef,controller:ReturnType<typeof useQ
 }
 
 function renderDockButton(def:ActionButtonDef,controller:ReturnType<typeof useQuickActionController>){
-  const { sendKey,startRepeat,armTouchRepeat,preventFocus,startPointer,trackPointer,finishPointer,finishDockGesture,isDockScrollBlocked,pointerStateRef }=controller
-  return <button key={def.key} type="button" tabIndex={-1} className={getDockClass(def)} onPointerDown={(e)=>{ preventFocus(e); startPointer(e); if(def.disabled)return; if(def.repeat&&def.data){ if(e.pointerType!=='mouse'){ armTouchRepeat(def.data); return } startRepeat(def.data); return } }} onPointerMove={trackPointer} onPointerUp={(e)=>{ const { moved,pointerType,repeatFired }=pointerStateRef.current; const blocked=isDockScrollBlocked(); finishPointer(); finishDockGesture(e.pointerId); if(moved||blocked||def.disabled)return; if(def.repeat&&def.data){ if(pointerType!=='mouse'){ if(!repeatFired)sendKey(def.data); return } return } if(def.onPress){ void def.onPress(); return } if(def.data)sendKey(def.data) }} onPointerLeave={finishPointer} onPointerCancel={(e)=>{ finishPointer(); finishDockGesture(e.pointerId) }}>{def.label}</button>
+  const { sendKey,trackDockShortcutUse,startRepeat,armTouchRepeat,preventFocus,startPointer,trackPointer,finishPointer,finishDockGesture,isDockScrollBlocked,pointerStateRef }=controller
+  return <button key={def.key} type="button" tabIndex={-1} className={getDockClass(def)} onPointerDown={(e)=>{ preventFocus(e); startPointer(e); if(def.disabled)return; if(def.repeat&&def.data){ if(e.pointerType!=='mouse'){ armTouchRepeat(def.data); return } startRepeat(def.data); return } }} onPointerMove={trackPointer} onPointerUp={(e)=>{ const { moved,pointerType,repeatFired }=pointerStateRef.current; const blocked=isDockScrollBlocked(); finishPointer(); finishDockGesture(e.pointerId); if(moved||blocked||def.disabled)return; if(def.repeat&&def.data){ if(pointerType!=='mouse'){ if(!repeatFired){ sendKey(def.data); trackDockShortcutUse(def.key) } return } return } if(def.onPress){ trackDockShortcutUse(def.key); void def.onPress(); return } if(def.data){ sendKey(def.data); trackDockShortcutUse(def.key) } }} onPointerLeave={finishPointer} onPointerCancel={(e)=>{ finishPointer(); finishDockGesture(e.pointerId) }}>{def.label}</button>
 }
 
 export function QuickActions({ mode='panel' }:{ mode?:QuickActionsMode }){
   const controller=useQuickActionController()
-  const { t,shortcuts,addShortcut,removeShortcut,showModal,setShowModal,isMobile,confirmKillOpen,setConfirmKillOpen,pendingKillPaneId,setPendingKillPaneId,confirmKillPane,newWindowPromptOpen,setNewWindowPromptOpen,newWindowName,setNewWindowName,confirmCreateWindow,sendKey,primaryButtons,attachButton }=controller
+  const { t,shortcuts,recentShortcutButtons,addShortcut,removeShortcut,showModal,setShowModal,isMobile,confirmKillOpen,setConfirmKillOpen,pendingKillPaneId,setPendingKillPaneId,confirmKillPane,newWindowPromptOpen,setNewWindowPromptOpen,newWindowName,setNewWindowName,confirmCreateWindow,sendKey,primaryButtons,attachButton,dockCoreButtons }=controller
   if(mode==='dock'){
     return (
       <>
         <div data-shortcut-bar data-keep-mobile-keyboard className="mobile-nav-landscape-hide relative z-40 flex-shrink-0 bg-bg-1 border-t border-[var(--line)] overflow-x-auto scrollbar-none pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_rgba(0,0,0,0.28)]" style={{ minHeight:40 }} onPointerDownCapture={controller.startDockGesture} onPointerUpCapture={(e)=>controller.finishDockGesture(e.pointerId)} onPointerCancelCapture={(e)=>controller.finishDockGesture(e.pointerId)} onScroll={controller.trackDockScroll} onContextMenu={(e)=>e.preventDefault()}>
           <div className="flex gap-1 p-1.5 w-max min-h-[40px] items-center" onContextMenu={(e)=>e.preventDefault()}>
+            {dockCoreButtons.map((def)=>renderDockButton(def,controller))}
+            <div className="w-px bg-[var(--line)] mx-1 self-stretch" />
             {primaryButtons.map((def)=>renderDockButton(def,controller))}
             <div className="w-px bg-[var(--line)] mx-1 self-stretch" />
             {renderDockButton(attachButton,controller)}
-            {shortcuts.map((s)=>renderDockButton({ key:s.id,label:s.label,onPress:()=>{ sendKey(keysToEscape(s.keys)) } },controller))}
+            {recentShortcutButtons.map((s)=>renderDockButton({ key:s.id,label:s.label,onPress:()=>{ sendKey(keysToEscape(s.keys)) } },controller))}
           </div>
         </div>
         <ConfirmDialog open={confirmKillOpen} title={t('quick.killTitle')} message={t('quick.killConfirm')} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} tone="danger" onCancel={()=>{ setPendingKillPaneId(null); setConfirmKillOpen(false) }} onConfirm={()=>void confirmKillPane()} />
