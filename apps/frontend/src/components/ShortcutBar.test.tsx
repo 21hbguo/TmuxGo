@@ -11,12 +11,17 @@ const snapshotGet = vi.fn()
 const zoomByPane = vi.fn()
 const killPane = vi.fn()
 let windowsDataMock:any[]=[{ id:'win-1',sessionId:'session-dev',active:true }]
+const shortcutsMock=[{ id:'shortcut-a',label:'A',keys:'Ctrl+A',action:'input' },{ id:'shortcut-b',label:'B',keys:'Ctrl+B',action:'input' }]
 
 vi.mock('@/hooks/useWebSocket', () => ({
   useWebSocket: () => ({ send, isConnected: true, isSocketReady: true }),
 }))
 vi.mock('@/hooks/useApi', () => ({
   useWindows: () => ({ data: windowsDataMock }),
+}))
+vi.mock('@/hooks/useCustomShortcuts', () => ({
+  useCustomShortcuts: () => ({ shortcuts: shortcutsMock, addShortcut: vi.fn(), removeShortcut: vi.fn() }),
+  keysToEscape: (value: string) => value === 'Ctrl+A' ? '\x01' : value === 'Ctrl+B' ? '\x02' : '',
 }))
 vi.mock('@/lib/api', () => ({
   api: {
@@ -33,6 +38,7 @@ describe('ShortcutBar', () => {
     zoomByPane.mockReset()
     killPane.mockReset()
     windowsDataMock=[{ id:'win-1',sessionId:'session-dev',active:true }]
+    window.localStorage.clear()
     useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-dev', activePaneId: 'old-pane' })
   })
   afterEach(() => {
@@ -190,5 +196,23 @@ describe('ShortcutBar', () => {
     expect(screen.getByRole('button', { name: '横向分割' })).not.toBeDisabled()
     expect(screen.getByRole('button', { name: '聚焦' })).not.toBeDisabled()
     expect(screen.getByRole('button', { name: '删面板' })).not.toBeDisabled()
+  })
+  it('shows keyboard dock core buttons', () => {
+    render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))
+    expect(screen.getAllByRole('button', { name: 'Esc' }).length).toBeGreaterThan(1)
+    expect(screen.getAllByRole('button', { name: 'Tab' }).length).toBeGreaterThan(1)
+    expect(screen.getAllByRole('button', { name: 'Ctrl+C' }).length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: 'Ctrl+D' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Ctrl+Z' })).toBeTruthy()
+  })
+  it('moves recently used custom shortcut to the front in dock mode', () => {
+    render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))
+    const buttonsBefore = screen.getAllByRole('button').map((item) => item.textContent)
+    expect(buttonsBefore.indexOf('A')).toBeLessThan(buttonsBefore.indexOf('B'))
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'B' }), { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
+    fireEvent.pointerUp(screen.getByRole('button', { name: 'B' }), { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
+    const rerendered = render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))
+    const buttonsAfter = rerendered.getAllByRole('button').map((item) => item.textContent)
+    expect(buttonsAfter.indexOf('B')).toBeLessThan(buttonsAfter.indexOf('A'))
   })
 })
