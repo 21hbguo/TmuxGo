@@ -338,7 +338,7 @@ export function Settings({ onClose }: SettingsProps) {
                     <span className="text-text-2 text-sm">{t('settings.fontSize')}</span>
                     <div className="flex items-center gap-2">
                       <button
-                        onClick={() => updatePreferences({ fontSize: Math.max(12, Math.round((preferences.fontSize - 1) * 10) / 10) })}
+                        onClick={() => updatePreferences({ fontSize: Math.max(8, Math.round((preferences.fontSize - 1) * 10) / 10) })}
                         className="px-2 py-1 bg-bg-2 rounded text-text-2"
                       >
                         -
