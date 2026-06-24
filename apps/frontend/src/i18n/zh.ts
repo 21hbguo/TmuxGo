@@ -467,6 +467,8 @@ export const zh = {
   'session.deleted': '会话 {name} 已删除',
   'session.renamed': '会话 {from} 已重命名为 {to}',
   'session.requestFailed': '请求失败',
+  'mobile.quickSessionPin': '固定到快捷栏',
+  'mobile.quickSessionUnpin': '取消固定',
 
   // CommandPalette extra
   'palette.switchWindow': '切换窗口：{name}',
