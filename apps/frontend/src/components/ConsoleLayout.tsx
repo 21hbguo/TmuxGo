@@ -144,8 +144,16 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   }, [])
 
   const closeOverlay = useCallback((id: string) => {
-    if (overlayRef.current[overlayRef.current.length - 1] !== id) return
-    window.history.back()
+    const stack = overlayRef.current
+    const index = stack.lastIndexOf(id)
+    if (index < 0) return
+    const backCount = stack.length - 1 - index
+    while (stack.length - 1 > index) stack.pop()
+    if (backCount === 0) {
+      window.history.back()
+    } else {
+      window.history.go(-backCount)
+    }
   }, [])
   const openDrawer = useCallback((type: 'sessions' | 'panes' | 'windows') => {
     if (drawerOpen && drawerType === type) return
