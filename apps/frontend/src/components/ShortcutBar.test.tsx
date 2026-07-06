@@ -190,6 +190,41 @@ describe('ShortcutBar', () => {
     })
     expect(killPane).toHaveBeenCalledWith('local:%3')
   })
+  it('tracks expected zoom state across clicks so stale cached snapshot does not desync from tmux', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    const cachedSnapshot = {
+      sessionName: 'dev',
+      activeWindowId: 'local:@1',
+      windows: [{ id: 'local:@1', sessionId: 'session-dev', index: 0, active: true, zoomed: false }],
+      panes: [{ id: 'local:%2', windowId: 'local:@1', active: true }],
+      activePaneId: 'local:%2',
+    }
+    const liveSnapshot = { ...cachedSnapshot, windows: [{ ...cachedSnapshot.windows[0], zoomed: true }] }
+    queryClient.setQueryData(['session-snapshot', 'local', 'session-dev'], cachedSnapshot)
+    let snapshotCalls = 0
+    snapshotGet.mockImplementation(async () => {
+      snapshotCalls += 1
+      return snapshotCalls === 1 ? cachedSnapshot : liveSnapshot
+    })
+    zoomByPane.mockResolvedValue({ ok: true })
+    render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(I18nProvider, null, React.createElement(ShortcutBar))))
+    await act(async () => {
+      const button = screen.getByRole('button', { name: '聚焦' })
+      fireEvent.pointerDown(button, { pointerId: 1, clientX: 10, clientY: 10 })
+      fireEvent.pointerUp(button, { pointerId: 1, clientX: 10, clientY: 10 })
+      await Promise.resolve()
+    })
+    const cachedAfterFirst: any = queryClient.getQueryData(['session-snapshot', 'local', 'session-dev'])
+    expect(cachedAfterFirst?.windows?.[0]?.zoomed).toBe(true)
+    await act(async () => {
+      const button = screen.getByRole('button', { name: '聚焦' })
+      fireEvent.pointerDown(button, { pointerId: 1, clientX: 10, clientY: 10 })
+      fireEvent.pointerUp(button, { pointerId: 1, clientX: 10, clientY: 10 })
+      await Promise.resolve()
+    })
+    const cachedAfterSecond: any = queryClient.getQueryData(['session-snapshot', 'local', 'session-dev'])
+    expect(cachedAfterSecond?.windows?.[0]?.zoomed).toBe(false)
+  })
   it('keeps split and zoom available while active pane is being resynced after session switch', () => {
     useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-dev', activePaneId: null })
     render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))
