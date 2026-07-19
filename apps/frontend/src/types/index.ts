@@ -19,6 +19,29 @@ export interface Session {
   lastActiveAt: string
   windowCount: number
 }
+export interface SessionThumbnailPane {
+  id: string
+  title: string
+  active: boolean
+  left: number
+  top: number
+  size: {
+    cols: number
+    rows: number
+  }
+  data: string
+}
+export interface SessionThumbnail {
+  id: string
+  name: string
+  window: {
+    id: string
+    index: number
+    name: string
+    zoomed: boolean
+  } | null
+  panes: SessionThumbnailPane[]
+}
 export type SessionWindowSplitDirection = 'horizontal' | 'vertical'
 export type SessionWindowLayoutPreset = 'tiled' | 'even-horizontal' | 'even-vertical' | 'main-horizontal' | 'main-vertical'
 export interface SessionLayoutWindow {

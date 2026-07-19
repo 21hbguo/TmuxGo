@@ -291,6 +291,14 @@ export const zh = {
 
   // FilePanel
   'file.title': '文件',
+  'thumbnail.title': '会话缩略图',
+  'thumbnail.refresh': '刷新缩略图',
+  'thumbnail.close': '关闭缩略图',
+  'thumbnail.refreshing': '每 2 秒更新',
+  'thumbnail.live': '每 2 秒更新',
+  'thumbnail.loading': '正在加载会话缩略图...',
+  'thumbnail.unavailable': '会话缩略图不可用。',
+  'thumbnail.empty': '没有可预览的会话。',
   'file.upload': '上传',
   'file.removeFavorite': '删收藏',
   'file.clearExpanded': '全部收起',
@@ -393,6 +401,7 @@ export const zh = {
   // ActivityBar
   'activity.sessions': '会话',
   'activity.explorer': '资源管理',
+  'activity.thumbnails': '会话缩略图',
   'activity.search': '搜索',
   'activity.settings': '设置',
 

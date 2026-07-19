@@ -6,6 +6,7 @@ import type { FileDocumentHandle, FileEditorDocument } from '@/types'
 import { getEditorLanguage, openFileInEditor } from '@/lib/editor-open'
 import { ActivityBar } from './ActivityBar'
 import { FilePanel } from './FilePanel'
+import { SessionThumbnailPanel } from './SessionThumbnailPanel'
 import { GitPanel } from './GitPanel'
 import { SessionPanel } from './SessionPanel'
 import { SessionRail } from './SessionRail'
@@ -28,6 +29,7 @@ export function DesktopWorkbench() {
   const sessionPanelWidth = useConsoleStore((state) => state.sessionPanelWidth)
   const filePanelWidth = useConsoleStore((state) => state.filePanelWidth)
   const filePanelOpen = useConsoleStore((state) => state.filePanelOpen)
+  const thumbnailPanelOpen = useConsoleStore((state) => state.thumbnailPanelOpen)
   const gitPanelOpen = useConsoleStore((state) => state.gitPanelOpen)
   const gitPanelWidth = useConsoleStore((state) => state.gitPanelWidth)
   const setGitPanelWidth = useConsoleStore((state) => state.setGitPanelWidth)
@@ -151,8 +153,8 @@ export function DesktopWorkbench() {
     }
   }, [compactSessionWidth, filePanelMax, filePanelMin, previewSessionWidth, renderedSessionPanelWidth, sessionPanelExpanded, sessionPanelMax, sessionPanelMin, setFilePanelWidth, setSessionPanelWidth])
   useEffect(() => {
-    window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'desktop-workbench', sessionPanelExpanded, sessionPanelWidth, filePanelOpen, filePanelWidth, gitPanelOpen, gitPanelWidth, editorsOpen: openEditors.length > 0, terminalPanelHeight } }))
-  }, [filePanelOpen, filePanelWidth, gitPanelOpen, gitPanelWidth, openEditors.length, sessionPanelExpanded, sessionPanelWidth, terminalPanelHeight])
+    window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'desktop-workbench', sessionPanelExpanded, sessionPanelWidth, filePanelOpen, thumbnailPanelOpen, filePanelWidth, gitPanelOpen, gitPanelWidth, editorsOpen: openEditors.length > 0, terminalPanelHeight } }))
+  }, [filePanelOpen, filePanelWidth, gitPanelOpen, gitPanelWidth, openEditors.length, sessionPanelExpanded, sessionPanelWidth, terminalPanelHeight, thumbnailPanelOpen])
   const handleOpenFile = useCallback(async (file: FileDocumentHandle) => {
     await openFileInEditor(file, { t, pushToast, openPanel: true })
   }, [pushToast, t])
@@ -234,10 +236,10 @@ export function DesktopWorkbench() {
           }} />
         </div>
       ) : <SessionRail />}
-      {filePanelOpen && (
+      {(filePanelOpen || thumbnailPanelOpen) && (
         <div className="relative shrink-0 border-r border-[var(--line)] bg-bg-1" style={{ width: renderedFilePanelWidth }}>
           <div className="h-full min-h-0">
-            <FilePanel mode="explorer" onOpenFile={handleOpenFile} />
+            {filePanelOpen ? <FilePanel mode="explorer" onOpenFile={handleOpenFile} /> : <SessionThumbnailPanel />}
           </div>
           <div className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-accent/40" onMouseDown={() => {
             resizingRef.current = 'file'
