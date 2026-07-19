@@ -42,6 +42,21 @@ interface BatchDeleteTarget {
   windowCount: number
   attached: boolean
 }
+interface SessionThumbnailPane {
+  id: string
+  title: string
+  active: boolean
+  left: number
+  top: number
+  size: { cols: number; rows: number }
+  data: string
+}
+interface SessionThumbnail {
+  id: string
+  name: string
+  window: { id: string; index: number; name: string; zoomed: boolean } | null
+  panes: SessionThumbnailPane[]
+}
 function normalizeSessionName(hostId: string, sessionRef: string) {
   return parseSessionRef(hostId, sessionRef).sessionName
 }
@@ -110,6 +125,40 @@ async function getHostTmuxSessions(hostId: string): Promise<HostTmuxSession[]> {
     console.error('Failed to list tmux sessions:', err)
     return []
   }
+}
+async function getSessionThumbnails(hostId: string): Promise<SessionThumbnail[]> {
+  const sessions = await getHostTmuxSessions(hostId)
+  if (!sessions.length) return []
+  const sessionByName = new Map(sessions.map((session) => [session.name, session]))
+  const { stdout } = await execTmux(hostId, ['list-panes', '-a', '-F', '#{session_name}|#{window_id}|#{window_index}|#{window_name}|#{window_active}|#{window_zoomed_flag}|#{pane_id}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}|#{pane_left}|#{pane_top}'])
+  const thumbnails = new Map<string, SessionThumbnail>()
+  for (const session of sessions) thumbnails.set(session.name, { id: session.id, name: session.name, window: null, panes: [] })
+  const captures: { pane: SessionThumbnailPane; target: string }[] = []
+  for (const line of stdout.trim().split('\n').filter(Boolean)) {
+    const [sessionName, windowId, windowIndex, windowName, windowActive, windowZoomed, paneId, title, paneActive, width, height, left, top] = line.split('|')
+    if (windowActive !== '1' || !sessionByName.has(sessionName)) continue
+    const thumbnail = thumbnails.get(sessionName)
+    if (!thumbnail) continue
+    if (!thumbnail.window) thumbnail.window = { id: `${hostId}:${windowId}`, index: parseInt(windowIndex, 10) || 0, name: windowName, zoomed: windowZoomed === '1' }
+    const pane = {
+      id: `${hostId}:${paneId}`,
+      title: title || 'shell',
+      active: paneActive === '1',
+      left: parseInt(left, 10) || 0,
+      top: parseInt(top, 10) || 0,
+      size: { cols: parseInt(width, 10) || 80, rows: parseInt(height, 10) || 24 },
+      data: '',
+    }
+    thumbnail.panes.push(pane)
+    captures.push({ pane, target: paneId })
+  }
+  await Promise.all(captures.map(async ({ pane, target }) => {
+    try {
+      const { stdout: data } = await execTmux(hostId, ['capture-pane', '-pt', target, '-p'])
+      pane.data = data
+    } catch {}
+  }))
+  return sessions.map((session) => thumbnails.get(session.name)!).filter((thumbnail) => !!thumbnail.window)
 }
 function getBatchDeleteSelection(hostId: string, sessions: HostTmuxSession[], body: BatchDeleteRequest) {
   const filters = body.filters
@@ -218,6 +267,10 @@ export async function sessionRoutes(fastify: FastifyInstance) {
   fastify.get('/hosts/:hostId/sessions', async (request) => {
     const { hostId } = request.params as { hostId: string }
     return getHostTmuxSessions(hostId)
+  })
+  fastify.get('/hosts/:hostId/session-thumbnails', async (request) => {
+    const { hostId } = request.params as { hostId: string }
+    return { sessions: await getSessionThumbnails(hostId) }
   })
   fastify.post('/hosts/:hostId/sessions', async (request) => {
     const { hostId } = request.params as { hostId: string }

@@ -88,6 +88,16 @@ export function useSessions(hostId: string) {
     staleTime: 4000,
   })
 }
+export function useSessionThumbnails(hostId: string, enabled = true) {
+  return useQuery({
+    queryKey: ['session-thumbnails', hostId],
+    queryFn: () => api.sessions.thumbnails(hostId),
+    enabled: !!hostId && enabled,
+    staleTime: 0,
+    refetchInterval: enabled ? 2000 : false,
+    refetchIntervalInBackground: false,
+  })
+}
 
 export function useCreateSession() {
   const queryClient = useQueryClient()

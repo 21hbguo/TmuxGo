@@ -291,6 +291,14 @@ export const en = {
 
   // FilePanel
   'file.title': 'Files',
+  'thumbnail.title': 'Session thumbnails',
+  'thumbnail.refresh': 'Refresh thumbnails',
+  'thumbnail.close': 'Close thumbnails',
+  'thumbnail.refreshing': 'Updating every 2 seconds',
+  'thumbnail.live': 'Updating every 2 seconds',
+  'thumbnail.loading': 'Loading session thumbnails...',
+  'thumbnail.unavailable': 'Session thumbnails are unavailable.',
+  'thumbnail.empty': 'No sessions to preview.',
   'file.upload': 'Upload',
   'file.removeFavorite': 'Unfavorite',
   'file.clearExpanded': 'Collapse all',
@@ -393,6 +401,7 @@ export const en = {
   // ActivityBar
   'activity.sessions': 'Sessions',
   'activity.explorer': 'Explorer',
+  'activity.thumbnails': 'Session thumbnails',
   'activity.search': 'Search',
   'activity.settings': 'Settings',
 

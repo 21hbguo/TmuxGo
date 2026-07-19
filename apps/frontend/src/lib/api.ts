@@ -1,6 +1,6 @@
 import { getApiBase } from './runtime-endpoints'
 import { buildSessionId } from './session-id'
-import type { CustomShortcut, FavoriteDirectory, FavoriteItem, FileContentMatch, FileContentResponse, FileItem, FileListResponse, FilePreviewResponse, FileRoot, FileUploadTarget, GitBranchesResponse, GitCommitResponse, GitDetectResponse, GitDiffResponse, GitDiffStatsResponse, GitHostState, GitLogResponse, GitMergeResponse, GitStatusResponse, RemotePreferences, SessionContinuityConfig, SessionLayout, SessionOrderPreference, Snippet, UiPreferences, UploadJobResult, UploadedFile } from '@/types'
+import type { CustomShortcut, FavoriteDirectory, FavoriteItem, FileContentMatch, FileContentResponse, FileItem, FileListResponse, FilePreviewResponse, FileRoot, FileUploadTarget, GitBranchesResponse, GitCommitResponse, GitDetectResponse, GitDiffResponse, GitDiffStatsResponse, GitHostState, GitLogResponse, GitMergeResponse, GitStatusResponse, RemotePreferences, SessionContinuityConfig, SessionLayout, SessionOrderPreference, SessionThumbnail, Snippet, UiPreferences, UploadJobResult, UploadedFile } from '@/types'
 
 export interface StreamSystemInfo {
   outputBytes: number
@@ -216,6 +216,7 @@ export const api = {
   },
   sessions: {
     list: (hostId: string) => fetchApi<any[]>(`/api/hosts/${hostId}/sessions`),
+    thumbnails: (hostId: string) => fetchApi<{ sessions: SessionThumbnail[] }>(`/api/hosts/${hostId}/session-thumbnails`),
     create: async (hostId: string, name: string, layout?: SessionLayout) => {
       try {
         const created = await fetchApi<any>(`/api/hosts/${hostId}/sessions`, {
