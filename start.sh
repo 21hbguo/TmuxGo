@@ -258,13 +258,14 @@ if systemd_tmuxgo_active; then
   if [ "$RESTART" = "1" ]; then
     echo "Restarting systemd TmuxGo services..."
     systemctl --user daemon-reload
-    systemctl --user restart tmuxgo-gateway.service
+    systemctl --user kill --kill-who=all --signal=SIGKILL tmuxgo-frontend.service 2>/dev/null || true
     systemctl --user restart tmuxgo-frontend.service
     if agent_enabled; then
       systemctl --user restart tmuxgo-agent.service
     else
       systemctl --user stop tmuxgo-agent.service 2>/dev/null || true
     fi
+    systemctl --user restart tmuxgo-gateway.service
   fi
   if [ -n "${TAILSCALE_DNS:-}" ]; then
     if tailscale serve --yes --bg --https=443 http://127.0.0.1:3000 >/dev/null 2>&1 && tailscale serve --yes --bg --https=8443 http://127.0.0.1:3001 >/dev/null 2>&1; then
@@ -315,13 +316,13 @@ if launchd_tmuxgo_active; then
   fi
   if [ "$RESTART" = "1" ]; then
     echo "Restarting launchd TmuxGo services..."
-    restart_launchd_service "$LAUNCHD_GATEWAY_LABEL"
     restart_launchd_service "$LAUNCHD_FRONTEND_LABEL"
     if agent_enabled; then
       restart_launchd_service "$LAUNCHD_AGENT_LABEL"
     else
       stop_launchd_service "$LAUNCHD_AGENT_LABEL"
     fi
+    restart_launchd_service "$LAUNCHD_GATEWAY_LABEL"
   fi
   if [ -n "${TAILSCALE_DNS:-}" ]; then
     if tailscale serve --yes --bg --https=443 http://127.0.0.1:3000 >/dev/null 2>&1 && tailscale serve --yes --bg --https=8443 http://127.0.0.1:3001 >/dev/null 2>&1; then
