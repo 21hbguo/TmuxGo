@@ -304,7 +304,7 @@ function useQuickActionController() {
     { key:'delete-word',label:t('quick.deleteWord'),data:DELETE_PREV_WORD_SEQUENCE },
     { key:'enter',label:'Enter',data:'\r' },
     { key:'zoom',label:t('quick.zoom'),onPress:()=>void handleZoom(),disabled:!activeSessionId },
-    { key:'backspace',label:'Backspace',data:'\x7f' },
+    { key:'backspace',label:'Backspace',data:'\x7f',repeat:true },
     { key:'copy',label:t('quick.copy'),onPress:handleCopy,tone:'accent' },
     { key:'paste',label:t('quick.paste'),onPress:handlePaste,tone:'accent' },
     { key:'kill-pane',label:t('quick.killPane'),onPress:()=>void handleKillPane(),tone:'danger',disabled:!activeSessionId },
