@@ -1,4 +1,4 @@
-import { createEvent, fireEvent, render, screen } from '@testing-library/react'
+import { act, createEvent, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { QuickActions } from './QuickActions'
 
@@ -62,5 +62,18 @@ describe('QuickActions', () => {
     fireEvent.click(button)
     expect(paste).toHaveBeenCalledTimes(1)
     window.removeEventListener('tmuxgo-request-terminal-paste', paste)
+  })
+  it('repeats backspace while held in the mobile shortcut bar', () => {
+    vi.useFakeTimers()
+    render(<QuickActions mode="dock" />)
+    const button = screen.getByRole('button', { name: 'Backspace' })
+    fireEvent(button, createEvent.pointerDown(button, { pointerId: 1, pointerType: 'touch' }))
+    act(() => vi.advanceTimersByTime(320))
+    expect(send).toHaveBeenCalledWith({ type: 'input', data: '\x7f' })
+    expect(send.mock.calls).toHaveLength(2)
+    fireEvent.pointerUp(button, { pointerId: 1, pointerType: 'touch' })
+    act(() => vi.runOnlyPendingTimers())
+    expect(send.mock.calls).toHaveLength(2)
+    vi.useRealTimers()
   })
 })
