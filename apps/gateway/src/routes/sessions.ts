@@ -6,6 +6,7 @@ import { execTmux } from '../lib/tmux-executor.js'
 
 const batchDeleteLimitDefault = 1000
 const batchDeleteLimitMax = 5000
+const emptySessionErrorMarkers = ['no server running', 'failed to connect to server', 'no sessions']
 type BatchDeleteMode = 'preview' | 'execute'
 interface HostTmuxSession {
   id: string
@@ -122,8 +123,10 @@ async function getHostTmuxSessions(hostId: string): Promise<HostTmuxSession[]> {
         }
       })
   } catch (err: any) {
+    const message = String(err?.message || '').toLowerCase()
+    if (emptySessionErrorMarkers.some((marker) => message.includes(marker)) || message.includes('error connecting to /tmp/tmux-') && message.includes('no such file or directory')) return []
     console.error('Failed to list tmux sessions:', err)
-    return []
+    throw err
   }
 }
 async function getSessionThumbnails(hostId: string): Promise<SessionThumbnail[]> {

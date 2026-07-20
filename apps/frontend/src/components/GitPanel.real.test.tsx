@@ -5,7 +5,7 @@ import { GitHistoryGraph } from './GitHistoryGraph'
 import { buildGitGraphLayout, type GitGraphBranchHead, type GitGraphCommit } from '@/lib/gitGraph'
 
 function loadRepoGraphData(){
-  const repo='/home/guo/project/other/TmuxGo_v2'
+  const repo=execFileSync('git',['rev-parse','--show-toplevel'],{encoding:'utf8'}).trim()
   const field='\x1f'
   const branchField='\t'
   const record='\x1e'

@@ -682,20 +682,15 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     const getCachedPaneBounds = () => {
       const snapshot = readSessionSnapshot()
       if (!snapshot) return [] as any[]
-      const session = snapshot?.sessionName || sessionNameRef.current || ''
       const windows = Array.isArray(snapshot?.windows) ? snapshot.windows : []
       const activeWindow = windows.find((item: any) => item.id === snapshot?.activeWindowId) || windows.find((item: any) => item.active)
       const activePaneId = String(snapshot?.activePaneId || '')
-      const index = Number(activeWindow?.index)
-      const windowId = Number.isFinite(index) ? `${activeHostIdRef.current || 'local'}:${session}:${index}` : ''
+      const windowId = String(activeWindow?.id || '')
       if (paneBoundsCache && paneBoundsCache.snapshot === snapshot && paneBoundsCache.windowId === windowId) {
         return paneBoundsCache.bounds
       }
       const panes = Array.isArray(snapshot?.panes) ? snapshot.panes : []
-      const filtered = windowId ? panes.filter((pane: any) => {
-        const id = String(pane.windowId || '')
-        return id === windowId || id.endsWith(`:${index}`)
-      }) : panes
+      const filtered = windowId ? panes.filter((pane: any) => String(pane.windowId || '') === windowId) : panes
       const visiblePanes = activeWindow?.zoomed && activePaneId ? filtered.filter((pane: any) => String(pane?.id || pane?.tmuxPaneId || '') === activePaneId) : filtered
       const bounds = visiblePanes.map(getPaneBounds).filter(Boolean) as any[]
       paneBoundsCache = { snapshot, windowId, bounds }

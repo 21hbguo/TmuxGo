@@ -10,6 +10,7 @@ import { getHostById } from '../lib/hosts.js'
 import { hasSubstantiveTerminalContent } from '../lib/terminal-output.js'
 import { parseSessionRef } from '../lib/tmux-target.js'
 import { getAttachSnapshotDelays } from '../lib/attach-snapshot.js'
+import { execTmux } from '../lib/tmux-executor.js'
 
 const execFileAsync = promisify(execFile)
 export async function streamRoutes(fastify: FastifyInstance) {
@@ -139,8 +140,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
       }
     }
     async function runTmuxOnHost(hostId: string, args: string[]) {
-      if (hostId !== 'local') return
-      await execFileAsync('tmux', args)
+      await execTmux(hostId, args)
     }
     async function applyScroll(sessionName: string, lines: number) {
       if (!lines) return
@@ -181,9 +181,8 @@ export async function streamRoutes(fastify: FastifyInstance) {
     }
     async function captureAttachedSnapshot(sessionName: string, seq: number) {
       if (!ptyProcess || !sessionName || attachVisibleOutputObserved || seq !== attachSeq || attachedSessionName !== sessionName) return
-      if (attachedHostId !== 'local') return
       try {
-        const { stdout } = await execFileAsync('tmux', ['capture-pane', '-e', '-pt', sessionName, '-p'])
+        const { stdout } = await execTmux(attachedHostId, ['capture-pane', '-e', '-pt', sessionName, '-p'])
         if (!ptyProcess || !sessionName || attachVisibleOutputObserved || seq !== attachSeq || attachedSessionName !== sessionName) return
         const snapshot = String(stdout || '')
         if (!snapshot) return
@@ -205,9 +204,8 @@ export async function streamRoutes(fastify: FastifyInstance) {
     }
     async function refreshAttachedClient(sessionName: string) {
       if (!ptyProcess || !sessionName) return
-      if (attachedHostId !== 'local') return
       const pid = String(ptyProcess.pid)
-      const { stdout } = await execFileAsync('tmux', ['list-clients', '-t', sessionName, '-F', '#{client_pid}|#{client_name}'])
+      const { stdout } = await execTmux(attachedHostId, ['list-clients', '-t', sessionName, '-F', '#{client_pid}|#{client_name}'])
       const clients = String(stdout).trim().split('\n').filter(Boolean).map((line) => {
         const [clientPid, ...nameParts] = line.split('|')
         return { pid: clientPid, name: nameParts.join('|') }
@@ -215,12 +213,11 @@ export async function streamRoutes(fastify: FastifyInstance) {
       const owned = clients.filter((client) => client.pid === pid)
       const targets = (owned.length ? owned : clients).map((client) => client.name)
       for (const target of targets) {
-        await execFileAsync('tmux', ['refresh-client', '-t', target])
+        await execTmux(attachedHostId, ['refresh-client', '-t', target])
       }
     }
     function scheduleClientRedraw(sessionName: string | null = attachedSessionName, delays = [48]) {
       if (!sessionName) return
-      if (attachedHostId !== 'local') return
       clearRedrawTimers()
       const seq = attachSeq
       for (const delay of delays) {
@@ -286,9 +283,8 @@ export async function streamRoutes(fastify: FastifyInstance) {
       return cleaned
     }
     async function getSessionWindowSize(sessionName: string, hostId: string) {
-      if (hostId !== 'local') return null
       try {
-        const { stdout } = await execFileAsync('tmux', ['display-message', '-p', '-t', sessionName, '#{window_width}|#{window_height}'])
+        const { stdout } = await execTmux(hostId, ['display-message', '-p', '-t', sessionName, '#{window_width}|#{window_height}'])
         const [colsText, rowsText] = stdout.trim().split('|')
         const cols = parseInt(colsText, 10)
         const rows = parseInt(rowsText, 10)
@@ -466,7 +462,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
             assertSessionAllowed(sessionName)
             if (data.hostId !== attachedHostId) break
             recordStreamMetric('copyModeCancelRequests')
-            if (attachedHostId === 'local') void execFileAsync('tmux', ['send-keys', '-t', sessionName, '-X', 'cancel']).catch(() => {})
+            void runTmuxOnHost(attachedHostId, ['send-keys', '-t', sessionName, '-X', 'cancel']).catch(() => {})
             break
           }
           case 'detach':

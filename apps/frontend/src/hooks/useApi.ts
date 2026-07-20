@@ -56,9 +56,13 @@ export function useDeleteHost() {
   })
 }
 export function useTestHost() {
+  const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (hostId: string) =>
       api.hosts.test(hostId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['hosts'] })
+    },
   })
 }
 export function useRestartRebuildStatus(enabled = true, refetchInterval: number | false = false) {

@@ -7,6 +7,7 @@ import { Settings } from './Settings'
 import { I18nProvider } from '@/i18n'
 const pushToast=vi.fn()
 const restartRebuild=vi.fn()
+const deleteHost=vi.fn()
 const restartStatusState={ data: { status: 'idle', startedAt: null, finishedAt: null, summaryLines: [], exitCode: null, errorMessage: null }, refetch: vi.fn() }
 vi.mock('@/stores/useConsoleStore', () => ({
   useConsoleStore: (selector: any) => selector({ pushToast }),
@@ -45,9 +46,9 @@ vi.mock('@/hooks/useAppVersion', () => ({
   useAppVersion: () => ({ data: { version: '0.1.0', buildId: '0.1.0-1900913' }, isLoading: false, error: null }),
 }))
 vi.mock('@/hooks/useApi', () => ({
-  useHosts: () => ({ data: [] }),
+  useHosts: () => ({ data: [{ id: 'edge', name: 'Edge', address: '10.0.0.8', user: 'deploy', port: 22 }] }),
   useCreateHost: () => ({ mutateAsync: vi.fn() }),
-  useDeleteHost: () => ({ mutateAsync: vi.fn() }),
+  useDeleteHost: () => ({ mutateAsync: deleteHost }),
   useTestHost: () => ({ mutateAsync: vi.fn() }),
   useRestartRebuildStatus: () => restartStatusState,
   useRestartRebuild: () => ({ mutateAsync: restartRebuild, isPending: false }),
@@ -56,6 +57,8 @@ describe('Settings restart rebuild', () => {
   beforeEach(() => {
     pushToast.mockReset()
     restartRebuild.mockReset()
+    deleteHost.mockReset()
+    deleteHost.mockResolvedValue({ success: true })
     restartStatusState.data = { status: 'idle', startedAt: null, finishedAt: null, summaryLines: [], exitCode: null, errorMessage: null }
     restartStatusState.refetch.mockReset()
     localStorage.setItem('tmuxgo-preferences', JSON.stringify({ language: 'en' }))
@@ -88,5 +91,14 @@ describe('Settings restart rebuild', () => {
     expect(screen.getByText('Running')).toBeInTheDocument()
     expect(screen.getByText('Starting TmuxGo development servers...')).toBeInTheDocument()
     expect(screen.getByText('Building systemd services...')).toBeInTheDocument()
+  })
+  it('asks for confirmation before removing a host', async () => {
+    const user = userEvent.setup()
+    render(React.createElement(I18nProvider, null, React.createElement(Settings, { onClose: vi.fn() })))
+    await user.click(screen.getByRole('button', { name: 'Remove' }))
+    expect(deleteHost).not.toHaveBeenCalled()
+    expect(screen.getByText('Remove host Edge and its saved connection details?')).toBeInTheDocument()
+    await user.click(screen.getAllByRole('button', { name: 'Remove' }).at(-1)!)
+    await waitFor(() => expect(deleteHost).toHaveBeenCalledWith('edge'))
   })
 })

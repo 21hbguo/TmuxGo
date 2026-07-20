@@ -10,6 +10,7 @@ export function HostSwitcher({ mode='desktop' }: { mode?: 'desktop' | 'mobile' }
   const { t } = useTranslation()
   const activeHost = hosts.find((host: any) => host.id === activeHostId) || hosts[0]
   if (!activeHost) return null
+  const statusClass = activeHost.status === 'online' ? 'bg-accent' : activeHost.status === 'offline' ? 'bg-danger' : 'bg-warn'
   const compact = mode === 'desktop'
   const labelClass = compact ? 'text-[10px] uppercase tracking-[0.16em] text-text-3/80' : 'text-[11px] uppercase tracking-[0.16em] text-text-3/80'
   const frameClass = compact ? 'tmuxgo-control tmuxgo-control-soft mt-1 h-8 rounded-lg px-2' : 'tmuxgo-control tmuxgo-control-soft mt-2 h-10 rounded-lg px-3'
@@ -18,7 +19,7 @@ export function HostSwitcher({ mode='desktop' }: { mode?: 'desktop' | 'mobile' }
       <div className="min-w-0">
         <div className={labelClass}>{t('hostSwitcher.label')}</div>
         <div className={`flex min-w-0 items-center gap-2 ${frameClass}`}>
-          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${activeHost.status === 'online' ? 'bg-accent' : 'bg-text-3'}`} />
+          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusClass}`} />
           <span className="min-w-0 truncate text-xs text-text-2">{activeHost.name}</span>
         </div>
       </div>
@@ -28,7 +29,7 @@ export function HostSwitcher({ mode='desktop' }: { mode?: 'desktop' | 'mobile' }
     <label className="block min-w-0">
       <span className={labelClass}>{t('hostSwitcher.label')}</span>
       <span className={`relative flex min-w-0 items-center gap-2 ${frameClass}`}>
-        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${activeHost.status === 'online' ? 'bg-accent' : 'bg-text-3'}`} />
+        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusClass}`} />
         <select value={activeHostId || activeHost.id} onChange={(event) => setActiveHost(event.target.value)} className="tmuxgo-select tmuxgo-select-inline min-w-0 flex-1 appearance-none pr-5 text-xs">
           {hosts.map((host: any) => <option key={host.id} value={host.id}>{host.name}</option>)}
         </select>

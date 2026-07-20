@@ -33,6 +33,7 @@ export function Settings({ onClose }: SettingsProps) {
   const [hostDialogOpen, setHostDialogOpen] = useState(false)
   const [hostDialogMode, setHostDialogMode] = useState<'create' | 'edit'>('create')
   const [hostActionMessage, setHostActionMessage] = useState('')
+  const [pendingDeleteHostId, setPendingDeleteHostId] = useState<string | null>(null)
   const [restartConfirmOpen, setRestartConfirmOpen] = useState(false)
   const { data: hosts = [] } = useHosts()
   const createHost = useCreateHost()
@@ -154,6 +155,16 @@ export function Settings({ onClose }: SettingsProps) {
     } catch (err: any) {
       setHostActionMessage(err?.message || t('settings.hostSaveFailed'))
     }
+  }
+  const confirmDeleteHost = async () => {
+    if (!pendingDeleteHostId) return
+    try {
+      await deleteHost.mutateAsync(pendingDeleteHostId)
+      setHostActionMessage(t('settings.hostRemoved'))
+    } catch (err: any) {
+      setHostActionMessage(err?.message || t('settings.hostRemoveFailed'))
+    }
+    setPendingDeleteHostId(null)
   }
   const restartStatusLabel = restartStatus.status === 'running' ? t('settings.restartStatusRunning') : restartStatus.status === 'success' ? t('settings.restartStatusSuccess') : restartStatus.status === 'error' ? t('settings.restartStatusFailed') : t('settings.restartStatusIdle')
 
@@ -310,15 +321,7 @@ export function Settings({ onClose }: SettingsProps) {
                             {t('settings.hostTest')}
                           </button>
                           <button
-                            onClick={async () => {
-                              setHostActionMessage('')
-                              try {
-                                await deleteHost.mutateAsync(host.id)
-                                setHostActionMessage(t('settings.hostRemoved'))
-                              } catch (err: any) {
-                                setHostActionMessage(err?.message || t('settings.hostRemoveFailed'))
-                              }
-                            }}
+                            onClick={() => { setHostActionMessage(''); setPendingDeleteHostId(host.id) }}
                             className="rounded bg-red-900/30 px-2 py-1 text-xs text-red-200"
                           >
                             {t('settings.hostRemove')}
@@ -624,6 +627,7 @@ export function Settings({ onClose }: SettingsProps) {
           </div>
         </div>
       )}
+      <ConfirmDialog open={!!pendingDeleteHostId} title={t('settings.hostRemoveConfirmTitle')} message={t('settings.hostRemoveConfirmMessage', { name: hosts.find((host: any) => host.id === pendingDeleteHostId)?.name || pendingDeleteHostId || '' })} confirmLabel={t('settings.hostRemove')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setPendingDeleteHostId(null)} onConfirm={() => void confirmDeleteHost()} />
       <ConfirmDialog open={restartConfirmOpen} title={t('settings.restartConfirmTitle')} message={t('settings.restartConfirmMessage')} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} onCancel={() => setRestartConfirmOpen(false)} onConfirm={() => void triggerRestartRebuild()} />
       {showAuditLog && <AuditLog onClose={() => setShowAuditLog(false)} />}
     </div>

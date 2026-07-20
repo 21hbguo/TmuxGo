@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { agentManager } from '../agent-manager.js'
 import { getHostById, listAllHosts, removeRemoteHost, upsertRemoteHost } from '../lib/hosts.js'
 import { execHostShell, verifyHostConnectivity } from '../lib/tmux-executor.js'
+const hostConnectivity = new Map<string, 'online' | 'offline'>()
 
 export async function hostRoutes(fastify: FastifyInstance) {
   fastify.get('/hosts', async () => {
@@ -12,7 +13,7 @@ export async function hostRoutes(fastify: FastifyInstance) {
       id: host.id,
       name: host.name,
       address: host.address,
-      status: host.id === 'local' ? 'online' : agentIds.has(host.id) ? 'online' : 'offline',
+      status: host.id === 'local' || agentIds.has(host.id) ? 'online' : hostConnectivity.get(host.id) || 'unknown',
       tags: host.id === 'local' ? ['local'] : ['ssh'],
       user: host.user,
       port: host.port,
@@ -41,7 +42,7 @@ export async function hostRoutes(fastify: FastifyInstance) {
         id: configHost.id,
         name: configHost.name,
         address: configHost.address,
-        status: configHost.id === 'local' ? 'online' : agent ? 'online' : 'offline',
+        status: configHost.id === 'local' || agent ? 'online' : hostConnectivity.get(configHost.id) || 'unknown',
         tags: configHost.id === 'local' ? ['local'] : ['ssh'],
         user: configHost.user,
         port: configHost.port,
@@ -87,7 +88,7 @@ export async function hostRoutes(fastify: FastifyInstance) {
       id: host.id,
       name: host.name,
       address: host.address,
-      status: 'offline',
+      status: 'unknown',
       tags: ['ssh'],
       user: host.user,
       port: host.port,
@@ -99,11 +100,13 @@ export async function hostRoutes(fastify: FastifyInstance) {
   fastify.delete('/hosts/:id', async (request) => {
     const { id } = request.params as { id: string }
     const removed = await removeRemoteHost(id)
+    hostConnectivity.delete(id)
     return { success: removed }
   })
   fastify.post('/hosts/:id/test', async (request) => {
     const { id } = request.params as { id: string }
     const result = await verifyHostConnectivity(id)
+    hostConnectivity.set(id, result.ok ? 'online' : 'offline')
     return result
   })
   fastify.get('/hosts/:id/github/auth-status', async (request) => {

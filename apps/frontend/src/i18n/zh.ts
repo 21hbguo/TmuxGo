@@ -105,6 +105,8 @@ export const zh = {
   'settings.hostRemove': '删除',
   'settings.hostRemoved': '主机已删除',
   'settings.hostRemoveFailed': '删除主机失败',
+  'settings.hostRemoveConfirmTitle': '删除主机',
+  'settings.hostRemoveConfirmMessage': '确定删除主机 {name} 及其保存的连接信息吗？',
   'settings.hostTest': '测试',
   'settings.hostTestOk': '连接正常',
   'settings.hostTestFailed': '连接测试失败',
@@ -476,6 +478,8 @@ export const zh = {
   'session.deleted': '会话 {name} 已删除',
   'session.renamed': '会话 {from} 已重命名为 {to}',
   'session.requestFailed': '请求失败',
+  'session.loadFailed': '会话加载失败',
+  'common.retry': '重试',
   'mobile.quickSessionPin': '固定到快捷栏',
   'mobile.quickSessionUnpin': '取消固定',
 

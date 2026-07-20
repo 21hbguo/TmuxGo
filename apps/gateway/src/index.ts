@@ -13,9 +13,15 @@ import { fileRoutes } from './routes/files.js'
 import { preferencesRoutes } from './routes/preferences.js'
 import { clientEventRoutes } from './routes/client-events.js'
 import { gitRoutes } from './routes/git.js'
+import { isRequestOriginAllowed } from './lib/request-origin.js'
 
 const fastify = Fastify({
   logger: true,
+})
+fastify.addHook('onRequest', async (request, reply) => {
+  const forwardedHost = request.headers['x-forwarded-host']
+  if (isRequestOriginAllowed(request.headers.origin, request.headers.host, undefined, typeof forwardedHost === 'string' ? forwardedHost : undefined, request.ip)) return
+  return reply.code(403).send({ message: 'Origin is not allowed', code: 'ORIGIN_NOT_ALLOWED' })
 })
 
 await fastify.register(cors, {

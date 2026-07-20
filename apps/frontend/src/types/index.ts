@@ -2,7 +2,7 @@ export interface Host {
   id: string
   name: string
   address: string
-  status: 'online' | 'offline' | 'unreachable'
+  status: 'online' | 'offline' | 'unknown' | 'unreachable'
   tags: string[]
   user?: string
   port?: number
