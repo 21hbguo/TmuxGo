@@ -20,7 +20,7 @@ const INPUT_QUEUE_LIMIT = 128
 const INPUT_FLUSH_INTERVAL = 10
 const INPUT_BATCH_CHARS = 768
 
-export function PaneGrid() {
+export function PaneGrid({ sessionId: controlledSessionId }: { sessionId?: string }) {
   const activeHostId = useConsoleStore((s) => s.activeHostId)
   const activeSessionId = useConsoleStore((s) => s.activeSessionId)
   const connectionStatus = useConsoleStore((s) => s.connection.status)
@@ -32,11 +32,13 @@ export function PaneGrid() {
   const { sessionContinuity, upsertResumePoint } = useSessionContinuity()
   const isMobile = isMobileDevice()
   const queryClient = useOptionalQueryClient()
-  const { data: windowsData = [] } = useWindows(activeHostId || '', activeSessionId || '')
-  const { getWindows, setWindows } = useWindowQueryState(activeHostId || '', activeSessionId || '')
   const { syncAfterWindowChange } = useSessionSnapshotSync()
   const pushToast = useConsoleStore((s) => s.pushToast)
   const setActiveSession = useConsoleStore((s) => s.setActiveSession)
+  const sessionId = controlledSessionId === undefined ? activeSessionId : controlledSessionId
+  const isControlled = controlledSessionId !== undefined
+  const { data: windowsData = [] } = useWindows(activeHostId || '', sessionId || '')
+  const { getWindows, setWindows } = useWindowQueryState(activeHostId || '', sessionId || '')
   const exclusive = !isMobile || preferences.attachExclusive
   const attachedRef = useRef<string | null>(null)
   const sizeRef = useRef<{ cols: number; rows: number } | null>(null)
@@ -44,7 +46,7 @@ export function PaneGrid() {
   const attachTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const attachRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingSwitchRef = useRef(false)
-  const lastSessionRef = useRef<string | null>(activeSessionId || null)
+  const lastSessionRef = useRef<string | null>(sessionId || null)
   const inputQueueRef = useRef<string[]>([])
   const inputFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const sentResizeRef = useRef<{ cols: number; rows: number } | null>(null)
@@ -56,39 +58,39 @@ export function PaneGrid() {
   const isSessionAttachedRef = useRef(false)
   const pendingSessionIdRef = useRef<string | null>(null)
   const pendingSessionNameRef = useRef<string | null>(null)
-  const [visibleSessionId, setVisibleSessionId] = useState(activeSessionId || '')
-  const [visibleSessionName, setVisibleSessionName] = useState(() => parseSessionName(activeHostId || 'local', activeSessionId || ''))
+  const [visibleSessionId, setVisibleSessionId] = useState(sessionId || '')
+  const [visibleSessionName, setVisibleSessionName] = useState(() => parseSessionName(activeHostId || 'local', sessionId || ''))
 
-  const sessionName = parseSessionName(activeHostId || 'local', activeSessionId || '')
+  const sessionName = parseSessionName(activeHostId || 'local', sessionId || '')
   const targetSessionName = pendingSessionNameRef.current || sessionName
   const renderedSessionName = visibleSessionName || targetSessionName
 
   const sessionWindows = useMemo(() =>
-    windowsData.filter((w: any) => w.sessionId === activeSessionId),
-    [windowsData, activeSessionId]
+    windowsData.filter((w: any) => w.sessionId === sessionId),
+    [windowsData, sessionId]
   )
   const activeWindowIndex = useMemo(() =>
     sessionWindows.findIndex((w: any) => w.active),
     [sessionWindows]
   )
   const switchWindow = useCallback(async (direction: -1 | 1) => {
-    if (!activeHostId || !activeSessionId || sessionWindows.length <= 1) return
+    if (!activeHostId || !sessionId || sessionWindows.length <= 1) return
     const nextIndex = (activeWindowIndex + direction + sessionWindows.length) % sessionWindows.length
     const targetWindow = sessionWindows[nextIndex]
     if (!targetWindow) return
     const previousWindows = getWindows()
     setWindows(previousWindows.map((w: any) =>
-      w.sessionId === activeSessionId ? { ...w, active: w.id === targetWindow.id } : w
+      w.sessionId === sessionId ? { ...w, active: w.id === targetWindow.id } : w
     ))
     try {
-      const result = await api.windows.select(activeHostId, activeSessionId, targetWindow.id)
+      const result = await api.windows.select(activeHostId, sessionId, targetWindow.id)
       if (result.windows) setWindows(result.windows)
       await syncAfterWindowChange()
     } catch {
       setWindows(previousWindows)
       pushToast({ type: 'error', message: t('window.switchFailed') })
     }
-  }, [activeHostId, activeSessionId, sessionWindows, activeWindowIndex, getWindows, setWindows, pushToast, syncAfterWindowChange, t])
+  }, [activeHostId, sessionId, sessionWindows, activeWindowIndex, getWindows, setWindows, pushToast, syncAfterWindowChange, t])
   const handleSwipeLeft = useCallback(() => { void switchWindow(1) }, [switchWindow])
   const handleSwipeRight = useCallback(() => { void switchWindow(-1) }, [switchWindow])
 
@@ -120,14 +122,14 @@ export function PaneGrid() {
     continuityTimerRef.current = null
   }, [])
   const flushResumePoint = useCallback(() => {
-    if (!sessionContinuity.enabled) return
-    if (!activeHostId || !activeSessionId || !sessionName) return
+    if (isControlled || !sessionContinuity.enabled) return
+    if (!activeHostId || !sessionId || !sessionName) return
     const activeWindow = sessionWindows.find((item: any) => item.active) || sessionWindows[0] || null
     const now = new Date().toISOString()
     const size = sizeRef.current
     upsertResumePoint({
       hostId: activeHostId,
-      sessionId: activeSessionId,
+      sessionId,
       sessionName,
       windowId: activeWindow?.id || null,
       paneId: useConsoleStore.getState().activePaneId || null,
@@ -137,7 +139,7 @@ export function PaneGrid() {
       lastSeenAt: now,
       lastOutputAt: lastOutputAtRef.current || now,
     })
-  }, [activeHostId, activeSessionId, sessionContinuity.enabled, sessionName, sessionWindows, upsertResumePoint, exclusive])
+  }, [activeHostId, sessionId, isControlled, sessionContinuity.enabled, sessionName, sessionWindows, upsertResumePoint, exclusive])
   const scheduleContinuityFlush = useCallback((delay = 0) => {
     if (!sessionContinuity.enabled) return
     if (continuityTimerRef.current) return
@@ -195,7 +197,7 @@ export function PaneGrid() {
   }, [activeHostId, clearAttachTimers, exclusive, isSocketReady, send, targetSessionName, updateConnection])
 
   useEffect(() => {
-    if (!activeSessionId) {
+    if (!sessionId) {
       pendingSwitchRef.current = false
       lastSessionRef.current = null
        pendingSessionIdRef.current = null
@@ -205,22 +207,22 @@ export function PaneGrid() {
       return
     }
     if (!lastSessionRef.current) {
-      lastSessionRef.current = activeSessionId
+      lastSessionRef.current = sessionId
       pendingSessionIdRef.current = null
       pendingSessionNameRef.current = null
       if (!visibleSessionId) {
-        setVisibleSessionId(activeSessionId)
+        setVisibleSessionId(sessionId)
         setVisibleSessionName(sessionName)
       }
       return
     }
-    if (lastSessionRef.current !== activeSessionId) {
+    if (lastSessionRef.current !== sessionId) {
       pendingSwitchRef.current = true
-      lastSessionRef.current = activeSessionId
-      pendingSessionIdRef.current = activeSessionId
+      lastSessionRef.current = sessionId
+      pendingSessionIdRef.current = sessionId
       pendingSessionNameRef.current = sessionName
     }
-  }, [activeSessionId, sessionName, visibleSessionId])
+  }, [sessionId, sessionName, visibleSessionId])
   useEffect(() => {
     clearAttachTimers()
     clearInputFlushTimer()
@@ -333,14 +335,14 @@ export function PaneGrid() {
         pendingSessionIdRef.current = null
         pendingSessionNameRef.current = null
       }
-      if (visibleSessionId && visibleSessionId !== activeSessionId) setActiveSession(visibleSessionId)
+      if (!isControlled && visibleSessionId && visibleSessionId !== activeSessionId) setActiveSession(visibleSessionId)
       updateConnection({ status: 'disconnected' })
       pushToast({ type: 'error', message: detail.message || t('session.requestFailed') })
       void queryClient?.invalidateQueries({ queryKey: ['sessions', activeHostId || 'local'] })
     }
     window.addEventListener('tmux-error', handleError as EventListener)
     return () => window.removeEventListener('tmux-error', handleError as EventListener)
-  }, [activeHostId, activeSessionId, clearAttachTimers, pushToast, queryClient, setActiveSession, t, targetSessionName, updateConnection, visibleSessionId])
+  }, [activeHostId, activeSessionId, isControlled, clearAttachTimers, pushToast, queryClient, setActiveSession, t, targetSessionName, updateConnection, visibleSessionId])
   useEffect(() => {
     if (isConnected) flushInputQueue()
   }, [isConnected, flushInputQueue])
@@ -405,13 +407,13 @@ export function PaneGrid() {
     scheduleContinuityFlush(50)
   }, [targetSessionName, attachNow, scheduleContinuityFlush])
   useEffect(() => {
-    if (!sessionContinuity.enabled) return
+    if (isControlled || !sessionContinuity.enabled) return
     const timer = setInterval(() => {
       if (attachedRef.current !== targetSessionName) return
       flushResumePoint()
     }, 8000)
     return () => clearInterval(timer)
-  }, [flushResumePoint, sessionContinuity.enabled, targetSessionName])
+  }, [flushResumePoint, isControlled, sessionContinuity.enabled, targetSessionName])
   useEffect(() => {
     const handleOutput = (message: { data: string; sessionName?: string | null; hostId?: string | null }) => {
       if ((message.hostId || activeHostId || 'local') !== (activeHostId || 'local')) return
@@ -426,7 +428,7 @@ export function PaneGrid() {
     }
   }, [activeHostId, scheduleContinuityFlush, targetSessionName, subscribeOutput])
 
-  if (!activeSessionId) {
+  if (!sessionId) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center text-text-3 gap-4">
         <div className="text-6xl">⊞</div>
@@ -446,7 +448,7 @@ export function PaneGrid() {
           {t(`status.${connectionStatus}`)}
         </div>
       )}
-      <TerminalPane sessionName={renderedSessionName} onInput={handleInput} onResize={handleResize} attachExclusive={exclusive} onReady={handleReady} subscribeOutput={subscribeOutput} onSwipeLeft={sessionWindows.length > 1 ? handleSwipeLeft : undefined} onSwipeRight={sessionWindows.length > 1 ? handleSwipeRight : undefined} />
+      <TerminalPane sessionName={renderedSessionName} onInput={handleInput} onResize={handleResize} attachExclusive={exclusive} onReady={handleReady} subscribeOutput={subscribeOutput} onSwipeLeft={!isControlled && sessionWindows.length > 1 ? handleSwipeLeft : undefined} onSwipeRight={!isControlled && sessionWindows.length > 1 ? handleSwipeRight : undefined} />
     </div>
   )
 }

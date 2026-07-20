@@ -3,8 +3,6 @@ import React from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SessionThumbnailPanel } from './SessionThumbnailPanel'
 
-const setActiveSession = vi.fn()
-const setSessionPanelExpanded = vi.fn()
 const setThumbnailPanelOpen = vi.fn()
 const refetch = vi.fn()
 
@@ -24,27 +22,27 @@ vi.mock('@/hooks/useOrderedSessions', () => ({
   useOrderedSessions: () => ({ data: [{ id: 'local:beta' }, { id: 'local:alpha' }] }),
 }))
 vi.mock('@/stores/useConsoleStore', () => ({
-  useConsoleStore: (selector: any) => selector({ activeHostId: 'local', activeSessionId: 'local:alpha', setActiveSession, setSessionPanelExpanded, setThumbnailPanelOpen }),
+  useConsoleStore: (selector: any) => selector({ activeHostId: 'local', activeSessionId: 'local:alpha', setThumbnailPanelOpen }),
 }))
 vi.mock('@/i18n', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }))
+vi.mock('./PaneGrid', () => ({
+  PaneGrid: ({ sessionId }: { sessionId: string }) => React.createElement('div', { 'data-testid': 'interactive-terminal' }, sessionId),
+}))
 
 describe('SessionThumbnailPanel', () => {
   beforeEach(() => {
-    setActiveSession.mockReset()
-    setSessionPanelExpanded.mockReset()
     setThumbnailPanelOpen.mockReset()
     refetch.mockReset()
   })
 
-  it('orders cards by the session list and returns to sessions after selection', () => {
+  it('keeps selection in the thumbnail workspace', () => {
     render(<SessionThumbnailPanel />)
-    expect(screen.getAllByTitle(/alpha|beta/).map((item) => item.getAttribute('title'))).toEqual(['beta', 'alpha'])
+    expect(screen.getByTestId('interactive-terminal')).toHaveTextContent('local:alpha')
     fireEvent.click(screen.getByTitle('beta'))
-    expect(setActiveSession).toHaveBeenCalledWith('local:beta')
-    expect(setThumbnailPanelOpen).toHaveBeenCalledWith(false)
-    expect(setSessionPanelExpanded).toHaveBeenCalledWith(true)
+    expect(screen.getByTestId('interactive-terminal')).toHaveTextContent('local:beta')
+    expect(setThumbnailPanelOpen).not.toHaveBeenCalled()
   })
 
   it('refreshes thumbnails from the toolbar', () => {

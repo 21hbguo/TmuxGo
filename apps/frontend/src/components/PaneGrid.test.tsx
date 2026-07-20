@@ -69,6 +69,12 @@ describe('PaneGrid', () => {
     await waitFor(() => expect(sendMock).toHaveBeenCalledWith({ type: 'attach', hostId: 'local', sessionName: 'dev2', cols: 120, rows: 36, exclusive: true }))
     expect(sendMock.mock.calls.filter(([message]) => message?.type === 'attach').length).toBe(attachCallsBeforeSwitch + 1)
   })
+  it('uses a controlled session without changing the global session', async () => {
+    render(<PaneGrid sessionId="session-dev2" />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev2' }))
+    await waitFor(() => expect(sendMock).toHaveBeenCalledWith({ type: 'attach', hostId: 'local', sessionName: 'dev2', cols: 120, rows: 36, exclusive: true }))
+    expect(useConsoleStore.getState().activeSessionId).toBe('session-dev1')
+  })
   it('keeps previous session visible until next session attaches', async () => {
     render(<PaneGrid />)
     fireEvent.click(screen.getByRole('button', { name: 'dev1' }))

@@ -222,6 +222,7 @@ export function DesktopWorkbench() {
   return (
     <div ref={containerRef} className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
       <ActivityBar />
+      {thumbnailPanelOpen ? <SessionThumbnailPanel /> : <>
       {sessionPanelExpanded ? (
         <div className="relative shrink-0 border-r border-[var(--line)] bg-bg-1" style={{ width: renderedSessionPanelWidth }}>
           <div className="h-full min-h-0">
@@ -236,10 +237,10 @@ export function DesktopWorkbench() {
           }} />
         </div>
       ) : <SessionRail />}
-      {(filePanelOpen || thumbnailPanelOpen) && (
+      {filePanelOpen && (
         <div className="relative shrink-0 border-r border-[var(--line)] bg-bg-1" style={{ width: renderedFilePanelWidth }}>
           <div className="h-full min-h-0">
-            {filePanelOpen ? <FilePanel mode="explorer" onOpenFile={handleOpenFile} /> : <SessionThumbnailPanel />}
+            <FilePanel mode="explorer" onOpenFile={handleOpenFile} />
           </div>
           <div className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-accent/40" onMouseDown={() => {
             resizingRef.current = 'file'
@@ -278,6 +279,7 @@ export function DesktopWorkbench() {
           </div>
         )}
       </div>
+      </>}
     </div>
   )
 }
