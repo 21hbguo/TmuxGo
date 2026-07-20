@@ -211,20 +211,20 @@ export function DesktopWorkbench() {
   }, [markEditorSaved, pushToast, setEditorSaving])
   if (!mounted) {
     return (
-      <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
+      <div className="tmuxgo-workspace flex min-h-0 min-w-0 flex-1 overflow-hidden">
         <ActivityBar />
         <SessionRail />
-        <div className="min-h-0 flex-1 bg-bg-1" />
+        <div className="tmuxgo-content-surface min-h-0 flex-1" />
       </div>
     )
   }
 
   return (
-    <div ref={containerRef} className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
+    <div ref={containerRef} className="tmuxgo-workspace flex min-h-0 min-w-0 flex-1 overflow-hidden">
       <ActivityBar />
       {thumbnailPanelOpen ? <SessionThumbnailPanel /> : <>
       {sessionPanelExpanded ? (
-        <div className="relative shrink-0 border-r border-[var(--line)] bg-bg-1" style={{ width: renderedSessionPanelWidth }}>
+        <div className="tmuxgo-material relative shrink-0 border-r" style={{ width: renderedSessionPanelWidth }}>
           <div className="h-full min-h-0">
             <SessionPanel />
           </div>
@@ -238,7 +238,7 @@ export function DesktopWorkbench() {
         </div>
       ) : <SessionRail />}
       {filePanelOpen && (
-        <div className="relative shrink-0 border-r border-[var(--line)] bg-bg-1" style={{ width: renderedFilePanelWidth }}>
+        <div className="tmuxgo-content-surface relative shrink-0 border-r border-[var(--line)]" style={{ width: renderedFilePanelWidth }}>
           <div className="h-full min-h-0">
             <FilePanel mode="explorer" onOpenFile={handleOpenFile} />
           </div>
@@ -252,7 +252,7 @@ export function DesktopWorkbench() {
         </div>
       )}
       {gitPanelOpen && (
-        <div className="relative shrink-0 border-r border-[var(--line)] bg-bg-1" style={{ width: renderedGitPanelWidth }}>
+        <div className="tmuxgo-content-surface relative shrink-0 border-r border-[var(--line)]" style={{ width: renderedGitPanelWidth }}>
           <div className="h-full min-h-0">
             <GitPanel />
           </div>
@@ -265,7 +265,7 @@ export function DesktopWorkbench() {
           }} />
         </div>
       )}
-      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-bg-1">
+      <div className="tmuxgo-content-surface relative flex min-h-0 min-w-0 flex-1 flex-col">
         {openEditors.length > 0 ? (
           <>
             <div className="min-h-0 flex-1">

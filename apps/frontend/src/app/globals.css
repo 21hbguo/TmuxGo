@@ -3,35 +3,47 @@
 @tailwind utilities;
 
 :root {
-  --bg-0: 3 10 20;
-  --bg-1: 7 18 36;
-  --bg-2: 11 26 49;
-  --accent: 30 200 255;
-  --accent-2: 0 229 180;
-  --warn: 255 176 32;
-  --danger: 255 93 108;
-  --text-1: 232 243 255;
-  --text-2: 156 179 201;
-  --text-3: 111 133 155;
-  --line: rgba(30,200,255,0.28);
-  --glow: 0 0 20px rgba(30,200,255,0.25);
-  --font-ui: "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --bg-0: 12 13 15;
+  --bg-1: 24 25 28;
+  --bg-2: 42 43 48;
+  --accent: 10 132 255;
+  --accent-2: 48 209 88;
+  --warn: 255 159 10;
+  --danger: 255 69 58;
+  --text-1: 245 245 247;
+  --text-2: 174 174 178;
+  --text-3: 116 116 122;
+  --line: rgba(255,255,255,0.1);
+  --glow: 0 10px 32px rgba(0,0,0,0.24);
+  --glass-blur: 22px;
+  --glass-saturate: 160%;
+  --glass-fill: rgba(30,31,35,0.7);
+  --glass-fill-strong: rgba(30,31,35,0.88);
+  --glass-rim: rgba(255,255,255,0.12);
+  --glass-highlight: rgba(255,255,255,0.17);
+  --glass-shadow: 0 14px 38px rgba(0,0,0,0.25);
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
   --font-mono: Consolas, "Cascadia Mono", "Cascadia Code", "SF Mono", Monaco, Menlo, "DejaVu Sans Mono", "Liberation Mono", "Courier New", monospace;
 }
 
 [data-theme="light"] {
-  --bg-0: 245 247 250;
-  --bg-1: 255 255 255;
-  --bg-2: 232 236 241;
-  --accent: 0 120 212;
-  --accent-2: 0 166 126;
-  --warn: 212 136 15;
-  --danger: 209 52 91;
-  --text-1: 26 35 50;
-  --text-2: 85 102 119;
-  --text-3: 136 153 170;
-  --line: rgba(0,120,212,0.25);
-  --glow: 0 0 20px rgba(0,120,212,0.15);
+  --bg-0: 232 234 238;
+  --bg-1: 248 249 251;
+  --bg-2: 224 226 231;
+  --accent: 0 122 255;
+  --accent-2: 40 190 105;
+  --warn: 220 130 0;
+  --danger: 215 45 38;
+  --text-1: 28 28 30;
+  --text-2: 99 99 102;
+  --text-3: 142 142 147;
+  --line: rgba(60,60,67,0.16);
+  --glow: 0 12px 34px rgba(48,52,60,0.12);
+  --glass-fill: rgba(248,249,252,0.7);
+  --glass-fill-strong: rgba(248,249,252,0.9);
+  --glass-rim: rgba(255,255,255,0.78);
+  --glass-highlight: rgba(255,255,255,0.92);
+  --glass-shadow: 0 14px 38px rgba(48,52,60,0.14);
 }
 
 [data-theme="high-contrast"] {
@@ -47,6 +59,12 @@
   --text-3: 153 153 153;
   --line: rgba(0,255,255,0.4);
   --glow: 0 0 20px rgba(0,255,255,0.3);
+  --glass-blur: 0px;
+  --glass-fill: rgba(10,10,10,1);
+  --glass-fill-strong: rgba(10,10,10,1);
+  --glass-rim: rgba(255,255,255,0.8);
+  --glass-highlight: transparent;
+  --glass-shadow: none;
 }
 
 [data-theme="dracula"] {
@@ -109,7 +127,10 @@ html,
 body {
   max-width: 100vw;
   overflow: hidden;
-  background: rgb(var(--bg-0));
+  background:
+    linear-gradient(135deg, rgb(var(--accent) / 0.1) 0%, transparent 38%),
+    linear-gradient(315deg, rgb(var(--accent-2) / 0.07) 0%, transparent 42%),
+    rgb(var(--bg-0));
   color: rgb(var(--text-1));
   font-family: var(--font-ui);
   font-weight: 400;
@@ -125,8 +146,8 @@ body {
 }
 
 body {
-  -webkit-font-smoothing: auto;
-  -moz-osx-font-smoothing: auto;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 button,
@@ -140,6 +161,115 @@ textarea {
 a {
   color: inherit;
   text-decoration: none;
+}
+
+.tmuxgo-app-shell {
+  isolation: isolate;
+  background: transparent;
+}
+.tmuxgo-workspace-main,
+.tmuxgo-workspace {
+  background: transparent;
+}
+.tmuxgo-content-surface {
+  background: rgb(var(--bg-1));
+}
+.tmuxgo-glass,
+.tmuxgo-material {
+  border-color: var(--glass-rim);
+  background: var(--glass-fill-strong);
+  box-shadow: inset 0 1px 0 var(--glass-highlight), var(--glass-shadow);
+}
+.tmuxgo-glass {
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  isolation: isolate;
+}
+.tmuxgo-glass-chrome {
+  --glass-blur: 26px;
+  background: var(--glass-fill);
+}
+.tmuxgo-glass-sidebar {
+  --glass-blur: 18px;
+  background: var(--glass-fill);
+}
+.tmuxgo-glass-dialog {
+  --glass-blur: 30px;
+  background: var(--glass-fill-strong);
+  box-shadow: inset 0 1px 0 var(--glass-highlight), 0 24px 80px rgb(0 0 0 / 0.34);
+}
+.tmuxgo-glass-control {
+  border: 1px solid rgb(var(--text-1) / 0.08);
+  background: rgb(var(--bg-2) / 0.56);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08);
+}
+.tmuxgo-glass-control:hover {
+  border-color: rgb(var(--accent) / 0.32);
+  background: rgb(var(--bg-2) / 0.76);
+}
+.tmuxgo-icon-button {
+  transition: color 160ms ease, background-color 160ms ease, transform 160ms cubic-bezier(.2,.8,.2,1);
+}
+.tmuxgo-icon-button:active {
+  transform: scale(0.94);
+}
+.tmuxgo-mobile-dock {
+  --glass-blur: 14px;
+  margin: 0 8px 8px;
+  overflow: hidden;
+  border: 1px solid var(--glass-rim);
+  border-radius: 16px;
+}
+.tmuxgo-mobile-nav {
+  border: 0;
+  background: transparent;
+}
+.tmuxgo-mobile-nav-button {
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 10px;
+}
+.tmuxgo-mobile-session-strip {
+  border-color: rgb(var(--text-1) / 0.08);
+  background: transparent;
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .tmuxgo-glass {
+    background: rgb(var(--bg-1) / 0.98);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more), (forced-colors: active) {
+  .tmuxgo-glass,
+  .tmuxgo-material {
+    border-color: rgb(var(--text-1) / 0.42);
+    background: rgb(var(--bg-1));
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (max-width: 600px) {
+  :root {
+    --glass-blur: 10px;
+  }
+  .tmuxgo-glass-chrome,
+  .tmuxgo-glass-dialog {
+    --glass-blur: 12px;
+  }
 }
 
 .xterm,

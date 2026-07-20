@@ -38,38 +38,38 @@ export function MobileNav({ onOpenDrawer, onOpenSettings, onOpenSearch, onOpenFi
   const statusColor = isConnected ? 'bg-accent-2' : isRecovering ? 'bg-warn' : 'bg-danger'
   const statusText = isConnected ? `${connection.latency ?? 0}/${attachLatency}ms` : isRecovering ? '...' : t('nav.off')
   const containerClass = docked
-    ? 'mobile-nav-landscape-hide h-full border-t border-[var(--line)] bg-bg-1 pb-[env(safe-area-inset-bottom)] transition-transform duration-200'
-    : 'mobile-nav-landscape-hide fixed left-0 right-0 z-40 border-t border-[var(--line)] bg-bg-1 pb-[env(safe-area-inset-bottom)] transition-transform duration-200'
+    ? 'tmuxgo-mobile-nav mobile-nav-landscape-hide h-full pb-[env(safe-area-inset-bottom)] transition-transform duration-200'
+    : 'tmuxgo-glass tmuxgo-mobile-nav mobile-nav-landscape-hide fixed left-2 right-2 z-40 rounded-2xl border pb-[env(safe-area-inset-bottom)] transition-transform duration-200'
 
   return (
     <div data-mobile-nav className={containerClass} style={docked ? undefined : { bottom: 'var(--mobile-keyboard-inset, 0px)' }}>
       <div className="flex items-center justify-around h-12 px-3">
-        <button onClick={() => onOpenDrawer('sessions')} className="flex flex-col items-center gap-px text-text-3 active:text-accent active:scale-95 transition-all">
+        <button aria-label={t('nav.sessions')} onClick={() => onOpenDrawer('sessions')} className="tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px text-text-3 transition-all active:scale-95 active:bg-bg-2/50 active:text-accent">
           <NavIcon d={icons.sessions} />
           <span className="text-[9px] leading-none">{t('nav.sessions')}</span>
         </button>
 
-        <button onClick={() => onOpenDrawer('windows')} className="flex flex-col items-center gap-px text-text-3 active:text-accent active:scale-95 transition-all">
+        <button aria-label={t('nav.windows')} onClick={() => onOpenDrawer('windows')} className="tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px text-text-3 transition-all active:scale-95 active:bg-bg-2/50 active:text-accent">
           <NavIcon d={icons.windows} />
           <span className="text-[9px] leading-none">{t('nav.windows')}</span>
         </button>
 
-        <button onClick={() => onOpenDrawer('panes')} className="flex flex-col items-center gap-px text-text-3 active:text-accent active:scale-95 transition-all">
+        <button aria-label={t('nav.panes')} onClick={() => onOpenDrawer('panes')} className="tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px text-text-3 transition-all active:scale-95 active:bg-bg-2/50 active:text-accent">
           <NavIcon d={icons.panes} />
           <span className="text-[9px] leading-none">{t('nav.panes')}</span>
         </button>
 
-        <button onClick={onOpenFiles} className="flex flex-col items-center gap-px text-text-3 active:text-accent active:scale-95 transition-all">
+        <button aria-label={t('nav.files')} onClick={onOpenFiles} className="tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px text-text-3 transition-all active:scale-95 active:bg-bg-2/50 active:text-accent">
           <NavIcon d={icons.files} />
           <span className="text-[9px] leading-none">{t('nav.files')}</span>
         </button>
 
-        <button onClick={onOpenSearch} className="flex flex-col items-center gap-px text-text-3 active:text-accent active:scale-95 transition-all">
+        <button aria-label={t('nav.search')} onClick={onOpenSearch} className="tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px text-text-3 transition-all active:scale-95 active:bg-bg-2/50 active:text-accent">
           <NavIcon d={icons.search} />
           <span className="text-[9px] leading-none">{t('nav.search')}</span>
         </button>
 
-        <button onClick={onOpenSettings} aria-label={t('nav.settings')} className="flex flex-col items-center gap-px text-text-3 active:text-accent active:scale-95 transition-all relative">
+        <button onClick={onOpenSettings} aria-label={t('nav.settings')} className="tmuxgo-mobile-nav-button relative flex flex-col items-center justify-center gap-px text-text-3 transition-all active:scale-95 active:bg-bg-2/50 active:text-accent">
           <div className="relative">
             <NavIcon d={icons.settings} />
             <div className={`absolute -top-1 -right-1.5 w-2.5 h-2.5 rounded-full ${statusColor} ${isRecovering ? 'animate-pulse' : ''} border border-bg-1`} />

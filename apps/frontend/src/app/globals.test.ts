@@ -15,4 +15,12 @@ describe('globals.css terminal ime styles', () => {
     expect(visibleFullSizeSelectors).toContain('.xterm .xterm-helpers')
     expect(visibleFullSizeSelectors).toContain('.xterm .xterm-viewport')
   })
+  it('provides liquid glass fallbacks and accessibility modes', () => {
+    const css = readFileSync(join(process.cwd(), 'src/app/globals.css'), 'utf8')
+    expect(css).toContain('.tmuxgo-glass')
+    expect(css).toContain('-webkit-backdrop-filter: blur(var(--glass-blur))')
+    expect(css).toContain('@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)))')
+    expect(css).toContain('@media (prefers-reduced-transparency: reduce), (prefers-contrast: more), (forced-colors: active)')
+    expect(css).toContain('@media (prefers-reduced-motion: reduce)')
+  })
 })

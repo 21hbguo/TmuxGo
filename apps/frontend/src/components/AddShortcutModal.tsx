@@ -73,8 +73,8 @@ export function AddShortcutModal({ onSave, onClose, isMobile }: Props) {
   const toggleMod = (m: string) => setMods((prev) => ({ ...prev, [m]: !prev[m] }))
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
-      <div className="bg-bg-1 border border-[var(--line)] rounded-lg shadow-xl w-72 p-4" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35" onClick={onClose}>
+      <div className="tmuxgo-glass tmuxgo-glass-dialog w-72 rounded-lg border p-4" onClick={(e) => e.stopPropagation()}>
         <h3 className="text-text-1 text-sm font-medium mb-3">{t('shortcut.add')}</h3>
 
         <div className="space-y-3">

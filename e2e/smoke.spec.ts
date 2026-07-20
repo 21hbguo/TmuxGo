@@ -7,7 +7,7 @@ test('home page smoke flow', async ({ page }) => {
   await expect(page.getByText(/(Sessions|会话)/).first()).toBeVisible()
   await expect(page.getByRole('button', { name: /^(New|新建)$/ })).toBeVisible()
   await expect(page.locator('main').nth(1)).toBeVisible()
-  await expect(page.locator('header').getByRole('button', { name: '⚙' })).toBeVisible()
+  await expect(page.locator('header').getByRole('button', { name: /(Settings|设置)/ })).toBeVisible()
 })
 test('mobile viewport fits visible screen', async ({ browser, baseURL }) => {
   const context = await browser.newContext({
@@ -39,7 +39,8 @@ test('mobile viewport fits visible screen', async ({ browser, baseURL }) => {
   expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.innerWidth)
   expect(metrics.appHeight).toBeLessThanOrEqual(metrics.innerHeight)
   expect(metrics.scrollHeight).toBeLessThanOrEqual(metrics.innerHeight)
-  expect(Math.abs(metrics.navBottom - metrics.innerHeight)).toBeLessThanOrEqual(1)
+  expect(metrics.navBottom).toBeLessThanOrEqual(metrics.innerHeight)
+  expect(metrics.innerHeight - metrics.navBottom).toBeLessThanOrEqual(10)
   await context.close()
 })
 test('mobile stable page loads without application error', async ({ browser, baseURL }) => {

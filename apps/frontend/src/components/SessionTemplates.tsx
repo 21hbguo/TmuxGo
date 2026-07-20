@@ -141,8 +141,8 @@ export function SessionTemplates({ onSelect, onClose }: SessionTemplatesProps) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-bg-1 border border-[var(--line)] rounded-lg w-full max-w-[600px] max-h-[85vh] overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4">
+      <div className="tmuxgo-glass tmuxgo-glass-dialog max-h-[85vh] w-full max-w-[600px] overflow-hidden rounded-lg border">
         <div className="p-4 border-b border-[var(--line)]">
           <h2 className="text-text-1 text-lg font-medium">{t('templates.title')}</h2>
           <p className="text-text-3 text-sm mt-1">{t('templates.desc')}</p>
@@ -190,7 +190,7 @@ export function SessionTemplates({ onSelect, onClose }: SessionTemplatesProps) {
       </div>
       {showCustom && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4" onClick={handleCustomClose}>
-          <div className="w-full max-w-3xl max-h-[86vh] rounded-lg border border-[var(--line)] bg-bg-1 p-4 overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
+          <div className="tmuxgo-glass tmuxgo-glass-dialog flex max-h-[86vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border p-4" onClick={(e) => e.stopPropagation()}>
             <div className="text-lg text-text-1">{t('templates.custom')}</div>
             <div className="mt-1 text-sm text-text-3">{t('templates.customDesc')}</div>
             <div className="mt-4 min-h-0 flex-1 overflow-y-auto space-y-3 pr-1">
