@@ -14,7 +14,9 @@ const DEFERRED_INPUT_COMMIT_MS = 80
 const DELETE_REPEAT_DELAY_MS = 260
 const DELETE_REPEAT_INTERVAL_MS = 54
 const KEYBOARD_EVENT = 'mobile-keyboard-change'
-const isEdgeAndroid = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent) && /EdgA/i.test(navigator.userAgent)
+function isEdgeAndroid() {
+  return /Android/i.test(navigator.userAgent) && /EdgA/i.test(navigator.userAgent)
+}
 function isImeKeyEvent(e: KeyboardEvent) {
   return e.isComposing || e.key === 'Process' || e.keyCode === 229 || e.which === 229
 }
@@ -59,7 +61,7 @@ export function useMobileKeyboard(
   const viewportBaseHeightRef = useRef(0)
   const isMobile = useRef(isMobileDevice())
   const keyboardLog = useCallback((event: string, data?: unknown) => {
-    if (isEdgeAndroid) console.debug('[mobile-keyboard]', event, data || '')
+    if (isEdgeAndroid()) console.debug('[mobile-keyboard]', event, data || '')
   }, [])
   const getViewportInset = useCallback(() => {
     const vv = window.visualViewport
@@ -231,7 +233,7 @@ export function useMobileKeyboard(
     const vv = window.visualViewport
     if (vv?.height) viewportBaseHeightRef.current = vv.height
     const virtualKeyboard = (navigator as any).virtualKeyboard
-    if (virtualKeyboard) {
+    if (virtualKeyboard && !isEdgeAndroid()) {
       try {
         virtualKeyboard.overlaysContent = true
         virtualKeyboard.addEventListener?.('geometrychange', () => {
@@ -266,6 +268,7 @@ export function useMobileKeyboard(
         return
       }
       if (e.key === 'Backspace') {
+        if (isMobile.current) return
         e.preventDefault()
         if (!e.repeat) {
           sendInput('\x7f')
@@ -310,7 +313,7 @@ export function useMobileKeyboard(
           sendInput(text)
           clearValue()
         }
-      } else if (inputType?.startsWith('delete')) {
+      } else if (!isMobile.current && inputType?.startsWith('delete')) {
         e.preventDefault()
         sendInput('\x7f')
         clearValue()
@@ -456,10 +459,6 @@ export function useMobileKeyboard(
     if (!isMobile.current) return
 
     const handleViewportResize = () => {
-      if (isEdgeAndroid) {
-        keyboardLog('viewport-bypass')
-        return
-      }
       const vv = window.visualViewport
       if (!vv) return
       recordMobileDebug('keyboard-viewport-resize', { height: vv.height, baseHeight: viewportBaseHeightRef.current, active: document.activeElement === textareaRef.current, open: keyboardOpenRef.current })
