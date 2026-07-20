@@ -45,6 +45,7 @@ export function PaneGrid({ sessionId: controlledSessionId }: { sessionId?: strin
   const terminalReadyRef = useRef(false)
   const attachTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const attachRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const attachInFlightRef = useRef<string | null>(null)
   const pendingSwitchRef = useRef(false)
   const lastSessionRef = useRef<string | null>(sessionId || null)
   const inputQueueRef = useRef<string[]>([])
@@ -177,14 +178,21 @@ export function PaneGrid({ sessionId: controlledSessionId }: { sessionId?: strin
   }, [flushInputQueue])
   const attachNow = useCallback(() => {
     if (!targetSessionName || !isSocketReady || !terminalReadyRef.current) return
+    const attachKey = `${activeHostId || 'local'}:${targetSessionName}:${exclusive ? 'exclusive' : 'shared'}`
+    if (attachInFlightRef.current === attachKey) return
     const size = sizeRef.current
     clearAttachTimers()
+    attachInFlightRef.current = attachKey
     attachStartedAtRef.current = typeof performance !== 'undefined' ? performance.now() : Date.now()
     isSessionAttachedRef.current = false
     updateConnection({ status: 'attaching' })
     const sent = send({ type: 'attach', hostId: activeHostId || 'local', sessionName: targetSessionName, cols: size?.cols || 120, rows: size?.rows || 36, exclusive })
-    if (!sent) return
+    if (!sent) {
+      attachInFlightRef.current = null
+      return
+    }
     attachTimerRef.current = setTimeout(() => {
+      attachInFlightRef.current = null
       attachedRef.current = null
       sentResizeRef.current = null
       updateConnection({ status: 'attaching' })
@@ -228,6 +236,7 @@ export function PaneGrid({ sessionId: controlledSessionId }: { sessionId?: strin
     clearInputFlushTimer()
     clearContinuityTimer()
     attachedRef.current = null
+    attachInFlightRef.current = null
     isSessionAttachedRef.current = false
     sentResizeRef.current = null
     inputQueueRef.current = []
@@ -238,6 +247,7 @@ export function PaneGrid({ sessionId: controlledSessionId }: { sessionId?: strin
       clearInputFlushTimer()
       clearContinuityTimer()
       attachedRef.current = null
+      attachInFlightRef.current = null
       isSessionAttachedRef.current = false
       sentResizeRef.current = null
       flushResumePoint()
@@ -250,6 +260,7 @@ export function PaneGrid({ sessionId: controlledSessionId }: { sessionId?: strin
       clearInputFlushTimer()
       clearContinuityTimer()
       attachedRef.current = null
+      attachInFlightRef.current = null
       isSessionAttachedRef.current = false
       sentResizeRef.current = null
       if (terminalReadyRef.current) attachNow()
@@ -263,6 +274,7 @@ export function PaneGrid({ sessionId: controlledSessionId }: { sessionId?: strin
     if (!targetSessionName || !terminalReadyRef.current) return
       clearAttachTimers()
       attachedRef.current = null
+      attachInFlightRef.current = null
       isSessionAttachedRef.current = false
       sentResizeRef.current = null
       attachNow()
@@ -284,6 +296,7 @@ export function PaneGrid({ sessionId: controlledSessionId }: { sessionId?: strin
       if (detail.sessionName !== targetSessionName) return
       if ((detail.hostId || 'local') !== (activeHostId || 'local')) return
       clearAttachTimers()
+      attachInFlightRef.current = null
       attachedRef.current = targetSessionName
       isSessionAttachedRef.current = true
       if (pendingSessionIdRef.current && pendingSessionNameRef.current === detail.sessionName) {
@@ -312,6 +325,7 @@ export function PaneGrid({ sessionId: controlledSessionId }: { sessionId?: strin
       if ((detail.hostId || 'local') !== (activeHostId || 'local')) return
       if (detail.sessionName && detail.sessionName !== targetSessionName) return
       attachedRef.current = null
+      attachInFlightRef.current = null
       isSessionAttachedRef.current = false
       sentResizeRef.current = null
       clearAttachTimers()
@@ -327,6 +341,7 @@ export function PaneGrid({ sessionId: controlledSessionId }: { sessionId?: strin
       if ((detail.hostId || 'local') !== (activeHostId || 'local')) return
       if (detail.sessionName && detail.sessionName !== targetSessionName) return
       clearAttachTimers()
+      attachInFlightRef.current = null
       attachedRef.current = null
       isSessionAttachedRef.current = false
       sentResizeRef.current = null
@@ -415,7 +430,7 @@ export function PaneGrid({ sessionId: controlledSessionId }: { sessionId?: strin
     return () => clearInterval(timer)
   }, [flushResumePoint, isControlled, sessionContinuity.enabled, targetSessionName])
   useEffect(() => {
-    const handleOutput = (message: { data: string; sessionName?: string | null; hostId?: string | null }) => {
+    const handleOutput = (message: { data: string; sessionName?: string | null; hostId?: string | null; resync?: boolean }) => {
       if ((message.hostId || activeHostId || 'local') !== (activeHostId || 'local')) return
       if (message.sessionName && message.sessionName !== targetSessionName) return
       if (!message.data) return

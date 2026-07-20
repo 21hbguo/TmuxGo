@@ -6,6 +6,7 @@ import { execTmux } from '../lib/tmux-executor.js'
 
 const batchDeleteLimitDefault = 1000
 const batchDeleteLimitMax = 5000
+const thumbnailCaptureConcurrency = 3
 const emptySessionErrorMarkers = ['no server running', 'failed to connect to server', 'no sessions']
 type BatchDeleteMode = 'preview' | 'execute'
 interface HostTmuxSession {
@@ -155,11 +156,15 @@ async function getSessionThumbnails(hostId: string): Promise<SessionThumbnail[]>
     thumbnail.panes.push(pane)
     captures.push({ pane, target: paneId })
   }
-  await Promise.all(captures.map(async ({ pane, target }) => {
-    try {
-      const { stdout: data } = await execTmux(hostId, ['capture-pane', '-pt', target, '-p'])
-      pane.data = data
-    } catch {}
+  let captureIndex = 0
+  await Promise.all(Array.from({ length: Math.min(thumbnailCaptureConcurrency, captures.length) }, async () => {
+    while (captureIndex < captures.length) {
+      const { pane, target } = captures[captureIndex++]
+      try {
+        const { stdout: data } = await execTmux(hostId, ['capture-pane', '-pt', target, '-p'])
+        pane.data = data
+      } catch {}
+    }
   }))
   return sessions.map((session) => thumbnails.get(session.name)!).filter((thumbnail) => !!thumbnail.window)
 }

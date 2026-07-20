@@ -3,6 +3,7 @@ import { getNormalizedWindowMoves } from '../lib/template-utils.js'
 import { assertSessionAllowed, assertTargetAllowed } from '../lib/tmux-policy.js'
 import { buildSessionId, parseSessionRef } from '../lib/tmux-target.js'
 import { execTmux } from '../lib/tmux-executor.js'
+import { recordStreamMetric } from '../lib/perf-metrics.js'
 
 function parseSessionName(hostId: string, sessionRef: string) {
   return parseSessionRef(hostId, sessionRef).sessionName
@@ -63,6 +64,22 @@ async function getTmuxPanes(hostId: string, sessionName: string, windowIndex: nu
       }
     })
 }
+async function getTmuxSessionPanes(hostId: string, sessionName: string) {
+  assertSessionAllowed(sessionName)
+  const { stdout } = await execTmux(hostId, ['list-panes', '-s', '-t', sessionName, '-F', '#{pane_id}|#{window_id}|#{pane_index}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}|#{pane_left}|#{pane_top}|#{window_name}'])
+  return stdout.trim().split('\n').filter(Boolean).map((line) => line.split('|')).map(([id, windowId, index, title, active, width, height, left, top, windowName]) => ({
+    id: `${hostId}:${id}`,
+    tmuxPaneId: id,
+    windowId: `${hostId}:${windowId}`,
+    index: parseInt(index, 10),
+    title: title || 'shell',
+    active: active === '1',
+    left: parseInt(left, 10) || 0,
+    top: parseInt(top, 10) || 0,
+    size: { cols: parseInt(width, 10) || 80, rows: parseInt(height, 10) || 24 },
+    windowName,
+  }))
+}
 function parseWindowRef(hostId: string, windowRef: string) {
   if (!windowRef.startsWith(`${hostId}:`)) throw new Error('Window does not belong to host')
   const value = windowRef.slice(hostId.length + 1)
@@ -101,28 +118,13 @@ export async function windowRoutes(fastify: FastifyInstance) {
   fastify.get('/hosts/:hostId/sessions/:sessionId/panes', async (request) => {
     const { hostId, sessionId } = request.params as { hostId: string; sessionId: string }
     const sessionName = parseSessionName(hostId, sessionId)
-    const windows = await getTmuxWindows(hostId, sessionName)
-    const allPanesNested = await Promise.all(windows.map(async (window) => {
-      const panes = await getTmuxPanes(hostId, sessionName, window.index)
-      return panes.map((pane) => ({
-        ...pane,
-        windowName: window.name,
-      }))
-    }))
-    return allPanesNested.flat()
+    return getTmuxSessionPanes(hostId, sessionName)
   })
   fastify.get('/hosts/:hostId/sessions/:sessionId/snapshot', async (request) => {
     const { hostId, sessionId } = request.params as { hostId: string; sessionId: string }
     const sessionName = parseSessionName(hostId, sessionId)
-    const windows = await getTmuxWindows(hostId, sessionName)
-    const panesNested = await Promise.all(windows.map(async (window) => {
-      const panes = await getTmuxPanes(hostId, sessionName, window.index)
-      return panes.map((pane) => ({
-        ...pane,
-        windowName: window.name,
-      }))
-    }))
-    const panes = panesNested.flat()
+    recordStreamMetric('snapshotRequests')
+    const [windows, panes] = await Promise.all([getTmuxWindows(hostId, sessionName), getTmuxSessionPanes(hostId, sessionName)])
     const activeWindow = windows.find((window) => window.active) || windows[0] || null
     const activePane = panes.find((pane) => pane.windowId === activeWindow?.id && pane.active) || panes.find((pane) => pane.windowId === activeWindow?.id) || null
     return { sessionId: buildSessionId(hostId, sessionName), sessionName, windows, panes, activeWindowId: activeWindow?.id || null, activePaneId: activePane?.id || null }

@@ -94,7 +94,8 @@ test('mobile terminal stays within viewport and renders active session output', 
     const t = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
     if (!t?.cols || !t?.rows) return false
     for (let i = 0; i < Math.min(12, t?.buffer?.active?.length || 0); i += 1) {
-      if (t.buffer.active.getLine(i)?.translateToString(true).trim()) return true
+      const line = t.buffer.active.getLine(i)?.translateToString(true) || ''
+      if (line.includes('$') || line.includes('~') || line.includes('/')) return true
     }
     return false
   }, undefined, { timeout: 15000 })
