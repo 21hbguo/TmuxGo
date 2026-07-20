@@ -28,8 +28,8 @@ export function PromptDialog({ open, title, defaultValue = '', confirmLabel, can
 
   if (!open) return null
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4" onClick={onCancel}>
-      <div className="w-full max-w-md rounded-lg border border-[var(--line)] bg-bg-1 p-5" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4" onClick={onCancel}>
+      <div className="tmuxgo-glass tmuxgo-glass-dialog w-full max-w-md rounded-lg border p-5" onClick={(e) => e.stopPropagation()}>
         <div className="text-lg text-text-1">{title}</div>
         <input
           ref={inputRef}

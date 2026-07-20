@@ -158,8 +158,8 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-start justify-center pt-[10vh] z-50 p-4" onClick={close}>
-      <div className="bg-bg-1 border border-[var(--line)] rounded-lg w-full max-w-[500px] shadow-lg overflow-hidden" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/35 p-4 pt-[10vh]" onClick={close}>
+      <div className="tmuxgo-glass tmuxgo-glass-dialog w-full max-w-[500px] overflow-hidden rounded-lg border" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2 p-3 border-b border-[var(--line)]">
           <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="text-text-3 flex-shrink-0">
             <circle cx={11} cy={11} r={8} /><path d="m21 21-4.35-4.35" />

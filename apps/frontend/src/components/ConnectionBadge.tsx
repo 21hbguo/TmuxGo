@@ -33,7 +33,7 @@ export function ConnectionBadge() {
   const config = statusConfig[connection.status]
 
   return (
-    <div className="flex items-center gap-2 px-3 py-1.5 bg-bg-2 rounded-lg">
+    <div className="tmuxgo-glass-control flex h-9 items-center gap-2 rounded-full px-3">
       <div className="relative">
         <div className={`w-2 h-2 rounded-full ${config.color}`} />
         {config.pulse && (

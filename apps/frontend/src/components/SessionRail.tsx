@@ -8,6 +8,7 @@ import { ConfirmDialog } from './ConfirmDialog'
 import { useTranslation } from '@/i18n'
 import { usePrompt } from '@/hooks/usePrompt'
 import { SessionSortableList } from './SessionSortableList'
+import { FiChevronRight, FiEdit2, FiPlus, FiTrash2 } from 'react-icons/fi'
 
 export function SessionRail() {
   const activeSessionId = useConsoleStore((state) => state.activeSessionId)
@@ -83,8 +84,8 @@ export function SessionRail() {
   }, [])
   return (
     <>
-      <aside className="flex h-full w-[clamp(61px,9vw,109px)] shrink-0 flex-col border-r border-[var(--line)] bg-bg-1">
-        <button onClick={() => setSessionPanelExpanded(true)} className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--line)] px-3 text-left text-xs font-semibold text-text-3 hover:bg-bg-2 hover:text-text-1"><span>▸</span><span className="min-w-0 truncate">{t('sidebar.sessions')}</span></button>
+      <aside className="tmuxgo-material flex h-full w-[clamp(61px,9vw,109px)] shrink-0 flex-col border-r">
+        <button onClick={() => setSessionPanelExpanded(true)} className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--line)] px-3 text-left text-xs font-semibold text-text-3 hover:bg-bg-2/55 hover:text-text-1"><FiChevronRight aria-hidden="true" className="shrink-0" /><span className="min-w-0 truncate">{t('sidebar.sessions')}</span></button>
         <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2 scrollbar-none">
           {isError ? <button onClick={() => void refetch()} title={t('session.loadFailed')} className="flex h-10 w-full items-center justify-center rounded-lg bg-red-900/20 text-xs text-danger">{t('common.retry')}</button> : <SessionSortableList
             sessions={sessions}
@@ -111,20 +112,20 @@ export function SessionRail() {
           />}
         </div>
         <div className="shrink-0 border-t border-[var(--line)] p-2">
-          <button onClick={() => setShowTemplates(true)} className="flex h-10 w-full items-center justify-center rounded-lg bg-bg-2 text-sm text-accent hover:text-text-1">+</button>
+          <button aria-label={t('sidebar.newSession')} title={t('sidebar.newSession')} onClick={() => setShowTemplates(true)} className="tmuxgo-icon-button tmuxgo-glass-control flex h-10 w-full items-center justify-center rounded-lg text-sm text-accent hover:text-text-1"><FiPlus aria-hidden="true" size={17} /></button>
         </div>
       </aside>
       {showTemplates && <SessionTemplates onSelect={handleTemplateSelect} onClose={() => setShowTemplates(false)} />}
       {contextMenu && (
         <div className="fixed z-[90] w-40 overflow-hidden rounded-lg border border-[var(--line)] bg-bg-1 py-1 text-xs shadow-lg" style={{ left: contextMenu.x, top: contextMenu.y }} onClick={(e) => e.stopPropagation()}>
           <button onClick={() => { setSessionPanelExpanded(true); setContextMenu(null) }} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-text-2 hover:bg-bg-2 hover:text-text-1">
-            <span className="text-[10px]">▸</span>{t('sidebar.sessions')}
+            <FiChevronRight aria-hidden="true" size={13} />{t('sidebar.sessions')}
           </button>
           <button onClick={() => { void handleRenameSession(contextMenu.sessionId); setContextMenu(null) }} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-text-2 hover:bg-bg-2 hover:text-text-1">
-            <span className="text-[10px]">✎</span>{t('sidebar.renameSession')}
+            <FiEdit2 aria-hidden="true" size={13} />{t('sidebar.renameSession')}
           </button>
           <button onClick={() => { setPendingDeleteSessionId(contextMenu.sessionId); setContextMenu(null) }} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-danger hover:bg-red-900/20">
-            <span className="text-[10px]">×</span>{t('sidebar.deleteSession')}
+            <FiTrash2 aria-hidden="true" size={13} />{t('sidebar.deleteSession')}
           </button>
         </div>
       )}

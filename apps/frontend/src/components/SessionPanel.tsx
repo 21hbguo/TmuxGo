@@ -111,7 +111,7 @@ export function SessionPanel() {
   }, [sessions])
   return (
     <>
-      <div className="flex h-full min-h-0 flex-col bg-bg-1">
+      <div className="flex h-full min-h-0 flex-col bg-transparent">
         <div className="border-b border-[var(--line)] px-3 py-2">
           <HostSwitcher />
           <div className="mt-2 flex items-center justify-between">

@@ -156,8 +156,8 @@ export function UploadConfirmDialog() {
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/60 p-4" onClick={handleCancel}>
-      <div className="w-full max-w-2xl rounded-lg border border-[var(--line)] bg-bg-1 p-5" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/40 p-4" onClick={handleCancel}>
+      <div className="tmuxgo-glass tmuxgo-glass-dialog w-full max-w-2xl rounded-lg border p-5" onClick={(e) => e.stopPropagation()}>
         <div className="text-lg text-text-1">{t('upload.title')}</div>
         <div className="mt-2 flex flex-wrap gap-2 text-xs text-text-3">
           <div className="rounded bg-bg-2 px-2 py-1">{t('upload.file', { count: files.length })}</div>

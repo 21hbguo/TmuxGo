@@ -517,19 +517,19 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   }, [isMobile])
 
   return (
-    <div className="flex w-screen flex-col overflow-hidden" style={{ height: appHeight, ['--app-height' as any]: appHeight }}>
+    <div className="tmuxgo-app-shell flex w-screen flex-col overflow-hidden" style={{ height: appHeight, ['--app-height' as any]: appHeight }}>
       <InstallAppBanner />
       {!isMobile && <TopBar />}
       <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
-        <main data-workspace-main className="flex flex-1 min-h-0 min-w-0 flex-col bg-bg-1">
+        <main data-workspace-main className="tmuxgo-workspace-main flex min-h-0 min-w-0 flex-1 flex-col">
           {isMobile ? <PaneGrid /> : <DesktopWorkbench />}
         </main>
       </div>
       {!isMobile && preferences.showStatusBar && <StatusBar />}
       {isMobile && (
-        <div data-mobile-dock className="mobile-nav-landscape-hide relative z-40 w-full shrink-0">
+        <div data-mobile-dock className="tmuxgo-glass tmuxgo-mobile-dock mobile-nav-landscape-hide relative z-40 w-auto shrink-0">
           {mobileQuickSessions.length > 0 && (
-            <div className="border-t border-[var(--line)] bg-bg-1/96 px-2 pt-1.5 pb-1 backdrop-blur">
+            <div className="tmuxgo-mobile-session-strip border-b px-2 pb-1 pt-1.5">
               <div className="flex gap-1 overflow-x-auto scrollbar-none">
                 {mobileQuickSessions.map((session: any) => {
                   const active = session.id === activeSessionId
@@ -560,7 +560,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
                         }
                         setActiveSession(session.id)
                       }}
-                      className={`min-w-0 shrink-0 rounded-lg border px-3 py-1.5 text-xs transition-colors ${active ? 'border-accent bg-accent/18 text-accent' : 'border-[var(--line)] bg-bg-2/80 text-text-2 active:bg-bg-2'}`}
+                      className={`min-w-0 shrink-0 rounded-lg border px-3 py-1.5 text-xs transition-colors ${active ? 'border-accent/45 bg-accent/18 text-accent shadow-[inset_0_1px_0_rgb(255_255_255/0.1)]' : 'border-text-1/10 bg-bg-2/45 text-text-2 active:bg-bg-2'}`}
                     >
                       <span className="block max-w-[22vw] truncate">{mobilePinnedSessionIds.includes(session.id) ? `★ ${session.name}` : session.name}</span>
                     </button>
@@ -581,7 +581,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       {showSettings && <Settings onClose={dismissSettings} />}
       {mobileSessionMenu && (
         <div className="fixed inset-0 z-[85] bg-black/40" onClick={() => setMobileSessionMenuId(null)}>
-          <div className="absolute bottom-0 left-0 right-0 rounded-t-2xl border-t border-[var(--line)] bg-bg-1 p-3" onClick={(e) => e.stopPropagation()}>
+          <div className="tmuxgo-glass tmuxgo-glass-dialog absolute bottom-0 left-0 right-0 rounded-t-2xl border-t p-3" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-center pb-2"><div className="h-1 w-10 rounded-full bg-text-3/30" /></div>
             <div className="px-1 pb-2 text-sm text-text-1">{mobileSessionMenu.name}</div>
             <button onClick={() => { togglePinnedQuickSession(mobileSessionMenu.id); setMobileSessionMenuId(null) }} className="block w-full rounded-lg px-3 py-3 text-left text-sm text-text-1 hover:bg-bg-2">{mobileSessionPinned ? t('mobile.quickSessionUnpin') : t('mobile.quickSessionPin')}</button>
@@ -601,7 +601,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
         onClose={() => closeOverlay('drawer')}
         type={drawerType}
       />
-      {mobileFileSheetOpen && <div className="fixed left-0 right-0 top-0 z-50 bg-black/50" style={{ height: 'var(--app-height,100dvh)' }}><div className="absolute bottom-0 left-0 right-0 flex h-[75%] flex-col overflow-hidden rounded-t-xl border-t border-[var(--line)] bg-bg-1"><div className="flex shrink-0 justify-center py-2"><div className="h-1 w-10 rounded-full bg-text-3/30" /></div><div className="min-h-0 flex-1"><FilePanel mode="mobile" onClose={() => closeOverlay('mobile-files')} /></div></div></div>}
+      {mobileFileSheetOpen && <div className="fixed left-0 right-0 top-0 z-50 bg-black/40" style={{ height: 'var(--app-height,100dvh)' }}><div className="tmuxgo-material absolute bottom-0 left-0 right-0 flex h-[75%] flex-col overflow-hidden rounded-t-xl border-t"><div className="flex shrink-0 justify-center py-2"><div className="h-1 w-10 rounded-full bg-text-3/30" /></div><div className="min-h-0 flex-1"><FilePanel mode="mobile" onClose={() => closeOverlay('mobile-files')} /></div></div></div>}
       <ToastViewport />
       {PromptElement}
     </div>

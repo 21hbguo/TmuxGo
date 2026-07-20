@@ -72,7 +72,7 @@ export function TerminalDock({ fill=false,minHeight=180,maxHeight=540,dragViewpo
     setTerminalPanelHeight(maxHeight)
   }
   return (
-    <section ref={panelRef} className={`bg-bg-1 ${fill ? 'relative flex h-full min-h-0 flex-1 flex-col' : 'relative shrink-0 border-t border-[var(--line)]'}`} style={fill ? undefined : { height: panelHeight }}>
+    <section ref={panelRef} className={`tmuxgo-content-surface ${fill ? 'relative flex h-full min-h-0 flex-1 flex-col' : 'relative shrink-0 border-t border-[var(--line)]'}`} style={fill ? undefined : { height: panelHeight }}>
       {!fill && <div className="absolute left-0 right-0 top-0 z-10 h-1 cursor-row-resize hover:bg-accent/50" onMouseDown={handleMouseDown} onDoubleClick={handleDoubleClick} />}
       <div className="flex h-full min-h-0 flex-col">
         <div className="flex items-center justify-between border-b border-[var(--line)] px-3 py-2">

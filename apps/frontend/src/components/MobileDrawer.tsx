@@ -223,12 +223,12 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
   return (
     <div className="fixed left-0 right-0 top-0 z-50" style={{ height: 'var(--app-height,100dvh)' }}>
       <div
-        className={`absolute inset-0 bg-black/50 transition-opacity duration-200 ${closing ? 'opacity-0' : 'opacity-100'}`}
+        className={`absolute inset-0 bg-black/35 transition-opacity duration-200 ${closing ? 'opacity-0' : 'opacity-100'}`}
         onClick={handleClose}
       />
       <div
         ref={panelRef}
-        className={`absolute bottom-0 left-0 right-0 flex max-h-[75%] flex-col overflow-hidden rounded-t-xl border-t border-[var(--line)] bg-bg-1 transition-transform duration-200 ease-out ${closing ? 'translate-y-full' : ''}`}
+        className={`tmuxgo-material absolute bottom-0 left-0 right-0 flex max-h-[75%] flex-col overflow-hidden rounded-t-2xl border-t transition-transform duration-200 ease-out ${closing ? 'translate-y-full' : ''}`}
         style={{ paddingBottom: 'env(safe-area-inset-bottom,0px)' }}
       >
         <div className="flex justify-center py-2 touch-none" onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd} onTouchCancel={handleTouchEnd}>
