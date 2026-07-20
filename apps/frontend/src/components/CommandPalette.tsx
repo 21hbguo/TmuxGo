@@ -36,7 +36,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
   const { data: windows = [] } = useWindows(activeHostId || '', activeSessionId || '')
   const { getWindows, setWindows } = useWindowQueryState(activeHostId || '', activeSessionId || '')
   const { t } = useTranslation()
-  const { refreshSnapshot, resolveActivePaneId, resolveFreshActivePaneId, syncAfterWindowChange, optimisticallyToggleWindowZoom } = useSessionSnapshotSync()
+  const { refreshSnapshot, resolveActivePaneId, resolveFreshActivePaneId, syncAfterWindowChange, optimisticallyToggleWindowZoom, discardOptimisticWindowZoom } = useSessionSnapshotSync()
   const refreshSnapshotSafely = async () => {
     try {
       await refreshSnapshot()
@@ -95,6 +95,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
         await refreshSnapshotSafely()
         window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'zoom-pane' } }))
       } catch (err) {
+        discardOptimisticWindowZoom(paneId)
         await refreshSnapshotSafely()
         throw err
       }

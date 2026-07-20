@@ -107,6 +107,16 @@ describe('useMobileKeyboard', () => {
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(events).toEqual([])
   })
+  it('uses visual viewport resize for Edge Android keyboards', async () => {
+    Object.defineProperty(window.navigator, 'userAgent', { configurable: true, value: 'Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 Chrome/138.0.0.0 Mobile Safari/537.36 EdgA/138.0.0.0' })
+    render(<Harness />)
+    await waitFor(() => expect(api.focusKeyboard).toBeTruthy())
+    api.focusKeyboard?.()
+    ;(window.visualViewport as any).height = 520
+    window.visualViewport?.dispatchEvent(new Event('resize'))
+    expect(document.body.classList.contains('keyboard-open')).toBe(true)
+    expect(document.documentElement.style.getPropertyValue('--mobile-keyboard-inset')).toBe('280px')
+  })
   it('keeps composition text until compositionend', async () => {
     render(<Harness />)
     await waitFor(() => expect(api.textarea).toBeTruthy())
@@ -141,15 +151,15 @@ describe('useMobileKeyboard', () => {
   it('repeats backspace while the mobile keyboard delete key is held', async () => {
     render(<Harness />)
     await waitFor(() => expect(api.textarea).toBeTruthy())
-    vi.useFakeTimers()
     const textarea = api.textarea as HTMLTextAreaElement
-    fireEvent.keyDown(textarea, { key: 'Backspace' })
-    expect(sendInputMock).toHaveBeenCalledTimes(1)
-    act(() => vi.advanceTimersByTime(320))
-    expect(sendInputMock).toHaveBeenCalledTimes(2)
-    fireEvent.keyUp(textarea, { key: 'Backspace' })
-    act(() => vi.runOnlyPendingTimers())
-    expect(sendInputMock).toHaveBeenCalledTimes(2)
+    act(() => {
+      const beforeInput = new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'deleteContentBackward' })
+      expect(textarea.dispatchEvent(beforeInput)).toBe(true)
+      textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' }))
+      textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' }))
+      textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' }))
+    })
+    expect(sendInputMock).toHaveBeenCalledTimes(3)
   })
   it('does not flush raw composition text as english when compositionstart is missing', async () => {
     render(<Harness />)

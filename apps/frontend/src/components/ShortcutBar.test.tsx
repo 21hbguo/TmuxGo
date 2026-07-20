@@ -190,6 +190,25 @@ describe('ShortcutBar', () => {
     })
     expect(killPane).toHaveBeenCalledWith('local:%3')
   })
+  it('uses the latest pane when closing through a standard click', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    queryClient.setQueryData(['session-snapshot', 'local', 'session-dev'], { windows: [], panes: [{ id: 'local:%old', active: true }], activePaneId: 'local:%old' })
+    snapshotGet.mockResolvedValue({ windows: [], panes: [{ id: 'local:%4', active: true }], activePaneId: 'local:%4' })
+    killPane.mockResolvedValue({ ok: true })
+    render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(I18nProvider, null, React.createElement(ShortcutBar))))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '删面板' }))
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(screen.getByText('确认')).toBeTruthy()
+    await act(async () => {
+      fireEvent.click(screen.getByText('确认'))
+      await Promise.resolve()
+    })
+    expect(killPane).toHaveBeenCalledWith('local:%4')
+  })
   it('tracks expected zoom state across clicks so stale cached snapshot does not desync from tmux', async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
     const cachedSnapshot = {

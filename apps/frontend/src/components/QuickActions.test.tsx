@@ -30,7 +30,7 @@ vi.mock('@/hooks/useCustomShortcuts', () => ({
   keysToEscape: vi.fn(() => ''),
 }))
 vi.mock('@/hooks/useSessionSnapshotSync', () => ({
-  useSessionSnapshotSync: () => ({ refreshSnapshot: vi.fn(), resolveActivePaneId: vi.fn(async () => '%1'), resolveFreshActivePaneId: vi.fn(async () => '%1'), optimisticallyToggleWindowZoom: vi.fn() }),
+  useSessionSnapshotSync: () => ({ refreshSnapshot: vi.fn(), resolveActivePaneId: vi.fn(async () => '%1'), resolveFreshActivePaneId: vi.fn(async () => '%1'), optimisticallyToggleWindowZoom: vi.fn(), discardOptimisticWindowZoom: vi.fn() }),
 }))
 vi.mock('@/hooks/useWindowQueryState', () => ({
   useWindowQueryState: () => ({ setWindows: vi.fn() }),

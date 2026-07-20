@@ -44,7 +44,7 @@ function useQuickActionController() {
   const activeWindow=useMemo(()=>windowsData.find((w:any)=>w.active)||windowsData[0]||null,[windowsData])
   const canSplit=!!activeSessionId&&!!activeWindow&&!pendingDirection
   const { send }=useWebSocket()
-  const { refreshSnapshot, resolveActivePaneId, resolveFreshActivePaneId, optimisticallyToggleWindowZoom } = useSessionSnapshotSync()
+  const { refreshSnapshot, resolveFreshActivePaneId, optimisticallyToggleWindowZoom, discardOptimisticWindowZoom } = useSessionSnapshotSync()
   const { shortcuts,addShortcut,removeShortcut }=useCustomShortcuts()
   const [showModal,setShowModal]=useState(false)
   const [isMobile,setIsMobile]=useState(false)
@@ -57,6 +57,7 @@ function useQuickActionController() {
   const repeatIntervalRef=useRef<ReturnType<typeof setInterval>|null>(null)
   const pointerStateRef=useRef({id:-1,x:0,y:0,moved:false,pointerType:'',repeatFired:false})
   const dockScrollRef=useRef({pointerId:-1,startScrollLeft:0,scrolling:false,suppressUntil:0})
+  const skipDockClickRef=useRef(false)
 
   useEffect(()=>{
     const check=()=>setIsMobile(window.innerWidth<1024)
@@ -210,7 +211,7 @@ function useQuickActionController() {
   },[pushToast])
   const handlePaste=useCallback(()=>window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-paste')),[])
   const handleKillPane=useCallback(async()=>{
-    const paneId=await resolveActivePaneId()
+    const paneId=await resolveFreshActivePaneId()
     if(!paneId){
       pushToast({ type:'error',message:t('pane.noActive') })
       return
@@ -218,7 +219,7 @@ function useQuickActionController() {
     useConsoleStore.setState({ activePaneId:paneId })
     setPendingKillPaneId(paneId)
     setConfirmKillOpen(true)
-  },[pushToast,resolveActivePaneId,t])
+  },[pushToast,resolveFreshActivePaneId,t])
   const confirmKillPane=useCallback(async()=>{
     const paneId=pendingKillPaneId||await resolveFreshActivePaneId()
     if(!paneId){
@@ -248,10 +249,13 @@ function useQuickActionController() {
       await refreshSnapshotSafely()
       window.dispatchEvent(new CustomEvent('tmuxgo-layout-change',{ detail:{ reason:'zoom-pane' } }))
     }catch(err){
-      if(paneId)await refreshSnapshotSafely()
+      if(paneId){
+        discardOptimisticWindowZoom(paneId)
+        await refreshSnapshotSafely()
+      }
       pushToast({ type:'error',message:err instanceof Error?err.message:t('pane.zoomFailed') })
     }
-  },[optimisticallyToggleWindowZoom,pushToast,refreshSnapshotSafely,resolveFreshActivePaneId,t])
+  },[discardOptimisticWindowZoom,optimisticallyToggleWindowZoom,pushToast,refreshSnapshotSafely,resolveFreshActivePaneId,t])
   const handleOpenNewWindowPrompt=useCallback(()=>{
     if(!activeHostId||!activeSessionId){
       pushToast({ type:'error',message:t('window.createMissingSession') })
@@ -323,7 +327,7 @@ function useQuickActionController() {
     return [...mapped,...shortcuts.filter((item)=>!seen.has(item.id))]
   },[recentDockShortcutKeys,shortcuts])
 
-  return { t,shortcuts,recentShortcutButtons,addShortcut,removeShortcut,showModal,setShowModal,isMobile,confirmKillOpen,setConfirmKillOpen,pendingKillPaneId,setPendingKillPaneId,confirmKillPane,newWindowPromptOpen,setNewWindowPromptOpen,newWindowName,setNewWindowName,confirmCreateWindow,sendKey,trackDockShortcutUse,startRepeat,armTouchRepeat,stopRepeat,preventFocus,startPointer,startDockGesture,trackDockScroll,finishDockGesture,isDockScrollBlocked,trackPointer,finishPointer,pointerStateRef,primaryButtons,attachButton,dockCoreButtons }
+  return { t,shortcuts,recentShortcutButtons,addShortcut,removeShortcut,showModal,setShowModal,isMobile,confirmKillOpen,setConfirmKillOpen,pendingKillPaneId,setPendingKillPaneId,confirmKillPane,newWindowPromptOpen,setNewWindowPromptOpen,newWindowName,setNewWindowName,confirmCreateWindow,sendKey,trackDockShortcutUse,startRepeat,armTouchRepeat,stopRepeat,preventFocus,startPointer,startDockGesture,trackDockScroll,finishDockGesture,isDockScrollBlocked,trackPointer,finishPointer,pointerStateRef,skipDockClickRef,primaryButtons,attachButton,dockCoreButtons }
 }
 
 function getDockClass(def:ActionButtonDef){
@@ -347,9 +351,22 @@ function renderPanelButton(def:ActionButtonDef,controller:ReturnType<typeof useQ
   return <button key={def.key} onPointerDown={preventFocus} onClick={()=>{ if(def.disabled)return; if(def.onPress)return def.onPress(); if(def.data)sendKey(def.data) }} className={getPanelClass(def)} disabled={def.disabled}>{def.label}</button>
 }
 
+function triggerDockButton(def:ActionButtonDef,controller:ReturnType<typeof useQuickActionController>){
+  if(def.disabled)return
+  if(def.onPress){
+    controller.trackDockShortcutUse(def.key)
+    void def.onPress()
+    return
+  }
+  if(def.data){
+    controller.sendKey(def.data)
+    controller.trackDockShortcutUse(def.key)
+  }
+}
+
 function renderDockButton(def:ActionButtonDef,controller:ReturnType<typeof useQuickActionController>){
-  const { sendKey,trackDockShortcutUse,startRepeat,armTouchRepeat,preventFocus,startPointer,trackPointer,finishPointer,finishDockGesture,isDockScrollBlocked,pointerStateRef }=controller
-  return <button key={def.key} type="button" tabIndex={-1} className={getDockClass(def)} onPointerDown={(e)=>{ preventFocus(e); startPointer(e); if(def.disabled)return; if(def.repeat&&def.data){ if(e.pointerType!=='mouse'){ armTouchRepeat(def.data); return } startRepeat(def.data); return } }} onPointerMove={trackPointer} onPointerUp={(e)=>{ const { moved,pointerType,repeatFired }=pointerStateRef.current; const blocked=isDockScrollBlocked(); finishPointer(); finishDockGesture(e.pointerId); if(moved||blocked||def.disabled)return; if(def.repeat&&def.data){ if(pointerType!=='mouse'){ if(!repeatFired){ sendKey(def.data); trackDockShortcutUse(def.key) } return } return } if(def.onPress){ trackDockShortcutUse(def.key); void def.onPress(); return } if(def.data){ sendKey(def.data); trackDockShortcutUse(def.key) } }} onPointerLeave={finishPointer} onPointerCancel={(e)=>{ finishPointer(); finishDockGesture(e.pointerId) }}>{def.label}</button>
+  const { startRepeat,armTouchRepeat,preventFocus,startPointer,trackPointer,finishPointer,finishDockGesture,isDockScrollBlocked,pointerStateRef,skipDockClickRef }=controller
+  return <button key={def.key} type="button" tabIndex={-1} className={getDockClass(def)} onPointerDown={(e)=>{ skipDockClickRef.current=false; preventFocus(e); startPointer(e); if(def.disabled)return; if(def.repeat&&def.data){ if(e.pointerType!=='mouse'){ armTouchRepeat(def.data); return } startRepeat(def.data); return } }} onPointerMove={trackPointer} onPointerUp={(e)=>{ const { moved,pointerType,repeatFired }=pointerStateRef.current; const blocked=isDockScrollBlocked(); skipDockClickRef.current=true; setTimeout(()=>{ skipDockClickRef.current=false },0); finishPointer(); finishDockGesture(e.pointerId); if(moved||blocked||def.disabled)return; if(def.repeat&&def.data){ if(pointerType!=='mouse'&&!repeatFired)triggerDockButton(def,controller); return } triggerDockButton(def,controller) }} onClick={()=>{ if(skipDockClickRef.current)return; triggerDockButton(def,controller) }} onPointerLeave={finishPointer} onPointerCancel={(e)=>{ finishPointer(); finishDockGesture(e.pointerId) }}>{def.label}</button>
 }
 
 export function QuickActions({ mode='panel' }:{ mode?:QuickActionsMode }){
