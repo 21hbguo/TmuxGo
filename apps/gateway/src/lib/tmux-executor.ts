@@ -9,6 +9,7 @@ const execFileAsync = promisify(execFile)
 const defaultTimeoutMs = 30000
 const sshCheckTimeoutMs = 5000
 const sshReadyTimeoutMs = 12000
+let sshPassAvailable: boolean | null = null
 const knownAuthMarkers = ['Permission denied', 'Permission denied (publickey', 'Permission denied (publickey,password', 'Permission denied (password']
 const knownHostKeyMarkers = ['Host key verification failed', 'REMOTE HOST IDENTIFICATION HAS CHANGED', 'fingerprint']
 const knownTimeoutMarkers = ['Connection timed out', 'Operation timed out', 'No route to host']
@@ -59,12 +60,14 @@ function buildPasswordEnv(host: HostRecord) {
   }
 }
 async function hasSshPass() {
+  if (sshPassAvailable !== null) return sshPassAvailable
   try {
     await execFileAsync('sshpass', ['-V'])
-    return true
+    sshPassAvailable = true
   } catch {
-    return false
+    sshPassAvailable = false
   }
+  return sshPassAvailable
 }
 function parseHostInput(hostIdRaw: string) {
   const hostId = hostIdRaw.trim()
