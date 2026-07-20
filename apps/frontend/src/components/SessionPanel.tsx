@@ -22,7 +22,7 @@ export function SessionPanel() {
   const setActiveSession = useConsoleStore((state) => state.setActiveSession)
   const activeHostId = useConsoleStore((state) => state.activeHostId)
   const pushToast = useConsoleStore((state) => state.pushToast)
-  const { data: sessions = [], moveSession } = useOrderedSessions(activeHostId || '')
+  const { data: sessions = [], moveSession, isError, error, refetch } = useOrderedSessions(activeHostId || '')
   const createSession = useCreateSession()
   const deleteSession = useDeleteSession()
   const batchDeleteSessions = useBatchDeleteSessions()
@@ -134,7 +134,7 @@ export function SessionPanel() {
           </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <SessionSortableList
+          {isError ? <div className="p-3 text-xs text-danger"><div className="break-words">{error instanceof Error ? error.message : t('session.loadFailed')}</div><button onClick={() => void refetch()} className="mt-2 rounded bg-bg-2 px-2 py-1 text-accent hover:text-text-1">{t('common.retry')}</button></div> : <SessionSortableList
             sessions={sessions}
             onMove={moveSession}
             listClassName="min-h-full"
@@ -150,7 +150,7 @@ export function SessionPanel() {
                 {!batchMode && <button onClick={() => setPendingDeleteSessionId(session.id)} className="rounded px-1.5 py-1 text-[11px] text-text-3 hover:bg-bg-0 hover:text-danger" aria-label={t('sidebar.deleteSession')} title={t('sidebar.deleteSession')}>×</button>}
               </div>
             )}
-          />
+          />}
         </div>
         {preferences.showQuickActions && <div className="border-t border-[var(--line)] p-3"><div className="mb-2 text-[10px] uppercase tracking-[0.18em] text-text-3">{t('sidebar.quickActions')}</div><QuickActions /></div>}
       </div>

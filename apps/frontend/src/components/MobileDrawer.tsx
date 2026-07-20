@@ -37,7 +37,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
   const setActiveSession = useConsoleStore((state) => state.setActiveSession)
   const activeHostId = useConsoleStore((state) => state.activeHostId)
   const pushToast = useConsoleStore((state) => state.pushToast)
-  const { data: sessions = [], moveSession } = useOrderedSessions(activeHostId || '')
+  const { data: sessions = [], moveSession, isError: sessionsError, error: sessionsErrorValue, refetch: refetchSessions } = useOrderedSessions(activeHostId || '')
   const { data: windowsData = [] } = useWindows(activeHostId || '', activeSessionId || '')
   const { getWindows, setWindows } = useWindowQueryState(activeHostId || '', activeSessionId || '')
   const createSession = useCreateSession()
@@ -261,7 +261,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
                 <button onClick={() => setSelectedSessionIds([])} className="rounded-lg bg-bg-2 px-2 py-2 text-xs text-text-3 active:bg-bg-0">{t('sidebar.batchClearAll')}</button>
                 <button onClick={() => setBatchDeleteConfirmOpen(true)} disabled={!selectedSessionIds.length} className="rounded-lg bg-red-900/30 px-2 py-2 text-xs text-red-300 active:bg-red-900/50 disabled:cursor-not-allowed disabled:opacity-50">{t('sidebar.batchDeleteSelected')}</button>
               </div>}
-              <SessionSortableList
+              {sessionsError ? <div className="rounded-lg bg-bg-2 p-3 text-xs text-danger"><div className="break-words">{sessionsErrorValue instanceof Error ? sessionsErrorValue.message : t('session.loadFailed')}</div><button onClick={() => void refetchSessions()} className="mt-2 rounded bg-bg-1 px-2 py-1 text-accent">{t('common.retry')}</button></div> : <SessionSortableList
                 sessions={sessions}
                 onMove={moveSession}
                 listClassName="space-y-2"
@@ -286,7 +286,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
                     </div>}
                   </div>
                 )}
-              />
+              />}
             </div>
           )}
           {type === 'panes' && (

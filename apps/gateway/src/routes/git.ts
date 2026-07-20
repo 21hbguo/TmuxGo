@@ -22,8 +22,8 @@ function mapStatusCode(code: string): GitFileChange['status'] {
   }
 }
 
-function parsePorcelainV2(stdout: string) {
-  const lines = stdout.split('\n')
+export function parsePorcelainV2(stdout: string) {
+  const records = stdout.split('\0')
   let branch = ''
   let ahead = 0
   let behind = 0
@@ -32,7 +32,9 @@ function parsePorcelainV2(stdout: string) {
   const untracked: string[] = []
   const conflicted: GitFileChange[] = []
 
-  for (const line of lines) {
+  for (let i = 0; i < records.length; i++) {
+    const line = records[i]
+    if (!line) continue
     if (line.startsWith('# branch.head ')) {
       branch = line.slice(14)
     } else if (line.startsWith('# branch.ab ')) {
@@ -56,9 +58,8 @@ function parsePorcelainV2(stdout: string) {
     } else if (line.startsWith('2 ')) {
       const parts = line.split(' ')
       const xy = parts[1]
-      const subParts = parts.slice(8).join(' ').split('\t')
-      const oldPath = subParts[0]
-      const filePath = subParts[1] || oldPath
+      const filePath = parts.slice(9).join(' ')
+      const oldPath = records[++i] || filePath
       const indexStatus = xy[0]
       const worktreeStatus = xy[1]
       if (indexStatus !== '.') {
@@ -69,7 +70,7 @@ function parsePorcelainV2(stdout: string) {
       }
     } else if (line.startsWith('u ')) {
       const parts = line.split(' ')
-      const filePath = parts.slice(8).join(' ').split('\t')[0]
+      const filePath = parts.slice(10).join(' ')
       conflicted.push({ path: filePath, status: 'unmerged', staged: false })
     } else if (line.startsWith('? ')) {
       untracked.push(line.slice(2))
@@ -151,7 +152,7 @@ export async function gitRoutes(fastify: FastifyInstance) {
     const { hostId } = request.params as { hostId: string }
     const { path: repoPath } = request.query as { path?: string }
     if (!repoPath) throw new Error('Missing path parameter')
-    const { stdout } = await execGit(hostId, ['status', '--porcelain=v2', '--branch'], repoPath)
+    const { stdout } = await execGit(hostId, ['status', '--porcelain=v2', '--branch', '-z'], repoPath)
     return parsePorcelainV2(stdout)
   })
 

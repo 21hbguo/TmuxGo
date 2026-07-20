@@ -432,8 +432,8 @@ describe('TerminalPane', () => {
       activeWindowId: '@1',
       windows: [{ id: '@1', index: 0, active: true }],
       panes: [
-        { id: '%1', windowId: 'dev:0', left: 0, top: 0, size: { cols: 12, rows: 10 } },
-        { id: '%2', windowId: 'dev:0', left: 13, top: 0, size: { cols: 12, rows: 10 } },
+        { id: '%1', windowId: '@1', left: 0, top: 0, size: { cols: 12, rows: 10 } },
+        { id: '%2', windowId: '@1', left: 13, top: 0, size: { cols: 12, rows: 10 } },
       ],
     })
     const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
@@ -468,8 +468,8 @@ describe('TerminalPane', () => {
       activeWindowId: '@1',
       windows: [{ id: '@1', index: 0, active: true }],
       panes: [
-        { id: '%1', windowId: 'dev:0', left: 0, top: 0, size: { cols: 12, rows: 10 } },
-        { id: '%2', windowId: 'dev:0', left: 13, top: 0, size: { cols: 12, rows: 10 } },
+        { id: '%1', windowId: '@1', left: 0, top: 0, size: { cols: 12, rows: 10 } },
+        { id: '%2', windowId: '@1', left: 13, top: 0, size: { cols: 12, rows: 10 } },
       ],
     })
     const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
@@ -488,8 +488,8 @@ describe('TerminalPane', () => {
       activeWindowId: '@1',
       windows: [{ id: '@1', index: 0, active: true }],
       panes: [
-        { id: '%1', windowId: 'dev:0', left: 0, top: 0, size: { cols: 12, rows: 10 } },
-        { id: '%2', windowId: 'dev:0', left: 13, top: 0, size: { cols: 12, rows: 10 } },
+        { id: '%1', windowId: '@1', left: 0, top: 0, size: { cols: 12, rows: 10 } },
+        { id: '%2', windowId: '@1', left: 13, top: 0, size: { cols: 12, rows: 10 } },
       ],
     })
     const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
@@ -510,8 +510,8 @@ describe('TerminalPane', () => {
       activeWindowId: '@1',
       windows: [{ id: '@1', index: 0, active: true }],
       panes: [
-        { id: 'local:%1', windowId: 'local:dev:0', left: 0, top: 0, size: { cols: 12, rows: 10 } },
-        { id: 'local:%2', windowId: 'local:dev:0', left: 13, top: 0, size: { cols: 12, rows: 10 } },
+        { id: 'local:%1', windowId: '@1', left: 0, top: 0, size: { cols: 12, rows: 10 } },
+        { id: 'local:%2', windowId: '@1', left: 13, top: 0, size: { cols: 12, rows: 10 } },
       ],
     })
     apiMocks.snapshotGet.mockResolvedValue({ windows: [], panes: [{ id: 'local:%2', active: true }], activePaneId: 'local:%2' })
@@ -530,8 +530,8 @@ describe('TerminalPane', () => {
       activeWindowId: '@1',
       windows: [{ id: '@1', index: 0, active: true, zoomed: true }],
       panes: [
-        { id: 'local:%1', windowId: 'local:dev:0', left: 0, top: 0, size: { cols: 12, rows: 10 } },
-        { id: 'local:%2', windowId: 'local:dev:0', left: 13, top: 0, size: { cols: 12, rows: 10 }, active: true },
+        { id: 'local:%1', windowId: '@1', left: 0, top: 0, size: { cols: 12, rows: 10 } },
+        { id: 'local:%2', windowId: '@1', left: 13, top: 0, size: { cols: 12, rows: 10 }, active: true },
       ],
       activePaneId: 'local:%2',
     })

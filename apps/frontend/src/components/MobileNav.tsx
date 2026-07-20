@@ -69,7 +69,7 @@ export function MobileNav({ onOpenDrawer, onOpenSettings, onOpenSearch, onOpenFi
           <span className="text-[9px] leading-none">{t('nav.search')}</span>
         </button>
 
-        <button onClick={onOpenSettings} className="flex flex-col items-center gap-px text-text-3 active:text-accent active:scale-95 transition-all relative">
+        <button onClick={onOpenSettings} aria-label={t('nav.settings')} className="flex flex-col items-center gap-px text-text-3 active:text-accent active:scale-95 transition-all relative">
           <div className="relative">
             <NavIcon d={icons.settings} />
             <div className={`absolute -top-1 -right-1.5 w-2.5 h-2.5 rounded-full ${statusColor} ${isRecovering ? 'animate-pulse' : ''} border border-bg-1`} />

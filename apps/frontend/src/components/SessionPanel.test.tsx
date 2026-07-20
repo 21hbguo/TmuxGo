@@ -11,6 +11,8 @@ const mutateBatchDeleteSessions = vi.fn()
 const promptMock = vi.fn()
 const orderedSessions = [{ id: 'session-dev', name: 'dev', windowCount: 2 }, { id: 'session-next', name: 'next', windowCount: 1 }]
 const moveSessionMock = vi.fn()
+const refetchSessionsMock = vi.fn()
+const orderedSessionQueryState: any = { data: orderedSessions, moveSession: moveSessionMock, isError: false, error: null, refetch: refetchSessionsMock }
 
 vi.mock('@/hooks/useApi', () => ({
   useHosts: () => ({ data: [{ id: 'local', name: 'Local', address: '127.0.0.1', status: 'online', tags: [] }] }),
@@ -24,7 +26,7 @@ vi.mock('@/hooks/usePreferences', () => ({
   usePreferences: () => ({ preferences: { showQuickActions: false } }),
 }))
 vi.mock('@/hooks/useOrderedSessions', () => ({
-  useOrderedSessions: () => ({ data: orderedSessions, moveSession: moveSessionMock }),
+  useOrderedSessions: () => orderedSessionQueryState,
 }))
 vi.mock('@/i18n', () => ({
   useTranslation: () => ({ t: (key: string, params?: Record<string, string | number>) => {
@@ -73,6 +75,10 @@ describe('SessionPanel session actions', () => {
     mutateBatchDeleteSessions.mockReset()
     promptMock.mockReset()
     moveSessionMock.mockReset()
+    refetchSessionsMock.mockReset()
+    orderedSessionQueryState.data = orderedSessions
+    orderedSessionQueryState.isError = false
+    orderedSessionQueryState.error = null
     mutateRenameSession.mockResolvedValue({ id: 'session-dev-renamed' })
     useConsoleStore.setState({
       activeHostId: 'local',
@@ -84,6 +90,15 @@ describe('SessionPanel session actions', () => {
     render(<SessionPanel />)
     expect(screen.getByText('Sessions')).toBeInTheDocument()
     expect(screen.getByText('dev')).toBeInTheDocument()
+  })
+  it('shows session loading errors and retries', () => {
+    orderedSessionQueryState.data = []
+    orderedSessionQueryState.isError = true
+    orderedSessionQueryState.error = new Error('SSH connection timed out')
+    render(<SessionPanel />)
+    expect(screen.getByText('SSH connection timed out')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('common.retry'))
+    expect(refetchSessionsMock).toHaveBeenCalledTimes(1)
   })
 
   it('renames the active session from the desktop rename button', async () => {

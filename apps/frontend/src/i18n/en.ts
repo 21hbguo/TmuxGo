@@ -105,6 +105,8 @@ export const en = {
   'settings.hostRemove': 'Remove',
   'settings.hostRemoved': 'Host removed',
   'settings.hostRemoveFailed': 'Remove host failed',
+  'settings.hostRemoveConfirmTitle': 'Remove host',
+  'settings.hostRemoveConfirmMessage': 'Remove host {name} and its saved connection details?',
   'settings.hostTest': 'Test',
   'settings.hostTestOk': 'Connection ready',
   'settings.hostTestFailed': 'Connection test failed',
@@ -476,6 +478,8 @@ export const en = {
   'session.deleted': 'Session {name} deleted',
   'session.renamed': 'Session {from} renamed to {to}',
   'session.requestFailed': 'Request failed',
+  'session.loadFailed': 'Failed to load sessions',
+  'common.retry': 'Retry',
   'mobile.quickSessionPin': 'Pin to quick bar',
   'mobile.quickSessionUnpin': 'Unpin',
 
