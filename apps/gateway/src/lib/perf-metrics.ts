@@ -15,7 +15,7 @@ export const streamPerfMetrics = {
   socketBufferedBytes: 0,
   activeClients: 0,
   activeProfile: 'foreground' as 'foreground' | 'background' | 'mobile',
-  activeFlushInterval: 4,
+  activeFlushInterval: 8,
   activeMaxChars: 65536,
 }
 export function recordStreamMetric<K extends keyof typeof streamPerfMetrics>(key: K, value = 1) {

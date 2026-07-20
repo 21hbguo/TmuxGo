@@ -13,6 +13,7 @@ import { getAttachSnapshotDelays } from '../lib/attach-snapshot.js'
 import { execTmux } from '../lib/tmux-executor.js'
 
 const execFileAsync = promisify(execFile)
+let sshPassAvailable: boolean | null = null
 export async function streamRoutes(fastify: FastifyInstance) {
   fastify.get('/stream', { websocket: true }, (connection: SocketStream) => {
     console.log('Client connected to stream')
@@ -25,7 +26,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
     const SOCKET_BUFFER_EXTREME_WATERMARK = 4194304
     const SOCKET_FLUSH_DEFER_MS = 24
     const OUTPUT_PROFILES = {
-      foreground: { flushInterval: 4, maxChars: 24576 },
+      foreground: { flushInterval: 8, maxChars: 24576 },
       background: { flushInterval: 24, maxChars: 98304 },
       mobile: { flushInterval: 12, maxChars: 32768 },
     } as const
@@ -47,6 +48,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
     let attachSnapshotTimers: ReturnType<typeof setTimeout>[] = []
     const scrollBuffers = new Map<string, number>()
     const scrollTimers = new Map<string, ReturnType<typeof setTimeout>>()
+    const scrollRunning = new Set<string>()
     const socket = connection.socket
     updateStreamMetric('activeClients', streamPerfMetricsActiveClientsDelta(1))
     syncOutputProfile(outputProfile)
@@ -132,40 +134,49 @@ export async function streamRoutes(fastify: FastifyInstance) {
       return process.env[envName] || ''
     }
     async function hasSshPass() {
+      if (sshPassAvailable !== null) return sshPassAvailable
       try {
         await execFileAsync('sshpass', ['-V'])
-        return true
+        sshPassAvailable = true
       } catch {
-        return false
+        sshPassAvailable = false
       }
+      return sshPassAvailable
     }
     async function runTmuxOnHost(hostId: string, args: string[]) {
       await execTmux(hostId, args)
     }
-    async function applyScroll(sessionName: string, lines: number) {
+    async function applyScroll(hostId: string, sessionName: string, lines: number) {
       if (!lines) return
       if (lines > 0) {
-        await runTmuxOnHost(attachedHostId, ['copy-mode', '-e', '-t', sessionName])
+        await runTmuxOnHost(hostId, ['copy-mode', '-e', '-t', sessionName])
       }
       const action = lines > 0 ? 'scroll-up' : 'scroll-down'
       let remaining = Math.abs(lines)
       while (remaining > 0) {
         const step = Math.min(remaining, SCROLL_MAX_LINES)
-        await runTmuxOnHost(attachedHostId, ['send-keys', '-t', sessionName, '-X', '-N', String(step), action])
+        await runTmuxOnHost(hostId, ['send-keys', '-t', sessionName, '-X', '-N', String(step), action])
         remaining -= step
       }
     }
     function flushScroll(sessionName: string) {
       scrollTimers.delete(sessionName)
+      if (scrollRunning.has(sessionName)) return
       const lines = scrollBuffers.get(sessionName) || 0
       scrollBuffers.delete(sessionName)
       if (!lines) return
-      void applyScroll(sessionName, lines).catch(() => {})
+      const hostId = attachedHostId
+      scrollRunning.add(sessionName)
+      void applyScroll(hostId, sessionName, lines).catch(() => {}).finally(() => {
+        scrollRunning.delete(sessionName)
+        if (scrollBuffers.has(sessionName)) flushScroll(sessionName)
+      })
     }
     function queueScroll(sessionName: string, lines: number) {
       if (!sessionName || !lines) return
       const next = (scrollBuffers.get(sessionName) || 0) + lines
       scrollBuffers.set(sessionName, Math.max(-SCROLL_MAX_LINES * 4, Math.min(SCROLL_MAX_LINES * 4, next)))
+      if (scrollRunning.has(sessionName)) return
       const existing = scrollTimers.get(sessionName)
       if (existing) return
       const timer = setTimeout(() => flushScroll(sessionName), SCROLL_FLUSH_INTERVAL)
@@ -391,7 +402,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
               if (seq !== attachSeq) return
               const filtered = sanitizeOutput(output)
               if (filtered) {
-                if (hasSubstantiveTerminalContent(filtered)) attachVisibleOutputObserved = true
+                if (!attachVisibleOutputObserved && hasSubstantiveTerminalContent(filtered)) attachVisibleOutputObserved = true
                 queueOutput(filtered)
               }
             })
