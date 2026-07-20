@@ -44,11 +44,11 @@ const webglAddonMocks = vi.hoisted(() => ({
 }))
 const webSocketMocks = vi.hoisted(() => ({
   send: vi.fn(),
-  subscribeOutput: vi.fn((listener: (message: { data: string; sessionName?: string | null; hostId?: string | null }) => void) => {
+  subscribeOutput: vi.fn((listener: (message: { data: string; sessionName?: string | null; hostId?: string | null; resync?: boolean }) => void) => {
     ;(webSocketMocks as any).lastOutputListener = listener
     return vi.fn()
   }),
-  lastOutputListener: null as ((message: { data: string; sessionName?: string | null; hostId?: string | null }) => void) | null,
+  lastOutputListener: null as ((message: { data: string; sessionName?: string | null; hostId?: string | null; resync?: boolean }) => void) | null,
 }))
 const clipboardMocks = vi.hoisted(() => ({
   writeClipboardText: vi.fn(async () => ({ copied: true, source: 'system', unavailable: false, reason: 'ok' })),
@@ -994,6 +994,13 @@ describe('TerminalPane', () => {
     webSocketMocks.lastOutputListener?.({ data: 'printf "dev_only_output_ok"\\r\\n', sessionName: 'dev' })
     await waitFor(() => expect(terminalMocks.write).toHaveBeenCalledWith('printf "dev_only_output_ok"\\r\\n'))
   })
+  it('applies authoritative output resync snapshots', async () => {
+    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} subscribeOutput={webSocketMocks.subscribeOutput} />)
+    await waitFor(() => expect(webSocketMocks.lastOutputListener).toBeTruthy())
+    terminalMocks.write.mockClear()
+    webSocketMocks.lastOutputListener?.({ data: '\u001b[H\u001b[2Jsnapshot', sessionName: 'dev', hostId: 'local', resync: true })
+    await waitFor(() => expect(terminalMocks.write).toHaveBeenCalledWith('\u001b[H\u001b[2Jsnapshot'))
+  })
   it('routes websocket output through scheduler and reports backpressure', async () => {
     render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} subscribeOutput={webSocketMocks.subscribeOutput} />)
     await waitFor(() => expect(webSocketMocks.lastOutputListener).toBeTruthy())
@@ -1024,6 +1031,13 @@ describe('TerminalPane', () => {
     expect(terminalMocks.reset).not.toHaveBeenCalled()
     expect(terminalMocks.clear).not.toHaveBeenCalled()
     expect(webSocketMocks.send).not.toHaveBeenCalledWith({ type: 'redraw', hostId: 'local', sessionName: 'dev' })
+  })
+  it('reuses the initial snapshot when attach follows immediately', async () => {
+    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(apiMocks.snapshotGet).toHaveBeenCalledTimes(1))
+    window.dispatchEvent(new CustomEvent('tmux-attached', { detail: { sessionName: 'dev', cols: 120, rows: 36, exclusive: true } }))
+    await sleep(20)
+    expect(apiMocks.snapshotGet).toHaveBeenCalledTimes(1)
   })
   it('ignores stale attach events from another session', async () => {
     render(<TerminalPane sessionName="dev" attachExclusive={false} onInput={vi.fn()} onResize={vi.fn()} />)

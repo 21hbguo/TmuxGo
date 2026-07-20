@@ -25,6 +25,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
     const SOCKET_BUFFER_HIGH_WATERMARK = 1048576
     const SOCKET_BUFFER_EXTREME_WATERMARK = 4194304
     const SOCKET_FLUSH_DEFER_MS = 24
+    const OUTPUT_BUFFER_MAX_CHARS = 1048576
     const OUTPUT_PROFILES = {
       foreground: { flushInterval: 8, maxChars: 24576 },
       background: { flushInterval: 24, maxChars: 98304 },
@@ -41,6 +42,8 @@ export async function streamRoutes(fastify: FastifyInstance) {
     let outputBuffer = ''
     let outputTimer: ReturnType<typeof setTimeout> | null = null
     let deferredFlushTimer: ReturnType<typeof setTimeout> | null = null
+    let outputResyncPending = false
+    let outputResyncRunning = false
     let redrawTimers: ReturnType<typeof setTimeout>[] = []
     let outputProfile: keyof typeof OUTPUT_PROFILES = 'foreground'
     let attachSeq = 0
@@ -93,8 +96,45 @@ export async function streamRoutes(fastify: FastifyInstance) {
         flushOutput()
       }, SOCKET_FLUSH_DEFER_MS)
     }
+    async function flushOutputResync() {
+      if (!outputResyncPending || outputResyncRunning || !ptyProcess || !attachedSessionName) return
+      const sessionName = attachedSessionName
+      const hostId = attachedHostId
+      const seq = attachSeq
+      outputResyncRunning = true
+      try {
+        const { stdout } = await execTmux(hostId, ['capture-pane', '-e', '-pt', sessionName, '-p'])
+        if (!outputResyncPending || !ptyProcess || seq !== attachSeq || attachedSessionName !== sessionName || attachedHostId !== hostId) return
+        if (getSocketBufferedBytes() >= SOCKET_BUFFER_HIGH_WATERMARK) {
+          scheduleDeferredFlush()
+          return
+        }
+        const data = `\u001b[H\u001b[2J${String(stdout || '')}`
+        if (!send({ type: 'output_resync', data, sessionName, hostId })) {
+          scheduleDeferredFlush()
+          return
+        }
+        outputResyncPending = false
+        recordStreamMetric('outputResyncCompleted')
+        recordStreamMetric('outputFlushes')
+        recordStreamMetric('outputChunks')
+        recordStreamMetric('outputBytes', data.length)
+      } catch {
+        scheduleDeferredFlush()
+      } finally {
+        outputResyncRunning = false
+        if (outputResyncPending) scheduleDeferredFlush()
+        else if (outputBuffer) flushOutput()
+      }
+    }
     function flushOutput() {
-      if (!outputBuffer || !attachedSessionName) return
+      if (!attachedSessionName) return
+      if (outputResyncPending) {
+        if (getSocketBufferedBytes() >= SOCKET_BUFFER_HIGH_WATERMARK) scheduleDeferredFlush()
+        else void flushOutputResync()
+        return
+      }
+      if (!outputBuffer) return
       if (getSocketBufferedBytes() >= SOCKET_BUFFER_HIGH_WATERMARK) {
         scheduleDeferredFlush()
         return
@@ -111,7 +151,24 @@ export async function streamRoutes(fastify: FastifyInstance) {
     }
     function queueOutput(output: string) {
       if (!output) return
+      if (outputResyncPending) {
+        recordStreamMetric('droppedOutputChars', output.length)
+        return
+      }
       outputBuffer += output
+      if (outputBuffer.length > OUTPUT_BUFFER_MAX_CHARS) {
+        recordStreamMetric('droppedOutputChars', outputBuffer.length)
+        recordStreamMetric('outputResyncRequests')
+        outputBuffer = ''
+        outputCarry = ''
+        outputResyncPending = true
+        if (outputTimer) {
+          clearTimeout(outputTimer)
+          outputTimer = null
+        }
+        scheduleDeferredFlush()
+        return
+      }
       const profile = getOutputProfileConfig()
       if (outputBuffer.length >= profile.maxChars) {
         if (outputTimer) {
@@ -267,6 +324,8 @@ export async function streamRoutes(fastify: FastifyInstance) {
       }
       outputBuffer = ''
       outputCarry = ''
+      outputResyncPending = false
+      outputResyncRunning = false
       for (const timer of scrollTimers.values()) clearTimeout(timer)
       scrollTimers.clear()
       scrollBuffers.clear()
@@ -400,6 +459,10 @@ export async function streamRoutes(fastify: FastifyInstance) {
             const seq = attachSeq
             ptyProcess.onData((output: string) => {
               if (seq !== attachSeq) return
+              if (outputResyncPending) {
+                recordStreamMetric('droppedOutputChars', output.length)
+                return
+              }
               const filtered = sanitizeOutput(output)
               if (filtered) {
                 if (!attachVisibleOutputObserved && hasSubstantiveTerminalContent(filtered)) attachVisibleOutputObserved = true

@@ -136,12 +136,21 @@ describe('PaneGrid', () => {
       terminalProps.current?.onInput?.('pwd')
     })
     expect(sendMock).not.toHaveBeenCalledWith({ type: 'input', data: 'pwd' })
-    await waitFor(() => expect(sendMock).toHaveBeenCalledWith({ type: 'attach', hostId: 'local', sessionName: 'dev1', cols: 120, rows: 36, exclusive: true }))
-    sendMock.mockClear()
+    expect(sendMock.mock.calls.filter(([message]) => message?.type === 'attach')).toHaveLength(0)
     act(() => {
       window.dispatchEvent(new CustomEvent('tmux-attached', { detail: { sessionName: 'dev1', cols: 120, rows: 36, hostId: 'local' } }))
     })
     await waitFor(() => expect(sendMock).toHaveBeenCalledWith({ type: 'input', data: 'pwd' }))
+  })
+  it('does not repeat attach while input is queued during attachment', async () => {
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    await waitFor(() => expect(sendMock).toHaveBeenCalledWith({ type: 'attach', hostId: 'local', sessionName: 'dev1', cols: 120, rows: 36, exclusive: true }))
+    act(() => {
+      for (let i = 0; i < 30; i += 1) terminalProps.current?.onInput?.(`input-${i}`)
+    })
+    expect(sendMock.mock.calls.filter(([message]) => message?.type === 'attach')).toHaveLength(1)
+    expect(sendMock.mock.calls.filter(([message]) => message?.type === 'input')).toHaveLength(0)
   })
   it('stops attach retry loop and shows the previous session when attach fails', async () => {
     vi.useFakeTimers()

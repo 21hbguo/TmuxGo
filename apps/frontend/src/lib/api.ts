@@ -6,9 +6,13 @@ export interface StreamSystemInfo {
   outputBytes: number
   outputChunks: number
   outputFlushes: number
+  outputResyncRequests: number
+  outputResyncCompleted: number
+  droppedOutputChars: number
   sanitizeCalls: number
   sanitizeChars: number
   attachRequests: number
+  snapshotRequests: number
   resizeRequests: number
   inputMessages: number
   backpressureSignals: number

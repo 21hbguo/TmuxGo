@@ -79,7 +79,7 @@ interface TerminalPaneProps {
   onResize?: (cols: number, rows: number) => void
   attachExclusive?: boolean
   onReady?: () => void
-  subscribeOutput?: (listener: (message: { data: string; sessionName?: string | null; hostId?: string | null }) => void) => () => void
+  subscribeOutput?: (listener: (message: { data: string; sessionName?: string | null; hostId?: string | null; resync?: boolean }) => void) => () => void
   onSwipeLeft?: () => void
   onSwipeRight?: () => void
 }
@@ -257,6 +257,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   const activeHostIdRef = useRef(activeHostId)
   const exclusiveLineHeightRef = useRef(1)
   const sessionSnapshotRef = useRef<any | null>(null)
+  const sessionSnapshotRequestRef = useRef<{ key: string; promise: Promise<any> } | null>(null)
+  const sessionSnapshotLoadedRef = useRef({ key: '', at: 0 })
   const updatePreferencesRef = useRef(updatePreferences)
   const tRef = useRef(t)
   const afterTerminalWriteRef = useRef<() => void>(() => {})
@@ -498,6 +500,9 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   }, [activeHostId])
   useEffect(() => {
     paneCwdRef.current = ''
+    sessionSnapshotRef.current = null
+    sessionSnapshotRequestRef.current = null
+    sessionSnapshotLoadedRef.current = { key: '', at: 0 }
   }, [activeHostId, sessionName])
   useEffect(() => {
     sendRef.current = send
@@ -660,13 +665,23 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       if (cached) sessionSnapshotRef.current = cached
       return sessionSnapshotRef.current
     }
-    const loadSessionSnapshot = async () => {
+    const loadSessionSnapshot = async (force = false) => {
       const key = getSessionSnapshotKey()
       const hostId = activeHostIdRef.current
       const currentSessionName = sessionNameRef.current
       if (!key || !hostId || !currentSessionName) return null
-      const snapshot = await api.snapshot.get(hostId, buildSessionId(hostId, currentSessionName))
+      const requestKey = `${hostId}:${currentSessionName}`
+      if (!force && sessionSnapshotRef.current && sessionSnapshotLoadedRef.current.key === requestKey && Date.now() - sessionSnapshotLoadedRef.current.at < 1000) return sessionSnapshotRef.current
+      if (!sessionSnapshotRequestRef.current || sessionSnapshotRequestRef.current.key !== requestKey) {
+        const promise = api.snapshot.get(hostId, buildSessionId(hostId, currentSessionName)).finally(() => {
+          if (sessionSnapshotRequestRef.current?.key === requestKey) sessionSnapshotRequestRef.current = null
+        })
+        sessionSnapshotRequestRef.current = { key: requestKey, promise }
+      }
+      const snapshot = await sessionSnapshotRequestRef.current.promise
+      if (`${activeHostIdRef.current}:${sessionNameRef.current}` !== requestKey) return snapshot
       sessionSnapshotRef.current = snapshot
+      sessionSnapshotLoadedRef.current = { key: requestKey, at: Date.now() }
       queryClient?.setQueryData(key, snapshot)
       return snapshot
     }
@@ -852,7 +867,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const size = drag.pendingSize
       drag.sentSize = size
       void api.panes.resize(drag.paneId, drag.axis === 'x' ? { cols: size } : { rows: size }).catch(() => {}).finally(() => {
-        void loadSessionSnapshot()
+        void loadSessionSnapshot(true)
       })
       paneResizeDrag = null
       container.style.cursor = ''
@@ -860,7 +875,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       window.removeEventListener('mouseup', endPaneResizeDrag)
       window.removeEventListener('blur', endPaneResizeDrag)
       window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'tmux-pane-resize' } }))
-      setTimeout(() => void loadSessionSnapshot(), 80)
+      setTimeout(() => void loadSessionSnapshot(true), 80)
     }
     const handlePaneResizeStart = (event: MouseEvent) => {
       const target = getPaneResizeTarget(event)
@@ -916,7 +931,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const currentSessionName = sessionNameRef.current
       if (!hostId || !currentSessionName) return
       try {
-        const snapshot = await loadSessionSnapshot()
+        const snapshot = await loadSessionSnapshot(true)
         if (snapshot?.activePaneId) setActivePane(snapshot.activePaneId)
       } catch {}
     }
@@ -1497,12 +1512,13 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         writePending = false
         pushTerminalOutput(data)
       }
-      const handleOutput = (event: Event | string | { data: string; sessionName?: string | null; hostId?: string | null }) => {
+      const handleOutput = (event: Event | string | { data: string; sessionName?: string | null; hostId?: string | null; resync?: boolean }) => {
         const payload = typeof event === 'string' ? { data: event, sessionName: null, hostId: null } : event instanceof Event ? { data: String((event as CustomEvent).detail || ''), sessionName: null, hostId: null } : event
         if (payload.hostId && payload.hostId !== (activeHostIdRef.current || 'local')) return
         if (payload.sessionName && payload.sessionName !== sessionNameRef.current) return
         const raw = payload.data
         if (!raw || !terminal?.write) return
+        if (payload.resync) disposeTerminalOutput()
         updateGithubDeviceLogin(raw)
         outputSinceLastAttach = true
         controlCarryRef.current = ''

@@ -97,8 +97,8 @@ export function useSessionThumbnails(hostId: string, enabled = true) {
     queryKey: ['session-thumbnails', hostId],
     queryFn: () => api.sessions.thumbnails(hostId),
     enabled: !!hostId && enabled,
-    staleTime: 0,
-    refetchInterval: enabled ? 2000 : false,
+    staleTime: 2000,
+    refetchInterval: enabled ? 5000 : false,
     refetchIntervalInBackground: false,
   })
 }
