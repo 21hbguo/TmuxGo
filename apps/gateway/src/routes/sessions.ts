@@ -3,6 +3,7 @@ import { getTemplateWindowTargets, type SessionTemplateLayout } from '../lib/tem
 import { assertSessionAllowed, isValidSessionName, prepareSessionAttach } from '../lib/tmux-policy.js'
 import { buildSessionId, parseSessionRef } from '../lib/tmux-target.js'
 import { execTmux } from '../lib/tmux-executor.js'
+import { getHostAgentPanes, summarizeAgentPanes } from '../lib/agent-state.js'
 
 const batchDeleteLimitDefault = 1000
 const batchDeleteLimitMax = 5000
@@ -274,7 +275,13 @@ async function safePrepareSessionAttach(hostId: string, sessionName: string) {
 export async function sessionRoutes(fastify: FastifyInstance) {
   fastify.get('/hosts/:hostId/sessions', async (request) => {
     const { hostId } = request.params as { hostId: string }
-    return getHostTmuxSessions(hostId)
+    const sessions = await getHostTmuxSessions(hostId)
+    if (!sessions.length) return []
+    const agentPanes = await getHostAgentPanes(hostId, sessions.map((session) => session.name)).catch(() => [])
+    return sessions.map((session) => {
+      const agents = agentPanes.filter((pane) => pane.sessionName === session.name)
+      return { ...session, agents, agentSummary: summarizeAgentPanes(agents) }
+    })
   })
   fastify.get('/hosts/:hostId/session-thumbnails', async (request) => {
     const { hostId } = request.params as { hostId: string }

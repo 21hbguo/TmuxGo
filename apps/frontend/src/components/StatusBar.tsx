@@ -4,6 +4,7 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
 import { useSystemInfo } from '@/hooks/useSystemInfo'
 import { useHosts, useSessionSnapshot } from '@/hooks/useApi'
+import { AgentStatusBadge } from './AgentStatusBadge'
 
 const gb = (mb: number) => (mb / 1024).toFixed(1)
 type Tone = 'warn' | 'danger' | 'neutral'
@@ -57,6 +58,7 @@ export function StatusBar() {
           {activePane && (
             <span className="inline-flex h-5 items-center rounded-full border border-text-1/10 bg-bg-2/45 px-2 font-mono text-[10px] tabular-nums text-text-2">{activePane.size.cols}×{activePane.size.rows}</span>
           )}
+          {activePane?.agent && <span className="inline-flex min-w-0 items-center gap-1.5"><span className="max-w-24 truncate text-[10px] text-text-2">{activePane.agent}</span><AgentStatusBadge status={activePane.agentStatus} /></span>}
           {activeHost && (
             <span className="min-w-0 truncate rounded-full border border-text-1/10 bg-bg-2/45 px-2 py-0.5 text-[10px] text-text-2">{activeHost.name}</span>
           )}

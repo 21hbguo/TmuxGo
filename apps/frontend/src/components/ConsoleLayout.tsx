@@ -10,6 +10,7 @@ import { Settings } from './Settings'
 import { InstallAppBanner } from './InstallAppBanner'
 import { ShortcutBar } from './ShortcutBar'
 import { ToastViewport } from './ToastViewport'
+import { PaneNotifications } from './PaneNotifications'
 import { FilePanel } from './FilePanel'
 import { GitPanel } from './GitPanel'
 import { UploadConfirmDialog } from './UploadConfirmDialog'
@@ -29,6 +30,7 @@ import { recordMobileDiagnostic, startMobileFlickerDiagnostics } from '@/lib/mob
 import { useTranslation } from '@/i18n'
 import { readActiveHostId, readActiveSessionId } from '@/lib/console-device-state'
 import { FiX } from 'react-icons/fi'
+import { AgentStatusBadge } from './AgentStatusBadge'
 
 const MOBILE_QUERY = '(max-width: 1023px)'
 const MOBILE_RECENT_SESSIONS_KEY_PREFIX = 'tmuxgo-mobile-recent-sessions:'
@@ -577,7 +579,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
                       }}
                       className={`min-w-0 shrink-0 rounded-lg border px-3 py-1.5 text-xs transition-colors ${active ? 'border-accent/45 bg-accent/18 text-accent shadow-[inset_0_1px_0_rgb(255_255_255/0.1)]' : 'border-text-1/10 bg-bg-2/45 text-text-2 active:bg-bg-2'}`}
                     >
-                      <span className="block max-w-[22vw] truncate">{mobilePinnedSessionIds.includes(session.id) ? `★ ${session.name}` : session.name}</span>
+                      <span className="flex max-w-[28vw] items-center gap-1.5"><span className="min-w-0 truncate">{mobilePinnedSessionIds.includes(session.id) ? `★ ${session.name}` : session.name}</span><AgentStatusBadge summary={session.agentSummary} compact /></span>
                     </button>
                   )
                 })}
@@ -619,6 +621,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       {mobileFileSheetOpen && <div className="fixed left-0 right-0 top-0 z-50 bg-black/40" style={{ height: 'var(--app-height,100dvh)' }}><div className="tmuxgo-material absolute bottom-0 left-0 right-0 flex h-[75%] flex-col overflow-hidden rounded-t-xl border-t"><div className="flex shrink-0 justify-center py-2"><div className="h-1 w-10 rounded-full bg-text-3/30" /></div><div className="min-h-0 flex-1"><FilePanel mode="mobile" onClose={() => closeOverlay('mobile-files')} /></div></div></div>}
       {mobileGitSheetOpen && <div className="fixed inset-0 z-[80] bg-black/40" style={{ height: 'var(--app-height,100dvh)' }} onClick={() => closeOverlay('mobile-git')}><section role="dialog" aria-modal="true" aria-label={t('git.title')} className="tmuxgo-material absolute bottom-0 left-0 right-0 flex h-[88%] flex-col overflow-hidden rounded-t-xl border-t !bg-bg-1 pb-[env(safe-area-inset-bottom)]" onClick={(event) => event.stopPropagation()}><div className="relative flex h-11 shrink-0 items-center justify-center border-b border-[var(--line)]"><div className="absolute top-2 h-1 w-10 rounded-full bg-text-3/30" /><span className="pt-1 text-[13px] font-medium text-text-1">{t('git.title')}</span><button ref={mobileGitCloseRef} aria-label={t('common.close')} title={t('common.close')} onClick={() => closeOverlay('mobile-git')} className="tmuxgo-icon-button absolute right-1 top-0 flex h-11 w-11 items-center justify-center rounded-lg text-text-3 active:bg-bg-2 active:text-text-1"><FiX aria-hidden="true" size={18} /></button></div><div className="min-h-0 flex-1"><GitPanel mode="mobile" /></div></section></div>}
       <ToastViewport />
+      <PaneNotifications />
       {PromptElement}
     </div>
   )

@@ -448,6 +448,13 @@ export const zh = {
   'notification.clearAll': '清空',
   'notification.unwatch': '取消监控',
   'notification.watch': '监控通知',
+  'agent.status.idle': '空闲',
+  'agent.status.working': '工作中',
+  'agent.status.blocked': '等待处理',
+  'agent.status.done': '已完成',
+  'agent.status.unknown': '未知',
+  'agent.notification.blocked': '{agent} 在 {session} 等待处理',
+  'agent.notification.done': '{agent} 在 {session} 已完成',
 
   // AppVersionGuard
   'version.newAvailable': '有新版本可用，刷新页面更新。',

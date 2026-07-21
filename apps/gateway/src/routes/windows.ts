@@ -4,6 +4,7 @@ import { assertSessionAllowed, assertTargetAllowed } from '../lib/tmux-policy.js
 import { buildSessionId, parseSessionRef } from '../lib/tmux-target.js'
 import { execTmux } from '../lib/tmux-executor.js'
 import { recordStreamMetric } from '../lib/perf-metrics.js'
+import { getSessionAgentPanes, markAgentPaneSeen } from '../lib/agent-state.js'
 
 function parseSessionName(hostId: string, sessionRef: string) {
   return parseSessionRef(hostId, sessionRef).sessionName
@@ -41,15 +42,21 @@ async function normalizeWindowOrder(hostId: string, sessionName: string, ordered
 }
 async function getTmuxPanes(hostId: string, sessionName: string, windowIndex: number) {
   assertSessionAllowed(sessionName)
-  const { stdout } = await execTmux(hostId, ['list-panes', '-t', `${sessionName}:${windowIndex}`, '-F', '#{pane_id}|#{window_id}|#{pane_index}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}|#{pane_left}|#{pane_top}'])
+  const [{ stdout }, agentPanes] = await Promise.all([
+    execTmux(hostId, ['list-panes', '-t', `${sessionName}:${windowIndex}`, '-F', '#{pane_id}|#{window_id}|#{pane_index}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}|#{pane_left}|#{pane_top}']),
+    getSessionAgentPanes(hostId, sessionName),
+  ])
+  const agentByPane = new Map(agentPanes.map((pane) => [pane.paneId, pane]))
   return stdout
     .trim()
     .split('\n')
     .filter(Boolean)
     .map((line) => {
       const [id, windowId, index, title, active, width, height, left, top] = line.split('|')
+      const paneId = `${hostId}:${id}`
+      const agentState = agentByPane.get(paneId)
       return {
-        id: `${hostId}:${id}`,
+        id: paneId,
         tmuxPaneId: id,
         windowId: `${hostId}:${windowId}`,
         index: parseInt(index, 10),
@@ -61,24 +68,34 @@ async function getTmuxPanes(hostId: string, sessionName: string, windowIndex: nu
           cols: parseInt(width, 10) || 80,
           rows: parseInt(height, 10) || 24,
         },
+        ...(agentState ? { agent: agentState.agent, agentStatus: agentState.agentStatus, revision: agentState.revision } : {}),
       }
     })
 }
 async function getTmuxSessionPanes(hostId: string, sessionName: string) {
   assertSessionAllowed(sessionName)
-  const { stdout } = await execTmux(hostId, ['list-panes', '-s', '-t', sessionName, '-F', '#{pane_id}|#{window_id}|#{pane_index}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}|#{pane_left}|#{pane_top}|#{window_name}'])
-  return stdout.trim().split('\n').filter(Boolean).map((line) => line.split('|')).map(([id, windowId, index, title, active, width, height, left, top, windowName]) => ({
-    id: `${hostId}:${id}`,
-    tmuxPaneId: id,
-    windowId: `${hostId}:${windowId}`,
-    index: parseInt(index, 10),
-    title: title || 'shell',
-    active: active === '1',
-    left: parseInt(left, 10) || 0,
-    top: parseInt(top, 10) || 0,
-    size: { cols: parseInt(width, 10) || 80, rows: parseInt(height, 10) || 24 },
-    windowName,
-  }))
+  const [{ stdout }, agentPanes] = await Promise.all([
+    execTmux(hostId, ['list-panes', '-s', '-t', sessionName, '-F', '#{pane_id}|#{window_id}|#{pane_index}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}|#{pane_left}|#{pane_top}|#{window_name}']),
+    getSessionAgentPanes(hostId, sessionName),
+  ])
+  const agentByPane = new Map(agentPanes.map((pane) => [pane.paneId, pane]))
+  return stdout.trim().split('\n').filter(Boolean).map((line) => line.split('|')).map(([id, windowId, index, title, active, width, height, left, top, windowName]) => {
+    const paneId = `${hostId}:${id}`
+    const agentState = agentByPane.get(paneId)
+    return {
+      id: paneId,
+      tmuxPaneId: id,
+      windowId: `${hostId}:${windowId}`,
+      index: parseInt(index, 10),
+      title: title || 'shell',
+      active: active === '1',
+      left: parseInt(left, 10) || 0,
+      top: parseInt(top, 10) || 0,
+      size: { cols: parseInt(width, 10) || 80, rows: parseInt(height, 10) || 24 },
+      windowName,
+      ...(agentState ? { agent: agentState.agent, agentStatus: agentState.agentStatus, revision: agentState.revision } : {}),
+    }
+  })
 }
 function parseWindowRef(hostId: string, windowRef: string) {
   if (!windowRef.startsWith(`${hostId}:`)) throw new Error('Window does not belong to host')
@@ -127,6 +144,10 @@ export async function windowRoutes(fastify: FastifyInstance) {
     const [windows, panes] = await Promise.all([getTmuxWindows(hostId, sessionName), getTmuxSessionPanes(hostId, sessionName)])
     const activeWindow = windows.find((window) => window.active) || windows[0] || null
     const activePane = panes.find((pane) => pane.windowId === activeWindow?.id && pane.active) || panes.find((pane) => pane.windowId === activeWindow?.id) || null
+    if (activePane) {
+      const seen = markAgentPaneSeen(activePane.id)
+      if (seen) Object.assign(activePane, { agent: seen.agent, agentStatus: seen.agentStatus, revision: seen.revision })
+    }
     return { sessionId: buildSessionId(hostId, sessionName), sessionName, windows, panes, activeWindowId: activeWindow?.id || null, activePaneId: activePane?.id || null }
   })
   fastify.get('/panes/:paneId/output', async (request) => {

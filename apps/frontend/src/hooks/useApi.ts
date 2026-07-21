@@ -90,6 +90,8 @@ export function useSessions(hostId: string) {
     queryFn: () => api.sessions.list(hostId),
     enabled: !!hostId,
     staleTime: 4000,
+    refetchInterval: 5000,
+    refetchIntervalInBackground: false,
   })
 }
 export function useSessionThumbnails(hostId: string, enabled = true) {
@@ -194,6 +196,8 @@ export function useSessionSnapshot(hostId: string, sessionId: string) {
     queryFn: () => api.snapshot.get(hostId, sessionId),
     enabled: !!hostId && !!sessionId,
     staleTime: 1200,
+    refetchInterval: 5000,
+    refetchIntervalInBackground: false,
   })
 }
 

@@ -18,6 +18,8 @@ export interface Session {
   createdAt: string
   lastActiveAt: string
   windowCount: number
+  agents?: AgentPaneState[]
+  agentSummary?: AgentSummary
 }
 export interface SessionThumbnailPane {
   id: string
@@ -76,6 +78,26 @@ export interface Pane {
     cols: number
     rows: number
   }
+  agent?: string
+  agentStatus?: AgentStatus
+  revision?: number
+}
+export type AgentStatus = 'idle' | 'working' | 'blocked' | 'done' | 'unknown'
+export interface AgentPaneState {
+  paneId: string
+  tmuxPaneId: string
+  sessionName: string
+  agent: string
+  agentStatus: AgentStatus
+  revision: number
+}
+export interface AgentSummary {
+  idle: number
+  working: number
+  blocked: number
+  done: number
+  unknown: number
+  total: number
 }
 
 export interface User {

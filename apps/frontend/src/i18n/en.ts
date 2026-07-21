@@ -448,6 +448,13 @@ export const en = {
   'notification.clearAll': 'Clear all',
   'notification.unwatch': 'Unwatch',
   'notification.watch': 'Watch for notifications',
+  'agent.status.idle': 'Idle',
+  'agent.status.working': 'Working',
+  'agent.status.blocked': 'Blocked',
+  'agent.status.done': 'Done',
+  'agent.status.unknown': 'Unknown',
+  'agent.notification.blocked': '{agent} is blocked in {session}',
+  'agent.notification.done': '{agent} finished in {session}',
 
   // AppVersionGuard
   'version.newAvailable': 'New frontend version available. Refresh to update.',
