@@ -32,7 +32,6 @@ ROOT_DIR_ESCAPED="$(escape_sed_replacement "$ROOT_DIR")"
 NPM_BIN_ESCAPED="$(escape_sed_replacement "$NPM_BIN")"
 SERVICE_PATH_ESCAPED="$(escape_sed_replacement "$SERVICE_PATH")"
 mkdir -p "$UNIT_DST_DIR"
-render_unit "$UNIT_SRC_DIR"/tmuxgo-frontend.service "$UNIT_DST_DIR"/tmuxgo-frontend.service
 render_unit "$UNIT_SRC_DIR"/tmuxgo-gateway.service "$UNIT_DST_DIR"/tmuxgo-gateway.service
 render_unit "$UNIT_SRC_DIR"/tmuxgo-agent.service "$UNIT_DST_DIR"/tmuxgo-agent.service
 cp "$UNIT_SRC_DIR"/tmuxgo.target "$UNIT_DST_DIR"/
@@ -40,16 +39,16 @@ mkdir -p "$HOME/tmux_backups"
 cd "$ROOT_DIR"
 npm install
 npm run build:gateway
-env NEXT_DIST_DIR=.next-prod npm run build:frontend
+npm run build:frontend
 if agent_enabled; then
   npm run build:agent
 fi
 systemctl --user daemon-reload
 systemctl --user enable tmuxgo.target
 systemctl --user enable tmuxgo-gateway.service
-systemctl --user enable tmuxgo-frontend.service
 systemctl --user start tmuxgo-gateway.service
-systemctl --user start tmuxgo-frontend.service
+systemctl --user disable --now tmuxgo-frontend.service 2>/dev/null || true
+rm -f "$UNIT_DST_DIR"/tmuxgo-frontend.service
 if agent_enabled; then
   systemctl --user enable tmuxgo-agent.service
   systemctl --user start tmuxgo-agent.service

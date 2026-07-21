@@ -1,7 +1,10 @@
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import multipart from '@fastify/multipart'
+import fastifyStatic from '@fastify/static'
 import websocket from '@fastify/websocket'
+import { existsSync } from 'fs'
+import path from 'path'
 import { cleanupMultiplexSockets } from './lib/tmux-executor.js'
 import { hostRoutes } from './routes/hosts.js'
 import { sessionRoutes } from './routes/sessions.js'
@@ -46,6 +49,15 @@ await fastify.register(fileRoutes, { prefix: '/api' })
 await fastify.register(preferencesRoutes, { prefix: '/api' })
 await fastify.register(clientEventRoutes, { prefix: '/api' })
 await fastify.register(gitRoutes, { prefix: '/api' })
+
+const frontendDist = process.env.TMUXGO_FRONTEND_DIST || path.resolve(process.cwd(), '../frontend/dist')
+if (existsSync(frontendDist)) {
+  await fastify.register(fastifyStatic, { root: frontendDist, prefix: '/' })
+  fastify.setNotFoundHandler((request, reply) => {
+    if (request.method === 'GET' && request.headers.accept?.includes('text/html')) return reply.sendFile('index.html')
+    return reply.code(404).send({ message: 'Not found' })
+  })
+}
 
 fastify.get('/health', async () => {
   return { status: 'ok', timestamp: new Date().toISOString() }

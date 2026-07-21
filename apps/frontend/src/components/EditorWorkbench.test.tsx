@@ -10,7 +10,7 @@ const getScrollTop = vi.fn(() => 0)
 const setScrollLeft = vi.fn()
 const getScrollLeft = vi.fn(() => 0)
 const diffPropsRef:{ current:any[] } = { current: [] }
-vi.mock('next/dynamic', () => ({
+vi.mock('@/lib/dynamic', () => ({
   default: (loader: any) => loader.toString().includes('mod.DiffEditor')
     ? ((props: any) => {
         diffPropsRef.current.push(props)

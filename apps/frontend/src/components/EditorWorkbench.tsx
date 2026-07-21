@@ -1,5 +1,4 @@
 'use client'
-import dynamic from 'next/dynamic'
 import { useEffect, useRef, useState } from 'react'
 import type { DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent } from 'react'
 import type { FileDocumentHandle, FileEditorDocument } from '@/types'
@@ -12,9 +11,10 @@ import { OPEN_EDITOR_LOCATION_EVENT } from '@/lib/editor-open'
 import { useTranslation } from '@/i18n'
 import { ConfirmDialog } from './ConfirmDialog'
 import { DiffViewer } from './DiffViewer'
+import dynamic from '@/lib/dynamic'
 
-const MonacoEditor=dynamic(() => import('@monaco-editor/react').then((mod) => mod.default), { ssr: false })
-const MonacoDiffEditor=dynamic(() => import('@monaco-editor/react').then((mod) => mod.DiffEditor), { ssr: false })
+const MonacoEditor=dynamic(() => import('@monaco-editor/react').then((mod) => ({ default: mod.default })))
+const MonacoDiffEditor=dynamic(() => import('@monaco-editor/react').then((mod) => ({ default: mod.DiffEditor })))
 const AUTO_SCROLL_DEADZONE = 10
 const AUTO_SCROLL_MAX_STEP = 42
 const EDGE_DROP_RATIO = 0.22

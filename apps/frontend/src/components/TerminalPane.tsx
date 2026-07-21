@@ -570,6 +570,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     let resizeObserver: ResizeObserver | null = null
     let disposables: any[] = []
     let fitTimeout: NodeJS.Timeout | null = null
+    let mobileKeyboardFitTimer: ReturnType<typeof setTimeout> | null = null
     let stableFitTimer: ReturnType<typeof setTimeout> | null = null
     let sharedLayoutFrame: number | null = null
     let fitFrame: number | null = null
@@ -591,6 +592,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     let helperTextareaComposing = false
     let helperTextarea: HTMLTextAreaElement | null | undefined = null
     let lastKeyboardOpen = document.body.classList.contains('keyboard-open')
+    let mobileKeyboardTransition = false
     let paneResizeDrag: any = null
     let paneBoundsCache: { snapshot: any; windowId: string; bounds: any[] } | null = null
     let paneResizeHoverThrottle = 0
@@ -1291,6 +1293,15 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         doFit(force)
       })
     }
+    const scheduleMobileKeyboardFit = () => {
+      mobileKeyboardTransition = true
+      if (mobileKeyboardFitTimer) clearTimeout(mobileKeyboardFitTimer)
+      mobileKeyboardFitTimer = setTimeout(() => {
+        mobileKeyboardFitTimer = null
+        mobileKeyboardTransition = false
+        scheduleFit(0, true)
+      }, 220)
+    }
     const scheduleInitialFit = () => {
       if (disposed) return
       if (fitFrame) cancelAnimationFrame(fitFrame)
@@ -1577,6 +1588,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         lastKeyboardOpen = nextOpen
         if (isMobileDevice) cancelTmuxCopyMode()
         if (!attachExclusiveRef.current) return
+        if (isMobileDevice) scheduleMobileKeyboardFit()
       }
       const handleAttached = (event: Event) => {
         const detail = (event as CustomEvent).detail || {}
@@ -1613,6 +1625,10 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         const stickToBottom = isMobileDevice && !isTerminalScrolledBack()
         const perf = useConsoleStore.getState().terminalPerf || DEFAULT_TERMINAL_PERF
         updateTerminalPerf({ layoutFitCount: perf.layoutFitCount + 1 })
+        if (mobileKeyboardLayout && mobileKeyboardTransition) {
+          scheduleTerminalRepaint(MOBILE_TERMINAL_KEYBOARD_REPAINT_DELAYS, false, stickToBottom, true)
+          return
+        }
         if (detail.reason === 'terminal-panel-resize') {
           if (!isMobileDevice) {
             if (attachExclusiveRef.current) scheduleFit(0, false)
@@ -1842,7 +1858,10 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         if (Math.abs(width - lastContainerSize.width) <= MOBILE_FIT_SIZE_TOLERANCE && Math.abs(height - lastContainerSize.height) <= MOBILE_FIT_SIZE_TOLERANCE) return
         lastContainerSize = { width, height }
         if (attachExclusiveRef.current) {
-          if (isMobileDevice) { doFit(true); return }
+          if (isMobileDevice) {
+            if (!mobileKeyboardTransition) scheduleFit(MOBILE_FIT_DEBOUNCE_MS)
+            return
+          }
           scheduleFit(0)
           return
         }
@@ -1880,6 +1899,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       disposed = true
       stopDeleteWordRepeat()
       if (fitTimeout) clearTimeout(fitTimeout)
+      if (mobileKeyboardFitTimer) clearTimeout(mobileKeyboardFitTimer)
       if (stableFitTimer) clearTimeout(stableFitTimer)
       if (fitFrame) cancelAnimationFrame(fitFrame)
       clearTerminalRepaint()
