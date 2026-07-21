@@ -148,7 +148,7 @@ export function PaneGrid({ sessionId: controlledSessionId }: { sessionId?: strin
       lastArchiveCaptureRef.current = { key, at: Date.now() }
       void api.sessionArchives.capture(activeHostId, sessionId, archive).catch(() => {})
     }
-  }, [activeHostId, sessionId, isControlled, sessionContinuity, sessionName, sessionWindows, upsertResumePoint, exclusive])
+  }, [activeHostId, sessionId, isControlled, sessionContinuity.enabled, sessionContinuity.archive, sessionName, sessionWindows, upsertResumePoint, exclusive])
   const scheduleContinuityFlush = useCallback((delay = 0) => {
     if (!sessionContinuity.enabled) return
     if (continuityTimerRef.current) return
