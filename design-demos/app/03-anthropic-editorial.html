@@ -1,0 +1,1094 @@
+<!doctype html>
+<html lang="zh" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>TmuxGo · Anthropic Editorial</title>
+<style>
+  :root {
+    --bg-0: 12 13 15;
+    --bg-1: 24 25 28;
+    --bg-2: 42 43 48;
+    --accent: 10 132 255;
+    --accent-2: 48 209 88;
+    --warn: 255 159 10;
+    --danger: 255 69 58;
+    --text-1: 245 245 247;
+    --text-2: 174 174 178;
+    --text-3: 116 116 122;
+    --line: rgba(255,255,255,0.1);
+    --glow: 0 10px 32px rgba(0,0,0,0.24);
+    --glass-blur: 22px;
+    --glass-saturate: 160%;
+    --glass-fill: rgba(30,31,35,0.7);
+    --glass-fill-strong: rgba(30,31,35,0.88);
+    --glass-rim: rgba(255,255,255,0.12);
+    --glass-highlight: rgba(255,255,255,0.17);
+    --glass-shadow: 0 14px 38px rgba(0,0,0,0.25);
+    --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+    --font-mono: Consolas, "Cascadia Mono", "Cascadia Code", "SF Mono", Monaco, Menlo, "DejaVu Sans Mono", "Liberation Mono", "Courier New", monospace;
+    /* Editorial serif stack — no external fonts, falls back to system serif */
+    --font-serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", "Songti SC", "Noto Serif CJK SC", serif;
+    /* terracotta accent: mapped per-theme to the warmest available token */
+    --ink: var(--text-1);
+    --terracotta: var(--warn);
+    --read: 720px;
+  }
+
+  [data-theme="light"] {
+    --bg-0: 232 234 238;
+    --bg-1: 248 249 251;
+    --bg-2: 224 226 231;
+    --accent: 0 122 255;
+    --accent-2: 40 190 105;
+    --warn: 220 130 0;
+    --danger: 215 45 38;
+    --text-1: 28 28 30;
+    --text-2: 99 99 102;
+    --text-3: 142 142 147;
+    --line: rgba(60,60,67,0.16);
+    --glow: 0 12px 34px rgba(48,52,60,0.12);
+    --glass-fill: rgba(248,249,252,0.7);
+    --glass-fill-strong: rgba(248,249,252,0.9);
+    --glass-rim: rgba(255,255,255,0.78);
+    --glass-highlight: rgba(255,255,255,0.92);
+    --glass-shadow: 0 14px 38px rgba(48,52,60,0.14);
+    /* editorial light: cream paper + terracotta.
+       Override paper base toward cream via bg tokens; terracotta stays warm. */
+    --bg-0: 245 240 232;
+    --bg-1: 250 246 239;
+    --bg-2: 236 229 218;
+    --text-1: 25 25 25;
+    --warn: 204 120 92;
+    --terracotta: var(--warn);
+  }
+
+  [data-theme="high-contrast"] {
+    --bg-0: 0 0 0;
+    --bg-1: 10 10 10;
+    --bg-2: 26 26 26;
+    --accent: 0 255 255;
+    --accent-2: 0 255 136;
+    --warn: 255 215 0;
+    --danger: 255 68 68;
+    --text-1: 255 255 255;
+    --text-2: 204 204 204;
+    --text-3: 153 153 153;
+    --line: rgba(0,255,255,0.4);
+    --glow: 0 0 20px rgba(0,255,255,0.3);
+    --glass-blur: 0px;
+    --glass-fill: rgba(10,10,10,1);
+    --glass-fill-strong: rgba(10,10,10,1);
+    --glass-rim: rgba(255,255,255,0.8);
+    --glass-highlight: transparent;
+    --glass-shadow: none;
+    --terracotta: var(--warn);
+  }
+
+  [data-theme="dracula"] {
+    --bg-0: 33 34 44;
+    --bg-1: 40 42 54;
+    --bg-2: 52 55 70;
+    --accent: 189 147 249;
+    --accent-2: 255 121 198;
+    --warn: 255 184 108;
+    --danger: 255 85 85;
+    --text-1: 248 248 242;
+    --text-2: 191 191 191;
+    --text-3: 98 114 164;
+    --line: rgba(189,147,249,0.28);
+    --glow: 0 0 20px rgba(189,147,249,0.25);
+    --terracotta: var(--warn);
+  }
+
+  [data-theme="nord"] {
+    --bg-0: 46 52 64;
+    --bg-1: 59 66 82;
+    --bg-2: 67 76 94;
+    --accent: 136 192 208;
+    --accent-2: 129 161 193;
+    --warn: 235 203 139;
+    --danger: 191 97 106;
+    --text-1: 236 239 244;
+    --text-2: 216 222 233;
+    --text-3: 76 86 106;
+    --line: rgba(136,192,208,0.28);
+    --glow: 0 0 20px rgba(136,192,208,0.25);
+    --terracotta: var(--warn);
+  }
+
+  [data-theme="catppuccin"] {
+    --bg-0: 17 17 27;
+    --bg-1: 24 24 37;
+    --bg-2: 49 50 68;
+    --accent: 137 180 250;
+    --accent-2: 166 227 161;
+    --warn: 250 179 135;
+    --danger: 243 139 168;
+    --text-1: 205 214 244;
+    --text-2: 166 173 200;
+    --text-3: 88 91 112;
+    --line: rgba(137,180,250,0.28);
+    --glow: 0 0 20px rgba(137,180,250,0.25);
+    --terracotta: var(--warn);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%;
+    /* editorial: flat single-tone paper, no gradient wash */
+    background: rgb(var(--bg-0));
+    color: rgb(var(--text-1));
+    font-family: var(--font-ui);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    overflow: hidden;
+  }
+
+  .serif { font-family: var(--font-serif); }
+  .mono { font-family: var(--font-mono); }
+  .num { font-variant-numeric: tabular-nums; }
+
+  a { color: inherit; text-decoration: none; }
+  button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+  ::selection { background: rgb(var(--terracotta) / 0.28); }
+
+  /* ---- hairline primitives (no box-shadow as main form) ---- */
+  .hair { border: 1px solid rgb(var(--text-1) / 0.14); }
+  .hair-t { border-top: 1px solid rgb(var(--text-1) / 0.12); }
+  .hair-b { border-bottom: 1px solid rgb(var(--text-1) / 0.12); }
+  .hair-r { border-right: 1px solid rgb(var(--text-1) / 0.12); }
+
+  /* ---- app shell ---- */
+  .shell {
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    height: 100vh;
+    width: 100vw;
+  }
+
+  /* ===== Top chrome ===== */
+  .chrome {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 0 22px;
+    height: 52px;
+    background: rgb(var(--bg-0));
+    border-bottom: 1px solid rgb(var(--text-1) / 0.12);
+  }
+  .brand { display: flex; align-items: baseline; gap: 10px; }
+  .brand .mark {
+    font-family: var(--font-serif);
+    font-weight: 700;
+    font-size: 19px;
+    letter-spacing: -0.02em;
+  }
+  .brand .mark em { color: rgb(var(--terracotta)); font-style: normal; }
+  .brand .issue {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: rgb(var(--text-3));
+  }
+  .chrome-spacer { flex: 1; }
+  .chrome-crumb {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: rgb(var(--text-2));
+    letter-spacing: 0.02em;
+  }
+  .chrome-crumb b { color: rgb(var(--text-1)); font-weight: 600; }
+
+  /* theme dots */
+  .swatches { display: flex; align-items: center; gap: 9px; }
+  .swatches .lab {
+    font-family: var(--font-mono);
+    font-size: 9px; letter-spacing: 0.16em;
+    text-transform: uppercase; color: rgb(var(--text-3));
+    margin-right: 3px;
+  }
+  .dot {
+    width: 15px; height: 15px; border-radius: 999px;
+    border: 1px solid rgb(var(--text-1) / 0.25);
+    cursor: pointer; position: relative;
+    transition: transform 140ms cubic-bezier(.2,.8,.2,1);
+  }
+  .dot:hover { transform: scale(1.16); }
+  .dot[aria-pressed="true"]::after {
+    content: ""; position: absolute; inset: -4px;
+    border: 1px solid rgb(var(--terracotta)); border-radius: 999px;
+  }
+  .dot.d-dark { background: #0c0d0f; }
+  .dot.d-light { background: #f5f0e8; }
+  .dot.d-high-contrast { background: #000; box-shadow: inset 0 0 0 3px #0ff; }
+  .dot.d-dracula { background: #bd93f9; }
+  .dot.d-nord { background: #88c0d0; }
+  .dot.d-catppuccin { background: #89b4fa; }
+
+  .chrome-btn {
+    font-family: var(--font-mono);
+    font-size: 11px; letter-spacing: 0.04em;
+    padding: 6px 11px;
+    border: 1px solid rgb(var(--text-1) / 0.18);
+    color: rgb(var(--text-2));
+    transition: border-color 140ms ease, color 140ms ease;
+  }
+  .chrome-btn:hover { border-color: rgb(var(--terracotta) / 0.6); color: rgb(var(--text-1)); }
+
+  /* ===== Body grid: activitybar | sessions | main | files ===== */
+  .body {
+    display: grid;
+    grid-template-columns: 56px auto 1fr auto;
+    min-height: 0;
+    background: rgb(var(--bg-0));
+  }
+
+  /* ActivityBar */
+  .activity {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 4px; padding: 12px 0;
+    border-right: 1px solid rgb(var(--text-1) / 0.12);
+    background: rgb(var(--bg-0));
+  }
+  .act-btn {
+    width: 40px; height: 40px; display: grid; place-items: center;
+    color: rgb(var(--text-3));
+    position: relative;
+    transition: color 140ms ease;
+  }
+  .act-btn svg { width: 20px; height: 20px; }
+  .act-btn:hover { color: rgb(var(--text-1)); }
+  .act-btn.on { color: rgb(var(--terracotta)); }
+  .act-btn.on::before {
+    content: ""; position: absolute; left: 2px; top: 9px; bottom: 9px;
+    width: 2px; background: rgb(var(--terracotta));
+  }
+  .act-sep { width: 24px; height: 1px; background: rgb(var(--text-1) / 0.14); margin: 6px 0; }
+  .act-spacer { flex: 1; }
+
+  /* Session panel */
+  .sessions {
+    width: 244px;
+    border-right: 1px solid rgb(var(--text-1) / 0.12);
+    background: rgb(var(--bg-0));
+    display: flex; flex-direction: column;
+    overflow: hidden;
+    transition: width 220ms cubic-bezier(.2,.8,.2,1);
+  }
+  .sessions.collapsed { width: 0; border-right-color: transparent; }
+  .panel-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    padding: 16px 18px 12px;
+  }
+  .panel-title {
+    font-family: var(--font-serif); font-weight: 700; font-size: 15px;
+    letter-spacing: -0.01em;
+  }
+  .panel-kicker {
+    font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.16em;
+    text-transform: uppercase; color: rgb(var(--text-3));
+  }
+  .panel-count { font-family: var(--font-mono); font-size: 11px; color: rgb(var(--text-3)); }
+  .ses-list { padding: 0 10px; overflow-y: auto; }
+  .ses {
+    display: flex; align-items: baseline; gap: 10px;
+    padding: 11px 8px;
+    border-bottom: 1px solid rgb(var(--text-1) / 0.08);
+    cursor: pointer;
+    transition: background-color 120ms ease;
+  }
+  .ses:hover { background: rgb(var(--text-1) / 0.04); }
+  .ses.active { background: rgb(var(--terracotta) / 0.08); }
+  .ses .idx {
+    font-family: var(--font-mono); font-size: 11px; color: rgb(var(--text-3));
+    min-width: 20px;
+  }
+  .ses.active .idx { color: rgb(var(--terracotta)); }
+  .ses .body-col { flex: 1; min-width: 0; }
+  .ses .name {
+    font-size: 14px; font-weight: 500; letter-spacing: -0.01em;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .ses .star { color: rgb(var(--terracotta)); font-size: 11px; }
+  .ses .meta {
+    font-family: var(--font-mono); font-size: 10px; color: rgb(var(--text-3));
+    margin-top: 3px;
+  }
+  .ses .pulse {
+    width: 6px; height: 6px; border-radius: 999px;
+    background: rgb(var(--accent-2)); align-self: center;
+  }
+  .ses.idle .pulse { background: rgb(var(--text-3) / 0.5); }
+  .panel-foot {
+    margin-top: auto; padding: 12px 18px;
+    border-top: 1px solid rgb(var(--text-1) / 0.12);
+    font-family: var(--font-mono); font-size: 10px; color: rgb(var(--text-3));
+    display: flex; justify-content: space-between;
+  }
+
+  /* Main reading column */
+  .main {
+    min-width: 0; overflow: hidden;
+    background: rgb(var(--bg-1));
+    display: flex; flex-direction: column;
+  }
+  .main-bar {
+    display: flex; align-items: center; gap: 14px;
+    padding: 11px 22px;
+    border-bottom: 1px solid rgb(var(--text-1) / 0.12);
+  }
+  .tab {
+    font-family: var(--font-mono); font-size: 11px; color: rgb(var(--text-3));
+    padding: 4px 2px; letter-spacing: 0.02em;
+  }
+  .tab.on { color: rgb(var(--text-1)); border-bottom: 2px solid rgb(var(--terracotta)); }
+  .main-bar .grow { flex: 1; }
+  .toggle {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em;
+    color: rgb(var(--text-3)); padding: 4px 8px;
+    border: 1px solid rgb(var(--text-1) / 0.14);
+    text-transform: uppercase;
+  }
+  .toggle:hover { color: rgb(var(--text-1)); border-color: rgb(var(--terracotta) / 0.5); }
+
+  .main-scroll { flex: 1; overflow-y: auto; padding: 34px 22px 50px; }
+  .read { max-width: var(--read); margin: 0 auto; }
+
+  .dek {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.18em;
+    text-transform: uppercase; color: rgb(var(--terracotta));
+    margin-bottom: 12px;
+  }
+  .headline {
+    font-family: var(--font-serif); font-weight: 700;
+    font-size: 34px; line-height: 1.12; letter-spacing: -0.02em;
+    margin-bottom: 10px;
+  }
+  .standfirst {
+    font-family: var(--font-serif); font-size: 16px; line-height: 1.6;
+    color: rgb(var(--text-2)); max-width: 60ch;
+  }
+  .rule { height: 1px; background: rgb(var(--text-1) / 0.14); margin: 26px 0; }
+
+  /* big editorial stat numbers */
+  .stats { display: flex; gap: 40px; margin: 4px 0 26px; }
+  .stat .fig {
+    font-family: var(--font-serif); font-weight: 700; font-size: 40px;
+    letter-spacing: -0.03em; font-variant-numeric: tabular-nums; line-height: 1;
+  }
+  .stat .fig .sm { font-size: 20px; color: rgb(var(--text-3)); }
+  .stat .cap {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em;
+    text-transform: uppercase; color: rgb(var(--text-3)); margin-top: 8px;
+  }
+
+  /* terminal — framed as an editorial "figure" */
+  .figure { margin: 0 0 26px; }
+  .figcap {
+    display: flex; align-items: baseline; gap: 10px;
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em;
+    color: rgb(var(--text-3)); margin-bottom: 8px;
+  }
+  .figcap .n { color: rgb(var(--terracotta)); }
+  .term {
+    border: 1px solid rgb(var(--text-1) / 0.16);
+    background: rgb(var(--bg-0));
+    font-family: var(--font-mono); font-size: 12.5px; line-height: 1.7;
+  }
+  .term-top {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 12px; border-bottom: 1px solid rgb(var(--text-1) / 0.12);
+    color: rgb(var(--text-3)); font-size: 10px; letter-spacing: 0.04em;
+  }
+  .term-top .win {
+    padding: 1px 7px; border: 1px solid rgb(var(--text-1) / 0.16);
+    color: rgb(var(--text-2));
+  }
+  .term-top .win.on { color: rgb(var(--terracotta)); border-color: rgb(var(--terracotta) / 0.5); }
+  .term-body { padding: 12px 14px; color: rgb(var(--text-2)); overflow-x: auto; }
+  .term-body .prompt { color: rgb(var(--accent)); }
+  .term-body .user { color: rgb(var(--accent-2)); }
+  .term-body .out { color: rgb(var(--text-2)); }
+  .term-body .file { color: rgb(var(--text-1)); }
+  .term-body .cursor {
+    display: inline-block; width: 8px; height: 15px;
+    background: rgb(var(--terracotta)); vertical-align: text-bottom;
+    animation: blink 1.1s steps(1) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  .term-line { white-space: pre; }
+
+  .byline {
+    font-family: var(--font-mono); font-size: 11px; color: rgb(var(--text-3));
+    display: flex; gap: 18px; flex-wrap: wrap;
+  }
+  .byline b { color: rgb(var(--text-2)); font-weight: 500; }
+
+  /* FilePanel */
+  .files {
+    width: 220px;
+    border-left: 1px solid rgb(var(--text-1) / 0.12);
+    background: rgb(var(--bg-0));
+    display: flex; flex-direction: column; overflow: hidden;
+    transition: width 220ms cubic-bezier(.2,.8,.2,1);
+  }
+  .files.collapsed { width: 0; border-left-color: transparent; }
+  .tree { padding: 4px 10px 14px; overflow-y: auto; font-family: var(--font-mono); font-size: 11.5px; }
+  .node {
+    display: flex; align-items: center; gap: 7px;
+    padding: 5px 8px; color: rgb(var(--text-2)); cursor: pointer;
+    border-radius: 2px;
+  }
+  .node:hover { background: rgb(var(--text-1) / 0.05); color: rgb(var(--text-1)); }
+  .node.dir { color: rgb(var(--text-1)); font-weight: 500; }
+  .node.sel { background: rgb(var(--terracotta) / 0.1); color: rgb(var(--terracotta)); }
+  .node .ind { color: rgb(var(--text-3)); }
+
+  /* ===== StatusBar ===== */
+  .status {
+    display: flex; align-items: center; gap: 16px;
+    padding: 0 20px; height: 30px;
+    background: rgb(var(--bg-0));
+    border-top: 1px solid rgb(var(--text-1) / 0.12);
+    font-family: var(--font-mono); font-size: 11px; color: rgb(var(--text-3));
+  }
+  .status .seg { display: flex; align-items: center; gap: 7px; }
+  .status .conn { width: 7px; height: 7px; border-radius: 999px; background: rgb(var(--accent-2)); }
+  .status .grow { flex: 1; }
+  .status b { color: rgb(var(--text-2)); font-weight: 500; }
+  .status .hot { color: rgb(var(--terracotta)); }
+
+  /* ===== Command Palette ===== */
+  .scrim {
+    position: fixed; inset: 0; z-index: 40;
+    background: rgb(var(--bg-0) / 0.62);
+    display: none; align-items: flex-start; justify-content: center;
+    padding-top: 12vh;
+  }
+  .scrim.open { display: flex; }
+  .palette {
+    width: min(560px, 92vw);
+    background: rgb(var(--bg-1));
+    border: 1px solid rgb(var(--text-1) / 0.2);
+  }
+  .palette-in {
+    display: flex; align-items: center; gap: 12px;
+    padding: 16px 18px; border-bottom: 1px solid rgb(var(--text-1) / 0.12);
+  }
+  .palette-in .car { font-family: var(--font-mono); color: rgb(var(--terracotta)); font-size: 14px; }
+  .palette-in input {
+    flex: 1; background: none; border: none; outline: none;
+    color: rgb(var(--text-1)); font-family: var(--font-serif); font-size: 18px;
+  }
+  .palette-in input::placeholder { color: rgb(var(--text-3)); }
+  .palette-in .esc {
+    font-family: var(--font-mono); font-size: 10px; color: rgb(var(--text-3));
+    border: 1px solid rgb(var(--text-1) / 0.16); padding: 2px 6px;
+  }
+  .cmd-group {
+    font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.16em;
+    text-transform: uppercase; color: rgb(var(--text-3));
+    padding: 12px 18px 6px;
+  }
+  .cmd {
+    display: flex; align-items: center; gap: 12px;
+    padding: 11px 18px; cursor: pointer;
+    border-left: 2px solid transparent;
+  }
+  .cmd:hover { background: rgb(var(--terracotta) / 0.08); border-left-color: rgb(var(--terracotta)); }
+  .cmd .glyph { width: 18px; color: rgb(var(--text-3)); display: grid; place-items: center; }
+  .cmd:hover .glyph { color: rgb(var(--terracotta)); }
+  .cmd .lab { flex: 1; font-size: 14px; }
+  .cmd .key { font-family: var(--font-mono); font-size: 10px; color: rgb(var(--text-3)); }
+
+  /* ===== Settings drawer ===== */
+  .drawer {
+    position: fixed; top: 0; right: 0; bottom: 0; z-index: 45;
+    width: min(400px, 90vw);
+    background: rgb(var(--bg-1));
+    border-left: 1px solid rgb(var(--text-1) / 0.2);
+    transform: translateX(100%);
+    transition: transform 260ms cubic-bezier(.2,.8,.2,1);
+    display: flex; flex-direction: column;
+  }
+  .drawer.open { transform: translateX(0); }
+  .drawer-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    padding: 22px 24px 16px; border-bottom: 1px solid rgb(var(--text-1) / 0.12);
+  }
+  .drawer-head h2 {
+    font-family: var(--font-serif); font-weight: 700; font-size: 22px; letter-spacing: -0.02em;
+  }
+  .drawer-head .x { font-family: var(--font-mono); font-size: 12px; color: rgb(var(--text-3)); }
+  .drawer-head .x:hover { color: rgb(var(--terracotta)); }
+  .drawer-body { padding: 22px 24px; overflow-y: auto; }
+  .set-group { margin-bottom: 30px; }
+  .set-label {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: rgb(var(--text-3)); margin-bottom: 14px;
+  }
+  .theme-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .theme-cell {
+    border: 1px solid rgb(var(--text-1) / 0.14);
+    padding: 12px; cursor: pointer;
+    display: flex; flex-direction: column; gap: 9px;
+    transition: border-color 140ms ease;
+  }
+  .theme-cell:hover { border-color: rgb(var(--terracotta) / 0.55); }
+  .theme-cell.on { border-color: rgb(var(--terracotta)); }
+  .theme-cell .chip { width: 100%; height: 26px; border: 1px solid rgb(var(--text-1) / 0.18); }
+  .theme-cell .nm { font-family: var(--font-mono); font-size: 10px; color: rgb(var(--text-2)); letter-spacing: 0.04em; }
+  .theme-cell.on .nm { color: rgb(var(--terracotta)); }
+  .set-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 13px 0; border-bottom: 1px solid rgb(var(--text-1) / 0.08);
+  }
+  .set-row .k { font-size: 14px; }
+  .set-row .d { font-family: var(--font-mono); font-size: 10px; color: rgb(var(--text-3)); margin-top: 2px; }
+  .sw {
+    width: 40px; height: 22px; border-radius: 999px;
+    border: 1px solid rgb(var(--text-1) / 0.2); position: relative;
+    background: rgb(var(--text-1) / 0.06); cursor: pointer; flex-shrink: 0;
+  }
+  .sw::after {
+    content: ""; position: absolute; top: 2px; left: 2px;
+    width: 16px; height: 16px; border-radius: 999px;
+    background: rgb(var(--text-3)); transition: transform 180ms ease, background 180ms ease;
+  }
+  .sw.on { background: rgb(var(--terracotta) / 0.24); border-color: rgb(var(--terracotta) / 0.5); }
+  .sw.on::after { transform: translateX(18px); background: rgb(var(--terracotta)); }
+
+  /* ===== Mobile ===== */
+  .m-only { display: none; }
+  .mnav { display: none; }
+
+  @media (max-width: 1023px) {
+    .body { grid-template-columns: 1fr; }
+    .activity, .sessions, .files { display: none; }
+    .chrome { padding: 0 14px; gap: 12px; }
+    .chrome-crumb, .chrome-btn { display: none; }
+    .swatches .lab { display: none; }
+    .main { border: none; }
+    .main-scroll { padding: 24px 16px 96px; }
+    .headline { font-size: 27px; }
+    .stats { gap: 26px; flex-wrap: wrap; }
+    .status { display: none; }
+
+    /* mobile bottom dock */
+    .mnav {
+      display: flex; position: fixed; left: 8px; right: 8px; bottom: 8px; z-index: 30;
+      border: 1px solid rgb(var(--text-1) / 0.16);
+      background: rgb(var(--bg-0) / 0.94);
+      -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+      border-radius: 16px; padding: 6px;
+      justify-content: space-around;
+    }
+    .mnav button {
+      min-width: 52px; min-height: 48px; border-radius: 10px;
+      display: grid; place-items: center; gap: 3px;
+      color: rgb(var(--text-3));
+    }
+    .mnav button svg { width: 20px; height: 20px; }
+    .mnav button .ml { font-family: var(--font-mono); font-size: 8px; letter-spacing: 0.05em; }
+    .mnav button.on { color: rgb(var(--terracotta)); }
+
+    /* bottom sheets */
+    .sheet {
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 38;
+      background: rgb(var(--bg-1));
+      border-top: 1px solid rgb(var(--text-1) / 0.2);
+      border-radius: 18px 18px 0 0;
+      transform: translateY(100%);
+      transition: transform 280ms cubic-bezier(.2,.8,.2,1);
+      display: flex; flex-direction: column;
+    }
+    .sheet.open { transform: translateY(0); }
+    .sheet.file-sheet { height: 75vh; }
+    .sheet.git-sheet { height: 88vh; }
+    .sheet-grab { width: 40px; height: 4px; border-radius: 999px; background: rgb(var(--text-3) / 0.5); margin: 10px auto 4px; }
+    .sheet-head {
+      display: flex; align-items: baseline; justify-content: space-between;
+      padding: 8px 20px 14px; border-bottom: 1px solid rgb(var(--text-1) / 0.12);
+    }
+    .sheet-head h3 { font-family: var(--font-serif); font-weight: 700; font-size: 19px; }
+    .sheet-head .x { font-family: var(--font-mono); font-size: 12px; color: rgb(var(--text-3)); }
+    .sheet-body { padding: 16px 20px; overflow-y: auto; }
+    .git-row {
+      display: flex; align-items: baseline; gap: 10px;
+      padding: 11px 0; border-bottom: 1px solid rgb(var(--text-1) / 0.08);
+      font-family: var(--font-mono); font-size: 12px;
+    }
+    .git-row .m { color: rgb(var(--terracotta)); min-width: 16px; }
+    .git-row .f { color: rgb(var(--text-2)); }
+    .m-only { display: block; }
+  }
+
+  @media (min-width: 1024px) {
+    .sheet { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- ===== Top chrome ===== -->
+  <header class="chrome">
+    <div class="brand">
+      <span class="mark serif">Tmux<em>Go</em></span>
+      <span class="issue mono">№ 07 · Console Review</span>
+    </div>
+    <div class="chrome-spacer"></div>
+    <div class="chrome-crumb mono">workspace / <b>dev-tools</b> · win 2 · pane 0</div>
+    <button class="chrome-btn mono" id="cmdOpen">⌘ Command</button>
+    <div class="swatches" id="swatches">
+      <span class="lab mono">Theme</span>
+      <button class="dot d-dark" data-theme="dark" aria-pressed="true" title="dark"></button>
+      <button class="dot d-light" data-theme="light" aria-pressed="false" title="light"></button>
+      <button class="dot d-high-contrast" data-theme="high-contrast" aria-pressed="false" title="high-contrast"></button>
+      <button class="dot d-dracula" data-theme="dracula" aria-pressed="false" title="dracula"></button>
+      <button class="dot d-nord" data-theme="nord" aria-pressed="false" title="nord"></button>
+      <button class="dot d-catppuccin" data-theme="catppuccin" aria-pressed="false" title="catppuccin"></button>
+    </div>
+  </header>
+
+  <!-- ===== Body ===== -->
+  <div class="body">
+
+    <!-- ActivityBar -->
+    <nav class="activity">
+      <button class="act-btn on" data-act="sessions" title="Sessions">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="18" height="16" rx="1.5"/><path d="M7 9l3 2.5L7 14M12 15h5"/></svg>
+      </button>
+      <button class="act-btn" data-act="files" title="Files">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2.5h8.5A1.5 1.5 0 0 1 21 9v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18z"/></svg>
+      </button>
+      <button class="act-btn" data-act="thumbs" title="Thumbnails">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3.5" y="3.5" width="7" height="7" rx="1"/><rect x="13.5" y="3.5" width="7" height="7" rx="1"/><rect x="3.5" y="13.5" width="7" height="7" rx="1"/><rect x="13.5" y="13.5" width="7" height="7" rx="1"/></svg>
+      </button>
+      <button class="act-btn" data-act="git" title="Git">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="6" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><circle cx="18" cy="9" r="2.4"/><path d="M6 8.4v7.2M8.4 6H14a2 2 0 0 1 2 2v.6"/></svg>
+      </button>
+      <button class="act-btn" data-act="search" id="actSearch" title="Search / Command">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+      </button>
+      <div class="act-spacer"></div>
+      <div class="act-sep"></div>
+      <button class="act-btn" data-act="settings" id="actSettings" title="Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3M12 18.5v3M4.2 7l2.6 1.5M17.2 15.5l2.6 1.5M4.2 17l2.6-1.5M17.2 8.5l2.6-1.5"/></svg>
+      </button>
+    </nav>
+
+    <!-- SessionPanel -->
+    <aside class="sessions" id="sessions">
+      <div class="panel-head">
+        <div>
+          <div class="panel-kicker mono">Attached</div>
+          <div class="panel-title serif">Sessions</div>
+        </div>
+        <span class="panel-count num mono">05</span>
+      </div>
+      <div class="ses-list tmuxgo-scrollbar-subtle">
+        <div class="ses active" data-ses="dev-tools">
+          <span class="idx num mono">01</span>
+          <div class="body-col">
+            <div class="name"><span class="star">★</span>dev-tools</div>
+            <div class="meta mono">2 windows · 12h uptime</div>
+          </div>
+          <span class="pulse"></span>
+        </div>
+        <div class="ses" data-ses="main-app">
+          <span class="idx num mono">02</span>
+          <div class="body-col">
+            <div class="name">main-app</div>
+            <div class="meta mono">3 windows · dev server</div>
+          </div>
+          <span class="pulse"></span>
+        </div>
+        <div class="ses idle" data-ses="experiment-x">
+          <span class="idx num mono">03</span>
+          <div class="body-col">
+            <div class="name">experiment-x</div>
+            <div class="meta mono">1 window · idle</div>
+          </div>
+          <span class="pulse"></span>
+        </div>
+        <div class="ses idle" data-ses="prod-debug">
+          <span class="idx num mono">04</span>
+          <div class="body-col">
+            <div class="name">prod-debug</div>
+            <div class="meta mono">ssh · tail -f logs</div>
+          </div>
+          <span class="pulse"></span>
+        </div>
+        <div class="ses idle" data-ses="adhoc">
+          <span class="idx num mono">05</span>
+          <div class="body-col">
+            <div class="name">adhoc</div>
+            <div class="meta mono">scratch shell</div>
+          </div>
+          <span class="pulse"></span>
+        </div>
+      </div>
+      <div class="panel-foot mono">
+        <span>tmux 3.4</span>
+        <span class="num">socket /tmp/tmuxgo</span>
+      </div>
+    </aside>
+
+    <!-- Main reading column -->
+    <main class="main">
+      <div class="main-bar">
+        <span class="tab on mono">TERMINAL</span>
+        <span class="tab mono">OUTPUT</span>
+        <span class="tab mono">DIFF</span>
+        <div class="grow"></div>
+        <button class="toggle mono" id="toggleSes">◧ Sessions</button>
+        <button class="toggle mono" id="toggleFiles">Files ◨</button>
+      </div>
+
+      <div class="main-scroll tmuxgo-scrollbar-subtle">
+        <div class="read">
+
+          <div class="dek mono">Session Log · dev-tools</div>
+          <h1 class="headline serif">A quiet console, tuned for long reading sessions.</h1>
+          <p class="standfirst serif">Five attached sessions, one focused pane. TmuxGo renders the terminal like a page of set type — hairline frames, generous margins, and a single warm accent for the things that matter.</p>
+
+          <div class="rule"></div>
+
+          <div class="stats">
+            <div class="stat">
+              <div class="fig serif num">05<span class="sm"> ses</span></div>
+              <div class="cap mono">Attached</div>
+            </div>
+            <div class="stat">
+              <div class="fig serif num">1.5<span class="sm">×</span></div>
+              <div class="cap mono">Render scale</div>
+            </div>
+            <div class="stat">
+              <div class="fig serif num">100<span class="sm">%</span></div>
+              <div class="cap mono">Token reuse</div>
+            </div>
+            <div class="stat">
+              <div class="fig serif num">12<span class="sm">ms</span></div>
+              <div class="cap mono">Frame time</div>
+            </div>
+          </div>
+
+          <figure class="figure">
+            <figcaption class="figcap mono"><span class="n">Fig. 1</span> — dev-tools · window 2 · pane 0</figcaption>
+            <div class="term">
+              <div class="term-top mono">
+                <span class="win on">2:zsh</span>
+                <span class="win">1:vim</span>
+                <span class="win">0:server</span>
+                <div style="flex:1"></div>
+                <span>82×24</span>
+              </div>
+              <div class="term-body mono">
+<div class="term-line out">Last login: Mon Jul 21 09:31:04 on ttys001</div>
+<div class="term-line"><span class="user">hongbin@local</span>:<span class="prompt">~/projects/tmuxgo</span> $ ls apps/frontend/src/components | head -5</div>
+<div class="term-line file">ActivityBar.tsx</div>
+<div class="term-line file">AgentStatusBadge.tsx</div>
+<div class="term-line file">ConsoleLayout.tsx</div>
+<div class="term-line file">DesktopWorkbench.tsx</div>
+<div class="term-line file">EditorWorkbench.tsx</div>
+<div class="term-line"><span class="user">hongbin@local</span>:<span class="prompt">~/projects/tmuxgo</span> $ <span class="cursor"></span></div>
+              </div>
+            </div>
+          </figure>
+
+          <div class="byline mono">
+            <span>SET IN <b>system serif</b> & <b>mono</b></span>
+            <span>ACCENT <b>terracotta</b></span>
+            <span>WIDTH <b>720px</b></span>
+          </div>
+
+        </div>
+      </div>
+    </main>
+
+    <!-- FilePanel -->
+    <aside class="files collapsed" id="files">
+      <div class="panel-head">
+        <div>
+          <div class="panel-kicker mono">Workspace</div>
+          <div class="panel-title serif">Files</div>
+        </div>
+      </div>
+      <div class="tree tmuxgo-scrollbar-subtle">
+        <div class="node dir"><span class="ind">▾</span> apps</div>
+        <div class="node dir" style="padding-left:22px"><span class="ind">▾</span> frontend</div>
+        <div class="node" style="padding-left:40px">package.json</div>
+        <div class="node dir" style="padding-left:40px"><span class="ind">▾</span> src</div>
+        <div class="node sel" style="padding-left:58px">globals.css</div>
+        <div class="node" style="padding-left:58px">ActivityBar.tsx</div>
+        <div class="node" style="padding-left:58px">ConsoleLayout.tsx</div>
+        <div class="node dir" style="padding-left:22px"><span class="ind">▸</span> gateway</div>
+        <div class="node dir"><span class="ind">▸</span> design-demos</div>
+        <div class="node">README.md</div>
+      </div>
+    </aside>
+
+  </div>
+
+  <!-- ===== StatusBar ===== -->
+  <footer class="status mono">
+    <div class="seg"><span class="conn"></span> connected · ws</div>
+    <div class="seg">◇ <b>dev-tools</b> · win 2 · pane 0</div>
+    <div class="grow"></div>
+    <div class="seg num">cpu 4% · mem 118mb</div>
+    <div class="seg hot" id="statusTheme">theme: dark</div>
+  </footer>
+
+</div>
+
+<!-- ===== Command Palette ===== -->
+<div class="scrim" id="scrim">
+  <div class="palette" role="dialog" aria-label="Command Palette">
+    <div class="palette-in">
+      <span class="car mono">›</span>
+      <input id="cmdInput" placeholder="输入命令或搜索会话…" autocomplete="off" />
+      <span class="esc mono">ESC</span>
+    </div>
+    <div class="cmd-group mono">Actions</div>
+    <div id="cmdList">
+      <div class="cmd" data-cmd="new-session">
+        <span class="glyph">+</span><span class="lab">新建会话</span><span class="key mono">⌘ N</span>
+      </div>
+      <div class="cmd" data-cmd="theme">
+        <span class="glyph">◐</span><span class="lab">切换主题</span><span class="key mono">⌘ T</span>
+      </div>
+      <div class="cmd" data-cmd="settings">
+        <span class="glyph">⚙</span><span class="lab">打开设置</span><span class="key mono">⌘ ,</span>
+      </div>
+      <div class="cmd" data-cmd="split">
+        <span class="glyph">▤</span><span class="lab">水平分屏 pane</span><span class="key mono">⌘ D</span>
+      </div>
+      <div class="cmd" data-cmd="files">
+        <span class="glyph">▸</span><span class="lab">切换文件面板</span><span class="key mono">⌘ B</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Settings drawer ===== -->
+<div class="drawer" id="drawer" role="dialog" aria-label="Settings">
+  <div class="drawer-head">
+    <h2 class="serif">Settings</h2>
+    <button class="x mono" id="drawerClose">CLOSE ✕</button>
+  </div>
+  <div class="drawer-body tmuxgo-scrollbar-subtle">
+    <div class="set-group">
+      <div class="set-label mono">Appearance · Theme</div>
+      <div class="theme-grid" id="themeGrid">
+        <button class="theme-cell on" data-theme="dark"><span class="chip" style="background:#0c0d0f"></span><span class="nm mono">dark</span></button>
+        <button class="theme-cell" data-theme="light"><span class="chip" style="background:#f5f0e8"></span><span class="nm mono">light</span></button>
+        <button class="theme-cell" data-theme="high-contrast"><span class="chip" style="background:#000;box-shadow:inset 0 0 0 3px #0ff"></span><span class="nm mono">contrast</span></button>
+        <button class="theme-cell" data-theme="dracula"><span class="chip" style="background:#bd93f9"></span><span class="nm mono">dracula</span></button>
+        <button class="theme-cell" data-theme="nord"><span class="chip" style="background:#88c0d0"></span><span class="nm mono">nord</span></button>
+        <button class="theme-cell" data-theme="catppuccin"><span class="chip" style="background:#89b4fa"></span><span class="nm mono">catppuccin</span></button>
+      </div>
+    </div>
+    <div class="set-group">
+      <div class="set-label mono">Editor</div>
+      <div class="set-row">
+        <div><div class="k">连字 Ligatures</div><div class="d mono">terminal font ligatures</div></div>
+        <div class="sw" data-sw></div>
+      </div>
+      <div class="set-row">
+        <div><div class="k">阅读宽度 Reading width</div><div class="d mono">clamp main column to 720px</div></div>
+        <div class="sw on" data-sw></div>
+      </div>
+      <div class="set-row">
+        <div><div class="k">光标闪烁 Cursor blink</div><div class="d mono">blink block cursor</div></div>
+        <div class="sw on" data-sw></div>
+      </div>
+    </div>
+    <div class="set-group">
+      <div class="set-label mono">Session</div>
+      <div class="set-row">
+        <div><div class="k">自动重连 Auto-reconnect</div><div class="d mono">restore ws on drop</div></div>
+        <div class="sw on" data-sw></div>
+      </div>
+      <div class="set-row">
+        <div><div class="k">置顶活跃会话</div><div class="d mono">pin ★ dev-tools</div></div>
+        <div class="sw on" data-sw></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Mobile bottom nav ===== -->
+<nav class="mnav" id="mnav">
+  <button class="on" data-mnav="sessions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="18" height="16" rx="1.5"/><path d="M7 9l3 2.5L7 14"/></svg><span class="ml mono">SES</span></button>
+  <button data-mnav="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg><span class="ml mono">CMD</span></button>
+  <button data-mnav="files"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2.5h8.5A1.5 1.5 0 0 1 21 9v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18z"/></svg><span class="ml mono">FILE</span></button>
+  <button data-mnav="git"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="6" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><circle cx="18" cy="9" r="2.4"/><path d="M6 8.4v7.2M8.4 6H14a2 2 0 0 1 2 2v.6"/></svg><span class="ml mono">GIT</span></button>
+  <button data-mnav="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3M12 18.5v3M4.2 7l15.6 9M4.2 17L19.8 8"/></svg><span class="ml mono">SET</span></button>
+</nav>
+
+<!-- ===== Mobile FileSheet (75%) ===== -->
+<div class="sheet file-sheet" id="fileSheet">
+  <div class="sheet-grab"></div>
+  <div class="sheet-head">
+    <h3 class="serif">Files</h3>
+    <button class="x mono" data-sheet-close>✕</button>
+  </div>
+  <div class="sheet-body tmuxgo-scrollbar-subtle">
+    <div class="tree mono" style="padding:0">
+      <div class="node dir"><span class="ind">▾</span> apps / frontend / src</div>
+      <div class="node sel" style="padding-left:22px">globals.css</div>
+      <div class="node" style="padding-left:22px">ActivityBar.tsx</div>
+      <div class="node" style="padding-left:22px">ConsoleLayout.tsx</div>
+      <div class="node" style="padding-left:22px">DesktopWorkbench.tsx</div>
+      <div class="node dir"><span class="ind">▸</span> apps / gateway</div>
+      <div class="node">README.md</div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Mobile GitSheet (88%) ===== -->
+<div class="sheet git-sheet" id="gitSheet">
+  <div class="sheet-grab"></div>
+  <div class="sheet-head">
+    <h3 class="serif">Git · master</h3>
+    <button class="x mono" data-sheet-close>✕</button>
+  </div>
+  <div class="sheet-body tmuxgo-scrollbar-subtle">
+    <div class="git-row"><span class="m">M</span><span class="f">apps/frontend/src/lib/agent-status.ts</span></div>
+    <div class="git-row"><span class="m">M</span><span class="f">apps/frontend/src/components/AgentStatusBadge.tsx</span></div>
+    <div class="git-row"><span class="m">M</span><span class="f">apps/frontend/src/components/SessionPanel.test.tsx</span></div>
+    <div class="git-row"><span class="m">M</span><span class="f">apps/frontend/src/global.d.ts</span></div>
+    <div class="git-row"><span class="m">M</span><span class="f">apps/frontend/vitest.config.ts</span></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var THEMES = ["dark","light","high-contrast","dracula","nord","catppuccin"];
+  var html = document.documentElement;
+
+  function setTheme(t) {
+    if (THEMES.indexOf(t) < 0) return;
+    html.setAttribute("data-theme", t);
+    document.querySelectorAll(".dot").forEach(function (d) {
+      d.setAttribute("aria-pressed", d.getAttribute("data-theme") === t ? "true" : "false");
+    });
+    document.querySelectorAll(".theme-cell").forEach(function (c) {
+      c.classList.toggle("on", c.getAttribute("data-theme") === t);
+    });
+    var st = document.getElementById("statusTheme");
+    if (st) st.textContent = "theme: " + t;
+  }
+
+  // theme dots
+  document.getElementById("swatches").addEventListener("click", function (e) {
+    var b = e.target.closest(".dot"); if (b) setTheme(b.getAttribute("data-theme"));
+  });
+  // theme grid in drawer
+  document.getElementById("themeGrid").addEventListener("click", function (e) {
+    var b = e.target.closest(".theme-cell"); if (b) setTheme(b.getAttribute("data-theme"));
+  });
+
+  // palette
+  var scrim = document.getElementById("scrim");
+  var cmdInput = document.getElementById("cmdInput");
+  function openPalette() { scrim.classList.add("open"); setTimeout(function(){ cmdInput.focus(); }, 30); }
+  function closePalette() { scrim.classList.remove("open"); cmdInput.value = ""; }
+  document.getElementById("cmdOpen").addEventListener("click", openPalette);
+  document.getElementById("actSearch").addEventListener("click", openPalette);
+  scrim.addEventListener("click", function (e) { if (e.target === scrim) closePalette(); });
+
+  // drawer
+  var drawer = document.getElementById("drawer");
+  function openDrawer() { drawer.classList.add("open"); }
+  function closeDrawer() { drawer.classList.remove("open"); }
+  document.getElementById("actSettings").addEventListener("click", openDrawer);
+  document.getElementById("drawerClose").addEventListener("click", closeDrawer);
+
+  // panel toggles
+  document.getElementById("toggleSes").addEventListener("click", function () {
+    document.getElementById("sessions").classList.toggle("collapsed");
+  });
+  document.getElementById("toggleFiles").addEventListener("click", function () {
+    document.getElementById("files").classList.toggle("collapsed");
+  });
+
+  // activitybar active state + wiring
+  document.querySelectorAll(".activity .act-btn").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var act = b.getAttribute("data-act");
+      if (act === "search" || act === "settings") return;
+      document.querySelectorAll(".activity .act-btn").forEach(function (x) { x.classList.remove("on"); });
+      b.classList.add("on");
+      if (act === "files") document.getElementById("files").classList.remove("collapsed");
+      if (act === "sessions") document.getElementById("sessions").classList.remove("collapsed");
+    });
+  });
+
+  // session select
+  document.querySelector(".ses-list").addEventListener("click", function (e) {
+    var s = e.target.closest(".ses"); if (!s) return;
+    document.querySelectorAll(".ses").forEach(function (x) { x.classList.remove("active"); });
+    s.classList.add("active");
+    var name = s.getAttribute("data-ses");
+    document.querySelector(".chrome-crumb b").textContent = name;
+    document.querySelector(".status .seg b").textContent = name;
+    document.querySelector(".figcap").innerHTML = '<span class="n">Fig. 1</span> — ' + name + ' · window 2 · pane 0';
+  });
+
+  // command actions
+  document.getElementById("cmdList").addEventListener("click", function (e) {
+    var c = e.target.closest(".cmd"); if (!c) return;
+    var cmd = c.getAttribute("data-cmd");
+    closePalette();
+    if (cmd === "settings") openDrawer();
+    else if (cmd === "files") document.getElementById("files").classList.toggle("collapsed");
+    else if (cmd === "theme") {
+      var cur = html.getAttribute("data-theme");
+      setTheme(THEMES[(THEMES.indexOf(cur) + 1) % THEMES.length]);
+    }
+    else if (cmd === "new-session" || cmd === "split") {
+      document.getElementById("sessions").classList.remove("collapsed");
+    }
+  });
+
+  // settings switches
+  document.querySelectorAll("[data-sw]").forEach(function (s) {
+    s.addEventListener("click", function () { s.classList.toggle("on"); });
+  });
+
+  // mobile nav + sheets
+  var fileSheet = document.getElementById("fileSheet");
+  var gitSheet = document.getElementById("gitSheet");
+  document.getElementById("mnav").addEventListener("click", function (e) {
+    var b = e.target.closest("button"); if (!b) return;
+    var act = b.getAttribute("data-mnav");
+    document.querySelectorAll("#mnav button").forEach(function (x) { x.classList.remove("on"); });
+    b.classList.add("on");
+    fileSheet.classList.remove("open"); gitSheet.classList.remove("open");
+    if (act === "search") openPalette();
+    else if (act === "settings") openDrawer();
+    else if (act === "files") fileSheet.classList.add("open");
+    else if (act === "git") gitSheet.classList.add("open");
+  });
+  document.querySelectorAll("[data-sheet-close]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      fileSheet.classList.remove("open"); gitSheet.classList.remove("open");
+    });
+  });
+
+  // keyboard
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") { closePalette(); closeDrawer(); fileSheet.classList.remove("open"); gitSheet.classList.remove("open"); }
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); openPalette(); }
+  });
+})();
+</script>
+</body>
+</html>

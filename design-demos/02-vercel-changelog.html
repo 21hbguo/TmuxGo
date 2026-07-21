@@ -1,0 +1,503 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TmuxGo UI 美化 · Changelog</title>
+<style>
+:root{--bg-0:12 13 15;--bg-1:24 25 28;--bg-2:42 43 48;--accent:10 132 255;--accent-2:48 209 88;--warn:255 159 10;--danger:255 69 58;--text-1:245 245 247;--text-2:174 174 178;--text-3:116 116 122;--line:rgba(255,255,255,0.1);--glow:0 10px 32px rgba(0,0,0,0.24);--glass-blur:22px;--glass-saturate:160%;--glass-fill:rgba(30,31,35,0.7);--glass-fill-strong:rgba(30,31,35,0.88);--glass-rim:rgba(255,255,255,0.12);--glass-highlight:rgba(255,255,255,0.17);--glass-shadow:0 14px 38px rgba(0,0,0,0.25);--font-ui:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI","PingFang SC","Microsoft YaHei UI","Microsoft YaHei","Helvetica Neue",Arial,sans-serif;--font-mono:Consolas,"Cascadia Mono","Cascadia Code","SF Mono",Monaco,Menlo,"DejaVu Sans Mono","Liberation Mono","Courier New",monospace;}
+[data-theme="light"]{--bg-0:232 234 238;--bg-1:248 249 251;--bg-2:224 226 231;--accent:0 122 255;--accent-2:40 190 105;--warn:220 130 0;--danger:215 45 38;--text-1:28 28 30;--text-2:99 99 102;--text-3:142 142 147;--line:rgba(60,60,67,0.16);--glow:0 12px 34px rgba(48,52,60,0.12);--glass-fill:rgba(248,249,252,0.7);--glass-fill-strong:rgba(248,249,252,0.9);--glass-rim:rgba(255,255,255,0.78);--glass-highlight:rgba(255,255,255,0.92);--glass-shadow:0 14px 38px rgba(48,52,60,0.14);}
+[data-theme="high-contrast"]{--bg-0:0 0 0;--bg-1:10 10 10;--bg-2:26 26 26;--accent:0 255 255;--accent-2:0 255 136;--warn:255 215 0;--danger:255 68 68;--text-1:255 255 255;--text-2:204 204 204;--text-3:153 153 153;--line:rgba(0,255,255,0.4);--glow:0 0 20px rgba(0,255,255,0.3);--glass-blur:0px;--glass-fill:rgba(10,10,10,1);--glass-fill-strong:rgba(10,10,10,1);--glass-rim:rgba(255,255,255,0.8);--glass-highlight:transparent;--glass-shadow:none;}
+[data-theme="dracula"]{--bg-0:33 34 44;--bg-1:40 42 54;--bg-2:52 55 70;--accent:189 147 249;--accent-2:255 121 198;--warn:255 184 108;--danger:255 85 85;--text-1:248 248 242;--text-2:191 191 191;--text-3:98 114 164;--line:rgba(189,147,249,0.28);--glow:0 0 20px rgba(189,147,249,0.25);}
+[data-theme="nord"]{--bg-0:46 52 64;--bg-1:59 66 82;--bg-2:67 76 94;--accent:136 192 208;--accent-2:129 161 193;--warn:235 203 139;--danger:191 97 106;--text-1:236 239 244;--text-2:216 222 233;--text-3:76 86 106;--line:rgba(136,192,208,0.28);--glow:0 0 20px rgba(136,192,208,0.25);}
+[data-theme="catppuccin"]{--bg-0:17 17 27;--bg-1:24 24 37;--bg-2:49 50 68;--accent:137 180 250;--accent-2:166 227 161;--warn:250 179 135;--danger:243 139 168;--text-1:205 214 244;--text-2:166 173 200;--text-3:88 91 112;--line:rgba(137,180,250,0.28);--glow:0 0 20px rgba(137,180,250,0.25);}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{background:rgb(var(--bg-0));color:rgb(var(--text-1));font-family:var(--font-ui);font-weight:400;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}
+body{min-height:100vh;line-height:1.5;font-size:14px;}
+a{color:inherit;text-decoration:none;}
+button{font:inherit;cursor:pointer;border:0;background:transparent;color:inherit;}
+.num{font-family:var(--font-mono);font-variant-numeric:tabular-nums;letter-spacing:-0.01em;}
+.mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums;}
+.container{max-width:720px;margin:0 auto;padding:0 24px;}
+.chrome{position:sticky;top:0;z-index:50;background:rgb(var(--bg-0) / 0.82);-webkit-backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));border-bottom:1px solid var(--line);}
+.chrome-inner{display:flex;align-items:center;justify-content:space-between;height:48px;max-width:720px;margin:0 auto;padding:0 24px;}
+.brand{display:flex;align-items:center;gap:10px;font-size:13px;}
+.brand-mark{width:18px;height:18px;border:1px solid var(--line);display:grid;place-items:center;color:rgb(var(--accent));font-family:var(--font-mono);font-size:11px;font-weight:600;border-radius:2px;}
+.brand-sep{color:rgb(var(--text-3));margin:0 6px;}
+.brand-path{color:rgb(var(--text-3));font-family:var(--font-mono);font-size:11px;}
+.theme-switch{display:flex;align-items:center;gap:8px;}
+.theme-switch-label{color:rgb(var(--text-3));font-family:var(--font-mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;}
+.swatch{width:14px;height:14px;border-radius:50%;border:1px solid rgb(var(--text-1) / 0.16);position:relative;padding:0;transition:transform 140ms ease,border-color 140ms ease;}
+.swatch:hover{transform:scale(1.12);}
+.swatch[aria-current="true"]{border-color:rgb(var(--text-1));box-shadow:0 0 0 1px rgb(var(--bg-0)) inset;}
+.swatch[data-t="dark"]{background:rgb(12 13 15);}
+.swatch[data-t="light"]{background:rgb(232 234 238);}
+.swatch[data-t="high-contrast"]{background:rgb(0 0 0);box-shadow:inset 0 0 0 3px rgb(0 255 255);}
+.swatch[data-t="dracula"]{background:rgb(189 147 249);}
+.swatch[data-t="nord"]{background:rgb(136 192 208);}
+.swatch[data-t="catppuccin"]{background:rgb(137 180 250);}
+main{padding:48px 0 96px;}
+.hero{padding-top:32px;padding-bottom:48px;}
+.kicker{display:inline-flex;align-items:center;gap:8px;color:rgb(var(--accent));font-family:var(--font-mono);font-size:11px;letter-spacing:0.12em;text-transform:uppercase;margin-bottom:24px;}
+.kicker-dot{width:6px;height:6px;border-radius:50%;background:rgb(var(--accent));box-shadow:0 0 0 3px rgb(var(--accent) / 0.18);}
+h1{font-size:40px;font-weight:500;line-height:1.1;letter-spacing:-0.025em;color:rgb(var(--text-1));margin-bottom:12px;}
+h1 .accent{color:rgb(var(--accent));font-family:var(--font-mono);font-weight:500;}
+.lede{color:rgb(var(--text-2));font-size:15px;line-height:1.55;max-width:560px;margin-bottom:40px;}
+.lede b{color:rgb(var(--text-1));font-weight:500;}
+.progress-wrap{margin-top:8px;}
+.progress-meta{display:flex;justify-content:space-between;align-items:baseline;color:rgb(var(--text-3));font-family:var(--font-mono);font-size:11px;margin-bottom:10px;letter-spacing:0.04em;}
+.progress-meta b{color:rgb(var(--text-1));font-weight:500;font-size:13px;}
+.progress-track{position:relative;height:18px;display:flex;align-items:center;}
+.progress-rail{position:absolute;left:0;right:0;height:1px;background:var(--line);}
+.progress-fill{position:absolute;left:0;height:1px;background:linear-gradient(90deg,rgb(var(--accent)) 0%,rgb(var(--accent-2)) 100%);box-shadow:0 0 12px rgb(var(--accent) / 0.45);}
+.nodes{display:flex;justify-content:space-between;position:relative;align-items:center;}
+.node{width:10px;height:10px;border-radius:50%;background:rgb(var(--bg-0));border:1px solid var(--line);display:block;padding:0;position:relative;transition:transform 140ms ease;}
+.node:hover{transform:scale(1.4);}
+.node[data-state="done"]{background:rgb(var(--accent));border-color:rgb(var(--accent));box-shadow:0 0 0 3px rgb(var(--accent) / 0.18);}
+.node[data-state="current"]{background:rgb(var(--accent-2));border-color:rgb(var(--accent-2));}
+.node-tip{position:absolute;top:-22px;left:50%;transform:translateX(-50%);font-family:var(--font-mono);font-size:10px;color:rgb(var(--text-3));white-space:nowrap;opacity:0;transition:opacity 120ms;}
+.node:hover .node-tip{opacity:1;}
+.progress-axis{display:flex;justify-content:space-between;margin-top:14px;color:rgb(var(--text-3));font-family:var(--font-mono);font-size:11px;}
+.progress-axis b{color:rgb(var(--text-1));font-weight:500;font-size:14px;letter-spacing:-0.02em;}
+.summary{margin-top:64px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:24px 0;display:grid;grid-template-columns:repeat(4,1fr);}
+.stat{display:flex;flex-direction:column;gap:4px;padding:0 16px;border-left:1px solid var(--line);}
+.stat:first-child{border-left:0;padding-left:0;}
+.stat-label{color:rgb(var(--text-3));font-family:var(--font-mono);font-size:10px;letter-spacing:0.1em;text-transform:uppercase;}
+.stat-value{font-size:24px;font-weight:500;color:rgb(var(--text-1));letter-spacing:-0.02em;}
+.stat-value .u{color:rgb(var(--accent));}
+.section-head{margin:72px 0 24px;display:flex;align-items:baseline;justify-content:space-between;border-bottom:1px solid var(--line);padding-bottom:14px;}
+.section-head h2{font-size:18px;font-weight:500;letter-spacing:-0.01em;color:rgb(var(--text-1));}
+.section-head .meta{color:rgb(var(--text-3));font-family:var(--font-mono);font-size:11px;letter-spacing:0.08em;text-transform:uppercase;}
+.entry{position:relative;padding:32px 0 36px 56px;border-bottom:1px solid var(--line);}
+.entry:last-child{border-bottom:0;}
+.entry-gutter{position:absolute;left:0;top:32px;display:flex;flex-direction:column;align-items:center;gap:6px;}
+.entry-num{font-family:var(--font-mono);font-size:11px;color:rgb(var(--text-3));letter-spacing:0.04em;}
+.entry-rail{width:1px;flex:1;background:var(--line);margin-top:6px;min-height:24px;}
+.entry-head{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;margin-bottom:6px;}
+.entry-title{font-size:17px;font-weight:500;letter-spacing:-0.01em;color:rgb(var(--text-1));line-height:1.35;}
+.entry-score{font-family:var(--font-mono);font-size:22px;font-weight:500;letter-spacing:-0.03em;color:rgb(var(--accent));white-space:nowrap;}
+.entry-score .plus{color:rgb(var(--text-3));font-weight:400;margin-right:2px;font-size:14px;vertical-align:2px;}
+.entry-meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;margin-bottom:14px;}
+.tag{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border:1px solid var(--line);font-family:var(--font-mono);font-size:10.5px;color:rgb(var(--text-2));letter-spacing:0.04em;border-radius:2px;background:transparent;}
+.tag-key{color:rgb(var(--text-3));}
+.tag-risk-low{color:rgb(var(--accent-2));border-color:rgb(var(--accent-2) / 0.32);}
+.tag-risk-med{color:rgb(var(--warn));border-color:rgb(var(--warn) / 0.32);}
+.tag-risk-none{color:rgb(var(--text-3));}
+.entry-desc{color:rgb(var(--text-2));font-size:13.5px;line-height:1.6;margin-bottom:16px;}
+.entry-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px 32px;margin-top:4px;}
+.entry-col h4{color:rgb(var(--text-3));font-family:var(--font-mono);font-size:10px;letter-spacing:0.1em;text-transform:uppercase;font-weight:500;margin-bottom:8px;}
+.entry-col ul{list-style:none;}
+.entry-col li{position:relative;padding-left:16px;color:rgb(var(--text-2));font-size:12.5px;line-height:1.7;}
+.entry-col li::before{content:"→";position:absolute;left:0;color:rgb(var(--text-3));font-family:var(--font-mono);font-size:11px;top:1px;}
+.entry-col li.check::before{content:"✓";color:rgb(var(--accent));}
+.entry-col li.warn::before{content:"!";color:rgb(var(--warn));}
+.entry-col .rollback{color:rgb(var(--text-3));font-size:12px;line-height:1.6;}
+.entry-col code,.entry-desc code{font-family:var(--font-mono);font-size:12px;color:rgb(var(--text-1));background:rgb(var(--bg-1));border:1px solid var(--line);padding:1px 6px;border-radius:2px;}
+.entry-col pre{font-family:var(--font-mono);font-size:11.5px;color:rgb(var(--text-2));background:rgb(var(--bg-1));border:1px solid var(--line);padding:12px 14px;border-radius:2px;overflow-x:auto;line-height:1.55;}
+.entry-col pre .c{color:rgb(var(--text-3));}
+.divider{height:1px;background:var(--line);margin:56px 0;}
+.scope-list{list-style:none;border-top:1px solid var(--line);}
+.scope-list li{display:grid;grid-template-columns:80px 1fr 60px;gap:16px;align-items:center;padding:14px 0;border-bottom:1px solid var(--line);}
+.scope-list .name{color:rgb(var(--text-1));font-size:13.5px;}
+.scope-list .reason{color:rgb(var(--text-3));font-size:12.5px;font-family:var(--font-mono);}
+.scope-list .score{font-family:var(--font-mono);font-size:13px;color:rgb(var(--text-2));text-align:right;}
+.scope-list .x{color:rgb(var(--text-3));margin-right:4px;}
+.accept-list{list-style:none;counter-reset:acc;padding:0;border-top:1px solid var(--line);}
+.accept-list li{counter-increment:acc;display:grid;grid-template-columns:32px 1fr;gap:12px;padding:14px 0;border-bottom:1px solid var(--line);font-size:13.5px;color:rgb(var(--text-2));}
+.accept-list li::before{content:counter(acc,decimal-leading-zero);color:rgb(var(--text-3));font-family:var(--font-mono);font-size:12px;letter-spacing:0.04em;}
+.accept-list b{color:rgb(var(--text-1));font-weight:500;}
+.timeline{width:100%;border-collapse:collapse;margin-top:8px;font-size:13px;}
+.timeline th{text-align:left;font-family:var(--font-mono);font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:rgb(var(--text-3));font-weight:500;padding:10px 0;border-bottom:1px solid var(--line);}
+.timeline td{padding:14px 0;border-bottom:1px solid var(--line);color:rgb(var(--text-2));vertical-align:top;}
+.timeline td:first-child{color:rgb(var(--text-1));font-family:var(--font-mono);font-size:12.5px;width:120px;}
+.timeline td:nth-child(2){color:rgb(var(--accent));font-family:var(--font-mono);font-size:12px;width:80px;}
+.timeline td:last-child{color:rgb(var(--text-3));font-size:12.5px;}
+.branch-block{margin-top:28px;padding:18px 20px;border:1px solid var(--line);background:rgb(var(--bg-1));border-radius:2px;}
+.branch-block .label{color:rgb(var(--text-3));font-family:var(--font-mono);font-size:10px;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:8px;}
+.branch-block p{color:rgb(var(--text-2));font-size:13px;line-height:1.6;}
+.branch-block code{font-family:var(--font-mono);font-size:12px;color:rgb(var(--text-1));}
+.branch-block .cmd{display:block;margin-top:6px;color:rgb(var(--accent));}
+footer{border-top:1px solid var(--line);margin-top:80px;padding-top:28px;display:flex;justify-content:space-between;align-items:baseline;color:rgb(var(--text-3));font-family:var(--font-mono);font-size:11px;}
+footer b{color:rgb(var(--text-1));font-weight:500;}
+footer .hint{color:rgb(var(--text-2));}
+@media (max-width:720px){.container{padding:0 20px;}h1{font-size:30px;}.summary{grid-template-columns:repeat(2,1fr);gap:24px 16px;}.stat{border-left:0;padding-left:0;border-top:1px solid var(--line);padding-top:14px;}.stat:nth-child(-n+2){border-top:0;padding-top:0;}.entry-grid{grid-template-columns:1fr;}.scope-list li{grid-template-columns:1fr;gap:4px;}}
+</style>
+</head>
+<body>
+<header class="chrome">
+<div class="chrome-inner">
+<div class="brand">
+<span class="brand-mark">G</span>
+<span>TmuxGo</span>
+<span class="brand-sep">/</span>
+<span class="brand-path">changelog</span>
+</div>
+<div class="theme-switch">
+<span class="theme-switch-label">theme</span>
+<button class="swatch" data-t="dark" aria-label="dark" aria-current="true"></button>
+<button class="swatch" data-t="light" aria-label="light"></button>
+<button class="swatch" data-t="high-contrast" aria-label="high-contrast"></button>
+<button class="swatch" data-t="dracula" aria-label="dracula"></button>
+<button class="swatch" data-t="nord" aria-label="nord"></button>
+<button class="swatch" data-t="catppuccin" aria-label="catppuccin"></button>
+</div>
+</div>
+</header>
+
+<main>
+<section class="hero container">
+<div class="kicker"><span class="kicker-dot"></span>changelog · ui-beautify · 2026-07</div>
+<h1>TmuxGo UI 美化 <span class="accent">7.0 → 9.0</span></h1>
+<p class="lede"><b>8 个 PR · 累计 +3.2 分 · 2 周落地。</b>从动效与空状态入手，集中修补动效 / 插画 / 大屏布局短板。前 4 个单点改动可立即上线，后 4 个是品牌与体验的结构性提升。</p>
+<div class="progress-wrap">
+<div class="progress-meta">
+<span>v0.x · pre</span>
+<span><b class="num">9.0</b> <span style="color:rgb(var(--text-3));">target</span></span>
+</div>
+<div class="progress-track">
+<div class="progress-rail"></div>
+<div class="progress-fill" style="width:62.5%"></div>
+<div class="nodes">
+<a href="#pr-1" class="node" data-state="done" aria-label="PR-1"><span class="node-tip">PR-1</span></a>
+<a href="#pr-4" class="node" data-state="done" aria-label="PR-4"><span class="node-tip">PR-4</span></a>
+<a href="#pr-3" class="node" data-state="done" aria-label="PR-3"><span class="node-tip">PR-3</span></a>
+<a href="#pr-2" class="node" data-state="current" aria-label="PR-2"><span class="node-tip">PR-2</span></a>
+<a href="#pr-5" class="node" aria-label="PR-5"><span class="node-tip">PR-5</span></a>
+<a href="#pr-7" class="node" aria-label="PR-7"><span class="node-tip">PR-7</span></a>
+<a href="#pr-6" class="node" aria-label="PR-6"><span class="node-tip">PR-6</span></a>
+<a href="#pr-8" class="node" aria-label="PR-8"><span class="node-tip">PR-8</span></a>
+</div>
+</div>
+<div class="progress-axis">
+<span><b class="num">7.0</b> now</span>
+<span>8 PR · +3.2</span>
+</div>
+</div>
+<div class="summary">
+<div class="stat"><span class="stat-label">PR count</span><span class="stat-value num">8</span></div>
+<div class="stat"><span class="stat-label">score delta</span><span class="stat-value num"><span class="u">+3.2</span></span></div>
+<div class="stat"><span class="stat-label">total hours</span><span class="stat-value num">17.5h</span></div>
+<div class="stat"><span class="stat-label">avg / PR</span><span class="stat-value num">2.2h</span></div>
+</div>
+</section>
+
+<div class="container">
+<div class="section-head"><h2>8 个 PR · 按 ROI 排序</h2><span class="meta">2026 · W1–W2</span></div>
+
+<article class="entry" id="pr-1">
+<div class="entry-gutter"><span class="entry-num">PR-1</span><span class="entry-rail"></span></div>
+<div class="entry-head"><h3 class="entry-title">全局微动效（transition + duration）</h3><span class="entry-score num"><span class="plus">+</span>0.4</span></div>
+<div class="entry-meta">
+<span class="tag"><span class="tag-key">type</span> 工程</span>
+<span class="tag"><span class="tag-key">hours</span> 0.5h</span>
+<span class="tag tag-risk-none"><span class="tag-key">risk</span> 无</span>
+<span class="tag"><span class="tag-key">w1-mon</span></span>
+</div>
+<p class="entry-desc">所有交互元素（按钮 / 面板 / 抽屉 / toast）加 150–200ms 颜色与位移过渡，定义 <code>--ease-out-expo</code> 全局常量。</p>
+<div class="entry-grid">
+<div class="entry-col">
+<h4>实现要点</h4>
+<ul>
+<li><code>components/ActivityBar.tsx</code> 加 <code>transition-colors</code></li>
+<li><code>ConsoleLayout.tsx</code> drawer / sheet 加 <code>transition-transform duration-300</code></li>
+<li><code>ToastViewport.tsx</code> 用 spring 缓动</li>
+<li><code>globals.css</code> 定义 <code>--ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1)</code></li>
+</ul>
+<h4 style="margin-top:16px;">回滚</h4>
+<p class="rollback">移除对应 utility class 即可，零风险变更。</p>
+</div>
+<div class="entry-col">
+<h4>验收</h4>
+<ul>
+<li class="check">点击 ActivityBar 图标无闪烁</li>
+<li class="check">Toast 弹入 / 消失有 200ms 淡入淡出</li>
+<li class="check"><code>prefers-reduced-motion</code> 下禁用所有动画</li>
+</ul>
+</div>
+</div>
+</article>
+
+<article class="entry" id="pr-4">
+<div class="entry-gutter"><span class="entry-num">PR-4</span><span class="entry-rail"></span></div>
+<div class="entry-head"><h3 class="entry-title">主题切换 UI（深浅 / Catppuccin 一键换）</h3><span class="entry-score num"><span class="plus">+</span>0.2</span></div>
+<div class="entry-meta">
+<span class="tag"><span class="tag-key">type</span> 工程</span>
+<span class="tag"><span class="tag-key">hours</span> 1h</span>
+<span class="tag tag-risk-none"><span class="tag-key">risk</span> 无</span>
+<span class="tag"><span class="tag-key">w1-thu</span></span>
+</div>
+<p class="entry-desc">暴露已有的 6 套主题 token，让用户能在 Settings 中一键切换并持久化偏好。</p>
+<div class="entry-grid">
+<div class="entry-col">
+<h4>实现要点</h4>
+<ul>
+<li><code>stores/useConsoleStore.ts</code> 新增 <code>theme</code> / <code>setTheme()</code></li>
+<li><code>Settings.tsx</code> 新增「主题」分组，6 个色块</li>
+<li>root 上挂 <code>document.documentElement.dataset.theme</code></li>
+<li>偏好持久化到 <code>localStorage</code></li>
+</ul>
+</div>
+<div class="entry-col">
+<h4>验收</h4>
+<ul>
+<li class="check">6 套主题全部可切换且无闪烁</li>
+<li class="check">切换平滑过渡（与 PR-1 配合）</li>
+<li class="check">刷新后保持上次主题</li>
+</ul>
+</div>
+</div>
+</article>
+
+<article class="entry" id="pr-3">
+<div class="entry-gutter"><span class="entry-num">PR-3</span><span class="entry-rail"></span></div>
+<div class="entry-head"><h3 class="entry-title">移动底栏 spring 进入动效</h3><span class="entry-score num"><span class="plus">+</span>0.3</span></div>
+<div class="entry-meta">
+<span class="tag"><span class="tag-key">type</span> 工程</span>
+<span class="tag"><span class="tag-key">hours</span> 1h</span>
+<span class="tag tag-risk-med"><span class="tag-key">risk</span> 中</span>
+<span class="tag"><span class="tag-key">w1-wed</span></span>
+</div>
+<p class="entry-desc">移动 dock 从下方 60px 滑入，会话条切换有 200ms 滑动高亮，键盘弹出无抖动。</p>
+<div class="entry-grid">
+<div class="entry-col">
+<h4>实现要点</h4>
+<ul>
+<li><code>ConsoleLayout.tsx</code> 移动 dock 用 spring 进入</li>
+<li>stiffness=280 / damping=24 的 <code>framer-motion</code> variants</li>
+<li>不引入依赖时手写 RAF spring</li>
+<li>会话条切换加 200ms slide</li>
+</ul>
+<h4 style="margin-top:16px;">风险</h4>
+<p class="rollback">新增依赖或自实现需在低端机测试性能。</p>
+</div>
+<div class="entry-col">
+<h4>验收</h4>
+<ul>
+<li class="check">页面进入时 dock 从下方 60px 滑入</li>
+<li class="check">切会话时 session strip 有滑动高亮</li>
+<li class="check">键盘弹出 / 关闭时 dock 有 150ms 平滑切换</li>
+</ul>
+</div>
+</div>
+</article>
+
+<article class="entry" id="pr-2">
+<div class="entry-gutter"><span class="entry-num">PR-2</span><span class="entry-rail"></span></div>
+<div class="entry-head"><h3 class="entry-title">自定义 app-icon + 启动图标家族</h3><span class="entry-score num"><span class="plus">+</span>0.6</span></div>
+<div class="entry-meta">
+<span class="tag"><span class="tag-key">type</span> 设计</span>
+<span class="tag"><span class="tag-key">hours</span> 2h</span>
+<span class="tag tag-risk-none"><span class="tag-key">risk</span> 无</span>
+<span class="tag"><span class="tag-key">w1-tue</span></span>
+</div>
+<p class="entry-desc">建立品牌资产，扩展 favicon / splash / og-image 全套图标，主形：圆角矩形 + tmux 三窗格 + G 字母隐喻。</p>
+<div class="entry-grid">
+<div class="entry-col">
+<h4>实现要点</h4>
+<ul>
+<li><code>public/app-icon.svg</code> 重设计：终端窗口 + 抽象 G</li>
+<li>新增 <code>favicon.ico</code> / <code>favicon-32x32.png</code> / <code>splash-dark.png</code></li>
+<li>主形 radius 22%，仿 macOS app 图标</li>
+<li>色默认用主题 <code>--accent</code>，随主题切换</li>
+</ul>
+</div>
+<div class="entry-col">
+<h4>验收</h4>
+<ul>
+<li class="check">iOS PWA 添加到桌面显示新图标</li>
+<li class="check">浏览器 tab 正确显示 32×32 favicon</li>
+<li class="check">暗 / 亮主题下色彩对比均通过 WCAG AA</li>
+</ul>
+</div>
+</div>
+</article>
+
+<article class="entry" id="pr-5">
+<div class="entry-gutter"><span class="entry-num">PR-5</span><span class="entry-rail"></span></div>
+<div class="entry-head"><h3 class="entry-title">Skeleton loading（会话 / 文件 / Git）</h3><span class="entry-score num"><span class="plus">+</span>0.4</span></div>
+<div class="entry-meta">
+<span class="tag"><span class="tag-key">type</span> 工程</span>
+<span class="tag"><span class="tag-key">hours</span> 3h</span>
+<span class="tag tag-risk-low"><span class="tag-key">risk</span> 低</span>
+<span class="tag"><span class="tag-key">w1-fri</span></span>
+</div>
+<p class="entry-desc">消灭加载态空白时段。会话 / 文件 / Git 三处面板在 <code>isPending</code> 时显示渐变扫光骨架。</p>
+<div class="entry-grid">
+<div class="entry-col">
+<h4>实现要点</h4>
+<ul>
+<li>新增 <code>Skeleton.tsx</code> / <code>SessionSkeleton.tsx</code></li>
+<li>新增 <code>FileSkeleton.tsx</code> / <code>GitSkeleton.tsx</code></li>
+<li>渐变扫光 <code>from-bg-2 via-bg-1 to-bg-2</code></li>
+<li>用 <code>opacity</code> 而非 <code>display</code> 切换，避免闪烁</li>
+</ul>
+</div>
+<div class="entry-col">
+<h4>验收</h4>
+<ul>
+<li class="check">三个面板初次加载均有骨架屏，无空白</li>
+<li class="check">真实数据到位后无闪烁切换</li>
+<li class="check">Lighthouse Performance ≥ 90（动效不拖低）</li>
+</ul>
+</div>
+</div>
+</article>
+
+<article class="entry" id="pr-7">
+<div class="entry-gutter"><span class="entry-num">PR-7</span><span class="entry-rail"></span></div>
+<div class="entry-head"><h3 class="entry-title">空状态 SVG 插画包（5 场景）</h3><span class="entry-score num"><span class="plus">+</span>0.6</span></div>
+<div class="entry-meta">
+<span class="tag"><span class="tag-key">type</span> 设计</span>
+<span class="tag"><span class="tag-key">hours</span> 4h</span>
+<span class="tag tag-risk-none"><span class="tag-key">risk</span> 无</span>
+<span class="tag"><span class="tag-key">w2-tue~thu</span></span>
+</div>
+<p class="entry-desc">告别 <code>⊞</code> 字 + 两行文案。5 个 220×160 viewBox 单色 + accent 高亮插画，CSS variable 控制颜色自动适配主题。</p>
+<div class="entry-grid">
+<div class="entry-col">
+<h4>实现要点</h4>
+<ul>
+<li><code>empty-sessions.svg</code> 终端窗格 + 新建引导</li>
+<li><code>empty-files.svg</code> 文件夹轮廓</li>
+<li><code>empty-git.svg</code> 分支剪影</li>
+<li><code>empty-agent.svg</code> / <code>empty-offline.svg</code> 波纹 / 虚线连接</li>
+</ul>
+<h4 style="margin-top:16px;">依赖</h4>
+<p class="rollback">可选 <a href="https://react-svgr.com/" style="color:rgb(var(--accent));font-family:var(--font-mono);font-size:11.5px;">svgr</a> 转 React 组件便于着色。</p>
+</div>
+<div class="entry-col">
+<h4>验收</h4>
+<ul>
+<li class="check">5 个空状态全部有插画</li>
+<li class="check">切换深 / 亮 / 3 套主题，插画颜色自动适配</li>
+<li class="check">移动端 sheet 内插画比例正确</li>
+</ul>
+</div>
+</div>
+</article>
+
+<article class="entry" id="pr-6">
+<div class="entry-gutter"><span class="entry-num">PR-6</span><span class="entry-rail"></span></div>
+<div class="entry-head"><h3 class="entry-title">大屏专属布局（≥1440）</h3><span class="entry-score num"><span class="plus">+</span>0.3</span></div>
+<div class="entry-meta">
+<span class="tag"><span class="tag-key">type</span> 设计</span>
+<span class="tag"><span class="tag-key">hours</span> 2h</span>
+<span class="tag tag-risk-low"><span class="tag-key">risk</span> 低</span>
+<span class="tag"><span class="tag-key">w2-mon</span></span>
+</div>
+<p class="entry-desc">消除 2K / 4K 屏两侧浪费。xl 区（≥1440）右侧加 280px「快速创建」面板，TopBar 显示连接数与 CPU。</p>
+<div class="entry-grid">
+<div class="entry-col">
+<h4>实现要点</h4>
+<ul>
+<li><code>DesktopWorkbench.tsx</code> 改 breakpoint 阈值</li>
+<li><code>minWorkspaceWidth = viewportWidth >= 1440 ? 720 : ...</code></li>
+<li>新增右侧 280px 镜像「快速创建」面板</li>
+<li>TopBar 加连接数 / CPU 状态指示</li>
+</ul>
+</div>
+<div class="entry-col">
+<h4>验收</h4>
+<ul>
+<li class="check">1920×1080 屏中间工作区 ≥ 720px</li>
+<li class="check">xl 屏右侧面板可隐藏</li>
+<li class="check">平板横屏（1180–1440）保持原有布局</li>
+</ul>
+</div>
+</div>
+</article>
+
+<article class="entry" id="pr-8">
+<div class="entry-gutter"><span class="entry-num">PR-8</span><span class="entry-rail"></span></div>
+<div class="entry-head"><h3 class="entry-title">EditorWorkbench 拆分 + 分屏微动效</h3><span class="entry-score num"><span class="plus">+</span>0.4</span></div>
+<div class="entry-meta">
+<span class="tag"><span class="tag-key">type</span> 工程</span>
+<span class="tag"><span class="tag-key">hours</span> 4h</span>
+<span class="tag tag-risk-med"><span class="tag-key">risk</span> 中</span>
+<span class="tag"><span class="tag-key">w2-fri</span></span>
+</div>
+<p class="entry-desc">把 673 行的 <code>EditorWorkbench</code> 拆为 5 个文件，加拖入边缘 ghost 高亮与 compare 模式淡入分屏。</p>
+<div class="entry-grid">
+<div class="entry-col">
+<h4>实现要点</h4>
+<ul>
+<li>拆出 <code>EditorTabs.tsx</code> / <code>EditorSplit.tsx</code></li>
+<li>拆出 <code>EditorPane.tsx</code> + <code>useEditorDrag.ts</code> / <code>useEditorCompare.ts</code></li>
+<li>拖入文件到边缘出现蓝色 ghost 高亮</li>
+<li>compare 模式 200ms 淡入左右分屏，tab 用 translateX 滑动</li>
+</ul>
+<h4 style="margin-top:16px;">风险</h4>
+<p class="rollback">纯重构但需要完整回归，所有现有 <code>EditorWorkbench</code> 单测要过。</p>
+</div>
+<div class="entry-col">
+<h4>验收</h4>
+<ul>
+<li class="check"><code>EditorWorkbench.tsx</code> ≤ 200 行</li>
+<li class="check">split 拖拽无卡顿</li>
+<li class="check">所有现有 <code>EditorWorkbench</code> 单测全过</li>
+</ul>
+</div>
+</div>
+</article>
+</div>
+
+<div class="container">
+<div class="section-head"><h2>不在本次范围</h2><span class="meta">deferred → next cycle</span></div>
+<ul class="scope-list">
+<li><span class="score"><span class="x">×</span><span class="num">+0.2</span></span><span class="name">字体系统扩展（中文衬线 / 无衬线优化）</span><span class="reason">ROI 偏低，留到下个周期</span></li>
+<li><span class="score"><span class="x">×</span><span class="num">+0.2</span></span><span class="name">自定义 spacing scale</span><span class="reason">与 token 重构强耦合，独立排期</span></li>
+<li><span class="score"><span class="x">✓</span></span><span class="name">大屏「快速创建面板」</span><span class="reason">已合并到 PR-6</span></li>
+<li><span class="score"><span class="x">×</span><span class="num">+0.3</span></span><span class="name">Welcome 首次启动引导</span><span class="reason">独立 PR 更合适</span></li>
+</ul>
+</div>
+
+<div class="container">
+<div class="section-head"><h2>验收总览</h2><span class="meta">5 / 5 must pass</span></div>
+<ol class="accept-list">
+<li><b>视觉</b> · 8 个 PR 合入后 ≥ 9.0 分</li>
+<li><b>回归</b> · 所有现有 <code>*.test.tsx</code> 通过</li>
+<li><b>性能</b> · Lighthouse Performance ≥ 90（骨架屏动效不拖低）</li>
+<li><b>可访问</b> · <code>prefers-reduced-motion</code> 完整支持</li>
+<li><b>主题</b> · 6 套主题全部正常切换且视觉一致</li>
+</ol>
+</div>
+
+<div class="container">
+<div class="section-head"><h2>时间线 / 分支策略</h2><span class="meta">2 weeks · 8 worktrees</span></div>
+<table class="timeline">
+<thead><tr><th>week</th><th>PR</th><th>备注</th></tr></thead>
+<tbody>
+<tr><td>W1 · 周一</td><td>PR-1</td><td>半天搞定，立即见效</td></tr>
+<tr><td>W1 · 周二</td><td>PR-2</td><td>用 Figma 拼一下</td></tr>
+<tr><td>W1 · 周三</td><td>PR-3</td><td>移动端基线动效</td></tr>
+<tr><td>W1 · 周四</td><td>PR-4</td><td>主题切换收尾</td></tr>
+<tr><td>W1 · 周五</td><td>PR-5</td><td>骨架屏工程量最重</td></tr>
+<tr><td>W2 · 周一</td><td>PR-6</td><td>大屏布局</td></tr>
+<tr><td>W2 · 周二~四</td><td>PR-7</td><td>插画包，4 天画 5 张</td></tr>
+<tr><td>W2 · 周五</td><td>PR-8</td><td>重构，注意回归</td></tr>
+</tbody>
+</table>
+<div class="branch-block">
+<div class="label">branch strategy · worktree = branch</div>
+<p>按 CLAUDE.md「分支 = worktree」规则，每个 PR 一个独立 worktree，并行 review / merge：</p>
+<p class="cmd num">git worktree add ../tmuxgo-beautify-1 feat/transition</p>
+<p class="cmd num">git worktree add ../tmuxgo-beautify-2 feat/app-icon-redesign</p>
+<p style="margin-top:8px;color:rgb(var(--text-3));">… 8 个 worktree 并行，独立 review、独立 merge。</p>
+</div>
+</div>
+
+<footer class="container">
+<div><b>TmuxGo</b> · ui-beautify changelog · 2026-07-21</div>
+<div class="hint">click any color dot ↑ to switch theme</div>
+</footer>
+</main>
+
+<script>
+const themes=['dark','light','high-contrast','dracula','nord','catppuccin'];
+const swatches=document.querySelectorAll('.swatch');
+const setTheme=(t)=>{document.documentElement.dataset.theme=t;swatches.forEach(s=>s.setAttribute('aria-current',s.dataset.t===t?'true':'false'));try{localStorage.setItem('tmuxgo-theme',t)}catch(e){}};
+swatches.forEach(s=>s.addEventListener('click',()=>setTheme(s.dataset.t)));
+try{const saved=localStorage.getItem('tmuxgo-theme');if(saved&&themes.includes(saved))setTheme(saved)}catch(e){}
+</script>
+</body>
+</html>

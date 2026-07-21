@@ -265,6 +265,37 @@ describe('EditorWorkbench', () => {
     expect(pane?.className).toContain('flex-1')
     expect(surface?.className).toContain('flex-1')
   })
+  it('renders markdown preview immediately and can hide it', () => {
+    const editor = createEditor('editor-md', 'README.md', '# Markdown preview', { language: 'markdown' })
+    setWorkbenchState({
+      openEditors: [editor],
+      activeEditorId: editor.id,
+      editorGroups: [createGroup('group-1', [editor.id], editor.id)],
+      editorLayout: createLeaf('layout-1', 'group-1'),
+      activeEditorGroupId: 'group-1',
+    })
+    renderWorkbench()
+    expect(screen.getByRole('heading', { name: 'Markdown preview' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
+    expect(screen.queryByRole('heading', { name: 'Markdown preview' })).not.toBeInTheDocument()
+  })
+  it('renders html preview immediately in a sandboxed frame', () => {
+    const content = '<!doctype html><html><body><h1>HTML preview</h1></body></html>'
+    const editor = createEditor('editor-html', 'page.html', content, { language: 'html' })
+    setWorkbenchState({
+      openEditors: [editor],
+      activeEditorId: editor.id,
+      editorGroups: [createGroup('group-1', [editor.id], editor.id)],
+      editorLayout: createLeaf('layout-1', 'group-1'),
+      activeEditorGroupId: 'group-1',
+    })
+    renderWorkbench()
+    const frame = screen.getByTitle('page.html')
+    expect(frame).toHaveAttribute('srcdoc', content)
+    expect(frame).toHaveAttribute('sandbox', 'allow-downloads allow-forms allow-modals allow-popups allow-scripts')
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
+    expect(screen.queryByTitle('page.html')).not.toBeInTheDocument()
+  })
   it('clears all opened editors from the toolbar button', async () => {
     setWorkbenchState({
       openEditors: [editor1, editor2, editor3],

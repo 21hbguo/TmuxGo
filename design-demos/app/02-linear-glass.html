@@ -1,0 +1,1176 @@
+<!doctype html>
+<html lang="zh-Hans" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>TmuxGo · Linear Glass Bento</title>
+<style>
+/* ---------- tokens (mirror globals.css, dark default) ---------- */
+:root{
+  --bg-0: 12 13 15;
+  --bg-1: 24 25 28;
+  --bg-2: 42 43 48;
+  --accent: 94 106 210;          /* Linear-style desaturated indigo */
+  --accent-2: 130 148 210;        /* cool micro-glow companion */
+  --accent-brand: #5E6AD2;         /* signature Linear hex (only used for hairline dots) */
+  --warn: 255 159 10;
+  --danger: 255 69 58;
+  --text-1: 245 245 247;
+  --text-2: 174 174 178;
+  --text-3: 116 116 122;
+  --line: rgba(255,255,255,0.08);
+  --glow: 0 18px 60px rgba(0,0,0,0.35);
+  --glass-blur: 22px;
+  --glass-saturate: 160%;
+  --glass-fill: rgba(22,23,28,0.62);
+  --glass-fill-strong: rgba(20,21,25,0.84);
+  --glass-rim: rgba(255,255,255,0.10);
+  --glass-highlight: rgba(255,255,255,0.14);
+  --glass-shadow: 0 18px 60px rgba(0,0,0,0.40);
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: Consolas, "Cascadia Mono", "Cascadia Code", "SF Mono", Monaco, Menlo, "DejaVu Sans Mono", "Liberation Mono", "Courier New", monospace;
+  --r-card: 14px;
+  --r-pill: 999px;
+}
+[data-theme="light"]{
+  --bg-0: 232 234 238;
+  --bg-1: 248 249 251;
+  --bg-2: 224 226 231;
+  --accent: 80 92 200;
+  --accent-2: 60 130 200;
+  --text-1: 28 28 30;
+  --text-2: 99 99 102;
+  --text-3: 142 142 147;
+  --line: rgba(60,60,67,0.12);
+  --glass-fill: rgba(255,255,255,0.62);
+  --glass-fill-strong: rgba(255,255,255,0.86);
+  --glass-rim: rgba(255,255,255,0.78);
+  --glass-highlight: rgba(255,255,255,0.92);
+  --glass-shadow: 0 18px 60px rgba(48,52,60,0.14);
+}
+[data-theme="hc"]{
+  --bg-0: 0 0 0;
+  --bg-1: 8 8 8;
+  --bg-2: 22 22 22;
+  --accent: 0 255 255;
+  --accent-2: 0 255 136;
+  --text-1: 255 255 255;
+  --text-2: 204 204 204;
+  --text-3: 153 153 153;
+  --glass-blur: 0px;
+  --glass-fill: rgba(8,8,8,1);
+  --glass-fill-strong: rgba(8,8,8,1);
+  --glass-rim: rgba(255,255,255,0.6);
+  --glass-highlight: transparent;
+  --glass-shadow: none;
+}
+[data-theme="dracula"]{
+  --bg-0: 33 34 44;
+  --bg-1: 40 42 54;
+  --bg-2: 52 55 70;
+  --accent: 189 147 249;
+  --accent-2: 255 121 198;
+  --text-1: 248 248 242;
+  --text-2: 191 191 191;
+  --text-3: 98 114 164;
+  --line: rgba(189,147,249,0.18);
+  --glass-fill: rgba(40,42,54,0.66);
+  --glass-fill-strong: rgba(40,42,54,0.88);
+}
+[data-theme="nord"]{
+  --bg-0: 46 52 64;
+  --bg-1: 59 66 82;
+  --bg-2: 67 76 94;
+  --accent: 136 192 208;
+  --accent-2: 129 161 193;
+  --text-1: 236 239 244;
+  --text-2: 216 222 233;
+  --text-3: 108 118 138;
+  --line: rgba(136,192,208,0.18);
+  --glass-fill: rgba(46,52,64,0.66);
+  --glass-fill-strong: rgba(46,52,64,0.88);
+}
+[data-theme="catppuccin"]{
+  --bg-0: 17 17 27;
+  --bg-1: 24 24 37;
+  --bg-2: 49 50 68;
+  --accent: 137 180 250;
+  --accent-2: 166 227 161;
+  --text-1: 205 214 244;
+  --text-2: 166 173 200;
+  --text-3: 108 112 134;
+  --line: rgba(137,180,250,0.18);
+  --glass-fill: rgba(24,24,37,0.66);
+  --glass-fill-strong: rgba(24,24,37,0.88);
+}
+
+/* ---------- reset + base ---------- */
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+body{
+  background:
+    radial-gradient(1100px 700px at 78% -8%, rgb(var(--accent) / 0.16), transparent 60%),
+    radial-gradient(900px 600px at -10% 110%, rgb(var(--accent-2) / 0.10), transparent 60%),
+    rgb(var(--bg-0));
+  color: rgb(var(--text-1));
+  font-family: var(--font-ui);
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+input,textarea{font:inherit;color:inherit;background:none;border:0;outline:0}
+svg{display:block}
+
+/* ---------- app shell ---------- */
+.app{
+  position:fixed; inset:0;
+  display:grid;
+  grid-template-columns: 56px 280px 1fr 0;
+  grid-template-rows: 48px 1fr 26px;
+  grid-template-areas:
+    "topbar topbar topbar topbar"
+    "actbar session main main"
+    "status status status status";
+  transition: grid-template-columns 200ms cubic-bezier(.2,.8,.2,1);
+}
+.app[data-files-open="true"]{ grid-template-columns: 56px 280px 240px 1fr; grid-template-areas: "topbar topbar topbar topbar" "actbar session files main" "status status status status"; }
+.app[data-session-open="false"]{ grid-template-columns: 56px 0 1fr; }
+.app[data-session-open="false"][data-files-open="true"]{ grid-template-columns: 56px 0 280px 1fr; }
+
+/* ---------- glass ---------- */
+.glass{
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  background: var(--glass-fill);
+  border: 1px solid var(--glass-rim);
+  box-shadow: inset 0 1px 0 var(--glass-highlight), var(--glass-shadow);
+  border-radius: var(--r-card);
+}
+.glass-strong{ background: var(--glass-fill-strong); }
+
+/* ---------- topbar ---------- */
+.topbar{
+  grid-area: topbar;
+  display:flex; align-items:center; gap:14px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, rgb(var(--bg-1) / 0.86), rgb(var(--bg-1) / 0.62));
+  -webkit-backdrop-filter: blur(18px) saturate(180%);
+  backdrop-filter: blur(18px) saturate(180%);
+  z-index: 30;
+}
+.brand{ display:flex; align-items:center; gap:10px; }
+.logo{
+  width: 22px; height: 22px;
+  border-radius: 6px;
+  background: linear-gradient(135deg, rgb(var(--accent)), rgb(var(--accent-2)));
+  display:grid; place-items:center;
+  box-shadow: 0 0 0 1px var(--glass-rim), 0 6px 18px rgb(var(--accent) / 0.35);
+}
+.logo svg path{ stroke: #fff; stroke-width: 2; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.brand-text{ font-size: 13px; letter-spacing: 0.2px; }
+.brand-text b{ font-weight: 600; }
+.brand-text span{ color: rgb(var(--text-3)); margin-left: 6px; font-size: 11px; }
+
+.topbar-search{
+  flex: 0 1 420px; height: 30px;
+  display:flex; align-items:center; gap:8px;
+  padding: 0 12px;
+  border: 1px solid var(--glass-rim);
+  border-radius: 8px;
+  background: rgb(var(--bg-2) / 0.5);
+  color: rgb(var(--text-2));
+  font-size: 12.5px;
+}
+.topbar-search:hover{ background: rgb(var(--bg-2) / 0.78); }
+.topbar-search .kbd{
+  font-family: var(--font-mono); font-size: 10.5px;
+  padding: 1px 6px; border-radius: 5px;
+  background: rgb(var(--bg-1)); color: rgb(var(--text-3));
+  border: 1px solid var(--line);
+  margin-left: auto;
+}
+
+.topbar-spacer{ flex:1; }
+
+.theme-strip{ display:flex; align-items:center; gap:8px; }
+.theme-strip .label{ font-size: 11px; color: rgb(var(--text-3)); letter-spacing: 0.4px; text-transform: uppercase; }
+.theme-dot{
+  width: 18px; height: 18px; border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.18);
+  cursor: pointer; position: relative;
+  transition: transform 160ms cubic-bezier(.2,.8,.2,1), box-shadow 160ms ease;
+}
+.theme-dot:hover{ transform: scale(1.12); }
+.theme-dot[data-active="true"]{ box-shadow: 0 0 0 2px rgb(var(--bg-0)), 0 0 0 3px rgb(var(--accent)); transform: scale(1.08); }
+.theme-dot.t-dark     { background: #0C0D0F; }
+.theme-dot.t-light    { background: linear-gradient(135deg,#E8EAEE,#F8F9FB); }
+.theme-dot.t-hc       { background: linear-gradient(135deg,#000,#0AA); }
+.theme-dot.t-dracula  { background: linear-gradient(135deg,#282A36,#BD93F9); }
+.theme-dot.t-nord     { background: linear-gradient(135deg,#2E3440,#88C0D0); }
+.theme-dot.t-cat      { background: linear-gradient(135deg,#11111B,#89B4FA); }
+
+.user-chip{
+  display:flex; align-items:center; gap:8px; padding: 0 10px 0 6px;
+  height: 30px; border-radius: 999px;
+  border: 1px solid var(--glass-rim);
+  background: rgb(var(--bg-2) / 0.5);
+}
+.avatar{
+  width: 22px; height: 22px; border-radius: 999px;
+  background: linear-gradient(135deg, rgb(var(--accent)), rgb(var(--accent-2)));
+  display:grid; place-items:center; font-size: 10.5px; color:#fff; font-weight:600;
+}
+.user-chip span{ font-size: 12px; color: rgb(var(--text-2)); }
+
+/* ---------- ActivityBar ---------- */
+.actbar{
+  grid-area: actbar;
+  display:flex; flex-direction:column; align-items:center; gap: 4px;
+  padding: 12px 0 16px;
+  background: rgb(var(--bg-1) / 0.55);
+  border-right: 1px solid var(--line);
+  z-index: 10;
+}
+.act-btn{
+  width: 40px; height: 40px; border-radius: 10px;
+  display:grid; place-items:center;
+  color: rgb(var(--text-3));
+  position: relative;
+  transition: color 160ms, background 160ms;
+}
+.act-btn:hover{ color: rgb(var(--text-1)); background: rgb(var(--bg-2) / 0.6); }
+.act-btn[data-active="true"]{ color: rgb(var(--accent)); }
+.act-btn[data-active="true"]::before{
+  content:''; position: absolute; left: -8px; top: 10px; bottom: 10px;
+  width: 2px; border-radius: 2px; background: rgb(var(--accent));
+}
+.act-spacer{ flex:1; }
+.icon{ width:18px; height:18px; }
+
+/* ---------- SessionPanel (left) ---------- */
+.session{
+  grid-area: session;
+  display:flex; flex-direction:column;
+  border-right: 1px solid var(--line);
+  background: rgb(var(--bg-1) / 0.35);
+  overflow: hidden;
+  min-width: 0;
+}
+.panel-head{
+  display:flex; align-items:center; gap:8px;
+  padding: 12px 14px 8px;
+}
+.panel-head h3{ font-size: 11px; letter-spacing: 0.6px; text-transform: uppercase; color: rgb(var(--text-3)); font-weight: 500; }
+.panel-head .badge{ font-family: var(--font-mono); font-size: 10px; padding: 1px 6px; border-radius: 999px; background: rgb(var(--accent) / 0.18); color: rgb(var(--accent)); margin-left: auto; }
+.panel-toggle{ font-size: 11px; color: rgb(var(--text-3)); padding: 4px; border-radius: 6px; }
+.panel-toggle:hover{ color: rgb(var(--text-1)); background: rgb(var(--bg-2) / 0.6); }
+
+.sess-list{ display:flex; flex-direction:column; padding: 4px 8px; gap: 2px; overflow-y:auto; }
+.sess{
+  display:flex; align-items:center; gap:10px;
+  padding: 9px 10px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.sess:hover{ background: rgb(var(--bg-2) / 0.55); }
+.sess[data-active="true"]{ background: rgb(var(--bg-2) / 0.85); border-color: rgb(var(--accent) / 0.30); }
+.sess .dot{
+  width: 7px; height: 7px; border-radius: 999px;
+  background: rgb(var(--text-3));
+  flex: 0 0 auto;
+}
+.sess[data-state="running"] .dot{ background: rgb(var(--accent-2)); box-shadow: 0 0 6px rgb(var(--accent-2) / 0.6); }
+.sess[data-state="starred"] .star{ color: rgb(var(--warn)); }
+.sess .name{ font-size: 12.5px; color: rgb(var(--text-2)); font-family: var(--font-mono); }
+.sess[data-active="true"] .name{ color: rgb(var(--text-1)); }
+.sess .meta{ margin-left: auto; font-family: var(--font-mono); font-size: 10px; color: rgb(var(--text-3)); }
+.sess .star{ font-size: 11px; color: rgb(var(--text-3)); width: 14px; text-align: center; }
+
+.session-meta{ padding: 12px 14px; margin-top: auto; border-top: 1px solid var(--line); }
+.session-meta .label{ font-size: 10px; text-transform: uppercase; color: rgb(var(--text-3)); letter-spacing: 0.5px; margin-bottom: 8px; }
+.session-meta .row{ display:flex; align-items:center; justify-content: space-between; font-size: 12px; padding: 3px 0; color: rgb(var(--text-2)); }
+.session-meta .row b{ color: rgb(var(--text-1)); font-family: var(--font-mono); font-weight: 500; }
+
+.app[data-session-open="false"] .session{ display:none; }
+
+/* ---------- FilePanel ---------- */
+.files{
+  grid-area: files;
+  border-right: 1px solid var(--line);
+  background: rgb(var(--bg-1) / 0.45);
+  display: none;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+.app[data-files-open="true"] .files{ display:flex; }
+.file-row{
+  display:flex; align-items:center; gap:8px;
+  padding: 4px 14px;
+  font-family: var(--font-mono); font-size: 11.5px;
+  color: rgb(var(--text-2));
+  border-radius: 6px;
+  margin: 0 6px;
+}
+.file-row:hover{ background: rgb(var(--bg-2) / 0.55); color: rgb(var(--text-1)); }
+.file-row .caret{ width: 10px; color: rgb(var(--text-3)); display:inline-block; }
+.file-row .ic{ width: 12px; color: rgb(var(--text-3)); }
+.file-row.indent{ padding-left: 28px; }
+.file-row.indent2{ padding-left: 42px; }
+.file-row[data-active="true"]{ color: rgb(var(--accent)); background: rgb(var(--accent) / 0.10); }
+
+/* ---------- Main / terminal ---------- */
+.main{
+  grid-area: main;
+  display:grid;
+  grid-template-rows: 36px 1fr;
+  grid-template-columns: 1fr;
+  min-width: 0; min-height: 0;
+  background: rgb(var(--bg-1));
+}
+.tabs{
+  display:flex; align-items:center; gap:6px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--line);
+  background: rgb(var(--bg-0) / 0.4);
+}
+.tab{
+  display:flex; align-items:center; gap:8px;
+  padding: 6px 12px;
+  font-size: 12px; color: rgb(var(--text-2));
+  border-radius: 8px 8px 0 0;
+  border: 1px solid transparent;
+  position: relative;
+}
+.tab[data-active="true"]{ background: rgb(var(--bg-1)); color: rgb(var(--text-1)); border-color: var(--line); border-bottom-color: transparent; }
+.tab .close{ width: 14px; height: 14px; border-radius: 4px; display:grid; place-items:center; color: rgb(var(--text-3)); }
+.tab .close:hover{ background: rgb(var(--bg-2)); color: rgb(var(--text-1)); }
+.tab .ic-dot{ width:8px; height:8px; border-radius: 999px; background: rgb(var(--accent-2)); box-shadow: 0 0 6px rgb(var(--accent-2) / 0.5); }
+
+.workspace{
+  display:grid;
+  grid-template-columns: 1fr 320px;
+  gap: 14px;
+  padding: 14px;
+  min-height: 0;
+}
+.workspace[data-files-inset="true"]{ grid-template-columns: 1fr; }
+
+/* Bento layout for the right rail */
+.bento-rail{
+  display:grid;
+  grid-template-rows: auto auto 1fr;
+  gap: 14px;
+  min-height: 0;
+}
+
+/* The terminal "tmux" pane */
+.terminal{
+  position: relative;
+  display:flex; flex-direction:column;
+  overflow: hidden;
+  border-radius: 14px;
+}
+.terminal-head{
+  display:flex; align-items:center; gap:10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  background: rgb(var(--bg-2) / 0.5);
+}
+.traf{ display:flex; gap:6px; }
+.traf span{ width: 11px; height: 11px; border-radius: 999px; background: rgb(var(--text-3) / 0.4); }
+.traf span:nth-child(1){ background: #ff5f57; }
+.traf span:nth-child(2){ background: #febc2e; }
+.traf span:nth-child(3){ background: #28c840; }
+.terminal-title{
+  margin-left: 6px; font-size: 11.5px; color: rgb(var(--text-2));
+  font-family: var(--font-mono);
+}
+.terminal-title b{ color: rgb(var(--text-1)); font-weight: 500; }
+.terminal-body{
+  flex:1; padding: 14px 16px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: rgb(var(--text-2));
+  background: rgb(var(--bg-0));
+  overflow: auto;
+}
+.t-line{ white-space: pre; }
+.t-prompt{ color: rgb(var(--accent-2)); }
+.t-path{ color: rgb(var(--accent)); }
+.t-dim{ color: rgb(var(--text-3)); }
+.t-out{ color: rgb(var(--text-1)); }
+.t-warn{ color: rgb(var(--warn)); }
+.t-good{ color: rgb(var(--accent-2)); }
+.cursor{
+  display:inline-block; width:7px; height: 14px;
+  background: rgb(var(--text-1));
+  vertical-align: -2px;
+  margin-left: 2px;
+  animation: blink 1.05s steps(2,start) infinite;
+}
+@keyframes blink { 50% { opacity: 0; } }
+
+/* bento cards on the right */
+.card{
+  padding: 14px;
+  display:flex; flex-direction:column; gap: 10px;
+}
+.card h4{
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px;
+  color: rgb(var(--text-3)); font-weight: 500;
+}
+.metric-grid{
+  display:grid; grid-template-columns: 1fr 1fr; gap: 8px;
+}
+.metric{
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgb(var(--bg-1) / 0.5);
+}
+.metric .v{
+  font-family: var(--font-mono); font-size: 16px; color: rgb(var(--text-1));
+}
+.metric .v small{ color: rgb(var(--text-3)); font-size: 10px; margin-left: 3px; }
+.metric .l{ font-size: 10.5px; color: rgb(var(--text-3)); margin-top: 2px; }
+
+.spark{ height: 38px; width: 100%; }
+.sparkline{ stroke: rgb(var(--accent)); stroke-width: 1.6; fill: none; }
+.spark-fill{ fill: rgb(var(--accent) / 0.18); stroke: none; }
+
+.commit-list{ display:flex; flex-direction:column; gap: 6px; }
+.commit{
+  display:flex; align-items:center; gap:10px;
+  font-family: var(--font-mono); font-size: 11px;
+  padding: 6px 8px; border-radius: 8px;
+  border: 1px solid var(--line);
+  background: rgb(var(--bg-1) / 0.4);
+}
+.commit .sha{ color: rgb(var(--accent)); }
+.commit .msg{ color: rgb(var(--text-2)); flex:1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.commit .ago{ color: rgb(var(--text-3)); }
+
+.activity{ flex:1; min-height: 0; display:flex; flex-direction:column; }
+.activity-list{
+  flex:1; overflow:auto; display:flex; flex-direction:column; gap: 6px; padding-right: 4px;
+}
+.act{
+  display:flex; gap: 10px;
+  font-size: 11.5px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: rgb(var(--bg-1) / 0.4);
+}
+.act .when{ color: rgb(var(--text-3)); font-family: var(--font-mono); font-size: 10.5px; }
+.act .body{ color: rgb(var(--text-2)); }
+.act .body b{ color: rgb(var(--text-1)); font-weight: 500; }
+
+/* ---------- StatusBar ---------- */
+.statusbar{
+  grid-area: status;
+  display:flex; align-items:center;
+  padding: 0 14px; gap: 16px;
+  border-top: 1px solid var(--line);
+  background: rgb(var(--bg-1) / 0.85);
+  font-family: var(--font-mono); font-size: 10.5px;
+  color: rgb(var(--text-2));
+}
+.statusbar .pill{ display:flex; align-items:center; gap:6px; }
+.statusbar .live{
+  width: 7px; height: 7px; border-radius: 999px;
+  background: rgb(var(--accent-2)); box-shadow: 0 0 8px rgb(var(--accent-2) / 0.6);
+}
+.statusbar .center{ display:flex; align-items:center; gap: 10px; }
+.statusbar .center .crumb{ color: rgb(var(--text-3)); }
+.statusbar .right{ margin-left: auto; display:flex; align-items:center; gap: 10px; }
+.statusbar .right .metric{ font-family: var(--font-mono); color: rgb(var(--text-1)); }
+.statusbar .right .sep{ color: rgb(var(--text-3)); }
+
+/* ---------- CommandPalette ---------- */
+.scrim{
+  position: fixed; inset: 0;
+  background: rgb(0 0 0 / 0.55);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  z-index: 50;
+  display:none;
+  align-items: flex-start; justify-content: center;
+  padding-top: 14vh;
+}
+.scrim[data-open="true"]{ display:flex; }
+.palette{
+  width: min(620px, 92vw);
+  overflow: hidden;
+  border-radius: 16px;
+}
+.palette-input{
+  display:flex; align-items:center; gap:10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.palette-input svg{ color: rgb(var(--text-3)); }
+.palette-input input{
+  flex:1; font-size: 14px; color: rgb(var(--text-1));
+}
+.palette-input input::placeholder{ color: rgb(var(--text-3)); }
+.palette kbd{ font-family: var(--font-mono); font-size: 10px; color: rgb(var(--text-3)); padding: 2px 6px; border: 1px solid var(--line); border-radius: 5px; }
+.cmd-list{ max-height: 50vh; overflow: auto; padding: 6px; }
+.cmd-section{
+  padding: 8px 12px 4px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; color: rgb(var(--text-3));
+}
+.cmd{
+  display:flex; align-items:center; gap:12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: rgb(var(--text-2));
+  cursor: pointer;
+}
+.cmd:hover, .cmd[data-active="true"]{ background: rgb(var(--bg-2) / 0.7); color: rgb(var(--text-1)); }
+.cmd .ic-wrap{
+  width: 28px; height: 28px; border-radius: 8px;
+  display:grid; place-items:center;
+  background: rgb(var(--accent) / 0.14); color: rgb(var(--accent));
+}
+.cmd .hint{ margin-left:auto; font-family: var(--font-mono); font-size: 10.5px; color: rgb(var(--text-3)); }
+.cmd .title b{ color: rgb(var(--text-1)); font-weight: 600; }
+
+/* ---------- Settings drawer ---------- */
+.drawer{
+  position: fixed; top: 0; right: 0; bottom: 0;
+  width: min(420px, 92vw);
+  z-index: 60;
+  display:none;
+  flex-direction: column;
+  border-radius: 0;
+  border-left: 1px solid var(--glass-rim);
+  border-top: 0; border-right: 0; border-bottom: 0;
+}
+.drawer[data-open="true"]{ display:flex; }
+.drawer-head{
+  display:flex; align-items:center; justify-content: space-between;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--line);
+}
+.drawer-head h2{ font-size: 14px; font-weight: 600; }
+.drawer-head h2 small{ color: rgb(var(--text-3)); font-weight: 400; margin-left: 6px; font-size: 12px; }
+.drawer-body{ padding: 18px; overflow:auto; flex:1; display:flex; flex-direction:column; gap: 22px; }
+.setting-row{ display:flex; align-items:center; justify-content: space-between; }
+.setting-row .title{ font-size: 13px; color: rgb(var(--text-1)); }
+.setting-row .desc{ font-size: 11.5px; color: rgb(var(--text-3)); margin-top: 2px; }
+.toggle{
+  width: 36px; height: 20px; border-radius: 999px;
+  background: rgb(var(--bg-2)); position: relative;
+  border: 1px solid var(--line);
+  transition: background 160ms;
+}
+.toggle::after{
+  content:''; width: 14px; height: 14px; border-radius: 999px;
+  background: rgb(var(--text-2));
+  position: absolute; top: 2px; left: 2px;
+  transition: left 160ms, background 160ms;
+}
+.toggle[data-on="true"]{ background: rgb(var(--accent) / 0.6); }
+.toggle[data-on="true"]::after{ left: 18px; background: #fff; }
+
+.theme-grid{
+  display:grid; grid-template-columns: repeat(6, 1fr); gap: 8px;
+}
+.theme-slot{
+  display:flex; flex-direction:column; gap: 6px;
+  padding: 8px; border: 1px solid var(--line); border-radius: 10px;
+  align-items:center; cursor: pointer;
+  background: rgb(var(--bg-1) / 0.5);
+}
+.theme-slot:hover{ background: rgb(var(--bg-2) / 0.7); }
+.theme-slot[data-active="true"]{ border-color: rgb(var(--accent)); box-shadow: 0 0 0 1px rgb(var(--accent) / 0.4); }
+.theme-slot .dot{ width: 18px; height: 18px; border-radius: 999px; }
+.theme-slot .name{ font-size: 10.5px; color: rgb(var(--text-2)); font-family: var(--font-mono); }
+
+.section h3{ font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; color: rgb(var(--text-3)); margin-bottom: 10px; font-weight: 500; }
+
+/* ---------- Mobile ---------- */
+@media (max-width: 1023px){
+  .app{
+    grid-template-columns: 1fr;
+    grid-template-rows: 48px 1fr 84px;
+    grid-template-areas: "topbar" "main" "mobiledock";
+  }
+  .actbar, .session, .files, .statusbar { display:none !important; }
+  .workspace{ grid-template-columns: 1fr; padding: 10px; gap: 10px; }
+  .bento-rail{ display: none; }
+  .mobiledock{
+    grid-area: mobiledock;
+    display:flex; align-items:center; justify-content: space-around;
+    padding: 10px 14px;
+    margin: 8px;
+    border-radius: 18px;
+    border: 1px solid var(--glass-rim);
+    background: var(--glass-fill-strong);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+    backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+  }
+  .mobiledock .nav-btn{
+    width: 48px; height: 48px; border-radius: 12px;
+    display:grid; place-items:center; color: rgb(var(--text-2));
+  }
+  .mobiledock .nav-btn[data-active="true"]{ background: rgb(var(--accent) / 0.18); color: rgb(var(--accent)); }
+}
+@media (min-width: 1024px){ .mobiledock{ display:none; } }
+
+/* mobile sheet */
+.sheet{
+  position: fixed; left: 0; right: 0; bottom: 0;
+  background: var(--glass-fill-strong);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+  backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+  border-top: 1px solid var(--glass-rim);
+  border-radius: 18px 18px 0 0;
+  z-index: 70;
+  max-height: 88vh;
+  display:none;
+  flex-direction: column;
+}
+.sheet[data-open="true"]{ display:flex; }
+.sheet-handle{ width: 40px; height: 4px; border-radius: 999px; background: rgb(var(--text-3) / 0.4); margin: 8px auto 4px; }
+.sheet-head{ padding: 8px 16px 12px; border-bottom: 1px solid var(--line); display:flex; align-items:center; justify-content: space-between; }
+.sheet-body{ padding: 12px 14px; overflow:auto; flex:1; }
+@media (min-width: 1024px){ .sheet{ display:none !important; } }
+
+/* fine-print pill in topbar */
+.dot-live{
+  width: 7px; height: 7px; border-radius: 999px;
+  background: rgb(var(--accent-2));
+  box-shadow: 0 0 10px rgb(var(--accent-2) / 0.7);
+}
+.label{ font-size: 11px; color: rgb(var(--text-3)); }
+.muted{ color: rgb(var(--text-3)); }
+.mono{ font-family: var(--font-mono); }
+</style>
+</head>
+<body>
+
+<div class="app" id="app"
+     data-session-open="true"
+     data-files-open="false">
+
+  <!-- ============ TOPBAR ============ -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">
+        <svg viewBox="0 0 24 24" width="14" height="14"><path d="M3 7h18M3 12h12M3 17h18"/></svg>
+      </div>
+      <div class="brand-text">
+        <b>TmuxGo</b><span>v0.4.2 · workspace</span>
+      </div>
+    </div>
+
+    <div class="topbar-search" id="searchTrigger" role="button">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <span>Jump to a session, command or file…</span>
+      <span class="kbd">⌘K</span>
+    </div>
+
+    <div class="topbar-spacer"></div>
+
+    <div class="theme-strip" id="themeStrip">
+      <span class="label">Theme</span>
+      <div class="theme-dot t-dark"     data-theme-name="dark"     title="Midnight"></div>
+      <div class="theme-dot t-light"    data-theme-name="light"    title="Daylight"></div>
+      <div class="theme-dot t-hc"       data-theme-name="hc"       title="High Contrast"></div>
+      <div class="theme-dot t-dracula"  data-theme-name="dracula"  title="Dracula"></div>
+      <div class="theme-dot t-nord"     data-theme-name="nord"     title="Nord"></div>
+      <div class="theme-dot t-cat"      data-theme-name="catppuccin" title="Catppuccin"></div>
+    </div>
+
+    <div class="user-chip">
+      <div class="avatar">HB</div>
+      <span>hongbin</span>
+    </div>
+  </header>
+
+  <!-- ============ ACTIVITY BAR ============ -->
+  <aside class="actbar">
+    <button class="act-btn" data-act="sessions" data-active="true" title="Sessions">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M7 20h10M9 16v4M15 16v4"/></svg>
+    </button>
+    <button class="act-btn" data-act="files" title="Files">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+    </button>
+    <button class="act-btn" data-act="thumbs" title="Thumbnails">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+    </button>
+    <button class="act-btn" data-act="git" title="Git">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="12" r="2"/><path d="M6 8v8M8 6h4a4 4 0 0 1 4 4v0"/></svg>
+    </button>
+    <button class="act-btn" id="searchAct" data-act="search" title="Command Palette">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    </button>
+    <div class="act-spacer"></div>
+    <button class="act-btn" id="openSettings" title="Settings">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 0 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 0 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 0 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 0 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+    </button>
+  </aside>
+
+  <!-- ============ SESSION PANEL ============ -->
+  <section class="session">
+    <div class="panel-head">
+      <h3>Sessions</h3>
+      <span class="badge">5</span>
+      <button class="panel-toggle" id="toggleSession" title="Collapse panel">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg>
+      </button>
+    </div>
+    <div class="sess-list">
+      <div class="sess" data-state="starred" data-active="true">
+        <span class="dot"></span>
+        <span class="star">★</span>
+        <span class="name">dev-tools</span>
+        <span class="meta">3 win</span>
+      </div>
+      <div class="sess" data-state="running">
+        <span class="dot"></span>
+        <span class="star"></span>
+        <span class="name">main-app</span>
+        <span class="meta">2 win</span>
+      </div>
+      <div class="sess" data-state="idle">
+        <span class="dot"></span>
+        <span class="star"></span>
+        <span class="name">experiment-x</span>
+        <span class="meta">1 win</span>
+      </div>
+      <div class="sess" data-state="idle">
+        <span class="dot"></span>
+        <span class="star"></span>
+        <span class="name">prod-debug</span>
+        <span class="meta">4 win</span>
+      </div>
+      <div class="sess" data-state="idle">
+        <span class="dot"></span>
+        <span class="star"></span>
+        <span class="name">adhoc</span>
+        <span class="meta">1 win</span>
+      </div>
+    </div>
+
+    <div class="session-meta">
+      <div class="label">Active session</div>
+      <div class="row"><span>name</span><b>dev-tools</b></div>
+      <div class="row"><span>host</span><b>local</b></div>
+      <div class="row"><span>attached</span><b>09:14</b></div>
+      <div class="row"><span>last cmd</span><b>vitest run</b></div>
+    </div>
+  </section>
+
+  <!-- ============ FILE PANEL ============ -->
+  <aside class="files">
+    <div class="panel-head">
+      <h3>Explorer</h3>
+      <span class="badge">.tsx</span>
+      <button class="panel-toggle" id="toggleFiles" title="Close panel">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>
+      </button>
+    </div>
+    <div class="file-row"><span class="caret">▾</span><span>apps/</span></div>
+    <div class="file-row indent"><span class="caret">▾</span><span>frontend/</span></div>
+    <div class="file-row indent2"><span class="caret">▾</span><span>src/</span></div>
+    <div class="file-row indent2"><span class="caret">▾</span><span>components/</span></div>
+    <div class="file-row indent2" data-active="true"><span class="caret"></span><span class="mono">ActivityBar.tsx</span></div>
+    <div class="file-row indent2"><span class="caret"></span><span class="mono">ConsoleLayout.tsx</span></div>
+    <div class="file-row indent2"><span class="caret"></span><span class="mono">SessionPanel.tsx</span></div>
+    <div class="file-row indent2"><span class="caret"></span><span class="mono">EditorWorkbench.tsx</span></div>
+    <div class="file-row indent"><span class="caret">▾</span><span>lib/</span></div>
+    <div class="file-row indent"><span class="caret">▾</span><span>app/</span></div>
+    <div class="file-row indent2" style="padding-left:56px"><span class="caret"></span><span class="mono">globals.css</span></div>
+    <div class="file-row"><span class="caret">▾</span><span>packages/</span></div>
+    <div class="file-row"><span class="caret">▸</span><span>.tmuxgo/</span></div>
+    <div class="file-row"><span class="caret"></span><span class="mono">package.json</span></div>
+    <div class="file-row"><span class="caret"></span><span class="mono">turbo.json</span></div>
+  </aside>
+
+  <!-- ============ MAIN / BENTO ============ -->
+  <main class="main">
+    <div class="tabs">
+      <div class="tab" data-active="true">
+        <span class="ic-dot"></span>
+        <span>dev-tools · pane 0</span>
+        <span class="close">
+          <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </span>
+      </div>
+      <div class="tab">
+        <span style="width:8px;height:8px;border-radius:999px;background:rgb(var(--warn))"></span>
+        <span>main-app · pane 1</span>
+      </div>
+      <div class="tab"><span style="color:rgb(var(--text-3))">+</span><span style="margin-left:6px">split</span></div>
+    </div>
+
+    <div class="workspace">
+      <!-- TERMINAL -->
+      <section class="terminal glass">
+        <div class="terminal-head">
+          <div class="traf"><span></span><span></span><span></span></div>
+          <div class="terminal-title">hongbin@local — <b>tmux: dev-tools</b> · pane 0</div>
+        </div>
+        <div class="terminal-body" id="term">
+<div class="t-line t-dim">Last login: Mon Jul 21 09:31:04 on ttys001</div>
+<div class="t-line"><span class="t-prompt">hongbin@local</span><span class="t-dim">:</span><span class="t-path">~/projects/tmuxgo</span><span class="t-dim">$ </span>ls apps/frontend/src/components | head -5</div>
+<div class="t-line t-out">ActivityBar.tsx</div>
+<div class="t-line t-out">AgentStatusBadge.tsx</div>
+<div class="t-line t-out">ConsoleLayout.tsx</div>
+<div class="t-line t-out">DesktopWorkbench.tsx</div>
+<div class="t-line t-out">EditorWorkbench.tsx</div>
+<div class="t-line">&nbsp;</div>
+<div class="t-line"><span class="t-prompt">hongbin@local</span><span class="t-dim">:</span><span class="t-path">~/projects/tmuxgo</span><span class="t-dim">$ </span>tmux list-sessions</div>
+<div class="t-line t-out">dev-tools: 3 windows (created Mon Jul 21 09:14:22 2026) <span class="t-good">[attached]</span></div>
+<div class="t-line t-out">main-app: 2 windows (created Tue Jul 15 14:02:11 2026)</div>
+<div class="t-line t-out">adhoc: 1 window (created Sun Jul 12 22:48:00 2026)</div>
+<div class="t-line">&nbsp;</div>
+<div class="t-line"><span class="t-prompt">hongbin@local</span><span class="t-dim">:</span><span class="t-path">~/projects/tmuxgo</span><span class="t-dim">$ </span><span class="t-warn">pnpm vitest run --reporter=verbose</span></div>
+<div class="t-line t-good">✓ agent-status.test.ts (12)</div>
+<div class="t-line t-good">✓ SessionPanel.test.tsx (8)</div>
+<div class="t-line t-good">✓ GitPanel.real.test.tsx (6)</div>
+<div class="t-line t-dim">Test Files  3 passed (3)</div>
+<div class="t-line t-dim">     Time   2.41 s</div>
+<div class="t-line">&nbsp;</div>
+<div class="t-line"><span class="t-prompt">hongbin@local</span><span class="t-dim">:</span><span class="t-path">~/projects/tmuxgo</span><span class="t-dim">$ </span><span class="cursor"></span></div>
+        </div>
+      </section>
+
+      <!-- BENTO RAIL -->
+      <div class="bento-rail">
+        <section class="card glass">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <h4>Workspace pulse</h4>
+            <span class="mono muted" style="font-size:10px">last 30 min</span>
+          </div>
+          <div class="metric-grid">
+            <div class="metric"><div class="v">98<span small>%</span></div><div class="l">uptime</div></div>
+            <div class="metric"><div class="v">41<span small>ms</span></div><div class="l">p95 rpc</div></div>
+            <div class="metric"><div class="v">5<span small>/5</span></div><div class="l">sessions</div></div>
+            <div class="metric"><div class="v">2.4<span small>k</span></div><div class="l">msgs/min</div></div>
+          </div>
+          <svg class="spark" viewBox="0 0 200 38" preserveAspectRatio="none">
+            <path class="spark-fill" d="M0 30 L10 22 L20 26 L30 14 L40 18 L50 10 L60 16 L70 8 L80 14 L90 6 L100 12 L110 4 L120 10 L130 16 L140 12 L150 18 L160 14 L170 22 L180 18 L190 24 L200 20 L200 38 L0 38 Z"/>
+            <path class="sparkline" d="M0 30 L10 22 L20 26 L30 14 L40 18 L50 10 L60 16 L70 8 L80 14 L90 6 L100 12 L110 4 L120 10 L130 16 L140 12 L150 18 L160 14 L170 22 L180 18 L190 24 L200 20"/>
+          </svg>
+        </section>
+
+        <section class="card glass">
+          <h4>Recent commits</h4>
+          <div class="commit-list">
+            <div class="commit"><span class="sha">abe2722</span><span class="msg">更新代理状态与会话通知</span><span class="ago">12m</span></div>
+            <div class="commit"><span class="sha">361f5e0</span><span class="msg">重启应用并提交工作区变更</span><span class="ago">2h</span></div>
+            <div class="commit"><span class="sha">bcde848</span><span class="msg">重启应用并提交工作区变更</span><span class="ago">3h</span></div>
+            <div class="commit"><span class="sha">bce3e51</span><span class="msg">修复重启流程并完善快捷操作</span><span class="ago">5h</span></div>
+          </div>
+        </section>
+
+        <section class="card glass activity">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <h4>Activity</h4>
+            <span class="mono muted" style="font-size:10px">live</span>
+          </div>
+          <div class="activity-list">
+            <div class="act"><span class="when">09:31</span><span class="body"><b>dev-tools</b> attached by <b>hongbin</b></span></div>
+            <div class="act"><span class="when">09:34</span><span class="body">file <b>ActivityBar.tsx</b> opened</span></div>
+            <div class="act"><span class="when">09:40</span><span class="body">palette → switch theme <b>dracula</b></span></div>
+            <div class="act"><span class="when">09:42</span><span class="body">commit <b>abe2722</b> pushed to origin</span></div>
+            <div class="act"><span class="when">09:48</span><span class="body">session <b>prod-debug</b> paused</span></div>
+            <div class="act"><span class="when">09:55</span><span class="body">vitest run completed (3 files)</span></div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <!-- ============ STATUS BAR ============ -->
+  <footer class="statusbar">
+    <div class="pill"><span class="live"></span><span>connected · ws://localhost:7777</span></div>
+    <div class="center">
+      <span class="crumb">main</span><span class="muted">›</span>
+      <span>tmux: <b>dev-tools</b></span>
+      <span class="muted">·</span>
+      <span>window <b>0</b></span>
+      <span class="muted">·</span>
+      <span>pane <b>0</b></span>
+      <span class="muted">·</span>
+      <span>utf-8</span>
+    </div>
+    <div class="right">
+      <span class="metric">42 °C</span><span class="sep">·</span>
+      <span class="metric">98 %</span><span class="sep">·</span>
+      <span class="metric">3.7 GB</span><span class="sep">·</span>
+      <span class="metric">16 ms ping</span><span class="sep">·</span>
+      <span>master</span>
+    </div>
+  </footer>
+
+  <!-- ============ MOBILE DOCK ============ -->
+  <nav class="mobiledock">
+    <button class="nav-btn" data-act="sessions" data-active="true" title="Sessions">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M7 20h10"/></svg>
+    </button>
+    <button class="nav-btn" id="searchMobile" title="Search">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    </button>
+    <button class="nav-btn" id="filesMobile" title="Files">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+    </button>
+    <button class="nav-btn" id="gitMobile" title="Git">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="12" r="2"/><path d="M6 8v8M8 6h4a4 4 0 0 1 4 4"/></svg>
+    </button>
+    <button class="nav-btn" id="settingsMobile" title="Settings">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3"/></svg>
+    </button>
+  </nav>
+</div>
+
+<!-- ============ COMMAND PALETTE ============ -->
+<div class="scrim" id="paletteScrim">
+  <div class="palette glass glass-strong">
+    <div class="palette-input">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="paletteQ" placeholder="Type a command or search…" />
+      <kbd>ESC</kbd>
+    </div>
+    <div class="cmd-list" id="cmdList">
+      <div class="cmd-section">Sessions</div>
+      <div class="cmd" data-active="true"><div class="ic-wrap">＋</div><div class="title">New <b>tmux session</b>…</div><span class="hint">⌘N</span></div>
+      <div class="cmd"><div class="ic-wrap">↻</div><div class="title">Switch to <b>main-app</b></div><span class="hint">⌘1</span></div>
+      <div class="cmd"><div class="ic-wrap">↻</div><div class="title">Switch to <b>experiment-x</b></div><span class="hint">⌘2</span></div>
+      <div class="cmd"><div class="ic-wrap">↻</div><div class="title">Switch to <b>prod-debug</b></div><span class="hint">⌘3</span></div>
+      <div class="cmd-section">Workspace</div>
+      <div class="cmd"><div class="ic-wrap">⌘</div><div class="title">Open <b>Command Palette</b></div><span class="hint">⌘K</span></div>
+      <div class="cmd"><div class="ic-wrap">⚙</div><div class="title">Open <b>Settings</b> drawer</div><span class="hint">⌘,</span></div>
+      <div class="cmd"><div class="ic-wrap">↹</div><div class="title">Switch <b>Theme</b> → Nord</div><span class="hint">⌘T</span></div>
+      <div class="cmd-section">Files</div>
+      <div class="cmd"><div class="ic-wrap">⎘</div><div class="title">Toggle <b>File Panel</b></div><span class="hint">⌘B</span></div>
+      <div class="cmd"><div class="ic-wrap">⎘</div><div class="title">Toggle <b>Session Panel</b></div><span class="hint">⌘\\</span></div>
+      <div class="cmd"><div class="ic-wrap">⎘</div><div class="title">Reveal <b>ActivityBar.tsx</b> in tree</div><span class="hint">⇧⌘.</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SETTINGS DRAWER ============ -->
+<aside class="drawer glass" id="settingsDrawer">
+  <div class="drawer-head">
+    <h2>Settings <small>· workspace preferences</small></h2>
+    <button class="panel-toggle" id="closeSettings" title="Close">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+    </button>
+  </div>
+  <div class="drawer-body">
+
+    <div class="section">
+      <h3>Theme</h3>
+      <div class="theme-grid" id="themeGrid">
+        <div class="theme-slot" data-theme-name="dark" data-active="true"><div class="dot t-dark"></div><div class="name">midnight</div></div>
+        <div class="theme-slot" data-theme-name="light"><div class="dot t-light"></div><div class="name">daylight</div></div>
+        <div class="theme-slot" data-theme-name="hc"><div class="dot t-hc"></div><div class="name">hc</div></div>
+        <div class="theme-slot" data-theme-name="dracula"><div class="dot t-dracula"></div><div class="name">dracula</div></div>
+        <div class="theme-slot" data-theme-name="nord"><div class="dot t-nord"></div><div class="name">nord</div></div>
+        <div class="theme-slot" data-theme-name="catppuccin"><div class="dot t-cat"></div><div class="name">catpp</div></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3>Editor</h3>
+      <div class="setting-row">
+        <div>
+          <div class="title">Glassmorphic panels</div>
+          <div class="desc">Render side rails with backdrop blur.</div>
+        </div>
+        <div class="toggle" data-on="true" data-toggle-key="glass"></div>
+      </div>
+      <div style="height:10px"></div>
+      <div class="setting-row">
+        <div>
+          <div class="title">Show file panel by default</div>
+          <div class="desc">Open the explorer on workspace start.</div>
+        </div>
+        <div class="toggle" data-on="false" data-toggle-key="files"></div>
+      </div>
+      <div style="height:10px"></div>
+      <div class="setting-row">
+        <div>
+          <div class="title">Compact tabs</div>
+          <div class="desc">Reduce header padding on the terminal bar.</div>
+        </div>
+        <div class="toggle" data-on="true" data-toggle-key="compact"></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3>Connection</h3>
+      <div class="setting-row">
+        <div>
+          <div class="title">Auto-reconnect on disconnect</div>
+          <div class="desc">Retry the gateway every 5s while idle.</div>
+        </div>
+        <div class="toggle" data-on="true" data-toggle-key="reconnect"></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3>Keyboard</h3>
+      <div class="setting-row">
+        <div>
+          <div class="title">⌘K — Command Palette</div>
+          <div class="desc">Open / close the global launcher.</div>
+        </div>
+        <kbd class="mono">⌘K</kbd>
+      </div>
+      <div style="height:10px"></div>
+      <div class="setting-row">
+        <div>
+          <div class="title">⌘B — Toggle file panel</div>
+          <div class="desc">Show or hide the side file tree.</div>
+        </div>
+        <kbd class="mono">⌘B</kbd>
+      </div>
+      <div style="height:10px"></div>
+      <div class="setting-row">
+        <div>
+          <div class="title">⌘\\ — Toggle session panel</div>
+          <div class="desc">Collapse or expand the tmux sidebar.</div>
+        </div>
+        <kbd class="mono">⌘\\</kbd>
+      </div>
+    </div>
+
+  </div>
+</aside>
+
+<!-- ============ MOBILE FILE SHEET ============ -->
+<div class="sheet" id="filesSheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-head">
+    <h3 style="font-size:13px">Explorer</h3>
+    <button class="panel-toggle" id="closeFiles">✕</button>
+  </div>
+  <div class="sheet-body">
+    <div class="file-row"><span class="caret">▾</span><span>apps/frontend/src/</span></div>
+    <div class="file-row indent"><span class="caret"></span><span class="mono">ActivityBar.tsx</span></div>
+    <div class="file-row indent"><span class="caret"></span><span class="mono">ConsoleLayout.tsx</span></div>
+    <div class="file-row indent"><span class="caret"></span><span class="mono">SessionPanel.tsx</span></div>
+    <div class="file-row"><span class="caret">▸</span><span>packages/</span></div>
+  </div>
+</div>
+
+<!-- ============ MOBILE GIT SHEET ============ -->
+<div class="sheet" id="gitSheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-head">
+    <h3 style="font-size:13px">Git · master</h3>
+    <button class="panel-toggle" id="closeGit">✕</button>
+  </div>
+  <div class="sheet-body">
+    <div class="commit-list">
+      <div class="commit"><span class="sha">abe2722</span><span class="msg">更新代理状态与会话通知</span><span class="ago">12m</span></div>
+      <div class="commit"><span class="sha">361f5e0</span><span class="msg">重启应用并提交工作区变更</span><span class="ago">2h</span></div>
+      <div class="commit"><span class="sha">bcde848</span><span class="msg">重启应用并提交工作区变更</span><span class="ago">3h</span></div>
+      <div class="commit"><span class="sha">bce3e51</span><span class="msg">修复重启流程并完善快捷操作</span><span class="ago">5h</span></div>
+      <div class="commit"><span class="sha">efe4997</span><span class="msg">优化控制台布局测试</span><span class="ago">6h</span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ============ THEME SWITCHER (100% in-app, written to html attr) ============ */
+const root = document.documentElement;
+function setTheme(name){
+  root.setAttribute('data-theme', name);
+  document.querySelectorAll('[data-theme-name]').forEach(el=>{
+    if(el.dataset.themeName === name) el.setAttribute('data-active','true');
+    else el.removeAttribute('data-active');
+  });
+}
+document.querySelectorAll('[data-theme-name]').forEach(el=>{
+  el.addEventListener('click', ()=> setTheme(el.dataset.themeName));
+});
+setTheme('dark');
+
+/* ============ PANELS TOGGLE ============ */
+const app = document.getElementById('app');
+document.getElementById('toggleSession').addEventListener('click', ()=>{
+  app.setAttribute('data-session-open', app.getAttribute('data-session-open') === 'false' ? 'true' : 'false');
+});
+document.getElementById('toggleFiles').addEventListener('click', ()=>{
+  app.setAttribute('data-files-open', app.getAttribute('data-files-open') === 'true' ? 'false' : 'true');
+});
+
+/* actbar buttons (sessions/files) toggling panels */
+document.querySelectorAll('.act-btn[data-act="files"]').forEach(b=> b.addEventListener('click', ()=>{
+  app.setAttribute('data-files-open', app.getAttribute('data-files-open') === 'true' ? 'false' : 'true');
+  document.querySelectorAll('.act-btn').forEach(x=>x.removeAttribute('data-active'));
+  b.setAttribute('data-active','true');
+}));
+document.querySelectorAll('.act-btn[data-act="sessions"]').forEach(b=> b.addEventListener('click', ()=>{
+  app.setAttribute('data-session-open','true');
+  document.querySelectorAll('.act-btn').forEach(x=>x.removeAttribute('data-active'));
+  b.setAttribute('data-active','true');
+}));
+
+/* ============ COMMAND PALETTE ============ */
+const scrim = document.getElementById('paletteScrim');
+const palQ  = document.getElementById('paletteQ');
+function openPalette(){ scrim.setAttribute('data-open','true'); palQ.value=''; palQ.focus(); }
+function closePalette(){ scrim.removeAttribute('data-open'); }
+scrim.addEventListener('click', e=>{ if(e.target === scrim) closePalette(); });
+document.getElementById('searchAct').addEventListener('click', openPalette);
+document.getElementById('searchTrigger').addEventListener('click', openPalette);
+document.getElementById('searchMobile').addEventListener('click', openPalette);
+
+/* filter commands */
+const allCmds = [...document.querySelectorAll('#cmdList .cmd')];
+palQ.addEventListener('input', ()=>{
+  const q = palQ.value.toLowerCase().trim();
+  allCmds.forEach(c=>{
+    const text = c.textContent.toLowerCase();
+    c.style.display = (!q || text.includes(q)) ? '' : 'none';
+  });
+});
+
+/* keyboard: ⌘K / ESC */
+document.addEventListener('keydown', e=>{
+  if((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k'){ e.preventDefault(); openPalette(); }
+  if(e.key === 'Escape'){ closePalette(); document.getElementById('settingsDrawer').removeAttribute('data-open'); closeMobileSheets(); }
+  if((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'b'){ e.preventDefault(); app.setAttribute('data-files-open', app.getAttribute('data-files-open') === 'true' ? 'false' : 'true'); }
+  if((e.metaKey || e.ctrlKey) && e.key === '\\'){ e.preventDefault(); app.setAttribute('data-session-open', app.getAttribute('data-session-open') === 'false' ? 'true' : 'false'); }
+});
+
+/* ============ SETTINGS DRAWER ============ */
+const drawer = document.getElementById('settingsDrawer');
+document.getElementById('openSettings').addEventListener('click', ()=> drawer.setAttribute('data-open','true'));
+document.getElementById('settingsMobile').addEventListener('click', ()=> drawer.setAttribute('data-open','true'));
+document.getElementById('closeSettings').addEventListener('click', ()=> drawer.removeAttribute('data-open'));
+scrim.style.zIndex; // (placeholder)
+
+/* inline toggle behavior */
+document.querySelectorAll('.toggle').forEach(t=>{
+  t.addEventListener('click', ()=>{
+    const on = t.getAttribute('data-on') === 'true';
+    t.setAttribute('data-on', on ? 'false' : 'true');
+  });
+});
+
+/* ============ MOBILE SHEETS ============ */
+function openSheet(id){ const s=document.getElementById(id); s.setAttribute('data-open','true'); }
+function closeMobileSheets(){ document.querySelectorAll('.sheet').forEach(s=>s.removeAttribute('data-open')); }
+document.getElementById('filesMobile').addEventListener('click', ()=> openSheet('filesSheet'));
+document.getElementById('gitMobile').addEventListener('click', ()=> openSheet('gitSheet'));
+document.getElementById('closeFiles').addEventListener('click', closeMobileSheets);
+document.getElementById('closeGit').addEventListener('click', closeMobileSheets);
+
+/* click outside mobile sheet close — handled by ESC + scrim via scrim listener */
+</script>
+</body>
+</html>
