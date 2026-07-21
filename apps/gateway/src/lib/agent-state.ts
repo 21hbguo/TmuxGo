@@ -136,7 +136,7 @@ function getAgentPanes(hostId: string, sessionName?: string, allowedSessionNames
   scans.set(key, { expiresAt: Date.now() + 750, promise })
   return promise
 }
-export function getHostAgentPanes(hostId: string, allowedSessionNames: string[]) {
+export function getHostAgentPanes(hostId: string, allowedSessionNames?: string[]) {
   return getAgentPanes(hostId, undefined, allowedSessionNames)
 }
 export function getSessionAgentPanes(hostId: string, sessionName: string) {

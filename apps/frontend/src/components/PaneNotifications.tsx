@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from '@/i18n'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useOptionalQueryClient } from '@/hooks/useOptionalQueryClient'
@@ -22,7 +22,7 @@ interface NotificationItem {
   timestamp: string
 }
 const notificationsStorageKey = 'tmuxgo-pane-notifications'
-const watchedPanesStorageKey = 'tmuxgo-watched-panes'
+const mutedPanesStorageKey = 'tmuxgo-muted-pane-notifications'
 function readStoredNotifications() {
   try {
     const raw = JSON.parse(localStorage.getItem(notificationsStorageKey) || '[]')
@@ -31,9 +31,9 @@ function readStoredNotifications() {
     return []
   }
 }
-function readWatchedPanes() {
+function readMutedPanes() {
   try {
-    const raw = JSON.parse(localStorage.getItem(watchedPanesStorageKey) || '[]')
+    const raw = JSON.parse(localStorage.getItem(mutedPanesStorageKey) || '[]')
     return Array.isArray(raw) ? raw.filter((item): item is string => typeof item === 'string') : []
   } catch {
     return []
@@ -41,6 +41,7 @@ function readWatchedPanes() {
 }
 export function PaneNotifications() {
   const [notifications, setNotifications] = useState<NotificationItem[]>(readStoredNotifications)
+  const notificationsRef = useRef(notifications)
   const [visibleIds, setVisibleIds] = useState<string[]>([])
   const [centerOpen, setCenterOpen] = useState(false)
   const { t } = useTranslation()
@@ -52,6 +53,7 @@ export function PaneNotifications() {
   const updateNotifications = (update: (current: NotificationItem[]) => NotificationItem[]) => {
     setNotifications((current) => {
       const next = update(current).slice(0, 100)
+      notificationsRef.current = next
       localStorage.setItem(notificationsStorageKey, JSON.stringify(next))
       return next
     })
@@ -110,16 +112,17 @@ export function PaneNotifications() {
         return { ...session, agents, agentSummary: summarizeAgentStates(agents) }
       }))
       const status = detail.pane.agentStatus
-      if (detail.initial || status !== 'blocked' && status !== 'done' || !preferences.agentNotificationsEnabled) return
-      if (!readWatchedPanes().includes(detail.pane.paneId)) return
+      if (status !== 'blocked' && status !== 'done' || !preferences.agentNotificationsEnabled) return
+      if (readMutedPanes().includes(detail.pane.paneId)) return
       const state = useConsoleStore.getState()
       if (state.activeHostId === detail.hostId && state.activeSessionId === sessionId && state.activePaneId === detail.pane.paneId) return
       const id = `${detail.pane.paneId}:${detail.pane.revision}`
       const message = status === 'blocked' ? t('agent.notification.blocked', { agent: detail.pane.agent, session: detail.sessionName }) : t('agent.notification.done', { agent: detail.pane.agent, session: detail.sessionName })
       const notification: NotificationItem = { id, paneId: detail.pane.paneId, paneName: detail.pane.agent, hostId: detail.hostId, sessionId, status, message, timestamp: new Date().toISOString() }
+      const isNew = !notificationsRef.current.some((item) => item.id === id)
       updateNotifications((current) => [notification, ...current.filter((item) => item.id !== id)])
-      setVisibleIds((current) => [id, ...current.filter((item) => item !== id)].slice(0, 8))
-      if (document.visibilityState === 'hidden' && 'Notification' in window && Notification.permission === 'granted') {
+      if (isNew) setVisibleIds((current) => [id, ...current.filter((item) => item !== id)].slice(0, 8))
+      if (isNew && document.visibilityState === 'hidden' && 'Notification' in window && Notification.permission === 'granted') {
         const browserNotification = new Notification(t('notification.title'), { body: message, tag: id })
         browserNotification.onclick = () => {
           window.focus()
@@ -136,16 +139,16 @@ export function PaneNotifications() {
   return <div className="fixed bottom-28 right-4 z-50 w-80 max-w-[calc(100vw-2rem)] lg:bottom-16"><button onClick={() => setCenterOpen((current) => !current)} aria-label={t('notification.title')} title={t('notification.title')} className={`mb-2 ml-auto flex h-9 w-9 items-center justify-center rounded-full border border-[var(--line)] bg-bg-1 text-text-2 shadow-lg lg:hidden ${notifications.length ? '' : 'hidden'}`}><FiBell aria-hidden="true" /></button>{(centerOpen || displayed.length > 0) && <div className="overflow-hidden rounded-lg border border-[var(--line)] bg-bg-1 shadow-lg"><div className="flex items-center justify-between border-b border-[var(--line)] p-2"><button onClick={() => setCenterOpen((current) => !current)} className="text-xs text-text-2">{t('notification.title')} {notifications.length ? `(${notifications.length})` : ''}</button>{notifications.length > 0 && <button onClick={clearAll} className="text-xs text-text-3 hover:text-text-1">{t('notification.clearAll')}</button>}</div><div className="max-h-72 overflow-y-auto">{!displayed.length && <div className="p-4 text-center text-sm text-text-3">{t('notification.empty')}</div>}{displayed.slice(0, centerOpen ? 100 : 5).map((notification) => <div key={notification.id} className="flex border-b border-[var(--line)] hover:bg-bg-2"><button onClick={() => void openNotification(notification)} className="min-w-0 flex-1 p-2 text-left"><span className={`flex items-center gap-1.5 text-xs ${notification.status === 'blocked' ? 'text-danger' : 'text-emerald-300'}`}>{notification.status === 'blocked' ? <FiAlertCircle aria-hidden="true" /> : <FiCheckCircle aria-hidden="true" />}{notification.paneName}</span><span className="mt-1 block text-sm text-text-1">{notification.message}</span><span className="mt-1 block text-[10px] text-text-3">{new Date(notification.timestamp).toLocaleString()}</span></button><button onClick={() => dismissNotification(notification.id)} className="flex w-9 shrink-0 items-start justify-center pt-2 text-text-3 hover:text-text-1" aria-label={t('common.close')}><FiX aria-hidden="true" /></button></div>)}</div></div>}</div>
 }
 export function WatchButton({ paneId, compact = false }: { paneId: string; compact?: boolean }) {
-  const [isWatched, setIsWatched] = useState(false)
+  const [isWatched, setIsWatched] = useState(true)
   const { t } = useTranslation()
   useEffect(() => {
-    setIsWatched(!!paneId && readWatchedPanes().includes(paneId))
+    setIsWatched(!!paneId && !readMutedPanes().includes(paneId))
   }, [paneId])
   if (!paneId) return null
   const toggle = () => {
-    const watched = readWatchedPanes()
-    const updated = isWatched ? watched.filter((id) => id !== paneId) : [...watched.filter((id) => id !== paneId), paneId]
-    localStorage.setItem(watchedPanesStorageKey, JSON.stringify(updated))
+    const muted = readMutedPanes()
+    const updated = isWatched ? [...muted.filter((id) => id !== paneId), paneId] : muted.filter((id) => id !== paneId)
+    localStorage.setItem(mutedPanesStorageKey, JSON.stringify(updated))
     setIsWatched(!isWatched)
     window.dispatchEvent(new CustomEvent('tmuxgo-watched-panes-change', { detail: { paneId, watched: !isWatched } }))
     if (!isWatched && 'Notification' in window && Notification.permission === 'default') void Notification.requestPermission()
