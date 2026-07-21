@@ -35,6 +35,7 @@ const TERMINAL_RECOVERY_REPAINT_DELAYS = [0, 16, 64, 180]
 const MOBILE_TERMINAL_RECOVERY_REPAINT_DELAYS = [48, 160]
 const MOBILE_TERMINAL_KEYBOARD_REPAINT_DELAYS = [0, 48, 160]
 const MOBILE_FIT_DEBOUNCE_MS = 96
+const MOBILE_KEYBOARD_FIT_SETTLE_MS = 160
 const MOBILE_FIT_SIZE_TOLERANCE = 2
 const DEVICE_PIXEL_RATIO_TOLERANCE = 0.01
 const MOBILE_PINCH_MIN_FONT_SIZE = 8
@@ -238,7 +239,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   const terminalRef = useRef<HTMLDivElement>(null)
   const touchMovedRef = useRef(false)
   const terminalInstance = useRef<any>(null)
-  const fitAddonRef = useRef<any>(null)
   const [githubDeviceLogin, setGithubDeviceLogin] = useState<{ code: string; url: string } | null>(null)
   const onInputRef = useRef(onInput)
   const onResizeRef = useRef(onResize)
@@ -251,9 +251,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   const sharedSessionSizeRef = useRef<{ cols: number; rows: number } | null>(null)
   const controlCarryRef = useRef('')
   const lastTapRef = useRef<{ x: number; y: number } | null>(null)
-  const scheduleFitRef = useRef<(delay?: number, force?: boolean) => void>(() => {})
-  const forceStableFitRef = useRef<() => void>(() => {})
-  const syncSharedLayoutRef = useRef<(resetFont: boolean) => void>(() => {})
+  const scheduleLayoutRef = useRef<(delay?: number, force?: boolean, resetFont?: boolean) => void>(() => {})
   const activeHostIdRef = useRef(activeHostId)
   const exclusiveLineHeightRef = useRef(1)
   const sessionSnapshotRef = useRef<any | null>(null)
@@ -402,8 +400,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     const terminal = terminalInstance.current
     if (!terminal) return
     terminal.options.fontSize = fontSize
-    if (attachExclusiveRef.current) scheduleFitRef.current(0, true)
-    else syncSharedLayoutRef.current(true)
+    scheduleLayoutRef.current(0, true, true)
   }, [])
   const beginPinch = useCallback((touches: TouchList) => {
     if (!isMobileDevice || touches.length < 2) return
@@ -555,25 +552,18 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     if (!terminal) return
     terminal.options.fontSize = preferences.fontSize
     terminal.options.fontFamily = preferences.fontFamily
-    if (attachExclusiveRef.current) {
-      scheduleFitRef.current(0, true)
-    } else {
-      syncSharedLayoutRef.current(true)
-    }
+    scheduleLayoutRef.current(0, true, true)
   }, [preferences.fontSize, preferences.fontFamily])
 
   useEffect(() => {
     if (!terminalRef.current) return
     const container = terminalRef.current
     let terminal: any = null
-    let fitAddon: any = null
     let resizeObserver: ResizeObserver | null = null
     let disposables: any[] = []
-    let fitTimeout: NodeJS.Timeout | null = null
-    let mobileKeyboardFitTimer: ReturnType<typeof setTimeout> | null = null
-    let stableFitTimer: ReturnType<typeof setTimeout> | null = null
+    let layoutTimeout: ReturnType<typeof setTimeout> | null = null
     let sharedLayoutFrame: number | null = null
-    let fitFrame: number | null = null
+    let layoutFrame: number | null = null
     let repaintFrame: number | null = null
     let repaintTimers: ReturnType<typeof setTimeout>[] = []
     let disposed = false
@@ -582,8 +572,10 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     let sharedMaxPanX = 0
     let lastContainerSize = { width: 0, height: 0 }
     let lastFitSize = { width: 0, height: 0 }
-    let pendingFitSize = { width: 0, height: 0 }
-    let stableFitToken = 0
+    let pendingLayoutForce = false
+    let pendingLayoutResetFont = false
+    let layoutRetryCount = 0
+    let lineHeightAdjustmentCount = 0
     let lastRefreshAt = 0
     let lastDevicePixelRatio = window.devicePixelRatio || 1
     let deleteWordRepeatTimer: ReturnType<typeof setTimeout> | null = null
@@ -1081,7 +1073,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const nextFontSize = (fontSize ?? Number(terminal.options.fontSize)) || preferencesRef.current.fontSize
       terminal.options.fontSize = nextFontSize
       terminal.options.letterSpacing = 0
-      terminal.options.lineHeight = attachExclusiveRef.current && isMobileDevice ? exclusiveLineHeightRef.current : 1
+      terminal.options.lineHeight = attachExclusiveRef.current ? exclusiveLineHeightRef.current : 1
       terminal.options.minimumContrastRatio = 4.5
       terminal.options.customGlyphs = true
     }
@@ -1221,7 +1213,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       if (!attachExclusiveRef.current && isMobileDevice) requestAnimationFrame(syncSharedViewport)
     }
     const doFit = (force = false) => {
-      if (!fitAddon || !terminal || disposed) return false
+      if (!terminal || disposed) return false
       if (!attachExclusiveRef.current) return false
       try {
         const stickToBottom = isMobileDevice && !isTerminalScrolledBack()
@@ -1232,19 +1224,20 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           recordMobileDebug('terminal-fit-noop', { width: currentWidth, height: currentHeight })
           return true
         }
-        lastFitSize = { width: currentWidth, height: currentHeight }
         applyTerminalOptions()
-        fitAddon.fit()
         const size = getFitDimensions()
         if (!size) return false
         const { cols, rows } = size
         if (cols && rows && cols > 0 && rows > 0) {
+          lastFitSize = { width: currentWidth, height: currentHeight }
           if (terminal.cols !== cols || terminal.rows !== rows) {
             terminal.resize(cols, rows)
           }
           const prev = lastSizeRef.current
           if (!prev || prev.cols !== cols || prev.rows !== rows) {
             lastSizeRef.current = { cols, rows }
+            const perf = useConsoleStore.getState().terminalPerf || DEFAULT_TERMINAL_PERF
+            updateTerminalPerf({ layoutFitCount: perf.layoutFitCount + 1 })
             onResizeRef.current?.(cols, rows)
           }
           requestAnimationFrame(() => {
@@ -1252,7 +1245,12 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
             scheduleRendererStyleCorrection()
             syncExclusiveViewport()
             repaintTerminalRenderer(force && isMobileDevice, stickToBottom)
-            if (adjustExclusiveLineHeight()) scheduleFit(0, true)
+            if (lineHeightAdjustmentCount < 2 && adjustExclusiveLineHeight()) {
+              lineHeightAdjustmentCount += 1
+              scheduleLayoutSync(0, true)
+            } else {
+              lineHeightAdjustmentCount = 0
+            }
           })
           notifyReady()
           return true
@@ -1261,77 +1259,60 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       }
       return false
     }
-    const scheduleFit = (delay = 0, force = false) => {
-      if (disposed) return
-      if (isMobileDevice && !force) {
-        const width = container.clientWidth
-        const height = container.clientHeight
-        if (Math.abs(width - pendingFitSize.width) <= MOBILE_FIT_SIZE_TOLERANCE && Math.abs(height - pendingFitSize.height) <= MOBILE_FIT_SIZE_TOLERANCE && lastSizeRef.current) return
-        pendingFitSize = { width, height }
-        if (fitTimeout) clearTimeout(fitTimeout)
-        if (fitFrame) cancelAnimationFrame(fitFrame)
-        fitTimeout = setTimeout(() => {
-          fitTimeout = null
-          doFit(false)
-        }, Math.max(delay, MOBILE_FIT_DEBOUNCE_MS))
+    const runLayoutSync = () => {
+      const force = pendingLayoutForce
+      const resetFont = pendingLayoutResetFont
+      pendingLayoutForce = false
+      pendingLayoutResetFont = false
+      if (!attachExclusiveRef.current) {
+        layoutRetryCount = 0
+        mobileKeyboardTransition = false
+        syncSharedLayout(resetFont)
         return
       }
-      if (fitTimeout) {
-        clearTimeout(fitTimeout)
-        fitTimeout = null
+      if (doFit(force)) {
+        layoutRetryCount = 0
+        mobileKeyboardTransition = false
+        return
       }
-      if (fitFrame) cancelAnimationFrame(fitFrame)
+      if (!force || layoutRetryCount >= 2) {
+        layoutRetryCount = 0
+        mobileKeyboardTransition = false
+        return
+      }
+      layoutRetryCount += 1
+      scheduleLayoutSync(isMobileDevice ? 32 : 16, true, resetFont)
+    }
+    const scheduleLayoutSync = (delay = 0, force = false, resetFont = false) => {
+      if (disposed) return
+      pendingLayoutForce = pendingLayoutForce || force
+      pendingLayoutResetFont = pendingLayoutResetFont || resetFont
+      if (layoutTimeout) {
+        clearTimeout(layoutTimeout)
+        layoutTimeout = null
+      }
+      if (layoutFrame) cancelAnimationFrame(layoutFrame)
       if (delay > 0) {
-        fitTimeout = setTimeout(() => {
-          fitTimeout = null
-          if (!doFit(force) && force) scheduleFit(isMobileDevice ? 32 : 0, true)
+        layoutTimeout = setTimeout(() => {
+          layoutTimeout = null
+          runLayoutSync()
         }, delay)
         return
       }
-      fitFrame = requestAnimationFrame(() => {
-        fitFrame = null
-        doFit(force)
+      layoutFrame = requestAnimationFrame(() => {
+        layoutFrame = null
+        runLayoutSync()
       })
     }
     const scheduleMobileKeyboardFit = () => {
       mobileKeyboardTransition = true
-      if (mobileKeyboardFitTimer) clearTimeout(mobileKeyboardFitTimer)
-      mobileKeyboardFitTimer = setTimeout(() => {
-        mobileKeyboardFitTimer = null
-        mobileKeyboardTransition = false
-        scheduleFit(0, true)
-      }, 220)
+      scheduleLayoutSync(MOBILE_KEYBOARD_FIT_SETTLE_MS, true)
     }
     const scheduleInitialFit = () => {
       if (disposed) return
-      if (fitFrame) cancelAnimationFrame(fitFrame)
-      if (fitTimeout) clearTimeout(fitTimeout)
-      fitTimeout = setTimeout(() => {
-        fitTimeout = null
-        scheduleFit(0, !isMobileDevice)
-      }, isMobileDevice ? 80 : 0)
+      scheduleLayoutSync(isMobileDevice ? 80 : 0, true)
     }
-    const forceStableFit = (attempts = attachExclusiveRef.current ? 6 : 4, interval = 34) => {
-      if (disposed) return
-      stableFitToken += 1
-      const token = stableFitToken
-      let remaining = Math.max(1, attempts)
-      const run = () => {
-        if (disposed || token !== stableFitToken) return
-        if (attachExclusiveRef.current) {
-          scheduleFit(isMobileDevice ? MOBILE_FIT_DEBOUNCE_MS : 0, !isMobileDevice)
-        } else {
-          syncSharedLayout(true)
-        }
-        remaining -= 1
-        if (remaining <= 0) return
-        stableFitTimer = setTimeout(run, interval)
-      }
-      if (stableFitTimer) clearTimeout(stableFitTimer)
-      run()
-    }
-    scheduleFitRef.current = scheduleFit
-    forceStableFitRef.current = () => forceStableFit()
+    scheduleLayoutRef.current = scheduleLayoutSync
 
     const syncSharedLayout = (resetFont: boolean, attempt = 0) => {
       if (!terminal || disposed || attachExclusiveRef.current) return
@@ -1371,15 +1352,14 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         const prev = lastSizeRef.current
         lastSizeRef.current = { cols: size.cols, rows: size.rows }
         if (!prev || prev.cols !== size.cols || prev.rows !== size.rows) {
+          const perf = useConsoleStore.getState().terminalPerf || DEFAULT_TERMINAL_PERF
+          updateTerminalPerf({ layoutFitCount: perf.layoutFitCount + 1 })
           onResizeRef.current?.(size.cols, size.rows)
         }
       })
     }
-    syncSharedLayoutRef.current = (rf) => syncSharedLayout(rf)
-
     const initTerminal = async () => {
       const { Terminal } = await import('@xterm/xterm')
-      const { FitAddon } = await import('@xterm/addon-fit')
       const { WebLinksAddon } = await import('@xterm/addon-web-links')
       const { Unicode11Addon } = await import('@xterm/addon-unicode11')
       if (!container || !container.isConnected || disposed) return
@@ -1408,11 +1388,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         macOptionClickForcesSelection: true,
         scrollback: SCROLLBACK_LIMIT,
       })
-
-      fitAddon = new FitAddon()
       terminal.loadAddon(new Unicode11Addon())
       terminal.unicode.activeVersion = '11'
-      terminal.loadAddon(fitAddon)
       terminal.loadAddon(new WebLinksAddon((event: MouseEvent, uri: string) => {
         event.preventDefault()
         event.stopPropagation()
@@ -1458,7 +1435,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         }
         scheduleRendererStyleCorrection()
       }
-      fitAddonRef.current = fitAddon
       terminalInstance.current = terminal
       ;(window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal = terminal
       void loadSessionSnapshot()
@@ -1560,30 +1536,14 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       window.addEventListener('tmuxgo-copy-terminal-selection', handleCopySelection as EventListener)
       const handleWindowResize = () => {
         syncRenderEnvironment('window-resize')
-        if (!attachExclusiveRef.current) {
-          syncSharedLayout(false)
-          return
-        }
-        if (isMobileDevice && mobileKeyboardTransition) {
-          scheduleMobileKeyboardFit()
-          return
-        }
-        scheduleFit(isMobileDevice ? MOBILE_FIT_DEBOUNCE_MS : 0)
       }
       const handleKeyUp = (e: KeyboardEvent) => {
         recordImeDebug('window-keyup', { key: e.key, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, isComposing: e.isComposing })
         if (e.key === 'Backspace' || !e.ctrlKey) stopDeleteWordRepeat()
       }
       const handleOrientationChange = () => {
-        if (attachExclusiveRef.current) {
-          scheduleFit(0, true)
-          setTimeout(() => scheduleFit(0, true), 120)
-        } else {
-          syncSharedLayout(true)
-          setTimeout(() => syncSharedLayout(true), 120)
-        }
-        recoverTerminalScreen('orientationchange', true)
-        setTimeout(() => recoverTerminalScreen('orientationchange-stable'), 140)
+        scheduleLayoutSync(MOBILE_KEYBOARD_FIT_SETTLE_MS, true, true)
+        softRecoverTerminalScreen('orientationchange', true)
       }
       const handleKeyboardChange = (event: Event) => {
         const detail = (event as CustomEvent<{ open?: boolean }>).detail
@@ -1608,65 +1568,33 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         void loadSessionSnapshot()
         if (attachExclusiveRef.current) {
           scheduleInitialFit()
-          if (!isMobileDevice) forceStableFit(5, 34)
           if (softRecover) scheduleTerminalRepaint(isMobileDevice ? MOBILE_TERMINAL_REPAINT_DELAYS : TERMINAL_REPAINT_DELAYS)
           else softRecoverTerminalScreen('attached', true)
           return
         }
         if (cols > 0 && rows > 0) {
           sharedSessionSizeRef.current = { cols, rows }
-          syncSharedLayout(true)
-          if (!isMobileDevice) forceStableFit(4, 34)
+          scheduleLayoutSync(0, true, true)
           if (softRecover) scheduleTerminalRepaint(isMobileDevice ? MOBILE_TERMINAL_REPAINT_DELAYS : TERMINAL_REPAINT_DELAYS)
           else softRecoverTerminalScreen('attached', true)
         }
       }
       const handleLayoutChange = (event: Event) => {
         const detail = (event as CustomEvent).detail || {}
-        if (isMobileDevice && detail.reason === 'attached') return
-        const mobileKeyboardLayout = isMobileDevice && (detail.reason === 'viewport-sync' || detail.reason === 'mobile-keyboard-dock')
+        if (detail.reason === 'attached') return
+        const mobileKeyboardLayout = isMobileDevice && detail.reason === 'viewport-sync'
         const stickToBottom = isMobileDevice && !isTerminalScrolledBack()
-        const perf = useConsoleStore.getState().terminalPerf || DEFAULT_TERMINAL_PERF
-        updateTerminalPerf({ layoutFitCount: perf.layoutFitCount + 1 })
-        if (mobileKeyboardLayout && mobileKeyboardTransition) {
+        if (mobileKeyboardLayout) {
           scheduleMobileKeyboardFit()
-          return
-        }
-        if (detail.reason === 'terminal-panel-resize') {
-          if (!isMobileDevice) {
-            if (attachExclusiveRef.current) scheduleFit(0, false)
-            else syncSharedLayout(false)
-            return
-          }
-          if (attachExclusiveRef.current) {
-            scheduleFit(0, true)
-            scheduleTerminalRepaint([0, 16, 48])
-            return
-          }
-          syncSharedLayout(true)
-          scheduleTerminalRepaint([0, 16, 48])
+          scheduleTerminalRepaint(MOBILE_TERMINAL_KEYBOARD_REPAINT_DELAYS, false, stickToBottom, true)
           return
         }
         if (detail.reason === 'terminal-panel-resize-end') {
-          if (attachExclusiveRef.current) {
-            if (isMobileDevice) scheduleFit(0, true)
-            else forceStableFit(3, 24)
-            scheduleTerminalRepaint([0, 16, 48])
-            return
-          }
-          syncSharedLayout(true)
-          if (!isMobileDevice) forceStableFit(2, 24)
+          scheduleLayoutSync(0, true, true)
           scheduleTerminalRepaint([0, 16, 48])
           return
         }
-        if (attachExclusiveRef.current) {
-          if (isMobileDevice) scheduleFit(mobileKeyboardLayout ? 0 : MOBILE_FIT_DEBOUNCE_MS, mobileKeyboardLayout)
-          else forceStableFit(5, 34)
-          scheduleTerminalRepaint(mobileKeyboardLayout ? MOBILE_TERMINAL_KEYBOARD_REPAINT_DELAYS : isMobileDevice ? MOBILE_TERMINAL_REPAINT_DELAYS : TERMINAL_REPAINT_DELAYS, false, stickToBottom, mobileKeyboardLayout)
-          return
-        }
-        if (!isMobileDevice) forceStableFit(4, 34)
-        scheduleTerminalRepaint(mobileKeyboardLayout ? MOBILE_TERMINAL_KEYBOARD_REPAINT_DELAYS : isMobileDevice ? MOBILE_TERMINAL_REPAINT_DELAYS : TERMINAL_REPAINT_DELAYS, false, stickToBottom, mobileKeyboardLayout)
+        scheduleTerminalRepaint(isMobileDevice ? MOBILE_TERMINAL_REPAINT_DELAYS : TERMINAL_REPAINT_DELAYS, false, stickToBottom)
       }
       const handleVisibilityChange = () => {
         if (document.hidden) {
@@ -1674,18 +1602,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           return
         }
         const recovered = syncRenderEnvironment('visibilitychange')
-        if (attachExclusiveRef.current) {
-          if (isMobileDevice) scheduleFit(MOBILE_FIT_DEBOUNCE_MS)
-          else forceStableFit(4, 34)
-          if (isMobileDevice && !recovered) {
-            recoverTerminalScreen('visibilitychange')
-            return
-          }
-          if (recovered) return
-          scheduleTerminalRepaint(isMobileDevice ? MOBILE_TERMINAL_REPAINT_DELAYS : TERMINAL_REPAINT_DELAYS)
-          return
-        }
-        if (!isMobileDevice) forceStableFit(3, 34)
+        scheduleLayoutSync(isMobileDevice ? MOBILE_FIT_DEBOUNCE_MS : 0, true)
         if (isMobileDevice && !recovered) {
           recoverTerminalScreen('visibilitychange')
           return
@@ -1695,7 +1612,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       }
       const handlePageShow = () => {
         const recovered = syncRenderEnvironment('pageshow')
-        if (attachExclusiveRef.current) scheduleFit(isMobileDevice ? MOBILE_FIT_DEBOUNCE_MS : 0, true)
+        scheduleLayoutSync(isMobileDevice ? MOBILE_FIT_DEBOUNCE_MS : 0, true)
         if (isMobileDevice && !recovered) recoverTerminalScreen('pageshow')
       }
       window.addEventListener('tmux-attached', handleAttached as EventListener)
@@ -1860,16 +1777,11 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         recordMobileDebug('terminal-resize-observer', { width, height })
         if (Math.abs(width - lastContainerSize.width) <= MOBILE_FIT_SIZE_TOLERANCE && Math.abs(height - lastContainerSize.height) <= MOBILE_FIT_SIZE_TOLERANCE) return
         lastContainerSize = { width, height }
-        if (attachExclusiveRef.current) {
-          if (isMobileDevice) {
-            if (mobileKeyboardTransition) scheduleMobileKeyboardFit()
-            else scheduleFit(MOBILE_FIT_DEBOUNCE_MS)
-            return
-          }
-          scheduleFit(0)
+        if (isMobileDevice && mobileKeyboardTransition) {
+          scheduleMobileKeyboardFit()
           return
         }
-        syncSharedLayout(false)
+        scheduleLayoutSync(isMobileDevice ? MOBILE_FIT_DEBOUNCE_MS : 0)
       })
       resizeObserver.observe(container)
       container.addEventListener('touchstart', handlePinchTouchStart, { passive: true })
@@ -1902,10 +1814,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     return () => {
       disposed = true
       stopDeleteWordRepeat()
-      if (fitTimeout) clearTimeout(fitTimeout)
-      if (mobileKeyboardFitTimer) clearTimeout(mobileKeyboardFitTimer)
-      if (stableFitTimer) clearTimeout(stableFitTimer)
-      if (fitFrame) cancelAnimationFrame(fitFrame)
+      if (layoutTimeout) clearTimeout(layoutTimeout)
+      if (layoutFrame) cancelAnimationFrame(layoutFrame)
       clearTerminalRepaint()
       if (sharedLayoutFrame) cancelAnimationFrame(sharedLayoutFrame)
       afterTerminalWriteRef.current = () => {}
@@ -1914,10 +1824,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       disposables.forEach((d) => d?.dispose?.())
       terminal?.dispose()
       terminalInstance.current = null
-      fitAddonRef.current = null
-      scheduleFitRef.current = () => {}
-      forceStableFitRef.current = () => {}
-      syncSharedLayoutRef.current = () => {}
+      scheduleLayoutRef.current = () => {}
     }
   }, [disposeTerminalOutput, ensureFileRoots, handlePinchTouchCancel, handlePinchTouchEnd, handlePinchTouchMove, handlePinchTouchStart, openUploadDialog, pushToast, pushTerminalOutput, queryClient, selectionSync, setActivePane, syncPaneCwd, touchScroll, updateGithubDeviceLogin, updateTerminalPerf])
 

@@ -25,7 +25,7 @@ async function getRenderMetrics(page: any) {
     const xtermRect = xterm?.getBoundingClientRect()
     const rowsRect = rows?.getBoundingClientRect()
     const rowsStyle = rows ? getComputedStyle(rows) : null
-    const events = ((window as typeof window & { __tmuxgoMobileDebug?: { events?: any[] } }).__tmuxgoMobileDebug?.events || []).filter((item) => item.event === 'terminal-recover')
+    const events = ((window as typeof window & { __tmuxgoMobileDebug?: { events?: any[] } }).__tmuxgoMobileDebug?.events || []).filter((item) => item.event === 'terminal-recover' || item.event === 'terminal-soft-recover')
     const visibleText = rows?.textContent || ''
     return {
       innerWidth: window.innerWidth,
@@ -68,7 +68,7 @@ test('mobile terminal remains visibly rendered after viewport and dpr switch', a
     return !!t?.cols && !!t?.rows
   }, undefined, { timeout: 15000 })
   await writeMarker(page, before)
-  const recoverCount = await page.evaluate(() => ((window as typeof window & { __tmuxgoMobileDebug?: { events?: any[] } }).__tmuxgoMobileDebug?.events || []).filter((item) => item.event === 'terminal-recover').length)
+  const recoverCount = await page.evaluate(() => ((window as typeof window & { __tmuxgoMobileDebug?: { events?: any[] } }).__tmuxgoMobileDebug?.events || []).filter((item) => item.event === 'terminal-recover' || item.event === 'terminal-soft-recover').length)
   const client = await context.newCDPSession(page)
   await client.send('Emulation.setDeviceMetricsOverride', { width: 844, height: 390, deviceScaleFactor: 3, mobile: true, screenWidth: 844, screenHeight: 390 })
   await page.evaluate(() => {
@@ -77,7 +77,7 @@ test('mobile terminal remains visibly rendered after viewport and dpr switch', a
   })
   await page.waitForFunction((count) => {
     const events = (window as typeof window & { __tmuxgoMobileDebug?: { events?: any[] } }).__tmuxgoMobileDebug?.events || []
-    return events.filter((item) => item.event === 'terminal-recover').length > count
+    return events.filter((item) => item.event === 'terminal-recover' || item.event === 'terminal-soft-recover').length > count
   }, recoverCount, { timeout: 15000 })
   await writeMarker(page, after)
   await page.waitForFunction((marker) => {
@@ -101,5 +101,42 @@ test('mobile terminal remains visibly rendered after viewport and dpr switch', a
   expect(Number(metrics.rowsOpacity || '1')).toBeGreaterThan(0)
   expect(metrics.visibleText).toContain(after)
   expect(metrics.recoverReasons.some((reason: string) => ['window-resize', 'orientationchange', 'orientationchange-stable'].includes(reason))).toBeTruthy()
+  await context.close()
+})
+test('desktop terminal resize settles without repeated resize calls', async ({ browser, baseURL, request }) => {
+  const name = `resize_desktop_${Date.now()}`
+  const marker = `${name}_after`
+  const session = await ensureSession(request, name)
+  const context = await browser.newContext({ baseURL, viewport: { width: 1440, height: 900 } })
+  const page = await context.newPage()
+  await openSession(page, session, { expectHeader: false })
+  await page.waitForFunction(() => {
+    const t = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
+    return !!t?.cols && !!t?.rows
+  }, undefined, { timeout: 15000 })
+  await page.evaluate(() => {
+    const target = window as typeof window & { __tmuxgoTerminal?: any; __tmuxgoResizeCalls?: Array<{ cols: number; rows: number }> }
+    const terminal = target.__tmuxgoTerminal
+    const resize = terminal.resize.bind(terminal)
+    target.__tmuxgoResizeCalls = []
+    terminal.resize = (cols: number, rows: number) => {
+      target.__tmuxgoResizeCalls!.push({ cols, rows })
+      return resize(cols, rows)
+    }
+  })
+  await page.setViewportSize({ width: 1180, height: 760 })
+  await page.waitForTimeout(240)
+  const settledCount = await page.evaluate(() => (window as typeof window & { __tmuxgoResizeCalls?: unknown[] }).__tmuxgoResizeCalls?.length || 0)
+  await page.waitForTimeout(240)
+  const finalCalls = await page.evaluate(() => (window as typeof window & { __tmuxgoResizeCalls?: Array<{ cols: number; rows: number }> }).__tmuxgoResizeCalls || [])
+  await writeMarker(page, marker)
+  const metrics = await getRenderMetrics(page)
+  expect(settledCount).toBeGreaterThan(0)
+  expect(finalCalls.length).toBe(settledCount)
+  expect(finalCalls.length).toBeLessThanOrEqual(2)
+  expect(new Set(finalCalls.map((item) => `${item.cols}x${item.rows}`)).size).toBe(finalCalls.length)
+  expect(metrics.termWidth).toBeLessThanOrEqual(metrics.innerWidth + 1)
+  expect(metrics.termHeight).toBeGreaterThan(0)
+  expect(metrics.visibleText).toContain(marker)
   await context.close()
 })
