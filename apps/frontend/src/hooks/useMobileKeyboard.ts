@@ -11,7 +11,7 @@ const KEYBOARD_VIEWPORT_GRACE_MS = 1500
 const KEYBOARD_PROBE_MS = 700
 const KEYBOARD_VERIFY_MS = 360
 const DEFERRED_INPUT_COMMIT_MS = 80
-const DELETE_REPEAT_DELAY_MS = 260
+const DELETE_REPEAT_DELAY_MS = 420
 const DELETE_REPEAT_INTERVAL_MS = 54
 const KEYBOARD_EVENT = 'mobile-keyboard-change'
 function isEdgeAndroid() {
@@ -268,7 +268,6 @@ export function useMobileKeyboard(
         return
       }
       if (e.key === 'Backspace') {
-        if (isMobile.current) return
         e.preventDefault()
         if (!e.repeat) {
           sendInput('\x7f')

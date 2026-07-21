@@ -698,14 +698,19 @@ describe('TerminalPane', () => {
     expect(storeMocks.pushToast).toHaveBeenCalledWith({ type: 'info', message: 'System clipboard blocked by browser, kept in app clipboard. Press Ctrl/Cmd+C to copy.' })
   })
 
-  it('repeats ctrl backspace quickly without relying on native repeat', async () => {
+  it('delays ctrl backspace repeat without relying on native repeat', async () => {
     const onInput = vi.fn()
     render(<TerminalPane sessionName="dev" onInput={onInput} onResize={vi.fn()} />)
     await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    vi.useFakeTimers()
     expect(customKeyHandler?.({ key: 'Backspace', ctrlKey: true, metaKey: false, altKey: false, repeat: false } as KeyboardEvent)).toBe(false)
-    await sleep(390)
+    vi.advanceTimersByTime(419)
+    expect(onInput.mock.calls.filter((call) => call[0] === DELETE_PREV_WORD_SEQUENCE)).toHaveLength(1)
+    vi.advanceTimersByTime(1)
+    expect(onInput.mock.calls.filter((call) => call[0] === DELETE_PREV_WORD_SEQUENCE)).toHaveLength(2)
     fireEvent.keyUp(window, { key: 'Backspace', ctrlKey: true })
-    expect(onInput.mock.calls.filter((call) => call[0] === DELETE_PREV_WORD_SEQUENCE).length).toBeGreaterThanOrEqual(5)
+    vi.runOnlyPendingTimers()
+    expect(onInput.mock.calls.filter((call) => call[0] === DELETE_PREV_WORD_SEQUENCE)).toHaveLength(2)
     expect(customKeyHandler?.({ key: 'Backspace', ctrlKey: true, metaKey: false, altKey: false, repeat: true } as KeyboardEvent)).toBe(false)
   })
 
