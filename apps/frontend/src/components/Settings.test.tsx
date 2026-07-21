@@ -6,6 +6,7 @@ import { vi } from 'vitest'
 import { Settings } from './Settings'
 import { I18nProvider } from '@/i18n'
 const pushToast=vi.fn()
+const updatePreferences=vi.fn()
 const restartRebuild=vi.fn()
 const deleteHost=vi.fn()
 const restartStatusState={ data: { status: 'idle', startedAt: null, finishedAt: null, summaryLines: [], exitCode: null, errorMessage: null }, refetch: vi.fn() }
@@ -28,8 +29,10 @@ vi.mock('@/hooks/usePreferences', () => ({
       sidebarPosition: 'left',
       showStatusBar: true,
       showQuickActions: true,
+      agentNotificationsEnabled: true,
+      agentNotificationDurationMs: 10000,
     },
-    updatePreferences: vi.fn(),
+    updatePreferences,
     resetPreferences: vi.fn(),
   }),
 }))
@@ -56,6 +59,7 @@ vi.mock('@/hooks/useApi', () => ({
 describe('Settings restart rebuild', () => {
   beforeEach(() => {
     pushToast.mockReset()
+    updatePreferences.mockReset()
     restartRebuild.mockReset()
     deleteHost.mockReset()
     deleteHost.mockResolvedValue({ success: true })
@@ -74,6 +78,14 @@ describe('Settings restart rebuild', () => {
     expect(screen.getByText('Restart TmuxGo services?')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Confirm' }))
     await waitFor(() => expect(restartRebuild).toHaveBeenCalledTimes(1))
+  })
+  it('updates Agent notification settings', async () => {
+    const user = userEvent.setup()
+    render(React.createElement(I18nProvider, null, React.createElement(Settings, { onClose: vi.fn() })))
+    await user.click(screen.getByRole('button', { name: 'Enable Agent notifications' }))
+    expect(updatePreferences).toHaveBeenCalledWith({ agentNotificationsEnabled: false })
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Dismiss after' }), '30000')
+    expect(updatePreferences).toHaveBeenCalledWith({ agentNotificationDurationMs: 30000 })
   })
   it('renders running status and recent summary lines', async () => {
     restartStatusState.data = {

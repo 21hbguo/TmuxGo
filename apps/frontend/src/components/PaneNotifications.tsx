@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useTranslation } from '@/i18n'
+import { usePreferences } from '@/hooks/usePreferences'
 import { useOptionalQueryClient } from '@/hooks/useOptionalQueryClient'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { buildSessionId } from '@/lib/session-id'
@@ -24,6 +25,7 @@ interface Notification {
 export function PaneNotifications() {
   const [notifications, setNotifications] = useState<Notification[]>([])
   const { t } = useTranslation()
+  const { preferences } = usePreferences()
   const queryClient = useOptionalQueryClient()
   const setActiveHost = useConsoleStore((state) => state.setActiveHost)
   const setActiveSession = useConsoleStore((state) => state.setActiveSession)
@@ -37,6 +39,15 @@ export function PaneNotifications() {
     setNotifications([])
   }
   useEffect(() => {
+    if (!preferences.agentNotificationsEnabled) setNotifications([])
+  }, [preferences.agentNotificationsEnabled])
+  useEffect(() => {
+    if (!preferences.agentNotificationsEnabled || !notifications.length) return
+    const now = Date.now()
+    const timers = notifications.map((notification) => window.setTimeout(() => dismissNotification(notification.id), Math.max(0, preferences.agentNotificationDurationMs - (now - notification.timestamp.getTime()))))
+    return () => timers.forEach((timer) => window.clearTimeout(timer))
+  }, [notifications, preferences.agentNotificationDurationMs, preferences.agentNotificationsEnabled])
+  useEffect(() => {
     const handleAgentStatus = (event: Event) => {
       const detail = (event as CustomEvent<{ hostId: string; sessionName: string; pane: AgentPaneState; initial?: boolean }>).detail
       if (!detail?.hostId || !detail.sessionName || !detail.pane) return
@@ -49,6 +60,7 @@ export function PaneNotifications() {
       }))
       const status = detail.pane.agentStatus
       if (detail.initial || status !== 'blocked' && status !== 'done') return
+      if (!preferences.agentNotificationsEnabled) return
       const state = useConsoleStore.getState()
       if (state.activeHostId === detail.hostId && state.activeSessionId === sessionId && state.activePaneId === detail.pane.paneId) return
       const id = `${detail.pane.paneId}:${detail.pane.revision}`
@@ -57,7 +69,7 @@ export function PaneNotifications() {
     }
     window.addEventListener('tmuxgo-agent-status', handleAgentStatus as EventListener)
     return () => window.removeEventListener('tmuxgo-agent-status', handleAgentStatus as EventListener)
-  }, [queryClient, t])
+  }, [preferences.agentNotificationsEnabled, queryClient, t])
   const openNotification = (notification: Notification) => {
     if (useConsoleStore.getState().activeHostId !== notification.hostId) setActiveHost(notification.hostId)
     setActiveSession(notification.sessionId)

@@ -279,7 +279,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
                       handleClose()
                     }} className="min-w-0 flex-1 px-1 py-1 text-left">
                       <div className="truncate text-text-1">{session.name}</div>
-                      <div className="mt-0.5 flex items-center gap-2 text-xs text-text-3"><span>{t('drawer.windows', { count: session.windowCount })}</span><AgentStatusBadge summary={session.agentSummary} /></div>
+                      <div className="mt-0.5 flex items-center gap-2 text-xs text-text-3"><span className="shrink-0 whitespace-nowrap">{t('drawer.windows', { count: session.windowCount })}</span><AgentStatusBadge summary={session.agentSummary} /></div>
                     </button>
                     {!batchMode && <div className="flex shrink-0 items-center gap-1">
                       <button onClick={() => void handleRenameSession(session.id)} className="rounded px-2 py-2 text-xs text-text-2 active:bg-bg-1" aria-label={t('sidebar.renameSession')} title={t('sidebar.renameSession')}>✎</button>

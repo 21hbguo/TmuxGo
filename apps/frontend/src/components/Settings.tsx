@@ -232,6 +232,34 @@ export function Settings({ onClose }: SettingsProps) {
                 </div>
               </div>
               <div>
+                <h3 className="text-text-1 text-sm font-medium mb-3">{t('settings.notifications')}</h3>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-text-2 text-sm">{t('settings.agentNotificationsEnabled')}</span>
+                    <button
+                      onClick={() => updatePreferences({ agentNotificationsEnabled: !preferences.agentNotificationsEnabled })}
+                      className={`w-10 h-6 rounded-full relative ${preferences.agentNotificationsEnabled ? 'bg-accent' : 'bg-bg-2'}`}
+                      aria-label={t('settings.agentNotificationsEnabled')}
+                      aria-pressed={preferences.agentNotificationsEnabled}
+                    >
+                      <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${preferences.agentNotificationsEnabled ? 'right-1' : 'left-1'}`} />
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-text-2 text-sm">{t('settings.agentNotificationDuration')}</span>
+                    <select
+                      value={preferences.agentNotificationDurationMs}
+                      onChange={(event) => updatePreferences({ agentNotificationDurationMs: Number(event.target.value) })}
+                      disabled={!preferences.agentNotificationsEnabled}
+                      className="tmuxgo-control tmuxgo-select rounded px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                      aria-label={t('settings.agentNotificationDuration')}
+                    >
+                      {[3000, 5000, 10000, 30000, 60000].map((duration) => <option key={duration} value={duration}>{t('settings.seconds', { count: duration / 1000 })}</option>)}
+                    </select>
+                  </div>
+                </div>
+              </div>
+              <div>
                 <h3 className="text-text-1 text-sm font-medium mb-3">{t('settings.sessionContinuity')}</h3>
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">

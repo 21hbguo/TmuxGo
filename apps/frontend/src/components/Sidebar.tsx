@@ -130,7 +130,7 @@ export function Sidebar() {
               >
                 <div className="text-text-1 text-sm">{session.name}</div>
                 <div className="text-text-3 text-xs mt-0.5">
-                  {t('sidebar.windows', { count: session.windowCount })}
+                  <span className="whitespace-nowrap">{t('sidebar.windows', { count: session.windowCount })}</span>
                 </div>
               </button>
               <button

@@ -93,6 +93,7 @@ describe('SessionPanel session actions', () => {
     render(<SessionPanel />)
     expect(screen.getByText('Sessions')).toBeInTheDocument()
     expect(screen.getByText('dev')).toBeInTheDocument()
+    expect(screen.getByText('2 windows')).toHaveClass('whitespace-nowrap')
     expect(screen.getByText('2 空闲')).toBeInTheDocument()
     expect(screen.getByText('1 工作中')).toBeInTheDocument()
     expect(screen.queryByText('0 等待处理')).not.toBeInTheDocument()
