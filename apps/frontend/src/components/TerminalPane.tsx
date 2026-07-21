@@ -34,8 +34,9 @@ const MOBILE_TERMINAL_REPAINT_DELAYS = [96]
 const TERMINAL_RECOVERY_REPAINT_DELAYS = [0, 16, 64, 180]
 const MOBILE_TERMINAL_RECOVERY_REPAINT_DELAYS = [48, 160]
 const MOBILE_TERMINAL_KEYBOARD_REPAINT_DELAYS = [0, 48, 160]
-const MOBILE_FIT_DEBOUNCE_MS = 96
-const MOBILE_KEYBOARD_FIT_SETTLE_MS = 160
+const LAYOUT_REPAINT_DELAYS = [0, 32]
+const MOBILE_FIT_DEBOUNCE_MS = 48
+const MOBILE_KEYBOARD_FIT_SETTLE_MS = 80
 const MOBILE_FIT_SIZE_TOLERANCE = 2
 const DEVICE_PIXEL_RATIO_TOLERANCE = 0.01
 const MOBILE_PINCH_MIN_FONT_SIZE = 8
@@ -238,6 +239,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   const recordTerminalOutput = useTerminalOutput()
   const queryClient = useOptionalQueryClient()
   const terminalRef = useRef<HTMLDivElement>(null)
+  const paneResizeGuideRef = useRef<HTMLDivElement>(null)
   const touchMovedRef = useRef(false)
   const terminalInstance = useRef<any>(null)
   const [githubDeviceLogin, setGithubDeviceLogin] = useState<{ code: string; url: string } | null>(null)
@@ -254,7 +256,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   const lastTapRef = useRef<{ x: number; y: number } | null>(null)
   const scheduleLayoutRef = useRef<(delay?: number, force?: boolean, resetFont?: boolean) => void>(() => {})
   const activeHostIdRef = useRef(activeHostId)
-  const exclusiveLineHeightRef = useRef(1)
   const sessionSnapshotRef = useRef<any | null>(null)
   const sessionSnapshotRequestRef = useRef<{ key: string; promise: Promise<any> } | null>(null)
   const sessionSnapshotLoadedRef = useRef({ key: '', at: 0 })
@@ -502,7 +503,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   }, [onReady])
   useEffect(() => {
     sessionNameRef.current = sessionName
-    exclusiveLineHeightRef.current = 1
   }, [sessionName])
   useEffect(() => {
     preferencesRef.current = preferences
@@ -595,7 +595,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     let pendingLayoutResetFont = false
     let layoutRetryCount = 0
     let initialFitPending = false
-    let lineHeightAdjustmentCount = 0
     let lastRefreshAt = 0
     let lastDevicePixelRatio = window.devicePixelRatio || 1
     let deleteWordRepeatTimer: ReturnType<typeof setTimeout> | null = null
@@ -841,15 +840,43 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         if (Math.abs(cell.x - edge) > 1 || cell.y < pane.top || cell.y >= pane.top + pane.rows) return false
         return panes.some((other) => other.left === edge + 1 && rangesOverlap(pane.top, pane.top + pane.rows - 1, other.top, other.top + other.rows - 1))
       })
-      if (vertical) return { axis: 'x', paneId: vertical.id, startCell: vertical.left + vertical.cols, startSize: vertical.cols }
+      if (vertical) return { axis: 'x', paneId: vertical.id, startCell: vertical.left + vertical.cols, startSize: vertical.cols, crossStart: vertical.top, crossSize: vertical.rows, paneStart: vertical.left }
       const horizontal = panes.find((pane) => {
         if (!pane.id) return false
         const edge = pane.top + pane.rows
         if (Math.abs(cell.y - edge) > 1 || cell.x < pane.left || cell.x >= pane.left + pane.cols) return false
         return panes.some((other) => other.top === edge + 1 && rangesOverlap(pane.left, pane.left + pane.cols - 1, other.left, other.left + other.cols - 1))
       })
-      if (horizontal) return { axis: 'y', paneId: horizontal.id, startCell: horizontal.top + horizontal.rows, startSize: horizontal.rows }
+      if (horizontal) return { axis: 'y', paneId: horizontal.id, startCell: horizontal.top + horizontal.rows, startSize: horizontal.rows, crossStart: horizontal.left, crossSize: horizontal.cols, paneStart: horizontal.top }
       return null
+    }
+    const hidePaneResizeGuide = () => {
+      const guide = paneResizeGuideRef.current
+      if (guide) guide.style.display = 'none'
+    }
+    const syncPaneResizeGuide = () => {
+      const drag = paneResizeDrag
+      const guide = paneResizeGuideRef.current
+      const screen = terminal?.element?.querySelector('.xterm-screen') as HTMLElement | null
+      if (!drag || !guide || !screen || !terminal?.cols || !terminal?.rows) return
+      const screenRect = screen.getBoundingClientRect()
+      const containerRect = container.getBoundingClientRect()
+      const dims = terminal?._core?._renderService?.dimensions?.css
+      const cellWidth = Number(dims?.cell?.width) || screenRect.width / terminal.cols
+      const cellHeight = Number(dims?.cell?.height) || screenRect.height / terminal.rows
+      if (!cellWidth || !cellHeight) return
+      guide.style.display = 'block'
+      if (drag.axis === 'x') {
+        guide.style.left = `${screenRect.left - containerRect.left + (drag.paneStart + drag.pendingSize) * cellWidth - 1}px`
+        guide.style.top = `${screenRect.top - containerRect.top + drag.crossStart * cellHeight}px`
+        guide.style.width = '2px'
+        guide.style.height = `${drag.crossSize * cellHeight}px`
+      } else {
+        guide.style.left = `${screenRect.left - containerRect.left + drag.crossStart * cellWidth}px`
+        guide.style.top = `${screenRect.top - containerRect.top + (drag.paneStart + drag.pendingSize) * cellHeight - 1}px`
+        guide.style.width = `${drag.crossSize * cellWidth}px`
+        guide.style.height = '2px'
+      }
     }
     const updatePaneResizeDrag = (event: MouseEvent) => {
       const drag = paneResizeDrag
@@ -860,6 +887,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const nextSize = Math.max(4, drag.startSize + delta)
       if (nextSize === drag.pendingSize) return
       drag.pendingSize = nextSize
+      syncPaneResizeGuide()
     }
     const handlePaneResizeMove = (event: MouseEvent) => {
       if (!paneResizeDrag) return
@@ -872,6 +900,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       drag.released = true
       if (!drag.pendingSize || drag.pendingSize === drag.sentSize) {
         paneResizeDrag = null
+        hidePaneResizeGuide()
         container.style.cursor = ''
         window.removeEventListener('mousemove', handlePaneResizeMove)
         window.removeEventListener('mouseup', endPaneResizeDrag)
@@ -880,16 +909,15 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       }
       const size = drag.pendingSize
       drag.sentSize = size
-      void api.panes.resize(drag.paneId, drag.axis === 'x' ? { cols: size } : { rows: size }).catch(() => {}).finally(() => {
-        void loadSessionSnapshot(true)
+      void api.panes.resize(drag.paneId, drag.axis === 'x' ? { cols: size } : { rows: size }).then(() => loadSessionSnapshot(true)).catch(() => null).then(() => {
+        window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'tmux-pane-resize' } }))
       })
       paneResizeDrag = null
+      hidePaneResizeGuide()
       container.style.cursor = ''
       window.removeEventListener('mousemove', handlePaneResizeMove)
       window.removeEventListener('mouseup', endPaneResizeDrag)
       window.removeEventListener('blur', endPaneResizeDrag)
-      window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'tmux-pane-resize' } }))
-      setTimeout(() => void loadSessionSnapshot(true), 80)
     }
     const handlePaneResizeStart = (event: MouseEvent) => {
       const target = getPaneResizeTarget(event)
@@ -903,6 +931,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         terminal?.clearSelection?.()
       } catch {}
       paneResizeDrag = { ...target, pendingSize: target.startSize, sentSize: target.startSize, released: false }
+      syncPaneResizeGuide()
       container.style.cursor = target.axis === 'x' ? 'col-resize' : 'row-resize'
       window.addEventListener('mousemove', handlePaneResizeMove)
       window.addEventListener('mouseup', endPaneResizeDrag)
@@ -1093,7 +1122,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const nextFontSize = (fontSize ?? Number(terminal.options.fontSize)) || preferencesRef.current.fontSize
       terminal.options.fontSize = nextFontSize
       terminal.options.letterSpacing = 0
-      terminal.options.lineHeight = attachExclusiveRef.current ? exclusiveLineHeightRef.current : 1
+      terminal.options.lineHeight = 1
       terminal.options.minimumContrastRatio = 4.5
       terminal.options.customGlyphs = true
     }
@@ -1214,21 +1243,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       }
       clearViewportStyles()
     }
-    const adjustExclusiveLineHeight = () => {
-      if (!attachExclusiveRef.current || !terminal) return false
-      const screen = terminal.element?.querySelector('.xterm-screen') as HTMLElement | null
-      if (!screen) return false
-      const available = getAvailableSize()
-      const currentHeight = screen.getBoundingClientRect().height
-      if (!available.height || !currentHeight) return false
-      const min = isMobileDevice ? 1 : 0.98
-      const max = isMobileDevice ? 1.08 : 1.04
-      const next = Math.max(min, Math.min(max, Number((exclusiveLineHeightRef.current * available.height / currentHeight).toFixed(4))))
-      if (Math.abs(next - exclusiveLineHeightRef.current) < 0.001) return false
-      exclusiveLineHeightRef.current = next
-      terminal.options.lineHeight = next
-      return true
-    }
     afterTerminalWriteRef.current = () => {
       if (!attachExclusiveRef.current && isMobileDevice) requestAnimationFrame(syncSharedViewport)
     }
@@ -1264,13 +1278,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
             if (disposed || !terminal) return
             scheduleRendererStyleCorrection()
             syncExclusiveViewport()
-            repaintTerminalRenderer(force && isMobileDevice, stickToBottom)
-            if (lineHeightAdjustmentCount < 2 && adjustExclusiveLineHeight()) {
-              lineHeightAdjustmentCount += 1
-              scheduleLayoutSync(0, true)
-            } else {
-              lineHeightAdjustmentCount = 0
-            }
+            if (force && isMobileDevice) repaintTerminalRenderer(true, stickToBottom)
           })
           notifyReady()
           return true
@@ -1583,7 +1591,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         if (nextOpen === lastKeyboardOpen) return
         lastKeyboardOpen = nextOpen
         if (isMobileDevice) cancelTmuxCopyMode()
-        if (isMobileDevice && attachExclusiveRef.current) scheduleMobileKeyboardFit()
+        if (isMobileDevice && attachExclusiveRef.current) mobileKeyboardTransition = true
       }
       const handleAttached = (event: Event) => {
         const detail = (event as CustomEvent).detail || {}
@@ -1618,16 +1626,20 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         const mobileKeyboardLayout = isMobileDevice && detail.reason === 'viewport-sync'
         const stickToBottom = isMobileDevice && !isTerminalScrolledBack()
         if (mobileKeyboardLayout) {
-          scheduleMobileKeyboardFit()
+          mobileKeyboardTransition = true
           scheduleTerminalRepaint(MOBILE_TERMINAL_KEYBOARD_REPAINT_DELAYS, false, stickToBottom, true)
           return
         }
         if (detail.reason === 'terminal-panel-resize-end') {
           scheduleLayoutSync(0, true, true)
-          scheduleTerminalRepaint([0, 16, 48])
+          scheduleTerminalRepaint(LAYOUT_REPAINT_DELAYS)
           return
         }
-        scheduleTerminalRepaint(isMobileDevice ? MOBILE_TERMINAL_REPAINT_DELAYS : TERMINAL_REPAINT_DELAYS, false, stickToBottom)
+        if (detail.reason === 'tmux-pane-resize') {
+          scheduleTerminalRepaint(LAYOUT_REPAINT_DELAYS)
+          return
+        }
+        scheduleTerminalRepaint(isMobileDevice ? MOBILE_TERMINAL_REPAINT_DELAYS : LAYOUT_REPAINT_DELAYS, false, stickToBottom)
       }
       const handleVisibilityChange = () => {
         if (document.hidden) {
@@ -1853,6 +1865,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     return () => {
       disposed = true
       stopDeleteWordRepeat()
+      hidePaneResizeGuide()
       if (layoutTimeout) clearTimeout(layoutTimeout)
       if (layoutFrame) cancelAnimationFrame(layoutFrame)
       clearTerminalRepaint()
@@ -1898,6 +1911,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         touchMovedRef.current = false
       }}
     >
+      <div ref={paneResizeGuideRef} data-testid="pane-resize-guide" className="pointer-events-none absolute z-20 hidden bg-accent shadow-[0_0_6px_var(--accent)]" />
       {dropState.isDropActive && <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-lg border border-dashed border-accent bg-bg-0/70 text-sm text-accent shadow-[var(--glow)]">{t('terminal.dropUpload')}</div>}
       {githubDeviceLogin && <div data-testid="github-device-login-card" className="absolute inset-x-3 bottom-3 z-20 ml-auto w-auto max-w-sm rounded-2xl border border-accent/30 bg-bg-0/92 p-3 shadow-[0_18px_48px_rgba(0,0,0,0.38)] backdrop-blur" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} onTouchEnd={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3">

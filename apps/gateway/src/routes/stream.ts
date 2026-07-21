@@ -20,7 +20,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
     console.log('Client connected to stream')
     const SCROLL_MAX_LINES = 24
     const ATTACH_REDRAW_DELAYS = [48]
-    const RESIZE_REDRAW_DELAYS = [100]
+    const RESIZE_REDRAW_DELAYS = [32]
     const REQUEST_REDRAW_DELAYS = [48]
     const AGENT_STATE_POLL_MS = 1500
     const SOCKET_BUFFER_HIGH_WATERMARK = 1048576
