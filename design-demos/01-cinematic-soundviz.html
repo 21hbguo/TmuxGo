@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1440" />
+<title>TmuxGo UI 美化 · 7.0 → 9.0</title>
+<style>
+  /* ===== Token copy (mirrors apps/frontend globals.css exactly) ===== */
+  :root {
+    --bg-0: 12 13 15; --bg-1: 24 25 28; --bg-2: 42 43 48;
+    --accent: 10 132 255; --accent-2: 48 209 88;
+    --warn: 255 159 10; --danger: 255 69 58;
+    --text-1: 245 245 247; --text-2: 174 174 178; --text-3: 116 116 122;
+    --line: rgba(255,255,255,0.1); --glow: 0 10px 32px rgba(0,0,0,0.24);
+    --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+    --font-mono: Consolas, "Cascadia Mono", "Cascadia Code", "SF Mono", Monaco, Menlo, "DejaVu Sans Mono", "Liberation Mono", "Courier New", monospace;
+  }
+  [data-theme="light"] {
+    --bg-0: 232 234 238; --bg-1: 248 249 251; --bg-2: 224 226 231;
+    --accent: 0 122 255; --accent-2: 40 190 105;
+    --warn: 220 130 0; --danger: 215 45 38;
+    --text-1: 28 28 30; --text-2: 99 99 102; --text-3: 142 142 147;
+    --line: rgba(60,60,67,0.16); --glow: 0 12px 34px rgba(48,52,60,0.12);
+  }
+  [data-theme="high-contrast"] {
+    --bg-0: 0 0 0; --bg-1: 10 10 10; --bg-2: 26 26 26;
+    --accent: 0 255 255; --accent-2: 0 255 136;
+    --warn: 255 215 0; --danger: 255 68 68;
+    --text-1: 255 255 255; --text-2: 204 204 204; --text-3: 153 153 153;
+    --line: rgba(0,255,255,0.4); --glow: 0 0 20px rgba(0,255,255,0.3);
+  }
+  [data-theme="dracula"] {
+    --bg-0: 33 34 44; --bg-1: 40 42 54; --bg-2: 52 55 70;
+    --accent: 189 147 249; --accent-2: 255 121 198;
+    --warn: 255 184 108; --danger: 255 85 85;
+    --text-1: 248 248 242; --text-2: 191 191 191; --text-3: 98 114 164;
+    --line: rgba(189,147,249,0.28); --glow: 0 0 20px rgba(189,147,249,0.25);
+  }
+  [data-theme="nord"] {
+    --bg-0: 46 52 64; --bg-1: 59 66 82; --bg-2: 67 76 94;
+    --accent: 136 192 208; --accent-2: 129 161 193;
+    --warn: 235 203 139; --danger: 191 97 106;
+    --text-1: 236 239 244; --text-2: 216 222 233; --text-3: 76 86 106;
+    --line: rgba(136,192,208,0.28); --glow: 0 0 20px rgba(136,192,208,0.25);
+  }
+  [data-theme="catppuccin"] {
+    --bg-0: 17 17 27; --bg-1: 24 24 37; --bg-2: 49 50 68;
+    --accent: 137 180 250; --accent-2: 166 227 161;
+    --warn: 250 179 135; --danger: 243 139 168;
+    --text-1: 205 214 244; --text-2: 166 173 200; --text-3: 88 91 112;
+    --line: rgba(137,180,250,0.28); --glow: 0 0 20px rgba(137,180,250,0.25);
+  }
+
+  /* ===== Reset & base ===== */
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:#000;color:rgb(var(--text-1));font-family:var(--font-ui);font-weight:400;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+  html{scroll-behavior:smooth}
+  body{min-width:1280px;overflow-x:auto}
+  ::selection{background:rgb(var(--accent)/.4);color:#fff}
+  a{color:inherit;text-decoration:none}
+  button{font:inherit;background:none;border:0;color:inherit;cursor:pointer}
+
+  /* ===== Layout shell ===== */
+  .stage{max-width:1440px;margin:0 auto;padding:0 96px}
+  .hairline{height:1px;background:var(--line)}
+  .vrule{width:1px;background:var(--line);align-self:stretch}
+
+  /* ===== Top bar (theme switcher) ===== */
+  .topbar{position:sticky;top:0;z-index:50;background:rgb(var(--bg-0)/.92);backdrop-filter:blur(18px);border-bottom:1px solid var(--line)}
+  .topbar-inner{display:flex;align-items:center;justify-content:space-between;height:56px}
+  .brand{display:flex;align-items:center;gap:10px;font-family:var(--font-mono);font-size:12px;color:rgb(var(--text-2));letter-spacing:.04em}
+  .brand-mark{width:18px;height:18px;display:inline-block}
+  .swatches{display:flex;align-items:center;gap:14px}
+  .swatches-label{font-family:var(--font-mono);font-size:10px;color:rgb(var(--text-3));text-transform:uppercase;letter-spacing:.18em;margin-right:6px}
+  .swatch{width:14px;height:14px;border-radius:50%;border:1px solid var(--line);position:relative;transition:transform .15s ease}
+  .swatch:hover{transform:scale(1.18)}
+  .swatch[data-active="true"]{outline:1px solid rgb(var(--text-1));outline-offset:3px}
+  .sw-dark{background:#0c0d0f}
+  .sw-light{background:#e8eaee}
+  .sw-hc{background:linear-gradient(135deg,#000 50%,#0ff 50%)}
+  .sw-dracula{background:#21222c}
+  .sw-nord{background:#2e3440}
+  .sw-catppuccin{background:#11111b}
+
+  /* ===== Hero ===== */
+  .hero{padding:120px 0 100px;position:relative;overflow:hidden}
+  .hero-eyebrow{font-family:var(--font-mono);font-size:11px;color:rgb(var(--accent));letter-spacing:.32em;text-transform:uppercase;margin-bottom:28px;display:flex;align-items:center;gap:14px}
+  .hero-eyebrow::before{content:"";display:inline-block;width:32px;height:1px;background:rgb(var(--accent))}
+  .hero-title{font-family:var(--font-ui);font-weight:500;font-size:96px;line-height:.96;letter-spacing:-.04em;color:rgb(var(--text-1));margin-bottom:32px}
+  .hero-title em{font-style:normal;color:rgb(var(--accent))}
+  .hero-sub{font-family:var(--font-mono);font-size:13px;color:rgb(var(--text-2));letter-spacing:.06em;margin-bottom:80px;display:flex;gap:24px;align-items:center}
+  .hero-sub .dot{color:rgb(var(--text-3))}
+
+  /* Hero wave progress */
+  .hero-progress{position:relative;margin-top:12px}
+  .hero-progress-labels{display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:10px;color:rgb(var(--text-3));letter-spacing:.18em;text-transform:uppercase;margin-bottom:14px}
+  .hero-progress-labels b{color:rgb(var(--text-1));font-weight:400}
+  .wave-svg{display:block;width:100%;height:96px}
+  .hero-progress-meta{display:flex;justify-content:space-between;margin-top:18px;font-family:var(--font-mono);font-size:11px;color:rgb(var(--text-2));letter-spacing:.04em}
+  .hero-progress-meta .pct{color:rgb(var(--accent));font-size:22px;letter-spacing:-.02em}
+
+  /* ===== Section heads ===== */
+  .sec{padding:120px 0 60px;border-top:1px solid var(--line)}
+  .sec-head{display:grid;grid-template-columns:120px 1fr;gap:48px;align-items:flex-start;margin-bottom:72px}
+  .sec-num{font-family:var(--font-mono);font-size:11px;color:rgb(var(--text-3));letter-spacing:.32em}
+  .sec-num b{color:rgb(var(--accent));font-weight:400}
+  .sec-title{font-family:var(--font-ui);font-weight:500;font-size:48px;line-height:1.05;letter-spacing:-.02em;color:rgb(var(--text-1))}
+  .sec-title em{font-style:normal;color:rgb(var(--accent))}
+  .sec-lead{margin-top:18px;font-family:var(--font-ui);font-size:15px;color:rgb(var(--text-2));max-width:640px;line-height:1.55}
+
+  /* ===== Stats strip ===== */
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .stat{padding:48px 32px;position:relative}
+  .stat+.stat{border-left:1px solid var(--line)}
+  .stat-k{font-family:var(--font-mono);font-size:10px;color:rgb(var(--text-3));text-transform:uppercase;letter-spacing:.22em;margin-bottom:18px}
+  .stat-v{font-family:var(--font-ui);font-weight:500;font-size:64px;line-height:1;letter-spacing:-.03em;color:rgb(var(--text-1))}
+  .stat-v em{font-style:normal;color:rgb(var(--accent))}
+  .stat-u{font-family:var(--font-mono);font-size:12px;color:rgb(var(--text-2));margin-top:10px;letter-spacing:.06em}
+
+  /* ===== PR beats ===== */
+  .beats{display:grid;grid-template-columns:1fr 1fr;gap:0;border-top:1px solid var(--line)}
+  .beat{padding:56px 48px 64px;border-bottom:1px solid var(--line);position:relative;display:grid;grid-template-columns:1fr;gap:0}
+  .beat:nth-child(odd){border-right:1px solid var(--line)}
+  .beat-head{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;margin-bottom:28px}
+  .beat-id{font-family:var(--font-mono);font-size:11px;color:rgb(var(--text-3));letter-spacing:.32em;text-transform:uppercase}
+  .beat-id b{color:rgb(var(--accent));font-weight:400}
+  .beat-tags{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+  .tag{font-family:var(--font-mono);font-size:10px;color:rgb(var(--text-2));text-transform:uppercase;letter-spacing:.18em;padding:4px 8px;border:1px solid var(--line);border-radius:2px}
+  .tag.r-low{color:rgb(var(--warn));border-color:rgb(var(--warn)/.35)}
+  .tag.r-mid{color:rgb(var(--danger));border-color:rgb(var(--danger)/.35)}
+  .tag.t-des{color:rgb(var(--accent-2));border-color:rgb(var(--accent-2)/.35)}
+  .beat-title{font-family:var(--font-ui);font-weight:500;font-size:28px;line-height:1.18;letter-spacing:-.01em;color:rgb(var(--text-1));margin-bottom:32px;max-width:520px}
+  .beat-mid{display:grid;grid-template-columns:96px 1fr;gap:36px;align-items:center;margin-bottom:28px}
+  .beat-bars{display:flex;align-items:flex-end;gap:2px;height:64px}
+  .beat-bars span{width:4px;background:rgb(var(--text-3)/.6);display:block}
+  .beat-bars span.on{background:rgb(var(--accent))}
+  .beat-bars span.hi{background:rgb(var(--accent-2))}
+  .beat-score{font-family:var(--font-mono);font-size:10px;color:rgb(var(--text-3));letter-spacing:.22em;text-transform:uppercase}
+  .beat-score b{display:block;font-family:var(--font-ui);font-weight:500;font-size:40px;line-height:1;letter-spacing:-.02em;color:rgb(var(--accent));margin-top:8px}
+  .beat-desc{font-family:var(--font-ui);font-size:14px;color:rgb(var(--text-2));line-height:1.6;margin-bottom:24px;max-width:540px}
+  .beat-grid{display:grid;grid-template-columns:1fr 1fr;gap:32px;padding-top:24px;border-top:1px solid var(--line)}
+  .beat-col h4{font-family:var(--font-mono);font-size:10px;color:rgb(var(--text-3));letter-spacing:.22em;text-transform:uppercase;margin-bottom:14px}
+  .beat-col ul{list-style:none}
+  .beat-col li{font-family:var(--font-ui);font-size:13px;color:rgb(var(--text-2));line-height:1.65;padding:4px 0 4px 18px;position:relative}
+  .beat-col li::before{content:"—";position:absolute;left:0;color:rgb(var(--text-3))}
+  .beat-foot{margin-top:28px;padding-top:18px;border-top:1px solid var(--line);display:flex;gap:32px;font-family:var(--font-mono);font-size:11px;color:rgb(var(--text-3));letter-spacing:.04em}
+  .beat-foot span b{color:rgb(var(--text-1));font-weight:400}
+
+  /* ===== Out-of-scope ===== */
+  .oos{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .oos div{padding:40px 24px;border-right:1px solid var(--line)}
+  .oos div:last-child{border-right:0}
+  .oos-k{font-family:var(--font-mono);font-size:10px;color:rgb(var(--text-3));letter-spacing:.22em;text-transform:uppercase;margin-bottom:10px}
+  .oos-v{font-family:var(--font-ui);font-size:18px;color:rgb(var(--text-1));line-height:1.35;margin-bottom:8px}
+  .oos-p{font-family:var(--font-mono);font-size:11px;color:rgb(var(--text-2));letter-spacing:.04em}
+
+  /* ===== Acceptance list ===== */
+  .accept{display:grid;grid-template-columns:1fr;gap:0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .accept li{list-style:none;padding:24px 0;border-bottom:1px solid var(--line);display:grid;grid-template-columns:64px 1fr 120px;gap:24px;align-items:center}
+  .accept li:last-child{border-bottom:0}
+  .accept-n{font-family:var(--font-mono);font-size:11px;color:rgb(var(--accent));letter-spacing:.18em}
+  .accept-t{font-family:var(--font-ui);font-size:16px;color:rgb(var(--text-1));line-height:1.4}
+  .accept-m{font-family:var(--font-mono);font-size:10px;color:rgb(var(--text-3));text-align:right;letter-spacing:.18em;text-transform:uppercase}
+
+  /* ===== Timeline ===== */
+  .timeline{display:grid;grid-template-columns:1fr;gap:0;border-top:1px solid var(--line)}
+  .week{display:grid;grid-template-columns:120px 1fr;gap:32px;padding:36px 0;border-bottom:1px solid var(--line);align-items:flex-start}
+  .week-k{font-family:var(--font-mono);font-size:11px;color:rgb(var(--accent));letter-spacing:.22em;text-transform:uppercase}
+  .week-k span{display:block;color:rgb(var(--text-3));font-size:10px;margin-top:4px;letter-spacing:.16em}
+  .week-row{display:grid;grid-template-columns:repeat(5,1fr);gap:0}
+  .day{border-left:1px solid var(--line);padding:0 18px}
+  .day:first-child{border-left:0;padding-left:0}
+  .day-k{font-family:var(--font-mono);font-size:10px;color:rgb(var(--text-3));letter-spacing:.18em;text-transform:uppercase;margin-bottom:12px}
+  .day-v{font-family:var(--font-mono);font-size:12px;color:rgb(var(--text-1));line-height:1.5}
+  .day-v .tag{margin-top:10px;display:inline-block}
+
+  /* ===== Footer ===== */
+  .foot{padding:120px 0 80px;border-top:1px solid var(--line)}
+  .foot-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:48px;margin-bottom:80px}
+  .foot-k{font-family:var(--font-mono);font-size:10px;color:rgb(var(--text-3));letter-spacing:.22em;text-transform:uppercase;margin-bottom:14px}
+  .foot-v{font-family:var(--font-mono);font-size:12px;color:rgb(var(--text-2));line-height:1.7}
+  .foot-end{display:flex;justify-content:space-between;align-items:flex-end;padding-top:32px;border-top:1px solid var(--line)}
+  .foot-logo{font-family:var(--font-ui);font-weight:500;font-size:36px;letter-spacing:-.02em;color:rgb(var(--text-1))}
+  .foot-logo em{font-style:normal;color:rgb(var(--accent))}
+  .foot-tag{font-family:var(--font-mono);font-size:11px;color:rgb(var(--text-3));letter-spacing:.18em;text-transform:uppercase}
+
+  @media (prefers-reduced-motion: reduce){
+    *{animation-duration:0.01ms !important;transition-duration:0.01ms !important}
+  }
+</style>
+</head>
+<body>
+
+<!-- ============ TOP BAR ============ -->
+<header class="topbar">
+  <div class="stage topbar-inner">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect x="1" y="1" width="16" height="16" rx="3" stroke="rgb(var(--accent))" stroke-width="1"/>
+        <path d="M5 6h8M5 9h5M5 12h7" stroke="rgb(var(--text-1))" stroke-width="1" stroke-linecap="square"/>
+      </svg>
+      <span>tmuxgo · roadmap</span>
+    </div>
+    <div class="swatches">
+      <span class="swatches-label">theme</span>
+      <button class="swatch sw-dark" data-theme-name="dark" data-active="true" aria-label="dark"></button>
+      <button class="swatch sw-light" data-theme-name="light" aria-label="light"></button>
+      <button class="swatch sw-hc" data-theme-name="high-contrast" aria-label="high-contrast"></button>
+      <button class="swatch sw-dracula" data-theme-name="dracula" aria-label="dracula"></button>
+      <button class="swatch sw-nord" data-theme-name="nord" aria-label="nord"></button>
+      <button class="swatch sw-catppuccin" data-theme-name="catppuccin" aria-label="catppuccin"></button>
+    </div>
+  </div>
+</header>
+
+<!-- ============ HERO ============ -->
+<section class="hero">
+  <div class="stage">
+    <div class="hero-eyebrow">UI 美化路线图 · 内部评审 v1</div>
+    <h1 class="hero-title">TmuxGo UI 美化<br/><em>7.0 → 9.0</em></h1>
+    <div class="hero-sub">
+      <span>8 PR</span><span class="dot">·</span>
+      <span>累计 +3.2 分</span><span class="dot">·</span>
+      <span>2 周落地</span><span class="dot">·</span>
+      <span style="color:rgb(var(--text-3))">范围：apps/frontend</span>
+    </div>
+
+    <div class="hero-progress">
+      <div class="hero-progress-labels">
+        <span><b>7.0</b> · 起点</span>
+        <span>目标 <b>9.0</b> · 终点</span>
+      </div>
+      <svg class="wave-svg" viewBox="0 0 1248 96" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="waveGrad" x1="0" x2="1" y1="0" y2="0">
+            <stop offset="0%" stop-color="rgb(var(--accent))" stop-opacity="0"/>
+            <stop offset="14%" stop-color="rgb(var(--accent))" stop-opacity=".55"/>
+            <stop offset="56%" stop-color="rgb(var(--accent))" stop-opacity="1"/>
+            <stop offset="100%" stop-color="rgb(var(--accent-2))" stop-opacity="1"/>
+          </linearGradient>
+          <pattern id="gridP" width="24" height="24" patternUnits="userSpaceOnUse">
+            <path d="M24 0H0V24" fill="none" stroke="rgb(var(--text-3))" stroke-opacity=".08" stroke-width=".5"/>
+          </pattern>
+        </defs>
+        <rect width="1248" height="96" fill="url(#gridP)"/>
+        <!-- Continuous waveform = 8 PR beats stitched as one polyline -->
+        <path d="M0,72 L20,72 L30,30 L40,72 L60,72 L72,18 L82,58 L92,72 L112,72 L122,42 L132,72 L152,72 L162,8 L172,64 L182,72 L202,72 L214,24 L224,72 L244,72 L254,50 L264,72 L284,72 L296,32 L306,72 L326,72 L336,12 L346,60 L356,72 L376,72 L386,38 L396,72 L416,72 L428,22 L438,72 L458,72 L468,46 L478,72 L498,72 L510,28 L520,72 L540,72 L550,6 L560,56 L570,72 L590,72 L600,40 L610,72 L630,72 L642,20 L652,72 L672,72 L682,50 L692,72 L712,72 L722,34 L732,72 L752,72 L762,14 L772,62 L782,72 L802,72 L814,44 L824,72 L844,72 L854,26 L864,72 L884,72 L894,4 L904,54 L914,72 L934,72 L944,38 L954,72 L974,72 L986,16 L996,72 L1016,72 L1026,48 L1036,72 L1056,72 L1066,30 L1076,72 L1096,72 L1106,10 L1116,58 L1126,72 L1146,72 L1156,42 L1166,72 L1186,72 L1196,24 L1206,72 L1226,72 L1236,52 L1248,72 L1248,96 L0,96 Z" fill="url(#waveGrad)" opacity=".14"/>
+        <path d="M0,72 L20,72 L30,30 L40,72 L60,72 L72,18 L82,58 L92,72 L112,72 L122,42 L132,72 L152,72 L162,8 L172,64 L182,72 L202,72 L214,24 L224,72 L244,72 L254,50 L264,72 L284,72 L296,32 L306,72 L326,72 L336,12 L346,60 L356,72 L376,72 L386,38 L396,72 L416,72 L428,22 L438,72 L458,72 L468,46 L478,72 L498,72 L510,28 L520,72 L540,72 L550,6 L560,56 L570,72 L590,72 L600,40 L610,72 L630,72 L642,20 L652,72 L672,72 L682,50 L692,72 L712,72 L722,34 L732,72 L752,72 L762,14 L772,62 L782,72 L802,72 L814,44 L824,72 L844,72 L854,26 L864,72 L884,72 L894,4 L904,54 L914,72 L934,72 L944,38 L954,72 L974,72 L986,16 L996,72 L1016,72 L1026,48 L1036,72 L1056,72 L1066,30 L1076,72 L1096,72 L1106,10 L1116,58 L1126,72 L1146,72 L1156,42 L1166,72 L1186,72 L1196,24 L1206,72 L1226,72 L1236,52 L1248,72" fill="none" stroke="url(#waveGrad)" stroke-width="1.4" stroke-linecap="square"/>
+        <!-- 8 beat markers -->
+        <g>
+          <line x1="78" y1="0" x2="78" y2="96" stroke="rgb(var(--text-3))" stroke-opacity=".4" stroke-dasharray="2 3"/>
+          <line x1="232" y1="0" x2="232" y2="96" stroke="rgb(var(--text-3))" stroke-opacity=".4" stroke-dasharray="2 3"/>
+          <line x1="386" y1="0" x2="386" y2="96" stroke="rgb(var(--text-3))" stroke-opacity=".4" stroke-dasharray="2 3"/>
+          <line x1="540" y1="0" x2="540" y2="96" stroke="rgb(var(--text-3))" stroke-opacity=".4" stroke-dasharray="2 3"/>
+          <line x1="694" y1="0" x2="694" y2="96" stroke="rgb(var(--text-3))" stroke-opacity=".4" stroke-dasharray="2 3"/>
+          <line x1="848" y1="0" x2="848" y2="96" stroke="rgb(var(--text-3))" stroke-opacity=".4" stroke-dasharray="2 3"/>
+          <line x1="1002" y1="0" x2="1002" y2="96" stroke="rgb(var(--text-3))" stroke-opacity=".4" stroke-dasharray="2 3"/>
+          <line x1="1156" y1="0" x2="1156" y2="96" stroke="rgb(var(--text-3))" stroke-opacity=".4" stroke-dasharray="2 3"/>
+        </g>
+        <!-- beat anchors -->
+        <g>
+          <a href="#pr1"><circle cx="78" cy="72" r="4" fill="#000" stroke="rgb(var(--accent))" stroke-width="1.5"/></a>
+          <a href="#pr2"><circle cx="232" cy="72" r="4" fill="#000" stroke="rgb(var(--accent))" stroke-width="1.5"/></a>
+          <a href="#pr3"><circle cx="386" cy="72" r="4" fill="#000" stroke="rgb(var(--accent))" stroke-width="1.5"/></a>
+          <a href="#pr4"><circle cx="540" cy="72" r="4" fill="#000" stroke="rgb(var(--accent))" stroke-width="1.5"/></a>
+          <a href="#pr5"><circle cx="694" cy="72" r="4" fill="#000" stroke="rgb(var(--accent))" stroke-width="1.5"/></a>
+          <a href="#pr6"><circle cx="848" cy="72" r="4" fill="#000" stroke="rgb(var(--accent))" stroke-width="1.5"/></a>
+          <a href="#pr7"><circle cx="1002" cy="72" r="4" fill="#000" stroke="rgb(var(--accent))" stroke-width="1.5"/></a>
+          <a href="#pr8"><circle cx="1156" cy="72" r="4" fill="#000" stroke="rgb(var(--accent))" stroke-width="1.5"/></a>
+        </g>
+      </svg>
+      <div class="hero-progress-meta">
+        <span>节拍 01 → 08 · 累计 +3.2 / +3.2 规划</span>
+        <span class="pct">88%</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ D2 STATS ============ -->
+<section class="sec">
+  <div class="stage">
+    <div class="sec-head">
+      <div class="sec-num"><b>D2</b> · 01</div>
+      <div>
+        <h2 class="sec-title">总览 <em>一览</em></h2>
+        <p class="sec-lead">8 个 PR · 累计 +3.2 分 · 17.5 工时 · 5 套主题切换器一次性交付。</p>
+      </div>
+    </div>
+    <div class="stats">
+      <div class="stat">
+        <div class="stat-k">总 PR 数</div>
+        <div class="stat-v">08</div>
+        <div class="stat-u">按 ROI 排序 · W1 + W2</div>
+      </div>
+      <div class="stat">
+        <div class="stat-k">累计分提升</div>
+        <div class="stat-v"><em>+3.2</em></div>
+        <div class="stat-u">起点 7.0 → 终点 9.0</div>
+      </div>
+      <div class="stat">
+        <div class="stat-k">总工时</div>
+        <div class="stat-v">17.5h</div>
+        <div class="stat-u">人均 2.2h / PR</div>
+      </div>
+      <div class="stat">
+        <div class="stat-k">平均每 PR</div>
+        <div class="stat-v">+0.40</div>
+        <div class="stat-u">中位 +0.35</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ D3 PR BEATS ============ -->
+<section class="sec">
+  <div class="stage">
+    <div class="sec-head">
+      <div class="sec-num"><b>D3</b> · 02</div>
+      <div>
+        <h2 class="sec-title">8 个 PR · <em>节拍序列</em></h2>
+        <p class="sec-lead">按 ROI 排序：单点零风险先收工 → 设计资产 → 工程密集 → 重构。每张卡片含提升分 / 工时 / 风险 / 验收。</p>
+      </div>
+    </div>
+
+    <div class="beats">
+
+      <!-- PR-1 -->
+      <article class="beat" id="pr1">
+        <div class="beat-head">
+          <div class="beat-id">PR · <b>01</b></div>
+          <div class="beat-tags"><span class="tag">工程</span><span class="tag">无风险</span></div>
+        </div>
+        <div class="beat-title">全局微动效（transition + duration）</div>
+        <div class="beat-mid">
+          <div class="beat-score">提升<b>+0.4</b></div>
+          <div class="beat-bars" aria-hidden="true">
+            <span class="on" style="height:32%"></span><span class="on" style="height:58%"></span><span class="on" style="height:78%"></span><span class="hi" style="height:48%"></span><span style="height:22%"></span><span class="on" style="height:62%"></span><span class="on" style="height:38%"></span><span class="on" style="height:84%"></span><span class="hi" style="height:54%"></span><span style="height:28%"></span><span class="on" style="height:66%"></span><span class="on" style="height:42%"></span><span style="height:18%"></span><span class="on" style="height:72%"></span><span class="on" style="height:34%"></span><span class="hi" style="height:60%"></span>
+          </div>
+        </div>
+        <p class="beat-desc">按钮 / 面板 / 抽屉 / toast 全部加 150–200ms 颜色 + 位移过渡；toast 弹入用 spring 缓动。</p>
+        <div class="beat-grid">
+          <div class="beat-col">
+            <h4>实现要点</h4>
+            <ul>
+              <li>tsconfig 引入 TRANSITION 常量</li>
+              <li>ActivityBar 加 transition-colors</li>
+              <li>Drawer / Sheet 加 300ms transform</li>
+              <li>globals.css 定义 --ease-out-expo</li>
+            </ul>
+          </div>
+          <div class="beat-col">
+            <h4>验收清单</h4>
+            <ul>
+              <li>ActivityBar 无闪烁</li>
+              <li>Toast 200ms 淡入淡出</li>
+              <li>prefers-reduced-motion 全禁用</li>
+              <li>回滚：移除 utility class 即可</li>
+            </ul>
+          </div>
+        </div>
+        <div class="beat-foot"><span>工时 <b>0.5h</b></span><span>类型 <b>工程</b></span><span>风险 <b>无</b></span></div>
+      </article>
+
+      <!-- PR-2 -->
+      <article class="beat" id="pr2">
+        <div class="beat-head">
+          <div class="beat-id">PR · <b>02</b></div>
+          <div class="beat-tags"><span class="tag t-des">设计</span><span class="tag">无风险</span></div>
+        </div>
+        <div class="beat-title">自定义 app-icon + 启动图标家族</div>
+        <div class="beat-mid">
+          <div class="beat-score">提升<b>+0.6</b></div>
+          <div class="beat-bars" aria-hidden="true">
+            <span class="on" style="height:42%"></span><span class="hi" style="height:80%"></span><span class="hi" style="height:96%"></span><span class="on" style="height:58%"></span><span class="on" style="height:72%"></span><span class="on" style="height:38%"></span><span class="hi" style="height:86%"></span><span class="on" style="height:48%"></span><span class="on" style="height:62%"></span><span class="hi" style="height:90%"></span><span class="on" style="height:34%"></span><span class="on" style="height:54%"></span><span class="hi" style="height:78%"></span><span class="on" style="height:44%"></span><span class="on" style="height:66%"></span><span class="hi" style="height:88%"></span>
+          </div>
+        </div>
+        <p class="beat-desc">建立品牌资产；主图标 = 终端窗口 + 抽象 G；6 个尺寸（favicon / apple-touch / splash / og-image）。</p>
+        <div class="beat-grid">
+          <div class="beat-col">
+            <h4>实现要点</h4>
+            <ul>
+              <li>重设计 app-icon.svg · tmux 三窗格 + G</li>
+              <li>导出 favicon / 32x32 / apple-touch / splash</li>
+              <li>OG image 1200×630 社交分享</li>
+              <li>主题 accent 跟随切换</li>
+            </ul>
+          </div>
+          <div class="beat-col">
+            <h4>验收清单</h4>
+            <ul>
+              <li>iOS PWA 桌面图标正确</li>
+              <li>浏览器 tab 显示 32×32 favicon</li>
+              <li>暗 / 亮主题 WCAG AA</li>
+              <li>回滚：替换回旧 SVG 即可</li>
+            </ul>
+          </div>
+        </div>
+        <div class="beat-foot"><span>工时 <b>2h</b></span><span>类型 <b>设计</b></span><span>风险 <b>无</b></span></div>
+      </article>
+
+      <!-- PR-3 -->
+      <article class="beat" id="pr3">
+        <div class="beat-head">
+          <div class="beat-id">PR · <b>03</b></div>
+          <div class="beat-tags"><span class="tag">工程</span><span class="tag r-mid">中风险</span></div>
+        </div>
+        <div class="beat-title">移动底栏 spring 进入动效</div>
+        <div class="beat-mid">
+          <div class="beat-score">提升<b>+0.3</b></div>
+          <div class="beat-bars" aria-hidden="true">
+            <span style="height:28%"></span><span class="on" style="height:46%"></span><span class="on" style="height:68%"></span><span class="on" style="height:38%"></span><span style="height:18%"></span><span class="on" style="height:54%"></span><span class="hi" style="height:72%"></span><span class="on" style="height:42%"></span><span style="height:24%"></span><span class="on" style="height:60%"></span><span class="on" style="height:36%"></span><span class="hi" style="height:64%"></span><span class="on" style="height:30%"></span><span style="height:20%"></span><span class="on" style="height:48%"></span><span class="on" style="height:32%"></span>
+          </div>
+        </div>
+        <p class="beat-desc">移动 dock 从下方 60px 滑入 · spring stiffness 280 damping 24；session strip 200ms slide。</p>
+        <div class="beat-grid">
+          <div class="beat-col">
+            <h4>实现要点</h4>
+            <ul>
+              <li>dockVariants = spring(y:60 → 0)</li>
+              <li>session strip 切换滑动高亮</li>
+              <li>键盘弹出 dock 150ms 平滑</li>
+              <li>可选 framer-motion 或自实现 RAF</li>
+            </ul>
+          </div>
+          <div class="beat-col">
+            <h4>验收清单</h4>
+            <ul>
+              <li>dock 滑入无抖动</li>
+              <li>切会话有 slide 高亮</li>
+              <li>键盘弹出无闪烁</li>
+              <li>低端机 60fps 维持</li>
+            </ul>
+          </div>
+        </div>
+        <div class="beat-foot"><span>工时 <b>1h</b></span><span>类型 <b>工程</b></span><span>风险 <b>中</b></span></div>
+      </article>
+
+      <!-- PR-4 -->
+      <article class="beat" id="pr4">
+        <div class="beat-head">
+          <div class="beat-id">PR · <b>04</b></div>
+          <div class="beat-tags"><span class="tag">工程</span><span class="tag">无风险</span></div>
+        </div>
+        <div class="beat-title">主题切换 UI（深浅 / Catppuccin 一键换）</div>
+        <div class="beat-mid">
+          <div class="beat-score">提升<b>+0.2</b></div>
+          <div class="beat-bars" aria-hidden="true">
+            <span class="on" style="height:36%"></span><span class="on" style="height:54%"></span><span style="height:22%"></span><span class="hi" style="height:62%"></span><span class="on" style="height:40%"></span><span class="on" style="height:48%"></span><span style="height:18%"></span><span class="on" style="height:56%"></span><span class="on" style="height:34%"></span><span class="hi" style="height:68%"></span><span class="on" style="height:42%"></span><span style="height:24%"></span><span class="on" style="height:50%"></span><span class="on" style="height:30%"></span><span class="hi" style="height:64%"></span><span class="on" style="height:38%"></span>
+          </div>
+        </div>
+        <p class="beat-desc">暴露已有 5 套主题；Settings 新增主题分组 · 6 色块 · 偏好持久化到 localStorage。</p>
+        <div class="beat-grid">
+          <div class="beat-col">
+            <h4>实现要点</h4>
+            <ul>
+              <li>useConsoleStore 加 theme + setTheme</li>
+              <li>Settings 新增「主题」分组</li>
+              <li>root 上挂 dataset.theme</li>
+              <li>切换平滑过渡（配合 PR-1）</li>
+            </ul>
+          </div>
+          <div class="beat-col">
+            <h4>验收清单</h4>
+            <ul>
+              <li>6 套主题无闪烁切换</li>
+              <li>切换过渡平滑</li>
+              <li>localStorage 持久化</li>
+              <li>刷新后偏好保持</li>
+            </ul>
+          </div>
+        </div>
+        <div class="beat-foot"><span>工时 <b>1h</b></span><span>类型 <b>工程</b></span><span>风险 <b>无</b></span></div>
+      </article>
+
+      <!-- PR-5 -->
+      <article class="beat" id="pr5">
+        <div class="beat-head">
+          <div class="beat-id">PR · <b>05</b></div>
+          <div class="beat-tags"><span class="tag">工程</span><span class="tag r-low">低风险</span></div>
+        </div>
+        <div class="beat-title">Skeleton loading（会话 / 文件 / Git）</div>
+        <div class="beat-mid">
+          <div class="beat-score">提升<b>+0.4</b></div>
+          <div class="beat-bars" aria-hidden="true">
+            <span style="height:24%"></span><span class="on" style="height:48%"></span><span class="on" style="height:72%"></span><span class="hi" style="height:58%"></span><span class="on" style="height:42%"></span><span style="height:20%"></span><span class="on" style="height:66%"></span><span class="on" style="height:38%"></span><span class="hi" style="height:74%"></span><span class="on" style="height:46%"></span><span class="on" style="height:60%"></span><span style="height:28%"></span><span class="on" style="height:52%"></span><span class="hi" style="height:68%"></span><span class="on" style="height:36%"></span><span class="on" style="height:50%"></span>
+          </div>
+        </div>
+        <p class="beat-desc">消灭加载态空白时段 · 渐变扫光 shimmer · SessionSkeleton / FileSkeleton / GitSkeleton。</p>
+        <div class="beat-grid">
+          <div class="beat-col">
+            <h4>实现要点</h4>
+            <ul>
+              <li>Skeleton 基础组件 + shimmer 动画</li>
+              <li>3 个具体面板占位组件</li>
+              <li>渐变 bg-[length:200%_100%]</li>
+              <li>接入 Sidebar / FilePanel / GitPanel</li>
+            </ul>
+          </div>
+          <div class="beat-col">
+            <h4>验收清单</h4>
+            <ul>
+              <li>初次加载有骨架屏无空白</li>
+              <li>真实数据到位 opacity 切换</li>
+              <li>不闪烁不串色</li>
+              <li>回滚：移除 isPending 分支</li>
+            </ul>
+          </div>
+        </div>
+        <div class="beat-foot"><span>工时 <b>3h</b></span><span>类型 <b>工程</b></span><span>风险 <b>低</b></span></div>
+      </article>
+
+      <!-- PR-6 -->
+      <article class="beat" id="pr6">
+        <div class="beat-head">
+          <div class="beat-id">PR · <b>06</b></div>
+          <div class="beat-tags"><span class="tag t-des">设计</span><span class="tag r-low">低风险</span></div>
+        </div>
+        <div class="beat-title">大屏专属布局（≥1440）</div>
+        <div class="beat-mid">
+          <div class="beat-score">提升<b>+0.3</b></div>
+          <div class="beat-bars" aria-hidden="true">
+            <span style="height:30%"></span><span class="on" style="height:44%"></span><span class="on" style="height:60%"></span><span style="height:24%"></span><span class="hi" style="height:56%"></span><span class="on" style="height:40%"></span><span class="on" style="height:62%"></span><span style="height:22%"></span><span class="on" style="height:48%"></span><span class="hi" style="height:66%"></span><span class="on" style="height:36%"></span><span class="on" style="height:52%"></span><span style="height:18%"></span><span class="on" style="height:42%"></span><span class="hi" style="height:58%"></span><span class="on" style="height:34%"></span>
+          </div>
+        </div>
+        <p class="beat-desc">消除 2K / 4K 大屏留白空洞 · 右侧 280px 快速创建面板镜像 · TopBar 加状态指示。</p>
+        <div class="beat-grid">
+          <div class="beat-col">
+            <h4>实现要点</h4>
+            <ul>
+              <li>minWorkspaceWidth 三档断点</li>
+              <li>≥1440 加右侧 280px 面板</li>
+              <li>TopBar 显示连接数 / CPU</li>
+              <li>xl 屏右侧面板可隐藏</li>
+            </ul>
+          </div>
+          <div class="beat-col">
+            <h4>验收清单</h4>
+            <ul>
+              <li>1920×1080 中间工作区 ≥ 720px</li>
+              <li>xl 屏右侧面板可隐藏</li>
+              <li>1180–1440 保持原布局</li>
+              <li>回滚：移除 xl 分支即可</li>
+            </ul>
+          </div>
+        </div>
+        <div class="beat-foot"><span>工时 <b>2h</b></span><span>类型 <b>设计</b></span><span>风险 <b>低</b></span></div>
+      </article>
+
+      <!-- PR-7 -->
+      <article class="beat" id="pr7">
+        <div class="beat-head">
+          <div class="beat-id">PR · <b>07</b></div>
+          <div class="beat-tags"><span class="tag t-des">设计</span><span class="tag">无风险</span></div>
+        </div>
+        <div class="beat-title">空状态 SVG 插画包（5 场景）</div>
+        <div class="beat-mid">
+          <div class="beat-score">提升<b>+0.6</b></div>
+          <div class="beat-bars" aria-hidden="true">
+            <span class="on" style="height:38%"></span><span class="on" style="height:62%"></span><span class="hi" style="height:82%"></span><span class="on" style="height:50%"></span><span class="on" style="height:68%"></span><span class="hi" style="height:88%"></span><span class="on" style="height:44%"></span><span class="on" style="height:60%"></span><span class="hi" style="height:78%"></span><span class="on" style="height:36%"></span><span class="on" style="height:66%"></span><span class="hi" style="height:84%"></span><span class="on" style="height:46%"></span><span class="on" style="height:58%"></span><span class="hi" style="height:72%"></span><span class="on" style="height:42%"></span>
+          </div>
+        </div>
+        <p class="beat-desc">告别 ⊞ + 两行文案 · 220×160 单色 + accent 高亮 · CSS variable 自动适配 6 主题。</p>
+        <div class="beat-grid">
+          <div class="beat-col">
+            <h4>实现要点</h4>
+            <ul>
+              <li>5 张 SVG · sessions / files / git / agent / offline</li>
+              <li>220×160 viewBox · 单色 + accent</li>
+              <li>CSS variable 控色自动适配主题</li>
+              <li>可选 svgr 转 React 组件</li>
+            </ul>
+          </div>
+          <div class="beat-col">
+            <h4>验收清单</h4>
+            <ul>
+              <li>5 个空状态全部有插画</li>
+              <li>6 主题颜色自动适配</li>
+              <li>移动端 sheet 比例正确</li>
+              <li>回滚：替换回原 ⊞ 占位</li>
+            </ul>
+          </div>
+        </div>
+        <div class="beat-foot"><span>工时 <b>4h</b></span><span>类型 <b>设计</b></span><span>风险 <b>无</b></span></div>
+      </article>
+
+      <!-- PR-8 -->
+      <article class="beat" id="pr8">
+        <div class="beat-head">
+          <div class="beat-id">PR · <b>08</b></div>
+          <div class="beat-tags"><span class="tag">工程</span><span class="tag r-mid">中风险</span></div>
+        </div>
+        <div class="beat-title">EditorWorkbench 拆分 + 分屏微动效</div>
+        <div class="beat-mid">
+          <div class="beat-score">提升<b>+0.4</b></div>
+          <div class="beat-bars" aria-hidden="true">
+            <span style="height:26%"></span><span class="on" style="height:50%"></span><span class="on" style="height:70%"></span><span class="hi" style="height:62%"></span><span class="on" style="height:38%"></span><span class="on" style="height:54%"></span><span style="height:22%"></span><span class="hi" style="height:66%"></span><span class="on" style="height:46%"></span><span class="on" style="height:58%"></span><span style="height:20%"></span><span class="on" style="height:52%"></span><span class="hi" style="height:68%"></span><span class="on" style="height:34%"></span><span class="on" style="height:48%"></span><span style="height:18%"></span>
+          </div>
+        </div>
+        <p class="beat-desc">673 行单文件拆 5 模块 · 拖入 ghost 高亮 · compare 200ms 淡入分屏 · tab translateX。</p>
+        <div class="beat-grid">
+          <div class="beat-col">
+            <h4>实现要点</h4>
+            <ul>
+              <li>EditorTabs / EditorSplit / EditorPane</li>
+              <li>useEditorDrag / useEditorCompare hooks</li>
+              <li>拖入边缘 ghost 高亮</li>
+              <li>tab 切换 translateX 滑动</li>
+            </ul>
+          </div>
+          <div class="beat-col">
+            <h4>验收清单</h4>
+            <ul>
+              <li>EditorWorkbench.tsx ≤ 200 行</li>
+              <li>split 拖拽无卡顿</li>
+              <li>所有现有单测全过</li>
+              <li>回滚：恢复单文件 673 行</li>
+            </ul>
+          </div>
+        </div>
+        <div class="beat-foot"><span>工时 <b>4h</b></span><span>类型 <b>工程</b></span><span>风险 <b>中</b></span></div>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============ D4 OUT-OF-SCOPE ============ -->
+<section class="sec">
+  <div class="stage">
+    <div class="sec-head">
+      <div class="sec-num"><b>D4</b> · 03</div>
+      <div>
+        <h2 class="sec-title">不在本次<em>范围</em></h2>
+        <p class="sec-lead">ROI 偏低或独立成 PR 更合适的项，留到下个周期。</p>
+      </div>
+    </div>
+    <div class="oos">
+      <div>
+        <div class="oos-k">字体系统</div>
+        <div class="oos-v">中文字体优化</div>
+        <div class="oos-p">+0.2 分 · 留待下期</div>
+      </div>
+      <div>
+        <div class="oos-k">spacing scale</div>
+        <div class="oos-v">自定义间距阶梯</div>
+        <div class="oos-p">+0.2 分 · 留待下期</div>
+      </div>
+      <div>
+        <div class="oos-k">快速创建面板</div>
+        <div class="oos-v">合并入 PR-6</div>
+        <div class="oos-p">已在 W2 周一</div>
+      </div>
+      <div>
+        <div class="oos-k">Welcome 引导</div>
+        <div class="oos-v">首次启动引导</div>
+        <div class="oos-p">+0.3 · 独立 PR 更合适</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ D5 ACCEPTANCE ============ -->
+<section class="sec">
+  <div class="stage">
+    <div class="sec-head">
+      <div class="sec-num"><b>D5</b> · 04</div>
+      <div>
+        <h2 class="sec-title">验收 <em>总览</em></h2>
+        <p class="sec-lead">接受标准 = 5 项硬性指标同时满足。</p>
+      </div>
+    </div>
+    <ul class="accept">
+      <li>
+        <span class="accept-n">A · 01</span>
+        <span class="accept-t">视觉：8 个 PR 合入后 ≥ 9.0 分</span>
+        <span class="accept-m">visual</span>
+      </li>
+      <li>
+        <span class="accept-n">A · 02</span>
+        <span class="accept-t">回归：所有现有 <code>*.test.tsx</code> 通过</span>
+        <span class="accept-m">regression</span>
+      </li>
+      <li>
+        <span class="accept-n">A · 03</span>
+        <span class="accept-t">性能：Lighthouse Performance ≥ 90（骨架屏动效不拖低）</span>
+        <span class="accept-m">lighthouse</span>
+      </li>
+      <li>
+        <span class="accept-n">A · 04</span>
+        <span class="accept-t">可访问：<code>prefers-reduced-motion</code> 完整支持</span>
+        <span class="accept-m">a11y</span>
+      </li>
+      <li>
+        <span class="accept-n">A · 05</span>
+        <span class="accept-t">主题：6 套主题全部正常切换且视觉一致</span>
+        <span class="accept-m">theming</span>
+      </li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============ D6 TIMELINE ============ -->
+<section class="sec">
+  <div class="stage">
+    <div class="sec-head">
+      <div class="sec-num"><b>D6</b> · 05</div>
+      <div>
+        <h2 class="sec-title">分支策略 <em>· 时间线</em></h2>
+        <p class="sec-lead">分支 = worktree · 每个 PR 一个独立 worktree · 8 个并行；W1 收工 5 个 · W2 收工 3 个。</p>
+      </div>
+    </div>
+    <div class="timeline">
+
+      <div class="week">
+        <div class="week-k">W1<span>week one</span></div>
+        <div class="week-row">
+          <div class="day"><div class="day-k">周一</div><div class="day-v">PR-1 · 全局微动效<span class="tag">0.5h</span></div></div>
+          <div class="day"><div class="day-k">周二</div><div class="day-v">PR-2 · app-icon<span class="tag">2h</span></div></div>
+          <div class="day"><div class="day-k">周三</div><div class="day-v">PR-3 · 移动底栏 spring<span class="tag">1h</span></div></div>
+          <div class="day"><div class="day-k">周四</div><div class="day-v">PR-4 · 主题切换<span class="tag">1h</span></div></div>
+          <div class="day"><div class="day-k">周五</div><div class="day-v">PR-5 · Skeleton<span class="tag">3h</span></div></div>
+        </div>
+      </div>
+
+      <div class="week">
+        <div class="week-k">W2<span>week two</span></div>
+        <div class="week-row">
+          <div class="day"><div class="day-k">周一</div><div class="day-v">PR-6 · 大屏布局<span class="tag">2h</span></div></div>
+          <div class="day"><div class="day-k">周二</div><div class="day-v">PR-7 · 插画包 (1/3)<span class="tag">4h</span></div></div>
+          <div class="day"><div class="day-k">周三</div><div class="day-v">PR-7 · 插画包 (2/3)<span class="tag">—</span></div></div>
+          <div class="day"><div class="day-k">周四</div><div class="day-v">PR-7 · 插画包 (3/3)<span class="tag">—</span></div></div>
+          <div class="day"><div class="day-k">周五</div><div class="day-v">PR-8 · EditorWorkbench<span class="tag">4h</span></div></div>
+        </div>
+      </div>
+
+      <div class="week">
+        <div class="week-k">Branch<span>worktree 策略</span></div>
+        <div class="week-row" style="grid-template-columns:1fr">
+          <div class="day" style="padding-left:0">
+            <div class="day-v" style="font-family:var(--font-mono);color:rgb(var(--text-2));line-height:1.9">
+              <code style="color:rgb(var(--accent))">git worktree add ../tmuxgo-beautify-1 feat/transition</code><br/>
+              <code style="color:rgb(var(--accent))">git worktree add ../tmuxgo-beautify-2 feat/app-icon-redesign</code><br/>
+              <code style="color:rgb(var(--accent))">git worktree add ../tmuxgo-beautify-3 feat/mobile-dock-spring</code><br/>
+              <span style="color:rgb(var(--text-3))">… 8 个 worktree 并行 · 独立 review · 独立 merge</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============ D7 FOOTER ============ -->
+<section class="foot">
+  <div class="stage">
+    <div class="foot-grid">
+      <div>
+        <div class="foot-k">Brand</div>
+        <div class="foot-v">TmuxGo · 终端会话管理器<br/>routes through tmux · Go backend</div>
+      </div>
+      <div>
+        <div class="foot-k">Theme Switcher</div>
+        <div class="foot-v">顶栏 6 色块圆点 · 即时切换<br/>所有颜色走 CSS variable</div>
+      </div>
+      <div>
+        <div class="foot-k">Roadmap Date</div>
+        <div class="foot-v">2026 / 07 · 内部评审 v1<br/>CLAUDE.md · 分支 = worktree</div>
+      </div>
+    </div>
+    <div class="foot-end">
+      <div class="foot-logo">tmux<em>go</em></div>
+      <div class="foot-tag">8 PR · +3.2 · 7.0 → 9.0 · 2026.07</div>
+    </div>
+  </div>
+</section>
+
+<script>
+  // Theme switcher: 6 swatches, instant, persistent
+  (function(){
+    const KEY = 'tmuxgo-roadmap-theme';
+    const saved = localStorage.getItem(KEY);
+    if (saved) document.documentElement.dataset.theme = saved;
+    document.querySelectorAll('.swatch').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const t = btn.dataset.themeName;
+        document.documentElement.dataset.theme = t;
+        localStorage.setItem(KEY, t);
+        document.querySelectorAll('.swatch').forEach(s=>s.dataset.active = s===btn ? 'true':'false');
+      });
+      if (btn.dataset.themeName === document.documentElement.dataset.theme) btn.dataset.active = 'true';
+    });
+  })();
+</script>
+
+</body>
+</html>
