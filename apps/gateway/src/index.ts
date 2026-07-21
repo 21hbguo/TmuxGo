@@ -23,7 +23,7 @@ import { templateRoutes } from './routes/templates.js'
 import { sessionArchiveRoutes } from './routes/session-archives.js'
 
 const fastify = Fastify({
-  logger: true,
+  logger: process.env.NODE_ENV === 'production' ? { level: 'warn' } : true,
 })
 fastify.addHook('onRequest', async (request, reply) => {
   const forwardedHost = request.headers['x-forwarded-host']

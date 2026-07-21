@@ -1,9 +1,10 @@
 import type { FastifyInstance } from 'fastify'
-import { appendFile, readFile } from 'fs/promises'
+import { appendFile, readFile, rename, stat } from 'fs/promises'
 
 const LOG_PATH = process.env.TMUXGO_CLIENT_EVENTS_LOG || '/tmp/tmuxgo-mobile-debug.ndjson'
 const MAX_EVENTS = 160
 const MAX_LINE_BYTES = 12000
+const MAX_LOG_BYTES = 8 * 1024 * 1024
 
 function trimValue(value: unknown): unknown {
   if (typeof value === 'string') return value.length > 1000 ? value.slice(0, 1000) : value
@@ -26,6 +27,10 @@ export async function clientEventRoutes(fastify: FastifyInstance) {
       const line = JSON.stringify({ receivedAt, ip, sessionId: body?.sessionId || '', event: trimValue(event) })
       return line.length > MAX_LINE_BYTES ? line.slice(0, MAX_LINE_BYTES) : line
     }).join('\n') + '\n'
+    try {
+      const info = await stat(LOG_PATH)
+      if (info.size >= MAX_LOG_BYTES) await rename(LOG_PATH, `${LOG_PATH}.1`)
+    } catch {}
     await appendFile(LOG_PATH, lines, 'utf8')
     reply.header('cache-control', 'no-store')
     return { ok: true, count: rawEvents.length }

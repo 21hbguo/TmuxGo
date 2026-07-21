@@ -30,7 +30,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
     const OUTPUT_PROFILES = {
       foreground: { flushInterval: 8, maxChars: 24576 },
       background: { flushInterval: 24, maxChars: 98304 },
-      mobile: { flushInterval: 12, maxChars: 32768 },
+      mobile: { flushInterval: 24, maxChars: 65536 },
     } as const
     let ptyProcess: pty.IPty | null = null
     let attachedSessionName: string | null = null
