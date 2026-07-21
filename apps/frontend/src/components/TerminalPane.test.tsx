@@ -1276,6 +1276,16 @@ describe('TerminalPane', () => {
     const lastCall = preferenceMocks.updatePreferences.mock.calls[preferenceMocks.updatePreferences.mock.calls.length - 1]
     expect(lastCall?.[0].fontSize).toBeGreaterThan(14)
   })
+  it('updates terminal font size by desktop trackpad pinch', async () => {
+    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    const root = container.firstChild as HTMLElement
+    const event = fireEvent.wheel(root, { ctrlKey: true, deltaY: -20, cancelable: true })
+    expect(event).toBe(false)
+    await waitFor(() => expect(preferenceMocks.updatePreferences).toHaveBeenCalled())
+    const lastCall = preferenceMocks.updatePreferences.mock.calls[preferenceMocks.updatePreferences.mock.calls.length - 1]
+    expect(lastCall?.[0].fontSize).toBeGreaterThan(14)
+  })
   it('keeps desktop terminal focus behavior', async () => {
     const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(customKeyHandler).toBeTruthy())
