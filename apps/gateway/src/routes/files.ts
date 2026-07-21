@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { emitPluginEvent } from '../lib/plugin-manager.js'
 import { createReadStream, createWriteStream } from 'fs'
 import { cp, mkdir, opendir, readFile, realpath, rename, rm, stat, unlink, writeFile } from 'fs/promises'
 import { execFile, spawn } from 'child_process'
@@ -1088,7 +1089,9 @@ export async function fileRoutes(fastify: FastifyInstance) {
     const { hostId } = request.params as { hostId: string }
     const body = request.body as { root?: string; path?: string; content?: string; modifiedAt?: string }
     try {
-      return await saveContentForHost(hostId, body.root || '', body.path || '', typeof body.content === 'string' ? body.content : '', body.modifiedAt)
+      const result = await saveContentForHost(hostId, body.root || '', body.path || '', typeof body.content === 'string' ? body.content : '', body.modifiedAt)
+      emitPluginEvent('file.saved', { hostId, rootId: body.root || '', filePath: body.path || '' })
+      return result
     } catch (error) {
       const err = error as Error & { code?: string }
       if (err.code === 'FILE_MODIFIED') return reply.status(409).send({ message: err.message, code: err.code })
@@ -1242,7 +1245,7 @@ export async function fileRoutes(fastify: FastifyInstance) {
       else if (part.fieldname === 'rateLimitKBps') rateLimitKBps = normalizeUploadRateLimitKBps(value)
     }
     if (!resolvedTarget) throw new Error('No files uploaded')
-    return {
+    const result = {
       ok: true,
       target: {
         rootId: resolvedTarget.root.id,
@@ -1254,6 +1257,8 @@ export async function fileRoutes(fastify: FastifyInstance) {
       },
       files: uploadedFiles,
     }
+    emitPluginEvent('file.uploaded', { hostId, rootId: resolvedTarget.root.id, filePath: resolvedTarget.relativePath, files: uploadedFiles.map((file) => ({ name: file.name, path: file.path, size: file.size })) })
+    return result
   })
   fastify.get('/hosts/:hostId/files/download', async (request, reply) => {
     const { hostId } = request.params as { hostId: string }

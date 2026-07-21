@@ -4,6 +4,7 @@ import { assertSessionAllowed, isValidSessionName, prepareSessionAttach } from '
 import { buildSessionId, parseSessionRef } from '../lib/tmux-target.js'
 import { execTmux } from '../lib/tmux-executor.js'
 import { getHostAgentPanes, summarizeAgentPanes } from '../lib/agent-state.js'
+import { emitPluginEvent } from '../lib/plugin-manager.js'
 
 const batchDeleteLimitDefault = 1000
 const batchDeleteLimitMax = 5000
@@ -323,7 +324,7 @@ export async function sessionRoutes(fastify: FastifyInstance) {
       }
       await safePrepareSessionAttach(hostId, name)
       const sessions = await getHostTmuxSessions(hostId)
-      return sessions.find((s) => s.name === name) || {
+      const created = sessions.find((s) => s.name === name) || {
         id: buildSessionId(hostId, name),
         hostId,
         name,
@@ -332,6 +333,8 @@ export async function sessionRoutes(fastify: FastifyInstance) {
         windowCount: 1,
         attached: false,
       }
+      emitPluginEvent('session.created', { hostId, sessionId: created.id, sessionName: name })
+      return created
     } catch (err: any) {
       if (String(err?.message || '').includes('duplicate session')) {
         const sessions = await getHostTmuxSessions(hostId)
@@ -352,7 +355,7 @@ export async function sessionRoutes(fastify: FastifyInstance) {
       await execTmux(hostId, ['rename-session', '-t', sessionName, name])
       await safePrepareSessionAttach(hostId, name)
       const sessions = await getHostTmuxSessions(hostId)
-      return sessions.find((session) => session.name === name) || {
+      const renamed = sessions.find((session) => session.name === name) || {
         id: buildSessionId(hostId, name),
         hostId,
         name,
@@ -361,6 +364,8 @@ export async function sessionRoutes(fastify: FastifyInstance) {
         windowCount: 1,
         attached: false,
       }
+      emitPluginEvent('session.renamed', { hostId, sessionId: renamed.id, sessionName: name, previousSessionName: sessionName })
+      return renamed
     } catch (err: any) {
       throw new Error(err.message)
     }
@@ -394,6 +399,7 @@ export async function sessionRoutes(fastify: FastifyInstance) {
       try {
         await execTmux(hostId, ['kill-session', '-t', session.name])
         deleted.push(toBatchDeleteTarget(session))
+        emitPluginEvent('session.deleted', { hostId, sessionId: session.id, sessionName: session.name, source: 'batch-delete' })
       } catch (err: any) {
         failed.push({ sessionId: session.id, name: session.name, reason: err?.message || 'delete_failed' })
       }
@@ -419,6 +425,7 @@ export async function sessionRoutes(fastify: FastifyInstance) {
     assertSessionAllowed(sessionName)
     try {
       await execTmux(hostId, ['kill-session', '-t', sessionName])
+      emitPluginEvent('session.deleted', { hostId, sessionId: buildSessionId(hostId, sessionName), sessionName })
       return { success: true, sessionId: buildSessionId(hostId, sessionName) }
     } catch (err: any) {
       throw new Error(err.message)

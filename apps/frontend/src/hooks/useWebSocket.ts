@@ -55,6 +55,9 @@ export function useWebSocket() {
         window.dispatchEvent(new CustomEvent('tmux-attached',{detail:data}))
         updateConnection({status:'connected'})
         break
+      case 'resized':
+        window.dispatchEvent(new CustomEvent('tmux-resized',{detail:data}))
+        break
       case 'error':
         window.dispatchEvent(new CustomEvent('tmux-error',{detail:data}))
         updateConnection({status:'disconnected'})

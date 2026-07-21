@@ -20,7 +20,6 @@ export async function streamRoutes(fastify: FastifyInstance) {
     console.log('Client connected to stream')
     const SCROLL_MAX_LINES = 24
     const ATTACH_REDRAW_DELAYS = [48]
-    const RESIZE_REDRAW_DELAYS = [32]
     const REQUEST_REDRAW_DELAYS = [48]
     const AGENT_STATE_POLL_MS = 1500
     const SOCKET_BUFFER_HIGH_WATERMARK = 1048576
@@ -51,6 +50,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
     let attachVisibleOutputObserved = false
     let attachSnapshotTimers: ReturnType<typeof setTimeout>[] = []
     let agentStatePolling = false
+    let pendingResizeAck: { sessionName: string; hostId: string; cols: number; rows: number; seq: number; refreshComplete: boolean; outputObserved: boolean } | null = null
     const sentAgentRevisions = new Map<string, number>()
     const scrollBuffers = new Map<string, number>()
     const scrollRunning = new Set<string>()
@@ -150,6 +150,14 @@ export async function streamRoutes(fastify: FastifyInstance) {
       recordStreamMetric('outputFlushes')
       recordStreamMetric('outputChunks')
       recordStreamMetric('outputBytes', data.length)
+    }
+    function completeResizeAck() {
+      const pending = pendingResizeAck
+      if (!pending || !pending.refreshComplete || !pending.outputObserved) return
+      if (!ptyProcess || pending.seq !== attachSeq || attachedSessionName !== pending.sessionName || attachedHostId !== pending.hostId || attachedCols !== pending.cols || attachedRows !== pending.rows) return
+      pendingResizeAck = null
+      flushOutput()
+      send({ type: 'resized', sessionName: pending.sessionName, hostId: pending.hostId, cols: pending.cols, rows: pending.rows })
     }
     function queueOutput(output: string) {
       if (!output) return
@@ -320,6 +328,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
       const detachedSessionName = attachedSessionName
       const detachedHostId = attachedHostId
       attachSeq += 1
+      pendingResizeAck = null
       clearRedrawTimers()
       clearAttachSnapshotTimers()
       if (current) {
@@ -475,12 +484,20 @@ export async function streamRoutes(fastify: FastifyInstance) {
               if (seq !== attachSeq) return
               if (outputResyncPending) {
                 recordStreamMetric('droppedOutputChars', output.length)
+                if (pendingResizeAck) {
+                  pendingResizeAck.outputObserved = true
+                  completeResizeAck()
+                }
                 return
               }
               const filtered = sanitizeOutput(output)
               if (filtered) {
                 if (!attachVisibleOutputObserved && hasSubstantiveTerminalContent(filtered)) attachVisibleOutputObserved = true
                 queueOutput(filtered)
+              }
+              if (pendingResizeAck) {
+                pendingResizeAck.outputObserved = true
+                completeResizeAck()
               }
             })
             ptyProcess.onExit(({ exitCode }) => {
@@ -497,6 +514,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
               attachedExclusive = false
               attachedCols = 0
               attachedRows = 0
+              pendingResizeAck = null
               clearAttachSnapshotTimers()
               clearRedrawTimers()
             })
@@ -511,11 +529,21 @@ export async function streamRoutes(fastify: FastifyInstance) {
             if (ptyProcess) {
               const cols = Math.max(2, Math.round(Number(data.cols)))
               const rows = Math.max(1, Math.round(Number(data.rows)))
-              if (!Number.isFinite(cols) || !Number.isFinite(rows) || cols === attachedCols && rows === attachedRows) break
+              if (!Number.isFinite(cols) || !Number.isFinite(rows) || !attachedSessionName) break
+              if (cols === attachedCols && rows === attachedRows) {
+                send({ type: 'resized', sessionName: attachedSessionName, hostId: attachedHostId, cols, rows })
+                break
+              }
+              const pending = { sessionName: attachedSessionName, hostId: attachedHostId, cols, rows, seq: attachSeq, refreshComplete: false, outputObserved: false }
+              pendingResizeAck = pending
               ptyProcess.resize(cols, rows)
               attachedCols = cols
               attachedRows = rows
-              scheduleClientRedraw(attachedSessionName, RESIZE_REDRAW_DELAYS)
+              void refreshAttachedClient(pending.sessionName).catch(() => {}).finally(() => {
+                if (pendingResizeAck !== pending) return
+                pending.refreshComplete = true
+                completeResizeAck()
+              })
             }
             break
           case 'redraw': {

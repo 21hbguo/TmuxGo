@@ -11,6 +11,8 @@ const snapshotGet = vi.fn()
 
 vi.mock('@/hooks/useApi', () => ({
   useHosts: () => ({ data: [{ id: 'local', name: 'Local', address: '127.0.0.1', status: 'online', tags: [] }] }),
+  usePlugins: () => ({ data: { plugins: [] } }),
+  useInvokePluginAction: () => ({ mutateAsync: vi.fn() }),
   useWindows: () => ({ data: [
     { id: 'local:@1', sessionId: 'session-dev', index: 0, name: 'Main', active: true },
     { id: 'local:@2', sessionId: 'session-dev', index: 1, name: 'Logs', active: false },

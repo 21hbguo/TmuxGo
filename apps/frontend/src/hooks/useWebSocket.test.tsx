@@ -90,6 +90,18 @@ describe('useWebSocket',()=>{
     unsubscribe()
     unmount()
   })
+  it('dispatches completed terminal resize events',()=>{
+    const listener=vi.fn()
+    window.addEventListener('tmux-resized',listener as EventListener)
+    const { unmount }=renderHook(() => useWebSocket())
+    act(()=>{
+      socketInstances[0].open()
+      socketInstances[0].message({ type:'resized', hostId:'local', sessionName:'dev', cols:120, rows:36 })
+    })
+    expect((listener.mock.calls[0]?.[0] as CustomEvent).detail).toMatchObject({ hostId:'local', sessionName:'dev', cols:120, rows:36 })
+    window.removeEventListener('tmux-resized',listener as EventListener)
+    unmount()
+  })
   it('dispatches agent status events',()=>{
     const listener=vi.fn()
     window.addEventListener('tmuxgo-agent-status',listener as EventListener)

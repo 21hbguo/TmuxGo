@@ -306,6 +306,7 @@ export class PluginManager {
     this.assertStorageKey(key)
     const root = await this.ensurePluginDataDirs(pluginId)
     const text = JSON.stringify(value)
+    if (text === undefined) throw new Error('Plugin storage value must be JSON serializable')
     if (Buffer.byteLength(text) > 1024 * 1024) throw new Error('Plugin storage value is too large')
     const target = path.join(root, 'state', `${key}.json`)
     const temp = `${target}.tmp-${Date.now()}`
@@ -360,6 +361,8 @@ export class PluginManager {
     const temp = await mkdtemp(path.join(this.pluginDir, '.tmp-install-'))
     let finalRoot = ''
     let backupRoot = ''
+    let installingPluginId = ''
+    let previousEntry: PluginRegistryEntry | undefined
     try {
       const checkout = path.join(temp, 'checkout')
       const checkedOutCommit = await this.checkoutGit(source, resolvedCommit, checkout)
@@ -367,6 +370,8 @@ export class PluginManager {
       const pluginRoot = await this.resolveCheckoutRoot(checkout, source.subdir)
       const before = await this.readManifest(pluginRoot)
       const existing = this.registry.get(before.id)
+      installingPluginId = before.id
+      previousEntry = existing
       if (existing?.source.kind === 'local') throw new Error(`Plugin ${before.id} is linked from a local directory`)
       for (const build of before.build || []) {
         if (!supportsPluginPlatform(build.platforms, before.platforms)) continue
@@ -398,9 +403,14 @@ export class PluginManager {
       if (backupRoot) await rm(backupRoot, { recursive: true, force: true })
       return this.loadInfo(entry)
     } catch (error) {
-      if (finalRoot && backupRoot) {
+      if (finalRoot) {
         await rm(finalRoot, { recursive: true, force: true }).catch(() => {})
-        await rename(backupRoot, finalRoot).catch(() => {})
+        if (backupRoot) await rename(backupRoot, finalRoot).catch(() => {})
+      }
+      if (installingPluginId) {
+        if (previousEntry) this.registry.set(installingPluginId, previousEntry)
+        else this.registry.delete(installingPluginId)
+        await this.saveRegistry().catch(() => {})
       }
       throw error
     } finally {

@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { emitPluginEvent } from '../lib/plugin-manager.js'
 import { execGit } from '../lib/git-executor.js'
 import { execTmux } from '../lib/tmux-executor.js'
 import { assertTargetAllowed } from '../lib/tmux-policy.js'
@@ -239,7 +240,9 @@ export async function gitRoutes(fastify: FastifyInstance) {
     if (amend) args.splice(1, 0, '--amend')
     const { stdout } = await execGit(hostId, args, repoPath)
     const hashMatch = stdout.match(/\[(?:[^\s]+)\s+([a-f0-9]+)\]/)
-    return { ok: true, hash: hashMatch?.[1] || '', message }
+    const hash = hashMatch?.[1] || ''
+    emitPluginEvent('git.commit.completed', { hostId, repoPath, hash, message, amend: !!amend })
+    return { ok: true, hash, message }
   })
 
   fastify.post('/hosts/:hostId/git/discard', async (request) => {

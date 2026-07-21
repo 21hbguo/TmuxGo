@@ -97,7 +97,7 @@ describe('PaneGrid', () => {
     })
     await waitFor(() => expect(screen.getByRole('button', { name: 'dev2' })).toBeInTheDocument())
   })
-  it('coalesces terminal resize updates before sending the final size', async () => {
+  it('sends a stabilized terminal resize immediately', async () => {
     socketState.isConnected = true
     render(<PaneGrid />)
     fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
@@ -106,15 +106,8 @@ describe('PaneGrid', () => {
       window.dispatchEvent(new CustomEvent('tmux-attached', { detail: { sessionName: 'dev1', cols: 120, rows: 36 } }))
     })
     sendMock.mockClear()
-    vi.useFakeTimers()
     act(() => {
-      terminalProps.current?.onResize?.(121, 36)
-      terminalProps.current?.onResize?.(122, 36)
       terminalProps.current?.onResize?.(123, 36)
-    })
-    expect(sendMock.mock.calls.filter(([message]) => message?.type === 'resize')).toHaveLength(0)
-    act(() => {
-      vi.advanceTimersByTime(40)
     })
     expect(sendMock).toHaveBeenCalledWith({ type: 'resize', hostId: 'local', cols: 123, rows: 36 })
     expect(sendMock.mock.calls.filter(([message]) => message?.type === 'resize')).toHaveLength(1)
@@ -133,7 +126,7 @@ describe('PaneGrid', () => {
     })
     expect(sendMock).not.toHaveBeenCalledWith({ type: 'resize', hostId: 'local', cols: 121, rows: 40 })
   })
-  it('cancels a pending terminal resize after detach', async () => {
+  it('completes a local-only resize after detach without sending it', async () => {
     socketState.isConnected = true
     render(<PaneGrid />)
     fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
@@ -142,13 +135,15 @@ describe('PaneGrid', () => {
       window.dispatchEvent(new CustomEvent('tmux-attached', { detail: { sessionName: 'dev1', cols: 120, rows: 36, hostId: 'local' } }))
     })
     sendMock.mockClear()
-    vi.useFakeTimers()
+    const listener = vi.fn()
+    window.addEventListener('tmux-resized', listener as EventListener)
     act(() => {
-      terminalProps.current?.onResize?.(124, 38)
       window.dispatchEvent(new CustomEvent('tmux-detached', { detail: { sessionName: 'dev1', hostId: 'local' } }))
-      vi.advanceTimersByTime(40)
+      terminalProps.current?.onResize?.(124, 38)
     })
     expect(sendMock.mock.calls.filter(([message]) => message?.type === 'resize')).toHaveLength(0)
+    expect((listener.mock.calls[0]?.[0] as CustomEvent).detail).toMatchObject({ sessionName: 'dev1', cols: 124, rows: 38, localOnly: true })
+    window.removeEventListener('tmux-resized', listener as EventListener)
   })
   it('re-attaches and flushes queued input after detach', async () => {
     socketState.isConnected = true

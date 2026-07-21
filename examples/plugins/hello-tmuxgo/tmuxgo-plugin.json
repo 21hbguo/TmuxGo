@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "examples.hello-tmuxgo",
+  "name": "Hello TmuxGo",
+  "version": "0.1.0",
+  "minTmuxGoVersion": "0.1.0",
+  "description": "TmuxGo plugin runtime example",
+  "icon": "terminal",
+  "platforms": ["linux", "macos", "windows"],
+  "contributes": {
+    "actions": [
+      {
+        "id": "show-context",
+        "title": "Show Plugin Context",
+        "contexts": ["global", "host", "session", "pane"],
+        "command": ["node", "action.mjs"]
+      }
+    ],
+    "views": [
+      {
+        "id": "main",
+        "title": "Hello TmuxGo",
+        "icon": "terminal",
+        "entry": "ui/index.html",
+        "placement": "activity",
+        "width": 360
+      }
+    ]
+  }
+}
