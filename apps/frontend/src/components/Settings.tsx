@@ -10,6 +10,8 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useClipboard } from '@/hooks/useClipboard'
 import { useAppVersion } from '@/hooks/useAppVersion'
 import { APP_BUILD_ID, APP_NAME, APP_VERSION } from '@/lib/app-version'
+import { api } from '@/lib/api'
+import type { SessionArchive, SessionArchiveSummary } from '@/types'
 import { useCreateHost, useDeleteHost, useHosts, useRestartRebuild, useRestartRebuildStatus, useTestHost } from '@/hooks/useApi'
 
 interface SettingsProps {
@@ -21,6 +23,7 @@ export function Settings({ onClose }: SettingsProps) {
   const { sessionContinuity, updateSessionContinuity } = useSessionContinuity()
   const { t } = useTranslation()
   const pushToast = useConsoleStore((state) => state.pushToast)
+  const activeHostId = useConsoleStore((state) => state.activeHostId)
   const { copy } = useClipboard()
   const [activeTab, setActiveTab] = useState<'general' | 'appearance' | 'audit' | 'about'>('general')
   const [showAuditLog, setShowAuditLog] = useState(false)
@@ -35,6 +38,10 @@ export function Settings({ onClose }: SettingsProps) {
   const [hostActionMessage, setHostActionMessage] = useState('')
   const [pendingDeleteHostId, setPendingDeleteHostId] = useState<string | null>(null)
   const [restartConfirmOpen, setRestartConfirmOpen] = useState(false)
+  const [archiveDialogOpen, setArchiveDialogOpen] = useState(false)
+  const [archives, setArchives] = useState<SessionArchiveSummary[]>([])
+  const [archiveDetail, setArchiveDetail] = useState<SessionArchive | null>(null)
+  const [archiveLoading, setArchiveLoading] = useState(false)
   const { data: hosts = [] } = useHosts()
   const createHost = useCreateHost()
   const deleteHost = useDeleteHost()
@@ -126,6 +133,39 @@ export function Settings({ onClose }: SettingsProps) {
   const closeHostDialog = () => {
     setHostDialogOpen(false)
     setHostPasswordDraft('')
+  }
+  const loadArchives = async () => {
+    setArchiveLoading(true)
+    try {
+      const data = await api.sessionArchives.list(activeHostId || 'local')
+      setArchives(data.archives)
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('session.requestFailed') })
+    }
+    setArchiveLoading(false)
+  }
+  const openArchiveDialog = () => {
+    setArchiveDialogOpen(true)
+    setArchiveDetail(null)
+    void loadArchives()
+  }
+  const openArchive = async (archiveId: string) => {
+    setArchiveLoading(true)
+    try {
+      setArchiveDetail(await api.sessionArchives.get(activeHostId || 'local', archiveId))
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('session.requestFailed') })
+    }
+    setArchiveLoading(false)
+  }
+  const deleteArchive = async (archiveId: string) => {
+    try {
+      await api.sessionArchives.remove(activeHostId || 'local', archiveId)
+      if (archiveDetail?.id === archiveId) setArchiveDetail(null)
+      await loadArchives()
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('session.requestFailed') })
+    }
   }
   const triggerRestartRebuild = async () => {
     try {
@@ -290,6 +330,27 @@ export function Settings({ onClose }: SettingsProps) {
                     </button>
                   </div>
                   <div className="flex items-center justify-between">
+                    <span className="text-text-2 text-sm">{t('settings.archiveEnabled')}</span>
+                    <button
+                      onClick={() => updateSessionContinuity({ archive: { ...sessionContinuity.archive, enabled: !sessionContinuity.archive.enabled, captureMode: sessionContinuity.archive.enabled ? 'none' : sessionContinuity.archive.captureMode === 'none' ? 'visible' : sessionContinuity.archive.captureMode } })}
+                      className={`w-10 h-6 rounded-full relative ${sessionContinuity.archive.enabled ? 'bg-accent' : 'bg-bg-2'}`}
+                    >
+                      <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${sessionContinuity.archive.enabled ? 'right-1' : 'left-1'}`} />
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-text-2 text-sm">{t('settings.archiveCaptureMode')}</span>
+                    <select value={sessionContinuity.archive.captureMode === 'none' ? 'visible' : sessionContinuity.archive.captureMode} disabled={!sessionContinuity.archive.enabled} onChange={(event) => updateSessionContinuity({ archive: { ...sessionContinuity.archive, captureMode: event.target.value as 'visible' | 'history' } })} className="tmuxgo-control tmuxgo-select rounded px-3 py-1.5 text-sm disabled:opacity-50"><option value="visible">{t('settings.archiveVisible')}</option><option value="history">{t('settings.archiveHistory')}</option></select>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-text-2 text-sm">{t('settings.archiveMaxSize')}</span>
+                    <select value={sessionContinuity.archive.maxBytesPerSession} disabled={!sessionContinuity.archive.enabled} onChange={(event) => updateSessionContinuity({ archive: { ...sessionContinuity.archive, maxBytesPerSession: Number(event.target.value) } })} className="tmuxgo-control tmuxgo-select rounded px-3 py-1.5 text-sm disabled:opacity-50"><option value={262144}>256 KB</option><option value={1048576}>1 MB</option><option value={4194304}>4 MB</option><option value={16777216}>16 MB</option><option value={33554432}>32 MB</option></select>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-text-2 text-sm">{t('settings.archiveRetention')}</span>
+                    <input type="number" min={1} max={3650} value={sessionContinuity.archive.retentionDays} disabled={!sessionContinuity.archive.enabled} onChange={(event) => updateSessionContinuity({ archive: { ...sessionContinuity.archive, retentionDays: Math.max(1, Math.min(3650, Number(event.target.value) || 1)) } })} className="tmuxgo-control tmuxgo-input w-20 rounded px-2 py-1.5 text-right text-sm disabled:opacity-50" />
+                  </div>
+                  <div className="flex items-center justify-between">
                     <span className="text-text-2 text-sm">{t('settings.resumePointCount')}</span>
                     <span className="text-text-1 text-sm">{sessionContinuity.resumePoints.length}</span>
                   </div>
@@ -308,6 +369,7 @@ export function Settings({ onClose }: SettingsProps) {
                     </div>
                   </div>
                   <div className="flex items-center justify-end">
+                    <button onClick={openArchiveDialog} className="mr-2 rounded bg-bg-2 px-3 py-1.5 text-sm text-text-2 hover:bg-bg-1">{t('settings.viewArchives')}</button>
                     <button
                       onClick={() => updateSessionContinuity({ resumePoints: [] })}
                       className="rounded bg-bg-2 px-3 py-1.5 text-sm text-text-2 hover:bg-bg-1"
@@ -655,6 +717,7 @@ export function Settings({ onClose }: SettingsProps) {
           </div>
         </div>
       )}
+      {archiveDialogOpen && <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4" onClick={() => setArchiveDialogOpen(false)}><div className="tmuxgo-glass tmuxgo-glass-dialog flex h-[75vh] w-full max-w-4xl flex-col overflow-hidden rounded-lg border" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b border-[var(--line)] px-4 py-3"><h3 className="text-base font-medium text-text-1">{t('settings.archives')}</h3><button onClick={() => setArchiveDialogOpen(false)} className="text-text-3 hover:text-text-1">✕</button></div><div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[280px_1fr]"><div className="tmuxgo-scrollbar overflow-y-auto border-b border-[var(--line)] md:border-b-0 md:border-r">{archiveLoading && !archives.length && <div className="p-4 text-sm text-text-3">{t('common.loading')}</div>}{!archiveLoading && !archives.length && <div className="p-4 text-sm text-text-3">{t('settings.archiveEmpty')}</div>}{archives.map((archive) => <div key={archive.id} className={`flex border-b border-[var(--line)] ${archiveDetail?.id === archive.id ? 'bg-bg-2' : ''}`}><button onClick={() => void openArchive(archive.id)} className="min-w-0 flex-1 p-3 text-left"><div className="truncate text-sm text-text-1">{archive.sessionName}</div><div className="mt-1 text-xs text-text-3">{new Date(archive.createdAt).toLocaleString()} · {archive.paneCount} · {Math.ceil(archive.size / 1024)} KB</div></button><button onClick={() => void deleteArchive(archive.id)} className="w-10 text-text-3 hover:text-danger" aria-label={t('settings.deleteArchive')}>×</button></div>)}</div><div className="tmuxgo-scrollbar min-h-0 overflow-y-auto p-4">{!archiveDetail && <div className="flex h-full items-center justify-center text-sm text-text-3">{t('settings.selectArchive')}</div>}{archiveDetail && <div className="space-y-4"><div><div className="text-base font-medium text-text-1">{archiveDetail.sessionName}</div><div className="mt-1 text-xs text-text-3">{archiveDetail.captureMode === 'history' ? t('settings.archiveHistory') : t('settings.archiveVisible')} · {new Date(archiveDetail.createdAt).toLocaleString()}</div></div>{archiveDetail.panes.map((pane) => <div key={pane.paneId}><div className="mb-1 text-xs text-text-3">{pane.windowName} / {pane.title}</div><pre className="overflow-x-auto whitespace-pre-wrap rounded border border-[var(--line)] bg-bg-0 p-3 font-mono text-xs text-text-2">{pane.data || t('settings.archiveNoOutput')}</pre></div>)}</div>}</div></div></div></div>}
       <ConfirmDialog open={!!pendingDeleteHostId} title={t('settings.hostRemoveConfirmTitle')} message={t('settings.hostRemoveConfirmMessage', { name: hosts.find((host: any) => host.id === pendingDeleteHostId)?.name || pendingDeleteHostId || '' })} confirmLabel={t('settings.hostRemove')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setPendingDeleteHostId(null)} onConfirm={() => void confirmDeleteHost()} />
       <ConfirmDialog open={restartConfirmOpen} title={t('settings.restartConfirmTitle')} message={t('settings.restartConfirmMessage')} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} onCancel={() => setRestartConfirmOpen(false)} onConfirm={() => void triggerRestartRebuild()} />
       {showAuditLog && <AuditLog onClose={() => setShowAuditLog(false)} />}

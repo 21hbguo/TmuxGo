@@ -208,6 +208,17 @@ function getBatchDeleteSelection(hostId: string, sessions: HostTmuxSession[], bo
 async function runSendKeys(hostId: string, target: string, command: string) {
   await execTmux(hostId, ['send-keys', '-t', target, command, 'C-m'])
 }
+function quoteShellValue(value: string) {
+  return `'${value.replace(/'/g, `'\\''`)}'`
+}
+function getPaneStartupCommand(pane: { command?: string; cwd?: string; env?: Record<string, string> }) {
+  const parts: string[] = []
+  const env = pane.env && typeof pane.env === 'object' ? Object.entries(pane.env).filter(([key, value]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(key) && typeof value === 'string') : []
+  if (env.length) parts.push(`export ${env.map(([key, value]) => `${key}=${quoteShellValue(value)}`).join(' ')}`)
+  if (pane.cwd?.trim()) parts.push(`cd -- ${quoteShellValue(pane.cwd.trim())}`)
+  if (pane.command?.trim()) parts.push(pane.command.trim())
+  return parts.join('; ')
+}
 async function getFirstWindowTarget(hostId: string, sessionName: string) {
   const { stdout } = await execTmux(hostId, ['list-windows', '-t', sessionName, '-F', '#{window_index}', '-f', '#{==:#{window_active},1}'])
   const activeIndex = stdout.trim()
@@ -241,22 +252,24 @@ async function applyTemplateLayout(hostId: string, sessionName: string, layout: 
   const targets = getTemplateWindowTargets(sessionName, layout, firstWindowIndex)
   for (let i = 0; i < targets.length; i++) {
     const windowDef = targets[i]
+    const { windowTarget, panes } = windowDef
     if (!windowDef.name) throw new Error(`Template step failed: window[${i}] missing name`)
     const splitFlag = windowDef.splitDirection === 'vertical' ? '-v' : '-h'
     const layoutPreset = windowDef.layoutPreset || 'tiled'
     if (i === 0) {
       await execTmux(hostId, ['rename-window', '-t', firstWindowTarget, windowDef.name])
     } else {
-      await execTmux(hostId, ['new-window', '-t', sessionName, '-n', windowDef.name])
+      const args = ['new-window', '-t', sessionName, '-n', windowDef.name]
+      if (panes[0]?.cwd?.trim()) args.push('-c', panes[0].cwd.trim())
+      await execTmux(hostId, args)
     }
-    const { windowTarget, panes } = windowDef
     const paneBaseIndex = i === 0 ? await getFirstPaneIndex(hostId, firstWindowTarget) : await getFirstPaneIndex(hostId, windowTarget)
     for (let p = 1; p < panes.length; p++) {
-      await execTmux(hostId, ['split-window', '-c', '#{pane_current_path}', '-t', windowTarget, splitFlag])
+      await execTmux(hostId, ['split-window', '-c', panes[p]?.cwd?.trim() || '#{pane_current_path}', '-t', windowTarget, splitFlag])
     }
     await execTmux(hostId, ['select-layout', '-t', windowTarget, layoutPreset])
     for (let p = 0; p < panes.length; p++) {
-      const command = panes[p]?.command?.trim()
+      const command = getPaneStartupCommand(panes[p] || {})
       if (!command) continue
       await runSendKeys(hostId, `${windowTarget}.${paneBaseIndex + p}`, command)
     }

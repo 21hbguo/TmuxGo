@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useCreateSession, useDeleteSession, useRenameSession, useSessions } from '@/hooks/useApi'
 import { SessionTemplates, type Template } from './SessionTemplates'
+import { getTemplateSessionName } from '@/lib/session-template'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useTranslation } from '@/i18n'
 import { usePrompt } from '@/hooks/usePrompt'
@@ -59,7 +60,7 @@ export function Sidebar() {
 
   const handleTemplateSelect = async (template: Template) => {
     if (!activeHostId) return
-    const name = await prompt(t('drawer.sessionName'), template.name.toLowerCase())
+    const name = await prompt(t('drawer.sessionName'), getTemplateSessionName(template))
     if (name) {
       try {
         const created = await createSession.mutateAsync({ hostId: activeHostId, name, layout: template.layout })

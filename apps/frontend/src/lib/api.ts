@@ -1,6 +1,6 @@
 import { getApiBase } from './runtime-endpoints'
 import { buildSessionId } from './session-id'
-import type { CustomShortcut, FavoriteDirectory, FavoriteItem, FileContentMatch, FileContentResponse, FileItem, FileListResponse, FilePreviewResponse, FileRoot, FileUploadTarget, GitBranchesResponse, GitCommitResponse, GitDetectResponse, GitDiffResponse, GitDiffStatsResponse, GitHostState, GitLogResponse, GitMergeResponse, GitRepositoryInfo, GitStatusResponse, RemotePreferences, SessionContinuityConfig, SessionLayout, SessionOrderPreference, SessionThumbnail, Snippet, UiPreferences, UploadJobResult, UploadedFile } from '@/types'
+import type { AuditEvent, CustomShortcut, FavoriteDirectory, FavoriteItem, FileContentMatch, FileContentResponse, FileItem, FileListResponse, FilePreviewResponse, FileRoot, FileUploadTarget, GitBranchesResponse, GitCommitResponse, GitDetectResponse, GitDiffResponse, GitDiffStatsResponse, GitHostState, GitLogResponse, GitMergeResponse, GitRepositoryInfo, GitStatusResponse, RemotePreferences, SessionArchive, SessionArchivePolicy, SessionArchiveSummary, SessionContinuityConfig, SessionLayout, SessionOrderPreference, SessionTemplate, SessionThumbnail, Snippet, TrashEntry, UiPreferences, UploadJobResult, UploadedFile } from '@/types'
 
 export interface StreamSystemInfo {
   outputBytes: number
@@ -25,10 +25,12 @@ export interface StreamSystemInfo {
   activeMaxChars: number
 }
 export interface SystemInfoResponse {
+  hostId: string
   gpu: { used: number; total: number } | null
   cpu: number
   mem: { used: number; total: number }
   disks: { mount: string; used: number; total: number }[]
+  dependencies: { tmux: boolean; git: boolean; python: boolean; rg: boolean; sshpass: boolean }
   stream: StreamSystemInfo
 }
 export interface RestartRebuildTaskResponse {
@@ -196,6 +198,26 @@ function uploadWithProgress(hostId: string, body: FormData, onProgress?: (loaded
 }
 
 export const api = {
+  sessionArchives: {
+    list: (hostId: string, sessionId?: string) => fetchApi<{ archives: SessionArchiveSummary[] }>(`/api/hosts/${encodeURIComponent(hostId)}/session-archives${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ''}`),
+    get: (hostId: string, archiveId: string) => fetchApi<SessionArchive>(`/api/hosts/${encodeURIComponent(hostId)}/session-archives/${encodeURIComponent(archiveId)}`),
+    capture: (hostId: string, sessionId: string, policy: SessionArchivePolicy) => fetchApi<SessionArchiveSummary>(`/api/hosts/${encodeURIComponent(hostId)}/session-archives`, { method: 'POST', body: JSON.stringify({ sessionId, captureMode: policy.captureMode, maxBytesPerSession: policy.maxBytesPerSession, retentionDays: policy.retentionDays }) }),
+    remove: (hostId: string, archiveId: string) => fetchApi<{ ok: true }>(`/api/hosts/${encodeURIComponent(hostId)}/session-archives/${encodeURIComponent(archiveId)}`, { method: 'DELETE' }),
+  },
+  sessionTemplates: {
+    list: () => fetchApi<{ templates: SessionTemplate[] }>('/api/session-templates'),
+    update: (templates: SessionTemplate[]) => fetchApi<{ templates: SessionTemplate[] }>('/api/session-templates', { method: 'PUT', body: JSON.stringify({ templates }) }),
+  },
+  audit: {
+    list: (options: { limit?: number; action?: string; result?: 'success' | 'failure'; hostId?: string } = {}) => {
+      const params = new URLSearchParams()
+      if (options.limit) params.set('limit', String(options.limit))
+      if (options.action) params.set('action', options.action)
+      if (options.result) params.set('result', options.result)
+      if (options.hostId) params.set('hostId', options.hostId)
+      return fetchApi<{ events: AuditEvent[] }>(`/api/audit-log${params.size ? `?${params}` : ''}`)
+    },
+  },
   snapshot: {
     get: (hostId: string, sessionId: string) => fetchApi<{ sessionId: string; sessionName: string; windows: any[]; panes: any[]; activeWindowId: string | null; activePaneId: string | null }>(`/api/hosts/${hostId}/sessions/${sessionId}/snapshot`),
   },
@@ -340,7 +362,7 @@ export const api = {
       }),
   },
   system: {
-    info: () => fetchApi<SystemInfoResponse>('/api/system'),
+    info: (hostId = 'local') => fetchApi<SystemInfoResponse>(`/api/hosts/${encodeURIComponent(hostId)}/system`),
     restartRebuildStatus: () => fetchApi<RestartRebuildTaskResponse>('/api/system/restart-rebuild'),
     restartRebuild: () => fetchApi<RestartRebuildTaskResponse>('/api/system/restart-rebuild', { method: 'POST' }),
   },
@@ -365,6 +387,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ root, path, name }),
     }),
+    copy: (hostId: string, root: string, path: string, targetRoot: string, targetPath: string) => fetchApi<{ ok: true; item: FileItem; previousPath: string }>(`/api/hosts/${encodeURIComponent(hostId)}/files/copy`, { method: 'POST', body: JSON.stringify({ root, path, targetRoot, targetPath }) }),
+    move: (hostId: string, root: string, path: string, targetRoot: string, targetPath: string) => fetchApi<{ ok: true; item: FileItem; previousPath: string }>(`/api/hosts/${encodeURIComponent(hostId)}/files/move`, { method: 'POST', body: JSON.stringify({ root, path, targetRoot, targetPath }) }),
+    trash: (hostId: string, root: string, path: string) => fetchApi<{ ok: true; entry: TrashEntry }>(`/api/hosts/${encodeURIComponent(hostId)}/files/trash`, { method: 'POST', body: JSON.stringify({ root, path }) }),
+    trashEntries: (hostId: string) => fetchApi<{ entries: TrashEntry[] }>(`/api/hosts/${encodeURIComponent(hostId)}/files/trash`),
+    restore: (hostId: string, trashId: string) => fetchApi<{ ok: true; item: FileItem }>(`/api/hosts/${encodeURIComponent(hostId)}/files/restore`, { method: 'POST', body: JSON.stringify({ trashId }) }),
     remove: (hostId: string, root: string, path: string) => fetchApi<{ ok: true; path: string; type: 'file' | 'directory' }>(`/api/hosts/${encodeURIComponent(hostId)}/files/remove?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}`, {
       method: 'DELETE',
     }),
@@ -412,6 +439,10 @@ export const api = {
       fetchApi<GitCommitResponse>(`/api/hosts/${hostId}/git/commit`, { method: 'POST', body: JSON.stringify({ path, message, amend }) }),
     discard: (hostId: string, path: string, filePaths: string[]) =>
       fetchApi<{ ok: true }>(`/api/hosts/${hostId}/git/discard`, { method: 'POST', body: JSON.stringify({ path, filePaths }) }),
+    resolve: (hostId: string, path: string, filePath: string, resolution: 'ours' | 'theirs' | 'mark') =>
+      fetchApi<{ ok: true; filePath: string; resolution: string }>(`/api/hosts/${hostId}/git/resolve`, { method: 'POST', body: JSON.stringify({ path, filePath, resolution }) }),
+    operation: (hostId: string, path: string, operation: 'merge' | 'rebase', action: 'continue' | 'abort') =>
+      fetchApi<{ ok: true; operation: string; action: string; message: string }>(`/api/hosts/${hostId}/git/operation`, { method: 'POST', body: JSON.stringify({ path, operation, action }) }),
     log: (hostId: string, path: string, options?: { limit?: number; skip?: number }) => {
       const params = new URLSearchParams({ path })
       if (options?.limit) params.set('limit', String(options.limit))

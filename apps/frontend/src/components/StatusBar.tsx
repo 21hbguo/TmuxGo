@@ -19,9 +19,9 @@ const resourceTone = (used: number, total: number): Tone => {
   if (ratio >= 0.75) return 'warn'
   return 'neutral'
 }
-function ResourceChip({ label, value, tone = 'neutral' }: { label: string; value: string; tone?: Tone }) {
+function ResourceChip({ label, value, tone = 'neutral', title }: { label: string; value: string; tone?: Tone; title?: string }) {
   return (
-    <span className={`inline-flex h-5 items-center gap-1.5 rounded-full border px-2 font-mono tabular-nums ${chipTone[tone]}`}>
+    <span title={title} className={`inline-flex h-5 items-center gap-1.5 rounded-full border px-2 font-mono tabular-nums ${chipTone[tone]}`}>
       <span className="text-[9px] font-medium uppercase tracking-[0.16em] text-text-3">{label}</span>
       <span className="text-[10px] font-semibold">{value}</span>
     </span>
@@ -34,13 +34,14 @@ export function StatusBar() {
   const activeHostId = useConsoleStore((state) => state.activeHostId)
   const activeSessionId = useConsoleStore((state) => state.activeSessionId)
   const { t } = useTranslation()
-  const sys = useSystemInfo(2000)
+  const sys = useSystemInfo(activeHostId || 'local', 2000)
   const { data: hosts = [] } = useHosts()
   const { data: snapshotData } = useSessionSnapshot(activeHostId || '', activeSessionId || '')
   const panes = snapshotData?.panes || []
 
   const activePane = panes.find((p: any) => p.id === activePaneId)
   const activeHost = hosts.find((h: any) => h.id === activeHostId)
+  const missingDependencies = sys ? Object.entries(sys.dependencies).filter(([, available]) => !available).map(([name]) => name) : []
 
   const statusStyle = ({
     connected: { dot: 'bg-accent-2', text: 'text-accent-2', shell: 'border-accent-2/25 bg-accent-2/5' },
@@ -66,6 +67,7 @@ export function StatusBar() {
         {sys && (
           <section aria-label="System resources" className="hidden min-w-0 items-center gap-1.5 overflow-hidden md:flex">
             {sys.gpu && <ResourceChip label="GPU" value={`${gb(sys.gpu.used)}/${gb(sys.gpu.total)}G`} tone={resourceTone(sys.gpu.used, sys.gpu.total)} />}
+            {missingDependencies.length > 0 && <ResourceChip label="DEP" value={String(missingDependencies.length)} tone="warn" title={missingDependencies.join(', ')} />}
             <ResourceChip label="CPU" value={`${sys.cpu}%`} tone={sys.cpu >= 90 ? 'danger' : sys.cpu >= 75 ? 'warn' : 'neutral'} />
             <ResourceChip label="MEM" value={`${gb(sys.mem.used)}/${gb(sys.mem.total)}G`} tone={resourceTone(sys.mem.used, sys.mem.total)} />
             {sys.disks.map((d) => <ResourceChip key={d.mount} label={d.mount} value={`${gb(d.used)}/${gb(d.total)}G`} tone={resourceTone(d.used, d.total)} />)}

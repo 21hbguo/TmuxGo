@@ -48,12 +48,20 @@ export type SessionWindowSplitDirection = 'horizontal' | 'vertical'
 export type SessionWindowLayoutPreset = 'tiled' | 'even-horizontal' | 'even-vertical' | 'main-horizontal' | 'main-vertical'
 export interface SessionLayoutWindow {
   name: string
-  panes: { command?: string }[]
+  panes: { command?: string; cwd?: string; env?: Record<string, string> }[]
   splitDirection?: SessionWindowSplitDirection
   layoutPreset?: SessionWindowLayoutPreset
 }
 export interface SessionLayout {
   windows: SessionLayoutWindow[]
+}
+export interface SessionTemplate {
+  id: string
+  name: string
+  description: string
+  layout: SessionLayout
+  createdAt?: string
+  updatedAt?: string
 }
 
 export interface Window {
@@ -134,6 +142,14 @@ export interface FileItem {
   type: 'file' | 'directory'
   size: number
   modifiedAt: string
+}
+export interface TrashEntry {
+  id: string
+  rootId: string
+  path: string
+  name: string
+  type: 'file' | 'directory'
+  deletedAt: string
 }
 
 export interface FileBreadcrumb {
@@ -302,6 +318,20 @@ export interface SessionArchivePolicy {
   maxBytesPerSession: number
   retentionDays: number
 }
+export interface SessionArchiveSummary {
+  id: string
+  hostId: string
+  sessionId: string
+  sessionName: string
+  captureMode: 'visible' | 'history'
+  createdAt: string
+  expiresAt: string
+  size: number
+  paneCount: number
+}
+export interface SessionArchive extends SessionArchiveSummary {
+  panes: { paneId: string; title: string; windowName: string; active: boolean; data: string }[]
+}
 export interface SessionContinuityConfig {
   enabled: boolean
   syncToServer: boolean
@@ -334,6 +364,18 @@ export interface RemotePreferences {
   uploadRateLimitKBps: number
   downloadRateLimitKBps: number
 }
+export interface AuditEvent {
+  id: string
+  timestamp: string
+  user: string
+  action: string
+  target: string
+  result: 'success' | 'failure'
+  method: string
+  statusCode: number
+  hostId?: string
+  message?: string
+}
 
 // Git types
 export interface GitFileChange {
@@ -350,6 +392,7 @@ export interface GitStatusResponse {
   unstaged: GitFileChange[]
   untracked: string[]
   conflicted: GitFileChange[]
+  operation?: 'merge' | 'rebase' | null
 }
 export interface GitDiffResponse {
   raw: string

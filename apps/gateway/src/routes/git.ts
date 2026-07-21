@@ -181,8 +181,12 @@ export async function gitRoutes(fastify: FastifyInstance) {
     const { hostId } = request.params as { hostId: string }
     const { path: repoPath } = request.query as { path?: string }
     if (!repoPath) throw new Error('Missing path parameter')
-    const { stdout } = await execGit(hostId, ['status', '--porcelain=v2', '--branch', '--untracked-files=all', '-z'], repoPath)
-    return parsePorcelainV2(stdout)
+    const [{ stdout }, mergeHead, rebaseHead] = await Promise.all([
+      execGit(hostId, ['status', '--porcelain=v2', '--branch', '--untracked-files=all', '-z'], repoPath),
+      execGit(hostId, ['rev-parse', '--verify', '-q', 'MERGE_HEAD'], repoPath, undefined, true),
+      execGit(hostId, ['rev-parse', '--verify', '-q', 'REBASE_HEAD'], repoPath, undefined, true),
+    ])
+    return { ...parsePorcelainV2(stdout), operation: mergeHead.stdout.trim() ? 'merge' : rebaseHead.stdout.trim() ? 'rebase' : null }
   })
 
   fastify.get('/hosts/:hostId/git/diff', async (request) => {
@@ -244,6 +248,23 @@ export async function gitRoutes(fastify: FastifyInstance) {
     if (!repoPath || !filePaths?.length) throw new Error('Missing path or filePaths')
     await execGit(hostId, ['checkout', '--', ...filePaths], repoPath)
     return { ok: true }
+  })
+  fastify.post('/hosts/:hostId/git/resolve', async (request) => {
+    const { hostId } = request.params as { hostId: string }
+    const { path: repoPath, filePath, resolution } = request.body as { path: string; filePath: string; resolution: 'ours' | 'theirs' | 'mark' }
+    if (!repoPath || !filePath || !['ours', 'theirs', 'mark'].includes(resolution)) throw new Error('Missing or invalid conflict resolution')
+    if (filePath.startsWith('/') || filePath.split('/').includes('..')) throw new Error('Invalid file path')
+    if (resolution !== 'mark') await execGit(hostId, ['checkout', `--${resolution}`, '--', filePath], repoPath)
+    await execGit(hostId, ['add', '--', filePath], repoPath)
+    return { ok: true, filePath, resolution }
+  })
+  fastify.post('/hosts/:hostId/git/operation', async (request) => {
+    const { hostId } = request.params as { hostId: string }
+    const { path: repoPath, operation, action } = request.body as { path: string; operation: 'merge' | 'rebase'; action: 'continue' | 'abort' }
+    if (!repoPath || !['merge', 'rebase'].includes(operation) || !['continue', 'abort'].includes(action)) throw new Error('Missing or invalid Git operation')
+    const args = action === 'continue' ? ['-c', 'core.editor=true', operation, '--continue'] : [operation, '--abort']
+    const { stdout, stderr } = await execGit(hostId, args, repoPath, 30000)
+    return { ok: true, operation, action, message: (stdout || stderr).trim() }
   })
 
   // Phase 2 endpoints
@@ -363,7 +384,7 @@ export async function gitRoutes(fastify: FastifyInstance) {
     const { path: repoPath, remote, branch, force, setUpstream } = request.body as { path: string; remote?: string; branch?: string; force?: boolean; setUpstream?: boolean }
     if (!repoPath) throw new Error('Missing path')
     const args = ['push']
-    if (force) args.push('--force')
+    if (force) args.push('--force-with-lease')
     if (setUpstream) args.push('-u')
     if (remote) args.push(remote)
     if (branch) args.push(branch)

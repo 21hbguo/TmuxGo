@@ -33,6 +33,8 @@ function emitAgentStatus(status: 'blocked' | 'done', revision: number) {
 describe('PaneNotifications', () => {
   beforeEach(() => {
     vi.useFakeTimers()
+    localStorage.clear()
+    localStorage.setItem('tmuxgo-watched-panes', JSON.stringify(['local:%1']))
     preferenceState.agentNotificationsEnabled = true
     preferenceState.agentNotificationDurationMs = 5000
     queryCache.clear()
@@ -62,6 +64,35 @@ describe('PaneNotifications', () => {
     render(<PaneNotifications />)
     act(() => emitAgentStatus('blocked', 2))
     expect(screen.queryByText('codex blocked in dev')).not.toBeInTheDocument()
+  })
+  it('filters notifications from panes that are not watched', () => {
+    localStorage.setItem('tmuxgo-watched-panes', '[]')
+    render(<PaneNotifications />)
+    act(() => emitAgentStatus('blocked', 5))
+    expect(screen.queryByText('codex blocked in dev')).not.toBeInTheDocument()
+    expect(JSON.parse(localStorage.getItem('tmuxgo-pane-notifications') || '[]')).toEqual([])
+  })
+  it('keeps notification history after the popup duration', () => {
+    render(<PaneNotifications />)
+    act(() => emitAgentStatus('done', 6))
+    act(() => vi.advanceTimersByTime(5000))
+    expect(screen.queryByText('codex finished in dev')).not.toBeInTheDocument()
+    act(() => window.dispatchEvent(new CustomEvent('tmuxgo-toggle-notifications')))
+    expect(screen.getByText('codex finished in dev')).toBeInTheDocument()
+    expect(JSON.parse(localStorage.getItem('tmuxgo-pane-notifications') || '[]')).toHaveLength(1)
+  })
+  it('uses a browser notification while the page is hidden', () => {
+    const originalNotification = window.Notification
+    const close = vi.fn()
+    const browserNotification = vi.fn(function (this: any) { this.close = close }) as any
+    browserNotification.permission = 'granted'
+    Object.defineProperty(window, 'Notification', { configurable: true, value: browserNotification })
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+    render(<PaneNotifications />)
+    act(() => emitAgentStatus('done', 7))
+    expect(browserNotification).toHaveBeenCalledWith('notification.title', expect.objectContaining({ body: 'codex finished in dev' }))
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+    Object.defineProperty(window, 'Notification', { configurable: true, value: originalNotification })
   })
   it('clears visible notifications when they are disabled', () => {
     const { rerender } = render(<PaneNotifications />)

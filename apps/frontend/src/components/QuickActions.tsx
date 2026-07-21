@@ -15,6 +15,7 @@ import { api } from '@/lib/api'
 import { writeClipboardText } from '@/lib/clipboard-text'
 import { requestTerminalSelection } from '@/lib/terminal-selection'
 import { DELETE_PREV_LINE_SEQUENCE, DELETE_PREV_WORD_SEQUENCE } from '@/lib/terminal-keys'
+import { WatchButton } from './PaneNotifications'
 
 const btn='px-2 py-1.5 rounded text-xs transition-colors bg-bg-2 text-text-2 hover:bg-bg-1 active:bg-bg-0'
 const repeatBtn=`${btn} touch-none select-none`
@@ -328,7 +329,7 @@ function useQuickActionController() {
     return [...mapped,...shortcuts.filter((item)=>!seen.has(item.id))]
   },[recentDockShortcutKeys,shortcuts])
 
-  return { t,shortcuts,recentShortcutButtons,addShortcut,removeShortcut,showModal,setShowModal,isMobile,confirmKillOpen,setConfirmKillOpen,pendingKillPaneId,setPendingKillPaneId,confirmKillPane,newWindowPromptOpen,setNewWindowPromptOpen,newWindowName,setNewWindowName,confirmCreateWindow,sendKey,trackDockShortcutUse,startRepeat,armTouchRepeat,stopRepeat,preventFocus,startPointer,startDockGesture,trackDockScroll,finishDockGesture,isDockScrollBlocked,trackPointer,finishPointer,pointerStateRef,primaryButtons,attachButton,dockCoreButtons }
+  return { t,activePaneId,shortcuts,recentShortcutButtons,addShortcut,removeShortcut,showModal,setShowModal,isMobile,confirmKillOpen,setConfirmKillOpen,pendingKillPaneId,setPendingKillPaneId,confirmKillPane,newWindowPromptOpen,setNewWindowPromptOpen,newWindowName,setNewWindowName,confirmCreateWindow,sendKey,trackDockShortcutUse,startRepeat,armTouchRepeat,stopRepeat,preventFocus,startPointer,startDockGesture,trackDockScroll,finishDockGesture,isDockScrollBlocked,trackPointer,finishPointer,pointerStateRef,primaryButtons,attachButton,dockCoreButtons }
 }
 
 function getDockClass(def:ActionButtonDef){
@@ -372,7 +373,7 @@ function renderDockButton(def:ActionButtonDef,controller:ReturnType<typeof useQu
 
 export function QuickActions({ mode='panel' }:{ mode?:QuickActionsMode }){
   const controller=useQuickActionController()
-  const { t,shortcuts,recentShortcutButtons,addShortcut,removeShortcut,showModal,setShowModal,isMobile,confirmKillOpen,setConfirmKillOpen,pendingKillPaneId,setPendingKillPaneId,confirmKillPane,newWindowPromptOpen,setNewWindowPromptOpen,newWindowName,setNewWindowName,confirmCreateWindow,sendKey,primaryButtons,attachButton,dockCoreButtons }=controller
+  const { t,activePaneId,shortcuts,recentShortcutButtons,addShortcut,removeShortcut,showModal,setShowModal,isMobile,confirmKillOpen,setConfirmKillOpen,pendingKillPaneId,setPendingKillPaneId,confirmKillPane,newWindowPromptOpen,setNewWindowPromptOpen,newWindowName,setNewWindowName,confirmCreateWindow,sendKey,primaryButtons,attachButton,dockCoreButtons }=controller
   if(mode==='dock'){
     return (
       <>
@@ -383,6 +384,7 @@ export function QuickActions({ mode='panel' }:{ mode?:QuickActionsMode }){
             {primaryButtons.map((def)=>renderDockButton(def,controller))}
             <div className="w-px bg-[var(--line)] mx-1 self-stretch" />
             {renderDockButton(attachButton,controller)}
+            <WatchButton paneId={activePaneId || ''} compact />
             {recentShortcutButtons.map((s)=>renderDockButton({ key:s.id,label:s.label,onPress:()=>{ sendKey(keysToEscape(s.keys)) } },controller))}
           </div>
         </div>
@@ -411,6 +413,7 @@ export function QuickActions({ mode='panel' }:{ mode?:QuickActionsMode }){
       <button onClick={()=>attachButton.onPress?.()} className="w-full px-2 py-1.5 rounded text-xs transition-colors bg-accent/20 text-accent border border-accent/40 hover:bg-accent/25">
         {attachButton.label}
       </button>
+      <WatchButton paneId={activePaneId || ''} />
       {shortcuts.length>0&&(
         <div className="border-t border-[var(--line)] pt-2">
           <div className="text-text-3 text-[10px] mb-1">{t('shortcut.custom')}</div>

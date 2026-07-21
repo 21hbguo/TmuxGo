@@ -5,7 +5,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useFileList, useFilePreview, useFileRoots, useFileSearch } from '@/hooks/useApi'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useConsoleStore } from '@/stores/useConsoleStore'
-import type { FavoriteDirectory, FileContentMatch, FileDocumentHandle, FileItem, FileListResponse, FilePreviewResponse, FileRoot } from '@/types'
+import type { FavoriteDirectory, FileContentMatch, FileDocumentHandle, FileItem, FileListResponse, FilePreviewResponse, FileRoot, TrashEntry } from '@/types'
 import { writeClipboardText } from '@/lib/clipboard-text'
 import { quoteShellPath } from '@/lib/path-drop'
 import { api } from '@/lib/api'
@@ -284,6 +284,9 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   const lastSessionIdRef = useRef<string | undefined>(undefined)
   const suspendedFollowEditorIdRef = useRef<string | null>(null)
   const [pendingDeleteItem, setPendingDeleteItem] = useState<FileEntry | null>(null)
+  const [lastTrashedItem, setLastTrashedItem] = useState<TrashEntry | null>(null)
+  const [trashEntries, setTrashEntries] = useState<TrashEntry[]>([])
+  const [trashOpen, setTrashOpen] = useState(false)
   const virtualRoots = useMemo(() => favoriteDirectories.map((item) => ({ id: getFavoriteRootOptionId(item), label: item.name, path: joinPath(item.rootPath, item.path), sourceRootId: item.rootId, basePath: item.path })), [favoriteDirectories])
   const visibleRoots = useMemo(() => {
     const workspace = roots.find((item) => getRootKind(item) === 'workspace') || null
@@ -713,10 +716,6 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     return activeSourceRootPath ? joinPath(activeSourceRootPath, rootRelativePath) : rootRelativePath
   }
   const startDownload = (item: FileItem | FileContentMatch) => {
-    if (item.type !== 'file') {
-      pushToast({ type: 'error', message: t('file.onlyFilesDownload') })
-      return
-    }
     const anchor = document.createElement('a')
     anchor.href = api.files.downloadUrl(fileHostId, activeRootId, resolveRootRelativePath(activeRootBasePath, item.path), preferences.downloadRateLimitKBps)
     anchor.download = item.name
@@ -751,6 +750,18 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
       pushToast({ type: 'error', message: err instanceof Error ? err.message : t('file.renameFailed') })
     }
   }
+  const transferItem = async (item: FileItem | FileContentMatch, move: boolean) => {
+    const targetPath = await prompt(t('file.targetDirectory'), getParentRelativePath(item, currentPath))
+    if (targetPath === null) return
+    try {
+      if (move) await api.files.move(fileHostId, activeRootId, resolveRootRelativePath(activeRootBasePath, item.path), activeRootId, resolveRootRelativePath(activeRootBasePath, targetPath.trim()))
+      else await api.files.copy(fileHostId, activeRootId, resolveRootRelativePath(activeRootBasePath, item.path), activeRootId, resolveRootRelativePath(activeRootBasePath, targetPath.trim()))
+      refreshFiles()
+      pushToast({ type: 'success', message: t(move ? 'file.moved' : 'file.copied', { name: item.name }) })
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('file.transferFailed') })
+    }
+  }
   const removeItem = async (item: FileItem | FileContentMatch) => {
     setPendingDeleteItem(item)
   }
@@ -759,13 +770,34 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     if (!item) return
     setPendingDeleteItem(null)
     try {
-      await api.files.remove(fileHostId, activeRootId, resolveRootRelativePath(activeRootBasePath, item.path))
+      const result = await api.files.trash(fileHostId, activeRootId, resolveRootRelativePath(activeRootBasePath, item.path))
+      setLastTrashedItem(result.entry)
       if (selectedPath === item.path) {
         setSelectedPath('')
         setSelectedPreviewLine(1)
       }
       refreshFiles()
-      pushToast({ type: 'success', message: t('file.deleted', { name: item.name }) })
+      pushToast({ type: 'success', message: t('file.movedToTrash', { name: item.name }) })
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('file.deleteFailed') })
+    }
+  }
+  const openTrash = async () => {
+    try {
+      const result = await api.files.trashEntries(fileHostId)
+      setTrashEntries(result.entries)
+      setTrashOpen(true)
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('file.deleteFailed') })
+    }
+  }
+  const restoreTrash = async (entry: TrashEntry) => {
+    try {
+      await api.files.restore(fileHostId, entry.id)
+      setTrashEntries((current) => current.filter((item) => item.id !== entry.id))
+      if (lastTrashedItem?.id === entry.id) setLastTrashedItem(null)
+      refreshFiles()
+      pushToast({ type: 'success', message: t('file.restored', { name: entry.name }) })
     } catch (err) {
       pushToast({ type: 'error', message: err instanceof Error ? err.message : t('file.deleteFailed') })
     }
@@ -991,6 +1023,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
             {rootOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
           </select>
           <button onClick={() => uploadInputRef.current?.click()} className="rounded px-1.5 py-1 text-[11px] text-accent hover:bg-bg-2">{t('file.upload')}</button>
+          <button onClick={() => void openTrash()} title={t('file.trash')} className="rounded px-1.5 py-1 text-[11px] text-text-3 hover:bg-bg-2 hover:text-text-1">♲</button>
           {activeFavorite && <button onClick={() => removeFavoriteDirectory(activeFavorite)} className="rounded px-1.5 py-1 text-[11px] text-text-3 hover:bg-bg-2 hover:text-text-1">{t('file.removeFavorite')}</button>}
           <button onClick={onClose || (() => setFilePanelOpen(false))} className="rounded px-1.5 py-1 text-text-3 hover:bg-bg-2 hover:text-text-1">×</button>
         </div>
@@ -1123,11 +1156,13 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
           {contextMenu.item && <button onClick={() => void copyItemRelativePath(contextMenu.item!).finally(() => setContextMenu(null))} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">{t('file.copyRelativePath')}</button>}
           {contextMenu.item && <button onClick={() => void copyItemPath(contextMenu.item!).finally(() => setContextMenu(null))} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">{t('file.copyPath')}</button>}
           {isMobile && contextMenu.item?.type === 'file' && <button onClick={() => { setSelectedPath(contextMenu.item!.path); setSelectedPreviewLine(getPreviewLine(contextMenu.item!)); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">{t('file.openPreview')}</button>}
-          {contextMenu.item?.type === 'file' && <button onClick={() => { startDownload(contextMenu.item!); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">{t('file.download')}</button>}
+          {contextMenu.item && <button onClick={() => { startDownload(contextMenu.item!); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">{t('file.download')}</button>}
+          {contextMenu.item && <button onClick={() => { void transferItem(contextMenu.item!, false); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">{t('file.copy')}</button>}
+          {contextMenu.item && <button onClick={() => { void transferItem(contextMenu.item!, true); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">{t('file.move')}</button>}
           {contextMenu.item && <button onClick={() => { void renameItem(contextMenu.item!); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">{t('file.rename')}</button>}
           <button onClick={() => { void createEntry('file', contextMenu.directoryPath); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">{t('file.newFile')}</button>
           <button onClick={() => { void createEntry('directory', contextMenu.directoryPath); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">{t('file.newFolder')}</button>
-          {contextMenu.item && <button onClick={() => { void removeItem(contextMenu.item!); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-danger hover:bg-bg-2">{t('file.delete')}</button>}
+          {contextMenu.item && <button onClick={() => { void removeItem(contextMenu.item!); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-danger hover:bg-bg-2">{t('file.moveToTrash')}</button>}
         </div>
       )}
       </>}
@@ -1142,6 +1177,8 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
         onCancel={() => setPendingDeleteItem(null)}
         onConfirm={() => void confirmRemoveItem()}
       />
+      {lastTrashedItem && <div className="absolute bottom-3 left-3 right-3 z-30 flex items-center gap-2 rounded border border-[var(--line)] bg-bg-0 px-3 py-2 text-xs shadow-lg"><span className="min-w-0 flex-1 truncate text-text-2">{t('file.movedToTrash', { name: lastTrashedItem.name })}</span><button onClick={() => void restoreTrash(lastTrashedItem)} className="text-accent hover:text-text-1">{t('file.undo')}</button><button onClick={() => setLastTrashedItem(null)} className="text-text-3 hover:text-text-1">×</button></div>}
+      {trashOpen && <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/50 p-4" onClick={() => setTrashOpen(false)}><div className="w-full max-w-lg overflow-hidden rounded-lg border border-[var(--line)] bg-bg-1" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b border-[var(--line)] p-4"><div className="text-base font-medium text-text-1">{t('file.trash')}</div><button onClick={() => setTrashOpen(false)} className="text-text-3 hover:text-text-1">×</button></div><div className="tmuxgo-scrollbar max-h-[55vh] overflow-auto">{!trashEntries.length && <div className="p-6 text-center text-sm text-text-3">{t('file.trashEmpty')}</div>}{trashEntries.map((entry) => <div key={entry.id} className="flex items-center gap-3 border-b border-[var(--line)] px-4 py-3"><div className="min-w-0 flex-1"><div className="truncate text-sm text-text-1">{entry.name}</div><div className="truncate font-mono text-[10px] text-text-3">{entry.path} · {new Date(entry.deletedAt).toLocaleString()}</div></div><button onClick={() => void restoreTrash(entry)} className="rounded bg-accent/15 px-3 py-1.5 text-xs text-accent hover:bg-accent/25">{t('file.restore')}</button></div>)}</div></div></div>}
     </aside>
   )
 }

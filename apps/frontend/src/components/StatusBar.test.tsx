@@ -2,6 +2,16 @@ import { render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { StatusBar } from './StatusBar'
 
+const useSystemInfoMock = vi.hoisted(() => vi.fn(() => ({
+  hostId: 'local',
+  gpu: null,
+  cpu: 42,
+  mem: { used: 1536, total: 4096 },
+  disks: [{ mount: '/', used: 10240, total: 20480 }, { mount: '/data', used: 20480, total: 40960 }],
+  dependencies: { tmux: true, git: true, python: true, rg: true, sshpass: false },
+  stream: { outputBytes: 0, outputChunks: 0, outputFlushes: 0, sanitizeCalls: 0, sanitizeChars: 0, attachRequests: 0, resizeRequests: 0, inputMessages: 0, backpressureSignals: 0, profileUpdates: 0, deferredFlushes: 0, socketBufferedBytes: 0, activeClients: 0, activeProfile: 'foreground' as const, activeFlushInterval: 4, activeMaxChars: 65536 },
+})))
+
 vi.mock('@/i18n', () => ({
   useTranslation: () => ({ t: (key: string) => key === 'status.connected' ? 'Connected' : key }),
 }))
@@ -15,30 +25,7 @@ vi.mock('@/stores/useConsoleStore', () => ({
   }),
 }))
 vi.mock('@/hooks/useSystemInfo', () => ({
-  useSystemInfo: () => ({
-    gpu: null,
-    cpu: 42,
-    mem: { used: 1536, total: 4096 },
-    disks: [{ mount: '/', used: 10240, total: 20480 }, { mount: '/data', used: 20480, total: 40960 }],
-    stream: {
-      outputBytes: 0,
-      outputChunks: 0,
-      outputFlushes: 0,
-      sanitizeCalls: 0,
-      sanitizeChars: 0,
-      attachRequests: 0,
-      resizeRequests: 0,
-      inputMessages: 0,
-      backpressureSignals: 0,
-      profileUpdates: 0,
-      deferredFlushes: 0,
-      socketBufferedBytes: 0,
-      activeClients: 0,
-      activeProfile: 'foreground',
-      activeFlushInterval: 4,
-      activeMaxChars: 65536,
-    },
-  }),
+  useSystemInfo: useSystemInfoMock,
 }))
 vi.mock('@/hooks/useApi', () => ({
   useHosts: () => ({ data: [{ id: 'local', name: 'Local' }] }),
@@ -57,6 +44,7 @@ describe('StatusBar', () => {
     expect(within(resources).getByText('CPU')).toBeInTheDocument()
     expect(within(resources).getByText('42%')).toBeInTheDocument()
     expect(within(connection).getByText('Connected')).toBeInTheDocument()
+    expect(useSystemInfoMock).toHaveBeenCalledWith('local', 2000)
   })
   it('does not expose internal zero performance counters in the desktop status bar', () => {
     render(<StatusBar />)
@@ -69,6 +57,8 @@ describe('StatusBar', () => {
     expect(within(resources).getByText('10.0/20.0G')).toBeInTheDocument()
     expect(within(resources).getByText('/data')).toBeInTheDocument()
     expect(within(resources).getByText('20.0/40.0G')).toBeInTheDocument()
+    expect(within(resources).getByText('DEP')).toBeInTheDocument()
+    expect(within(resources).getByText('1')).toBeInTheDocument()
     expect(within(resources).queryByText('+1')).not.toBeInTheDocument()
     expect(screen.queryByText(/^WS /)).not.toBeInTheDocument()
     expect(screen.queryByText(/^FL /)).not.toBeInTheDocument()
