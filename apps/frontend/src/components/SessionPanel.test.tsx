@@ -9,7 +9,7 @@ const mutateRenameSession = vi.fn()
 const mutateDeleteSession = vi.fn()
 const mutateBatchDeleteSessions = vi.fn()
 const promptMock = vi.fn()
-const orderedSessions = [{ id: 'session-dev', name: 'dev', windowCount: 2 }, { id: 'session-next', name: 'next', windowCount: 1 }]
+const orderedSessions = [{ id: 'session-dev', name: 'dev', windowCount: 2, agentSummary: { idle: 2, working: 1, blocked: 0, done: 0, unknown: 0, total: 3 } }, { id: 'session-next', name: 'next', windowCount: 1 }]
 const moveSessionMock = vi.fn()
 const refetchSessionsMock = vi.fn()
 const orderedSessionQueryState: any = { data: orderedSessions, moveSession: moveSessionMock, isError: false, error: null, refetch: refetchSessionsMock }
@@ -39,6 +39,9 @@ vi.mock('@/i18n', () => ({
     if (key === 'sidebar.deleteConfirm') return `Delete ${params?.name || ''}?`
     if (key === 'sidebar.confirmDelete') return 'Delete'
     if (key === 'sidebar.windows') return `${params?.count || 0} windows`
+    if (key === 'agent.status.idle') return '空闲'
+    if (key === 'agent.status.working') return '工作中'
+    if (key === 'agent.status.blocked') return '等待处理'
     if (key === 'drawer.sessionName') return 'Session name:'
     if (key === 'drawer.renamePrompt') return 'Rename session:'
     if (key === 'common.cancel') return 'Cancel'
@@ -90,6 +93,9 @@ describe('SessionPanel session actions', () => {
     render(<SessionPanel />)
     expect(screen.getByText('Sessions')).toBeInTheDocument()
     expect(screen.getByText('dev')).toBeInTheDocument()
+    expect(screen.getByText('2 空闲')).toBeInTheDocument()
+    expect(screen.getByText('1 工作中')).toBeInTheDocument()
+    expect(screen.queryByText('0 等待处理')).not.toBeInTheDocument()
   })
   it('shows session loading errors and retries', () => {
     orderedSessionQueryState.data = []
