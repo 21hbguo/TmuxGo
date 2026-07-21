@@ -149,7 +149,7 @@ export const zh = {
   'settings.aboutChecking': '检查中',
   'settings.aboutLoadFailed': '版本信息加载失败',
   'settings.restartTitle': '重启服务',
-  'settings.restartDesc': '在应用内重建并重启 TmuxGo 的 frontend、gateway 和 agent。',
+  'settings.restartDesc': '在应用内重建并重启 TmuxGo 的 frontend 和 gateway，保持 tmux 及 agent 状态不变。',
   'settings.restartAction': '重启并重建',
   'settings.restartStatus': '重启状态',
   'settings.restartStatusIdle': '空闲',
@@ -157,7 +157,7 @@ export const zh = {
   'settings.restartStatusSuccess': '成功',
   'settings.restartStatusFailed': '失败',
   'settings.restartConfirmTitle': '确认重启 TmuxGo 服务？',
-  'settings.restartConfirmMessage': '将执行 frontend、gateway、agent 的 restart + rebuild。不会主动删除现有 tmux 会话。',
+  'settings.restartConfirmMessage': '将执行 frontend、gateway 的 restart + rebuild，不会操作 tmux 或 agent。',
   'settings.restartSuccess': '重启并重建完成',
   'settings.restartFailed': '重启并重建失败',
 

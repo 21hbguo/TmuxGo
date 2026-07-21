@@ -149,7 +149,7 @@ export const en = {
   'settings.aboutChecking': 'Checking',
   'settings.aboutLoadFailed': 'Failed to load version info',
   'settings.restartTitle': 'Restart Services',
-  'settings.restartDesc': 'Rebuild and restart TmuxGo frontend, gateway, and agent from inside the app.',
+  'settings.restartDesc': 'Rebuild and restart TmuxGo frontend and gateway while preserving tmux and agent state.',
   'settings.restartAction': 'Restart + Rebuild',
   'settings.restartStatus': 'Restart Status',
   'settings.restartStatusIdle': 'Idle',
@@ -157,7 +157,7 @@ export const en = {
   'settings.restartStatusSuccess': 'Success',
   'settings.restartStatusFailed': 'Failed',
   'settings.restartConfirmTitle': 'Restart TmuxGo services?',
-  'settings.restartConfirmMessage': 'This will run restart + rebuild for frontend, gateway, and agent. Existing tmux sessions are not intentionally killed.',
+  'settings.restartConfirmMessage': 'This will run restart + rebuild for frontend and gateway without touching tmux or the agent.',
   'settings.restartSuccess': 'Restart + rebuild completed',
   'settings.restartFailed': 'Restart + rebuild failed',
 

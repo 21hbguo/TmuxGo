@@ -50,7 +50,7 @@ export function createRestartTaskRunner(options:RestartTaskRunnerOptions={}):Res
         errorMessage:null,
       }
       runningPromise=new Promise<RestartTaskState>((resolve) => {
-        const child=spawn('./start.sh',['--restart','--rebuild'],{
+        const child=spawn('./start.sh',['--restart','--rebuild','--preserve-tmux'],{
           cwd:rootDir,
           env:process.env,
           stdio:['ignore','pipe','pipe'],

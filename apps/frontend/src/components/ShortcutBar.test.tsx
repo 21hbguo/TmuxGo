@@ -79,6 +79,20 @@ describe('ShortcutBar', () => {
     fireEvent.pointerUp(button, { pointerId: 1, pointerType: 'touch', clientX: 12, clientY: 10 })
     expect(send).not.toHaveBeenCalled()
   })
+  it('allows a stationary zoom tap after the previous dock scroll', async () => {
+    snapshotGet.mockResolvedValue({ windows: [], panes: [{ id: 'local:%2', active: true }], activePaneId: 'local:%2' })
+    zoomByPane.mockResolvedValue({ ok: true })
+    render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))
+    const bar=document.querySelector('[data-shortcut-bar]') as HTMLDivElement
+    bar.scrollLeft=42
+    fireEvent.scroll(bar)
+    await act(async () => {
+      const button=screen.getByRole('button', { name: '聚焦' })
+      fireEvent.pointerDown(button, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
+      fireEvent.pointerUp(button, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
+    })
+    expect(zoomByPane).toHaveBeenCalledTimes(1)
+  })
   it('waits until touch release before sending non-repeat shortcut data', () => {
     render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))
     const button = screen.getByRole('button', { name: 'Enter' })
@@ -96,6 +110,14 @@ describe('ShortcutBar', () => {
     fireEvent.pointerUp(button, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
     expect(send).toHaveBeenCalledTimes(1)
     expect(send).toHaveBeenCalledWith({ type: 'input', data: '\u001b[A' })
+  })
+  it('ignores the delayed click after a touch repeat key release', () => {
+    render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))
+    const button = screen.getByRole('button', { name: '↑' })
+    fireEvent.pointerDown(button, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
+    fireEvent.pointerUp(button, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
+    fireEvent.click(button, { detail: 1 })
+    expect(send).toHaveBeenCalledTimes(1)
   })
   it('starts repeating after hold delay on touch', () => {
     render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))
@@ -144,6 +166,19 @@ describe('ShortcutBar', () => {
     })
     expect(zoomByPane).toHaveBeenCalledWith('local:%2')
     expect(useConsoleStore.getState().activePaneId).toBe('local:%2')
+  })
+  it('does not toggle zoom twice when touch produces a delayed click', async () => {
+    snapshotGet.mockResolvedValue({ windows: [], panes: [{ id: 'local:%2', active: true }], activePaneId: 'local:%2' })
+    zoomByPane.mockResolvedValue({ ok: true })
+    render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))
+    await act(async () => {
+      const button = screen.getByRole('button', { name: '聚焦' })
+      fireEvent.pointerDown(button, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
+      fireEvent.pointerUp(button, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
+      fireEvent.click(button, { detail: 1 })
+    })
+    expect(zoomByPane).toHaveBeenCalledTimes(1)
+    expect(zoomByPane).toHaveBeenCalledWith('local:%2')
   })
   it('marks cached snapshot zoomed before the zoom request resolves', async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
