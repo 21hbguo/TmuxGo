@@ -13,6 +13,7 @@ import { api } from '@/lib/api'
 import { DiffViewer } from './DiffViewer'
 
 type GitTab = 'status' | 'history' | 'branches'
+type MobileGitDiff = { title: string; subtitle: string; filePath: string; label?: string; staged?: boolean; commit?: string; workingTree?: boolean; untracked?: boolean }
 function isValidGitCommitInfo(commit: GitCommitInfo | null | undefined): commit is GitCommitInfo {
   return !!commit?.hash && !!commit.author && !!commit.date
 }
@@ -98,7 +99,7 @@ function Section({ title, count, children, defaultOpen = true }: { title: string
   )
 }
 
-function StatusTab({ hostId, repoPath, t }: { hostId: string; repoPath: string; t: TFunc }) {
+function StatusTab({ hostId, repoPath, onOpenDiff, t }: { hostId: string; repoPath: string; onOpenDiff?: (diff: MobileGitDiff) => void; t: TFunc }) {
   const { data: status } = useGitStatus(hostId, repoPath)
   const stage = useGitStage()
   const unstage = useGitUnstage()
@@ -106,7 +107,11 @@ function StatusTab({ hostId, repoPath, t }: { hostId: string; repoPath: string; 
   const pushToast = useConsoleStore((s) => s.pushToast)
   const [pendingDiscard, setPendingDiscard] = useState<string | null>(null)
 
-  const openDiff = useCallback((file: GitFileChange, isStaged: boolean) => {
+  const openDiff = useCallback((file: GitFileChange, isStaged: boolean, untracked = false) => {
+    if (onOpenDiff) {
+      onOpenDiff({ title: file.path, subtitle: isStaged ? t('git.staged') : untracked ? t('git.untracked') : t('git.unstaged'), filePath: file.path, staged: isStaged, untracked })
+      return
+    }
     const params = new URLSearchParams({ hostId, repoPath, filePath: file.path })
     if (isStaged) params.set('staged', '1')
     useConsoleStore.getState().openEditor({
@@ -120,7 +125,7 @@ function StatusTab({ hostId, repoPath, t }: { hostId: string; repoPath: string; 
       absolutePath: `${repoPath}/${file.path}`,
       language: 'diff',
     })
-  }, [hostId, repoPath])
+  }, [hostId, onOpenDiff, repoPath, t])
 
   if (!status) return <div className="p-3 text-[11px] text-text-3">{t('git.detecting')}</div>
   const hasChanges = status.staged.length + status.unstaged.length + status.untracked.length + status.conflicted.length === 0
@@ -136,10 +141,10 @@ function StatusTab({ hostId, repoPath, t }: { hostId: string; repoPath: string; 
       </Section>
       <Section title={t('git.untracked')} count={status.untracked.length}>
         {status.untracked.map((f) => (
-          <div key={`un-${f}`} className="group flex min-h-11 items-center gap-2 px-3 py-1 hover:bg-bg-2 lg:min-h-0">
+          <div key={`un-${f}`} className={`group flex min-h-11 items-center gap-2 px-3 py-1 hover:bg-bg-2 lg:min-h-0 ${onOpenDiff ? 'cursor-pointer' : ''}`} onClick={() => onOpenDiff && openDiff({ path: f, status: 'added', staged: false }, false, true)}>
             <span className="w-4 text-center text-[11px] font-bold text-text-3">?</span>
             <span className="min-w-0 flex-1 truncate text-[12px] text-text-2">{f}</span>
-            <button onClick={() => stage.mutate({ hostId, path: repoPath, filePaths: [f] })} className="shrink-0 rounded px-1.5 py-0.5 text-[10px] text-text-3 opacity-100 hover:bg-bg-2 hover:text-text-1 lg:opacity-0 lg:group-hover:opacity-100">{t('git.stage')}</button>
+            <button onClick={(event) => { event.stopPropagation(); stage.mutate({ hostId, path: repoPath, filePaths: [f] }) }} className="shrink-0 rounded px-1.5 py-0.5 text-[10px] text-text-3 opacity-100 hover:bg-bg-2 hover:text-text-1 lg:opacity-0 lg:group-hover:opacity-100">{t('git.stage')}</button>
           </div>
         ))}
       </Section>
@@ -218,7 +223,7 @@ function HistoryTab({ hostId, repoPath, status, onOpenWorkingTree, onOpenCommit,
         {searchQuery && <button type="button" aria-label={t('git.clearSearch')} title={t('git.clearSearch')} onClick={() => setSearchQuery('')} className="tmuxgo-icon-button flex h-6 w-6 items-center justify-center rounded text-text-3 hover:bg-bg-2 hover:text-text-1"><FiX aria-hidden="true" size={13} /></button>}
         <span className="shrink-0 font-mono text-[10px] text-text-3">{commits.length}</span>
       </div>
-      <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-y-auto" data-git-history-scroll="1">
+      <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain" data-git-history-scroll="1">
         {commits.length === 0 ? <div className="p-3 text-[11px] text-text-3">{t('git.noChanges')}</div> : (
         <GitHistoryGraph
           commits={commits}
@@ -389,7 +394,7 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
   const [commitMessage, setCommitMessage] = useState('')
   const [manualRepoPath, setManualRepoPath] = useState('')
   const [repoPickerOpen, setRepoPickerOpen] = useState(false)
-  const [mobileCommit, setMobileCommit] = useState<GitGraphCommit | null>(null)
+  const [mobileDiff, setMobileDiff] = useState<MobileGitDiff | null>(null)
   const gitState = activeHostId ? gitByHost[activeHostId] : undefined
   const repoPath = gitState?.currentRepoPath || null
   const activeEditor = activeEditorId ? openEditors.find((editor) => editor.id === activeEditorId && !editor.id.startsWith('git-diff?')) : null
@@ -423,14 +428,14 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
   useEffect(() => {
     if (mode !== 'mobile') return
     const handleBack = (event: Event) => {
-      if (!mobileCommit) return
+      if (!mobileDiff) return
       const detail = (event as CustomEvent<{ handled?: boolean }>).detail
       detail.handled = true
-      setMobileCommit(null)
+      setMobileDiff(null)
     }
     window.addEventListener('tmuxgo-mobile-git-back', handleBack as EventListener)
     return () => window.removeEventListener('tmuxgo-mobile-git-back', handleBack as EventListener)
-  }, [mobileCommit, mode])
+  }, [mobileDiff, mode])
 
   const handleCommit = () => {
     if (!activeHostId || !repoPath || !commitMessage.trim()) return
@@ -460,13 +465,14 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
     if (match) handleSelectRepo(match.repoPath)
     else void handleOpenRepo()
   }
-  const handleOpenMobileCommit = (commit: GitGraphCommit) => {
-    setMobileCommit(commit)
+  const handleOpenMobileDiff = (diff: MobileGitDiff) => {
+    setMobileDiff(diff)
     window.dispatchEvent(new CustomEvent('tmuxgo-mobile-git-push-level'))
   }
+  const handleOpenMobileCommit = (commit: GitGraphCommit) => handleOpenMobileDiff({ title: commit.subject, subtitle: commit.shortSha, filePath: '', label: commit.shortSha, commit: commit.sha })
 
   if (!activeHostId) return <div className="flex h-full items-center justify-center p-3 text-[11px] text-text-3">{t('git.noRepo')}</div>
-  if (mode === 'mobile' && mobileCommit && repoPath) return <div className="flex h-full min-h-0 flex-col bg-bg-1"><div className="flex h-11 shrink-0 items-center border-b border-[var(--line)]"><button type="button" aria-label={t('common.back')} title={t('common.back')} onClick={() => window.history.back()} className="tmuxgo-icon-button flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-text-2 active:bg-bg-2 active:text-text-1"><FiChevronLeft aria-hidden="true" size={20} /></button><div className="min-w-0 flex-1 pr-3"><div className="truncate text-[13px] font-medium text-text-1">{mobileCommit.subject}</div><div className="truncate font-mono text-[10px] text-text-3">{mobileCommit.shortSha}</div></div></div><div className="min-h-0 flex-1"><DiffViewer hostId={activeHostId} repoPath={repoPath} filePath="" commit={mobileCommit.sha} /></div></div>
+  if (mode === 'mobile' && mobileDiff && repoPath) return <div className="flex h-full min-h-0 flex-col bg-bg-1"><div className="flex h-11 shrink-0 items-center border-b border-[var(--line)]"><button type="button" aria-label={t('common.back')} title={t('common.back')} onClick={() => window.history.back()} className="tmuxgo-icon-button flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-text-2 active:bg-bg-2 active:text-text-1"><FiChevronLeft aria-hidden="true" size={20} /></button><div className="min-w-0 flex-1 pr-3"><div className="truncate text-[13px] font-medium text-text-1">{mobileDiff.title}</div><div className="truncate font-mono text-[10px] text-text-3">{mobileDiff.subtitle}</div></div></div><div className="min-h-0 flex-1"><DiffViewer hostId={activeHostId} repoPath={repoPath} filePath={mobileDiff.filePath} staged={mobileDiff.staged} commit={mobileDiff.commit} workingTree={mobileDiff.workingTree} untracked={mobileDiff.untracked} label={mobileDiff.label || mobileDiff.title} /></div></div>
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-bg-1">
@@ -524,9 +530,9 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
               </button>
             ))}
           </div>
-          <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-y-auto">
-            {activeTab === 'status' && <StatusTab hostId={activeHostId} repoPath={repoPath} t={t as TFunc} />}
-            {activeTab === 'history' && <HistoryTab hostId={activeHostId} repoPath={repoPath} status={status} onOpenWorkingTree={() => setActiveTab('status')} onOpenCommit={mode === 'mobile' ? handleOpenMobileCommit : undefined} t={t as TFunc} />}
+          <div className={`tmuxgo-scrollbar min-h-0 flex-1 ${activeTab === 'history' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
+            {activeTab === 'status' && <StatusTab hostId={activeHostId} repoPath={repoPath} onOpenDiff={mode === 'mobile' ? handleOpenMobileDiff : undefined} t={t as TFunc} />}
+            {activeTab === 'history' && <HistoryTab hostId={activeHostId} repoPath={repoPath} status={status} onOpenWorkingTree={mode === 'mobile' ? () => handleOpenMobileDiff({ title: t('git.workingTreeChanges', { count: statusCount }), subtitle: 'WIP', filePath: '', workingTree: true }) : () => setActiveTab('status')} onOpenCommit={mode === 'mobile' ? handleOpenMobileCommit : undefined} t={t as TFunc} />}
             {activeTab === 'branches' && <BranchesTab hostId={activeHostId} repoPath={repoPath} t={t as TFunc} />}
           </div>
           {activeTab === 'status' && (

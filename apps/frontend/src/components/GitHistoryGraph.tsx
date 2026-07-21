@@ -18,6 +18,7 @@ type GitHistoryGraphProps={
 
 const rowHeight=54
 const laneGap=18
+const graphMinLanes=4
 const graphPaddingX=14
 const graphPaddingY=rowHeight/2
 const nodeRadius=4
@@ -34,7 +35,7 @@ export function GitHistoryGraph({ commits, branchHeads, currentBranch, hasMore, 
   const graphRef=useRef<HTMLDivElement|null>(null)
   const layout=useMemo(()=>buildGitGraphLayout(commits,branchHeads,currentBranch),[branchHeads,commits,currentBranch])
   const normalizedSearch=searchQuery.trim().toLocaleLowerCase()
-  const graphWidth=graphPaddingX*2+Math.max(layout.laneCount,1)*laneGap
+  const graphWidth=graphPaddingX*2+Math.max(layout.laneCount,graphMinLanes)*laneGap
   const graphHeight=Math.max(layout.rows.length,1)*rowHeight
   const edgeNodes=layout.edges.map((edge,index)=>{
     const workingTree=layout.rows[edge.fromRow]?.commit.workingTree

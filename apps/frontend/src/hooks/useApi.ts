@@ -264,9 +264,9 @@ export function useGitStatus(hostId: string, path: string, enabled = true) {
   })
 }
 
-export function useGitDiff(hostId: string, path: string, options?: { filePath?: string; staged?: boolean; commit?: string }, enabled = true) {
+export function useGitDiff(hostId: string, path: string, options?: { filePath?: string; staged?: boolean; commit?: string; workingTree?: boolean; untracked?: boolean }, enabled = true) {
   return useQuery({
-    queryKey: ['git-diff', hostId, path, options?.filePath, options?.staged, options?.commit],
+    queryKey: ['git-diff', hostId, path, options?.filePath, options?.staged, options?.commit, options?.workingTree, options?.untracked],
     queryFn: () => api.git.diff(hostId, path, options),
     enabled: !!hostId && !!path && enabled,
     staleTime: 5000,

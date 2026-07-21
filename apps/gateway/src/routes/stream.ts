@@ -17,7 +17,6 @@ let sshPassAvailable: boolean | null = null
 export async function streamRoutes(fastify: FastifyInstance) {
   fastify.get('/stream', { websocket: true }, (connection: SocketStream) => {
     console.log('Client connected to stream')
-    const SCROLL_FLUSH_INTERVAL = 16
     const SCROLL_MAX_LINES = 24
     const ATTACH_REDRAW_DELAYS = [48]
     const RESIZE_REDRAW_DELAYS = [100]
@@ -50,7 +49,6 @@ export async function streamRoutes(fastify: FastifyInstance) {
     let attachVisibleOutputObserved = false
     let attachSnapshotTimers: ReturnType<typeof setTimeout>[] = []
     const scrollBuffers = new Map<string, number>()
-    const scrollTimers = new Map<string, ReturnType<typeof setTimeout>>()
     const scrollRunning = new Set<string>()
     const socket = connection.socket
     updateStreamMetric('activeClients', streamPerfMetricsActiveClientsDelta(1))
@@ -205,11 +203,13 @@ export async function streamRoutes(fastify: FastifyInstance) {
     }
     async function applyScroll(hostId: string, sessionName: string, lines: number) {
       if (!lines) return
-      if (lines > 0) {
-        await runTmuxOnHost(hostId, ['copy-mode', '-e', '-t', sessionName])
-      }
       const action = lines > 0 ? 'scroll-up' : 'scroll-down'
       let remaining = Math.abs(lines)
+      if (lines > 0) {
+        const step = Math.min(remaining, SCROLL_MAX_LINES)
+        await runTmuxOnHost(hostId, ['copy-mode', '-e', '-t', sessionName, ';', 'send-keys', '-t', sessionName, '-X', '-N', String(step), action])
+        remaining -= step
+      }
       while (remaining > 0) {
         const step = Math.min(remaining, SCROLL_MAX_LINES)
         await runTmuxOnHost(hostId, ['send-keys', '-t', sessionName, '-X', '-N', String(step), action])
@@ -217,7 +217,6 @@ export async function streamRoutes(fastify: FastifyInstance) {
       }
     }
     function flushScroll(sessionName: string) {
-      scrollTimers.delete(sessionName)
       if (scrollRunning.has(sessionName)) return
       const lines = scrollBuffers.get(sessionName) || 0
       scrollBuffers.delete(sessionName)
@@ -234,10 +233,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
       const next = (scrollBuffers.get(sessionName) || 0) + lines
       scrollBuffers.set(sessionName, Math.max(-SCROLL_MAX_LINES * 4, Math.min(SCROLL_MAX_LINES * 4, next)))
       if (scrollRunning.has(sessionName)) return
-      const existing = scrollTimers.get(sessionName)
-      if (existing) return
-      const timer = setTimeout(() => flushScroll(sessionName), SCROLL_FLUSH_INTERVAL)
-      scrollTimers.set(sessionName, timer)
+      flushScroll(sessionName)
     }
     function clearRedrawTimers() {
       for (const timer of redrawTimers) clearTimeout(timer)
@@ -326,8 +322,6 @@ export async function streamRoutes(fastify: FastifyInstance) {
       outputCarry = ''
       outputResyncPending = false
       outputResyncRunning = false
-      for (const timer of scrollTimers.values()) clearTimeout(timer)
-      scrollTimers.clear()
       scrollBuffers.clear()
       if (notify) send({ type: 'detached', sessionName: detachedSessionName, hostId: detachedHostId })
     }

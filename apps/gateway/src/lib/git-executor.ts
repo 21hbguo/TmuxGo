@@ -51,11 +51,16 @@ async function getResolvedHost(hostIdRaw: string) {
   return host
 }
 
-async function runLocalGit(args: string[], cwd: string, timeoutMs: number) {
-  return execFileAsync('git', args, { cwd, timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024 })
+async function runLocalGit(args: string[], cwd: string, timeoutMs: number, acceptExitCodeOne: boolean) {
+  try {
+    return await execFileAsync('git', args, { cwd, timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024 })
+  } catch (err: any) {
+    if (acceptExitCodeOne && err?.code === 1) return { stdout: String(err?.stdout || ''), stderr: String(err?.stderr || '') }
+    throw err
+  }
 }
 
-async function runRemoteGit(host: HostRecord, args: string[], cwd: string, timeoutMs: number) {
+async function runRemoteGit(host: HostRecord, args: string[], cwd: string, timeoutMs: number, acceptExitCodeOne: boolean) {
   const remoteCommand = `cd ${escapeShellSingleQuoted(cwd)} && git ${args.map((a) => escapeShellSingleQuoted(a)).join(' ')}`
   const sshArgs = ['-p', String(host.port), '-o', 'ConnectTimeout=8', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=accept-new', '-T', `${host.user}@${host.address}`, '--', remoteCommand]
   const password = resolveHostPassword(host)
@@ -69,27 +74,29 @@ async function runRemoteGit(host: HostRecord, args: string[], cwd: string, timeo
         maxBuffer: 8 * 1024 * 1024,
       })
     } catch (err: any) {
+      if (acceptExitCodeOne && err?.code === 1) return { stdout: String(err?.stdout || ''), stderr: String(err?.stderr || '') }
       throw new Error(normalizeErrorMessage(`${err?.stderr || ''}\n${err?.stdout || ''}`, err?.message || 'SSH git command failed'))
     }
   }
   try {
     return await execFileAsync('ssh', sshArgs, { timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024 })
   } catch (err: any) {
+    if (acceptExitCodeOne && err?.code === 1) return { stdout: String(err?.stdout || ''), stderr: String(err?.stderr || '') }
     throw new Error(normalizeErrorMessage(`${err?.stderr || ''}\n${err?.stdout || ''}`, err?.message || 'SSH git command failed'))
   }
 }
 
-export async function execGit(hostIdRaw: string, args: string[], cwd: string, timeoutMs?: number): Promise<GitExecResult> {
+export async function execGit(hostIdRaw: string, args: string[], cwd: string, timeoutMs?: number, acceptExitCodeOne = false): Promise<GitExecResult> {
   const host = await getResolvedHost(hostIdRaw)
   const timeout = timeoutMs || defaultTimeoutMs
   if (host.id === 'local') {
     try {
-      const { stdout, stderr } = await runLocalGit(args, cwd, timeout)
+      const { stdout, stderr } = await runLocalGit(args, cwd, timeout, acceptExitCodeOne)
       return { stdout, stderr }
     } catch (err: any) {
       throw new Error(normalizeErrorMessage(String(err?.stderr || err?.message || ''), 'git command failed'))
     }
   }
-  const { stdout, stderr } = await runRemoteGit(host, args, cwd, timeout)
+  const { stdout, stderr } = await runRemoteGit(host, args, cwd, timeout, acceptExitCodeOne)
   return { stdout, stderr }
 }

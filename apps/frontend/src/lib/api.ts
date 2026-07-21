@@ -391,11 +391,13 @@ export const api = {
       fetchApi<GitDetectResponse>(`/api/hosts/${hostId}/git/detect?paneId=${encodeURIComponent(paneId)}`),
     status: (hostId: string, path: string) =>
       fetchApi<GitStatusResponse>(`/api/hosts/${hostId}/git/status?path=${encodeURIComponent(path)}`),
-    diff: (hostId: string, path: string, options?: { filePath?: string; staged?: boolean; commit?: string }) => {
+    diff: (hostId: string, path: string, options?: { filePath?: string; staged?: boolean; commit?: string; workingTree?: boolean; untracked?: boolean }) => {
       const params = new URLSearchParams({ path })
       if (options?.filePath) params.set('filePath', options.filePath)
       if (options?.staged) params.set('staged', 'true')
       if (options?.commit) params.set('commit', options.commit)
+      if (options?.workingTree) params.set('workingTree', 'true')
+      if (options?.untracked) params.set('untracked', 'true')
       return fetchApi<GitDiffResponse>(`/api/hosts/${hostId}/git/diff?${params}`)
     },
     diffStats: (hostId: string, path: string, base: string, head: string) =>
