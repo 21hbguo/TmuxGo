@@ -316,6 +316,7 @@ export function PaneGrid({ sessionId: controlledSessionId }: { sessionId?: strin
       pendingSwitchRef.current = false
       const attachedCols = Number(detail.cols)
       const attachedRows = Number(detail.rows)
+      if (attachedCols > 0 && attachedRows > 0) sentResizeRef.current = { cols: attachedCols, rows: attachedRows }
       const attachLatency = Math.max(0, Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - attachStartedAtRef.current))
       updateConnection({ status: 'connected' })
       updateTerminalPerf({ attachLatency })
@@ -337,7 +338,12 @@ export function PaneGrid({ sessionId: controlledSessionId }: { sessionId?: strin
       sentResizeRef.current = null
       clearAttachTimers()
       updateConnection({ status: 'attaching' })
-      if (terminalReadyRef.current && isSocketReady) attachNow()
+      if (terminalReadyRef.current && isSocketReady) {
+        attachRetryTimerRef.current = setTimeout(() => {
+          attachRetryTimerRef.current = null
+          attachNow()
+        }, ATTACH_RETRY_DELAY)
+      }
     }
     window.addEventListener('tmux-detached', handleDetached as EventListener)
     return () => window.removeEventListener('tmux-detached', handleDetached as EventListener)

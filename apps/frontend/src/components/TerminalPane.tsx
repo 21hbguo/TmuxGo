@@ -228,7 +228,7 @@ function resolveCandidateAbsolutePaths(path: string, cwd: string, roots: FileRoo
 }
 
 export function TerminalPane({ sessionName, onInput, onResize, attachExclusive = false, onReady, subscribeOutput, onSwipeLeft, onSwipeRight }: TerminalPaneProps) {
-  const { preferences, updatePreferences } = usePreferences()
+  const { preferences, updatePreferences, isReady: preferencesReady = true } = usePreferences()
   const { t } = useTranslation()
   const activeHostId = useConsoleStore((s) => s.activeHostId)
   const pushToast = useConsoleStore((s) => s.pushToast)
@@ -574,6 +574,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   }, [preferences.fontSize, preferences.fontFamily])
 
   useEffect(() => {
+    if (!preferencesReady) return
     if (!terminalRef.current) return
     const container = terminalRef.current
     let terminal: any = null
@@ -593,6 +594,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     let pendingLayoutForce = false
     let pendingLayoutResetFont = false
     let layoutRetryCount = 0
+    let initialFitPending = false
     let lineHeightAdjustmentCount = 0
     let lastRefreshAt = 0
     let lastDevicePixelRatio = window.devicePixelRatio || 1
@@ -1284,17 +1286,20 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       pendingLayoutResetFont = false
       if (!attachExclusiveRef.current) {
         layoutRetryCount = 0
+        initialFitPending = false
         mobileKeyboardTransition = false
         syncSharedLayout(resetFont)
         return
       }
       if (doFit(force)) {
         layoutRetryCount = 0
+        initialFitPending = false
         mobileKeyboardTransition = false
         return
       }
       if (!force || layoutRetryCount >= 2) {
         layoutRetryCount = 0
+        initialFitPending = false
         mobileKeyboardTransition = false
         return
       }
@@ -1305,11 +1310,16 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       if (disposed) return
       pendingLayoutForce = pendingLayoutForce || force
       pendingLayoutResetFont = pendingLayoutResetFont || resetFont
+      if (layoutFrame) {
+        if (initialFitPending && !force) return
+        cancelAnimationFrame(layoutFrame)
+        layoutFrame = null
+      }
       if (layoutTimeout) {
+        if (initialFitPending && !force) return
         clearTimeout(layoutTimeout)
         layoutTimeout = null
       }
-      if (layoutFrame) cancelAnimationFrame(layoutFrame)
       if (delay > 0) {
         layoutTimeout = setTimeout(() => {
           layoutTimeout = null
@@ -1317,10 +1327,13 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         }, delay)
         return
       }
-      layoutFrame = requestAnimationFrame(() => {
+      let synchronous = true
+      const frame = requestAnimationFrame(() => {
         layoutFrame = null
         runLayoutSync()
+        synchronous = false
       })
+      if (synchronous) layoutFrame = frame
     }
     const scheduleMobileKeyboardFit = () => {
       mobileKeyboardTransition = true
@@ -1328,6 +1341,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     }
     const scheduleInitialFit = () => {
       if (disposed) return
+      initialFitPending = true
       scheduleLayoutSync(isMobileDevice ? 80 : 0, true)
     }
     scheduleLayoutRef.current = scheduleLayoutSync
@@ -1566,10 +1580,10 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const handleKeyboardChange = (event: Event) => {
         const detail = (event as CustomEvent<{ open?: boolean }>).detail
         const nextOpen = typeof detail?.open === 'boolean' ? detail.open : document.body.classList.contains('keyboard-open')
-        if (isMobileDevice && attachExclusiveRef.current) scheduleMobileKeyboardFit()
         if (nextOpen === lastKeyboardOpen) return
         lastKeyboardOpen = nextOpen
         if (isMobileDevice) cancelTmuxCopyMode()
+        if (isMobileDevice && attachExclusiveRef.current) scheduleMobileKeyboardFit()
       }
       const handleAttached = (event: Event) => {
         const detail = (event as CustomEvent).detail || {}
@@ -1585,7 +1599,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         const softRecover = initialAttach && hadOutputBeforeAttach
         void loadSessionSnapshot()
         if (attachExclusiveRef.current) {
-          scheduleInitialFit()
+          const size = lastSizeRef.current
+          if (!size || size.cols !== cols || size.rows !== rows) scheduleInitialFit()
           if (softRecover) scheduleTerminalRepaint(isMobileDevice ? MOBILE_TERMINAL_REPAINT_DELAYS : TERMINAL_REPAINT_DELAYS)
           else softRecoverTerminalScreen('attached', true)
           return
@@ -1850,7 +1865,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       terminalInstance.current = null
       scheduleLayoutRef.current = () => {}
     }
-  }, [disposeTerminalOutput, ensureFileRoots, handleDesktopPinch, handlePinchTouchCancel, handlePinchTouchEnd, handlePinchTouchMove, handlePinchTouchStart, openUploadDialog, pushToast, pushTerminalOutput, queryClient, selectionSync, setActivePane, syncPaneCwd, touchScroll, updateGithubDeviceLogin, updateTerminalPerf])
+  }, [disposeTerminalOutput, ensureFileRoots, handleDesktopPinch, handlePinchTouchCancel, handlePinchTouchEnd, handlePinchTouchMove, handlePinchTouchStart, openUploadDialog, preferencesReady, pushToast, pushTerminalOutput, queryClient, selectionSync, setActivePane, syncPaneCwd, touchScroll, updateGithubDeviceLogin, updateTerminalPerf])
 
   return (
     <div

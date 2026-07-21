@@ -111,7 +111,7 @@ describe('PaneGrid', () => {
     })
     expect(sendMock).toHaveBeenCalledWith({ type: 'resize', hostId: 'local', cols: 121, rows: 36 })
   })
-  it('forces a resize after attach even when tmux reports the same size', async () => {
+  it('does not repeat resize after attach when tmux reports the same size', async () => {
     socketState.isConnected = true
     render(<PaneGrid />)
     act(() => {
@@ -123,7 +123,7 @@ describe('PaneGrid', () => {
     act(() => {
       window.dispatchEvent(new CustomEvent('tmux-attached', { detail: { sessionName: 'dev1', cols: 121, rows: 40, hostId: 'local' } }))
     })
-    expect(sendMock).toHaveBeenCalledWith({ type: 'resize', hostId: 'local', cols: 121, rows: 40 })
+    expect(sendMock).not.toHaveBeenCalledWith({ type: 'resize', hostId: 'local', cols: 121, rows: 40 })
   })
   it('re-attaches and flushes queued input after detach', async () => {
     socketState.isConnected = true
@@ -137,7 +137,8 @@ describe('PaneGrid', () => {
     act(() => {
       window.dispatchEvent(new CustomEvent('tmux-detached', { detail: { sessionName: 'dev1', hostId: 'local' } }))
     })
-    await waitFor(() => expect(sendMock).toHaveBeenCalledWith({ type: 'attach', hostId: 'local', sessionName: 'dev1', cols: 120, rows: 36, exclusive: true }))
+    expect(sendMock.mock.calls.filter(([message]) => message?.type === 'attach')).toHaveLength(0)
+    await waitFor(() => expect(sendMock).toHaveBeenCalledWith({ type: 'attach', hostId: 'local', sessionName: 'dev1', cols: 120, rows: 36, exclusive: true }), { timeout: 1600 })
     sendMock.mockClear()
     act(() => {
       terminalProps.current?.onInput?.('pwd')
