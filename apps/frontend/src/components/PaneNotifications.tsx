@@ -70,12 +70,22 @@ export function PaneNotifications() {
     window.addEventListener('tmuxgo-agent-status', handleAgentStatus as EventListener)
     return () => window.removeEventListener('tmuxgo-agent-status', handleAgentStatus as EventListener)
   }, [preferences.agentNotificationsEnabled, queryClient, t])
-  const openNotification = (notification: Notification) => {
-    if (useConsoleStore.getState().activeHostId !== notification.hostId) setActiveHost(notification.hostId)
-    setActiveSession(notification.sessionId)
-    setActivePane(notification.paneId)
-    void api.panes.select(notification.paneId).catch(() => {})
-    dismissNotification(notification.id)
+  const openNotification = async (notification: Notification) => {
+    try {
+      const key = ['session-snapshot', notification.hostId, notification.sessionId]
+      const cached = queryClient?.getQueryData?.(key) as any
+      const snapshot = cached?.panes?.some?.((pane: any) => pane.id === notification.paneId) ? cached : await api.snapshot.get(notification.hostId, notification.sessionId)
+      const targetPane = snapshot?.panes?.find?.((pane: any) => pane.id === notification.paneId)
+      if (!targetPane) return
+      if (targetPane.windowId && targetPane.windowId !== snapshot.activeWindowId) await api.windows.select(notification.hostId, notification.sessionId, targetPane.windowId)
+      await api.panes.select(notification.paneId)
+      const nextSnapshot = await api.snapshot.get(notification.hostId, notification.sessionId)
+      queryClient?.setQueryData(key, nextSnapshot)
+      if (useConsoleStore.getState().activeHostId !== notification.hostId) setActiveHost(notification.hostId)
+      setActiveSession(notification.sessionId)
+      setActivePane(notification.paneId)
+      dismissNotification(notification.id)
+    } catch {}
   }
 
   return (
@@ -91,7 +101,7 @@ export function PaneNotifications() {
           <div className="max-h-60 overflow-y-auto">
             {notifications.slice(0, 5).map((n) => (
               <div key={n.id} className="flex border-b border-[var(--line)] hover:bg-bg-2">
-                <button onClick={() => openNotification(n)} className="min-w-0 flex-1 p-2 text-left"><span className={`flex items-center gap-1.5 text-xs ${n.status === 'blocked' ? 'text-danger' : 'text-emerald-300'}`}>{n.status === 'blocked' ? <FiAlertCircle aria-hidden="true" /> : <FiCheckCircle aria-hidden="true" />}{n.paneName}</span><span className="mt-1 block text-sm text-text-1">{n.message}</span></button>
+                <button onClick={() => void openNotification(n)} className="min-w-0 flex-1 p-2 text-left"><span className={`flex items-center gap-1.5 text-xs ${n.status === 'blocked' ? 'text-danger' : 'text-emerald-300'}`}>{n.status === 'blocked' ? <FiAlertCircle aria-hidden="true" /> : <FiCheckCircle aria-hidden="true" />}{n.paneName}</span><span className="mt-1 block text-sm text-text-1">{n.message}</span></button>
                 <button onClick={() => dismissNotification(n.id)} className="flex w-9 shrink-0 items-start justify-center pt-2 text-text-3 hover:text-text-1" aria-label={t('common.close')}><FiX aria-hidden="true" /></button>
               </div>
             ))}
