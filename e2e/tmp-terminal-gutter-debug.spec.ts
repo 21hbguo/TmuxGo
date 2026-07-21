@@ -1,7 +1,7 @@
-import { test } from '@playwright/test'
+import { test, expect } from '@playwright/test'
 import { ensureSession, openSession } from './session'
 
-test('debug terminal gutter metrics', async ({ page, request }) => {
+test('terminal content fills container height', async ({ page, request }) => {
   const name = `tmuxgo_gutter_${Date.now()}`
   const session = await ensureSession(request, name)
   await openSession(page, session, { expectHeader: false })
@@ -10,12 +10,17 @@ test('debug terminal gutter metrics', async ({ page, request }) => {
     return !!t?.cols && !!t?.rows && document.querySelector('[data-terminal] canvas')
   }, undefined, { timeout: 15000 })
   await page.waitForTimeout(1200)
+  await page.evaluate(() => {
+    const terminal = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
+    terminal?.refresh(0, Math.max(0, terminal.rows - 1))
+  })
   const metrics = await page.evaluate(() => {
     const terminal = document.querySelector('[data-terminal]') as HTMLElement | null
     const xterm = terminal?.querySelector('.xterm') as HTMLElement | null
     const viewport = terminal?.querySelector('.xterm-viewport') as HTMLElement | null
     const screen = terminal?.querySelector('.xterm-screen') as HTMLElement | null
     const rows = terminal?.querySelector('.xterm-rows') as HTMLElement | null
+    const lastRow = rows?.lastElementChild
     const canvas = screen?.querySelector('canvas') as HTMLCanvasElement | null
     const rect = (node: Element | null) => node ? (node as HTMLElement).getBoundingClientRect().toJSON() : null
     const style = (node: Element | null) => node ? getComputedStyle(node as Element) : null
@@ -25,6 +30,7 @@ test('debug terminal gutter metrics', async ({ page, request }) => {
       viewportRect: rect(viewport),
       screenRect: rect(screen),
       rowsRect: rect(rows),
+      lastRowRect: rect(lastRow),
       canvasRect: rect(canvas),
       terminalStyle: terminal ? {
         paddingTop: style(terminal)?.paddingTop,
@@ -80,5 +86,7 @@ test('debug terminal gutter metrics', async ({ page, request }) => {
       })(),
     }
   })
-  console.log(JSON.stringify(metrics, null, 2))
+  expect(metrics.terminalRect).not.toBeNull()
+  expect(metrics.lastRowRect).not.toBeNull()
+  expect(Math.abs((metrics.terminalRect?.bottom || 0) - (metrics.lastRowRect?.bottom || 0))).toBeLessThanOrEqual(1)
 })

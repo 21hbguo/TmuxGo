@@ -343,6 +343,7 @@ export interface GitDetectResponse {
   isGitRepo: boolean
   rootPath?: string
   branch?: string
+  path?: string
 }
 export interface GitCommitResponse {
   ok: true
@@ -367,12 +368,18 @@ export interface GitBranch {
   commitHash: string
   lastCommitSubject: string
 }
+export interface GitReference {
+  name: string
+  kind: 'remote' | 'tag'
+  commitHash: string
+}
 export interface GitLogResponse {
   commits: GitCommitInfo[]
   hasMore: boolean
 }
 export interface GitBranchesResponse {
   branches: GitBranch[]
+  refs?: GitReference[]
   current: string
 }
 export interface GitMergeResponse {
@@ -382,7 +389,7 @@ export interface GitMergeResponse {
   message: string
 }
 export type GitMode='follow-editor'|'locked'
-export type GitSource='editor'|'manual'|null
+export type GitSource='editor'|'pane'|'manual'|null
 export interface GitRepoEntry {
   repoPath: string
   label: string

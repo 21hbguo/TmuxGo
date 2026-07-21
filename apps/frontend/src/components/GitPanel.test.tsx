@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import React from 'react'
 import { GitPanel } from './GitPanel'
@@ -8,6 +8,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 const useGitLogMock = vi.fn()
 const useGitBranchesMock = vi.fn()
+const useGitPaneDetectMock = vi.fn()
 
 vi.mock('@/hooks/useApi', () => ({
   useGitStatus: () => ({ data: { branch: 'main', ahead: 1, behind: 0, staged: [], unstaged: [], untracked: [], conflicted: [] } }),
@@ -16,6 +17,7 @@ vi.mock('@/hooks/useApi', () => ({
   useGitCommit: () => ({ mutate: vi.fn() }),
   useGitDiscard: () => ({ mutate: vi.fn() }),
   useGitLog: (...args: any[]) => useGitLogMock(...args),
+  useGitPaneDetect: (...args: any[]) => useGitPaneDetectMock(...args),
   useGitBranches: (...args: any[]) => useGitBranchesMock(...args),
   useGitCheckout: () => ({ mutate: vi.fn() }),
   useGitCreateBranch: () => ({ mutate: vi.fn() }),
@@ -35,8 +37,12 @@ describe('GitPanel', () => {
     vi.stubGlobal('IntersectionObserver', MockIntersectionObserver as any)
     useGitLogMock.mockReturnValue({ data: { commits: [{ hash: 'a1', shortHash: 'a1', subject: 'first', body: '', author: 'dev', authorEmail: 'dev@test', authorDate: '2024-01-01T00:00:00Z', date: '2024-01-01T00:00:00Z', parents: [] }, { hash: 'b2', shortHash: 'b2', subject: 'second', body: '', author: 'dev', authorEmail: 'dev@test', authorDate: '2024-01-02T00:00:00Z', date: '2024-01-02T00:00:00Z', parents: ['a1'] }], hasMore: false }, isLoading: false })
     useGitBranchesMock.mockReturnValue({ data: { current: 'main', branches: [{ name: 'main', current: true, commitHash: 'b2', lastCommitSubject: 'second' }] } })
+    useGitPaneDetectMock.mockReturnValue({ data: undefined })
     useConsoleStore.setState({
       activeHostId: 'local',
+      activePaneId: null,
+      activeEditorId: null,
+      openEditors: [],
       gitByHost: {
         local: {
           mode: 'follow-editor',
@@ -66,6 +72,27 @@ describe('GitPanel', () => {
     expect(screen.getAllByText('main').length).toBeGreaterThan(0)
     await user.click(screen.getByText('second'))
     expect(useConsoleStore.getState().openEditors.at(-1)).toMatchObject({ id: expect.stringContaining('git-diff?'), language: 'diff', rootPath: '/workspace/app', name: 'b2 second' })
+  })
+
+  it('shows remote and tag refs and highlights history search matches', async () => {
+    useGitBranchesMock.mockReturnValue({ data: { current: 'main', branches: [{ name: 'main', current: true, commitHash: 'b2', lastCommitSubject: 'second' }], refs: [{ name: 'origin/main', kind: 'remote', commitHash: 'b2' }, { name: 'v1.0.0', kind: 'tag', commitHash: 'a1' }] } })
+    const user = userEvent.setup()
+    const queryClient = new QueryClient()
+    const { container } = render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(I18nProvider, null, React.createElement(GitPanel))))
+    expect(screen.getByText('origin/main')).toBeInTheDocument()
+    expect(screen.getByText('v1.0.0')).toBeInTheDocument()
+    await user.type(screen.getByPlaceholderText('查找提交、作者、分支或标签'), 'second')
+    expect(screen.getByText('second').closest('button')).toHaveAttribute('data-git-search-match', '1')
+    expect(container.querySelectorAll('[data-git-search-match="1"]')).toHaveLength(1)
+  })
+
+  it('follows the active terminal repository when no editor is open', async () => {
+    useGitPaneDetectMock.mockReturnValue({ data: { isGitRepo: true, rootPath: '/workspace/terminal-repo', branch: 'main', path: '/workspace/terminal-repo/apps' } })
+    useConsoleStore.setState({ activePaneId: 'local:%1', gitByHost: { local: { mode: 'follow-editor', currentRepoPath: null, currentFilePath: null, source: null, lockedRepoPath: null, recentRepos: [] } } } as any)
+    const queryClient = new QueryClient()
+    render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(I18nProvider, null, React.createElement(GitPanel))))
+    await waitFor(() => expect(useConsoleStore.getState().gitByHost.local).toMatchObject({ currentRepoPath: '/workspace/terminal-repo', currentFilePath: '/workspace/terminal-repo/apps', source: 'pane' }))
+    expect(useGitPaneDetectMock).toHaveBeenCalledWith('local', 'local:%1', true)
   })
 
   it('ignores invalid commit entries in history data', async () => {

@@ -2,12 +2,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
-import { useGitStatus, useGitStage, useGitUnstage, useGitCommit, useGitDiscard, useGitLog, useGitBranches, useGitCheckout, useGitCreateBranch, useGitDeleteBranch, useGitMerge, useGitFetch, useGitPull, useGitPush } from '@/hooks/useApi'
+import { useGitStatus, useGitStage, useGitUnstage, useGitCommit, useGitDiscard, useGitLog, useGitBranches, useGitCheckout, useGitCreateBranch, useGitDeleteBranch, useGitMerge, useGitFetch, useGitPull, useGitPush, useGitPaneDetect } from '@/hooks/useApi'
 import { useQueryClient } from '@tanstack/react-query'
 import { ConfirmDialog } from './ConfirmDialog'
 import type { GitFileChange, GitCommitInfo } from '@/types'
 import { GitHistoryGraph } from './GitHistoryGraph'
 import type { GitGraphBranchHead, GitGraphCommit } from '@/lib/gitGraph'
+import { FiDownload, FiLink, FiRefreshCw, FiSearch, FiUpload, FiX } from 'react-icons/fi'
+import { api } from '@/lib/api'
 
 type GitTab = 'status' | 'history' | 'branches'
 function isValidGitCommitInfo(commit: GitCommitInfo | null | undefined): commit is GitCommitInfo {
@@ -33,11 +35,12 @@ function normalizeGitGraphCommits(commits: GitCommitInfo[]) {
     parents: (commit.parents || []).filter((sha, index, arr) => !!sha && commitSet.has(sha) && arr.indexOf(sha) === index).map((sha) => ({ sha })),
   }))
 }
-function normalizeBranchHeads(branches: Array<{ name?: string; commitHash?: string }>, commitSet: Set<string>): GitGraphBranchHead[] {
+function normalizeBranchHeads(branches: Array<{ name?: string; commitHash?: string; kind?: 'branch' | 'remote' | 'tag' }>, commitSet: Set<string>): GitGraphBranchHead[] {
   const seen = new Set<string>()
-  return branches.filter((branch): branch is { name: string; commitHash: string } => !!branch?.name && !!branch?.commitHash && commitSet.has(branch.commitHash) && !seen.has(branch.name) && !!seen.add(branch.name)).map((branch) => ({
+  return branches.filter((branch): branch is { name: string; commitHash: string; kind?: 'branch' | 'remote' | 'tag' } => !!branch?.name && !!branch?.commitHash && commitSet.has(branch.commitHash) && !seen.has(`${branch.kind || 'branch'}:${branch.name}`) && !!seen.add(`${branch.kind || 'branch'}:${branch.name}`)).map((branch) => ({
     name: branch.name,
     commit: { sha: branch.commitHash },
+    kind: branch.kind || 'branch',
   }))
 }
 function normalizeCurrentBranch(currentBranch: string | undefined, branchHeads: GitGraphBranchHead[]) {
@@ -150,14 +153,30 @@ function StatusTab({ hostId, repoPath, t }: { hostId: string; repoPath: string; 
 function HistoryTab({ hostId, repoPath, t }: { hostId: string; repoPath: string; t: TFunc }) {
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage } = useGitLogPaged(hostId, repoPath)
   const { data: branchesData } = useGitBranches(hostId, repoPath)
+  const [searchQuery, setSearchQuery] = useState('')
+  const searchRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    const handleFind = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === 'f') {
+        event.preventDefault()
+        searchRef.current?.focus()
+        searchRef.current?.select()
+      }
+    }
+    window.addEventListener('keydown', handleFind)
+    return () => window.removeEventListener('keydown', handleFind)
+  }, [])
   if (!data) return <div className="p-3 text-[11px] text-text-3">{t('git.detecting')}</div>
   const commits = normalizeGitGraphCommits(data)
   const commitSet = new Set(commits.map((commit) => commit.sha))
-  const branchHeads = normalizeBranchHeads(branchesData?.branches || [], commitSet)
+  const branchHeads = normalizeBranchHeads([
+    ...(branchesData?.branches || []).map((branch) => ({ ...branch, kind: 'branch' as const })),
+    ...(branchesData?.refs || []),
+  ], commitSet)
   const currentBranch = normalizeCurrentBranch(branchesData?.current, branchHeads)
   const openCommitDiff = (commit: GitGraphCommit) => {
     if (!commit.sha) return
-    const params = new URLSearchParams({ hostId, repoPath, commit: `${commit.sha}^!` })
+    const params = new URLSearchParams({ hostId, repoPath, commit: commit.sha })
     useConsoleStore.getState().openEditor({
       id: `git-diff?${params.toString()}`,
       hostId,
@@ -171,20 +190,29 @@ function HistoryTab({ hostId, repoPath, t }: { hostId: string; repoPath: string;
     })
   }
   return (
-    <div className="tmuxgo-scrollbar h-full overflow-y-auto" data-git-history-scroll="1">
-      {commits.length === 0 ? <div className="p-3 text-[11px] text-text-3">{t('git.noChanges')}</div> : (
-      <GitHistoryGraph
-        commits={commits}
-        branchHeads={branchHeads}
-        onLoadMore={fetchNextPage}
-        hasMore={hasNextPage}
-        isFetchingMore={isFetchingNextPage}
-        currentBranch={currentBranch}
-        onCommitClick={openCommitDiff}
-        formatDate={formatDate}
-        formatDateFull={formatDateFull}
-      />
-      )}
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex h-10 shrink-0 items-center gap-2 border-b border-[var(--line)] px-3">
+        <FiSearch aria-hidden="true" className="shrink-0 text-text-3" size={14} />
+        <input ref={searchRef} value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder={t('git.searchCommits')} className="min-w-0 flex-1 bg-transparent text-[12px] text-text-1 outline-none placeholder:text-text-3" />
+        {searchQuery && <button type="button" aria-label={t('git.clearSearch')} title={t('git.clearSearch')} onClick={() => setSearchQuery('')} className="tmuxgo-icon-button flex h-6 w-6 items-center justify-center rounded text-text-3 hover:bg-bg-2 hover:text-text-1"><FiX aria-hidden="true" size={13} /></button>}
+        <span className="shrink-0 font-mono text-[10px] text-text-3">{commits.length}</span>
+      </div>
+      <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-y-auto" data-git-history-scroll="1">
+        {commits.length === 0 ? <div className="p-3 text-[11px] text-text-3">{t('git.noChanges')}</div> : (
+        <GitHistoryGraph
+          commits={commits}
+          branchHeads={branchHeads}
+          onLoadMore={fetchNextPage}
+          hasMore={hasNextPage}
+          isFetchingMore={isFetchingNextPage}
+          currentBranch={currentBranch}
+          onCommitClick={openCommitDiff}
+          formatDate={formatDate}
+          formatDateFull={formatDateFull}
+          searchQuery={searchQuery}
+        />
+        )}
+      </div>
     </div>
   )
 }
@@ -327,14 +355,23 @@ function BranchesTab({ hostId, repoPath, t }: { hostId: string; repoPath: string
 export function GitPanel() {
   const { t } = useTranslation()
   const activeHostId = useConsoleStore((state) => state.activeHostId)
+  const activePaneId = useConsoleStore((state) => state.activePaneId)
+  const activeEditorId = useConsoleStore((state) => state.activeEditorId)
+  const openEditors = useConsoleStore((state) => state.openEditors)
   const gitByHost = useConsoleStore((state) => state.gitByHost)
+  const ensureGitHostState = useConsoleStore((state) => state.ensureGitHostState)
+  const setGitFollowPaneRepo = useConsoleStore((state) => state.setGitFollowPaneRepo)
   const setGitLockedRepo = useConsoleStore((state) => state.setGitLockedRepo)
   const resumeGitFollowEditor = useConsoleStore((state) => state.resumeGitFollowEditor)
   const pushToast = useConsoleStore((state) => state.pushToast)
-  const [activeTab, setActiveTab] = useState<GitTab>('status')
+  const [activeTab, setActiveTab] = useState<GitTab>('history')
   const [commitMessage, setCommitMessage] = useState('')
+  const [manualRepoPath, setManualRepoPath] = useState('')
   const gitState = activeHostId ? gitByHost[activeHostId] : undefined
   const repoPath = gitState?.currentRepoPath || null
+  const activeEditor = activeEditorId ? openEditors.find((editor) => editor.id === activeEditorId && !editor.id.startsWith('git-diff?')) : null
+  const followPane = gitState?.mode !== 'locked' && (!activeEditor || !repoPath)
+  const { data: paneDetect } = useGitPaneDetect(activeHostId || '', activePaneId || '', followPane)
   const { data: status } = useGitStatus(activeHostId || '', repoPath || '', !!repoPath)
   const commit = useGitCommit()
   const stageAll = useGitStage()
@@ -345,6 +382,16 @@ export function GitPanel() {
   const queryClient = useQueryClient()
   const pinnedRepos = useMemo(() => (gitState?.recentRepos || []).filter((item) => item.pinned), [gitState?.recentRepos])
   const otherRepos = useMemo(() => (gitState?.recentRepos || []).filter((item) => !item.pinned), [gitState?.recentRepos])
+  const statusCount = status ? status.staged.length + status.unstaged.length + status.untracked.length + status.conflicted.length : 0
+  const stageablePaths = status ? Array.from(new Set([...status.unstaged.map((file) => file.path), ...status.untracked, ...status.conflicted.map((file) => file.path)])) : []
+
+  useEffect(() => {
+    if (activeHostId) ensureGitHostState(activeHostId)
+  }, [activeHostId, ensureGitHostState])
+  useEffect(() => {
+    if (!activeHostId || !followPane || !paneDetect) return
+    setGitFollowPaneRepo(activeHostId, paneDetect.isGitRepo ? paneDetect.rootPath || paneDetect.path || null : null, paneDetect.path || null)
+  }, [activeHostId, followPane, paneDetect, setGitFollowPaneRepo])
 
   const handleCommit = () => {
     if (!activeHostId || !repoPath || !commitMessage.trim()) return
@@ -352,6 +399,17 @@ export function GitPanel() {
       onSuccess: () => { setCommitMessage(''); pushToast({ type: 'success', message: t('git.commitSuccess') }) },
       onError: (err) => pushToast({ type: 'error', message: t('git.commitFailed') + ': ' + err.message }),
     })
+  }
+  const handleOpenRepo = async () => {
+    if (!activeHostId || !manualRepoPath.trim()) return
+    try {
+      const result = await api.git.detect(activeHostId, manualRepoPath.trim())
+      if (!result.isGitRepo || !result.rootPath) throw new Error(t('git.noRepo'))
+      setGitLockedRepo(activeHostId, result.rootPath)
+      setManualRepoPath('')
+    } catch (error) {
+      pushToast({ type: 'error', message: error instanceof Error ? error.message : t('git.noRepo') })
+    }
   }
 
   if (!activeHostId) return <div className="flex h-full items-center justify-center p-3 text-[11px] text-text-3">{t('git.noRepo')}</div>
@@ -368,7 +426,7 @@ export function GitPanel() {
               {gitState?.mode === 'locked' ? t('git.modeLocked') : t('git.modeFollowingFile')}
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             {status && status.ahead > 0 && <span className="text-[11px] text-green-400">↑{status.ahead}</span>}
             {status && status.behind > 0 && <span className="text-[11px] text-yellow-400">↓{status.behind}</span>}
           </div>
@@ -377,13 +435,13 @@ export function GitPanel() {
           <div className="mt-1 truncate text-[11px] text-text-3" title={repoPath}>{repoPath}</div>
         )}
         {repoPath && (
-          <div className="mt-1.5 flex flex-wrap items-center gap-1">
+          <div className="mt-2 flex items-center gap-1">
             {gitState?.mode === 'locked' && (
-              <button onClick={() => activeHostId && resumeGitFollowEditor(activeHostId)} className="rounded px-2 py-0.5 text-[10px] text-accent hover:bg-bg-2 hover:text-text-1">{t('git.followCurrentFile')}</button>
+              <button aria-label={t('git.followCurrentFile')} title={t('git.followCurrentFile')} onClick={() => activeHostId && resumeGitFollowEditor(activeHostId)} className="tmuxgo-icon-button flex h-7 w-7 items-center justify-center rounded text-accent hover:bg-bg-2 hover:text-text-1"><FiLink aria-hidden="true" size={14} /></button>
             )}
-            <button onClick={() => activeHostId && fetch.mutate({ hostId: activeHostId, path: repoPath }, { onSuccess: () => { pushToast({ type: 'success', message: t('git.fetchSuccess') }); queryClient.invalidateQueries({ queryKey: ['git-status'] }) }, onError: (err) => pushToast({ type: 'error', message: err.message }) })} className="rounded px-2 py-0.5 text-[10px] text-text-3 hover:bg-bg-2 hover:text-text-1">{t('git.fetch')}</button>
-            <button onClick={() => activeHostId && pull.mutate({ hostId: activeHostId, path: repoPath }, { onSuccess: () => { pushToast({ type: 'success', message: t('git.pullSuccess') }); queryClient.invalidateQueries({ queryKey: ['git-status'] }) }, onError: (err) => pushToast({ type: 'error', message: err.message }) })} className="rounded px-2 py-0.5 text-[10px] text-text-3 hover:bg-bg-2 hover:text-text-1">{t('git.pull')}</button>
-            <button onClick={() => activeHostId && push.mutate({ hostId: activeHostId, path: repoPath }, { onSuccess: () => { pushToast({ type: 'success', message: t('git.pushSuccess') }); queryClient.invalidateQueries({ queryKey: ['git-status'] }) }, onError: (err) => pushToast({ type: 'error', message: err.message.includes('rejected') ? t('git.pushRejected') : err.message }) })} className="rounded px-2 py-0.5 text-[10px] text-text-3 hover:bg-bg-2 hover:text-text-1">{t('git.push')}</button>
+            <button aria-label={t('git.fetch')} title={t('git.fetch')} disabled={fetch.isPending} onClick={() => activeHostId && fetch.mutate({ hostId: activeHostId, path: repoPath }, { onSuccess: () => { pushToast({ type: 'success', message: t('git.fetchSuccess') }); queryClient.invalidateQueries({ queryKey: ['git-status'] }) }, onError: (err) => pushToast({ type: 'error', message: err.message }) })} className="tmuxgo-icon-button flex h-7 w-7 items-center justify-center rounded text-text-3 hover:bg-bg-2 hover:text-text-1 disabled:opacity-50"><FiRefreshCw aria-hidden="true" className={fetch.isPending ? 'animate-spin' : ''} size={14} /></button>
+            <button aria-label={t('git.pull')} title={t('git.pull')} disabled={pull.isPending} onClick={() => activeHostId && pull.mutate({ hostId: activeHostId, path: repoPath }, { onSuccess: () => { pushToast({ type: 'success', message: t('git.pullSuccess') }); queryClient.invalidateQueries({ queryKey: ['git-status'] }) }, onError: (err) => pushToast({ type: 'error', message: err.message }) })} className="tmuxgo-icon-button flex h-7 w-7 items-center justify-center rounded text-text-3 hover:bg-bg-2 hover:text-text-1 disabled:opacity-50"><FiDownload aria-hidden="true" size={14} /></button>
+            <button aria-label={t('git.push')} title={t('git.push')} disabled={push.isPending} onClick={() => activeHostId && push.mutate({ hostId: activeHostId, path: repoPath }, { onSuccess: () => { pushToast({ type: 'success', message: t('git.pushSuccess') }); queryClient.invalidateQueries({ queryKey: ['git-status'] }) }, onError: (err) => pushToast({ type: 'error', message: err.message.includes('rejected') ? t('git.pushRejected') : err.message }) })} className="tmuxgo-icon-button flex h-7 w-7 items-center justify-center rounded text-text-3 hover:bg-bg-2 hover:text-text-1 disabled:opacity-50"><FiUpload aria-hidden="true" size={14} /></button>
           </div>
         )}
         {!!pinnedRepos.length && (
@@ -412,7 +470,7 @@ export function GitPanel() {
           <div className="flex border-b border-[var(--line)]">
             {(['status', 'history', 'branches'] as const).map((tab) => (
               <button key={tab} onClick={() => setActiveTab(tab)} className={`flex-1 py-1.5 text-[11px] font-medium transition-colors ${activeTab === tab ? 'border-b-2 border-accent text-accent' : 'text-text-3 hover:text-text-1'}`}>
-                {t(`git.${tab}`)}
+                {t(`git.${tab}`)}{tab === 'status' && statusCount > 0 ? ` ${statusCount}` : ''}
               </button>
             ))}
           </div>
@@ -439,8 +497,8 @@ export function GitPanel() {
                 >
                   {t('git.commit')}
                 </button>
-                {status && status.unstaged.length > 0 && (
-                  <button onClick={() => activeHostId && repoPath && stageAll.mutate({ hostId: activeHostId, path: repoPath, filePaths: status.unstaged.map((f) => f.path) })} className="rounded px-2 py-1.5 text-[11px] text-text-3 hover:bg-bg-2 hover:text-text-1">{t('git.stageAll')}</button>
+                {stageablePaths.length > 0 && (
+                  <button onClick={() => activeHostId && repoPath && stageAll.mutate({ hostId: activeHostId, path: repoPath, filePaths: stageablePaths })} className="rounded px-2 py-1.5 text-[11px] text-text-3 hover:bg-bg-2 hover:text-text-1">{t('git.stageAll')}</button>
                 )}
                 {status && status.staged.length > 0 && (
                   <button onClick={() => activeHostId && repoPath && unstageAll.mutate({ hostId: activeHostId, path: repoPath, filePaths: status.staged.map((f) => f.path) })} className="rounded px-2 py-1.5 text-[11px] text-text-3 hover:bg-bg-2 hover:text-text-1">{t('git.unstageAll')}</button>
@@ -451,7 +509,13 @@ export function GitPanel() {
         </>
       )}
       {!repoPath && (
-        <div className="flex h-full items-center justify-center p-3 text-[11px] text-text-3">{gitState?.currentFilePath ? t('git.fileNotInRepo') : t('git.noActiveEditor')}</div>
+        <div className="flex h-full flex-col items-center justify-center gap-3 p-5 text-[11px] text-text-3">
+          <div>{gitState?.currentFilePath ? t('git.fileNotInRepo') : t('git.noActiveEditor')}</div>
+          <div className="flex w-full max-w-md gap-2">
+            <input value={manualRepoPath} onChange={(event) => setManualRepoPath(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void handleOpenRepo() }} placeholder={t('git.selectRepo')} className="tmuxgo-control tmuxgo-input min-w-0 flex-1 rounded px-2.5 py-1.5 text-[12px]" />
+            <button type="button" disabled={!manualRepoPath.trim()} onClick={() => void handleOpenRepo()} className="rounded bg-accent px-3 py-1.5 text-[11px] font-medium text-bg-0 disabled:opacity-50">{t('git.openRepo')}</button>
+          </div>
+        </div>
       )}
     </div>
   )

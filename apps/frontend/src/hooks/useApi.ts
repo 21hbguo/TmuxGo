@@ -244,6 +244,15 @@ export function useGitDetect(hostId: string, path: string) {
     staleTime: 60000,
   })
 }
+export function useGitPaneDetect(hostId: string, paneId: string, enabled = true) {
+  return useQuery({
+    queryKey: ['git-pane-detect', hostId, paneId],
+    queryFn: () => api.git.detectFromPane(hostId, paneId),
+    enabled: !!hostId && !!paneId && enabled,
+    staleTime: 3000,
+    refetchInterval: 5000,
+  })
+}
 
 export function useGitStatus(hostId: string, path: string, enabled = true) {
   return useQuery({
@@ -284,7 +293,7 @@ export function useGitCommit() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ hostId, path, message, amend }: { hostId: string; path: string; message: string; amend?: boolean }) => api.git.commit(hostId, path, message, amend),
-    onSuccess: (_, { hostId, path }) => { qc.invalidateQueries({ queryKey: ['git-status', hostId, path] }); qc.invalidateQueries({ queryKey: ['git-diff', hostId, path] }) },
+    onSuccess: (_, { hostId, path }) => { qc.invalidateQueries({ queryKey: ['git-status', hostId, path] }); qc.invalidateQueries({ queryKey: ['git-diff', hostId, path] }); qc.invalidateQueries({ queryKey: ['git-log', hostId, path] }); qc.invalidateQueries({ queryKey: ['git-branches', hostId, path] }) },
   })
 }
 
@@ -350,7 +359,7 @@ export function useGitFetch() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ hostId, path, remote, prune }: { hostId: string; path: string; remote?: string; prune?: boolean }) => api.git.fetch(hostId, path, { remote, prune }),
-    onSuccess: (_, { hostId, path }) => { qc.invalidateQueries({ queryKey: ['git-branches', hostId, path] }); qc.invalidateQueries({ queryKey: ['git-status', hostId, path] }) },
+    onSuccess: (_, { hostId, path }) => { qc.invalidateQueries({ queryKey: ['git-branches', hostId, path] }); qc.invalidateQueries({ queryKey: ['git-status', hostId, path] }); qc.invalidateQueries({ queryKey: ['git-log', hostId, path] }) },
   })
 }
 
@@ -363,7 +372,9 @@ export function useGitPull() {
 }
 
 export function useGitPush() {
+  const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ hostId, path, remote, branch, force, setUpstream }: { hostId: string; path: string; remote?: string; branch?: string; force?: boolean; setUpstream?: boolean }) => api.git.push(hostId, path, { remote, branch, force, setUpstream }),
+    onSuccess: (_, { hostId, path }) => { qc.invalidateQueries({ queryKey: ['git-status', hostId, path] }); qc.invalidateQueries({ queryKey: ['git-branches', hostId, path] }); qc.invalidateQueries({ queryKey: ['git-log', hostId, path] }) },
   })
 }

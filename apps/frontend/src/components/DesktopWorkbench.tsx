@@ -61,8 +61,8 @@ export function DesktopWorkbench() {
   const renderedSessionPanelWidth = clampValue(previewSessionWidth ?? sessionPanelWidth, sessionPanelMin, sessionPanelMax)
   const compactSessionWidth = clampValue(Math.floor(viewportWidth * 0.10), 70, SESSION_RAIL_WIDTH)
   const leftWidth = ACTIVITY_BAR_WIDTH + (sessionPanelExpanded ? renderedSessionPanelWidth : compactSessionWidth)
-  const gitPanelMin = 260
-  const gitPanelMax = 400
+  const gitPanelMin = clampValue(Math.floor(viewportWidth * 0.3), 380, 460)
+  const gitPanelMax = Math.max(gitPanelMin, Math.min(920, viewportWidth - leftWidth - minWorkspaceWidth))
   const renderedGitPanelWidth = clampValue(previewGitWidth ?? gitPanelWidth, gitPanelMin, gitPanelMax)
   const filePanelAvailable = viewportWidth - leftWidth - (gitPanelOpen ? renderedGitPanelWidth : 0) - minWorkspaceWidth
   const filePanelMaxBase = clampValue(Math.floor(viewportWidth * 0.36), 320, 520)
@@ -151,7 +151,7 @@ export function DesktopWorkbench() {
       window.removeEventListener('mousemove', handleMove)
       window.removeEventListener('mouseup', handleUp)
     }
-  }, [compactSessionWidth, filePanelMax, filePanelMin, previewSessionWidth, renderedSessionPanelWidth, sessionPanelExpanded, sessionPanelMax, sessionPanelMin, setFilePanelWidth, setSessionPanelWidth])
+  }, [compactSessionWidth, filePanelMax, filePanelMin, gitPanelMax, gitPanelMin, previewSessionWidth, renderedSessionPanelWidth, sessionPanelExpanded, sessionPanelMax, sessionPanelMin, setFilePanelWidth, setGitPanelWidth, setSessionPanelWidth])
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'desktop-workbench', sessionPanelExpanded, sessionPanelWidth, filePanelOpen, thumbnailPanelOpen, filePanelWidth, gitPanelOpen, gitPanelWidth, editorsOpen: openEditors.length > 0, terminalPanelHeight } }))
   }, [filePanelOpen, filePanelWidth, gitPanelOpen, gitPanelWidth, openEditors.length, sessionPanelExpanded, sessionPanelWidth, terminalPanelHeight, thumbnailPanelOpen])
