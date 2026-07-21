@@ -48,6 +48,8 @@ type UiPreferences = {
   sidebarPosition?: string
   showStatusBar?: boolean
   showQuickActions?: boolean
+  agentNotificationsEnabled?: boolean
+  agentNotificationDurationMs?: number
   autoReconnect?: boolean
   reconnectInterval?: number
   terminalPadding?: number
@@ -378,6 +380,8 @@ function normalizeUiPreferences(input: unknown): UiPreferences {
   if (typeof raw.sidebarPosition === 'string' && VALID_SIDEBAR.includes(raw.sidebarPosition)) result.sidebarPosition = raw.sidebarPosition
   if (typeof raw.showStatusBar === 'boolean') result.showStatusBar = raw.showStatusBar
   if (typeof raw.showQuickActions === 'boolean') result.showQuickActions = raw.showQuickActions
+  if (typeof raw.agentNotificationsEnabled === 'boolean') result.agentNotificationsEnabled = raw.agentNotificationsEnabled
+  if (typeof raw.agentNotificationDurationMs === 'number' && raw.agentNotificationDurationMs >= 1000 && raw.agentNotificationDurationMs <= 300000) result.agentNotificationDurationMs = raw.agentNotificationDurationMs
   if (typeof raw.autoReconnect === 'boolean') result.autoReconnect = raw.autoReconnect
   if (typeof raw.reconnectInterval === 'number' && raw.reconnectInterval >= 1000 && raw.reconnectInterval <= 60000) result.reconnectInterval = raw.reconnectInterval
   if (typeof raw.terminalPadding === 'number' && raw.terminalPadding >= 0 && raw.terminalPadding <= 32) result.terminalPadding = raw.terminalPadding

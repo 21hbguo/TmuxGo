@@ -17,6 +17,8 @@ export interface Preferences {
   sidebarPosition: 'left' | 'right'
   showStatusBar: boolean
   showQuickActions: boolean
+  agentNotificationsEnabled: boolean
+  agentNotificationDurationMs: number
   autoReconnect: boolean
   reconnectInterval: number
   terminalPadding: number
@@ -34,6 +36,8 @@ const defaultPreferences: Preferences = {
   sidebarPosition: 'left',
   showStatusBar: true,
   showQuickActions: true,
+  agentNotificationsEnabled: true,
+  agentNotificationDurationMs: 10000,
   autoReconnect: true,
   reconnectInterval: 3000,
   terminalPadding: 0,
@@ -56,6 +60,8 @@ function toUiPreferences(p: Preferences): UiPreferences {
     sidebarPosition: p.sidebarPosition,
     showStatusBar: p.showStatusBar,
     showQuickActions: p.showQuickActions,
+    agentNotificationsEnabled: p.agentNotificationsEnabled,
+    agentNotificationDurationMs: p.agentNotificationDurationMs,
     autoReconnect: p.autoReconnect,
     reconnectInterval: p.reconnectInterval,
     terminalPadding: p.terminalPadding,
