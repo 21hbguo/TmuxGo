@@ -151,7 +151,9 @@ describe('ConsoleLayout mobile files overlay stack', () => {
     useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-a' } as any)
     render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
     await waitFor(() => expect(screen.getByRole('button', { name: 'alpha' })).toBeTruthy())
-    expect(screen.getByRole('button', { name: 'beta' })).toHaveAttribute('data-keep-mobile-keyboard')
+    expect(screen.getByRole('button', { name: 'beta' })).not.toHaveAttribute('data-keep-mobile-keyboard')
+    fireEvent.click(screen.getByRole('button', { name: 'beta' }))
+    expect(useConsoleStore.getState().activeSessionId).toBe('session-b')
     expect(screen.queryByRole('button', { name: 'gamma' })).toBeNull()
   })
   it('limits quick session bar to five most recent sessions and keeps it visible above shortcut bar', async () => {
@@ -178,7 +180,7 @@ describe('ConsoleLayout mobile files overlay stack', () => {
     document.body.classList.add('keyboard-open')
     window.dispatchEvent(new CustomEvent('mobile-keyboard-change', { detail: { open: true, inset: 280 } }))
     await waitFor(() => expect(screen.getByText('shortcut-bar')).toBeTruthy())
-    expect(screen.getByRole('button', { name: 'epsilon' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'epsilon' })).toHaveAttribute('data-keep-mobile-keyboard')
   })
   it('opens quick session menu from context menu and can jump to sessions drawer', async () => {
     sessionsDataMock=[{ id:'session-a',name:'alpha' }]

@@ -30,6 +30,7 @@ const terminalMocks = vi.hoisted(() => ({
   clear: vi.fn(),
   focus: vi.fn(),
   scrollToBottom: vi.fn(),
+  fit: vi.fn(),
 }))
 const terminalLifecycleMocks = vi.hoisted(() => ({
   open: vi.fn(),
@@ -281,7 +282,9 @@ vi.mock('@xterm/xterm', () => {
 })
 vi.mock('@xterm/addon-fit', () => ({
   FitAddon: class {
-    fit() {}
+    fit() {
+      terminalMocks.fit()
+    }
     proposeDimensions() {
       return { cols: 120, rows: 36 }
     }
@@ -338,6 +341,7 @@ describe('TerminalPane', () => {
     terminalMocks.clear.mockClear()
     terminalMocks.focus.mockClear()
     terminalMocks.scrollToBottom.mockClear()
+    terminalMocks.fit.mockClear()
     terminalLifecycleMocks.open.mockClear()
     terminalLifecycleMocks.dispose.mockClear()
     webglAddonState.throwOnActivate = false
@@ -1145,6 +1149,24 @@ describe('TerminalPane', () => {
     resizeObserverCallback?.()
     await sleep(140)
     expect(terminalMocks.refresh).not.toHaveBeenCalled()
+  })
+  it('waits for mobile keyboard layout changes to settle before fitting', async () => {
+    mobileKeyboardMocks.isMobile = true
+    const { container } = render(<TerminalPane sessionName="dev" attachExclusive onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    await sleep(240)
+    terminalMocks.fit.mockClear()
+    const root = container.firstChild as HTMLElement
+    Object.defineProperty(root, 'clientWidth', { configurable: true, value: 390 })
+    Object.defineProperty(root, 'clientHeight', { configurable: true, value: 520 })
+    window.dispatchEvent(new CustomEvent('mobile-keyboard-change', { detail: { open: true } }))
+    window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'viewport-sync', mobile: true, keyboardOpen: true } }))
+    await sleep(150)
+    Object.defineProperty(root, 'clientHeight', { configurable: true, value: 500 })
+    resizeObserverCallback?.()
+    await sleep(100)
+    expect(terminalMocks.fit).not.toHaveBeenCalled()
+    await waitFor(() => expect(terminalMocks.fit).toHaveBeenCalled(), { timeout: 500 })
   })
   it('cancels tmux copy mode before focusing the mobile keyboard', async () => {
     mobileKeyboardMocks.isMobile = true

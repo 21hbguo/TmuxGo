@@ -1564,6 +1564,10 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           syncSharedLayout(false)
           return
         }
+        if (isMobileDevice && mobileKeyboardTransition) {
+          scheduleMobileKeyboardFit()
+          return
+        }
         scheduleFit(isMobileDevice ? MOBILE_FIT_DEBOUNCE_MS : 0)
       }
       const handleKeyUp = (e: KeyboardEvent) => {
@@ -1584,11 +1588,10 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const handleKeyboardChange = (event: Event) => {
         const detail = (event as CustomEvent<{ open?: boolean }>).detail
         const nextOpen = typeof detail?.open === 'boolean' ? detail.open : document.body.classList.contains('keyboard-open')
+        if (isMobileDevice && attachExclusiveRef.current) scheduleMobileKeyboardFit()
         if (nextOpen === lastKeyboardOpen) return
         lastKeyboardOpen = nextOpen
         if (isMobileDevice) cancelTmuxCopyMode()
-        if (!attachExclusiveRef.current) return
-        if (isMobileDevice) scheduleMobileKeyboardFit()
       }
       const handleAttached = (event: Event) => {
         const detail = (event as CustomEvent).detail || {}
@@ -1626,7 +1629,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         const perf = useConsoleStore.getState().terminalPerf || DEFAULT_TERMINAL_PERF
         updateTerminalPerf({ layoutFitCount: perf.layoutFitCount + 1 })
         if (mobileKeyboardLayout && mobileKeyboardTransition) {
-          scheduleTerminalRepaint(MOBILE_TERMINAL_KEYBOARD_REPAINT_DELAYS, false, stickToBottom, true)
+          scheduleMobileKeyboardFit()
           return
         }
         if (detail.reason === 'terminal-panel-resize') {
@@ -1859,7 +1862,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         lastContainerSize = { width, height }
         if (attachExclusiveRef.current) {
           if (isMobileDevice) {
-            if (!mobileKeyboardTransition) scheduleFit(MOBILE_FIT_DEBOUNCE_MS)
+            if (mobileKeyboardTransition) scheduleMobileKeyboardFit()
+            else scheduleFit(MOBILE_FIT_DEBOUNCE_MS)
             return
           }
           scheduleFit(0)
