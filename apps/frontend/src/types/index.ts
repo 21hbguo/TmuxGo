@@ -376,6 +376,87 @@ export interface AuditEvent {
   hostId?: string
   message?: string
 }
+export type PluginPlatform = 'linux' | 'macos' | 'windows'
+export type PluginContextType = 'global' | 'host' | 'session' | 'pane' | 'file' | 'git'
+export interface PluginCommandContribution {
+  id: string
+  title: string
+  description?: string
+  contexts?: PluginContextType[]
+  command: string[]
+  platforms?: PluginPlatform[]
+  timeoutMs?: number
+}
+export interface PluginEventContribution {
+  on: string
+  command: string[]
+  platforms?: PluginPlatform[]
+  timeoutMs?: number
+}
+export interface PluginViewContribution {
+  id: string
+  title: string
+  description?: string
+  icon?: string
+  entry: string
+  placement: 'activity'
+  width?: number
+}
+export interface PluginManifest {
+  schemaVersion: 1
+  id: string
+  name: string
+  version: string
+  minTmuxGoVersion: string
+  description?: string
+  icon?: string
+  platforms: PluginPlatform[]
+  permissions?: string[]
+  build?: { command: string[]; platforms?: PluginPlatform[] }[]
+  contributes?: {
+    actions?: PluginCommandContribution[]
+    events?: PluginEventContribution[]
+    views?: PluginViewContribution[]
+  }
+}
+export interface PluginSource {
+  kind: 'local' | 'github'
+  owner?: string
+  repo?: string
+  subdir?: string
+  requestedRef?: string
+  resolvedCommit?: string
+  installedAt: string
+}
+export interface PluginInfo {
+  pluginId: string
+  root: string
+  enabled: boolean
+  manifest: PluginManifest
+  source: PluginSource
+  state: 'active' | 'disabled' | 'error'
+  error?: string
+}
+export interface PluginCommandLog {
+  id: string
+  pluginId: string
+  actionId?: string
+  event?: string
+  command: string[]
+  status: 'running' | 'success' | 'error' | 'timeout'
+  startedAt: string
+  finishedAt?: string
+  exitCode?: number | null
+  stdout: string
+  stderr: string
+  error?: string
+}
+export interface GitHubPluginPreview {
+  source: string
+  resolvedCommit: string
+  manifest: PluginManifest
+  replacing: boolean
+}
 
 // Git types
 export interface GitFileChange {

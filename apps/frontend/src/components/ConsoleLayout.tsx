@@ -31,6 +31,7 @@ import { useTranslation } from '@/i18n'
 import { readActiveHostId, readActiveSessionId } from '@/lib/console-device-state'
 import { FiX } from 'react-icons/fi'
 import { AgentStatusBadge } from './AgentStatusBadge'
+import { PluginView } from './PluginView'
 import { shouldResumeFromContinuity } from '@/lib/session-continuity-policy'
 
 const MOBILE_QUERY = '(max-width: 1023px)'
@@ -117,6 +118,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   const [drawerType, setDrawerType] = useState<'sessions' | 'panes' | 'windows'>('sessions')
   const [showSettings, setShowSettings] = useState(false)
   const [mobileGitSheetOpen, setMobileGitSheetOpen] = useState(false)
+  const [mobilePluginView, setMobilePluginView] = useState<{ pluginId: string; viewId: string } | null>(null)
   const [keyboardOpen, setKeyboardOpen] = useState(false)
   const [mobileRecentSessionIds, setMobileRecentSessionIds] = useState<string[]>([])
   const [mobilePinnedSessionIds, setMobilePinnedSessionIds] = useState<string[]>([])
@@ -486,6 +488,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
         window.dispatchEvent(new CustomEvent('tmuxgo-mobile-git-back', { detail: { handled: false } }))
       }
       else if (top === 'mobile-git') setMobileGitSheetOpen(false)
+      else if (top === 'mobile-plugin') setMobilePluginView(null)
       stack.pop()
     }
     window.addEventListener('popstate', handlePopState)
@@ -496,6 +499,21 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
     window.addEventListener('tmuxgo-open-settings', handleOpenSettings as EventListener)
     return () => window.removeEventListener('tmuxgo-open-settings', handleOpenSettings as EventListener)
   }, [openSettings])
+  useEffect(() => {
+    const handleOpenPluginView = (event: Event) => {
+      const detail = (event as CustomEvent<{ pluginId?: string; viewId?: string }>).detail
+      if (!detail?.pluginId || !detail.viewId) return
+      if (!isMobile) {
+        useConsoleStore.getState().setActivePluginView({ pluginId: detail.pluginId, viewId: detail.viewId })
+        return
+      }
+      setShowSettings(false)
+      setMobilePluginView({ pluginId: detail.pluginId, viewId: detail.viewId })
+      pushOverlay('mobile-plugin')
+    }
+    window.addEventListener('tmuxgo-open-plugin-view', handleOpenPluginView as EventListener)
+    return () => window.removeEventListener('tmuxgo-open-plugin-view', handleOpenPluginView as EventListener)
+  }, [isMobile, pushOverlay])
   useEffect(() => {
     setMobileRecentSessionIds(readMobileRecentSessions(activeHostId || ''))
     setMobilePinnedSessionIds(readMobilePinnedSessions(activeHostId || ''))
@@ -626,6 +644,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       />
       {mobileFileSheetOpen && <div className="fixed left-0 right-0 top-0 z-50 bg-black/40" style={{ height: 'var(--app-height,100dvh)' }}><div className="tmuxgo-material absolute bottom-0 left-0 right-0 flex h-[75%] flex-col overflow-hidden border-t"><div className="flex shrink-0 justify-center py-2"><div className="h-1 w-10 rounded-full bg-text-3/30" /></div><div className="min-h-0 flex-1"><FilePanel mode="mobile" onClose={() => closeOverlay('mobile-files')} /></div></div></div>}
       {mobileGitSheetOpen && <div className="fixed inset-0 z-[80] bg-black/40" style={{ height: 'var(--app-height,100dvh)' }} onClick={() => closeOverlay('mobile-git')}><section role="dialog" aria-modal="true" aria-label={t('git.title')} className="tmuxgo-material absolute bottom-0 left-0 right-0 flex h-[88%] flex-col overflow-hidden border-t !bg-bg-1 pb-[env(safe-area-inset-bottom)]" onClick={(event) => event.stopPropagation()}><div className="relative flex h-11 shrink-0 items-center justify-center border-b border-[var(--line)]"><div className="absolute top-2 h-1 w-10 rounded-full bg-text-3/30" /><span className="pt-1 text-[13px] font-medium text-text-1">{t('git.title')}</span><button ref={mobileGitCloseRef} aria-label={t('common.close')} title={t('common.close')} onClick={() => closeOverlay('mobile-git')} className="tmuxgo-icon-button absolute right-1 top-0 flex h-11 w-11 items-center justify-center rounded-lg text-text-3 active:bg-bg-2 active:text-text-1"><FiX aria-hidden="true" size={18} /></button></div><div className="min-h-0 flex-1"><GitPanel mode="mobile" /></div></section></div>}
+      {mobilePluginView && <div className="fixed inset-0 z-[90] bg-bg-0" style={{ height: 'var(--app-height,100dvh)' }}><PluginView mode="mobile" pluginId={mobilePluginView.pluginId} viewId={mobilePluginView.viewId} onClose={() => closeOverlay('mobile-plugin')} /></div>}
       <ToastViewport />
       <PaneNotifications />
       {PromptElement}

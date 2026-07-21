@@ -13,6 +13,7 @@ import { SessionRail } from './SessionRail'
 import { EditorWorkbench } from './EditorWorkbench'
 import { TerminalDock } from './TerminalDock'
 import { useTranslation } from '@/i18n'
+import { PluginView } from './PluginView'
 
 const ACTIVITY_BAR_WIDTH = 56
 const SESSION_RAIL_WIDTH = 109
@@ -31,6 +32,8 @@ export function DesktopWorkbench() {
   const filePanelOpen = useConsoleStore((state) => state.filePanelOpen)
   const thumbnailPanelOpen = useConsoleStore((state) => state.thumbnailPanelOpen)
   const gitPanelOpen = useConsoleStore((state) => state.gitPanelOpen)
+  const activePluginView = useConsoleStore((state) => state.activePluginView)
+  const setActivePluginView = useConsoleStore((state) => state.setActivePluginView)
   const gitPanelWidth = useConsoleStore((state) => state.gitPanelWidth)
   const setGitPanelWidth = useConsoleStore((state) => state.setGitPanelWidth)
   const openEditors = useConsoleStore((state) => state.openEditors)
@@ -260,6 +263,7 @@ export function DesktopWorkbench() {
           }} />
         </div>
       )}
+      {activePluginView && <PluginView pluginId={activePluginView.pluginId} viewId={activePluginView.viewId} onClose={() => setActivePluginView(null)} />}
       <div className="tmuxgo-content-surface relative flex min-h-0 min-w-0 flex-1 flex-col">
         {openEditors.length > 0 ? (
           <>

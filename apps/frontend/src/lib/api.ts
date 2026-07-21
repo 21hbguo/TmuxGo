@@ -1,6 +1,6 @@
 import { getApiBase } from './runtime-endpoints'
 import { buildSessionId } from './session-id'
-import type { AuditEvent, CustomShortcut, FavoriteDirectory, FavoriteItem, FileContentMatch, FileContentResponse, FileItem, FileListResponse, FilePreviewResponse, FileRoot, FileUploadTarget, GitBranchesResponse, GitCommitResponse, GitDetectResponse, GitDiffResponse, GitDiffStatsResponse, GitHostState, GitLogResponse, GitMergeResponse, GitRepositoryInfo, GitStatusResponse, RemotePreferences, SessionArchive, SessionArchivePolicy, SessionArchiveSummary, SessionContinuityConfig, SessionLayout, SessionOrderPreference, SessionTemplate, SessionThumbnail, Snippet, TrashEntry, UiPreferences, UploadJobResult, UploadedFile } from '@/types'
+import type { AuditEvent, CustomShortcut, FavoriteDirectory, FavoriteItem, FileContentMatch, FileContentResponse, FileItem, FileListResponse, FilePreviewResponse, FileRoot, FileUploadTarget, GitBranchesResponse, GitCommitResponse, GitDetectResponse, GitDiffResponse, GitDiffStatsResponse, GitHostState, GitHubPluginPreview, GitLogResponse, GitMergeResponse, GitRepositoryInfo, GitStatusResponse, PluginCommandLog, PluginInfo, RemotePreferences, SessionArchive, SessionArchivePolicy, SessionArchiveSummary, SessionContinuityConfig, SessionLayout, SessionOrderPreference, SessionTemplate, SessionThumbnail, Snippet, TrashEntry, UiPreferences, UploadJobResult, UploadedFile } from '@/types'
 
 export interface StreamSystemInfo {
   outputBytes: number
@@ -198,6 +198,22 @@ function uploadWithProgress(hostId: string, body: FormData, onProgress?: (loaded
 }
 
 export const api = {
+  plugins: {
+    list: () => fetchApi<{ plugins: PluginInfo[] }>('/api/plugins'),
+    link: (path: string) => fetchApi<PluginInfo>('/api/plugins/link', { method: 'POST', body: JSON.stringify({ path }) }),
+    setEnabled: (pluginId: string, enabled: boolean) => fetchApi<PluginInfo>(`/api/plugins/${encodeURIComponent(pluginId)}/enabled`, { method: 'PATCH', body: JSON.stringify({ enabled }) }),
+    uninstall: (pluginId: string, keepData = false) => fetchApi<{ ok: true }>(`/api/plugins/${encodeURIComponent(pluginId)}?keepData=${keepData}`, { method: 'DELETE' }),
+    invoke: (pluginId: string, actionId: string, context: Record<string, unknown>) => fetchApi<PluginCommandLog>(`/api/plugins/${encodeURIComponent(pluginId)}/actions/${encodeURIComponent(actionId)}/invoke`, { method: 'POST', body: JSON.stringify({ context }) }),
+    logs: (pluginId?: string) => fetchApi<{ logs: PluginCommandLog[] }>(`/api/plugins/logs${pluginId ? `?pluginId=${encodeURIComponent(pluginId)}` : ''}`),
+    previewGitHub: (source: string, ref?: string) => fetchApi<GitHubPluginPreview>('/api/plugins/github/preview', { method: 'POST', body: JSON.stringify({ source, ref }) }),
+    installGitHub: (source: string, resolvedCommit: string, ref?: string) => fetchApi<PluginInfo>('/api/plugins/github/install', { method: 'POST', body: JSON.stringify({ source, resolvedCommit, ref }) }),
+    storage: {
+      list: (pluginId: string) => fetchApi<{ keys: string[] }>(`/api/plugins/${encodeURIComponent(pluginId)}/storage`),
+      get: <T>(pluginId: string, key: string) => fetchApi<{ value: T }>(`/api/plugins/${encodeURIComponent(pluginId)}/storage/${encodeURIComponent(key)}`),
+      set: (pluginId: string, key: string, value: unknown) => fetchApi<{ ok: true }>(`/api/plugins/${encodeURIComponent(pluginId)}/storage/${encodeURIComponent(key)}`, { method: 'PUT', body: JSON.stringify({ value }) }),
+      remove: (pluginId: string, key: string) => fetchApi<{ ok: true }>(`/api/plugins/${encodeURIComponent(pluginId)}/storage/${encodeURIComponent(key)}`, { method: 'DELETE' }),
+    },
+  },
   sessionArchives: {
     list: (hostId: string, sessionId?: string) => fetchApi<{ archives: SessionArchiveSummary[] }>(`/api/hosts/${encodeURIComponent(hostId)}/session-archives${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ''}`),
     get: (hostId: string, archiveId: string) => fetchApi<SessionArchive>(`/api/hosts/${encodeURIComponent(hostId)}/session-archives/${encodeURIComponent(archiveId)}`),

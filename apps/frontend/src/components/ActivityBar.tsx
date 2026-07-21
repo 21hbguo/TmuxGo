@@ -2,6 +2,10 @@
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
 import { FiBell, FiFolder, FiGitBranch, FiGrid, FiSearch, FiServer, FiSettings } from 'react-icons/fi'
+import { FiActivity, FiBox, FiCode, FiCpu, FiDatabase, FiGlobe, FiTerminal, FiTool, FiZap } from 'react-icons/fi'
+import { usePlugins } from '@/hooks/useApi'
+
+const pluginIcons = { activity: FiActivity, box: FiBox, code: FiCode, cpu: FiCpu, database: FiDatabase, globe: FiGlobe, terminal: FiTerminal, tool: FiTool, zap: FiZap }
 
 export function ActivityBar() {
   const sessionPanelExpanded = useConsoleStore((state) => state.sessionPanelExpanded)
@@ -11,9 +15,13 @@ export function ActivityBar() {
   const thumbnailPanelOpen = useConsoleStore((state) => state.thumbnailPanelOpen)
   const toggleThumbnailPanel = useConsoleStore((state) => state.toggleThumbnailPanel)
   const gitPanelOpen = useConsoleStore((state) => state.gitPanelOpen)
+  const activePluginView = useConsoleStore((state) => state.activePluginView)
+  const setActivePluginView = useConsoleStore((state) => state.setActivePluginView)
   const toggleGitPanel = useConsoleStore((state) => state.toggleGitPanel)
   const setCommandPalette = useConsoleStore((state) => state.setCommandPalette)
   const { t } = useTranslation()
+  const { data } = usePlugins()
+  const pluginViews = (data?.plugins || []).filter((plugin) => plugin.enabled && plugin.state === 'active').flatMap((plugin) => (plugin.manifest.contributes?.views || []).map((view) => ({ plugin, view })))
   const items = [
     { id: 'sessions', label: t('activity.sessions'), icon: FiServer, onClick: toggleSessionPanel },
     { id: 'files', label: t('activity.explorer'), icon: FiFolder, onClick: toggleFilePanel },
@@ -34,6 +42,12 @@ export function ActivityBar() {
             <Icon aria-hidden="true" size={18} />
           </button>
         )
+      })}
+      {!!pluginViews.length && <div className="my-1 h-px w-7 shrink-0 bg-[var(--line)]" />}
+      {pluginViews.map(({ plugin, view }) => {
+        const Icon = pluginIcons[(view.icon || plugin.manifest.icon || 'box') as keyof typeof pluginIcons] || FiBox
+        const active = activePluginView?.pluginId === plugin.pluginId && activePluginView.viewId === view.id
+        return <button key={`${plugin.pluginId}:${view.id}`} aria-label={view.title} title={`${view.title} · ${plugin.manifest.name}`} onClick={() => setActivePluginView({ pluginId: plugin.pluginId, viewId: view.id })} className={`tmuxgo-icon-button flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border ${active ? 'border-accent/30 bg-accent/15 text-accent' : 'border-transparent text-text-3 hover:bg-bg-2/65 hover:text-text-1'}`}><Icon aria-hidden="true" size={18} /></button>
       })}
     </aside>
   )

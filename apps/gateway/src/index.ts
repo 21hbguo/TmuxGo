@@ -21,6 +21,8 @@ import { auditRoutes } from './routes/audit.js'
 import { recordAuditRequest } from './lib/audit-log.js'
 import { templateRoutes } from './routes/templates.js'
 import { sessionArchiveRoutes } from './routes/session-archives.js'
+import { pluginRoutes } from './routes/plugins.js'
+import { pluginManager } from './lib/plugin-manager.js'
 
 const fastify = Fastify({
   logger: process.env.NODE_ENV === 'production' ? { level: 'warn' } : true,
@@ -57,6 +59,7 @@ await fastify.register(gitRoutes, { prefix: '/api' })
 await fastify.register(auditRoutes, { prefix: '/api' })
 await fastify.register(templateRoutes, { prefix: '/api' })
 await fastify.register(sessionArchiveRoutes, { prefix: '/api' })
+await fastify.register(pluginRoutes, { prefix: '/api' })
 
 const frontendDist = process.env.TMUXGO_FRONTEND_DIST || path.resolve(process.cwd(), '../frontend/dist')
 if (existsSync(frontendDist)) {
@@ -85,6 +88,7 @@ const start = async () => {
 start()
 
 const shutdown = async () => {
+  await pluginManager.shutdown()
   await cleanupMultiplexSockets()
   process.exit(0)
 }
