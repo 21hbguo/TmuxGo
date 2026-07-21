@@ -1,6 +1,5 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { TopBar } from './TopBar'
 import { PaneGrid } from './PaneGrid'
 import { StatusBar } from './StatusBar'
 import { CommandPalette } from './CommandPalette'
@@ -549,7 +548,6 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   return (
     <div className="tmuxgo-app-shell flex w-screen flex-col overflow-hidden" style={{ height: appHeight, ['--app-height' as any]: appHeight }}>
       <InstallAppBanner />
-      {!isMobile && <TopBar />}
       <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
         <main data-workspace-main className="tmuxgo-workspace-main flex min-h-0 min-w-0 flex-1 flex-col">
           {isMobile ? <PaneGrid /> : <DesktopWorkbench />}
