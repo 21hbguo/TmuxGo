@@ -469,7 +469,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     e.preventDefault()
     e.stopPropagation()
     const currentFontSize = Number(terminalInstance.current.options.fontSize) || preferencesRef.current.fontSize
-    const nextFontSize = clampMobileFontSize(currentFontSize * Math.exp(-e.deltaY * 0.01))
+    const mouseWheel = e.deltaMode !== WheelEvent.DOM_DELTA_PIXEL || Math.abs(e.deltaY) >= 50
+    const nextFontSize = clampMobileFontSize(mouseWheel ? currentFontSize - Math.sign(e.deltaY) : currentFontSize * Math.exp(-e.deltaY * 0.01))
     if (Math.abs(nextFontSize - currentFontSize) < MOBILE_PINCH_FONT_SIZE_EPSILON) return
     applyPinchFontSize(nextFontSize)
     if (desktopPinchCommitRef.current) clearTimeout(desktopPinchCommitRef.current)
