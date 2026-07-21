@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import React from 'react'
 import { GitPanel } from './GitPanel'
@@ -13,6 +13,7 @@ const useGitStatusMock = vi.fn()
 
 vi.mock('@/hooks/useApi', () => ({
   useGitStatus: (...args: any[]) => useGitStatusMock(...args),
+  useGitDiff: () => ({ data: { raw: 'diff --git a/src/index.ts b/src/index.ts\n--- a/src/index.ts\n+++ b/src/index.ts\n@@ -1 +1 @@\n-old\n+new' }, isLoading: false }),
   useGitStage: () => ({ mutate: vi.fn() }),
   useGitUnstage: () => ({ mutate: vi.fn() }),
   useGitCommit: () => ({ mutate: vi.fn() }),
@@ -61,6 +62,7 @@ describe('GitPanel', () => {
   })
 
   afterEach(() => {
+    vi.restoreAllMocks()
     vi.unstubAllGlobals()
   })
 
@@ -74,6 +76,22 @@ describe('GitPanel', () => {
     expect(screen.getAllByText('main').length).toBeGreaterThan(0)
     await user.click(screen.getByText('second'))
     expect(useConsoleStore.getState().openEditors.at(-1)).toMatchObject({ id: expect.stringContaining('git-diff?'), language: 'diff', rootPath: '/workspace/app', name: 'b2 second' })
+  })
+
+  it('opens commit diff inside the mobile Git panel and returns one level', async () => {
+    const user = userEvent.setup()
+    const queryClient = new QueryClient()
+    const backSpy = vi.spyOn(window.history, 'back').mockImplementation(() => {})
+    render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(I18nProvider, null, React.createElement(GitPanel, { mode: 'mobile' }))))
+    await user.click(screen.getByText('历史'))
+    await user.click(screen.getByText('second'))
+    expect(useConsoleStore.getState().openEditors).toHaveLength(0)
+    expect(screen.getByRole('button', { name: '返回' })).toBeInTheDocument()
+    expect(screen.getByText('差异: b2')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '返回' }))
+    expect(backSpy).toHaveBeenCalledTimes(1)
+    fireEvent(window, new CustomEvent('tmuxgo-mobile-git-back', { detail: { handled: false } }))
+    expect(await screen.findByText('second')).toBeInTheDocument()
   })
 
   it('shows remote and tag refs and highlights history search matches', async () => {

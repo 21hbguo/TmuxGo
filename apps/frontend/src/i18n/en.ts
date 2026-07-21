@@ -224,6 +224,7 @@ export const en = {
   'quick.killConfirm': 'Close current pane?',
   'quick.killTitle': 'Close pane',
   'common.cancel': 'Cancel',
+  'common.back': 'Back',
   'common.confirm': 'Confirm',
   'common.close': 'Close',
   'palette.newSession': 'New session',

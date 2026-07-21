@@ -450,6 +450,11 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
     return () => window.removeEventListener('tmuxgo-mobile-files-push-level', handleMobileFilesPushLevel as EventListener)
   }, [pushOverlay])
   useEffect(() => {
+    const handleMobileGitPushLevel = () => pushOverlay('mobile-git-level')
+    window.addEventListener('tmuxgo-mobile-git-push-level', handleMobileGitPushLevel as EventListener)
+    return () => window.removeEventListener('tmuxgo-mobile-git-push-level', handleMobileGitPushLevel as EventListener)
+  }, [pushOverlay])
+  useEffect(() => {
     const handlePopState = () => {
       if (ignoreNextPopRef.current) {
         ignoreNextPopRef.current = false
@@ -469,6 +474,9 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
         window.dispatchEvent(new CustomEvent('tmuxgo-mobile-files-back', { detail }))
         if (detail.handled) return
         setMobileFileSheetOpen(false)
+      }
+      else if (top === 'mobile-git-level') {
+        window.dispatchEvent(new CustomEvent('tmuxgo-mobile-git-back', { detail: { handled: false } }))
       }
       else if (top === 'mobile-git') setMobileGitSheetOpen(false)
       stack.pop()
@@ -624,7 +632,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
         type={drawerType}
       />
       {mobileFileSheetOpen && <div className="fixed left-0 right-0 top-0 z-50 bg-black/40" style={{ height: 'var(--app-height,100dvh)' }}><div className="tmuxgo-material absolute bottom-0 left-0 right-0 flex h-[75%] flex-col overflow-hidden rounded-t-xl border-t"><div className="flex shrink-0 justify-center py-2"><div className="h-1 w-10 rounded-full bg-text-3/30" /></div><div className="min-h-0 flex-1"><FilePanel mode="mobile" onClose={() => closeOverlay('mobile-files')} /></div></div></div>}
-      {mobileGitSheetOpen && <div className="fixed inset-0 z-[80] bg-black/40" style={{ height: 'var(--app-height,100dvh)' }} onClick={() => closeOverlay('mobile-git')}><section role="dialog" aria-modal="true" aria-label={t('git.title')} className="tmuxgo-material absolute bottom-0 left-0 right-0 flex h-[88%] flex-col overflow-hidden rounded-t-xl border-t !bg-bg-1 pb-[env(safe-area-inset-bottom)]" onClick={(event) => event.stopPropagation()}><div className="relative flex h-11 shrink-0 items-center justify-center border-b border-[var(--line)]"><div className="absolute top-2 h-1 w-10 rounded-full bg-text-3/30" /><span className="pt-1 text-[13px] font-medium text-text-1">{t('git.title')}</span><button ref={mobileGitCloseRef} aria-label={t('common.close')} title={t('common.close')} onClick={() => closeOverlay('mobile-git')} className="tmuxgo-icon-button absolute right-1 top-0 flex h-11 w-11 items-center justify-center rounded-lg text-text-3 active:bg-bg-2 active:text-text-1"><FiX aria-hidden="true" size={18} /></button></div><div className="min-h-0 flex-1"><GitPanel /></div></section></div>}
+      {mobileGitSheetOpen && <div className="fixed inset-0 z-[80] bg-black/40" style={{ height: 'var(--app-height,100dvh)' }} onClick={() => closeOverlay('mobile-git')}><section role="dialog" aria-modal="true" aria-label={t('git.title')} className="tmuxgo-material absolute bottom-0 left-0 right-0 flex h-[88%] flex-col overflow-hidden rounded-t-xl border-t !bg-bg-1 pb-[env(safe-area-inset-bottom)]" onClick={(event) => event.stopPropagation()}><div className="relative flex h-11 shrink-0 items-center justify-center border-b border-[var(--line)]"><div className="absolute top-2 h-1 w-10 rounded-full bg-text-3/30" /><span className="pt-1 text-[13px] font-medium text-text-1">{t('git.title')}</span><button ref={mobileGitCloseRef} aria-label={t('common.close')} title={t('common.close')} onClick={() => closeOverlay('mobile-git')} className="tmuxgo-icon-button absolute right-1 top-0 flex h-11 w-11 items-center justify-center rounded-lg text-text-3 active:bg-bg-2 active:text-text-1"><FiX aria-hidden="true" size={18} /></button></div><div className="min-h-0 flex-1"><GitPanel mode="mobile" /></div></section></div>}
       <ToastViewport />
       {PromptElement}
     </div>

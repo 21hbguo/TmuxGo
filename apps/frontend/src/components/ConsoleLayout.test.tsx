@@ -24,7 +24,7 @@ vi.mock('./UploadConfirmDialog', () => ({ UploadConfirmDialog: () => React.creat
 vi.mock('./UploadQueue', () => ({ UploadQueue: () => React.createElement('div') }))
 vi.mock('./AppVersionGuard', () => ({ AppVersionGuard: () => React.createElement('div') }))
 vi.mock('./DesktopWorkbench', () => ({ DesktopWorkbench: () => React.createElement('div') }))
-vi.mock('./GitPanel', () => ({ GitPanel: () => React.createElement('div', null, 'mobile-git-panel') }))
+vi.mock('./GitPanel', () => ({ GitPanel: () => React.createElement('div', null, 'mobile-git-panel', React.createElement('button', { onClick: () => window.dispatchEvent(new CustomEvent('tmuxgo-mobile-git-push-level')) }, 'open-git-detail')) }))
 vi.mock('@/hooks/usePreferences', () => ({ usePreferences: () => ({ preferences: { showStatusBar: false } }) }))
 vi.mock('@/hooks/useApi', () => ({
   useHosts: () => ({ data: [{ id: 'local', name: 'Local', address: '127.0.0.1', status: 'online', tags: [] }] }),
@@ -107,6 +107,15 @@ describe('ConsoleLayout mobile files overlay stack', () => {
   it('opens and closes the mobile Git sheet from the bottom navigation', async () => {
     render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
     fireEvent.click(screen.getByText('open-git'))
+    expect(screen.getByText('mobile-git-panel')).toBeTruthy()
+    window.dispatchEvent(new PopStateEvent('popstate'))
+    await waitFor(() => expect(screen.queryByText('mobile-git-panel')).toBeNull())
+  })
+  it('returns from a mobile Git commit before closing the Git sheet', async () => {
+    render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
+    fireEvent.click(screen.getByText('open-git'))
+    fireEvent.click(screen.getByText('open-git-detail'))
+    window.dispatchEvent(new PopStateEvent('popstate'))
     expect(screen.getByText('mobile-git-panel')).toBeTruthy()
     window.dispatchEvent(new PopStateEvent('popstate'))
     await waitFor(() => expect(screen.queryByText('mobile-git-panel')).toBeNull())
