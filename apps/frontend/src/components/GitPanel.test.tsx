@@ -12,6 +12,12 @@ const useGitBranchesMock = vi.fn()
 const useGitPaneDetectMock = vi.fn()
 const useGitStatusMock = vi.fn()
 const useGitDiffMock = vi.fn()
+const useGitRepositoriesMock = vi.fn()
+const gitDetectMock = vi.fn()
+
+vi.mock('@/lib/api', () => ({
+  api: { git: { detect: (...args: any[]) => gitDetectMock(...args) } },
+}))
 
 vi.mock('@/hooks/useApi', () => ({
   useGitStatus: (...args: any[]) => useGitStatusMock(...args),
@@ -22,6 +28,7 @@ vi.mock('@/hooks/useApi', () => ({
   useGitDiscard: () => ({ mutate: vi.fn() }),
   useGitLog: (...args: any[]) => useGitLogMock(...args),
   useGitPaneDetect: (...args: any[]) => useGitPaneDetectMock(...args),
+  useGitRepositories: (...args: any[]) => useGitRepositoriesMock(...args),
   useGitBranches: (...args: any[]) => useGitBranchesMock(...args),
   useGitCheckout: () => ({ mutate: vi.fn() }),
   useGitCreateBranch: () => ({ mutate: vi.fn() }),
@@ -42,6 +49,8 @@ describe('GitPanel', () => {
     useGitLogMock.mockReturnValue({ data: { commits: [{ hash: 'a1', shortHash: 'a1', subject: 'first', body: '', author: 'dev', authorEmail: 'dev@test', authorDate: '2024-01-01T00:00:00Z', date: '2024-01-01T00:00:00Z', parents: [] }, { hash: 'b2', shortHash: 'b2', subject: 'second', body: '', author: 'dev', authorEmail: 'dev@test', authorDate: '2024-01-02T00:00:00Z', date: '2024-01-02T00:00:00Z', parents: ['a1'] }], hasMore: false }, isLoading: false })
     useGitBranchesMock.mockReturnValue({ data: { current: 'main', branches: [{ name: 'main', current: true, commitHash: 'b2', lastCommitSubject: 'second' }] } })
     useGitPaneDetectMock.mockReturnValue({ data: undefined })
+    useGitRepositoriesMock.mockReturnValue({ data: [], isLoading: false, isError: false, refetch: vi.fn() })
+    gitDetectMock.mockImplementation(async (_hostId: string, path: string) => ({ isGitRepo: true, rootPath: path, branch: 'main', path }))
     useGitStatusMock.mockReturnValue({ data: { branch: 'main', ahead: 1, behind: 0, staged: [], unstaged: [], untracked: [], conflicted: [] } })
     useGitDiffMock.mockReturnValue({ data: { raw: 'diff --git a/src/index.ts b/src/index.ts\n--- a/src/index.ts\n+++ b/src/index.ts\n@@ -1 +1 @@\n-old\n+new' }, isLoading: false })
     useConsoleStore.setState({
@@ -156,11 +165,49 @@ describe('GitPanel', () => {
     const queryClient = new QueryClient()
     render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(I18nProvider, null, React.createElement(GitPanel))))
     await user.click(screen.getByRole('button', { name: '切换仓库' }))
-    const input = screen.getByPlaceholderText('搜索最近仓库或输入仓库路径')
+    const input = screen.getByPlaceholderText('搜索仓库或输入仓库路径')
     await user.type(input, 'repo-b')
     expect(screen.queryByText('repo-a')).toBeNull()
     await user.keyboard('{Enter}')
-    expect(useConsoleStore.getState().gitByHost.local).toMatchObject({ mode: 'locked', currentRepoPath: '/workspace/repo-b', lockedRepoPath: '/workspace/repo-b' })
+    await waitFor(() => expect(useConsoleStore.getState().gitByHost.local).toMatchObject({ mode: 'locked', currentRepoPath: '/workspace/repo-b', lockedRepoPath: '/workspace/repo-b' }))
+    expect(gitDetectMock).toHaveBeenCalledWith('local', '/workspace/repo-b')
+  })
+
+  it('finds a discovered repository by name and switches to its detected root', async () => {
+    useGitRepositoriesMock.mockReturnValue({ data: [{ path: '/workspace/projects/alpha-service', label: 'alpha-service' }], isLoading: false, isError: false, refetch: vi.fn() })
+    const user = userEvent.setup()
+    const queryClient = new QueryClient()
+    render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(I18nProvider, null, React.createElement(GitPanel))))
+    await user.click(screen.getByRole('button', { name: '切换仓库' }))
+    await user.type(screen.getByPlaceholderText('搜索仓库或输入仓库路径'), 'alpha')
+    expect(screen.getByText('alpha-service')).toBeInTheDocument()
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(useConsoleStore.getState().gitByHost.local).toMatchObject({ currentRepoPath: '/workspace/projects/alpha-service', lockedRepoPath: '/workspace/projects/alpha-service' }))
+  })
+
+  it('keeps the current repository when a recent repository is invalid', async () => {
+    useConsoleStore.setState({ gitByHost: { local: { mode: 'follow-editor', currentRepoPath: '/workspace/repo-a', currentFilePath: null, source: 'pane', lockedRepoPath: null, recentRepos: [{ repoPath: '/workspace/missing', label: 'missing', lastUsedAt: 1, pinned: false }] } } } as any)
+    gitDetectMock.mockResolvedValue({ isGitRepo: false, rootPath: null })
+    const user = userEvent.setup()
+    const queryClient = new QueryClient()
+    render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(I18nProvider, null, React.createElement(GitPanel))))
+    await user.click(screen.getByRole('button', { name: '切换仓库' }))
+    await user.click(screen.getByText('missing'))
+    await waitFor(() => expect(useConsoleStore.getState().toasts.at(-1)?.message).toBe('未检测到 Git 仓库'))
+    expect(useConsoleStore.getState().gitByHost.local.currentRepoPath).toBe('/workspace/repo-a')
+  })
+
+  it('removes the previous repository history immediately after switching', async () => {
+    useGitLogMock.mockImplementation((_hostId: string, path: string) => ({ data: { commits: path.endsWith('repo-a') ? [{ hash: 'old1', shortHash: 'old1', subject: 'old repository commit', body: '', author: 'dev', authorEmail: 'dev@test', authorDate: '2024-01-01T00:00:00Z', date: '2024-01-01T00:00:00Z', parents: [] }] : [{ hash: 'new1', shortHash: 'new1', subject: 'new repository commit', body: '', author: 'dev', authorEmail: 'dev@test', authorDate: '2024-01-02T00:00:00Z', date: '2024-01-02T00:00:00Z', parents: [] }], hasMore: false }, isLoading: false }))
+    useConsoleStore.setState({ gitByHost: { local: { mode: 'follow-editor', currentRepoPath: '/workspace/repo-a', currentFilePath: null, source: 'pane', lockedRepoPath: null, recentRepos: [{ repoPath: '/workspace/repo-b', label: 'repo-b', lastUsedAt: 1, pinned: false }] } } } as any)
+    const user = userEvent.setup()
+    const queryClient = new QueryClient()
+    render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(I18nProvider, null, React.createElement(GitPanel))))
+    expect(screen.getByText('old repository commit')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '切换仓库' }))
+    await user.click(screen.getByText('repo-b'))
+    await waitFor(() => expect(screen.getByText('new repository commit')).toBeInTheDocument())
+    expect(screen.queryByText('old repository commit')).toBeNull()
   })
 
   it('follows the active terminal repository when no editor is open', async () => {

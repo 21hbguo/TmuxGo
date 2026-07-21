@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { execGit } from '../lib/git-executor.js'
 import { execTmux } from '../lib/tmux-executor.js'
 import { assertTargetAllowed } from '../lib/tmux-policy.js'
+import { discoverGitRepositoriesForHost } from './files.js'
 
 interface GitFileChange {
   path: string
@@ -149,6 +150,10 @@ export function parseGitRefs(stdout: string) {
 }
 
 export async function gitRoutes(fastify: FastifyInstance) {
+  fastify.get('/hosts/:hostId/git/repositories', async (request) => {
+    const { hostId } = request.params as { hostId: string }
+    return discoverGitRepositoriesForHost(hostId)
+  })
   fastify.get('/hosts/:hostId/git/detect', async (request) => {
     const { hostId } = request.params as { hostId: string }
     const { path: repoPath, paneId } = request.query as { path?: string; paneId?: string }

@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import type { SessionLayout } from '@/types'
-import type { GitBranchesResponse, GitCommitResponse, GitDetectResponse, GitDiffResponse, GitLogResponse, GitMergeResponse, GitStatusResponse } from '@/types'
+import type { GitBranchesResponse, GitCommitResponse, GitDetectResponse, GitDiffResponse, GitLogResponse, GitMergeResponse, GitRepositoryInfo, GitStatusResponse } from '@/types'
 
 function upsertSessionList(prev: any[] | undefined, session: any) {
   if (!session?.id) return prev || []
@@ -236,6 +236,14 @@ export function useFileSearch(hostId: string, root: string, mode: 'name' | 'cont
 }
 
 // Git hooks
+export function useGitRepositories(hostId: string, enabled = true) {
+  return useQuery<GitRepositoryInfo[]>({
+    queryKey: ['git-repositories', hostId],
+    queryFn: () => api.git.repositories(hostId),
+    enabled: !!hostId && enabled,
+    staleTime: 60000,
+  })
+}
 export function useGitDetect(hostId: string, path: string) {
   return useQuery({
     queryKey: ['git-detect', hostId, path],

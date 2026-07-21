@@ -25,6 +25,10 @@ const DEFAULT_UPLOAD_RATE_LIMIT_KBPS = 200
 const MAX_UPLOAD_RATE_LIMIT_KBPS = 10 * 1024
 const SEARCH_MATCH_LIMIT = 3
 const RG_MAX_BUFFER = 16 * 1024 * 1024
+const GIT_REPOSITORY_MAX_DEPTH = 6
+const GIT_REPOSITORY_MAX_DIRS = 12000
+const GIT_REPOSITORY_MAX_RESULTS = 200
+const GIT_REPOSITORY_SKIP_DIRS = new Set(['.cache', '.local', '.npm', '.next', '.next-dev', '.next-prod', '.venv', '__pycache__', 'build', 'dist', 'node_modules', 'postgres_data', 'venv'])
 export const TEMP_UPLOAD_ROOT_ID = 'app-tmp'
 const TEMP_UPLOAD_ROOT_LABEL = 'tmp'
 const DEFAULT_TEMP_UPLOAD_TTL_MS = 24 * 60 * 60 * 1000
@@ -62,6 +66,10 @@ interface SearchMatchLine {
 }
 interface ContentSearchResult extends FileItem {
   matches: SearchMatchLine[]
+}
+export interface GitRepositoryInfo {
+  path: string
+  label: string
 }
 
 let rootsCache: Promise<FileRoot[]> | null = null
@@ -188,6 +196,24 @@ if isinstance(include_dotfiles,str): include_dotfiles=include_dotfiles.lower()!=
 op=payload['op']
 if op=='roots':
  print(json.dumps(roots()));sys.exit(0)
+if op=='git-repositories':
+ skip={'.cache','.local','.npm','.next','.next-dev','.next-prod','.venv','__pycache__','build','dist','node_modules','postgres_data','venv'}
+ found={}
+ dirs=0
+ for root in roots():
+  queue=[(root['path'],0)]
+  while queue and dirs<12000 and len(found)<200:
+   current,depth=queue.pop(0);dirs+=1
+   try: entries=list(os.scandir(current))
+   except: continue
+   if any(entry.name=='.git' for entry in entries): found[current]={'path':current,'label':pathlib.Path(current).name or current}
+   if depth>=6: continue
+   for entry in entries:
+    if entry.name=='.git' or entry.name in skip or entry.name.startswith('.'): continue
+    try:
+     if entry.is_dir(follow_symlinks=False): queue.append((entry.path,depth+1))
+    except: pass
+ print(json.dumps(sorted(found.values(),key=lambda item:(item['label'].lower(),item['path'].lower()))));sys.exit(0)
 if op=='default-upload-target':
  items=roots();root=next((item for item in items if item['label'].lower()=='workspace'),items[0] if items else None)
  if not root: raise Exception('No file roots configured')
@@ -568,6 +594,33 @@ async function searchName(rootId: string, query: string, basePath = '', includeD
   })
   return results
 }
+async function discoverGitRepositories() {
+  const roots = await getRoots()
+  const found = new Map<string, GitRepositoryInfo>()
+  let directories = 0
+  for (const root of roots) {
+    const queue = [{ path: root.path, depth: 0 }]
+    while (queue.length && directories < GIT_REPOSITORY_MAX_DIRS && found.size < GIT_REPOSITORY_MAX_RESULTS) {
+      const current = queue.shift()!
+      directories++
+      let directory
+      try {
+        directory = await opendir(current.path)
+      } catch {
+        continue
+      }
+      const entries = []
+      for await (const entry of directory) entries.push(entry)
+      if (entries.some((entry) => entry.name === '.git')) found.set(current.path, { path: current.path, label: path.basename(current.path) || current.path })
+      if (current.depth >= GIT_REPOSITORY_MAX_DEPTH) continue
+      for (const entry of entries) {
+        if (!entry.isDirectory() || entry.name === '.git' || entry.name.startsWith('.') || GIT_REPOSITORY_SKIP_DIRS.has(entry.name)) continue
+        queue.push({ path: path.join(current.path, entry.name), depth: current.depth + 1 })
+      }
+    }
+  }
+  return [...found.values()].sort((a, b) => a.label.localeCompare(b.label) || a.path.localeCompare(b.path))
+}
 async function searchContentWithRg(rootPath: string, absolutePath: string, clauses: string[][], includeDotFiles = true) {
   const results = new Map<string, ContentSearchResult>()
   for (const terms of clauses) {
@@ -833,6 +886,10 @@ async function searchContentForHost(hostId: string, rootId: string, query: strin
 async function resolveDefaultUploadTargetForHost(hostId: string, paneId?: string) {
   if (hostId === 'local') return resolveDefaultUploadTarget(paneId)
   return runRemoteFileJson(hostId, { op: 'default-upload-target' })
+}
+export async function discoverGitRepositoriesForHost(hostId: string) {
+  if (hostId === 'local') return discoverGitRepositories()
+  return runRemoteFileJson<GitRepositoryInfo[]>(hostId, { op: 'git-repositories' })
 }
 async function resolveTemporaryUploadTargetForHost(hostId: string) {
   if (hostId !== 'local') throw new Error('Remote upload is not supported yet')

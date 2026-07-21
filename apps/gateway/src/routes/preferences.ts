@@ -9,7 +9,7 @@ type SessionOrder = { hostId: string; orderedSessionIds: string[] }
 type Snippet = { id: string; name: string; command: string; description?: string; category?: string }
 type FavoriteItem = { id: string; type: 'host' | 'session' | 'pane'; name: string; target: string; addedAt: string }
 type GitMode = 'follow-editor' | 'locked'
-type GitSource = 'editor' | 'manual' | null
+type GitSource = 'editor' | 'pane' | 'manual' | null
 type GitRepoEntry = { repoPath: string; label: string; lastUsedAt: number; pinned: boolean }
 type GitHostState = { mode: GitMode; currentRepoPath: string | null; currentFilePath: string | null; source: GitSource; lockedRepoPath: string | null; recentRepos: GitRepoEntry[] }
 type SessionResumePoint = {
@@ -351,7 +351,7 @@ function normalizeGitHostState(input: unknown): GitHostState {
   const mode = raw.mode === 'locked' ? 'locked' : 'follow-editor'
   const currentRepoPath = safeString(raw.currentRepoPath, MAX_ROOT_PATH_LEN) || null
   const currentFilePath = safeString(raw.currentFilePath, MAX_ROOT_PATH_LEN) || null
-  const source = raw.source === 'editor' || raw.source === 'manual' ? raw.source : null
+  const source = raw.source === 'editor' || raw.source === 'pane' || raw.source === 'manual' ? raw.source : null
   const lockedRepoPath = safeString(raw.lockedRepoPath, MAX_ROOT_PATH_LEN) || null
   const recentRepos = normalizeGitRepoEntries(raw.recentRepos)
   return { mode, currentRepoPath, currentFilePath, source, lockedRepoPath, recentRepos }
