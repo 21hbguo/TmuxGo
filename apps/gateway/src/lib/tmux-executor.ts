@@ -103,7 +103,10 @@ function buildSshArgs(host: HostRecord, remoteCommand: string, options: TmuxExec
   return args
 }
 async function runLocalTmux(args: string[], options: TmuxExecOptions = {}) {
-  const { stdout, stderr } = await execFileAsync('tmux', args, { timeout: options.timeoutMs || defaultTimeoutMs, maxBuffer: 8 * 1024 * 1024 })
+  const useSystemdScope=args[0]==='new-session'&&!!process.env.INVOCATION_ID
+  const command=useSystemdScope?'systemd-run':'tmux'
+  const commandArgs=useSystemdScope?['--user','--scope','--quiet','--collect','tmux',...args]:args
+  const { stdout, stderr } = await execFileAsync(command, commandArgs, { timeout: options.timeoutMs || defaultTimeoutMs, maxBuffer: 8 * 1024 * 1024 })
   return { stdout, stderr }
 }
 async function runLocalShell(command: string, options: TmuxExecOptions = {}) {

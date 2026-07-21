@@ -176,7 +176,9 @@ stop_existing() {
   pkill -f "$ROOT_DIR/node_modules/.bin/next .*--port 3000" 2>/dev/null || true
   pkill -f "$ROOT_DIR/node_modules/.bin/next .*--port 3002" 2>/dev/null || true
   pkill -f "$ROOT_DIR/node_modules/.bin/tsx watch src/index.ts" 2>/dev/null || true
-  pkill -f "npm run dev:agent" 2>/dev/null || true
+  if [ "$PRESERVE_TMUX" != "1" ]; then
+    pkill -f "npm run dev:agent" 2>/dev/null || true
+  fi
   kill_port 3000
   kill_port 3002
   kill_port 3001
@@ -195,6 +197,7 @@ cd "$ROOT_DIR"
 echo "Starting TmuxGo development servers..."
 RESTART=0
 REBUILD_STABLE=0
+PRESERVE_TMUX=0
 FRONTEND_STABLE_DIST_DIR="dist"
 for arg in "$@"; do
   if [ "$arg" = "--restart" ]; then
@@ -202,6 +205,9 @@ for arg in "$@"; do
   fi
   if [ "$arg" = "--rebuild" ]; then
     REBUILD_STABLE=1
+  fi
+  if [ "$arg" = "--preserve-tmux" ]; then
+    PRESERVE_TMUX=1
   fi
 done
 if [ "$RESTART" = "1" ] && [ "$REBUILD_STABLE" = "0" ] && stable_build_stale; then
@@ -235,10 +241,12 @@ if [ -n "${TAILSCALE_DNS:-}" ]; then
   SECURE_GATEWAY_URL="https://${TAILSCALE_DNS}:8443"
 fi
 if systemd_tmuxgo_active; then
-  if ensure_tmux_server; then
-    echo "tmux server ready"
-  else
-    echo "Warning: tmux server unavailable"
+  if [ "$PRESERVE_TMUX" != "1" ]; then
+    if ensure_tmux_server; then
+      echo "tmux server ready"
+    else
+      echo "Warning: tmux server unavailable"
+    fi
   fi
   if [ "$REBUILD_STABLE" = "1" ]; then
     echo "Building systemd services..."
@@ -255,10 +263,12 @@ if systemd_tmuxgo_active; then
     echo "Restarting systemd TmuxGo services..."
     systemctl --user daemon-reload
     systemctl --user disable --now tmuxgo-frontend.service 2>/dev/null || true
-    if agent_enabled; then
-      systemctl --user restart tmuxgo-agent.service
-    else
-      systemctl --user stop tmuxgo-agent.service 2>/dev/null || true
+    if [ "$PRESERVE_TMUX" != "1" ]; then
+      if agent_enabled; then
+        systemctl --user restart tmuxgo-agent.service
+      else
+        systemctl --user stop tmuxgo-agent.service 2>/dev/null || true
+      fi
     fi
     systemctl --user restart tmuxgo-gateway.service
   fi
@@ -291,10 +301,12 @@ if systemd_tmuxgo_active; then
   exit 0
 fi
 if launchd_tmuxgo_active; then
-  if ensure_tmux_server; then
-    echo "tmux server ready"
-  else
-    echo "Warning: tmux server unavailable"
+  if [ "$PRESERVE_TMUX" != "1" ]; then
+    if ensure_tmux_server; then
+      echo "tmux server ready"
+    else
+      echo "Warning: tmux server unavailable"
+    fi
   fi
   if [ "$REBUILD_STABLE" = "1" ]; then
     echo "Building launchd services..."
@@ -310,10 +322,12 @@ if launchd_tmuxgo_active; then
   if [ "$RESTART" = "1" ]; then
     echo "Restarting launchd TmuxGo services..."
     stop_launchd_service "$LAUNCHD_FRONTEND_LABEL"
-    if agent_enabled; then
-      restart_launchd_service "$LAUNCHD_AGENT_LABEL"
-    else
-      stop_launchd_service "$LAUNCHD_AGENT_LABEL"
+    if [ "$PRESERVE_TMUX" != "1" ]; then
+      if agent_enabled; then
+        restart_launchd_service "$LAUNCHD_AGENT_LABEL"
+      else
+        stop_launchd_service "$LAUNCHD_AGENT_LABEL"
+      fi
     fi
     restart_launchd_service "$LAUNCHD_GATEWAY_LABEL"
   fi
@@ -348,10 +362,12 @@ fi
 if [ "$RESTART" = "1" ]; then
   stop_existing
 fi
-if ensure_tmux_server; then
-  echo "tmux server ready"
-else
-  echo "Warning: tmux server unavailable"
+if [ "$PRESERVE_TMUX" != "1" ]; then
+  if ensure_tmux_server; then
+    echo "tmux server ready"
+  else
+    echo "Warning: tmux server unavailable"
+  fi
 fi
 if [ "$REBUILD_STABLE" = "1" ] && port_in_use 3000; then
   kill_port 3000
