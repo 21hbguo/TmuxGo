@@ -1,9 +1,13 @@
 import type { AgentPaneState, AgentStatus, AgentSummary, Pane } from '@/types'
 
 const statusPriority: AgentStatus[] = ['blocked', 'done', 'working', 'idle', 'unknown']
+const statusDisplayOrder: AgentStatus[] = ['idle', 'working', 'blocked', 'done', 'unknown']
 export function getDominantAgentStatus(summary?: AgentSummary | null) {
   if (!summary?.total) return null
   return statusPriority.find((status) => summary[status] > 0) || null
+}
+export function getVisibleAgentStatuses(summary?: AgentSummary | null) {
+  return summary?.total ? statusDisplayOrder.filter((status) => summary[status] > 0) : []
 }
 export function summarizeAgentStates(states: AgentPaneState[]): AgentSummary {
   return states.reduce((summary, state) => {

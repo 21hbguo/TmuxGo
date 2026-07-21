@@ -1,6 +1,6 @@
 'use client'
 import type { AgentStatus, AgentSummary } from '@/types'
-import { getDominantAgentStatus } from '@/lib/agent-status'
+import { getDominantAgentStatus, getVisibleAgentStatuses } from '@/lib/agent-status'
 import { useTranslation } from '@/i18n'
 
 const tone: Record<AgentStatus, string> = {
@@ -19,6 +19,11 @@ const dot: Record<AgentStatus, string> = {
 }
 export function AgentStatusBadge({ status, summary, compact = false }: { status?: AgentStatus | null; summary?: AgentSummary | null; compact?: boolean }) {
   const { t } = useTranslation()
+  if (summary && !compact) {
+    const statuses = getVisibleAgentStatuses(summary)
+    if (!statuses.length) return null
+    return <span className="inline-flex flex-wrap items-center gap-1">{statuses.map((item)=><span key={item} title={t(`agent.status.${item}`)} className={`inline-flex h-5 shrink-0 items-center gap-1 rounded-full border px-1.5 text-[10px] font-medium ${tone[item]}`}><span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot[item]}`} /><span>{summary[item]} {t(`agent.status.${item}`)}</span></span>)}</span>
+  }
   const resolved = status || getDominantAgentStatus(summary)
   if (!resolved) return null
   const count = summary ? summary[resolved] : 0
