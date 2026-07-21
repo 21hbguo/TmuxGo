@@ -85,10 +85,8 @@ export function DesktopWorkbench() {
       observer = new ResizeObserver(update)
       observer.observe(element)
     }
-    window.addEventListener('resize', update)
     return () => {
       observer?.disconnect()
-      window.removeEventListener('resize', update)
     }
   }, [])
   useEffect(() => {
@@ -152,9 +150,6 @@ export function DesktopWorkbench() {
       window.removeEventListener('mouseup', handleUp)
     }
   }, [compactSessionWidth, filePanelMax, filePanelMin, gitPanelMax, gitPanelMin, previewSessionWidth, renderedSessionPanelWidth, sessionPanelExpanded, sessionPanelMax, sessionPanelMin, setFilePanelWidth, setGitPanelWidth, setSessionPanelWidth])
-  useEffect(() => {
-    window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'desktop-workbench', sessionPanelExpanded, sessionPanelWidth, filePanelOpen, thumbnailPanelOpen, filePanelWidth, gitPanelOpen, gitPanelWidth, editorsOpen: openEditors.length > 0, terminalPanelHeight } }))
-  }, [filePanelOpen, filePanelWidth, gitPanelOpen, gitPanelWidth, openEditors.length, sessionPanelExpanded, sessionPanelWidth, terminalPanelHeight, thumbnailPanelOpen])
   const handleOpenFile = useCallback(async (file: FileDocumentHandle) => {
     await openFileInEditor(file, { t, pushToast, openPanel: true })
   }, [pushToast, t])

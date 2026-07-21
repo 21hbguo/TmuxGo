@@ -488,9 +488,12 @@ export async function streamRoutes(fastify: FastifyInstance) {
           case 'resize':
             recordStreamMetric('resizeRequests')
             if (ptyProcess) {
-              ptyProcess.resize(data.cols, data.rows)
-              attachedCols = data.cols
-              attachedRows = data.rows
+              const cols = Math.max(2, Math.round(Number(data.cols)))
+              const rows = Math.max(1, Math.round(Number(data.rows)))
+              if (!Number.isFinite(cols) || !Number.isFinite(rows) || cols === attachedCols && rows === attachedRows) break
+              ptyProcess.resize(cols, rows)
+              attachedCols = cols
+              attachedRows = rows
               scheduleClientRedraw(attachedSessionName, RESIZE_REDRAW_DELAYS)
             }
             break

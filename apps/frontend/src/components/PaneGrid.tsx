@@ -314,7 +314,6 @@ export function PaneGrid({ sessionId: controlledSessionId }: { sessionId?: strin
       flushInputQueue()
       if (exclusive && sizeRef.current) sendResizeNow(sizeRef.current)
       scheduleContinuityFlush(0)
-      window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'attached', sessionName: targetSessionName } }))
     }
     window.addEventListener('tmux-attached', handleAttached as EventListener)
     return () => window.removeEventListener('tmux-attached', handleAttached as EventListener)

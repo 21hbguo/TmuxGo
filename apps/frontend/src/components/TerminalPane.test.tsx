@@ -30,7 +30,7 @@ const terminalMocks = vi.hoisted(() => ({
   clear: vi.fn(),
   focus: vi.fn(),
   scrollToBottom: vi.fn(),
-  fit: vi.fn(),
+  resize: vi.fn(),
 }))
 const terminalLifecycleMocks = vi.hoisted(() => ({
   open: vi.fn(),
@@ -247,7 +247,11 @@ vi.mock('@xterm/xterm', () => {
     focus() {
       terminalMocks.focus()
     }
-    resize() {}
+    resize(cols: number, rows: number) {
+      this.cols = cols
+      this.rows = rows
+      terminalMocks.resize(cols, rows)
+    }
     refresh(start: number, end: number) {
       terminalMocks.refresh(start, end)
     }
@@ -280,16 +284,6 @@ vi.mock('@xterm/xterm', () => {
   }
   return { Terminal }
 })
-vi.mock('@xterm/addon-fit', () => ({
-  FitAddon: class {
-    fit() {
-      terminalMocks.fit()
-    }
-    proposeDimensions() {
-      return { cols: 120, rows: 36 }
-    }
-  },
-}))
 vi.mock('@xterm/addon-webgl', () => ({
   WebglAddon: class {
     activate() {
@@ -341,7 +335,7 @@ describe('TerminalPane', () => {
     terminalMocks.clear.mockClear()
     terminalMocks.focus.mockClear()
     terminalMocks.scrollToBottom.mockClear()
-    terminalMocks.fit.mockClear()
+    terminalMocks.resize.mockClear()
     terminalLifecycleMocks.open.mockClear()
     terminalLifecycleMocks.dispose.mockClear()
     webglAddonState.throwOnActivate = false
@@ -1086,7 +1080,7 @@ describe('TerminalPane', () => {
     terminalMocks.reset.mockClear()
     terminalMocks.clear.mockClear()
     webSocketMocks.send.mockClear()
-    window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'desktop-workbench' } }))
+    window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'split-pane' } }))
     await waitFor(() => expect(terminalMocks.refresh).toHaveBeenCalled())
     expect(terminalMocks.clearTextureAtlas).not.toHaveBeenCalled()
     expect(terminalMocks.renderClear).not.toHaveBeenCalled()
@@ -1150,12 +1144,28 @@ describe('TerminalPane', () => {
     await sleep(140)
     expect(terminalMocks.refresh).not.toHaveBeenCalled()
   })
+  it('resizes the terminal once for one observed desktop size change', async () => {
+    const onResize = vi.fn()
+    const { container } = render(<TerminalPane sessionName="dev" attachExclusive onInput={vi.fn()} onResize={onResize} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    const root = container.firstChild as HTMLElement
+    Object.defineProperty(root, 'clientWidth', { configurable: true, value: 800 })
+    Object.defineProperty(root, 'clientHeight', { configurable: true, value: 520 })
+    terminalMocks.resize.mockClear()
+    onResize.mockClear()
+    resizeObserverCallback?.()
+    expect(terminalMocks.resize).toHaveBeenCalledTimes(1)
+    expect(onResize).toHaveBeenCalledTimes(1)
+    resizeObserverCallback?.()
+    expect(terminalMocks.resize).toHaveBeenCalledTimes(1)
+    expect(onResize).toHaveBeenCalledTimes(1)
+  })
   it('waits for mobile keyboard layout changes to settle before fitting', async () => {
     mobileKeyboardMocks.isMobile = true
     const { container } = render(<TerminalPane sessionName="dev" attachExclusive onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(customKeyHandler).toBeTruthy())
     await sleep(240)
-    terminalMocks.fit.mockClear()
+    terminalMocks.resize.mockClear()
     const root = container.firstChild as HTMLElement
     Object.defineProperty(root, 'clientWidth', { configurable: true, value: 390 })
     Object.defineProperty(root, 'clientHeight', { configurable: true, value: 520 })
@@ -1165,8 +1175,8 @@ describe('TerminalPane', () => {
     Object.defineProperty(root, 'clientHeight', { configurable: true, value: 500 })
     resizeObserverCallback?.()
     await sleep(100)
-    expect(terminalMocks.fit).not.toHaveBeenCalled()
-    await waitFor(() => expect(terminalMocks.fit).toHaveBeenCalled(), { timeout: 500 })
+    expect(terminalMocks.resize).not.toHaveBeenCalled()
+    await waitFor(() => expect(terminalMocks.resize).toHaveBeenCalled(), { timeout: 500 })
   })
   it('cancels tmux copy mode before focusing the mobile keyboard', async () => {
     mobileKeyboardMocks.isMobile = true

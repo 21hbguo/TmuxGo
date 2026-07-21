@@ -489,22 +489,6 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
     return () => window.removeEventListener('tmuxgo-open-settings', handleOpenSettings as EventListener)
   }, [openSettings])
   useEffect(() => {
-    window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'session-panel', open: sessionPanelExpanded, mobile: false } }))
-  }, [sessionPanelExpanded])
-  useEffect(() => {
-    window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'file-panel', open: filePanelOpen, mobile: false } }))
-  }, [filePanelOpen])
-  useEffect(() => {
-    window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'mobile-file-panel', open: mobileFileSheetOpen, mobile: true } }))
-  }, [mobileFileSheetOpen])
-  useEffect(() => {
-    window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'mobile-git-panel', open: mobileGitSheetOpen, mobile: true } }))
-  }, [mobileGitSheetOpen])
-  useEffect(() => {
-    if (!isMobile) return
-    window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'mobile-keyboard-dock', open: keyboardOpen, mobile: true } }))
-  }, [isMobile, keyboardOpen])
-  useEffect(() => {
     setMobileRecentSessionIds(readMobileRecentSessions(activeHostId || ''))
     setMobilePinnedSessionIds(readMobilePinnedSessions(activeHostId || ''))
   }, [activeHostId])

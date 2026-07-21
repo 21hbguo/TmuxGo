@@ -56,10 +56,6 @@ export function TerminalDock({ fill=false,minHeight=180,maxHeight=540,dragViewpo
     }
   }, [dragViewportHeight, fill, maxHeight, minHeight, setTerminalPanelHeight])
   const panelHeight = fill ? terminalPanelHeight : clampValue(previewHeight ?? terminalPanelHeight, minHeight, maxHeight)
-  useEffect(() => {
-    if (fill) return
-    window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'terminal-panel-resize', height: panelHeight } }))
-  }, [fill, panelHeight])
   const handleMouseDown = () => {
     resizingRef.current = true
     pendingHeightRef.current = terminalPanelHeight
