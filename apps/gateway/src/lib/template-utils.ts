@@ -1,7 +1,7 @@
 export interface SessionTemplateLayout {
   windows: {
     name: string
-    panes: { command?: string }[]
+    panes: { command?: string; cwd?: string; env?: Record<string, string> }[]
     splitDirection?: 'horizontal' | 'vertical'
     layoutPreset?: 'tiled' | 'even-horizontal' | 'even-vertical' | 'main-horizontal' | 'main-vertical'
   }[]

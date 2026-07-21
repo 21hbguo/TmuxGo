@@ -55,6 +55,7 @@ export function PaneGrid({ sessionId: controlledSessionId }: { sessionId?: strin
   const lastExternalInputRef = useRef<{ data: string; at: number } | null>(null)
   const attachStartedAtRef = useRef(0)
   const lastOutputAtRef = useRef('')
+  const lastArchiveCaptureRef = useRef<{ key: string; at: number } | null>(null)
   const continuityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isSessionAttachedRef = useRef(false)
   const pendingSessionIdRef = useRef<string | null>(null)
@@ -140,7 +141,14 @@ export function PaneGrid({ sessionId: controlledSessionId }: { sessionId?: strin
       lastSeenAt: now,
       lastOutputAt: lastOutputAtRef.current || now,
     })
-  }, [activeHostId, sessionId, isControlled, sessionContinuity.enabled, sessionName, sessionWindows, upsertResumePoint, exclusive])
+    const archive = sessionContinuity.archive
+    const key = `${activeHostId}:${sessionId}`
+    const previous = lastArchiveCaptureRef.current
+    if (archive.enabled && archive.captureMode !== 'none' && (!previous || previous.key !== key || Date.now() - previous.at >= 60000)) {
+      lastArchiveCaptureRef.current = { key, at: Date.now() }
+      void api.sessionArchives.capture(activeHostId, sessionId, archive).catch(() => {})
+    }
+  }, [activeHostId, sessionId, isControlled, sessionContinuity, sessionName, sessionWindows, upsertResumePoint, exclusive])
   const scheduleContinuityFlush = useCallback((delay = 0) => {
     if (!sessionContinuity.enabled) return
     if (continuityTimerRef.current) return

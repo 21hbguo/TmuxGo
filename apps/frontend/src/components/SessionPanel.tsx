@@ -4,6 +4,7 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useBatchDeleteSessions, useCreateSession, useDeleteSession, useRenameSession } from '@/hooks/useApi'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import { SessionTemplates, type Template } from './SessionTemplates'
+import { getTemplateSessionName } from '@/lib/session-template'
 import { ConfirmDialog } from './ConfirmDialog'
 import { QuickActions } from './QuickActions'
 import { usePreferences } from '@/hooks/usePreferences'
@@ -38,7 +39,7 @@ export function SessionPanel() {
   const [batchDeleteConfirmOpen, setBatchDeleteConfirmOpen] = useState(false)
   const handleTemplateSelect = async (template: Template) => {
     if (!activeHostId) return
-    const name = await prompt(t('drawer.sessionName'), template.name.toLowerCase())
+    const name = await prompt(t('drawer.sessionName'), getTemplateSessionName(template))
     if (!name) {
       setShowTemplates(false)
       return

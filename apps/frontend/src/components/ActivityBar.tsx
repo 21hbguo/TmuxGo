@@ -1,7 +1,7 @@
 'use client'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
-import { FiFolder, FiGitBranch, FiGrid, FiSearch, FiServer, FiSettings } from 'react-icons/fi'
+import { FiBell, FiFolder, FiGitBranch, FiGrid, FiSearch, FiServer, FiSettings } from 'react-icons/fi'
 
 export function ActivityBar() {
   const sessionPanelExpanded = useConsoleStore((state) => state.sessionPanelExpanded)
@@ -20,6 +20,7 @@ export function ActivityBar() {
     { id: 'thumbnails', label: t('activity.thumbnails'), icon: FiGrid, onClick: toggleThumbnailPanel },
     { id: 'git', label: t('git.title'), icon: FiGitBranch, onClick: toggleGitPanel },
     { id: 'search', label: t('activity.search'), icon: FiSearch, onClick: () => setCommandPalette(true) },
+    { id: 'notifications', label: t('notification.title'), icon: FiBell, onClick: () => window.dispatchEvent(new CustomEvent('tmuxgo-toggle-notifications')) },
     { id: 'settings', label: t('activity.settings'), icon: FiSettings, onClick: () => window.dispatchEvent(new CustomEvent('tmuxgo-open-settings')) },
   ] as const
   return (

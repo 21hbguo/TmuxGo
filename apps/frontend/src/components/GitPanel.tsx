@@ -2,13 +2,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
-import { useGitStatus, useGitStage, useGitUnstage, useGitCommit, useGitDiscard, useGitLog, useGitBranches, useGitCheckout, useGitCreateBranch, useGitDeleteBranch, useGitMerge, useGitFetch, useGitPull, useGitPush, useGitPaneDetect, useGitRepositories } from '@/hooks/useApi'
+import { useGitStatus, useGitStage, useGitUnstage, useGitCommit, useGitDiscard, useGitLog, useGitBranches, useGitCheckout, useGitCreateBranch, useGitDeleteBranch, useGitMerge, useGitFetch, useGitPull, useGitPush, useGitPaneDetect, useGitRepositories, useGitOperation, useGitRemotes, useGitResolve } from '@/hooks/useApi'
 import { useQueryClient } from '@tanstack/react-query'
 import { ConfirmDialog } from './ConfirmDialog'
 import type { GitFileChange, GitCommitInfo, GitStatusResponse } from '@/types'
 import { GitHistoryGraph } from './GitHistoryGraph'
 import type { GitGraphBranchHead, GitGraphCommit } from '@/lib/gitGraph'
-import { FiArrowRight, FiChevronLeft, FiDownload, FiFolder, FiLink, FiRefreshCw, FiSearch, FiUpload, FiX } from 'react-icons/fi'
+import { FiArrowRight, FiChevronLeft, FiDownload, FiFolder, FiLink, FiRefreshCw, FiSearch, FiSettings, FiUpload, FiX } from 'react-icons/fi'
 import { api } from '@/lib/api'
 import { DiffViewer } from './DiffViewer'
 
@@ -107,6 +107,8 @@ function StatusTab({ hostId, repoPath, onOpenDiff, t }: { hostId: string; repoPa
   const stage = useGitStage()
   const unstage = useGitUnstage()
   const discard = useGitDiscard()
+  const resolve = useGitResolve()
+  const operation = useGitOperation()
   const pushToast = useConsoleStore((s) => s.pushToast)
   const [pendingDiscard, setPendingDiscard] = useState<string | null>(null)
 
@@ -153,8 +155,9 @@ function StatusTab({ hostId, repoPath, onOpenDiff, t }: { hostId: string; repoPa
         ))}
       </Section>
       <Section title={t('git.conflicted')} count={status.conflicted.length}>
-        {status.conflicted.map((f) => <FileRow key={`c-${f.path}`} file={f} staged={false} onStage={() => stage.mutate({ hostId, path: repoPath, filePaths: [f.path] })} onUnstage={() => {}} onDiscard={() => setPendingDiscard(f.path)} onViewDiff={() => openDiff(f, false)} t={t} />)}
+        {status.conflicted.map((f) => <div key={`c-${f.path}`} className="border-b border-[var(--line)] px-3 py-2"><button onClick={() => openDiff(f, false)} className="block w-full truncate text-left text-[12px] text-text-2">{f.path}</button><div className="mt-2 flex flex-wrap gap-1"><button onClick={() => resolve.mutate({ hostId, path: repoPath, filePath: f.path, resolution: 'ours' })} className="rounded bg-bg-2 px-2 py-1 text-[10px] text-text-2 hover:text-accent">{t('git.useOurs')}</button><button onClick={() => resolve.mutate({ hostId, path: repoPath, filePath: f.path, resolution: 'theirs' })} className="rounded bg-bg-2 px-2 py-1 text-[10px] text-text-2 hover:text-accent">{t('git.useTheirs')}</button><button onClick={() => resolve.mutate({ hostId, path: repoPath, filePath: f.path, resolution: 'mark' })} className="rounded bg-accent/15 px-2 py-1 text-[10px] text-accent">{t('git.markResolved')}</button></div></div>)}
       </Section>
+      {status.operation && <div className="flex gap-2 border-y border-[var(--line)] p-3"><button disabled={status.conflicted.length > 0} onClick={() => operation.mutate({ hostId, path: repoPath, operation: status.operation!, action: 'continue' }, { onError: (error) => pushToast({ type: 'error', message: `${t('git.operationFailed')}: ${error.message}` }) })} className="flex-1 rounded bg-accent/15 px-3 py-2 text-xs text-accent disabled:opacity-40">{t('git.continueOperation', { operation: status.operation })}</button><button onClick={() => operation.mutate({ hostId, path: repoPath, operation: status.operation!, action: 'abort' }, { onError: (error) => pushToast({ type: 'error', message: `${t('git.operationFailed')}: ${error.message}` }) })} className="rounded bg-red-900/25 px-3 py-2 text-xs text-red-300">{t('git.abortOperation', { operation: status.operation })}</button></div>}
       <ConfirmDialog open={!!pendingDiscard} title={t('git.discardTitle')} message={t('git.discardConfirm', { file: pendingDiscard || '' })} confirmLabel={t('git.discard')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setPendingDiscard(null)} onConfirm={() => { if (pendingDiscard) { discard.mutate({ hostId, path: repoPath, filePaths: [pendingDiscard] }); setPendingDiscard(null) } }} />
     </>
   )
@@ -336,6 +339,7 @@ function BranchesTab({ hostId, repoPath, t }: { hostId: string; repoPath: string
   const [showCreate, setShowCreate] = useState(false)
   const [newBranchName, setNewBranchName] = useState('')
   const [pendingDelete, setPendingDelete] = useState<string | null>(null)
+  const [noFF, setNoFF] = useState(false)
 
   if (isError) return <GitLoadError onRetry={() => void refetch()} t={t} />
   if (!data) return <div className="p-3 text-[11px] text-text-3">{t('git.detecting')}</div>
@@ -358,7 +362,7 @@ function BranchesTab({ hostId, repoPath, t }: { hostId: string; repoPath: string
             <button onClick={() => setShowCreate(false)} className="rounded px-2 py-1 text-[11px] text-text-3">{t('common.cancel')}</button>
           </div>
         ) : (
-          <button onClick={() => setShowCreate(true)} className="text-[11px] text-accent hover:text-text-1">+ {t('git.newBranch')}</button>
+          <div className="flex items-center justify-between gap-2"><button onClick={() => setShowCreate(true)} className="text-[11px] text-accent hover:text-text-1">+ {t('git.newBranch')}</button><label className="flex items-center gap-1.5 text-[10px] text-text-3"><input type="checkbox" checked={noFF} onChange={(event) => setNoFF(event.target.checked)} className="accent-accent" />{t('git.noFF')}</label></div>
         )}
       </div>
       {data.branches.map((b) => (
@@ -372,7 +376,7 @@ function BranchesTab({ hostId, repoPath, t }: { hostId: string; repoPath: string
             {!b.current && (
               <>
                 <button onClick={() => checkout.mutate({ hostId, path: repoPath, branch: b.name }, { onSuccess: () => pushToast({ type: 'success', message: t('git.checkoutSuccess', { branch: b.name }) }), onError: (err) => pushToast({ type: 'error', message: err.message }) })} className="rounded px-1.5 py-0.5 text-[10px] text-text-3 hover:bg-bg-2 hover:text-text-1">{t('git.checkout')}</button>
-                <button onClick={() => merge.mutate({ hostId, path: repoPath, branch: b.name }, { onSuccess: () => pushToast({ type: 'success', message: t('git.mergeSuccess') }), onError: (err) => pushToast({ type: 'error', message: t('git.mergeFailed') + ': ' + err.message }) })} className="rounded px-1.5 py-0.5 text-[10px] text-text-3 hover:bg-bg-2 hover:text-text-1">{t('git.merge')}</button>
+                <button onClick={() => merge.mutate({ hostId, path: repoPath, branch: b.name, noFF }, { onSuccess: () => pushToast({ type: 'success', message: t('git.mergeSuccess') }), onError: (err) => pushToast({ type: 'error', message: t('git.mergeFailed') + ': ' + err.message }) })} className="rounded px-1.5 py-0.5 text-[10px] text-text-3 hover:bg-bg-2 hover:text-text-1">{t('git.merge')}</button>
                 <button onClick={() => setPendingDelete(b.name)} className="rounded px-1.5 py-0.5 text-[10px] text-red-400 hover:bg-bg-2">✕</button>
               </>
             )}
@@ -402,6 +406,13 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
   const [repoPickerOpen, setRepoPickerOpen] = useState(false)
   const [repoSwitchingPath, setRepoSwitchingPath] = useState('')
   const [mobileDiff, setMobileDiff] = useState<MobileGitDiff | null>(null)
+  const [gitOptionsOpen, setGitOptionsOpen] = useState(false)
+  const [selectedRemote, setSelectedRemote] = useState('')
+  const [fetchPrune, setFetchPrune] = useState(false)
+  const [pullRebase, setPullRebase] = useState(false)
+  const [pushForce, setPushForce] = useState(false)
+  const [pushSetUpstream, setPushSetUpstream] = useState(false)
+  const [amend, setAmend] = useState(false)
   const gitState = activeHostId ? gitByHost[activeHostId] : undefined
   const repoPath = gitState?.currentRepoPath || null
   const activeEditor = activeEditorId ? openEditors.find((editor) => editor.id === activeEditorId && !editor.id.startsWith('git-diff?')) : null
@@ -409,6 +420,7 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
   const { data: paneDetect } = useGitPaneDetect(activeHostId || '', activePaneId || '', followPane)
   const { data: status, isError: statusError } = useGitStatus(activeHostId || '', repoPath || '', !!repoPath)
   const { data: discoveredRepos = [], isLoading: repositoriesLoading, isError: repositoriesError, refetch: refetchRepositories } = useGitRepositories(activeHostId || '', repoPickerOpen)
+  const { data: remotesData } = useGitRemotes(activeHostId || '', repoPath || '')
   const commit = useGitCommit()
   const stageAll = useGitStage()
   const unstageAll = useGitUnstage()
@@ -418,6 +430,7 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
   const queryClient = useQueryClient()
   const pinnedRepos = useMemo(() => (gitState?.recentRepos || []).filter((item) => item.pinned), [gitState?.recentRepos])
   const otherRepos = useMemo(() => (gitState?.recentRepos || []).filter((item) => !item.pinned), [gitState?.recentRepos])
+  const remotes = remotesData?.remotes || []
   const repoOptions = useMemo(() => [...pinnedRepos, ...otherRepos, ...discoveredRepos.map((item) => ({ repoPath: item.path, label: item.label, lastUsedAt: 0, pinned: false }))].filter((item, index, items) => items.findIndex((candidate) => candidate.repoPath === item.repoPath) === index), [discoveredRepos, otherRepos, pinnedRepos])
   const filteredRepoOptions = useMemo(() => {
     const query = manualRepoPath.trim().toLocaleLowerCase()
@@ -447,8 +460,8 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
 
   const handleCommit = () => {
     if (!activeHostId || !repoPath || !commitMessage.trim()) return
-    commit.mutate({ hostId: activeHostId, path: repoPath, message: commitMessage.trim() }, {
-      onSuccess: () => { setCommitMessage(''); pushToast({ type: 'success', message: t('git.commitSuccess') }) },
+    commit.mutate({ hostId: activeHostId, path: repoPath, message: commitMessage.trim(), amend }, {
+      onSuccess: () => { setCommitMessage(''); setAmend(false); pushToast({ type: 'success', message: t('git.commitSuccess') }) },
       onError: (err) => pushToast({ type: 'error', message: t('git.commitFailed') + ': ' + err.message }),
     })
   }
@@ -516,11 +529,13 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
             {gitState?.mode === 'locked' && (
               <button aria-label={t('git.followCurrentFile')} title={t('git.followCurrentFile')} onClick={() => activeHostId && resumeGitFollowEditor(activeHostId)} className="tmuxgo-icon-button flex h-11 w-11 items-center justify-center rounded text-accent hover:bg-bg-2 hover:text-text-1 lg:h-7 lg:w-7"><FiLink aria-hidden="true" size={14} /></button>
             )}
-            <button aria-label={t('git.fetch')} title={t('git.fetch')} disabled={fetch.isPending} onClick={() => activeHostId && fetch.mutate({ hostId: activeHostId, path: repoPath }, { onSuccess: () => { pushToast({ type: 'success', message: t('git.fetchSuccess') }); queryClient.invalidateQueries({ queryKey: ['git-status'] }) }, onError: (err) => pushToast({ type: 'error', message: err.message }) })} className="tmuxgo-icon-button flex h-11 w-11 items-center justify-center rounded text-text-3 hover:bg-bg-2 hover:text-text-1 disabled:opacity-50 lg:h-7 lg:w-7"><FiRefreshCw aria-hidden="true" className={fetch.isPending ? 'animate-spin' : ''} size={14} /></button>
-            <button aria-label={t('git.pull')} title={t('git.pull')} disabled={pull.isPending} onClick={() => activeHostId && pull.mutate({ hostId: activeHostId, path: repoPath }, { onSuccess: () => { pushToast({ type: 'success', message: t('git.pullSuccess') }); queryClient.invalidateQueries({ queryKey: ['git-status'] }) }, onError: (err) => pushToast({ type: 'error', message: err.message }) })} className="tmuxgo-icon-button flex h-11 w-11 items-center justify-center rounded text-text-3 hover:bg-bg-2 hover:text-text-1 disabled:opacity-50 lg:h-7 lg:w-7"><FiDownload aria-hidden="true" size={14} /></button>
-            <button aria-label={t('git.push')} title={t('git.push')} disabled={push.isPending} onClick={() => activeHostId && push.mutate({ hostId: activeHostId, path: repoPath }, { onSuccess: () => { pushToast({ type: 'success', message: t('git.pushSuccess') }); queryClient.invalidateQueries({ queryKey: ['git-status'] }) }, onError: (err) => pushToast({ type: 'error', message: err.message.includes('rejected') ? t('git.pushRejected') : err.message }) })} className="tmuxgo-icon-button flex h-11 w-11 items-center justify-center rounded text-text-3 hover:bg-bg-2 hover:text-text-1 disabled:opacity-50 lg:h-7 lg:w-7"><FiUpload aria-hidden="true" size={14} /></button>
+            <button aria-label={t('git.fetch')} title={t('git.fetch')} disabled={fetch.isPending} onClick={() => activeHostId && fetch.mutate({ hostId: activeHostId, path: repoPath, remote: selectedRemote || undefined, prune: fetchPrune }, { onSuccess: () => { pushToast({ type: 'success', message: t('git.fetchSuccess') }); queryClient.invalidateQueries({ queryKey: ['git-status'] }) }, onError: (err) => pushToast({ type: 'error', message: err.message }) })} className="tmuxgo-icon-button flex h-11 w-11 items-center justify-center rounded text-text-3 hover:bg-bg-2 hover:text-text-1 disabled:opacity-50 lg:h-7 lg:w-7"><FiRefreshCw aria-hidden="true" className={fetch.isPending ? 'animate-spin' : ''} size={14} /></button>
+            <button aria-label={t('git.pull')} title={t('git.pull')} disabled={pull.isPending} onClick={() => activeHostId && pull.mutate({ hostId: activeHostId, path: repoPath, remote: selectedRemote || undefined, rebase: pullRebase }, { onSuccess: () => { pushToast({ type: 'success', message: t('git.pullSuccess') }); queryClient.invalidateQueries({ queryKey: ['git-status'] }) }, onError: (err) => pushToast({ type: 'error', message: err.message }) })} className="tmuxgo-icon-button flex h-11 w-11 items-center justify-center rounded text-text-3 hover:bg-bg-2 hover:text-text-1 disabled:opacity-50 lg:h-7 lg:w-7"><FiDownload aria-hidden="true" size={14} /></button>
+            <button aria-label={t('git.push')} title={t('git.push')} disabled={push.isPending} onClick={() => activeHostId && push.mutate({ hostId: activeHostId, path: repoPath, remote: selectedRemote || undefined, branch: pushSetUpstream ? status?.branch : undefined, force: pushForce, setUpstream: pushSetUpstream }, { onSuccess: () => { pushToast({ type: 'success', message: t('git.pushSuccess') }); queryClient.invalidateQueries({ queryKey: ['git-status'] }) }, onError: (err) => pushToast({ type: 'error', message: err.message.includes('rejected') ? t('git.pushRejected') : err.message }) })} className="tmuxgo-icon-button flex h-11 w-11 items-center justify-center rounded text-text-3 hover:bg-bg-2 hover:text-text-1 disabled:opacity-50 lg:h-7 lg:w-7"><FiUpload aria-hidden="true" size={14} /></button>
+            <button aria-label={t('git.options')} title={t('git.options')} onClick={() => setGitOptionsOpen((open) => !open)} className={`tmuxgo-icon-button flex h-11 w-11 items-center justify-center rounded hover:bg-bg-2 hover:text-text-1 lg:h-7 lg:w-7 ${gitOptionsOpen ? 'bg-bg-2 text-accent' : 'text-text-3'}`}><FiSettings aria-hidden="true" size={14} /></button>
           </div>
         )}
+        {gitOptionsOpen && repoPath && <div className="mt-2 grid gap-2 border-t border-[var(--line)] pt-2 text-[11px] text-text-2"><label className="flex items-center justify-between gap-3"><span>{t('git.remote')}</span><select value={selectedRemote} onChange={(event) => setSelectedRemote(event.target.value)} className="tmuxgo-control tmuxgo-select min-w-0 rounded px-2 py-1"><option value="">auto</option>{remotes.map((remote) => <option key={remote.name} value={remote.name}>{remote.name}</option>)}</select></label><label className="flex items-center justify-between gap-3"><span>{t('git.prune')}</span><input type="checkbox" checked={fetchPrune} onChange={(event) => setFetchPrune(event.target.checked)} className="accent-accent" /></label><label className="flex items-center justify-between gap-3"><span>{t('git.rebasePull')}</span><input type="checkbox" checked={pullRebase} onChange={(event) => setPullRebase(event.target.checked)} className="accent-accent" /></label><label className="flex items-center justify-between gap-3"><span>{t('git.forceWithLease')}</span><input type="checkbox" checked={pushForce} onChange={(event) => setPushForce(event.target.checked)} className="accent-accent" /></label><label className="flex items-center justify-between gap-3"><span>{t('git.setUpstream')}</span><input type="checkbox" checked={pushSetUpstream} onChange={(event) => setPushSetUpstream(event.target.checked)} className="accent-accent" /></label></div>}
         {repoPickerOpen && (
           <div className="mt-2 border-t border-[var(--line)] pt-2">
             <div className="tmuxgo-control flex items-center gap-2 rounded px-2">
@@ -566,8 +581,8 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
               <div className="mt-2 flex items-center gap-2">
                 <button
                   onClick={handleCommit}
-                  disabled={!commitMessage.trim() || !status?.staged.length}
-                  className={`flex-1 rounded py-1.5 text-[12px] font-medium ${commitMessage.trim() && status?.staged.length ? 'bg-accent text-bg-0 hover:opacity-90' : 'bg-bg-2 text-text-3'}`}
+                  disabled={!commitMessage.trim() || !amend && !status?.staged.length}
+                  className={`flex-1 rounded py-1.5 text-[12px] font-medium ${commitMessage.trim() && (amend || status?.staged.length) ? 'bg-accent text-bg-0 hover:opacity-90' : 'bg-bg-2 text-text-3'}`}
                 >
                   {t('git.commit')}
                 </button>
@@ -578,6 +593,7 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
                   <button onClick={() => activeHostId && repoPath && unstageAll.mutate({ hostId: activeHostId, path: repoPath, filePaths: status.staged.map((f) => f.path) })} className="rounded px-2 py-1.5 text-[11px] text-text-3 hover:bg-bg-2 hover:text-text-1">{t('git.unstageAll')}</button>
                 )}
               </div>
+              <label className="mt-2 flex items-center gap-2 text-[10px] text-text-3"><input type="checkbox" checked={amend} onChange={(event) => setAmend(event.target.checked)} className="accent-accent" />{t('git.amend')}</label>
             </div>
           )}
         </>

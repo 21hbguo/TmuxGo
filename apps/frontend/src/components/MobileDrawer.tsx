@@ -5,6 +5,7 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useBatchDeleteSessions, useCreateSession, useDeleteSession, useRenameSession, useWindows } from '@/hooks/useApi'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import { SessionTemplates, type Template } from './SessionTemplates'
+import { getTemplateSessionName } from '@/lib/session-template'
 import { useTranslation } from '@/i18n'
 import { usePrompt } from '@/hooks/usePrompt'
 import { useWindowQueryState } from '@/hooks/useWindowQueryState'
@@ -55,7 +56,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
 
   const handleTemplateSelect = async (template: Template) => {
     if (!activeHostId) return
-    const name = await prompt(t('drawer.sessionName'), template.name.toLowerCase())
+    const name = await prompt(t('drawer.sessionName'), getTemplateSessionName(template))
     if (!name) return
     try {
       const created = await createSession.mutateAsync({ hostId: activeHostId, name, layout: template.layout })

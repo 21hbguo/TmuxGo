@@ -31,6 +31,7 @@ import { useTranslation } from '@/i18n'
 import { readActiveHostId, readActiveSessionId } from '@/lib/console-device-state'
 import { FiX } from 'react-icons/fi'
 import { AgentStatusBadge } from './AgentStatusBadge'
+import { shouldResumeFromContinuity } from '@/lib/session-continuity-policy'
 
 const MOBILE_QUERY = '(max-width: 1023px)'
 const MOBILE_RECENT_SESSIONS_KEY_PREFIX = 'tmuxgo-mobile-recent-sessions:'
@@ -405,7 +406,8 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
     }
     const persistedSession = activeHostId ? readActiveSessionId(activeHostId) : null
     const persistedSessionExists = !!persistedSession && sessionsData.some((s: any) => s.id === persistedSession)
-    const continuityPoint = activeHostId && sessionContinuity.enabled && (sessionContinuity.resumeOnReconnect || sessionContinuity.resumeOnNewDevice) ? sessionContinuity.resumePoints.find((item) => item.hostId === activeHostId) : null
+    const resumeFromContinuity = shouldResumeFromContinuity(sessionContinuity.enabled, sessionContinuity.resumeOnReconnect, sessionContinuity.resumeOnNewDevice, !!persistedSession)
+    const continuityPoint = activeHostId && resumeFromContinuity ? sessionContinuity.resumePoints.find((item) => item.hostId === activeHostId) : null
     const continuitySessionExists = !!continuityPoint?.sessionId && sessionsData.some((s: any) => s.id === continuityPoint.sessionId)
     const activeSessionExists = !!activeSessionId && sessionsData.some((s: any) => s.id === activeSessionId)
     if (!activeSessionId || !activeSessionExists) {

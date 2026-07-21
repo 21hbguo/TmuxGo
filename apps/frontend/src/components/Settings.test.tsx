@@ -38,7 +38,7 @@ vi.mock('@/hooks/usePreferences', () => ({
 }))
 vi.mock('@/hooks/useSessionContinuity', () => ({
   useSessionContinuity: () => ({
-    sessionContinuity: { enabled: true, resumeOnReconnect: true, resumeOnNewDevice: false, resumePoints: [], maxResumePoints: 10 },
+    sessionContinuity: { enabled: true, resumeOnReconnect: true, resumeOnNewDevice: false, resumePoints: [], maxResumePoints: 10, archive: { enabled: false, captureMode: 'none', maxBytesPerSession: 262144, retentionDays: 7 } },
     updateSessionContinuity: vi.fn(),
   }),
 }))
