@@ -6,7 +6,12 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 const sendMock = vi.hoisted(() => vi.fn((_message: any) => true))
 const subscribeOutputMock = vi.hoisted(() => vi.fn(() => vi.fn()))
 const socketState = vi.hoisted(() => ({ isConnected: false, isSocketReady: true }))
+const windowsData = vi.hoisted(() => [] as any[])
 const terminalProps = vi.hoisted(() => ({ current: null as null | { sessionName?: string; onReady?: () => void; onResize?: (cols: number, rows: number) => void; onInput?: (data: string) => void } }))
+const continuityState = vi.hoisted(() => ({
+  value: { enabled: false, archive: { enabled: false, captureMode: 'none', maxBytesPerSession: 262144, retentionDays: 7 }, resumePoints: [] as any[] },
+  upsertResumePoint: vi.fn(),
+}))
 
 vi.mock('./TerminalPane', () => ({
   TerminalPane: (props: { sessionName?: string; onReady?: () => void; onResize?: (cols: number, rows: number) => void; onInput?: (data: string) => void }) => {
@@ -25,15 +30,15 @@ vi.mock('@/hooks/usePreferences', () => ({
 }))
 vi.mock('@/hooks/useSessionContinuity', () => ({
   useSessionContinuity: () => ({
-    sessionContinuity: { enabled: false },
-    upsertResumePoint: vi.fn(),
+    sessionContinuity: continuityState.value,
+    upsertResumePoint: continuityState.upsertResumePoint,
   }),
 }))
 vi.mock('@/hooks/useMobileKeyboard', () => ({
   isMobileDevice: () => false,
 }))
 vi.mock('@/hooks/useApi', () => ({
-  useWindows: () => ({ data: [] }),
+  useWindows: () => ({ data: windowsData }),
 }))
 vi.mock('@/hooks/useWindowQueryState', () => ({
   useWindowQueryState: () => ({ getWindows: () => [], setWindows: vi.fn() }),
@@ -46,6 +51,8 @@ describe('PaneGrid', () => {
     socketState.isConnected = false
     socketState.isSocketReady = true
     terminalProps.current = null
+    continuityState.value = { enabled: false, archive: { enabled: false, captureMode: 'none', maxBytesPerSession: 262144, retentionDays: 7 }, resumePoints: [] }
+    continuityState.upsertResumePoint.mockReset()
     useConsoleStore.setState({
       activeHostId: 'local',
       activeSessionId: 'session-dev1',
@@ -151,6 +158,23 @@ describe('PaneGrid', () => {
     })
     expect(sendMock.mock.calls.filter(([message]) => message?.type === 'attach')).toHaveLength(1)
     expect(sendMock.mock.calls.filter(([message]) => message?.type === 'input')).toHaveLength(0)
+  })
+  it('does not flush again when only resume points change', () => {
+    vi.useFakeTimers()
+    socketState.isConnected = true
+    const archive = { enabled: false, captureMode: 'none', maxBytesPerSession: 262144, retentionDays: 7 }
+    continuityState.value = { enabled: true, archive, resumePoints: [] }
+    const view = render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    act(() => {
+      window.dispatchEvent(new CustomEvent('tmux-attached', { detail: { sessionName: 'dev1', cols: 120, rows: 36, hostId: 'local' } }))
+      vi.advanceTimersByTime(100)
+    })
+    expect(continuityState.upsertResumePoint).toHaveBeenCalled()
+    continuityState.upsertResumePoint.mockClear()
+    continuityState.value = { enabled: true, archive, resumePoints: [{ sessionId: 'session-dev1' }] }
+    view.rerender(<PaneGrid />)
+    expect(continuityState.upsertResumePoint).not.toHaveBeenCalled()
   })
   it('stops attach retry loop and shows the previous session when attach fails', async () => {
     vi.useFakeTimers()
