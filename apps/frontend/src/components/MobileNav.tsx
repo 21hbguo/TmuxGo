@@ -2,12 +2,15 @@
 
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
+import { FiGitBranch } from 'react-icons/fi'
 
 interface MobileNavProps {
   onOpenDrawer: (type: 'sessions' | 'panes' | 'windows') => void
   onOpenSettings: () => void
   onOpenSearch: () => void
   onOpenFiles: () => void
+  onOpenGit: () => void
+  gitOpen?: boolean
   docked?: boolean
 }
 
@@ -28,7 +31,7 @@ const icons = {
   settings: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z',
 }
 
-export function MobileNav({ onOpenDrawer, onOpenSettings, onOpenSearch, onOpenFiles, docked = false }: MobileNavProps) {
+export function MobileNav({ onOpenDrawer, onOpenSettings, onOpenSearch, onOpenFiles, onOpenGit, gitOpen = false, docked = false }: MobileNavProps) {
   const connection = useConsoleStore((state) => state.connection)
   const attachLatency = useConsoleStore((state) => state.terminalPerf.attachLatency)
   const { t } = useTranslation()
@@ -43,7 +46,7 @@ export function MobileNav({ onOpenDrawer, onOpenSettings, onOpenSearch, onOpenFi
 
   return (
     <div data-mobile-nav className={containerClass} style={docked ? undefined : { bottom: 'var(--mobile-keyboard-inset, 0px)' }}>
-      <div className="flex items-center justify-around h-12 px-3">
+      <div className="grid h-12 grid-cols-7 items-center">
         <button aria-label={t('nav.sessions')} onClick={() => onOpenDrawer('sessions')} className="tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px text-text-3 transition-all active:scale-95 active:bg-bg-2/50 active:text-accent">
           <NavIcon d={icons.sessions} />
           <span className="text-[9px] leading-none">{t('nav.sessions')}</span>
@@ -62,6 +65,11 @@ export function MobileNav({ onOpenDrawer, onOpenSettings, onOpenSearch, onOpenFi
         <button aria-label={t('nav.files')} onClick={onOpenFiles} className="tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px text-text-3 transition-all active:scale-95 active:bg-bg-2/50 active:text-accent">
           <NavIcon d={icons.files} />
           <span className="text-[9px] leading-none">{t('nav.files')}</span>
+        </button>
+
+        <button aria-label={t('nav.git')} aria-current={gitOpen ? 'page' : undefined} onClick={onOpenGit} className={`tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px transition-all active:scale-95 active:bg-bg-2/50 ${gitOpen ? 'bg-accent/12 text-accent' : 'text-text-3 active:text-accent'}`}>
+          <FiGitBranch aria-hidden="true" size={18} />
+          <span className="text-[9px] leading-none">{t('nav.git')}</span>
         </button>
 
         <button aria-label={t('nav.search')} onClick={onOpenSearch} className="tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px text-text-3 transition-all active:scale-95 active:bg-bg-2/50 active:text-accent">

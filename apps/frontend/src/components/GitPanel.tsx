@@ -65,10 +65,10 @@ type TFunc = (key: string, params?: Record<string, string | number>) => string
 function FileRow({ file, staged, onStage, onUnstage, onDiscard, onViewDiff, t }: { file: GitFileChange; staged: boolean; onStage: () => void; onUnstage: () => void; onDiscard: () => void; onViewDiff: () => void; t: TFunc }) {
   const { icon, color } = statusIcon(file.status)
   return (
-    <div className="group flex items-center gap-2 px-3 py-1 hover:bg-bg-2" onClick={onViewDiff}>
+    <div className="group flex min-h-11 items-center gap-2 px-3 py-1 hover:bg-bg-2 lg:min-h-0" onClick={onViewDiff}>
       <span className={`w-4 text-center text-[11px] font-bold ${color}`}>{icon}</span>
       <span className="min-w-0 flex-1 truncate text-[12px] text-text-2" title={file.path}>{file.path}</span>
-      <div className="flex shrink-0 items-center gap-1 opacity-0 group-hover:opacity-100">
+      <div className="flex shrink-0 items-center gap-1 opacity-100 lg:opacity-0 lg:group-hover:opacity-100">
         {staged ? (
           <button onClick={(e) => { e.stopPropagation(); onUnstage() }} className="rounded px-1.5 py-0.5 text-[10px] text-text-3 hover:bg-bg-2 hover:text-text-1">{t('git.unstage')}</button>
         ) : (
@@ -87,7 +87,7 @@ function Section({ title, count, children, defaultOpen = true }: { title: string
   if (count === 0) return null
   return (
     <div>
-      <button onClick={() => setOpen(!open)} className="flex w-full items-center gap-2 px-3 py-1.5 text-[11px] font-semibold text-text-3 hover:bg-bg-2">
+      <button onClick={() => setOpen(!open)} className="flex min-h-11 w-full items-center gap-2 px-3 py-1.5 text-[11px] font-semibold text-text-3 hover:bg-bg-2 lg:min-h-0">
         <span className="text-[10px]">{open ? '▼' : '▶'}</span>
         <span>{title}</span>
         <span className="ml-auto rounded-full bg-bg-2 px-1.5 py-0.5 text-[10px]">{count}</span>
@@ -135,10 +135,10 @@ function StatusTab({ hostId, repoPath, t }: { hostId: string; repoPath: string; 
       </Section>
       <Section title={t('git.untracked')} count={status.untracked.length}>
         {status.untracked.map((f) => (
-          <div key={`un-${f}`} className="group flex items-center gap-2 px-3 py-1 hover:bg-bg-2">
+          <div key={`un-${f}`} className="group flex min-h-11 items-center gap-2 px-3 py-1 hover:bg-bg-2 lg:min-h-0">
             <span className="w-4 text-center text-[11px] font-bold text-text-3">?</span>
             <span className="min-w-0 flex-1 truncate text-[12px] text-text-2">{f}</span>
-            <button onClick={() => stage.mutate({ hostId, path: repoPath, filePaths: [f] })} className="shrink-0 rounded px-1.5 py-0.5 text-[10px] text-text-3 opacity-0 group-hover:opacity-100 hover:bg-bg-2 hover:text-text-1">{t('git.stage')}</button>
+            <button onClick={() => stage.mutate({ hostId, path: repoPath, filePaths: [f] })} className="shrink-0 rounded px-1.5 py-0.5 text-[10px] text-text-3 opacity-100 hover:bg-bg-2 hover:text-text-1 lg:opacity-0 lg:group-hover:opacity-100">{t('git.stage')}</button>
           </div>
         ))}
       </Section>
@@ -346,13 +346,13 @@ function BranchesTab({ hostId, repoPath, t }: { hostId: string; repoPath: string
         )}
       </div>
       {data.branches.map((b) => (
-        <div key={b.name} className="group flex items-center gap-2 px-3 py-1.5 hover:bg-bg-2">
+        <div key={b.name} className="group flex min-h-11 items-center gap-2 px-3 py-1.5 hover:bg-bg-2 lg:min-h-0">
           <span className={`w-3 text-center text-[11px] ${b.current ? 'text-accent' : 'text-text-3'}`}>{b.current ? '●' : ''}</span>
           <div className="min-w-0 flex-1">
             <div className={`truncate text-[12px] ${b.current ? 'font-semibold text-accent' : 'text-text-1'}`}>{b.name}</div>
             {b.lastCommitSubject && <div className="truncate text-[10px] text-text-3">{b.lastCommitSubject}</div>}
           </div>
-          <div className="flex shrink-0 items-center gap-1 opacity-0 group-hover:opacity-100">
+          <div className="flex shrink-0 items-center gap-1 opacity-100 lg:opacity-0 lg:group-hover:opacity-100">
             {!b.current && (
               <>
                 <button onClick={() => checkout.mutate({ hostId, path: repoPath, branch: b.name }, { onSuccess: () => pushToast({ type: 'success', message: t('git.checkoutSuccess', { branch: b.name }) }), onError: (err) => pushToast({ type: 'error', message: err.message }) })} className="rounded px-1.5 py-0.5 text-[10px] text-text-3 hover:bg-bg-2 hover:text-text-1">{t('git.checkout')}</button>
@@ -468,13 +468,13 @@ export function GitPanel() {
         )}
         {repoPath && (
           <div className="mt-2 flex items-center gap-1">
-            <button aria-label={t('git.switchRepo')} title={t('git.switchRepo')} onClick={() => setRepoPickerOpen((open) => !open)} className={`tmuxgo-icon-button flex h-7 w-7 items-center justify-center rounded hover:bg-bg-2 hover:text-text-1 ${repoPickerOpen ? 'bg-bg-2 text-accent' : 'text-text-3'}`}><FiFolder aria-hidden="true" size={14} /></button>
+            <button aria-label={t('git.switchRepo')} title={t('git.switchRepo')} onClick={() => setRepoPickerOpen((open) => !open)} className={`tmuxgo-icon-button flex h-11 w-11 items-center justify-center rounded hover:bg-bg-2 hover:text-text-1 lg:h-7 lg:w-7 ${repoPickerOpen ? 'bg-bg-2 text-accent' : 'text-text-3'}`}><FiFolder aria-hidden="true" size={14} /></button>
             {gitState?.mode === 'locked' && (
-              <button aria-label={t('git.followCurrentFile')} title={t('git.followCurrentFile')} onClick={() => activeHostId && resumeGitFollowEditor(activeHostId)} className="tmuxgo-icon-button flex h-7 w-7 items-center justify-center rounded text-accent hover:bg-bg-2 hover:text-text-1"><FiLink aria-hidden="true" size={14} /></button>
+              <button aria-label={t('git.followCurrentFile')} title={t('git.followCurrentFile')} onClick={() => activeHostId && resumeGitFollowEditor(activeHostId)} className="tmuxgo-icon-button flex h-11 w-11 items-center justify-center rounded text-accent hover:bg-bg-2 hover:text-text-1 lg:h-7 lg:w-7"><FiLink aria-hidden="true" size={14} /></button>
             )}
-            <button aria-label={t('git.fetch')} title={t('git.fetch')} disabled={fetch.isPending} onClick={() => activeHostId && fetch.mutate({ hostId: activeHostId, path: repoPath }, { onSuccess: () => { pushToast({ type: 'success', message: t('git.fetchSuccess') }); queryClient.invalidateQueries({ queryKey: ['git-status'] }) }, onError: (err) => pushToast({ type: 'error', message: err.message }) })} className="tmuxgo-icon-button flex h-7 w-7 items-center justify-center rounded text-text-3 hover:bg-bg-2 hover:text-text-1 disabled:opacity-50"><FiRefreshCw aria-hidden="true" className={fetch.isPending ? 'animate-spin' : ''} size={14} /></button>
-            <button aria-label={t('git.pull')} title={t('git.pull')} disabled={pull.isPending} onClick={() => activeHostId && pull.mutate({ hostId: activeHostId, path: repoPath }, { onSuccess: () => { pushToast({ type: 'success', message: t('git.pullSuccess') }); queryClient.invalidateQueries({ queryKey: ['git-status'] }) }, onError: (err) => pushToast({ type: 'error', message: err.message }) })} className="tmuxgo-icon-button flex h-7 w-7 items-center justify-center rounded text-text-3 hover:bg-bg-2 hover:text-text-1 disabled:opacity-50"><FiDownload aria-hidden="true" size={14} /></button>
-            <button aria-label={t('git.push')} title={t('git.push')} disabled={push.isPending} onClick={() => activeHostId && push.mutate({ hostId: activeHostId, path: repoPath }, { onSuccess: () => { pushToast({ type: 'success', message: t('git.pushSuccess') }); queryClient.invalidateQueries({ queryKey: ['git-status'] }) }, onError: (err) => pushToast({ type: 'error', message: err.message.includes('rejected') ? t('git.pushRejected') : err.message }) })} className="tmuxgo-icon-button flex h-7 w-7 items-center justify-center rounded text-text-3 hover:bg-bg-2 hover:text-text-1 disabled:opacity-50"><FiUpload aria-hidden="true" size={14} /></button>
+            <button aria-label={t('git.fetch')} title={t('git.fetch')} disabled={fetch.isPending} onClick={() => activeHostId && fetch.mutate({ hostId: activeHostId, path: repoPath }, { onSuccess: () => { pushToast({ type: 'success', message: t('git.fetchSuccess') }); queryClient.invalidateQueries({ queryKey: ['git-status'] }) }, onError: (err) => pushToast({ type: 'error', message: err.message }) })} className="tmuxgo-icon-button flex h-11 w-11 items-center justify-center rounded text-text-3 hover:bg-bg-2 hover:text-text-1 disabled:opacity-50 lg:h-7 lg:w-7"><FiRefreshCw aria-hidden="true" className={fetch.isPending ? 'animate-spin' : ''} size={14} /></button>
+            <button aria-label={t('git.pull')} title={t('git.pull')} disabled={pull.isPending} onClick={() => activeHostId && pull.mutate({ hostId: activeHostId, path: repoPath }, { onSuccess: () => { pushToast({ type: 'success', message: t('git.pullSuccess') }); queryClient.invalidateQueries({ queryKey: ['git-status'] }) }, onError: (err) => pushToast({ type: 'error', message: err.message }) })} className="tmuxgo-icon-button flex h-11 w-11 items-center justify-center rounded text-text-3 hover:bg-bg-2 hover:text-text-1 disabled:opacity-50 lg:h-7 lg:w-7"><FiDownload aria-hidden="true" size={14} /></button>
+            <button aria-label={t('git.push')} title={t('git.push')} disabled={push.isPending} onClick={() => activeHostId && push.mutate({ hostId: activeHostId, path: repoPath }, { onSuccess: () => { pushToast({ type: 'success', message: t('git.pushSuccess') }); queryClient.invalidateQueries({ queryKey: ['git-status'] }) }, onError: (err) => pushToast({ type: 'error', message: err.message.includes('rejected') ? t('git.pushRejected') : err.message }) })} className="tmuxgo-icon-button flex h-11 w-11 items-center justify-center rounded text-text-3 hover:bg-bg-2 hover:text-text-1 disabled:opacity-50 lg:h-7 lg:w-7"><FiUpload aria-hidden="true" size={14} /></button>
           </div>
         )}
         {repoPickerOpen && (
@@ -497,7 +497,7 @@ export function GitPanel() {
         <>
           <div className="flex border-b border-[var(--line)]">
             {(['status', 'history', 'branches'] as const).map((tab) => (
-              <button key={tab} onClick={() => setActiveTab(tab)} className={`flex-1 py-1.5 text-[11px] font-medium transition-colors ${activeTab === tab ? 'border-b-2 border-accent text-accent' : 'text-text-3 hover:text-text-1'}`}>
+              <button key={tab} onClick={() => setActiveTab(tab)} className={`min-h-11 flex-1 py-1.5 text-[11px] font-medium transition-colors lg:min-h-0 ${activeTab === tab ? 'border-b-2 border-accent text-accent' : 'text-text-3 hover:text-text-1'}`}>
                 {t(`git.${tab}`)}{tab === 'status' && statusCount > 0 ? ` ${statusCount}` : ''}
               </button>
             ))}

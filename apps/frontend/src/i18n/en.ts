@@ -225,6 +225,7 @@ export const en = {
   'quick.killTitle': 'Close pane',
   'common.cancel': 'Cancel',
   'common.confirm': 'Confirm',
+  'common.close': 'Close',
   'palette.newSession': 'New session',
   'palette.splitHorizontal': 'Split pane horizontal',
   'palette.splitVertical': 'Split pane vertical',
@@ -496,6 +497,7 @@ export const en = {
 
   // MobileNav extra
   'nav.files': 'Files',
+  'nav.git': 'Git',
   'nav.off': 'Off',
 
   // FilePanel extra
