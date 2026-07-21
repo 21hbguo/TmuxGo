@@ -60,6 +60,35 @@ test('mobile stable page loads without application error', async ({ browser, bas
   expect(pageErrors).toEqual([])
   await context.close()
 })
+test('mobile quick session switches while keyboard is closed', async ({ browser, baseURL, request }) => {
+  const first = await ensureSession(request, `tmuxgo_quick_a_${Date.now()}`)
+  await ensureSession(request, `tmuxgo_quick_b_${Date.now()}`)
+  const context = await browser.newContext({
+    baseURL,
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+  })
+  await context.addInitScript((firstId) => {
+    localStorage.setItem('tmuxgo-active-host', 'local')
+    localStorage.setItem('tmuxgo-active-session:local', firstId)
+    localStorage.setItem('tmuxgo-active-session', firstId)
+  }, first.id)
+  const page = await context.newPage()
+  await page.goto('/')
+  const secondButton = page.locator('.tmuxgo-mobile-session-strip button').nth(1)
+  await expect(secondButton).toBeVisible()
+  await expect(secondButton).not.toHaveAttribute('data-keep-mobile-keyboard')
+  await secondButton.tap()
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('tmuxgo-active-session:local'))).not.toBe(first.id)
+  await page.evaluate(() => {
+    document.body.classList.add('keyboard-open')
+    window.dispatchEvent(new CustomEvent('mobile-keyboard-change', { detail: { open: true, inset: 280 } }))
+  })
+  await expect(secondButton).toHaveAttribute('data-keep-mobile-keyboard', 'true')
+  await context.close()
+})
 test('mobile dock restores nav after keyboard closes in compact viewport', async ({ browser, baseURL }) => {
   const context = await browser.newContext({
     baseURL,
