@@ -488,8 +488,10 @@ describe('TerminalPane', () => {
     await waitFor(() => expect(customKeyHandler).toBeTruthy())
     apiMocks.snapshotGet.mockClear()
     const screen = container.querySelector('.xterm-screen') as HTMLElement
+    const mask = container.querySelector('[data-testid="terminal-resize-mask"]') as HTMLElement
     screen.getBoundingClientRect = vi.fn(() => ({ x: 0, y: 0, left: 0, top: 0, width: 960, height: 576, right: 960, bottom: 576, toJSON: () => ({}) } as DOMRect))
     fireEvent.mouseDown(screen, { button: 0, clientX: 100, clientY: 20 })
+    expect(mask.style.display).toBe('block')
     fireEvent.mouseMove(window, { button: 0, clientX: 124, clientY: 20 })
     const guide = container.querySelector('[data-testid="pane-resize-guide"]') as HTMLElement
     expect(guide.style.display).toBe('block')
@@ -497,10 +499,12 @@ describe('TerminalPane', () => {
     expect(apiMocks.paneResize).not.toHaveBeenCalled()
     fireEvent.mouseUp(window)
     expect(guide.style.display).toBe('none')
+    expect(mask.style.display).toBe('block')
     await waitFor(() => expect(apiMocks.paneResize).toHaveBeenCalledWith('%1', { cols: 15 }))
     await waitFor(() => expect(apiMocks.snapshotGet).toHaveBeenCalledTimes(1))
     await sleep(100)
     expect(apiMocks.snapshotGet).toHaveBeenCalledTimes(1)
+    expect(mask.style.display).toBe('none')
   })
   it('sends final pane resize after mouseup while resize request is pending', async () => {
     queryClientMocks.getQueryData.mockReturnValue({
@@ -1179,10 +1183,29 @@ describe('TerminalPane', () => {
     resizeObserverCallback?.()
     expect(terminalMocks.resize).toHaveBeenCalledTimes(1)
     expect(onResize).toHaveBeenCalledTimes(1)
+    const [cols, rows] = terminalMocks.resize.mock.calls[0]
+    window.dispatchEvent(new CustomEvent('tmux-resized', { detail: { hostId: 'local', sessionName: 'dev', cols, rows } }))
     resizeObserverCallback?.()
     expect(terminalMocks.resize).toHaveBeenCalledTimes(1)
     expect(onResize).toHaveBeenCalledTimes(1)
     await waitFor(() => expect(apiMocks.snapshotGet).toHaveBeenCalledTimes(1))
+  })
+  it('hides terminal content until desktop resize settles', async () => {
+    const { container } = render(<TerminalPane sessionName="dev" attachExclusive onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    const root = container.firstChild as HTMLElement
+    const mask = container.querySelector('[data-testid="terminal-resize-mask"]') as HTMLElement
+    Object.defineProperty(root, 'clientWidth', { configurable: true, value: 800 })
+    Object.defineProperty(root, 'clientHeight', { configurable: true, value: 520 })
+    resizeObserverCallback?.()
+    Object.defineProperty(root, 'clientWidth', { configurable: true, value: 760 })
+    resizeObserverCallback?.()
+    expect(mask.style.display).toBe('block')
+    await sleep(20)
+    expect(mask.style.display).toBe('block')
+    const [cols, rows] = terminalMocks.resize.mock.calls.at(-1) || []
+    window.dispatchEvent(new CustomEvent('tmux-resized', { detail: { hostId: 'local', sessionName: 'dev', cols, rows } }))
+    await waitFor(() => expect(mask.style.display).toBe('none'))
   })
   it('waits for mobile keyboard layout changes to settle before fitting', async () => {
     mobileKeyboardMocks.isMobile = true
@@ -1199,9 +1222,7 @@ describe('TerminalPane', () => {
     expect(terminalMocks.resize).not.toHaveBeenCalled()
     Object.defineProperty(root, 'clientHeight', { configurable: true, value: 500 })
     resizeObserverCallback?.()
-    await sleep(60)
-    expect(terminalMocks.resize).not.toHaveBeenCalled()
-    await waitFor(() => expect(terminalMocks.resize).toHaveBeenCalled(), { timeout: 500 })
+    expect(terminalMocks.resize).toHaveBeenCalled()
   })
   it('cancels tmux copy mode before focusing the mobile keyboard', async () => {
     mobileKeyboardMocks.isMobile = true

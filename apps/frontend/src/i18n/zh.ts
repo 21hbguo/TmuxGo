@@ -1,4 +1,5 @@
 export const zh = {
+  'common.refresh': '刷新',
   // TopBar
   'search.placeholder': '搜索...',
   'search.cmd': '⌘K',

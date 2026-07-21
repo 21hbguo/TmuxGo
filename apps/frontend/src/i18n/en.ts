@@ -1,4 +1,5 @@
 export const en = {
+  'common.refresh': 'Refresh',
   // TopBar
   'search.placeholder': 'Search...',
   'search.cmd': '⌘K',
