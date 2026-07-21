@@ -23,7 +23,7 @@ import { openFileInEditor } from '@/lib/editor-open'
 import type { FileDocumentHandle, FileRoot } from '@/types'
 
 const SCROLLBACK_LIMIT = 600
-const DELETE_WORD_REPEAT_DELAY = 140
+const DELETE_WORD_REPEAT_DELAY = 420
 const DELETE_WORD_REPEAT_SECOND_DELAY = 109
 const DELETE_WORD_REPEAT_THIRD_DELAY = 78
 const DELETE_WORD_REPEAT_FOURTH_DELAY = 56
