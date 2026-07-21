@@ -83,10 +83,19 @@ test('mobile quick session switches while keyboard is closed', async ({ browser,
   await secondButton.tap()
   await expect.poll(() => page.evaluate(() => localStorage.getItem('tmuxgo-active-session:local'))).not.toBe(first.id)
   await page.evaluate(() => {
+    const input = document.querySelector('.mobile-kb-input') as HTMLTextAreaElement | null
+    input?.focus({ preventScroll: true })
+    ;(window as typeof window & { __tmuxgoKeyboardFocusEvents?: string[] }).__tmuxgoKeyboardFocusEvents = []
+    input?.addEventListener('blur', () => (window as typeof window & { __tmuxgoKeyboardFocusEvents?: string[] }).__tmuxgoKeyboardFocusEvents?.push('blur'))
     document.body.classList.add('keyboard-open')
     window.dispatchEvent(new CustomEvent('mobile-keyboard-change', { detail: { open: true, inset: 280 } }))
   })
   await expect(secondButton).toHaveAttribute('data-keep-mobile-keyboard', 'true')
+  const activeSessionId = await page.evaluate(() => localStorage.getItem('tmuxgo-active-session:local'))
+  const keyboardSwitchButton = page.locator('.tmuxgo-mobile-session-strip button').nth(1)
+  await keyboardSwitchButton.tap()
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('tmuxgo-active-session:local'))).not.toBe(activeSessionId)
+  await expect.poll(() => page.evaluate(() => ({ active: document.activeElement?.classList.contains('mobile-kb-input'), events: (window as typeof window & { __tmuxgoKeyboardFocusEvents?: string[] }).__tmuxgoKeyboardFocusEvents || [], open: document.body.classList.contains('keyboard-open') }))).toEqual({ active: true, events: [], open: true })
   await context.close()
 })
 test('mobile dock restores nav after keyboard closes in compact viewport', async ({ browser, baseURL }) => {

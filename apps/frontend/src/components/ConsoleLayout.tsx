@@ -565,8 +565,10 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
                     <button
                       key={session.id}
                       type="button"
+                      tabIndex={keyboardOpen ? -1 : undefined}
                       data-keep-mobile-keyboard={keyboardOpen ? 'true' : undefined}
                       onPointerDown={(e) => {
+                        if (keyboardOpen) e.preventDefault()
                         if (e.pointerType === 'mouse') return
                         mobileSessionLongPressFiredRef.current = false
                         clearMobileSessionLongPress()

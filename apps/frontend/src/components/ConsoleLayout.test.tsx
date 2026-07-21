@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { createEvent, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConsoleLayout } from './ConsoleLayout'
@@ -151,8 +151,13 @@ describe('ConsoleLayout mobile files overlay stack', () => {
     useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-a' } as any)
     render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
     await waitFor(() => expect(screen.getByRole('button', { name: 'alpha' })).toBeTruthy())
-    expect(screen.getByRole('button', { name: 'beta' })).not.toHaveAttribute('data-keep-mobile-keyboard')
-    fireEvent.click(screen.getByRole('button', { name: 'beta' }))
+    const betaButton = screen.getByRole('button', { name: 'beta' })
+    expect(betaButton).not.toHaveAttribute('data-keep-mobile-keyboard')
+    const pointerDown = createEvent.pointerDown(betaButton, { pointerId: 1, pointerType: 'touch' })
+    fireEvent(betaButton, pointerDown)
+    expect(pointerDown.defaultPrevented).toBe(false)
+    fireEvent.pointerUp(betaButton, { pointerId: 1, pointerType: 'touch' })
+    fireEvent.click(betaButton)
     expect(useConsoleStore.getState().activeSessionId).toBe('session-b')
     expect(screen.queryByRole('button', { name: 'gamma' })).toBeNull()
   })
@@ -180,7 +185,13 @@ describe('ConsoleLayout mobile files overlay stack', () => {
     document.body.classList.add('keyboard-open')
     window.dispatchEvent(new CustomEvent('mobile-keyboard-change', { detail: { open: true, inset: 280 } }))
     await waitFor(() => expect(screen.getByText('shortcut-bar')).toBeTruthy())
-    expect(screen.getByRole('button', { name: 'epsilon' })).toHaveAttribute('data-keep-mobile-keyboard')
+    const epsilonButton = screen.getByRole('button', { name: 'epsilon' })
+    expect(epsilonButton).toHaveAttribute('data-keep-mobile-keyboard')
+    expect(epsilonButton).toHaveAttribute('tabindex', '-1')
+    const pointerDown = createEvent.pointerDown(epsilonButton, { pointerId: 1, pointerType: 'touch' })
+    fireEvent(epsilonButton, pointerDown)
+    expect(pointerDown.defaultPrevented).toBe(true)
+    fireEvent.pointerUp(epsilonButton, { pointerId: 1, pointerType: 'touch' })
   })
   it('opens quick session menu from context menu and can jump to sessions drawer', async () => {
     sessionsDataMock=[{ id:'session-a',name:'alpha' }]
