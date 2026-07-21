@@ -1102,12 +1102,15 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       renderer.screen.style.removeProperty('transform-origin')
       renderer.screen.style.removeProperty('transform')
       renderer.screen.style.removeProperty('will-change')
-      if (attachExclusiveRef.current && isMobileDevice) {
+      if (attachExclusiveRef.current) {
         renderer.rows.style.setProperty('height', '100%', 'important')
         renderer.screen.style.setProperty('height', '100%', 'important')
+        const cellHeight = Number(terminal?._core?._renderService?.dimensions?.css?.cell?.height)
+        if (cellHeight) renderer.rows.style.setProperty('--terminal-last-row-height', `${cellHeight + Math.max(0, getAvailableSize().height - cellHeight * terminal.rows)}px`)
       } else {
         renderer.rows.style.removeProperty('height')
         renderer.screen.style.removeProperty('height')
+        renderer.rows.style.removeProperty('--terminal-last-row-height')
       }
       renderer.viewport.style.setProperty('width', '100%', 'important')
     }
@@ -1170,9 +1173,14 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       if (element.style.width !== '100%') element.style.width = '100%'
       if (element.style.height !== '100%') element.style.height = '100%'
       const screen = element.querySelector('.xterm-screen') as HTMLElement | null
+      const canvases = screen ? Array.from(screen.querySelectorAll('canvas:not(.xterm-link-layer)')) as HTMLCanvasElement[] : []
       if (screen?.style.transform) screen.style.removeProperty('transform')
       if (screen?.style.transformOrigin) screen.style.removeProperty('transform-origin')
       if (screen?.style.willChange) screen.style.removeProperty('will-change')
+      for (const canvas of canvases) {
+        canvas.style.removeProperty('transform')
+        canvas.style.removeProperty('transform-origin')
+      }
     }
     const syncExclusiveViewport = () => {
       const element = terminal?.element as HTMLElement | null
@@ -1182,6 +1190,15 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         return
       }
       clearViewportStyles()
+      const screen = element.querySelector('.xterm-screen') as HTMLElement | null
+      const canvas = getCanvasSize()
+      const available = getAvailableSize()
+      if (!screen || !canvas?.height || !available.height) return
+      const scaleY = available.height / canvas.height
+      for (const canvasElement of Array.from(screen.querySelectorAll('canvas:not(.xterm-link-layer)')) as HTMLCanvasElement[]) {
+        canvasElement.style.transformOrigin = 'top left'
+        canvasElement.style.transform = `scaleY(${scaleY})`
+      }
     }
     const syncSharedViewport = () => {
       const element = terminal?.element as HTMLElement | null

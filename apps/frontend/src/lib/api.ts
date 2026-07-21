@@ -387,6 +387,8 @@ export const api = {
   git: {
     detect: (hostId: string, path: string) =>
       fetchApi<GitDetectResponse>(`/api/hosts/${hostId}/git/detect?path=${encodeURIComponent(path)}`),
+    detectFromPane: (hostId: string, paneId: string) =>
+      fetchApi<GitDetectResponse>(`/api/hosts/${hostId}/git/detect?paneId=${encodeURIComponent(paneId)}`),
     status: (hostId: string, path: string) =>
       fetchApi<GitStatusResponse>(`/api/hosts/${hostId}/git/status?path=${encodeURIComponent(path)}`),
     diff: (hostId: string, path: string, options?: { filePath?: string; staged?: boolean; commit?: string }) => {

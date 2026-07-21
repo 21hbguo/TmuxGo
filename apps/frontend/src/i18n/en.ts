@@ -558,9 +558,12 @@ export const en = {
   'git.pullSuccess': 'Pull successful',
   'git.pushSuccess': 'Push successful',
   'git.pushRejected': 'Push rejected',
-  'git.modeFollowingFile': 'Following current file',
+  'git.modeFollowingFile': 'Following editor or terminal',
   'git.modeLocked': 'Repository locked',
   'git.followCurrentFile': 'Follow Current File',
   'git.pinnedRepos': 'Pinned Repositories',
   'git.recentRepos': 'Recent Repositories',
+  'git.searchCommits': 'Find commits, authors, branches, or tags',
+  'git.clearSearch': 'Clear search',
+  'git.openRepo': 'Open Repository',
 } as const

@@ -1,5 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { execGit } from '../lib/git-executor.js'
+import { execTmux } from '../lib/tmux-executor.js'
+import { assertTargetAllowed } from '../lib/tmux-policy.js'
 
 interface GitFileChange {
   path: string
@@ -132,19 +134,41 @@ function parseGitBranches(stdout: string) {
     }
   }).filter(Boolean)
 }
+export function parseGitRefs(stdout: string) {
+  return stdout.split('\n').filter(Boolean).map((line) => {
+    const [fullName = '', objectHash = '', peeledHash = '', symref = ''] = line.split(gitBranchFieldSeparator)
+    if (!fullName || symref) return null
+    const kind = fullName.startsWith('refs/remotes/') ? 'remote' : fullName.startsWith('refs/tags/') ? 'tag' : null
+    if (!kind) return null
+    return {
+      name: fullName.replace(kind === 'remote' ? 'refs/remotes/' : 'refs/tags/', ''),
+      kind,
+      commitHash: peeledHash || objectHash,
+    }
+  }).filter(Boolean)
+}
 
 export async function gitRoutes(fastify: FastifyInstance) {
   fastify.get('/hosts/:hostId/git/detect', async (request) => {
     const { hostId } = request.params as { hostId: string }
-    const { path: repoPath } = request.query as { path?: string }
-    if (!repoPath) return { isGitRepo: false }
+    const { path: repoPath, paneId } = request.query as { path?: string; paneId?: string }
+    let candidatePath = repoPath?.trim() || ''
     try {
-      const { stdout } = await execGit(hostId, ['rev-parse', '--show-toplevel'], repoPath)
+      if (!candidatePath && paneId) {
+        if (!paneId.startsWith(`${hostId}:`)) throw new Error('Pane does not belong to host')
+        const tmuxPaneId = paneId.slice(hostId.length + 1)
+        if (!tmuxPaneId.startsWith('%')) throw new Error('Invalid pane id')
+        if (hostId === 'local') await assertTargetAllowed(tmuxPaneId)
+        const { stdout } = await execTmux(hostId, ['display-message', '-p', '-t', tmuxPaneId, '#{pane_current_path}'])
+        candidatePath = stdout.trim()
+      }
+      if (!candidatePath) return { isGitRepo: false }
+      const { stdout } = await execGit(hostId, ['rev-parse', '--show-toplevel'], candidatePath)
       const rootPath = stdout.trim()
       const { stdout: branchOut } = await execGit(hostId, ['rev-parse', '--abbrev-ref', 'HEAD'], rootPath)
-      return { isGitRepo: true, rootPath, branch: branchOut.trim() }
+      return { isGitRepo: true, rootPath, branch: branchOut.trim(), path: candidatePath }
     } catch {
-      return { isGitRepo: false }
+      return { isGitRepo: false, path: candidatePath || undefined }
     }
   })
 
@@ -160,9 +184,8 @@ export async function gitRoutes(fastify: FastifyInstance) {
     const { hostId } = request.params as { hostId: string }
     const { path: repoPath, filePath, staged, commit } = request.query as { path?: string; filePath?: string; staged?: string; commit?: string }
     if (!repoPath) throw new Error('Missing path parameter')
-    const args = ['diff', '--no-color']
-    if (commit) args.push(commit)
-    else if (staged === 'true') args.push('--staged')
+    const args = commit ? ['show', '--format=', '--no-color', commit.replace(/\^!$/, '')] : ['diff', '--no-color']
+    if (!commit && staged === 'true') args.push('--staged')
     if (filePath) args.push('--', filePath)
     const { stdout } = await execGit(hostId, args, repoPath)
     return { raw: stdout }
@@ -229,10 +252,14 @@ export async function gitRoutes(fastify: FastifyInstance) {
     const { hostId } = request.params as { hostId: string }
     const { path: repoPath } = request.query as { path?: string }
     if (!repoPath) throw new Error('Missing path parameter')
-    const { stdout } = await execGit(hostId, ['for-each-ref', '--sort=-committerdate', `--format=%(if)%(HEAD)%(then)*%(else) %(end)${gitBranchFieldSeparator}%(refname:short)${gitBranchFieldSeparator}%(objectname)${gitBranchFieldSeparator}%(upstream:short)${gitBranchFieldSeparator}%(upstream:trackshort)${gitBranchFieldSeparator}%(contents:subject)`, 'refs/heads'], repoPath)
+    const [{ stdout }, { stdout: refsOut }] = await Promise.all([
+      execGit(hostId, ['for-each-ref', '--sort=-committerdate', `--format=%(if)%(HEAD)%(then)*%(else) %(end)${gitBranchFieldSeparator}%(refname:short)${gitBranchFieldSeparator}%(objectname)${gitBranchFieldSeparator}%(upstream:short)${gitBranchFieldSeparator}%(upstream:trackshort)${gitBranchFieldSeparator}%(contents:subject)`, 'refs/heads'], repoPath),
+      execGit(hostId, ['for-each-ref', '--sort=-committerdate', `--format=%(refname)${gitBranchFieldSeparator}%(objectname)${gitBranchFieldSeparator}%(*objectname)${gitBranchFieldSeparator}%(symref)`, 'refs/remotes', 'refs/tags'], repoPath),
+    ])
     const branches = parseGitBranches(stdout)
+    const refs = parseGitRefs(refsOut)
     const current = branches.find((b) => b?.current)?.name || ''
-    return { branches, current }
+    return { branches, refs, current }
   })
 
   fastify.post('/hosts/:hostId/git/checkout', async (request) => {

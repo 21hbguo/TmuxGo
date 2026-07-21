@@ -479,6 +479,9 @@ a {
 [data-terminal] .xterm-rows {
   letter-spacing: 0 !important;
 }
+[data-terminal] .xterm-rows > div:last-child {
+  height: var(--terminal-last-row-height) !important;
+}
 
 [data-shortcut-bar] {
   -webkit-touch-callout: none;

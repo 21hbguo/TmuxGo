@@ -231,6 +231,7 @@ interface ConsoleState {
   ensureGitHostState: (hostId: string) => void
   replaceGitByHost: (gitByHost: Record<string, GitHostState>) => void
   setGitFollowEditorRepo: (hostId: string, repoPath: string | null, filePath: string | null) => void
+  setGitFollowPaneRepo: (hostId: string, repoPath: string | null, panePath: string | null) => void
   setGitLockedRepo: (hostId: string, repoPath: string) => void
   resumeGitFollowEditor: (hostId: string) => void
   pinGitRepo: (hostId: string, repoPath: string, pinned: boolean) => void
@@ -293,7 +294,7 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
   filePanelOpen: false,
   thumbnailPanelOpen: false,
   gitPanelOpen: false,
-  gitPanelWidth: 320,
+  gitPanelWidth: 560,
   gitByHost: {},
   mobileFileSheetOpen: false,
   sessionPanelWidth: 248,
@@ -325,12 +326,16 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
   toggleThumbnailPanel: () => set((state) => state.thumbnailPanelOpen ? { thumbnailPanelOpen: false } : { thumbnailPanelOpen: true, filePanelOpen: false, sessionPanelExpanded: false, gitPanelOpen: false }),
   setGitPanelOpen: (open) => set((state) => open ? { gitPanelOpen: true, thumbnailPanelOpen: false, sessionPanelExpanded: false, filePanelOpen: false } : { gitPanelOpen: false }),
   toggleGitPanel: () => set((state) => state.gitPanelOpen ? { gitPanelOpen: false } : { gitPanelOpen: true, thumbnailPanelOpen: false, sessionPanelExpanded: false, filePanelOpen: false }),
-  setGitPanelWidth: (width) => set({ gitPanelWidth: Math.max(260, Math.min(400, width)) }),
+  setGitPanelWidth: (width) => set({ gitPanelWidth: Math.max(380, Math.min(920, width)) }),
   ensureGitHostState: (hostId) => set((state) => ({ gitByHost: updateGitHostState(state.gitByHost, hostId, (current) => current) })),
   replaceGitByHost: (gitByHost) => set({ gitByHost }),
   setGitFollowEditorRepo: (hostId, repoPath, filePath) => set((state) => ({ gitByHost: updateGitHostState(state.gitByHost, hostId, (current) => {
     if (current.mode === 'locked') return { ...current, currentFilePath: filePath }
     return { ...current, currentRepoPath: repoPath, currentFilePath: filePath, source: repoPath ? 'editor' as GitSource : current.source, recentRepos: repoPath ? touchGitRepo(current, repoPath) : current.recentRepos }
+  }) })),
+  setGitFollowPaneRepo: (hostId, repoPath, panePath) => set((state) => ({ gitByHost: updateGitHostState(state.gitByHost, hostId, (current) => {
+    if (current.mode === 'locked') return current
+    return { ...current, currentRepoPath: repoPath, currentFilePath: panePath, source: 'pane' as GitSource, recentRepos: repoPath ? touchGitRepo(current, repoPath) : current.recentRepos }
   }) })),
   setGitLockedRepo: (hostId, repoPath) => set((state) => ({ gitByHost: updateGitHostState(state.gitByHost, hostId, (current) => ({ ...current, mode: 'locked' as GitMode, currentRepoPath: repoPath, lockedRepoPath: repoPath, source: 'manual', recentRepos: touchGitRepo(current, repoPath) })) })),
   resumeGitFollowEditor: (hostId) => set((state) => ({ gitByHost: updateGitHostState(state.gitByHost, hostId, (current) => ({ ...current, mode: 'follow-editor', lockedRepoPath: null, source: current.currentRepoPath ? 'editor' : null })) })),

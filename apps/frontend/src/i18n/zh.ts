@@ -558,9 +558,12 @@ export const zh = {
   'git.pullSuccess': '拉取成功',
   'git.pushSuccess': '推送成功',
   'git.pushRejected': '推送被拒绝',
-  'git.modeFollowingFile': '跟随当前文件',
+  'git.modeFollowingFile': '跟随编辑器或终端',
   'git.modeLocked': '已锁定仓库',
   'git.followCurrentFile': '跟随当前文件',
   'git.pinnedRepos': '固定仓库',
   'git.recentRepos': '最近仓库',
+  'git.searchCommits': '查找提交、作者、分支或标签',
+  'git.clearSearch': '清除查找',
+  'git.openRepo': '打开仓库',
 } as const

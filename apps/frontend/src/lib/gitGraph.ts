@@ -14,13 +14,14 @@ export type GitGraphCommit={
 export type GitGraphBranchHead={
   name:string
   commit:{sha:string}
+  kind?:'branch'|'remote'|'tag'
 }
 export type GitGraphLaneRow={
   commit:GitGraphCommit
   row:number
   lane:number
   colorIndex:number
-  branches:string[]
+  branches:GitGraphBranchHead[]
 }
 export type GitGraphLaneEdge={
   fromRow:number
@@ -45,15 +46,15 @@ function trimTrailing(active:(string|null)[]){
 }
 export function buildGitGraphLayout(commits:GitGraphCommit[],branchHeads:GitGraphBranchHead[],currentBranch?:string):GitGraphLayout{
   const commitIndex=new Map(commits.map((commit,index)=>[commit.sha,index]))
-  const branchMap=new Map<string,string[]>()
+  const branchMap=new Map<string,GitGraphBranchHead[]>()
   for(const branchHead of branchHeads){
     if(!commitIndex.has(branchHead.commit.sha)) continue
     const existing=branchMap.get(branchHead.commit.sha)
     if(existing){
-      existing.push(branchHead.name)
+      existing.push(branchHead)
       continue
     }
-    branchMap.set(branchHead.commit.sha,[branchHead.name])
+    branchMap.set(branchHead.commit.sha,[branchHead])
   }
   const orderedHeads=branchHeads.filter((branchHead)=>commitIndex.has(branchHead.commit.sha)).sort((a,b)=>{
     const aCurrent=a.name===currentBranch?-1:0
@@ -86,9 +87,9 @@ export function buildGitGraphLayout(commits:GitGraphCommit[],branchHeads:GitGrap
     }
     const colorIndex=laneColors[lane]??0
     const rowData={commit,row,lane,colorIndex,branches:(branchMap.get(commit.sha)||[]).slice().sort((a,b)=>{
-      if(a===currentBranch) return -1
-      if(b===currentBranch) return 1
-      return a.localeCompare(b)
+      if(a.name===currentBranch&&a.kind!=='remote'&&a.kind!=='tag') return -1
+      if(b.name===currentBranch&&b.kind!=='remote'&&b.kind!=='tag') return 1
+      return a.name.localeCompare(b.name)
     })}
     rows.push(rowData)
     rowByHash.set(commit.sha,rowData)

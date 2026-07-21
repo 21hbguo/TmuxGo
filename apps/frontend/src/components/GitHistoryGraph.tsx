@@ -13,6 +13,7 @@ type GitHistoryGraphProps={
   onCommitClick:(commit:GitGraphCommit)=>void
   formatDate:(date:string|number|Date)=>string
   formatDateFull:(date:string|number|Date)=>string
+  searchQuery?:string
 }
 
 const rowHeight=54
@@ -28,9 +29,11 @@ function edgePath(fromX:number,fromY:number,toX:number,toY:number){
   return `M ${fromX} ${fromY} C ${fromX} ${midY} ${toX} ${midY} ${toX} ${toY}`
 }
 
-export function GitHistoryGraph({ commits, branchHeads, currentBranch, hasMore, isFetchingMore, onLoadMore, onCommitClick, formatDate, formatDateFull }:GitHistoryGraphProps){
+export function GitHistoryGraph({ commits, branchHeads, currentBranch, hasMore, isFetchingMore, onLoadMore, onCommitClick, formatDate, formatDateFull, searchQuery='' }:GitHistoryGraphProps){
   const sentinelRef=useRef<HTMLDivElement|null>(null)
+  const graphRef=useRef<HTMLDivElement|null>(null)
   const layout=useMemo(()=>buildGitGraphLayout(commits,branchHeads,currentBranch),[branchHeads,commits,currentBranch])
+  const normalizedSearch=searchQuery.trim().toLocaleLowerCase()
   const graphWidth=graphPaddingX*2+Math.max(layout.laneCount,1)*laneGap
   const graphHeight=Math.max(layout.rows.length,1)*rowHeight
   const edgeNodes=layout.edges.map((edge,index)=>{
@@ -57,8 +60,9 @@ export function GitHistoryGraph({ commits, branchHeads, currentBranch, hasMore, 
     const committedLabel=`Commit ${formatDateFull(row.commit.committedAt)}`
     const authoredLabel=row.commit.authoredAt!==row.commit.committedAt?`Author ${formatDateFull(row.commit.authoredAt)}`:''
     const tooltipText=[row.commit.subject||row.commit.shortSha,`${row.commit.shortSha} · ${row.commit.author.name}`,committedLabel,authoredLabel].filter(Boolean).join('\n')
+    const matchesSearch=!!normalizedSearch&&[row.commit.sha,row.commit.shortSha,row.commit.subject,row.commit.author.name,row.commit.author.email||'',...row.branches.map((branch)=>branch.name)].some((value)=>value.toLocaleLowerCase().includes(normalizedSearch))
     return (
-      <button key={row.commit.sha} type="button" title={tooltipText} onClick={()=>onCommitClick(row.commit)} className="flex h-[54px] w-full items-stretch gap-3 px-0 py-0 text-left hover:bg-bg-2">
+      <button key={row.commit.sha} type="button" title={tooltipText} data-git-search-match={matchesSearch?'1':undefined} onClick={()=>onCommitClick(row.commit)} className={`flex h-[54px] w-full items-stretch gap-3 border-l-2 px-0 py-0 text-left transition-colors ${matchesSearch?'border-accent bg-accent/[0.08]':'border-transparent hover:bg-bg-2'}`}>
         <div className="shrink-0" style={{ width: graphWidth, height: rowHeight }} />
         <div className="min-w-0 flex-1 border-b border-[var(--line)]/50 pr-3">
           <div className="flex h-full flex-col justify-center">
@@ -67,7 +71,7 @@ export function GitHistoryGraph({ commits, branchHeads, currentBranch, hasMore, 
             {!!row.branches.length&&(
               <div className="flex min-w-0 flex-wrap gap-1">
                 {row.branches.map((branch)=>(
-                  <span key={branch} className={`rounded px-1.5 py-0.5 text-[10px] ${branch===currentBranch?'bg-accent/20 text-accent':'bg-bg-2 text-text-3'}`}>{branch}</span>
+                  <span key={`${branch.kind||'branch'}-${branch.name}`} className={`rounded px-1.5 py-0.5 text-[10px] ${branch.name===currentBranch&&branch.kind!=='remote'&&branch.kind!=='tag'?'bg-accent/20 text-accent':branch.kind==='tag'?'bg-yellow-400/15 text-yellow-400':branch.kind==='remote'?'bg-blue-400/15 text-blue-400':'bg-green-400/15 text-green-400'}`}>{branch.name}</span>
                 ))}
               </div>
             )}
@@ -90,9 +94,13 @@ export function GitHistoryGraph({ commits, branchHeads, currentBranch, hasMore, 
     observer.observe(element)
     return ()=>observer.disconnect()
   },[hasMore,isFetchingMore,onLoadMore])
+  useEffect(()=>{
+    if(!normalizedSearch) return
+    graphRef.current?.querySelector<HTMLElement>('[data-git-search-match="1"]')?.scrollIntoView?.({block:'center'})
+  },[normalizedSearch])
   if(commits.length===0) return null
   return (
-    <div className="min-h-0">
+    <div ref={graphRef} className="min-h-0">
       <div className="relative">
         <svg width={graphWidth} height={graphHeight} className="pointer-events-none absolute left-0 top-0 overflow-visible">
           {edgeNodes}
