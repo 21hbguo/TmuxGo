@@ -13,6 +13,7 @@ import { APP_BUILD_ID, APP_NAME, APP_VERSION } from '@/lib/app-version'
 import { api } from '@/lib/api'
 import type { SessionArchive, SessionArchiveSummary } from '@/types'
 import { useCreateHost, useDeleteHost, useHosts, useRestartRebuild, useRestartRebuildStatus, useTestHost } from '@/hooks/useApi'
+import { PluginSettings } from './PluginSettings'
 
 interface SettingsProps {
   onClose: () => void
@@ -25,7 +26,7 @@ export function Settings({ onClose }: SettingsProps) {
   const pushToast = useConsoleStore((state) => state.pushToast)
   const activeHostId = useConsoleStore((state) => state.activeHostId)
   const { copy } = useClipboard()
-  const [activeTab, setActiveTab] = useState<'general' | 'appearance' | 'audit' | 'about'>('general')
+  const [activeTab, setActiveTab] = useState<'general' | 'appearance' | 'plugins' | 'audit' | 'about'>('general')
   const [showAuditLog, setShowAuditLog] = useState(false)
   const [hostIdDraft, setHostIdDraft] = useState('')
   const [hostNameDraft, setHostNameDraft] = useState('')
@@ -73,6 +74,7 @@ export function Settings({ onClose }: SettingsProps) {
   const tabs = [
     { id: 'general' as const, label: t('settings.general') },
     { id: 'appearance' as const, label: t('settings.appearance') },
+    { id: 'plugins' as const, label: t('settings.plugins') },
     { id: 'audit' as const, label: t('settings.auditLog') },
     { id: 'about' as const, label: t('settings.about') },
   ]
@@ -619,6 +621,8 @@ export function Settings({ onClose }: SettingsProps) {
               </div>
             </div>
           )}
+
+          {activeTab === 'plugins' && <PluginSettings />}
 
           {activeTab === 'audit' && (
             <div>

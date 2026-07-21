@@ -9,7 +9,7 @@ import { PromptDialog } from './PromptDialog'
 import { writeClipboardText } from '@/lib/clipboard-text'
 import { requestTerminalSelection } from '@/lib/terminal-selection'
 import { useSessionSnapshotSync } from '@/hooks/useSessionSnapshotSync'
-import { useHosts, useWindows } from '@/hooks/useApi'
+import { useHosts, useInvokePluginAction, usePlugins, useWindows } from '@/hooks/useApi'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import { useWindowQueryState } from '@/hooks/useWindowQueryState'
 
@@ -34,6 +34,8 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
   const { data: hosts = [] } = useHosts()
   const { data: sessions = [] } = useOrderedSessions(activeHostId || '')
   const { data: windows = [] } = useWindows(activeHostId || '', activeSessionId || '')
+  const { data: pluginsData } = usePlugins()
+  const invokePluginAction = useInvokePluginAction()
   const { getWindows, setWindows } = useWindowQueryState(activeHostId || '', activeSessionId || '')
   const { t } = useTranslation()
   const { refreshSnapshot, resolveActivePaneId, resolveFreshActivePaneId, syncAfterWindowChange, optimisticallyToggleWindowZoom, discardOptimisticWindowZoom } = useSessionSnapshotSync()
@@ -62,7 +64,13 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
     if (result.unavailable) pushToast({ type: 'info', message: t('clipboard.unavailable') })
   }
   const pasteClipboard = async () => window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-paste'))
+  const pluginItems = (pluginsData?.plugins || []).filter((plugin) => plugin.enabled && plugin.state === 'active').flatMap((plugin) => (plugin.manifest.contributes?.actions || []).filter((action) => action.title.toLowerCase().includes(q) || action.id.toLowerCase().includes(q) || plugin.manifest.name.toLowerCase().includes(q)).map((action) => ({ key: `plugin-${plugin.pluginId}-${action.id}`, type: 'plugin', title: action.title, meta: plugin.manifest.name, action: async () => {
+    const log = await invokePluginAction.mutateAsync({ pluginId: plugin.pluginId, actionId: action.id, context: { hostId: activeHostId || 'local', sessionId: activeSessionId || '', paneId: useConsoleStore.getState().activePaneId || '', source: 'command-palette' } })
+    if (log.status !== 'success') throw new Error(log.error || log.stderr || t('plugins.actionFailed'))
+    if (log.stdout.trim()) pushToast({ type: 'success', message: log.stdout.trim() })
+  } })))
   const items = [
+    ...pluginItems,
     ...hosts.filter((h: any) => h.name.toLowerCase().includes(q)).map((host: any) => ({ key: `host-${host.id}`, type: 'host', title: host.name, meta: host.address, action: async () => setActiveHost(host.id) })),
     ...sessions.filter((s: any) => s.name.toLowerCase().includes(q)).map((session: any) => ({ key: `session-${session.id}`, type: 'session', title: session.name, meta: t('palette.windows', { count: session.windowCount }), action: async () => setActiveSession(session.id) })),
     ...windows.filter((w: any) => w.name.toLowerCase().includes(q)).map((window: any) => ({ key: `window-${window.id}`, type: 'action', title: t('palette.switchWindow', { name: window.name }), meta: 'Enter', action: async () => {

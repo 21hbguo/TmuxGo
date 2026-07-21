@@ -474,6 +474,7 @@ describe('TerminalPane', () => {
     await waitFor(() => expect(screen.queryByTestId('github-device-login-card')).toBeNull())
   })
   it('resizes tmux pane through frontend border drag', async () => {
+    terminalCellWidth = 10
     queryClientMocks.getQueryData.mockReturnValue({
       sessionName: 'dev',
       activeWindowId: '@1',
@@ -1174,12 +1175,14 @@ describe('TerminalPane', () => {
     Object.defineProperty(root, 'clientHeight', { configurable: true, value: 520 })
     terminalMocks.resize.mockClear()
     onResize.mockClear()
+    apiMocks.snapshotGet.mockClear()
     resizeObserverCallback?.()
     expect(terminalMocks.resize).toHaveBeenCalledTimes(1)
     expect(onResize).toHaveBeenCalledTimes(1)
     resizeObserverCallback?.()
     expect(terminalMocks.resize).toHaveBeenCalledTimes(1)
     expect(onResize).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(apiMocks.snapshotGet).toHaveBeenCalledTimes(1))
   })
   it('waits for mobile keyboard layout changes to settle before fitting', async () => {
     mobileKeyboardMocks.isMobile = true

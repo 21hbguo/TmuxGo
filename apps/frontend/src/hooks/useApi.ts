@@ -100,6 +100,31 @@ export function useRestartRebuild() {
     },
   })
 }
+export function usePlugins(enabled = true) {
+  return useQuery({ queryKey: ['plugins'], queryFn: api.plugins.list, enabled, staleTime: 3000 })
+}
+export function useLinkPlugin() {
+  const queryClient = useQueryClient()
+  return useMutation({ mutationFn: (path: string) => api.plugins.link(path), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['plugins'] }) })
+}
+export function useSetPluginEnabled() {
+  const queryClient = useQueryClient()
+  return useMutation({ mutationFn: ({ pluginId, enabled }: { pluginId: string; enabled: boolean }) => api.plugins.setEnabled(pluginId, enabled), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['plugins'] }) })
+}
+export function useUninstallPlugin() {
+  const queryClient = useQueryClient()
+  return useMutation({ mutationFn: ({ pluginId, keepData = false }: { pluginId: string; keepData?: boolean }) => api.plugins.uninstall(pluginId, keepData), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['plugins'] }) })
+}
+export function useInvokePluginAction() {
+  return useMutation({ mutationFn: ({ pluginId, actionId, context }: { pluginId: string; actionId: string; context: Record<string, unknown> }) => api.plugins.invoke(pluginId, actionId, context) })
+}
+export function usePreviewGitHubPlugin() {
+  return useMutation({ mutationFn: ({ source, ref }: { source: string; ref?: string }) => api.plugins.previewGitHub(source, ref) })
+}
+export function useInstallGitHubPlugin() {
+  const queryClient = useQueryClient()
+  return useMutation({ mutationFn: ({ source, resolvedCommit, ref }: { source: string; resolvedCommit: string; ref?: string }) => api.plugins.installGitHub(source, resolvedCommit, ref), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['plugins'] }) })
+}
 
 export function useSessions(hostId: string) {
   return useQuery({

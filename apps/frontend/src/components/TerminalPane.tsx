@@ -38,6 +38,7 @@ const LAYOUT_REPAINT_DELAYS = [0, 32]
 const MOBILE_FIT_DEBOUNCE_MS = 48
 const MOBILE_KEYBOARD_FIT_SETTLE_MS = 80
 const MOBILE_FIT_SIZE_TOLERANCE = 2
+const PANE_BOUNDS_RESIZE_SYNC_DELAY = 96
 const DEVICE_PIXEL_RATIO_TOLERANCE = 0.01
 const MOBILE_PINCH_MIN_FONT_SIZE = 8
 const MOBILE_PINCH_MAX_FONT_SIZE = 20
@@ -581,6 +582,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     let resizeObserver: ResizeObserver | null = null
     let disposables: any[] = []
     let layoutTimeout: ReturnType<typeof setTimeout> | null = null
+    let paneBoundsSyncTimer: ReturnType<typeof setTimeout> | null = null
     let sharedLayoutFrame: number | null = null
     let layoutFrame: number | null = null
     let repaintFrame: number | null = null
@@ -754,9 +756,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       if (!screen || !terminal?.cols || !terminal?.rows) return null
       const rect = screen.getBoundingClientRect()
       if (!rect.width || !rect.height) return null
-      const dims = terminal?._core?._renderService?.dimensions?.css
-      const cellWidth = Number(dims?.cell?.width) || rect.width / terminal.cols
-      const cellHeight = Number(dims?.cell?.height) || rect.height / terminal.rows
+      const cellWidth = rect.width / terminal.cols
+      const cellHeight = rect.height / terminal.rows
       if (!Number.isFinite(cellWidth) || !Number.isFinite(cellHeight) || cellWidth <= 0 || cellHeight <= 0) return null
       const x = Math.floor((event.clientX - rect.left) / cellWidth)
       const y = Math.floor((event.clientY - rect.top) / cellHeight)
@@ -861,9 +862,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       if (!drag || !guide || !screen || !terminal?.cols || !terminal?.rows) return
       const screenRect = screen.getBoundingClientRect()
       const containerRect = container.getBoundingClientRect()
-      const dims = terminal?._core?._renderService?.dimensions?.css
-      const cellWidth = Number(dims?.cell?.width) || screenRect.width / terminal.cols
-      const cellHeight = Number(dims?.cell?.height) || screenRect.height / terminal.rows
+      const cellWidth = screenRect.width / terminal.cols
+      const cellHeight = screenRect.height / terminal.rows
       if (!cellWidth || !cellHeight) return
       guide.style.display = 'block'
       if (drag.axis === 'x') {
@@ -1273,6 +1273,13 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
             const perf = useConsoleStore.getState().terminalPerf || DEFAULT_TERMINAL_PERF
             updateTerminalPerf({ layoutFitCount: perf.layoutFitCount + 1 })
             onResizeRef.current?.(cols, rows)
+            if (prev) {
+              if (paneBoundsSyncTimer) clearTimeout(paneBoundsSyncTimer)
+              paneBoundsSyncTimer = setTimeout(() => {
+                paneBoundsSyncTimer = null
+                void loadSessionSnapshot(true)
+              }, PANE_BOUNDS_RESIZE_SYNC_DELAY)
+            }
           }
           requestAnimationFrame(() => {
             if (disposed || !terminal) return
@@ -1867,6 +1874,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       stopDeleteWordRepeat()
       hidePaneResizeGuide()
       if (layoutTimeout) clearTimeout(layoutTimeout)
+      if (paneBoundsSyncTimer) clearTimeout(paneBoundsSyncTimer)
       if (layoutFrame) cancelAnimationFrame(layoutFrame)
       clearTerminalRepaint()
       if (sharedLayoutFrame) cancelAnimationFrame(sharedLayoutFrame)

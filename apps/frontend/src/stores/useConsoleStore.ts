@@ -193,6 +193,7 @@ interface ConsoleState {
   filePanelOpen: boolean
   thumbnailPanelOpen: boolean
   gitPanelOpen: boolean
+  activePluginView: { pluginId: string; viewId: string } | null
   gitPanelWidth: number
   gitByHost: Record<string, GitHostState>
   mobileFileSheetOpen: boolean
@@ -227,6 +228,7 @@ interface ConsoleState {
   toggleThumbnailPanel: () => void
   setGitPanelOpen: (open: boolean) => void
   toggleGitPanel: () => void
+  setActivePluginView: (view: { pluginId: string; viewId: string } | null) => void
   setGitPanelWidth: (width: number) => void
   ensureGitHostState: (hostId: string) => void
   replaceGitByHost: (gitByHost: Record<string, GitHostState>) => void
@@ -294,6 +296,7 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
   filePanelOpen: false,
   thumbnailPanelOpen: false,
   gitPanelOpen: false,
+  activePluginView: null,
   gitPanelWidth: 560,
   gitByHost: {},
   mobileFileSheetOpen: false,
@@ -318,14 +321,15 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
   }),
   setActivePane: (id) => set({ activePaneId: id }),
   setCommandPalette: (open) => set({ showCommandPalette: open }),
-  setSessionPanelExpanded: (expanded) => set(expanded ? { sessionPanelExpanded: true, thumbnailPanelOpen: false } : { sessionPanelExpanded: false }),
-  toggleSessionPanel: () => set((state) => state.sessionPanelExpanded ? { sessionPanelExpanded: false } : { sessionPanelExpanded: true, thumbnailPanelOpen: false, gitPanelOpen: false }),
-  setFilePanelOpen: (open) => set((state) => open ? { filePanelOpen: true, thumbnailPanelOpen: false, sessionPanelExpanded: false, gitPanelOpen: false } : { filePanelOpen: false }),
-  toggleFilePanel: () => set((state) => state.filePanelOpen ? { filePanelOpen: false } : { filePanelOpen: true, thumbnailPanelOpen: false, sessionPanelExpanded: false, gitPanelOpen: false }),
-  setThumbnailPanelOpen: (open) => set((state) => open ? { thumbnailPanelOpen: true, filePanelOpen: false, sessionPanelExpanded: false, gitPanelOpen: false } : { thumbnailPanelOpen: false }),
-  toggleThumbnailPanel: () => set((state) => state.thumbnailPanelOpen ? { thumbnailPanelOpen: false } : { thumbnailPanelOpen: true, filePanelOpen: false, sessionPanelExpanded: false, gitPanelOpen: false }),
-  setGitPanelOpen: (open) => set((state) => open ? { gitPanelOpen: true, thumbnailPanelOpen: false, sessionPanelExpanded: false, filePanelOpen: false } : { gitPanelOpen: false }),
-  toggleGitPanel: () => set((state) => state.gitPanelOpen ? { gitPanelOpen: false } : { gitPanelOpen: true, thumbnailPanelOpen: false, sessionPanelExpanded: false, filePanelOpen: false }),
+  setSessionPanelExpanded: (expanded) => set(expanded ? { sessionPanelExpanded: true, thumbnailPanelOpen: false, activePluginView: null } : { sessionPanelExpanded: false }),
+  toggleSessionPanel: () => set((state) => state.sessionPanelExpanded ? { sessionPanelExpanded: false } : { sessionPanelExpanded: true, thumbnailPanelOpen: false, gitPanelOpen: false, activePluginView: null }),
+  setFilePanelOpen: (open) => set((state) => open ? { filePanelOpen: true, thumbnailPanelOpen: false, sessionPanelExpanded: false, gitPanelOpen: false, activePluginView: null } : { filePanelOpen: false }),
+  toggleFilePanel: () => set((state) => state.filePanelOpen ? { filePanelOpen: false } : { filePanelOpen: true, thumbnailPanelOpen: false, sessionPanelExpanded: false, gitPanelOpen: false, activePluginView: null }),
+  setThumbnailPanelOpen: (open) => set((state) => open ? { thumbnailPanelOpen: true, filePanelOpen: false, sessionPanelExpanded: false, gitPanelOpen: false, activePluginView: null } : { thumbnailPanelOpen: false }),
+  toggleThumbnailPanel: () => set((state) => state.thumbnailPanelOpen ? { thumbnailPanelOpen: false } : { thumbnailPanelOpen: true, filePanelOpen: false, sessionPanelExpanded: false, gitPanelOpen: false, activePluginView: null }),
+  setGitPanelOpen: (open) => set((state) => open ? { gitPanelOpen: true, thumbnailPanelOpen: false, sessionPanelExpanded: false, filePanelOpen: false, activePluginView: null } : { gitPanelOpen: false }),
+  toggleGitPanel: () => set((state) => state.gitPanelOpen ? { gitPanelOpen: false } : { gitPanelOpen: true, thumbnailPanelOpen: false, sessionPanelExpanded: false, filePanelOpen: false, activePluginView: null }),
+  setActivePluginView: (view) => set((state) => view && state.activePluginView?.pluginId === view.pluginId && state.activePluginView.viewId === view.viewId ? { activePluginView: null } : view ? { activePluginView: view, filePanelOpen: false, thumbnailPanelOpen: false, sessionPanelExpanded: false, gitPanelOpen: false } : { activePluginView: null }),
   setGitPanelWidth: (width) => set({ gitPanelWidth: Math.max(380, Math.min(920, width)) }),
   ensureGitHostState: (hostId) => set((state) => ({ gitByHost: updateGitHostState(state.gitByHost, hostId, (current) => current) })),
   replaceGitByHost: (gitByHost) => set({ gitByHost }),
