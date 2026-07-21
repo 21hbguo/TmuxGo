@@ -18,6 +18,14 @@ function isMobileDebugEnabled() {
     return false
   }
 }
+function isMobileDebugUploadEnabled() {
+  if (typeof window==='undefined') return false
+  try {
+    return window.localStorage.getItem('tmuxgo-debug-mobile')==='upload'
+  } catch {
+    return false
+  }
+}
 function isMobileRuntime() {
   if (typeof window==='undefined') return false
   if (isMobileDebugEnabled()) return true
@@ -74,6 +82,7 @@ export function recordMobileDiagnostic(event:string,data?:Record<string, unknown
     if (!isMobileDebugEnabled()&&!isKeyDiagnostic(event,urgent)) return
     const entry:DiagnosticEvent={event,at:Math.round(performance.now()),wallAt:Date.now(),sessionId:getSessionId(),...getMetrics(),...(data||{})}
     expose(entry)
+    if (!isMobileDebugUploadEnabled()) return
     buffer.push(entry)
     if (buffer.length>=MAX_BATCH_EVENTS||urgent) {
       void flushMobileDiagnostics()
@@ -115,7 +124,7 @@ function sameRectData(a:ReturnType<typeof rectData>|undefined,b:ReturnType<typeo
   return a.x===b.x&&a.y===b.y&&a.w===b.w&&a.h===b.h
 }
 export function startMobileFlickerDiagnostics() {
-  if (typeof window==='undefined'||diagnosticsStarted||!isMobileDebugEnabled()||!isMobileRuntime()) return () => {}
+  if (typeof window==='undefined'||diagnosticsStarted||!window.localStorage.getItem('tmuxgo-debug-flicker')||!isMobileDebugEnabled()||!isMobileRuntime()) return () => {}
   diagnosticsStarted=true
   let frame=0
   let sampleUntil=performance.now()+6000
