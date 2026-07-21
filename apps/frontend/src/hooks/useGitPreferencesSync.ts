@@ -17,7 +17,7 @@ function sanitizeGitByHost(input: unknown) {
       mode: raw.mode === 'locked' ? 'locked' : 'follow-editor',
       currentRepoPath: typeof raw.currentRepoPath === 'string' && raw.currentRepoPath ? raw.currentRepoPath : null,
       currentFilePath: typeof raw.currentFilePath === 'string' && raw.currentFilePath ? raw.currentFilePath : null,
-      source: raw.source === 'editor' || raw.source === 'manual' ? raw.source : null,
+      source: raw.source === 'editor' || raw.source === 'pane' || raw.source === 'manual' ? raw.source : null,
       lockedRepoPath: typeof raw.lockedRepoPath === 'string' && raw.lockedRepoPath ? raw.lockedRepoPath : null,
       recentRepos: recentReposRaw.filter((entry): entry is GitHostState['recentRepos'][number] => !!entry && typeof entry === 'object' && typeof (entry as Record<string, unknown>).repoPath === 'string').map((entry) => ({
         repoPath: entry.repoPath,

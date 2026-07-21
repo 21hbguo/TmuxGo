@@ -330,6 +330,10 @@ export interface GitStatusResponse {
 export interface GitDiffResponse {
   raw: string
 }
+export interface GitRepositoryInfo {
+  path: string
+  label: string
+}
 export interface GitDiffStatItem {
   filename: string
   status: string

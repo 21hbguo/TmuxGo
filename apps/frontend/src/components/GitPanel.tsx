@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
-import { useGitStatus, useGitStage, useGitUnstage, useGitCommit, useGitDiscard, useGitLog, useGitBranches, useGitCheckout, useGitCreateBranch, useGitDeleteBranch, useGitMerge, useGitFetch, useGitPull, useGitPush, useGitPaneDetect } from '@/hooks/useApi'
+import { useGitStatus, useGitStage, useGitUnstage, useGitCommit, useGitDiscard, useGitLog, useGitBranches, useGitCheckout, useGitCreateBranch, useGitDeleteBranch, useGitMerge, useGitFetch, useGitPull, useGitPush, useGitPaneDetect, useGitRepositories } from '@/hooks/useApi'
 import { useQueryClient } from '@tanstack/react-query'
 import { ConfirmDialog } from './ConfirmDialog'
 import type { GitFileChange, GitCommitInfo, GitStatusResponse } from '@/types'
@@ -63,6 +63,9 @@ function statusIcon(status: GitFileChange['status']) {
 }
 
 type TFunc = (key: string, params?: Record<string, string | number>) => string
+function GitLoadError({ onRetry, t }: { onRetry: () => void; t: TFunc }) {
+  return <div className="flex h-full min-h-32 flex-col items-center justify-center gap-2 p-3 text-[11px] text-text-3"><span>{t('git.loadFailed')}</span><button type="button" onClick={onRetry} className="rounded px-2 py-1 text-accent hover:bg-bg-2">{t('common.retry')}</button></div>
+}
 
 function FileRow({ file, staged, onStage, onUnstage, onDiscard, onViewDiff, t }: { file: GitFileChange; staged: boolean; onStage: () => void; onUnstage: () => void; onDiscard: () => void; onViewDiff: () => void; t: TFunc }) {
   const { icon, color } = statusIcon(file.status)
@@ -100,7 +103,7 @@ function Section({ title, count, children, defaultOpen = true }: { title: string
 }
 
 function StatusTab({ hostId, repoPath, onOpenDiff, t }: { hostId: string; repoPath: string; onOpenDiff?: (diff: MobileGitDiff) => void; t: TFunc }) {
-  const { data: status } = useGitStatus(hostId, repoPath)
+  const { data: status, isError, refetch } = useGitStatus(hostId, repoPath)
   const stage = useGitStage()
   const unstage = useGitUnstage()
   const discard = useGitDiscard()
@@ -127,6 +130,7 @@ function StatusTab({ hostId, repoPath, onOpenDiff, t }: { hostId: string; repoPa
     })
   }, [hostId, onOpenDiff, repoPath, t])
 
+  if (isError) return <GitLoadError onRetry={() => void refetch()} t={t} />
   if (!status) return <div className="p-3 text-[11px] text-text-3">{t('git.detecting')}</div>
   const hasChanges = status.staged.length + status.unstaged.length + status.untracked.length + status.conflicted.length === 0
 
@@ -157,7 +161,7 @@ function StatusTab({ hostId, repoPath, onOpenDiff, t }: { hostId: string; repoPa
 }
 
 function HistoryTab({ hostId, repoPath, status, onOpenWorkingTree, onOpenCommit, t }: { hostId: string; repoPath: string; status?: GitStatusResponse; onOpenWorkingTree: () => void; onOpenCommit?: (commit: GitGraphCommit) => void; t: TFunc }) {
-  const { data, fetchNextPage, hasNextPage, isFetchingNextPage } = useGitLogPaged(hostId, repoPath)
+  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isError, refetch } = useGitLogPaged(hostId, repoPath)
   const { data: branchesData } = useGitBranches(hostId, repoPath)
   const [searchQuery, setSearchQuery] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
@@ -172,6 +176,7 @@ function HistoryTab({ hostId, repoPath, status, onOpenWorkingTree, onOpenCommit,
     window.addEventListener('keydown', handleFind)
     return () => window.removeEventListener('keydown', handleFind)
   }, [])
+  if (isError) return <GitLoadError onRetry={() => void refetch()} t={t} />
   if (!data) return <div className="p-3 text-[11px] text-text-3">{t('git.detecting')}</div>
   const committedCommits = normalizeGitGraphCommits(data)
   const commitSet = new Set(committedCommits.map((commit) => commit.sha))
@@ -244,25 +249,23 @@ function HistoryTab({ hostId, repoPath, status, onOpenWorkingTree, onOpenCommit,
 }
 
 function useGitLogPaged(hostId: string, repoPath: string) {
-  const [page, setPage] = useState(0)
-  const pagesRef = useRef<GitCommitInfo[][]>([])
+  const key = `${hostId}:${repoPath}`
+  const [pagination, setPagination] = useState({ key, page: 0 })
+  const pagesRef = useRef<{ key: string; pages: GitCommitInfo[][] }>({ key, pages: [] })
+  const page = pagination.key === key ? pagination.page : 0
   const pageSize = 200
-  const { data, isLoading } = useGitLog(hostId, repoPath, { limit: pageSize, skip: page * pageSize }, true)
-
-  useEffect(() => {
-    pagesRef.current = []
-    setPage(0)
-  }, [hostId, repoPath])
+  const { data, isLoading, isError, refetch } = useGitLog(hostId, repoPath, { limit: pageSize, skip: page * pageSize }, true)
+  if (pagesRef.current.key !== key) pagesRef.current = { key, pages: [] }
 
   if (data && data.commits.length > 0) {
-    const existing = pagesRef.current[page]
+    const existing = pagesRef.current.pages[page]
     if (!existing || existing.length !== data.commits.length || existing[0]?.hash !== data.commits[0]?.hash) {
-      pagesRef.current = [...pagesRef.current]
-      pagesRef.current[page] = data.commits
+      pagesRef.current = { key, pages: [...pagesRef.current.pages] }
+      pagesRef.current.pages[page] = data.commits
     }
   }
 
-  const allCommits = pagesRef.current.flat()
+  const allCommits = pagesRef.current.pages.flat()
   const seen = new Set<string>()
   const uniqueCommits = allCommits.filter((c) => {
     if (!isValidGitCommitInfo(c) || !isValidCommitDate(c.date)) return false
@@ -273,9 +276,11 @@ function useGitLogPaged(hostId: string, repoPath: string) {
 
   return {
     data: uniqueCommits,
-    fetchNextPage: () => setPage((p) => p + 1),
+    fetchNextPage: () => setPagination((current) => ({ key, page: current.key === key ? current.page + 1 : 1 })),
     hasNextPage: data?.hasMore ?? false,
     isFetchingNextPage: isLoading,
+    isError,
+    refetch,
   }
 }
 
@@ -322,7 +327,7 @@ function formatDateFull(dateValue: string | number | Date) {
 }
 
 function BranchesTab({ hostId, repoPath, t }: { hostId: string; repoPath: string; t: TFunc }) {
-  const { data } = useGitBranches(hostId, repoPath)
+  const { data, isError, refetch } = useGitBranches(hostId, repoPath)
   const checkout = useGitCheckout()
   const deleteBranch = useGitDeleteBranch()
   const merge = useGitMerge()
@@ -332,6 +337,7 @@ function BranchesTab({ hostId, repoPath, t }: { hostId: string; repoPath: string
   const [newBranchName, setNewBranchName] = useState('')
   const [pendingDelete, setPendingDelete] = useState<string | null>(null)
 
+  if (isError) return <GitLoadError onRetry={() => void refetch()} t={t} />
   if (!data) return <div className="p-3 text-[11px] text-text-3">{t('git.detecting')}</div>
 
   const handleCreate = () => {
@@ -394,13 +400,15 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
   const [commitMessage, setCommitMessage] = useState('')
   const [manualRepoPath, setManualRepoPath] = useState('')
   const [repoPickerOpen, setRepoPickerOpen] = useState(false)
+  const [repoSwitchingPath, setRepoSwitchingPath] = useState('')
   const [mobileDiff, setMobileDiff] = useState<MobileGitDiff | null>(null)
   const gitState = activeHostId ? gitByHost[activeHostId] : undefined
   const repoPath = gitState?.currentRepoPath || null
   const activeEditor = activeEditorId ? openEditors.find((editor) => editor.id === activeEditorId && !editor.id.startsWith('git-diff?')) : null
   const followPane = gitState?.mode !== 'locked' && (!activeEditor || !repoPath)
   const { data: paneDetect } = useGitPaneDetect(activeHostId || '', activePaneId || '', followPane)
-  const { data: status } = useGitStatus(activeHostId || '', repoPath || '', !!repoPath)
+  const { data: status, isError: statusError } = useGitStatus(activeHostId || '', repoPath || '', !!repoPath)
+  const { data: discoveredRepos = [], isLoading: repositoriesLoading, isError: repositoriesError, refetch: refetchRepositories } = useGitRepositories(activeHostId || '', repoPickerOpen)
   const commit = useGitCommit()
   const stageAll = useGitStage()
   const unstageAll = useGitUnstage()
@@ -410,10 +418,10 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
   const queryClient = useQueryClient()
   const pinnedRepos = useMemo(() => (gitState?.recentRepos || []).filter((item) => item.pinned), [gitState?.recentRepos])
   const otherRepos = useMemo(() => (gitState?.recentRepos || []).filter((item) => !item.pinned), [gitState?.recentRepos])
-  const repoOptions = useMemo(() => [...pinnedRepos, ...otherRepos].filter((item, index, items) => items.findIndex((candidate) => candidate.repoPath === item.repoPath) === index), [otherRepos, pinnedRepos])
+  const repoOptions = useMemo(() => [...pinnedRepos, ...otherRepos, ...discoveredRepos.map((item) => ({ repoPath: item.path, label: item.label, lastUsedAt: 0, pinned: false }))].filter((item, index, items) => items.findIndex((candidate) => candidate.repoPath === item.repoPath) === index), [discoveredRepos, otherRepos, pinnedRepos])
   const filteredRepoOptions = useMemo(() => {
     const query = manualRepoPath.trim().toLocaleLowerCase()
-    return query ? repoOptions.filter((item) => item.label.toLocaleLowerCase().includes(query) || item.repoPath.toLocaleLowerCase().includes(query)) : repoOptions
+    return (query ? repoOptions.filter((item) => item.label.toLocaleLowerCase().includes(query) || item.repoPath.toLocaleLowerCase().includes(query)) : repoOptions).slice(0, 50)
   }, [manualRepoPath, repoOptions])
   const statusCount = status ? status.staged.length + status.unstaged.length + status.untracked.length + status.conflicted.length : 0
   const stageablePaths = status ? Array.from(new Set([...status.unstaged.map((file) => file.path), ...status.untracked, ...status.conflicted.map((file) => file.path)])) : []
@@ -444,26 +452,34 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
       onError: (err) => pushToast({ type: 'error', message: t('git.commitFailed') + ': ' + err.message }),
     })
   }
-  const handleSelectRepo = (path: string) => {
-    if (activeHostId) setGitLockedRepo(activeHostId, path)
-    setManualRepoPath('')
-    setRepoPickerOpen(false)
-  }
-  const handleOpenRepo = async () => {
-    if (!activeHostId || !manualRepoPath.trim()) return
+  const handleSelectRepo = async (path: string) => {
+    if (!activeHostId || !path || repoSwitchingPath) return
+    setRepoSwitchingPath(path)
     try {
-      const result = await api.git.detect(activeHostId, manualRepoPath.trim())
+      const result = await api.git.detect(activeHostId, path)
       if (!result.isGitRepo || !result.rootPath) throw new Error(t('git.noRepo'))
-      handleSelectRepo(result.rootPath)
+      setGitLockedRepo(activeHostId, result.rootPath)
+      setManualRepoPath('')
+      setRepoPickerOpen(false)
     } catch (error) {
       pushToast({ type: 'error', message: error instanceof Error ? error.message : t('git.noRepo') })
+    } finally {
+      setRepoSwitchingPath('')
     }
+  }
+  const handleOpenRepo = () => {
+    const path = manualRepoPath.trim()
+    if (!path.startsWith('/')) {
+      pushToast({ type: 'error', message: t('git.noRepoResults') })
+      return
+    }
+    void handleSelectRepo(path)
   }
   const handleRepoSearchSubmit = () => {
     const query = manualRepoPath.trim().toLocaleLowerCase()
-    const match = filteredRepoOptions.find((item) => item.label.toLocaleLowerCase() === query || item.repoPath.toLocaleLowerCase() === query) || (filteredRepoOptions.length === 1 ? filteredRepoOptions[0] : null)
-    if (match) handleSelectRepo(match.repoPath)
-    else void handleOpenRepo()
+    const match = filteredRepoOptions.find((item) => item.label.toLocaleLowerCase() === query || item.repoPath.toLocaleLowerCase() === query) || filteredRepoOptions[0]
+    if (match) void handleSelectRepo(match.repoPath)
+    else handleOpenRepo()
   }
   const handleOpenMobileDiff = (diff: MobileGitDiff) => {
     setMobileDiff(diff)
@@ -480,7 +496,7 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
         <div className="flex items-center justify-between">
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold text-text-1">
-              {status?.branch || (repoPath ? t('git.detecting') : t('git.noRepo'))}
+              {status?.branch || (statusError ? t('git.loadFailed') : repoPath ? t('git.detecting') : t('git.noRepo'))}
             </div>
             <div className="mt-0.5 text-[10px] text-text-3">
               {gitState?.mode === 'locked' ? t('git.modeLocked') : t('git.modeFollowingFile')}
@@ -509,15 +525,17 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
           <div className="mt-2 border-t border-[var(--line)] pt-2">
             <div className="tmuxgo-control flex items-center gap-2 rounded px-2">
               <FiSearch aria-hidden="true" className="shrink-0 text-text-3" size={13} />
-              <input value={manualRepoPath} onChange={(event) => setManualRepoPath(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') handleRepoSearchSubmit() }} placeholder={t('git.selectRepo')} className="min-w-0 flex-1 bg-transparent py-1.5 text-[11px] text-text-1 outline-none" autoFocus />
-              {manualRepoPath && <button aria-label={t('git.openRepo')} title={t('git.openRepo')} onClick={handleRepoSearchSubmit} className="tmuxgo-icon-button flex h-6 w-6 items-center justify-center rounded text-accent hover:bg-bg-2"><FiArrowRight aria-hidden="true" size={13} /></button>}
+              <input value={manualRepoPath} disabled={!!repoSwitchingPath} onChange={(event) => setManualRepoPath(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') handleRepoSearchSubmit() }} placeholder={t('git.selectRepo')} className="min-w-0 flex-1 bg-transparent py-1.5 text-[11px] text-text-1 outline-none disabled:opacity-60" autoFocus />
+              {(repositoriesLoading || repoSwitchingPath) ? <FiRefreshCw aria-hidden="true" className="shrink-0 animate-spin text-text-3" size={13} /> : manualRepoPath && <button aria-label={t('git.openRepo')} title={t('git.openRepo')} onClick={handleRepoSearchSubmit} className="tmuxgo-icon-button flex h-6 w-6 items-center justify-center rounded text-accent hover:bg-bg-2"><FiArrowRight aria-hidden="true" size={13} /></button>}
             </div>
             {!!filteredRepoOptions.length && <div className="tmuxgo-scrollbar mt-1 max-h-32 overflow-y-auto">
-              {filteredRepoOptions.map((item) => <button key={item.repoPath} onClick={() => handleSelectRepo(item.repoPath)} className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-bg-2 ${repoPath === item.repoPath ? 'text-accent' : 'text-text-2'}`}>
+              {filteredRepoOptions.map((item) => <button key={item.repoPath} disabled={!!repoSwitchingPath} onClick={() => void handleSelectRepo(item.repoPath)} className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-bg-2 disabled:opacity-60 ${repoPath === item.repoPath ? 'text-accent' : 'text-text-2'}`}>
                 <span className="shrink-0 text-[11px] font-medium">{item.label}</span>
                 <span className="min-w-0 flex-1 truncate font-mono text-[9px] text-text-3">{item.repoPath}</span>
               </button>)}
             </div>}
+            {!filteredRepoOptions.length && repositoriesError && <button type="button" onClick={() => void refetchRepositories()} className="mt-1 w-full rounded px-2 py-2 text-left text-[11px] text-accent hover:bg-bg-2">{t('git.repoSearchFailed')} · {t('common.retry')}</button>}
+            {!filteredRepoOptions.length && !repositoriesLoading && !repositoriesError && manualRepoPath && <div className="px-2 py-2 text-[11px] text-text-3">{t('git.noRepoResults')}</div>}
           </div>
         )}
       </div>

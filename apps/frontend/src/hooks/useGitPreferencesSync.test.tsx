@@ -33,11 +33,11 @@ describe('useGitPreferencesSync', () => {
     getMock.mockResolvedValue({
       gitByHost: {
         local: {
-          mode: 'locked',
+          mode: 'follow-editor',
           currentRepoPath: '/workspace/app',
           currentFilePath: null,
-          source: 'manual',
-          lockedRepoPath: '/workspace/app',
+          source: 'pane',
+          lockedRepoPath: null,
           recentRepos: [{ repoPath: '/workspace/app', label: 'app', lastUsedAt: 1, pinned: false }],
         },
       },
@@ -48,6 +48,7 @@ describe('useGitPreferencesSync', () => {
       await Promise.resolve()
     })
     expect(useConsoleStore.getState().gitByHost.local?.currentRepoPath).toBe('/workspace/app')
+    expect(useConsoleStore.getState().gitByHost.local?.source).toBe('pane')
     await act(async () => {
       vi.advanceTimersByTime(1000)
     })

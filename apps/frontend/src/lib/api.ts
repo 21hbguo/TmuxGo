@@ -1,6 +1,6 @@
 import { getApiBase } from './runtime-endpoints'
 import { buildSessionId } from './session-id'
-import type { CustomShortcut, FavoriteDirectory, FavoriteItem, FileContentMatch, FileContentResponse, FileItem, FileListResponse, FilePreviewResponse, FileRoot, FileUploadTarget, GitBranchesResponse, GitCommitResponse, GitDetectResponse, GitDiffResponse, GitDiffStatsResponse, GitHostState, GitLogResponse, GitMergeResponse, GitStatusResponse, RemotePreferences, SessionContinuityConfig, SessionLayout, SessionOrderPreference, SessionThumbnail, Snippet, UiPreferences, UploadJobResult, UploadedFile } from '@/types'
+import type { CustomShortcut, FavoriteDirectory, FavoriteItem, FileContentMatch, FileContentResponse, FileItem, FileListResponse, FilePreviewResponse, FileRoot, FileUploadTarget, GitBranchesResponse, GitCommitResponse, GitDetectResponse, GitDiffResponse, GitDiffStatsResponse, GitHostState, GitLogResponse, GitMergeResponse, GitRepositoryInfo, GitStatusResponse, RemotePreferences, SessionContinuityConfig, SessionLayout, SessionOrderPreference, SessionThumbnail, Snippet, UiPreferences, UploadJobResult, UploadedFile } from '@/types'
 
 export interface StreamSystemInfo {
   outputBytes: number
@@ -385,6 +385,8 @@ export const api = {
       }),
   },
   git: {
+    repositories: (hostId: string) =>
+      fetchApi<GitRepositoryInfo[]>(`/api/hosts/${hostId}/git/repositories`),
     detect: (hostId: string, path: string) =>
       fetchApi<GitDetectResponse>(`/api/hosts/${hostId}/git/detect?path=${encodeURIComponent(path)}`),
     detectFromPane: (hostId: string, paneId: string) =>
