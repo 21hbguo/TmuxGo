@@ -151,7 +151,7 @@ describe('ConsoleLayout mobile files overlay stack', () => {
     useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-a' } as any)
     render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
     await waitFor(() => expect(screen.getByRole('button', { name: 'alpha' })).toBeTruthy())
-    expect(screen.getByRole('button', { name: 'beta' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'beta' })).toHaveAttribute('data-keep-mobile-keyboard')
     expect(screen.queryByRole('button', { name: 'gamma' })).toBeNull()
   })
   it('limits quick session bar to five most recent sessions and keeps it visible above shortcut bar', async () => {
