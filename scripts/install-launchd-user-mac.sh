@@ -70,7 +70,6 @@ TMUX_BIN_XML="$(escape_sed_replacement "$(xml_escape "$TMUX_BIN")")"
 SERVICE_PATH_XML="$(escape_sed_replacement "$(xml_escape "$SERVICE_PATH")")"
 LOG_DIR_XML="$(escape_sed_replacement "$(xml_escape "$LOG_DIR")")"
 HOST_NAME_XML="$(escape_sed_replacement "$(xml_escape "$HOST_NAME")")"
-render_plist "$PLIST_SRC_DIR"/com.tmuxgo.frontend.plist "$PLIST_DST_DIR"/com.tmuxgo.frontend.plist
 render_plist "$PLIST_SRC_DIR"/com.tmuxgo.gateway.plist "$PLIST_DST_DIR"/com.tmuxgo.gateway.plist
 if agent_enabled; then
   render_plist "$PLIST_SRC_DIR"/com.tmuxgo.agent.plist "$PLIST_DST_DIR"/com.tmuxgo.agent.plist
@@ -78,13 +77,14 @@ fi
 cd "$ROOT_DIR"
 npm install
 npm run build:gateway
-env NEXT_DIST_DIR=.next-prod npm run build:frontend
+npm run build:frontend
 if agent_enabled; then
   npm run build:agent
 fi
 "$TMUX_BIN" has-session -t default >/dev/null 2>&1 || "$TMUX_BIN" new-session -d -s default >/dev/null 2>&1 || true
 bootstrap_plist com.tmuxgo.gateway "$PLIST_DST_DIR"/com.tmuxgo.gateway.plist
-bootstrap_plist com.tmuxgo.frontend "$PLIST_DST_DIR"/com.tmuxgo.frontend.plist
+bootout_plist com.tmuxgo.frontend "$PLIST_DST_DIR"/com.tmuxgo.frontend.plist
+rm -f "$PLIST_DST_DIR"/com.tmuxgo.frontend.plist
 if agent_enabled; then
   bootstrap_plist com.tmuxgo.agent "$PLIST_DST_DIR"/com.tmuxgo.agent.plist
 else

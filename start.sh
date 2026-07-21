@@ -108,16 +108,14 @@ start_detached() {
   echo $!
 }
 stable_build_ready() {
-  [ -f "$ROOT_DIR/apps/frontend/$FRONTEND_STABLE_DIST_DIR/BUILD_ID" ]
+  [ -f "$ROOT_DIR/apps/frontend/$FRONTEND_STABLE_DIST_DIR/index.html" ]
 }
 stable_build_stale() {
   stable_build_ready || return 0
-  local build_marker="$ROOT_DIR/apps/frontend/$FRONTEND_STABLE_DIST_DIR/BUILD_ID"
+  local build_marker="$ROOT_DIR/apps/frontend/$FRONTEND_STABLE_DIST_DIR/index.html"
   find "$ROOT_DIR/apps/frontend/src" \
     "$ROOT_DIR/apps/frontend/package.json" \
-    "$ROOT_DIR/apps/frontend/next.config.js" \
-    "$ROOT_DIR/apps/frontend/next.config.mjs" \
-    "$ROOT_DIR/apps/frontend/next.config.ts" \
+    "$ROOT_DIR/apps/frontend/vite.config.ts" \
     "$ROOT_DIR/apps/frontend/tsconfig.json" \
     "$ROOT_DIR/apps/frontend/tailwind.config.js" \
     "$ROOT_DIR/apps/frontend/tailwind.config.ts" \
@@ -125,13 +123,13 @@ stable_build_stale() {
     -type f -newer "$build_marker" 2>/dev/null | rg -q .
 }
 stable_build_id() {
-  cat "$ROOT_DIR/apps/frontend/$FRONTEND_STABLE_DIST_DIR/BUILD_ID" 2>/dev/null || true
+  cat "$ROOT_DIR/apps/frontend/$FRONTEND_STABLE_DIST_DIR/version.json" 2>/dev/null || true
 }
 stable_server_matches_build() {
   local build_id
   build_id="$(stable_build_id)"
   [ -n "$build_id" ] || return 1
-  curl -fsS "http://127.0.0.1:3000/_next/static/$build_id/_buildManifest.js" >/dev/null 2>&1
+  [ -n "$build_id" ] && curl -fsS "http://127.0.0.1:3001/version.json" >/dev/null 2>&1
 }
 tmux_server_ready() {
   tmux list-sessions >/dev/null 2>&1
@@ -152,7 +150,7 @@ systemd_service_active() {
   has_cmd systemctl && systemctl --user is-active --quiet "$1" 2>/dev/null
 }
 systemd_tmuxgo_active() {
-  systemd_service_active tmuxgo-frontend.service || systemd_service_active tmuxgo-gateway.service || systemd_service_active tmuxgo-agent.service
+  systemd_service_active tmuxgo-gateway.service || systemd_service_active tmuxgo-agent.service
 }
 launchd_service_active() {
   [ "$(uname -s)" = "Darwin" ] || return 1
@@ -160,7 +158,7 @@ launchd_service_active() {
   launchctl print "$(launchd_domain)/$1" >/dev/null 2>&1
 }
 launchd_tmuxgo_active() {
-  launchd_service_active "$LAUNCHD_FRONTEND_LABEL" || launchd_service_active "$LAUNCHD_GATEWAY_LABEL" || launchd_service_active "$LAUNCHD_AGENT_LABEL"
+  launchd_service_active "$LAUNCHD_GATEWAY_LABEL" || launchd_service_active "$LAUNCHD_AGENT_LABEL"
 }
 restart_launchd_service() {
   local label=$1
@@ -177,15 +175,13 @@ stop_launchd_service() {
 stop_existing() {
   pkill -f "$ROOT_DIR/node_modules/.bin/next .*--port 3000" 2>/dev/null || true
   pkill -f "$ROOT_DIR/node_modules/.bin/next .*--port 3002" 2>/dev/null || true
-  pkill -f "next start --hostname 0.0.0.0 --port 3000" 2>/dev/null || true
-  pkill -f "next dev --hostname 0.0.0.0 --port 3002" 2>/dev/null || true
   pkill -f "$ROOT_DIR/node_modules/.bin/tsx watch src/index.ts" 2>/dev/null || true
   pkill -f "npm run dev:agent" 2>/dev/null || true
   kill_port 3000
   kill_port 3002
   kill_port 3001
   for i in $(seq 1 20); do
-    if ! pgrep -f "$ROOT_DIR/node_modules/.bin/next start --hostname 0.0.0.0 --port 3000" >/dev/null 2>&1 && ! pgrep -f "$ROOT_DIR/node_modules/.bin/next dev --hostname 0.0.0.0 --port 3002" >/dev/null 2>&1 && ! pgrep -f "$ROOT_DIR/node_modules/.bin/tsx watch src/index.ts" >/dev/null 2>&1; then
+    if ! pgrep -f "$ROOT_DIR/node_modules/.bin/tsx watch src/index.ts" >/dev/null 2>&1; then
       break
     fi
     sleep 0.2
@@ -199,7 +195,7 @@ cd "$ROOT_DIR"
 echo "Starting TmuxGo development servers..."
 RESTART=0
 REBUILD_STABLE=0
-FRONTEND_STABLE_DIST_DIR=".next-prod"
+FRONTEND_STABLE_DIST_DIR="dist"
 for arg in "$@"; do
   if [ "$arg" = "--restart" ]; then
     RESTART=1
@@ -213,11 +209,11 @@ if [ "$RESTART" = "1" ] && [ "$REBUILD_STABLE" = "0" ] && stable_build_stale; th
   echo "Detected frontend source changes newer than $FRONTEND_STABLE_DIST_DIR; auto-enabling stable rebuild."
 fi
 if [ "$RESTART" = "1" ] && [ "$REBUILD_STABLE" = "1" ]; then
-  echo "Mode: restart services and rebuild stable frontend artifacts for port 3000."
+  echo "Mode: rebuild static frontend artifacts and restart Gateway."
 elif [ "$RESTART" = "1" ]; then
   echo "Mode: restart running services and reuse existing stable frontend build when possible."
 else
-  echo "Hint: after changing frontend/gateway/agent source, run ./start.sh --restart to refresh stable services on ports 3000/3001."
+  echo "Hint: after changing frontend/gateway/agent source, run ./start.sh --restart to refresh services on port 3001."
 fi
 FRONTEND_STABLE_LOG="/tmp/tmuxgo-frontend-stable.log"
 FRONTEND_DEV_LOG="/tmp/tmuxgo-frontend-dev.log"
@@ -247,19 +243,18 @@ if systemd_tmuxgo_active; then
   if [ "$REBUILD_STABLE" = "1" ]; then
     echo "Building systemd services..."
     npm run build:gateway >/dev/null 2>&1
-    env NEXT_DIST_DIR="$FRONTEND_STABLE_DIST_DIR" npm run build:frontend >/dev/null 2>&1
+    npm run build:frontend >/dev/null 2>&1
     if agent_enabled; then
       npm run build:agent >/dev/null 2>&1
     fi
   elif ! stable_build_ready; then
     echo "Systemd frontend build missing, building..."
-    env NEXT_DIST_DIR="$FRONTEND_STABLE_DIST_DIR" npm run build:frontend >/dev/null 2>&1
+    npm run build:frontend >/dev/null 2>&1
   fi
   if [ "$RESTART" = "1" ]; then
     echo "Restarting systemd TmuxGo services..."
     systemctl --user daemon-reload
-    systemctl --user kill --kill-who=all --signal=SIGKILL tmuxgo-frontend.service 2>/dev/null || true
-    systemctl --user restart tmuxgo-frontend.service
+    systemctl --user disable --now tmuxgo-frontend.service 2>/dev/null || true
     if agent_enabled; then
       systemctl --user restart tmuxgo-agent.service
     else
@@ -268,13 +263,13 @@ if systemd_tmuxgo_active; then
     systemctl --user restart tmuxgo-gateway.service
   fi
   if [ -n "${TAILSCALE_DNS:-}" ]; then
-    if tailscale serve --yes --bg --https=443 http://127.0.0.1:3000 >/dev/null 2>&1 && tailscale serve --yes --bg --https=8443 http://127.0.0.1:3001 >/dev/null 2>&1; then
+    if tailscale serve --yes --bg --https=443 http://127.0.0.1:3001 >/dev/null 2>&1; then
       echo "  Tailscale HTTPS enabled"
     else
       echo "  Tailscale HTTPS setup failed"
     fi
   fi
-  if wait_http_ok "http://127.0.0.1:3001/api/hosts" 30 && wait_http_ok "http://127.0.0.1:3000" 30 && stable_server_matches_build; then
+  if wait_http_ok "http://127.0.0.1:3001/api/hosts" 30 && wait_http_ok "http://127.0.0.1:3001" 30; then
     echo "  Systemd services ready"
   else
     echo "  Systemd services need attention"
@@ -282,16 +277,14 @@ if systemd_tmuxgo_active; then
   echo ""
   echo "TmuxGo services:"
   echo ""
-  echo "  Frontend stable: http://${TAILSCALE_IP}:3000"
-  echo "  Gateway:   http://${TAILSCALE_IP}:3001"
+  echo "  TmuxGo: http://${TAILSCALE_IP}:3001"
   if [ -n "${SECURE_FRONTEND_URL:-}" ]; then
     echo "  Frontend HTTPS: ${SECURE_FRONTEND_URL}"
     echo "  Gateway HTTPS:  ${SECURE_GATEWAY_URL}"
   fi
   echo ""
   echo "Logs:"
-  echo "  Gateway:   journalctl --user -u tmuxgo-gateway.service -f"
-  echo "  Frontend stable: journalctl --user -u tmuxgo-frontend.service -f"
+  echo "  Gateway: journalctl --user -u tmuxgo-gateway.service -f"
   if agent_enabled; then
     echo "  Agent:     journalctl --user -u tmuxgo-agent.service -f"
   fi
@@ -306,17 +299,17 @@ if launchd_tmuxgo_active; then
   if [ "$REBUILD_STABLE" = "1" ]; then
     echo "Building launchd services..."
     npm run build:gateway >/dev/null 2>&1
-    env NEXT_DIST_DIR="$FRONTEND_STABLE_DIST_DIR" npm run build:frontend >/dev/null 2>&1
+    npm run build:frontend >/dev/null 2>&1
     if agent_enabled; then
       npm run build:agent >/dev/null 2>&1
     fi
   elif ! stable_build_ready; then
     echo "Launchd frontend build missing, building..."
-    env NEXT_DIST_DIR="$FRONTEND_STABLE_DIST_DIR" npm run build:frontend >/dev/null 2>&1
+    npm run build:frontend >/dev/null 2>&1
   fi
   if [ "$RESTART" = "1" ]; then
     echo "Restarting launchd TmuxGo services..."
-    restart_launchd_service "$LAUNCHD_FRONTEND_LABEL"
+    stop_launchd_service "$LAUNCHD_FRONTEND_LABEL"
     if agent_enabled; then
       restart_launchd_service "$LAUNCHD_AGENT_LABEL"
     else
@@ -325,13 +318,13 @@ if launchd_tmuxgo_active; then
     restart_launchd_service "$LAUNCHD_GATEWAY_LABEL"
   fi
   if [ -n "${TAILSCALE_DNS:-}" ]; then
-    if tailscale serve --yes --bg --https=443 http://127.0.0.1:3000 >/dev/null 2>&1 && tailscale serve --yes --bg --https=8443 http://127.0.0.1:3001 >/dev/null 2>&1; then
+    if tailscale serve --yes --bg --https=443 http://127.0.0.1:3001 >/dev/null 2>&1; then
       echo "  Tailscale HTTPS enabled"
     else
       echo "  Tailscale HTTPS setup failed"
     fi
   fi
-  if wait_http_ok "http://127.0.0.1:3001/api/hosts" 30 && wait_http_ok "http://127.0.0.1:3000" 30 && stable_server_matches_build; then
+  if wait_http_ok "http://127.0.0.1:3001/api/hosts" 30 && wait_http_ok "http://127.0.0.1:3001" 30; then
     echo "  Launchd services ready"
   else
     echo "  Launchd services need attention"
@@ -339,16 +332,14 @@ if launchd_tmuxgo_active; then
   echo ""
   echo "TmuxGo services:"
   echo ""
-  echo "  Frontend stable: http://${TAILSCALE_IP}:3000"
-  echo "  Gateway:   http://${TAILSCALE_IP}:3001"
+  echo "  TmuxGo: http://${TAILSCALE_IP}:3001"
   if [ -n "${SECURE_FRONTEND_URL:-}" ]; then
     echo "  Frontend HTTPS: ${SECURE_FRONTEND_URL}"
     echo "  Gateway HTTPS:  ${SECURE_GATEWAY_URL}"
   fi
   echo ""
   echo "Logs:"
-  echo "  Gateway:   tail -f $LAUNCHD_LOG_DIR/gateway.log"
-  echo "  Frontend stable: tail -f $LAUNCHD_LOG_DIR/frontend.log"
+  echo "  Gateway: tail -f $LAUNCHD_LOG_DIR/gateway.log"
   if agent_enabled; then
     echo "  Agent:     tail -f $LAUNCHD_LOG_DIR/agent.log"
   fi
@@ -404,17 +395,17 @@ if [ "$STABLE_READY" = "0" ]; then
     else
       echo "Stable frontend build missing, building..."
     fi
-    if env NEXT_DIST_DIR="$FRONTEND_STABLE_DIST_DIR" npm run build:frontend >/dev/null 2>&1; then
+    if npm run build:frontend >/dev/null 2>&1; then
       echo "  Build completed"
     else
-      echo "  Build failed, check output by running: env NEXT_DIST_DIR=$FRONTEND_STABLE_DIST_DIR npm run build:frontend"
+      echo "  Build failed, check output by running: npm run build:frontend"
       exit 1
     fi
   else
     echo "Reusing existing stable frontend build"
   fi
   echo "Starting stable frontend on port 3000..."
-  STABLE_PID=$(start_detached "$FRONTEND_STABLE_LOG" env NEXT_DIST_DIR="$FRONTEND_STABLE_DIST_DIR" npm run --workspace=frontend start -- --hostname 0.0.0.0 --port 3000)
+  STABLE_PID=$(start_detached "$FRONTEND_STABLE_LOG" npm run --workspace=frontend start -- --port 3000)
   if wait_http_ok "http://127.0.0.1:3000" 45 && stable_server_matches_build && ! rg -q "EADDRINUSE|Failed to start server" "$FRONTEND_STABLE_LOG"; then
     echo "  Stable frontend started successfully"
   else
@@ -425,7 +416,7 @@ if wait_http_ok "http://127.0.0.1:3002" 1; then
   echo "Dev frontend already running on port 3002, skipping..."
 else
   echo "Starting dev frontend on port 3002..."
-  DEV_PID=$(start_detached "$FRONTEND_DEV_LOG" env NODE_ENV=development NEXT_DIST_DIR=.next-dev npm run --workspace=frontend dev -- --port 3002)
+  DEV_PID=$(start_detached "$FRONTEND_DEV_LOG" env NODE_ENV=development npm run --workspace=frontend dev -- --port 3002)
   if wait_http_ok "http://127.0.0.1:3002" 45 && ! rg -q "EADDRINUSE|Failed to start server" "$FRONTEND_DEV_LOG"; then
     echo "  Dev frontend started successfully"
   else

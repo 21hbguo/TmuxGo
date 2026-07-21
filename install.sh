@@ -50,7 +50,7 @@ if ! wait_http_ok "http://127.0.0.1:3001/api/hosts" 90; then
   echo "Gateway health check failed."
   exit 1
 fi
-if ! wait_http_ok "http://127.0.0.1:3000" 90; then
+if ! wait_http_ok "http://127.0.0.1:3001" 90; then
   echo "Frontend health check failed."
   exit 1
 fi
@@ -58,7 +58,7 @@ HOST_IP="$(resolve_host)"
 TAILSCALE_DNS="$(resolve_tailscale_dns)"
 echo ""
 echo "TmuxGo installed"
-echo "Frontend: http://$HOST_IP:3000"
+echo "Frontend: http://$HOST_IP:3001"
 echo "Gateway: http://$HOST_IP:3001"
 if [ -n "$TAILSCALE_DNS" ]; then
   echo "Frontend HTTPS: https://$TAILSCALE_DNS"
