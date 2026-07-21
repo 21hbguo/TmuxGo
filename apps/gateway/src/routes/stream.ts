@@ -11,7 +11,7 @@ import { hasSubstantiveTerminalContent } from '../lib/terminal-output.js'
 import { parseSessionRef } from '../lib/tmux-target.js'
 import { getAttachSnapshotDelays } from '../lib/attach-snapshot.js'
 import { execTmux } from '../lib/tmux-executor.js'
-import { getSessionAgentPanes, markAgentPaneSeen } from '../lib/agent-state.js'
+import { getHostAgentPanes, markAgentPaneSeen } from '../lib/agent-state.js'
 
 const execFileAsync = promisify(execFile)
 let sshPassAvailable: boolean | null = null
@@ -249,17 +249,16 @@ export async function streamRoutes(fastify: FastifyInstance) {
     }
     async function pollAgentStates() {
       if (agentStatePolling || !attachedSessionName) return
-      const sessionName = attachedSessionName
       const hostId = attachedHostId
       agentStatePolling = true
       try {
-        const panes = await getSessionAgentPanes(hostId, sessionName)
-        if (sessionName !== attachedSessionName || hostId !== attachedHostId) return
+        const panes = await getHostAgentPanes(hostId)
+        if (hostId !== attachedHostId) return
         for (const pane of panes) {
           const previousRevision = sentAgentRevisions.get(pane.paneId)
           if (previousRevision !== undefined && pane.revision <= previousRevision) continue
           sentAgentRevisions.set(pane.paneId, pane.revision)
-          send({ type: 'agent_status_changed', hostId, sessionName, pane, initial: previousRevision === undefined })
+          send({ type: 'agent_status_changed', hostId, sessionName: pane.sessionName, pane, initial: previousRevision === undefined })
         }
       } catch {} finally {
         agentStatePolling = false

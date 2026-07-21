@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { PaneNotifications } from './PaneNotifications'
+import { PaneNotifications, WatchButton } from './PaneNotifications'
 
 const mocks = vi.hoisted(() => {
   const queryCache = new Map<string, any>()
@@ -34,7 +34,6 @@ describe('PaneNotifications', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     localStorage.clear()
-    localStorage.setItem('tmuxgo-watched-panes', JSON.stringify(['local:%1']))
     preferenceState.agentNotificationsEnabled = true
     preferenceState.agentNotificationDurationMs = 5000
     queryCache.clear()
@@ -65,12 +64,23 @@ describe('PaneNotifications', () => {
     act(() => emitAgentStatus('blocked', 2))
     expect(screen.queryByText('codex blocked in dev')).not.toBeInTheDocument()
   })
-  it('filters notifications from panes that are not watched', () => {
-    localStorage.setItem('tmuxgo-watched-panes', '[]')
+  it('filters notifications from muted panes', () => {
+    localStorage.setItem('tmuxgo-muted-pane-notifications', JSON.stringify(['local:%1']))
     render(<PaneNotifications />)
     act(() => emitAgentStatus('blocked', 5))
     expect(screen.queryByText('codex blocked in dev')).not.toBeInTheDocument()
     expect(JSON.parse(localStorage.getItem('tmuxgo-pane-notifications') || '[]')).toEqual([])
+  })
+  it('notifies for the first observed completed state', () => {
+    render(<PaneNotifications />)
+    act(() => window.dispatchEvent(new CustomEvent('tmuxgo-agent-status', { detail: { hostId: 'local', sessionName: 'dev', initial: true, pane: { paneId: 'local:%1', tmuxPaneId: '%1', sessionName: 'dev', agent: 'codex', agentStatus: 'done', revision: 8 } } })))
+    expect(screen.getByText('codex finished in dev')).toBeInTheDocument()
+  })
+  it('does not show a duplicate notification after reconnecting', () => {
+    render(<PaneNotifications />)
+    act(() => emitAgentStatus('done', 9))
+    act(() => window.dispatchEvent(new CustomEvent('tmuxgo-agent-status', { detail: { hostId: 'local', sessionName: 'dev', initial: true, pane: { paneId: 'local:%1', tmuxPaneId: '%1', sessionName: 'dev', agent: 'codex', agentStatus: 'done', revision: 9 } } })))
+    expect(screen.getAllByText('codex finished in dev')).toHaveLength(1)
   })
   it('keeps notification history after the popup duration', () => {
     render(<PaneNotifications />)
@@ -101,6 +111,13 @@ describe('PaneNotifications', () => {
     preferenceState.agentNotificationsEnabled = false
     rerender(<PaneNotifications />)
     expect(screen.queryByText('codex blocked in dev')).not.toBeInTheDocument()
+  })
+  it('watches panes by default and allows muting them', () => {
+    render(<WatchButton paneId="local:%1" />)
+    expect(screen.getByRole('button')).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(screen.getByRole('button'))
+    expect(screen.getByRole('button')).toHaveAttribute('aria-pressed', 'false')
+    expect(JSON.parse(localStorage.getItem('tmuxgo-muted-pane-notifications') || '[]')).toEqual(['local:%1'])
   })
   it('opens the target window and pane when a notification is clicked', async () => {
     vi.useRealTimers()
