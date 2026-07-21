@@ -1114,10 +1114,15 @@ describe('TerminalPane', () => {
     const terminalRoot = container.querySelector('.xterm') as HTMLDivElement
     const terminalViewport = container.querySelector('.xterm-viewport') as HTMLDivElement
     const terminalScreen = container.querySelector('.xterm-screen') as HTMLDivElement
+    const terminalCanvas = document.createElement('canvas')
+    terminalScreen.appendChild(terminalCanvas)
+    window.dispatchEvent(new CustomEvent('tmux-attached', { detail: { sessionName: 'dev', cols: 120, rows: 36, exclusive: true } }))
+    await waitFor(() => expect(terminalMocks.refresh).toHaveBeenCalled())
     expect(terminalRoot).toBeTruthy()
     expect(terminalViewport).toBeTruthy()
     expect(terminalScreen).toBeTruthy()
     expect(terminalRoot.style.transform).toBe('')
+    expect(terminalCanvas.style.transform).toBe('')
     expect(terminalRoot.style.width).toBe('100%')
     expect(terminalRoot.style.height).toBe('100%')
     expect(terminalViewport.style.overflow).toBe('hidden')

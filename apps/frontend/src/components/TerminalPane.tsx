@@ -1190,15 +1190,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         return
       }
       clearViewportStyles()
-      const screen = element.querySelector('.xterm-screen') as HTMLElement | null
-      const canvas = getCanvasSize()
-      const available = getAvailableSize()
-      if (!screen || !canvas?.height || !available.height) return
-      const scaleY = available.height / canvas.height
-      for (const canvasElement of Array.from(screen.querySelectorAll('canvas:not(.xterm-link-layer)')) as HTMLCanvasElement[]) {
-        canvasElement.style.transformOrigin = 'top left'
-        canvasElement.style.transform = `scaleY(${scaleY})`
-      }
     }
     const syncSharedViewport = () => {
       const element = terminal?.element as HTMLElement | null
