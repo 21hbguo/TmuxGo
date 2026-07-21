@@ -225,6 +225,7 @@ export const zh = {
   'quick.killTitle': '关闭面板',
   'common.cancel': '取消',
   'common.confirm': '确认',
+  'common.close': '关闭',
   'palette.newSession': '新建会话',
   'palette.splitHorizontal': '横向分割当前面板',
   'palette.splitVertical': '纵向分割当前面板',
@@ -496,6 +497,7 @@ export const zh = {
 
   // MobileNav extra
   'nav.files': '文件',
+  'nav.git': 'Git',
   'nav.off': '离线',
 
   // FilePanel extra

@@ -233,6 +233,11 @@ a {
   border-color: rgb(var(--text-1) / 0.08);
   background: transparent;
 }
+@media (max-width: 360px) {
+  .tmuxgo-mobile-dock {
+    margin-inline: 4px;
+  }
+}
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .tmuxgo-glass {

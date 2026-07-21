@@ -49,7 +49,7 @@ describe('ShortcutBar', () => {
     render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))
     fireEvent.pointerDown(screen.getByRole('button', { name: '↑' }))
     act(() => {
-      vi.advanceTimersByTime(520)
+      vi.advanceTimersByTime(720)
     })
     expect(send.mock.calls.length).toBeGreaterThan(1)
     const beforeRelease = send.mock.calls.length
@@ -102,7 +102,7 @@ describe('ShortcutBar', () => {
     const button = screen.getByRole('button', { name: '↑' })
     fireEvent.pointerDown(button, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
     act(() => {
-      vi.advanceTimersByTime(520)
+      vi.advanceTimersByTime(720)
     })
     expect(send.mock.calls.length).toBeGreaterThan(1)
     const beforeRelease = send.mock.calls.length
@@ -111,6 +111,20 @@ describe('ShortcutBar', () => {
       vi.advanceTimersByTime(240)
     })
     expect(send.mock.calls.length).toBe(beforeRelease)
+  })
+  it('throttles vertical arrow repeat after the initial hold delay', () => {
+    render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))
+    const button = screen.getByRole('button', { name: '↓' })
+    fireEvent.pointerDown(button, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
+    act(() => {
+      vi.advanceTimersByTime(419)
+    })
+    expect(send).not.toHaveBeenCalled()
+    act(() => {
+      vi.advanceTimersByTime(421)
+    })
+    expect(send).toHaveBeenCalledTimes(4)
+    fireEvent.pointerUp(button, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
   })
   it('prevents default on touch pointerdown so mobile keyboard stays open', () => {
     render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))

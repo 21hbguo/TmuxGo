@@ -14,7 +14,7 @@ vi.mock('./PaneGrid', () => ({ PaneGrid: () => React.createElement('div') }))
 vi.mock('./StatusBar', () => ({ StatusBar: () => React.createElement('div') }))
 vi.mock('./CommandPalette', () => ({ CommandPalette: () => React.createElement('div') }))
 vi.mock('./ClipboardController', () => ({ ClipboardController: () => React.createElement('div') }))
-vi.mock('./MobileNav', () => ({ MobileNav: ({ onOpenFiles }: { onOpenFiles: () => void }) => React.createElement('button', { onClick: onOpenFiles }, 'open-files') }))
+vi.mock('./MobileNav', () => ({ MobileNav: ({ onOpenFiles, onOpenGit }: { onOpenFiles: () => void; onOpenGit: () => void }) => React.createElement(React.Fragment, null, React.createElement('button', { onClick: onOpenFiles }, 'open-files'), React.createElement('button', { onClick: onOpenGit }, 'open-git')) }))
 vi.mock('./MobileDrawer', () => ({ MobileDrawer: () => React.createElement('div') }))
 vi.mock('./Settings', () => ({ Settings: ({ onClose }: { onClose: () => void }) => React.createElement('button', { onClick: onClose }, 'close-settings') }))
 vi.mock('./InstallAppBanner', () => ({ InstallAppBanner: () => React.createElement('div') }))
@@ -24,6 +24,7 @@ vi.mock('./UploadConfirmDialog', () => ({ UploadConfirmDialog: () => React.creat
 vi.mock('./UploadQueue', () => ({ UploadQueue: () => React.createElement('div') }))
 vi.mock('./AppVersionGuard', () => ({ AppVersionGuard: () => React.createElement('div') }))
 vi.mock('./DesktopWorkbench', () => ({ DesktopWorkbench: () => React.createElement('div') }))
+vi.mock('./GitPanel', () => ({ GitPanel: () => React.createElement('div', null, 'mobile-git-panel') }))
 vi.mock('@/hooks/usePreferences', () => ({ usePreferences: () => ({ preferences: { showStatusBar: false } }) }))
 vi.mock('@/hooks/useApi', () => ({
   useHosts: () => ({ data: [{ id: 'local', name: 'Local', address: '127.0.0.1', status: 'online', tags: [] }] }),
@@ -102,6 +103,13 @@ describe('ConsoleLayout mobile files overlay stack', () => {
     expect(useConsoleStore.getState().mobileFileSheetOpen).toBe(true)
     window.dispatchEvent(new PopStateEvent('popstate'))
     await waitFor(() => expect(useConsoleStore.getState().mobileFileSheetOpen).toBe(false))
+  })
+  it('opens and closes the mobile Git sheet from the bottom navigation', async () => {
+    render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
+    fireEvent.click(screen.getByText('open-git'))
+    expect(screen.getByText('mobile-git-panel')).toBeTruthy()
+    window.dispatchEvent(new PopStateEvent('popstate'))
+    await waitFor(() => expect(screen.queryByText('mobile-git-panel')).toBeNull())
   })
   it('closes settings from backdrop handler after opening from global event', async () => {
     const backSpy = vi.spyOn(window.history, 'back').mockImplementation(() => {

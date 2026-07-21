@@ -12,6 +12,7 @@ import { InstallAppBanner } from './InstallAppBanner'
 import { ShortcutBar } from './ShortcutBar'
 import { ToastViewport } from './ToastViewport'
 import { FilePanel } from './FilePanel'
+import { GitPanel } from './GitPanel'
 import { UploadConfirmDialog } from './UploadConfirmDialog'
 import { UploadQueue } from './UploadQueue'
 import { AppVersionGuard } from './AppVersionGuard'
@@ -28,6 +29,7 @@ import { DesktopWorkbench } from './DesktopWorkbench'
 import { recordMobileDiagnostic, startMobileFlickerDiagnostics } from '@/lib/mobile-diagnostics'
 import { useTranslation } from '@/i18n'
 import { readActiveHostId, readActiveSessionId } from '@/lib/console-device-state'
+import { FiX } from 'react-icons/fi'
 
 const MOBILE_QUERY = '(max-width: 1023px)'
 const MOBILE_RECENT_SESSIONS_KEY_PREFIX = 'tmuxgo-mobile-recent-sessions:'
@@ -108,6 +110,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerType, setDrawerType] = useState<'sessions' | 'panes' | 'windows'>('sessions')
   const [showSettings, setShowSettings] = useState(false)
+  const [mobileGitSheetOpen, setMobileGitSheetOpen] = useState(false)
   const [keyboardOpen, setKeyboardOpen] = useState(false)
   const [mobileRecentSessionIds, setMobileRecentSessionIds] = useState<string[]>([])
   const [mobilePinnedSessionIds, setMobilePinnedSessionIds] = useState<string[]>([])
@@ -124,6 +127,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   const viewportStableRef = useRef(createViewportStableState())
   const mobileSessionLongPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mobileSessionLongPressFiredRef = useRef(false)
+  const mobileGitCloseRef = useRef<HTMLButtonElement>(null)
   const mobileQuickSessions = (() => {
     const sessionMap = new Map(sessionsData.map((session: any) => [session.id, session]))
     const pinned = mobilePinnedSessionIds.map((id) => sessionMap.get(id)).filter(Boolean)
@@ -193,6 +197,20 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
     setMobileFileSheetOpen(true)
     pushOverlay('mobile-files')
   }, [mobileFileSheetOpen, setMobileFileSheetOpen, pushOverlay])
+  const openMobileGit = useCallback(() => {
+    if (mobileGitSheetOpen) return
+    setMobileGitSheetOpen(true)
+    pushOverlay('mobile-git')
+  }, [mobileGitSheetOpen, pushOverlay])
+  useEffect(() => {
+    if (!mobileGitSheetOpen) return
+    mobileGitCloseRef.current?.focus()
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeOverlay('mobile-git')
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [closeOverlay, mobileGitSheetOpen])
   const clearMobileSessionLongPress = useCallback(() => {
     if (!mobileSessionLongPressTimerRef.current) return
     clearTimeout(mobileSessionLongPressTimerRef.current)
@@ -452,6 +470,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
         if (detail.handled) return
         setMobileFileSheetOpen(false)
       }
+      else if (top === 'mobile-git') setMobileGitSheetOpen(false)
       stack.pop()
     }
     window.addEventListener('popstate', handlePopState)
@@ -471,6 +490,9 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'mobile-file-panel', open: mobileFileSheetOpen, mobile: true } }))
   }, [mobileFileSheetOpen])
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'mobile-git-panel', open: mobileGitSheetOpen, mobile: true } }))
+  }, [mobileGitSheetOpen])
   useEffect(() => {
     if (!isMobile) return
     window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'mobile-keyboard-dock', open: keyboardOpen, mobile: true } }))
@@ -570,7 +592,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
             </div>
           )}
           <div className={keyboardOpen ? 'hidden' : 'h-[calc(48px+env(safe-area-inset-bottom))]'}>
-            <MobileNav docked onOpenDrawer={openDrawer} onOpenSettings={openSettings} onOpenSearch={openPalette} onOpenFiles={openMobileFiles} />
+            <MobileNav docked gitOpen={mobileGitSheetOpen} onOpenDrawer={openDrawer} onOpenSettings={openSettings} onOpenSearch={openPalette} onOpenFiles={openMobileFiles} onOpenGit={openMobileGit} />
           </div>
           <div className={keyboardOpen ? 'block' : 'hidden'}>
             <ShortcutBar mode="dock" />
@@ -602,6 +624,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
         type={drawerType}
       />
       {mobileFileSheetOpen && <div className="fixed left-0 right-0 top-0 z-50 bg-black/40" style={{ height: 'var(--app-height,100dvh)' }}><div className="tmuxgo-material absolute bottom-0 left-0 right-0 flex h-[75%] flex-col overflow-hidden rounded-t-xl border-t"><div className="flex shrink-0 justify-center py-2"><div className="h-1 w-10 rounded-full bg-text-3/30" /></div><div className="min-h-0 flex-1"><FilePanel mode="mobile" onClose={() => closeOverlay('mobile-files')} /></div></div></div>}
+      {mobileGitSheetOpen && <div className="fixed inset-0 z-[80] bg-black/40" style={{ height: 'var(--app-height,100dvh)' }} onClick={() => closeOverlay('mobile-git')}><section role="dialog" aria-modal="true" aria-label={t('git.title')} className="tmuxgo-material absolute bottom-0 left-0 right-0 flex h-[88%] flex-col overflow-hidden rounded-t-xl border-t !bg-bg-1 pb-[env(safe-area-inset-bottom)]" onClick={(event) => event.stopPropagation()}><div className="relative flex h-11 shrink-0 items-center justify-center border-b border-[var(--line)]"><div className="absolute top-2 h-1 w-10 rounded-full bg-text-3/30" /><span className="pt-1 text-[13px] font-medium text-text-1">{t('git.title')}</span><button ref={mobileGitCloseRef} aria-label={t('common.close')} title={t('common.close')} onClick={() => closeOverlay('mobile-git')} className="tmuxgo-icon-button absolute right-1 top-0 flex h-11 w-11 items-center justify-center rounded-lg text-text-3 active:bg-bg-2 active:text-text-1"><FiX aria-hidden="true" size={18} /></button></div><div className="min-h-0 flex-1"><GitPanel /></div></section></div>}
       <ToastViewport />
       {PromptElement}
     </div>
