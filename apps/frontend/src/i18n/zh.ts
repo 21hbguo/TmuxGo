@@ -514,7 +514,7 @@ export const zh = {
   'git.noRepo': '未检测到 Git 仓库',
   'git.noActiveEditor': '当前没有激活的编辑器文件',
   'git.fileNotInRepo': '当前文件不在 Git 仓库中',
-  'git.selectRepo': '请输入 Git 仓库路径',
+  'git.selectRepo': '搜索最近仓库或输入仓库路径',
   'git.commit': '提交',
   'git.commitMessage': '提交信息...',
   'git.commitSuccess': '提交成功',
@@ -566,4 +566,7 @@ export const zh = {
   'git.searchCommits': '查找提交、作者、分支或标签',
   'git.clearSearch': '清除查找',
   'git.openRepo': '打开仓库',
+  'git.workingTreeChanges': '工作区更改 ({count})',
+  'git.workingTreeSummary': '已暂存 {staged} · 未暂存 {unstaged} · 未跟踪 {untracked} · 冲突 {conflicted}',
+  'git.switchRepo': '切换仓库',
 } as const

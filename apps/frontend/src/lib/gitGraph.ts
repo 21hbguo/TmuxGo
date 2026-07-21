@@ -10,6 +10,7 @@ export type GitGraphCommit={
   authoredAt:string
   committedAt:string
   parents:{sha:string}[]
+  workingTree?:boolean
 }
 export type GitGraphBranchHead={
   name:string
@@ -78,7 +79,8 @@ export function buildGitGraphLayout(commits:GitGraphCommit[],branchHeads:GitGrap
     const commit=commits[row]
     let lane=active.indexOf(commit.sha)
     if(lane===-1){
-      lane=firstEmptyLane(active,0)
+      const parentLane=commit.parents[0]?.sha?active.indexOf(commit.parents[0].sha):-1
+      lane=parentLane>=0?parentLane:firstEmptyLane(active,0)
       active[lane]=commit.sha
       if(laneColors[lane]===undefined){
         laneColors[lane]=nextColor

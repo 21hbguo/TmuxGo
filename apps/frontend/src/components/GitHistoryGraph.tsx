@@ -37,27 +37,28 @@ export function GitHistoryGraph({ commits, branchHeads, currentBranch, hasMore, 
   const graphWidth=graphPaddingX*2+Math.max(layout.laneCount,1)*laneGap
   const graphHeight=Math.max(layout.rows.length,1)*rowHeight
   const edgeNodes=layout.edges.map((edge,index)=>{
-    const color=graphColors[edge.colorIndex%graphColors.length]
+    const workingTree=layout.rows[edge.fromRow]?.commit.workingTree
+    const color=workingTree?'#8e8e93':graphColors[edge.colorIndex%graphColors.length]
     const fromX=graphPaddingX+edge.fromLane*laneGap
     const toX=graphPaddingX+edge.toLane*laneGap
     const fromY=graphPaddingY+edge.fromRow*rowHeight
     const toY=graphPaddingY+edge.toRow*rowHeight
-    return <path key={`${edge.fromRow}-${edge.toRow}-${edge.fromLane}-${edge.toLane}-${index}`} d={edgePath(fromX,fromY,toX,toY)} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" opacity="0.95" />
+    return <path key={`${edge.fromRow}-${edge.toRow}-${edge.fromLane}-${edge.toLane}-${index}`} d={edgePath(fromX,fromY,toX,toY)} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" strokeDasharray={workingTree?'3 4':undefined} opacity="0.95" />
   })
   const nodeDots=layout.rows.map((row)=>{
-    const color=graphColors[row.colorIndex%graphColors.length]
+    const color=row.commit.workingTree?'#8e8e93':graphColors[row.colorIndex%graphColors.length]
     const cx=graphPaddingX+row.lane*laneGap
     const cy=graphPaddingY+row.row*rowHeight
     return (
       <g key={row.commit.sha}>
-        <circle cx={cx} cy={cy} r={nodeRadius+2} fill={color} opacity="0.2" />
-        <circle cx={cx} cy={cy} r={nodeRadius} fill={color} stroke="#0f172a" strokeWidth="1.5" />
+        {!row.commit.workingTree&&<circle cx={cx} cy={cy} r={nodeRadius+2} fill={color} opacity="0.2" />}
+        <circle cx={cx} cy={cy} r={row.commit.workingTree?nodeRadius+1:nodeRadius} fill={row.commit.workingTree?'rgb(var(--bg-1))':color} stroke={color} strokeWidth={row.commit.workingTree?'2':'1.5'} />
       </g>
     )
   })
   const rowNodes=layout.rows.map((row)=>{
-    const color=graphColors[row.colorIndex%graphColors.length]
-    const committedLabel=`Commit ${formatDateFull(row.commit.committedAt)}`
+    const color=row.commit.workingTree?'#8e8e93':graphColors[row.colorIndex%graphColors.length]
+    const committedLabel=row.commit.workingTree?'':`Commit ${formatDateFull(row.commit.committedAt)}`
     const authoredLabel=row.commit.authoredAt!==row.commit.committedAt?`Author ${formatDateFull(row.commit.authoredAt)}`:''
     const tooltipText=[row.commit.subject||row.commit.shortSha,`${row.commit.shortSha} · ${row.commit.author.name}`,committedLabel,authoredLabel].filter(Boolean).join('\n')
     const matchesSearch=!!normalizedSearch&&[row.commit.sha,row.commit.shortSha,row.commit.subject,row.commit.author.name,row.commit.author.email||'',...row.branches.map((branch)=>branch.name)].some((value)=>value.toLocaleLowerCase().includes(normalizedSearch))
@@ -75,7 +76,7 @@ export function GitHistoryGraph({ commits, branchHeads, currentBranch, hasMore, 
                 ))}
               </div>
             )}
-            <span className="ml-auto shrink-0 text-[10px] text-text-3">{formatDate(row.commit.committedAt)}</span>
+            {!row.commit.workingTree&&<span className="ml-auto shrink-0 text-[10px] text-text-3">{formatDate(row.commit.committedAt)}</span>}
           </div>
           <div className="truncate text-[12px] text-text-1" title={row.commit.subject || row.commit.shortSha}>{row.commit.subject || row.commit.shortSha}</div>
           <div className="truncate text-[10px] text-text-3">{row.commit.author.name}</div>

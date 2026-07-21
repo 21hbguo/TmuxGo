@@ -514,7 +514,7 @@ export const en = {
   'git.noRepo': 'No Git repository detected',
   'git.noActiveEditor': 'No active editor file',
   'git.fileNotInRepo': 'Current file is not in a Git repository',
-  'git.selectRepo': 'Enter a Git repository path',
+  'git.selectRepo': 'Search recent repositories or enter a path',
   'git.commit': 'Commit',
   'git.commitMessage': 'Commit message...',
   'git.commitSuccess': 'Commit successful',
@@ -566,4 +566,7 @@ export const en = {
   'git.searchCommits': 'Find commits, authors, branches, or tags',
   'git.clearSearch': 'Clear search',
   'git.openRepo': 'Open Repository',
+  'git.workingTreeChanges': 'Working Tree Changes ({count})',
+  'git.workingTreeSummary': 'Staged {staged} · Unstaged {unstaged} · Untracked {untracked} · Conflicted {conflicted}',
+  'git.switchRepo': 'Switch Repository',
 } as const
