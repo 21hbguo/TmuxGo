@@ -215,10 +215,10 @@ a {
 }
 .tmuxgo-mobile-dock {
   --glass-blur: 14px;
-  margin: 0 8px 8px;
+  margin: 0;
   overflow: hidden;
-  border: 1px solid var(--glass-rim);
-  border-radius: 16px;
+  border-width: 1px 0 0;
+  border-radius: 0;
 }
 .tmuxgo-mobile-nav {
   border: 0;
@@ -233,12 +233,6 @@ a {
   border-color: rgb(var(--text-1) / 0.08);
   background: transparent;
 }
-@media (max-width: 360px) {
-  .tmuxgo-mobile-dock {
-    margin-inline: 4px;
-  }
-}
-
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .tmuxgo-glass {
     background: rgb(var(--bg-1) / 0.98);
