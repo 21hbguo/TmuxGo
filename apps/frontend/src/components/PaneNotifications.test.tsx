@@ -1,15 +1,29 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PaneNotifications } from './PaneNotifications'
 
-const preferenceState = { agentNotificationsEnabled: true, agentNotificationDurationMs: 5000 }
-const consoleState = { activeHostId: 'local', activeSessionId: 'local:other', activePaneId: 'local:%0', setActiveHost: vi.fn(), setActiveSession: vi.fn(), setActivePane: vi.fn() }
+const mocks = vi.hoisted(() => {
+  const queryCache = new Map<string, any>()
+  return {
+    preferenceState: { agentNotificationsEnabled: true, agentNotificationDurationMs: 5000 },
+    consoleState: { activeHostId: 'local', activeSessionId: 'local:other', activePaneId: 'local:%0', setActiveHost: vi.fn(), setActiveSession: vi.fn(), setActivePane: vi.fn() },
+    queryCache,
+    queryClient: {
+      getQueryData: vi.fn((key: unknown[]) => queryCache.get(JSON.stringify(key))),
+      setQueryData: vi.fn((key: unknown[], value: any) => queryCache.set(JSON.stringify(key), typeof value === 'function' ? value(queryCache.get(JSON.stringify(key))) : value)),
+    },
+    snapshotGet: vi.fn(),
+    windowSelect: vi.fn(),
+    paneSelect: vi.fn(),
+  }
+})
+const { preferenceState, consoleState, queryCache, queryClient, snapshotGet, windowSelect, paneSelect } = mocks
 
-vi.mock('@/hooks/usePreferences', () => ({ usePreferences: () => ({ preferences: preferenceState }) }))
-vi.mock('@/hooks/useOptionalQueryClient', () => ({ useOptionalQueryClient: () => null }))
-vi.mock('@/stores/useConsoleStore', () => ({ useConsoleStore: Object.assign((selector: any) => selector(consoleState), { getState: () => consoleState }) }))
-vi.mock('@/lib/api', () => ({ api: { panes: { select: vi.fn(async () => {}) } } }))
+vi.mock('@/hooks/usePreferences', () => ({ usePreferences: () => ({ preferences: mocks.preferenceState }) }))
+vi.mock('@/hooks/useOptionalQueryClient', () => ({ useOptionalQueryClient: () => mocks.queryClient }))
+vi.mock('@/stores/useConsoleStore', () => ({ useConsoleStore: Object.assign((selector: any) => selector(mocks.consoleState), { getState: () => mocks.consoleState }) }))
+vi.mock('@/lib/api', () => ({ api: { snapshot: { get: mocks.snapshotGet }, windows: { select: mocks.windowSelect }, panes: { select: mocks.paneSelect } } }))
 vi.mock('@/i18n', () => ({ useTranslation: () => ({ t: (key: string, params?: Record<string, string>) => key === 'agent.notification.blocked' ? `${params?.agent} blocked in ${params?.session}` : key === 'agent.notification.done' ? `${params?.agent} finished in ${params?.session}` : key }) }))
 
 function emitAgentStatus(status: 'blocked' | 'done', revision: number) {
@@ -21,6 +35,15 @@ describe('PaneNotifications', () => {
     vi.useFakeTimers()
     preferenceState.agentNotificationsEnabled = true
     preferenceState.agentNotificationDurationMs = 5000
+    queryCache.clear()
+    snapshotGet.mockReset()
+    windowSelect.mockReset()
+    paneSelect.mockReset()
+    windowSelect.mockResolvedValue({ ok: true })
+    paneSelect.mockResolvedValue({ ok: true })
+    consoleState.setActiveHost.mockReset()
+    consoleState.setActiveSession.mockReset()
+    consoleState.setActivePane.mockReset()
   })
   afterEach(() => {
     vi.useRealTimers()
@@ -47,5 +70,19 @@ describe('PaneNotifications', () => {
     preferenceState.agentNotificationsEnabled = false
     rerender(<PaneNotifications />)
     expect(screen.queryByText('codex blocked in dev')).not.toBeInTheDocument()
+  })
+  it('opens the target window and pane when a notification is clicked', async () => {
+    vi.useRealTimers()
+    snapshotGet.mockResolvedValueOnce({ activeWindowId: 'local:@1', activePaneId: 'local:%0', panes: [{ id: 'local:%1', windowId: 'local:@2', active: false }] }).mockResolvedValueOnce({ activeWindowId: 'local:@2', activePaneId: 'local:%1', panes: [{ id: 'local:%1', windowId: 'local:@2', active: true }] })
+    render(<PaneNotifications />)
+    act(() => emitAgentStatus('done', 4))
+    fireEvent.click(screen.getByText('codex finished in dev'))
+    await waitFor(() => expect(consoleState.setActivePane).toHaveBeenCalledWith('local:%1'))
+    expect(windowSelect).toHaveBeenCalledWith('local', 'session-local-dev', 'local:@2')
+    expect(paneSelect).toHaveBeenCalledWith('local:%1')
+    expect(snapshotGet).toHaveBeenCalledTimes(2)
+    expect(consoleState.setActiveSession).toHaveBeenCalledWith('session-local-dev')
+    expect(queryClient.setQueryData).toHaveBeenCalledWith(['session-snapshot', 'local', 'session-local-dev'], expect.objectContaining({ activePaneId: 'local:%1' }))
+    expect(screen.queryByText('codex finished in dev')).not.toBeInTheDocument()
   })
 })
