@@ -57,22 +57,9 @@ export function buildGitGraphLayout(commits:GitGraphCommit[],branchHeads:GitGrap
     }
     branchMap.set(branchHead.commit.sha,[branchHead])
   }
-  const orderedHeads=branchHeads.filter((branchHead)=>commitIndex.has(branchHead.commit.sha)).sort((a,b)=>{
-    const aCurrent=a.name===currentBranch?-1:0
-    const bCurrent=b.name===currentBranch?-1:0
-    if(aCurrent!==bCurrent) return aCurrent-bCurrent
-    return (commitIndex.get(a.commit.sha)??0)-(commitIndex.get(b.commit.sha)??0)||a.name.localeCompare(b.name)
-  })
   const active:(string|null)[]=[]
   const laneColors:number[]=[]
   let nextColor=0
-  for(const branchHead of orderedHeads){
-    if(active.includes(branchHead.commit.sha)) continue
-    const lane=firstEmptyLane(active,0)
-    active[lane]=branchHead.commit.sha
-    laneColors[lane]=nextColor
-    nextColor+=1
-  }
   const rows:GitGraphLaneRow[]=[]
   const rowByHash=new Map<string,GitGraphLaneRow>()
   for(let row=0;row<commits.length;row+=1){

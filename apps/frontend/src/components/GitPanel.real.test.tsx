@@ -69,8 +69,8 @@ describe('GitPanel real graph render',()=>{
   it('renders a multi-lane graph with real repository data',()=>{
     const { commits, branchHeads, currentBranch }=loadRepoGraphData()
     const layout=buildGitGraphLayout(commits,branchHeads,currentBranch)
-    const { container }=render(React.createElement('div',{ 'data-git-history-scroll':'1' },React.createElement(GitHistoryGraph,{
-      commits,
+    const renderGraph=(graphCommits:GitGraphCommit[])=>React.createElement('div',{ 'data-git-history-scroll':'1' },React.createElement(GitHistoryGraph,{
+      commits:graphCommits,
       branchHeads,
       currentBranch,
       hasMore:false,
@@ -79,11 +79,15 @@ describe('GitPanel real graph render',()=>{
       onCommitClick:()=>{},
       formatDate:(value)=>String(value),
       formatDateFull:(value)=>String(value),
-    })))
+    }))
+    const { container, rerender }=render(renderGraph(commits.slice(0,200)))
+    const firstPageWidth=container.querySelector('svg')?.getAttribute('width')
+    rerender(renderGraph(commits))
     expect(commits.length).toBeGreaterThan(100)
     expect(branchHeads.length).toBeGreaterThan(3)
     expect(layout.laneCount).toBeGreaterThan(1)
     expect(layout.edges.some((edge)=>edge.fromLane!==edge.toLane)).toBe(true)
+    expect(container.querySelector('svg')).toHaveAttribute('width',firstPageWidth)
     expect(container.querySelectorAll('svg path').length).toBeGreaterThan(50)
     expect(screen.getByText('master')).toBeInTheDocument()
   })

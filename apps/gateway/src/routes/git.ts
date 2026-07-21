@@ -176,15 +176,23 @@ export async function gitRoutes(fastify: FastifyInstance) {
     const { hostId } = request.params as { hostId: string }
     const { path: repoPath } = request.query as { path?: string }
     if (!repoPath) throw new Error('Missing path parameter')
-    const { stdout } = await execGit(hostId, ['status', '--porcelain=v2', '--branch', '-z'], repoPath)
+    const { stdout } = await execGit(hostId, ['status', '--porcelain=v2', '--branch', '--untracked-files=all', '-z'], repoPath)
     return parsePorcelainV2(stdout)
   })
 
   fastify.get('/hosts/:hostId/git/diff', async (request) => {
     const { hostId } = request.params as { hostId: string }
-    const { path: repoPath, filePath, staged, commit } = request.query as { path?: string; filePath?: string; staged?: string; commit?: string }
+    const { path: repoPath, filePath, staged, commit, workingTree, untracked } = request.query as { path?: string; filePath?: string; staged?: string; commit?: string; workingTree?: string; untracked?: string }
     if (!repoPath) throw new Error('Missing path parameter')
+    if (untracked === 'true' && filePath) {
+      if (filePath.startsWith('/') || filePath.split('/').includes('..')) throw new Error('Invalid untracked file path')
+      const { stdout: untrackedOut } = await execGit(hostId, ['ls-files', '--others', '--exclude-standard', '-z', '--', filePath], repoPath)
+      if (!untrackedOut.split('\0').includes(filePath)) throw new Error('File is not untracked')
+      const { stdout } = await execGit(hostId, ['diff', '--no-index', '--no-color', '--', '/dev/null', filePath], repoPath, undefined, true)
+      return { raw: stdout }
+    }
     const args = commit ? ['show', '--format=', '--no-color', commit.replace(/\^!$/, '')] : ['diff', '--no-color']
+    if (!commit && workingTree === 'true') args.push('HEAD')
     if (!commit && staged === 'true') args.push('--staged')
     if (filePath) args.push('--', filePath)
     const { stdout } = await execGit(hostId, args, repoPath)

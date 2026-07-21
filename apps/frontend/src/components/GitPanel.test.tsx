@@ -5,15 +5,17 @@ import { GitPanel } from './GitPanel'
 import { I18nProvider } from '@/i18n'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { buildGitGraphLayout, type GitGraphBranchHead, type GitGraphCommit } from '@/lib/gitGraph'
 
 const useGitLogMock = vi.fn()
 const useGitBranchesMock = vi.fn()
 const useGitPaneDetectMock = vi.fn()
 const useGitStatusMock = vi.fn()
+const useGitDiffMock = vi.fn()
 
 vi.mock('@/hooks/useApi', () => ({
   useGitStatus: (...args: any[]) => useGitStatusMock(...args),
-  useGitDiff: () => ({ data: { raw: 'diff --git a/src/index.ts b/src/index.ts\n--- a/src/index.ts\n+++ b/src/index.ts\n@@ -1 +1 @@\n-old\n+new' }, isLoading: false }),
+  useGitDiff: (...args: any[]) => useGitDiffMock(...args),
   useGitStage: () => ({ mutate: vi.fn() }),
   useGitUnstage: () => ({ mutate: vi.fn() }),
   useGitCommit: () => ({ mutate: vi.fn() }),
@@ -41,6 +43,7 @@ describe('GitPanel', () => {
     useGitBranchesMock.mockReturnValue({ data: { current: 'main', branches: [{ name: 'main', current: true, commitHash: 'b2', lastCommitSubject: 'second' }] } })
     useGitPaneDetectMock.mockReturnValue({ data: undefined })
     useGitStatusMock.mockReturnValue({ data: { branch: 'main', ahead: 1, behind: 0, staged: [], unstaged: [], untracked: [], conflicted: [] } })
+    useGitDiffMock.mockReturnValue({ data: { raw: 'diff --git a/src/index.ts b/src/index.ts\n--- a/src/index.ts\n+++ b/src/index.ts\n@@ -1 +1 @@\n-old\n+new' }, isLoading: false })
     useConsoleStore.setState({
       activeHostId: 'local',
       activePaneId: null,
@@ -119,6 +122,34 @@ describe('GitPanel', () => {
     expect(screen.getByText('src/changed.ts')).toBeInTheDocument()
   })
 
+  it('opens the working tree diff inside the mobile Git panel and returns to history', async () => {
+    useGitStatusMock.mockReturnValue({ data: { branch: 'main', ahead: 1, behind: 0, staged: [{ path: 'src/staged.ts', status: 'modified', staged: true }], unstaged: [], untracked: [], conflicted: [] } })
+    const user = userEvent.setup()
+    const queryClient = new QueryClient()
+    render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(I18nProvider, null, React.createElement(GitPanel, { mode: 'mobile' }))))
+    await user.click(screen.getByText('工作区更改 (1)'))
+    expect(screen.getByText('差异: 工作区更改 (1)')).toBeInTheDocument()
+    expect(useGitDiffMock).toHaveBeenLastCalledWith('local', '/workspace/app', expect.objectContaining({ workingTree: true }))
+    fireEvent(window, new CustomEvent('tmuxgo-mobile-git-back', { detail: { handled: false } }))
+    expect(await screen.findByText('工作区更改 (1)')).toBeInTheDocument()
+  })
+
+  it('opens tracked and untracked status files inside the mobile Git panel one level at a time', async () => {
+    useGitStatusMock.mockReturnValue({ data: { branch: 'main', ahead: 1, behind: 0, staged: [], unstaged: [{ path: 'src/changed.ts', status: 'modified', staged: false }], untracked: ['src/new.ts'], conflicted: [] } })
+    const user = userEvent.setup()
+    const queryClient = new QueryClient()
+    render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(I18nProvider, null, React.createElement(GitPanel, { mode: 'mobile' }))))
+    await user.click(screen.getByText('状态 2'))
+    await user.click(screen.getByText('src/changed.ts'))
+    expect(screen.getByText('差异: src/changed.ts')).toBeInTheDocument()
+    fireEvent(window, new CustomEvent('tmuxgo-mobile-git-back', { detail: { handled: false } }))
+    await user.click(await screen.findByText('src/new.ts'))
+    expect(screen.getByText('差异: src/new.ts')).toBeInTheDocument()
+    expect(useGitDiffMock).toHaveBeenLastCalledWith('local', '/workspace/app', expect.objectContaining({ filePath: 'src/new.ts', untracked: true }))
+    fireEvent(window, new CustomEvent('tmuxgo-mobile-git-back', { detail: { handled: false } }))
+    expect(await screen.findByText('src/changed.ts')).toBeInTheDocument()
+  })
+
   it('filters recent repositories and switches the selected repository', async () => {
     useConsoleStore.setState({ gitByHost: { local: { mode: 'follow-editor', currentRepoPath: '/workspace/repo-a', currentFilePath: null, source: 'pane', lockedRepoPath: null, recentRepos: [{ repoPath: '/workspace/repo-a', label: 'repo-a', lastUsedAt: 2, pinned: false }, { repoPath: '/workspace/repo-b', label: 'repo-b', lastUsedAt: 1, pinned: false }] } } } as any)
     const user = userEvent.setup()
@@ -168,5 +199,18 @@ describe('GitPanel', () => {
     expect(screen.getAllByText('main').length).toBeGreaterThan(0)
     expect(screen.queryByText('ghost')).toBeNull()
     expect(screen.getByText('second').closest('button')?.getAttribute('title')).toContain('Author')
+  })
+
+  it('keeps loaded history lanes stable when an older branch page is appended', () => {
+    const commits: GitGraphCommit[] = [
+      { sha: 'a', shortSha: 'a', subject: 'merge', author: { name: 'dev' }, authoredAt: '2024-01-05', committedAt: '2024-01-05', parents: [{ sha: 'b' }, { sha: 'x' }] },
+      { sha: 'b', shortSha: 'b', subject: 'main', author: { name: 'dev' }, authoredAt: '2024-01-04', committedAt: '2024-01-04', parents: [{ sha: 'c' }] },
+      { sha: 'x', shortSha: 'x', subject: 'side', author: { name: 'dev' }, authoredAt: '2024-01-03', committedAt: '2024-01-03', parents: [{ sha: 'c' }] },
+      { sha: 'c', shortSha: 'c', subject: 'base', author: { name: 'dev' }, authoredAt: '2024-01-02', committedAt: '2024-01-02', parents: [] },
+    ]
+    const branchHeads: GitGraphBranchHead[] = [{ name: 'main', commit: { sha: 'a' } }, { name: 'old', commit: { sha: 'q' } }]
+    const before = buildGitGraphLayout(commits, branchHeads, 'main')
+    const after = buildGitGraphLayout([...commits, { sha: 'q', shortSha: 'q', subject: 'old', author: { name: 'dev' }, authoredAt: '2024-01-01', committedAt: '2024-01-01', parents: [] }], branchHeads, 'main')
+    expect(after.rows.slice(0, commits.length).map((row) => [row.commit.sha, row.lane])).toEqual(before.rows.map((row) => [row.commit.sha, row.lane]))
   })
 })

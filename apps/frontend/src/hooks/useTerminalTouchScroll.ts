@@ -20,20 +20,12 @@ export function useTerminalTouchScroll({ isMobile, onScroll, onTap, onTouchMoved
     carryY: 0,
     moved: false,
     direction: 'unknown' as 'unknown' | 'vertical' | 'horizontal',
-    scrollPendingLines: 0,
-    scrollFlushTimer: null as ReturnType<typeof setTimeout> | null,
     momentumId: 0,
     startTime: 0,
     lastMoveTime: 0,
     lastVelocity: 0,
     momentumTimer: null as ReturnType<typeof setTimeout> | null,
   })
-  const clearScrollFlush = useCallback(() => {
-    const timer = stateRef.current.scrollFlushTimer
-    if (!timer) return
-    clearTimeout(timer)
-    stateRef.current.scrollFlushTimer = null
-  }, [])
   const clearMomentum = useCallback(() => {
     stateRef.current.momentumId += 1
     const timer = stateRef.current.momentumTimer
@@ -41,24 +33,10 @@ export function useTerminalTouchScroll({ isMobile, onScroll, onTap, onTouchMoved
     clearTimeout(timer)
     stateRef.current.momentumTimer = null
   }, [])
-  const flushScroll = useCallback(() => {
-    stateRef.current.scrollFlushTimer = null
-    const lines = Math.trunc(stateRef.current.scrollPendingLines)
-    stateRef.current.scrollPendingLines = 0
-    if (!lines) return
-    onScroll(Math.max(-18, Math.min(18, lines)))
-  }, [onScroll])
-  const queueScroll = useCallback((lines: number) => {
-    stateRef.current.scrollPendingLines += lines
-    if (stateRef.current.scrollFlushTimer) return
-    stateRef.current.scrollFlushTimer = setTimeout(flushScroll, 16)
-  }, [flushScroll])
   const handleTouchStart = useCallback((e: TouchEvent) => {
     if (!isMobile) return
     lastTapRef.current = null
     clearMomentum()
-    clearScrollFlush()
-    stateRef.current.scrollPendingLines = 0
     stateRef.current.carryY = 0
     if (e.touches.length !== 1) {
       stateRef.current.startY = 0
@@ -81,7 +59,7 @@ export function useTerminalTouchScroll({ isMobile, onScroll, onTap, onTouchMoved
     stateRef.current.moved = false
     stateRef.current.direction = 'unknown'
     onTouchMovedChange(false)
-  }, [clearMomentum, clearScrollFlush, isMobile, onTouchMovedChange])
+  }, [clearMomentum, isMobile, onTouchMovedChange])
   const handleTouchMove = useCallback((e: TouchEvent) => {
     if (!isMobile) return
     if (e.touches.length !== 1) {
@@ -115,12 +93,10 @@ export function useTerminalTouchScroll({ isMobile, onScroll, onTap, onTouchMoved
     const step = Math.trunc(stateRef.current.carryY / 18)
     if (step === 0) return
     stateRef.current.carryY -= step * 18
-    queueScroll(step * 2)
-  }, [isMobile, onTouchMovedChange, queueScroll])
+    onScroll(Math.max(-18, Math.min(18, step * 2)))
+  }, [isMobile, onScroll, onTouchMovedChange])
   const SWIPE_THRESHOLD = 50
   const handleTouchEnd = useCallback((e: TouchEvent) => {
-    clearScrollFlush()
-    if (stateRef.current.scrollPendingLines) flushScroll()
     onTouchMovedChange(stateRef.current.moved)
     const touch = e.changedTouches[0]
     if (!touch) return
@@ -154,21 +130,18 @@ export function useTerminalTouchScroll({ isMobile, onScroll, onTap, onTouchMoved
       stateRef.current.momentumTimer = setTimeout(decay, 16)
     }
     stateRef.current.momentumTimer = setTimeout(decay, 16)
-  }, [clearScrollFlush, flushScroll, onScroll, onTap, onTouchMovedChange, onSwipeLeft, onSwipeRight])
+  }, [onScroll, onTap, onTouchMovedChange, onSwipeLeft, onSwipeRight])
   const handleTouchCancel = useCallback(() => {
-    clearScrollFlush()
     clearMomentum()
-    stateRef.current.scrollPendingLines = 0
     stateRef.current.carryY = 0
     stateRef.current.moved = false
     stateRef.current.direction = 'unknown'
     lastTapRef.current = null
     onTouchMovedChange(false)
-  }, [clearMomentum, clearScrollFlush, onTouchMovedChange])
+  }, [clearMomentum, onTouchMovedChange])
   const dispose = useCallback(() => {
-    clearScrollFlush()
     clearMomentum()
-  }, [clearMomentum, clearScrollFlush])
+  }, [clearMomentum])
   return useMemo(() => ({
     dispose,
     handleTouchCancel,

@@ -43,9 +43,9 @@ function parseDiff(raw: string): DiffLine[] {
   return result
 }
 
-export function DiffViewer({ hostId, repoPath, filePath, staged, commit }: { hostId: string; repoPath: string; filePath: string; staged?: boolean; commit?: string }) {
+export function DiffViewer({ hostId, repoPath, filePath, staged, commit, workingTree, untracked, label }: { hostId: string; repoPath: string; filePath: string; staged?: boolean; commit?: string; workingTree?: boolean; untracked?: boolean; label?: string }) {
   const { t } = useTranslation()
-  const { data, isLoading } = useGitDiff(hostId, repoPath, { filePath: filePath || undefined, staged, commit })
+  const { data, isLoading } = useGitDiff(hostId, repoPath, { filePath: filePath || undefined, staged, commit, workingTree, untracked })
   const lines = useMemo(() => data?.raw ? parseDiff(data.raw) : [], [data?.raw])
 
   if (isLoading) return <div className="flex h-full items-center justify-center text-sm text-text-3">{t('git.detecting')}</div>
@@ -54,7 +54,7 @@ export function DiffViewer({ hostId, repoPath, filePath, staged, commit }: { hos
   return (
     <div className="h-full overflow-auto bg-bg-0 font-mono text-[12px] leading-[1.6]">
       <div className="sticky top-0 z-10 border-b border-[var(--line)] bg-bg-1 px-4 py-2">
-        <span className="text-sm text-text-1">{t('git.diffTitle', { file: filePath || commit || '' })}</span>
+        <span className="text-sm text-text-1">{t('git.diffTitle', { file: label || filePath || commit || '' })}</span>
         {staged && <span className="ml-2 rounded bg-accent/20 px-1.5 py-0.5 text-[10px] text-accent">staged</span>}
       </div>
       <table className="w-full border-collapse">
