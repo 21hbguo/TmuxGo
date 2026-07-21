@@ -65,6 +65,9 @@ export function useWebSocket() {
       case 'session-exit':
         window.dispatchEvent(new CustomEvent('tmux-session-exit',{detail:data}))
         break
+      case 'agent_status_changed':
+        window.dispatchEvent(new CustomEvent('tmuxgo-agent-status',{detail:data}))
+        break
     }
   },[clearPongTimer,updateConnection])
   const sendPing=useCallback((timeout=8000)=>{

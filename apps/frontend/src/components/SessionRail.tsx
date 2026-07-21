@@ -9,6 +9,7 @@ import { useTranslation } from '@/i18n'
 import { usePrompt } from '@/hooks/usePrompt'
 import { SessionSortableList } from './SessionSortableList'
 import { FiChevronRight, FiEdit2, FiPlus, FiTrash2 } from 'react-icons/fi'
+import { AgentStatusBadge } from './AgentStatusBadge'
 
 export function SessionRail() {
   const activeSessionId = useConsoleStore((state) => state.activeSessionId)
@@ -100,7 +101,7 @@ export function SessionRail() {
               return (
                 <button title={session.name} onClick={() => setActiveSession(session.id)} onDoubleClick={() => void handleRenameSession(session.id)} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, sessionId: session.id }) }} className={`flex h-11 min-w-0 w-full items-center gap-2 rounded-lg border px-2 text-left transition-[transform,box-shadow,background-color,border-color,color] duration-200 ${active ? 'border-[var(--line)] bg-bg-2 text-accent' : 'border-transparent bg-transparent text-text-3 hover:bg-bg-2 hover:text-text-1'} ${isOverlay ? 'border-accent bg-bg-1 text-text-1 shadow-[0_18px_44px_rgba(0,0,0,0.42)]' : ''}`}>
                   <span className="flex min-w-0 flex-1 items-center gap-2 text-left">
-                    <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[11px] font-semibold ${active ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-2'}`}>{session.name.slice(0, 2).toUpperCase()}</span>
+                    <span className="relative shrink-0"><span className={`flex h-7 w-7 items-center justify-center rounded-md text-[11px] font-semibold ${active ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-2'}`}>{session.name.slice(0, 2).toUpperCase()}</span><span className="absolute -bottom-1 -right-1"><AgentStatusBadge summary={session.agentSummary} compact /></span></span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-xs font-medium text-text-1">{session.name}</span>
                       <span className="block truncate text-[10px] text-text-3">{t('sidebar.windows', { count: session.windowCount })}</span>

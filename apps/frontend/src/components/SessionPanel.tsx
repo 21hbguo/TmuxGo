@@ -11,6 +11,7 @@ import { useTranslation } from '@/i18n'
 import { usePrompt } from '@/hooks/usePrompt'
 import { SessionSortableList } from './SessionSortableList'
 import { HostSwitcher } from './HostSwitcher'
+import { AgentStatusBadge } from './AgentStatusBadge'
 
 function getNextSessionId(sessions: { id: string }[], removedIds: string[]) {
   const removed = new Set(removedIds)
@@ -144,7 +145,7 @@ export function SessionPanel() {
                 {batchMode && <button onClick={() => toggleBatchSession(session.id)} className={`ml-2 flex h-7 w-5 shrink-0 items-center justify-center rounded text-[11px] leading-none ${selectedSessionIds.includes(session.id) ? 'text-red-300' : 'text-text-3'} hover:bg-bg-0`}>{selectedSessionIds.includes(session.id) ? '☑' : '☐'}</button>}
                 <button onClick={() => batchMode ? toggleBatchSession(session.id) : setActiveSession(session.id)} onDoubleClick={() => !batchMode && void handleRenameSession(session.id)} className={`min-w-0 flex-1 border-l-2 px-3 py-2 text-left ${batchMode ? selectedSessionIds.includes(session.id) ? 'border-red-400' : 'border-transparent' : activeSessionId === session.id ? 'border-accent' : 'border-transparent'}`}>
                   <div className="truncate text-sm text-text-1">{session.name}</div>
-                  <div className="mt-0.5 text-[11px] text-text-3">{t('sidebar.windows', { count: session.windowCount })}</div>
+                  <div className="mt-0.5 flex min-w-0 items-center gap-2 text-[11px] text-text-3"><span>{t('sidebar.windows', { count: session.windowCount })}</span><AgentStatusBadge summary={session.agentSummary} /></div>
                 </button>
                 {!batchMode && <button onClick={() => void handleRenameSession(session.id)} className="rounded px-1.5 py-1 text-[11px] text-text-3 hover:bg-bg-0 hover:text-text-1" aria-label={t('sidebar.renameSession')} title={t('sidebar.renameSession')}>✎</button>}
                 {!batchMode && <button onClick={() => setPendingDeleteSessionId(session.id)} className="rounded px-1.5 py-1 text-[11px] text-text-3 hover:bg-bg-0 hover:text-danger" aria-label={t('sidebar.deleteSession')} title={t('sidebar.deleteSession')}>×</button>}

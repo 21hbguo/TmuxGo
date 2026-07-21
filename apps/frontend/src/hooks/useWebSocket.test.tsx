@@ -90,4 +90,16 @@ describe('useWebSocket',()=>{
     unsubscribe()
     unmount()
   })
+  it('dispatches agent status events',()=>{
+    const listener=vi.fn()
+    window.addEventListener('tmuxgo-agent-status',listener as EventListener)
+    const { unmount }=renderHook(() => useWebSocket())
+    act(()=>{
+      socketInstances[0].open()
+      socketInstances[0].message({ type:'agent_status_changed', hostId:'local', sessionName:'dev', pane:{ paneId:'local:%1', agent:'codex', agentStatus:'blocked', revision:2 } })
+    })
+    expect((listener.mock.calls[0]?.[0] as CustomEvent).detail).toMatchObject({ hostId:'local', sessionName:'dev', pane:{ agentStatus:'blocked' } })
+    window.removeEventListener('tmuxgo-agent-status',listener as EventListener)
+    unmount()
+  })
 })

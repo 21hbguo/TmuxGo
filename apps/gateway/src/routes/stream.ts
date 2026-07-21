@@ -11,6 +11,7 @@ import { hasSubstantiveTerminalContent } from '../lib/terminal-output.js'
 import { parseSessionRef } from '../lib/tmux-target.js'
 import { getAttachSnapshotDelays } from '../lib/attach-snapshot.js'
 import { execTmux } from '../lib/tmux-executor.js'
+import { getSessionAgentPanes, markAgentPaneSeen } from '../lib/agent-state.js'
 
 const execFileAsync = promisify(execFile)
 let sshPassAvailable: boolean | null = null
@@ -21,6 +22,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
     const ATTACH_REDRAW_DELAYS = [48]
     const RESIZE_REDRAW_DELAYS = [100]
     const REQUEST_REDRAW_DELAYS = [48]
+    const AGENT_STATE_POLL_MS = 1500
     const SOCKET_BUFFER_HIGH_WATERMARK = 1048576
     const SOCKET_BUFFER_EXTREME_WATERMARK = 4194304
     const SOCKET_FLUSH_DEFER_MS = 24
@@ -48,6 +50,8 @@ export async function streamRoutes(fastify: FastifyInstance) {
     let attachSeq = 0
     let attachVisibleOutputObserved = false
     let attachSnapshotTimers: ReturnType<typeof setTimeout>[] = []
+    let agentStatePolling = false
+    const sentAgentRevisions = new Map<string, number>()
     const scrollBuffers = new Map<string, number>()
     const scrollRunning = new Set<string>()
     const socket = connection.socket
@@ -243,6 +247,25 @@ export async function streamRoutes(fastify: FastifyInstance) {
       for (const timer of attachSnapshotTimers) clearTimeout(timer)
       attachSnapshotTimers = []
     }
+    async function pollAgentStates() {
+      if (agentStatePolling || !attachedSessionName) return
+      const sessionName = attachedSessionName
+      const hostId = attachedHostId
+      agentStatePolling = true
+      try {
+        const panes = await getSessionAgentPanes(hostId, sessionName)
+        if (sessionName !== attachedSessionName || hostId !== attachedHostId) return
+        for (const pane of panes) {
+          const previousRevision = sentAgentRevisions.get(pane.paneId)
+          if (previousRevision !== undefined && pane.revision <= previousRevision) continue
+          sentAgentRevisions.set(pane.paneId, pane.revision)
+          send({ type: 'agent_status_changed', hostId, sessionName, pane, initial: previousRevision === undefined })
+        }
+      } catch {} finally {
+        agentStatePolling = false
+      }
+    }
+    const agentStateTimer = setInterval(() => void pollAgentStates(), AGENT_STATE_POLL_MS)
     async function captureAttachedSnapshot(sessionName: string, seq: number) {
       if (!ptyProcess || !sessionName || attachVisibleOutputObserved || seq !== attachSeq || attachedSessionName !== sessionName) return
       try {
@@ -323,6 +346,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
       outputResyncPending = false
       outputResyncRunning = false
       scrollBuffers.clear()
+      sentAgentRevisions.clear()
       if (notify) send({ type: 'detached', sessionName: detachedSessionName, hostId: detachedHostId })
     }
     function sanitizeOutput(chunk: string) {
@@ -481,6 +505,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
               clearRedrawTimers()
             })
             send({ type: 'attached', sessionName, hostId, cols, rows, exclusive })
+            void pollAgentStates()
             scheduleClientRedraw(sessionName, ATTACH_REDRAW_DELAYS)
             scheduleAttachSnapshot(sessionName, seq)
             break
@@ -508,6 +533,16 @@ export async function streamRoutes(fastify: FastifyInstance) {
             recordStreamMetric('inputMessages')
             if (ptyProcess) ptyProcess.write(data.data)
             break
+          case 'agent_seen': {
+            const paneId = String(data.paneId || '')
+            if (!paneId.startsWith(`${attachedHostId}:`)) break
+            const pane = markAgentPaneSeen(paneId)
+            if (pane) {
+              sentAgentRevisions.set(pane.paneId, pane.revision)
+              send({ type: 'agent_status_changed', hostId: attachedHostId, sessionName: attachedSessionName, pane, initial: false })
+            }
+            break
+          }
           case 'stream_profile':
             if (data.profile === 'foreground' || data.profile === 'background' || data.profile === 'mobile') syncOutputProfile(data.profile)
             break
@@ -566,6 +601,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
     socket.on('close', () => {
       console.log('Client disconnected from stream')
       cleanup()
+      clearInterval(agentStateTimer)
       updateStreamMetric('activeClients', streamPerfMetricsActiveClientsDelta(-1))
       if (agentId) agentManager.unregister(agentId)
     })
