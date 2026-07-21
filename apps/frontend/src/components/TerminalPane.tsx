@@ -42,6 +42,7 @@ const MOBILE_PINCH_MIN_FONT_SIZE = 8
 const MOBILE_PINCH_MAX_FONT_SIZE = 20
 const MOBILE_PINCH_FONT_SIZE_EPSILON = 0.04
 const MOBILE_PINCH_DISTANCE_EPSILON = 2
+const DESKTOP_PINCH_COMMIT_DELAY = 120
 const GITHUB_DEVICE_LOGIN_URL = 'https://github.com/login/device'
 const ANSI_ESCAPE_REGEX = /\u001b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\u0007]*(?:\u0007|\u001b\\))/g
 const TERMINAL_URL_REGEX = /(https?|HTTPS?):[/]{2}[^\s"'!*(){}|\\^<>`]*[^\s"':,.!?{}|\\^~\[\]`()<>]/g
@@ -261,6 +262,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   const tRef = useRef(t)
   const afterTerminalWriteRef = useRef<() => void>(() => {})
   const pinchStateRef = useRef({ active: false, startDistance: 0, startFontSize: preferences.fontSize, lastFontSize: preferences.fontSize })
+  const desktopPinchCommitRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const githubDeviceLoginRef = useRef<{ code: string; url: string } | null>(null)
   const githubDeviceLoginDismissedRef = useRef('')
   const githubDeviceLoginBufferRef = useRef('')
@@ -462,6 +464,21 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     touchMovedRef.current = true
     commitPinch()
   }, [commitPinch])
+  const handleDesktopPinch = useCallback((e: WheelEvent) => {
+    if (isMobileDevice || !e.ctrlKey || !terminalInstance.current || !Number.isFinite(e.deltaY) || e.deltaY === 0) return
+    e.preventDefault()
+    e.stopPropagation()
+    const currentFontSize = Number(terminalInstance.current.options.fontSize) || preferencesRef.current.fontSize
+    const nextFontSize = clampMobileFontSize(currentFontSize * Math.exp(-e.deltaY * 0.01))
+    if (Math.abs(nextFontSize - currentFontSize) < MOBILE_PINCH_FONT_SIZE_EPSILON) return
+    applyPinchFontSize(nextFontSize)
+    if (desktopPinchCommitRef.current) clearTimeout(desktopPinchCommitRef.current)
+    desktopPinchCommitRef.current = setTimeout(() => {
+      desktopPinchCommitRef.current = null
+      const fontSize = Number(terminalInstance.current?.options?.fontSize) || preferencesRef.current.fontSize
+      if (Math.abs(fontSize - preferencesRef.current.fontSize) >= MOBILE_PINCH_FONT_SIZE_EPSILON) updatePreferencesRef.current({ fontSize })
+    }, DESKTOP_PINCH_COMMIT_DELAY)
+  }, [applyPinchFontSize, clampMobileFontSize, isMobileDevice])
   const touchScroll = useTerminalTouchScroll({
     isMobile: isMobileDevice,
     onScroll: handleTouchScroll,
@@ -1788,6 +1805,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       container.addEventListener('touchmove', handlePinchTouchMove, { passive: false })
       container.addEventListener('touchend', handlePinchTouchEnd, { passive: true })
       container.addEventListener('touchcancel', handlePinchTouchCancel, { passive: true })
+      container.addEventListener('wheel', handleDesktopPinch, { capture: true, passive: false })
       container.addEventListener('touchstart', touchScroll.handleTouchStart, { passive: true })
       container.addEventListener('touchmove', touchScroll.handleTouchMove, { passive: false })
       container.addEventListener('touchend', touchScroll.handleTouchEnd, { passive: true })
@@ -1798,6 +1816,11 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           container.removeEventListener('touchmove', handlePinchTouchMove)
           container.removeEventListener('touchend', handlePinchTouchEnd)
           container.removeEventListener('touchcancel', handlePinchTouchCancel)
+          container.removeEventListener('wheel', handleDesktopPinch, true)
+          if (desktopPinchCommitRef.current) {
+            clearTimeout(desktopPinchCommitRef.current)
+            desktopPinchCommitRef.current = null
+          }
           touchScroll.dispose()
           container.removeEventListener('touchstart', touchScroll.handleTouchStart)
           container.removeEventListener('touchmove', touchScroll.handleTouchMove)
@@ -1826,7 +1849,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       terminalInstance.current = null
       scheduleLayoutRef.current = () => {}
     }
-  }, [disposeTerminalOutput, ensureFileRoots, handlePinchTouchCancel, handlePinchTouchEnd, handlePinchTouchMove, handlePinchTouchStart, openUploadDialog, pushToast, pushTerminalOutput, queryClient, selectionSync, setActivePane, syncPaneCwd, touchScroll, updateGithubDeviceLogin, updateTerminalPerf])
+  }, [disposeTerminalOutput, ensureFileRoots, handleDesktopPinch, handlePinchTouchCancel, handlePinchTouchEnd, handlePinchTouchMove, handlePinchTouchStart, openUploadDialog, pushToast, pushTerminalOutput, queryClient, selectionSync, setActivePane, syncPaneCwd, touchScroll, updateGithubDeviceLogin, updateTerminalPerf])
 
   return (
     <div
