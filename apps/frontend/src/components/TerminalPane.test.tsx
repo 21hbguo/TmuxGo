@@ -84,6 +84,7 @@ const mobileKeyboardMocks = vi.hoisted(() => ({
 }))
 const preferenceMocks = vi.hoisted(() => ({
   updatePreferences: vi.fn(),
+  isReady: true,
 }))
 const openWindowMock = vi.hoisted(() => vi.fn())
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -126,6 +127,7 @@ vi.mock('@/hooks/usePreferences', () => ({
       attachExclusive: true,
     },
     updatePreferences: preferenceMocks.updatePreferences,
+    isReady: preferenceMocks.isReady,
   }),
 }))
 vi.mock('@/hooks/useMobileKeyboard', () => ({
@@ -375,6 +377,7 @@ describe('TerminalPane', () => {
     mobileKeyboardMocks.textareaRef.current = null
     mobileKeyboardMocks.isMobile = false
     preferenceMocks.updatePreferences.mockClear()
+    preferenceMocks.isReady = true
     openWindowMock.mockReset()
     openWindowMock.mockReturnValue({ closed: false } as Window)
     window.localStorage.clear()
@@ -407,6 +410,16 @@ describe('TerminalPane', () => {
   afterEach(() => {
     vi.useRealTimers()
     vi.unstubAllGlobals()
+  })
+
+  it('waits for preferences before opening the terminal', async () => {
+    preferenceMocks.isReady = false
+    const view = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await sleep(20)
+    expect(terminalLifecycleMocks.open).not.toHaveBeenCalled()
+    preferenceMocks.isReady = true
+    view.rerender(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(terminalLifecycleMocks.open).toHaveBeenCalledTimes(1))
   })
 
   it('does not copy selection to clipboard on passive selection change', async () => {

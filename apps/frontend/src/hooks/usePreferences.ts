@@ -49,7 +49,9 @@ const defaultPreferences: Preferences = {
 
 let preferencesStore: Preferences = defaultPreferences
 const listeners = new Set<(preferences: Preferences) => void>()
+const readyListeners = new Set<(ready: boolean) => void>()
 let syncedWithServer = false
+let preferencesReady = false
 
 function toUiPreferences(p: Preferences): UiPreferences {
   return {
@@ -99,11 +101,18 @@ function emitPreferences(next: Preferences) {
   preferencesStore = next
   listeners.forEach((listener) => listener(next))
 }
+function markPreferencesReady() {
+  if (preferencesReady) return
+  preferencesReady = true
+  readyListeners.forEach((listener) => listener(true))
+}
 
 export function usePreferences() {
   const [preferences, setPreferences] = useState<Preferences>(preferencesStore)
+  const [isReady, setIsReady] = useState(preferencesReady)
 
   useEffect(() => {
+    const hasStoredPreferences = localStorage.getItem(STORAGE_KEY) !== null
     const initial = readStoredPreferences()
     emitPreferences(initial)
     setPreferences(initial)
@@ -114,7 +123,10 @@ export function usePreferences() {
       setPreferences(next)
     }
     listeners.add(setPreferences)
+    readyListeners.add(setIsReady)
     window.addEventListener('storage', handleStorage)
+    if (hasStoredPreferences) markPreferencesReady()
+    if (preferencesReady) setIsReady(true)
 
     if (!syncedWithServer) {
       syncedWithServer = true
@@ -145,12 +157,15 @@ export function usePreferences() {
             await api.preferences.update({ uiPreferences: toUiPreferences(current), uiPreferencesUpdatedAt: now }, PROFILE)
             localStorage.setItem(STORAGE_UPDATED_AT_KEY, now)
           }
-        } catch {}
+        } catch {} finally {
+          markPreferencesReady()
+        }
       })()
     }
 
     return () => {
       listeners.delete(setPreferences)
+      readyListeners.delete(setIsReady)
       window.removeEventListener('storage', handleStorage)
     }
   }, [])
@@ -176,5 +191,5 @@ export function usePreferences() {
     void api.preferences.update({ uiPreferences: toUiPreferences(defaultPreferences), uiPreferencesUpdatedAt: now }, PROFILE).catch(() => {})
   }, [])
 
-  return { preferences, updatePreferences, resetPreferences }
+  return { preferences, updatePreferences, resetPreferences, isReady }
 }

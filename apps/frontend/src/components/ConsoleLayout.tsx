@@ -108,7 +108,11 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   const deleteSession = useDeleteSession()
 
   const [isMobile, setIsMobile] = useState(initialIsMobile)
-  const [appHeight, setAppHeight] = useState(initialIsMobile ? '100svh' : '100dvh')
+  const [appHeight, setAppHeight] = useState(() => {
+    if (!initialIsMobile) return '100dvh'
+    const height = Math.round(window.visualViewport?.height || window.innerHeight || 0)
+    return height ? `${height}px` : '100svh'
+  })
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerType, setDrawerType] = useState<'sessions' | 'panes' | 'windows'>('sessions')
   const [showSettings, setShowSettings] = useState(false)

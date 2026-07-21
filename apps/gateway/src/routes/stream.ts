@@ -432,8 +432,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
               if (!host) throw new Error('Host not found')
               const target = `${host.user}@${host.address}`
               const sshBaseArgs = ['-p', String(host.port), '-tt', '-o', 'ConnectTimeout=8', '-o', 'ServerAliveInterval=30', '-o', 'ServerAliveCountMax=3', '-o', 'StrictHostKeyChecking=accept-new', target, '--', 'tmux', 'attach']
-              if (exclusive) sshBaseArgs.push('-d')
-              else sshBaseArgs.push('-f', 'ignore-size,active-pane')
+              if (!exclusive) sshBaseArgs.push('-f', 'ignore-size,active-pane')
               sshBaseArgs.push('-t', sessionName)
               const hostPassword = resolveHostPassword(host)
               if (hostPassword) {
@@ -454,9 +453,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
               }
             } else {
               const attachArgs = ['attach']
-              if (exclusive) {
-                attachArgs.push('-d')
-              } else {
+              if (!exclusive) {
                 attachArgs.push('-f', 'ignore-size,active-pane')
               }
               attachArgs.push('-t', sessionName)
