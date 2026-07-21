@@ -8,8 +8,9 @@ import { ConfirmDialog } from './ConfirmDialog'
 import type { GitFileChange, GitCommitInfo, GitStatusResponse } from '@/types'
 import { GitHistoryGraph } from './GitHistoryGraph'
 import type { GitGraphBranchHead, GitGraphCommit } from '@/lib/gitGraph'
-import { FiArrowRight, FiDownload, FiFolder, FiLink, FiRefreshCw, FiSearch, FiUpload, FiX } from 'react-icons/fi'
+import { FiArrowRight, FiChevronLeft, FiDownload, FiFolder, FiLink, FiRefreshCw, FiSearch, FiUpload, FiX } from 'react-icons/fi'
 import { api } from '@/lib/api'
+import { DiffViewer } from './DiffViewer'
 
 type GitTab = 'status' | 'history' | 'branches'
 function isValidGitCommitInfo(commit: GitCommitInfo | null | undefined): commit is GitCommitInfo {
@@ -150,7 +151,7 @@ function StatusTab({ hostId, repoPath, t }: { hostId: string; repoPath: string; 
   )
 }
 
-function HistoryTab({ hostId, repoPath, status, onOpenWorkingTree, t }: { hostId: string; repoPath: string; status?: GitStatusResponse; onOpenWorkingTree: () => void; t: TFunc }) {
+function HistoryTab({ hostId, repoPath, status, onOpenWorkingTree, onOpenCommit, t }: { hostId: string; repoPath: string; status?: GitStatusResponse; onOpenWorkingTree: () => void; onOpenCommit?: (commit: GitGraphCommit) => void; t: TFunc }) {
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage } = useGitLogPaged(hostId, repoPath)
   const { data: branchesData } = useGitBranches(hostId, repoPath)
   const [searchQuery, setSearchQuery] = useState('')
@@ -192,6 +193,10 @@ function HistoryTab({ hostId, repoPath, status, onOpenWorkingTree, t }: { hostId
       return
     }
     if (!commit.sha) return
+    if (onOpenCommit) {
+      onOpenCommit(commit)
+      return
+    }
     const params = new URLSearchParams({ hostId, repoPath, commit: commit.sha })
     useConsoleStore.getState().openEditor({
       id: `git-diff?${params.toString()}`,
@@ -368,7 +373,7 @@ function BranchesTab({ hostId, repoPath, t }: { hostId: string; repoPath: string
   )
 }
 
-export function GitPanel() {
+export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) {
   const { t } = useTranslation()
   const activeHostId = useConsoleStore((state) => state.activeHostId)
   const activePaneId = useConsoleStore((state) => state.activePaneId)
@@ -384,6 +389,7 @@ export function GitPanel() {
   const [commitMessage, setCommitMessage] = useState('')
   const [manualRepoPath, setManualRepoPath] = useState('')
   const [repoPickerOpen, setRepoPickerOpen] = useState(false)
+  const [mobileCommit, setMobileCommit] = useState<GitGraphCommit | null>(null)
   const gitState = activeHostId ? gitByHost[activeHostId] : undefined
   const repoPath = gitState?.currentRepoPath || null
   const activeEditor = activeEditorId ? openEditors.find((editor) => editor.id === activeEditorId && !editor.id.startsWith('git-diff?')) : null
@@ -414,6 +420,17 @@ export function GitPanel() {
     if (!activeHostId || !followPane || !paneDetect) return
     setGitFollowPaneRepo(activeHostId, paneDetect.isGitRepo ? paneDetect.rootPath || paneDetect.path || null : null, paneDetect.path || null)
   }, [activeHostId, followPane, paneDetect, setGitFollowPaneRepo])
+  useEffect(() => {
+    if (mode !== 'mobile') return
+    const handleBack = (event: Event) => {
+      if (!mobileCommit) return
+      const detail = (event as CustomEvent<{ handled?: boolean }>).detail
+      detail.handled = true
+      setMobileCommit(null)
+    }
+    window.addEventListener('tmuxgo-mobile-git-back', handleBack as EventListener)
+    return () => window.removeEventListener('tmuxgo-mobile-git-back', handleBack as EventListener)
+  }, [mobileCommit, mode])
 
   const handleCommit = () => {
     if (!activeHostId || !repoPath || !commitMessage.trim()) return
@@ -443,8 +460,13 @@ export function GitPanel() {
     if (match) handleSelectRepo(match.repoPath)
     else void handleOpenRepo()
   }
+  const handleOpenMobileCommit = (commit: GitGraphCommit) => {
+    setMobileCommit(commit)
+    window.dispatchEvent(new CustomEvent('tmuxgo-mobile-git-push-level'))
+  }
 
   if (!activeHostId) return <div className="flex h-full items-center justify-center p-3 text-[11px] text-text-3">{t('git.noRepo')}</div>
+  if (mode === 'mobile' && mobileCommit && repoPath) return <div className="flex h-full min-h-0 flex-col bg-bg-1"><div className="flex h-11 shrink-0 items-center border-b border-[var(--line)]"><button type="button" aria-label={t('common.back')} title={t('common.back')} onClick={() => window.history.back()} className="tmuxgo-icon-button flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-text-2 active:bg-bg-2 active:text-text-1"><FiChevronLeft aria-hidden="true" size={20} /></button><div className="min-w-0 flex-1 pr-3"><div className="truncate text-[13px] font-medium text-text-1">{mobileCommit.subject}</div><div className="truncate font-mono text-[10px] text-text-3">{mobileCommit.shortSha}</div></div></div><div className="min-h-0 flex-1"><DiffViewer hostId={activeHostId} repoPath={repoPath} filePath="" commit={mobileCommit.sha} /></div></div>
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-bg-1">
@@ -504,7 +526,7 @@ export function GitPanel() {
           </div>
           <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-y-auto">
             {activeTab === 'status' && <StatusTab hostId={activeHostId} repoPath={repoPath} t={t as TFunc} />}
-            {activeTab === 'history' && <HistoryTab hostId={activeHostId} repoPath={repoPath} status={status} onOpenWorkingTree={() => setActiveTab('status')} t={t as TFunc} />}
+            {activeTab === 'history' && <HistoryTab hostId={activeHostId} repoPath={repoPath} status={status} onOpenWorkingTree={() => setActiveTab('status')} onOpenCommit={mode === 'mobile' ? handleOpenMobileCommit : undefined} t={t as TFunc} />}
             {activeTab === 'branches' && <BranchesTab hostId={activeHostId} repoPath={repoPath} t={t as TFunc} />}
           </div>
           {activeTab === 'status' && (

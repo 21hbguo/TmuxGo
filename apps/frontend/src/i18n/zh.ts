@@ -224,6 +224,7 @@ export const zh = {
   'quick.killConfirm': '确认关闭当前面板？',
   'quick.killTitle': '关闭面板',
   'common.cancel': '取消',
+  'common.back': '返回',
   'common.confirm': '确认',
   'common.close': '关闭',
   'palette.newSession': '新建会话',
