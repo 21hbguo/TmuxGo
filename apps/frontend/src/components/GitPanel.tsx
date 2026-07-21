@@ -5,10 +5,10 @@ import { useTranslation } from '@/i18n'
 import { useGitStatus, useGitStage, useGitUnstage, useGitCommit, useGitDiscard, useGitLog, useGitBranches, useGitCheckout, useGitCreateBranch, useGitDeleteBranch, useGitMerge, useGitFetch, useGitPull, useGitPush, useGitPaneDetect } from '@/hooks/useApi'
 import { useQueryClient } from '@tanstack/react-query'
 import { ConfirmDialog } from './ConfirmDialog'
-import type { GitFileChange, GitCommitInfo } from '@/types'
+import type { GitFileChange, GitCommitInfo, GitStatusResponse } from '@/types'
 import { GitHistoryGraph } from './GitHistoryGraph'
 import type { GitGraphBranchHead, GitGraphCommit } from '@/lib/gitGraph'
-import { FiDownload, FiLink, FiRefreshCw, FiSearch, FiUpload, FiX } from 'react-icons/fi'
+import { FiArrowRight, FiDownload, FiFolder, FiLink, FiRefreshCw, FiSearch, FiUpload, FiX } from 'react-icons/fi'
 import { api } from '@/lib/api'
 
 type GitTab = 'status' | 'history' | 'branches'
@@ -150,7 +150,7 @@ function StatusTab({ hostId, repoPath, t }: { hostId: string; repoPath: string; 
   )
 }
 
-function HistoryTab({ hostId, repoPath, t }: { hostId: string; repoPath: string; t: TFunc }) {
+function HistoryTab({ hostId, repoPath, status, onOpenWorkingTree, t }: { hostId: string; repoPath: string; status?: GitStatusResponse; onOpenWorkingTree: () => void; t: TFunc }) {
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage } = useGitLogPaged(hostId, repoPath)
   const { data: branchesData } = useGitBranches(hostId, repoPath)
   const [searchQuery, setSearchQuery] = useState('')
@@ -167,14 +167,30 @@ function HistoryTab({ hostId, repoPath, t }: { hostId: string; repoPath: string;
     return () => window.removeEventListener('keydown', handleFind)
   }, [])
   if (!data) return <div className="p-3 text-[11px] text-text-3">{t('git.detecting')}</div>
-  const commits = normalizeGitGraphCommits(data)
-  const commitSet = new Set(commits.map((commit) => commit.sha))
+  const committedCommits = normalizeGitGraphCommits(data)
+  const commitSet = new Set(committedCommits.map((commit) => commit.sha))
   const branchHeads = normalizeBranchHeads([
     ...(branchesData?.branches || []).map((branch) => ({ ...branch, kind: 'branch' as const })),
     ...(branchesData?.refs || []),
   ], commitSet)
   const currentBranch = normalizeCurrentBranch(branchesData?.current, branchHeads)
+  const headCommit = branchesData?.branches.find((branch) => branch.current)?.commitHash
+  const workingTreePaths = status ? new Set([...status.staged.map((file) => file.path), ...status.unstaged.map((file) => file.path), ...status.untracked, ...status.conflicted.map((file) => file.path)]) : new Set<string>()
+  const commits: GitGraphCommit[] = workingTreePaths.size ? [{
+    sha: '__WORKING_TREE__',
+    shortSha: 'WIP',
+    subject: t('git.workingTreeChanges', { count: workingTreePaths.size }),
+    author: { name: t('git.workingTreeSummary', { staged: status?.staged.length || 0, unstaged: status?.unstaged.length || 0, untracked: status?.untracked.length || 0, conflicted: status?.conflicted.length || 0 }) },
+    authoredAt: committedCommits[0]?.committedAt || new Date().toISOString(),
+    committedAt: committedCommits[0]?.committedAt || new Date().toISOString(),
+    parents: headCommit && commitSet.has(headCommit) ? [{ sha: headCommit }] : [],
+    workingTree: true,
+  }, ...committedCommits] : committedCommits
   const openCommitDiff = (commit: GitGraphCommit) => {
+    if (commit.workingTree) {
+      onOpenWorkingTree()
+      return
+    }
     if (!commit.sha) return
     const params = new URLSearchParams({ hostId, repoPath, commit: commit.sha })
     useConsoleStore.getState().openEditor({
@@ -367,6 +383,7 @@ export function GitPanel() {
   const [activeTab, setActiveTab] = useState<GitTab>('history')
   const [commitMessage, setCommitMessage] = useState('')
   const [manualRepoPath, setManualRepoPath] = useState('')
+  const [repoPickerOpen, setRepoPickerOpen] = useState(false)
   const gitState = activeHostId ? gitByHost[activeHostId] : undefined
   const repoPath = gitState?.currentRepoPath || null
   const activeEditor = activeEditorId ? openEditors.find((editor) => editor.id === activeEditorId && !editor.id.startsWith('git-diff?')) : null
@@ -382,6 +399,11 @@ export function GitPanel() {
   const queryClient = useQueryClient()
   const pinnedRepos = useMemo(() => (gitState?.recentRepos || []).filter((item) => item.pinned), [gitState?.recentRepos])
   const otherRepos = useMemo(() => (gitState?.recentRepos || []).filter((item) => !item.pinned), [gitState?.recentRepos])
+  const repoOptions = useMemo(() => [...pinnedRepos, ...otherRepos].filter((item, index, items) => items.findIndex((candidate) => candidate.repoPath === item.repoPath) === index), [otherRepos, pinnedRepos])
+  const filteredRepoOptions = useMemo(() => {
+    const query = manualRepoPath.trim().toLocaleLowerCase()
+    return query ? repoOptions.filter((item) => item.label.toLocaleLowerCase().includes(query) || item.repoPath.toLocaleLowerCase().includes(query)) : repoOptions
+  }, [manualRepoPath, repoOptions])
   const statusCount = status ? status.staged.length + status.unstaged.length + status.untracked.length + status.conflicted.length : 0
   const stageablePaths = status ? Array.from(new Set([...status.unstaged.map((file) => file.path), ...status.untracked, ...status.conflicted.map((file) => file.path)])) : []
 
@@ -400,16 +422,26 @@ export function GitPanel() {
       onError: (err) => pushToast({ type: 'error', message: t('git.commitFailed') + ': ' + err.message }),
     })
   }
+  const handleSelectRepo = (path: string) => {
+    if (activeHostId) setGitLockedRepo(activeHostId, path)
+    setManualRepoPath('')
+    setRepoPickerOpen(false)
+  }
   const handleOpenRepo = async () => {
     if (!activeHostId || !manualRepoPath.trim()) return
     try {
       const result = await api.git.detect(activeHostId, manualRepoPath.trim())
       if (!result.isGitRepo || !result.rootPath) throw new Error(t('git.noRepo'))
-      setGitLockedRepo(activeHostId, result.rootPath)
-      setManualRepoPath('')
+      handleSelectRepo(result.rootPath)
     } catch (error) {
       pushToast({ type: 'error', message: error instanceof Error ? error.message : t('git.noRepo') })
     }
+  }
+  const handleRepoSearchSubmit = () => {
+    const query = manualRepoPath.trim().toLocaleLowerCase()
+    const match = filteredRepoOptions.find((item) => item.label.toLocaleLowerCase() === query || item.repoPath.toLocaleLowerCase() === query) || (filteredRepoOptions.length === 1 ? filteredRepoOptions[0] : null)
+    if (match) handleSelectRepo(match.repoPath)
+    else void handleOpenRepo()
   }
 
   if (!activeHostId) return <div className="flex h-full items-center justify-center p-3 text-[11px] text-text-3">{t('git.noRepo')}</div>
@@ -436,6 +468,7 @@ export function GitPanel() {
         )}
         {repoPath && (
           <div className="mt-2 flex items-center gap-1">
+            <button aria-label={t('git.switchRepo')} title={t('git.switchRepo')} onClick={() => setRepoPickerOpen((open) => !open)} className={`tmuxgo-icon-button flex h-7 w-7 items-center justify-center rounded hover:bg-bg-2 hover:text-text-1 ${repoPickerOpen ? 'bg-bg-2 text-accent' : 'text-text-3'}`}><FiFolder aria-hidden="true" size={14} /></button>
             {gitState?.mode === 'locked' && (
               <button aria-label={t('git.followCurrentFile')} title={t('git.followCurrentFile')} onClick={() => activeHostId && resumeGitFollowEditor(activeHostId)} className="tmuxgo-icon-button flex h-7 w-7 items-center justify-center rounded text-accent hover:bg-bg-2 hover:text-text-1"><FiLink aria-hidden="true" size={14} /></button>
             )}
@@ -444,24 +477,19 @@ export function GitPanel() {
             <button aria-label={t('git.push')} title={t('git.push')} disabled={push.isPending} onClick={() => activeHostId && push.mutate({ hostId: activeHostId, path: repoPath }, { onSuccess: () => { pushToast({ type: 'success', message: t('git.pushSuccess') }); queryClient.invalidateQueries({ queryKey: ['git-status'] }) }, onError: (err) => pushToast({ type: 'error', message: err.message.includes('rejected') ? t('git.pushRejected') : err.message }) })} className="tmuxgo-icon-button flex h-7 w-7 items-center justify-center rounded text-text-3 hover:bg-bg-2 hover:text-text-1 disabled:opacity-50"><FiUpload aria-hidden="true" size={14} /></button>
           </div>
         )}
-        {!!pinnedRepos.length && (
-          <div className="mt-2">
-            <div className="mb-1 text-[10px] text-text-3">{t('git.pinnedRepos')}</div>
-            <div className="flex flex-wrap gap-1">
-              {pinnedRepos.map((item) => (
-                <button key={item.repoPath} onClick={() => activeHostId && setGitLockedRepo(activeHostId, item.repoPath)} className={`rounded px-2 py-0.5 text-[10px] ${repoPath === item.repoPath ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-3 hover:text-text-1'}`}>{item.label}</button>
-              ))}
+        {repoPickerOpen && (
+          <div className="mt-2 border-t border-[var(--line)] pt-2">
+            <div className="tmuxgo-control flex items-center gap-2 rounded px-2">
+              <FiSearch aria-hidden="true" className="shrink-0 text-text-3" size={13} />
+              <input value={manualRepoPath} onChange={(event) => setManualRepoPath(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') handleRepoSearchSubmit() }} placeholder={t('git.selectRepo')} className="min-w-0 flex-1 bg-transparent py-1.5 text-[11px] text-text-1 outline-none" autoFocus />
+              {manualRepoPath && <button aria-label={t('git.openRepo')} title={t('git.openRepo')} onClick={handleRepoSearchSubmit} className="tmuxgo-icon-button flex h-6 w-6 items-center justify-center rounded text-accent hover:bg-bg-2"><FiArrowRight aria-hidden="true" size={13} /></button>}
             </div>
-          </div>
-        )}
-        {!!otherRepos.length && (
-          <div className="mt-2">
-            <div className="mb-1 text-[10px] text-text-3">{t('git.recentRepos')}</div>
-            <div className="flex flex-wrap gap-1">
-              {otherRepos.map((item) => (
-                <button key={item.repoPath} onClick={() => activeHostId && setGitLockedRepo(activeHostId, item.repoPath)} className={`rounded px-2 py-0.5 text-[10px] ${repoPath === item.repoPath ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-3 hover:text-text-1'}`}>{item.label}</button>
-              ))}
-            </div>
+            {!!filteredRepoOptions.length && <div className="tmuxgo-scrollbar mt-1 max-h-32 overflow-y-auto">
+              {filteredRepoOptions.map((item) => <button key={item.repoPath} onClick={() => handleSelectRepo(item.repoPath)} className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-bg-2 ${repoPath === item.repoPath ? 'text-accent' : 'text-text-2'}`}>
+                <span className="shrink-0 text-[11px] font-medium">{item.label}</span>
+                <span className="min-w-0 flex-1 truncate font-mono text-[9px] text-text-3">{item.repoPath}</span>
+              </button>)}
+            </div>}
           </div>
         )}
       </div>
@@ -476,7 +504,7 @@ export function GitPanel() {
           </div>
           <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-y-auto">
             {activeTab === 'status' && <StatusTab hostId={activeHostId} repoPath={repoPath} t={t as TFunc} />}
-            {activeTab === 'history' && <HistoryTab hostId={activeHostId} repoPath={repoPath} t={t as TFunc} />}
+            {activeTab === 'history' && <HistoryTab hostId={activeHostId} repoPath={repoPath} status={status} onOpenWorkingTree={() => setActiveTab('status')} t={t as TFunc} />}
             {activeTab === 'branches' && <BranchesTab hostId={activeHostId} repoPath={repoPath} t={t as TFunc} />}
           </div>
           {activeTab === 'status' && (
