@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, type MouseEvent, type TouchEvent } from 'react'
 import { useTranslation } from '@/i18n'
+import { ModalPortal } from './ModalPortal'
 
 interface PasteConfirmDialogProps {
   open: boolean
@@ -58,7 +59,7 @@ export function PasteConfirmDialog({ open, text, meta, mode = 'confirm', onTextC
   const preventFocus = (e: MouseEvent<HTMLButtonElement> | TouchEvent<HTMLButtonElement>) => {
     e.preventDefault()
   }
-  return (
+  return <ModalPortal>
     <div className="fixed inset-0 z-[85] flex items-center justify-center bg-black/40 p-4" onClick={onCancel}>
       <div
         ref={dialogRef}
@@ -92,5 +93,5 @@ export function PasteConfirmDialog({ open, text, meta, mode = 'confirm', onTextC
         </div>
       </div>
     </div>
-  )
+  </ModalPortal>
 }

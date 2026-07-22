@@ -7,6 +7,7 @@ import { useFileRoots } from '@/hooks/useApi'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useTranslation } from '@/i18n'
 import type { FileUploadTarget } from '@/types'
+import { ModalPortal } from './ModalPortal'
 
 function formatSize(size: number) {
   if (size < 1024) return `${size}B`
@@ -155,7 +156,7 @@ export function UploadConfirmDialog() {
 
   if (!open) return null
 
-  return (
+  return <ModalPortal>
     <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/40 p-4" onClick={handleCancel}>
       <div className="tmuxgo-glass tmuxgo-glass-dialog w-full max-w-2xl rounded-lg border p-5" onClick={(e) => e.stopPropagation()}>
         <div className="text-lg text-text-1">{t('upload.title')}</div>
@@ -196,5 +197,5 @@ export function UploadConfirmDialog() {
         </div>
       </div>
     </div>
-  )
+  </ModalPortal>
 }

@@ -4,6 +4,7 @@ import { execGit } from '../lib/git-executor.js'
 import { execTmux } from '../lib/tmux-executor.js'
 import { assertTargetAllowed } from '../lib/tmux-policy.js'
 import { discoverGitRepositoriesForHost } from './files.js'
+import { gitCommitBodySchema, gitFilesBodySchema, gitOperationBodySchema, gitResolveBodySchema, hostParamsSchema } from '../lib/request-validation.js'
 
 interface GitFileChange {
   path: string
@@ -217,25 +218,22 @@ export async function gitRoutes(fastify: FastifyInstance) {
   })
 
   fastify.post('/hosts/:hostId/git/stage', async (request) => {
-    const { hostId } = request.params as { hostId: string }
-    const { path: repoPath, filePaths } = request.body as { path: string; filePaths: string[] }
-    if (!repoPath || !filePaths?.length) throw new Error('Missing path or filePaths')
+    const { hostId } = hostParamsSchema.parse(request.params)
+    const { path: repoPath, filePaths } = gitFilesBodySchema.parse(request.body)
     await execGit(hostId, ['add', '--', ...filePaths], repoPath)
     return { ok: true }
   })
 
   fastify.post('/hosts/:hostId/git/unstage', async (request) => {
-    const { hostId } = request.params as { hostId: string }
-    const { path: repoPath, filePaths } = request.body as { path: string; filePaths: string[] }
-    if (!repoPath || !filePaths?.length) throw new Error('Missing path or filePaths')
+    const { hostId } = hostParamsSchema.parse(request.params)
+    const { path: repoPath, filePaths } = gitFilesBodySchema.parse(request.body)
     await execGit(hostId, ['restore', '--staged', '--', ...filePaths], repoPath)
     return { ok: true }
   })
 
   fastify.post('/hosts/:hostId/git/commit', async (request) => {
-    const { hostId } = request.params as { hostId: string }
-    const { path: repoPath, message, amend } = request.body as { path: string; message: string; amend?: boolean }
-    if (!repoPath || !message) throw new Error('Missing path or message')
+    const { hostId } = hostParamsSchema.parse(request.params)
+    const { path: repoPath, message, amend } = gitCommitBodySchema.parse(request.body)
     const args = ['commit', '-m', message]
     if (amend) args.splice(1, 0, '--amend')
     const { stdout } = await execGit(hostId, args, repoPath)
@@ -246,25 +244,21 @@ export async function gitRoutes(fastify: FastifyInstance) {
   })
 
   fastify.post('/hosts/:hostId/git/discard', async (request) => {
-    const { hostId } = request.params as { hostId: string }
-    const { path: repoPath, filePaths } = request.body as { path: string; filePaths: string[] }
-    if (!repoPath || !filePaths?.length) throw new Error('Missing path or filePaths')
+    const { hostId } = hostParamsSchema.parse(request.params)
+    const { path: repoPath, filePaths } = gitFilesBodySchema.parse(request.body)
     await execGit(hostId, ['checkout', '--', ...filePaths], repoPath)
     return { ok: true }
   })
   fastify.post('/hosts/:hostId/git/resolve', async (request) => {
-    const { hostId } = request.params as { hostId: string }
-    const { path: repoPath, filePath, resolution } = request.body as { path: string; filePath: string; resolution: 'ours' | 'theirs' | 'mark' }
-    if (!repoPath || !filePath || !['ours', 'theirs', 'mark'].includes(resolution)) throw new Error('Missing or invalid conflict resolution')
-    if (filePath.startsWith('/') || filePath.split('/').includes('..')) throw new Error('Invalid file path')
+    const { hostId } = hostParamsSchema.parse(request.params)
+    const { path: repoPath, filePath, resolution } = gitResolveBodySchema.parse(request.body)
     if (resolution !== 'mark') await execGit(hostId, ['checkout', `--${resolution}`, '--', filePath], repoPath)
     await execGit(hostId, ['add', '--', filePath], repoPath)
     return { ok: true, filePath, resolution }
   })
   fastify.post('/hosts/:hostId/git/operation', async (request) => {
-    const { hostId } = request.params as { hostId: string }
-    const { path: repoPath, operation, action } = request.body as { path: string; operation: 'merge' | 'rebase'; action: 'continue' | 'abort' }
-    if (!repoPath || !['merge', 'rebase'].includes(operation) || !['continue', 'abort'].includes(action)) throw new Error('Missing or invalid Git operation')
+    const { hostId } = hostParamsSchema.parse(request.params)
+    const { path: repoPath, operation, action } = gitOperationBodySchema.parse(request.body)
     const args = action === 'continue' ? ['-c', 'core.editor=true', operation, '--continue'] : [operation, '--abort']
     const { stdout, stderr } = await execGit(hostId, args, repoPath, 30000)
     return { ok: true, operation, action, message: (stdout || stderr).trim() }

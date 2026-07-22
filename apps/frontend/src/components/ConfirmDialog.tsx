@@ -1,5 +1,7 @@
 'use client'
 
+import { ModalPortal } from './ModalPortal'
+
 interface ConfirmDialogProps {
   open: boolean
   title: string
@@ -13,7 +15,7 @@ interface ConfirmDialogProps {
 
 export function ConfirmDialog({ open, title, message, confirmLabel, cancelLabel, tone = 'default', onConfirm, onCancel }: ConfirmDialogProps) {
   if (!open) return null
-  return (
+  return <ModalPortal>
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4" onClick={onCancel}>
       <div className="tmuxgo-glass tmuxgo-glass-dialog w-full max-w-md rounded-lg border p-5" onClick={(e) => e.stopPropagation()}>
         <div className="text-lg text-text-1">{title}</div>
@@ -24,5 +26,5 @@ export function ConfirmDialog({ open, title, message, confirmLabel, cancelLabel,
         </div>
       </div>
     </div>
-  )
+  </ModalPortal>
 }

@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { agentManager } from '../agent-manager.js'
 import { getHostById, listAllHosts, removeRemoteHost, upsertRemoteHost } from '../lib/hosts.js'
 import { execHostShell, verifyHostConnectivity } from '../lib/tmux-executor.js'
+import { hostIdParamsSchema, remoteHostBodySchema } from '../lib/request-validation.js'
 const hostConnectivity = new Map<string, 'online' | 'offline'>()
 
 export async function hostRoutes(fastify: FastifyInstance) {
@@ -72,8 +73,7 @@ export async function hostRoutes(fastify: FastifyInstance) {
     }
   })
   fastify.post('/hosts', async (request) => {
-    const body = (request.body || {}) as { id?: string; name?: string; address?: string; user?: string; port?: number; password?: string; passwordEnv?: string }
-    if (!body?.id || !body?.address || !body?.user) throw new Error('id,address,user are required')
+    const body = remoteHostBodySchema.parse(request.body)
     const host = await upsertRemoteHost({
       id: body.id,
       name: body.name,
@@ -98,13 +98,13 @@ export async function hostRoutes(fastify: FastifyInstance) {
     }
   })
   fastify.delete('/hosts/:id', async (request) => {
-    const { id } = request.params as { id: string }
+    const { id } = hostIdParamsSchema.parse(request.params)
     const removed = await removeRemoteHost(id)
     hostConnectivity.delete(id)
     return { success: removed }
   })
   fastify.post('/hosts/:id/test', async (request) => {
-    const { id } = request.params as { id: string }
+    const { id } = hostIdParamsSchema.parse(request.params)
     const result = await verifyHostConnectivity(id)
     hostConnectivity.set(id, result.ok ? 'online' : 'offline')
     return result

@@ -10,8 +10,10 @@ import { pipeline } from 'stream/promises'
 import { promisify } from 'util'
 import { fileURLToPath } from 'url'
 import { assertTargetAllowed } from '../lib/tmux-policy.js'
-import { getHostById, type HostRecord } from '../lib/hosts.js'
 import { readFile as readPreferencesFile } from 'fs/promises'
+import { fileContentBodySchema, fileEntryBodySchema, fileRemoveQuerySchema, fileRestoreBodySchema, fileTransferBodySchema, fileTrashBodySchema, hostParamsSchema } from '../lib/request-validation.js'
+import { getBreadcrumbs, isDotPath, isLikelyBinary, isPathInside, normalizeRelativePath, sanitizePathSegment } from '../lib/file-path.js'
+import { getRemoteFileHost, normalizeRemoteFileErrorMessage, quoteRemoteFileShellValue, runRemoteFilePython, spawnRemoteFileCommand } from '../lib/remote-file-command.js'
 
 const execFileAsync = promisify(execFile)
 const defaultRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..')
@@ -83,14 +85,6 @@ export interface GitRepositoryInfo {
 
 let rootsCache: Promise<FileRoot[]> | null = null
 let tempUploadCleanupTimer: NodeJS.Timeout | null = null
-const knownAuthMarkers = ['Permission denied']
-const knownHostKeyMarkers = ['Host key verification failed', 'REMOTE HOST IDENTIFICATION HAS CHANGED']
-const knownTimeoutMarkers = ['Connection timed out', 'Operation timed out', 'No route to host']
-const knownNetworkMarkers = ['Could not resolve hostname', 'Connection refused', 'Network is unreachable']
-function isDotPath(relativePath: string) {
-  return relativePath.split(/[\\/]+/).some((part) => part.startsWith('.') && part.length > 1)
-}
-
 async function getRoots() {
   if (!rootsCache) {
     rootsCache = Promise.all(rootSpec.split(path.delimiter).map((entry) => entry.trim()).filter(Boolean).map(async (entry, index) => {
@@ -100,66 +94,6 @@ async function getRoots() {
     }))
   }
   return rootsCache
-}
-function escapeShellSingleQuoted(input: string) {
-  return `'${input.replace(/'/g, `'\\''`)}'`
-}
-function normalizeRemoteErrorMessage(raw: string, fallback: string) {
-  const value = raw.trim() || fallback
-  if (knownHostKeyMarkers.some((m) => value.includes(m))) return 'Host key verification failed'
-  if (knownTimeoutMarkers.some((m) => value.includes(m))) return 'SSH connection timed out'
-  if (knownNetworkMarkers.some((m) => value.includes(m))) return 'SSH network is unreachable'
-  if (knownAuthMarkers.some((m) => value.includes(m))) return 'SSH authentication failed'
-  return value
-}
-function resolveHostPassword(host: HostRecord) {
-  if (host.password) return host.password
-  const envName = host.passwordEnv.trim()
-  if (!envName) return ''
-  return process.env[envName] || ''
-}
-async function hasSshPass() {
-  try {
-    await execFileAsync('sshpass', ['-V'])
-    return true
-  } catch {
-    return false
-  }
-}
-async function getResolvedHost(hostIdRaw: string) {
-  const hostId = hostIdRaw.trim()
-  if (!hostId) throw new Error('Missing host id')
-  const host = await getHostById(hostId)
-  if (!host) throw new Error(`Host "${hostId}" not found`)
-  return host
-}
-async function runRemoteCommand(host: HostRecord, remoteCommand: string, binary = false) {
-  const sshArgs = ['-p', String(host.port), '-o', 'ConnectTimeout=8', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=accept-new', '-T', `${host.user}@${host.address}`, '--', remoteCommand]
-  const password = resolveHostPassword(host)
-  try {
-    if (password) {
-      if (!await hasSshPass()) throw new Error('SSH password configured but sshpass is not installed')
-      return await execFileAsync('sshpass', ['-e', 'ssh', ...sshArgs], { env: { ...process.env, SSHPASS: password }, maxBuffer: 32 * 1024 * 1024, encoding: binary ? 'buffer' : 'utf8' } as any)
-    }
-    return await execFileAsync('ssh', sshArgs, { maxBuffer: 32 * 1024 * 1024, encoding: binary ? 'buffer' : 'utf8' } as any)
-  } catch (err: any) {
-    throw new Error(normalizeRemoteErrorMessage(`${err?.stderr || ''}\n${err?.stdout || ''}`, err?.message || 'SSH file command failed'))
-  }
-}
-async function spawnRemoteCommand(host: HostRecord, remoteCommand: string) {
-  const sshArgs = ['-p', String(host.port), '-o', 'ConnectTimeout=8', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=accept-new', '-T', `${host.user}@${host.address}`, '--', remoteCommand]
-  const password = resolveHostPassword(host)
-  if (password) {
-    if (!await hasSshPass()) throw new Error('SSH password configured but sshpass is not installed')
-    return spawn('sshpass', ['-e', 'ssh', ...sshArgs], { env: { ...process.env, SSHPASS: password }, stdio: ['pipe', 'pipe', 'pipe'] })
-  }
-  return spawn('ssh', sshArgs, { stdio: ['pipe', 'pipe', 'pipe'] })
-}
-async function runRemotePython<T>(hostId: string, script: string, args: string[]): Promise<T> {
-  const host = await getResolvedHost(hostId)
-  const remoteCommand = `python3 -c ${escapeShellSingleQuoted(script)} -- ${args.map((arg) => escapeShellSingleQuoted(arg)).join(' ')}`
-  const { stdout } = await runRemoteCommand(host, remoteCommand)
-  return JSON.parse(String(stdout)) as T
 }
 const REMOTE_FILE_SCRIPT = `import base64,datetime,json,os,pathlib,shutil,sys
 PREVIEW_LIMIT=200*1024
@@ -392,18 +326,7 @@ function encodeRemotePayload(payload: Record<string, unknown>) {
   return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64')
 }
 async function runRemoteFileJson<T>(hostId: string, payload: Record<string, unknown>) {
-  return runRemotePython<T>(hostId, REMOTE_FILE_SCRIPT, [encodeRemotePayload(payload)])
-}
-function normalizeRelativePath(relativePath = '') {
-  return relativePath.split(/[\\/]+/).filter(Boolean).join('/')
-}
-function sanitizePathSegment(name: string) {
-  const normalized = (name || '').replace(/\0/g, '').trim()
-  if (!normalized || normalized === '.' || normalized === '..' || /[\\/]/.test(normalized)) throw new Error('Invalid name')
-  return normalized
-}
-function getRootPrefix(rootPath: string) {
-  return rootPath.endsWith(path.sep) ? rootPath : `${rootPath}${path.sep}`
+  return runRemoteFilePython<T>(hostId, REMOTE_FILE_SCRIPT, [encodeRemotePayload(payload)])
 }
 function readPositiveIntegerEnv(name: string, fallback: number) {
   const value = Number(process.env[name])
@@ -422,15 +345,14 @@ async function resolveTemporaryInside(relativePath = '') {
   const root = { id: target.rootId, label: target.rootLabel, path: target.rootPath }
   const normalizedPath = normalizeRelativePath(relativePath)
   const requested = path.resolve(root.path, normalizedPath || '.')
-  const normalizedRoot = getRootPrefix(root.path)
-  if (requested !== root.path && !requested.startsWith(normalizedRoot)) throw new Error('Path escapes root')
+  if (!isPathInside(root.path, requested)) throw new Error('Path escapes root')
   let actual = requested
   try {
     actual = await realpath(requested)
   } catch {
     actual = requested
   }
-  if (actual !== root.path && !actual.startsWith(normalizedRoot)) throw new Error('Path escapes root')
+  if (!isPathInside(root.path, actual)) throw new Error('Path escapes root')
   return { root, absolutePath: actual, relativePath: normalizeRelativePath(path.relative(root.path, actual)) }
 }
 export async function cleanupExpiredTemporaryUploads(now = Date.now()) {
@@ -464,27 +386,18 @@ async function resolveInside(rootId: string, relativePath = '') {
   if (!root) throw new Error('Invalid root')
   const normalizedPath = normalizeRelativePath(relativePath)
   const requested = path.resolve(root.path, normalizedPath || '.')
-  const normalizedRoot = getRootPrefix(root.path)
-  if (requested !== root.path && !requested.startsWith(normalizedRoot)) throw new Error('Path escapes root')
+  if (!isPathInside(root.path, requested)) throw new Error('Path escapes root')
   let actual = requested
   try {
     actual = await realpath(requested)
   } catch {
     actual = requested
   }
-  if (actual !== root.path && !actual.startsWith(normalizedRoot)) throw new Error('Path escapes root')
+  if (!isPathInside(root.path, actual)) throw new Error('Path escapes root')
   return { root, absolutePath: actual, relativePath: normalizeRelativePath(path.relative(root.path, actual)) }
 }
 function toRelative(rootPath: string, absolutePath: string) {
   return normalizeRelativePath(path.relative(rootPath, absolutePath))
-}
-function getBreadcrumbs(relativePath: string) {
-  const parts = relativePath ? relativePath.split(/[\\/]+/).filter(Boolean) : []
-  return [{ name: '/', path: '' }, ...parts.map((name, index) => ({ name, path: parts.slice(0, index + 1).join('/') }))]
-}
-function isLikelyBinary(buffer: Buffer) {
-  const sample = buffer.subarray(0, Math.min(buffer.length, 4096))
-  return sample.includes(0)
 }
 async function toFileItem(rootPath: string, absolutePath: string, name: string): Promise<FileItem> {
   const info = await stat(absolutePath)
@@ -837,7 +750,7 @@ function getFallbackRoot(roots: FileRoot[]) {
 }
 function mapAbsolutePathToRoot(roots: FileRoot[], absolutePath: string) {
   const sortedRoots = [...roots].sort((a, b) => b.path.length - a.path.length)
-  return sortedRoots.find((root) => absolutePath === root.path || absolutePath.startsWith(getRootPrefix(root.path))) || null
+  return sortedRoots.find((root) => isPathInside(root.path, absolutePath)) || null
 }
 async function getPaneCurrentPath(paneId: string) {
   await assertTargetAllowed(paneId)
@@ -1045,13 +958,13 @@ async function waitForProcess(child: ReturnType<typeof spawn>, fallback: string)
   child.stderr?.on('data', (chunk) => { stderr += chunk.toString() })
   await new Promise<void>((resolve, reject) => {
     child.once('error', reject)
-    child.once('close', (code) => code === 0 ? resolve() : reject(new Error(normalizeRemoteErrorMessage(stderr, fallback))))
+    child.once('close', (code) => code === 0 ? resolve() : reject(new Error(normalizeRemoteFileErrorMessage(stderr, fallback))))
   })
 }
 async function writeRemoteUpload(hostId: string, absolutePath: string, source: NodeJS.ReadableStream, rateLimitKBps: number) {
-  const host = await getResolvedHost(hostId)
+  const host = await getRemoteFileHost(hostId)
   const script = `import pathlib,sys;p=pathlib.Path(sys.argv[1]);p.parent.mkdir(parents=True,exist_ok=True);f=p.open('wb');\nwhile True:\n b=sys.stdin.buffer.read(1024*1024)\n if not b: break\n f.write(b)\nf.close()`
-  const child = await spawnRemoteCommand(host, `python3 -c ${escapeShellSingleQuoted(script)} -- ${escapeShellSingleQuoted(absolutePath)}`)
+  const child = await spawnRemoteFileCommand(host, `python3 -c ${quoteRemoteFileShellValue(script)} -- ${quoteRemoteFileShellValue(absolutePath)}`)
   const completion = waitForProcess(child, 'Remote upload failed')
   await pipeline(source, createRateLimitStream(rateLimitKBps), child.stdin!)
   await completion
@@ -1060,8 +973,8 @@ async function getDownloadStream(hostId: string, absolutePath: string, directory
   const archiveScript = `import os,pathlib,sys,zipfile\np=pathlib.Path(sys.argv[1]);z=zipfile.ZipFile(sys.stdout.buffer,'w',zipfile.ZIP_DEFLATED)\nfor root,dirs,files in os.walk(p):\n for name in files:\n  item=pathlib.Path(root)/name;z.write(item,str(pathlib.Path(p.name)/item.relative_to(p)))\nz.close()`
   const fileScript = `import pathlib,sys;f=pathlib.Path(sys.argv[1]).open('rb')\nwhile True:\n b=f.read(1024*1024)\n if not b: break\n sys.stdout.buffer.write(b)`
   if (hostId === 'local') return spawn('python3', ['-c', directory ? archiveScript : fileScript, absolutePath], { stdio: ['ignore', 'pipe', 'pipe'] }).stdout
-  const host = await getResolvedHost(hostId)
-  const child = await spawnRemoteCommand(host, `python3 -c ${escapeShellSingleQuoted(directory ? archiveScript : fileScript)} -- ${escapeShellSingleQuoted(absolutePath)}`)
+  const host = await getRemoteFileHost(hostId)
+  const child = await spawnRemoteFileCommand(host, `python3 -c ${quoteRemoteFileShellValue(directory ? archiveScript : fileScript)} -- ${quoteRemoteFileShellValue(absolutePath)}`)
   return child.stdout
 }
 
@@ -1088,11 +1001,11 @@ export async function fileRoutes(fastify: FastifyInstance) {
     return readContentForHost(hostId, query.root || '', query.path || '')
   })
   fastify.put('/hosts/:hostId/files/content', async (request, reply) => {
-    const { hostId } = request.params as { hostId: string }
-    const body = request.body as { root?: string; path?: string; content?: string; modifiedAt?: string }
+    const { hostId } = hostParamsSchema.parse(request.params)
+    const body = fileContentBodySchema.parse(request.body)
     try {
-      const result = await saveContentForHost(hostId, body.root || '', body.path || '', typeof body.content === 'string' ? body.content : '', body.modifiedAt)
-      emitPluginEvent('file.saved', { hostId, rootId: body.root || '', filePath: body.path || '' })
+      const result = await saveContentForHost(hostId, body.root, body.path, body.content, body.modifiedAt)
+      emitPluginEvent('file.saved', { hostId, rootId: body.root, filePath: body.path })
       return result
     } catch (error) {
       const err = error as Error & { code?: string }
@@ -1101,60 +1014,60 @@ export async function fileRoutes(fastify: FastifyInstance) {
     }
   })
   fastify.post('/hosts/:hostId/files/create-file', async (request, reply) => {
-    const { hostId } = request.params as { hostId: string }
-    const body = request.body as { root?: string; path?: string; name?: string }
+    const { hostId } = hostParamsSchema.parse(request.params)
+    const body = fileEntryBodySchema.parse(request.body)
     try {
-      return await createFileForHost(hostId, body.root || '', body.path || '', typeof body.name === 'string' ? body.name : '')
+      return await createFileForHost(hostId, body.root, body.path, body.name)
     } catch (error) {
       const err = error as Error
       return reply.status(400).send({ message: err.message || 'Create failed', code: 'CREATE_FILE_FAILED' })
     }
   })
   fastify.post('/hosts/:hostId/files/create-directory', async (request, reply) => {
-    const { hostId } = request.params as { hostId: string }
-    const body = request.body as { root?: string; path?: string; name?: string }
+    const { hostId } = hostParamsSchema.parse(request.params)
+    const body = fileEntryBodySchema.parse(request.body)
     try {
-      return await createDirectoryForHost(hostId, body.root || '', body.path || '', typeof body.name === 'string' ? body.name : '')
+      return await createDirectoryForHost(hostId, body.root, body.path, body.name)
     } catch (error) {
       const err = error as Error
       return reply.status(400).send({ message: err.message || 'Create failed', code: 'CREATE_DIRECTORY_FAILED' })
     }
   })
   fastify.post('/hosts/:hostId/files/rename', async (request, reply) => {
-    const { hostId } = request.params as { hostId: string }
-    const body = request.body as { root?: string; path?: string; name?: string }
+    const { hostId } = hostParamsSchema.parse(request.params)
+    const body = fileEntryBodySchema.parse(request.body)
     try {
-      return await renameEntryForHost(hostId, body.root || '', body.path || '', typeof body.name === 'string' ? body.name : '')
+      return await renameEntryForHost(hostId, body.root, body.path, body.name)
     } catch (error) {
       const err = error as Error
       return reply.status(400).send({ message: err.message || 'Rename failed', code: 'RENAME_FAILED' })
     }
   })
   fastify.post('/hosts/:hostId/files/copy', async (request, reply) => {
-    const { hostId } = request.params as { hostId: string }
-    const body = request.body as { root?: string; path?: string; targetRoot?: string; targetPath?: string }
+    const { hostId } = hostParamsSchema.parse(request.params)
+    const body = fileTransferBodySchema.parse(request.body)
     try {
-      return await transferEntryForHost(hostId, body.root || '', body.path || '', body.targetRoot || '', body.targetPath || '', false)
+      return await transferEntryForHost(hostId, body.root, body.path, body.targetRoot, body.targetPath, false)
     } catch (error) {
       const err = error as Error
       return reply.status(400).send({ message: err.message || 'Copy failed', code: 'COPY_FAILED' })
     }
   })
   fastify.post('/hosts/:hostId/files/move', async (request, reply) => {
-    const { hostId } = request.params as { hostId: string }
-    const body = request.body as { root?: string; path?: string; targetRoot?: string; targetPath?: string }
+    const { hostId } = hostParamsSchema.parse(request.params)
+    const body = fileTransferBodySchema.parse(request.body)
     try {
-      return await transferEntryForHost(hostId, body.root || '', body.path || '', body.targetRoot || '', body.targetPath || '', true)
+      return await transferEntryForHost(hostId, body.root, body.path, body.targetRoot, body.targetPath, true)
     } catch (error) {
       const err = error as Error
       return reply.status(400).send({ message: err.message || 'Move failed', code: 'MOVE_FAILED' })
     }
   })
   fastify.post('/hosts/:hostId/files/trash', async (request, reply) => {
-    const { hostId } = request.params as { hostId: string }
-    const body = request.body as { root?: string; path?: string }
+    const { hostId } = hostParamsSchema.parse(request.params)
+    const body = fileTrashBodySchema.parse(request.body)
     try {
-      return await trashEntryForHost(hostId, body.root || '', body.path || '')
+      return await trashEntryForHost(hostId, body.root, body.path)
     } catch (error) {
       const err = error as Error
       return reply.status(400).send({ message: err.message || 'Trash failed', code: 'TRASH_FAILED' })
@@ -1165,20 +1078,20 @@ export async function fileRoutes(fastify: FastifyInstance) {
     return { entries: await listTrashEntriesForHost(hostId) }
   })
   fastify.post('/hosts/:hostId/files/restore', async (request, reply) => {
-    const { hostId } = request.params as { hostId: string }
-    const body = request.body as { trashId?: string }
+    const { hostId } = hostParamsSchema.parse(request.params)
+    const body = fileRestoreBodySchema.parse(request.body)
     try {
-      return await restoreTrashEntryForHost(hostId, body.trashId || '')
+      return await restoreTrashEntryForHost(hostId, body.trashId)
     } catch (error) {
       const err = error as Error
       return reply.status(400).send({ message: err.message || 'Restore failed', code: 'RESTORE_FAILED' })
     }
   })
   fastify.delete('/hosts/:hostId/files/remove', async (request, reply) => {
-    const { hostId } = request.params as { hostId: string }
-    const query = request.query as { root?: string; path?: string }
+    const { hostId } = hostParamsSchema.parse(request.params)
+    const query = fileRemoveQuerySchema.parse(request.query)
     try {
-      return await removeEntryForHost(hostId, query.root || '', query.path || '')
+      return await removeEntryForHost(hostId, query.root, query.path)
     } catch (error) {
       const err = error as Error
       return reply.status(400).send({ message: err.message || 'Remove failed', code: 'REMOVE_FAILED' })

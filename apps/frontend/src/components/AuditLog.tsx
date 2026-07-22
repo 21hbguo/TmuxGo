@@ -2,6 +2,7 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from '@/i18n'
 import { useAuditLog } from '@/hooks/useApi'
+import { ModalPortal } from './ModalPortal'
 
 interface AuditLogProps {
   onClose: () => void
@@ -12,7 +13,7 @@ export function AuditLog({ onClose }: AuditLogProps) {
   const { t } = useTranslation()
   const { data, isLoading, isError, refetch } = useAuditLog(result ? { result } : {})
   const logs = useMemo(() => (data?.events || []).filter((event) => !query.trim() || `${event.action} ${event.target} ${event.hostId || ''}`.toLowerCase().includes(query.trim().toLowerCase())), [data?.events, query])
-  return (
+  return <ModalPortal>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div className="flex max-h-[85vh] w-full max-w-[820px] flex-col overflow-hidden rounded-lg border border-[var(--line)] bg-bg-1" onClick={(event) => event.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-[var(--line)] p-4">
@@ -33,5 +34,5 @@ export function AuditLog({ onClose }: AuditLogProps) {
         <div className="flex justify-end border-t border-[var(--line)] p-4"><button onClick={onClose} className="rounded bg-bg-2 px-4 py-2 text-text-2 hover:bg-bg-1">{t('audit.close')}</button></div>
       </div>
     </div>
-  )
+  </ModalPortal>
 }

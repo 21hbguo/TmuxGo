@@ -1,4 +1,5 @@
 import Fastify from 'fastify'
+import { ZodError } from 'zod'
 import cors from '@fastify/cors'
 import multipart from '@fastify/multipart'
 import fastifyStatic from '@fastify/static'
@@ -33,6 +34,10 @@ fastify.addHook('onRequest', async (request, reply) => {
   return reply.code(403).send({ message: 'Origin is not allowed', code: 'ORIGIN_NOT_ALLOWED' })
 })
 fastify.addHook('onSend', recordAuditRequest)
+fastify.setErrorHandler((error, _request, reply) => {
+  if (error instanceof ZodError) return reply.code(400).send({ message: error.issues.map((issue) => `${issue.path.join('.') || 'request'}: ${issue.message}`).join('; '), code: 'INVALID_REQUEST' })
+  return reply.send(error)
+})
 
 await fastify.register(cors, {
   origin: true,

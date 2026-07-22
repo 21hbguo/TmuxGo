@@ -23,3 +23,21 @@ export function hasSubstantiveTerminalContent(value:string) {
   if (!lines.length) return false
   return lines.some((line)=>!isLikelyTmuxStatusLine(line))
 }
+export function createTerminalOutputSanitizer() {
+  let carry=''
+  return (chunk:string) => {
+    const cleaned=(carry+chunk).replace(/\u001b\[[0-9;?]*c/g,'').replace(/(?:\u001b\[)?\??(?:\d+;)+\d+c/g,'').replace(/0;(?:\d+;)*\d+c/g,'')
+    const trailingEsc=cleaned.match(/\u001b(?:\[[0-9;?]*)?$/)
+    const trailingDigits=cleaned.match(/[0-9;]{0,32}c?$/)
+    if (trailingEsc&&trailingEsc[0]&&trailingEsc[0].length<cleaned.length) {
+      carry=trailingEsc[0]
+      return cleaned.slice(0,cleaned.length-trailingEsc[0].length)
+    }
+    if (trailingDigits&&trailingDigits[0]&&trailingDigits[0].includes(';')&&trailingDigits[0].length<cleaned.length) {
+      carry=trailingDigits[0]
+      return cleaned.slice(0,cleaned.length-trailingDigits[0].length)
+    }
+    carry=''
+    return cleaned
+  }
+}

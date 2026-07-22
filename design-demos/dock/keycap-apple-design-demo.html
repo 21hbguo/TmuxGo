@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<title>KeyCap · Apple Design</title>
+<style>
+:root{
+  --bg-0:12 13 15; --bg-1:24 25 28; --bg-2:42 43 48;
+  --accent:10 132 255; --accent-2:48 209 88; --warn:255 159 10; --danger:255 69 58;
+  --text-1:245 245 247; --text-2:174 174 178; --text-3:116 116 122;
+  --line:rgba(255,255,255,0.10);
+  --glass-blur:22px;
+  --glass-saturate:160%;
+  --glass-fill:rgba(30,31,35,0.55);
+  --glass-fill-strong:rgba(30,31,35,0.75);
+  --glass-rim:rgba(255,255,255,0.14);
+  --glass-highlight:rgba(255,255,255,0.18);
+  --glass-shadow:0 14px 38px rgba(0,0,0,0.25);
+  --font-ui:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC",sans-serif;
+}
+[data-theme="light"]{
+  --bg-0:232 234 238; --bg-1:248 249 251; --bg-2:224 226 231;
+  --accent:0 122 255; --accent-2:40 190 105; --warn:220 130 0; --danger:215 45 38;
+  --text-1:28 28 30; --text-2:99 99 102; --text-3:142 142 147;
+  --line:rgba(60,60,67,0.16);
+  --glass-fill:rgba(248,249,252,0.6);
+  --glass-fill-strong:rgba(248,249,252,0.85);
+  --glass-rim:rgba(255,255,255,0.6);
+  --glass-highlight:rgba(255,255,255,0.85);
+}
+body{
+  font-family:var(--font-ui);
+  background:
+    radial-gradient(circle at 20% 30%, rgba(10,132,255,0.18) 0%, transparent 40%),
+    radial-gradient(circle at 80% 60%, rgba(48,209,88,0.12) 0%, transparent 45%),
+    radial-gradient(circle at 50% 80%, rgba(255,159,10,0.08) 0%, transparent 35%),
+    rgb(var(--bg-0));
+  color:rgb(var(--text-1));
+  padding:32px;margin:0;min-height:100vh;
+}
+[data-theme="light"] body{
+  background:
+    radial-gradient(circle at 20% 30%, rgba(0,122,255,0.15) 0%, transparent 40%),
+    radial-gradient(circle at 80% 60%, rgba(40,190,105,0.12) 0%, transparent 45%),
+    radial-gradient(circle at 50% 80%, rgba(220,130,0,0.08) 0%, transparent 35%),
+    rgb(var(--bg-0));
+}
+.row{margin:24px 0;display:flex;gap:24px;align-items:center;flex-wrap:wrap}
+.label{font-size:11px;color:rgb(var(--text-3));letter-spacing:.18em;text-transform:uppercase;width:140px}
+.cell{display:flex;flex-direction:column;gap:6px;align-items:center}
+.cap{font-size:10px;color:rgb(var(--text-3));letter-spacing:.12em;text-transform:uppercase}
+.dock-strip{display:flex;gap:8px;padding:8px;background:var(--glass-fill);border:1px solid var(--glass-rim);border-radius:10px;backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));-webkit-backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));box-shadow:inset 0 1px 0 var(--glass-highlight), 0 6px 18px rgba(0,0,0,0.18);overflow-x:auto}
+</style>
+<style>
+.tmuxgo-keycap {
+  appearance: none;
+  box-sizing: border-box;
+  border: 1px solid var(--glass-rim);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-weight: 500;
+  font-size: 12px;
+  line-height: 1;
+  color: rgb(var(--text-2));
+  padding: 5px 9px;
+  border-radius: 7px;
+  background:
+    linear-gradient(180deg, var(--glass-highlight) 0%, transparent 55%),
+    var(--glass-fill);
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    0 1px 1px rgba(0, 0, 0, 0.10),
+    0 2px 6px rgba(0, 0, 0, 0.06);
+  letter-spacing: 0;
+  transition:
+    transform 180ms cubic-bezier(.2, .8, .2, 1),
+    background-color 160ms cubic-bezier(.2, .8, .2, 1),
+    color 160ms cubic-bezier(.2, .8, .2, 1),
+    box-shadow 180ms cubic-bezier(.2, .8, .2, 1),
+    border-color 160ms cubic-bezier(.2, .8, .2, 1);
+  transform: translateZ(0);
+  will-change: transform;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  white-space: nowrap;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  text-decoration: none;
+}
+.tmuxgo-keycap:hover:not(:disabled) {
+  background:
+    linear-gradient(180deg, var(--glass-highlight) 0%, transparent 60%),
+    var(--glass-fill-strong);
+  color: rgb(var(--text-1));
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    0 1px 1px rgba(0, 0, 0, 0.12),
+    0 4px 10px rgba(0, 0, 0, 0.10);
+}
+.tmuxgo-keycap:active:not(:disabled),
+.tmuxgo-keycap.active:not(:disabled) {
+  transform: translateY(1px) scale(0.96);
+  transition-duration: 80ms;
+  transition-timing-function: cubic-bezier(.4, 0, .6, 1);
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    0 0 0 rgba(0, 0, 0, 0);
+}
+.tmuxgo-keycap:focus-visible {
+  outline: none;
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    0 0 0 2px rgb(var(--accent) / 0.55);
+}
+.tmuxgo-keycap:disabled { cursor: not-allowed; }
+
+.tmuxgo-keycap--dock {
+  font-size: 11px;
+  padding: 6px 11px;
+  border-radius: 8px;
+  touch-action: pan-x;
+  -webkit-touch-callout: none;
+  letter-spacing: 0.01em;
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+}
+
+.tmuxgo-keycap--accent {
+  border-color: rgb(var(--accent) / 0.32);
+  background:
+    linear-gradient(180deg, rgb(var(--accent) / 0.28) 0%, transparent 55%),
+    rgb(var(--accent) / 0.16);
+  color: rgb(var(--accent));
+}
+.tmuxgo-keycap--accent:hover:not(:disabled) {
+  background:
+    linear-gradient(180deg, rgb(var(--accent) / 0.32) 0%, transparent 60%),
+    rgb(var(--accent) / 0.22);
+  color: rgb(var(--accent));
+}
+.tmuxgo-keycap--danger {
+  border-color: rgb(248 113 113 / 0.30);
+  background:
+    linear-gradient(180deg, rgb(248 113 113 / 0.16) 0%, transparent 55%),
+    rgb(127 29 29 / 0.22);
+  color: rgb(248 113 113);
+}
+.tmuxgo-keycap--danger:hover:not(:disabled) {
+  background:
+    linear-gradient(180deg, rgb(248 113 113 / 0.20) 0%, transparent 60%),
+    rgb(127 29 29 / 0.32);
+  color: rgb(248 113 113);
+}
+.tmuxgo-keycap--arrow {
+  border-color: rgb(var(--accent) / 0.32);
+  background:
+    linear-gradient(180deg, rgb(var(--accent) / 0.28) 0%, transparent 55%),
+    rgb(var(--accent) / 0.16);
+  color: rgb(var(--accent));
+  font-weight: 600;
+}
+.tmuxgo-keycap--arrow:hover:not(:disabled) {
+  background:
+    linear-gradient(180deg, rgb(var(--accent) / 0.32) 0%, transparent 60%),
+    rgb(var(--accent) / 0.22);
+  color: rgb(var(--accent));
+}
+
+.tmuxgo-keycap--sm {
+  font-size: 11px;
+  padding: 4px 7px;
+  min-height: 28px;
+  border-radius: 6px;
+  letter-spacing: 0.02em;
+}
+.tmuxgo-keycap--freq {
+  font-size: 13px;
+  padding: 8px 12px;
+  min-width: 56px;
+  min-height: 48px;
+  border-radius: 9px;
+  font-weight: 600;
+  color: rgb(var(--text-1));
+  letter-spacing: -0.01em;
+}
+.tmuxgo-keycap--pill {
+  border-radius: 999px;
+  padding: 5px 14px;
+}
+
+.tmuxgo-keycap--disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tmuxgo-keycap,
+  .tmuxgo-keycap:active:not(:disabled),
+  .tmuxgo-keycap.active:not(:disabled) {
+    transition: opacity 200ms ease, background-color 200ms ease, color 200ms ease;
+    transform: none !important;
+  }
+  .tmuxgo-keycap:active:not(:disabled),
+  .tmuxgo-keycap.active:not(:disabled) {
+    opacity: 0.7;
+  }
+}
+</style>
+</head>
+<body>
+
+<div id="row-rest">
+  <div class="row"><span class="label">panel · default</span>
+    <div class="cell"><button class="tmuxgo-keycap">Esc</button><span class="cap">rest</span></div>
+    <div class="cell"><button class="tmuxgo-keycap">Tab</button><span class="cap">rest</span></div>
+    <div class="cell"><button class="tmuxgo-keycap">↑</button><span class="cap">rest</span></div>
+  </div>
+  <div class="row"><span class="label">panel · accent</span>
+    <div class="cell"><button class="tmuxgo-keycap tmuxgo-keycap--accent">⎘ 复制</button><span class="cap">rest</span></div>
+    <div class="cell"><button class="tmuxgo-keycap tmuxgo-keycap--accent">⎘ 粘贴</button><span class="cap">rest</span></div>
+  </div>
+  <div class="row"><span class="label">panel · danger</span>
+    <div class="cell"><button class="tmuxgo-keycap tmuxgo-keycap--danger">✕ 删面板</button><span class="cap">rest</span></div>
+    <div class="cell"><button class="tmuxgo-keycap tmuxgo-keycap--danger">✕</button><span class="cap">rest</span></div>
+  </div>
+  <div class="row"><span class="label">panel · freq</span>
+    <div class="cell"><button class="tmuxgo-keycap tmuxgo-keycap--freq">↵ Enter</button><span class="cap">rest</span></div>
+    <div class="cell"><button class="tmuxgo-keycap tmuxgo-keycap--freq">↵ Enter</button><span class="cap">rest</span></div>
+  </div>
+  <div class="row"><span class="label">panel · pill</span>
+    <div class="cell"><button class="tmuxgo-keycap tmuxgo-keycap--pill">⌘ 片段</button><span class="cap">rest</span></div>
+    <div class="cell"><button class="tmuxgo-keycap tmuxgo-keycap--pill">⌘ 片段</button><span class="cap">rest</span></div>
+  </div>
+  <div class="row"><span class="label">dock · accent</span>
+    <div class="cell"><button class="tmuxgo-keycap tmuxgo-keycap--dock tmuxgo-keycap--arrow">↑</button><span class="cap">rest</span></div>
+    <div class="cell"><button class="tmuxgo-keycap tmuxgo-keycap--dock tmuxgo-keycap--arrow">↓</button><span class="cap">rest</span></div>
+  </div>
+</div>
+
+<div id="row-pressed">
+  <div class="row"><span class="label">panel · default</span>
+    <div class="cell"><button class="tmuxgo-keycap active">Esc</button><span class="cap">pressed</span></div>
+    <div class="cell"><button class="tmuxgo-keycap active">Tab</button><span class="cap">pressed</span></div>
+    <div class="cell"><button class="tmuxgo-keycap active">↑</button><span class="cap">pressed</span></div>
+  </div>
+  <div class="row"><span class="label">panel · accent</span>
+    <div class="cell"><button class="tmuxgo-keycap tmuxgo-keycap--accent active">⎘ 复制</button><span class="cap">pressed</span></div>
+    <div class="cell"><button class="tmuxgo-keycap tmuxgo-keycap--accent active">⎘ 粘贴</button><span class="cap">pressed</span></div>
+  </div>
+  <div class="row"><span class="label">panel · danger</span>
+    <div class="cell"><button class="tmuxgo-keycap tmuxgo-keycap--danger active">✕ 删面板</button><span class="cap">pressed</span></div>
+    <div class="cell"><button class="tmuxgo-keycap tmuxgo-keycap--danger active">✕</button><span class="cap">pressed</span></div>
+  </div>
+  <div class="row"><span class="label">panel · freq</span>
+    <div class="cell"><button class="tmuxgo-keycap tmuxgo-keycap--freq active">↵ Enter</button><span class="cap">pressed</span></div>
+    <div class="cell"><button class="tmuxgo-keycap tmuxgo-keycap--freq active">↵ Enter</button><span class="cap">pressed</span></div>
+  </div>
+  <div class="row"><span class="label">panel · pill</span>
+    <div class="cell"><button class="tmuxgo-keycap tmuxgo-keycap--pill active">⌘ 片段</button><span class="cap">pressed</span></div>
+    <div class="cell"><button class="tmuxgo-keycap tmuxgo-keycap--pill active">⌘ 片段</button><span class="cap">pressed</span></div>
+  </div>
+  <div class="row"><span class="label">dock · accent</span>
+    <div class="cell"><button class="tmuxgo-keycap tmuxgo-keycap--dock tmuxgo-keycap--arrow active">↑</button><span class="cap">pressed</span></div>
+    <div class="cell"><button class="tmuxgo-keycap tmuxgo-keycap--dock tmuxgo-keycap--arrow active">↓</button><span class="cap">pressed</span></div>
+  </div>
+</div>
+
+</body></html>
