@@ -90,7 +90,7 @@ export function StatusBar() {
                   aria-label="Show all storage"
                   aria-expanded={showAllDisks}
                   title="Show all storage"
-                  className="inline-flex h-5 items-center gap-1 rounded-full border border-text-1/10 bg-bg-2/45 px-2 font-mono text-[10px] font-semibold tabular-nums text-text-2 transition-colors hover:border-accent-2/30 hover:text-accent-2"
+                  className="tmuxgo-chip h-5 px-2 font-mono text-[10px] font-semibold tabular-nums text-text-2 transition-colors hover:text-accent-2"
                 >
                   <span>{`+${disks.length - 3}`}</span>
                   <span aria-hidden="true" className="h-1.5 w-1.5 -translate-y-0.5 rotate-45 border-b border-r border-current" />
