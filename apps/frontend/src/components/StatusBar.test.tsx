@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { StatusBar } from './StatusBar'
 
@@ -45,6 +45,40 @@ describe('StatusBar', () => {
     expect(within(resources).getByText('42%')).toBeInTheDocument()
     expect(within(connection).getByText('Connected')).toBeInTheDocument()
     expect(useSystemInfoMock).toHaveBeenCalledWith('local', 2000)
+  })
+  it('shows the three largest disks and expands the rest on demand', () => {
+    useSystemInfoMock.mockImplementation(() => ({
+      hostId: 'local',
+      gpu: null,
+      cpu: 42,
+      mem: { used: 1536, total: 4096 },
+      disks: [
+        { mount: '/', used: 10240, total: 20480 },
+        { mount: '/data', used: 20480, total: 40960 },
+        { mount: '/home', used: 30720, total: 40960 },
+        { mount: '/tmp', used: 5120, total: 20480 },
+      ],
+      dependencies: { tmux: true, git: true, python: true, rg: true, sshpass: false },
+      stream: {},
+    }))
+    render(<StatusBar />)
+    const resources = screen.getByLabelText('System resources')
+    expect(within(resources).getByText('/home')).toBeInTheDocument()
+    expect(within(resources).getByText('/data')).toBeInTheDocument()
+    expect(within(resources).getByText('/')).toBeInTheDocument()
+    expect(within(resources).queryByText('/tmp')).not.toBeInTheDocument()
+    fireEvent.click(within(resources).getByRole('button', { name: 'Show all storage' }))
+    expect(within(resources).getByText('/tmp')).toBeInTheDocument()
+    expect(within(resources).getByRole('button', { name: 'Collapse storage' })).toHaveAttribute('aria-expanded', 'true')
+    useSystemInfoMock.mockImplementation(() => ({
+      hostId: 'local',
+      gpu: null,
+      cpu: 42,
+      mem: { used: 1536, total: 4096 },
+      disks: [{ mount: '/', used: 10240, total: 20480 }, { mount: '/data', used: 20480, total: 40960 }],
+      dependencies: { tmux: true, git: true, python: true, rg: true, sshpass: false },
+      stream: {},
+    }))
   })
   it('does not expose internal zero performance counters in the desktop status bar', () => {
     render(<StatusBar />)
