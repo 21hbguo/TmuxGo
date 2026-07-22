@@ -44,7 +44,7 @@ export function TopBar() {
           >
             <FiSearch aria-hidden="true" className="shrink-0" />
             <span className="min-w-0 flex-1 truncate text-left">{t('search.placeholder')}</span>
-            <kbd className="rounded-md border border-text-1/10 bg-bg-1/55 px-1.5 py-0.5 text-[10px] text-text-3">{t('search.cmd')}</kbd>
+            <kbd className="tmuxgo-keycap tmuxgo-keycap--sm">{t('search.cmd')}</kbd>
           </button>
         </div>
 

@@ -42,7 +42,7 @@ export function CommandSnippets({ onSend, onClose }: CommandSnippetsProps) {
         <div className="p-4 border-b border-[var(--line)]">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-text-1 text-lg font-medium">{t('snippets.title')}</h2>
-            <button onClick={onClose} className="text-text-3 hover:text-text-1">✕</button>
+            <button onClick={onClose} className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--icon-sm tmuxgo-icon-button" aria-label="close">✕</button>
           </div>
           <input
             type="text"
@@ -72,7 +72,7 @@ export function CommandSnippets({ onSend, onClose }: CommandSnippetsProps) {
                   e.stopPropagation()
                   removeSnippet(snippet.id)
                 }}
-                className="text-text-3 hover:text-danger opacity-0 group-hover:opacity-100"
+                className="tmuxgo-chip tmuxgo-chip--danger opacity-0 group-hover:opacity-100 px-2"
               >
                 ×
               </button>
@@ -100,13 +100,13 @@ export function CommandSnippets({ onSend, onClose }: CommandSnippetsProps) {
               <div className="flex gap-2">
                 <button
                   onClick={handleAdd}
-                  className="px-3 py-1.5 bg-accent text-bg-0 rounded text-sm"
+                  className="tmuxgo-button tmuxgo-button--primary tmuxgo-button--sm"
                 >
                   {t('snippets.add')}
                 </button>
                 <button
                   onClick={() => setIsAdding(false)}
-                  className="px-3 py-1.5 bg-bg-2 text-text-2 rounded text-sm"
+                  className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--sm"
                 >
                   {t('snippets.cancel')}
                 </button>
@@ -115,7 +115,7 @@ export function CommandSnippets({ onSend, onClose }: CommandSnippetsProps) {
           ) : (
             <button
               onClick={() => setIsAdding(true)}
-              className="w-full px-3 py-2 bg-bg-2 rounded text-text-2 text-sm hover:bg-bg-1"
+              className="tmuxgo-button tmuxgo-button--sm w-full"
             >
               {t('snippets.addSnippet')}
             </button>

@@ -202,7 +202,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
               }
             }}
           />
-          <button onClick={close} className="text-text-3 hover:text-text-1 active:text-accent p-1 flex-shrink-0">
+          <button onClick={close} className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--icon-sm tmuxgo-icon-button flex-shrink-0" aria-label="close">
             <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
               <path d="M18 6 6 18M6 6l12 12" />
             </svg>
@@ -214,7 +214,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
             <button
               key={item.key}
               onClick={() => void handleSelect(index)}
-              className={`w-full px-3 py-2.5 text-left flex items-center justify-between gap-3 ${selectedIndex === index ? 'bg-bg-2' : 'active:bg-bg-2'}`}
+              className={`w-full px-3 py-2.5 text-left flex items-center justify-between gap-3 rounded-lg transition-colors ${selectedIndex === index ? 'bg-bg-2/60 text-text-1' : 'hover:bg-bg-2/40 text-text-2'}`}
             >
               <div>
                 <div className="text-text-1 text-sm">{item.title}</div>
