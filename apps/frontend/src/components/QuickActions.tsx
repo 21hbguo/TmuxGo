@@ -418,9 +418,7 @@ export function QuickActions({ mode='panel' }:{ mode?:QuickActionsMode }){
       <div className="grid grid-cols-3 gap-1">
         {primaryButtons.slice(15,18).map((def)=>renderPanelButton(def,controller))}
       </div>
-      <button onClick={()=>attachButton.onPress?.()} className="w-full px-2 py-1.5 rounded-apple text-xs transition-colors bg-accent/20 text-accent border border-accent/40 hover:bg-accent/25">
-        {attachButton.label}
-      </button>
+      <KeyCap variant="panel" tone="accent" onPress={()=>attachButton.onPress?.()} className="w-full" title={attachButton.label}>{attachButton.label}</KeyCap>
       <WatchButton paneId={activePaneId || ''} />
       {shortcuts.length>0&&(
         <div className="border-t border-[var(--line)] pt-2">
