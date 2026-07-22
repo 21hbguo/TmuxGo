@@ -28,6 +28,10 @@ export default defineConfig({
   },
   resolve: {
     dedupe: ['react', 'react-dom'],
+    alias: {
+      react: fileURLToPath(new URL('../../node_modules/.pnpm/react@18.3.1/node_modules/react', import.meta.url)),
+      'react-dom': fileURLToPath(new URL('../../node_modules/.pnpm/react-dom@18.3.1_react@18.3.1/node_modules/react-dom', import.meta.url)),
+    },
   },
   server: {
     proxy: {

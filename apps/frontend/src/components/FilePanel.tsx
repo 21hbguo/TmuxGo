@@ -282,6 +282,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   const resizingRef = useRef(false)
   const directoryLoadingRef = useRef<Map<string, Promise<FileItem[]>>>(new Map())
   const touchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const contextMenuRef = useRef(false)
   const currentPathRef = useRef('')
   const mobileNavigationDepthRef = useRef(0)
   const uploadInputRef = useRef<HTMLInputElement>(null)
@@ -494,6 +495,9 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     window.addEventListener('click', close)
     return () => window.removeEventListener('click', close)
   }, [])
+  useEffect(() => {
+    contextMenuRef.current = !!contextMenu
+  }, [contextMenu])
   const pushMobileNavigationHistory = () => {
     if (!isMobile || typeof window === 'undefined') return
     mobileNavigationDepthRef.current += 1
@@ -516,6 +520,11 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     if (!isMobile) return
     const handleBack = (event: Event) => {
       const detail = (event as CustomEvent<{ handled?: boolean }>).detail
+      if (contextMenuRef.current) {
+        detail.handled = true
+        setContextMenu(null)
+        return
+      }
       if (mobileView === 'preview') {
         detail.handled = true
         setMobileView('list')
@@ -1178,6 +1187,8 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
       {isMobile && mobileView === 'preview' && <div className="min-h-0 flex-1 bg-bg-0">{previewBlock}</div>}
       {isMobile && mobileView === 'preview' && selectedPath && <div className="border-t border-[var(--line)] p-3"><button onClick={() => insertPath(activeSourceRootPath ? joinPath(activeSourceRootPath, resolveRootRelativePath(activeRootBasePath, selectedPath)) : resolveRootRelativePath(activeRootBasePath, selectedPath))} className="w-full rounded-apple bg-accent/20 px-3 py-3 text-sm text-accent active:scale-[0.98]">{t('file.insertPath')}</button></div>}
       {contextMenu && (
+        <>
+        <div className="fixed inset-0 z-[89]" onClick={() => setContextMenu(null)} />
         <div className="fixed z-[90] w-44 overflow-hidden rounded-apple border border-[var(--line)] bg-bg-1 py-1 text-xs shadow-lg" style={contextMenu.mobile ? { left: '50%', top: '50%', transform: 'translate(-50%, -50%)' } : { left: contextMenu.x, top: contextMenu.y }} onClick={(e) => e.stopPropagation()}>
           {contextMenu.item?.type === 'directory' && (() => {
             const favoriteKey = { rootId: activeRoot?.sourceRootId || '', path: joinRelativePath(activeRootBasePath, contextMenu.item!.path) }
@@ -1198,6 +1209,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
           <button onClick={() => { void createEntry('directory', contextMenu.directoryPath); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">{t('file.newFolder')}</button>
           {contextMenu.item && <button onClick={() => { void removeItem(contextMenu.item!); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-danger hover:bg-bg-2">{t('file.moveToTrash')}</button>}
         </div>
+        </>
       )}
       </>}
       {PromptElement}
