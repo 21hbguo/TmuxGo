@@ -504,3 +504,212 @@ a {
 .scrollbar-none::-webkit-scrollbar {
   display: none;
 }
+
+/* =========================================================
+   .tmuxgo-keycap · 可复用的「键帽」原子组件
+   设计语言：apple-design skill (WWDC Designing Fluid Interfaces)
+   - §1 Response    : 反馈在 :active 立即触发，不等 release
+   - §4 Springs     : cubic-bezier(.2,.8,.2,1) 模拟 damping=1.0 spring
+                       :active 用更短 duration（80ms）模拟「快速塌陷」
+   - §11 Smoothness : transform/opacity-only 动画，will-change hint
+   - §14 A11y       : prefers-reduced-motion 时去掉 transform 用 opacity
+   - §15 Typography : tracking 按 size 变化（+0.02em → 0 → -0.01em）
+   - variant: panel(网格) | dock(横向滚动) | plain(普通)
+   - tone: default | accent | danger | arrow
+   - size: sm | md | freq | pill
+   ========================================================= */
+.tmuxgo-keycap {
+  appearance: none;
+  box-sizing: border-box;
+  border: 1px solid var(--glass-rim);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-weight: 500;
+  font-size: 12px;
+  line-height: 1;
+  color: rgb(var(--text-2));
+  padding: 5px 9px;
+  border-radius: 7px;
+  background:
+    linear-gradient(180deg, var(--glass-highlight) 0%, transparent 55%),
+    var(--glass-fill);
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    0 1px 1px rgba(0, 0, 0, 0.10),
+    0 2px 6px rgba(0, 0, 0, 0.06);
+  letter-spacing: 0;
+  transition:
+    transform 180ms cubic-bezier(.2, .8, .2, 1),
+    background-color 160ms cubic-bezier(.2, .8, .2, 1),
+    color 160ms cubic-bezier(.2, .8, .2, 1),
+    box-shadow 180ms cubic-bezier(.2, .8, .2, 1),
+    border-color 160ms cubic-bezier(.2, .8, .2, 1);
+  transform: translateZ(0);
+  will-change: transform;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  white-space: nowrap;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  text-decoration: none;
+}
+.tmuxgo-keycap:hover:not(:disabled) {
+  background:
+    linear-gradient(180deg, var(--glass-highlight) 0%, transparent 60%),
+    var(--glass-fill-strong);
+  color: rgb(var(--text-1));
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    0 1px 1px rgba(0, 0, 0, 0.12),
+    0 4px 10px rgba(0, 0, 0, 0.10);
+}
+.tmuxgo-keycap:active:not(:disabled) {
+  transform: translateY(1px) scale(0.96);
+  transition-duration: 80ms;
+  transition-timing-function: cubic-bezier(.4, 0, .6, 1);
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    0 0 0 rgba(0, 0, 0, 0);
+}
+.tmuxgo-keycap:focus-visible {
+  outline: none;
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    0 0 0 2px rgb(var(--accent) / 0.55);
+}
+.tmuxgo-keycap:disabled {
+  cursor: not-allowed;
+}
+
+.tmuxgo-keycap--dock {
+  font-size: 11px;
+  padding: 6px 11px;
+  border-radius: 8px;
+  touch-action: pan-x;
+  -webkit-touch-callout: none;
+  letter-spacing: 0.01em;
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+}
+
+.tmuxgo-keycap--accent {
+  border-color: rgb(var(--accent) / 0.32);
+  background:
+    linear-gradient(180deg, rgb(var(--accent) / 0.28) 0%, transparent 55%),
+    rgb(var(--accent) / 0.16);
+  color: rgb(var(--accent));
+}
+.tmuxgo-keycap--accent:hover:not(:disabled) {
+  background:
+    linear-gradient(180deg, rgb(var(--accent) / 0.32) 0%, transparent 60%),
+    rgb(var(--accent) / 0.22);
+  color: rgb(var(--accent));
+}
+.tmuxgo-keycap--danger {
+  border-color: rgb(248 113 113 / 0.30);
+  background:
+    linear-gradient(180deg, rgb(248 113 113 / 0.16) 0%, transparent 55%),
+    rgb(127 29 29 / 0.22);
+  color: rgb(248 113 113);
+}
+.tmuxgo-keycap--danger:hover:not(:disabled) {
+  background:
+    linear-gradient(180deg, rgb(248 113 113 / 0.20) 0%, transparent 60%),
+    rgb(127 29 29 / 0.32);
+  color: rgb(248 113 113);
+}
+.tmuxgo-keycap--arrow {
+  border-color: rgb(var(--accent) / 0.32);
+  background:
+    linear-gradient(180deg, rgb(var(--accent) / 0.28) 0%, transparent 55%),
+    rgb(var(--accent) / 0.16);
+  color: rgb(var(--accent));
+  font-weight: 600;
+}
+.tmuxgo-keycap--arrow:hover:not(:disabled) {
+  background:
+    linear-gradient(180deg, rgb(var(--accent) / 0.32) 0%, transparent 60%),
+    rgb(var(--accent) / 0.22);
+  color: rgb(var(--accent));
+}
+
+.tmuxgo-keycap--sm {
+  font-size: 11px;
+  padding: 4px 7px;
+  min-height: 28px;
+  border-radius: 6px;
+  letter-spacing: 0.02em;
+}
+.tmuxgo-keycap--freq {
+  font-size: 13px;
+  padding: 8px 12px;
+  min-width: 56px;
+  min-height: 48px;
+  border-radius: 9px;
+  font-weight: 600;
+  color: rgb(var(--text-1));
+  letter-spacing: -0.01em;
+}
+.tmuxgo-keycap--pill {
+  border-radius: 999px;
+  padding: 5px 14px;
+}
+
+.tmuxgo-keycap--disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    none;
+}
+.tmuxgo-keycap--disabled.tmuxgo-keycap--accent {
+  background:
+    linear-gradient(180deg, var(--glass-highlight) 0%, transparent 55%),
+    rgb(var(--accent) / 0.06);
+  border-color: rgb(var(--accent) / 0.12);
+}
+.tmuxgo-keycap--disabled.tmuxgo-keycap--danger {
+  background:
+    linear-gradient(180deg, var(--glass-highlight) 0%, transparent 55%),
+    rgb(127 29 29 / 0.10);
+  border-color: rgb(248 113 113 / 0.14);
+}
+
+[data-theme="high-contrast"] .tmuxgo-keycap {
+  border: 1px solid rgb(255 255 255 / 0.5);
+  background: transparent;
+  box-shadow: none;
+}
+[data-theme="high-contrast"] .tmuxgo-keycap--accent,
+[data-theme="high-contrast"] .tmuxgo-keycap--arrow {
+  background: transparent;
+  border-color: rgb(0 255 255);
+  color: rgb(0 255 255);
+}
+[data-theme="high-contrast"] .tmuxgo-keycap--danger {
+  background: transparent;
+  border-color: rgb(255 68 68);
+  color: rgb(255 68 68);
+}
+[data-theme="high-contrast"] .tmuxgo-keycap:focus-visible {
+  box-shadow: 0 0 0 2px rgb(0 255 255);
+}
+
+/* =========================================================
+   §14 Reduced motion & accessibility
+   - reduce motion：去掉 transform 用 opacity 渐变
+   - reduce transparency：去 backdrop-filter 兜底（由 globals.css 统一处理）
+   ========================================================= */
+@media (prefers-reduced-motion: reduce) {
+  .tmuxgo-keycap,
+  .tmuxgo-keycap:active:not(:disabled) {
+    transition: opacity 200ms ease, background-color 200ms ease, color 200ms ease;
+    transform: none !important;
+  }
+  .tmuxgo-keycap:active:not(:disabled) {
+    opacity: 0.7;
+  }
+}
+
