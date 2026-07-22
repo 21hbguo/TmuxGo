@@ -59,7 +59,7 @@ export function TerminalSearch({ terminal, onClose }: TerminalSearchProps) {
   }
 
   return (
-    <div className="absolute top-2 right-2 z-50 bg-bg-1 border border-[var(--line)] rounded-lg shadow-lg p-2 flex items-center gap-2" onKeyDown={(e) => {
+    <div className="absolute top-2 right-2 z-50 bg-bg-1 border border-[var(--line)] rounded-apple shadow-lg p-2 flex items-center gap-2" onKeyDown={(e) => {
       if (e.key === 'Escape') {
         e.preventDefault()
         e.stopPropagation()
@@ -81,7 +81,7 @@ export function TerminalSearch({ terminal, onClose }: TerminalSearchProps) {
         value={query}
         onChange={(e) => search(e.target.value)}
         placeholder={t('terminalSearch.placeholder')}
-        className="tmuxgo-control tmuxgo-input w-48 rounded px-2 py-1 text-sm"
+        className="tmuxgo-control tmuxgo-input w-48 rounded-apple px-2 py-1 text-sm"
         onKeyDown={(e) => {
           if (e.key === 'Escape') {
             e.preventDefault()

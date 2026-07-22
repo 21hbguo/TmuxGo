@@ -97,9 +97,9 @@ export function StatusBar() {
                 </Chip>
                 {showAllDisks && (
                   <div className="absolute bottom-full right-0 z-50 pb-2" role="list" aria-label="All storage">
-                    <div className="min-w-56 rounded-lg border border-text-1/15 bg-bg-1/95 p-1.5 shadow-2xl backdrop-blur-xl">
+                    <div className="min-w-56 rounded-apple border border-text-1/15 bg-bg-1/95 p-1.5 shadow-2xl backdrop-blur-xl">
                       {disks.map((d) => (
-                        <div key={d.mount} role="listitem" className="flex h-6 items-center justify-between gap-5 rounded-md px-2 font-mono text-[10px] tabular-nums text-text-2 hover:bg-bg-2/70">
+                        <div key={d.mount} role="listitem" className="flex h-6 items-center justify-between gap-5 rounded-apple px-2 font-mono text-[10px] tabular-nums text-text-2 hover:bg-bg-2/70">
                           <span className="truncate text-text-3">{d.mount}</span>
                           <span className={resourceTone(d.used, d.total) === 'danger' ? 'text-danger' : resourceTone(d.used, d.total) === 'warn' ? 'text-warn' : 'text-text-2'}>{`${gb(d.used)}/${gb(d.total)}G`}</span>
                         </div>

@@ -40,7 +40,7 @@ export function CommandSnippets({ onSend, onClose }: CommandSnippetsProps) {
 
   return <ModalPortal>
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-bg-1 border border-[var(--line)] rounded-lg w-full max-w-[500px] max-h-[85vh] overflow-hidden">
+      <div className="bg-bg-1 border border-[var(--line)] rounded-apple w-full max-w-[500px] max-h-[85vh] overflow-hidden">
         <div className="p-4 border-b border-[var(--line)]">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-text-1 text-lg font-medium">{t('snippets.title')}</h2>
@@ -51,7 +51,7 @@ export function CommandSnippets({ onSend, onClose }: CommandSnippetsProps) {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={t('snippets.search')}
-            className="tmuxgo-control tmuxgo-input w-full rounded px-3 py-2 text-sm"
+            className="tmuxgo-control tmuxgo-input w-full rounded-apple px-3 py-2 text-sm"
           />
         </div>
 
@@ -59,7 +59,7 @@ export function CommandSnippets({ onSend, onClose }: CommandSnippetsProps) {
           {filtered.map((snippet) => (
             <div
               key={snippet.id}
-              className="p-3 hover:bg-bg-2 rounded cursor-pointer flex items-center justify-between group"
+              className="p-3 hover:bg-bg-2 rounded-apple cursor-pointer flex items-center justify-between group"
               onClick={() => {
                 onSend(snippet.command)
                 onClose()
@@ -91,14 +91,14 @@ export function CommandSnippets({ onSend, onClose }: CommandSnippetsProps) {
                 placeholder={t('snippets.name')}
                 value={newSnippet.name}
                 onChange={(e) => setNewSnippet({ ...newSnippet, name: e.target.value })}
-                className="tmuxgo-control tmuxgo-input w-full rounded px-3 py-2 text-sm"
+                className="tmuxgo-control tmuxgo-input w-full rounded-apple px-3 py-2 text-sm"
               />
               <input
                 type="text"
                 placeholder={t('snippets.command')}
                 value={newSnippet.command}
                 onChange={(e) => setNewSnippet({ ...newSnippet, command: e.target.value })}
-                className="tmuxgo-control tmuxgo-input w-full rounded px-3 py-2 font-mono text-sm"
+                className="tmuxgo-control tmuxgo-input w-full rounded-apple px-3 py-2 font-mono text-sm"
               />
               <div className="flex gap-2">
                 <Button variant="primary" size="sm" onClick={handleAdd}>

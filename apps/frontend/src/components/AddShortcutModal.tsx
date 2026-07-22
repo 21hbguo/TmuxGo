@@ -77,7 +77,7 @@ export function AddShortcutModal({ onSave, onClose, isMobile }: Props) {
 
   return <ModalPortal>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35" onClick={onClose}>
-      <div className="tmuxgo-glass tmuxgo-glass-dialog w-72 rounded-lg border p-4" onClick={(e) => e.stopPropagation()}>
+      <div className="tmuxgo-glass tmuxgo-glass-dialog w-72 rounded-apple border p-4" onClick={(e) => e.stopPropagation()}>
         <h3 className="text-text-1 text-sm font-medium mb-3">{t('shortcut.add')}</h3>
 
         <div className="space-y-3">
@@ -94,7 +94,7 @@ export function AddShortcutModal({ onSave, onClose, isMobile }: Props) {
               <select
                 value={mainKey}
                 onChange={(e) => setMainKey(e.target.value)}
-                className="tmuxgo-control tmuxgo-select w-full rounded px-2 py-1.5 text-sm"
+                className="tmuxgo-control tmuxgo-select w-full rounded-apple px-2 py-1.5 text-sm"
               >
                 <option value="">{t('shortcut.selectKey')}</option>
                 {MAIN_KEYS.map((k) => <option key={k} value={k}>{k}</option>)}
@@ -106,7 +106,7 @@ export function AddShortcutModal({ onSave, onClose, isMobile }: Props) {
               <label className="text-text-3 text-xs mb-1 block">{t('shortcut.keys')}</label>
               <button
                 onClick={() => setRecording(true)}
-                className={`w-full px-2 py-1.5 rounded text-sm text-left border transition-colors ${
+                className={`w-full px-2 py-1.5 rounded-apple text-sm text-left border transition-colors ${
                   recording
                     ? 'bg-accent/20 border-accent text-accent animate-pulse'
                     : 'tmuxgo-control'
@@ -122,7 +122,7 @@ export function AddShortcutModal({ onSave, onClose, isMobile }: Props) {
             <input
               value={label}
               onChange={(e) => setLabel(e.target.value)}
-              className="tmuxgo-control tmuxgo-input w-full rounded px-2 py-1.5 text-sm"
+              className="tmuxgo-control tmuxgo-input w-full rounded-apple px-2 py-1.5 text-sm"
               placeholder={keys || 'e.g. Shift+Tab'}
             />
           </div>

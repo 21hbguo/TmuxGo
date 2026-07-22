@@ -17,7 +17,7 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { error: Error
   }
   render() {
     if (!this.state.error) return this.props.children
-    return <main className="flex min-h-screen items-center justify-center bg-bg-0 p-8 text-text-1"><div className="max-w-md text-center"><h1 className="text-xl">客户端异常</h1><p className="mt-3 text-sm text-text-2">{this.state.error.message || '渲染过程中发生错误'}</p><button onClick={() => this.setState({ error: null })} className="mt-6 rounded bg-accent px-4 py-2 text-sm text-white">重新加载</button></div></main>
+    return <main className="flex min-h-screen items-center justify-center bg-bg-0 p-8 text-text-1"><div className="max-w-md text-center"><h1 className="text-xl">客户端异常</h1><p className="mt-3 text-sm text-text-2">{this.state.error.message || '渲染过程中发生错误'}</p><button onClick={() => this.setState({ error: null })} className="mt-6 rounded-apple bg-accent px-4 py-2 text-sm text-white">重新加载</button></div></main>
   }
 }
 export function App() {

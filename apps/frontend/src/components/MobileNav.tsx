@@ -42,7 +42,7 @@ export function MobileNav({ onOpenDrawer, onOpenSettings, onOpenSearch, onOpenFi
   const statusText = isConnected ? `${connection.latency ?? 0}/${attachLatency}ms` : isRecovering ? '...' : t('nav.off')
   const containerClass = docked
     ? 'tmuxgo-mobile-nav mobile-nav-landscape-hide h-full pb-[env(safe-area-inset-bottom)] transition-transform duration-200'
-    : 'tmuxgo-glass tmuxgo-mobile-nav mobile-nav-landscape-hide fixed left-2 right-2 z-40 rounded-2xl border pb-[env(safe-area-inset-bottom)] transition-transform duration-200'
+    : 'tmuxgo-glass tmuxgo-mobile-nav mobile-nav-landscape-hide fixed left-2 right-2 z-40 rounded-apple border pb-[env(safe-area-inset-bottom)] transition-transform duration-200'
 
   return (
     <div data-mobile-nav className={containerClass} style={docked ? undefined : { bottom: 'var(--mobile-keyboard-inset, 0px)' }}>

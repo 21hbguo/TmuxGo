@@ -31,7 +31,7 @@ export function PromptDialog({ open, title, defaultValue = '', confirmLabel, can
   if (!open) return null
   return <ModalPortal>
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4" onClick={onCancel}>
-      <div className="tmuxgo-glass tmuxgo-glass-dialog w-full max-w-md rounded-lg border p-5" onClick={(e) => e.stopPropagation()}>
+      <div className="tmuxgo-glass tmuxgo-glass-dialog w-full max-w-md rounded-apple border p-5" onClick={(e) => e.stopPropagation()}>
         <div className="text-lg text-text-1">{title}</div>
         <input
           ref={inputRef}
@@ -42,7 +42,7 @@ export function PromptDialog({ open, title, defaultValue = '', confirmLabel, can
             if (e.key === 'Enter') { e.preventDefault(); onConfirm(value.trim()) }
             if (e.key === 'Escape') onCancel()
           }}
-          className="mt-3 w-full rounded border border-[var(--line)] bg-bg-0 px-3 py-2 text-sm text-text-1 outline-none focus:border-accent"
+          className="mt-3 w-full rounded-apple border border-[var(--line)] bg-bg-0 px-3 py-2 text-sm text-text-1 outline-none focus:border-accent"
         />
         <div className="mt-5 flex justify-end gap-2">
           <Button variant="ghost" size="sm" onClick={onCancel}>{cancelLabel}</Button>

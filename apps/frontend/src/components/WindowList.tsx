@@ -68,7 +68,7 @@ export function WindowList() {
           onDragOver={(e) => handleDragOver(e, window)}
           onDrop={handleDrop}
           onDragEnd={handleDragEnd}
-          className={`px-3 py-1.5 rounded text-sm cursor-move transition-colors ${
+          className={`px-3 py-1.5 rounded-apple text-sm cursor-move transition-colors ${
             draggedItem?.id === window.id
               ? 'opacity-50'
               : dragOverItem?.id === window.id
