@@ -23,7 +23,7 @@ export function UploadQueue() {
     <div className="pointer-events-none fixed bottom-4 right-4 z-[96] flex w-[min(420px,calc(100vw-24px))] flex-col gap-2">
       <div className="pointer-events-auto flex items-center justify-between rounded border border-[var(--line)] bg-bg-1/95 px-3 py-2 shadow-[0_12px_40px_rgba(0,0,0,0.32)] backdrop-blur">
         <div className="text-xs text-text-2">{t('uploadQueue.title')}</div>
-        <button onClick={clearFinishedUploadJobs} className="rounded px-2 py-1 text-[11px] text-text-3 hover:bg-bg-2 hover:text-text-1">{t('uploadQueue.clean')}</button>
+        <button onClick={clearFinishedUploadJobs} className="tmuxgo-chip">{t('uploadQueue.clean')}</button>
       </div>
       {visibleJobs.map((job) => {
         const percent = job.status === 'success' ? 100 : formatPercent(job.loadedBytes, job.totalBytes)
@@ -42,7 +42,7 @@ export function UploadQueue() {
             </div>
             <div className="mt-2 flex items-center justify-between text-[11px] text-text-3">
               <div>{formatSize(job.loadedBytes)} / {formatSize(job.totalBytes)}</div>
-              <button onClick={() => removeUploadJob(job.id)} className="rounded px-2 py-1 hover:bg-bg-2 hover:text-text-1">{t('uploadQueue.close')}</button>
+              <button onClick={() => removeUploadJob(job.id)} className="tmuxgo-chip">{t('uploadQueue.close')}</button>
             </div>
             {job.errorMessage && <div className="mt-2 line-clamp-2 text-[11px] text-red-400">{job.errorMessage}</div>}
           </div>
