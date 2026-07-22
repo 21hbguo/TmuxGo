@@ -371,7 +371,7 @@ export function Settings({ onClose }: SettingsProps) {
                     </div>
                   </div>
                   <div className="flex items-center justify-end">
-                    <button onClick={openArchiveDialog} className="mr-2 tmuxgo-button tmuxgo-button--sm">{t('settings.viewArchives')}</button>
+                    <Button size="sm" className="mr-2" onClick={openArchiveDialog}>{t('settings.viewArchives')}</Button>
                     <Button size="sm" onClick={() => updateSessionContinuity({ resumePoints: [] })}>
                       {t('settings.clearResumePoints')}
                     </Button>
@@ -622,12 +622,9 @@ export function Settings({ onClose }: SettingsProps) {
                   <h3 className="text-text-1 text-sm font-medium">{t('settings.auditLog')}</h3>
                   <p className="text-text-3 text-xs mt-1">{t('settings.auditDesc')}</p>
                 </div>
-                <button
-                  onClick={() => setShowAuditLog(true)}
-                  className="tmuxgo-button tmuxgo-button--primary"
-                >
+                <Button variant="primary" onClick={() => setShowAuditLog(true)}>
                   {t('settings.viewLog')}
-                </button>
+                </Button>
               </div>
             </div>
           )}
