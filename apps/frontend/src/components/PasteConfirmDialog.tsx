@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, type MouseEvent, type TouchEvent } from 'react'
 import { useTranslation } from '@/i18n'
+import { Button } from './Button'
 import { ModalPortal } from './ModalPortal'
 
 interface PasteConfirmDialogProps {
@@ -86,10 +87,10 @@ export function PasteConfirmDialog({ open, text, meta, mode = 'confirm', onTextC
         </div>
         <textarea ref={textareaRef} value={text} onChange={(e) => onTextChange?.(e.target.value)} className="tmuxgo-control tmuxgo-textarea mt-4 h-48 max-h-[40vh] w-full resize-none rounded p-3 text-xs" autoFocus={isManual} spellCheck={false} />
         <div className="mt-5 flex flex-wrap justify-end gap-2">
-          <button onMouseDown={preventFocus} onTouchStart={preventFocus} onClick={onCancel} className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--sm">{t('paste.cancel')}</button>
-          {isManual && <button onMouseDown={preventFocus} onTouchStart={preventFocus} onClick={onRetryPermission} className="tmuxgo-button tmuxgo-button--sm">{t('paste.retryPermission')}</button>}
-          <button onMouseDown={preventFocus} onTouchStart={preventFocus} onClick={onEscapeSend} className="tmuxgo-button tmuxgo-button--sm">{t('paste.escapePaste')}</button>
-          <button onMouseDown={preventFocus} onTouchStart={preventFocus} onClick={onSend} disabled={!text} className="tmuxgo-button tmuxgo-button--primary tmuxgo-button--sm">{t('paste.send')}</button>
+          <Button variant="ghost" size="sm" preventFocus onClick={onCancel}>{t('paste.cancel')}</Button>
+          {isManual && <Button size="sm" preventFocus onClick={onRetryPermission}>{t('paste.retryPermission')}</Button>}
+          <Button size="sm" preventFocus onClick={onEscapeSend}>{t('paste.escapePaste')}</Button>
+          <Button variant="primary" size="sm" preventFocus disabled={!text} onClick={onSend}>{t('paste.send')}</Button>
         </div>
       </div>
     </div>

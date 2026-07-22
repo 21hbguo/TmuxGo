@@ -1,5 +1,6 @@
 'use client'
 
+import { Button } from './Button'
 import { ModalPortal } from './ModalPortal'
 
 interface ConfirmDialogProps {
@@ -21,8 +22,8 @@ export function ConfirmDialog({ open, title, message, confirmLabel, cancelLabel,
         <div className="text-lg text-text-1">{title}</div>
         <div className="mt-2 text-sm text-text-3">{message}</div>
         <div className="mt-5 flex justify-end gap-2">
-          <button onClick={onCancel} className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--sm">{cancelLabel}</button>
-          <button onClick={onConfirm} className={`tmuxgo-button tmuxgo-button--sm ${tone === 'danger' ? 'tmuxgo-button--danger' : 'tmuxgo-button--primary'}`}>{confirmLabel}</button>
+          <Button variant="ghost" size="sm" onClick={onCancel}>{cancelLabel}</Button>
+          <Button variant={tone === 'danger' ? 'danger' : 'primary'} size="sm" onClick={onConfirm}>{confirmLabel}</Button>
         </div>
       </div>
     </div>
