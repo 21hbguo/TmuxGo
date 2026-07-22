@@ -1223,6 +1223,8 @@ describe('TerminalPane', () => {
     Object.defineProperty(root, 'clientHeight', { configurable: true, value: 500 })
     resizeObserverCallback?.()
     expect(terminalMocks.resize).toHaveBeenCalled()
+    const [cols, rows] = terminalMocks.resize.mock.calls.at(-1) || []
+    window.dispatchEvent(new CustomEvent('tmux-resized', { detail: { hostId: 'local', sessionName: 'dev', cols, rows, localOnly: true } }))
   })
   it('cancels tmux copy mode before focusing the mobile keyboard', async () => {
     mobileKeyboardMocks.isMobile = true

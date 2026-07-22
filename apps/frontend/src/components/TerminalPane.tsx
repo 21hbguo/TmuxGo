@@ -43,6 +43,7 @@ const MOBILE_PINCH_FONT_SIZE_EPSILON = 0.04
 const MOBILE_PINCH_DISTANCE_EPSILON = 2
 const DESKTOP_PINCH_COMMIT_DELAY = 120
 const GITHUB_DEVICE_LOGIN_URL = 'https://github.com/login/device'
+let terminalResizePending = false
 const ANSI_ESCAPE_REGEX = /\u001b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\u0007]*(?:\u0007|\u001b\\))/g
 const TERMINAL_URL_REGEX = /(https?|HTTPS?):[/]{2}[^\s"'!*(){}|\\^<>`]*[^\s"':,.!?{}|\\^~\[\]`()<>]/g
 const TERMINAL_FILE_LINK_REGEX = /(^|[\s([{'"`])((?:\/|\.{1,2}\/|~\/)?[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*(?::\d+){0,2})(?=$|[\s)\]}'"`,;.!?，。；、])/g
@@ -857,6 +858,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       if (resizeRevealFrame) cancelAnimationFrame(resizeRevealFrame)
       resizeRevealFrame = null
       resizeMaskGeneration += 1
+      terminalResizePending = true
       const mask = resizeMaskRef.current
       if (mask) mask.style.display = 'block'
       return resizeMaskGeneration
@@ -872,6 +874,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         const nextFrame = requestAnimationFrame(() => {
           resizeRevealFrame = null
           if (generation !== resizeMaskGeneration) return
+          terminalResizePending = false
           const mask = resizeMaskRef.current
           if (mask) mask.style.display = 'none'
           nextSynchronous = false
@@ -1633,6 +1636,12 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       window.addEventListener('tmuxgo-copy-terminal-selection', handleCopySelection as EventListener)
       const handleWindowResize = () => {
         syncRenderEnvironment('window-resize')
+        if (lastContainerSize.width > 0 && lastContainerSize.height > 0) {
+          showResizeMask()
+          resizeObservedSize = { width: container.clientWidth, height: container.clientHeight }
+          resizeStableFrames = 0
+          scheduleStableLayout()
+        }
       }
       const handleKeyUp = (e: KeyboardEvent) => {
         recordImeDebug('window-keyup', { key: e.key, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, isComposing: e.isComposing })
@@ -1662,7 +1671,12 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         attachEventCount += 1
         const initialAttach = attachEventCount === 1
         const softRecover = initialAttach && hadOutputBeforeAttach
-        void loadSessionSnapshot()
+        const snapshot = loadSessionSnapshot()
+        const generation = resizeMaskGeneration
+        void snapshot.catch(() => null).then(() => {
+          if (!terminalResizePending || disposed || generation !== resizeMaskGeneration || cols !== terminal?.cols || rows !== terminal?.rows) return
+          revealResizeMask(generation)
+        })
         if (attachExclusiveRef.current) {
           const size = lastSizeRef.current
           if (!size || size.cols !== cols || size.rows !== rows) scheduleInitialFit()
@@ -1683,7 +1697,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         if (detail.sessionName && detail.sessionName !== sessionNameRef.current) return
         const cols = Number(detail.cols)
         const rows = Number(detail.rows)
-        if (!terminal || cols !== terminal.cols || rows !== terminal.rows) return
+        if (!terminal || cols !== terminal.cols || rows !== terminal.rows || detail.localOnly && !attachEventCount) return
         const generation = resizeMaskGeneration
         if (detail.localOnly) {
           revealResizeMask(generation)
@@ -1693,6 +1707,12 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           if (disposed || generation !== resizeMaskGeneration || cols !== terminal?.cols || rows !== terminal?.rows) return
           revealResizeMask(generation)
         })
+      }
+      const handleResizeAbort = (event: Event) => {
+        const detail = (event as CustomEvent).detail || {}
+        if (detail.hostId && detail.hostId !== (activeHostIdRef.current || 'local')) return
+        if (detail.sessionName && detail.sessionName !== sessionNameRef.current) return
+        if (terminalResizePending) revealResizeMask()
       }
       const handleLayoutChange = (event: Event) => {
         const detail = (event as CustomEvent).detail || {}
@@ -1736,6 +1756,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       }
       window.addEventListener('tmux-attached', handleAttached as EventListener)
       window.addEventListener('tmux-resized', handleResized as EventListener)
+      window.addEventListener('tmux-error', handleResizeAbort as EventListener)
+      window.addEventListener('tmux-detached', handleResizeAbort as EventListener)
       window.addEventListener('tmuxgo-layout-change', handleLayoutChange as EventListener)
       window.addEventListener('resize', handleWindowResize)
       window.addEventListener('keyup', handleKeyUp)
@@ -1842,6 +1864,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         dispose: () => {
           window.removeEventListener('tmux-attached', handleAttached as EventListener)
           window.removeEventListener('tmux-resized', handleResized as EventListener)
+          window.removeEventListener('tmux-error', handleResizeAbort as EventListener)
+          window.removeEventListener('tmux-detached', handleResizeAbort as EventListener)
           window.removeEventListener('tmuxgo-layout-change', handleLayoutChange as EventListener)
           unsubscribeOutput()
           if (!subscribeOutputRef.current) window.removeEventListener('tmuxgo-terminal-output', handleOutput as EventListener)
@@ -1991,7 +2015,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         touchMovedRef.current = false
       }}
     >
-      <div ref={resizeMaskRef} data-testid="terminal-resize-mask" aria-hidden="true" className="pointer-events-none absolute inset-0 z-10 hidden bg-bg-0" />
+      <div ref={resizeMaskRef} data-testid="terminal-resize-mask" aria-hidden="true" className="pointer-events-none absolute inset-0 z-10 hidden bg-bg-0" style={{ display: terminalResizePending ? 'block' : undefined }} />
       <div ref={paneResizeGuideRef} data-testid="pane-resize-guide" className="pointer-events-none absolute z-20 hidden bg-accent shadow-[0_0_6px_var(--accent)]" />
       {dropState.isDropActive && <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-lg border border-dashed border-accent bg-bg-0/70 text-sm text-accent shadow-[var(--glow)]">{t('terminal.dropUpload')}</div>}
       {githubDeviceLogin && <div data-testid="github-device-login-card" className="absolute inset-x-3 bottom-3 z-20 ml-auto w-auto max-w-sm rounded-2xl border border-accent/30 bg-bg-0/92 p-3 shadow-[0_18px_48px_rgba(0,0,0,0.38)] backdrop-blur" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} onTouchEnd={(e) => e.stopPropagation()}>

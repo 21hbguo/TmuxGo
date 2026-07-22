@@ -52,7 +52,7 @@ export function PluginView({ pluginId, viewId, mode = 'panel', onClose }: Plugin
         else if (message.method === 'storage.get') result = (await api.plugins.storage.get(pluginId, String(params.key || ''))).value
         else if (message.method === 'storage.set') result = await api.plugins.storage.set(pluginId, String(params.key || ''), params.value)
         else if (message.method === 'storage.delete') result = await api.plugins.storage.remove(pluginId, String(params.key || ''))
-        else if (message.method === 'action.invoke') result = await api.plugins.invoke(pluginId, String(params.actionId || ''), { ...context, ...(params.context && typeof params.context === 'object' ? params.context as Record<string, unknown> : {}), source: 'plugin-view' })
+        else if (message.method === 'action.invoke') result = await api.plugins.invoke(pluginId, String(params.actionId || ''), { ...(params.context && typeof params.context === 'object' ? params.context as Record<string, unknown> : {}), ...context, source: 'plugin-view' })
         else if (message.method === 'ui.notify') {
           const level = params.level === 'error' ? 'error' : params.level === 'success' ? 'success' : 'info'
           pushToast({ type: level, message: String(params.message || '') })

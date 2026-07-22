@@ -504,16 +504,21 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       const detail = (event as CustomEvent<{ pluginId?: string; viewId?: string }>).detail
       if (!detail?.pluginId || !detail.viewId) return
       if (!isMobile) {
+        dismissSettings()
         useConsoleStore.getState().setActivePluginView({ pluginId: detail.pluginId, viewId: detail.viewId })
         return
       }
       setShowSettings(false)
       setMobilePluginView({ pluginId: detail.pluginId, viewId: detail.viewId })
-      pushOverlay('mobile-plugin')
+      const stack = overlayRef.current
+      if (stack[stack.length - 1] === 'settings') {
+        stack[stack.length - 1] = 'mobile-plugin'
+        window.history.replaceState({ overlay: 'mobile-plugin' }, '')
+      } else pushOverlay('mobile-plugin')
     }
     window.addEventListener('tmuxgo-open-plugin-view', handleOpenPluginView as EventListener)
     return () => window.removeEventListener('tmuxgo-open-plugin-view', handleOpenPluginView as EventListener)
-  }, [isMobile, pushOverlay])
+  }, [dismissSettings, isMobile, pushOverlay])
   useEffect(() => {
     setMobileRecentSessionIds(readMobileRecentSessions(activeHostId || ''))
     setMobilePinnedSessionIds(readMobilePinnedSessions(activeHostId || ''))
