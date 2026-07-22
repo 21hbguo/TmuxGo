@@ -270,7 +270,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   const [debouncedQuery, setDebouncedQuery] = useState('')
   const [searchMode, setSearchMode] = useState<SearchMode>('name')
   const [fileTypeFilter, setFileTypeFilter] = useState<FileTypeFilter>('all')
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: FileEntry | null; directoryPath: string } | null>(null)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: FileEntry | null; directoryPath: string; mobile: boolean } | null>(null)
   const [mobileView, setMobileView] = useState<'list' | 'preview'>('list')
   const [favoriteDirectories, setFavoriteDirectories] = useState<FavoriteDirectory[]>([])
   const [contentReady] = useState(true)
@@ -821,7 +821,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     }
   }
   const showContextMenu = (x: number, y: number, item: FileEntry | null, directoryPath: string) => {
-    setContextMenu({ x, y, item, directoryPath })
+    setContextMenu({ x, y, item, directoryPath, mobile: isMobile })
   }
   const selectFromKeyboard = (item: FileItem | FileContentMatch, e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
@@ -1178,7 +1178,12 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
       {isMobile && mobileView === 'preview' && <div className="min-h-0 flex-1 bg-bg-0">{previewBlock}</div>}
       {isMobile && mobileView === 'preview' && selectedPath && <div className="border-t border-[var(--line)] p-3"><button onClick={() => insertPath(activeSourceRootPath ? joinPath(activeSourceRootPath, resolveRootRelativePath(activeRootBasePath, selectedPath)) : resolveRootRelativePath(activeRootBasePath, selectedPath))} className="w-full rounded-apple bg-accent/20 px-3 py-3 text-sm text-accent active:scale-[0.98]">{t('file.insertPath')}</button></div>}
       {contextMenu && (
-        <div className="fixed z-[90] w-44 overflow-hidden rounded-apple border border-[var(--line)] bg-bg-1 py-1 text-xs shadow-lg" style={{ left: contextMenu.x, top: contextMenu.y }} onClick={(e) => e.stopPropagation()}>
+        <div className="fixed z-[90] w-44 overflow-hidden rounded-apple border border-[var(--line)] bg-bg-1 py-1 text-xs shadow-lg" style={contextMenu.mobile ? { left: '50%', top: '50%', transform: 'translate(-50%, -50%)' } : { left: contextMenu.x, top: contextMenu.y }} onClick={(e) => e.stopPropagation()}>
+          {contextMenu.item?.type === 'directory' && (() => {
+            const favoriteKey = { rootId: activeRoot?.sourceRootId || '', path: joinRelativePath(activeRootBasePath, contextMenu.item!.path) }
+            const isFav = isFavoriteDirectory(favoriteKey)
+            return <button onClick={() => { toggleFavoriteDirectory(contextMenu.item as FileItem); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">{isFav ? t('file.removeFavorite') : t('file.addFavorite')}</button>
+          })()}
           {contextMenu.item?.type === 'file' && <button onClick={() => { openInEditor(contextMenu.item!); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">{t('file.openEditor')}</button>}
           {contextMenu.item && <button onClick={() => { insertItemPath(contextMenu.item!); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">{t('file.insertPathCtx')}</button>}
           {contextMenu.item && <button onClick={() => void copyItemName(contextMenu.item!).finally(() => setContextMenu(null))} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">{t('file.copyName')}</button>}
