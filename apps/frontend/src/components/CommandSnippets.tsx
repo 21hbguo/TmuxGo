@@ -2,6 +2,8 @@
 
 import { useState } from 'react'
 import { useTranslation } from '@/i18n'
+import { Button } from './Button'
+import { Chip } from './Chip'
 import { useSnippets, SNIPPET_NAME_KEYS } from '@/hooks/useSnippets'
 import { ModalPortal } from './ModalPortal'
 
@@ -42,7 +44,7 @@ export function CommandSnippets({ onSend, onClose }: CommandSnippetsProps) {
         <div className="p-4 border-b border-[var(--line)]">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-text-1 text-lg font-medium">{t('snippets.title')}</h2>
-            <button onClick={onClose} className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--icon-sm tmuxgo-icon-button" aria-label="close">✕</button>
+            <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="close">✕</Button>
           </div>
           <input
             type="text"
@@ -67,15 +69,16 @@ export function CommandSnippets({ onSend, onClose }: CommandSnippetsProps) {
                 <div className="text-text-1 text-sm">{getSnippetName(snippet)}</div>
                 <div className="text-text-3 text-xs font-mono mt-0.5">{snippet.command}</div>
               </div>
-              <button
+              <Chip
+                tone="danger"
                 onClick={(e) => {
                   e.stopPropagation()
                   removeSnippet(snippet.id)
                 }}
-                className="tmuxgo-chip tmuxgo-chip--danger opacity-0 group-hover:opacity-100 px-2"
+                className="opacity-0 group-hover:opacity-100 px-2"
               >
                 ×
-              </button>
+              </Chip>
             </div>
           ))}
         </div>
@@ -98,27 +101,18 @@ export function CommandSnippets({ onSend, onClose }: CommandSnippetsProps) {
                 className="tmuxgo-control tmuxgo-input w-full rounded px-3 py-2 font-mono text-sm"
               />
               <div className="flex gap-2">
-                <button
-                  onClick={handleAdd}
-                  className="tmuxgo-button tmuxgo-button--primary tmuxgo-button--sm"
-                >
+                <Button variant="primary" size="sm" onClick={handleAdd}>
                   {t('snippets.add')}
-                </button>
-                <button
-                  onClick={() => setIsAdding(false)}
-                  className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--sm"
-                >
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setIsAdding(false)}>
                   {t('snippets.cancel')}
-                </button>
+                </Button>
               </div>
             </div>
           ) : (
-            <button
-              onClick={() => setIsAdding(true)}
-              className="tmuxgo-button tmuxgo-button--sm w-full"
-            >
+            <Button size="sm" className="w-full" onClick={() => setIsAdding(true)}>
               {t('snippets.addSnippet')}
-            </button>
+            </Button>
           )}
         </div>
       </div>

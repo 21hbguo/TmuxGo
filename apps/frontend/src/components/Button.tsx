@@ -2,7 +2,7 @@
 import { forwardRef, type ButtonHTMLAttributes, type MouseEvent as ReactMouseEvent, type TouchEvent as ReactTouchEvent } from 'react'
 import { cn } from '@/lib/cn'
 
-export type ButtonVariant = 'default' | 'primary' | 'danger' | 'ghost'
+export type ButtonVariant = 'default' | 'primary' | 'danger' | 'ghost' | 'accent'
 export type ButtonSize = 'md' | 'sm' | 'lg' | 'icon' | 'icon-sm' | 'icon-lg'
 
 export interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'className'> {
@@ -18,6 +18,7 @@ const VARIANT: Record<ButtonVariant, string> = {
   primary: 'tmuxgo-button--primary',
   danger: 'tmuxgo-button--danger',
   ghost: 'tmuxgo-button--ghost',
+  accent: 'tmuxgo-button--accent',
 }
 
 const SIZE: Record<ButtonSize, string> = {

@@ -4,6 +4,7 @@ import { useSessionThumbnails } from '@/hooks/useApi'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
+import { Button } from './Button'
 import type { SessionThumbnailPane } from '@/types'
 import { PaneGrid } from './PaneGrid'
 
@@ -35,8 +36,8 @@ export function SessionThumbnailPanel() {
   return <section className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-bg-1">
     <div className="flex shrink-0 items-center gap-2 border-b border-[var(--line)] px-3 py-2">
       <div className="min-w-0 flex-1 text-sm font-semibold text-text-1">{t('thumbnail.title')}</div>
-      <button title={t('thumbnail.refresh')} onClick={() => void refetch()} className={`tmuxgo-button tmuxgo-button--ghost tmuxgo-button--icon-sm tmuxgo-icon-button ${isFetching ? 'text-accent' : ''}`}>↻</button>
-      <button title={t('thumbnail.close')} onClick={() => setThumbnailPanelOpen(false)} className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--icon-sm tmuxgo-icon-button">×</button>
+      <Button title={t('thumbnail.refresh')} aria-label="refresh" className={isFetching ? 'text-accent' : ''} onClick={() => void refetch()}>↻</Button>
+      <Button title={t('thumbnail.close')} aria-label="close" onClick={() => setThumbnailPanelOpen(false)}>×</Button>
     </div>
     <div className="shrink-0 border-b border-[var(--line)] px-3 py-1.5 text-[10px] text-text-3">{isFetching ? t('thumbnail.refreshing') : t('thumbnail.live')}</div>
     <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-y-auto p-3">

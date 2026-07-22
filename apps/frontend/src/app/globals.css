@@ -785,6 +785,18 @@ a {
   border-radius: 12px;
 }
 
+.tmuxgo-button--accent {
+  --text-color: rgb(var(--accent));
+  border-color: rgb(var(--accent) / 0.32);
+  background: color-mix(in srgb, rgb(var(--accent)) 20%, transparent);
+  --glass-shadow: 0 4px 12px color-mix(in srgb, rgb(var(--accent)) 24%, transparent);
+  --glass-shadow-hover: 0 6px 18px color-mix(in srgb, rgb(var(--accent)) 36%, transparent);
+}
+.tmuxgo-button--accent:hover:not(:disabled) {
+  background: color-mix(in srgb, rgb(var(--accent)) 32%, transparent);
+  border-color: rgb(var(--accent) / 0.5);
+}
+
 .tmuxgo-button--primary {
   --text-color: white;
   border-color: rgb(var(--accent) / 0.6);

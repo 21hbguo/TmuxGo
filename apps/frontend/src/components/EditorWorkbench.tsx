@@ -9,6 +9,8 @@ import { useGitDetect } from '@/hooks/useApi'
 import { clearActiveDraggedFile, FILE_DRAG_MIME, getActiveDraggedFile, readDraggedFile, setActiveDraggedFile } from '@/lib/editor-drag'
 import { OPEN_EDITOR_LOCATION_EVENT } from '@/lib/editor-open'
 import { useTranslation } from '@/i18n'
+import { Button } from './Button'
+import { Chip } from './Chip'
 import { ConfirmDialog } from './ConfirmDialog'
 import { DiffViewer } from './DiffViewer'
 import dynamic from '@/lib/dynamic'
@@ -483,10 +485,10 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
         <span className={`h-2 w-2 rounded-full ${editor.dirty ? 'bg-warn' : editor.saving ? 'bg-accent' : 'border border-[var(--line)] bg-transparent'}`} />
         <span className="min-w-0 flex-1 truncate">{editor.name}</span>
       </button>
-      <button aria-label={`Close ${editor.name}`} onClick={() => {
+      <Chip aria-label={`Close ${editor.name}`} className="mr-1.5 shrink-0 opacity-0 group-hover:opacity-100" onClick={() => {
         if (editor.dirty) { setPendingCloseEditorId(editor.id); return }
         closeEditor(editor.id)
-      }} className="tmuxgo-chip mr-1.5 shrink-0 opacity-0 group-hover:opacity-100">×</button>
+      }}>×</Chip>
       {tabInsertionTarget?.groupId === groupId && tabInsertionTarget.editorId === editor.id && <span className={`pointer-events-none absolute inset-y-1 z-20 w-[2px] rounded-full bg-accent shadow-[0_0_0_1px_rgba(30,200,255,0.2)] ${tabInsertionTarget.side === 'before' ? 'left-0' : 'right-0'}`} />}
     </div>
   )
@@ -629,11 +631,11 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
         </div>
         <div className="flex items-center gap-2">
           {!gitDiff && <>
-            <button onClick={closeAllEditors} className="tmuxgo-button tmuxgo-button--sm">{t('editor.clear')}</button>
-            <button onClick={() => void editorRefs.current[activeEditor.id]?.getAction?.('actions.find')?.run?.()} className="tmuxgo-button tmuxgo-button--sm">{t('editor.find')}</button>
-            <button onClick={() => void editorRefs.current[activeEditor.id]?.getAction?.('editor.action.formatDocument')?.run?.()} className="tmuxgo-button tmuxgo-button--sm">{t('editor.format')}</button>
-            {(activeEditor.language === 'markdown' || activeEditor.language === 'html') && <button onClick={() => setPreviewOpenById((current) => ({ ...current, [activeEditor.id]: current[activeEditor.id] === false }))} className={`tmuxgo-button tmuxgo-button--sm ${previewOpenById[activeEditor.id] !== false ? 'tmuxgo-button--accent' : ''}`}>{t('editor.preview')}</button>}
-            <button disabled={activeEditor.loading || activeEditor.saving || activeEditor.binary || activeEditor.truncated || !activeEditor.dirty} onClick={() => void onSaveEditor(activeEditor)} className={`tmuxgo-button tmuxgo-button--sm ${activeEditor.loading || activeEditor.saving || activeEditor.binary || activeEditor.truncated || !activeEditor.dirty ? '' : 'tmuxgo-button--accent'}`}>{activeEditor.saving ? t('editor.saving') : activeEditor.dirty ? t('editor.save') : t('editor.saved')}</button>
+            <Button size="sm" onClick={closeAllEditors}>{t('editor.clear')}</Button>
+            <Button size="sm" onClick={() => void editorRefs.current[activeEditor.id]?.getAction?.('actions.find')?.run?.()}>{t('editor.find')}</Button>
+            <Button size="sm" onClick={() => void editorRefs.current[activeEditor.id]?.getAction?.('editor.action.formatDocument')?.run?.()}>{t('editor.format')}</Button>
+            {(activeEditor.language === 'markdown' || activeEditor.language === 'html') && <Button size="sm" variant={previewOpenById[activeEditor.id] !== false ? 'accent' : 'default'} onClick={() => setPreviewOpenById((current) => ({ ...current, [activeEditor.id]: current[activeEditor.id] === false }))}>{t('editor.preview')}</Button>}
+            <Button size="sm" disabled={activeEditor.loading || activeEditor.saving || activeEditor.binary || activeEditor.truncated || !activeEditor.dirty} variant={activeEditor.loading || activeEditor.saving || activeEditor.binary || activeEditor.truncated || !activeEditor.dirty ? 'default' : 'accent'} onClick={() => void onSaveEditor(activeEditor)}>{activeEditor.saving ? t('editor.saving') : activeEditor.dirty ? t('editor.save') : t('editor.saved')}</Button>
           </>}
         </div>
       </div>

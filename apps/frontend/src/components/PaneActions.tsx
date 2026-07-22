@@ -4,6 +4,7 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import { api } from '@/lib/api'
 import { useSessionSnapshotSync } from '@/hooks/useSessionSnapshotSync'
 import { useTranslation } from '@/i18n'
+import { Button } from './Button'
 
 export function PaneActions() {
   const pushToast = useConsoleStore((s) => s.pushToast)
@@ -67,35 +68,19 @@ export function PaneActions() {
 
   return (
     <div className="flex items-center gap-1">
-      <button
-        onClick={() => handleSplit('horizontal')}
-        className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--icon-sm tmuxgo-icon-button text-xs"
-        title={t('pane.splitH')}
-      >
+      <Button variant="ghost" size="icon-sm" className="text-xs" onClick={() => handleSplit('horizontal')} title={t('pane.splitH')}>
         ◧
-      </button>
-      <button
-        onClick={() => handleSplit('vertical')}
-        className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--icon-sm tmuxgo-icon-button text-xs"
-        title={t('pane.splitV')}
-      >
+      </Button>
+      <Button variant="ghost" size="icon-sm" className="text-xs" onClick={() => handleSplit('vertical')} title={t('pane.splitV')}>
         ◨
-      </button>
-      <button
-        onClick={handleFullscreen}
-        className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--icon-sm tmuxgo-icon-button text-xs"
-        title={t('pane.fullscreen')}
-      >
+      </Button>
+      <Button variant="ghost" size="icon-sm" className="text-xs" onClick={handleFullscreen} title={t('pane.fullscreen')}>
         ⛶
-      </button>
+      </Button>
       <div className="w-px h-4 bg-[var(--line)] mx-1" />
-      <button
-        onClick={handleClose}
-        className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--icon-sm tmuxgo-icon-button text-xs text-danger"
-        title={t('pane.close')}
-      >
+      <Button variant="ghost" size="icon-sm" className="text-xs text-danger" onClick={handleClose} title={t('pane.close')}>
         ×
-      </button>
+      </Button>
     </div>
   )
 }

@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
+import { Button } from './Button'
 import { api } from '@/lib/api'
 import { ConfirmDialog } from './ConfirmDialog'
 import { PromptDialog } from './PromptDialog'
@@ -202,11 +203,11 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
               }
             }}
           />
-          <button onClick={close} className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--icon-sm tmuxgo-icon-button flex-shrink-0" aria-label="close">
+          <Button variant="ghost" size="icon-sm" className="flex-shrink-0" onClick={close} aria-label="close">
             <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
               <path d="M18 6 6 18M6 6l12 12" />
             </svg>
-          </button>
+          </Button>
         </div>
 
         <div className="max-h-[50vh] overflow-y-auto">
