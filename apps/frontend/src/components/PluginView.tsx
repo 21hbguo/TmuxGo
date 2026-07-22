@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { FiBox, FiX } from 'react-icons/fi'
+import { Button } from './Button'
 import { api } from '@/lib/api'
 import { getApiBase } from '@/lib/runtime-endpoints'
 import { usePlugins } from '@/hooks/useApi'
@@ -69,7 +70,7 @@ export function PluginView({ pluginId, viewId, mode = 'panel', onClose }: Plugin
   if (!plugin || !view || plugin.state !== 'active') return <div className="flex h-full items-center justify-center p-4 text-sm text-text-3">{t('plugins.viewUnavailable')}</div>
   const width = Math.max(240, Math.min(720, view.width || 360))
   return <section className={`tmuxgo-content-surface flex min-h-0 flex-col overflow-hidden ${mode === 'panel' ? 'shrink-0 border-r border-[var(--line)]' : 'h-full w-full'}`} style={mode === 'panel' ? { width } : undefined}>
-    <header className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--line)] px-3"><span className="flex h-6 w-6 items-center justify-center rounded bg-bg-2 text-accent"><FiBox size={13} /></span><div className="min-w-0 flex-1"><div className="truncate text-xs font-medium text-text-1">{view.title}</div><div className="truncate text-[10px] text-text-3">{plugin.manifest.name}</div></div><button onClick={onClose} className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--icon-sm tmuxgo-icon-button" aria-label={t('common.close')} title={t('common.close')}><FiX size={15} /></button></header>
+    <header className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--line)] px-3"><span className="flex h-6 w-6 items-center justify-center rounded bg-bg-2 text-accent"><FiBox size={13} /></span><div className="min-w-0 flex-1"><div className="truncate text-xs font-medium text-text-1">{view.title}</div><div className="truncate text-[10px] text-text-3">{plugin.manifest.name}</div></div><Button variant="ghost" size="icon-sm" onClick={onClose} aria-label={t('common.close')} title={t('common.close')}><FiX size={15} /></Button></header>
     <iframe ref={iframeRef} src={url} title={`${plugin.manifest.name}: ${view.title}`} sandbox="allow-scripts" referrerPolicy="no-referrer" className="min-h-0 flex-1 border-0 bg-bg-0" />
   </section>
 }

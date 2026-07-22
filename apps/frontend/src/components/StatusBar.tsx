@@ -5,6 +5,7 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
 import { useSystemInfo } from '@/hooks/useSystemInfo'
 import { useHosts, useSessionSnapshot } from '@/hooks/useApi'
+import { Chip } from './Chip'
 import { AgentStatusBadge } from './AgentStatusBadge'
 
 const gb = (mb: number) => (mb / 1024).toFixed(1)
