@@ -346,6 +346,7 @@ if op=='remove':
 if op=='resolve-file':
  print(json.dumps({'root':root,'absolutePath':abs_path,'relativePath':rel,'size':st.st_size,'isFile':pathlib.Path(abs_path).is_file()}));sys.exit(0)
 query=str(payload.get('query','')).lower().strip()
+path_search=os.path.isabs(query)
 clauses=[[token.strip().lower() for token in part.split() if token.strip()] for part in query.split('|') if part.strip()]
 def match_name(name):
  low=name.lower()
@@ -366,7 +367,7 @@ for current_root,dirs,files in os.walk(abs_path):
   relative=norm_rel(os.path.relpath(current,root['path']))
   if not include_dotfiles and any(part.startswith('.') and len(part)>1 for part in relative.split('/')): continue
   if op=='search-name':
-   if not match_name(name): continue
+   if not match_name(name) and not (path_search and match_name(current)): continue
    try: results.append(file_item(root['path'],current,name))
    except: pass
   else:
@@ -698,11 +699,12 @@ function matchesAnySearchTerm(value: string, clauses: string[][]) {
 async function searchName(rootId: string, query: string, basePath = '', includeDotFiles = true) {
   const clauses = parseSearchQuery(query)
   if (!clauses.length) return []
+  const pathSearch = path.isAbsolute(query.trim())
   const { root, absolutePath } = await resolveInside(rootId, basePath)
   const results: FileItem[] = []
   await walk(root.path, absolutePath, async (current, relativePath, entryType) => {
     if (!includeDotFiles && isDotPath(relativePath)) return entryType === 'directory' ? 'skip' : undefined
-    if (!matchesSearchQuery(path.basename(relativePath), clauses)) return
+    if (!matchesSearchQuery(path.basename(relativePath), clauses) && !(pathSearch && matchesSearchQuery(current, clauses))) return
     try {
       results.push(await toFileItem(root.path, current, path.basename(current)))
     } catch {}
