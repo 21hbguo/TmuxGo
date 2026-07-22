@@ -1,0 +1,543 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>TmuxGo · 主键 dock · 玻璃键帽</title>
+<style>
+:root{
+  --bg-0:12 13 15; --bg-1:24 25 28; --bg-2:42 43 48;
+  --accent:10 132 255; --accent-2:48 209 88; --warn:255 159 10; --danger:255 69 58;
+  --text-1:245 245 247; --text-2:174 174 178; --text-3:116 116 122;
+  --line:rgba(255,255,255,0.1);
+  --glass-blur:22px; --glass-saturate:160%;
+  --glass-fill:rgba(30,31,35,0.7); --glass-fill-strong:rgba(30,31,35,0.88);
+  --glass-rim:rgba(255,255,255,0.12); --glass-highlight:rgba(255,255,255,0.17);
+  --glass-shadow:0 14px 38px rgba(0,0,0,0.25);
+  --font-ui:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI","PingFang SC","Microsoft YaHei UI","Microsoft YaHei","Helvetica Neue",Arial,sans-serif;
+  --font-mono:Consolas,"Cascadia Mono","Cascadia Code","SF Mono",Monaco,Menlo,"DejaVu Sans Mono","Liberation Mono","Courier New",monospace;
+  --k-tint: rgb(var(--accent) / 0.22);
+  --k-tint-strong: rgb(var(--accent) / 0.34);
+  --k-danger-tint: rgb(var(--danger) / 0.22);
+  --k-danger-tint-strong: rgb(var(--danger) / 0.36);
+  --k-fill: rgb(var(--text-1) / 0.04);
+  --k-fill-hover: rgb(var(--text-1) / 0.07);
+  --k-fill-active: rgb(var(--text-1) / 0.12);
+  --k-rim: rgb(var(--text-1) / 0.10);
+  --k-rim-strong: rgb(var(--text-1) / 0.16);
+  --k-keytop: rgb(var(--text-1) / 0.03);
+  --k-keytop-active: rgb(var(--text-1) / 0.10);
+  --k-highlight: rgb(var(--text-1) / 0.10);
+  --k-keyshadow: 0 2px 0 rgb(0 0 0 / 0.45), 0 4px 10px rgb(0 0 0 / 0.35);
+  --k-keyshadow-active: inset 0 1px 2px rgb(0 0 0 / 0.35);
+  --k-ease: cubic-bezier(.2,.8,.2,1);
+}
+[data-theme="light"]{
+  --bg-0:232 234 238; --bg-1:248 249 251; --bg-2:224 226 231;
+  --accent:0 122 255; --accent-2:40 190 105; --warn:220 130 0; --danger:215 45 38;
+  --text-1:28 28 30; --text-2:99 99 102; --text-3:142 142 147;
+  --line:rgba(60,60,67,0.16);
+  --glass-fill:rgba(248,249,252,0.7); --glass-fill-strong:rgba(248,249,252,0.9);
+  --glass-rim:rgba(255,255,255,0.78); --glass-highlight:rgba(255,255,255,0.92);
+  --glass-shadow:0 14px 38px rgba(48,52,60,0.14);
+  --k-rim: rgb(var(--text-1) / 0.10);
+  --k-rim-strong: rgb(var(--text-1) / 0.16);
+  --k-highlight: rgb(255 255 255 / 0.6);
+  --k-keyshadow: 0 1px 0 rgb(0 0 0 / 0.10), 0 2px 4px rgb(0 0 0 / 0.08);
+}
+[data-theme="high-contrast"]{
+  --bg-0:0 0 0; --bg-1:10 10 10; --bg-2:26 26 26;
+  --accent:0 255 255; --accent-2:0 255 136; --warn:255 215 0; --danger:255 68 68;
+  --text-1:255 255 255; --text-2:204 204 204; --text-3:153 153 153;
+  --line:rgba(0,255,255,0.4);
+  --glass-blur:0px; --glass-fill:rgba(10,10,10,1); --glass-fill-strong:rgba(10,10,10,1);
+  --glass-rim:rgba(255,255,255,0.8); --glass-highlight:transparent; --glass-shadow:none;
+  --k-rim: rgb(255 255 255 / 0.6); --k-rim-strong: rgb(255 255 255 / 0.9);
+  --k-highlight: transparent;
+  --k-keyshadow: none;
+}
+[data-theme="dracula"]{
+  --bg-0:33 34 44; --bg-1:40 42 54; --bg-2:52 55 70;
+  --accent:189 147 249; --accent-2:255 121 198; --warn:255 184 108; --danger:255 85 85;
+  --text-1:248 248 242; --text-2:191 191 191; --text-3:98 114 164;
+  --line:rgba(189,147,249,0.28);
+}
+[data-theme="nord"]{
+  --bg-0:46 52 64; --bg-1:59 66 82; --bg-2:67 76 94;
+  --accent:136 192 208; --accent-2:129 161 193; --warn:235 203 139; --danger:191 97 106;
+  --text-1:236 239 244; --text-2:216 222 233; --text-3:76 86 106;
+  --line:rgba(136,192,208,0.28);
+}
+[data-theme="catppuccin"]{
+  --bg-0:17 17 27; --bg-1:24 24 37; --bg-2:49 50 68;
+  --accent:137 180 250; --accent-2:166 227 161; --warn:250 179 135; --danger:243 139 168;
+  --text-1:205 214 244; --text-2:166 173 200; --text-3:88 91 112;
+  --line:rgba(137,180,250,0.28);
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  font-family:var(--font-ui); color:rgb(var(--text-1));
+  background:
+    radial-gradient(120% 80% at 80% 0%, rgb(var(--accent) / 0.10) 0%, transparent 60%),
+    radial-gradient(80% 60% at 0% 100%, rgb(var(--accent-2) / 0.06) 0%, transparent 65%),
+    rgb(var(--bg-0));
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+  overflow-x:hidden;
+}
+
+.toolbar{
+  position:sticky; top:0; z-index:30;
+  display:flex; align-items:center; justify-content:space-between;
+  padding:14px 28px;
+  background: rgb(var(--bg-1) / 0.6);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  border-bottom:1px solid var(--line);
+}
+.toolbar h1{ font-size:13px; font-weight:600; letter-spacing:.02em; color: rgb(var(--text-2)); }
+.toolbar h1 b{ color: rgb(var(--text-1)); font-weight:600 }
+.toolbar .tag{
+  display:inline-block; padding:2px 8px; margin-left:8px;
+  font-size:10px; letter-spacing:.08em; text-transform:uppercase;
+  border:1px solid var(--line); border-radius:999px;
+  color: rgb(var(--accent)); background: rgb(var(--accent) / 0.08);
+}
+.themes{display:flex; gap:8px; align-items:center}
+.themes .label{font-size:11px; color:rgb(var(--text-3)); margin-right:4px; letter-spacing:.04em}
+.dot{
+  width:18px; height:18px; border-radius:50%; cursor:pointer;
+  border:1px solid var(--line);
+  transition:transform .2s var(--k-ease), box-shadow .2s var(--k-ease);
+}
+.dot:hover{ transform:scale(1.12) }
+.dot[data-active="true"]{ box-shadow:0 0 0 2px rgb(var(--bg-0)), 0 0 0 3px rgb(var(--accent)) }
+.t-dark{ background:#0c0d0f }
+.t-light{ background:#f8f9fb }
+.t-hc{ background:#000 }
+.t-dracula{ background:#282a36 }
+.t-nord{ background:#3b4252 }
+.t-cat{ background:#1e1e2e }
+
+.canvas{ max-width:1280px; margin:0 auto; padding:48px 28px 0; }
+.label-row{ display:flex; align-items:baseline; justify-content:space-between; margin-bottom:18px; }
+.label-row h2{
+  font-size:11px; font-weight:500; letter-spacing:.16em; text-transform:uppercase;
+  color: rgb(var(--text-3));
+}
+.label-row h2 b{ color: rgb(var(--text-1)); letter-spacing:.04em; text-transform:none }
+.label-row p{ font-size:12px; color: rgb(var(--text-3)) }
+
+.terminal{
+  border-radius:18px; overflow:hidden;
+  background: rgb(var(--bg-1));
+  border:1px solid var(--line);
+  box-shadow: 0 24px 60px rgb(0 0 0 / 0.4);
+}
+.terminal .chrome{
+  display:flex; align-items:center; gap:8px;
+  padding:10px 14px;
+  border-bottom:1px solid var(--line);
+  background: rgb(var(--bg-1) / 0.7);
+}
+.terminal .chrome .dot{ width:10px; height:10px; border-radius:50%; }
+.terminal .chrome .r{ background: rgb(255 95 86) }
+.terminal .chrome .y{ background: rgb(255 189 46) }
+.terminal .chrome .g{ background: rgb(39 201 63) }
+.terminal .chrome .title{
+  margin-left:auto; margin-right:auto;
+  font-family:var(--font-mono); font-size:11px;
+  color: rgb(var(--text-3));
+}
+.terminal pre{
+  padding:18px 18px 22px;
+  font-family:var(--font-mono); font-size:12.5px; line-height:1.6;
+  color: rgb(var(--text-1));
+  white-space:pre-wrap;
+}
+.terminal pre .p{ color: rgb(var(--accent-2)) }
+.terminal pre .c{ color: rgb(var(--text-3)) }
+.terminal pre .a{ color: rgb(var(--accent)) }
+
+.section-dock{ margin: 56px 0 32px; }
+.dock-wrap{
+  position:relative;
+  border-radius: 22px;
+  background: var(--glass-fill);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border:1px solid var(--glass-rim);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
+  padding: 12px;
+  overflow:hidden;
+}
+.dock-wrap::before, .dock-wrap::after{
+  content:""; position:absolute; top:0; bottom:0; width:36px; pointer-events:none; z-index:2;
+}
+.dock-wrap::before{ left:0; background: linear-gradient(90deg, rgb(var(--bg-1) / 0.92), transparent); }
+.dock-wrap::after{ right:0; background: linear-gradient(270deg, rgb(var(--bg-1) / 0.92), transparent); }
+.dock-scroll{
+  display:flex; gap:8px; align-items:flex-end;
+  overflow-x:auto; scrollbar-width:none; -ms-overflow-style:none;
+  padding: 4px 12px 8px;
+  scroll-behavior:smooth;
+}
+.dock-scroll::-webkit-scrollbar{ display:none }
+
+.dock-group{
+  display:flex; align-items:stretch; gap:6px;
+  padding:6px; border-radius:14px;
+  background: rgb(var(--text-1) / 0.02);
+  border:1px solid var(--line);
+}
+.dock-group + .dock-group{ margin-left:6px }
+
+.k{
+  appearance:none; border:0; cursor:pointer;
+  font-family:var(--font-ui); font-weight:500;
+  font-size:12.5px; line-height:1;
+  color: rgb(var(--text-2));
+  min-width:44px; min-height:44px;
+  padding:0 12px;
+  border-radius: 12px;
+  background: var(--k-keytop);
+  border:1px solid var(--k-rim);
+  box-shadow: var(--k-keyshadow), inset 0 1px 0 var(--k-highlight);
+  transition:
+    transform .12s var(--k-ease),
+    background-color .15s ease,
+    color .15s ease,
+    box-shadow .15s ease,
+    border-color .15s ease;
+  display:inline-flex; align-items:center; justify-content:center;
+  gap:6px; white-space:nowrap; user-select:none;
+  -webkit-tap-highlight-color:transparent;
+}
+.k:hover{
+  color: rgb(var(--text-1));
+  background: var(--k-fill-hover);
+  border-color: var(--k-rim-strong);
+}
+.k:focus-visible{
+  outline:none;
+  box-shadow:
+    var(--k-keyshadow),
+    inset 0 1px 0 var(--k-highlight),
+    0 0 0 2px rgb(var(--accent) / 0.5);
+}
+.k:active{
+  transform: translateY(1px) scale(.985);
+  box-shadow: var(--k-keyshadow-active);
+  background: var(--k-keytop-active);
+  color: rgb(var(--text-1));
+}
+.k.is-freq{
+  font-size:13px; min-width:54px; min-height:48px;
+  color: rgb(var(--text-1));
+}
+.k.is-enter{ min-width: 72px }
+.k.is-arrow{
+  min-width:42px; min-height:42px;
+  background: var(--k-tint);
+  border-color: rgb(var(--accent) / 0.32);
+}
+.k.is-arrow:hover{ background: var(--k-tint-strong); }
+.k.is-arrow:active{ background: rgb(var(--accent) / 0.45); }
+.k.is-accent{
+  color: rgb(var(--accent));
+  background: var(--k-tint);
+  border-color: rgb(var(--accent) / 0.32);
+}
+.k.is-accent:hover{ background: var(--k-tint-strong); }
+.k.is-danger{
+  color: rgb(var(--danger));
+  background: var(--k-danger-tint);
+  border-color: rgb(var(--danger) / 0.32);
+}
+.k.is-danger:hover{ background: var(--k-danger-tint-strong); }
+.k.is-repeat{ position:relative }
+.k.is-repeat::after{
+  content:""; position:absolute; left:8px; right:8px; bottom:6px;
+  height:2px; border-radius:2px;
+  background: rgb(var(--accent));
+  transform: scaleX(0); transform-origin:left;
+  transition: transform .42s linear;
+}
+.k.is-repeat.is-holding::after{ transform: scaleX(1) }
+.k .ic{ width:14px; height:14px; flex:none }
+
+.cluster-mod{ display:flex; gap:4px; flex-wrap:wrap }
+.cluster-mod .k{ min-width:42px; min-height:36px; padding:0 8px; font-size:11px; border-radius:9px }
+
+.dpad{
+  display:grid; grid-template-columns:repeat(3, 42px); grid-template-rows:repeat(3, 42px); gap:4px;
+}
+.dpad .k.up   { grid-column:2; grid-row:1 }
+.dpad .k.left { grid-column:1; grid-row:2 }
+.dpad .k.down { grid-column:2; grid-row:2 }
+.dpad .k.right{ grid-column:3; grid-row:2 }
+.dpad .pad{ grid-column:1 / 4; grid-row:3; height:8px; border-radius:8px;
+  background: rgb(var(--text-1) / 0.04); border:1px dashed var(--line) }
+
+.k.is-pill{ border-radius:999px; padding:0 14px; font-size:11.5px }
+
+.frame-mobile{
+  margin: 56px auto 80px;
+  max-width: 390px;
+  border-radius: 38px; padding:14px;
+  background: rgb(var(--bg-2) / 0.6);
+  border:1px solid var(--line);
+  box-shadow: 0 30px 80px rgb(0 0 0 / 0.5), inset 0 1px 0 rgb(255 255 255 / 0.06);
+}
+.frame-mobile .screen{
+  border-radius: 26px; overflow:hidden;
+  background: rgb(var(--bg-0));
+  position:relative;
+  min-height: 540px;
+  display:flex; flex-direction:column;
+}
+.frame-mobile .term-mock{
+  flex:1; padding:14px 16px;
+  font-family:var(--font-mono); font-size:11px; line-height:1.55;
+  color: rgb(var(--text-1));
+}
+.frame-mobile .term-mock .p{ color: rgb(var(--accent-2)) }
+.frame-mobile .term-mock .c{ color: rgb(var(--text-3)) }
+.frame-mobile .term-mock .cursor{
+  display:inline-block; width:7px; height:12px;
+  background: rgb(var(--accent)); transform: translateY(2px);
+  animation: blink 1s steps(1) infinite;
+}
+@keyframes blink{ 50%{ opacity:0 } }
+
+.mobiledock-wrap{
+  padding: 10px 10px calc(14px + env(safe-area-inset-bottom, 0px));
+  background: var(--glass-fill-strong);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border-top:1px solid var(--glass-rim);
+  box-shadow: inset 0 1px 0 var(--glass-highlight), 0 -10px 30px rgb(0 0 0 / 0.4);
+}
+.mobiledock{ display:grid; grid-template-columns: repeat(4, 1fr); gap:6px; }
+.mobiledock .k{ min-height:48px; min-width:0; font-size:12px; padding:0 6px; }
+
+.legend{
+  max-width:1280px; margin:0 auto 80px; padding:0 28px;
+  display:grid; grid-template-columns:repeat(4, 1fr); gap:14px;
+}
+.legend .card{
+  border-radius:14px; padding:14px 16px;
+  background: var(--glass-fill);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  border:1px solid var(--glass-rim);
+}
+.legend h4{
+  font-size:10px; letter-spacing:.18em; text-transform:uppercase;
+  color: rgb(var(--text-3)); margin-bottom:6px;
+}
+.legend p{ font-size:12.5px; line-height:1.55; color: rgb(var(--text-2)) }
+
+@media (max-width: 900px){ .legend{ grid-template-columns: 1fr 1fr } }
+@media (max-width: 600px){
+  .toolbar{ padding:12px 16px }
+  .canvas{ padding:32px 16px 0 }
+  .legend{ grid-template-columns: 1fr; padding:0 16px }
+}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{
+    animation-duration:.001ms !important;
+    transition-duration:.001ms !important;
+  }
+}
+</style>
+</head>
+<body>
+
+<header class="toolbar">
+  <h1>TmuxGo · 主键 dock <b>玻璃键帽</b><span class="tag">A · iOS Liquid Glass</span></h1>
+  <div class="themes">
+    <span class="label">主题</span>
+    <div class="dot t-dark"     data-theme="dark"          data-active="true" title="Midnight"></div>
+    <div class="dot t-light"    data-theme="light"         title="Daylight"></div>
+    <div class="dot t-hc"       data-theme="high-contrast" title="HC"></div>
+    <div class="dot t-dracula"  data-theme="dracula"       title="Dracula"></div>
+    <div class="dot t-nord"     data-theme="nord"          title="Nord"></div>
+    <div class="dot t-cat"      data-theme="catppuccin"    title="Catppuccin"></div>
+  </div>
+</header>
+
+<main class="canvas">
+  <div class="label-row">
+    <h2>Desktop 1440 · <b>桌面横排 dock</b></h2>
+    <p>点击 / 按住可重复键看反馈 · 方向键、Enter/Esc 是高频键</p>
+  </div>
+
+  <div class="terminal">
+    <div class="chrome">
+      <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+      <span class="title">hongbin@local — tmux: dev-tools · pane 0</span>
+    </div>
+<pre><span class="p">hongbin@local</span>:<span class="a">~/projects/tmuxgo</span>$ pnpm vitest run --reporter=verbose
+<span class="c"> ✓</span> agent-status.test.ts <span class="c">(12)</span>
+<span class="c"> ✓</span> SessionPanel.test.tsx <span class="c">(8)</span>
+<span class="c"> ✓</span> GitPanel.real.test.tsx <span class="c">(6)</span>
+Test Files  <span class="c">3 passed</span> (3)
+     Time   <span class="c">2.41 s</span>
+
+<span class="p">hongbin@local</span>:<span class="a">~/projects/tmuxgo</span>$ <span class="cursor"></span></pre>
+  </div>
+
+  <section class="section-dock">
+    <div class="label-row">
+      <h2>主键 dock · <b>按下体验</b></h2>
+      <p>↑↓←→ 可长按（出现底部 progress）· Enter / Esc 是高频键</p>
+    </div>
+
+    <div class="dock-wrap">
+      <div class="dock-scroll" id="dockScroll">
+
+        <div class="dock-group">
+          <div class="cluster-mod">
+            <button class="k"><span class="lab">Ctrl</span></button>
+            <button class="k"><span class="lab">⌥</span></button>
+            <button class="k"><span class="lab">⌘</span></button>
+          </div>
+        </div>
+
+        <div class="dock-group">
+          <button class="k is-freq" title="Escape"><span class="lab">Esc</span></button>
+          <button class="k is-freq" title="Tab"><span class="lab">Tab</span></button>
+        </div>
+
+        <div class="dock-group">
+          <div class="dpad">
+            <button class="k is-arrow up" data-repeat aria-label="上">
+              <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg>
+            </button>
+            <button class="k is-arrow left" data-repeat aria-label="左">
+              <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M11 6l-6 6 6 6"/></svg>
+            </button>
+            <button class="k is-arrow down" data-repeat aria-label="下">
+              <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg>
+            </button>
+            <button class="k is-arrow right" data-repeat aria-label="右">
+              <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M13 6l6 6-6 6"/></svg>
+            </button>
+            <div class="pad" aria-hidden="true"></div>
+          </div>
+        </div>
+
+        <div class="dock-group">
+          <button class="k" title="清除整行"><span class="lab">⌫⌫</span></button>
+          <button class="k" title="清除一词"><span class="lab">⌫词</span></button>
+          <button class="k is-freq is-enter" title="Enter">
+            <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 10l4 4 4-4"/><path d="M5 6h14"/></svg>
+            <span class="lab">Enter</span>
+          </button>
+          <button class="k is-freq" data-repeat title="Backspace" aria-label="Backspace">
+            <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 9l6 6M15 9l-6 6"/><path d="M3 12l7-7h11v14H10z"/></svg>
+          </button>
+        </div>
+
+        <div class="dock-group">
+          <button class="k is-accent" title="复制选中"><span class="lab">⎘ 复制</span></button>
+          <button class="k is-accent" title="粘贴"><span class="lab">⎘ 粘贴</span></button>
+          <button class="k is-accent" title="聚焦/退出聚焦"><span class="lab">⤢ 聚焦</span></button>
+        </div>
+
+        <div class="dock-group">
+          <button class="k is-danger" title="删除当前面板"><span class="lab">✕ 删面板</span></button>
+          <button class="k is-pill" title="独占 / 共享附接">
+            <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M3 12h3M18 12h3M12 3v3M12 18v3"/></svg>
+            <span class="lab">独占</span>
+          </button>
+        </div>
+
+        <div class="dock-group">
+          <button class="k is-pill" title="自定义：保存片段"><span class="lab">⌘ 片段</span></button>
+          <button class="k is-pill" title="自定义：清屏"><span class="lab">⌘ clear</span></button>
+          <button class="k is-pill" title="自定义：项目 cd"><span class="lab">⌘ project</span></button>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <section class="legend">
+    <div class="card">
+      <h4>共享玻璃</h4>
+      <p>整条 dock 一个 backdrop-filter，按键透明作为子项，规避相邻按钮的双重采样糊化。</p>
+    </div>
+    <div class="card">
+      <h4>键帽浮雕</h4>
+      <p>外阴影 + 顶 inset highlight 模拟物理键帽；按下时 transform + inset shadow 翻转，触感真实。</p>
+    </div>
+    <div class="card">
+      <h4>语义 tint</h4>
+      <p>方向键走 accent tint，复制/粘贴/聚焦走 accent tint，删面板走 danger tint，全部从 token 派生。</p>
+    </div>
+    <div class="card">
+      <h4>可重复反馈</h4>
+      <p>长按 420ms 后键底出现 accent progress 条，告诉用户「持续输入中」。</p>
+    </div>
+  </section>
+
+  <section class="label-row" style="margin-top:48px">
+    <h2>Mobile 390 · <b>底部 dock</b></h2>
+    <p>4 列网格 · 44×44 触控目标 · safe-area-aware · 按下更深的 inset</p>
+  </section>
+
+  <div class="frame-mobile">
+    <div class="screen">
+      <div class="term-mock">
+        <div><span class="p">hongbin@local</span>:~$ pnpm dev</div>
+        <div class="c">  VITE v5.0  ready in 320 ms</div>
+        <div class="c">  ➜  Local:   http://localhost:5173/</div>
+        <div><span class="p">hongbin@local</span>:~$ <span class="cursor"></span></div>
+      </div>
+
+      <div class="mobiledock-wrap">
+        <div class="mobiledock">
+          <button class="k is-arrow"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg></button>
+          <button class="k is-arrow"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
+          <button class="k is-arrow"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M11 6l-6 6 6 6"/></svg></button>
+          <button class="k is-arrow"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M13 6l6 6-6 6"/></svg></button>
+
+          <button class="k is-freq is-enter"><span class="lab">Enter</span></button>
+          <button class="k is-freq"><span class="lab">Esc</span></button>
+          <button class="k is-freq"><span class="lab">Tab</span></button>
+          <button class="k is-freq" data-repeat><span class="lab">⌫</span></button>
+
+          <button class="k is-accent"><span class="lab">⎘ 复制</span></button>
+          <button class="k is-accent"><span class="lab">⎘ 粘贴</span></button>
+          <button class="k is-accent"><span class="lab">⤢ 聚焦</span></button>
+          <button class="k is-danger"><span class="lab">✕ 删面板</span></button>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+  document.querySelectorAll('.themes .dot').forEach(d=>{
+    d.addEventListener('click',()=>{
+      document.querySelectorAll('.themes .dot').forEach(x=>x.removeAttribute('data-active'))
+      d.setAttribute('data-active','true')
+      document.documentElement.setAttribute('data-theme', d.dataset.theme)
+    })
+  })
+  document.querySelectorAll('.k[data-repeat]').forEach(btn=>{
+    let t
+    const start=()=>{ btn.classList.add('is-holding'); t=setTimeout(()=>{ btn.classList.add('is-repeating') }, 420) }
+    const end=()=>{ clearTimeout(t); btn.classList.remove('is-holding','is-repeating') }
+    btn.addEventListener('pointerdown', start)
+    btn.addEventListener('pointerup', end)
+    btn.addEventListener('pointerleave', end)
+    btn.addEventListener('pointercancel', end)
+  })
+</script>
+</body>
+</html>

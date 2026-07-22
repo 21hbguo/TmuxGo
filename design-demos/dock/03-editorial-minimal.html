@@ -1,0 +1,552 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>TmuxGo · 主键 dock · 编辑极简</title>
+<style>
+:root{
+  --bg-0:12 13 15; --bg-1:24 25 28; --bg-2:42 43 48;
+  --accent:10 132 255; --accent-2:48 209 88; --warn:220 130 0; --danger:255 69 58;
+  --text-1:245 245 247; --text-2:174 174 178; --text-3:116 116 122;
+  --line:rgba(255,255,255,0.10);
+  --glass-blur:22px; --glass-saturate:160%;
+  --glass-fill:rgba(30,31,35,0.7); --glass-fill-strong:rgba(30,31,35,0.88);
+  --glass-rim:rgba(255,255,255,0.12); --glass-highlight:rgba(255,255,255,0.17);
+  --glass-shadow:0 14px 38px rgba(0,0,0,0.25);
+  --font-ui:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI","PingFang SC","Microsoft YaHei UI","Microsoft YaHei","Helvetica Neue",Arial,sans-serif;
+  --font-mono:Consolas,"Cascadia Mono","Cascadia Code","SF Mono",Monaco,Menlo,"DejaVu Sans Mono","Liberation Mono","Courier New",monospace;
+  --font-serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman","Songti SC","Noto Serif CJK SC",serif;
+  --ink: rgb(var(--text-1));
+  --ink-soft: rgb(var(--text-2));
+  --ink-mute: rgb(var(--text-3));
+  --rule: rgb(var(--text-1) / 0.10);
+  --rule-strong: rgb(var(--text-1) / 0.18);
+  --terracotta: rgb(var(--warn));
+  --ease: cubic-bezier(.2,.8,.2,1);
+}
+[data-theme="light"]{
+  --bg-0:245 244 240; --bg-1:252 251 247; --bg-2:232 230 224;
+  --accent:0 102 204; --accent-2:48 130 88; --warn:170 80 30; --danger:170 30 24;
+  --text-1:28 26 22; --text-2:80 76 68; --text-3:130 124 112;
+  --line:rgba(40,38,32,0.14);
+  --glass-fill:rgba(252,251,247,0.78); --glass-fill-strong:rgba(252,251,247,0.92);
+  --glass-rim:rgba(255,255,255,0.86); --glass-highlight:rgba(255,255,255,0.94);
+  --glass-shadow:0 14px 38px rgba(48,52,60,0.12);
+  --terracotta: rgb(var(--warn));
+}
+[data-theme="high-contrast"]{
+  --bg-0:0 0 0; --bg-1:8 8 8; --bg-2:18 18 18;
+  --accent:0 255 255; --accent-2:0 255 136; --warn:255 215 0; --danger:255 68 68;
+  --text-1:255 255 255; --text-2:204 204 204; --text-3:153 153 153;
+  --line:rgba(255,255,255,0.4);
+  --glass-blur:0px; --glass-fill:rgba(8,8,8,1); --glass-fill-strong:rgba(8,8,8,1);
+  --glass-rim:rgba(255,255,255,0.6); --glass-highlight:transparent; --glass-shadow:none;
+  --rule: rgb(255 255 255 / 0.4);
+  --rule-strong: rgb(255 255 255 / 0.8);
+}
+[data-theme="dracula"]{
+  --bg-0:33 34 44; --bg-1:40 42 54; --bg-2:52 55 70;
+  --accent:189 147 249; --accent-2:255 121 198; --warn:255 184 108; --danger:255 85 85;
+  --text-1:248 248 242; --text-2:191 191 191; --text-3:98 114 164;
+  --line:rgba(189,147,249,0.20);
+}
+[data-theme="nord"]{
+  --bg-0:46 52 64; --bg-1:59 66 82; --bg-2:67 76 94;
+  --accent:136 192 208; --accent-2:129 161 193; --warn:235 203 139; --danger:191 97 106;
+  --text-1:236 239 244; --text-2:216 222 233; --text-3:76 86 106;
+  --line:rgba(136,192,208,0.22);
+}
+[data-theme="catppuccin"]{
+  --bg-0:17 17 27; --bg-1:24 24 37; --bg-2:49 50 68;
+  --accent:137 180 250; --accent-2:166 227 161; --warn:250 179 135; --danger:243 139 168;
+  --text-1:205 214 244; --text-2:166 173 200; --text-3:88 91 112;
+  --line:rgba(137,180,250,0.22);
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  font-family:var(--font-ui); color:var(--ink);
+  background:
+    radial-gradient(60% 40% at 100% 0%, rgb(var(--warn) / 0.06) 0%, transparent 65%),
+    rgb(var(--bg-0));
+  -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+  overflow-x:hidden;
+}
+
+.toolbar{
+  position:sticky; top:0; z-index:30;
+  display:flex; align-items:center; justify-content:space-between;
+  padding:18px 32px;
+  background: rgb(var(--bg-0) / 0.7);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  border-bottom:1px solid var(--line);
+}
+.toolbar h1{
+  font-family:var(--font-serif); font-size:16px; font-weight:400;
+  color: var(--ink); letter-spacing:.01em;
+}
+.toolbar h1 em{
+  font-style:italic; color: var(--terracotta); font-weight:400;
+}
+.toolbar .tag{
+  display:inline-block; padding:2px 10px; margin-left:14px;
+  font-size:10px; letter-spacing:.18em; text-transform:uppercase;
+  border:1px solid var(--rule-strong); border-radius:999px;
+  color: var(--ink-soft); font-family:var(--font-ui);
+}
+.themes{display:flex; gap:8px; align-items:center}
+.themes .label{
+  font-size:10px; color:var(--ink-mute); margin-right:6px;
+  letter-spacing:.18em; text-transform:uppercase; font-family:var(--font-ui);
+}
+.dot{
+  width:18px; height:18px; border-radius:50%; cursor:pointer;
+  border:1px solid var(--rule-strong);
+  transition:transform .2s var(--ease), box-shadow .2s var(--ease);
+}
+.dot:hover{ transform:scale(1.12) }
+.dot[data-active="true"]{ box-shadow:0 0 0 2px rgb(var(--bg-0)), 0 0 0 3px var(--terracotta) }
+.t-dark{ background:#0c0d0f }
+.t-light{ background:#fcfbf7 }
+.t-hc{ background:#000 }
+.t-dracula{ background:#282a36 }
+.t-nord{ background:#3b4252 }
+.t-cat{ background:#1e1e2e }
+
+.canvas{ max-width:1080px; margin:0 auto; padding:72px 32px 0; }
+
+.masthead{
+  border-bottom:2px solid var(--ink); padding-bottom:24px; margin-bottom:48px;
+}
+.masthead .issue{
+  font-family:var(--font-mono); font-size:11px; color:var(--ink-soft);
+  letter-spacing:.18em; text-transform:uppercase;
+  display:flex; justify-content:space-between; align-items:center;
+}
+.masthead h2{
+  font-family:var(--font-serif); font-size:48px; font-weight:400;
+  letter-spacing:-.01em; line-height:1.05; margin-top:18px;
+}
+.masthead h2 em{
+  font-style:italic; color: var(--terracotta);
+}
+.masthead .deck{
+  font-family:var(--font-serif); font-size:18px; line-height:1.55;
+  color:var(--ink-soft); margin-top:18px; max-width:680px;
+}
+
+.label-row{
+  display:flex; align-items:baseline; justify-content:space-between;
+  margin: 56px 0 22px; padding-top:18px;
+  border-top:1px solid var(--rule);
+}
+.label-row h3{
+  font-family:var(--font-serif); font-size:18px; font-weight:400;
+  color: var(--ink); letter-spacing:-.005em;
+}
+.label-row h3 em{ font-style:italic; color: var(--terracotta); }
+.label-row .meta{
+  font-family:var(--font-mono); font-size:11px; color:var(--ink-mute);
+  letter-spacing:.04em;
+}
+
+.terminal{
+  border-top:1px solid var(--rule);
+  border-bottom:1px solid var(--rule);
+  padding:24px 0;
+  font-family:var(--font-mono); font-size:12.5px; line-height:1.7;
+  color: var(--ink); white-space:pre-wrap;
+  background: transparent;
+}
+.terminal .chrome{
+  display:flex; gap:14px; align-items:center; margin-bottom:14px;
+  font-size:10px; color:var(--ink-mute); letter-spacing:.18em;
+  text-transform:uppercase; font-family:var(--font-ui);
+}
+.terminal .chrome .pill{
+  padding:2px 8px; border:1px solid var(--rule-strong); border-radius:999px;
+}
+.terminal pre{ font-family:var(--font-mono); white-space:pre-wrap; }
+.terminal pre .p{ color: var(--terracotta) }
+.terminal pre .c{ color:var(--ink-mute) }
+.terminal pre .a{ color: var(--ink); font-weight:600 }
+
+/* ====== 印刷风格 dock ====== */
+.section-dock{ margin: 16px 0 48px; }
+
+.dock-strip{
+  border-top:1px solid var(--ink);
+  border-bottom:1px solid var(--ink);
+  padding: 28px 0 32px;
+}
+
+.dock-list{
+  display:grid; grid-template-columns: repeat(8, 1fr);
+  column-gap: 22px; row-gap: 28px;
+  align-items:end;
+}
+.dock-list .item{
+  display:flex; flex-direction:column; gap:8px;
+  min-width:0;
+}
+.dock-list .item .cap{
+  font-family:var(--font-mono); font-size:10px;
+  color:var(--ink-mute); letter-spacing:.18em; text-transform:uppercase;
+}
+.dock-list .item .cap .n{ color:var(--terracotta); margin-right:4px }
+
+.k{
+  appearance:none; border:0; cursor:pointer;
+  font-family:var(--font-serif); font-weight:400;
+  font-size:18px; line-height:1;
+  color: var(--ink);
+  min-height:46px; padding:0 8px;
+  border-radius:0;
+  background: transparent;
+  border:1px solid var(--ink);
+  transition:
+    background-color .14s ease,
+    color .14s ease,
+    border-color .14s ease;
+  display:inline-flex; align-items:center; justify-content:center; gap:6px;
+  white-space:nowrap; user-select:none;
+  -webkit-tap-highlight-color:transparent;
+}
+.k:hover{
+  background: var(--ink);
+  color: rgb(var(--bg-0));
+}
+.k:focus-visible{
+  outline:none;
+  box-shadow: 0 0 0 2px var(--terracotta);
+}
+.k.is-freq{ font-weight:600 }
+.k.is-arrow{ font-size:16px; color:var(--ink); }
+.k.is-arrow:hover{ background:var(--terracotta); border-color:var(--terracotta); color:rgb(var(--bg-0)); }
+.k.is-accent{ border-color: var(--terracotta); color: var(--terracotta) }
+.k.is-accent:hover{ background: var(--terracotta); color: rgb(var(--bg-0)) }
+.k.is-danger{ color: var(--terracotta); border-color: var(--terracotta) }
+.k.is-danger:hover{ background: var(--terracotta); color: rgb(var(--bg-0)) }
+.k.is-wide{ grid-column: span 2 }
+.k.is-pill{ border-radius:999px }
+.k.is-sans{ font-family:var(--font-ui); font-size:13px; font-weight:500 }
+.k.is-mono{ font-family:var(--font-mono); font-size:13px; font-weight:500; letter-spacing:.02em }
+
+/* 方向键十字 */
+.dpad{
+  display:grid; grid-template-columns:repeat(3, 44px); grid-template-rows:repeat(2, 46px); gap:6px;
+  margin-left:-1px;
+}
+.dpad .k.up   { grid-column:2; grid-row:1 }
+.dpad .k.left { grid-column:1; grid-row:2 }
+.dpad .k.down { grid-column:2; grid-row:2 }
+.dpad .k.right{ grid-column:3; grid-row:2 }
+
+/* 长按 feedback */
+.k.is-repeat{ position:relative; overflow:hidden }
+.k.is-repeat::after{
+  content:""; position:absolute; left:0; bottom:0; height:2px; width:100%;
+  background: var(--terracotta);
+  transform: scaleX(0); transform-origin:left;
+  transition: transform .42s linear;
+}
+.k.is-repeat.is-holding::after{ transform: scaleX(1) }
+
+/* caption row */
+.caption-row{
+  display:flex; justify-content:space-between;
+  font-family:var(--font-mono); font-size:10px;
+  color:var(--ink-mute); letter-spacing:.04em;
+  margin-top:18px;
+  padding-top:10px; border-top:1px solid var(--rule);
+}
+
+/* ====== 移动端排版风 dock ====== */
+.frame-mobile{
+  margin: 56px auto 80px;
+  max-width: 390px;
+  border-radius: 0; padding:0;
+  background: transparent;
+  border:1px solid var(--rule);
+  box-shadow: none;
+}
+.frame-mobile .screen{
+  border-radius: 0; overflow:hidden;
+  background: transparent;
+  position:relative; min-height: 600px;
+  display:flex; flex-direction:column;
+}
+.frame-mobile .term-mock{
+  flex:1; padding:20px 18px;
+  font-family:var(--font-mono); font-size:11px; line-height:1.65;
+  color: var(--ink);
+  border-bottom:1px solid var(--rule);
+}
+.frame-mobile .term-mock .p{ color: var(--terracotta) }
+.frame-mobile .term-mock .c{ color:var(--ink-mute) }
+.frame-mobile .term-mock .cursor{
+  display:inline-block; width:7px; height:12px;
+  background: var(--terracotta); transform: translateY(2px);
+  animation: blink 1s steps(1) infinite;
+}
+@keyframes blink{ 50%{ opacity:0 } }
+
+.mobiledock-strip{
+  border-top:2px solid var(--ink);
+  padding: 18px 18px calc(20px + env(safe-area-inset-bottom, 0px));
+}
+.mobiledock-strip .meta{
+  font-family:var(--font-mono); font-size:10px;
+  color:var(--ink-mute); letter-spacing:.18em; text-transform:uppercase;
+  margin-bottom:12px;
+}
+.mobiledock-strip .rows{
+  display:flex; flex-direction:column; gap:8px;
+}
+.mobiledock-strip .row{
+  display:grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap:6px;
+}
+.mobiledock-strip .k{ font-family:var(--font-ui); font-size:12.5px; font-weight:500; min-height:42px }
+.mobiledock-strip .k.is-sans-serif{ font-family:var(--font-serif) }
+
+/* ====== editorial 旁注 ====== */
+.legend{
+  max-width:1080px; margin:0 auto 80px; padding:0 32px;
+  display:grid; grid-template-columns:repeat(3, 1fr); gap:32px;
+  border-top:1px solid var(--rule);
+  padding-top:32px;
+}
+.legend .item{}
+.legend h4{
+  font-family:var(--font-mono); font-size:10px;
+  color:var(--ink-mute); letter-spacing:.18em; text-transform:uppercase;
+  margin-bottom:10px;
+}
+.legend h4 em{ color: var(--terracotta); font-style:normal; margin-right:6px }
+.legend p{
+  font-family:var(--font-serif); font-size:14px; line-height:1.6;
+  color:var(--ink-soft);
+}
+.legend p strong{ color: var(--ink); font-weight:600 }
+
+@media (max-width: 900px){
+  .legend{ grid-template-columns: 1fr 1fr; gap:24px }
+  .dock-list{ grid-template-columns: repeat(4, 1fr) }
+}
+@media (max-width: 600px){
+  .toolbar{ padding:14px 16px }
+  .canvas{ padding:40px 16px 0 }
+  .legend{ grid-template-columns: 1fr; padding:0 16px }
+  .masthead h2{ font-size:32px }
+  .dock-list{ grid-template-columns: 1fr; row-gap:8px; column-gap:0 }
+  .dock-list .item{ flex-direction:row; align-items:center; justify-content:space-between; gap:12px; padding:8px 4px; border-bottom:1px solid var(--rule) }
+  .dock-list .item .cap{ white-space:nowrap }
+  .dock-list .item .k{ min-width:0 }
+  .dock-list .item.is-wide .k{ flex:1 }
+  .dpad{ grid-template-columns:repeat(3, 38px); grid-template-rows:repeat(2, 40px) }
+}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{
+    animation-duration:.001ms !important;
+    transition-duration:.001ms !important;
+  }
+}
+</style>
+</head>
+<body>
+
+<header class="toolbar">
+  <h1>TmuxGo · 主键 dock <em>editorial</em><span class="tag">C · Editorial Minimal</span></h1>
+  <div class="themes">
+    <span class="label">主题</span>
+    <div class="dot t-dark"     data-theme="dark"          data-active="true" title="Midnight"></div>
+    <div class="dot t-light"    data-theme="light"         title="Daylight"></div>
+    <div class="dot t-hc"       data-theme="high-contrast" title="HC"></div>
+    <div class="dot t-dracula"  data-theme="dracula"       title="Dracula"></div>
+    <div class="dot t-nord"     data-theme="nord"          title="Nord"></div>
+    <div class="dot t-cat"      data-theme="catppuccin"    title="Catppuccin"></div>
+  </div>
+</header>
+
+<main class="canvas">
+
+  <div class="masthead">
+    <div class="issue">
+      <span>Issue 03 — 主键 dock 三方向 · Editorial</span>
+      <span>2026 · 07</span>
+    </div>
+    <h2>The keyboard is a <em>conversation</em>,<br/>not a control panel.</h2>
+    <p class="deck">一组按键之于终端，应当像版面之于文字 — 留白、字距、对齐即可承担一切语义，不再靠色块和阴影。三号方案放弃 liquid-glass 的丰盛，给主键 dock 一份「出版物」式的克制。</p>
+  </div>
+
+  <div class="label-row">
+    <h3>主键 dock · <em>印刷版式</em></h3>
+    <span class="meta">8 columns · 22px gutter · serif body</span>
+  </div>
+
+  <div class="terminal">
+    <div class="chrome">
+      <span>dev-tools · pane 0</span>
+      <span class="pill">focused</span>
+    </div>
+<pre><span class="p">hongbin@local</span>:<span class="a">~/projects/tmuxgo</span>$ pnpm vitest run --reporter=verbose
+<span class="c"> ✓</span>  agent-status.test.ts <span class="c">(12)</span>
+<span class="c"> ✓</span>  SessionPanel.test.tsx <span class="c">(8)</span>
+<span class="c"> ✓</span>  GitPanel.real.test.tsx <span class="c">(6)</span>
+Test Files  <span class="c">3 passed</span> (3)
+     Time   <span class="c">2.41 s</span>
+
+<span class="p">hongbin@local</span>:<span class="a">~/projects/tmuxgo</span>$ </pre>
+  </div>
+
+  <section class="section-dock">
+    <div class="dock-strip">
+      <div class="dock-list">
+
+        <div class="item">
+          <span class="cap"><span class="n">01</span>Esc</span>
+          <button class="k is-freq is-sans">Esc</button>
+        </div>
+        <div class="item">
+          <span class="cap"><span class="n">02</span>Tab</span>
+          <button class="k is-sans">Tab</button>
+        </div>
+        <div class="item">
+          <span class="cap"><span class="n">03</span>Direction</span>
+          <div class="dpad">
+            <button class="k is-arrow up" data-repeat aria-label="上">↑</button>
+            <button class="k is-arrow left" data-repeat aria-label="左">←</button>
+            <button class="k is-arrow down" data-repeat aria-label="下">↓</button>
+            <button class="k is-arrow right" data-repeat aria-label="右">→</button>
+          </div>
+        </div>
+        <div class="item">
+          <span class="cap"><span class="n">04</span>Enter</span>
+          <button class="k is-freq is-sans is-wide">Enter ↵</button>
+        </div>
+        <div class="item">
+          <span class="cap"><span class="n">05</span>Backspace</span>
+          <button class="k is-sans" data-repeat>⌫</button>
+        </div>
+        <div class="item">
+          <span class="cap"><span class="n">06</span>Erase</span>
+          <button class="k is-sans is-wide">⌫ line · ⌫ word</button>
+        </div>
+        <div class="item">
+          <span class="cap"><span class="n">07</span>Copy</span>
+          <button class="k is-accent is-sans">⎘ Copy</button>
+        </div>
+        <div class="item">
+          <span class="cap"><span class="n">08</span>Paste</span>
+          <button class="k is-accent is-sans">⎘ Paste</button>
+        </div>
+
+        <div class="item">
+          <span class="cap"><span class="n">09</span>Focus</span>
+          <button class="k is-accent is-sans">⤢ Focus</button>
+        </div>
+        <div class="item">
+          <span class="cap"><span class="n">10</span>Modifiers</span>
+          <button class="k is-mono is-wide">Ctrl · ⌥ · ⌘</button>
+        </div>
+        <div class="item">
+          <span class="cap"><span class="n">11</span>Mode</span>
+          <button class="k is-accent is-mono">Exclusive</button>
+        </div>
+        <div class="item">
+          <span class="cap"><span class="n">12</span>Custom</span>
+          <button class="k is-accent is-sans is-wide">⌘ Snippet · ⌘ Clear · ⌘ Project</button>
+        </div>
+        <div class="item" style="grid-column: 1 / -1; border-top:1px solid var(--rule); padding-top:18px; margin-top:6px">
+          <span class="cap"><span class="n">13</span>Close Pane</span>
+          <button class="k is-danger is-sans" style="min-width:120px">✕ Close Pane</button>
+        </div>
+
+      </div>
+
+      <div class="caption-row">
+        <span>fig. 03 — 主键 dock 的版式结构</span>
+        <span>7 rows × 8 cols · serif label · sans key</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="legend">
+    <div class="item">
+      <h4><em>01</em>版式</h4>
+      <p>不再以按钮形状承担层级，而是把 dock 当作一份版面：<strong>8 列网格 + 22px 列间距</strong>，每键的编号、caption、键体自上而下三段式。</p>
+    </div>
+    <div class="item">
+      <h4><em>02</em>字体</h4>
+      <p>caption 与编号用 mono 字体承担「机器感」；键体用衬线字体承担「出版物感」。danger 用 terracotta 一个色，无 accent、warn 等冗余色。</p>
+    </div>
+    <div class="item">
+      <h4><em>03</em>留白</h4>
+      <p>取消 backdrop-filter 与阴影，键与键之间靠 hairline 1px 边线和 28px 行距制造节奏。按下用反转配色（白底黑字 / terracotta 反转），不引入 transform。</p>
+    </div>
+  </section>
+
+  <div class="label-row">
+    <h3>Mobile 390 · <em>移动端报版</em></h3>
+    <span class="meta">no radius · no shadow · 2-row grid</span>
+  </div>
+
+  <div class="frame-mobile">
+    <div class="screen">
+      <div class="term-mock">
+        <div><span class="p">hongbin@local</span>:~$ pnpm dev</div>
+        <div class="c">  VITE v5.0  ready in 320 ms</div>
+        <div class="c">  ➜  Local:   http://localhost:5173/</div>
+        <div><span class="p">hongbin@local</span>:~$ </div>
+      </div>
+
+      <div class="mobiledock-strip">
+        <div class="meta">III · keypad</div>
+        <div class="rows">
+          <div class="row">
+            <button class="k is-sans-serif">Esc</button>
+            <button class="k is-sans-serif">Tab</button>
+            <button class="k is-arrow">↑</button>
+            <button class="k is-arrow">↓</button>
+          </div>
+          <div class="row">
+            <button class="k is-arrow">←</button>
+            <button class="k is-arrow">→</button>
+            <button class="k is-sans-serif">⌫</button>
+            <button class="k is-sans-serif is-freq">Enter</button>
+          </div>
+          <div class="row">
+            <button class="k is-accent is-sans-serif">⎘ Copy</button>
+            <button class="k is-accent is-sans-serif">⎘ Paste</button>
+            <button class="k is-accent is-sans-serif">⤢ Focus</button>
+            <button class="k is-danger is-sans-serif">✕ Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+  document.querySelectorAll('.themes .dot').forEach(d=>{
+    d.addEventListener('click',()=>{
+      document.querySelectorAll('.themes .dot').forEach(x=>x.removeAttribute('data-active'))
+      d.setAttribute('data-active','true')
+      document.documentElement.setAttribute('data-theme', d.dataset.theme)
+    })
+  })
+  document.querySelectorAll('.k[data-repeat]').forEach(btn=>{
+    let t
+    const start=()=>{ btn.classList.add('is-holding'); t=setTimeout(()=>{ btn.classList.add('is-repeating') }, 420) }
+    const end=()=>{ clearTimeout(t); btn.classList.remove('is-holding','is-repeating') }
+    btn.addEventListener('pointerdown', start)
+    btn.addEventListener('pointerup', end)
+    btn.addEventListener('pointerleave', end)
+    btn.addEventListener('pointercancel', end)
+  })
+</script>
+</body>
+</html>

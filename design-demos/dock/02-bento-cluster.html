@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>TmuxGo · 主键 dock · Bento 分簇</title>
+<style>
+:root{
+  --bg-0:12 13 15; --bg-1:24 25 28; --bg-2:42 43 48;
+  --accent:94 106 210; --accent-2:130 148 210; --warn:255 159 10; --danger:255 69 58;
+  --text-1:245 245 247; --text-2:174 174 178; --text-3:116 116 122;
+  --line:rgba(255,255,255,0.08);
+  --glass-blur:22px; --glass-saturate:160%;
+  --glass-fill:rgba(22,23,28,0.62); --glass-fill-strong:rgba(20,21,25,0.84);
+  --glass-rim:rgba(255,255,255,0.10); --glass-highlight:rgba(255,255,255,0.14);
+  --glass-shadow:0 18px 60px rgba(0,0,0,0.40);
+  --font-ui:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI","PingFang SC","Microsoft YaHei UI","Microsoft YaHei","Helvetica Neue",Arial,sans-serif;
+  --font-mono:Consolas,"Cascadia Mono","Cascadia Code","SF Mono",Monaco,Menlo,"DejaVu Sans Mono","Liberation Mono","Courier New",monospace;
+  --r-card:14px; --r-pill:999px;
+  --b-cell: rgb(var(--text-1) / 0.03);
+  --b-cell-hi: rgb(var(--text-1) / 0.06);
+  --b-rim: rgb(var(--text-1) / 0.08);
+  --b-accent: rgb(var(--accent) / 0.10);
+  --b-accent-hi: rgb(var(--accent) / 0.18);
+  --b-danger: rgb(var(--danger) / 0.10);
+  --b-danger-hi: rgb(var(--danger) / 0.18);
+  --ease: cubic-bezier(.2,.8,.2,1);
+}
+[data-theme="light"]{
+  --bg-0:232 234 238; --bg-1:248 249 251; --bg-2:224 226 231;
+  --accent:80 92 200; --accent-2:60 130 200; --warn:220 130 0; --danger:215 45 38;
+  --text-1:28 28 30; --text-2:99 99 102; --text-3:142 142 147;
+  --line:rgba(60,60,67,0.12);
+  --glass-fill:rgba(255,255,255,0.62); --glass-fill-strong:rgba(255,255,255,0.86);
+  --glass-rim:rgba(255,255,255,0.78); --glass-highlight:rgba(255,255,255,0.92);
+  --glass-shadow:0 18px 60px rgba(48,52,60,0.14);
+  --b-cell: rgb(var(--text-1) / 0.02);
+  --b-cell-hi: rgb(var(--text-1) / 0.04);
+  --b-rim: rgb(var(--text-1) / 0.08);
+}
+[data-theme="high-contrast"]{
+  --bg-0:0 0 0; --bg-1:8 8 8; --bg-2:22 22 22;
+  --accent:0 255 255; --accent-2:0 255 136; --warn:255 215 0; --danger:255 68 68;
+  --text-1:255 255 255; --text-2:204 204 204; --text-3:153 153 153;
+  --line:rgba(0,255,255,0.4);
+  --glass-blur:0px; --glass-fill:rgba(8,8,8,1); --glass-fill-strong:rgba(8,8,8,1);
+  --glass-rim:rgba(255,255,255,0.6); --glass-highlight:transparent; --glass-shadow:none;
+  --b-rim: rgb(255 255 255 / 0.4);
+}
+[data-theme="dracula"]{
+  --bg-0:33 34 44; --bg-1:40 42 54; --bg-2:52 55 70;
+  --accent:189 147 249; --accent-2:255 121 198; --warn:255 184 108; --danger:255 85 85;
+  --text-1:248 248 242; --text-2:191 191 191; --text-3:98 114 164;
+  --line:rgba(189,147,249,0.18);
+}
+[data-theme="nord"]{
+  --bg-0:46 52 64; --bg-1:59 66 82; --bg-2:67 76 94;
+  --accent:136 192 208; --accent-2:129 161 193; --warn:235 203 139; --danger:191 97 106;
+  --text-1:236 239 244; --text-2:216 222 233; --text-3:76 86 106;
+  --line:rgba(136,192,208,0.18);
+}
+[data-theme="catppuccin"]{
+  --bg-0:17 17 27; --bg-1:24 24 37; --bg-2:49 50 68;
+  --accent:137 180 250; --accent-2:166 227 161; --warn:250 179 135; --danger:243 139 168;
+  --text-1:205 214 244; --text-2:166 173 200; --text-3:88 91 112;
+  --line:rgba(137,180,250,0.18);
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  font-family:var(--font-ui); color:rgb(var(--text-1));
+  background:
+    radial-gradient(80% 50% at 100% 0%, rgb(var(--accent) / 0.08) 0%, transparent 60%),
+    rgb(var(--bg-0));
+  -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+  overflow-x:hidden;
+}
+
+.toolbar{
+  position:sticky; top:0; z-index:30;
+  display:flex; align-items:center; justify-content:space-between;
+  padding:14px 28px;
+  background: rgb(var(--bg-1) / 0.6);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  border-bottom:1px solid var(--line);
+}
+.toolbar h1{ font-size:13px; font-weight:600; letter-spacing:.02em; color: rgb(var(--text-2)); }
+.toolbar h1 b{ color: rgb(var(--text-1)); }
+.toolbar .tag{
+  display:inline-block; padding:2px 8px; margin-left:8px;
+  font-size:10px; letter-spacing:.08em; text-transform:uppercase;
+  border:1px solid var(--line); border-radius:999px;
+  color: rgb(var(--accent)); background: var(--b-accent);
+}
+.themes{display:flex; gap:8px; align-items:center}
+.themes .label{font-size:11px; color:rgb(var(--text-3)); margin-right:4px; letter-spacing:.04em}
+.dot{
+  width:18px; height:18px; border-radius:50%; cursor:pointer;
+  border:1px solid var(--line);
+  transition:transform .2s var(--ease), box-shadow .2s var(--ease);
+}
+.dot:hover{ transform:scale(1.12) }
+.dot[data-active="true"]{ box-shadow:0 0 0 2px rgb(var(--bg-0)), 0 0 0 3px rgb(var(--accent)) }
+.t-dark{ background:#0c0d0f }
+.t-light{ background:#f8f9fb }
+.t-hc{ background:#000 }
+.t-dracula{ background:#282a36 }
+.t-nord{ background:#3b4252 }
+.t-cat{ background:#1e1e2e }
+
+.canvas{ max-width:1280px; margin:0 auto; padding:48px 28px 0; }
+.label-row{ display:flex; align-items:baseline; justify-content:space-between; margin-bottom:18px; }
+.label-row h2{
+  font-size:11px; font-weight:500; letter-spacing:.16em; text-transform:uppercase;
+  color: rgb(var(--text-3));
+}
+.label-row h2 b{ color: rgb(var(--text-1)); letter-spacing:.04em; text-transform:none }
+.label-row p{ font-size:12px; color: rgb(var(--text-3)) }
+
+.terminal{
+  border-radius:var(--r-card); overflow:hidden;
+  background: rgb(var(--bg-1));
+  border:1px solid var(--line);
+  box-shadow: 0 24px 60px rgb(0 0 0 / 0.4);
+}
+.terminal .chrome{
+  display:flex; align-items:center; gap:8px;
+  padding:10px 14px;
+  border-bottom:1px solid var(--line);
+  background: rgb(var(--bg-1) / 0.7);
+}
+.terminal .chrome .dot{ width:10px; height:10px; border-radius:50%; }
+.terminal .chrome .r{ background: rgb(255 95 86) }
+.terminal .chrome .y{ background: rgb(255 189 46) }
+.terminal .chrome .g{ background: rgb(39 201 63) }
+.terminal .chrome .title{
+  margin-left:auto; margin-right:auto;
+  font-family:var(--font-mono); font-size:11px; color: rgb(var(--text-3));
+}
+.terminal pre{
+  padding:18px 18px 22px;
+  font-family:var(--font-mono); font-size:12.5px; line-height:1.6;
+  color: rgb(var(--text-1)); white-space:pre-wrap;
+}
+.terminal pre .p{ color: rgb(var(--accent-2)) }
+.terminal pre .c{ color: rgb(var(--text-3)) }
+.terminal pre .a{ color: rgb(var(--accent)) }
+
+/* ====== bento 主台面 ====== */
+.section-dock{ margin: 56px 0 32px; }
+.bento{
+  display:grid;
+  grid-template-columns: 1.0fr 0.9fr 0.9fr 1.0fr 1.2fr;
+  gap:10px;
+  padding:12px;
+  border-radius: var(--r-card);
+  background: var(--glass-fill);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border:1px solid var(--glass-rim);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
+}
+.tile{
+  border-radius:10px; padding:10px;
+  background: var(--b-cell);
+  border:1px solid var(--b-rim);
+  display:flex; flex-direction:column; gap:8px;
+  min-width:0;
+}
+.tile h4{
+  font-size:10px; letter-spacing:.16em; text-transform:uppercase;
+  color: rgb(var(--text-3));
+  font-weight:500;
+}
+.tile h4 .hint{ margin-left:6px; color: rgb(var(--text-2)); font-weight:400; letter-spacing:.04em; text-transform:none }
+
+.keys{ display:flex; flex-wrap:wrap; gap:4px }
+
+/* 通用键 */
+.k{
+  appearance:none; border:0; cursor:pointer;
+  font-family:var(--font-ui); font-weight:500;
+  font-size:11.5px; line-height:1;
+  color: rgb(var(--text-2));
+  min-height:30px; padding:0 10px;
+  border-radius:7px;
+  background: transparent;
+  border:1px solid transparent;
+  transition: background-color .14s ease, color .14s ease, border-color .14s ease;
+  display:inline-flex; align-items:center; justify-content:center; gap:4px;
+  white-space:nowrap; user-select:none;
+  -webkit-tap-highlight-color:transparent;
+}
+.k:hover{
+  background: var(--b-cell-hi);
+  color: rgb(var(--text-1));
+}
+.k:focus-visible{
+  outline:none;
+  box-shadow: 0 0 0 2px rgb(var(--accent) / 0.5);
+}
+.k.is-freq{ color: rgb(var(--text-1)); font-weight:600 }
+.k.is-arrow{
+  background: var(--b-accent);
+  border-color: rgb(var(--accent) / 0.32);
+  color: rgb(var(--accent));
+  min-width:38px;
+}
+.k.is-arrow:hover{
+  background: var(--b-accent-hi);
+  color: rgb(var(--accent));
+}
+.k.is-accent{
+  color: rgb(var(--accent));
+  background: var(--b-accent);
+  border-color: rgb(var(--accent) / 0.28);
+}
+.k.is-accent:hover{ background: var(--b-accent-hi); }
+.k.is-danger{
+  color: rgb(var(--danger));
+  background: var(--b-danger);
+  border-color: rgb(var(--danger) / 0.28);
+}
+.k.is-danger:hover{
+  background: var(--b-danger-hi);
+}
+.k.is-pill{ border-radius:999px }
+.k.is-pill.is-accent{ border-radius:999px }
+
+/* Enter / Backspace 单独一行 */
+.row-span{ grid-column: span 2 }
+
+/* 方向键十字在 tile 内居中 */
+.dpad{
+  display:grid; grid-template-columns:repeat(3, 36px); grid-template-rows:repeat(2, 30px); gap:4px;
+  margin:auto;
+}
+.dpad .k.up   { grid-column:2; grid-row:1 }
+.dpad .k.left { grid-column:1; grid-row:2 }
+.dpad .k.down { grid-column:2; grid-row:2 }
+.dpad .k.right{ grid-column:3; grid-row:2 }
+
+/* 修饰键窄列 */
+.mod-grid{
+  display:grid; grid-template-columns: repeat(3, 1fr); gap:4px;
+}
+.mod-grid .k{ font-size:10.5px; min-height:28px; padding:0 4px }
+
+/* 长按键 */
+.k.is-wide{ min-width:78px }
+.k.is-enter{ background: var(--b-accent); color: rgb(var(--accent)); border-color: rgb(var(--accent) / 0.28) }
+.k.is-enter:hover{ background: var(--b-accent-hi) }
+
+/* 自定义快捷键 */
+.shortcut-stack{
+  display:flex; flex-direction:column; gap:4px;
+}
+.shortcut-stack .k{ justify-content:flex-start; padding:0 10px; min-height:28px; font-size:11px }
+.shortcut-stack .k .meta{ color: rgb(var(--text-3)); font-weight:400 }
+
+/* 长按反馈 */
+.k.is-repeat{ position:relative; overflow:hidden }
+.k.is-repeat::after{
+  content:""; position:absolute; left:0; bottom:0; height:2px; width:100%;
+  background: rgb(var(--accent));
+  transform: scaleX(0); transform-origin:left;
+  transition: transform .42s linear;
+}
+.k.is-repeat.is-holding::after{ transform: scaleX(1) }
+
+/* ====== 移动端 bento（紧凑） ====== */
+.frame-mobile{
+  margin: 56px auto 80px;
+  max-width: 390px;
+  border-radius: 38px; padding:14px;
+  background: rgb(var(--bg-2) / 0.6);
+  border:1px solid var(--line);
+  box-shadow: 0 30px 80px rgb(0 0 0 / 0.5), inset 0 1px 0 rgb(255 255 255 / 0.06);
+}
+.frame-mobile .screen{
+  border-radius: 26px; overflow:hidden;
+  background: rgb(var(--bg-0));
+  position:relative; min-height: 540px;
+  display:flex; flex-direction:column;
+}
+.frame-mobile .term-mock{
+  flex:1; padding:14px 16px;
+  font-family:var(--font-mono); font-size:11px; line-height:1.55;
+  color: rgb(var(--text-1));
+}
+.frame-mobile .term-mock .p{ color: rgb(var(--accent-2)) }
+.frame-mobile .term-mock .c{ color: rgb(var(--text-3)) }
+.frame-mobile .term-mock .cursor{
+  display:inline-block; width:7px; height:12px;
+  background: rgb(var(--accent)); transform: translateY(2px);
+  animation: blink 1s steps(1) infinite;
+}
+@keyframes blink{ 50%{ opacity:0 } }
+
+.mobiledock-wrap{
+  padding: 10px 10px calc(14px + env(safe-area-inset-bottom, 0px));
+  background: var(--glass-fill-strong);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border-top:1px solid var(--glass-rim);
+  box-shadow: inset 0 1px 0 var(--glass-highlight), 0 -10px 30px rgb(0 0 0 / 0.4);
+}
+.mobiledock-bento{
+  display:grid; grid-template-columns: 1.2fr 1fr; gap:8px;
+}
+.mobiledock-bento .tile{ padding:8px; gap:6px }
+.mobiledock-bento .k{ min-height:36px; font-size:12px; padding:0 8px }
+.mobiledock-bento .k.is-arrow{ min-width:36px }
+.mobiledock-bento .dpad{ grid-template-columns:repeat(3, 32px); grid-template-rows:repeat(2, 30px); margin:0 }
+.mobiledock-bento .dpad .up{ grid-column:2; grid-row:1 }
+.mobiledock-bento .dpad .down{ grid-column:2; grid-row:2 }
+
+/* ====== legend ====== */
+.legend{
+  max-width:1280px; margin:0 auto 80px; padding:0 28px;
+  display:grid; grid-template-columns:repeat(4, 1fr); gap:14px;
+}
+.legend .card{
+  border-radius:14px; padding:14px 16px;
+  background: var(--glass-fill);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  border:1px solid var(--glass-rim);
+}
+.legend h4{
+  font-size:10px; letter-spacing:.18em; text-transform:uppercase;
+  color: rgb(var(--text-3)); margin-bottom:6px;
+}
+.legend p{ font-size:12.5px; line-height:1.55; color: rgb(var(--text-2)) }
+
+@media (max-width: 900px){
+  .legend{ grid-template-columns: 1fr 1fr }
+  .bento{ grid-template-columns: 1fr 1fr 1fr }
+}
+@media (max-width: 600px){
+  .toolbar{ padding:12px 16px }
+  .canvas{ padding:32px 16px 0 }
+  .legend{ grid-template-columns: 1fr; padding:0 16px }
+  .bento{ grid-template-columns: 1fr 1fr; padding:8px; gap:6px }
+  .tile{ padding:8px }
+}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{
+    animation-duration:.001ms !important;
+    transition-duration:.001ms !important;
+  }
+}
+</style>
+</head>
+<body>
+
+<header class="toolbar">
+  <h1>TmuxGo · 主键 dock <b>Bento 分簇</b><span class="tag">B · Linear Bento</span></h1>
+  <div class="themes">
+    <span class="label">主题</span>
+    <div class="dot t-dark"     data-theme="dark"          data-active="true" title="Midnight"></div>
+    <div class="dot t-light"    data-theme="light"         title="Daylight"></div>
+    <div class="dot t-hc"       data-theme="high-contrast" title="HC"></div>
+    <div class="dot t-dracula"  data-theme="dracula"       title="Dracula"></div>
+    <div class="dot t-nord"     data-theme="nord"          title="Nord"></div>
+    <div class="dot t-cat"      data-theme="catppuccin"    title="Catppuccin"></div>
+  </div>
+</header>
+
+<main class="canvas">
+  <div class="label-row">
+    <h2>Desktop 1440 · <b>Bento 分簇主键 dock</b></h2>
+    <p>按功能分块 · 按下仅底色变化 · 取消键帽浮雕换取紧凑</p>
+  </div>
+
+  <div class="terminal">
+    <div class="chrome">
+      <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+      <span class="title">hongbin@local — tmux: dev-tools · pane 0</span>
+    </div>
+<pre><span class="p">hongbin@local</span>:<span class="a">~/projects/tmuxgo</span>$ pnpm vitest run --reporter=verbose
+<span class="c"> ✓</span> agent-status.test.ts <span class="c">(12)</span>
+<span class="c"> ✓</span> SessionPanel.test.tsx <span class="c">(8)</span>
+<span class="c"> ✓</span> GitPanel.real.test.tsx <span class="c">(6)</span>
+Test Files  <span class="c">3 passed</span> (3)
+     Time   <span class="c">2.41 s</span>
+
+<span class="p">hongbin@local</span>:<span class="a">~/projects/tmuxgo</span>$ <span class="cursor"></span></pre>
+  </div>
+
+  <section class="section-dock">
+    <div class="label-row">
+      <h2>主键 dock · <b>5 个分簇</b></h2>
+      <p>修饰 · 导航 · 编辑 · 终端 · 自定义 — 各占一格，扫一眼即懂结构</p>
+    </div>
+
+    <div class="bento">
+
+      <!-- 修饰键簇 -->
+      <div class="tile">
+        <h4>修饰<span class="hint">modifiers</span></h4>
+        <div class="mod-grid">
+          <button class="k">Ctrl</button>
+          <button class="k">⌥ Alt</button>
+          <button class="k">⌘ Cmd</button>
+        </div>
+      </div>
+
+      <!-- 方向键簇 -->
+      <div class="tile">
+        <h4>导航<span class="hint">nav</span></h4>
+        <div class="dpad">
+          <button class="k is-arrow up" data-repeat aria-label="上">↑</button>
+          <button class="k is-arrow left" data-repeat aria-label="左">←</button>
+          <button class="k is-arrow down" data-repeat aria-label="下">↓</button>
+          <button class="k is-arrow right" data-repeat aria-label="右">→</button>
+        </div>
+      </div>
+
+      <!-- 编辑簇 -->
+      <div class="tile">
+        <h4>编辑<span class="hint">edit</span></h4>
+        <div class="keys">
+          <button class="k is-freq">Esc</button>
+          <button class="k is-freq">Tab</button>
+          <button class="k is-wide">⌫⌫ 行</button>
+          <button class="k is-wide">⌫ 词</button>
+          <button class="k is-freq" data-repeat>⌫</button>
+        </div>
+      </div>
+
+      <!-- 终端控制簇 -->
+      <div class="tile">
+        <h4>终端<span class="hint">term</span></h4>
+        <div class="keys">
+          <button class="k is-accent">⎘ 复制</button>
+          <button class="k is-accent">⎘ 粘贴</button>
+          <button class="k is-accent">⤢ 聚焦</button>
+          <button class="k is-danger">✕ 删面板</button>
+        </div>
+      </div>
+
+      <!-- 自定义快捷键簇 -->
+      <div class="tile">
+        <h4>自定义<span class="hint">shortcuts</span></h4>
+        <div class="shortcut-stack">
+          <button class="k is-pill is-accent"><span>⌘ 片段</span><span class="meta">Ctrl+S</span></button>
+          <button class="k is-pill is-accent"><span>⌘ clear</span><span class="meta">Ctrl+L</span></button>
+          <button class="k is-pill is-accent"><span>⌘ project</span><span class="meta">Ctrl+P</span></button>
+          <button class="k is-pill"><span>独占附接</span><span class="meta">on</span></button>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <section class="legend">
+    <div class="card">
+      <h4>功能分簇</h4>
+      <p>修饰 / 导航 / 编辑 / 终端 / 自定义 五格 hairline tile，每格内部由 4-6 个细键组成，扫一眼即懂结构。</p>
+    </div>
+    <div class="card">
+      <h4>极简态</h4>
+      <p>取消键帽浮雕，靠 hairline + 4% 底色制造层级；按下只换底色，没有 transform，避免误触偏移。</p>
+    </div>
+    <div class="card">
+      <h4>信息密度</h4>
+      <p>每键 padding 10×30，4 列时同屏能塞 20+ 键，远超当前 dock 的 12 个；适合 power user。</p>
+    </div>
+    <div class="card">
+      <h4>语义差异</h4>
+      <p>方向键 = accent，复制/粘贴/聚焦 = accent tint，删面板 = danger tint，自定义 = pill + meta 二级文本。</p>
+    </div>
+  </section>
+
+  <section class="label-row" style="margin-top:48px">
+    <h2>Mobile 390 · <b>Bento 移动 dock</b></h2>
+    <p>2 列 bento · 触控 44×36 · 上半导航、下半操作</p>
+  </section>
+
+  <div class="frame-mobile">
+    <div class="screen">
+      <div class="term-mock">
+        <div><span class="p">hongbin@local</span>:~$ pnpm dev</div>
+        <div class="c">  VITE v5.0  ready in 320 ms</div>
+        <div class="c">  ➜  Local:   http://localhost:5173/</div>
+        <div><span class="p">hongbin@local</span>:~$ <span class="cursor"></span></div>
+      </div>
+
+      <div class="mobiledock-wrap">
+        <div class="mobiledock-bento">
+          <div class="tile">
+            <h4>导航</h4>
+            <div class="dpad">
+              <button class="k is-arrow up" data-repeat aria-label="上">↑</button>
+              <button class="k is-arrow left" data-repeat aria-label="左">←</button>
+              <button class="k is-arrow down" data-repeat aria-label="下">↓</button>
+              <button class="k is-arrow right" data-repeat aria-label="右">→</button>
+            </div>
+          </div>
+          <div class="tile">
+            <h4>高频</h4>
+            <div class="keys">
+              <button class="k is-freq">Esc</button>
+              <button class="k is-freq">Tab</button>
+              <button class="k is-enter is-freq">Enter</button>
+              <button class="k is-freq" data-repeat>⌫</button>
+            </div>
+          </div>
+          <div class="tile" style="grid-column: span 2">
+            <h4>操作</h4>
+            <div class="keys">
+              <button class="k is-accent">⎘ 复制</button>
+              <button class="k is-accent">⎘ 粘贴</button>
+              <button class="k is-accent">⤢ 聚焦</button>
+              <button class="k is-danger">✕ 删面板</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+  document.querySelectorAll('.themes .dot').forEach(d=>{
+    d.addEventListener('click',()=>{
+      document.querySelectorAll('.themes .dot').forEach(x=>x.removeAttribute('data-active'))
+      d.setAttribute('data-active','true')
+      document.documentElement.setAttribute('data-theme', d.dataset.theme)
+    })
+  })
+  document.querySelectorAll('.k[data-repeat]').forEach(btn=>{
+    let t
+    const start=()=>{ btn.classList.add('is-holding'); t=setTimeout(()=>{ btn.classList.add('is-repeating') }, 420) }
+    const end=()=>{ clearTimeout(t); btn.classList.remove('is-holding','is-repeating') }
+    btn.addEventListener('pointerdown', start)
+    btn.addEventListener('pointerup', end)
+    btn.addEventListener('pointerleave', end)
+    btn.addEventListener('pointercancel', end)
+  })
+</script>
+</body>
+</html>
