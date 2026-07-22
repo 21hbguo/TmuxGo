@@ -26,6 +26,9 @@ export default defineConfig({
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(packageJson.version),
     'import.meta.env.VITE_APP_BUILD_ID': JSON.stringify(buildId),
   },
+  resolve: {
+    dedupe: ['react', 'react-dom'],
+  },
   server: {
     proxy: {
       '/api': { target: process.env.VITE_API_URL || 'http://127.0.0.1:3001', changeOrigin: true, ws: true },

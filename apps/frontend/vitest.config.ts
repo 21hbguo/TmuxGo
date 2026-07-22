@@ -4,6 +4,9 @@ import tsconfigPaths from 'vite-tsconfig-paths'
 
 export default defineConfig({
   plugins: [react(), tsconfigPaths()],
+  resolve: {
+    dedupe: ['react', 'react-dom'],
+  },
   test: {
     css: { include: [/globals\.css/] },
     environment: 'jsdom',
