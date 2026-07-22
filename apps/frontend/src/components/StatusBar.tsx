@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
 import { useSystemInfo } from '@/hooks/useSystemInfo'
@@ -29,6 +30,7 @@ function ResourceChip({ label, value, tone = 'neutral', title }: { label: string
 }
 
 export function StatusBar() {
+  const [showAllDisks, setShowAllDisks] = useState(false)
   const activePaneId = useConsoleStore((state) => state.activePaneId)
   const connection = useConsoleStore((state) => state.connection)
   const activeHostId = useConsoleStore((state) => state.activeHostId)
@@ -42,6 +44,8 @@ export function StatusBar() {
   const activePane = panes.find((p: any) => p.id === activePaneId)
   const activeHost = hosts.find((h: any) => h.id === activeHostId)
   const missingDependencies = sys ? Object.entries(sys.dependencies).filter(([, available]) => !available).map(([name]) => name) : []
+  const disks = sys ? [...sys.disks].sort((a, b) => b.used - a.used) : []
+  const visibleDisks = showAllDisks ? disks : disks.slice(0, 3)
 
   const statusStyle = ({
     connected: { dot: 'bg-accent-2', text: 'text-accent-2', shell: 'border-accent-2/25 bg-accent-2/5' },
@@ -70,7 +74,20 @@ export function StatusBar() {
             {missingDependencies.length > 0 && <ResourceChip label="DEP" value={String(missingDependencies.length)} tone="warn" title={missingDependencies.join(', ')} />}
             <ResourceChip label="CPU" value={`${sys.cpu}%`} tone={sys.cpu >= 90 ? 'danger' : sys.cpu >= 75 ? 'warn' : 'neutral'} />
             <ResourceChip label="MEM" value={`${gb(sys.mem.used)}/${gb(sys.mem.total)}G`} tone={resourceTone(sys.mem.used, sys.mem.total)} />
-            {sys.disks.map((d) => <ResourceChip key={d.mount} label={d.mount} value={`${gb(d.used)}/${gb(d.total)}G`} tone={resourceTone(d.used, d.total)} />)}
+            {visibleDisks.map((d) => <ResourceChip key={d.mount} label={d.mount} value={`${gb(d.used)}/${gb(d.total)}G`} tone={resourceTone(d.used, d.total)} />)}
+            {disks.length > 3 && (
+              <button
+                type="button"
+                aria-label={showAllDisks ? 'Collapse storage' : 'Show all storage'}
+                aria-expanded={showAllDisks}
+                title={showAllDisks ? 'Collapse storage' : 'Show all storage'}
+                onClick={() => setShowAllDisks((expanded) => !expanded)}
+                className="inline-flex h-5 items-center gap-1 rounded-full border border-text-1/10 bg-bg-2/45 px-2 font-mono text-[10px] font-semibold tabular-nums text-text-2 transition-colors hover:border-accent-2/30 hover:text-accent-2"
+              >
+                <span>{showAllDisks ? '-' : `+${disks.length - 3}`}</span>
+                <span aria-hidden="true" className={`h-1.5 w-1.5 rotate-45 border-b border-r border-current transition-transform ${showAllDisks ? 'translate-y-0.5 -rotate-[135deg]' : '-translate-y-0.5'}`} />
+              </button>
+            )}
           </section>
         )}
         <section aria-label="Connection status" className={`inline-flex h-5 shrink-0 items-center gap-1.5 rounded-full border px-2 font-medium ${statusStyle.shell}`}>
