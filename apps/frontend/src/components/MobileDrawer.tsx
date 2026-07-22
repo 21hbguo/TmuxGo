@@ -8,6 +8,8 @@ import { SessionTemplates, type Template } from './SessionTemplates'
 import { ModalPortal } from './ModalPortal'
 import { getTemplateSessionName } from '@/lib/session-template'
 import { useTranslation } from '@/i18n'
+import { Button } from './Button'
+import { Chip } from './Chip'
 import { usePrompt } from '@/hooks/usePrompt'
 import { useWindowQueryState } from '@/hooks/useWindowQueryState'
 import { api } from '@/lib/api'
@@ -242,27 +244,27 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
             {type === 'sessions' ? batchMode ? t('sidebar.batchSelectedCount', { count: selectedSessionIds.length }) : t('drawer.sessions') : type === 'windows' ? t('drawer.windowsTitle') : t('drawer.panes')}
           </h3>
           <div className="flex items-center gap-2">
-            {type === 'sessions' && <button onClick={() => {
+            {type === 'sessions' && <Chip onClick={() => {
               setBatchMode((prev) => !prev)
               setSelectedSessionIds([])
-            }} className="tmuxgo-chip">{batchMode ? t('sidebar.batchCancelAction') : t('sidebar.batchDeleteAction')}</button>}
-            <button onClick={handleClose} className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--icon-sm tmuxgo-icon-button">✕</button>
+            }}>{batchMode ? t('sidebar.batchCancelAction') : t('sidebar.batchDeleteAction')}</Chip>}
+            <Button variant="ghost" size="icon-sm" aria-label="close" onClick={handleClose}>✕</Button>
           </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4" style={{ WebkitOverflowScrolling: 'touch' }}>
           {type === 'sessions' && (
             <div className="space-y-2">
               <HostSwitcher mode="mobile" />
-              {!batchMode && <button
+              {!batchMode && <Chip
                 onClick={() => setShowTemplates(true)}
-                className="tmuxgo-chip w-full justify-start p-3 border border-dashed"
+                className="w-full justify-start p-3 border border-dashed"
               >
                 + {t('sidebar.newSession')}
-              </button>}
+              </Chip>}
               {batchMode && <div className="grid grid-cols-3 gap-2">
-                <button onClick={() => setSelectedSessionIds(sessions.map((session) => session.id))} className="tmuxgo-chip flex-1 justify-center">{t('sidebar.batchSelectAll')}</button>
-                <button onClick={() => setSelectedSessionIds([])} className="tmuxgo-chip flex-1 justify-center">{t('sidebar.batchClearAll')}</button>
-                <button onClick={() => setBatchDeleteConfirmOpen(true)} disabled={!selectedSessionIds.length} className="tmuxgo-chip tmuxgo-chip--danger flex-1 justify-center disabled:cursor-not-allowed">{t('sidebar.batchDeleteSelected')}</button>
+                <Chip onClick={() => setSelectedSessionIds(sessions.map((session) => session.id))} className="flex-1 justify-center">{t('sidebar.batchSelectAll')}</Chip>
+                <Chip onClick={() => setSelectedSessionIds([])} className="flex-1 justify-center">{t('sidebar.batchClearAll')}</Chip>
+                <Chip tone="danger" disabled={!selectedSessionIds.length} className="flex-1 justify-center disabled:cursor-not-allowed" onClick={() => setBatchDeleteConfirmOpen(true)}>{t('sidebar.batchDeleteSelected')}</Chip>
               </div>}
               {sessionsError ? <div className="rounded-lg bg-bg-2 p-3 text-xs text-danger"><div className="break-words">{sessionsErrorValue instanceof Error ? sessionsErrorValue.message : t('session.loadFailed')}</div><button onClick={() => void refetchSessions()} className="mt-2 rounded bg-bg-1 px-2 py-1 text-accent">{t('common.retry')}</button></div> : <SessionSortableList
                 sessions={sessions}

@@ -6,6 +6,7 @@ import { useWindows } from '@/hooks/useApi'
 import { useWindowQueryState } from '@/hooks/useWindowQueryState'
 import { useSessionSnapshotSync } from '@/hooks/useSessionSnapshotSync'
 import { useTranslation } from '@/i18n'
+import { Chip } from './Chip'
 
 export function WindowTabs() {
   const activeHostId = useConsoleStore((s) => s.activeHostId)
@@ -42,13 +43,14 @@ export function WindowTabs() {
   return (
     <div className="tmuxgo-scrollbar-subtle flex items-center gap-1 overflow-x-auto border-b border-[var(--line)] bg-bg-1 px-2 py-1">
       {sessionWindows.map((window: any) => (
-        <button
+        <Chip
           key={window.id}
+          tone={window.active ? 'accent' : 'default'}
           onClick={() => handleSelect(window.id)}
-          className={`tmuxgo-chip whitespace-nowrap transition-colors px-3 py-1.5 text-sm ${window.active ? 'tmuxgo-chip--accent' : ''}`}
+          className="whitespace-nowrap transition-colors px-3 py-1.5 text-sm"
         >
           {window.name}
-        </button>
+        </Chip>
       ))}
     </div>
   )

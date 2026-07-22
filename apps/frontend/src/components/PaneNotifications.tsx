@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from '@/i18n'
+import { Chip } from './Chip'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useOptionalQueryClient } from '@/hooks/useOptionalQueryClient'
 import { useConsoleStore } from '@/stores/useConsoleStore'
@@ -153,5 +154,5 @@ export function WatchButton({ paneId, compact = false }: { paneId: string; compa
   }
   const unavailable = !paneId
   const label = unavailable ? t('notification.watch') : isWatched ? t('notification.unwatch') : t('notification.watch')
-  return <button onClick={toggle} disabled={unavailable} aria-pressed={isWatched} aria-label={label} title={label} className={`tmuxgo-chip flex items-center ${compact ? 'h-8 px-2 text-[11px]' : 'w-full justify-center gap-2 px-3 py-2 text-xs'} ${isWatched ? 'tmuxgo-chip--accent' : ''} ${unavailable ? 'cursor-not-allowed' : ''}`}>{isWatched ? <FiBell aria-hidden="true" /> : <FiBellOff aria-hidden="true" />}{!compact && <span>{label}</span>}</button>
+  return <Chip onClick={toggle} disabled={unavailable} aria-pressed={isWatched} aria-label={label} title={label} tone={isWatched ? 'accent' : 'default'} className={`flex items-center ${compact ? 'h-8 px-2 text-[11px]' : 'w-full justify-center gap-2 px-3 py-2 text-xs'} ${unavailable ? 'cursor-not-allowed' : ''}`}>{isWatched ? <FiBell aria-hidden="true" /> : <FiBellOff aria-hidden="true" />}{!compact && <span>{label}</span>}</Chip>
 }

@@ -11,6 +11,8 @@ import { quoteShellPath } from '@/lib/path-drop'
 import { api } from '@/lib/api'
 import { clearActiveDraggedFile, FILE_DRAG_MIME, setActiveDraggedFile } from '@/lib/editor-drag'
 import { useTranslation } from '@/i18n'
+import { Button } from './Button'
+import { Chip } from './Chip'
 import { usePrompt } from '@/hooks/usePrompt'
 import { ConfirmDialog } from './ConfirmDialog'
 import { ModalPortal } from './ModalPortal'
@@ -874,7 +876,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
       {visibleFavoriteDirectories.length ? (
         <div className="mt-2 space-y-1">
           {visibleFavoriteDirectories.map((item) => (
-            <button key={`${item.rootId}-${item.path}`} onClick={() => openDirectoryShortcut(item)} className="tmuxgo-chip w-full truncate justify-start px-3 py-1.5 text-left font-mono text-[11px]">{formatDirectoryShortcutLabel(item.path, rootLabelById[item.rootId] || item.name)}</button>
+            <Chip key={`${item.rootId}-${item.path}`} onClick={() => openDirectoryShortcut(item)} className="w-full truncate justify-start px-3 py-1.5 text-left font-mono text-[11px]">{formatDirectoryShortcutLabel(item.path, rootLabelById[item.rootId] || item.name)}</Chip>
           ))}
         </div>
       ) : (
@@ -1043,27 +1045,27 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
       {!contentReady ? <div className="flex h-full items-center justify-center text-xs text-text-3">{t('file.loading')}</div> : <>
       <div className="border-b border-[var(--line)] px-2 py-2">
         <div className="flex items-center gap-1.5">
-          {isMobile && mobileView === 'preview' && <button onClick={() => setMobileView('list')} className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--icon-sm tmuxgo-icon-button">‹</button>}
-          {isMobile && mobileView !== 'preview' && !!currentPath && <button onClick={() => mobileNavigationDepthRef.current > 0 ? window.history.back() : goMobileParentDirectory()} className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--icon-sm tmuxgo-icon-button">‹</button>}
+          {isMobile && mobileView === 'preview' && <Button variant="ghost" size="icon-sm" aria-label="back to list" onClick={() => setMobileView('list')}>‹</Button>}
+          {isMobile && mobileView !== 'preview' && !!currentPath && <Button variant="ghost" size="icon-sm" aria-label="go back" onClick={() => mobileNavigationDepthRef.current > 0 ? window.history.back() : goMobileParentDirectory()}>‹</Button>}
           <div className="text-sm font-semibold text-text-1">{t('file.title')}</div>
           <select value={selectedRootId} onChange={(e) => switchRoot(e.target.value)} className="tmuxgo-control tmuxgo-select min-w-0 flex-1 rounded px-2 py-1 text-[11px]">
             {rootOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
           </select>
-          <button onClick={() => uploadInputRef.current?.click()} className="rounded px-1.5 py-1 text-[11px] text-accent hover:bg-bg-2">{t('file.upload')}</button>
-          <button onClick={() => void openTrash()} title={t('file.trash')} className="rounded px-1.5 py-1 text-[11px] text-text-3 hover:bg-bg-2 hover:text-text-1">♲</button>
-          {activeFavorite && <button onClick={() => removeFavoriteDirectory(activeFavorite)} className="rounded px-1.5 py-1 text-[11px] text-text-3 hover:bg-bg-2 hover:text-text-1">{t('file.removeFavorite')}</button>}
-          <button onClick={onClose || (() => setFilePanelOpen(false))} className="rounded px-1.5 py-1 text-text-3 hover:bg-bg-2 hover:text-text-1">×</button>
+          <Chip tone="accent" onClick={() => uploadInputRef.current?.click()}>{t('file.upload')}</Chip>
+          <Chip title={t('file.trash')} aria-label="trash" onClick={() => void openTrash()}>♲</Chip>
+          {activeFavorite && <Chip onClick={() => removeFavoriteDirectory(activeFavorite)}>{t('file.removeFavorite')}</Chip>}
+          <Button variant="ghost" size="icon-sm" aria-label="close" onClick={onClose || (() => setFilePanelOpen(false))}>×</Button>
         </div>
         <div className="tmuxgo-scrollbar-subtle mt-1.5 flex min-w-0 items-center gap-1 overflow-x-auto text-[11px] text-text-3">
           {(listData?.breadcrumbs || [{ name: '/', path: '' }]).map((crumb) => (
-            <button key={crumb.path || '/'} onClick={() => { currentPathRef.current = crumb.path; mobileNavigationDepthRef.current = 0; setCurrentPath(crumb.path); setSelectedPath(''); setSelectedPreviewLine(1); setSearchNavigationPath(query.trim().length > 0 && crumb.path ? crumb.path : null); if (!crumb.path) setOpenDirectories(new Set()) }} className="tmuxgo-chip shrink-0">{crumb.name}</button>
+            <Chip key={crumb.path || '/'} onClick={() => { currentPathRef.current = crumb.path; mobileNavigationDepthRef.current = 0; setCurrentPath(crumb.path); setSelectedPath(''); setSelectedPreviewLine(1); setSearchNavigationPath(query.trim().length > 0 && crumb.path ? crumb.path : null); if (!crumb.path) setOpenDirectories(new Set()) }} className="shrink-0">{crumb.name}</Chip>
           ))}
         </div>
       </div>
       {(!isMobile || mobileView === 'list') && <div className="border-b border-[var(--line)] px-2 py-2">
         <div className="flex rounded border border-[var(--line)] bg-bg-2 p-0.5 text-[11px]">
           {(['name', 'content'] as SearchMode[]).map((item) => (
-            <button key={item} onClick={() => { setSearchMode(item); setSearchNavigationPath(null) }} className={`tmuxgo-chip flex-1 capitalize ${searchMode === item ? 'tmuxgo-chip--accent' : ''}`}>{item}</button>
+            <Chip key={item} tone={searchMode === item ? 'accent' : 'default'} onClick={() => { setSearchMode(item); setSearchNavigationPath(null) }} className="flex-1 capitalize">{item}</Chip>
           ))}
         </div>
         <div className="mt-1.5 flex items-center gap-1">
@@ -1074,10 +1076,10 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
         <div className="mt-1.5 flex items-center gap-1">
           <div className="flex min-w-0 flex-1 rounded border border-[var(--line)] bg-bg-0 p-0.5 text-[11px]">
             {(['all', 'file', 'directory'] as FileTypeFilter[]).map((item) => (
-              <button key={item} onClick={() => setFileTypeFilter(item)} className={`tmuxgo-chip min-w-0 flex-1 ${fileTypeFilter === item ? 'tmuxgo-chip--accent' : ''}`}>{item === 'all' ? t('file.all') : item === 'file' ? t('file.file') : t('file.dir')}</button>
+              <Chip key={item} tone={fileTypeFilter === item ? 'accent' : 'default'} onClick={() => setFileTypeFilter(item)} className="min-w-0 flex-1">{item === 'all' ? t('file.all') : item === 'file' ? t('file.file') : t('file.dir')}</Chip>
             ))}
           </div>
-          <button onClick={() => updateHideDotFiles(!hideDotFiles)} className={`tmuxgo-chip shrink-0 border ${hideDotFiles ? '' : 'tmuxgo-chip--accent'}`}>{t('file.dotfiles')}</button>
+          <Chip onClick={() => updateHideDotFiles(!hideDotFiles)} tone={hideDotFiles ? 'default' : 'accent'} className="shrink-0 border">{t('file.dotfiles')}</Chip>
         </div>
       </div>}
       {(!isMobile || mobileView === 'list') && <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-y-auto" onContextMenu={(e) => {
@@ -1090,7 +1092,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
             <div className="mb-2 text-[10px] uppercase tracking-[0.18em] text-text-3">{t('file.favoriteDirs')}</div>
             <div className="space-y-1">
               {visibleFavoriteDirectories.map((item) => (
-                <button key={`${item.rootId}-${item.path}`} onClick={() => openDirectoryShortcut(item)} className="tmuxgo-chip w-full truncate justify-start px-3 py-1.5 text-left font-mono text-xs">{formatDirectoryShortcutLabel(item.path, rootLabelById[item.rootId] || item.name)}</button>
+                <Chip key={`${item.rootId}-${item.path}`} onClick={() => openDirectoryShortcut(item)} className="w-full truncate justify-start px-3 py-1.5 text-left font-mono text-xs">{formatDirectoryShortcutLabel(item.path, rootLabelById[item.rootId] || item.name)}</Chip>
               ))}
             </div>
           </div>
@@ -1204,7 +1206,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
         onCancel={() => setPendingDeleteItem(null)}
         onConfirm={() => void confirmRemoveItem()}
       />
-      {lastTrashedItem && <div className="absolute bottom-3 left-3 right-3 z-30 flex items-center gap-2 rounded border border-[var(--line)] bg-bg-0 px-3 py-2 text-xs shadow-lg"><span className="min-w-0 flex-1 truncate text-text-2">{t('file.movedToTrash', { name: lastTrashedItem.name })}</span><button onClick={() => void restoreTrash(lastTrashedItem)} className="text-accent hover:text-text-1">{t('file.undo')}</button><button onClick={() => setLastTrashedItem(null)} className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--icon-sm tmuxgo-icon-button" aria-label="close">×</button></div>}
+      {lastTrashedItem && <div className="absolute bottom-3 left-3 right-3 z-30 flex items-center gap-2 rounded border border-[var(--line)] bg-bg-0 px-3 py-2 text-xs shadow-lg"><span className="min-w-0 flex-1 truncate text-text-2">{t('file.movedToTrash', { name: lastTrashedItem.name })}</span><Chip tone="accent" onClick={() => void restoreTrash(lastTrashedItem)}>{t('file.undo')}</Chip><Button variant="ghost" size="icon-sm" aria-label="close" onClick={() => setLastTrashedItem(null)}>×</Button></div>}
       {trashOpen && <ModalPortal><div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/50 p-4" onClick={() => setTrashOpen(false)}><div className="w-full max-w-lg overflow-hidden rounded-lg border border-[var(--line)] bg-bg-1" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b border-[var(--line)] p-4"><div className="text-base font-medium text-text-1">{t('file.trash')}</div><button onClick={() => setTrashOpen(false)} className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--icon-sm tmuxgo-icon-button" aria-label="close">×</button></div><div className="tmuxgo-scrollbar max-h-[55vh] overflow-auto">{!trashEntries.length && <div className="p-6 text-center text-sm text-text-3">{t('file.trashEmpty')}</div>}{trashEntries.map((entry) => <div key={entry.id} className="flex items-center gap-3 border-b border-[var(--line)] px-4 py-3"><div className="min-w-0 flex-1"><div className="truncate text-sm text-text-1">{entry.name}</div><div className="truncate font-mono text-[10px] text-text-3">{entry.path} · {new Date(entry.deletedAt).toLocaleString()}</div></div><button onClick={() => void restoreTrash(entry)} className="tmuxgo-chip tmuxgo-chip--accent">{t('file.restore')}</button></div>)}</div></div></div></ModalPortal>}
     </aside>
   )
