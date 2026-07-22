@@ -7,6 +7,7 @@ import { useFileRoots } from '@/hooks/useApi'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useTranslation } from '@/i18n'
 import type { FileUploadTarget } from '@/types'
+import { Button } from './Button'
 import { ModalPortal } from './ModalPortal'
 
 function formatSize(size: number) {
@@ -192,8 +193,8 @@ export function UploadConfirmDialog() {
           <input type="checkbox" checked={insertPaths} onChange={(e) => setInsertPaths(e.target.checked)} className="h-4 w-4 accent-[rgb(var(--accent))]" />
         </label>
         <div className="mt-5 flex justify-end gap-2">
-          <button onClick={handleCancel} className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--sm">{t('upload.cancel')}</button>
-          <button onClick={() => void handleUpload()} disabled={submitting || loadingTarget || !targetRootId} className="tmuxgo-button tmuxgo-button--primary tmuxgo-button--sm">{submitting ? t('upload.starting') : t('upload.upload')}</button>
+          <Button variant="ghost" size="sm" onClick={handleCancel}>{t('upload.cancel')}</Button>
+          <Button variant="primary" size="sm" disabled={submitting || loadingTarget || !targetRootId} onClick={() => void handleUpload()}>{submitting ? t('upload.starting') : t('upload.upload')}</Button>
         </div>
       </div>
     </div>

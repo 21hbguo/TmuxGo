@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useTranslation } from '@/i18n'
 import { formatKeyEvent } from '@/hooks/useCustomShortcuts'
+import { Button } from './Button'
 import { ModalPortal } from './ModalPortal'
 import { KeyCap } from './KeyCap'
 
@@ -128,16 +129,18 @@ export function AddShortcutModal({ onSave, onClose, isMobile }: Props) {
         </div>
 
         <div className="flex gap-2 mt-4">
-          <button onClick={onClose} className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--sm flex-1">
+          <Button variant="ghost" size="sm" className="flex-1" onClick={onClose}>
             {t('shortcut.cancel')}
-          </button>
-          <button
-            onClick={() => canSave && onSave({ label: label.trim(), keys: keys.trim() })}
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            className="flex-1"
             disabled={!canSave}
-            className={`flex-1 px-3 py-1.5 rounded text-xs ${canSave ? 'bg-accent text-white hover:bg-accent/90' : 'bg-bg-2/60 text-text-3 cursor-not-allowed'}`}
+            onClick={() => canSave && onSave({ label: label.trim(), keys: keys.trim() })}
           >
             {t('shortcut.save')}
-          </button>
+          </Button>
         </div>
       </div>
     </div>
