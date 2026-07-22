@@ -589,10 +589,10 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
                   {t('git.commit')}
                 </button>
                 {stageablePaths.length > 0 && (
-                  <button onClick={() => activeHostId && repoPath && stageAll.mutate({ hostId: activeHostId, path: repoPath, filePaths: stageablePaths })} className="tmuxgo-chip">{t('git.stageAll')}</button>
+                  <Chip onClick={() => activeHostId && repoPath && stageAll.mutate({ hostId: activeHostId, path: repoPath, filePaths: stageablePaths })}>{t('git.stageAll')}</Chip>
                 )}
                 {status && status.staged.length > 0 && (
-                  <button onClick={() => activeHostId && repoPath && unstageAll.mutate({ hostId: activeHostId, path: repoPath, filePaths: status.staged.map((f) => f.path) })} className="tmuxgo-chip">{t('git.unstageAll')}</button>
+                  <Chip onClick={() => activeHostId && repoPath && unstageAll.mutate({ hostId: activeHostId, path: repoPath, filePaths: status.staged.map((f) => f.path) })}>{t('git.unstageAll')}</Chip>
                 )}
               </div>
               <label className="mt-2 flex items-center gap-2 text-[10px] text-text-3"><input type="checkbox" checked={amend} onChange={(event) => setAmend(event.target.checked)} className="accent-accent" />{t('git.amend')}</label>
@@ -605,7 +605,7 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
           <div>{gitState?.currentFilePath ? t('git.fileNotInRepo') : t('git.noActiveEditor')}</div>
           <div className="flex w-full max-w-md gap-2">
             <input value={manualRepoPath} onChange={(event) => setManualRepoPath(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void handleOpenRepo() }} placeholder={t('git.selectRepo')} className="tmuxgo-control tmuxgo-input min-w-0 flex-1 rounded px-2.5 py-1.5 text-[12px]" />
-            <button type="button" disabled={!manualRepoPath.trim()} onClick={() => void handleOpenRepo()} className="tmuxgo-button tmuxgo-button--primary tmuxgo-button--sm">{t('git.openRepo')}</button>
+            <Button variant="primary" size="sm" disabled={!manualRepoPath.trim()} onClick={() => void handleOpenRepo()}>{t('git.openRepo')}</Button>
           </div>
         </div>
       )}
