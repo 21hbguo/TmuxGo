@@ -766,6 +766,24 @@ a {
   padding: 10px 22px;
   font-weight: 600;
 }
+.tmuxgo-button--icon {
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+}
+.tmuxgo-button--icon-sm {
+  padding: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+}
+.tmuxgo-button--icon-lg {
+  padding: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+}
 
 .tmuxgo-button--primary {
   --text-color: white;
