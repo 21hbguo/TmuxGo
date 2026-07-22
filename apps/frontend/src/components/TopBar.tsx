@@ -20,7 +20,7 @@ export function TopBar() {
   return (
       <header className="tmuxgo-glass tmuxgo-glass-chrome relative z-30 flex h-14 shrink-0 items-center border-b px-3">
         <div className="flex min-w-0 items-center gap-2.5">
-          <img src="/app-icon.svg" alt="" className="h-8 w-8 rounded-lg shadow-sm" />
+          <img src="/app-icon.svg" alt="" className="h-8 w-8 rounded-apple shadow-sm" />
           <span className="text-base font-semibold text-text-1">TmuxGo</span>
           {activeHost && (
             <>
@@ -40,7 +40,7 @@ export function TopBar() {
           <button
             onClick={() => setCommandPalette(true)}
             aria-label={t('search.placeholder')}
-            className="tmuxgo-glass-control flex h-9 w-full max-w-[360px] items-center gap-2 rounded-xl px-3 text-sm text-text-3 transition-colors"
+            className="tmuxgo-glass-control flex h-9 w-full max-w-[360px] items-center gap-2 rounded-apple px-3 text-sm text-text-3 transition-colors"
           >
             <FiSearch aria-hidden="true" className="shrink-0" />
             <span className="min-w-0 flex-1 truncate text-left">{t('search.placeholder')}</span>

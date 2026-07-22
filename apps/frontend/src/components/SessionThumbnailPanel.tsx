@@ -44,7 +44,7 @@ export function SessionThumbnailPanel() {
       {isLoading && <div className="p-2 text-xs text-text-3">{t('thumbnail.loading')}</div>}
       {isError && <div className="p-2 text-xs text-text-3">{t('thumbnail.unavailable')}</div>}
       {!isLoading && !isError && !thumbnails.length && <div className="p-2 text-xs text-text-3">{t('thumbnail.empty')}</div>}
-      {!!selectedThumbnail && <div className="mb-2 overflow-hidden rounded border border-accent bg-bg-0" data-testid="thumbnail-selected-card">
+      {!!selectedThumbnail && <div className="mb-2 overflow-hidden rounded-apple border border-accent bg-bg-0" data-testid="thumbnail-selected-card">
         <div className="flex h-8 items-center gap-2 border-b border-[var(--line)] px-3">
           <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
           <span className="min-w-0 flex-1 truncate font-mono text-xs text-text-1">{selectedThumbnail.name}</span>
@@ -56,7 +56,7 @@ export function SessionThumbnailPanel() {
         {thumbnails.filter((thumbnail) => thumbnail.id !== selectedSessionId).map((thumbnail) => {
           const width = Math.max(1, ...thumbnail.panes.map((pane) => pane.left + pane.size.cols))
           const height = Math.max(1, ...thumbnail.panes.map((pane) => pane.top + pane.size.rows))
-          return <button key={thumbnail.id} title={thumbnail.name} onClick={() => setSelectedSessionId(thumbnail.id)} className="group h-48 overflow-hidden rounded border border-[var(--line)] bg-bg-0 text-left transition-colors hover:border-accent hover:bg-bg-2">
+          return <button key={thumbnail.id} title={thumbnail.name} onClick={() => setSelectedSessionId(thumbnail.id)} className="group h-48 overflow-hidden rounded-apple border border-[var(--line)] bg-bg-0 text-left transition-colors hover:border-accent hover:bg-bg-2">
             <div className="flex h-7 items-center gap-2 border-b border-[var(--line)] px-2">
               <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-text-3/50 group-hover:bg-accent" />
               <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-text-2 group-hover:text-text-1">{thumbnail.name}</span>

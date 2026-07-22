@@ -390,8 +390,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     touchMovedRef.current = moved
   }, [])
   const clampMobileFontSize = useCallback((value: number) => {
-    const rounded = Math.round(value * 10) / 10
-    return Math.max(MOBILE_PINCH_MIN_FONT_SIZE, Math.min(MOBILE_PINCH_MAX_FONT_SIZE, rounded))
+    const roundedApple = Math.round(value * 10) / 10
+    return Math.max(MOBILE_PINCH_MIN_FONT_SIZE, Math.min(MOBILE_PINCH_MAX_FONT_SIZE, roundedApple))
   }, [])
   const getPinchDistance = useCallback((touches: TouchList) => {
     if (touches.length < 2) return 0
@@ -860,7 +860,28 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       resizeMaskGeneration += 1
       terminalResizePending = true
       const mask = resizeMaskRef.current
-      if (mask) mask.style.display = 'block'
+      if (mask && mask.style.display !== 'block') {
+        mask.style.display = 'block'
+        const screen = terminal?.element?.querySelector('.xterm-screen') as HTMLElement | null
+        if (screen) {
+          const snapshot = screen.cloneNode(true) as HTMLElement
+          const screenRect = screen.getBoundingClientRect()
+          const maskRect = mask.getBoundingClientRect()
+          snapshot.style.setProperty('inset', 'auto', 'important')
+          snapshot.style.setProperty('left', `${screenRect.left - maskRect.left}px`, 'important')
+          snapshot.style.setProperty('top', `${screenRect.top - maskRect.top}px`, 'important')
+          snapshot.style.setProperty('width', `${screenRect.width}px`, 'important')
+          snapshot.style.setProperty('height', `${screenRect.height}px`, 'important')
+          const sourceCanvases = Array.from(screen.querySelectorAll('canvas'))
+          const snapshotCanvases = Array.from(snapshot.querySelectorAll('canvas'))
+          sourceCanvases.forEach((source, index) => {
+            try {
+              snapshotCanvases[index]?.getContext('2d')?.drawImage(source, 0, 0)
+            } catch {}
+          })
+          mask.replaceChildren(snapshot)
+        }
+      }
       return resizeMaskGeneration
     }
     const revealResizeMask = (generation = resizeMaskGeneration) => {
@@ -876,7 +897,10 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           if (generation !== resizeMaskGeneration) return
           terminalResizePending = false
           const mask = resizeMaskRef.current
-          if (mask) mask.style.display = 'none'
+          if (mask) {
+            mask.style.display = 'none'
+            mask.replaceChildren()
+          }
           nextSynchronous = false
         })
         if (nextSynchronous) resizeRevealFrame = nextFrame
@@ -944,7 +968,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       }
       const size = drag.pendingSize
       drag.sentSize = size
-      void api.panes.resize(drag.paneId, drag.axis === 'x' ? { cols: size } : { rows: size }).then(() => loadSessionSnapshot(true)).catch(() => null).then(() => {
+      void api.panes.resize(drag.paneId, drag.axis === 'x' ? { cols: size } : { rows: size }).catch(() => null).then(() => {
+        void loadSessionSnapshot(true).catch(() => null)
         window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'tmux-pane-resize' } }))
         revealResizeMask(drag.maskGeneration)
       })
@@ -1508,7 +1533,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       if (!isMobileDevice) {
         try {
           const { WebglAddon } = await import('@xterm/addon-webgl')
-          terminal.loadAddon(new WebglAddon())
+          terminal.loadAddon(new WebglAddon(true))
           rendererType = 'webgl'
         } catch {}
       }
@@ -1703,10 +1728,9 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           revealResizeMask(generation)
           return
         }
-        void loadSessionSnapshot(true).catch(() => null).then(() => {
-          if (disposed || generation !== resizeMaskGeneration || cols !== terminal?.cols || rows !== terminal?.rows) return
-          revealResizeMask(generation)
-        })
+        void loadSessionSnapshot(true).catch(() => null)
+        if (disposed || generation !== resizeMaskGeneration || cols !== terminal?.cols || rows !== terminal?.rows) return
+        revealResizeMask(generation)
       }
       const handleResizeAbort = (event: Event) => {
         const detail = (event as CustomEvent).detail || {}
@@ -1971,6 +1995,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       if (layoutTimeout) clearTimeout(layoutTimeout)
       if (resizeRevealFrame) cancelAnimationFrame(resizeRevealFrame)
       if (resizeStabilityFrame) cancelAnimationFrame(resizeStabilityFrame)
+      terminalResizePending = false
+      resizeMaskRef.current?.replaceChildren()
       if (layoutFrame) cancelAnimationFrame(layoutFrame)
       clearTerminalRepaint()
       if (sharedLayoutFrame) cancelAnimationFrame(sharedLayoutFrame)
@@ -2015,10 +2041,10 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         touchMovedRef.current = false
       }}
     >
-      <div ref={resizeMaskRef} data-testid="terminal-resize-mask" aria-hidden="true" className="pointer-events-none absolute inset-0 z-10 hidden bg-bg-0" style={{ display: terminalResizePending ? 'block' : undefined }} />
+      <div ref={resizeMaskRef} data-testid="terminal-resize-mask" aria-hidden="true" className="pointer-events-none absolute inset-0 z-10 hidden overflow-hidden bg-bg-1" style={{ display: terminalResizePending ? 'block' : undefined }} />
       <div ref={paneResizeGuideRef} data-testid="pane-resize-guide" className="pointer-events-none absolute z-20 hidden bg-accent shadow-[0_0_6px_var(--accent)]" />
-      {dropState.isDropActive && <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-lg border border-dashed border-accent bg-bg-0/70 text-sm text-accent shadow-[var(--glow)]">{t('terminal.dropUpload')}</div>}
-      {githubDeviceLogin && <div data-testid="github-device-login-card" className="absolute inset-x-3 bottom-3 z-20 ml-auto w-auto max-w-sm rounded-2xl border border-accent/30 bg-bg-0/92 p-3 shadow-[0_18px_48px_rgba(0,0,0,0.38)] backdrop-blur" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} onTouchEnd={(e) => e.stopPropagation()}>
+      {dropState.isDropActive && <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-apple border border-dashed border-accent bg-bg-0/70 text-sm text-accent shadow-[var(--glow)]">{t('terminal.dropUpload')}</div>}
+      {githubDeviceLogin && <div data-testid="github-device-login-card" className="absolute inset-x-3 bottom-3 z-20 ml-auto w-auto max-w-sm rounded-apple border border-accent/30 bg-bg-0/92 p-3 shadow-[0_18px_48px_rgba(0,0,0,0.38)] backdrop-blur" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} onTouchEnd={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="text-sm font-medium text-text-1">{t('githubAuth.title')}</div>
@@ -2026,13 +2052,13 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           </div>
           <Chip tone="danger" className="shrink-0" aria-label={t('githubAuth.dismiss')} onClick={dismissGithubDeviceLogin}>✕</Chip>
         </div>
-        <div className="mt-3 rounded-xl border border-[var(--line)] bg-bg-1 px-3 py-2">
+        <div className="mt-3 rounded-apple border border-[var(--line)] bg-bg-1 px-3 py-2">
           <div className="text-[10px] uppercase tracking-[0.24em] text-text-3">{t('githubAuth.code')}</div>
           <div className="mt-1 font-mono text-base tracking-[0.22em] text-accent">{githubDeviceLogin.code}</div>
         </div>
         <div className="mt-3 flex gap-2">
-          <button type="button" data-testid="github-device-login-open" onClick={openGithubDeviceLogin} className="flex-1 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-bg-0 transition-transform active:scale-[0.98]">{t('githubAuth.open')}</button>
-          <button type="button" data-testid="github-device-login-copy" onClick={() => void copyGithubDeviceLogin()} className="flex-1 rounded-lg border border-[var(--line)] bg-bg-1 px-3 py-2 text-sm text-text-2 transition-transform active:scale-[0.98]">{t('githubAuth.copy')}</button>
+          <button type="button" data-testid="github-device-login-open" onClick={openGithubDeviceLogin} className="flex-1 rounded-apple bg-accent px-3 py-2 text-sm font-medium text-bg-0 transition-transform active:scale-[0.98]">{t('githubAuth.open')}</button>
+          <button type="button" data-testid="github-device-login-copy" onClick={() => void copyGithubDeviceLogin()} className="flex-1 rounded-apple border border-[var(--line)] bg-bg-1 px-3 py-2 text-sm text-text-2 transition-transform active:scale-[0.98]">{t('githubAuth.copy')}</button>
         </div>
       </div>}
       {isMobileDevice && (

@@ -418,7 +418,7 @@ export function QuickActions({ mode='panel' }:{ mode?:QuickActionsMode }){
       <div className="grid grid-cols-3 gap-1">
         {primaryButtons.slice(15,18).map((def)=>renderPanelButton(def,controller))}
       </div>
-      <button onClick={()=>attachButton.onPress?.()} className="w-full px-2 py-1.5 rounded text-xs transition-colors bg-accent/20 text-accent border border-accent/40 hover:bg-accent/25">
+      <button onClick={()=>attachButton.onPress?.()} className="w-full px-2 py-1.5 rounded-apple text-xs transition-colors bg-accent/20 text-accent border border-accent/40 hover:bg-accent/25">
         {attachButton.label}
       </button>
       <WatchButton paneId={activePaneId || ''} />
@@ -428,14 +428,14 @@ export function QuickActions({ mode='panel' }:{ mode?:QuickActionsMode }){
           {shortcuts.map((s)=>(
             <div key={s.id} className="group flex items-center gap-1 mb-1">
               <KeyCap variant="panel" size="md" onPress={() => { sendKey(keysToEscape(s.keys)) }} title={s.keys} className="flex-1 truncate">{s.label}</KeyCap>
-              <button onClick={()=>removeShortcut(s.id)} className="p-1 rounded text-text-3 hover:text-red-400 hover:bg-red-900/30 opacity-0 group-hover:opacity-100 transition-opacity text-[10px]">
+              <button onClick={()=>removeShortcut(s.id)} className="p-1 rounded-apple text-text-3 hover:text-red-400 hover:bg-red-900/30 opacity-0 group-hover:opacity-100 transition-opacity text-[10px]">
                 ✕
               </button>
             </div>
           ))}
         </div>
       )}
-      <button onClick={()=>setShowModal(true)} className="w-full px-2 py-1.5 rounded text-xs transition-colors border border-dashed border-[var(--line)] text-text-3 hover:text-text-2 hover:border-accent/50">
+      <button onClick={()=>setShowModal(true)} className="w-full px-2 py-1.5 rounded-apple text-xs transition-colors border border-dashed border-[var(--line)] text-text-3 hover:text-text-2 hover:border-accent/50">
         + {t('shortcut.add')}
       </button>
       {showModal&&(

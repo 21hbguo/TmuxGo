@@ -64,7 +64,7 @@ export function PasteConfirmDialog({ open, text, meta, mode = 'confirm', onTextC
     <div className="fixed inset-0 z-[85] flex items-center justify-center bg-black/40 p-4" onClick={onCancel}>
       <div
         ref={dialogRef}
-        className="tmuxgo-glass tmuxgo-glass-dialog w-full max-w-2xl rounded-lg border p-5"
+        className="tmuxgo-glass tmuxgo-glass-dialog w-full max-w-2xl rounded-apple border p-5"
         onClick={(e) => e.stopPropagation()}
         onKeyDownCapture={(e) => {
           e.stopPropagation()
@@ -85,7 +85,7 @@ export function PasteConfirmDialog({ open, text, meta, mode = 'confirm', onTextC
             <div key={item} className="tmuxgo-chip">{item}</div>
           ))}
         </div>
-        <textarea ref={textareaRef} value={text} onChange={(e) => onTextChange?.(e.target.value)} className="tmuxgo-control tmuxgo-textarea mt-4 h-48 max-h-[40vh] w-full resize-none rounded p-3 text-xs" autoFocus={isManual} spellCheck={false} />
+        <textarea ref={textareaRef} value={text} onChange={(e) => onTextChange?.(e.target.value)} className="tmuxgo-control tmuxgo-textarea mt-4 h-48 max-h-[40vh] w-full resize-none rounded-apple p-3 text-xs" autoFocus={isManual} spellCheck={false} />
         <div className="mt-5 flex flex-wrap justify-end gap-2">
           <Button variant="ghost" size="sm" preventFocus onClick={onCancel}>{t('paste.cancel')}</Button>
           {isManual && <Button size="sm" preventFocus onClick={onRetryPermission}>{t('paste.retryPermission')}</Button>}

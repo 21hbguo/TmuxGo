@@ -29,6 +29,9 @@ const config: Config = {
       boxShadow: {
         glow: '0 0 20px rgba(30,200,255,0.25)',
       },
+      borderRadius: {
+        apple: '20px',
+      },
     },
   },
   plugins: [],

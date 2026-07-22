@@ -18,7 +18,7 @@ export function ConfirmDialog({ open, title, message, confirmLabel, cancelLabel,
   if (!open) return null
   return <ModalPortal>
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4" onClick={onCancel}>
-      <div className="tmuxgo-glass tmuxgo-glass-dialog w-full max-w-md rounded-lg border p-5" onClick={(e) => e.stopPropagation()}>
+      <div className="tmuxgo-glass tmuxgo-glass-dialog w-full max-w-md rounded-apple border p-5" onClick={(e) => e.stopPropagation()}>
         <div className="text-lg text-text-1">{title}</div>
         <div className="mt-2 text-sm text-text-3">{message}</div>
         <div className="mt-5 flex justify-end gap-2">

@@ -138,20 +138,20 @@ export function SessionPanel() {
           </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {isError ? <div className="p-3 text-xs text-danger"><div className="break-words">{error instanceof Error ? error.message : t('session.loadFailed')}</div><button onClick={() => void refetch()} className="mt-2 rounded bg-bg-2 px-2 py-1 text-accent hover:text-text-1">{t('common.retry')}</button></div> : <SessionSortableList
+          {isError ? <div className="p-3 text-xs text-danger"><div className="break-words">{error instanceof Error ? error.message : t('session.loadFailed')}</div><button onClick={() => void refetch()} className="mt-2 rounded-apple bg-bg-2 px-2 py-1 text-accent hover:text-text-1">{t('common.retry')}</button></div> : <SessionSortableList
             sessions={sessions}
             onMove={moveSession}
             listClassName="min-h-full"
-            getItemClassName={({ session, isDragging, isOverlay }) => `border-b border-[rgba(255,255,255,0.03)] ${batchMode ? selectedSessionIds.includes(session.id) ? 'bg-red-900/15' : 'hover:bg-bg-2/60' : activeSessionId === session.id ? 'bg-bg-2/80' : 'hover:bg-bg-2/60'} ${isDragging && !isOverlay ? 'opacity-40' : ''} ${isOverlay ? 'rounded-lg border border-accent bg-bg-1 shadow-[0_20px_48px_rgba(0,0,0,0.42)]' : ''}`}
+            getItemClassName={({ session, isDragging, isOverlay }) => `border-b border-[rgba(255,255,255,0.03)] ${batchMode ? selectedSessionIds.includes(session.id) ? 'bg-red-900/15' : 'hover:bg-bg-2/60' : activeSessionId === session.id ? 'bg-bg-2/80' : 'hover:bg-bg-2/60'} ${isDragging && !isOverlay ? 'opacity-40' : ''} ${isOverlay ? 'rounded-apple border border-accent bg-bg-1 shadow-[0_20px_48px_rgba(0,0,0,0.42)]' : ''}`}
             renderItem={({ session }) => (
               <div className="flex items-center gap-1 pr-2">
-                {batchMode && <button onClick={() => toggleBatchSession(session.id)} className={`ml-2 flex h-7 w-5 shrink-0 items-center justify-center rounded text-[11px] leading-none ${selectedSessionIds.includes(session.id) ? 'text-red-300' : 'text-text-3'} hover:bg-bg-0`}>{selectedSessionIds.includes(session.id) ? '☑' : '☐'}</button>}
+                {batchMode && <button onClick={() => toggleBatchSession(session.id)} className={`ml-2 flex h-7 w-5 shrink-0 items-center justify-center rounded-apple text-[11px] leading-none ${selectedSessionIds.includes(session.id) ? 'text-red-300' : 'text-text-3'} hover:bg-bg-0`}>{selectedSessionIds.includes(session.id) ? '☑' : '☐'}</button>}
                 <button onClick={() => batchMode ? toggleBatchSession(session.id) : setActiveSession(session.id)} onDoubleClick={() => !batchMode && void handleRenameSession(session.id)} className={`min-w-0 flex-1 border-l-2 px-3 py-2 text-left ${batchMode ? selectedSessionIds.includes(session.id) ? 'border-red-400' : 'border-transparent' : activeSessionId === session.id ? 'border-accent' : 'border-transparent'}`}>
                   <div className="truncate text-sm text-text-1">{session.name}</div>
                   <div className="mt-0.5 flex min-w-0 items-center gap-2 text-[11px] text-text-3"><span className="shrink-0 whitespace-nowrap">{t('sidebar.windows', { count: session.windowCount })}</span><AgentStatusBadge summary={session.agentSummary} /></div>
                 </button>
-                {!batchMode && <button onClick={() => void handleRenameSession(session.id)} className="rounded px-1.5 py-1 text-[11px] text-text-3 hover:bg-bg-0 hover:text-text-1" aria-label={t('sidebar.renameSession')} title={t('sidebar.renameSession')}>✎</button>}
-                {!batchMode && <button onClick={() => setPendingDeleteSessionId(session.id)} className="rounded px-1.5 py-1 text-[11px] text-text-3 hover:bg-bg-0 hover:text-danger" aria-label={t('sidebar.deleteSession')} title={t('sidebar.deleteSession')}>×</button>}
+                {!batchMode && <button onClick={() => void handleRenameSession(session.id)} className="rounded-apple px-1.5 py-1 text-[11px] text-text-3 hover:bg-bg-0 hover:text-text-1" aria-label={t('sidebar.renameSession')} title={t('sidebar.renameSession')}>✎</button>}
+                {!batchMode && <button onClick={() => setPendingDeleteSessionId(session.id)} className="rounded-apple px-1.5 py-1 text-[11px] text-text-3 hover:bg-bg-0 hover:text-danger" aria-label={t('sidebar.deleteSession')} title={t('sidebar.deleteSession')}>×</button>}
               </div>
             )}
           />}

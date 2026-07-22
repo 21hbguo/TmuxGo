@@ -250,7 +250,7 @@ a {
 .tmuxgo-mobile-nav-button {
   min-width: 44px;
   min-height: 44px;
-  border-radius: 10px;
+  border-radius: 20px;
 }
 .tmuxgo-mobile-session-strip {
   border-color: rgb(var(--text-1) / 0.08);
@@ -783,7 +783,7 @@ a {
   padding: 0;
   width: 40px;
   height: 40px;
-  border-radius: 12px;
+  border-radius: 20px;
 }
 
 .tmuxgo-button--accent {

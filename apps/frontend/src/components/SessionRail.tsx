@@ -97,14 +97,14 @@ export function SessionRail() {
             listClassName="flex min-h-full flex-col gap-2"
             getItemClassName={({ session, isDragging, isOverlay }) => {
               const active = session.id === activeSessionId
-              return `rounded-lg ${isOverlay ? 'shadow-[0_18px_44px_rgba(0,0,0,0.42)]' : ''} ${isDragging && !isOverlay ? 'opacity-40' : ''}`
+              return `rounded-apple ${isOverlay ? 'shadow-[0_18px_44px_rgba(0,0,0,0.42)]' : ''} ${isDragging && !isOverlay ? 'opacity-40' : ''}`
             }}
             renderItem={({ session, isOverlay }) => {
               const active = session.id === activeSessionId
               return (
-                <button title={session.name} onClick={() => setActiveSession(session.id)} onDoubleClick={() => void handleRenameSession(session.id)} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, sessionId: session.id }) }} className={`flex h-11 min-w-0 w-full items-center gap-2 rounded-lg border px-2 text-left transition-[transform,box-shadow,background-color,border-color,color] duration-200 ${active ? 'border-[var(--line)] bg-bg-2 text-accent' : 'border-transparent bg-transparent text-text-3 hover:bg-bg-2 hover:text-text-1'} ${isOverlay ? 'border-accent bg-bg-1 text-text-1 shadow-[0_18px_44px_rgba(0,0,0,0.42)]' : ''}`}>
+                <button title={session.name} onClick={() => setActiveSession(session.id)} onDoubleClick={() => void handleRenameSession(session.id)} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, sessionId: session.id }) }} className={`flex h-11 min-w-0 w-full items-center gap-2 rounded-apple border px-2 text-left transition-[transform,box-shadow,background-color,border-color,color] duration-200 ${active ? 'border-[var(--line)] bg-bg-2 text-accent' : 'border-transparent bg-transparent text-text-3 hover:bg-bg-2 hover:text-text-1'} ${isOverlay ? 'border-accent bg-bg-1 text-text-1 shadow-[0_18px_44px_rgba(0,0,0,0.42)]' : ''}`}>
                   <span className="flex min-w-0 flex-1 items-center gap-2 text-left">
-                    <span className="relative shrink-0"><span className={`flex h-7 w-7 items-center justify-center rounded-md text-[11px] font-semibold ${active ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-2'}`}>{session.name.slice(0, 2).toUpperCase()}</span><span className="absolute -bottom-1 -right-1"><AgentStatusBadge summary={session.agentSummary} compact /></span></span>
+                    <span className="relative shrink-0"><span className={`flex h-7 w-7 items-center justify-center rounded-apple text-[11px] font-semibold ${active ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-2'}`}>{session.name.slice(0, 2).toUpperCase()}</span><span className="absolute -bottom-1 -right-1"><AgentStatusBadge summary={session.agentSummary} compact /></span></span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-xs font-medium text-text-1">{session.name}</span>
                       <span className="block truncate text-[10px] text-text-3">{t('sidebar.windows', { count: session.windowCount })}</span>
@@ -116,12 +116,12 @@ export function SessionRail() {
           />}
         </div>
         <div className="shrink-0 border-t border-[var(--line)] p-2">
-          <button aria-label={t('sidebar.newSession')} title={t('sidebar.newSession')} onClick={() => setShowTemplates(true)} className="tmuxgo-icon-button tmuxgo-glass-control flex h-10 w-full items-center justify-center rounded-lg text-sm text-accent hover:text-text-1"><FiPlus aria-hidden="true" size={17} /></button>
+          <button aria-label={t('sidebar.newSession')} title={t('sidebar.newSession')} onClick={() => setShowTemplates(true)} className="tmuxgo-icon-button tmuxgo-glass-control flex h-10 w-full items-center justify-center rounded-apple text-sm text-accent hover:text-text-1"><FiPlus aria-hidden="true" size={17} /></button>
         </div>
       </aside>
       {showTemplates && <ModalPortal><SessionTemplates onSelect={handleTemplateSelect} onClose={() => setShowTemplates(false)} /></ModalPortal>}
       {contextMenu && (
-        <div className="fixed z-[90] w-40 overflow-hidden rounded-lg border border-[var(--line)] bg-bg-1 py-1 text-xs shadow-lg" style={{ left: contextMenu.x, top: contextMenu.y }} onClick={(e) => e.stopPropagation()}>
+        <div className="fixed z-[90] w-40 overflow-hidden rounded-apple border border-[var(--line)] bg-bg-1 py-1 text-xs shadow-lg" style={{ left: contextMenu.x, top: contextMenu.y }} onClick={(e) => e.stopPropagation()}>
           <button onClick={() => { setSessionPanelExpanded(true); setContextMenu(null) }} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-text-2 hover:bg-bg-2 hover:text-text-1">
             <FiChevronRight aria-hidden="true" size={13} />{t('sidebar.sessions')}
           </button>

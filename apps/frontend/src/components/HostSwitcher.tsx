@@ -13,7 +13,7 @@ export function HostSwitcher({ mode='desktop' }: { mode?: 'desktop' | 'mobile' }
   const statusClass = activeHost.status === 'online' ? 'bg-accent' : activeHost.status === 'offline' ? 'bg-danger' : 'bg-warn'
   const compact = mode === 'desktop'
   const labelClass = compact ? 'text-[10px] uppercase tracking-[0.16em] text-text-3/80' : 'text-[11px] uppercase tracking-[0.16em] text-text-3/80'
-  const frameClass = compact ? 'tmuxgo-control tmuxgo-control-soft mt-1 h-8 rounded-lg px-2' : 'tmuxgo-control tmuxgo-control-soft mt-2 h-10 rounded-lg px-3'
+  const frameClass = compact ? 'tmuxgo-control tmuxgo-control-soft mt-1 h-8 rounded-apple px-2' : 'tmuxgo-control tmuxgo-control-soft mt-2 h-10 rounded-apple px-3'
   if (hosts.length <= 1) {
     return (
       <div className="min-w-0">

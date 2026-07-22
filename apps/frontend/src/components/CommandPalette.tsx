@@ -169,7 +169,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
 
   return <ModalPortal>
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/35 p-4 pt-[10vh]" onClick={close}>
-      <div className="tmuxgo-glass tmuxgo-glass-dialog w-full max-w-[500px] overflow-hidden rounded-lg border" onClick={(e) => e.stopPropagation()}>
+      <div className="tmuxgo-glass tmuxgo-glass-dialog w-full max-w-[500px] overflow-hidden rounded-apple border" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2 p-3 border-b border-[var(--line)]">
           <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="text-text-3 flex-shrink-0">
             <circle cx={11} cy={11} r={8} /><path d="m21 21-4.35-4.35" />
@@ -215,7 +215,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
             <button
               key={item.key}
               onClick={() => void handleSelect(index)}
-              className={`w-full px-3 py-2.5 text-left flex items-center justify-between gap-3 rounded-lg transition-colors ${selectedIndex === index ? 'bg-bg-2/60 text-text-1' : 'hover:bg-bg-2/40 text-text-2'}`}
+              className={`w-full px-3 py-2.5 text-left flex items-center justify-between gap-3 rounded-apple transition-colors ${selectedIndex === index ? 'bg-bg-2/60 text-text-1' : 'hover:bg-bg-2/40 text-text-2'}`}
             >
               <div>
                 <div className="text-text-1 text-sm">{item.title}</div>

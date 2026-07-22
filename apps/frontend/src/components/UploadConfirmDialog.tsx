@@ -159,7 +159,7 @@ export function UploadConfirmDialog() {
 
   return <ModalPortal>
     <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/40 p-4" onClick={handleCancel}>
-      <div className="tmuxgo-glass tmuxgo-glass-dialog w-full max-w-2xl rounded-lg border p-5" onClick={(e) => e.stopPropagation()}>
+      <div className="tmuxgo-glass tmuxgo-glass-dialog w-full max-w-2xl rounded-apple border p-5" onClick={(e) => e.stopPropagation()}>
         <div className="text-lg text-text-1">{t('upload.title')}</div>
         <div className="mt-2 flex flex-wrap gap-2 text-xs text-text-3">
           <div className="tmuxgo-chip">{t('upload.file', { count: files.length })}</div>
@@ -169,26 +169,26 @@ export function UploadConfirmDialog() {
         </div>
         <div className="mt-4 grid gap-3 md:grid-cols-[160px_1fr]">
           <label className="text-sm text-text-2">{t('upload.root')}</label>
-          <select value={targetRootId} onChange={(e) => setTargetRootId(e.target.value)} disabled={!!uploadRequest?.temporary} className="tmuxgo-control tmuxgo-select rounded px-3 py-2 text-sm disabled:opacity-70">
+          <select value={targetRootId} onChange={(e) => setTargetRootId(e.target.value)} disabled={!!uploadRequest?.temporary} className="tmuxgo-control tmuxgo-select rounded-apple px-3 py-2 text-sm disabled:opacity-70">
             {temporaryTarget && uploadRequest?.temporary ? <option value={temporaryTarget.rootId}>{temporaryTarget.rootLabel}</option> : roots.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
           </select>
           <label className="text-sm text-text-2">{t('upload.directory')}</label>
-          <input value={targetPath} onChange={(e) => setTargetPath(e.target.value)} disabled={!!uploadRequest?.temporary} placeholder={t('upload.directory')} className="tmuxgo-control tmuxgo-input rounded px-3 py-2 font-mono text-sm disabled:opacity-70" />
+          <input value={targetPath} onChange={(e) => setTargetPath(e.target.value)} disabled={!!uploadRequest?.temporary} placeholder={t('upload.directory')} className="tmuxgo-control tmuxgo-input rounded-apple px-3 py-2 font-mono text-sm disabled:opacity-70" />
           <label className="text-sm text-text-2">{t('upload.target')}</label>
-          <div className="rounded border border-[var(--line)] bg-bg-0 px-3 py-2 font-mono text-xs text-text-2">{loadingTarget ? t('upload.resolving') : pathPreview || '-'}</div>
+          <div className="rounded-apple border border-[var(--line)] bg-bg-0 px-3 py-2 font-mono text-xs text-text-2">{loadingTarget ? t('upload.resolving') : pathPreview || '-'}</div>
         </div>
-        <div className="mt-4 rounded border border-[var(--line)] bg-bg-0 p-3">
+        <div className="mt-4 rounded-apple border border-[var(--line)] bg-bg-0 p-3">
           <div className="mb-2 text-xs text-text-3">{t('upload.filesLabel')}</div>
           <div className="max-h-48 space-y-1 overflow-auto">
             {files.map((file) => (
-              <div key={`${file.name}-${file.size}-${file.lastModified}`} className="flex items-center gap-3 rounded bg-bg-2 px-3 py-2 text-xs">
+              <div key={`${file.name}-${file.size}-${file.lastModified}`} className="flex items-center gap-3 rounded-apple bg-bg-2 px-3 py-2 text-xs">
                 <div className="min-w-0 flex-1 truncate font-mono text-text-1">{file.name}</div>
                 <div className="shrink-0 text-text-3">{formatSize(file.size)}</div>
               </div>
             ))}
           </div>
         </div>
-        <label className="mt-4 flex items-center justify-between rounded border border-[var(--line)] bg-bg-0 px-3 py-2 text-sm text-text-2">
+        <label className="mt-4 flex items-center justify-between rounded-apple border border-[var(--line)] bg-bg-0 px-3 py-2 text-sm text-text-2">
           <span>{t('upload.insertPaths')}</span>
           <input type="checkbox" checked={insertPaths} onChange={(e) => setInsertPaths(e.target.checked)} className="h-4 w-4 accent-[rgb(var(--accent))]" />
         </label>

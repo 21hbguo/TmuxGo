@@ -45,7 +45,7 @@ export function Favorites() {
             <div className="text-text-3 text-sm text-center py-4">{t('favorites.noFavorites')}</div>
           ) : (
             favorites.map((fav) => (
-              <div key={fav.id} className="flex items-center justify-between p-2 bg-bg-2 rounded">
+              <div key={fav.id} className="flex items-center justify-between p-2 bg-bg-2 rounded-apple">
                 <div>
                   <div className="text-text-1 text-sm">{fav.name}</div>
                   <div className="text-text-3 text-xs">{fav.type}</div>
@@ -71,7 +71,7 @@ export function Favorites() {
                 </button>
               </div>
               {recentItems.map((item) => (
-                <div key={item.id} className="p-2 bg-bg-2 rounded">
+                <div key={item.id} className="p-2 bg-bg-2 rounded-apple">
                   <div className="text-text-1 text-sm">{item.name}</div>
                   <div className="text-text-3 text-xs">{item.type}</div>
                 </div>

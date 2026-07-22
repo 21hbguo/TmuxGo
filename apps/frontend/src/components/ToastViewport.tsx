@@ -17,7 +17,7 @@ export function ToastViewport() {
       {toasts.map((toast) => (
         <div
           key={toast.id}
-          className={`pointer-events-auto rounded border px-3 py-2 text-sm ${
+          className={`pointer-events-auto rounded-apple border px-3 py-2 text-sm ${
             toast.type === 'error'
               ? 'border-red-500/40 bg-red-900/30 text-red-200'
               : toast.type === 'success'

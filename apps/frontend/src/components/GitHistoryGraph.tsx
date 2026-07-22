@@ -73,7 +73,7 @@ export function GitHistoryGraph({ commits, branchHeads, currentBranch, hasMore, 
             {!!row.branches.length&&(
               <div className="flex min-w-0 flex-wrap gap-1">
                 {row.branches.map((branch)=>(
-                  <span key={`${branch.kind||'branch'}-${branch.name}`} className={`rounded px-1.5 py-0.5 text-[10px] ${branch.name===currentBranch&&branch.kind!=='remote'&&branch.kind!=='tag'?'bg-accent/20 text-accent':branch.kind==='tag'?'bg-yellow-400/15 text-yellow-400':branch.kind==='remote'?'bg-blue-400/15 text-blue-400':'bg-green-400/15 text-green-400'}`}>{branch.name}</span>
+                  <span key={`${branch.kind||'branch'}-${branch.name}`} className={`rounded-apple px-1.5 py-0.5 text-[10px] ${branch.name===currentBranch&&branch.kind!=='remote'&&branch.kind!=='tag'?'bg-accent/20 text-accent':branch.kind==='tag'?'bg-yellow-400/15 text-yellow-400':branch.kind==='remote'?'bg-blue-400/15 text-blue-400':'bg-green-400/15 text-green-400'}`}>{branch.name}</span>
                 ))}
               </div>
             )}

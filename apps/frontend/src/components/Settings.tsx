@@ -214,7 +214,7 @@ export function Settings({ onClose }: SettingsProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4" onClick={onClose}>
-      <div className="tmuxgo-glass tmuxgo-glass-dialog max-h-[85vh] w-full max-w-[700px] overflow-hidden rounded-lg border" onClick={(e) => e.stopPropagation()}>
+      <div className="tmuxgo-glass tmuxgo-glass-dialog max-h-[85vh] w-full max-w-[700px] overflow-hidden rounded-apple border" onClick={(e) => e.stopPropagation()}>
         <div className="p-4 border-b border-[var(--line)] flex items-center justify-between">
           <h2 className="text-text-1 text-lg font-medium">{t('settings.title')}</h2>
           <Button variant="ghost" size="sm" aria-label="close" onClick={onClose}>✕</Button>
@@ -244,7 +244,7 @@ export function Settings({ onClose }: SettingsProps) {
                 <select
                   value={preferences.language}
                   onChange={(e) => updatePreferences({ language: e.target.value as 'zh' | 'en' })}
-                  className="tmuxgo-control tmuxgo-select rounded px-3 py-2 text-sm"
+                  className="tmuxgo-control tmuxgo-select rounded-apple px-3 py-2 text-sm"
                 >
                   <option value="zh">中文</option>
                   <option value="en">English</option>
@@ -295,7 +295,7 @@ export function Settings({ onClose }: SettingsProps) {
                       value={preferences.agentNotificationDurationMs}
                       onChange={(event) => updatePreferences({ agentNotificationDurationMs: Number(event.target.value) })}
                       disabled={!preferences.agentNotificationsEnabled}
-                      className="tmuxgo-control tmuxgo-select rounded px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                      className="tmuxgo-control tmuxgo-select rounded-apple px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-50"
                       aria-label={t('settings.agentNotificationDuration')}
                     >
                       {[3000, 5000, 10000, 30000, 60000].map((duration) => <option key={duration} value={duration}>{t('settings.seconds', { count: duration / 1000 })}</option>)}
@@ -344,15 +344,15 @@ export function Settings({ onClose }: SettingsProps) {
                   </div>
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-text-2 text-sm">{t('settings.archiveCaptureMode')}</span>
-                    <select value={sessionContinuity.archive.captureMode === 'none' ? 'visible' : sessionContinuity.archive.captureMode} disabled={!sessionContinuity.archive.enabled} onChange={(event) => updateSessionContinuity({ archive: { ...sessionContinuity.archive, captureMode: event.target.value as 'visible' | 'history' } })} className="tmuxgo-control tmuxgo-select rounded px-3 py-1.5 text-sm disabled:opacity-50"><option value="visible">{t('settings.archiveVisible')}</option><option value="history">{t('settings.archiveHistory')}</option></select>
+                    <select value={sessionContinuity.archive.captureMode === 'none' ? 'visible' : sessionContinuity.archive.captureMode} disabled={!sessionContinuity.archive.enabled} onChange={(event) => updateSessionContinuity({ archive: { ...sessionContinuity.archive, captureMode: event.target.value as 'visible' | 'history' } })} className="tmuxgo-control tmuxgo-select rounded-apple px-3 py-1.5 text-sm disabled:opacity-50"><option value="visible">{t('settings.archiveVisible')}</option><option value="history">{t('settings.archiveHistory')}</option></select>
                   </div>
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-text-2 text-sm">{t('settings.archiveMaxSize')}</span>
-                    <select value={sessionContinuity.archive.maxBytesPerSession} disabled={!sessionContinuity.archive.enabled} onChange={(event) => updateSessionContinuity({ archive: { ...sessionContinuity.archive, maxBytesPerSession: Number(event.target.value) } })} className="tmuxgo-control tmuxgo-select rounded px-3 py-1.5 text-sm disabled:opacity-50"><option value={262144}>256 KB</option><option value={1048576}>1 MB</option><option value={4194304}>4 MB</option><option value={16777216}>16 MB</option><option value={33554432}>32 MB</option></select>
+                    <select value={sessionContinuity.archive.maxBytesPerSession} disabled={!sessionContinuity.archive.enabled} onChange={(event) => updateSessionContinuity({ archive: { ...sessionContinuity.archive, maxBytesPerSession: Number(event.target.value) } })} className="tmuxgo-control tmuxgo-select rounded-apple px-3 py-1.5 text-sm disabled:opacity-50"><option value={262144}>256 KB</option><option value={1048576}>1 MB</option><option value={4194304}>4 MB</option><option value={16777216}>16 MB</option><option value={33554432}>32 MB</option></select>
                   </div>
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-text-2 text-sm">{t('settings.archiveRetention')}</span>
-                    <input type="number" min={1} max={3650} value={sessionContinuity.archive.retentionDays} disabled={!sessionContinuity.archive.enabled} onChange={(event) => updateSessionContinuity({ archive: { ...sessionContinuity.archive, retentionDays: Math.max(1, Math.min(3650, Number(event.target.value) || 1)) } })} className="tmuxgo-control tmuxgo-input w-20 rounded px-2 py-1.5 text-right text-sm disabled:opacity-50" />
+                    <input type="number" min={1} max={3650} value={sessionContinuity.archive.retentionDays} disabled={!sessionContinuity.archive.enabled} onChange={(event) => updateSessionContinuity({ archive: { ...sessionContinuity.archive, retentionDays: Math.max(1, Math.min(3650, Number(event.target.value) || 1)) } })} className="tmuxgo-control tmuxgo-input w-20 rounded-apple px-2 py-1.5 text-right text-sm disabled:opacity-50" />
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-text-2 text-sm">{t('settings.resumePointCount')}</span>
@@ -382,14 +382,14 @@ export function Settings({ onClose }: SettingsProps) {
               </div>
               <div>
                 <h3 className="text-text-1 text-sm font-medium mb-3">{t('settings.hosts')}</h3>
-                <div className="space-y-3 rounded border border-[var(--line)] p-3">
+                <div className="space-y-3 rounded-apple border border-[var(--line)] p-3">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-xs text-text-3">{t('settings.hosts')}</span>
                     <Button variant="primary" size="sm" onClick={openCreateHostDialog}>{t('settings.hostNew')}</Button>
                   </div>
                   <div className="space-y-2">
                     {hosts.filter((host: any) => host.id !== 'local').map((host: any) => (
-                      <div key={host.id} className="rounded border border-[var(--line)] bg-bg-2 px-2 py-2">
+                      <div key={host.id} className="rounded-apple border border-[var(--line)] bg-bg-2 px-2 py-2">
                         <div className="min-w-0">
                           <div className="truncate text-sm text-text-1">{host.name || host.id}</div>
                           <div className="truncate text-xs text-text-3">{host.id} {host.user ? `${host.user}@` : ''}{host.address}:{host.port || 22}</div>
@@ -448,7 +448,7 @@ export function Settings({ onClose }: SettingsProps) {
                     <select
                       value={preferences.fontFamily}
                       onChange={(e) => updatePreferences({ fontFamily: e.target.value })}
-                      className="tmuxgo-control tmuxgo-select rounded px-3 py-1.5 text-sm"
+                      className="tmuxgo-control tmuxgo-select rounded-apple px-3 py-1.5 text-sm"
                     >
                       <option value='Consolas, "Cascadia Mono", "Cascadia Code", "SF Mono", Monaco, Menlo, "DejaVu Sans Mono", "Liberation Mono", "Courier New", monospace'>VS Code Mono</option>
                       <option value='JetBrains Mono, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace'>JetBrains Mono</option>
@@ -546,7 +546,7 @@ export function Settings({ onClose }: SettingsProps) {
                       <button
                         key={theme}
                         onClick={() => updatePreferences({ theme })}
-                        className={`p-3 bg-bg-2 rounded-lg border-2 ${
+                        className={`p-3 bg-bg-2 rounded-apple border-2 ${
                           preferences.theme === theme ? 'border-accent' : 'border-transparent'
                         }`}
                       >
@@ -569,7 +569,7 @@ export function Settings({ onClose }: SettingsProps) {
                         <button
                           key={pos}
                           onClick={() => updatePreferences({ sidebarPosition: pos })}
-                          className={`px-3 py-1.5 rounded text-sm ${
+                          className={`px-3 py-1.5 rounded-apple text-sm ${
                             preferences.sidebarPosition === pos
                               ? 'bg-accent text-bg-0'
                               : 'bg-bg-2 text-text-2'
@@ -633,11 +633,11 @@ export function Settings({ onClose }: SettingsProps) {
 
           {activeTab === 'about' && (
             <div className="space-y-4">
-              <div className="rounded border border-[var(--line)] bg-bg-2 p-4">
+              <div className="rounded-apple border border-[var(--line)] bg-bg-2 p-4">
                 <div className="text-base font-medium text-text-1">{APP_NAME}</div>
                 <div className="mt-1 text-xs text-text-3">{t('settings.aboutDesc')}</div>
               </div>
-              <div className="rounded border border-[var(--line)]">
+              <div className="rounded-apple border border-[var(--line)]">
                 <div className="flex items-center justify-between gap-4 px-4 py-3">
                   <span className="text-sm text-text-2">{t('settings.aboutCurrentVersion')}</span>
                   <span className="text-sm text-text-1">{APP_VERSION}</span>
@@ -659,7 +659,7 @@ export function Settings({ onClose }: SettingsProps) {
                   <span className={`text-sm ${appUpdateAvailable ? 'text-warn' : appVersionError ? 'text-danger' : 'text-accent-2'}`}>{aboutStatus}</span>
                 </div>
               </div>
-              <div className="rounded border border-[var(--line)] bg-bg-2 p-4">
+              <div className="rounded-apple border border-[var(--line)] bg-bg-2 p-4">
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
                     <div className="text-sm font-medium text-text-1">{t('settings.restartTitle')}</div>
@@ -667,13 +667,13 @@ export function Settings({ onClose }: SettingsProps) {
                   </div>
                   <Button variant="primary" disabled={restartRunning} className="disabled:cursor-not-allowed" onClick={() => setRestartConfirmOpen(true)}>{t('settings.restartAction')}</Button>
                 </div>
-                <div className="mt-4 rounded border border-[var(--line)] px-3 py-2">
+                <div className="mt-4 rounded-apple border border-[var(--line)] px-3 py-2">
                   <div className="flex items-center justify-between gap-4">
                     <span className="text-sm text-text-2">{t('settings.restartStatus')}</span>
                     <span className={`text-sm ${restartStatus.status === 'success' ? 'text-accent-2' : restartStatus.status === 'error' ? 'text-danger' : restartStatus.status === 'running' ? 'text-warn' : 'text-text-1'}`}>{restartStatusLabel}</span>
                   </div>
                   {restartStatus.summaryLines.length > 0 && (
-                    <div className="mt-2 rounded bg-bg-1 px-2 py-2 font-mono text-xs text-text-2">
+                    <div className="mt-2 rounded-apple bg-bg-1 px-2 py-2 font-mono text-xs text-text-2">
                       {restartStatus.summaryLines.map((line, index) => <div key={`${index}-${line}`}>{line}</div>)}
                     </div>
                   )}
@@ -690,18 +690,18 @@ export function Settings({ onClose }: SettingsProps) {
 
       {hostDialogOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 p-4" onClick={closeHostDialog}>
-          <div className="tmuxgo-glass tmuxgo-glass-dialog w-full max-w-[420px] rounded-lg border p-4" onClick={(event) => event.stopPropagation()}>
+          <div className="tmuxgo-glass tmuxgo-glass-dialog w-full max-w-[420px] rounded-apple border p-4" onClick={(event) => event.stopPropagation()}>
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-base font-medium text-text-1">{hostDialogMode === 'create' ? t('settings.hostCreate') : t('settings.hostEdit')}</h3>
               <Button variant="ghost" size="sm" aria-label="close" onClick={closeHostDialog}>✕</Button>
             </div>
             <div className="space-y-2">
-              <input value={hostIdDraft} disabled={hostDialogMode === 'edit'} onChange={(event) => setHostIdDraft(event.target.value)} placeholder={t('settings.hostId')} className="tmuxgo-control tmuxgo-input w-full rounded px-2 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-60" />
-              <input value={hostNameDraft} onChange={(event) => setHostNameDraft(event.target.value)} placeholder={t('settings.hostNameOptional')} className="tmuxgo-control tmuxgo-input w-full rounded px-2 py-1.5 text-sm" />
-              <input value={hostAddressDraft} onChange={(event) => setHostAddressDraft(event.target.value)} placeholder={t('settings.hostAddress')} className="tmuxgo-control tmuxgo-input w-full rounded px-2 py-1.5 text-sm" />
-              <input value={hostUserDraft} onChange={(event) => setHostUserDraft(event.target.value)} placeholder={t('settings.hostUser')} className="tmuxgo-control tmuxgo-input w-full rounded px-2 py-1.5 text-sm" />
-              <input value={hostPortDraft} onChange={(event) => setHostPortDraft(event.target.value)} placeholder={t('settings.hostPort')} className="tmuxgo-control tmuxgo-input w-full rounded px-2 py-1.5 text-sm" />
-              <input type="password" value={hostPasswordDraft} onChange={(event) => setHostPasswordDraft(event.target.value)} placeholder={t('settings.hostPassword')} className="tmuxgo-control tmuxgo-input w-full rounded px-2 py-1.5 text-sm" />
+              <input value={hostIdDraft} disabled={hostDialogMode === 'edit'} onChange={(event) => setHostIdDraft(event.target.value)} placeholder={t('settings.hostId')} className="tmuxgo-control tmuxgo-input w-full rounded-apple px-2 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-60" />
+              <input value={hostNameDraft} onChange={(event) => setHostNameDraft(event.target.value)} placeholder={t('settings.hostNameOptional')} className="tmuxgo-control tmuxgo-input w-full rounded-apple px-2 py-1.5 text-sm" />
+              <input value={hostAddressDraft} onChange={(event) => setHostAddressDraft(event.target.value)} placeholder={t('settings.hostAddress')} className="tmuxgo-control tmuxgo-input w-full rounded-apple px-2 py-1.5 text-sm" />
+              <input value={hostUserDraft} onChange={(event) => setHostUserDraft(event.target.value)} placeholder={t('settings.hostUser')} className="tmuxgo-control tmuxgo-input w-full rounded-apple px-2 py-1.5 text-sm" />
+              <input value={hostPortDraft} onChange={(event) => setHostPortDraft(event.target.value)} placeholder={t('settings.hostPort')} className="tmuxgo-control tmuxgo-input w-full rounded-apple px-2 py-1.5 text-sm" />
+              <input type="password" value={hostPasswordDraft} onChange={(event) => setHostPasswordDraft(event.target.value)} placeholder={t('settings.hostPassword')} className="tmuxgo-control tmuxgo-input w-full rounded-apple px-2 py-1.5 text-sm" />
               {hostDialogMode === 'edit' && <div className="text-xs text-text-3">{t('settings.hostPasswordKeep')}</div>}
             </div>
             <div className="mt-4 flex items-center justify-end gap-2">
@@ -711,7 +711,7 @@ export function Settings({ onClose }: SettingsProps) {
           </div>
         </div>
       )}
-      {archiveDialogOpen && <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4" onClick={() => setArchiveDialogOpen(false)}><div className="tmuxgo-glass tmuxgo-glass-dialog flex h-[75vh] w-full max-w-4xl flex-col overflow-hidden rounded-lg border" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b border-[var(--line)] px-4 py-3"><h3 className="text-base font-medium text-text-1">{t('settings.archives')}</h3><Button variant="ghost" size="sm" aria-label="close" onClick={() => setArchiveDialogOpen(false)}>✕</Button></div><div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[280px_1fr]"><div className="tmuxgo-scrollbar overflow-y-auto border-b border-[var(--line)] md:border-b-0 md:border-r">{archiveLoading && !archives.length && <div className="p-4 text-sm text-text-3">{t('common.loading')}</div>}{!archiveLoading && !archives.length && <div className="p-4 text-sm text-text-3">{t('settings.archiveEmpty')}</div>}{archives.map((archive) => <div key={archive.id} className={`flex border-b border-[var(--line)] ${archiveDetail?.id === archive.id ? 'bg-bg-2' : ''}`}><button onClick={() => void openArchive(archive.id)} className="min-w-0 flex-1 p-3 text-left"><div className="truncate text-sm text-text-1">{archive.sessionName}</div><div className="mt-1 text-xs text-text-3">{new Date(archive.createdAt).toLocaleString()} · {archive.paneCount} · {Math.ceil(archive.size / 1024)} KB</div></button><button onClick={() => void deleteArchive(archive.id)} className="w-10 text-text-3 hover:text-danger" aria-label={t('settings.deleteArchive')}>×</button></div>)}</div><div className="tmuxgo-scrollbar min-h-0 overflow-y-auto p-4">{!archiveDetail && <div className="flex h-full items-center justify-center text-sm text-text-3">{t('settings.selectArchive')}</div>}{archiveDetail && <div className="space-y-4"><div><div className="text-base font-medium text-text-1">{archiveDetail.sessionName}</div><div className="mt-1 text-xs text-text-3">{archiveDetail.captureMode === 'history' ? t('settings.archiveHistory') : t('settings.archiveVisible')} · {new Date(archiveDetail.createdAt).toLocaleString()}</div></div>{archiveDetail.panes.map((pane) => <div key={pane.paneId}><div className="mb-1 text-xs text-text-3">{pane.windowName} / {pane.title}</div><pre className="overflow-x-auto whitespace-pre-wrap rounded border border-[var(--line)] bg-bg-0 p-3 font-mono text-xs text-text-2">{pane.data || t('settings.archiveNoOutput')}</pre></div>)}</div>}</div></div></div></div>}
+      {archiveDialogOpen && <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4" onClick={() => setArchiveDialogOpen(false)}><div className="tmuxgo-glass tmuxgo-glass-dialog flex h-[75vh] w-full max-w-4xl flex-col overflow-hidden rounded-apple border" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b border-[var(--line)] px-4 py-3"><h3 className="text-base font-medium text-text-1">{t('settings.archives')}</h3><Button variant="ghost" size="sm" aria-label="close" onClick={() => setArchiveDialogOpen(false)}>✕</Button></div><div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[280px_1fr]"><div className="tmuxgo-scrollbar overflow-y-auto border-b border-[var(--line)] md:border-b-0 md:border-r">{archiveLoading && !archives.length && <div className="p-4 text-sm text-text-3">{t('common.loading')}</div>}{!archiveLoading && !archives.length && <div className="p-4 text-sm text-text-3">{t('settings.archiveEmpty')}</div>}{archives.map((archive) => <div key={archive.id} className={`flex border-b border-[var(--line)] ${archiveDetail?.id === archive.id ? 'bg-bg-2' : ''}`}><button onClick={() => void openArchive(archive.id)} className="min-w-0 flex-1 p-3 text-left"><div className="truncate text-sm text-text-1">{archive.sessionName}</div><div className="mt-1 text-xs text-text-3">{new Date(archive.createdAt).toLocaleString()} · {archive.paneCount} · {Math.ceil(archive.size / 1024)} KB</div></button><button onClick={() => void deleteArchive(archive.id)} className="w-10 text-text-3 hover:text-danger" aria-label={t('settings.deleteArchive')}>×</button></div>)}</div><div className="tmuxgo-scrollbar min-h-0 overflow-y-auto p-4">{!archiveDetail && <div className="flex h-full items-center justify-center text-sm text-text-3">{t('settings.selectArchive')}</div>}{archiveDetail && <div className="space-y-4"><div><div className="text-base font-medium text-text-1">{archiveDetail.sessionName}</div><div className="mt-1 text-xs text-text-3">{archiveDetail.captureMode === 'history' ? t('settings.archiveHistory') : t('settings.archiveVisible')} · {new Date(archiveDetail.createdAt).toLocaleString()}</div></div>{archiveDetail.panes.map((pane) => <div key={pane.paneId}><div className="mb-1 text-xs text-text-3">{pane.windowName} / {pane.title}</div><pre className="overflow-x-auto whitespace-pre-wrap rounded-apple border border-[var(--line)] bg-bg-0 p-3 font-mono text-xs text-text-2">{pane.data || t('settings.archiveNoOutput')}</pre></div>)}</div>}</div></div></div></div>}
       <ConfirmDialog open={!!pendingDeleteHostId} title={t('settings.hostRemoveConfirmTitle')} message={t('settings.hostRemoveConfirmMessage', { name: hosts.find((host: any) => host.id === pendingDeleteHostId)?.name || pendingDeleteHostId || '' })} confirmLabel={t('settings.hostRemove')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setPendingDeleteHostId(null)} onConfirm={() => void confirmDeleteHost()} />
       <ConfirmDialog open={restartConfirmOpen} title={t('settings.restartConfirmTitle')} message={t('settings.restartConfirmMessage')} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} onCancel={() => setRestartConfirmOpen(false)} onConfirm={() => void triggerRestartRebuild()} />
       {showAuditLog && <AuditLog onClose={() => setShowAuditLog(false)} />}

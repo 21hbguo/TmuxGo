@@ -266,14 +266,14 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
                 <Chip onClick={() => setSelectedSessionIds([])} className="flex-1 justify-center">{t('sidebar.batchClearAll')}</Chip>
                 <Chip tone="danger" disabled={!selectedSessionIds.length} className="flex-1 justify-center disabled:cursor-not-allowed" onClick={() => setBatchDeleteConfirmOpen(true)}>{t('sidebar.batchDeleteSelected')}</Chip>
               </div>}
-              {sessionsError ? <div className="rounded-lg bg-bg-2 p-3 text-xs text-danger"><div className="break-words">{sessionsErrorValue instanceof Error ? sessionsErrorValue.message : t('session.loadFailed')}</div><button onClick={() => void refetchSessions()} className="mt-2 rounded bg-bg-1 px-2 py-1 text-accent">{t('common.retry')}</button></div> : <SessionSortableList
+              {sessionsError ? <div className="rounded-apple bg-bg-2 p-3 text-xs text-danger"><div className="break-words">{sessionsErrorValue instanceof Error ? sessionsErrorValue.message : t('session.loadFailed')}</div><button onClick={() => void refetchSessions()} className="mt-2 rounded-apple bg-bg-1 px-2 py-1 text-accent">{t('common.retry')}</button></div> : <SessionSortableList
                 sessions={sessions}
                 onMove={moveSession}
                 listClassName="space-y-2"
-                getItemClassName={({ session, isDragging, isOverlay }) => `rounded-lg ${batchMode ? selectedSessionIds.includes(session.id) ? 'bg-red-900/15' : '' : ''} ${isDragging && !isOverlay ? 'opacity-40' : ''} ${isOverlay ? 'shadow-[0_20px_48px_rgba(0,0,0,0.42)]' : ''}`}
+                getItemClassName={({ session, isDragging, isOverlay }) => `rounded-apple ${batchMode ? selectedSessionIds.includes(session.id) ? 'bg-red-900/15' : '' : ''} ${isDragging && !isOverlay ? 'opacity-40' : ''} ${isOverlay ? 'shadow-[0_20px_48px_rgba(0,0,0,0.42)]' : ''}`}
                 renderItem={({ session, isOverlay }) => (
-                  <div className={`flex items-center gap-2 rounded-lg p-2 transition-[transform,box-shadow,background-color,border-color] duration-200 ${batchMode ? selectedSessionIds.includes(session.id) ? 'border border-red-400 bg-red-900/15' : 'bg-bg-2' : activeSessionId === session.id ? 'border border-accent bg-accent/20' : 'bg-bg-2'} ${isOverlay ? 'border border-accent bg-bg-1 shadow-[0_20px_48px_rgba(0,0,0,0.42)]' : ''}`}>
-                    {batchMode && <button onClick={() => toggleBatchSession(session.id)} className={`flex h-9 w-7 shrink-0 items-center justify-center rounded text-sm leading-none ${selectedSessionIds.includes(session.id) ? 'text-red-300' : 'text-text-3'} active:bg-bg-1`}>{selectedSessionIds.includes(session.id) ? '☑' : '☐'}</button>}
+                  <div className={`flex items-center gap-2 rounded-apple p-2 transition-[transform,box-shadow,background-color,border-color] duration-200 ${batchMode ? selectedSessionIds.includes(session.id) ? 'border border-red-400 bg-red-900/15' : 'bg-bg-2' : activeSessionId === session.id ? 'border border-accent bg-accent/20' : 'bg-bg-2'} ${isOverlay ? 'border border-accent bg-bg-1 shadow-[0_20px_48px_rgba(0,0,0,0.42)]' : ''}`}>
+                    {batchMode && <button onClick={() => toggleBatchSession(session.id)} className={`flex h-9 w-7 shrink-0 items-center justify-center rounded-apple text-sm leading-none ${selectedSessionIds.includes(session.id) ? 'text-red-300' : 'text-text-3'} active:bg-bg-1`}>{selectedSessionIds.includes(session.id) ? '☑' : '☐'}</button>}
                     <button onClick={() => {
                       if (batchMode) {
                         toggleBatchSession(session.id)
@@ -286,8 +286,8 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
                       <div className="mt-0.5 flex items-center gap-2 text-xs text-text-3"><span className="shrink-0 whitespace-nowrap">{t('drawer.windows', { count: session.windowCount })}</span><AgentStatusBadge summary={session.agentSummary} /></div>
                     </button>
                     {!batchMode && <div className="flex shrink-0 items-center gap-1">
-                      <button onClick={() => void handleRenameSession(session.id)} className="rounded px-2 py-2 text-xs text-text-2 active:bg-bg-1" aria-label={t('sidebar.renameSession')} title={t('sidebar.renameSession')}>✎</button>
-                      <button onClick={() => setPendingDeleteSessionId(session.id)} className="rounded px-2 py-2 text-sm text-text-2 active:bg-bg-1" aria-label={t('sidebar.deleteSession')} title={t('sidebar.deleteSession')}>×</button>
+                      <button onClick={() => void handleRenameSession(session.id)} className="rounded-apple px-2 py-2 text-xs text-text-2 active:bg-bg-1" aria-label={t('sidebar.renameSession')} title={t('sidebar.renameSession')}>✎</button>
+                      <button onClick={() => setPendingDeleteSessionId(session.id)} className="rounded-apple px-2 py-2 text-sm text-text-2 active:bg-bg-1" aria-label={t('sidebar.deleteSession')} title={t('sidebar.deleteSession')}>×</button>
                     </div>}
                   </div>
                 )}
@@ -306,7 +306,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
                   <button
                     key={window.id}
                     onClick={() => void handleSelectWindow(window.id)}
-                    className={`w-full rounded-lg p-3 text-left transition-colors ${window.active ? 'border border-accent bg-accent/20' : 'bg-bg-2 active:bg-bg-1'}`}
+                    className={`w-full rounded-apple p-3 text-left transition-colors ${window.active ? 'border border-accent bg-accent/20' : 'bg-bg-2 active:bg-bg-1'}`}
                   >
                     <div className="truncate text-text-1">{window.name}</div>
                     <div className="text-text-3 text-xs">#{window.index + 1}</div>
