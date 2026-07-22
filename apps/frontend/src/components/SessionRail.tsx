@@ -90,7 +90,7 @@ export function SessionRail() {
       <aside className="tmuxgo-material flex h-full w-[clamp(61px,9vw,109px)] shrink-0 flex-col border-r">
         <button onClick={() => setSessionPanelExpanded(true)} className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--line)] px-3 text-left text-xs font-semibold text-text-3 hover:bg-bg-2/55 hover:text-text-1"><FiChevronRight aria-hidden="true" className="shrink-0" /><span className="min-w-0 truncate">{t('sidebar.sessions')}</span></button>
         <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2 scrollbar-none">
-          {isError ? <button onClick={() => void refetch()} title={t('session.loadFailed')} className="flex h-10 w-full items-center justify-center rounded-lg bg-red-900/20 text-xs text-danger">{t('common.retry')}</button> : <SessionSortableList
+          {isError ? <button onClick={() => void refetch()} title={t('session.loadFailed')} className="tmuxgo-button tmuxgo-button--danger tmuxgo-button--sm w-full">{t('common.retry')}</button> : <SessionSortableList
             sessions={sessions}
             onMove={moveSession}
             listClassName="flex min-h-full flex-col gap-2"

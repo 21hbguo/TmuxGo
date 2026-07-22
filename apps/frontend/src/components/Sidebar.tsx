@@ -117,7 +117,7 @@ export function Sidebar() {
       <aside className={`relative flex shrink-0 flex-col bg-bg-1 ${preferences.sidebarPosition === 'right' ? 'border-l border-[var(--line)]' : 'border-r border-[var(--line)]'}`} style={{ width: sessionPanelWidth }}>
         <div className="flex items-center justify-between border-b border-[var(--line)] p-3">
           <span className="text-text-2 text-sm font-medium">{t('sidebar.sessions')}</span>
-          <button onClick={() => setSessionPanelExpanded(false)} className="rounded p-1.5 text-text-3 hover:bg-bg-2">
+          <button onClick={() => setSessionPanelExpanded(false)} className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--icon-sm tmuxgo-icon-button">
             ←
           </button>
         </div>
@@ -137,7 +137,7 @@ export function Sidebar() {
               </button>
               <button
                 onClick={(e) => void handleRenameSession(session.id, e)}
-                className="rounded p-1 text-text-3 hover:bg-bg-0 hover:text-text-1"
+                className="tmuxgo-chip"
                 title={t('sidebar.renameSession')}
                 aria-label={t('sidebar.renameSession')}
               >
@@ -145,7 +145,7 @@ export function Sidebar() {
               </button>
               <button
                 onClick={(e) => handleDeleteSession(session.id, e)}
-                className="rounded p-1 text-text-3 hover:text-red-400 hover:bg-red-900/30"
+                className="tmuxgo-chip tmuxgo-chip--danger"
                 title={t('sidebar.deleteSession')}
                 aria-label={t('sidebar.deleteSession')}
               >
