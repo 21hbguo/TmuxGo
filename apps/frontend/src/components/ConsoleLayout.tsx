@@ -6,6 +6,7 @@ import { CommandPalette } from './CommandPalette'
 import { ClipboardController } from './ClipboardController'
 import { MobileNav } from './MobileNav'
 import { MobileDrawer } from './MobileDrawer'
+import { MobileBottomSheet } from './MobileBottomSheet'
 import { Settings } from './Settings'
 import { InstallAppBanner } from './InstallAppBanner'
 import { ShortcutBar } from './ShortcutBar'
@@ -628,18 +629,14 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       )}
       {showCommandPalette && <CommandPalette onClose={() => closeOverlay('palette')} />}
       {showSettings && <Settings onClose={dismissSettings} />}
-      {mobileSessionMenu && (
-        <div className="fixed inset-0 z-[85] bg-black/40" onClick={() => setMobileSessionMenuId(null)}>
-          <div className="tmuxgo-glass tmuxgo-glass-dialog absolute bottom-0 left-0 right-0 border-t p-3" onClick={(e) => e.stopPropagation()}>
+      <MobileBottomSheet open={!!mobileSessionMenu} onClose={() => setMobileSessionMenuId(null)} zClass="z-[85]" heightClass="p-3">
             <div className="flex justify-center pb-2"><div className="h-1 w-10 rounded-full bg-text-3/30" /></div>
-            <div className="px-1 pb-2 text-sm text-text-1">{mobileSessionMenu.name}</div>
-            <button onClick={() => { togglePinnedQuickSession(mobileSessionMenu.id); setMobileSessionMenuId(null) }} className="block w-full rounded-apple px-3 py-3 text-left text-sm text-text-1 hover:bg-bg-2">{mobileSessionPinned ? t('mobile.quickSessionUnpin') : t('mobile.quickSessionPin')}</button>
-            <button onClick={() => { const sessionId = mobileSessionMenu.id; setMobileSessionMenuId(null); void handleQuickSessionRename(sessionId) }} className="block w-full rounded-apple px-3 py-3 text-left text-sm text-text-1 hover:bg-bg-2">{t('drawer.renamePrompt')}</button>
-            <button onClick={() => { setMobileSessionMenuId(null); setPendingDeleteSessionId(mobileSessionMenu.id) }} className="mt-1 block w-full rounded-apple px-3 py-3 text-left text-sm text-danger hover:bg-red-900/20">{t('sidebar.confirmDelete')}</button>
+            <div className="px-1 pb-2 text-sm text-text-1">{mobileSessionMenu?.name}</div>
+            <button onClick={() => { togglePinnedQuickSession(mobileSessionMenu?.id); setMobileSessionMenuId(null) }} className="block w-full rounded-apple px-3 py-3 text-left text-sm text-text-1 hover:bg-bg-2">{mobileSessionPinned ? t('mobile.quickSessionUnpin') : t('mobile.quickSessionPin')}</button>
+            <button onClick={() => { const sessionId = mobileSessionMenu?.id; setMobileSessionMenuId(null); void handleQuickSessionRename(sessionId) }} className="block w-full rounded-apple px-3 py-3 text-left text-sm text-text-1 hover:bg-bg-2">{t('drawer.renamePrompt')}</button>
+            <button onClick={() => { setMobileSessionMenuId(null); setPendingDeleteSessionId(mobileSessionMenu?.id) }} className="mt-1 block w-full rounded-apple px-3 py-3 text-left text-sm text-danger hover:bg-red-900/20">{t('sidebar.confirmDelete')}</button>
             <button onClick={() => { setMobileSessionMenuId(null); openDrawer('sessions') }} className="mt-1 block w-full rounded-apple px-3 py-3 text-left text-sm text-text-2 hover:bg-bg-2">{t('nav.sessions')}</button>
-          </div>
-        </div>
-      )}
+          </MobileBottomSheet>
       <UploadConfirmDialog />
       <UploadQueue />
       <AppVersionGuard />
@@ -650,8 +647,8 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
         onClose={() => closeOverlay('drawer')}
         type={drawerType}
       />
-      {mobileFileSheetOpen && <div className="fixed left-0 right-0 top-0 z-50 bg-black/40" style={{ height: 'var(--app-height,100dvh)' }}><div className="tmuxgo-glass tmuxgo-glass-dialog absolute bottom-0 left-0 right-0 flex h-[75%] flex-col overflow-hidden border-t"><div className="flex shrink-0 justify-center py-2"><div className="h-1 w-10 rounded-full bg-text-3/30" /></div><div className="min-h-0 flex-1"><FilePanel mode="mobile" onClose={() => closeOverlay('mobile-files')} /></div></div></div>}
-      {mobileGitSheetOpen && <div className="fixed inset-0 z-[80] bg-black/40" style={{ height: 'var(--app-height,100dvh)' }} onClick={() => closeOverlay('mobile-git')}><section role="dialog" aria-modal="true" aria-label={t('git.title')} className="tmuxgo-glass tmuxgo-glass-dialog absolute bottom-0 left-0 right-0 flex h-[88%] flex-col overflow-hidden border-t pb-[env(safe-area-inset-bottom)]" onClick={(event) => event.stopPropagation()}><div className="relative flex h-11 shrink-0 items-center justify-center border-b border-[var(--line)]"><div className="absolute top-2 h-1 w-10 rounded-full bg-text-3/30" /><span className="pt-1 text-[13px] font-medium text-text-1">{t('git.title')}</span><button ref={mobileGitCloseRef} aria-label={t('common.close')} title={t('common.close')} onClick={() => closeOverlay('mobile-git')} className="tmuxgo-icon-button absolute right-1 top-0 flex h-11 w-11 items-center justify-center rounded-apple text-text-3 active:bg-bg-2 active:text-text-1"><FiX aria-hidden="true" size={18} /></button></div><div className="min-h-0 flex-1"><GitPanel mode="mobile" /></div></section></div>}
+      <MobileBottomSheet open={mobileFileSheetOpen} onClose={() => closeOverlay('mobile-files')} heightClass="flex h-[75%] flex-col"><div className="flex shrink-0 justify-center py-2"><div className="h-1 w-10 rounded-full bg-text-3/30" /></div><div className="min-h-0 flex-1"><FilePanel mode="mobile" onClose={() => closeOverlay('mobile-files')} /></div></MobileBottomSheet>
+      <MobileBottomSheet open={mobileGitSheetOpen} onClose={() => closeOverlay('mobile-git')} zClass="z-[80]" heightClass="flex h-[88%] flex-col" ariaLabel={t('git.title')}><div className="relative flex h-11 shrink-0 items-center justify-center border-b border-[var(--line)]"><div className="absolute top-2 h-1 w-10 rounded-full bg-text-3/30" /><span className="pt-1 text-[13px] font-medium text-text-1">{t('git.title')}</span><button ref={mobileGitCloseRef} aria-label={t('common.close')} title={t('common.close')} onClick={() => closeOverlay('mobile-git')} className="tmuxgo-icon-button absolute right-1 top-0 flex h-11 w-11 items-center justify-center rounded-apple text-text-3 active:bg-bg-2 active:text-text-1"><FiX aria-hidden="true" size={18} /></button></div><div className="min-h-0 flex-1"><GitPanel mode="mobile" /></div></MobileBottomSheet>
       {mobilePluginView && <div className="fixed inset-0 z-[90] bg-bg-0" style={{ height: 'var(--app-height,100dvh)' }}><PluginView mode="mobile" pluginId={mobilePluginView.pluginId} viewId={mobilePluginView.viewId} onClose={() => closeOverlay('mobile-plugin')} /></div>}
       <ToastViewport />
       <PaneNotifications />
