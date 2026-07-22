@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { ConnectionState, FileDocumentHandle, FileEditorDocument, GitHostState, GitMode, GitSource, UploadJob, TerminalPerfState } from '@/types'
-import { readActiveSessionId, readPersistedActiveEditorId, readPersistedEditors, writeActiveHostId, writeActiveSessionId, writePersistedEditors } from '@/lib/console-device-state'
+import { readPersistedActiveEditorId, readPersistedEditors, writeActiveHostId, writeActiveSessionId, writePersistedEditors } from '@/lib/console-device-state'
 export interface EditorGroupState {
   id: string
   editorIds: string[]
@@ -311,8 +311,7 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
   toasts: [],
   setActiveHost: (id) => {
     writeActiveHostId(id)
-    const activeSessionId = readActiveSessionId(id)
-    set({ activeHostId: id, activeSessionId, activePaneId: null })
+    set({ activeHostId: id, activeSessionId: null, activePaneId: null })
   },
   setActiveSession: (id) => set((state) => {
     if (state.activeSessionId === id) return state
