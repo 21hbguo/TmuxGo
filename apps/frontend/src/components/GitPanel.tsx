@@ -13,6 +13,7 @@ import type { GitGraphBranchHead, GitGraphCommit } from '@/lib/gitGraph'
 import { FiArrowRight, FiChevronLeft, FiDownload, FiFolder, FiLink, FiRefreshCw, FiSearch, FiSettings, FiUpload, FiX } from 'react-icons/fi'
 import { api } from '@/lib/api'
 import { DiffViewer } from './DiffViewer'
+import { isImagePath, openFileInEditor } from '@/lib/editor-open'
 
 type GitTab = 'status' | 'history' | 'branches'
 type MobileGitDiff = { title: string; subtitle: string; filePath: string; label?: string; staged?: boolean; commit?: string; workingTree?: boolean; untracked?: boolean }
@@ -115,6 +116,22 @@ function StatusTab({ hostId, repoPath, onOpenDiff, t }: { hostId: string; repoPa
   const [pendingDiscard, setPendingDiscard] = useState<string | null>(null)
 
   const openDiff = useCallback((file: GitFileChange, isStaged: boolean, untracked = false) => {
+    if (isImagePath(file.path)) {
+      void openFileInEditor(
+        {
+          id: `git-file?${encodeURIComponent(repoPath)}?${file.path}`,
+          hostId,
+          rootId: `git:${encodeURIComponent(repoPath)}`,
+          rootLabel: 'Git',
+          rootPath: repoPath,
+          path: file.path,
+          name: file.path,
+          absolutePath: `${repoPath}/${file.path}`,
+        },
+        { t: t as never, pushToast: pushToast as never },
+      )
+      return
+    }
     if (onOpenDiff) {
       onOpenDiff({ title: file.path, subtitle: isStaged ? t('git.staged') : untracked ? t('git.untracked') : t('git.unstaged'), filePath: file.path, staged: isStaged, untracked })
       return

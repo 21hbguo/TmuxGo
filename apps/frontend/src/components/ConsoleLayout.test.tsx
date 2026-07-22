@@ -171,6 +171,12 @@ describe('ConsoleLayout mobile files overlay stack', () => {
     render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
     expect(screen.queryByRole('button', { name: 'alpha' })).toBeNull()
   })
+  it('adds a history level when opening the mobile session drawer from new session', () => {
+    const pushStateSpy = vi.spyOn(window.history, 'pushState')
+    render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
+    window.dispatchEvent(new CustomEvent('tmuxgo-new-session'))
+    expect(pushStateSpy).toHaveBeenCalledWith({ overlay: 'drawer' }, '')
+  })
   it('renders up to available sessions when fewer than five exist', async () => {
     sessionsDataMock=[{ id:'session-a',name:'alpha' },{ id:'session-b',name:'beta' }]
     useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-a' } as any)
