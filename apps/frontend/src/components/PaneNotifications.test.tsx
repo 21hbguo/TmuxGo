@@ -64,6 +64,11 @@ describe('PaneNotifications', () => {
     act(() => emitAgentStatus('blocked', 2))
     expect(screen.queryByText('codex blocked in dev')).not.toBeInTheDocument()
   })
+  it('does not show an empty notification popup', () => {
+    render(<PaneNotifications />)
+    act(() => window.dispatchEvent(new CustomEvent('tmuxgo-toggle-notifications')))
+    expect(screen.queryByText('notification.empty')).not.toBeInTheDocument()
+  })
   it('filters notifications from muted panes', () => {
     localStorage.setItem('tmuxgo-muted-pane-notifications', JSON.stringify(['local:%1']))
     render(<PaneNotifications />)

@@ -407,7 +407,7 @@ export function Settings({ onClose }: SettingsProps) {
                             }}
                           >
                             {t('settings.hostTest')}
-                          </button>
+                          </Chip>
                           <Chip
                             tone="danger"
                             onClick={() => { setHostActionMessage(''); setPendingDeleteHostId(host.id) }}
@@ -429,13 +429,13 @@ export function Settings({ onClose }: SettingsProps) {
                     <span className="text-text-2 text-sm">{t('settings.fontSize')}</span>
                     <div className="flex items-center gap-2">
                       <Chip
-                        onClick={() => updatePreferences({ fontSize: Math.max(8, Math.round((preferences.fontSize - 1) * 10) / 10) }}
+                        onClick={() => updatePreferences({ fontSize: Math.max(8, Math.round((preferences.fontSize - 1) * 10) / 10) })}
                       >
                         -
                       </Chip>
                       <span className="text-text-1 text-sm w-12 text-center">{fontSizeLabel}px</span>
                       <Chip
-                        onClick={() => updatePreferences({ fontSize: Math.min(20, Math.round((preferences.fontSize + 1) * 10) / 10) }}
+                        onClick={() => updatePreferences({ fontSize: Math.min(20, Math.round((preferences.fontSize + 1) * 10) / 10) })}
                       >
                         +
                       </Chip>
@@ -625,6 +625,8 @@ export function Settings({ onClose }: SettingsProps) {
                 <button
                   onClick={() => setShowAuditLog(true)}
                   className="tmuxgo-button tmuxgo-button--primary"
+                >
+                  {t('settings.viewLog')}
                 </button>
               </div>
             </div>
