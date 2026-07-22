@@ -69,21 +69,21 @@ export function PaneActions() {
     <div className="flex items-center gap-1">
       <button
         onClick={() => handleSplit('horizontal')}
-        className="p-1.5 hover:bg-bg-2 rounded text-text-3 text-xs"
+        className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--icon-sm tmuxgo-icon-button text-xs"
         title={t('pane.splitH')}
       >
         ◧
       </button>
       <button
         onClick={() => handleSplit('vertical')}
-        className="p-1.5 hover:bg-bg-2 rounded text-text-3 text-xs"
+        className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--icon-sm tmuxgo-icon-button text-xs"
         title={t('pane.splitV')}
       >
         ◨
       </button>
       <button
         onClick={handleFullscreen}
-        className="p-1.5 hover:bg-bg-2 rounded text-text-3 text-xs"
+        className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--icon-sm tmuxgo-icon-button text-xs"
         title={t('pane.fullscreen')}
       >
         ⛶
@@ -91,7 +91,7 @@ export function PaneActions() {
       <div className="w-px h-4 bg-[var(--line)] mx-1" />
       <button
         onClick={handleClose}
-        className="p-1.5 hover:bg-bg-2 rounded text-danger text-xs"
+        className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--icon-sm tmuxgo-icon-button text-xs text-danger"
         title={t('pane.close')}
       >
         ×

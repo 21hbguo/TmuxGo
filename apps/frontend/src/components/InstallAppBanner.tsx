@@ -83,12 +83,12 @@ export function InstallAppBanner() {
             <div className="text-sm font-semibold text-text-1">{t('install.title')}</div>
             <div className="mt-1 text-xs leading-5 text-text-2">{showIosGuide ? t('install.iosDesc') : t('install.desc')}</div>
           </div>
-          <button type="button" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-text-3 active:bg-bg-2" onClick={close}>×</button>
+          <button type="button" className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--icon-sm tmuxgo-icon-button" onClick={close}>×</button>
         </div>
         <div className="mt-3 flex gap-2">
-          {deferredPrompt && <button type="button" className="flex-1 rounded-xl bg-accent px-3 py-2 text-sm font-medium text-bg-0 active:scale-[0.98]" onClick={install}>{t('install.action')}</button>}
-          {showIosGuide && <button type="button" className="flex-1 rounded-xl bg-accent px-3 py-2 text-sm font-medium text-bg-0 active:scale-[0.98]" onClick={close}>{t('install.gotIt')}</button>}
-          <button type="button" className="rounded-xl border border-[var(--line)] px-3 py-2 text-sm text-text-2 active:bg-bg-2" onClick={close}>{t('install.later')}</button>
+          {deferredPrompt && <button type="button" className="tmuxgo-button tmuxgo-button--primary flex-1" onClick={install}>{t('install.action')}</button>}
+          {showIosGuide && <button type="button" className="tmuxgo-button tmuxgo-button--primary flex-1" onClick={close}>{t('install.gotIt')}</button>}
+          <button type="button" className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--sm" onClick={close}>{t('install.later')}</button>
         </div>
       </div>
     </div>
