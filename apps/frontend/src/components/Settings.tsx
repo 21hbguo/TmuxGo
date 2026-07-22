@@ -14,6 +14,8 @@ import { api } from '@/lib/api'
 import type { SessionArchive, SessionArchiveSummary } from '@/types'
 import { useCreateHost, useDeleteHost, useHosts, useRestartRebuild, useRestartRebuildStatus, useTestHost } from '@/hooks/useApi'
 import { PluginSettings } from './PluginSettings'
+import { Button } from './Button'
+import { Chip } from './Chip'
 
 interface SettingsProps {
   onClose: () => void
