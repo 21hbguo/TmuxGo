@@ -24,17 +24,13 @@ export function Favorites() {
       <div className="flex gap-2 mb-3">
         <button
           onClick={() => setActiveTab('favorites')}
-          className={`px-3 py-1.5 rounded text-sm ${
-            activeTab === 'favorites' ? 'bg-accent text-bg-0' : 'bg-bg-2 text-text-2'
-          }`}
+          className={`tmuxgo-chip px-3 py-1.5 text-sm ${activeTab === 'favorites' ? 'tmuxgo-chip--accent' : ''}`}
         >
           {t('favorites.title')}
         </button>
         <button
           onClick={() => setActiveTab('recent')}
-          className={`px-3 py-1.5 rounded text-sm ${
-            activeTab === 'recent' ? 'bg-accent text-bg-0' : 'bg-bg-2 text-text-2'
-          }`}
+          className={`tmuxgo-chip px-3 py-1.5 text-sm ${activeTab === 'recent' ? 'tmuxgo-chip--accent' : ''}`}
         >
           {t('favorites.recent')}
         </button>
@@ -53,7 +49,7 @@ export function Favorites() {
                 </div>
                 <button
                   onClick={() => removeFavorite(fav.id)}
-                  className="text-text-3 hover:text-danger"
+                  className="tmuxgo-chip tmuxgo-chip--danger px-2 py-0.5"
                 >
                   ×
                 </button>

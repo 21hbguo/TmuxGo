@@ -153,5 +153,5 @@ export function WatchButton({ paneId, compact = false }: { paneId: string; compa
   }
   const unavailable = !paneId
   const label = unavailable ? t('notification.watch') : isWatched ? t('notification.unwatch') : t('notification.watch')
-  return <button onClick={toggle} disabled={unavailable} aria-pressed={isWatched} aria-label={label} title={label} className={compact ? `flex h-8 items-center gap-1 rounded-md px-2 text-[11px] ${unavailable ? 'cursor-not-allowed bg-bg-2/60 text-text-3' : isWatched ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-3'}` : `flex w-full items-center justify-center gap-2 rounded px-2 py-1.5 text-xs ${unavailable ? 'cursor-not-allowed bg-bg-2/60 text-text-3' : isWatched ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-2'}`}>{isWatched ? <FiBell aria-hidden="true" /> : <FiBellOff aria-hidden="true" />}{!compact && <span>{label}</span>}</button>
+  return <button onClick={toggle} disabled={unavailable} aria-pressed={isWatched} aria-label={label} title={label} className={`tmuxgo-chip flex items-center ${compact ? 'h-8 px-2 text-[11px]' : 'w-full justify-center gap-2 px-3 py-2 text-xs'} ${isWatched ? 'tmuxgo-chip--accent' : ''} ${unavailable ? 'cursor-not-allowed' : ''}`}>{isWatched ? <FiBell aria-hidden="true" /> : <FiBellOff aria-hidden="true" />}{!compact && <span>{label}</span>}</button>
 }

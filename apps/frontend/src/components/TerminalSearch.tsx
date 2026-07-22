@@ -101,18 +101,18 @@ export function TerminalSearch({ terminal, onClose }: TerminalSearchProps) {
       <div className="flex items-center gap-1">
         <button
           onClick={handleFindPrevious}
-          className="p-1 hover:bg-bg-2 rounded text-text-3"
+          className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--icon-sm tmuxgo-icon-button"
         >
           ↑
         </button>
         <button
           onClick={handleFindNext}
-          className="p-1 hover:bg-bg-2 rounded text-text-3"
+          className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--icon-sm tmuxgo-icon-button"
         >
           ↓
         </button>
       </div>
-      <button onClick={onClose} className="p-1 hover:bg-bg-2 rounded text-text-3">
+      <button onClick={onClose} className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--icon-sm tmuxgo-icon-button">
         ×
       </button>
     </div>
