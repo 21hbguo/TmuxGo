@@ -5,144 +5,182 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>TmuxGo · 主键 dock · 玻璃键帽</title>
 <style>
+/* =====================================================
+   tokens · 复制自 globals.css（6 套）
+   ===================================================== */
 :root{
   --bg-0:12 13 15; --bg-1:24 25 28; --bg-2:42 43 48;
   --accent:10 132 255; --accent-2:48 209 88; --warn:255 159 10; --danger:255 69 58;
   --text-1:245 245 247; --text-2:174 174 178; --text-3:116 116 122;
-  --line:rgba(255,255,255,0.1);
-  --glass-blur:22px; --glass-saturate:160%;
-  --glass-fill:rgba(30,31,35,0.7); --glass-fill-strong:rgba(30,31,35,0.88);
-  --glass-rim:rgba(255,255,255,0.12); --glass-highlight:rgba(255,255,255,0.17);
-  --glass-shadow:0 14px 38px rgba(0,0,0,0.25);
+  --line:rgba(255,255,255,0.10);
+  --glass-blur:24px; --glass-saturate:180%;
+  --glass-fill:rgba(30,31,35,0.62);
+  --glass-fill-strong:rgba(30,31,35,0.84);
+  --glass-rim:rgba(255,255,255,0.10);
+  --glass-highlight:rgba(255,255,255,0.18);
+  --glass-shadow:0 18px 60px rgba(0,0,0,0.45);
   --font-ui:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI","PingFang SC","Microsoft YaHei UI","Microsoft YaHei","Helvetica Neue",Arial,sans-serif;
   --font-mono:Consolas,"Cascadia Mono","Cascadia Code","SF Mono",Monaco,Menlo,"DejaVu Sans Mono","Liberation Mono","Courier New",monospace;
-  --k-tint: rgb(var(--accent) / 0.22);
-  --k-tint-strong: rgb(var(--accent) / 0.34);
-  --k-danger-tint: rgb(var(--danger) / 0.22);
-  --k-danger-tint-strong: rgb(var(--danger) / 0.36);
-  --k-fill: rgb(var(--text-1) / 0.04);
-  --k-fill-hover: rgb(var(--text-1) / 0.07);
-  --k-fill-active: rgb(var(--text-1) / 0.12);
-  --k-rim: rgb(var(--text-1) / 0.10);
-  --k-rim-strong: rgb(var(--text-1) / 0.16);
-  --k-keytop: rgb(var(--text-1) / 0.03);
-  --k-keytop-active: rgb(var(--text-1) / 0.10);
-  --k-highlight: rgb(var(--text-1) / 0.10);
-  --k-keyshadow: 0 2px 0 rgb(0 0 0 / 0.45), 0 4px 10px rgb(0 0 0 / 0.35);
-  --k-keyshadow-active: inset 0 1px 2px rgb(0 0 0 / 0.35);
-  --k-ease: cubic-bezier(.2,.8,.2,1);
+  /* 键帽专用 token（全部派生自 globals.css，无 hex） */
+  --k-tint:        rgb(var(--accent) / 0.18);
+  --k-tint-strong: rgb(var(--accent) / 0.32);
+  --k-danger-tint: rgb(var(--danger) / 0.18);
+  --k-glass:       rgba(255,255,255,0.045);
+  --k-glass-hi:    rgba(255,255,255,0.075);
+  --k-glass-press: rgba(255,255,255,0.012);
+  --k-rim-top:     rgba(255,255,255,0.42);     /* 顶部 specular */
+  --k-rim-top-soft:rgba(255,255,255,0.18);
+  --k-rim-bot:     rgba(0,0,0,0.32);          /* 底部 edge shadow */
+  --k-rim-left:    rgba(255,255,255,0.10);
+  --k-rim-right:   rgba(0,0,0,0.18);
+  --k-contact:     0 1px 0 rgba(0,0,0,0.55), 0 2px 4px rgba(0,0,0,0.35), 0 8px 18px rgba(0,0,0,0.28);
+  --k-contact-press: inset 0 1px 2px rgba(0,0,0,0.40), inset 0 -1px 0 rgba(255,255,255,0.06);
+  --k-spec:        inset 0 1px 0 rgba(255,255,255,0.28), inset 0 0 0 1px rgba(255,255,255,0.05);
+  --k-spec-press:  inset 0 1px 0 rgba(255,255,255,0.06);
+  --ease:          cubic-bezier(.2,.8,.2,1);
 }
 [data-theme="light"]{
-  --bg-0:232 234 238; --bg-1:248 249 251; --bg-2:224 226 231;
+  --bg-0:225 226 230; --bg-1:240 241 244; --bg-2:212 214 220;
   --accent:0 122 255; --accent-2:40 190 105; --warn:220 130 0; --danger:215 45 38;
   --text-1:28 28 30; --text-2:99 99 102; --text-3:142 142 147;
   --line:rgba(60,60,67,0.16);
-  --glass-fill:rgba(248,249,252,0.7); --glass-fill-strong:rgba(248,249,252,0.9);
-  --glass-rim:rgba(255,255,255,0.78); --glass-highlight:rgba(255,255,255,0.92);
-  --glass-shadow:0 14px 38px rgba(48,52,60,0.14);
-  --k-rim: rgb(var(--text-1) / 0.10);
-  --k-rim-strong: rgb(var(--text-1) / 0.16);
-  --k-highlight: rgb(255 255 255 / 0.6);
-  --k-keyshadow: 0 1px 0 rgb(0 0 0 / 0.10), 0 2px 4px rgb(0 0 0 / 0.08);
+  --glass-fill:rgba(248,249,252,0.62);
+  --glass-fill-strong:rgba(248,249,252,0.86);
+  --glass-rim:rgba(255,255,255,0.78);
+  --glass-highlight:rgba(255,255,255,0.92);
+  --glass-shadow:0 18px 60px rgba(48,52,60,0.16);
+  --k-tint:        rgb(var(--accent) / 0.14);
+  --k-tint-strong: rgb(var(--accent) / 0.26);
+  --k-danger-tint: rgb(var(--danger) / 0.14);
+  --k-glass:       rgba(255,255,255,0.45);
+  --k-glass-hi:    rgba(255,255,255,0.62);
+  --k-glass-press: rgba(255,255,255,0.20);
+  --k-rim-top:     rgba(255,255,255,0.95);
+  --k-rim-top-soft:rgba(255,255,255,0.55);
+  --k-rim-bot:     rgba(0,0,0,0.16);
+  --k-rim-left:    rgba(255,255,255,0.55);
+  --k-rim-right:   rgba(0,0,0,0.08);
+  --k-contact:     0 1px 0 rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.10), 0 4px 10px rgba(0,0,0,0.08);
+  --k-contact-press: inset 0 1px 2px rgba(0,0,0,0.18), inset 0 -1px 0 rgba(255,255,255,0.40);
+  --k-spec:        inset 0 1px 0 rgba(255,255,255,0.90), inset 0 0 0 1px rgba(255,255,255,0.40);
+  --k-spec-press:  inset 0 1px 0 rgba(255,255,255,0.30);
 }
 [data-theme="high-contrast"]{
-  --bg-0:0 0 0; --bg-1:10 10 10; --bg-2:26 26 26;
+  --bg-0:0 0 0; --bg-1:10 10 10; --bg-2:24 24 24;
   --accent:0 255 255; --accent-2:0 255 136; --warn:255 215 0; --danger:255 68 68;
   --text-1:255 255 255; --text-2:204 204 204; --text-3:153 153 153;
   --line:rgba(0,255,255,0.4);
-  --glass-blur:0px; --glass-fill:rgba(10,10,10,1); --glass-fill-strong:rgba(10,10,10,1);
-  --glass-rim:rgba(255,255,255,0.8); --glass-highlight:transparent; --glass-shadow:none;
-  --k-rim: rgb(255 255 255 / 0.6); --k-rim-strong: rgb(255 255 255 / 0.9);
-  --k-highlight: transparent;
-  --k-keyshadow: none;
+  --glass-blur:0px; --glass-fill:rgba(8,8,8,1); --glass-fill-strong:rgba(8,8,8,1);
+  --glass-rim:rgba(255,255,255,0.6); --glass-highlight:transparent; --glass-shadow:none;
+  --k-glass: transparent;
+  --k-glass-hi: transparent;
+  --k-rim-top: rgba(255 255 255 / 0.9);
+  --k-rim-top-soft: rgba(255 255 255 / 0.5);
+  --k-rim-bot: rgba(0 0 0 / 0.6);
+  --k-contact: none;
+  --k-spec: inset 0 0 0 1px rgba(255 255 255 / 0.4);
+  --k-spec-press: inset 0 0 0 1px rgba(255 255 255 / 0.7);
 }
 [data-theme="dracula"]{
   --bg-0:33 34 44; --bg-1:40 42 54; --bg-2:52 55 70;
   --accent:189 147 249; --accent-2:255 121 198; --warn:255 184 108; --danger:255 85 85;
   --text-1:248 248 242; --text-2:191 191 191; --text-3:98 114 164;
-  --line:rgba(189,147,249,0.28);
+  --line:rgba(189,147,249,0.18);
 }
 [data-theme="nord"]{
   --bg-0:46 52 64; --bg-1:59 66 82; --bg-2:67 76 94;
   --accent:136 192 208; --accent-2:129 161 193; --warn:235 203 139; --danger:191 97 106;
   --text-1:236 239 244; --text-2:216 222 233; --text-3:76 86 106;
-  --line:rgba(136,192,208,0.28);
+  --line:rgba(136,192,208,0.22);
 }
 [data-theme="catppuccin"]{
   --bg-0:17 17 27; --bg-1:24 24 37; --bg-2:49 50 68;
   --accent:137 180 250; --accent-2:166 227 161; --warn:250 179 135; --danger:243 139 168;
   --text-1:205 214 244; --text-2:166 173 200; --text-3:88 91 112;
-  --line:rgba(137,180,250,0.28);
+  --line:rgba(137,180,250,0.22);
 }
 
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
 body{
   font-family:var(--font-ui); color:rgb(var(--text-1));
+  /* 去掉大渐变，只留一个微妙的单点 radial 给玻璃有内容可采样 */
   background:
-    radial-gradient(120% 80% at 80% 0%, rgb(var(--accent) / 0.10) 0%, transparent 60%),
-    radial-gradient(80% 60% at 0% 100%, rgb(var(--accent-2) / 0.06) 0%, transparent 65%),
+    radial-gradient(60% 40% at 50% 0%, rgb(var(--accent) / 0.08) 0%, transparent 70%),
     rgb(var(--bg-0));
   -webkit-font-smoothing:antialiased;
   text-rendering:optimizeLegibility;
   overflow-x:hidden;
 }
 
+/* 极轻噪点纹理（暗模式可见，亮模式自动消失） */
+body::before{
+  content:""; position:fixed; inset:0; pointer-events:none; z-index:0;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.045 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  opacity:.7; mix-blend-mode:overlay;
+}
+[data-theme="light"] body::before{ opacity:.35; mix-blend-mode:multiply }
+
+/* ===== 顶部主题切换 ===== */
 .toolbar{
   position:sticky; top:0; z-index:30;
   display:flex; align-items:center; justify-content:space-between;
   padding:14px 28px;
-  background: rgb(var(--bg-1) / 0.6);
-  backdrop-filter: blur(14px) saturate(160%);
-  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  background: rgb(var(--bg-1) / 0.62);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
   border-bottom:1px solid var(--line);
 }
-.toolbar h1{ font-size:13px; font-weight:600; letter-spacing:.02em; color: rgb(var(--text-2)); }
-.toolbar h1 b{ color: rgb(var(--text-1)); font-weight:600 }
+.toolbar h1{ font-size:13px; font-weight:600; color:rgb(var(--text-2)); letter-spacing:.01em }
+.toolbar h1 b{ color:rgb(var(--text-1)); font-weight:600 }
 .toolbar .tag{
   display:inline-block; padding:2px 8px; margin-left:8px;
   font-size:10px; letter-spacing:.08em; text-transform:uppercase;
   border:1px solid var(--line); border-radius:999px;
-  color: rgb(var(--accent)); background: rgb(var(--accent) / 0.08);
+  color:rgb(var(--accent));
+  background: rgb(var(--accent) / 0.08);
 }
 .themes{display:flex; gap:8px; align-items:center}
 .themes .label{font-size:11px; color:rgb(var(--text-3)); margin-right:4px; letter-spacing:.04em}
 .dot{
   width:18px; height:18px; border-radius:50%; cursor:pointer;
   border:1px solid var(--line);
-  transition:transform .2s var(--k-ease), box-shadow .2s var(--k-ease);
+  transition:transform .2s var(--ease), box-shadow .2s var(--ease);
 }
 .dot:hover{ transform:scale(1.12) }
 .dot[data-active="true"]{ box-shadow:0 0 0 2px rgb(var(--bg-0)), 0 0 0 3px rgb(var(--accent)) }
 .t-dark{ background:#0c0d0f }
-.t-light{ background:#f8f9fb }
+.t-light{ background:#ecedf1 }
 .t-hc{ background:#000 }
 .t-dracula{ background:#282a36 }
 .t-nord{ background:#3b4252 }
 .t-cat{ background:#1e1e2e }
 
-.canvas{ max-width:1280px; margin:0 auto; padding:48px 28px 0; }
-.label-row{ display:flex; align-items:baseline; justify-content:space-between; margin-bottom:18px; }
+/* ===== 画布 ===== */
+.canvas{ position:relative; z-index:1; max-width:1280px; margin:0 auto; padding:48px 28px 0 }
+.label-row{ display:flex; align-items:baseline; justify-content:space-between; margin-bottom:18px }
 .label-row h2{
   font-size:11px; font-weight:500; letter-spacing:.16em; text-transform:uppercase;
   color: rgb(var(--text-3));
 }
-.label-row h2 b{ color: rgb(var(--text-1)); letter-spacing:.04em; text-transform:none }
+.label-row h2 b{ color:rgb(var(--text-1)); letter-spacing:.04em; text-transform:none }
 .label-row p{ font-size:12px; color: rgb(var(--text-3)) }
 
+/* ===== 终端 mock ===== */
 .terminal{
   border-radius:18px; overflow:hidden;
-  background: rgb(var(--bg-1));
-  border:1px solid var(--line);
-  box-shadow: 0 24px 60px rgb(0 0 0 / 0.4);
+  background: rgb(var(--bg-1) / 0.72);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  border:1px solid var(--glass-rim);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
 }
 .terminal .chrome{
   display:flex; align-items:center; gap:8px;
   padding:10px 14px;
   border-bottom:1px solid var(--line);
-  background: rgb(var(--bg-1) / 0.7);
 }
-.terminal .chrome .dot{ width:10px; height:10px; border-radius:50%; }
+.terminal .chrome .dot{ width:10px; height:10px; border-radius:50% }
 .terminal .chrome .r{ background: rgb(255 95 86) }
 .terminal .chrome .y{ background: rgb(255 189 46) }
 .terminal .chrome .g{ background: rgb(39 201 63) }
@@ -154,148 +192,216 @@ body{
 .terminal pre{
   padding:18px 18px 22px;
   font-family:var(--font-mono); font-size:12.5px; line-height:1.6;
-  color: rgb(var(--text-1));
-  white-space:pre-wrap;
+  color: rgb(var(--text-1)); white-space:pre-wrap;
 }
 .terminal pre .p{ color: rgb(var(--accent-2)) }
 .terminal pre .c{ color: rgb(var(--text-3)) }
 .terminal pre .a{ color: rgb(var(--accent)) }
 
-.section-dock{ margin: 56px 0 32px; }
-.dock-wrap{
+/* =====================================================
+   dock · 真 iOS Liquid Glass 质感
+   - 一层共享 backdrop-filter 容器
+   - 内部按键：用 mask / border-image 模拟折射边缘
+   - 键帽：顶部 specular + 底部 contact shadow + 边缘 refraction
+   ===================================================== */
+.section-dock{ margin: 56px 0 32px }
+
+.dock-shell{
   position:relative;
-  border-radius: 22px;
+  border-radius: 24px;
   background: var(--glass-fill);
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   border:1px solid var(--glass-rim);
-  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-highlight);
-  padding: 12px;
+  box-shadow:
+    0 24px 64px rgba(0,0,0,0.42),
+    0 1px 0 rgba(255,255,255,0.06) inset,
+    0 -1px 0 rgba(0,0,0,0.30) inset;
+  padding: 14px;
   overflow:hidden;
 }
-.dock-wrap::before, .dock-wrap::after{
-  content:""; position:absolute; top:0; bottom:0; width:36px; pointer-events:none; z-index:2;
+/* 顶部 specular 高光线（dock 顶端那一抹白光） */
+.dock-shell::before{
+  content:""; position:absolute; left:14px; right:14px; top:1px; height:1px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(255,255,255,0.55) 18%,
+    rgba(255,255,255,0.85) 50%,
+    rgba(255,255,255,0.55) 82%,
+    transparent 100%);
+  filter: blur(.4px);
+  pointer-events:none; z-index:2;
 }
-.dock-wrap::before{ left:0; background: linear-gradient(90deg, rgb(var(--bg-1) / 0.92), transparent); }
-.dock-wrap::after{ right:0; background: linear-gradient(270deg, rgb(var(--bg-1) / 0.92), transparent); }
+/* 左右渐隐边缘 */
+.dock-shell::after{
+  content:""; position:absolute; top:0; bottom:0; left:0; width:48px;
+  background: linear-gradient(90deg, rgb(var(--bg-1) / 0.55), transparent);
+  pointer-events:none; z-index:2;
+}
+
 .dock-scroll{
-  display:flex; gap:8px; align-items:flex-end;
+  display:flex; gap:6px; align-items:flex-end;
   overflow-x:auto; scrollbar-width:none; -ms-overflow-style:none;
-  padding: 4px 12px 8px;
+  padding: 6px 28px 10px;
   scroll-behavior:smooth;
 }
 .dock-scroll::-webkit-scrollbar{ display:none }
 
 .dock-group{
-  display:flex; align-items:stretch; gap:6px;
-  padding:6px; border-radius:14px;
-  background: rgb(var(--text-1) / 0.02);
-  border:1px solid var(--line);
+  display:flex; align-items:stretch; gap:4px;
+  padding:5px;
+  border-radius:14px;
+  background: rgba(255,255,255,0.025);
+  border:1px solid rgba(255,255,255,0.06);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
 }
 .dock-group + .dock-group{ margin-left:6px }
 
+/* ===== 键 · 真玻璃键帽 ===== */
 .k{
-  appearance:none; border:0; cursor:pointer;
+  appearance:none; cursor:pointer;
   font-family:var(--font-ui); font-weight:500;
-  font-size:12.5px; line-height:1;
-  color: rgb(var(--text-2));
-  min-width:44px; min-height:44px;
-  padding:0 12px;
+  font-size:13px; line-height:1;
+  color: rgb(var(--text-1));
+  min-width:46px; min-height:46px;
+  padding:0 14px;
   border-radius: 12px;
-  background: var(--k-keytop);
-  border:1px solid var(--k-rim);
-  box-shadow: var(--k-keyshadow), inset 0 1px 0 var(--k-highlight);
+  background:
+    linear-gradient(180deg,
+      var(--k-glass-hi) 0%,
+      var(--k-glass) 35%,
+      var(--k-glass) 65%,
+      var(--k-glass-press) 100%);
+  /* 多层 rim：顶部 highlight / 底部 shadow / 左右 refraction */
+  border: 1px solid transparent;
+  box-shadow:
+    var(--k-contact),
+    var(--k-spec),
+    inset 1px 0 0 var(--k-rim-left),
+    inset -1px 0 0 var(--k-rim-right),
+    inset 0 -1px 0 var(--k-rim-bot);
   transition:
-    transform .12s var(--k-ease),
-    background-color .15s ease,
-    color .15s ease,
-    box-shadow .15s ease,
-    border-color .15s ease;
+    transform .14s var(--ease),
+    background .18s ease,
+    box-shadow .18s ease,
+    color .15s ease;
   display:inline-flex; align-items:center; justify-content:center;
   gap:6px; white-space:nowrap; user-select:none;
   -webkit-tap-highlight-color:transparent;
+  position:relative;
 }
 .k:hover{
+  background:
+    linear-gradient(180deg,
+      rgba(255,255,255,0.10) 0%,
+      var(--k-glass-hi) 40%,
+      var(--k-glass) 100%);
   color: rgb(var(--text-1));
-  background: var(--k-fill-hover);
-  border-color: var(--k-rim-strong);
 }
 .k:focus-visible{
   outline:none;
   box-shadow:
-    var(--k-keyshadow),
-    inset 0 1px 0 var(--k-highlight),
-    0 0 0 2px rgb(var(--accent) / 0.5);
+    var(--k-contact),
+    var(--k-spec),
+    0 0 0 2px rgb(var(--accent) / 0.55);
 }
 .k:active{
-  transform: translateY(1px) scale(.985);
-  box-shadow: var(--k-keyshadow-active);
-  background: var(--k-keytop-active);
-  color: rgb(var(--text-1));
+  transform: translateY(0.5px) scale(.985);
+  background:
+    linear-gradient(180deg,
+      var(--k-glass-press) 0%,
+      var(--k-glass) 100%);
+  box-shadow:
+    var(--k-contact-press),
+    var(--k-spec-press);
+  transition-duration: .04s;
 }
-.k.is-freq{
-  font-size:13px; min-width:54px; min-height:48px;
-  color: rgb(var(--text-1));
-}
-.k.is-enter{ min-width: 72px }
+
+/* 高频键：稍大 */
+.k.is-freq{ font-size:13.5px; min-width:56px; min-height:50px; font-weight:600 }
+.k.is-enter{ min-width: 78px }
+
+/* 方向键：accent tint 玻璃 */
 .k.is-arrow{
-  min-width:42px; min-height:42px;
-  background: var(--k-tint);
-  border-color: rgb(var(--accent) / 0.32);
+  background:
+    linear-gradient(180deg,
+      rgb(var(--accent) / 0.28) 0%,
+      rgb(var(--accent) / 0.16) 50%,
+      rgb(var(--accent) / 0.10) 100%);
+  color: rgb(var(--accent));
+  font-weight:600;
 }
-.k.is-arrow:hover{ background: var(--k-tint-strong); }
-.k.is-arrow:active{ background: rgb(var(--accent) / 0.45); }
+.k.is-arrow:hover{ background: linear-gradient(180deg, rgb(var(--accent) / 0.40) 0%, rgb(var(--accent) / 0.20) 100%) }
+.k.is-arrow:active{ background: linear-gradient(180deg, rgb(var(--accent) / 0.50) 0%, rgb(var(--accent) / 0.30) 100%) }
+
+/* accent 键：复制/粘贴/聚焦 */
 .k.is-accent{
   color: rgb(var(--accent));
-  background: var(--k-tint);
-  border-color: rgb(var(--accent) / 0.32);
+  background:
+    linear-gradient(180deg,
+      rgb(var(--accent) / 0.18) 0%,
+      rgb(var(--accent) / 0.08) 50%,
+      rgb(var(--accent) / 0.04) 100%);
 }
-.k.is-accent:hover{ background: var(--k-tint-strong); }
+.k.is-accent:hover{ background: linear-gradient(180deg, rgb(var(--accent) / 0.28) 0%, rgb(var(--accent) / 0.12) 100%) }
+
+/* danger 键 */
 .k.is-danger{
   color: rgb(var(--danger));
-  background: var(--k-danger-tint);
-  border-color: rgb(var(--danger) / 0.32);
+  background:
+    linear-gradient(180deg,
+      rgb(var(--danger) / 0.18) 0%,
+      rgb(var(--danger) / 0.08) 50%,
+      rgb(var(--danger) / 0.04) 100%);
 }
-.k.is-danger:hover{ background: var(--k-danger-tint-strong); }
-.k.is-repeat{ position:relative }
+.k.is-danger:hover{ background: linear-gradient(180deg, rgb(var(--danger) / 0.28) 0%, rgb(var(--danger) / 0.12) 100%) }
+
+/* 修饰键 */
+.k.is-mod{
+  color: rgb(var(--text-2));
+  font-size:11.5px; min-height:36px; padding:0 10px; border-radius:9px;
+}
+.k.is-pill{ border-radius:999px; padding:0 14px; font-size:11.5px }
+
+/* 长按 progress（键底 accent 条） */
+.k.is-repeat{ position:relative; overflow:hidden }
 .k.is-repeat::after{
   content:""; position:absolute; left:8px; right:8px; bottom:6px;
-  height:2px; border-radius:2px;
+  height:1.5px; border-radius:2px;
   background: rgb(var(--accent));
   transform: scaleX(0); transform-origin:left;
   transition: transform .42s linear;
 }
 .k.is-repeat.is-holding::after{ transform: scaleX(1) }
+
 .k .ic{ width:14px; height:14px; flex:none }
 
+/* 修饰键簇 */
 .cluster-mod{ display:flex; gap:4px; flex-wrap:wrap }
-.cluster-mod .k{ min-width:42px; min-height:36px; padding:0 8px; font-size:11px; border-radius:9px }
 
+/* 方向键十字 */
 .dpad{
-  display:grid; grid-template-columns:repeat(3, 42px); grid-template-rows:repeat(3, 42px); gap:4px;
+  display:grid; grid-template-columns:repeat(3, 44px); grid-template-rows:repeat(2, 44px); gap:4px;
+  margin:0;
 }
 .dpad .k.up   { grid-column:2; grid-row:1 }
 .dpad .k.left { grid-column:1; grid-row:2 }
 .dpad .k.down { grid-column:2; grid-row:2 }
 .dpad .k.right{ grid-column:3; grid-row:2 }
-.dpad .pad{ grid-column:1 / 4; grid-row:3; height:8px; border-radius:8px;
-  background: rgb(var(--text-1) / 0.04); border:1px dashed var(--line) }
 
-.k.is-pill{ border-radius:999px; padding:0 14px; font-size:11.5px }
-
+/* ===== 移动端 ===== */
 .frame-mobile{
   margin: 56px auto 80px;
   max-width: 390px;
   border-radius: 38px; padding:14px;
-  background: rgb(var(--bg-2) / 0.6);
+  background: rgb(var(--bg-2) / 0.7);
   border:1px solid var(--line);
-  box-shadow: 0 30px 80px rgb(0 0 0 / 0.5), inset 0 1px 0 rgb(255 255 255 / 0.06);
+  box-shadow: 0 30px 80px rgb(0 0 0 / 0.5), inset 0 1px 0 rgba(255,255,255,0.06);
 }
 .frame-mobile .screen{
   border-radius: 26px; overflow:hidden;
   background: rgb(var(--bg-0));
-  position:relative;
-  min-height: 540px;
+  position:relative; min-height: 540px;
   display:flex; flex-direction:column;
 }
 .frame-mobile .term-mock{
@@ -312,17 +418,20 @@ body{
 }
 @keyframes blink{ 50%{ opacity:0 } }
 
-.mobiledock-wrap{
+.mobiledock-shell{
   padding: 10px 10px calc(14px + env(safe-area-inset-bottom, 0px));
   background: var(--glass-fill-strong);
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   border-top:1px solid var(--glass-rim);
-  box-shadow: inset 0 1px 0 var(--glass-highlight), 0 -10px 30px rgb(0 0 0 / 0.4);
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    0 -16px 36px rgb(0 0 0 / 0.45);
 }
-.mobiledock{ display:grid; grid-template-columns: repeat(4, 1fr); gap:6px; }
-.mobiledock .k{ min-height:48px; min-width:0; font-size:12px; padding:0 6px; }
+.mobiledock{ display:grid; grid-template-columns: repeat(4, 1fr); gap:6px }
+.mobiledock .k{ min-height:50px; min-width:0; font-size:12px; padding:0 6px }
 
+/* ===== legend ===== */
 .legend{
   max-width:1280px; margin:0 auto 80px; padding:0 28px;
   display:grid; grid-template-columns:repeat(4, 1fr); gap:14px;
@@ -330,9 +439,10 @@ body{
 .legend .card{
   border-radius:14px; padding:14px 16px;
   background: var(--glass-fill);
-  backdrop-filter: blur(16px) saturate(160%);
-  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
   border:1px solid var(--glass-rim);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
 }
 .legend h4{
   font-size:10px; letter-spacing:.18em; text-transform:uppercase;
@@ -372,7 +482,7 @@ body{
 <main class="canvas">
   <div class="label-row">
     <h2>Desktop 1440 · <b>桌面横排 dock</b></h2>
-    <p>点击 / 按住可重复键看反馈 · 方向键、Enter/Esc 是高频键</p>
+    <p>按住方向键看底部 progress · 按下 Esc/Tab/Enter 看键帽翻转</p>
   </div>
 
   <div class="terminal">
@@ -392,74 +502,67 @@ Test Files  <span class="c">3 passed</span> (3)
 
   <section class="section-dock">
     <div class="label-row">
-      <h2>主键 dock · <b>按下体验</b></h2>
-      <p>↑↓←→ 可长按（出现底部 progress）· Enter / Esc 是高频键</p>
+      <h2>主键 dock · <b>玻璃键帽</b></h2>
+      <p>顶部 specular 高光 · 底部 contact shadow · 边缘折射</p>
     </div>
 
-    <div class="dock-wrap">
+    <div class="dock-shell">
       <div class="dock-scroll" id="dockScroll">
 
+        <!-- 修饰键簇 -->
         <div class="dock-group">
           <div class="cluster-mod">
-            <button class="k"><span class="lab">Ctrl</span></button>
-            <button class="k"><span class="lab">⌥</span></button>
-            <button class="k"><span class="lab">⌘</span></button>
+            <button class="k is-mod">Ctrl</button>
+            <button class="k is-mod">⌥</button>
+            <button class="k is-mod">⌘</button>
           </div>
         </div>
 
+        <!-- 高频簇 -->
         <div class="dock-group">
-          <button class="k is-freq" title="Escape"><span class="lab">Esc</span></button>
-          <button class="k is-freq" title="Tab"><span class="lab">Tab</span></button>
+          <button class="k is-freq" title="Escape">Esc</button>
+          <button class="k is-freq" title="Tab">Tab</button>
         </div>
 
+        <!-- 方向键十字 -->
         <div class="dock-group">
           <div class="dpad">
-            <button class="k is-arrow up" data-repeat aria-label="上">
-              <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg>
-            </button>
-            <button class="k is-arrow left" data-repeat aria-label="左">
-              <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M11 6l-6 6 6 6"/></svg>
-            </button>
-            <button class="k is-arrow down" data-repeat aria-label="下">
-              <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg>
-            </button>
-            <button class="k is-arrow right" data-repeat aria-label="右">
-              <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M13 6l6 6-6 6"/></svg>
-            </button>
-            <div class="pad" aria-hidden="true"></div>
+            <button class="k is-arrow up" data-repeat aria-label="上">↑</button>
+            <button class="k is-arrow left" data-repeat aria-label="左">←</button>
+            <button class="k is-arrow down" data-repeat aria-label="下">↓</button>
+            <button class="k is-arrow right" data-repeat aria-label="右">→</button>
           </div>
         </div>
 
+        <!-- 编辑簇 -->
         <div class="dock-group">
-          <button class="k" title="清除整行"><span class="lab">⌫⌫</span></button>
-          <button class="k" title="清除一词"><span class="lab">⌫词</span></button>
-          <button class="k is-freq is-enter" title="Enter">
-            <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 10l4 4 4-4"/><path d="M5 6h14"/></svg>
-            <span class="lab">Enter</span>
-          </button>
-          <button class="k is-freq" data-repeat title="Backspace" aria-label="Backspace">
-            <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 9l6 6M15 9l-6 6"/><path d="M3 12l7-7h11v14H10z"/></svg>
-          </button>
+          <button class="k" title="清除整行">⌫⌫</button>
+          <button class="k" title="清除一词">⌫ 词</button>
+          <button class="k is-freq is-enter" title="Enter">↵ Enter</button>
+          <button class="k is-freq" data-repeat title="Backspace" aria-label="Backspace">⌫</button>
         </div>
 
+        <!-- 终端控制簇 -->
         <div class="dock-group">
-          <button class="k is-accent" title="复制选中"><span class="lab">⎘ 复制</span></button>
-          <button class="k is-accent" title="粘贴"><span class="lab">⎘ 粘贴</span></button>
-          <button class="k is-accent" title="聚焦/退出聚焦"><span class="lab">⤢ 聚焦</span></button>
+          <button class="k is-accent">⎘ 复制</button>
+          <button class="k is-accent">⎘ 粘贴</button>
+          <button class="k is-accent">⤢ 聚焦</button>
         </div>
 
+        <!-- 危险 / 状态 -->
         <div class="dock-group">
-          <button class="k is-danger" title="删除当前面板"><span class="lab">✕ 删面板</span></button>
+          <button class="k is-danger">✕ 删面板</button>
           <button class="k is-pill" title="独占 / 共享附接">
             <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M3 12h3M18 12h3M12 3v3M12 18v3"/></svg>
-            <span class="lab">独占</span>
+            独占
           </button>
         </div>
 
+        <!-- 自定义快捷键 -->
         <div class="dock-group">
-          <button class="k is-pill" title="自定义：保存片段"><span class="lab">⌘ 片段</span></button>
-          <button class="k is-pill" title="自定义：清屏"><span class="lab">⌘ clear</span></button>
-          <button class="k is-pill" title="自定义：项目 cd"><span class="lab">⌘ project</span></button>
+          <button class="k is-pill" title="自定义：保存片段">⌘ 片段</button>
+          <button class="k is-pill" title="自定义：清屏">⌘ clear</button>
+          <button class="k is-pill" title="自定义：项目 cd">⌘ project</button>
         </div>
 
       </div>
@@ -468,26 +571,26 @@ Test Files  <span class="c">3 passed</span> (3)
 
   <section class="legend">
     <div class="card">
-      <h4>共享玻璃</h4>
-      <p>整条 dock 一个 backdrop-filter，按键透明作为子项，规避相邻按钮的双重采样糊化。</p>
-    </div>
-    <div class="card">
       <h4>键帽浮雕</h4>
-      <p>外阴影 + 顶 inset highlight 模拟物理键帽；按下时 transform + inset shadow 翻转，触感真实。</p>
+      <p>顶部 1px specular 高光 + 底部 contact shadow + 左右边缘 refraction inset，按下时翻转成 inset shadow。</p>
     </div>
     <div class="card">
-      <h4>语义 tint</h4>
-      <p>方向键走 accent tint，复制/粘贴/聚焦走 accent tint，删面板走 danger tint，全部从 token 派生。</p>
+      <h4>真玻璃面</h4>
+      <p>每个键是垂直渐变玻璃体（顶部亮 / 中部透明 / 底部压暗），不再用纯色 flat 填充。</p>
     </div>
     <div class="card">
-      <h4>可重复反馈</h4>
-      <p>长按 420ms 后键底出现 accent progress 条，告诉用户「持续输入中」。</p>
+      <h4>共享 backdrop</h4>
+      <p>整个 dock-shell 一个 backdrop-filter，按键本身透明作为子项，规避双重采样。</p>
+    </div>
+    <div class="card">
+      <h4>顶层高光线</h4>
+      <p>壳体顶端 1px specular highlight 是 iOS 玻璃「最上面那条白线」的灵魂，配 noise 颗粒更逼真。</p>
     </div>
   </section>
 
   <section class="label-row" style="margin-top:48px">
     <h2>Mobile 390 · <b>底部 dock</b></h2>
-    <p>4 列网格 · 44×44 触控目标 · safe-area-aware · 按下更深的 inset</p>
+    <p>4 列网格 · 50px 触控 · safe-area-aware</p>
   </section>
 
   <div class="frame-mobile">
@@ -499,22 +602,22 @@ Test Files  <span class="c">3 passed</span> (3)
         <div><span class="p">hongbin@local</span>:~$ <span class="cursor"></span></div>
       </div>
 
-      <div class="mobiledock-wrap">
+      <div class="mobiledock-shell">
         <div class="mobiledock">
-          <button class="k is-arrow"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg></button>
-          <button class="k is-arrow"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
-          <button class="k is-arrow"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M11 6l-6 6 6 6"/></svg></button>
-          <button class="k is-arrow"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M13 6l6 6-6 6"/></svg></button>
+          <button class="k is-arrow">↓</button>
+          <button class="k is-arrow">↑</button>
+          <button class="k is-arrow">←</button>
+          <button class="k is-arrow">→</button>
 
-          <button class="k is-freq is-enter"><span class="lab">Enter</span></button>
-          <button class="k is-freq"><span class="lab">Esc</span></button>
-          <button class="k is-freq"><span class="lab">Tab</span></button>
-          <button class="k is-freq" data-repeat><span class="lab">⌫</span></button>
+          <button class="k is-freq is-enter">↵ Enter</button>
+          <button class="k is-freq">Esc</button>
+          <button class="k is-freq">Tab</button>
+          <button class="k is-freq" data-repeat>⌫</button>
 
-          <button class="k is-accent"><span class="lab">⎘ 复制</span></button>
-          <button class="k is-accent"><span class="lab">⎘ 粘贴</span></button>
-          <button class="k is-accent"><span class="lab">⤢ 聚焦</span></button>
-          <button class="k is-danger"><span class="lab">✕ 删面板</span></button>
+          <button class="k is-accent">⎘ 复制</button>
+          <button class="k is-accent">⎘ 粘贴</button>
+          <button class="k is-accent">⤢ 聚焦</button>
+          <button class="k is-danger">✕ 删面板</button>
         </div>
       </div>
     </div>

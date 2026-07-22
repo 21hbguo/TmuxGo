@@ -1226,6 +1226,17 @@ describe('TerminalPane', () => {
     const [cols, rows] = terminalMocks.resize.mock.calls.at(-1) || []
     window.dispatchEvent(new CustomEvent('tmux-resized', { detail: { hostId: 'local', sessionName: 'dev', cols, rows, localOnly: true } }))
   })
+  it('does not mask the terminal while the mobile keyboard changes the viewport', async () => {
+    mobileKeyboardMocks.isMobile = true
+    const { container } = render(<TerminalPane sessionName="dev" attachExclusive onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    const root = container.firstChild as HTMLElement
+    const mask = container.querySelector('[data-testid="terminal-resize-mask"]') as HTMLElement
+    Object.defineProperty(root, 'clientWidth', { configurable: true, value: 390 })
+    Object.defineProperty(root, 'clientHeight', { configurable: true, value: 520 })
+    resizeObserverCallback?.()
+    expect(mask.style.display).not.toBe('block')
+  })
   it('cancels tmux copy mode before focusing the mobile keyboard', async () => {
     mobileKeyboardMocks.isMobile = true
     const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
