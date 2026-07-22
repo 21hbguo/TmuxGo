@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import React from 'react'
 import { vi } from 'vitest'
@@ -8,11 +8,13 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 
 const selectWindow = vi.fn()
 const snapshotGet = vi.fn()
+const invokePluginAction = vi.fn()
+let plugins: any[] = []
 
 vi.mock('@/hooks/useApi', () => ({
   useHosts: () => ({ data: [{ id: 'local', name: 'Local', address: '127.0.0.1', status: 'online', tags: [] }] }),
-  usePlugins: () => ({ data: { plugins: [] } }),
-  useInvokePluginAction: () => ({ mutateAsync: vi.fn() }),
+  usePlugins: () => ({ data: { plugins } }),
+  useInvokePluginAction: () => ({ mutateAsync: invokePluginAction }),
   useWindows: () => ({ data: [
     { id: 'local:@1', sessionId: 'session-dev', index: 0, name: 'Main', active: true },
     { id: 'local:@2', sessionId: 'session-dev', index: 1, name: 'Logs', active: false },
@@ -39,6 +41,8 @@ describe('CommandPalette', () => {
     localStorage.setItem('tmuxgo-preferences', JSON.stringify({ language: 'en' }))
     selectWindow.mockReset()
     snapshotGet.mockReset()
+    invokePluginAction.mockReset()
+    plugins = []
     useConsoleStore.setState({
       activeHostId: 'local',
       activeSessionId: 'session-dev',
@@ -78,5 +82,18 @@ describe('CommandPalette', () => {
     expect(selectWindow).toHaveBeenCalledWith('local', 'session-dev', 'local:@2')
     expect(snapshotGet).toHaveBeenCalledWith('local', 'session-dev')
     expect(useConsoleStore.getState().activePaneId).toBe('local:%new')
+  })
+  it('lists and invokes active plugin actions with the current context', async () => {
+    const user = userEvent.setup()
+    plugins = [{ pluginId: 'test.plugin', enabled: true, state: 'active', manifest: { name: 'Test Plugin', contributes: { actions: [{ id: 'inspect', title: 'Inspect Context', command: ['test'] }] } } }]
+    invokePluginAction.mockResolvedValue({ status: 'success', stdout: 'plugin complete', stderr: '' })
+    render(
+      React.createElement(I18nProvider, null, React.createElement(CommandPalette, { onClose: () => {} }))
+    )
+    const input = screen.getByPlaceholderText('Search hosts, sessions, windows...')
+    await user.type(input, 'inspect')
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(invokePluginAction).toHaveBeenCalledWith({ pluginId: 'test.plugin', actionId: 'inspect', context: { hostId: 'local', sessionId: 'session-dev', paneId: 'local:%old', source: 'command-palette' } }))
+    expect(useConsoleStore.getState().toasts.at(-1)?.message).toBe('plugin complete')
   })
 })

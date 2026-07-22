@@ -23,7 +23,7 @@ const viewSchema = z.object({
   title: z.string().min(1).max(128),
   description: z.string().max(512).optional(),
   icon: z.string().max(64).optional(),
-  entry: z.string().min(1).max(512).regex(pathPattern),
+  entry: z.string().min(1).max(512).regex(pathPattern).regex(/\.html$/i),
   placement: z.literal('activity').default('activity'),
   width: z.number().int().min(240).max(720).optional(),
 }).strict()

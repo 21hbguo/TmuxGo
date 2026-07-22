@@ -91,6 +91,15 @@ function appendCapped(current: string, chunk: Buffer, cap: number) {
   if (Buffer.byteLength(current) >= cap) return current
   return current + chunk.subarray(0, Math.max(0, cap - Buffer.byteLength(current))).toString('utf8')
 }
+function terminateProcess(child: ReturnType<typeof spawn>, signal: NodeJS.Signals) {
+  if (process.platform !== 'win32' && child.pid) {
+    try {
+      process.kill(-child.pid, signal)
+      return
+    } catch {}
+  }
+  child.kill(signal)
+}
 function parseGitHubSource(value: string) {
   const parts = value.trim().replace(/^https:\/\/github\.com\//, '').replace(/\.git$/, '').split('/').filter(Boolean)
   if (parts.length < 2 || !githubSegmentPattern.test(parts[0]) || !githubSegmentPattern.test(parts[1])) throw new Error('GitHub source must be owner/repo[/subdir]')
@@ -143,7 +152,7 @@ export class PluginManager {
   }
   private async saveRegistry() {
     await mkdir(path.dirname(this.registryPath), { recursive: true })
-    const temp = `${this.registryPath}.tmp-${process.pid}-${Date.now()}`
+    const temp = `${this.registryPath}.tmp-${process.pid}-${randomUUID()}`
     const store: PluginRegistryStore = { version: 1, plugins: Array.from(this.registry.values()).sort((left, right) => left.pluginId.localeCompare(right.pluginId)) }
     await writeFile(temp, JSON.stringify(store, null, 2), { encoding: 'utf8', mode: 0o600 })
     await rename(temp, this.registryPath)
@@ -156,16 +165,21 @@ export class PluginManager {
     try {
       const manifest = await this.readManifest(entry.root)
       if (manifest.id !== entry.pluginId) throw new Error('Plugin id does not match registry entry')
+      if (!supportsPluginPlatform(undefined, manifest.platforms)) throw new Error('Plugin is not supported on this platform')
       entry.manifest = manifest
       return { pluginId: entry.pluginId, root: entry.root, enabled: entry.enabled, manifest, source: entry.source, state: entry.enabled ? 'active' : 'disabled' }
     } catch (error) {
       return { pluginId: entry.pluginId, root: entry.root, enabled: entry.enabled, manifest: entry.manifest, source: entry.source, state: 'error', error: error instanceof Error ? error.message : String(error) }
     }
   }
-  private async requirePlugin(pluginId: string) {
+  private async requireEntry(pluginId: string) {
     await this.ensureReady()
     const entry = this.registry.get(pluginId)
     if (!entry) throw new Error('Plugin not found')
+    return entry
+  }
+  private async requirePlugin(pluginId: string) {
+    const entry = await this.requireEntry(pluginId)
     const info = await this.loadInfo(entry)
     if (info.state === 'error') throw new Error(info.error || 'Plugin failed to load')
     return { entry, info }
@@ -181,19 +195,28 @@ export class PluginManager {
     if (this.registry.has(manifest.id)) throw new Error(`Plugin ${manifest.id} is already registered`)
     const entry: PluginRegistryEntry = { pluginId: manifest.id, root, enabled: true, manifest, source: { kind: 'local', installedAt: new Date().toISOString() } }
     this.registry.set(manifest.id, entry)
-    await this.ensurePluginDataDirs(manifest.id)
-    await this.saveRegistry()
+    try {
+      await this.ensurePluginDataDirs(manifest.id)
+      await this.saveRegistry()
+    } catch (error) {
+      this.registry.delete(manifest.id)
+      throw error
+    }
     return this.loadInfo(entry)
   }
   async setEnabled(pluginId: string, enabled: boolean) {
-    const { entry } = await this.requirePlugin(pluginId)
+    const entry = await this.requireEntry(pluginId)
+    if (enabled) {
+      const info = await this.loadInfo(entry)
+      if (info.state === 'error') throw new Error(info.error || 'Plugin failed to load')
+    }
     entry.enabled = enabled
     if (!enabled) await this.stopPlugin(pluginId)
     await this.saveRegistry()
     return this.loadInfo(entry)
   }
   async uninstall(pluginId: string, keepData = false) {
-    const { entry } = await this.requirePlugin(pluginId)
+    const entry = await this.requireEntry(pluginId)
     await this.stopPlugin(pluginId)
     if (entry.source.kind === 'github') {
       const expected = path.resolve(this.pluginDir, pluginId)
@@ -220,47 +243,25 @@ export class PluginManager {
   private async runCommand(info: PluginInfo, command: string[], options: { actionId?: string; event?: string; timeoutMs?: number; context?: unknown }) {
     if (this.commandsInFlight >= maxConcurrentCommands) throw new Error(`Maximum concurrent plugin commands reached (${maxConcurrentCommands})`)
     const context = normalizeContext(options.context)
-    const dataRoot = await this.ensurePluginDataDirs(info.pluginId)
+    this.commandsInFlight++
+    let dataRoot: string
+    try {
+      dataRoot = await this.ensurePluginDataDirs(info.pluginId)
+    } catch (error) {
+      this.commandsInFlight--
+      throw error
+    }
     const id = randomUUID()
     const log: PluginCommandLog = { id, pluginId: info.pluginId, actionId: options.actionId, event: options.event, command, status: 'running', startedAt: new Date().toISOString(), stdout: '', stderr: '' }
     this.pushLog(log)
-    this.commandsInFlight++
     return new Promise<PluginCommandLog>((resolve) => {
-      const child = spawn(command[0], command.slice(1), {
-        cwd: info.root,
-        env: {
-          ...process.env,
-          TMUXGO_ENV: '1',
-          TMUXGO_PLUGIN_ID: info.pluginId,
-          TMUXGO_PLUGIN_ROOT: info.root,
-          TMUXGO_PLUGIN_DATA_DIR: dataRoot,
-          TMUXGO_PLUGIN_CONFIG_DIR: path.join(dataRoot, 'config'),
-          TMUXGO_PLUGIN_STATE_DIR: path.join(dataRoot, 'state'),
-          TMUXGO_PLUGIN_ACTION_ID: options.actionId || '',
-          TMUXGO_PLUGIN_EVENT: options.event || '',
-          TMUXGO_CONTEXT_JSON: JSON.stringify(context),
-          TMUXGO_API_URL: `http://127.0.0.1:${process.env.PORT || '3001'}/api`,
-          TMUXGO_HOST_ID: typeof context.hostId === 'string' ? context.hostId : '',
-          TMUXGO_SESSION_ID: typeof context.sessionId === 'string' ? context.sessionId : '',
-          TMUXGO_PANE_ID: typeof context.paneId === 'string' ? context.paneId : '',
-        },
-        stdio: ['ignore', 'pipe', 'pipe'],
-      })
-      this.running.set(id, child)
       let settled = false
       let timedOut = false
-      const timeoutMs = options.timeoutMs || 60000
-      const timer = setTimeout(() => {
-        timedOut = true
-        child.kill('SIGTERM')
-        setTimeout(() => child.kill('SIGKILL'), 1000).unref()
-      }, timeoutMs)
-      child.stdout?.on('data', (chunk: Buffer) => { log.stdout = appendCapped(log.stdout, chunk, maxCommandOutputBytes) })
-      child.stderr?.on('data', (chunk: Buffer) => { log.stderr = appendCapped(log.stderr, chunk, maxCommandOutputBytes) })
+      let timer: ReturnType<typeof setTimeout> | null = null
       const finish = (status: PluginCommandLog['status'], exitCode: number | null, error?: string) => {
         if (settled) return
         settled = true
-        clearTimeout(timer)
+        if (timer) clearTimeout(timer)
         this.running.delete(id)
         this.commandsInFlight--
         log.status = status
@@ -269,6 +270,42 @@ export class PluginManager {
         if (error) log.error = error
         resolve({ ...log })
       }
+      let child: ReturnType<typeof spawn>
+      try {
+        child = spawn(command[0], command.slice(1), {
+          cwd: info.root,
+          env: {
+            ...process.env,
+            TMUXGO_ENV: '1',
+            TMUXGO_PLUGIN_ID: info.pluginId,
+            TMUXGO_PLUGIN_ROOT: info.root,
+            TMUXGO_PLUGIN_DATA_DIR: dataRoot,
+            TMUXGO_PLUGIN_CONFIG_DIR: path.join(dataRoot, 'config'),
+            TMUXGO_PLUGIN_STATE_DIR: path.join(dataRoot, 'state'),
+            TMUXGO_PLUGIN_ACTION_ID: options.actionId || '',
+            TMUXGO_PLUGIN_EVENT: options.event || '',
+            TMUXGO_CONTEXT_JSON: JSON.stringify(context),
+            TMUXGO_API_URL: `http://127.0.0.1:${process.env.PORT || '3001'}/api`,
+            TMUXGO_HOST_ID: typeof context.hostId === 'string' ? context.hostId : '',
+            TMUXGO_SESSION_ID: typeof context.sessionId === 'string' ? context.sessionId : '',
+            TMUXGO_PANE_ID: typeof context.paneId === 'string' ? context.paneId : '',
+          },
+          detached: process.platform !== 'win32',
+          stdio: ['ignore', 'pipe', 'pipe'],
+        })
+      } catch (error) {
+        finish('error', null, error instanceof Error ? error.message : String(error))
+        return
+      }
+      this.running.set(id, child)
+      const timeoutMs = options.timeoutMs || 60000
+      timer = setTimeout(() => {
+        timedOut = true
+        terminateProcess(child, 'SIGTERM')
+        setTimeout(() => terminateProcess(child, 'SIGKILL'), 1000).unref()
+      }, timeoutMs)
+      child.stdout?.on('data', (chunk: Buffer) => { log.stdout = appendCapped(log.stdout, chunk, maxCommandOutputBytes) })
+      child.stderr?.on('data', (chunk: Buffer) => { log.stderr = appendCapped(log.stderr, chunk, maxCommandOutputBytes) })
       child.on('error', (error) => finish('error', null, error.message))
       child.on('close', (code) => finish(timedOut ? 'timeout' : code === 0 ? 'success' : 'error', code, timedOut ? `Command timed out after ${timeoutMs}ms` : code === 0 ? undefined : `Command exited with code ${code ?? -1}`))
     })
@@ -309,7 +346,7 @@ export class PluginManager {
     if (text === undefined) throw new Error('Plugin storage value must be JSON serializable')
     if (Buffer.byteLength(text) > 1024 * 1024) throw new Error('Plugin storage value is too large')
     const target = path.join(root, 'state', `${key}.json`)
-    const temp = `${target}.tmp-${Date.now()}`
+    const temp = `${target}.tmp-${randomUUID()}`
     await writeFile(temp, text, { encoding: 'utf8', mode: 0o600 })
     await rename(temp, target)
     return { ok: true }
@@ -381,7 +418,7 @@ export class PluginManager {
       const after = await this.readManifest(pluginRoot)
       if (JSON.stringify(before) !== JSON.stringify(after)) throw new Error('Plugin build changed tmuxgo-plugin.json')
       finalRoot = path.join(this.pluginDir, before.id)
-      backupRoot = `${finalRoot}.backup-${Date.now()}`
+      backupRoot = `${finalRoot}.backup-${randomUUID()}`
       try {
         await rename(finalRoot, backupRoot)
       } catch (error: any) {
@@ -439,13 +476,13 @@ export class PluginManager {
   }
   private runExternalCommand(command: string[], cwd: string, timeoutMs: number, outputCap: number) {
     return new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve, reject) => {
-      const child = spawn(command[0], command.slice(1), { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
+      const child = spawn(command[0], command.slice(1), { cwd, env: process.env, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] })
       let stdout = ''
       let stderr = ''
       let settled = false
       const timer = setTimeout(() => {
-        child.kill('SIGTERM')
-        setTimeout(() => child.kill('SIGKILL'), 1000).unref()
+        terminateProcess(child, 'SIGTERM')
+        setTimeout(() => terminateProcess(child, 'SIGKILL'), 1000).unref()
       }, timeoutMs)
       child.stdout?.on('data', (chunk: Buffer) => { stdout = appendCapped(stdout, chunk, outputCap) })
       child.stderr?.on('data', (chunk: Buffer) => { stderr = appendCapped(stderr, chunk, outputCap) })
@@ -467,11 +504,11 @@ export class PluginManager {
     for (const [id, child] of this.running) {
       const log = this.logs.find((item) => item.id === id)
       if (log?.pluginId !== pluginId) continue
-      child.kill('SIGTERM')
+      terminateProcess(child, 'SIGTERM')
     }
   }
   async shutdown() {
-    for (const child of this.running.values()) child.kill('SIGTERM')
+    for (const child of this.running.values()) terminateProcess(child, 'SIGTERM')
   }
 }
 

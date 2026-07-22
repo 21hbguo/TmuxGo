@@ -1,4 +1,4 @@
-import { createEvent, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, createEvent, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConsoleLayout } from './ConsoleLayout'
@@ -24,6 +24,7 @@ vi.mock('./UploadConfirmDialog', () => ({ UploadConfirmDialog: () => React.creat
 vi.mock('./UploadQueue', () => ({ UploadQueue: () => React.createElement('div') }))
 vi.mock('./AppVersionGuard', () => ({ AppVersionGuard: () => React.createElement('div') }))
 vi.mock('./DesktopWorkbench', () => ({ DesktopWorkbench: () => React.createElement('div') }))
+vi.mock('./PluginView', () => ({ PluginView: ({ pluginId, viewId }: { pluginId: string; viewId: string }) => React.createElement('div', null, `plugin-view:${pluginId}:${viewId}`) }))
 vi.mock('./GitPanel', () => ({ GitPanel: () => React.createElement('div', null, 'mobile-git-panel', React.createElement('button', { onClick: () => window.dispatchEvent(new CustomEvent('tmuxgo-mobile-git-push-level')) }, 'open-git-detail')) }))
 vi.mock('@/hooks/usePreferences', () => ({ usePreferences: () => ({ preferences: { showStatusBar: false } }) }))
 vi.mock('@/hooks/useApi', () => ({
@@ -60,6 +61,7 @@ describe('ConsoleLayout mobile files overlay stack', () => {
       showCommandPalette: false,
       sessionPanelExpanded: false,
       filePanelOpen: false,
+      activePluginView: null,
       mobileFileSheetOpen: false,
       toasts: [],
       connection: { status: 'disconnected', latency: 0, lastPing: new Date().toISOString() },
@@ -129,6 +131,29 @@ describe('ConsoleLayout mobile files overlay stack', () => {
     fireEvent.click(await screen.findByText('close-settings'))
     await waitFor(() => expect(screen.queryByText('close-settings')).toBeNull())
     expect(backSpy).toHaveBeenCalledTimes(1)
+  })
+  it('closes desktop settings when opening a plugin view', async () => {
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: vi.fn().mockImplementation(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    })
+    vi.spyOn(window.history, 'back').mockImplementation(() => {})
+    render(React.createElement(ConsoleLayout, { initialIsMobile: false }))
+    act(() => window.dispatchEvent(new CustomEvent('tmuxgo-open-settings')))
+    await screen.findByText('close-settings')
+    act(() => window.dispatchEvent(new CustomEvent('tmuxgo-open-plugin-view', { detail: { pluginId: 'test.plugin', viewId: 'main' } })))
+    await waitFor(() => expect(screen.queryByText('close-settings')).toBeNull())
+    expect(useConsoleStore.getState().activePluginView).toEqual({ pluginId: 'test.plugin', viewId: 'main' })
+  })
+  it('replaces mobile settings with a plugin view in one history level', async () => {
+    render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
+    act(() => window.dispatchEvent(new CustomEvent('tmuxgo-open-settings')))
+    await screen.findByText('close-settings')
+    act(() => window.dispatchEvent(new CustomEvent('tmuxgo-open-plugin-view', { detail: { pluginId: 'test.plugin', viewId: 'main' } })))
+    await screen.findByText('plugin-view:test.plugin:main')
+    expect(screen.queryByText('close-settings')).toBeNull()
+    act(() => window.dispatchEvent(new PopStateEvent('popstate')))
+    await waitFor(() => expect(screen.queryByText('plugin-view:test.plugin:main')).toBeNull())
   })
   it('restores mobile nav after keyboard closes', async () => {
     render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
