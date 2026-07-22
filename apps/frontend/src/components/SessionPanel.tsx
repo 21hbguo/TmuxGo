@@ -124,7 +124,7 @@ export function SessionPanel() {
                 <>
                   <button onClick={() => setSelectedSessionIds(sessions.map((session) => session.id))} className="tmuxgo-chip">{t('sidebar.batchSelectAll')}</button>
                   <button onClick={() => setSelectedSessionIds([])} className="tmuxgo-chip">{t('sidebar.batchClearAll')}</button>
-                  <button onClick={() => setBatchDeleteConfirmOpen(true)} disabled={!selectedSessionIds.length} className="rounded bg-red-900/30 px-2 py-1 text-[11px] text-red-300 hover:bg-red-900/50 disabled:cursor-not-allowed disabled:opacity-50">{t('sidebar.batchDeleteSelected')}</button>
+                  <button onClick={() => setBatchDeleteConfirmOpen(true)} disabled={!selectedSessionIds.length} className="tmuxgo-chip tmuxgo-chip--danger disabled:cursor-not-allowed">{t('sidebar.batchDeleteSelected')}</button>
                   <button onClick={toggleBatchMode} className="tmuxgo-chip tmuxgo-chip--accent">{t('sidebar.batchCancelAction')}</button>
                 </>
               ) : (

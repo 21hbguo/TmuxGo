@@ -245,8 +245,8 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
             {type === 'sessions' && <button onClick={() => {
               setBatchMode((prev) => !prev)
               setSelectedSessionIds([])
-            }} className="rounded px-2 py-1 text-[11px] text-text-3 active:bg-bg-2">{batchMode ? t('sidebar.batchCancelAction') : t('sidebar.batchDeleteAction')}</button>}
-            <button onClick={handleClose} className="p-1 text-text-3">✕</button>
+            }} className="tmuxgo-chip">{batchMode ? t('sidebar.batchCancelAction') : t('sidebar.batchDeleteAction')}</button>}
+            <button onClick={handleClose} className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--icon-sm tmuxgo-icon-button">✕</button>
           </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4" style={{ WebkitOverflowScrolling: 'touch' }}>
@@ -255,14 +255,14 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
               <HostSwitcher mode="mobile" />
               {!batchMode && <button
                 onClick={() => setShowTemplates(true)}
-                className="w-full rounded-lg p-3 text-left border border-dashed border-[var(--line)] text-accent active:bg-accent/10 transition-colors"
+                className="tmuxgo-chip w-full justify-start p-3 border border-dashed"
               >
                 + {t('sidebar.newSession')}
               </button>}
               {batchMode && <div className="grid grid-cols-3 gap-2">
-                <button onClick={() => setSelectedSessionIds(sessions.map((session) => session.id))} className="rounded-lg bg-bg-2 px-2 py-2 text-xs text-text-3 active:bg-bg-0">{t('sidebar.batchSelectAll')}</button>
-                <button onClick={() => setSelectedSessionIds([])} className="rounded-lg bg-bg-2 px-2 py-2 text-xs text-text-3 active:bg-bg-0">{t('sidebar.batchClearAll')}</button>
-                <button onClick={() => setBatchDeleteConfirmOpen(true)} disabled={!selectedSessionIds.length} className="rounded-lg bg-red-900/30 px-2 py-2 text-xs text-red-300 active:bg-red-900/50 disabled:cursor-not-allowed disabled:opacity-50">{t('sidebar.batchDeleteSelected')}</button>
+                <button onClick={() => setSelectedSessionIds(sessions.map((session) => session.id))} className="tmuxgo-chip flex-1 justify-center">{t('sidebar.batchSelectAll')}</button>
+                <button onClick={() => setSelectedSessionIds([])} className="tmuxgo-chip flex-1 justify-center">{t('sidebar.batchClearAll')}</button>
+                <button onClick={() => setBatchDeleteConfirmOpen(true)} disabled={!selectedSessionIds.length} className="tmuxgo-chip tmuxgo-chip--danger flex-1 justify-center disabled:cursor-not-allowed">{t('sidebar.batchDeleteSelected')}</button>
               </div>}
               {sessionsError ? <div className="rounded-lg bg-bg-2 p-3 text-xs text-danger"><div className="break-words">{sessionsErrorValue instanceof Error ? sessionsErrorValue.message : t('session.loadFailed')}</div><button onClick={() => void refetchSessions()} className="mt-2 rounded bg-bg-1 px-2 py-1 text-accent">{t('common.retry')}</button></div> : <SessionSortableList
                 sessions={sessions}

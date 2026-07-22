@@ -45,11 +45,7 @@ export function WindowTabs() {
         <button
           key={window.id}
           onClick={() => handleSelect(window.id)}
-          className={`px-3 py-1.5 rounded text-sm whitespace-nowrap transition-colors ${
-            window.active
-              ? 'bg-accent text-bg-0'
-              : 'bg-bg-2 text-text-2 hover:bg-bg-1'
-          }`}
+          className={`tmuxgo-chip whitespace-nowrap transition-colors px-3 py-1.5 text-sm ${window.active ? 'tmuxgo-chip--accent' : ''}`}
         >
           {window.name}
         </button>
