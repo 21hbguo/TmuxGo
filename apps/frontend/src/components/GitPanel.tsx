@@ -64,7 +64,7 @@ function statusIcon(status: GitFileChange['status']) {
 
 type TFunc = (key: string, params?: Record<string, string | number>) => string
 function GitLoadError({ onRetry, t }: { onRetry: () => void; t: TFunc }) {
-  return <div className="flex h-full min-h-32 flex-col items-center justify-center gap-2 p-3 text-[11px] text-text-3"><span>{t('git.loadFailed')}</span><button type="button" onClick={onRetry} className="rounded px-2 py-1 text-accent hover:bg-bg-2">{t('common.retry')}</button></div>
+  return <div className="flex h-full min-h-32 flex-col items-center justify-center gap-2 p-3 text-[11px] text-text-3"><span>{t('git.loadFailed')}</span><button type="button" onClick={onRetry} className="tmuxgo-chip tmuxgo-chip--accent">{t('common.retry')}</button></div>
 }
 
 function FileRow({ file, staged, onStage, onUnstage, onDiscard, onViewDiff, t }: { file: GitFileChange; staged: boolean; onStage: () => void; onUnstage: () => void; onDiscard: () => void; onViewDiff: () => void; t: TFunc }) {
@@ -75,11 +75,11 @@ function FileRow({ file, staged, onStage, onUnstage, onDiscard, onViewDiff, t }:
       <span className="min-w-0 flex-1 truncate text-[12px] text-text-2" title={file.path}>{file.path}</span>
       <div className="flex shrink-0 items-center gap-1 opacity-100 lg:opacity-0 lg:group-hover:opacity-100">
         {staged ? (
-          <button onClick={(e) => { e.stopPropagation(); onUnstage() }} className="rounded px-1.5 py-0.5 text-[10px] text-text-3 hover:bg-bg-2 hover:text-text-1">{t('git.unstage')}</button>
+          <button onClick={(e) => { e.stopPropagation(); onUnstage() }} className="tmuxgo-chip">{t('git.unstage')}</button>
         ) : (
           <>
-            <button onClick={(e) => { e.stopPropagation(); onStage() }} className="rounded px-1.5 py-0.5 text-[10px] text-text-3 hover:bg-bg-2 hover:text-text-1">{t('git.stage')}</button>
-            <button onClick={(e) => { e.stopPropagation(); onDiscard() }} className="rounded px-1.5 py-0.5 text-[10px] text-red-400 hover:bg-bg-2">{t('git.discard')}</button>
+            <button onClick={(e) => { e.stopPropagation(); onStage() }} className="tmuxgo-chip">{t('git.stage')}</button>
+            <button onClick={(e) => { e.stopPropagation(); onDiscard() }} className="tmuxgo-chip tmuxgo-chip--danger">{t('git.discard')}</button>
           </>
         )}
       </div>
@@ -155,9 +155,9 @@ function StatusTab({ hostId, repoPath, onOpenDiff, t }: { hostId: string; repoPa
         ))}
       </Section>
       <Section title={t('git.conflicted')} count={status.conflicted.length}>
-        {status.conflicted.map((f) => <div key={`c-${f.path}`} className="border-b border-[var(--line)] px-3 py-2"><button onClick={() => openDiff(f, false)} className="block w-full truncate text-left text-[12px] text-text-2">{f.path}</button><div className="mt-2 flex flex-wrap gap-1"><button onClick={() => resolve.mutate({ hostId, path: repoPath, filePath: f.path, resolution: 'ours' })} className="rounded bg-bg-2 px-2 py-1 text-[10px] text-text-2 hover:text-accent">{t('git.useOurs')}</button><button onClick={() => resolve.mutate({ hostId, path: repoPath, filePath: f.path, resolution: 'theirs' })} className="rounded bg-bg-2 px-2 py-1 text-[10px] text-text-2 hover:text-accent">{t('git.useTheirs')}</button><button onClick={() => resolve.mutate({ hostId, path: repoPath, filePath: f.path, resolution: 'mark' })} className="rounded bg-accent/15 px-2 py-1 text-[10px] text-accent">{t('git.markResolved')}</button></div></div>)}
+        {status.conflicted.map((f) => <div key={`c-${f.path}`} className="border-b border-[var(--line)] px-3 py-2"><button onClick={() => openDiff(f, false)} className="block w-full truncate text-left text-[12px] text-text-2">{f.path}</button><div className="mt-2 flex flex-wrap gap-1"><button onClick={() => resolve.mutate({ hostId, path: repoPath, filePath: f.path, resolution: 'ours' })} className="tmuxgo-chip tmuxgo-chip--accent">{t('git.useOurs')}</button><button onClick={() => resolve.mutate({ hostId, path: repoPath, filePath: f.path, resolution: 'theirs' })} className="tmuxgo-chip tmuxgo-chip--accent">{t('git.useTheirs')}</button><button onClick={() => resolve.mutate({ hostId, path: repoPath, filePath: f.path, resolution: 'mark' })} className="tmuxgo-chip tmuxgo-chip--accent">{t('git.markResolved')}</button></div></div>)}
       </Section>
-      {status.operation && <div className="flex gap-2 border-y border-[var(--line)] p-3"><button disabled={status.conflicted.length > 0} onClick={() => operation.mutate({ hostId, path: repoPath, operation: status.operation!, action: 'continue' }, { onError: (error) => pushToast({ type: 'error', message: `${t('git.operationFailed')}: ${error.message}` }) })} className="flex-1 rounded bg-accent/15 px-3 py-2 text-xs text-accent disabled:opacity-40">{t('git.continueOperation', { operation: status.operation })}</button><button onClick={() => operation.mutate({ hostId, path: repoPath, operation: status.operation!, action: 'abort' }, { onError: (error) => pushToast({ type: 'error', message: `${t('git.operationFailed')}: ${error.message}` }) })} className="rounded bg-red-900/25 px-3 py-2 text-xs text-red-300">{t('git.abortOperation', { operation: status.operation })}</button></div>}
+      {status.operation && <div className="flex gap-2 border-y border-[var(--line)] p-3"><button disabled={status.conflicted.length > 0} onClick={() => operation.mutate({ hostId, path: repoPath, operation: status.operation!, action: 'continue' }, { onError: (error) => pushToast({ type: 'error', message: `${t('git.operationFailed')}: ${error.message}` }) })} className="tmuxgo-button tmuxgo-button--primary tmuxgo-button--sm flex-1">{t('git.continueOperation', { operation: status.operation })}</button><button onClick={() => operation.mutate({ hostId, path: repoPath, operation: status.operation!, action: 'abort' }, { onError: (error) => pushToast({ type: 'error', message: `${t('git.operationFailed')}: ${error.message}` }) })} className="tmuxgo-button tmuxgo-button--danger tmuxgo-button--sm">{t('git.abortOperation', { operation: status.operation })}</button></div>}
       <ConfirmDialog open={!!pendingDiscard} title={t('git.discardTitle')} message={t('git.discardConfirm', { file: pendingDiscard || '' })} confirmLabel={t('git.discard')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setPendingDiscard(null)} onConfirm={() => { if (pendingDiscard) { discard.mutate({ hostId, path: repoPath, filePaths: [pendingDiscard] }); setPendingDiscard(null) } }} />
     </>
   )
@@ -358,8 +358,8 @@ function BranchesTab({ hostId, repoPath, t }: { hostId: string; repoPath: string
         {showCreate ? (
           <div className="flex gap-1">
             <input value={newBranchName} onChange={(e) => setNewBranchName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleCreate()} placeholder={t('git.branchName')} className="flex-1 rounded border border-[var(--line)] bg-bg-0 px-2 py-1 text-[12px] text-text-1 outline-none focus:border-accent" autoFocus />
-            <button onClick={handleCreate} className="rounded bg-accent/20 px-2 py-1 text-[11px] text-accent">{t('common.confirm')}</button>
-            <button onClick={() => setShowCreate(false)} className="rounded px-2 py-1 text-[11px] text-text-3">{t('common.cancel')}</button>
+            <button onClick={handleCreate} className="tmuxgo-chip tmuxgo-chip--accent">{t('common.confirm')}</button>
+            <button onClick={() => setShowCreate(false)} className="tmuxgo-chip tmuxgo-chip--ghost">{t('common.cancel')}</button>
           </div>
         ) : (
           <div className="flex items-center justify-between gap-2"><button onClick={() => setShowCreate(true)} className="text-[11px] text-accent hover:text-text-1">+ {t('git.newBranch')}</button><label className="flex items-center gap-1.5 text-[10px] text-text-3"><input type="checkbox" checked={noFF} onChange={(event) => setNoFF(event.target.checked)} className="accent-accent" />{t('git.noFF')}</label></div>
@@ -375,9 +375,9 @@ function BranchesTab({ hostId, repoPath, t }: { hostId: string; repoPath: string
           <div className="flex shrink-0 items-center gap-1 opacity-100 lg:opacity-0 lg:group-hover:opacity-100">
             {!b.current && (
               <>
-                <button onClick={() => checkout.mutate({ hostId, path: repoPath, branch: b.name }, { onSuccess: () => pushToast({ type: 'success', message: t('git.checkoutSuccess', { branch: b.name }) }), onError: (err) => pushToast({ type: 'error', message: err.message }) })} className="rounded px-1.5 py-0.5 text-[10px] text-text-3 hover:bg-bg-2 hover:text-text-1">{t('git.checkout')}</button>
-                <button onClick={() => merge.mutate({ hostId, path: repoPath, branch: b.name, noFF }, { onSuccess: () => pushToast({ type: 'success', message: t('git.mergeSuccess') }), onError: (err) => pushToast({ type: 'error', message: t('git.mergeFailed') + ': ' + err.message }) })} className="rounded px-1.5 py-0.5 text-[10px] text-text-3 hover:bg-bg-2 hover:text-text-1">{t('git.merge')}</button>
-                <button onClick={() => setPendingDelete(b.name)} className="rounded px-1.5 py-0.5 text-[10px] text-red-400 hover:bg-bg-2">✕</button>
+                <button onClick={() => checkout.mutate({ hostId, path: repoPath, branch: b.name }, { onSuccess: () => pushToast({ type: 'success', message: t('git.checkoutSuccess', { branch: b.name }) }), onError: (err) => pushToast({ type: 'error', message: err.message }) })} className="tmuxgo-chip">{t('git.checkout')}</button>
+                <button onClick={() => merge.mutate({ hostId, path: repoPath, branch: b.name, noFF }, { onSuccess: () => pushToast({ type: 'success', message: t('git.mergeSuccess') }), onError: (err) => pushToast({ type: 'error', message: t('git.mergeFailed') + ': ' + err.message }) })} className="tmuxgo-chip">{t('git.merge')}</button>
+                <button onClick={() => setPendingDelete(b.name)} className="tmuxgo-chip tmuxgo-chip--danger">✕</button>
               </>
             )}
           </div>
@@ -587,10 +587,10 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
                   {t('git.commit')}
                 </button>
                 {stageablePaths.length > 0 && (
-                  <button onClick={() => activeHostId && repoPath && stageAll.mutate({ hostId: activeHostId, path: repoPath, filePaths: stageablePaths })} className="rounded px-2 py-1.5 text-[11px] text-text-3 hover:bg-bg-2 hover:text-text-1">{t('git.stageAll')}</button>
+                  <button onClick={() => activeHostId && repoPath && stageAll.mutate({ hostId: activeHostId, path: repoPath, filePaths: stageablePaths })} className="tmuxgo-chip">{t('git.stageAll')}</button>
                 )}
                 {status && status.staged.length > 0 && (
-                  <button onClick={() => activeHostId && repoPath && unstageAll.mutate({ hostId: activeHostId, path: repoPath, filePaths: status.staged.map((f) => f.path) })} className="rounded px-2 py-1.5 text-[11px] text-text-3 hover:bg-bg-2 hover:text-text-1">{t('git.unstageAll')}</button>
+                  <button onClick={() => activeHostId && repoPath && unstageAll.mutate({ hostId: activeHostId, path: repoPath, filePaths: status.staged.map((f) => f.path) })} className="tmuxgo-chip">{t('git.unstageAll')}</button>
                 )}
               </div>
               <label className="mt-2 flex items-center gap-2 text-[10px] text-text-3"><input type="checkbox" checked={amend} onChange={(event) => setAmend(event.target.checked)} className="accent-accent" />{t('git.amend')}</label>
@@ -603,7 +603,7 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
           <div>{gitState?.currentFilePath ? t('git.fileNotInRepo') : t('git.noActiveEditor')}</div>
           <div className="flex w-full max-w-md gap-2">
             <input value={manualRepoPath} onChange={(event) => setManualRepoPath(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void handleOpenRepo() }} placeholder={t('git.selectRepo')} className="tmuxgo-control tmuxgo-input min-w-0 flex-1 rounded px-2.5 py-1.5 text-[12px]" />
-            <button type="button" disabled={!manualRepoPath.trim()} onClick={() => void handleOpenRepo()} className="rounded bg-accent px-3 py-1.5 text-[11px] font-medium text-bg-0 disabled:opacity-50">{t('git.openRepo')}</button>
+            <button type="button" disabled={!manualRepoPath.trim()} onClick={() => void handleOpenRepo()} className="tmuxgo-button tmuxgo-button--primary tmuxgo-button--sm">{t('git.openRepo')}</button>
           </div>
         </div>
       )}
