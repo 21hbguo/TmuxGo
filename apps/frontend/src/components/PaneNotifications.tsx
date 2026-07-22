@@ -114,8 +114,6 @@ export function PaneNotifications() {
       const status = detail.pane.agentStatus
       if (status !== 'blocked' && status !== 'done' || !preferences.agentNotificationsEnabled) return
       if (readMutedPanes().includes(detail.pane.paneId)) return
-      const state = useConsoleStore.getState()
-      if (state.activeHostId === detail.hostId && state.activeSessionId === sessionId && state.activePaneId === detail.pane.paneId) return
       const id = `${detail.pane.paneId}:${detail.pane.revision}`
       const message = status === 'blocked' ? t('agent.notification.blocked', { agent: detail.pane.agent, session: detail.sessionName }) : t('agent.notification.done', { agent: detail.pane.agent, session: detail.sessionName })
       const notification: NotificationItem = { id, paneId: detail.pane.paneId, paneName: detail.pane.agent, hostId: detail.hostId, sessionId, status, message, timestamp: new Date().toISOString() }
