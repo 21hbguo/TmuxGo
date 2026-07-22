@@ -840,7 +840,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     event.target.value = ''
   }
   const embedded = mode === 'explorer'
-  const shellClass = isMobile ? 'flex h-full min-h-0 flex-col bg-bg-1' : `relative flex h-full ${embedded ? 'min-w-0 flex-1' : 'shrink-0'} flex-col bg-bg-1 ${dock === 'left' ? 'border-r border-[var(--line)]' : 'border-l border-[var(--line)]'}`
+  const shellClass = isMobile ? 'flex h-full min-h-0 flex-col' : `relative flex h-full ${embedded ? 'min-w-0 flex-1' : 'shrink-0'} flex-col bg-bg-1 ${dock === 'left' ? 'border-r border-[var(--line)]' : 'border-l border-[var(--line)]'}`
   const shellStyle = isMobile || embedded ? undefined : { width: filePanelWidth }
   const imagePreviewUrl = preview?.path && preview.type === 'file' && isImagePath(preview.path) && (preview.binary || preview.reason === 'binary-file' || preview.reason === 'large-file') ? api.files.imageUrl(fileHostId, activeRootId, resolveRootRelativePath(activeRootBasePath, preview.path), preview.modifiedAt) : ''
   const previewBlock = preview ? (
