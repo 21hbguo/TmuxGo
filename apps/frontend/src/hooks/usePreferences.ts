@@ -172,6 +172,10 @@ export function usePreferences() {
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', preferences.theme)
+    const themeColor = document.querySelector('meta[name="theme-color"]')
+    if (themeColor) themeColor.setAttribute('content', `rgb(${getComputedStyle(document.documentElement).getPropertyValue('--bg-0').trim()})`)
+    const statusBarStyle = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')
+    if (statusBarStyle) statusBarStyle.setAttribute('content', preferences.theme === 'light' ? 'default' : 'black-translucent')
   }, [preferences.theme])
 
   const updatePreferences = useCallback((updates: Partial<Preferences>) => {

@@ -359,6 +359,7 @@ export const zh = {
   'thumbnail.unavailable': '会话缩略图不可用。',
   'thumbnail.empty': '没有可预览的会话。',
   'file.upload': '上传',
+  'file.addFavorite': '添加收藏',
   'file.removeFavorite': '删收藏',
   'file.clearExpanded': '全部收起',
   'file.clearSearch': '清空搜索',

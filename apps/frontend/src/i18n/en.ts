@@ -359,6 +359,7 @@ export const en = {
   'thumbnail.unavailable': 'Session thumbnails are unavailable.',
   'thumbnail.empty': 'No sessions to preview.',
   'file.upload': 'Upload',
+  'file.addFavorite': 'Add to favorites',
   'file.removeFavorite': 'Unfavorite',
   'file.clearExpanded': 'Collapse all',
   'file.clearSearch': 'Clear search',
