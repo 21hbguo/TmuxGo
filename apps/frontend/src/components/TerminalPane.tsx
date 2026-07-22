@@ -1637,7 +1637,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const handleWindowResize = () => {
         syncRenderEnvironment('window-resize')
         if (lastContainerSize.width > 0 && lastContainerSize.height > 0) {
-          showResizeMask()
+          if (!isMobileDevice) showResizeMask()
           resizeObservedSize = { width: container.clientWidth, height: container.clientHeight }
           resizeStableFrames = 0
           scheduleStableLayout()
@@ -1927,7 +1927,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         lastContainerSize = { width, height }
         resizeObservedSize = { width, height }
         resizeStableFrames = 0
-        if (hadContainerSize) showResizeMask()
+        if (hadContainerSize && !isMobileDevice) showResizeMask()
         scheduleStableLayout()
       })
       resizeObserver.observe(container)

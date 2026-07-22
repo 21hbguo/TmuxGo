@@ -445,6 +445,20 @@ describe('FilePanel', () => {
     expect(await screen.findByText('src')).toBeInTheDocument()
     expect(screen.queryByText('.env')).not.toBeInTheDocument()
   })
+  it('moves between visible files with arrow keys in the desktop tree', async () => {
+    render(React.createElement(FilePanel))
+    fireEvent.click(await screen.findByText('src'))
+    await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
+    fireEvent.click(screen.getByText('docs'))
+    await waitFor(() => expect(screen.getByText('guide.md')).toBeInTheDocument())
+    const indexFile = screen.getByText('index.ts').closest('[role="button"]') as HTMLElement
+    fireEvent.click(indexFile)
+    fireEvent.keyDown(indexFile, { key: 'ArrowDown' })
+    await waitFor(() => expect(screen.getByText('guide.md').closest('[data-selected="true"]')).toBeInTheDocument())
+    expect(screen.getByText('guide.md').closest('[role="button"]')).toHaveFocus()
+    fireEvent.keyDown(screen.getByText('guide.md').closest('[role="button"]') as HTMLElement, { key: 'ArrowUp' })
+    await waitFor(() => expect(screen.getByText('index.ts').closest('[data-selected="true"]')).toBeInTheDocument())
+  })
   it('shows visible content search results when dotfiles are hidden', async () => {
     render(React.createElement(FilePanel))
     fireEvent.click(screen.getByRole('button', { name: 'content' }))

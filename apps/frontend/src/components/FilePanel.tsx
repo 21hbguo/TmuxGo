@@ -884,6 +884,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
         <div
           role="button"
           tabIndex={0}
+          data-file-path={item.type === 'file' ? item.path : undefined}
           title={getItemFullPath(item)}
           {...bindFileDrag(item)}
           onClick={(e) => {
@@ -895,6 +896,16 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
             }
           }}
           onKeyDown={(e) => {
+            if (item.type === 'file' && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+              e.preventDefault()
+              const files = Array.from(e.currentTarget.closest('.tmuxgo-file-tree')?.querySelectorAll<HTMLElement>('[data-file-path]') || [])
+              const next = files[files.findIndex((entry) => entry.dataset.filePath === item.path) + (e.key === 'ArrowUp' ? -1 : 1)]
+              if (!next?.dataset.filePath) return
+              setSelectedPath(next.dataset.filePath)
+              setSelectedPreviewLine(1)
+              next.focus()
+              return
+            }
             if (e.key !== 'Enter' && e.key !== ' ') return
             e.preventDefault()
             if (item.type === 'directory') void handleDesktopDirectoryToggle(item)
