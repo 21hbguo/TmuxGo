@@ -81,7 +81,7 @@ export function PasteConfirmDialog({ open, text, meta, mode = 'confirm', onTextC
         {isManual && <div className="mt-2 text-sm text-text-3">{t('paste.manualDesc')}</div>}
         <div className="mt-2 flex flex-wrap gap-2 text-xs text-text-3">
           {meta.map((item) => (
-            <div key={item} className="rounded bg-bg-2 px-2 py-1">{item}</div>
+            <div key={item} className="tmuxgo-chip">{item}</div>
           ))}
         </div>
         <textarea ref={textareaRef} value={text} onChange={(e) => onTextChange?.(e.target.value)} className="tmuxgo-control tmuxgo-textarea mt-4 h-48 max-h-[40vh] w-full resize-none rounded p-3 text-xs" autoFocus={isManual} spellCheck={false} />
