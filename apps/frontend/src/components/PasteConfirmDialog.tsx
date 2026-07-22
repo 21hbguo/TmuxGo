@@ -86,10 +86,10 @@ export function PasteConfirmDialog({ open, text, meta, mode = 'confirm', onTextC
         </div>
         <textarea ref={textareaRef} value={text} onChange={(e) => onTextChange?.(e.target.value)} className="tmuxgo-control tmuxgo-textarea mt-4 h-48 max-h-[40vh] w-full resize-none rounded p-3 text-xs" autoFocus={isManual} spellCheck={false} />
         <div className="mt-5 flex flex-wrap justify-end gap-2">
-          <button onMouseDown={preventFocus} onTouchStart={preventFocus} onClick={onCancel} className="rounded px-4 py-2 text-sm text-text-3 hover:text-text-1">{t('paste.cancel')}</button>
-          {isManual && <button onMouseDown={preventFocus} onTouchStart={preventFocus} onClick={onRetryPermission} className="rounded bg-bg-2 px-4 py-2 text-sm text-text-1 hover:bg-bg-0">{t('paste.retryPermission')}</button>}
-          <button onMouseDown={preventFocus} onTouchStart={preventFocus} onClick={onEscapeSend} className="rounded bg-bg-2 px-4 py-2 text-sm text-text-1 hover:bg-bg-0">{t('paste.escapePaste')}</button>
-          <button onMouseDown={preventFocus} onTouchStart={preventFocus} onClick={onSend} disabled={!text} className="rounded bg-accent/20 px-4 py-2 text-sm text-accent hover:bg-accent/30 disabled:cursor-not-allowed disabled:opacity-50">{t('paste.send')}</button>
+          <button onMouseDown={preventFocus} onTouchStart={preventFocus} onClick={onCancel} className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--sm">{t('paste.cancel')}</button>
+          {isManual && <button onMouseDown={preventFocus} onTouchStart={preventFocus} onClick={onRetryPermission} className="tmuxgo-button tmuxgo-button--sm">{t('paste.retryPermission')}</button>}
+          <button onMouseDown={preventFocus} onTouchStart={preventFocus} onClick={onEscapeSend} className="tmuxgo-button tmuxgo-button--sm">{t('paste.escapePaste')}</button>
+          <button onMouseDown={preventFocus} onTouchStart={preventFocus} onClick={onSend} disabled={!text} className="tmuxgo-button tmuxgo-button--primary tmuxgo-button--sm">{t('paste.send')}</button>
         </div>
       </div>
     </div>

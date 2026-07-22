@@ -44,8 +44,8 @@ export function PromptDialog({ open, title, defaultValue = '', confirmLabel, can
           className="mt-3 w-full rounded border border-[var(--line)] bg-bg-0 px-3 py-2 text-sm text-text-1 outline-none focus:border-accent"
         />
         <div className="mt-5 flex justify-end gap-2">
-          <button onClick={onCancel} className="rounded px-4 py-2 text-sm text-text-3 hover:text-text-1">{cancelLabel}</button>
-          <button onClick={() => onConfirm(value.trim())} className="rounded px-4 py-2 text-sm bg-accent/20 text-accent hover:bg-accent/30">{confirmLabel}</button>
+          <button onClick={onCancel} className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--sm">{cancelLabel}</button>
+          <button onClick={() => onConfirm(value.trim())} className="tmuxgo-button tmuxgo-button--primary tmuxgo-button--sm">{confirmLabel}</button>
         </div>
       </div>
     </div>

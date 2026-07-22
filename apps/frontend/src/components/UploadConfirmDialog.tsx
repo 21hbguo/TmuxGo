@@ -192,8 +192,8 @@ export function UploadConfirmDialog() {
           <input type="checkbox" checked={insertPaths} onChange={(e) => setInsertPaths(e.target.checked)} className="h-4 w-4 accent-[rgb(var(--accent))]" />
         </label>
         <div className="mt-5 flex justify-end gap-2">
-          <button onClick={handleCancel} className="rounded px-4 py-2 text-sm text-text-3 hover:text-text-1">{t('upload.cancel')}</button>
-          <button onClick={() => void handleUpload()} disabled={submitting || loadingTarget || !targetRootId} className="rounded bg-accent/20 px-4 py-2 text-sm text-accent hover:bg-accent/30 disabled:cursor-not-allowed disabled:opacity-50">{submitting ? t('upload.starting') : t('upload.upload')}</button>
+          <button onClick={handleCancel} className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--sm">{t('upload.cancel')}</button>
+          <button onClick={() => void handleUpload()} disabled={submitting || loadingTarget || !targetRootId} className="tmuxgo-button tmuxgo-button--primary tmuxgo-button--sm">{submitting ? t('upload.starting') : t('upload.upload')}</button>
         </div>
       </div>
     </div>
