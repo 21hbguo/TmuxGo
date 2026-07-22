@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useTranslation } from '@/i18n'
 import { formatKeyEvent } from '@/hooks/useCustomShortcuts'
 import { ModalPortal } from './ModalPortal'
+import { KeyCap } from './KeyCap'
 
 interface Props {
   onSave: (data: { label: string; keys: string }) => void
@@ -84,10 +85,9 @@ export function AddShortcutModal({ onSave, onClose, isMobile }: Props) {
               <label className="text-text-3 text-xs mb-1 block">{t('shortcut.keys')}</label>
               <div className="flex gap-1 mb-2 flex-wrap">
                 {MODIFIERS.map((m) => (
-                  <button key={m} onClick={() => toggleMod(m)}
-                    className={`px-2 py-1 rounded text-xs border transition-colors ${mods[m] ? 'bg-accent/20 border-accent text-accent' : 'bg-bg-2 border-[var(--line)] text-text-3'}`}>
+                  <KeyCap key={m} variant="panel" size="sm" tone={mods[m] ? 'accent' : 'default'} onPress={() => toggleMod(m)}>
                     {m}
-                  </button>
+                  </KeyCap>
                 ))}
               </div>
               <select

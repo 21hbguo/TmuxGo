@@ -427,9 +427,7 @@ export function QuickActions({ mode='panel' }:{ mode?:QuickActionsMode }){
           <div className="text-text-3 text-[10px] mb-1">{t('shortcut.custom')}</div>
           {shortcuts.map((s)=>(
             <div key={s.id} className="group flex items-center gap-1 mb-1">
-              <button onClick={()=>sendKey(keysToEscape(s.keys))} className='tmuxgo-keycap flex-1 truncate' title={s.keys}>
-                {s.label}
-              </button>
+              <KeyCap variant="panel" size="md" onPress={() => { sendKey(keysToEscape(s.keys)) }} title={s.keys} className="flex-1 truncate">{s.label}</KeyCap>
               <button onClick={()=>removeShortcut(s.id)} className="p-1 rounded text-text-3 hover:text-red-400 hover:bg-red-900/30 opacity-0 group-hover:opacity-100 transition-opacity text-[10px]">
                 ✕
               </button>
