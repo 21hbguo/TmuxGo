@@ -95,7 +95,7 @@ async function getRoots() {
   }
   return rootsCache
 }
-const REMOTE_FILE_SCRIPT = `import base64,datetime,json,os,pathlib,shutil,sys
+const REMOTE_FILE_SCRIPT = `import base64,datetime,json,os,pathlib,shutil,sys,urllib.parse
 PREVIEW_LIMIT=200*1024
 LARGE_FILE_LIMIT=512*1024
 MAX_RESULTS=200
@@ -118,6 +118,12 @@ def roots():
 def norm_rel(value=''):
  return '/'.join([part for part in str(value).replace('\\\\','/').split('/') if part and part!='.'])
 def get_root(root_id):
+ if isinstance(root_id,str) and root_id.startswith('git:'):
+  try: p=urllib.parse.unquote(root_id[4:])
+  except: raise Exception('Invalid root')
+  if not p: raise Exception('Invalid root')
+  base=str(pathlib.Path(p).resolve())
+  return {'id':root_id,'label':pathlib.Path(base).name or base,'path':base}
  for item in roots():
   if item['id']==root_id: return item
  raise Exception('Invalid root')
@@ -381,6 +387,7 @@ function startTemporaryUploadCleanup() {
 }
 async function resolveInside(rootId: string, relativePath = '') {
   if (rootId === TEMP_UPLOAD_ROOT_ID) return resolveTemporaryInside(relativePath)
+  if (rootId.startsWith('git:')) return resolveGitInside(rootId, relativePath)
   const roots = await getRoots()
   const root = roots.find((item) => item.id === rootId)
   if (!root) throw new Error('Invalid root')
@@ -395,6 +402,17 @@ async function resolveInside(rootId: string, relativePath = '') {
   }
   if (!isPathInside(root.path, actual)) throw new Error('Path escapes root')
   return { root, absolutePath: actual, relativePath: normalizeRelativePath(path.relative(root.path, actual)) }
+}
+function resolveGitInside(rootId: string, relativePath = '') {
+  let repoPath = ''
+  try { repoPath = decodeURIComponent(rootId.slice(4)) } catch { throw new Error('Invalid root') }
+  if (!repoPath) throw new Error('Invalid root')
+  const base = path.resolve(repoPath)
+  const normalizedPath = normalizeRelativePath(relativePath)
+  const absolutePath = path.resolve(base, normalizedPath || '.')
+  if (!isPathInside(base, absolutePath)) throw new Error('Path escapes root')
+  const root = { id: rootId, label: path.basename(base) || base, path: base }
+  return Promise.resolve({ root, absolutePath, relativePath: normalizeRelativePath(path.relative(base, absolutePath)) })
 }
 function toRelative(rootPath: string, absolutePath: string) {
   return normalizeRelativePath(path.relative(rootPath, absolutePath))
