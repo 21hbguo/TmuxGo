@@ -86,16 +86,15 @@ export function StatusBar() {
                   if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setShowAllDisks(false)
                 }}
               >
-                <button
-                  type="button"
+                <Chip
                   aria-label="Show all storage"
                   aria-expanded={showAllDisks}
                   title="Show all storage"
-                  className="tmuxgo-chip h-5 px-2 font-mono text-[10px] font-semibold tabular-nums text-text-2 transition-colors hover:text-accent-2"
+                  className="h-5 px-2 font-mono text-[10px] font-semibold tabular-nums text-text-2 transition-colors hover:text-accent-2"
                 >
                   <span>{`+${disks.length - 3}`}</span>
                   <span aria-hidden="true" className="h-1.5 w-1.5 -translate-y-0.5 rotate-45 border-b border-r border-current" />
-                </button>
+                </Chip>
                 {showAllDisks && (
                   <div className="absolute bottom-full right-0 z-50 pb-2" role="list" aria-label="All storage">
                     <div className="min-w-56 rounded-lg border border-text-1/15 bg-bg-1/95 p-1.5 shadow-2xl backdrop-blur-xl">
