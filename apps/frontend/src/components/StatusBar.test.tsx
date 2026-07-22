@@ -46,7 +46,7 @@ describe('StatusBar', () => {
     expect(within(connection).getByText('Connected')).toBeInTheDocument()
     expect(useSystemInfoMock).toHaveBeenCalledWith('local', 2000)
   })
-  it('shows the three largest disks and expands the rest on demand', () => {
+  it('shows the three largest disks and reveals all storage on hover', () => {
     useSystemInfoMock.mockImplementation(() => ({
       hostId: 'local',
       gpu: null,
@@ -67,9 +67,12 @@ describe('StatusBar', () => {
     expect(within(resources).getByText('/data')).toBeInTheDocument()
     expect(within(resources).getByText('/')).toBeInTheDocument()
     expect(within(resources).queryByText('/tmp')).not.toBeInTheDocument()
-    fireEvent.click(within(resources).getByRole('button', { name: 'Show all storage' }))
+    const storageTrigger = within(resources).getByRole('button', { name: 'Show all storage' })
+    fireEvent.mouseEnter(storageTrigger.parentElement!)
+    expect(within(resources).getByRole('list', { name: 'All storage' })).toBeInTheDocument()
     expect(within(resources).getByText('/tmp')).toBeInTheDocument()
-    expect(within(resources).getByRole('button', { name: 'Collapse storage' })).toHaveAttribute('aria-expanded', 'true')
+    fireEvent.mouseLeave(storageTrigger.parentElement!)
+    expect(within(resources).queryByRole('list', { name: 'All storage' })).not.toBeInTheDocument()
     useSystemInfoMock.mockImplementation(() => ({
       hostId: 'local',
       gpu: null,
