@@ -31,7 +31,7 @@ export function AuditLog({ onClose }: AuditLogProps) {
           {!isLoading && !isError && !logs.length && <div className="p-6 text-center text-sm text-text-3">{t('audit.empty')}</div>}
           {!!logs.length && <table className="w-full"><thead><tr className="border-b border-[var(--line)]"><th className="p-3 text-left text-xs font-medium text-text-3">{t('audit.time')}</th><th className="p-3 text-left text-xs font-medium text-text-3">{t('audit.action')}</th><th className="p-3 text-left text-xs font-medium text-text-3">{t('audit.target')}</th><th className="p-3 text-left text-xs font-medium text-text-3">{t('audit.result')}</th></tr></thead><tbody>{logs.map((log) => <tr key={log.id} className="border-b border-[var(--line)] hover:bg-bg-2"><td className="whitespace-nowrap p-3 text-xs text-text-2">{new Date(log.timestamp).toLocaleString()}</td><td className="p-3 font-mono text-xs text-text-1">{log.action}</td><td className="max-w-[360px] truncate p-3 text-sm text-text-2" title={log.target}>{log.target}</td><td className="p-3"><span className={`rounded px-2 py-0.5 text-xs ${log.result === 'success' ? 'bg-accent-2/20 text-accent-2' : 'bg-danger/20 text-danger'}`}>{t(`audit.${log.result}`)}</span></td></tr>)}</tbody></table>}
         </div>
-        <div className="flex justify-end border-t border-[var(--line)] p-4"><button onClick={onClose} className="rounded bg-bg-2 px-4 py-2 text-text-2 hover:bg-bg-1">{t('audit.close')}</button></div>
+        <div className="flex justify-end border-t border-[var(--line)] p-4"><button onClick={onClose} className="tmuxgo-button tmuxgo-button--sm">{t('audit.close')}</button></div>
       </div>
     </div>
   </ModalPortal>

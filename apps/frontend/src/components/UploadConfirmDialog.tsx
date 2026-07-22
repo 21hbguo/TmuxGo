@@ -161,10 +161,10 @@ export function UploadConfirmDialog() {
       <div className="tmuxgo-glass tmuxgo-glass-dialog w-full max-w-2xl rounded-lg border p-5" onClick={(e) => e.stopPropagation()}>
         <div className="text-lg text-text-1">{t('upload.title')}</div>
         <div className="mt-2 flex flex-wrap gap-2 text-xs text-text-3">
-          <div className="rounded bg-bg-2 px-2 py-1">{t('upload.file', { count: files.length })}</div>
-          <div className="rounded bg-bg-2 px-2 py-1">{formatSize(totalSize)}</div>
-          <div className="rounded bg-bg-2 px-2 py-1">{t('upload.renameConflict')}</div>
-          <div className="rounded bg-bg-2 px-2 py-1">{preferences.uploadRateLimitKBps}KB/s</div>
+          <div className="tmuxgo-chip">{t('upload.file', { count: files.length })}</div>
+          <div className="tmuxgo-chip">{formatSize(totalSize)}</div>
+          <div className="tmuxgo-chip">{t('upload.renameConflict')}</div>
+          <div className="tmuxgo-chip">{preferences.uploadRateLimitKBps}KB/s</div>
         </div>
         <div className="mt-4 grid gap-3 md:grid-cols-[160px_1fr]">
           <label className="text-sm text-text-2">{t('upload.root')}</label>
