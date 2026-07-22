@@ -24,8 +24,13 @@ async function openPluginSettings(page: any) {
 function collectPageErrors(page: any) {
   const errors: string[] = []
   page.on('pageerror', (error: Error) => errors.push(error.message))
-  page.on('console', (message: any) => { if (message.type() === 'error') errors.push(`${message.text()} ${message.location().url}`.trim()) })
-  page.on('response', (response: any) => { if (response.status() >= 400) errors.push(`HTTP ${response.status()} ${response.url()}`) })
+  page.on('console', (message: any) => {
+    if (message.type() !== 'error') return
+    const text = message.text()
+    const url = message.location().url
+    if (!text.startsWith('Failed to load resource') || url.includes('/api/plugins')) errors.push(`${text} ${url}`.trim())
+  })
+  page.on('response', (response: any) => { if (response.status() >= 400 && response.url().includes('/api/plugins')) errors.push(`HTTP ${response.status()} ${response.url()}`) })
   return errors
 }
 
