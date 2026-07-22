@@ -9,6 +9,8 @@ import { usePreferences } from '@/hooks/usePreferences'
 import { useTranslation } from '@/i18n'
 import { usePrompt } from '@/hooks/usePrompt'
 import { QuickActions } from './QuickActions'
+import { Button } from './Button'
+import { Chip } from './Chip'
 import { ConfirmDialog } from './ConfirmDialog'
 import { ModalPortal } from './ModalPortal'
 
@@ -117,9 +119,9 @@ export function Sidebar() {
       <aside className={`relative flex shrink-0 flex-col bg-bg-1 ${preferences.sidebarPosition === 'right' ? 'border-l border-[var(--line)]' : 'border-r border-[var(--line)]'}`} style={{ width: sessionPanelWidth }}>
         <div className="flex items-center justify-between border-b border-[var(--line)] p-3">
           <span className="text-text-2 text-sm font-medium">{t('sidebar.sessions')}</span>
-          <button onClick={() => setSessionPanelExpanded(false)} className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--icon-sm tmuxgo-icon-button">
+          <Button variant="ghost" size="icon-sm" aria-label="collapse" onClick={() => setSessionPanelExpanded(false)}>
             ←
-          </button>
+          </Button>
         </div>
         <div className="flex-1 overflow-y-auto">
           {sessions.map((session: any) => (
@@ -135,22 +137,21 @@ export function Sidebar() {
                   <span className="whitespace-nowrap">{t('sidebar.windows', { count: session.windowCount })}</span>
                 </div>
               </button>
-              <button
+              <Chip
                 onClick={(e) => void handleRenameSession(session.id, e)}
-                className="tmuxgo-chip"
                 title={t('sidebar.renameSession')}
                 aria-label={t('sidebar.renameSession')}
               >
                 ✎
-              </button>
-              <button
+              </Chip>
+              <Chip
+                tone="danger"
                 onClick={(e) => handleDeleteSession(session.id, e)}
-                className="tmuxgo-chip tmuxgo-chip--danger"
                 title={t('sidebar.deleteSession')}
                 aria-label={t('sidebar.deleteSession')}
               >
                 ✕
-              </button>
+              </Chip>
             </div>
           ))}
           <button
