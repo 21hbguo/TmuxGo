@@ -215,7 +215,7 @@ export function Settings({ onClose }: SettingsProps) {
       <div className="tmuxgo-glass tmuxgo-glass-dialog max-h-[85vh] w-full max-w-[700px] overflow-hidden rounded-lg border" onClick={(e) => e.stopPropagation()}>
         <div className="p-4 border-b border-[var(--line)] flex items-center justify-between">
           <h2 className="text-text-1 text-lg font-medium">{t('settings.title')}</h2>
-          <button onClick={onClose} className="text-text-3 hover:text-text-1">✕</button>
+          <button onClick={onClose} className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--sm" aria-label="close">✕</button>
         </div>
 
         <div className="flex border-b border-[var(--line)]">
@@ -371,10 +371,10 @@ export function Settings({ onClose }: SettingsProps) {
                     </div>
                   </div>
                   <div className="flex items-center justify-end">
-                    <button onClick={openArchiveDialog} className="mr-2 rounded bg-bg-2 px-3 py-1.5 text-sm text-text-2 hover:bg-bg-1">{t('settings.viewArchives')}</button>
+                    <button onClick={openArchiveDialog} className="mr-2 tmuxgo-button tmuxgo-button--sm">{t('settings.viewArchives')}</button>
                     <button
                       onClick={() => updateSessionContinuity({ resumePoints: [] })}
-                      className="rounded bg-bg-2 px-3 py-1.5 text-sm text-text-2 hover:bg-bg-1"
+                      className="tmuxgo-button tmuxgo-button--sm"
                     >
                       {t('settings.clearResumePoints')}
                     </button>
@@ -386,7 +386,7 @@ export function Settings({ onClose }: SettingsProps) {
                 <div className="space-y-3 rounded border border-[var(--line)] p-3">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-xs text-text-3">{t('settings.hosts')}</span>
-                    <button onClick={openCreateHostDialog} className="rounded bg-accent px-3 py-1.5 text-sm text-bg-0">{t('settings.hostNew')}</button>
+                    <button onClick={openCreateHostDialog} className="tmuxgo-button tmuxgo-button--primary tmuxgo-button--sm">{t('settings.hostNew')}</button>
                   </div>
                   <div className="space-y-2">
                     {hosts.filter((host: any) => host.id !== 'local').map((host: any) => (
@@ -397,7 +397,7 @@ export function Settings({ onClose }: SettingsProps) {
                           {!!host.hasPassword && <div className="truncate text-xs text-text-3">{t('settings.hostPasswordSaved')}</div>}
                         </div>
                         <div className="mt-2 flex items-center gap-1">
-                          <button onClick={() => openEditHostDialog(host)} className="rounded bg-bg-1 px-2 py-1 text-xs text-text-1">{t('settings.hostEdit')}</button>
+                          <button onClick={() => openEditHostDialog(host)} className="tmuxgo-chip">{t('settings.hostEdit')}</button>
                           <button
                             onClick={async () => {
                               setHostActionMessage('')
@@ -408,13 +408,13 @@ export function Settings({ onClose }: SettingsProps) {
                                 setHostActionMessage(err?.message || t('settings.hostTestFailed'))
                               }
                             }}
-                            className="rounded bg-bg-1 px-2 py-1 text-xs text-text-1"
+                            className="tmuxgo-chip"
                           >
                             {t('settings.hostTest')}
                           </button>
                           <button
                             onClick={() => { setHostActionMessage(''); setPendingDeleteHostId(host.id) }}
-                            className="rounded bg-red-900/30 px-2 py-1 text-xs text-red-200"
+                            className="tmuxgo-chip tmuxgo-chip--danger"
                           >
                             {t('settings.hostRemove')}
                           </button>
@@ -434,14 +434,14 @@ export function Settings({ onClose }: SettingsProps) {
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => updatePreferences({ fontSize: Math.max(8, Math.round((preferences.fontSize - 1) * 10) / 10) })}
-                        className="px-2 py-1 bg-bg-2 rounded text-text-2"
+                        className="tmuxgo-chip"
                       >
                         -
                       </button>
                       <span className="text-text-1 text-sm w-12 text-center">{fontSizeLabel}px</span>
                       <button
                         onClick={() => updatePreferences({ fontSize: Math.min(20, Math.round((preferences.fontSize + 1) * 10) / 10) })}
-                        className="px-2 py-1 bg-bg-2 rounded text-text-2"
+                        className="tmuxgo-chip"
                       >
                         +
                       </button>
@@ -534,7 +534,7 @@ export function Settings({ onClose }: SettingsProps) {
               <div className="pt-4 border-t border-[var(--line)]">
                 <button
                   onClick={resetPreferences}
-                  className="px-4 py-2 bg-bg-2 rounded text-text-2 text-sm hover:bg-bg-1"
+                  className="tmuxgo-button tmuxgo-button--sm"
                 >
                   {t('settings.resetDefaults')}
                 </button>
@@ -633,7 +633,7 @@ export function Settings({ onClose }: SettingsProps) {
                 </div>
                 <button
                   onClick={() => setShowAuditLog(true)}
-                  className="px-4 py-2 bg-accent text-bg-0 rounded text-sm"
+                  className="tmuxgo-button tmuxgo-button--primary"
                 >
                   {t('settings.viewLog')}
                 </button>
@@ -675,7 +675,7 @@ export function Settings({ onClose }: SettingsProps) {
                     <div className="text-sm font-medium text-text-1">{t('settings.restartTitle')}</div>
                     <div className="mt-1 text-xs text-text-3">{t('settings.restartDesc')}</div>
                   </div>
-                  <button onClick={() => setRestartConfirmOpen(true)} disabled={restartRunning} className="rounded bg-accent px-4 py-2 text-sm text-bg-0 disabled:cursor-not-allowed disabled:opacity-60">{t('settings.restartAction')}</button>
+                  <button onClick={() => setRestartConfirmOpen(true)} disabled={restartRunning} className="tmuxgo-button tmuxgo-button--primary disabled:cursor-not-allowed">{t('settings.restartAction')}</button>
                 </div>
                 <div className="mt-4 rounded border border-[var(--line)] px-3 py-2">
                   <div className="flex items-center justify-between gap-4">
@@ -691,7 +691,7 @@ export function Settings({ onClose }: SettingsProps) {
               </div>
               {appUpdateAvailable && <div className="text-xs text-text-3">{t('settings.aboutRefresh')}</div>}
               <div className="flex items-center justify-end">
-                <button onClick={() => void copyVersionInfo()} className="rounded bg-accent px-4 py-2 text-sm text-bg-0">{t('settings.aboutCopy')}</button>
+                <button onClick={() => void copyVersionInfo()} className="tmuxgo-button tmuxgo-button--primary">{t('settings.aboutCopy')}</button>
               </div>
             </div>
           )}
@@ -703,7 +703,7 @@ export function Settings({ onClose }: SettingsProps) {
           <div className="tmuxgo-glass tmuxgo-glass-dialog w-full max-w-[420px] rounded-lg border p-4" onClick={(event) => event.stopPropagation()}>
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-base font-medium text-text-1">{hostDialogMode === 'create' ? t('settings.hostCreate') : t('settings.hostEdit')}</h3>
-              <button onClick={closeHostDialog} className="text-text-3 hover:text-text-1">✕</button>
+              <button onClick={closeHostDialog} className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--sm" aria-label="close">✕</button>
             </div>
             <div className="space-y-2">
               <input value={hostIdDraft} disabled={hostDialogMode === 'edit'} onChange={(event) => setHostIdDraft(event.target.value)} placeholder={t('settings.hostId')} className="tmuxgo-control tmuxgo-input w-full rounded px-2 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-60" />
@@ -715,13 +715,13 @@ export function Settings({ onClose }: SettingsProps) {
               {hostDialogMode === 'edit' && <div className="text-xs text-text-3">{t('settings.hostPasswordKeep')}</div>}
             </div>
             <div className="mt-4 flex items-center justify-end gap-2">
-              <button onClick={closeHostDialog} className="rounded bg-bg-2 px-3 py-1.5 text-sm text-text-2">{t('common.cancel')}</button>
-              <button onClick={() => void saveHost()} className="rounded bg-accent px-3 py-1.5 text-sm text-bg-0">{t('settings.hostSave')}</button>
+              <button onClick={closeHostDialog} className="tmuxgo-button tmuxgo-button--sm">{t('common.cancel')}</button>
+              <button onClick={() => void saveHost()} className="tmuxgo-button tmuxgo-button--primary tmuxgo-button--sm">{t('settings.hostSave')}</button>
             </div>
           </div>
         </div>
       )}
-      {archiveDialogOpen && <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4" onClick={() => setArchiveDialogOpen(false)}><div className="tmuxgo-glass tmuxgo-glass-dialog flex h-[75vh] w-full max-w-4xl flex-col overflow-hidden rounded-lg border" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b border-[var(--line)] px-4 py-3"><h3 className="text-base font-medium text-text-1">{t('settings.archives')}</h3><button onClick={() => setArchiveDialogOpen(false)} className="text-text-3 hover:text-text-1">✕</button></div><div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[280px_1fr]"><div className="tmuxgo-scrollbar overflow-y-auto border-b border-[var(--line)] md:border-b-0 md:border-r">{archiveLoading && !archives.length && <div className="p-4 text-sm text-text-3">{t('common.loading')}</div>}{!archiveLoading && !archives.length && <div className="p-4 text-sm text-text-3">{t('settings.archiveEmpty')}</div>}{archives.map((archive) => <div key={archive.id} className={`flex border-b border-[var(--line)] ${archiveDetail?.id === archive.id ? 'bg-bg-2' : ''}`}><button onClick={() => void openArchive(archive.id)} className="min-w-0 flex-1 p-3 text-left"><div className="truncate text-sm text-text-1">{archive.sessionName}</div><div className="mt-1 text-xs text-text-3">{new Date(archive.createdAt).toLocaleString()} · {archive.paneCount} · {Math.ceil(archive.size / 1024)} KB</div></button><button onClick={() => void deleteArchive(archive.id)} className="w-10 text-text-3 hover:text-danger" aria-label={t('settings.deleteArchive')}>×</button></div>)}</div><div className="tmuxgo-scrollbar min-h-0 overflow-y-auto p-4">{!archiveDetail && <div className="flex h-full items-center justify-center text-sm text-text-3">{t('settings.selectArchive')}</div>}{archiveDetail && <div className="space-y-4"><div><div className="text-base font-medium text-text-1">{archiveDetail.sessionName}</div><div className="mt-1 text-xs text-text-3">{archiveDetail.captureMode === 'history' ? t('settings.archiveHistory') : t('settings.archiveVisible')} · {new Date(archiveDetail.createdAt).toLocaleString()}</div></div>{archiveDetail.panes.map((pane) => <div key={pane.paneId}><div className="mb-1 text-xs text-text-3">{pane.windowName} / {pane.title}</div><pre className="overflow-x-auto whitespace-pre-wrap rounded border border-[var(--line)] bg-bg-0 p-3 font-mono text-xs text-text-2">{pane.data || t('settings.archiveNoOutput')}</pre></div>)}</div>}</div></div></div></div>}
+      {archiveDialogOpen && <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4" onClick={() => setArchiveDialogOpen(false)}><div className="tmuxgo-glass tmuxgo-glass-dialog flex h-[75vh] w-full max-w-4xl flex-col overflow-hidden rounded-lg border" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b border-[var(--line)] px-4 py-3"><h3 className="text-base font-medium text-text-1">{t('settings.archives')}</h3><button onClick={() => setArchiveDialogOpen(false)} className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--sm" aria-label="close">✕</button></div><div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[280px_1fr]"><div className="tmuxgo-scrollbar overflow-y-auto border-b border-[var(--line)] md:border-b-0 md:border-r">{archiveLoading && !archives.length && <div className="p-4 text-sm text-text-3">{t('common.loading')}</div>}{!archiveLoading && !archives.length && <div className="p-4 text-sm text-text-3">{t('settings.archiveEmpty')}</div>}{archives.map((archive) => <div key={archive.id} className={`flex border-b border-[var(--line)] ${archiveDetail?.id === archive.id ? 'bg-bg-2' : ''}`}><button onClick={() => void openArchive(archive.id)} className="min-w-0 flex-1 p-3 text-left"><div className="truncate text-sm text-text-1">{archive.sessionName}</div><div className="mt-1 text-xs text-text-3">{new Date(archive.createdAt).toLocaleString()} · {archive.paneCount} · {Math.ceil(archive.size / 1024)} KB</div></button><button onClick={() => void deleteArchive(archive.id)} className="w-10 text-text-3 hover:text-danger" aria-label={t('settings.deleteArchive')}>×</button></div>)}</div><div className="tmuxgo-scrollbar min-h-0 overflow-y-auto p-4">{!archiveDetail && <div className="flex h-full items-center justify-center text-sm text-text-3">{t('settings.selectArchive')}</div>}{archiveDetail && <div className="space-y-4"><div><div className="text-base font-medium text-text-1">{archiveDetail.sessionName}</div><div className="mt-1 text-xs text-text-3">{archiveDetail.captureMode === 'history' ? t('settings.archiveHistory') : t('settings.archiveVisible')} · {new Date(archiveDetail.createdAt).toLocaleString()}</div></div>{archiveDetail.panes.map((pane) => <div key={pane.paneId}><div className="mb-1 text-xs text-text-3">{pane.windowName} / {pane.title}</div><pre className="overflow-x-auto whitespace-pre-wrap rounded border border-[var(--line)] bg-bg-0 p-3 font-mono text-xs text-text-2">{pane.data || t('settings.archiveNoOutput')}</pre></div>)}</div>}</div></div></div></div>}
       <ConfirmDialog open={!!pendingDeleteHostId} title={t('settings.hostRemoveConfirmTitle')} message={t('settings.hostRemoveConfirmMessage', { name: hosts.find((host: any) => host.id === pendingDeleteHostId)?.name || pendingDeleteHostId || '' })} confirmLabel={t('settings.hostRemove')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setPendingDeleteHostId(null)} onConfirm={() => void confirmDeleteHost()} />
       <ConfirmDialog open={restartConfirmOpen} title={t('settings.restartConfirmTitle')} message={t('settings.restartConfirmMessage')} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} onCancel={() => setRestartConfirmOpen(false)} onConfirm={() => void triggerRestartRebuild()} />
       {showAuditLog && <AuditLog onClose={() => setShowAuditLog(false)} />}
