@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { Button } from './Button'
 import { useTranslation } from '@/i18n'
 
 interface TerminalSearchProps {
@@ -99,22 +100,16 @@ export function TerminalSearch({ terminal, onClose }: TerminalSearchProps) {
         }}
       />
       <div className="flex items-center gap-1">
-        <button
-          onClick={handleFindPrevious}
-          className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--icon-sm tmuxgo-icon-button"
-        >
+        <Button variant="ghost" size="icon-sm" onClick={handleFindPrevious} aria-label="previous">
           ↑
-        </button>
-        <button
-          onClick={handleFindNext}
-          className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--icon-sm tmuxgo-icon-button"
-        >
+        </Button>
+        <Button variant="ghost" size="icon-sm" onClick={handleFindNext} aria-label="next">
           ↓
-        </button>
+        </Button>
       </div>
-      <button onClick={onClose} className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--icon-sm tmuxgo-icon-button">
+      <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="close">
         ×
-      </button>
+      </Button>
     </div>
   )
 }

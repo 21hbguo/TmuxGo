@@ -1,5 +1,6 @@
 'use client'
 import { useMemo } from 'react'
+import { Chip } from './Chip'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
 
@@ -23,7 +24,7 @@ export function UploadQueue() {
     <div className="pointer-events-none fixed bottom-4 right-4 z-[96] flex w-[min(420px,calc(100vw-24px))] flex-col gap-2">
       <div className="pointer-events-auto flex items-center justify-between rounded border border-[var(--line)] bg-bg-1/95 px-3 py-2 shadow-[0_12px_40px_rgba(0,0,0,0.32)] backdrop-blur">
         <div className="text-xs text-text-2">{t('uploadQueue.title')}</div>
-        <button onClick={clearFinishedUploadJobs} className="tmuxgo-chip">{t('uploadQueue.clean')}</button>
+        <Chip onClick={clearFinishedUploadJobs}>{t('uploadQueue.clean')}</Chip>
       </div>
       {visibleJobs.map((job) => {
         const percent = job.status === 'success' ? 100 : formatPercent(job.loadedBytes, job.totalBytes)
@@ -42,7 +43,7 @@ export function UploadQueue() {
             </div>
             <div className="mt-2 flex items-center justify-between text-[11px] text-text-3">
               <div>{formatSize(job.loadedBytes)} / {formatSize(job.totalBytes)}</div>
-              <button onClick={() => removeUploadJob(job.id)} className="tmuxgo-chip">{t('uploadQueue.close')}</button>
+              <Chip onClick={() => removeUploadJob(job.id)}>{t('uploadQueue.close')}</Chip>
             </div>
             {job.errorMessage && <div className="mt-2 line-clamp-2 text-[11px] text-red-400">{job.errorMessage}</div>}
           </div>

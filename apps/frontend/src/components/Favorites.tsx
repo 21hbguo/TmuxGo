@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { Chip } from './Chip'
 import { useTranslation } from '@/i18n'
 import { useFavorites, getRecentItems, clearRecent, type RecentItem } from '@/hooks/useFavorites'
 
@@ -22,18 +23,20 @@ export function Favorites() {
   return (
     <div className="p-3">
       <div className="flex gap-2 mb-3">
-        <button
+        <Chip
           onClick={() => setActiveTab('favorites')}
-          className={`tmuxgo-chip px-3 py-1.5 text-sm ${activeTab === 'favorites' ? 'tmuxgo-chip--accent' : ''}`}
+          tone={activeTab === 'favorites' ? 'accent' : 'default'}
+          className="px-3 py-1.5 text-sm"
         >
           {t('favorites.title')}
-        </button>
-        <button
+        </Chip>
+        <Chip
           onClick={() => setActiveTab('recent')}
-          className={`tmuxgo-chip px-3 py-1.5 text-sm ${activeTab === 'recent' ? 'tmuxgo-chip--accent' : ''}`}
+          tone={activeTab === 'recent' ? 'accent' : 'default'}
+          className="px-3 py-1.5 text-sm"
         >
           {t('favorites.recent')}
-        </button>
+        </Chip>
       </div>
 
       {activeTab === 'favorites' && (
@@ -47,12 +50,9 @@ export function Favorites() {
                   <div className="text-text-1 text-sm">{fav.name}</div>
                   <div className="text-text-3 text-xs">{fav.type}</div>
                 </div>
-                <button
-                  onClick={() => removeFavorite(fav.id)}
-                  className="tmuxgo-chip tmuxgo-chip--danger px-2 py-0.5"
-                >
+                <Chip tone="danger" onClick={() => removeFavorite(fav.id)} className="px-2 py-0.5">
                   ×
-                </button>
+                </Chip>
               </div>
             ))
           )}
