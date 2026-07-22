@@ -280,6 +280,8 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   const resizingRef = useRef(false)
   const directoryLoadingRef = useRef<Map<string, Promise<FileItem[]>>>(new Map())
   const touchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const currentPathRef = useRef('')
+  const mobileNavigationDepthRef = useRef(0)
   const uploadInputRef = useRef<HTMLInputElement>(null)
   const lastFollowedEditorKeyRef = useRef('')
   const lastSessionIdRef = useRef<string | undefined>(undefined)
@@ -374,6 +376,8 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     if (!selectedRootId && rootOptions[0]) setSelectedRootId(rootOptions[0].id)
   }, [rootOptions, selectedRootId])
   useEffect(() => {
+    currentPathRef.current = ''
+    mobileNavigationDepthRef.current = 0
     setSelectedRootId('')
     setCurrentPath('')
     setSelectedPath('')
@@ -410,6 +414,8 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     if (!prevSessionId || !nextSessionId) return
     const favoriteRoot = parseFavoriteRootOptionId(selectedRootId)
     if (favoriteRoot) setSelectedRootId(favoriteRoot.rootId)
+    currentPathRef.current = ''
+    mobileNavigationDepthRef.current = 0
     setCurrentPath('')
     setSelectedPath('')
     setSelectedPreviewLine(1)
@@ -488,13 +494,14 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   }, [])
   const pushMobileNavigationHistory = () => {
     if (!isMobile || typeof window === 'undefined') return
+    mobileNavigationDepthRef.current += 1
     window.dispatchEvent(new CustomEvent('tmuxgo-mobile-files-push-level'))
   }
   const goMobileParentDirectory = () => {
-    setCurrentPath((value) => {
-      const parts = value.split(/[\\/]+/).filter(Boolean)
-      return parts.slice(0, -1).join('/')
-    })
+    const parts = currentPathRef.current.split(/[\\/]+/).filter(Boolean)
+    const nextPath = parts.slice(0, -1).join('/')
+    currentPathRef.current = nextPath
+    setCurrentPath(nextPath)
     setSelectedPath('')
     setSelectedPreviewLine(1)
     setSearchNavigationPath((value) => {
@@ -512,15 +519,18 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
         setMobileView('list')
         return
       }
-      if (!currentPath) return
+      if (!currentPathRef.current) return
       detail.handled = true
+      mobileNavigationDepthRef.current = Math.max(0, mobileNavigationDepthRef.current - 1)
       goMobileParentDirectory()
     }
     window.addEventListener('tmuxgo-mobile-files-back', handleBack as EventListener)
     return () => window.removeEventListener('tmuxgo-mobile-files-back', handleBack as EventListener)
-  }, [currentPath, isMobile, mobileView])
+  }, [isMobile, mobileView])
   const switchRoot = (nextRootId: string) => {
     setSelectedRootId(nextRootId)
+    currentPathRef.current = ''
+    mobileNavigationDepthRef.current = 0
     setCurrentPath('')
     setSelectedPath('')
     setSelectedPreviewLine(1)
@@ -534,7 +544,11 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   const openDirectoryShortcut = (entry: { rootId: string; path: string }) => {
     const nextRootId = getFavoriteRootOptionId(entry)
     setSelectedRootId(nextRootId)
-    if (isMobile) setCurrentPath('')
+    if (isMobile) {
+      currentPathRef.current = ''
+      mobileNavigationDepthRef.current = 0
+      setCurrentPath('')
+    }
     else {
       setOpenDirectories(new Set())
       setDirectoryStatusState(new Map())
@@ -653,6 +667,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
         return
       }
       pushMobileNavigationHistory()
+      currentPathRef.current = item.path
       setCurrentPath(item.path)
       setSelectedPath('')
       setSelectedPreviewLine(1)
@@ -1029,7 +1044,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
       <div className="border-b border-[var(--line)] px-2 py-2">
         <div className="flex items-center gap-1.5">
           {isMobile && mobileView === 'preview' && <button onClick={() => setMobileView('list')} className="rounded px-2 py-1 text-text-3 hover:bg-bg-2">‹</button>}
-          {isMobile && mobileView !== 'preview' && !!currentPath && <button onClick={goMobileParentDirectory} className="rounded px-2 py-1 text-text-3 hover:bg-bg-2">‹</button>}
+          {isMobile && mobileView !== 'preview' && !!currentPath && <button onClick={() => mobileNavigationDepthRef.current > 0 ? window.history.back() : goMobileParentDirectory()} className="rounded px-2 py-1 text-text-3 hover:bg-bg-2">‹</button>}
           <div className="text-sm font-semibold text-text-1">{t('file.title')}</div>
           <select value={selectedRootId} onChange={(e) => switchRoot(e.target.value)} className="tmuxgo-control tmuxgo-select min-w-0 flex-1 rounded px-2 py-1 text-[11px]">
             {rootOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
@@ -1041,7 +1056,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
         </div>
         <div className="tmuxgo-scrollbar-subtle mt-1.5 flex min-w-0 items-center gap-1 overflow-x-auto text-[11px] text-text-3">
           {(listData?.breadcrumbs || [{ name: '/', path: '' }]).map((crumb) => (
-            <button key={crumb.path || '/'} onClick={() => { setCurrentPath(crumb.path); setSelectedPath(''); setSelectedPreviewLine(1); setSearchNavigationPath(query.trim().length > 0 && crumb.path ? crumb.path : null); if (!crumb.path) setOpenDirectories(new Set()) }} className="shrink-0 rounded px-1.5 py-0.5 hover:bg-bg-2 hover:text-accent">{crumb.name}</button>
+            <button key={crumb.path || '/'} onClick={() => { currentPathRef.current = crumb.path; mobileNavigationDepthRef.current = 0; setCurrentPath(crumb.path); setSelectedPath(''); setSelectedPreviewLine(1); setSearchNavigationPath(query.trim().length > 0 && crumb.path ? crumb.path : null); if (!crumb.path) setOpenDirectories(new Set()) }} className="shrink-0 rounded px-1.5 py-0.5 hover:bg-bg-2 hover:text-accent">{crumb.name}</button>
           ))}
         </div>
       </div>
