@@ -23,7 +23,7 @@ export function AuditLog({ onClose }: AuditLogProps) {
         <div className="flex gap-2 border-b border-[var(--line)] p-3">
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('search.placeholder')} className="tmuxgo-control tmuxgo-input min-w-0 flex-1 rounded px-3 py-1.5 text-sm" />
           <select value={result} onChange={(event) => setResult(event.target.value as '' | 'success' | 'failure')} className="tmuxgo-control tmuxgo-select rounded px-3 py-1.5 text-sm"><option value="">{t('audit.result')}</option><option value="success">{t('audit.success')}</option><option value="failure">{t('audit.failure')}</option></select>
-          <button onClick={() => void refetch()} className="rounded bg-bg-2 px-3 py-1.5 text-sm text-text-2 hover:text-text-1">{t('common.retry')}</button>
+          <button onClick={() => void refetch()} className="tmuxgo-button tmuxgo-button--sm">{t('common.retry')}</button>
         </div>
         <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-auto">
           {isLoading && <div className="p-6 text-center text-sm text-text-3">{t('common.loading')}</div>}
