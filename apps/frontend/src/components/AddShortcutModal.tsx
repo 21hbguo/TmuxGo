@@ -128,7 +128,7 @@ export function AddShortcutModal({ onSave, onClose, isMobile }: Props) {
         </div>
 
         <div className="flex gap-2 mt-4">
-          <button onClick={onClose} className="flex-1 px-3 py-1.5 rounded text-xs bg-bg-2 text-text-2 hover:bg-bg-1">
+          <button onClick={onClose} className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--sm flex-1">
             {t('shortcut.cancel')}
           </button>
           <button

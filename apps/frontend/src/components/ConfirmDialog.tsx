@@ -21,8 +21,8 @@ export function ConfirmDialog({ open, title, message, confirmLabel, cancelLabel,
         <div className="text-lg text-text-1">{title}</div>
         <div className="mt-2 text-sm text-text-3">{message}</div>
         <div className="mt-5 flex justify-end gap-2">
-          <button onClick={onCancel} className="rounded px-4 py-2 text-sm text-text-3 hover:text-text-1">{cancelLabel}</button>
-          <button onClick={onConfirm} className={`rounded px-4 py-2 text-sm ${tone === 'danger' ? 'bg-red-900/40 text-red-300 hover:bg-red-900/60' : 'bg-accent/20 text-accent hover:bg-accent/30'}`}>{confirmLabel}</button>
+          <button onClick={onCancel} className="tmuxgo-button tmuxgo-button--ghost tmuxgo-button--sm">{cancelLabel}</button>
+          <button onClick={onConfirm} className={`tmuxgo-button tmuxgo-button--sm ${tone === 'danger' ? 'tmuxgo-button--danger' : 'tmuxgo-button--primary'}`}>{confirmLabel}</button>
         </div>
       </div>
     </div>
