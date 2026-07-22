@@ -241,10 +241,11 @@ a {
   overflow: hidden;
   border-width: 1px 0 0;
   border-radius: 0;
+  background: rgb(var(--bg-1));
 }
 .tmuxgo-mobile-nav {
   border: 0;
-  background: transparent;
+  background: rgb(var(--bg-1));
 }
 .tmuxgo-mobile-nav-button {
   min-width: 44px;
@@ -253,7 +254,7 @@ a {
 }
 .tmuxgo-mobile-session-strip {
   border-color: rgb(var(--text-1) / 0.08);
-  background: transparent;
+  background: rgb(var(--bg-1));
 }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .tmuxgo-glass {
