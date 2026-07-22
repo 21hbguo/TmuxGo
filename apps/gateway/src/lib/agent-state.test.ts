@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { detectAgentPaneState, resolveAgentStatus, summarizeAgentPanes } from './agent-state.js'
+import { createTerminalOutputSanitizer } from './terminal-output.js'
 
 test('detects codex lifecycle from terminal output', () => {
   assert.deepEqual(detectAgentPaneState('node', '⠹ TmuxGo', '• Working (10s • esc to interrupt)\n›'), { agent: 'codex', agentStatus: 'working' })
@@ -21,4 +22,9 @@ test('summarizes pane states', () => {
     { paneId: 'local:%2', tmuxPaneId: '%2', sessionName: 'dev', agent: 'claude', agentStatus: 'blocked', revision: 2 },
   ])
   assert.deepEqual(summary, { idle: 0, working: 1, blocked: 1, done: 0, unknown: 0, total: 2 })
+})
+test('sanitizes terminal device attributes across chunks', () => {
+  const sanitize=createTerminalOutputSanitizer()
+  assert.equal(sanitize('ready\u001b[?1;'), 'ready')
+  assert.equal(sanitize('2cnext'), 'next')
 })

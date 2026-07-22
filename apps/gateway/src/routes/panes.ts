@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { assertTargetAllowed } from '../lib/tmux-policy.js'
 import { execTmux } from '../lib/tmux-executor.js'
 import { markAgentPaneSeen } from '../lib/agent-state.js'
+import { paneIdBodySchema, paneResizeBodySchema, paneSplitBodySchema } from '../lib/request-validation.js'
 
 function parsePaneId(paneId: string) {
   const separator = paneId.indexOf(':')
@@ -13,7 +14,7 @@ function parsePaneId(paneId: string) {
 }
 export async function paneRoutes(fastify: FastifyInstance) {
   fastify.post('/panes/select', async (request) => {
-    const { paneId } = request.body as { paneId: string }
+    const { paneId } = paneIdBodySchema.parse(request.body)
     try {
       const { hostId, tmuxPaneId } = parsePaneId(paneId)
       if (hostId === 'local') await assertTargetAllowed(tmuxPaneId)
@@ -25,7 +26,7 @@ export async function paneRoutes(fastify: FastifyInstance) {
     }
   })
   fastify.post('/panes/split', async (request) => {
-    const { paneId, direction } = request.body as { paneId: string; direction: 'horizontal' | 'vertical' }
+    const { paneId, direction } = paneSplitBodySchema.parse(request.body)
     try {
       const { hostId, tmuxPaneId } = parsePaneId(paneId)
       if (hostId === 'local') await assertTargetAllowed(tmuxPaneId)
@@ -54,9 +55,8 @@ export async function paneRoutes(fastify: FastifyInstance) {
     }
   })
   fastify.post('/panes/resize', async (request) => {
-    const { paneId, cols, rows } = request.body as { paneId?: string; cols?: number; rows?: number }
+    const { paneId, cols, rows } = paneResizeBodySchema.parse(request.body)
     try {
-      if (!paneId) throw new Error('paneId required')
       const { hostId, tmuxPaneId } = parsePaneId(paneId)
       if (hostId === 'local') await assertTargetAllowed(tmuxPaneId)
       const args = ['resize-pane', '-t', tmuxPaneId]

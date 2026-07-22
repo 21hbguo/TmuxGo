@@ -4,6 +4,7 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useCreateSession, useDeleteSession, useRenameSession } from '@/hooks/useApi'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import { SessionTemplates, type Template } from './SessionTemplates'
+import { ModalPortal } from './ModalPortal'
 import { getTemplateSessionName } from '@/lib/session-template'
 import { ConfirmDialog } from './ConfirmDialog'
 import { useTranslation } from '@/i18n'
@@ -117,7 +118,7 @@ export function SessionRail() {
           <button aria-label={t('sidebar.newSession')} title={t('sidebar.newSession')} onClick={() => setShowTemplates(true)} className="tmuxgo-icon-button tmuxgo-glass-control flex h-10 w-full items-center justify-center rounded-lg text-sm text-accent hover:text-text-1"><FiPlus aria-hidden="true" size={17} /></button>
         </div>
       </aside>
-      {showTemplates && <SessionTemplates onSelect={handleTemplateSelect} onClose={() => setShowTemplates(false)} />}
+      {showTemplates && <ModalPortal><SessionTemplates onSelect={handleTemplateSelect} onClose={() => setShowTemplates(false)} /></ModalPortal>}
       {contextMenu && (
         <div className="fixed z-[90] w-40 overflow-hidden rounded-lg border border-[var(--line)] bg-bg-1 py-1 text-xs shadow-lg" style={{ left: contextMenu.x, top: contextMenu.y }} onClick={(e) => e.stopPropagation()}>
           <button onClick={() => { setSessionPanelExpanded(true); setContextMenu(null) }} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-text-2 hover:bg-bg-2 hover:text-text-1">

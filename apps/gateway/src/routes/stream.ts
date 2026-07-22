@@ -7,11 +7,12 @@ import { agentManager } from '../agent-manager.js'
 import { assertSessionAllowed, prepareSessionAttach } from '../lib/tmux-policy.js'
 import { recordStreamMetric, updateStreamMetric } from '../lib/perf-metrics.js'
 import { getHostById } from '../lib/hosts.js'
-import { hasSubstantiveTerminalContent } from '../lib/terminal-output.js'
+import { createTerminalOutputSanitizer, hasSubstantiveTerminalContent } from '../lib/terminal-output.js'
 import { parseSessionRef } from '../lib/tmux-target.js'
 import { getAttachSnapshotDelays } from '../lib/attach-snapshot.js'
 import { execTmux } from '../lib/tmux-executor.js'
 import { getHostAgentPanes, markAgentPaneSeen } from '../lib/agent-state.js'
+import { streamAttachMessageSchema, streamInputMessageSchema, streamMessageSchema, streamRegisterMessageSchema, streamResizeMessageSchema } from '../lib/request-validation.js'
 
 const execFileAsync = promisify(execFile)
 let sshPassAvailable: boolean | null = null
@@ -38,7 +39,6 @@ export async function streamRoutes(fastify: FastifyInstance) {
     let attachedCols = 0
     let attachedRows = 0
     let agentId: string | null = null
-    let outputCarry = ''
     let outputBuffer = ''
     let outputTimer: ReturnType<typeof setTimeout> | null = null
     let deferredFlushTimer: ReturnType<typeof setTimeout> | null = null
@@ -55,6 +55,12 @@ export async function streamRoutes(fastify: FastifyInstance) {
     const scrollBuffers = new Map<string, number>()
     const scrollRunning = new Set<string>()
     const socket = connection.socket
+    let sanitizeTerminalOutput = createTerminalOutputSanitizer()
+    function sanitizeOutput(chunk: string) {
+      recordStreamMetric('sanitizeCalls')
+      recordStreamMetric('sanitizeChars', chunk.length)
+      return sanitizeTerminalOutput(chunk)
+    }
     updateStreamMetric('activeClients', streamPerfMetricsActiveClientsDelta(1))
     syncOutputProfile(outputProfile)
     function streamPerfMetricsActiveClientsDelta(delta: number) {
@@ -170,7 +176,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
         recordStreamMetric('droppedOutputChars', outputBuffer.length)
         recordStreamMetric('outputResyncRequests')
         outputBuffer = ''
-        outputCarry = ''
+        sanitizeTerminalOutput = createTerminalOutputSanitizer()
         outputResyncPending = true
         if (outputTimer) {
           clearTimeout(outputTimer)
@@ -350,33 +356,12 @@ export async function streamRoutes(fastify: FastifyInstance) {
         deferredFlushTimer = null
       }
       outputBuffer = ''
-      outputCarry = ''
+      sanitizeTerminalOutput = createTerminalOutputSanitizer()
       outputResyncPending = false
       outputResyncRunning = false
       scrollBuffers.clear()
       sentAgentRevisions.clear()
       if (notify) send({ type: 'detached', sessionName: detachedSessionName, hostId: detachedHostId })
-    }
-    function sanitizeOutput(chunk: string) {
-      recordStreamMetric('sanitizeCalls')
-      recordStreamMetric('sanitizeChars', chunk.length)
-      const merged = outputCarry + chunk
-      const cleaned = merged
-        .replace(/\u001b\[[0-9;?]*c/g, '')
-        .replace(/(?:\u001b\[)?\??(?:\d+;)+\d+c/g, '')
-        .replace(/0;(?:\d+;)*\d+c/g, '')
-      const trailingEsc = cleaned.match(/\u001b(?:\[[0-9;?]*)?$/)
-      const trailingDigits = cleaned.match(/[0-9;]{0,32}c?$/)
-      if (trailingEsc && trailingEsc[0] && trailingEsc[0].length < cleaned.length) {
-        outputCarry = trailingEsc[0]
-        return cleaned.slice(0, cleaned.length - trailingEsc[0].length)
-      }
-      if (trailingDigits && trailingDigits[0] && trailingDigits[0].includes(';') && trailingDigits[0].length < cleaned.length) {
-        outputCarry = trailingDigits[0]
-        return cleaned.slice(0, cleaned.length - trailingDigits[0].length)
-      }
-      outputCarry = ''
-      return cleaned
     }
     async function getSessionWindowSize(sessionName: string, hostId: string) {
       try {
@@ -405,21 +390,24 @@ export async function streamRoutes(fastify: FastifyInstance) {
     }
     socket.on('message', async (message: Buffer) => {
       try {
-        const data = JSON.parse(message.toString())
+        const data: any = streamMessageSchema.parse(JSON.parse(message.toString()))
         switch (data.type) {
-          case 'register':
-            agentId = data.host.id
-            agentManager.register(data.host.id, data.host.name, data.host.address, socket)
-            send({ type: 'registered', agentId: data.host.id })
+          case 'register': {
+            const register = streamRegisterMessageSchema.parse(data)
+            agentId = register.host.id
+            agentManager.register(register.host.id, register.host.name, register.host.address, socket)
+            send({ type: 'registered', agentId: register.host.id })
             break
+          }
           case 'attach': {
+            const attach = streamAttachMessageSchema.parse(data)
             recordStreamMetric('attachRequests')
-            console.log('Attach requested', { hostId: data?.hostId, sessionName: data?.sessionName, exclusive: !!data?.exclusive, cols: data?.cols, rows: data?.rows })
-            const { hostId, sessionName } = await resolveAttachTarget(data)
+            console.log('Attach requested', { hostId: attach.hostId, sessionName: attach.sessionName, exclusive: !!attach.exclusive, cols: attach.cols, rows: attach.rows })
+            const { hostId, sessionName } = await resolveAttachTarget(attach)
             if (hostId === 'local') await prepareSessionAttach(sessionName)
-            const requestedCols = data.cols || 80
-            const requestedRows = data.rows || 24
-            const exclusive = !!data.exclusive
+            const requestedCols = attach.cols || 80
+            const requestedRows = attach.rows || 24
+            const exclusive = !!attach.exclusive
             if (ptyProcess && attachedSessionName === sessionName && attachedExclusive === exclusive && attachedHostId === hostId) {
               attachVisibleOutputObserved = false
               if (exclusive && requestedCols > 0 && requestedRows > 0 && (requestedCols !== attachedCols || requestedRows !== attachedRows)) {
@@ -524,11 +512,12 @@ export async function streamRoutes(fastify: FastifyInstance) {
             scheduleAttachSnapshot(sessionName, seq)
             break
           }
-          case 'resize':
+          case 'resize': {
+            const resize = streamResizeMessageSchema.parse(data)
             recordStreamMetric('resizeRequests')
             if (ptyProcess) {
-              const cols = Math.max(2, Math.round(Number(data.cols)))
-              const rows = Math.max(1, Math.round(Number(data.rows)))
+              const cols = Math.max(2, Math.round(resize.cols))
+              const rows = Math.max(1, Math.round(resize.rows))
               if (!Number.isFinite(cols) || !Number.isFinite(rows) || !attachedSessionName) break
               if (cols === attachedCols && rows === attachedRows) {
                 send({ type: 'resized', sessionName: attachedSessionName, hostId: attachedHostId, cols, rows })
@@ -546,6 +535,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
               })
             }
             break
+          }
           case 'redraw': {
             const sessionName = data.sessionName
             if (!sessionName) break
@@ -553,10 +543,12 @@ export async function streamRoutes(fastify: FastifyInstance) {
             if (sessionName === attachedSessionName && data.hostId === attachedHostId) scheduleClientRedraw(sessionName, REQUEST_REDRAW_DELAYS)
             break
           }
-          case 'input':
+          case 'input': {
+            const input = streamInputMessageSchema.parse(data)
             recordStreamMetric('inputMessages')
-            if (ptyProcess) ptyProcess.write(data.data)
+            if (ptyProcess) ptyProcess.write(input.data)
             break
+          }
           case 'agent_seen': {
             const paneId = String(data.paneId || '')
             if (!paneId.startsWith(`${attachedHostId}:`)) break

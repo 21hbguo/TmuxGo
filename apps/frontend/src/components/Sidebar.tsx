@@ -10,6 +10,7 @@ import { useTranslation } from '@/i18n'
 import { usePrompt } from '@/hooks/usePrompt'
 import { QuickActions } from './QuickActions'
 import { ConfirmDialog } from './ConfirmDialog'
+import { ModalPortal } from './ModalPortal'
 
 export function Sidebar() {
   const activeSessionId = useConsoleStore((state) => state.activeSessionId)
@@ -175,12 +176,12 @@ export function Sidebar() {
         />
       </aside>
 
-      {showTemplates && (
+      {showTemplates && <ModalPortal>
         <SessionTemplates
           onSelect={handleTemplateSelect}
           onClose={() => setShowTemplates(false)}
         />
-      )}
+      </ModalPortal>}
       <ConfirmDialog
         open={!!pendingDeleteSessionId}
         title={t('sidebar.deleteTitle')}

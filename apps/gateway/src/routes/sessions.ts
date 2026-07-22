@@ -5,6 +5,7 @@ import { buildSessionId, parseSessionRef } from '../lib/tmux-target.js'
 import { execTmux } from '../lib/tmux-executor.js'
 import { getHostAgentPanes, summarizeAgentPanes } from '../lib/agent-state.js'
 import { emitPluginEvent } from '../lib/plugin-manager.js'
+import { hostParamsSchema, sessionCreateBodySchema, sessionRenameBodySchema } from '../lib/request-validation.js'
 
 const batchDeleteLimitDefault = 1000
 const batchDeleteLimitMax = 5000
@@ -302,8 +303,8 @@ export async function sessionRoutes(fastify: FastifyInstance) {
     return { sessions: await getSessionThumbnails(hostId) }
   })
   fastify.post('/hosts/:hostId/sessions', async (request) => {
-    const { hostId } = request.params as { hostId: string }
-    const { name, layout } = request.body as { name: string; layout?: SessionTemplateLayout }
+    const { hostId } = hostParamsSchema.parse(request.params)
+    const { name, layout } = sessionCreateBodySchema.parse(request.body) as { name: string; layout?: SessionTemplateLayout }
     if (!isValidSessionName(name)) throw new Error('Invalid session name')
     try {
       const existingSessions = await getHostTmuxSessions(hostId)
@@ -345,8 +346,8 @@ export async function sessionRoutes(fastify: FastifyInstance) {
     }
   })
   fastify.post('/hosts/:hostId/sessions/rename', async (request) => {
-    const { hostId } = request.params as { hostId: string }
-    const { sessionId, name } = request.body as { sessionId: string; name: string }
+    const { hostId } = hostParamsSchema.parse(request.params)
+    const { sessionId, name } = sessionRenameBodySchema.parse(request.body)
     const sessionName = normalizeSessionName(hostId, sessionId)
     if (!isValidSessionName(name)) throw new Error('Invalid session name')
     assertSessionAllowed(sessionName)

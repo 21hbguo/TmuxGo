@@ -12,6 +12,7 @@ import { useSessionSnapshotSync } from '@/hooks/useSessionSnapshotSync'
 import { useHosts, useInvokePluginAction, usePlugins, useWindows } from '@/hooks/useApi'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import { useWindowQueryState } from '@/hooks/useWindowQueryState'
+import { ModalPortal } from './ModalPortal'
 
 interface CommandPaletteProps {
   onClose: () => void
@@ -165,7 +166,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
     }
   }
 
-  return (
+  return <ModalPortal>
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/35 p-4 pt-[10vh]" onClick={close}>
       <div className="tmuxgo-glass tmuxgo-glass-dialog w-full max-w-[500px] overflow-hidden rounded-lg border" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2 p-3 border-b border-[var(--line)]">
@@ -255,5 +256,5 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
         onConfirm={(value) => void confirmRenameWindow(value)}
       />
     </div>
-  )
+  </ModalPortal>
 }

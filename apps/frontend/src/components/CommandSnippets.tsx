@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useTranslation } from '@/i18n'
 import { useSnippets, SNIPPET_NAME_KEYS } from '@/hooks/useSnippets'
+import { ModalPortal } from './ModalPortal'
 
 interface CommandSnippetsProps {
   onSend: (command: string) => void
@@ -35,7 +36,7 @@ export function CommandSnippets({ onSend, onClose }: CommandSnippetsProps) {
     return snippet.name
   }
 
-  return (
+  return <ModalPortal>
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-bg-1 border border-[var(--line)] rounded-lg w-full max-w-[500px] max-h-[85vh] overflow-hidden">
         <div className="p-4 border-b border-[var(--line)]">
@@ -122,5 +123,5 @@ export function CommandSnippets({ onSend, onClose }: CommandSnippetsProps) {
         </div>
       </div>
     </div>
-  )
+  </ModalPortal>
 }

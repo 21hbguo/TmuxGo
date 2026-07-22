@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { ModalPortal } from './ModalPortal'
 
 interface PromptDialogProps {
   open: boolean
@@ -27,7 +28,7 @@ export function PromptDialog({ open, title, defaultValue = '', confirmLabel, can
   }, [open, defaultValue])
 
   if (!open) return null
-  return (
+  return <ModalPortal>
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4" onClick={onCancel}>
       <div className="tmuxgo-glass tmuxgo-glass-dialog w-full max-w-md rounded-lg border p-5" onClick={(e) => e.stopPropagation()}>
         <div className="text-lg text-text-1">{title}</div>
@@ -48,5 +49,5 @@ export function PromptDialog({ open, title, defaultValue = '', confirmLabel, can
         </div>
       </div>
     </div>
-  )
+  </ModalPortal>
 }

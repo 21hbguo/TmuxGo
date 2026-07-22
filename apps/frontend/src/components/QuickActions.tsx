@@ -16,12 +16,8 @@ import { writeClipboardText } from '@/lib/clipboard-text'
 import { requestTerminalSelection } from '@/lib/terminal-selection'
 import { DELETE_PREV_LINE_SEQUENCE, DELETE_PREV_WORD_SEQUENCE } from '@/lib/terminal-keys'
 import { WatchButton } from './PaneNotifications'
+import { KeyCap } from './KeyCap'
 
-const btn='px-2 py-1.5 rounded text-xs transition-colors bg-bg-2 text-text-2 hover:bg-bg-1 active:bg-bg-0'
-const repeatBtn=`${btn} touch-none select-none`
-const dockBtn='px-2.5 py-1.5 rounded-md text-[11px] leading-none whitespace-nowrap select-none transition-colors bg-bg-2 text-text-2 active:bg-bg-0 touch-pan-x'
-const dockDangerBtn='px-2.5 py-1.5 rounded-md text-[11px] leading-none whitespace-nowrap select-none transition-colors bg-red-900/30 text-red-400 active:bg-red-900/50 touch-pan-x'
-const dockAccentBtn='px-2.5 py-1.5 rounded-md text-[11px] leading-none whitespace-nowrap select-none transition-colors bg-accent/20 text-accent active:bg-accent/30 touch-pan-x'
 const repeatDelay=420
 const repeatInterval=54
 const verticalRepeatDelay=420
@@ -332,27 +328,6 @@ function useQuickActionController() {
   return { t,activePaneId,shortcuts,recentShortcutButtons,addShortcut,removeShortcut,showModal,setShowModal,isMobile,confirmKillOpen,setConfirmKillOpen,pendingKillPaneId,setPendingKillPaneId,confirmKillPane,newWindowPromptOpen,setNewWindowPromptOpen,newWindowName,setNewWindowName,confirmCreateWindow,sendKey,trackDockShortcutUse,startRepeat,armTouchRepeat,stopRepeat,preventFocus,startPointer,startDockGesture,trackDockScroll,finishDockGesture,isDockScrollBlocked,trackPointer,finishPointer,pointerStateRef,primaryButtons,attachButton,dockCoreButtons }
 }
 
-function getDockClass(def:ActionButtonDef){
-  if(def.tone==='danger')return `${dockDangerBtn}${def.disabled?' opacity-60 cursor-not-allowed':''}`
-  if(def.tone==='accent')return `${dockAccentBtn}${def.disabled?' opacity-60 cursor-not-allowed':''}`
-  return `${dockBtn}${def.disabled?' bg-bg-2/60 text-text-3 cursor-not-allowed':''}`
-}
-
-function getPanelClass(def:ActionButtonDef){
-  if(def.tone==='danger')return `px-2 py-1.5 rounded text-xs transition-colors ${def.disabled?'bg-bg-2/60 text-text-3 cursor-not-allowed':'bg-red-900/30 text-red-400 hover:bg-red-900/50'}`
-  if(def.disabled)return 'px-2 py-1.5 rounded text-xs transition-colors bg-bg-2/60 text-text-3 cursor-not-allowed'
-  if(def.repeat)return repeatBtn
-  return def.tone==='accent'?'px-2 py-1.5 rounded text-xs transition-colors bg-accent/20 text-accent hover:bg-accent/25':btn
-}
-
-function renderPanelButton(def:ActionButtonDef,controller:ReturnType<typeof useQuickActionController>){
-  const { sendKey,startRepeat,stopRepeat,preventFocus }=controller
-  if(def.repeat&&def.data){
-    return <button key={def.key} onPointerDown={(e)=>{ preventFocus(e); startRepeat(def.data!,def.repeatDelay,def.repeatInterval) }} onPointerUp={stopRepeat} onPointerLeave={stopRepeat} onPointerCancel={stopRepeat} className={getPanelClass(def)} disabled={def.disabled}>{def.label}</button>
-  }
-  return <button key={def.key} onPointerDown={preventFocus} onClick={()=>{ if(def.disabled)return; if(def.onPress)return def.onPress(); if(def.data)sendKey(def.data) }} className={getPanelClass(def)} disabled={def.disabled}>{def.label}</button>
-}
-
 function triggerDockButton(def:ActionButtonDef,controller:ReturnType<typeof useQuickActionController>){
   if(def.disabled)return
   if(def.onPress){
@@ -366,9 +341,42 @@ function triggerDockButton(def:ActionButtonDef,controller:ReturnType<typeof useQ
   }
 }
 
+function renderPanelButton(def:ActionButtonDef,controller:ReturnType<typeof useQuickActionController>){
+  const send=()=>{
+    if(def.disabled)return
+    if(def.onPress)return def.onPress()
+    if(def.data)controller.sendKey(def.data)
+  }
+  return <KeyCap key={def.key} variant="panel" tone={def.tone} disabled={def.disabled} repeat={def.repeat} repeatDelay={def.repeatDelay} repeatInterval={def.repeatInterval} onPress={send} title={def.label}>{def.label}</KeyCap>
+}
+
 function renderDockButton(def:ActionButtonDef,controller:ReturnType<typeof useQuickActionController>){
   const { startRepeat,armTouchRepeat,preventFocus,startPointer,trackPointer,finishPointer,finishDockGesture,isDockScrollBlocked,pointerStateRef }=controller
-  return <button key={def.key} type="button" tabIndex={-1} className={getDockClass(def)} onPointerDown={(e)=>{ preventFocus(e); startPointer(e); if(def.disabled)return; if(def.repeat&&def.data){ if(e.pointerType!=='mouse'){ armTouchRepeat(def.data,def.repeatDelay,def.repeatInterval); return } startRepeat(def.data,def.repeatDelay,def.repeatInterval); return } }} onPointerMove={trackPointer} onPointerUp={(e)=>{ const { moved,pointerType,repeatFired }=pointerStateRef.current; const blocked=isDockScrollBlocked(); finishPointer(); finishDockGesture(e.pointerId); if(moved||blocked||def.disabled)return; if(def.repeat&&def.data){ if(pointerType!=='mouse'&&!repeatFired)triggerDockButton(def,controller); return } triggerDockButton(def,controller) }} onClick={(e)=>{ if(e.detail!==0)return; triggerDockButton(def,controller) }} onPointerLeave={finishPointer} onPointerCancel={(e)=>{ finishPointer(); finishDockGesture(e.pointerId) }}>{def.label}</button>
+  return <KeyCap key={def.key} variant="dock" tone={def.tone} disabled={def.disabled} tabIndex={-1} title={def.label}
+    onPointerDown={(e)=>{
+      preventFocus(e); startPointer(e)
+      if(def.disabled)return
+      if(def.repeat&&def.data){
+        if(e.pointerType!=='mouse'){ armTouchRepeat(def.data,def.repeatDelay,def.repeatInterval); return }
+        startRepeat(def.data,def.repeatDelay,def.repeatInterval)
+      }
+    }}
+    onPointerMove={trackPointer}
+    onPointerUp={(e)=>{
+      const { moved,pointerType,repeatFired }=pointerStateRef.current
+      const blocked=isDockScrollBlocked()
+      finishPointer(); finishDockGesture(e.pointerId)
+      if(moved||blocked||def.disabled)return
+      if(def.repeat&&def.data){
+        if(pointerType!=='mouse'&&!repeatFired)triggerDockButton(def,controller)
+        return
+      }
+      triggerDockButton(def,controller)
+    }}
+    onPointerCancel={(e)=>{ finishPointer(); finishDockGesture(e.pointerId) }}
+    onPointerLeave={finishPointer}
+    onClick={(e)=>{ if(e.detail!==0)return; triggerDockButton(def,controller) }}
+  >{def.label}</KeyCap>
 }
 
 export function QuickActions({ mode='panel' }:{ mode?:QuickActionsMode }){
@@ -419,7 +427,7 @@ export function QuickActions({ mode='panel' }:{ mode?:QuickActionsMode }){
           <div className="text-text-3 text-[10px] mb-1">{t('shortcut.custom')}</div>
           {shortcuts.map((s)=>(
             <div key={s.id} className="group flex items-center gap-1 mb-1">
-              <button onClick={()=>sendKey(keysToEscape(s.keys))} className={btn+' flex-1 truncate'} title={s.keys}>
+              <button onClick={()=>sendKey(keysToEscape(s.keys))} className='tmuxgo-keycap flex-1 truncate' title={s.keys}>
                 {s.label}
               </button>
               <button onClick={()=>removeShortcut(s.id)} className="p-1 rounded text-text-3 hover:text-red-400 hover:bg-red-900/30 opacity-0 group-hover:opacity-100 transition-opacity text-[10px]">

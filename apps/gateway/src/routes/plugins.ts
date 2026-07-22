@@ -2,6 +2,7 @@ import { createReadStream } from 'fs'
 import path from 'path'
 import type { FastifyInstance, FastifyReply } from 'fastify'
 import { pluginManager } from '../lib/plugin-manager.js'
+import { pluginInstallBodySchema, pluginLinkBodySchema } from '../lib/request-validation.js'
 
 function sendError(reply: FastifyReply, error: unknown) {
   const message = error instanceof Error ? error.message : String(error)
@@ -29,8 +30,7 @@ export async function pluginRoutes(fastify: FastifyInstance) {
   fastify.get('/plugins', async () => ({ plugins: await pluginManager.listPlugins() }))
   fastify.post('/plugins/link', async (request, reply) => {
     try {
-      const body = request.body as { path?: string }
-      if (!body?.path) throw new Error('Plugin path is required')
+      const body = pluginLinkBodySchema.parse(request.body)
       return await pluginManager.link(body.path)
     } catch (error) {
       return sendError(reply, error)
@@ -127,8 +127,7 @@ export async function pluginRoutes(fastify: FastifyInstance) {
   })
   fastify.post('/plugins/github/install', async (request, reply) => {
     try {
-      const body = request.body as { source?: string; resolvedCommit?: string; ref?: string }
-      if (!body?.source || !body.resolvedCommit) throw new Error('GitHub source and resolved commit are required')
+      const body = pluginInstallBodySchema.parse(request.body)
       return await pluginManager.installGit(body.source, body.resolvedCommit, body.ref)
     } catch (error) {
       return sendError(reply, error)
