@@ -486,7 +486,7 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
       <button aria-label={`Close ${editor.name}`} onClick={() => {
         if (editor.dirty) { setPendingCloseEditorId(editor.id); return }
         closeEditor(editor.id)
-      }} className="mr-1.5 shrink-0 rounded px-1 py-0.5 text-[11px] text-text-3 opacity-0 hover:bg-bg-2 hover:text-text-1 group-hover:opacity-100">×</button>
+      }} className="tmuxgo-chip mr-1.5 shrink-0 opacity-0 group-hover:opacity-100">×</button>
       {tabInsertionTarget?.groupId === groupId && tabInsertionTarget.editorId === editor.id && <span className={`pointer-events-none absolute inset-y-1 z-20 w-[2px] rounded-full bg-accent shadow-[0_0_0_1px_rgba(30,200,255,0.2)] ${tabInsertionTarget.side === 'before' ? 'left-0' : 'right-0'}`} />}
     </div>
   )
@@ -629,11 +629,11 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
         </div>
         <div className="flex items-center gap-2">
           {!gitDiff && <>
-            <button onClick={closeAllEditors} className="rounded px-3 py-1.5 text-xs bg-bg-2 text-text-2 hover:text-text-1">{t('editor.clear')}</button>
-            <button onClick={() => void editorRefs.current[activeEditor.id]?.getAction?.('actions.find')?.run?.()} className="rounded px-3 py-1.5 text-xs bg-bg-2 text-text-2 hover:text-text-1">{t('editor.find')}</button>
-            <button onClick={() => void editorRefs.current[activeEditor.id]?.getAction?.('editor.action.formatDocument')?.run?.()} className="rounded px-3 py-1.5 text-xs bg-bg-2 text-text-2 hover:text-text-1">{t('editor.format')}</button>
-            {(activeEditor.language === 'markdown' || activeEditor.language === 'html') && <button onClick={() => setPreviewOpenById((current) => ({ ...current, [activeEditor.id]: current[activeEditor.id] === false }))} className={`rounded px-3 py-1.5 text-xs ${previewOpenById[activeEditor.id] !== false ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-2 hover:text-text-1'}`}>{t('editor.preview')}</button>}
-            <button disabled={activeEditor.loading || activeEditor.saving || activeEditor.binary || activeEditor.truncated || !activeEditor.dirty} onClick={() => void onSaveEditor(activeEditor)} className={`rounded px-3 py-1.5 text-xs ${activeEditor.loading || activeEditor.saving || activeEditor.binary || activeEditor.truncated || !activeEditor.dirty ? 'bg-bg-2 text-text-3/50' : 'bg-accent/20 text-accent hover:text-text-1'}`}>{activeEditor.saving ? t('editor.saving') : activeEditor.dirty ? t('editor.save') : t('editor.saved')}</button>
+            <button onClick={closeAllEditors} className="tmuxgo-button tmuxgo-button--sm">{t('editor.clear')}</button>
+            <button onClick={() => void editorRefs.current[activeEditor.id]?.getAction?.('actions.find')?.run?.()} className="tmuxgo-button tmuxgo-button--sm">{t('editor.find')}</button>
+            <button onClick={() => void editorRefs.current[activeEditor.id]?.getAction?.('editor.action.formatDocument')?.run?.()} className="tmuxgo-button tmuxgo-button--sm">{t('editor.format')}</button>
+            {(activeEditor.language === 'markdown' || activeEditor.language === 'html') && <button onClick={() => setPreviewOpenById((current) => ({ ...current, [activeEditor.id]: current[activeEditor.id] === false }))} className={`tmuxgo-button tmuxgo-button--sm ${previewOpenById[activeEditor.id] !== false ? 'tmuxgo-button--accent' : ''}`}>{t('editor.preview')}</button>}
+            <button disabled={activeEditor.loading || activeEditor.saving || activeEditor.binary || activeEditor.truncated || !activeEditor.dirty} onClick={() => void onSaveEditor(activeEditor)} className={`tmuxgo-button tmuxgo-button--sm ${activeEditor.loading || activeEditor.saving || activeEditor.binary || activeEditor.truncated || !activeEditor.dirty ? '' : 'tmuxgo-button--accent'}`}>{activeEditor.saving ? t('editor.saving') : activeEditor.dirty ? t('editor.save') : t('editor.saved')}</button>
           </>}
         </div>
       </div>

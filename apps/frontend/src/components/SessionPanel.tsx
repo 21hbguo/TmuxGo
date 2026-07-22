@@ -122,15 +122,15 @@ export function SessionPanel() {
             <div className="flex items-center gap-1">
               {batchMode ? (
                 <>
-                  <button onClick={() => setSelectedSessionIds(sessions.map((session) => session.id))} className="rounded bg-bg-2 px-2 py-1 text-[11px] text-text-3 hover:text-text-1">{t('sidebar.batchSelectAll')}</button>
-                  <button onClick={() => setSelectedSessionIds([])} className="rounded bg-bg-2 px-2 py-1 text-[11px] text-text-3 hover:text-text-1">{t('sidebar.batchClearAll')}</button>
+                  <button onClick={() => setSelectedSessionIds(sessions.map((session) => session.id))} className="tmuxgo-chip">{t('sidebar.batchSelectAll')}</button>
+                  <button onClick={() => setSelectedSessionIds([])} className="tmuxgo-chip">{t('sidebar.batchClearAll')}</button>
                   <button onClick={() => setBatchDeleteConfirmOpen(true)} disabled={!selectedSessionIds.length} className="rounded bg-red-900/30 px-2 py-1 text-[11px] text-red-300 hover:bg-red-900/50 disabled:cursor-not-allowed disabled:opacity-50">{t('sidebar.batchDeleteSelected')}</button>
-                  <button onClick={toggleBatchMode} className="rounded bg-bg-2 px-2 py-1 text-[11px] text-accent hover:text-text-1">{t('sidebar.batchCancelAction')}</button>
+                  <button onClick={toggleBatchMode} className="tmuxgo-chip tmuxgo-chip--accent">{t('sidebar.batchCancelAction')}</button>
                 </>
               ) : (
                 <>
-                  <button onClick={() => setShowTemplates(true)} className="rounded bg-bg-2 px-2 py-1 text-[11px] text-accent hover:text-text-1">{t('sidebar.newAction')}</button>
-                  <button onClick={toggleBatchMode} className="rounded bg-bg-2 px-2 py-1 text-[11px] text-text-3 hover:text-text-1">{t('sidebar.batchDeleteAction')}</button>
+                  <button onClick={() => setShowTemplates(true)} className="tmuxgo-chip tmuxgo-chip--accent">{t('sidebar.newAction')}</button>
+                  <button onClick={toggleBatchMode} className="tmuxgo-chip">{t('sidebar.batchDeleteAction')}</button>
                 </>
               )}
             </div>

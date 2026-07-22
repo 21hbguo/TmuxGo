@@ -2024,7 +2024,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
             <div className="text-sm font-medium text-text-1">{t('githubAuth.title')}</div>
             <div className="mt-1 text-xs leading-5 text-text-3">{t('githubAuth.desc')}</div>
           </div>
-          <button type="button" aria-label={t('githubAuth.dismiss')} onClick={dismissGithubDeviceLogin} className="shrink-0 rounded px-1.5 py-0.5 text-text-3 transition-colors hover:bg-bg-1 hover:text-text-1">✕</button>
+          <button type="button" aria-label={t('githubAuth.dismiss')} onClick={dismissGithubDeviceLogin} className="tmuxgo-chip tmuxgo-chip--danger shrink-0">✕</button>
         </div>
         <div className="mt-3 rounded-xl border border-[var(--line)] bg-bg-1 px-3 py-2">
           <div className="text-[10px] uppercase tracking-[0.24em] text-text-3">{t('githubAuth.code')}</div>
