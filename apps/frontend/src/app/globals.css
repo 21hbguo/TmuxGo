@@ -15,13 +15,15 @@
   --text-3: 116 116 122;
   --line: rgba(255,255,255,0.1);
   --glow: 0 10px 32px rgba(0,0,0,0.24);
-  --glass-blur: 22px;
-  --glass-saturate: 160%;
-  --glass-fill: rgba(30,31,35,0.7);
-  --glass-fill-strong: rgba(30,31,35,0.88);
-  --glass-rim: rgba(255,255,255,0.12);
-  --glass-highlight: rgba(255,255,255,0.17);
-  --glass-shadow: 0 14px 38px rgba(0,0,0,0.25);
+  --glass-blur: 14px;
+  --glass-saturate: 180%;
+  --glass-fill: rgb(255 255 255 / 8%);
+  --glass-fill-strong: rgb(255 255 255 / 14%);
+  --glass-fill-hover: rgb(255 255 255 / 14%);
+  --glass-rim: rgb(255 255 255 / 22%);
+  --glass-highlight: rgb(255 255 255 / 38%);
+  --glass-shadow: 0 6px 18px rgb(0 0 0 / 0.32);
+  --glass-shadow-hover: 0 10px 28px rgb(0 0 0 / 0.42);
   --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
   --font-mono: Consolas, "Cascadia Mono", "Cascadia Code", "SF Mono", Monaco, Menlo, "DejaVu Sans Mono", "Liberation Mono", "Courier New", monospace;
 }
@@ -39,11 +41,13 @@
   --text-3: 142 142 147;
   --line: rgba(60,60,67,0.16);
   --glow: 0 12px 34px rgba(48,52,60,0.12);
-  --glass-fill: rgba(248,249,252,0.7);
-  --glass-fill-strong: rgba(248,249,252,0.9);
-  --glass-rim: rgba(255,255,255,0.78);
-  --glass-highlight: rgba(255,255,255,0.92);
-  --glass-shadow: 0 14px 38px rgba(48,52,60,0.14);
+  --glass-fill: rgb(255 255 255 / 55%);
+  --glass-fill-strong: rgb(255 255 255 / 75%);
+  --glass-fill-hover: rgb(255 255 255 / 70%);
+  --glass-rim: rgb(255 255 255 / 85%);
+  --glass-highlight: rgb(255 255 255 / 100%);
+  --glass-shadow: 0 4px 14px rgb(48 52 60 / 0.14);
+  --glass-shadow-hover: 0 8px 22px rgb(48 52 60 / 0.22);
 }
 
 [data-theme="high-contrast"] {
@@ -80,6 +84,12 @@
   --text-3: 98 114 164;
   --line: rgba(189,147,249,0.28);
   --glow: 0 0 20px rgba(189,147,249,0.25);
+  --glass-fill: rgb(255 255 255 / 8%);
+  --glass-fill-hover: rgb(255 255 255 / 14%);
+  --glass-rim: rgb(255 255 255 / 22%);
+  --glass-highlight: rgb(255 255 255 / 38%);
+  --glass-shadow: 0 6px 18px rgb(0 0 0 / 0.4);
+  --glass-shadow-hover: 0 10px 28px rgb(0 0 0 / 0.5);
 }
 
 [data-theme="nord"] {
@@ -95,6 +105,12 @@
   --text-3: 76 86 106;
   --line: rgba(136,192,208,0.28);
   --glow: 0 0 20px rgba(136,192,208,0.25);
+  --glass-fill: rgb(255 255 255 / 8%);
+  --glass-fill-hover: rgb(255 255 255 / 14%);
+  --glass-rim: rgb(255 255 255 / 22%);
+  --glass-highlight: rgb(255 255 255 / 38%);
+  --glass-shadow: 0 6px 18px rgb(0 0 0 / 0.35);
+  --glass-shadow-hover: 0 10px 28px rgb(0 0 0 / 0.45);
 }
 
 [data-theme="catppuccin"] {
@@ -110,6 +126,12 @@
   --text-3: 88 91 112;
   --line: rgba(137,180,250,0.28);
   --glow: 0 0 20px rgba(137,180,250,0.25);
+  --glass-fill: rgb(255 255 255 / 8%);
+  --glass-fill-hover: rgb(255 255 255 / 14%);
+  --glass-rim: rgb(255 255 255 / 22%);
+  --glass-highlight: rgb(255 255 255 / 38%);
+  --glass-shadow: 0 6px 18px rgb(0 0 0 / 0.4);
+  --glass-shadow-hover: 0 10px 28px rgb(0 0 0 / 0.5);
 }
 
 @font-face {
@@ -506,210 +528,364 @@ a {
 }
 
 /* =========================================================
-   .tmuxgo-keycap · 可复用的「键帽」原子组件
-   设计语言：apple-design skill (WWDC Designing Fluid Interfaces)
-   - §1 Response    : 反馈在 :active 立即触发，不等 release
-   - §4 Springs     : cubic-bezier(.2,.8,.2,1) 模拟 damping=1.0 spring
-                       :active 用更短 duration（80ms）模拟「快速塌陷」
-   - §11 Smoothness : transform/opacity-only 动画，will-change hint
-   - §14 A11y       : prefers-reduced-motion 时去掉 transform 用 opacity
-   - §15 Typography : tracking 按 size 变化（+0.02em → 0 → -0.01em）
-   - variant: panel(网格) | dock(横向滚动) | plain(普通)
-   - tone: default | accent | danger | arrow
-   - size: sm | md | freq | pill
+
+/* =========================================================
+   Liquid Glass 按钮系统（apple-design skill §1/§4 + liquid-glass skill §6/§10）
+   - L1 keycap · L2 chip · L3 button（含 primary/danger/ghost/sm/lg）
+   - 统一材质：hairline rim + 顶部 specular highlight + 双 inset shadow
+   - 动效：cubic-bezier(0.34, 1.56, 0.64, 1) overshoot bounce on press
+   - pointer illumination：JS 写 --mx/--my，CSS ::after 出 radial 高光
+   - SVG 折射（Chromium 渐进增强），其余降级到 backdrop-filter
+   - prefers-reduced-motion / prefers-reduced-transparency 自动降级
    ========================================================= */
-.tmuxgo-keycap {
+
+/* 共通 base · 玻璃材质 */
+.tmuxgo-keycap,
+.tmuxgo-chip,
+.tmuxgo-button {
   appearance: none;
   box-sizing: border-box;
-  border: 1px solid var(--glass-rim);
   cursor: pointer;
   font-family: var(--font-ui);
-  font-weight: 500;
-  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.005em;
   line-height: 1;
-  color: rgb(var(--text-2));
-  padding: 5px 9px;
-  border-radius: 7px;
-  background:
-    linear-gradient(180deg, var(--glass-highlight) 0%, transparent 55%),
-    var(--glass-fill);
-  box-shadow:
-    inset 0 1px 0 var(--glass-highlight),
-    0 1px 1px rgba(0, 0, 0, 0.10),
-    0 2px 6px rgba(0, 0, 0, 0.06);
-  letter-spacing: 0;
-  transition:
-    transform 180ms cubic-bezier(.2, .8, .2, 1),
-    background-color 160ms cubic-bezier(.2, .8, .2, 1),
-    color 160ms cubic-bezier(.2, .8, .2, 1),
-    box-shadow 180ms cubic-bezier(.2, .8, .2, 1),
-    border-color 160ms cubic-bezier(.2, .8, .2, 1);
-  transform: translateZ(0);
-  will-change: transform;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
   white-space: nowrap;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
   text-decoration: none;
-}
-.tmuxgo-keycap:hover:not(:disabled) {
-  background:
-    linear-gradient(180deg, var(--glass-highlight) 0%, transparent 60%),
-    var(--glass-fill-strong);
-  color: rgb(var(--text-1));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  position: relative;
+  overflow: hidden;
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border: 1px solid var(--glass-rim);
   box-shadow:
     inset 0 1px 0 var(--glass-highlight),
-    0 1px 1px rgba(0, 0, 0, 0.12),
-    0 4px 10px rgba(0, 0, 0, 0.10);
+    inset 0 -1px 0 rgb(255 255 255 / 6%),
+    var(--glass-shadow);
+  background: var(--glass-fill);
+  color: var(--text-color, rgb(var(--text-1)));
+  transition:
+    transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
+    box-shadow 0.25s ease,
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+  will-change: transform;
 }
-.tmuxgo-keycap:active:not(:disabled) {
-  transform: translateY(1px) scale(0.96);
-  transition-duration: 80ms;
-  transition-timing-function: cubic-bezier(.4, 0, .6, 1);
-  box-shadow:
-    inset 0 1px 0 var(--glass-highlight),
-    0 0 0 rgba(0, 0, 0, 0);
+@media (hover: hover) {
+  .tmuxgo-keycap:hover:not(:disabled),
+  .tmuxgo-chip:hover:not(:disabled),
+  .tmuxgo-button:hover:not(:disabled) {
+    box-shadow:
+      inset 0 1px 0 var(--glass-highlight),
+      inset 0 -1px 0 rgb(255 255 255 / 8%),
+      var(--glass-shadow-hover);
+    background: var(--glass-fill-hover);
+  }
 }
-.tmuxgo-keycap:focus-visible {
+.tmuxgo-keycap:active:not(:disabled),
+.tmuxgo-chip:active:not(:disabled),
+.tmuxgo-button:active:not(:disabled) {
+  transform: scale(0.95);
+  transition-duration: 0.12s;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.6, 1);
+}
+.tmuxgo-keycap:focus-visible,
+.tmuxgo-chip:focus-visible,
+.tmuxgo-button:focus-visible {
   outline: none;
   box-shadow:
     inset 0 1px 0 var(--glass-highlight),
+    inset 0 -1px 0 rgb(255 255 255 / 6%),
+    var(--glass-shadow),
     0 0 0 2px rgb(var(--accent) / 0.55);
 }
-.tmuxgo-keycap:disabled {
+.tmuxgo-keycap:disabled,
+.tmuxgo-chip:disabled,
+.tmuxgo-button:disabled {
   cursor: not-allowed;
+  opacity: 0.45;
 }
 
-.tmuxgo-keycap--dock {
-  font-size: 11px;
-  padding: 6px 11px;
-  border-radius: 8px;
-  touch-action: pan-x;
-  -webkit-touch-callout: none;
-  letter-spacing: 0.01em;
-  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+/* pointer illumination — 鼠标位置出 radial 高光 */
+.tmuxgo-keycap::after,
+.tmuxgo-chip::after,
+.tmuxgo-button::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(140px circle at var(--mx, 50%) var(--my, 50%),
+                              rgb(255 255 255 / 22%), transparent 60%);
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  pointer-events: none;
 }
-
-.tmuxgo-keycap--accent {
-  border-color: rgb(var(--accent) / 0.32);
-  background:
-    linear-gradient(180deg, rgb(var(--accent) / 0.28) 0%, transparent 55%),
-    rgb(var(--accent) / 0.16);
-  color: rgb(var(--accent));
-}
-.tmuxgo-keycap--accent:hover:not(:disabled) {
-  background:
-    linear-gradient(180deg, rgb(var(--accent) / 0.32) 0%, transparent 60%),
-    rgb(var(--accent) / 0.22);
-  color: rgb(var(--accent));
-}
-.tmuxgo-keycap--danger {
-  border-color: rgb(248 113 113 / 0.30);
-  background:
-    linear-gradient(180deg, rgb(248 113 113 / 0.16) 0%, transparent 55%),
-    rgb(127 29 29 / 0.22);
-  color: rgb(248 113 113);
-}
-.tmuxgo-keycap--danger:hover:not(:disabled) {
-  background:
-    linear-gradient(180deg, rgb(248 113 113 / 0.20) 0%, transparent 60%),
-    rgb(127 29 29 / 0.32);
-  color: rgb(248 113 113);
-}
-.tmuxgo-keycap--arrow {
-  border-color: rgb(var(--accent) / 0.32);
-  background:
-    linear-gradient(180deg, rgb(var(--accent) / 0.28) 0%, transparent 55%),
-    rgb(var(--accent) / 0.16);
-  color: rgb(var(--accent));
-  font-weight: 600;
-}
-.tmuxgo-keycap--arrow:hover:not(:disabled) {
-  background:
-    linear-gradient(180deg, rgb(var(--accent) / 0.32) 0%, transparent 60%),
-    rgb(var(--accent) / 0.22);
-  color: rgb(var(--accent));
-}
-
-.tmuxgo-keycap--sm {
-  font-size: 11px;
-  padding: 4px 7px;
-  min-height: 28px;
-  border-radius: 6px;
-  letter-spacing: 0.02em;
-}
-.tmuxgo-keycap--freq {
-  font-size: 13px;
-  padding: 8px 12px;
-  min-width: 56px;
-  min-height: 48px;
-  border-radius: 9px;
-  font-weight: 600;
-  color: rgb(var(--text-1));
-  letter-spacing: -0.01em;
-}
-.tmuxgo-keycap--pill {
-  border-radius: 999px;
-  padding: 5px 14px;
-}
-
-.tmuxgo-keycap--disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-  box-shadow:
-    inset 0 1px 0 var(--glass-highlight),
-    none;
-}
-.tmuxgo-keycap--disabled.tmuxgo-keycap--accent {
-  background:
-    linear-gradient(180deg, var(--glass-highlight) 0%, transparent 55%),
-    rgb(var(--accent) / 0.06);
-  border-color: rgb(var(--accent) / 0.12);
-}
-.tmuxgo-keycap--disabled.tmuxgo-keycap--danger {
-  background:
-    linear-gradient(180deg, var(--glass-highlight) 0%, transparent 55%),
-    rgb(127 29 29 / 0.10);
-  border-color: rgb(248 113 113 / 0.14);
-}
-
-[data-theme="high-contrast"] .tmuxgo-keycap {
-  border: 1px solid rgb(255 255 255 / 0.5);
-  background: transparent;
-  box-shadow: none;
-}
-[data-theme="high-contrast"] .tmuxgo-keycap--accent,
-[data-theme="high-contrast"] .tmuxgo-keycap--arrow {
-  background: transparent;
-  border-color: rgb(0 255 255);
-  color: rgb(0 255 255);
-}
-[data-theme="high-contrast"] .tmuxgo-keycap--danger {
-  background: transparent;
-  border-color: rgb(255 68 68);
-  color: rgb(255 68 68);
-}
-[data-theme="high-contrast"] .tmuxgo-keycap:focus-visible {
-  box-shadow: 0 0 0 2px rgb(0 255 255);
+.tmuxgo-keycap:is(:hover, :active)::after,
+.tmuxgo-chip:is(:hover, :active)::after,
+.tmuxgo-button:is(:hover, :active)::after {
+  opacity: 1;
 }
 
 /* =========================================================
-   §14 Reduced motion & accessibility
-   - reduce motion：去掉 transform 用 opacity 渐变
-   - reduce transparency：去 backdrop-filter 兜底（由 globals.css 统一处理）
+   L1 keycap · 最小玻璃（kbd 提示 / 快捷键标签）
+   ========================================================= */
+.tmuxgo-keycap {
+  --text-color: rgb(var(--text-2));
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 999px;
+  letter-spacing: 0;
+}
+.tmuxgo-keycap--accent {
+  --text-color: rgb(var(--accent));
+  border-color: rgb(var(--accent) / 0.32);
+  background: color-mix(in srgb, rgb(var(--accent)) 18%, transparent);
+}
+.tmuxgo-keycap--accent:hover:not(:disabled) {
+  background: color-mix(in srgb, rgb(var(--accent)) 28%, transparent);
+  border-color: rgb(var(--accent) / 0.45);
+}
+.tmuxgo-keycap--danger {
+  --text-color: rgb(248 113 113);
+  border-color: rgb(248 113 113 / 0.32);
+  background: color-mix(in srgb, rgb(248 113 113) 18%, transparent);
+}
+.tmuxgo-keycap--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, rgb(248 113 113) 28%, transparent);
+  border-color: rgb(248 113 113 / 0.45);
+}
+.tmuxgo-keycap--arrow {
+  --text-color: rgb(var(--accent));
+  font-weight: 600;
+}
+.tmuxgo-keycap--freq {
+  --text-color: rgb(var(--text-1));
+  font-size: 13px;
+  font-weight: 600;
+  padding: 9px 14px;
+  min-width: 56px;
+  min-height: 48px;
+  letter-spacing: -0.005em;
+}
+.tmuxgo-keycap--sm {
+  font-size: 11px;
+  padding: 3px 8px;
+  min-height: 28px;
+}
+.tmuxgo-keycap--pill {
+  padding: 5px 14px;
+}
+[data-theme="high-contrast"] .tmuxgo-keycap {
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border-color: rgb(255 255 255 / 0.6);
+  --glass-shadow: none;
+  --glass-shadow-hover: none;
+  --glass-highlight: transparent;
+  color: rgb(var(--text-1));
+}
+
+/* =========================================================
+   L2 chip · 内联动作按钮（stage/✕/复制路径）
+   ========================================================= */
+.tmuxgo-chip {
+  --text-color: rgb(var(--text-3));
+  font-size: 11px;
+  font-weight: 500;
+  padding: 4px 11px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 5%);
+  border-color: rgb(255 255 255 / 12%);
+  --glass-shadow: 0 2px 8px rgb(0 0 0 / 0.18);
+  --glass-shadow-hover: 0 4px 14px rgb(0 0 0 / 0.28);
+  letter-spacing: 0.01em;
+}
+.tmuxgo-chip:hover:not(:disabled) {
+  color: rgb(var(--text-1));
+  background: rgb(255 255 255 / 10%);
+  border-color: rgb(255 255 255 / 20%);
+}
+.tmuxgo-chip--accent {
+  --text-color: rgb(var(--accent));
+  border-color: rgb(var(--accent) / 0.32);
+  background: color-mix(in srgb, rgb(var(--accent)) 20%, transparent);
+}
+.tmuxgo-chip--accent:hover:not(:disabled) {
+  background: color-mix(in srgb, rgb(var(--accent)) 32%, transparent);
+  border-color: rgb(var(--accent) / 0.5);
+  --text-color: rgb(var(--accent));
+}
+.tmuxgo-chip--danger {
+  --text-color: rgb(248 113 113);
+  border-color: rgb(248 113 113 / 0.32);
+  background: color-mix(in srgb, rgb(248 113 113) 22%, transparent);
+}
+.tmuxgo-chip--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, rgb(248 113 113) 35%, transparent);
+  border-color: rgb(248 113 113 / 0.5);
+  --text-color: rgb(252 165 165);
+}
+[data-theme="high-contrast"] .tmuxgo-chip {
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border-color: rgb(255 255 255 / 0.5);
+  --glass-shadow: none;
+  --glass-shadow-hover: none;
+  --glass-highlight: transparent;
+  color: rgb(var(--text-1));
+}
+[data-theme="high-contrast"] .tmuxgo-chip--accent { color: rgb(0 255 255); }
+[data-theme="high-contrast"] .tmuxgo-chip--danger { color: rgb(255 68 68); }
+
+/* =========================================================
+   L3 button · 中等动作按钮（确认/取消/恢复/重试/保存/删除）
+   ========================================================= */
+.tmuxgo-button {
+  --text-color: rgb(var(--text-1));
+  font-size: 13px;
+  padding: 8px 18px;
+  border-radius: 999px;
+  --glass-shadow: 0 6px 18px rgb(0 0 0 / 0.28);
+  --glass-shadow-hover: 0 10px 28px rgb(0 0 0 / 0.38);
+}
+.tmuxgo-button--sm {
+  font-size: 11px;
+  padding: 5px 12px;
+}
+.tmuxgo-button--lg {
+  font-size: 14px;
+  padding: 10px 22px;
+  font-weight: 600;
+}
+
+.tmuxgo-button--primary {
+  --text-color: white;
+  border-color: rgb(var(--accent) / 0.6);
+  background: color-mix(in srgb, rgb(var(--accent)) 70%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.45),
+    inset 0 -1px 0 rgb(0 0 0 / 0.18),
+    0 6px 20px color-mix(in srgb, rgb(var(--accent)) 38%, transparent),
+    0 1px 2px rgb(0 0 0 / 0.18);
+  --glass-shadow-hover: 0 12px 32px color-mix(in srgb, rgb(var(--accent)) 55%, transparent);
+}
+.tmuxgo-button--primary:hover:not(:disabled) {
+  background: color-mix(in srgb, rgb(var(--accent)) 82%, transparent);
+  border-color: rgb(var(--accent) / 0.8);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.55),
+    inset 0 -1px 0 rgb(0 0 0 / 0.20),
+    0 12px 32px color-mix(in srgb, rgb(var(--accent)) 55%, transparent),
+    0 2px 4px rgb(0 0 0 / 0.22);
+}
+
+.tmuxgo-button--danger {
+  --text-color: white;
+  border-color: rgb(248 113 113 / 0.55);
+  background: color-mix(in srgb, rgb(248 113 113) 60%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.42),
+    inset 0 -1px 0 rgb(0 0 0 / 0.18),
+    0 6px 20px color-mix(in srgb, rgb(248 113 113) 42%, transparent),
+    0 1px 2px rgb(0 0 0 / 0.18);
+  --glass-shadow-hover: 0 12px 32px color-mix(in srgb, rgb(248 113 113) 55%, transparent);
+}
+.tmuxgo-button--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, rgb(248 113 113) 72%, transparent);
+  border-color: rgb(248 113 113 / 0.75);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.52),
+    inset 0 -1px 0 rgb(0 0 0 / 0.20),
+    0 12px 32px color-mix(in srgb, rgb(248 113 113) 55%, transparent),
+    0 2px 4px rgb(0 0 0 / 0.22);
+}
+
+.tmuxgo-button--ghost {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  --text-color: rgb(var(--text-2));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.tmuxgo-button--ghost:hover:not(:disabled) {
+  background: rgb(255 255 255 / 8%);
+  border-color: rgb(255 255 255 / 14%);
+  --text-color: rgb(var(--text-1));
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
+}
+.tmuxgo-button--ghost:active:not(:disabled) {
+  background: rgb(255 255 255 / 14%);
+}
+
+[data-theme="high-contrast"] .tmuxgo-button {
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border-color: rgb(255 255 255 / 0.5);
+  --glass-shadow: none;
+  --glass-shadow-hover: none;
+  --glass-highlight: transparent;
+  color: rgb(var(--text-1));
+}
+[data-theme="high-contrast"] .tmuxgo-button--primary {
+  background: transparent;
+  border-color: rgb(0 255 255);
+  color: rgb(0 255 255);
+  box-shadow: none;
+}
+[data-theme="high-contrast"] .tmuxgo-button--danger {
+  background: transparent;
+  border-color: rgb(255 68 68);
+  color: rgb(255 68 68);
+  box-shadow: none;
+}
+
+/* =========================================================
+   §14 Reduced motion & transparency 自动降级
    ========================================================= */
 @media (prefers-reduced-motion: reduce) {
   .tmuxgo-keycap,
-  .tmuxgo-keycap:active:not(:disabled) {
-    transition: opacity 200ms ease, background-color 200ms ease, color 200ms ease;
+  .tmuxgo-chip,
+  .tmuxgo-button {
+    transition: opacity 0.2s ease, background-color 0.2s ease, color 0.2s ease;
     transform: none !important;
   }
-  .tmuxgo-keycap:active:not(:disabled) {
+  .tmuxgo-keycap:active:not(:disabled),
+  .tmuxgo-chip:active:not(:disabled),
+  .tmuxgo-button:active:not(:disabled) {
     opacity: 0.7;
+    transform: none !important;
+  }
+  .tmuxgo-keycap::after,
+  .tmuxgo-chip::after,
+  .tmuxgo-button::after { display: none; }
+}
+
+@media (prefers-reduced-transparency: reduce), (forced-colors: active) {
+  .tmuxgo-keycap,
+  .tmuxgo-chip,
+  .tmuxgo-button {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
 }
 
+/* =========================================================
+   §10 SVG 折射（Chromium 渐进增强）
+   ========================================================= */
+@supports (backdrop-filter: url(#liquid-lens)) {
+  .tmuxgo-glass-refract {
+    backdrop-filter: url(#liquid-lens) blur(4px) saturate(var(--glass-saturate));
+    -webkit-backdrop-filter: url(#liquid-lens) blur(4px) saturate(var(--glass-saturate));
+  }
+}
