@@ -227,7 +227,7 @@ export function Settings({ onClose }: SettingsProps) {
               onClick={() => setActiveTab(tab.id)}
               className={`px-4 py-3 text-sm ${
                 activeTab === tab.id
-                  ? 'text-accent border-b-2 border-accent'
+                  ? 'text-accent border-b border-accent'
                   : 'text-text-3 hover:text-text-1'
               }`}
             >

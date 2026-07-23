@@ -577,7 +577,7 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
         <>
           <div className="flex border-b border-[var(--line)]">
             {(['status', 'history', 'branches'] as const).map((tab) => (
-              <button key={tab} onClick={() => setActiveTab(tab)} className={`min-h-11 flex-1 py-1.5 text-[11px] font-medium transition-colors lg:min-h-0 ${activeTab === tab ? 'border-b-2 border-accent text-accent' : 'text-text-3 hover:text-text-1'}`}>
+              <button key={tab} onClick={() => setActiveTab(tab)} className={`min-h-11 flex-1 py-1.5 text-[11px] font-medium transition-colors lg:min-h-0 ${activeTab === tab ? 'border-b border-accent text-accent' : 'text-text-3 hover:text-text-1'}`}>
                 {t(`git.${tab}`)}{tab === 'status' && statusCount > 0 ? ` ${statusCount}` : ''}
               </button>
             ))}
