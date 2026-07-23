@@ -13,7 +13,8 @@ import { getAttachSnapshotDelays } from '../lib/attach-snapshot.js'
 import { execTmux } from '../lib/tmux-executor.js'
 import { getHostAgentPanes, markAgentPaneSeen } from '../lib/agent-state.js'
 import { streamAttachMessageSchema, streamInputMessageSchema, streamMessageSchema, streamRegisterMessageSchema, streamResizeMessageSchema } from '../lib/request-validation.js'
-import { encodeStreamOutputBinary } from '../lib/stream-binary.js'
+import { encodeStreamCellBinary, encodeStreamOutputBinary } from '../lib/stream-binary.js'
+import { AnsiParser, TerminalGrid, diffCells, encodeCellDiff, encodeCellSnapshot } from '../lib/terminal-grid/index.js'
 
 const execFileAsync = promisify(execFile)
 let sshPassAvailable: boolean | null = null
@@ -29,6 +30,10 @@ export async function streamRoutes(fastify: FastifyInstance) {
     const SOCKET_FLUSH_DEFER_MS = 24
     const OUTPUT_BUFFER_MAX_CHARS = 1048576
     const CLIENT_BACKPRESSURE_RESYNC_CHARS = 16384
+    const STREAM_COMPRESS_ENABLED = process.env.TMUXGO_STREAM_COMPRESS !== '0'
+    const STREAM_COMPRESS_THRESHOLD = Math.max(0, Number(process.env.TMUXGO_STREAM_COMPRESS_THRESHOLD || 4096) || 4096)
+    const STREAM_CELL_ENABLED = process.env.TMUXGO_STREAM_CELL === '1'
+    const CELL_DIRTY_RATIO_SNAPSHOT = 0.4
     const OUTPUT_PROFILES = {
       foreground: { flushInterval: 4, maxChars: 16384 },
       background: { flushInterval: 32, maxChars: 24576 },
@@ -50,6 +55,12 @@ export async function streamRoutes(fastify: FastifyInstance) {
     let outputProfile: keyof typeof OUTPUT_PROFILES = 'foreground'
     let clientBackpressureHigh = false
     let binaryOutputEnabled = false
+    let compressOutputEnabled = false
+    let cellOutputEnabled = false
+    let cellModeActive = false
+    let cellGrid: TerminalGrid | null = null
+    let cellParser: AnsiParser | null = null
+    let cellBaseSeq = 0
     let attachSeq = 0
     let attachVisibleOutputObserved = false
     let attachSnapshotTimers: ReturnType<typeof setTimeout>[] = []
@@ -120,12 +131,34 @@ export async function streamRoutes(fastify: FastifyInstance) {
         return false
       }
     }
+    function resetCellState(cols = attachedCols || 80, rows = attachedRows || 24) {
+      cellGrid = new TerminalGrid(Math.max(1, cols || 80), Math.max(1, rows || 24))
+      cellParser = new AnsiParser(cellGrid)
+      cellBaseSeq = 0
+      cellModeActive = cellOutputEnabled && binaryOutputEnabled
+    }
+    function disableCellMode(reason?: string) {
+      if (cellModeActive) recordStreamMetric('cellFallbackAnsi')
+      cellModeActive = false
+      cellParser?.resetParserState()
+    }
     function sendTerminalOutput(type: 'output' | 'output_resync', data: string, sessionName: string, hostId: string) {
       if (socket.readyState !== 1) return false
       try {
         getSocketBufferedBytes()
         if (binaryOutputEnabled) {
-          socket.send(encodeStreamOutputBinary(type, hostId, sessionName, data))
+          const rawLen = Buffer.byteLength(data || '', 'utf8')
+          const frame = encodeStreamOutputBinary(type, hostId, sessionName, data, {
+            compress: compressOutputEnabled,
+            threshold: STREAM_COMPRESS_THRESHOLD,
+          })
+          const typeCode = frame[3]
+          if (typeCode === 3 || typeCode === 4) {
+            recordStreamMetric('compressFrames')
+            recordStreamMetric('compressBytesIn', rawLen)
+            recordStreamMetric('compressBytesOut', frame.length - 12)
+          }
+          socket.send(frame)
         } else {
           socket.send(JSON.stringify({ type, data, sessionName, hostId }))
         }
@@ -134,6 +167,60 @@ export async function streamRoutes(fastify: FastifyInstance) {
       } catch {
         return false
       }
+    }
+    function sendCellFrame(type: 'cell_snapshot' | 'cell_diff', payload: Buffer, sessionName: string, hostId: string) {
+      if (socket.readyState !== 1 || !binaryOutputEnabled || !cellOutputEnabled) return false
+      try {
+        getSocketBufferedBytes()
+        const frame = encodeStreamCellBinary(type, hostId, sessionName, payload, {
+          compress: compressOutputEnabled,
+          threshold: STREAM_COMPRESS_THRESHOLD,
+        })
+        const typeCode = frame[3]
+        if (typeCode === 6 || typeCode === 8) {
+          recordStreamMetric('compressFrames')
+          recordStreamMetric('compressBytesIn', payload.length)
+          recordStreamMetric('compressBytesOut', frame.length - 12)
+        }
+        socket.send(frame)
+        getSocketBufferedBytes()
+        return true
+      } catch {
+        return false
+      }
+    }
+    function feedCellAndMaybeSend(kind: 'output' | 'output_resync', data: string, sessionName: string, hostId: string) {
+      if (!cellModeActive || !cellGrid || !cellParser) return false
+      if (kind === 'output_resync') {
+        cellGrid.resize(attachedCols || cellGrid.cols, attachedRows || cellGrid.rows)
+        cellGrid.clear()
+        cellParser.resetParserState()
+        cellBaseSeq = 0
+      }
+      const prev = cellGrid.cloneCells()
+      const parsed = cellParser.feed(data)
+      if (!parsed.ok) {
+        disableCellMode(parsed.unsupported)
+        return false
+      }
+      cellGrid.seq += 1
+      const changes = kind === 'output_resync' ? [] : diffCells(prev, cellGrid.cells, cellGrid.cols, cellGrid.rows)
+      const total = Math.max(1, cellGrid.cols * cellGrid.rows)
+      const dirtyRatio = kind === 'output_resync' ? 1 : changes.length / total
+      recordStreamMetric('cellDirtyCells', kind === 'output_resync' ? total : changes.length)
+      let ok = false
+      if (kind === 'output_resync' || dirtyRatio >= CELL_DIRTY_RATIO_SNAPSHOT || cellBaseSeq === 0) {
+        const payload = encodeCellSnapshot(cellGrid)
+        ok = sendCellFrame('cell_snapshot', payload, sessionName, hostId)
+        if (ok) recordStreamMetric('cellSnapshots')
+      } else {
+        const payload = encodeCellDiff(cellGrid.seq, cellBaseSeq, cellGrid.cursorX, cellGrid.cursorY, cellGrid.flags, changes)
+        ok = sendCellFrame('cell_diff', payload, sessionName, hostId)
+        if (ok) recordStreamMetric('cellDiffs')
+      }
+      if (!ok) return false
+      cellBaseSeq = cellGrid.seq
+      return true
     }
     function scheduleDeferredFlush() {
       if (deferredFlushTimer) return
@@ -157,9 +244,13 @@ export async function streamRoutes(fastify: FastifyInstance) {
           return
         }
         const data = `\u001b[H\u001b[2J${String(stdout || '')}`
-        if (!sendTerminalOutput('output_resync', data, sessionName, hostId)) {
-          scheduleDeferredFlush()
-          return
+        let sent = false
+        if (cellModeActive) sent = feedCellAndMaybeSend('output_resync', data, sessionName, hostId)
+        if (!sent) {
+          if (!sendTerminalOutput('output_resync', data, sessionName, hostId)) {
+            scheduleDeferredFlush()
+            return
+          }
         }
         outputResyncPending = false
         recordStreamMetric('outputResyncCompleted')
@@ -188,9 +279,13 @@ export async function streamRoutes(fastify: FastifyInstance) {
       }
       const data = outputBuffer
       outputBuffer = ''
-      if (!sendTerminalOutput('output', data, attachedSessionName, attachedHostId)) {
-        outputBuffer = data + outputBuffer
-        return
+      let sent = false
+      if (cellModeActive) sent = feedCellAndMaybeSend('output', data, attachedSessionName, attachedHostId)
+      if (!sent) {
+        if (!sendTerminalOutput('output', data, attachedSessionName, attachedHostId)) {
+          outputBuffer = data + outputBuffer
+          return
+        }
       }
       recordStreamMetric('outputFlushes')
       recordStreamMetric('outputChunks')
@@ -323,7 +418,9 @@ export async function streamRoutes(fastify: FastifyInstance) {
         const snapshot = String(stdout || '')
         if (!snapshot) return
         const data = `\u001b[H\u001b[2J${snapshot}`
-        if (!sendTerminalOutput('output_resync', data, sessionName, attachedHostId)) return
+        let sent = false
+        if (cellModeActive) sent = feedCellAndMaybeSend('output_resync', data, sessionName, attachedHostId)
+        if (!sent && !sendTerminalOutput('output_resync', data, sessionName, attachedHostId)) return
         attachVisibleOutputObserved = true
         recordStreamMetric('outputResyncCompleted')
         recordStreamMetric('outputFlushes')
@@ -508,6 +605,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
             attachedExclusive = exclusive
             attachedCols = cols
             attachedRows = rows
+            if (cellOutputEnabled) resetCellState(cols, rows)
             attachVisibleOutputObserved = false
             const seq = attachSeq
             ptyProcess.onData((output: string) => {
@@ -570,6 +668,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
               ptyProcess.resize(cols, rows)
               attachedCols = cols
               attachedRows = rows
+              if (cellOutputEnabled) resetCellState(cols, rows)
               void refreshAttachedClient(pending.sessionName).catch(() => {}).finally(() => {
                 if (pendingResizeAck !== pending) return
                 pending.refreshComplete = true
@@ -603,7 +702,26 @@ export async function streamRoutes(fastify: FastifyInstance) {
           }
           case 'stream_caps':
             binaryOutputEnabled = data.binaryOutput === true
-            send({ type: 'stream_caps', binaryOutput: binaryOutputEnabled })
+            compressOutputEnabled = STREAM_COMPRESS_ENABLED && binaryOutputEnabled && data.compressOutput === 'gzip'
+            cellOutputEnabled = STREAM_CELL_ENABLED && binaryOutputEnabled && data.cellOutput === true
+            if (cellOutputEnabled) resetCellState(attachedCols || 80, attachedRows || 24)
+            else {
+              cellModeActive = false
+              cellGrid = null
+              cellParser = null
+            }
+            send({
+              type: 'stream_caps',
+              binaryOutput: binaryOutputEnabled,
+              compressOutput: compressOutputEnabled ? 'gzip' : false,
+              cellOutput: cellOutputEnabled,
+            })
+            break
+          case 'cell_resync_request':
+            if (cellOutputEnabled && attachedSessionName) {
+              resetCellState(attachedCols || 80, attachedRows || 24)
+              requestLatestFrameResync()
+            }
             break
           case 'stream_profile':
             if (data.profile === 'foreground' || data.profile === 'background' || data.profile === 'mobile') syncOutputProfile(data.profile)

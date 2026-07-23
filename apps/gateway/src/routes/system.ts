@@ -120,6 +120,13 @@ function getSafeStreamMetrics() {
     activeProfile: streamPerfMetrics.activeProfile === 'background' || streamPerfMetrics.activeProfile === 'mobile' ? streamPerfMetrics.activeProfile : 'foreground',
     activeFlushInterval: safeNumber(streamPerfMetrics.activeFlushInterval),
     activeMaxChars: safeNumber(streamPerfMetrics.activeMaxChars),
+    compressFrames: safeNumber(streamPerfMetrics.compressFrames),
+    compressBytesIn: safeNumber(streamPerfMetrics.compressBytesIn),
+    compressBytesOut: safeNumber(streamPerfMetrics.compressBytesOut),
+    cellSnapshots: safeNumber(streamPerfMetrics.cellSnapshots),
+    cellDiffs: safeNumber(streamPerfMetrics.cellDiffs),
+    cellFallbackAnsi: safeNumber(streamPerfMetrics.cellFallbackAnsi),
+    cellDirtyCells: safeNumber(streamPerfMetrics.cellDirtyCells),
   }
 }
 async function getDependencies() {
