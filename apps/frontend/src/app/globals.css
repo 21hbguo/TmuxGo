@@ -112,7 +112,7 @@
   --accent: 136 192 208;
   --accent-2: 129 161 193;
   --warn: 235 203 139;
-  --danger: 191 97 106;
+  --danger: 215 130 136;
   --text-1: 236 239 244;
   --text-2: 216 222 233;
   --text-3: 180 188 204;
@@ -836,21 +836,21 @@ a {
 }
 .tmuxgo-keycap--accent {
   --text-color: rgb(var(--accent));
-  border-color: rgb(var(--accent) / 0.32);
-  background: color-mix(in srgb, rgb(var(--accent)) 18%, transparent);
+  border-color: rgb(var(--accent) / 0.4);
+  background: color-mix(in srgb, rgb(var(--accent)) 12%, transparent);
 }
 .tmuxgo-keycap--accent:hover:not(:disabled) {
-  background: color-mix(in srgb, rgb(var(--accent)) 28%, transparent);
-  border-color: rgb(var(--accent) / 0.45);
+  background: color-mix(in srgb, rgb(var(--accent)) 20%, transparent);
+  border-color: rgb(var(--accent) / 0.55);
 }
 .tmuxgo-keycap--danger {
   --text-color: rgb(var(--danger));
-  border-color: rgb(var(--danger) / 0.32);
-  background: color-mix(in srgb, rgb(var(--danger)) 18%, transparent);
+  border-color: rgb(var(--danger) / 0.4);
+  background: color-mix(in srgb, rgb(var(--danger)) 12%, transparent);
 }
 .tmuxgo-keycap--danger:hover:not(:disabled) {
-  background: color-mix(in srgb, rgb(var(--danger)) 28%, transparent);
-  border-color: rgb(var(--danger) / 0.45);
+  background: color-mix(in srgb, rgb(var(--danger)) 20%, transparent);
+  border-color: rgb(var(--danger) / 0.55);
 }
 .tmuxgo-keycap--arrow {
   --text-color: rgb(var(--accent));
@@ -906,22 +906,22 @@ a {
 }
 .tmuxgo-chip--accent {
   --text-color: rgb(var(--accent));
-  border-color: rgb(var(--accent) / 0.32);
-  background: color-mix(in srgb, rgb(var(--accent)) 20%, transparent);
+  border-color: rgb(var(--accent) / 0.4);
+  background: color-mix(in srgb, rgb(var(--accent)) 12%, transparent);
 }
 .tmuxgo-chip--accent:hover:not(:disabled) {
-  background: color-mix(in srgb, rgb(var(--accent)) 32%, transparent);
-  border-color: rgb(var(--accent) / 0.5);
+  background: color-mix(in srgb, rgb(var(--accent)) 20%, transparent);
+  border-color: rgb(var(--accent) / 0.55);
   --text-color: rgb(var(--accent));
 }
 .tmuxgo-chip--danger {
   --text-color: rgb(var(--danger));
-  border-color: rgb(var(--danger) / 0.32);
-  background: color-mix(in srgb, rgb(var(--danger)) 22%, transparent);
+  border-color: rgb(var(--danger) / 0.4);
+  background: color-mix(in srgb, rgb(var(--danger)) 12%, transparent);
 }
 .tmuxgo-chip--danger:hover:not(:disabled) {
-  background: color-mix(in srgb, rgb(var(--danger)) 35%, transparent);
-  border-color: rgb(var(--danger) / 0.5);
+  background: color-mix(in srgb, rgb(var(--danger)) 20%, transparent);
+  border-color: rgb(var(--danger) / 0.55);
   --text-color: rgb(var(--danger));
 }
 [data-theme="high-contrast"] .tmuxgo-chip {
@@ -978,14 +978,14 @@ a {
 
 .tmuxgo-button--accent {
   --text-color: rgb(var(--accent));
-  border-color: rgb(var(--accent) / 0.32);
-  background: color-mix(in srgb, rgb(var(--accent)) 20%, transparent);
+  border-color: rgb(var(--accent) / 0.4);
+  background: color-mix(in srgb, rgb(var(--accent)) 12%, transparent);
   --glass-shadow: 0 4px 12px color-mix(in srgb, rgb(var(--accent)) 24%, transparent);
   --glass-shadow-hover: 0 6px 18px color-mix(in srgb, rgb(var(--accent)) 36%, transparent);
 }
 .tmuxgo-button--accent:hover:not(:disabled) {
-  background: color-mix(in srgb, rgb(var(--accent)) 32%, transparent);
-  border-color: rgb(var(--accent) / 0.5);
+  background: color-mix(in srgb, rgb(var(--accent)) 20%, transparent);
+  border-color: rgb(var(--accent) / 0.55);
 }
 
 .tmuxgo-button--primary {
