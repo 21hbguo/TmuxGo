@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { AuditLog } from './AuditLog'
 import { ConfirmDialog } from './ConfirmDialog'
-import { usePreferences, resolveFontId, FONT_JETBRAINS, FONT_MAPLE } from '@/hooks/usePreferences'
+import { usePreferences } from '@/hooks/usePreferences'
 import { useTranslation } from '@/i18n'
 import { useSessionContinuity } from '@/hooks/useSessionContinuity'
 import { useConsoleStore } from '@/stores/useConsoleStore'
@@ -442,17 +442,6 @@ export function Settings({ onClose }: SettingsProps) {
                         +
                       </Chip>
                     </div>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-text-2 text-sm">{t('settings.fontFamily')}</span>
-                    <select
-                      value={resolveFontId(preferences.fontFamily)}
-                      onChange={(e) => updatePreferences({ fontFamily: e.target.value === 'maple' ? FONT_MAPLE : FONT_JETBRAINS })}
-                      className="tmuxgo-control tmuxgo-select rounded-apple px-3 py-1.5 text-sm"
-                    >
-                      <option value="maple">Maple Mono CN</option>
-                      <option value="jetbrains">JetBrains Mono</option>
-                    </select>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-text-2 text-sm">{t('settings.cursorBlink')}</span>

@@ -3,25 +3,17 @@ import { api } from '@/lib/api'
 import type { UiPreferences } from '@/types'
 
 export type Language = 'zh' | 'en'
-export type AppFontId = 'jetbrains' | 'maple'
-export const PREFERENCES_VERSION = 3
+export type AppFontId = 'maple'
+export const PREFERENCES_VERSION = 4
 const STORAGE_KEY = 'tmuxgo-preferences'
 const STORAGE_UPDATED_AT_KEY = 'tmuxgo-preferences-updated-at'
 const PROFILE = 'default'
 type StoredPreferences = Partial<Preferences> & { _v?: number }
 
-export const FONT_JETBRAINS = '"JetBrains Mono", monospace'
-export const FONT_MAPLE = '"Maple Mono CN", "Maple Mono", monospace'
-export const ALLOWED_FONT_FAMILIES = [FONT_JETBRAINS, FONT_MAPLE] as const
-
-const FONT_UI: Record<AppFontId, string> = {
-  jetbrains: '"JetBrains Mono", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif',
-  maple: '"Maple Mono CN", "Maple Mono", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif',
-}
-const FONT_MONO: Record<AppFontId, string> = {
-  jetbrains: '"JetBrains Mono", monospace',
-  maple: '"Maple Mono CN", "Maple Mono", monospace',
-}
+export const FONT_MAPLE = '"Maple Mono CN", monospace'
+export const ALLOWED_FONT_FAMILIES = [FONT_MAPLE] as const
+const FONT_UI = '"Maple Mono CN", monospace'
+const FONT_MONO = '"Maple Mono CN", monospace'
 
 export interface Preferences {
   theme: 'dark' | 'light' | 'high-contrast' | 'dracula' | 'nord' | 'catppuccin'
@@ -61,20 +53,16 @@ const defaultPreferences: Preferences = {
   downloadRateLimitKBps: 200,
 }
 
-export function resolveFontId(fontFamily?: string): AppFontId {
-  if (!fontFamily) return 'maple'
-  if (fontFamily === FONT_MAPLE || fontFamily === 'maple') return 'maple'
-  if (fontFamily === FONT_JETBRAINS || fontFamily === 'jetbrains') return 'jetbrains'
-  if (fontFamily.includes('Maple Mono') || /(^|[\s,"'])maple([\s,"']|$)/i.test(fontFamily)) return 'maple'
+export function resolveFontId(_fontFamily?: string): AppFontId {
   return 'maple'
 }
 
-export function normalizeFontFamily(fontFamily?: string) {
-  return resolveFontId(fontFamily) === 'maple' ? FONT_MAPLE : FONT_JETBRAINS
+export function normalizeFontFamily(_fontFamily?: string) {
+  return FONT_MAPLE
 }
 
-export function primaryFontName(fontFamily?: string) {
-  return resolveFontId(fontFamily) === 'maple' ? 'Maple Mono CN' : 'JetBrains Mono'
+export function primaryFontName(_fontFamily?: string) {
+  return 'Maple Mono CN'
 }
 
 export async function ensureAppFontLoaded(fontFamily?: string, size = 14) {
@@ -89,22 +77,19 @@ export async function ensureAppFontLoaded(fontFamily?: string, size = 14) {
   } catch {}
 }
 
-export function applyDocumentFont(fontFamily?: string) {
+export function applyDocumentFont(_fontFamily?: string) {
   if (typeof document === 'undefined') return
-  const id = resolveFontId(fontFamily)
   const root = document.documentElement
-  const ui = FONT_UI[id]
-  const mono = FONT_MONO[id]
-  root.setAttribute('data-font', id)
-  root.style.setProperty('--font-ui', ui)
-  root.style.setProperty('--font-mono', mono)
-  root.style.fontFamily = ui
+  root.setAttribute('data-font', 'maple')
+  root.style.setProperty('--font-ui', FONT_UI)
+  root.style.setProperty('--font-mono', FONT_MONO)
+  root.style.fontFamily = FONT_UI
   if (document.body) {
-    document.body.style.fontFamily = ui
+    document.body.style.fontFamily = FONT_UI
     document.body.style.fontSynthesis = 'none'
   }
   const app = document.getElementById('root')
-  if (app) app.style.fontFamily = ui
+  if (app) app.style.fontFamily = FONT_UI
 }
 
 let preferencesStore: Preferences = defaultPreferences
