@@ -623,7 +623,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
             <MobileNav docked gitOpen={mobileGitSheetOpen} onOpenDrawer={openDrawer} onOpenSettings={openSettings} onOpenSearch={openPalette} onOpenFiles={openMobileFiles} onOpenGit={openMobileGit} />
           </div>
           <div className={keyboardOpen ? 'block' : 'hidden'}>
-            <ShortcutBar mode="dock" />
+            <ShortcutBar mode="dock" onOpenFiles={openMobileFiles} />
           </div>
         </div>
       )}

@@ -1086,7 +1086,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
           <Chip onClick={() => updateHideDotFiles(!hideDotFiles)} tone={hideDotFiles ? 'default' : 'accent'} className="shrink-0 border">{t('file.dotfiles')}</Chip>
         </div>
       </div>}
-      {(!isMobile || mobileView === 'list') && <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-y-auto" onContextMenu={(e) => {
+      {(!isMobile || mobileView === 'list') && <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain" onContextMenu={(e) => {
         if ((e.target as HTMLElement).closest('button')) return
         e.preventDefault()
         showContextMenu(e.clientX, e.clientY, null, currentPath)

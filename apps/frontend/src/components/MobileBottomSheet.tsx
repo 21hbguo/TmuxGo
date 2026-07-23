@@ -43,7 +43,8 @@ export function MobileBottomSheet({
 
   return (
     <div
-      className={`fixed left-0 right-0 top-0 ${zClass}`}
+      className={`fixed left-0 right-0 top-0 overscroll-none ${zClass}`}
+      data-keep-mobile-keyboard
       style={{ height: 'var(--app-height,100dvh)' }}
       onClick={closeOnBackdrop ? onClose : undefined}
     >
@@ -54,7 +55,7 @@ export function MobileBottomSheet({
         role="dialog"
         aria-modal="true"
         aria-label={ariaLabel}
-        className={`tmuxgo-glass tmuxgo-glass-dialog absolute bottom-0 left-0 right-0 overflow-hidden border-t transition-transform duration-200 ease-out ${heightClass} ${closing ? 'translate-y-full' : ''}`}
+        className={`tmuxgo-glass tmuxgo-glass-dialog absolute bottom-0 left-0 right-0 overscroll-contain overflow-hidden border-t transition-transform duration-200 ease-out ${heightClass} ${closing ? 'translate-y-full' : ''}`}
         onClick={closeOnBackdrop ? (event) => event.stopPropagation() : undefined}
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >

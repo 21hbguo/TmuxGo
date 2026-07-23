@@ -17,7 +17,6 @@ import { requestTerminalSelection } from '@/lib/terminal-selection'
 import { DELETE_PREV_LINE_SEQUENCE, DELETE_PREV_WORD_SEQUENCE } from '@/lib/terminal-keys'
 import { WatchButton } from './PaneNotifications'
 import { KeyCap } from './KeyCap'
-import { MobilePathPicker } from './MobilePathPicker'
 
 const repeatDelay=420
 const repeatInterval=54
@@ -380,20 +379,18 @@ function renderDockButton(def:ActionButtonDef,controller:ReturnType<typeof useQu
   >{def.label}</KeyCap>
 }
 
-export function QuickActions({ mode='panel' }:{ mode?:QuickActionsMode }){
+export function QuickActions({ mode='panel', onOpenFiles }:{ mode?:QuickActionsMode; onOpenFiles?:()=>void }){
   const controller=useQuickActionController()
   const { t,activePaneId,shortcuts,recentShortcutButtons,addShortcut,removeShortcut,showModal,setShowModal,isMobile,confirmKillOpen,setConfirmKillOpen,pendingKillPaneId,setPendingKillPaneId,confirmKillPane,newWindowPromptOpen,setNewWindowPromptOpen,newWindowName,setNewWindowName,confirmCreateWindow,sendKey,primaryButtons,attachButton,dockCoreButtons }=controller
-  const [showPathPicker,setShowPathPicker]=useState(false)
   if(mode==='dock'){
     return (
       <>
         <div className="mobile-nav-landscape-hide relative z-40 flex-shrink-0 bg-bg-1 border-t border-[var(--line)] shadow-[0_-8px_24px_rgba(0,0,0,0.28)]">
-          {showPathPicker&&<MobilePathPicker onClose={()=>setShowPathPicker(false)} />}
           <div data-shortcut-bar data-keep-mobile-keyboard className="overflow-x-auto scrollbar-none pb-[env(safe-area-inset-bottom)]" style={{ minHeight:40 }} onPointerDownCapture={controller.startDockGesture} onPointerUpCapture={(e)=>controller.finishDockGesture(e.pointerId)} onPointerCancelCapture={(e)=>controller.finishDockGesture(e.pointerId)} onScroll={controller.trackDockScroll} onContextMenu={(e)=>e.preventDefault()}>
           <div className="flex gap-1 p-1.5 w-max min-h-[40px] items-center" onContextMenu={(e)=>e.preventDefault()}>
             {dockCoreButtons.map((def)=>renderDockButton(def,controller))}
             <div className="w-px bg-[var(--line)] mx-1 self-stretch" />
-            {renderDockButton({ key:'insert-path',label:t('file.insertPathCtx'),onPress:()=>setShowPathPicker((value)=>!value),tone:'accent' },controller)}
+            {renderDockButton({ key:'files',label:t('nav.files'),onPress:onOpenFiles,tone:'accent' },controller)}
             {primaryButtons.map((def)=>renderDockButton(def,controller))}
             <div className="w-px bg-[var(--line)] mx-1 self-stretch" />
             {renderDockButton(attachButton,controller)}
