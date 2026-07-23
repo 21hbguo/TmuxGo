@@ -306,7 +306,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
                   <button
                     key={window.id}
                     onClick={() => void handleSelectWindow(window.id)}
-                    className={`w-full rounded-apple p-3 text-left transition-colors ${window.active ? 'border border-accent bg-accent/20' : 'bg-bg-2 active:bg-bg-1'}`}
+                    className={`w-full rounded-apple p-3 text-left transition-colors ${window.active ? 'border border-accent bg-accent/10' : 'bg-bg-2 active:bg-bg-1'}`}
                   >
                     <div className="truncate text-text-1">{window.name}</div>
                     <div className="text-text-3 text-xs">#{window.index + 1}</div>

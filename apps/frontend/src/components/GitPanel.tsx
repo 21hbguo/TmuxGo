@@ -389,7 +389,7 @@ function BranchesTab({ hostId, repoPath, t }: { hostId: string; repoPath: string
       </div>
       {data.branches.map((b) => (
         <div key={b.name} className="group flex min-h-11 items-center gap-2 px-3 py-1.5 hover:bg-bg-2 lg:min-h-0">
-          <span className={`w-3 text-center text-meta ${b.current ? 'text-accent' : 'text-text-3'}`}>{b.current ? '●' : ''}</span>
+          <span className={`w-3 text-center text-meta ${b.current ? 'text-text-1' : 'text-text-2'}`}>{b.current ? '●' : ''}</span>
           <div className="min-w-0 flex-1">
             <div className={`truncate text-meta ${b.current ? 'font-semibold text-accent' : 'text-text-1'}`}>{b.name}</div>
             {b.lastCommitSubject && <div className="truncate text-caption text-text-3">{b.lastCommitSubject}</div>}
@@ -580,7 +580,7 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
         <>
           <div className="flex border-b border-[var(--line)]">
             {(['status', 'history', 'branches'] as const).map((tab) => (
-              <button key={tab} onClick={() => setActiveTab(tab)} className={`min-h-11 flex-1 py-1.5 text-meta font-medium transition-colors lg:min-h-0 ${activeTab === tab ? 'border-b border-accent text-accent' : 'text-text-3 hover:text-text-1'}`}>
+              <button key={tab} onClick={() => setActiveTab(tab)} className={`min-h-11 flex-1 py-1.5 text-meta font-medium transition-colors lg:min-h-0 ${activeTab === tab ? 'border-b border-accent text-text-1' : 'text-text-2 hover:text-text-1'}`}>
                 {t(`git.${tab}`)}{tab === 'status' && statusCount > 0 ? ` ${statusCount}` : ''}
               </button>
             ))}

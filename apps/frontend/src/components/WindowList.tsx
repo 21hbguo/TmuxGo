@@ -72,7 +72,7 @@ export function WindowList() {
             draggedItem?.id === window.id
               ? 'opacity-50'
               : dragOverItem?.id === window.id
-              ? 'bg-accent/20 border border-accent'
+              ? 'bg-accent/10 border border-accent'
               : 'bg-bg-2 hover:bg-bg-1 text-text-2'
           }`}
         >
