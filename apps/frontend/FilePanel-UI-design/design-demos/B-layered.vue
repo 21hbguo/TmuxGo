@@ -1,0 +1,832 @@
+<template>
+  <div class="file-panel">
+    <div class="glass-layer layer-1"></div>
+    <div class="glass-layer layer-2"></div>
+    <div class="glass-layer layer-3"></div>
+    
+    <div class="panel-content">
+      <div class="toolbar">
+        <div class="root-selector">
+          <div class="glass-card selector-card">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+            </svg>
+            <span class="root-path">/home/guo/project/TmuxGo</span>
+            <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+          </div>
+        </div>
+        <div class="toolbar-actions">
+          <button class="glass-btn upload-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+            </svg>
+          </button>
+          <button class="glass-btn trash-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="3 6 5 6 21 6"/>
+              <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="search-bar">
+        <div class="glass-card search-container">
+          <div class="search-tabs">
+            <button :class="['tab', { active: searchMode === 'name' }]" @click="searchMode = 'name'">名称</button>
+            <button :class="['tab', { active: searchMode === 'content' }]" @click="searchMode = 'content'">内容</button>
+          </div>
+          <div class="search-input-wrapper">
+            <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"/>
+              <path d="M21 21l-4.35-4.35"/>
+            </svg>
+            <input type="text" class="search-input" placeholder="搜索文件..." v-model="searchQuery"/>
+            <button v-if="searchQuery" class="clear-btn" @click="searchQuery = ''">×</button>
+          </div>
+          <div class="sort-control">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M3 4h13M3 8h9M3 12h5M17 16l3 3 3-3M17 12v8"/>
+            </svg>
+          </div>
+        </div>
+      </div>
+
+      <div class="filter-bar">
+        <div class="glass-card filter-container">
+          <div class="filter-tabs">
+            <button :class="['filter-tab', { active: fileFilter === 'all' }]" @click="fileFilter = 'all'">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="7" height="7"/>
+                <rect x="14" y="3" width="7" height="7"/>
+                <rect x="14" y="14" width="7" height="7"/>
+                <rect x="3" y="14" width="7" height="7"/>
+              </svg>
+              全部
+            </button>
+            <button :class="['filter-tab', { active: fileFilter === 'file' }]" @click="fileFilter = 'file'">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+              </svg>
+              文件
+            </button>
+            <button :class="['filter-tab', { active: fileFilter === 'directory' }]" @click="fileFilter = 'directory'">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+              </svg>
+              文件夹
+            </button>
+          </div>
+          <div class="toggle-wrapper">
+            <span class="toggle-label">隐藏文件</span>
+            <button :class="['toggle-switch', { active: showHidden }]" @click="showHidden = !showHidden">
+              <span class="toggle-knob"></span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="file-list-container">
+        <div class="glass-card file-list-card">
+          <div class="file-tree">
+            <div
+              v-for="item in filteredFiles"
+              :key="item.path"
+              :class="['file-item', { selected: selectedFile === item.path, expanded: item.expanded, 'is-directory': item.isDirectory }]"
+              @click="selectFile(item)"
+              @contextmenu.prevent="showContextMenu($event, item)"
+            >
+              <div class="item-indent" :style="{ width: item.level * 16 + 'px' }"></div>
+              <button v-if="item.isDirectory" class="expand-btn" @click.stop="toggleExpand(item)">
+                <svg :class="['expand-icon', { rotated: item.expanded }]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="9 18 15 12 9 6"/>
+                </svg>
+              </button>
+              <div v-else class="expand-placeholder"></div>
+              <div class="file-icon">
+                <svg v-if="item.isDirectory" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+                </svg>
+                <svg v-else-if="item.icon === 'vue'" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M2.3 2.3L12 12l9.7-9.7 2.3 2.3L12 12l2.3 2.3-2.3 2.3L12 12 2.3 2.3z"/>
+                </svg>
+                <svg v-else-if="item.icon === 'ts'" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M3 3h18v18H3V3zm16.5 16.5v-6h-3v-3h-3v3h-3v-3h3v-6h3v6h3v3h-3v3h6v-6h-3z"/>
+                </svg>
+                <svg v-else-if="item.icon === 'md'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                  <polyline points="14 2 14 8 20 8"/>
+                  <line x1="16" y1="13" x2="8" y2="13"/>
+                  <line x1="16" y1="17" x2="8" y2="17"/>
+                  <polyline points="10 9 9 9 8 9"/>
+                </svg>
+                <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                  <polyline points="14 2 14 8 20 8"/>
+                </svg>
+              </div>
+              <span class="file-name">{{ item.name }}</span>
+              <span v-if="item.isDirectory" class="file-count">{{ item.children?.length || 0 }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="contextMenu.visible" class="context-menu" :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }">
+        <div class="glass-card context-menu-card">
+          <button class="menu-item" @click="hideContextMenu">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
+              <polyline points="15 3 21 3 21 9"/>
+              <line x1="10" y1="14" x2="21" y2="3"/>
+            </svg>
+            打开
+          </button>
+          <button class="menu-item" @click="hideContextMenu">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="5" x2="12" y2="19"/>
+              <polyline points="19 12 12 19 5 12"/>
+            </svg>
+            插入
+          </button>
+          <button class="menu-item" @click="hideContextMenu">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+              <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+            </svg>
+            复制路径
+          </button>
+          <button class="menu-item" @click="hideContextMenu">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 14l-5-5L5 20"/>
+              <path d="M16 4h5v5"/>
+            </svg>
+            移动到
+          </button>
+          <div class="menu-divider"></div>
+          <button class="menu-item delete" @click="hideContextMenu">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="3 6 5 6 21 6"/>
+              <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+              <line x1="10" y1="11" x2="10" y2="17"/>
+              <line x1="14" y1="11" x2="14" y2="17"/>
+            </svg>
+            删除
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref, computed } from 'vue'
+
+const searchMode = ref('name')
+const searchQuery = ref('')
+const fileFilter = ref('all')
+const showHidden = ref(false)
+const selectedFile = ref('')
+const contextMenu = ref({ visible: false, x: 0, y: 0, item: null })
+
+const files = ref([
+  {
+    name: 'src',
+    path: '/src',
+    isDirectory: true,
+    expanded: true,
+    level: 0,
+    icon: 'folder',
+    children: [
+      {
+        name: 'components',
+        path: '/src/components',
+        isDirectory: true,
+        expanded: false,
+        level: 1,
+        icon: 'folder',
+        children: [
+          { name: 'FilePanel.vue', path: '/src/components/FilePanel.vue', isDirectory: false, level: 2, icon: 'vue' },
+          { name: 'ContextMenu.vue', path: '/src/components/ContextMenu.vue', isDirectory: false, level: 2, icon: 'vue' },
+          { name: 'TreeView.vue', path: '/src/components/TreeView.vue', isDirectory: false, level: 2, icon: 'vue' }
+        ]
+      },
+      {
+        name: 'utils',
+        path: '/src/utils',
+        isDirectory: true,
+        expanded: false,
+        level: 1,
+        icon: 'folder',
+        children: [
+          { name: 'fileSystem.ts', path: '/src/utils/fileSystem.ts', isDirectory: false, level: 2, icon: 'ts' },
+          { name: 'parser.ts', path: '/src/utils/parser.ts', isDirectory: false, level: 2, icon: 'ts' }
+        ]
+      },
+      {
+        name: 'types',
+        path: '/src/types',
+        isDirectory: true,
+        expanded: false,
+        level: 1,
+        icon: 'folder',
+        children: [
+          { name: 'index.ts', path: '/src/types/index.ts', isDirectory: false, level: 2, icon: 'ts' }
+        ]
+      },
+      { name: 'App.vue', path: '/src/App.vue', isDirectory: false, level: 1, icon: 'vue' },
+      { name: 'main.ts', path: '/src/main.ts', isDirectory: false, level: 1, icon: 'ts' }
+    ]
+  },
+  {
+    name: 'docs',
+    path: '/docs',
+    isDirectory: true,
+    expanded: false,
+    level: 0,
+    icon: 'folder',
+    children: [
+      { name: 'README.md', path: '/docs/README.md', isDirectory: false, level: 1, icon: 'md' },
+      { name: 'API.md', path: '/docs/API.md', isDirectory: false, level: 1, icon: 'md' }
+    ]
+  },
+  {
+    name: '.gitignore',
+    path: '/.gitignore',
+    isDirectory: false,
+    level: 0,
+    icon: 'file'
+  },
+  {
+    name: 'package.json',
+    path: '/package.json',
+    isDirectory: false,
+    level: 0,
+    icon: 'file'
+  },
+  {
+    name: 'tsconfig.json',
+    path: '/tsconfig.json',
+    isDirectory: false,
+    level: 0,
+    icon: 'ts'
+  }
+])
+
+const flattenFiles = (items, result = []) => {
+  for (const item of items) {
+    result.push(item)
+    if (item.isDirectory && item.expanded && item.children) {
+      flattenFiles(item.children, result)
+    }
+  }
+  return result
+}
+
+const filteredFiles = computed(() => {
+  let result = flattenFiles(files.value)
+  
+  if (!showHidden.value) {
+    result = result.filter(f => !f.name.startsWith('.'))
+  }
+  
+  if (fileFilter.value === 'file') {
+    result = result.filter(f => !f.isDirectory)
+  } else if (fileFilter.value === 'directory') {
+    result = result.filter(f => f.isDirectory)
+  }
+  
+  if (searchQuery.value) {
+    const query = searchQuery.value.toLowerCase()
+    result = result.filter(f => f.name.toLowerCase().includes(query))
+  }
+  
+  return result
+})
+
+const selectFile = (item) => {
+  selectedFile.value = item.path
+}
+
+const toggleExpand = (item) => {
+  item.expanded = !item.expanded
+}
+
+const showContextMenu = (event, item) => {
+  selectedFile.value = item.path
+  contextMenu.value = {
+    visible: true,
+    x: event.clientX,
+    y: event.clientY,
+    item
+  }
+}
+
+const hideContextMenu = () => {
+  contextMenu.value.visible = false
+}
+</script>
+
+<style scoped>
+.file-panel {
+  position: relative;
+  width: 340px;
+  height: 600px;
+  background: linear-gradient(145deg, rgb(12, 13, 15) 0%, rgb(18, 20, 24) 100%);
+  border-radius: 24px;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+}
+
+.glass-layer {
+  position: absolute;
+  inset: 0;
+  border-radius: 24px;
+  pointer-events: none;
+}
+
+.layer-1 {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.layer-2 {
+  background: linear-gradient(135deg, rgba(10, 132, 255, 0.08) 0%, rgba(255, 255, 255, 0.04) 100%);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 
+    0 8px 32px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+
+.layer-3 {
+  background: radial-gradient(ellipse at 30% 20%, rgba(10, 132, 255, 0.1) 0%, transparent 50%);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.panel-content {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  gap: 12px;
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.11);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 14px;
+  box-shadow: 
+    0 4px 16px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.glass-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 10px;
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.glass-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(10, 132, 255, 0.5);
+  box-shadow: 0 0 12px rgba(10, 132, 255, 0.3);
+}
+
+.glass-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.root-selector {
+  flex: 1;
+}
+
+.selector-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.selector-card:hover {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(10, 132, 255, 0.4);
+}
+
+.selector-card .icon {
+  width: 16px;
+  height: 16px;
+  color: rgb(10, 132, 255);
+}
+
+.root-path {
+  flex: 1;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.8);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chevron {
+  width: 14px;
+  height: 14px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.toolbar-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.search-container {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  gap: 10px;
+}
+
+.search-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+}
+
+.tab {
+  padding: 4px 10px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.6);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.tab.active {
+  background: rgba(10, 132, 255, 0.7);
+  color: white;
+  box-shadow: 0 2px 8px rgba(10, 132, 255, 0.4);
+}
+
+.search-input-wrapper {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.search-icon {
+  width: 14px;
+  height: 14px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.search-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.search-input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.clear-btn {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  border-radius: 50%;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.sort-control {
+  padding: 6px;
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.sort-control:hover {
+  background: rgba(10, 132, 255, 0.3);
+}
+
+.sort-control svg {
+  width: 16px;
+  height: 16px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.filter-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+}
+
+.filter-tabs {
+  display: flex;
+  gap: 6px;
+}
+
+.filter-tab {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.filter-tab svg {
+  width: 13px;
+  height: 13px;
+}
+
+.filter-tab.active {
+  background: rgba(10, 132, 255, 0.25);
+  border-color: rgba(10, 132, 255, 0.5);
+  color: rgb(10, 132, 255);
+  box-shadow: 0 0 10px rgba(10, 132, 255, 0.2);
+}
+
+.toggle-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toggle-label {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.toggle-switch {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 11px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.toggle-switch.active {
+  background: rgba(10, 132, 255, 0.5);
+  border-color: rgba(10, 132, 255, 0.7);
+  box-shadow: 0 0 12px rgba(10, 132, 255, 0.4);
+}
+
+.toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 50%;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.toggle-switch.active .toggle-knob {
+  left: 20px;
+  background: white;
+  box-shadow: 0 0 8px rgba(10, 132, 255, 0.6);
+}
+
+.file-list-container {
+  flex: 1;
+  min-height: 0;
+}
+
+.file-list-card {
+  height: 100%;
+  overflow: hidden;
+}
+
+.file-tree {
+  height: 100%;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.file-tree::-webkit-scrollbar {
+  width: 6px;
+}
+
+.file-tree::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+}
+
+.file-tree::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+
+.file-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 7px 10px;
+  margin: 2px 0;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
+}
+
+.file-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.file-item.selected {
+  background: rgba(10, 132, 255, 0.2);
+  border-color: rgba(10, 132, 255, 0.4);
+  box-shadow: 
+    0 0 12px rgba(10, 132, 255, 0.2),
+    inset 0 1px 0 rgba(10, 132, 255, 0.2);
+}
+
+.item-indent {
+  flex-shrink: 0;
+}
+
+.expand-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.expand-placeholder {
+  width: 16px;
+  height: 16px;
+}
+
+.expand-icon {
+  width: 12px;
+  height: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  transition: transform 0.2s ease;
+}
+
+.expand-icon.rotated {
+  transform: rotate(90deg);
+}
+
+.file-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.file-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.is-directory .file-icon svg {
+  color: rgb(10, 132, 255);
+}
+
+.file-item:not(.is-directory) .file-icon svg {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.file-name {
+  flex: 1;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.85);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.is-directory .file-name {
+  color: rgba(255, 255, 255, 0.95);
+  font-weight: 500;
+}
+
+.file-count {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.4);
+  padding: 2px 6px;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 6px;
+}
+
+.context-menu {
+  position: fixed;
+  z-index: 1000;
+}
+
+.context-menu-card {
+  min-width: 160px;
+  padding: 6px;
+  background: rgba(24, 25, 28, 0.95);
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.85);
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+}
+
+.menu-item:hover {
+  background: rgba(10, 132, 255, 0.2);
+  border: 1px solid rgba(10, 132, 255, 0.3);
+}
+
+.menu-item.delete:hover {
+  background: rgba(255, 69, 58, 0.2);
+  border-color: rgba(255, 69, 58, 0.3);
+  color: rgb(255, 69, 58);
+}
+
+.menu-item svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.menu-divider {
+  height: 1px;
+  margin: 6px 8px;
+  background: rgba(255, 255, 255, 0.1);
+}
+</style>

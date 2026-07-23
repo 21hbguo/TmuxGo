@@ -3,7 +3,7 @@ import { api } from '@/lib/api'
 import type { UiPreferences } from '@/types'
 
 export type Language = 'zh' | 'en'
-const PREFERENCES_VERSION = 2
+export const PREFERENCES_VERSION = 2
 const STORAGE_KEY = 'tmuxgo-preferences'
 const STORAGE_UPDATED_AT_KEY = 'tmuxgo-preferences-updated-at'
 const PROFILE = 'default'

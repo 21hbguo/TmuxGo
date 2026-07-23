@@ -64,7 +64,7 @@ export function GitHistoryGraph({ commits, branchHeads, currentBranch, hasMore, 
     const tooltipText=[row.commit.subject||row.commit.shortSha,`${row.commit.shortSha} · ${row.commit.author.name}`,committedLabel,authoredLabel].filter(Boolean).join('\n')
     const matchesSearch=!!normalizedSearch&&[row.commit.sha,row.commit.shortSha,row.commit.subject,row.commit.author.name,row.commit.author.email||'',...row.branches.map((branch)=>branch.name)].some((value)=>value.toLocaleLowerCase().includes(normalizedSearch))
     return (
-      <button key={row.commit.sha} type="button" title={tooltipText} data-git-search-match={matchesSearch?'1':undefined} onClick={()=>onCommitClick(row.commit)} className={`flex h-[54px] w-full items-stretch gap-3 border-l-2 px-0 py-0 text-left transition-colors ${matchesSearch?'border-accent bg-accent/[0.08]':'border-transparent hover:bg-bg-2'}`}>
+      <button key={row.commit.sha} type="button" tabIndex={-1} title={tooltipText} data-git-search-match={matchesSearch?'1':undefined} onClick={()=>onCommitClick(row.commit)} className={`flex h-[54px] w-full items-stretch gap-3 border-l-2 px-0 py-0 text-left transition-colors ${matchesSearch?'border-accent bg-accent/[0.08]':'border-transparent hover:bg-bg-2'}`}>
         <div className="shrink-0" style={{ width: graphWidth, height: rowHeight }} />
         <div className="min-w-0 flex-1 border-b border-[var(--line)]/50 pr-3">
           <div className="flex h-full flex-col justify-center">

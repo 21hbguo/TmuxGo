@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FilePanel iOS 27 液态玻璃风格 - 极致质感</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: linear-gradient(135deg, #0c0d0f 0%, #18191c 100%);
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+      min-height: 100vh;
+    }
+    .demo-container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .svg-filters {
+      position: absolute;
+      width: 0;
+      height: 0;
+      overflow: hidden;
+    }
+    .orb-bg {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      pointer-events: none;
+    }
+    .orb {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(100px);
+      opacity: 0.5;
+      animation: float 25s ease-in-out infinite;
+    }
+    .orb-1 {
+      width: 700px;
+      height: 700px;
+      background: radial-gradient(circle, rgba(99, 102, 241, 0.7) 0%, rgba(99, 102, 241, 0) 70%);
+      top: -250px;
+      left: -150px;
+      animation-delay: 0s;
+    }
+    .orb-2 {
+      width: 600px;
+      height: 600px;
+      background: radial-gradient(circle, rgba(6, 182, 212, 0.65) 0%, rgba(6, 182, 212, 0) 70%);
+      top: 15%;
+      right: -180px;
+      animation-delay: -6s;
+    }
+    .orb-3 {
+      width: 650px;
+      height: 650px;
+      background: radial-gradient(circle, rgba(168, 85, 247, 0.6) 0%, rgba(168, 85, 247, 0) 70%);
+      bottom: -250px;
+      left: 15%;
+      animation-delay: -12s;
+    }
+    .orb-4 {
+      width: 500px;
+      height: 500px;
+      background: radial-gradient(circle, rgba(236, 72, 153, 0.5) 0%, rgba(236, 72, 153, 0) 70%);
+      bottom: 10%;
+      right: 5%;
+      animation-delay: -18s;
+    }
+    @keyframes float {
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      25% { transform: translate(40px, -50px) scale(1.05); }
+      50% { transform: translate(-30px, 30px) scale(0.95); }
+      75% { transform: translate(50px, 40px) scale(1.03); }
+    }
+    .panel-wrapper {
+      position: relative;
+      width: 400px;
+      max-height: 90vh;
+      z-index: 10;
+    }
+    .file-panel {
+      width: 100%;
+      max-height: 90vh;
+      border-radius: 28px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+    .glass-liquid {
+      background: rgba(255, 255, 255, 0.06);
+      backdrop-filter: blur(24px) saturate(180%);
+      -webkit-backdrop-filter: blur(24px) saturate(180%);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.35),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.1),
+        0 8px 32px rgba(0, 0, 0, 0.4),
+        0 0 0 1px rgba(255, 255, 255, 0.05);
+      position: relative;
+      overflow: hidden;
+    }
+    .glass-liquid::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+      opacity: 0.03;
+      pointer-events: none;
+      mix-blend-mode: overlay;
+    }
+    .glass-liquid::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.5), transparent);
+      pointer-events: none;
+    }
+    .shimmer {
+      position: absolute;
+      top: 0;
+      left: -100%;
+      width: 60%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+      transform: skewX(-20deg);
+      pointer-events: none;
+      transition: none;
+    }
+    .glass-liquid:hover .shimmer {
+      animation: shimmer-flow 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+    }
+    @keyframes shimmer-flow {
+      0% { left: -100%; opacity: 0; }
+      30% { opacity: 1; }
+      70% { opacity: 1; }
+      100% { left: 200%; opacity: 0; }
+    }
+    .mouse-highlight {
+      position: absolute;
+      width: 300px;
+      height: 300px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(255,255,255,0.12) 0%, transparent 70%);
+      pointer-events: none;
+      transform: translate(-50%, -50%);
+      transition: opacity 0.3s;
+      opacity: 0;
+      filter: blur(20px);
+    }
+    .glass-liquid:hover .mouse-highlight {
+      opacity: 1;
+    }
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 14px 16px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      position: relative;
+    }
+    .root-selector {
+      flex: 1;
+      min-width: 0;
+      height: 34px;
+      padding: 0 12px;
+      border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.9);
+      font-size: 12px;
+      cursor: pointer;
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      transition: all 0.2s ease;
+      font-family: inherit;
+    }
+    .root-selector:hover {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(255, 255, 255, 0.25);
+    }
+    .glass-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 7px 14px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      background: rgba(255, 255, 255, 0.1);
+      color: rgba(255, 255, 255, 0.85);
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      position: relative;
+    }
+    .glass-chip::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: rgba(255,255,255,0.4);
+      border-radius: 999px 999px 0 0;
+    }
+    .glass-chip:hover {
+      background: rgba(255, 255, 255, 0.18);
+      border-color: rgba(255, 255, 255, 0.3);
+      transform: scale(1.03);
+    }
+    .glass-chip:active {
+      transform: scale(0.97);
+    }
+    .glass-icon-btn {
+      width: 34px;
+      height: 34px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(255, 255, 255, 0.06);
+      color: rgba(255, 255, 255, 0.7);
+      font-size: 15px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+    }
+    .glass-icon-btn:hover {
+      background: rgba(255, 255, 255, 0.14);
+      border-color: rgba(255, 255, 255, 0.25);
+      color: rgba(255, 255, 255, 0.95);
+    }
+    .search-bar {
+      padding: 12px 16px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      position: relative;
+    }
+    .search-mode-toggle {
+      display: flex;
+      border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(0, 0, 0, 0.2);
+      padding: 4px;
+      margin-bottom: 10px;
+    }
+    .mode-btn {
+      flex: 1;
+      padding: 7px 14px;
+      border: none;
+      border-radius: 10px;
+      background: transparent;
+      color: rgba(255, 255, 255, 0.6);
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .mode-btn.active {
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.4), rgba(6, 182, 212, 0.4));
+      color: rgba(255, 255, 255, 0.95);
+      box-shadow: 0 2px 10px rgba(99, 102, 241, 0.3);
+    }
+    .search-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .search-input {
+      flex: 1;
+      min-width: 0;
+      height: 34px;
+      padding: 0 14px;
+      border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(0, 0, 0, 0.25);
+      color: rgba(255, 255, 255, 0.9);
+      font-size: 12px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+    }
+    .search-input::placeholder { color: rgba(255, 255, 255, 0.4); }
+    .search-input:focus {
+      outline: none;
+      border-color: rgba(99, 102, 241, 0.5);
+      background: rgba(0, 0, 0, 0.35);
+    }
+    .sort-select {
+      height: 34px;
+      padding: 0 10px;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(0, 0, 0, 0.25);
+      color: rgba(255, 255, 255, 0.8);
+      font-size: 11px;
+      cursor: pointer;
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+    }
+    .sort-dir {
+      font-size: 18px;
+      font-weight: bold;
+    }
+    .filter-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      position: relative;
+    }
+    .filter-toggle {
+      display: flex;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(0, 0, 0, 0.15);
+      padding: 3px;
+    }
+    .filter-btn {
+      padding: 6px 12px;
+      border: none;
+      border-radius: 9px;
+      background: transparent;
+      color: rgba(255, 255, 255, 0.55);
+      font-size: 10px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .filter-btn.active {
+      background: linear-gradient(135deg, rgba(168, 85, 247, 0.4), rgba(236, 72, 153, 0.3));
+      color: rgba(255, 255, 255, 0.95);
+    }
+    .dotfiles-toggle {
+      padding: 6px 12px;
+      font-size: 10px;
+    }
+    .dotfiles-toggle .toggle-indicator {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.3);
+      transition: all 0.2s ease;
+    }
+    .dotfiles-toggle.active .toggle-indicator {
+      background: rgba(6, 182, 212, 0.9);
+      box-shadow: 0 0 10px rgba(6, 182, 212, 0.7);
+    }
+    .file-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px 14px;
+      min-height: 320px;
+      max-height: 55vh;
+    }
+    .file-list::-webkit-scrollbar { width: 8px; }
+    .file-list::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 4px;
+    }
+    .file-list::-webkit-scrollbar-thumb {
+      background: linear-gradient(180deg, rgba(99, 102, 241, 0.6), rgba(6, 182, 212, 0.5));
+      border-radius: 4px;
+    }
+    .tree-node {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 10px;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      color: rgba(255, 255, 255, 0.75);
+      font-size: 12px;
+      position: relative;
+    }
+    .tree-node::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 10px;
+      background: linear-gradient(135deg, rgba(255,255,255,0.08), transparent);
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    .tree-node:hover::before { opacity: 1; }
+    .tree-node:hover {
+      background: rgba(255, 255, 255, 0.06);
+    }
+    .tree-node.selected {
+      background: rgba(99, 102, 241, 0.2);
+      border: 1px solid rgba(99, 102, 241, 0.35);
+      color: rgba(255, 255, 255, 0.95);
+    }
+    .expand-btn {
+      width: 16px;
+      height: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: none;
+      background: transparent;
+      color: rgba(255, 255, 255, 0.5);
+      font-size: 8px;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .expand-btn:hover { color: rgba(255, 255, 255, 0.9); }
+    .file-icon {
+      font-size: 11px;
+      width: 16px;
+      text-align: center;
+      flex-shrink: 0;
+    }
+    .file-icon.folder { color: #fbbf24; }
+    .file-icon.image { color: #38bdf8; }
+    .file-icon.code { color: #a5b4fc; }
+    .file-icon.markdown { color: #4ade80; }
+    .file-icon.config { color: #facc15; }
+    .file-icon.default { color: rgba(255, 255, 255, 0.5); }
+    .file-name {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 11px;
+    }
+    .file-meta {
+      font-size: 9px;
+      color: rgba(255, 255, 255, 0.4);
+      flex-shrink: 0;
+    }
+    .file-meta.selected-badge {
+      padding: 2px 7px;
+      border-radius: 5px;
+      background: rgba(6, 182, 212, 0.25);
+      color: #22d3ee;
+    }
+    .file-meta.dotfile {
+      padding: 2px 5px;
+      border-radius: 4px;
+      background: rgba(168, 85, 247, 0.2);
+      color: rgba(168, 85, 247, 0.9);
+    }
+    .tree-children { padding-left: 22px; }
+    .glass-menu {
+      position: fixed;
+      width: 190px;
+      border-radius: 18px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      background: rgba(20, 20, 30, 0.88);
+      backdrop-filter: blur(30px) saturate(180%);
+      -webkit-backdrop-filter: blur(30px) saturate(180%);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.35),
+        0 25px 80px rgba(0, 0, 0, 0.5),
+        0 0 50px rgba(99, 102, 241, 0.15);
+      padding: 8px;
+      display: none;
+      z-index: 1000;
+    }
+    .menu-item {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      width: 100%;
+      padding: 9px 14px;
+      border: none;
+      border-radius: 11px;
+      background: transparent;
+      color: rgba(255, 255, 255, 0.8);
+      font-size: 12px;
+      text-align: left;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .menu-item:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: rgba(255, 255, 255, 0.95);
+    }
+    .menu-item.danger { color: rgba(248, 113, 113, 0.9); }
+    .menu-item.danger:hover {
+      background: rgba(248, 113, 113, 0.15);
+      color: rgb(248, 113, 113);
+    }
+    .menu-icon {
+      font-size: 15px;
+      width: 20px;
+      text-align: center;
+    }
+    .menu-divider {
+      height: 1px;
+      background: rgba(255, 255, 255, 0.1);
+      margin: 5px 10px;
+    }
+    .demo-title {
+      position: absolute;
+      bottom: 50px;
+      left: 50%;
+      transform: translateX(-50%);
+      text-align: center;
+    }
+    .demo-badge {
+      display: inline-block;
+      padding: 5px 16px;
+      border-radius: 999px;
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.6), rgba(6, 182, 212, 0.6));
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      margin-bottom: 14px;
+    }
+    .demo-title h1 {
+      font-size: 26px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      background: linear-gradient(135deg, #fff 0%, rgba(255, 255, 255, 0.7) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .demo-title p {
+      font-size: 13px;
+      color: rgba(255, 255, 255, 0.5);
+    }
+  </style>
+</head>
+<body>
+  <svg class="svg-filters">
+    <defs>
+      <filter id="liquid-glass" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur in="SourceGraphic" stdDeviation="20" result="blur"/>
+        <feOffset in="blur" dx="1" dy="0" result="refract-r"/>
+        <feOffset in="blur" dx="-1" dy="0" result="refract-b"/>
+        <feOffset in="blur" dx="0" dy="1" result="refract-g"/>
+        <feBlend in="refract-r" in2="SourceGraphic" mode="screen" result="r"/>
+        <feBlend in="refract-g" in2="r" mode="screen" result="g"/>
+        <feBlend in="refract-b" in2="g" mode="screen"/>
+      </filter>
+    </defs>
+  </svg>
+
+  <div class="demo-container">
+    <div class="orb-bg">
+      <div class="orb orb-1"></div>
+      <div class="orb orb-2"></div>
+      <div class="orb orb-3"></div>
+      <div class="orb orb-4"></div>
+    </div>
+
+    <div class="panel-wrapper">
+      <aside class="file-panel glass-liquid">
+        <div class="shimmer"></div>
+        <div class="mouse-highlight" id="mouseHighlight"></div>
+
+        <div class="toolbar">
+          <select class="root-selector">
+            <option value="workspace">/workspace</option>
+            <option value="home">/home</option>
+          </select>
+          <button class="glass-chip">
+            <span>↑</span>
+            <span>上传</span>
+          </button>
+          <button class="glass-chip">
+            <span>♻</span>
+            <span>回收站</span>
+          </button>
+          <button class="glass-icon-btn">×</button>
+        </div>
+
+        <div class="search-bar">
+          <div class="search-mode-toggle">
+            <button class="mode-btn active" data-mode="name">名称</button>
+            <button class="mode-btn" data-mode="content">内容</button>
+          </div>
+          <div class="search-row">
+            <input type="text" class="search-input" placeholder="搜索文件名..." value="config" />
+            <button class="glass-icon-btn">⌂</button>
+            <button class="glass-icon-btn">×</button>
+            <select class="sort-select">
+              <option value="name">名称</option>
+              <option value="size">大小</option>
+              <option value="modified">修改</option>
+            </select>
+            <button class="glass-icon-btn sort-dir">↑</button>
+          </div>
+        </div>
+
+        <div class="filter-bar">
+          <div class="filter-toggle">
+            <button class="filter-btn active" data-filter="all">全部</button>
+            <button class="filter-btn" data-filter="file">文件</button>
+            <button class="filter-btn" data-filter="directory">目录</button>
+          </div>
+          <button class="glass-chip dotfiles-toggle active">
+            <span class="toggle-indicator"></span>
+            隐藏文件
+          </button>
+        </div>
+
+        <div class="file-list">
+          <div class="tree-node">
+            <button class="expand-btn">▾</button>
+            <span class="file-icon folder">▣</span>
+            <span class="file-name">src</span>
+            <span class="file-meta"></span>
+          </div>
+          <div class="tree-children">
+            <div class="tree-node">
+              <button class="expand-btn">▾</button>
+              <span class="file-icon folder">▣</span>
+              <span class="file-name">components</span>
+            </div>
+            <div class="tree-children">
+              <div class="tree-node">
+                <button class="expand-btn"></button>
+                <span class="file-icon image">▧</span>
+                <span class="file-name">logo.png</span>
+                <span class="file-meta">2.4KB</span>
+              </div>
+              <div class="tree-node">
+                <button class="expand-btn"></button>
+                <span class="file-icon code">&lt;&gt;</span>
+                <span class="file-name">Header.tsx</span>
+                <span class="file-meta">4.2KB</span>
+              </div>
+              <div class="tree-node selected">
+                <button class="expand-btn"></button>
+                <span class="file-icon config">&lt;/&gt;</span>
+                <span class="file-name">config.json</span>
+                <span class="file-meta selected-badge">选中</span>
+              </div>
+              <div class="tree-node">
+                <button class="expand-btn"></button>
+                <span class="file-icon markdown">M</span>
+                <span class="file-name">README.md</span>
+                <span class="file-meta">12KB</span>
+              </div>
+            </div>
+            <div class="tree-node">
+              <button class="expand-btn">▸</button>
+              <span class="file-icon folder">▣</span>
+              <span class="file-name">utils</span>
+            </div>
+            <div class="tree-node">
+              <button class="expand-btn"></button>
+              <span class="file-icon code">&lt;&gt;</span>
+              <span class="file-name">index.ts</span>
+              <span class="file-meta">8.6KB</span>
+            </div>
+            <div class="tree-node">
+              <button class="expand-btn"></button>
+              <span class="file-icon code">&lt;&gt;</span>
+              <span class="file-name">App.tsx</span>
+              <span class="file-meta">2.1KB</span>
+            </div>
+          </div>
+          <div class="tree-node">
+            <button class="expand-btn">▸</button>
+            <span class="file-icon folder">▣</span>
+            <span class="file-name">node_modules</span>
+          </div>
+          <div class="tree-node">
+            <button class="expand-btn"></button>
+            <span class="file-icon default">□</span>
+            <span class="file-name">package.json</span>
+            <span class="file-meta">1.8KB</span>
+          </div>
+          <div class="tree-node">
+            <button class="expand-btn"></button>
+            <span class="file-icon default">□</span>
+            <span class="file-name">tsconfig.json</span>
+            <span class="file-meta">0.8KB</span>
+          </div>
+          <div class="tree-node">
+            <button class="expand-btn"></button>
+            <span class="file-icon default">□</span>
+            <span class="file-name">.gitignore</span>
+            <span class="file-meta dotfile">隐藏</span>
+          </div>
+          <div class="tree-node">
+            <button class="expand-btn"></button>
+            <span class="file-icon default">□</span>
+            <span class="file-name">.env.local</span>
+            <span class="file-meta dotfile">隐藏</span>
+          </div>
+        </div>
+
+        <div class="glass-menu" id="contextMenu">
+          <button class="menu-item">
+            <span class="menu-icon">📂</span>
+            <span>打开</span>
+          </button>
+          <button class="menu-item">
+            <span class="menu-icon">↵</span>
+            <span>插入路径</span>
+          </button>
+          <div class="menu-divider"></div>
+          <button class="menu-item">
+            <span class="menu-icon">⎘</span>
+            <span>复制名称</span>
+          </button>
+          <button class="menu-item">
+            <span class="menu-icon">⊞</span>
+            <span>复制路径</span>
+          </button>
+          <div class="menu-divider"></div>
+          <button class="menu-item">
+            <span class="menu-icon">📋</span>
+            <span>复制</span>
+          </button>
+          <button class="menu-item">
+            <span class="menu-icon">✂</span>
+            <span>移动</span>
+          </button>
+          <button class="menu-item">
+            <span class="menu-icon">✏</span>
+            <span>重命名</span>
+          </button>
+          <div class="menu-divider"></div>
+          <button class="menu-item danger">
+            <span class="menu-icon">🗑</span>
+            <span>删除</span>
+          </button>
+        </div>
+      </aside>
+    </div>
+
+    <div class="demo-title">
+      <span class="demo-badge">iOS 27</span>
+      <h1>极致质感液态玻璃</h1>
+      <p>FilePanel Premium UI Prototype</p>
+    </div>
+  </div>
+
+  <script>
+    const panel = document.querySelector('.glass-liquid');
+    const highlight = document.getElementById('mouseHighlight');
+
+    panel.addEventListener('mousemove', (e) => {
+      const rect = panel.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      highlight.style.left = x + 'px';
+      highlight.style.top = y + 'px';
+    });
+
+    panel.addEventListener('mouseleave', () => {
+      highlight.style.opacity = '0';
+    });
+
+    panel.addEventListener('mouseenter', () => {
+      highlight.style.opacity = '1';
+    });
+
+    document.querySelectorAll('.mode-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      });
+    });
+
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      });
+    });
+
+    document.querySelector('.dotfiles-toggle')?.addEventListener('click', function() {
+      this.classList.toggle('active');
+    });
+
+    document.querySelectorAll('.tree-node').forEach(node => {
+      node.addEventListener('click', () => {
+        document.querySelectorAll('.tree-node').forEach(n => n.classList.remove('selected'));
+        node.classList.add('selected');
+      });
+      node.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        const menu = document.getElementById('contextMenu');
+        menu.style.display = 'block';
+        menu.style.left = (e.clientX + 10) + 'px';
+        menu.style.top = e.clientY + 'px';
+      });
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.glass-menu')) {
+        document.getElementById('contextMenu').style.display = 'none';
+      }
+    });
+
+    const selectedNode = document.querySelector('.tree-node.selected');
+    if (selectedNode) {
+      const rect = selectedNode.getBoundingClientRect();
+      const menu = document.getElementById('contextMenu');
+      menu.style.display = 'block';
+      menu.style.left = (rect.right + 10) + 'px';
+      menu.style.top = rect.top + 'px';
+    }
+  </script>
+</body>
+</html>

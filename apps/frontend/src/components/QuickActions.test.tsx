@@ -66,7 +66,7 @@ describe('QuickActions', () => {
   it('repeats backspace while held in the mobile shortcut bar', () => {
     vi.useFakeTimers()
     render(<QuickActions mode="dock" />)
-    const button = screen.getByRole('button', { name: 'Backspace' })
+    const button = screen.getByRole('button', { name: '⌫' })
     fireEvent(button, createEvent.pointerDown(button, { pointerId: 1, pointerType: 'touch' }))
     act(() => vi.advanceTimersByTime(419))
     expect(send).not.toHaveBeenCalled()
