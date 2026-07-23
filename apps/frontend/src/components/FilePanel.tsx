@@ -931,7 +931,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
       {visibleFavoriteDirectories.length ? (
         <div className="mt-2 space-y-1">
           {visibleFavoriteDirectories.map((item) => (
-            <Chip key={`${item.rootId}-${item.path}`} onClick={() => openDirectoryShortcut(item)} className="w-full truncate justify-start px-3 py-1.5 text-left font-mono text-meta">{formatDirectoryShortcutLabel(item.path, rootLabelById[item.rootId] || item.name, rootPathById[item.rootId] || '')}</Chip>
+            <Chip key={`${item.rootId}-${item.path}`} onClick={() => openDirectoryShortcut(item)} className="w-full truncate justify-start px-3 py-1.5 text-left font-mono text-meta" style={{ direction: 'rtl' }}>{formatDirectoryShortcutLabel(item.path, rootLabelById[item.rootId] || item.name, rootPathById[item.rootId] || '')}</Chip>
           ))}
         </div>
       ) : (
@@ -1155,7 +1155,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
             <div className="mb-2 text-caption uppercase tracking-[0.18em] text-text-3">{t('file.favoriteDirs')}</div>
             <div className="space-y-1">
               {visibleFavoriteDirectories.map((item) => (
-                <Chip key={`${item.rootId}-${item.path}`} onClick={() => openDirectoryShortcut(item)} className="w-full truncate justify-start px-3 py-1.5 text-left font-mono text-xs">{formatDirectoryShortcutLabel(item.path, rootLabelById[item.rootId] || item.name, rootPathById[item.rootId] || '')}</Chip>
+                <Chip key={`${item.rootId}-${item.path}`} onClick={() => openDirectoryShortcut(item)} className="w-full truncate justify-start px-3 py-1.5 text-left font-mono text-xs" style={{ direction: 'rtl' }}>{formatDirectoryShortcutLabel(item.path, rootLabelById[item.rootId] || item.name, rootPathById[item.rootId] || '')}</Chip>
               ))}
             </div>
           </div>

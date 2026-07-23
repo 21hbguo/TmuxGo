@@ -69,7 +69,7 @@ export function StatusBar() {
           )}
         </section>
         {sys && (
-          <section aria-label="System resources" className="hidden min-w-0 items-center gap-1.5 overflow-visible md:flex">
+          <section aria-label="System resources" className="flex min-w-0 items-center gap-1.5 overflow-visible">
             {sys.gpu && <ResourceChip label="GPU" value={`${gb(sys.gpu.used)}/${gb(sys.gpu.total)}G`} tone={resourceTone(sys.gpu.used, sys.gpu.total)} />}
             {missingDependencies.length > 0 && <ResourceChip label="DEP" value={String(missingDependencies.length)} tone="warn" title={missingDependencies.join(', ')} />}
             <ResourceChip label="CPU" value={`${sys.cpu}%`} tone={sys.cpu >= 90 ? 'danger' : sys.cpu >= 75 ? 'warn' : 'neutral'} />
@@ -110,9 +110,9 @@ export function StatusBar() {
             )}
           </section>
         )}
-        <section aria-label="Connection status" className={`inline-flex h-5 shrink-0 items-center gap-1.5 rounded-full border px-2 font-medium ${statusStyle.shell}`}>
+        <section aria-label="Connection status" className={`inline-flex h-5 shrink-0 items-center gap-1.5 rounded-full border px-2 font-medium ${statusStyle.shell}`} style={{ minWidth: '120px' }}>
           <span className={`h-1.5 w-1.5 rounded-full ${statusStyle.dot}`} />
-          <span className={statusStyle.text}>{t(`status.${connection.status}`)}</span>
+          <span className={statusStyle.text}>{t(`status.${connection.status}`)}{connection.status === 'connected' && <span className="ml-1 inline-block min-w-[3.2em] font-mono text-right tabular-nums">{connection.latency}ms</span>}</span>
         </section>
       </div>
     </footer>
