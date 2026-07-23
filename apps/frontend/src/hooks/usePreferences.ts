@@ -81,7 +81,10 @@ export async function ensureAppFontLoaded(fontFamily?: string, size = 14) {
   if (typeof document === 'undefined' || !document.fonts?.load) return
   const name = primaryFontName(fontFamily)
   try {
-    await document.fonts.load(`${size}px "${name}"`)
+    await Promise.all([
+      document.fonts.load(`400 ${size}px "${name}"`),
+      document.fonts.load(`700 ${size}px "${name}"`),
+    ])
     await document.fonts.ready
   } catch {}
 }
@@ -90,10 +93,18 @@ export function applyDocumentFont(fontFamily?: string) {
   if (typeof document === 'undefined') return
   const id = resolveFontId(fontFamily)
   const root = document.documentElement
+  const ui = FONT_UI[id]
+  const mono = FONT_MONO[id]
   root.setAttribute('data-font', id)
-  root.style.setProperty('--font-ui', FONT_UI[id])
-  root.style.setProperty('--font-mono', FONT_MONO[id])
-  if (document.body) document.body.style.fontFamily = FONT_UI[id]
+  root.style.setProperty('--font-ui', ui)
+  root.style.setProperty('--font-mono', mono)
+  root.style.fontFamily = ui
+  if (document.body) {
+    document.body.style.fontFamily = ui
+    document.body.style.fontSynthesis = 'none'
+  }
+  const app = document.getElementById('root')
+  if (app) app.style.fontFamily = ui
 }
 
 let preferencesStore: Preferences = defaultPreferences

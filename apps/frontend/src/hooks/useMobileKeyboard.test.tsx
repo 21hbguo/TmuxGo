@@ -71,6 +71,18 @@ describe('useMobileKeyboard', () => {
     expect(document.activeElement).toBe(api.textarea)
     button.remove()
   })
+  it('does not open keyboard from closed state via keep-alive markers', async () => {
+    render(<Harness />)
+    await waitFor(() => expect(api.focusKeyboard).toBeTruthy())
+    const button = document.createElement('button')
+    button.setAttribute('data-keep-mobile-keyboard', 'true')
+    document.body.appendChild(button)
+    fireEvent.pointerDown(button)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(document.body.classList.contains('keyboard-open')).toBe(false)
+    expect(document.activeElement).not.toBe(api.textarea)
+    button.remove()
+  })
   it('does not close during keep-alive viewport bounce from shortcut interactions', async () => {
     render(<Harness />)
     await waitFor(() => expect(api.focusKeyboard).toBeTruthy())

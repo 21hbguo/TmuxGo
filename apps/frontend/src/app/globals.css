@@ -145,34 +145,30 @@
 }
 
 @font-face {
-  font-family: 'Space Grotesk';
-  src: local('Space Grotesk');
-}
-@font-face {
   font-family: 'JetBrains Mono';
   src: url('/fonts/JetBrainsMono-Regular.woff2') format('woff2');
-  font-weight: 400;
+  font-weight: 100 600;
   font-style: normal;
   font-display: swap;
 }
 @font-face {
   font-family: 'JetBrains Mono';
   src: url('/fonts/JetBrainsMono-Bold.woff2') format('woff2');
-  font-weight: 700;
+  font-weight: 601 900;
   font-style: normal;
   font-display: swap;
 }
 @font-face {
   font-family: 'Maple Mono';
   src: url('/fonts/MapleMono-Regular.woff2') format('woff2');
-  font-weight: 400;
+  font-weight: 100 600;
   font-style: normal;
   font-display: swap;
 }
 @font-face {
   font-family: 'Maple Mono';
   src: url('/fonts/MapleMono-Bold.woff2') format('woff2');
-  font-weight: 700;
+  font-weight: 601 900;
   font-style: normal;
   font-display: swap;
 }
@@ -196,6 +192,7 @@ body {
   font-family: var(--font-ui);
   font-weight: 400;
   font-size: var(--fs-body);
+  font-synthesis: none;
   text-rendering: optimizeLegibility;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
@@ -215,6 +212,7 @@ body {
 #root {
   min-height: 100%;
   background: transparent;
+  font-family: inherit;
 }
 
 button,
@@ -222,7 +220,7 @@ input,
 select,
 textarea {
   font: inherit;
-  font-weight: 400;
+  font-synthesis: none;
 }
 
 a {

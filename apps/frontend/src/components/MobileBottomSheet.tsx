@@ -44,7 +44,6 @@ export function MobileBottomSheet({
   return (
     <div
       className={`fixed left-0 right-0 top-0 overscroll-none ${zClass}`}
-      data-keep-mobile-keyboard
       style={{ height: 'var(--app-height,100dvh)' }}
       onClick={closeOnBackdrop ? onClose : undefined}
     >
