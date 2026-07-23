@@ -1130,9 +1130,9 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
           }} placeholder={searchMode === 'name' ? t('file.searchName') : t('file.searchContent')} className="tmuxgo-control tmuxgo-input min-w-0 flex-1 rounded-apple px-2 py-1 font-mono text-[11px]" />
           <button onClick={() => { setQuery(''); setDebouncedQuery(''); setSearchNavigationPath(null) }} disabled={!query} aria-label={t('file.clearSearch')} className={`tmuxgo-toolbar-icon h-7 w-7 shrink-0 text-[11px] ${query ? '' : 'opacity-40'}`}>×</button>
         </div>
-        <div className="mt-1.5 flex items-center gap-1">
+        <div className="mt-1.5 grid grid-cols-[auto_1fr_auto] items-center gap-1">
           <button onClick={clearExpandedDirectories} disabled={!openDirectories.size && !directoryCache.size} aria-label={t('file.clearExpanded')} className={`tmuxgo-toolbar-icon h-7 w-7 shrink-0 text-[11px] ${openDirectories.size || directoryCache.size ? '' : 'opacity-40'}`}>⌂</button>
-          <div className="flex min-w-0 flex-1 shrink-0 rounded-apple border border-[var(--line)] bg-bg-2 p-0.5 text-[11px]">
+          <div className="flex min-w-0 rounded-apple border border-[var(--line)] bg-bg-2 p-0.5 text-[11px]">
             {(['all', 'file', 'directory'] as FileTypeFilter[]).map((item) => (
               <Chip key={item} tone={fileTypeFilter === item ? 'accent' : 'default'} onClick={() => setFileTypeFilter(item)} className="min-w-0 flex-1">{item === 'all' ? t('file.all') : item === 'file' ? t('file.file') : t('file.dir')}</Chip>
             ))}
@@ -1140,7 +1140,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
           <Chip onClick={() => updateHideDotFiles(!hideDotFiles)} tone={hideDotFiles ? 'default' : 'accent'} className="shrink-0 border">{t('file.dotfiles')}</Chip>
         </div>
         <div className="mt-1.5 flex items-center gap-1">
-          <select value={fileSort.field} onChange={(e) => updateFileSort(e.target.value as SortField)} className="tmuxgo-control tmuxgo-select h-7 rounded-apple px-2 text-[11px] cursor-pointer pr-1">
+          <select value={fileSort.field} onChange={(e) => updateFileSort(e.target.value as SortField)} className="tmuxgo-control tmuxgo-select h-7 min-w-0 flex-1 rounded-apple px-2 text-[11px] cursor-pointer pr-1">
             <option value="name">{t('file.sortName')}</option>
             <option value="size">{t('file.sortSize')}</option>
             <option value="modified">{t('file.sortModified')}</option>
