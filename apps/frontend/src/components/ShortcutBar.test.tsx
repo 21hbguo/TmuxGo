@@ -11,6 +11,9 @@ const snapshotGet = vi.fn()
 const zoomByPane = vi.fn()
 const killPane = vi.fn()
 let windowsDataMock:any[]=[{ id:'win-1',sessionId:'session-dev',active:true }]
+let fileRootsMock:any[]=[]
+let fileListMock:any
+let fileSearchMock:any[]=[]
 const shortcutsMock=[{ id:'shortcut-a',label:'A',keys:'Ctrl+A',action:'input' },{ id:'shortcut-b',label:'B',keys:'Ctrl+B',action:'input' }]
 
 vi.mock('@/hooks/useWebSocket', () => ({
@@ -18,6 +21,9 @@ vi.mock('@/hooks/useWebSocket', () => ({
 }))
 vi.mock('@/hooks/useApi', () => ({
   useWindows: () => ({ data: windowsDataMock }),
+  useFileRoots: () => ({ data: fileRootsMock }),
+  useFileList: () => ({ data: fileListMock, isLoading: false }),
+  useFileSearch: () => ({ data: fileSearchMock, isFetching: false }),
 }))
 vi.mock('@/hooks/useCustomShortcuts', () => ({
   useCustomShortcuts: () => ({ shortcuts: shortcutsMock, addShortcut: vi.fn(), removeShortcut: vi.fn() }),
@@ -38,6 +44,9 @@ describe('ShortcutBar', () => {
     zoomByPane.mockReset()
     killPane.mockReset()
     windowsDataMock=[{ id:'win-1',sessionId:'session-dev',active:true }]
+    fileRootsMock=[]
+    fileListMock=undefined
+    fileSearchMock=[]
     window.localStorage.clear()
     useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-dev', activePaneId: 'old-pane' })
   })
@@ -307,6 +316,30 @@ describe('ShortcutBar', () => {
     expect(screen.getAllByRole('button', { name: 'Ctrl+C' }).length).toBeGreaterThan(0)
     expect(screen.getByRole('button', { name: 'Ctrl+D' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Ctrl+Z' })).toBeTruthy()
+  })
+  it('opens the path picker and inserts a selected file', () => {
+    fileRootsMock=[{ id:'root-workspace',label:'Workspace',path:'/workspace' }]
+    fileListMock={ items:[{ name:'package.json',path:'package.json',type:'file',size:1,modifiedAt:'' }] }
+    const terminalInput=vi.fn()
+    window.addEventListener('tmuxgo-terminal-input',terminalInput)
+    render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))
+    fireEvent.click(screen.getByRole('button', { name: '插入路径' }))
+    expect(screen.getByPlaceholderText('搜索文件名')).toBeTruthy()
+    fireEvent.click(screen.getByText('package.json'))
+    expect(terminalInput).toHaveBeenCalledWith(expect.objectContaining({ detail:{ data:"'/workspace/package.json'" } }))
+    expect(document.querySelector('[data-mobile-path-picker]')).toBeNull()
+    window.removeEventListener('tmuxgo-terminal-input',terminalInput)
+  })
+  it('inserts a directory without entering it', () => {
+    fileRootsMock=[{ id:'root-workspace',label:'Workspace',path:'/workspace' }]
+    fileListMock={ items:[{ name:'src',path:'src',type:'directory',size:0,modifiedAt:'' }] }
+    const terminalInput=vi.fn()
+    window.addEventListener('tmuxgo-terminal-input',terminalInput)
+    render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))
+    fireEvent.click(screen.getByRole('button', { name: '插入路径' }))
+    fireEvent.click(screen.getByRole('button', { name: '插入路径 src' }))
+    expect(terminalInput).toHaveBeenCalledWith(expect.objectContaining({ detail:{ data:"'/workspace/src'" } }))
+    window.removeEventListener('tmuxgo-terminal-input',terminalInput)
   })
   it('moves recently used custom shortcut to the front in dock mode', () => {
     render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))
