@@ -20,25 +20,15 @@ export function encodeCellSnapshot(grid: TerminalGrid) {
     }
   }
   if (runLen > 0) runs.push({ runLen, cell: current })
-  const buf = Buffer.allocUnsafe(16 + runs.length * 18)
-  let o = 0
-  buf.writeUInt16LE(grid.cols, o); o += 2
-  buf.writeUInt16LE(grid.rows, o); o += 2
-  buf.writeUInt16LE(grid.cursorX, o); o += 2
-  buf.writeUInt16LE(grid.cursorY, o); o += 2
-  buf.writeUInt16LE(grid.flags, o); o += 2
-  buf.writeUInt32LE(grid.seq, o); o += 4
-  // pad 2 to keep 16 header-ish? protocol has no pad - use exact
-  // rewrite with exact protocol: cols,rows,cursorX,cursorY,flags,seq,runCount = 2*5+4+4=18
   const out = Buffer.allocUnsafe(18 + runs.length * 18)
-  o = 0
+  let o = 0
   out.writeUInt16LE(grid.cols, o); o += 2
   out.writeUInt16LE(grid.rows, o); o += 2
   out.writeUInt16LE(grid.cursorX, o); o += 2
   out.writeUInt16LE(grid.cursorY, o); o += 2
   out.writeUInt16LE(grid.flags, o); o += 2
-  out.writeUInt32LE(grid.seq, o); o += 4
-  out.writeUInt32LE(runs.length, o); o += 4
+  out.writeUInt32LE(grid.seq >>> 0, o); o += 4
+  out.writeUInt32LE(runs.length >>> 0, o); o += 4
   for (const run of runs) {
     out.writeUInt16LE(run.runLen, o); o += 2
     out.writeUInt32LE(run.cell.cp >>> 0, o); o += 4
@@ -57,8 +47,8 @@ export function encodeCellDiff(seq: number, baseSeq: number, cursorX: number, cu
   out.writeUInt16LE(cursorX, o); o += 2
   out.writeUInt16LE(cursorY, o); o += 2
   out.writeUInt16LE(flags, o); o += 2
-  out.writeUInt16LE(0, o); o += 2 // pad for alignment
-  out.writeUInt32LE(changes.length, o); o += 4
+  out.writeUInt16LE(0, o); o += 2
+  out.writeUInt32LE(changes.length >>> 0, o); o += 4
   for (const change of changes) {
     out.writeUInt16LE(change.x, o); o += 2
     out.writeUInt16LE(change.y, o); o += 2
