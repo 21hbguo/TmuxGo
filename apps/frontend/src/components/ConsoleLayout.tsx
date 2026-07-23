@@ -331,8 +331,9 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       const nextHeight = immersive
         ? Math.round(viewportHeight || state.nextHeight || window.innerHeight || 0)
         : state.nextHeight
+      if (document.body.classList.contains('ime-composing')) return
       if (isMobileViewport && appHeightNumRef.current && !open && Math.abs(nextHeight - appHeightNumRef.current) < 36) return
-      if (isMobileViewport && appHeightNumRef.current && open && Math.abs(nextHeight - appHeightNumRef.current) < 6) return
+      if (isMobileViewport && appHeightNumRef.current && open && Math.abs(nextHeight - appHeightNumRef.current) < 48) return
       const nextValue = `${nextHeight}px`
       if (appHeightRef.current === nextValue) return
       appHeightRef.current = nextValue

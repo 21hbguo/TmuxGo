@@ -675,10 +675,11 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const focusNode = selection.focusNode
       if (anchorNode && container.contains(anchorNode) || focusNode && container.contains(focusNode)) selection.removeAllRanges()
     }
+    const isDesktopImeComposing = () => helperTextareaComposing || document.body.classList.contains('ime-composing')
     const syncHelperTextareaGeometry = () => {
       const input = helperTextarea || container.querySelector('.xterm-helper-textarea, textarea')
       if (!(input instanceof HTMLTextAreaElement) || !terminal) return
-      if (helperTextareaComposing) return
+      if (isDesktopImeComposing()) return
       const activeBuffer = terminal.buffer?.active
       const cursorXRaw = Number(activeBuffer?.cursorX)
       const cursorYRaw = Number(activeBuffer?.cursorY)
@@ -689,9 +690,15 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const maxY = Math.max(0, (Number(terminal.rows) || 1) - 1)
       const cursorX = Math.max(0, Math.min(maxX, Number.isFinite(cursorXRaw) ? cursorXRaw : 0))
       const cursorY = Math.max(0, Math.min(maxY, Number.isFinite(cursorYRaw) ? cursorYRaw : 0))
+      let charWidth = 1
+      try {
+        const line = activeBuffer?.getLine?.(cursorY)
+        const width = Number(line?.getWidth?.(cursorX))
+        if (Number.isFinite(width) && width > 0) charWidth = width
+      } catch {}
       input.style.left = `${cursorX * cellWidth}px`
       input.style.top = `${cursorY * cellHeight}px`
-      input.style.width = `${cellWidth}px`
+      input.style.width = `${cellWidth * charWidth}px`
       input.style.height = `${cellHeight}px`
       input.style.lineHeight = `${cellHeight}px`
       input.style.zIndex = '-5'
@@ -703,16 +710,18 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         focusKeyboard()
         return
       }
+      if (isDesktopImeComposing()) return
       const input = helperTextarea || container.querySelector('.xterm-helper-textarea, textarea')
-      if (input instanceof HTMLTextAreaElement && helperTextareaComposing) return
+      if (input instanceof HTMLTextAreaElement && document.activeElement === input) {
+        syncHelperTextareaGeometry()
+        clearTerminalBrowserSelection()
+        return
+      }
       terminal?.focus?.()
-      if (input instanceof HTMLTextAreaElement) syncHelperTextareaGeometry()
-      if (document.activeElement !== input && !(input instanceof HTMLTextAreaElement && helperTextareaComposing)) container.focus()
-      if (input instanceof HTMLTextAreaElement && document.activeElement !== input) input.focus({ preventScroll: true })
       if (input instanceof HTMLTextAreaElement) {
+        if (document.activeElement !== input) input.focus({ preventScroll: true })
         syncHelperTextareaGeometry()
         requestAnimationFrame(syncHelperTextareaGeometry)
-        setTimeout(syncHelperTextareaGeometry, 0)
       }
       clearTerminalBrowserSelection()
       requestAnimationFrame(clearTerminalBrowserSelection)
@@ -1728,9 +1737,11 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         updateGithubDeviceLogin(raw)
         outputSinceLastAttach = true
         controlCarryRef.current = ''
-        if (pointerSyncActive) {
-          writeBuffer += raw
-          if (!writePending) {
+        // Hold terminal paints while desktop IME is composing so candidate window stays put.
+        if (pointerSyncActive || (!isMobileDevice && isDesktopImeComposing())) {
+          if (payload.resync) writeBuffer = raw
+          else writeBuffer += raw
+          if (pointerSyncActive && !writePending && !isDesktopImeComposing()) {
             writePending = true
             requestAnimationFrame(flushWriteBuffer)
           }
@@ -1827,6 +1838,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const handleLayoutChange = (event: Event) => {
         const detail = (event as CustomEvent).detail || {}
         if (detail.reason === 'attached') return
+        if (helperTextareaComposing || document.body.classList.contains('ime-composing')) return
         const mobileKeyboardLayout = isMobileDevice && detail.reason === 'viewport-sync'
         const stickToBottom = isMobileDevice && !isTerminalScrolledBack()
         if (mobileKeyboardLayout) {
@@ -1893,11 +1905,17 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       container.addEventListener('copy', handleCopy, true)
       const handleHelperCompositionStart = () => {
         helperTextareaComposing = true
+        document.body.classList.add('ime-composing')
         recordImeDebug('helper-compositionstart', { value: helperTextarea?.value || '' })
       }
       const handleHelperCompositionEnd = () => {
         helperTextareaComposing = false
+        document.body.classList.remove('ime-composing')
         recordImeDebug('helper-compositionend', { value: helperTextarea?.value || '' })
+        requestAnimationFrame(() => {
+          flushWriteBuffer()
+          syncHelperTextareaGeometry()
+        })
       }
       const handleHelperCompositionUpdate = (event: CompositionEvent) => {
         recordImeDebug('helper-compositionupdate', { data: event.data || '', value: helperTextarea?.value || '' })
@@ -1907,6 +1925,13 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       }
       const handleHelperBlur = () => {
         recordImeDebug('helper-blur', { value: helperTextarea?.value || '' })
+        if (!helperTextareaComposing) return
+        helperTextareaComposing = false
+        document.body.classList.remove('ime-composing')
+        requestAnimationFrame(() => {
+          flushWriteBuffer()
+          syncHelperTextareaGeometry()
+        })
       }
       const handleHelperBeforeInput = (event: InputEvent) => {
         recordImeDebug('helper-beforeinput', { inputType: event.inputType || '', data: event.data || '', value: helperTextarea?.value || '', composing: event.isComposing })
@@ -1943,6 +1968,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     const handlePointerSync = (event?: MouseEvent | TouchEvent) => {
       if (!pointerSyncActive) return
       pointerSyncActive = false
+      if (isDesktopImeComposing()) return
       flushWriteBuffer()
       selectionSync.clearCopySelectionTimer()
       selectionSync.runCopySelection(getSelectionText() || selectionSync.currentSelectionRef.current, true, true, focusTerminalInput)
@@ -1956,11 +1982,14 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       void syncActivePane()
     }
       const handleFocusTerminal = () => {
+        if (isDesktopImeComposing()) return
         focusTerminalInput()
-        requestAnimationFrame(focusTerminalInput)
-        setTimeout(focusTerminalInput, 0)
-        setTimeout(focusTerminalInput, 32)
-        setTimeout(focusTerminalInput, 96)
+        requestAnimationFrame(() => {
+          if (!isDesktopImeComposing()) focusTerminalInput()
+        })
+        setTimeout(() => {
+          if (!isDesktopImeComposing()) focusTerminalInput()
+        }, 0)
       }
       container.addEventListener('mousedown', armPointerSync)
       container.addEventListener('touchstart', armPointerSync, { passive: true })
@@ -2103,6 +2132,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       disposeTerminalOutput()
       resizeObserver?.disconnect()
       disposables.forEach((d) => d?.dispose?.())
+      document.body.classList.remove('ime-composing')
       terminal?.dispose()
       terminalInstance.current = null
       scheduleLayoutRef.current = () => {}
@@ -2126,10 +2156,10 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         e.stopPropagation()
       }}
       onMouseDown={() => {
-        if (!isMobileDevice) terminalInstance.current?.focus?.()
+        if (!isMobileDevice && !document.body.classList.contains('ime-composing')) terminalInstance.current?.focus?.()
       }}
       onFocus={() => {
-        if (!isMobileDevice) terminalInstance.current?.focus?.()
+        if (!isMobileDevice && !document.body.classList.contains('ime-composing')) terminalInstance.current?.focus?.()
       }}
       onTouchEnd={(e) => {
         if (isMobileDevice && !touchMovedRef.current) {

@@ -112,6 +112,10 @@ export function useMobileKeyboard(
     keyboardVerifyTimerRef.current = setTimeout(() => {
       keyboardVerifyTimerRef.current = null
       if (!keyboardOpenRef.current) return
+      if (composingRef.current) {
+        scheduleKeyboardVerify()
+        return
+      }
       const inset = getObservedKeyboardInset()
       const peakInset = Math.max(keyboardPeakInsetRef.current, keyboardInsetRef.current)
       const recoveredEnough = inset <= KEYBOARD_CLOSE_THRESHOLD || (peakInset > 0 && (inset <= peakInset * 0.6 || peakInset - inset >= 100))
@@ -123,6 +127,7 @@ export function useMobileKeyboard(
     }, KEYBOARD_VERIFY_MS)
   }, [clearKeyboardVerify, closeKeyboard, getObservedKeyboardInset])
   const openKeyboard = useCallback((inset: number) => {
+    if (composingRef.current && keyboardOpenRef.current) return
     keyboardLog('open', inset)
     recordMobileDebug('keyboard-open', { inset })
     document.body.classList.add('keyboard-open')
@@ -136,6 +141,7 @@ export function useMobileKeyboard(
     if (changed) emitKeyboardChange(true, clamped)
   }, [emitKeyboardChange, keyboardLog, scheduleKeyboardVerify])
   const updateKeyboardInset = useCallback((inset: number) => {
+    if (composingRef.current) return
     if (!keyboardOpenRef.current || Math.abs(inset - keyboardInsetRef.current) < 1) return
     keyboardInsetRef.current = inset
     keyboardPeakInsetRef.current = Math.max(keyboardPeakInsetRef.current, inset)
@@ -148,9 +154,14 @@ export function useMobileKeyboard(
     return !!ta && (document.activeElement === ta || Date.now() <= keepAliveUntilRef.current || (keyboardOpenRef.current && Date.now() <= viewportGraceUntilRef.current))
   }, [])
 
+  const setImeComposing = useCallback((active: boolean) => {
+    composingRef.current = active
+    if (active) document.body.classList.add('ime-composing')
+    else document.body.classList.remove('ime-composing')
+  }, [])
   const clearValue = useCallback(() => {
     const ta = textareaRef.current
-    if (!ta) return
+    if (!ta || composingRef.current) return
     ta.value = SENTINEL
     try { ta.setSelectionRange(SENTINEL_CENTER, SENTINEL_CENTER) } catch {}
   }, [])
@@ -209,7 +220,7 @@ export function useMobileKeyboard(
     keyboardProbeTimerRef.current = setTimeout(() => {
       keyboardProbeTimerRef.current = null
       if (confirmKeyboardOpen()) return
-      if (blurOnMiss && !keyboardOpenRef.current && document.activeElement === textareaRef.current) textareaRef.current?.blur()
+      if (blurOnMiss && !composingRef.current && !keyboardOpenRef.current && document.activeElement === textareaRef.current) textareaRef.current?.blur()
     }, KEYBOARD_PROBE_MS)
   }, [clearKeyboardProbe, confirmKeyboardOpen])
   const focusKeyboard = useCallback(() => {
@@ -222,8 +233,8 @@ export function useMobileKeyboard(
     if (document.activeElement !== ta) return
     keyboardLog('focus')
     recordMobileDebug('keyboard-focus')
-    if (!deferredInputActiveRef.current) clearValue()
-    if (!confirmKeyboardOpen()) scheduleKeyboardProbe(true)
+    if (!deferredInputActiveRef.current && !composingRef.current) clearValue()
+    if (!composingRef.current && !confirmKeyboardOpen()) scheduleKeyboardProbe(true)
   }, [clearValue, confirmKeyboardOpen, keyboardLog, scheduleKeyboardProbe])
 
   useEffect(() => {
@@ -299,7 +310,7 @@ export function useMobileKeyboard(
         stopDeleteRepeat()
         clearDeferredInputTimer()
         deferredInputActiveRef.current = false
-        composingRef.current = true
+        setImeComposing(true)
         return
       }
       if (composingRef.current || deferredInputActiveRef.current) return
@@ -327,7 +338,7 @@ export function useMobileKeyboard(
         stopDeleteRepeat()
         clearDeferredInputTimer()
         deferredInputActiveRef.current = false
-        composingRef.current = true
+        setImeComposing(true)
         composingLengthRef.current = text.length
         return
       }
@@ -363,7 +374,7 @@ export function useMobileKeyboard(
       stopDeleteRepeat()
       clearDeferredInputTimer()
       deferredInputActiveRef.current = false
-      composingRef.current = true
+      setImeComposing(true)
       composingLengthRef.current = 0
       if (ta) ta.value = ''
     }
@@ -373,11 +384,11 @@ export function useMobileKeyboard(
     }
 
     const handleCompositionEnd = () => {
-      composingRef.current = false
       clearDeferredInputTimer()
       deferredInputActiveRef.current = false
       const raw = ta.value
       const text = raw.replace(/\u200b/g, '')
+      setImeComposing(false)
       if (text) {
         sendInput(text)
       } else {
@@ -392,14 +403,14 @@ export function useMobileKeyboard(
       viewportGraceUntilRef.current = Date.now() + KEYBOARD_VIEWPORT_GRACE_MS
       if (focusingRef.current) {
         setTimeout(() => {
-          if (!deferredInputActiveRef.current) clearValue()
-          if (!confirmKeyboardOpen()) scheduleKeyboardProbe(true)
+          if (!deferredInputActiveRef.current && !composingRef.current) clearValue()
+          if (!composingRef.current && !confirmKeyboardOpen()) scheduleKeyboardProbe(true)
         }, 10)
         return
       }
-      if (!confirmKeyboardOpen()) scheduleKeyboardProbe(true)
+      if (!composingRef.current && !confirmKeyboardOpen()) scheduleKeyboardProbe(true)
       setTimeout(() => {
-        if (!deferredInputActiveRef.current) clearValue()
+        if (!deferredInputActiveRef.current && !composingRef.current) clearValue()
       }, 10)
     }
     const handleKeepAliveCapture = (e: Event) => {
@@ -453,7 +464,7 @@ export function useMobileKeyboard(
       clearDeferredInputTimer()
       stopDeleteRepeat()
     }
-  }, [sendInput, clearValue, focusKeyboard, closeKeyboard, confirmKeyboardOpen, scheduleKeyboardProbe, openKeyboard, keyboardLog, getInputText, flushDeferredInput, scheduleDeferredInputFlush, clearDeferredInputTimer, shouldDeferInput, startDeleteRepeat, stopDeleteRepeat])
+  }, [sendInput, clearValue, setImeComposing, focusKeyboard, closeKeyboard, confirmKeyboardOpen, scheduleKeyboardProbe, openKeyboard, keyboardLog, getInputText, flushDeferredInput, scheduleDeferredInputFlush, clearDeferredInputTimer, shouldDeferInput, startDeleteRepeat, stopDeleteRepeat])
 
   useEffect(() => {
     if (!isMobile.current) return
@@ -461,7 +472,8 @@ export function useMobileKeyboard(
     const handleViewportResize = () => {
       const vv = window.visualViewport
       if (!vv) return
-      recordMobileDebug('keyboard-viewport-resize', { height: vv.height, baseHeight: viewportBaseHeightRef.current, active: document.activeElement === textareaRef.current, open: keyboardOpenRef.current })
+      recordMobileDebug('keyboard-viewport-resize', { height: vv.height, baseHeight: viewportBaseHeightRef.current, active: document.activeElement === textareaRef.current, open: keyboardOpenRef.current, composing: composingRef.current })
+      if (composingRef.current) return
       if (!isKeyboardOwnerActive() && Date.now() > keepAliveUntilRef.current) {
         if (!keyboardOpenRef.current && vv.height > viewportBaseHeightRef.current) viewportBaseHeightRef.current = vv.height
         closeKeyboard()
@@ -474,7 +486,7 @@ export function useMobileKeyboard(
       } else if (isOpen && inset <= KEYBOARD_CLOSE_THRESHOLD) {
         if (Date.now() <= keepAliveUntilRef.current) {
           requestAnimationFrame(() => {
-            if (Date.now() <= keepAliveUntilRef.current) focusKeyboard()
+            if (Date.now() <= keepAliveUntilRef.current && !composingRef.current) focusKeyboard()
           })
           scheduleKeyboardVerify()
           return
@@ -489,6 +501,8 @@ export function useMobileKeyboard(
     window.visualViewport?.addEventListener('resize', handleViewportResize)
     return () => {
       window.visualViewport?.removeEventListener('resize', handleViewportResize)
+      document.body.classList.remove('ime-composing')
+      composingRef.current = false
       closeKeyboard()
     }
   }, [closeKeyboard, focusKeyboard, isKeyboardOwnerActive, openKeyboard, getViewportInset, scheduleKeyboardVerify, updateKeyboardInset])
