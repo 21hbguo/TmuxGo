@@ -13,6 +13,7 @@ import { getAttachSnapshotDelays } from '../lib/attach-snapshot.js'
 import { execTmux } from '../lib/tmux-executor.js'
 import { getHostAgentPanes, markAgentPaneSeen } from '../lib/agent-state.js'
 import { streamAttachMessageSchema, streamInputMessageSchema, streamMessageSchema, streamRegisterMessageSchema, streamResizeMessageSchema } from '../lib/request-validation.js'
+import { encodeStreamOutputBinary } from '../lib/stream-binary.js'
 
 const execFileAsync = promisify(execFile)
 let sshPassAvailable: boolean | null = null
@@ -27,10 +28,11 @@ export async function streamRoutes(fastify: FastifyInstance) {
     const SOCKET_BUFFER_EXTREME_WATERMARK = 4194304
     const SOCKET_FLUSH_DEFER_MS = 24
     const OUTPUT_BUFFER_MAX_CHARS = 1048576
+    const CLIENT_BACKPRESSURE_RESYNC_CHARS = 16384
     const OUTPUT_PROFILES = {
-      foreground: { flushInterval: 8, maxChars: 24576 },
-      background: { flushInterval: 24, maxChars: 98304 },
-      mobile: { flushInterval: 24, maxChars: 65536 },
+      foreground: { flushInterval: 4, maxChars: 16384 },
+      background: { flushInterval: 32, maxChars: 24576 },
+      mobile: { flushInterval: 24, maxChars: 16384 },
     } as const
     let ptyProcess: pty.IPty | null = null
     let attachedSessionName: string | null = null
@@ -46,6 +48,8 @@ export async function streamRoutes(fastify: FastifyInstance) {
     let outputResyncRunning = false
     let redrawTimers: ReturnType<typeof setTimeout>[] = []
     let outputProfile: keyof typeof OUTPUT_PROFILES = 'foreground'
+    let clientBackpressureHigh = false
+    let binaryOutputEnabled = false
     let attachSeq = 0
     let attachVisibleOutputObserved = false
     let attachSnapshotTimers: ReturnType<typeof setTimeout>[] = []
@@ -69,12 +73,32 @@ export async function streamRoutes(fastify: FastifyInstance) {
       return next
     }
     function syncOutputProfile(profile: keyof typeof OUTPUT_PROFILES) {
+      const changed = outputProfile !== profile
       outputProfile = profile
       const current = OUTPUT_PROFILES[profile]
       updateStreamMetric('activeProfile', profile)
       updateStreamMetric('activeFlushInterval', current.flushInterval)
       updateStreamMetric('activeMaxChars', current.maxChars)
-      recordStreamMetric('profileUpdates')
+      if (changed) recordStreamMetric('profileUpdates')
+    }
+    function requestLatestFrameResync() {
+      if (outputResyncPending) {
+        if (outputBuffer) {
+          recordStreamMetric('droppedOutputChars', outputBuffer.length)
+          outputBuffer = ''
+        }
+        return
+      }
+      if (outputBuffer) recordStreamMetric('droppedOutputChars', outputBuffer.length)
+      recordStreamMetric('outputResyncRequests')
+      outputBuffer = ''
+      sanitizeTerminalOutput = createTerminalOutputSanitizer()
+      outputResyncPending = true
+      if (outputTimer) {
+        clearTimeout(outputTimer)
+        outputTimer = null
+      }
+      scheduleDeferredFlush()
     }
     function getOutputProfileConfig() {
       return OUTPUT_PROFILES[outputProfile]
@@ -90,6 +114,21 @@ export async function streamRoutes(fastify: FastifyInstance) {
       try {
         getSocketBufferedBytes()
         socket.send(JSON.stringify(data))
+        getSocketBufferedBytes()
+        return true
+      } catch {
+        return false
+      }
+    }
+    function sendTerminalOutput(type: 'output' | 'output_resync', data: string, sessionName: string, hostId: string) {
+      if (socket.readyState !== 1) return false
+      try {
+        getSocketBufferedBytes()
+        if (binaryOutputEnabled) {
+          socket.send(encodeStreamOutputBinary(type, hostId, sessionName, data))
+        } else {
+          socket.send(JSON.stringify({ type, data, sessionName, hostId }))
+        }
         getSocketBufferedBytes()
         return true
       } catch {
@@ -118,7 +157,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
           return
         }
         const data = `\u001b[H\u001b[2J${String(stdout || '')}`
-        if (!send({ type: 'output_resync', data, sessionName, hostId })) {
+        if (!sendTerminalOutput('output_resync', data, sessionName, hostId)) {
           scheduleDeferredFlush()
           return
         }
@@ -149,7 +188,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
       }
       const data = outputBuffer
       outputBuffer = ''
-      if (!send({ type: 'output', data, sessionName: attachedSessionName, hostId: attachedHostId })) {
+      if (!sendTerminalOutput('output', data, attachedSessionName, attachedHostId)) {
         outputBuffer = data + outputBuffer
         return
       }
@@ -172,17 +211,9 @@ export async function streamRoutes(fastify: FastifyInstance) {
         return
       }
       outputBuffer += output
-      if (outputBuffer.length > OUTPUT_BUFFER_MAX_CHARS) {
-        recordStreamMetric('droppedOutputChars', outputBuffer.length)
-        recordStreamMetric('outputResyncRequests')
-        outputBuffer = ''
-        sanitizeTerminalOutput = createTerminalOutputSanitizer()
-        outputResyncPending = true
-        if (outputTimer) {
-          clearTimeout(outputTimer)
-          outputTimer = null
-        }
-        scheduleDeferredFlush()
+      const congestedLimit = clientBackpressureHigh ? CLIENT_BACKPRESSURE_RESYNC_CHARS : OUTPUT_BUFFER_MAX_CHARS
+      if (outputBuffer.length > congestedLimit) {
+        requestLatestFrameResync()
         return
       }
       const profile = getOutputProfileConfig()
@@ -195,10 +226,15 @@ export async function streamRoutes(fastify: FastifyInstance) {
         return
       }
       if (outputTimer) return
+      const flushDelay = profile.flushInterval
+      if (flushDelay <= 0 || (outputProfile === 'foreground' && !clientBackpressureHigh && getSocketBufferedBytes() < SOCKET_BUFFER_HIGH_WATERMARK / 8)) {
+        flushOutput()
+        return
+      }
       outputTimer = setTimeout(() => {
         outputTimer = null
         flushOutput()
-      }, profile.flushInterval)
+      }, flushDelay)
     }
     function resolveHostPassword(host: { password?: string; passwordEnv?: string }) {
       if (host.password) return host.password
@@ -286,8 +322,13 @@ export async function streamRoutes(fastify: FastifyInstance) {
         if (!ptyProcess || !sessionName || attachVisibleOutputObserved || seq !== attachSeq || attachedSessionName !== sessionName) return
         const snapshot = String(stdout || '')
         if (!snapshot) return
+        const data = `\u001b[H\u001b[2J${snapshot}`
+        if (!sendTerminalOutput('output_resync', data, sessionName, attachedHostId)) return
         attachVisibleOutputObserved = true
-        queueOutput(`\u001b[H\u001b[2J${snapshot}`)
+        recordStreamMetric('outputResyncCompleted')
+        recordStreamMetric('outputFlushes')
+        recordStreamMetric('outputChunks')
+        recordStreamMetric('outputBytes', data.length)
       } catch {}
     }
     function scheduleAttachSnapshot(sessionName: string, seq: number, delays = getAttachSnapshotDelays()) {
@@ -359,6 +400,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
       sanitizeTerminalOutput = createTerminalOutputSanitizer()
       outputResyncPending = false
       outputResyncRunning = false
+      clientBackpressureHigh = false
       scrollBuffers.clear()
       sentAgentRevisions.clear()
       if (notify) send({ type: 'detached', sessionName: detachedSessionName, hostId: detachedHostId })
@@ -559,13 +601,25 @@ export async function streamRoutes(fastify: FastifyInstance) {
             }
             break
           }
+          case 'stream_caps':
+            binaryOutputEnabled = data.binaryOutput === true
+            send({ type: 'stream_caps', binaryOutput: binaryOutputEnabled })
+            break
           case 'stream_profile':
             if (data.profile === 'foreground' || data.profile === 'background' || data.profile === 'mobile') syncOutputProfile(data.profile)
             break
           case 'stream_backpressure':
             recordStreamMetric('backpressureSignals')
-            if (data.level === 'high') syncOutputProfile(data.mobile ? 'mobile' : 'background')
-            if (data.level === 'normal') syncOutputProfile(data.mobile ? 'mobile' : 'foreground')
+            if (data.level === 'high') {
+              clientBackpressureHigh = true
+              syncOutputProfile(data.mobile ? 'mobile' : 'background')
+              if (outputBuffer.length >= CLIENT_BACKPRESSURE_RESYNC_CHARS || getSocketBufferedBytes() >= SOCKET_BUFFER_HIGH_WATERMARK) {
+                requestLatestFrameResync()
+              }
+            } else if (data.level === 'normal') {
+              clientBackpressureHigh = false
+              syncOutputProfile(data.mobile ? 'mobile' : 'foreground')
+            }
             break
           case 'pane_scroll': {
             const scrollLines = Number(data.lines) || 0

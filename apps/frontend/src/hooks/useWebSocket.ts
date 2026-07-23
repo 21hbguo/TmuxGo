@@ -4,6 +4,7 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import { usePreferences } from './usePreferences'
 import { getWebSocketBase } from '@/lib/runtime-endpoints'
 import { recordMobileDiagnostic } from '@/lib/mobile-diagnostics'
+import { decodeStreamOutputBinary } from '@/lib/stream-binary'
 type WSState={ws:WebSocket|null,reconnectTimer:ReturnType<typeof setTimeout>|null,reconnectCount:number,isConnecting:boolean,socketReady:boolean,pingTimer:ReturnType<typeof setInterval>|null,pongTimer:ReturnType<typeof setTimeout>|null,closeTimer:ReturnType<typeof setTimeout>|null,backgroundCloseTimer:ReturnType<typeof setTimeout>|null,subscribers:number,lastPongAt:number,hiddenAt:number,backgroundClosed:boolean,onMessage:((data:any)=>void)|null,onOpen:(()=>void)|null,onClose:(()=>void)|null,onError:(()=>void)|null,closeExpected:boolean,lastInteractionRecoverAt:number,listenersReady:boolean,cleanupListeners:(()=>void)|null}
 const wsState:WSState={ws:null,reconnectTimer:null,reconnectCount:0,isConnecting:false,socketReady:false,pingTimer:null,pongTimer:null,closeTimer:null,backgroundCloseTimer:null,subscribers:0,lastPongAt:0,hiddenAt:0,backgroundClosed:false,onMessage:null,onOpen:null,onClose:null,onError:null,closeExpected:false,lastInteractionRecoverAt:0,listenersReady:false,cleanupListeners:null}
 type OutputMessage={data:string,sessionName?:string|null,hostId?:string|null,resync?:boolean}
@@ -35,6 +36,9 @@ export function useWebSocket() {
     clearTimeout(wsState.backgroundCloseTimer)
     wsState.backgroundCloseTimer=null
   },[])
+  const emitOutput=useCallback((message:OutputMessage)=>{
+    outputListeners.forEach((listener)=>listener(message))
+  },[])
   const handleMessage=useCallback((data:any)=>{
     switch (data.type) {
       case 'pong':
@@ -44,9 +48,11 @@ export function useWebSocket() {
         break
       case 'output':
       case 'output_resync': {
-        Array.from(outputListeners).forEach((listener)=>listener({data:data.data,sessionName:data.sessionName??null,hostId:data.hostId??null,resync:data.type==='output_resync'}))
+        emitOutput({data:data.data,sessionName:data.sessionName??null,hostId:data.hostId??null,resync:data.type==='output_resync'})
         break
       }
+      case 'stream_caps':
+        break
       case 'connected':
         wsState.socketReady=true
         updateConnection({status:'attaching'})
@@ -72,7 +78,7 @@ export function useWebSocket() {
         window.dispatchEvent(new CustomEvent('tmuxgo-agent-status',{detail:data}))
         break
     }
-  },[clearPongTimer,updateConnection])
+  },[clearPongTimer,emitOutput,updateConnection])
   const sendPing=useCallback((timeout=8000)=>{
     const ws=wsState.ws
     if (!ws||ws.readyState!==WebSocket.OPEN) return
@@ -99,6 +105,7 @@ export function useWebSocket() {
     try {
       const ws=new WebSocket(wsUrl)
       wsState.ws=ws
+      ws.binaryType='arraybuffer'
       ws.onopen=()=>{
         if (wsState.ws!==ws) return
         wsState.isConnecting=false
@@ -110,13 +117,21 @@ export function useWebSocket() {
         wsState.lastPongAt=Date.now()
         updateConnection({status:'attaching',latency:0})
         recordMobileDebug('ws-open')
+        try { ws.send(JSON.stringify({type:'stream_caps',binaryOutput:true})) } catch {}
         sendPing()
         window.dispatchEvent(new CustomEvent('ws-reconnected'))
         wsState.onOpen?.()
       }
       ws.onmessage=(event)=>{
         try {
-          const data=JSON.parse(event.data)
+          if (typeof ArrayBuffer!=='undefined'&&event.data instanceof ArrayBuffer) {
+            const decoded=decodeStreamOutputBinary(event.data)
+            if (!decoded) return
+            wsState.onMessage?.({type:decoded.type,data:decoded.data,sessionName:decoded.sessionName,hostId:decoded.hostId})
+            return
+          }
+          const raw=typeof event.data==='string'?event.data:String(event.data)
+          const data=JSON.parse(raw)
           wsState.onMessage?.(data)
         } catch (err) {
           console.error('Failed to parse WebSocket message:',err)
