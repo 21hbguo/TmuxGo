@@ -655,6 +655,15 @@ a {
   padding-bottom: var(--terminal-padding-bottom, var(--terminal-padding, 0));
   padding-left: var(--terminal-padding-left, var(--terminal-padding, 0));
 }
+[data-terminal] .xterm,
+[data-terminal] .xterm-screen,
+[data-terminal] .xterm-rows,
+[data-terminal] .xterm-rows span,
+[data-terminal] canvas {
+  -webkit-touch-callout: none !important;
+  -webkit-user-select: none !important;
+  user-select: none !important;
+}
 [data-terminal] .xterm {
   position: relative;
   display: block;
