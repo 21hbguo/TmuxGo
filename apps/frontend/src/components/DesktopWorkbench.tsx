@@ -227,7 +227,7 @@ export function DesktopWorkbench() {
           <div className="h-full min-h-0">
             <SessionPanel />
           </div>
-          <div className="absolute right-0 top-0 h-full w-px cursor-col-resize hover:bg-accent/40" onMouseDown={() => {
+          <div className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-accent/40" onMouseDown={() => {
             resizingRef.current = 'session'
             pendingSessionWidthRef.current = sessionPanelWidth
             setPreviewSessionWidth(sessionPanelWidth)
@@ -241,7 +241,7 @@ export function DesktopWorkbench() {
           <div className="h-full min-h-0">
             <FilePanel mode="explorer" onOpenFile={handleOpenFile} />
           </div>
-          <div className="absolute right-0 top-0 h-full w-px cursor-col-resize hover:bg-accent/40" onMouseDown={() => {
+          <div className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-accent/40" onMouseDown={() => {
             resizingRef.current = 'file'
             pendingFileWidthRef.current = filePanelWidth
             setPreviewFileWidth(filePanelWidth)
@@ -255,7 +255,7 @@ export function DesktopWorkbench() {
           <div className="h-full min-h-0">
             <GitPanel />
           </div>
-          <div className="absolute right-0 top-0 h-full w-px cursor-col-resize hover:bg-accent/40" onMouseDown={() => {
+          <div className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-accent/40" onMouseDown={() => {
             resizingRef.current = 'git'
             pendingGitWidthRef.current = gitPanelWidth
             setPreviewGitWidth(gitPanelWidth)

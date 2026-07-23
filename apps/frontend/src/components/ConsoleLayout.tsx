@@ -9,6 +9,7 @@ import { MobileDrawer } from './MobileDrawer'
 import { MobileBottomSheet } from './MobileBottomSheet'
 import { Settings } from './Settings'
 import { InstallAppBanner } from './InstallAppBanner'
+import { ImmersiveBackOrb } from './ImmersiveBackOrb'
 import { ShortcutBar } from './ShortcutBar'
 import { ToastViewport } from './ToastViewport'
 import { PaneNotifications } from './PaneNotifications'
@@ -22,7 +23,7 @@ import { createViewportStableState, getNextViewportStableState, getViewportLayou
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useDeleteSession, useHosts, useRenameSession, useSessionSnapshot } from '@/hooks/useApi'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
-import { usePreferences } from '@/hooks/usePreferences'
+import { setImmersiveFullscreenMode, usePreferences } from '@/hooks/usePreferences'
 import { usePrompt } from '@/hooks/usePrompt'
 import { useSessionContinuity } from '@/hooks/useSessionContinuity'
 import { useGitPreferencesSync } from '@/hooks/useGitPreferencesSync'
@@ -525,6 +526,17 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
     return () => window.removeEventListener('popstate', handlePopState)
   }, [setCommandPalette, setMobileFileSheetOpen])
   useEffect(() => {
+    const handleAppBack = () => {
+      if (overlayRef.current.length > 0) {
+        window.history.back()
+        return
+      }
+      void setImmersiveFullscreenMode(false)
+    }
+    window.addEventListener('tmuxgo-app-back', handleAppBack as EventListener)
+    return () => window.removeEventListener('tmuxgo-app-back', handleAppBack as EventListener)
+  }, [])
+  useEffect(() => {
     const handleOpenSettings = () => openSettings()
     window.addEventListener('tmuxgo-open-settings', handleOpenSettings as EventListener)
     return () => window.removeEventListener('tmuxgo-open-settings', handleOpenSettings as EventListener)
@@ -592,6 +604,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   return (
     <div className="tmuxgo-app-shell flex w-screen flex-col overflow-hidden bg-bg-0" style={{ height: appHeight, ['--app-height' as any]: appHeight }}>
       <InstallAppBanner />
+      <ImmersiveBackOrb />
       <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
         <main data-workspace-main className="tmuxgo-workspace-main flex min-h-0 min-w-0 flex-1 flex-col">
           {isMobile ? <PaneGrid /> : <DesktopWorkbench />}

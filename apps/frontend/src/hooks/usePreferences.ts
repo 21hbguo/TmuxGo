@@ -238,15 +238,9 @@ export async function setImmersiveFullscreenMode(active: boolean) {
   persistImmersivePreference(active)
   applyImmersivePresentation(active)
   if (active) {
-    if (!isMobileBrowser()) {
-      try {
-        await requestAppFullscreen()
-      } catch {}
-    } else if (getFullscreenElement()) {
-      try {
-        await exitAppFullscreen()
-      } catch {}
-    }
+    try {
+      await requestAppFullscreen()
+    } catch {}
   } else if (getFullscreenElement()) {
     try {
       await exitAppFullscreen()
@@ -333,15 +327,12 @@ export function usePreferences() {
     const syncFs = () => {
       const fs = !!getFullscreenElement()
       const want = preferencesStore.immersiveFullscreen
-      if (!isMobileBrowser() && !fs && want) {
+      if (!fs && want) {
         persistImmersivePreference(false)
         applyImmersivePresentation(false)
         return
       }
-      applyImmersivePresentation(want)
-      if (isMobileBrowser() && fs) {
-        void exitAppFullscreen().catch(() => {})
-      }
+      applyImmersivePresentation(want || fs)
     }
     const onResize = () => {
       if (preferencesStore.immersiveFullscreen) applyImmersivePresentation(true)
