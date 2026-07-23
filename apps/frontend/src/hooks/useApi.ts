@@ -150,8 +150,8 @@ export function useSessionThumbnails(hostId: string, enabled = true) {
 export function useCreateSession() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ hostId, name, layout }: { hostId: string; name: string; layout?: SessionLayout }) =>
-      api.sessions.create(hostId, name, layout),
+    mutationFn: ({ hostId, name, layout, cwd }: { hostId: string; name: string; layout?: SessionLayout; cwd?: string }) =>
+      api.sessions.create(hostId, name, layout, cwd),
     onSuccess: (created, { hostId }) => {
       queryClient.setQueryData(['sessions', hostId], (prev: any[] | undefined) => upsertSessionList(prev, created))
       queryClient.invalidateQueries({ queryKey: ['sessions', hostId] })

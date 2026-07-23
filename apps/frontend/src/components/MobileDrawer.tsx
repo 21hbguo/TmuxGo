@@ -4,7 +4,9 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useBatchDeleteSessions, useCreateSession, useDeleteSession, useRenameSession, useWindows } from '@/hooks/useApi'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
+import { useMigrateSessionWorkspace, useRemoveSessionWorkspaces, useSetSessionWorkspace } from '@/hooks/useSessionWorkspaces'
 import { SessionTemplates, type Template } from './SessionTemplates'
+import { CreateSessionDialog } from './CreateSessionDialog'
 import { ModalPortal } from './ModalPortal'
 import { getTemplateSessionName } from '@/lib/session-template'
 import { useTranslation } from '@/i18n'
@@ -49,6 +51,9 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
   const renameSession = useRenameSession()
   const deleteSession = useDeleteSession()
   const batchDeleteSessions = useBatchDeleteSessions()
+  const setSessionWorkspace = useSetSessionWorkspace()
+  const removeSessionWorkspaces = useRemoveSessionWorkspaces()
+  const migrateSessionWorkspace = useMigrateSessionWorkspace()
   const { t } = useTranslation()
   const { prompt, PromptElement } = usePrompt()
   const [showTemplates, setShowTemplates] = useState(false)
@@ -56,20 +61,44 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
   const [batchMode, setBatchMode] = useState(false)
   const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([])
   const [batchDeleteConfirmOpen, setBatchDeleteConfirmOpen] = useState(false)
+  const [createDialogTemplate, setCreateDialogTemplate] = useState<Template | null>(null)
+  const [createDialogOpen, setCreateDialogOpen] = useState(false)
 
-  const handleTemplateSelect = async (template: Template) => {
+  const handleTemplateSelect = (template: Template) => {
     if (!activeHostId) return
-    const name = await prompt(t('drawer.sessionName'), getTemplateSessionName(template))
-    if (!name) return
+    setShowTemplates(false)
+    setCreateDialogTemplate(template)
+    setCreateDialogOpen(true)
+  }
+  const handleCreateSession = async ({ name, cwd, workspace }: { name: string; cwd?: string; workspace?: { rootId: string; rootPath: string; rootLabel: string; relativePath: string; absolutePath: string } }) => {
+    if (!activeHostId || !createDialogTemplate) return
     try {
-      const created = await createSession.mutateAsync({ hostId: activeHostId, name, layout: template.layout })
-      if (created?.id) setActiveSession(created.id)
-      pushToast({ type: 'success', message: t('session.created', { name }) })
-      onClose()
+      const created = await createSession.mutateAsync({ hostId: activeHostId, name, layout: createDialogTemplate.layout, cwd })
+      if (created?.id) {
+        if (cwd && workspace) {
+          try {
+            await setSessionWorkspace.mutateAsync({
+              sessionId: created.id,
+              hostId: activeHostId,
+              workspacePath: workspace.absolutePath,
+              rootId: workspace.rootId,
+              rootPath: workspace.rootPath,
+              rootLabel: workspace.rootLabel,
+              relativePath: workspace.relativePath,
+              updatedAt: new Date().toISOString(),
+            })
+          } catch {}
+        }
+        setActiveSession(created.id)
+        pushToast({ type: 'success', message: t('session.created', { name }) })
+        onClose()
+      }
     } catch (err) {
       pushToast({ type: 'error', message: err instanceof Error ? err.message : t('session.requestFailed') })
+      throw err
     }
-    setShowTemplates(false)
+    setCreateDialogOpen(false)
+    setCreateDialogTemplate(null)
   }
   const [visible, setVisible] = useState(false)
   const [closing, setClosing] = useState(false)
@@ -154,6 +183,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
     if (!name || name === session?.name) return
     try {
       const renamed = await renameSession.mutateAsync({ hostId: activeHostId, sessionId, name })
+      if (renamed?.id && renamed.id !== sessionId) { try { await migrateSessionWorkspace.mutateAsync({ fromId: sessionId, toId: renamed.id }) } catch {} }
       if (activeSessionId === sessionId && renamed?.id) setActiveSession(renamed.id)
       pushToast({ type: 'success', message: t('session.renamed', { from: session?.name || sessionId, to: name }) })
     } catch (err) {
@@ -165,6 +195,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
     const session = sessions.find((item: any) => item.id === pendingDeleteSessionId)
     try {
       await deleteSession.mutateAsync({ hostId: activeHostId, sessionId: pendingDeleteSessionId })
+      try { await removeSessionWorkspaces.mutateAsync([pendingDeleteSessionId]) } catch {}
       if (activeSessionId === pendingDeleteSessionId) setActiveSession(getNextSessionId(sessions, [pendingDeleteSessionId]))
       pushToast({ type: 'success', message: t('session.deleted', { name: session?.name || pendingDeleteSessionId }) })
       onClose()
@@ -180,6 +211,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
       const execute = await batchDeleteSessions.mutateAsync({ hostId: activeHostId, payload: { mode: 'execute', sessionIds: selectedSessionIds, force: preview.forceRequired === true } })
       const deletedIds = new Set((execute.deleted || []).map((item) => item.sessionId))
       const deletedCount = typeof execute.deletedCount === 'number' ? execute.deletedCount : deletedIds.size
+      if (deletedIds.size) { try { await removeSessionWorkspaces.mutateAsync(Array.from(deletedIds)) } catch {} }
       if (activeSessionId && deletedIds.has(activeSessionId)) setActiveSession(getNextSessionId(sessions, Array.from(deletedIds)))
       pushToast({ type: 'success', message: t('sidebar.batchDeleteSuccess', { count: deletedCount }) })
       setSelectedSessionIds([])
@@ -318,6 +350,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
         </div>
       </div>
       {showTemplates && <ModalPortal><SessionTemplates onSelect={handleTemplateSelect} onClose={() => setShowTemplates(false)} /></ModalPortal>}
+      <CreateSessionDialog open={createDialogOpen} template={createDialogTemplate} defaultName={createDialogTemplate ? getTemplateSessionName(createDialogTemplate) : ''} onCreate={handleCreateSession} onClose={() => { setCreateDialogOpen(false); setCreateDialogTemplate(null) }} />
       <ConfirmDialog open={!!pendingDeleteSessionId} title={t('sidebar.deleteTitle')} message={t('sidebar.deleteConfirm', { name: sessions.find((item: any) => item.id === pendingDeleteSessionId)?.name || '' })} confirmLabel={t('sidebar.confirmDelete')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setPendingDeleteSessionId(null)} onConfirm={() => void confirmDeleteSession()} />
       <ConfirmDialog open={batchDeleteConfirmOpen} title={t('sidebar.batchDeleteTitle')} message={t('sidebar.batchDeleteConfirm', { count: selectedSessionIds.length })} confirmLabel={t('sidebar.batchDeleteSelected')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setBatchDeleteConfirmOpen(false)} onConfirm={() => void confirmBatchDeleteSession()} />
       {PromptElement}

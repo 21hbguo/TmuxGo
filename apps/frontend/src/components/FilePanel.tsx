@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useFileList, useFilePreview, useFileRoots, useFileSearch } from '@/hooks/useApi'
 import { usePreferences } from '@/hooks/usePreferences'
+import { useSessionWorkspaces } from '@/hooks/useSessionWorkspaces'
+import { isMobileDevice } from '@/hooks/useMobileKeyboard'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import type { FavoriteDirectory, FileContentMatch, FileDocumentHandle, FileItem, FileListResponse, FilePreviewResponse, FileRoot, TrashEntry } from '@/types'
 import { writeClipboardText } from '@/lib/clipboard-text'
@@ -273,7 +275,8 @@ function FavoriteDirectoryButton({ active, name, onClick }: { active: boolean; n
   return <button onClick={onClick} className={`shrink-0 rounded-apple px-1 py-0 text-caption leading-4 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 ${active ? 'bg-accent/10 text-accent opacity-100' : 'bg-bg-2 text-text-3 hover:text-text-1'}`} aria-label={`${active ? 'Unfavorite' : 'Favorite'} ${name}`}>{active ? '★' : '☆'}</button>
 }
 type FileTreeNode = { key: string; item: FileItem; children?: FileTreeNode[] }
-export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile }: { mode?: 'panel' | 'mobile' | 'explorer'; dock?: 'left' | 'right'; onClose?: () => void; onOpenFile?: (file: FileDocumentHandle) => void }) {
+export type FilePanelPickerTarget = { rootId: string; rootPath: string; rootLabel: string; relativePath: string; absolutePath: string }
+export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile, onPick }: { mode?: 'panel' | 'mobile' | 'explorer' | 'picker'; dock?: 'left' | 'right'; onClose?: () => void; onOpenFile?: (file: FileDocumentHandle) => void; onPick?: (target: FilePanelPickerTarget) => void }) {
   const queryClient = useQueryClient()
   const activeHostId = useConsoleStore((state) => state.activeHostId)
   const activeSessionId = useConsoleStore((state) => state.activeSessionId)
@@ -289,7 +292,10 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   const { prompt, PromptElement } = usePrompt()
   const fileHostId = activeHostId || 'local'
   const { data: roots = [] } = useFileRoots(fileHostId)
-  const isMobile = mode === 'mobile'
+  const isPicker = mode === 'picker'
+  const isMobile = mode === 'mobile' || (isPicker && isMobileDevice())
+  const sessionWorkspacesQuery = useSessionWorkspaces()
+  const sessionWorkspaces = sessionWorkspacesQuery.data || []
   const [selectedRootId, setSelectedRootId] = useState('')
   const [currentPath, setCurrentPath] = useState('')
   const [selectedPath, setSelectedPath] = useState('')
@@ -318,6 +324,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   const searchInputRef = useRef<HTMLInputElement>(null)
   const lastFollowedEditorKeyRef = useRef('')
   const lastSessionIdRef = useRef<string | undefined>(undefined)
+  const lastAppliedWorkspaceSessionRef = useRef<string | undefined>(undefined)
   const suspendedFollowEditorIdRef = useRef<string | null>(null)
   const [pendingDeleteItem, setPendingDeleteItem] = useState<FileEntry | null>(null)
   const [lastTrashedItem, setLastTrashedItem] = useState<TrashEntry | null>(null)
@@ -428,6 +435,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     setDirectoryCache(new Map())
     setDirectoryStatusState(new Map())
     lastFollowedEditorKeyRef.current = ''
+    lastAppliedWorkspaceSessionRef.current = undefined
     suspendedFollowEditorIdRef.current = null
     directoryLoadingRef.current.clear()
   }, [fileHostId])
@@ -466,6 +474,24 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     suspendedFollowEditorIdRef.current = activeEditorId
     directoryLoadingRef.current.clear()
   }, [activeEditorId, activeSessionId, selectedRootId])
+  useEffect(() => {
+    if (isPicker || mode === 'explorer') return
+    if (isSearching) return
+    if (!activeSessionId || !rootOptions.length) return
+    if (lastAppliedWorkspaceSessionRef.current === activeSessionId) return
+    if (sessionWorkspacesQuery.isFetching) return
+    const entry = sessionWorkspaces.find((item) => item.sessionId === activeSessionId)
+    lastAppliedWorkspaceSessionRef.current = activeSessionId
+    if (!entry) return
+    const matchedRoot = rootOptions.find((item) => item.sourceRootId === entry.rootId && item.basePath === '')
+    if (!matchedRoot) return
+    if (selectedRootId !== matchedRoot.id) setSelectedRootId(matchedRoot.id)
+    const nextPath = entry.relativePath || ''
+    if (currentPath !== nextPath) {
+      currentPathRef.current = nextPath
+      setCurrentPath(nextPath)
+    }
+  }, [activeSessionId, rootOptions, sessionWorkspaces, sessionWorkspacesQuery.isFetching, isSearching, isPicker, mode, selectedRootId, currentPath])
   useEffect(() => {
     if (!openDirectories.size) return
     for (const itemPath of Array.from(openDirectories)) {
@@ -534,7 +560,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     contextMenuRef.current = !!contextMenu
   }, [contextMenu])
   const pushMobileNavigationHistory = () => {
-    if (!isMobile || typeof window === 'undefined') return
+    if (!isMobile || isPicker || typeof window === 'undefined') return
     mobileNavigationDepthRef.current += 1
     window.dispatchEvent(new CustomEvent('tmuxgo-mobile-files-push-level'))
   }
@@ -552,7 +578,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     })
   }
   useEffect(() => {
-    if (!isMobile) return
+    if (!isMobile || isPicker) return
     const handleBack = (event: Event) => {
       const detail = (event as CustomEvent<{ handled?: boolean }>).detail
       if (contextMenuRef.current) {
@@ -641,7 +667,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     return { key: `${activeEditor.id}:${matchedRoot.id}`, rootId: matchedRoot.id, path: nextPath, parentPath, basePath: matchedRoot.basePath }
   }, [activeEditor, fileHostId, rootOptions])
   useEffect(() => {
-    if (isMobile || !activeEditorFollowTarget) return
+    if (isMobile || isPicker || !activeEditorFollowTarget) return
     if (suspendedFollowEditorIdRef.current) {
       if (activeEditor?.id === suspendedFollowEditorIdRef.current) return
       suspendedFollowEditorIdRef.current = null
@@ -705,6 +731,14 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   }
   const openItem = (item: FileEntry) => {
     if (item.type === 'directory') {
+      if (isPicker) {
+        currentPathRef.current = item.path
+        setCurrentPath(item.path)
+        setSelectedPath('')
+        setSelectedPreviewLine(1)
+        setSearchNavigationPath(isSearching ? item.path : null)
+        return
+      }
       if (!isMobile && showSearchResults) {
         void handleDesktopDirectoryToggle(item)
         return
@@ -722,6 +756,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
       setSearchNavigationPath(isSearching ? item.path : null)
       return
     }
+    if (isPicker) return
     if (!isMobile && openInEditor(item)) return
     if (isMobile) pushMobileNavigationHistory()
     setSelectedPath(item.path)
@@ -894,9 +929,16 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     openUploadDialog({ files: selectedFiles, preferredRootId: activeRootId, preferredPath: listQueryPath, insertPaths: true })
     event.target.value = ''
   }
+  const pickTarget = (relativeToRoot: string) => {
+    if (!onPick) return
+    const absolutePath = joinPath(activeSourceRootPath, relativeToRoot)
+    onPick({ rootId: activeRootId, rootPath: activeSourceRootPath, rootLabel: activeRoot?.label || '', relativePath: relativeToRoot, absolutePath })
+  }
+  const handlePickCurrentFolder = () => pickTarget(joinRelativePath(activeRootBasePath, currentPath))
+  const handlePickItem = (item: FileEntry) => pickTarget(joinRelativePath(activeRootBasePath, item.path))
   const embedded = mode === 'explorer'
-  const shellClass = isMobile ? 'flex h-full min-h-0 flex-col overflow-hidden' : `relative flex h-full ${embedded ? 'min-w-0 flex-1' : 'shrink-0'} flex-col bg-bg-1 overflow-hidden ${dock === 'left' ? 'border-r border-[var(--line)]' : 'border-l border-[var(--line)]'}`
-  const shellStyle = isMobile || embedded ? undefined : { width: filePanelWidth }
+  const shellClass = (isMobile || isPicker) ? 'flex h-full min-h-0 flex-col overflow-hidden' : `relative flex h-full ${embedded ? 'min-w-0 flex-1' : 'shrink-0'} flex-col bg-bg-1 overflow-hidden ${dock === 'left' ? 'border-r border-[var(--line)]' : 'border-l border-[var(--line)]'}`
+  const shellStyle = isMobile || embedded || isPicker ? undefined : { width: filePanelWidth }
   const imagePreviewUrl = preview?.path && preview.type === 'file' && isImagePath(preview.path) && (preview.binary || preview.reason === 'binary-file' || preview.reason === 'large-file') ? api.files.imageUrl(fileHostId, activeRootId, resolveRootRelativePath(activeRootBasePath, preview.path), preview.modifiedAt) : ''
   const previewBlock = preview ? (
     imagePreviewUrl ? (
@@ -1096,17 +1138,22 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
       <div className="shrink-0 border-b border-[var(--line)] px-2 py-2">
         <div className="flex items-center gap-1.5">
           {isMobile && mobileView === 'preview' && <Button variant="ghost" size="icon-sm" aria-label="back to list" onClick={() => setMobileView('list')}>‹</Button>}
-          {isMobile && mobileView !== 'preview' && !!currentPath && <Button variant="ghost" size="icon-sm" aria-label="go back" onClick={() => mobileNavigationDepthRef.current > 0 ? window.history.back() : goMobileParentDirectory()}>‹</Button>}
+          {(isMobile ? mobileView !== 'preview' : isPicker) && !!currentPath && <Button variant="ghost" size="icon-sm" aria-label="go back" onClick={() => isPicker ? goMobileParentDirectory() : (mobileNavigationDepthRef.current > 0 ? window.history.back() : goMobileParentDirectory())}>‹</Button>}
 
           <select value={selectedRootId} onChange={(e) => switchRoot(e.target.value)} className="tmuxgo-control tmuxgo-select min-w-0 flex-1 rounded-apple px-2 py-1 text-meta">
             {rootOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
           </select>
-          <Chip tone="accent" onClick={() => uploadInputRef.current?.click()}>{t('file.upload')}</Chip>
-          <Chip title={t('file.trash')} aria-label="trash" onClick={() => void openTrash()}>♲</Chip>
-          {activeFavorite && <Chip onClick={() => removeFavoriteDirectory(activeFavorite)}>{t('file.removeFavorite')}</Chip>}
-          <Button variant="ghost" size="icon-sm" aria-label="close" onClick={onClose || (() => setFilePanelOpen(false))}>×</Button>
+          {isPicker ? <>
+            <Chip tone="accent" onClick={handlePickCurrentFolder}>{t('session.selectThisFolder')}</Chip>
+            <Button variant="ghost" size="icon-sm" aria-label="close" onClick={onClose || (() => setFilePanelOpen(false))}>×</Button>
+          </> : <>
+            <Chip tone="accent" onClick={() => uploadInputRef.current?.click()}>{t('file.upload')}</Chip>
+            <Chip title={t('file.trash')} aria-label="trash" onClick={() => void openTrash()}>♲</Chip>
+            {activeFavorite && <Chip onClick={() => removeFavoriteDirectory(activeFavorite)}>{t('file.removeFavorite')}</Chip>}
+            <Button variant="ghost" size="icon-sm" aria-label="close" onClick={onClose || (() => setFilePanelOpen(false))}>×</Button>
+          </>}
         </div>
-
+        {isPicker && <div className="mt-1 truncate font-mono text-caption text-text-3" title={joinPath(activeSourceRootPath, joinRelativePath(activeRootBasePath, currentPath))}>{joinPath(activeSourceRootPath, joinRelativePath(activeRootBasePath, currentPath)) || '/'}</div>}
       </div>
       {(!isMobile || mobileView === 'list') && <div className="shrink-0 border-b border-[var(--line)] px-2 py-2">
         <div className="flex items-center gap-1">
@@ -1127,7 +1174,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
           }} placeholder={searchMode === 'name' ? t('file.searchName') : t('file.searchContent')} className="tmuxgo-control tmuxgo-input min-w-0 flex-1 rounded-apple px-2 py-1 font-mono text-meta" />
           <button onClick={() => { setQuery(''); setDebouncedQuery(''); setSearchNavigationPath(null) }} disabled={!query} aria-label={t('file.clearSearch')} className={`tmuxgo-toolbar-icon h-7 w-7 shrink-0 text-meta ${query ? '' : 'opacity-40'}`}>×</button>
         </div>
-        <div className="mt-0.5 flex items-center gap-1">
+        {!isPicker && <div className="mt-0.5 flex items-center gap-1">
           <div className="flex min-w-0 flex-1 rounded-apple border border-[var(--line)] bg-bg-2 p-0.5 text-meta">
             {(['all', 'file', 'directory'] as FileTypeFilter[]).map((item) => (
               <Chip key={item} tone={fileTypeFilter === item ? 'accent' : 'default'} onClick={() => setFileTypeFilter(item)} className="min-w-0 flex-1">{item === 'all' ? t('file.all') : item === 'file' ? t('file.file') : t('file.dir')}</Chip>
@@ -1135,17 +1182,18 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
           </div>
           <button onClick={clearExpandedDirectories} disabled={!openDirectories.size && !directoryCache.size} aria-label={t('file.clearExpanded')} className={`tmuxgo-toolbar-icon h-7 w-7 shrink-0 text-meta ${openDirectories.size || directoryCache.size ? '' : 'opacity-40'}`}>⌂</button>
           <Chip onClick={() => updateHideDotFiles(!hideDotFiles)} tone={hideDotFiles ? 'default' : 'accent'} className="shrink-0 border">{t('file.dotfiles')}</Chip>
-        </div>
-        <div className="mt-0.5 flex items-center gap-1">
+        </div>}
+        {!isPicker && <div className="mt-0.5 flex items-center gap-1">
           <select value={fileSort.field} onChange={(e) => updateFileSort(e.target.value as SortField)} className="tmuxgo-control tmuxgo-select h-7 min-w-0 flex-1 rounded-apple px-2 text-meta cursor-pointer pr-1">
             <option value="name">{t('file.sortName')}</option>
             <option value="size">{t('file.sortSize')}</option>
             <option value="modified">{t('file.sortModified')}</option>
           </select>
           <button onClick={() => toggleSortDirection()} title={fileSort.direction === 'asc' ? t('file.sortAsc') : t('file.sortDesc')} aria-label={fileSort.direction === 'asc' ? t('file.sortAsc') : t('file.sortDesc')} className="tmuxgo-toolbar-icon h-7 w-7 shrink-0 text-meta">{fileSort.direction === 'asc' ? '↑' : '↓'}</button>
-        </div>
+        </div>}
       </div>}
       {(!isMobile || mobileView === 'list') && <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain" onContextMenu={(e) => {
+        if (isPicker) return
         if ((e.target as HTMLElement).closest('button')) return
         e.preventDefault()
         showContextMenu(e.clientX, e.clientY, null, currentPath)
@@ -1161,22 +1209,23 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
           </div>
         )}
         {(listLoading || searchLoading) && <div className="p-3 text-xs text-text-3">{t('file.loading')}</div>}
-        {!isMobile && !showSearchResults && !listLoading && (
+        {!isMobile && !isPicker && !showSearchResults && !listLoading && (
           <div className="tmuxgo-file-tree">
             {renderDesktopTree(desktopTreeData)}
           </div>
         )}
-        {!listLoading && showSearchResults && !isMobile && renderSearchList(visibleItems)}
-        {!listLoading && isMobile && visibleItems.map((item: any) => (
+        {!listLoading && showSearchResults && !isMobile && !isPicker && renderSearchList(visibleItems)}
+        {!listLoading && (isMobile || isPicker) && visibleItems.map((item: any) => (
           item.type === 'directory' ? (
             <button
               key={`${item.type}-${item.path}`}
               tabIndex={0}
               title={getItemFullPath(item)}
               onClick={() => openItem(item)}
-              onDoubleClick={() => insertItemPath(item)}
+              onDoubleClick={() => isPicker ? handlePickItem(item) : insertItemPath(item)}
               onKeyDown={(e) => selectFromKeyboard(item, e)}
               onContextMenu={(e) => {
+                if (isPicker) return
                 e.preventDefault()
                 showContextMenu(e.clientX, e.clientY, item, getParentRelativePath(item, currentPath))
               }}
@@ -1193,14 +1242,15 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
               tabIndex={0}
               title={getItemFullPath(item)}
               onClick={() => openItem(item)}
-              onDoubleClick={() => insertItemPath(item)}
+              onDoubleClick={() => isPicker ? undefined : insertItemPath(item)}
               onKeyDown={(e) => selectFromKeyboard(item, e)}
               onContextMenu={(e) => {
+                if (isPicker) return
                 e.preventDefault()
                 showContextMenu(e.clientX, e.clientY, item, getParentRelativePath(item, currentPath))
               }}
               onTouchStart={(e) => {
-                if (!isMobile) return
+                if (!isMobile || isPicker) return
                 const touch = e.touches[0]
                 if (!touch) return
                 if (touchTimerRef.current) clearTimeout(touchTimerRef.current)
