@@ -21,6 +21,13 @@ export const streamPerfMetrics = {
   activeProfile: 'foreground' as 'foreground' | 'background' | 'mobile',
   activeFlushInterval: 8,
   activeMaxChars: 65536,
+  compressFrames: 0,
+  compressBytesIn: 0,
+  compressBytesOut: 0,
+  cellSnapshots: 0,
+  cellDiffs: 0,
+  cellFallbackAnsi: 0,
+  cellDirtyCells: 0,
 }
 export function recordStreamMetric<K extends keyof typeof streamPerfMetrics>(key: K, value = 1) {
   const current = streamPerfMetrics[key]
