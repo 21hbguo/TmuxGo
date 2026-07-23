@@ -335,7 +335,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
       }
       if (outputTimer) return
       const flushDelay = profile.flushInterval
-      if (flushDelay <= 0 || (outputProfile === 'foreground' && !clientBackpressureHigh && getSocketBufferedBytes() < SOCKET_BUFFER_HIGH_WATERMARK / 8)) {
+      if (flushDelay <= 0 || (outputProfile === 'foreground' && !clientBackpressureHigh && getSocketBufferedBytes() < SOCKET_BUFFER_HIGH_WATERMARK / 8 && outputBuffer.length >= STREAM_COMPRESS_THRESHOLD)) {
         flushOutput()
         return
       }
