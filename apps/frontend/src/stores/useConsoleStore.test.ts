@@ -10,6 +10,7 @@ const sampleEditor = {
   name: 'index.ts',
   absolutePath: '/workspace/src/index.ts',
   language: 'typescript',
+  type: 'file' as const,
 }
 function createEditor(id: string, path: string, language = 'typescript') {
   return {
@@ -19,6 +20,7 @@ function createEditor(id: string, path: string, language = 'typescript') {
     name: path.split('/').pop() || path,
     absolutePath: `/workspace/${path}`,
     language,
+    type: 'file' as 'file',
   }
 }
 function collectGroupIds(node: any): string[] {

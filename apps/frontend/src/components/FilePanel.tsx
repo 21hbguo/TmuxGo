@@ -690,9 +690,10 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
       path: filePath,
       name: item.name,
       absolutePath: joinPath(activeSourceRootPath, filePath),
+      type: item.type,
     }
   }
-  const bindFileDrag = (item: FileEntry) => item.type !== 'file' || isMobile ? {} : {
+  const bindFileDrag = (item: FileEntry) => isMobile ? {} : {
     draggable: true,
     onDragStart: (event: React.DragEvent<HTMLElement>) => {
       const handle = createFileHandle(item)
@@ -894,7 +895,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     event.target.value = ''
   }
   const embedded = mode === 'explorer'
-  const shellClass = isMobile ? 'flex h-full min-h-0 flex-col' : `relative flex h-full ${embedded ? 'min-w-0 flex-1' : 'shrink-0'} flex-col bg-bg-1 ${dock === 'left' ? 'border-r border-[var(--line)]' : 'border-l border-[var(--line)]'}`
+  const shellClass = isMobile ? 'flex h-full min-h-0 flex-col overflow-hidden' : `relative flex h-full ${embedded ? 'min-w-0 flex-1' : 'shrink-0'} flex-col bg-bg-1 overflow-hidden ${dock === 'left' ? 'border-r border-[var(--line)]' : 'border-l border-[var(--line)]'}`
   const shellStyle = isMobile || embedded ? undefined : { width: filePanelWidth }
   const imagePreviewUrl = preview?.path && preview.type === 'file' && isImagePath(preview.path) && (preview.binary || preview.reason === 'binary-file' || preview.reason === 'large-file') ? api.files.imageUrl(fileHostId, activeRootId, resolveRootRelativePath(activeRootBasePath, preview.path), preview.modifiedAt) : ''
   const previewBlock = preview ? (
@@ -1092,7 +1093,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
         />
       )}
       {!contentReady ? <div className="flex h-full items-center justify-center text-xs text-text-3">{t('file.loading')}</div> : <>
-      <div className="border-b border-[var(--line)] px-2 py-2">
+      <div className="shrink-0 border-b border-[var(--line)] px-2 py-2">
         <div className="flex items-center gap-1.5">
           {isMobile && mobileView === 'preview' && <Button variant="ghost" size="icon-sm" aria-label="back to list" onClick={() => setMobileView('list')}>‹</Button>}
           {isMobile && mobileView !== 'preview' && !!currentPath && <Button variant="ghost" size="icon-sm" aria-label="go back" onClick={() => mobileNavigationDepthRef.current > 0 ? window.history.back() : goMobileParentDirectory()}>‹</Button>}
@@ -1107,7 +1108,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
         </div>
 
       </div>
-      {(!isMobile || mobileView === 'list') && <div className="border-b border-[var(--line)] px-2 py-2">
+      {(!isMobile || mobileView === 'list') && <div className="shrink-0 border-b border-[var(--line)] px-2 py-2">
         <div className="flex items-center gap-1">
           <div className="flex shrink-0 rounded-apple border border-[var(--line)] bg-bg-2 p-0.5 text-meta">
             {(['name', 'content'] as SearchMode[]).map((item) => (

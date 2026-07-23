@@ -449,7 +449,7 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
     <div key={editor.id} className={`group relative flex h-7 w-44 shrink-0 items-center border-r border-[rgba(255,255,255,0.04)] ${editor.id === activeEditor?.id ? 'bg-bg-0' : 'bg-bg-1/80'}`}>
       <button draggable={editor.kind !== 'compare'} onDragStart={(event) => {
         if (editor.kind === 'compare') return
-        const handle = { id: editor.id, hostId: editor.hostId, rootId: editor.rootId, rootLabel: editor.rootLabel, rootPath: editor.rootPath, path: editor.path, name: editor.name, absolutePath: editor.absolutePath } satisfies FileDocumentHandle
+        const handle = { id: editor.id, hostId: editor.hostId, rootId: editor.rootId, rootLabel: editor.rootLabel, rootPath: editor.rootPath, path: editor.path, name: editor.name, absolutePath: editor.absolutePath, type: 'file' } satisfies FileDocumentHandle
         setActiveDraggedFile(handle)
         event.dataTransfer.effectAllowed = 'move'
         event.dataTransfer.setData(FILE_DRAG_MIME, JSON.stringify(handle))

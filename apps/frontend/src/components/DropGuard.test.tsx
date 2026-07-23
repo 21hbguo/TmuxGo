@@ -29,6 +29,7 @@ describe('DropGuard', () => {
       path: 'src/index.ts',
       name: 'index.ts',
       absolutePath: '/workspace/src/index.ts',
+      type: 'file',
     })
     const root = document.createElement('section')
     root.setAttribute('data-editor-drop', '')

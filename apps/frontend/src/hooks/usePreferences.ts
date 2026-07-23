@@ -11,16 +11,16 @@ const PROFILE = 'default'
 type StoredPreferences = Partial<Preferences> & { _v?: number }
 
 export const FONT_JETBRAINS = '"JetBrains Mono", monospace'
-export const FONT_MAPLE = '"Maple Mono", monospace'
+export const FONT_MAPLE = '"Maple Mono CN", "Maple Mono", monospace'
 export const ALLOWED_FONT_FAMILIES = [FONT_JETBRAINS, FONT_MAPLE] as const
 
 const FONT_UI: Record<AppFontId, string> = {
-  jetbrains: '"JetBrains Mono", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif',
-  maple: '"Maple Mono", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif',
+  jetbrains: '"JetBrains Mono", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif',
+  maple: '"Maple Mono CN", "Maple Mono", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif',
 }
 const FONT_MONO: Record<AppFontId, string> = {
   jetbrains: '"JetBrains Mono", monospace',
-  maple: '"Maple Mono", monospace',
+  maple: '"Maple Mono CN", "Maple Mono", monospace',
 }
 
 export interface Preferences {
@@ -45,7 +45,7 @@ export interface Preferences {
 const defaultPreferences: Preferences = {
   theme: 'dark',
   fontSize: 14,
-  fontFamily: FONT_JETBRAINS,
+  fontFamily: FONT_MAPLE,
   cursorBlink: true,
   sidebarPosition: 'left',
   showStatusBar: true,
@@ -62,11 +62,11 @@ const defaultPreferences: Preferences = {
 }
 
 export function resolveFontId(fontFamily?: string): AppFontId {
-  if (!fontFamily) return 'jetbrains'
+  if (!fontFamily) return 'maple'
   if (fontFamily === FONT_MAPLE || fontFamily === 'maple') return 'maple'
   if (fontFamily === FONT_JETBRAINS || fontFamily === 'jetbrains') return 'jetbrains'
   if (fontFamily.includes('Maple Mono') || /(^|[\s,"'])maple([\s,"']|$)/i.test(fontFamily)) return 'maple'
-  return 'jetbrains'
+  return 'maple'
 }
 
 export function normalizeFontFamily(fontFamily?: string) {
@@ -74,7 +74,7 @@ export function normalizeFontFamily(fontFamily?: string) {
 }
 
 export function primaryFontName(fontFamily?: string) {
-  return resolveFontId(fontFamily) === 'maple' ? 'Maple Mono' : 'JetBrains Mono'
+  return resolveFontId(fontFamily) === 'maple' ? 'Maple Mono CN' : 'JetBrains Mono'
 }
 
 export async function ensureAppFontLoaded(fontFamily?: string, size = 14) {

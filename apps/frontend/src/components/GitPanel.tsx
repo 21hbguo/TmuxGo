@@ -127,6 +127,7 @@ function StatusTab({ hostId, repoPath, onOpenDiff, t }: { hostId: string; repoPa
           path: file.path,
           name: file.path,
           absolutePath: `${repoPath}/${file.path}`,
+          type: 'file',
         },
         { t: t as never, pushToast: pushToast as never },
       )
@@ -148,6 +149,7 @@ function StatusTab({ hostId, repoPath, onOpenDiff, t }: { hostId: string; repoPa
       name: `${file.path} (diff)`,
       absolutePath: `${repoPath}/${file.path}`,
       language: 'diff',
+      type: 'file',
     })
   }, [hostId, onOpenDiff, repoPath, t])
 
@@ -240,6 +242,7 @@ function HistoryTab({ hostId, repoPath, status, onOpenWorkingTree, onOpenCommit,
       name: `${commit.shortSha} ${commit.subject || 'commit diff'}`,
       absolutePath: `${repoPath}@${commit.shortSha}`,
       language: 'diff',
+      type: 'file',
     })
   }
   return (
@@ -586,7 +589,7 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
             {activeTab === 'status' && <StatusTab hostId={activeHostId} repoPath={repoPath} onOpenDiff={mode === 'mobile' ? handleOpenMobileDiff : undefined} t={t as TFunc} />}
             {activeTab === 'history' && <HistoryTab hostId={activeHostId} repoPath={repoPath} status={status} onOpenWorkingTree={mode === 'mobile' ? () => handleOpenMobileDiff({ title: t('git.workingTreeChanges', { count: statusCount }), subtitle: 'WIP', filePath: '', workingTree: true }) : () => {
               const params = new URLSearchParams({ hostId: activeHostId, repoPath, workingTree: '1' })
-              useConsoleStore.getState().openEditor({ id: `git-diff?${params.toString()}`, hostId: activeHostId, rootId: 'git', rootLabel: 'Git', rootPath: repoPath, path: '', name: t('git.workingTreeChanges', { count: statusCount }), absolutePath: `${repoPath} (WIP)`, language: 'diff' })
+              useConsoleStore.getState().openEditor({ id: `git-diff?${params.toString()}`, hostId: activeHostId, rootId: 'git', rootLabel: 'Git', rootPath: repoPath, path: '', name: t('git.workingTreeChanges', { count: statusCount }), absolutePath: `${repoPath} (WIP)`, language: 'diff', type: 'file' })
             }} onOpenCommit={mode === 'mobile' ? handleOpenMobileCommit : undefined} t={t as TFunc} />}
             {activeTab === 'branches' && <BranchesTab hostId={activeHostId} repoPath={repoPath} t={t as TFunc} />}
           </div>

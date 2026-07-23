@@ -817,6 +817,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
               path: relativePath,
               name,
               absolutePath,
+              type: 'file',
             } satisfies FileDocumentHandle,
             position: { line: link.line, column: link.column },
           }
