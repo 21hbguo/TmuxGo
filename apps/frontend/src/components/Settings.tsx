@@ -214,7 +214,7 @@ export function Settings({ onClose }: SettingsProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center tmuxgo-scrim p-4" onClick={onClose}>
-      <div className="tmuxgo-glass tmuxgo-glass-dialog h-[600px] w-full max-w-[700px] overflow-hidden rounded-apple border" onClick={(e) => e.stopPropagation()}>
+      <div className="tmuxgo-glass tmuxgo-glass-dialog h-[70vh] md:h-[600px] w-full max-w-[700px] overflow-hidden rounded-apple border" onClick={(e) => e.stopPropagation()}>
         <div className="p-4 border-b border-[var(--line)] flex items-center justify-between">
           <h2 className="text-text-1 text-lg font-medium">{t('settings.title')}</h2>
           <Button variant="ghost" size="sm" aria-label="close" onClick={onClose}>✕</Button>
@@ -236,7 +236,7 @@ export function Settings({ onClose }: SettingsProps) {
           ))}
         </div>
 
-        <div className="p-6 overflow-y-auto" style={{ maxHeight: 'calc(600px - 120px)' }}>
+        <div className="p-6 overflow-y-auto" style={{ maxHeight: 'calc(70vh - 120px)', maxHeight: 'clamp(200px, calc(70vh - 120px), calc(600px - 120px))' }}>
           {activeTab === 'general' && (
             <div className="space-y-6">
               <div>
@@ -665,7 +665,7 @@ export function Settings({ onClose }: SettingsProps) {
                     <div className="text-sm font-medium text-text-1">{t('settings.restartTitle')}</div>
                     <div className="mt-1 text-xs text-text-3">{t('settings.restartDesc')}</div>
                   </div>
-                  <Button variant="primary" disabled={restartRunning} className="disabled:cursor-not-allowed" onClick={() => setRestartConfirmOpen(true)}>{t('settings.restartAction')}</Button>
+                  <Button variant="primary" disabled={restartRunning} className="shrink-0" onClick={() => setRestartConfirmOpen(true)}>{t('settings.restartAction')}</Button>
                 </div>
                 <div className="mt-4 rounded-apple border border-[var(--line)] px-3 py-2">
                   <div className="flex items-center justify-between gap-4">

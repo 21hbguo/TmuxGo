@@ -380,6 +380,8 @@ export const en = {
   'file.sortName': 'Name',
   'file.sortSize': 'Size',
   'file.sortModified': 'Modified',
+  'file.sortAsc': 'Ascending',
+  'file.sortDesc': 'Descending',
   'file.loading': 'Loading...',
   'file.treeLoadFailed': 'Load failed',
   'file.retryLoad': 'Retry',
