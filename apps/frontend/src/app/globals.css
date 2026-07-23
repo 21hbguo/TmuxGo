@@ -219,18 +219,48 @@ body {
 
 html:fullscreen,
 html:-webkit-full-screen {
+  width: 100%;
+  height: 100%;
   background-color: rgb(var(--bg-0));
+  background-image: none;
 }
 html:fullscreen body,
 html:-webkit-full-screen body,
 html[data-immersive-fullscreen],
-html[data-immersive-fullscreen] body {
+html[data-immersive-fullscreen] body,
+html[data-immersive-fullscreen] #root {
   background-color: rgb(var(--bg-0));
+  background-image: none;
   min-height: 100%;
   min-height: 100dvh;
+  min-height: var(--immersive-vh, 100dvh);
+}
+html[data-immersive-fullscreen] .tmuxgo-app-shell {
+  background-color: rgb(var(--bg-0));
+  min-height: var(--immersive-vh, 100dvh);
+  height: var(--immersive-vh, 100dvh) !important;
+}
+html[data-immersive-fullscreen] .tmuxgo-workspace-main,
+html[data-immersive-fullscreen] .tmuxgo-workspace {
+  background-color: rgb(var(--bg-0));
+}
+.tmuxgo-edge-fill {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-color: rgb(var(--bg-0));
+}
+html[data-immersive-fullscreen] .tmuxgo-edge-fill {
+  background-color: rgb(var(--bg-0));
+  background-image: none;
 }
 html[data-immersive-fullscreen] [data-install-banner] {
   display: none !important;
+}
+:fullscreen::backdrop,
+::-webkit-full-screen-backdrop {
+  background-color: rgb(var(--bg-0));
 }
 
 button,

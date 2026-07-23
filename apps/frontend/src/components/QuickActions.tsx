@@ -47,6 +47,7 @@ function useQuickActionController() {
   const { shortcuts,addShortcut,removeShortcut }=useCustomShortcuts()
   const [showModal,setShowModal]=useState(false)
   const [isMobile,setIsMobile]=useState(false)
+  const [isImmersiveFullscreen,setIsImmersiveFullscreen]=useState(()=>!!(typeof document!=='undefined'&&(document.fullscreenElement||(document as any).webkitFullscreenElement)))
   const [recentDockShortcutKeys,setRecentDockShortcutKeys]=useState<string[]>([])
   const [confirmKillOpen,setConfirmKillOpen]=useState(false)
   const [pendingKillPaneId,setPendingKillPaneId]=useState<string|null>(null)
@@ -62,6 +63,16 @@ function useQuickActionController() {
     check()
     window.addEventListener('resize',check)
     return ()=>window.removeEventListener('resize',check)
+  },[])
+  useEffect(()=>{
+    const sync=()=>setIsImmersiveFullscreen(!!(document.fullscreenElement||(document as any).webkitFullscreenElement))
+    document.addEventListener('fullscreenchange',sync)
+    document.addEventListener('webkitfullscreenchange',sync as any)
+    sync()
+    return ()=>{
+      document.removeEventListener('fullscreenchange',sync)
+      document.removeEventListener('webkitfullscreenchange',sync as any)
+    }
   },[])
   useEffect(()=>{
     if(typeof window==='undefined')return
@@ -312,6 +323,28 @@ function useQuickActionController() {
     { key:'kill-pane',label:t('quick.killPane'),onPress:()=>void handleKillPane(),tone:'danger',disabled:!activeSessionId },
   ]
   const attachButton:ActionButtonDef={ key:'attach-mode',label:preferences.attachExclusive?t('quick.attachExclusive'):t('quick.attachShared'),onPress:()=>updatePreferences({ attachExclusive:!preferences.attachExclusive }),tone:'accent' }
+  const fullscreenButton:ActionButtonDef={ key:'immersive-fullscreen',label:isImmersiveFullscreen?t('quick.exitFullscreen'):t('quick.fullscreen'),tone:'accent',onPress:async()=>{
+    try{
+      const active=!!(document.fullscreenElement||(document as any).webkitFullscreenElement)
+      if(active){
+        if(document.exitFullscreen) await document.exitFullscreen()
+        else if((document as any).webkitExitFullscreen) await (document as any).webkitExitFullscreen()
+        updatePreferences({ immersiveFullscreen:false })
+        setIsImmersiveFullscreen(false)
+      }else{
+        const el=document.documentElement as any
+        if(el.requestFullscreen) await el.requestFullscreen({ navigationUI:'hide' })
+        else if(el.webkitRequestFullscreen) await el.webkitRequestFullscreen()
+        else throw new Error('fullscreen-unsupported')
+        updatePreferences({ immersiveFullscreen:true })
+        setIsImmersiveFullscreen(true)
+      }
+    }catch{
+      updatePreferences({ immersiveFullscreen:false })
+      setIsImmersiveFullscreen(false)
+      pushToast({ type:'error',message:t('settings.immersiveFullscreenFailed') })
+    }
+  } }
   const dockCoreButtons:ActionButtonDef[]=[
     { key:'dock-esc',label:'Esc',data:'\x1b' },
     { key:'dock-tab',label:'Tab',data:'\t' },
@@ -325,7 +358,7 @@ function useQuickActionController() {
     return [...mapped,...shortcuts.filter((item)=>!seen.has(item.id))]
   },[recentDockShortcutKeys,shortcuts])
 
-  return { t,activePaneId,shortcuts,recentShortcutButtons,addShortcut,removeShortcut,showModal,setShowModal,isMobile,confirmKillOpen,setConfirmKillOpen,pendingKillPaneId,setPendingKillPaneId,confirmKillPane,newWindowPromptOpen,setNewWindowPromptOpen,newWindowName,setNewWindowName,confirmCreateWindow,sendKey,trackDockShortcutUse,startRepeat,armTouchRepeat,stopRepeat,preventFocus,startPointer,startDockGesture,trackDockScroll,finishDockGesture,isDockScrollBlocked,trackPointer,finishPointer,pointerStateRef,primaryButtons,attachButton,dockCoreButtons }
+  return { t,activePaneId,shortcuts,recentShortcutButtons,addShortcut,removeShortcut,showModal,setShowModal,isMobile,confirmKillOpen,setConfirmKillOpen,pendingKillPaneId,setPendingKillPaneId,confirmKillPane,newWindowPromptOpen,setNewWindowPromptOpen,newWindowName,setNewWindowName,confirmCreateWindow,sendKey,trackDockShortcutUse,startRepeat,armTouchRepeat,stopRepeat,preventFocus,startPointer,startDockGesture,trackDockScroll,finishDockGesture,isDockScrollBlocked,trackPointer,finishPointer,pointerStateRef,primaryButtons,attachButton,fullscreenButton,dockCoreButtons }
 }
 
 function triggerDockButton(def:ActionButtonDef,controller:ReturnType<typeof useQuickActionController>){
@@ -381,7 +414,7 @@ function renderDockButton(def:ActionButtonDef,controller:ReturnType<typeof useQu
 
 export function QuickActions({ mode='panel', onOpenFiles }:{ mode?:QuickActionsMode; onOpenFiles?:()=>void }){
   const controller=useQuickActionController()
-  const { t,activePaneId,shortcuts,recentShortcutButtons,addShortcut,removeShortcut,showModal,setShowModal,isMobile,confirmKillOpen,setConfirmKillOpen,pendingKillPaneId,setPendingKillPaneId,confirmKillPane,newWindowPromptOpen,setNewWindowPromptOpen,newWindowName,setNewWindowName,confirmCreateWindow,sendKey,primaryButtons,attachButton,dockCoreButtons }=controller
+  const { t,activePaneId,shortcuts,recentShortcutButtons,addShortcut,removeShortcut,showModal,setShowModal,isMobile,confirmKillOpen,setConfirmKillOpen,pendingKillPaneId,setPendingKillPaneId,confirmKillPane,newWindowPromptOpen,setNewWindowPromptOpen,newWindowName,setNewWindowName,confirmCreateWindow,sendKey,primaryButtons,attachButton,fullscreenButton,dockCoreButtons }=controller
   if(mode==='dock'){
     return (
       <>
@@ -394,6 +427,7 @@ export function QuickActions({ mode='panel', onOpenFiles }:{ mode?:QuickActionsM
             {primaryButtons.map((def)=>renderDockButton(def,controller))}
             <div className="w-px bg-[var(--line)] mx-1 self-stretch" />
             {renderDockButton(attachButton,controller)}
+            {renderDockButton(fullscreenButton,controller)}
             <WatchButton paneId={activePaneId || ''} compact />
             {recentShortcutButtons.map((s)=>renderDockButton({ key:s.id,label:s.label,onPress:()=>{ sendKey(keysToEscape(s.keys)) } },controller))}
           </div>
@@ -422,6 +456,7 @@ export function QuickActions({ mode='panel', onOpenFiles }:{ mode?:QuickActionsM
         {primaryButtons.slice(15,18).map((def)=>renderPanelButton(def,controller))}
       </div>
       <KeyCap variant="panel" tone="accent" onPress={()=>attachButton.onPress?.()} className="w-full" title={attachButton.label}>{attachButton.label}</KeyCap>
+      <KeyCap variant="panel" tone="accent" onPress={()=>void fullscreenButton.onPress?.()} className="w-full" title={fullscreenButton.label}>{fullscreenButton.label}</KeyCap>
       <WatchButton paneId={activePaneId || ''} />
       {shortcuts.length>0&&(
         <div className="border-t border-[var(--line)] pt-2">

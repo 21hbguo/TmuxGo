@@ -274,6 +274,8 @@ export const en = {
   'quick.attachModeTitle': 'Attach mode',
   'quick.attachShared': 'Shared',
   'quick.attachExclusive': 'Exclusive',
+  'quick.fullscreen': 'Fullscreen',
+  'quick.exitFullscreen': 'Exit Fullscreen',
   'quick.copy': 'Copy',
   'quick.paste': 'Paste',
   'quick.newWindow': 'New Window',

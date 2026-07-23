@@ -274,6 +274,8 @@ export const zh = {
   'quick.attachModeTitle': '附着模式',
   'quick.attachShared': '共享附着',
   'quick.attachExclusive': '独占附着',
+  'quick.fullscreen': '全屏',
+  'quick.exitFullscreen': '退出全屏',
   'quick.copy': '复制',
   'quick.paste': '粘贴',
   'quick.newWindow': '新窗口',

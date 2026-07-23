@@ -280,8 +280,9 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
     viewportFrameRef.current = requestAnimationFrame(() => {
       viewportFrameRef.current = null
       const isMobileViewport = window.matchMedia(MOBILE_QUERY).matches
+      const immersive = document.documentElement.hasAttribute('data-immersive-fullscreen')
       const vv = window.visualViewport
-      const viewportHeight = vv?.height || window.innerHeight
+      const viewportHeight = immersive ? (window.innerHeight || screen.height || vv?.height || 0) : (vv?.height || window.innerHeight)
       const viewportWidth = vv?.width || window.innerWidth
       const byClass = document.body.classList.contains('keyboard-open')
       const activeElement = document.activeElement
@@ -326,9 +327,11 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
         keyboardStateRef.current = { open, inset: state.inset }
         setKeyboardOpen(open)
       }
-      const nextHeight = state.nextHeight
-      if (isMobileViewport && appHeightNumRef.current && !open && Math.abs(nextHeight - appHeightNumRef.current) < 36) return
-      if (isMobileViewport && appHeightNumRef.current && open && Math.abs(nextHeight - appHeightNumRef.current) < 6) return
+      const nextHeight = immersive
+        ? Math.round(window.innerHeight || screen.height || state.nextHeight || 0)
+        : state.nextHeight
+      if (!immersive && isMobileViewport && appHeightNumRef.current && !open && Math.abs(nextHeight - appHeightNumRef.current) < 36) return
+      if (!immersive && isMobileViewport && appHeightNumRef.current && open && Math.abs(nextHeight - appHeightNumRef.current) < 6) return
       const nextValue = `${nextHeight}px`
       if (appHeightRef.current === nextValue) return
       appHeightRef.current = nextValue
@@ -365,15 +368,22 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   useEffect(() => {
     const handleOrientation = () => window.setTimeout(() => scheduleViewportSync(), 80)
     const handleResize = () => scheduleViewportSync()
+    const handleFullscreen = () => window.setTimeout(() => scheduleViewportSync(), 16)
     scheduleViewportSync()
     window.addEventListener('resize', handleResize)
     window.visualViewport?.addEventListener('resize', handleResize)
     window.addEventListener('orientationchange', handleOrientation)
+    document.addEventListener('fullscreenchange', handleFullscreen)
+    document.addEventListener('webkitfullscreenchange', handleFullscreen as any)
+    window.addEventListener('tmuxgo-layout-change', handleFullscreen as EventListener)
     return () => {
       clearViewportSchedule()
       window.removeEventListener('resize', handleResize)
       window.visualViewport?.removeEventListener('resize', handleResize)
       window.removeEventListener('orientationchange', handleOrientation)
+      document.removeEventListener('fullscreenchange', handleFullscreen)
+      document.removeEventListener('webkitfullscreenchange', handleFullscreen as any)
+      window.removeEventListener('tmuxgo-layout-change', handleFullscreen as EventListener)
     }
   }, [clearViewportSchedule, scheduleViewportSync])
   useEffect(() => startMobileFlickerDiagnostics(), [])
@@ -580,7 +590,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   }, [isMobile, openDrawer])
 
   return (
-    <div className="tmuxgo-app-shell flex w-screen flex-col overflow-hidden" style={{ height: appHeight, ['--app-height' as any]: appHeight }}>
+    <div className="tmuxgo-app-shell flex w-screen flex-col overflow-hidden bg-bg-0" style={{ height: appHeight, ['--app-height' as any]: appHeight }}>
       <InstallAppBanner />
       <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
         <main data-workspace-main className="tmuxgo-workspace-main flex min-h-0 min-w-0 flex-1 flex-col">
