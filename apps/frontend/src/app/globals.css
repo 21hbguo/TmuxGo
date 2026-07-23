@@ -233,12 +233,9 @@ html[data-immersive-fullscreen] #root {
   background-image: none;
   min-height: 100%;
   min-height: 100dvh;
-  min-height: var(--immersive-vh, 100dvh);
 }
 html[data-immersive-fullscreen] .tmuxgo-app-shell {
   background-color: rgb(var(--bg-0));
-  min-height: var(--immersive-vh, 100dvh);
-  height: var(--immersive-vh, 100dvh) !important;
 }
 html[data-immersive-fullscreen] .tmuxgo-workspace-main,
 html[data-immersive-fullscreen] .tmuxgo-workspace {

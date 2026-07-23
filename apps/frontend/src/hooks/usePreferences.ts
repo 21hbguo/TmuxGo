@@ -227,7 +227,8 @@ export function applyImmersivePresentation(active: boolean) {
   document.documentElement.toggleAttribute('data-immersive-fullscreen', active)
   applyThemeChrome(preferencesStore.theme)
   if (active) {
-    document.documentElement.style.setProperty('--immersive-vh', `${Math.round(window.innerHeight || (typeof screen !== 'undefined' ? screen.height : 0) || 0)}px`)
+    const height = Math.round(window.visualViewport?.height || window.innerHeight || (typeof screen !== 'undefined' ? screen.height : 0) || 0)
+    document.documentElement.style.setProperty('--immersive-vh', `${height}px`)
   } else {
     document.documentElement.style.removeProperty('--immersive-vh')
   }

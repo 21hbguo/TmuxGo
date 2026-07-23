@@ -6,7 +6,6 @@ import { useTranslation } from '@/i18n'
 const POS_KEY = 'tmuxgo-immersive-back-orb'
 const SIZE = 48
 const DRAG_THRESHOLD = 8
-const DOUBLE_TAP_MS = 320
 
 function readSafeInset(side: 'top' | 'bottom' | 'left' | 'right') {
   const probe = document.createElement('div')
@@ -59,7 +58,6 @@ export function ImmersiveBackOrb() {
     dragging: false,
     moved: false,
   })
-  const lastTapRef = useRef(0)
   const visible = preferences.immersiveFullscreen && isMobileBrowser()
 
   useEffect(() => {
@@ -122,13 +120,7 @@ export function ImmersiveBackOrb() {
       })
       return
     }
-    const now = Date.now()
-    if (now - lastTapRef.current <= DOUBLE_TAP_MS) {
-      lastTapRef.current = 0
-      handleAppBack()
-      return
-    }
-    lastTapRef.current = now
+    handleAppBack()
   }
 
   if (!visible || !ready) return null
