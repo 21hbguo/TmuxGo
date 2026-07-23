@@ -110,12 +110,24 @@ export function SessionPanel() {
   const toggleBatchSession = (sessionId: string) => {
     setSelectedSessionIds((prev) => prev.includes(sessionId) ? prev.filter((id) => id !== sessionId) : [...prev, sessionId])
   }
-  const handleAgentStatusClick = (session: { id: string; agents?: { paneId: string; agentStatus: AgentStatus }[] }, status: AgentStatus) => {
+  const handleAgentStatusClick = async (session: { id: string; agents?: { paneId: string; agentStatus: AgentStatus }[] }, status: AgentStatus) => {
     const pane = session.agents?.find((agent) => agent.agentStatus === status)
-    if (pane) {
-      setActiveSession(session.id)
-      useConsoleStore.getState().setActivePane(pane.paneId)
-    }
+    if (!pane || !activeHostId) return
+    try {
+      const hostId = activeHostId
+      const sessionId = session.id
+      const key = ['session-snapshot', hostId, sessionId]
+      const cached = queryClient?.getQueryData?.(key) as any
+      const snapshot = cached?.panes?.some?.((p: any) => p.id === pane.paneId) ? cached : await api.snapshot.get(hostId, sessionId)
+      const targetPane = snapshot?.panes?.find?.((p: any) => p.id === pane.paneId)
+      if (!targetPane) return
+      if (targetPane.windowId && targetPane.windowId !== snapshot.activeWindowId) await api.windows.select(hostId, sessionId, targetPane.windowId)
+      await api.panes.select(pane.paneId)
+      const nextSnapshot = await api.snapshot.get(hostId, sessionId)
+      queryClient?.setQueryData(key, nextSnapshot)
+      setActiveSession(sessionId)
+      setActivePane(pane.paneId)
+    } catch {}
   }
   useEffect(() => {
     const handleOpenTemplates = () => setShowTemplates(true)
