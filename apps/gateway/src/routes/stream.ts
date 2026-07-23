@@ -33,7 +33,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
     const STREAM_COMPRESS_ENABLED = process.env.TMUXGO_STREAM_COMPRESS !== '0'
     const STREAM_COMPRESS_THRESHOLD = Math.max(0, Number(process.env.TMUXGO_STREAM_COMPRESS_THRESHOLD || 4096) || 4096)
     const STREAM_CELL_ENABLED = process.env.TMUXGO_STREAM_CELL === '1'
-    const CELL_DIRTY_RATIO_SNAPSHOT = 0.4
+    const CELL_DIRTY_RATIO_SNAPSHOT = 0.55
     const OUTPUT_PROFILES = {
       foreground: { flushInterval: 4, maxChars: 16384 },
       background: { flushInterval: 32, maxChars: 24576 },
@@ -61,6 +61,9 @@ export async function streamRoutes(fastify: FastifyInstance) {
     let cellGrid: TerminalGrid | null = null
     let cellParser: AnsiParser | null = null
     let cellBaseSeq = 0
+    let cellLastCursorX = -1
+    let cellLastCursorY = -1
+    let cellLastFlags = -1
     let attachSeq = 0
     let attachVisibleOutputObserved = false
     let attachSnapshotTimers: ReturnType<typeof setTimeout>[] = []
@@ -135,6 +138,9 @@ export async function streamRoutes(fastify: FastifyInstance) {
       cellGrid = new TerminalGrid(Math.max(1, cols || 80), Math.max(1, rows || 24))
       cellParser = new AnsiParser(cellGrid)
       cellBaseSeq = 0
+      cellLastCursorX = -1
+      cellLastCursorY = -1
+      cellLastFlags = -1
       cellModeActive = cellOutputEnabled && binaryOutputEnabled
     }
     function disableCellMode(reason?: string) {
@@ -200,13 +206,17 @@ export async function streamRoutes(fastify: FastifyInstance) {
       const prev = cellGrid.cloneCells()
       const parsed = cellParser.feed(data)
       if (!parsed.ok) {
-        disableCellMode(parsed.unsupported)
+        recordStreamMetric('cellFallbackAnsi')
         return false
       }
-      cellGrid.seq += 1
       const changes = kind === 'output_resync' ? [] : diffCells(prev, cellGrid.cells, cellGrid.cols, cellGrid.rows)
       const total = Math.max(1, cellGrid.cols * cellGrid.rows)
       const dirtyRatio = kind === 'output_resync' ? 1 : changes.length / total
+      const cursorChanged = cellGrid.cursorX !== cellLastCursorX || cellGrid.cursorY !== cellLastCursorY || cellGrid.flags !== cellLastFlags
+      if (kind !== 'output_resync' && cellBaseSeq > 0 && changes.length === 0 && !cursorChanged) {
+        return true
+      }
+      cellGrid.seq += 1
       recordStreamMetric('cellDirtyCells', kind === 'output_resync' ? total : changes.length)
       let ok = false
       if (kind === 'output_resync' || dirtyRatio >= CELL_DIRTY_RATIO_SNAPSHOT || cellBaseSeq === 0) {
@@ -220,6 +230,9 @@ export async function streamRoutes(fastify: FastifyInstance) {
       }
       if (!ok) return false
       cellBaseSeq = cellGrid.seq
+      cellLastCursorX = cellGrid.cursorX
+      cellLastCursorY = cellGrid.cursorY
+      cellLastFlags = cellGrid.flags
       return true
     }
     function scheduleDeferredFlush() {
