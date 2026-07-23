@@ -101,10 +101,48 @@ wait_port_free() {
     echo "Warning: port $port still in use"
   fi
 }
+LOG_MAX_BYTES="${TMUXGO_LOG_MAX_BYTES:-8388608}"
+write_rotating_log() {
+  local log_file=$1
+  local max_bytes="${LOG_MAX_BYTES}"
+  if ! has_cmd python3; then
+    cat >> "$log_file"
+    return
+  fi
+  python3 - "$log_file" "$max_bytes" <<'PY'
+import os
+import sys
+path = sys.argv[1]
+max_bytes = int(sys.argv[2])
+size = os.path.getsize(path) if os.path.exists(path) else 0
+f = open(path, "ab", buffering=0)
+try:
+    while True:
+        chunk = sys.stdin.buffer.read(65536)
+        if not chunk:
+            break
+        if size and size + len(chunk) >= max_bytes:
+            f.close()
+            try:
+                os.replace(path, path + ".1")
+            except FileNotFoundError:
+                pass
+            f = open(path, "ab", buffering=0)
+            size = 0
+        f.write(chunk)
+        size += len(chunk)
+finally:
+    f.close()
+PY
+}
 start_detached() {
   local log_file=$1
   shift
-  nohup "$@" 9>&- > "$log_file" 2>&1 < /dev/null &
+  if has_cmd python3; then
+    nohup "$@" 9>&- > >(write_rotating_log "$log_file") 2>&1 < /dev/null &
+  else
+    nohup "$@" 9>&- > "$log_file" 2>&1 < /dev/null &
+  fi
   echo $!
 }
 stable_build_ready() {

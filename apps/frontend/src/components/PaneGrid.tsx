@@ -498,9 +498,10 @@ export function PaneGrid({ sessionId: controlledSessionId }: { sessionId?: strin
 
   return (
     <div className="tmuxgo-content-surface relative h-full w-full min-h-0 min-w-0 overflow-hidden">
-      {pendingSwitchRef.current && (
-        <div className="absolute inset-0 z-10 pointer-events-none bg-gradient-to-b from-bg-1/5 via-bg-1/15 to-bg-1/30" />
-      )}
+      <div
+        className="absolute inset-0 z-10 pointer-events-none bg-gradient-to-b from-bg-1/5 via-bg-1/15 to-bg-1/30 transition-opacity duration-200"
+        style={{ opacity: pendingSwitchRef.current ? 1 : 0 }}
+      />
       {isMobile && connectionStatus !== 'connected' && (
         <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 px-3 py-1 rounded-full bg-bg-2/95 border border-[var(--line)] text-xs text-text-1">
           {t(`status.${connectionStatus}`)}
