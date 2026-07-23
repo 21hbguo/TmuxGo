@@ -277,7 +277,7 @@ export const en = {
   'quick.fullscreen': 'Fullscreen',
   'quick.exitFullscreen': 'Exit Fullscreen',
   'immersive.backOrb': 'Back',
-  'immersive.backOrbHint': 'Tap to go back · Hold to drag',
+  'immersive.backOrbHint': 'Tap to go back/dismiss keyboard · Hold to drag',
   'quick.copy': 'Copy',
   'quick.paste': 'Paste',
   'quick.newWindow': 'New Window',

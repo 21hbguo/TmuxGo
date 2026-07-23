@@ -493,5 +493,10 @@ export function useMobileKeyboard(
     }
   }, [closeKeyboard, focusKeyboard, isKeyboardOwnerActive, openKeyboard, getViewportInset, scheduleKeyboardVerify, updateKeyboardInset])
 
+  useEffect(() => {
+    const dismiss = () => closeKeyboard(true)
+    window.addEventListener('tmuxgo-dismiss-keyboard', dismiss as EventListener)
+    return () => window.removeEventListener('tmuxgo-dismiss-keyboard', dismiss as EventListener)
+  }, [closeKeyboard])
   return { textareaRef, focusKeyboard, isMobile: isMobile.current }
 }

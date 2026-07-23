@@ -527,6 +527,20 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   }, [setCommandPalette, setMobileFileSheetOpen])
   useEffect(() => {
     const handleAppBack = () => {
+      const active = document.activeElement
+      const editable = active instanceof HTMLElement && (
+        active.tagName === 'INPUT' ||
+        active.tagName === 'TEXTAREA' ||
+        active.tagName === 'SELECT' ||
+        active.isContentEditable ||
+        active.classList.contains('mobile-kb-input')
+      )
+      const keyboardOpen = keyboardStateRef.current.open || document.body.classList.contains('keyboard-open')
+      if (keyboardOpen || editable) {
+        if (active instanceof HTMLElement) active.blur()
+        window.dispatchEvent(new CustomEvent('tmuxgo-dismiss-keyboard'))
+        return
+      }
       if (overlayRef.current.length > 0) {
         window.history.back()
         return

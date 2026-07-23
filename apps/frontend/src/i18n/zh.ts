@@ -277,7 +277,7 @@ export const zh = {
   'quick.fullscreen': '全屏',
   'quick.exitFullscreen': '退出全屏',
   'immersive.backOrb': '返回',
-  'immersive.backOrbHint': '点击返回 · 按住拖拽',
+  'immersive.backOrbHint': '点击返回/收起键盘 · 按住拖拽',
   'quick.copy': '复制',
   'quick.paste': '粘贴',
   'quick.newWindow': '新窗口',
