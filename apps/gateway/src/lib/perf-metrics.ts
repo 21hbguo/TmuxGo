@@ -28,6 +28,8 @@ export const streamPerfMetrics = {
   cellDiffs: 0,
   cellFallbackAnsi: 0,
   cellDirtyCells: 0,
+  redrawRequests: 0,
+  droppedDuplicateChunks: 0,
 }
 export function recordStreamMetric<K extends keyof typeof streamPerfMetrics>(key: K, value = 1) {
   const current = streamPerfMetrics[key]

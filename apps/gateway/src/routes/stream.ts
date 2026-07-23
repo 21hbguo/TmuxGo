@@ -34,6 +34,8 @@ export async function streamRoutes(fastify: FastifyInstance) {
     const STREAM_COMPRESS_THRESHOLD = Math.max(0, Number(process.env.TMUXGO_STREAM_COMPRESS_THRESHOLD || 256) || 256)
     const STREAM_CELL_ENABLED = process.env.TMUXGO_STREAM_CELL === '1'
     const CELL_DIRTY_RATIO_SNAPSHOT = 0.55
+    const DEDUP_CHUNK_THRESHOLD = Math.max(0, Number(process.env.TMUXGO_DEDUP_CHUNK_THRESHOLD || 512) || 512)
+    const DEDUP_WINDOW_SIZE = Math.max(1, Number(process.env.TMUXGO_DEDUP_WINDOW || 4) || 4)
     const OUTPUT_PROFILES = {
       foreground: { flushInterval: 4, maxChars: 65536 },
       background: { flushInterval: 32, maxChars: 24576 },
@@ -47,6 +49,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
     let attachedRows = 0
     let agentId: string | null = null
     let outputBuffer = ''
+    let dedupRecentHashes: string[] = []
     let outputTimer: ReturnType<typeof setTimeout> | null = null
     let deferredFlushTimer: ReturnType<typeof setTimeout> | null = null
     let outputResyncPending = false
@@ -336,7 +339,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
         return
       }
       if (outputTimer) return
-      const flushDelay = cellModeActive ? Math.max(profile.flushInterval, 16) : profile.flushInterval
+      const flushDelay = profile.flushInterval
       if (flushDelay <= 0 || (outputProfile === 'foreground' && !clientBackpressureHigh && getSocketBufferedBytes() < SOCKET_BUFFER_HIGH_WATERMARK / 8 && outputBuffer.length >= STREAM_COMPRESS_THRESHOLD && !cellModeActive)) {
         flushOutput()
         return
@@ -622,9 +625,23 @@ export async function streamRoutes(fastify: FastifyInstance) {
             attachedRows = rows
             if (cellOutputEnabled) resetCellState(cols, rows)
             attachVisibleOutputObserved = false
+            dedupRecentHashes = []
             const seq = attachSeq
             ptyProcess.onData((output: string) => {
               if (seq !== attachSeq) return
+              if (output.length >= DEDUP_CHUNK_THRESHOLD) {
+                const hash = output.length + ':' + output.slice(0, 32) + output.slice(-32)
+                if (dedupRecentHashes.includes(hash)) {
+                  recordStreamMetric('droppedDuplicateChunks', output.length)
+                  if (pendingResizeAck) {
+                    pendingResizeAck.outputObserved = true
+                    completeResizeAck()
+                  }
+                  return
+                }
+                dedupRecentHashes.push(hash)
+                if (dedupRecentHashes.length > DEDUP_WINDOW_SIZE) dedupRecentHashes.shift()
+              }
               if (outputResyncPending) {
                 recordStreamMetric('droppedOutputChars', output.length)
                 if (pendingResizeAck) {
@@ -693,6 +710,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
             break
           }
           case 'redraw': {
+            recordStreamMetric('redrawRequests')
             const sessionName = data.sessionName
             if (!sessionName) break
             assertSessionAllowed(sessionName)

@@ -28,8 +28,18 @@ def read_gpu():
  try:
   p=subprocess.check_output(['nvidia-smi','--query-gpu=memory.used,memory.total','--format=csv,noheader,nounits'],text=True).strip().splitlines()[0].split(',');return {'used':int(p[0]),'total':int(p[1])}
  except:return None
+def read_net():
+ r=0;s=0
+ for line in open('/proc/net/dev'):
+  p=line.split(':',1)
+  if len(p)!=2:continue
+  name=p[0].strip()
+  if name=='lo':continue
+  v=p[1].split()
+  if len(v)>=16:r+=int(v[0]);s+=int(v[8])
+ return {'sentBytes':s,'recvBytes':r}
 d={'tmux':bool(shutil.which('tmux')),'git':bool(shutil.which('git')),'python':bool(shutil.which('python3') or shutil.which('python')),'rg':bool(shutil.which('rg')),'sshpass':bool(shutil.which('sshpass'))}
-print(json.dumps({'gpu':read_gpu(),'cpu':read_cpu(),'mem':read_mem(),'disks':read_disks(),'dependencies':d}))`
+print(json.dumps({'gpu':read_gpu(),'cpu':read_cpu(),'mem':read_mem(),'disks':read_disks(),'net':read_net(),'dependencies':d}))`
 
 async function getGpuInfo(): Promise<{ used: number; total: number } | null> {
   try {
@@ -90,6 +100,27 @@ async function getDisk(): Promise<{ mount: string; used: number; total: number }
   } catch {}
   return []
 }
+async function getNetwork(): Promise<{ sentBytes: number; recvBytes: number }> {
+  try {
+    const content = await fs.promises.readFile('/proc/net/dev', 'utf-8')
+    const lines = content.trim().split('\n').slice(2)
+    let recvBytes = 0
+    let sentBytes = 0
+    for (const line of lines) {
+      const colonIndex = line.indexOf(':')
+      if (colonIndex === -1) continue
+      const name = line.slice(0, colonIndex).trim()
+      if (name === 'lo') continue
+      const parts = line.slice(colonIndex + 1).trim().split(/\s+/).map(Number)
+      if (parts.length >= 16) {
+        recvBytes += parts[0] || 0
+        sentBytes += parts[8] || 0
+      }
+    }
+    return { sentBytes, recvBytes }
+  } catch {}
+  return { sentBytes: 0, recvBytes: 0 }
+}
 
 function safeNumber(value: unknown) {
   const num = Number(value)
@@ -127,6 +158,8 @@ function getSafeStreamMetrics() {
     cellDiffs: safeNumber(streamPerfMetrics.cellDiffs),
     cellFallbackAnsi: safeNumber(streamPerfMetrics.cellFallbackAnsi),
     cellDirtyCells: safeNumber(streamPerfMetrics.cellDirtyCells),
+    redrawRequests: safeNumber(streamPerfMetrics.redrawRequests),
+    droppedDuplicateChunks: safeNumber(streamPerfMetrics.droppedDuplicateChunks),
   }
 }
 async function getDependencies() {
@@ -160,14 +193,15 @@ function normalizeHostSystemInfo(hostId: string, value: any) {
   const dependencies = value?.dependencies && typeof value.dependencies === 'object' ? value.dependencies : {}
   const gpu = value?.gpu && Number.isFinite(Number(value.gpu.used)) && Number.isFinite(Number(value.gpu.total)) ? { used: safeNumber(value.gpu.used), total: safeNumber(value.gpu.total) } : null
   const disks = Array.isArray(value?.disks) ? value.disks.filter((disk: any) => disk && typeof disk.mount === 'string').map((disk: any) => ({ mount: disk.mount, used: safeNumber(disk.used), total: safeNumber(disk.total) })) : []
-  return { hostId, gpu, cpu: Math.max(0, Math.min(100, safeNumber(value?.cpu))), mem: { used: safeNumber(value?.mem?.used), total: safeNumber(value?.mem?.total) }, disks, dependencies: { tmux: dependencies.tmux === true, git: dependencies.git === true, python: dependencies.python === true, rg: dependencies.rg === true, sshpass: dependencies.sshpass === true }, stream: getSafeStreamMetrics() }
+  const net = value?.net && typeof value.net === 'object' ? { sentBytes: Math.max(0, safeNumber(value.net.sentBytes)), recvBytes: Math.max(0, safeNumber(value.net.recvBytes)) } : { sentBytes: 0, recvBytes: 0 }
+  return { hostId, gpu, cpu: Math.max(0, Math.min(100, safeNumber(value?.cpu))), mem: { used: safeNumber(value?.mem?.used), total: safeNumber(value?.mem?.total) }, disks, net, dependencies: { tmux: dependencies.tmux === true, git: dependencies.git === true, python: dependencies.python === true, rg: dependencies.rg === true, sshpass: dependencies.sshpass === true }, stream: getSafeStreamMetrics() }
 }
 async function getLocalSystemInfo() {
-  const [gpu, cpu, mem, disks, dependencies] = await Promise.all([getGpuInfo(), getCpuUsage(), getMemory(), getDisk(), getDependencies()])
-  return { hostId: 'local', gpu, cpu, mem, disks, dependencies, stream: getSafeStreamMetrics() }
+  const [gpu, cpu, mem, disks, net, dependencies] = await Promise.all([getGpuInfo(), getCpuUsage(), getMemory(), getDisk(), getNetwork(), getDependencies()])
+  return { hostId: 'local', gpu, cpu, mem, disks, net, dependencies, stream: getSafeStreamMetrics() }
 }
 async function getRemoteSystemInfo(hostId: string) {
-  const fallback = `has(){ command -v "$1" >/dev/null 2>&1 && printf true || printf false; }; printf '{"gpu":null,"cpu":0,"mem":{"used":0,"total":0},"disks":[],"dependencies":{"tmux":%s,"git":%s,"python":false,"rg":%s,"sshpass":%s}}' "$(has tmux)" "$(has git)" "$(has rg)" "$(has sshpass)"`
+  const fallback = `has(){ command -v "$1" >/dev/null 2>&1 && printf true || printf false; }; printf '{"gpu":null,"cpu":0,"mem":{"used":0,"total":0},"disks":[],"net":{"sentBytes":0,"recvBytes":0},"dependencies":{"tmux":%s,"git":%s,"python":false,"rg":%s,"sshpass":%s}}' "$(has tmux)" "$(has git)" "$(has rg)" "$(has sshpass)"`
   const command = `if command -v python3 >/dev/null 2>&1; then exec python3 -c ${quoteShellValue(remoteSystemScript)}; elif command -v python >/dev/null 2>&1; then exec python -c ${quoteShellValue(remoteSystemScript)}; else ${fallback}; fi`
   const { stdout } = await execHostShell(hostId, command, { timeoutMs: 15000 })
   return normalizeHostSystemInfo(hostId, JSON.parse(stdout))
@@ -192,6 +226,7 @@ export async function systemRoutes(fastify: FastifyInstance, options: SystemRout
         cpu: 0,
         mem: { used: 0, total: 0 },
         disks: [],
+        net: { sentBytes: 0, recvBytes: 0 },
         dependencies: { tmux: false, git: false, python: false, rg: false, sshpass: false },
         stream: getSafeStreamMetrics(),
       }
