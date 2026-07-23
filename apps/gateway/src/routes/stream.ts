@@ -35,7 +35,6 @@ export async function streamRoutes(fastify: FastifyInstance) {
     const STREAM_CELL_ENABLED = process.env.TMUXGO_STREAM_CELL === '1'
     const CELL_DIRTY_RATIO_SNAPSHOT = 0.55
     const DEDUP_CHUNK_THRESHOLD = Math.max(0, Number(process.env.TMUXGO_DEDUP_CHUNK_THRESHOLD || 512) || 512)
-    const DEDUP_WINDOW_SIZE = Math.max(1, Number(process.env.TMUXGO_DEDUP_WINDOW || 4) || 4)
     const OUTPUT_PROFILES = {
       foreground: { flushInterval: 4, maxChars: 65536 },
       background: { flushInterval: 32, maxChars: 24576 },
@@ -49,7 +48,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
     let attachedRows = 0
     let agentId: string | null = null
     let outputBuffer = ''
-    let dedupRecentHashes: string[] = []
+    let lastPtyChunk = ''
     let outputTimer: ReturnType<typeof setTimeout> | null = null
     let deferredFlushTimer: ReturnType<typeof setTimeout> | null = null
     let outputResyncPending = false
@@ -298,6 +297,10 @@ export async function streamRoutes(fastify: FastifyInstance) {
       }
       const data = outputBuffer
       outputBuffer = ''
+      if (data.length >= DEDUP_CHUNK_THRESHOLD && data === lastFlushData) {
+        recordStreamMetric('droppedDuplicateChunks', data.length)
+        return
+      }
       let sent = false
       if (cellModeActive) sent = feedCellAndMaybeSend('output', data, attachedSessionName, attachedHostId)
       if (!sent) {
@@ -306,6 +309,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
           return
         }
       }
+      lastFlushData = data
       recordStreamMetric('outputFlushes')
       recordStreamMetric('outputChunks')
     }
@@ -625,23 +629,10 @@ export async function streamRoutes(fastify: FastifyInstance) {
             attachedRows = rows
             if (cellOutputEnabled) resetCellState(cols, rows)
             attachVisibleOutputObserved = false
-            dedupRecentHashes = []
+            lastFlushData = ''
             const seq = attachSeq
             ptyProcess.onData((output: string) => {
               if (seq !== attachSeq) return
-              if (output.length >= DEDUP_CHUNK_THRESHOLD) {
-                const hash = output.length + ':' + output.slice(0, 32) + output.slice(-32)
-                if (dedupRecentHashes.includes(hash)) {
-                  recordStreamMetric('droppedDuplicateChunks', output.length)
-                  if (pendingResizeAck) {
-                    pendingResizeAck.outputObserved = true
-                    completeResizeAck()
-                  }
-                  return
-                }
-                dedupRecentHashes.push(hash)
-                if (dedupRecentHashes.length > DEDUP_WINDOW_SIZE) dedupRecentHashes.shift()
-              }
               if (outputResyncPending) {
                 recordStreamMetric('droppedOutputChars', output.length)
                 if (pendingResizeAck) {
