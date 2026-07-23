@@ -30,7 +30,7 @@ interface EditorWorkspaceState {
 let editorGroupCounter = 0
 let editorLayoutCounter = 0
 function toEditorDocument(file: ReturnType<typeof readPersistedEditors>[number]): FileEditorDocument {
-  return { ...file, content: '', savedContent: '', modifiedAt: '', size: 0, dirty: false, loading: true, saving: false, binary: false, truncated: false }
+  return { ...file, type: 'file', content: '', savedContent: '', modifiedAt: '', size: 0, dirty: false, loading: true, saving: false, binary: false, truncated: false }
 }
 function createEditorGroup(editorIds: string[] = [], activeEditorId: string | null = editorIds.at(-1) || null): EditorGroupState {
   const nextEditorIds = editorIds.filter((item, index, items) => items.indexOf(item) === index)
@@ -397,7 +397,7 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
         }
       }
       const targetGroupId = getExistingEditorGroupId(state.editorGroups, state.activeEditorGroupId) || state.editorGroups[0]?.id || null
-      const nextOpenEditors = [...state.openEditors, { id: compareId, hostId: left.hostId, rootId: left.rootId, rootLabel: left.rootLabel, rootPath: left.rootPath, path: left.path, name: `${left.name} <> ${right.name}`, absolutePath: '', language: left.language === right.language ? left.language : 'plaintext', content: '', savedContent: '', modifiedAt: '', size: 0, dirty: false, loading: false, saving: false, binary: false, truncated: false, kind: 'compare' as const, compareLeftId: leftId, compareRightId: rightId }]
+      const nextOpenEditors = [...state.openEditors, { id: compareId, hostId: left.hostId, rootId: left.rootId, rootLabel: left.rootLabel, rootPath: left.rootPath, path: left.path, name: `${left.name} <> ${right.name}`, absolutePath: '', language: left.language === right.language ? left.language : 'plaintext', content: '', savedContent: '', modifiedAt: '', size: 0, dirty: false, loading: false, saving: false, binary: false, truncated: false, kind: 'compare' as const, compareLeftId: leftId, compareRightId: rightId, type: 'file' as const }]
       let editorGroups = state.editorGroups.map(normalizeEditorGroup)
       if (targetGroupId) editorGroups = editorGroups.map((group) => group.id === targetGroupId ? { ...group, editorIds: [...group.editorIds, compareId], activeEditorId: compareId } : group)
       const nextState = withLegacyEditorState(finalizeEditorWorkspace({ ...state, openEditors: nextOpenEditors, editorGroups, activeEditorId: compareId, activeEditorGroupId: targetGroupId }))

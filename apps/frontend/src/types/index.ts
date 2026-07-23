@@ -192,6 +192,7 @@ export interface FileDocumentHandle {
   path: string
   name: string
   absolutePath: string
+  type: 'file' | 'directory'
 }
 export interface FileContentResponse {
   path: string

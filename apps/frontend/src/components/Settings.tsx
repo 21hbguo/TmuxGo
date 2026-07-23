@@ -450,8 +450,8 @@ export function Settings({ onClose }: SettingsProps) {
                       onChange={(e) => updatePreferences({ fontFamily: e.target.value === 'maple' ? FONT_MAPLE : FONT_JETBRAINS })}
                       className="tmuxgo-control tmuxgo-select rounded-apple px-3 py-1.5 text-sm"
                     >
+                      <option value="maple">Maple Mono CN</option>
                       <option value="jetbrains">JetBrains Mono</option>
-                      <option value="maple">Maple Mono</option>
                     </select>
                   </div>
                   <div className="flex items-center justify-between">

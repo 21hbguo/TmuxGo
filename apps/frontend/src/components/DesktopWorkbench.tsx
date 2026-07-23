@@ -157,6 +157,7 @@ export function DesktopWorkbench() {
     await openFileInEditor(file, { t, pushToast, openPanel: true })
   }, [pushToast, t])
   const handleOpenFileForDrop = useCallback(async (file: FileDocumentHandle) => {
+    if (file.type === 'directory') return ''
     const existing = useConsoleStore.getState().openEditors.find((item) => item.id === file.id)
     if (existing && !existing.loading) {
       useConsoleStore.getState().setActiveEditor(existing.id)

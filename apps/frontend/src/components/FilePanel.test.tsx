@@ -248,6 +248,7 @@ describe('FilePanel', () => {
       saving: false,
       binary: false,
       truncated: false,
+      type: 'file',
     }]
     consoleStoreState.activeEditorId = 'local:root-home:src/nested/deep.ts'
     render(React.createElement(FilePanel))
@@ -280,6 +281,7 @@ describe('FilePanel', () => {
       saving: false,
       binary: false,
       truncated: false,
+      type: 'file',
     }]
     consoleStoreState.activeEditorId = 'local:root-home:project/demo.txt'
     view.rerender(React.createElement(FilePanel))
@@ -366,6 +368,7 @@ describe('FilePanel', () => {
       saving: false,
       binary: false,
       truncated: false,
+      type: 'file',
     }]
     consoleStoreState.activeEditorId = 'local:root-home:project/demo.txt'
     const view = render(React.createElement(FilePanel))
