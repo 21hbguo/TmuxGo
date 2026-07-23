@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import path from 'path'
 import { getTemplateWindowTargets, type SessionTemplateLayout } from '../lib/template-utils.js'
 import { assertSessionAllowed, isValidSessionName, prepareSessionAttach } from '../lib/tmux-policy.js'
 import { buildSessionId, parseSessionRef } from '../lib/tmux-target.js'
@@ -304,20 +305,24 @@ export async function sessionRoutes(fastify: FastifyInstance) {
   })
   fastify.post('/hosts/:hostId/sessions', async (request) => {
     const { hostId } = hostParamsSchema.parse(request.params)
-    const { name, layout } = sessionCreateBodySchema.parse(request.body) as { name: string; layout?: SessionTemplateLayout }
+    const { name, layout, cwd } = sessionCreateBodySchema.parse(request.body) as { name: string; layout?: SessionTemplateLayout; cwd?: string }
     if (!isValidSessionName(name)) throw new Error('Invalid session name')
+    const normalizedCwd = cwd && cwd.trim() && path.isAbsolute(cwd.trim()) ? cwd.trim() : undefined
     try {
       const existingSessions = await getHostTmuxSessions(hostId)
       const existingSession = existingSessions.find((s) => s.name === name)
       if (existingSession) {
         await safePrepareSessionAttach(hostId, existingSession.name)
-        return existingSession
+        return { ...existingSession, cwd: normalizedCwd }
       }
       assertSessionAllowed(name)
-      await execTmux(hostId, ['new-session', '-d', '-s', name])
+      const newSessionArgs = ['-d', '-s', name]
+      if (normalizedCwd) newSessionArgs.push('-c', normalizedCwd)
+      await execTmux(hostId, ['new-session', ...newSessionArgs])
       if (layout?.windows?.length) {
         try {
-          await applyTemplateLayout(hostId, name, layout)
+          const layoutWithCwd: SessionTemplateLayout = normalizedCwd ? { windows: layout.windows.map((window) => ({ ...window, panes: window.panes.map((pane) => ({ ...pane, cwd: pane.cwd || normalizedCwd })) })) } : layout
+          await applyTemplateLayout(hostId, name, layoutWithCwd)
         } catch (err: any) {
           await cleanupSession(hostId, name)
           throw new Error(err?.message || 'Template layout failed')
@@ -335,12 +340,12 @@ export async function sessionRoutes(fastify: FastifyInstance) {
         attached: false,
       }
       emitPluginEvent('session.created', { hostId, sessionId: created.id, sessionName: name })
-      return created
+      return { ...created, cwd: normalizedCwd }
     } catch (err: any) {
       if (String(err?.message || '').includes('duplicate session')) {
         const sessions = await getHostTmuxSessions(hostId)
         const existingSession = sessions.find((s) => s.name === name)
-        if (existingSession) return existingSession
+        if (existingSession) return { ...existingSession, cwd: normalizedCwd }
       }
       throw new Error(err.message)
     }
