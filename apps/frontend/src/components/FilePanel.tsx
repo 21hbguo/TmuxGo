@@ -1137,13 +1137,15 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
               <Chip key={item} tone={fileTypeFilter === item ? 'accent' : 'default'} onClick={() => setFileTypeFilter(item)} className="min-w-0 flex-1">{item === 'all' ? t('file.all') : item === 'file' ? t('file.file') : t('file.dir')}</Chip>
             ))}
           </div>
+          <Chip onClick={() => updateHideDotFiles(!hideDotFiles)} tone={hideDotFiles ? 'default' : 'accent'} className="shrink-0 border">{t('file.dotfiles')}</Chip>
+        </div>
+        <div className="mt-1.5 flex items-center gap-1">
           <select value={fileSort.field} onChange={(e) => updateFileSort(e.target.value as SortField)} className="tmuxgo-control tmuxgo-select h-7 rounded-apple px-2 text-[11px] cursor-pointer pr-1">
             <option value="name">{t('file.sortName')}</option>
             <option value="size">{t('file.sortSize')}</option>
             <option value="modified">{t('file.sortModified')}</option>
           </select>
           <button onClick={() => toggleSortDirection()} title={fileSort.direction === 'asc' ? t('file.sortAsc') : t('file.sortDesc')} aria-label={fileSort.direction === 'asc' ? t('file.sortAsc') : t('file.sortDesc')} className="tmuxgo-toolbar-icon h-7 w-7 shrink-0 text-[11px]">{fileSort.direction === 'asc' ? '↑' : '↓'}</button>
-          <Chip onClick={() => updateHideDotFiles(!hideDotFiles)} tone={hideDotFiles ? 'default' : 'accent'} className="shrink-0 border">{t('file.dotfiles')}</Chip>
         </div>
       </div>}
       {(!isMobile || mobileView === 'list') && <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain" onContextMenu={(e) => {
