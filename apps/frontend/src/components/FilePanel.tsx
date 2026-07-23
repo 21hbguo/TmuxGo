@@ -1129,20 +1129,19 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
           }} placeholder={searchMode === 'name' ? t('file.searchName') : t('file.searchContent')} className="tmuxgo-control tmuxgo-input min-w-0 flex-1 rounded-apple px-2 py-1 font-mono text-[11px]" />
           <button onClick={clearExpandedDirectories} disabled={!openDirectories.size && !directoryCache.size} aria-label={t('file.clearExpanded')} className={`tmuxgo-toolbar-icon h-7 w-7 shrink-0 text-[11px] ${openDirectories.size || directoryCache.size ? '' : 'opacity-40'}`}>⌂</button>
           <button onClick={() => { setQuery(''); setDebouncedQuery(''); setSearchNavigationPath(null) }} disabled={!query} aria-label={t('file.clearSearch')} className={`tmuxgo-toolbar-icon h-7 w-7 shrink-0 text-[11px] ${query ? '' : 'opacity-40'}`}>×</button>
-          <div className="relative">
-            <select value={fileSort.field} onChange={(e) => updateFileSort(e.target.value as SortField)} className="tmuxgo-control tmuxgo-select h-7 rounded-apple px-2 text-[11px] appearance-none cursor-pointer pr-6">
+          <div className="flex shrink-0 items-center gap-0.5 rounded-apple border border-[var(--line)] bg-bg-2 p-0.5 text-[11px]">
+            <select value={fileSort.field} onChange={(e) => updateFileSort(e.target.value as SortField)} className="tmuxgo-control tmuxgo-select h-6 rounded-apple px-2 text-[11px] cursor-pointer pr-1">
               <option value="name">{t('file.sortName')}</option>
               <option value="size">{t('file.sortSize')}</option>
               <option value="modified">{t('file.sortModified')}</option>
             </select>
-            <span className="pointer-events-none absolute inset-y-0 right-1 flex items-center text-text-3">{fileSort.direction === 'asc' ? '↑' : '↓'}</span>
+            <button
+              onClick={() => toggleSortDirection()}
+              title={fileSort.direction === 'asc' ? t('file.sortAsc') : t('file.sortDesc')}
+              aria-label={fileSort.direction === 'asc' ? t('file.sortAsc') : t('file.sortDesc')}
+              className="tmuxgo-toolbar-icon h-6 w-6 shrink-0 text-[11px]"
+            >{fileSort.direction === 'asc' ? '↑' : '↓'}</button>
           </div>
-          <button
-            onClick={() => toggleSortDirection()}
-            title={fileSort.direction === 'asc' ? t('file.sortAsc') : t('file.sortDesc')}
-            aria-label={fileSort.direction === 'asc' ? t('file.sortAsc') : t('file.sortDesc')}
-            className="tmuxgo-toolbar-icon h-7 w-7 shrink-0 text-[11px]"
-          >{fileSort.direction === 'asc' ? '↑' : '↓'}</button>
         </div>
         <div className="mt-1.5 flex items-center gap-1">
           <div className="flex min-w-0 flex-1 rounded-apple border border-[var(--line)] bg-bg-2 p-0.5 text-[11px]">
@@ -1158,8 +1157,8 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
         e.preventDefault()
         showContextMenu(e.clientX, e.clientY, null, currentPath)
       }}>
-        {isMobile && !showSearchResults && !currentPath && visibleFavoriteDirectories.length > 0 && (
-          <div className="border-b border-[var(--line)] p-3">
+        {!showSearchResults && visibleFavoriteDirectories.length > 0 && (
+          <div className="border-b border-[var(--line)] p-3 trae-browser-inspect-draggable">
             <div className="mb-2 text-[10px] uppercase tracking-[0.18em] text-text-3">{t('file.favoriteDirs')}</div>
             <div className="space-y-1">
               {visibleFavoriteDirectories.map((item) => (

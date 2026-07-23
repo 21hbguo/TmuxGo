@@ -214,13 +214,13 @@ export function Settings({ onClose }: SettingsProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center tmuxgo-scrim p-4" onClick={onClose}>
-      <div className="tmuxgo-glass tmuxgo-glass-dialog h-[70vh] md:h-[600px] w-full max-w-[700px] overflow-hidden rounded-apple border" onClick={(e) => e.stopPropagation()}>
-        <div className="p-4 border-b border-[var(--line)] flex items-center justify-between">
+      <div className="tmuxgo-glass tmuxgo-glass-dialog flex h-[70vh] md:h-[600px] w-full max-w-[700px] flex-col overflow-hidden rounded-apple border" onClick={(e) => e.stopPropagation()}>
+        <div className="shrink-0 p-4 border-b border-[var(--line)] flex items-center justify-between">
           <h2 className="text-text-1 text-lg font-medium">{t('settings.title')}</h2>
           <Button variant="ghost" size="sm" aria-label="close" onClick={onClose}>✕</Button>
         </div>
 
-        <div className="flex border-b border-[var(--line)]">
+        <div className="shrink-0 flex border-b border-[var(--line)]">
           {tabs.map((tab) => (
             <button
               key={tab.id}
@@ -236,7 +236,7 @@ export function Settings({ onClose }: SettingsProps) {
           ))}
         </div>
 
-        <div className="p-6 overflow-y-auto" style={{ maxHeight: 'calc(70vh - 120px)', maxHeight: 'clamp(200px, calc(70vh - 120px), calc(600px - 120px))' }}>
+        <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-y-auto p-6">
           {activeTab === 'general' && (
             <div className="space-y-6">
               <div>
