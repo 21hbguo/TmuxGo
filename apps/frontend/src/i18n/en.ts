@@ -146,7 +146,7 @@ export const en = {
   'settings.theme.nord': 'Nord',
   'settings.theme.catppuccin': 'Catppuccin',
   'settings.immersiveFullscreen': 'Fullscreen mode',
-  'settings.immersiveFullscreenDesc': 'Hide browser chrome for an immersive view (no install needed). Exit with the system gesture.',
+  'settings.immersiveFullscreenDesc': 'Edge-to-edge immersive view. On phones the system back key still closes panels; desktop uses browser fullscreen.',
   'settings.immersiveFullscreenFailed': 'Fullscreen is unsupported or was blocked by the browser',
   'settings.layout': 'Layout',
   'settings.sidebarPosition': 'Sidebar position',

@@ -1,6 +1,6 @@
 'use client'
 import { useCallback, useEffect, useMemo, useRef, useState,type PointerEvent as ReactPointerEvent,type UIEvent as ReactUIEvent } from 'react'
-import { usePreferences } from '@/hooks/usePreferences'
+import { setImmersiveFullscreenMode, usePreferences } from '@/hooks/usePreferences'
 import { useTranslation } from '@/i18n'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useWindows } from '@/hooks/useApi'
@@ -47,7 +47,6 @@ function useQuickActionController() {
   const { shortcuts,addShortcut,removeShortcut }=useCustomShortcuts()
   const [showModal,setShowModal]=useState(false)
   const [isMobile,setIsMobile]=useState(false)
-  const [isImmersiveFullscreen,setIsImmersiveFullscreen]=useState(()=>!!(typeof document!=='undefined'&&(document.fullscreenElement||(document as any).webkitFullscreenElement)))
   const [recentDockShortcutKeys,setRecentDockShortcutKeys]=useState<string[]>([])
   const [confirmKillOpen,setConfirmKillOpen]=useState(false)
   const [pendingKillPaneId,setPendingKillPaneId]=useState<string|null>(null)
@@ -63,16 +62,6 @@ function useQuickActionController() {
     check()
     window.addEventListener('resize',check)
     return ()=>window.removeEventListener('resize',check)
-  },[])
-  useEffect(()=>{
-    const sync=()=>setIsImmersiveFullscreen(!!(document.fullscreenElement||(document as any).webkitFullscreenElement))
-    document.addEventListener('fullscreenchange',sync)
-    document.addEventListener('webkitfullscreenchange',sync as any)
-    sync()
-    return ()=>{
-      document.removeEventListener('fullscreenchange',sync)
-      document.removeEventListener('webkitfullscreenchange',sync as any)
-    }
   },[])
   useEffect(()=>{
     if(typeof window==='undefined')return
@@ -323,25 +312,10 @@ function useQuickActionController() {
     { key:'kill-pane',label:t('quick.killPane'),onPress:()=>void handleKillPane(),tone:'danger',disabled:!activeSessionId },
   ]
   const attachButton:ActionButtonDef={ key:'attach-mode',label:preferences.attachExclusive?t('quick.attachExclusive'):t('quick.attachShared'),onPress:()=>updatePreferences({ attachExclusive:!preferences.attachExclusive }),tone:'accent' }
-  const fullscreenButton:ActionButtonDef={ key:'immersive-fullscreen',label:isImmersiveFullscreen?t('quick.exitFullscreen'):t('quick.fullscreen'),tone:'accent',onPress:async()=>{
+  const fullscreenButton:ActionButtonDef={ key:'immersive-fullscreen',label:preferences.immersiveFullscreen?t('quick.exitFullscreen'):t('quick.fullscreen'),tone:'accent',onPress:async()=>{
     try{
-      const active=!!(document.fullscreenElement||(document as any).webkitFullscreenElement)
-      if(active){
-        if(document.exitFullscreen) await document.exitFullscreen()
-        else if((document as any).webkitExitFullscreen) await (document as any).webkitExitFullscreen()
-        updatePreferences({ immersiveFullscreen:false })
-        setIsImmersiveFullscreen(false)
-      }else{
-        const el=document.documentElement as any
-        if(el.requestFullscreen) await el.requestFullscreen({ navigationUI:'hide' })
-        else if(el.webkitRequestFullscreen) await el.webkitRequestFullscreen()
-        else throw new Error('fullscreen-unsupported')
-        updatePreferences({ immersiveFullscreen:true })
-        setIsImmersiveFullscreen(true)
-      }
+      await setImmersiveFullscreenMode(!preferences.immersiveFullscreen)
     }catch{
-      updatePreferences({ immersiveFullscreen:false })
-      setIsImmersiveFullscreen(false)
       pushToast({ type:'error',message:t('settings.immersiveFullscreenFailed') })
     }
   } }

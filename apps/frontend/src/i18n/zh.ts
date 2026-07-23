@@ -146,7 +146,7 @@ export const zh = {
   'settings.theme.nord': 'Nord',
   'settings.theme.catppuccin': 'Catppuccin',
   'settings.immersiveFullscreen': '全屏模式',
-  'settings.immersiveFullscreenDesc': '隐藏浏览器栏，沉浸显示（无需安装）。系统手势可退出。',
+  'settings.immersiveFullscreenDesc': '边到边沉浸显示。手机端不占用系统返回键，返回仍用于关闭面板；桌面端使用浏览器全屏。',
   'settings.immersiveFullscreenFailed': '当前浏览器不支持全屏，或已被拦截',
   'settings.layout': '布局',
   'settings.sidebarPosition': '侧边栏位置',

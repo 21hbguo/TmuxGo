@@ -14,6 +14,7 @@ import { usePrompt } from '@/hooks/usePrompt'
 import { SessionSortableList } from './SessionSortableList'
 import { HostSwitcher } from './HostSwitcher'
 import { AgentStatusBadge } from './AgentStatusBadge'
+import type { AgentStatus } from '@/types'
 import { ModalPortal } from './ModalPortal'
 
 function getNextSessionId(sessions: { id: string }[], removedIds: string[]) {
@@ -105,6 +106,13 @@ export function SessionPanel() {
   const toggleBatchSession = (sessionId: string) => {
     setSelectedSessionIds((prev) => prev.includes(sessionId) ? prev.filter((id) => id !== sessionId) : [...prev, sessionId])
   }
+  const handleAgentStatusClick = (session: { id: string; agents?: { paneId: string; agentStatus: AgentStatus }[] }, status: AgentStatus) => {
+    const pane = session.agents?.find((agent) => agent.agentStatus === status)
+    if (pane) {
+      setActiveSession(session.id)
+      useConsoleStore.getState().setActivePane(pane.paneId)
+    }
+  }
   useEffect(() => {
     const handleOpenTemplates = () => setShowTemplates(true)
     window.addEventListener('tmuxgo-open-session-templates', handleOpenTemplates as EventListener)
@@ -148,7 +156,7 @@ export function SessionPanel() {
                 {batchMode && <button onClick={() => toggleBatchSession(session.id)} className={`ml-2 flex h-7 w-5 shrink-0 items-center justify-center rounded-apple text-meta leading-none ${selectedSessionIds.includes(session.id) ? 'text-danger' : 'text-text-3'} hover:bg-bg-0`}>{selectedSessionIds.includes(session.id) ? '☑' : '☐'}</button>}
                 <button onClick={() => batchMode ? toggleBatchSession(session.id) : setActiveSession(session.id)} onDoubleClick={() => !batchMode && void handleRenameSession(session.id)} className={`min-w-0 flex-1 border-l-2 px-3 py-2 text-left ${batchMode ? selectedSessionIds.includes(session.id) ? 'border-danger' : 'border-transparent' : activeSessionId === session.id ? 'border-accent' : 'border-transparent'}`}>
                   <div className="truncate text-sm text-text-1">{session.name}</div>
-                  <div className="mt-0.5 flex min-w-0 items-center gap-2 text-meta text-text-3"><span className="shrink-0 whitespace-nowrap">{t('sidebar.windows', { count: session.windowCount })}</span><AgentStatusBadge summary={session.agentSummary} /></div>
+                  <div className="mt-0.5 flex min-w-0 items-center gap-2 text-meta text-text-3"><span className="shrink-0 whitespace-nowrap">{t('sidebar.windows', { count: session.windowCount })}</span><AgentStatusBadge summary={session.agentSummary} onStatusClick={(status) => handleAgentStatusClick(session, status)} /></div>
                 </button>
                 {!batchMode && <button onClick={() => void handleRenameSession(session.id)} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-7 w-7 text-meta" aria-label={t('sidebar.renameSession')} title={t('sidebar.renameSession')}>✎</button>}
                 {!batchMode && <button onClick={() => setPendingDeleteSessionId(session.id)} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-7 w-7 text-meta hover:text-danger" aria-label={t('sidebar.deleteSession')} title={t('sidebar.deleteSession')}>×</button>}
