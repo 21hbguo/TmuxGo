@@ -26,3 +26,5 @@ uploads
 uploads-rate-test
 apps/gateway/render-all.cjs
 apps/gateway/DINOTTY_LEARNING.md
+docs/stream-transport-opt/results-*.tsv
+/tmp/autoresearch
