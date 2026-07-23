@@ -380,6 +380,8 @@ export const zh = {
   'file.sortName': '名称',
   'file.sortSize': '大小',
   'file.sortModified': '修改时间',
+  'file.sortAsc': '升序',
+  'file.sortDesc': '降序',
   'file.loading': '加载中...',
   'file.treeLoadFailed': '加载失败',
   'file.retryLoad': '重试',

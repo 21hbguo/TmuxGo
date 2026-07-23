@@ -885,6 +885,11 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     setFileSort(next)
     writeFileSort(next)
   }
+  const toggleSortDirection = () => {
+    const next: FileSort = { field: fileSort.field, direction: fileSort.direction === 'asc' ? 'desc' : 'asc' }
+    setFileSort(next)
+    writeFileSort(next)
+  }
   const handleUploadSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = Array.from(event.target.files || [])
     if (!selectedFiles.length) return
@@ -1132,6 +1137,12 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
             </select>
             <span className="pointer-events-none absolute inset-y-0 right-1 flex items-center text-text-3">{fileSort.direction === 'asc' ? '↑' : '↓'}</span>
           </div>
+          <button
+            onClick={() => toggleSortDirection()}
+            title={fileSort.direction === 'asc' ? t('file.sortAsc') : t('file.sortDesc')}
+            aria-label={fileSort.direction === 'asc' ? t('file.sortAsc') : t('file.sortDesc')}
+            className="tmuxgo-toolbar-icon h-7 w-7 shrink-0 text-[11px]"
+          >{fileSort.direction === 'asc' ? '↑' : '↓'}</button>
         </div>
         <div className="mt-1.5 flex items-center gap-1">
           <div className="flex min-w-0 flex-1 rounded-apple border border-[var(--line)] bg-bg-2 p-0.5 text-[11px]">

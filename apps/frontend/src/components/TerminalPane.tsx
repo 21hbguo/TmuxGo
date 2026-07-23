@@ -4,7 +4,7 @@ import '@xterm/xterm/css/xterm.css'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useMobileKeyboard } from '@/hooks/useMobileKeyboard'
 import { useWebSocket } from '@/hooks/useWebSocket'
-import { DELETE_NEXT_WORD_SEQUENCE, DELETE_PREV_WORD_SEQUENCE } from '@/lib/terminal-keys'
+import { DELETE_NEXT_CHAR_SEQUENCE, DELETE_NEXT_WORD_SEQUENCE, DELETE_PREV_WORD_SEQUENCE, UNIX_WORD_RUBOUT_SEQUENCE } from '@/lib/terminal-keys'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { api } from '@/lib/api'
 import { useTerminalOutput } from '@/hooks/useTerminalOutput'
@@ -1593,7 +1593,10 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       terminal.attachCustomKeyEventHandler((e: KeyboardEvent) => {
         recordImeDebug('custom-key-handler', { key: e.key, code: e.code, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, keyCode: e.keyCode, isComposing: e.isComposing })
         if (isImeKeyEvent(e)) return true
-        if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'c') {
+        const isMac = isApplePlatform()
+        const modKey = isMac ? (e.ctrlKey || e.metaKey) : e.ctrlKey
+        const altMod = isMac ? e.altKey : (e.altKey || e.metaKey)
+        if (modKey && !altMod && e.key.toLowerCase() === 'c') {
           const selection = getSelectionText()
           if (selection) {
             selectionSync.runCopySelection(selection, true, true, focusTerminalInput)
@@ -1606,18 +1609,35 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           pasteBridge.scheduleKeyboardPasteFallback()
           return false
         }
-        if (e.key === 'Backspace' && e.ctrlKey && !e.metaKey && !e.altKey) {
+        const isPrevWordKey = (e.key === 'Backspace' || (e.code === 'Backspace' && !e.key)) && modKey && !altMod
+        if (isPrevWordKey) {
           if (e.repeat || deleteWordRepeatActive) return false
+          e.preventDefault()
           onInputRef.current?.(DELETE_PREV_WORD_SEQUENCE)
           startDeleteWordRepeat()
           return false
         }
-        if (e.key === 'Delete' && e.ctrlKey && !e.metaKey && !e.altKey) {
+        const isPrevWordRubout = (e.key === 'Backspace' || (e.code === 'Backspace' && !e.key)) && altMod && !modKey
+        if (isPrevWordRubout) {
+          e.preventDefault()
+          onInputRef.current?.(UNIX_WORD_RUBOUT_SEQUENCE)
+          return false
+        }
+        const isNextWordKey = (e.key === 'Delete' || (e.code === 'Delete' && !e.key)) && modKey && !altMod
+        if (isNextWordKey) {
+          e.preventDefault()
+          onInputRef.current?.(DELETE_NEXT_WORD_SEQUENCE)
+          return false
+        }
+        const isNextWordAlt = (e.key === 'Delete' || (e.code === 'Delete' && !e.key)) && altMod && !modKey
+        if (isNextWordAlt) {
+          e.preventDefault()
           onInputRef.current?.(DELETE_NEXT_WORD_SEQUENCE)
           return false
         }
         if (e.key === 'Delete' && !e.ctrlKey && !e.metaKey && !e.altKey) {
-          onInputRef.current?.('\u001b[3~')
+          e.preventDefault()
+          onInputRef.current?.(DELETE_NEXT_CHAR_SEQUENCE)
           return false
         }
         return true
