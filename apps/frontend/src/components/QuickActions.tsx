@@ -17,6 +17,7 @@ import { requestTerminalSelection } from '@/lib/terminal-selection'
 import { DELETE_PREV_LINE_SEQUENCE, DELETE_PREV_WORD_SEQUENCE } from '@/lib/terminal-keys'
 import { WatchButton } from './PaneNotifications'
 import { KeyCap } from './KeyCap'
+import { MobilePathPicker } from './MobilePathPicker'
 
 const repeatDelay=420
 const repeatInterval=54
@@ -382,19 +383,24 @@ function renderDockButton(def:ActionButtonDef,controller:ReturnType<typeof useQu
 export function QuickActions({ mode='panel' }:{ mode?:QuickActionsMode }){
   const controller=useQuickActionController()
   const { t,activePaneId,shortcuts,recentShortcutButtons,addShortcut,removeShortcut,showModal,setShowModal,isMobile,confirmKillOpen,setConfirmKillOpen,pendingKillPaneId,setPendingKillPaneId,confirmKillPane,newWindowPromptOpen,setNewWindowPromptOpen,newWindowName,setNewWindowName,confirmCreateWindow,sendKey,primaryButtons,attachButton,dockCoreButtons }=controller
+  const [showPathPicker,setShowPathPicker]=useState(false)
   if(mode==='dock'){
     return (
       <>
-        <div data-shortcut-bar data-keep-mobile-keyboard className="mobile-nav-landscape-hide relative z-40 flex-shrink-0 bg-bg-1 border-t border-[var(--line)] overflow-x-auto scrollbar-none pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_rgba(0,0,0,0.28)]" style={{ minHeight:40 }} onPointerDownCapture={controller.startDockGesture} onPointerUpCapture={(e)=>controller.finishDockGesture(e.pointerId)} onPointerCancelCapture={(e)=>controller.finishDockGesture(e.pointerId)} onScroll={controller.trackDockScroll} onContextMenu={(e)=>e.preventDefault()}>
+        <div className="mobile-nav-landscape-hide relative z-40 flex-shrink-0 bg-bg-1 border-t border-[var(--line)] shadow-[0_-8px_24px_rgba(0,0,0,0.28)]">
+          {showPathPicker&&<MobilePathPicker onClose={()=>setShowPathPicker(false)} />}
+          <div data-shortcut-bar data-keep-mobile-keyboard className="overflow-x-auto scrollbar-none pb-[env(safe-area-inset-bottom)]" style={{ minHeight:40 }} onPointerDownCapture={controller.startDockGesture} onPointerUpCapture={(e)=>controller.finishDockGesture(e.pointerId)} onPointerCancelCapture={(e)=>controller.finishDockGesture(e.pointerId)} onScroll={controller.trackDockScroll} onContextMenu={(e)=>e.preventDefault()}>
           <div className="flex gap-1 p-1.5 w-max min-h-[40px] items-center" onContextMenu={(e)=>e.preventDefault()}>
             {dockCoreButtons.map((def)=>renderDockButton(def,controller))}
             <div className="w-px bg-[var(--line)] mx-1 self-stretch" />
+            {renderDockButton({ key:'insert-path',label:t('file.insertPathCtx'),onPress:()=>setShowPathPicker((value)=>!value),tone:'accent' },controller)}
             {primaryButtons.map((def)=>renderDockButton(def,controller))}
             <div className="w-px bg-[var(--line)] mx-1 self-stretch" />
             {renderDockButton(attachButton,controller)}
             <WatchButton paneId={activePaneId || ''} compact />
             {recentShortcutButtons.map((s)=>renderDockButton({ key:s.id,label:s.label,onPress:()=>{ sendKey(keysToEscape(s.keys)) } },controller))}
           </div>
+        </div>
         </div>
         <ConfirmDialog open={confirmKillOpen} title={t('quick.killTitle')} message={t('quick.killConfirm')} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} tone="danger" onCancel={()=>{ setPendingKillPaneId(null); setConfirmKillOpen(false) }} onConfirm={()=>void confirmKillPane()} />
         <PromptDialog open={newWindowPromptOpen} title={t('window.createTitle')} defaultValue={newWindowName} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} onCancel={()=>setNewWindowPromptOpen(false)} onConfirm={(value)=>{ setNewWindowName(value); void confirmCreateWindow(value) }} />
