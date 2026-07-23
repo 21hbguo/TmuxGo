@@ -214,7 +214,7 @@ export function Settings({ onClose }: SettingsProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center tmuxgo-scrim p-4" onClick={onClose}>
-      <div className="tmuxgo-glass tmuxgo-glass-dialog max-h-[85vh] w-full max-w-[700px] overflow-hidden rounded-apple border" onClick={(e) => e.stopPropagation()}>
+      <div className="tmuxgo-glass tmuxgo-glass-dialog h-[600px] w-full max-w-[700px] overflow-hidden rounded-apple border" onClick={(e) => e.stopPropagation()}>
         <div className="p-4 border-b border-[var(--line)] flex items-center justify-between">
           <h2 className="text-text-1 text-lg font-medium">{t('settings.title')}</h2>
           <Button variant="ghost" size="sm" aria-label="close" onClick={onClose}>✕</Button>
@@ -236,7 +236,7 @@ export function Settings({ onClose }: SettingsProps) {
           ))}
         </div>
 
-        <div className="p-6 overflow-y-auto max-h-[60vh]">
+        <div className="p-6 overflow-y-auto" style={{ maxHeight: 'calc(600px - 120px)' }}>
           {activeTab === 'general' && (
             <div className="space-y-6">
               <div>

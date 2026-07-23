@@ -220,6 +220,7 @@ a {
 .tmuxgo-glass-sidebar {
   --glass-blur: 18px;
   background: var(--glass-fill);
+  box-shadow: none;
 }
 .tmuxgo-glass-dialog {
   --glass-blur: 30px;
@@ -844,9 +845,9 @@ a {
    ========================================================= */
 .tmuxgo-chip {
   --text-color: rgb(var(--text-3));
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
-  padding: 4px 11px;
+  padding: 4px 10px;
   border-radius: 999px;
   background: rgb(255 255 255 / 5%);
   border-color: rgb(255 255 255 / 12%);
