@@ -174,8 +174,8 @@ function getDirectoryName(path: string, root: FileRoot) {
   const parts = path.split(/[\\/]+/).filter(Boolean)
   return parts[parts.length - 1] || root.label
 }
-function formatDirectoryShortcutLabel(path: string, rootLabel: string) {
-  return `${rootLabel} · ${path || '/'}`
+function formatDirectoryShortcutLabel(path: string, rootLabel: string, rootPath: string) {
+  return joinPath(rootPath, path) || '/'
 }
 function getFavoriteRootOptionId(entry: { rootId: string; path: string }) {
   return `favorite:${entry.rootId}:${encodeURIComponent(entry.path)}`
@@ -356,6 +356,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   const preview = useMemo(() => rebasePreview(rawPreview, activeRootBasePath), [rawPreview, activeRootBasePath])
   const searchResults = useMemo(() => rawSearchResults.slice(0, SEARCH_RESULT_LIMIT).map((item) => rebaseEntryPath(item, activeRootBasePath)), [rawSearchResults, activeRootBasePath])
   const rootLabelById = useMemo(() => Object.fromEntries(visibleRoots.map((item) => [item.id, item.label])), [visibleRoots])
+  const rootPathById = useMemo(() => Object.fromEntries(visibleRoots.map((item) => [item.id, item.path])), [visibleRoots])
   const activeEditor = useMemo(() => activeEditorId ? openEditors.find((item) => item.id === activeEditorId) || null : null, [activeEditorId, openEditors])
   const isSearching = debouncedQuery.trim().length > 0
   const showSearchResults = isSearching && !searchNavigationPath
@@ -933,7 +934,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
       {visibleFavoriteDirectories.length ? (
         <div className="mt-2 space-y-1">
           {visibleFavoriteDirectories.map((item) => (
-            <Chip key={`${item.rootId}-${item.path}`} onClick={() => openDirectoryShortcut(item)} className="w-full truncate justify-start px-3 py-1.5 text-left font-mono text-[11px]">{formatDirectoryShortcutLabel(item.path, rootLabelById[item.rootId] || item.name)}</Chip>
+            <Chip key={`${item.rootId}-${item.path}`} onClick={() => openDirectoryShortcut(item)} className="w-full truncate justify-start px-3 py-1.5 text-left font-mono text-[11px]">{formatDirectoryShortcutLabel(item.path, rootLabelById[item.rootId] || item.name, rootPathById[item.rootId] || '')}</Chip>
           ))}
         </div>
       ) : (
@@ -1111,12 +1112,12 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
 
       </div>
       {(!isMobile || mobileView === 'list') && <div className="border-b border-[var(--line)] px-2 py-2">
-        <div className="flex rounded-apple border border-[var(--line)] bg-bg-2 p-0.5 text-[11px]">
-          {(['name', 'content'] as SearchMode[]).map((item) => (
-            <Chip key={item} tone={searchMode === item ? 'accent' : 'default'} onClick={() => { setSearchMode(item); setSearchNavigationPath(null) }} className="flex-1 capitalize">{item}</Chip>
-          ))}
-        </div>
-        <div className="mt-1.5 flex items-center gap-1">
+        <div className="flex items-center gap-1">
+          <div className="flex shrink-0 rounded-apple border border-[var(--line)] bg-bg-2 p-0.5 text-[11px]">
+            {(['name', 'content'] as SearchMode[]).map((item) => (
+              <Chip key={item} tone={searchMode === item ? 'accent' : 'default'} onClick={() => { setSearchMode(item); setSearchNavigationPath(null) }} className="capitalize">{item}</Chip>
+            ))}
+          </div>
           <input ref={searchInputRef} value={query} onChange={(e) => { setQuery(e.target.value); setSearchNavigationPath(null) }} onKeyDown={(e) => {
             const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform)
             const modifier = isMac ? e.metaKey : e.ctrlKey
@@ -1127,28 +1128,21 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
               setSearchNavigationPath(null)
             }
           }} placeholder={searchMode === 'name' ? t('file.searchName') : t('file.searchContent')} className="tmuxgo-control tmuxgo-input min-w-0 flex-1 rounded-apple px-2 py-1 font-mono text-[11px]" />
-          <button onClick={clearExpandedDirectories} disabled={!openDirectories.size && !directoryCache.size} aria-label={t('file.clearExpanded')} className={`tmuxgo-toolbar-icon h-7 w-7 shrink-0 text-[11px] ${openDirectories.size || directoryCache.size ? '' : 'opacity-40'}`}>⌂</button>
           <button onClick={() => { setQuery(''); setDebouncedQuery(''); setSearchNavigationPath(null) }} disabled={!query} aria-label={t('file.clearSearch')} className={`tmuxgo-toolbar-icon h-7 w-7 shrink-0 text-[11px] ${query ? '' : 'opacity-40'}`}>×</button>
-          <div className="flex shrink-0 items-center gap-0.5 rounded-apple border border-[var(--line)] bg-bg-2 p-0.5 text-[11px]">
-            <select value={fileSort.field} onChange={(e) => updateFileSort(e.target.value as SortField)} className="tmuxgo-control tmuxgo-select h-6 rounded-apple px-2 text-[11px] cursor-pointer pr-1">
-              <option value="name">{t('file.sortName')}</option>
-              <option value="size">{t('file.sortSize')}</option>
-              <option value="modified">{t('file.sortModified')}</option>
-            </select>
-            <button
-              onClick={() => toggleSortDirection()}
-              title={fileSort.direction === 'asc' ? t('file.sortAsc') : t('file.sortDesc')}
-              aria-label={fileSort.direction === 'asc' ? t('file.sortAsc') : t('file.sortDesc')}
-              className="tmuxgo-toolbar-icon h-6 w-6 shrink-0 text-[11px]"
-            >{fileSort.direction === 'asc' ? '↑' : '↓'}</button>
-          </div>
         </div>
         <div className="mt-1.5 flex items-center gap-1">
+          <button onClick={clearExpandedDirectories} disabled={!openDirectories.size && !directoryCache.size} aria-label={t('file.clearExpanded')} className={`tmuxgo-toolbar-icon h-7 w-7 shrink-0 text-[11px] ${openDirectories.size || directoryCache.size ? '' : 'opacity-40'}`}>⌂</button>
           <div className="flex min-w-0 flex-1 rounded-apple border border-[var(--line)] bg-bg-2 p-0.5 text-[11px]">
             {(['all', 'file', 'directory'] as FileTypeFilter[]).map((item) => (
               <Chip key={item} tone={fileTypeFilter === item ? 'accent' : 'default'} onClick={() => setFileTypeFilter(item)} className="min-w-0 flex-1">{item === 'all' ? t('file.all') : item === 'file' ? t('file.file') : t('file.dir')}</Chip>
             ))}
           </div>
+          <select value={fileSort.field} onChange={(e) => updateFileSort(e.target.value as SortField)} className="tmuxgo-control tmuxgo-select h-7 rounded-apple px-2 text-[11px] cursor-pointer pr-1">
+            <option value="name">{t('file.sortName')}</option>
+            <option value="size">{t('file.sortSize')}</option>
+            <option value="modified">{t('file.sortModified')}</option>
+          </select>
+          <button onClick={() => toggleSortDirection()} title={fileSort.direction === 'asc' ? t('file.sortAsc') : t('file.sortDesc')} aria-label={fileSort.direction === 'asc' ? t('file.sortAsc') : t('file.sortDesc')} className="tmuxgo-toolbar-icon h-7 w-7 shrink-0 text-[11px]">{fileSort.direction === 'asc' ? '↑' : '↓'}</button>
           <Chip onClick={() => updateHideDotFiles(!hideDotFiles)} tone={hideDotFiles ? 'default' : 'accent'} className="shrink-0 border">{t('file.dotfiles')}</Chip>
         </div>
       </div>}
@@ -1158,11 +1152,11 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
         showContextMenu(e.clientX, e.clientY, null, currentPath)
       }}>
         {!showSearchResults && visibleFavoriteDirectories.length > 0 && (
-          <div className="border-b border-[var(--line)] p-3 trae-browser-inspect-draggable">
+          <div className="border-b border-[var(--line)] p-3 trae-browser-inspect-draggable" onWheel={(e) => e.stopPropagation()}>
             <div className="mb-2 text-[10px] uppercase tracking-[0.18em] text-text-3">{t('file.favoriteDirs')}</div>
             <div className="space-y-1">
               {visibleFavoriteDirectories.map((item) => (
-                <Chip key={`${item.rootId}-${item.path}`} onClick={() => openDirectoryShortcut(item)} className="w-full truncate justify-start px-3 py-1.5 text-left font-mono text-xs">{formatDirectoryShortcutLabel(item.path, rootLabelById[item.rootId] || item.name)}</Chip>
+                <Chip key={`${item.rootId}-${item.path}`} onClick={() => openDirectoryShortcut(item)} className="w-full truncate justify-start px-3 py-1.5 text-left font-mono text-xs">{formatDirectoryShortcutLabel(item.path, rootLabelById[item.rootId] || item.name, rootPathById[item.rootId] || '')}</Chip>
               ))}
             </div>
           </div>

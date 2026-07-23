@@ -479,10 +479,11 @@ export function Settings({ onClose }: SettingsProps) {
                         min={0}
                         max={20}
                         value={terminalPaddingDraft}
-                        onChange={(e) => setTerminalPaddingDraft(Number(e.target.value))}
-                        onMouseUp={commitTerminalPadding}
-                        onTouchEnd={commitTerminalPadding}
-                        onKeyUp={commitTerminalPadding}
+                        onChange={(e) => {
+                          const next = Number(e.target.value)
+                          setTerminalPaddingDraft(next)
+                          updatePreferences({ terminalPadding: next })
+                        }}
                         className="w-24 accent-accent"
                       />
                       <span className="text-text-1 text-sm w-8 text-center">{terminalPaddingDraft}px</span>
