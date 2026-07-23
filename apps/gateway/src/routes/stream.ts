@@ -178,8 +178,9 @@ export async function streamRoutes(fastify: FastifyInstance) {
       if (socket.readyState !== 1 || !binaryOutputEnabled || !cellOutputEnabled) return false
       try {
         getSocketBufferedBytes()
+        const useGzip = compressOutputEnabled && type === 'cell_snapshot'
         const frame = encodeStreamCellBinary(type, hostId, sessionName, payload, {
-          compress: compressOutputEnabled,
+          compress: useGzip,
           threshold: STREAM_COMPRESS_THRESHOLD,
         })
         const typeCode = frame[3]
