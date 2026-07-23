@@ -68,9 +68,29 @@ await fastify.register(pluginRoutes, { prefix: '/api' })
 
 const frontendDist = process.env.TMUXGO_FRONTEND_DIST || path.resolve(process.cwd(), '../frontend/dist')
 if (existsSync(frontendDist)) {
-  await fastify.register(fastifyStatic, { root: frontendDist, prefix: '/' })
+  await fastify.register(fastifyStatic, {
+    root: frontendDist,
+    prefix: '/',
+    setHeaders(res, filePath) {
+      const normalized = filePath.replace(/\\/g, '/')
+      if (normalized.includes('/fonts/') || /\.(?:woff2?|ttf|otf)$/i.test(normalized)) {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+        return
+      }
+      if (/\.(?:js|css|svg|png|jpg|jpeg|gif|webp|ico|map)$/i.test(normalized)) {
+        res.setHeader('Cache-Control', 'public, max-age=604800')
+        return
+      }
+      if (normalized.endsWith('/index.html') || normalized.endsWith('index.html')) {
+        res.setHeader('Cache-Control', 'no-cache')
+      }
+    },
+  })
   fastify.setNotFoundHandler((request, reply) => {
-    if (request.method === 'GET' && request.headers.accept?.includes('text/html')) return reply.sendFile('index.html')
+    if (request.method === 'GET' && request.headers.accept?.includes('text/html')) {
+      reply.header('Cache-Control', 'no-cache')
+      return reply.sendFile('index.html')
+    }
     return reply.code(404).send({ message: 'Not found' })
   })
 }
