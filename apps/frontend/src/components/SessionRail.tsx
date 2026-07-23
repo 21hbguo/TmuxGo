@@ -88,7 +88,7 @@ export function SessionRail() {
   }, [])
   return (
     <>
-      <aside className="tmuxgo-material flex h-full w-[clamp(61px,9vw,109px)] shrink-0 flex-col border-r">
+      <aside className="tmuxgo-content-surface flex h-full w-[clamp(61px,9vw,109px)] shrink-0 flex-col border-r border-[var(--line)]">
         <button onClick={() => setSessionPanelExpanded(true)} className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--line)] px-3 text-left text-xs font-semibold text-text-3 hover:bg-bg-2/55 hover:text-text-1"><FiChevronRight aria-hidden="true" className="shrink-0" /><span className="min-w-0 truncate">{t('sidebar.sessions')}</span></button>
         <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2 scrollbar-none">
           {isError ? <Button variant="danger" size="sm" className="w-full" title={t('session.loadFailed')} onClick={() => void refetch()}>{t('common.retry')}</Button> : <SessionSortableList
@@ -115,7 +115,7 @@ export function SessionRail() {
             }}
           />}
         </div>
-        <div className="shrink-0 border-t border-[var(--line)] p-2">
+        <div className="shrink-0 flex h-11 items-center justify-center border-t border-[var(--line)] px-2">
           <button aria-label={t('sidebar.newSession')} title={t('sidebar.newSession')} onClick={() => setShowTemplates(true)} className="tmuxgo-toolbar-icon tmuxgo-glass-control h-10 w-full text-accent"><FiPlus aria-hidden="true" size={17} /></button>
         </div>
       </aside>
