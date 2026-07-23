@@ -59,8 +59,7 @@ export function StatusBar() {
     <footer className="tmuxgo-glass tmuxgo-glass-chrome relative h-7 shrink-0 overflow-visible border-t px-3 text-[11px] text-text-3">
       <div className="relative flex h-full items-center justify-between gap-3">
         <section aria-label="Workspace context" className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
-          <span className="inline-flex h-5 items-center rounded-full border border-accent-2/25 bg-accent-2/10 px-2 font-mono text-[10px] font-semibold tracking-[0.22em] text-accent-2">RW</span>
-          <span className="inline-flex h-5 items-center rounded-full border border-text-1/10 bg-bg-2/45 px-2 font-mono text-[10px] tracking-[0.1em] text-text-3">UTF-8</span>
+
           {activePane && (
             <span className="inline-flex h-5 items-center rounded-full border border-text-1/10 bg-bg-2/45 px-2 font-mono text-[10px] tabular-nums text-text-2">{activePane.size.cols}×{activePane.size.rows}</span>
           )}

@@ -19,6 +19,9 @@ import { ModalPortal } from './ModalPortal'
 
 type SearchMode = 'name' | 'content'
 type FileTypeFilter = 'all' | 'file' | 'directory'
+type SortField = 'name' | 'size' | 'modified'
+type SortDirection = 'asc' | 'desc'
+type FileSort = { field: SortField; direction: SortDirection }
 type FileRootOption = FileRoot & { sourceRootId: string; basePath: string }
 type FileEntry = FileItem | FileContentMatch
 type DirectoryStatus = { state: 'loading' | 'error'; message: string }
@@ -115,6 +118,35 @@ function readHideDotFiles() {
 }
 function writeHideDotFiles(value: boolean) {
   localStorage.setItem('tmuxgo-hide-dot-files', String(value))
+}
+const FILE_SORT_STORAGE_KEY = 'tmuxgo-file-sort'
+function readFileSort(): FileSort {
+  if (typeof window === 'undefined') return { field: 'name', direction: 'asc' }
+  try {
+    const stored = localStorage.getItem(FILE_SORT_STORAGE_KEY)
+    if (stored) {
+      const parsed = JSON.parse(stored)
+      if (parsed.field && parsed.direction) return parsed as FileSort
+    }
+  } catch {}
+  return { field: 'name', direction: 'asc' }
+}
+function writeFileSort(sort: FileSort) {
+  localStorage.setItem(FILE_SORT_STORAGE_KEY, JSON.stringify(sort))
+}
+function compareFileItems(a: FileItem, b: FileItem, sort: FileSort): number {
+  if (a.type !== b.type) return a.type === 'directory' ? -1 : 1
+  const dirFirst = sort.direction === 'asc' ? -1 : 1
+  const dirSecond = -dirFirst
+  if (a.type === 'directory' && b.type === 'directory') {
+    if (sort.field === 'name') return sort.direction === 'asc' ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name)
+    if (sort.field === 'size') return sort.direction === 'asc' ? a.size - b.size : b.size - a.size
+    if (sort.field === 'modified') return sort.direction === 'asc' ? a.modifiedAt.localeCompare(b.modifiedAt) : b.modifiedAt.localeCompare(a.modifiedAt)
+  }
+  if (sort.field === 'name') return sort.direction === 'asc' ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name)
+  if (sort.field === 'size') return sort.direction === 'asc' ? a.size - b.size : b.size - a.size
+  if (sort.field === 'modified') return sort.direction === 'asc' ? a.modifiedAt.localeCompare(b.modifiedAt) : b.modifiedAt.localeCompare(a.modifiedAt)
+  return a.name.localeCompare(b.name)
 }
 function isDotPath(path: string) {
   return path.split(/[\\/]+/).some((part) => part.startsWith('.') && part.length > 1)
@@ -270,6 +302,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   const [debouncedQuery, setDebouncedQuery] = useState('')
   const [searchMode, setSearchMode] = useState<SearchMode>('name')
   const [fileTypeFilter, setFileTypeFilter] = useState<FileTypeFilter>('all')
+  const [fileSort, setFileSort] = useState<FileSort>(readFileSort)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: FileEntry | null; directoryPath: string; mobile: boolean } | null>(null)
   const [mobileView, setMobileView] = useState<'list' | 'preview'>('list')
   const [favoriteDirectories, setFavoriteDirectories] = useState<FavoriteDirectory[]>([])
@@ -326,7 +359,11 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   const isSearching = debouncedQuery.trim().length > 0
   const showSearchResults = isSearching && !searchNavigationPath
   const items = useMemo(() => showSearchResults ? searchResults : listData?.items || [], [showSearchResults, searchResults, listData])
-  const visibleItems = useMemo(() => items.filter((item: any) => (!hideDotFiles || !isDotPath(item.path || item.name)) && matchesFileTypeFilter(item, fileTypeFilter)), [fileTypeFilter, hideDotFiles, items])
+  const visibleItems = useMemo(() => {
+    const filtered = items.filter((item: any) => (!hideDotFiles || !isDotPath(item.path || item.name)) && matchesFileTypeFilter(item, fileTypeFilter))
+    if (showSearchResults) return filtered
+    return [...filtered].sort((a, b) => compareFileItems(a, b, fileSort))
+  }, [fileTypeFilter, fileSort, hideDotFiles, items, showSearchResults])
   const visibleFavoriteDirectories = useMemo(() => hideDotFiles ? favoriteDirectories.filter((item) => !isDotPath(item.path)) : favoriteDirectories, [hideDotFiles, favoriteDirectories])
   const storeDirectoryChildren = useCallback((rootId: string, rootBasePath: string, itemPath: string, items: FileItem[]) => {
     setDirectoryCache((current) => {
@@ -498,6 +535,19 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   useEffect(() => {
     contextMenuRef.current = !!contextMenu
   }, [contextMenu])
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform)
+      const modifier = isMac ? e.metaKey : e.ctrlKey
+      if (modifier && e.key === 'Delete' && selectedPath) {
+        e.preventDefault()
+        const item = visibleItems.find((i) => i.path === selectedPath)
+        if (item) void removeItem(item)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [selectedPath, visibleItems])
   const pushMobileNavigationHistory = () => {
     if (!isMobile || typeof window === 'undefined') return
     mobileNavigationDepthRef.current += 1
@@ -842,6 +892,11 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     setHideDotFiles(value)
     writeHideDotFiles(value)
   }
+  const updateFileSort = (field: SortField) => {
+    const next: FileSort = field === fileSort.field ? { field, direction: fileSort.direction === 'asc' ? 'desc' : 'asc' } : { field, direction: 'asc' }
+    setFileSort(next)
+    writeFileSort(next)
+  }
   const handleUploadSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = Array.from(event.target.files || [])
     if (!selectedFiles.length) return
@@ -1051,7 +1106,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
         <div className="flex items-center gap-1.5">
           {isMobile && mobileView === 'preview' && <Button variant="ghost" size="icon-sm" aria-label="back to list" onClick={() => setMobileView('list')}>‹</Button>}
           {isMobile && mobileView !== 'preview' && !!currentPath && <Button variant="ghost" size="icon-sm" aria-label="go back" onClick={() => mobileNavigationDepthRef.current > 0 ? window.history.back() : goMobileParentDirectory()}>‹</Button>}
-          <div className="text-sm font-semibold text-text-1">{t('file.title')}</div>
+
           <select value={selectedRootId} onChange={(e) => switchRoot(e.target.value)} className="tmuxgo-control tmuxgo-select min-w-0 flex-1 rounded-apple px-2 py-1 text-[11px]">
             {rootOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
           </select>
@@ -1072,6 +1127,14 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
           <input value={query} onChange={(e) => { setQuery(e.target.value); setSearchNavigationPath(null) }} placeholder={searchMode === 'name' ? t('file.searchName') : t('file.searchContent')} className="tmuxgo-control tmuxgo-input min-w-0 flex-1 rounded-apple px-2 py-1 font-mono text-[11px]" />
           <button onClick={clearExpandedDirectories} disabled={!openDirectories.size && !directoryCache.size} aria-label={t('file.clearExpanded')} className={`tmuxgo-toolbar-icon h-7 w-7 shrink-0 text-[11px] ${openDirectories.size || directoryCache.size ? '' : 'opacity-40'}`}>⌂</button>
           <button onClick={() => { setQuery(''); setDebouncedQuery(''); setSearchNavigationPath(null) }} disabled={!query} aria-label={t('file.clearSearch')} className={`tmuxgo-toolbar-icon h-7 w-7 shrink-0 text-[11px] ${query ? '' : 'opacity-40'}`}>×</button>
+          <div className="relative">
+            <select value={fileSort.field} onChange={(e) => updateFileSort(e.target.value as SortField)} className="tmuxgo-control tmuxgo-select h-7 rounded-apple px-2 text-[11px] appearance-none cursor-pointer pr-6">
+              <option value="name">{t('file.sortName')}</option>
+              <option value="size">{t('file.sortSize')}</option>
+              <option value="modified">{t('file.sortModified')}</option>
+            </select>
+            <span className="pointer-events-none absolute inset-y-0 right-1 flex items-center text-text-3">{fileSort.direction === 'asc' ? '↑' : '↓'}</span>
+          </div>
         </div>
         <div className="mt-1.5 flex items-center gap-1">
           <div className="flex min-w-0 flex-1 rounded-apple border border-[var(--line)] bg-bg-2 p-0.5 text-[11px]">
