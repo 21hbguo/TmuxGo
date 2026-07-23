@@ -577,6 +577,12 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       active.options.fontSize = preferences.fontSize
       active.options.fontFamily = preferences.fontFamily
       try {
+        active.clearTextureAtlas?.()
+      } catch {}
+      try {
+        active._core?._renderService?.clear?.()
+      } catch {}
+      try {
         active.refresh(0, Math.max(0, active.rows - 1))
       } catch {}
       scheduleLayoutRef.current(0, true, true)
@@ -1174,6 +1180,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const paddingX = padding.left + padding.right
       const availableHeight = Math.max(0, parentHeight - paddingY)
       const availableWidth = Math.max(0, parentWidth - paddingX)
+      if (availableWidth < 8 || availableHeight < 8) return null
       const cols = Math.max(2, Math.floor(availableWidth / cellWidth))
       const rows = Math.max(1, Math.floor(availableHeight / cellHeight))
       return { cols, rows }
@@ -1327,6 +1334,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         const currentWidth = container.clientWidth
         const currentHeight = container.clientHeight
         recordMobileDebug('terminal-fit', { force, width: currentWidth, height: currentHeight })
+        if (currentWidth < 8 || currentHeight < 8) return false
         if (!force && Math.abs(currentWidth - lastFitSize.width) <= MOBILE_FIT_SIZE_TOLERANCE && Math.abs(currentHeight - lastFitSize.height) <= MOBILE_FIT_SIZE_TOLERANCE && lastSizeRef.current) {
           recordMobileDebug('terminal-fit-noop', { width: currentWidth, height: currentHeight })
           return true
@@ -1352,7 +1360,12 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
             if (disposed || !terminal) return
             scheduleRendererStyleCorrection()
             syncExclusiveViewport()
-            if (force && isMobileDevice) repaintTerminalRenderer(true, stickToBottom)
+            if (force) {
+              clearTerminalRendererCache()
+              repaintTerminalRenderer(true, stickToBottom)
+            } else if (isMobileDevice) {
+              repaintTerminalRenderer(false, stickToBottom)
+            }
             if (!sizeChanged && isResizeMaskVisible()) revealResizeMask()
           })
           notifyReady()
@@ -1380,7 +1393,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         mobileKeyboardTransition = false
         return
       }
-      if (!force || layoutRetryCount >= 2) {
+      if (!force || layoutRetryCount >= 12) {
         layoutRetryCount = 0
         initialFitPending = false
         mobileKeyboardTransition = false
@@ -1496,6 +1509,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       })
     }
     const initTerminal = async () => {
+      const fontReady = ensureAppFontLoaded(preferencesRef.current.fontFamily, preferencesRef.current.fontSize)
       const { Terminal } = await import('@xterm/xterm')
       const { WebLinksAddon } = await import('@xterm/addon-web-links')
       const { Unicode11Addon } = await import('@xterm/addon-unicode11')
@@ -1572,6 +1586,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         }
         scheduleRendererStyleCorrection()
       }
+      clearTerminalRendererCache()
       terminalInstance.current = terminal
       ;(window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal = terminal
       void loadSessionSnapshot()
@@ -1593,9 +1608,18 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       if (osc52Handler) {
         disposables.push(osc52Handler)
       }
-      if (attachExclusiveRef.current) {
-        scheduleInitialFit()
-      }
+      scheduleInitialFit()
+      scheduleTerminalRepaint(isMobileDevice ? MOBILE_TERMINAL_REPAINT_DELAYS : TERMINAL_REPAINT_DELAYS, false, false, true)
+      void fontReady.then(() => {
+        if (disposed || terminalInstance.current !== terminal) return
+        applyTerminalOptions()
+        clearTerminalRendererCache()
+        try {
+          terminal.refresh(0, Math.max(0, terminal.rows - 1))
+        } catch {}
+        scheduleLayoutSync(0, true, true)
+        scheduleTerminalRepaint(isMobileDevice ? MOBILE_TERMINAL_REPAINT_DELAYS : TERMINAL_REPAINT_DELAYS, false, false, true)
+      })
       disposables.push(
         terminal.onData((data: string) => {
           onInputRef.current?.(data)
@@ -2047,7 +2071,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       ref={terminalRef}
       data-terminal
       tabIndex={0}
-      className="h-full w-full min-h-0 overflow-hidden relative"
+      className="h-full w-full min-h-0 overflow-hidden relative bg-bg-1"
       style={{
         ['--terminal-padding' as any]: `${preferences.terminalPadding}px`,
         ['--terminal-padding-bottom' as any]: `${preferences.terminalPadding}px`,

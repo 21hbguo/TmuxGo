@@ -65,16 +65,20 @@ export function primaryFontName(_fontFamily?: string) {
   return 'Maple Mono CN'
 }
 
+let regularFontLoadPromise: Promise<void> | null = null
+
 export async function ensureAppFontLoaded(fontFamily?: string, size = 14) {
   if (typeof document === 'undefined' || !document.fonts?.load) return
   const name = primaryFontName(fontFamily)
-  try {
-    await Promise.all([
-      document.fonts.load(`400 ${size}px "${name}"`),
-      document.fonts.load(`700 ${size}px "${name}"`),
-    ])
-    await document.fonts.ready
-  } catch {}
+  if (!regularFontLoadPromise) {
+    regularFontLoadPromise = (async () => {
+      try {
+        await document.fonts.load(`400 ${size}px "${name}"`)
+      } catch {}
+      void document.fonts.load(`700 ${size}px "${name}"`).catch(() => {})
+    })()
+  }
+  await regularFontLoadPromise
 }
 
 export function applyDocumentFont(_fontFamily?: string) {
@@ -162,7 +166,6 @@ export function usePreferences() {
   const [isReady, setIsReady] = useState(preferencesReady)
 
   useEffect(() => {
-    const hasStoredPreferences = localStorage.getItem(STORAGE_KEY) !== null
     const initial = readStoredPreferences()
     emitPreferences(initial)
     setPreferences(initial)
@@ -178,7 +181,7 @@ export function usePreferences() {
     listeners.add(setPreferences)
     readyListeners.add(setIsReady)
     window.addEventListener('storage', handleStorage)
-    if (hasStoredPreferences) markPreferencesReady()
+    markPreferencesReady()
     if (preferencesReady) setIsReady(true)
 
     if (!syncedWithServer) {

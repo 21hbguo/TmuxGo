@@ -129,6 +129,7 @@ vi.mock('@/hooks/usePreferences', () => ({
     updatePreferences: preferenceMocks.updatePreferences,
     isReady: preferenceMocks.isReady,
   }),
+  ensureAppFontLoaded: async () => {},
 }))
 vi.mock('@/hooks/useMobileKeyboard', () => ({
   useMobileKeyboard: () => ({ textareaRef: mobileKeyboardMocks.textareaRef, focusKeyboard: mobileKeyboardMocks.focusKeyboard, isMobile: mobileKeyboardMocks.isMobile }),
