@@ -50,6 +50,10 @@ interface HistorySample {
   droppedOutputChars: number
   outputRate: number
   backpressureRate: number
+  netSentBytes: number
+  netRecvBytes: number
+  netSentRate: number
+  netRecvRate: number
 }
 function streamOf(info: SystemInfo) {
   const s = info.stream || ({} as SystemInfo['stream'])
@@ -160,6 +164,7 @@ export function SystemHealthPanel() {
   useEffect(() => {
     if (!info) return
     const stream = streamOf(info)
+    const net = info.net || { sentBytes: 0, recvBytes: 0 }
     const now = Date.now()
     setUpdatedAt(now)
     setHistory((prev) => {
@@ -177,6 +182,10 @@ export function SystemHealthPanel() {
         droppedOutputChars: stream.droppedOutputChars,
         outputRate: last ? Math.max(0, (stream.outputBytes - last.outputBytes) / dt) : 0,
         backpressureRate: last ? Math.max(0, (stream.backpressureSignals - last.backpressureSignals) / dt) : 0,
+        netSentBytes: net.sentBytes,
+        netRecvBytes: net.recvBytes,
+        netSentRate: last ? Math.max(0, (net.sentBytes - last.netSentBytes) / dt) : 0,
+        netRecvRate: last ? Math.max(0, (net.recvBytes - last.netRecvBytes) / dt) : 0,
       }
       return [...prev, sample].slice(-HISTORY_LEN)
     })
@@ -275,6 +284,8 @@ export function SystemHealthPanel() {
             <h3 className="mb-2 text-sm font-medium text-text-1">{t('settings.performanceStream')}</h3>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <MetricCard title={t('settings.performanceOutputRate')} value={fmtRate(history[history.length - 1]?.outputRate || 0)} series={series((sample) => sample.outputRate)} sub={`${t('settings.performanceTotal')}: ${fmtBytes(stream?.outputBytes || 0)}`} />
+              <MetricCard title={t('settings.performanceNetSent')} value={fmtRate(history[history.length - 1]?.netSentRate || 0)} series={series((sample) => sample.netSentRate)} sub={`${t('settings.performanceTotal')}: ${fmtBytes(info?.net?.sentBytes || 0)}`} />
+              <MetricCard title={t('settings.performanceNetRecv')} value={fmtRate(history[history.length - 1]?.netRecvRate || 0)} series={series((sample) => sample.netRecvRate)} sub={`${t('settings.performanceTotal')}: ${fmtBytes(info?.net?.recvBytes || 0)}`} />
               <MetricCard title={t('settings.performanceSocketBuffer')} value={fmtBytes(stream?.socketBufferedBytes || 0)} series={series((sample) => sample.socketBufferedBytes)} tone={bufferTone} />
               <MetricCard title={t('settings.performanceBackpressure')} value={String(stream?.backpressureSignals || 0)} series={series((sample) => sample.backpressureSignals)} tone={backpressureTone} sub={`${t('settings.performanceRate')}: ${(history[history.length - 1]?.backpressureRate || 0).toFixed(2)}/s`} />
               <MetricCard title={t('settings.performanceDropped')} value={String(stream?.droppedOutputChars || 0)} series={series((sample) => sample.droppedOutputChars)} tone={droppedTone} />
