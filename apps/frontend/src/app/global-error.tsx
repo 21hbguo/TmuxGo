@@ -6,7 +6,7 @@ export default function GlobalError({ error, reset }: { error: Error; reset: () 
   if (recovered) return null
   return (
     <html lang="zh-CN">
-      <body style={{ background: '#071224', color: '#c9d1d9', fontFamily: 'system-ui, sans-serif', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', margin: 0 }}>
+      <body style={{ background: '#071224', color: '#c9d1d9', fontFamily: '"JetBrains Mono", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', margin: 0 }}>
         <div style={{ textAlign: 'center', maxWidth: 480, padding: 32 }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>⚠</div>
           <h2 style={{ fontSize: 20, marginBottom: 8, color: '#f0f6fc' }}>客户端异常</h2>

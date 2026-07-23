@@ -3,7 +3,7 @@ import { api } from '@/lib/api'
 import type { UiPreferences } from '@/types'
 
 export type Language = 'zh' | 'en'
-export const PREFERENCES_VERSION = 2
+export const PREFERENCES_VERSION = 3
 const STORAGE_KEY = 'tmuxgo-preferences'
 const STORAGE_UPDATED_AT_KEY = 'tmuxgo-preferences-updated-at'
 const PROFILE = 'default'
@@ -31,7 +31,7 @@ export interface Preferences {
 const defaultPreferences: Preferences = {
   theme: 'dark',
   fontSize: 14,
-  fontFamily: 'Consolas, "Cascadia Mono", "Cascadia Code", "SF Mono", Monaco, Menlo, "DejaVu Sans Mono", "Liberation Mono", "Courier New", monospace',
+  fontFamily: '"JetBrains Mono", "Cascadia Mono", "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace',
   cursorBlink: true,
   sidebarPosition: 'left',
   showStatusBar: true,
@@ -87,7 +87,11 @@ function readStoredPreferences() {
     if (version < PREFERENCES_VERSION && parsed.terminalPadding === 8) {
       next.terminalPadding = 0
     }
-    if (version !== PREFERENCES_VERSION) {
+    const fontForced = next.fontFamily !== defaultPreferences.fontFamily
+    if (fontForced) {
+      next.fontFamily = defaultPreferences.fontFamily
+    }
+    if (version !== PREFERENCES_VERSION || fontForced) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...next, _v: PREFERENCES_VERSION }))
     }
     return next
@@ -140,7 +144,7 @@ export function usePreferences() {
           const remoteMs = Date.parse(remoteUpdatedAt)
           if (remoteUi && Object.keys(remoteUi).length > 0) {
             if (!Number.isNaN(remoteMs) && (Number.isNaN(localMs) || remoteMs >= localMs)) {
-              const merged = { ...defaultPreferences, ...remoteUi } as Preferences
+              const merged = { ...defaultPreferences, ...remoteUi, fontFamily: defaultPreferences.fontFamily } as Preferences
               localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...merged, _v: PREFERENCES_VERSION }))
               localStorage.setItem(STORAGE_UPDATED_AT_KEY, remoteUpdatedAt || new Date().toISOString())
               emitPreferences(merged)
@@ -179,7 +183,7 @@ export function usePreferences() {
   }, [preferences.theme])
 
   const updatePreferences = useCallback((updates: Partial<Preferences>) => {
-    const updated = { ...preferencesStore, ...updates }
+    const updated = { ...preferencesStore, ...updates, fontFamily: defaultPreferences.fontFamily }
     const now = new Date().toISOString()
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...updated, _v: PREFERENCES_VERSION }))
     localStorage.setItem(STORAGE_UPDATED_AT_KEY, now)
