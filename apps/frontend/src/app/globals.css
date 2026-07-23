@@ -220,6 +220,7 @@ a {
 .tmuxgo-glass-sidebar {
   --glass-blur: 18px;
   background: var(--glass-fill);
+  border-color: var(--line);
   box-shadow: none;
 }
 .tmuxgo-glass-dialog {
