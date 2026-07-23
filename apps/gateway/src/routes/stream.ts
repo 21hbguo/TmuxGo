@@ -297,7 +297,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
       }
       const data = outputBuffer
       outputBuffer = ''
-      if (data.length >= DEDUP_CHUNK_THRESHOLD && data === lastFlushData) {
+      if (data.length >= DEDUP_CHUNK_THRESHOLD && data === lastPtyChunk) {
         recordStreamMetric('droppedDuplicateChunks', data.length)
         return
       }
@@ -309,7 +309,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
           return
         }
       }
-      lastFlushData = data
+      lastPtyChunk = data
       recordStreamMetric('outputFlushes')
       recordStreamMetric('outputChunks')
     }
@@ -629,7 +629,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
             attachedRows = rows
             if (cellOutputEnabled) resetCellState(cols, rows)
             attachVisibleOutputObserved = false
-            lastFlushData = ''
+            lastPtyChunk = ''
             const seq = attachSeq
             ptyProcess.onData((output: string) => {
               if (seq !== attachSeq) return
