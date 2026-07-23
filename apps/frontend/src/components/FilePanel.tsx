@@ -135,18 +135,14 @@ function writeFileSort(sort: FileSort) {
   localStorage.setItem(FILE_SORT_STORAGE_KEY, JSON.stringify(sort))
 }
 function compareFileItems(a: FileItem, b: FileItem, sort: FileSort): number {
-  if (a.type !== b.type) return a.type === 'directory' ? -1 : 1
-  const dirFirst = sort.direction === 'asc' ? -1 : 1
-  const dirSecond = -dirFirst
-  if (a.type === 'directory' && b.type === 'directory') {
-    if (sort.field === 'name') return sort.direction === 'asc' ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name)
-    if (sort.field === 'size') return sort.direction === 'asc' ? a.size - b.size : b.size - a.size
-    if (sort.field === 'modified') return sort.direction === 'asc' ? a.modifiedAt.localeCompare(b.modifiedAt) : b.modifiedAt.localeCompare(a.modifiedAt)
-  }
-  if (sort.field === 'name') return sort.direction === 'asc' ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name)
-  if (sort.field === 'size') return sort.direction === 'asc' ? a.size - b.size : b.size - a.size
-  if (sort.field === 'modified') return sort.direction === 'asc' ? a.modifiedAt.localeCompare(b.modifiedAt) : b.modifiedAt.localeCompare(a.modifiedAt)
-  return a.name.localeCompare(b.name)
+  const sign = sort.direction === 'asc' ? 1 : -1
+  const typeWeight = (item: FileItem) => item.type === 'directory' ? 0 : 1
+  const typeDelta = typeWeight(a) - typeWeight(b)
+  if (typeDelta !== 0) return typeDelta * sign
+  if (sort.field === 'name') return a.name.localeCompare(b.name) * sign
+  if (sort.field === 'size') return (a.size - b.size) * sign
+  if (sort.field === 'modified') return a.modifiedAt.localeCompare(b.modifiedAt) * sign
+  return a.name.localeCompare(b.name) * sign
 }
 function isDotPath(path: string) {
   return path.split(/[\\/]+/).some((part) => part.startsWith('.') && part.length > 1)
@@ -1130,7 +1126,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
           }} placeholder={searchMode === 'name' ? t('file.searchName') : t('file.searchContent')} className="tmuxgo-control tmuxgo-input min-w-0 flex-1 rounded-apple px-2 py-1 font-mono text-[11px]" />
           <button onClick={() => { setQuery(''); setDebouncedQuery(''); setSearchNavigationPath(null) }} disabled={!query} aria-label={t('file.clearSearch')} className={`tmuxgo-toolbar-icon h-7 w-7 shrink-0 text-[11px] ${query ? '' : 'opacity-40'}`}>×</button>
         </div>
-        <div className="mt-1.5 flex items-center gap-1">
+        <div className="mt-0.5 flex items-center gap-1">
           <div className="flex min-w-0 flex-1 rounded-apple border border-[var(--line)] bg-bg-2 p-0.5 text-[11px]">
             {(['all', 'file', 'directory'] as FileTypeFilter[]).map((item) => (
               <Chip key={item} tone={fileTypeFilter === item ? 'accent' : 'default'} onClick={() => setFileTypeFilter(item)} className="min-w-0 flex-1">{item === 'all' ? t('file.all') : item === 'file' ? t('file.file') : t('file.dir')}</Chip>
@@ -1139,7 +1135,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
           <button onClick={clearExpandedDirectories} disabled={!openDirectories.size && !directoryCache.size} aria-label={t('file.clearExpanded')} className={`tmuxgo-toolbar-icon h-7 w-7 shrink-0 text-[11px] ${openDirectories.size || directoryCache.size ? '' : 'opacity-40'}`}>⌂</button>
           <Chip onClick={() => updateHideDotFiles(!hideDotFiles)} tone={hideDotFiles ? 'default' : 'accent'} className="shrink-0 border">{t('file.dotfiles')}</Chip>
         </div>
-        <div className="mt-1.5 flex items-center gap-1">
+        <div className="mt-0.5 flex items-center gap-1">
           <select value={fileSort.field} onChange={(e) => updateFileSort(e.target.value as SortField)} className="tmuxgo-control tmuxgo-select h-7 min-w-0 flex-1 rounded-apple px-2 text-[11px] cursor-pointer pr-1">
             <option value="name">{t('file.sortName')}</option>
             <option value="size">{t('file.sortSize')}</option>
