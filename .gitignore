@@ -24,3 +24,5 @@ tmp
 .tmuxgo
 uploads
 uploads-rate-test
+apps/gateway/render-all.cjs
+apps/gateway/DINOTTY_LEARNING.md
