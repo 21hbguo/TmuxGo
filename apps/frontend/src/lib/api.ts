@@ -23,6 +23,13 @@ export interface StreamSystemInfo {
   activeProfile: 'foreground' | 'background' | 'mobile'
   activeFlushInterval: number
   activeMaxChars: number
+  compressFrames: number
+  compressBytesIn: number
+  compressBytesOut: number
+  cellSnapshots: number
+  cellDiffs: number
+  cellFallbackAnsi: number
+  cellDirtyCells: number
 }
 export interface SystemInfoResponse {
   hostId: string
