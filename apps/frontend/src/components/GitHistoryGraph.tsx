@@ -69,18 +69,18 @@ export function GitHistoryGraph({ commits, branchHeads, currentBranch, hasMore, 
         <div className="min-w-0 flex-1 border-b border-[var(--line)] pr-3">
           <div className="flex h-full flex-col justify-center">
           <div className="flex items-center gap-2">
-            <span className="font-mono text-[11px] font-semibold" style={{ color }}>{row.commit.shortSha}</span>
+            <span className="font-mono text-meta font-semibold" style={{ color }}>{row.commit.shortSha}</span>
             {!!row.branches.length&&(
               <div className="flex min-w-0 flex-wrap gap-1">
                 {row.branches.map((branch)=>(
-                  <span key={`${branch.kind||'branch'}-${branch.name}`} className={`rounded-apple px-1.5 py-0.5 text-[10px] ${branch.name===currentBranch&&branch.kind!=='remote'&&branch.kind!=='tag'?'bg-accent/20 text-accent':branch.kind==='tag'?'bg-yellow-400/15 text-yellow-400':branch.kind==='remote'?'bg-blue-400/15 text-blue-400':'bg-green-400/15 text-green-400'}`}>{branch.name}</span>
+                  <span key={`${branch.kind||'branch'}-${branch.name}`} className={`rounded-apple px-1.5 py-0.5 text-caption ${branch.name===currentBranch&&branch.kind!=='remote'&&branch.kind!=='tag'?'bg-accent/20 text-accent':branch.kind==='tag'?'bg-yellow-400/15 text-yellow-400':branch.kind==='remote'?'bg-blue-400/15 text-blue-400':'bg-green-400/15 text-green-400'}`}>{branch.name}</span>
                 ))}
               </div>
             )}
-            {!row.commit.workingTree&&<span className="ml-auto shrink-0 text-[10px] text-text-3">{formatDate(row.commit.committedAt)}</span>}
+            {!row.commit.workingTree&&<span className="ml-auto shrink-0 text-caption text-text-3">{formatDate(row.commit.committedAt)}</span>}
           </div>
-          <div className="truncate text-[12px] text-text-1" title={row.commit.subject || row.commit.shortSha}>{row.commit.subject || row.commit.shortSha}</div>
-          <div className="truncate text-[10px] text-text-3">{row.commit.author.name}</div>
+          <div className="truncate text-meta text-text-1" title={row.commit.subject || row.commit.shortSha}>{row.commit.subject || row.commit.shortSha}</div>
+          <div className="truncate text-caption text-text-3">{row.commit.author.name}</div>
         </div>
         </div>
       </button>
@@ -111,7 +111,7 @@ export function GitHistoryGraph({ commits, branchHeads, currentBranch, hasMore, 
         <div className="relative">
           {rowNodes}
           <div ref={sentinelRef} className="h-6" />
-          {(hasMore||isFetchingMore)&&<div className="px-3 py-2 text-[11px] text-text-3">{isFetchingMore?'Loading history...':'Scroll for more commits'}</div>}
+          {(hasMore||isFetchingMore)&&<div className="px-3 py-2 text-meta text-text-3">{isFetchingMore?'Loading history...':'Scroll for more commits'}</div>}
         </div>
       </div>
     </div>

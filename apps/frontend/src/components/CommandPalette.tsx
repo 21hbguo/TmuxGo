@@ -221,7 +221,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
                 <div className="text-text-1 text-sm">{item.title}</div>
                 <div className="text-text-3 text-xs">{item.meta}</div>
               </div>
-              <div className="text-[10px] uppercase tracking-[0.18em] text-text-3">{item.type}</div>
+              <div className="text-caption uppercase tracking-[0.18em] text-text-3">{item.type}</div>
             </button>
           ))}
           {items.length === 0 && (

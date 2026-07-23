@@ -481,7 +481,7 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
         clearActiveDraggedFile()
         setTabInsertionTarget(null)
         void handleTabButtonDrop(dragged, groupEditors, groupId, editor, side)
-      }} onClick={() => setActiveEditor(editor.id)} className={`flex min-w-0 flex-1 items-center gap-2 px-2.5 py-1.5 text-[13px] ${editor.id === activeEditor?.id ? 'text-text-1' : 'text-text-3 hover:text-text-1'}`}>
+      }} onClick={() => setActiveEditor(editor.id)} className={`flex min-w-0 flex-1 items-center gap-2 px-2.5 py-1.5 text-body ${editor.id === activeEditor?.id ? 'text-text-1' : 'text-text-3 hover:text-text-1'}`}>
         <span className={`h-2 w-2 rounded-full ${editor.dirty ? 'bg-warn' : editor.saving ? 'bg-accent' : 'border border-[var(--line)] bg-transparent'}`} />
         <span className="min-w-0 flex-1 truncate">{editor.name}</span>
       </button>
@@ -606,7 +606,7 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
         if (imageDragRef.current?.pointerId === event.pointerId) imageDragRef.current = null
       } : undefined} onPointerCancel={focused ? (event) => {
         if (imageDragRef.current?.pointerId === event.pointerId) imageDragRef.current = null
-      } : undefined}><img src={editor.previewUrl} alt={editor.name} className="max-h-full max-w-full rounded-apple border border-[var(--line)] bg-bg-1 object-contain select-none" style={focused ? { transform: `translate(${imageOffset.x}px,${imageOffset.y}px) scale(${imageScale})`, transformOrigin: 'center center' } : undefined} />{focused && <div className="absolute right-4 top-3 rounded-full border border-[var(--line)] bg-bg-1/90 px-3 py-1 text-[11px] text-text-2">{Math.round(imageScale * 100)}%</div>}</div>
+      } : undefined}><img src={editor.previewUrl} alt={editor.name} className="max-h-full max-w-full rounded-apple border border-[var(--line)] bg-bg-1 object-contain select-none" style={focused ? { transform: `translate(${imageOffset.x}px,${imageOffset.y}px) scale(${imageScale})`, transformOrigin: 'center center' } : undefined} />{focused && <div className="absolute right-4 top-3 rounded-full border border-[var(--line)] bg-bg-1/90 px-3 py-1 text-meta text-text-2">{Math.round(imageScale * 100)}%</div>}</div>
     }
     if (editor.problem || editor.binary || editor.truncated) return <div className="flex h-full items-center justify-center p-6"><div className="max-w-xl rounded-apple border border-[var(--line)] bg-bg-1 p-5"><div className="text-sm text-text-1">{editor.name}</div><div className="mt-2 text-sm text-text-3">{editor.problem || (editor.binary ? t('editor.binaryNotEditable') : t('editor.largePreviewOnly'))}</div></div></div>
     return <div className={`flex h-full min-h-0 ${previewOpen ? 'flex-row' : 'flex-col'}`}><div ref={(node) => { editorViewportRefs.current[editor.id] = node }} data-testid={focused ? 'editor-auto-scroll-zone' : undefined} onMouseDown={(event) => handleEditorMouseDown(editor.id, event)} className={`relative ${previewOpen ? 'min-w-0 flex-1 border-r border-[var(--line)]' : 'h-full'}`}><MonacoEditor key={editor.id} path={editor.absolutePath} language={editor.language} theme={getMonacoTheme(preferences.theme)} value={editor.content} onMount={(instance) => {
@@ -627,7 +627,7 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
       <div className="flex items-center justify-between border-b border-[rgba(255,255,255,0.04)] bg-bg-1/70 px-3 py-2">
         <div className="min-w-0">
           <div className="truncate text-sm text-text-1">{activeEditor.absolutePath}</div>
-          <div className="mt-0.5 text-[11px] text-text-3">{activeEditor.language.toUpperCase()} · {activeEditor.size || 0}B{cursor ? ` · Ln ${cursor.line}, Col ${cursor.column}` : ''}{activeEditor.modifiedAt ? ` · ${new Date(activeEditor.modifiedAt).toLocaleString()}` : ''}</div>
+          <div className="mt-0.5 text-meta text-text-3">{activeEditor.language.toUpperCase()} · {activeEditor.size || 0}B{cursor ? ` · Ln ${cursor.line}, Col ${cursor.column}` : ''}{activeEditor.modifiedAt ? ` · ${new Date(activeEditor.modifiedAt).toLocaleString()}` : ''}</div>
         </div>
         <div className="flex items-center gap-2">
           {!gitDiff && <>

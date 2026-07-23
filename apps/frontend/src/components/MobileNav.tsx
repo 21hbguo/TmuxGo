@@ -49,32 +49,32 @@ export function MobileNav({ onOpenDrawer, onOpenSettings, onOpenSearch, onOpenFi
       <div className="grid h-12 grid-cols-7 items-center">
         <button aria-label={t('nav.sessions')} onClick={() => onOpenDrawer('sessions')} className="tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px text-text-3 transition-all active:scale-95 active:bg-bg-2/50 active:text-accent">
           <NavIcon d={icons.sessions} />
-          <span className="text-[9px] leading-none">{t('nav.sessions')}</span>
+          <span className="text-caption leading-none">{t('nav.sessions')}</span>
         </button>
 
         <button aria-label={t('nav.windows')} onClick={() => onOpenDrawer('windows')} className="tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px text-text-3 transition-all active:scale-95 active:bg-bg-2/50 active:text-accent">
           <NavIcon d={icons.windows} />
-          <span className="text-[9px] leading-none">{t('nav.windows')}</span>
+          <span className="text-caption leading-none">{t('nav.windows')}</span>
         </button>
 
         <button aria-label={t('nav.panes')} onClick={() => onOpenDrawer('panes')} className="tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px text-text-3 transition-all active:scale-95 active:bg-bg-2/50 active:text-accent">
           <NavIcon d={icons.panes} />
-          <span className="text-[9px] leading-none">{t('nav.panes')}</span>
+          <span className="text-caption leading-none">{t('nav.panes')}</span>
         </button>
 
         <button aria-label={t('nav.files')} onClick={onOpenFiles} className="tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px text-text-3 transition-all active:scale-95 active:bg-bg-2/50 active:text-accent">
           <NavIcon d={icons.files} />
-          <span className="text-[9px] leading-none">{t('nav.files')}</span>
+          <span className="text-caption leading-none">{t('nav.files')}</span>
         </button>
 
         <button aria-label={t('nav.git')} aria-current={gitOpen ? 'page' : undefined} onClick={onOpenGit} className={`tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px transition-all active:scale-95 active:bg-bg-2/50 ${gitOpen ? 'tmuxgo-mobile-nav-button--active' : 'text-text-3 active:text-accent'}`}>
           <FiGitBranch aria-hidden="true" size={18} />
-          <span className="text-[9px] leading-none">{t('nav.git')}</span>
+          <span className="text-caption leading-none">{t('nav.git')}</span>
         </button>
 
         <button aria-label={t('nav.search')} onClick={onOpenSearch} className="tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px text-text-3 transition-all active:scale-95 active:bg-bg-2/50 active:text-accent">
           <NavIcon d={icons.search} />
-          <span className="text-[9px] leading-none">{t('nav.search')}</span>
+          <span className="text-caption leading-none">{t('nav.search')}</span>
         </button>
 
         <button onClick={onOpenSettings} aria-label={t('nav.settings')} className="tmuxgo-mobile-nav-button relative flex flex-col items-center justify-center gap-px text-text-3 transition-all active:scale-95 active:bg-bg-2/50 active:text-accent">
@@ -82,7 +82,7 @@ export function MobileNav({ onOpenDrawer, onOpenSettings, onOpenSearch, onOpenFi
             <NavIcon d={icons.settings} />
             <div className={`absolute -top-1 -right-1.5 w-2.5 h-2.5 rounded-full ${statusColor} ${isRecovering ? 'animate-pulse' : ''} border border-bg-1`} />
           </div>
-          <span className="text-[9px] leading-none">{statusText}</span>
+          <span className="text-caption leading-none">{statusText}</span>
         </button>
       </div>
     </div>

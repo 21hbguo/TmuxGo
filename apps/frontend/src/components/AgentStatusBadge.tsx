@@ -22,11 +22,11 @@ export function AgentStatusBadge({ status, summary, compact = false }: { status?
   if (summary && !compact) {
     const statuses = getVisibleAgentStatuses(summary)
     if (!statuses.length) return null
-    return <span className="inline-flex flex-wrap items-center gap-1">{statuses.map((item)=><span key={item} title={t(`agent.status.${item}`)} className={`inline-flex h-5 shrink-0 items-center gap-1 rounded-full border px-1.5 text-[10px] font-medium ${tone[item]}`}><span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot[item]}`} /><span>{summary[item]} {t(`agent.status.${item}`)}</span></span>)}</span>
+    return <span className="inline-flex flex-wrap items-center gap-1">{statuses.map((item)=><span key={item} title={t(`agent.status.${item}`)} className={`inline-flex h-5 shrink-0 items-center gap-1 rounded-full border px-1.5 text-caption font-medium ${tone[item]}`}><span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot[item]}`} /><span>{summary[item]} {t(`agent.status.${item}`)}</span></span>)}</span>
   }
   const resolved = status || getDominantAgentStatus(summary)
   if (!resolved) return null
   const count = summary ? summary[resolved] : 0
   const label = t(`agent.status.${resolved}`)
-  return <span title={label} className={`inline-flex h-5 shrink-0 items-center gap-1.5 rounded-full border ${compact ? 'w-5 justify-center px-0' : 'px-2'} text-[10px] font-medium ${tone[resolved]}`}><span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot[resolved]}`} />{!compact && <span>{count > 1 ? `${count} ` : ''}{label}</span>}</span>
+  return <span title={label} className={`inline-flex h-5 shrink-0 items-center gap-1.5 rounded-full border ${compact ? 'w-5 justify-center px-0' : 'px-2'} text-caption font-medium ${tone[resolved]}`}><span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot[resolved]}`} />{!compact && <span>{count > 1 ? `${count} ` : ''}{label}</span>}</span>
 }

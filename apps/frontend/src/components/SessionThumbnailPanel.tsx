@@ -48,7 +48,7 @@ export function SessionThumbnailPanel() {
         <div className="flex h-8 items-center gap-2 border-b border-[var(--line)] px-3">
           <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
           <span className="min-w-0 flex-1 truncate font-mono text-xs text-text-1">{selectedThumbnail.name}</span>
-          <span className="shrink-0 text-[10px] text-text-3">{selectedThumbnail.window?.name}</span>
+          <span className="shrink-0 text-caption text-text-3">{selectedThumbnail.window?.name}</span>
         </div>
         <div className="h-[54vh] min-h-[320px] max-h-[680px]"><PaneGrid key={selectedThumbnail.id} sessionId={selectedThumbnail.id} /></div>
       </div>}
@@ -59,8 +59,8 @@ export function SessionThumbnailPanel() {
           return <button key={thumbnail.id} title={thumbnail.name} onClick={() => setSelectedSessionId(thumbnail.id)} className="group h-48 overflow-hidden rounded-apple border border-[var(--line)] bg-bg-0 text-left transition-colors hover:border-accent hover:bg-bg-2">
             <div className="flex h-7 items-center gap-2 border-b border-[var(--line)] px-2">
               <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-text-3/50 group-hover:bg-accent" />
-              <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-text-2 group-hover:text-text-1">{thumbnail.name}</span>
-              <span className="shrink-0 text-[9px] text-text-3">{thumbnail.window?.name}</span>
+              <span className="min-w-0 flex-1 truncate font-mono text-caption text-text-2 group-hover:text-text-1">{thumbnail.name}</span>
+              <span className="shrink-0 text-caption text-text-3">{thumbnail.window?.name}</span>
             </div>
             <div className="relative h-[calc(100%-1.75rem)] overflow-hidden bg-[#080b0f]">
               {thumbnail.panes.map((pane) => <div key={pane.id} className={`absolute overflow-hidden border border-white/10 ${pane.active ? 'border-accent/50' : ''}`} style={paneStyle(pane, width, height)}>

@@ -26,6 +26,11 @@
   --glass-shadow-hover: 0 10px 28px rgb(0 0 0 / 0.42);
   --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
   --font-mono: Consolas, "Cascadia Mono", "Cascadia Code", "SF Mono", Monaco, Menlo, "DejaVu Sans Mono", "Liberation Mono", "Courier New", monospace;
+  --fs-caption: 10px;
+  --fs-meta: 12px;
+  --fs-body: 14px;
+  --fs-title: 16px;
+  --fs-display: 18px;
 }
 
 [data-theme="light"] {
@@ -157,6 +162,7 @@ body {
   color: rgb(var(--text-1));
   font-family: var(--font-ui);
   font-weight: 400;
+  font-size: var(--fs-body);
   text-rendering: optimizeLegibility;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
@@ -362,7 +368,7 @@ a {
   background: rgb(var(--bg-1));
   color: rgb(var(--text-1));
   padding: 0.5rem 0.75rem;
-  font-size: 0.875rem;
+  font-size: var(--fs-body);
 }
 .tmuxgo-toast--error {
   border-color: rgb(var(--danger) / 0.4);
@@ -542,7 +548,7 @@ a {
 .tmuxgo-file-tree {
   background: transparent;
   color: rgb(var(--text-2));
-  font-size: 11px;
+  font-size: var(--fs-meta);
 }
 .tmuxgo-file-tree-node:hover {
   background: rgb(var(--bg-2) / 0.7);
@@ -785,7 +791,7 @@ a {
    ========================================================= */
 .tmuxgo-keycap {
   --text-color: rgb(var(--text-2));
-  font-size: 12px;
+  font-size: var(--fs-meta);
   font-weight: 500;
   padding: 4px 10px;
   border-radius: 999px;
@@ -815,7 +821,7 @@ a {
 }
 .tmuxgo-keycap--freq {
   --text-color: rgb(var(--text-1));
-  font-size: 13px;
+  font-size: var(--fs-body);
   font-weight: 600;
   padding: 9px 14px;
   min-width: 56px;
@@ -823,7 +829,7 @@ a {
   letter-spacing: -0.005em;
 }
 .tmuxgo-keycap--sm {
-  font-size: 11px;
+  font-size: var(--fs-meta);
   padding: 3px 8px;
   min-height: 28px;
 }
@@ -846,7 +852,7 @@ a {
    ========================================================= */
 .tmuxgo-chip {
   --text-color: rgb(var(--text-3));
-  font-size: 12px;
+  font-size: var(--fs-meta);
   font-weight: 500;
   padding: 4px 10px;
   border-radius: 999px;
@@ -899,18 +905,18 @@ a {
    ========================================================= */
 .tmuxgo-button {
   --text-color: rgb(var(--text-1));
-  font-size: 13px;
+  font-size: var(--fs-body);
   padding: 8px 18px;
   border-radius: 999px;
   --glass-shadow: 0 6px 18px rgb(0 0 0 / 0.28);
   --glass-shadow-hover: 0 10px 28px rgb(0 0 0 / 0.38);
 }
 .tmuxgo-button--sm {
-  font-size: 11px;
+  font-size: var(--fs-meta);
   padding: 5px 12px;
 }
 .tmuxgo-button--lg {
-  font-size: 14px;
+  font-size: var(--fs-title);
   padding: 10px 22px;
   font-weight: 600;
 }

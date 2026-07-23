@@ -2074,7 +2074,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           <Chip tone="danger" className="shrink-0" aria-label={t('githubAuth.dismiss')} onClick={dismissGithubDeviceLogin}>✕</Chip>
         </div>
         <div className="mt-3 rounded-apple border border-[var(--line)] bg-bg-1 px-3 py-2">
-          <div className="text-[10px] uppercase tracking-[0.24em] text-text-3">{t('githubAuth.code')}</div>
+          <div className="text-caption uppercase tracking-[0.24em] text-text-3">{t('githubAuth.code')}</div>
           <div className="mt-1 font-mono text-base tracking-[0.22em] text-accent">{githubDeviceLogin.code}</div>
         </div>
         <div className="mt-3 flex gap-2">
