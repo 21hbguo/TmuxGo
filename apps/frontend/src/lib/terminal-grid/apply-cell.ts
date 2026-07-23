@@ -47,13 +47,13 @@ function cpToString(cp: number) {
 }
 
 export function snapshotToAnsi(snapshot: CellSnapshot) {
-  let out = `${SYNC_BEGIN}\x1b[H\x1b[J`
+  let out = SYNC_BEGIN
   let lastSgr = ''
   for (let y = 0; y < snapshot.rows; y++) {
     out += `\x1b[${y + 1};1H`
     for (let x = 0; x < snapshot.cols; x++) {
       const cell = snapshot.cells[y * snapshot.cols + x]
-      if (!cell || cell.cp === WIDE_CONT) continue
+      if (!cell || cell.cp === WIDE_CONT) { out += ' '; continue }
       const sgr = sgrForCell(cell)
       if (sgr !== lastSgr) {
         out += sgr
@@ -61,7 +61,6 @@ export function snapshotToAnsi(snapshot: CellSnapshot) {
       }
       out += cpToString(cell.cp) || ' '
     }
-    out += '\x1b[K'
   }
   out += `\x1b[${snapshot.cursorY + 1};${snapshot.cursorX + 1}H\x1b[0m${SYNC_END}`
   return out
