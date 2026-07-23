@@ -31,7 +31,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
     const OUTPUT_BUFFER_MAX_CHARS = 1048576
     const CLIENT_BACKPRESSURE_RESYNC_CHARS = 16384
     const STREAM_COMPRESS_ENABLED = process.env.TMUXGO_STREAM_COMPRESS !== '0'
-    const STREAM_COMPRESS_THRESHOLD = Math.max(0, Number(process.env.TMUXGO_STREAM_COMPRESS_THRESHOLD || 4096) || 4096)
+    const STREAM_COMPRESS_THRESHOLD = Math.max(0, Number(process.env.TMUXGO_STREAM_COMPRESS_THRESHOLD || 256) || 256)
     const STREAM_CELL_ENABLED = process.env.TMUXGO_STREAM_CELL === '1'
     const CELL_DIRTY_RATIO_SNAPSHOT = 0.55
     const OUTPUT_PROFILES = {
