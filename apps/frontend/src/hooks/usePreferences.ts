@@ -232,10 +232,23 @@ export function usePreferences() {
     document.documentElement.setAttribute('data-theme', preferences.theme)
     applyDocumentFont(preferences.fontFamily)
     void ensureAppFontLoaded(preferences.fontFamily, preferences.fontSize)
-    const themeColor = document.querySelector('meta[name="theme-color"]')
-    if (themeColor) themeColor.setAttribute('content', `rgb(${getComputedStyle(document.documentElement).getPropertyValue('--bg-0').trim()})`)
+    const isLight = preferences.theme === 'light'
+    document.documentElement.style.colorScheme = isLight ? 'light' : 'dark'
+    const rawBg = getComputedStyle(document.documentElement).getPropertyValue('--bg-0').trim()
+    const rgb = rawBg.split(/\s+/).map((part) => Number(part))
+    const themeHex = rgb.length >= 3 && rgb.slice(0, 3).every((n) => Number.isFinite(n))
+      ? `#${rgb.slice(0, 3).map((n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, '0')).join('')}`
+      : '#0c0d0f'
+    let themeColor = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null
+    if (!themeColor) {
+      themeColor = document.createElement('meta')
+      themeColor.setAttribute('name', 'theme-color')
+      document.head.appendChild(themeColor)
+    }
+    themeColor.setAttribute('content', themeHex)
+    themeColor.parentElement?.appendChild(themeColor)
     const statusBarStyle = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')
-    if (statusBarStyle) statusBarStyle.setAttribute('content', preferences.theme === 'light' ? 'default' : 'black-translucent')
+    if (statusBarStyle) statusBarStyle.setAttribute('content', isLight ? 'default' : 'black-translucent')
   }, [preferences.theme, preferences.fontFamily, preferences.fontSize])
 
   const updatePreferences = useCallback((updates: Partial<Preferences>) => {

@@ -107,6 +107,7 @@ describe('Settings restart rebuild', () => {
   it('asks for confirmation before removing a host', async () => {
     const user = userEvent.setup()
     render(React.createElement(I18nProvider, null, React.createElement(Settings, { onClose: vi.fn() })))
+    await user.click(screen.getByRole('button', { name: 'Connection' }))
     await user.click(screen.getByRole('button', { name: 'Remove' }))
     expect(deleteHost).not.toHaveBeenCalled()
     expect(screen.getByText('Remove host Edge and its saved connection details?')).toBeInTheDocument()
