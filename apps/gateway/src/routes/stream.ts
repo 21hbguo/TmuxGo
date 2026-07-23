@@ -35,7 +35,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
     const STREAM_CELL_ENABLED = process.env.TMUXGO_STREAM_CELL === '1'
     const CELL_DIRTY_RATIO_SNAPSHOT = 0.55
     const OUTPUT_PROFILES = {
-      foreground: { flushInterval: 4, maxChars: 16384 },
+      foreground: { flushInterval: 4, maxChars: 65536 },
       background: { flushInterval: 32, maxChars: 24576 },
       mobile: { flushInterval: 24, maxChars: 16384 },
     } as const
