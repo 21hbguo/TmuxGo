@@ -1421,6 +1421,22 @@ describe('TerminalPane', () => {
     await sleep(140)
     expect(helper.value).toBe('zhong')
   })
+  it('buffers terminal output until desktop ime composition ends', async () => {
+    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} subscribeOutput={webSocketMocks.subscribeOutput} />)
+    await waitFor(() => expect(webSocketMocks.lastOutputListener).toBeTruthy())
+    const helper = container.querySelector('.xterm-helper-textarea') as HTMLTextAreaElement
+    helper.focus()
+    fireEvent.compositionStart(helper)
+    expect(document.body.classList.contains('ime-composing')).toBe(true)
+    terminalMocks.write.mockClear()
+    webSocketMocks.lastOutputListener?.({ data: 'noise_during_ime', sessionName: 'dev' })
+    await sleep(20)
+    expect(terminalMocks.write).not.toHaveBeenCalled()
+    fireEvent.compositionEnd(helper)
+    await waitFor(() => expect(terminalMocks.write).toHaveBeenCalled())
+    expect(terminalMocks.write.mock.calls.some((call) => String(call[0]).includes('noise_during_ime'))).toBe(true)
+    expect(document.body.classList.contains('ime-composing')).toBe(false)
+  })
   it('stops delayed focus retries after desktop ime composition starts', async () => {
     const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(customKeyHandler).toBeTruthy())

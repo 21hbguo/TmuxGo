@@ -129,6 +129,51 @@ describe('useMobileKeyboard', () => {
     expect(document.body.classList.contains('keyboard-open')).toBe(true)
     expect(document.documentElement.style.getPropertyValue('--mobile-keyboard-inset')).toBe('280px')
   })
+  it('does not clear preedit when focus is re-triggered during composition', async () => {
+    render(<Harness />)
+    await waitFor(() => expect(api.textarea).toBeTruthy())
+    const textarea = api.textarea as HTMLTextAreaElement
+    act(() => {
+      fireEvent.compositionStart(textarea)
+      textarea.value = 'zhong'
+      textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertCompositionText', data: 'zhong' }))
+    })
+    expect(document.body.classList.contains('ime-composing')).toBe(true)
+    act(() => {
+      api.focusKeyboard?.()
+      fireEvent.focus(textarea)
+    })
+    expect(textarea.value).toBe('zhong')
+    act(() => {
+      textarea.value = '中'
+      fireEvent.compositionEnd(textarea)
+    })
+    expect(sendInputMock).toHaveBeenCalledWith('中')
+    expect(document.body.classList.contains('ime-composing')).toBe(false)
+  })
+  it('freezes keyboard inset while ime is composing', async () => {
+    render(<Harness />)
+    await waitFor(() => expect(api.focusKeyboard).toBeTruthy())
+    api.focusKeyboard?.()
+    ;(window.visualViewport as any).height = 520
+    window.visualViewport?.dispatchEvent(new Event('resize'))
+    expect(document.body.classList.contains('keyboard-open')).toBe(true)
+    const locked = document.documentElement.style.getPropertyValue('--mobile-keyboard-inset')
+    expect(locked).toBe('280px')
+    const textarea = api.textarea as HTMLTextAreaElement
+    act(() => {
+      fireEvent.compositionStart(textarea)
+      textarea.value = 'ni'
+      textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertCompositionText', data: 'ni' }))
+    })
+    ;(window.visualViewport as any).height = 460
+    window.visualViewport?.dispatchEvent(new Event('resize'))
+    expect(document.documentElement.style.getPropertyValue('--mobile-keyboard-inset')).toBe(locked)
+    act(() => {
+      textarea.value = '你'
+      fireEvent.compositionEnd(textarea)
+    })
+  })
   it('keeps composition text until compositionend', async () => {
     render(<Harness />)
     await waitFor(() => expect(api.textarea).toBeTruthy())
