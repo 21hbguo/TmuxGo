@@ -12,7 +12,6 @@ const wsState:WSState={ws:null,reconnectTimer:null,reconnectCount:0,isConnecting
 type OutputMessage={data:string,sessionName?:string|null,hostId?:string|null,resync?:boolean}
 const outputListeners=new Set<(message:OutputMessage)=>void>()
 let cellLastSeq=0
-let binaryMessageQueue:Promise<void>=Promise.resolve()
 const BACKGROUND_CLOSE_DELAY_MS=12000
 function recordMobileDebug(event:string,data?:Record<string,unknown>) {
   recordMobileDiagnostic(event,data,event.includes('close')||event.includes('error')||event.includes('background'))
@@ -127,44 +126,42 @@ export function useWebSocket() {
         wsState.onOpen?.()
       }
       ws.onmessage=(event)=>{
-        binaryMessageQueue=binaryMessageQueue.then(async()=>{
-          try {
-            if (typeof ArrayBuffer!=='undefined'&&event.data instanceof ArrayBuffer) {
-              const decoded=await decodeStreamOutputBinary(event.data)
-              if (!decoded) return
-              if (decoded.type==='cell_snapshot'&&decoded.cellPayload) {
-                const snap=decodeCellSnapshot(decoded.cellPayload)
-                if (!snap) {
-                  try { ws.send(JSON.stringify({type:'cell_resync_request',sessionName:decoded.sessionName,hostId:decoded.hostId})) } catch {}
-                  return
-                }
-                cellLastSeq=snap.seq
-                const ansi=snapshotToAnsi(snap)
-                wsState.onMessage?.({type:'output_resync',data:ansi,sessionName:decoded.sessionName,hostId:decoded.hostId})
+        try {
+          if (typeof ArrayBuffer!=='undefined'&&event.data instanceof ArrayBuffer) {
+            const decoded=decodeStreamOutputBinary(event.data)
+            if (!decoded) return
+            if (decoded.type==='cell_snapshot'&&decoded.cellPayload) {
+              const snap=decodeCellSnapshot(decoded.cellPayload)
+              if (!snap) {
+                try { ws.send(JSON.stringify({type:'cell_resync_request',sessionName:decoded.sessionName,hostId:decoded.hostId})) } catch {}
                 return
               }
-              if (decoded.type==='cell_diff'&&decoded.cellPayload) {
-                const diff=decodeCellDiff(decoded.cellPayload)
-                if (!diff) return
-                if (cellLastSeq!==0&&diff.baseSeq!==cellLastSeq) {
-                  try { ws.send(JSON.stringify({type:'cell_resync_request',sessionName:decoded.sessionName,hostId:decoded.hostId})) } catch {}
-                  return
-                }
-                cellLastSeq=diff.seq
-                const ansi=diffToAnsi(diff)
-                wsState.onMessage?.({type:'output',data:ansi,sessionName:decoded.sessionName,hostId:decoded.hostId})
-                return
-              }
-              wsState.onMessage?.({type:decoded.type,data:decoded.data,sessionName:decoded.sessionName,hostId:decoded.hostId})
+              cellLastSeq=snap.seq
+              const ansi=snapshotToAnsi(snap)
+              wsState.onMessage?.({type:'output_resync',data:ansi,sessionName:decoded.sessionName,hostId:decoded.hostId})
               return
             }
-            const raw=typeof event.data==='string'?event.data:String(event.data)
-            const data=JSON.parse(raw)
-            wsState.onMessage?.(data)
-          } catch (err) {
-            console.error('Failed to parse WebSocket message:',err)
+            if (decoded.type==='cell_diff'&&decoded.cellPayload) {
+              const diff=decodeCellDiff(decoded.cellPayload)
+              if (!diff) return
+              if (cellLastSeq!==0&&diff.baseSeq!==cellLastSeq) {
+                try { ws.send(JSON.stringify({type:'cell_resync_request',sessionName:decoded.sessionName,hostId:decoded.hostId})) } catch {}
+                return
+              }
+              cellLastSeq=diff.seq
+              const ansi=diffToAnsi(diff)
+              wsState.onMessage?.({type:'output',data:ansi,sessionName:decoded.sessionName,hostId:decoded.hostId})
+              return
+            }
+            wsState.onMessage?.({type:decoded.type,data:decoded.data,sessionName:decoded.sessionName,hostId:decoded.hostId})
+            return
           }
-        }).catch(()=>{})
+          const raw=typeof event.data==='string'?event.data:String(event.data)
+          const data=JSON.parse(raw)
+          wsState.onMessage?.(data)
+        } catch (err) {
+          console.error('Failed to parse WebSocket message:',err)
+        }
       }
       ws.onclose=()=>{
         if (wsState.ws===ws) {

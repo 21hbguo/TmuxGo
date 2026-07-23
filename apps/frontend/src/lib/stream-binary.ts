@@ -1,3 +1,4 @@
+import { inflate } from 'pako/browser/inflate'
 export const STREAM_BINARY_VERSION = 1
 export const STREAM_BINARY_TYPE_OUTPUT = 1
 export const STREAM_BINARY_TYPE_RESYNC = 2
@@ -31,15 +32,11 @@ function isGzipType(typeCode: number) {
     || typeCode === STREAM_BINARY_TYPE_CELL_DIFF_GZIP
 }
 
-export async function gunzipBytes(data: Uint8Array): Promise<Uint8Array> {
-  if (typeof DecompressionStream === 'undefined') {
-    throw new Error('DecompressionStream unavailable')
-  }
-  const stream = new Blob([data]).stream().pipeThrough(new DecompressionStream('gzip'))
-  return new Uint8Array(await new Response(stream).arrayBuffer())
+export function gunzipBytes(data: Uint8Array): Uint8Array {
+  return inflate(data)
 }
 
-export async function decodeStreamOutputBinary(buffer: ArrayBuffer): Promise<DecodedStreamOutput | null> {
+export function decodeStreamOutputBinary(buffer: ArrayBuffer): DecodedStreamOutput | null {
   const view = new DataView(buffer)
   if (view.byteLength < 12) return null
   if (view.getUint8(0) !== 0x54 || view.getUint8(1) !== 0x47) return null
@@ -62,7 +59,7 @@ export async function decodeStreamOutputBinary(buffer: ArrayBuffer): Promise<Dec
   let payload = bytes.subarray(offset, offset + dataLen)
   if (isGzipType(typeCode)) {
     try {
-      payload = await gunzipBytes(payload)
+      payload = gunzipBytes(payload)
     } catch {
       return null
     }
