@@ -585,8 +585,8 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
           <div className={`tmuxgo-scrollbar min-h-0 flex-1 ${activeTab === 'history' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
             {activeTab === 'status' && <StatusTab hostId={activeHostId} repoPath={repoPath} onOpenDiff={mode === 'mobile' ? handleOpenMobileDiff : undefined} t={t as TFunc} />}
             {activeTab === 'history' && <HistoryTab hostId={activeHostId} repoPath={repoPath} status={status} onOpenWorkingTree={mode === 'mobile' ? () => handleOpenMobileDiff({ title: t('git.workingTreeChanges', { count: statusCount }), subtitle: 'WIP', filePath: '', workingTree: true }) : () => {
-              const params = new URLSearchParams({ hostId, repoPath, workingTree: '1' })
-              useConsoleStore.getState().openEditor({ id: `git-diff?${params.toString()}`, hostId, rootId: 'git', rootLabel: 'Git', rootPath: repoPath, path: '', name: t('git.workingTreeChanges', { count: statusCount }), absolutePath: `${repoPath} (WIP)`, language: 'diff' })
+              const params = new URLSearchParams({ hostId: activeHostId, repoPath, workingTree: '1' })
+              useConsoleStore.getState().openEditor({ id: `git-diff?${params.toString()}`, hostId: activeHostId, rootId: 'git', rootLabel: 'Git', rootPath: repoPath, path: '', name: t('git.workingTreeChanges', { count: statusCount }), absolutePath: `${repoPath} (WIP)`, language: 'diff' })
             }} onOpenCommit={mode === 'mobile' ? handleOpenMobileCommit : undefined} t={t as TFunc} />}
             {activeTab === 'branches' && <BranchesTab hostId={activeHostId} repoPath={repoPath} t={t as TFunc} />}
           </div>

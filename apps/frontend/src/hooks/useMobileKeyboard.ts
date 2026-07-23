@@ -407,6 +407,7 @@ export function useMobileKeyboard(
       if (!(target instanceof Element)) return
       if (target.closest('input,textarea,select,[contenteditable="true"]')) return
       if (!target.closest('[data-keep-mobile-keyboard]')) return
+      if (!keyboardOpenRef.current && document.activeElement !== textareaRef.current) return
       keepAliveUntilRef.current = Date.now() + 500
       requestAnimationFrame(() => focusKeyboard())
     }
