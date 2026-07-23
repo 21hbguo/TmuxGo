@@ -132,6 +132,8 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   const overlayRef = useRef<string[]>([])
   const ignoreNextPopRef = useRef(false)
   const lastExitBackAtRef = useRef(0)
+  const exitBackToastRef = useRef(t('common.pressBackAgainToExit'))
+  exitBackToastRef.current = t('common.pressBackAgainToExit')
   const appHeightRef = useRef(appHeight)
   const viewportBaseHeightRef = useRef(0)
   const appHeightNumRef = useRef(0)
@@ -475,18 +477,17 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
     const handlePopState = () => {
       if (ignoreNextPopRef.current) {
         ignoreNextPopRef.current = false
+        if (overlayRef.current.length === 0) window.history.pushState({ tmuxgoRoot: true }, '')
         return
       }
       const stack = overlayRef.current
       if (stack.length === 0) {
-        const now = Date.now()
-        if (now - lastExitBackAtRef.current < 2000) {
-          lastExitBackAtRef.current = 0
-          return
-        }
-        lastExitBackAtRef.current = now
         window.history.pushState({ tmuxgoRoot: true }, '')
-        useConsoleStore.getState().pushToast({ type: 'info', message: t('common.pressBackAgainToExit'), durationMs: 2000 })
+        const now = Date.now()
+        if (now - lastExitBackAtRef.current > 2000) {
+          lastExitBackAtRef.current = now
+          useConsoleStore.getState().pushToast({ type: 'info', message: exitBackToastRef.current, durationMs: 2000 })
+        }
         return
       }
       lastExitBackAtRef.current = 0
@@ -512,7 +513,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
     }
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
-  }, [setCommandPalette, setMobileFileSheetOpen, t])
+  }, [setCommandPalette, setMobileFileSheetOpen])
   useEffect(() => {
     const handleOpenSettings = () => openSettings()
     window.addEventListener('tmuxgo-open-settings', handleOpenSettings as EventListener)

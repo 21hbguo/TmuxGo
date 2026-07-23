@@ -171,18 +171,20 @@ describe('ConsoleLayout mobile files overlay stack', () => {
     render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
     expect(screen.queryByRole('button', { name: 'alpha' })).toBeNull()
   })
-  it('traps empty-stack back and only exits after a second back within 2s', () => {
+  it('keeps trapping empty-stack back and does not exit on repeated back', () => {
     const pushStateSpy = vi.spyOn(window.history, 'pushState')
+    const nowSpy = vi.spyOn(Date, 'now')
+    nowSpy.mockReturnValue(1_000_000)
     render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
     expect(pushStateSpy).toHaveBeenCalledWith({ tmuxgoRoot: true }, '')
-    const rootPushes = pushStateSpy.mock.calls.filter((call) => call[0]?.tmuxgoRoot).length
+    const rootPushes = pushStateSpy.mock.calls.filter((call) => (call[0] as { tmuxgoRoot?: boolean } | null)?.tmuxgoRoot).length
     window.dispatchEvent(new PopStateEvent('popstate'))
-    expect(pushStateSpy.mock.calls.filter((call) => call[0]?.tmuxgoRoot).length).toBe(rootPushes + 1)
-    expect(useConsoleStore.getState().toasts.some((toast) => toast.message === 'common.pressBackAgainToExit' || toast.type === 'info')).toBe(true)
-    const afterFirst = pushStateSpy.mock.calls.filter((call) => call[0]?.tmuxgoRoot).length
-    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 500)
+    expect(pushStateSpy.mock.calls.filter((call) => (call[0] as { tmuxgoRoot?: boolean } | null)?.tmuxgoRoot).length).toBe(rootPushes + 1)
+    expect(useConsoleStore.getState().toasts.some((toast) => toast.message === 'common.pressBackAgainToExit')).toBe(true)
+    const afterFirst = pushStateSpy.mock.calls.filter((call) => (call[0] as { tmuxgoRoot?: boolean } | null)?.tmuxgoRoot).length
+    nowSpy.mockReturnValue(1_000_500)
     window.dispatchEvent(new PopStateEvent('popstate'))
-    expect(pushStateSpy.mock.calls.filter((call) => call[0]?.tmuxgoRoot).length).toBe(afterFirst)
+    expect(pushStateSpy.mock.calls.filter((call) => (call[0] as { tmuxgoRoot?: boolean } | null)?.tmuxgoRoot).length).toBe(afterFirst + 1)
   })
   it('adds a history level when opening the mobile session drawer from new session', () => {
     const pushStateSpy = vi.spyOn(window.history, 'pushState')

@@ -12,7 +12,9 @@
   --danger: 255 69 58;
   --text-1: 245 245 247;
   --text-2: 174 174 178;
-  --text-3: 116 116 122;
+  --text-3: 150 150 155;
+  --on-accent: 255 255 255;
+  --on-danger: 255 255 255;
   --line: rgba(255,255,255,0.1);
   --glow: 0 10px 32px rgba(0,0,0,0.24);
   --glass-blur: 14px;
@@ -37,13 +39,15 @@
   --bg-0: 232 234 238;
   --bg-1: 248 249 251;
   --bg-2: 224 226 231;
-  --accent: 0 122 255;
+  --accent: 0 90 200;
   --accent-2: 40 190 105;
   --warn: 220 130 0;
   --danger: 215 45 38;
   --text-1: 28 28 30;
-  --text-2: 99 99 102;
-  --text-3: 142 142 147;
+  --text-2: 72 72 76;
+  --text-3: 90 90 95;
+  --on-accent: 12 13 15;
+  --on-danger: 12 13 15;
   --line: rgba(60,60,67,0.16);
   --glow: 0 12px 34px rgba(48,52,60,0.12);
   --glass-fill: rgb(255 255 255 / 55%);
@@ -66,6 +70,8 @@
   --text-1: 255 255 255;
   --text-2: 204 204 204;
   --text-3: 153 153 153;
+  --on-accent: 0 0 0;
+  --on-danger: 255 255 255;
   --line: rgba(0,255,255,0.4);
   --glow: 0 0 20px rgba(0,255,255,0.3);
   --glass-blur: 0px;
@@ -86,7 +92,9 @@
   --danger: 255 85 85;
   --text-1: 248 248 242;
   --text-2: 191 191 191;
-  --text-3: 98 114 164;
+  --text-3: 160 160 190;
+  --on-accent: 18 18 24;
+  --on-danger: 255 255 255;
   --line: rgba(189,147,249,0.28);
   --glow: 0 0 20px rgba(189,147,249,0.25);
   --glass-fill: rgb(255 255 255 / 8%);
@@ -107,7 +115,9 @@
   --danger: 191 97 106;
   --text-1: 236 239 244;
   --text-2: 216 222 233;
-  --text-3: 76 86 106;
+  --text-3: 180 188 204;
+  --on-accent: 36 41 51;
+  --on-danger: 255 255 255;
   --line: rgba(136,192,208,0.28);
   --glow: 0 0 20px rgba(136,192,208,0.25);
   --glass-fill: rgb(255 255 255 / 8%);
@@ -128,7 +138,9 @@
   --danger: 243 139 168;
   --text-1: 205 214 244;
   --text-2: 166 173 200;
-  --text-3: 88 91 112;
+  --text-3: 147 153 178;
+  --on-accent: 17 17 27;
+  --on-danger: 255 255 255;
   --line: rgba(137,180,250,0.28);
   --glow: 0 0 20px rgba(137,180,250,0.25);
   --glass-fill: rgb(255 255 255 / 8%);
@@ -832,13 +844,13 @@ a {
   border-color: rgb(var(--accent) / 0.45);
 }
 .tmuxgo-keycap--danger {
-  --text-color: rgb(248 113 113);
-  border-color: rgb(248 113 113 / 0.32);
-  background: color-mix(in srgb, rgb(248 113 113) 18%, transparent);
+  --text-color: rgb(var(--danger));
+  border-color: rgb(var(--danger) / 0.32);
+  background: color-mix(in srgb, rgb(var(--danger)) 18%, transparent);
 }
 .tmuxgo-keycap--danger:hover:not(:disabled) {
-  background: color-mix(in srgb, rgb(248 113 113) 28%, transparent);
-  border-color: rgb(248 113 113 / 0.45);
+  background: color-mix(in srgb, rgb(var(--danger)) 28%, transparent);
+  border-color: rgb(var(--danger) / 0.45);
 }
 .tmuxgo-keycap--arrow {
   --text-color: rgb(var(--accent));
@@ -903,14 +915,14 @@ a {
   --text-color: rgb(var(--accent));
 }
 .tmuxgo-chip--danger {
-  --text-color: rgb(248 113 113);
-  border-color: rgb(248 113 113 / 0.32);
-  background: color-mix(in srgb, rgb(248 113 113) 22%, transparent);
+  --text-color: rgb(var(--danger));
+  border-color: rgb(var(--danger) / 0.32);
+  background: color-mix(in srgb, rgb(var(--danger)) 22%, transparent);
 }
 .tmuxgo-chip--danger:hover:not(:disabled) {
-  background: color-mix(in srgb, rgb(248 113 113) 35%, transparent);
-  border-color: rgb(248 113 113 / 0.5);
-  --text-color: rgb(252 165 165);
+  background: color-mix(in srgb, rgb(var(--danger)) 35%, transparent);
+  border-color: rgb(var(--danger) / 0.5);
+  --text-color: rgb(var(--danger));
 }
 [data-theme="high-contrast"] .tmuxgo-chip {
   background: transparent;
@@ -977,7 +989,7 @@ a {
 }
 
 .tmuxgo-button--primary {
-  --text-color: white;
+  --text-color: rgb(var(--on-accent));
   border-color: rgb(var(--accent) / 0.6);
   background: color-mix(in srgb, rgb(var(--accent)) 70%, transparent);
   box-shadow:
@@ -998,23 +1010,23 @@ a {
 }
 
 .tmuxgo-button--danger {
-  --text-color: white;
-  border-color: rgb(248 113 113 / 0.55);
-  background: color-mix(in srgb, rgb(248 113 113) 60%, transparent);
+  --text-color: rgb(var(--on-danger));
+  border-color: rgb(var(--danger) / 0.55);
+  background: color-mix(in srgb, rgb(var(--danger)) 60%, transparent);
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.42),
     inset 0 -1px 0 rgb(0 0 0 / 0.18),
-    0 6px 20px color-mix(in srgb, rgb(248 113 113) 42%, transparent),
+    0 6px 20px color-mix(in srgb, rgb(var(--danger)) 42%, transparent),
     0 1px 2px rgb(0 0 0 / 0.18);
-  --glass-shadow-hover: 0 12px 32px color-mix(in srgb, rgb(248 113 113) 55%, transparent);
+  --glass-shadow-hover: 0 12px 32px color-mix(in srgb, rgb(var(--danger)) 55%, transparent);
 }
 .tmuxgo-button--danger:hover:not(:disabled) {
-  background: color-mix(in srgb, rgb(248 113 113) 72%, transparent);
-  border-color: rgb(248 113 113 / 0.75);
+  background: color-mix(in srgb, rgb(var(--danger)) 72%, transparent);
+  border-color: rgb(var(--danger) / 0.75);
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.52),
     inset 0 -1px 0 rgb(0 0 0 / 0.20),
-    0 12px 32px color-mix(in srgb, rgb(248 113 113) 55%, transparent),
+    0 12px 32px color-mix(in srgb, rgb(var(--danger)) 55%, transparent),
     0 2px 4px rgb(0 0 0 / 0.22);
 }
 
@@ -1036,6 +1048,27 @@ a {
   background: rgb(255 255 255 / 14%);
 }
 
+[data-theme="light"] .tmuxgo-chip {
+  background: rgb(0 0 0 / 5%);
+  border-color: rgb(0 0 0 / 10%);
+}
+[data-theme="light"] .tmuxgo-chip:hover:not(:disabled) {
+  background: rgb(0 0 0 / 8%);
+  border-color: rgb(0 0 0 / 14%);
+}
+[data-theme="light"] .tmuxgo-button--ghost:hover:not(:disabled) {
+  background: rgb(0 0 0 / 6%);
+  border-color: rgb(0 0 0 / 10%);
+}
+[data-theme="light"] .tmuxgo-button--ghost:active:not(:disabled) {
+  background: rgb(0 0 0 / 10%);
+}
+[data-theme="light"] .tmuxgo-keycap::after,
+[data-theme="light"] .tmuxgo-chip::after,
+[data-theme="light"] .tmuxgo-button::after {
+  background: radial-gradient(140px circle at var(--mx, 50%) var(--my, 50%),
+                              rgb(0 0 0 / 10%), transparent 60%);
+}
 [data-theme="high-contrast"] .tmuxgo-button {
   background: transparent;
   -webkit-backdrop-filter: none;
