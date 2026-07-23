@@ -25,7 +25,7 @@
   --glass-shadow: 0 6px 18px rgb(0 0 0 / 0.32);
   --glass-shadow-hover: 0 10px 28px rgb(0 0 0 / 0.42);
   --font-ui: "JetBrains Mono", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
-  --font-mono: "JetBrains Mono", Consolas, "Cascadia Mono", "SF Mono", Menlo, "DejaVu Sans Mono", "Liberation Mono", monospace;
+  --font-mono: "JetBrains Mono", monospace;
   --fs-caption: 10px;
   --fs-meta: 12px;
   --fs-body: 14px;
@@ -35,7 +35,7 @@
 
 [data-font="maple"] {
   --font-ui: "Maple Mono", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
-  --font-mono: "Maple Mono", "JetBrains Mono", Consolas, "Cascadia Mono", "SF Mono", Menlo, "DejaVu Sans Mono", "Liberation Mono", monospace;
+  --font-mono: "Maple Mono", monospace;
 }
 
 [data-theme="light"] {
@@ -511,7 +511,7 @@ a {
 }
 
 .font-mono {
-  font-family: var(--font-mono);
+  font-family: var(--font-mono) !important;
   font-weight: 400;
 }
 
@@ -583,9 +583,7 @@ a {
   color: rgb(var(--text-2));
   font-size: var(--fs-meta);
 }
-.tmuxgo-file-tree-node:hover {
-  background: rgb(var(--bg-2) / 0.7);
-}
+
 .tmuxgo-file-tree-node-selected {
   background: rgb(var(--bg-2));
 }

@@ -115,7 +115,7 @@ vi.mock('@/hooks/usePreferences', () => ({
     preferences: {
       theme: 'dark',
       fontSize: 14,
-      fontFamily: '"JetBrains Mono", "Cascadia Mono", "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace',
+      fontFamily: '"JetBrains Mono", monospace',
       cursorBlink: true,
       sidebarPosition: 'left',
       showStatusBar: true,

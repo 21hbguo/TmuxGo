@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useRef, useCallback, useState } from 'react'
 import '@xterm/xterm/css/xterm.css'
-import { usePreferences } from '@/hooks/usePreferences'
+import { usePreferences, ensureAppFontLoaded } from '@/hooks/usePreferences'
 import { useMobileKeyboard } from '@/hooks/useMobileKeyboard'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { DELETE_NEXT_CHAR_SEQUENCE, DELETE_NEXT_WORD_SEQUENCE, DELETE_PREV_WORD_SEQUENCE, UNIX_WORD_RUBOUT_SEQUENCE } from '@/lib/terminal-keys'
@@ -569,9 +569,19 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   useEffect(() => {
     const terminal = terminalInstance.current
     if (!terminal) return
-    terminal.options.fontSize = preferences.fontSize
-    terminal.options.fontFamily = preferences.fontFamily
-    scheduleLayoutRef.current(0, true, true)
+    let cancelled = false
+    void (async () => {
+      await ensureAppFontLoaded(preferences.fontFamily, preferences.fontSize)
+      if (cancelled || !terminalInstance.current) return
+      const active = terminalInstance.current
+      active.options.fontSize = preferences.fontSize
+      active.options.fontFamily = preferences.fontFamily
+      try {
+        active.refresh(0, Math.max(0, active.rows - 1))
+      } catch {}
+      scheduleLayoutRef.current(0, true, true)
+    })()
+    return () => { cancelled = true }
   }, [preferences.fontSize, preferences.fontFamily])
 
   useEffect(() => {
