@@ -145,18 +145,18 @@ export function SessionPanel() {
             getItemClassName={({ session, isDragging, isOverlay }) => `tmuxgo-list-row border-b border-[var(--line)] ${batchMode ? selectedSessionIds.includes(session.id) ? 'tmuxgo-list-row--batch' : 'tmuxgo-list-row--hover' : activeSessionId === session.id ? 'tmuxgo-list-row--active' : 'tmuxgo-list-row--hover'} ${isDragging && !isOverlay ? 'opacity-40' : ''} ${isOverlay ? 'rounded-apple border border-accent bg-bg-1 shadow-[0_20px_48px_rgba(0,0,0,0.42)]' : ''}`}
             renderItem={({ session }) => (
               <div className="flex items-center gap-1 pr-2">
-                {batchMode && <button onClick={() => toggleBatchSession(session.id)} className={`ml-2 flex h-7 w-5 shrink-0 items-center justify-center rounded-apple text-[11px] leading-none ${selectedSessionIds.includes(session.id) ? 'text-danger' : 'text-text-3'} hover:bg-bg-0`}>{selectedSessionIds.includes(session.id) ? '☑' : '☐'}</button>}
+                {batchMode && <button onClick={() => toggleBatchSession(session.id)} className={`ml-2 flex h-7 w-5 shrink-0 items-center justify-center rounded-apple text-meta leading-none ${selectedSessionIds.includes(session.id) ? 'text-danger' : 'text-text-3'} hover:bg-bg-0`}>{selectedSessionIds.includes(session.id) ? '☑' : '☐'}</button>}
                 <button onClick={() => batchMode ? toggleBatchSession(session.id) : setActiveSession(session.id)} onDoubleClick={() => !batchMode && void handleRenameSession(session.id)} className={`min-w-0 flex-1 border-l-2 px-3 py-2 text-left ${batchMode ? selectedSessionIds.includes(session.id) ? 'border-danger' : 'border-transparent' : activeSessionId === session.id ? 'border-accent' : 'border-transparent'}`}>
                   <div className="truncate text-sm text-text-1">{session.name}</div>
-                  <div className="mt-0.5 flex min-w-0 items-center gap-2 text-[11px] text-text-3"><span className="shrink-0 whitespace-nowrap">{t('sidebar.windows', { count: session.windowCount })}</span><AgentStatusBadge summary={session.agentSummary} /></div>
+                  <div className="mt-0.5 flex min-w-0 items-center gap-2 text-meta text-text-3"><span className="shrink-0 whitespace-nowrap">{t('sidebar.windows', { count: session.windowCount })}</span><AgentStatusBadge summary={session.agentSummary} /></div>
                 </button>
-                {!batchMode && <button onClick={() => void handleRenameSession(session.id)} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-7 w-7 text-[11px]" aria-label={t('sidebar.renameSession')} title={t('sidebar.renameSession')}>✎</button>}
-                {!batchMode && <button onClick={() => setPendingDeleteSessionId(session.id)} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-7 w-7 text-[11px] hover:text-danger" aria-label={t('sidebar.deleteSession')} title={t('sidebar.deleteSession')}>×</button>}
+                {!batchMode && <button onClick={() => void handleRenameSession(session.id)} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-7 w-7 text-meta" aria-label={t('sidebar.renameSession')} title={t('sidebar.renameSession')}>✎</button>}
+                {!batchMode && <button onClick={() => setPendingDeleteSessionId(session.id)} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-7 w-7 text-meta hover:text-danger" aria-label={t('sidebar.deleteSession')} title={t('sidebar.deleteSession')}>×</button>}
               </div>
             )}
           />}
         </div>
-        {preferences.showQuickActions && <div className="border-t border-[var(--line)] p-3"><div className="mb-2 text-[10px] uppercase tracking-[0.18em] text-text-3">{t('sidebar.quickActions')}</div><QuickActions /></div>}
+        {preferences.showQuickActions && <div className="border-t border-[var(--line)] p-3"><div className="mb-2 text-caption uppercase tracking-[0.18em] text-text-3">{t('sidebar.quickActions')}</div><QuickActions /></div>}
       </div>
       {showTemplates && <ModalPortal><SessionTemplates onSelect={handleTemplateSelect} onClose={() => setShowTemplates(false)} /></ModalPortal>}
       <ConfirmDialog open={!!pendingDeleteSessionId} title={t('sidebar.deleteTitle')} message={t('sidebar.deleteConfirm', { name: sessions.find((item) => item.id === pendingDeleteSessionId)?.name || '' })} confirmLabel={t('sidebar.confirmDelete')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setPendingDeleteSessionId(null)} onConfirm={() => void confirmDeleteSession()} />

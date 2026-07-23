@@ -32,6 +32,13 @@ const config: Config = {
       borderRadius: {
         apple: '20px',
       },
+      fontSize: {
+        caption: ['10px', { lineHeight: '1.4' }],
+        meta: ['12px', { lineHeight: '1.45' }],
+        body: ['14px', { lineHeight: '1.5' }],
+        title: ['16px', { lineHeight: '1.4' }],
+        display: ['18px', { lineHeight: '1.35' }],
+      },
     },
   },
   plugins: [],

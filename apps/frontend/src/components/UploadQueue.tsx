@@ -34,18 +34,18 @@ export function UploadQueue() {
             <div className="flex items-start gap-3">
               <div className="min-w-0 flex-1">
                 <div className="truncate font-mono text-xs text-text-1">{job.files.length === 1 ? job.files[0]?.name : `${job.files[0]?.name || 'files'} +${job.files.length - 1}`}</div>
-                <div className="mt-1 truncate text-[11px] text-text-3">{job.targetPath || '/'}</div>
+                <div className="mt-1 truncate text-meta text-text-3">{job.targetPath || '/'}</div>
               </div>
-              <div className={`shrink-0 text-[11px] ${job.status === 'error' ? 'text-danger' : job.status === 'success' ? 'text-accent-2' : 'text-accent'}`}>{statusText}</div>
+              <div className={`shrink-0 text-meta ${job.status === 'error' ? 'text-danger' : job.status === 'success' ? 'text-accent-2' : 'text-accent'}`}>{statusText}</div>
             </div>
             <div className="tmuxgo-progress mt-2">
               <div className={`tmuxgo-progress-bar ${job.status === 'error' ? 'tmuxgo-progress-bar--danger' : job.status === 'success' ? 'tmuxgo-progress-bar--success' : ''}`} style={{ width: `${percent}%` }} />
             </div>
-            <div className="mt-2 flex items-center justify-between text-[11px] text-text-3">
+            <div className="mt-2 flex items-center justify-between text-meta text-text-3">
               <div>{formatSize(job.loadedBytes)} / {formatSize(job.totalBytes)}</div>
               <Chip onClick={() => removeUploadJob(job.id)}>{t('uploadQueue.close')}</Chip>
             </div>
-            {job.errorMessage && <div className="mt-2 line-clamp-2 text-[11px] text-danger">{job.errorMessage}</div>}
+            {job.errorMessage && <div className="mt-2 line-clamp-2 text-meta text-danger">{job.errorMessage}</div>}
           </div>
         )
       })}

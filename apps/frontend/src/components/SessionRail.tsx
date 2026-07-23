@@ -104,10 +104,10 @@ export function SessionRail() {
               return (
                 <button title={session.name} onClick={() => setActiveSession(session.id)} onDoubleClick={() => void handleRenameSession(session.id)} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, sessionId: session.id }) }} className={`tmuxgo-list-row flex h-11 min-w-0 w-full items-center gap-2 rounded-apple border px-2 text-left ${active ? 'tmuxgo-list-row--active' : 'border-transparent bg-transparent text-text-3 tmuxgo-list-row--hover hover:text-text-1'} ${isOverlay ? 'border-accent bg-bg-1 text-text-1 shadow-[0_18px_44px_rgba(0,0,0,0.42)]' : ''}`}>
                   <span className="flex min-w-0 flex-1 items-center gap-2 text-left">
-                    <span className="relative shrink-0"><span className={`flex h-7 w-7 items-center justify-center rounded-apple text-[11px] font-semibold ${active ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-2'}`}>{session.name.slice(0, 2).toUpperCase()}</span><span className="absolute -bottom-1 -right-1"><AgentStatusBadge summary={session.agentSummary} compact /></span></span>
+                    <span className="relative shrink-0"><span className={`flex h-7 w-7 items-center justify-center rounded-apple text-meta font-semibold ${active ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-2'}`}>{session.name.slice(0, 2).toUpperCase()}</span><span className="absolute -bottom-1 -right-1"><AgentStatusBadge summary={session.agentSummary} compact /></span></span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-xs font-medium text-text-1">{session.name}</span>
-                      <span className="block truncate text-[10px] text-text-3">{t('sidebar.windows', { count: session.windowCount })}</span>
+                      <span className="block truncate text-caption text-text-3">{t('sidebar.windows', { count: session.windowCount })}</span>
                     </span>
                   </span>
                 </button>
