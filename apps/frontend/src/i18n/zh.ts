@@ -279,6 +279,7 @@ export const zh = {
   'quick.killTitle': '关闭面板',
   'common.cancel': '取消',
   'common.back': '返回',
+  'common.pressBackAgainToExit': '再按一次返回键退出',
   'common.confirm': '确认',
   'common.close': '关闭',
   'common.loading': '加载中...',

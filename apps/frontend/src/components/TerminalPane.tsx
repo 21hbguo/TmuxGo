@@ -506,7 +506,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       }
     })()
   }, [discardOptimisticWindowZoom, optimisticallyToggleWindowZoom, pushToast, refreshSnapshot, setActivePane])
-  const handleTwoFingerTap = useCallback((x: number, y: number) => {
+  const handleTwoFingerDoubleTap = useCallback((x: number, y: number) => {
     const paneId = resolvePaneAtPointRef.current(x, y) || useConsoleStore.getState().activePaneId
     zoomPaneById(paneId)
   }, [zoomPaneById])
@@ -517,7 +517,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     onTouchMovedChange: handleTouchMovedChange,
     onSwipeLeft,
     onSwipeRight,
-    onTwoFingerTap: handleTwoFingerTap,
+    onTwoFingerDoubleTap: handleTwoFingerDoubleTap,
   })
   useEffect(() => {
     onInputRef.current = onInput

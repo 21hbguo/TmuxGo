@@ -171,6 +171,19 @@ describe('ConsoleLayout mobile files overlay stack', () => {
     render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
     expect(screen.queryByRole('button', { name: 'alpha' })).toBeNull()
   })
+  it('traps empty-stack back and only exits after a second back within 2s', () => {
+    const pushStateSpy = vi.spyOn(window.history, 'pushState')
+    render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
+    expect(pushStateSpy).toHaveBeenCalledWith({ tmuxgoRoot: true }, '')
+    const rootPushes = pushStateSpy.mock.calls.filter((call) => call[0]?.tmuxgoRoot).length
+    window.dispatchEvent(new PopStateEvent('popstate'))
+    expect(pushStateSpy.mock.calls.filter((call) => call[0]?.tmuxgoRoot).length).toBe(rootPushes + 1)
+    expect(useConsoleStore.getState().toasts.some((toast) => toast.message === 'common.pressBackAgainToExit' || toast.type === 'info')).toBe(true)
+    const afterFirst = pushStateSpy.mock.calls.filter((call) => call[0]?.tmuxgoRoot).length
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 500)
+    window.dispatchEvent(new PopStateEvent('popstate'))
+    expect(pushStateSpy.mock.calls.filter((call) => call[0]?.tmuxgoRoot).length).toBe(afterFirst)
+  })
   it('adds a history level when opening the mobile session drawer from new session', () => {
     const pushStateSpy = vi.spyOn(window.history, 'pushState')
     render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
