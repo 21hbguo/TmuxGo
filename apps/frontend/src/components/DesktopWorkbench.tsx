@@ -77,7 +77,6 @@ export function DesktopWorkbench() {
   const terminalMaxHeight = clampValue(viewportHeight - 12, terminalInlineMaxHeight, 2000)
   const terminalPanelHeight = useConsoleStore((state) => state.terminalPanelHeight)
   const editorsHydrated = useConsoleStore((state) => state.editorsHydrated)
-  const hydrateEditorsFromStorage = useConsoleStore((state) => state.hydrateEditorsFromStorage)
   useEffect(() => {
     const element = containerRef.current
     if (!element) return
@@ -183,9 +182,6 @@ export function DesktopWorkbench() {
     }
     openCompareEditor(openedSource.id, openedTarget.id)
   }, [handleOpenFileForDrop, openCompareEditor, pushToast, t])
-  useEffect(() => {
-    hydrateEditorsFromStorage()
-  }, [hydrateEditorsFromStorage])
   useEffect(() => {
     if (!editorsHydrated) return
     if (restoredRef.current) return

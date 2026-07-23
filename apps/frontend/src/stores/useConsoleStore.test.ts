@@ -29,37 +29,99 @@ function collectGroupIds(node: any): string[] {
   return [...collectGroupIds(node.first), ...collectGroupIds(node.second)]
 }
 
+async function importStore() {
+  const { useConsoleStore } = await import('./useConsoleStore')
+  const { flushPersistedStorage } = await import('@/lib/persist-storage')
+  return { useConsoleStore, flushPersistedStorage }
+}
 describe('useConsoleStore editor persistence', () => {
   beforeEach(() => {
     vi.resetModules()
     localStorage.clear()
   })
-  it('restores persisted editors from localStorage', async () => {
+  it('restores persisted editors from legacy localStorage', async () => {
     localStorage.setItem('tmuxgo-open-editors', JSON.stringify([sampleEditor]))
     localStorage.setItem('tmuxgo-active-editor', sampleEditor.id)
-    const { useConsoleStore } = await import('./useConsoleStore')
-    useConsoleStore.getState().hydrateEditorsFromStorage()
+    const { useConsoleStore } = await importStore()
     const state = useConsoleStore.getState()
     expect(state.openEditors).toHaveLength(1)
     expect(state.openEditors[0]).toMatchObject(sampleEditor)
     expect(state.openEditors[0].loading).toBe(true)
     expect(state.activeEditorId).toBe(sampleEditor.id)
+    expect(localStorage.getItem('tmuxgo-open-editors')).toBeNull()
   })
   it('persists opened and closed editors', async () => {
-    const { useConsoleStore } = await import('./useConsoleStore')
+    const { useConsoleStore, flushPersistedStorage } = await importStore()
     useConsoleStore.getState().openEditor(sampleEditor)
-    expect(JSON.parse(localStorage.getItem('tmuxgo-open-editors') || '[]')).toEqual([sampleEditor])
-    expect(localStorage.getItem('tmuxgo-active-editor')).toBe(sampleEditor.id)
+    flushPersistedStorage()
+    const persisted = JSON.parse(localStorage.getItem('tmuxgo-console-state:desktop') || '{}')
+    expect(persisted.state.openEditors).toHaveLength(1)
+    expect(persisted.state.openEditors[0]).toMatchObject({ id: sampleEditor.id, path: sampleEditor.path })
+    expect(persisted.state.activeEditorId).toBe(sampleEditor.id)
     useConsoleStore.getState().closeEditor(sampleEditor.id)
-    expect(JSON.parse(localStorage.getItem('tmuxgo-open-editors') || '[]')).toEqual([])
-    expect(localStorage.getItem('tmuxgo-active-editor')).toBeNull()
+    flushPersistedStorage()
+    const afterClose = JSON.parse(localStorage.getItem('tmuxgo-console-state:desktop') || '{}')
+    expect(afterClose.state.openEditors).toEqual([])
+    expect(afterClose.state.activeEditorId).toBeNull()
   })
   it('updates persisted active editor when switching tabs', async () => {
-    const { useConsoleStore } = await import('./useConsoleStore')
+    const { useConsoleStore, flushPersistedStorage } = await importStore()
     useConsoleStore.getState().openEditor(sampleEditor)
     useConsoleStore.getState().openEditor({ ...sampleEditor, id: 'local:root-workspace:docs/guide.md', path: 'docs/guide.md', name: 'guide.md', absolutePath: '/workspace/docs/guide.md', language: 'markdown' })
     useConsoleStore.getState().setActiveEditor(sampleEditor.id)
-    expect(localStorage.getItem('tmuxgo-active-editor')).toBe(sampleEditor.id)
+    flushPersistedStorage()
+    const persisted = JSON.parse(localStorage.getItem('tmuxgo-console-state:desktop') || '{}')
+    expect(persisted.state.activeEditorId).toBe(sampleEditor.id)
+  })
+  it('persists panel widths and layout across rehydrate', async () => {
+    const { useConsoleStore, flushPersistedStorage } = await importStore()
+    useConsoleStore.getState().setSessionPanelWidth(300)
+    useConsoleStore.getState().setGitPanelWidth(700)
+    useConsoleStore.getState().setFilePanelOpen(true)
+    flushPersistedStorage()
+    const persisted = JSON.parse(localStorage.getItem('tmuxgo-console-state:desktop') || '{}')
+    expect(persisted.state.sessionPanelWidth).toBe(300)
+    expect(persisted.state.gitPanelWidth).toBe(700)
+    expect(persisted.state.filePanelOpen).toBe(true)
+  })
+  it('separates mobile storage from desktop and skips desktop-only fields', async () => {
+    const originalUA = navigator.userAgent
+    Object.defineProperty(navigator, 'userAgent', { value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148', configurable: true })
+    try {
+      const { useConsoleStore, flushPersistedStorage } = await importStore()
+      useConsoleStore.getState().setSessionPanelWidth(300)
+      useConsoleStore.getState().openEditor(sampleEditor)
+      useConsoleStore.getState().setGitPanelOpen(true)
+      flushPersistedStorage()
+      expect(localStorage.getItem('tmuxgo-console-state:mobile')).not.toBeNull()
+      expect(localStorage.getItem('tmuxgo-console-state:desktop')).toBeNull()
+      const persisted = JSON.parse(localStorage.getItem('tmuxgo-console-state:mobile') || '{}')
+      expect(persisted.state.sessionPanelWidth).toBeUndefined()
+      expect(persisted.state.openEditors).toBeUndefined()
+      expect(persisted.state.gitPanelOpen).toBeUndefined()
+      expect(persisted.state.gitByHost).toEqual({})
+      expect(persisted.state.activeHostId).not.toBeUndefined()
+    } finally {
+      Object.defineProperty(navigator, 'userAgent', { value: originalUA, configurable: true })
+    }
+  })
+  it('migrates legacy unified key to device-specific key for mobile', async () => {
+    const originalUA = navigator.userAgent
+    Object.defineProperty(navigator, 'userAgent', { value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148', configurable: true })
+    try {
+      const legacyState = { activeHostId: 'local', activeSessionId: 's1', gitByHost: { local: { mode: 'follow-editor', currentRepoPath: null, currentFilePath: null, source: null, lockedRepoPath: null, recentRepos: [] } }, sessionPanelWidth: 300, openEditors: [sampleEditor] }
+      localStorage.setItem('tmuxgo-console-state', JSON.stringify({ state: legacyState, version: 1 }))
+      const { useConsoleStore } = await importStore()
+      const state = useConsoleStore.getState()
+      expect(state.activeHostId).toBe('local')
+      expect(state.activeSessionId).toBe('s1')
+      expect(state.gitByHost.local).toBeDefined()
+      expect(state.openEditors).toEqual([])
+      expect(localStorage.getItem('tmuxgo-console-state')).toBeNull()
+      expect(localStorage.getItem('tmuxgo-console-state:mobile')).not.toBeNull()
+    } finally {
+      Object.defineProperty(navigator, 'userAgent', { value: originalUA, configurable: true })
+    }
   })
   it('ignores selecting the already active session', async () => {
     const { useConsoleStore } = await import('./useConsoleStore')
