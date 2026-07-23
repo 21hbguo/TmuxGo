@@ -902,7 +902,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
     const loadStatus = expanded ? readDirectoryStatusFromCache(directoryStatus, activeRootId, activeRootBasePath, item.path) : undefined
     const selected = selectedPath === item.path
     const row = (
-      <div key={`${item.path}::__row`} data-selected={selected ? 'true' : undefined} className={`tmuxgo-file-tree-node group flex min-h-[22px] w-full items-center transition-colors ${selected ? 'tmuxgo-file-tree-node-selected' : ''}`} style={{ paddingLeft: `${depth * 12}px` }}>
+      <div key={`${item.path}::__row`} data-selected={selected ? 'true' : undefined} className={`tmuxgo-list-row tmuxgo-file-tree-node group flex min-h-[22px] w-full items-center ${selected ? 'tmuxgo-list-row--active tmuxgo-file-tree-node-selected' : 'tmuxgo-list-row--hover'}`} style={{ paddingLeft: `${depth * 12}px` }}>
         <button type="button" disabled={item.type !== 'directory'} onClick={(event) => {
           event.preventDefault()
           event.stopPropagation()
@@ -1016,7 +1016,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
           if (touchTimerRef.current) clearTimeout(touchTimerRef.current)
           touchTimerRef.current = null
         }}
-        className={`group w-full border-l-2 px-2 py-[3px] text-left text-[11px] leading-4 transition-colors hover:bg-bg-2 ${selectedPath === item.path ? 'border-accent bg-bg-2' : 'border-transparent'}`}
+        className={`tmuxgo-list-row group w-full border-l-2 px-2 py-[3px] text-left text-[11px] leading-4 ${selectedPath === item.path ? 'tmuxgo-list-row--active border-accent' : 'border-transparent tmuxgo-list-row--hover'}`}
         style={!isMobile && showSearchResults ? { paddingLeft: `${8 + depth * 14}px` } : undefined}
       >
         <div className="flex items-center gap-1.5">
@@ -1074,11 +1074,11 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
         </div>
         <div className="mt-1.5 flex items-center gap-1">
           <input value={query} onChange={(e) => { setQuery(e.target.value); setSearchNavigationPath(null) }} placeholder={searchMode === 'name' ? t('file.searchName') : t('file.searchContent')} className="tmuxgo-control tmuxgo-input min-w-0 flex-1 rounded-apple px-2 py-1 font-mono text-[11px]" />
-          <button onClick={clearExpandedDirectories} disabled={!openDirectories.size && !directoryCache.size} aria-label={t('file.clearExpanded')} className={`shrink-0 rounded-apple border border-[var(--line)] px-2 py-1 text-[11px] ${openDirectories.size || directoryCache.size ? 'bg-bg-2 text-text-2 hover:text-accent' : 'bg-bg-0 text-text-3/40'}`}>⌂</button>
-          <button onClick={() => { setQuery(''); setDebouncedQuery(''); setSearchNavigationPath(null) }} disabled={!query} aria-label={t('file.clearSearch')} className={`shrink-0 rounded-apple border border-[var(--line)] px-2 py-1 text-[11px] ${query ? 'bg-bg-2 text-text-2 hover:text-accent' : 'bg-bg-0 text-text-3/40'}`}>×</button>
+          <button onClick={clearExpandedDirectories} disabled={!openDirectories.size && !directoryCache.size} aria-label={t('file.clearExpanded')} className={`tmuxgo-toolbar-icon h-7 w-7 shrink-0 text-[11px] ${openDirectories.size || directoryCache.size ? '' : 'opacity-40'}`}>⌂</button>
+          <button onClick={() => { setQuery(''); setDebouncedQuery(''); setSearchNavigationPath(null) }} disabled={!query} aria-label={t('file.clearSearch')} className={`tmuxgo-toolbar-icon h-7 w-7 shrink-0 text-[11px] ${query ? '' : 'opacity-40'}`}>×</button>
         </div>
         <div className="mt-1.5 flex items-center gap-1">
-          <div className="flex min-w-0 flex-1 rounded-apple border border-[var(--line)] bg-bg-0 p-0.5 text-[11px]">
+          <div className="flex min-w-0 flex-1 rounded-apple border border-[var(--line)] bg-bg-2 p-0.5 text-[11px]">
             {(['all', 'file', 'directory'] as FileTypeFilter[]).map((item) => (
               <Chip key={item} tone={fileTypeFilter === item ? 'accent' : 'default'} onClick={() => setFileTypeFilter(item)} className="min-w-0 flex-1">{item === 'all' ? t('file.all') : item === 'file' ? t('file.file') : t('file.dir')}</Chip>
             ))}
@@ -1121,7 +1121,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
                 e.preventDefault()
                 showContextMenu(e.clientX, e.clientY, item, getParentRelativePath(item, currentPath))
               }}
-              className={`group w-full border-l-2 px-2 py-1 text-left text-[11px] leading-5 transition-colors hover:bg-bg-2 ${selectedPath === item.path ? 'border-accent bg-bg-2' : 'border-transparent'}`}
+              className={`tmuxgo-list-row group w-full border-l-2 px-2 py-1 text-left text-[11px] leading-5 ${selectedPath === item.path ? 'tmuxgo-list-row--active border-accent' : 'border-transparent tmuxgo-list-row--hover'}`}
             >
               <div className="flex items-center gap-1.5">
                 <span className="text-[#dcb67a]">▸</span>
@@ -1155,7 +1155,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
                 if (touchTimerRef.current) clearTimeout(touchTimerRef.current)
                 touchTimerRef.current = null
               }}
-            className={`group w-full border-l-2 px-2 py-[3px] text-left text-[11px] leading-4 transition-colors hover:bg-bg-2 ${selectedPath === item.path ? 'border-accent bg-bg-2' : 'border-transparent'}`}
+            className={`tmuxgo-list-row group w-full border-l-2 px-2 py-[3px] text-left text-[11px] leading-4 ${selectedPath === item.path ? 'tmuxgo-list-row--active border-accent' : 'border-transparent tmuxgo-list-row--hover'}`}
             >
               <div className="flex items-center gap-1.5">
                 <span className="shrink-0">{getFileVisual(item.path, item.type).icon}</span>
@@ -1174,25 +1174,25 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
       {contextMenu && (
         <>
         <div className="fixed inset-0 z-[89]" onClick={() => setContextMenu(null)} />
-        <div className="fixed z-[90] w-44 overflow-hidden rounded-apple border border-[var(--line)] bg-bg-1 py-1 text-xs shadow-lg" style={contextMenu.mobile ? { left: '50%', top: '50%', transform: 'translate(-50%, -50%)' } : { left: contextMenu.x, top: contextMenu.y }} onClick={(e) => e.stopPropagation()}>
+        <div className="tmuxgo-menu fixed z-[90] w-44 py-1 text-xs" style={contextMenu.mobile ? { left: '50%', top: '50%', transform: 'translate(-50%, -50%)' } : { left: contextMenu.x, top: contextMenu.y }} onClick={(e) => e.stopPropagation()}>
           {contextMenu.item?.type === 'directory' && (() => {
             const favoriteKey = { rootId: activeRoot?.sourceRootId || '', path: joinRelativePath(activeRootBasePath, contextMenu.item!.path) }
             const isFav = isFavoriteDirectory(favoriteKey)
-            return <button onClick={() => { toggleFavoriteDirectory(contextMenu.item as FileItem); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">{isFav ? t('file.removeFavorite') : t('file.addFavorite')}</button>
+            return <button onClick={() => { toggleFavoriteDirectory(contextMenu.item as FileItem); setContextMenu(null) }} className="tmuxgo-menu-item py-2 text-xs hover:text-accent">{isFav ? t('file.removeFavorite') : t('file.addFavorite')}</button>
           })()}
-          {contextMenu.item?.type === 'file' && <button onClick={() => { openInEditor(contextMenu.item!); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">{t('file.openEditor')}</button>}
-          {contextMenu.item && <button onClick={() => { insertItemPath(contextMenu.item!); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">{t('file.insertPathCtx')}</button>}
-          {contextMenu.item && <button onClick={() => void copyItemName(contextMenu.item!).finally(() => setContextMenu(null))} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">{t('file.copyName')}</button>}
-          {contextMenu.item && <button onClick={() => void copyItemRelativePath(contextMenu.item!).finally(() => setContextMenu(null))} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">{t('file.copyRelativePath')}</button>}
-          {contextMenu.item && <button onClick={() => void copyItemPath(contextMenu.item!).finally(() => setContextMenu(null))} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">{t('file.copyPath')}</button>}
-          {isMobile && contextMenu.item?.type === 'file' && <button onClick={() => { setSelectedPath(contextMenu.item!.path); setSelectedPreviewLine(getPreviewLine(contextMenu.item!)); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">{t('file.openPreview')}</button>}
-          {contextMenu.item && <button onClick={() => { startDownload(contextMenu.item!); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">{t('file.download')}</button>}
-          {contextMenu.item && <button onClick={() => { void transferItem(contextMenu.item!, false); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">{t('file.copy')}</button>}
-          {contextMenu.item && <button onClick={() => { void transferItem(contextMenu.item!, true); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">{t('file.move')}</button>}
-          {contextMenu.item && <button onClick={() => { void renameItem(contextMenu.item!); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">{t('file.rename')}</button>}
-          <button onClick={() => { void createEntry('file', contextMenu.directoryPath); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">{t('file.newFile')}</button>
-          <button onClick={() => { void createEntry('directory', contextMenu.directoryPath); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-text-2 hover:bg-bg-2 hover:text-accent">{t('file.newFolder')}</button>
-          {contextMenu.item && <button onClick={() => { void removeItem(contextMenu.item!); setContextMenu(null) }} className="block w-full px-3 py-2 text-left text-danger hover:bg-bg-2">{t('file.moveToTrash')}</button>}
+          {contextMenu.item?.type === 'file' && <button onClick={() => { openInEditor(contextMenu.item!); setContextMenu(null) }} className="tmuxgo-menu-item py-2 text-xs hover:text-accent">{t('file.openEditor')}</button>}
+          {contextMenu.item && <button onClick={() => { insertItemPath(contextMenu.item!); setContextMenu(null) }} className="tmuxgo-menu-item py-2 text-xs hover:text-accent">{t('file.insertPathCtx')}</button>}
+          {contextMenu.item && <button onClick={() => void copyItemName(contextMenu.item!).finally(() => setContextMenu(null))} className="tmuxgo-menu-item py-2 text-xs hover:text-accent">{t('file.copyName')}</button>}
+          {contextMenu.item && <button onClick={() => void copyItemRelativePath(contextMenu.item!).finally(() => setContextMenu(null))} className="tmuxgo-menu-item py-2 text-xs hover:text-accent">{t('file.copyRelativePath')}</button>}
+          {contextMenu.item && <button onClick={() => void copyItemPath(contextMenu.item!).finally(() => setContextMenu(null))} className="tmuxgo-menu-item py-2 text-xs hover:text-accent">{t('file.copyPath')}</button>}
+          {isMobile && contextMenu.item?.type === 'file' && <button onClick={() => { setSelectedPath(contextMenu.item!.path); setSelectedPreviewLine(getPreviewLine(contextMenu.item!)); setContextMenu(null) }} className="tmuxgo-menu-item py-2 text-xs hover:text-accent">{t('file.openPreview')}</button>}
+          {contextMenu.item && <button onClick={() => { startDownload(contextMenu.item!); setContextMenu(null) }} className="tmuxgo-menu-item py-2 text-xs hover:text-accent">{t('file.download')}</button>}
+          {contextMenu.item && <button onClick={() => { void transferItem(contextMenu.item!, false); setContextMenu(null) }} className="tmuxgo-menu-item py-2 text-xs hover:text-accent">{t('file.copy')}</button>}
+          {contextMenu.item && <button onClick={() => { void transferItem(contextMenu.item!, true); setContextMenu(null) }} className="tmuxgo-menu-item py-2 text-xs hover:text-accent">{t('file.move')}</button>}
+          {contextMenu.item && <button onClick={() => { void renameItem(contextMenu.item!); setContextMenu(null) }} className="tmuxgo-menu-item py-2 text-xs hover:text-accent">{t('file.rename')}</button>}
+          <button onClick={() => { void createEntry('file', contextMenu.directoryPath); setContextMenu(null) }} className="tmuxgo-menu-item py-2 text-xs hover:text-accent">{t('file.newFile')}</button>
+          <button onClick={() => { void createEntry('directory', contextMenu.directoryPath); setContextMenu(null) }} className="tmuxgo-menu-item py-2 text-xs hover:text-accent">{t('file.newFolder')}</button>
+          {contextMenu.item && <button onClick={() => { void removeItem(contextMenu.item!); setContextMenu(null) }} className="tmuxgo-menu-item tmuxgo-menu-item--danger py-2 text-xs">{t('file.moveToTrash')}</button>}
         </div>
         </>
       )}
@@ -1208,8 +1208,8 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
         onCancel={() => setPendingDeleteItem(null)}
         onConfirm={() => void confirmRemoveItem()}
       />
-      {lastTrashedItem && <div className="absolute bottom-3 left-3 right-3 z-30 flex items-center gap-2 rounded-apple border border-[var(--line)] bg-bg-0 px-3 py-2 text-xs shadow-lg"><span className="min-w-0 flex-1 truncate text-text-2">{t('file.movedToTrash', { name: lastTrashedItem.name })}</span><Chip tone="accent" onClick={() => void restoreTrash(lastTrashedItem)}>{t('file.undo')}</Chip><Button variant="ghost" size="icon-sm" aria-label="close" onClick={() => setLastTrashedItem(null)}>×</Button></div>}
-      {trashOpen && <ModalPortal><div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/50 p-4" onClick={() => setTrashOpen(false)}><div className="w-full max-w-lg overflow-hidden rounded-apple border border-[var(--line)] bg-bg-1" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b border-[var(--line)] p-4"><div className="text-base font-medium text-text-1">{t('file.trash')}</div><Button variant="ghost" size="icon-sm" aria-label="close" onClick={() => setTrashOpen(false)}>×</Button></div><div className="tmuxgo-scrollbar max-h-[55vh] overflow-auto">{!trashEntries.length && <div className="p-6 text-center text-sm text-text-3">{t('file.trashEmpty')}</div>}{trashEntries.map((entry) => <div key={entry.id} className="flex items-center gap-3 border-b border-[var(--line)] px-4 py-3"><div className="min-w-0 flex-1"><div className="truncate text-sm text-text-1">{entry.name}</div><div className="truncate font-mono text-[10px] text-text-3">{entry.path} · {new Date(entry.deletedAt).toLocaleString()}</div></div><Chip tone="accent" onClick={() => void restoreTrash(entry)}>{t('file.restore')}</Chip></div>)}</div></div></div></ModalPortal>}
+      {lastTrashedItem && <div className="tmuxgo-float-surface absolute bottom-3 left-3 right-3 z-30 flex items-center gap-2 px-3 py-2 text-xs"><span className="min-w-0 flex-1 truncate text-text-2">{t('file.movedToTrash', { name: lastTrashedItem.name })}</span><Chip tone="accent" onClick={() => void restoreTrash(lastTrashedItem)}>{t('file.undo')}</Chip><Button variant="ghost" size="icon-sm" aria-label="close" onClick={() => setLastTrashedItem(null)}>×</Button></div>}
+      {trashOpen && <ModalPortal><div className="fixed inset-0 z-[95] flex items-center justify-center tmuxgo-scrim-strong p-4" onClick={() => setTrashOpen(false)}><div className="tmuxgo-glass tmuxgo-glass-dialog w-full max-w-lg overflow-hidden rounded-apple border" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b border-[var(--line)] p-4"><div className="text-base font-medium text-text-1">{t('file.trash')}</div><Button variant="ghost" size="icon-sm" aria-label="close" onClick={() => setTrashOpen(false)}>×</Button></div><div className="tmuxgo-scrollbar max-h-[55vh] overflow-auto">{!trashEntries.length && <div className="p-6 text-center text-sm text-text-3">{t('file.trashEmpty')}</div>}{trashEntries.map((entry) => <div key={entry.id} className="flex items-center gap-3 border-b border-[var(--line)] px-4 py-3"><div className="min-w-0 flex-1"><div className="truncate text-sm text-text-1">{entry.name}</div><div className="truncate font-mono text-[10px] text-text-3">{entry.path} · {new Date(entry.deletedAt).toLocaleString()}</div></div><Chip tone="accent" onClick={() => void restoreTrash(entry)}>{t('file.restore')}</Chip></div>)}</div></div></div></ModalPortal>}
     </aside>
   )
 }

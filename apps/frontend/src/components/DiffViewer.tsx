@@ -67,7 +67,7 @@ export function DiffViewer({ hostId, repoPath, filePath, staged, commit, working
               return <tr key={i}><td colSpan={3} className="bg-accent/5 px-4 py-0.5 text-[11px] text-accent">{line.content}</td></tr>
             }
             const bg = line.type === 'add' ? 'bg-[#1a3a1a]' : line.type === 'del' ? 'bg-[#3a1a1a]' : ''
-            const text = line.type === 'add' ? 'text-green-300' : line.type === 'del' ? 'text-red-300' : 'text-text-2'
+            const text = line.type === 'add' ? 'text-accent-2' : line.type === 'del' ? 'text-danger' : 'text-text-2'
             const prefix = line.type === 'add' ? '+' : line.type === 'del' ? '-' : ' '
             return (
               <tr key={i} className={bg}>

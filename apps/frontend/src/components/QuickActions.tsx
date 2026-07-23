@@ -429,7 +429,7 @@ export function QuickActions({ mode='panel', onOpenFiles }:{ mode?:QuickActionsM
           {shortcuts.map((s)=>(
             <div key={s.id} className="group flex items-center gap-1 mb-1">
               <KeyCap variant="panel" size="md" onPress={() => { sendKey(keysToEscape(s.keys)) }} title={s.keys} className="flex-1 truncate">{s.label}</KeyCap>
-              <button onClick={()=>removeShortcut(s.id)} className="p-1 rounded-apple text-text-3 hover:text-red-400 hover:bg-red-900/30 opacity-0 group-hover:opacity-100 transition-opacity text-[10px]">
+              <button onClick={()=>removeShortcut(s.id)} className="p-1 rounded-apple text-text-3 hover:text-danger hover:bg-danger/15 opacity-0 group-hover:opacity-100 transition-opacity text-[10px]">
                 ✕
               </button>
             </div>

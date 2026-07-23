@@ -158,7 +158,7 @@ export function UploadConfirmDialog() {
   if (!open) return null
 
   return <ModalPortal>
-    <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/40 p-4" onClick={handleCancel}>
+    <div className="fixed inset-0 z-[95] flex items-center justify-center tmuxgo-scrim p-4" onClick={handleCancel}>
       <div className="tmuxgo-glass tmuxgo-glass-dialog w-full max-w-2xl rounded-apple border p-5" onClick={(e) => e.stopPropagation()}>
         <div className="text-lg text-text-1">{t('upload.title')}</div>
         <div className="mt-2 flex flex-wrap gap-2 text-xs text-text-3">

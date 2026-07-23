@@ -7,14 +7,14 @@ const tone: Record<AgentStatus, string> = {
   idle: 'border-text-1/10 bg-bg-2/55 text-text-3',
   working: 'border-accent/25 bg-accent/10 text-accent',
   blocked: 'border-danger/35 bg-danger/10 text-danger',
-  done: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
+  done: 'border-accent-2/30 bg-accent-2/10 text-accent-2',
   unknown: 'border-text-1/10 bg-bg-2/55 text-text-3',
 }
 const dot: Record<AgentStatus, string> = {
   idle: 'bg-text-3',
   working: 'bg-accent animate-pulse',
   blocked: 'bg-danger',
-  done: 'bg-emerald-400',
+  done: 'bg-accent-2',
   unknown: 'bg-text-3/50',
 }
 export function AgentStatusBadge({ status, summary, compact = false }: { status?: AgentStatus | null; summary?: AgentSummary | null; compact?: boolean }) {
