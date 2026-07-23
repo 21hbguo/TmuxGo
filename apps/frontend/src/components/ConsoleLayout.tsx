@@ -131,6 +131,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   const [pendingDeleteSessionId, setPendingDeleteSessionId] = useState<string | null>(null)
   const overlayRef = useRef<string[]>([])
   const ignoreNextPopRef = useRef(false)
+  const lastExitBackAtRef = useRef(0)
   const appHeightRef = useRef(appHeight)
   const viewportBaseHeightRef = useRef(0)
   const appHeightNumRef = useRef(0)
@@ -156,6 +157,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
 
   const pushOverlay = useCallback((id: string) => {
     if (id !== 'mobile-files-level' && overlayRef.current[overlayRef.current.length - 1] === id) return
+    lastExitBackAtRef.current = 0
     overlayRef.current.push(id)
     window.history.pushState({ overlay: id }, '')
   }, [])
@@ -469,13 +471,25 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
     return () => window.removeEventListener('tmuxgo-mobile-git-push-level', handleMobileGitPushLevel as EventListener)
   }, [pushOverlay])
   useEffect(() => {
+    window.history.pushState({ tmuxgoRoot: true }, '')
     const handlePopState = () => {
       if (ignoreNextPopRef.current) {
         ignoreNextPopRef.current = false
         return
       }
       const stack = overlayRef.current
-      if (stack.length === 0) return
+      if (stack.length === 0) {
+        const now = Date.now()
+        if (now - lastExitBackAtRef.current < 2000) {
+          lastExitBackAtRef.current = 0
+          return
+        }
+        lastExitBackAtRef.current = now
+        window.history.pushState({ tmuxgoRoot: true }, '')
+        useConsoleStore.getState().pushToast({ type: 'info', message: t('common.pressBackAgainToExit'), durationMs: 2000 })
+        return
+      }
+      lastExitBackAtRef.current = 0
       const top = stack[stack.length - 1]
       if (top === 'settings') setShowSettings(false)
       else if (top === 'drawer') setDrawerOpen(false)
@@ -498,7 +512,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
     }
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
-  }, [setCommandPalette, setMobileFileSheetOpen])
+  }, [setCommandPalette, setMobileFileSheetOpen, t])
   useEffect(() => {
     const handleOpenSettings = () => openSettings()
     window.addEventListener('tmuxgo-open-settings', handleOpenSettings as EventListener)

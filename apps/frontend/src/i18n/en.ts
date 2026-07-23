@@ -279,6 +279,7 @@ export const en = {
   'quick.killTitle': 'Close pane',
   'common.cancel': 'Cancel',
   'common.back': 'Back',
+  'common.pressBackAgainToExit': 'Press back again to exit',
   'common.confirm': 'Confirm',
   'common.close': 'Close',
   'common.loading': 'Loading...',
