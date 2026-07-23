@@ -28,7 +28,7 @@ export function Settings({ onClose }: SettingsProps) {
   const pushToast = useConsoleStore((state) => state.pushToast)
   const activeHostId = useConsoleStore((state) => state.activeHostId)
   const { copy } = useClipboard()
-  const [activeTab, setActiveTab] = useState<'general' | 'appearance' | 'plugins' | 'audit' | 'about'>('general')
+  const [activeTab, setActiveTab] = useState<'general' | 'appearance' | 'connection' | 'session' | 'plugins' | 'about'>('general')
   const [showAuditLog, setShowAuditLog] = useState(false)
   const [hostIdDraft, setHostIdDraft] = useState('')
   const [hostNameDraft, setHostNameDraft] = useState('')
@@ -76,8 +76,9 @@ export function Settings({ onClose }: SettingsProps) {
   const tabs = [
     { id: 'general' as const, label: t('settings.general') },
     { id: 'appearance' as const, label: t('settings.appearance') },
+    { id: 'connection' as const, label: t('settings.connection') },
+    { id: 'session' as const, label: t('settings.session') },
     { id: 'plugins' as const, label: t('settings.plugins') },
-    { id: 'audit' as const, label: t('settings.auditLog') },
     { id: 'about' as const, label: t('settings.about') },
   ]
 
@@ -252,7 +253,7 @@ export function Settings({ onClose }: SettingsProps) {
               </div>
 
               <div>
-                <h3 className="text-text-1 text-sm font-medium mb-3">{t('settings.connection')}</h3>
+                <h3 className="text-text-1 text-sm font-medium mb-3">{t('settings.reconnect')}</h3>
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-text-2 text-sm">{t('settings.autoReconnect')}</span>
@@ -275,6 +276,7 @@ export function Settings({ onClose }: SettingsProps) {
                   </div>
                 </div>
               </div>
+
               <div>
                 <h3 className="text-text-1 text-sm font-medium mb-3">{t('settings.notifications')}</h3>
                 <div className="space-y-3">
@@ -303,223 +305,13 @@ export function Settings({ onClose }: SettingsProps) {
                   </div>
                 </div>
               </div>
-              <div>
-                <h3 className="text-text-1 text-sm font-medium mb-3">{t('settings.sessionContinuity')}</h3>
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-text-2 text-sm">{t('settings.sessionContinuityEnabled')}</span>
-                    <button
-                      onClick={() => updateSessionContinuity({ enabled: !sessionContinuity.enabled })}
-                      className={`w-10 h-6 rounded-full relative ${sessionContinuity.enabled ? 'bg-accent' : 'bg-bg-2'}`}
-                    >
-                      <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${sessionContinuity.enabled ? 'right-1' : 'left-1'}`} />
-                    </button>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-text-2 text-sm">{t('settings.resumeOnReconnect')}</span>
-                    <button
-                      onClick={() => updateSessionContinuity({ resumeOnReconnect: !sessionContinuity.resumeOnReconnect })}
-                      className={`w-10 h-6 rounded-full relative ${sessionContinuity.resumeOnReconnect ? 'bg-accent' : 'bg-bg-2'}`}
-                    >
-                      <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${sessionContinuity.resumeOnReconnect ? 'right-1' : 'left-1'}`} />
-                    </button>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-text-2 text-sm">{t('settings.resumeOnNewDevice')}</span>
-                    <button
-                      onClick={() => updateSessionContinuity({ resumeOnNewDevice: !sessionContinuity.resumeOnNewDevice })}
-                      className={`w-10 h-6 rounded-full relative ${sessionContinuity.resumeOnNewDevice ? 'bg-accent' : 'bg-bg-2'}`}
-                    >
-                      <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${sessionContinuity.resumeOnNewDevice ? 'right-1' : 'left-1'}`} />
-                    </button>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-text-2 text-sm">{t('settings.archiveEnabled')}</span>
-                    <button
-                      onClick={() => updateSessionContinuity({ archive: { ...sessionContinuity.archive, enabled: !sessionContinuity.archive.enabled, captureMode: sessionContinuity.archive.enabled ? 'none' : sessionContinuity.archive.captureMode === 'none' ? 'visible' : sessionContinuity.archive.captureMode } })}
-                      className={`w-10 h-6 rounded-full relative ${sessionContinuity.archive.enabled ? 'bg-accent' : 'bg-bg-2'}`}
-                    >
-                      <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${sessionContinuity.archive.enabled ? 'right-1' : 'left-1'}`} />
-                    </button>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-text-2 text-sm">{t('settings.archiveCaptureMode')}</span>
-                    <select value={sessionContinuity.archive.captureMode === 'none' ? 'visible' : sessionContinuity.archive.captureMode} disabled={!sessionContinuity.archive.enabled} onChange={(event) => updateSessionContinuity({ archive: { ...sessionContinuity.archive, captureMode: event.target.value as 'visible' | 'history' } })} className="tmuxgo-control tmuxgo-select rounded-apple px-3 py-1.5 text-sm disabled:opacity-50"><option value="visible">{t('settings.archiveVisible')}</option><option value="history">{t('settings.archiveHistory')}</option></select>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-text-2 text-sm">{t('settings.archiveMaxSize')}</span>
-                    <select value={sessionContinuity.archive.maxBytesPerSession} disabled={!sessionContinuity.archive.enabled} onChange={(event) => updateSessionContinuity({ archive: { ...sessionContinuity.archive, maxBytesPerSession: Number(event.target.value) } })} className="tmuxgo-control tmuxgo-select rounded-apple px-3 py-1.5 text-sm disabled:opacity-50"><option value={262144}>256 KB</option><option value={1048576}>1 MB</option><option value={4194304}>4 MB</option><option value={16777216}>16 MB</option><option value={33554432}>32 MB</option></select>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-text-2 text-sm">{t('settings.archiveRetention')}</span>
-                    <input type="number" min={1} max={3650} value={sessionContinuity.archive.retentionDays} disabled={!sessionContinuity.archive.enabled} onChange={(event) => updateSessionContinuity({ archive: { ...sessionContinuity.archive, retentionDays: Math.max(1, Math.min(3650, Number(event.target.value) || 1)) } })} className="tmuxgo-control tmuxgo-input w-20 rounded-apple px-2 py-1.5 text-right text-sm disabled:opacity-50" />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-text-2 text-sm">{t('settings.resumePointCount')}</span>
-                    <span className="text-text-1 text-sm">{sessionContinuity.resumePoints.length}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-text-2 text-sm">{t('settings.maxResumePoints')}</span>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="range"
-                        min={1}
-                        max={100}
-                        value={sessionContinuity.maxResumePoints}
-                        onChange={(event) => updateSessionContinuity({ maxResumePoints: Number(event.target.value) })}
-                        className="w-24 accent-accent"
-                      />
-                      <span className="text-text-1 text-sm w-8 text-center">{sessionContinuity.maxResumePoints}</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-end">
-                    <Button size="sm" className="mr-2" onClick={openArchiveDialog}>{t('settings.viewArchives')}</Button>
-                    <Button size="sm" onClick={() => updateSessionContinuity({ resumePoints: [] })}>
-                      {t('settings.clearResumePoints')}
-                    </Button>
-                  </div>
-                </div>
-              </div>
-              <div>
-                <h3 className="text-text-1 text-sm font-medium mb-3">{t('settings.hosts')}</h3>
-                <div className="space-y-3 rounded-apple border border-[var(--line)] p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs text-text-3">{t('settings.hosts')}</span>
-                    <Button variant="primary" size="sm" onClick={openCreateHostDialog}>{t('settings.hostNew')}</Button>
-                  </div>
-                  <div className="space-y-2">
-                    {hosts.filter((host: any) => host.id !== 'local').map((host: any) => (
-                      <div key={host.id} className="rounded-apple border border-[var(--line)] bg-bg-2 px-2 py-2">
-                        <div className="min-w-0">
-                          <div className="truncate text-sm text-text-1">{host.name || host.id}</div>
-                          <div className="truncate text-xs text-text-3">{host.id} {host.user ? `${host.user}@` : ''}{host.address}:{host.port || 22}</div>
-                          {!!host.hasPassword && <div className="truncate text-xs text-text-3">{t('settings.hostPasswordSaved')}</div>}
-                        </div>
-                        <div className="mt-2 flex items-center gap-1">
-                          <Chip onClick={() => openEditHostDialog(host)}>{t('settings.hostEdit')}</Chip>
-                          <Chip
-                            onClick={async () => {
-                              setHostActionMessage('')
-                              try {
-                                const result = await testHost.mutateAsync(host.id)
-                                setHostActionMessage(`${host.id}: ${result.ok ? t('settings.hostTestOk') : result.message}`)
-                              } catch (err: any) {
-                                setHostActionMessage(err?.message || t('settings.hostTestFailed'))
-                              }
-                            }}
-                          >
-                            {t('settings.hostTest')}
-                          </Chip>
-                          <Chip
-                            tone="danger"
-                            onClick={() => { setHostActionMessage(''); setPendingDeleteHostId(host.id) }}
-                          >
-                            {t('settings.hostRemove')}
-                          </Chip>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  {!!hostActionMessage && <span className="block text-xs text-text-2">{hostActionMessage}</span>}
-                </div>
-              </div>
-
-              <div>
-                <h3 className="text-text-1 text-sm font-medium mb-3">{t('settings.terminal')}</h3>
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-text-2 text-sm">{t('settings.fontSize')}</span>
-                    <div className="flex items-center gap-2">
-                      <Chip
-                        onClick={() => updatePreferences({ fontSize: Math.max(8, Math.round((preferences.fontSize - 1) * 10) / 10) })}
-                      >
-                        -
-                      </Chip>
-                      <span className="text-text-1 text-sm w-12 text-center">{fontSizeLabel}px</span>
-                      <Chip
-                        onClick={() => updatePreferences({ fontSize: Math.min(20, Math.round((preferences.fontSize + 1) * 10) / 10) })}
-                      >
-                        +
-                      </Chip>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-text-2 text-sm">{t('settings.cursorBlink')}</span>
-                    <button
-                      onClick={() => updatePreferences({ cursorBlink: !preferences.cursorBlink })}
-                      className={`w-10 h-6 rounded-full relative ${
-                        preferences.cursorBlink ? 'bg-accent' : 'bg-bg-2'
-                      }`}
-                    >
-                      <div
-                        className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${
-                          preferences.cursorBlink ? 'right-1' : 'left-1'
-                        }`}
-                      />
-                    </button>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-text-2 text-sm">{t('settings.terminalPadding')}</span>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="range"
-                        min={0}
-                        max={20}
-                        value={terminalPaddingDraft}
-                        onChange={(e) => {
-                          const next = Number(e.target.value)
-                          setTerminalPaddingDraft(next)
-                          updatePreferences({ terminalPadding: next })
-                        }}
-                        className="w-24 accent-accent"
-                      />
-                      <span className="text-text-1 text-sm w-8 text-center">{terminalPaddingDraft}px</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-text-2 text-sm">{t('settings.uploadRateLimit')}</span>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="range"
-                        min={50}
-                        max={2048}
-                        step={50}
-                        value={uploadRateLimitDraft}
-                        onChange={(e) => setUploadRateLimitDraft(Number(e.target.value))}
-                        onMouseUp={commitUploadRateLimit}
-                        onTouchEnd={commitUploadRateLimit}
-                        onKeyUp={commitUploadRateLimit}
-                        className="w-24 accent-accent"
-                      />
-                      <span className="text-text-1 text-sm w-16 text-center">{uploadRateLimitDraft}KB/s</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-text-2 text-sm">{t('settings.downloadRateLimit')}</span>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="range"
-                        min={50}
-                        max={2048}
-                        step={50}
-                        value={downloadRateLimitDraft}
-                        onChange={(e) => setDownloadRateLimitDraft(Number(e.target.value))}
-                        onMouseUp={commitDownloadRateLimit}
-                        onTouchEnd={commitDownloadRateLimit}
-                        onKeyUp={commitDownloadRateLimit}
-                        className="w-24 accent-accent"
-                      />
-                      <span className="text-text-1 text-sm w-16 text-center">{downloadRateLimitDraft}KB/s</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
 
               <div className="pt-4 border-t border-[var(--line)]">
                 <Button size="sm" onClick={resetPreferences}>
                   {t('settings.resetDefaults')}
                 </Button>
               </div>
+
             </div>
           )}
 
@@ -600,24 +392,237 @@ export function Settings({ onClose }: SettingsProps) {
                   </div>
                 </div>
               </div>
+
+              <div>
+                <h3 className="text-text-1 text-sm font-medium mb-3">{t('settings.terminal')}</h3>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-text-2 text-sm">{t('settings.fontSize')}</span>
+                    <div className="flex items-center gap-2">
+                      <Chip
+                        onClick={() => updatePreferences({ fontSize: Math.max(8, Math.round((preferences.fontSize - 1) * 10) / 10) })}
+                      >
+                        -
+                      </Chip>
+                      <span className="text-text-1 text-sm w-12 text-center">{fontSizeLabel}px</span>
+                      <Chip
+                        onClick={() => updatePreferences({ fontSize: Math.min(20, Math.round((preferences.fontSize + 1) * 10) / 10) })}
+                      >
+                        +
+                      </Chip>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-text-2 text-sm">{t('settings.cursorBlink')}</span>
+                    <button
+                      onClick={() => updatePreferences({ cursorBlink: !preferences.cursorBlink })}
+                      className={`w-10 h-6 rounded-full relative ${
+                        preferences.cursorBlink ? 'bg-accent' : 'bg-bg-2'
+                      }`}
+                    >
+                      <div
+                        className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${
+                          preferences.cursorBlink ? 'right-1' : 'left-1'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-text-2 text-sm">{t('settings.terminalPadding')}</span>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="range"
+                        min={0}
+                        max={20}
+                        value={terminalPaddingDraft}
+                        onChange={(e) => {
+                          const next = Number(e.target.value)
+                          setTerminalPaddingDraft(next)
+                          updatePreferences({ terminalPadding: next })
+                        }}
+                        className="w-24 accent-accent"
+                      />
+                      <span className="text-text-1 text-sm w-8 text-center">{terminalPaddingDraft}px</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'connection' && (
+            <div className="space-y-6">
+              <div>
+                <h3 className="text-text-1 text-sm font-medium mb-3">{t('settings.hosts')}</h3>
+                <div className="space-y-3 rounded-apple border border-[var(--line)] p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-text-3">{t('settings.hosts')}</span>
+                    <Button variant="primary" size="sm" onClick={openCreateHostDialog}>{t('settings.hostNew')}</Button>
+                  </div>
+                  <div className="space-y-2">
+                    {hosts.filter((host: any) => host.id !== 'local').map((host: any) => (
+                      <div key={host.id} className="rounded-apple border border-[var(--line)] bg-bg-2 px-2 py-2">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm text-text-1">{host.name || host.id}</div>
+                          <div className="truncate text-xs text-text-3">{host.id} {host.user ? `${host.user}@` : ''}{host.address}:{host.port || 22}</div>
+                          {!!host.hasPassword && <div className="truncate text-xs text-text-3">{t('settings.hostPasswordSaved')}</div>}
+                        </div>
+                        <div className="mt-2 flex items-center gap-1">
+                          <Chip onClick={() => openEditHostDialog(host)}>{t('settings.hostEdit')}</Chip>
+                          <Chip
+                            onClick={async () => {
+                              setHostActionMessage('')
+                              try {
+                                const result = await testHost.mutateAsync(host.id)
+                                setHostActionMessage(`${host.id}: ${result.ok ? t('settings.hostTestOk') : result.message}`)
+                              } catch (err: any) {
+                                setHostActionMessage(err?.message || t('settings.hostTestFailed'))
+                              }
+                            }}
+                          >
+                            {t('settings.hostTest')}
+                          </Chip>
+                          <Chip
+                            tone="danger"
+                            onClick={() => { setHostActionMessage(''); setPendingDeleteHostId(host.id) }}
+                          >
+                            {t('settings.hostRemove')}
+                          </Chip>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {!!hostActionMessage && <span className="block text-xs text-text-2">{hostActionMessage}</span>}
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-text-1 text-sm font-medium mb-3">{t('settings.transfer')}</h3>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-text-2 text-sm">{t('settings.uploadRateLimit')}</span>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="range"
+                        min={50}
+                        max={2048}
+                        step={50}
+                        value={uploadRateLimitDraft}
+                        onChange={(e) => setUploadRateLimitDraft(Number(e.target.value))}
+                        onMouseUp={commitUploadRateLimit}
+                        onTouchEnd={commitUploadRateLimit}
+                        onKeyUp={commitUploadRateLimit}
+                        className="w-24 accent-accent"
+                      />
+                      <span className="text-text-1 text-sm w-16 text-center">{uploadRateLimitDraft}KB/s</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-text-2 text-sm">{t('settings.downloadRateLimit')}</span>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="range"
+                        min={50}
+                        max={2048}
+                        step={50}
+                        value={downloadRateLimitDraft}
+                        onChange={(e) => setDownloadRateLimitDraft(Number(e.target.value))}
+                        onMouseUp={commitDownloadRateLimit}
+                        onTouchEnd={commitDownloadRateLimit}
+                        onKeyUp={commitDownloadRateLimit}
+                        className="w-24 accent-accent"
+                      />
+                      <span className="text-text-1 text-sm w-16 text-center">{downloadRateLimitDraft}KB/s</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'session' && (
+            <div className="space-y-6">
+              <div>
+                <h3 className="text-text-1 text-sm font-medium mb-3">{t('settings.sessionContinuity')}</h3>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-text-2 text-sm">{t('settings.sessionContinuityEnabled')}</span>
+                    <button
+                      onClick={() => updateSessionContinuity({ enabled: !sessionContinuity.enabled })}
+                      className={`w-10 h-6 rounded-full relative ${sessionContinuity.enabled ? 'bg-accent' : 'bg-bg-2'}`}
+                    >
+                      <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${sessionContinuity.enabled ? 'right-1' : 'left-1'}`} />
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-text-2 text-sm">{t('settings.resumeOnReconnect')}</span>
+                    <button
+                      onClick={() => updateSessionContinuity({ resumeOnReconnect: !sessionContinuity.resumeOnReconnect })}
+                      className={`w-10 h-6 rounded-full relative ${sessionContinuity.resumeOnReconnect ? 'bg-accent' : 'bg-bg-2'}`}
+                    >
+                      <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${sessionContinuity.resumeOnReconnect ? 'right-1' : 'left-1'}`} />
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-text-2 text-sm">{t('settings.resumeOnNewDevice')}</span>
+                    <button
+                      onClick={() => updateSessionContinuity({ resumeOnNewDevice: !sessionContinuity.resumeOnNewDevice })}
+                      className={`w-10 h-6 rounded-full relative ${sessionContinuity.resumeOnNewDevice ? 'bg-accent' : 'bg-bg-2'}`}
+                    >
+                      <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${sessionContinuity.resumeOnNewDevice ? 'right-1' : 'left-1'}`} />
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-text-2 text-sm">{t('settings.archiveEnabled')}</span>
+                    <button
+                      onClick={() => updateSessionContinuity({ archive: { ...sessionContinuity.archive, enabled: !sessionContinuity.archive.enabled, captureMode: sessionContinuity.archive.enabled ? 'none' : sessionContinuity.archive.captureMode === 'none' ? 'visible' : sessionContinuity.archive.captureMode } })}
+                      className={`w-10 h-6 rounded-full relative ${sessionContinuity.archive.enabled ? 'bg-accent' : 'bg-bg-2'}`}
+                    >
+                      <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${sessionContinuity.archive.enabled ? 'right-1' : 'left-1'}`} />
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-text-2 text-sm">{t('settings.archiveCaptureMode')}</span>
+                    <select value={sessionContinuity.archive.captureMode === 'none' ? 'visible' : sessionContinuity.archive.captureMode} disabled={!sessionContinuity.archive.enabled} onChange={(event) => updateSessionContinuity({ archive: { ...sessionContinuity.archive, captureMode: event.target.value as 'visible' | 'history' } })} className="tmuxgo-control tmuxgo-select rounded-apple px-3 py-1.5 text-sm disabled:opacity-50"><option value="visible">{t('settings.archiveVisible')}</option><option value="history">{t('settings.archiveHistory')}</option></select>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-text-2 text-sm">{t('settings.archiveMaxSize')}</span>
+                    <select value={sessionContinuity.archive.maxBytesPerSession} disabled={!sessionContinuity.archive.enabled} onChange={(event) => updateSessionContinuity({ archive: { ...sessionContinuity.archive, maxBytesPerSession: Number(event.target.value) } })} className="tmuxgo-control tmuxgo-select rounded-apple px-3 py-1.5 text-sm disabled:opacity-50"><option value={262144}>256 KB</option><option value={1048576}>1 MB</option><option value={4194304}>4 MB</option><option value={16777216}>16 MB</option><option value={33554432}>32 MB</option></select>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-text-2 text-sm">{t('settings.archiveRetention')}</span>
+                    <input type="number" min={1} max={3650} value={sessionContinuity.archive.retentionDays} disabled={!sessionContinuity.archive.enabled} onChange={(event) => updateSessionContinuity({ archive: { ...sessionContinuity.archive, retentionDays: Math.max(1, Math.min(3650, Number(event.target.value) || 1)) } })} className="tmuxgo-control tmuxgo-input w-20 rounded-apple px-2 py-1.5 text-right text-sm disabled:opacity-50" />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-text-2 text-sm">{t('settings.resumePointCount')}</span>
+                    <span className="text-text-1 text-sm">{sessionContinuity.resumePoints.length}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-text-2 text-sm">{t('settings.maxResumePoints')}</span>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="range"
+                        min={1}
+                        max={100}
+                        value={sessionContinuity.maxResumePoints}
+                        onChange={(event) => updateSessionContinuity({ maxResumePoints: Number(event.target.value) })}
+                        className="w-24 accent-accent"
+                      />
+                      <span className="text-text-1 text-sm w-8 text-center">{sessionContinuity.maxResumePoints}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-end">
+                    <Button size="sm" className="mr-2" onClick={openArchiveDialog}>{t('settings.viewArchives')}</Button>
+                    <Button size="sm" onClick={() => updateSessionContinuity({ resumePoints: [] })}>
+                      {t('settings.clearResumePoints')}
+                    </Button>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
           {activeTab === 'plugins' && <PluginSettings />}
-
-          {activeTab === 'audit' && (
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h3 className="text-text-1 text-sm font-medium">{t('settings.auditLog')}</h3>
-                  <p className="text-text-3 text-xs mt-1">{t('settings.auditDesc')}</p>
-                </div>
-                <Button variant="primary" onClick={() => setShowAuditLog(true)}>
-                  {t('settings.viewLog')}
-                </Button>
-              </div>
-            </div>
-          )}
 
           {activeTab === 'about' && (
             <div className="space-y-4">
@@ -668,6 +673,15 @@ export function Settings({ onClose }: SettingsProps) {
                 </div>
               </div>
               {appUpdateAvailable && <div className="text-xs text-text-3">{t('settings.aboutRefresh')}</div>}
+              <div className="rounded-apple border border-[var(--line)] bg-bg-2 p-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-text-1">{t('settings.auditLog')}</div>
+                    <div className="mt-1 text-xs text-text-3">{t('settings.auditDesc')}</div>
+                  </div>
+                  <Button variant="primary" className="shrink-0" onClick={() => setShowAuditLog(true)}>{t('settings.viewLog')}</Button>
+                </div>
+              </div>
               <div className="flex items-center justify-end">
                 <Button variant="primary" onClick={() => void copyVersionInfo()}>{t('settings.aboutCopy')}</Button>
               </div>
