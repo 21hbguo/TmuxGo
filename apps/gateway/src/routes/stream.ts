@@ -335,8 +335,8 @@ export async function streamRoutes(fastify: FastifyInstance) {
         return
       }
       if (outputTimer) return
-      const flushDelay = profile.flushInterval
-      if (flushDelay <= 0 || (outputProfile === 'foreground' && !clientBackpressureHigh && getSocketBufferedBytes() < SOCKET_BUFFER_HIGH_WATERMARK / 8 && outputBuffer.length >= STREAM_COMPRESS_THRESHOLD)) {
+      const flushDelay = cellModeActive ? Math.max(profile.flushInterval, 16) : profile.flushInterval
+      if (flushDelay <= 0 || (outputProfile === 'foreground' && !clientBackpressureHigh && getSocketBufferedBytes() < SOCKET_BUFFER_HIGH_WATERMARK / 8 && outputBuffer.length >= STREAM_COMPRESS_THRESHOLD && !cellModeActive)) {
         flushOutput()
         return
       }
