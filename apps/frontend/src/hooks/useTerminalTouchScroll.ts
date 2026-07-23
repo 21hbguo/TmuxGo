@@ -12,9 +12,9 @@ interface UseTerminalTouchScrollOptions {
   onTwoFingerTap?: (x: number, y: number) => void
 }
 
-const TWO_FINGER_TAP_MS = 700
-const TWO_FINGER_MOVE_PX = 56
-const TWO_FINGER_PINCH_PX = 28
+const TWO_FINGER_TAP_MS = 800
+const TWO_FINGER_MOVE_PX = 72
+const TWO_FINGER_PINCH_PX = 40
 
 export function useTerminalTouchScroll({ isMobile, onScroll, onTap, onTouchMovedChange, onSwipeLeft, onSwipeRight, onTwoFingerTap }: UseTerminalTouchScrollOptions) {
   const lastTapRef = useRef<{ x: number; y: number } | null>(null)
@@ -23,11 +23,14 @@ export function useTerminalTouchScroll({ isMobile, onScroll, onTap, onTouchMoved
   const twoFingerRef = useRef({
     active: false,
     valid: false,
+    fired: false,
     startTime: 0,
     x0: 0,
     y0: 0,
     x1: 0,
     y1: 0,
+    id0: -1,
+    id1: -1,
     distance: 0,
   })
   const stateRef = useRef({
@@ -53,8 +56,11 @@ export function useTerminalTouchScroll({ isMobile, onScroll, onTap, onTouchMoved
   const resetTwoFinger = useCallback(() => {
     twoFingerRef.current.active = false
     twoFingerRef.current.valid = false
+    twoFingerRef.current.fired = false
     twoFingerRef.current.startTime = 0
     twoFingerRef.current.distance = 0
+    twoFingerRef.current.id0 = -1
+    twoFingerRef.current.id1 = -1
   }, [])
   const armTwoFinger = useCallback((touches: TouchList) => {
     if (touches.length !== 2 || !onTwoFingerTapRef.current) {
@@ -66,19 +72,29 @@ export function useTerminalTouchScroll({ isMobile, onScroll, onTap, onTouchMoved
     twoFingerRef.current = {
       active: true,
       valid: true,
+      fired: false,
       startTime: performance.now(),
       x0: a.clientX,
       y0: a.clientY,
       x1: b.clientX,
       y1: b.clientY,
+      id0: a.identifier,
+      id1: b.identifier,
       distance: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY),
     }
   }, [resetTwoFinger])
+  const findTouch = (touches: TouchList, id: number) => {
+    for (let i = 0; i < touches.length; i += 1) {
+      if (touches[i].identifier === id) return touches[i]
+    }
+    return null
+  }
   const invalidateTwoFingerIfMoved = useCallback((touches: TouchList) => {
     const state = twoFingerRef.current
-    if (!state.active || !state.valid || touches.length < 2) return
-    const a = touches[0]
-    const b = touches[1]
+    if (!state.active || !state.valid) return
+    const a = findTouch(touches, state.id0) || touches[0]
+    const b = findTouch(touches, state.id1) || touches[1]
+    if (!a || !b) return
     const move0 = Math.hypot(a.clientX - state.x0, a.clientY - state.y0)
     const move1 = Math.hypot(b.clientX - state.x1, b.clientY - state.y1)
     const distance = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)
@@ -86,6 +102,17 @@ export function useTerminalTouchScroll({ isMobile, onScroll, onTap, onTouchMoved
       state.valid = false
     }
   }, [])
+  const tryFireTwoFingerTap = useCallback(() => {
+    const state = twoFingerRef.current
+    if (!state.active || !state.valid || state.fired || !onTwoFingerTapRef.current) return false
+    if (performance.now() - state.startTime > TWO_FINGER_TAP_MS) return false
+    state.fired = true
+    stateRef.current.moved = true
+    onTouchMovedChange(true)
+    lastTapRef.current = null
+    onTwoFingerTapRef.current((state.x0 + state.x1) / 2, (state.y0 + state.y1) / 2)
+    return true
+  }, [onTouchMovedChange])
   const handleTouchStart = useCallback((e: TouchEvent) => {
     if (!isMobile) return
     lastTapRef.current = null
@@ -161,19 +188,13 @@ export function useTerminalTouchScroll({ isMobile, onScroll, onTap, onTouchMoved
   const handleTouchEnd = useCallback((e: TouchEvent) => {
     const twoFinger = twoFingerRef.current
     if (twoFinger.active && e.touches.length < 2) {
-      const duration = performance.now() - twoFinger.startTime
-      const shouldTap = twoFinger.valid && duration <= TWO_FINGER_TAP_MS && !!onTwoFingerTapRef.current
-      const x = (twoFinger.x0 + twoFinger.x1) / 2
-      const y = (twoFinger.y0 + twoFinger.y1) / 2
+      const fired = tryFireTwoFingerTap()
       if (e.touches.length === 0) resetTwoFinger()
-      else twoFinger.active = false
-      if (shouldTap) {
-        stateRef.current.moved = true
-        onTouchMovedChange(true)
-        lastTapRef.current = null
-        onTwoFingerTapRef.current?.(x, y)
-        return
+      else {
+        twoFinger.active = false
+        twoFinger.valid = false
       }
+      if (fired) return
     }
     onTouchMovedChange(stateRef.current.moved)
     const touch = e.changedTouches[0]
@@ -214,7 +235,7 @@ export function useTerminalTouchScroll({ isMobile, onScroll, onTap, onTouchMoved
       stateRef.current.momentumTimer = setTimeout(decay, 16)
     }
     stateRef.current.momentumTimer = setTimeout(decay, 16)
-  }, [onScroll, onTap, onTouchMovedChange, onSwipeLeft, onSwipeRight, resetTwoFinger])
+  }, [onScroll, onTap, onTouchMovedChange, onSwipeLeft, onSwipeRight, resetTwoFinger, tryFireTwoFingerTap])
   const handleTouchCancel = useCallback(() => {
     clearMomentum()
     resetTwoFinger()

@@ -239,7 +239,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   const { optimisticallyToggleWindowZoom, discardOptimisticWindowZoom, refreshSnapshot } = useSessionSnapshotSync()
   const resolvePaneAtPointRef = useRef<(x: number, y: number) => string | null>(() => null)
   const zoomInFlightRef = useRef(false)
-  const [mobilePaneZoomControls, setMobilePaneZoomControls] = useState<Array<{ id: string; left: number; top: number; width: number; height: number; zoomed: boolean }>>([])
   const updateTerminalPerf = useConsoleStore((s) => s.updateTerminalPerf)
   const recordTerminalOutput = useTerminalOutput()
   const queryClient = useOptionalQueryClient()
@@ -487,71 +486,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       if (Math.abs(fontSize - preferencesRef.current.fontSize) >= MOBILE_PINCH_FONT_SIZE_EPSILON) updatePreferencesRef.current({ fontSize })
     }, DESKTOP_PINCH_COMMIT_DELAY)
   }, [applyPinchFontSize, clampMobileFontSize, isMobileDevice])
-  const syncMobilePaneZoomControls = useCallback(() => {
-    if (!isMobileDevice) {
-      setMobilePaneZoomControls((prev) => prev.length ? [] : prev)
-      return
-    }
-    const terminal = terminalInstance.current
-    const container = terminalRef.current
-    if (!terminal?.cols || !terminal?.rows || !container) {
-      setMobilePaneZoomControls((prev) => prev.length ? [] : prev)
-      return
-    }
-    const hostId = activeHostIdRef.current
-    const currentSessionName = sessionNameRef.current
-    if (!hostId || !currentSessionName) {
-      setMobilePaneZoomControls((prev) => prev.length ? [] : prev)
-      return
-    }
-    const key = ['session-snapshot', hostId, buildSessionId(hostId, currentSessionName)]
-    const snapshot = sessionSnapshotRef.current || queryClient?.getQueryData?.(key)
-    if (!snapshot) {
-      setMobilePaneZoomControls((prev) => prev.length ? [] : prev)
-      return
-    }
-    sessionSnapshotRef.current = snapshot
-    const windows = Array.isArray(snapshot?.windows) ? snapshot.windows : []
-    const activeWindow = windows.find((item: any) => item.id === snapshot?.activeWindowId) || windows.find((item: any) => item.active)
-    const activePaneId = String(snapshot?.activePaneId || '')
-    const windowId = String(activeWindow?.id || '')
-    const panes = Array.isArray(snapshot?.panes) ? snapshot.panes : []
-    const filtered = windowId ? panes.filter((pane: any) => String(pane.windowId || '') === windowId) : panes
-    const zoomed = Boolean(activeWindow?.zoomed)
-    const visible = zoomed && activePaneId ? filtered.filter((pane: any) => String(pane?.id || pane?.tmuxPaneId || '') === activePaneId) : filtered
-    const bounds = visible.map((pane: any) => {
-      const id = String(pane?.id ?? pane?.tmuxPaneId ?? '')
-      const left = Number(pane?.left ?? pane?.position?.left)
-      const top = Number(pane?.top ?? pane?.position?.top)
-      const cols = Number(pane?.size?.cols ?? pane?.cols)
-      const rows = Number(pane?.size?.rows ?? pane?.rows)
-      if (!id || ![left, top, cols, rows].every(Number.isFinite) || cols <= 0 || rows <= 0) return null
-      return { id, left, top, cols, rows }
-    }).filter(Boolean) as Array<{ id: string; left: number; top: number; cols: number; rows: number }>
-    if (bounds.length < 2 && !zoomed) {
-      setMobilePaneZoomControls((prev) => prev.length ? [] : prev)
-      return
-    }
-    const screen = terminal.element?.querySelector('.xterm-screen') as HTMLElement | null
-    const screenRect = (screen || container).getBoundingClientRect()
-    const containerRect = container.getBoundingClientRect()
-    if (!screenRect.width || !screenRect.height) {
-      setMobilePaneZoomControls((prev) => prev.length ? [] : prev)
-      return
-    }
-    const cellW = screenRect.width / terminal.cols
-    const cellH = screenRect.height / terminal.rows
-    const offsetX = screenRect.left - containerRect.left
-    const offsetY = screenRect.top - containerRect.top
-    setMobilePaneZoomControls(bounds.map((pane) => ({
-      id: pane.id,
-      left: offsetX + pane.left * cellW,
-      top: offsetY + pane.top * cellH,
-      width: pane.cols * cellW,
-      height: pane.rows * cellH,
-      zoomed,
-    })))
-  }, [isMobileDevice, queryClient])
   const zoomPaneById = useCallback((paneId: string | null) => {
     if (!paneId || zoomInFlightRef.current) return
     setActivePane(paneId)
@@ -563,17 +497,15 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         await api.panes.zoomByPane(paneId)
         await refreshSnapshot().catch(() => {})
         window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'zoom-pane' } }))
-        syncMobilePaneZoomControls()
       } catch (err) {
         discardOptimisticWindowZoom(paneId)
         await refreshSnapshot().catch(() => {})
         pushToast({ type: 'error', message: err instanceof Error ? err.message : tRef.current('pane.zoomFailed') })
-        syncMobilePaneZoomControls()
       } finally {
         zoomInFlightRef.current = false
       }
     })()
-  }, [discardOptimisticWindowZoom, optimisticallyToggleWindowZoom, pushToast, refreshSnapshot, setActivePane, syncMobilePaneZoomControls])
+  }, [discardOptimisticWindowZoom, optimisticallyToggleWindowZoom, pushToast, refreshSnapshot, setActivePane])
   const handleTwoFingerTap = useCallback((x: number, y: number) => {
     const paneId = resolvePaneAtPointRef.current(x, y) || useConsoleStore.getState().activePaneId
     zoomPaneById(paneId)
@@ -587,47 +519,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     onSwipeRight,
     onTwoFingerTap: handleTwoFingerTap,
   })
-  useEffect(() => {
-    if (!isMobileDevice) {
-      setMobilePaneZoomControls([])
-      return
-    }
-    let cancelled = false
-    const sync = () => {
-      if (!cancelled) syncMobilePaneZoomControls()
-    }
-    const ensureSnapshot = async () => {
-      const hostId = activeHostIdRef.current
-      const currentSessionName = sessionNameRef.current
-      if (!hostId || !currentSessionName) return
-      const key = ['session-snapshot', hostId, buildSessionId(hostId, currentSessionName)]
-      if (sessionSnapshotRef.current || queryClient?.getQueryData?.(key)) {
-        sync()
-        return
-      }
-      try {
-        const snapshot = await api.snapshot.get(hostId, buildSessionId(hostId, currentSessionName))
-        if (cancelled) return
-        sessionSnapshotRef.current = snapshot
-        queryClient?.setQueryData?.(key, snapshot)
-        sync()
-      } catch {
-        sync()
-      }
-    }
-    void ensureSnapshot()
-    window.addEventListener('tmuxgo-layout-change', sync as EventListener)
-    window.addEventListener('tmux-resized', sync as EventListener)
-    window.addEventListener('resize', sync)
-    const timer = window.setInterval(sync, 1200)
-    return () => {
-      cancelled = true
-      window.removeEventListener('tmuxgo-layout-change', sync as EventListener)
-      window.removeEventListener('tmux-resized', sync as EventListener)
-      window.removeEventListener('resize', sync)
-      window.clearInterval(timer)
-    }
-  }, [isMobileDevice, syncMobilePaneZoomControls, sessionName, activeHostId, queryClient])
   useEffect(() => {
     onInputRef.current = onInput
   }, [onInput])
@@ -2274,25 +2165,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           <button type="button" data-testid="github-device-login-copy" onClick={() => void copyGithubDeviceLogin()} className="flex-1 rounded-apple border border-[var(--line)] bg-bg-1 px-3 py-2 text-sm text-text-2 transition-transform active:scale-[0.98]">{t('githubAuth.copy')}</button>
         </div>
       </div>}
-      {isMobileDevice && mobilePaneZoomControls.map((pane) => (
-        <button
-          key={pane.id}
-          type="button"
-          data-testid="mobile-pane-zoom"
-          data-pane-id={pane.id}
-          data-keep-mobile-keyboard
-          aria-label={pane.zoomed ? t('quick.zoom') : t('quick.zoom')}
-          title={t('quick.zoom')}
-          className="absolute z-[15] flex h-9 w-9 items-center justify-center rounded-full border border-accent/40 bg-bg-0/88 text-base text-accent shadow-[0_8px_20px_rgba(0,0,0,0.35)] backdrop-blur-sm active:scale-95"
-          style={{ left: Math.max(4, pane.left + pane.width - 40), top: Math.max(4, pane.top + 6) }}
-          onPointerDown={(e) => { e.preventDefault(); e.stopPropagation() }}
-          onTouchStart={(e) => { e.preventDefault(); e.stopPropagation() }}
-          onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); zoomPaneById(pane.id) }}
-          onClick={(e) => { e.preventDefault(); e.stopPropagation(); zoomPaneById(pane.id) }}
-        >
-          {pane.zoomed ? '⊡' : '⛶'}
-        </button>
-      ))}
       {isMobileDevice && (
         <textarea
           ref={textareaRef}
