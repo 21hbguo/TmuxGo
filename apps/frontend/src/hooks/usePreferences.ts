@@ -192,8 +192,66 @@ function applyThemeChrome(theme: Preferences['theme']) {
   return themeHex
 }
 
-function getFullscreenElement() {
+const MOBILE_BROWSER_UA = /Android|iPhone|iPad|iPod|Mobile|HarmonyOS|Windows Phone/i
+
+export function isMobileBrowser() {
+  return typeof navigator !== 'undefined' && MOBILE_BROWSER_UA.test(navigator.userAgent)
+}
+
+export function getFullscreenElement() {
   return document.fullscreenElement || (document as any).webkitFullscreenElement || null
+}
+
+async function requestAppFullscreen() {
+  const el = document.documentElement as any
+  if (el.requestFullscreen) return el.requestFullscreen({ navigationUI: 'hide' })
+  if (el.webkitRequestFullscreen) return el.webkitRequestFullscreen()
+  throw new Error('fullscreen-unsupported')
+}
+
+async function exitAppFullscreen() {
+  const doc = document as any
+  if (document.exitFullscreen && getFullscreenElement()) return document.exitFullscreen()
+  if (doc.webkitExitFullscreen && getFullscreenElement()) return doc.webkitExitFullscreen()
+}
+
+function persistImmersivePreference(active: boolean) {
+  if (preferencesStore.immersiveFullscreen === active) return preferencesStore
+  const updated = { ...preferencesStore, immersiveFullscreen: active }
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...updated, _v: PREFERENCES_VERSION }))
+  emitPreferences(updated)
+  return updated
+}
+
+export function applyImmersivePresentation(active: boolean) {
+  document.documentElement.toggleAttribute('data-immersive-fullscreen', active)
+  applyThemeChrome(preferencesStore.theme)
+  if (active) {
+    document.documentElement.style.setProperty('--immersive-vh', `${Math.round(window.innerHeight || (typeof screen !== 'undefined' ? screen.height : 0) || 0)}px`)
+  } else {
+    document.documentElement.style.removeProperty('--immersive-vh')
+  }
+  window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'immersive-fullscreen', active } }))
+}
+
+export async function setImmersiveFullscreenMode(active: boolean) {
+  persistImmersivePreference(active)
+  applyImmersivePresentation(active)
+  if (active) {
+    if (!isMobileBrowser()) {
+      try {
+        await requestAppFullscreen()
+      } catch {}
+    } else if (getFullscreenElement()) {
+      try {
+        await exitAppFullscreen()
+      } catch {}
+    }
+  } else if (getFullscreenElement()) {
+    try {
+      await exitAppFullscreen()
+    } catch {}
+  }
 }
 
 export function usePreferences() {
@@ -267,33 +325,34 @@ export function usePreferences() {
     applyThemeChrome(preferences.theme)
     applyDocumentFont(preferences.fontFamily)
     void ensureAppFontLoaded(preferences.fontFamily, preferences.fontSize)
-  }, [preferences.theme, preferences.fontFamily, preferences.fontSize])
+    if (preferences.immersiveFullscreen) applyImmersivePresentation(true)
+  }, [preferences.theme, preferences.fontFamily, preferences.fontSize, preferences.immersiveFullscreen])
 
   useEffect(() => {
-    const sync = () => {
-      const active = !!getFullscreenElement()
-      document.documentElement.toggleAttribute('data-immersive-fullscreen', active)
-      applyThemeChrome(preferencesStore.theme)
-      if (active) {
-        document.documentElement.style.setProperty('--immersive-vh', `${Math.round(window.innerHeight || screen.height || 0)}px`)
-      } else {
-        document.documentElement.style.removeProperty('--immersive-vh')
+    applyImmersivePresentation(preferencesStore.immersiveFullscreen)
+    const syncFs = () => {
+      const fs = !!getFullscreenElement()
+      const want = preferencesStore.immersiveFullscreen
+      if (!isMobileBrowser() && !fs && want) {
+        persistImmersivePreference(false)
+        applyImmersivePresentation(false)
+        return
       }
-      window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'immersive-fullscreen', active } }))
-      if (!active && preferencesStore.immersiveFullscreen) {
-        const updated = { ...preferencesStore, immersiveFullscreen: false }
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...updated, _v: PREFERENCES_VERSION }))
-        emitPreferences(updated)
+      applyImmersivePresentation(want)
+      if (isMobileBrowser() && fs) {
+        void exitAppFullscreen().catch(() => {})
       }
     }
-    sync()
-    document.addEventListener('fullscreenchange', sync)
-    document.addEventListener('webkitfullscreenchange', sync as any)
-    window.addEventListener('resize', sync)
+    const onResize = () => {
+      if (preferencesStore.immersiveFullscreen) applyImmersivePresentation(true)
+    }
+    document.addEventListener('fullscreenchange', syncFs)
+    document.addEventListener('webkitfullscreenchange', syncFs as any)
+    window.addEventListener('resize', onResize)
     return () => {
-      document.removeEventListener('fullscreenchange', sync)
-      document.removeEventListener('webkitfullscreenchange', sync as any)
-      window.removeEventListener('resize', sync)
+      document.removeEventListener('fullscreenchange', syncFs)
+      document.removeEventListener('webkitfullscreenchange', syncFs as any)
+      window.removeEventListener('resize', onResize)
     }
   }, [])
 
@@ -318,6 +377,8 @@ export function usePreferences() {
     localStorage.setItem(STORAGE_UPDATED_AT_KEY, now)
     applyDocumentFont(defaultPreferences.fontFamily)
     emitPreferences(defaultPreferences)
+    applyImmersivePresentation(false)
+    void exitAppFullscreen().catch(() => {})
     void api.preferences.update({ uiPreferences: toUiPreferences(defaultPreferences), uiPreferencesUpdatedAt: now }, PROFILE).catch(() => {})
   }, [])
 

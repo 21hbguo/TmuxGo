@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { AuditLog } from './AuditLog'
 import { ConfirmDialog } from './ConfirmDialog'
-import { usePreferences } from '@/hooks/usePreferences'
+import { setImmersiveFullscreenMode, usePreferences } from '@/hooks/usePreferences'
 import { useTranslation } from '@/i18n'
 import { useSessionContinuity } from '@/hooks/useSessionContinuity'
 import { useConsoleStore } from '@/stores/useConsoleStore'
@@ -21,21 +21,6 @@ interface SettingsProps {
   onClose: () => void
 }
 
-function getFullscreenElement() {
-  return document.fullscreenElement || (document as any).webkitFullscreenElement || null
-}
-async function requestAppFullscreen() {
-  const el = document.documentElement as any
-  if (el.requestFullscreen) return el.requestFullscreen({ navigationUI: 'hide' })
-  if (el.webkitRequestFullscreen) return el.webkitRequestFullscreen()
-  throw new Error('fullscreen-unsupported')
-}
-async function exitAppFullscreen() {
-  const doc = document as any
-  if (document.exitFullscreen && getFullscreenElement()) return document.exitFullscreen()
-  if (doc.webkitExitFullscreen && getFullscreenElement()) return doc.webkitExitFullscreen()
-}
-
 export function Settings({ onClose }: SettingsProps) {
   const { preferences, updatePreferences, resetPreferences } = usePreferences()
   const { sessionContinuity, updateSessionContinuity } = useSessionContinuity()
@@ -44,7 +29,6 @@ export function Settings({ onClose }: SettingsProps) {
   const activeHostId = useConsoleStore((state) => state.activeHostId)
   const { copy } = useClipboard()
   const [activeTab, setActiveTab] = useState<'general' | 'appearance' | 'connection' | 'session' | 'plugins' | 'about'>('general')
-  const [isImmersiveFullscreen, setIsImmersiveFullscreen] = useState(() => !!getFullscreenElement())
   const [showAuditLog, setShowAuditLog] = useState(false)
   const [hostIdDraft, setHostIdDraft] = useState('')
   const [hostNameDraft, setHostNameDraft] = useState('')
@@ -229,30 +213,10 @@ export function Settings({ onClose }: SettingsProps) {
   }
   const restartStatusLabel = restartStatus.status === 'running' ? t('settings.restartStatusRunning') : restartStatus.status === 'success' ? t('settings.restartStatusSuccess') : restartStatus.status === 'error' ? t('settings.restartStatusFailed') : t('settings.restartStatusIdle')
 
-  useEffect(() => {
-    const sync = () => setIsImmersiveFullscreen(!!getFullscreenElement())
-    document.addEventListener('fullscreenchange', sync)
-    document.addEventListener('webkitfullscreenchange', sync as any)
-    sync()
-    return () => {
-      document.removeEventListener('fullscreenchange', sync)
-      document.removeEventListener('webkitfullscreenchange', sync as any)
-    }
-  }, [])
   const toggleImmersiveFullscreen = async () => {
     try {
-      if (getFullscreenElement()) {
-        await exitAppFullscreen()
-        updatePreferences({ immersiveFullscreen: false })
-        setIsImmersiveFullscreen(false)
-      } else {
-        await requestAppFullscreen()
-        updatePreferences({ immersiveFullscreen: true })
-        setIsImmersiveFullscreen(true)
-      }
+      await setImmersiveFullscreenMode(!preferences.immersiveFullscreen)
     } catch {
-      updatePreferences({ immersiveFullscreen: false })
-      setIsImmersiveFullscreen(false)
       pushToast({ type: 'error', message: t('settings.immersiveFullscreenFailed') })
     }
   }
@@ -388,11 +352,11 @@ export function Settings({ onClose }: SettingsProps) {
                   </div>
                   <button
                     onClick={() => void toggleImmersiveFullscreen()}
-                    className={`w-10 h-6 shrink-0 rounded-full relative ${isImmersiveFullscreen ? 'bg-accent' : 'bg-bg-2'}`}
+                    className={`w-10 h-6 shrink-0 rounded-full relative ${preferences.immersiveFullscreen ? 'bg-accent' : 'bg-bg-2'}`}
                     aria-label={t('settings.immersiveFullscreen')}
-                    aria-pressed={isImmersiveFullscreen}
+                    aria-pressed={preferences.immersiveFullscreen}
                   >
-                    <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${isImmersiveFullscreen ? 'right-1' : 'left-1'}`} />
+                    <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${preferences.immersiveFullscreen ? 'right-1' : 'left-1'}`} />
                   </button>
                 </div>
               </div>
