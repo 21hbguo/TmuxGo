@@ -14,9 +14,13 @@ export interface SystemInfo {
     outputBytes: number
     outputChunks: number
     outputFlushes: number
+    outputResyncRequests: number
+    outputResyncCompleted: number
+    droppedOutputChars: number
     sanitizeCalls: number
     sanitizeChars: number
     attachRequests: number
+    snapshotRequests: number
     resizeRequests: number
     inputMessages: number
     backpressureSignals: number
@@ -30,13 +34,18 @@ export interface SystemInfo {
   }
 }
 
-export function useSystemInfo(hostId = 'local', interval = 2000) {
+export function useSystemInfo(hostId = 'local', interval = 2000, enabled = true, refreshToken = 0) {
   const [info, setInfo] = useState<SystemInfo | null>(null)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
 
   useEffect(() => {
     let active = true
     setInfo(null)
+    if (!enabled) {
+      return () => {
+        active = false
+      }
+    }
     const poll = async () => {
       try {
         const data = await api.system.info(hostId)
@@ -49,7 +58,7 @@ export function useSystemInfo(hostId = 'local', interval = 2000) {
       active = false
       if (timerRef.current) clearInterval(timerRef.current)
     }
-  }, [hostId, interval])
+  }, [hostId, interval, enabled, refreshToken])
 
   return info
 }

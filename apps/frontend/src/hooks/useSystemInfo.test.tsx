@@ -24,3 +24,17 @@ describe('useSystemInfo', () => {
     unmount()
   })
 })
+
+describe('useSystemInfo enabled flag', () => {
+  it('does not poll while disabled and starts after enable', async () => {
+    systemInfo.mockReset()
+    systemInfo.mockResolvedValue(response('local', 11))
+    const { result, rerender, unmount } = renderHook(({ enabled }) => useSystemInfo('local', 60000, enabled), { initialProps: { enabled: false } })
+    expect(result.current).toBeNull()
+    expect(systemInfo).not.toHaveBeenCalled()
+    rerender({ enabled: true })
+    await waitFor(() => expect(result.current?.cpu).toBe(11))
+    expect(systemInfo).toHaveBeenCalledWith('local')
+    unmount()
+  })
+})
