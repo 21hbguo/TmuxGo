@@ -32,6 +32,10 @@ const config: Config = {
       borderRadius: {
         apple: '20px',
       },
+      fontFamily: {
+        sans: ['var(--font-ui)'],
+        mono: ['var(--font-mono)'],
+      },
       fontSize: {
         caption: ['10px', { lineHeight: '1.4' }],
         meta: ['12px', { lineHeight: '1.45' }],

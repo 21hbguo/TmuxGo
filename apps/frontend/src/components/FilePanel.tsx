@@ -1010,7 +1010,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
             event.preventDefault()
             event.stopPropagation()
             toggleFavoriteDirectory(item)
-          }} /> : <span className="invisible text-caption text-text-3 group-hover:visible">{formatSize(item.size)}</span>}
+          }} /> : <span className="opacity-0 text-caption text-text-3 group-hover:opacity-100 transition-opacity">{formatSize(item.size)}</span>}
         </div>
       </div>
     )
@@ -1070,7 +1070,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
             <span>{visual.icon}</span>
           </span>
           <span className={`min-w-0 flex-1 truncate font-mono ${item.type === 'directory' ? 'text-text-1' : visual.tone}`}>{item.name}</span>
-          <span className="invisible text-caption text-text-3 group-hover:visible">{item.type === 'file' ? formatSize(item.size) : 'dir'}</span>
+          <span className="opacity-0 text-caption text-text-3 group-hover:opacity-100 transition-opacity">{item.type === 'file' ? formatSize(item.size) : 'dir'}</span>
         </div>
         {'matches' in item && item.matches?.[0] && <div className="truncate pl-4 font-mono text-caption text-text-3">L{item.matches[0].number}: {item.matches[0].content}</div>}
       </button>,
@@ -1218,7 +1218,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
               <div className="flex items-center gap-1.5">
                 <span className="shrink-0">{getFileVisual(item.path, item.type).icon}</span>
                 <span className={`min-w-0 flex-1 truncate font-mono ${getFileVisual(item.path, item.type).tone}`}>{item.name}</span>
-                <span className="invisible text-caption text-text-3 group-hover:visible">{item.type === 'file' ? formatSize(item.size) : 'dir'}</span>
+                <span className="opacity-0 text-caption text-text-3 group-hover:opacity-100 transition-opacity">{item.type === 'file' ? formatSize(item.size) : 'dir'}</span>
               </div>
               {'matches' in item && item.matches?.[0] && <div className="truncate pl-4 font-mono text-caption text-text-3">L{item.matches[0].number}: {item.matches[0].content}</div>}
             </button>
