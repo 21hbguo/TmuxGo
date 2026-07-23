@@ -111,8 +111,12 @@ export function SessionPanel() {
     setSelectedSessionIds((prev) => prev.includes(sessionId) ? prev.filter((id) => id !== sessionId) : [...prev, sessionId])
   }
   const handleAgentStatusClick = async (session: { id: string; agents?: { paneId: string; agentStatus: AgentStatus }[] }, status: AgentStatus) => {
-    const pane = session.agents?.find((agent) => agent.agentStatus === status)
-    if (!pane || !activeHostId) return
+    const candidates = session.agents?.filter((agent) => agent.agentStatus === status)
+    if (!candidates?.length || !activeHostId) return
+    const currentPaneId = useConsoleStore.getState().activePaneId
+    const currentIndex = candidates.findIndex((agent) => agent.paneId === currentPaneId)
+    const nextIndex = (currentIndex + 1) % candidates.length
+    const pane = candidates[nextIndex]
     try {
       const hostId = activeHostId
       const sessionId = session.id
