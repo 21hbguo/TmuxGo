@@ -61,7 +61,7 @@ export function PasteConfirmDialog({ open, text, meta, mode = 'confirm', onTextC
     e.preventDefault()
   }
   return <ModalPortal>
-    <div className="fixed inset-0 z-[85] flex items-center justify-center bg-black/40 p-4" onClick={onCancel}>
+    <div className="fixed inset-0 z-[85] flex items-center justify-center tmuxgo-scrim p-4" onClick={onCancel}>
       <div
         ref={dialogRef}
         className="tmuxgo-glass tmuxgo-glass-dialog w-full max-w-2xl rounded-apple border p-5"

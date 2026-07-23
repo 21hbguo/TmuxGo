@@ -49,7 +49,7 @@ export function MobileBottomSheet({
       onClick={closeOnBackdrop ? onClose : undefined}
     >
       <div
-        className={`absolute inset-0 bg-black/40 transition-opacity duration-200 ${closing ? 'opacity-0' : 'opacity-100'}`}
+        className={`absolute inset-0 tmuxgo-scrim transition-opacity duration-200 ${closing ? 'opacity-0' : 'opacity-100'}`}
       />
       <div
         role="dialog"

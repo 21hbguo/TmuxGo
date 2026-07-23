@@ -15,8 +15,8 @@ export function AuditLog({ onClose }: AuditLogProps) {
   const { data, isLoading, isError, refetch } = useAuditLog(result ? { result } : {})
   const logs = useMemo(() => (data?.events || []).filter((event) => !query.trim() || `${event.action} ${event.target} ${event.hostId || ''}`.toLowerCase().includes(query.trim().toLowerCase())), [data?.events, query])
   return <ModalPortal>
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div className="flex max-h-[85vh] w-full max-w-[820px] flex-col overflow-hidden rounded-apple border border-[var(--line)] bg-bg-1" onClick={(event) => event.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center tmuxgo-scrim-strong p-4" onClick={onClose}>
+      <div className="tmuxgo-glass tmuxgo-glass-dialog flex max-h-[85vh] w-full max-w-[820px] flex-col overflow-hidden rounded-apple border" onClick={(event) => event.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-[var(--line)] p-4">
           <div><h2 className="text-lg font-medium text-text-1">{t('audit.title')}</h2><p className="mt-1 text-sm text-text-3">{t('audit.desc')}</p></div>
           <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="close">✕</Button>

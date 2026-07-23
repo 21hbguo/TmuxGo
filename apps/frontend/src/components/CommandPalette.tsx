@@ -168,7 +168,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
   }
 
   return <ModalPortal>
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/35 p-4 pt-[10vh]" onClick={close}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center tmuxgo-scrim p-4 pt-[10vh]" onClick={close}>
       <div className="tmuxgo-glass tmuxgo-glass-dialog w-full max-w-[500px] overflow-hidden rounded-apple border" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2 p-3 border-b border-[var(--line)]">
           <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="text-text-3 flex-shrink-0">

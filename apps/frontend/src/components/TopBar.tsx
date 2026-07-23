@@ -54,7 +54,7 @@ export function TopBar() {
             onClick={() => window.dispatchEvent(new CustomEvent('tmuxgo-open-settings'))}
             aria-label={t('activity.settings')}
             title={t('activity.settings')}
-            className="tmuxgo-icon-button tmuxgo-glass-control flex h-9 w-9 items-center justify-center rounded-full text-text-3 hover:text-text-1"
+            className="tmuxgo-toolbar-icon tmuxgo-glass-control h-9 w-9 rounded-full"
           >
             <FiSettings aria-hidden="true" size={17} />
           </button>

@@ -77,7 +77,7 @@ export function InstallAppBanner() {
 
   return (
     <div className="fixed left-3 right-3 top-3 z-[70]">
-      <div className="rounded-apple border border-[var(--line)] bg-bg-1/95 px-3 py-3 shadow-[0_12px_32px_rgba(0,0,0,0.28)] backdrop-blur">
+      <div className="tmuxgo-float-surface px-3 py-3 shadow-[0_12px_32px_rgba(0,0,0,0.28)] backdrop-blur">
         <div className="flex items-start gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-apple bg-accent/15 text-accent text-lg font-bold">⌘</div>
           <div className="min-w-0 flex-1">

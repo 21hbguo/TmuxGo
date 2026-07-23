@@ -38,7 +38,7 @@ export function ActivityBar() {
         const active = item.id === 'sessions' ? sessionPanelExpanded : item.id === 'files' ? filePanelOpen : item.id === 'thumbnails' ? thumbnailPanelOpen : item.id === 'git' ? gitPanelOpen : false
         const Icon = item.icon
         return (
-          <button key={item.id} aria-label={item.label} title={item.label} onClick={item.onClick} className={`tmuxgo-icon-button flex h-10 w-10 items-center justify-center rounded-apple border text-sm ${active ? 'border-accent/30 bg-accent/15 text-accent shadow-[inset_0_1px_0_rgb(255_255_255/0.08)]' : 'border-transparent bg-transparent text-text-3 hover:bg-bg-2/65 hover:text-text-1'}`}>
+          <button key={item.id} aria-label={item.label} title={item.label} onClick={item.onClick} className={`tmuxgo-toolbar-icon ${active ? 'tmuxgo-toolbar-icon--active' : ''}`}>
             <Icon aria-hidden="true" size={18} />
           </button>
         )
@@ -47,7 +47,7 @@ export function ActivityBar() {
       {pluginViews.map(({ plugin, view }) => {
         const Icon = pluginIcons[(view.icon || plugin.manifest.icon || 'box') as keyof typeof pluginIcons] || FiBox
         const active = activePluginView?.pluginId === plugin.pluginId && activePluginView.viewId === view.id
-        return <button key={`${plugin.pluginId}:${view.id}`} aria-label={view.title} title={`${view.title} · ${plugin.manifest.name}`} onClick={() => setActivePluginView({ pluginId: plugin.pluginId, viewId: view.id })} className={`tmuxgo-icon-button flex h-10 w-10 shrink-0 items-center justify-center rounded-apple border ${active ? 'border-accent/30 bg-accent/15 text-accent' : 'border-transparent text-text-3 hover:bg-bg-2/65 hover:text-text-1'}`}><Icon aria-hidden="true" size={18} /></button>
+        return <button key={`${plugin.pluginId}:${view.id}`} aria-label={view.title} title={`${view.title} · ${plugin.manifest.name}`} onClick={() => setActivePluginView({ pluginId: plugin.pluginId, viewId: view.id })} className={`tmuxgo-toolbar-icon ${active ? 'tmuxgo-toolbar-icon--active' : ''}`}><Icon aria-hidden="true" size={18} /></button>
       })}
     </aside>
   )

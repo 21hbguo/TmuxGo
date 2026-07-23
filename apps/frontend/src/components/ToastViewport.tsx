@@ -17,12 +17,12 @@ export function ToastViewport() {
       {toasts.map((toast) => (
         <div
           key={toast.id}
-          className={`pointer-events-auto rounded-apple border px-3 py-2 text-sm ${
+          className={`tmuxgo-toast pointer-events-auto ${
             toast.type === 'error'
-              ? 'border-red-500/40 bg-red-900/30 text-red-200'
+              ? 'tmuxgo-toast--error'
               : toast.type === 'success'
-              ? 'border-emerald-500/40 bg-emerald-900/30 text-emerald-200'
-              : 'border-[var(--line)] bg-bg-1 text-text-1'
+              ? 'tmuxgo-toast--success'
+              : ''
           }`}
         >
           {toast.message}

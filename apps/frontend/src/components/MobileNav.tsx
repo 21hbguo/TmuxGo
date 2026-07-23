@@ -67,7 +67,7 @@ export function MobileNav({ onOpenDrawer, onOpenSettings, onOpenSearch, onOpenFi
           <span className="text-[9px] leading-none">{t('nav.files')}</span>
         </button>
 
-        <button aria-label={t('nav.git')} aria-current={gitOpen ? 'page' : undefined} onClick={onOpenGit} className={`tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px transition-all active:scale-95 active:bg-bg-2/50 ${gitOpen ? 'bg-accent/12 text-accent' : 'text-text-3 active:text-accent'}`}>
+        <button aria-label={t('nav.git')} aria-current={gitOpen ? 'page' : undefined} onClick={onOpenGit} className={`tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px transition-all active:scale-95 active:bg-bg-2/50 ${gitOpen ? 'tmuxgo-mobile-nav-button--active' : 'text-text-3 active:text-accent'}`}>
           <FiGitBranch aria-hidden="true" size={18} />
           <span className="text-[9px] leading-none">{t('nav.git')}</span>
         </button>
