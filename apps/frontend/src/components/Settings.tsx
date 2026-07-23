@@ -444,6 +444,17 @@ export function Settings({ onClose }: SettingsProps) {
                     </div>
                   </div>
                   <div className="flex items-center justify-between">
+                    <span className="text-text-2 text-sm">{t('settings.fontFamily')}</span>
+                    <select
+                      value={preferences.fontFamily}
+                      onChange={(e) => updatePreferences({ fontFamily: e.target.value })}
+                      className="tmuxgo-control tmuxgo-select rounded-apple px-3 py-1.5 text-sm"
+                    >
+                      <option value='"JetBrains Mono", "Cascadia Mono", "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace'>JetBrains Mono</option>
+                      <option value='"Maple Mono", "JetBrains Mono", "Cascadia Mono", "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace'>Maple Mono</option>
+                    </select>
+                  </div>
+                  <div className="flex items-center justify-between">
                     <span className="text-text-2 text-sm">{t('settings.cursorBlink')}</span>
                     <button
                       onClick={() => updatePreferences({ cursorBlink: !preferences.cursorBlink })}
