@@ -5,6 +5,7 @@ import { mkdir, readFile, rename, stat, writeFile } from 'fs/promises'
 
 type CustomShortcut = { id: string; label: string; keys: string }
 type FavoriteDirectory = { rootId: string; rootPath: string; name: string; path: string }
+type SessionWorkspaceEntry = { sessionId: string; hostId: string; workspacePath: string; rootId: string; rootPath: string; rootLabel: string; relativePath: string; updatedAt: string }
 type SessionOrder = { hostId: string; orderedSessionIds: string[] }
 type Snippet = { id: string; name: string; command: string; description?: string; category?: string }
 type FavoriteItem = { id: string; type: 'host' | 'session' | 'pane'; name: string; target: string; addedAt: string }
@@ -63,6 +64,8 @@ type PreferencesStore = {
   customShortcutsUpdatedAt: string
   favoriteDirectories: FavoriteDirectory[]
   favoriteDirectoriesUpdatedAt: string
+  sessionWorkspaces: SessionWorkspaceEntry[]
+  sessionWorkspacesUpdatedAt: string
   sessionOrders: SessionOrder[]
   sessionOrdersUpdatedAt: string
   snippets: Snippet[]
@@ -81,6 +84,7 @@ type PreferencesStore = {
 
 const MAX_SHORTCUTS = 100
 const MAX_FAVORITES = 100
+const MAX_SESSION_WORKSPACES = 200
 const MAX_SESSION_ORDERS = 200
 const MAX_SESSION_ORDER_IDS = 500
 const MAX_SNIPPETS = 200
@@ -149,6 +153,8 @@ function getDefaultStore(): PreferencesStore {
     customShortcutsUpdatedAt: now,
     favoriteDirectories: [],
     favoriteDirectoriesUpdatedAt: now,
+    sessionWorkspaces: [],
+    sessionWorkspacesUpdatedAt: now,
     sessionOrders: [],
     sessionOrdersUpdatedAt: now,
     snippets: [],
@@ -212,6 +218,25 @@ function normalizeFavorites(input: unknown) {
     if (next.length >= MAX_FAVORITES) break
   }
   return next
+}
+function normalizeSessionWorkspaces(input: unknown) {
+  if (!Array.isArray(input)) return []
+  const dedup = new Map<string, SessionWorkspaceEntry>()
+  for (const entry of input) {
+    if (!entry || typeof entry !== 'object') continue
+    const raw = entry as Record<string, unknown>
+    const sessionId = safeString(raw.sessionId, MAX_SESSION_ID_LEN)
+    const hostId = safeString(raw.hostId, MAX_ID_LEN)
+    const workspacePath = safeString(raw.workspacePath, MAX_ROOT_PATH_LEN)
+    if (!sessionId || !hostId || !workspacePath) continue
+    const rootId = safeString(raw.rootId, MAX_ROOT_ID_LEN)
+    const rootPath = safeString(raw.rootPath, MAX_ROOT_PATH_LEN)
+    const rootLabel = safeString(raw.rootLabel, MAX_FAVORITE_NAME_LEN)
+    const relativePath = safeString(raw.relativePath, MAX_FAVORITE_PATH_LEN)
+    const updatedAt = normalizeIso(raw.updatedAt, nowIso())
+    dedup.set(sessionId, { sessionId, hostId, workspacePath, rootId, rootPath, rootLabel, relativePath, updatedAt })
+  }
+  return [...dedup.values()].slice(0, MAX_SESSION_WORKSPACES)
 }
 function normalizeSessionOrders(input: unknown) {
   if (!Array.isArray(input)) return []
@@ -400,6 +425,7 @@ function normalizeStore(input: unknown): PreferencesStore {
   const raw = input as Record<string, unknown>
   const customShortcutsUpdatedAt = normalizeIso(raw.customShortcutsUpdatedAt, fallback.customShortcutsUpdatedAt)
   const favoriteDirectoriesUpdatedAt = normalizeIso(raw.favoriteDirectoriesUpdatedAt, fallback.favoriteDirectoriesUpdatedAt)
+  const sessionWorkspacesUpdatedAt = normalizeIso(raw.sessionWorkspacesUpdatedAt, fallback.sessionWorkspacesUpdatedAt)
   const sessionOrdersUpdatedAt = normalizeIso(raw.sessionOrdersUpdatedAt, fallback.sessionOrdersUpdatedAt)
   const snippetsUpdatedAt = normalizeIso(raw.snippetsUpdatedAt, fallback.snippetsUpdatedAt)
   const favoritesUpdatedAt = normalizeIso(raw.favoritesUpdatedAt, fallback.favoritesUpdatedAt)
@@ -409,7 +435,7 @@ function normalizeStore(input: unknown): PreferencesStore {
   const updatedAtRaw = normalizeIso(raw.updatedAt, fallback.updatedAt)
   const updatedAt = new Date(Math.max(
     parseIsoMs(updatedAtRaw), parseIsoMs(customShortcutsUpdatedAt), parseIsoMs(favoriteDirectoriesUpdatedAt),
-    parseIsoMs(sessionOrdersUpdatedAt), parseIsoMs(snippetsUpdatedAt), parseIsoMs(favoritesUpdatedAt),
+    parseIsoMs(sessionWorkspacesUpdatedAt), parseIsoMs(sessionOrdersUpdatedAt), parseIsoMs(snippetsUpdatedAt), parseIsoMs(favoritesUpdatedAt),
     parseIsoMs(sessionContinuityUpdatedAt), parseIsoMs(gitByHostUpdatedAt), parseIsoMs(uiPreferencesUpdatedAt),
   )).toISOString()
   return {
@@ -419,6 +445,8 @@ function normalizeStore(input: unknown): PreferencesStore {
     customShortcutsUpdatedAt,
     favoriteDirectories: normalizeFavorites(raw.favoriteDirectories),
     favoriteDirectoriesUpdatedAt,
+    sessionWorkspaces: normalizeSessionWorkspaces(raw.sessionWorkspaces),
+    sessionWorkspacesUpdatedAt,
     sessionOrders: normalizeSessionOrders(raw.sessionOrders),
     sessionOrdersUpdatedAt,
     snippets: normalizeSnippets(raw.snippets),
@@ -500,6 +528,14 @@ export async function preferencesRoutes(fastify: FastifyInstance) {
         next.favoriteDirectoriesUpdatedAt = incomingAt
       }
     }
+    if ('sessionWorkspaces' in body) {
+      const incoming = normalizeSessionWorkspaces(body.sessionWorkspaces)
+      const incomingAt = normalizeIso(body.sessionWorkspacesUpdatedAt, nowIso())
+      if (parseIsoMs(incomingAt) >= parseIsoMs(current.sessionWorkspacesUpdatedAt)) {
+        next.sessionWorkspaces = incoming
+        next.sessionWorkspacesUpdatedAt = incomingAt
+      }
+    }
     if ('sessionOrders' in body) {
       const incoming = normalizeSessionOrders(body.sessionOrders)
       const incomingAt = normalizeIso(body.sessionOrdersUpdatedAt, nowIso())
@@ -552,7 +588,7 @@ export async function preferencesRoutes(fastify: FastifyInstance) {
     if ('downloadRateLimitKBps' in body) next.downloadRateLimitKBps = normalizeUploadRateLimitKBps(body.downloadRateLimitKBps)
     next.updatedAt = new Date(Math.max(
       parseIsoMs(next.customShortcutsUpdatedAt), parseIsoMs(next.favoriteDirectoriesUpdatedAt),
-      parseIsoMs(next.sessionOrdersUpdatedAt), parseIsoMs(next.snippetsUpdatedAt),
+      parseIsoMs(next.sessionWorkspacesUpdatedAt), parseIsoMs(next.sessionOrdersUpdatedAt), parseIsoMs(next.snippetsUpdatedAt),
       parseIsoMs(next.favoritesUpdatedAt), parseIsoMs(next.sessionContinuityUpdatedAt), parseIsoMs(next.gitByHostUpdatedAt), parseIsoMs(next.uiPreferencesUpdatedAt),
     )).toISOString()
     try {
