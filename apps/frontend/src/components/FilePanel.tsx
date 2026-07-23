@@ -1060,11 +1060,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
           {activeFavorite && <Chip onClick={() => removeFavoriteDirectory(activeFavorite)}>{t('file.removeFavorite')}</Chip>}
           <Button variant="ghost" size="icon-sm" aria-label="close" onClick={onClose || (() => setFilePanelOpen(false))}>×</Button>
         </div>
-        <div className="tmuxgo-scrollbar-subtle mt-1.5 flex min-w-0 items-center gap-1 overflow-x-auto text-[11px] text-text-3">
-          {(listData?.breadcrumbs || [{ name: '/', path: '' }]).map((crumb) => (
-            <Chip key={crumb.path || '/'} onClick={() => { currentPathRef.current = crumb.path; mobileNavigationDepthRef.current = 0; setCurrentPath(crumb.path); setSelectedPath(''); setSelectedPreviewLine(1); setSearchNavigationPath(query.trim().length > 0 && crumb.path ? crumb.path : null); if (!crumb.path) setOpenDirectories(new Set()) }} className="shrink-0">{crumb.name}</Chip>
-          ))}
-        </div>
+
       </div>
       {(!isMobile || mobileView === 'list') && <div className="border-b border-[var(--line)] px-2 py-2">
         <div className="flex rounded-apple border border-[var(--line)] bg-bg-2 p-0.5 text-[11px]">
