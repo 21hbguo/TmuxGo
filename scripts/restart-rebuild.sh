@@ -9,4 +9,4 @@ if git diff --cached --quiet; then
 else
   git commit -m "$COMMIT_MSG"
 fi
-exec "$ROOT_DIR/start.sh" --restart --rebuild
+exec "$ROOT_DIR/../start.sh" --restart --rebuild
