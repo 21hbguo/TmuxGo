@@ -179,7 +179,7 @@ export function UploadConfirmDialog() {
         </div>
         <div className="mt-4 rounded-apple border border-[var(--line)] bg-bg-0 p-3">
           <div className="mb-2 text-xs text-text-3">{t('upload.filesLabel')}</div>
-          <div className="max-h-48 space-y-1 overflow-auto">
+          <div className="tmuxgo-scrollbar max-h-48 space-y-1 overflow-auto">
             {files.map((file) => (
               <div key={`${file.name}-${file.size}-${file.lastModified}`} className="flex items-center gap-3 rounded-apple bg-bg-2 px-3 py-2 text-xs">
                 <div className="min-w-0 flex-1 truncate font-mono text-text-1">{file.name}</div>
