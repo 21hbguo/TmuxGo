@@ -222,7 +222,7 @@ export function DesktopWorkbench() {
       <ActivityBar />
       {thumbnailPanelOpen ? <SessionThumbnailPanel /> : <>
       {sessionPanelExpanded ? (
-        <div className="tmuxgo-material relative shrink-0 border-r" style={{ width: renderedSessionPanelWidth }}>
+        <div className="tmuxgo-content-surface relative shrink-0 border-r border-[var(--line)]" style={{ width: renderedSessionPanelWidth }}>
           <div className="h-full min-h-0">
             <SessionPanel />
           </div>
