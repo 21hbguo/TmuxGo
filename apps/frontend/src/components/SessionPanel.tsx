@@ -16,6 +16,8 @@ import { HostSwitcher } from './HostSwitcher'
 import { AgentStatusBadge } from './AgentStatusBadge'
 import type { AgentStatus } from '@/types'
 import { ModalPortal } from './ModalPortal'
+import { api } from '@/lib/api'
+import { useOptionalQueryClient } from '@/hooks/useOptionalQueryClient'
 
 function getNextSessionId(sessions: { id: string }[], removedIds: string[]) {
   const removed = new Set(removedIds)
@@ -25,8 +27,10 @@ function getNextSessionId(sessions: { id: string }[], removedIds: string[]) {
 export function SessionPanel() {
   const activeSessionId = useConsoleStore((state) => state.activeSessionId)
   const setActiveSession = useConsoleStore((state) => state.setActiveSession)
+  const setActivePane = useConsoleStore((state) => state.setActivePane)
   const activeHostId = useConsoleStore((state) => state.activeHostId)
   const pushToast = useConsoleStore((state) => state.pushToast)
+  const queryClient = useOptionalQueryClient()
   const { data: sessions = [], moveSession, isError, error, refetch } = useOrderedSessions(activeHostId || '')
   const createSession = useCreateSession()
   const deleteSession = useDeleteSession()

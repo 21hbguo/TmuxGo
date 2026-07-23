@@ -24,9 +24,10 @@ import { templateRoutes } from './routes/templates.js'
 import { sessionArchiveRoutes } from './routes/session-archives.js'
 import { pluginRoutes } from './routes/plugins.js'
 import { pluginManager } from './lib/plugin-manager.js'
+import { createFastifyLoggerConfig } from './lib/process-log.js'
 
 const fastify = Fastify({
-  logger: process.env.NODE_ENV === 'production' ? { level: 'warn' } : true,
+  logger: createFastifyLoggerConfig(),
 })
 fastify.addHook('onRequest', async (request, reply) => {
   const forwardedHost = request.headers['x-forwarded-host']

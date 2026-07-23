@@ -14,6 +14,7 @@ import { api } from '@/lib/api'
 import type { SessionArchive, SessionArchiveSummary } from '@/types'
 import { useCreateHost, useDeleteHost, useHosts, useRestartRebuild, useRestartRebuildStatus, useTestHost } from '@/hooks/useApi'
 import { PluginSettings } from './PluginSettings'
+import { SystemHealthPanel } from './SystemHealthPanel'
 import { Button } from './Button'
 import { Chip } from './Chip'
 
@@ -28,7 +29,7 @@ export function Settings({ onClose }: SettingsProps) {
   const pushToast = useConsoleStore((state) => state.pushToast)
   const activeHostId = useConsoleStore((state) => state.activeHostId)
   const { copy } = useClipboard()
-  const [activeTab, setActiveTab] = useState<'general' | 'appearance' | 'connection' | 'session' | 'plugins' | 'about'>('general')
+  const [activeTab, setActiveTab] = useState<'general' | 'appearance' | 'connection' | 'session' | 'plugins' | 'performance' | 'about'>('general')
   const [showAuditLog, setShowAuditLog] = useState(false)
   const [hostIdDraft, setHostIdDraft] = useState('')
   const [hostNameDraft, setHostNameDraft] = useState('')
@@ -79,6 +80,7 @@ export function Settings({ onClose }: SettingsProps) {
     { id: 'connection' as const, label: t('settings.connection') },
     { id: 'session' as const, label: t('settings.session') },
     { id: 'plugins' as const, label: t('settings.plugins') },
+    { id: 'performance' as const, label: t('settings.performance') },
     { id: 'about' as const, label: t('settings.about') },
   ]
 
@@ -229,7 +231,7 @@ export function Settings({ onClose }: SettingsProps) {
           <Button variant="ghost" size="sm" aria-label="close" onClick={onClose}>✕</Button>
         </div>
 
-        <div className="shrink-0 flex border-b border-[var(--line)]">
+        <div className="tmuxgo-scrollbar shrink-0 flex overflow-x-auto border-b border-[var(--line)]">
           {tabs.map((tab) => (
             <button
               key={tab.id}
@@ -645,6 +647,8 @@ export function Settings({ onClose }: SettingsProps) {
           )}
 
           {activeTab === 'plugins' && <PluginSettings />}
+
+          {activeTab === 'performance' && <SystemHealthPanel />}
 
           {activeTab === 'about' && (
             <div className="space-y-4">
