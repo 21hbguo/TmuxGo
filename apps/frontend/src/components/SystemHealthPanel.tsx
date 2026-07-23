@@ -288,6 +288,11 @@ export function SystemHealthPanel() {
               <StatRow label={t('settings.performanceDeferred')} value={stream?.deferredFlushes ?? 0} />
               <StatRow label={t('settings.performanceResync')} value={`${stream?.outputResyncCompleted ?? 0}/${stream?.outputResyncRequests ?? 0}`} />
               <StatRow label={t('settings.performanceAttach')} value={stream?.attachRequests ?? 0} />
+              <StatRow label={t('settings.performanceCompressFrames')} value={stream?.compressFrames ?? 0} />
+              <StatRow label={t('settings.performanceCompressSaved')} value={fmtBytes(Math.max(0, (stream?.compressBytesIn ?? 0) - (stream?.compressBytesOut ?? 0)))} />
+              <StatRow label={t('settings.performanceCellSnapshots')} value={stream?.cellSnapshots ?? 0} />
+              <StatRow label={t('settings.performanceCellDiffs')} value={stream?.cellDiffs ?? 0} />
+              <StatRow label={t('settings.performanceCellFallback')} value={stream?.cellFallbackAnsi ?? 0} />
             </div>
           </div>
           <div>

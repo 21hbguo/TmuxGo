@@ -5,10 +5,13 @@ import { usePreferences } from './usePreferences'
 import { getWebSocketBase } from '@/lib/runtime-endpoints'
 import { recordMobileDiagnostic } from '@/lib/mobile-diagnostics'
 import { decodeStreamOutputBinary } from '@/lib/stream-binary'
+import { decodeCellDiff, decodeCellSnapshot } from '@/lib/terminal-grid/decode-cell'
+import { diffToAnsi, snapshotToAnsi } from '@/lib/terminal-grid/apply-cell'
 type WSState={ws:WebSocket|null,reconnectTimer:ReturnType<typeof setTimeout>|null,reconnectCount:number,isConnecting:boolean,socketReady:boolean,pingTimer:ReturnType<typeof setInterval>|null,pongTimer:ReturnType<typeof setTimeout>|null,closeTimer:ReturnType<typeof setTimeout>|null,backgroundCloseTimer:ReturnType<typeof setTimeout>|null,subscribers:number,lastPongAt:number,hiddenAt:number,backgroundClosed:boolean,onMessage:((data:any)=>void)|null,onOpen:(()=>void)|null,onClose:(()=>void)|null,onError:(()=>void)|null,closeExpected:boolean,lastInteractionRecoverAt:number,listenersReady:boolean,cleanupListeners:(()=>void)|null}
 const wsState:WSState={ws:null,reconnectTimer:null,reconnectCount:0,isConnecting:false,socketReady:false,pingTimer:null,pongTimer:null,closeTimer:null,backgroundCloseTimer:null,subscribers:0,lastPongAt:0,hiddenAt:0,backgroundClosed:false,onMessage:null,onOpen:null,onClose:null,onError:null,closeExpected:false,lastInteractionRecoverAt:0,listenersReady:false,cleanupListeners:null}
 type OutputMessage={data:string,sessionName?:string|null,hostId?:string|null,resync?:boolean}
 const outputListeners=new Set<(message:OutputMessage)=>void>()
+let cellLastSeq=0
 const BACKGROUND_CLOSE_DELAY_MS=12000
 function recordMobileDebug(event:string,data?:Record<string,unknown>) {
   recordMobileDiagnostic(event,data,event.includes('close')||event.includes('error')||event.includes('background'))
@@ -117,25 +120,50 @@ export function useWebSocket() {
         wsState.lastPongAt=Date.now()
         updateConnection({status:'attaching',latency:0})
         recordMobileDebug('ws-open')
-        try { ws.send(JSON.stringify({type:'stream_caps',binaryOutput:true})) } catch {}
+        try { ws.send(JSON.stringify({type:'stream_caps',binaryOutput:true,compressOutput:'gzip',cellOutput:true})) } catch {}
         sendPing()
         window.dispatchEvent(new CustomEvent('ws-reconnected'))
         wsState.onOpen?.()
       }
       ws.onmessage=(event)=>{
-        try {
-          if (typeof ArrayBuffer!=='undefined'&&event.data instanceof ArrayBuffer) {
-            const decoded=decodeStreamOutputBinary(event.data)
-            if (!decoded) return
-            wsState.onMessage?.({type:decoded.type,data:decoded.data,sessionName:decoded.sessionName,hostId:decoded.hostId})
-            return
+        void (async()=>{
+          try {
+            if (typeof ArrayBuffer!=='undefined'&&event.data instanceof ArrayBuffer) {
+              const decoded=await decodeStreamOutputBinary(event.data)
+              if (!decoded) return
+              if (decoded.type==='cell_snapshot'&&decoded.cellPayload) {
+                const snap=decodeCellSnapshot(decoded.cellPayload)
+                if (!snap) {
+                  try { ws.send(JSON.stringify({type:'cell_resync_request',sessionName:decoded.sessionName,hostId:decoded.hostId})) } catch {}
+                  return
+                }
+                cellLastSeq=snap.seq
+                const ansi=snapshotToAnsi(snap)
+                wsState.onMessage?.({type:'output_resync',data:ansi,sessionName:decoded.sessionName,hostId:decoded.hostId})
+                return
+              }
+              if (decoded.type==='cell_diff'&&decoded.cellPayload) {
+                const diff=decodeCellDiff(decoded.cellPayload)
+                if (!diff) return
+                if (cellLastSeq!==0&&diff.baseSeq!==cellLastSeq) {
+                  try { ws.send(JSON.stringify({type:'cell_resync_request',sessionName:decoded.sessionName,hostId:decoded.hostId})) } catch {}
+                  return
+                }
+                cellLastSeq=diff.seq
+                const ansi=diffToAnsi(diff)
+                wsState.onMessage?.({type:'output',data:ansi,sessionName:decoded.sessionName,hostId:decoded.hostId})
+                return
+              }
+              wsState.onMessage?.({type:decoded.type,data:decoded.data,sessionName:decoded.sessionName,hostId:decoded.hostId})
+              return
+            }
+            const raw=typeof event.data==='string'?event.data:String(event.data)
+            const data=JSON.parse(raw)
+            wsState.onMessage?.(data)
+          } catch (err) {
+            console.error('Failed to parse WebSocket message:',err)
           }
-          const raw=typeof event.data==='string'?event.data:String(event.data)
-          const data=JSON.parse(raw)
-          wsState.onMessage?.(data)
-        } catch (err) {
-          console.error('Failed to parse WebSocket message:',err)
-        }
+        })()
       }
       ws.onclose=()=>{
         if (wsState.ws===ws) {

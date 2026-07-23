@@ -31,6 +31,13 @@ export interface SystemInfo {
     activeProfile: 'foreground' | 'background' | 'mobile'
     activeFlushInterval: number
     activeMaxChars: number
+    compressFrames: number
+    compressBytesIn: number
+    compressBytesOut: number
+    cellSnapshots: number
+    cellDiffs: number
+    cellFallbackAnsi: number
+    cellDirtyCells: number
   }
 }
 
