@@ -20,6 +20,7 @@ import { useTerminalOutputScheduler } from '@/hooks/useTerminalOutputScheduler'
 import { buildSessionId } from '@/lib/session-id'
 import { writeClipboardText } from '@/lib/clipboard-text'
 import { openFileInEditor } from '@/lib/editor-open'
+import { Chip } from './Chip'
 import type { FileDocumentHandle, FileRoot } from '@/types'
 
 const SCROLLBACK_LIMIT = 600

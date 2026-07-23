@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import React from 'react'
 import { vi } from 'vitest'
@@ -60,8 +60,8 @@ describe('PasteConfirmDialog', () => {
           onCancel: vi.fn(),
         })
       }
-      const { container } = render(React.createElement(DialogHarness))
-      const textarea = within(container).getByRole('textbox')
+      render(React.createElement(DialogHarness))
+      const textarea = screen.getByDisplayValue('printf ok')
       await waitFor(() => expect(document.activeElement).toBe(helper))
       await user.keyboard('{Enter}')
       expect(onSend).toHaveBeenCalledTimes(1)
@@ -90,8 +90,8 @@ describe('PasteConfirmDialog', () => {
         onCancel: vi.fn(),
       })
     }
-    const { container } = render(React.createElement(DialogHarness))
-    const textarea = within(container).getByRole('textbox')
+    render(React.createElement(DialogHarness))
+    const textarea = screen.getByDisplayValue('printf ok')
     await waitFor(() => expect(document.activeElement).toBe(textarea))
     await waitFor(() => expect(textarea).toHaveProperty('selectionStart', 'printf ok'.length))
     await waitFor(() => expect(textarea).toHaveProperty('selectionEnd', 'printf ok'.length))

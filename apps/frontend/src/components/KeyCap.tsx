@@ -97,6 +97,7 @@ export function KeyCap(props: KeyCapProps) {
     stopRepeat()
     void onPress()
     repeatTimerRef.current = setTimeout(() => {
+      void onPress()
       repeatIntervalRef.current = setInterval(() => { void onPress() }, repeatInterval)
     }, repeatDelay)
   }, [onPress, repeatDelay, repeatInterval, stopRepeat])
