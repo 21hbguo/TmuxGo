@@ -1,6 +1,6 @@
 import { getApiBase } from './runtime-endpoints'
 import { buildSessionId } from './session-id'
-import type { AuditEvent, CustomShortcut, FavoriteDirectory, FavoriteItem, FileContentMatch, FileContentResponse, FileItem, FileListResponse, FilePreviewResponse, FileRoot, FileUploadTarget, GitBranchesResponse, GitCommitResponse, GitDetectResponse, GitDiffResponse, GitDiffStatsResponse, GitHostState, GitHubPluginPreview, GitLogResponse, GitMergeResponse, GitRepositoryInfo, GitStatusResponse, PluginCommandLog, PluginInfo, RemotePreferences, SessionArchive, SessionArchivePolicy, SessionArchiveSummary, SessionContinuityConfig, SessionLayout, SessionOrderPreference, SessionTemplate, SessionThumbnail, Snippet, TrashEntry, UiPreferences, UploadJobResult, UploadedFile } from '@/types'
+import type { AuditEvent, CustomShortcut, FavoriteDirectory, FavoriteItem, FileContentMatch, FileContentResponse, FileItem, FileListResponse, FilePreviewResponse, FileRoot, FileUploadTarget, GitBranchesResponse, GitCommitResponse, GitDetectResponse, GitDiffResponse, GitDiffStatsResponse, GitHostState, GitHubPluginPreview, GitLogResponse, GitMergeResponse, GitRepositoryInfo, GitStatusResponse, PluginCommandLog, PluginInfo, RemotePreferences, SessionArchive, SessionArchivePolicy, SessionArchiveSummary, SessionContinuityConfig, SessionLayout, SessionOrderPreference, SessionTemplate, SessionThumbnail, SessionWorkspaceEntry, Snippet, TrashEntry, UiPreferences, UploadJobResult, UploadedFile } from '@/types'
 
 export interface StreamSystemInfo {
   outputBytes: number
@@ -37,6 +37,7 @@ export interface SystemInfoResponse {
   cpu: number
   mem: { used: number; total: number }
   disks: { mount: string; used: number; total: number }[]
+  net: { sentBytes: number; recvBytes: number }
   dependencies: { tmux: boolean; git: boolean; python: boolean; rg: boolean; sshpass: boolean }
   stream: StreamSystemInfo
 }
@@ -266,11 +267,11 @@ export const api = {
   sessions: {
     list: (hostId: string) => fetchApi<any[]>(`/api/hosts/${hostId}/sessions`),
     thumbnails: (hostId: string) => fetchApi<{ sessions: SessionThumbnail[] }>(`/api/hosts/${hostId}/session-thumbnails`),
-    create: async (hostId: string, name: string, layout?: SessionLayout) => {
+    create: async (hostId: string, name: string, layout?: SessionLayout, cwd?: string) => {
       try {
         const created = await fetchApi<any>(`/api/hosts/${hostId}/sessions`, {
           method: 'POST',
-          body: JSON.stringify({ name, layout }),
+          body: JSON.stringify({ name, layout, cwd }),
         })
         if (created?.id) return created
         const existing = await findHostSessionByName(hostId, name).catch(() => null)
@@ -428,7 +429,7 @@ export const api = {
   },
   preferences: {
     get: (profile = 'default') => fetchApi<RemotePreferences>(`/api/preferences?profile=${encodeURIComponent(profile)}`),
-    update: (payload: { customShortcuts?: CustomShortcut[]; customShortcutsUpdatedAt?: string; favoriteDirectories?: FavoriteDirectory[]; favoriteDirectoriesUpdatedAt?: string; sessionOrders?: SessionOrderPreference[]; sessionOrdersUpdatedAt?: string; snippets?: Snippet[]; snippetsUpdatedAt?: string; favorites?: FavoriteItem[]; favoritesUpdatedAt?: string; sessionContinuity?: SessionContinuityConfig; sessionContinuityUpdatedAt?: string; gitByHost?: Record<string, GitHostState>; gitByHostUpdatedAt?: string; uiPreferences?: UiPreferences; uiPreferencesUpdatedAt?: string; uploadRateLimitKBps?: number; downloadRateLimitKBps?: number }, profile = 'default') =>
+    update: (payload: { customShortcuts?: CustomShortcut[]; customShortcutsUpdatedAt?: string; favoriteDirectories?: FavoriteDirectory[]; favoriteDirectoriesUpdatedAt?: string; sessionWorkspaces?: SessionWorkspaceEntry[]; sessionWorkspacesUpdatedAt?: string; sessionOrders?: SessionOrderPreference[]; sessionOrdersUpdatedAt?: string; snippets?: Snippet[]; snippetsUpdatedAt?: string; favorites?: FavoriteItem[]; favoritesUpdatedAt?: string; sessionContinuity?: SessionContinuityConfig; sessionContinuityUpdatedAt?: string; gitByHost?: Record<string, GitHostState>; gitByHostUpdatedAt?: string; uiPreferences?: UiPreferences; uiPreferencesUpdatedAt?: string; uploadRateLimitKBps?: number; downloadRateLimitKBps?: number }, profile = 'default') =>
       fetchApi<RemotePreferences>(`/api/preferences?profile=${encodeURIComponent(profile)}`, {
         method: 'PUT',
         body: JSON.stringify(payload),

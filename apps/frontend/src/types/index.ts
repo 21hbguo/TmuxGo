@@ -266,6 +266,16 @@ export interface FavoriteDirectory {
   name: string
   path: string
 }
+export interface SessionWorkspaceEntry {
+  sessionId: string
+  hostId: string
+  workspacePath: string
+  rootId: string
+  rootPath: string
+  rootLabel: string
+  relativePath: string
+  updatedAt: string
+}
 export interface SessionOrderPreference {
   hostId: string
   orderedSessionIds: string[]
@@ -350,6 +360,8 @@ export interface RemotePreferences {
   customShortcutsUpdatedAt: string
   favoriteDirectories: FavoriteDirectory[]
   favoriteDirectoriesUpdatedAt: string
+  sessionWorkspaces: SessionWorkspaceEntry[]
+  sessionWorkspacesUpdatedAt: string
   sessionOrders: SessionOrderPreference[]
   sessionOrdersUpdatedAt: string
   snippets: Snippet[]
