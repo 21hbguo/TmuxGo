@@ -121,7 +121,7 @@ export function useWebSocket() {
         wsState.lastPongAt=Date.now()
         updateConnection({status:'attaching',latency:0})
         recordMobileDebug('ws-open')
-        try { ws.send(JSON.stringify({type:'stream_caps',binaryOutput:true,compressOutput:'gzip',cellOutput:false})) } catch {}
+        try { ws.send(JSON.stringify({type:'stream_caps',binaryOutput:true,compressOutput:'gzip',cellOutput:true})) } catch {}
         sendPing()
         window.dispatchEvent(new CustomEvent('ws-reconnected'))
         wsState.onOpen?.()
