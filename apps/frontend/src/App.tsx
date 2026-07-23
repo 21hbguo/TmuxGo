@@ -22,5 +22,5 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { error: Error
 }
 export function App() {
   const initialIsMobile = MOBILE_USER_AGENT.test(navigator.userAgent)
-  return <AppErrorBoundary><GlassPointerEffect /><QueryProvider><I18nProvider><DropGuard /><main className="flex min-h-0"><ConsoleLayout initialIsMobile={initialIsMobile} /></main></I18nProvider></QueryProvider></AppErrorBoundary>
+  return <AppErrorBoundary><div className="tmuxgo-edge-fill" aria-hidden="true" /><GlassPointerEffect /><QueryProvider><I18nProvider><DropGuard /><main className="flex min-h-0 bg-bg-0"><ConsoleLayout initialIsMobile={initialIsMobile} /></main></I18nProvider></QueryProvider></AppErrorBoundary>
 }

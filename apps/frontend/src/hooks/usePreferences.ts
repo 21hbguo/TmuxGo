@@ -163,6 +163,39 @@ function markPreferencesReady() {
   readyListeners.forEach((listener) => listener(true))
 }
 
+function readThemeBgHex() {
+  const rawBg = getComputedStyle(document.documentElement).getPropertyValue('--bg-0').trim()
+  const rgb = rawBg.split(/\s+/).map((part) => Number(part))
+  if (rgb.length >= 3 && rgb.slice(0, 3).every((n) => Number.isFinite(n))) {
+    return `#${rgb.slice(0, 3).map((n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, '0')).join('')}`
+  }
+  return '#0c0d0f'
+}
+
+function applyThemeChrome(theme: Preferences['theme']) {
+  const isLight = theme === 'light'
+  document.documentElement.setAttribute('data-theme', theme)
+  document.documentElement.style.colorScheme = isLight ? 'light' : 'dark'
+  const themeHex = readThemeBgHex()
+  document.documentElement.style.backgroundColor = themeHex
+  document.body.style.backgroundColor = themeHex
+  let themeColor = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null
+  if (!themeColor) {
+    themeColor = document.createElement('meta')
+    themeColor.setAttribute('name', 'theme-color')
+    document.head.appendChild(themeColor)
+  }
+  themeColor.setAttribute('content', themeHex)
+  themeColor.parentElement?.appendChild(themeColor)
+  const statusBarStyle = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')
+  if (statusBarStyle) statusBarStyle.setAttribute('content', isLight ? 'default' : 'black-translucent')
+  return themeHex
+}
+
+function getFullscreenElement() {
+  return document.fullscreenElement || (document as any).webkitFullscreenElement || null
+}
+
 export function usePreferences() {
   const [preferences, setPreferences] = useState<Preferences>(preferencesStore)
   const [isReady, setIsReady] = useState(preferencesReady)
@@ -231,33 +264,22 @@ export function usePreferences() {
   }, [])
 
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', preferences.theme)
+    applyThemeChrome(preferences.theme)
     applyDocumentFont(preferences.fontFamily)
     void ensureAppFontLoaded(preferences.fontFamily, preferences.fontSize)
-    const isLight = preferences.theme === 'light'
-    document.documentElement.style.colorScheme = isLight ? 'light' : 'dark'
-    const rawBg = getComputedStyle(document.documentElement).getPropertyValue('--bg-0').trim()
-    const rgb = rawBg.split(/\s+/).map((part) => Number(part))
-    const themeHex = rgb.length >= 3 && rgb.slice(0, 3).every((n) => Number.isFinite(n))
-      ? `#${rgb.slice(0, 3).map((n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, '0')).join('')}`
-      : '#0c0d0f'
-    let themeColor = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null
-    if (!themeColor) {
-      themeColor = document.createElement('meta')
-      themeColor.setAttribute('name', 'theme-color')
-      document.head.appendChild(themeColor)
-    }
-    themeColor.setAttribute('content', themeHex)
-    themeColor.parentElement?.appendChild(themeColor)
-    const statusBarStyle = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')
-    if (statusBarStyle) statusBarStyle.setAttribute('content', isLight ? 'default' : 'black-translucent')
   }, [preferences.theme, preferences.fontFamily, preferences.fontSize])
 
   useEffect(() => {
-    const getFs = () => document.fullscreenElement || (document as any).webkitFullscreenElement || null
     const sync = () => {
-      const active = !!getFs()
+      const active = !!getFullscreenElement()
       document.documentElement.toggleAttribute('data-immersive-fullscreen', active)
+      applyThemeChrome(preferencesStore.theme)
+      if (active) {
+        document.documentElement.style.setProperty('--immersive-vh', `${Math.round(window.innerHeight || screen.height || 0)}px`)
+      } else {
+        document.documentElement.style.removeProperty('--immersive-vh')
+      }
+      window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'immersive-fullscreen', active } }))
       if (!active && preferencesStore.immersiveFullscreen) {
         const updated = { ...preferencesStore, immersiveFullscreen: false }
         localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...updated, _v: PREFERENCES_VERSION }))
@@ -267,9 +289,11 @@ export function usePreferences() {
     sync()
     document.addEventListener('fullscreenchange', sync)
     document.addEventListener('webkitfullscreenchange', sync as any)
+    window.addEventListener('resize', sync)
     return () => {
       document.removeEventListener('fullscreenchange', sync)
       document.removeEventListener('webkitfullscreenchange', sync as any)
+      window.removeEventListener('resize', sync)
     }
   }, [])
 
