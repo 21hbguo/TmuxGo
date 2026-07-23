@@ -30,3 +30,24 @@
 - `TMUXGO_STREAM_COMPRESS` 默认开（`0` 关闭）
 - `TMUXGO_STREAM_COMPRESS_THRESHOLD` 默认 4096
 - `TMUXGO_STREAM_CELL` 默认关（`1` 开启）
+
+## 2026-07-24 — 在线冒烟与优化
+
+### 操作
+- `./start.sh --restart --rebuild`
+- systemd drop-in: `TMUXGO_STREAM_COMPRESS=1`, `TMUXGO_STREAM_CELL=1`
+
+### 冒烟结果（WS attach tmuxgo, ~5s）
+- caps: binary + gzip + cell 均 true
+- attached: true
+- 帧类型: cell_snapshot_gzip / cell_diff / cell_diff_gzip
+- wire/payload ≈ **0.15**（约 **85%** 体积下降）
+- compressBytesOut/In ≈ **0.15**
+- cellFallbackAnsi: **0**
+- 无 gunzip/协议错误
+
+### 优化点
+- parser 对未知序列忽略，避免误杀 cell 模式
+- 单帧 parse 失败只回退该帧，不永久关闭 cell
+- dirty 阈值 0.4 → 0.55
+- 无 cell/光标变化时跳过发送
