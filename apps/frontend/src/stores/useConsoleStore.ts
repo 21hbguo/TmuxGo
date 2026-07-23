@@ -1,6 +1,11 @@
 import { create } from 'zustand'
+import { persist, createJSONStorage } from 'zustand/middleware'
 import type { ConnectionState, FileDocumentHandle, FileEditorDocument, GitHostState, GitMode, GitSource, UploadJob, TerminalPerfState } from '@/types'
-import { readPersistedActiveEditorId, readPersistedEditors, writeActiveHostId, writeActiveSessionId, writePersistedEditors } from '@/lib/console-device-state'
+import { clearLegacyEditorStorage, detectDeviceKind, type DeviceKind, getConsoleStateStorageKey, type PersistedEditorMeta, readLegacyConsoleState, writeActiveHostId, writeActiveSessionId } from '@/lib/console-device-state'
+import { createDebouncedStorage } from '@/lib/persist-storage'
+
+const DEVICE_KIND: DeviceKind = detectDeviceKind()
+const IS_MOBILE_DEVICE = DEVICE_KIND === 'mobile'
 export interface EditorGroupState {
   id: string
   editorIds: string[]
@@ -29,8 +34,11 @@ interface EditorWorkspaceState {
 }
 let editorGroupCounter = 0
 let editorLayoutCounter = 0
-function toEditorDocument(file: ReturnType<typeof readPersistedEditors>[number]): FileEditorDocument {
+function toEditorDocument(file: PersistedEditorMeta): FileEditorDocument {
   return { ...file, type: 'file', content: '', savedContent: '', modifiedAt: '', size: 0, dirty: false, loading: true, saving: false, binary: false, truncated: false }
+}
+function pickEditorMeta(editor: FileEditorDocument): PersistedEditorMeta {
+  return { id: editor.id, hostId: editor.hostId, rootId: editor.rootId, rootLabel: editor.rootLabel, rootPath: editor.rootPath, path: editor.path, name: editor.name, absolutePath: editor.absolutePath, language: editor.language, kind: editor.kind, compareLeftId: editor.compareLeftId, compareRightId: editor.compareRightId }
 }
 function createEditorGroup(editorIds: string[] = [], activeEditorId: string | null = editorIds.at(-1) || null): EditorGroupState {
   const nextEditorIds = editorIds.filter((item, index, items) => items.indexOf(item) === index)
@@ -241,7 +249,6 @@ interface ConsoleState {
   setSessionPanelWidth: (width: number) => void
   setFilePanelWidth: (width: number) => void
   setTerminalPanelHeight: (height: number) => void
-  hydrateEditorsFromStorage: () => void
   openEditor: (file: FileDocumentHandle & { language: string }) => void
   openCompareEditor: (leftId: string, rightId: string) => string | null
   placeEditorInSplit: (id: string, placement: 'center' | 'left' | 'right' | 'top' | 'bottom', targetGroupId?: string | null) => void
@@ -285,7 +292,53 @@ function insertEditorId(items: string[], id: string, targetId?: string | null) {
   next.splice(index, 0, id)
   return next
 }
-export const useConsoleStore = create<ConsoleState>((set) => ({
+function migrateLegacyConsoleState() {
+  if (typeof window === 'undefined') return
+  const NEW_KEY = getConsoleStateStorageKey()
+  if (localStorage.getItem(NEW_KEY)) return
+  const LEGACY_UNIFIED_KEY = 'tmuxgo-console-state'
+  const legacyUnifiedRaw = localStorage.getItem(LEGACY_UNIFIED_KEY)
+  if (legacyUnifiedRaw) {
+    try {
+      const legacyUnified = JSON.parse(legacyUnifiedRaw)
+      const legacyState = (legacyUnified && legacyUnified.state) || {}
+      const state = IS_MOBILE_DEVICE
+        ? { activeHostId: legacyState.activeHostId ?? null, activeSessionId: legacyState.activeSessionId ?? null, gitByHost: legacyState.gitByHost ?? {} }
+        : { ...legacyState, editorsHydrated: true }
+      localStorage.setItem(NEW_KEY, JSON.stringify({ state, version: 1 }))
+      localStorage.removeItem(LEGACY_UNIFIED_KEY)
+      return
+    } catch {}
+  }
+  const legacy = readLegacyConsoleState()
+  if (!legacy) return
+  const baseState = {
+    activeHostId: legacy.activeHostId,
+    activeSessionId: null as string | null,
+    gitByHost: {} as Record<string, GitHostState>,
+  }
+  const state = IS_MOBILE_DEVICE ? baseState : {
+    ...baseState,
+    sessionPanelExpanded: true,
+    filePanelOpen: false,
+    thumbnailPanelOpen: false,
+    gitPanelOpen: false,
+    gitPanelWidth: 560,
+    sessionPanelWidth: 248,
+    filePanelWidth: 240,
+    terminalPanelHeight: 300,
+    openEditors: legacy.openEditors,
+    activeEditorId: legacy.activeEditorId,
+    editorGroups: [] as EditorGroupState[],
+    editorLayout: null as EditorLayoutNode | null,
+    activeEditorGroupId: null as string | null,
+    editorsHydrated: true,
+  }
+  localStorage.setItem(NEW_KEY, JSON.stringify({ state, version: 1 }))
+  clearLegacyEditorStorage()
+}
+migrateLegacyConsoleState()
+export const useConsoleStore = create<ConsoleState>()(persist((set) => ({
   activeHostId: null,
   activeSessionId: null,
   activePaneId: null,
@@ -305,7 +358,7 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
   terminalPanelHeight: 300,
   openEditors: [],
   ...createEmptyEditorWorkspace(),
-  editorsHydrated: false,
+  editorsHydrated: true,
   uploadRequest: null,
   uploadJobs: [],
   toasts: [],
@@ -347,15 +400,6 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
   setSessionPanelWidth: (width) => set({ sessionPanelWidth: Math.max(208, Math.min(320, width)) }),
   setFilePanelWidth: (width) => set({ filePanelWidth: Math.max(200, Math.min(520, width)) }),
   setTerminalPanelHeight: (height) => set({ terminalPanelHeight: Math.max(180, Math.min(2000, height)) }),
-  hydrateEditorsFromStorage: () => set((state) => {
-    if (state.editorsHydrated) return state
-    const nextEditors = readPersistedEditors().map(toEditorDocument)
-    const nextActiveEditorId = (() => {
-      const id = readPersistedActiveEditorId()
-      return id && nextEditors.some((item) => item.id === id) ? id : nextEditors[nextEditors.length - 1]?.id || null
-    })()
-    return { openEditors: nextEditors, ...createEditorWorkspaceFromEditors(nextEditors, nextActiveEditorId), editorsHydrated: true }
-  }),
   openEditor: (file) => set((state) => {
     const existing = state.openEditors.find((item) => item.id === file.id)
     if (existing) {
@@ -363,13 +407,11 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
       const existingGroupId = findEditorGroupIdByEditor(editorGroups, existing.id)
       if (existingGroupId) {
         const nextState = withLegacyEditorState(finalizeEditorWorkspace({ ...state, editorGroups: editorGroups.map((group) => group.id === existingGroupId ? { ...group, activeEditorId: existing.id } : group), activeEditorId: existing.id, activeEditorGroupId: existingGroupId }))
-        writePersistedEditors(state.openEditors, nextState.activeEditorId)
         return nextState
       }
       const targetGroupId = getExistingEditorGroupId(editorGroups, state.activeEditorGroupId) || editorGroups[0]?.id || null
       if (!targetGroupId) return state
       const nextState = withLegacyEditorState(finalizeEditorWorkspace({ ...state, editorGroups: editorGroups.map((group) => group.id === targetGroupId ? { ...group, editorIds: [...group.editorIds, existing.id], activeEditorId: existing.id } : group), activeEditorId: existing.id, activeEditorGroupId: targetGroupId }))
-      writePersistedEditors(state.openEditors, nextState.activeEditorId)
       return nextState
     }
     const targetGroupId = getExistingEditorGroupId(state.editorGroups, state.activeEditorGroupId) || state.editorGroups[0]?.id || null
@@ -377,7 +419,6 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
     let editorGroups = state.editorGroups.map(normalizeEditorGroup)
     if (targetGroupId) editorGroups = editorGroups.map((group) => group.id === targetGroupId ? { ...group, editorIds: [...group.editorIds, file.id], activeEditorId: file.id } : group)
     const nextState = withLegacyEditorState(finalizeEditorWorkspace({ ...state, openEditors: nextOpenEditors, editorGroups, activeEditorId: file.id, activeEditorGroupId: targetGroupId }))
-    writePersistedEditors(nextOpenEditors, nextState.activeEditorId)
     return { openEditors: nextOpenEditors, ...nextState }
   }),
   openCompareEditor: (leftId, rightId) => {
@@ -392,7 +433,6 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
         const existingGroupId = findEditorGroupIdByEditor(editorGroups, existing.id)
         if (existingGroupId) {
           const nextState = withLegacyEditorState(finalizeEditorWorkspace({ ...state, editorGroups: editorGroups.map((group) => group.id === existingGroupId ? { ...group, activeEditorId: existing.id } : group), activeEditorId: existing.id, activeEditorGroupId: existingGroupId }))
-          writePersistedEditors(state.openEditors, nextState.activeEditorId)
           return nextState
         }
       }
@@ -401,7 +441,6 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
       let editorGroups = state.editorGroups.map(normalizeEditorGroup)
       if (targetGroupId) editorGroups = editorGroups.map((group) => group.id === targetGroupId ? { ...group, editorIds: [...group.editorIds, compareId], activeEditorId: compareId } : group)
       const nextState = withLegacyEditorState(finalizeEditorWorkspace({ ...state, openEditors: nextOpenEditors, editorGroups, activeEditorId: compareId, activeEditorGroupId: targetGroupId }))
-      writePersistedEditors(nextOpenEditors, nextState.activeEditorId)
       return { openEditors: nextOpenEditors, ...nextState }
     })
     return compareId
@@ -414,7 +453,6 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
       const nextState = moveEditorBetweenGroups(state, id, resolvedTargetGroupId)
       if (!nextState) return state
       const nextLegacyState = withLegacyEditorState(nextState)
-      writePersistedEditors(state.openEditors, nextLegacyState.activeEditorId)
       return nextLegacyState
     }
     const sourceGroupId = findEditorGroupIdByEditor(state.editorGroups, id)
@@ -427,7 +465,6 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
     const split = splitEditorLayout(editorLayout, resolvedTargetGroupId, direction, newGroup.id, side)
     editorLayout = split.inserted ? split.node : side === 'before' ? createEditorLayoutSplit(direction, createEditorLayoutLeaf(newGroup.id), editorLayout) : createEditorLayoutSplit(direction, editorLayout, createEditorLayoutLeaf(newGroup.id))
     const nextState = withLegacyEditorState(finalizeEditorWorkspace({ ...state, editorGroups, editorLayout, activeEditorId: id, activeEditorGroupId: newGroup.id }))
-    writePersistedEditors(state.openEditors, nextState.activeEditorId)
     return nextState
   }),
   moveEditorToGroup: (id, targetGroupId, targetId) => set((state) => {
@@ -435,7 +472,6 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
     const nextState = moveEditorBetweenGroups(state, id, targetGroupId, targetId)
     if (!nextState) return state
     const nextLegacyState = withLegacyEditorState(nextState)
-    writePersistedEditors(state.openEditors, nextLegacyState.activeEditorId)
     return nextLegacyState
   }),
   setEditorSplitRatio: (splitId, ratio) => set((state) => {
@@ -452,11 +488,9 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
       editorGroups: state.editorGroups.map((group) => group.id === findEditorGroupIdByEditor(state.editorGroups, id) ? { ...group, editorIds: group.editorIds.filter((item) => item !== id), activeEditorId: group.activeEditorId === id ? null : group.activeEditorId } : group),
       activeEditorId: state.activeEditorId === id ? null : state.activeEditorId,
     }))
-    writePersistedEditors(nextEditors, nextState.activeEditorId)
     return { openEditors: nextEditors, ...nextState }
   }),
   setActiveEditor: (id) => set((state) => {
-    writePersistedEditors(state.openEditors, id)
     if (!id) return { activeEditorId: null }
     const groupId = findEditorGroupIdByEditor(state.editorGroups, id)
     if (!groupId) return state
@@ -476,4 +510,82 @@ export const useConsoleStore = create<ConsoleState>((set) => ({
   removeToast: (id) => set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) })),
   updateConnection: (newState) => set((state) => ({ connection: { ...state.connection, ...newState } })),
   updateTerminalPerf: (newState) => set((state) => ({ terminalPerf: { ...state.terminalPerf, ...newState } })),
+}), {
+  name: getConsoleStateStorageKey(),
+  version: 1,
+  storage: createJSONStorage(() => createDebouncedStorage(120)),
+  partialize: (state) => {
+    const shared = {
+      activeHostId: state.activeHostId,
+      activeSessionId: state.activeSessionId,
+      gitByHost: state.gitByHost,
+    }
+    if (IS_MOBILE_DEVICE) return shared
+    return {
+      ...shared,
+      sessionPanelExpanded: state.sessionPanelExpanded,
+      filePanelOpen: state.filePanelOpen,
+      thumbnailPanelOpen: state.thumbnailPanelOpen,
+      gitPanelOpen: state.gitPanelOpen,
+      gitPanelWidth: state.gitPanelWidth,
+      sessionPanelWidth: state.sessionPanelWidth,
+      filePanelWidth: state.filePanelWidth,
+      terminalPanelHeight: state.terminalPanelHeight,
+      openEditors: state.openEditors.map(pickEditorMeta),
+      activeEditorId: state.activeEditorId,
+      editorGroups: state.editorGroups,
+      editorLayout: state.editorLayout,
+      activeEditorGroupId: state.activeEditorGroupId,
+    }
+  },
+  merge: (persisted, current) => {
+    const persistedState = (persisted || {}) as Partial<ConsoleState>
+    const hasEditors = Array.isArray(persistedState.openEditors)
+    const rawEditors = hasEditors ? persistedState.openEditors! : []
+    const openEditors = hasEditors ? rawEditors.map((editor) => toEditorDocument(editor as PersistedEditorMeta)) : current.openEditors
+    const validEditorIds = new Set(openEditors.map((item) => item.id))
+    const hasGroups = Array.isArray(persistedState.editorGroups) && persistedState.editorGroups.length > 0
+    const editorGroups = hasGroups
+      ? persistedState.editorGroups!.map((group) => normalizeEditorGroup({ ...group, editorIds: group.editorIds.filter((id) => validEditorIds.has(id)) }))
+      : current.editorGroups
+    const editorLayout = persistedState.editorLayout ?? current.editorLayout
+    const activeEditorId = hasEditors
+      ? (persistedState.activeEditorId && validEditorIds.has(persistedState.activeEditorId) ? persistedState.activeEditorId : null)
+      : current.activeEditorId
+    const activeEditorGroupId = hasGroups
+      ? (getExistingEditorGroupId(editorGroups, persistedState.activeEditorGroupId) || editorGroups[0]?.id || null)
+      : current.activeEditorGroupId
+    const legacyState = createLegacyEditorState(editorGroups, editorLayout, activeEditorGroupId)
+    const gitByHost = persistedState.gitByHost && typeof persistedState.gitByHost === 'object' ? persistedState.gitByHost : {}
+    return {
+      ...current,
+      activeHostId: persistedState.activeHostId ?? current.activeHostId,
+      activeSessionId: persistedState.activeSessionId ?? current.activeSessionId,
+      sessionPanelExpanded: persistedState.sessionPanelExpanded ?? current.sessionPanelExpanded,
+      filePanelOpen: persistedState.filePanelOpen ?? current.filePanelOpen,
+      thumbnailPanelOpen: persistedState.thumbnailPanelOpen ?? current.thumbnailPanelOpen,
+      gitPanelOpen: persistedState.gitPanelOpen ?? current.gitPanelOpen,
+      gitPanelWidth: persistedState.gitPanelWidth ?? current.gitPanelWidth,
+      sessionPanelWidth: persistedState.sessionPanelWidth ?? current.sessionPanelWidth,
+      filePanelWidth: persistedState.filePanelWidth ?? current.filePanelWidth,
+      terminalPanelHeight: persistedState.terminalPanelHeight ?? current.terminalPanelHeight,
+      openEditors,
+      editorGroups,
+      editorLayout,
+      activeEditorId,
+      activeEditorGroupId,
+      gitByHost,
+      activePaneId: null,
+      connection: current.connection,
+      terminalPerf: current.terminalPerf,
+      showCommandPalette: false,
+      activePluginView: null,
+      mobileFileSheetOpen: false,
+      uploadRequest: null,
+      uploadJobs: [],
+      toasts: [],
+      editorsHydrated: true,
+      ...legacyState,
+    }
+  },
 }))
