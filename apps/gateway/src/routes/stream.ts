@@ -165,8 +165,10 @@ export async function streamRoutes(fastify: FastifyInstance) {
             recordStreamMetric('compressBytesOut', frame.length - 12)
           }
           socket.send(frame)
+          recordStreamMetric('outputBytes', frame.length)
         } else {
           socket.send(JSON.stringify({ type, data, sessionName, hostId }))
+          recordStreamMetric('outputBytes', Buffer.byteLength(data || '', 'utf8'))
         }
         getSocketBufferedBytes()
         return true
@@ -190,6 +192,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
           recordStreamMetric('compressBytesOut', frame.length - 12)
         }
         socket.send(frame)
+        recordStreamMetric('outputBytes', frame.length)
         getSocketBufferedBytes()
         return true
       } catch {
@@ -270,7 +273,6 @@ export async function streamRoutes(fastify: FastifyInstance) {
         recordStreamMetric('outputResyncCompleted')
         recordStreamMetric('outputFlushes')
         recordStreamMetric('outputChunks')
-        recordStreamMetric('outputBytes', data.length)
       } catch {
         scheduleDeferredFlush()
       } finally {
@@ -303,7 +305,6 @@ export async function streamRoutes(fastify: FastifyInstance) {
       }
       recordStreamMetric('outputFlushes')
       recordStreamMetric('outputChunks')
-      recordStreamMetric('outputBytes', data.length)
     }
     function completeResizeAck() {
       const pending = pendingResizeAck
