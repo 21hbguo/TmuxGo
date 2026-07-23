@@ -319,6 +319,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   const currentPathRef = useRef('')
   const mobileNavigationDepthRef = useRef(0)
   const uploadInputRef = useRef<HTMLInputElement>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
   const lastFollowedEditorKeyRef = useRef('')
   const lastSessionIdRef = useRef<string | undefined>(undefined)
   const suspendedFollowEditorIdRef = useRef<string | null>(null)
@@ -535,19 +536,6 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
   useEffect(() => {
     contextMenuRef.current = !!contextMenu
   }, [contextMenu])
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform)
-      const modifier = isMac ? e.metaKey : e.ctrlKey
-      if (modifier && e.key === 'Delete' && selectedPath) {
-        e.preventDefault()
-        const item = visibleItems.find((i) => i.path === selectedPath)
-        if (item) void removeItem(item)
-      }
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [selectedPath, visibleItems])
   const pushMobileNavigationHistory = () => {
     if (!isMobile || typeof window === 'undefined') return
     mobileNavigationDepthRef.current += 1
@@ -1124,7 +1112,16 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
           ))}
         </div>
         <div className="mt-1.5 flex items-center gap-1">
-          <input value={query} onChange={(e) => { setQuery(e.target.value); setSearchNavigationPath(null) }} placeholder={searchMode === 'name' ? t('file.searchName') : t('file.searchContent')} className="tmuxgo-control tmuxgo-input min-w-0 flex-1 rounded-apple px-2 py-1 font-mono text-[11px]" />
+          <input ref={searchInputRef} value={query} onChange={(e) => { setQuery(e.target.value); setSearchNavigationPath(null) }} onKeyDown={(e) => {
+            const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform)
+            const modifier = isMac ? e.metaKey : e.ctrlKey
+            if (modifier && e.key === 'Delete') {
+              e.preventDefault()
+              setQuery('')
+              setDebouncedQuery('')
+              setSearchNavigationPath(null)
+            }
+          }} placeholder={searchMode === 'name' ? t('file.searchName') : t('file.searchContent')} className="tmuxgo-control tmuxgo-input min-w-0 flex-1 rounded-apple px-2 py-1 font-mono text-[11px]" />
           <button onClick={clearExpandedDirectories} disabled={!openDirectories.size && !directoryCache.size} aria-label={t('file.clearExpanded')} className={`tmuxgo-toolbar-icon h-7 w-7 shrink-0 text-[11px] ${openDirectories.size || directoryCache.size ? '' : 'opacity-40'}`}>⌂</button>
           <button onClick={() => { setQuery(''); setDebouncedQuery(''); setSearchNavigationPath(null) }} disabled={!query} aria-label={t('file.clearSearch')} className={`tmuxgo-toolbar-icon h-7 w-7 shrink-0 text-[11px] ${query ? '' : 'opacity-40'}`}>×</button>
           <div className="relative">
