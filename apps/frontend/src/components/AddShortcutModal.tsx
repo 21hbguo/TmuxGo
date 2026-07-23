@@ -108,7 +108,7 @@ export function AddShortcutModal({ onSave, onClose, isMobile }: Props) {
                 onClick={() => setRecording(true)}
                 className={`w-full px-2 py-1.5 rounded-apple text-sm text-left border transition-colors ${
                   recording
-                    ? 'bg-accent/20 border-accent text-accent animate-pulse'
+                    ? 'bg-accent/10 border-accent text-accent animate-pulse'
                     : 'tmuxgo-control'
                 }`}
               >

@@ -270,7 +270,7 @@ function isImagePath(path: string) {
   return IMAGE_EXTENSIONS.has(path.slice(dot).toLowerCase())
 }
 function FavoriteDirectoryButton({ active, name, onClick }: { active: boolean; name: string; onClick: (event: React.MouseEvent) => void }) {
-  return <button onClick={onClick} className={`shrink-0 rounded-apple px-1 py-0 text-caption leading-4 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 ${active ? 'bg-accent/20 text-accent opacity-100' : 'bg-bg-2 text-text-3 hover:text-text-1'}`} aria-label={`${active ? 'Unfavorite' : 'Favorite'} ${name}`}>{active ? '★' : '☆'}</button>
+  return <button onClick={onClick} className={`shrink-0 rounded-apple px-1 py-0 text-caption leading-4 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 ${active ? 'bg-accent/10 text-accent opacity-100' : 'bg-bg-2 text-text-3 hover:text-text-1'}`} aria-label={`${active ? 'Unfavorite' : 'Favorite'} ${name}`}>{active ? '★' : '☆'}</button>
 }
 type FileTreeNode = { key: string; item: FileItem; children?: FileTreeNode[] }
 export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile }: { mode?: 'panel' | 'mobile' | 'explorer'; dock?: 'left' | 'right'; onClose?: () => void; onOpenFile?: (file: FileDocumentHandle) => void }) {
@@ -1229,7 +1229,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile 
         {showSearchResults && rawSearchResults.length > SEARCH_RESULT_LIMIT && <div className="border-t border-[var(--line)] px-3 py-2 text-meta text-text-3">{t('file.tooManyResults', { count: SEARCH_RESULT_LIMIT })}</div>}
       </div>}
       {isMobile && mobileView === 'preview' && <div className="min-h-0 flex-1 bg-bg-0">{previewBlock}</div>}
-      {isMobile && mobileView === 'preview' && selectedPath && <div className="border-t border-[var(--line)] p-3"><button onClick={() => insertPath(activeSourceRootPath ? joinPath(activeSourceRootPath, resolveRootRelativePath(activeRootBasePath, selectedPath)) : resolveRootRelativePath(activeRootBasePath, selectedPath))} className="w-full rounded-apple bg-accent/20 px-3 py-3 text-sm text-accent active:scale-[0.98]">{t('file.insertPath')}</button></div>}
+      {isMobile && mobileView === 'preview' && selectedPath && <div className="border-t border-[var(--line)] p-3"><button onClick={() => insertPath(activeSourceRootPath ? joinPath(activeSourceRootPath, resolveRootRelativePath(activeRootBasePath, selectedPath)) : resolveRootRelativePath(activeRootBasePath, selectedPath))} className="w-full rounded-apple bg-accent/10 px-3 py-3 text-sm text-accent active:scale-[0.98]">{t('file.insertPath')}</button></div>}
       {contextMenu && (
         <>
         <div className="fixed inset-0 z-[89]" onClick={() => setContextMenu(null)} />

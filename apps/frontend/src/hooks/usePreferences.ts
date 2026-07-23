@@ -23,6 +23,7 @@ export interface Preferences {
   sidebarPosition: 'left' | 'right'
   showStatusBar: boolean
   showQuickActions: boolean
+  immersiveFullscreen: boolean
   agentNotificationsEnabled: boolean
   agentNotificationDurationMs: number
   autoReconnect: boolean
@@ -42,6 +43,7 @@ const defaultPreferences: Preferences = {
   sidebarPosition: 'left',
   showStatusBar: true,
   showQuickActions: true,
+  immersiveFullscreen: false,
   agentNotificationsEnabled: true,
   agentNotificationDurationMs: 10000,
   autoReconnect: true,
@@ -250,6 +252,26 @@ export function usePreferences() {
     const statusBarStyle = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')
     if (statusBarStyle) statusBarStyle.setAttribute('content', isLight ? 'default' : 'black-translucent')
   }, [preferences.theme, preferences.fontFamily, preferences.fontSize])
+
+  useEffect(() => {
+    const getFs = () => document.fullscreenElement || (document as any).webkitFullscreenElement || null
+    const sync = () => {
+      const active = !!getFs()
+      document.documentElement.toggleAttribute('data-immersive-fullscreen', active)
+      if (!active && preferencesStore.immersiveFullscreen) {
+        const updated = { ...preferencesStore, immersiveFullscreen: false }
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...updated, _v: PREFERENCES_VERSION }))
+        emitPreferences(updated)
+      }
+    }
+    sync()
+    document.addEventListener('fullscreenchange', sync)
+    document.addEventListener('webkitfullscreenchange', sync as any)
+    return () => {
+      document.removeEventListener('fullscreenchange', sync)
+      document.removeEventListener('webkitfullscreenchange', sync as any)
+    }
+  }, [])
 
   const updatePreferences = useCallback((updates: Partial<Preferences>) => {
     const nextUpdates = { ...updates }

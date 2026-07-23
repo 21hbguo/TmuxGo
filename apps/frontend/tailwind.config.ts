@@ -25,6 +25,8 @@ const config: Config = {
           2: 'rgb(var(--text-2) / <alpha-value>)',
           3: 'rgb(var(--text-3) / <alpha-value>)',
         },
+        'on-accent': 'rgb(var(--on-accent) / <alpha-value>)',
+        'on-danger': 'rgb(var(--on-danger) / <alpha-value>)',
       },
       boxShadow: {
         glow: '0 0 20px rgba(30,200,255,0.25)',
