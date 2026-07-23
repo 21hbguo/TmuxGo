@@ -23,7 +23,7 @@ import { createViewportStableState, getNextViewportStableState, getViewportLayou
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useDeleteSession, useHosts, useRenameSession, useSessionSnapshot } from '@/hooks/useApi'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
-import { setImmersiveFullscreenMode, usePreferences } from '@/hooks/usePreferences'
+import { usePreferences } from '@/hooks/usePreferences'
 import { usePrompt } from '@/hooks/usePrompt'
 import { useSessionContinuity } from '@/hooks/useSessionContinuity'
 import { useGitPreferencesSync } from '@/hooks/useGitPreferencesSync'
@@ -543,9 +543,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       }
       if (overlayRef.current.length > 0) {
         window.history.back()
-        return
       }
-      void setImmersiveFullscreenMode(false)
     }
     window.addEventListener('tmuxgo-app-back', handleAppBack as EventListener)
     return () => window.removeEventListener('tmuxgo-app-back', handleAppBack as EventListener)
