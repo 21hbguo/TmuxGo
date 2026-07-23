@@ -52,7 +52,7 @@ export function DiffViewer({ hostId, repoPath, filePath, staged, commit, working
   if (!data?.raw) return <div className="flex h-full items-center justify-center text-sm text-text-3">{t('git.diffEmpty')}</div>
 
   return (
-    <div className="h-full overflow-auto bg-bg-0 font-mono text-meta leading-[1.6]">
+    <div className="tmuxgo-scrollbar h-full overflow-auto bg-bg-0 font-mono text-meta leading-[1.6]">
       <div className="sticky top-0 z-10 border-b border-[var(--line)] bg-bg-1 px-4 py-2">
         <span className="text-sm text-text-1">{t('git.diffTitle', { file: label || filePath || commit || '' })}</span>
         {staged && <span className="ml-2 rounded-apple bg-accent/10 px-1.5 py-0.5 text-caption text-accent">staged</span>}
