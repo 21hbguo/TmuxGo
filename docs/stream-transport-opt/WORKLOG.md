@@ -51,3 +51,21 @@
 - 单帧 parse 失败只回退该帧，不永久关闭 cell
 - dirty 阈值 0.4 → 0.55
 - 无 cell/光标变化时跳过发送
+
+## 2026-07-24 — 闪烁修复
+
+### 根因
+1. 前端 `await decode` 并发处理二进制帧 → **乱序** → cell seq 对不上 → 反复 `cell_resync` → snapshot 清屏闪烁
+2. Cell snapshot 经 ANSI 重建含全屏擦除，高频时肉眼闪烁
+3. Cell 默认被冒烟打开（systemd CELL=1 + caps cell true）
+
+### 修复
+- 二进制消息 **串行队列** 处理，禁止乱序
+- 前端默认 `cellOutput:false`（仅 gzip 压缩）
+- systemd `TMUXGO_STREAM_CELL=0`
+- cell apply 增加 DEC 2026 同步更新；snapshot 用 `\x1b[J` 代替更重的组合路径
+- 已 `./start.sh --restart --rebuild`
+
+### 期望
+- 正常使用：仅 type 1/3/4 压缩 ANSI 流，不再 cell 清屏风暴
+- 需再开 cell：服务端 `TMUXGO_STREAM_CELL=1` 且前端 caps `cellOutput:true`（代码已支持串行）

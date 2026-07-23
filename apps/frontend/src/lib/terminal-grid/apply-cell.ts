@@ -2,7 +2,9 @@ import { ATTR_BOLD, ATTR_DIM, ATTR_ITALIC, ATTR_UNDERLINE, ATTR_INVERSE } from '
 import type { Cell, CellDiff, CellSnapshot } from './decode-cell'
 import { WIDE_CONT } from './decode-cell'
 
-// re-export attr constants matching gateway
+const SYNC_BEGIN = '\x1b[?2026h'
+const SYNC_END = '\x1b[?2026l'
+
 export function sgrColor(mode: number, value: number, isFg: boolean) {
   const base = isFg ? 38 : 48
   if (mode === 0) return isFg ? '\x1b[39m' : '\x1b[49m'
@@ -19,7 +21,6 @@ export function sgrColor(mode: number, value: number, isFg: boolean) {
 function attrBits(attr: number) {
   return attr & 0x0fffffff
 }
-
 function fgMode(attr: number) { return (attr >>> 30) & 3 }
 function bgMode(attr: number) { return (attr >>> 28) & 3 }
 
@@ -46,7 +47,7 @@ function cpToString(cp: number) {
 }
 
 export function snapshotToAnsi(snapshot: CellSnapshot) {
-  let out = '\x1b[H\x1b[2J'
+  let out = `${SYNC_BEGIN}\x1b[H\x1b[J`
   let lastSgr = ''
   for (let y = 0; y < snapshot.rows; y++) {
     out += `\x1b[${y + 1};1H`
@@ -60,14 +61,17 @@ export function snapshotToAnsi(snapshot: CellSnapshot) {
       }
       out += cpToString(cell.cp) || ' '
     }
+    out += '\x1b[K'
   }
-  out += `\x1b[${snapshot.cursorY + 1};${snapshot.cursorX + 1}H`
-  out += '\x1b[0m'
+  out += `\x1b[${snapshot.cursorY + 1};${snapshot.cursorX + 1}H\x1b[0m${SYNC_END}`
   return out
 }
 
 export function diffToAnsi(diff: CellDiff) {
-  let out = ''
+  if (!diff.changes.length) {
+    return `${SYNC_BEGIN}\x1b[${diff.cursorY + 1};${diff.cursorX + 1}H${SYNC_END}`
+  }
+  let out = SYNC_BEGIN
   let lastSgr = ''
   for (const change of diff.changes) {
     if (change.cell.cp === WIDE_CONT) continue
@@ -79,8 +83,7 @@ export function diffToAnsi(diff: CellDiff) {
     }
     out += cpToString(change.cell.cp) || ' '
   }
-  out += `\x1b[${diff.cursorY + 1};${diff.cursorX + 1}H`
-  out += '\x1b[0m'
+  out += `\x1b[${diff.cursorY + 1};${diff.cursorX + 1}H\x1b[0m${SYNC_END}`
   return out
 }
 

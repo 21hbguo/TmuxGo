@@ -12,6 +12,7 @@ const wsState:WSState={ws:null,reconnectTimer:null,reconnectCount:0,isConnecting
 type OutputMessage={data:string,sessionName?:string|null,hostId?:string|null,resync?:boolean}
 const outputListeners=new Set<(message:OutputMessage)=>void>()
 let cellLastSeq=0
+let binaryMessageQueue:Promise<void>=Promise.resolve()
 const BACKGROUND_CLOSE_DELAY_MS=12000
 function recordMobileDebug(event:string,data?:Record<string,unknown>) {
   recordMobileDiagnostic(event,data,event.includes('close')||event.includes('error')||event.includes('background'))
@@ -120,13 +121,13 @@ export function useWebSocket() {
         wsState.lastPongAt=Date.now()
         updateConnection({status:'attaching',latency:0})
         recordMobileDebug('ws-open')
-        try { ws.send(JSON.stringify({type:'stream_caps',binaryOutput:true,compressOutput:'gzip',cellOutput:true})) } catch {}
+        try { ws.send(JSON.stringify({type:'stream_caps',binaryOutput:true,compressOutput:'gzip',cellOutput:false})) } catch {}
         sendPing()
         window.dispatchEvent(new CustomEvent('ws-reconnected'))
         wsState.onOpen?.()
       }
       ws.onmessage=(event)=>{
-        void (async()=>{
+        binaryMessageQueue=binaryMessageQueue.then(async()=>{
           try {
             if (typeof ArrayBuffer!=='undefined'&&event.data instanceof ArrayBuffer) {
               const decoded=await decodeStreamOutputBinary(event.data)
@@ -163,7 +164,7 @@ export function useWebSocket() {
           } catch (err) {
             console.error('Failed to parse WebSocket message:',err)
           }
-        })()
+        }).catch(()=>{})
       }
       ws.onclose=()=>{
         if (wsState.ws===ws) {
