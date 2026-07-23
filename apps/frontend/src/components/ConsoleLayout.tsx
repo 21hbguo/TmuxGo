@@ -283,7 +283,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       const isMobileViewport = window.matchMedia(MOBILE_QUERY).matches
       const immersive = document.documentElement.hasAttribute('data-immersive-fullscreen')
       const vv = window.visualViewport
-      const viewportHeight = immersive ? (window.innerHeight || screen.height || vv?.height || 0) : (vv?.height || window.innerHeight)
+      const viewportHeight = vv?.height || window.innerHeight
       const viewportWidth = vv?.width || window.innerWidth
       const byClass = document.body.classList.contains('keyboard-open')
       const activeElement = document.activeElement
@@ -329,10 +329,10 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
         setKeyboardOpen(open)
       }
       const nextHeight = immersive
-        ? Math.round(window.innerHeight || screen.height || state.nextHeight || 0)
+        ? Math.round(viewportHeight || state.nextHeight || window.innerHeight || 0)
         : state.nextHeight
-      if (!immersive && isMobileViewport && appHeightNumRef.current && !open && Math.abs(nextHeight - appHeightNumRef.current) < 36) return
-      if (!immersive && isMobileViewport && appHeightNumRef.current && open && Math.abs(nextHeight - appHeightNumRef.current) < 6) return
+      if (isMobileViewport && appHeightNumRef.current && !open && Math.abs(nextHeight - appHeightNumRef.current) < 36) return
+      if (isMobileViewport && appHeightNumRef.current && open && Math.abs(nextHeight - appHeightNumRef.current) < 6) return
       const nextValue = `${nextHeight}px`
       if (appHeightRef.current === nextValue) return
       appHeightRef.current = nextValue
