@@ -51,6 +51,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
     let agentId: string | null = null
     let outputBuffer = ''
     let dedupRecentChunks: string[] = []
+    let dedupDropLogCount = 0
     let outputTimer: ReturnType<typeof setTimeout> | null = null
     let deferredFlushTimer: ReturnType<typeof setTimeout> | null = null
     let outputResyncPending = false
@@ -299,6 +300,14 @@ export async function streamRoutes(fastify: FastifyInstance) {
       }
       const data = outputBuffer
       outputBuffer = ''
+      if (data.length >= DEDUP_CHUNK_THRESHOLD && dedupRecentChunks.includes(data)) {
+        recordStreamMetric('droppedDuplicateChunks', data.length)
+        if (dedupDropLogCount < 60) {
+          dedupDropLogCount++
+          console.warn(`[flush-dedup#${dedupDropLogCount}] len=${data.length} preview=${JSON.stringify(data.slice(0, 80))}`)
+        }
+        return
+      }
       let sent = false
       if (cellModeActive) sent = feedCellAndMaybeSend('output', data, attachedSessionName, attachedHostId)
       if (!sent) {
@@ -306,6 +315,10 @@ export async function streamRoutes(fastify: FastifyInstance) {
           outputBuffer = data + outputBuffer
           return
         }
+      }
+      if (data.length >= DEDUP_CHUNK_THRESHOLD) {
+        dedupRecentChunks.push(data)
+        if (dedupRecentChunks.length > DEDUP_WINDOW_SIZE) dedupRecentChunks.shift()
       }
       recordStreamMetric('outputFlushes')
       recordStreamMetric('outputChunks')
@@ -627,6 +640,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
             if (cellOutputEnabled) resetCellState(cols, rows)
             attachVisibleOutputObserved = false
             dedupRecentChunks = []
+            dedupDropLogCount = 0
             const seq = attachSeq
             ptyProcess.onData((output: string) => {
               if (seq !== attachSeq) return
@@ -637,18 +651,6 @@ export async function streamRoutes(fastify: FastifyInstance) {
                   completeResizeAck()
                 }
                 return
-              }
-              if (output.length >= DEDUP_CHUNK_THRESHOLD) {
-                if (dedupRecentChunks.includes(output)) {
-                  recordStreamMetric('droppedDuplicateChunks', output.length)
-                  if (pendingResizeAck) {
-                    pendingResizeAck.outputObserved = true
-                    completeResizeAck()
-                  }
-                  return
-                }
-                dedupRecentChunks.push(output)
-                if (dedupRecentChunks.length > DEDUP_WINDOW_SIZE) dedupRecentChunks.shift()
               }
               const filtered = sanitizeOutput(output)
               if (filtered) {
