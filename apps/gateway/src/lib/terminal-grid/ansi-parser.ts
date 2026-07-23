@@ -33,11 +33,10 @@ export class AnsiParser {
       if (this.csi) {
         this.buf += ch
         if (ch >= '@' && ch <= '~') {
-          const ok = this.handleCsi(this.buf)
+          this.handleCsi(this.buf)
           this.csi = false
           this.buf = ''
           this.escaped = false
-          if (!ok) return { ok: false, unsupported: this.lastUnsupported || 'csi' }
         }
         continue
       }
@@ -54,10 +53,7 @@ export class AnsiParser {
         }
         // simple ESC sequences ignored / unsupported
         this.escaped = false
-        if (ch !== 'c' && ch !== '7' && ch !== '8' && ch !== 'M' && ch !== 'D' && ch !== 'E') {
-          this.lastUnsupported = `esc:${ch}`
-          return { ok: false, unsupported: this.lastUnsupported }
-        }
+        // ignore unsupported simple ESC forms to keep cell mode alive
         continue
       }
       if (code === 0x1b) {
@@ -129,8 +125,8 @@ export class AnsiParser {
         this.grid.cursorY = Math.min(this.grid.rows - 1, Math.max(0, (p0 || 1) - 1))
         return true
       default:
-        this.lastUnsupported = `csi:${final}`
-        return false
+        // ignore unknown CSI rather than fail the whole cell session
+        return true
     }
   }
   private handleSgr(params: number[]) {
@@ -195,8 +191,7 @@ export class AnsiParser {
           }
           i += 4
         } else {
-          this.lastUnsupported = `sgr:${p}`
-          return false
+          // ignore unsupported color forms
         }
       } else if (p !== 0) {
         // ignore mild unknown sgr rather than fail hard for common reset-like values
