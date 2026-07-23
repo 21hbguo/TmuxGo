@@ -35,8 +35,10 @@ export async function streamRoutes(fastify: FastifyInstance) {
     const STREAM_CELL_ENABLED = process.env.TMUXGO_STREAM_CELL === '1'
     const CELL_DIRTY_RATIO_SNAPSHOT = 0.55
     const DEDUP_CHUNK_THRESHOLD = Math.max(0, Number(process.env.TMUXGO_DEDUP_CHUNK_THRESHOLD || 512) || 512)
+    const DEDUP_WINDOW_SIZE = Math.max(1, Number(process.env.TMUXGO_DEDUP_WINDOW || 32) || 32)
+    const FOREGROUND_FLUSH_INTERVAL = Math.max(1, Number(process.env.TMUXGO_FLUSH_INTERVAL || 4) || 4)
     const OUTPUT_PROFILES = {
-      foreground: { flushInterval: 4, maxChars: 65536 },
+      foreground: { flushInterval: FOREGROUND_FLUSH_INTERVAL, maxChars: 65536 },
       background: { flushInterval: 32, maxChars: 24576 },
       mobile: { flushInterval: 24, maxChars: 16384 },
     } as const
@@ -48,7 +50,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
     let attachedRows = 0
     let agentId: string | null = null
     let outputBuffer = ''
-    let lastPtyChunk = ''
+    let dedupRecentChunks: string[] = []
     let outputTimer: ReturnType<typeof setTimeout> | null = null
     let deferredFlushTimer: ReturnType<typeof setTimeout> | null = null
     let outputResyncPending = false
@@ -297,10 +299,6 @@ export async function streamRoutes(fastify: FastifyInstance) {
       }
       const data = outputBuffer
       outputBuffer = ''
-      if (data.length >= DEDUP_CHUNK_THRESHOLD && data === lastPtyChunk) {
-        recordStreamMetric('droppedDuplicateChunks', data.length)
-        return
-      }
       let sent = false
       if (cellModeActive) sent = feedCellAndMaybeSend('output', data, attachedSessionName, attachedHostId)
       if (!sent) {
@@ -309,7 +307,6 @@ export async function streamRoutes(fastify: FastifyInstance) {
           return
         }
       }
-      lastPtyChunk = data
       recordStreamMetric('outputFlushes')
       recordStreamMetric('outputChunks')
     }
@@ -629,7 +626,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
             attachedRows = rows
             if (cellOutputEnabled) resetCellState(cols, rows)
             attachVisibleOutputObserved = false
-            lastPtyChunk = ''
+            dedupRecentChunks = []
             const seq = attachSeq
             ptyProcess.onData((output: string) => {
               if (seq !== attachSeq) return
@@ -640,6 +637,18 @@ export async function streamRoutes(fastify: FastifyInstance) {
                   completeResizeAck()
                 }
                 return
+              }
+              if (output.length >= DEDUP_CHUNK_THRESHOLD) {
+                if (dedupRecentChunks.includes(output)) {
+                  recordStreamMetric('droppedDuplicateChunks', output.length)
+                  if (pendingResizeAck) {
+                    pendingResizeAck.outputObserved = true
+                    completeResizeAck()
+                  }
+                  return
+                }
+                dedupRecentChunks.push(output)
+                if (dedupRecentChunks.length > DEDUP_WINDOW_SIZE) dedupRecentChunks.shift()
               }
               const filtered = sanitizeOutput(output)
               if (filtered) {
