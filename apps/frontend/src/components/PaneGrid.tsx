@@ -19,6 +19,7 @@ const ATTACH_RETRY_DELAY = 900
 const INPUT_QUEUE_LIMIT = 128
 const INPUT_FLUSH_INTERVAL = 4
 const INPUT_BATCH_CHARS = 768
+const RESIZE_FLUSH_INTERVAL = 32
 
 export function PaneGrid({ sessionId: controlledSessionId }: { sessionId?: string }) {
   const activeHostId = useConsoleStore((s) => s.activeHostId)
@@ -49,6 +50,8 @@ export function PaneGrid({ sessionId: controlledSessionId }: { sessionId?: strin
   const pendingSwitchRef = useRef(false)
   const lastSessionRef = useRef<string | null>(sessionId || null)
   const inputQueueRef = useRef<string[]>([])
+  const resizeFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingRemoteResizeRef = useRef<{ cols: number; rows: number } | null>(null)
   const inputFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const sentResizeRef = useRef<{ cols: number; rows: number } | null>(null)
   const lastExclusiveRef = useRef(exclusive)
@@ -119,6 +122,24 @@ export function PaneGrid({ sessionId: controlledSessionId }: { sessionId?: strin
     clearTimeout(inputFlushTimerRef.current)
     inputFlushTimerRef.current = null
   }, [])
+  const clearResizeFlushTimer = useCallback(() => {
+    if (!resizeFlushTimerRef.current) return
+    clearTimeout(resizeFlushTimerRef.current)
+    resizeFlushTimerRef.current = null
+  }, [])
+  const flushPendingRemoteResize = useCallback(() => {
+    clearResizeFlushTimer()
+    const size = pendingRemoteResizeRef.current
+    pendingRemoteResizeRef.current = null
+    if (!size) return
+    if (!isConnected || attachedRef.current !== targetSessionName) {
+      window.dispatchEvent(new CustomEvent('tmux-resized', { detail: { hostId: activeHostId || 'local', sessionName: targetSessionName, cols: size.cols, rows: size.rows, localOnly: true } }))
+      return
+    }
+    if (!sendResizeNow(size)) {
+      window.dispatchEvent(new CustomEvent('tmux-resized', { detail: { hostId: activeHostId || 'local', sessionName: targetSessionName, cols: size.cols, rows: size.rows, localOnly: true } }))
+    }
+  }, [activeHostId, clearResizeFlushTimer, isConnected, sendResizeNow, targetSessionName])
   const clearContinuityTimer = useCallback(() => {
     if (!continuityTimerRef.current) return
     clearTimeout(continuityTimerRef.current)
@@ -379,9 +400,10 @@ export function PaneGrid({ sessionId: controlledSessionId }: { sessionId?: strin
   useEffect(() => () => {
     clearAttachTimers()
     clearInputFlushTimer()
+    clearResizeFlushTimer()
     clearContinuityTimer()
     flushResumePoint()
-  }, [clearAttachTimers, clearInputFlushTimer, clearContinuityTimer, flushResumePoint])
+  }, [clearAttachTimers, clearInputFlushTimer, clearResizeFlushTimer, clearContinuityTimer, flushResumePoint])
 
   const handleInput = useCallback((data: string) => {
     scheduleContinuityFlush(100)
@@ -424,10 +446,18 @@ export function PaneGrid({ sessionId: controlledSessionId }: { sessionId?: strin
   const handleResize = useCallback((cols: number, rows: number) => {
     const nextSize = { cols, rows }
     sizeRef.current = nextSize
-    const localOnly = !isConnected || attachedRef.current !== targetSessionName || !sendResizeNow(nextSize)
-    if (localOnly) window.dispatchEvent(new CustomEvent('tmux-resized', { detail: { hostId: activeHostId || 'local', sessionName: targetSessionName, cols, rows, localOnly: true } }))
     scheduleContinuityFlush(100)
-  }, [activeHostId, isConnected, targetSessionName, sendResizeNow, scheduleContinuityFlush])
+    if (!isConnected || attachedRef.current !== targetSessionName) {
+      window.dispatchEvent(new CustomEvent('tmux-resized', { detail: { hostId: activeHostId || 'local', sessionName: targetSessionName, cols, rows, localOnly: true } }))
+      return
+    }
+    pendingRemoteResizeRef.current = nextSize
+    if (resizeFlushTimerRef.current) return
+    resizeFlushTimerRef.current = setTimeout(() => {
+      resizeFlushTimerRef.current = null
+      flushPendingRemoteResize()
+    }, RESIZE_FLUSH_INTERVAL)
+  }, [activeHostId, flushPendingRemoteResize, isConnected, scheduleContinuityFlush, targetSessionName])
   const handleReady = useCallback(() => {
     terminalReadyRef.current = true
     if (attachedRef.current === targetSessionName) return

@@ -13,6 +13,7 @@ import { getAttachSnapshotDelays } from '../lib/attach-snapshot.js'
 import { execTmux } from '../lib/tmux-executor.js'
 import { getHostAgentPanes, markAgentPaneSeen } from '../lib/agent-state.js'
 import { streamAttachMessageSchema, streamInputMessageSchema, streamMessageSchema, streamRegisterMessageSchema, streamResizeMessageSchema } from '../lib/request-validation.js'
+import { encodeStreamOutputBinary } from '../lib/stream-binary.js'
 
 const execFileAsync = promisify(execFile)
 let sshPassAvailable: boolean | null = null
@@ -48,6 +49,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
     let redrawTimers: ReturnType<typeof setTimeout>[] = []
     let outputProfile: keyof typeof OUTPUT_PROFILES = 'foreground'
     let clientBackpressureHigh = false
+    let binaryOutputEnabled = false
     let attachSeq = 0
     let attachVisibleOutputObserved = false
     let attachSnapshotTimers: ReturnType<typeof setTimeout>[] = []
@@ -118,6 +120,21 @@ export async function streamRoutes(fastify: FastifyInstance) {
         return false
       }
     }
+    function sendTerminalOutput(type: 'output' | 'output_resync', data: string, sessionName: string, hostId: string) {
+      if (socket.readyState !== 1) return false
+      try {
+        getSocketBufferedBytes()
+        if (binaryOutputEnabled) {
+          socket.send(encodeStreamOutputBinary(type, hostId, sessionName, data))
+        } else {
+          socket.send(JSON.stringify({ type, data, sessionName, hostId }))
+        }
+        getSocketBufferedBytes()
+        return true
+      } catch {
+        return false
+      }
+    }
     function scheduleDeferredFlush() {
       if (deferredFlushTimer) return
       recordStreamMetric('deferredFlushes')
@@ -140,7 +157,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
           return
         }
         const data = `\u001b[H\u001b[2J${String(stdout || '')}`
-        if (!send({ type: 'output_resync', data, sessionName, hostId })) {
+        if (!sendTerminalOutput('output_resync', data, sessionName, hostId)) {
           scheduleDeferredFlush()
           return
         }
@@ -171,7 +188,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
       }
       const data = outputBuffer
       outputBuffer = ''
-      if (!send({ type: 'output', data, sessionName: attachedSessionName, hostId: attachedHostId })) {
+      if (!sendTerminalOutput('output', data, attachedSessionName, attachedHostId)) {
         outputBuffer = data + outputBuffer
         return
       }
@@ -305,8 +322,13 @@ export async function streamRoutes(fastify: FastifyInstance) {
         if (!ptyProcess || !sessionName || attachVisibleOutputObserved || seq !== attachSeq || attachedSessionName !== sessionName) return
         const snapshot = String(stdout || '')
         if (!snapshot) return
+        const data = `\u001b[H\u001b[2J${snapshot}`
+        if (!sendTerminalOutput('output_resync', data, sessionName, attachedHostId)) return
         attachVisibleOutputObserved = true
-        queueOutput(`\u001b[H\u001b[2J${snapshot}`)
+        recordStreamMetric('outputResyncCompleted')
+        recordStreamMetric('outputFlushes')
+        recordStreamMetric('outputChunks')
+        recordStreamMetric('outputBytes', data.length)
       } catch {}
     }
     function scheduleAttachSnapshot(sessionName: string, seq: number, delays = getAttachSnapshotDelays()) {
@@ -579,6 +601,10 @@ export async function streamRoutes(fastify: FastifyInstance) {
             }
             break
           }
+          case 'stream_caps':
+            binaryOutputEnabled = data.binaryOutput === true
+            send({ type: 'stream_caps', binaryOutput: binaryOutputEnabled })
+            break
           case 'stream_profile':
             if (data.profile === 'foreground' || data.profile === 'background' || data.profile === 'mobile') syncOutputProfile(data.profile)
             break
