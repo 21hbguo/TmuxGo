@@ -9,6 +9,10 @@ const STORAGE_UPDATED_AT_KEY = 'tmuxgo-preferences-updated-at'
 const PROFILE = 'default'
 type StoredPreferences = Partial<Preferences> & { _v?: number }
 
+export const FONT_JETBRAINS = '"JetBrains Mono", "Cascadia Mono", "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace'
+export const FONT_MAPLE = '"Maple Mono", "JetBrains Mono", "Cascadia Mono", "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace'
+export const ALLOWED_FONT_FAMILIES = [FONT_JETBRAINS, FONT_MAPLE] as const
+
 export interface Preferences {
   theme: 'dark' | 'light' | 'high-contrast' | 'dracula' | 'nord' | 'catppuccin'
   fontSize: number
@@ -31,7 +35,7 @@ export interface Preferences {
 const defaultPreferences: Preferences = {
   theme: 'dark',
   fontSize: 14,
-  fontFamily: '"JetBrains Mono", "Cascadia Mono", "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace',
+  fontFamily: FONT_JETBRAINS,
   cursorBlink: true,
   sidebarPosition: 'left',
   showStatusBar: true,
@@ -45,6 +49,17 @@ const defaultPreferences: Preferences = {
   attachExclusive: true,
   uploadRateLimitKBps: 200,
   downloadRateLimitKBps: 200,
+}
+
+function normalizeFontFamily(fontFamily?: string) {
+  if (fontFamily === FONT_MAPLE || fontFamily === FONT_JETBRAINS) return fontFamily
+  if (fontFamily && fontFamily.includes('Maple Mono')) return FONT_MAPLE
+  if (fontFamily && fontFamily.includes('JetBrains Mono')) return FONT_JETBRAINS
+  return FONT_JETBRAINS
+}
+
+function fontDataAttr(fontFamily: string) {
+  return fontFamily === FONT_MAPLE ? 'maple' : 'jetbrains'
 }
 
 let preferencesStore: Preferences = defaultPreferences
@@ -87,9 +102,10 @@ function readStoredPreferences() {
     if (version < PREFERENCES_VERSION && parsed.terminalPadding === 8) {
       next.terminalPadding = 0
     }
-    const fontForced = next.fontFamily !== defaultPreferences.fontFamily
+    const normalizedFont = normalizeFontFamily(next.fontFamily)
+    const fontForced = next.fontFamily !== normalizedFont
     if (fontForced) {
-      next.fontFamily = defaultPreferences.fontFamily
+      next.fontFamily = normalizedFont
     }
     if (version !== PREFERENCES_VERSION || fontForced) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...next, _v: PREFERENCES_VERSION }))
@@ -144,7 +160,7 @@ export function usePreferences() {
           const remoteMs = Date.parse(remoteUpdatedAt)
           if (remoteUi && Object.keys(remoteUi).length > 0) {
             if (!Number.isNaN(remoteMs) && (Number.isNaN(localMs) || remoteMs >= localMs)) {
-              const merged = { ...defaultPreferences, ...remoteUi, fontFamily: defaultPreferences.fontFamily } as Preferences
+              const merged = { ...defaultPreferences, ...remoteUi, fontFamily: normalizeFontFamily(remoteUi.fontFamily) } as Preferences
               localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...merged, _v: PREFERENCES_VERSION }))
               localStorage.setItem(STORAGE_UPDATED_AT_KEY, remoteUpdatedAt || new Date().toISOString())
               emitPreferences(merged)
@@ -176,14 +192,19 @@ export function usePreferences() {
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', preferences.theme)
+    document.documentElement.setAttribute('data-font', fontDataAttr(preferences.fontFamily))
     const themeColor = document.querySelector('meta[name="theme-color"]')
     if (themeColor) themeColor.setAttribute('content', `rgb(${getComputedStyle(document.documentElement).getPropertyValue('--bg-0').trim()})`)
     const statusBarStyle = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')
     if (statusBarStyle) statusBarStyle.setAttribute('content', preferences.theme === 'light' ? 'default' : 'black-translucent')
-  }, [preferences.theme])
+  }, [preferences.theme, preferences.fontFamily])
 
   const updatePreferences = useCallback((updates: Partial<Preferences>) => {
-    const updated = { ...preferencesStore, ...updates, fontFamily: defaultPreferences.fontFamily }
+    const nextUpdates = { ...updates }
+    if (nextUpdates.fontFamily !== undefined) {
+      nextUpdates.fontFamily = normalizeFontFamily(nextUpdates.fontFamily)
+    }
+    const updated = { ...preferencesStore, ...nextUpdates }
     const now = new Date().toISOString()
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...updated, _v: PREFERENCES_VERSION }))
     localStorage.setItem(STORAGE_UPDATED_AT_KEY, now)
