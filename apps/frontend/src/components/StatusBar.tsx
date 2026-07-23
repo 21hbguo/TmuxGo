@@ -56,7 +56,7 @@ export function StatusBar() {
   } as Record<string, { dot: string; text: string; shell: string }>)[connection.status] || { dot: 'bg-text-3', text: 'text-text-3', shell: 'border-text-1/10 bg-bg-2/45' }
 
   return (
-    <footer className="tmuxgo-glass tmuxgo-glass-chrome relative h-7 shrink-0 overflow-visible border-t border-[var(--line)] px-3 text-meta text-text-3">
+    <footer className="tmuxgo-glass tmuxgo-glass-chrome shadow-none relative h-7 shrink-0 overflow-visible border-t border-[var(--line)] px-3 text-meta text-text-3">
       <div className="relative flex h-full items-center justify-between gap-3">
         <section aria-label="Workspace context" className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
 
