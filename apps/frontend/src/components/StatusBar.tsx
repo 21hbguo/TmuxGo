@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
 import { useSystemInfo } from '@/hooks/useSystemInfo'
@@ -30,6 +30,12 @@ function ResourceChip({ label, value, tone = 'neutral', title }: { label: string
   )
 }
 
+function formatTraffic(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}M`
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)}K`
+  return `${bytes}B`
+}
+
 export function StatusBar() {
   const [showAllDisks, setShowAllDisks] = useState(false)
   const activePaneId = useConsoleStore((state) => state.activePaneId)
@@ -41,6 +47,20 @@ export function StatusBar() {
   const { data: hosts = [] } = useHosts()
   const { data: snapshotData } = useSessionSnapshot(activeHostId || '', activeSessionId || '')
   const panes = snapshotData?.panes || []
+  const [traffic, setTraffic] = useState(0)
+  const lastBytesRef = useRef<number | null>(null)
+  const lastTimeRef = useRef<number>(Date.now())
+  useEffect(() => {
+    if (!sys?.stream?.outputBytes) return
+    const now = Date.now()
+    const elapsed = (now - lastTimeRef.current) / 1000
+    if (lastBytesRef.current !== null && elapsed > 0) {
+      const bytesPerSec = (sys.stream.outputBytes - lastBytesRef.current) / elapsed
+      setTraffic(Math.max(0, bytesPerSec))
+    }
+    lastBytesRef.current = sys.stream.outputBytes
+    lastTimeRef.current = now
+  }, [sys?.stream?.outputBytes])
 
   const activePane = panes.find((p: any) => p.id === activePaneId)
   const activeHost = hosts.find((h: any) => h.id === activeHostId)
@@ -110,9 +130,9 @@ export function StatusBar() {
             )}
           </section>
         )}
-        <section aria-label="Connection status" className={`inline-flex h-5 shrink-0 items-center gap-1.5 rounded-full border px-2 font-medium ${statusStyle.shell}`} style={{ minWidth: '120px' }}>
+        <section aria-label="Connection status" className={`inline-flex h-5 shrink-0 items-center gap-1.5 rounded-full border px-2 font-medium ${statusStyle.shell}`} style={{ minWidth: '180px' }}>
           <span className={`h-1.5 w-1.5 rounded-full ${statusStyle.dot}`} />
-          <span className={statusStyle.text}>{t(`status.${connection.status}`)}{connection.status === 'connected' && <span className="ml-1 inline-block min-w-[3.2em] font-mono text-right tabular-nums">{connection.latency}ms</span>}</span>
+          <span className={statusStyle.text}>{t(`status.${connection.status}`)}{connection.status === 'connected' && <><span className="ml-1 inline-block min-w-[3.2em] font-mono text-right tabular-nums">{connection.latency}ms</span><span className="mx-1 text-text-3">·</span><span className="inline-block min-w-[4em] font-mono text-right tabular-nums">{formatTraffic(traffic)}/s</span></>}</span>
         </section>
       </div>
     </footer>
