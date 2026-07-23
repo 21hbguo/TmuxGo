@@ -27,10 +27,11 @@ export async function streamRoutes(fastify: FastifyInstance) {
     const SOCKET_BUFFER_EXTREME_WATERMARK = 4194304
     const SOCKET_FLUSH_DEFER_MS = 24
     const OUTPUT_BUFFER_MAX_CHARS = 1048576
+    const CLIENT_BACKPRESSURE_RESYNC_CHARS = 16384
     const OUTPUT_PROFILES = {
-      foreground: { flushInterval: 8, maxChars: 24576 },
-      background: { flushInterval: 24, maxChars: 98304 },
-      mobile: { flushInterval: 24, maxChars: 65536 },
+      foreground: { flushInterval: 4, maxChars: 16384 },
+      background: { flushInterval: 32, maxChars: 24576 },
+      mobile: { flushInterval: 24, maxChars: 16384 },
     } as const
     let ptyProcess: pty.IPty | null = null
     let attachedSessionName: string | null = null
@@ -46,6 +47,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
     let outputResyncRunning = false
     let redrawTimers: ReturnType<typeof setTimeout>[] = []
     let outputProfile: keyof typeof OUTPUT_PROFILES = 'foreground'
+    let clientBackpressureHigh = false
     let attachSeq = 0
     let attachVisibleOutputObserved = false
     let attachSnapshotTimers: ReturnType<typeof setTimeout>[] = []
@@ -69,12 +71,32 @@ export async function streamRoutes(fastify: FastifyInstance) {
       return next
     }
     function syncOutputProfile(profile: keyof typeof OUTPUT_PROFILES) {
+      const changed = outputProfile !== profile
       outputProfile = profile
       const current = OUTPUT_PROFILES[profile]
       updateStreamMetric('activeProfile', profile)
       updateStreamMetric('activeFlushInterval', current.flushInterval)
       updateStreamMetric('activeMaxChars', current.maxChars)
-      recordStreamMetric('profileUpdates')
+      if (changed) recordStreamMetric('profileUpdates')
+    }
+    function requestLatestFrameResync() {
+      if (outputResyncPending) {
+        if (outputBuffer) {
+          recordStreamMetric('droppedOutputChars', outputBuffer.length)
+          outputBuffer = ''
+        }
+        return
+      }
+      if (outputBuffer) recordStreamMetric('droppedOutputChars', outputBuffer.length)
+      recordStreamMetric('outputResyncRequests')
+      outputBuffer = ''
+      sanitizeTerminalOutput = createTerminalOutputSanitizer()
+      outputResyncPending = true
+      if (outputTimer) {
+        clearTimeout(outputTimer)
+        outputTimer = null
+      }
+      scheduleDeferredFlush()
     }
     function getOutputProfileConfig() {
       return OUTPUT_PROFILES[outputProfile]
@@ -172,17 +194,9 @@ export async function streamRoutes(fastify: FastifyInstance) {
         return
       }
       outputBuffer += output
-      if (outputBuffer.length > OUTPUT_BUFFER_MAX_CHARS) {
-        recordStreamMetric('droppedOutputChars', outputBuffer.length)
-        recordStreamMetric('outputResyncRequests')
-        outputBuffer = ''
-        sanitizeTerminalOutput = createTerminalOutputSanitizer()
-        outputResyncPending = true
-        if (outputTimer) {
-          clearTimeout(outputTimer)
-          outputTimer = null
-        }
-        scheduleDeferredFlush()
+      const congestedLimit = clientBackpressureHigh ? CLIENT_BACKPRESSURE_RESYNC_CHARS : OUTPUT_BUFFER_MAX_CHARS
+      if (outputBuffer.length > congestedLimit) {
+        requestLatestFrameResync()
         return
       }
       const profile = getOutputProfileConfig()
@@ -195,10 +209,15 @@ export async function streamRoutes(fastify: FastifyInstance) {
         return
       }
       if (outputTimer) return
+      const flushDelay = profile.flushInterval
+      if (flushDelay <= 0 || (outputProfile === 'foreground' && !clientBackpressureHigh && getSocketBufferedBytes() < SOCKET_BUFFER_HIGH_WATERMARK / 8)) {
+        flushOutput()
+        return
+      }
       outputTimer = setTimeout(() => {
         outputTimer = null
         flushOutput()
-      }, profile.flushInterval)
+      }, flushDelay)
     }
     function resolveHostPassword(host: { password?: string; passwordEnv?: string }) {
       if (host.password) return host.password
@@ -359,6 +378,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
       sanitizeTerminalOutput = createTerminalOutputSanitizer()
       outputResyncPending = false
       outputResyncRunning = false
+      clientBackpressureHigh = false
       scrollBuffers.clear()
       sentAgentRevisions.clear()
       if (notify) send({ type: 'detached', sessionName: detachedSessionName, hostId: detachedHostId })
@@ -564,8 +584,16 @@ export async function streamRoutes(fastify: FastifyInstance) {
             break
           case 'stream_backpressure':
             recordStreamMetric('backpressureSignals')
-            if (data.level === 'high') syncOutputProfile(data.mobile ? 'mobile' : 'background')
-            if (data.level === 'normal') syncOutputProfile(data.mobile ? 'mobile' : 'foreground')
+            if (data.level === 'high') {
+              clientBackpressureHigh = true
+              syncOutputProfile(data.mobile ? 'mobile' : 'background')
+              if (outputBuffer.length >= CLIENT_BACKPRESSURE_RESYNC_CHARS || getSocketBufferedBytes() >= SOCKET_BUFFER_HIGH_WATERMARK) {
+                requestLatestFrameResync()
+              }
+            } else if (data.level === 'normal') {
+              clientBackpressureHigh = false
+              syncOutputProfile(data.mobile ? 'mobile' : 'foreground')
+            }
             break
           case 'pane_scroll': {
             const scrollLines = Number(data.lines) || 0

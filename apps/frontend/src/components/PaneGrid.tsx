@@ -17,7 +17,7 @@ import { useOptionalQueryClient } from '@/hooks/useOptionalQueryClient'
 const ATTACH_TIMEOUT = 5000
 const ATTACH_RETRY_DELAY = 900
 const INPUT_QUEUE_LIMIT = 128
-const INPUT_FLUSH_INTERVAL = 10
+const INPUT_FLUSH_INTERVAL = 4
 const INPUT_BATCH_CHARS = 768
 
 export function PaneGrid({ sessionId: controlledSessionId }: { sessionId?: string }) {
@@ -387,7 +387,7 @@ export function PaneGrid({ sessionId: controlledSessionId }: { sessionId?: strin
     scheduleContinuityFlush(100)
     const canWriteDirectly = isConnected && isSessionAttachedRef.current && attachedRef.current === targetSessionName
     if (canWriteDirectly) {
-      if (data.length <= 12 && inputQueueRef.current.length === 0) {
+      if (inputQueueRef.current.length === 0 && data.length <= INPUT_BATCH_CHARS) {
         send({ type: 'input', data })
         return
       }
