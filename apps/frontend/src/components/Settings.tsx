@@ -247,7 +247,7 @@ export function Settings({ onClose }: SettingsProps) {
           ))}
         </div>
 
-        <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-y-auto p-6">
+        <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto p-6">
           {activeTab === 'general' && (
             <div className="space-y-6">
               <div>

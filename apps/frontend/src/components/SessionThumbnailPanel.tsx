@@ -40,7 +40,7 @@ export function SessionThumbnailPanel() {
       <Button title={t('thumbnail.close')} aria-label="close" onClick={() => setThumbnailPanelOpen(false)}>×</Button>
     </div>
 
-    <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-y-auto p-3">
+    <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto p-3">
       {isLoading && <div className="p-2 text-xs text-text-3">{t('thumbnail.loading')}</div>}
       {isError && <div className="p-2 text-xs text-text-3">{t('thumbnail.unavailable')}</div>}
       {!isLoading && !isError && !thumbnails.length && <div className="p-2 text-xs text-text-3">{t('thumbnail.empty')}</div>}

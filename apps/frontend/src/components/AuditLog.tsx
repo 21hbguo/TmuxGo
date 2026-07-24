@@ -26,7 +26,7 @@ export function AuditLog({ onClose }: AuditLogProps) {
           <select value={result} onChange={(event) => setResult(event.target.value as '' | 'success' | 'failure')} className="tmuxgo-control tmuxgo-select rounded-apple px-3 py-1.5 text-sm"><option value="">{t('audit.result')}</option><option value="success">{t('audit.success')}</option><option value="failure">{t('audit.failure')}</option></select>
           <Button size="sm" onClick={() => void refetch()}>{t('common.retry')}</Button>
         </div>
-        <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-auto">
+        <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
           {isLoading && <div className="p-6 text-center text-sm text-text-3">{t('common.loading')}</div>}
           {isError && <div className="p-6 text-center text-sm text-danger">{t('session.loadFailed')}</div>}
           {!isLoading && !isError && !logs.length && <div className="p-6 text-center text-sm text-text-3">{t('audit.empty')}</div>}

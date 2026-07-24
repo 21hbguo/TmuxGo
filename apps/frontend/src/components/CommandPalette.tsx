@@ -210,7 +210,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
           </Button>
         </div>
 
-        <div className="tmuxgo-scrollbar max-h-[50vh] overflow-y-auto">
+        <div className="tmuxgo-scrollbar max-h-[50vh] overflow-x-hidden overflow-y-auto">
           {items.map((item, index) => (
             <button
               key={item.key}

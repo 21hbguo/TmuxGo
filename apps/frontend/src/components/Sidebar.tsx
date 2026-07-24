@@ -123,7 +123,7 @@ export function Sidebar() {
             ←
           </Button>
         </div>
-        <div className="flex-1 overflow-y-auto">
+        <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
           {sessions.map((session: any) => (
             <div key={session.id} className="relative flex items-center gap-1 pr-2">
               <button
