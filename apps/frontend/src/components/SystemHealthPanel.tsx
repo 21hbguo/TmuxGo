@@ -10,9 +10,14 @@ import { Button } from './Button'
 const HISTORY_LEN = 60
 const gb = (mb: number) => (mb / 1024).toFixed(1)
 const fmtBytes = (n: number) => {
+  if (n >= 1024 * 1024 * 1024) return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`
   if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`
   if (n >= 1024) return `${(n / 1024).toFixed(1)} KB`
   return `${Math.round(n)} B`
+}
+const fmtTrackedHours = (ms: number) => {
+  if (!Number.isFinite(ms) || ms <= 0) return '0'
+  return (ms / 3_600_000).toFixed(ms >= 3_600_000 ? 1 : 2)
 }
 const fmtRate = (n: number) => `${fmtBytes(n)}/s`
 type Tone = 'warn' | 'danger' | 'neutral'
@@ -284,8 +289,24 @@ export function SystemHealthPanel() {
             <h3 className="mb-2 text-sm font-medium text-text-1">{t('settings.performanceStream')}</h3>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <MetricCard title={t('settings.performanceOutputRate')} value={fmtRate(history[history.length - 1]?.outputRate || 0)} series={series((sample) => sample.outputRate)} sub={`${t('settings.performanceTotal')}: ${fmtBytes(stream?.outputBytes || 0)}`} />
-              <MetricCard title={t('settings.performanceNetSent')} value={fmtRate(history[history.length - 1]?.netSentRate || 0)} series={series((sample) => sample.netSentRate)} sub={`${t('settings.performanceTotal')}: ${fmtBytes(info?.net?.sentBytes || 0)}`} />
-              <MetricCard title={t('settings.performanceNetRecv')} value={fmtRate(history[history.length - 1]?.netRecvRate || 0)} series={series((sample) => sample.netRecvRate)} sub={`${t('settings.performanceTotal')}: ${fmtBytes(info?.net?.recvBytes || 0)}`} />
+              <MetricCard title={t('settings.performanceNetSent')} value={fmtRate(history[history.length - 1]?.netSentRate || 0)} series={series((sample) => sample.netSentRate)} sub={`${t('settings.performanceNetDay')}: ${fmtBytes(info?.net?.daySentBytes || 0)} · ${t('settings.performanceNet24h')}: ${fmtBytes(info?.net?.last24hSentBytes || 0)}`} />
+              <MetricCard title={t('settings.performanceNetRecv')} value={fmtRate(history[history.length - 1]?.netRecvRate || 0)} series={series((sample) => sample.netRecvRate)} sub={`${t('settings.performanceNetDay')}: ${fmtBytes(info?.net?.dayRecvBytes || 0)} · ${t('settings.performanceNet24h')}: ${fmtBytes(info?.net?.last24hRecvBytes || 0)}`} />
+              <div className="rounded-apple border border-[var(--line)] bg-bg-2 p-3 sm:col-span-2">
+                <div className="text-caption uppercase tracking-[0.12em] text-text-3">{t('settings.performanceNetWindow')}</div>
+                <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div>
+                    <div className="text-caption text-text-3">{t('settings.performanceNetDay')}</div>
+                    <div className="mt-1 font-mono text-sm tabular-nums text-text-1">{t('settings.performanceNetSent')} {fmtBytes(info?.net?.daySentBytes || 0)}</div>
+                    <div className="mt-0.5 font-mono text-sm tabular-nums text-text-1">{t('settings.performanceNetRecv')} {fmtBytes(info?.net?.dayRecvBytes || 0)}</div>
+                  </div>
+                  <div>
+                    <div className="text-caption text-text-3">{t('settings.performanceNet24h')}</div>
+                    <div className="mt-1 font-mono text-sm tabular-nums text-text-1">{t('settings.performanceNetSent')} {fmtBytes(info?.net?.last24hSentBytes || 0)}</div>
+                    <div className="mt-0.5 font-mono text-sm tabular-nums text-text-1">{t('settings.performanceNetRecv')} {fmtBytes(info?.net?.last24hRecvBytes || 0)}</div>
+                  </div>
+                </div>
+                <div className="mt-2 text-caption text-text-3">{t('settings.performanceNetSince', { hours: fmtTrackedHours(info?.net?.trackedMs || 0) })} · {t('settings.performanceTotal')} {t('settings.performanceNetSent')} {fmtBytes(info?.net?.sentBytes || 0)} / {t('settings.performanceNetRecv')} {fmtBytes(info?.net?.recvBytes || 0)}</div>
+              </div>
               <MetricCard title={t('settings.performanceSocketBuffer')} value={fmtBytes(stream?.socketBufferedBytes || 0)} series={series((sample) => sample.socketBufferedBytes)} tone={bufferTone} />
               <MetricCard title={t('settings.performanceBackpressure')} value={String(stream?.backpressureSignals || 0)} series={series((sample) => sample.backpressureSignals)} tone={backpressureTone} sub={`${t('settings.performanceRate')}: ${(history[history.length - 1]?.backpressureRate || 0).toFixed(2)}/s`} />
               <MetricCard title={t('settings.performanceDropped')} value={String(stream?.droppedOutputChars || 0)} series={series((sample) => sample.droppedOutputChars)} tone={droppedTone} />

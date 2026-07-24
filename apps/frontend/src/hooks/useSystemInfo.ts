@@ -9,7 +9,16 @@ export interface SystemInfo {
   cpu: number
   mem: { used: number; total: number }
   disks: { mount: string; used: number; total: number }[]
-  net: { sentBytes: number; recvBytes: number }
+  net: {
+    sentBytes: number
+    recvBytes: number
+    daySentBytes?: number
+    dayRecvBytes?: number
+    last24hSentBytes?: number
+    last24hRecvBytes?: number
+    trackedMs?: number
+    windowMs?: number
+  }
   dependencies: { tmux: boolean; git: boolean; python: boolean; rg: boolean; sshpass: boolean }
   stream: {
     outputBytes: number
