@@ -233,8 +233,8 @@ export function DesktopWorkbench() {
         </div>
       ) : <SessionRail />}
       {filePanelOpen && (
-        <div className="tmuxgo-content-surface relative shrink-0 border-r border-[var(--line)]" style={{ width: renderedFilePanelWidth }}>
-          <div className="h-full min-h-0">
+        <div className="tmuxgo-content-surface relative shrink-0 overflow-hidden border-r border-[var(--line)]" style={{ width: renderedFilePanelWidth }}>
+          <div className="h-full min-h-0 overflow-hidden">
             <FilePanel mode="explorer" onOpenFile={handleOpenFile} />
           </div>
           <div className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-accent/40" onMouseDown={() => {

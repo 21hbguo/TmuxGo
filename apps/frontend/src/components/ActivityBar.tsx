@@ -32,8 +32,8 @@ export function ActivityBar() {
     { id: 'settings', label: t('activity.settings'), icon: FiSettings, onClick: () => window.dispatchEvent(new CustomEvent('tmuxgo-open-settings')) },
   ] as const
   return (
-    <aside className="tmuxgo-glass tmuxgo-glass-sidebar flex h-full w-14 shrink-0 flex-col items-center gap-2 border-r border-[var(--line)] px-2 py-3 overflow-hidden">
-      <img src="/app-icon.svg" alt="" className="mb-1 h-9 w-9 rounded-md border border-[var(--line)] shadow-sm" />
+    <aside className="tmuxgo-glass tmuxgo-glass-sidebar flex h-full w-14 shrink-0 flex-col items-center gap-2 border-r border-[var(--line)] py-3 overflow-hidden scrollbar-none">
+      <img src="/app-icon.svg" alt="" className="mb-1 h-9 w-9 shadow-sm" />
       {items.map((item) => {
         const active = item.id === 'sessions' ? sessionPanelExpanded : item.id === 'files' ? filePanelOpen : item.id === 'thumbnails' ? thumbnailPanelOpen : item.id === 'git' ? gitPanelOpen : false
         const Icon = item.icon

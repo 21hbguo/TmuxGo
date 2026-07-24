@@ -50,7 +50,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
     let attachedRows = 0
     let agentId: string | null = null
     let outputBuffer = ''
-    let dedupRecentChunks: string[] = []
+    let lastFrame = ''
     let dedupDropLogCount = 0
     let outputTimer: ReturnType<typeof setTimeout> | null = null
     let deferredFlushTimer: ReturnType<typeof setTimeout> | null = null
@@ -111,6 +111,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
       if (outputBuffer) recordStreamMetric('droppedOutputChars', outputBuffer.length)
       recordStreamMetric('outputResyncRequests')
       outputBuffer = ''
+      lastFrame = ''
       sanitizeTerminalOutput = createTerminalOutputSanitizer()
       outputResyncPending = true
       if (outputTimer) {
@@ -300,11 +301,12 @@ export async function streamRoutes(fastify: FastifyInstance) {
       }
       const data = outputBuffer
       outputBuffer = ''
-      if (data.length >= DEDUP_CHUNK_THRESHOLD && dedupRecentChunks.includes(data)) {
+      const isCompleteFrame = data.startsWith('\u001b[?25l') && data.endsWith('\u001b[?25h')
+      if (isCompleteFrame && data.length >= DEDUP_CHUNK_THRESHOLD && data === lastFrame) {
         recordStreamMetric('droppedDuplicateChunks', data.length)
-        if (dedupDropLogCount < 60) {
+        if (dedupDropLogCount < 30) {
           dedupDropLogCount++
-          console.warn(`[flush-dedup#${dedupDropLogCount}] len=${data.length} preview=${JSON.stringify(data.slice(0, 80))}`)
+          console.warn(`[frame-dedup#${dedupDropLogCount}] len=${data.length}`)
         }
         return
       }
@@ -316,9 +318,11 @@ export async function streamRoutes(fastify: FastifyInstance) {
           return
         }
       }
-      if (data.length >= DEDUP_CHUNK_THRESHOLD) {
-        dedupRecentChunks.push(data)
-        if (dedupRecentChunks.length > DEDUP_WINDOW_SIZE) dedupRecentChunks.shift()
+      if (isCompleteFrame) {
+        lastFrame = data
+      } else if (data.startsWith('\u001b[?25l') && dedupDropLogCount < 30) {
+        dedupDropLogCount++
+        console.warn(`[frame-incomplete#${dedupDropLogCount}] len=${data.length} tail=${JSON.stringify(data.slice(-40))}`)
       }
       recordStreamMetric('outputFlushes')
       recordStreamMetric('outputChunks')
@@ -639,7 +643,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
             attachedRows = rows
             if (cellOutputEnabled) resetCellState(cols, rows)
             attachVisibleOutputObserved = false
-            dedupRecentChunks = []
+            lastFrame = ''
             dedupDropLogCount = 0
             const seq = attachSeq
             ptyProcess.onData((output: string) => {

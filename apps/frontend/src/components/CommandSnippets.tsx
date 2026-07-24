@@ -55,7 +55,7 @@ export function CommandSnippets({ onSend, onClose }: CommandSnippetsProps) {
           />
         </div>
 
-        <div className="overflow-y-auto max-h-[50vh] p-2">
+        <div className="tmuxgo-scrollbar max-h-[50vh] overflow-x-hidden overflow-y-auto p-2">
           {filtered.map((snippet) => (
             <div
               key={snippet.id}

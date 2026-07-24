@@ -253,7 +253,7 @@ function HistoryTab({ hostId, repoPath, status, onOpenWorkingTree, onOpenCommit,
         {searchQuery && <button type="button" aria-label={t('git.clearSearch')} title={t('git.clearSearch')} onClick={() => setSearchQuery('')} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-6 w-6"><FiX aria-hidden="true" size={13} /></button>}
         <span className="shrink-0 font-mono text-caption text-text-3">{commits.length}</span>
       </div>
-      <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain" data-git-history-scroll="1">
+      <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain" data-git-history-scroll="1">
         {commits.length === 0 ? <div className="p-3 text-meta text-text-3">{t('git.noChanges')}</div> : (
         <GitHistoryGraph
           commits={commits}
@@ -565,7 +565,7 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
               <input value={manualRepoPath} disabled={!!repoSwitchingPath} onChange={(event) => setManualRepoPath(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') handleRepoSearchSubmit() }} placeholder={t('git.selectRepo')} className="min-w-0 flex-1 bg-transparent py-1.5 text-meta text-text-1 outline-none disabled:opacity-60" autoFocus />
               {(repositoriesLoading || repoSwitchingPath) ? <FiRefreshCw aria-hidden="true" className="shrink-0 animate-spin text-text-3" size={13} /> : manualRepoPath && <button aria-label={t('git.openRepo')} title={t('git.openRepo')} onClick={handleRepoSearchSubmit} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-6 w-6 text-accent"><FiArrowRight aria-hidden="true" size={13} /></button>}
             </div>
-            {!!filteredRepoOptions.length && <div className="tmuxgo-scrollbar mt-1 max-h-32 overflow-y-auto">
+            {!!filteredRepoOptions.length && <div className="tmuxgo-scrollbar mt-1 max-h-32 overflow-x-hidden overflow-y-auto">
               {filteredRepoOptions.map((item) => <button key={item.repoPath} disabled={!!repoSwitchingPath} onClick={() => void handleSelectRepo(item.repoPath)} className={`flex w-full items-center gap-2 rounded-apple px-2 py-1.5 text-left hover:bg-bg-2 disabled:opacity-60 ${repoPath === item.repoPath ? 'text-accent' : 'text-text-2'}`}>
                 <span className="shrink-0 text-meta font-medium">{item.label}</span>
                 <span className="min-w-0 flex-1 truncate font-mono text-caption text-text-3">{item.repoPath}</span>
@@ -585,7 +585,7 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
               </button>
             ))}
           </div>
-          <div className={`tmuxgo-scrollbar min-h-0 flex-1 ${activeTab === 'history' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
+          <div className={`tmuxgo-scrollbar min-h-0 flex-1 ${activeTab === 'history' ? 'overflow-hidden' : 'overflow-x-hidden overflow-y-auto'}`}>
             {activeTab === 'status' && <StatusTab hostId={activeHostId} repoPath={repoPath} onOpenDiff={mode === 'mobile' ? handleOpenMobileDiff : undefined} t={t as TFunc} />}
             {activeTab === 'history' && <HistoryTab hostId={activeHostId} repoPath={repoPath} status={status} onOpenWorkingTree={mode === 'mobile' ? () => handleOpenMobileDiff({ title: t('git.workingTreeChanges', { count: statusCount }), subtitle: 'WIP', filePath: '', workingTree: true }) : () => {
               const params = new URLSearchParams({ hostId: activeHostId, repoPath, workingTree: '1' })

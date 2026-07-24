@@ -283,7 +283,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
             <Button variant="ghost" size="icon-sm" aria-label="close" onClick={handleClose}>✕</Button>
           </div>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4" style={{ WebkitOverflowScrolling: 'touch' }}>
+        <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 pb-4 scrollbar-none" style={{ WebkitOverflowScrolling: 'touch' }}>
           {type === 'sessions' && (
             <div className="space-y-2">
               <HostSwitcher mode="mobile" />

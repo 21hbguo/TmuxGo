@@ -1192,7 +1192,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
           <button onClick={() => toggleSortDirection()} title={fileSort.direction === 'asc' ? t('file.sortAsc') : t('file.sortDesc')} aria-label={fileSort.direction === 'asc' ? t('file.sortAsc') : t('file.sortDesc')} className="tmuxgo-toolbar-icon h-7 w-7 shrink-0 text-meta">{fileSort.direction === 'asc' ? '↑' : '↓'}</button>
         </div>}
       </div>}
-      {(!isMobile || mobileView === 'list') && <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain" onContextMenu={(e) => {
+      {(!isMobile || mobileView === 'list') && <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain" onContextMenu={(e) => {
         if (isPicker) return
         if ((e.target as HTMLElement).closest('button')) return
         e.preventDefault()
