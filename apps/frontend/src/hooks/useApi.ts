@@ -213,6 +213,52 @@ export function useWindows(hostId: string, sessionId: string) {
     staleTime: 2500,
   })
 }
+export function useCreateWindow() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ hostId, sessionId, name }: { hostId: string; sessionId: string; name: string }) =>
+      api.windows.create(hostId, sessionId, name),
+    onSuccess: (_, { hostId, sessionId }) => {
+      queryClient.invalidateQueries({ queryKey: ['windows', hostId, sessionId] })
+      queryClient.invalidateQueries({ queryKey: ['session-snapshot', hostId, sessionId] })
+    },
+  })
+}
+export function useKillWindow() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ hostId, sessionId, windowId }: { hostId: string; sessionId: string; windowId: string }) =>
+      api.windows.kill(hostId, sessionId, windowId),
+    onSuccess: (result, { hostId, sessionId }) => {
+      if (Array.isArray(result?.windows)) {
+        queryClient.setQueryData(['windows', hostId, sessionId], result.windows)
+      }
+      queryClient.invalidateQueries({ queryKey: ['session-snapshot', hostId, sessionId] })
+    },
+  })
+}
+export function useBatchKillWindows() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ hostId, sessionId, windowIds }: { hostId: string; sessionId: string; windowIds: string[] }) => {
+      const results: { id: string; ok: boolean; error?: string }[] = []
+      for (const windowId of windowIds) {
+        try {
+          const res = await api.windows.kill(hostId, sessionId, windowId)
+          results.push({ id: windowId, ok: res?.ok !== false })
+        } catch (err) {
+          results.push({ id: windowId, ok: false, error: err instanceof Error ? err.message : String(err) })
+        }
+      }
+      return results
+    },
+    onSuccess: (_, { hostId, sessionId }) => {
+      queryClient.invalidateQueries({ queryKey: ['windows', hostId, sessionId] })
+      queryClient.invalidateQueries({ queryKey: ['session-snapshot', hostId, sessionId] })
+    },
+  })
+}
+
 
 export function usePanes(windowId: string) {
   return useQuery({

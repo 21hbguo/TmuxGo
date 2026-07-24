@@ -594,6 +594,17 @@ export const zh = {
   'window.created': '窗口 {name} 已创建',
   'window.createFailed': '新建窗口失败',
   'window.createMissingSession': '请先选择会话',
+  'window.batchMode': '批量',
+  'window.batchCancel': '退出批量',
+  'window.batchSelectAll': '全选',
+  'window.batchClearAll': '清空',
+  'window.batchDeleteSelected': '删除 ({count})',
+  'window.batchDeleteTitle': '批量删除窗口',
+  'window.batchDeleteConfirm': '确认删除 {count} 个窗口？',
+  'window.batchDeleteSuccess': '已删除 {count} 个窗口',
+  'window.batchDeletePartial': '部分删除：{success} 个成功，{failed} 个失败',
+  'window.batchDeleteFailed': '{count} 个窗口删除失败',
+  'window.cannotDeleteActive': '当前活动窗口不可删除',
 
   // TerminalPane
   'terminal.dropUpload': '拖放文件以上传',
