@@ -8,6 +8,8 @@ const mutateCreateSession = vi.fn()
 const mutateRenameSession = vi.fn()
 const mutateDeleteSession = vi.fn()
 const mutateBatchDeleteSessions = vi.fn()
+const mutateCreateWindow = vi.fn()
+const mutateBatchKillWindows = vi.fn()
 const promptMock = vi.fn()
 
 vi.mock('@/hooks/useApi', () => ({
@@ -17,6 +19,8 @@ vi.mock('@/hooks/useApi', () => ({
   useRenameSession: () => ({ mutateAsync: mutateRenameSession }),
   useDeleteSession: () => ({ mutateAsync: mutateDeleteSession }),
   useBatchDeleteSessions: () => ({ mutateAsync: mutateBatchDeleteSessions }),
+  useCreateWindow: () => ({ mutateAsync: mutateCreateWindow, isPending: false }),
+  useBatchKillWindows: () => ({ mutateAsync: mutateBatchKillWindows, isPending: false }),
   useWindows: () => ({ data: [] }),
 }))
 vi.mock('@/hooks/useWindowQueryState', () => ({
@@ -68,6 +72,8 @@ describe('MobileDrawer session actions', () => {
     mutateRenameSession.mockReset()
     mutateDeleteSession.mockReset()
     mutateBatchDeleteSessions.mockReset()
+    mutateCreateWindow.mockReset()
+    mutateBatchKillWindows.mockReset()
     promptMock.mockReset()
     mutateRenameSession.mockResolvedValue({ id: 'session-dev-renamed' })
     mutateDeleteSession.mockResolvedValue({ success: true })

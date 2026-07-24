@@ -10,13 +10,16 @@ import { CreateSessionDialog } from './CreateSessionDialog'
 import { ModalPortal } from './ModalPortal'
 import { getTemplateSessionName } from '@/lib/session-template'
 import { useTranslation } from '@/i18n'
+import { FiPlus, FiTrash2 } from 'react-icons/fi'
 import { Button } from './Button'
 import { Chip } from './Chip'
 import { usePrompt } from '@/hooks/usePrompt'
 import { useWindowQueryState } from '@/hooks/useWindowQueryState'
+import { useBatchKillWindows, useCreateWindow } from '@/hooks/useApi'
 import { api } from '@/lib/api'
 import { QuickActions } from './QuickActions'
 import { ConfirmDialog } from './ConfirmDialog'
+import { PromptDialog } from './PromptDialog'
 import { SessionSortableList } from './SessionSortableList'
 import { HostSwitcher } from './HostSwitcher'
 import { AgentStatusBadge } from './AgentStatusBadge'
@@ -47,6 +50,8 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
   const { data: sessions = [], moveSession, isError: sessionsError, error: sessionsErrorValue, refetch: refetchSessions } = useOrderedSessions(activeHostId || '')
   const { data: windowsData = [] } = useWindows(activeHostId || '', activeSessionId || '')
   const { getWindows, setWindows } = useWindowQueryState(activeHostId || '', activeSessionId || '')
+  const createWindow = useCreateWindow()
+  const batchKillWindows = useBatchKillWindows()
   const createSession = useCreateSession()
   const renameSession = useRenameSession()
   const deleteSession = useDeleteSession()
@@ -63,6 +68,11 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
   const [batchDeleteConfirmOpen, setBatchDeleteConfirmOpen] = useState(false)
   const [createDialogTemplate, setCreateDialogTemplate] = useState<Template | null>(null)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [windowBatchMode, setWindowBatchMode] = useState(false)
+  const [selectedWindowIds, setSelectedWindowIds] = useState<string[]>([])
+  const [windowBatchDeleteConfirmOpen, setWindowBatchDeleteConfirmOpen] = useState(false)
+  const [newWindowPromptOpen, setNewWindowPromptOpen] = useState(false)
+  const [newWindowName, setNewWindowName] = useState('')
 
   const handleTemplateSelect = (template: Template) => {
     if (!activeHostId) return
@@ -248,11 +258,74 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
     }
     handleClose()
   }
+  const handleOpenNewWindowPrompt = () => {
+    if (!activeHostId || !activeSessionId) {
+      pushToast({ type: 'error', message: t('window.createMissingSession') })
+      return
+    }
+    if (windowBatchMode) {
+      setWindowBatchMode(false)
+      setSelectedWindowIds([])
+    }
+    setNewWindowName(`win-${sessionWindows.length + 1}`)
+    setNewWindowPromptOpen(true)
+  }
+  const confirmCreateWindow = async (inputName?: string) => {
+    if (!activeHostId || !activeSessionId) {
+      setNewWindowPromptOpen(false)
+      return
+    }
+    const name = (typeof inputName === 'string' ? inputName : newWindowName || '').trim() || 'new-window'
+    try {
+      const created = await createWindow.mutateAsync({ hostId: activeHostId, sessionId: activeSessionId, name })
+      if (created?.id) {
+        const selected = await api.windows.select(activeHostId, activeSessionId, created.id)
+        if (selected?.windows) setWindows(selected.windows)
+      }
+      pushToast({ type: 'success', message: t('window.created', { name }) })
+      handleClose()
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('window.createFailed') })
+    }
+    setNewWindowPromptOpen(false)
+  }
+  const toggleWindowBatchMode = () => {
+    const next = !windowBatchMode
+    setWindowBatchMode(next)
+    if (!next) setSelectedWindowIds([])
+  }
+  const toggleWindowSelection = (windowId: string) => {
+    setSelectedWindowIds((prev) => prev.includes(windowId) ? prev.filter((id) => id !== windowId) : [...prev, windowId])
+  }
+  const handleWindowBatchDelete = async () => {
+    if (!activeHostId || !activeSessionId || selectedWindowIds.length === 0) return
+    try {
+      const results = await batchKillWindows.mutateAsync({ hostId: activeHostId, sessionId: activeSessionId, windowIds: selectedWindowIds })
+      const success = results.filter((r) => r.ok).length
+      const failed = results.length - success
+      if (failed === 0) {
+        pushToast({ type: 'success', message: t('window.batchDeleteSuccess', { count: success }) })
+      } else if (success > 0) {
+        pushToast({ type: 'error', message: t('window.batchDeletePartial', { success, failed }) })
+      } else {
+        pushToast({ type: 'error', message: t('window.batchDeleteFailed', { count: failed }) })
+      }
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('window.batchDeleteFailed', { count: selectedWindowIds.length }) })
+    } finally {
+      setWindowBatchDeleteConfirmOpen(false)
+      setWindowBatchMode(false)
+      setSelectedWindowIds([])
+    }
+  }
   useEffect(() => {
     if (isOpen && type === 'sessions') return
     setBatchMode(false)
     setSelectedSessionIds([])
     setBatchDeleteConfirmOpen(false)
+    setWindowBatchMode(false)
+    setSelectedWindowIds([])
+    setWindowBatchDeleteConfirmOpen(false)
   }, [isOpen, type])
 
   if (!visible) return null
@@ -280,6 +353,8 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
               setBatchMode((prev) => !prev)
               setSelectedSessionIds([])
             }}>{batchMode ? t('sidebar.batchCancelAction') : t('sidebar.batchDeleteAction')}</Chip>}
+            {type === 'windows' && !windowBatchMode && <Chip onClick={handleOpenNewWindowPrompt} aria-label={t('window.createTitle')} title={t('window.createTitle')} disabled={createWindow.isPending}><FiPlus aria-hidden="true" size={14} /></Chip>}
+            {type === 'windows' && <Chip onClick={toggleWindowBatchMode}>{windowBatchMode ? t('window.batchCancel') : t('window.batchMode')}</Chip>}
             <Button variant="ghost" size="icon-sm" aria-label="close" onClick={handleClose}>✕</Button>
           </div>
         </div>
@@ -331,19 +406,50 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
           )}
           {type === 'windows' && (
             <div className="space-y-2">
+              {windowBatchMode && (() => {
+                const nonActiveIds = sessionWindows.filter((w: any) => !w.active).map((w: any) => w.id)
+                return <div className="grid grid-cols-3 gap-2">
+                  <Chip onClick={() => setSelectedWindowIds(nonActiveIds)} className="flex-1 justify-center" disabled={nonActiveIds.length === 0}>{t('window.batchSelectAll')}</Chip>
+                  <Chip onClick={() => setSelectedWindowIds([])} className="flex-1 justify-center" disabled={selectedWindowIds.length === 0}>{t('window.batchClearAll')}</Chip>
+                  <Chip tone="danger" className="flex-1 justify-center disabled:cursor-not-allowed" disabled={selectedWindowIds.length === 0} onClick={() => setWindowBatchDeleteConfirmOpen(true)}>{t('window.batchDeleteSelected', { count: selectedWindowIds.length })}</Chip>
+                </div>
+              })()}
               {sessionWindows.length === 0 ? (
                 <div className="text-center text-text-3 py-4">{t('drawer.noWindows')}</div>
               ) : (
-                sessionWindows.map((window: any) => (
-                  <button
-                    key={window.id}
-                    onClick={() => void handleSelectWindow(window.id)}
-                    className={`w-full rounded-apple p-3 text-left transition-colors ${window.active ? 'border border-accent bg-accent/10' : 'bg-bg-2 active:bg-bg-1'}`}
-                  >
-                    <div className="truncate text-text-1">{window.name}</div>
-                    <div className="text-text-3 text-xs">#{window.index + 1}</div>
-                  </button>
-                ))
+                sessionWindows.map((window: any) => {
+                  if (windowBatchMode) {
+                    if (window.active) {
+                      return (
+                        <div key={window.id} className="w-full rounded-apple border border-accent/30 bg-accent/10 p-3 opacity-60">
+                          <div className="truncate text-text-1">{window.name}</div>
+                          <div className="text-text-3 text-xs">#{window.index + 1} · {t('window.cannotDeleteActive')}</div>
+                        </div>
+                      )
+                    }
+                    const selected = selectedWindowIds.includes(window.id)
+                    return (
+                      <button
+                        key={window.id}
+                        onClick={() => toggleWindowSelection(window.id)}
+                        className={`w-full rounded-apple p-3 text-left transition-colors ${selected ? 'border border-danger bg-danger/10' : 'bg-bg-2 active:bg-bg-1'}`}
+                      >
+                        <div className="truncate text-text-1">{selected ? '☑ ' : '☐ '}{window.name}</div>
+                        <div className="text-text-3 text-xs">#{window.index + 1}</div>
+                      </button>
+                    )
+                  }
+                  return (
+                    <button
+                      key={window.id}
+                      onClick={() => void handleSelectWindow(window.id)}
+                      className={`w-full rounded-apple p-3 text-left transition-colors ${window.active ? 'border border-accent bg-accent/10' : 'bg-bg-2 active:bg-bg-1'}`}
+                    >
+                      <div className="truncate text-text-1">{window.name}</div>
+                      <div className="text-text-3 text-xs">#{window.index + 1}</div>
+                    </button>
+                  )
+                })
               )}
             </div>
           )}
@@ -353,6 +459,8 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
       <CreateSessionDialog open={createDialogOpen} template={createDialogTemplate} defaultName={createDialogTemplate ? getTemplateSessionName(createDialogTemplate) : ''} onCreate={handleCreateSession} onClose={() => { setCreateDialogOpen(false); setCreateDialogTemplate(null) }} />
       <ConfirmDialog open={!!pendingDeleteSessionId} title={t('sidebar.deleteTitle')} message={t('sidebar.deleteConfirm', { name: sessions.find((item: any) => item.id === pendingDeleteSessionId)?.name || '' })} confirmLabel={t('sidebar.confirmDelete')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setPendingDeleteSessionId(null)} onConfirm={() => void confirmDeleteSession()} />
       <ConfirmDialog open={batchDeleteConfirmOpen} title={t('sidebar.batchDeleteTitle')} message={t('sidebar.batchDeleteConfirm', { count: selectedSessionIds.length })} confirmLabel={t('sidebar.batchDeleteSelected')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setBatchDeleteConfirmOpen(false)} onConfirm={() => void confirmBatchDeleteSession()} />
+      <PromptDialog open={newWindowPromptOpen} title={t('window.createTitle')} defaultValue={newWindowName} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} onCancel={() => setNewWindowPromptOpen(false)} onConfirm={(value) => { setNewWindowName(value); void confirmCreateWindow(value) }} />
+      <ConfirmDialog open={windowBatchDeleteConfirmOpen} title={t('window.batchDeleteTitle')} message={t('window.batchDeleteConfirm', { count: selectedWindowIds.length })} confirmLabel={t('window.batchDeleteSelected', { count: selectedWindowIds.length })} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setWindowBatchDeleteConfirmOpen(false)} onConfirm={() => void handleWindowBatchDelete()} />
       {PromptElement}
     </div>
   )
