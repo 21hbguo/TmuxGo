@@ -594,6 +594,17 @@ export const en = {
   'window.created': 'Window {name} created',
   'window.createFailed': 'Create window failed',
   'window.createMissingSession': 'Select a session first',
+  'window.batchMode': 'Batch',
+  'window.batchCancel': 'Exit batch',
+  'window.batchSelectAll': 'Select all',
+  'window.batchClearAll': 'Clear',
+  'window.batchDeleteSelected': 'Delete ({count})',
+  'window.batchDeleteTitle': 'Batch delete windows',
+  'window.batchDeleteConfirm': 'Delete {count} windows?',
+  'window.batchDeleteSuccess': '{count} windows deleted',
+  'window.batchDeletePartial': 'Partial: {success} deleted, {failed} failed',
+  'window.batchDeleteFailed': '{count} windows failed to delete',
+  'window.cannotDeleteActive': 'Active window cannot be deleted',
 
   // TerminalPane
   'terminal.dropUpload': 'Drop files to upload',
