@@ -1,0 +1,42 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { observeNetWindow, resetNetWindowState } from './net-window.js'
+test('tracks day and rolling 24h network deltas', () => {
+  resetNetWindowState()
+  const t0 = Date.parse('2026-07-24T08:00:00+08:00')
+  const a = observeNetWindow('local', { sentBytes: 1000, recvBytes: 2000 }, t0)
+  assert.equal(a.daySentBytes, 0)
+  assert.equal(a.dayRecvBytes, 0)
+  assert.equal(a.last24hSentBytes, 0)
+  assert.equal(a.last24hRecvBytes, 0)
+  const t1 = t0 + 60_000
+  const b = observeNetWindow('local', { sentBytes: 1500, recvBytes: 2600 }, t1)
+  assert.equal(b.daySentBytes, 500)
+  assert.equal(b.dayRecvBytes, 600)
+  assert.equal(b.last24hSentBytes, 500)
+  assert.equal(b.last24hRecvBytes, 600)
+  assert.ok(b.trackedMs >= 60_000)
+})
+test('resets day baseline after local midnight', () => {
+  resetNetWindowState()
+  const before = Date.parse('2026-07-24T23:50:00+08:00')
+  observeNetWindow('h1', { sentBytes: 10_000, recvBytes: 20_000 }, before)
+  observeNetWindow('h1', { sentBytes: 12_000, recvBytes: 21_000 }, before + 60_000)
+  const after = Date.parse('2026-07-25T00:10:00+08:00')
+  const day = observeNetWindow('h1', { sentBytes: 12_500, recvBytes: 21_400 }, after)
+  assert.equal(day.daySentBytes, 0)
+  assert.equal(day.dayRecvBytes, 0)
+  const later = observeNetWindow('h1', { sentBytes: 13_000, recvBytes: 22_000 }, after + 60_000)
+  assert.equal(later.daySentBytes, 500)
+  assert.equal(later.dayRecvBytes, 600)
+})
+test('handles counter reset as new baseline', () => {
+  resetNetWindowState()
+  const t0 = Date.parse('2026-07-24T10:00:00+08:00')
+  observeNetWindow('h2', { sentBytes: 100_000, recvBytes: 200_000 }, t0)
+  const after = observeNetWindow('h2', { sentBytes: 100, recvBytes: 200 }, t0 + 60_000)
+  assert.equal(after.daySentBytes, 0)
+  assert.equal(after.dayRecvBytes, 0)
+  assert.equal(after.sentBytes, 100)
+  assert.equal(after.recvBytes, 200)
+})

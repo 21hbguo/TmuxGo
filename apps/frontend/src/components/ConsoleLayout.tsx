@@ -536,13 +536,22 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
         active.isContentEditable ||
         active.classList.contains('mobile-kb-input')
       )
+      const terminalKeyboard = active instanceof HTMLElement && (
+        active.classList.contains('mobile-kb-input') ||
+        !!active.closest('[data-terminal],.xterm,.xterm-screen')
+      )
       const keyboardOpen = keyboardStateRef.current.open || document.body.classList.contains('keyboard-open')
+      const hasOverlay = overlayRef.current.length > 0
+      if (hasOverlay && (!editable || terminalKeyboard)) {
+        window.history.back()
+        return
+      }
       if (keyboardOpen || editable) {
         if (active instanceof HTMLElement) active.blur()
         window.dispatchEvent(new CustomEvent('tmuxgo-dismiss-keyboard'))
         return
       }
-      if (overlayRef.current.length > 0) {
+      if (hasOverlay) {
         window.history.back()
       }
     }

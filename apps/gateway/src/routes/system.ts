@@ -6,6 +6,7 @@ import fs from 'fs'
 import { streamPerfMetrics } from '../lib/perf-metrics.js'
 import { createRestartTaskRunner, type RestartTaskRunner } from '../lib/restart-task.js'
 import { execHostShell } from '../lib/tmux-executor.js'
+import { observeNetWindow, type NetWindowStats } from '../lib/net-window.js'
 
 const execFileAsync = promisify(execFile)
 const dependencyCommands = { tmux: { command: 'tmux', args: ['-V'] }, git: { command: 'git', args: ['--version'] }, python: { command: 'python3', args: ['--version'] }, rg: { command: 'rg', args: ['--version'] }, sshpass: { command: 'sshpass', args: ['-V'] } } as const
@@ -193,12 +194,16 @@ function normalizeHostSystemInfo(hostId: string, value: any) {
   const dependencies = value?.dependencies && typeof value.dependencies === 'object' ? value.dependencies : {}
   const gpu = value?.gpu && Number.isFinite(Number(value.gpu.used)) && Number.isFinite(Number(value.gpu.total)) ? { used: safeNumber(value.gpu.used), total: safeNumber(value.gpu.total) } : null
   const disks = Array.isArray(value?.disks) ? value.disks.filter((disk: any) => disk && typeof disk.mount === 'string').map((disk: any) => ({ mount: disk.mount, used: safeNumber(disk.used), total: safeNumber(disk.total) })) : []
-  const net = value?.net && typeof value.net === 'object' ? { sentBytes: Math.max(0, safeNumber(value.net.sentBytes)), recvBytes: Math.max(0, safeNumber(value.net.recvBytes)) } : { sentBytes: 0, recvBytes: 0 }
+  const counters = value?.net && typeof value.net === 'object' ? { sentBytes: Math.max(0, safeNumber(value.net.sentBytes)), recvBytes: Math.max(0, safeNumber(value.net.recvBytes)) } : { sentBytes: 0, recvBytes: 0 }
+  const net = withNetWindow(hostId, counters)
   return { hostId, gpu, cpu: Math.max(0, Math.min(100, safeNumber(value?.cpu))), mem: { used: safeNumber(value?.mem?.used), total: safeNumber(value?.mem?.total) }, disks, net, dependencies: { tmux: dependencies.tmux === true, git: dependencies.git === true, python: dependencies.python === true, rg: dependencies.rg === true, sshpass: dependencies.sshpass === true }, stream: getSafeStreamMetrics() }
+}
+function withNetWindow(hostId: string, net: { sentBytes: number; recvBytes: number }): NetWindowStats {
+  return observeNetWindow(hostId, net)
 }
 async function getLocalSystemInfo() {
   const [gpu, cpu, mem, disks, net, dependencies] = await Promise.all([getGpuInfo(), getCpuUsage(), getMemory(), getDisk(), getNetwork(), getDependencies()])
-  return { hostId: 'local', gpu, cpu, mem, disks, net, dependencies, stream: getSafeStreamMetrics() }
+  return { hostId: 'local', gpu, cpu, mem, disks, net: withNetWindow('local', net), dependencies, stream: getSafeStreamMetrics() }
 }
 async function getRemoteSystemInfo(hostId: string) {
   const fallback = `has(){ command -v "$1" >/dev/null 2>&1 && printf true || printf false; }; printf '{"gpu":null,"cpu":0,"mem":{"used":0,"total":0},"disks":[],"net":{"sentBytes":0,"recvBytes":0},"dependencies":{"tmux":%s,"git":%s,"python":false,"rg":%s,"sshpass":%s}}' "$(has tmux)" "$(has git)" "$(has rg)" "$(has sshpass)"`
@@ -214,8 +219,19 @@ async function getSystemInfo(hostId: string) {
 interface SystemRoutesOptions {
   createRestartRunner?: () => RestartTaskRunner
 }
+let localNetSampleTimer: NodeJS.Timeout | null = null
+function ensureLocalNetSampler() {
+  if (localNetSampleTimer) return
+  localNetSampleTimer = setInterval(() => {
+    void getNetwork().then((net) => {
+      withNetWindow('local', net)
+    }).catch(() => {})
+  }, 60_000)
+  if (typeof localNetSampleTimer.unref === 'function') localNetSampleTimer.unref()
+}
 export async function systemRoutes(fastify: FastifyInstance, options: SystemRoutesOptions = {}) {
   const restartRunner=(options.createRestartRunner||createRestartTaskRunner)()
+  ensureLocalNetSampler()
   fastify.get('/system', async () => {
     try {
       return await getLocalSystemInfo()
@@ -226,7 +242,7 @@ export async function systemRoutes(fastify: FastifyInstance, options: SystemRout
         cpu: 0,
         mem: { used: 0, total: 0 },
         disks: [],
-        net: { sentBytes: 0, recvBytes: 0 },
+        net: { sentBytes: 0, recvBytes: 0, daySentBytes: 0, dayRecvBytes: 0, last24hSentBytes: 0, last24hRecvBytes: 0, trackedMs: 0, windowMs: 0 },
         dependencies: { tmux: false, git: false, python: false, rg: false, sshpass: false },
         stream: getSafeStreamMetrics(),
       }
