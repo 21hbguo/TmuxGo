@@ -3,6 +3,7 @@ import { useEffect, useRef, useCallback } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { usePreferences } from './usePreferences'
 import { getWebSocketBase } from '@/lib/runtime-endpoints'
+import { getWebSocketUrl, isAuthEnabled } from '@/lib/auth'
 import { recordMobileDiagnostic } from '@/lib/mobile-diagnostics'
 import { decodeStreamOutputBinary } from '@/lib/stream-binary'
 import { decodeCellDiff, decodeCellSnapshot } from '@/lib/terminal-grid/decode-cell'
@@ -98,14 +99,15 @@ export function useWebSocket() {
     if (document.visibilityState==='hidden') return
     const current=wsState.ws
     if (current&&(current.readyState===WebSocket.OPEN||current.readyState===WebSocket.CONNECTING||current.readyState===WebSocket.CLOSING)) return
+    if (wsState.isConnecting) return
     if (wsState.reconnectTimer) {
       clearTimeout(wsState.reconnectTimer)
       wsState.reconnectTimer=null
     }
-    const wsUrl=getWebSocketBase()
     wsState.isConnecting=true
     recordMobileDebug('ws-connect')
-    try {
+    const openSocket=(wsUrl:string)=>{
+      try {
       const ws=new WebSocket(wsUrl)
       wsState.ws=ws
       ws.binaryType='arraybuffer'
@@ -190,11 +192,27 @@ export function useWebSocket() {
         recordMobileDebug('ws-error',{visibility:document.visibilityState})
         wsState.onError?.()
       }
-    } catch (err) {
-      wsState.isConnecting=false
-      recordMobileDebug('ws-connect-error')
-      wsState.onError?.()
+      } catch (err) {
+        wsState.isConnecting=false
+        recordMobileDebug('ws-connect-error')
+        wsState.onError?.()
+      }
     }
+    if (isAuthEnabled()) {
+      void getWebSocketUrl().then((wsUrl)=>{
+        if (wsState.subscribers<=0||wsState.ws||!wsState.isConnecting) {
+          wsState.isConnecting=false
+          return
+        }
+        openSocket(wsUrl)
+      }).catch(()=>{
+        wsState.isConnecting=false
+        recordMobileDebug('ws-ticket-error')
+        wsState.onError?.()
+      })
+      return
+    }
+    openSocket(getWebSocketBase())
   },[clearPongTimer,sendPing,updateConnection])
   const scheduleReconnect=useCallback(()=>{
     if (!preferences.autoReconnect||wsState.subscribers<=0) return

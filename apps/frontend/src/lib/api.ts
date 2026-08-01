@@ -1,4 +1,5 @@
 import { getApiBase } from './runtime-endpoints'
+import { authenticatedFetch, getAccessToken, refreshAuth } from './auth'
 import { buildSessionId } from './session-id'
 import type { AuditEvent, CustomShortcut, FavoriteDirectory, FavoriteItem, FileContentMatch, FileContentResponse, FileItem, FileListResponse, FilePreviewResponse, FileRoot, FileUploadTarget, GitBranchesResponse, GitCommitResponse, GitDetectResponse, GitDiffResponse, GitDiffStatsResponse, GitHostState, GitHubPluginPreview, GitLogResponse, GitMergeResponse, GitRepositoryInfo, GitStatusResponse, PluginCommandLog, PluginInfo, RemotePreferences, SessionArchive, SessionArchivePolicy, SessionArchiveSummary, SessionContinuityConfig, SessionLayout, SessionOrderPreference, SessionTemplate, SessionThumbnail, SessionWorkspaceEntry, Snippet, TrashEntry, UiPreferences, UploadJobResult, UploadedFile } from '@/types'
 
@@ -144,7 +145,7 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   const hasBody = options?.body !== undefined && options?.body !== null
   const headers = new Headers(options?.headers)
   if (!isFormData && hasBody && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
-  const response = await fetch(url, {
+  const response = await authenticatedFetch(url, {
     ...options,
     headers,
   })
@@ -186,31 +187,46 @@ function parseApiError(status: number, raw: string) {
 function uploadWithProgress(hostId: string, body: FormData, onProgress?: (loadedBytes: number, totalBytes: number) => void): Promise<UploadJobResult> {
   const url = `${getApiBase()}/api/hosts/${encodeURIComponent(hostId)}/files/upload`
   return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest()
-    xhr.open('POST', url, true)
-    xhr.responseType = 'text'
-    xhr.upload.onprogress = (event) => {
-      if (!event.lengthComputable) return
-      onProgress?.(event.loaded, event.total)
-    }
-    xhr.onerror = () => reject(new Error('Network error'))
-    xhr.onload = () => {
-      if (xhr.status < 200 || xhr.status >= 300) {
-        reject(parseApiError(xhr.status, xhr.responseText || ''))
-        return
+    let retried = false
+    const send = () => {
+      const xhr = new XMLHttpRequest()
+      xhr.open('POST', url, true)
+      xhr.withCredentials = true
+      xhr.responseType = 'text'
+      const token = getAccessToken()
+      if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+      xhr.upload.onprogress = (event) => {
+        if (!event.lengthComputable) return
+        onProgress?.(event.loaded, event.total)
       }
-      try {
-        const data = JSON.parse(xhr.responseText || '{}')
-        if (data && typeof data === 'object' && 'ok' in data && data.ok === false) {
+      xhr.onerror = () => reject(new Error('Network error'))
+      xhr.onload = () => {
+        if (xhr.status === 401 && !retried) {
+          retried = true
+          void refreshAuth().then((ok) => {
+            if (ok) send()
+            else reject(parseApiError(xhr.status, xhr.responseText || ''))
+          }).catch(() => reject(parseApiError(xhr.status, xhr.responseText || '')))
+          return
+        }
+        if (xhr.status < 200 || xhr.status >= 300) {
           reject(parseApiError(xhr.status, xhr.responseText || ''))
           return
         }
-        resolve(data as UploadJobResult)
-      } catch {
-        reject(new Error('Invalid server response'))
+        try {
+          const data = JSON.parse(xhr.responseText || '{}')
+          if (data && typeof data === 'object' && 'ok' in data && data.ok === false) {
+            reject(parseApiError(xhr.status, xhr.responseText || ''))
+            return
+          }
+          resolve(data as UploadJobResult)
+        } catch {
+          reject(new Error('Invalid server response'))
+        }
       }
+      xhr.send(body)
     }
-    xhr.send(body)
+    send()
   })
 }
 

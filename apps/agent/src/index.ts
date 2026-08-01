@@ -3,20 +3,46 @@ import { TmuxManager } from './tmux.js'
 
 const GATEWAY_URL = process.env.GATEWAY_URL || 'ws://localhost:3001/api/stream'
 const RECONNECT_DELAY = 5000
+const GATEWAY_USERNAME = process.env.GATEWAY_USERNAME || 'admin'
+const GATEWAY_PASSWORD = process.env.GATEWAY_PASSWORD || 'admin123'
+function getGatewayHttpBase() {
+  const url = new URL(GATEWAY_URL)
+  url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:'
+  url.pathname = url.pathname.replace(/\/api\/stream\/?$/, '')
+  url.search = ''
+  return url.toString().replace(/\/$/, '')
+}
 
 class Agent {
   private ws: WebSocket | null = null
   private tmux: TmuxManager
   private reconnectTimer: NodeJS.Timeout | null = null
+  private accessToken = ''
+  private refreshToken = ''
 
   constructor() {
     this.tmux = new TmuxManager()
   }
 
-  connect() {
-    console.log(`Connecting to gateway: ${GATEWAY_URL}`)
+  async connect() {
+    let gatewayUrl = GATEWAY_URL
+    try {
+      const ticket = await this.getGatewayTicket()
+      if (ticket) {
+        const url = new URL(GATEWAY_URL)
+        url.searchParams.set('ticket', ticket)
+        gatewayUrl = url.toString()
+      }
+    } catch (err) {
+      console.error('Gateway authentication failed:', err instanceof Error ? err.message : String(err))
+      this.scheduleReconnect()
+      return
+    }
+    const logUrl = new URL(gatewayUrl)
+    logUrl.searchParams.delete('ticket')
+    console.log(`Connecting to gateway: ${logUrl}`)
 
-    this.ws = new WebSocket(GATEWAY_URL)
+    this.ws = new WebSocket(gatewayUrl)
 
     this.ws.on('open', () => {
       console.log('Connected to gateway')
@@ -140,8 +166,37 @@ class Agent {
 
     this.reconnectTimer = setTimeout(() => {
       console.log('Attempting to reconnect...')
-      this.connect()
+      void this.connect()
     }, RECONNECT_DELAY)
+  }
+
+  private async getGatewayTicket() {
+    const base = getGatewayHttpBase()
+    const statusResponse = await fetch(`${base}/api/auth/status`)
+    if (!statusResponse.ok) throw new Error(`Gateway status failed: HTTP ${statusResponse.status}`)
+    const status = await statusResponse.json() as { enabled?: boolean }
+    if (!status.enabled) return ''
+    if (!GATEWAY_USERNAME || !GATEWAY_PASSWORD) throw new Error('GATEWAY_USERNAME and GATEWAY_PASSWORD are required')
+    if (!this.accessToken || !this.refreshToken) {
+      const loginResponse = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: GATEWAY_USERNAME, password: GATEWAY_PASSWORD }) })
+      if (!loginResponse.ok) throw new Error(`Gateway login failed: HTTP ${loginResponse.status}`)
+      const login = await loginResponse.json() as { accessToken?: string; refreshToken?: string }
+      this.accessToken = login.accessToken || ''
+      this.refreshToken = login.refreshToken || ''
+    }
+    let ticketResponse = await fetch(`${base}/api/auth/ws-ticket`, { method: 'POST', headers: { Authorization: `Bearer ${this.accessToken}` } })
+    if (ticketResponse.status === 401 && this.refreshToken) {
+      const refreshResponse = await fetch(`${base}/api/auth/refresh`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refreshToken: this.refreshToken }) })
+      if (!refreshResponse.ok) throw new Error(`Gateway refresh failed: HTTP ${refreshResponse.status}`)
+      const refreshed = await refreshResponse.json() as { accessToken?: string; refreshToken?: string }
+      this.accessToken = refreshed.accessToken || ''
+      this.refreshToken = refreshed.refreshToken || ''
+      ticketResponse = await fetch(`${base}/api/auth/ws-ticket`, { method: 'POST', headers: { Authorization: `Bearer ${this.accessToken}` } })
+    }
+    if (!ticketResponse.ok) throw new Error(`Gateway ticket failed: HTTP ${ticketResponse.status}`)
+    const ticket = await ticketResponse.json() as { ticket?: string }
+    if (!ticket.ticket) throw new Error('Gateway did not return a WebSocket ticket')
+    return ticket.ticket
   }
 
   disconnect() {

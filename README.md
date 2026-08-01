@@ -274,6 +274,10 @@ npm run verify
 | `NEXT_DIST_DIR` | `.next` / `.next-prod` | 前端构建输出目录 |
 | `TMUXGO_ENABLE_AGENT` | `0` | 设为 `1` 时启动或安装 Agent |
 | `GATEWAY_URL` | `ws://localhost:3001/api/stream` | Agent 连接 Gateway 的 WebSocket 地址 |
+| `TMUXGO_AUTH_USERNAME` | `admin` | Gateway 登录账号 |
+| `TMUXGO_AUTH_PASSWORD` | `admin123` | Gateway 登录密码，首次启动后建议修改 |
+| `GATEWAY_USERNAME` | `admin` | Agent 连接 Gateway 使用的账号 |
+| `GATEWAY_PASSWORD` | `admin123` | Agent 连接 Gateway 使用的密码 |
 | `HOST_ID` | `agent-local` | Agent 注册主机 ID |
 | `HOST_NAME` | `local-machine` 或机器名 | Agent 注册显示名 |
 | `TMUX_WEB_FILE_ROOTS` | `workspace=<repo>:home=<home>` | 文件树根目录列表，例如 `workspace=/srv/code:home=/home/guo` |
@@ -281,6 +285,8 @@ npm run verify
 | `TMUXGO_CONFIG_DIR` | `~/.tmuxgo` | 主机配置目录，默认包含 `hosts.json` |
 | `TMUXGO_ALLOWED_ORIGINS` | 空 | 额外允许访问 Gateway 的浏览器 Origin，多个值用逗号分隔 |
 | `TMUX_WEB_ALLOWED_SESSIONS` | 空 | 逗号分隔的 tmux 会话白名单 |
+
+Gateway 默认启用账号认证。认证状态与设备会话保存在 `~/.tmuxgo/auth.json`，浏览器首次登录后会自动续期；修改密码会撤销所有设备会话。
 
 ### 数据落点
 
