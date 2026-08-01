@@ -1,5 +1,15 @@
 export const en = {
   'common.refresh': 'Refresh',
+  'auth.title': 'Sign in to TmuxGo',
+  'auth.subtitle': 'Terminal workspace',
+  'auth.username': 'Username',
+  'auth.password': 'Password',
+  'auth.submit': 'Sign in',
+  'auth.signingIn': 'Signing in...',
+  'auth.invalidCredentials': 'Invalid username or password',
+  'auth.unavailable': 'Authentication service is unavailable',
+  'auth.retry': 'Retry',
+  'auth.required': 'This Gateway requires account authentication',
   // TopBar
   'search.placeholder': 'Search...',
   'search.cmd': '⌘K',

@@ -1,0 +1,116 @@
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
+import { AuthError, changePassword, consumeWebSocketTicket, deleteSession, getAccessCookieName, getAccessTokenTtl, getAuthUser, getAuthUsername, getRefreshCookieName, initializeAuthStore, isAuthEnabled, issueWebSocketTicket, listSessions, login, logout, refresh, verifyAccessToken } from '../lib/auth.js'
+
+type AuthBody = Record<string, unknown>
+function body(request: FastifyRequest) {
+  return (request.body && typeof request.body === 'object' ? request.body : {}) as AuthBody
+}
+function requiredString(value: unknown, field: string, min = 1, max = 4096) {
+  if (typeof value !== 'string' || value.length < min || value.length > max) throw new AuthError(`${field} is invalid`, 400, 'INVALID_REQUEST')
+  return value
+}
+function bearer(request: FastifyRequest) {
+  const value = request.headers.authorization
+  return typeof value === 'string' && value.startsWith('Bearer ') ? value.slice(7).trim() : ''
+}
+function cookieValue(request: FastifyRequest, name: string) {
+  const header = request.headers.cookie || ''
+  const prefix = `${name}=`
+  return header.split(';').map((part) => part.trim()).find((part) => part.startsWith(prefix))?.slice(prefix.length) || ''
+}
+function cookie(request: FastifyRequest) {
+  return cookieValue(request, getRefreshCookieName())
+}
+function setAuthCookies(request: FastifyRequest, reply: FastifyReply, accessToken: string, refreshToken: string) {
+  const forwardedProto = request.headers['x-forwarded-proto']
+  const secure = request.protocol === 'https' || typeof forwardedProto === 'string' && forwardedProto.split(',')[0]?.trim() === 'https'
+  reply.header('set-cookie', [
+    `${getAccessCookieName()}=${accessToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${getAccessTokenTtl()}${secure ? '; Secure' : ''}`,
+    `${getRefreshCookieName()}=${refreshToken}; Path=/api/auth; HttpOnly; SameSite=Lax; Max-Age=2592000${secure ? '; Secure' : ''}`,
+  ])
+}
+function clearAuthCookies(request: FastifyRequest, reply: FastifyReply) {
+  const forwardedProto = request.headers['x-forwarded-proto']
+  const secure = request.protocol === 'https' || typeof forwardedProto === 'string' && forwardedProto.split(',')[0]?.trim() === 'https'
+  reply.header('set-cookie', [
+    `${getAccessCookieName()}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure ? '; Secure' : ''}`,
+    `${getRefreshCookieName()}=; Path=/api/auth; HttpOnly; SameSite=Lax; Max-Age=0${secure ? '; Secure' : ''}`,
+  ])
+}
+function sendError(reply: FastifyReply, error: unknown) {
+  if (error instanceof AuthError) return reply.code(error.statusCode).send({ message: error.message, code: error.code })
+  return reply.code(400).send({ message: error instanceof Error ? error.message : String(error), code: 'INVALID_REQUEST' })
+}
+export async function authRoutes(fastify: FastifyInstance) {
+  await initializeAuthStore()
+  fastify.get('/auth/status', async (request) => {
+    if (!isAuthEnabled()) return { enabled: false, authenticated: true }
+    const token = bearer(request) || cookieValue(request, getAccessCookieName())
+    const authenticated = !!token && !!verifyAccessToken(token)
+    return { enabled: true, authenticated, username: getAuthUsername() }
+  })
+  fastify.post('/auth/login', async (request, reply) => {
+    try {
+      const input = body(request)
+      const result = await login(requiredString(input.username, 'username', 1, 128), requiredString(input.password, 'password', 1, 256), { userAgent: request.headers['user-agent'], ip: request.ip })
+      setAuthCookies(request, reply, result.accessToken, result.refreshToken)
+      return result
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+  fastify.post('/auth/refresh', async (request, reply) => {
+    try {
+      const input = body(request)
+      const result = await refresh(typeof input.refreshToken === 'string' ? input.refreshToken : cookie(request), { userAgent: request.headers['user-agent'], ip: request.ip })
+      setAuthCookies(request, reply, result.accessToken, result.refreshToken)
+      return result
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+  fastify.post('/auth/logout', async (request, reply) => {
+    try {
+      const input = body(request)
+      await logout(typeof input.refreshToken === 'string' ? input.refreshToken : cookie(request), typeof input.sessionId === 'string' ? input.sessionId : undefined)
+      clearAuthCookies(request, reply)
+      return { ok: true }
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+  fastify.get('/auth/sessions', async (_request, reply) => {
+    try {
+      return { sessions: await listSessions() }
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+  fastify.delete('/auth/sessions/:id', async (request, reply) => {
+    try {
+      const params = request.params as { id?: string }
+      if (!params.id) throw new AuthError('id is invalid', 400, 'INVALID_REQUEST')
+      return { deleted: await deleteSession(params.id) }
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+  fastify.post('/auth/change-password', async (request, reply) => {
+    try {
+      const input = body(request)
+      await changePassword(requiredString(input.currentPassword, 'currentPassword', 1, 256), requiredString(input.newPassword, 'newPassword', 8, 256))
+      clearAuthCookies(request, reply)
+      return { ok: true }
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+  fastify.post('/auth/ws-ticket', async (request, reply) => {
+    try {
+      const token = bearer(request) || cookieValue(request, getAccessCookieName()) || requiredString(body(request).accessToken, 'accessToken')
+      return await issueWebSocketTicket(token)
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+}

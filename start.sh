@@ -317,7 +317,7 @@ if systemd_tmuxgo_active; then
       echo "  Tailscale HTTPS setup failed"
     fi
   fi
-  if wait_http_ok "http://127.0.0.1:3001/api/hosts" 30 && wait_http_ok "http://127.0.0.1:3001" 30; then
+  if wait_http_ok "http://127.0.0.1:3001/health" 30 && wait_http_ok "http://127.0.0.1:3001" 30; then
     echo "  Systemd services ready"
   else
     echo "  Systemd services need attention"
@@ -376,7 +376,7 @@ if launchd_tmuxgo_active; then
       echo "  Tailscale HTTPS setup failed"
     fi
   fi
-  if wait_http_ok "http://127.0.0.1:3001/api/hosts" 30 && wait_http_ok "http://127.0.0.1:3001" 30; then
+  if wait_http_ok "http://127.0.0.1:3001/health" 30 && wait_http_ok "http://127.0.0.1:3001" 30; then
     echo "  Launchd services ready"
   else
     echo "  Launchd services need attention"
@@ -420,12 +420,12 @@ fi
 if ! port_in_use 3002; then
   rm -f "$FRONTEND_DEV_LOG"
 fi
-if wait_http_ok "http://127.0.0.1:3001/api/hosts" 1; then
+if wait_http_ok "http://127.0.0.1:3001/health" 1; then
   echo "Gateway already running on port 3001, skipping..."
 else
   echo "Starting Gateway on port 3001..."
   GATEWAY_PID=$(start_detached "$GATEWAY_LOG" npm run dev:gateway)
-  if wait_http_ok "http://127.0.0.1:3001/api/hosts" 30 && ! rg -q "EADDRINUSE|Failed to start server" "$GATEWAY_LOG"; then
+  if wait_http_ok "http://127.0.0.1:3001/health" 30 && ! rg -q "EADDRINUSE|Failed to start server" "$GATEWAY_LOG"; then
     echo "  Gateway started successfully"
   else
     echo "  Gateway failed to start, check $GATEWAY_LOG"

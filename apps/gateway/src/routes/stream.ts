@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { SocketStream } from '@fastify/websocket'
 import * as pty from 'node-pty'
 import { execFile } from 'child_process'
@@ -15,11 +15,20 @@ import { getHostAgentPanes, markAgentPaneSeen } from '../lib/agent-state.js'
 import { streamAttachMessageSchema, streamInputMessageSchema, streamMessageSchema, streamRegisterMessageSchema, streamResizeMessageSchema } from '../lib/request-validation.js'
 import { encodeStreamCellBinary, encodeStreamOutputBinary } from '../lib/stream-binary.js'
 import { AnsiParser, TerminalGrid, diffCells, encodeCellDiff, encodeCellSnapshot } from '../lib/terminal-grid/index.js'
+import { consumeWebSocketTicket, isAuthEnabled } from '../lib/auth.js'
 
 const execFileAsync = promisify(execFile)
 let sshPassAvailable: boolean | null = null
 export async function streamRoutes(fastify: FastifyInstance) {
-  fastify.get('/stream', { websocket: true }, (connection: SocketStream) => {
+  fastify.get('/stream', { websocket: true }, (connection: SocketStream, request: FastifyRequest) => {
+    if (isAuthEnabled()) {
+      const query = request.query as { ticket?: unknown }
+      const ticket = typeof query.ticket === 'string' ? query.ticket : ''
+      if (!consumeWebSocketTicket(ticket)) {
+        connection.socket.close(1008, 'Authentication required')
+        return
+      }
+    }
     console.log('Client connected to stream')
     const SCROLL_MAX_LINES = 24
     const ATTACH_REDRAW_DELAYS = [48]

@@ -25,14 +25,28 @@ import { sessionArchiveRoutes } from './routes/session-archives.js'
 import { pluginRoutes } from './routes/plugins.js'
 import { pluginManager } from './lib/plugin-manager.js'
 import { createFastifyLoggerConfig } from './lib/process-log.js'
+import { authRoutes } from './routes/auth.js'
+import { getAccessCookieName, initializeAuthStore, isAuthEnabled, verifyAccessToken } from './lib/auth.js'
 
 const fastify = Fastify({
   logger: createFastifyLoggerConfig(),
 })
+await initializeAuthStore()
 fastify.addHook('onRequest', async (request, reply) => {
   const forwardedHost = request.headers['x-forwarded-host']
   if (isRequestOriginAllowed(request.headers.origin, request.headers.host, undefined, typeof forwardedHost === 'string' ? forwardedHost : undefined, request.ip)) return
   return reply.code(403).send({ message: 'Origin is not allowed', code: 'ORIGIN_NOT_ALLOWED' })
+})
+fastify.addHook('onRequest', async (request, reply) => {
+  if (!isAuthEnabled()) return
+  const routePath = request.url.split('?')[0]
+  if (!routePath.startsWith('/api/') || routePath === '/api/stream' || routePath === '/api/auth/status' || routePath === '/api/auth/login' || routePath === '/api/auth/refresh' || routePath === '/api/auth/logout') return
+  const authorization = request.headers.authorization
+  const token = typeof authorization === 'string' && authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : ''
+  const cookiePrefix = `${getAccessCookieName()}=`
+  const cookieToken = (request.headers.cookie || '').split(';').map((part) => part.trim()).find((part) => part.startsWith(cookiePrefix))?.slice(cookiePrefix.length) || ''
+  if ((token && verifyAccessToken(token)) || (cookieToken && verifyAccessToken(cookieToken))) return
+  return reply.code(401).send({ message: 'Authentication required', code: 'AUTH_REQUIRED' })
 })
 fastify.addHook('onSend', recordAuditRequest)
 fastify.setErrorHandler((error, _request, reply) => {
@@ -42,6 +56,7 @@ fastify.setErrorHandler((error, _request, reply) => {
 
 await fastify.register(cors, {
   origin: true,
+  credentials: true,
 })
 
 await fastify.register(multipart, {
@@ -52,6 +67,7 @@ await fastify.register(multipart, {
 })
 await fastify.register(websocket)
 
+await fastify.register(authRoutes, { prefix: '/api' })
 await fastify.register(hostRoutes, { prefix: '/api' })
 await fastify.register(sessionRoutes, { prefix: '/api' })
 await fastify.register(windowRoutes, { prefix: '/api' })

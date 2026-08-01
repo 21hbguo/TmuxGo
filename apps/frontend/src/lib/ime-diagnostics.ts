@@ -1,5 +1,6 @@
 'use client'
 import { getApiBase } from './runtime-endpoints'
+import { authenticatedFetch } from './auth'
 
 type ImeDiagnosticEvent=Record<string,unknown>&{event:string;scope:string}
 type ImeDiagnosticState={events:ImeDiagnosticEvent[];sessionId:string}
@@ -78,7 +79,7 @@ export async function flushImeDiagnostics() {
   const body=JSON.stringify({sessionId:getSessionId(),events})
   const url=`${getApiBase()}/api/client-events`
   try {
-    await fetch(url,{method:'POST',headers:{'content-type':'application/json'},body,keepalive:true})
+    await authenticatedFetch(url,{method:'POST',headers:{'content-type':'application/json'},body,keepalive:true})
     return
   } catch {
   }

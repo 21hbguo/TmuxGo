@@ -1,5 +1,6 @@
 'use client'
 import { getApiBase } from './runtime-endpoints'
+import { authenticatedFetch } from './auth'
 
 type DiagnosticEvent=Record<string, unknown>&{event:string}
 type DiagnosticState={events:DiagnosticEvent[];sessionId:string}
@@ -102,7 +103,7 @@ export async function flushMobileDiagnostics() {
   const body=JSON.stringify({sessionId:getSessionId(),events})
   const url=`${getApiBase()}/api/client-events`
   try {
-    await fetch(url,{method:'POST',headers:{'content-type':'application/json'},body,keepalive:true})
+    await authenticatedFetch(url,{method:'POST',headers:{'content-type':'application/json'},body,keepalive:true})
     return
   } catch {
   }

@@ -1,5 +1,15 @@
 export const zh = {
   'common.refresh': '刷新',
+  'auth.title': '登录 TmuxGo',
+  'auth.subtitle': '终端工作台',
+  'auth.username': '账号',
+  'auth.password': '密码',
+  'auth.submit': '登录',
+  'auth.signingIn': '登录中...',
+  'auth.invalidCredentials': '账号或密码错误',
+  'auth.unavailable': '认证服务暂时不可用',
+  'auth.retry': '重试',
+  'auth.required': '此 Gateway 需要账号密码认证',
   // TopBar
   'search.placeholder': '搜索...',
   'search.cmd': '⌘K',
