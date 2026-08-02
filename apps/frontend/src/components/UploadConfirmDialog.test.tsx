@@ -49,4 +49,15 @@ describe('UploadConfirmDialog', () => {
     expect(apiMocks.defaultUploadTarget).not.toHaveBeenCalled()
     expect(await screen.findByText('/tmp/tmuxgo-paste')).toBeInTheDocument()
   })
+  it('uses a background task when terminal path insertion is disabled', async () => {
+    apiMocks.upload.mockResolvedValueOnce({ task: { id: 'upload-1', type: 'file-upload', status: 'running' } })
+    render(<UploadConfirmDialog />)
+    await screen.findByText('/tmp/tmuxgo-paste')
+    await screen.getByRole('checkbox').click()
+    await screen.getByText('upload.upload').click()
+    await waitFor(() => expect(apiMocks.upload).toHaveBeenCalled())
+    const body = apiMocks.upload.mock.calls[0][1] as FormData
+    expect(body.get('background')).toBe('true')
+    expect(storeState.updateUploadJob).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ status: 'success' }))
+  })
 })

@@ -125,6 +125,7 @@ export function UploadConfirmDialog() {
       body.append('targetPath', targetPath)
       body.append('conflictPolicy', 'rename')
       body.append('rateLimitKBps', String(preferences.uploadRateLimitKBps || 200))
+      if (!insertPaths) body.append('background', 'true')
       uploadRequest.files.forEach((file) => body.append('files', file))
       addUploadJob({
         id: jobId,
@@ -141,6 +142,11 @@ export function UploadConfirmDialog() {
       const result = await api.files.upload(hostId, body, (loadedBytes, uploadTotalBytes) => {
         updateUploadJob(jobId, { loadedBytes, totalBytes: uploadTotalBytes || totalBytes, status: 'uploading' })
       })
+      if ('task' in result) {
+        updateUploadJob(jobId, { loadedBytes: totalBytes, totalBytes, status: 'success', finishedAt: new Date().toISOString() })
+        pushToast({ type: 'success', message: t('tasks.queued') })
+        return
+      }
       updateUploadJob(jobId, { loadedBytes: totalBytes, totalBytes, status: 'success', finishedAt: new Date().toISOString(), result })
       if (insertPaths && result.files.length) {
         const data = result.files.map((file) => quoteShellPath(file.absolutePath)).join(' ')

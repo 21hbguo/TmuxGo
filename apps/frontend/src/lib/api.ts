@@ -216,7 +216,7 @@ function parseApiError(status: number, raw: string) {
   error.code = code
   return error
 }
-function uploadWithProgress(hostId: string, body: FormData, onProgress?: (loadedBytes: number, totalBytes: number) => void): Promise<UploadJobResult> {
+function uploadWithProgress(hostId: string, body: FormData, onProgress?: (loadedBytes: number, totalBytes: number) => void): Promise<UploadJobResult | { task: SystemTaskResponse }> {
   const url = `${getApiBase()}/api/hosts/${encodeURIComponent(hostId)}/files/upload`
   return new Promise((resolve, reject) => {
     let retried = false
@@ -251,7 +251,7 @@ function uploadWithProgress(hostId: string, body: FormData, onProgress?: (loaded
             reject(parseApiError(xhr.status, xhr.responseText || ''))
             return
           }
-          resolve(data as UploadJobResult)
+          resolve(data as UploadJobResult | { task: SystemTaskResponse })
         } catch {
           reject(new Error('Invalid server response'))
         }

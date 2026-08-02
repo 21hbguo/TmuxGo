@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { randomUUID } from 'crypto'
 import { emitPluginEvent } from '../lib/plugin-manager.js'
 import { createReadStream, createWriteStream } from 'fs'
 import { cp, mkdir, opendir, readFile, realpath, rename, rm, stat, unlink, writeFile } from 'fs/promises'
@@ -14,6 +15,7 @@ import { readFile as readPreferencesFile } from 'fs/promises'
 import { fileContentBodySchema, fileEntryBodySchema, fileRemoveQuerySchema, fileRestoreBodySchema, fileTransferBodySchema, fileTrashBodySchema, hostParamsSchema } from '../lib/request-validation.js'
 import { getBreadcrumbs, isDotPath, isLikelyBinary, isPathInside, normalizeRelativePath, sanitizePathSegment } from '../lib/file-path.js'
 import { getRemoteFileHost, normalizeRemoteFileErrorMessage, quoteRemoteFileShellValue, runRemoteFilePython, spawnRemoteFileCommand } from '../lib/remote-file-command.js'
+import { taskManager, type TaskExecutionContext, type TaskManager } from '../lib/task-manager.js'
 
 const execFileAsync = promisify(execFile)
 const defaultRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..')
@@ -77,6 +79,20 @@ interface TrashEntry {
   name: string
   type: 'file' | 'directory'
   deletedAt: string
+}
+interface StagedUploadFile {
+  name: string
+  stagedPath: string
+  size: number
+  uploaded?: { name: string; path: string; absolutePath: string; size: number }
+}
+interface BackgroundUploadInput {
+  hostId: string
+  targetRootId: string
+  targetPath: string
+  conflictPolicy: string
+  rateLimitKBps: number
+  files: StagedUploadFile[]
 }
 export interface GitRepositoryInfo {
   path: string
@@ -979,13 +995,19 @@ async function waitForProcess(child: ReturnType<typeof spawn>, fallback: string)
     child.once('close', (code) => code === 0 ? resolve() : reject(new Error(normalizeRemoteFileErrorMessage(stderr, fallback))))
   })
 }
-async function writeRemoteUpload(hostId: string, absolutePath: string, source: NodeJS.ReadableStream, rateLimitKBps: number) {
+async function writeRemoteUpload(hostId: string, absolutePath: string, source: NodeJS.ReadableStream, rateLimitKBps: number, signal?: AbortSignal, progress?: Transform) {
   const host = await getRemoteFileHost(hostId)
-  const script = `import pathlib,sys;p=pathlib.Path(sys.argv[1]);p.parent.mkdir(parents=True,exist_ok=True);f=p.open('wb');\nwhile True:\n b=sys.stdin.buffer.read(1024*1024)\n if not b: break\n f.write(b)\nf.close()`
-  const child = await spawnRemoteFileCommand(host, `python3 -c ${quoteRemoteFileShellValue(script)} -- ${quoteRemoteFileShellValue(absolutePath)}`)
+  const script = `import os,pathlib,sys;p=pathlib.Path(sys.argv[1]);p.parent.mkdir(parents=True,exist_ok=True);t=p.with_name('.tmuxgo-upload-'+str(os.getpid()));f=t.open('wb');\nwhile True:\n b=sys.stdin.buffer.read(1024*1024)\n if not b: break\n f.write(b)\nf.close();os.replace(t,p)`
+  const child = await spawnRemoteFileCommand(host, `python3 -c ${quoteRemoteFileShellValue(script)} -- ${quoteRemoteFileShellValue(absolutePath)}`, signal)
   const completion = waitForProcess(child, 'Remote upload failed')
-  await pipeline(source, createRateLimitStream(rateLimitKBps), child.stdin!)
-  await completion
+  try {
+    if (progress) await pipeline(source, progress, createRateLimitStream(rateLimitKBps), child.stdin!, { signal })
+    else await pipeline(source, createRateLimitStream(rateLimitKBps), child.stdin!, { signal })
+    await completion
+  } catch (error) {
+    await completion.catch(() => {})
+    throw error
+  }
 }
 async function getDownloadStream(hostId: string, absolutePath: string, directory: boolean) {
   const archiveScript = `import os,pathlib,sys,zipfile\np=pathlib.Path(sys.argv[1]);z=zipfile.ZipFile(sys.stdout.buffer,'w',zipfile.ZIP_DEFLATED)\nfor root,dirs,files in os.walk(p):\n for name in files:\n  item=pathlib.Path(root)/name;z.write(item,str(pathlib.Path(p.name)/item.relative_to(p)))\nz.close()`
@@ -996,7 +1018,70 @@ async function getDownloadStream(hostId: string, absolutePath: string, directory
   return child.stdout
 }
 
-export async function fileRoutes(fastify: FastifyInstance) {
+function getUploadStagingDir() {
+  return path.join(process.env.TMUXGO_CONFIG_DIR?.trim() || path.join(os.homedir(), '.tmuxgo'), 'upload-staging')
+}
+function createUploadProgressStream(onChunk: (size: number) => void) {
+  return new Transform({ transform(chunk, _encoding, callback) {
+    onChunk(chunk.length)
+    callback(null, chunk)
+  } })
+}
+async function stageUploadFile(source: NodeJS.ReadableStream, fileName: string, rateLimitKBps: number) {
+  const stagingDir = getUploadStagingDir()
+  await mkdir(stagingDir, { recursive: true, mode: 0o700 })
+  const stagedPath = path.join(stagingDir, randomUUID())
+  await pipeline(source, createRateLimitStream(rateLimitKBps), createWriteStream(stagedPath, { mode: 0o600 }))
+  const info = await stat(stagedPath)
+  return { name: fileName, stagedPath, size: info.size }
+}
+async function runBackgroundUploadTask(input: unknown, context: TaskExecutionContext) {
+  const task = input as BackgroundUploadInput
+  if (task.conflictPolicy !== 'rename') throw new Error('Unsupported conflict policy')
+  const totalBytes = task.files.reduce((sum, file) => sum + file.size, 0)
+  let transferredBytes = task.files.reduce((sum, file) => sum + (file.uploaded?.size || 0), 0)
+  const startedAt = Date.now()
+  const reportProgress = (size: number) => {
+    transferredBytes += size
+    const elapsedMs = Math.max(1, Date.now() - startedAt)
+    context.setProgress(totalBytes ? (transferredBytes * 100) / totalBytes : 100, (transferredBytes * 1000) / elapsedMs)
+  }
+  let resolvedTarget: { root: FileRoot; absolutePath: string; relativePath: string } | null = null
+  for (const file of task.files) {
+    if (file.uploaded) continue
+    if (context.signal.aborted) throw new Error('Task cancelled')
+    if (task.hostId === 'local') {
+      if (!resolvedTarget) {
+        resolvedTarget = await resolveInside(task.targetRootId, task.targetPath)
+        await mkdir(resolvedTarget.absolutePath, { recursive: true })
+      }
+      const destination = await resolveUploadDestination(resolvedTarget.absolutePath, file.name)
+      const temporaryPath = path.join(resolvedTarget.absolutePath, `.${destination.candidateName}.tmuxgo-upload-${randomUUID()}`)
+      try {
+        await pipeline(createReadStream(file.stagedPath), createUploadProgressStream(reportProgress), createRateLimitStream(task.rateLimitKBps), createWriteStream(temporaryPath), { signal: context.signal })
+        await rename(temporaryPath, destination.candidatePath)
+      } catch (error) {
+        await unlink(temporaryPath).catch(() => {})
+        throw error
+      }
+      file.uploaded = { name: destination.candidateName, path: toRelative(resolvedTarget.root.path, destination.candidatePath), absolutePath: destination.candidatePath, size: file.size }
+    } else {
+      const prepared = await runRemoteFileJson<{ root: FileRoot; directoryPath: string; directoryAbsolutePath: string; name: string; path: string; absolutePath: string }>(task.hostId, { op: 'prepare-upload', root: task.targetRootId, path: task.targetPath, name: file.name })
+      if (!resolvedTarget) resolvedTarget = { root: prepared.root, absolutePath: prepared.directoryAbsolutePath, relativePath: prepared.directoryPath }
+      await writeRemoteUpload(task.hostId, prepared.absolutePath, createReadStream(file.stagedPath), task.rateLimitKBps, context.signal, createUploadProgressStream(reportProgress))
+      file.uploaded = { name: prepared.name, path: prepared.path, absolutePath: prepared.absolutePath, size: file.size }
+    }
+    context.appendLog(`Uploaded ${file.uploaded.name}`)
+    context.setProgress(totalBytes ? (transferredBytes * 100) / totalBytes : 100)
+  }
+  await Promise.all(task.files.map((file) => unlink(file.stagedPath).catch(() => {})))
+  const files = task.files.map((file) => file.uploaded!).filter(Boolean)
+  if (resolvedTarget) emitPluginEvent('file.uploaded', { hostId: task.hostId, rootId: resolvedTarget.root.id, filePath: resolvedTarget.relativePath, files: files.map((file) => ({ name: file.name, path: file.path, size: file.size })) })
+  return { message: `Uploaded ${files.length} file${files.length === 1 ? '' : 's'}` }
+}
+export async function fileRoutes(fastify: FastifyInstance, options: { taskManager?: TaskManager } = {}) {
+  const backgroundTasks = options.taskManager || taskManager
+  backgroundTasks.register('file-upload', runBackgroundUploadTask)
   startTemporaryUploadCleanup()
   fastify.get('/hosts/:hostId/files/roots', async (request) => {
     const { hostId } = request.params as { hostId: string }
@@ -1145,18 +1230,24 @@ export async function fileRoutes(fastify: FastifyInstance) {
     let targetRootId = ''
     let targetPath = ''
     let conflictPolicy = 'rename'
+    let background = false
     let rateLimitKBps = await readStoredUploadRateLimitKBps()
     let resolvedTarget: { root: FileRoot; absolutePath: string; relativePath: string } | null = null
-    const uploadedFiles = []
+    const uploadedFiles: { name: string; path: string; absolutePath: string; size: number }[] = []
+    const stagedFiles: StagedUploadFile[] = []
     for await (const part of parts) {
       if (part.type === 'file') {
         if (!targetRootId) throw new Error('Missing target root')
         if (conflictPolicy !== 'rename') throw new Error('Unsupported conflict policy')
+        const safeName = sanitizeUploadFileName(part.filename)
+        if (background) {
+          stagedFiles.push(await stageUploadFile(part.file, safeName, rateLimitKBps))
+          continue
+        }
         if (!resolvedTarget && hostId === 'local') {
           resolvedTarget = await resolveInside(targetRootId, targetPath)
           await mkdir(resolvedTarget.absolutePath, { recursive: true })
         }
-        const safeName = sanitizeUploadFileName(part.filename)
         if (hostId === 'local') {
           const { candidateName, candidatePath } = await resolveUploadDestination(resolvedTarget!.absolutePath, safeName)
           await pipeline(part.file, createRateLimitStream(rateLimitKBps), createWriteStream(candidatePath))
@@ -1176,6 +1267,11 @@ export async function fileRoutes(fastify: FastifyInstance) {
       else if (part.fieldname === 'targetPath') targetPath = value
       else if (part.fieldname === 'conflictPolicy') conflictPolicy = value || 'rename'
       else if (part.fieldname === 'rateLimitKBps') rateLimitKBps = normalizeUploadRateLimitKBps(value)
+      else if (part.fieldname === 'background') background = value === 'true'
+    }
+    if (background) {
+      if (!stagedFiles.length) throw new Error('No files uploaded')
+      return reply.status(202).send({ task: await backgroundTasks.start({ type: 'file-upload', title: `Upload ${stagedFiles.length} file${stagedFiles.length === 1 ? '' : 's'}`, input: { hostId, targetRootId, targetPath, conflictPolicy, rateLimitKBps, files: stagedFiles } }) })
     }
     if (!resolvedTarget) throw new Error('No files uploaded')
     const result = {
