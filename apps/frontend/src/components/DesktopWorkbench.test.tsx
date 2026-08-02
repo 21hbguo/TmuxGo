@@ -8,6 +8,7 @@ const contentMock = vi.fn()
 const previewMock = vi.fn()
 
 vi.mock('@/lib/api', () => ({
+  fetchApiBlob: vi.fn(async () => new Blob(['image'])),
   api: {
     files: {
       content: (...args: any[]) => contentMock(...args),

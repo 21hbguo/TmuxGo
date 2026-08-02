@@ -141,6 +141,7 @@ vi.mock('@/stores/useConsoleStore', () => ({
   useConsoleStore: Object.assign(((selector: any) => selector({ activeHostId: 'local', activePaneId: 'local:%1', pushToast: storeMocks.pushToast, updateTerminalPerf: storeMocks.updateTerminalPerf, setActivePane: storeMocks.setActivePane, openUploadDialog: storeMocks.openUploadDialog, terminalPerf: { attachLatency: 0, outputBytes: 0, outputEvents: 0, outputBacklog: 0, layoutFitCount: 0, lastOutputAt: '' } })) as any, { getState: () => ({ activePaneId: 'local:%1', terminalPerf: { attachLatency: 0, outputBytes: 0, outputEvents: 0, outputBacklog: 0, layoutFitCount: 0, lastOutputAt: '' }, openEditors: [], openEditor: storeMocks.openEditor, setEditorLoaded: storeMocks.setEditorLoaded, setFilePanelOpen: storeMocks.setFilePanelOpen }) }),
 }))
 vi.mock('@/lib/api', () => ({
+  fetchApiBlob: vi.fn(async () => new Blob(['image'])),
   api: { snapshot: { get: apiMocks.snapshotGet }, panes: { resize: apiMocks.paneResize, select: apiMocks.paneSelect }, hosts: { githubAuthStatus: apiMocks.githubAuthStatus }, files: { roots: apiMocks.fileRoots, defaultUploadTarget: apiMocks.defaultUploadTarget, content: apiMocks.fileContent, preview: apiMocks.filePreview, imageUrl: vi.fn(() => '/api/files/image') } },
 }))
 vi.mock('@/hooks/useOptionalQueryClient', () => ({

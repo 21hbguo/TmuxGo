@@ -78,6 +78,7 @@ const maxLogs = 200
 const maxConcurrentCommands = 16
 const githubSegmentPattern = /^[A-Za-z0-9_.-]+$/
 const pluginContextMaxBytes = 64 * 1024
+const pluginEnvironmentKeys = ['PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'TMP', 'TEMP', 'TERM', 'LANG', 'LC_ALL', 'LC_CTYPE', 'SystemRoot', 'ComSpec', 'PATHEXT']
 
 function getConfigRoot() {
   return process.env.TMUXGO_CONFIG_DIR || path.join(os.homedir(), '.tmuxgo')
@@ -300,10 +301,14 @@ export class PluginManager {
       }
       let child: ReturnType<typeof spawn>
       try {
+        const pluginEnv: NodeJS.ProcessEnv = {}
+        for (const key of pluginEnvironmentKeys) {
+          if (process.env[key] !== undefined) pluginEnv[key] = process.env[key]
+        }
         child = spawn(command[0], command.slice(1), {
           cwd: info.root,
           env: {
-            ...process.env,
+            ...pluginEnv,
             TMUXGO_ENV: '1',
             TMUXGO_PLUGIN_ID: info.pluginId,
             TMUXGO_PLUGIN_ROOT: info.root,
