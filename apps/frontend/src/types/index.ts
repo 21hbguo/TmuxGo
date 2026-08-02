@@ -7,6 +7,8 @@ export interface Host {
   user?: string
   port?: number
   auth?: 'auto'
+  groups?: string[]
+  favorite?: boolean
   hasPassword?: boolean
   hasPrivateKey?: boolean
   usesAgent?: boolean

@@ -10,6 +10,8 @@ export interface HostRecord {
   user: string
   port: number
   auth: 'auto'
+  groups: string[]
+  favorite: boolean
   useAgent: boolean
   jumpHost: string
   knownHostsPolicy: KnownHostsPolicy
@@ -44,6 +46,8 @@ export interface HostInput {
   password?: string
   passwordEnv?: string
   privateKeyPath?: string
+  groups?: string[]
+  favorite?: boolean
   useAgent?: boolean
   jumpHost?: string
   knownHostsPolicy?: KnownHostsPolicy
@@ -56,6 +60,8 @@ const localHost: HostRecord = {
   user: '',
   port: 22,
   auth: 'auto',
+  groups: [],
+  favorite: false,
   useAgent: false,
   jumpHost: '',
   knownHostsPolicy: 'strict',
@@ -125,6 +131,11 @@ function sanitizeJumpHost(value: string | undefined) {
 function sanitizeKnownHostsPolicy(value: unknown): KnownHostsPolicy {
   return value === 'strict' || value === 'off' || value === 'accept-new' ? value : 'accept-new'
 }
+function sanitizeGroups(value: unknown) {
+  if (!Array.isArray(value)) return []
+  const groups = value.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter((item) => item.length > 0 && item.length <= 64 && !/[\x00-\x1f]/.test(item))
+  return Array.from(new Set(groups)).slice(0, 12)
+}
 function nextUpdatedAt(previous: string | undefined) {
   const now = Date.now()
   const previousMs = Date.parse(previous || '')
@@ -149,6 +160,8 @@ function normalizeHostRecord(raw: any): HostRecord {
     user: sanitizeHostUser(String(raw?.user || '')),
     port: sanitizeHostPort(typeof raw?.port === 'number' ? raw.port : Number(raw?.port)),
     auth: 'auto',
+    groups: sanitizeGroups(raw?.groups),
+    favorite: raw?.favorite === true,
     useAgent: raw?.useAgent !== false,
     jumpHost: sanitizeJumpHost(typeof raw?.jumpHost === 'string' ? raw.jumpHost : ''),
     knownHostsPolicy: sanitizeKnownHostsPolicy(raw?.knownHostsPolicy),
@@ -258,6 +271,8 @@ export async function upsertRemoteHost(input: HostInput) {
     user: sanitizeHostUser(input.user),
     port: sanitizeHostPort(input.port),
     auth: 'auto',
+    groups: input.groups === undefined ? (existing?.groups || []) : sanitizeGroups(input.groups),
+    favorite: input.favorite === undefined ? !!existing?.favorite : input.favorite,
     useAgent: input.useAgent === undefined ? (existing?.useAgent ?? true) : input.useAgent,
     jumpHost: input.jumpHost === undefined ? (existing?.jumpHost || '') : sanitizeJumpHost(input.jumpHost),
     knownHostsPolicy: input.knownHostsPolicy === undefined ? (existing?.knownHostsPolicy || 'accept-new') : sanitizeKnownHostsPolicy(input.knownHostsPolicy),
@@ -271,7 +286,7 @@ export async function upsertRemoteHost(input: HostInput) {
   }
   const nextHosts = store.hosts.filter((item) => item.id !== hostId)
   nextHosts.push(host)
-  nextHosts.sort((a, b) => a.id.localeCompare(b.id))
+  nextHosts.sort((a, b) => Number(b.favorite) - Number(a.favorite) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
   if (hasCredentials(credentials)) credentialStore.credentials[hostId] = credentials
   else delete credentialStore.credentials[hostId]
   await Promise.all([writeHostStore({ version: 2, hosts: nextHosts }), writeCredentialStore(credentialStore)])

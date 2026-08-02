@@ -46,6 +46,8 @@ export function Settings({ onClose }: SettingsProps) {
   const [hostPortDraft, setHostPortDraft] = useState('22')
   const [hostPasswordDraft, setHostPasswordDraft] = useState('')
   const [hostPrivateKeyPathDraft, setHostPrivateKeyPathDraft] = useState('')
+  const [hostGroupsDraft, setHostGroupsDraft] = useState('')
+  const [hostFavoriteDraft, setHostFavoriteDraft] = useState(false)
   const [hostUseAgentDraft, setHostUseAgentDraft] = useState(true)
   const [hostJumpHostDraft, setHostJumpHostDraft] = useState('')
   const [hostKnownHostsPolicyDraft, setHostKnownHostsPolicyDraft] = useState<'strict' | 'accept-new' | 'off'>('accept-new')
@@ -180,6 +182,8 @@ export function Settings({ onClose }: SettingsProps) {
     setHostPortDraft('22')
     setHostPasswordDraft('')
     setHostPrivateKeyPathDraft('')
+    setHostGroupsDraft('')
+    setHostFavoriteDraft(false)
     setHostUseAgentDraft(true)
     setHostJumpHostDraft('')
     setHostKnownHostsPolicyDraft('accept-new')
@@ -198,6 +202,8 @@ export function Settings({ onClose }: SettingsProps) {
     setHostPortDraft(String(host.port || 22))
     setHostPasswordDraft('')
     setHostPrivateKeyPathDraft('')
+    setHostGroupsDraft(Array.isArray(host.groups) ? host.groups.join(', ') : '')
+    setHostFavoriteDraft(host.favorite === true)
     setHostUseAgentDraft(host.usesAgent !== false)
     setHostJumpHostDraft(host.jumpHost || '')
     setHostKnownHostsPolicyDraft(host.knownHostsPolicy || 'accept-new')
@@ -265,6 +271,8 @@ export function Settings({ onClose }: SettingsProps) {
         port: Number(hostPortDraft || '22') || 22,
         password: hostPasswordDraft ? hostPasswordDraft : undefined,
         privateKeyPath: hostPrivateKeyPathDraft || undefined,
+        groups: hostGroupsDraft.split(',').map((group) => group.trim()).filter(Boolean),
+        favorite: hostFavoriteDraft,
         useAgent: hostUseAgentDraft,
         jumpHost: hostJumpHostDraft,
         knownHostsPolicy: hostKnownHostsPolicyDraft,
@@ -562,6 +570,7 @@ export function Settings({ onClose }: SettingsProps) {
                         <div className="min-w-0">
                           <div className="truncate text-sm text-text-1">{host.name || host.id}</div>
                           <div className="truncate text-xs text-text-3">{host.id} {host.user ? `${host.user}@` : ''}{host.address}:{host.port || 22}</div>
+                          {(host.favorite || host.groups?.length) && <div className="truncate text-xs text-accent">{[host.favorite ? t('settings.hostFavorite') : '', ...(host.groups || [])].filter(Boolean).join(' · ')}</div>}
                           {(host.hasPassword || host.hasPrivateKey || host.usesAgent || host.jumpHost) && <div className="truncate text-xs text-text-3">{[host.hasPassword ? t('settings.hostPasswordSaved') : '', host.hasPrivateKey ? t('settings.hostPrivateKeySaved') : '', host.usesAgent ? t('settings.hostAgentEnabled') : '', host.jumpHost ? t('settings.hostJumpHostSaved', { host: host.jumpHost }) : ''].filter(Boolean).join(' · ')}</div>}
                           {(typeof host.latencyMs === 'number' || host.lastConnectionError || host.agent) && <div className={`truncate text-xs ${host.lastConnectionError ? 'text-danger' : 'text-text-3'}`}>{host.lastConnectionError || [typeof host.latencyMs === 'number' ? t('settings.hostLatency', { value: host.latencyMs }) : '', host.agent ? t('settings.hostAgentState', { version: host.agent.version, status: host.agent.online ? t('settings.hostAgentOnline') : host.agent.disconnectReason || t('settings.hostAgentOffline') }) : ''].filter(Boolean).join(' · ')}</div>}
                         </div>
@@ -832,6 +841,8 @@ export function Settings({ onClose }: SettingsProps) {
               <input value={hostPrivateKeyPathDraft} onChange={(event) => setHostPrivateKeyPathDraft(event.target.value)} placeholder={t('settings.hostPrivateKeyPath')} className="tmuxgo-control tmuxgo-input w-full rounded-apple px-2 py-1.5 text-sm" />
               {hostDialogMode === 'edit' && <div className="text-xs text-text-3">{t('settings.hostPrivateKeyKeep')}</div>}
               <input value={hostJumpHostDraft} onChange={(event) => setHostJumpHostDraft(event.target.value)} placeholder={t('settings.hostJumpHost')} className="tmuxgo-control tmuxgo-input w-full rounded-apple px-2 py-1.5 text-sm" />
+              <input value={hostGroupsDraft} onChange={(event) => setHostGroupsDraft(event.target.value)} placeholder={t('settings.hostGroups')} className="tmuxgo-control tmuxgo-input w-full rounded-apple px-2 py-1.5 text-sm" />
+              <label className="flex items-center gap-2 px-1 text-sm text-text-2"><input type="checkbox" checked={hostFavoriteDraft} onChange={(event) => setHostFavoriteDraft(event.target.checked)} className="accent-accent" />{t('settings.hostFavorite')}</label>
               <label className="flex items-center gap-2 px-1 text-sm text-text-2"><input type="checkbox" checked={hostUseAgentDraft} onChange={(event) => setHostUseAgentDraft(event.target.checked)} className="accent-accent" />{t('settings.hostUseAgent')}</label>
               <label className="flex items-center justify-between gap-3 px-1 text-sm text-text-2"><span>{t('settings.hostKnownHostsPolicy')}</span><select value={hostKnownHostsPolicyDraft} onChange={(event) => setHostKnownHostsPolicyDraft(event.target.value as 'strict' | 'accept-new' | 'off')} className="tmuxgo-control tmuxgo-select rounded-apple px-2 py-1.5 text-sm"><option value="strict">{t('settings.hostKnownHostsStrict')}</option><option value="accept-new">{t('settings.hostKnownHostsAcceptNew')}</option><option value="off">{t('settings.hostKnownHostsOff')}</option></select></label>
             </div>

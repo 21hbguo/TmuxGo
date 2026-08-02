@@ -106,6 +106,8 @@ export interface HostPayload {
   password?: string
   passwordEnv?: string
   privateKeyPath?: string
+  groups?: string[]
+  favorite?: boolean
   useAgent?: boolean
   jumpHost?: string
   knownHostsPolicy?: 'strict' | 'accept-new' | 'off'

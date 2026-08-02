@@ -200,6 +200,8 @@ export const zh = {
   'settings.hostKnownHostsStrict': '严格校验',
   'settings.hostKnownHostsAcceptNew': '接受新主机',
   'settings.hostKnownHostsOff': '关闭校验',
+  'settings.hostGroups': '主机分组，使用逗号分隔',
+  'settings.hostFavorite': '收藏主机',
   'settings.hostLatency': '延迟 {value} ms',
   'settings.hostAgentState': 'Agent {version}：{status}',
   'settings.hostAgentOnline': '在线',
