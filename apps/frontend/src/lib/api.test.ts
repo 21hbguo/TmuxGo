@@ -36,4 +36,11 @@ describe('api git error handling', () => {
     })))
     await expect(api.sessions.delete('local', 'session-local-demo')).resolves.toMatchObject({ success: true, sessionId: 'session-local-demo' })
   })
+  it('forwards the search cancellation signal', async () => {
+    const controller = new AbortController()
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, text: async () => '[]' }))
+    vi.stubGlobal('fetch', fetchMock)
+    await api.files.searchName('local', 'root-0', 'demo', '', true, controller.signal)
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ signal: controller.signal })
+  })
 })
