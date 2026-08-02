@@ -7,7 +7,7 @@
   "description": "TmuxGo plugin runtime example",
   "icon": "terminal",
   "platforms": ["linux", "macos", "windows"],
-  "permissions": ["actions.execute", "host.context"],
+  "permissions": ["actions.execute", "host.context", "files.read"],
   "contributes": {
     "actions": [
       {

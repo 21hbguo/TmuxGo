@@ -29,13 +29,13 @@ function collectPageErrors(page: any) {
     if (message.type() !== 'error') return
     const text = message.text()
     const url = message.location().url
-    if (!text.startsWith('Failed to load resource') || url.includes('/api/plugins')) errors.push(`${text} ${url}`.trim())
+    if ((!text.startsWith('Failed to load resource') || url.includes('/api/plugins')) && !url.includes('/files/read')) errors.push(`${text} ${url}`.trim())
   })
-  page.on('response', (response: any) => { if (response.status() >= 400 && response.url().includes('/api/plugins')) errors.push(`HTTP ${response.status()} ${response.url()}`) })
+  page.on('response', (response: any) => { if (response.status() >= 400 && response.url().includes('/api/plugins') && !response.url().includes('/files/read')) errors.push(`HTTP ${response.status()} ${response.url()}`) })
   return errors
 }
 
-test('previews commands and opens a sandboxed desktop plugin view', async ({ page }) => {
+test('previews commands and opens a sandboxed desktop plugin view', async ({ page, request }) => {
   const errors = collectPageErrors(page)
   await page.route('**/api/plugins/github/preview', async (route) => {
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ source: 'owner/repo/plugin', resolvedCommit: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', replacing: false, manifest: { schemaVersion: 1, id: 'preview.fixture', name: 'Preview Fixture', version: '1.0.0', minTmuxGoVersion: '0.1.0', platforms: ['linux'], build: [{ command: ['npm', 'run', 'build'] }], contributes: { actions: [{ id: 'inspect', title: 'Inspect', command: ['node', 'action.mjs'] }], events: [{ on: 'session.created', command: ['node', 'event.mjs'] }] } } }) })
@@ -56,6 +56,13 @@ test('previews commands and opens a sandboxed desktop plugin view', async ({ pag
   await expect(plugin.getByText(/local \/ session-/)).toBeVisible()
   await plugin.getByRole('button', { name: 'Run action' }).click()
   await expect(plugin.getByText(/host=local session=session-/)).toBeVisible()
+  await plugin.getByRole('button', { name: 'Read README' }).click()
+  await expect(plugin.getByText(/Plugin permission files\.read is not granted/)).toBeVisible()
+  const permissions = await request.put(`${apiUrl}/api/plugins/examples.hello-tmuxgo/permissions`, { data: { permissions: ['actions.execute', 'host.context', 'files.read'] } })
+  expect(permissions.ok()).toBeTruthy()
+  await plugin.getByRole('button', { name: 'Read README' }).click()
+  await expect(plugin.locator('#output')).not.toHaveText(/Plugin permission files\.read is not granted/)
+  await expect(plugin.locator('#output')).toContainText(/TmuxGo/)
   await page.screenshot({ path: '/tmp/tmuxgo-plugin-completion-view-desktop.png', fullPage: true })
   expect(errors).toEqual([])
 })
