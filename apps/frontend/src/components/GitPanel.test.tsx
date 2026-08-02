@@ -14,6 +14,8 @@ const useGitStatusMock = vi.fn()
 const useGitDiffMock = vi.fn()
 const useGitRepositoriesMock = vi.fn()
 const gitDetectMock = vi.fn()
+const gitCommitMutateMock = vi.fn()
+const gitMergeMutateMock = vi.fn()
 
 vi.mock('@/lib/api', () => ({
   api: { git: { detect: (...args: any[]) => gitDetectMock(...args) } },
@@ -24,7 +26,7 @@ vi.mock('@/hooks/useApi', () => ({
   useGitDiff: (...args: any[]) => useGitDiffMock(...args),
   useGitStage: () => ({ mutate: vi.fn() }),
   useGitUnstage: () => ({ mutate: vi.fn() }),
-  useGitCommit: () => ({ mutate: vi.fn() }),
+  useGitCommit: () => ({ mutate: (...args: any[]) => gitCommitMutateMock(...args) }),
   useGitDiscard: () => ({ mutate: vi.fn() }),
   useGitResolve: () => ({ mutate: vi.fn() }),
   useGitOperation: () => ({ mutate: vi.fn() }),
@@ -36,7 +38,7 @@ vi.mock('@/hooks/useApi', () => ({
   useGitCheckout: () => ({ mutate: vi.fn() }),
   useGitCreateBranch: () => ({ mutate: vi.fn() }),
   useGitDeleteBranch: () => ({ mutate: vi.fn() }),
-  useGitMerge: () => ({ mutate: vi.fn() }),
+  useGitMerge: () => ({ mutate: (...args: any[]) => gitMergeMutateMock(...args) }),
   useGitFetch: () => ({ mutate: vi.fn() }),
   useGitPull: () => ({ mutate: vi.fn() }),
   useGitPush: () => ({ mutate: vi.fn() }),
@@ -56,6 +58,8 @@ describe('GitPanel', () => {
     gitDetectMock.mockImplementation(async (_hostId: string, path: string) => ({ isGitRepo: true, rootPath: path, branch: 'main', path }))
     useGitStatusMock.mockReturnValue({ data: { branch: 'main', ahead: 1, behind: 0, staged: [], unstaged: [], untracked: [], conflicted: [] } })
     useGitDiffMock.mockReturnValue({ data: { raw: 'diff --git a/src/index.ts b/src/index.ts\n--- a/src/index.ts\n+++ b/src/index.ts\n@@ -1 +1 @@\n-old\n+new' }, isLoading: false })
+    gitCommitMutateMock.mockReset()
+    gitMergeMutateMock.mockReset()
     useConsoleStore.setState({
       activeHostId: 'local',
       activePaneId: null,
@@ -91,6 +95,23 @@ describe('GitPanel', () => {
     expect(screen.getAllByText('main').length).toBeGreaterThan(0)
     await user.click(screen.getByText('second'))
     expect(useConsoleStore.getState().openEditors.at(-1)).toMatchObject({ id: expect.stringContaining('git-diff?'), language: 'diff', rootPath: '/workspace/app', name: 'b2 second' })
+  })
+
+  it('shows queued feedback for background commit and merge tasks', async () => {
+    useGitStatusMock.mockReturnValue({ data: { branch: 'main', ahead: 1, behind: 0, staged: [{ path: 'src/index.ts', status: 'modified', staged: true }], unstaged: [], untracked: [], conflicted: [] } })
+    useGitBranchesMock.mockReturnValue({ data: { current: 'main', branches: [{ name: 'main', current: true, commitHash: 'b2', lastCommitSubject: 'second' }, { name: 'feature', current: false, commitHash: 'a1', lastCommitSubject: 'first' }] } })
+    const user = userEvent.setup()
+    const queryClient = new QueryClient()
+    render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(I18nProvider, null, React.createElement(GitPanel))))
+    await user.click(screen.getByText('状态 1'))
+    await user.type(screen.getByPlaceholderText('提交信息...'), 'background commit')
+    await user.click(screen.getByText('提交'))
+    ;(gitCommitMutateMock.mock.calls[0]?.[1] as { onSuccess: (result: unknown) => void }).onSuccess({ task: { id: 'commit-1' } })
+    expect(useConsoleStore.getState().toasts.at(-1)?.message).toBe('任务已开始')
+    await user.click(screen.getByText('分支'))
+    await user.click(screen.getByText('合并'))
+    ;(gitMergeMutateMock.mock.calls[0]?.[1] as { onSuccess: (result: unknown) => void }).onSuccess({ task: { id: 'merge-1' } })
+    expect(useConsoleStore.getState().toasts.at(-1)?.message).toBe('任务已开始')
   })
 
   it('opens commit diff inside the mobile Git panel and returns one level', async () => {
