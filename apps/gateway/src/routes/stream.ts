@@ -17,18 +17,18 @@ import { streamAttachMessageSchema, streamInputMessageSchema, streamMessageSchem
 import { encodeStreamCellBinary, encodeStreamOutputBinary } from '../lib/stream-binary.js'
 import { AnsiParser, TerminalGrid, diffCells, encodeCellDiff, encodeCellSnapshot } from '../lib/terminal-grid/index.js'
 import { consumeWebSocketTicket, isAuthEnabled } from '../lib/auth.js'
+import { shareLinkStore, type ShareTicket } from '../lib/share-links.js'
 
 const execFileAsync = promisify(execFile)
 let sshPassAvailable: boolean | null = null
 export async function streamRoutes(fastify: FastifyInstance) {
   fastify.get('/stream', { websocket: true }, (connection: SocketStream, request: FastifyRequest) => {
-    if (isAuthEnabled()) {
-      const query = request.query as { ticket?: unknown }
-      const ticket = typeof query.ticket === 'string' ? query.ticket : ''
-      if (!consumeWebSocketTicket(ticket)) {
+    const query = request.query as { ticket?: unknown }
+    const ticket = typeof query.ticket === 'string' ? query.ticket : ''
+    const shareTicket:ShareTicket|null=ticket?shareLinkStore.consumeTicket(ticket):null
+    if (isAuthEnabled()&&!shareTicket&&!consumeWebSocketTicket(ticket)) {
         connection.socket.close(1008, 'Authentication required')
         return
-      }
     }
     console.log('Client connected to stream')
     const SCROLL_MAX_LINES = 24
@@ -88,6 +88,10 @@ export async function streamRoutes(fastify: FastifyInstance) {
     const scrollBuffers = new Map<string, number>()
     const scrollRunning = new Set<string>()
     const socket = connection.socket
+    const shareStateTimer=shareTicket?setInterval(() => {
+      if (shareLinkStore.isTicketActive(shareTicket)) return
+      socket.close(1008,'Share link is unavailable')
+    },1000):null
     let sanitizeTerminalOutput = createTerminalOutputSanitizer()
     function sanitizeOutput(chunk: string) {
       recordStreamMetric('sanitizeCalls')
@@ -165,6 +169,10 @@ export async function streamRoutes(fastify: FastifyInstance) {
       cellParser?.resetParserState()
     }
     function sendTerminalOutput(type: 'output' | 'output_resync', data: string, sessionName: string, hostId: string) {
+      if (shareTicket&&!shareLinkStore.isTicketActive(shareTicket)) {
+        socket.close(1008,'Share link is unavailable')
+        return false
+      }
       if (socket.readyState !== 1) return false
       try {
         getSocketBufferedBytes()
@@ -570,6 +578,16 @@ export async function streamRoutes(fastify: FastifyInstance) {
     socket.on('message', async (message: Buffer) => {
       try {
         const data: any = streamMessageSchema.parse(JSON.parse(message.toString()))
+        if (shareTicket) {
+          if (!shareLinkStore.isTicketActive(shareTicket)) {
+            socket.close(1008,'Share link is unavailable')
+            return
+          }
+          if (!['attach','detach','ping','stream_profile','stream_backpressure'].includes(data.type)) {
+            send({ type:'error',code:'SHARE_READ_ONLY',message:'Shared terminal is read-only' })
+            return
+          }
+        }
         switch (data.type) {
           case 'register': {
             const register = streamRegisterMessageSchema.parse(data)
@@ -586,10 +604,11 @@ export async function streamRoutes(fastify: FastifyInstance) {
             recordStreamMetric('attachRequests')
             console.log('Attach requested', { hostId: attach.hostId, sessionName: attach.sessionName, exclusive: !!attach.exclusive, cols: attach.cols, rows: attach.rows })
             const { hostId, sessionName } = await resolveAttachTarget(attach)
+            if (shareTicket&&(hostId!==shareTicket.hostId||sessionName!==shareTicket.sessionName)) throw new Error('Share scope does not allow this session')
             if (hostId === 'local') await prepareSessionAttach(sessionName)
             const requestedCols = attach.cols || 80
             const requestedRows = attach.rows || 24
-            const exclusive = !!attach.exclusive
+            const exclusive = shareTicket?false:!!attach.exclusive
             if (ptyProcess && attachedSessionName === sessionName && attachedExclusive === exclusive && attachedHostId === hostId) {
               attachVisibleOutputObserved = false
               if (exclusive && requestedCols > 0 && requestedRows > 0 && (requestedCols !== attachedCols || requestedRows !== attachedRows)) {
@@ -836,6 +855,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
     socket.on('close', () => {
       console.log('Client disconnected from stream')
       cleanup()
+      if (shareStateTimer) clearInterval(shareStateTimer)
       clearInterval(agentStateTimer)
       updateStreamMetric('activeClients', streamPerfMetricsActiveClientsDelta(-1))
       if (agentId) agentManager.unregister(agentId, socket)

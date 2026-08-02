@@ -6,6 +6,7 @@ import { I18nProvider } from '@/i18n'
 import { recoverFromChunkLoadError } from '@/lib/chunk-recovery'
 import { GlassPointerEffect } from '@/components/GlassPointerEffect'
 import { AuthGate } from '@/components/AuthGate'
+import { SharedTerminal } from '@/components/SharedTerminal'
 
 const MOBILE_USER_AGENT = /Android|iPhone|iPad|iPod|Mobile|HarmonyOS|Windows Phone/i
 class AppErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
@@ -23,5 +24,6 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { error: Error
 }
 export function App() {
   const initialIsMobile = MOBILE_USER_AGENT.test(navigator.userAgent)
+  if (window.location.pathname === '/share') return <AppErrorBoundary><I18nProvider><SharedTerminal /></I18nProvider></AppErrorBoundary>
   return <AppErrorBoundary><div className="tmuxgo-edge-fill" aria-hidden="true" /><GlassPointerEffect /><QueryProvider><I18nProvider><DropGuard /><AuthGate><main className="flex min-h-0 bg-bg-0"><ConsoleLayout initialIsMobile={initialIsMobile} /></main></AuthGate></I18nProvider></QueryProvider></AppErrorBoundary>
 }

@@ -59,6 +59,17 @@ export interface RestartRebuildTaskResponse {
   exitCode: number | null
   errorMessage: string | null
 }
+export interface ShareLink {
+  id: string
+  hostId: string
+  sessionName: string
+  createdAt: string
+  expiresAt: string
+  revokedAt: string | null
+}
+export interface CreatedShareLink extends ShareLink {
+  token: string
+}
 export interface SystemTaskResponse extends RestartRebuildTaskResponse {
   id: string
   type: string
@@ -284,6 +295,11 @@ export const api = {
   },
   snapshot: {
     get: (hostId: string, sessionId: string) => fetchApi<{ sessionId: string; sessionName: string; windows: any[]; panes: any[]; activeWindowId: string | null; activePaneId: string | null }>(`/api/hosts/${hostId}/sessions/${sessionId}/snapshot`),
+  },
+  shares: {
+    list: () => fetchApi<{ links: ShareLink[] }>('/api/shares'),
+    create: (hostId: string, sessionName: string, expiresInMinutes: number) => fetchApi<CreatedShareLink>('/api/shares', { method: 'POST', body: JSON.stringify({ hostId, sessionName, expiresInMinutes }) }),
+    revoke: (shareId: string) => fetchApi<{ ok: true }>(`/api/shares/${encodeURIComponent(shareId)}`, { method: 'DELETE' }),
   },
   hosts: {
     list: () => fetchApi<any[]>('/api/hosts'),

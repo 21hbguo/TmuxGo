@@ -10,8 +10,9 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useClipboard } from '@/hooks/useClipboard'
 import { useAppVersion } from '@/hooks/useAppVersion'
 import { APP_BUILD_ID, APP_NAME, APP_VERSION } from '@/lib/app-version'
-import { api } from '@/lib/api'
+import { api, type ShareLink } from '@/lib/api'
 import { changePassword, listAuthSessions, revokeAuthSession, revokeOtherAuthSessions, type AuthSession } from '@/lib/auth'
+import { parseSessionName } from '@/lib/session-id'
 import type { SessionArchive, SessionArchiveSummary } from '@/types'
 import { useCreateHost, useDeleteHost, useHosts, useRestartRebuild, useRestartRebuildStatus, useTestHost } from '@/hooks/useApi'
 import { PluginSettings } from './PluginSettings'
@@ -29,6 +30,7 @@ export function Settings({ onClose }: SettingsProps) {
   const { t } = useTranslation()
   const pushToast = useConsoleStore((state) => state.pushToast)
   const activeHostId = useConsoleStore((state) => state.activeHostId)
+  const activeSessionId = useConsoleStore((state) => state.activeSessionId)
   const { copy } = useClipboard()
   const [activeTab, setActiveTab] = useState<'general' | 'appearance' | 'connection' | 'security' | 'session' | 'plugins' | 'performance' | 'about'>('general')
   const [showAuditLog, setShowAuditLog] = useState(false)
@@ -39,6 +41,13 @@ export function Settings({ onClose }: SettingsProps) {
   const [currentPasswordDraft, setCurrentPasswordDraft] = useState('')
   const [newPasswordDraft, setNewPasswordDraft] = useState('')
   const [passwordChanging, setPasswordChanging] = useState(false)
+  const [shareLinks, setShareLinks] = useState<ShareLink[]>([])
+  const [shareHostIdDraft, setShareHostIdDraft] = useState(activeHostId || 'local')
+  const [shareSessionNameDraft, setShareSessionNameDraft] = useState(parseSessionName(activeHostId || 'local', activeSessionId || ''))
+  const [shareExpiresInMinutesDraft, setShareExpiresInMinutesDraft] = useState('60')
+  const [shareLoading, setShareLoading] = useState(false)
+  const [shareCreating, setShareCreating] = useState(false)
+  const [shareActionMessage, setShareActionMessage] = useState('')
   const [hostIdDraft, setHostIdDraft] = useState('')
   const [hostNameDraft, setHostNameDraft] = useState('')
   const [hostAddressDraft, setHostAddressDraft] = useState('')
@@ -139,9 +148,21 @@ export function Settings({ onClose }: SettingsProps) {
       setAuthSessionsLoading(false)
     }
   }
+  const loadShareLinks = async () => {
+    setShareLoading(true)
+    try {
+      const result = await api.shares.list()
+      setShareLinks(result.links)
+    } catch (err: any) {
+      setShareActionMessage(err?.message || t('settings.shareLoadFailed'))
+    } finally {
+      setShareLoading(false)
+    }
+  }
   useEffect(() => {
     if (activeTab !== 'security') return
     void loadAuthSessions()
+    void loadShareLinks()
   }, [activeTab])
   const revokeSession = async (sessionId: string) => {
     setAuthActionMessage('')
@@ -172,6 +193,31 @@ export function Settings({ onClose }: SettingsProps) {
     } catch (err: any) {
       setAuthActionMessage(err?.message || t('settings.securityPasswordFailed'))
       setPasswordChanging(false)
+    }
+  }
+  const createShareLink = async () => {
+    if (shareCreating || !shareSessionNameDraft.trim()) return
+    setShareCreating(true)
+    setShareActionMessage('')
+    try {
+      const result = await api.shares.create(shareHostIdDraft, shareSessionNameDraft.trim(), Number(shareExpiresInMinutesDraft))
+      const copied = await copy(`${window.location.origin}/share#token=${result.token}`)
+      setShareActionMessage(copied ? t('settings.shareCopied') : t('settings.shareCreated'))
+      await loadShareLinks()
+    } catch (err: any) {
+      setShareActionMessage(err?.message || t('settings.shareActionFailed'))
+    } finally {
+      setShareCreating(false)
+    }
+  }
+  const revokeShareLink = async (shareId: string) => {
+    setShareActionMessage('')
+    try {
+      await api.shares.revoke(shareId)
+      setShareActionMessage(t('settings.shareRevoked'))
+      await loadShareLinks()
+    } catch (err: any) {
+      setShareActionMessage(err?.message || t('settings.shareActionFailed'))
     }
   }
   const resetHostDraft = () => {
@@ -667,7 +713,21 @@ export function Settings({ onClose }: SettingsProps) {
                 {!authSessionsLoading && !authSessions.length && <div className="mt-4 text-sm text-text-3">{t('settings.securityNoDevices')}</div>}
                 {!authSessionsLoading && authSessions.length > 0 && <div className="mt-4 divide-y divide-[var(--line)] rounded-apple border border-[var(--line)]">{authSessions.map((session) => <div key={session.id} className="flex items-start gap-3 px-3 py-3"><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><span className="text-sm text-text-1">{session.id === currentAuthSessionId ? t('settings.securityCurrentDevice') : t('settings.securityDevice')}</span><span className="text-xs text-text-3">{session.ip || '-'}</span></div><div className="mt-1 break-words text-xs text-text-3">{session.userAgent || t('settings.securityUnknownDevice')}</div><div className="mt-1 text-xs text-text-3">{t('settings.securityCreatedAt', { value: new Date(session.createdAt).toLocaleString() })} · {t('settings.securityLastUsedAt', { value: new Date(session.lastUsedAt).toLocaleString() })} · {t('settings.securityExpiresAt', { value: new Date(session.expiresAt).toLocaleString() })}</div></div>{session.id !== currentAuthSessionId && <Button size="sm" className="shrink-0" onClick={() => void revokeSession(session.id)}>{t('settings.securityRevoke')}</Button>}</div>)}</div>}
               </div>
+              <div className="rounded-apple border border-[var(--line)] bg-bg-2 p-4">
+                <div className="text-sm font-medium text-text-1">{t('settings.shareTitle')}</div>
+                <div className="mt-1 text-xs text-text-3">{t('settings.shareDesc')}</div>
+                <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                  <select aria-label={t('settings.shareHost')} value={shareHostIdDraft} onChange={(event) => setShareHostIdDraft(event.target.value)} className="tmuxgo-control tmuxgo-input rounded-apple px-2 py-1.5 text-sm"><option value="local">{t('settings.shareLocalHost')}</option>{hosts.map((host) => <option key={host.id} value={host.id}>{host.name || host.id}</option>)}</select>
+                  <input aria-label={t('settings.shareSession')} value={shareSessionNameDraft} onChange={(event) => setShareSessionNameDraft(event.target.value)} placeholder={t('settings.shareSession')} className="tmuxgo-control tmuxgo-input rounded-apple px-2 py-1.5 text-sm" />
+                  <select aria-label={t('settings.shareExpires')} value={shareExpiresInMinutesDraft} onChange={(event) => setShareExpiresInMinutesDraft(event.target.value)} className="tmuxgo-control tmuxgo-input rounded-apple px-2 py-1.5 text-sm"><option value="15">{t('settings.shareMinutes', { value: 15 })}</option><option value="60">{t('settings.shareHours', { value: 1 })}</option><option value="240">{t('settings.shareHours', { value: 4 })}</option><option value="1440">{t('settings.shareDays', { value: 1 })}</option></select>
+                </div>
+                <div className="mt-3 flex justify-end"><Button variant="primary" size="sm" disabled={shareCreating || !shareSessionNameDraft.trim()} onClick={() => void createShareLink()}>{shareCreating ? t('common.loading') : t('settings.shareCreate')}</Button></div>
+                {shareLoading && <div className="mt-4 text-sm text-text-3">{t('common.loading')}</div>}
+                {!shareLoading && !shareLinks.length && <div className="mt-4 text-sm text-text-3">{t('settings.shareEmpty')}</div>}
+                {!shareLoading && shareLinks.length > 0 && <div className="mt-4 divide-y divide-[var(--line)] rounded-apple border border-[var(--line)]">{shareLinks.map((link) => <div key={link.id} className="flex items-center gap-3 px-3 py-3"><div className="min-w-0 flex-1"><div className="truncate text-sm text-text-1">{link.hostId}/{link.sessionName}</div><div className="mt-1 text-xs text-text-3">{link.revokedAt ? t('settings.shareRevokedAt', { value: new Date(link.revokedAt).toLocaleString() }) : t('settings.shareExpiresAt', { value: new Date(link.expiresAt).toLocaleString() })}</div></div>{!link.revokedAt && <Button size="sm" className="shrink-0" onClick={() => void revokeShareLink(link.id)}>{t('settings.shareRevoke')}</Button>}</div>)}</div>}
+              </div>
               {authActionMessage && <div className="text-sm text-danger">{authActionMessage}</div>}
+              {shareActionMessage && <div className="text-sm text-danger">{shareActionMessage}</div>}
             </div>
           )}
 

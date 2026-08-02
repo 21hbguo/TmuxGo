@@ -9,9 +9,11 @@ const pushToast=vi.fn()
 const updatePreferences=vi.fn()
 const restartRebuild=vi.fn()
 const deleteHost=vi.fn()
+const copy=vi.fn()
+const shareApi=vi.hoisted(() => ({ list: vi.fn(), create: vi.fn(), revoke: vi.fn() }))
 const restartStatusState={ data: { status: 'idle', startedAt: null, finishedAt: null, summaryLines: [], exitCode: null, errorMessage: null }, refetch: vi.fn() }
 vi.mock('@/stores/useConsoleStore', () => ({
-  useConsoleStore: (selector: any) => selector({ pushToast }),
+  useConsoleStore: (selector: any) => selector({ pushToast, activeHostId: 'local', activeSessionId: 'session-local-dev' }),
 }))
 vi.mock('@/hooks/usePreferences', () => ({
   usePreferences: () => ({
@@ -43,7 +45,7 @@ vi.mock('@/hooks/useSessionContinuity', () => ({
   }),
 }))
 vi.mock('@/hooks/useClipboard', () => ({
-  useClipboard: () => ({ copy: vi.fn(async () => true) }),
+  useClipboard: () => ({ copy }),
 }))
 vi.mock('@/hooks/useAppVersion', () => ({
   useAppVersion: () => ({ data: { version: '0.1.0', buildId: '0.1.0-1900913' }, isLoading: false, error: null }),
@@ -56,12 +58,21 @@ vi.mock('@/hooks/useApi', () => ({
   useRestartRebuildStatus: () => restartStatusState,
   useRestartRebuild: () => ({ mutateAsync: restartRebuild, isPending: false }),
 }))
+vi.mock('@/lib/api', () => ({
+  api: { shares: shareApi },
+}))
 describe('Settings restart rebuild', () => {
   beforeEach(() => {
     pushToast.mockReset()
     updatePreferences.mockReset()
     restartRebuild.mockReset()
     deleteHost.mockReset()
+    copy.mockReset()
+    shareApi.list.mockReset()
+    shareApi.create.mockReset()
+    shareApi.revoke.mockReset()
+    copy.mockResolvedValue(true)
+    shareApi.list.mockResolvedValue({ links: [] })
     deleteHost.mockResolvedValue({ success: true })
     restartStatusState.data = { status: 'idle', startedAt: null, finishedAt: null, summaryLines: [], exitCode: null, errorMessage: null }
     restartStatusState.refetch.mockReset()
@@ -113,5 +124,14 @@ describe('Settings restart rebuild', () => {
     expect(screen.getByText('Remove host Edge and its saved connection details?')).toBeInTheDocument()
     await user.click(screen.getAllByRole('button', { name: 'Remove' }).at(-1)!)
     await waitFor(() => expect(deleteHost).toHaveBeenCalledWith('edge'))
+  })
+  it('creates and copies a session-scoped share link', async () => {
+    const user = userEvent.setup()
+    shareApi.create.mockResolvedValue({ id: 'share-1', hostId: 'local', sessionName: 'dev', createdAt: '2026-08-02T00:00:00.000Z', expiresAt: '2026-08-02T01:00:00.000Z', revokedAt: null, token: 'share-token' })
+    render(React.createElement(I18nProvider, null, React.createElement(Settings, { onClose: vi.fn() })))
+    await user.click(screen.getByRole('button', { name: 'Security' }))
+    await user.click(screen.getByRole('button', { name: 'Create link' }))
+    await waitFor(() => expect(shareApi.create).toHaveBeenCalledWith('local', 'dev', 60))
+    expect(copy).toHaveBeenCalledWith(`${window.location.origin}/share#token=share-token`)
   })
 })
