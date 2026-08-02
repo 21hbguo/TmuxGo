@@ -311,6 +311,8 @@ export const zh = {
   'tasks.logs': '日志',
   'tasks.noLogs': '暂无日志',
   'tasks.queued': '任务已开始',
+  'tasks.notificationSuccess': '{title} 已完成',
+  'tasks.notificationFailed': '{title} 失败：{message}',
   'tasks.status.idle': '空闲',
   'tasks.status.running': '执行中',
   'tasks.status.success': '成功',

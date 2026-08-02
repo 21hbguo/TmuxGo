@@ -14,6 +14,7 @@ import { ImmersiveBackOrb } from './ImmersiveBackOrb'
 import { ShortcutBar } from './ShortcutBar'
 import { ToastViewport } from './ToastViewport'
 import { PaneNotifications } from './PaneNotifications'
+import { TaskNotifications } from './TaskNotifications'
 import { FilePanel } from './FilePanel'
 import { GitPanel } from './GitPanel'
 import { UploadConfirmDialog } from './UploadConfirmDialog'
@@ -739,6 +740,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       {mobilePluginView && <div className="fixed inset-0 z-[90] bg-bg-0" style={{ height: 'var(--app-height,100dvh)' }}><PluginView mode="mobile" pluginId={mobilePluginView.pluginId} viewId={mobilePluginView.viewId} onClose={() => closeOverlay('mobile-plugin')} /></div>}
       <ToastViewport />
       <PaneNotifications />
+      <TaskNotifications />
       {PromptElement}
     </div>
   )

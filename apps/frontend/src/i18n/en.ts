@@ -311,6 +311,8 @@ export const en = {
   'tasks.logs': 'Logs',
   'tasks.noLogs': 'No logs yet',
   'tasks.queued': 'Task started',
+  'tasks.notificationSuccess': '{title} completed',
+  'tasks.notificationFailed': '{title} failed: {message}',
   'tasks.status.idle': 'Idle',
   'tasks.status.running': 'Running',
   'tasks.status.success': 'Success',
