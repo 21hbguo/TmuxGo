@@ -5,6 +5,7 @@ import { execTmux } from '../lib/tmux-executor.js'
 import { assertTargetAllowed } from '../lib/tmux-policy.js'
 import { discoverGitRepositoriesForHost } from './files.js'
 import { gitCommitBodySchema, gitFilesBodySchema, gitOperationBodySchema, gitResolveBodySchema, hostParamsSchema } from '../lib/request-validation.js'
+import { taskManager, type TaskExecutionContext, type TaskManager } from '../lib/task-manager.js'
 
 interface GitFileChange {
   path: string
@@ -15,6 +16,23 @@ interface GitFileChange {
 const gitLogFieldSeparator = '\x1f'
 const gitLogRecordSeparator = '\x1e'
 const gitBranchFieldSeparator = '\t'
+
+interface GitBackgroundTaskInput {
+  hostId:string
+  path:string
+  args:string[]
+}
+function appendGitTaskOutput(context:TaskExecutionContext,stdout:string,stderr:string) {
+  if (stdout) context.appendLog(stdout)
+  if (stderr) context.appendLog(stderr)
+}
+async function runGitBackgroundTask(input:unknown,context:TaskExecutionContext) {
+  const task=input as GitBackgroundTaskInput
+  context.appendLog(`git ${task.args.join(' ')}`)
+  const { stdout,stderr }=await execGit(task.hostId,task.args,task.path,300000,false,context.signal)
+  appendGitTaskOutput(context,stdout,stderr)
+  return { message:(stdout||stderr).trim()||'Completed' }
+}
 
 function mapStatusCode(code: string): GitFileChange['status'] {
   switch (code) {
@@ -151,7 +169,11 @@ export function parseGitRefs(stdout: string) {
   }).filter(Boolean)
 }
 
-export async function gitRoutes(fastify: FastifyInstance) {
+export async function gitRoutes(fastify: FastifyInstance, options:{ taskManager?:TaskManager }={}) {
+  const backgroundTasks=options.taskManager||taskManager
+  backgroundTasks.register('git-fetch',runGitBackgroundTask)
+  backgroundTasks.register('git-pull',runGitBackgroundTask)
+  backgroundTasks.register('git-push',runGitBackgroundTask)
   fastify.get('/hosts/:hostId/git/repositories', async (request) => {
     const { hostId } = request.params as { hostId: string }
     return discoverGitRepositoriesForHost(hostId)
@@ -345,25 +367,27 @@ export async function gitRoutes(fastify: FastifyInstance) {
   })
 
   // Phase 3 endpoints
-  fastify.post('/hosts/:hostId/git/fetch', async (request) => {
+  fastify.post('/hosts/:hostId/git/fetch', async (request, reply) => {
     const { hostId } = request.params as { hostId: string }
-    const { path: repoPath, remote, prune } = request.body as { path: string; remote?: string; prune?: boolean }
+    const { path: repoPath, remote, prune, background } = request.body as { path: string; remote?: string; prune?: boolean; background?: boolean }
     if (!repoPath) throw new Error('Missing path')
     const args = ['fetch']
     if (prune) args.push('--prune')
     if (remote) args.push(remote)
+    if (background) return reply.status(202).send({ task:await backgroundTasks.start({ type:'git-fetch',title:'Git Fetch',input:{ hostId,path:repoPath,args } }) })
     const { stdout } = await execGit(hostId, args, repoPath)
     return { ok: true, message: stdout.trim() }
   })
 
-  fastify.post('/hosts/:hostId/git/pull', async (request) => {
+  fastify.post('/hosts/:hostId/git/pull', async (request, reply) => {
     const { hostId } = request.params as { hostId: string }
-    const { path: repoPath, remote, branch, rebase } = request.body as { path: string; remote?: string; branch?: string; rebase?: boolean }
+    const { path: repoPath, remote, branch, rebase, background } = request.body as { path: string; remote?: string; branch?: string; rebase?: boolean; background?: boolean }
     if (!repoPath) throw new Error('Missing path')
     const args = ['pull']
     if (rebase) args.push('--rebase')
     if (remote) args.push(remote)
     if (branch) args.push(branch)
+    if (background) return reply.status(202).send({ task:await backgroundTasks.start({ type:'git-pull',title:'Git Pull',input:{ hostId,path:repoPath,args } }) })
     try {
       const { stdout } = await execGit(hostId, args, repoPath, 30000)
       return { ok: true, conflicts: false, message: stdout.trim() }
@@ -376,15 +400,16 @@ export async function gitRoutes(fastify: FastifyInstance) {
     }
   })
 
-  fastify.post('/hosts/:hostId/git/push', async (request) => {
+  fastify.post('/hosts/:hostId/git/push', async (request, reply) => {
     const { hostId } = request.params as { hostId: string }
-    const { path: repoPath, remote, branch, force, setUpstream } = request.body as { path: string; remote?: string; branch?: string; force?: boolean; setUpstream?: boolean }
+    const { path: repoPath, remote, branch, force, setUpstream, background } = request.body as { path: string; remote?: string; branch?: string; force?: boolean; setUpstream?: boolean; background?: boolean }
     if (!repoPath) throw new Error('Missing path')
     const args = ['push']
     if (force) args.push('--force-with-lease')
     if (setUpstream) args.push('-u')
     if (remote) args.push(remote)
     if (branch) args.push(branch)
+    if (background) return reply.status(202).send({ task:await backgroundTasks.start({ type:'git-push',title:'Git Push',input:{ hostId,path:repoPath,args } }) })
     try {
       const { stdout, stderr } = await execGit(hostId, args, repoPath, 30000)
       return { ok: true, rejected: false, message: (stdout || stderr).trim() }

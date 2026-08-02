@@ -76,6 +76,14 @@ export interface SystemTaskResponse extends RestartRebuildTaskResponse {
   title: string
   cancellable: boolean
   retryable: boolean
+  errorCode?: string | null
+  progress?: number | null
+  speedBytesPerSecond?: number | null
+  resultMessage?: string | null
+  attempt?: number
+}
+export interface BackgroundGitTaskResponse {
+  task: SystemTaskResponse
 }
 export interface BatchDeleteSessionFilters {
   createdBefore?: string
@@ -543,12 +551,12 @@ export const api = {
       fetchApi<{ ok: true }>(`/api/hosts/${hostId}/git/delete-branch`, { method: 'POST', body: JSON.stringify({ path, name, force }) }),
     merge: (hostId: string, path: string, branch: string, noFF?: boolean) =>
       fetchApi<GitMergeResponse>(`/api/hosts/${hostId}/git/merge`, { method: 'POST', body: JSON.stringify({ path, branch, noFF }) }),
-    fetch: (hostId: string, path: string, options?: { remote?: string; prune?: boolean }) =>
-      fetchApi<{ ok: true; message: string }>(`/api/hosts/${hostId}/git/fetch`, { method: 'POST', body: JSON.stringify({ path, ...options }) }),
-    pull: (hostId: string, path: string, options?: { remote?: string; branch?: string; rebase?: boolean }) =>
-      fetchApi<{ ok: boolean; conflicts: boolean; message: string }>(`/api/hosts/${hostId}/git/pull`, { method: 'POST', body: JSON.stringify({ path, ...options }) }),
-    push: (hostId: string, path: string, options?: { remote?: string; branch?: string; force?: boolean; setUpstream?: boolean }) =>
-      fetchApi<{ ok: boolean; rejected: boolean; message: string }>(`/api/hosts/${hostId}/git/push`, { method: 'POST', body: JSON.stringify({ path, ...options }) }),
+    fetch: (hostId: string, path: string, options?: { remote?: string; prune?: boolean; background?: boolean }) =>
+      fetchApi<{ ok: true; message: string } | BackgroundGitTaskResponse>(`/api/hosts/${hostId}/git/fetch`, { method: 'POST', body: JSON.stringify({ path, ...options }) }),
+    pull: (hostId: string, path: string, options?: { remote?: string; branch?: string; rebase?: boolean; background?: boolean }) =>
+      fetchApi<{ ok: boolean; conflicts: boolean; message: string } | BackgroundGitTaskResponse>(`/api/hosts/${hostId}/git/pull`, { method: 'POST', body: JSON.stringify({ path, ...options }) }),
+    push: (hostId: string, path: string, options?: { remote?: string; branch?: string; force?: boolean; setUpstream?: boolean; background?: boolean }) =>
+      fetchApi<{ ok: boolean; rejected: boolean; message: string } | BackgroundGitTaskResponse>(`/api/hosts/${hostId}/git/push`, { method: 'POST', body: JSON.stringify({ path, ...options }) }),
     remotes: (hostId: string, path: string) =>
       fetchApi<{ remotes: { name: string; fetchUrl: string; pushUrl: string }[] }>(`/api/hosts/${hostId}/git/remotes?path=${encodeURIComponent(path)}`),
   },

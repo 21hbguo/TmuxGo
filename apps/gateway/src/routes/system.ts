@@ -5,6 +5,7 @@ import os from 'os'
 import fs from 'fs'
 import { streamPerfMetrics } from '../lib/perf-metrics.js'
 import { createRestartTaskRunner, type RestartTaskRunner } from '../lib/restart-task.js'
+import { taskManager, type TaskManager } from '../lib/task-manager.js'
 import { execHostShell } from '../lib/tmux-executor.js'
 import { observeNetWindow, type NetWindowStats } from '../lib/net-window.js'
 
@@ -218,6 +219,7 @@ async function getSystemInfo(hostId: string) {
 
 interface SystemRoutesOptions {
   createRestartRunner?: () => RestartTaskRunner
+  taskManager?: TaskManager
 }
 function getRestartTask(runner: RestartTaskRunner) {
   const state=runner.getState()
@@ -242,6 +244,7 @@ function ensureLocalNetSampler() {
 }
 export async function systemRoutes(fastify: FastifyInstance, options: SystemRoutesOptions = {}) {
   const restartRunner=(options.createRestartRunner||createRestartTaskRunner)()
+  const backgroundTasks=options.taskManager||taskManager
   ensureLocalNetSampler()
   fastify.get('/system', async () => {
     try {
@@ -263,23 +266,30 @@ export async function systemRoutes(fastify: FastifyInstance, options: SystemRout
     const { hostId } = request.params as { hostId: string }
     return getSystemInfo(hostId)
   })
-  fastify.get('/system/tasks', async () => ({ tasks:[getRestartTask(restartRunner)] }))
+  fastify.get('/system/tasks', async () => ({ tasks:[getRestartTask(restartRunner),...backgroundTasks.list()] }))
   fastify.get('/system/tasks/:taskId', async (request, reply) => {
     const { taskId }=request.params as { taskId:string }
-    if (taskId!=='restart-rebuild') return reply.status(404).send({ message:'Task not found',code:'TASK_NOT_FOUND' })
-    return getRestartTask(restartRunner)
+    if (taskId==='restart-rebuild') return getRestartTask(restartRunner)
+    const task=backgroundTasks.get(taskId)
+    return task||reply.status(404).send({ message:'Task not found',code:'TASK_NOT_FOUND' })
   })
   fastify.post('/system/tasks/:taskId/cancel', async (request, reply) => {
     const { taskId }=request.params as { taskId:string }
-    if (taskId!=='restart-rebuild') return reply.status(404).send({ message:'Task not found',code:'TASK_NOT_FOUND' })
-    await restartRunner.cancel()
-    return getRestartTask(restartRunner)
+    if (taskId==='restart-rebuild') {
+      await restartRunner.cancel()
+      return getRestartTask(restartRunner)
+    }
+    const task=await backgroundTasks.cancel(taskId)
+    return task||reply.status(404).send({ message:'Task not found',code:'TASK_NOT_FOUND' })
   })
   fastify.post('/system/tasks/:taskId/retry', async (request, reply) => {
     const { taskId }=request.params as { taskId:string }
-    if (taskId!=='restart-rebuild') return reply.status(404).send({ message:'Task not found',code:'TASK_NOT_FOUND' })
-    await restartRunner.start()
-    return getRestartTask(restartRunner)
+    if (taskId==='restart-rebuild') {
+      await restartRunner.start()
+      return getRestartTask(restartRunner)
+    }
+    const task=await backgroundTasks.retry(taskId)
+    return task||reply.status(404).send({ message:'Task not found',code:'TASK_NOT_FOUND' })
   })
   fastify.get('/system/restart-rebuild', async () => restartRunner.getState())
   fastify.post('/system/restart-rebuild', async () => restartRunner.start())
