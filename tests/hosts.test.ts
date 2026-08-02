@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import os from 'node:os'
 import path from 'node:path'
 import { mkdtemp, rm } from 'node:fs/promises'
-import { getLocalHostRecord, getHostById, listAllHosts, listRemoteHosts, removeRemoteHost, upsertRemoteHost } from '../apps/gateway/src/lib/hosts'
+import { getHostCredentials, getLocalHostRecord, getHostById, listAllHosts, listRemoteHosts, removeRemoteHost, upsertRemoteHost } from '../apps/gateway/src/lib/hosts'
 
 test('host store keeps local host and persists sorted remote hosts', async () => {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-hosts-'))
@@ -41,9 +41,9 @@ test('upsertRemoteHost preserves secret fields when omitted', async () => {
       address: '192.168.0.11',
       user: 'deploy',
     })
-    assert.equal(created.password, 'secret')
-    assert.equal(updated.password, 'secret')
-    assert.equal(updated.passwordEnv, 'TMUXGO_EDGE_PASSWORD')
+    assert.equal((created as Record<string, unknown>).password, undefined)
+    assert.equal((updated as Record<string, unknown>).password, undefined)
+    assert.deepEqual(await getHostCredentials('edge'), { password: 'secret', passwordEnv: 'TMUXGO_EDGE_PASSWORD', privateKeyPath: '' })
     assert.equal(updated.name, 'edge-prod')
     assert.equal(updated.address, '192.168.0.11')
     assert.equal(updated.user, 'deploy')
