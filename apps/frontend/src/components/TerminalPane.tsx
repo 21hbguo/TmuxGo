@@ -83,7 +83,7 @@ interface TerminalPaneProps {
   onResize?: (cols: number, rows: number) => void
   attachExclusive?: boolean
   onReady?: () => void
-  subscribeOutput?: (listener: (message: { data: string; sessionName?: string | null; hostId?: string | null; resync?: boolean }) => void) => () => void
+  subscribeOutput?: (hostId: string, sessionName: string, listener: (message: { data: string; sessionName?: string | null; hostId?: string | null; resync?: boolean }) => void) => () => void
   onSwipeLeft?: () => void
   onSwipeRight?: () => void
 }
@@ -255,6 +255,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   const sessionNameRef = useRef(sessionName)
   const preferencesRef = useRef(preferences)
   const subscribeOutputRef = useRef(subscribeOutput)
+  const resubscribeOutputRef = useRef<() => void>(() => {})
   const lastSizeRef = useRef<{ cols: number; rows: number } | null>(null)
   const sharedSessionSizeRef = useRef<{ cols: number; rows: number } | null>(null)
   const controlCarryRef = useRef('')
@@ -543,6 +544,9 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   useEffect(() => {
     activeHostIdRef.current = activeHostId
   }, [activeHostId])
+  useEffect(() => {
+    resubscribeOutputRef.current()
+  }, [activeHostId, sessionName, subscribeOutput])
   useEffect(() => {
     paneCwdRef.current = ''
     sessionSnapshotRef.current = null
@@ -1749,8 +1753,26 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         }
         pushTerminalOutput(raw)
       }
-      const unsubscribeOutput = subscribeOutputRef.current ? subscribeOutputRef.current(handleOutput) : () => {}
-      if (!subscribeOutputRef.current) window.addEventListener('tmuxgo-terminal-output', handleOutput as EventListener)
+      let unsubscribeOutput = () => {}
+      let globalOutputListener = false
+      const subscribeTerminalOutput = () => {
+        unsubscribeOutput()
+        if (globalOutputListener) {
+          window.removeEventListener('tmuxgo-terminal-output', handleOutput as EventListener)
+          globalOutputListener = false
+        }
+        const hostId = activeHostIdRef.current || 'local'
+        const targetSessionName = sessionNameRef.current || ''
+        if (subscribeOutputRef.current && targetSessionName) {
+          unsubscribeOutput = subscribeOutputRef.current(hostId, targetSessionName, handleOutput)
+          return
+        }
+        unsubscribeOutput = () => {}
+        window.addEventListener('tmuxgo-terminal-output', handleOutput as EventListener)
+        globalOutputListener = true
+      }
+      resubscribeOutputRef.current = subscribeTerminalOutput
+      subscribeTerminalOutput()
       const handleCopySelection = (event: Event) => {
         const selection = getSelectionText()
         window.dispatchEvent(new CustomEvent('tmuxgo-terminal-selection', { detail: { requestId: (event as CustomEvent).detail?.requestId, selection } }))
@@ -2006,8 +2028,9 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           window.removeEventListener('tmux-error', handleResizeAbort as EventListener)
           window.removeEventListener('tmux-detached', handleResizeAbort as EventListener)
           window.removeEventListener('tmuxgo-layout-change', handleLayoutChange as EventListener)
+          resubscribeOutputRef.current = () => {}
           unsubscribeOutput()
-          if (!subscribeOutputRef.current) window.removeEventListener('tmuxgo-terminal-output', handleOutput as EventListener)
+          if (globalOutputListener) window.removeEventListener('tmuxgo-terminal-output', handleOutput as EventListener)
           window.removeEventListener('tmuxgo-copy-terminal-selection', handleCopySelection as EventListener)
           window.removeEventListener('resize', handleWindowResize)
           window.removeEventListener('keyup', handleKeyUp)

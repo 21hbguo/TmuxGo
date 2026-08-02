@@ -480,7 +480,7 @@ export function PaneGrid({ sessionId: controlledSessionId }: { sessionId?: strin
       lastOutputAtRef.current = new Date().toISOString()
       scheduleContinuityFlush(150)
     }
-    const unsubscribe = subscribeOutput(handleOutput)
+    const unsubscribe = subscribeOutput(activeHostId || 'local', targetSessionName, handleOutput)
     return () => {
       unsubscribe()
     }

@@ -4,7 +4,7 @@ import { PaneGrid } from './PaneGrid'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 
 const sendMock = vi.hoisted(() => vi.fn((_message: any) => true))
-const subscribeOutputMock = vi.hoisted(() => vi.fn(() => vi.fn()))
+const subscribeOutputMock = vi.hoisted(() => vi.fn((_hostId: string, _sessionName: string, _listener: unknown) => vi.fn()))
 const socketState = vi.hoisted(() => ({ isConnected: false, isSocketReady: true }))
 const windowsData = vi.hoisted(() => [] as any[])
 const terminalProps = vi.hoisted(() => ({ current: null as null | { sessionName?: string; onReady?: () => void; onResize?: (cols: number, rows: number) => void; onInput?: (data: string) => void } }))
@@ -68,6 +68,7 @@ describe('PaneGrid', () => {
     render(<PaneGrid />)
     fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
     await waitFor(() => expect(sendMock).toHaveBeenCalledWith({ type: 'attach', hostId: 'local', sessionName: 'dev1', cols: 120, rows: 36, exclusive: true }))
+    expect(subscribeOutputMock).toHaveBeenCalledWith('local', 'dev1', expect.any(Function))
     const attachCallsBeforeSwitch = sendMock.mock.calls.filter(([message]) => message?.type === 'attach').length
     act(() => {
       useConsoleStore.setState({ activeSessionId: 'session-dev2' })

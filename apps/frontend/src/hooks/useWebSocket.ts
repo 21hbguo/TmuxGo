@@ -11,9 +11,12 @@ import { diffToAnsi, snapshotToAnsi } from '@/lib/terminal-grid/apply-cell'
 type WSState={ws:WebSocket|null,reconnectTimer:ReturnType<typeof setTimeout>|null,reconnectCount:number,isConnecting:boolean,socketReady:boolean,pingTimer:ReturnType<typeof setInterval>|null,pongTimer:ReturnType<typeof setTimeout>|null,closeTimer:ReturnType<typeof setTimeout>|null,backgroundCloseTimer:ReturnType<typeof setTimeout>|null,subscribers:number,lastPongAt:number,hiddenAt:number,backgroundClosed:boolean,onMessage:((data:any)=>void)|null,onOpen:(()=>void)|null,onClose:(()=>void)|null,onError:(()=>void)|null,closeExpected:boolean,lastInteractionRecoverAt:number,listenersReady:boolean,cleanupListeners:(()=>void)|null}
 const wsState:WSState={ws:null,reconnectTimer:null,reconnectCount:0,isConnecting:false,socketReady:false,pingTimer:null,pongTimer:null,closeTimer:null,backgroundCloseTimer:null,subscribers:0,lastPongAt:0,hiddenAt:0,backgroundClosed:false,onMessage:null,onOpen:null,onClose:null,onError:null,closeExpected:false,lastInteractionRecoverAt:0,listenersReady:false,cleanupListeners:null}
 type OutputMessage={data:string,sessionName?:string|null,hostId?:string|null,resync?:boolean}
-const outputListeners=new Set<(message:OutputMessage)=>void>()
+const outputListeners=new Map<string,Set<(message:OutputMessage)=>void>>()
 let cellLastSeq=0
 const BACKGROUND_CLOSE_DELAY_MS=12000
+function getOutputListenerKey(hostId:string,sessionName:string) {
+  return `${hostId}\u0000${sessionName}`
+}
 function recordMobileDebug(event:string,data?:Record<string,unknown>) {
   recordMobileDiagnostic(event,data,event.includes('close')||event.includes('error')||event.includes('background'))
   if (typeof window==='undefined'||!window.localStorage.getItem('tmuxgo-debug-mobile')) return
@@ -41,7 +44,7 @@ export function useWebSocket() {
     wsState.backgroundCloseTimer=null
   },[])
   const emitOutput=useCallback((message:OutputMessage)=>{
-    outputListeners.forEach((listener)=>listener(message))
+    outputListeners.get(getOutputListenerKey(message.hostId||'local',message.sessionName||''))?.forEach((listener)=>listener(message))
   },[])
   const handleMessage=useCallback((data:any)=>{
     switch (data.type) {
@@ -325,9 +328,15 @@ export function useWebSocket() {
     }
     return false
   },[])
-  const subscribeOutput=useCallback((listener:(message:OutputMessage)=>void)=>{
-    outputListeners.add(listener)
-    return ()=>outputListeners.delete(listener)
+  const subscribeOutput=useCallback((hostId:string,sessionName:string,listener:(message:OutputMessage)=>void)=>{
+    const key=getOutputListenerKey(hostId||'local',sessionName)
+    const listeners=outputListeners.get(key)||new Set<(message:OutputMessage)=>void>()
+    listeners.add(listener)
+    outputListeners.set(key,listeners)
+    return ()=>{
+      listeners.delete(listener)
+      if (listeners.size===0) outputListeners.delete(key)
+    }
   },[])
   useEffect(()=>{
     if (typeof window==='undefined') return
