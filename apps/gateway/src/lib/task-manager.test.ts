@@ -64,6 +64,28 @@ test('cancels a running task',async(t)=>{
   assert.equal(cancelled?.cancellable,false)
   assert.equal(cancelled?.retryable,true)
 })
+test('persists task input checkpoints while running',async(t)=>{
+  const rootDir=await mkdtemp(path.join(os.tmpdir(),'tmuxgo-task-checkpoint-'))
+  const statePath=path.join(rootDir,'tasks.json')
+  t.after(async()=>{
+    await rm(rootDir,{recursive:true,force:true})
+  })
+  let release:()=>void=()=>{}
+  const waiting=new Promise<void>((resolve)=>{
+    release=resolve
+  })
+  const manager=new TaskManager({statePath})
+  manager.register('checkpoint',async(input,context)=>{
+    ;(input as { status?: string }).status='prepared'
+    context.checkpoint()
+    await waiting
+  })
+  const task=await manager.start({type:'checkpoint',title:'Checkpoint',input:{}})
+  const stored=JSON.parse(await readFile(statePath,'utf8'))
+  assert.equal(stored.tasks[0].input.status,'prepared')
+  release()
+  assert.equal((await waitForTask(manager,task.id)).status,'success')
+})
 test('marks persisted running tasks as interrupted',async(t)=>{
   const rootDir=await mkdtemp(path.join(os.tmpdir(),'tmuxgo-tasks-'))
   const statePath=path.join(rootDir,'tasks.json')
