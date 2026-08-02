@@ -45,7 +45,7 @@ const webglAddonMocks = vi.hoisted(() => ({
 }))
 const webSocketMocks = vi.hoisted(() => ({
   send: vi.fn(),
-  subscribeOutput: vi.fn((listener: (message: { data: string; sessionName?: string | null; hostId?: string | null; resync?: boolean }) => void) => {
+  subscribeOutput: vi.fn((_hostId: string, _sessionName: string, listener: (message: { data: string; sessionName?: string | null; hostId?: string | null; resync?: boolean }) => void) => {
     ;(webSocketMocks as any).lastOutputListener = listener
     return vi.fn()
   }),
@@ -1023,11 +1023,18 @@ describe('TerminalPane', () => {
   it('renders websocket output for matching session only', async () => {
     render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} subscribeOutput={webSocketMocks.subscribeOutput} />)
     await waitFor(() => expect(webSocketMocks.lastOutputListener).toBeTruthy())
+    expect(webSocketMocks.subscribeOutput).toHaveBeenCalledWith('local', 'dev', expect.any(Function))
     webSocketMocks.lastOutputListener?.({ data: 'printf "dev_only_output_ok"\\r\\n', sessionName: 'other' })
     await sleep(20)
     expect(terminalMocks.write).not.toHaveBeenCalled()
     webSocketMocks.lastOutputListener?.({ data: 'printf "dev_only_output_ok"\\r\\n', sessionName: 'dev' })
     await waitFor(() => expect(terminalMocks.write).toHaveBeenCalledWith('printf "dev_only_output_ok"\\r\\n'))
+  })
+  it('rebinds websocket output when the terminal session changes', async () => {
+    const view = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} subscribeOutput={webSocketMocks.subscribeOutput} />)
+    await waitFor(() => expect(webSocketMocks.subscribeOutput).toHaveBeenCalledWith('local', 'dev', expect.any(Function)))
+    view.rerender(<TerminalPane sessionName="other" onInput={vi.fn()} onResize={vi.fn()} subscribeOutput={webSocketMocks.subscribeOutput} />)
+    await waitFor(() => expect(webSocketMocks.subscribeOutput).toHaveBeenLastCalledWith('local', 'other', expect.any(Function)))
   })
   it('applies authoritative output resync snapshots', async () => {
     render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} subscribeOutput={webSocketMocks.subscribeOutput} />)

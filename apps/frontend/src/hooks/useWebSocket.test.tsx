@@ -76,18 +76,27 @@ describe('useWebSocket',()=>{
     window.removeEventListener('tmux-error',tmuxErrorListener as EventListener)
     unmount()
   })
-  it('marks authoritative terminal output as a resync',()=>{
+  it('routes terminal output to its host and session listeners only',()=>{
     const listener=vi.fn()
+    const otherSessionListener=vi.fn()
+    const otherHostListener=vi.fn()
     const { result, unmount }=renderHook(() => useWebSocket())
     act(()=>{
       socketInstances[0].open()
     })
-    const unsubscribe=result.current.subscribeOutput(listener)
+    const unsubscribe=result.current.subscribeOutput('local','dev',listener)
+    const unsubscribeOtherSession=result.current.subscribeOutput('local','other',otherSessionListener)
+    const unsubscribeOtherHost=result.current.subscribeOutput('remote','dev',otherHostListener)
     act(()=>{
       socketInstances[0].message({ type:'output_resync', data:'snapshot', hostId:'local', sessionName:'dev' })
     })
     expect(listener).toHaveBeenCalledWith({ data:'snapshot', hostId:'local', sessionName:'dev', resync:true })
+    expect(listener).toHaveBeenCalledTimes(1)
+    expect(otherSessionListener).not.toHaveBeenCalled()
+    expect(otherHostListener).not.toHaveBeenCalled()
     unsubscribe()
+    unsubscribeOtherSession()
+    unsubscribeOtherHost()
     unmount()
   })
   it('dispatches completed terminal resize events',()=>{
