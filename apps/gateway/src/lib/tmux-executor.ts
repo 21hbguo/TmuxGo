@@ -4,6 +4,7 @@ import os from 'os'
 import path from 'path'
 import { promisify } from 'util'
 import { getHostById, getHostCredentials, type HostCredentials, type HostRecord } from './hosts.js'
+import { recordHostConnectionFailure } from './host-connectivity.js'
 import { buildHostSshOptions, resolveHostPassword } from './ssh-options.js'
 import { agentManager, type AgentStatus } from '../agent-manager.js'
 
@@ -49,6 +50,11 @@ function normalizeErrorMessage(raw: string, fallback: string) {
   if (knownAuthMarkers.some((marker) => value.includes(marker))) return 'SSH authentication failed'
   if (knownPrivateKeyMarkers.some((marker) => value.includes(marker))) return 'SSH private key is unavailable'
   return value
+}
+function reportRemoteError(host: HostRecord, stderr: string, stdout: string, fallback: string) {
+  const message = normalizeErrorMessage(`${stderr}\n${stdout}`, fallback)
+  recordHostConnectionFailure(host.id, message)
+  return new Error(message)
 }
 function buildPasswordEnv(credentials: HostCredentials) {
   const password = resolveHostPassword(credentials)
@@ -133,7 +139,7 @@ async function runRemoteTmux(host: HostRecord, args: string[], options: TmuxExec
     } catch (err: any) {
       const stderr = String(err?.stderr || '')
       const stdout = String(err?.stdout || '')
-      throw new Error(normalizeErrorMessage(`${stderr}\n${stdout}`, err?.message || 'SSH command failed'))
+      throw reportRemoteError(host, stderr, stdout, err?.message || 'SSH command failed')
     }
   }
   if (hasPassword && !canUseSshPass) {
@@ -148,7 +154,7 @@ async function runRemoteTmux(host: HostRecord, args: string[], options: TmuxExec
   } catch (err: any) {
     const stderr = String(err?.stderr || '')
     const stdout = String(err?.stdout || '')
-    throw new Error(normalizeErrorMessage(`${stderr}\n${stdout}`, err?.message || 'SSH command failed'))
+    throw reportRemoteError(host, stderr, stdout, err?.message || 'SSH command failed')
   }
 }
 async function runRemoteShell(host: HostRecord, command: string, options: TmuxExecOptions = {}) {
@@ -169,7 +175,7 @@ async function runRemoteShell(host: HostRecord, command: string, options: TmuxEx
     } catch (err: any) {
       const stderr = String(err?.stderr || '')
       const stdout = String(err?.stdout || '')
-      throw new Error(normalizeErrorMessage(`${stderr}\n${stdout}`, err?.message || 'SSH command failed'))
+      throw reportRemoteError(host, stderr, stdout, err?.message || 'SSH command failed')
     }
   }
   if (hasPassword && !canUseSshPass) {
@@ -184,7 +190,7 @@ async function runRemoteShell(host: HostRecord, command: string, options: TmuxEx
   } catch (err: any) {
     const stderr = String(err?.stderr || '')
     const stdout = String(err?.stdout || '')
-    throw new Error(normalizeErrorMessage(`${stderr}\n${stdout}`, err?.message || 'SSH command failed'))
+    throw reportRemoteError(host, stderr, stdout, err?.message || 'SSH command failed')
   }
 }
 export async function execTmux(hostIdRaw: string, args: string[], options: TmuxExecOptions = {}): Promise<TmuxExecResult> {

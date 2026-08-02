@@ -1,6 +1,7 @@
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { getHostById, getHostCredentials, type HostRecord } from './hosts.js'
+import { recordHostConnectionFailure } from './host-connectivity.js'
 import { buildHostSshOptions, resolveHostPassword } from './ssh-options.js'
 
 const execFileAsync = promisify(execFile)
@@ -26,6 +27,11 @@ function normalizeErrorMessage(raw: string, fallback: string) {
   if (knownNetworkMarkers.some((m) => value.includes(m))) return 'SSH network is unreachable'
   if (knownAuthMarkers.some((m) => value.includes(m))) return 'SSH authentication failed'
   return value
+}
+function reportRemoteError(host: HostRecord, raw: string, fallback: string) {
+  const message = normalizeErrorMessage(raw, fallback)
+  recordHostConnectionFailure(host.id, message)
+  return new Error(message)
 }
 
 async function hasSshPass() {
@@ -71,14 +77,14 @@ async function runRemoteGit(host: HostRecord, args: string[], cwd: string, timeo
       })
     } catch (err: any) {
       if (acceptExitCodeOne && err?.code === 1) return { stdout: String(err?.stdout || ''), stderr: String(err?.stderr || '') }
-      throw new Error(normalizeErrorMessage(`${err?.stderr || ''}\n${err?.stdout || ''}`, err?.message || 'SSH git command failed'))
+      throw reportRemoteError(host, `${err?.stderr || ''}\n${err?.stdout || ''}`, err?.message || 'SSH git command failed')
     }
   }
   try {
     return await execFileAsync('ssh', sshArgs, { timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024, signal })
   } catch (err: any) {
     if (acceptExitCodeOne && err?.code === 1) return { stdout: String(err?.stdout || ''), stderr: String(err?.stderr || '') }
-    throw new Error(normalizeErrorMessage(`${err?.stderr || ''}\n${err?.stdout || ''}`, err?.message || 'SSH git command failed'))
+    throw reportRemoteError(host, `${err?.stderr || ''}\n${err?.stdout || ''}`, err?.message || 'SSH git command failed')
   }
 }
 

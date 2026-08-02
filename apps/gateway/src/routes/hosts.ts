@@ -1,17 +1,17 @@
 import type { FastifyInstance } from 'fastify'
 import { agentManager } from '../agent-manager.js'
+import { getHostConnectivity, removeHostConnectivity, setHostConnectivity } from '../lib/host-connectivity.js'
 import { getHostById, getHostCredentials, listAllHosts, removeRemoteHost, upsertRemoteHost, type HostRecord } from '../lib/hosts.js'
 import { execHostShell, verifyHostConnectivity } from '../lib/tmux-executor.js'
 import { hostIdParamsSchema, remoteHostBodySchema } from '../lib/request-validation.js'
 import { taskManager, type TaskExecutionContext, type TaskManager } from '../lib/task-manager.js'
-const hostConnectivity = new Map<string, { status: 'online' | 'offline'; latencyMs?: number; lastCheckedAt: string; lastError?: string; dependencies?: Record<string, boolean> }>()
 interface HostTestTaskInput {
   hostId: string
 }
 async function hostResponse(host: HostRecord) {
   const credentials = await getHostCredentials(host.id)
   const agent = agentManager.getAgentStatus(host.id)
-  const health = hostConnectivity.get(host.id)
+  const health = getHostConnectivity(host.id)
   return {
     id: host.id,
     name: host.name,
@@ -52,7 +52,7 @@ async function testHostConnectivity(hostId: string, context?: TaskExecutionConte
       }))
     } catch {}
   }
-  hostConnectivity.set(hostId, { status: result.ok ? 'online' : 'offline', latencyMs, lastCheckedAt: new Date().toISOString(), lastError: result.ok ? undefined : result.message, dependencies })
+  setHostConnectivity(hostId, { status: result.ok ? 'online' : 'offline', latencyMs, lastCheckedAt: new Date().toISOString(), lastError: result.ok ? undefined : result.message, dependencies })
   context?.appendLog(result.message)
   return { ...result, latencyMs, dependencies }
 }
@@ -138,7 +138,7 @@ export async function hostRoutes(fastify: FastifyInstance, options: { taskManage
   fastify.delete('/hosts/:id', async (request) => {
     const { id } = hostIdParamsSchema.parse(request.params)
     const removed = await removeRemoteHost(id)
-    hostConnectivity.delete(id)
+    removeHostConnectivity(id)
     return { success: removed }
   })
   fastify.post('/hosts/:id/test', async (request) => {
