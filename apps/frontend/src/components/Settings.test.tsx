@@ -51,7 +51,7 @@ vi.mock('@/hooks/useAppVersion', () => ({
   useAppVersion: () => ({ data: { version: '0.1.0', buildId: '0.1.0-1900913' }, isLoading: false, error: null }),
 }))
 vi.mock('@/hooks/useApi', () => ({
-  useHosts: () => ({ data: [{ id: 'edge', name: 'Edge', address: '10.0.0.8', user: 'deploy', port: 22 }] }),
+  useHosts: () => ({ data: [{ id: 'edge', name: 'Edge', address: '10.0.0.8', user: 'deploy', port: 22, connectionMode: 'agent', agent: { version: '1.2.3', online: false, lastSeenAt: '2026-08-02T00:00:00.000Z', lastDisconnectedAt: '2026-08-02T00:01:00.000Z', disconnectReason: 'Heartbeat timed out', reconnectCount: 3 } }] }),
   useCreateHost: () => ({ mutateAsync: vi.fn() }),
   useDeleteHost: () => ({ mutateAsync: deleteHost }),
   useTestHost: () => ({ mutateAsync: vi.fn() }),
@@ -124,6 +124,17 @@ describe('Settings restart rebuild', () => {
     expect(screen.getByText('Remove host Edge and its saved connection details?')).toBeInTheDocument()
     await user.click(screen.getAllByRole('button', { name: 'Remove' }).at(-1)!)
     await waitFor(() => expect(deleteHost).toHaveBeenCalledWith('edge'))
+  })
+  it('renders host connection and Agent diagnostics', async () => {
+    const user = userEvent.setup()
+    render(React.createElement(I18nProvider, null, React.createElement(Settings, { onClose: vi.fn() })))
+    await act(async () => {
+      await user.click(screen.getByRole('button', { name: 'Connection' }))
+    })
+    expect(screen.getByText('Connection: Agent')).toBeInTheDocument()
+    expect(screen.getByText(/Last heartbeat/)).toBeInTheDocument()
+    expect(screen.getByText(/Reconnects 3/)).toBeInTheDocument()
+    expect(screen.getByText(/Disconnect reason: Heartbeat timed out/)).toBeInTheDocument()
   })
   it('creates and copies a session-scoped share link', async () => {
     const user = userEvent.setup()
