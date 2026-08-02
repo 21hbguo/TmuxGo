@@ -18,6 +18,7 @@ export interface BackgroundTask {
   progress:number|null
   speedBytesPerSecond:number|null
   resultMessage:string|null
+  result:unknown|null
   attempt:number
   cancellable:boolean
   retryable:boolean
@@ -33,6 +34,7 @@ export interface TaskExecutionContext {
 export interface TaskExecutionResult {
   message?:string
   exitCode?:number
+  result?:unknown
 }
 type TaskHandler=(input:unknown,context:TaskExecutionContext)=>Promise<TaskExecutionResult|void>
 interface TaskManagerOptions {
@@ -62,6 +64,7 @@ function readTasks(statePath:string) {
       progress:typeof task.progress==='number'?task.progress:null,
       speedBytesPerSecond:typeof task.speedBytesPerSecond==='number'?task.speedBytesPerSecond:null,
       resultMessage:typeof task.resultMessage==='string'?task.resultMessage:null,
+      result:'result' in task?task.result:null,
       attempt:typeof task.attempt==='number'&&task.attempt>0?task.attempt:1,
       input:task.input,
     }))
@@ -133,6 +136,7 @@ export class TaskManager {
       progress:null,
       speedBytesPerSecond:null,
       resultMessage:null,
+      result:null,
       attempt:1,
       input,
     }
@@ -168,6 +172,7 @@ export class TaskManager {
     task.progress=null
     task.speedBytesPerSecond=null
     task.resultMessage=null
+    task.result=null
     task.attempt+=1
     this.persist()
     void this.run(task.id)
@@ -202,6 +207,7 @@ export class TaskManager {
       task.exitCode=result?.exitCode??0
       task.progress=100
       task.resultMessage=result?.message||null
+      task.result=result?.result??null
     } catch (error) {
       if (task.status!=='running') return
       const message=error instanceof Error?error.message:'Task failed'
@@ -231,6 +237,7 @@ export class TaskManager {
       progress:task.progress,
       speedBytesPerSecond:task.speedBytesPerSecond,
       resultMessage:task.resultMessage,
+      result:task.result,
       attempt:task.attempt,
       cancellable:task.status==='running',
       retryable:(task.status==='error'||task.status==='cancelled')&&this.handlers.has(task.type),

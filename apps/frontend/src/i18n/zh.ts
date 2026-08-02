@@ -570,6 +570,7 @@ export const zh = {
   'file.copyPath': '复制路径',
   'file.openPreview': '打开预览',
   'file.download': '下载',
+  'file.downloadFailed': '下载失败',
   'file.copy': '复制到...',
   'file.move': '移动到...',
   'file.targetDirectory': '目标目录：',

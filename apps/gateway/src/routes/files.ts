@@ -94,6 +94,13 @@ interface BackgroundUploadInput {
   rateLimitKBps: number
   files: StagedUploadFile[]
 }
+interface BackgroundDownloadInput {
+  hostId: string
+  rootId: string
+  path: string
+  rateLimitKBps: number
+  artifactId: string
+}
 export interface GitRepositoryInfo {
   path: string
   label: string
@@ -1009,19 +1016,28 @@ async function writeRemoteUpload(hostId: string, absolutePath: string, source: N
     throw error
   }
 }
-async function getDownloadStream(hostId: string, absolutePath: string, directory: boolean) {
+function getDownloadProcessStream(child: ReturnType<typeof spawn>, fallback: string) {
+  let stderr = ''
+  child.stderr?.on('data', (chunk) => { stderr += chunk.toString() })
+  child.once('error', (error) => child.stdout?.destroy(error))
+  child.once('close', (code) => {
+    if (code !== 0) child.stdout?.destroy(new Error(normalizeRemoteFileErrorMessage(stderr, fallback)))
+  })
+  return child.stdout!
+}
+async function getDownloadStream(hostId: string, absolutePath: string, directory: boolean, signal?: AbortSignal) {
   const archiveScript = `import os,pathlib,sys,zipfile\np=pathlib.Path(sys.argv[1]);z=zipfile.ZipFile(sys.stdout.buffer,'w',zipfile.ZIP_DEFLATED)\nfor root,dirs,files in os.walk(p):\n for name in files:\n  item=pathlib.Path(root)/name;z.write(item,str(pathlib.Path(p.name)/item.relative_to(p)))\nz.close()`
   const fileScript = `import pathlib,sys;f=pathlib.Path(sys.argv[1]).open('rb')\nwhile True:\n b=f.read(1024*1024)\n if not b: break\n sys.stdout.buffer.write(b)`
-  if (hostId === 'local') return spawn('python3', ['-c', directory ? archiveScript : fileScript, absolutePath], { stdio: ['ignore', 'pipe', 'pipe'] }).stdout
+  if (hostId === 'local') return getDownloadProcessStream(spawn('python3', ['-c', directory ? archiveScript : fileScript, absolutePath], { stdio: ['ignore', 'pipe', 'pipe'], signal }), 'Download failed')
   const host = await getRemoteFileHost(hostId)
-  const child = await spawnRemoteFileCommand(host, `python3 -c ${quoteRemoteFileShellValue(directory ? archiveScript : fileScript)} -- ${quoteRemoteFileShellValue(absolutePath)}`)
-  return child.stdout
+  const child = await spawnRemoteFileCommand(host, `python3 -c ${quoteRemoteFileShellValue(directory ? archiveScript : fileScript)} -- ${quoteRemoteFileShellValue(absolutePath)}`, signal)
+  return getDownloadProcessStream(child, 'Remote download failed')
 }
 
 function getUploadStagingDir() {
   return path.join(process.env.TMUXGO_CONFIG_DIR?.trim() || path.join(os.homedir(), '.tmuxgo'), 'upload-staging')
 }
-function createUploadProgressStream(onChunk: (size: number) => void) {
+function createTransferProgressStream(onChunk: (size: number) => void) {
   return new Transform({ transform(chunk, _encoding, callback) {
     onChunk(chunk.length)
     callback(null, chunk)
@@ -1058,7 +1074,7 @@ async function runBackgroundUploadTask(input: unknown, context: TaskExecutionCon
       const destination = await resolveUploadDestination(resolvedTarget.absolutePath, file.name)
       const temporaryPath = path.join(resolvedTarget.absolutePath, `.${destination.candidateName}.tmuxgo-upload-${randomUUID()}`)
       try {
-        await pipeline(createReadStream(file.stagedPath), createUploadProgressStream(reportProgress), createRateLimitStream(task.rateLimitKBps), createWriteStream(temporaryPath), { signal: context.signal })
+        await pipeline(createReadStream(file.stagedPath), createTransferProgressStream(reportProgress), createRateLimitStream(task.rateLimitKBps), createWriteStream(temporaryPath), { signal: context.signal })
         await rename(temporaryPath, destination.candidatePath)
       } catch (error) {
         await unlink(temporaryPath).catch(() => {})
@@ -1068,7 +1084,7 @@ async function runBackgroundUploadTask(input: unknown, context: TaskExecutionCon
     } else {
       const prepared = await runRemoteFileJson<{ root: FileRoot; directoryPath: string; directoryAbsolutePath: string; name: string; path: string; absolutePath: string }>(task.hostId, { op: 'prepare-upload', root: task.targetRootId, path: task.targetPath, name: file.name })
       if (!resolvedTarget) resolvedTarget = { root: prepared.root, absolutePath: prepared.directoryAbsolutePath, relativePath: prepared.directoryPath }
-      await writeRemoteUpload(task.hostId, prepared.absolutePath, createReadStream(file.stagedPath), task.rateLimitKBps, context.signal, createUploadProgressStream(reportProgress))
+      await writeRemoteUpload(task.hostId, prepared.absolutePath, createReadStream(file.stagedPath), task.rateLimitKBps, context.signal, createTransferProgressStream(reportProgress))
       file.uploaded = { name: prepared.name, path: prepared.path, absolutePath: prepared.absolutePath, size: file.size }
     }
     context.appendLog(`Uploaded ${file.uploaded.name}`)
@@ -1079,9 +1095,45 @@ async function runBackgroundUploadTask(input: unknown, context: TaskExecutionCon
   if (resolvedTarget) emitPluginEvent('file.uploaded', { hostId: task.hostId, rootId: resolvedTarget.root.id, filePath: resolvedTarget.relativePath, files: files.map((file) => ({ name: file.name, path: file.path, size: file.size })) })
   return { message: `Uploaded ${files.length} file${files.length === 1 ? '' : 's'}` }
 }
+function getDownloadArtifactDir() {
+  return path.join(process.env.TMUXGO_CONFIG_DIR?.trim() || path.join(os.homedir(), '.tmuxgo'), 'download-artifacts')
+}
+function getDownloadArtifactPath(artifactId: string) {
+  if (!/^[a-f0-9-]{36}$/i.test(artifactId)) throw new Error('Invalid download artifact')
+  return path.join(getDownloadArtifactDir(), artifactId)
+}
+async function runBackgroundDownloadTask(input: unknown, context: TaskExecutionContext) {
+  const task = input as BackgroundDownloadInput
+  const fileInfo = await resolveFileForHost(task.hostId, task.rootId, task.path)
+  const directory = !fileInfo.isFile
+  const fileName = directory ? `${path.basename(fileInfo.absolutePath)}.zip` : path.basename(fileInfo.absolutePath)
+  const artifactPath = getDownloadArtifactPath(task.artifactId)
+  const temporaryPath = `${artifactPath}.tmp-${randomUUID()}`
+  await mkdir(getDownloadArtifactDir(), { recursive: true, mode: 0o700 })
+  let transferredBytes = 0
+  const startedAt = Date.now()
+  const reportProgress = (size: number) => {
+    transferredBytes += size
+    const elapsedMs = Math.max(1, Date.now() - startedAt)
+    context.setProgress(fileInfo.isFile ? (transferredBytes * 100) / fileInfo.size : null, (transferredBytes * 1000) / elapsedMs)
+  }
+  try {
+    const source = task.hostId === 'local' && fileInfo.isFile ? createReadStream(fileInfo.absolutePath) : await getDownloadStream(task.hostId, fileInfo.absolutePath, directory, context.signal)
+    await pipeline(source, createTransferProgressStream(reportProgress), createRateLimitStream(task.rateLimitKBps), createWriteStream(temporaryPath, { mode: 0o600 }), { signal: context.signal })
+    await rename(temporaryPath, artifactPath)
+  } catch (error) {
+    await unlink(temporaryPath).catch(() => {})
+    throw error
+  }
+  const artifact = await stat(artifactPath)
+  const downloadUrl = `/api/hosts/${encodeURIComponent(task.hostId)}/files/download-tasks/${task.artifactId}`
+  context.appendLog(`Prepared ${fileName}`)
+  return { message: `Prepared ${fileName}`, result: { downloadUrl, fileName, size: artifact.size } }
+}
 export async function fileRoutes(fastify: FastifyInstance, options: { taskManager?: TaskManager } = {}) {
   const backgroundTasks = options.taskManager || taskManager
   backgroundTasks.register('file-upload', runBackgroundUploadTask)
+  backgroundTasks.register('file-download', runBackgroundDownloadTask)
   startTemporaryUploadCleanup()
   fastify.get('/hosts/:hostId/files/roots', async (request) => {
     const { hostId } = request.params as { hostId: string }
@@ -1305,6 +1357,38 @@ export async function fileRoutes(fastify: FastifyInstance, options: { taskManage
     } catch (error) {
       const err = error as Error
       return reply.status(400).send({ message: err.message || 'Download failed', code: 'DOWNLOAD_FAILED' })
+    }
+  })
+  fastify.post('/hosts/:hostId/files/download-tasks', async (request, reply) => {
+    const { hostId } = hostParamsSchema.parse(request.params)
+    const body = request.body as { root?: unknown; path?: unknown; rateLimitKBps?: unknown }
+    const rootId = typeof body?.root === 'string' ? body.root : ''
+    const relativePath = typeof body?.path === 'string' ? body.path : ''
+    try {
+      const fileInfo = await resolveFileForHost(hostId, rootId, relativePath)
+      const rateLimitKBps = await resolveDownloadRateLimitKBps(body?.rateLimitKBps)
+      const fileName = fileInfo.isFile ? path.basename(fileInfo.absolutePath) : `${path.basename(fileInfo.absolutePath)}.zip`
+      return reply.status(202).send({ task: await backgroundTasks.start({ type: 'file-download', title: `Download ${fileName}`, input: { hostId, rootId, path: relativePath, rateLimitKBps, artifactId: randomUUID() } }) })
+    } catch (error) {
+      const err = error as Error
+      return reply.status(400).send({ message: err.message || 'Download failed', code: 'DOWNLOAD_FAILED' })
+    }
+  })
+  fastify.get('/hosts/:hostId/files/download-tasks/:artifactId', async (request, reply) => {
+    const { hostId } = hostParamsSchema.parse(request.params)
+    const { artifactId } = request.params as { artifactId: string }
+    const task = backgroundTasks.list().find((item) => item.type === 'file-download' && item.status === 'success' && typeof item.result === 'object' && item.result !== null && (item.result as { downloadUrl?: unknown }).downloadUrl === `/api/hosts/${encodeURIComponent(hostId)}/files/download-tasks/${artifactId}`)
+    const result = task?.result as { fileName?: unknown; size?: unknown } | undefined
+    if (!result || typeof result.fileName !== 'string' || typeof result.size !== 'number') return reply.status(404).send({ message: 'Download artifact not found', code: 'DOWNLOAD_ARTIFACT_NOT_FOUND' })
+    try {
+      const artifactPath = getDownloadArtifactPath(artifactId)
+      reply.header('Content-Type', 'application/octet-stream')
+      reply.header('Content-Length', String(result.size))
+      reply.header('Content-Disposition', `attachment; filename="${encodeURIComponent(result.fileName).replace(/%20/g, ' ')}"`)
+      return reply.send(createReadStream(artifactPath))
+    } catch (error) {
+      const err = error as Error
+      return reply.status(404).send({ message: err.message || 'Download artifact not found', code: 'DOWNLOAD_ARTIFACT_NOT_FOUND' })
     }
   })
   fastify.get('/hosts/:hostId/files/image', async (request, reply) => {

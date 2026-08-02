@@ -50,6 +50,18 @@ describe('TaskNotifications', () => {
     view.rerender(<TaskNotifications />)
     expect(mocks.pushToast).toHaveBeenCalledWith({ type: 'error', message: 'Git Push failed: Permission denied' })
   })
+  it('starts the prepared download after a download task succeeds', () => {
+    const appendChild = vi.spyOn(document.body, 'appendChild')
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    mocks.tasks = [task('running', { type: 'file-download' })]
+    const view = render(<TaskNotifications />)
+    mocks.tasks = [task('success', { type: 'file-download', title: 'Download demo.txt', result: { downloadUrl: '/api/hosts/local/files/download-tasks/00000000-0000-4000-8000-000000000000', fileName: 'demo.txt' } })]
+    view.rerender(<TaskNotifications />)
+    const anchor = appendChild.mock.calls.find(([element]) => element instanceof HTMLAnchorElement)?.[0] as HTMLAnchorElement
+    expect(anchor.href).toContain('/api/hosts/local/files/download-tasks/00000000-0000-4000-8000-000000000000')
+    expect(anchor.download).toBe('demo.txt')
+    expect(click).toHaveBeenCalled()
+  })
   it('uses a browser notification while the page is hidden', () => {
     const close = vi.fn()
     const browserNotification = vi.fn(function (this: any) { this.close = close }) as any
