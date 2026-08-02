@@ -1,7 +1,7 @@
 import { getApiBase } from './runtime-endpoints'
 import { authenticatedFetch, getAccessToken, refreshAuth } from './auth'
 import { buildSessionId } from './session-id'
-import type { AuditEvent, CustomShortcut, FavoriteDirectory, FavoriteItem, FileContentMatch, FileContentResponse, FileItem, FileListResponse, FilePreviewResponse, FileRoot, FileUploadTarget, GitBranchesResponse, GitCommitResponse, GitDetectResponse, GitDiffResponse, GitDiffStatsResponse, GitHostState, GitHubPluginPreview, GitLogResponse, GitMergeResponse, GitRepositoryInfo, GitStatusResponse, PluginCommandLog, PluginInfo, RemotePreferences, SessionArchive, SessionArchivePolicy, SessionArchiveSummary, SessionContinuityConfig, SessionLayout, SessionOrderPreference, SessionTemplate, SessionThumbnail, SessionWorkspaceEntry, Snippet, TrashEntry, UiPreferences, UploadJobResult, UploadedFile } from '@/types'
+import type { AuditEvent, CustomShortcut, FavoriteDirectory, FavoriteItem, FileContentMatch, FileContentResponse, FileItem, FileListResponse, FilePreviewResponse, FileRoot, FileUploadTarget, GitBranchesResponse, GitCommitResponse, GitDetectResponse, GitDiffResponse, GitDiffStatsResponse, GitHostState, GitHubPluginPreview, GitLogResponse, GitMergeResponse, GitRepositoryInfo, GitStatusResponse, PluginCommandLog, PluginInfo, PluginPermission, RemotePreferences, SessionArchive, SessionArchivePolicy, SessionArchiveSummary, SessionContinuityConfig, SessionLayout, SessionOrderPreference, SessionTemplate, SessionThumbnail, SessionWorkspaceEntry, Snippet, TrashEntry, UiPreferences, UploadJobResult, UploadedFile } from '@/types'
 
 export interface StreamSystemInfo {
   outputBytes: number
@@ -248,6 +248,8 @@ export const api = {
     list: () => fetchApi<{ plugins: PluginInfo[] }>('/api/plugins'),
     link: (path: string) => fetchApi<PluginInfo>('/api/plugins/link', { method: 'POST', body: JSON.stringify({ path }) }),
     setEnabled: (pluginId: string, enabled: boolean) => fetchApi<PluginInfo>(`/api/plugins/${encodeURIComponent(pluginId)}/enabled`, { method: 'PATCH', body: JSON.stringify({ enabled }) }),
+    setPermissions: (pluginId: string, permissions: PluginPermission[]) => fetchApi<PluginInfo>(`/api/plugins/${encodeURIComponent(pluginId)}/permissions`, { method: 'PUT', body: JSON.stringify({ permissions }) }),
+    context: (pluginId: string, context: Record<string, unknown>) => fetchApi<{ context: Record<string, unknown> }>(`/api/plugins/${encodeURIComponent(pluginId)}/context`, { method: 'POST', body: JSON.stringify({ context }) }),
     uninstall: (pluginId: string, keepData = false) => fetchApi<{ ok: true }>(`/api/plugins/${encodeURIComponent(pluginId)}?keepData=${keepData}`, { method: 'DELETE' }),
     invoke: (pluginId: string, actionId: string, context: Record<string, unknown>) => fetchApi<PluginCommandLog>(`/api/plugins/${encodeURIComponent(pluginId)}/actions/${encodeURIComponent(actionId)}/invoke`, { method: 'POST', body: JSON.stringify({ context }) }),
     logs: (pluginId?: string) => fetchApi<{ logs: PluginCommandLog[] }>(`/api/plugins/logs${pluginId ? `?pluginId=${encodeURIComponent(pluginId)}` : ''}`),
