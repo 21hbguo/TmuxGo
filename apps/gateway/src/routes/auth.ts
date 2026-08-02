@@ -77,7 +77,9 @@ export async function authRoutes(fastify: FastifyInstance) {
   fastify.post('/auth/logout', async (request, reply) => {
     try {
       const input = body(request)
-      await logout(typeof input.refreshToken === 'string' ? input.refreshToken : cookie(request), typeof input.sessionId === 'string' ? input.sessionId : undefined)
+      const refreshToken = typeof input.refreshToken === 'string' ? input.refreshToken : cookie(request)
+      if (refreshToken) await logout(refreshToken)
+      else await logout(undefined, currentSessionId(request))
       clearAuthCookies(request, reply)
       return { ok: true }
     } catch (error) {

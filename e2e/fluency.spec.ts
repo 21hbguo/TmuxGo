@@ -43,11 +43,30 @@ test('fluency telemetry remains available during repeated output sampling', asyn
       window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data: `printf "fluency_${i}\\n"` } }))
       window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data: '\r' } }))
     }
-    window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data: 'for i in $(seq 1 900); do printf "fluency_bulk_%04d abcdefghijklmnopqrstuvwxyz\\n" "$i"; done' } }))
-    window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data: '\r' } }))
-    window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data: 'printf "__TMUXGO_FLUENCY_DONE__\\n"' } }))
+    window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data: '(for i in $(seq 1 1200); do printf "fluency_bulk_%04d abcdefghijklmnopqrstuvwxyz\\n" "$i"; sleep 0.002; done; printf "__TMUXGO_FLUENCY_DONE__\\n") &' } }))
     window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data: '\r' } }))
   })
+  await page.waitForFunction(() => {
+    const terminal = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
+    const buffer = terminal?.buffer?.active
+    if (!buffer) return false
+    for (let index = Math.max(0, buffer.length - 120); index < buffer.length; index += 1) {
+      if (buffer.getLine(index)?.translateToString(true).includes('fluency_bulk_')) return true
+    }
+    return false
+  }, undefined, { timeout: 15000 })
+  await page.evaluate(() => {
+    window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data: 'printf "__TMUXGO_FLUENCY_INPUT__\\n"\r' } }))
+  })
+  await page.waitForFunction(() => {
+    const terminal = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
+    const buffer = terminal?.buffer?.active
+    if (!buffer) return false
+    for (let index = Math.max(0, buffer.length - 120); index < buffer.length; index += 1) {
+      if (buffer.getLine(index)?.translateToString(true).includes('__TMUXGO_FLUENCY_INPUT__')) return true
+    }
+    return false
+  }, undefined, { timeout: 15000 })
   await page.waitForFunction(() => {
     const terminal = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
     const buffer = terminal?.buffer?.active
