@@ -18,8 +18,10 @@ import { useSessionSnapshotSync } from '@/hooks/useSessionSnapshotSync'
 import { recordMobileDiagnostic } from '@/lib/mobile-diagnostics'
 import { recordImeDiagnostic } from '@/lib/ime-diagnostics'
 import { useTerminalOutputScheduler } from '@/hooks/useTerminalOutputScheduler'
+import { useTerminalPinch } from '@/hooks/useTerminalPinch'
 import { buildSessionId } from '@/lib/session-id'
 import { writeClipboardText } from '@/lib/clipboard-text'
+import { createTerminalPaneInteractions } from '@/lib/terminal-pane-interactions'
 import { openFileInEditor } from '@/lib/editor-open'
 import { Chip } from './Chip'
 import type { FileDocumentHandle, FileRoot } from '@/types'
@@ -39,11 +41,6 @@ const MOBILE_TERMINAL_KEYBOARD_REPAINT_DELAYS = [0, 48, 160]
 const LAYOUT_REPAINT_DELAYS = [0, 32]
 const MOBILE_FIT_SIZE_TOLERANCE = 2
 const DEVICE_PIXEL_RATIO_TOLERANCE = 0.01
-const MOBILE_PINCH_MIN_FONT_SIZE = 8
-const MOBILE_PINCH_MAX_FONT_SIZE = 20
-const MOBILE_PINCH_FONT_SIZE_EPSILON = 0.04
-const MOBILE_PINCH_DISTANCE_EPSILON = 2
-const DESKTOP_PINCH_COMMIT_DELAY = 120
 const GITHUB_DEVICE_LOGIN_URL = 'https://github.com/login/device'
 let terminalResizePending = false
 const ANSI_ESCAPE_REGEX = /\u001b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\u0007]*(?:\u0007|\u001b\\))/g
@@ -267,8 +264,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   const updatePreferencesRef = useRef(updatePreferences)
   const tRef = useRef(t)
   const afterTerminalWriteRef = useRef<() => void>(() => {})
-  const pinchStateRef = useRef({ active: false, startDistance: 0, startFontSize: preferences.fontSize, lastFontSize: preferences.fontSize })
-  const desktopPinchCommitRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const githubDeviceLoginRef = useRef<{ code: string; url: string } | null>(null)
   const githubDeviceLoginDismissedRef = useRef('')
   const githubDeviceLoginBufferRef = useRef('')
@@ -395,98 +390,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   const handleTouchMovedChange = useCallback((moved: boolean) => {
     touchMovedRef.current = moved
   }, [])
-  const clampMobileFontSize = useCallback((value: number) => {
-    const roundedApple = Math.round(value * 10) / 10
-    return Math.max(MOBILE_PINCH_MIN_FONT_SIZE, Math.min(MOBILE_PINCH_MAX_FONT_SIZE, roundedApple))
-  }, [])
-  const getPinchDistance = useCallback((touches: TouchList) => {
-    if (touches.length < 2) return 0
-    const dx = touches[0].clientX - touches[1].clientX
-    const dy = touches[0].clientY - touches[1].clientY
-    return Math.hypot(dx, dy)
-  }, [])
-  const applyPinchFontSize = useCallback((fontSize: number) => {
-    const terminal = terminalInstance.current
-    if (!terminal) return
-    terminal.options.fontSize = fontSize
-    scheduleLayoutRef.current(0, true, true)
-  }, [])
-  const beginPinch = useCallback((touches: TouchList) => {
-    if (!isMobileDevice || touches.length < 2) return
-    const distance = getPinchDistance(touches)
-    if (!Number.isFinite(distance) || distance < MOBILE_PINCH_DISTANCE_EPSILON) return
-    const currentFontSize = Number(terminalInstance.current?.options?.fontSize) || preferencesRef.current.fontSize
-    const startFontSize = clampMobileFontSize(currentFontSize)
-    pinchStateRef.current.active = true
-    pinchStateRef.current.startDistance = distance
-    pinchStateRef.current.startFontSize = startFontSize
-    pinchStateRef.current.lastFontSize = startFontSize
-    touchMovedRef.current = true
-  }, [clampMobileFontSize, getPinchDistance, isMobileDevice])
-  const commitPinch = useCallback(() => {
-    const state = pinchStateRef.current
-    if (!state.active) return
-    state.active = false
-    const nextFontSize = clampMobileFontSize(state.lastFontSize || state.startFontSize || preferencesRef.current.fontSize)
-    state.startDistance = 0
-    state.startFontSize = nextFontSize
-    state.lastFontSize = nextFontSize
-    if (Math.abs(nextFontSize - preferencesRef.current.fontSize) < MOBILE_PINCH_FONT_SIZE_EPSILON) return
-    updatePreferencesRef.current({ fontSize: nextFontSize })
-  }, [clampMobileFontSize])
-  const handlePinchTouchStart = useCallback((e: TouchEvent) => {
-    if (!isMobileDevice) return
-    if (e.touches.length < 2) return
-    beginPinch(e.touches)
-  }, [beginPinch, isMobileDevice])
-  const handlePinchTouchMove = useCallback((e: TouchEvent) => {
-    if (!isMobileDevice || e.touches.length < 2) return
-    if (!pinchStateRef.current.active) beginPinch(e.touches)
-    if (!pinchStateRef.current.active) return
-    e.preventDefault()
-    touchMovedRef.current = true
-    const state = pinchStateRef.current
-    const distance = getPinchDistance(e.touches)
-    if (!Number.isFinite(distance) || distance < MOBILE_PINCH_DISTANCE_EPSILON || state.startDistance < MOBILE_PINCH_DISTANCE_EPSILON) return
-    const nextFontSize = clampMobileFontSize(state.startFontSize * (distance / state.startDistance))
-    if (Math.abs(nextFontSize - state.lastFontSize) < MOBILE_PINCH_FONT_SIZE_EPSILON) return
-    state.lastFontSize = nextFontSize
-    applyPinchFontSize(nextFontSize)
-  }, [applyPinchFontSize, beginPinch, clampMobileFontSize, getPinchDistance, isMobileDevice])
-  const handlePinchTouchEnd = useCallback((e: TouchEvent) => {
-    if (!pinchStateRef.current.active) return
-    touchMovedRef.current = true
-    if (e.touches.length >= 2) {
-      const distance = getPinchDistance(e.touches)
-      if (Number.isFinite(distance) && distance >= MOBILE_PINCH_DISTANCE_EPSILON) {
-        pinchStateRef.current.startDistance = distance
-        pinchStateRef.current.startFontSize = pinchStateRef.current.lastFontSize
-      }
-      return
-    }
-    commitPinch()
-  }, [commitPinch, getPinchDistance])
-  const handlePinchTouchCancel = useCallback(() => {
-    if (!pinchStateRef.current.active) return
-    touchMovedRef.current = true
-    commitPinch()
-  }, [commitPinch])
-  const handleDesktopPinch = useCallback((e: WheelEvent) => {
-    if (isMobileDevice || !e.ctrlKey || !terminalInstance.current || !Number.isFinite(e.deltaY) || e.deltaY === 0) return
-    e.preventDefault()
-    e.stopPropagation()
-    const currentFontSize = Number(terminalInstance.current.options.fontSize) || preferencesRef.current.fontSize
-    const mouseWheel = e.deltaMode !== WheelEvent.DOM_DELTA_PIXEL || Math.abs(e.deltaY) >= 50
-    const nextFontSize = clampMobileFontSize(mouseWheel ? currentFontSize - Math.sign(e.deltaY) : currentFontSize * Math.exp(-e.deltaY * 0.01))
-    if (Math.abs(nextFontSize - currentFontSize) < MOBILE_PINCH_FONT_SIZE_EPSILON) return
-    applyPinchFontSize(nextFontSize)
-    if (desktopPinchCommitRef.current) clearTimeout(desktopPinchCommitRef.current)
-    desktopPinchCommitRef.current = setTimeout(() => {
-      desktopPinchCommitRef.current = null
-      const fontSize = Number(terminalInstance.current?.options?.fontSize) || preferencesRef.current.fontSize
-      if (Math.abs(fontSize - preferencesRef.current.fontSize) >= MOBILE_PINCH_FONT_SIZE_EPSILON) updatePreferencesRef.current({ fontSize })
-    }, DESKTOP_PINCH_COMMIT_DELAY)
-  }, [applyPinchFontSize, clampMobileFontSize, isMobileDevice])
+  const { handleTouchStart:handlePinchTouchStart,handleTouchMove:handlePinchTouchMove,handleTouchEnd:handlePinchTouchEnd,handleTouchCancel:handlePinchTouchCancel,handleDesktopPinch }=useTerminalPinch({isMobile:isMobileDevice,terminalRef:terminalInstance,preferencesRef,updatePreferencesRef,scheduleLayoutRef,touchMovedRef})
   const zoomPaneById = useCallback((paneId: string | null) => {
     if (!paneId || zoomInFlightRef.current) return
     setActivePane(paneId)
@@ -660,7 +564,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     let lastKeyboardOpen = document.body.classList.contains('keyboard-open')
     let mobileKeyboardTransition = false
     let paneResizeDrag: any = null
-    let paneBoundsCache: { snapshot: any; windowId: string; bounds: any[] } | null = null
     let paneResizeHoverThrottle = 0
     let writeBuffer = ''
     let writePending = false
@@ -762,76 +665,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       queryClient?.setQueryData(key, snapshot)
       return snapshot
     }
-    const getPaneBounds = (pane: any) => {
-      const id = String(pane?.id ?? pane?.tmuxPaneId ?? '')
-      const left = Number(pane?.left ?? pane?.position?.left)
-      const top = Number(pane?.top ?? pane?.position?.top)
-      const cols = Number(pane?.size?.cols ?? pane?.cols)
-      const rows = Number(pane?.size?.rows ?? pane?.rows)
-      if (![left, top, cols, rows].every(Number.isFinite) || cols <= 0 || rows <= 0) return null
-      return { id, left, top, cols, rows }
-    }
-    const getCachedPaneBounds = () => {
-      const snapshot = readSessionSnapshot()
-      if (!snapshot) return [] as any[]
-      const windows = Array.isArray(snapshot?.windows) ? snapshot.windows : []
-      const activeWindow = windows.find((item: any) => item.id === snapshot?.activeWindowId) || windows.find((item: any) => item.active)
-      const activePaneId = String(snapshot?.activePaneId || '')
-      const windowId = String(activeWindow?.id || '')
-      if (paneBoundsCache && paneBoundsCache.snapshot === snapshot && paneBoundsCache.windowId === windowId) {
-        return paneBoundsCache.bounds
-      }
-      const panes = Array.isArray(snapshot?.panes) ? snapshot.panes : []
-      const filtered = windowId ? panes.filter((pane: any) => String(pane.windowId || '') === windowId) : panes
-      const visiblePanes = activeWindow?.zoomed && activePaneId ? filtered.filter((pane: any) => String(pane?.id || pane?.tmuxPaneId || '') === activePaneId) : filtered
-      const bounds = visiblePanes.map(getPaneBounds).filter(Boolean) as any[]
-      paneBoundsCache = { snapshot, windowId, bounds }
-      return bounds
-    }
-    const getPaneSelectionText = () => {
-      const position = terminal?.getSelectionPosition?.()
-      const start = position?.start
-      const end = position?.end
-      if (!start || !end) return ''
-      const startBeforeEnd = start.y < end.y || start.y === end.y && start.x <= end.x
-      const first = startBeforeEnd ? start : end
-      const last = startBeforeEnd ? end : start
-      const pane = getCachedPaneBounds().find((item) => first.x >= item.left && first.x < item.left + item.cols && first.y >= item.top && first.y < item.top + item.rows)
-      if (!pane) return ''
-      const baseY = Number(terminal?.buffer?.active?.baseY) || 0
-      const fromY = Math.max(pane.top, first.y)
-      const toY = Math.min(pane.top + pane.rows - 1, last.y)
-      const lines: string[] = []
-      for (let y = fromY; y <= toY; y += 1) {
-        const line = terminal?.buffer?.active?.getLine?.(baseY + y)
-        if (!line) continue
-        const fromX = y === first.y ? Math.max(pane.left, first.x) : pane.left
-        const toX = y === last.y ? Math.min(pane.left + pane.cols, last.x) : pane.left + pane.cols
-        if (toX < fromX) continue
-        lines.push(line.translateToString(true, fromX, toX))
-      }
-      return lines.join('\n')
-    }
-    const getSelectionText = () => getPaneSelectionText() || terminal?.getSelection?.() || window.getSelection?.()?.toString() || ''
-    const getMouseCell = (event: MouseEvent) => {
-      const screen = terminal?.element?.querySelector('.xterm-screen') as HTMLElement | null
-      if (!screen || !terminal?.cols || !terminal?.rows) return null
-      const rect = screen.getBoundingClientRect()
-      if (!rect.width || !rect.height) return null
-      const cellWidth = rect.width / terminal.cols
-      const cellHeight = rect.height / terminal.rows
-      if (!Number.isFinite(cellWidth) || !Number.isFinite(cellHeight) || cellWidth <= 0 || cellHeight <= 0) return null
-      const x = Math.floor((event.clientX - rect.left) / cellWidth)
-      const y = Math.floor((event.clientY - rect.top) / cellHeight)
-      if (x < 0 || y < 0 || x >= terminal.cols || y >= terminal.rows) return null
-      return { x, y }
-    }
-    const getPaneIdByMouseCell = (cell: { x: number; y: number } | null) => {
-      if (!cell) return null
-      const pane = getCachedPaneBounds().find((item) => cell.x >= item.left && cell.x < item.left + item.cols && cell.y >= item.top && cell.y < item.top + item.rows)
-      return pane?.id || null
-    }
-    resolvePaneAtPointRef.current = (clientX, clientY) => getPaneIdByMouseCell(getMouseCell({ clientX, clientY } as MouseEvent))
+    const { getSelectionText, getMouseCell, getPaneIdByMouseCell, getPaneResizeTarget, getPaneIdAtPoint } = createTerminalPaneInteractions(() => terminal, container, readSessionSnapshot)
+    resolvePaneAtPointRef.current = getPaneIdAtPoint
     const getBufferLineText = (lineIndex: number) => {
       const line = terminal?.buffer?.active?.getLine?.(lineIndex)
       if (!line) return ''
@@ -891,29 +726,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           })
         },
       }))
-    }
-    const rangesOverlap = (aStart: number, aEnd: number, bStart: number, bEnd: number) => Math.max(aStart, bStart) <= Math.min(aEnd, bEnd)
-    const getPaneResizeTarget = (event: MouseEvent) => {
-      if (event.button !== 0 || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return null
-      const cell = getMouseCell(event)
-      if (!cell) return null
-      const panes = getCachedPaneBounds()
-      if (!panes.length) return null
-      const vertical = panes.find((pane) => {
-        if (!pane.id) return false
-        const edge = pane.left + pane.cols
-        if (Math.abs(cell.x - edge) > 1 || cell.y < pane.top || cell.y >= pane.top + pane.rows) return false
-        return panes.some((other) => other.left === edge + 1 && rangesOverlap(pane.top, pane.top + pane.rows - 1, other.top, other.top + other.rows - 1))
-      })
-      if (vertical) return { axis: 'x', paneId: vertical.id, startCell: vertical.left + vertical.cols, startSize: vertical.cols, crossStart: vertical.top, crossSize: vertical.rows, paneStart: vertical.left }
-      const horizontal = panes.find((pane) => {
-        if (!pane.id) return false
-        const edge = pane.top + pane.rows
-        if (Math.abs(cell.y - edge) > 1 || cell.x < pane.left || cell.x >= pane.left + pane.cols) return false
-        return panes.some((other) => other.top === edge + 1 && rangesOverlap(pane.left, pane.left + pane.cols - 1, other.left, other.left + other.cols - 1))
-      })
-      if (horizontal) return { axis: 'y', paneId: horizontal.id, startCell: horizontal.top + horizontal.rows, startSize: horizontal.rows, crossStart: horizontal.left, crossSize: horizontal.cols, paneStart: horizontal.top }
-      return null
     }
     const showResizeMask = () => {
       if (resizeRevealFrame) cancelAnimationFrame(resizeRevealFrame)
@@ -2106,10 +1918,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           container.removeEventListener('touchend', handlePinchTouchEnd)
           container.removeEventListener('touchcancel', handlePinchTouchCancel)
           container.removeEventListener('wheel', handleDesktopPinch, true)
-          if (desktopPinchCommitRef.current) {
-            clearTimeout(desktopPinchCommitRef.current)
-            desktopPinchCommitRef.current = null
-          }
           touchScroll.dispose()
           container.removeEventListener('touchstart', touchScroll.handleTouchStart)
           container.removeEventListener('touchmove', touchScroll.handleTouchMove)
