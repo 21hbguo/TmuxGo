@@ -25,14 +25,14 @@ test('persists task logs and allows failed tasks to retry',async(t)=>{
     context.appendLog('started')
     context.setProgress(50,1024)
     runs+=1
-    if (runs===1) throw new Error('first run failed')
+    if (runs===1) throw Object.assign(new Error('SSH authentication failed'), { code: 'AUTHENTICATION_ERROR' })
     return {message:'completed'}
   })
   const started=await manager.start({type:'example',title:'Example',input:{value:true}})
   const failed=await waitForTask(manager,started.id)
   assert.equal(failed.status,'error')
-  assert.equal(failed.errorCode,'TASK_FAILED')
-  assert.equal(failed.summaryLines.at(-1),'first run failed')
+  assert.equal(failed.errorCode,'AUTHENTICATION_ERROR')
+  assert.equal(failed.summaryLines.at(-1),'SSH authentication failed')
   const retried=await manager.retry(started.id)
   assert.equal(retried?.status,'running')
   const completed=await waitForTask(manager,started.id)

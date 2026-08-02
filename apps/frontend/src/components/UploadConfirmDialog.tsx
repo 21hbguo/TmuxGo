@@ -125,7 +125,7 @@ export function UploadConfirmDialog() {
       body.append('targetPath', targetPath)
       body.append('conflictPolicy', 'rename')
       body.append('rateLimitKBps', String(preferences.uploadRateLimitKBps || 200))
-      if (!insertPaths) body.append('background', 'true')
+      body.append('background', 'true')
       uploadRequest.files.forEach((file) => body.append('files', file))
       addUploadJob({
         id: jobId,
@@ -143,8 +143,28 @@ export function UploadConfirmDialog() {
         updateUploadJob(jobId, { loadedBytes, totalBytes: uploadTotalBytes || totalBytes, status: 'uploading' })
       })
       if ('task' in result) {
-        updateUploadJob(jobId, { loadedBytes: totalBytes, totalBytes, status: 'success', finishedAt: new Date().toISOString() })
+        updateUploadJob(jobId, { loadedBytes: totalBytes, totalBytes, status: 'queued' })
         pushToast({ type: 'success', message: t('tasks.queued') })
+        void (async () => {
+          for (let attempt = 0; attempt < 7200; attempt += 1) {
+            try {
+              const task = (await api.system.tasks()).tasks.find((item) => item.id === result.task.id)
+              if (task?.status === 'success') {
+                const taskResult = task.result && typeof task.result === 'object' ? task.result as { files?: { absolutePath?: unknown }[] } : null
+                const uploadedFiles = taskResult?.files?.filter((file): file is { absolutePath: string } => typeof file.absolutePath === 'string') || []
+                updateUploadJob(jobId, { loadedBytes: totalBytes, totalBytes, status: 'success', finishedAt: new Date().toISOString() })
+                if (insertPaths && uploadedFiles.length) window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data: uploadedFiles.map((file) => quoteShellPath(file.absolutePath)).join(' ') } }))
+                return
+              }
+              if (task && task.status !== 'running') {
+                updateUploadJob(jobId, { status: 'error', finishedAt: new Date().toISOString(), errorMessage: task.errorMessage || t('upload.failed') })
+                return
+              }
+            } catch {}
+            await new Promise((resolve) => window.setTimeout(resolve, 500))
+          }
+          updateUploadJob(jobId, { status: 'error', finishedAt: new Date().toISOString(), errorMessage: t('upload.failed') })
+        })()
         return
       }
       updateUploadJob(jobId, { loadedBytes: totalBytes, totalBytes, status: 'success', finishedAt: new Date().toISOString(), result })

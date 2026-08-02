@@ -58,7 +58,7 @@ async function testHostConnectivity(hostId: string, context?: TaskExecutionConte
 async function runHostTestTask(input: unknown, context: TaskExecutionContext) {
   const task = input as HostTestTaskInput
   const result = await testHostConnectivity(task.hostId, context)
-  if (!result.ok) throw new Error(result.message)
+  if (!result.ok) throw Object.assign(new Error(result.message), { code: result.code || 'CONNECTION_ERROR' })
   return { message: result.message, result: { hostId: task.hostId, ...result } }
 }
 

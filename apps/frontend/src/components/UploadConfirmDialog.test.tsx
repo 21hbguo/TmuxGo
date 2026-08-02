@@ -14,6 +14,7 @@ const apiMocks = vi.hoisted(() => ({
   temporaryUploadTarget: vi.fn(async () => ({ rootId: 'app-tmp', rootLabel: 'tmp', rootPath: '/tmp/tmuxgo-paste', path: '', absolutePath: '/tmp/tmuxgo-paste', source: 'temporary' })),
   defaultUploadTarget: vi.fn(async () => ({ rootId: 'root-workspace', rootLabel: 'workspace', rootPath: '/workspace', path: '', absolutePath: '/workspace', source: 'pane' })),
   upload: vi.fn(),
+  tasks: vi.fn(async () => ({ tasks: [] })),
 }))
 const tMock = vi.hoisted(() => vi.fn((key: string, vars?: Record<string, unknown>) => vars?.count ? `${key}:${vars.count}` : key))
 vi.mock('@/stores/useConsoleStore', () => ({
@@ -29,7 +30,7 @@ vi.mock('@/i18n', () => ({
   useTranslation: () => ({ t: tMock }),
 }))
 vi.mock('@/lib/api', () => ({
-  api: { files: { temporaryUploadTarget: apiMocks.temporaryUploadTarget, defaultUploadTarget: apiMocks.defaultUploadTarget, upload: apiMocks.upload } },
+  api: { files: { temporaryUploadTarget: apiMocks.temporaryUploadTarget, defaultUploadTarget: apiMocks.defaultUploadTarget, upload: apiMocks.upload }, system: { tasks: apiMocks.tasks } },
 }))
 describe('UploadConfirmDialog', () => {
   beforeEach(() => {
@@ -41,6 +42,7 @@ describe('UploadConfirmDialog', () => {
     apiMocks.temporaryUploadTarget.mockClear()
     apiMocks.defaultUploadTarget.mockClear()
     apiMocks.upload.mockClear()
+    apiMocks.tasks.mockClear()
     tMock.mockClear()
   })
   it('uses the temporary upload target for pasted images', async () => {
@@ -49,15 +51,20 @@ describe('UploadConfirmDialog', () => {
     expect(apiMocks.defaultUploadTarget).not.toHaveBeenCalled()
     expect(await screen.findByText('/tmp/tmuxgo-paste')).toBeInTheDocument()
   })
-  it('uses a background task when terminal path insertion is disabled', async () => {
+  it('uses a background task and inserts uploaded paths', async () => {
     apiMocks.upload.mockResolvedValueOnce({ task: { id: 'upload-1', type: 'file-upload', status: 'running' } })
+    apiMocks.tasks.mockResolvedValueOnce({ tasks: [{ id: 'upload-1', status: 'success', result: { ok: true, files: [{ absolutePath: '/tmp/tmuxgo-paste/pasted.png' }] } }] })
+    const terminalInput = vi.fn()
+    window.addEventListener('tmuxgo-terminal-input', terminalInput)
     render(<UploadConfirmDialog />)
     await screen.findByText('/tmp/tmuxgo-paste')
-    await screen.getByRole('checkbox').click()
     await screen.getByText('upload.upload').click()
     await waitFor(() => expect(apiMocks.upload).toHaveBeenCalled())
     const body = apiMocks.upload.mock.calls[0][1] as FormData
     expect(body.get('background')).toBe('true')
+    await waitFor(() => expect(terminalInput).toHaveBeenCalled())
+    expect((terminalInput.mock.calls[0][0] as CustomEvent<{ data: string }>).detail.data).toBe("'/tmp/tmuxgo-paste/pasted.png'")
     expect(storeState.updateUploadJob).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ status: 'success' }))
+    window.removeEventListener('tmuxgo-terminal-input', terminalInput)
   })
 })
