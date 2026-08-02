@@ -5,7 +5,7 @@ import multipart from '../apps/gateway/node_modules/@fastify/multipart'
 import os from 'node:os'
 import path from 'node:path'
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
-import { cleanupExpiredTemporaryUploads, TEMP_UPLOAD_ROOT_ID } from '../apps/gateway/src/routes/files'
+import { cleanupExpiredDownloadArtifacts, cleanupExpiredTemporaryUploads, TEMP_UPLOAD_ROOT_ID } from '../apps/gateway/src/routes/files'
 import { TaskManager } from '../apps/gateway/src/lib/task-manager'
 async function createUploadApp(tmpDir: string, taskManager?: TaskManager) {
   process.env.TMUXGO_TMP_DIR = tmpDir
@@ -92,5 +92,47 @@ test('cleanupExpiredTemporaryUploads removes stale temporary files only', async 
   } finally {
     delete process.env.TMUXGO_TMP_DIR
     await rm(tmpDir, { recursive: true, force: true })
+  }
+})
+test('cleanupExpiredDownloadArtifacts keeps recent task artifacts within retention bounds', async () => {
+  const configDir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-download-artifact-cleanup-'))
+  const artifactDir = path.join(configDir, 'download-artifacts')
+  await import('node:fs/promises').then(({ mkdir }) => mkdir(artifactDir, { recursive: true }))
+  process.env.TMUXGO_CONFIG_DIR = configDir
+  process.env.TMUXGO_DOWNLOAD_ARTIFACT_MAX_COUNT = '2'
+  process.env.TMUXGO_DOWNLOAD_ARTIFACT_MAX_BYTES = '8'
+  const manager = new TaskManager({ statePath: path.join(configDir, 'tasks.json') })
+  const protectedId = '11111111-1111-4111-8111-111111111111'
+  manager.register('file-download', async () => ({ result: { downloadUrl: `/api/hosts/local/files/download-tasks/${protectedId}` } }))
+  const task = await manager.start({ type: 'file-download', title: 'Download protected', input: {} })
+  let completed = manager.get(task.id)
+  for (let attempt = 0; completed?.status === 'running' && attempt < 50; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    completed = manager.get(task.id)
+  }
+  const stalePath = path.join(artifactDir, 'stale')
+  const protectedPath = path.join(artifactDir, protectedId)
+  const newestPath = path.join(artifactDir, 'newest')
+  const oldestPath = path.join(artifactDir, 'oldest')
+  await Promise.all([writeFile(stalePath, 'stale'), writeFile(protectedPath, 'keep'), writeFile(newestPath, 'new!'), writeFile(oldestPath, 'old!')])
+  const now = Date.now()
+  await import('node:fs/promises').then(({ utimes }) => Promise.all([
+    utimes(stalePath, new Date(now - 25 * 60 * 60 * 1000), new Date(now - 25 * 60 * 60 * 1000)),
+    utimes(protectedPath, new Date(now - 25 * 60 * 60 * 1000), new Date(now - 25 * 60 * 60 * 1000)),
+    utimes(newestPath, new Date(now), new Date(now)),
+    utimes(oldestPath, new Date(now - 60 * 1000), new Date(now - 60 * 1000)),
+  ]))
+  try {
+    assert.equal(completed?.status, 'success')
+    await cleanupExpiredDownloadArtifacts(now, manager)
+    await assert.rejects(() => stat(stalePath), /ENOENT/)
+    assert.equal((await stat(protectedPath)).isFile(), true)
+    assert.equal((await stat(newestPath)).isFile(), true)
+    await assert.rejects(() => stat(oldestPath), /ENOENT/)
+  } finally {
+    delete process.env.TMUXGO_CONFIG_DIR
+    delete process.env.TMUXGO_DOWNLOAD_ARTIFACT_MAX_COUNT
+    delete process.env.TMUXGO_DOWNLOAD_ARTIFACT_MAX_BYTES
+    await rm(configDir, { recursive: true, force: true })
   }
 })

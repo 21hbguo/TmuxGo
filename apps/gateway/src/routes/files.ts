@@ -38,6 +38,10 @@ export const TEMP_UPLOAD_ROOT_ID = 'app-tmp'
 const TEMP_UPLOAD_ROOT_LABEL = 'tmp'
 const DEFAULT_TEMP_UPLOAD_TTL_MS = 24 * 60 * 60 * 1000
 const DEFAULT_TEMP_UPLOAD_CLEANUP_INTERVAL_MS = 60 * 60 * 1000
+const DEFAULT_DOWNLOAD_ARTIFACT_TTL_MS = 24 * 60 * 60 * 1000
+const DEFAULT_DOWNLOAD_ARTIFACT_CLEANUP_INTERVAL_MS = 60 * 60 * 1000
+const DEFAULT_DOWNLOAD_ARTIFACT_MAX_COUNT = 100
+const DEFAULT_DOWNLOAD_ARTIFACT_MAX_BYTES = 1024 * 1024 * 1024
 const homeRoot = os.homedir()
 const rootSpec = process.env.TMUX_WEB_FILE_ROOTS || `workspace=${defaultRoot}${path.delimiter}home=${homeRoot}`
 const IMAGE_MIME_BY_EXT: Record<string, string> = {
@@ -108,6 +112,8 @@ export interface GitRepositoryInfo {
 
 let rootsCache: Promise<FileRoot[]> | null = null
 let tempUploadCleanupTimer: NodeJS.Timeout | null = null
+let downloadArtifactCleanupTimer: NodeJS.Timeout | null = null
+let downloadArtifactCleanupManager: TaskManager = taskManager
 async function getRoots() {
   if (!rootsCache) {
     rootsCache = Promise.all(rootSpec.split(path.delimiter).map((entry) => entry.trim()).filter(Boolean).map(async (entry, index) => {
@@ -1102,6 +1108,78 @@ function getDownloadArtifactPath(artifactId: string) {
   if (!/^[a-f0-9-]{36}$/i.test(artifactId)) throw new Error('Invalid download artifact')
   return path.join(getDownloadArtifactDir(), artifactId)
 }
+function getRecentDownloadArtifactIds(backgroundTasks: TaskManager, now: number, ttlMs: number) {
+  const cutoff = now - ttlMs
+  const artifactIds = new Set<string>()
+  for (const task of backgroundTasks.list()) {
+    if (task.type !== 'file-download' || task.status !== 'success' || !task.finishedAt) continue
+    const finishedAt = Date.parse(task.finishedAt)
+    if (!Number.isFinite(finishedAt) || finishedAt < cutoff) continue
+    const result = task.result
+    const downloadUrl = result && typeof result === 'object' ? (result as { downloadUrl?: unknown }).downloadUrl : null
+    if (typeof downloadUrl !== 'string') continue
+    const match = downloadUrl.match(/\/files\/download-tasks\/([a-f0-9-]{36})$/i)
+    if (match) artifactIds.add(match[1])
+  }
+  return artifactIds
+}
+export async function cleanupExpiredDownloadArtifacts(now = Date.now(), backgroundTasks: TaskManager = taskManager) {
+  const ttlMs = readPositiveIntegerEnv('TMUXGO_DOWNLOAD_ARTIFACT_TTL_MS', DEFAULT_DOWNLOAD_ARTIFACT_TTL_MS)
+  const maxCount = readPositiveIntegerEnv('TMUXGO_DOWNLOAD_ARTIFACT_MAX_COUNT', DEFAULT_DOWNLOAD_ARTIFACT_MAX_COUNT)
+  const maxBytes = readPositiveIntegerEnv('TMUXGO_DOWNLOAD_ARTIFACT_MAX_BYTES', DEFAULT_DOWNLOAD_ARTIFACT_MAX_BYTES)
+  const protectedIds = getRecentDownloadArtifactIds(backgroundTasks, now, ttlMs)
+  let directory
+  try {
+    directory = await opendir(getDownloadArtifactDir())
+  } catch {
+    return
+  }
+  const entries: { name: string; entryPath: string; size: number; mtimeMs: number }[] = []
+  for await (const entry of directory) {
+    const entryPath = path.join(getDownloadArtifactDir(), entry.name)
+    try {
+      const info = await stat(entryPath)
+      if (!info.isFile()) continue
+      const temporary = /^[a-f0-9-]{36}\.tmp-[a-f0-9-]{36}$/i.test(entry.name)
+      if (temporary && now - info.mtimeMs > ttlMs) {
+        await rm(entryPath, { force: true })
+        continue
+      }
+      if (!temporary) entries.push({ name: entry.name, entryPath, size: info.size, mtimeMs: info.mtimeMs })
+    } catch {}
+  }
+  const retained: typeof entries = []
+  for (const entry of entries) {
+    if (now - entry.mtimeMs > ttlMs && !protectedIds.has(entry.name)) {
+      try {
+        await rm(entry.entryPath, { force: true })
+      } catch {
+        retained.push(entry)
+      }
+      continue
+    }
+    retained.push(entry)
+  }
+  let totalBytes = retained.reduce((sum, entry) => sum + entry.size, 0)
+  let count = retained.length
+  const removable = retained.filter((entry) => !protectedIds.has(entry.name)).sort((left, right) => left.mtimeMs - right.mtimeMs)
+  for (const entry of removable) {
+    if (count <= maxCount && totalBytes <= maxBytes) break
+    try {
+      await rm(entry.entryPath, { force: true })
+      count -= 1
+      totalBytes -= entry.size
+    } catch {}
+  }
+}
+function startDownloadArtifactCleanup(backgroundTasks: TaskManager) {
+  downloadArtifactCleanupManager = backgroundTasks
+  if (downloadArtifactCleanupTimer) return
+  void cleanupExpiredDownloadArtifacts(Date.now(), downloadArtifactCleanupManager)
+  const intervalMs = readPositiveIntegerEnv('TMUXGO_DOWNLOAD_ARTIFACT_CLEANUP_INTERVAL_MS', DEFAULT_DOWNLOAD_ARTIFACT_CLEANUP_INTERVAL_MS)
+  downloadArtifactCleanupTimer = setInterval(() => void cleanupExpiredDownloadArtifacts(Date.now(), downloadArtifactCleanupManager), intervalMs)
+  downloadArtifactCleanupTimer.unref?.()
+}
 async function runBackgroundDownloadTask(input: unknown, context: TaskExecutionContext) {
   const task = input as BackgroundDownloadInput
   const fileInfo = await resolveFileForHost(task.hostId, task.rootId, task.path)
@@ -1135,6 +1213,7 @@ export async function fileRoutes(fastify: FastifyInstance, options: { taskManage
   backgroundTasks.register('file-upload', runBackgroundUploadTask)
   backgroundTasks.register('file-download', runBackgroundDownloadTask)
   startTemporaryUploadCleanup()
+  startDownloadArtifactCleanup(backgroundTasks)
   fastify.get('/hosts/:hostId/files/roots', async (request) => {
     const { hostId } = request.params as { hostId: string }
     if (hostId === 'local') return getRoots()
