@@ -4,6 +4,8 @@ export interface AuthStatus {
   enabled: boolean
   authenticated: boolean
   username?: string
+  sessionId?: string
+  passwordChangeRequired?: boolean
 }
 export interface AuthResponse {
   accessToken: string
@@ -11,6 +13,15 @@ export interface AuthResponse {
   expiresIn: number
   user: { username: string }
   sessionId: string
+  passwordChangeRequired?: boolean
+}
+export interface AuthSession {
+  id: string
+  createdAt: string
+  lastUsedAt: string
+  expiresAt: string
+  userAgent?: string
+  ip?: string
 }
 type AuthListener = (status: AuthStatus) => void
 let accessToken: string | null = null
@@ -39,7 +50,7 @@ function createAuthError(status: number, payload: unknown) {
 }
 function updateToken(response: AuthResponse) {
   accessToken = response.accessToken
-  setAuthStatus({ enabled: true, authenticated: true, username: response.user?.username })
+  setAuthStatus({ enabled: true, authenticated: true, username: response.user?.username, sessionId: response.sessionId, passwordChangeRequired: response.passwordChangeRequired === true })
 }
 export function getAccessToken() {
   return accessToken
@@ -65,7 +76,7 @@ export async function getAuthStatus() {
   const payload = await readPayload(response)
   if (!response.ok) throw createAuthError(response.status, payload)
   const status = payload as unknown as AuthStatus
-  setAuthStatus({ enabled: status.enabled === true, authenticated: status.authenticated === true, username: typeof status.username === 'string' ? status.username : undefined })
+  setAuthStatus({ enabled: status.enabled === true, authenticated: status.authenticated === true, username: typeof status.username === 'string' ? status.username : undefined, sessionId: typeof status.sessionId === 'string' ? status.sessionId : undefined, passwordChangeRequired: status.passwordChangeRequired === true })
   return authStatus
 }
 export async function login(username: string, password: string) {
@@ -97,8 +108,34 @@ export async function logout() {
     await authenticatedFetch('/api/auth/logout', { method: 'POST' }, false)
   } finally {
     accessToken = null
-    setAuthStatus({ ...authStatus, authenticated: false })
+    setAuthStatus({ enabled: authStatus.enabled, authenticated: false, username: authStatus.username })
   }
+}
+export async function listAuthSessions() {
+  const response = await authenticatedFetch('/api/auth/sessions')
+  const payload = await readPayload(response)
+  if (!response.ok) throw createAuthError(response.status, payload)
+  const data = payload && typeof payload === 'object' ? payload as { sessions?: unknown; currentSessionId?: unknown } : {}
+  return { sessions: Array.isArray(data.sessions) ? data.sessions as AuthSession[] : [], currentSessionId: typeof data.currentSessionId === 'string' ? data.currentSessionId : '' }
+}
+export async function revokeAuthSession(sessionId: string) {
+  const response = await authenticatedFetch(`/api/auth/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' })
+  const payload = await readPayload(response)
+  if (!response.ok) throw createAuthError(response.status, payload)
+  return payload as { deleted: boolean; current: boolean }
+}
+export async function revokeOtherAuthSessions() {
+  const response = await authenticatedFetch('/api/auth/sessions/revoke-others', { method: 'POST' })
+  const payload = await readPayload(response)
+  if (!response.ok) throw createAuthError(response.status, payload)
+  return payload as { deleted: number }
+}
+export async function changePassword(currentPassword: string, newPassword: string) {
+  const response = await authenticatedFetch('/api/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }), headers: { 'Content-Type': 'application/json' } })
+  const payload = await readPayload(response)
+  if (!response.ok) throw createAuthError(response.status, payload)
+  accessToken = null
+  setAuthStatus({ enabled: authStatus.enabled, authenticated: false, username: authStatus.username })
 }
 export async function getWebSocketUrl() {
   if (!authStatus.enabled) return getWebSocketBase()

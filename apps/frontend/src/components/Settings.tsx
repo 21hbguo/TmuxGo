@@ -11,6 +11,7 @@ import { useClipboard } from '@/hooks/useClipboard'
 import { useAppVersion } from '@/hooks/useAppVersion'
 import { APP_BUILD_ID, APP_NAME, APP_VERSION } from '@/lib/app-version'
 import { api } from '@/lib/api'
+import { changePassword, listAuthSessions, revokeAuthSession, revokeOtherAuthSessions, type AuthSession } from '@/lib/auth'
 import type { SessionArchive, SessionArchiveSummary } from '@/types'
 import { useCreateHost, useDeleteHost, useHosts, useRestartRebuild, useRestartRebuildStatus, useTestHost } from '@/hooks/useApi'
 import { PluginSettings } from './PluginSettings'
@@ -29,8 +30,15 @@ export function Settings({ onClose }: SettingsProps) {
   const pushToast = useConsoleStore((state) => state.pushToast)
   const activeHostId = useConsoleStore((state) => state.activeHostId)
   const { copy } = useClipboard()
-  const [activeTab, setActiveTab] = useState<'general' | 'appearance' | 'connection' | 'session' | 'plugins' | 'performance' | 'about'>('general')
+  const [activeTab, setActiveTab] = useState<'general' | 'appearance' | 'connection' | 'security' | 'session' | 'plugins' | 'performance' | 'about'>('general')
   const [showAuditLog, setShowAuditLog] = useState(false)
+  const [authSessions, setAuthSessions] = useState<AuthSession[]>([])
+  const [currentAuthSessionId, setCurrentAuthSessionId] = useState('')
+  const [authSessionsLoading, setAuthSessionsLoading] = useState(false)
+  const [authActionMessage, setAuthActionMessage] = useState('')
+  const [currentPasswordDraft, setCurrentPasswordDraft] = useState('')
+  const [newPasswordDraft, setNewPasswordDraft] = useState('')
+  const [passwordChanging, setPasswordChanging] = useState(false)
   const [hostIdDraft, setHostIdDraft] = useState('')
   const [hostNameDraft, setHostNameDraft] = useState('')
   const [hostAddressDraft, setHostAddressDraft] = useState('')
@@ -78,6 +86,7 @@ export function Settings({ onClose }: SettingsProps) {
     { id: 'general' as const, label: t('settings.general') },
     { id: 'appearance' as const, label: t('settings.appearance') },
     { id: 'connection' as const, label: t('settings.connection') },
+    { id: 'security' as const, label: t('settings.security') },
     { id: 'session' as const, label: t('settings.session') },
     { id: 'plugins' as const, label: t('settings.plugins') },
     { id: 'performance' as const, label: t('settings.performance') },
@@ -111,6 +120,53 @@ export function Settings({ onClose }: SettingsProps) {
       return
     }
     pushToast({ type: 'success', message: t('settings.aboutCopied') })
+  }
+  const loadAuthSessions = async () => {
+    setAuthSessionsLoading(true)
+    try {
+      const result = await listAuthSessions()
+      setAuthSessions(result.sessions)
+      setCurrentAuthSessionId(result.currentSessionId)
+    } catch (err: any) {
+      setAuthActionMessage(err?.message || t('settings.securityLoadFailed'))
+    } finally {
+      setAuthSessionsLoading(false)
+    }
+  }
+  useEffect(() => {
+    if (activeTab !== 'security') return
+    void loadAuthSessions()
+  }, [activeTab])
+  const revokeSession = async (sessionId: string) => {
+    setAuthActionMessage('')
+    try {
+      await revokeAuthSession(sessionId)
+      setAuthActionMessage(t('settings.securityDeviceRevoked'))
+      await loadAuthSessions()
+    } catch (err: any) {
+      setAuthActionMessage(err?.message || t('settings.securityActionFailed'))
+    }
+  }
+  const revokeOtherSessions = async () => {
+    setAuthActionMessage('')
+    try {
+      const result = await revokeOtherAuthSessions()
+      setAuthActionMessage(t('settings.securityOtherRevoked', { count: result.deleted }))
+      await loadAuthSessions()
+    } catch (err: any) {
+      setAuthActionMessage(err?.message || t('settings.securityActionFailed'))
+    }
+  }
+  const updateAccountPassword = async () => {
+    if (passwordChanging) return
+    setPasswordChanging(true)
+    setAuthActionMessage('')
+    try {
+      await changePassword(currentPasswordDraft, newPasswordDraft)
+    } catch (err: any) {
+      setAuthActionMessage(err?.message || t('settings.securityPasswordFailed'))
+      setPasswordChanging(false)
+    }
   }
   const resetHostDraft = () => {
     setHostIdDraft('')
@@ -561,6 +617,30 @@ export function Settings({ onClose }: SettingsProps) {
                   </div>
                 </div>
               </div>
+            </div>
+          )}
+
+          {activeTab === 'security' && (
+            <div className="space-y-6">
+              <div className="rounded-apple border border-[var(--line)] bg-bg-2 p-4">
+                <div className="text-sm font-medium text-text-1">{t('settings.securityPasswordTitle')}</div>
+                <div className="mt-1 text-xs text-text-3">{t('settings.securityPasswordDesc')}</div>
+                <div className="mt-4 space-y-2">
+                  <input type="password" autoComplete="current-password" value={currentPasswordDraft} onChange={(event) => setCurrentPasswordDraft(event.target.value)} placeholder={t('auth.currentPassword')} className="tmuxgo-control tmuxgo-input w-full rounded-apple px-2 py-1.5 text-sm" />
+                  <input type="password" autoComplete="new-password" minLength={8} value={newPasswordDraft} onChange={(event) => setNewPasswordDraft(event.target.value)} placeholder={t('auth.newPassword')} className="tmuxgo-control tmuxgo-input w-full rounded-apple px-2 py-1.5 text-sm" />
+                </div>
+                <div className="mt-3 flex justify-end"><Button variant="primary" size="sm" disabled={passwordChanging || !currentPasswordDraft || newPasswordDraft.length < 8} onClick={() => void updateAccountPassword()}>{passwordChanging ? t('auth.passwordChanging') : t('auth.passwordChange')}</Button></div>
+              </div>
+              <div className="rounded-apple border border-[var(--line)] bg-bg-2 p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0"><div className="text-sm font-medium text-text-1">{t('settings.securityDevicesTitle')}</div><div className="mt-1 text-xs text-text-3">{t('settings.securityDevicesDesc')}</div></div>
+                  <Button size="sm" className="shrink-0" disabled={authSessionsLoading || !authSessions.some((session) => session.id !== currentAuthSessionId)} onClick={() => void revokeOtherSessions()}>{t('settings.securityRevokeOthers')}</Button>
+                </div>
+                {authSessionsLoading && <div className="mt-4 text-sm text-text-3">{t('common.loading')}</div>}
+                {!authSessionsLoading && !authSessions.length && <div className="mt-4 text-sm text-text-3">{t('settings.securityNoDevices')}</div>}
+                {!authSessionsLoading && authSessions.length > 0 && <div className="mt-4 divide-y divide-[var(--line)] rounded-apple border border-[var(--line)]">{authSessions.map((session) => <div key={session.id} className="flex items-start gap-3 px-3 py-3"><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><span className="text-sm text-text-1">{session.id === currentAuthSessionId ? t('settings.securityCurrentDevice') : t('settings.securityDevice')}</span><span className="text-xs text-text-3">{session.ip || '-'}</span></div><div className="mt-1 break-words text-xs text-text-3">{session.userAgent || t('settings.securityUnknownDevice')}</div><div className="mt-1 text-xs text-text-3">{t('settings.securityCreatedAt', { value: new Date(session.createdAt).toLocaleString() })} · {t('settings.securityLastUsedAt', { value: new Date(session.lastUsedAt).toLocaleString() })} · {t('settings.securityExpiresAt', { value: new Date(session.expiresAt).toLocaleString() })}</div></div>{session.id !== currentAuthSessionId && <Button size="sm" className="shrink-0" onClick={() => void revokeSession(session.id)}>{t('settings.securityRevoke')}</Button>}</div>)}</div>}
+              </div>
+              {authActionMessage && <div className="text-sm text-danger">{authActionMessage}</div>}
             </div>
           )}
 
