@@ -1,5 +1,8 @@
 import type { WebSocket } from 'ws'
 import { randomUUID } from 'crypto'
+import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
+import os from 'os'
+import path from 'path'
 
 const HEARTBEAT_TIMEOUT_MS = 45000
 export interface AgentStatus {
@@ -50,14 +53,67 @@ interface PendingTerminalRequest {
   reject: (error: Error) => void
   timer: NodeJS.Timeout
 }
+export interface AgentManagerOptions {
+  historyPath?: string | null
+}
+function getHistoryPath() {
+  return path.join(process.env.TMUXGO_CONFIG_DIR?.trim() || path.join(os.homedir(), '.tmuxgo'), 'agent-history.json')
+}
+function readHistory(historyPath: string) {
+  try {
+    const parsed = JSON.parse(readFileSync(historyPath, 'utf8')) as { agents?: unknown }
+    if (!Array.isArray(parsed.agents)) return [] as AgentStatus[]
+    return parsed.agents.filter((value): value is AgentStatus => !!value && typeof value === 'object' && typeof (value as AgentStatus).id === 'string' && typeof (value as AgentStatus).name === 'string' && typeof (value as AgentStatus).address === 'string' && typeof (value as AgentStatus).version === 'string' && typeof (value as AgentStatus).online === 'boolean' && typeof (value as AgentStatus).lastSeenAt === 'string' && typeof (value as AgentStatus).reconnectCount === 'number').map((value) => ({ ...value, connectedAt: typeof value.connectedAt === 'string' ? value.connectedAt : null, lastDisconnectedAt: typeof value.lastDisconnectedAt === 'string' ? value.lastDisconnectedAt : null, disconnectReason: typeof value.disconnectReason === 'string' ? value.disconnectReason : null, reconnectCount: Math.max(0, Math.floor(value.reconnectCount)) }))
+  } catch {
+    return [] as AgentStatus[]
+  }
+}
+function writeHistory(historyPath: string, agents: AgentStatus[]) {
+  try {
+    mkdirSync(path.dirname(historyPath), { recursive: true, mode: 0o700 })
+    chmodSync(path.dirname(historyPath), 0o700)
+    const temporary = `${historyPath}.${process.pid}.tmp`
+    writeFileSync(temporary, `${JSON.stringify({ agents })}\n`, { encoding: 'utf8', mode: 0o600 })
+    chmodSync(temporary, 0o600)
+    renameSync(temporary, historyPath)
+    chmodSync(historyPath, 0o600)
+  } catch {}
+}
 export class AgentManager {
+  private readonly historyPath: string | null
   private agents = new Map<string, Agent>()
   private history = new Map<string, AgentStatus>()
   private pendingTmuxRequests = new Map<string, PendingTmuxRequest>()
   private terminals = new Map<string, AgentTerminalState>()
   private pendingTerminalRequests = new Map<string, PendingTerminalRequest>()
+  constructor(options: AgentManagerOptions = {}) {
+    this.historyPath = options.historyPath === undefined ? getHistoryPath() : options.historyPath
+    if (!this.historyPath) return
+    const timestamp = new Date().toISOString()
+    let changed = false
+    for (const status of readHistory(this.historyPath)) {
+      if (status.online) {
+        status.online = false
+        status.connectedAt = null
+        status.lastDisconnectedAt = timestamp
+        status.disconnectReason = 'Gateway restarted'
+        changed = true
+      }
+      this.history.set(status.id, status)
+    }
+    if (changed) this.persistHistory()
+  }
   register(id: string, name: string, address: string, version: string, socket: WebSocket) {
     const previous = this.agents.get(id)
+    if (previous?.socket === socket) {
+      previous.name = name
+      previous.address = address
+      previous.version = version
+      previous.lastSeenAt = new Date().toISOString()
+      this.history.set(id, this.toStatus(previous))
+      this.persistHistory()
+      return this.toStatus(previous)
+    }
     if (previous && previous.socket !== socket) {
       this.rejectTmuxRequests(id, previous.socket, 'Agent reconnected')
       this.closeTerminals(id, previous.socket, -1)
@@ -79,6 +135,7 @@ export class AgentManager {
     }
     this.agents.set(id, agent)
     this.history.set(id, this.toStatus(agent))
+    this.persistHistory()
     console.log(`Agent registered: ${id} (${name})`)
     return this.toStatus(agent)
   }
@@ -90,6 +147,7 @@ export class AgentManager {
     this.agents.delete(id)
     const status: AgentStatus = { ...this.toStatus(agent), online: false, lastDisconnectedAt: new Date().toISOString(), disconnectReason: reason }
     this.history.set(id, status)
+    this.persistHistory()
     console.log(`Agent unregistered: ${id}`)
     return true
   }
@@ -99,21 +157,28 @@ export class AgentManager {
     agent.lastSeenAt = new Date().toISOString()
     if (version) agent.version = version
     this.history.set(id, this.toStatus(agent))
+    this.persistHistory()
     return true
   }
   getAgent(id: string) {
     const agent = this.agents.get(id)
-    return agent ? this.toStatus(agent) : undefined
+    if (!agent) return undefined
+    const status = this.toStatus(agent)
+    if (!status.online && this.history.get(id)?.online !== false) {
+      this.history.set(id, status)
+      this.persistHistory()
+    }
+    return status
   }
   getAgentStatus(id: string) {
     return this.getAgent(id) || this.history.get(id)
   }
   getAllAgents() {
-    return Array.from(this.agents.values()).map((agent) => this.toStatus(agent)).filter((agent) => agent.online)
+    return Array.from(this.agents.keys()).map((id) => this.getAgent(id)).filter((agent): agent is AgentStatus => !!agent?.online)
   }
   getAllAgentStatuses() {
     const statuses = new Map(this.history)
-    for (const agent of this.agents.values()) statuses.set(agent.id, this.toStatus(agent))
+    for (const agent of this.agents.values()) statuses.set(agent.id, this.getAgent(agent.id)!)
     return Array.from(statuses.values()).sort((left, right) => left.name.localeCompare(right.name))
   }
   executeTmux(id: string, args: string[], timeoutMs = 30000) {
@@ -278,6 +343,13 @@ export class AgentManager {
       this.pendingTerminalRequests.delete(requestId)
       pending.reject(new Error('Agent terminal disconnected'))
     }
+  }
+  private persistHistory() {
+    if (!this.historyPath) return
+    const agents = Array.from(this.history.values()).sort((left, right) => right.lastSeenAt.localeCompare(left.lastSeenAt)).slice(0, 100)
+    const ids = new Set(agents.map((agent) => agent.id))
+    for (const id of this.history.keys()) if (!ids.has(id)) this.history.delete(id)
+    writeHistory(this.historyPath, agents)
   }
   private toStatus(agent: Agent): AgentStatus {
     const { socket: _socket, ...status } = agent
