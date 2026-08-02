@@ -1,5 +1,7 @@
+import { execFile } from 'child_process'
 import WebSocket from 'ws'
 import { TmuxManager } from './tmux.js'
+import { promisify } from 'util'
 
 const GATEWAY_URL = process.env.GATEWAY_URL || 'ws://localhost:3001/api/stream'
 const RECONNECT_DELAY = 5000
@@ -7,6 +9,7 @@ const HEARTBEAT_INTERVAL = 15000
 const GATEWAY_USERNAME = process.env.GATEWAY_USERNAME || 'admin'
 const GATEWAY_PASSWORD = process.env.GATEWAY_PASSWORD || ''
 const AGENT_VERSION = process.env.TMUXGO_AGENT_VERSION || '0.1.0'
+const execFileAsync = promisify(execFile)
 function getGatewayHttpBase() {
   const url = new URL(GATEWAY_URL)
   url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:'
@@ -111,6 +114,10 @@ class Agent {
         await this.handleTmux(message)
         break
 
+      case 'shell':
+        await this.handleShell(message)
+        break
+
       case 'terminal-attach':
         await this.attachTerminal(message)
         break
@@ -148,6 +155,19 @@ class Agent {
         requestId,
         message: err.message,
       })
+    }
+  }
+
+  private async handleShell(message: any) {
+    const requestId = typeof message.requestId === 'string' ? message.requestId : ''
+    const command = typeof message.command === 'string' ? message.command : ''
+    const timeoutMs = Number.isInteger(message.timeoutMs) ? Math.max(1000, Math.min(message.timeoutMs, 120000)) : 30000
+    if (!requestId || !command || command.length > 524288) return
+    try {
+      const { stdout, stderr } = await execFileAsync('sh', ['-lc', command], { timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024 })
+      this.send({ type: 'shell-result', requestId, stdout, stderr, exitCode: 0 })
+    } catch (err: any) {
+      this.send({ type: 'shell-result', requestId, stdout: String(err?.stdout || ''), stderr: String(err?.stderr || err?.message || ''), exitCode: typeof err?.code === 'number' ? err.code : 1 })
     }
   }
 

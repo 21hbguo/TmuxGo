@@ -188,7 +188,7 @@ if op=='trash-list':
  print(json.dumps(sorted(items,key=lambda item:item.get('deletedAt',''),reverse=True)));sys.exit(0)
 if op=='trash-restore':
  trash_id=str(payload.get('trashId',''))
- if not trash_id or '/' in trash_id or '\\' in trash_id: raise Exception('Invalid trash id')
+ if not trash_id or '/' in trash_id or '\\\\' in trash_id: raise Exception('Invalid trash id')
  entry=pathlib.Path.home()/'.tmuxgo'/'trash'/trash_id;meta=json.loads((entry/'meta.json').read_text(encoding='utf-8'))
  root,target,rel=resolve_inside(meta['rootId'],meta['path'])
  if pathlib.Path(target).exists(): raise Exception('Restore target already exists')
@@ -220,7 +220,7 @@ if op=='default-upload-target':
 root,abs_path,rel=resolve_inside(payload.get('root',''),payload.get('path',''))
 if op=='prepare-upload':
  name=str(payload.get('name','')).strip()
- if not name or '/' in name or '\\' in name or name in ('.','..'): raise Exception('Invalid name')
+ if not name or '/' in name or '\\\\' in name or name in ('.','..'): raise Exception('Invalid name')
  pathlib.Path(abs_path).mkdir(parents=True,exist_ok=True);candidate=pathlib.Path(abs_path)/name;stem=candidate.stem;suffix=candidate.suffix;attempt=0
  while candidate.exists() and attempt<1000:
   attempt+=1;candidate=pathlib.Path(abs_path)/f'{stem} ({attempt}){suffix}'

@@ -3,6 +3,7 @@ import { promisify } from 'util'
 import { getHostById, getHostCredentials, type HostRecord } from './hosts.js'
 import { recordHostConnectionFailure } from './host-connectivity.js'
 import { buildHostSshOptions, resolveHostPassword } from './ssh-options.js'
+import { agentManager } from '../agent-manager.js'
 
 const execFileAsync = promisify(execFile)
 const defaultTimeoutMs = 15000
@@ -43,13 +44,6 @@ async function hasSshPass() {
   }
 }
 
-async function getResolvedHost(hostIdRaw: string) {
-  const hostId = hostIdRaw.trim()
-  if (!hostId) throw new Error('Missing host id')
-  const host = await getHostById(hostId)
-  if (!host) throw new Error(`Host "${hostId}" not found`)
-  return host
-}
 
 async function runLocalGit(args: string[], cwd: string, timeoutMs: number, acceptExitCodeOne: boolean, signal?: AbortSignal) {
   try {
@@ -88,9 +82,22 @@ async function runRemoteGit(host: HostRecord, args: string[], cwd: string, timeo
   }
 }
 
+async function runAgentGit(hostId:string,args:string[],cwd:string,timeoutMs:number,acceptExitCodeOne:boolean) {
+  const command=`cd ${escapeShellSingleQuoted(cwd)} && git ${args.map((arg)=>escapeShellSingleQuoted(arg)).join(' ')}`
+  const result=await agentManager.executeShell(hostId,command,timeoutMs)
+  if (result.exitCode===0||acceptExitCodeOne&&result.exitCode===1) return {stdout:result.stdout,stderr:result.stderr}
+  throw new Error(normalizeErrorMessage(`${result.stderr}\n${result.stdout}`,'Agent git command failed'))
+}
+
 export async function execGit(hostIdRaw: string, args: string[], cwd: string, timeoutMs?: number, acceptExitCodeOne = false, signal?: AbortSignal): Promise<GitExecResult> {
-  const host = await getResolvedHost(hostIdRaw)
+  const hostId=hostIdRaw.trim()
+  if (!hostId) throw new Error('Missing host id')
+  const host = await getHostById(hostId)
   const timeout = timeoutMs || defaultTimeoutMs
+  if (!host) {
+    if (!agentManager.getAgent(hostId)) throw new Error(`Host "${hostId}" not found`)
+    return runAgentGit(hostId,args,cwd,timeout,acceptExitCodeOne)
+  }
   if (host.id === 'local') {
     try {
       const { stdout, stderr } = await runLocalGit(args, cwd, timeout, acceptExitCodeOne, signal)
