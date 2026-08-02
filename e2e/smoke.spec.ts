@@ -124,21 +124,33 @@ test('mobile terminal stays within viewport and renders active session output', 
   const page = await context.newPage()
   const session = await ensureSession(request, name)
   await openSession(page, session, { expectHeader: false })
+  const marker = `__TMUXGO_MOBILE_${Date.now()}__`
   await page.waitForFunction(() => {
     const t = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
-    if (!t?.cols || !t?.rows) return false
-    for (let i = 0; i < Math.min(12, t?.buffer?.active?.length || 0); i += 1) {
-      const line = t.buffer.active.getLine(i)?.translateToString(true) || ''
-      if (line.includes('$') || line.includes('~') || line.includes('/')) return true
+    return !!t?.cols && !!t?.rows
+  }, undefined, { timeout: 15000 })
+  await page.evaluate((value) => {
+    window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data: `printf '${value}\\n'\r` } }))
+  }, marker)
+  await page.waitForFunction((value) => {
+    const t = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
+    const buffer = t?.buffer?.active
+    if (!buffer || !t?.rows) return false
+    const start = Math.max(0, Number(buffer.baseY) || 0)
+    const end = Math.min(buffer.length, start + t.rows)
+    for (let i = start; i < end; i += 1) {
+      if (buffer.getLine(i)?.translateToString(true).includes(value)) return true
     }
     return false
-  }, undefined, { timeout: 15000 })
+  }, marker, { timeout: 15000 })
   const metrics = await page.evaluate(() => {
     const term = document.querySelector('[data-terminal]') as HTMLElement | null
     const xterm = term?.querySelector('.xterm') as HTMLElement | null
     const t = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
     const lines: string[] = []
-    for (let i = 0; i < Math.min(12, t?.buffer?.active?.length || 0); i += 1) {
+    const start = Math.max(0, Number(t?.buffer?.active?.baseY) || 0)
+    const end = Math.min(t?.buffer?.active?.length || 0, start + (t?.rows || 0))
+    for (let i = start; i < end; i += 1) {
       const line = t.buffer.active.getLine(i)
       if (!line) continue
       const text = line.translateToString(true)
@@ -161,6 +173,6 @@ test('mobile terminal stays within viewport and renders active session output', 
   expect(metrics.xtermWidth).toBeLessThanOrEqual(metrics.innerWidth)
   expect(metrics.cols).toBeGreaterThan(0)
   expect(metrics.rows).toBeGreaterThan(0)
-  expect(metrics.lines.some((line) => line.includes('$') || line.includes('~') || line.includes('/'))).toBeTruthy()
+  expect(metrics.lines.some((line) => line.includes(marker))).toBeTruthy()
   await context.close()
 })

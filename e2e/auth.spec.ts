@@ -9,6 +9,9 @@ async function browserRequest(page: any, path: string, method = 'GET') {
     return { status: response.status, body: await response.json().catch(() => null) }
   }, { apiUrl, path, method })
 }
+async function browserStatus(page: any, path: string, method = 'GET') {
+  return page.evaluate(async ({ apiUrl, path, method }: { apiUrl: string; path: string; method: string }) => (await fetch(`${apiUrl}${path}`, { method, credentials: 'include' })).status, { apiUrl, path, method })
+}
 test('authentication persists per device and protects resources after logout', async ({ browser }) => {
   const firstContext = await browser.newContext({ baseURL: appUrl, userAgent: 'TmuxGo auth E2E first device' })
   const secondContext = await browser.newContext({ baseURL: appUrl, userAgent: 'TmuxGo auth E2E second device' })
@@ -28,6 +31,10 @@ test('authentication persists per device and protects resources after logout', a
     await page.reload()
     await expect(usernameInput).toBeHidden()
     expect((await browserRequest(page, '/api/hosts')).status).toBe(200)
+    const imagePath = '/api/hosts/local/files/image?root=root-0&path=assets%2Fcover_tmuxgo_cn_vip.png'
+    const downloadPath = '/api/hosts/local/files/download?root=root-0&path=assets%2Fcover_tmuxgo_cn_vip.png'
+    expect(await browserStatus(page, imagePath)).toBe(200)
+    expect(await browserStatus(page, downloadPath)).toBe(200)
     await secondPage.goto(appUrl)
     await secondPage.locator('input[autocomplete="username"]').fill(username)
     await secondPage.locator('input[autocomplete="current-password"]').fill(password)
@@ -41,6 +48,8 @@ test('authentication persists per device and protects resources after logout', a
     expect(sessions.body.sessions.map((session: { id: string }) => session.id)).toEqual(expect.arrayContaining([firstLogin.sessionId, secondLogin.sessionId]))
     expect((await browserRequest(page, '/api/auth/logout', 'POST')).status).toBe(200)
     expect((await browserRequest(page, '/api/hosts')).status).toBe(401)
+    expect(await browserStatus(page, imagePath)).toBe(401)
+    expect(await browserStatus(page, downloadPath)).toBe(401)
     expect((await browserRequest(secondPage, '/api/hosts')).status).toBe(200)
     await page.reload()
     await expect(usernameInput).toBeVisible()

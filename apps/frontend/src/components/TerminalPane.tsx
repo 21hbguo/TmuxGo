@@ -538,6 +538,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     let resizeObserver: ResizeObserver | null = null
     let disposables: any[] = []
     let layoutTimeout: ReturnType<typeof setTimeout> | null = null
+    let fontLayoutTimer: ReturnType<typeof setTimeout> | null = null
     let resizeRevealFrame: number | null = null
     let resizeStabilityFrame: number | null = null
     let resizeMaskGeneration = 0
@@ -1331,6 +1332,13 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           terminal.refresh(0, Math.max(0, terminal.rows - 1))
         } catch {}
         scheduleLayoutSync(0, true, true)
+        if (!isMobileDevice) {
+          if (fontLayoutTimer) clearTimeout(fontLayoutTimer)
+          fontLayoutTimer = setTimeout(() => {
+            fontLayoutTimer = null
+            scheduleLayoutSync(0, true, true)
+          }, 48)
+        }
         scheduleTerminalRepaint(isMobileDevice ? MOBILE_TERMINAL_REPAINT_DELAYS : TERMINAL_REPAINT_DELAYS, false, false, true)
       })
       disposables.push(
@@ -1765,6 +1773,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       stopDeleteWordRepeat()
       paneResize.hide()
       if (layoutTimeout) clearTimeout(layoutTimeout)
+      if (fontLayoutTimer) clearTimeout(fontLayoutTimer)
       if (resizeRevealFrame) cancelAnimationFrame(resizeRevealFrame)
       if (resizeStabilityFrame) cancelAnimationFrame(resizeStabilityFrame)
       terminalResizePending = false

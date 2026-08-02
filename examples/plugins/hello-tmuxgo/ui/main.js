@@ -10,3 +10,12 @@ document.getElementById('run').addEventListener('click', async () => {
     output.textContent = error.message
   }
 })
+document.getElementById('read').addEventListener('click', async () => {
+  output.textContent = 'Reading...'
+  try {
+    const result = await tmuxgo.files.read('local', 'root-0', 'README.md')
+    output.textContent = result.content.content.slice(0, 120)
+  } catch (error) {
+    output.textContent = error.message
+  }
+})
