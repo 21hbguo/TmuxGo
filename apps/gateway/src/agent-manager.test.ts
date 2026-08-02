@@ -47,6 +47,20 @@ test('routes tmux commands to the matching Agent socket', async () => {
   assert.equal(manager.unregister(id, socket), true)
 })
 
+test('does not route commands through a timed out Agent socket', async () => {
+  const manager = new AgentManager({ historyPath: null })
+  const id = `agent-${Date.now()}-${Math.random()}`
+  const messages: string[] = []
+  const socket = { readyState: 1, send: (message: string) => messages.push(message) } as unknown as WebSocket
+  manager.register(id, 'agent', '127.0.0.1', '1.0.0', socket)
+  ;((manager as any).agents.get(id) as { lastSeenAt: string }).lastSeenAt = new Date(0).toISOString()
+  assert.equal(manager.getAgent(id)?.online, false)
+  await assert.rejects(manager.executeTmux(id, ['list-sessions']), /not connected/)
+  await assert.rejects(manager.attachTerminal(id, 'dev', 80, 24, true), /not connected/)
+  assert.deepEqual(messages, [])
+  assert.equal(manager.unregister(id, socket), true)
+})
+
 test('forwards isolated terminal streams and closes them on Agent reconnect', async () => {
   const manager = new AgentManager({ historyPath: null })
   const id = `agent-${Date.now()}-${Math.random()}`
