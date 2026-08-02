@@ -363,7 +363,8 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
   const activeEditor = useMemo(() => activeEditorId ? openEditors.find((item) => item.id === activeEditorId) || null : null, [activeEditorId, openEditors])
   const isSearching = debouncedQuery.trim().length > 0
   const showSearchResults = isSearching && !searchNavigationPath
-  const items = useMemo(() => showSearchResults ? searchResults : listData?.items || [], [showSearchResults, searchResults, listData])
+  const trimmedDirectoryItems = useMemo(() => trimDirectoryItems(listData?.items || []), [listData?.items])
+  const items = useMemo(() => showSearchResults ? searchResults : trimmedDirectoryItems.items, [showSearchResults, searchResults, trimmedDirectoryItems])
   const visibleItems = useMemo(() => {
     const filtered = items.filter((item: any) => (!hideDotFiles || !isDotPath(item.path || item.name)) && matchesFileTypeFilter(item, fileTypeFilter))
     if (showSearchResults) return filtered
@@ -394,7 +395,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
     if (pending) return pending
     setDirectoryStatus(activeRootId, activeRootBasePath, item.path, { state: 'loading', message: '' })
     const request = api.files.list(fileHostId, activeRootId, joinRelativePath(activeRootBasePath, item.path)).then((result) => {
-      const nextItems = result.items.map((entry) => rebaseEntryPath(entry, activeRootBasePath))
+      const nextItems = trimDirectoryItems(result.items.map((entry) => rebaseEntryPath(entry, activeRootBasePath))).items
       storeDirectoryChildren(activeRootId, activeRootBasePath, item.path, nextItems)
       setDirectoryStatus(activeRootId, activeRootBasePath, item.path, null)
       return nextItems
@@ -415,7 +416,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
     const children = item.type === 'directory' && openDirectories.has(item.path) ? readDirectoryChildrenFromCache(directoryCache, activeRootId, activeRootBasePath, item.path) : undefined
     return { key: item.path, children: children ? createTreeNodes(children) : undefined, item }
   }), [activeRootBasePath, activeRootId, directoryCache, fileTypeFilter, hideDotFiles, openDirectories])
-  const desktopTreeData = useMemo(() => !isMobile && !showSearchResults ? createTreeNodes(listData?.items || []) : [], [createTreeNodes, isMobile, listData?.items, showSearchResults])
+  const desktopTreeData = useMemo(() => !isMobile && !showSearchResults ? createTreeNodes(trimmedDirectoryItems.items) : [], [createTreeNodes, isMobile, showSearchResults, trimmedDirectoryItems])
 
   useEffect(() => {
     if (!selectedRootId && rootOptions[0]) setSelectedRootId(rootOptions[0].id)
@@ -1276,6 +1277,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
           )
         ))}
         {!listLoading && !searchLoading && !visibleItems.length && <div className="p-3 text-xs text-text-3">{showSearchResults ? t('file.noResults') : t('file.emptyDir')}</div>}
+        {!showSearchResults && !listLoading && trimmedDirectoryItems.truncated && <div className="border-t border-[var(--line)] px-3 py-2 text-meta text-text-3">{t('file.largeDir', { count: DIRECTORY_RENDER_LIMIT })}</div>}
         {showSearchResults && rawSearchResults.length > SEARCH_RESULT_LIMIT && <div className="border-t border-[var(--line)] px-3 py-2 text-meta text-text-3">{t('file.tooManyResults', { count: SEARCH_RESULT_LIMIT })}</div>}
       </div>}
       {isMobile && mobileView === 'preview' && <div className="min-h-0 flex-1 bg-bg-0">{previewBlock}</div>}

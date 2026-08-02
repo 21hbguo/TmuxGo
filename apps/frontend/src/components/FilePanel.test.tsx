@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FilePanel } from './FilePanel'
-import type { FileEditorDocument, FileListResponse } from '@/types'
+import type { FileEditorDocument, FileItem, FileListResponse } from '@/types'
 
 const clipboardMocks = vi.hoisted(() => ({
   writeClipboardText: vi.fn(async () => ({ copied: true, source: 'system', unavailable: false })),
@@ -21,7 +21,9 @@ const roots = [
   { id: 'root-workspace', label: 'Workspace', path: '/workspace' },
   { id: 'root-home', label: 'Home', path: '/home/guo' },
 ]
+let largeDirectoryItems: FileItem[] | null = null
 const getListData = (rootId: string, currentPath: string): FileListResponse => {
+  if (rootId === 'root-large' && largeDirectoryItems) return { root: roots.find((item) => item.id === rootId) || roots[0], path: currentPath, breadcrumbs: [{ name: '/', path: '' }], items: largeDirectoryItems }
   if (rootId === 'root-home' || rootId === 'root-workspace') {
     const root = roots.find((item) => item.id === rootId) || roots[0]
     if (!currentPath) return { root, path: '', breadcrumbs: [{ name: '/', path: '' }], items: [{ name: 'src', path: 'src', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: 'docs', path: 'docs', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: 'project', path: 'project', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: 'downloads', path: 'downloads', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: '.env', path: '.env', type: 'file', size: 4, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
@@ -40,6 +42,7 @@ vi.mock('@/stores/useConsoleStore', () => ({
   }) as any,
 }))
 vi.mock('@tanstack/react-query', () => ({
+  useQuery: () => ({ data: [], isFetching: false }),
   useQueryClient: () => ({ invalidateQueries }),
 }))
 vi.mock('@/hooks/useApi', () => ({
@@ -94,6 +97,7 @@ vi.mock('@/i18n', () => ({
     if (key === 'file.loading') return 'Loading...'
     if (key === 'file.treeLoadFailed') return 'Load failed'
     if (key === 'file.retryLoad') return 'Retry'
+    if (key === 'file.largeDir') return 'Large directory, showing first 80 items'
     if (key === 'file.removeFavorite') return 'Unfavorite'
     if (key === 'file.clearExpanded') return 'Collapse all'
     if (key === 'file.clearSearch') return 'Clear search'
@@ -120,6 +124,8 @@ describe('FilePanel', () => {
     consoleStoreState.filePanelWidth = 360
     consoleStoreState.openEditors = []
     consoleStoreState.activeEditorId = null
+    largeDirectoryItems = null
+    roots.splice(2)
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
       return window.setTimeout(() => cb(0), 0)
     })
@@ -133,7 +139,7 @@ describe('FilePanel', () => {
     render(React.createElement(FilePanel))
     expect(await screen.findByRole('option', { name: 'Workspace' })).toBeInTheDocument()
     expect(await screen.findByRole('option', { name: 'Home' })).toBeInTheDocument()
-    expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('root-workspace')
+    expect((screen.getAllByRole('combobox')[0] as HTMLSelectElement).value).toBe('root-workspace')
   })
 
   it('expands and collapses directories on desktop', async () => {
@@ -158,7 +164,7 @@ describe('FilePanel', () => {
   it('opens a favorite directory shortcut on mobile', async () => {
     localStorage.setItem('tmuxgo-favorite-directories', JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]))
     render(React.createElement(FilePanel, { mode: 'mobile' }))
-    const favoriteButtons = await screen.findAllByRole('button', { name: 'Home · project' })
+    const favoriteButtons = await screen.findAllByRole('button', { name: '/home/guo/project' })
     fireEvent.click(favoriteButtons[0])
     await waitFor(() => expect(screen.getByText('demo.txt')).toBeInTheDocument())
   })
@@ -167,16 +173,15 @@ describe('FilePanel', () => {
     localStorage.setItem('tmuxgo-favorite-directories', JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]))
     render(React.createElement(FilePanel))
     expect(await screen.findByRole('option', { name: 'project' })).toBeInTheDocument()
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'favorite:root-home:project' } })
+    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'favorite:root-home:project' } })
     await waitFor(() => expect(screen.getByText('demo.txt')).toBeInTheDocument())
-    expect(screen.getByRole('button', { name: '/' })).toBeInTheDocument()
   })
   it('opens file from favorite root with full relative path', async () => {
     const onOpenFile = vi.fn()
     localStorage.setItem('tmuxgo-favorite-directories', JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]))
     render(React.createElement(FilePanel, { onOpenFile }))
     await screen.findByRole('option', { name: 'project' })
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'favorite:root-home:project' } })
+    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'favorite:root-home:project' } })
     fireEvent.click(await screen.findByText('demo.txt'))
     expect(onOpenFile).toHaveBeenCalledTimes(1)
     expect(onOpenFile.mock.calls[0][0]).toMatchObject({
@@ -203,7 +208,7 @@ describe('FilePanel', () => {
     localStorage.setItem('tmuxgo-favorite-directories', JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]))
     render(React.createElement(FilePanel))
     await screen.findByRole('option', { name: 'project' })
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'favorite:root-home:project' } })
+    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'favorite:root-home:project' } })
     fireEvent.contextMenu(await screen.findByText('demo.txt'))
     fireEvent.click(await screen.findByText('Copy path'))
     expect(clipboardMocks.writeClipboardText).toHaveBeenCalledWith('/home/guo/project/demo.txt')
@@ -220,11 +225,11 @@ describe('FilePanel', () => {
     localStorage.setItem('tmuxgo-favorite-directories', JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]))
     render(React.createElement(FilePanel))
     await screen.findByRole('option', { name: 'project' })
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'favorite:root-home:project' } })
+    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'favorite:root-home:project' } })
     const removeBtn = await screen.findByRole('button', { name: 'Unfavorite' })
     fireEvent.click(removeBtn)
     await waitFor(() => expect(screen.queryByRole('option', { name: 'project' })).not.toBeInTheDocument())
-    expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('root-home')
+    expect((screen.getAllByRole('combobox')[0] as HTMLSelectElement).value).toBe('root-home')
     const favorites = JSON.parse(localStorage.getItem('tmuxgo-favorite-directories') || '[]')
     expect(favorites).toEqual([])
   })
@@ -260,7 +265,7 @@ describe('FilePanel', () => {
     localStorage.setItem('tmuxgo-favorite-directories', JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'docs', path: 'docs' }, { rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]))
     const view = render(React.createElement(FilePanel))
     await screen.findByRole('option', { name: 'docs' })
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'favorite:root-home:docs' } })
+    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'favorite:root-home:docs' } })
     await waitFor(() => expect(screen.getByText('guide.md')).toBeInTheDocument())
     consoleStoreState.openEditors = [{
       id: 'local:root-home:project/demo.txt',
@@ -285,7 +290,7 @@ describe('FilePanel', () => {
     }]
     consoleStoreState.activeEditorId = 'local:root-home:project/demo.txt'
     view.rerender(React.createElement(FilePanel))
-    await waitFor(() => expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('favorite:root-home:project'))
+    await waitFor(() => expect((screen.getAllByRole('combobox')[0] as HTMLSelectElement).value).toBe('favorite:root-home:project'))
     expect(screen.getByText('demo.txt')).toBeInTheDocument()
     expect(document.querySelector('.tmuxgo-file-tree [data-selected="true"]')?.textContent).toContain('demo.txt')
   })
@@ -298,7 +303,6 @@ describe('FilePanel', () => {
     fireEvent.click(await screen.findByText('docs'))
     await waitFor(() => expect(screen.getByText('guide.md')).toBeInTheDocument())
     expect(input.value).toBe('docs')
-    expect(screen.getByRole('button', { name: '/' })).toBeInTheDocument()
     expect(screen.getByText('docs')).toBeInTheDocument()
   })
   it('shows directory children in desktop search results after expanding folder hit', async () => {
@@ -312,7 +316,6 @@ describe('FilePanel', () => {
     await waitFor(() => expect(screen.getByText('nested')).toBeInTheDocument())
     expect(screen.getByText('index.ts')).toBeInTheDocument()
     expect(input.value).toBe('src')
-    expect(screen.getByRole('button', { name: '/' })).toBeInTheDocument()
   })
   it('shows full path on hover for filtered directories and files', async () => {
     render(React.createElement(FilePanel))
@@ -332,8 +335,9 @@ describe('FilePanel', () => {
     fireEvent.click((await screen.findByText('docs')).closest('button') as HTMLButtonElement)
     await waitFor(() => expect(screen.getByText('guide.md')).toBeInTheDocument())
     expect(input.value).toBe('docs')
-    expect(screen.getByRole('button', { name: 'docs' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '/' }))
+    const back = { handled: false }
+    window.dispatchEvent(new CustomEvent('tmuxgo-mobile-files-back', { detail: back }))
+    expect(back.handled).toBe(true)
     expect(await screen.findByText('docs')).toBeInTheDocument()
   })
   it('keeps search query after switching root', async () => {
@@ -343,7 +347,7 @@ describe('FilePanel', () => {
     await screen.findByRole('option', { name: 'project' })
     fireEvent.change(input, { target: { value: 'project' } })
     expect(input.value).toBe('project')
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'favorite:root-home:project' } })
+    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'favorite:root-home:project' } })
     await waitFor(() => expect(screen.getByText('project')).toBeInTheDocument())
     expect(input.value).toBe('project')
   })
@@ -373,11 +377,11 @@ describe('FilePanel', () => {
     consoleStoreState.activeEditorId = 'local:root-home:project/demo.txt'
     const view = render(React.createElement(FilePanel))
     await screen.findByRole('option', { name: 'project' })
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'favorite:root-home:project' } })
+    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'favorite:root-home:project' } })
     await waitFor(() => expect(screen.getByText('demo.txt')).toBeInTheDocument())
     consoleStoreState.activeSessionId = 'session-b'
     view.rerender(React.createElement(FilePanel))
-    await waitFor(() => expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('root-home'))
+    await waitFor(() => expect((screen.getAllByRole('combobox')[0] as HTMLSelectElement).value).toBe('root-home'))
   })
   it('keeps search query after opening favorite directory shortcut', async () => {
     localStorage.setItem('tmuxgo-favorite-directories', JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]))
@@ -385,7 +389,7 @@ describe('FilePanel', () => {
     const input = screen.getByPlaceholderText('Search file names') as HTMLInputElement
     fireEvent.change(input, { target: { value: 'project' } })
     expect(input.value).toBe('project')
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'favorite:root-home:project' } })
+    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'favorite:root-home:project' } })
     await waitFor(() => expect(screen.getByText('demo.txt')).toBeInTheDocument())
     expect(input.value).toBe('project')
   })
@@ -578,5 +582,14 @@ describe('FilePanel', () => {
     expect(vi.mocked(api.files.list).mock.calls.filter(([, rootId, path]) => rootId === 'root-workspace' && path === 'src')).toHaveLength(1)
     delayedSrcResolvers.splice(0).forEach((resolve) => resolve())
     await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
+  })
+  it('limits large directory rendering', async () => {
+    roots.push({ id: 'root-large', label: 'Large', path: '/large' })
+    largeDirectoryItems = Array.from({ length: 121 }, (_, index) => ({ name: `file-${index}.txt`, path: `file-${index}.txt`, type: 'file', size: index, modifiedAt: '2026-05-26T00:00:00.000Z' }))
+    render(React.createElement(FilePanel))
+    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'root-large' } })
+    expect(await screen.findByText('file-79.txt')).toBeInTheDocument()
+    expect(screen.queryByText('file-80.txt')).not.toBeInTheDocument()
+    expect(screen.getByText('Large directory, showing first 80 items')).toBeInTheDocument()
   })
 })
