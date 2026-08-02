@@ -62,6 +62,31 @@ test('routes shell commands to the matching Agent socket', async () => {
   assert.equal(manager.unregister(id, socket), true)
 })
 
+test('streams file uploads to the matching Agent socket', async () => {
+  const manager = new AgentManager({ historyPath: null })
+  const id = `agent-${Date.now()}-${Math.random()}`
+  const messages: string[] = []
+  const socket = { readyState: 1, send: (message: string) => messages.push(message) } as unknown as WebSocket
+  manager.register(id, 'agent', '127.0.0.1', '1.0.0', socket)
+  async function* source() { yield Buffer.from('hello agent') }
+  const upload = manager.uploadFile(id, '/tmp/agent-upload.txt', source())
+  await new Promise((resolve) => setImmediate(resolve))
+  const start = JSON.parse(messages[0])
+  assert.equal(start.type, 'file-upload-start')
+  assert.equal(manager.handleMessage(id, socket, { type: 'file-upload-ready', uploadId: start.uploadId }), true)
+  await new Promise((resolve) => setImmediate(resolve))
+  const chunk = JSON.parse(messages[1])
+  assert.equal(chunk.type, 'file-upload-chunk')
+  assert.equal(Buffer.from(chunk.data, 'base64').toString(), 'hello agent')
+  assert.equal(manager.handleMessage(id, socket, { type: 'file-upload-ack', uploadId: start.uploadId }), true)
+  await new Promise((resolve) => setImmediate(resolve))
+  const end = JSON.parse(messages[2])
+  assert.equal(end.type, 'file-upload-end')
+  assert.equal(manager.handleMessage(id, socket, { type: 'file-upload-result', uploadId: start.uploadId }), true)
+  await upload
+  assert.equal(manager.unregister(id, socket), true)
+})
+
 test('does not route commands through a timed out Agent socket', async () => {
   const manager = new AgentManager({ historyPath: null })
   const id = `agent-${Date.now()}-${Math.random()}`

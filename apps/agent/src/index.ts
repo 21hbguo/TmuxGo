@@ -1,4 +1,7 @@
 import { execFile } from 'child_process'
+import { createWriteStream } from 'fs'
+import { mkdir, rename, unlink } from 'fs/promises'
+import path from 'path'
 import WebSocket from 'ws'
 import { TmuxManager } from './tmux.js'
 import { promisify } from 'util'
@@ -10,6 +13,11 @@ const GATEWAY_USERNAME = process.env.GATEWAY_USERNAME || 'admin'
 const GATEWAY_PASSWORD = process.env.GATEWAY_PASSWORD || ''
 const AGENT_VERSION = process.env.TMUXGO_AGENT_VERSION || '0.1.0'
 const execFileAsync = promisify(execFile)
+interface FileUpload {
+  path: string
+  temporaryPath: string
+  stream: ReturnType<typeof createWriteStream>
+}
 function getGatewayHttpBase() {
   const url = new URL(GATEWAY_URL)
   url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:'
@@ -26,6 +34,7 @@ class Agent {
   private accessToken = ''
   private refreshToken = ''
   private terminals = new Map<string, ReturnType<TmuxManager['attach']>>()
+  private uploads = new Map<string, FileUpload>()
 
   constructor() {
     this.tmux = new TmuxManager()
@@ -70,6 +79,7 @@ class Agent {
       console.log('Disconnected from gateway')
       this.stopHeartbeat()
       this.closeTerminals()
+      this.closeUploads()
       this.scheduleReconnect()
     })
 
@@ -116,6 +126,22 @@ class Agent {
 
       case 'shell':
         await this.handleShell(message)
+        break
+
+      case 'file-upload-start':
+        await this.startFileUpload(message)
+        break
+
+      case 'file-upload-chunk':
+        this.writeFileUploadChunk(message)
+        break
+
+      case 'file-upload-end':
+        await this.completeFileUpload(message)
+        break
+
+      case 'file-upload-abort':
+        this.abortFileUpload(message)
         break
 
       case 'terminal-attach':
@@ -171,6 +197,69 @@ class Agent {
     }
   }
 
+  private async startFileUpload(message: any) {
+    const uploadId = typeof message.uploadId === 'string' ? message.uploadId : ''
+    const targetPath = typeof message.path === 'string' ? message.path : ''
+    try {
+      if (!/^[a-f0-9-]{36}$/i.test(uploadId) || !path.isAbsolute(targetPath) || targetPath.length > 4096) throw new Error('Invalid file upload')
+      this.abortFileUpload({ uploadId })
+      await mkdir(path.dirname(targetPath), { recursive: true })
+      const temporaryPath = path.join(path.dirname(targetPath), `.${path.basename(targetPath)}.tmuxgo-upload-${uploadId}`)
+      const stream = createWriteStream(temporaryPath, { mode: 0o600 })
+      const upload = { path: targetPath, temporaryPath, stream }
+      this.uploads.set(uploadId, upload)
+      stream.once('error', (error) => this.failFileUpload(uploadId, error))
+      stream.once('open', () => this.send({ type: 'file-upload-ready', uploadId }))
+    } catch (error) {
+      this.send({ type: 'file-upload-error', uploadId, message: error instanceof Error ? error.message : 'Agent file upload failed' })
+    }
+  }
+
+  private writeFileUploadChunk(message: any) {
+    const uploadId = typeof message.uploadId === 'string' ? message.uploadId : ''
+    const data = typeof message.data === 'string' ? message.data : ''
+    const upload = this.uploads.get(uploadId)
+    if (!upload || !data || data.length > 262144 || !/^[A-Za-z0-9+/]*={0,2}$/.test(data)) return
+    const chunk = Buffer.from(data, 'base64')
+    if (!chunk.length || chunk.length > 192 * 1024) return
+    upload.stream.write(chunk, (error) => {
+      if (error) this.failFileUpload(uploadId, error)
+      else this.send({ type: 'file-upload-ack', uploadId })
+    })
+  }
+
+  private async completeFileUpload(message: any) {
+    const uploadId = typeof message.uploadId === 'string' ? message.uploadId : ''
+    const upload = this.uploads.get(uploadId)
+    if (!upload) return
+    try {
+      await new Promise<void>((resolve, reject) => upload.stream.end((error?: Error | null) => error ? reject(error) : resolve()))
+      await rename(upload.temporaryPath, upload.path)
+      this.uploads.delete(uploadId)
+      this.send({ type: 'file-upload-result', uploadId })
+    } catch (error) {
+      this.failFileUpload(uploadId, error)
+    }
+  }
+
+  private abortFileUpload(message: any) {
+    const uploadId = typeof message.uploadId === 'string' ? message.uploadId : ''
+    const upload = this.uploads.get(uploadId)
+    if (!upload) return
+    this.uploads.delete(uploadId)
+    upload.stream.destroy()
+    void unlink(upload.temporaryPath).catch(() => {})
+  }
+
+  private failFileUpload(uploadId: string, error: unknown) {
+    const upload = this.uploads.get(uploadId)
+    if (!upload) return
+    this.uploads.delete(uploadId)
+    upload.stream.destroy()
+    void unlink(upload.temporaryPath).catch(() => {})
+    this.send({ type: 'file-upload-error', uploadId, message: error instanceof Error ? error.message : 'Agent file upload failed' })
+  }
+
   private async attachTerminal(message: any) {
     const requestId = typeof message.requestId === 'string' ? message.requestId : ''
     const attachmentId = typeof message.attachmentId === 'string' ? message.attachmentId : ''
@@ -215,6 +304,14 @@ class Agent {
   private closeTerminals() {
     for (const terminal of this.terminals.values()) terminal.kill()
     this.terminals.clear()
+  }
+
+  private closeUploads() {
+    for (const upload of this.uploads.values()) {
+      upload.stream.destroy()
+      void unlink(upload.temporaryPath).catch(() => {})
+    }
+    this.uploads.clear()
   }
 
   private send(data: any) {

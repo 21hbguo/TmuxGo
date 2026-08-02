@@ -6,6 +6,16 @@ interface PaneBounds {
   rows:number
 }
 
+export interface PaneResizeTarget {
+  axis:'x'|'y'
+  paneId:string
+  startCell:number
+  startSize:number
+  crossStart:number
+  crossSize:number
+  paneStart:number
+}
+
 export function createTerminalPaneInteractions(getTerminal:()=>any,container:HTMLElement,readSessionSnapshot:()=>any) {
   let cache:{snapshot:any;windowId:string;bounds:PaneBounds[]}|null=null
   const getPaneBounds=(pane:any):PaneBounds|null=>{
@@ -73,7 +83,7 @@ export function createTerminalPaneInteractions(getTerminal:()=>any,container:HTM
     return terminal?.getSelection?.()||window.getSelection?.()?.toString()||''
   }
   const overlaps=(startA:number,endA:number,startB:number,endB:number)=>Math.max(startA,startB)<=Math.min(endA,endB)
-  const getPaneResizeTarget=(event:MouseEvent)=>{
+  const getPaneResizeTarget=(event:MouseEvent):PaneResizeTarget|null=>{
     if (event.button!==0||event.shiftKey||event.altKey||event.ctrlKey||event.metaKey) return null
     const cell=getMouseCell(event)
     if (!cell) return null
