@@ -1,7 +1,7 @@
 import { expect } from '@playwright/test'
 import { apiUrl } from './endpoints'
-export async function ensureSession(request: any, name: string) {
-  const response = await request.post(`${apiUrl}/api/hosts/local/sessions`, { data: { name } })
+export async function ensureSession(request: any, name: string, hostId = 'local') {
+  const response = await request.post(`${apiUrl}/api/hosts/${encodeURIComponent(hostId)}/sessions`, { data: { name } })
   if (!response.ok()) throw new Error(await response.text())
   return response.json()
 }
