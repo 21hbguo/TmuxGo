@@ -134,6 +134,7 @@ export interface HostPayload {
   passwordEnv?: string
   privateKeyPath?: string
   groups?: string[]
+  tags?: string[]
   favorite?: boolean
   useAgent?: boolean
   jumpHost?: string

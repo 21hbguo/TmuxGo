@@ -4,6 +4,7 @@ export interface Host {
   address: string
   status: 'online' | 'offline' | 'unknown' | 'unreachable'
   tags: string[]
+  userTags?: string[]
   user?: string
   port?: number
   auth?: 'auto'

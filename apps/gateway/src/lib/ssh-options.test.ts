@@ -11,6 +11,7 @@ const host: HostRecord = {
   port: 22,
   auth: 'auto',
   groups: [],
+  tags: [],
   favorite: false,
   useAgent: false,
   jumpHost: 'jump@bastion.example',

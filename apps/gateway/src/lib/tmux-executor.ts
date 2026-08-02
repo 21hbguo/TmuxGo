@@ -79,7 +79,7 @@ async function getResolvedHost(hostIdRaw: string) {
   return host
 }
 function toAgentHost(agent: AgentStatus): HostRecord {
-  return { id: agent.id, name: agent.name, address: agent.address, user: '', port: 22, auth: 'auto', groups: [], favorite: false, useAgent: true, jumpHost: '', knownHostsPolicy: 'strict', createdAt: agent.connectedAt || agent.lastSeenAt, updatedAt: agent.lastSeenAt }
+  return { id: agent.id, name: agent.name, address: agent.address, user: '', port: 22, auth: 'auto', groups: [], tags: [], favorite: false, useAgent: true, jumpHost: '', knownHostsPolicy: 'strict', createdAt: agent.connectedAt || agent.lastSeenAt, updatedAt: agent.lastSeenAt }
 }
 function buildSshArgs(host: HostRecord, remoteCommand: string, options: TmuxExecOptions = {}, usePassword = false, credentials: HostCredentials) {
   const args: string[] = ['-p', String(host.port), '-o', 'ConnectTimeout=8', '-o', 'ServerAliveInterval=30', '-o', 'ServerAliveCountMax=3']

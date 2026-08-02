@@ -220,6 +220,7 @@ export const zh = {
   'settings.hostKnownHostsAcceptNew': '接受新主机',
   'settings.hostKnownHostsOff': '关闭校验',
   'settings.hostGroups': '主机分组，使用逗号分隔',
+  'settings.hostTags': '主机标签，使用逗号分隔',
   'settings.hostFavorite': '收藏主机',
   'settings.hostLatency': '延迟 {value} ms',
   'settings.hostConnectionMode': '连接方式：{mode}',

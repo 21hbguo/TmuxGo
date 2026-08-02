@@ -11,6 +11,7 @@ export interface HostRecord {
   port: number
   auth: 'auto'
   groups: string[]
+  tags: string[]
   favorite: boolean
   useAgent: boolean
   jumpHost: string
@@ -47,6 +48,7 @@ export interface HostInput {
   passwordEnv?: string
   privateKeyPath?: string
   groups?: string[]
+  tags?: string[]
   favorite?: boolean
   useAgent?: boolean
   jumpHost?: string
@@ -61,6 +63,7 @@ const localHost: HostRecord = {
   port: 22,
   auth: 'auto',
   groups: [],
+  tags: [],
   favorite: false,
   useAgent: false,
   jumpHost: '',
@@ -161,6 +164,7 @@ function normalizeHostRecord(raw: any): HostRecord {
     port: sanitizeHostPort(typeof raw?.port === 'number' ? raw.port : Number(raw?.port)),
     auth: 'auto',
     groups: sanitizeGroups(raw?.groups),
+    tags: sanitizeGroups(raw?.tags),
     favorite: raw?.favorite === true,
     useAgent: raw?.useAgent !== false,
     jumpHost: sanitizeJumpHost(typeof raw?.jumpHost === 'string' ? raw.jumpHost : ''),
@@ -272,6 +276,7 @@ export async function upsertRemoteHost(input: HostInput) {
     port: sanitizeHostPort(input.port),
     auth: 'auto',
     groups: input.groups === undefined ? (existing?.groups || []) : sanitizeGroups(input.groups),
+    tags: input.tags === undefined ? (existing?.tags || []) : sanitizeGroups(input.tags),
     favorite: input.favorite === undefined ? !!existing?.favorite : input.favorite,
     useAgent: input.useAgent === undefined ? (existing?.useAgent ?? true) : input.useAgent,
     jumpHost: input.jumpHost === undefined ? (existing?.jumpHost || '') : sanitizeJumpHost(input.jumpHost),
