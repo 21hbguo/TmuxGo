@@ -415,7 +415,7 @@ export function useGitUnstage() {
 export function useGitCommit() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ hostId, path, message, amend }: { hostId: string; path: string; message: string; amend?: boolean }) => api.git.commit(hostId, path, message, amend),
+    mutationFn: ({ hostId, path, message, amend }: { hostId: string; path: string; message: string; amend?: boolean }) => api.git.commit(hostId, path, message, amend, { background:true }),
     onSuccess: (_, { hostId, path }) => { qc.invalidateQueries({ queryKey: ['git-status', hostId, path] }); qc.invalidateQueries({ queryKey: ['git-diff', hostId, path] }); qc.invalidateQueries({ queryKey: ['git-log', hostId, path] }); qc.invalidateQueries({ queryKey: ['git-branches', hostId, path] }) },
   })
 }
@@ -437,7 +437,7 @@ export function useGitResolve() {
 export function useGitOperation() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ hostId, path, operation, action }: { hostId: string; path: string; operation: 'merge' | 'rebase'; action: 'continue' | 'abort' }) => api.git.operation(hostId, path, operation, action),
+    mutationFn: ({ hostId, path, operation, action }: { hostId: string; path: string; operation: 'merge' | 'rebase'; action: 'continue' | 'abort' }) => api.git.operation(hostId, path, operation, action, action==='continue'?{background:true}:undefined),
     onSuccess: (_, { hostId, path }) => { qc.invalidateQueries({ queryKey: ['git-status', hostId, path] }); qc.invalidateQueries({ queryKey: ['git-log', hostId, path] }); qc.invalidateQueries({ queryKey: ['git-branches', hostId, path] }) },
   })
 }
@@ -495,7 +495,7 @@ export function useGitDeleteBranch() {
 export function useGitMerge() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ hostId, path, branch, noFF }: { hostId: string; path: string; branch: string; noFF?: boolean }) => api.git.merge(hostId, path, branch, noFF),
+    mutationFn: ({ hostId, path, branch, noFF }: { hostId: string; path: string; branch: string; noFF?: boolean }) => api.git.merge(hostId, path, branch, noFF, { background:true }),
     onSuccess: (_, { hostId, path }) => { qc.invalidateQueries({ queryKey: ['git-status', hostId, path] }); qc.invalidateQueries({ queryKey: ['git-branches', hostId, path] }) },
   })
 }

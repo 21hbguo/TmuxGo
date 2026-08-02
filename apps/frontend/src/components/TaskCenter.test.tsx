@@ -5,7 +5,7 @@ import { TaskCenter } from './TaskCenter'
 
 const cancelTask=vi.fn()
 const retryTask=vi.fn()
-const tasks=[{ id:'restart-rebuild', type:'restart-rebuild', title:'Restart + Rebuild', status:'running' as const, startedAt:'2026-08-02T00:00:00.000Z', finishedAt:null, summaryLines:['Starting...'], exitCode:null, errorMessage:null, cancellable:true, retryable:false },{ id:'failed-upload', type:'file-upload', title:'Upload file', status:'error' as const, startedAt:'2026-08-02T00:00:00.000Z', finishedAt:'2026-08-02T00:00:01.000Z', summaryLines:[], exitCode:null, errorMessage:'SSH authentication failed', errorCode:'AUTHENTICATION_ERROR', cancellable:false, retryable:true }]
+const tasks=[{ id:'restart-rebuild', type:'restart-rebuild', title:'Restart + Rebuild', status:'running' as const, startedAt:'2026-08-02T00:00:00.000Z', finishedAt:null, summaryLines:['Starting...'], exitCode:null, errorMessage:null, cancellable:true, retryable:false },{ id:'failed-upload', type:'file-upload', title:'Upload file', status:'error' as const, startedAt:'2026-08-02T00:00:00.000Z', finishedAt:'2026-08-02T00:00:01.000Z', summaryLines:[], exitCode:null, errorMessage:'SSH authentication failed', errorCode:'AUTHENTICATION_ERROR', result:{files:['demo.txt']}, cancellable:false, retryable:true }]
 
 vi.mock('@/hooks/useApi', () => ({
   useSystemTasks: () => ({ data:{tasks}, isLoading:false }),
@@ -43,5 +43,10 @@ describe('TaskCenter', () => {
     fireEvent.click(screen.getByText('Upload file'))
     expect(screen.getByText('AUTHENTICATION_ERROR')).toBeInTheDocument()
     expect(screen.getByText('SSH authentication failed')).toBeInTheDocument()
+  })
+  it('shows a structured task result', () => {
+    render(React.createElement(TaskCenter, { onClose:vi.fn() }))
+    fireEvent.click(screen.getByText('Upload file'))
+    expect(screen.getByText(/"files"/)).toHaveTextContent('demo.txt')
   })
 })
