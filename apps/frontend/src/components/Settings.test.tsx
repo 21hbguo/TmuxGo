@@ -8,6 +8,7 @@ import { I18nProvider } from '@/i18n'
 const pushToast=vi.fn()
 const updatePreferences=vi.fn()
 const restartRebuild=vi.fn()
+const createHost=vi.fn()
 const deleteHost=vi.fn()
 const testHost=vi.fn()
 const copy=vi.fn()
@@ -52,8 +53,8 @@ vi.mock('@/hooks/useAppVersion', () => ({
   useAppVersion: () => ({ data: { version: '0.1.0', buildId: '0.1.0-1900913' }, isLoading: false, error: null }),
 }))
 vi.mock('@/hooks/useApi', () => ({
-  useHosts: () => ({ data: [{ id: 'edge', name: 'Edge', address: '10.0.0.8', user: 'deploy', port: 22, connectionMode: 'agent', agent: { version: '1.2.3', online: false, lastSeenAt: '2026-08-02T00:00:00.000Z', lastDisconnectedAt: '2026-08-02T00:01:00.000Z', disconnectReason: 'Heartbeat timed out', reconnectCount: 3 } }] }),
-  useCreateHost: () => ({ mutateAsync: vi.fn() }),
+  useHosts: () => ({ data: [{ id: 'edge', name: 'Edge', address: '10.0.0.8', user: 'deploy', port: 22, tags: ['agent', 'production'], userTags: ['production'], connectionMode: 'agent', agent: { version: '1.2.3', online: false, lastSeenAt: '2026-08-02T00:00:00.000Z', lastDisconnectedAt: '2026-08-02T00:01:00.000Z', disconnectReason: 'Heartbeat timed out', reconnectCount: 3 } }] }),
+  useCreateHost: () => ({ mutateAsync: createHost }),
   useDeleteHost: () => ({ mutateAsync: deleteHost }),
   useTestHost: () => ({ mutateAsync: testHost }),
   useRestartRebuildStatus: () => restartStatusState,
@@ -67,6 +68,7 @@ describe('Settings restart rebuild', () => {
     pushToast.mockReset()
     updatePreferences.mockReset()
     restartRebuild.mockReset()
+    createHost.mockReset()
     deleteHost.mockReset()
     testHost.mockReset()
     copy.mockReset()
@@ -76,6 +78,7 @@ describe('Settings restart rebuild', () => {
     copy.mockResolvedValue(true)
     shareApi.list.mockResolvedValue({ links: [] })
     deleteHost.mockResolvedValue({ success: true })
+    createHost.mockResolvedValue({})
     testHost.mockResolvedValue({ task: { title: 'Test host edge' } })
     restartStatusState.data = { status: 'idle', startedAt: null, finishedAt: null, summaryLines: [], exitCode: null, errorMessage: null }
     restartStatusState.refetch.mockReset()
@@ -146,6 +149,25 @@ describe('Settings restart rebuild', () => {
     expect(screen.getByText(/Last heartbeat/)).toBeInTheDocument()
     expect(screen.getByText(/Reconnects 3/)).toBeInTheDocument()
     expect(screen.getByText(/Disconnect reason: Heartbeat timed out/)).toBeInTheDocument()
+    expect(screen.getByText(/production/)).toBeInTheDocument()
+  })
+  it('edits user host tags without persisting the connection tag', async () => {
+    const user = userEvent.setup()
+    render(React.createElement(I18nProvider, null, React.createElement(Settings, { onClose: vi.fn() })))
+    await act(async () => {
+      await user.click(screen.getByRole('button', { name: 'Connection' }))
+    })
+    await act(async () => {
+      await user.click(screen.getByRole('button', { name: 'Edit Host' }))
+    })
+    const tags = screen.getByPlaceholderText('Tags, separated by commas')
+    expect(tags).toHaveValue('production')
+    await act(async () => {
+      await user.clear(tags)
+      await user.type(tags, 'production, critical')
+      await user.click(screen.getByRole('button', { name: 'Save Host' }))
+    })
+    await waitFor(() => expect(createHost).toHaveBeenCalledWith(expect.objectContaining({ tags: ['production', 'critical'] })))
   })
   it('creates and copies a session-scoped share link', async () => {
     const user = userEvent.setup()

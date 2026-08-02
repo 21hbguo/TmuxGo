@@ -15,7 +15,7 @@ test('configured SSH host keeps SSH status when an Agent with the same id is onl
   agentManager.register('remote', 'remote-agent', '10.0.0.2', '1.0.0', socket)
   const app = Fastify()
   await app.register(hostRoutes, { prefix: '/api' })
-  await upsertRemoteHost({ id: 'remote', name: 'remote-ssh', address: '10.0.0.2', user: 'guo', password: 'route-secret', privateKeyPath: '/home/guo/.ssh/id_ed25519' })
+  await upsertRemoteHost({ id: 'remote', name: 'remote-ssh', address: '10.0.0.2', user: 'guo', password: 'route-secret', privateKeyPath: '/home/guo/.ssh/id_ed25519', tags: ['production'] })
   t.after(async () => {
     agentManager.unregister('remote', socket)
     await app.close()
@@ -27,7 +27,8 @@ test('configured SSH host keeps SSH status when an Agent with the same id is onl
   const host = response.json()
   assert.equal(host.connectionMode, 'ssh')
   assert.equal(host.status, 'unknown')
-  assert.deepEqual(host.tags, ['ssh'])
+  assert.deepEqual(host.tags, ['ssh', 'production'])
+  assert.deepEqual(host.userTags, ['production'])
   assert.equal(host.agent.online, true)
   assert.equal(host.hasPassword, true)
   assert.equal(host.hasPrivateKey, true)
