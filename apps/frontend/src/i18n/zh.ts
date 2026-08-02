@@ -225,6 +225,7 @@ export const zh = {
   'settings.hostAgentState': 'Agent {version}：{status}',
   'settings.hostAgentOnline': '在线',
   'settings.hostAgentOffline': '离线',
+  'settings.hostAgentDisconnectedAt': '断开于 {value}',
   'settings.hostNew': '新建主机',
   'settings.hostCreate': '新建主机',
   'settings.hostEdit': '编辑主机',

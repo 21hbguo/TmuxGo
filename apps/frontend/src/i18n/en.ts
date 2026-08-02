@@ -225,6 +225,7 @@ export const en = {
   'settings.hostAgentState': 'Agent {version}: {status}',
   'settings.hostAgentOnline': 'online',
   'settings.hostAgentOffline': 'offline',
+  'settings.hostAgentDisconnectedAt': 'Disconnected {value}',
   'settings.hostNew': 'New Host',
   'settings.hostCreate': 'Create Host',
   'settings.hostEdit': 'Edit Host',

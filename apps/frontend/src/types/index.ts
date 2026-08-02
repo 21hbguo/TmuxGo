@@ -19,7 +19,7 @@ export interface Host {
   lastCheckedAt?: string
   lastConnectionError?: string
   dependencies?: Record<string, boolean>
-  agent?: { version: string; online: boolean; lastSeenAt: string; disconnectReason: string | null; reconnectCount: number }
+  agent?: { version: string; online: boolean; lastSeenAt: string; lastDisconnectedAt?: string | null; disconnectReason: string | null; reconnectCount: number }
 }
 
 export interface Session {
