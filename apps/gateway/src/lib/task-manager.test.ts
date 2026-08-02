@@ -64,6 +64,23 @@ test('cancels a running task',async(t)=>{
   assert.equal(cancelled?.cancellable,false)
   assert.equal(cancelled?.retryable,true)
 })
+test('does not retry tasks registered without a safe retry policy',async(t)=>{
+  const rootDir=await mkdtemp(path.join(os.tmpdir(),'tmuxgo-tasks-'))
+  t.after(async()=>{
+    await rm(rootDir,{recursive:true,force:true})
+  })
+  let runs=0
+  const manager=new TaskManager({statePath:path.join(rootDir,'tasks.json')})
+  manager.register('unsafe',async()=>{
+    runs+=1
+    throw new Error('Connection lost')
+  },{retryable:false})
+  const task=await manager.start({type:'unsafe',title:'Unsafe',input:{}})
+  const failed=await waitForTask(manager,task.id)
+  assert.equal(failed.retryable,false)
+  assert.equal((await manager.retry(task.id))?.status,'error')
+  assert.equal(runs,1)
+})
 test('persists task input checkpoints while running',async(t)=>{
   const rootDir=await mkdtemp(path.join(os.tmpdir(),'tmuxgo-task-checkpoint-'))
   const statePath=path.join(rootDir,'tasks.json')

@@ -176,8 +176,8 @@ export function parseGitRefs(stdout: string) {
 export async function gitRoutes(fastify: FastifyInstance, options:{ taskManager?:TaskManager }={}) {
   const backgroundTasks=options.taskManager||taskManager
   backgroundTasks.register('git-fetch',runGitBackgroundTask)
-  backgroundTasks.register('git-pull',runGitBackgroundTask)
-  backgroundTasks.register('git-push',runGitBackgroundTask)
+  backgroundTasks.register('git-pull',runGitBackgroundTask,{retryable:false})
+  backgroundTasks.register('git-push',runGitBackgroundTask,{retryable:false})
   backgroundTasks.register('git-commit',runGitBackgroundTask)
   backgroundTasks.register('git-merge',runGitBackgroundTask)
   backgroundTasks.register('git-operation',runGitBackgroundTask)
