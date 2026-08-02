@@ -319,6 +319,8 @@ export const en = {
   'plugins.preview': 'Preview install',
   'plugins.install': 'Install',
   'plugins.update': 'Update',
+  'plugins.rollback': 'Rollback',
+  'plugins.rolledBack': 'Rolled back {name}',
   'plugins.installed': 'Installed {name}',
   'plugins.trustWarning': 'Build commands and plugin actions run as the current system user. Verify the source and commands before installing.',
   'plugins.installedTitle': 'Installed Plugins',

@@ -153,4 +153,12 @@ export async function pluginRoutes(fastify: FastifyInstance) {
       return sendError(reply, error)
     }
   })
+  fastify.post('/plugins/:pluginId/rollback', async (request, reply) => {
+    try {
+      const { pluginId } = request.params as { pluginId: string }
+      return await pluginManager.rollback(pluginId)
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
 }

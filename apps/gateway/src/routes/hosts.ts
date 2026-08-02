@@ -24,7 +24,7 @@ async function hostResponse(host: HostRecord) {
     usesAgent: host.useAgent,
     jumpHost: host.jumpHost || undefined,
     knownHostsPolicy: host.knownHostsPolicy,
-    connectionMode: host.id === 'local' ? 'local' : agent?.online ? 'agent' : 'ssh',
+    connectionMode: host.id === 'local' ? 'local' : 'ssh',
     latencyMs: health?.latencyMs,
     lastCheckedAt: health?.lastCheckedAt,
     lastConnectionError: health?.lastError,

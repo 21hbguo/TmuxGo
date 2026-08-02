@@ -452,6 +452,7 @@ export interface PluginSource {
   requestedRef?: string
   resolvedCommit?: string
   installedAt: string
+  previousSource?: PluginSource
 }
 export interface PluginInfo {
   pluginId: string
