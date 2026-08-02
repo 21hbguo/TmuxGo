@@ -24,13 +24,44 @@ interface PendingTmuxRequest {
   reject: (error: Error) => void
   timer: NodeJS.Timeout
 }
+export interface AgentTerminal {
+  id: string
+  pid: number
+  write: (data: string) => void
+  resize: (cols: number, rows: number) => void
+  kill: () => void
+  onData: (listener: (data: string) => void) => void
+  onExit: (listener: (exitCode: number) => void) => void
+}
+interface AgentTerminalState {
+  agentId: string
+  socket: WebSocket
+  terminal: AgentTerminal
+  dataListener: ((data: string) => void) | null
+  exitListener: ((exitCode: number) => void) | null
+  pendingData: string[]
+  exitCode: number | null
+}
+interface PendingTerminalRequest {
+  agentId: string
+  socket: WebSocket
+  attachmentId: string
+  resolve: (terminal: AgentTerminal) => void
+  reject: (error: Error) => void
+  timer: NodeJS.Timeout
+}
 export class AgentManager {
   private agents = new Map<string, Agent>()
   private history = new Map<string, AgentStatus>()
   private pendingTmuxRequests = new Map<string, PendingTmuxRequest>()
+  private terminals = new Map<string, AgentTerminalState>()
+  private pendingTerminalRequests = new Map<string, PendingTerminalRequest>()
   register(id: string, name: string, address: string, version: string, socket: WebSocket) {
     const previous = this.agents.get(id)
-    if (previous && previous.socket !== socket) this.rejectTmuxRequests(id, previous.socket, 'Agent reconnected')
+    if (previous && previous.socket !== socket) {
+      this.rejectTmuxRequests(id, previous.socket, 'Agent reconnected')
+      this.closeTerminals(id, previous.socket, -1)
+    }
     const history = this.history.get(id)
     const timestamp = new Date().toISOString()
     const agent: Agent = {
@@ -55,6 +86,7 @@ export class AgentManager {
     const agent = this.agents.get(id)
     if (!agent || agent.socket !== socket) return false
     this.rejectTmuxRequests(id, socket, `Agent disconnected: ${reason}`)
+    this.closeTerminals(id, socket, -1)
     this.agents.delete(id)
     const status: AgentStatus = { ...this.toStatus(agent), online: false, lastDisconnectedAt: new Date().toISOString(), disconnectReason: reason }
     this.history.set(id, status)
@@ -106,17 +138,104 @@ export class AgentManager {
       }
     })
   }
+  attachTerminal(id: string, sessionName: string, cols: number, rows: number, exclusive: boolean, timeoutMs = 30000) {
+    const agent = this.agents.get(id)
+    if (!agent || agent.socket.readyState !== 1) return Promise.reject(new Error(`Agent "${id}" is not connected`))
+    if (!sessionName || sessionName.length > 256 || !Number.isInteger(cols) || !Number.isInteger(rows) || cols < 2 || rows < 1 || cols > 1000 || rows > 1000) return Promise.reject(new Error('Invalid Agent terminal attachment'))
+    const requestId = randomUUID()
+    const attachmentId = randomUUID()
+    let state: AgentTerminalState
+    const terminal: AgentTerminal = {
+      id: attachmentId,
+      pid: 0,
+      write: (data) => this.sendTerminalInput(state, data),
+      resize: (nextCols, nextRows) => this.resizeTerminal(state, nextCols, nextRows),
+      kill: () => this.detachTerminal(state),
+      onData: (listener) => {
+        state.dataListener = listener
+        for (const data of state.pendingData.splice(0)) listener(data)
+      },
+      onExit: (listener) => {
+        state.exitListener = listener
+        if (state.exitCode !== null) listener(state.exitCode)
+      },
+    }
+    state = { agentId: id, socket: agent.socket, terminal, dataListener: null, exitListener: null, pendingData: [], exitCode: null }
+    this.terminals.set(attachmentId, state)
+    return new Promise<AgentTerminal>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        const pending = this.pendingTerminalRequests.get(requestId)
+        if (!pending) return
+        this.pendingTerminalRequests.delete(requestId)
+        this.terminals.delete(attachmentId)
+        reject(new Error('Agent terminal attachment timed out'))
+      }, Math.max(1000, Math.min(timeoutMs, 120000)))
+      this.pendingTerminalRequests.set(requestId, { agentId: id, socket: agent.socket, attachmentId, resolve, reject, timer })
+      try {
+        agent.socket.send(JSON.stringify({ type: 'terminal-attach', requestId, attachmentId, sessionName, cols, rows, exclusive }))
+      } catch (error) {
+        clearTimeout(timer)
+        this.pendingTerminalRequests.delete(requestId)
+        this.terminals.delete(attachmentId)
+        reject(error instanceof Error ? error : new Error('Failed to send Agent terminal attachment'))
+      }
+    })
+  }
   handleMessage(id: string, socket: WebSocket, message: unknown) {
     if (!message || typeof message !== 'object') return false
-    const payload = message as { type?: unknown; requestId?: unknown; stdout?: unknown; stderr?: unknown; message?: unknown }
-    if ((payload.type !== 'tmux-result' && payload.type !== 'tmux-error') || typeof payload.requestId !== 'string') return false
-    const pending = this.pendingTmuxRequests.get(payload.requestId)
-    if (!pending || pending.agentId !== id || pending.socket !== socket) return false
-    clearTimeout(pending.timer)
-    this.pendingTmuxRequests.delete(payload.requestId)
-    if (payload.type === 'tmux-error') pending.reject(new Error(typeof payload.message === 'string' && payload.message ? payload.message : 'Agent tmux command failed'))
-    else pending.resolve({ stdout: typeof payload.stdout === 'string' ? payload.stdout : '', stderr: typeof payload.stderr === 'string' ? payload.stderr : '' })
-    return true
+    const payload = message as { type?: unknown; requestId?: unknown; attachmentId?: unknown; stdout?: unknown; stderr?: unknown; message?: unknown; pid?: unknown; data?: unknown; exitCode?: unknown }
+    if ((payload.type === 'tmux-result' || payload.type === 'tmux-error') && typeof payload.requestId === 'string') {
+      const pending = this.pendingTmuxRequests.get(payload.requestId)
+      if (!pending || pending.agentId !== id || pending.socket !== socket) return false
+      clearTimeout(pending.timer)
+      this.pendingTmuxRequests.delete(payload.requestId)
+      if (payload.type === 'tmux-error') pending.reject(new Error(typeof payload.message === 'string' && payload.message ? payload.message : 'Agent tmux command failed'))
+      else pending.resolve({ stdout: typeof payload.stdout === 'string' ? payload.stdout : '', stderr: typeof payload.stderr === 'string' ? payload.stderr : '' })
+      return true
+    }
+    if ((payload.type === 'terminal-attached' || payload.type === 'terminal-error') && typeof payload.requestId === 'string') {
+      const pending = this.pendingTerminalRequests.get(payload.requestId)
+      if (!pending || pending.agentId !== id || pending.socket !== socket) return false
+      const state = this.terminals.get(pending.attachmentId)
+      if (payload.type === 'terminal-error') {
+        clearTimeout(pending.timer)
+        this.pendingTerminalRequests.delete(payload.requestId)
+        this.terminals.delete(pending.attachmentId)
+        pending.reject(new Error(typeof payload.message === 'string' && payload.message ? payload.message : 'Agent terminal attachment failed'))
+      } else {
+        if (payload.attachmentId !== pending.attachmentId || typeof payload.pid !== 'number' || payload.pid <= 0) return false
+        clearTimeout(pending.timer)
+        this.pendingTerminalRequests.delete(payload.requestId)
+        if (!state || state.agentId !== id || state.socket !== socket) {
+          pending.reject(new Error('Agent terminal exited before attaching'))
+          return true
+        }
+        state.terminal.pid = payload.pid
+        pending.resolve(state.terminal)
+      }
+      return true
+    }
+    if ((payload.type === 'terminal-output' || payload.type === 'terminal-exit') && typeof payload.attachmentId === 'string') {
+      const state = this.terminals.get(payload.attachmentId)
+      if (!state || state.agentId !== id || state.socket !== socket) return false
+      if (payload.type === 'terminal-output') {
+        if (typeof payload.data !== 'string') return false
+        if (state.dataListener) state.dataListener(payload.data)
+        else state.pendingData.push(payload.data)
+      } else {
+        this.terminals.delete(payload.attachmentId)
+        state.exitCode = typeof payload.exitCode === 'number' ? payload.exitCode : -1
+        state.exitListener?.(state.exitCode)
+        for (const [requestId, pending] of this.pendingTerminalRequests) {
+          if (pending.attachmentId !== payload.attachmentId) continue
+          clearTimeout(pending.timer)
+          this.pendingTerminalRequests.delete(requestId)
+          pending.reject(new Error('Agent terminal exited before attaching'))
+        }
+      }
+      return true
+    }
+    return false
   }
   private rejectTmuxRequests(agentId: string, socket: WebSocket, message: string) {
     for (const [requestId, pending] of this.pendingTmuxRequests) {
@@ -124,6 +243,40 @@ export class AgentManager {
       clearTimeout(pending.timer)
       this.pendingTmuxRequests.delete(requestId)
       pending.reject(new Error(message))
+    }
+  }
+  private sendTerminalInput(state: AgentTerminalState, data: string) {
+    if (!data || state.exitCode !== null || state.socket.readyState !== 1) return
+    try {
+      state.socket.send(JSON.stringify({ type: 'terminal-input', attachmentId: state.terminal.id, data }))
+    } catch {}
+  }
+  private resizeTerminal(state: AgentTerminalState, cols: number, rows: number) {
+    if (state.exitCode !== null || state.socket.readyState !== 1 || !Number.isInteger(cols) || !Number.isInteger(rows) || cols < 2 || rows < 1 || cols > 1000 || rows > 1000) return
+    try {
+      state.socket.send(JSON.stringify({ type: 'terminal-resize', attachmentId: state.terminal.id, cols, rows }))
+    } catch {}
+  }
+  private detachTerminal(state: AgentTerminalState) {
+    if (this.terminals.get(state.terminal.id) !== state) return
+    this.terminals.delete(state.terminal.id)
+    if (state.socket.readyState !== 1) return
+    try {
+      state.socket.send(JSON.stringify({ type: 'terminal-detach', attachmentId: state.terminal.id }))
+    } catch {}
+  }
+  private closeTerminals(agentId: string, socket: WebSocket, exitCode: number) {
+    for (const [attachmentId, state] of this.terminals) {
+      if (state.agentId !== agentId || state.socket !== socket) continue
+      this.terminals.delete(attachmentId)
+      state.exitCode = exitCode
+      state.exitListener?.(exitCode)
+    }
+    for (const [requestId, pending] of this.pendingTerminalRequests) {
+      if (pending.agentId !== agentId || pending.socket !== socket) continue
+      clearTimeout(pending.timer)
+      this.pendingTerminalRequests.delete(requestId)
+      pending.reject(new Error('Agent terminal disconnected'))
     }
   }
   private toStatus(agent: Agent): AgentStatus {
