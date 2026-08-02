@@ -5,6 +5,7 @@ import path from 'path'
 import { promisify } from 'util'
 import { getHostById, getHostCredentials, type HostCredentials, type HostRecord } from './hosts.js'
 import { buildHostSshOptions, resolveHostPassword } from './ssh-options.js'
+import { agentManager, type AgentStatus } from '../agent-manager.js'
 
 const execFileAsync = promisify(execFile)
 const defaultTimeoutMs = 30000
@@ -76,6 +77,9 @@ async function getResolvedHost(hostIdRaw: string) {
   const host = await getHostById(hostId)
   if (!host) throw new Error(`Host "${hostId}" not found`)
   return host
+}
+function toAgentHost(agent: AgentStatus): HostRecord {
+  return { id: agent.id, name: agent.name, address: agent.address, user: '', port: 22, auth: 'auto', groups: [], favorite: false, useAgent: true, jumpHost: '', knownHostsPolicy: 'strict', createdAt: agent.connectedAt || agent.lastSeenAt, updatedAt: agent.lastSeenAt }
 }
 function buildSshArgs(host: HostRecord, remoteCommand: string, options: TmuxExecOptions = {}, usePassword = false, credentials: HostCredentials) {
   const args: string[] = ['-p', String(host.port), '-o', 'ConnectTimeout=8', '-o', 'ServerAliveInterval=30', '-o', 'ServerAliveCountMax=3']
@@ -184,7 +188,14 @@ async function runRemoteShell(host: HostRecord, command: string, options: TmuxEx
   }
 }
 export async function execTmux(hostIdRaw: string, args: string[], options: TmuxExecOptions = {}): Promise<TmuxExecResult> {
-  const host = await getResolvedHost(hostIdRaw)
+  const hostId = parseHostInput(hostIdRaw)
+  const host = await getHostById(hostId)
+  if (!host) {
+    const agent = agentManager.getAgent(hostId)
+    if (!agent) throw new Error(`Host "${hostId}" not found`)
+    const result = await agentManager.executeTmux(hostId, args, options.timeoutMs || defaultTimeoutMs)
+    return { ...result, host: toAgentHost(agent) }
+  }
   if (host.id === 'local') {
     try {
       const result = await runLocalTmux(args, options)
@@ -229,7 +240,13 @@ export async function cleanupMultiplexSockets() {
 }
 
 export async function verifyHostConnectivity(hostIdRaw: string) {
-  const host = await getResolvedHost(hostIdRaw)
+  const hostId = parseHostInput(hostIdRaw)
+  const host = await getHostById(hostId)
+  if (!host) {
+    const agent = agentManager.getAgent(hostId)
+    if (agent) return { ok: true, message: 'agent ready', mode: 'agent' as const }
+    throw new Error(`Host "${hostId}" not found`)
+  }
   const credentials = await getHostCredentials(host.id)
   const passwordEnv = buildPasswordEnv(credentials)
   const sshPassAvailable = await hasSshPass()

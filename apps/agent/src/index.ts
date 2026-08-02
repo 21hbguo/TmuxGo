@@ -105,16 +105,8 @@ class Agent {
         console.log(`Registered as agent ${message.agentId || process.env.HOST_ID || 'agent-local'}`)
         return
 
-      case 'command':
-        await this.handleCommand(message)
-        break
-
-      case 'list-sessions':
-        await this.listSessions()
-        break
-
-      case 'create-session':
-        await this.createSession(message.name)
+      case 'tmux':
+        await this.handleTmux(message)
         break
 
       default:
@@ -122,49 +114,20 @@ class Agent {
     }
   }
 
-  private async handleCommand(message: any) {
-    const { paneId, command } = message
+  private async handleTmux(message: any) {
+    const requestId = typeof message.requestId === 'string' ? message.requestId : ''
     try {
-      const output = await this.tmux.execute(command)
+      if (!requestId) throw new Error('Missing tmux request id')
+      const result = await this.tmux.executeTmux(message.args)
       this.send({
-        type: 'output',
-        paneId,
-        data: output,
+        type: 'tmux-result',
+        requestId,
+        ...result,
       })
     } catch (err: any) {
       this.send({
-        type: 'error',
-        paneId,
-        message: err.message,
-      })
-    }
-  }
-
-  private async listSessions() {
-    try {
-      const sessions = await this.tmux.listSessions()
-      this.send({
-        type: 'sessions',
-        sessions,
-      })
-    } catch (err: any) {
-      this.send({
-        type: 'error',
-        message: err.message,
-      })
-    }
-  }
-
-  private async createSession(name: string) {
-    try {
-      const session = await this.tmux.createSession(name)
-      this.send({
-        type: 'session-created',
-        session,
-      })
-    } catch (err: any) {
-      this.send({
-        type: 'error',
+        type: 'tmux-error',
+        requestId,
         message: err.message,
       })
     }
