@@ -1,6 +1,7 @@
 import { execFile, spawn } from 'child_process'
 import { promisify } from 'util'
-import { getHostById, type HostRecord } from './hosts.js'
+import { getHostById, getHostCredentials, type HostRecord } from './hosts.js'
+import { buildHostSshOptions, resolveHostPassword } from './ssh-options.js'
 
 const execFileAsync = promisify(execFile)
 const knownAuthMarkers = ['Permission denied']
@@ -18,12 +19,6 @@ export function normalizeRemoteFileErrorMessage(raw: string, fallback: string) {
   if (knownNetworkMarkers.some((marker) => value.includes(marker))) return 'SSH network is unreachable'
   if (knownAuthMarkers.some((marker) => value.includes(marker))) return 'SSH authentication failed'
   return value
-}
-function resolveHostPassword(host: HostRecord) {
-  if (host.password) return host.password
-  const envName = host.passwordEnv.trim()
-  if (!envName) return ''
-  return process.env[envName] || ''
 }
 async function hasSshPass() {
   try {
@@ -43,8 +38,9 @@ export async function getRemoteFileHost(hostIdRaw: string) {
 export async function runRemoteFilePython<T>(hostId: string, script: string, args: string[]): Promise<T> {
   const host = await getRemoteFileHost(hostId)
   const remoteCommand = `python3 -c ${escapeShellSingleQuoted(script)} -- ${args.map((arg) => escapeShellSingleQuoted(arg)).join(' ')}`
-  const sshArgs = ['-p', String(host.port), '-o', 'ConnectTimeout=8', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=accept-new', '-T', `${host.user}@${host.address}`, '--', remoteCommand]
-  const password = resolveHostPassword(host)
+  const credentials = await getHostCredentials(host.id)
+  const password = resolveHostPassword(credentials)
+  const sshArgs = ['-p', String(host.port), '-o', 'ConnectTimeout=8', '-o', `BatchMode=${password ? 'no' : 'yes'}`, ...buildHostSshOptions(host, credentials), '-T', `${host.user}@${host.address}`, '--', remoteCommand]
   try {
     if (password && !await hasSshPass()) throw new Error('SSH password configured but sshpass is not installed')
     const result = password
@@ -56,8 +52,9 @@ export async function runRemoteFilePython<T>(hostId: string, script: string, arg
   }
 }
 export async function spawnRemoteFileCommand(host: HostRecord, remoteCommand: string) {
-  const sshArgs = ['-p', String(host.port), '-o', 'ConnectTimeout=8', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=accept-new', '-T', `${host.user}@${host.address}`, '--', remoteCommand]
-  const password = resolveHostPassword(host)
+  const credentials = await getHostCredentials(host.id)
+  const password = resolveHostPassword(credentials)
+  const sshArgs = ['-p', String(host.port), '-o', 'ConnectTimeout=8', '-o', `BatchMode=${password ? 'no' : 'yes'}`, ...buildHostSshOptions(host, credentials), '-T', `${host.user}@${host.address}`, '--', remoteCommand]
   if (password) {
     if (!await hasSshPass()) throw new Error('SSH password configured but sshpass is not installed')
     return spawn('sshpass', ['-e', 'ssh', ...sshArgs], { env: { ...process.env, SSHPASS: password }, stdio: ['pipe', 'pipe', 'pipe'] })

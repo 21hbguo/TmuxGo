@@ -8,7 +8,10 @@ export interface Host {
   port?: number
   auth?: 'auto'
   hasPassword?: boolean
-  passwordEnv?: string
+  hasPrivateKey?: boolean
+  usesAgent?: boolean
+  jumpHost?: string
+  knownHostsPolicy?: 'strict' | 'accept-new' | 'off'
 }
 
 export interface Session {

@@ -6,7 +6,8 @@ import { promisify } from 'util'
 import { agentManager } from '../agent-manager.js'
 import { assertSessionAllowed, prepareSessionAttach } from '../lib/tmux-policy.js'
 import { recordStreamMetric, updateStreamMetric } from '../lib/perf-metrics.js'
-import { getHostById } from '../lib/hosts.js'
+import { getHostById, getHostCredentials } from '../lib/hosts.js'
+import { buildHostSshOptions, resolveHostPassword } from '../lib/ssh-options.js'
 import { createTerminalOutputSanitizer, hasSubstantiveTerminalContent } from '../lib/terminal-output.js'
 import { parseSessionRef } from '../lib/tmux-target.js'
 import { getAttachSnapshotDelays } from '../lib/attach-snapshot.js'
@@ -376,12 +377,6 @@ export async function streamRoutes(fastify: FastifyInstance) {
         flushOutput()
       }, flushDelay)
     }
-    function resolveHostPassword(host: { password?: string; passwordEnv?: string }) {
-      if (host.password) return host.password
-      const envName = (host.passwordEnv || '').trim()
-      if (!envName) return ''
-      return process.env[envName] || ''
-    }
     async function hasSshPass() {
       if (sshPassAvailable !== null) return sshPassAvailable
       try {
@@ -611,11 +606,12 @@ export async function streamRoutes(fastify: FastifyInstance) {
             if (hostId !== 'local') {
               const host = await getHostById(hostId)
               if (!host) throw new Error('Host not found')
+              const credentials = await getHostCredentials(host.id)
               const target = `${host.user}@${host.address}`
-              const sshBaseArgs = ['-p', String(host.port), '-tt', '-o', 'ConnectTimeout=8', '-o', 'ServerAliveInterval=30', '-o', 'ServerAliveCountMax=3', '-o', 'StrictHostKeyChecking=accept-new', target, '--', 'tmux', 'attach']
+              const sshBaseArgs = ['-p', String(host.port), '-tt', '-o', 'ConnectTimeout=8', '-o', 'ServerAliveInterval=30', '-o', 'ServerAliveCountMax=3', ...buildHostSshOptions(host, credentials), target, '--', 'tmux', 'attach']
               if (!exclusive) sshBaseArgs.push('-f', 'ignore-size,active-pane')
               sshBaseArgs.push('-t', sessionName)
-              const hostPassword = resolveHostPassword(host)
+              const hostPassword = resolveHostPassword(credentials)
               if (hostPassword) {
                 if (!await hasSshPass()) throw new Error('sshpass is required for password auth')
                 ptyProcess = pty.spawn('sshpass', ['-e', 'ssh', '-o', 'BatchMode=no', ...sshBaseArgs], {

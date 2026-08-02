@@ -4,7 +4,7 @@ import { TmuxManager } from './tmux.js'
 const GATEWAY_URL = process.env.GATEWAY_URL || 'ws://localhost:3001/api/stream'
 const RECONNECT_DELAY = 5000
 const GATEWAY_USERNAME = process.env.GATEWAY_USERNAME || 'admin'
-const GATEWAY_PASSWORD = process.env.GATEWAY_PASSWORD || 'admin123'
+const GATEWAY_PASSWORD = process.env.GATEWAY_PASSWORD || ''
 function getGatewayHttpBase() {
   const url = new URL(GATEWAY_URL)
   url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:'
