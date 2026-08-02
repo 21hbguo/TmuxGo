@@ -110,7 +110,7 @@ describe('PaneGrid', () => {
     act(() => {
       terminalProps.current?.onResize?.(123, 36)
     })
-    expect(sendMock).toHaveBeenCalledWith({ type: 'resize', hostId: 'local', cols: 123, rows: 36 })
+    await waitFor(() => expect(sendMock).toHaveBeenCalledWith({ type: 'resize', hostId: 'local', cols: 123, rows: 36 }))
     expect(sendMock.mock.calls.filter(([message]) => message?.type === 'resize')).toHaveLength(1)
   })
   it('does not repeat resize after attach when tmux reports the same size', async () => {

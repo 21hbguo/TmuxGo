@@ -733,7 +733,7 @@ describe('TerminalPane', () => {
     render(<TerminalPane sessionName="dev" onInput={onInput} onResize={vi.fn()} />)
     await waitFor(() => expect(customKeyHandler).toBeTruthy())
     vi.useFakeTimers()
-    expect(customKeyHandler?.({ key: 'Backspace', ctrlKey: true, metaKey: false, altKey: false, repeat: false } as KeyboardEvent)).toBe(false)
+    expect(customKeyHandler?.({ key: 'Backspace', ctrlKey: true, metaKey: false, altKey: false, repeat: false, preventDefault: vi.fn() } as unknown as KeyboardEvent)).toBe(false)
     vi.advanceTimersByTime(419)
     expect(onInput.mock.calls.filter((call) => call[0] === DELETE_PREV_WORD_SEQUENCE)).toHaveLength(1)
     vi.advanceTimersByTime(1)
@@ -741,7 +741,7 @@ describe('TerminalPane', () => {
     fireEvent.keyUp(window, { key: 'Backspace', ctrlKey: true })
     vi.runOnlyPendingTimers()
     expect(onInput.mock.calls.filter((call) => call[0] === DELETE_PREV_WORD_SEQUENCE)).toHaveLength(2)
-    expect(customKeyHandler?.({ key: 'Backspace', ctrlKey: true, metaKey: false, altKey: false, repeat: true } as KeyboardEvent)).toBe(false)
+    expect(customKeyHandler?.({ key: 'Backspace', ctrlKey: true, metaKey: false, altKey: false, repeat: true, preventDefault: vi.fn() } as unknown as KeyboardEvent)).toBe(false)
   })
 
   it('routes native paste through unified paste request without fallback replay', async () => {
@@ -1084,6 +1084,8 @@ describe('TerminalPane', () => {
   it('ignores stale attach events from another session', async () => {
     render(<TerminalPane sessionName="dev" attachExclusive={false} onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    await waitFor(() => expect(resizeObserverCallback).toBeTruthy())
+    await sleep(300)
     terminalMocks.refresh.mockClear()
     webSocketMocks.send.mockClear()
     window.dispatchEvent(new CustomEvent('tmux-attached', { detail: { sessionName: 'other', cols: 120, rows: 36, exclusive: false } }))
@@ -1187,6 +1189,7 @@ describe('TerminalPane', () => {
     const onResize = vi.fn()
     const { container } = render(<TerminalPane sessionName="dev" attachExclusive onInput={vi.fn()} onResize={onResize} />)
     await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    await waitFor(() => expect(resizeObserverCallback).toBeTruthy())
     const root = container.firstChild as HTMLElement
     Object.defineProperty(root, 'clientWidth', { configurable: true, value: 800 })
     Object.defineProperty(root, 'clientHeight', { configurable: true, value: 520 })
@@ -1194,7 +1197,7 @@ describe('TerminalPane', () => {
     onResize.mockClear()
     apiMocks.snapshotGet.mockClear()
     resizeObserverCallback?.()
-    expect(terminalMocks.resize).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(terminalMocks.resize).toHaveBeenCalledTimes(1))
     expect(onResize).toHaveBeenCalledTimes(1)
     const [cols, rows] = terminalMocks.resize.mock.calls[0]
     window.dispatchEvent(new CustomEvent('tmux-resized', { detail: { hostId: 'local', sessionName: 'dev', cols, rows } }))
@@ -1226,10 +1229,13 @@ describe('TerminalPane', () => {
     mobileKeyboardMocks.isMobile = true
     const { container } = render(<TerminalPane sessionName="dev" attachExclusive onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(customKeyHandler).toBeTruthy())
-    await sleep(240)
-    terminalMocks.resize.mockClear()
+    await waitFor(() => expect(resizeObserverCallback).toBeTruthy())
     const root = container.firstChild as HTMLElement
     Object.defineProperty(root, 'clientWidth', { configurable: true, value: 390 })
+    Object.defineProperty(root, 'clientHeight', { configurable: true, value: 700 })
+    resizeObserverCallback?.()
+    await waitFor(() => expect(terminalMocks.resize).toHaveBeenCalled())
+    terminalMocks.resize.mockClear()
     Object.defineProperty(root, 'clientHeight', { configurable: true, value: 520 })
     window.dispatchEvent(new CustomEvent('mobile-keyboard-change', { detail: { open: true } }))
     window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'viewport-sync', mobile: true, keyboardOpen: true } }))
