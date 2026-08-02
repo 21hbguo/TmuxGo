@@ -87,6 +87,42 @@ test('streams file uploads to the matching Agent socket', async () => {
   assert.equal(manager.unregister(id, socket), true)
 })
 
+test('rejects an Agent upload error before the upload is ready', async () => {
+  const manager = new AgentManager({ historyPath: null })
+  const id = `agent-${Date.now()}-${Math.random()}`
+  const messages: string[] = []
+  const socket = { readyState: 1, send: (message: string) => messages.push(message) } as unknown as WebSocket
+  manager.register(id, 'agent', '127.0.0.1', '1.0.0', socket)
+  async function* source() { yield Buffer.from('hello agent') }
+  const upload = manager.uploadFile(id, '/tmp/agent-upload.txt', source())
+  await new Promise((resolve) => setImmediate(resolve))
+  const start = JSON.parse(messages[0])
+  assert.equal(manager.handleMessage(id, socket, { type: 'file-upload-error', uploadId: start.uploadId, message: 'Permission denied' }), true)
+  await assert.rejects(upload, /Permission denied/)
+  assert.equal(manager.unregister(id, socket), true)
+})
+
+test('does not send an Agent upload chunk after an early upload error', async () => {
+  const manager = new AgentManager({ historyPath: null })
+  const id = `agent-${Date.now()}-${Math.random()}`
+  const messages: string[] = []
+  let release: () => void = () => {}
+  const sourceReady = new Promise<void>((resolve) => { release = resolve })
+  const socket = { readyState: 1, send: (message: string) => messages.push(message) } as unknown as WebSocket
+  manager.register(id, 'agent', '127.0.0.1', '1.0.0', socket)
+  async function* source() { await sourceReady; yield Buffer.from('hello agent') }
+  const upload = manager.uploadFile(id, '/tmp/agent-upload.txt', source())
+  await new Promise((resolve) => setImmediate(resolve))
+  const start = JSON.parse(messages[0])
+  assert.equal(manager.handleMessage(id, socket, { type: 'file-upload-ready', uploadId: start.uploadId }), true)
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(manager.handleMessage(id, socket, { type: 'file-upload-error', uploadId: start.uploadId, message: 'Write failed' }), true)
+  release()
+  await assert.rejects(upload, /Write failed/)
+  assert.equal(messages.length, 1)
+  assert.equal(manager.unregister(id, socket), true)
+})
+
 test('does not route commands through a timed out Agent socket', async () => {
   const manager = new AgentManager({ historyPath: null })
   const id = `agent-${Date.now()}-${Math.random()}`
