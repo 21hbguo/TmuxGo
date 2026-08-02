@@ -56,6 +56,8 @@ export function PluginView({ pluginId, viewId, mode = 'panel', onClose }: Plugin
         else if (message.method === 'storage.get') result = (await api.plugins.storage.get(pluginId, String(params.key || ''))).value
         else if (message.method === 'storage.set') result = await api.plugins.storage.set(pluginId, String(params.key || ''), params.value)
         else if (message.method === 'storage.delete') result = await api.plugins.storage.remove(pluginId, String(params.key || ''))
+        else if (message.method === 'files.read') result = await api.plugins.filesRead(pluginId, String(context.hostId || 'local'), String(params.root || ''), String(params.path || ''))
+        else if (message.method === 'files.write') result = await api.plugins.filesWrite(pluginId, String(context.hostId || 'local'), String(params.root || ''), String(params.path || ''), String(params.content || ''), typeof params.modifiedAt === 'string' ? params.modifiedAt : undefined)
         else if (message.method === 'action.invoke') result = await api.plugins.invoke(pluginId, String(params.actionId || ''), { ...(params.context && typeof params.context === 'object' ? params.context as Record<string, unknown> : {}), ...context, source: 'plugin-view' })
         else if (message.method === 'ui.notify') {
           const level = params.level === 'error' ? 'error' : params.level === 'success' ? 'success' : 'info'

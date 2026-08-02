@@ -5,7 +5,7 @@ import multipart from '../apps/gateway/node_modules/@fastify/multipart'
 import os from 'node:os'
 import path from 'node:path'
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
-import { cleanupExpiredDownloadArtifacts, cleanupExpiredTemporaryUploads, TEMP_UPLOAD_ROOT_ID } from '../apps/gateway/src/routes/files'
+import { cleanupExpiredDownloadArtifacts, cleanupExpiredTemporaryUploads, runBackgroundDownloadTask, TEMP_UPLOAD_ROOT_ID } from '../apps/gateway/src/routes/files'
 import { TaskManager } from '../apps/gateway/src/lib/task-manager'
 async function createUploadApp(tmpDir: string, taskManager?: TaskManager) {
   process.env.TMUXGO_TMP_DIR = tmpDir
@@ -175,5 +175,41 @@ test('cleanupExpiredDownloadArtifacts keeps recent task artifacts within retenti
     delete process.env.TMUXGO_DOWNLOAD_ARTIFACT_MAX_COUNT
     delete process.env.TMUXGO_DOWNLOAD_ARTIFACT_MAX_BYTES
     await rm(configDir, { recursive: true, force: true })
+  }
+})
+test('local file download resumes from its retained temporary artifact', async () => {
+  const configDir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-download-resume-config-'))
+  const sourceDir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-download-resume-source-'))
+  const sourcePath = path.join(sourceDir, 'source.bin')
+  const content = Buffer.alloc(4 * 1024 * 1024, 7)
+  await writeFile(sourcePath, content)
+  process.env.TMUXGO_CONFIG_DIR = configDir
+  const artifactId = '22222222-2222-4222-8222-222222222222'
+  const input = { hostId: 'local', rootId: `git:${encodeURIComponent(sourceDir)}`, path: 'source.bin', rateLimitKBps: 10240, artifactId }
+  const controller = new AbortController()
+  let aborted = false
+  const firstContext = {
+    signal: controller.signal,
+    appendLog: () => {},
+    setProgress: (progress: number | null) => {
+      if (!aborted && progress !== null && progress >= 25) {
+        aborted = true
+        controller.abort()
+      }
+    },
+    checkpoint: () => {},
+  }
+  try {
+    await assert.rejects(() => runBackgroundDownloadTask(input, firstContext))
+    const temporaryPath = path.join(configDir, 'download-artifacts', `${artifactId}.tmp`)
+    const temporarySize = (await stat(temporaryPath)).size
+    assert.ok(temporarySize > 0 && temporarySize < content.length)
+    const result = await runBackgroundDownloadTask(input, { signal: new AbortController().signal, appendLog: () => {}, setProgress: () => {}, checkpoint: () => {} })
+    assert.equal(result.result && typeof result.result === 'object' ? (result.result as { size?: number }).size : 0, content.length)
+    assert.deepEqual(await readFile(path.join(configDir, 'download-artifacts', artifactId)), content)
+  } finally {
+    delete process.env.TMUXGO_CONFIG_DIR
+    await rm(configDir, { recursive: true, force: true })
+    await rm(sourceDir, { recursive: true, force: true })
   }
 })

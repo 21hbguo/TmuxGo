@@ -258,6 +258,13 @@ export class PluginManager {
     this.pushLog({ id:randomUUID(), pluginId:info.pluginId, actionId, event, command:[], status:'permission_denied', permission, startedAt:timestamp, finishedAt:timestamp, stdout:'', stderr:'', error })
     throw new PluginPermissionError(error)
   }
+  async authorize(pluginId: string, permission: PluginPermission, actionId?: string) {
+    const { info } = await this.requirePlugin(pluginId)
+    if (!info.enabled) throw new Error('Plugin is disabled')
+    this.requirePermission(info, permission, actionId)
+    const timestamp = new Date().toISOString()
+    this.pushLog({ id: randomUUID(), pluginId, actionId, command: [], status: 'success', permission, startedAt: timestamp, finishedAt: timestamp, stdout: '', stderr: '' })
+  }
   private filterContext(info: PluginInfo, value: unknown) {
     const context=normalizeContext(value)
     if (info.grantedPermissions.includes('host.context')) return context

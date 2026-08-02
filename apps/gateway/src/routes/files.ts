@@ -106,6 +106,9 @@ interface BackgroundDownloadInput {
   path: string
   rateLimitKBps: number
   artifactId: string
+  downloadedBytes?: number
+  sourceSize?: number
+  sourceModifiedAt?: string
 }
 export interface GitRepositoryInfo {
   path: string
@@ -922,11 +925,11 @@ async function readPreviewForHost(hostId: string, rootId: string, relativePath: 
   if (hostId === 'local') return readPreview(rootId, relativePath, line)
   return runRemoteFileJson(hostId, { op: 'preview', root: rootId, path: relativePath, line })
 }
-async function readContentForHost(hostId: string, rootId: string, relativePath: string) {
+export async function readContentForHost(hostId: string, rootId: string, relativePath: string) {
   if (hostId === 'local') return readContent(rootId, relativePath)
   return runRemoteFileJson(hostId, { op: 'content', root: rootId, path: relativePath })
 }
-async function saveContentForHost(hostId: string, rootId: string, relativePath: string, content: string, modifiedAt?: string) {
+export async function saveContentForHost(hostId: string, rootId: string, relativePath: string, content: string, modifiedAt?: string) {
   if (hostId === 'local') return saveContent(rootId, relativePath, content, modifiedAt)
   try {
     return await runRemoteFileJson(hostId, { op: 'save', root: rootId, path: relativePath, content, modifiedAt })
@@ -1200,27 +1203,63 @@ function startDownloadArtifactCleanup(backgroundTasks: TaskManager) {
   downloadArtifactCleanupTimer = setInterval(() => void cleanupExpiredDownloadArtifacts(Date.now(), downloadArtifactCleanupManager), intervalMs)
   downloadArtifactCleanupTimer.unref?.()
 }
-async function runBackgroundDownloadTask(input: unknown, context: TaskExecutionContext) {
+export async function runBackgroundDownloadTask(input: unknown, context: TaskExecutionContext) {
   const task = input as BackgroundDownloadInput
   const fileInfo = await resolveFileForHost(task.hostId, task.rootId, task.path)
   const directory = !fileInfo.isFile
+  const resumable = task.hostId === 'local' && fileInfo.isFile
   const fileName = directory ? `${path.basename(fileInfo.absolutePath)}.zip` : path.basename(fileInfo.absolutePath)
   const artifactPath = getDownloadArtifactPath(task.artifactId)
-  const temporaryPath = `${artifactPath}.tmp-${randomUUID()}`
+  const temporaryPath = `${artifactPath}.tmp`
   await mkdir(getDownloadArtifactDir(), { recursive: true, mode: 0o700 })
+  let downloadSize = fileInfo.size
+  let offset = 0
+  if (resumable) {
+    const sourceInfo = await stat(fileInfo.absolutePath)
+    downloadSize = sourceInfo.size
+    if (task.sourceSize !== sourceInfo.size || task.sourceModifiedAt !== sourceInfo.mtime.toISOString()) {
+      task.sourceSize = sourceInfo.size
+      task.sourceModifiedAt = sourceInfo.mtime.toISOString()
+      task.downloadedBytes = 0
+      await unlink(temporaryPath).catch(() => {})
+      context.checkpoint()
+    } else {
+      try {
+        const temporaryInfo = await stat(temporaryPath)
+        if (temporaryInfo.isFile() && temporaryInfo.size <= sourceInfo.size) offset = temporaryInfo.size
+        else await unlink(temporaryPath).catch(() => {})
+      } catch {}
+      task.downloadedBytes = offset
+      context.checkpoint()
+    }
+  }
+  const initialOffset = offset
+  let checkpointBytes = initialOffset
   let transferredBytes = 0
   const startedAt = Date.now()
   const reportProgress = (size: number) => {
     transferredBytes += size
+    const totalTransferredBytes = initialOffset + transferredBytes
+    if (resumable) {
+      task.downloadedBytes = totalTransferredBytes
+      if (totalTransferredBytes - checkpointBytes >= 1024 * 1024) {
+        checkpointBytes = totalTransferredBytes
+        context.checkpoint()
+      }
+    }
     const elapsedMs = Math.max(1, Date.now() - startedAt)
-    context.setProgress(fileInfo.isFile ? (transferredBytes * 100) / fileInfo.size : null, (transferredBytes * 1000) / elapsedMs)
+    context.setProgress(fileInfo.isFile ? (totalTransferredBytes * 100) / downloadSize : null, (transferredBytes * 1000) / elapsedMs)
   }
   try {
-    const source = task.hostId === 'local' && fileInfo.isFile ? createReadStream(fileInfo.absolutePath) : await getDownloadStream(task.hostId, fileInfo.absolutePath, directory, context.signal)
-    await pipeline(source, createTransferProgressStream(reportProgress), createRateLimitStream(task.rateLimitKBps), createWriteStream(temporaryPath, { mode: 0o600 }), { signal: context.signal })
+    const source = resumable ? createReadStream(fileInfo.absolutePath, offset ? { start: offset } : undefined) : task.hostId === 'local' && fileInfo.isFile ? createReadStream(fileInfo.absolutePath) : await getDownloadStream(task.hostId, fileInfo.absolutePath, directory, context.signal)
+    await pipeline(source, createTransferProgressStream(reportProgress), createRateLimitStream(task.rateLimitKBps), createWriteStream(temporaryPath, { flags: resumable && offset ? 'a' : 'w', mode: 0o600 }), { signal: context.signal })
     await rename(temporaryPath, artifactPath)
+    if (resumable) {
+      task.downloadedBytes = downloadSize
+      context.checkpoint()
+    }
   } catch (error) {
-    await unlink(temporaryPath).catch(() => {})
+    if (!resumable) await unlink(temporaryPath).catch(() => {})
     throw error
   }
   const artifact = await stat(artifactPath)
