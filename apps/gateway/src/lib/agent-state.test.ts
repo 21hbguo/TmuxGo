@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { detectAgentPaneState, resolveAgentStatus, summarizeAgentPanes } from './agent-state.js'
+import { detectAgentPaneState, detectProcessAgent, resolveAgentStatus, summarizeAgentPanes } from './agent-state.js'
 import { createTerminalOutputSanitizer } from './terminal-output.js'
 
 test('detects codex lifecycle from terminal output', () => {
@@ -10,6 +10,13 @@ test('detects codex lifecycle from terminal output', () => {
 })
 test('ignores ordinary node processes', () => {
   assert.equal(detectAgentPaneState('node', 'gateway', 'Gateway listening on port 3001'), null)
+})
+test('detects agents from pane child processes', () => {
+  assert.equal(detectProcessAgent('node /home/guo/.nvm/versions/node/v22.22.0/bin/codex --dangerously-bypass-approvals-and-sandbox'), 'codex')
+  assert.equal(detectProcessAgent('/usr/local/bin/claude --dangerously-skip-permissions'), 'claude')
+  assert.equal(detectProcessAgent('node /srv/gateway.js'), null)
+  assert.deepEqual(detectAgentPaneState('node', 'TmuxGo', '', 'codex'), { agent: 'codex', agentStatus: 'idle' })
+  assert.equal(detectAgentPaneState('node', '⠹ TmuxGo', '• Working (10s • esc to interrupt)', null), null)
 })
 test('turns completed work into unseen done state', () => {
   assert.equal(resolveAgentStatus('idle', 'working'), 'done')
