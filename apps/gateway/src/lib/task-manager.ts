@@ -211,11 +211,12 @@ export class TaskManager {
     } catch (error) {
       if (task.status!=='running') return
       const message=error instanceof Error?error.message:'Task failed'
+      const code=typeof (error as { code?: unknown })?.code==='string'&&(error as { code: string }).code.match(/^[A-Z][A-Z0-9_]{2,63}$/)?(error as { code: string }).code:message==='Host key verification failed'?'HOST_KEY_ERROR':message==='SSH authentication failed'||message==='SSH private key is unavailable'?'AUTHENTICATION_ERROR':message==='SSH connection timed out'||message==='SSH network is unreachable'?'NETWORK_ERROR':message.includes('Permission denied')?'PERMISSION_DENIED':message.includes('not found')?'NOT_FOUND':'TASK_FAILED'
       appendLog(controller.signal.aborted?'Task cancelled':message)
       task.status=controller.signal.aborted?'cancelled':'error'
       task.finishedAt=new Date().toISOString()
       task.exitCode=null
-      task.errorCode=controller.signal.aborted?'TASK_CANCELLED':'TASK_FAILED'
+      task.errorCode=controller.signal.aborted?'TASK_CANCELLED':code
       task.errorMessage=controller.signal.aborted?'Task cancelled':message
     } finally {
       this.controllers.delete(id)

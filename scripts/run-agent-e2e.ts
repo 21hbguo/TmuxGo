@@ -11,6 +11,8 @@ let tmuxDir = ''
 let gateway: ChildProcess | undefined
 let agent: ChildProcess | undefined
 let cleaned = false
+const username = 'agent-e2e-user'
+const password = 'agent-e2e-password'
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -40,12 +42,26 @@ async function waitFor(url: string, process: ChildProcess) {
   }
   throw new Error(`${url} did not become ready`)
 }
-async function waitForAgent(apiUrl: string, process: ChildProcess, hostId: string) {
+async function login(apiUrl: string) {
+  const response = await fetch(`${apiUrl}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) })
+  if (!response.ok) throw new Error(`Agent E2E login failed: HTTP ${response.status}`)
+  const result = await response.json() as { accessToken?: string }
+  if (!result.accessToken) throw new Error('Agent E2E login did not return an access token')
+  return result.accessToken
+}
+async function getWebSocketTicket(apiUrl: string, accessToken: string) {
+  const response = await fetch(`${apiUrl}/api/auth/ws-ticket`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } })
+  if (!response.ok) throw new Error(`Agent E2E ticket failed: HTTP ${response.status}`)
+  const result = await response.json() as { ticket?: string }
+  if (!result.ticket) throw new Error('Agent E2E ticket response is invalid')
+  return result.ticket
+}
+async function waitForAgent(apiUrl: string, process: ChildProcess, hostId: string, accessToken: string) {
   const deadline = Date.now() + 30000
   while (Date.now() < deadline) {
     if (process.exitCode !== null) throw new Error('Agent exited before registering')
     try {
-      const response = await fetch(`${apiUrl}/api/hosts/${hostId}`)
+      const response = await fetch(`${apiUrl}/api/hosts/${hostId}`, { headers: { Authorization: `Bearer ${accessToken}` } })
       if (response.ok && (await response.json() as { connectionMode?: string; agent?: { online?: boolean } }).connectionMode === 'agent') return
     } catch {}
     await delay(200)
@@ -64,6 +80,9 @@ async function run(command: string, args: string[], env: NodeJS.ProcessEnv) {
     child.once('error', reject)
     child.once('exit', (code) => resolve(code ?? 1))
   })
+}
+function startGateway(bin: string, apiPort: number, tmuxEnv: NodeJS.ProcessEnv) {
+  return spawn(join(bin, 'tsx'), ['apps/gateway/src/index.ts'], { cwd: root, stdio: 'inherit', env: { ...tmuxEnv, PORT: String(apiPort), TMUXGO_CONFIG_DIR: configDir, TMUXGO_AUTH_USERNAME: username, TMUXGO_AUTH_PASSWORD: password } })
 }
 async function verifyTerminal(url: string, hostId: string) {
   return new Promise<void>((resolve, reject) => {
@@ -124,11 +143,19 @@ async function main() {
     const bin = join(root, 'node_modules', '.bin')
     const tmuxEnv = { ...process.env, TMUX: '', TMUX_TMPDIR: tmuxDir }
     if (await run('tmux', ['new-session', '-d', '-s', 'agent-e2e'], tmuxEnv) !== 0) throw new Error('Agent E2E tmux startup failed')
-    gateway = spawn(join(bin, 'tsx'), ['apps/gateway/src/index.ts'], { cwd: root, stdio: 'inherit', env: { ...tmuxEnv, PORT: String(apiPort), TMUXGO_CONFIG_DIR: configDir, TMUXGO_AUTH_USERNAME: '', TMUXGO_AUTH_PASSWORD: '' } })
+    gateway = startGateway(bin, apiPort, tmuxEnv)
     await waitFor(`${apiUrl}/health`, gateway)
-    agent = spawn(join(bin, 'tsx'), ['apps/agent/src/index.ts'], { cwd: root, stdio: 'inherit', env: { ...tmuxEnv, GATEWAY_URL: `ws://127.0.0.1:${apiPort}/api/stream`, HOST_ID: hostId, HOST_NAME: 'agent-e2e' } })
-    await waitForAgent(apiUrl, agent, hostId)
-    await verifyTerminal(`ws://127.0.0.1:${apiPort}/api/stream`, hostId)
+    const accessToken = await login(apiUrl)
+    agent = spawn(join(bin, 'tsx'), ['apps/agent/src/index.ts'], { cwd: root, stdio: 'inherit', env: { ...tmuxEnv, GATEWAY_URL: `ws://127.0.0.1:${apiPort}/api/stream`, GATEWAY_USERNAME: username, GATEWAY_PASSWORD: password, HOST_ID: hostId, HOST_NAME: 'agent-e2e' } })
+    await waitForAgent(apiUrl, agent, hostId, accessToken)
+    const ticket = await getWebSocketTicket(apiUrl, accessToken)
+    await verifyTerminal(`ws://127.0.0.1:${apiPort}/api/stream?ticket=${encodeURIComponent(ticket)}`, hostId)
+    await stop(gateway)
+    gateway = startGateway(bin, apiPort, tmuxEnv)
+    await waitFor(`${apiUrl}/health`, gateway)
+    await waitForAgent(apiUrl, agent, hostId, accessToken)
+    const recoveredTicket = await getWebSocketTicket(apiUrl, accessToken)
+    await verifyTerminal(`ws://127.0.0.1:${apiPort}/api/stream?ticket=${encodeURIComponent(recoveredTicket)}`, hostId)
   } finally {
     await cleanup()
   }
