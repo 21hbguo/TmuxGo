@@ -83,11 +83,9 @@ export class TmuxManager {
     await execFileAsync('tmux', ['kill-session', '-t', name])
   }
 
-  async execute(command: string): Promise<string> {
-    const { stdout, stderr } = await execAsync(command)
-    if (stderr) {
-      console.error('Command stderr:', stderr)
-    }
-    return stdout
+  async executeTmux(args: string[]) {
+    if (!Array.isArray(args) || !args.length || args.length > 64 || args.some((item) => typeof item !== 'string' || item.length > 4096)) throw new Error('Invalid tmux arguments')
+    const { stdout, stderr } = await execFileAsync('tmux', args)
+    return { stdout, stderr }
   }
 }

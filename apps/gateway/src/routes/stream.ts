@@ -578,6 +578,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
     socket.on('message', async (message: Buffer) => {
       try {
         const data: any = streamMessageSchema.parse(JSON.parse(message.toString()))
+        if (agentId && agentManager.handleMessage(agentId, socket, data)) return
         if (shareTicket) {
           if (!shareLinkStore.isTicketActive(shareTicket)) {
             socket.close(1008,'Share link is unavailable')
@@ -606,6 +607,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
             const { hostId, sessionName } = await resolveAttachTarget(attach)
             if (shareTicket&&(hostId!==shareTicket.hostId||sessionName!==shareTicket.sessionName)) throw new Error('Share scope does not allow this session')
             if (hostId === 'local') await prepareSessionAttach(sessionName)
+            if (hostId !== 'local' && !await getHostById(hostId) && agentManager.getAgent(hostId)) throw new Error('Agent terminal streaming is not supported')
             const requestedCols = attach.cols || 80
             const requestedRows = attach.rows || 24
             const exclusive = shareTicket?false:!!attach.exclusive
