@@ -55,7 +55,7 @@ export function useHost(id: string) {
 export function useCreateHost() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (payload: { id: string; name?: string; address: string; user: string; port?: number; password?: string; passwordEnv?: string; privateKeyPath?: string; useAgent?: boolean; jumpHost?: string; knownHostsPolicy?: 'strict' | 'accept-new' | 'off' }) =>
+    mutationFn: (payload: { id: string; name?: string; address: string; user: string; port?: number; password?: string; passwordEnv?: string; privateKeyPath?: string; groups?: string[]; favorite?: boolean; useAgent?: boolean; jumpHost?: string; knownHostsPolicy?: 'strict' | 'accept-new' | 'off' }) =>
       api.hosts.create(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['hosts'] })

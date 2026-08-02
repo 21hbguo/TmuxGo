@@ -200,6 +200,8 @@ export const en = {
   'settings.hostKnownHostsStrict': 'Strict verification',
   'settings.hostKnownHostsAcceptNew': 'Accept new hosts',
   'settings.hostKnownHostsOff': 'Disable verification',
+  'settings.hostGroups': 'Groups, separated by commas',
+  'settings.hostFavorite': 'Favorite host',
   'settings.hostLatency': 'Latency {value} ms',
   'settings.hostAgentState': 'Agent {version}: {status}',
   'settings.hostAgentOnline': 'online',
