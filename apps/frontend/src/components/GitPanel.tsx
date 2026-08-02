@@ -398,7 +398,7 @@ function BranchesTab({ hostId, repoPath, t }: { hostId: string; repoPath: string
             {!b.current && (
               <>
                 <Chip onClick={() => checkout.mutate({ hostId, path: repoPath, branch: b.name }, { onSuccess: () => pushToast({ type: 'success', message: t('git.checkoutSuccess', { branch: b.name }) }), onError: (err) => pushToast({ type: 'error', message: err.message }) })}>{t('git.checkout')}</Chip>
-                <Chip onClick={() => merge.mutate({ hostId, path: repoPath, branch: b.name, noFF }, { onSuccess: () => pushToast({ type: 'success', message: t('git.mergeSuccess') }), onError: (err) => pushToast({ type: 'error', message: t('git.mergeFailed') + ': ' + err.message }) })}>{t('git.merge')}</Chip>
+                <Chip onClick={() => merge.mutate({ hostId, path: repoPath, branch: b.name, noFF }, { onSuccess: (result) => pushToast({ type: 'success', message: 'task' in result ? t('tasks.queued') : t('git.mergeSuccess') }), onError: (err) => pushToast({ type: 'error', message: t('git.mergeFailed') + ': ' + err.message }) })}>{t('git.merge')}</Chip>
                 <Chip tone="danger" onClick={() => setPendingDelete(b.name)}>✕</Chip>
               </>
             )}
@@ -483,7 +483,7 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
   const handleCommit = () => {
     if (!activeHostId || !repoPath || !commitMessage.trim()) return
     commit.mutate({ hostId: activeHostId, path: repoPath, message: commitMessage.trim(), amend }, {
-      onSuccess: () => { setCommitMessage(''); setAmend(false); pushToast({ type: 'success', message: t('git.commitSuccess') }) },
+      onSuccess: (result) => { setCommitMessage(''); setAmend(false); pushToast({ type: 'success', message: 'task' in result ? t('tasks.queued') : t('git.commitSuccess') }) },
       onError: (err) => pushToast({ type: 'error', message: t('git.commitFailed') + ': ' + err.message }),
     })
   }
