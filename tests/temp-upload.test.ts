@@ -71,7 +71,48 @@ test('background upload stages files and records a completed task', async (t) =>
   assert.equal(task?.status, 'success')
   assert.equal(task?.type, 'file-upload')
   assert.equal(task?.progress, 100)
+  assert.deepEqual(task?.result, { files: [{ name: 'queued.txt', path: 'queued.txt', absolutePath: path.join(tmpDir, 'queued.txt'), size: 11 }] })
   assert.equal(await readFile(path.join(tmpDir, 'queued.txt'), 'utf8'), 'queued-data')
+})
+test('background upload retries without choosing a new destination', async (t) => {
+  const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-background-upload-retry-'))
+  const configDir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-background-upload-retry-config-'))
+  process.env.TMUXGO_CONFIG_DIR = configDir
+  const manager = new TaskManager({ statePath: path.join(configDir, 'tasks.json') })
+  const app = await createUploadApp(tmpDir, manager)
+  t.after(async () => {
+    await app.close()
+    delete process.env.TMUXGO_TMP_DIR
+    delete process.env.TMUXGO_CONFIG_DIR
+    await rm(tmpDir, { recursive: true, force: true })
+    await rm(configDir, { recursive: true, force: true })
+  })
+  const firstStagedPath = path.join(configDir, 'first.staged')
+  const secondStagedPath = path.join(configDir, 'second.staged')
+  await writeFile(firstStagedPath, 'first-data')
+  const started = await manager.start({ type: 'file-upload', title: 'Upload 2 files', input: { hostId: 'local', targetRootId: TEMP_UPLOAD_ROOT_ID, targetPath: '', conflictPolicy: 'rename', rateLimitKBps: 10240, files: [{ name: 'first.txt', stagedPath: firstStagedPath, size: 10 }, { name: 'second.txt', stagedPath: secondStagedPath, size: 11 }] } })
+  let failed = manager.get(started.id)
+  for (let attempt = 0; failed?.status === 'running' && attempt < 50; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    failed = manager.get(started.id)
+  }
+  assert.equal(failed?.status, 'error')
+  assert.equal(await readFile(path.join(tmpDir, 'first.txt'), 'utf8'), 'first-data')
+  const stored = JSON.parse(await readFile(path.join(configDir, 'tasks.json'), 'utf8')) as { tasks: { input: { files: { destination?: { absolutePath?: string }; uploaded?: { absolutePath?: string } }[] } }[] }
+  assert.equal(stored.tasks[0].input.files[0].destination?.absolutePath, path.join(tmpDir, 'first.txt'))
+  assert.equal(stored.tasks[0].input.files[0].uploaded?.absolutePath, path.join(tmpDir, 'first.txt'))
+  await writeFile(secondStagedPath, 'second-data')
+  assert.equal((await manager.retry(started.id))?.status, 'running')
+  let completed = manager.get(started.id)
+  for (let attempt = 0; completed?.status === 'running' && attempt < 50; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    completed = manager.get(started.id)
+  }
+  assert.equal(completed.status, 'success')
+  assert.equal(await readFile(path.join(tmpDir, 'first.txt'), 'utf8'), 'first-data')
+  assert.equal(await readFile(path.join(tmpDir, 'second.txt'), 'utf8'), 'second-data')
+  await assert.rejects(() => stat(path.join(tmpDir, 'first (1).txt')), /ENOENT/)
+  await assert.rejects(() => stat(path.join(tmpDir, 'second (1).txt')), /ENOENT/)
 })
 test('cleanupExpiredTemporaryUploads removes stale temporary files only', async () => {
   const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-paste-cleanup-'))

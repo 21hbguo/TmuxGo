@@ -30,6 +30,7 @@ export interface TaskExecutionContext {
   signal:AbortSignal
   appendLog:(value:string)=>void
   setProgress:(progress:number|null,speedBytesPerSecond?:number|null)=>void
+  checkpoint:()=>void
 }
 export interface TaskExecutionResult {
   message?:string
@@ -198,8 +199,11 @@ export class TaskManager {
       task.speedBytesPerSecond=speedBytesPerSecond===null?null:Math.max(0,speedBytesPerSecond)
       this.persist()
     }
+    const checkpoint=() => {
+      if (task.status==='running') this.persist()
+    }
     try {
-      const result=await handler(task.input,{signal:controller.signal,appendLog,setProgress})
+      const result=await handler(task.input,{signal:controller.signal,appendLog,setProgress,checkpoint})
       if (task.status!=='running') return
       if (result?.message) appendLog(result.message)
       task.status='success'

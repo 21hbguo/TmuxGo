@@ -88,6 +88,7 @@ interface StagedUploadFile {
   name: string
   stagedPath: string
   size: number
+  destination?: { name: string; path: string; absolutePath: string }
   uploaded?: { name: string; path: string; absolutePath: string; size: number }
 }
 interface BackgroundUploadInput {
@@ -1072,34 +1073,47 @@ async function runBackgroundUploadTask(input: unknown, context: TaskExecutionCon
   for (const file of task.files) {
     if (file.uploaded) continue
     if (context.signal.aborted) throw new Error('Task cancelled')
+    if (!file.destination) {
+      if (task.hostId === 'local') {
+        if (!resolvedTarget) {
+          resolvedTarget = await resolveInside(task.targetRootId, task.targetPath)
+          await mkdir(resolvedTarget.absolutePath, { recursive: true })
+        }
+        const destination = await resolveUploadDestination(resolvedTarget.absolutePath, file.name)
+        file.destination = { name: destination.candidateName, path: toRelative(resolvedTarget.root.path, destination.candidatePath), absolutePath: destination.candidatePath }
+      } else {
+        const prepared = await runRemoteFileJson<{ root: FileRoot; directoryPath: string; directoryAbsolutePath: string; name: string; path: string; absolutePath: string }>(task.hostId, { op: 'prepare-upload', root: task.targetRootId, path: task.targetPath, name: file.name })
+        if (!resolvedTarget) resolvedTarget = { root: prepared.root, absolutePath: prepared.directoryAbsolutePath, relativePath: prepared.directoryPath }
+        file.destination = { name: prepared.name, path: prepared.path, absolutePath: prepared.absolutePath }
+      }
+      context.checkpoint()
+    }
+    const destination = file.destination
     if (task.hostId === 'local') {
       if (!resolvedTarget) {
         resolvedTarget = await resolveInside(task.targetRootId, task.targetPath)
         await mkdir(resolvedTarget.absolutePath, { recursive: true })
       }
-      const destination = await resolveUploadDestination(resolvedTarget.absolutePath, file.name)
-      const temporaryPath = path.join(resolvedTarget.absolutePath, `.${destination.candidateName}.tmuxgo-upload-${randomUUID()}`)
+      const temporaryPath = path.join(resolvedTarget.absolutePath, `.${destination.name}.tmuxgo-upload-${randomUUID()}`)
       try {
         await pipeline(createReadStream(file.stagedPath), createTransferProgressStream(reportProgress), createRateLimitStream(task.rateLimitKBps), createWriteStream(temporaryPath), { signal: context.signal })
-        await rename(temporaryPath, destination.candidatePath)
+        await rename(temporaryPath, destination.absolutePath)
       } catch (error) {
         await unlink(temporaryPath).catch(() => {})
         throw error
       }
-      file.uploaded = { name: destination.candidateName, path: toRelative(resolvedTarget.root.path, destination.candidatePath), absolutePath: destination.candidatePath, size: file.size }
     } else {
-      const prepared = await runRemoteFileJson<{ root: FileRoot; directoryPath: string; directoryAbsolutePath: string; name: string; path: string; absolutePath: string }>(task.hostId, { op: 'prepare-upload', root: task.targetRootId, path: task.targetPath, name: file.name })
-      if (!resolvedTarget) resolvedTarget = { root: prepared.root, absolutePath: prepared.directoryAbsolutePath, relativePath: prepared.directoryPath }
-      await writeRemoteUpload(task.hostId, prepared.absolutePath, createReadStream(file.stagedPath), task.rateLimitKBps, context.signal, createTransferProgressStream(reportProgress))
-      file.uploaded = { name: prepared.name, path: prepared.path, absolutePath: prepared.absolutePath, size: file.size }
+      await writeRemoteUpload(task.hostId, destination.absolutePath, createReadStream(file.stagedPath), task.rateLimitKBps, context.signal, createTransferProgressStream(reportProgress))
     }
+    file.uploaded = { ...destination, size: file.size }
+    context.checkpoint()
     context.appendLog(`Uploaded ${file.uploaded.name}`)
     context.setProgress(totalBytes ? (transferredBytes * 100) / totalBytes : 100)
   }
   await Promise.all(task.files.map((file) => unlink(file.stagedPath).catch(() => {})))
   const files = task.files.map((file) => file.uploaded!).filter(Boolean)
   if (resolvedTarget) emitPluginEvent('file.uploaded', { hostId: task.hostId, rootId: resolvedTarget.root.id, filePath: resolvedTarget.relativePath, files: files.map((file) => ({ name: file.name, path: file.path, size: file.size })) })
-  return { message: `Uploaded ${files.length} file${files.length === 1 ? '' : 's'}` }
+  return { message: `Uploaded ${files.length} file${files.length === 1 ? '' : 's'}`, result: { files } }
 }
 function getDownloadArtifactDir() {
   return path.join(process.env.TMUXGO_CONFIG_DIR?.trim() || path.join(os.homedir(), '.tmuxgo'), 'download-artifacts')
