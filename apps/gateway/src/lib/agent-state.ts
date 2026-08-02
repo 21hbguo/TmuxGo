@@ -1,5 +1,5 @@
 import { getVisibleTerminalLines } from './terminal-output.js'
-import { execTmux } from './tmux-executor.js'
+import { execHostShell, execTmux } from './tmux-executor.js'
 
 export type AgentStatus = 'idle' | 'working' | 'blocked' | 'done' | 'unknown'
 export interface AgentPaneState {
@@ -13,6 +13,7 @@ export interface AgentPaneState {
 interface PaneCandidate {
   paneId: string
   tmuxPaneId: string
+  panePid: string
   sessionName: string
   currentCommand: string
   title: string
@@ -45,7 +46,14 @@ const workingPattern = /(?:^|\n)[•◦]\s+Working\s+\([^)]*esc to interrupt\)|e
 function normalizeCommand(value: string) {
   return value.trim().toLowerCase().split(/[\\/]/).pop() || ''
 }
-function detectAgent(currentCommand: string, title: string, output: string) {
+export function detectProcessAgent(command: string) {
+  const [executable, script] = command.trim().toLowerCase().split(/\s+/).map(normalizeCommand)
+  if (directAgents[executable]) return directAgents[executable]
+  if (indirectCommands.has(executable) && script && directAgents[script]) return directAgents[script]
+  return null
+}
+function detectAgent(currentCommand: string, title: string, output: string, processAgent?: string | null) {
+  if (processAgent !== undefined) return processAgent
   const command = normalizeCommand(currentCommand)
   if (directAgents[command]) return directAgents[command]
   const text = `${title}\n${output}`
@@ -65,8 +73,8 @@ function detectRawStatus(title: string, output: string): AgentStatus {
   if (spinnerPattern.test(title) || workingPattern.test(recent)) return 'working'
   return 'idle'
 }
-export function detectAgentPaneState(currentCommand: string, title: string, output: string) {
-  const agent = detectAgent(currentCommand, title, output)
+export function detectAgentPaneState(currentCommand: string, title: string, output: string, processAgent?: string | null) {
+  const agent = detectAgent(currentCommand, title, output, processAgent)
   return agent ? { agent, agentStatus: detectRawStatus(title, output) } : null
 }
 export function resolveAgentStatus(rawStatus: AgentStatus, previousStatus?: AgentStatus): AgentStatus {
@@ -77,8 +85,8 @@ function toAgentPaneState(record: AgentRecord): AgentPaneState {
   const { rawStatus, ...state } = record
   return state
 }
-function updateRecord(candidate: PaneCandidate, output: string) {
-  const detected = detectAgentPaneState(candidate.currentCommand, candidate.title, output)
+function updateRecord(candidate: PaneCandidate, output: string, processAgent?: string | null) {
+  const detected = detectAgentPaneState(candidate.currentCommand, candidate.title, output, processAgent)
   if (!detected) {
     records.delete(candidate.paneId)
     return null
@@ -102,23 +110,43 @@ function shouldCapture(candidate: PaneCandidate) {
   const command = normalizeCommand(candidate.currentCommand)
   return !!directAgents[command] || indirectCommands.has(command) || spinnerPattern.test(candidate.title) || blockedPattern.test(candidate.title)
 }
+async function getProcessAgents(hostId: string, candidates: PaneCandidate[]) {
+  const panePids = [...new Set(candidates.map((candidate) => candidate.panePid).filter((panePid) => /^\d+$/.test(panePid)))]
+  if (!panePids.length) return null
+  try {
+    const { stdout } = await execHostShell(hostId, `ps -ww --ppid ${panePids.join(',')} -o ppid=,args=`, { timeoutMs: 5000 })
+    const agents = new Map<string, string>()
+    for (const line of stdout.trim().split('\n')) {
+      const match = line.trim().match(/^(\d+)\s+(.+)$/)
+      if (!match) continue
+      const agent = detectProcessAgent(match[2])
+      if (agent) agents.set(match[1], agent)
+    }
+    return agents
+  } catch {
+    return null
+  }
+}
 async function scanAgentPanes(hostId: string, sessionName?: string, allowedSessionNames?: string[]) {
   const args = sessionName ? ['list-panes', '-s', '-t', sessionName] : ['list-panes', '-a']
-  args.push('-F', '#{session_name}\t#{pane_id}\t#{pane_current_command}\t#{pane_title}')
+  args.push('-F', '#{session_name}\t#{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_title}')
   const { stdout } = await execTmux(hostId, args)
   const allowedSessions = allowedSessionNames ? new Set(allowedSessionNames) : null
   const candidates = stdout.trim().split('\n').filter(Boolean).map((line) => {
-    const [paneSessionName, tmuxPaneId, currentCommand, title] = line.split('\t')
-    return { paneId: `${hostId}:${tmuxPaneId}`, tmuxPaneId, sessionName: paneSessionName, currentCommand, title: title || '' }
-  }).filter((candidate) => candidate.tmuxPaneId?.startsWith('%') && (!allowedSessions || allowedSessions.has(candidate.sessionName)) && shouldCapture(candidate))
+    const [paneSessionName, tmuxPaneId, panePid, currentCommand, title] = line.split('\t')
+    return { paneId: `${hostId}:${tmuxPaneId}`, tmuxPaneId, panePid, sessionName: paneSessionName, currentCommand, title: title || '' }
+  }).filter((candidate) => candidate.tmuxPaneId?.startsWith('%') && (!allowedSessions || allowedSessions.has(candidate.sessionName)))
+  const processAgents = await getProcessAgents(hostId, candidates)
+  const agentCandidates = candidates.filter((candidate) => shouldCapture(candidate) || !!processAgents?.get(candidate.panePid))
   const states: AgentPaneState[] = []
   let index = 0
-  await Promise.all(Array.from({ length: Math.min(4, candidates.length) }, async () => {
-    while (index < candidates.length) {
-      const candidate = candidates[index++]
+  await Promise.all(Array.from({ length: Math.min(4, agentCandidates.length) }, async () => {
+    while (index < agentCandidates.length) {
+      const candidate = agentCandidates[index++]
       try {
         const { stdout: output } = await execTmux(hostId, ['capture-pane', '-p', '-t', candidate.tmuxPaneId, '-S', '-80'])
-        const state = updateRecord(candidate, output)
+        const processAgent = processAgents ? processAgents.get(candidate.panePid) : undefined
+        const state = updateRecord(candidate, output, processAgent)
         if (state) states.push(state)
       } catch {}
     }
