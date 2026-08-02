@@ -1,5 +1,5 @@
 'use client'
-import { api } from './api'
+import { api, fetchApiBlob } from './api'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import type { FileDocumentHandle } from '@/types'
 import type { useTranslation } from '@/i18n'
@@ -71,6 +71,7 @@ export async function openFileInEditor(file: FileDocumentHandle, options: { t: T
   if (isImagePath(file.path)) {
     try {
       const result = await api.files.preview(file.hostId, file.rootId, file.path)
+      const blob = await fetchApiBlob(api.files.imageUrl(file.hostId, file.rootId, file.path, result.modifiedAt))
       store.setEditorLoaded(file.id, {
         loading: false,
         content: '',
@@ -80,7 +81,7 @@ export async function openFileInEditor(file: FileDocumentHandle, options: { t: T
         binary: true,
         truncated: false,
         problem: undefined,
-        previewUrl: api.files.imageUrl(file.hostId, file.rootId, file.path, result.modifiedAt),
+        previewUrl: URL.createObjectURL(blob),
       })
     } catch (err) {
       const message = err instanceof Error ? err.message : t('desktop.openFailed')

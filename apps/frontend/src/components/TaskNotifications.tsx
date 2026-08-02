@@ -5,7 +5,7 @@ import { useSystemTasks } from '@/hooks/useApi'
 import { useTranslation } from '@/i18n'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useOptionalQueryClient } from '@/hooks/useOptionalQueryClient'
-import { getApiBase } from '@/lib/runtime-endpoints'
+import { fetchApiBlob } from '@/lib/api'
 
 export function TaskNotifications() {
   const { data } = useSystemTasks(true, true)
@@ -31,14 +31,18 @@ export function TaskNotifications() {
       if (task.type === 'host-test') queryClient?.invalidateQueries({ queryKey: ['hosts'] })
       const result = task.result && typeof task.result === 'object' ? task.result as { downloadUrl?: unknown; fileName?: unknown } : null
       if (task.status === 'success' && task.type === 'file-download' && result && typeof result.downloadUrl === 'string' && result.downloadUrl.startsWith('/api/') && typeof result.fileName === 'string') {
-        const anchor = document.createElement('a')
-        anchor.href = `${getApiBase()}${result.downloadUrl}`
-        anchor.download = result.fileName
-        anchor.rel = 'noopener'
-        anchor.style.display = 'none'
-        document.body.appendChild(anchor)
-        anchor.click()
-        anchor.remove()
+        void fetchApiBlob(result.downloadUrl).then((blob) => {
+          const objectUrl = URL.createObjectURL(blob)
+          const anchor = document.createElement('a')
+          anchor.href = objectUrl
+          anchor.download = result.fileName as string
+          anchor.rel = 'noopener'
+          anchor.style.display = 'none'
+          document.body.appendChild(anchor)
+          anchor.click()
+          anchor.remove()
+          setTimeout(() => URL.revokeObjectURL(objectUrl), 0)
+        }).catch(() => {})
       }
       pushToast({ type: task.status === 'success' ? 'success' : 'error', message })
       if (document.visibilityState !== 'hidden' || !window.matchMedia('(max-width: 1023px)').matches || !('Notification' in window) || Notification.permission !== 'granted') return

@@ -10,7 +10,7 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import type { FavoriteDirectory, FileContentMatch, FileDocumentHandle, FileItem, FileListResponse, FilePreviewResponse, FileRoot, TrashEntry } from '@/types'
 import { writeClipboardText } from '@/lib/clipboard-text'
 import { quoteShellPath } from '@/lib/path-drop'
-import { api } from '@/lib/api'
+import { api, fetchApiBlob } from '@/lib/api'
 import { clearActiveDraggedFile, FILE_DRAG_MIME, setActiveDraggedFile } from '@/lib/editor-drag'
 import { useTranslation } from '@/i18n'
 import { Button } from './Button'
@@ -333,6 +333,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
   const [lastTrashedItem, setLastTrashedItem] = useState<TrashEntry | null>(null)
   const [trashEntries, setTrashEntries] = useState<TrashEntry[]>([])
   const [trashOpen, setTrashOpen] = useState(false)
+  const [imagePreviewUrl, setImagePreviewUrl] = useState('')
   const virtualRoots = useMemo(() => favoriteDirectories.map((item) => ({ id: getFavoriteRootOptionId(item), label: item.name, path: joinPath(item.rootPath, item.path), sourceRootId: item.rootId, basePath: item.path })), [favoriteDirectories])
   const visibleRoots = useMemo(() => {
     const workspace = roots.find((item) => getRootKind(item) === 'workspace') || null
@@ -953,7 +954,26 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
   const embedded = mode === 'explorer'
   const shellClass = (isMobile || isPicker) ? 'flex h-full min-h-0 flex-col overflow-hidden' : `relative flex h-full ${embedded ? 'min-w-0 flex-1' : 'shrink-0'} flex-col bg-bg-1 overflow-hidden ${dock === 'left' ? 'border-r border-[var(--line)]' : 'border-l border-[var(--line)]'}`
   const shellStyle = isMobile || embedded || isPicker ? undefined : { width: previewWidth ?? filePanelWidth }
-  const imagePreviewUrl = preview?.path && preview.type === 'file' && isImagePath(preview.path) && (preview.binary || preview.reason === 'binary-file' || preview.reason === 'large-file') ? api.files.imageUrl(fileHostId, activeRootId, resolveRootRelativePath(activeRootBasePath, preview.path), preview.modifiedAt) : ''
+  const imagePreviewPath = preview?.path && preview.type === 'file' && isImagePath(preview.path) && (preview.binary || preview.reason === 'binary-file' || preview.reason === 'large-file') ? api.files.imageUrl(fileHostId, activeRootId, resolveRootRelativePath(activeRootBasePath, preview.path), preview.modifiedAt) : ''
+  useEffect(() => {
+    setImagePreviewUrl('')
+    if (!imagePreviewPath) {
+      return
+    }
+    let cancelled = false
+    let objectUrl = ''
+    void fetchApiBlob(imagePreviewPath).then((blob) => {
+      if (cancelled) return
+      objectUrl = URL.createObjectURL(blob)
+      setImagePreviewUrl(objectUrl)
+    }).catch(() => {
+      if (!cancelled) setImagePreviewUrl('')
+    })
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [imagePreviewPath])
   const previewBlock = preview ? (
     imagePreviewUrl ? (
       <div className="flex h-full min-h-0 flex-col">

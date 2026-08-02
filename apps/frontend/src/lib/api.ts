@@ -218,6 +218,19 @@ function parseApiError(status: number, raw: string) {
   error.code = code
   return error
 }
+export async function fetchApiBlob(path: string) {
+  const response = await authenticatedFetch(path)
+  if (!response.ok) {
+    const data = await readResponseBody(response)
+    if (typeof data === 'string') throw parseApiError(response.status, data)
+    const error = data && typeof data === 'object' ? data as { message?: string; code?: string } : { message: 'Request failed', code: 'REQUEST_FAILED' }
+    const e = new Error(error.message || `HTTP ${response.status}`) as Error & { status?: number; code?: string }
+    e.status = response.status
+    e.code = error.code || 'REQUEST_FAILED'
+    throw e
+  }
+  return response.blob()
+}
 function uploadWithProgress(hostId: string, body: FormData, onProgress?: (loadedBytes: number, totalBytes: number) => void): Promise<UploadJobResult | { task: SystemTaskResponse }> {
   const url = `${getApiBase()}/api/hosts/${encodeURIComponent(hostId)}/files/upload`
   return new Promise((resolve, reject) => {

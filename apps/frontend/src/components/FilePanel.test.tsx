@@ -65,6 +65,7 @@ vi.mock('@/lib/clipboard-text', () => ({
   writeClipboardText: clipboardMocks.writeClipboardText,
 }))
 vi.mock('@/lib/api', () => ({
+  fetchApiBlob: vi.fn(async () => new Blob(['image'])),
   api: {
     files: {
       list: vi.fn(async (_hostId: string, rootId: string, path = '') => getListData(rootId, path)),
