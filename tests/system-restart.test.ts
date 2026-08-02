@@ -25,6 +25,10 @@ test('restart-rebuild endpoints start one fixed task and expose status', async (
       }
       return state
     },
+    cancel: async () => {
+      state = { ...state, status: 'cancelled' as const, finishedAt: '2026-06-08T00:01:00.000Z', errorMessage: 'Task cancelled' }
+      return state
+    },
   }
   const app = Fastify()
   await app.register(async (fastify) => {
@@ -46,4 +50,16 @@ test('restart-rebuild endpoints start one fixed task and expose status', async (
   const current = await app.inject({ method: 'GET', url: '/api/system/restart-rebuild' })
   assert.equal(current.statusCode, 200)
   assert.deepEqual(current.json(), state)
+  const tasks = await app.inject({ method: 'GET', url: '/api/system/tasks' })
+  assert.equal(tasks.statusCode, 200)
+  assert.equal(tasks.json().tasks[0].id, 'restart-rebuild')
+  assert.equal(tasks.json().tasks[0].cancellable, true)
+  const cancelled = await app.inject({ method: 'POST', url: '/api/system/tasks/restart-rebuild/cancel' })
+  assert.equal(cancelled.statusCode, 200)
+  assert.equal(cancelled.json().status, 'cancelled')
+  assert.equal(cancelled.json().retryable, true)
+  const retried = await app.inject({ method: 'POST', url: '/api/system/tasks/restart-rebuild/retry' })
+  assert.equal(retried.statusCode, 200)
+  assert.equal(retried.json().status, 'running')
+  assert.equal(startCalls, 2)
 })

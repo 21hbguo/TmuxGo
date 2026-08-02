@@ -8,6 +8,7 @@ import { MobileNav } from './MobileNav'
 import { MobileDrawer } from './MobileDrawer'
 import { MobileBottomSheet } from './MobileBottomSheet'
 import { Settings } from './Settings'
+import { TaskCenter } from './TaskCenter'
 import { InstallAppBanner } from './InstallAppBanner'
 import { ImmersiveBackOrb } from './ImmersiveBackOrb'
 import { ShortcutBar } from './ShortcutBar'
@@ -123,6 +124,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerType, setDrawerType] = useState<'sessions' | 'panes' | 'windows'>('sessions')
   const [showSettings, setShowSettings] = useState(false)
+  const [showTasks, setShowTasks] = useState(false)
   const [mobileGitSheetOpen, setMobileGitSheetOpen] = useState(false)
   const [mobilePluginView, setMobilePluginView] = useState<{ pluginId: string; viewId: string } | null>(null)
   const [keyboardOpen, setKeyboardOpen] = useState(false)
@@ -196,6 +198,24 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
     setShowSettings(false)
     const stack = overlayRef.current
     const index = stack.lastIndexOf('settings')
+    if (index === -1) return
+    if (index === stack.length - 1) {
+      stack.pop()
+      ignoreNextPopRef.current = true
+      window.history.back()
+      return
+    }
+    stack.splice(index, 1)
+  }, [])
+  const openTasks = useCallback(() => {
+    if (showTasks) return
+    setShowTasks(true)
+    pushOverlay('tasks')
+  }, [showTasks, pushOverlay])
+  const dismissTasks = useCallback(() => {
+    setShowTasks(false)
+    const stack = overlayRef.current
+    const index = stack.lastIndexOf('tasks')
     if (index === -1) return
     if (index === stack.length - 1) {
       stack.pop()
@@ -505,6 +525,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       lastExitBackAtRef.current = 0
       const top = stack[stack.length - 1]
       if (top === 'settings') setShowSettings(false)
+      else if (top === 'tasks') setShowTasks(false)
       else if (top === 'drawer') setDrawerOpen(false)
       else if (top === 'palette') setCommandPalette(false)
       else if (top === 'mobile-files-level') {
@@ -563,6 +584,11 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
     window.addEventListener('tmuxgo-open-settings', handleOpenSettings as EventListener)
     return () => window.removeEventListener('tmuxgo-open-settings', handleOpenSettings as EventListener)
   }, [openSettings])
+  useEffect(() => {
+    const handleOpenTasks = () => openTasks()
+    window.addEventListener('tmuxgo-open-tasks', handleOpenTasks as EventListener)
+    return () => window.removeEventListener('tmuxgo-open-tasks', handleOpenTasks as EventListener)
+  }, [openTasks])
   useEffect(() => {
     const handleOpenPluginView = (event: Event) => {
       const detail = (event as CustomEvent<{ pluginId?: string; viewId?: string }>).detail
@@ -689,6 +715,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       )}
       {showCommandPalette && <CommandPalette onClose={() => closeOverlay('palette')} />}
       {showSettings && <Settings onClose={dismissSettings} />}
+      {showTasks && <TaskCenter onClose={dismissTasks} />}
       <MobileBottomSheet open={!!mobileSessionMenu} onClose={() => setMobileSessionMenuId(null)} zClass="z-[85]" heightClass="p-3">
             <div className="flex justify-center pb-2"><div className="h-1 w-10 rounded-full bg-text-3/30" /></div>
             <div className="px-1 pb-2 text-sm text-text-1">{mobileSessionMenu?.name}</div>

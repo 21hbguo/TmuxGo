@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/lib/api'
+import { api, type SystemTaskResponse } from '@/lib/api'
 import type { SessionLayout, SessionTemplate } from '@/types'
 import type { GitBranchesResponse, GitCommitResponse, GitDetectResponse, GitDiffResponse, GitLogResponse, GitMergeResponse, GitRepositoryInfo, GitStatusResponse } from '@/types'
 
@@ -98,6 +98,23 @@ export function useRestartRebuild() {
     onSuccess: (data) => {
       queryClient.setQueryData(['restart-rebuild-status'], data)
     },
+  })
+}
+export function useSystemTasks(enabled = true) {
+  return useQuery({ queryKey: ['system-tasks'], queryFn: api.system.tasks, enabled, staleTime: 0, refetchInterval: 2000 })
+}
+export function useCancelSystemTask() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (taskId: string) => api.system.cancelTask(taskId),
+    onSuccess: (task) => queryClient.setQueryData<{ tasks: SystemTaskResponse[] }>(['system-tasks'], (data) => ({ tasks: (data?.tasks || []).map((item) => item.id === task.id ? task : item) })),
+  })
+}
+export function useRetrySystemTask() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (taskId: string) => api.system.retryTask(taskId),
+    onSuccess: (task) => queryClient.setQueryData<{ tasks: SystemTaskResponse[] }>(['system-tasks'], (data) => ({ tasks: (data?.tasks || []).map((item) => item.id === task.id ? task : item) })),
   })
 }
 export function usePlugins(enabled = true) {
