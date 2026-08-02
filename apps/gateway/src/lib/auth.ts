@@ -18,7 +18,7 @@ export type AuthUser = { username: string }
 export type AccessTokenPayload = { username: string; sessionId: string; exp: number }
 export type AuthSession = { id: string; createdAt: string; lastUsedAt: string; expiresAt: string; userAgent?: string; ip?: string }
 type StoredSession = AuthSession & { refreshTokenHash: string }
-type AuthStore = { version: number; username: string; passwordHash: string; signingKey: string; sessions: StoredSession[] }
+type AuthStore = { version: number; username: string; passwordHash: string; signingKey: string; sessions: StoredSession[]; generation: number }
 type LoginAttempt = { count: number; resetAt: number }
 
 export class AuthError extends Error {
@@ -99,6 +99,7 @@ async function initializeAuth() {
   } catch {}
   if (loaded?.version === AUTH_VERSION && typeof loaded.username === 'string' && typeof loaded.passwordHash === 'string' && typeof loaded.signingKey === 'string' && Array.isArray(loaded.sessions)) {
     store = loaded
+    store.generation = Number.isInteger(store.generation) && store.generation > 0 ? store.generation : 1
     store.sessions = store.sessions.filter((session) => typeof session.refreshTokenHash === 'string' && Date.parse(session.expiresAt) > now())
     if (store.username !== configuredUsername) {
       store.username = configuredUsername
@@ -107,7 +108,7 @@ async function initializeAuth() {
     defaultPasswordInUse = store.username === 'admin' && verifyPassword('admin123', store.passwordHash)
     return
   }
-  store = { version: AUTH_VERSION, username: configuredUsername, passwordHash: createPasswordHash(configuredPassword), signingKey: randomBytes(32).toString('base64url'), sessions: [] }
+  store = { version: AUTH_VERSION, username: configuredUsername, passwordHash: createPasswordHash(configuredPassword), signingKey: randomBytes(32).toString('base64url'), sessions: [], generation: 1 }
   defaultPasswordInUse = store.username === 'admin' && configuredPassword === 'admin123'
   await writeStore()
 }
@@ -135,6 +136,9 @@ export function getAuthUser(username = getAuthUsername()) {
 }
 export function isPasswordChangeRequired() {
   return defaultPasswordInUse
+}
+export function getAuthGeneration() {
+  return store?.generation || 1
 }
 function requireStore() {
   if (!store) throw new AuthError('Authentication is disabled', 401, 'AUTH_DISABLED')
@@ -243,6 +247,7 @@ export async function changePassword(currentPassword: string, newPassword: strin
   if (authStore.username === 'admin' && newPassword === 'admin123') throw new AuthError('Default password is not allowed', 400, 'DEFAULT_PASSWORD_NOT_ALLOWED')
   authStore.passwordHash = createPasswordHash(newPassword)
   defaultPasswordInUse = false
+  authStore.generation += 1
   authStore.sessions = []
   accessTokens.clear()
   await writeStore()

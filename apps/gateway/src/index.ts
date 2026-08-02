@@ -26,6 +26,7 @@ import { pluginRoutes } from './routes/plugins.js'
 import { pluginManager } from './lib/plugin-manager.js'
 import { createFastifyLoggerConfig } from './lib/process-log.js'
 import { authRoutes } from './routes/auth.js'
+import { shareRoutes } from './routes/shares.js'
 import { getAccessCookieName, initializeAuthStore, isAuthEnabled, isPasswordChangeRequired, verifyAccessToken } from './lib/auth.js'
 
 const fastify = Fastify({
@@ -41,7 +42,7 @@ fastify.addHook('onRequest', async (request, reply) => {
   if (request.method === 'OPTIONS') return
   if (!isAuthEnabled()) return
   const routePath = request.url.split('?')[0]
-  if (!routePath.startsWith('/api/') || routePath === '/api/stream' || routePath === '/api/auth/status' || routePath === '/api/auth/login' || routePath === '/api/auth/refresh' || routePath === '/api/auth/logout') return
+  if (!routePath.startsWith('/api/') || routePath === '/api/stream' || routePath === '/api/auth/status' || routePath === '/api/auth/login' || routePath === '/api/auth/refresh' || routePath === '/api/auth/logout' || routePath === '/api/shares/exchange') return
   const authorization = request.headers.authorization
   const token = typeof authorization === 'string' && authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : ''
   const cookiePrefix = `${getAccessCookieName()}=`
@@ -70,6 +71,7 @@ await fastify.register(multipart, {
 await fastify.register(websocket)
 
 await fastify.register(authRoutes, { prefix: '/api' })
+await fastify.register(shareRoutes, { prefix: '/api' })
 await fastify.register(hostRoutes, { prefix: '/api' })
 await fastify.register(sessionRoutes, { prefix: '/api' })
 await fastify.register(windowRoutes, { prefix: '/api' })
