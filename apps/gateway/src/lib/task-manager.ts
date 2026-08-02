@@ -38,6 +38,9 @@ export interface TaskExecutionResult {
   result?:unknown
 }
 type TaskHandler=(input:unknown,context:TaskExecutionContext)=>Promise<TaskExecutionResult|void>
+interface TaskRegistrationOptions {
+  retryable?:boolean
+}
 interface TaskManagerOptions {
   statePath?:string
   maxTasks?:number
@@ -89,6 +92,7 @@ export class TaskManager {
   private readonly maxSummaryLines:number
   private readonly tasks=new Map<string,StoredTask>()
   private readonly handlers=new Map<string,TaskHandler>()
+  private readonly retryPolicies=new Map<string,boolean>()
   private readonly controllers=new Map<string,AbortController>()
   constructor(options:TaskManagerOptions={}) {
     this.statePath=getStatePath(options)
@@ -109,8 +113,9 @@ export class TaskManager {
     }
     if (changed) this.persist()
   }
-  register(type:string,handler:TaskHandler) {
+  register(type:string,handler:TaskHandler,options:TaskRegistrationOptions={}) {
     this.handlers.set(type,handler)
+    this.retryPolicies.set(type,options.retryable??true)
   }
   list() {
     return Array.from(this.tasks.values()).sort((left,right)=>right.startedAt.localeCompare(left.startedAt)).map((task)=>this.toResponse(task))
@@ -162,7 +167,7 @@ export class TaskManager {
   async retry(id:string) {
     const task=this.tasks.get(id)
     if (!task) return null
-    if (task.status==='running'||!this.handlers.has(task.type)) return this.toResponse(task)
+    if (task.status==='running'||!this.handlers.has(task.type)||!this.retryPolicies.get(task.type)) return this.toResponse(task)
     task.status='running'
     task.startedAt=new Date().toISOString()
     task.finishedAt=null
@@ -245,7 +250,7 @@ export class TaskManager {
       result:task.result,
       attempt:task.attempt,
       cancellable:task.status==='running',
-      retryable:(task.status==='error'||task.status==='cancelled')&&this.handlers.has(task.type),
+      retryable:(task.status==='error'||task.status==='cancelled')&&this.handlers.has(task.type)&&this.retryPolicies.get(task.type)!==false,
     }
   }
   private persist() {
