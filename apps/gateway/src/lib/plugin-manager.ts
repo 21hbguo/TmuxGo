@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto'
 import { mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'fs/promises'
 import os from 'os'
 import path from 'path'
-import { parsePluginManifest, supportsPluginPlatform, type PluginAction, type PluginEventHook, type PluginManifest } from './plugin-manifest.js'
+import { parsePluginManifest, supportsPluginPlatform, type PluginAction, type PluginEventHook, type PluginManifest, type PluginPermission } from './plugin-manifest.js'
 
 export interface PluginSource {
   kind: 'local' | 'github'
@@ -20,6 +20,7 @@ interface PluginRegistryEntry {
   enabled: boolean
   manifest: PluginManifest
   source: PluginSource
+  grantedPermissions: PluginPermission[]
 }
 interface PluginRegistryStore {
   version: 1
@@ -32,6 +33,7 @@ export interface PluginInfo {
   manifest: PluginManifest
   source: PluginSource
   state: 'active' | 'disabled' | 'error'
+  grantedPermissions: PluginPermission[]
   error?: string
 }
 export interface PluginInvocationContext {
@@ -51,7 +53,8 @@ export interface PluginCommandLog {
   actionId?: string
   event?: string
   command: string[]
-  status: 'running' | 'success' | 'error' | 'timeout'
+  status: 'running' | 'success' | 'error' | 'timeout' | 'permission_denied'
+  permission?: PluginPermission
   startedAt: string
   finishedAt?: string
   exitCode?: number | null
@@ -65,6 +68,7 @@ export interface GitHubPluginPreview {
   manifest: PluginManifest
   replacing: boolean
 }
+export class PluginPermissionError extends Error {}
 
 const manifestFileName = 'tmuxgo-plugin.json'
 const maxCommandOutputBytes = 64 * 1024
@@ -133,7 +137,7 @@ export class PluginManager {
     } catch {}
     for (const entry of store.plugins) {
       if (!entry || typeof entry.pluginId !== 'string' || typeof entry.root !== 'string' || !entry.manifest || !entry.source) continue
-      this.registry.set(entry.pluginId, { ...entry, enabled: entry.enabled !== false })
+      this.registry.set(entry.pluginId, { ...entry, enabled: entry.enabled !== false, grantedPermissions: Array.isArray(entry.grantedPermissions) ? entry.grantedPermissions.filter((permission): permission is PluginPermission => permission === 'actions.execute' || permission === 'host.context' || permission === 'files.read' || permission === 'files.write') : [] })
     }
     let names: string[] = []
     try {
@@ -145,7 +149,7 @@ export class PluginManager {
       try {
         const manifest = await this.readManifest(root)
         if (this.registry.has(manifest.id)) continue
-        this.registry.set(manifest.id, { pluginId: manifest.id, root, enabled: true, manifest, source: { kind: 'local', installedAt: new Date().toISOString() } })
+        this.registry.set(manifest.id, { pluginId: manifest.id, root, enabled: true, manifest, source: { kind: 'local', installedAt: new Date().toISOString() }, grantedPermissions: [] })
       } catch {}
     }
     await this.saveRegistry()
@@ -167,9 +171,10 @@ export class PluginManager {
       if (manifest.id !== entry.pluginId) throw new Error('Plugin id does not match registry entry')
       if (!supportsPluginPlatform(undefined, manifest.platforms)) throw new Error('Plugin is not supported on this platform')
       entry.manifest = manifest
-      return { pluginId: entry.pluginId, root: entry.root, enabled: entry.enabled, manifest, source: entry.source, state: entry.enabled ? 'active' : 'disabled' }
+      const grantedPermissions=entry.grantedPermissions.filter((permission) => manifest.permissions?.includes(permission))
+      return { pluginId: entry.pluginId, root: entry.root, enabled: entry.enabled, manifest, source: entry.source, state: entry.enabled ? 'active' : 'disabled', grantedPermissions }
     } catch (error) {
-      return { pluginId: entry.pluginId, root: entry.root, enabled: entry.enabled, manifest: entry.manifest, source: entry.source, state: 'error', error: error instanceof Error ? error.message : String(error) }
+      return { pluginId: entry.pluginId, root: entry.root, enabled: entry.enabled, manifest: entry.manifest, source: entry.source, state: 'error', grantedPermissions: entry.grantedPermissions.filter((permission) => entry.manifest.permissions?.includes(permission)), error: error instanceof Error ? error.message : String(error) }
     }
   }
   private async requireEntry(pluginId: string) {
@@ -193,7 +198,7 @@ export class PluginManager {
     const root = await realpath(rootValue)
     const manifest = await this.readManifest(root)
     if (this.registry.has(manifest.id)) throw new Error(`Plugin ${manifest.id} is already registered`)
-    const entry: PluginRegistryEntry = { pluginId: manifest.id, root, enabled: true, manifest, source: { kind: 'local', installedAt: new Date().toISOString() } }
+    const entry: PluginRegistryEntry = { pluginId: manifest.id, root, enabled: true, manifest, source: { kind: 'local', installedAt: new Date().toISOString() }, grantedPermissions: [] }
     this.registry.set(manifest.id, entry)
     try {
       await this.ensurePluginDataDirs(manifest.id)
@@ -212,6 +217,15 @@ export class PluginManager {
     }
     entry.enabled = enabled
     if (!enabled) await this.stopPlugin(pluginId)
+    await this.saveRegistry()
+    return this.loadInfo(entry)
+  }
+  async setGrantedPermissions(pluginId: string, permissions: string[]) {
+    const entry=await this.requireEntry(pluginId)
+    const info=await this.loadInfo(entry)
+    const grantedPermissions=Array.from(new Set(permissions)).sort()
+    if (grantedPermissions.some((permission) => !info.manifest.permissions?.includes(permission as PluginPermission))) throw new Error('Plugin permission is not declared')
+    entry.grantedPermissions=grantedPermissions as PluginPermission[]
     await this.saveRegistry()
     return this.loadInfo(entry)
   }
@@ -234,6 +248,19 @@ export class PluginManager {
   private pushLog(log: PluginCommandLog) {
     this.logs.push(log)
     if (this.logs.length > maxLogs) this.logs.splice(0, this.logs.length - maxLogs)
+  }
+  private requirePermission(info: PluginInfo, permission: PluginPermission, actionId?: string, event?: string) {
+    if (info.manifest.permissions?.includes(permission) && info.grantedPermissions.includes(permission)) return
+    const error=`Plugin permission ${permission} is ${info.manifest.permissions?.includes(permission) ? 'not granted' : 'not declared'}`
+    const timestamp=new Date().toISOString()
+    this.pushLog({ id:randomUUID(), pluginId:info.pluginId, actionId, event, command:[], status:'permission_denied', permission, startedAt:timestamp, finishedAt:timestamp, stdout:'', stderr:'', error })
+    throw new PluginPermissionError(error)
+  }
+  private filterContext(info: PluginInfo, value: unknown) {
+    const context=normalizeContext(value)
+    if (info.grantedPermissions.includes('host.context')) return context
+    const { hostId:_hostId, sessionId:_sessionId, sessionName:_sessionName, windowId:_windowId, paneId:_paneId, filePath:_filePath, repoPath:_repoPath, ...rest }=context
+    return rest
   }
   private async ensurePluginDataDirs(pluginId: string) {
     const root = path.join(this.dataDir, pluginId)
@@ -316,7 +343,14 @@ export class PluginManager {
     const action = info.manifest.contributes?.actions?.find((item) => item.id === actionId)
     if (!action) throw new Error('Plugin action not found')
     if (!supportsPluginPlatform(action.platforms, info.manifest.platforms)) throw new Error('Plugin action is not supported on this platform')
-    return this.runCommand(info, action.command, { actionId, timeoutMs: action.timeoutMs, context })
+    this.requirePermission(info,'actions.execute',actionId)
+    return this.runCommand(info, action.command, { actionId, timeoutMs: action.timeoutMs, context:this.filterContext(info,context) })
+  }
+  async getContext(pluginId: string, context?: unknown) {
+    const { info }=await this.requirePlugin(pluginId)
+    if (!info.enabled) throw new Error('Plugin is disabled')
+    this.requirePermission(info,'host.context')
+    return this.filterContext(info,context)
   }
   async emit(event: string, context?: unknown) {
     const plugins = await this.listPlugins()
@@ -324,7 +358,10 @@ export class PluginManager {
       if (!info.enabled || info.state !== 'active') continue
       for (const hook of info.manifest.contributes?.events || []) {
         if (hook.on !== event || !supportsPluginPlatform(hook.platforms, info.manifest.platforms)) continue
-        void this.runCommand(info, hook.command, { event, timeoutMs: hook.timeoutMs, context }).catch(() => {})
+        try {
+          this.requirePermission(info,'actions.execute',undefined,event)
+          void this.runCommand(info, hook.command, { event, timeoutMs: hook.timeoutMs, context:this.filterContext(info,context) }).catch(() => {})
+        } catch {}
       }
     }
   }
@@ -433,6 +470,7 @@ export class PluginManager {
         enabled: existing?.enabled !== false,
         manifest: after,
         source: { kind: 'github', owner: source.owner, repo: source.repo, subdir: source.subdir, requestedRef, resolvedCommit, installedAt: new Date().toISOString() },
+        grantedPermissions: existing?.grantedPermissions.filter((permission) => after.permissions?.includes(permission)) || [],
       }
       this.registry.set(before.id, entry)
       await this.ensurePluginDataDirs(before.id)

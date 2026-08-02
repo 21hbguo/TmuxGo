@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, type SystemTaskResponse } from '@/lib/api'
-import type { SessionLayout, SessionTemplate } from '@/types'
+import type { PluginPermission, SessionLayout, SessionTemplate } from '@/types'
 import type { GitBranchesResponse, GitCommitResponse, GitDetectResponse, GitDiffResponse, GitLogResponse, GitMergeResponse, GitRepositoryInfo, GitStatusResponse } from '@/types'
 
 function upsertSessionList(prev: any[] | undefined, session: any) {
@@ -127,6 +127,10 @@ export function useLinkPlugin() {
 export function useSetPluginEnabled() {
   const queryClient = useQueryClient()
   return useMutation({ mutationFn: ({ pluginId, enabled }: { pluginId: string; enabled: boolean }) => api.plugins.setEnabled(pluginId, enabled), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['plugins'] }) })
+}
+export function useSetPluginPermissions() {
+  const queryClient = useQueryClient()
+  return useMutation({ mutationFn: ({ pluginId, permissions }: { pluginId: string; permissions: PluginPermission[] }) => api.plugins.setPermissions(pluginId, permissions), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['plugins'] }) })
 }
 export function useUninstallPlugin() {
   const queryClient = useQueryClient()

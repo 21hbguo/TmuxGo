@@ -1,11 +1,12 @@
 import { createReadStream } from 'fs'
 import path from 'path'
 import type { FastifyInstance, FastifyReply } from 'fastify'
-import { pluginManager } from '../lib/plugin-manager.js'
+import { PluginPermissionError, pluginManager } from '../lib/plugin-manager.js'
 import { pluginInstallBodySchema, pluginLinkBodySchema } from '../lib/request-validation.js'
 
 function sendError(reply: FastifyReply, error: unknown) {
   const message = error instanceof Error ? error.message : String(error)
+  if (error instanceof PluginPermissionError) return reply.code(403).send({ message, code:'PLUGIN_PERMISSION_DENIED' })
   const status = message.includes('not found') || message.includes('Not found') ? 404 : message.includes('already') || message.includes('linked from') ? 409 : 400
   return reply.code(status).send({ message })
 }
@@ -44,6 +45,25 @@ export async function pluginRoutes(fastify: FastifyInstance) {
       return await pluginManager.setEnabled(pluginId, body.enabled)
     } catch (error) {
       return sendError(reply, error)
+    }
+  })
+  fastify.put('/plugins/:pluginId/permissions', async (request, reply) => {
+    try {
+      const { pluginId }=request.params as { pluginId:string }
+      const permissions=(request.body as { permissions?: unknown })?.permissions
+      if (!Array.isArray(permissions) || !permissions.every((permission) => typeof permission === 'string')) throw new Error('permissions must be an array of strings')
+      return await pluginManager.setGrantedPermissions(pluginId,permissions)
+    } catch (error) {
+      return sendError(reply,error)
+    }
+  })
+  fastify.post('/plugins/:pluginId/context', async (request, reply) => {
+    try {
+      const { pluginId }=request.params as { pluginId:string }
+      const body=request.body as { context?: unknown } | undefined
+      return { context:await pluginManager.getContext(pluginId,body?.context) }
+    } catch (error) {
+      return sendError(reply,error)
     }
   })
   fastify.delete('/plugins/:pluginId', async (request, reply) => {

@@ -7,13 +7,14 @@ import { PluginView } from './PluginView'
 
 const invokePluginAction = vi.fn()
 const storageSet = vi.fn()
+const pluginContext = vi.fn()
 
 vi.mock('@/hooks/useApi', () => ({
-  usePlugins: () => ({ data: { plugins: [{ pluginId: 'test.plugin', enabled: true, state: 'active', manifest: { schemaVersion: 1, id: 'test.plugin', name: 'Test Plugin', version: '0.1.0', minTmuxGoVersion: '0.1.0', platforms: ['linux'], contributes: { actions: [{ id: 'run', title: 'Run', command: ['test'] }], views: [{ id: 'main', title: 'Plugin View', entry: 'ui/index.html', placement: 'activity' }] } } }] } }),
+  usePlugins: () => ({ data: { plugins: [{ pluginId: 'test.plugin', enabled: true, state: 'active', grantedPermissions: ['actions.execute', 'host.context'], manifest: { schemaVersion: 1, id: 'test.plugin', name: 'Test Plugin', version: '0.1.0', minTmuxGoVersion: '0.1.0', platforms: ['linux'], permissions: ['actions.execute', 'host.context'], contributes: { actions: [{ id: 'run', title: 'Run', command: ['test'] }], views: [{ id: 'main', title: 'Plugin View', entry: 'ui/index.html', placement: 'activity' }] } } }] } }),
 }))
 vi.mock('@/lib/runtime-endpoints', () => ({ getApiBase: () => '' }))
 vi.mock('@/lib/api', () => ({
-  api: { plugins: { invoke: (...args: any[]) => invokePluginAction(...args), storage: { list: vi.fn(), get: vi.fn(), set: (...args: any[]) => storageSet(...args), remove: vi.fn() } } },
+  api: { plugins: { context: (...args: any[]) => pluginContext(...args), invoke: (...args: any[]) => invokePluginAction(...args), storage: { list: vi.fn(), get: vi.fn(), set: (...args: any[]) => storageSet(...args), remove: vi.fn() } } },
 }))
 
 function dispatchPluginMessage(source: MessageEventSource | null, data: Record<string, unknown>) {
@@ -27,6 +28,8 @@ describe('PluginView', () => {
     localStorage.setItem('tmuxgo-preferences', JSON.stringify({ language: 'en' }))
     invokePluginAction.mockReset()
     storageSet.mockReset()
+    pluginContext.mockReset()
+    pluginContext.mockImplementation(async (_pluginId, context) => ({ context }))
     useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-dev', activePaneId: 'local:%1', toasts: [] } as any)
   })
   it('uses a script-only sandbox and sends host context after the view is ready', async () => {
@@ -46,5 +49,14 @@ describe('PluginView', () => {
     expect(invokePluginAction).not.toHaveBeenCalled()
     dispatchPluginMessage(iframe.contentWindow, { source: 'tmuxgo-plugin', type: 'request', id: 'valid', pluginId: 'test.plugin', viewId: 'main', method: 'action.invoke', params: { actionId: 'run', context: { hostId: 'remote', sessionId: 'session-other', paneId: 'remote:%9', extra: 'value' } } })
     await waitFor(() => expect(invokePluginAction).toHaveBeenCalledWith('test.plugin', 'run', { hostId: 'local', sessionId: 'session-dev', paneId: 'local:%1', extra: 'value', source: 'plugin-view', pluginId: 'test.plugin', viewId: 'main' }))
+  })
+  it('does not expose context after Gateway permission revocation', async () => {
+    pluginContext.mockRejectedValue(new Error('Plugin permission host.context is not granted'))
+    const { container } = render(React.createElement(I18nProvider, null, React.createElement(PluginView, { pluginId: 'test.plugin', viewId: 'main', onClose: () => {} })))
+    const iframe = container.querySelector('iframe') as HTMLIFrameElement
+    const postMessage = vi.spyOn(iframe.contentWindow!, 'postMessage')
+    dispatchPluginMessage(iframe.contentWindow, { source: 'tmuxgo-plugin', type: 'ready', pluginId: 'test.plugin', viewId: 'main' })
+    await waitFor(() => expect(pluginContext).toHaveBeenCalled())
+    expect(postMessage).not.toHaveBeenCalled()
   })
 })

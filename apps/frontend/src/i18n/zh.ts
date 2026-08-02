@@ -315,6 +315,17 @@ export const zh = {
   'plugins.actionComplete': '插件操作完成',
   'plugins.actionFailed': '插件操作失败',
   'plugins.viewUnavailable': '插件视图不可用',
+  'plugins.permissions': '权限',
+  'plugins.permission.actions.execute': '执行操作',
+  'plugins.permission.host.context': '读取主机上下文',
+  'plugins.permission.files.read': '读取文件',
+  'plugins.permission.files.write': '写入文件',
+  'plugins.grant': '授权',
+  'plugins.revoke': '撤销',
+  'plugins.permissionGranted': '插件权限已授权',
+  'plugins.permissionRevoked': '插件权限已撤销',
+  'plugins.grantPermissionTitle': '授权插件权限',
+  'plugins.grantPermissionMessage': '允许 {name} {permission}？',
 
   // AuditLog
   'audit.title': '审计日志',

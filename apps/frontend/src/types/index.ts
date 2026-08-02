@@ -435,7 +435,7 @@ export interface PluginManifest {
   description?: string
   icon?: string
   platforms: PluginPlatform[]
-  permissions?: string[]
+  permissions?: PluginPermission[]
   build?: { command: string[]; platforms?: PluginPlatform[] }[]
   contributes?: {
     actions?: PluginCommandContribution[]
@@ -443,6 +443,7 @@ export interface PluginManifest {
     views?: PluginViewContribution[]
   }
 }
+export type PluginPermission = 'actions.execute' | 'host.context' | 'files.read' | 'files.write'
 export interface PluginSource {
   kind: 'local' | 'github'
   owner?: string
@@ -459,6 +460,7 @@ export interface PluginInfo {
   manifest: PluginManifest
   source: PluginSource
   state: 'active' | 'disabled' | 'error'
+  grantedPermissions: PluginPermission[]
   error?: string
 }
 export interface PluginCommandLog {
@@ -467,7 +469,8 @@ export interface PluginCommandLog {
   actionId?: string
   event?: string
   command: string[]
-  status: 'running' | 'success' | 'error' | 'timeout'
+  status: 'running' | 'success' | 'error' | 'timeout' | 'permission_denied'
+  permission?: PluginPermission
   startedAt: string
   finishedAt?: string
   exitCode?: number | null

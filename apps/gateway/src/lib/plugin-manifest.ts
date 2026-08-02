@@ -5,6 +5,7 @@ const localIdPattern = /^[A-Za-z0-9][A-Za-z0-9_:-]{0,119}$/
 const eventPattern = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+){1,7}$/
 const pathPattern = /^(?![\\/])(?!.*(?:^|[\\/])\.\.(?:[\\/]|$)).+$/
 const platformSchema = z.enum(['linux', 'macos', 'windows'])
+const pluginPermissionSchema = z.enum(['actions.execute', 'host.context', 'files.read', 'files.write'])
 const commandSchema = z.array(z.string().min(1).max(4096)).min(1).max(64)
 const platformsSchema = z.array(platformSchema).min(1).max(3).optional()
 const buildSchema = z.object({ command: commandSchema, platforms: platformsSchema }).strict()
@@ -36,12 +37,13 @@ const manifestSchema = z.object({
   description: z.string().max(512).optional(),
   icon: z.string().max(64).optional(),
   platforms: z.array(platformSchema).min(1).max(3),
-  permissions: z.array(z.string().regex(idPattern)).max(32).optional(),
+  permissions: z.array(pluginPermissionSchema).max(32).optional(),
   build: z.array(buildSchema).max(16).optional(),
   contributes: z.object({ actions: z.array(actionSchema).max(100).optional(), events: z.array(eventSchema).max(100).optional(), views: z.array(viewSchema).max(20).optional() }).strict().optional(),
 }).strict()
 
 export type PluginPlatform = z.infer<typeof platformSchema>
+export type PluginPermission = z.infer<typeof pluginPermissionSchema>
 export type PluginManifest = z.infer<typeof manifestSchema>
 export type PluginAction = NonNullable<NonNullable<PluginManifest['contributes']>['actions']>[number]
 export type PluginEventHook = NonNullable<NonNullable<PluginManifest['contributes']>['events']>[number]
@@ -71,6 +73,7 @@ export function parsePluginManifest(value: unknown, currentVersion = process.env
   if (compareVersions(parsed.data.minTmuxGoVersion, currentVersion) > 0) throw new Error(`Plugin requires TmuxGo ${parsed.data.minTmuxGoVersion} or newer`)
   rejectDuplicateIds(parsed.data.contributes?.actions, 'action')
   rejectDuplicateIds(parsed.data.contributes?.views, 'view')
+  if (new Set(parsed.data.permissions || []).size !== (parsed.data.permissions || []).length) throw new Error('Duplicate plugin permission')
   return parsed.data
 }
 export function currentPluginPlatform(): PluginPlatform {

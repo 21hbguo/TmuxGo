@@ -315,6 +315,17 @@ export const en = {
   'plugins.actionComplete': 'Plugin action completed',
   'plugins.actionFailed': 'Plugin action failed',
   'plugins.viewUnavailable': 'Plugin view unavailable',
+  'plugins.permissions': 'Permissions',
+  'plugins.permission.actions.execute': 'Run actions',
+  'plugins.permission.host.context': 'Read host context',
+  'plugins.permission.files.read': 'Read files',
+  'plugins.permission.files.write': 'Write files',
+  'plugins.grant': 'Grant',
+  'plugins.revoke': 'Revoke',
+  'plugins.permissionGranted': 'Plugin permission granted',
+  'plugins.permissionRevoked': 'Plugin permission revoked',
+  'plugins.grantPermissionTitle': 'Grant plugin permission',
+  'plugins.grantPermissionMessage': 'Allow {name} to {permission}?',
 
   // AuditLog
   'audit.title': 'Audit Log',

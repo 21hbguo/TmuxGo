@@ -41,14 +41,17 @@ export function PluginView({ pluginId, viewId, mode = 'panel', onClose }: Plugin
       const message = event.data
       if (!message || message.source !== 'tmuxgo-plugin' || message.pluginId !== pluginId || message.viewId !== viewId) return
       if (message.type === 'ready') {
-        iframeRef.current?.contentWindow?.postMessage({ source: 'tmuxgo-host', type: 'context', pluginId, viewId, context }, '*')
+        try {
+          const result=await api.plugins.context(pluginId,context)
+          iframeRef.current?.contentWindow?.postMessage({ source: 'tmuxgo-host', type: 'context', pluginId, viewId, context:result.context }, '*')
+        } catch {}
         return
       }
       if (message.type !== 'request' || !message.id || !message.method) return
       const params = message.params || {}
       try {
         let result: unknown
-        if (message.method === 'context.get') result = context
+        if (message.method === 'context.get') result = (await api.plugins.context(pluginId,context)).context
         else if (message.method === 'storage.list') result = (await api.plugins.storage.list(pluginId)).keys
         else if (message.method === 'storage.get') result = (await api.plugins.storage.get(pluginId, String(params.key || ''))).value
         else if (message.method === 'storage.set') result = await api.plugins.storage.set(pluginId, String(params.key || ''), params.value)
