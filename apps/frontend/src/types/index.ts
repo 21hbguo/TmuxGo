@@ -12,6 +12,12 @@ export interface Host {
   usesAgent?: boolean
   jumpHost?: string
   knownHostsPolicy?: 'strict' | 'accept-new' | 'off'
+  connectionMode?: 'local' | 'ssh' | 'agent'
+  latencyMs?: number
+  lastCheckedAt?: string
+  lastConnectionError?: string
+  dependencies?: Record<string, boolean>
+  agent?: { version: string; online: boolean; lastSeenAt: string; disconnectReason: string | null; reconnectCount: number }
 }
 
 export interface Session {
