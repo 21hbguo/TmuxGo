@@ -266,6 +266,7 @@ export const api = {
     logs: (pluginId?: string) => fetchApi<{ logs: PluginCommandLog[] }>(`/api/plugins/logs${pluginId ? `?pluginId=${encodeURIComponent(pluginId)}` : ''}`),
     previewGitHub: (source: string, ref?: string) => fetchApi<GitHubPluginPreview>('/api/plugins/github/preview', { method: 'POST', body: JSON.stringify({ source, ref }) }),
     installGitHub: (source: string, resolvedCommit: string, ref?: string) => fetchApi<PluginInfo>('/api/plugins/github/install', { method: 'POST', body: JSON.stringify({ source, resolvedCommit, ref }) }),
+    rollback: (pluginId: string) => fetchApi<PluginInfo>(`/api/plugins/${encodeURIComponent(pluginId)}/rollback`, { method: 'POST' }),
     storage: {
       list: (pluginId: string) => fetchApi<{ keys: string[] }>(`/api/plugins/${encodeURIComponent(pluginId)}/storage`),
       get: <T>(pluginId: string, key: string) => fetchApi<{ value: T }>(`/api/plugins/${encodeURIComponent(pluginId)}/storage/${encodeURIComponent(key)}`),

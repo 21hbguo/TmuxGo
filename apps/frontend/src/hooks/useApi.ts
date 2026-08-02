@@ -23,7 +23,9 @@ export function useHosts() {
   return useQuery({
     queryKey: ['hosts'],
     queryFn: api.hosts.list,
-    staleTime: 60000,
+    staleTime: 10000,
+    refetchInterval: 15000,
+    refetchIntervalInBackground: false,
   })
 }
 export function useSessionTemplates() {
@@ -145,6 +147,10 @@ export function usePreviewGitHubPlugin() {
 export function useInstallGitHubPlugin() {
   const queryClient = useQueryClient()
   return useMutation({ mutationFn: ({ source, resolvedCommit, ref }: { source: string; resolvedCommit: string; ref?: string }) => api.plugins.installGitHub(source, resolvedCommit, ref), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['plugins'] }) })
+}
+export function useRollbackPlugin() {
+  const queryClient = useQueryClient()
+  return useMutation({ mutationFn: (pluginId: string) => api.plugins.rollback(pluginId), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['plugins'] }) })
 }
 
 export function useSessions(hostId: string) {

@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { FiBox, FiExternalLink, FiGithub, FiLink, FiPlay, FiRefreshCw, FiTrash2 } from 'react-icons/fi'
-import { useInstallGitHubPlugin, useInvokePluginAction, useLinkPlugin, usePlugins, usePreviewGitHubPlugin, useSetPluginEnabled, useSetPluginPermissions, useUninstallPlugin } from '@/hooks/useApi'
+import { FiBox, FiExternalLink, FiGithub, FiLink, FiPlay, FiRefreshCw, FiRotateCcw, FiTrash2 } from 'react-icons/fi'
+import { useInstallGitHubPlugin, useInvokePluginAction, useLinkPlugin, usePlugins, usePreviewGitHubPlugin, useRollbackPlugin, useSetPluginEnabled, useSetPluginPermissions, useUninstallPlugin } from '@/hooks/useApi'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
 import type { GitHubPluginPreview, PluginInfo, PluginPermission } from '@/types'
@@ -27,6 +27,7 @@ export function PluginSettings() {
   const invoke = useInvokePluginAction()
   const previewGitHub = usePreviewGitHubPlugin()
   const installGitHub = useInstallGitHubPlugin()
+  const rollback = useRollbackPlugin()
   const [localPath, setLocalPath] = useState('')
   const [githubSource, setGithubSource] = useState('')
   const [githubRef, setGithubRef] = useState('')
@@ -75,6 +76,14 @@ export function PluginSettings() {
       notifyError(error)
     }
   }
+  const handleRollback = async (plugin: PluginInfo) => {
+    try {
+      await rollback.mutateAsync(plugin.pluginId)
+      pushToast({ type: 'success', message: t('plugins.rolledBack', { name: plugin.manifest.name }) })
+    } catch (error) {
+      notifyError(error)
+    }
+  }
   const updatePermission = async (plugin: PluginInfo, permission: PluginPermission, granted: boolean) => {
     const permissions=plugin.grantedPermissions || []
     try {
@@ -106,8 +115,8 @@ export function PluginSettings() {
       {plugins.map((plugin) => <section key={plugin.pluginId} className="rounded-apple border border-[var(--line)] bg-bg-2 p-3">
         <div className="flex items-start gap-3"><div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-apple bg-bg-1 text-text-2"><FiBox size={16} /></div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><span className="text-sm font-medium text-text-1">{plugin.manifest.name}</span><PluginState plugin={plugin} /><span className="font-mono text-caption text-text-3">v{plugin.manifest.version}</span></div><div className="mt-1 truncate text-xs text-text-3">{plugin.manifest.description || plugin.pluginId}</div><div className="mt-1 truncate font-mono text-caption text-text-3">{plugin.source.kind === 'github' ? `${plugin.source.owner}/${plugin.source.repo}${plugin.source.subdir ? `/${plugin.source.subdir}` : ''}@${plugin.source.resolvedCommit?.slice(0, 8) || ''}` : plugin.root}</div>{plugin.error && <div className="mt-2 text-xs text-danger">{plugin.error}</div>}</div><button onClick={() => void setEnabled.mutateAsync({ pluginId: plugin.pluginId, enabled: !plugin.enabled }).catch(notifyError)} className={`relative h-6 w-10 shrink-0 rounded-full ${plugin.enabled ? 'bg-accent' : 'bg-bg-1'}`} aria-label={t('plugins.toggle')} aria-pressed={plugin.enabled}><span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${plugin.enabled ? 'right-1' : 'left-1'}`} /></button></div>
         {!!plugin.manifest.permissions?.length && <div className="mt-3 border-t border-[var(--line)] pt-3"><div className="mb-2 text-xs text-text-3">{t('plugins.permissions')}</div><div className="flex flex-wrap gap-2">{plugin.manifest.permissions.map((permission) => { const granted=(plugin.grantedPermissions || []).includes(permission); return <Chip key={permission} tone={granted ? 'accent' : 'default'} disabled={setPermissions.isPending} onClick={() => granted ? void updatePermission(plugin,permission,false) : setPendingPermission({ plugin,permission })}>{t(`plugins.permission.${permission}` as any)} · {t(granted ? 'plugins.revoke' : 'plugins.grant')}</Chip> })}</div></div>}
-        {(plugin.manifest.contributes?.actions?.length || plugin.manifest.contributes?.views?.length) && <div className="mt-3 flex flex-wrap gap-2 border-t border-[var(--line)] pt-3">{plugin.manifest.contributes?.actions?.map((action) => <Chip key={action.id} disabled={plugin.state !== 'active' || invoke.isPending || !(plugin.grantedPermissions || []).includes('actions.execute')} onClick={() => void handleInvoke(plugin, action.id)} className="flex items-center gap-1.5"><FiPlay size={11} />{action.title}</Chip>)}{plugin.manifest.contributes?.views?.map((view) => <Chip key={view.id} disabled={plugin.state !== 'active'} onClick={() => window.dispatchEvent(new CustomEvent('tmuxgo-open-plugin-view', { detail: { pluginId: plugin.pluginId, viewId: view.id } }))} className="flex items-center gap-1.5"><FiExternalLink size={11} />{view.title}</Chip>)}<Chip tone="danger" className="ml-auto flex items-center gap-1.5" onClick={() => setPendingDelete(plugin)}><FiTrash2 size={12} />{t('plugins.uninstall')}</Chip></div>}
-        {!plugin.manifest.contributes?.actions?.length && !plugin.manifest.contributes?.views?.length && <div className="mt-3 flex justify-end border-t border-[var(--line)] pt-3"><Chip tone="danger" className="flex items-center gap-1.5" onClick={() => setPendingDelete(plugin)}><FiTrash2 size={12} />{t('plugins.uninstall')}</Chip></div>}
+        {(plugin.manifest.contributes?.actions?.length || plugin.manifest.contributes?.views?.length) && <div className="mt-3 flex flex-wrap gap-2 border-t border-[var(--line)] pt-3">{plugin.manifest.contributes?.actions?.map((action) => <Chip key={action.id} disabled={plugin.state !== 'active' || invoke.isPending || !(plugin.grantedPermissions || []).includes('actions.execute')} onClick={() => void handleInvoke(plugin, action.id)} className="flex items-center gap-1.5"><FiPlay size={11} />{action.title}</Chip>)}{plugin.manifest.contributes?.views?.map((view) => <Chip key={view.id} disabled={plugin.state !== 'active'} onClick={() => window.dispatchEvent(new CustomEvent('tmuxgo-open-plugin-view', { detail: { pluginId: plugin.pluginId, viewId: view.id } }))} className="flex items-center gap-1.5"><FiExternalLink size={11} />{view.title}</Chip>)}{plugin.source.previousSource?.resolvedCommit && <Chip disabled={rollback.isPending} onClick={() => void handleRollback(plugin)} className="flex items-center gap-1.5"><FiRotateCcw size={12} />{t('plugins.rollback')}</Chip>}<Chip tone="danger" className="ml-auto flex items-center gap-1.5" onClick={() => setPendingDelete(plugin)}><FiTrash2 size={12} />{t('plugins.uninstall')}</Chip></div>}
+        {!plugin.manifest.contributes?.actions?.length && !plugin.manifest.contributes?.views?.length && <div className="mt-3 flex justify-end gap-2 border-t border-[var(--line)] pt-3">{plugin.source.previousSource?.resolvedCommit && <Chip disabled={rollback.isPending} onClick={() => void handleRollback(plugin)} className="flex items-center gap-1.5"><FiRotateCcw size={12} />{t('plugins.rollback')}</Chip>}<Chip tone="danger" className="flex items-center gap-1.5" onClick={() => setPendingDelete(plugin)}><FiTrash2 size={12} />{t('plugins.uninstall')}</Chip></div>}
       </section>)}
     </div>
     <ConfirmDialog open={!!pendingDelete} title={t('plugins.uninstallTitle')} message={t('plugins.uninstallMessage', { name: pendingDelete?.manifest.name || '' })} confirmLabel={t('plugins.uninstall')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setPendingDelete(null)} onConfirm={() => { if (!pendingDelete) return; void uninstall.mutateAsync({ pluginId: pendingDelete.pluginId }).then(() => setPendingDelete(null)).catch(notifyError) }} />

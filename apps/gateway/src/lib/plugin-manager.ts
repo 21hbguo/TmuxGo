@@ -13,6 +13,7 @@ export interface PluginSource {
   requestedRef?: string
   resolvedCommit?: string
   installedAt: string
+  previousSource?: PluginSource
 }
 interface PluginRegistryEntry {
   pluginId: string
@@ -469,7 +470,7 @@ export class PluginManager {
         root,
         enabled: existing?.enabled !== false,
         manifest: after,
-        source: { kind: 'github', owner: source.owner, repo: source.repo, subdir: source.subdir, requestedRef, resolvedCommit, installedAt: new Date().toISOString() },
+        source: { kind: 'github', owner: source.owner, repo: source.repo, subdir: source.subdir, requestedRef, resolvedCommit, installedAt: new Date().toISOString(), previousSource: existing?.source.kind === 'github' ? { ...existing.source, previousSource: undefined } : undefined },
         grantedPermissions: existing?.grantedPermissions.filter((permission) => after.permissions?.includes(permission)) || [],
       }
       this.registry.set(before.id, entry)
@@ -491,6 +492,12 @@ export class PluginManager {
     } finally {
       await rm(temp, { recursive: true, force: true })
     }
+  }
+  async rollback(pluginId: string) {
+    const entry = await this.requireEntry(pluginId)
+    const source = entry.source.previousSource
+    if (entry.source.kind !== 'github' || source?.kind !== 'github' || !source.owner || !source.repo || !source.resolvedCommit) throw new Error('No previous plugin version is available')
+    return this.installGit([source.owner, source.repo, source.subdir].filter(Boolean).join('/'), source.resolvedCommit, source.requestedRef)
   }
   private async resolveCheckoutRoot(checkout: string, subdir?: string) {
     const root = await realpath(subdir ? path.join(checkout, subdir) : checkout)

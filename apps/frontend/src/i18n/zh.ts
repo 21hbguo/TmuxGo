@@ -319,6 +319,8 @@ export const zh = {
   'plugins.preview': '预览安装',
   'plugins.install': '安装',
   'plugins.update': '更新',
+  'plugins.rollback': '回滚',
+  'plugins.rolledBack': '已回滚 {name}',
   'plugins.installed': '已安装 {name}',
   'plugins.trustWarning': '构建命令和插件 Action 将以当前系统用户身份运行，请确认来源与命令可信。',
   'plugins.installedTitle': '已安装插件',
