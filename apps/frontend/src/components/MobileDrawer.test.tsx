@@ -10,6 +10,9 @@ const mutateDeleteSession = vi.fn()
 const mutateBatchDeleteSessions = vi.fn()
 const mutateCreateWindow = vi.fn()
 const mutateBatchKillWindows = vi.fn()
+const mutateSetSessionWorkspace = vi.fn()
+const mutateRemoveSessionWorkspaces = vi.fn()
+const mutateMigrateSessionWorkspace = vi.fn()
 const promptMock = vi.fn()
 
 vi.mock('@/hooks/useApi', () => ({
@@ -28,6 +31,11 @@ vi.mock('@/hooks/useWindowQueryState', () => ({
 }))
 vi.mock('@/hooks/useOrderedSessions', () => ({
   useOrderedSessions: () => ({ data: [{ id: 'session-dev', name: 'dev', windowCount: 2 }, { id: 'session-next', name: 'next', windowCount: 1 }], moveSession: vi.fn() }),
+}))
+vi.mock('@/hooks/useSessionWorkspaces', () => ({
+  useSetSessionWorkspace: () => ({ mutateAsync: mutateSetSessionWorkspace }),
+  useRemoveSessionWorkspaces: () => ({ mutateAsync: mutateRemoveSessionWorkspaces }),
+  useMigrateSessionWorkspace: () => ({ mutateAsync: mutateMigrateSessionWorkspace }),
 }))
 vi.mock('@/i18n', () => ({
   useTranslation: () => ({ t: (key: string, params?: Record<string, string | number>) => {
@@ -49,6 +57,9 @@ vi.mock('@/i18n', () => ({
 }))
 vi.mock('./SessionTemplates', () => ({
   SessionTemplates: () => React.createElement('div'),
+}))
+vi.mock('./CreateSessionDialog', () => ({
+  CreateSessionDialog: () => null,
 }))
 vi.mock('@/hooks/usePrompt', () => ({
   usePrompt: () => ({
@@ -74,6 +85,9 @@ describe('MobileDrawer session actions', () => {
     mutateBatchDeleteSessions.mockReset()
     mutateCreateWindow.mockReset()
     mutateBatchKillWindows.mockReset()
+    mutateSetSessionWorkspace.mockReset()
+    mutateRemoveSessionWorkspaces.mockReset()
+    mutateMigrateSessionWorkspace.mockReset()
     promptMock.mockReset()
     mutateRenameSession.mockResolvedValue({ id: 'session-dev-renamed' })
     mutateDeleteSession.mockResolvedValue({ success: true })

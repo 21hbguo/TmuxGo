@@ -8,6 +8,9 @@ const mutateCreateSession = vi.fn()
 const mutateRenameSession = vi.fn()
 const mutateDeleteSession = vi.fn()
 const mutateBatchDeleteSessions = vi.fn()
+const mutateSetSessionWorkspace = vi.fn()
+const mutateRemoveSessionWorkspaces = vi.fn()
+const mutateMigrateSessionWorkspace = vi.fn()
 const promptMock = vi.fn()
 const orderedSessions = [{ id: 'session-dev', name: 'dev', windowCount: 2, agentSummary: { idle: 2, working: 1, blocked: 0, done: 0, unknown: 0, total: 3 } }, { id: 'session-next', name: 'next', windowCount: 1 }]
 const moveSessionMock = vi.fn()
@@ -27,6 +30,11 @@ vi.mock('@/hooks/usePreferences', () => ({
 }))
 vi.mock('@/hooks/useOrderedSessions', () => ({
   useOrderedSessions: () => orderedSessionQueryState,
+}))
+vi.mock('@/hooks/useSessionWorkspaces', () => ({
+  useSetSessionWorkspace: () => ({ mutateAsync: mutateSetSessionWorkspace }),
+  useRemoveSessionWorkspaces: () => ({ mutateAsync: mutateRemoveSessionWorkspaces }),
+  useMigrateSessionWorkspace: () => ({ mutateAsync: mutateMigrateSessionWorkspace }),
 }))
 vi.mock('@/i18n', () => ({
   useTranslation: () => ({ t: (key: string, params?: Record<string, string | number>) => {
@@ -50,6 +58,9 @@ vi.mock('@/i18n', () => ({
 }))
 vi.mock('./SessionTemplates', () => ({
   SessionTemplates: ({ onSelect }: { onSelect: (template: { id: string; name: string; layout: { windows: { name: string; panes: {}[] }[] } }) => void }) => React.createElement('button', { onClick: () => onSelect({ id: 'default', name: 'default', layout: { windows: [{ name: 'main', panes: [{}] }] } }) }, 'select-template'),
+}))
+vi.mock('./CreateSessionDialog', () => ({
+  CreateSessionDialog: ({ open, defaultName, onCreate }: { open: boolean; defaultName: string; onCreate: (result: { name: string }) => void }) => open ? React.createElement('button', { onClick: () => onCreate({ name: defaultName }) }, 'create-session') : null,
 }))
 vi.mock('./ConfirmDialog', () => ({
   ConfirmDialog: ({ open, onConfirm }: { open: boolean; onConfirm: () => void }) => open ? React.createElement('button', { onClick: onConfirm }, 'confirm-delete') : null,
@@ -76,6 +87,9 @@ describe('SessionPanel session actions', () => {
     mutateRenameSession.mockReset()
     mutateDeleteSession.mockReset()
     mutateBatchDeleteSessions.mockReset()
+    mutateSetSessionWorkspace.mockReset()
+    mutateRemoveSessionWorkspaces.mockReset()
+    mutateMigrateSessionWorkspace.mockReset()
     promptMock.mockReset()
     moveSessionMock.mockReset()
     refetchSessionsMock.mockReset()
@@ -131,6 +145,7 @@ describe('SessionPanel session actions', () => {
     render(<SessionPanel />)
     fireEvent.click(screen.getByText('New'))
     fireEvent.click(screen.getByText('select-template'))
+    fireEvent.click(screen.getByText('create-session'))
     await waitFor(() => expect(mutateCreateSession).toHaveBeenCalledWith({ hostId: 'local', name: 'default', layout: expect.any(Object) }))
     await waitFor(() => expect(useConsoleStore.getState().activeSessionId).toBe('session-default'))
   })

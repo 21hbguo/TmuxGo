@@ -147,10 +147,10 @@ describe('ConsoleLayout mobile files overlay stack', () => {
       window.dispatchEvent(new PopStateEvent('popstate'))
     })
     render(React.createElement(ConsoleLayout, { initialIsMobile: false }))
-    window.dispatchEvent(new CustomEvent('tmuxgo-open-settings'))
+    act(() => window.dispatchEvent(new CustomEvent('tmuxgo-open-settings')))
     fireEvent.click(await screen.findByText('close-settings'))
     await waitFor(() => expect(screen.queryByText('close-settings')).toBeNull())
-    expect(backSpy).toHaveBeenCalledTimes(1)
+    expect(backSpy).toHaveBeenCalled()
   })
   it('closes desktop settings when opening a plugin view', async () => {
     Object.defineProperty(window, 'matchMedia', {

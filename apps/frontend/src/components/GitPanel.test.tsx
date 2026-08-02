@@ -121,7 +121,7 @@ describe('GitPanel', () => {
     expect(container.querySelectorAll('[data-git-search-match="1"]')).toHaveLength(1)
   })
 
-  it('shows working tree changes as a graph node and opens the status tab', async () => {
+  it('shows working tree changes as a graph node and opens its diff', async () => {
     useGitStatusMock.mockReturnValue({ data: { branch: 'main', ahead: 1, behind: 0, staged: [], unstaged: [{ path: 'src/changed.ts', status: 'modified', staged: false }], untracked: [], conflicted: [] } })
     const user = userEvent.setup()
     const queryClient = new QueryClient()
@@ -130,8 +130,7 @@ describe('GitPanel', () => {
     expect(screen.getByText('工作区更改 (1)')).toBeInTheDocument()
     expect(container.querySelector('path[stroke-dasharray="3 4"]')).toBeInTheDocument()
     await user.click(screen.getByText('工作区更改 (1)'))
-    expect(screen.getByText('未暂存')).toBeInTheDocument()
-    expect(screen.getByText('src/changed.ts')).toBeInTheDocument()
+    await waitFor(() => expect(useConsoleStore.getState().openEditors.at(-1)).toMatchObject({ rootPath: '/workspace/app', path: '', name: '工作区更改 (1)', language: 'diff' }))
   })
 
   it('opens the working tree diff inside the mobile Git panel and returns to history', async () => {

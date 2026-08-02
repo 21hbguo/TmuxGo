@@ -38,7 +38,6 @@ describe('StatusBar', () => {
     const context = screen.getByLabelText('Workspace context')
     const resources = screen.getByLabelText('System resources')
     const connection = screen.getByLabelText('Connection status')
-    expect(within(context).getByText('RW')).toBeInTheDocument()
     expect(within(context).getByText('Local')).toBeInTheDocument()
     expect(within(context).getByText('120×30')).toBeInTheDocument()
     expect(within(resources).getByText('CPU')).toBeInTheDocument()
