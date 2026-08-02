@@ -51,15 +51,23 @@ export async function runRemoteFilePython<T>(hostId: string, script: string, arg
     throw new Error(normalizeRemoteFileErrorMessage(`${err?.stderr || ''}\n${err?.stdout || ''}`, err?.message || 'SSH file command failed'))
   }
 }
-export async function spawnRemoteFileCommand(host: HostRecord, remoteCommand: string) {
+export async function spawnRemoteFileCommand(host: HostRecord, remoteCommand: string, signal?: AbortSignal) {
   const credentials = await getHostCredentials(host.id)
   const password = resolveHostPassword(credentials)
   const sshArgs = ['-p', String(host.port), '-o', 'ConnectTimeout=8', '-o', `BatchMode=${password ? 'no' : 'yes'}`, ...buildHostSshOptions(host, credentials), '-T', `${host.user}@${host.address}`, '--', remoteCommand]
+  let child
   if (password) {
     if (!await hasSshPass()) throw new Error('SSH password configured but sshpass is not installed')
-    return spawn('sshpass', ['-e', 'ssh', ...sshArgs], { env: { ...process.env, SSHPASS: password }, stdio: ['pipe', 'pipe', 'pipe'] })
+    child=spawn('sshpass', ['-e', 'ssh', ...sshArgs], { env: { ...process.env, SSHPASS: password }, stdio: ['pipe', 'pipe', 'pipe'] })
+  } else {
+    child=spawn('ssh', sshArgs, { stdio: ['pipe', 'pipe', 'pipe'] })
   }
-  return spawn('ssh', sshArgs, { stdio: ['pipe', 'pipe', 'pipe'] })
+  if (!signal) return child
+  const abort=()=>child.kill('SIGTERM')
+  if (signal.aborted) abort()
+  else signal.addEventListener('abort',abort,{once:true})
+  child.once('close',()=>signal.removeEventListener('abort',abort))
+  return child
 }
 export function quoteRemoteFileShellValue(value: string) {
   return escapeShellSingleQuoted(value)

@@ -6,12 +6,13 @@ import os from 'node:os'
 import path from 'node:path'
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { cleanupExpiredTemporaryUploads, TEMP_UPLOAD_ROOT_ID } from '../apps/gateway/src/routes/files'
-async function createUploadApp(tmpDir: string) {
+import { TaskManager } from '../apps/gateway/src/lib/task-manager'
+async function createUploadApp(tmpDir: string, taskManager?: TaskManager) {
   process.env.TMUXGO_TMP_DIR = tmpDir
   const { fileRoutes } = await import('../apps/gateway/src/routes/files')
   const app = Fastify()
   await app.register(multipart)
-  await app.register(fileRoutes, { prefix: '/api' })
+  await app.register(fileRoutes, { prefix: '/api', taskManager })
   return app
 }
 function multipartPayload(fields: Record<string, string>, files: Array<{ field: string; name: string; type: string; content: string }>) {
@@ -44,6 +45,33 @@ test('temporary upload target stores pasted files under app tmp directory', asyn
   const uploaded = uploadResponse.json().files[0]
   assert.equal(uploaded.absolutePath, path.join(tmpDir, 'pasted.png'))
   assert.equal(await readFile(uploaded.absolutePath, 'utf8'), 'png-data')
+})
+test('background upload stages files and records a completed task', async (t) => {
+  const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-background-upload-'))
+  const configDir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-background-upload-config-'))
+  process.env.TMUXGO_CONFIG_DIR = configDir
+  const manager = new TaskManager({ statePath: path.join(configDir, 'tasks.json') })
+  const app = await createUploadApp(tmpDir, manager)
+  t.after(async () => {
+    await app.close()
+    delete process.env.TMUXGO_TMP_DIR
+    delete process.env.TMUXGO_CONFIG_DIR
+    await rm(tmpDir, { recursive: true, force: true })
+    await rm(configDir, { recursive: true, force: true })
+  })
+  const body = multipartPayload({ targetRootId: TEMP_UPLOAD_ROOT_ID, targetPath: '', conflictPolicy: 'rename', rateLimitKBps: '10240', background: 'true' }, [{ field: 'files', name: 'queued.txt', type: 'text/plain', content: 'queued-data' }])
+  const response = await app.inject({ method: 'POST', url: '/api/hosts/local/files/upload', payload: body.payload, headers: body.headers })
+  assert.equal(response.statusCode, 202)
+  const taskId = response.json().task.id as string
+  let task = manager.get(taskId)
+  for (let attempt = 0; task?.status === 'running' && attempt < 50; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    task = manager.get(taskId)
+  }
+  assert.equal(task?.status, 'success')
+  assert.equal(task?.type, 'file-upload')
+  assert.equal(task?.progress, 100)
+  assert.equal(await readFile(path.join(tmpDir, 'queued.txt'), 'utf8'), 'queued-data')
 })
 test('cleanupExpiredTemporaryUploads removes stale temporary files only', async () => {
   const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-paste-cleanup-'))
