@@ -6,6 +6,7 @@ import { join } from 'node:path'
 const root = process.cwd()
 let configDir = ''
 let frontendDist = ''
+let tmuxDir = ''
 let gateway: ChildProcess | undefined
 let cleaned = false
 function delay(ms: number) {
@@ -54,8 +55,10 @@ async function cleanup() {
   if (cleaned) return
   cleaned = true
   await stop(gateway)
+  if (tmuxDir) await run('tmux', ['kill-server'], { cwd: root, env: { ...process.env, TMUX: '', TMUX_TMPDIR: tmuxDir } }).catch(() => undefined)
   if (configDir) await rm(configDir, { recursive: true, force: true })
   if (frontendDist) await rm(frontendDist, { recursive: true, force: true })
+  if (tmuxDir) await rm(tmuxDir, { recursive: true, force: true })
 }
 function handleSignal(code: number) {
   void cleanup().finally(() => process.exit(code))
@@ -65,6 +68,7 @@ process.once('SIGTERM', () => handleSignal(143))
 async function main() {
   configDir = await mkdtemp(join(tmpdir(), 'tmuxgo-auth-e2e-'))
   frontendDist = await mkdtemp(join(tmpdir(), 'tmuxgo-auth-e2e-frontend-'))
+  tmuxDir = await mkdtemp(join(tmpdir(), 'tmuxgo-auth-e2e-tmux-'))
   try {
     const apiPort = await port()
     const apiUrl = `http://127.0.0.1:${apiPort}`
@@ -73,7 +77,8 @@ async function main() {
     const password = 'e2e-password'
     const bin = join(root, 'node_modules', '.bin')
     if (await run(join(bin, 'vite'), ['build', '--outDir', frontendDist, '--emptyOutDir'], { cwd: join(root, 'apps/frontend'), env: { ...process.env, VITE_API_URL: apiUrl } }) !== 0) throw new Error('Authentication E2E frontend build failed')
-    gateway = spawn(join(bin, 'tsx'), ['apps/gateway/src/index.ts'], { cwd: root, stdio: 'inherit', env: { ...process.env, PORT: String(apiPort), TMUXGO_CONFIG_DIR: configDir, TMUXGO_AUTH_USERNAME: username, TMUXGO_AUTH_PASSWORD: password, TMUXGO_FRONTEND_DIST: frontendDist } })
+    if (await run('tmux', ['new-session', '-d', '-s', 'auth-e2e'], { cwd: root, env: { ...process.env, TMUX: '', TMUX_TMPDIR: tmuxDir } }) !== 0) throw new Error('Authentication E2E tmux startup failed')
+    gateway = spawn(join(bin, 'tsx'), ['apps/gateway/src/index.ts'], { cwd: root, stdio: 'inherit', env: { ...process.env, PORT: String(apiPort), TMUX: '', TMUX_TMPDIR: tmuxDir, TMUXGO_CONFIG_DIR: configDir, TMUXGO_AUTH_USERNAME: username, TMUXGO_AUTH_PASSWORD: password, TMUXGO_FRONTEND_DIST: frontendDist } })
     await waitFor(`${apiUrl}/health`, gateway)
     await waitFor(appUrl, gateway)
     const result = await new Promise<number>((resolve, reject) => {
