@@ -43,4 +43,11 @@ describe('api git error handling', () => {
     await api.files.searchName('local', 'root-0', 'demo', '', true, controller.signal)
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ signal: controller.signal })
   })
+  it('starts a background host test', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 202, text: async () => JSON.stringify({ task: { id: 'task-1', type: 'host-test', title: 'Test host edge', status: 'running' } }) }))
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(api.hosts.startTest('edge')).resolves.toMatchObject({ task: { id: 'task-1', type: 'host-test' } })
+    expect(fetchMock.mock.calls[0]?.[0]).toContain('/api/hosts/edge/test-tasks')
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: 'POST' })
+  })
 })

@@ -3,7 +3,11 @@ import { agentManager } from '../agent-manager.js'
 import { getHostById, getHostCredentials, listAllHosts, removeRemoteHost, upsertRemoteHost, type HostRecord } from '../lib/hosts.js'
 import { execHostShell, verifyHostConnectivity } from '../lib/tmux-executor.js'
 import { hostIdParamsSchema, remoteHostBodySchema } from '../lib/request-validation.js'
+import { taskManager, type TaskExecutionContext, type TaskManager } from '../lib/task-manager.js'
 const hostConnectivity = new Map<string, { status: 'online' | 'offline'; latencyMs?: number; lastCheckedAt: string; lastError?: string; dependencies?: Record<string, boolean> }>()
+interface HostTestTaskInput {
+  hostId: string
+}
 async function hostResponse(host: HostRecord) {
   const credentials = await getHostCredentials(host.id)
   const agent = agentManager.getAgentStatus(host.id)
@@ -32,8 +36,35 @@ async function hostResponse(host: HostRecord) {
     agent,
   }
 }
+async function testHostConnectivity(hostId: string, context?: TaskExecutionContext) {
+  context?.appendLog(`Testing ${hostId}`)
+  const startTime = Date.now()
+  const result = await verifyHostConnectivity(hostId)
+  const latencyMs = Date.now() - startTime
+  let dependencies: Record<string, boolean> | undefined
+  if (result.ok) {
+    try {
+      const { stdout } = await execHostShell(hostId, `for command in tmux git python3 rg sshpass; do if command -v "$command" >/dev/null 2>&1; then printf '%s=1\n' "$command"; else printf '%s=0\n' "$command"; fi; done`, { timeoutMs: 8000 })
+      dependencies = Object.fromEntries(stdout.trim().split('\n').filter(Boolean).map((line) => {
+        const [name, value] = line.split('=')
+        return [name, value === '1']
+      }))
+    } catch {}
+  }
+  hostConnectivity.set(hostId, { status: result.ok ? 'online' : 'offline', latencyMs, lastCheckedAt: new Date().toISOString(), lastError: result.ok ? undefined : result.message, dependencies })
+  context?.appendLog(result.message)
+  return { ...result, latencyMs, dependencies }
+}
+async function runHostTestTask(input: unknown, context: TaskExecutionContext) {
+  const task = input as HostTestTaskInput
+  const result = await testHostConnectivity(task.hostId, context)
+  if (!result.ok) throw new Error(result.message)
+  return { message: result.message, result: { hostId: task.hostId, ...result } }
+}
 
-export async function hostRoutes(fastify: FastifyInstance) {
+export async function hostRoutes(fastify: FastifyInstance, options: { taskManager?: TaskManager } = {}) {
+  const backgroundTasks = options.taskManager || taskManager
+  backgroundTasks.register('host-test', runHostTestTask)
   fastify.get('/hosts', async () => {
     const configHosts = await listAllHosts()
     const configIds = new Set(configHosts.map((host) => host.id))
@@ -108,21 +139,11 @@ export async function hostRoutes(fastify: FastifyInstance) {
   })
   fastify.post('/hosts/:id/test', async (request) => {
     const { id } = hostIdParamsSchema.parse(request.params)
-    const startTime = Date.now()
-    const result = await verifyHostConnectivity(id)
-    const latencyMs = Date.now() - startTime
-    let dependencies: Record<string, boolean> | undefined
-    if (result.ok) {
-      try {
-        const { stdout } = await execHostShell(id, `for command in tmux git python3 rg sshpass; do if command -v "$command" >/dev/null 2>&1; then printf '%s=1\n' "$command"; else printf '%s=0\n' "$command"; fi; done`, { timeoutMs: 8000 })
-        dependencies = Object.fromEntries(stdout.trim().split('\n').filter(Boolean).map((line) => {
-          const [name, value] = line.split('=')
-          return [name, value === '1']
-        }))
-      } catch {}
-    }
-    hostConnectivity.set(id, { status: result.ok ? 'online' : 'offline', latencyMs, lastCheckedAt: new Date().toISOString(), lastError: result.ok ? undefined : result.message, dependencies })
-    return { ...result, latencyMs, dependencies }
+    return testHostConnectivity(id)
+  })
+  fastify.post('/hosts/:id/test-tasks', async (request, reply) => {
+    const { id } = hostIdParamsSchema.parse(request.params)
+    return reply.status(202).send({ task: await backgroundTasks.start({ type: 'host-test', title: `Test host ${id}`, input: { hostId: id } }) })
   })
   fastify.get('/hosts/:id/github/auth-status', async (request) => {
     const { id } = request.params as { id: string }

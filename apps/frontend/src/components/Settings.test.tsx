@@ -9,6 +9,7 @@ const pushToast=vi.fn()
 const updatePreferences=vi.fn()
 const restartRebuild=vi.fn()
 const deleteHost=vi.fn()
+const testHost=vi.fn()
 const copy=vi.fn()
 const shareApi=vi.hoisted(() => ({ list: vi.fn(), create: vi.fn(), revoke: vi.fn() }))
 const restartStatusState={ data: { status: 'idle', startedAt: null, finishedAt: null, summaryLines: [], exitCode: null, errorMessage: null }, refetch: vi.fn() }
@@ -54,7 +55,7 @@ vi.mock('@/hooks/useApi', () => ({
   useHosts: () => ({ data: [{ id: 'edge', name: 'Edge', address: '10.0.0.8', user: 'deploy', port: 22, connectionMode: 'agent', agent: { version: '1.2.3', online: false, lastSeenAt: '2026-08-02T00:00:00.000Z', lastDisconnectedAt: '2026-08-02T00:01:00.000Z', disconnectReason: 'Heartbeat timed out', reconnectCount: 3 } }] }),
   useCreateHost: () => ({ mutateAsync: vi.fn() }),
   useDeleteHost: () => ({ mutateAsync: deleteHost }),
-  useTestHost: () => ({ mutateAsync: vi.fn() }),
+  useTestHost: () => ({ mutateAsync: testHost }),
   useRestartRebuildStatus: () => restartStatusState,
   useRestartRebuild: () => ({ mutateAsync: restartRebuild, isPending: false }),
 }))
@@ -67,6 +68,7 @@ describe('Settings restart rebuild', () => {
     updatePreferences.mockReset()
     restartRebuild.mockReset()
     deleteHost.mockReset()
+    testHost.mockReset()
     copy.mockReset()
     shareApi.list.mockReset()
     shareApi.create.mockReset()
@@ -74,6 +76,7 @@ describe('Settings restart rebuild', () => {
     copy.mockResolvedValue(true)
     shareApi.list.mockResolvedValue({ links: [] })
     deleteHost.mockResolvedValue({ success: true })
+    testHost.mockResolvedValue({ task: { title: 'Test host edge' } })
     restartStatusState.data = { status: 'idle', startedAt: null, finishedAt: null, summaryLines: [], exitCode: null, errorMessage: null }
     restartStatusState.refetch.mockReset()
     localStorage.setItem('tmuxgo-preferences', JSON.stringify({ language: 'en' }))
@@ -124,6 +127,14 @@ describe('Settings restart rebuild', () => {
     expect(screen.getByText('Remove host Edge and its saved connection details?')).toBeInTheDocument()
     await user.click(screen.getAllByRole('button', { name: 'Remove' }).at(-1)!)
     await waitFor(() => expect(deleteHost).toHaveBeenCalledWith('edge'))
+  })
+  it('starts a background host test', async () => {
+    const user = userEvent.setup()
+    render(React.createElement(I18nProvider, null, React.createElement(Settings, { onClose: vi.fn() })))
+    await user.click(screen.getByRole('button', { name: 'Connection' }))
+    await user.click(screen.getByRole('button', { name: 'Test' }))
+    await waitFor(() => expect(testHost).toHaveBeenCalledWith('edge'))
+    expect(screen.getByText('edge: Test host edge')).toBeInTheDocument()
   })
   it('renders host connection and Agent diagnostics', async () => {
     const user = userEvent.setup()
