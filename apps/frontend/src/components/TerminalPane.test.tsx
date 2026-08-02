@@ -457,7 +457,8 @@ describe('TerminalPane', () => {
   it('shows GitHub device login helper from terminal output and supports open and copy', async () => {
     render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(terminalLifecycleMocks.open).toHaveBeenCalled())
-    window.dispatchEvent(new CustomEvent('tmuxgo-terminal-output', { detail: '! First copy your one-time code: CFFE-7ABD\r\nPress Enter to open github.com in your browser...\r\n' }))
+    await waitFor(() => expect(webSocketMocks.lastOutputListener).toBeTruthy())
+    webSocketMocks.lastOutputListener?.({ data: '! First copy your one-time code: CFFE-7ABD\r\nPress Enter to open github.com in your browser...\r\n', sessionName: 'dev', hostId: 'local' })
     await waitFor(() => expect(screen.getByTestId('github-device-login-card')).toBeTruthy())
     expect(screen.getByText('CFFE-7ABD')).toBeTruthy()
     fireEvent.click(screen.getByTestId('github-device-login-open'))
@@ -471,7 +472,8 @@ describe('TerminalPane', () => {
     render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(terminalLifecycleMocks.open).toHaveBeenCalled())
     await waitFor(() => expect(apiMocks.githubAuthStatus).toHaveBeenCalledWith('local'))
-    window.dispatchEvent(new CustomEvent('tmuxgo-terminal-output', { detail: '! First copy your one-time code: CFFE-7ABD\r\nPress Enter to open github.com in your browser...\r\n' }))
+    await waitFor(() => expect(webSocketMocks.lastOutputListener).toBeTruthy())
+    webSocketMocks.lastOutputListener?.({ data: '! First copy your one-time code: CFFE-7ABD\r\nPress Enter to open github.com in your browser...\r\n', sessionName: 'dev', hostId: 'local' })
     await waitFor(() => expect(screen.queryByTestId('github-device-login-card')).toBeNull())
   })
   it('resizes tmux pane through frontend border drag', async () => {
@@ -1014,11 +1016,11 @@ describe('TerminalPane', () => {
     expect(requestPaste).not.toHaveBeenCalled()
     window.removeEventListener('tmuxgo-request-terminal-paste', requestPaste)
   })
-  it('renders terminal output from global websocket event', async () => {
+  it('renders terminal output from targeted websocket subscription', async () => {
     render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
-    await waitFor(() => expect(customKeyHandler).toBeTruthy())
-    window.dispatchEvent(new CustomEvent('tmuxgo-terminal-output', { detail: 'printf \"global_output_ok\"\\r\\n' }))
-    await waitFor(() => expect(terminalMocks.write).toHaveBeenCalledWith('printf \"global_output_ok\"\\r\\n'))
+    await waitFor(() => expect(webSocketMocks.lastOutputListener).toBeTruthy())
+    webSocketMocks.lastOutputListener?.({ data: 'printf \"targeted_output_ok\"\\r\\n', sessionName: 'dev', hostId: 'local' })
+    await waitFor(() => expect(terminalMocks.write).toHaveBeenCalledWith('printf \"targeted_output_ok\"\\r\\n'))
   })
   it('renders websocket output for matching session only', async () => {
     render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} subscribeOutput={webSocketMocks.subscribeOutput} />)
