@@ -630,7 +630,7 @@ export function Settings({ onClose }: SettingsProps) {
                               setHostActionMessage('')
                               try {
                                 const result = await testHost.mutateAsync(host.id)
-                                setHostActionMessage(`${host.id}: ${result.ok ? t('settings.hostTestOk') : result.message}`)
+                                setHostActionMessage(`${host.id}: ${result.task.title}`)
                               } catch (err: any) {
                                 setHostActionMessage(err?.message || t('settings.hostTestFailed'))
                               }

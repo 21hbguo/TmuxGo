@@ -327,6 +327,10 @@ export const api = {
       fetchApi<{ ok: boolean; message: string; mode: 'local' | 'key' | 'agent' | 'password'; code?: string }>(`/api/hosts/${id}/test`, {
         method: 'POST',
       }),
+    startTest: (id: string) =>
+      fetchApi<{ task: SystemTaskResponse }>(`/api/hosts/${encodeURIComponent(id)}/test-tasks`, {
+        method: 'POST',
+      }),
     githubAuthStatus: (id: string) =>
       fetchApi<{ ok: boolean; available: boolean; loggedIn: boolean | null }>(`/api/hosts/${encodeURIComponent(id)}/github/auth-status`),
   },

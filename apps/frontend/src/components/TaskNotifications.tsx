@@ -28,6 +28,7 @@ export function TaskNotifications() {
       if (previousStatuses.get(task.id) === task.status || task.status !== 'success' && task.status !== 'error') return
       const message = task.status === 'success' ? t('tasks.notificationSuccess', { title: task.title }) : t('tasks.notificationFailed', { title: task.title, message: task.errorMessage || t('tasks.status.error') })
       if (task.status === 'success' && task.type.startsWith('git-')) queryClient?.invalidateQueries({ queryKey: ['git-status'] })
+      if (task.type === 'host-test') queryClient?.invalidateQueries({ queryKey: ['hosts'] })
       const result = task.result && typeof task.result === 'object' ? task.result as { downloadUrl?: unknown; fileName?: unknown } : null
       if (task.status === 'success' && task.type === 'file-download' && result && typeof result.downloadUrl === 'string' && result.downloadUrl.startsWith('/api/') && typeof result.fileName === 'string') {
         const anchor = document.createElement('a')

@@ -50,6 +50,13 @@ describe('TaskNotifications', () => {
     view.rerender(<TaskNotifications />)
     expect(mocks.pushToast).toHaveBeenCalledWith({ type: 'error', message: 'Git Push failed: Permission denied' })
   })
+  it('refreshes host diagnostics when a host test finishes', () => {
+    mocks.tasks = [task('running', { type: 'host-test', title: 'Test host edge' })]
+    const view = render(<TaskNotifications />)
+    mocks.tasks = [task('success', { type: 'host-test', title: 'Test host edge' })]
+    view.rerender(<TaskNotifications />)
+    expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['hosts'] })
+  })
   it('starts the prepared download after a download task succeeds', () => {
     const appendChild = vi.spyOn(document.body, 'appendChild')
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
