@@ -3,7 +3,8 @@ import { promises as fs } from 'fs'
 import os from 'os'
 import path from 'path'
 import { promisify } from 'util'
-import { getHostById, type HostRecord } from './hosts.js'
+import { getHostById, getHostCredentials, type HostCredentials, type HostRecord } from './hosts.js'
+import { buildHostSshOptions, resolveHostPassword } from './ssh-options.js'
 
 const execFileAsync = promisify(execFile)
 const defaultTimeoutMs = 30000
@@ -15,6 +16,7 @@ const knownHostKeyMarkers = ['Host key verification failed', 'REMOTE HOST IDENTI
 const knownTimeoutMarkers = ['Connection timed out', 'Operation timed out', 'No route to host']
 const knownNetworkMarkers = ['Could not resolve hostname', 'Connection refused', 'Network is unreachable']
 const knownMissingTmuxMarkers = ['tmux: command not found']
+const knownPrivateKeyMarkers = ['identity file', 'Load key']
 const sshMultiplexDir = path.join(os.tmpdir(), 'tmuxgo-ssh')
 function getControlPath(host: HostRecord) {
   return path.join(sshMultiplexDir, `${host.user}@${host.address}:${host.port}`)
@@ -44,16 +46,11 @@ function normalizeErrorMessage(raw: string, fallback: string) {
   if (knownTimeoutMarkers.some((marker) => value.includes(marker))) return 'SSH connection timed out'
   if (knownNetworkMarkers.some((marker) => value.includes(marker))) return 'SSH network is unreachable'
   if (knownAuthMarkers.some((marker) => value.includes(marker))) return 'SSH authentication failed'
+  if (knownPrivateKeyMarkers.some((marker) => value.includes(marker))) return 'SSH private key is unavailable'
   return value
 }
-function resolveHostPassword(host: HostRecord) {
-  if (host.password) return host.password
-  const envName = host.passwordEnv.trim()
-  if (!envName) return ''
-  return process.env[envName] || ''
-}
-function buildPasswordEnv(host: HostRecord) {
-  const password = resolveHostPassword(host)
+function buildPasswordEnv(credentials: HostCredentials) {
+  const password = resolveHostPassword(credentials)
   if (!password) return null
   return {
     SSHPASS: password,
@@ -80,7 +77,7 @@ async function getResolvedHost(hostIdRaw: string) {
   if (!host) throw new Error(`Host "${hostId}" not found`)
   return host
 }
-function buildSshArgs(host: HostRecord, remoteCommand: string, options: TmuxExecOptions = {}, usePassword = false) {
+function buildSshArgs(host: HostRecord, remoteCommand: string, options: TmuxExecOptions = {}, usePassword = false, credentials: HostCredentials) {
   const args: string[] = ['-p', String(host.port), '-o', 'ConnectTimeout=8', '-o', 'ServerAliveInterval=30', '-o', 'ServerAliveCountMax=3']
   const controlPath = getControlPath(host)
   args.push('-o', `ControlPath=${controlPath}`)
@@ -91,7 +88,7 @@ function buildSshArgs(host: HostRecord, remoteCommand: string, options: TmuxExec
   } else if (options.mode === 'json' || options.allowPrompt !== true) {
     args.push('-o', 'BatchMode=yes')
   }
-  args.push('-o', 'StrictHostKeyChecking=accept-new')
+  args.push(...buildHostSshOptions(host, credentials))
   if (options.needsPty === true) {
     args.push('-tt')
   } else {
@@ -116,10 +113,11 @@ async function runLocalShell(command: string, options: TmuxExecOptions = {}) {
 async function runRemoteTmux(host: HostRecord, args: string[], options: TmuxExecOptions = {}) {
   await ensureMultiplexDir()
   const remoteCommand = `tmux ${args.map((item) => escapeShellSingleQuoted(item)).join(' ')}`
-  const passwordEnv = buildPasswordEnv(host)
+  const credentials = await getHostCredentials(host.id)
+  const passwordEnv = buildPasswordEnv(credentials)
   const hasPassword = !!passwordEnv
   const canUseSshPass = hasPassword && await hasSshPass()
-  const sshArgs = buildSshArgs(host, remoteCommand, options, canUseSshPass)
+  const sshArgs = buildSshArgs(host, remoteCommand, options, canUseSshPass, credentials)
   if (canUseSshPass) {
     try {
       const { stdout, stderr } = await execFileAsync('sshpass', ['-e', 'ssh', ...sshArgs], {
@@ -151,10 +149,11 @@ async function runRemoteTmux(host: HostRecord, args: string[], options: TmuxExec
 }
 async function runRemoteShell(host: HostRecord, command: string, options: TmuxExecOptions = {}) {
   await ensureMultiplexDir()
-  const passwordEnv = buildPasswordEnv(host)
+  const credentials = await getHostCredentials(host.id)
+  const passwordEnv = buildPasswordEnv(credentials)
   const hasPassword = !!passwordEnv
   const canUseSshPass = hasPassword && await hasSshPass()
-  const sshArgs = buildSshArgs(host, `sh -lc ${escapeShellSingleQuoted(command)}`, options, canUseSshPass)
+  const sshArgs = buildSshArgs(host, `sh -lc ${escapeShellSingleQuoted(command)}`, options, canUseSshPass, credentials)
   if (canUseSshPass) {
     try {
       const { stdout, stderr } = await execFileAsync('sshpass', ['-e', 'ssh', ...sshArgs], {
@@ -213,6 +212,12 @@ export async function execHostShell(hostIdRaw: string, command: string, options:
 function extractErrorSummary(stderr: string, stdout: string, fallback: string) {
   return normalizeErrorMessage(`${stderr}\n${stdout}`, fallback)
 }
+function getConnectionErrorCode(message: string) {
+  if (message === 'Host key verification failed') return 'HOST_KEY_ERROR'
+  if (message === 'SSH authentication failed' || message === 'SSH private key is unavailable') return 'AUTHENTICATION_ERROR'
+  if (message === 'SSH connection timed out' || message === 'SSH network is unreachable') return 'NETWORK_ERROR'
+  return 'CONNECTION_ERROR'
+}
 async function ensureMultiplexDir() {
   await fs.mkdir(sshMultiplexDir, { recursive: true, mode: 0o700 })
 }
@@ -225,47 +230,48 @@ export async function cleanupMultiplexSockets() {
 
 export async function verifyHostConnectivity(hostIdRaw: string) {
   const host = await getResolvedHost(hostIdRaw)
-  const passwordEnv = buildPasswordEnv(host)
+  const credentials = await getHostCredentials(host.id)
+  const passwordEnv = buildPasswordEnv(credentials)
   const sshPassAvailable = await hasSshPass()
   if (passwordEnv && !sshPassAvailable) {
-    return { ok: false, message: 'sshpass is required for password auth', mode: 'password' as const }
+    return { ok: false, message: 'sshpass is required for password auth', mode: 'password' as const, code: 'AUTHENTICATION_ERROR' as const }
   }
   if (host.id === 'local') {
     return { ok: true, message: 'local host available', mode: 'local' as const }
   }
   await ensureMultiplexDir()
-  const controlPath = getControlPath(host)
-  const checkArgs = ['-p', String(host.port), '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', '-o', 'StrictHostKeyChecking=accept-new', '-o', `ControlPath=${controlPath}`, '-o', 'ControlMaster=auto', '-o', 'ControlPersist=600', '-T', toHostAddress(host), '--', 'echo', 'tmuxgo-ok']
+  const checkArgs = buildSshArgs(host, 'echo tmuxgo-ok', { mode: 'json' }, false, credentials)
   const tryPassword = async () => {
     if (!passwordEnv) return null
     try {
-      const { stdout } = await execFileAsync('sshpass', ['-e', 'ssh', '-p', String(host.port), '-o', 'StrictHostKeyChecking=accept-new', '-o', 'ConnectTimeout=8', '-T', toHostAddress(host), '--', 'echo', 'tmuxgo-ok'], {
+      const { stdout } = await execFileAsync('sshpass', ['-e', 'ssh', ...buildSshArgs(host, 'echo tmuxgo-ok', {}, true, credentials)], {
         timeout: sshReadyTimeoutMs,
         env: { ...process.env, ...passwordEnv },
         maxBuffer: 1024 * 1024,
       })
       const ok = stdout.trim() === 'tmuxgo-ok'
       if (ok) return { ok: true, message: 'ssh ready', mode: 'password' as const }
-      return { ok: false, message: 'SSH authentication failed', mode: 'password' as const }
+      return { ok: false, message: 'SSH authentication failed', mode: 'password' as const, code: 'AUTHENTICATION_ERROR' as const }
     } catch (err: any) {
       const stderr = String(err?.stderr || '')
       const stdout = String(err?.stdout || '')
-      return { ok: false, message: extractErrorSummary(stderr, stdout, err?.message || 'ssh password validation failed'), mode: 'password' as const }
+      const message = extractErrorSummary(stderr, stdout, err?.message || 'ssh password validation failed')
+      return { ok: false, message, mode: 'password' as const, code: getConnectionErrorCode(message) }
     }
   }
   try {
     const { stdout } = await execFileAsync('ssh', checkArgs, { timeout: sshCheckTimeoutMs, maxBuffer: 1024 * 1024 })
     const ok = stdout.trim() === 'tmuxgo-ok'
-    if (ok) return { ok: true, message: 'ssh ready', mode: 'key' as const }
+    if (ok) return { ok: true, message: 'ssh ready', mode: credentials.privateKeyPath ? 'key' as const : host.useAgent ? 'agent' as const : 'key' as const }
   } catch (err: any) {
     const stderr = String(err?.stderr || '')
     const stdout = String(err?.stdout || '')
     const normalized = extractErrorSummary(stderr, stdout, err?.message || 'ssh validation failed')
     const passwordResult = await tryPassword()
     if (passwordResult) return passwordResult
-    return { ok: false, message: normalized, mode: 'key' as const }
+    return { ok: false, message: normalized, mode: credentials.privateKeyPath ? 'key' as const : host.useAgent ? 'agent' as const : 'key' as const, code: getConnectionErrorCode(normalized) }
   }
   const passwordResult = await tryPassword()
   if (passwordResult) return passwordResult
-  return { ok: false, message: 'SSH authentication failed', mode: 'key' as const }
+  return { ok: false, message: 'SSH authentication failed', mode: credentials.privateKeyPath ? 'key' as const : host.useAgent ? 'agent' as const : 'key' as const, code: 'AUTHENTICATION_ERROR' as const }
 }

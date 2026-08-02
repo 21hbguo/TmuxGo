@@ -45,6 +45,10 @@ export function Settings({ onClose }: SettingsProps) {
   const [hostUserDraft, setHostUserDraft] = useState('')
   const [hostPortDraft, setHostPortDraft] = useState('22')
   const [hostPasswordDraft, setHostPasswordDraft] = useState('')
+  const [hostPrivateKeyPathDraft, setHostPrivateKeyPathDraft] = useState('')
+  const [hostUseAgentDraft, setHostUseAgentDraft] = useState(true)
+  const [hostJumpHostDraft, setHostJumpHostDraft] = useState('')
+  const [hostKnownHostsPolicyDraft, setHostKnownHostsPolicyDraft] = useState<'strict' | 'accept-new' | 'off'>('accept-new')
   const [hostDialogOpen, setHostDialogOpen] = useState(false)
   const [hostDialogMode, setHostDialogMode] = useState<'create' | 'edit'>('create')
   const [hostActionMessage, setHostActionMessage] = useState('')
@@ -175,6 +179,10 @@ export function Settings({ onClose }: SettingsProps) {
     setHostUserDraft('')
     setHostPortDraft('22')
     setHostPasswordDraft('')
+    setHostPrivateKeyPathDraft('')
+    setHostUseAgentDraft(true)
+    setHostJumpHostDraft('')
+    setHostKnownHostsPolicyDraft('accept-new')
   }
   const openCreateHostDialog = () => {
     resetHostDraft()
@@ -189,6 +197,10 @@ export function Settings({ onClose }: SettingsProps) {
     setHostUserDraft(host.user || '')
     setHostPortDraft(String(host.port || 22))
     setHostPasswordDraft('')
+    setHostPrivateKeyPathDraft('')
+    setHostUseAgentDraft(host.usesAgent !== false)
+    setHostJumpHostDraft(host.jumpHost || '')
+    setHostKnownHostsPolicyDraft(host.knownHostsPolicy || 'accept-new')
     setHostDialogMode('edit')
     setHostDialogOpen(true)
     setHostActionMessage('')
@@ -196,6 +208,7 @@ export function Settings({ onClose }: SettingsProps) {
   const closeHostDialog = () => {
     setHostDialogOpen(false)
     setHostPasswordDraft('')
+    setHostPrivateKeyPathDraft('')
   }
   const loadArchives = async () => {
     setArchiveLoading(true)
@@ -251,6 +264,10 @@ export function Settings({ onClose }: SettingsProps) {
         user: hostUserDraft.trim(),
         port: Number(hostPortDraft || '22') || 22,
         password: hostPasswordDraft ? hostPasswordDraft : undefined,
+        privateKeyPath: hostPrivateKeyPathDraft || undefined,
+        useAgent: hostUseAgentDraft,
+        jumpHost: hostJumpHostDraft,
+        knownHostsPolicy: hostKnownHostsPolicyDraft,
       })
       setHostActionMessage(t('settings.hostSaved'))
       closeHostDialog()
@@ -545,7 +562,7 @@ export function Settings({ onClose }: SettingsProps) {
                         <div className="min-w-0">
                           <div className="truncate text-sm text-text-1">{host.name || host.id}</div>
                           <div className="truncate text-xs text-text-3">{host.id} {host.user ? `${host.user}@` : ''}{host.address}:{host.port || 22}</div>
-                          {!!host.hasPassword && <div className="truncate text-xs text-text-3">{t('settings.hostPasswordSaved')}</div>}
+                          {(host.hasPassword || host.hasPrivateKey || host.usesAgent || host.jumpHost) && <div className="truncate text-xs text-text-3">{[host.hasPassword ? t('settings.hostPasswordSaved') : '', host.hasPrivateKey ? t('settings.hostPrivateKeySaved') : '', host.usesAgent ? t('settings.hostAgentEnabled') : '', host.jumpHost ? t('settings.hostJumpHostSaved', { host: host.jumpHost }) : ''].filter(Boolean).join(' · ')}</div>}
                         </div>
                         <div className="mt-2 flex items-center gap-1">
                           <Chip onClick={() => openEditHostDialog(host)}>{t('settings.hostEdit')}</Chip>
@@ -811,6 +828,11 @@ export function Settings({ onClose }: SettingsProps) {
               <input value={hostPortDraft} onChange={(event) => setHostPortDraft(event.target.value)} placeholder={t('settings.hostPort')} className="tmuxgo-control tmuxgo-input w-full rounded-apple px-2 py-1.5 text-sm" />
               <input type="password" value={hostPasswordDraft} onChange={(event) => setHostPasswordDraft(event.target.value)} placeholder={t('settings.hostPassword')} className="tmuxgo-control tmuxgo-input w-full rounded-apple px-2 py-1.5 text-sm" />
               {hostDialogMode === 'edit' && <div className="text-xs text-text-3">{t('settings.hostPasswordKeep')}</div>}
+              <input value={hostPrivateKeyPathDraft} onChange={(event) => setHostPrivateKeyPathDraft(event.target.value)} placeholder={t('settings.hostPrivateKeyPath')} className="tmuxgo-control tmuxgo-input w-full rounded-apple px-2 py-1.5 text-sm" />
+              {hostDialogMode === 'edit' && <div className="text-xs text-text-3">{t('settings.hostPrivateKeyKeep')}</div>}
+              <input value={hostJumpHostDraft} onChange={(event) => setHostJumpHostDraft(event.target.value)} placeholder={t('settings.hostJumpHost')} className="tmuxgo-control tmuxgo-input w-full rounded-apple px-2 py-1.5 text-sm" />
+              <label className="flex items-center gap-2 px-1 text-sm text-text-2"><input type="checkbox" checked={hostUseAgentDraft} onChange={(event) => setHostUseAgentDraft(event.target.checked)} className="accent-accent" />{t('settings.hostUseAgent')}</label>
+              <label className="flex items-center justify-between gap-3 px-1 text-sm text-text-2"><span>{t('settings.hostKnownHostsPolicy')}</span><select value={hostKnownHostsPolicyDraft} onChange={(event) => setHostKnownHostsPolicyDraft(event.target.value as 'strict' | 'accept-new' | 'off')} className="tmuxgo-control tmuxgo-select rounded-apple px-2 py-1.5 text-sm"><option value="strict">{t('settings.hostKnownHostsStrict')}</option><option value="accept-new">{t('settings.hostKnownHostsAcceptNew')}</option><option value="off">{t('settings.hostKnownHostsOff')}</option></select></label>
             </div>
             <div className="mt-4 flex items-center justify-end gap-2">
               <Button size="sm" onClick={closeHostDialog}>{t('common.cancel')}</Button>

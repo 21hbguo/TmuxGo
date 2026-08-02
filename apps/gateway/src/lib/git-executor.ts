@@ -1,6 +1,7 @@
 import { execFile } from 'child_process'
 import { promisify } from 'util'
-import { getHostById, type HostRecord } from './hosts.js'
+import { getHostById, getHostCredentials, type HostRecord } from './hosts.js'
+import { buildHostSshOptions, resolveHostPassword } from './ssh-options.js'
 
 const execFileAsync = promisify(execFile)
 const defaultTimeoutMs = 15000
@@ -25,13 +26,6 @@ function normalizeErrorMessage(raw: string, fallback: string) {
   if (knownNetworkMarkers.some((m) => value.includes(m))) return 'SSH network is unreachable'
   if (knownAuthMarkers.some((m) => value.includes(m))) return 'SSH authentication failed'
   return value
-}
-
-function resolveHostPassword(host: HostRecord) {
-  if (host.password) return host.password
-  const envName = host.passwordEnv.trim()
-  if (!envName) return ''
-  return process.env[envName] || ''
 }
 
 async function hasSshPass() {
@@ -62,8 +56,9 @@ async function runLocalGit(args: string[], cwd: string, timeoutMs: number, accep
 
 async function runRemoteGit(host: HostRecord, args: string[], cwd: string, timeoutMs: number, acceptExitCodeOne: boolean) {
   const remoteCommand = `cd ${escapeShellSingleQuoted(cwd)} && git ${args.map((a) => escapeShellSingleQuoted(a)).join(' ')}`
-  const sshArgs = ['-p', String(host.port), '-o', 'ConnectTimeout=8', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=accept-new', '-T', `${host.user}@${host.address}`, '--', remoteCommand]
-  const password = resolveHostPassword(host)
+  const credentials = await getHostCredentials(host.id)
+  const password = resolveHostPassword(credentials)
+  const sshArgs = ['-p', String(host.port), '-o', 'ConnectTimeout=8', '-o', `BatchMode=${password ? 'no' : 'yes'}`, ...buildHostSshOptions(host, credentials), '-T', `${host.user}@${host.address}`, '--', remoteCommand]
   if (password) {
     const canUseSshPass = await hasSshPass()
     if (!canUseSshPass) throw new Error('SSH password configured but sshpass is not installed')

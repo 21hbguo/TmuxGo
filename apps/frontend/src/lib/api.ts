@@ -105,6 +105,10 @@ export interface HostPayload {
   port?: number
   password?: string
   passwordEnv?: string
+  privateKeyPath?: string
+  useAgent?: boolean
+  jumpHost?: string
+  knownHostsPolicy?: 'strict' | 'accept-new' | 'off'
 }
 async function readResponseBody(response: Response) {
   if (typeof response.text === 'function') {
@@ -283,7 +287,7 @@ export const api = {
         method: 'DELETE',
       }),
     test: (id: string) =>
-      fetchApi<{ ok: boolean; message: string; mode: 'local' | 'key' | 'password' }>(`/api/hosts/${id}/test`, {
+      fetchApi<{ ok: boolean; message: string; mode: 'local' | 'key' | 'agent' | 'password'; code?: string }>(`/api/hosts/${id}/test`, {
         method: 'POST',
       }),
     githubAuthStatus: (id: string) =>
