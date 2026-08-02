@@ -38,6 +38,7 @@ fastify.addHook('onRequest', async (request, reply) => {
   return reply.code(403).send({ message: 'Origin is not allowed', code: 'ORIGIN_NOT_ALLOWED' })
 })
 fastify.addHook('onRequest', async (request, reply) => {
+  if (request.method === 'OPTIONS') return
   if (!isAuthEnabled()) return
   const routePath = request.url.split('?')[0]
   if (!routePath.startsWith('/api/') || routePath === '/api/stream' || routePath === '/api/auth/status' || routePath === '/api/auth/login' || routePath === '/api/auth/refresh' || routePath === '/api/auth/logout') return
