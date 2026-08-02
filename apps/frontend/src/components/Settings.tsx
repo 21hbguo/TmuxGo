@@ -563,6 +563,7 @@ export function Settings({ onClose }: SettingsProps) {
                           <div className="truncate text-sm text-text-1">{host.name || host.id}</div>
                           <div className="truncate text-xs text-text-3">{host.id} {host.user ? `${host.user}@` : ''}{host.address}:{host.port || 22}</div>
                           {(host.hasPassword || host.hasPrivateKey || host.usesAgent || host.jumpHost) && <div className="truncate text-xs text-text-3">{[host.hasPassword ? t('settings.hostPasswordSaved') : '', host.hasPrivateKey ? t('settings.hostPrivateKeySaved') : '', host.usesAgent ? t('settings.hostAgentEnabled') : '', host.jumpHost ? t('settings.hostJumpHostSaved', { host: host.jumpHost }) : ''].filter(Boolean).join(' · ')}</div>}
+                          {(typeof host.latencyMs === 'number' || host.lastConnectionError || host.agent) && <div className={`truncate text-xs ${host.lastConnectionError ? 'text-danger' : 'text-text-3'}`}>{host.lastConnectionError || [typeof host.latencyMs === 'number' ? t('settings.hostLatency', { value: host.latencyMs }) : '', host.agent ? t('settings.hostAgentState', { version: host.agent.version, status: host.agent.online ? t('settings.hostAgentOnline') : host.agent.disconnectReason || t('settings.hostAgentOffline') }) : ''].filter(Boolean).join(' · ')}</div>}
                         </div>
                         <div className="mt-2 flex items-center gap-1">
                           <Chip onClick={() => openEditHostDialog(host)}>{t('settings.hostEdit')}</Chip>

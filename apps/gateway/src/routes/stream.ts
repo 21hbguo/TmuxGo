@@ -574,10 +574,13 @@ export async function streamRoutes(fastify: FastifyInstance) {
           case 'register': {
             const register = streamRegisterMessageSchema.parse(data)
             agentId = register.host.id
-            agentManager.register(register.host.id, register.host.name, register.host.address, socket)
+            agentManager.register(register.host.id, register.host.name, register.host.address, register.version || 'unknown', socket)
             send({ type: 'registered', agentId: register.host.id })
             break
           }
+          case 'heartbeat':
+            if (agentId) agentManager.heartbeat(agentId, socket, typeof data.version === 'string' ? data.version : undefined)
+            break
           case 'attach': {
             const attach = streamAttachMessageSchema.parse(data)
             recordStreamMetric('attachRequests')
@@ -835,7 +838,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
       cleanup()
       clearInterval(agentStateTimer)
       updateStreamMetric('activeClients', streamPerfMetricsActiveClientsDelta(-1))
-      if (agentId) agentManager.unregister(agentId)
+      if (agentId) agentManager.unregister(agentId, socket)
     })
     send({ type: 'connected', timestamp: Date.now() })
   })

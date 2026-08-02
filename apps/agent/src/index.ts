@@ -3,8 +3,10 @@ import { TmuxManager } from './tmux.js'
 
 const GATEWAY_URL = process.env.GATEWAY_URL || 'ws://localhost:3001/api/stream'
 const RECONNECT_DELAY = 5000
+const HEARTBEAT_INTERVAL = 15000
 const GATEWAY_USERNAME = process.env.GATEWAY_USERNAME || 'admin'
 const GATEWAY_PASSWORD = process.env.GATEWAY_PASSWORD || ''
+const AGENT_VERSION = process.env.TMUXGO_AGENT_VERSION || '0.1.0'
 function getGatewayHttpBase() {
   const url = new URL(GATEWAY_URL)
   url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:'
@@ -17,6 +19,7 @@ class Agent {
   private ws: WebSocket | null = null
   private tmux: TmuxManager
   private reconnectTimer: NodeJS.Timeout | null = null
+  private heartbeatTimer: NodeJS.Timeout | null = null
   private accessToken = ''
   private refreshToken = ''
 
@@ -47,6 +50,7 @@ class Agent {
     this.ws.on('open', () => {
       console.log('Connected to gateway')
       this.register()
+      this.startHeartbeat()
     })
 
     this.ws.on('message', (data: Buffer) => {
@@ -60,6 +64,7 @@ class Agent {
 
     this.ws.on('close', () => {
       console.log('Disconnected from gateway')
+      this.stopHeartbeat()
       this.scheduleReconnect()
     })
 
@@ -76,7 +81,19 @@ class Agent {
         name: process.env.HOST_NAME || 'local-machine',
         address: '127.0.0.1',
       },
+      version: AGENT_VERSION,
     })
+  }
+
+  private startHeartbeat() {
+    this.stopHeartbeat()
+    this.heartbeatTimer = setInterval(() => this.send({ type: 'heartbeat', version: AGENT_VERSION }), HEARTBEAT_INTERVAL)
+  }
+
+  private stopHeartbeat() {
+    if (!this.heartbeatTimer) return
+    clearInterval(this.heartbeatTimer)
+    this.heartbeatTimer = null
   }
 
   private async handleMessage(message: any) {
@@ -200,6 +217,7 @@ class Agent {
   }
 
   disconnect() {
+    this.stopHeartbeat()
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer)
     }
