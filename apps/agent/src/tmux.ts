@@ -1,6 +1,7 @@
 import { exec } from 'child_process'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
+import * as pty from 'node-pty'
 
 const execAsync = promisify(exec)
 const execFileAsync = promisify(execFile)
@@ -87,5 +88,12 @@ export class TmuxManager {
     if (!Array.isArray(args) || !args.length || args.length > 64 || args.some((item) => typeof item !== 'string' || item.length > 4096)) throw new Error('Invalid tmux arguments')
     const { stdout, stderr } = await execFileAsync('tmux', args)
     return { stdout, stderr }
+  }
+  attach(name: string, cols: number, rows: number, exclusive: boolean) {
+    assertSessionAllowed(name)
+    const args = ['attach']
+    if (!exclusive) args.push('-f', 'ignore-size,active-pane')
+    args.push('-t', name)
+    return pty.spawn('tmux', args, { name: 'xterm-256color', cols, rows, env: { ...process.env, TERM: 'xterm-256color' } })
   }
 }

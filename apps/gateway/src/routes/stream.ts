@@ -21,6 +21,14 @@ import { shareLinkStore, type ShareTicket } from '../lib/share-links.js'
 
 const execFileAsync = promisify(execFile)
 let sshPassAvailable: boolean | null = null
+interface TerminalProcess {
+  pid: number
+  resize: (cols: number, rows: number) => void
+  write: (data: string) => void
+  kill: () => void
+  onData: (listener: (data: string) => void) => void
+  onExit: (listener: (event: { exitCode: number }) => void) => void
+}
 export async function streamRoutes(fastify: FastifyInstance) {
   fastify.get('/stream', { websocket: true }, (connection: SocketStream, request: FastifyRequest) => {
     const query = request.query as { ticket?: unknown }
@@ -52,7 +60,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
       background: { flushInterval: 32, maxChars: 24576 },
       mobile: { flushInterval: 24, maxChars: 16384 },
     } as const
-    let ptyProcess: pty.IPty | null = null
+    let ptyProcess: TerminalProcess | null = null
     let attachedSessionName: string | null = null
     let attachedHostId = 'local'
     let attachedExclusive = false
@@ -607,7 +615,6 @@ export async function streamRoutes(fastify: FastifyInstance) {
             const { hostId, sessionName } = await resolveAttachTarget(attach)
             if (shareTicket&&(hostId!==shareTicket.hostId||sessionName!==shareTicket.sessionName)) throw new Error('Share scope does not allow this session')
             if (hostId === 'local') await prepareSessionAttach(sessionName)
-            if (hostId !== 'local' && !await getHostById(hostId) && agentManager.getAgent(hostId)) throw new Error('Agent terminal streaming is not supported')
             const requestedCols = attach.cols || 80
             const requestedRows = attach.rows || 24
             const exclusive = shareTicket?false:!!attach.exclusive
@@ -627,7 +634,14 @@ export async function streamRoutes(fastify: FastifyInstance) {
             const sharedSize = exclusive ? null : await getSessionWindowSize(sessionName, hostId)
             const cols = sharedSize?.cols || requestedCols
             const rows = sharedSize?.rows || requestedRows
-            if (hostId !== 'local') {
+            const agent = hostId !== 'local' && !await getHostById(hostId) ? agentManager.getAgent(hostId) : null
+            if (agent) {
+              const terminal = await agentManager.attachTerminal(hostId, sessionName, cols, rows, exclusive)
+              ptyProcess = {
+                ...terminal,
+                onExit: (listener) => terminal.onExit((exitCode) => listener({ exitCode })),
+              }
+            } else if (hostId !== 'local') {
               const host = await getHostById(hostId)
               if (!host) throw new Error('Host not found')
               const credentials = await getHostCredentials(host.id)
@@ -675,7 +689,9 @@ export async function streamRoutes(fastify: FastifyInstance) {
             lastFrame = ''
             dedupDropLogCount = 0
             const seq = attachSeq
-            ptyProcess.onData((output: string) => {
+            const attachedProcess = ptyProcess
+            if (!attachedProcess) throw new Error('Terminal attachment failed')
+            attachedProcess.onData((output: string) => {
               if (seq !== attachSeq) return
               if (outputResyncPending) {
                 recordStreamMetric('droppedOutputChars', output.length)
@@ -695,7 +711,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
                 completeResizeAck()
               }
             })
-            ptyProcess.onExit(({ exitCode }) => {
+            attachedProcess.onExit(({ exitCode }) => {
               if (seq !== attachSeq) return
               const exitedSessionName = attachedSessionName
               const exitedHostId = attachedHostId

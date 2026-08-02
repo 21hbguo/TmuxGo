@@ -22,6 +22,7 @@ class Agent {
   private heartbeatTimer: NodeJS.Timeout | null = null
   private accessToken = ''
   private refreshToken = ''
+  private terminals = new Map<string, ReturnType<TmuxManager['attach']>>()
 
   constructor() {
     this.tmux = new TmuxManager()
@@ -65,6 +66,7 @@ class Agent {
     this.ws.on('close', () => {
       console.log('Disconnected from gateway')
       this.stopHeartbeat()
+      this.closeTerminals()
       this.scheduleReconnect()
     })
 
@@ -109,6 +111,22 @@ class Agent {
         await this.handleTmux(message)
         break
 
+      case 'terminal-attach':
+        await this.attachTerminal(message)
+        break
+
+      case 'terminal-input':
+        this.writeTerminal(message)
+        break
+
+      case 'terminal-resize':
+        this.resizeTerminal(message)
+        break
+
+      case 'terminal-detach':
+        this.detachTerminal(message)
+        break
+
       default:
         console.log('Unknown message type:', message.type)
     }
@@ -131,6 +149,52 @@ class Agent {
         message: err.message,
       })
     }
+  }
+
+  private async attachTerminal(message: any) {
+    const requestId = typeof message.requestId === 'string' ? message.requestId : ''
+    const attachmentId = typeof message.attachmentId === 'string' ? message.attachmentId : ''
+    try {
+      if (!requestId || !/^[a-f0-9-]{36}$/i.test(attachmentId) || typeof message.sessionName !== 'string' || !Number.isInteger(message.cols) || !Number.isInteger(message.rows) || message.cols < 2 || message.rows < 1 || message.cols > 1000 || message.rows > 1000) throw new Error('Invalid terminal attachment')
+      this.detachTerminal({ attachmentId })
+      await this.tmux.enableMouse(message.sessionName)
+      const terminal = this.tmux.attach(message.sessionName, message.cols, message.rows, message.exclusive === true)
+      this.terminals.set(attachmentId, terminal)
+      terminal.onData((data) => this.send({ type: 'terminal-output', attachmentId, data }))
+      terminal.onExit(({ exitCode }) => {
+        if (this.terminals.get(attachmentId) !== terminal) return
+        this.terminals.delete(attachmentId)
+        this.send({ type: 'terminal-exit', attachmentId, exitCode })
+      })
+      this.send({ type: 'terminal-attached', requestId, attachmentId, pid: terminal.pid })
+    } catch (err: any) {
+      this.send({ type: 'terminal-error', requestId, attachmentId, message: err.message })
+    }
+  }
+
+  private writeTerminal(message: any) {
+    const attachmentId = typeof message.attachmentId === 'string' ? message.attachmentId : ''
+    if (!attachmentId || typeof message.data !== 'string' || message.data.length > 1024 * 1024) return
+    this.terminals.get(attachmentId)?.write(message.data)
+  }
+
+  private resizeTerminal(message: any) {
+    const attachmentId = typeof message.attachmentId === 'string' ? message.attachmentId : ''
+    if (!attachmentId || !Number.isInteger(message.cols) || !Number.isInteger(message.rows) || message.cols < 2 || message.rows < 1 || message.cols > 1000 || message.rows > 1000) return
+    this.terminals.get(attachmentId)?.resize(message.cols, message.rows)
+  }
+
+  private detachTerminal(message: any) {
+    const attachmentId = typeof message.attachmentId === 'string' ? message.attachmentId : ''
+    const terminal = this.terminals.get(attachmentId)
+    if (!terminal) return
+    this.terminals.delete(attachmentId)
+    terminal.kill()
+  }
+
+  private closeTerminals() {
+    for (const terminal of this.terminals.values()) terminal.kill()
+    this.terminals.clear()
   }
 
   private send(data: any) {
