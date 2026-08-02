@@ -852,13 +852,13 @@ export async function streamRoutes(fastify: FastifyInstance) {
         send(payload)
       }
     })
-    socket.on('close', () => {
+    socket.on('close', (code: number, reason: Buffer) => {
       console.log('Client disconnected from stream')
       cleanup()
       if (shareStateTimer) clearInterval(shareStateTimer)
       clearInterval(agentStateTimer)
       updateStreamMetric('activeClients', streamPerfMetricsActiveClientsDelta(-1))
-      if (agentId) agentManager.unregister(agentId, socket)
+      if (agentId) agentManager.unregister(agentId, socket, reason.toString() || `WebSocket closed (${code})`)
     })
     send({ type: 'connected', timestamp: Date.now() })
   })
