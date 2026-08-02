@@ -38,6 +38,7 @@ const authFile = path.join(configDir, 'auth.json')
 let store: AuthStore | null = null
 let initialized = false
 let initPromise: Promise<void> | null = null
+let defaultPasswordInUse = false
 const accessTokens = new Map<string, AccessTokenPayload>()
 const wsTickets = new Map<string, { username: string; sessionId: string; expiresAt: number }>()
 const loginAttempts = new Map<string, LoginAttempt>()
@@ -103,9 +104,11 @@ async function initializeAuth() {
       store.username = configuredUsername
       await writeStore()
     }
+    defaultPasswordInUse = store.username === 'admin' && verifyPassword('admin123', store.passwordHash)
     return
   }
   store = { version: AUTH_VERSION, username: configuredUsername, passwordHash: createPasswordHash(configuredPassword), signingKey: randomBytes(32).toString('base64url'), sessions: [] }
+  defaultPasswordInUse = store.username === 'admin' && configuredPassword === 'admin123'
   await writeStore()
 }
 export async function initializeAuthStore() {
@@ -129,6 +132,9 @@ export function getAccessTokenTtl() {
 }
 export function getAuthUser(username = getAuthUsername()) {
   return { username }
+}
+export function isPasswordChangeRequired() {
+  return defaultPasswordInUse
 }
 function requireStore() {
   if (!store) throw new AuthError('Authentication is disabled', 401, 'AUTH_DISABLED')
@@ -157,7 +163,7 @@ export function verifyAccessToken(token: string): AccessTokenPayload | null {
 }
 function getValidAccessToken(token: string) {
   const payload = accessTokens.get(token)
-  if (payload && payload.exp > Math.floor(now() / 1000)) return payload
+  if (payload && payload.exp > Math.floor(now() / 1000) && store?.sessions.some((session) => session.id === payload.sessionId && Date.parse(session.expiresAt) > now())) return payload
   accessTokens.delete(token)
   return verifyAccessToken(token)
 }
@@ -181,7 +187,7 @@ export async function login(username: string, password: string, metadata: { user
   const session: StoredSession = { id: randomUUID(), createdAt: toIso(timestamp), lastUsedAt: toIso(timestamp), expiresAt: toIso(timestamp + REFRESH_TTL_SECONDS * 1000), refreshTokenHash: hash(rawRefreshToken), userAgent: metadata.userAgent, ip: metadata.ip }
   authStore.sessions.push(session)
   await writeStore()
-  return { accessToken: issueAccessToken(authStore.username, session.id), refreshToken: rawRefreshToken, expiresIn: ACCESS_TTL_SECONDS, user: getAuthUser(authStore.username), sessionId: session.id }
+  return { accessToken: issueAccessToken(authStore.username, session.id), refreshToken: rawRefreshToken, expiresIn: ACCESS_TTL_SECONDS, user: getAuthUser(authStore.username), sessionId: session.id, passwordChangeRequired: isPasswordChangeRequired() }
 }
 function findSession(refreshToken: string) {
   if (!store) return null
@@ -199,7 +205,7 @@ export async function refresh(refreshToken: string, metadata: { userAgent?: stri
   if (metadata.userAgent) session.userAgent = metadata.userAgent
   if (metadata.ip) session.ip = metadata.ip
   await writeStore()
-  return { accessToken: issueAccessToken(authStore.username, session.id), refreshToken: nextRefreshToken, expiresIn: ACCESS_TTL_SECONDS, user: getAuthUser(authStore.username), sessionId: session.id }
+  return { accessToken: issueAccessToken(authStore.username, session.id), refreshToken: nextRefreshToken, expiresIn: ACCESS_TTL_SECONDS, user: getAuthUser(authStore.username), sessionId: session.id, passwordChangeRequired: isPasswordChangeRequired() }
 }
 export async function logout(refreshToken?: string, sessionId?: string) {
   await initializeAuthStore()
@@ -220,12 +226,23 @@ export async function deleteSession(sessionId: string) {
   if (store.sessions.length !== count) await writeStore()
   return store.sessions.length !== count
 }
+export async function deleteOtherSessions(sessionId: string) {
+  await initializeAuthStore()
+  if (!store) return 0
+  const count = store.sessions.length
+  store.sessions = store.sessions.filter((session) => session.id === sessionId)
+  const deleted = count - store.sessions.length
+  if (deleted) await writeStore()
+  return deleted
+}
 export async function changePassword(currentPassword: string, newPassword: string) {
   await initializeAuthStore()
   const authStore = requireStore()
   if (!verifyPassword(currentPassword, authStore.passwordHash)) throw new AuthError('Invalid password', 401, 'INVALID_CREDENTIALS')
   if (newPassword.length < 8 || newPassword.length > 256) throw new AuthError('Password must be 8 to 256 characters', 400, 'INVALID_PASSWORD')
+  if (authStore.username === 'admin' && newPassword === 'admin123') throw new AuthError('Default password is not allowed', 400, 'DEFAULT_PASSWORD_NOT_ALLOWED')
   authStore.passwordHash = createPasswordHash(newPassword)
+  defaultPasswordInUse = false
   authStore.sessions = []
   accessTokens.clear()
   await writeStore()

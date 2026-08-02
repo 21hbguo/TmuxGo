@@ -30,3 +30,27 @@ test('auth persists independent sessions and rotates refresh tokens', async () =
   assert.equal(persisted.sessions.every((session: { refreshTokenHash?: string }) => typeof session.refreshTokenHash === 'string'), true)
   await rm(configDir, { recursive: true, force: true })
 })
+
+test('auth requires changing the default password and invalidates every credential', async () => {
+  const configDir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-auth-default-'))
+  process.env.TMUXGO_AUTH_USERNAME = 'admin'
+  process.env.TMUXGO_AUTH_PASSWORD = 'admin123'
+  process.env.TMUXGO_CONFIG_DIR = configDir
+  const auth = await import(`./auth.js?default-test=${Date.now()}-${Math.random()}`)
+  await auth.initializeAuthStore()
+  assert.equal(auth.isPasswordChangeRequired(), true)
+  const first = await auth.login('admin', 'admin123', { ip: 'one' })
+  const second = await auth.login('admin', 'admin123', { ip: 'two' })
+  assert.equal(first.passwordChangeRequired, true)
+  assert.equal(await auth.deleteOtherSessions(first.sessionId), 1)
+  assert.ok(auth.verifyAccessToken(first.accessToken))
+  assert.equal(auth.verifyAccessToken(second.accessToken), null)
+  const ticket = await auth.issueWebSocketTicket(first.accessToken)
+  await auth.changePassword('admin123', 'changed-password')
+  assert.equal(auth.isPasswordChangeRequired(), false)
+  assert.equal(auth.verifyAccessToken(first.accessToken), null)
+  assert.equal(await auth.refresh(first.refreshToken).catch(() => null), null)
+  assert.equal(auth.consumeWebSocketTicket(ticket.ticket), null)
+  await assert.rejects(auth.changePassword('changed-password', 'admin123'), { code: 'DEFAULT_PASSWORD_NOT_ALLOWED' })
+  await rm(configDir, { recursive: true, force: true })
+})

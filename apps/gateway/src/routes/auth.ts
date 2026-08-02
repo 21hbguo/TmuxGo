@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
-import { AuthError, changePassword, consumeWebSocketTicket, deleteSession, getAccessCookieName, getAccessTokenTtl, getAuthUser, getAuthUsername, getRefreshCookieName, initializeAuthStore, isAuthEnabled, issueWebSocketTicket, listSessions, login, logout, refresh, verifyAccessToken } from '../lib/auth.js'
+import { AuthError, changePassword, consumeWebSocketTicket, deleteOtherSessions, deleteSession, getAccessCookieName, getAccessTokenTtl, getAuthUsername, getRefreshCookieName, initializeAuthStore, isAuthEnabled, isPasswordChangeRequired, issueWebSocketTicket, listSessions, login, logout, refresh, verifyAccessToken } from '../lib/auth.js'
 
 type AuthBody = Record<string, unknown>
 function body(request: FastifyRequest) {
@@ -20,6 +20,11 @@ function cookieValue(request: FastifyRequest, name: string) {
 }
 function cookie(request: FastifyRequest) {
   return cookieValue(request, getRefreshCookieName())
+}
+function currentSessionId(request: FastifyRequest) {
+  const payload = verifyAccessToken(bearer(request) || cookieValue(request, getAccessCookieName()))
+  if (!payload) throw new AuthError('Authentication required', 401, 'AUTH_REQUIRED')
+  return payload.sessionId
 }
 function setAuthCookies(request: FastifyRequest, reply: FastifyReply, accessToken: string, refreshToken: string) {
   const forwardedProto = request.headers['x-forwarded-proto']
@@ -46,8 +51,8 @@ export async function authRoutes(fastify: FastifyInstance) {
   fastify.get('/auth/status', async (request) => {
     if (!isAuthEnabled()) return { enabled: false, authenticated: true }
     const token = bearer(request) || cookieValue(request, getAccessCookieName())
-    const authenticated = !!token && !!verifyAccessToken(token)
-    return { enabled: true, authenticated, username: getAuthUsername() }
+    const payload = token ? verifyAccessToken(token) : null
+    return { enabled: true, authenticated: !!payload, username: getAuthUsername(), sessionId: payload?.sessionId, passwordChangeRequired: !!payload && isPasswordChangeRequired() }
   })
   fastify.post('/auth/login', async (request, reply) => {
     try {
@@ -79,9 +84,9 @@ export async function authRoutes(fastify: FastifyInstance) {
       return sendError(reply, error)
     }
   })
-  fastify.get('/auth/sessions', async (_request, reply) => {
+  fastify.get('/auth/sessions', async (request, reply) => {
     try {
-      return { sessions: await listSessions() }
+      return { sessions: await listSessions(), currentSessionId: currentSessionId(request) }
     } catch (error) {
       return sendError(reply, error)
     }
@@ -90,7 +95,17 @@ export async function authRoutes(fastify: FastifyInstance) {
     try {
       const params = request.params as { id?: string }
       if (!params.id) throw new AuthError('id is invalid', 400, 'INVALID_REQUEST')
-      return { deleted: await deleteSession(params.id) }
+      const currentId = currentSessionId(request)
+      const deleted = await deleteSession(params.id)
+      if (params.id === currentId) clearAuthCookies(request, reply)
+      return { deleted, current: params.id === currentId }
+    } catch (error) {
+      return sendError(reply, error)
+    }
+  })
+  fastify.post('/auth/sessions/revoke-others', async (request, reply) => {
+    try {
+      return { deleted: await deleteOtherSessions(currentSessionId(request)) }
     } catch (error) {
       return sendError(reply, error)
     }
