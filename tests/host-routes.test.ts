@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { agentManager } from '../apps/gateway/src/agent-manager.ts'
+import { recordHostConnectionFailure } from '../apps/gateway/src/lib/host-connectivity.ts'
 import { upsertRemoteHost } from '../apps/gateway/src/lib/hosts.ts'
 import { hostRoutes } from '../apps/gateway/src/routes/hosts.ts'
 
@@ -16,6 +17,7 @@ test('configured SSH host keeps SSH status when an Agent with the same id is onl
   const app = Fastify()
   await app.register(hostRoutes, { prefix: '/api' })
   await upsertRemoteHost({ id: 'remote', name: 'remote-ssh', address: '10.0.0.2', user: 'guo', password: 'route-secret', privateKeyPath: '/home/guo/.ssh/id_ed25519', tags: ['production'] })
+  recordHostConnectionFailure('remote', 'SSH authentication failed')
   t.after(async () => {
     agentManager.unregister('remote', socket)
     await app.close()
@@ -26,7 +28,8 @@ test('configured SSH host keeps SSH status when an Agent with the same id is onl
   assert.equal(response.statusCode, 200)
   const host = response.json()
   assert.equal(host.connectionMode, 'ssh')
-  assert.equal(host.status, 'unknown')
+  assert.equal(host.status, 'offline')
+  assert.equal(host.lastConnectionError, 'SSH authentication failed')
   assert.deepEqual(host.tags, ['ssh', 'production'])
   assert.deepEqual(host.userTags, ['production'])
   assert.equal(host.agent.online, true)

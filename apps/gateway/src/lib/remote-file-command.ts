@@ -1,6 +1,7 @@
 import { execFile, spawn } from 'child_process'
 import { promisify } from 'util'
 import { getHostById, getHostCredentials, type HostRecord } from './hosts.js'
+import { recordHostConnectionFailure } from './host-connectivity.js'
 import { buildHostSshOptions, resolveHostPassword } from './ssh-options.js'
 
 const execFileAsync = promisify(execFile)
@@ -48,7 +49,9 @@ export async function runRemoteFilePython<T>(hostId: string, script: string, arg
       : await execFileAsync('ssh', sshArgs, { maxBuffer: 32 * 1024 * 1024 })
     return JSON.parse(result.stdout) as T
   } catch (err: any) {
-    throw new Error(normalizeRemoteFileErrorMessage(`${err?.stderr || ''}\n${err?.stdout || ''}`, err?.message || 'SSH file command failed'))
+    const message = normalizeRemoteFileErrorMessage(`${err?.stderr || ''}\n${err?.stdout || ''}`, err?.message || 'SSH file command failed')
+    recordHostConnectionFailure(host.id, message)
+    throw new Error(message)
   }
 }
 export async function spawnRemoteFileCommand(host: HostRecord, remoteCommand: string, signal?: AbortSignal) {
