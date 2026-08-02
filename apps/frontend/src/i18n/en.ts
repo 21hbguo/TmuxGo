@@ -570,6 +570,7 @@ export const en = {
   'file.copyPath': 'Copy path',
   'file.openPreview': 'Open preview',
   'file.download': 'Download',
+  'file.downloadFailed': 'Download failed',
   'file.copy': 'Copy to...',
   'file.move': 'Move to...',
   'file.targetDirectory': 'Target directory:',

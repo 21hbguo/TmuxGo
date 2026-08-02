@@ -815,15 +815,11 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
     return activeSourceRootPath ? joinPath(activeSourceRootPath, rootRelativePath) : rootRelativePath
   }
   const startDownload = (item: FileItem | FileContentMatch) => {
-    const anchor = document.createElement('a')
-    anchor.href = api.files.downloadUrl(fileHostId, activeRootId, resolveRootRelativePath(activeRootBasePath, item.path), preferences.downloadRateLimitKBps)
-    anchor.download = item.name
-    anchor.rel = 'noopener'
-    anchor.style.display = 'none'
-    document.body.appendChild(anchor)
-    anchor.click()
-    anchor.remove()
-    pushToast({ type: 'success', message: t('file.downloading', { name: item.name }) })
+    void api.files.downloadTask(fileHostId, activeRootId, resolveRootRelativePath(activeRootBasePath, item.path), preferences.downloadRateLimitKBps).then(() => {
+      pushToast({ type: 'success', message: t('tasks.queued') })
+    }).catch((error) => {
+      pushToast({ type: 'error', message: error instanceof Error ? error.message : t('file.downloadFailed') })
+    })
   }
   const createEntry = async (kind: 'file' | 'directory', directoryPath: string) => {
     const name = await prompt(kind === 'file' ? t('file.newFileName') : t('file.newFolderName'), '')

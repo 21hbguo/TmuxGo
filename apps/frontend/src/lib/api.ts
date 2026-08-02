@@ -80,6 +80,7 @@ export interface SystemTaskResponse extends RestartRebuildTaskResponse {
   progress?: number | null
   speedBytesPerSecond?: number | null
   resultMessage?: string | null
+  result?: unknown | null
   attempt?: number
 }
 export interface BackgroundGitTaskResponse {
@@ -492,6 +493,7 @@ export const api = {
     defaultUploadTarget: (hostId: string, paneId?: string) => fetchApi<FileUploadTarget>(`/api/hosts/${encodeURIComponent(hostId)}/files/default-upload-target${paneId ? `?paneId=${encodeURIComponent(paneId)}` : ''}`),
     temporaryUploadTarget: (hostId: string) => fetchApi<FileUploadTarget>(`/api/hosts/${encodeURIComponent(hostId)}/files/temporary-upload-target`),
     upload: (hostId: string, body: FormData, onProgress?: (loadedBytes: number, totalBytes: number) => void) => uploadWithProgress(hostId, body, onProgress),
+    downloadTask: (hostId: string, root: string, path: string, rateLimitKBps?: number) => fetchApi<{ task: SystemTaskResponse }>(`/api/hosts/${encodeURIComponent(hostId)}/files/download-tasks`, { method: 'POST', body: JSON.stringify({ root, path, rateLimitKBps }) }),
     downloadUrl: (hostId: string, root: string, path: string, rateLimitKBps?: number, profile = 'default') => `${getApiBase()}/api/hosts/${encodeURIComponent(hostId)}/files/download?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}&profile=${encodeURIComponent(profile)}${typeof rateLimitKBps === 'number' ? `&rateLimitKBps=${encodeURIComponent(String(rateLimitKBps))}` : ''}`,
     imageUrl: (hostId: string, root: string, path: string, modifiedAt?: string) => `${getApiBase()}/api/hosts/${encodeURIComponent(hostId)}/files/image?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}${modifiedAt ? `&modifiedAt=${encodeURIComponent(modifiedAt)}` : ''}`,
   },

@@ -77,6 +77,7 @@ vi.mock('@/lib/api', () => ({
       trashEntries: vi.fn(async () => ({ entries: [] })),
       restore: vi.fn(async () => ({ ok: true })),
       remove: vi.fn(async () => ({ ok: true })),
+      downloadTask: vi.fn(),
       downloadUrl: vi.fn(() => '/api/files/download'),
       imageUrl: vi.fn(() => '/api/files/image'),
     },

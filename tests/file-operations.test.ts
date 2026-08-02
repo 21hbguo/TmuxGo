@@ -4,6 +4,7 @@ import Fastify from 'fastify'
 import os from 'node:os'
 import path from 'node:path'
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { TaskManager } from '../apps/gateway/src/lib/task-manager'
 
 test('copies, moves, trashes, restores and downloads directories', async (t) => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-file-operations-'))
@@ -15,8 +16,9 @@ test('copies, moves, trashes, restores and downloads directories', async (t) => 
   process.env.TMUX_WEB_FILE_ROOTS = `workspace=${rootDir}`
   process.env.TMUXGO_CONFIG_DIR = configDir
   const { fileRoutes } = await import('../apps/gateway/src/routes/files')
+  const manager = new TaskManager({ statePath: path.join(configDir, 'tasks.json') })
   const app = Fastify()
-  await app.register(fileRoutes, { prefix: '/api' })
+  await app.register(fileRoutes, { prefix: '/api', taskManager: manager })
   t.after(async () => {
     await app.close()
     delete process.env.TMUX_WEB_FILE_ROOTS
@@ -41,4 +43,17 @@ test('copies, moves, trashes, restores and downloads directories', async (t) => 
   assert.equal(download.statusCode, 200)
   assert.equal(download.headers['content-type'], 'application/zip')
   assert.equal(download.rawPayload.subarray(0, 2).toString(), 'PK')
+  const queuedDownload = await app.inject({ method: 'POST', url: '/api/hosts/local/files/download-tasks', payload: { root: 'root-0', path: 'source/demo.txt', rateLimitKBps: 10240 } })
+  assert.equal(queuedDownload.statusCode, 202)
+  const taskId = queuedDownload.json().task.id as string
+  let task = manager.get(taskId)
+  for (let attempt = 0; task?.status === 'running' && attempt < 50; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    task = manager.get(taskId)
+  }
+  assert.equal(task?.status, 'success')
+  const result = task?.result as { downloadUrl: string }
+  const artifact = await app.inject({ method: 'GET', url: result.downloadUrl })
+  assert.equal(artifact.statusCode, 200)
+  assert.equal(artifact.rawPayload.toString(), 'demo')
 })
