@@ -202,7 +202,7 @@ class Agent {
     const targetPath = typeof message.path === 'string' ? message.path : ''
     try {
       if (!/^[a-f0-9-]{36}$/i.test(uploadId) || !path.isAbsolute(targetPath) || targetPath.length > 4096) throw new Error('Invalid file upload')
-      this.abortFileUpload({ uploadId })
+      if (this.uploads.has(uploadId)) throw new Error('Agent file upload already active')
       await mkdir(path.dirname(targetPath), { recursive: true })
       const temporaryPath = path.join(path.dirname(targetPath), `.${path.basename(targetPath)}.tmuxgo-upload-${uploadId}`)
       const stream = createWriteStream(temporaryPath, { mode: 0o600 })

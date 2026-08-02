@@ -40,7 +40,8 @@ interface AgentUploadState {
   uploadId: string
   ready: { resolve: () => void; reject: (error: Error) => void }
   chunk: { resolve: () => void; reject: (error: Error) => void } | null
-  complete: { resolve: () => void; reject: (error: Error) => void }
+  complete: { resolve: () => void; reject: (error: Error) => void } | null
+  error: Error | null
   timer: NodeJS.Timeout | null
 }
 export interface AgentTerminal {
@@ -254,8 +255,7 @@ export class AgentManager {
     if (signal?.aborted) throw new Error('Task cancelled')
     const uploadId = randomUUID()
     let state!: AgentUploadState
-    const ready = new Promise<void>((resolve, reject) => { state = { agentId: id, socket: agent.socket, uploadId, ready: { resolve, reject }, chunk: null, complete: { resolve: () => {}, reject: () => {} }, timer: null } })
-    const complete = new Promise<void>((resolve, reject) => { state!.complete = { resolve, reject } })
+    const ready = new Promise<void>((resolve, reject) => { state = { agentId: id, socket: agent.socket, uploadId, ready: { resolve, reject }, chunk: null, complete: null, error: null, timer: null } })
     const clearTimer = () => {
       if (!state!.timer) return
       clearTimeout(state!.timer)
@@ -265,9 +265,10 @@ export class AgentManager {
       clearTimer()
       if (this.uploads.get(uploadId) !== state) return
       this.uploads.delete(uploadId)
+      state!.error = error
       state!.ready.reject(error)
       state!.chunk?.reject(error)
-      state!.complete.reject(error)
+      state!.complete?.reject(error)
     }
     const armTimeout = () => {
       clearTimer()
@@ -283,7 +284,9 @@ export class AgentManager {
       armTimeout()
       agent.socket.send(JSON.stringify({ type: 'file-upload-start', uploadId, path: absolutePath }))
       await ready
+      if (state!.error) throw state!.error
       for await (const raw of source) {
+        if (state!.error) throw state!.error
         if (signal?.aborted) throw new Error('Task cancelled')
         const data = Buffer.isBuffer(raw) ? raw : Buffer.from(raw)
         for (let offset = 0; offset < data.length; offset += 192 * 1024) {
@@ -295,6 +298,8 @@ export class AgentManager {
           state!.chunk = null
         }
       }
+      if (state!.error) throw state!.error
+      const complete = new Promise<void>((resolve, reject) => { state!.complete = { resolve, reject } })
       armTimeout()
       agent.socket.send(JSON.stringify({ type: 'file-upload-end', uploadId }))
       await complete
@@ -381,14 +386,21 @@ export class AgentManager {
       else if (payload.type === 'file-upload-result') {
         if (upload.timer) clearTimeout(upload.timer)
         this.uploads.delete(payload.uploadId)
-        upload.complete.resolve()
+        if (upload.complete) upload.complete.resolve()
+        else {
+          const error = new Error('Agent file upload completed unexpectedly')
+          upload.error = error
+          upload.ready.reject(error)
+          upload.chunk?.reject(error)
+        }
       } else {
         const error = new Error(typeof payload.message === 'string' && payload.message ? payload.message : 'Agent file upload failed')
         if (upload.timer) clearTimeout(upload.timer)
         this.uploads.delete(payload.uploadId)
+        upload.error = error
         upload.ready.reject(error)
         upload.chunk?.reject(error)
-        upload.complete.reject(error)
+        upload.complete?.reject(error)
       }
       return true
     }
@@ -458,9 +470,10 @@ export class AgentManager {
       if (upload.timer) clearTimeout(upload.timer)
       this.uploads.delete(uploadId)
       const error = new Error(message)
+      upload.error = error
       upload.ready.reject(error)
       upload.chunk?.reject(error)
-      upload.complete.reject(error)
+      upload.complete?.reject(error)
     }
   }
   private sendTerminalInput(state: AgentTerminalState, data: string) {
