@@ -52,12 +52,19 @@ export interface SystemInfoResponse {
   stream: StreamSystemInfo
 }
 export interface RestartRebuildTaskResponse {
-  status: 'idle' | 'running' | 'success' | 'error'
+  status: 'idle' | 'running' | 'success' | 'error' | 'cancelled'
   startedAt: string | null
   finishedAt: string | null
   summaryLines: string[]
   exitCode: number | null
   errorMessage: string | null
+}
+export interface SystemTaskResponse extends RestartRebuildTaskResponse {
+  id: string
+  type: string
+  title: string
+  cancellable: boolean
+  retryable: boolean
 }
 export interface BatchDeleteSessionFilters {
   createdBefore?: string
@@ -420,6 +427,9 @@ export const api = {
     info: (hostId = 'local') => fetchApi<SystemInfoResponse>(`/api/hosts/${encodeURIComponent(hostId)}/system`),
     restartRebuildStatus: () => fetchApi<RestartRebuildTaskResponse>('/api/system/restart-rebuild'),
     restartRebuild: () => fetchApi<RestartRebuildTaskResponse>('/api/system/restart-rebuild', { method: 'POST' }),
+    tasks: () => fetchApi<{ tasks: SystemTaskResponse[] }>('/api/system/tasks'),
+    cancelTask: (taskId: string) => fetchApi<SystemTaskResponse>(`/api/system/tasks/${encodeURIComponent(taskId)}/cancel`, { method: 'POST' }),
+    retryTask: (taskId: string) => fetchApi<SystemTaskResponse>(`/api/system/tasks/${encodeURIComponent(taskId)}/retry`, { method: 'POST' }),
   },
   files: {
     roots: (hostId: string) => fetchApi<FileRoot[]>(`/api/hosts/${encodeURIComponent(hostId)}/files/roots`),

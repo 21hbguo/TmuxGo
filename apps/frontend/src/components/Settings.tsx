@@ -294,7 +294,7 @@ export function Settings({ onClose }: SettingsProps) {
     }
     setPendingDeleteHostId(null)
   }
-  const restartStatusLabel = restartStatus.status === 'running' ? t('settings.restartStatusRunning') : restartStatus.status === 'success' ? t('settings.restartStatusSuccess') : restartStatus.status === 'error' ? t('settings.restartStatusFailed') : t('settings.restartStatusIdle')
+  const restartStatusLabel = restartStatus.status === 'running' ? t('settings.restartStatusRunning') : restartStatus.status === 'success' ? t('settings.restartStatusSuccess') : restartStatus.status === 'error' ? t('settings.restartStatusFailed') : restartStatus.status === 'cancelled' ? t('tasks.status.cancelled') : t('settings.restartStatusIdle')
 
   const toggleImmersiveFullscreen = async () => {
     try {
@@ -796,7 +796,7 @@ export function Settings({ onClose }: SettingsProps) {
                 <div className="mt-4 rounded-apple border border-[var(--line)] px-3 py-2">
                   <div className="flex items-center justify-between gap-4">
                     <span className="text-sm text-text-2">{t('settings.restartStatus')}</span>
-                    <span className={`text-sm ${restartStatus.status === 'success' ? 'text-accent-2' : restartStatus.status === 'error' ? 'text-danger' : restartStatus.status === 'running' ? 'text-warn' : 'text-text-1'}`}>{restartStatusLabel}</span>
+                    <span className={`text-sm ${restartStatus.status === 'success' ? 'text-accent-2' : restartStatus.status === 'error' || restartStatus.status === 'cancelled' ? 'text-danger' : restartStatus.status === 'running' ? 'text-warn' : 'text-text-1'}`}>{restartStatusLabel}</span>
                   </div>
                   {restartStatus.summaryLines.length > 0 && (
                     <div className="mt-2 rounded-apple bg-bg-1 px-2 py-2 font-mono text-xs text-text-2">

@@ -219,6 +219,17 @@ async function getSystemInfo(hostId: string) {
 interface SystemRoutesOptions {
   createRestartRunner?: () => RestartTaskRunner
 }
+function getRestartTask(runner: RestartTaskRunner) {
+  const state=runner.getState()
+  return {
+    id:'restart-rebuild',
+    type:'restart-rebuild',
+    title:'Restart + Rebuild',
+    ...state,
+    cancellable:state.status==='running',
+    retryable:state.status==='error'||state.status==='cancelled',
+  }
+}
 let localNetSampleTimer: NodeJS.Timeout | null = null
 function ensureLocalNetSampler() {
   if (localNetSampleTimer) return
@@ -251,6 +262,24 @@ export async function systemRoutes(fastify: FastifyInstance, options: SystemRout
   fastify.get('/hosts/:hostId/system', async (request) => {
     const { hostId } = request.params as { hostId: string }
     return getSystemInfo(hostId)
+  })
+  fastify.get('/system/tasks', async () => ({ tasks:[getRestartTask(restartRunner)] }))
+  fastify.get('/system/tasks/:taskId', async (request, reply) => {
+    const { taskId }=request.params as { taskId:string }
+    if (taskId!=='restart-rebuild') return reply.status(404).send({ message:'Task not found',code:'TASK_NOT_FOUND' })
+    return getRestartTask(restartRunner)
+  })
+  fastify.post('/system/tasks/:taskId/cancel', async (request, reply) => {
+    const { taskId }=request.params as { taskId:string }
+    if (taskId!=='restart-rebuild') return reply.status(404).send({ message:'Task not found',code:'TASK_NOT_FOUND' })
+    await restartRunner.cancel()
+    return getRestartTask(restartRunner)
+  })
+  fastify.post('/system/tasks/:taskId/retry', async (request, reply) => {
+    const { taskId }=request.params as { taskId:string }
+    if (taskId!=='restart-rebuild') return reply.status(404).send({ message:'Task not found',code:'TASK_NOT_FOUND' })
+    await restartRunner.start()
+    return getRestartTask(restartRunner)
   })
   fastify.get('/system/restart-rebuild', async () => restartRunner.getState())
   fastify.post('/system/restart-rebuild', async () => restartRunner.start())
