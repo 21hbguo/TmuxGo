@@ -21,6 +21,7 @@ interface GitBackgroundTaskInput {
   hostId:string
   path:string
   args:string[]
+  commit?:{message:string;amend:boolean}
 }
 function appendGitTaskOutput(context:TaskExecutionContext,stdout:string,stderr:string) {
   if (stdout) context.appendLog(stdout)
@@ -31,7 +32,10 @@ async function runGitBackgroundTask(input:unknown,context:TaskExecutionContext) 
   context.appendLog(`git ${task.args.join(' ')}`)
   const { stdout,stderr }=await execGit(task.hostId,task.args,task.path,300000,false,context.signal)
   appendGitTaskOutput(context,stdout,stderr)
-  return { message:(stdout||stderr).trim()||'Completed' }
+  const message=(stdout||stderr).trim()||'Completed'
+  const hash=task.commit?stdout.match(/\[(?:[^\s]+)\s+([a-f0-9]+)\]/)?.[1]||'':''
+  if (task.commit) emitPluginEvent('git.commit.completed',{hostId:task.hostId,repoPath:task.path,hash,message:task.commit.message,amend:task.commit.amend})
+  return { message,result:{command:`git ${task.args.join(' ')}`,hash,message} }
 }
 
 function mapStatusCode(code: string): GitFileChange['status'] {
@@ -174,6 +178,9 @@ export async function gitRoutes(fastify: FastifyInstance, options:{ taskManager?
   backgroundTasks.register('git-fetch',runGitBackgroundTask)
   backgroundTasks.register('git-pull',runGitBackgroundTask)
   backgroundTasks.register('git-push',runGitBackgroundTask)
+  backgroundTasks.register('git-commit',runGitBackgroundTask)
+  backgroundTasks.register('git-merge',runGitBackgroundTask)
+  backgroundTasks.register('git-operation',runGitBackgroundTask)
   fastify.get('/hosts/:hostId/git/repositories', async (request) => {
     const { hostId } = request.params as { hostId: string }
     return discoverGitRepositoriesForHost(hostId)
@@ -253,11 +260,12 @@ export async function gitRoutes(fastify: FastifyInstance, options:{ taskManager?
     return { ok: true }
   })
 
-  fastify.post('/hosts/:hostId/git/commit', async (request) => {
+  fastify.post('/hosts/:hostId/git/commit', async (request,reply) => {
     const { hostId } = hostParamsSchema.parse(request.params)
-    const { path: repoPath, message, amend } = gitCommitBodySchema.parse(request.body)
+    const { path: repoPath, message, amend, background } = gitCommitBodySchema.parse(request.body)
     const args = ['commit', '-m', message]
     if (amend) args.splice(1, 0, '--amend')
+    if (background) return reply.status(202).send({task:await backgroundTasks.start({type:'git-commit',title:'Git Commit',input:{hostId,path:repoPath,args,commit:{message,amend:!!amend}}})})
     const { stdout } = await execGit(hostId, args, repoPath)
     const hashMatch = stdout.match(/\[(?:[^\s]+)\s+([a-f0-9]+)\]/)
     const hash = hashMatch?.[1] || ''
@@ -278,10 +286,11 @@ export async function gitRoutes(fastify: FastifyInstance, options:{ taskManager?
     await execGit(hostId, ['add', '--', filePath], repoPath)
     return { ok: true, filePath, resolution }
   })
-  fastify.post('/hosts/:hostId/git/operation', async (request) => {
+  fastify.post('/hosts/:hostId/git/operation', async (request,reply) => {
     const { hostId } = hostParamsSchema.parse(request.params)
-    const { path: repoPath, operation, action } = gitOperationBodySchema.parse(request.body)
+    const { path: repoPath, operation, action, background } = gitOperationBodySchema.parse(request.body)
     const args = action === 'continue' ? ['-c', 'core.editor=true', operation, '--continue'] : [operation, '--abort']
+    if (background&&action==='continue') return reply.status(202).send({task:await backgroundTasks.start({type:'git-operation',title:`Git ${operation} continue`,input:{hostId,path:repoPath,args}})})
     const { stdout, stderr } = await execGit(hostId, args, repoPath, 30000)
     return { ok: true, operation, action, message: (stdout || stderr).trim() }
   })
@@ -346,13 +355,14 @@ export async function gitRoutes(fastify: FastifyInstance, options:{ taskManager?
     return { ok: true }
   })
 
-  fastify.post('/hosts/:hostId/git/merge', async (request) => {
+  fastify.post('/hosts/:hostId/git/merge', async (request,reply) => {
     const { hostId } = request.params as { hostId: string }
-    const { path: repoPath, branch, noFF } = request.body as { path: string; branch: string; noFF?: boolean }
+    const { path: repoPath, branch, noFF, background } = request.body as { path: string; branch: string; noFF?: boolean; background?: boolean }
     if (!repoPath || !branch) throw new Error('Missing path or branch')
     const args = ['merge']
     if (noFF) args.push('--no-ff')
     args.push(branch)
+    if (background) return reply.status(202).send({task:await backgroundTasks.start({type:'git-merge',title:'Git Merge',input:{hostId,path:repoPath,args}})})
     try {
       const { stdout } = await execGit(hostId, args, repoPath)
       const fastForward = stdout.includes('Fast-forward')

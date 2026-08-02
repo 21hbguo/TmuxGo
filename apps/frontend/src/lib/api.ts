@@ -534,14 +534,14 @@ export const api = {
       fetchApi<{ ok: true }>(`/api/hosts/${hostId}/git/stage`, { method: 'POST', body: JSON.stringify({ path, filePaths }) }),
     unstage: (hostId: string, path: string, filePaths: string[]) =>
       fetchApi<{ ok: true }>(`/api/hosts/${hostId}/git/unstage`, { method: 'POST', body: JSON.stringify({ path, filePaths }) }),
-    commit: (hostId: string, path: string, message: string, amend?: boolean) =>
-      fetchApi<GitCommitResponse>(`/api/hosts/${hostId}/git/commit`, { method: 'POST', body: JSON.stringify({ path, message, amend }) }),
+    commit: (hostId: string, path: string, message: string, amend?: boolean, options?: { background?: boolean }) =>
+      fetchApi<GitCommitResponse | BackgroundGitTaskResponse>(`/api/hosts/${hostId}/git/commit`, { method: 'POST', body: JSON.stringify({ path, message, amend, ...options }) }),
     discard: (hostId: string, path: string, filePaths: string[]) =>
       fetchApi<{ ok: true }>(`/api/hosts/${hostId}/git/discard`, { method: 'POST', body: JSON.stringify({ path, filePaths }) }),
     resolve: (hostId: string, path: string, filePath: string, resolution: 'ours' | 'theirs' | 'mark') =>
       fetchApi<{ ok: true; filePath: string; resolution: string }>(`/api/hosts/${hostId}/git/resolve`, { method: 'POST', body: JSON.stringify({ path, filePath, resolution }) }),
-    operation: (hostId: string, path: string, operation: 'merge' | 'rebase', action: 'continue' | 'abort') =>
-      fetchApi<{ ok: true; operation: string; action: string; message: string }>(`/api/hosts/${hostId}/git/operation`, { method: 'POST', body: JSON.stringify({ path, operation, action }) }),
+    operation: (hostId: string, path: string, operation: 'merge' | 'rebase', action: 'continue' | 'abort', options?: { background?: boolean }) =>
+      fetchApi<{ ok: true; operation: string; action: string; message: string } | BackgroundGitTaskResponse>(`/api/hosts/${hostId}/git/operation`, { method: 'POST', body: JSON.stringify({ path, operation, action, ...options }) }),
     log: (hostId: string, path: string, options?: { limit?: number; skip?: number }) => {
       const params = new URLSearchParams({ path })
       if (options?.limit) params.set('limit', String(options.limit))
@@ -556,8 +556,8 @@ export const api = {
       fetchApi<{ ok: true; branch: string }>(`/api/hosts/${hostId}/git/create-branch`, { method: 'POST', body: JSON.stringify({ path, name, startPoint }) }),
     deleteBranch: (hostId: string, path: string, name: string, force?: boolean) =>
       fetchApi<{ ok: true }>(`/api/hosts/${hostId}/git/delete-branch`, { method: 'POST', body: JSON.stringify({ path, name, force }) }),
-    merge: (hostId: string, path: string, branch: string, noFF?: boolean) =>
-      fetchApi<GitMergeResponse>(`/api/hosts/${hostId}/git/merge`, { method: 'POST', body: JSON.stringify({ path, branch, noFF }) }),
+    merge: (hostId: string, path: string, branch: string, noFF?: boolean, options?: { background?: boolean }) =>
+      fetchApi<GitMergeResponse | BackgroundGitTaskResponse>(`/api/hosts/${hostId}/git/merge`, { method: 'POST', body: JSON.stringify({ path, branch, noFF, ...options }) }),
     fetch: (hostId: string, path: string, options?: { remote?: string; prune?: boolean; background?: boolean }) =>
       fetchApi<{ ok: true; message: string } | BackgroundGitTaskResponse>(`/api/hosts/${hostId}/git/fetch`, { method: 'POST', body: JSON.stringify({ path, ...options }) }),
     pull: (hostId: string, path: string, options?: { remote?: string; branch?: string; rebase?: boolean; background?: boolean }) =>
