@@ -183,7 +183,7 @@ export class AgentManager {
   }
   executeTmux(id: string, args: string[], timeoutMs = 30000) {
     const agent = this.agents.get(id)
-    if (!agent || agent.socket.readyState !== 1) return Promise.reject(new Error(`Agent "${id}" is not connected`))
+    if (!agent || !this.toStatus(agent).online || agent.socket.readyState !== 1) return Promise.reject(new Error(`Agent "${id}" is not connected`))
     if (!Array.isArray(args) || !args.length || args.length > 64 || args.some((item) => typeof item !== 'string' || item.length > 4096)) return Promise.reject(new Error('Invalid tmux arguments'))
     const requestId = randomUUID()
     return new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
@@ -205,7 +205,7 @@ export class AgentManager {
   }
   attachTerminal(id: string, sessionName: string, cols: number, rows: number, exclusive: boolean, timeoutMs = 30000) {
     const agent = this.agents.get(id)
-    if (!agent || agent.socket.readyState !== 1) return Promise.reject(new Error(`Agent "${id}" is not connected`))
+    if (!agent || !this.toStatus(agent).online || agent.socket.readyState !== 1) return Promise.reject(new Error(`Agent "${id}" is not connected`))
     if (!sessionName || sessionName.length > 256 || !Number.isInteger(cols) || !Number.isInteger(rows) || cols < 2 || rows < 1 || cols > 1000 || rows > 1000) return Promise.reject(new Error('Invalid Agent terminal attachment'))
     const requestId = randomUUID()
     const attachmentId = randomUUID()
