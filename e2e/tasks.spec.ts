@@ -11,9 +11,9 @@ test('task center keeps completed tasks after page reload', async ({ page, reque
     return tasks.tasks.find((item) => item.id === task.task.id)?.status
   }).toBe('success')
   await page.goto('/')
-  await page.getByRole('button', { name: /^(Tasks|任务)$/ }).click()
+  await page.getByRole('button', { name: /^(Tasks|任务|任务中心)$/ }).click()
   await expect(page.getByText(task.task.title).first()).toBeVisible()
   await page.reload()
-  await page.getByRole('button', { name: /^(Tasks|任务)$/ }).click()
+  await page.getByRole('button', { name: /^(Tasks|任务|任务中心)$/ }).click()
   await expect(page.getByText(task.task.title).first()).toBeVisible()
 })
