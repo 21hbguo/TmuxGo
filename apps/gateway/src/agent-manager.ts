@@ -27,6 +27,13 @@ interface PendingTmuxRequest {
   reject: (error: Error) => void
   timer: NodeJS.Timeout
 }
+interface PendingShellRequest {
+  agentId: string
+  socket: WebSocket
+  resolve: (value: { stdout: string; stderr: string; exitCode: number }) => void
+  reject: (error: Error) => void
+  timer: NodeJS.Timeout
+}
 export interface AgentTerminal {
   id: string
   pid: number
@@ -84,6 +91,7 @@ export class AgentManager {
   private agents = new Map<string, Agent>()
   private history = new Map<string, AgentStatus>()
   private pendingTmuxRequests = new Map<string, PendingTmuxRequest>()
+  private pendingShellRequests = new Map<string, PendingShellRequest>()
   private terminals = new Map<string, AgentTerminalState>()
   private pendingTerminalRequests = new Map<string, PendingTerminalRequest>()
   constructor(options: AgentManagerOptions = {}) {
@@ -116,6 +124,7 @@ export class AgentManager {
     }
     if (previous && previous.socket !== socket) {
       this.rejectTmuxRequests(id, previous.socket, 'Agent reconnected')
+      this.rejectShellRequests(id, previous.socket, 'Agent reconnected')
       this.closeTerminals(id, previous.socket, -1)
     }
     const history = this.history.get(id)
@@ -143,6 +152,7 @@ export class AgentManager {
     const agent = this.agents.get(id)
     if (!agent || agent.socket !== socket) return false
     this.rejectTmuxRequests(id, socket, `Agent disconnected: ${reason}`)
+    this.rejectShellRequests(id, socket, `Agent disconnected: ${reason}`)
     this.closeTerminals(id, socket, -1)
     this.agents.delete(id)
     const status: AgentStatus = { ...this.toStatus(agent), online: false, lastDisconnectedAt: new Date().toISOString(), disconnectReason: reason }
@@ -203,6 +213,28 @@ export class AgentManager {
       }
     })
   }
+  executeShell(id: string, command: string, timeoutMs = 30000) {
+    const agent = this.agents.get(id)
+    if (!agent || !this.toStatus(agent).online || agent.socket.readyState !== 1) return Promise.reject(new Error(`Agent "${id}" is not connected`))
+    if (!command || command.length > 524288) return Promise.reject(new Error('Invalid Agent shell command'))
+    const requestId = randomUUID()
+    return new Promise<{ stdout: string; stderr: string; exitCode: number }>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        const pending = this.pendingShellRequests.get(requestId)
+        if (!pending) return
+        this.pendingShellRequests.delete(requestId)
+        reject(new Error('Agent shell command timed out'))
+      }, Math.max(1000, Math.min(timeoutMs, 120000)))
+      this.pendingShellRequests.set(requestId, { agentId: id, socket: agent.socket, resolve, reject, timer })
+      try {
+        agent.socket.send(JSON.stringify({ type: 'shell', requestId, command, timeoutMs: Math.max(1000, Math.min(timeoutMs, 120000)) }))
+      } catch (error) {
+        clearTimeout(timer)
+        this.pendingShellRequests.delete(requestId)
+        reject(error instanceof Error ? error : new Error('Failed to send Agent shell command'))
+      }
+    })
+  }
   attachTerminal(id: string, sessionName: string, cols: number, rows: number, exclusive: boolean, timeoutMs = 30000) {
     const agent = this.agents.get(id)
     if (!agent || !this.toStatus(agent).online || agent.socket.readyState !== 1) return Promise.reject(new Error(`Agent "${id}" is not connected`))
@@ -258,6 +290,14 @@ export class AgentManager {
       else pending.resolve({ stdout: typeof payload.stdout === 'string' ? payload.stdout : '', stderr: typeof payload.stderr === 'string' ? payload.stderr : '' })
       return true
     }
+    if (payload.type === 'shell-result' && typeof payload.requestId === 'string') {
+      const pending = this.pendingShellRequests.get(payload.requestId)
+      if (!pending || pending.agentId !== id || pending.socket !== socket) return false
+      clearTimeout(pending.timer)
+      this.pendingShellRequests.delete(payload.requestId)
+      pending.resolve({ stdout: typeof payload.stdout === 'string' ? payload.stdout : '', stderr: typeof payload.stderr === 'string' ? payload.stderr : '', exitCode: typeof payload.exitCode === 'number' ? payload.exitCode : 1 })
+      return true
+    }
     if ((payload.type === 'terminal-attached' || payload.type === 'terminal-error') && typeof payload.requestId === 'string') {
       const pending = this.pendingTerminalRequests.get(payload.requestId)
       if (!pending || pending.agentId !== id || pending.socket !== socket) return false
@@ -307,6 +347,14 @@ export class AgentManager {
       if (pending.agentId !== agentId || pending.socket !== socket) continue
       clearTimeout(pending.timer)
       this.pendingTmuxRequests.delete(requestId)
+      pending.reject(new Error(message))
+    }
+  }
+  private rejectShellRequests(agentId: string, socket: WebSocket, message: string) {
+    for (const [requestId, pending] of this.pendingShellRequests) {
+      if (pending.agentId !== agentId || pending.socket !== socket) continue
+      clearTimeout(pending.timer)
+      this.pendingShellRequests.delete(requestId)
       pending.reject(new Error(message))
     }
   }

@@ -47,6 +47,21 @@ test('routes tmux commands to the matching Agent socket', async () => {
   assert.equal(manager.unregister(id, socket), true)
 })
 
+test('routes shell commands to the matching Agent socket', async () => {
+  const manager = new AgentManager({ historyPath: null })
+  const id = `agent-${Date.now()}-${Math.random()}`
+  const messages: string[] = []
+  const socket = { readyState: 1, send: (message: string) => messages.push(message) } as unknown as WebSocket
+  manager.register(id, 'agent', '127.0.0.1', '1.0.0', socket)
+  const result = manager.executeShell(id, 'printf ready')
+  const request = JSON.parse(messages[0])
+  assert.equal(request.type, 'shell')
+  assert.equal(request.command, 'printf ready')
+  assert.equal(manager.handleMessage(id, socket, { type: 'shell-result', requestId: request.requestId, stdout: 'ready', stderr: '', exitCode: 0 }), true)
+  assert.deepEqual(await result, { stdout: 'ready', stderr: '', exitCode: 0 })
+  assert.equal(manager.unregister(id, socket), true)
+})
+
 test('does not route commands through a timed out Agent socket', async () => {
   const manager = new AgentManager({ historyPath: null })
   const id = `agent-${Date.now()}-${Math.random()}`

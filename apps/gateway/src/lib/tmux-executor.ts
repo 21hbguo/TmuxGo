@@ -214,7 +214,15 @@ export async function execTmux(hostIdRaw: string, args: string[], options: TmuxE
   return { ...result, host }
 }
 export async function execHostShell(hostIdRaw: string, command: string, options: TmuxExecOptions = {}): Promise<TmuxExecResult> {
-  const host = await getResolvedHost(hostIdRaw)
+  const hostId = parseHostInput(hostIdRaw)
+  const host = await getHostById(hostId)
+  if (!host) {
+    const agent = agentManager.getAgent(hostId)
+    if (!agent) throw new Error(`Host "${hostId}" not found`)
+    const result = await agentManager.executeShell(hostId, command, options.timeoutMs || defaultTimeoutMs)
+    if (result.exitCode !== 0) throw new Error(normalizeErrorMessage(`${result.stderr}\n${result.stdout}`, 'Agent shell command failed'))
+    return { stdout: result.stdout, stderr: result.stderr, host: toAgentHost(agent) }
+  }
   if (host.id === 'local') {
     try {
       const result = await runLocalShell(command, options)

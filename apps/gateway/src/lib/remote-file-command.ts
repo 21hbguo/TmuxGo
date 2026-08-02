@@ -3,6 +3,7 @@ import { promisify } from 'util'
 import { getHostById, getHostCredentials, type HostRecord } from './hosts.js'
 import { recordHostConnectionFailure } from './host-connectivity.js'
 import { buildHostSshOptions, resolveHostPassword } from './ssh-options.js'
+import { agentManager } from '../agent-manager.js'
 
 const execFileAsync = promisify(execFile)
 const knownAuthMarkers = ['Permission denied']
@@ -37,8 +38,15 @@ export async function getRemoteFileHost(hostIdRaw: string) {
   return host
 }
 export async function runRemoteFilePython<T>(hostId: string, script: string, args: string[]): Promise<T> {
+  const agent=agentManager.getAgent(hostId)
+  const remoteCommand = `python3 -c ${escapeShellSingleQuoted(script)} ${args.map((arg) => escapeShellSingleQuoted(arg)).join(' ')}`
+  if (agent) {
+    const agentCommand=`python3 -c ${escapeShellSingleQuoted(`import base64;exec(base64.b64decode("${Buffer.from(script).toString('base64')}"))`)} ${args.map((arg) => escapeShellSingleQuoted(arg)).join(' ')}`
+    const result=await agentManager.executeShell(hostId,agentCommand,120000)
+    if (result.exitCode!==0) throw new Error(normalizeRemoteFileErrorMessage(`${result.stderr}\n${result.stdout}`,'Agent file command failed'))
+    return JSON.parse(result.stdout) as T
+  }
   const host = await getRemoteFileHost(hostId)
-  const remoteCommand = `python3 -c ${escapeShellSingleQuoted(script)} -- ${args.map((arg) => escapeShellSingleQuoted(arg)).join(' ')}`
   const credentials = await getHostCredentials(host.id)
   const password = resolveHostPassword(credentials)
   const sshArgs = ['-p', String(host.port), '-o', 'ConnectTimeout=8', '-o', `BatchMode=${password ? 'no' : 'yes'}`, ...buildHostSshOptions(host, credentials), '-T', `${host.user}@${host.address}`, '--', remoteCommand]
