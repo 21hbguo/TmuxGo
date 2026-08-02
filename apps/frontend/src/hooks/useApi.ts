@@ -507,7 +507,7 @@ export function useGitMerge() {
 export function useGitFetch() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ hostId, path, remote, prune }: { hostId: string; path: string; remote?: string; prune?: boolean }) => api.git.fetch(hostId, path, { remote, prune }),
+    mutationFn: ({ hostId, path, remote, prune }: { hostId: string; path: string; remote?: string; prune?: boolean }) => api.git.fetch(hostId, path, { remote, prune, background:true }),
     onSuccess: (_, { hostId, path }) => { qc.invalidateQueries({ queryKey: ['git-branches', hostId, path] }); qc.invalidateQueries({ queryKey: ['git-status', hostId, path] }); qc.invalidateQueries({ queryKey: ['git-log', hostId, path] }) },
   })
 }
@@ -515,7 +515,7 @@ export function useGitFetch() {
 export function useGitPull() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ hostId, path, remote, branch, rebase }: { hostId: string; path: string; remote?: string; branch?: string; rebase?: boolean }) => api.git.pull(hostId, path, { remote, branch, rebase }),
+    mutationFn: ({ hostId, path, remote, branch, rebase }: { hostId: string; path: string; remote?: string; branch?: string; rebase?: boolean }) => api.git.pull(hostId, path, { remote, branch, rebase, background:true }),
     onSuccess: (_, { hostId, path }) => { qc.invalidateQueries({ queryKey: ['git-status', hostId, path] }); qc.invalidateQueries({ queryKey: ['git-log', hostId, path] }) },
   })
 }
@@ -523,7 +523,7 @@ export function useGitPull() {
 export function useGitPush() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ hostId, path, remote, branch, force, setUpstream }: { hostId: string; path: string; remote?: string; branch?: string; force?: boolean; setUpstream?: boolean }) => api.git.push(hostId, path, { remote, branch, force, setUpstream }),
+    mutationFn: ({ hostId, path, remote, branch, force, setUpstream }: { hostId: string; path: string; remote?: string; branch?: string; force?: boolean; setUpstream?: boolean }) => api.git.push(hostId, path, { remote, branch, force, setUpstream, background:true }),
     onSuccess: (_, { hostId, path }) => { qc.invalidateQueries({ queryKey: ['git-status', hostId, path] }); qc.invalidateQueries({ queryKey: ['git-branches', hostId, path] }); qc.invalidateQueries({ queryKey: ['git-log', hostId, path] }) },
   })
 }
