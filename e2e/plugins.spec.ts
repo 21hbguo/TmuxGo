@@ -1,8 +1,7 @@
 import { test, expect } from '@playwright/test'
 import path from 'node:path'
+import { appUrl, apiUrl } from './endpoints'
 
-const appUrl = process.env.TMUXGO_PLUGIN_E2E_URL || 'http://127.0.0.1:3000'
-const apiUrl = process.env.TMUXGO_PLUGIN_E2E_API_URL || 'http://127.0.0.1:3001'
 let linkedByTest = false
 
 test.describe.configure({ mode: 'serial' })
@@ -10,6 +9,8 @@ test.beforeAll(async ({ request }) => {
   const response = await request.post(`${apiUrl}/api/plugins/link`, { data: { path: path.resolve('examples/plugins/hello-tmuxgo') } })
   linkedByTest = response.ok()
   expect([200, 409]).toContain(response.status())
+  const permissions = await request.put(`${apiUrl}/api/plugins/examples.hello-tmuxgo/permissions`, { data: { permissions: ['actions.execute', 'host.context'] } })
+  expect(permissions.ok()).toBeTruthy()
 })
 test.afterAll(async ({ request }) => {
   if (linkedByTest) await request.delete(`${apiUrl}/api/plugins/examples.hello-tmuxgo?keepData=true`)

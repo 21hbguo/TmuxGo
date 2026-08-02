@@ -17,7 +17,7 @@
     "restart:stable": "./start.sh --restart",
     "deploy:frontend": "./start.sh --restart --rebuild",
     "test:frontend": "npm run test --workspace=frontend",
-    "test:e2e": "playwright test && npm run test:auth-e2e && npm run test:agent-e2e",
+    "test:e2e": "tsx scripts/run-e2e.ts && npm run test:auth-e2e && npm run test:agent-e2e",
     "test:auth-e2e": "tsx scripts/run-auth-e2e.ts",
     "test:agent-e2e": "tsx scripts/run-agent-e2e.ts",
     "test:fluency-e2e": "./start.sh --restart --rebuild >/tmp/tmuxgo-start-fluency.log 2>&1 && playwright test e2e/fluency.spec.ts",

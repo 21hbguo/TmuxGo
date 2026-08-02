@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { randomUUID } from 'crypto'
 import os from 'os'
 import path from 'path'
 import { mkdir, readFile, rename, stat, writeFile } from 'fs/promises'
@@ -119,6 +120,7 @@ const DEFAULT_UPLOAD_RATE_LIMIT_KBPS = 200
 const MAX_UPLOAD_RATE_LIMIT_KBPS = 10 * 1024
 const PROFILE_RE = /^[a-zA-Z0-9_-]+$/
 const STORAGE_DIR = process.env.TMUXGO_PREFERENCES_DIR || path.join(os.homedir(), '.tmuxgo', 'preferences')
+const profileWrites = new Map<string, Promise<unknown>>()
 
 function nowIso() {
   return new Date().toISOString()
@@ -488,7 +490,7 @@ async function writeStore(profile: string, store: PreferencesStore) {
   const file = getProfilePath(profile)
   const data = JSON.stringify(store)
   if (Buffer.byteLength(data, 'utf8') > MAX_FILE_BYTES) throw new Error('Preferences too large')
-  const tmp = `${file}.tmp-${Date.now().toString(36)}`
+  const tmp = `${file}.tmp-${randomUUID()}`
   await writeFile(tmp, data, 'utf8')
   await rename(tmp, file)
   try {
@@ -497,6 +499,16 @@ async function writeStore(profile: string, store: PreferencesStore) {
   } catch (err) {
     if (err instanceof Error) throw err
     throw new Error('Failed to verify preferences file')
+  }
+}
+async function queueProfileWrite<T>(profile: string, write: () => Promise<T>) {
+  const previous = profileWrites.get(profile) || Promise.resolve()
+  const current = previous.catch(() => undefined).then(write)
+  profileWrites.set(profile, current)
+  try {
+    return await current
+  } finally {
+    if (profileWrites.get(profile) === current) profileWrites.delete(profile)
   }
 }
 
@@ -510,93 +522,95 @@ export async function preferencesRoutes(fastify: FastifyInstance) {
     const query = request.query as { profile?: string }
     const profile = getProfileName(query.profile)
     const body = (request.body && typeof request.body === 'object') ? request.body as Record<string, unknown> : {}
-    const current = await readStore(profile)
-    const next = { ...current }
-    if ('customShortcuts' in body) {
-      const incoming = normalizeShortcuts(body.customShortcuts)
-      const incomingAt = normalizeIso(body.customShortcutsUpdatedAt, nowIso())
-      if (parseIsoMs(incomingAt) >= parseIsoMs(current.customShortcutsUpdatedAt)) {
-        next.customShortcuts = incoming
-        next.customShortcutsUpdatedAt = incomingAt
-      }
-    }
-    if ('favoriteDirectories' in body) {
-      const incoming = normalizeFavorites(body.favoriteDirectories)
-      const incomingAt = normalizeIso(body.favoriteDirectoriesUpdatedAt, nowIso())
-      if (parseIsoMs(incomingAt) >= parseIsoMs(current.favoriteDirectoriesUpdatedAt)) {
-        next.favoriteDirectories = incoming
-        next.favoriteDirectoriesUpdatedAt = incomingAt
-      }
-    }
-    if ('sessionWorkspaces' in body) {
-      const incoming = normalizeSessionWorkspaces(body.sessionWorkspaces)
-      const incomingAt = normalizeIso(body.sessionWorkspacesUpdatedAt, nowIso())
-      if (parseIsoMs(incomingAt) >= parseIsoMs(current.sessionWorkspacesUpdatedAt)) {
-        next.sessionWorkspaces = incoming
-        next.sessionWorkspacesUpdatedAt = incomingAt
-      }
-    }
-    if ('sessionOrders' in body) {
-      const incoming = normalizeSessionOrders(body.sessionOrders)
-      const incomingAt = normalizeIso(body.sessionOrdersUpdatedAt, nowIso())
-      if (parseIsoMs(incomingAt) >= parseIsoMs(current.sessionOrdersUpdatedAt)) {
-        next.sessionOrders = incoming
-        next.sessionOrdersUpdatedAt = incomingAt
-      }
-    }
-    if ('snippets' in body) {
-      const incoming = normalizeSnippets(body.snippets)
-      const incomingAt = normalizeIso(body.snippetsUpdatedAt, nowIso())
-      if (parseIsoMs(incomingAt) >= parseIsoMs(current.snippetsUpdatedAt)) {
-        next.snippets = incoming
-        next.snippetsUpdatedAt = incomingAt
-      }
-    }
-    if ('favorites' in body) {
-      const incoming = normalizeBookmarkFavorites(body.favorites)
-      const incomingAt = normalizeIso(body.favoritesUpdatedAt, nowIso())
-      if (parseIsoMs(incomingAt) >= parseIsoMs(current.favoritesUpdatedAt)) {
-        next.favorites = incoming
-        next.favoritesUpdatedAt = incomingAt
-      }
-    }
-    if ('sessionContinuity' in body) {
-      const incoming = normalizeSessionContinuity(body.sessionContinuity)
-      const incomingAt = normalizeIso(body.sessionContinuityUpdatedAt, nowIso())
-      if (parseIsoMs(incomingAt) >= parseIsoMs(current.sessionContinuityUpdatedAt)) {
-        next.sessionContinuity = incoming
-        next.sessionContinuityUpdatedAt = incomingAt
-      }
-    }
-    if ('gitByHost' in body) {
-      const incoming = normalizeGitByHost(body.gitByHost)
-      const incomingAt = normalizeIso(body.gitByHostUpdatedAt, nowIso())
-      if (parseIsoMs(incomingAt) >= parseIsoMs(current.gitByHostUpdatedAt)) {
-        next.gitByHost = incoming
-        next.gitByHostUpdatedAt = incomingAt
-      }
-    }
-    if ('uiPreferences' in body) {
-      const incoming = normalizeUiPreferences(body.uiPreferences)
-      const incomingAt = normalizeIso(body.uiPreferencesUpdatedAt, nowIso())
-      if (parseIsoMs(incomingAt) >= parseIsoMs(current.uiPreferencesUpdatedAt)) {
-        next.uiPreferences = { ...next.uiPreferences, ...incoming }
-        next.uiPreferencesUpdatedAt = incomingAt
-      }
-    }
-    if ('uploadRateLimitKBps' in body) next.uploadRateLimitKBps = normalizeUploadRateLimitKBps(body.uploadRateLimitKBps)
-    if ('downloadRateLimitKBps' in body) next.downloadRateLimitKBps = normalizeUploadRateLimitKBps(body.downloadRateLimitKBps)
-    next.updatedAt = new Date(Math.max(
-      parseIsoMs(next.customShortcutsUpdatedAt), parseIsoMs(next.favoriteDirectoriesUpdatedAt),
-      parseIsoMs(next.sessionWorkspacesUpdatedAt), parseIsoMs(next.sessionOrdersUpdatedAt), parseIsoMs(next.snippetsUpdatedAt),
-      parseIsoMs(next.favoritesUpdatedAt), parseIsoMs(next.sessionContinuityUpdatedAt), parseIsoMs(next.gitByHostUpdatedAt), parseIsoMs(next.uiPreferencesUpdatedAt),
-    )).toISOString()
     try {
-      await writeStore(profile, next)
+      return await queueProfileWrite(profile, async () => {
+        const current = await readStore(profile)
+        const next = { ...current }
+        if ('customShortcuts' in body) {
+          const incoming = normalizeShortcuts(body.customShortcuts)
+          const incomingAt = normalizeIso(body.customShortcutsUpdatedAt, nowIso())
+          if (parseIsoMs(incomingAt) >= parseIsoMs(current.customShortcutsUpdatedAt)) {
+            next.customShortcuts = incoming
+            next.customShortcutsUpdatedAt = incomingAt
+          }
+        }
+        if ('favoriteDirectories' in body) {
+          const incoming = normalizeFavorites(body.favoriteDirectories)
+          const incomingAt = normalizeIso(body.favoriteDirectoriesUpdatedAt, nowIso())
+          if (parseIsoMs(incomingAt) >= parseIsoMs(current.favoriteDirectoriesUpdatedAt)) {
+            next.favoriteDirectories = incoming
+            next.favoriteDirectoriesUpdatedAt = incomingAt
+          }
+        }
+        if ('sessionWorkspaces' in body) {
+          const incoming = normalizeSessionWorkspaces(body.sessionWorkspaces)
+          const incomingAt = normalizeIso(body.sessionWorkspacesUpdatedAt, nowIso())
+          if (parseIsoMs(incomingAt) >= parseIsoMs(current.sessionWorkspacesUpdatedAt)) {
+            next.sessionWorkspaces = incoming
+            next.sessionWorkspacesUpdatedAt = incomingAt
+          }
+        }
+        if ('sessionOrders' in body) {
+          const incoming = normalizeSessionOrders(body.sessionOrders)
+          const incomingAt = normalizeIso(body.sessionOrdersUpdatedAt, nowIso())
+          if (parseIsoMs(incomingAt) >= parseIsoMs(current.sessionOrdersUpdatedAt)) {
+            next.sessionOrders = incoming
+            next.sessionOrdersUpdatedAt = incomingAt
+          }
+        }
+        if ('snippets' in body) {
+          const incoming = normalizeSnippets(body.snippets)
+          const incomingAt = normalizeIso(body.snippetsUpdatedAt, nowIso())
+          if (parseIsoMs(incomingAt) >= parseIsoMs(current.snippetsUpdatedAt)) {
+            next.snippets = incoming
+            next.snippetsUpdatedAt = incomingAt
+          }
+        }
+        if ('favorites' in body) {
+          const incoming = normalizeBookmarkFavorites(body.favorites)
+          const incomingAt = normalizeIso(body.favoritesUpdatedAt, nowIso())
+          if (parseIsoMs(incomingAt) >= parseIsoMs(current.favoritesUpdatedAt)) {
+            next.favorites = incoming
+            next.favoritesUpdatedAt = incomingAt
+          }
+        }
+        if ('sessionContinuity' in body) {
+          const incoming = normalizeSessionContinuity(body.sessionContinuity)
+          const incomingAt = normalizeIso(body.sessionContinuityUpdatedAt, nowIso())
+          if (parseIsoMs(incomingAt) >= parseIsoMs(current.sessionContinuityUpdatedAt)) {
+            next.sessionContinuity = incoming
+            next.sessionContinuityUpdatedAt = incomingAt
+          }
+        }
+        if ('gitByHost' in body) {
+          const incoming = normalizeGitByHost(body.gitByHost)
+          const incomingAt = normalizeIso(body.gitByHostUpdatedAt, nowIso())
+          if (parseIsoMs(incomingAt) >= parseIsoMs(current.gitByHostUpdatedAt)) {
+            next.gitByHost = incoming
+            next.gitByHostUpdatedAt = incomingAt
+          }
+        }
+        if ('uiPreferences' in body) {
+          const incoming = normalizeUiPreferences(body.uiPreferences)
+          const incomingAt = normalizeIso(body.uiPreferencesUpdatedAt, nowIso())
+          if (parseIsoMs(incomingAt) >= parseIsoMs(current.uiPreferencesUpdatedAt)) {
+            next.uiPreferences = { ...next.uiPreferences, ...incoming }
+            next.uiPreferencesUpdatedAt = incomingAt
+          }
+        }
+        if ('uploadRateLimitKBps' in body) next.uploadRateLimitKBps = normalizeUploadRateLimitKBps(body.uploadRateLimitKBps)
+        if ('downloadRateLimitKBps' in body) next.downloadRateLimitKBps = normalizeUploadRateLimitKBps(body.downloadRateLimitKBps)
+        next.updatedAt = new Date(Math.max(
+          parseIsoMs(next.customShortcutsUpdatedAt), parseIsoMs(next.favoriteDirectoriesUpdatedAt),
+          parseIsoMs(next.sessionWorkspacesUpdatedAt), parseIsoMs(next.sessionOrdersUpdatedAt), parseIsoMs(next.snippetsUpdatedAt),
+          parseIsoMs(next.favoritesUpdatedAt), parseIsoMs(next.sessionContinuityUpdatedAt), parseIsoMs(next.gitByHostUpdatedAt), parseIsoMs(next.uiPreferencesUpdatedAt),
+        )).toISOString()
+        await writeStore(profile, next)
+        return next
+      })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to save preferences'
       return reply.code(413).send({ message, code: 'PREFERENCES_TOO_LARGE' })
     }
-    return next
   })
 }

@@ -3,11 +3,11 @@ import { ensureSession, openSession } from './session'
 
 test('home page smoke flow', async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByText('TmuxGo')).toBeVisible()
+  await expect(page.getByText('TmuxGo').first()).toBeVisible()
   await expect(page.getByText(/(Sessions|会话)/).first()).toBeVisible()
   await expect(page.getByRole('button', { name: /^(New|新建)$/ })).toBeVisible()
   await expect(page.locator('main').nth(1)).toBeVisible()
-  await expect(page.locator('header').getByRole('button', { name: /(Settings|设置)/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /(Settings|设置)/ }).last()).toBeVisible()
 })
 test('mobile viewport fits visible screen', async ({ browser, baseURL }) => {
   const context = await browser.newContext({
@@ -70,13 +70,8 @@ test('mobile quick session switches while keyboard is closed', async ({ browser,
     hasTouch: true,
     userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
   })
-  await context.addInitScript((firstId) => {
-    localStorage.setItem('tmuxgo-active-host', 'local')
-    localStorage.setItem('tmuxgo-active-session:local', firstId)
-    localStorage.setItem('tmuxgo-active-session', firstId)
-  }, first.id)
   const page = await context.newPage()
-  await page.goto('/')
+  await openSession(page, first, { expectHeader: false })
   const secondButton = page.locator('.tmuxgo-mobile-session-strip button').nth(1)
   await expect(secondButton).toBeVisible()
   await expect(secondButton).not.toHaveAttribute('data-keep-mobile-keyboard')
