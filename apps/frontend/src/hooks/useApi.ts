@@ -102,8 +102,8 @@ export function useRestartRebuild() {
     },
   })
 }
-export function useSystemTasks(enabled = true) {
-  return useQuery({ queryKey: ['system-tasks'], queryFn: api.system.tasks, enabled, staleTime: 0, refetchInterval: 2000 })
+export function useSystemTasks(enabled = true, refetchIntervalInBackground = false) {
+  return useQuery({ queryKey: ['system-tasks'], queryFn: api.system.tasks, enabled, staleTime: 0, refetchInterval: 2000, refetchIntervalInBackground })
 }
 export function useCancelSystemTask() {
   const queryClient = useQueryClient()
