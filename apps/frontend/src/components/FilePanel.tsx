@@ -315,6 +315,9 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
   const [directoryCache, setDirectoryCache] = useState<Map<string, FileItem[]>>(new Map())
   const [directoryStatus, setDirectoryStatusState] = useState<Map<string, DirectoryStatus>>(new Map())
   const resizingRef = useRef(false)
+  const pendingWidthRef = useRef(filePanelWidth)
+  const frameRef = useRef<number | null>(null)
+  const [previewWidth, setPreviewWidth] = useState<number | null>(null)
   const directoryLoadingRef = useRef<Map<string, Promise<FileItem[]>>>(new Map())
   const touchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const contextMenuRef = useRef(false)
@@ -538,9 +541,22 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
   useEffect(() => {
     const handleMove = (e: MouseEvent) => {
       if (!resizingRef.current) return
-      setFilePanelWidth(window.innerWidth - e.clientX)
+      pendingWidthRef.current = Math.max(200, Math.min(520, window.innerWidth - e.clientX))
+      if (frameRef.current) return
+      frameRef.current = requestAnimationFrame(() => {
+        frameRef.current = null
+        setPreviewWidth(pendingWidthRef.current)
+      })
     }
     const handleUp = () => {
+      if (frameRef.current) {
+        cancelAnimationFrame(frameRef.current)
+        frameRef.current = null
+      }
+      if (resizingRef.current) {
+        setFilePanelWidth(pendingWidthRef.current)
+        setPreviewWidth(null)
+      }
       resizingRef.current = false
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
@@ -548,6 +564,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
     window.addEventListener('mousemove', handleMove)
     window.addEventListener('mouseup', handleUp)
     return () => {
+      if (frameRef.current) cancelAnimationFrame(frameRef.current)
       window.removeEventListener('mousemove', handleMove)
       window.removeEventListener('mouseup', handleUp)
     }
@@ -935,7 +952,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
   const handlePickItem = (item: FileEntry) => pickTarget(joinRelativePath(activeRootBasePath, item.path))
   const embedded = mode === 'explorer'
   const shellClass = (isMobile || isPicker) ? 'flex h-full min-h-0 flex-col overflow-hidden' : `relative flex h-full ${embedded ? 'min-w-0 flex-1' : 'shrink-0'} flex-col bg-bg-1 overflow-hidden ${dock === 'left' ? 'border-r border-[var(--line)]' : 'border-l border-[var(--line)]'}`
-  const shellStyle = isMobile || embedded || isPicker ? undefined : { width: filePanelWidth }
+  const shellStyle = isMobile || embedded || isPicker ? undefined : { width: previewWidth ?? filePanelWidth }
   const imagePreviewUrl = preview?.path && preview.type === 'file' && isImagePath(preview.path) && (preview.binary || preview.reason === 'binary-file' || preview.reason === 'large-file') ? api.files.imageUrl(fileHostId, activeRootId, resolveRootRelativePath(activeRootBasePath, preview.path), preview.modifiedAt) : ''
   const previewBlock = preview ? (
     imagePreviewUrl ? (
@@ -1126,6 +1143,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
           className={`absolute top-0 h-full w-1 cursor-col-resize hover:bg-accent/40 ${dock === 'left' ? 'right-0' : 'left-0'}`}
           onMouseDown={() => {
             resizingRef.current = true
+            pendingWidthRef.current = filePanelWidth
             document.body.style.cursor = 'col-resize'
             document.body.style.userSelect = 'none'
           }}

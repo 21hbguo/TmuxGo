@@ -142,6 +142,20 @@ describe('FilePanel', () => {
     expect(await screen.findByRole('option', { name: 'Home' })).toBeInTheDocument()
     expect((screen.getAllByRole('combobox')[0] as HTMLSelectElement).value).toBe('root-workspace')
   })
+  it('commits panel width after resizing completes', async () => {
+    const { container } = render(React.createElement(FilePanel))
+    const handle = container.querySelector('.cursor-col-resize')
+    const panel = container.querySelector('aside')
+    expect(handle).not.toBeNull()
+    expect(panel).not.toBeNull()
+    fireEvent.mouseDown(handle!)
+    fireEvent.mouseMove(window, { clientX: window.innerWidth - 300 })
+    expect(setFilePanelWidth).not.toHaveBeenCalled()
+    await waitFor(() => expect(panel).toHaveStyle({ width: '300px' }))
+    fireEvent.mouseUp(window)
+    expect(setFilePanelWidth).toHaveBeenCalledTimes(1)
+    expect(setFilePanelWidth).toHaveBeenCalledWith(300)
+  })
 
   it('expands and collapses directories on desktop', async () => {
     render(React.createElement(FilePanel))

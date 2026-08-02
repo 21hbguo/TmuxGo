@@ -32,13 +32,29 @@ export function Sidebar() {
   const { t } = useTranslation()
   const { prompt, PromptElement } = usePrompt()
   const resizingRef = useRef(false)
+  const pendingWidthRef = useRef(sessionPanelWidth)
+  const frameRef = useRef<number | null>(null)
+  const [previewWidth, setPreviewWidth] = useState<number | null>(null)
 
   useEffect(() => {
     const handleMove = (event: MouseEvent) => {
       if (!resizingRef.current) return
-      setSessionPanelWidth(preferences.sidebarPosition === 'right' ? window.innerWidth - event.clientX : event.clientX)
+      pendingWidthRef.current = Math.max(208, Math.min(320, preferences.sidebarPosition === 'right' ? window.innerWidth - event.clientX : event.clientX))
+      if (frameRef.current) return
+      frameRef.current = requestAnimationFrame(() => {
+        frameRef.current = null
+        setPreviewWidth(pendingWidthRef.current)
+      })
     }
     const handleUp = () => {
+      if (frameRef.current) {
+        cancelAnimationFrame(frameRef.current)
+        frameRef.current = null
+      }
+      if (resizingRef.current) {
+        setSessionPanelWidth(pendingWidthRef.current)
+        setPreviewWidth(null)
+      }
       resizingRef.current = false
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
@@ -46,6 +62,7 @@ export function Sidebar() {
     window.addEventListener('mousemove', handleMove)
     window.addEventListener('mouseup', handleUp)
     return () => {
+      if (frameRef.current) cancelAnimationFrame(frameRef.current)
       window.removeEventListener('mousemove', handleMove)
       window.removeEventListener('mouseup', handleUp)
     }
@@ -116,7 +133,7 @@ export function Sidebar() {
 
   return (
     <>
-      <aside className={`relative flex shrink-0 flex-col bg-bg-1 ${preferences.sidebarPosition === 'right' ? 'border-l border-[var(--line)]' : 'border-r border-[var(--line)]'}`} style={{ width: sessionPanelWidth }}>
+      <aside className={`relative flex shrink-0 flex-col bg-bg-1 ${preferences.sidebarPosition === 'right' ? 'border-l border-[var(--line)]' : 'border-r border-[var(--line)]'}`} style={{ width: previewWidth ?? sessionPanelWidth }}>
         <div className="flex items-center justify-between border-b border-[var(--line)] p-3">
           <span className="text-text-2 text-sm font-medium">{t('sidebar.sessions')}</span>
           <Button variant="ghost" size="icon-sm" aria-label="collapse" onClick={() => setSessionPanelExpanded(false)}>
@@ -171,6 +188,7 @@ export function Sidebar() {
           className={`absolute top-0 h-full w-1 cursor-col-resize hover:bg-accent/40 ${preferences.sidebarPosition === 'right' ? 'left-0' : 'right-0'}`}
           onMouseDown={() => {
             resizingRef.current = true
+            pendingWidthRef.current = sessionPanelWidth
             document.body.style.cursor = 'col-resize'
             document.body.style.userSelect = 'none'
           }}
