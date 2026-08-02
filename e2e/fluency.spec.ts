@@ -1,10 +1,11 @@
 import { test, expect } from '@playwright/test'
+import { apiUrl } from './endpoints'
 import { ensureSession, openSession } from './session'
 
 test('fluency telemetry remains available during repeated output sampling', async ({ page, request }) => {
   const name = `tmuxgo_fluency_${Date.now()}`
   const session = await ensureSession(request, name)
-  const baselineResponse = await request.get('http://127.0.0.1:3001/api/system')
+  const baselineResponse = await request.get(`${apiUrl}/api/system`)
   const baseline = await baselineResponse.json()
   await openSession(page, session)
   await page.waitForFunction(() => {
@@ -57,15 +58,15 @@ test('fluency telemetry remains available during repeated output sampling', asyn
     return false
   }, undefined, { timeout: 15000 })
   await page.waitForTimeout(200)
-  const telemetry = await page.evaluate(async () => {
+  const telemetry = await page.evaluate(async (baseUrl) => {
     const state = (window as typeof window & { __tmuxgoFluency?: { frames: number; longTasks: number; maxFrameGap: number; maxLongTask: number; stop: boolean; observer?: PerformanceObserver } }).__tmuxgoFluency
     if (state) {
       state.stop = true
       state.observer?.disconnect()
     }
-    const sys = await fetch('http://127.0.0.1:3001/api/system').then((res) => res.json())
+    const sys = await fetch(`${baseUrl}/api/system`).then((res) => res.json())
     return { sys, frames: state?.frames || 0, longTasks: state?.longTasks || 0, maxFrameGap: state?.maxFrameGap || 0, maxLongTask: state?.maxLongTask || 0 }
-  })
+  }, apiUrl)
   expect(telemetry.frames).toBeGreaterThan(5)
   expect(telemetry.maxFrameGap).toBeLessThan(250)
   expect(telemetry.longTasks).toBeLessThanOrEqual(5)

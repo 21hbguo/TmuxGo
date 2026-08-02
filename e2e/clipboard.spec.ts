@@ -136,10 +136,20 @@ test('can copy into app clipboard and paste back when system clipboard is unavai
     document.execCommand = () => false
   })
   await page.evaluate(() => {
-    window.addEventListener('tmuxgo-copy-terminal-selection', (event) => {
-      const requestId = (event as CustomEvent<{ requestId?: string }>).detail?.requestId
-      window.dispatchEvent(new CustomEvent('tmuxgo-terminal-selection', { detail: { requestId, selection: 'printf "memory_path_ok"' } }))
-    }, { once: true, capture: true })
+    window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data: 'printf "memory_path_ok"\r' } }))
+  })
+  await page.waitForFunction(() => {
+    const terminal = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
+    const buffer = terminal?.buffer?.active
+    if (!buffer) return false
+    for (let index = 0; index < buffer.length; index += 1) {
+      const line = buffer.getLine(index)?.translateToString(true) || ''
+      const column = line.indexOf('memory_path_ok')
+      if (column < 0) continue
+      terminal.select(column, index, 'memory_path_ok'.length)
+      return true
+    }
+    return false
   })
   await page.getByRole('button', { name: '复制' }).click()
   await expect(page.getByText(clipboardUnavailableText)).toBeVisible()

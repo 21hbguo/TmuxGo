@@ -86,7 +86,7 @@ test('terminal content fills container height', async ({ page, request }) => {
       })(),
     }
   })
-  expect(metrics.terminalRect).not.toBeNull()
+  expect(metrics.xtermRect).not.toBeNull()
   expect(metrics.lastRowRect).not.toBeNull()
-  expect(Math.abs((metrics.terminalRect?.bottom || 0) - (metrics.lastRowRect?.bottom || 0))).toBeLessThanOrEqual(1)
+  expect(Math.abs((metrics.xtermRect?.bottom || 0) - (metrics.lastRowRect?.bottom || 0))).toBeLessThanOrEqual(1)
 })

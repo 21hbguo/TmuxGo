@@ -67,6 +67,7 @@ test('mobile terminal remains visibly rendered after viewport and dpr switch', a
     const t = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
     return !!t?.cols && !!t?.rows
   }, undefined, { timeout: 15000 })
+  await page.evaluate(() => localStorage.setItem('tmuxgo-debug-mobile', '1'))
   await writeMarker(page, before)
   const recoverCount = await page.evaluate(() => ((window as typeof window & { __tmuxgoMobileDebug?: { events?: any[] } }).__tmuxgoMobileDebug?.events || []).filter((item) => item.event === 'terminal-recover' || item.event === 'terminal-soft-recover').length)
   const client = await context.newCDPSession(page)
@@ -130,6 +131,7 @@ test('desktop terminal resize settles without repeated resize calls', async ({ b
   await page.waitForTimeout(240)
   const finalCalls = await page.evaluate(() => (window as typeof window & { __tmuxgoResizeCalls?: Array<{ cols: number; rows: number }> }).__tmuxgoResizeCalls || [])
   await writeMarker(page, marker)
+  await page.waitForFunction((value) => document.querySelector('[data-terminal] .xterm-rows')?.textContent?.includes(value), marker, { timeout: 15000 })
   const metrics = await getRenderMetrics(page)
   expect(settledCount).toBeGreaterThan(0)
   expect(finalCalls.length).toBe(settledCount)

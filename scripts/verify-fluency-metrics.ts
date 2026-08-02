@@ -6,14 +6,14 @@ const targets = [
   'apps/frontend/src/hooks/useTerminalOutputScheduler.ts',
   'apps/gateway/src/lib/perf-metrics.ts',
   'apps/gateway/src/routes/stream.ts',
-  'apps/frontend/src/components/StatusBar.tsx',
+  'apps/frontend/src/components/SystemHealthPanel.tsx',
   'apps/frontend/src/components/TerminalPane.tsx',
 ]
 const fileChecks: Record<string, string[]> = {
   'apps/frontend/src/hooks/useTerminalOutputScheduler.ts': ['onBackpressure', 'BACKPRESSURE_HIGH_WATERMARK'],
   'apps/gateway/src/lib/perf-metrics.ts': ['backpressureSignals', 'activeFlushInterval', 'activeMaxChars', 'socketBufferedBytes', 'deferredFlushes'],
   'apps/gateway/src/routes/stream.ts': ['stream_backpressure', 'stream_profile', 'syncOutputProfile', 'bufferedAmount', 'SOCKET_BUFFER_HIGH_WATERMARK'],
-  'apps/frontend/src/components/StatusBar.tsx': ['activeFlushInterval', 'backpressureSignals'],
+  'apps/frontend/src/components/SystemHealthPanel.tsx': ['activeFlushInterval', 'backpressureSignals'],
   'apps/frontend/src/components/TerminalPane.tsx': ['useTerminalOutputScheduler', 'pushTerminalOutput', 'stream_backpressure'],
 }
 let failed = false

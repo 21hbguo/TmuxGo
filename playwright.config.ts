@@ -1,11 +1,12 @@
 import { defineConfig } from '@playwright/test'
 
-const externalServer = process.env.TMUXGO_PLUGIN_E2E_URL
+const externalServer = process.env.TMUXGO_E2E_URL || process.env.TMUXGO_PLUGIN_E2E_URL
 
 export default defineConfig({
   testDir: './e2e',
   testIgnore: process.env.TMUXGO_AUTH_E2E_URL ? undefined : '**/auth.spec.ts',
   timeout: 30000,
+  workers: process.env.TMUXGO_E2E_WORKERS ? Number(process.env.TMUXGO_E2E_WORKERS) : undefined,
   use: {
     baseURL: externalServer || 'http://127.0.0.1:3000',
     trace: 'on-first-retry',
