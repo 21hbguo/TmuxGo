@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { createServer } from 'node:net'
@@ -62,7 +63,8 @@ async function waitForAgent(apiUrl: string, process: ChildProcess, hostId: strin
     if (process.exitCode !== null) throw new Error('Agent exited before registering')
     try {
       const response = await fetch(`${apiUrl}/api/hosts/${hostId}`, { headers: { Authorization: `Bearer ${accessToken}` } })
-      if (response.ok && (await response.json() as { connectionMode?: string; agent?: { online?: boolean } }).connectionMode === 'agent') return
+      const host = await response.json() as { connectionMode?: string; agent?: { online?: boolean } }
+      if (response.ok && host.connectionMode === 'agent' && host.agent?.online === true) return
     } catch {}
     await delay(200)
   }
@@ -153,6 +155,12 @@ async function main() {
     await stop(gateway)
     gateway = startGateway(bin, apiPort, tmuxEnv)
     await waitFor(`${apiUrl}/health`, gateway)
+    const recoveryResponse = await fetch(`${apiUrl}/api/hosts/${hostId}`, { headers: { Authorization: `Bearer ${accessToken}` } })
+    assert.equal(recoveryResponse.ok, true)
+    const recoveryHost = await recoveryResponse.json() as { connectionMode?: string; agent?: { online?: boolean; disconnectReason?: string } }
+    assert.equal(recoveryHost.connectionMode, 'agent')
+    assert.equal(recoveryHost.agent?.online, false)
+    assert.equal(recoveryHost.agent?.disconnectReason, 'Gateway restarted')
     await waitForAgent(apiUrl, agent, hostId, accessToken)
     const recoveredTicket = await getWebSocketTicket(apiUrl, accessToken)
     await verifyTerminal(`ws://127.0.0.1:${apiPort}/api/stream?ticket=${encodeURIComponent(recoveredTicket)}`, hostId)

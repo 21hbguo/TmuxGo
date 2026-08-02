@@ -1,28 +1,38 @@
 import assert from 'node:assert/strict'
+import { mkdtemp, readFile, rm, stat } from 'fs/promises'
+import os from 'os'
+import path from 'path'
 import test from 'node:test'
 import type { WebSocket } from 'ws'
-import { AgentManager, agentManager } from './agent-manager.js'
+import { AgentManager } from './agent-manager.js'
 
 test('keeps a replacement agent connected when the previous socket closes', () => {
   const id = `agent-${Date.now()}-${Math.random()}`
   const first = {} as WebSocket
   const second = {} as WebSocket
-  agentManager.register(id, 'agent', '127.0.0.1', '1.0.0', first)
-  agentManager.register(id, 'agent', '127.0.0.1', '1.1.0', second)
-  assert.equal(agentManager.unregister(id, first), false)
-  assert.equal(agentManager.heartbeat(id, second, '1.1.1'), true)
-  const active = agentManager.getAgent(id)
+  const manager = new AgentManager({ historyPath: null })
+  const registered = manager.register(id, 'agent', '127.0.0.1', '1.0.0', first)
+  const repeated = manager.register(id, 'agent-renamed', '127.0.0.2', '1.0.1', first)
+  assert.equal(repeated.name, 'agent-renamed')
+  assert.equal(repeated.address, '127.0.0.2')
+  assert.equal(repeated.version, '1.0.1')
+  assert.equal(repeated.connectedAt, registered.connectedAt)
+  assert.equal(repeated.reconnectCount, 0)
+  manager.register(id, 'agent', '127.0.0.1', '1.1.0', second)
+  assert.equal(manager.unregister(id, first), false)
+  assert.equal(manager.heartbeat(id, second, '1.1.1'), true)
+  const active = manager.getAgent(id)
   assert.equal(active?.online, true)
   assert.equal(active?.version, '1.1.1')
   assert.equal(active?.reconnectCount, 1)
-  assert.equal(agentManager.unregister(id, second), true)
-  const disconnected = agentManager.getAgentStatus(id)
+  assert.equal(manager.unregister(id, second), true)
+  const disconnected = manager.getAgentStatus(id)
   assert.equal(disconnected?.online, false)
   assert.equal(disconnected?.disconnectReason, 'Disconnected')
 })
 
 test('routes tmux commands to the matching Agent socket', async () => {
-  const manager = new AgentManager()
+  const manager = new AgentManager({ historyPath: null })
   const id = `agent-${Date.now()}-${Math.random()}`
   const messages: string[] = []
   const socket = { readyState: 1, send: (message: string) => messages.push(message) } as unknown as WebSocket
@@ -38,7 +48,7 @@ test('routes tmux commands to the matching Agent socket', async () => {
 })
 
 test('forwards isolated terminal streams and closes them on Agent reconnect', async () => {
-  const manager = new AgentManager()
+  const manager = new AgentManager({ historyPath: null })
   const id = `agent-${Date.now()}-${Math.random()}`
   const messages: string[] = []
   const socket = { readyState: 1, send: (message: string) => messages.push(message) } as unknown as WebSocket
@@ -66,7 +76,7 @@ test('forwards isolated terminal streams and closes them on Agent reconnect', as
 })
 
 test('rejects an Agent terminal that exits before attachment completes', async () => {
-  const manager = new AgentManager()
+  const manager = new AgentManager({ historyPath: null })
   const id = `agent-${Date.now()}-${Math.random()}`
   const messages: string[] = []
   const socket = { readyState: 1, send: (message: string) => messages.push(message) } as unknown as WebSocket
@@ -76,4 +86,30 @@ test('rejects an Agent terminal that exits before attachment completes', async (
   assert.equal(manager.handleMessage(id, socket, { type: 'terminal-exit', attachmentId: request.attachmentId, exitCode: 1 }), true)
   await assert.rejects(attachment, /exited before attaching/)
   assert.equal(manager.unregister(id, socket), true)
+})
+
+test('persists Agent history across Gateway restart with restricted permissions', async (t) => {
+  const configDir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-agent-history-'))
+  const historyPath = path.join(configDir, 'agent-history.json')
+  t.after(async () => { await rm(configDir, { recursive: true, force: true }) })
+  const id = `agent-${Date.now()}-${Math.random()}`
+  const first = { readyState: 1, send: () => {} } as unknown as WebSocket
+  const initial = new AgentManager({ historyPath })
+  initial.register(id, 'agent', '127.0.0.1', '1.0.0', first)
+  const restarted = new AgentManager({ historyPath })
+  const disconnected = restarted.getAgentStatus(id)
+  assert.equal(disconnected?.online, false)
+  assert.equal(disconnected?.connectedAt, null)
+  assert.equal(disconnected?.disconnectReason, 'Gateway restarted')
+  const replacement = { readyState: 1, send: () => {} } as unknown as WebSocket
+  const reconnected = restarted.register(id, 'agent', '127.0.0.1', '1.1.0', replacement)
+  assert.equal(reconnected.reconnectCount, 1)
+  const stored = JSON.parse(await readFile(historyPath, 'utf8')) as { agents: { id: string; online: boolean; version: string }[] }
+  const storedAgent = stored.agents.find((agent) => agent.id === id)
+  assert.equal(storedAgent?.id, id)
+  assert.equal(storedAgent?.online, true)
+  assert.equal(storedAgent?.version, '1.1.0')
+  assert.equal((await stat(configDir)).mode & 0o777, 0o700)
+  assert.equal((await stat(historyPath)).mode & 0o777, 0o600)
+  assert.equal(restarted.unregister(id, replacement), true)
 })
