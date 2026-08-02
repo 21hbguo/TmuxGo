@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply } from 'fastify'
+import { agentManager } from '../agent-manager.js'
 import { appendAuditEvent } from '../lib/audit-log.js'
 import { getHostById } from '../lib/hosts.js'
 import { shareLinkStore } from '../lib/share-links.js'
@@ -16,7 +17,7 @@ async function resolveScope(hostIdValue: unknown, sessionNameValue: unknown) {
     assertSessionAllowed(raw)
     return { hostId,sessionName:raw }
   }
-  if (hostId!=='local'&&!await getHostById(hostId)) throw new Error('Host not found')
+  if (hostId!=='local'&&!await getHostById(hostId)&&!agentManager.getAgent(hostId)) throw new Error('Host not found')
   const parsed=parseSessionRef(hostId,raw)
   return { hostId:parsed.hostId,sessionName:parsed.sessionName }
 }
