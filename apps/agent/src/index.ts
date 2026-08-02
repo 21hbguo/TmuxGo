@@ -204,13 +204,21 @@ class Agent {
     let ticketResponse = await fetch(`${base}/api/auth/ws-ticket`, { method: 'POST', headers: { Authorization: `Bearer ${this.accessToken}` } })
     if (ticketResponse.status === 401 && this.refreshToken) {
       const refreshResponse = await fetch(`${base}/api/auth/refresh`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refreshToken: this.refreshToken }) })
-      if (!refreshResponse.ok) throw new Error(`Gateway refresh failed: HTTP ${refreshResponse.status}`)
+      if (!refreshResponse.ok) {
+        this.accessToken = ''
+        this.refreshToken = ''
+        throw new Error(`Gateway refresh failed: HTTP ${refreshResponse.status}`)
+      }
       const refreshed = await refreshResponse.json() as { accessToken?: string; refreshToken?: string }
       this.accessToken = refreshed.accessToken || ''
       this.refreshToken = refreshed.refreshToken || ''
       ticketResponse = await fetch(`${base}/api/auth/ws-ticket`, { method: 'POST', headers: { Authorization: `Bearer ${this.accessToken}` } })
     }
-    if (!ticketResponse.ok) throw new Error(`Gateway ticket failed: HTTP ${ticketResponse.status}`)
+    if (!ticketResponse.ok) {
+      this.accessToken = ''
+      this.refreshToken = ''
+      throw new Error(`Gateway ticket failed: HTTP ${ticketResponse.status}`)
+    }
     const ticket = await ticketResponse.json() as { ticket?: string }
     if (!ticket.ticket) throw new Error('Gateway did not return a WebSocket ticket')
     return ticket.ticket

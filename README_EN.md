@@ -275,9 +275,9 @@ Recommended delivery checklist:
 | `TMUXGO_ENABLE_AGENT` | `0` | Set to `1` to start or install Agent |
 | `GATEWAY_URL` | `ws://localhost:3001/api/stream` | Agent WebSocket URL for Gateway |
 | `TMUXGO_AUTH_USERNAME` | `admin` | Gateway login username |
-| `TMUXGO_AUTH_PASSWORD` | `admin123` | Gateway login password; change it after first startup |
+| `TMUXGO_AUTH_PASSWORD` | `admin123` | Gateway login password; it must be changed after the first default-password login |
 | `GATEWAY_USERNAME` | `admin` | Username used by Agent to connect to Gateway |
-| `GATEWAY_PASSWORD` | `admin123` | Password used by Agent to connect to Gateway |
+| `GATEWAY_PASSWORD` | empty | Password used by Agent to connect to Gateway; required explicitly when authentication is enabled |
 | `HOST_ID` | `agent-local` | Agent registration host ID |
 | `HOST_NAME` | `local-machine` or hostname | Agent display name |
 | `TMUX_WEB_FILE_ROOTS` | `workspace=<repo>:home=<home>` | File tree roots, for example `workspace=/srv/code:home=/home/guo` |
@@ -285,7 +285,7 @@ Recommended delivery checklist:
 | `TMUXGO_CONFIG_DIR` | `~/.tmuxgo` | Host configuration directory, including `hosts.json` |
 | `TMUX_WEB_ALLOWED_SESSIONS` | empty | Comma-separated tmux session allowlist |
 
-Gateway authentication is enabled by default. Authentication state and device sessions are stored in `~/.tmuxgo/auth.json`; browsers refresh their session automatically after the first login. Changing the password revokes all device sessions.
+Gateway authentication is enabled by default. Authentication state and device sessions are stored in `~/.tmuxgo/auth.json`; browsers refresh their session automatically after the first login. The default `admin/admin123` password must be changed on first use, and changing the password revokes all device sessions.
 
 ### Where Data Lives
 

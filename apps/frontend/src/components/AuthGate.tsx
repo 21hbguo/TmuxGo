@@ -52,9 +52,9 @@ export function AuthGate({ children }: { children: ReactNode }) {
     setSubmitting(true)
     setError('')
     try {
-      await login(username.trim(), password)
+      const result = await login(username.trim(), password)
       setPassword('')
-      setState('ready')
+      setState(result.passwordChangeRequired ? 'password' : 'ready')
     } catch (cause) {
       const code = cause && typeof cause === 'object' && 'code' in cause ? cause.code : ''
       setError(code === 'INVALID_CREDENTIALS' ? t('auth.invalidCredentials') : cause instanceof Error ? cause.message : t('auth.unavailable'))
