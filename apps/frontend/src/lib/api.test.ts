@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { api } from './api'
+import { api, fetchApiBlob } from './api'
 describe('api git error handling', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
@@ -42,6 +42,14 @@ describe('api git error handling', () => {
     vi.stubGlobal('fetch', fetchMock)
     await api.files.searchName('local', 'root-0', 'demo', '', true, controller.signal)
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ signal: controller.signal })
+  })
+  it('fetches protected binary resources with credentials', async () => {
+    const blob = new Blob(['image'])
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, blob: async () => blob }))
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(fetchApiBlob('/api/hosts/local/files/image')).resolves.toBe(blob)
+    expect(fetchMock.mock.calls[0]?.[0]).toContain('/api/hosts/local/files/image')
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ credentials: 'include' })
   })
   it('starts a background host test', async () => {
     const fetchMock = vi.fn(async () => ({ ok: true, status: 202, text: async () => JSON.stringify({ task: { id: 'task-1', type: 'host-test', title: 'Test host edge', status: 'running' } }) }))
