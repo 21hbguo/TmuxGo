@@ -34,6 +34,15 @@ interface PendingShellRequest {
   reject: (error: Error) => void
   timer: NodeJS.Timeout
 }
+interface AgentUploadState {
+  agentId: string
+  socket: WebSocket
+  uploadId: string
+  ready: { resolve: () => void; reject: (error: Error) => void }
+  chunk: { resolve: () => void; reject: (error: Error) => void } | null
+  complete: { resolve: () => void; reject: (error: Error) => void }
+  timer: NodeJS.Timeout | null
+}
 export interface AgentTerminal {
   id: string
   pid: number
@@ -92,6 +101,7 @@ export class AgentManager {
   private history = new Map<string, AgentStatus>()
   private pendingTmuxRequests = new Map<string, PendingTmuxRequest>()
   private pendingShellRequests = new Map<string, PendingShellRequest>()
+  private uploads = new Map<string, AgentUploadState>()
   private terminals = new Map<string, AgentTerminalState>()
   private pendingTerminalRequests = new Map<string, PendingTerminalRequest>()
   constructor(options: AgentManagerOptions = {}) {
@@ -125,6 +135,7 @@ export class AgentManager {
     if (previous && previous.socket !== socket) {
       this.rejectTmuxRequests(id, previous.socket, 'Agent reconnected')
       this.rejectShellRequests(id, previous.socket, 'Agent reconnected')
+      this.rejectUploads(id, previous.socket, 'Agent reconnected')
       this.closeTerminals(id, previous.socket, -1)
     }
     const history = this.history.get(id)
@@ -153,6 +164,7 @@ export class AgentManager {
     if (!agent || agent.socket !== socket) return false
     this.rejectTmuxRequests(id, socket, `Agent disconnected: ${reason}`)
     this.rejectShellRequests(id, socket, `Agent disconnected: ${reason}`)
+    this.rejectUploads(id, socket, `Agent disconnected: ${reason}`)
     this.closeTerminals(id, socket, -1)
     this.agents.delete(id)
     const status: AgentStatus = { ...this.toStatus(agent), online: false, lastDisconnectedAt: new Date().toISOString(), disconnectReason: reason }
@@ -235,6 +247,69 @@ export class AgentManager {
       }
     })
   }
+  async uploadFile(id: string, absolutePath: string, source: AsyncIterable<Buffer | string>, signal?: AbortSignal) {
+    const agent = this.agents.get(id)
+    if (!agent || !this.toStatus(agent).online || agent.socket.readyState !== 1) throw new Error(`Agent "${id}" is not connected`)
+    if (!absolutePath || absolutePath.length > 4096) throw new Error('Invalid Agent upload path')
+    if (signal?.aborted) throw new Error('Task cancelled')
+    const uploadId = randomUUID()
+    let state!: AgentUploadState
+    const ready = new Promise<void>((resolve, reject) => { state = { agentId: id, socket: agent.socket, uploadId, ready: { resolve, reject }, chunk: null, complete: { resolve: () => {}, reject: () => {} }, timer: null } })
+    const complete = new Promise<void>((resolve, reject) => { state!.complete = { resolve, reject } })
+    const clearTimer = () => {
+      if (!state!.timer) return
+      clearTimeout(state!.timer)
+      state!.timer = null
+    }
+    const fail = (error: Error) => {
+      clearTimer()
+      if (this.uploads.get(uploadId) !== state) return
+      this.uploads.delete(uploadId)
+      state!.ready.reject(error)
+      state!.chunk?.reject(error)
+      state!.complete.reject(error)
+    }
+    const armTimeout = () => {
+      clearTimer()
+      state!.timer = setTimeout(() => fail(new Error('Agent file upload timed out')), 120000)
+    }
+    const abort = () => {
+      try { agent.socket.send(JSON.stringify({ type: 'file-upload-abort', uploadId })) } catch {}
+      fail(new Error('Task cancelled'))
+    }
+    this.uploads.set(uploadId, state!)
+    signal?.addEventListener('abort', abort, { once: true })
+    try {
+      armTimeout()
+      agent.socket.send(JSON.stringify({ type: 'file-upload-start', uploadId, path: absolutePath }))
+      await ready
+      for await (const raw of source) {
+        if (signal?.aborted) throw new Error('Task cancelled')
+        const data = Buffer.isBuffer(raw) ? raw : Buffer.from(raw)
+        for (let offset = 0; offset < data.length; offset += 192 * 1024) {
+          const chunk = data.subarray(offset, offset + 192 * 1024)
+          const acknowledged = new Promise<void>((resolve, reject) => { state!.chunk = { resolve, reject } })
+          armTimeout()
+          agent.socket.send(JSON.stringify({ type: 'file-upload-chunk', uploadId, data: chunk.toString('base64') }))
+          await acknowledged
+          state!.chunk = null
+        }
+      }
+      armTimeout()
+      agent.socket.send(JSON.stringify({ type: 'file-upload-end', uploadId }))
+      await complete
+    } catch (error) {
+      if (this.uploads.get(uploadId) === state) {
+        try { agent.socket.send(JSON.stringify({ type: 'file-upload-abort', uploadId })) } catch {}
+        fail(error instanceof Error ? error : new Error('Agent file upload failed'))
+      }
+      throw error
+    } finally {
+      signal?.removeEventListener('abort', abort)
+      clearTimer()
+      if (this.uploads.get(uploadId) === state) this.uploads.delete(uploadId)
+    }
+  }
   attachTerminal(id: string, sessionName: string, cols: number, rows: number, exclusive: boolean, timeoutMs = 30000) {
     const agent = this.agents.get(id)
     if (!agent || !this.toStatus(agent).online || agent.socket.readyState !== 1) return Promise.reject(new Error(`Agent "${id}" is not connected`))
@@ -280,7 +355,7 @@ export class AgentManager {
   }
   handleMessage(id: string, socket: WebSocket, message: unknown) {
     if (!message || typeof message !== 'object') return false
-    const payload = message as { type?: unknown; requestId?: unknown; attachmentId?: unknown; stdout?: unknown; stderr?: unknown; message?: unknown; pid?: unknown; data?: unknown; exitCode?: unknown }
+    const payload = message as { type?: unknown; requestId?: unknown; attachmentId?: unknown; uploadId?: unknown; stdout?: unknown; stderr?: unknown; message?: unknown; pid?: unknown; data?: unknown; exitCode?: unknown }
     if ((payload.type === 'tmux-result' || payload.type === 'tmux-error') && typeof payload.requestId === 'string') {
       const pending = this.pendingTmuxRequests.get(payload.requestId)
       if (!pending || pending.agentId !== id || pending.socket !== socket) return false
@@ -296,6 +371,25 @@ export class AgentManager {
       clearTimeout(pending.timer)
       this.pendingShellRequests.delete(payload.requestId)
       pending.resolve({ stdout: typeof payload.stdout === 'string' ? payload.stdout : '', stderr: typeof payload.stderr === 'string' ? payload.stderr : '', exitCode: typeof payload.exitCode === 'number' ? payload.exitCode : 1 })
+      return true
+    }
+    if ((payload.type === 'file-upload-ready' || payload.type === 'file-upload-ack' || payload.type === 'file-upload-result' || payload.type === 'file-upload-error') && typeof payload.uploadId === 'string') {
+      const upload = this.uploads.get(payload.uploadId)
+      if (!upload || upload.agentId !== id || upload.socket !== socket) return false
+      if (payload.type === 'file-upload-ready') upload.ready.resolve()
+      else if (payload.type === 'file-upload-ack') upload.chunk?.resolve()
+      else if (payload.type === 'file-upload-result') {
+        if (upload.timer) clearTimeout(upload.timer)
+        this.uploads.delete(payload.uploadId)
+        upload.complete.resolve()
+      } else {
+        const error = new Error(typeof payload.message === 'string' && payload.message ? payload.message : 'Agent file upload failed')
+        if (upload.timer) clearTimeout(upload.timer)
+        this.uploads.delete(payload.uploadId)
+        upload.ready.reject(error)
+        upload.chunk?.reject(error)
+        upload.complete.reject(error)
+      }
       return true
     }
     if ((payload.type === 'terminal-attached' || payload.type === 'terminal-error') && typeof payload.requestId === 'string') {
@@ -356,6 +450,17 @@ export class AgentManager {
       clearTimeout(pending.timer)
       this.pendingShellRequests.delete(requestId)
       pending.reject(new Error(message))
+    }
+  }
+  private rejectUploads(agentId: string, socket: WebSocket, message: string) {
+    for (const [uploadId, upload] of this.uploads) {
+      if (upload.agentId !== agentId || upload.socket !== socket) continue
+      if (upload.timer) clearTimeout(upload.timer)
+      this.uploads.delete(uploadId)
+      const error = new Error(message)
+      upload.ready.reject(error)
+      upload.chunk?.reject(error)
+      upload.complete.reject(error)
     }
   }
   private sendTerminalInput(state: AgentTerminalState, data: string) {

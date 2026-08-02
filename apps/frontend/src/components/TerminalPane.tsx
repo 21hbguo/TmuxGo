@@ -22,6 +22,9 @@ import { useTerminalPinch } from '@/hooks/useTerminalPinch'
 import { buildSessionId } from '@/lib/session-id'
 import { writeClipboardText } from '@/lib/clipboard-text'
 import { createTerminalPaneInteractions } from '@/lib/terminal-pane-interactions'
+import { createTerminalPaneResizeController } from '@/lib/terminal-pane-resize'
+import { createTerminalClipboardIme } from '@/lib/terminal-clipboard-ime'
+import { createTerminalCore } from '@/lib/terminal-core'
 import { openFileInEditor } from '@/lib/editor-open'
 import { Chip } from './Chip'
 import type { FileDocumentHandle, FileRoot } from '@/types'
@@ -563,8 +566,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     let helperTextarea: HTMLTextAreaElement | null | undefined = null
     let lastKeyboardOpen = document.body.classList.contains('keyboard-open')
     let mobileKeyboardTransition = false
-    let paneResizeDrag: any = null
-    let paneResizeHoverThrottle = 0
     let writeBuffer = ''
     let writePending = false
     let attachEventCount = 0
@@ -782,106 +783,21 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       if (synchronous) resizeRevealFrame = frame
     }
     const isResizeMaskVisible = () => resizeMaskRef.current?.style.display === 'block'
-    const hidePaneResizeGuide = () => {
-      const guide = paneResizeGuideRef.current
-      if (guide) guide.style.display = 'none'
-    }
-    const syncPaneResizeGuide = () => {
-      const drag = paneResizeDrag
-      const guide = paneResizeGuideRef.current
-      const screen = terminal?.element?.querySelector('.xterm-screen') as HTMLElement | null
-      if (!drag || !guide || !screen || !terminal?.cols || !terminal?.rows) return
-      const screenRect = screen.getBoundingClientRect()
-      const containerRect = container.getBoundingClientRect()
-      const cellWidth = screenRect.width / terminal.cols
-      const cellHeight = screenRect.height / terminal.rows
-      if (!cellWidth || !cellHeight) return
-      guide.style.display = 'block'
-      if (drag.axis === 'x') {
-        guide.style.left = `${screenRect.left - containerRect.left + (drag.paneStart + drag.pendingSize) * cellWidth - 1}px`
-        guide.style.top = `${screenRect.top - containerRect.top + drag.crossStart * cellHeight}px`
-        guide.style.width = '2px'
-        guide.style.height = `${drag.crossSize * cellHeight}px`
-      } else {
-        guide.style.left = `${screenRect.left - containerRect.left + drag.crossStart * cellWidth}px`
-        guide.style.top = `${screenRect.top - containerRect.top + (drag.paneStart + drag.pendingSize) * cellHeight - 1}px`
-        guide.style.width = `${drag.crossSize * cellWidth}px`
-        guide.style.height = '2px'
-      }
-    }
-    const updatePaneResizeDrag = (event: MouseEvent) => {
-      const drag = paneResizeDrag
-      if (!drag) return
-      const cell = getMouseCell(event)
-      if (!cell) return
-      const delta = (drag.axis === 'x' ? cell.x : cell.y) - drag.startCell
-      const nextSize = Math.max(4, drag.startSize + delta)
-      if (nextSize === drag.pendingSize) return
-      drag.pendingSize = nextSize
-      syncPaneResizeGuide()
-    }
-    const handlePaneResizeMove = (event: MouseEvent) => {
-      if (!paneResizeDrag) return
-      event.preventDefault()
-      updatePaneResizeDrag(event)
-    }
-    const endPaneResizeDrag = () => {
-      const drag = paneResizeDrag
-      if (!drag) return
-      drag.released = true
-      if (!drag.pendingSize || drag.pendingSize === drag.sentSize) {
-        paneResizeDrag = null
-        hidePaneResizeGuide()
-        revealResizeMask(drag.maskGeneration)
-        container.style.cursor = ''
-        window.removeEventListener('mousemove', handlePaneResizeMove)
-        window.removeEventListener('mouseup', endPaneResizeDrag)
-        window.removeEventListener('blur', endPaneResizeDrag)
-        return
-      }
-      const size = drag.pendingSize
-      drag.sentSize = size
-      void api.panes.resize(drag.paneId, drag.axis === 'x' ? { cols: size } : { rows: size }).catch(() => null).then(() => {
-        void loadSessionSnapshot(true).catch(() => null)
-        window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'tmux-pane-resize' } }))
-        revealResizeMask(drag.maskGeneration)
-      })
-      paneResizeDrag = null
-      hidePaneResizeGuide()
-      container.style.cursor = ''
-      window.removeEventListener('mousemove', handlePaneResizeMove)
-      window.removeEventListener('mouseup', endPaneResizeDrag)
-      window.removeEventListener('blur', endPaneResizeDrag)
-    }
-    const handlePaneResizeStart = (event: MouseEvent) => {
-      const target = getPaneResizeTarget(event)
-      if (!target) return
-      event.preventDefault()
-      event.stopPropagation()
-      event.stopImmediatePropagation()
-      pointerSyncActive = false
-      selectionSync.clearCopySelectionTimer()
-      try {
-        terminal?.clearSelection?.()
-      } catch {}
-      paneResizeDrag = { ...target, pendingSize: target.startSize, sentSize: target.startSize, released: false, maskGeneration: showResizeMask() }
-      syncPaneResizeGuide()
-      container.style.cursor = target.axis === 'x' ? 'col-resize' : 'row-resize'
-      window.addEventListener('mousemove', handlePaneResizeMove)
-      window.addEventListener('mouseup', endPaneResizeDrag)
-      window.addEventListener('blur', endPaneResizeDrag)
-    }
-    const handlePaneResizeHover = (event: MouseEvent) => {
-      if (paneResizeDrag) return
-      const now = performance.now()
-      if (now - paneResizeHoverThrottle < 50) return
-      paneResizeHoverThrottle = now
-      const target = getPaneResizeTarget(event)
-      container.style.cursor = target ? target.axis === 'x' ? 'col-resize' : 'row-resize' : ''
-    }
-    const clearPaneResizeHover = () => {
-      if (!paneResizeDrag) container.style.cursor = ''
-    }
+    const paneResize = createTerminalPaneResizeController({
+      container,
+      guide: paneResizeGuideRef.current,
+      getTerminal: () => terminal,
+      getMouseCell,
+      getPaneResizeTarget,
+      resizePane: (paneId, size) => api.panes.resize(paneId, size),
+      loadSessionSnapshot: () => loadSessionSnapshot(true),
+      showResizeMask,
+      revealResizeMask,
+      clearSelection: () => terminal?.clearSelection?.(),
+      clearCopySelectionTimer: selectionSync.clearCopySelectionTimer,
+      clearPointerSync: () => { pointerSyncActive = false },
+      dispatchLayoutChange: () => window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'tmux-pane-resize' } })),
+    })
     const stopDeleteWordRepeat = () => {
       deleteWordRepeatActive = false
       if (deleteWordRepeatTimer) {
@@ -1364,84 +1280,26 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       })
     }
     const initTerminal = async () => {
-      const fontReady = ensureAppFontLoaded(preferencesRef.current.fontFamily, preferencesRef.current.fontSize)
-      const { Terminal } = await import('@xterm/xterm')
-      const { WebLinksAddon } = await import('@xterm/addon-web-links')
-      const { Unicode11Addon } = await import('@xterm/addon-unicode11')
-      if (!container || !container.isConnected || disposed) return
-      const style = getComputedStyle(document.documentElement)
-      const getVar = (name: string) => style.getPropertyValue(name).trim()
-      terminal = new Terminal({
-        theme: {
-          background: `rgb(${getVar('--bg-1')})`,
-          foreground: `rgb(${getVar('--text-1')})`,
-          cursor: `rgb(${getVar('--accent')})`,
-          selectionBackground: `rgb(${getVar('--accent')} / 0.2)`,
-        },
-        cursorBlink: preferencesRef.current.cursorBlink,
-        cursorStyle: 'bar',
-        allowTransparency: false,
-        fontSize: preferencesRef.current.fontSize,
-        fontFamily: preferencesRef.current.fontFamily,
-        fontWeight: '400',
-        fontWeightBold: '700',
-        letterSpacing: 0,
-        lineHeight: 1,
-        minimumContrastRatio: 4.5,
-        customGlyphs: true,
-        allowProposedApi: true,
-        macOptionIsMeta: true,
-        macOptionClickForcesSelection: true,
+      if (disposed) return
+      const core = await createTerminalCore({
+        container,
+        preferences: preferencesRef.current,
+        isMobile: isMobileDevice,
         scrollback: SCROLLBACK_LIMIT,
+        ensureAppFontLoaded,
+        isLinkOpenGesture,
+        openUrl: (url) => openUrlInNewWindow(url, pushToast, tRef.current),
+        createFileLinks: createTerminalFileLinks,
+        scheduleRendererStyleCorrection,
+        clearRendererCache: clearTerminalRendererCache,
+        recordRenderer: (renderer) => recordMobileDebug('terminal-renderer', { renderer }),
       })
-      terminal.loadAddon(new Unicode11Addon())
-      terminal.unicode.activeVersion = '11'
-      terminal.loadAddon(new WebLinksAddon((event: MouseEvent, uri: string) => {
-        event.preventDefault()
-        event.stopPropagation()
-        event.stopImmediatePropagation?.()
-        if (!isLinkOpenGesture(event)) return
-        openUrlInNewWindow(uri, pushToast, tRef.current)
-      }))
-      terminal.open(container)
-      disposables.push(terminal.registerLinkProvider({
-        provideLinks: (bufferLineNumber: number, callback: (links: any[] | undefined) => void) => {
-          const links = createTerminalFileLinks(bufferLineNumber)
-          callback(links.length ? links : undefined)
-        },
-      }))
-      let rendererType:'dom'|'webgl' = 'dom'
-      if (!isMobileDevice) {
-        try {
-          const { WebglAddon } = await import('@xterm/addon-webgl')
-          terminal.loadAddon(new WebglAddon(true))
-          rendererType = 'webgl'
-        } catch {}
-      }
-      recordMobileDebug('terminal-renderer', { renderer: rendererType })
-      if (terminal.element instanceof HTMLElement) {
-        terminal.element.style.width = '100%'
-        terminal.element.style.height = '100%'
-        terminal.element.style.display = 'block'
-        const screen = terminal.element.querySelector('.xterm-screen') as HTMLElement | null
-        const viewport = terminal.element.querySelector('.xterm-viewport') as HTMLElement | null
-        if (screen) {
-          screen.style.position = 'absolute'
-          screen.style.inset = '0'
-          screen.style.width = '100%'
-          screen.style.height = '100%'
-        }
-        if (viewport) {
-          viewport.style.width = '100%'
-          viewport.style.height = '100%'
-          viewport.style.overflow = 'hidden'
-          viewport.style.background = 'transparent'
-          viewport.style.scrollbarWidth = 'none'
-          viewport.style.setProperty('-ms-overflow-style', 'none')
-        }
-        scheduleRendererStyleCorrection()
-      }
+      if (!core || disposed) return
+      terminal = core.terminal
       clearTerminalRendererCache()
+      scheduleRendererStyleCorrection()
+      const fontReady = core.fontReady
+      disposables.push(...core.disposables)
       terminalInstance.current = terminal
       ;(window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal = terminal
       void loadSessionSnapshot()
@@ -1714,9 +1572,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const handleDragLeave = (e: DragEvent) => {
         dropState.handleDragLeave(e, container)
       }
-      container.addEventListener('mousedown', handlePaneResizeStart, true)
-      container.addEventListener('mousemove', handlePaneResizeHover)
-      container.addEventListener('mouseleave', clearPaneResizeHover)
+      paneResize.attach()
       container.addEventListener('dragover', dropState.handleDragOver)
       container.addEventListener('dragleave', handleDragLeave)
       container.addEventListener('drop', dropState.handleDrop)
@@ -1724,8 +1580,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         selectionSync.handleNativeCopyEvent(getSelectionText(), e)
       }
       helperTextarea = terminal.textarea
-      helperTextarea?.addEventListener('copy', handleCopy, true)
-      container.addEventListener('copy', handleCopy, true)
       const handleHelperCompositionStart = () => {
         helperTextareaComposing = true
         document.body.classList.add('ime-composing')
@@ -1768,19 +1622,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const handleHelperKeyUp = (event: KeyboardEvent) => {
         recordImeDebug('helper-keyup', { key: event.key, code: event.code, ctrlKey: event.ctrlKey, metaKey: event.metaKey, altKey: event.altKey, keyCode: event.keyCode, isComposing: event.isComposing })
       }
-      helperTextarea?.addEventListener('compositionstart', handleHelperCompositionStart)
-      helperTextarea?.addEventListener('compositionupdate', handleHelperCompositionUpdate)
-      helperTextarea?.addEventListener('compositionend', handleHelperCompositionEnd)
-      helperTextarea?.addEventListener('focus', handleHelperFocus)
-      helperTextarea?.addEventListener('blur', handleHelperBlur)
-      helperTextarea?.addEventListener('beforeinput', handleHelperBeforeInput as EventListener, true)
-      helperTextarea?.addEventListener('input', handleHelperInput as EventListener, true)
-      helperTextarea?.addEventListener('keydown', handleHelperKeyDown, true)
-      helperTextarea?.addEventListener('keyup', handleHelperKeyUp, true)
-      helperTextarea?.addEventListener('paste', pasteBridge.handlePaste, true)
-      container.addEventListener('paste', pasteBridge.handlePaste, true)
-      container.addEventListener('beforeinput', pasteBridge.handlePasteInput as EventListener, true)
-      container.addEventListener('input', pasteBridge.handlePasteInput as EventListener, true)
       const clearPointerSync = () => {
         pointerSyncActive = false
         flushWriteBuffer()
@@ -1814,14 +1655,27 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           if (!isDesktopImeComposing()) focusTerminalInput()
         }, 0)
       }
-      container.addEventListener('mousedown', armPointerSync)
-      container.addEventListener('touchstart', armPointerSync, { passive: true })
-      window.addEventListener('mouseup', handlePointerSync)
-      window.addEventListener('touchend', handlePointerSync)
-      window.addEventListener('touchcancel', clearPointerSync)
-      window.addEventListener('pointercancel', clearPointerSync)
-      window.addEventListener('blur', clearPointerSync)
-      window.addEventListener('tmuxgo-focus-terminal', handleFocusTerminal as EventListener)
+      const clipboardIme = createTerminalClipboardIme({
+        container,
+        helperTextarea,
+        handleCopy,
+        handleCompositionStart: handleHelperCompositionStart,
+        handleCompositionUpdate: handleHelperCompositionUpdate,
+        handleCompositionEnd: handleHelperCompositionEnd,
+        handleFocus: handleHelperFocus,
+        handleBlur: handleHelperBlur,
+        handleBeforeInput: handleHelperBeforeInput,
+        handleInput: handleHelperInput,
+        handleKeyDown: handleHelperKeyDown,
+        handleKeyUp: handleHelperKeyUp,
+        handlePaste: pasteBridge.handlePaste as EventListener,
+        handlePasteInput: pasteBridge.handlePasteInput as EventListener,
+        armPointerSync,
+        handlePointerSync: handlePointerSync as (event?: MouseEvent | TouchEvent) => void,
+        clearPointerSync,
+        handleFocusTerminal: handleFocusTerminal as EventListener,
+      })
+      clipboardIme.attach()
       disposables.push({
         dispose: () => {
           window.removeEventListener('tmux-attached', handleAttached as EventListener)
@@ -1839,40 +1693,11 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
           window.removeEventListener('mobile-keyboard-change', handleKeyboardChange as EventListener)
           window.removeEventListener('pageshow', handlePageShow)
           document.removeEventListener('visibilitychange', handleVisibilityChange)
-          paneResizeDrag = null
-          container.style.cursor = ''
-          window.removeEventListener('mousemove', handlePaneResizeMove)
-          window.removeEventListener('mouseup', endPaneResizeDrag)
-          window.removeEventListener('blur', endPaneResizeDrag)
-          container.removeEventListener('mousedown', handlePaneResizeStart, true)
-          container.removeEventListener('mousemove', handlePaneResizeHover)
-          container.removeEventListener('mouseleave', clearPaneResizeHover)
+          paneResize.dispose()
           container.removeEventListener('dragover', dropState.handleDragOver)
           container.removeEventListener('dragleave', handleDragLeave)
           container.removeEventListener('drop', dropState.handleDrop)
-          helperTextarea?.removeEventListener('copy', handleCopy, true)
-          container.removeEventListener('copy', handleCopy, true)
-          helperTextarea?.removeEventListener('compositionstart', handleHelperCompositionStart)
-          helperTextarea?.removeEventListener('compositionupdate', handleHelperCompositionUpdate)
-          helperTextarea?.removeEventListener('compositionend', handleHelperCompositionEnd)
-          helperTextarea?.removeEventListener('focus', handleHelperFocus)
-          helperTextarea?.removeEventListener('blur', handleHelperBlur)
-          helperTextarea?.removeEventListener('beforeinput', handleHelperBeforeInput as EventListener, true)
-          helperTextarea?.removeEventListener('input', handleHelperInput as EventListener, true)
-          helperTextarea?.removeEventListener('keydown', handleHelperKeyDown, true)
-          helperTextarea?.removeEventListener('keyup', handleHelperKeyUp, true)
-          helperTextarea?.removeEventListener('paste', pasteBridge.handlePaste, true)
-          container.removeEventListener('paste', pasteBridge.handlePaste, true)
-          container.removeEventListener('beforeinput', pasteBridge.handlePasteInput as EventListener, true)
-          container.removeEventListener('input', pasteBridge.handlePasteInput as EventListener, true)
-          container.removeEventListener('mousedown', armPointerSync)
-          container.removeEventListener('touchstart', armPointerSync)
-          window.removeEventListener('mouseup', handlePointerSync)
-          window.removeEventListener('touchend', handlePointerSync)
-          window.removeEventListener('touchcancel', clearPointerSync)
-          window.removeEventListener('pointercancel', clearPointerSync)
-          window.removeEventListener('blur', clearPointerSync)
-          window.removeEventListener('tmuxgo-focus-terminal', handleFocusTerminal as EventListener)
+          clipboardIme.dispose()
           selectionSync.clearCopySelectionTimer()
           pasteBridge.dispose()
           selectionSync.dispose()
@@ -1938,7 +1763,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     return () => {
       disposed = true
       stopDeleteWordRepeat()
-      hidePaneResizeGuide()
+      paneResize.hide()
       if (layoutTimeout) clearTimeout(layoutTimeout)
       if (resizeRevealFrame) cancelAnimationFrame(resizeRevealFrame)
       if (resizeStabilityFrame) cancelAnimationFrame(resizeStabilityFrame)

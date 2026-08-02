@@ -16,6 +16,7 @@ import { fileContentBodySchema, fileEntryBodySchema, fileRemoveQuerySchema, file
 import { getBreadcrumbs, isDotPath, isLikelyBinary, isPathInside, normalizeRelativePath, sanitizePathSegment } from '../lib/file-path.js'
 import { getRemoteFileHost, normalizeRemoteFileErrorMessage, quoteRemoteFileShellValue, runRemoteFilePython, spawnRemoteFileCommand } from '../lib/remote-file-command.js'
 import { taskManager, type TaskExecutionContext, type TaskManager } from '../lib/task-manager.js'
+import { agentManager } from '../agent-manager.js'
 
 const execFileAsync = promisify(execFile)
 const defaultRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..')
@@ -1010,6 +1011,11 @@ async function waitForProcess(child: ReturnType<typeof spawn>, fallback: string)
   })
 }
 async function writeRemoteUpload(hostId: string, absolutePath: string, source: NodeJS.ReadableStream, rateLimitKBps: number, signal?: AbortSignal, progress?: Transform) {
+  if (agentManager.getAgent(hostId)) {
+    const throttled = progress ? source.pipe(progress).pipe(createRateLimitStream(rateLimitKBps)) : source.pipe(createRateLimitStream(rateLimitKBps))
+    await agentManager.uploadFile(hostId, absolutePath, throttled as AsyncIterable<Buffer>, signal)
+    return
+  }
   const host = await getRemoteFileHost(hostId)
   const script = `import os,pathlib,sys;p=pathlib.Path(sys.argv[1]);p.parent.mkdir(parents=True,exist_ok=True);t=p.with_name('.tmuxgo-upload-'+str(os.getpid()));f=t.open('wb');\nwhile True:\n b=sys.stdin.buffer.read(1024*1024)\n if not b: break\n f.write(b)\nf.close();os.replace(t,p)`
   const child = await spawnRemoteFileCommand(host, `python3 -c ${quoteRemoteFileShellValue(script)} -- ${quoteRemoteFileShellValue(absolutePath)}`, signal)
