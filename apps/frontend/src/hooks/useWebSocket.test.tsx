@@ -123,4 +123,18 @@ describe('useWebSocket',()=>{
     window.removeEventListener('tmuxgo-agent-status',listener as EventListener)
     unmount()
   })
+  it('replaces a stale socket after returning from the background',()=>{
+    const { unmount }=renderHook(() => useWebSocket())
+    act(()=>{
+      socketInstances[0].open()
+      Object.defineProperty(document,'visibilityState',{ configurable:true, value:'hidden' })
+      document.dispatchEvent(new Event('visibilitychange'))
+      vi.advanceTimersByTime(1201)
+      Object.defineProperty(document,'visibilityState',{ configurable:true, value:'visible' })
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    expect(socketInstances[0].readyState).toBe(MockWebSocket.CLOSED)
+    expect(socketInstances).toHaveLength(2)
+    unmount()
+  })
 })
