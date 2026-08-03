@@ -32,8 +32,6 @@ const FAVORITE_UPDATED_AT_STORAGE_KEY = 'tmuxgo-favorite-directories-updated-at'
 const PREFERENCES_PROFILE = 'default'
 const SEARCH_INPUT_DEBOUNCE_MS = 160
 const SEARCH_RESULT_LIMIT = 200
-const LARGE_DIRECTORY_LIMIT = 120
-const DIRECTORY_RENDER_LIMIT = 80
 const IMAGE_EXTENSIONS = new Set(['.avif', '.bmp', '.gif', '.ico', '.jpeg', '.jpg', '.png', '.tif', '.tiff', '.webp'])
 const CODE_EXTENSIONS = new Set(['.c', '.cc', '.conf', '.cpp', '.css', '.go', '.h', '.hpp', '.html', '.ini', '.java', '.js', '.json', '.jsx', '.kt', '.md', '.php', '.py', '.rb', '.rs', '.scss', '.sh', '.sql', '.svg', '.toml', '.ts', '.tsx', '.xml', '.yaml', '.yml', '.zsh'])
 
@@ -244,10 +242,6 @@ function readDirectoryChildrenFromCache(cache: Map<string, FileItem[]>, rootId: 
 function readDirectoryStatusFromCache(cache: Map<string, DirectoryStatus>, rootId: string, rootBasePath: string, itemPath: string) {
   return cache.get(getDirectoryCacheKey(rootId, rootBasePath, itemPath))
 }
-function trimDirectoryItems(items: FileItem[]) {
-  if (items.length <= LARGE_DIRECTORY_LIMIT) return { items, truncated: false }
-  return { items: items.slice(0, DIRECTORY_RENDER_LIMIT), truncated: true }
-}
 function matchesSearchEntry(item: FileItem, query: string, mode: SearchMode, results: FileEntry[]) {
   if (!query.trim()) return true
   if (results.some((entry) => entry.path === item.path)) return true
@@ -271,10 +265,57 @@ function isImagePath(path: string) {
   if (dot < 0) return false
   return IMAGE_EXTENSIONS.has(path.slice(dot).toLowerCase())
 }
+function VirtualizedRows({ rows, rowHeight, className, resetKey, ensureVisibleIndex = -1 }: { rows: React.ReactNode[]; rowHeight: number; className: string; resetKey: string; ensureVisibleIndex?: number }) {
+  const viewportRef = useRef<HTMLDivElement>(null)
+  const [viewportHeight, setViewportHeight] = useState(0)
+  const [scrollTop, setScrollTop] = useState(0)
+  useEffect(() => {
+    const viewport = viewportRef.current
+    if (!viewport) return
+    const updateHeight = () => setViewportHeight(viewport.clientHeight)
+    updateHeight()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(updateHeight)
+    observer.observe(viewport)
+    return () => observer.disconnect()
+  }, [])
+  useEffect(() => {
+    if (viewportRef.current) viewportRef.current.scrollTop = 0
+    setScrollTop(0)
+  }, [resetKey])
+  useEffect(() => {
+    const viewport = viewportRef.current
+    if (!viewport || !viewportHeight || ensureVisibleIndex < 0) return
+    const rowTop = ensureVisibleIndex * rowHeight
+    const rowBottom = rowTop + rowHeight
+    if (rowTop < viewport.scrollTop) viewport.scrollTop = rowTop
+    else if (rowBottom > viewport.scrollTop + viewportHeight) viewport.scrollTop = rowBottom - viewportHeight
+  }, [ensureVisibleIndex, rowHeight, viewportHeight])
+  const shouldVirtualize = viewportHeight > 0 && rows.length * rowHeight > viewportHeight * 2
+  const start = shouldVirtualize ? Math.max(0, Math.floor(scrollTop / rowHeight) - 8) : 0
+  const end = shouldVirtualize ? Math.min(rows.length, Math.ceil((scrollTop + viewportHeight) / rowHeight) + 8) : rows.length
+  return <div ref={viewportRef} className={className} onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}>
+    <div className="relative" style={{ height: `${rows.length * rowHeight}px` }}>
+      {rows.slice(start, end).map((row, index) => <div key={start + index} className="absolute left-0 right-0 overflow-hidden" style={{ top: `${(start + index) * rowHeight}px`, height: `${rowHeight}px` }}>{row}</div>)}
+    </div>
+  </div>
+}
 function FavoriteDirectoryButton({ active, name, onClick }: { active: boolean; name: string; onClick: (event: React.MouseEvent) => void }) {
   return <button onClick={onClick} className={`shrink-0 rounded-apple px-1 py-0 text-caption leading-4 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 ${active ? 'bg-accent/10 text-accent opacity-100' : 'bg-bg-2 text-text-3 hover:text-text-1'}`} aria-label={`${active ? 'Unfavorite' : 'Favorite'} ${name}`}>{active ? '★' : '☆'}</button>
 }
 type FileTreeNode = { key: string; item: FileItem; children?: FileTreeNode[] }
+function getTreeRowIndex(nodes: FileTreeNode[], path: string) {
+  if (!path) return -1
+  const stack = [...nodes].reverse()
+  let index = 0
+  while (stack.length) {
+    const node = stack.pop()!
+    if (node.item.path === path) return index
+    index += 1
+    if (node.children?.length) stack.push(...[...node.children].reverse())
+  }
+  return -1
+}
 export type FilePanelPickerTarget = { rootId: string; rootPath: string; rootLabel: string; relativePath: string; absolutePath: string }
 export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile, onPick }: { mode?: 'panel' | 'mobile' | 'explorer' | 'picker'; dock?: 'left' | 'right'; onClose?: () => void; onOpenFile?: (file: FileDocumentHandle) => void; onPick?: (target: FilePanelPickerTarget) => void }) {
   const queryClient = useQueryClient()
@@ -367,8 +408,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
   const activeEditor = useMemo(() => activeEditorId ? openEditors.find((item) => item.id === activeEditorId) || null : null, [activeEditorId, openEditors])
   const isSearching = debouncedQuery.trim().length > 0
   const showSearchResults = isSearching && !searchNavigationPath
-  const trimmedDirectoryItems = useMemo(() => trimDirectoryItems(listData?.items || []), [listData?.items])
-  const items = useMemo(() => showSearchResults ? searchResults : trimmedDirectoryItems.items, [showSearchResults, searchResults, trimmedDirectoryItems])
+  const items = useMemo(() => showSearchResults ? searchResults : listData?.items || [], [listData?.items, searchResults, showSearchResults])
   const visibleItems = useMemo(() => {
     const filtered = items.filter((item: any) => (!hideDotFiles || !isDotPath(item.path || item.name)) && matchesFileTypeFilter(item, fileTypeFilter))
     if (showSearchResults) return filtered
@@ -399,7 +439,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
     if (pending) return pending
     setDirectoryStatus(activeRootId, activeRootBasePath, item.path, { state: 'loading', message: '' })
     const request = api.files.list(fileHostId, activeRootId, joinRelativePath(activeRootBasePath, item.path)).then((result) => {
-      const nextItems = trimDirectoryItems(result.items.map((entry) => rebaseEntryPath(entry, activeRootBasePath))).items
+      const nextItems = result.items.map((entry) => rebaseEntryPath(entry, activeRootBasePath))
       storeDirectoryChildren(activeRootId, activeRootBasePath, item.path, nextItems)
       setDirectoryStatus(activeRootId, activeRootBasePath, item.path, null)
       return nextItems
@@ -420,7 +460,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
     const children = item.type === 'directory' && openDirectories.has(item.path) ? readDirectoryChildrenFromCache(directoryCache, activeRootId, activeRootBasePath, item.path) : undefined
     return { key: item.path, children: children ? createTreeNodes(children) : undefined, item }
   }), [activeRootBasePath, activeRootId, directoryCache, fileTypeFilter, hideDotFiles, openDirectories])
-  const desktopTreeData = useMemo(() => !isMobile && !showSearchResults ? createTreeNodes(trimmedDirectoryItems.items) : [], [createTreeNodes, isMobile, showSearchResults, trimmedDirectoryItems])
+  const desktopTreeData = useMemo(() => !isMobile && !showSearchResults ? createTreeNodes(listData?.items || []) : [], [createTreeNodes, isMobile, listData?.items, showSearchResults])
 
   useEffect(() => {
     if (!selectedRootId && rootOptions[0]) setSelectedRootId(rootOptions[0].id)
@@ -1154,6 +1194,69 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
       ...nested,
     ]
   })
+  const renderMobileList = (entries: FileEntry[]): React.ReactNode[] => entries.map((item: any) => (
+    item.type === 'directory' ? (
+      <button
+        key={`${item.type}-${item.path}`}
+        tabIndex={0}
+        title={getItemFullPath(item)}
+        onClick={() => openItem(item)}
+        onDoubleClick={() => isPicker ? handlePickItem(item) : insertItemPath(item)}
+        onKeyDown={(e) => selectFromKeyboard(item, e)}
+        onContextMenu={(e) => {
+          if (isPicker) return
+          e.preventDefault()
+          showContextMenu(e.clientX, e.clientY, item, getParentRelativePath(item, currentPath))
+        }}
+        className={`tmuxgo-list-row group h-7 w-full border-l-2 px-2 py-1 text-left text-meta leading-5 ${selectedPath === item.path ? 'tmuxgo-list-row--active border-accent' : 'border-transparent tmuxgo-list-row--hover'}`}
+      >
+        <div className="flex items-center gap-1.5">
+          <span className="text-[#dcb67a]">▸</span>
+          <span className="min-w-0 flex-1 truncate font-mono text-text-1">{item.name}</span>
+        </div>
+      </button>
+    ) : (
+      <button
+        key={`${item.type}-${item.path}`}
+        tabIndex={0}
+        title={getItemFullPath(item)}
+        onClick={() => openItem(item)}
+        onDoubleClick={() => isPicker ? undefined : insertItemPath(item)}
+        onKeyDown={(e) => selectFromKeyboard(item, e)}
+        onContextMenu={(e) => {
+          if (isPicker) return
+          e.preventDefault()
+          showContextMenu(e.clientX, e.clientY, item, getParentRelativePath(item, currentPath))
+        }}
+        onTouchStart={(e) => {
+          if (!isMobile || isPicker) return
+          const touch = e.touches[0]
+          if (!touch) return
+          if (touchTimerRef.current) clearTimeout(touchTimerRef.current)
+          touchTimerRef.current = setTimeout(() => showContextMenu(touch.clientX, touch.clientY, item, getParentRelativePath(item, currentPath)), 520)
+        }}
+        onTouchMove={() => {
+          if (touchTimerRef.current) clearTimeout(touchTimerRef.current)
+          touchTimerRef.current = null
+        }}
+        onTouchEnd={() => {
+          if (touchTimerRef.current) clearTimeout(touchTimerRef.current)
+          touchTimerRef.current = null
+        }}
+        className={`tmuxgo-list-row group h-7 w-full border-l-2 px-2 py-[3px] text-left text-meta leading-4 ${selectedPath === item.path ? 'tmuxgo-list-row--active border-accent' : 'border-transparent tmuxgo-list-row--hover'}`}
+      >
+        <div className="flex items-center gap-1.5">
+          <span className="shrink-0">{getFileVisual(item.path, item.type).icon}</span>
+          <span className={`min-w-0 flex-1 truncate font-mono ${getFileVisual(item.path, item.type).tone}`}>{item.name}</span>
+          <span className="opacity-0 text-caption text-text-3 group-hover:opacity-100 transition-opacity">{item.type === 'file' ? formatSize(item.size) : 'dir'}</span>
+        </div>
+        {'matches' in item && item.matches?.[0] && <div className="truncate pl-4 font-mono text-caption text-text-3">L{item.matches[0].number}: {item.matches[0].content}</div>}
+      </button>
+    )
+  ))
+  const desktopTreeRows = renderDesktopTree(desktopTreeData)
+  const desktopTreeSelectedIndex = getTreeRowIndex(desktopTreeData, selectedPath)
+  const mobileRows = renderMobileList(visibleItems)
 
   return (
     <aside className={shellClass} style={shellStyle}>
@@ -1227,7 +1330,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
           <button onClick={() => toggleSortDirection()} title={fileSort.direction === 'asc' ? t('file.sortAsc') : t('file.sortDesc')} aria-label={fileSort.direction === 'asc' ? t('file.sortAsc') : t('file.sortDesc')} className="tmuxgo-toolbar-icon h-7 w-7 shrink-0 text-meta">{fileSort.direction === 'asc' ? '↑' : '↓'}</button>
         </div>}
       </div>}
-      {(!isMobile || mobileView === 'list') && <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain" onContextMenu={(e) => {
+      {(!isMobile || mobileView === 'list') && <div className="min-h-0 flex flex-1 flex-col overflow-hidden" onContextMenu={(e) => {
         if (isPicker) return
         if ((e.target as HTMLElement).closest('button')) return
         e.preventDefault()
@@ -1245,73 +1348,11 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
         )}
         {(listLoading || searchLoading) && <div className="p-3 text-xs text-text-3">{t('file.loading')}</div>}
         {!isMobile && !isPicker && !showSearchResults && !listLoading && (
-          <div className="tmuxgo-file-tree">
-            {renderDesktopTree(desktopTreeData)}
-          </div>
+          <VirtualizedRows rows={desktopTreeRows} rowHeight={24} className="tmuxgo-file-tree tmuxgo-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain" resetKey={`${selectedRootId}:${currentPath}`} ensureVisibleIndex={desktopTreeSelectedIndex} />
         )}
-        {!listLoading && showSearchResults && !isMobile && !isPicker && renderSearchList(visibleItems)}
-        {!listLoading && (isMobile || isPicker) && visibleItems.map((item: any) => (
-          item.type === 'directory' ? (
-            <button
-              key={`${item.type}-${item.path}`}
-              tabIndex={0}
-              title={getItemFullPath(item)}
-              onClick={() => openItem(item)}
-              onDoubleClick={() => isPicker ? handlePickItem(item) : insertItemPath(item)}
-              onKeyDown={(e) => selectFromKeyboard(item, e)}
-              onContextMenu={(e) => {
-                if (isPicker) return
-                e.preventDefault()
-                showContextMenu(e.clientX, e.clientY, item, getParentRelativePath(item, currentPath))
-              }}
-              className={`tmuxgo-list-row group w-full border-l-2 px-2 py-1 text-left text-meta leading-5 ${selectedPath === item.path ? 'tmuxgo-list-row--active border-accent' : 'border-transparent tmuxgo-list-row--hover'}`}
-            >
-              <div className="flex items-center gap-1.5">
-                <span className="text-[#dcb67a]">▸</span>
-                <span className="min-w-0 flex-1 truncate font-mono text-text-1">{item.name}</span>
-              </div>
-            </button>
-          ) : (
-            <button
-              key={`${item.type}-${item.path}`}
-              tabIndex={0}
-              title={getItemFullPath(item)}
-              onClick={() => openItem(item)}
-              onDoubleClick={() => isPicker ? undefined : insertItemPath(item)}
-              onKeyDown={(e) => selectFromKeyboard(item, e)}
-              onContextMenu={(e) => {
-                if (isPicker) return
-                e.preventDefault()
-                showContextMenu(e.clientX, e.clientY, item, getParentRelativePath(item, currentPath))
-              }}
-              onTouchStart={(e) => {
-                if (!isMobile || isPicker) return
-                const touch = e.touches[0]
-                if (!touch) return
-                if (touchTimerRef.current) clearTimeout(touchTimerRef.current)
-                touchTimerRef.current = setTimeout(() => showContextMenu(touch.clientX, touch.clientY, item, getParentRelativePath(item, currentPath)), 520)
-              }}
-              onTouchMove={() => {
-                if (touchTimerRef.current) clearTimeout(touchTimerRef.current)
-                touchTimerRef.current = null
-              }}
-              onTouchEnd={() => {
-                if (touchTimerRef.current) clearTimeout(touchTimerRef.current)
-                touchTimerRef.current = null
-              }}
-            className={`tmuxgo-list-row group w-full border-l-2 px-2 py-[3px] text-left text-meta leading-4 ${selectedPath === item.path ? 'tmuxgo-list-row--active border-accent' : 'border-transparent tmuxgo-list-row--hover'}`}
-            >
-              <div className="flex items-center gap-1.5">
-                <span className="shrink-0">{getFileVisual(item.path, item.type).icon}</span>
-                <span className={`min-w-0 flex-1 truncate font-mono ${getFileVisual(item.path, item.type).tone}`}>{item.name}</span>
-                <span className="opacity-0 text-caption text-text-3 group-hover:opacity-100 transition-opacity">{item.type === 'file' ? formatSize(item.size) : 'dir'}</span>
-              </div>
-              {'matches' in item && item.matches?.[0] && <div className="truncate pl-4 font-mono text-caption text-text-3">L{item.matches[0].number}: {item.matches[0].content}</div>}
-            </button>
-          )
-        ))}
+        {!listLoading && showSearchResults && <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain">{renderSearchList(visibleItems)}</div>}
+        {!listLoading && !showSearchResults && (isMobile || isPicker) && <VirtualizedRows rows={mobileRows} rowHeight={28} className="tmuxgo-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain" resetKey={`${selectedRootId}:${currentPath}`} />}
         {!listLoading && !searchLoading && !visibleItems.length && <div className="p-3 text-xs text-text-3">{showSearchResults ? t('file.noResults') : t('file.emptyDir')}</div>}
-        {!showSearchResults && !listLoading && trimmedDirectoryItems.truncated && <div className="border-t border-[var(--line)] px-3 py-2 text-meta text-text-3">{t('file.largeDir', { count: DIRECTORY_RENDER_LIMIT })}</div>}
         {showSearchResults && rawSearchResults.length > SEARCH_RESULT_LIMIT && <div className="border-t border-[var(--line)] px-3 py-2 text-meta text-text-3">{t('file.tooManyResults', { count: SEARCH_RESULT_LIMIT })}</div>}
       </div>}
       {isMobile && mobileView === 'preview' && <div className="min-h-0 flex-1 bg-bg-0">{previewBlock}</div>}

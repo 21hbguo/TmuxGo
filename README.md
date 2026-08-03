@@ -246,6 +246,17 @@ npm run test:e2e
 npm run verify
 ```
 
+真实 SSH 集成验证不会纳入默认测试。它会在指定远端创建并删除临时 tmux 会话，覆盖严格 known-hosts 校验、密钥或 SSH Agent 认证、可选 ProxyJump、终端附着/缩放/输入回显和 Gateway 重启后的再次附着。
+
+```bash
+TMUXGO_SSH_E2E_HOST=203.0.113.10 \
+TMUXGO_SSH_E2E_USER=deploy \
+TMUXGO_SSH_E2E_AUTH=agent \
+npm run test:ssh-e2e
+```
+
+密钥认证时设置 `TMUXGO_SSH_E2E_AUTH=key` 和 `TMUXGO_SSH_E2E_PRIVATE_KEY_PATH`；跳板机设置 `TMUXGO_SSH_E2E_JUMP_HOST`。测试固定使用严格的 `known_hosts` 校验。
+
 交付时建议按这个顺序验证：
 
 1. `npm test` / `npm run test:frontend` / 必要时 `npm run test:e2e`

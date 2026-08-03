@@ -99,7 +99,6 @@ vi.mock('@/i18n', () => ({
     if (key === 'file.loading') return 'Loading...'
     if (key === 'file.treeLoadFailed') return 'Load failed'
     if (key === 'file.retryLoad') return 'Retry'
-    if (key === 'file.largeDir') return 'Large directory, showing first 80 items'
     if (key === 'file.removeFavorite') return 'Unfavorite'
     if (key === 'file.clearExpanded') return 'Collapse all'
     if (key === 'file.clearSearch') return 'Clear search'
@@ -599,13 +598,13 @@ describe('FilePanel', () => {
     delayedSrcResolvers.splice(0).forEach((resolve) => resolve())
     await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
   })
-  it('limits large directory rendering', async () => {
+  it('renders all large directory entries', async () => {
     roots.push({ id: 'root-large', label: 'Large', path: '/large' })
     largeDirectoryItems = Array.from({ length: 121 }, (_, index) => ({ name: `file-${index}.txt`, path: `file-${index}.txt`, type: 'file', size: index, modifiedAt: '2026-05-26T00:00:00.000Z' }))
     render(React.createElement(FilePanel))
     fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'root-large' } })
     expect(await screen.findByText('file-79.txt')).toBeInTheDocument()
-    expect(screen.queryByText('file-80.txt')).not.toBeInTheDocument()
-    expect(screen.getByText('Large directory, showing first 80 items')).toBeInTheDocument()
+    expect(screen.getByText('file-80.txt')).toBeInTheDocument()
+    expect(screen.getByText('file-120.txt')).toBeInTheDocument()
   })
 })
