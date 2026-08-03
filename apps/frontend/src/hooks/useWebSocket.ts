@@ -306,13 +306,17 @@ export function useWebSocket() {
       connect()
       return
     }
+    if (resumed) {
+      resetAndReconnect()
+      return
+    }
     if (ws.readyState===WebSocket.OPEN) {
       const stale=Date.now()-wsState.lastPongAt>15000
       if (stale) {
         resetAndReconnect()
         return
       }
-      if (recover||resumed) sendPing(3000)
+      if (recover) sendPing(3000)
       return
     }
     if (ws.readyState===WebSocket.CONNECTING||ws.readyState===WebSocket.CLOSING) return
