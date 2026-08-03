@@ -22,6 +22,7 @@
     "test:default-auth-e2e": "TMUXGO_AUTH_E2E_USERNAME=admin TMUXGO_AUTH_E2E_PASSWORD=admin123 TMUXGO_AUTH_E2E_TESTS=e2e/default-password.spec.ts tsx scripts/run-auth-e2e.ts",
     "test:auth-restart-e2e": "TMUXGO_AUTH_E2E_TESTS=e2e/auth-restart-login.spec.ts TMUXGO_AUTH_E2E_RESTART_TESTS=e2e/auth-restart-check.spec.ts tsx scripts/run-auth-e2e.ts",
     "test:agent-e2e": "tsx scripts/run-agent-e2e.ts",
+    "test:ssh-e2e": "tsx scripts/run-ssh-e2e.ts",
     "test:fluency-e2e": "./start.sh --restart --rebuild >/tmp/tmuxgo-start-fluency.log 2>&1 && playwright test e2e/fluency.spec.ts",
     "verify:fluency": "npx tsx scripts/verify-fluency-metrics.ts",
     "proto:status": "npx tsx scripts/tmux-pane-status-prototype.ts",
