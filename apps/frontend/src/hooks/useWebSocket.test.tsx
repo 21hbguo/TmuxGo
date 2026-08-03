@@ -137,4 +137,18 @@ describe('useWebSocket',()=>{
     expect(socketInstances).toHaveLength(2)
     unmount()
   })
+  it('retries when a socket handshake never completes',()=>{
+    preferenceState.autoReconnect=true
+    const { unmount }=renderHook(() => useWebSocket())
+    expect(socketInstances).toHaveLength(1)
+    act(()=>{
+      vi.advanceTimersByTime(10000)
+    })
+    expect(socketInstances[0].readyState).toBe(MockWebSocket.CLOSED)
+    act(()=>{
+      vi.advanceTimersByTime(400)
+    })
+    expect(socketInstances).toHaveLength(2)
+    unmount()
+  })
 })

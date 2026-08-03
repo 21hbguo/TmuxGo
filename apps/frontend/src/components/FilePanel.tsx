@@ -619,7 +619,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
     contextMenuRef.current = !!contextMenu
   }, [contextMenu])
   const pushMobileNavigationHistory = () => {
-    if (!isMobile || isPicker || typeof window === 'undefined') return
+    if (!isMobile || typeof window === 'undefined') return
     mobileNavigationDepthRef.current += 1
     window.dispatchEvent(new CustomEvent('tmuxgo-mobile-files-push-level'))
   }
@@ -637,7 +637,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
     })
   }
   useEffect(() => {
-    if (!isMobile || isPicker) return
+    if (!isMobile) return
     const handleBack = (event: Event) => {
       const detail = (event as CustomEvent<{ handled?: boolean }>).detail
       if (contextMenuRef.current) {
@@ -1276,7 +1276,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
       <div className="shrink-0 border-b border-[var(--line)] px-2 py-2">
         <div className="flex items-center gap-1.5">
           {isMobile && mobileView === 'preview' && <Button variant="ghost" size="icon-sm" aria-label="back to list" onClick={() => setMobileView('list')}>‹</Button>}
-          {(isMobile ? mobileView !== 'preview' : isPicker) && !!currentPath && <Button variant="ghost" size="icon-sm" aria-label="go back" onClick={() => isPicker ? goMobileParentDirectory() : (mobileNavigationDepthRef.current > 0 ? window.history.back() : goMobileParentDirectory())}>‹</Button>}
+          {(isMobile ? mobileView !== 'preview' : isPicker) && !!currentPath && <Button variant="ghost" size="icon-sm" aria-label="go back" onClick={() => mobileNavigationDepthRef.current > 0 ? window.history.back() : goMobileParentDirectory()}>‹</Button>}
 
           <select value={selectedRootId} onChange={(e) => switchRoot(e.target.value)} className="tmuxgo-control tmuxgo-select min-w-0 flex-1 rounded-apple px-2 py-1 text-meta">
             {rootOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}

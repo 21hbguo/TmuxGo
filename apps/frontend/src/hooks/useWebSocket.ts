@@ -8,12 +8,13 @@ import { recordMobileDiagnostic } from '@/lib/mobile-diagnostics'
 import { decodeStreamOutputBinary } from '@/lib/stream-binary'
 import { decodeCellDiff, decodeCellSnapshot } from '@/lib/terminal-grid/decode-cell'
 import { diffToAnsi, snapshotToAnsi } from '@/lib/terminal-grid/apply-cell'
-type WSState={ws:WebSocket|null,reconnectTimer:ReturnType<typeof setTimeout>|null,reconnectCount:number,isConnecting:boolean,socketReady:boolean,pingTimer:ReturnType<typeof setInterval>|null,pongTimer:ReturnType<typeof setTimeout>|null,closeTimer:ReturnType<typeof setTimeout>|null,backgroundCloseTimer:ReturnType<typeof setTimeout>|null,subscribers:number,lastPongAt:number,hiddenAt:number,backgroundClosed:boolean,onMessage:((data:any)=>void)|null,onOpen:(()=>void)|null,onClose:(()=>void)|null,onError:(()=>void)|null,closeExpected:boolean,lastInteractionRecoverAt:number,listenersReady:boolean,cleanupListeners:(()=>void)|null}
-const wsState:WSState={ws:null,reconnectTimer:null,reconnectCount:0,isConnecting:false,socketReady:false,pingTimer:null,pongTimer:null,closeTimer:null,backgroundCloseTimer:null,subscribers:0,lastPongAt:0,hiddenAt:0,backgroundClosed:false,onMessage:null,onOpen:null,onClose:null,onError:null,closeExpected:false,lastInteractionRecoverAt:0,listenersReady:false,cleanupListeners:null}
+type WSState={ws:WebSocket|null,reconnectTimer:ReturnType<typeof setTimeout>|null,reconnectCount:number,isConnecting:boolean,socketReady:boolean,pingTimer:ReturnType<typeof setInterval>|null,pongTimer:ReturnType<typeof setTimeout>|null,connectTimer:ReturnType<typeof setTimeout>|null,connectAttempt:number,closeTimer:ReturnType<typeof setTimeout>|null,backgroundCloseTimer:ReturnType<typeof setTimeout>|null,subscribers:number,lastPongAt:number,hiddenAt:number,backgroundClosed:boolean,onMessage:((data:any)=>void)|null,onOpen:(()=>void)|null,onClose:(()=>void)|null,onError:(()=>void)|null,closeExpected:boolean,lastInteractionRecoverAt:number,listenersReady:boolean,cleanupListeners:(()=>void)|null}
+const wsState:WSState={ws:null,reconnectTimer:null,reconnectCount:0,isConnecting:false,socketReady:false,pingTimer:null,pongTimer:null,connectTimer:null,connectAttempt:0,closeTimer:null,backgroundCloseTimer:null,subscribers:0,lastPongAt:0,hiddenAt:0,backgroundClosed:false,onMessage:null,onOpen:null,onClose:null,onError:null,closeExpected:false,lastInteractionRecoverAt:0,listenersReady:false,cleanupListeners:null}
 type OutputMessage={data:string,sessionName?:string|null,hostId?:string|null,resync?:boolean}
 const outputListeners=new Map<string,Set<(message:OutputMessage)=>void>>()
 let cellLastSeq=0
 const BACKGROUND_CLOSE_DELAY_MS=12000
+const CONNECT_TIMEOUT_MS=10000
 function getOutputListenerKey(hostId:string,sessionName:string) {
   return `${hostId}\u0000${sessionName}`
 }
@@ -37,6 +38,11 @@ export function useWebSocket() {
     if (!wsState.pongTimer) return
     clearTimeout(wsState.pongTimer)
     wsState.pongTimer=null
+  },[])
+  const clearConnectTimer=useCallback(()=>{
+    if (!wsState.connectTimer) return
+    clearTimeout(wsState.connectTimer)
+    wsState.connectTimer=null
   },[])
   const clearBackgroundCloseTimer=useCallback(()=>{
     if (!wsState.backgroundCloseTimer) return
@@ -108,14 +114,36 @@ export function useWebSocket() {
       wsState.reconnectTimer=null
     }
     wsState.isConnecting=true
+    const attempt=++wsState.connectAttempt
+    clearConnectTimer()
+    wsState.connectTimer=setTimeout(()=>{
+      if (attempt!==wsState.connectAttempt||!wsState.isConnecting) return
+      const ws=wsState.ws
+      if (ws) {
+        ws.onopen=null
+        ws.onmessage=null
+        ws.onerror=null
+        ws.onclose=null
+        try { ws.close() } catch {}
+      }
+      wsState.ws=null
+      wsState.isConnecting=false
+      wsState.socketReady=false
+      wsState.connectTimer=null
+      recordMobileDebug('ws-connect-timeout')
+      updateConnection({status:'disconnected'})
+      wsState.onClose?.()
+    },CONNECT_TIMEOUT_MS)
     recordMobileDebug('ws-connect')
     const openSocket=(wsUrl:string)=>{
+      if (attempt!==wsState.connectAttempt||!wsState.isConnecting) return
       try {
       const ws=new WebSocket(wsUrl)
       wsState.ws=ws
       ws.binaryType='arraybuffer'
       ws.onopen=()=>{
         if (wsState.ws!==ws) return
+        clearConnectTimer()
         wsState.isConnecting=false
         wsState.closeExpected=false
         wsState.backgroundClosed=false
@@ -169,11 +197,11 @@ export function useWebSocket() {
         }
       }
       ws.onclose=()=>{
-        if (wsState.ws===ws) {
-          wsState.ws=null
-        }
+        if (wsState.ws!==ws) return
+        wsState.ws=null
         wsState.isConnecting=false
         wsState.socketReady=false
+        clearConnectTimer()
         clearPongTimer()
         const expected=wsState.closeExpected
         wsState.closeExpected=false
@@ -189,13 +217,14 @@ export function useWebSocket() {
         }
       }
       ws.onerror=()=>{
-        if (wsState.ws===ws) {
-          wsState.isConnecting=false
-        }
+        if (wsState.ws!==ws) return
+        wsState.isConnecting=false
+        clearConnectTimer()
         recordMobileDebug('ws-error',{visibility:document.visibilityState})
         wsState.onError?.()
       }
       } catch (err) {
+        clearConnectTimer()
         wsState.isConnecting=false
         recordMobileDebug('ws-connect-error')
         wsState.onError?.()
@@ -203,12 +232,11 @@ export function useWebSocket() {
     }
     if (isAuthEnabled()) {
       void getWebSocketUrl().then((wsUrl)=>{
-        if (wsState.subscribers<=0||wsState.ws||!wsState.isConnecting) {
-          wsState.isConnecting=false
-          return
-        }
+        if (attempt!==wsState.connectAttempt||wsState.subscribers<=0||wsState.ws||!wsState.isConnecting) return
         openSocket(wsUrl)
       }).catch(()=>{
+        if (attempt!==wsState.connectAttempt) return
+        clearConnectTimer()
         wsState.isConnecting=false
         recordMobileDebug('ws-ticket-error')
         wsState.onError?.()
@@ -216,7 +244,7 @@ export function useWebSocket() {
       return
     }
     openSocket(getWebSocketBase())
-  },[clearPongTimer,sendPing,updateConnection])
+  },[clearConnectTimer,clearPongTimer,sendPing,updateConnection])
   const scheduleReconnect=useCallback(()=>{
     if (!preferences.autoReconnect||wsState.subscribers<=0) return
     if (typeof document!=='undefined'&&document.visibilityState==='hidden') {
@@ -238,6 +266,8 @@ export function useWebSocket() {
   const resetAndReconnect=useCallback(()=>{
     const ws=wsState.ws
     updateConnection({status:'reconnecting'})
+    wsState.connectAttempt+=1
+    clearConnectTimer()
     clearPongTimer()
     if (!ws) {
       connect()
@@ -257,11 +287,13 @@ export function useWebSocket() {
     wsState.reconnectCount=0
     reconnectCountRef.current=0
     connect()
-  },[clearPongTimer,connect])
+  },[clearConnectTimer,clearPongTimer,connect])
   const closeForBackgroundNow=useCallback(()=>{
     wsState.backgroundCloseTimer=null
     wsState.hiddenAt=Date.now()
     wsState.backgroundClosed=true
+    wsState.connectAttempt+=1
+    clearConnectTimer()
     clearPongTimer()
     if (wsState.reconnectTimer) {
       clearTimeout(wsState.reconnectTimer)
@@ -281,7 +313,7 @@ export function useWebSocket() {
     wsState.isConnecting=false
     wsState.socketReady=false
     updateConnection({status:'disconnected'})
-  },[clearPongTimer,updateConnection])
+  },[clearConnectTimer,clearPongTimer,updateConnection])
   const scheduleBackgroundClose=useCallback((source:string)=>{
     wsState.hiddenAt=Date.now()
     recordMobileDebug('ws-background-schedule',{source,visibility:document.visibilityState})
@@ -450,7 +482,9 @@ export function useWebSocket() {
             clearInterval(wsState.pingTimer)
             wsState.pingTimer=null
           }
+          clearConnectTimer()
           clearPongTimer()
+          wsState.connectAttempt+=1
           wsState.closeExpected=false
           if (wsState.ws) {
             wsState.closeExpected=true
@@ -471,6 +505,6 @@ export function useWebSocket() {
         },250)
       }
     }
-  },[connect,ensureConnection,handleMessage,scheduleReconnect,sendPing,clearPongTimer,scheduleBackgroundClose])
+  },[clearConnectTimer,connect,ensureConnection,handleMessage,scheduleReconnect,sendPing,clearPongTimer,scheduleBackgroundClose])
   return {send,isConnected,isSocketReady,subscribeOutput}
 }

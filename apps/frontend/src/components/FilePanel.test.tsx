@@ -435,6 +435,20 @@ describe('FilePanel', () => {
     await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
     expect(screen.queryByText('deep.ts')).not.toBeInTheDocument()
   })
+  it('handles mobile back inside the workspace picker', async () => {
+    const userAgent = navigator.userAgent
+    Object.defineProperty(navigator, 'userAgent', { configurable: true, value: 'Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 Chrome/138.0.0.0 Mobile Safari/537.36' })
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+    render(React.createElement(FilePanel, { mode: 'picker' }))
+    fireEvent.click((await screen.findByText('src')).closest('button') as HTMLButtonElement)
+    expect(await screen.findByText('index.ts')).toBeInTheDocument()
+    const directoryBack = { handled: false }
+    window.dispatchEvent(new CustomEvent('tmuxgo-mobile-files-back', { detail: directoryBack }))
+    expect(directoryBack.handled).toBe(true)
+    await waitFor(() => expect(screen.queryByText('index.ts')).not.toBeInTheDocument())
+    expect(screen.getByText('docs')).toBeInTheDocument()
+    Object.defineProperty(navigator, 'userAgent', { configurable: true, value: userAgent })
+  })
   it('opens content search preview at matched line', async () => {
     render(React.createElement(FilePanel))
     fireEvent.click(screen.getByRole('button', { name: 'content' }))
