@@ -48,6 +48,7 @@ function useQuickActionController() {
   const { shortcuts,addShortcut,updateShortcut,removeShortcut }=useCustomShortcuts()
   const [showModal,setShowModal]=useState(false)
   const [editingShortcut,setEditingShortcut]=useState<typeof shortcuts[number]|null>(null)
+  const [pendingShortcutDelete,setPendingShortcutDelete]=useState<typeof shortcuts[number]|null>(null)
   const [isMobile,setIsMobile]=useState(false)
   const [recentDockShortcutKeys,setRecentDockShortcutKeys]=useState<string[]>([])
   const [confirmKillOpen,setConfirmKillOpen]=useState(false)
@@ -292,6 +293,10 @@ function useQuickActionController() {
     }
     setNewWindowPromptOpen(false)
   },[activeHostId,activeSessionId,newWindowName,pushToast,refreshSnapshotSafely,setWindows,t])
+  const confirmDeleteShortcut=useCallback(()=>{
+    if(pendingShortcutDelete)removeShortcut(pendingShortcutDelete.id)
+    setPendingShortcutDelete(null)
+  },[pendingShortcutDelete,removeShortcut])
 
   const primaryButtons:ActionButtonDef[]=[
     { key:'split-h',label:t('sidebar.splitH'),onPress:()=>handleSplit('horizontal'),disabled:!canSplit },
@@ -334,7 +339,7 @@ function useQuickActionController() {
     return [...mapped,...shortcuts.filter((item)=>!seen.has(item.id))]
   },[recentDockShortcutKeys,shortcuts])
 
-  return { t,activePaneId,shortcuts,recentShortcutButtons,addShortcut,updateShortcut,removeShortcut,showModal,setShowModal,editingShortcut,setEditingShortcut,isMobile,confirmKillOpen,setConfirmKillOpen,pendingKillPaneId,setPendingKillPaneId,confirmKillPane,newWindowPromptOpen,setNewWindowPromptOpen,newWindowName,setNewWindowName,confirmCreateWindow,sendKey,trackDockShortcutUse,startRepeat,armTouchRepeat,stopRepeat,preventFocus,startPointer,startDockGesture,trackDockScroll,finishDockGesture,isDockScrollBlocked,trackPointer,finishPointer,pointerStateRef,primaryButtons,attachButton,fullscreenButton,dockCoreButtons }
+  return { t,activePaneId,shortcuts,recentShortcutButtons,addShortcut,updateShortcut,removeShortcut,showModal,setShowModal,editingShortcut,setEditingShortcut,isMobile,pendingShortcutDelete,setPendingShortcutDelete,confirmDeleteShortcut,confirmKillOpen,setConfirmKillOpen,pendingKillPaneId,setPendingKillPaneId,confirmKillPane,newWindowPromptOpen,setNewWindowPromptOpen,newWindowName,setNewWindowName,confirmCreateWindow,sendKey,trackDockShortcutUse,startRepeat,armTouchRepeat,stopRepeat,preventFocus,startPointer,startDockGesture,trackDockScroll,finishDockGesture,isDockScrollBlocked,trackPointer,finishPointer,pointerStateRef,primaryButtons,attachButton,fullscreenButton,dockCoreButtons }
 }
 
 function triggerDockButton(def:ActionButtonDef,controller:ReturnType<typeof useQuickActionController>){
@@ -390,7 +395,7 @@ function renderDockButton(def:ActionButtonDef,controller:ReturnType<typeof useQu
 
 export function QuickActions({ mode='panel', onOpenFiles }:{ mode?:QuickActionsMode; onOpenFiles?:()=>void }){
   const controller=useQuickActionController()
-  const { t,activePaneId,shortcuts,recentShortcutButtons,addShortcut,updateShortcut,removeShortcut,showModal,setShowModal,editingShortcut,setEditingShortcut,isMobile,confirmKillOpen,setConfirmKillOpen,pendingKillPaneId,setPendingKillPaneId,confirmKillPane,newWindowPromptOpen,setNewWindowPromptOpen,newWindowName,setNewWindowName,confirmCreateWindow,sendKey,primaryButtons,attachButton,fullscreenButton,dockCoreButtons }=controller
+  const { t,activePaneId,shortcuts,recentShortcutButtons,addShortcut,updateShortcut,removeShortcut,showModal,setShowModal,editingShortcut,setEditingShortcut,isMobile,pendingShortcutDelete,setPendingShortcutDelete,confirmDeleteShortcut,confirmKillOpen,setConfirmKillOpen,pendingKillPaneId,setPendingKillPaneId,confirmKillPane,newWindowPromptOpen,setNewWindowPromptOpen,newWindowName,setNewWindowName,confirmCreateWindow,sendKey,primaryButtons,attachButton,fullscreenButton,dockCoreButtons }=controller
   if(mode==='dock'){
     return (
       <>
@@ -444,7 +449,7 @@ export function QuickActions({ mode='panel', onOpenFiles }:{ mode?:QuickActionsM
               <button type="button" onClick={()=>{ setEditingShortcut(s); setShowModal(true) }} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-apple text-text-3 transition-colors hover:bg-accent/15 hover:text-accent focus-visible:bg-accent/15 focus-visible:text-accent" aria-label={t('shortcut.edit')} title={t('shortcut.edit')}>
                 <FiEdit2 aria-hidden="true" size={13} />
               </button>
-              <button type="button" onClick={()=>removeShortcut(s.id)} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-apple text-text-3 transition-colors hover:bg-danger/15 hover:text-danger focus-visible:bg-danger/15 focus-visible:text-danger" aria-label={t('shortcut.delete')} title={t('shortcut.delete')}>
+              <button type="button" onClick={()=>setPendingShortcutDelete(s)} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-apple text-text-3 transition-colors hover:bg-danger/15 hover:text-danger focus-visible:bg-danger/15 focus-visible:text-danger" aria-label={t('shortcut.delete')} title={t('shortcut.delete')}>
                 <FiTrash2 aria-hidden="true" size={13} />
               </button>
             </div>
@@ -468,6 +473,7 @@ export function QuickActions({ mode='panel', onOpenFiles }:{ mode?:QuickActionsM
           onClose={()=>{ setEditingShortcut(null); setShowModal(false) }}
         />
       )}
+      <ConfirmDialog open={!!pendingShortcutDelete} title={t('shortcut.deleteTitle')} message={t('shortcut.deleteConfirm',{ label:pendingShortcutDelete?.label || '' })} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} tone="danger" onCancel={()=>setPendingShortcutDelete(null)} onConfirm={confirmDeleteShortcut} />
       <ConfirmDialog open={confirmKillOpen} title={t('quick.killTitle')} message={t('quick.killConfirm')} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} tone="danger" onCancel={()=>{ setPendingKillPaneId(null); setConfirmKillOpen(false) }} onConfirm={()=>void confirmKillPane()} />
       <PromptDialog open={newWindowPromptOpen} title={t('window.createTitle')} defaultValue={newWindowName} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} onCancel={()=>setNewWindowPromptOpen(false)} onConfirm={(value)=>{ setNewWindowName(value); void confirmCreateWindow(value) }} />
     </div>
