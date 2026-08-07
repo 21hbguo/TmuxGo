@@ -89,15 +89,21 @@ export async function login(username: string, password: string) {
 export async function refreshAuth() {
   if (refreshPromise) return refreshPromise
   refreshPromise = (async () => {
-    const response = await authenticatedFetch('/api/auth/refresh', { method: 'POST' }, false)
-    const payload = await readPayload(response)
-    if (!response.ok) {
-      accessToken = null
-      if (authStatus.enabled) setAuthStatus({ ...authStatus, authenticated: false })
-      return false
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 4000)
+    try {
+      const response = await authenticatedFetch('/api/auth/refresh', { method: 'POST', signal: controller.signal }, false)
+      const payload = await readPayload(response)
+      if (!response.ok) {
+        accessToken = null
+        if (authStatus.enabled) setAuthStatus({ ...authStatus, authenticated: false })
+        return false
+      }
+      updateToken(payload as unknown as AuthResponse)
+      return true
+    } finally {
+      clearTimeout(timeout)
     }
-    updateToken(payload as unknown as AuthResponse)
-    return true
   })().finally(() => {
     refreshPromise = null
   })
@@ -139,7 +145,8 @@ export async function changePassword(currentPassword: string, newPassword: strin
 }
 export async function getWebSocketUrl() {
   if (!authStatus.enabled) return getWebSocketBase()
-  const response = await authenticatedFetch('/api/auth/ws-ticket', { method: 'POST' })
+  let response = await authenticatedFetch('/api/auth/ws-ticket', { method: 'POST' }, false)
+  if (response.status === 401 && await refreshAuth()) response = await authenticatedFetch('/api/auth/ws-ticket', { method: 'POST' }, false)
   const payload = await readPayload(response)
   if (!response.ok) throw createAuthError(response.status, payload)
   const ticket = payload && typeof payload.ticket === 'string' ? payload.ticket : ''

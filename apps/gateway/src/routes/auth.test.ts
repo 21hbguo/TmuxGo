@@ -37,6 +37,11 @@ test('rejects anonymous session revocation and records authentication audit even
   const firstLogin = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'test-user', password: 'test-password' } })
   assert.equal(firstLogin.statusCode, 200)
   const first = firstLogin.json() as { accessToken: string; sessionId: string }
+  await t.test('issues a WebSocket ticket with a valid access cookie when Bearer is stale', async () => {
+    const ticket = await app.inject({ method: 'POST', url: '/api/auth/ws-ticket', headers: { authorization: 'Bearer stale-token', cookie: `tmuxgo_access_token=${first.accessToken}` } })
+    assert.equal(ticket.statusCode, 200)
+    assert.equal(typeof (ticket.json() as { ticket?: unknown }).ticket, 'string')
+  })
   const anonymousLogout = await app.inject({ method: 'POST', url: '/api/auth/logout', payload: { sessionId: first.sessionId } })
   assert.equal(anonymousLogout.statusCode, 401)
   const sessions = await app.inject({ method: 'GET', url: '/api/auth/sessions', headers: { authorization: `Bearer ${first.accessToken}` } })
