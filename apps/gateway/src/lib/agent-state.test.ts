@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict'
+import { execFile } from 'node:child_process'
+import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import test from 'node:test'
+import os from 'node:os'
+import path from 'node:path'
+import { promisify } from 'node:util'
 import { detectAgentEvidence, detectAgentPaneState, detectProcessAgent, resolveAgentStatus, summarizeAgentPanes } from './agent-state.js'
 import { createTerminalOutputSanitizer } from './terminal-output.js'
+import { execTmux } from './tmux-executor.js'
+import { forgetAgentPane, getHostAgentPanes } from './agent-state.js'
+
+const execFileAsync = promisify(execFile)
 
 test('detects codex lifecycle from terminal output', () => {
   assert.deepEqual(detectAgentPaneState('node', '⠹ TmuxGo', '• Working (10s • esc to interrupt)\n›'), { agent: 'codex', agentStatus: 'working' })
@@ -39,4 +48,29 @@ test('sanitizes terminal device attributes across chunks', () => {
   const sanitize=createTerminalOutputSanitizer()
   assert.equal(sanitize('ready\u001b[?1;'), 'ready')
   assert.equal(sanitize('2cnext'), 'next')
+})
+
+test('scans a local tmux Agent pane through the real executor path', async () => {
+  const sessionName = `tmuxgo-agent-scan-${process.pid}-${Date.now()}`
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-agent-scan-'))
+  const agentPath = path.join(tempDir, 'worker')
+  const agentScript = ['#!/usr/bin/env node', "process.stdout.write('\\u001b]2;Action Required\\u0007Use /skills to list available skills\\ngpt-5.6 medium · ~/project\\n')", 'setTimeout(() => {}, 30000)', ''].join('\n')
+  await writeFile(agentPath, agentScript)
+  await chmod(agentPath, 0o700)
+  let paneId = ''
+  try {
+    await execTmux('local', ['new-session', '-d', '-s', sessionName, agentPath])
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    const states = await getHostAgentPanes('local', [sessionName])
+    assert.equal(states.length, 1)
+    paneId = states[0]?.paneId || ''
+    assert.equal(states[0]?.sessionName, sessionName)
+    assert.equal(states[0]?.agent, 'codex')
+    assert.equal(states[0]?.source, 'pane_output')
+    assert.equal(states[0]?.confidence, 'low')
+  } finally {
+    if (paneId) forgetAgentPane(paneId)
+    await execFileAsync('tmux', ['kill-session', '-t', sessionName]).catch(() => {})
+    await rm(tempDir, { recursive: true, force: true })
+  }
 })

@@ -8,6 +8,7 @@
 - 完成官方资料核验，结果见 `agent-monitor-research-20260808.md`。
 - 当前实施范围：Phase 1；Phase 2/3/4 的原生 Hook、协议和 Push 不提前伪实现。
 - Phase 1 实现完成：新增 Host 级 AgentMonitor、状态事件协议、前端快照/移除/通知消费和 eventId 去重。
+- 收尾审计确认：真实 tmux fallback 测试使用不含 Agent 名称的 `worker` 可执行文件，仅通过 pane 标题和输出识别 Codex；主机离线、长时间无输出、按事件/Host/Session 静音和免打扰不计入 Phase 1 已完成能力。
 
 ## 验证记录
 
@@ -16,8 +17,8 @@
 | 2026-08-08 | `bash ~/.codex/skills/web-access/scripts/check-deps.sh` | Node 22 可用；Chrome CDP 未连接，静态公开资料路径可用 |
 | 2026-08-08 | tmux 官方手册 curl + rg | 已核验 pane 生命周期、OSC 133 和相关 hooks/format variables |
 | 2026-08-08 | OpenCode 官方源码 curl | 已核验 idle/busy/retry 状态模型 |
-| 2026-08-08 | `node --import tsx --test src/lib/agent-state.test.ts src/lib/agent-monitor.test.ts` | Gateway Agent 相关测试 11/11 通过 |
-| 2026-08-08 | `npm test` | Gateway 全量测试 66/66 通过 |
+| 2026-08-08 | `node --import tsx --test src/lib/agent-state.test.ts src/lib/agent-monitor.test.ts` | Gateway Agent 相关测试 15/15 通过 |
+| 2026-08-08 | `npm test` | Gateway 全量测试 52/52 通过 |
 | 2026-08-08 | `npm run test --workspace=frontend` | Frontend 全量测试 391/391 通过 |
 | 2026-08-08 | `npm run build --workspace=gateway` | Gateway TypeScript 构建通过 |
 | 2026-08-08 | `npm run build --workspace=frontend` | Frontend Vite 构建通过；仅有既有 chunk size warning |
@@ -36,4 +37,5 @@
 | 扫描失败不产生完成 | monitor failure 测试 |
 | local/ssh/agent 降级 | `execTmux`/`execHostShell` 既有路由；monitor 以 local/ssh-host/agent-host 独立 key 测试 |
 | 通知不泄漏输出 | 通用脱敏 message 与事件断言；通知不携带终端输出/Prompt |
-| 来源/置信度可排查 | AgentPaneState 字段断言 |
+| 来源/置信度可排查 | AgentPaneState 字段断言；真实 tmux fallback 确认 `pane_output`/`low` |
+| Phase 1 范围边界 | 独立主机离线、长时间无输出、按事件/Host/Session 静音和免打扰留作后续增强 |

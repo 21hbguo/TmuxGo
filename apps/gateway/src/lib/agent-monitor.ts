@@ -210,7 +210,6 @@ export class AgentMonitor {
 
   private applyFailure(hostId: string, state: MonitorHostState) {
     const initial = !state.initialized
-    if (!initial) state.initialized = true
     if (!state.disconnected) {
       state.disconnected = true
       for (const previous of state.agents.values()) {
