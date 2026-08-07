@@ -393,6 +393,10 @@ export function useWebSocket() {
     recordMobileDebug('ws-ensure',{recover,resumed,readyState:ws?.readyState??-1})
     if (!ws) {
       wsState.reconnectCount=0
+      if (resumed&&wsState.isConnecting) {
+        resetAndReconnect()
+        return
+      }
       connect()
       return
     }
