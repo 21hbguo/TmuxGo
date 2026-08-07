@@ -124,7 +124,9 @@ export async function authRoutes(fastify: FastifyInstance) {
   })
   fastify.post('/auth/ws-ticket', async (request, reply) => {
     try {
-      const token = bearer(request) || cookieValue(request, getAccessCookieName()) || requiredString(body(request).accessToken, 'accessToken')
+      const accessToken = body(request).accessToken
+      const token = [bearer(request), cookieValue(request, getAccessCookieName()), typeof accessToken === 'string' ? accessToken : ''].find((candidate) => verifyAccessToken(candidate))
+      if (!token) throw new AuthError('Authentication required', 401, 'AUTH_REQUIRED')
       return await issueWebSocketTicket(token)
     } catch (error) {
       return sendError(reply, error)
