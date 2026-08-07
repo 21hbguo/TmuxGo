@@ -10,6 +10,7 @@ const send = vi.fn()
 const snapshotGet = vi.fn()
 const zoomByPane = vi.fn()
 const killPane = vi.fn()
+const removeShortcut = vi.fn()
 let windowsDataMock:any[]=[{ id:'win-1',sessionId:'session-dev',active:true }]
 const shortcutsMock=[{ id:'shortcut-a',label:'A',keys:'Ctrl+A',action:'input' },{ id:'shortcut-b',label:'B',keys:'Ctrl+B',action:'input' },{ id:'shortcut-text',label:'Status',mode:'text' as const,text:'printf ok',appendEnter:true }]
 
@@ -20,7 +21,7 @@ vi.mock('@/hooks/useApi', () => ({
   useWindows: () => ({ data: windowsDataMock }),
 }))
 vi.mock('@/hooks/useCustomShortcuts', () => ({
-  useCustomShortcuts: () => ({ shortcuts: shortcutsMock, addShortcut: vi.fn(), updateShortcut: vi.fn(), removeShortcut: vi.fn() }),
+  useCustomShortcuts: () => ({ shortcuts: shortcutsMock, addShortcut: vi.fn(), updateShortcut: vi.fn(), removeShortcut }),
   shortcutToInput: (value: any) => value.mode === 'text' ? value.text + (value.appendEnter ? '\r' : '') : value.keys === 'Ctrl+A' ? '\x01' : value.keys === 'Ctrl+B' ? '\x02' : '',
 }))
 vi.mock('@/lib/api', () => ({
@@ -37,6 +38,7 @@ describe('ShortcutBar', () => {
     snapshotGet.mockReset()
     zoomByPane.mockReset()
     killPane.mockReset()
+    removeShortcut.mockReset()
     windowsDataMock=[{ id:'win-1',sessionId:'session-dev',active:true }]
     window.localStorage.clear()
     useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-dev', activePaneId: 'old-pane' })
@@ -335,6 +337,18 @@ describe('ShortcutBar', () => {
       expect(button.className).toContain('h-7')
       expect(button.className).toContain('w-7')
     }
+  })
+  it('confirms before removing a custom shortcut', () => {
+    render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar, { mode: 'panel' })))
+    const deleteButton=screen.getAllByRole('button', { name: '删除快捷键' })[0]
+    fireEvent.click(deleteButton)
+    expect(removeShortcut).not.toHaveBeenCalled()
+    expect(screen.getByText('确定删除快捷键“A”？')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    expect(removeShortcut).not.toHaveBeenCalled()
+    fireEvent.click(deleteButton)
+    fireEvent.click(screen.getByRole('button', { name: '确认' }))
+    expect(removeShortcut).toHaveBeenCalledWith('shortcut-a')
   })
   it('sends text shortcuts and appends enter only when configured', () => {
     render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))

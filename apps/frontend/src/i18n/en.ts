@@ -477,6 +477,8 @@ export const en = {
   'shortcut.add': 'Add Shortcut',
   'shortcut.edit': 'Edit Shortcut',
   'shortcut.delete': 'Delete Shortcut',
+  'shortcut.deleteTitle': 'Delete Shortcut',
+  'shortcut.deleteConfirm': 'Delete shortcut "{label}"?',
   'shortcut.label': 'Button Label',
   'shortcut.keys': 'Key Combo',
   'shortcut.modeKeys': 'Keys',
