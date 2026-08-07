@@ -4,7 +4,7 @@ import os from 'os'
 import path from 'path'
 import { mkdir, readFile, rename, stat, writeFile } from 'fs/promises'
 
-type CustomShortcut = { id: string; label: string; keys: string }
+type CustomShortcut = { id: string; label: string; mode?: 'keys' | 'text'; keys?: string; text?: string; appendEnter?: boolean }
 type FavoriteDirectory = { rootId: string; rootPath: string; name: string; path: string }
 type SessionWorkspaceEntry = { sessionId: string; hostId: string; workspacePath: string; rootId: string; rootPath: string; rootLabel: string; relativePath: string; updatedAt: string }
 type SessionOrder = { hostId: string; orderedSessionIds: string[] }
@@ -98,6 +98,7 @@ const MAX_FILE_BYTES = 512 * 1024
 const MAX_PROFILE_LEN = 64
 const MAX_SHORTCUT_LABEL_LEN = 64
 const MAX_SHORTCUT_KEYS_LEN = 64
+const MAX_SHORTCUT_TEXT_LEN = 4096
 const MAX_ID_LEN = 64
 const MAX_ROOT_ID_LEN = 64
 const MAX_ROOT_PATH_LEN = 1024
@@ -199,9 +200,17 @@ function normalizeShortcuts(input: unknown) {
     if (!entry || typeof entry !== 'object') continue
     const id = safeString((entry as Record<string, unknown>).id, MAX_ID_LEN)
     const label = safeString((entry as Record<string, unknown>).label, MAX_SHORTCUT_LABEL_LEN)
-    const keys = safeString((entry as Record<string, unknown>).keys, MAX_SHORTCUT_KEYS_LEN)
-    if (!id || !label || !keys) continue
-    next.push({ id, label, keys })
+    const raw = entry as Record<string, unknown>
+    const mode = raw.mode === 'text' ? 'text' : raw.mode === 'keys' ? 'keys' : undefined
+    if (mode === 'text') {
+      const text = typeof raw.text === 'string' ? raw.text.slice(0, MAX_SHORTCUT_TEXT_LEN) : ''
+      if (!id || !label || !text) continue
+      next.push({ id, label, mode, text, appendEnter: raw.appendEnter === true })
+    } else {
+      const keys = safeString(raw.keys, MAX_SHORTCUT_KEYS_LEN)
+      if (!id || !label || !keys) continue
+      next.push(mode ? { id, label, mode, keys } : { id, label, keys })
+    }
     if (next.length >= MAX_SHORTCUTS) break
   }
   return next
