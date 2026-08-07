@@ -181,13 +181,15 @@ Hook 输入包含 session_id、transcript_path、cwd、hook_event_name 等字段
 
 来源：[Codex App Server 文档](https://developers.openai.com/codex/app-server)、[OpenAI Codex GitHub](https://github.com/openai/codex)
 
-Codex App Server 是面向富客户端的结构化协议，覆盖认证、会话、审批和流式 Agent 事件。当前公开协议包含：
+Codex App Server 的公开 schema 是面向富客户端的结构化协议，覆盖会话、审批、用户输入和流式事件。当前从 OpenAI Codex 官方仓库 `main` 分支 schema 直接核验到：
 
-- Item Started。
-- Item Completed。
-- Process Exited。
-- Server Request Resolved。
-- Command Execution Output。
+- `ItemStartedNotification`、`ItemCompletedNotification`。
+- `ThreadStatusChangedNotification` 的 active、waitingOnApproval、waitingOnUserInput。
+- `ProcessExitedNotification`。
+- Agent 消息和命令执行输出 delta 通知。
+- 命令审批、权限审批和用户输入请求定义。
+
+开发者页面当前返回 403，因此启动方式、部署方式和具体版本承诺不作为已核验事实。
 
 建议：
 
@@ -416,15 +418,17 @@ agent_notification
 
 已有 PaneNotifications.tsx 的跳转逻辑可以复用。
 
-### 9.3 通知偏好
+### 9.3 通知偏好边界
 
-第一阶段保留现有偏好，并补充：
+Phase 1 保留现有单个 Pane 静音、通知历史和浏览器后台通知能力。以下能力不列为本轮已完成范围：
 
+- 独立的主机离线通知。
+- 长时间没有输出告警。
 - 按事件类型开关。
-- 按 Host、Session、Pane 静音。
+- 按 Host、Session 静音。
 - 免打扰时间。
-- 是否发送浏览器后台通知。
-- 通知历史保留上限。
+
+这些能力作为后续增强评估，不影响 Phase 1 的 Agent 状态变化通知。
 
 后续如果需要关闭浏览器后仍收到通知，再增加 PWA Service Worker、Web Push、VAPID 和设备订阅管理。Push 内容只应包含脱敏的 Host、Session、Agent 和状态，不应包含完整命令、Prompt、路径或终端输出。
 

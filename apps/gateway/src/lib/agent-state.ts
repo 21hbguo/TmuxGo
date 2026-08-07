@@ -140,7 +140,7 @@ function getTransitionEvent(phase: AgentPhase, previousPhase?: AgentPhase): Agen
   return undefined
 }
 function detectAgentObservation(candidate: PaneCandidate, output: string, processAgent?: string | null): AgentDetection | null {
-  const detected = detectAgentPaneState(candidate.currentCommand, candidate.title, output, processAgent)
+  const detected = processAgent === undefined ? detectAgentPaneState(candidate.currentCommand, candidate.title, output) : detectAgentPaneState(candidate.currentCommand, candidate.title, output, processAgent)
   if (!detected) return null
   const raw = detectRawPhase(candidate, candidate.title, output, processAgent)
   return { ...detected, ...raw }

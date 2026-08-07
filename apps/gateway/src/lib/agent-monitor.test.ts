@@ -9,7 +9,7 @@ function pane(paneId: string, phase: AgentPaneState['phase'] = 'working', lastEv
 
 test('uses one host scan for multiple subscribers and separates snapshots from notifications', async () => {
   let scanCount = 0
-  let states = [pane('local:%1')]
+  let states = [pane('local:%1'), pane('local:%2')]
   const eventsA: any[] = []
   const eventsB: any[] = []
   const monitor = new AgentMonitor({ getHostIds: async () => ['local'], scan: async () => { scanCount += 1; return states }, intervalMs: 1000 })
@@ -20,10 +20,12 @@ test('uses one host scan for multiple subscribers and separates snapshots from n
   assert.equal(eventsA.filter((event) => event.type === 'agent_status_snapshot').length, 1)
   assert.equal(eventsB.filter((event) => event.type === 'agent_status_snapshot').length, 1)
   assert.equal(eventsA.some((event) => event.type === 'agent_notification'), false)
-  states = [pane('local:%1', 'failed', 'failed')]
+  assert.deepEqual(monitor.getStates('local')?.map((item) => item.paneId), ['local:%1', 'local:%2'])
+  states = [pane('local:%1', 'failed', 'failed'), pane('local:%2')]
   await monitor.pollNow('local')
   assert.equal(eventsA.filter((event) => event.type === 'agent_notification').length, 1)
   assert.equal(eventsB.filter((event) => event.type === 'agent_notification').length, 1)
+  assert.equal(monitor.getStates('local')?.find((item) => item.paneId === 'local:%2')?.phase, 'working')
   unsubscribeA()
   unsubscribeB()
   monitor.stop()
@@ -76,6 +78,66 @@ test('keeps local, ssh, and agent hosts as independent monitor keys', async () =
   assert.equal(monitor.getStates('local')?.[0]?.paneId, 'local:%1')
   assert.equal(monitor.getStates('ssh-host')?.[0]?.paneId, 'ssh-host:%1')
   assert.equal(monitor.getStates('agent-host')?.[0]?.paneId, 'agent-host:%1')
+  unsubscribe()
+  monitor.stop()
+})
+
+test('removes deleted sessions and hosts without affecting other monitor state', async () => {
+  let hostIds = ['local', 'remote']
+  let states: Record<string, AgentPaneState[]> = {
+    local: [pane('local:%1')],
+    remote: [pane('remote:%2')],
+  }
+  const events: any[] = []
+  const monitor = new AgentMonitor({ getHostIds: async () => hostIds, scan: async (hostId) => states[hostId] || [], intervalMs: 1000 })
+  const unsubscribe = monitor.subscribe((event) => events.push(event))
+  await monitor.start()
+  states = { local: [], remote: [pane('remote:%2')] }
+  await monitor.pollNow('local')
+  assert.equal(events.find((event) => event.type === 'agent_status_removed' && event.paneId === 'local:%1')?.reason, 'pane_exited')
+  assert.deepEqual(monitor.getStates('remote')?.map((item) => item.paneId), ['remote:%2'])
+  hostIds = ['local']
+  await (monitor as any).refreshHosts(false)
+  assert.equal(events.find((event) => event.type === 'agent_status_removed' && event.paneId === 'remote:%2')?.reason, 'host_removed')
+  assert.equal(monitor.getStates('remote'), null)
+  unsubscribe()
+  monitor.stop()
+})
+
+test('discards an in-flight scan after stop and emits a fresh snapshot after restart', async () => {
+  let releaseScan: (states: AgentPaneState[]) => void = () => {}
+  let scanCount = 0
+  const events: any[] = []
+  const monitor = new AgentMonitor({ getHostIds: async () => ['local'], scan: async () => {
+    scanCount += 1
+    if (scanCount === 1) return new Promise<AgentPaneState[]>((resolve) => { releaseScan = resolve })
+    return [pane('local:%3')]
+  }, intervalMs: 1000 })
+  const unsubscribe = monitor.subscribe((event) => events.push(event))
+  const started = monitor.start()
+  await new Promise((resolve) => setImmediate(resolve))
+  monitor.stop()
+  releaseScan([pane('local:%3')])
+  await started
+  assert.equal(events.some((event) => event.type === 'agent_status_snapshot'), false)
+  await monitor.start()
+  assert.equal(events.filter((event) => event.type === 'agent_status_snapshot').length, 1)
+  assert.equal(events.some((event) => event.type === 'agent_notification'), false)
+  unsubscribe()
+  monitor.stop()
+})
+
+test('publishes the first snapshot after an initially unavailable host recovers', async () => {
+  let fail = true
+  const events: any[] = []
+  const monitor = new AgentMonitor({ getHostIds: async () => ['local'], scan: async () => { if (fail) throw new Error('offline'); return [pane('local:%4')] }, intervalMs: 1000 })
+  const unsubscribe = monitor.subscribe((event) => events.push(event))
+  await monitor.start()
+  assert.equal(events.some((event) => event.type === 'agent_status_snapshot'), false)
+  fail = false
+  await monitor.pollNow('local')
+  assert.equal(events.filter((event) => event.type === 'agent_status_snapshot').length, 1)
+  assert.equal(events.some((event) => event.type === 'agent_notification'), false)
   unsubscribe()
   monitor.stop()
 })
