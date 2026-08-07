@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useWebSocket } from './useWebSocket'
 const updateConnectionMock=vi.fn()
 const preferenceState={autoReconnect:false,reconnectInterval:1000}
+const authState={enabled:false}
+const getWebSocketUrlMock=vi.fn()
 const socketInstances:MockWebSocket[]=[]
 class MockWebSocket {
   static OPEN=1
@@ -43,6 +45,10 @@ vi.mock('@/stores/useConsoleStore',()=>({
 vi.mock('@/lib/runtime-endpoints',()=>({
   getWebSocketBase:()=> 'ws://localhost:3000/api/stream',
 }))
+vi.mock('@/lib/auth',()=>({
+  isAuthEnabled:()=>authState.enabled,
+  getWebSocketUrl:()=>getWebSocketUrlMock(),
+}))
 vi.mock('@/lib/mobile-diagnostics',()=>({
   recordMobileDiagnostic:vi.fn(),
 }))
@@ -52,6 +58,8 @@ describe('useWebSocket',()=>{
     updateConnectionMock.mockReset()
     preferenceState.autoReconnect=false
     preferenceState.reconnectInterval=1000
+    authState.enabled=false
+    getWebSocketUrlMock.mockReset()
     socketInstances.length=0
     Object.defineProperty(document,'visibilityState',{ configurable:true, value:'visible' })
     vi.stubGlobal('WebSocket', MockWebSocket as any)
@@ -151,6 +159,42 @@ describe('useWebSocket',()=>{
     })
     expect(socketInstances[0].readyState).toBe(MockWebSocket.CLOSED)
     expect(socketInstances).toHaveLength(2)
+    unmount()
+  })
+  it('restarts a pending authenticated connection after returning from the background',async()=>{
+    authState.enabled=true
+    let resolveFreshTicket:(url:string)=>void=()=>{}
+    getWebSocketUrlMock.mockImplementationOnce(()=>new Promise<string>(()=>{})).mockImplementationOnce(()=>new Promise<string>((resolve)=>{resolveFreshTicket=resolve}))
+    const { unmount }=renderHook(() => useWebSocket())
+    expect(getWebSocketUrlMock).toHaveBeenCalledTimes(1)
+    expect(socketInstances).toHaveLength(0)
+    await act(async()=>{
+      Object.defineProperty(document,'visibilityState',{ configurable:true, value:'hidden' })
+      document.dispatchEvent(new Event('visibilitychange'))
+      vi.advanceTimersByTime(1201)
+      Object.defineProperty(document,'visibilityState',{ configurable:true, value:'visible' })
+      document.dispatchEvent(new Event('visibilitychange'))
+      await Promise.resolve()
+    })
+    expect(getWebSocketUrlMock).toHaveBeenCalledTimes(2)
+    await act(async()=>{
+      resolveFreshTicket('ws://localhost:3000/api/stream?ticket=fresh')
+      await Promise.resolve()
+    })
+    expect(socketInstances).toHaveLength(1)
+    unmount()
+  })
+  it('does not restart a pending authenticated connection on ordinary focus',async()=>{
+    authState.enabled=true
+    getWebSocketUrlMock.mockImplementation(()=>new Promise<string>(()=>{}))
+    const { unmount }=renderHook(() => useWebSocket())
+    expect(getWebSocketUrlMock).toHaveBeenCalledTimes(1)
+    await act(async()=>{
+      window.dispatchEvent(new Event('focus'))
+      await Promise.resolve()
+    })
+    expect(getWebSocketUrlMock).toHaveBeenCalledTimes(1)
+    expect(socketInstances).toHaveLength(0)
     unmount()
   })
   it('reconnects after a socket error without waiting for close',()=>{
