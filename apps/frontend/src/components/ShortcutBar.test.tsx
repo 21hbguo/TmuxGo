@@ -11,7 +11,7 @@ const snapshotGet = vi.fn()
 const zoomByPane = vi.fn()
 const killPane = vi.fn()
 let windowsDataMock:any[]=[{ id:'win-1',sessionId:'session-dev',active:true }]
-const shortcutsMock=[{ id:'shortcut-a',label:'A',keys:'Ctrl+A',action:'input' },{ id:'shortcut-b',label:'B',keys:'Ctrl+B',action:'input' }]
+const shortcutsMock=[{ id:'shortcut-a',label:'A',keys:'Ctrl+A',action:'input' },{ id:'shortcut-b',label:'B',keys:'Ctrl+B',action:'input' },{ id:'shortcut-text',label:'Status',mode:'text' as const,text:'printf ok',appendEnter:true }]
 
 vi.mock('@/hooks/useWebSocket', () => ({
   useWebSocket: () => ({ send, isConnected: true, isSocketReady: true }),
@@ -20,8 +20,8 @@ vi.mock('@/hooks/useApi', () => ({
   useWindows: () => ({ data: windowsDataMock }),
 }))
 vi.mock('@/hooks/useCustomShortcuts', () => ({
-  useCustomShortcuts: () => ({ shortcuts: shortcutsMock, addShortcut: vi.fn(), removeShortcut: vi.fn() }),
-  keysToEscape: (value: string) => value === 'Ctrl+A' ? '\x01' : value === 'Ctrl+B' ? '\x02' : '',
+  useCustomShortcuts: () => ({ shortcuts: shortcutsMock, addShortcut: vi.fn(), updateShortcut: vi.fn(), removeShortcut: vi.fn() }),
+  shortcutToInput: (value: any) => value.mode === 'text' ? value.text + (value.appendEnter ? '\r' : '') : value.keys === 'Ctrl+A' ? '\x01' : value.keys === 'Ctrl+B' ? '\x02' : '',
 }))
 vi.mock('@/lib/api', () => ({
   api: {
@@ -318,10 +318,29 @@ describe('ShortcutBar', () => {
     render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))
     const buttonsBefore = screen.getAllByRole('button').map((item) => item.textContent)
     expect(buttonsBefore.indexOf('A')).toBeLessThan(buttonsBefore.indexOf('B'))
+    expect(buttonsBefore.indexOf('A')).toBeLessThan(buttonsBefore.indexOf('Esc'))
     fireEvent.pointerDown(screen.getByRole('button', { name: 'B' }), { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
     fireEvent.pointerUp(screen.getByRole('button', { name: 'B' }), { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
     const rerendered = render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))
     const buttonsAfter = rerendered.getAllByRole('button').map((item) => item.textContent)
     expect(buttonsAfter.indexOf('B')).toBeLessThan(buttonsAfter.indexOf('A'))
+  })
+  it('shows same-size edit and delete controls for custom shortcuts', () => {
+    render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar, { mode: 'panel' })))
+    const edits = screen.getAllByRole('button', { name: '编辑快捷键' })
+    const removes = screen.getAllByRole('button', { name: '删除快捷键' })
+    expect(edits).toHaveLength(shortcutsMock.length)
+    expect(removes).toHaveLength(shortcutsMock.length)
+    for (const button of [...edits, ...removes]) {
+      expect(button.className).toContain('h-7')
+      expect(button.className).toContain('w-7')
+    }
+  })
+  it('sends text shortcuts and appends enter only when configured', () => {
+    render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))
+    const button = screen.getByRole('button', { name: 'Status' })
+    fireEvent.pointerDown(button, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
+    fireEvent.pointerUp(button, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
+    expect(send).toHaveBeenCalledWith({ type: 'input', data: 'printf ok\r' })
   })
 })
