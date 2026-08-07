@@ -28,6 +28,7 @@ import { createFastifyLoggerConfig } from './lib/process-log.js'
 import { authRoutes } from './routes/auth.js'
 import { shareRoutes } from './routes/shares.js'
 import { getAccessCookieName, initializeAuthStore, isAuthEnabled, isPasswordChangeRequired, verifyAccessToken } from './lib/auth.js'
+import { agentMonitor } from './lib/agent-monitor.js'
 
 const fastify = Fastify({
   logger: createFastifyLoggerConfig(),
@@ -124,6 +125,7 @@ const start = async () => {
   try {
     const port = parseInt(process.env.PORT || '3001')
     await fastify.listen({ port, host: '0.0.0.0' })
+    void agentMonitor.start()
     console.log(`Gateway listening on port ${port}`)
   } catch (err) {
     fastify.log.error(err)
@@ -134,6 +136,7 @@ const start = async () => {
 start()
 
 const shutdown = async () => {
+  agentMonitor.stop()
   await pluginManager.shutdown()
   await cleanupMultiplexSockets()
   process.exit(0)

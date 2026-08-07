@@ -24,7 +24,7 @@ vi.mock('@/hooks/usePreferences', () => ({ usePreferences: () => ({ preferences:
 vi.mock('@/hooks/useOptionalQueryClient', () => ({ useOptionalQueryClient: () => mocks.queryClient }))
 vi.mock('@/stores/useConsoleStore', () => ({ useConsoleStore: Object.assign((selector: any) => selector(mocks.consoleState), { getState: () => mocks.consoleState }) }))
 vi.mock('@/lib/api', () => ({ api: { snapshot: { get: mocks.snapshotGet }, windows: { select: mocks.windowSelect }, panes: { select: mocks.paneSelect } } }))
-vi.mock('@/i18n', () => ({ useTranslation: () => ({ t: (key: string, params?: Record<string, string>) => key === 'agent.notification.blocked' ? `${params?.agent} blocked in ${params?.session}` : key === 'agent.notification.done' ? `${params?.agent} finished in ${params?.session}` : key }) }))
+vi.mock('@/i18n', () => ({ useTranslation: () => ({ t: (key: string, params?: Record<string, string>) => { const messages: Record<string, string> = { 'agent.notification.blocked': `${params?.agent} blocked in ${params?.session}`, 'agent.notification.done': `${params?.agent} finished in ${params?.session}`, 'agent.notification.permission': `${params?.agent} permission required in ${params?.session}`, 'agent.notification.question': `${params?.agent} needs input in ${params?.session}`, 'agent.notification.failed': `${params?.agent} failed in ${params?.session}`, 'agent.notification.ended': `${params?.agent} ended in ${params?.session}`, 'agent.notification.disconnected': `${params?.agent} disconnected in ${params?.session}` }; return messages[key] || key } }) }))
 
 function emitAgentStatus(status: 'blocked' | 'done', revision: number) {
   window.dispatchEvent(new CustomEvent('tmuxgo-agent-status', { detail: { hostId: 'local', sessionName: 'dev', pane: { paneId: 'local:%1', tmuxPaneId: '%1', sessionName: 'dev', agent: 'codex', agentStatus: status, revision } } }))
@@ -87,10 +87,33 @@ describe('PaneNotifications', () => {
     expect(screen.queryByText('codex blocked in dev')).not.toBeInTheDocument()
     expect(JSON.parse(localStorage.getItem('tmuxgo-pane-notifications') || '[]')).toEqual([])
   })
-  it('notifies for the first observed completed state', () => {
+  it('restores an initial completed snapshot without notifying', () => {
     render(<PaneNotifications />)
     act(() => window.dispatchEvent(new CustomEvent('tmuxgo-agent-status', { detail: { hostId: 'local', sessionName: 'dev', initial: true, pane: { paneId: 'local:%1', tmuxPaneId: '%1', sessionName: 'dev', agent: 'codex', agentStatus: 'done', revision: 8 } } })))
+    expect(screen.queryByText('codex finished in dev')).not.toBeInTheDocument()
+    expect(JSON.parse(localStorage.getItem('tmuxgo-pane-notifications') || '[]')).toEqual([])
+  })
+  it('notifies from an explicit agent notification event', () => {
+    render(<PaneNotifications />)
+    act(() => window.dispatchEvent(new CustomEvent('tmuxgo-agent-notification', { detail: { type: 'agent_notification', hostId: 'local', sessionName: 'dev', eventId: 'local:local:%1:completed:9', pane: { paneId: 'local:%1', tmuxPaneId: '%1', sessionName: 'dev', agent: 'codex', agentStatus: 'idle', phase: 'idle', lastEvent: 'completed', revision: 9 } } })))
     expect(screen.getByText('codex finished in dev')).toBeInTheDocument()
+    expect(JSON.parse(localStorage.getItem('tmuxgo-pane-notifications') || '[]')).toHaveLength(1)
+  })
+  it('deduplicates explicit notifications by event id', () => {
+    render(<PaneNotifications />)
+    const detail = { type: 'agent_notification', hostId: 'local', sessionName: 'dev', eventId: 'local:local:%1:failed:10', pane: { paneId: 'local:%1', tmuxPaneId: '%1', sessionName: 'dev', agent: 'codex', agentStatus: 'unknown', phase: 'failed', lastEvent: 'failed', revision: 10 } }
+    act(() => {
+      window.dispatchEvent(new CustomEvent('tmuxgo-agent-notification', { detail }))
+      window.dispatchEvent(new CustomEvent('tmuxgo-agent-notification', { detail }))
+    })
+    expect(screen.getAllByText('codex failed in dev')).toHaveLength(1)
+    expect(JSON.parse(localStorage.getItem('tmuxgo-pane-notifications') || '[]')).toHaveLength(1)
+  })
+  it('clears agent metadata but keeps the terminal pane when it is removed', () => {
+    queryCache.set(JSON.stringify(['session-snapshot', 'local', 'session-local-dev']), { panes: [{ id: 'local:%1', windowId: 'local:@1', title: 'codex', agent: 'codex', agentStatus: 'working', phase: 'working', revision: 3 }] })
+    render(<PaneNotifications />)
+    act(() => window.dispatchEvent(new CustomEvent('tmuxgo-agent-status-removed', { detail: { type: 'agent_status_removed', hostId: 'local', sessionName: 'dev', paneId: 'local:%1', reason: 'pane_exited' } })))
+    expect(queryClient.getQueryData(['session-snapshot', 'local', 'session-local-dev'])).toEqual({ panes: [{ id: 'local:%1', windowId: 'local:@1', title: 'codex' }] })
   })
   it('does not show a duplicate notification after reconnecting', () => {
     render(<PaneNotifications />)

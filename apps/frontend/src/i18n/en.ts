@@ -712,6 +712,11 @@ export const en = {
   'agent.status.unknown': 'Unknown',
   'agent.notification.blocked': '{agent} is blocked in {session}',
   'agent.notification.done': '{agent} finished in {session}',
+  'agent.notification.permission': '{agent} is waiting for permission in {session}',
+  'agent.notification.question': '{agent} is waiting for your answer in {session}',
+  'agent.notification.failed': '{agent} failed in {session}',
+  'agent.notification.ended': '{agent} ended in {session}',
+  'agent.notification.disconnected': '{agent} disconnected from {session}',
 
   // AppVersionGuard
   'version.newAvailable': 'New frontend version available. Refresh to update.',

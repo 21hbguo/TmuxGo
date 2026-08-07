@@ -115,6 +115,18 @@ export function useWebSocket() {
       case 'agent_status_changed':
         window.dispatchEvent(new CustomEvent('tmuxgo-agent-status',{detail:data}))
         break
+      case 'agent_status_snapshot':
+        window.dispatchEvent(new CustomEvent('tmuxgo-agent-status-snapshot',{detail:data}))
+        break
+      case 'agent_status_removed':
+        window.dispatchEvent(new CustomEvent('tmuxgo-agent-status-removed',{detail:data}))
+        break
+      case 'agent_notification':
+        window.dispatchEvent(new CustomEvent('tmuxgo-agent-notification',{detail:data}))
+        break
+      case 'agent_monitor_error':
+        window.dispatchEvent(new CustomEvent('tmuxgo-agent-monitor-error',{detail:data}))
+        break
     }
   },[clearPongTimer,clearRecoveryTimer,emitOutput,updateConnection])
   const sendPing=useCallback((timeout=8000)=>{

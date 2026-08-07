@@ -712,6 +712,11 @@ export const zh = {
   'agent.status.unknown': '未知',
   'agent.notification.blocked': '{agent} 在 {session} 等待处理',
   'agent.notification.done': '{agent} 在 {session} 已完成',
+  'agent.notification.permission': '{agent} 在 {session} 等待权限确认',
+  'agent.notification.question': '{agent} 在 {session} 等待你的回答',
+  'agent.notification.failed': '{agent} 在 {session} 执行失败',
+  'agent.notification.ended': '{agent} 在 {session} 已退出',
+  'agent.notification.disconnected': '{agent} 在 {session} 已断开',
 
   // AppVersionGuard
   'version.newAvailable': '有新版本可用，刷新页面更新。',

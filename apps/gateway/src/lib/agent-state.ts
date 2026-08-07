@@ -2,13 +2,26 @@ import { getVisibleTerminalLines } from './terminal-output.js'
 import { execHostShell, execTmux } from './tmux-executor.js'
 
 export type AgentStatus = 'idle' | 'working' | 'blocked' | 'done' | 'unknown'
+export type AgentPhase = 'idle' | 'working' | 'needs_input' | 'permission_required' | 'retrying' | 'failed' | 'ended' | 'disconnected' | 'unknown'
+export type AgentEvent = 'started' | 'permission_required' | 'question_required' | 'completed' | 'failed' | 'retrying' | 'ended' | 'disconnected' | 'reconnected'
+export type AgentSource = 'protocol' | 'hook' | 'tmux' | 'osc133' | 'process' | 'pane_output'
+export type AgentConfidence = 'high' | 'medium' | 'low'
 export interface AgentPaneState {
   paneId: string
   tmuxPaneId: string
   sessionName: string
   agent: string
+  agentSessionId?: string
   agentStatus: AgentStatus
   revision: number
+  phase?: AgentPhase
+  lastEvent?: AgentEvent
+  source?: AgentSource
+  confidence?: AgentConfidence
+  since?: string
+  updatedAt?: string
+  eventId?: string
+  message?: string
 }
 interface PaneCandidate {
   paneId: string
@@ -17,9 +30,24 @@ interface PaneCandidate {
   sessionName: string
   currentCommand: string
   title: string
+  paneDead: boolean
+  paneDeadStatus: string
+  lastOutputTime: string
+  commandRunning: boolean
+  commandStatus: string
+  commandDuration: string
 }
 interface AgentRecord extends AgentPaneState {
   rawStatus: AgentStatus
+  rawPhase: AgentPhase
+}
+interface AgentDetection {
+  agent: string
+  agentStatus: AgentStatus
+  phase: AgentPhase
+  source: AgentSource
+  confidence: AgentConfidence
+  message?: string
 }
 const records = new Map<string, AgentRecord>()
 const scans = new Map<string, { expiresAt: number; promise: Promise<AgentPaneState[]> }>()
@@ -41,7 +69,11 @@ const directAgents: Record<string, string> = {
 const indirectCommands = new Set(['node', 'bun', 'deno', 'python', 'python3'])
 const spinnerPattern = /(?:^|\s)[\u2800-\u28ff](?:\s|$)/u
 const blockedPattern = /(action required|allow command\?|press enter to confirm|enter to submit(?: answer| all)?|would you like to|do you want to proceed|\[y\/n\]|permission required|requires your approval)/i
+const permissionPattern = /(allow command\?|permission required|requires your approval|approve|approval|\[y\/n\])/i
+const questionPattern = /(enter to submit(?: answer| all)?|would you like to|do you want to proceed|what would you like|please answer|type your answer)/i
 const workingPattern = /(?:^|\n)[•◦]\s+Working\s+\([^)]*esc to interrupt\)|esc to interrupt|press esc to interrupt/i
+const retryPattern = /(?:retry|retrying|attempt\s+\d+)/i
+const failurePattern = /(?:^|\n)\s*(?:error|failed|failure|fatal|exception)\s*:/i
 
 function normalizeCommand(value: string) {
   return value.trim().toLowerCase().split(/[\\/]/).pop() || ''
@@ -73,6 +105,50 @@ function detectRawStatus(title: string, output: string): AgentStatus {
   if (spinnerPattern.test(title) || workingPattern.test(recent)) return 'working'
   return 'idle'
 }
+function detectRawPhase(candidate: PaneCandidate, title: string, output: string, processAgent?: string | null) {
+  const recent = getVisibleTerminalLines(output).slice(-16).join('\n')
+  const visible = title + '\n' + recent
+  const command = normalizeCommand(candidate.currentCommand)
+  const source: AgentSource = processAgent !== undefined ? 'process' : directAgents[command] ? 'tmux' : 'pane_output'
+  const confidence: AgentConfidence = processAgent !== undefined || directAgents[command] ? 'medium' : 'low'
+  if (candidate.paneDead) return { phase: 'ended' as const, source: 'tmux' as const, confidence: 'high' as const, message: 'Agent process ended' }
+  if (permissionPattern.test(visible)) return { phase: 'permission_required' as const, source, confidence, message: 'Agent is waiting for permission' }
+  if (questionPattern.test(visible)) return { phase: 'needs_input' as const, source, confidence, message: 'Agent is waiting for input' }
+  if (retryPattern.test(visible)) return { phase: 'retrying' as const, source, confidence, message: 'Agent is retrying' }
+  if (failurePattern.test(visible) || (!candidate.commandRunning && /^\d+$/.test(candidate.commandStatus) && Number(candidate.commandStatus) > 0)) return { phase: 'failed' as const, source: candidate.commandStatus ? 'tmux' as const : source, confidence: candidate.commandStatus ? 'medium' as const : confidence, message: 'Agent reported a failure' }
+  if (spinnerPattern.test(title) || workingPattern.test(recent) || candidate.commandRunning) return { phase: 'working' as const, source, confidence }
+  return { phase: 'idle' as const, source, confidence }
+}
+function toLegacyStatus(phase: AgentPhase, completed: boolean): AgentStatus {
+  if (completed) return 'done'
+  if (phase === 'permission_required' || phase === 'needs_input') return 'blocked'
+  if (phase === 'working' || phase === 'retrying') return 'working'
+  if (phase === 'idle') return 'idle'
+  if (phase === 'unknown') return 'unknown'
+  return 'unknown'
+}
+function getTransitionEvent(phase: AgentPhase, previousPhase?: AgentPhase): AgentEvent | undefined {
+  if (!previousPhase) return undefined
+  if (previousPhase === 'disconnected' && phase !== 'disconnected') return 'reconnected'
+  if (phase === 'permission_required' && previousPhase !== phase) return 'permission_required'
+  if (phase === 'needs_input' && previousPhase !== phase) return 'question_required'
+  if (phase === 'retrying' && previousPhase !== phase) return 'retrying'
+  if (phase === 'failed' && previousPhase !== phase) return 'failed'
+  if (phase === 'ended' && previousPhase !== phase) return 'ended'
+  if (phase === 'working' && previousPhase !== phase) return 'started'
+  if (phase === 'idle' && (previousPhase === 'working' || previousPhase === 'retrying' || previousPhase === 'permission_required' || previousPhase === 'needs_input')) return 'completed'
+  return undefined
+}
+function detectAgentObservation(candidate: PaneCandidate, output: string, processAgent?: string | null): AgentDetection | null {
+  const detected = detectAgentPaneState(candidate.currentCommand, candidate.title, output, processAgent)
+  if (!detected) return null
+  const raw = detectRawPhase(candidate, candidate.title, output, processAgent)
+  return { ...detected, ...raw }
+}
+export function detectAgentEvidence(currentCommand: string, title: string, output: string, processAgent?: string | null) {
+  const candidate: PaneCandidate = { paneId: 'test:%0', tmuxPaneId: '%0', panePid: '', sessionName: 'test', currentCommand, title, paneDead: false, paneDeadStatus: '', lastOutputTime: '', commandRunning: false, commandStatus: '', commandDuration: '' }
+  return detectAgentObservation(candidate, output, processAgent)
+}
 export function detectAgentPaneState(currentCommand: string, title: string, output: string, processAgent?: string | null) {
   const agent = detectAgent(currentCommand, title, output, processAgent)
   return agent ? { agent, agentStatus: detectRawStatus(title, output) } : null
@@ -82,25 +158,47 @@ export function resolveAgentStatus(rawStatus: AgentStatus, previousStatus?: Agen
   return rawStatus
 }
 function toAgentPaneState(record: AgentRecord): AgentPaneState {
-  const { rawStatus, ...state } = record
+  const { rawStatus, rawPhase, ...state } = record
   return state
 }
-function updateRecord(candidate: PaneCandidate, output: string, processAgent?: string | null) {
-  const detected = detectAgentPaneState(candidate.currentCommand, candidate.title, output, processAgent)
+function updateRecord(candidate: PaneCandidate, output: string, processAgent?: string | null, processScanFailed = false) {
+  const detected = detectAgentObservation(candidate, output, processAgent)
   if (!detected) {
+    if (processScanFailed) {
+      const previous = records.get(candidate.paneId)
+      if (previous) return toAgentPaneState(previous)
+    }
     records.delete(candidate.paneId)
     return null
   }
   const previous = records.get(candidate.paneId)
-  const agentStatus = resolveAgentStatus(detected.agentStatus, previous?.agent === detected.agent ? previous.agentStatus : undefined)
-  if (previous?.agent === detected.agent && previous.agentStatus === agentStatus && previous.rawStatus === detected.agentStatus) return toAgentPaneState(previous)
+  const sameAgent = previous?.agent === detected.agent
+  const previousPhase = sameAgent ? previous?.rawPhase : undefined
+  const transitionEvent = getTransitionEvent(detected.phase, previousPhase)
+  const completed = detected.phase === 'idle' && transitionEvent === 'completed'
+  const agentStatus = toLegacyStatus(detected.phase, completed)
+  const now = new Date().toISOString()
+  const lastEvent = transitionEvent || (sameAgent ? previous?.lastEvent : undefined)
+  const eventId = transitionEvent ? candidate.paneId + ':' + candidate.sessionName + ':' + transitionEvent + ':' + now : sameAgent ? previous?.eventId : candidate.paneId + ':' + candidate.sessionName + ':state:' + now
+  const since = !sameAgent || previous?.rawPhase !== detected.phase ? now : previous?.since || now
+  if (sameAgent && previous?.agentStatus === agentStatus && previous.rawStatus === detected.agentStatus && previous.rawPhase === detected.phase && previous.lastEvent === lastEvent && previous.eventId === eventId && previous.message === detected.message) return toAgentPaneState(previous)
   const record: AgentRecord = {
     paneId: candidate.paneId,
     tmuxPaneId: candidate.tmuxPaneId,
     sessionName: candidate.sessionName,
     agent: detected.agent,
+    agentSessionId: candidate.paneId + ':' + candidate.sessionName,
     agentStatus,
     rawStatus: detected.agentStatus,
+    rawPhase: detected.phase,
+    phase: detected.phase,
+    lastEvent,
+    source: detected.source,
+    confidence: detected.confidence,
+    since,
+    updatedAt: now,
+    eventId,
+    message: detected.message,
     revision: ++nextRevision,
   }
   records.set(candidate.paneId, record)
@@ -112,7 +210,7 @@ function shouldCapture(candidate: PaneCandidate) {
 }
 async function getProcessAgents(hostId: string, candidates: PaneCandidate[]) {
   const panePids = [...new Set(candidates.map((candidate) => candidate.panePid).filter((panePid) => /^\d+$/.test(panePid)))]
-  if (!panePids.length) return null
+  if (!panePids.length) return new Map<string, string>()
   try {
     const { stdout } = await execHostShell(hostId, `ps -ww --ppid ${panePids.join(',')} -o ppid=,args=`, { timeoutMs: 5000 })
     const agents = new Map<string, string>()
@@ -129,15 +227,16 @@ async function getProcessAgents(hostId: string, candidates: PaneCandidate[]) {
 }
 async function scanAgentPanes(hostId: string, sessionName?: string, allowedSessionNames?: string[]) {
   const args = sessionName ? ['list-panes', '-s', '-t', sessionName] : ['list-panes', '-a']
-  args.push('-F', '#{session_name}\t#{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_title}')
+  args.push('-F', '#{session_name}\t#{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_title}\t#{pane_dead}\t#{pane_dead_status}\t#{pane_last_output_time}\t#{pane_command_running}\t#{pane_command_status}\t#{pane_command_duration}')
   const { stdout } = await execTmux(hostId, args)
   const allowedSessions = allowedSessionNames ? new Set(allowedSessionNames) : null
   const candidates = stdout.trim().split('\n').filter(Boolean).map((line) => {
-    const [paneSessionName, tmuxPaneId, panePid, currentCommand, title] = line.split('\t')
-    return { paneId: `${hostId}:${tmuxPaneId}`, tmuxPaneId, panePid, sessionName: paneSessionName, currentCommand, title: title || '' }
+    const [paneSessionName, tmuxPaneId, panePid, currentCommand, title, paneDead, paneDeadStatus, lastOutputTime, commandRunning, commandStatus, commandDuration] = line.split('\t')
+    return { paneId: `${hostId}:${tmuxPaneId}`, tmuxPaneId, panePid, sessionName: paneSessionName, currentCommand, title: title || '', paneDead: paneDead === '1', paneDeadStatus: paneDeadStatus || '', lastOutputTime: lastOutputTime || '', commandRunning: commandRunning === '1', commandStatus: commandStatus || '', commandDuration: commandDuration || '' }
   }).filter((candidate) => candidate.tmuxPaneId?.startsWith('%') && (!allowedSessions || allowedSessions.has(candidate.sessionName)))
   const processAgents = await getProcessAgents(hostId, candidates)
-  const agentCandidates = candidates.filter((candidate) => shouldCapture(candidate) || !!processAgents?.get(candidate.panePid))
+  const processScanFailed = processAgents === null
+  const agentCandidates = candidates.filter((candidate) => shouldCapture(candidate) || !!processAgents?.get(candidate.panePid) || records.has(candidate.paneId))
   const states: AgentPaneState[] = []
   let index = 0
   await Promise.all(Array.from({ length: Math.min(4, agentCandidates.length) }, async () => {
@@ -146,9 +245,12 @@ async function scanAgentPanes(hostId: string, sessionName?: string, allowedSessi
       try {
         const { stdout: output } = await execTmux(hostId, ['capture-pane', '-p', '-t', candidate.tmuxPaneId, '-S', '-80'])
         const processAgent = processAgents ? processAgents.get(candidate.panePid) : undefined
-        const state = updateRecord(candidate, output, processAgent)
+        const state = updateRecord(candidate, output, processAgent, processScanFailed)
         if (state) states.push(state)
-      } catch {}
+      } catch {
+        const previous = records.get(candidate.paneId)
+        if (previous) states.push(toAgentPaneState(previous))
+      }
     }
   }))
   return states.sort((a, b) => a.paneId.localeCompare(b.paneId))
@@ -176,6 +278,9 @@ export function markAgentPaneSeen(paneId: string) {
   const next = { ...current, agentStatus: 'idle' as const, revision: ++nextRevision }
   records.set(paneId, next)
   return toAgentPaneState(next)
+}
+export function forgetAgentPane(paneId: string) {
+  records.delete(paneId)
 }
 export function summarizeAgentPanes(states: AgentPaneState[]) {
   return states.reduce((summary, state) => {

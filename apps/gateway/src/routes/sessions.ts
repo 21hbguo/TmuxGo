@@ -5,6 +5,7 @@ import { assertSessionAllowed, isValidSessionName, prepareSessionAttach } from '
 import { buildSessionId, parseSessionRef } from '../lib/tmux-target.js'
 import { execTmux } from '../lib/tmux-executor.js'
 import { getHostAgentPanes, summarizeAgentPanes } from '../lib/agent-state.js'
+import { agentMonitor } from '../lib/agent-monitor.js'
 import { emitPluginEvent } from '../lib/plugin-manager.js'
 import { hostParamsSchema, sessionCreateBodySchema, sessionRenameBodySchema } from '../lib/request-validation.js'
 
@@ -293,7 +294,7 @@ export async function sessionRoutes(fastify: FastifyInstance) {
     const { hostId } = request.params as { hostId: string }
     const sessions = await getHostTmuxSessions(hostId)
     if (!sessions.length) return []
-    const agentPanes = await getHostAgentPanes(hostId, sessions.map((session) => session.name)).catch(() => [])
+    const agentPanes = agentMonitor.getStates(hostId) || await getHostAgentPanes(hostId, sessions.map((session) => session.name)).catch(() => [])
     return sessions.map((session) => {
       const agents = agentPanes.filter((pane) => pane.sessionName === session.name)
       return { ...session, agents, agentSummary: summarizeAgentPanes(agents) }
