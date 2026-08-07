@@ -23,6 +23,9 @@ class MockWebSocket {
     this.readyState=MockWebSocket.CLOSED
     this.onclose?.()
   }
+  error() {
+    this.onerror?.()
+  }
   open() {
     this.readyState=MockWebSocket.OPEN
     this.onopen?.()
@@ -134,6 +137,29 @@ describe('useWebSocket',()=>{
       document.dispatchEvent(new Event('visibilitychange'))
     })
     expect(socketInstances[0].readyState).toBe(MockWebSocket.CLOSED)
+    expect(socketInstances).toHaveLength(2)
+    unmount()
+  })
+  it('replaces a socket that is still connecting after returning from the background',()=>{
+    const { unmount }=renderHook(() => useWebSocket())
+    act(()=>{
+      Object.defineProperty(document,'visibilityState',{ configurable:true, value:'hidden' })
+      document.dispatchEvent(new Event('visibilitychange'))
+      vi.advanceTimersByTime(1201)
+      Object.defineProperty(document,'visibilityState',{ configurable:true, value:'visible' })
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    expect(socketInstances[0].readyState).toBe(MockWebSocket.CLOSED)
+    expect(socketInstances).toHaveLength(2)
+    unmount()
+  })
+  it('reconnects after a socket error without waiting for close',()=>{
+    preferenceState.autoReconnect=true
+    const { unmount }=renderHook(() => useWebSocket())
+    act(()=>{
+      socketInstances[0].error()
+      vi.advanceTimersByTime(400)
+    })
     expect(socketInstances).toHaveLength(2)
     unmount()
   })
