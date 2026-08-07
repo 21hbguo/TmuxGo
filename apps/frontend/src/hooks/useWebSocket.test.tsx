@@ -134,6 +134,34 @@ describe('useWebSocket',()=>{
     window.removeEventListener('tmuxgo-agent-status',listener as EventListener)
     unmount()
   })
+  it('dispatches the agent monitor event types',()=>{
+    const listeners = { snapshot: vi.fn(), removed: vi.fn(), notification: vi.fn(), error: vi.fn() }
+    window.addEventListener('tmuxgo-agent-status-snapshot', listeners.snapshot as EventListener)
+    window.addEventListener('tmuxgo-agent-status-removed', listeners.removed as EventListener)
+    window.addEventListener('tmuxgo-agent-notification', listeners.notification as EventListener)
+    window.addEventListener('tmuxgo-agent-monitor-error', listeners.error as EventListener)
+    const { unmount } = renderHook(() => useWebSocket())
+    const snapshot = { type: 'agent_status_snapshot', initial: true, hostId: 'local', revision: 3, agents: [] }
+    const removed = { type: 'agent_status_removed', initial: false, hostId: 'local', sessionName: 'dev', paneId: 'local:%1', reason: 'pane_exited' }
+    const notification = { type: 'agent_notification', initial: false, hostId: 'local', sessionName: 'dev', eventId: 'local:local:%1:failed:4', pane: { paneId: 'local:%1', agent: 'codex', agentStatus: 'unknown', phase: 'failed', revision: 4 } }
+    const monitorError = { type: 'agent_monitor_error', initial: false, hostId: 'remote', message: 'Agent monitor scan failed', retrying: true }
+    act(() => {
+      socketInstances[0].open()
+      socketInstances[0].message(snapshot)
+      socketInstances[0].message(removed)
+      socketInstances[0].message(notification)
+      socketInstances[0].message(monitorError)
+    })
+    expect((listeners.snapshot.mock.calls[0]?.[0] as CustomEvent).detail).toEqual(snapshot)
+    expect((listeners.removed.mock.calls[0]?.[0] as CustomEvent).detail).toEqual(removed)
+    expect((listeners.notification.mock.calls[0]?.[0] as CustomEvent).detail).toEqual(notification)
+    expect((listeners.error.mock.calls[0]?.[0] as CustomEvent).detail).toEqual(monitorError)
+    window.removeEventListener('tmuxgo-agent-status-snapshot', listeners.snapshot as EventListener)
+    window.removeEventListener('tmuxgo-agent-status-removed', listeners.removed as EventListener)
+    window.removeEventListener('tmuxgo-agent-notification', listeners.notification as EventListener)
+    window.removeEventListener('tmuxgo-agent-monitor-error', listeners.error as EventListener)
+    unmount()
+  })
   it('replaces a stale socket after returning from the background',()=>{
     const { unmount }=renderHook(() => useWebSocket())
     act(()=>{

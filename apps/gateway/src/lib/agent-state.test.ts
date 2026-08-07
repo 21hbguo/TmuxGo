@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { detectAgentPaneState, detectProcessAgent, resolveAgentStatus, summarizeAgentPanes } from './agent-state.js'
+import { detectAgentEvidence, detectAgentPaneState, detectProcessAgent, resolveAgentStatus, summarizeAgentPanes } from './agent-state.js'
 import { createTerminalOutputSanitizer } from './terminal-output.js'
 
 test('detects codex lifecycle from terminal output', () => {
@@ -17,6 +17,11 @@ test('detects agents from pane child processes', () => {
   assert.equal(detectProcessAgent('node /srv/gateway.js'), null)
   assert.deepEqual(detectAgentPaneState('node', 'TmuxGo', '', 'codex'), { agent: 'codex', agentStatus: 'idle' })
   assert.equal(detectAgentPaneState('node', '⠹ TmuxGo', '• Working (10s • esc to interrupt)', null), null)
+})
+test('classifies phase evidence with source and confidence', () => {
+  assert.deepEqual(detectAgentEvidence('codex', 'TmuxGo', 'Allow command?\n[y/n]'), { agent: 'codex', agentStatus: 'blocked', phase: 'permission_required', source: 'tmux', confidence: 'medium', message: 'Agent is waiting for permission' })
+  assert.deepEqual(detectAgentEvidence('node', '⠹ TmuxGo', '• Working (10s • esc to interrupt)'), { agent: 'codex', agentStatus: 'working', phase: 'working', source: 'pane_output', confidence: 'low' })
+  assert.deepEqual(detectAgentEvidence('node', 'TmuxGo', '', 'codex'), { agent: 'codex', agentStatus: 'idle', phase: 'idle', source: 'process', confidence: 'medium' })
 })
 test('turns completed work into unseen done state', () => {
   assert.equal(resolveAgentStatus('idle', 'working'), 'done')

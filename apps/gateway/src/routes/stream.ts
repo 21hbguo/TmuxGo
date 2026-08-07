@@ -12,7 +12,8 @@ import { createTerminalOutputSanitizer, hasSubstantiveTerminalContent } from '..
 import { parseSessionRef } from '../lib/tmux-target.js'
 import { getAttachSnapshotDelays } from '../lib/attach-snapshot.js'
 import { execTmux } from '../lib/tmux-executor.js'
-import { getHostAgentPanes, markAgentPaneSeen } from '../lib/agent-state.js'
+import { agentMonitor } from '../lib/agent-monitor.js'
+import { markAgentPaneSeen } from '../lib/agent-state.js'
 import { streamAttachMessageSchema, streamInputMessageSchema, streamMessageSchema, streamRegisterMessageSchema, streamResizeMessageSchema } from '../lib/request-validation.js'
 import { encodeStreamCellBinary, encodeStreamOutputBinary } from '../lib/stream-binary.js'
 import { AnsiParser, TerminalGrid, diffCells, encodeCellDiff, encodeCellSnapshot } from '../lib/terminal-grid/index.js'
@@ -42,7 +43,6 @@ export async function streamRoutes(fastify: FastifyInstance) {
     const SCROLL_MAX_LINES = 24
     const ATTACH_REDRAW_DELAYS = [48]
     const REQUEST_REDRAW_DELAYS = [48]
-    const AGENT_STATE_POLL_MS = 1500
     const SOCKET_BUFFER_HIGH_WATERMARK = 1048576
     const SOCKET_BUFFER_EXTREME_WATERMARK = 4194304
     const SOCKET_FLUSH_DEFER_MS = 24
@@ -90,9 +90,8 @@ export async function streamRoutes(fastify: FastifyInstance) {
     let attachSeq = 0
     let attachVisibleOutputObserved = false
     let attachSnapshotTimers: ReturnType<typeof setTimeout>[] = []
-    let agentStatePolling = false
+    let unsubscribeAgentMonitor: (() => void) | null = null
     let pendingResizeAck: { sessionName: string; hostId: string; cols: number; rows: number; seq: number; refreshComplete: boolean; outputObserved: boolean } | null = null
-    const sentAgentRevisions = new Map<string, number>()
     const scrollBuffers = new Map<string, number>()
     const scrollRunning = new Set<string>()
     const socket = connection.socket
@@ -448,24 +447,6 @@ export async function streamRoutes(fastify: FastifyInstance) {
       for (const timer of attachSnapshotTimers) clearTimeout(timer)
       attachSnapshotTimers = []
     }
-    async function pollAgentStates() {
-      if (agentStatePolling || !attachedSessionName) return
-      const hostId = attachedHostId
-      agentStatePolling = true
-      try {
-        const panes = await getHostAgentPanes(hostId)
-        if (hostId !== attachedHostId) return
-        for (const pane of panes) {
-          const previousRevision = sentAgentRevisions.get(pane.paneId)
-          if (previousRevision !== undefined && pane.revision <= previousRevision) continue
-          sentAgentRevisions.set(pane.paneId, pane.revision)
-          send({ type: 'agent_status_changed', hostId, sessionName: pane.sessionName, pane, initial: previousRevision === undefined })
-        }
-      } catch {} finally {
-        agentStatePolling = false
-      }
-    }
-    const agentStateTimer = setInterval(() => void pollAgentStates(), AGENT_STATE_POLL_MS)
     async function captureAttachedSnapshot(sessionName: string, seq: number) {
       if (!ptyProcess || !sessionName || attachVisibleOutputObserved || seq !== attachSeq || attachedSessionName !== sessionName) return
       try {
@@ -555,7 +536,6 @@ export async function streamRoutes(fastify: FastifyInstance) {
       outputResyncRunning = false
       clientBackpressureHigh = false
       scrollBuffers.clear()
-      sentAgentRevisions.clear()
       if (notify) send({ type: 'detached', sessionName: detachedSessionName, hostId: detachedHostId })
     }
     async function getSessionWindowSize(sessionName: string, hostId: string) {
@@ -730,7 +710,6 @@ export async function streamRoutes(fastify: FastifyInstance) {
               clearRedrawTimers()
             })
             send({ type: 'attached', sessionName, hostId, cols, rows, exclusive })
-            void pollAgentStates()
             scheduleClientRedraw(sessionName, ATTACH_REDRAW_DELAYS)
             scheduleAttachSnapshot(sessionName, seq)
             break
@@ -776,12 +755,8 @@ export async function streamRoutes(fastify: FastifyInstance) {
           }
           case 'agent_seen': {
             const paneId = String(data.paneId || '')
-            if (!paneId.startsWith(`${attachedHostId}:`)) break
-            const pane = markAgentPaneSeen(paneId)
-            if (pane) {
-              sentAgentRevisions.set(pane.paneId, pane.revision)
-              send({ type: 'agent_status_changed', hostId: attachedHostId, sessionName: attachedSessionName, pane, initial: false })
-            }
+            if (!paneId.startsWith(attachedHostId + ':')) break
+            agentMonitor.markSeen(paneId) || markAgentPaneSeen(paneId)
             break
           }
           case 'stream_caps':
@@ -874,10 +849,12 @@ export async function streamRoutes(fastify: FastifyInstance) {
       console.log('Client disconnected from stream')
       cleanup()
       if (shareStateTimer) clearInterval(shareStateTimer)
-      clearInterval(agentStateTimer)
+      unsubscribeAgentMonitor?.()
+      unsubscribeAgentMonitor = null
       updateStreamMetric('activeClients', streamPerfMetricsActiveClientsDelta(-1))
       if (agentId) agentManager.unregister(agentId, socket, reason.toString() || `WebSocket closed (${code})`)
     })
     send({ type: 'connected', timestamp: Date.now() })
+    unsubscribeAgentMonitor = agentMonitor.subscribe((event) => send(event))
   })
 }

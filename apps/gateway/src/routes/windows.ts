@@ -5,6 +5,7 @@ import { buildSessionId, parseSessionRef } from '../lib/tmux-target.js'
 import { execTmux } from '../lib/tmux-executor.js'
 import { recordStreamMetric } from '../lib/perf-metrics.js'
 import { getSessionAgentPanes, markAgentPaneSeen } from '../lib/agent-state.js'
+import { agentMonitor } from '../lib/agent-monitor.js'
 
 function parseSessionName(hostId: string, sessionRef: string) {
   return parseSessionRef(hostId, sessionRef).sessionName
@@ -44,7 +45,7 @@ async function getTmuxPanes(hostId: string, sessionName: string, windowIndex: nu
   assertSessionAllowed(sessionName)
   const [{ stdout }, agentPanes] = await Promise.all([
     execTmux(hostId, ['list-panes', '-t', `${sessionName}:${windowIndex}`, '-F', '#{pane_id}|#{window_id}|#{pane_index}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}|#{pane_left}|#{pane_top}']),
-    getSessionAgentPanes(hostId, sessionName),
+    Promise.resolve(agentMonitor.getSessionStates(hostId, sessionName) || getSessionAgentPanes(hostId, sessionName)),
   ])
   const agentByPane = new Map(agentPanes.map((pane) => [pane.paneId, pane]))
   return stdout
@@ -68,7 +69,7 @@ async function getTmuxPanes(hostId: string, sessionName: string, windowIndex: nu
           cols: parseInt(width, 10) || 80,
           rows: parseInt(height, 10) || 24,
         },
-        ...(agentState ? { agent: agentState.agent, agentStatus: agentState.agentStatus, revision: agentState.revision } : {}),
+        ...(agentState ? { agent: agentState.agent, agentSessionId: agentState.agentSessionId, agentStatus: agentState.agentStatus, phase: agentState.phase, lastEvent: agentState.lastEvent, source: agentState.source, confidence: agentState.confidence, since: agentState.since, updatedAt: agentState.updatedAt, eventId: agentState.eventId, message: agentState.message, revision: agentState.revision } : {}),
       }
     })
 }
@@ -76,7 +77,7 @@ async function getTmuxSessionPanes(hostId: string, sessionName: string) {
   assertSessionAllowed(sessionName)
   const [{ stdout }, agentPanes] = await Promise.all([
     execTmux(hostId, ['list-panes', '-s', '-t', sessionName, '-F', '#{pane_id}|#{window_id}|#{pane_index}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}|#{pane_left}|#{pane_top}|#{window_name}']),
-    getSessionAgentPanes(hostId, sessionName),
+    Promise.resolve(agentMonitor.getSessionStates(hostId, sessionName) || getSessionAgentPanes(hostId, sessionName)),
   ])
   const agentByPane = new Map(agentPanes.map((pane) => [pane.paneId, pane]))
   return stdout.trim().split('\n').filter(Boolean).map((line) => line.split('|')).map(([id, windowId, index, title, active, width, height, left, top, windowName]) => {
@@ -93,7 +94,7 @@ async function getTmuxSessionPanes(hostId: string, sessionName: string) {
       top: parseInt(top, 10) || 0,
       size: { cols: parseInt(width, 10) || 80, rows: parseInt(height, 10) || 24 },
       windowName,
-      ...(agentState ? { agent: agentState.agent, agentStatus: agentState.agentStatus, revision: agentState.revision } : {}),
+      ...(agentState ? { agent: agentState.agent, agentSessionId: agentState.agentSessionId, agentStatus: agentState.agentStatus, phase: agentState.phase, lastEvent: agentState.lastEvent, source: agentState.source, confidence: agentState.confidence, since: agentState.since, updatedAt: agentState.updatedAt, eventId: agentState.eventId, message: agentState.message, revision: agentState.revision } : {}),
     }
   })
 }
@@ -145,8 +146,8 @@ export async function windowRoutes(fastify: FastifyInstance) {
     const activeWindow = windows.find((window) => window.active) || windows[0] || null
     const activePane = panes.find((pane) => pane.windowId === activeWindow?.id && pane.active) || panes.find((pane) => pane.windowId === activeWindow?.id) || null
     if (activePane) {
-      const seen = markAgentPaneSeen(activePane.id)
-      if (seen) Object.assign(activePane, { agent: seen.agent, agentStatus: seen.agentStatus, revision: seen.revision })
+      const seen = agentMonitor.markSeen(activePane.id) || markAgentPaneSeen(activePane.id)
+      if (seen) Object.assign(activePane, { agent: seen.agent, agentSessionId: seen.agentSessionId, agentStatus: seen.agentStatus, phase: seen.phase, lastEvent: seen.lastEvent, source: seen.source, confidence: seen.confidence, since: seen.since, updatedAt: seen.updatedAt, eventId: seen.eventId, message: seen.message, revision: seen.revision })
     }
     return { sessionId: buildSessionId(hostId, sessionName), sessionName, windows, panes, activeWindowId: activeWindow?.id || null, activePaneId: activePane?.id || null }
   })

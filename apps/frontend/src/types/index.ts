@@ -99,17 +99,39 @@ export interface Pane {
     rows: number
   }
   agent?: string
+  agentSessionId?: string
   agentStatus?: AgentStatus
+  phase?: AgentPhase
+  lastEvent?: AgentEvent
+  source?: AgentSource
+  confidence?: AgentConfidence
+  since?: string
+  updatedAt?: string
+  eventId?: string
+  message?: string
   revision?: number
 }
 export type AgentStatus = 'idle' | 'working' | 'blocked' | 'done' | 'unknown'
+export type AgentPhase = 'idle' | 'working' | 'needs_input' | 'permission_required' | 'retrying' | 'failed' | 'ended' | 'disconnected' | 'unknown'
+export type AgentEvent = 'started' | 'permission_required' | 'question_required' | 'completed' | 'failed' | 'retrying' | 'ended' | 'disconnected' | 'reconnected'
+export type AgentSource = 'protocol' | 'hook' | 'tmux' | 'osc133' | 'process' | 'pane_output'
+export type AgentConfidence = 'high' | 'medium' | 'low'
 export interface AgentPaneState {
   paneId: string
   tmuxPaneId: string
   sessionName: string
   agent: string
+  agentSessionId?: string
   agentStatus: AgentStatus
   revision: number
+  phase?: AgentPhase
+  lastEvent?: AgentEvent
+  source?: AgentSource
+  confidence?: AgentConfidence
+  since?: string
+  updatedAt?: string
+  eventId?: string
+  message?: string
 }
 export interface AgentSummary {
   idle: number

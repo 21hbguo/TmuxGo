@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { assertTargetAllowed } from '../lib/tmux-policy.js'
 import { execTmux } from '../lib/tmux-executor.js'
 import { markAgentPaneSeen } from '../lib/agent-state.js'
+import { agentMonitor } from '../lib/agent-monitor.js'
 import { paneIdBodySchema, paneResizeBodySchema, paneSplitBodySchema } from '../lib/request-validation.js'
 
 function parsePaneId(paneId: string) {
@@ -19,7 +20,7 @@ export async function paneRoutes(fastify: FastifyInstance) {
       const { hostId, tmuxPaneId } = parsePaneId(paneId)
       if (hostId === 'local') await assertTargetAllowed(tmuxPaneId)
       await execTmux(hostId, ['select-pane', '-t', tmuxPaneId])
-      markAgentPaneSeen(paneId)
+      agentMonitor.markSeen(paneId) || markAgentPaneSeen(paneId)
       return { ok: true }
     } catch (err: any) {
       return { ok: false, error: err.message }
