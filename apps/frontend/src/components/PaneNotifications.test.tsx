@@ -69,6 +69,17 @@ describe('PaneNotifications', () => {
     act(() => window.dispatchEvent(new CustomEvent('tmuxgo-toggle-notifications')))
     expect(screen.queryByText('notification.empty')).not.toBeInTheDocument()
   })
+  it('allows the notification bubble to be dragged and saves its position', () => {
+    localStorage.setItem('tmuxgo-notification-bubble-position', JSON.stringify({ x: 40, y: 60 }))
+    render(<PaneNotifications />)
+    act(() => emitAgentStatus('done', 10))
+    const bubble = screen.getByRole('button', { name: 'notification.title' })
+    fireEvent.pointerDown(bubble, { pointerId: 1, pointerType: 'touch', clientX: 50, clientY: 70 })
+    fireEvent.pointerMove(bubble, { pointerId: 1, pointerType: 'touch', clientX: 110, clientY: 130 })
+    fireEvent.pointerUp(bubble, { pointerId: 1, pointerType: 'touch', clientX: 110, clientY: 130 })
+    expect(bubble).toHaveStyle({ left: '100px', top: '120px' })
+    expect(JSON.parse(localStorage.getItem('tmuxgo-notification-bubble-position') || 'null')).toEqual({ x: 100, y: 120 })
+  })
   it('filters notifications from muted panes', () => {
     localStorage.setItem('tmuxgo-muted-pane-notifications', JSON.stringify(['local:%1']))
     render(<PaneNotifications />)
