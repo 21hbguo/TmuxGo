@@ -5,7 +5,7 @@ import { useTranslation } from '@/i18n'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useWindows } from '@/hooks/useApi'
 import { useWebSocket } from '@/hooks/useWebSocket'
-import { useCustomShortcuts, keysToEscape } from '@/hooks/useCustomShortcuts'
+import { useCustomShortcuts, shortcutToInput } from '@/hooks/useCustomShortcuts'
 import { useSessionSnapshotSync } from '@/hooks/useSessionSnapshotSync'
 import { useWindowQueryState } from '@/hooks/useWindowQueryState'
 import { AddShortcutModal } from './AddShortcutModal'
@@ -17,6 +17,7 @@ import { requestTerminalSelection } from '@/lib/terminal-selection'
 import { DELETE_PREV_LINE_SEQUENCE, DELETE_PREV_WORD_SEQUENCE } from '@/lib/terminal-keys'
 import { WatchButton } from './PaneNotifications'
 import { KeyCap } from './KeyCap'
+import { FiEdit2, FiTrash2 } from 'react-icons/fi'
 
 const repeatDelay=420
 const repeatInterval=54
@@ -44,8 +45,9 @@ function useQuickActionController() {
   const canSplit=!!activeSessionId&&!!activeWindow&&!pendingDirection
   const { send }=useWebSocket()
   const { refreshSnapshot, resolveFreshActivePaneId, optimisticallyToggleWindowZoom, discardOptimisticWindowZoom } = useSessionSnapshotSync()
-  const { shortcuts,addShortcut,removeShortcut }=useCustomShortcuts()
+  const { shortcuts,addShortcut,updateShortcut,removeShortcut }=useCustomShortcuts()
   const [showModal,setShowModal]=useState(false)
+  const [editingShortcut,setEditingShortcut]=useState<typeof shortcuts[number]|null>(null)
   const [isMobile,setIsMobile]=useState(false)
   const [recentDockShortcutKeys,setRecentDockShortcutKeys]=useState<string[]>([])
   const [confirmKillOpen,setConfirmKillOpen]=useState(false)
@@ -332,7 +334,7 @@ function useQuickActionController() {
     return [...mapped,...shortcuts.filter((item)=>!seen.has(item.id))]
   },[recentDockShortcutKeys,shortcuts])
 
-  return { t,activePaneId,shortcuts,recentShortcutButtons,addShortcut,removeShortcut,showModal,setShowModal,isMobile,confirmKillOpen,setConfirmKillOpen,pendingKillPaneId,setPendingKillPaneId,confirmKillPane,newWindowPromptOpen,setNewWindowPromptOpen,newWindowName,setNewWindowName,confirmCreateWindow,sendKey,trackDockShortcutUse,startRepeat,armTouchRepeat,stopRepeat,preventFocus,startPointer,startDockGesture,trackDockScroll,finishDockGesture,isDockScrollBlocked,trackPointer,finishPointer,pointerStateRef,primaryButtons,attachButton,fullscreenButton,dockCoreButtons }
+  return { t,activePaneId,shortcuts,recentShortcutButtons,addShortcut,updateShortcut,removeShortcut,showModal,setShowModal,editingShortcut,setEditingShortcut,isMobile,confirmKillOpen,setConfirmKillOpen,pendingKillPaneId,setPendingKillPaneId,confirmKillPane,newWindowPromptOpen,setNewWindowPromptOpen,newWindowName,setNewWindowName,confirmCreateWindow,sendKey,trackDockShortcutUse,startRepeat,armTouchRepeat,stopRepeat,preventFocus,startPointer,startDockGesture,trackDockScroll,finishDockGesture,isDockScrollBlocked,trackPointer,finishPointer,pointerStateRef,primaryButtons,attachButton,fullscreenButton,dockCoreButtons }
 }
 
 function triggerDockButton(def:ActionButtonDef,controller:ReturnType<typeof useQuickActionController>){
@@ -388,13 +390,15 @@ function renderDockButton(def:ActionButtonDef,controller:ReturnType<typeof useQu
 
 export function QuickActions({ mode='panel', onOpenFiles }:{ mode?:QuickActionsMode; onOpenFiles?:()=>void }){
   const controller=useQuickActionController()
-  const { t,activePaneId,shortcuts,recentShortcutButtons,addShortcut,removeShortcut,showModal,setShowModal,isMobile,confirmKillOpen,setConfirmKillOpen,pendingKillPaneId,setPendingKillPaneId,confirmKillPane,newWindowPromptOpen,setNewWindowPromptOpen,newWindowName,setNewWindowName,confirmCreateWindow,sendKey,primaryButtons,attachButton,fullscreenButton,dockCoreButtons }=controller
+  const { t,activePaneId,shortcuts,recentShortcutButtons,addShortcut,updateShortcut,removeShortcut,showModal,setShowModal,editingShortcut,setEditingShortcut,isMobile,confirmKillOpen,setConfirmKillOpen,pendingKillPaneId,setPendingKillPaneId,confirmKillPane,newWindowPromptOpen,setNewWindowPromptOpen,newWindowName,setNewWindowName,confirmCreateWindow,sendKey,primaryButtons,attachButton,fullscreenButton,dockCoreButtons }=controller
   if(mode==='dock'){
     return (
       <>
         <div className="mobile-nav-landscape-hide relative z-40 flex-shrink-0 bg-bg-1 border-t border-[var(--line)]">
           <div data-shortcut-bar data-keep-mobile-keyboard className="overflow-x-auto scrollbar-none pb-[env(safe-area-inset-bottom)]" style={{ minHeight:40 }} onPointerDownCapture={controller.startDockGesture} onPointerUpCapture={(e)=>controller.finishDockGesture(e.pointerId)} onPointerCancelCapture={(e)=>controller.finishDockGesture(e.pointerId)} onScroll={controller.trackDockScroll} onContextMenu={(e)=>e.preventDefault()}>
           <div className="flex gap-1 p-1.5 w-max min-h-[40px] items-center" onContextMenu={(e)=>e.preventDefault()}>
+            {recentShortcutButtons.map((s)=>renderDockButton({ key:s.id,label:s.label,onPress:()=>{ sendKey(shortcutToInput(s)) } },controller))}
+            {recentShortcutButtons.length>0&&<div className="w-px bg-[var(--line)] mx-1 self-stretch" />}
             {dockCoreButtons.map((def)=>renderDockButton(def,controller))}
             <div className="w-px bg-[var(--line)] mx-1 self-stretch" />
             {renderDockButton({ key:'files',label:t('nav.files'),onPress:onOpenFiles,tone:'accent' },controller)}
@@ -403,7 +407,6 @@ export function QuickActions({ mode='panel', onOpenFiles }:{ mode?:QuickActionsM
             {renderDockButton(attachButton,controller)}
             {renderDockButton(fullscreenButton,controller)}
             <WatchButton paneId={activePaneId || ''} compact />
-            {recentShortcutButtons.map((s)=>renderDockButton({ key:s.id,label:s.label,onPress:()=>{ sendKey(keysToEscape(s.keys)) } },controller))}
           </div>
         </div>
         </div>
@@ -437,25 +440,32 @@ export function QuickActions({ mode='panel', onOpenFiles }:{ mode?:QuickActionsM
           <div className="text-text-3 text-caption mb-1">{t('shortcut.custom')}</div>
           {shortcuts.map((s)=>(
             <div key={s.id} className="group flex items-center gap-1 mb-1">
-              <KeyCap variant="panel" size="md" onPress={() => { sendKey(keysToEscape(s.keys)) }} title={s.keys} className="flex-1 truncate">{s.label}</KeyCap>
-              <button onClick={()=>removeShortcut(s.id)} className="p-1 rounded-apple text-text-3 hover:text-danger hover:bg-danger/15 opacity-0 group-hover:opacity-100 transition-opacity text-caption">
-                ✕
+              <KeyCap variant="panel" size="md" onPress={() => { sendKey(shortcutToInput(s)) }} title={s.mode === 'text' ? s.text : s.keys} className="flex-1 truncate">{s.label}</KeyCap>
+              <button type="button" onClick={()=>{ setEditingShortcut(s); setShowModal(true) }} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-apple text-text-3 transition-colors hover:bg-accent/15 hover:text-accent focus-visible:bg-accent/15 focus-visible:text-accent" aria-label={t('shortcut.edit')} title={t('shortcut.edit')}>
+                <FiEdit2 aria-hidden="true" size={13} />
+              </button>
+              <button type="button" onClick={()=>removeShortcut(s.id)} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-apple text-text-3 transition-colors hover:bg-danger/15 hover:text-danger focus-visible:bg-danger/15 focus-visible:text-danger" aria-label={t('shortcut.delete')} title={t('shortcut.delete')}>
+                <FiTrash2 aria-hidden="true" size={13} />
               </button>
             </div>
           ))}
         </div>
       )}
-      <button onClick={()=>setShowModal(true)} className="w-full px-2 py-1.5 rounded-apple text-xs transition-colors border border-dashed border-[var(--line)] text-text-3 hover:text-text-2 hover:border-accent/50">
+      <button onClick={()=>{ setEditingShortcut(null); setShowModal(true) }} className="w-full px-2 py-1.5 rounded-apple text-xs transition-colors border border-dashed border-[var(--line)] text-text-3 hover:text-text-2 hover:border-accent/50">
         + {t('shortcut.add')}
       </button>
       {showModal&&(
         <AddShortcutModal
+          key={editingShortcut?.id || 'new'}
           isMobile={isMobile}
+          initialShortcut={editingShortcut || undefined}
           onSave={(data)=>{
-            addShortcut(data)
+            if (editingShortcut) updateShortcut(editingShortcut.id,data)
+            else addShortcut(data)
+            setEditingShortcut(null)
             setShowModal(false)
           }}
-          onClose={()=>setShowModal(false)}
+          onClose={()=>{ setEditingShortcut(null); setShowModal(false) }}
         />
       )}
       <ConfirmDialog open={confirmKillOpen} title={t('quick.killTitle')} message={t('quick.killConfirm')} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} tone="danger" onCancel={()=>{ setPendingKillPaneId(null); setConfirmKillOpen(false) }} onConfirm={()=>void confirmKillPane()} />

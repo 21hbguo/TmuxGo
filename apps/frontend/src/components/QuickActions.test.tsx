@@ -26,7 +26,8 @@ vi.mock('@/hooks/useWebSocket', () => ({
   useWebSocket: () => ({ send }),
 }))
 vi.mock('@/hooks/useCustomShortcuts', () => ({
-  useCustomShortcuts: () => ({ shortcuts: [], addShortcut: vi.fn(), removeShortcut: vi.fn() }),
+  useCustomShortcuts: () => ({ shortcuts: [], addShortcut: vi.fn(), updateShortcut: vi.fn(), removeShortcut: vi.fn() }),
+  shortcutToInput: vi.fn(() => ''),
   keysToEscape: vi.fn(() => ''),
 }))
 vi.mock('@/hooks/useSessionSnapshotSync', () => ({

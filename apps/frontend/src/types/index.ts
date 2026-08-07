@@ -270,7 +270,10 @@ export interface UploadJob {
 export interface CustomShortcut {
   id: string
   label: string
-  keys: string
+  mode?: 'keys' | 'text'
+  keys?: string
+  text?: string
+  appendEnter?: boolean
 }
 export interface FavoriteDirectory {
   rootId: string

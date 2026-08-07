@@ -7,6 +7,7 @@ export type { CustomShortcut } from '@/types'
 
 const STORAGE_KEY = 'tmuxgo-custom-shortcuts'
 const STORAGE_UPDATED_AT_KEY = 'tmuxgo-custom-shortcuts-updated-at'
+const SHORTCUTS_CHANGED_EVENT = 'tmuxgo-custom-shortcuts-changed'
 const PROFILE = 'default'
 
 const KEY_MAP: Record<string, string> = {
@@ -70,6 +71,13 @@ export function keysToEscape(keys: string): string {
   return ''
 }
 
+export function shortcutToInput(shortcut: CustomShortcut): string {
+  if (shortcut.mode === 'text') {
+    return `${shortcut.text || ''}${shortcut.appendEnter === true ? '\r' : ''}`
+  }
+  return keysToEscape(shortcut.keys || '')
+}
+
 export function formatKeyEvent(e: KeyboardEvent): string {
   const parts: string[] = []
   if (e.ctrlKey) parts.push('Ctrl')
@@ -90,7 +98,11 @@ export function useCustomShortcuts() {
       const raw = localStorage.getItem(STORAGE_KEY)
       const data = raw ? JSON.parse(raw) : []
       const updatedAt = localStorage.getItem(STORAGE_UPDATED_AT_KEY) || ''
-      return { items: Array.isArray(data) ? data.filter((item): item is CustomShortcut => !!item && typeof item.id === 'string' && typeof item.label === 'string' && typeof item.keys === 'string' && typeof item.action === 'string') : [], updatedAt }
+      return { items: Array.isArray(data) ? data.filter((item): item is CustomShortcut => {
+        if (!item || typeof item.id !== 'string' || typeof item.label !== 'string') return false
+        if (item.mode === 'text') return typeof item.text === 'string' && item.text.length > 0 && (typeof item.appendEnter === 'undefined' || typeof item.appendEnter === 'boolean')
+        return (item.mode === undefined || item.mode === 'keys') && typeof item.keys === 'string' && item.keys.length > 0
+      }) : [], updatedAt }
     } catch {
       return { items: [], updatedAt: '' }
     }
@@ -98,6 +110,7 @@ export function useCustomShortcuts() {
   const writeLocal = useCallback((next: CustomShortcut[], updatedAt: string) => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
     localStorage.setItem(STORAGE_UPDATED_AT_KEY, updatedAt)
+    window.dispatchEvent(new Event(SHORTCUTS_CHANGED_EVENT))
   }, [])
 
   useEffect(() => {
@@ -127,6 +140,16 @@ export function useCustomShortcuts() {
     })()
   }, [readLocal, writeLocal])
 
+  useEffect(() => {
+    const refresh = () => setShortcuts(readLocal().items)
+    window.addEventListener(SHORTCUTS_CHANGED_EVENT, refresh)
+    window.addEventListener('storage', refresh)
+    return () => {
+      window.removeEventListener(SHORTCUTS_CHANGED_EVENT, refresh)
+      window.removeEventListener('storage', refresh)
+    }
+  }, [readLocal])
+
   const persist = useCallback((next: CustomShortcut[], updatedAt?: string) => {
     const nextUpdatedAt = updatedAt || new Date().toISOString()
     setShortcuts(next)
@@ -138,9 +161,13 @@ export function useCustomShortcuts() {
     persist([...shortcuts, { ...s, id: Date.now().toString(36) + Math.random().toString(36).slice(2) }], new Date().toISOString())
   }, [shortcuts, persist])
 
+  const updateShortcut = useCallback((id: string, s: Omit<CustomShortcut, 'id'>) => {
+    persist(shortcuts.map((item) => item.id === id ? { ...s, id } : item), new Date().toISOString())
+  }, [shortcuts, persist])
+
   const removeShortcut = useCallback((id: string) => {
     persist(shortcuts.filter((s) => s.id !== id), new Date().toISOString())
   }, [shortcuts, persist])
 
-  return { shortcuts, addShortcut, removeShortcut }
+  return { shortcuts, addShortcut, updateShortcut, removeShortcut }
 }
