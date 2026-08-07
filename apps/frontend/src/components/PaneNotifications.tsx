@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { useTranslation } from '@/i18n'
 import { Chip } from './Chip'
 import { usePreferences } from '@/hooks/usePreferences'
@@ -24,6 +24,25 @@ interface NotificationItem {
 }
 const notificationsStorageKey = 'tmuxgo-pane-notifications'
 const mutedPanesStorageKey = 'tmuxgo-muted-pane-notifications'
+const notificationBubblePositionKey = 'tmuxgo-notification-bubble-position'
+const notificationBubbleSize = 36
+const notificationBubbleDragThreshold = 8
+function clampNotificationBubblePosition(x: number, y: number) {
+  const margin = 8
+  return {
+    x: Math.min(Math.max(margin, window.innerWidth - notificationBubbleSize - margin), Math.max(margin, x)),
+    y: Math.min(Math.max(margin, window.innerHeight - notificationBubbleSize - margin), Math.max(margin, y)),
+  }
+}
+function readNotificationBubblePosition() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(notificationBubblePositionKey) || 'null')
+    if (!raw || typeof raw.x !== 'number' || typeof raw.y !== 'number') return null
+    return { x: raw.x, y: raw.y }
+  } catch {
+    return null
+  }
+}
 function readStoredNotifications() {
   try {
     const raw = JSON.parse(localStorage.getItem(notificationsStorageKey) || '[]')
@@ -45,6 +64,8 @@ export function PaneNotifications() {
   const notificationsRef = useRef(notifications)
   const [visibleIds, setVisibleIds] = useState<string[]>([])
   const [centerOpen, setCenterOpen] = useState(false)
+  const [notificationBubblePosition, setNotificationBubblePosition] = useState<{ x: number; y: number } | null>(null)
+  const notificationBubbleDragRef = useRef({ pointerId: -1, startX: 0, startY: 0, originX: 0, originY: 0, dragging: false, moved: false })
   const { t } = useTranslation()
   const { preferences } = usePreferences()
   const queryClient = useOptionalQueryClient()
@@ -66,6 +87,52 @@ export function PaneNotifications() {
   const clearAll = () => {
     setVisibleIds([])
     updateNotifications(() => [])
+  }
+  useEffect(() => {
+    const saved = readNotificationBubblePosition()
+    setNotificationBubblePosition(saved ? clampNotificationBubblePosition(saved.x, saved.y) : clampNotificationBubblePosition(window.innerWidth - notificationBubbleSize - 16, window.innerHeight - notificationBubbleSize - 112))
+    const handleResize = () => setNotificationBubblePosition((current) => current ? clampNotificationBubblePosition(current.x, current.y) : current)
+    window.addEventListener('resize', handleResize)
+    window.visualViewport?.addEventListener('resize', handleResize)
+    return () => {
+      window.removeEventListener('resize', handleResize)
+      window.visualViewport?.removeEventListener('resize', handleResize)
+    }
+  }, [])
+  const handleNotificationBubblePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (!notificationBubblePosition || event.pointerType === 'mouse' && event.button !== 0) return
+    event.currentTarget.setPointerCapture?.(event.pointerId)
+    notificationBubbleDragRef.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, originX: notificationBubblePosition.x, originY: notificationBubblePosition.y, dragging: true, moved: false }
+  }
+  const handleNotificationBubblePointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const state = notificationBubbleDragRef.current
+    if (!state.dragging || state.pointerId !== event.pointerId) return
+    const dx = event.clientX - state.startX
+    const dy = event.clientY - state.startY
+    if (!state.moved && Math.hypot(dx, dy) < notificationBubbleDragThreshold) return
+    state.moved = true
+    setNotificationBubblePosition(clampNotificationBubblePosition(state.originX + dx, state.originY + dy))
+  }
+  const handleNotificationBubblePointerUp = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const state = notificationBubbleDragRef.current
+    if (!state.dragging || state.pointerId !== event.pointerId) return
+    state.dragging = false
+    try { event.currentTarget.releasePointerCapture?.(event.pointerId) } catch {}
+    if (state.moved) {
+      setNotificationBubblePosition((current) => {
+        if (!current) return current
+        const next = clampNotificationBubblePosition(current.x, current.y)
+        localStorage.setItem(notificationBubblePositionKey, JSON.stringify(next))
+        return next
+      })
+    }
+  }
+  const handleNotificationBubbleClick = () => {
+    if (notificationBubbleDragRef.current.moved) {
+      notificationBubbleDragRef.current.moved = false
+      return
+    }
+    setCenterOpen((current) => !current)
   }
   const openNotification = async (notification: NotificationItem) => {
     try {
@@ -135,7 +202,10 @@ export function PaneNotifications() {
   }, [preferences.agentNotificationsEnabled, queryClient, t])
   const displayed = centerOpen ? notifications : notifications.filter((notification) => visibleIds.includes(notification.id))
   if (!preferences.agentNotificationsEnabled) return null
-  return <div className="fixed bottom-28 right-4 z-50 w-80 max-w-[calc(100vw-2rem)] lg:bottom-16"><button onClick={() => setCenterOpen((current) => !current)} aria-label={t('notification.title')} title={t('notification.title')} className={`mb-2 ml-auto flex h-9 w-9 items-center justify-center rounded-full border border-[var(--line)] bg-bg-1 text-text-2 shadow-lg lg:hidden ${notifications.length ? '' : 'hidden'}`}><FiBell aria-hidden="true" /></button>{notifications.length > 0 && (centerOpen || displayed.length > 0) && <div className="overflow-hidden rounded-apple border border-[var(--line)] bg-bg-1 shadow-lg"><div className="flex items-center justify-between border-b border-[var(--line)] p-2"><button onClick={() => setCenterOpen((current) => !current)} className="text-xs text-text-2">{t('notification.title')} {notifications.length ? `(${notifications.length})` : ''}</button>{notifications.length > 0 && <button onClick={clearAll} className="text-xs text-text-3 hover:text-text-1">{t('notification.clearAll')}</button>}</div><div className="tmuxgo-scrollbar max-h-72 overflow-x-hidden overflow-y-auto">{!displayed.length && <div className="p-4 text-center text-sm text-text-3">{t('notification.empty')}</div>}{displayed.slice(0, centerOpen ? 100 : 5).map((notification) => <div key={notification.id} className="flex border-b border-[var(--line)] hover:bg-bg-2"><button onClick={() => void openNotification(notification)} className="min-w-0 flex-1 p-2 text-left"><span className={`flex items-center gap-1.5 text-xs ${notification.status === 'blocked' ? 'text-danger' : 'text-accent-2'}`}>{notification.status === 'blocked' ? <FiAlertCircle aria-hidden="true" /> : <FiCheckCircle aria-hidden="true" />}{notification.paneName}</span><span className="mt-1 block text-sm text-text-1">{notification.message}</span><span className="mt-1 block text-caption text-text-3">{new Date(notification.timestamp).toLocaleString()}</span></button><button onClick={() => dismissNotification(notification.id)} className="flex w-9 shrink-0 items-start justify-center pt-2 text-text-3 hover:text-text-1" aria-label={t('common.close')}><FiX aria-hidden="true" /></button></div>)}</div></div>}</div>
+  return <>
+    {notifications.length > 0 && notificationBubblePosition && <button type="button" onPointerDown={handleNotificationBubblePointerDown} onPointerMove={handleNotificationBubblePointerMove} onPointerUp={handleNotificationBubblePointerUp} onPointerCancel={handleNotificationBubblePointerUp} onClick={handleNotificationBubbleClick} onContextMenu={(event) => event.preventDefault()} aria-label={t('notification.title')} title={t('notification.title')} className="tmuxgo-glass pointer-events-auto fixed z-50 flex h-9 w-9 touch-none select-none items-center justify-center rounded-full border border-[var(--line)] bg-bg-1 text-text-2 shadow-lg lg:hidden" style={{ left: notificationBubblePosition.x, top: notificationBubblePosition.y }}><FiBell aria-hidden="true" /></button>}
+    {notifications.length > 0 && (centerOpen || displayed.length > 0) && <div className="pointer-events-auto fixed bottom-28 right-4 z-50 w-80 max-w-[calc(100vw-2rem)] lg:bottom-16"><div className="overflow-hidden rounded-apple border border-[var(--line)] bg-bg-1 shadow-lg"><div className="flex items-center justify-between border-b border-[var(--line)] p-2"><button onClick={() => setCenterOpen((current) => !current)} className="text-xs text-text-2">{t('notification.title')} {notifications.length ? `(${notifications.length})` : ''}</button>{notifications.length > 0 && <button onClick={clearAll} className="text-xs text-text-3 hover:text-text-1">{t('notification.clearAll')}</button>}</div><div className="tmuxgo-scrollbar max-h-72 overflow-x-hidden overflow-y-auto">{!displayed.length && <div className="p-4 text-center text-sm text-text-3">{t('notification.empty')}</div>}{displayed.slice(0, centerOpen ? 100 : 5).map((notification) => <div key={notification.id} className="flex border-b border-[var(--line)] hover:bg-bg-2"><button onClick={() => void openNotification(notification)} className="min-w-0 flex-1 p-2 text-left"><span className={`flex items-center gap-1.5 text-xs ${notification.status === 'blocked' ? 'text-danger' : 'text-accent-2'}`}>{notification.status === 'blocked' ? <FiAlertCircle aria-hidden="true" /> : <FiCheckCircle aria-hidden="true" />}{notification.paneName}</span><span className="mt-1 block text-sm text-text-1">{notification.message}</span><span className="mt-1 block text-caption text-text-3">{new Date(notification.timestamp).toLocaleString()}</span></button><button onClick={() => dismissNotification(notification.id)} className="flex w-9 shrink-0 items-start justify-center pt-2 text-text-3 hover:text-text-1" aria-label={t('common.close')}><FiX aria-hidden="true" /></button></div>)}</div></div></div>}
+  </>
 }
 export function WatchButton({ paneId, compact = false }: { paneId: string; compact?: boolean }) {
   const [isWatched, setIsWatched] = useState(true)

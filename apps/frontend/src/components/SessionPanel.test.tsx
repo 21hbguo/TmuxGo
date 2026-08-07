@@ -158,4 +158,16 @@ describe('SessionPanel session actions', () => {
     await waitFor(() => expect(mutateDeleteSession).toHaveBeenCalledWith({ hostId: 'local', sessionId: 'session-dev' }))
     await waitFor(() => expect(useConsoleStore.getState().activeSessionId).toBe('session-next'))
   })
+  it('allows batch deletion of attached sessions', async () => {
+    mutateBatchDeleteSessions
+      .mockResolvedValueOnce({ mode: 'preview', forceRequired: false })
+      .mockResolvedValueOnce({ mode: 'execute', deleted: [{ sessionId: 'session-dev' }], deletedCount: 1 })
+    render(<SessionPanel />)
+    fireEvent.click(screen.getByText('sidebar.batchDeleteAction'))
+    fireEvent.click(screen.getAllByText('☐')[0])
+    fireEvent.click(screen.getByText('sidebar.batchDeleteSelected'))
+    fireEvent.click(screen.getByText('confirm-delete'))
+    await waitFor(() => expect(mutateBatchDeleteSessions).toHaveBeenNthCalledWith(1, { hostId: 'local', payload: { mode: 'preview', sessionIds: ['session-dev'], filters: { includeAttached: true } } }))
+    await waitFor(() => expect(mutateBatchDeleteSessions).toHaveBeenNthCalledWith(2, { hostId: 'local', payload: { mode: 'execute', sessionIds: ['session-dev'], filters: { includeAttached: true }, force: false } }))
+  })
 })
