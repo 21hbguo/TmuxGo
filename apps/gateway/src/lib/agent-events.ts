@@ -20,6 +20,7 @@ export interface AgentProtocolEvent {
   attempt?: number
   action?: string
   next?: string
+  display?: { title?: string; stateLabel?: string; tokens?: number; seq?: number; ttlMs?: number }
 }
 export interface AgentEventContext {
   hostId: string
@@ -63,6 +64,25 @@ function eventSeed(raw: Record<string, unknown>, base: { hostId: string; agent: 
   const value = nativeId || [base.hostId, base.agent, base.agentSessionId || base.paneId || '', base.type, firstText(raw.timestamp, raw.createdAt, raw.created_at), firstText(raw.status, raw.notification_type, raw.hook_event_name), JSON.stringify(raw)].join('|')
   return `${base.hostId}:${base.agent}:${createHash('sha256').update(value).digest('hex').slice(0, 24)}`
 }
+function normalizeDisplay(raw: Record<string, unknown>) {
+  const data = nestedData(raw)
+  const displayRaw = object(data.display)
+  const title = firstText(displayRaw.title, raw.displayTitle, raw.display_title, data.displayTitle, data.display_title)
+  const stateLabel = firstText(displayRaw.stateLabel, displayRaw.state_label, raw.stateLabel, raw.state_label)
+  const tokensValue = displayRaw.tokens ?? raw.tokens ?? data.tokens
+  const seqValue = displayRaw.seq ?? displayRaw.seqNum ?? displayRaw.seq_num ?? raw.displaySeq ?? raw.display_seq
+  const ttlValue = displayRaw.ttlMs ?? displayRaw.ttl_ms ?? raw.displayTtlMs ?? raw.display_ttl_ms
+  const tokens = typeof tokensValue === 'number' && Number.isFinite(tokensValue) ? tokensValue : firstText(tokensValue) ? Number(firstText(tokensValue)) : undefined
+  const seq = typeof seqValue === 'number' && Number.isFinite(seqValue) ? seqValue : firstText(seqValue) ? Number(firstText(seqValue)) : undefined
+  const ttlMs = typeof ttlValue === 'number' && Number.isFinite(ttlValue) ? ttlValue : firstText(ttlValue) ? Number(firstText(ttlValue)) : undefined
+  const display: AgentProtocolEvent['display'] = {}
+  if (title) display.title = title.slice(0, 160)
+  if (stateLabel) display.stateLabel = stateLabel.slice(0, 160)
+  if (Number.isFinite(tokens) && tokens! >= 0) display.tokens = Math.floor(tokens!)
+  if (Number.isFinite(seq)) display.seq = Math.floor(seq!)
+  if (Number.isFinite(ttlMs) && ttlMs! > 0) display.ttlMs = Math.floor(ttlMs!)
+  return Object.keys(display).length ? display : undefined
+}
 function baseEvent(raw: Record<string, unknown>, context: AgentEventContext, agent: string, type: AgentProtocolEventType, phase: AgentPhase, lastEvent?: AgentEvent, source?: 'protocol' | 'hook', extra: Partial<AgentProtocolEvent> = {}) {
   const data = nestedData(raw)
   const agentSessionId = firstText(context.agentSessionId, raw.agentSessionId, raw.agent_session_id, data.sessionId, data.session_id, data.threadId, data.thread_id) || undefined
@@ -70,7 +90,8 @@ function baseEvent(raw: Record<string, unknown>, context: AgentEventContext, age
   const tmuxPaneId = firstText(context.tmuxPaneId, raw.tmuxPaneId, raw.tmux_pane_id) || undefined
   const sessionName = firstText(context.sessionName, raw.sessionName, raw.session_name, data.sessionName, data.session_name) || undefined
   const timestamp = firstText(raw.timestamp, raw.createdAt, raw.created_at, data.timestamp) || new Date().toISOString()
-  const event: AgentProtocolEvent = { hostId: context.hostId, agent, agentSessionId, paneId, tmuxPaneId, sessionName, type, phase, lastEvent, source: source || context.source || 'protocol', confidence: 'high', eventId: eventSeed(raw, { hostId: context.hostId, agent, agentSessionId, paneId, type, timestamp }), timestamp, ...extra }
+  const display = normalizeDisplay(raw)
+  const event: AgentProtocolEvent = { hostId: context.hostId, agent, agentSessionId, paneId, tmuxPaneId, sessionName, type, phase, lastEvent, source: source || context.source || 'protocol', confidence: 'high', eventId: eventSeed(raw, { hostId: context.hostId, agent, agentSessionId, paneId, type, timestamp }), timestamp, ...(display ? { display } : {}), ...extra }
   return event
 }
 function normalizeClaude(raw: Record<string, unknown>, context: AgentEventContext, agent: string) {

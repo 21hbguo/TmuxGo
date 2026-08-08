@@ -2,6 +2,8 @@
 
 Versioned HTTP protocol that lets an AI coding agent operating inside a TmuxGo pane drive the workbench itself — split panes, read pane output, and wait for other agents to reach a state.
 
+Also defines the display-metadata patch protocol for `/api/agent-events`: semantic state (status/phase) is kept separate from display-only metadata (title / state_label / tokens), which carries a `seq` for ordering and a `ttl_ms` for expiry — the UI consumes only display fields.
+
 ## Guard
 
 - The gateway only accepts control requests when the pane env has `TMUXGO_ENV=1` (injected at session/pane creation) and the request carries `x-tmuxgo-env: 1`.
@@ -58,3 +60,17 @@ Semantics:
 Response on success: `{ "ok": true, "waitId": "...", "elapsedMs": 123, "pane": { ...AgentPaneState } }`
 
 Errors: HTTP 409 with `code` in `OCCUPANT_CHANGED | PANE_REMOVED | TIMEOUT | INVALID_TARGET`.
+
+## Display metadata patches
+
+Agent events sent to `/api/agent-events` (or the agent WebSocket `agent-event` message) may carry a `display` object alongside the semantic event. It is display-only metadata that does not affect wait/notification/attention semantics:
+
+```json
+{ "type": "working", "display": { "title": "Refactor parser", "stateLabel": "Working · 2/5", "tokens": 1240, "seq": 3, "ttlMs": 45000 } }
+```
+
+- `title` / `stateLabel`: short display strings (truncated to 160 chars).
+- `tokens`: non-negative token count shown in the UI.
+- `seq`: monotonic sequence for ordering; a patch with `seq <=` the current one is ignored (out-of-order protection).
+- `ttlMs`: time-to-live in ms after which the display metadata expires and the UI drops it (default 60s).
+- Flat aliases are also accepted: `displayTitle`, `display_title`, `stateLabel`, `state_label`, `tokens`, `displaySeq`, `display_seq`, `displayTtlMs`, `display_ttl_ms`.

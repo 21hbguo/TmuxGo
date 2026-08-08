@@ -84,6 +84,7 @@ export function StatusBar() {
             <span className="inline-flex h-5 items-center rounded-full border border-text-1/10 bg-bg-2/45 px-2 font-mono text-caption tabular-nums text-text-2">{activePane.size.cols}×{activePane.size.rows}</span>
           )}
           {activePane?.agent && <span className="inline-flex min-w-0 items-center gap-1.5"><span className="max-w-24 truncate text-caption text-text-2">{activePane.agent}</span><AgentStatusBadge status={activePane.agentStatus} /></span>}
+          {activePane?.display && (activePane.display.title || activePane.display.stateLabel || typeof activePane.display.tokens === 'number') && <span className="inline-flex min-w-0 items-center gap-1.5 font-mono text-caption text-text-3" title={activePane.display.title || ''}><span className="max-w-40 truncate">{activePane.display.stateLabel || activePane.display.title}</span>{typeof activePane.display.tokens === 'number' && <span className="shrink-0 tabular-nums text-accent-2">{activePane.display.tokens}t</span>}</span>}
           {activeHost && (
             <span className="min-w-0 truncate rounded-full border border-text-1/10 bg-bg-2/45 px-2 py-0.5 text-caption text-text-2">{activeHost.name}</span>
           )}

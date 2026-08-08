@@ -32,13 +32,19 @@ interface AgentMonitorOptions {
 
 const notificationEvents = new Set<AgentEvent>(['permission_required', 'question_required', 'completed', 'failed', 'ended', 'disconnected'])
 const protocolOverlayMaxAgeMs = 30 * 60 * 1000
+const displayDefaultTtlMs = 60 * 1000
 
 function sortAgents(agents: Iterable<AgentPaneState>) {
   return [...agents].sort((left, right) => left.paneId.localeCompare(right.paneId))
 }
+function sameDisplay(left: AgentPaneState['display'], right: AgentPaneState['display']) {
+  if (!left && !right) return true
+  if (!left || !right) return false
+  return left.title === right.title && left.stateLabel === right.stateLabel && left.tokens === right.tokens && left.seq === right.seq && left.updatedAt === right.updatedAt
+}
 function samePane(left: AgentPaneState | undefined, right: AgentPaneState) {
   if (!left) return false
-  return left.paneId === right.paneId && left.tmuxPaneId === right.tmuxPaneId && left.sessionName === right.sessionName && left.agent === right.agent && left.agentSessionId === right.agentSessionId && left.agentStatus === right.agentStatus && left.phase === right.phase && left.lastEvent === right.lastEvent && left.source === right.source && left.confidence === right.confidence && left.since === right.since && left.updatedAt === right.updatedAt && left.eventId === right.eventId && left.message === right.message && left.revision === right.revision
+  return left.paneId === right.paneId && left.tmuxPaneId === right.tmuxPaneId && left.sessionName === right.sessionName && left.agent === right.agent && left.agentSessionId === right.agentSessionId && left.agentStatus === right.agentStatus && left.phase === right.phase && left.lastEvent === right.lastEvent && left.source === right.source && left.confidence === right.confidence && left.since === right.since && left.updatedAt === right.updatedAt && left.eventId === right.eventId && left.message === right.message && left.revision === right.revision && sameDisplay(left.display, right.display)
 }
 function matchesProtocolEvent(event: AgentProtocolEvent, pane: AgentPaneState) {
   if (event.paneId && event.paneId === pane.paneId) return true
@@ -60,7 +66,19 @@ function protocolAgentStatus(event: AgentProtocolEvent): AgentPaneState['agentSt
   if (event.phase === 'idle') return 'idle'
   return 'unknown'
 }
-function applyProtocolEvent(pane: AgentPaneState, event: AgentProtocolEvent) {
+function resolveDisplay(display: AgentPaneState['display'], now: number): AgentPaneState['display'] {
+  if (!display) return undefined
+  if (!display.ttlMs || !display.updatedAt) return display
+  const updatedAt = Date.parse(display.updatedAt)
+  if (!Number.isFinite(updatedAt) || now - updatedAt > display.ttlMs) return undefined
+  return display
+}
+function applyDisplayPatch(current: AgentPaneState['display'], patch: AgentProtocolEvent['display'], timestamp: string): AgentPaneState['display'] | undefined {
+  if (!patch) return current
+  if (current && patch.seq !== undefined && current.seq !== undefined && patch.seq <= current.seq) return current
+  return { title: patch.title ?? current?.title, stateLabel: patch.stateLabel ?? current?.stateLabel, tokens: patch.tokens ?? current?.tokens, seq: patch.seq ?? current?.seq, ttlMs: patch.ttlMs ?? current?.ttlMs ?? displayDefaultTtlMs, updatedAt: timestamp }
+}
+function applyProtocolEvent(pane: AgentPaneState, event: AgentProtocolEvent, now: number) {
   return {
     ...pane,
     agent: event.agent || pane.agent,
@@ -74,6 +92,7 @@ function applyProtocolEvent(pane: AgentPaneState, event: AgentProtocolEvent) {
     updatedAt: event.timestamp,
     eventId: event.eventId,
     message: event.message,
+    display: resolveDisplay(applyDisplayPatch(resolveDisplay(pane.display, now), event.display, event.timestamp), now),
   }
 }
 
@@ -243,10 +262,11 @@ export class AgentMonitor {
     for (const [key, event] of state.protocolEvents) if (!protocolEventIsRecent(event, this.now())) state.protocolEvents.delete(key)
     for (const rawPane of agents) {
       const previous = state.agents.get(rawPane.paneId)
-      const reconnected = wasDisconnected && previous?.phase === 'disconnected' ? { ...rawPane, lastEvent: 'reconnected' as const, updatedAt: new Date(this.now()).toISOString(), eventId: hostId + ':' + rawPane.paneId + ':reconnected:' + this.now() } : rawPane
+      const basePane = previous?.display ? { ...rawPane, display: resolveDisplay(previous.display, this.now()) } : rawPane
+      const reconnected = wasDisconnected && previous?.phase === 'disconnected' ? { ...basePane, lastEvent: 'reconnected' as const, updatedAt: new Date(this.now()).toISOString(), eventId: hostId + ':' + rawPane.paneId + ':reconnected:' + this.now() } : basePane
       const matchingProtocolEvents = [...state.protocolEvents.values()].filter((event) => matchesProtocolEvent(event, reconnected)).filter((event) => event.paneId || event.tmuxPaneId || event.agentSessionId || agents.filter((candidate) => candidate.sessionName === event.sessionName && candidate.agent === event.agent).length === 1).sort((left, right) => left.timestamp.localeCompare(right.timestamp))
-      const pane = matchingProtocolEvents.reduce((current, event) => applyProtocolEvent(current, event), reconnected)
-      next.set(pane.paneId, pane)
+      const pane = matchingProtocolEvents.reduce((current, event) => applyProtocolEvent(current, event, this.now()), reconnected)
+      next.set(pane.paneId, resolveDisplay(pane, this.now()) ? pane : { ...pane, display: undefined })
     }
     const previousAgents = state.agents
     for (const pane of next.values()) {
@@ -302,7 +322,7 @@ export class AgentMonitor {
     const paneId = current?.paneId || event.paneId || (event.tmuxPaneId ? `${hostId}:${event.tmuxPaneId}` : '')
     if (!paneId || (!current && !event.sessionName)) return null
     const base = current || { paneId, tmuxPaneId: event.tmuxPaneId || paneId.slice(paneId.indexOf(':') + 1), sessionName: event.sessionName!, agent: event.agent, agentSessionId: event.agentSessionId || paneId, agentStatus: 'unknown' as const, revision: 0 }
-    const pane = { ...applyProtocolEvent(base, event), revision: ++state.revision }
+    const pane = { ...applyProtocolEvent(base, event, this.now()), revision: ++state.revision }
     state.agents.set(pane.paneId, pane)
     const changed: AgentMonitorEvent = { type: 'agent_status_changed', initial: false, hostId, sessionName: pane.sessionName, pane, eventId: event.eventId }
     this.emit(changed)

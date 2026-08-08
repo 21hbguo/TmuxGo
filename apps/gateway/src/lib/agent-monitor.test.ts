@@ -104,6 +104,42 @@ test('removes deleted sessions and hosts without affecting other monitor state',
   monitor.stop()
 })
 
+test('applies display metadata patches with seq dedup and ttl expiry', async () => {
+  let states: AgentPaneState[] = [pane('local:%5')]
+  const events: any[] = []
+  let now = 5000
+  const monitor = new AgentMonitor({ getHostIds: async () => ['local'], scan: async () => states, intervalMs: 1000, now: () => now })
+  const unsubscribe = monitor.subscribe((event) => events.push(event))
+  await monitor.start()
+  const displayEvent = (seq: number, title: string, ttlMs = 60000, at = now) => ({
+    hostId: 'local', agent: 'codex', paneId: 'local:%5', tmuxPaneId: '%5', sessionName: 'dev', agentSessionId: 'local:%5:dev',
+    type: 'working' as const, phase: 'working' as const, lastEvent: 'started' as const, source: 'protocol' as const, confidence: 'high' as const,
+    eventId: 'local:codex:display:' + seq, timestamp: new Date(at).toISOString(), display: { title, seq, ttlMs },
+  })
+  monitor.ingestProtocolEvent(displayEvent(1, 'First'))
+  now = 6000
+  monitor.ingestProtocolEvent(displayEvent(3, 'Third'))
+  now = 7000
+  monitor.ingestProtocolEvent(displayEvent(2, 'Stale'))
+  let current = monitor.getStates('local')?.find((item) => item.paneId === 'local:%5')
+  assert.equal(current?.display?.title, 'Third')
+  assert.equal(current?.display?.seq, 3)
+  await monitor.pollNow('local')
+  current = monitor.getStates('local')?.find((item) => item.paneId === 'local:%5')
+  assert.equal(current?.display?.title, 'Third')
+  now = 9000
+  monitor.ingestProtocolEvent(displayEvent(4, 'Expiring', 1000, now))
+  await monitor.pollNow('local')
+  current = monitor.getStates('local')?.find((item) => item.paneId === 'local:%5')
+  assert.equal(current?.display?.title, 'Expiring')
+  now = 11000
+  await monitor.pollNow('local')
+  current = monitor.getStates('local')?.find((item) => item.paneId === 'local:%5')
+  assert.equal(current?.display, undefined)
+  monitor.stop()
+  unsubscribe()
+})
+
 test('discards an in-flight scan after stop and emits a fresh snapshot after restart', async () => {
   let releaseScan: (states: AgentPaneState[]) => void = () => {}
   let scanCount = 0
