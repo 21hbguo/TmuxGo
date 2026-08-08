@@ -7,13 +7,15 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useGitDetect } from '@/hooks/useApi'
 import { clearActiveDraggedFile, FILE_DRAG_MIME, getActiveDraggedFile, readDraggedFile, setActiveDraggedFile } from '@/lib/editor-drag'
-import { OPEN_EDITOR_LOCATION_EVENT } from '@/lib/editor-open'
+import { OPEN_EDITOR_LOCATION_EVENT, openFileInEditor } from '@/lib/editor-open'
+import { resolveEditorDefinition } from '@/lib/code-navigation'
 import { useTranslation } from '@/i18n'
 import { Button } from './Button'
 import { Chip } from './Chip'
 import { ConfirmDialog } from './ConfirmDialog'
 import { DiffViewer } from './DiffViewer'
 import dynamic from '@/lib/dynamic'
+import { FiArrowLeft, FiArrowRight, FiCode } from 'react-icons/fi'
 
 const MonacoEditor=dynamic(() => import('@monaco-editor/react').then((mod) => ({ default: mod.default })))
 const MonacoDiffEditor=dynamic(() => import('@monaco-editor/react').then((mod) => ({ default: mod.DiffEditor })))
@@ -22,6 +24,19 @@ const AUTO_SCROLL_MAX_STEP = 42
 const EDGE_DROP_RATIO = 0.22
 type DropPlacement = 'center' | 'left' | 'right' | 'top' | 'bottom'
 type TabInsertSide = 'before' | 'after'
+interface NavigationEntry {
+  id: string
+  hostId: string
+  rootId: string
+  rootLabel: string
+  rootPath: string
+  path: string
+  name: string
+  absolutePath: string
+  type: 'file'
+  line: number
+  column: number
+}
 function isEditorLayoutSplit(node: EditorLayoutNode): node is EditorLayoutSplit {
   return node.type === 'split'
 }
@@ -178,12 +193,20 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
   const ensureGitHostState = useConsoleStore((state) => state.ensureGitHostState)
   const setGitFollowEditorRepo = useConsoleStore((state) => state.setGitFollowEditorRepo)
   const gitByHost = useConsoleStore((state) => state.gitByHost)
+  const pushToast = useConsoleStore((state) => state.pushToast)
   const { preferences } = usePreferences()
   const { t } = useTranslation()
   const editorRefs = useRef<Record<string, any>>({})
   const editorViewportRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const openEditorsRef = useRef(openEditors)
+  openEditorsRef.current = openEditors
   const autoScrollFrameRef = useRef<number | null>(null)
   const autoScrollStateRef = useRef<{ active: boolean; editorId: string | null; anchorX: number; anchorY: number; pointerX: number; pointerY: number }>({ active: false, editorId: null, anchorX: 0, anchorY: 0, pointerX: 0, pointerY: 0 })
+  const navigationBackRef = useRef<NavigationEntry[]>([])
+  const navigationForwardRef = useRef<NavigationEntry[]>([])
+  const navigationPendingRef = useRef(false)
+  const definitionPendingRef = useRef(false)
+  const pendingLocationRef = useRef<Record<string, { line: number; column: number }>>({})
   const [pendingCloseEditorId, setPendingCloseEditorId] = useState<string | null>(null)
   const [previewOpenById, setPreviewOpenById] = useState<Record<string, boolean>>({})
   const [cursorById, setCursorById] = useState<Record<string, { line: number; column: number }>>({})
@@ -192,6 +215,7 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
   const [paneDropTarget, setPaneDropTarget] = useState<{ groupId: string; placement: DropPlacement } | null>(null)
   const [tabDropTarget, setTabDropTarget] = useState<{ groupId: string; placement: DropPlacement } | null>(null)
   const [tabInsertionTarget, setTabInsertionTarget] = useState<{ groupId: string; editorId: string; side: TabInsertSide } | null>(null)
+  const [navigationVersion, setNavigationVersion] = useState(0)
   const [imageScale, setImageScale] = useState(1)
   const [imageOffset, setImageOffset] = useState({ x: 0, y: 0 })
   const imageViewportRef = useRef<HTMLDivElement | null>(null)
@@ -227,6 +251,107 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
   const isOpenEditorId = (id: string) => openEditors.some((item) => item.id === id)
   const getDragDropEffect = (dragged: FileDocumentHandle | null) => dragged && isOpenEditorId(dragged.id) ? 'move' : 'copy'
   const getTabInsertSide = (rect: DOMRect, clientX: number) => clientX <= rect.left + rect.width / 2 ? 'before' as const : 'after' as const
+  const getNavigationPosition = (editorId: string) => {
+    const cursorState = cursorById[editorId]
+    if (cursorState) return cursorState
+    const position = editorRefs.current[editorId]?.getPosition?.()
+    if (!position) return null
+    return { line: position.lineNumber, column: position.column }
+  }
+  const createNavigationEntry = (editor: FileEditorDocument, position?: { line: number; column: number } | null) => {
+    const resolvedPosition = position || getNavigationPosition(editor.id)
+    if (!resolvedPosition) return null
+    return {
+      id: editor.id,
+      hostId: editor.hostId,
+      rootId: editor.rootId,
+      rootLabel: editor.rootLabel,
+      rootPath: editor.rootPath,
+      path: editor.path,
+      name: editor.name,
+      absolutePath: editor.absolutePath,
+      type: 'file' as const,
+      line: resolvedPosition.line,
+      column: resolvedPosition.column,
+    } satisfies NavigationEntry
+  }
+  const sameNavigationEntry = (left: NavigationEntry | null | undefined, right: NavigationEntry | null | undefined) => !!left && !!right && left.id === right.id && left.line === right.line && left.column === right.column
+  const syncNavigationState = () => setNavigationVersion((current) => current + 1)
+  const openNavigationEntry = async (entry: NavigationEntry) => {
+    await openFileInEditor({
+      id: entry.id,
+      hostId: entry.hostId,
+      rootId: entry.rootId,
+      rootLabel: entry.rootLabel,
+      rootPath: entry.rootPath,
+      path: entry.path,
+      name: entry.name,
+      absolutePath: entry.absolutePath,
+      type: 'file',
+    }, { t, pushToast, position: { line: entry.line, column: entry.column }, openPanel: true })
+  }
+  const navigateToEntry = async (entry: NavigationEntry, sourceEntry?: NavigationEntry | null) => {
+    if (navigationPendingRef.current || sameNavigationEntry(sourceEntry, entry)) return
+    navigationPendingRef.current = true
+    try {
+      if (sourceEntry && !sameNavigationEntry(navigationBackRef.current[navigationBackRef.current.length - 1], sourceEntry)) navigationBackRef.current.push(sourceEntry)
+      navigationForwardRef.current = []
+      await openNavigationEntry(entry)
+      syncNavigationState()
+    } finally {
+      navigationPendingRef.current = false
+    }
+  }
+  const goBackInNavigation = async () => {
+    if (navigationPendingRef.current) return
+    const entry = navigationBackRef.current.pop()
+    if (!entry) return
+    const currentEntry = activeEditor && !gitDiff ? createNavigationEntry(activeEditor) : null
+    navigationPendingRef.current = true
+    try {
+      if (currentEntry && !sameNavigationEntry(navigationForwardRef.current[navigationForwardRef.current.length - 1], currentEntry)) navigationForwardRef.current.push(currentEntry)
+      await openNavigationEntry(entry)
+      syncNavigationState()
+    } finally {
+      navigationPendingRef.current = false
+    }
+  }
+  const goForwardInNavigation = async () => {
+    if (navigationPendingRef.current) return
+    const entry = navigationForwardRef.current.pop()
+    if (!entry) return
+    const currentEntry = activeEditor && !gitDiff ? createNavigationEntry(activeEditor) : null
+    navigationPendingRef.current = true
+    try {
+      if (currentEntry && !sameNavigationEntry(navigationBackRef.current[navigationBackRef.current.length - 1], currentEntry)) navigationBackRef.current.push(currentEntry)
+      await openNavigationEntry(entry)
+      syncNavigationState()
+    } finally {
+      navigationPendingRef.current = false
+    }
+  }
+  const goToDefinition = async (editor: FileEditorDocument, position: { line: number; column: number }) => {
+    if (navigationPendingRef.current || definitionPendingRef.current || editor.loading || editor.binary || editor.truncated || editor.kind === 'compare') return
+    const sourceEntry = createNavigationEntry(editor, position)
+    if (!sourceEntry) return
+    definitionPendingRef.current = true
+    try {
+      const result = await resolveEditorDefinition(editor, position, openEditorsRef.current)
+      if (result.status === 'unsupported') {
+        pushToast({ type: 'info', message: t('editor.definitionUnsupported') })
+        return
+      }
+      if (result.status !== 'success') {
+        pushToast({ type: 'info', message: t('editor.definitionNotFound') })
+        return
+      }
+      await navigateToEntry(result.target, sourceEntry)
+    } catch (error) {
+      pushToast({ type: 'error', message: error instanceof Error ? error.message : t('editor.definitionNotFound') })
+    } finally {
+      definitionPendingRef.current = false
+    }
+  }
   const resolveTabInsertTargetId = (groupEditors: FileEditorDocument[], draggedId: string, targetId: string, side: TabInsertSide) => {
     if (side === 'before') return targetId
     const baseIds = groupEditors.map((item) => item.id).filter((item) => item !== draggedId)
@@ -332,9 +457,25 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
   }
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey) || !activeEditor) return
       const target = event.target
       if (target instanceof Element && target.closest('[data-terminal],.xterm,.xterm-screen')) return
+      if (event.key === 'F12' && activeEditor && !gitDiff) {
+        event.preventDefault()
+        const position = getNavigationPosition(activeEditor.id)
+        if (position) void goToDefinition(activeEditor, position)
+        return
+      }
+      if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.key === 'ArrowLeft') {
+        event.preventDefault()
+        void goBackInNavigation()
+        return
+      }
+      if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.key === 'ArrowRight') {
+        event.preventDefault()
+        void goForwardInNavigation()
+        return
+      }
+      if (!(event.metaKey || event.ctrlKey) || !activeEditor) return
       if (event.key.toLowerCase() === 's') {
         event.preventDefault()
         if (!gitDiff && !activeEditor.loading && !activeEditor.saving && !activeEditor.binary && !activeEditor.truncated) void onSaveEditor(activeEditor)
@@ -355,7 +496,7 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
     }
     window.addEventListener('keydown', handleKeyDown, true)
     return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [activeEditor, closeEditor, gitDiff, onSaveEditor])
+  }, [activeEditor, closeEditor, cursorById, gitDiff, navigationVersion, onSaveEditor, openEditors])
   useEffect(() => {
     if (!autoScrollIndicator.active) return
     const handlePointerMove = (event: PointerEvent) => {
@@ -434,12 +575,16 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
       const line = Number(detail?.line)
       const column = Number(detail?.column) || 1
       if (!editorId || !Number.isFinite(line) || line < 1) return
+      pendingLocationRef.current[editorId] = { line, column: Math.max(1, column) }
       setActiveEditor(editorId)
       requestAnimationFrame(() => {
         const editor = editorRefs.current[editorId]
-        editor?.setPosition?.({ lineNumber: line, column: Math.max(1, column) })
-        editor?.revealPositionInCenter?.({ lineNumber: line, column: Math.max(1, column) })
-        editor?.focus?.()
+        const position = pendingLocationRef.current[editorId]
+        if (!editor || !position) return
+        editor.setPosition?.({ lineNumber: position.line, column: position.column })
+        editor.revealPositionInCenter?.({ lineNumber: position.line, column: position.column })
+        editor.focus?.()
+        delete pendingLocationRef.current[editorId]
       })
     }
     window.addEventListener(OPEN_EDITOR_LOCATION_EVENT, handleOpenEditorLocation as EventListener)
@@ -616,6 +761,24 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
       instance.onDidChangeCursorPosition?.((event: any) => {
         setCursorById((current) => ({ ...current, [editor.id]: { line: event.position.lineNumber, column: event.position.column } }))
       })
+      const pendingPosition = pendingLocationRef.current[editor.id]
+      if (pendingPosition) {
+        instance.setPosition?.({ lineNumber: pendingPosition.line, column: pendingPosition.column })
+        instance.revealPositionInCenter?.({ lineNumber: pendingPosition.line, column: pendingPosition.column })
+        instance.focus?.()
+        delete pendingLocationRef.current[editor.id]
+      }
+      instance.onMouseDown?.((event: any) => {
+        const browserEvent = event?.event?.browserEvent
+        if (!browserEvent || browserEvent.button !== 0 || (!browserEvent.ctrlKey && !browserEvent.metaKey)) return
+        const position = event?.target?.position
+        if (!position) return
+        browserEvent.preventDefault?.()
+        browserEvent.stopPropagation?.()
+        setActiveEditor(editor.id)
+        const currentEditor = openEditorsRef.current.find((item) => item.id === editor.id) || editor
+        void goToDefinition(currentEditor, { line: position.lineNumber, column: position.column })
+      })
     }} onChange={(value) => setEditorContent(editor.id, value || '')} options={{ automaticLayout: true, minimap: { enabled: false }, fontFamily: preferences.fontFamily, fontSize: Math.max(12, preferences.fontSize), lineNumbers: 'on', lineNumbersMinChars: 4, glyphMargin: false, folding: true, guides: { indentation: true, bracketPairs: true }, bracketPairColorization: { enabled: true }, matchBrackets: 'always', renderLineHighlight: 'line', renderValidationDecorations: 'on', occurrencesHighlight: 'singleFile', selectionHighlight: true, codeLens: false, contextmenu: true, links: true, mouseWheelZoom: true, cursorSmoothCaretAnimation: 'on', scrollBeyondLastLine: false, scrollbar: { verticalScrollbarSize: 8, horizontalScrollbarSize: 8, alwaysConsumeMouseWheel: false, useShadows: false, verticalHasArrows: false, horizontalHasArrows: false }, overviewRulerBorder: false, wordWrap: 'off', wordWrapColumn: 120, wrappingIndent: 'same', tabSize: getTabSize(editor.language), insertSpaces: editor.language !== 'go', detectIndentation: true, formatOnPaste: true, formatOnType: true, trimAutoWhitespace: true, renderWhitespace: 'boundary', renderControlCharacters: false, smoothScrolling: true, cursorBlinking: preferences.cursorBlink ? 'blink' : 'solid', cursorStyle: 'line', dragAndDrop: false, dropIntoEditor: { enabled: false }, readOnlyMessage: { value: t('editor.readOnly') }, padding: { top: 16, bottom: 16 } }} />{autoScrollIndicator.active && autoScrollStateRef.current.editorId === editor.id && <span data-testid="editor-auto-scroll-indicator" className="pointer-events-none absolute z-20 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-accent/70 bg-bg-0/85 shadow-[0_0_0_1px_rgba(30,200,255,0.22)]" style={{ left: autoScrollIndicator.x, top: autoScrollIndicator.y }}><span className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-accent/70" /><span className="absolute left-0 top-1/2 h-px w-full -translate-y-1/2 bg-accent/70" /></span>}</div>{previewOpen && (editor.language === 'markdown' ? <div className="tmuxgo-scrollbar min-w-0 flex-1 overflow-auto bg-bg-1/60 px-6 py-5"><article className="prose prose-invert max-w-none text-sm text-text-2 [&_a]:text-accent [&_blockquote]:border-l-2 [&_blockquote]:border-[var(--line)] [&_blockquote]:pl-3 [&_code]:rounded-apple [&_code]:bg-bg-2 [&_code]:px-1.5 [&_code]:py-0.5 [&_h1]:mb-4 [&_h1]:text-3xl [&_h1]:text-text-1 [&_h2]:mb-3 [&_h2]:mt-6 [&_h2]:text-2xl [&_h2]:text-text-1 [&_h3]:mb-2 [&_h3]:mt-5 [&_h3]:text-xl [&_h3]:text-text-1 [&_li]:mb-1 [&_p]:mb-3 [&_pre]:overflow-auto [&_pre]:rounded-apple [&_pre]:bg-bg-0 [&_pre]:p-4 [&_strong]:text-text-1" dangerouslySetInnerHTML={{ __html: renderMarkdown(editor.content) || `<p>${t('editor.nothingToPreview')}</p>` }} /></div> : <iframe title={editor.name} srcDoc={editor.content} sandbox="allow-downloads allow-forms allow-modals allow-popups allow-scripts" referrerPolicy="no-referrer" className="h-full min-w-0 flex-1 border-0 bg-white" />)}</div>
   }
   const closeAllEditors = () => {
@@ -631,9 +794,12 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
         </div>
         <div className="flex items-center gap-2">
           {!gitDiff && <>
+            <Button size="icon-sm" aria-label={t('editor.back')} title={t('editor.back')} disabled={!navigationBackRef.current.length} onClick={() => void goBackInNavigation()}><FiArrowLeft aria-hidden="true" size={14} /></Button>
+            <Button size="icon-sm" aria-label={t('editor.forward')} title={t('editor.forward')} disabled={!navigationForwardRef.current.length} onClick={() => void goForwardInNavigation()}><FiArrowRight aria-hidden="true" size={14} /></Button>
             <Button size="sm" onClick={closeAllEditors}>{t('editor.clear')}</Button>
             <Button size="sm" onClick={() => void editorRefs.current[activeEditor.id]?.getAction?.('actions.find')?.run?.()}>{t('editor.find')}</Button>
             <Button size="sm" onClick={() => void editorRefs.current[activeEditor.id]?.getAction?.('editor.action.formatDocument')?.run?.()}>{t('editor.format')}</Button>
+            <Button size="icon-sm" aria-label={t('editor.definition')} title={t('editor.definition')} disabled={activeEditor.loading || activeEditor.binary || activeEditor.truncated || activeEditor.kind === 'compare'} onClick={() => { const position = getNavigationPosition(activeEditor.id); if (position) void goToDefinition(activeEditor, position) }}><FiCode aria-hidden="true" size={14} /></Button>
             {(activeEditor.language === 'markdown' || activeEditor.language === 'html') && <Button size="sm" variant={previewOpenById[activeEditor.id] !== false ? 'accent' : 'default'} onClick={() => setPreviewOpenById((current) => ({ ...current, [activeEditor.id]: current[activeEditor.id] === false }))}>{t('editor.preview')}</Button>}
             <Button size="sm" disabled={activeEditor.loading || activeEditor.saving || activeEditor.binary || activeEditor.truncated || !activeEditor.dirty} variant={activeEditor.loading || activeEditor.saving || activeEditor.binary || activeEditor.truncated || !activeEditor.dirty ? 'default' : 'accent'} onClick={() => void onSaveEditor(activeEditor)}>{activeEditor.saving ? t('editor.saving') : activeEditor.dirty ? t('editor.save') : t('editor.saved')}</Button>
           </>}
