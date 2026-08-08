@@ -73,10 +73,14 @@ function resolveDisplay(display: AgentPaneState['display'], now: number): AgentP
   if (!Number.isFinite(updatedAt) || now - updatedAt > display.ttlMs) return undefined
   return display
 }
-function applyDisplayPatch(current: AgentPaneState['display'], patch: AgentProtocolEvent['display'], timestamp: string): AgentPaneState['display'] | undefined {
+function applyDisplayPatch(current: AgentPaneState['display'], patch: AgentProtocolEvent['display'], now: number): AgentPaneState['display'] | undefined {
   if (!patch) return current
-  if (current && patch.seq !== undefined && current.seq !== undefined && patch.seq <= current.seq) return current
-  return { title: patch.title ?? current?.title, stateLabel: patch.stateLabel ?? current?.stateLabel, tokens: patch.tokens ?? current?.tokens, seq: patch.seq ?? current?.seq, ttlMs: patch.ttlMs ?? current?.ttlMs ?? displayDefaultTtlMs, updatedAt: timestamp }
+  if (patch.seq === undefined) {
+    if (current?.seq !== undefined) return current
+  } else if (current?.seq !== undefined) {
+    if (patch.seq <= current.seq) return current
+  }
+  return { title: patch.title ?? current?.title, stateLabel: patch.stateLabel ?? current?.stateLabel, tokens: patch.tokens ?? current?.tokens, seq: patch.seq ?? current?.seq, ttlMs: patch.ttlMs ?? current?.ttlMs ?? displayDefaultTtlMs, updatedAt: patch.seq !== undefined && current?.seq !== undefined && patch.seq === current.seq ? current.updatedAt : new Date(now).toISOString() }
 }
 function applyProtocolEvent(pane: AgentPaneState, event: AgentProtocolEvent, now: number) {
   return {
@@ -92,7 +96,7 @@ function applyProtocolEvent(pane: AgentPaneState, event: AgentProtocolEvent, now
     updatedAt: event.timestamp,
     eventId: event.eventId,
     message: event.message,
-    display: resolveDisplay(applyDisplayPatch(resolveDisplay(pane.display, now), event.display, event.timestamp), now),
+    display: resolveDisplay(applyDisplayPatch(pane.display, event.display, now), now),
   }
 }
 
@@ -265,7 +269,7 @@ export class AgentMonitor {
       const basePane = previous?.display ? { ...rawPane, display: resolveDisplay(previous.display, this.now()) } : rawPane
       const reconnected = wasDisconnected && previous?.phase === 'disconnected' ? { ...basePane, lastEvent: 'reconnected' as const, updatedAt: new Date(this.now()).toISOString(), eventId: hostId + ':' + rawPane.paneId + ':reconnected:' + this.now() } : basePane
       const matchingProtocolEvents = [...state.protocolEvents.values()].filter((event) => matchesProtocolEvent(event, reconnected)).filter((event) => event.paneId || event.tmuxPaneId || event.agentSessionId || agents.filter((candidate) => candidate.sessionName === event.sessionName && candidate.agent === event.agent).length === 1).sort((left, right) => left.timestamp.localeCompare(right.timestamp))
-      const pane = matchingProtocolEvents.reduce((current, event) => applyProtocolEvent(current, event, this.now()), reconnected)
+      const pane = matchingProtocolEvents.reduce((current, event) => applyProtocolEvent(current, { ...event, display: undefined }, this.now()), reconnected)
       next.set(pane.paneId, resolveDisplay(pane, this.now()) ? pane : { ...pane, display: undefined })
     }
     const previousAgents = state.agents

@@ -177,13 +177,14 @@ export class AgentControl {
 }
 export const agentControl = new AgentControl()
 export async function splitAgentPane(hostId: string, tmuxPaneId: string, direction: 'horizontal' | 'vertical', cwd?: string) {
+  const listPanes = async () => (await execTmux(hostId, ['list-panes', '-s', '-t', tmuxPaneId, '-F', '#{pane_id}'])).stdout.trim().split('\n').filter(Boolean)
+  const before = new Set(await listPanes())
   const args = ['split-window']
   if (cwd && cwd.trim() && /^[A-Za-z0-9_./~-]+$/.test(cwd.trim())) args.push('-c', cwd.trim())
   args.push('-e', 'TMUXGO_ENV=1', '-t', tmuxPaneId, direction === 'horizontal' ? '-h' : '-v')
   await execTmux(hostId, args)
-  const { stdout } = await execTmux(hostId, ['list-panes', '-s', '-t', tmuxPaneId, '-F', '#{pane_id}'])
-  const panes = stdout.trim().split('\n').filter(Boolean)
-  return panes[panes.length - 1] || ''
+  const after = await listPanes()
+  return after.find((paneId) => !before.has(paneId)) || after[after.length - 1] || ''
 }
 export async function readAgentPane(hostId: string, tmuxPaneId: string, lines = 200) {
   const count = Math.max(1, Math.min(Math.floor(lines), 2000))

@@ -79,7 +79,7 @@ function normalizeDisplay(raw: Record<string, unknown>) {
   if (title) display.title = title.slice(0, 160)
   if (stateLabel) display.stateLabel = stateLabel.slice(0, 160)
   if (Number.isFinite(tokens) && tokens! >= 0) display.tokens = Math.floor(tokens!)
-  if (Number.isFinite(seq)) display.seq = Math.floor(seq!)
+  if (Number.isFinite(seq) && seq! >= 0) display.seq = Math.floor(seq!)
   if (Number.isFinite(ttlMs) && ttlMs! > 0) display.ttlMs = Math.floor(ttlMs!)
   return Object.keys(display).length ? display : undefined
 }
