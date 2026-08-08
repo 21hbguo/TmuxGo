@@ -12,7 +12,7 @@ const zoomByPane = vi.fn()
 const killPane = vi.fn()
 const removeShortcut = vi.fn()
 let windowsDataMock:any[]=[{ id:'win-1',sessionId:'session-dev',active:true }]
-const shortcutsMock=[{ id:'shortcut-a',label:'A',keys:'Ctrl+A',action:'input' },{ id:'shortcut-b',label:'B',keys:'Ctrl+B',action:'input' },{ id:'shortcut-text',label:'Status',mode:'text' as const,text:'printf ok',appendEnter:true }]
+const shortcutsMock=[{ id:'shortcut-a',label:'A',keys:'Ctrl+A',action:'input' },{ id:'shortcut-b',label:'B',keys:'Ctrl+B',action:'input' },{ id:'shortcut-text',label:'Status',mode:'text' as const,text:'printf ok',appendEnter:true },{ id:'shortcut-macro',label:'Deploy',steps:[{ type:'text',text:'cd /app',appendEnter:true },{ type:'wait',ms:500 },{ type:'keys',keys:'Ctrl+A' }] }]
 
 vi.mock('@/hooks/useWebSocket', () => ({
   useWebSocket: () => ({ send, isConnected: true, isSocketReady: true }),
@@ -22,7 +22,9 @@ vi.mock('@/hooks/useApi', () => ({
 }))
 vi.mock('@/hooks/useCustomShortcuts', () => ({
   useCustomShortcuts: () => ({ shortcuts: shortcutsMock, addShortcut: vi.fn(), updateShortcut: vi.fn(), removeShortcut }),
-  shortcutToInput: (value: any) => value.mode === 'text' ? value.text + (value.appendEnter ? '\r' : '') : value.keys === 'Ctrl+A' ? '\x01' : value.keys === 'Ctrl+B' ? '\x02' : '',
+  shortcutToSteps: (value: any) => value.steps || (value.mode === 'text' ? [{ type: 'text', text: value.text, appendEnter: value.appendEnter }] : [{ type: 'keys', keys: value.keys }]),
+  stepToInput: (step: any) => step.type === 'text' ? step.text + (step.appendEnter ? '\r' : '') : step.keys === 'Ctrl+A' ? '\x01' : step.keys === 'Ctrl+B' ? '\x02' : '',
+  describeShortcut: () => '',
 }))
 vi.mock('@/lib/api', () => ({
   api: {
@@ -356,5 +358,37 @@ describe('ShortcutBar', () => {
     fireEvent.pointerDown(button, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
     fireEvent.pointerUp(button, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
     expect(send).toHaveBeenCalledWith({ type: 'input', data: 'printf ok\r' })
+  })
+  it('runs macro steps in order with wait between them', async () => {
+    render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))
+    const button = screen.getByRole('button', { name: 'Deploy' })
+    fireEvent.pointerDown(button, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
+    fireEvent.pointerUp(button, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(send).toHaveBeenCalledWith({ type: 'input', data: 'cd /app\r' })
+    await act(async () => { vi.advanceTimersByTime(600) })
+    expect(send).toHaveBeenCalledTimes(2)
+    expect(send).toHaveBeenLastCalledWith({ type: 'input', data: '\x01' })
+  })
+  it('cancels pending macro steps when another shortcut fires', async () => {
+    render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))
+    const deploy = screen.getByRole('button', { name: 'Deploy' })
+    fireEvent.pointerDown(deploy, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
+    fireEvent.pointerUp(deploy, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
+    expect(send).toHaveBeenCalledTimes(1)
+    const a = screen.getByRole('button', { name: 'A' })
+    fireEvent.pointerDown(a, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
+    fireEvent.pointerUp(a, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
+    await act(async () => { vi.advanceTimersByTime(600) })
+    expect(send).toHaveBeenCalledTimes(2)
+  })
+  it('shows running state on a macro button while it executes', async () => {
+    render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))
+    const button = screen.getByRole('button', { name: 'Deploy' })
+    fireEvent.pointerDown(button, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
+    fireEvent.pointerUp(button, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
+    expect(button.className).toContain('animate-pulse')
+    await act(async () => { vi.advanceTimersByTime(600) })
+    expect(screen.getByRole('button', { name: 'Deploy' }).className).not.toContain('animate-pulse')
   })
 })
