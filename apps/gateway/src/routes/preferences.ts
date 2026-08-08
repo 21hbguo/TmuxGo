@@ -4,7 +4,8 @@ import os from 'os'
 import path from 'path'
 import { mkdir, readFile, rename, stat, writeFile } from 'fs/promises'
 
-type CustomShortcut = { id: string; label: string; mode?: 'keys' | 'text'; keys?: string; text?: string; appendEnter?: boolean }
+type ShortcutStep = { type: 'keys' | 'text' | 'wait'; keys?: string; text?: string; appendEnter?: boolean; ms?: number }
+type CustomShortcut = { id: string; label: string; mode?: 'keys' | 'text'; keys?: string; text?: string; appendEnter?: boolean; steps?: ShortcutStep[] }
 type FavoriteDirectory = { rootId: string; rootPath: string; name: string; path: string }
 type SessionWorkspaceEntry = { sessionId: string; hostId: string; workspacePath: string; rootId: string; rootPath: string; rootLabel: string; relativePath: string; updatedAt: string }
 type SessionOrder = { hostId: string; orderedSessionIds: string[] }
@@ -99,6 +100,8 @@ const MAX_PROFILE_LEN = 64
 const MAX_SHORTCUT_LABEL_LEN = 64
 const MAX_SHORTCUT_KEYS_LEN = 64
 const MAX_SHORTCUT_TEXT_LEN = 4096
+const MAX_SHORTCUT_STEPS = 50
+const MAX_SHORTCUT_STEP_MS = 60000
 const MAX_ID_LEN = 64
 const MAX_ROOT_ID_LEN = 64
 const MAX_ROOT_PATH_LEN = 1024
@@ -193,6 +196,29 @@ function normalizeInt(input: unknown, fallback: number, min: number, max: number
   if (!Number.isFinite(value)) return fallback
   return Math.max(min, Math.min(max, Math.round(value)))
 }
+function normalizeShortcutSteps(input: unknown) {
+  if (!Array.isArray(input)) return []
+  const steps: ShortcutStep[] = []
+  for (const entry of input) {
+    if (!entry || typeof entry !== 'object') continue
+    const raw = entry as Record<string, unknown>
+    if (raw.type === 'wait') {
+      const ms = normalizeInt(raw.ms, 0, 0, MAX_SHORTCUT_STEP_MS)
+      if (ms <= 0) continue
+      steps.push({ type: 'wait', ms })
+    } else if (raw.type === 'text') {
+      const text = typeof raw.text === 'string' ? raw.text.slice(0, MAX_SHORTCUT_TEXT_LEN) : ''
+      if (!text) continue
+      steps.push({ type: 'text', text, appendEnter: raw.appendEnter === true })
+    } else if (raw.type === 'keys' || raw.type === undefined) {
+      const keys = safeString(raw.keys, MAX_SHORTCUT_KEYS_LEN)
+      if (!keys) continue
+      steps.push({ type: 'keys', keys })
+    }
+    if (steps.length >= MAX_SHORTCUT_STEPS) break
+  }
+  return steps
+}
 function normalizeShortcuts(input: unknown) {
   if (!Array.isArray(input)) return []
   const next: CustomShortcut[] = []
@@ -200,17 +226,15 @@ function normalizeShortcuts(input: unknown) {
     if (!entry || typeof entry !== 'object') continue
     const id = safeString((entry as Record<string, unknown>).id, MAX_ID_LEN)
     const label = safeString((entry as Record<string, unknown>).label, MAX_SHORTCUT_LABEL_LEN)
+    if (!id || !label) continue
     const raw = entry as Record<string, unknown>
-    const mode = raw.mode === 'text' ? 'text' : raw.mode === 'keys' ? 'keys' : undefined
-    if (mode === 'text') {
-      const text = typeof raw.text === 'string' ? raw.text.slice(0, MAX_SHORTCUT_TEXT_LEN) : ''
-      if (!id || !label || !text) continue
-      next.push({ id, label, mode, text, appendEnter: raw.appendEnter === true })
-    } else {
-      const keys = safeString(raw.keys, MAX_SHORTCUT_KEYS_LEN)
-      if (!id || !label || !keys) continue
-      next.push(mode ? { id, label, mode, keys } : { id, label, keys })
-    }
+    const rawSteps = normalizeShortcutSteps(raw.steps)
+    const legacy = raw.mode === 'text'
+      ? { type: 'text' as const, text: raw.text, appendEnter: raw.appendEnter === true }
+      : { type: 'keys' as const, keys: raw.keys }
+    const steps = rawSteps.length > 0 ? rawSteps : normalizeShortcutSteps([legacy])
+    if (steps.length === 0) continue
+    next.push({ id, label, steps })
     if (next.length >= MAX_SHORTCUTS) break
   }
   return next

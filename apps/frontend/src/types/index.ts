@@ -299,6 +299,14 @@ export interface UploadJob {
   errorMessage?: string
   result?: UploadJobResult
 }
+export type ShortcutStepType = 'keys' | 'text' | 'wait'
+export interface ShortcutStep {
+  type: ShortcutStepType
+  keys?: string
+  text?: string
+  appendEnter?: boolean
+  ms?: number
+}
 export interface CustomShortcut {
   id: string
   label: string
@@ -306,6 +314,7 @@ export interface CustomShortcut {
   keys?: string
   text?: string
   appendEnter?: boolean
+  steps?: ShortcutStep[]
 }
 export interface FavoriteDirectory {
   rootId: string

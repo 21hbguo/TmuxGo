@@ -53,13 +53,83 @@ test('normalizes text shortcuts without losing line breaks', async (t) => {
     payload: { customShortcuts: [{ id: 'run', label: 'Run', mode: 'text', text, appendEnter: 'yes' }, { id: 'old', label: 'Old', keys: 'Ctrl+O' }], customShortcutsUpdatedAt: updatedAt },
   })
   assert.equal(response.statusCode, 200)
-  const shortcuts = response.json().customShortcuts as { id: string; mode?: string; keys?: string; text?: string; appendEnter?: boolean }[]
-  assert.equal(shortcuts[0]?.mode, 'text')
-  assert.equal(shortcuts[0]?.text, text.slice(0, 4096))
-  assert.equal(shortcuts[0]?.text?.includes('\n'), true)
-  assert.equal(shortcuts[0]?.appendEnter, false)
+  const shortcuts = response.json().customShortcuts as { id: string; steps: { type: string; text?: string; keys?: string; appendEnter?: boolean }[] }[]
+  assert.equal(shortcuts[0]?.id, 'run')
+  assert.equal(shortcuts[0]?.steps?.[0]?.type, 'text')
+  assert.equal(shortcuts[0]?.steps?.[0]?.text, text.slice(0, 4096))
+  assert.equal(shortcuts[0]?.steps?.[0]?.text?.includes('\n'), true)
+  assert.equal(shortcuts[0]?.steps?.[0]?.appendEnter, false)
   assert.equal(shortcuts[1]?.id, 'old')
-  assert.equal(shortcuts[1]?.keys, 'Ctrl+O')
-  assert.equal(shortcuts[1]?.mode, undefined)
+  assert.equal(shortcuts[1]?.steps?.[0]?.type, 'keys')
+  assert.equal(shortcuts[1]?.steps?.[0]?.keys, 'Ctrl+O')
+  await fastify.close()
+})
+
+test('normalizes macro shortcut steps and drops invalid ones', async (t) => {
+  const preferencesDir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-preferences-shortcut-'))
+  const previousPreferencesDir = process.env.TMUXGO_PREFERENCES_DIR
+  process.env.TMUXGO_PREFERENCES_DIR = preferencesDir
+  t.after(async () => {
+    if (previousPreferencesDir === undefined) delete process.env.TMUXGO_PREFERENCES_DIR
+    else process.env.TMUXGO_PREFERENCES_DIR = previousPreferencesDir
+    await rm(preferencesDir, { recursive: true, force: true })
+  })
+  const { preferencesRoutes } = await import('./preferences.js?macro-test=' + Date.now() + '-' + Math.random())
+  const fastify = Fastify()
+  await fastify.register(preferencesRoutes)
+  const updatedAt = new Date(Date.now() + 1000).toISOString()
+  const response = await fastify.inject({
+    method: 'PUT',
+    url: '/preferences?profile=default',
+    payload: {
+      customShortcuts: [{
+        id: 'deploy',
+        label: 'Deploy',
+        steps: [
+          { type: 'text', text: 'cd /app', appendEnter: true },
+          { type: 'wait', ms: 800 },
+          { type: 'keys', keys: 'Ctrl+L' },
+          { type: 'bogus', text: 'x' },
+          { type: 'wait', ms: 0 },
+          { type: 'text', text: '' },
+          { type: 'wait', ms: 999999 },
+        ],
+      }],
+      customShortcutsUpdatedAt: updatedAt,
+    },
+  })
+  assert.equal(response.statusCode, 200)
+  const shortcuts = response.json().customShortcuts as { id: string; steps: { type: string; text?: string; keys?: string; appendEnter?: boolean; ms?: number }[] }[]
+  const steps = shortcuts[0]?.steps
+  assert.equal(steps?.length, 4)
+  assert.deepEqual(steps?.[0], { type: 'text', text: 'cd /app', appendEnter: true })
+  assert.deepEqual(steps?.[1], { type: 'wait', ms: 800 })
+  assert.deepEqual(steps?.[2], { type: 'keys', keys: 'Ctrl+L' })
+  assert.deepEqual(steps?.[3], { type: 'wait', ms: 60000 })
+  await fastify.close()
+})
+
+test('caps macro shortcut steps at the maximum', async (t) => {
+  const preferencesDir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-preferences-shortcut-'))
+  const previousPreferencesDir = process.env.TMUXGO_PREFERENCES_DIR
+  process.env.TMUXGO_PREFERENCES_DIR = preferencesDir
+  t.after(async () => {
+    if (previousPreferencesDir === undefined) delete process.env.TMUXGO_PREFERENCES_DIR
+    else process.env.TMUXGO_PREFERENCES_DIR = previousPreferencesDir
+    await rm(preferencesDir, { recursive: true, force: true })
+  })
+  const { preferencesRoutes } = await import('./preferences.js?macro-cap-test=' + Date.now() + '-' + Math.random())
+  const fastify = Fastify()
+  await fastify.register(preferencesRoutes)
+  const updatedAt = new Date(Date.now() + 1000).toISOString()
+  const steps = Array.from({ length: 55 }, (_, i) => ({ type: 'text', text: `echo ${i}`, appendEnter: true }))
+  const response = await fastify.inject({
+    method: 'PUT',
+    url: '/preferences?profile=default',
+    payload: { customShortcuts: [{ id: 'long', label: 'Long', steps }], customShortcutsUpdatedAt: updatedAt },
+  })
+  assert.equal(response.statusCode, 200)
+  const shortcuts = response.json().customShortcuts as { id: string; steps: unknown[] }[]
+  assert.equal(shortcuts[0]?.steps?.length, 50)
   await fastify.close()
 })
