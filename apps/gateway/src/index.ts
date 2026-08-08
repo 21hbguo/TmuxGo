@@ -31,6 +31,7 @@ import { getAccessCookieName, initializeAuthStore, isAuthEnabled, isPasswordChan
 import { agentMonitor } from './lib/agent-monitor.js'
 import { agentEventRoutes } from './routes/agent-events.js'
 import { agentNotificationRoutes } from './routes/agent-notifications.js'
+import { agentControlRoutes } from './routes/agent-control.js'
 
 const fastify = Fastify({
   logger: createFastifyLoggerConfig(),
@@ -45,7 +46,7 @@ fastify.addHook('onRequest', async (request, reply) => {
   if (request.method === 'OPTIONS') return
   if (!isAuthEnabled()) return
   const routePath = request.url.split('?')[0]
-  if (!routePath.startsWith('/api/') || routePath === '/api/stream' || routePath === '/api/agent-events' || routePath === '/api/auth/status' || routePath === '/api/auth/login' || routePath === '/api/auth/refresh' || routePath === '/api/auth/logout' || routePath === '/api/shares/exchange') return
+  if (!routePath.startsWith('/api/') || routePath === '/api/stream' || routePath === '/api/agent-events' || routePath.startsWith('/api/v1/control') || routePath === '/api/auth/status' || routePath === '/api/auth/login' || routePath === '/api/auth/refresh' || routePath === '/api/auth/logout' || routePath === '/api/shares/exchange') return
   const authorization = request.headers.authorization
   const token = typeof authorization === 'string' && authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : ''
   const cookiePrefix = `${getAccessCookieName()}=`
@@ -91,6 +92,7 @@ await fastify.register(sessionArchiveRoutes, { prefix: '/api' })
 await fastify.register(pluginRoutes, { prefix: '/api' })
 await fastify.register(agentEventRoutes, { prefix: '/api' })
 await fastify.register(agentNotificationRoutes, { prefix: '/api' })
+await fastify.register(agentControlRoutes, { prefix: '/api' })
 
 const frontendDist = process.env.TMUXGO_FRONTEND_DIST || path.resolve(process.cwd(), '../frontend/dist')
 if (existsSync(frontendDist)) {
