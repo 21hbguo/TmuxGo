@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { api } from '@/lib/api'
-import type { CustomShortcut } from '@/types'
-export type { CustomShortcut } from '@/types'
+import type { CustomShortcut, ShortcutStep } from '@/types'
+export type { CustomShortcut, ShortcutStep } from '@/types'
 
 const STORAGE_KEY = 'tmuxgo-custom-shortcuts'
 const STORAGE_UPDATED_AT_KEY = 'tmuxgo-custom-shortcuts-updated-at'
@@ -71,11 +71,26 @@ export function keysToEscape(keys: string): string {
   return ''
 }
 
+export function stepToInput(step: ShortcutStep): string {
+  if (step.type === 'keys') return keysToEscape(step.keys || '')
+  if (step.type === 'text') return `${step.text || ''}${step.appendEnter === true ? '\r' : ''}`
+  return ''
+}
+
+export function shortcutToSteps(shortcut: CustomShortcut): ShortcutStep[] {
+  if (Array.isArray(shortcut.steps) && shortcut.steps.length > 0) return shortcut.steps
+  if (shortcut.mode === 'text') return [{ type: 'text', text: shortcut.text || '', appendEnter: shortcut.appendEnter }]
+  return shortcut.keys ? [{ type: 'keys', keys: shortcut.keys }] : []
+}
+
 export function shortcutToInput(shortcut: CustomShortcut): string {
-  if (shortcut.mode === 'text') {
-    return `${shortcut.text || ''}${shortcut.appendEnter === true ? '\r' : ''}`
-  }
-  return keysToEscape(shortcut.keys || '')
+  return shortcutToSteps(shortcut).map(stepToInput).join('')
+}
+
+export function describeShortcut(shortcut: CustomShortcut): string {
+  return shortcutToSteps(shortcut)
+    .map((s) => s.type === 'wait' ? `wait ${s.ms}ms` : s.type === 'text' ? s.text || '' : s.keys || '')
+    .join(' › ')
 }
 
 export function formatKeyEvent(e: KeyboardEvent): string {
@@ -100,6 +115,9 @@ export function useCustomShortcuts() {
       const updatedAt = localStorage.getItem(STORAGE_UPDATED_AT_KEY) || ''
       return { items: Array.isArray(data) ? data.filter((item): item is CustomShortcut => {
         if (!item || typeof item.id !== 'string' || typeof item.label !== 'string') return false
+        if (Array.isArray(item.steps) && item.steps.length > 0) {
+          return item.steps.every((s: ShortcutStep) => !!s && (s.type === 'wait' ? typeof s.ms === 'number' && s.ms > 0 : s.type === 'text' ? typeof s.text === 'string' && s.text.length > 0 : s.type === 'keys' ? typeof s.keys === 'string' && s.keys.length > 0 : false))
+        }
         if (item.mode === 'text') return typeof item.text === 'string' && item.text.length > 0 && (typeof item.appendEnter === 'undefined' || typeof item.appendEnter === 'boolean')
         return (item.mode === undefined || item.mode === 'keys') && typeof item.keys === 'string' && item.keys.length > 0
       }) : [], updatedAt }
