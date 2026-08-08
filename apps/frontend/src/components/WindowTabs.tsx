@@ -4,19 +4,21 @@ import { useState } from 'react'
 import { FiMoreHorizontal, FiPlus, FiTrash2 } from 'react-icons/fi'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { api } from '@/lib/api'
-import { useBatchKillWindows, useCreateWindow, useWindows } from '@/hooks/useApi'
+import { useBatchKillWindows, useCreateWindow, useSessionSnapshot, useWindows } from '@/hooks/useApi'
 import { useWindowQueryState } from '@/hooks/useWindowQueryState'
 import { useSessionSnapshotSync } from '@/hooks/useSessionSnapshotSync'
 import { useTranslation } from '@/i18n'
 import { Chip } from './Chip'
 import { ConfirmDialog } from './ConfirmDialog'
 import { PromptDialog } from './PromptDialog'
+import { summarizeAgentByWindow } from '@/lib/agent-status'
 
 export function WindowTabs() {
   const activeHostId = useConsoleStore((s) => s.activeHostId)
   const activeSessionId = useConsoleStore((s) => s.activeSessionId)
   const pushToast = useConsoleStore((s) => s.pushToast)
   const { data: windows = [] } = useWindows(activeHostId || '', activeSessionId || '')
+  const { data: snapshotData } = useSessionSnapshot(activeHostId || '', activeSessionId || '')
   const { getWindows, setWindows } = useWindowQueryState(activeHostId || '', activeSessionId || '')
   const { syncAfterWindowChange } = useSessionSnapshotSync()
   const createWindow = useCreateWindow()
@@ -37,6 +39,7 @@ export function WindowTabs() {
   if (sessionWindows.length === 0) {
     return null
   }
+  const windowRollups = new Map(summarizeAgentByWindow(snapshotData?.panes || []).map((rollup) => [rollup.windowId, rollup]))
 
   const handleSelect = async (windowId: string) => {
     if (!activeHostId || !activeSessionId) return
@@ -152,7 +155,8 @@ export function WindowTabs() {
           }
           return (
             <Chip key={window.id} tone={window.active ? 'accent' : 'default'} onClick={() => handleSelect(window.id)} className="whitespace-nowrap transition-colors px-3 py-1.5 text-sm">
-              {window.name}
+              <span className="mr-1">{window.name}</span>
+              <WindowAgentRollupBadge windowId={window.id} rollups={windowRollups} />
             </Chip>
           )
         })}
@@ -169,4 +173,12 @@ export function WindowTabs() {
       <ConfirmDialog open={pendingBatchDelete} title={t('window.batchDeleteTitle')} message={t('window.batchDeleteConfirm', { count: selectedWindowIds.length })} confirmLabel={t('window.batchDeleteSelected', { count: selectedWindowIds.length })} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setPendingBatchDelete(false)} onConfirm={() => void handleBatchDelete()} />
     </div>
   )
+}
+
+function WindowAgentRollupBadge({ windowId, rollups }: { windowId: string; rollups: Map<string, ReturnType<typeof summarizeAgentByWindow>[number]> }) {
+  const rollup = rollups.get(windowId)
+  if (!rollup || !rollup.summary.total) return null
+  const { t } = useTranslation()
+  const parts = rollup.statuses.map((status) => <span key={status} className={`inline-flex items-center gap-0.5 ${status === 'blocked' ? 'text-danger' : status === 'done' ? 'text-accent-2' : status === 'working' ? 'text-accent' : 'text-text-3'}`} title={t(`agent.status.${status}`)}>{rollup.summary[status]}<span className="text-[0.65em] opacity-70">{t(`agent.status.${status}`).slice(0, 1).toLowerCase()}</span></span>)
+  return <span className="ml-1 inline-flex items-center gap-1 rounded-full border border-text-1/10 bg-bg-2/50 px-1.5 py-0.5 font-mono text-caption tabular-nums">{parts}</span>
 }

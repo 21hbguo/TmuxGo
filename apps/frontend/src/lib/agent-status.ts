@@ -16,13 +16,28 @@ export function summarizeAgentStates(states: AgentPaneState[]): AgentSummary {
     return summary
   }, { idle: 0, working: 0, blocked: 0, done: 0, unknown: 0, total: 0 })
 }
+export interface WindowAgentRollup {
+  windowId: string
+  summary: AgentSummary
+  statuses: AgentStatus[]
+}
+export function summarizeAgentByWindow(panes: Array<{ windowId?: string; agentStatus?: AgentStatus }>): WindowAgentRollup[] {
+  const byWindow = new Map<string, AgentPaneState[]>()
+  for (const pane of panes) {
+    if (!pane.windowId || !pane.agentStatus) continue
+    const list = byWindow.get(pane.windowId) || []
+    list.push(pane as AgentPaneState)
+    byWindow.set(pane.windowId, list)
+  }
+  return [...byWindow.entries()].map(([windowId, states]) => ({ windowId, summary: summarizeAgentStates(states), statuses: statusDisplayOrder.filter((status) => states.some((state) => state.agentStatus === status)) }))
+}
 export function mergeAgentPaneEvent(panes: Pane[], incoming: AgentPaneState, force = false) {
-  return panes.map((pane) => pane.id !== incoming.paneId || !force && (pane.revision || 0) > incoming.revision ? pane : { ...pane, agent: incoming.agent, agentSessionId: incoming.agentSessionId, agentStatus: incoming.agentStatus, phase: incoming.phase, lastEvent: incoming.lastEvent, source: incoming.source, confidence: incoming.confidence, since: incoming.since, updatedAt: incoming.updatedAt, eventId: incoming.eventId, message: incoming.message, revision: incoming.revision })
+  return panes.map((pane) => pane.id !== incoming.paneId || !force && (pane.revision || 0) > incoming.revision ? pane : { ...pane, agent: incoming.agent, agentSessionId: incoming.agentSessionId, agentStatus: incoming.agentStatus, phase: incoming.phase, lastEvent: incoming.lastEvent, source: incoming.source, confidence: incoming.confidence, since: incoming.since, updatedAt: incoming.updatedAt, eventId: incoming.eventId, message: incoming.message, display: incoming.display, revision: incoming.revision })
 }
 export function removeAgentPaneEvent(panes: Pane[], paneId: string) {
   return panes.map((pane) => {
     if (pane.id !== paneId) return pane
-    const { agent, agentSessionId, agentStatus, phase, lastEvent, source, confidence, since, updatedAt, eventId, message, revision, ...terminalPane } = pane
+    const { agent, agentSessionId, agentStatus, phase, lastEvent, source, confidence, since, updatedAt, eventId, message, revision, display, ...terminalPane } = pane
     return terminalPane
   })
 }

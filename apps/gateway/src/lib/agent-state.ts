@@ -8,6 +8,14 @@ export type AgentPhase = 'idle' | 'working' | 'needs_input' | 'permission_requir
 export type AgentEvent = 'started' | 'permission_required' | 'question_required' | 'completed' | 'failed' | 'retrying' | 'ended' | 'disconnected' | 'reconnected'
 export type AgentSource = 'protocol' | 'hook' | 'tmux' | 'osc133' | 'process' | 'pane_output'
 export type AgentConfidence = 'high' | 'medium' | 'low'
+export interface AgentDisplayMetadata {
+  title?: string
+  stateLabel?: string
+  tokens?: number
+  seq?: number
+  ttlMs?: number
+  updatedAt?: string
+}
 export interface AgentPaneState {
   paneId: string
   tmuxPaneId: string
@@ -24,6 +32,7 @@ export interface AgentPaneState {
   updatedAt?: string
   eventId?: string
   message?: string
+  display?: AgentDisplayMetadata
 }
 interface PaneCandidate {
   paneId: string
