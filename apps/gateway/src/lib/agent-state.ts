@@ -76,6 +76,7 @@ const directAgents: Record<string, string> = {
   pi: 'pi',
   kimi: 'kimi',
   droid: 'droid',
+  reasonix: 'reasonix',
   'cursor-agent': 'cursor',
   copilot: 'copilot',
 }

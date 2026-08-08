@@ -23,6 +23,7 @@ test('ignores ordinary node processes', () => {
 test('detects agents from pane child processes', () => {
   assert.equal(detectProcessAgent('node /home/guo/.nvm/versions/node/v22.22.0/bin/codex --dangerously-bypass-approvals-and-sandbox'), 'codex')
   assert.equal(detectProcessAgent('/usr/local/bin/claude --dangerously-skip-permissions'), 'claude')
+  assert.equal(detectProcessAgent('/usr/local/bin/reasonix'), 'reasonix')
   assert.equal(detectProcessAgent('node /srv/gateway.js'), null)
   assert.deepEqual(detectAgentPaneState('node', 'TmuxGo', '', 'codex'), { agent: 'codex', agentStatus: 'idle' })
   assert.equal(detectAgentPaneState('node', '⠹ TmuxGo', '• Working (10s • esc to interrupt)', null), null)
