@@ -1,5 +1,7 @@
 import { getVisibleTerminalLines } from './terminal-output.js'
 import { execHostShell, execTmux } from './tmux-executor.js'
+import { findChildProcessAgents, parseOsc133Events, type Osc133Event } from './agent-signals.js'
+import { consumeTmuxAgentHookEvents, installTmuxAgentHooks, type TmuxAgentHookEvent } from './tmux-hooks.js'
 
 export type AgentStatus = 'idle' | 'working' | 'blocked' | 'done' | 'unknown'
 export type AgentPhase = 'idle' | 'working' | 'needs_input' | 'permission_required' | 'retrying' | 'failed' | 'ended' | 'disconnected' | 'unknown'
@@ -36,6 +38,8 @@ interface PaneCandidate {
   commandRunning: boolean
   commandStatus: string
   commandDuration: string
+  osc133Event?: Osc133Event
+  tmuxHookEvent?: TmuxAgentHookEvent
 }
 interface AgentRecord extends AgentPaneState {
   rawStatus: AgentStatus
@@ -109,14 +113,22 @@ function detectRawPhase(candidate: PaneCandidate, title: string, output: string,
   const recent = getVisibleTerminalLines(output).slice(-16).join('\n')
   const visible = title + '\n' + recent
   const command = normalizeCommand(candidate.currentCommand)
-  const source: AgentSource = processAgent !== undefined ? 'process' : directAgents[command] ? 'tmux' : 'pane_output'
-  const confidence: AgentConfidence = processAgent !== undefined || directAgents[command] ? 'medium' : 'low'
+  const osc133 = candidate.osc133Event
+  const hook = candidate.tmuxHookEvent
+  const source: AgentSource = hook ? 'hook' : osc133 ? 'osc133' : processAgent !== undefined ? 'process' : directAgents[command] ? 'tmux' : 'pane_output'
+  const confidence: AgentConfidence = hook || osc133 || processAgent !== undefined || directAgents[command] ? 'medium' : 'low'
   if (candidate.paneDead) return { phase: 'ended' as const, source: 'tmux' as const, confidence: 'high' as const, message: 'Agent process ended' }
+  if (hook?.event === 'pane-exited' || hook?.event === 'pane-died') return { phase: 'ended' as const, source: 'hook' as const, confidence: 'high' as const, message: 'Agent process ended' }
   if (permissionPattern.test(visible)) return { phase: 'permission_required' as const, source, confidence, message: 'Agent is waiting for permission' }
   if (questionPattern.test(visible)) return { phase: 'needs_input' as const, source, confidence, message: 'Agent is waiting for input' }
   if (retryPattern.test(visible)) return { phase: 'retrying' as const, source, confidence, message: 'Agent is retrying' }
+  if (hook?.event === 'pane-command-finished' || osc133?.type === 'command_finished') {
+    const status = Number(hook?.commandStatus || osc133?.status || 0)
+    if (status > 0) return { phase: 'failed' as const, source, confidence, message: 'Agent reported a failure' }
+    return { phase: 'idle' as const, source, confidence }
+  }
   if (failurePattern.test(visible) || (!candidate.commandRunning && /^\d+$/.test(candidate.commandStatus) && Number(candidate.commandStatus) > 0)) return { phase: 'failed' as const, source: candidate.commandStatus ? 'tmux' as const : source, confidence: candidate.commandStatus ? 'medium' as const : confidence, message: 'Agent reported a failure' }
-  if (spinnerPattern.test(title) || workingPattern.test(recent) || candidate.commandRunning) return { phase: 'working' as const, source, confidence }
+  if (hook?.event === 'pane-command-started' || osc133?.type === 'command_started' || osc133?.type === 'output_started' || spinnerPattern.test(title) || workingPattern.test(recent) || candidate.commandRunning) return { phase: 'working' as const, source, confidence }
   return { phase: 'idle' as const, source, confidence }
 }
 function toLegacyStatus(phase: AgentPhase, completed: boolean): AgentStatus {
@@ -206,33 +218,28 @@ function updateRecord(candidate: PaneCandidate, output: string, processAgent?: s
 }
 function shouldCapture(candidate: PaneCandidate) {
   const command = normalizeCommand(candidate.currentCommand)
-  return !!directAgents[command] || indirectCommands.has(command) || spinnerPattern.test(candidate.title) || blockedPattern.test(candidate.title)
+  return !!directAgents[command] || indirectCommands.has(command) || spinnerPattern.test(candidate.title) || blockedPattern.test(candidate.title) || !!candidate.tmuxHookEvent || candidate.paneDead
 }
 async function getProcessAgents(hostId: string, candidates: PaneCandidate[]) {
   const panePids = [...new Set(candidates.map((candidate) => candidate.panePid).filter((panePid) => /^\d+$/.test(panePid)))]
   if (!panePids.length) return new Map<string, string>()
   try {
-    const { stdout } = await execHostShell(hostId, `ps -ww --ppid ${panePids.join(',')} -o ppid=,args=`, { timeoutMs: 5000 })
-    const agents = new Map<string, string>()
-    for (const line of stdout.trim().split('\n')) {
-      const match = line.trim().match(/^(\d+)\s+(.+)$/)
-      if (!match) continue
-      const agent = detectProcessAgent(match[2])
-      if (agent) agents.set(match[1], agent)
-    }
-    return agents
+    const { stdout } = await execHostShell(hostId, 'ps -ww -eo pid=,ppid=,args=', { timeoutMs: 5000 })
+    return findChildProcessAgents(stdout, panePids, detectProcessAgent)
   } catch {
     return null
   }
 }
 async function scanAgentPanes(hostId: string, sessionName?: string, allowedSessionNames?: string[]) {
+  await installTmuxAgentHooks(hostId).catch(() => {})
+  const tmuxHookEvents = await consumeTmuxAgentHookEvents(hostId)
   const args = sessionName ? ['list-panes', '-s', '-t', sessionName] : ['list-panes', '-a']
   args.push('-F', '#{session_name}\t#{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_title}\t#{pane_dead}\t#{pane_dead_status}\t#{pane_last_output_time}\t#{pane_command_running}\t#{pane_command_status}\t#{pane_command_duration}')
   const { stdout } = await execTmux(hostId, args)
   const allowedSessions = allowedSessionNames ? new Set(allowedSessionNames) : null
-  const candidates = stdout.trim().split('\n').filter(Boolean).map((line) => {
+  const candidates: PaneCandidate[] = stdout.trim().split('\n').filter(Boolean).map((line) => {
     const [paneSessionName, tmuxPaneId, panePid, currentCommand, title, paneDead, paneDeadStatus, lastOutputTime, commandRunning, commandStatus, commandDuration] = line.split('\t')
-    return { paneId: `${hostId}:${tmuxPaneId}`, tmuxPaneId, panePid, sessionName: paneSessionName, currentCommand, title: title || '', paneDead: paneDead === '1', paneDeadStatus: paneDeadStatus || '', lastOutputTime: lastOutputTime || '', commandRunning: commandRunning === '1', commandStatus: commandStatus || '', commandDuration: commandDuration || '' }
+    return { paneId: `${hostId}:${tmuxPaneId}`, tmuxPaneId, panePid, sessionName: paneSessionName, currentCommand, title: title || '', paneDead: paneDead === '1', paneDeadStatus: paneDeadStatus || '', lastOutputTime: lastOutputTime || '', commandRunning: commandRunning === '1', commandStatus: commandStatus || '', commandDuration: commandDuration || '', tmuxHookEvent: tmuxHookEvents.filter((event) => event.paneId === tmuxPaneId).at(-1) }
   }).filter((candidate) => candidate.tmuxPaneId?.startsWith('%') && (!allowedSessions || allowedSessions.has(candidate.sessionName)))
   const processAgents = await getProcessAgents(hostId, candidates)
   const processScanFailed = processAgents === null
@@ -243,8 +250,9 @@ async function scanAgentPanes(hostId: string, sessionName?: string, allowedSessi
     while (index < agentCandidates.length) {
       const candidate = agentCandidates[index++]
       try {
-        const { stdout: output } = await execTmux(hostId, ['capture-pane', '-p', '-t', candidate.tmuxPaneId, '-S', '-80'])
+        const { stdout: output } = await execTmux(hostId, ['capture-pane', '-e', '-p', '-t', candidate.tmuxPaneId, '-S', '-80'])
         const processAgent = processAgents ? processAgents.get(candidate.panePid) : undefined
+        candidate.osc133Event = parseOsc133Events(output).at(-1)
         const state = updateRecord(candidate, output, processAgent, processScanFailed)
         if (state) states.push(state)
       } catch {

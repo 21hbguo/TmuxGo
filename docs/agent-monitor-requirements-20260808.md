@@ -2,7 +2,7 @@
 
 - 日期：2026-08-08
 - 范围：Claude Code、Codex、OpenCode 等运行在 tmux pane 中的编码 Agent
-- 状态：Phase 1 已实现，Phase 2 以后待实施
+- 状态：Phase 1、Phase 2、Phase 3、Phase 4 已完成本轮定义范围；原生服务直连和自动 Hook 配置仍保留版本化评估边界
 
 ## 1. 结论
 
@@ -41,6 +41,11 @@
 - 通过 WebSocket 发送 agent_status_changed。
 - 更新 Session、Window 和 Pane 的 Agent 状态。
 - 在 Agent 进入 blocked 或 done 时生成前端通知。
+- 区分 needs_input、permission_required、retrying、failed、ended 和 disconnected。
+- 通过 tmux Hook、OSC 133、pane 生命周期和进程树补充通用信号。
+- 接收并规范化 Claude、Codex、OpenCode 的结构化事件。
+- 通过 Agent WebSocket 或 token 保护的 HTTP 接收 Agent 事件，并校验 Host 绑定。
+- 通过 Web Push、设备订阅和 Gateway 持久化存储同步跨设备未读通知。
 - 页面隐藏时使用浏览器 Notification。
 - 支持单个 pane 静音和通知历史。
 
@@ -52,6 +57,11 @@
 - 前端通知处理：[apps/frontend/src/components/PaneNotifications.tsx](../apps/frontend/src/components/PaneNotifications.tsx)
 - 前端 Agent 类型：[apps/frontend/src/types/index.ts](../apps/frontend/src/types/index.ts)
 - Agent 状态测试：[apps/gateway/src/lib/agent-state.test.ts](../apps/gateway/src/lib/agent-state.test.ts)
+- tmux/进程信号：[apps/gateway/src/lib/tmux-hooks.ts](../apps/gateway/src/lib/tmux-hooks.ts)、[apps/gateway/src/lib/agent-signals.ts](../apps/gateway/src/lib/agent-signals.ts)
+- 原生事件规范化：[apps/gateway/src/lib/agent-events.ts](../apps/gateway/src/lib/agent-events.ts)
+- Agent 事件 HTTP 接口：[apps/gateway/src/routes/agent-events.ts](../apps/gateway/src/routes/agent-events.ts)
+- Web Push 存储与接口：[apps/gateway/src/lib/agent-notifications.ts](../apps/gateway/src/lib/agent-notifications.ts)、[apps/gateway/src/routes/agent-notifications.ts](../apps/gateway/src/routes/agent-notifications.ts)
+- 前端 Push 同步：[apps/frontend/src/lib/agent-push.ts](../apps/frontend/src/lib/agent-push.ts)、[apps/frontend/public/sw.js](../apps/frontend/public/sw.js)
 
 ## 4. 当前问题
 
@@ -153,11 +163,11 @@ tmux 已提供比当前实现更可靠的基础信号：
 
 tmux 还支持 OSC 133 命令区间。OSC 133 能帮助识别 Shell 命令的开始、输出和结束，但它不等于完整的 AI 回合状态，应作为辅助信号。
 
-### 5.2 Claude Code
+### 5.2 Claude Code（边界说明）
 
 来源：[Claude Code Hooks 文档](https://code.claude.com/docs/en/hooks)
 
-Claude Code 提供结构化生命周期 Hook：
+需求设计期望 Claude Code 提供结构化生命周期 Hook：
 
 - SessionStart
 - SessionEnd
@@ -175,8 +185,7 @@ Notification 支持：
 - agent_needs_input
 - agent_completed
 
-Hook 输入包含 session_id、transcript_path、cwd、hook_event_name 等字段。Claude Hook 适合把高置信度事件转发给 TmuxGo，而不适合继续向终端直接注入文本。
-
+需求设计期望 Hook 输入包含 session_id、transcript_path、cwd、hook_event_name 等字段，并用于把高置信度事件转发给 TmuxGo，而不是继续向终端注入文本。当前网络路径访问该官方页面超时，以上 Hook 名称和字段未作为本轮已核验的官方事实。实现提供统一事件接收和 Claude 字段规范化，不自动改写用户的 Claude 配置；正式接入前仍需重新核验官方文档和版本。
 ### 5.3 Codex
 
 来源：[Codex App Server 文档](https://developers.openai.com/codex/app-server)、[OpenAI Codex GitHub](https://github.com/openai/codex)
@@ -428,9 +437,9 @@ Phase 1 保留现有单个 Pane 静音、通知历史和浏览器后台通知能
 - 按 Host、Session 静音。
 - 免打扰时间。
 
-这些能力作为后续增强评估，不影响 Phase 1 的 Agent 状态变化通知。
+这些能力作为后续增强评估，不影响本轮 Agent 状态变化通知。
 
-后续如果需要关闭浏览器后仍收到通知，再增加 PWA Service Worker、Web Push、VAPID 和设备订阅管理。Push 内容只应包含脱敏的 Host、Session、Agent 和状态，不应包含完整命令、Prompt、路径或终端输出。
+本轮已增加轻量 Service Worker、Web Push、VAPID 公钥接口、设备订阅/撤销、跨设备未读查询和按设备标记已读。Push 内容只包含脱敏的 Host、Session、Pane、Agent、状态、通用 message、时间和站内定位 URL，不包含完整命令、Prompt、transcript、路径或终端输出。
 
 ## 10. 分阶段实施
 
@@ -444,7 +453,7 @@ Phase 1 保留现有单个 Pane 静音、通知历史和浏览器后台通知能
 - 增加稳定的 eventId、source、confidence、updatedAt。
 - 补充多客户端、重连、Gateway 重启、Session 删除测试。
 
-### Phase 2：接入可靠终端信号
+### Phase 2：接入可靠终端信号（已完成）
 
 - 使用 tmux pane 生命周期和命令状态字段。
 - 接入 pane-exited、pane-command-started、pane-command-finished 等 Hook。
@@ -452,20 +461,28 @@ Phase 1 保留现有单个 Pane 静音、通知历史和浏览器后台通知能
 - 统一进程树检测，并处理 Linux、macOS 的差异。
 - 保留终端输出正则作为未知 Agent 的 fallback。
 
-### Phase 3：Agent 原生集成
+实现位置为 `agent-state.ts`、`agent-signals.ts` 和 `tmux-hooks.ts`。Hook 队列按 Host hash 隔离，消费时先移动到临时文件；只移除带有 TmuxGo marker 的旧 Hook，不清理用户的其它 Hook。tmux 不支持的 Hook 会降级跳过。当前本机 tmux 3.4 不提供 `pane-command-started` 和 `pane-command-finished`，因此这两个信号不能作为本机运行时保证；`pane-exited`、`pane-died`、OSC 133 和进程树仍可作为可用信号或 fallback。
 
-- 增加 Claude Code Hook Adapter。
+### Phase 3：Agent 原生集成（已完成本轮适配范围）
+
+- 增加 Claude Code Hook 字段规范化 Adapter，不自动修改用户配置。
 - 让远端 Agent 通过现有 Agent WebSocket 转发状态事件。
-- 对 TmuxGo 创建的 Codex Session 评估 App Server 接入。
-- 对 OpenCode Server 接入 Session Status。
+- 保留对 TmuxGo 创建的 Codex Session 接入 App Server 的评估边界。
+- 保留 OpenCode Server Session Status 的接入评估边界。
 - 增加结构化错误、重试和审批信息。
 
-### Phase 4：跨设备通知
+本轮通过 `agent-events.ts` 完成统一 `AgentProtocolEvent` 和稳定 eventId：Claude 支持生命周期、权限、问题、停止失败和 Subagent 事件；Codex 支持 active、审批、用户输入、item/turn、错误和进程退出事件；OpenCode 支持 busy、retry、idle、permission 和 question。
+
+Agent WebSocket 注册后的 Host 身份来自连接，不信任消息中的 hostId；HTTP 入口必须提供 `TMUXGO_AGENT_EVENT_TOKEN`，并校验 `hostId`、`paneId` 和已注册 Host。当前没有直接启动 Codex App Server 或 OpenCode Server，也没有自动安装 Claude Hook；这些属于后续需要版本固定和真实运行时验证的集成。
+
+### Phase 4：跨设备通知（已完成）
 
 - 增加 Web Push。
 - 增加设备订阅管理和撤销。
 - 支持跨设备未读状态同步。
-- 支持 Agent Session 恢复和原生 Session ID 绑定。
+- 保留 Agent 原生 Session ID 绑定，为后续 Session 恢复做准备。
+
+实现包括：持久化 VAPID key、订阅 endpoint/key、设备 ID、最多 500 条脱敏通知、`readBy` 跨设备已读集合、404/410 订阅清理、Service Worker push/click、站内通知中心合并和点击定位。Agent Session 的原生 ID 已保留在协议事件和状态关联字段中，但本轮不负责跨产品恢复运行进程。
 
 ## 11. API 和事件建议
 
@@ -525,6 +542,7 @@ Phase 1 保留现有单个 Pane 静音、通知历史和浏览器后台通知能
 - 不把完整 Prompt、命令、终端输出写入通知。
 - 不把 transcript 原文同步给前端。
 - 事件接收接口必须复用现有认证和 Origin 校验。
+- 普通通知接口复用 Gateway 的普通认证 Hook；Agent 事件接口使用独立 `TMUXGO_AGENT_EVENT_TOKEN`，不把普通 Bearer token 当作特例凭证。Origin 校验仍对两类接口生效。
 - 远端 Agent 回传事件时校验 hostId 和连接身份。
 - Web Push 只发送脱敏摘要。
 - 事件日志和通知历史需要遵循现有文件权限策略。
@@ -543,6 +561,8 @@ Phase 1 保留现有单个 Pane 静音、通知历史和浏览器后台通知能
 - 通知点击后能准确跳转到对应 Pane。
 - 通知不会泄漏完整命令、Prompt、敏感路径和终端输出。
 - 状态判断包含来源和置信度，便于排查误报。
+- tmux 版本不支持的 Hook 会降级，不阻断状态扫描。
+- Web Push 订阅、未读查询、跨设备已读和失效订阅清理均有 Gateway 路由测试。
 
 ## 14. 参考资料
 
@@ -557,9 +577,9 @@ Phase 1 保留现有单个 Pane 静音、通知历史和浏览器后台通知能
 - [Claude Squad](https://github.com/smtg-ai/claude-squad)
 - [现有 Agent 监控设计](./agent-monitor-design.md)
 
-## 15. Phase 1 实现验收
+## 15. 本轮实现验收
 
-Phase 1 已完成以下范围：
+本轮已完成以下范围：
 
 - Gateway 启动后按 Host 运行独立 AgentMonitor；WebSocket 客户端只订阅事件，多客户端共享扫描。
 - 状态包含 phase、lastEvent、source、confidence、since、updatedAt、eventId 和脱敏 message。
@@ -568,4 +588,9 @@ Phase 1 已完成以下范围：
 - 扫描失败进入 disconnected/error 路径，恢复时发布 reconnected；不会把失败直接转换为 completed。
 - 本地、SSH、Agent Host 通过同一 Host key 和现有 execTmux/execHostShell 路由监控。
 
-验证命令和结果见 `docs/agent-monitor-worklog-20260808.md`。tmux Hook、OSC 133、Claude Hook Adapter、Codex/OpenCode 原生协议和 Web Push 保留在后续 Phase，未在本轮伪实现。
+- tmux Hook、OSC 133、进程树和 pane 生命周期信号已接入扫描链路；本机不支持的 Hook 会降级。
+- Claude、Codex、OpenCode 结构化事件可通过 HTTP 或 Agent WebSocket 接收，统一为高置信度协议事件并叠加到 pane 状态。
+- Web Push 具备持久化 VAPID、订阅/撤销、跨设备 unread/read 接口、脱敏 payload 和前端 Service Worker 点击定位。
+- Agent 事件和通知接口覆盖认证、Host/pane 绑定、重复事件、设备隔离、文件权限和失效订阅清理。
+
+验证命令和结果见 `docs/agent-monitor-worklog-20260808.md`。Claude 官方 Hook 页面当前无法直接核验，Codex App Server 开发者页面当前返回 403；本轮只实现协议边界和版本无关的规范化适配，不把未核验的启动方式或部署承诺写入实现。

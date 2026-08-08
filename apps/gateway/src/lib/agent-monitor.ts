@@ -1,6 +1,8 @@
 import { agentManager } from '../agent-manager.js'
 import { listAllHosts } from './hosts.js'
 import { forgetAgentPane, getHostAgentPanes, markAgentPaneSeen, type AgentEvent, type AgentPaneState } from './agent-state.js'
+import { persistAgentNotification } from './agent-notifications.js'
+import type { AgentProtocolEvent } from './agent-events.js'
 
 export type AgentMonitorEvent =
   | { type: 'agent_status_snapshot'; initial: true; hostId: string; revision: number; agents: AgentPaneState[]; eventId: string }
@@ -11,6 +13,8 @@ export type AgentMonitorEvent =
 
 interface MonitorHostState {
   agents: Map<string, AgentPaneState>
+  protocolEvents: Map<string, AgentProtocolEvent>
+  protocolEventIds: Set<string>
   revision: number
   initialized: boolean
   disconnected: boolean
@@ -23,9 +27,11 @@ interface AgentMonitorOptions {
   intervalMs?: number
   hostRefreshMs?: number
   now?: () => number
+  onNotification?: (event: Extract<AgentMonitorEvent, { type: 'agent_notification' }>) => void
 }
 
 const notificationEvents = new Set<AgentEvent>(['permission_required', 'question_required', 'completed', 'failed', 'ended', 'disconnected'])
+const protocolOverlayMaxAgeMs = 30 * 60 * 1000
 
 function sortAgents(agents: Iterable<AgentPaneState>) {
   return [...agents].sort((left, right) => left.paneId.localeCompare(right.paneId))
@@ -34,6 +40,42 @@ function samePane(left: AgentPaneState | undefined, right: AgentPaneState) {
   if (!left) return false
   return left.paneId === right.paneId && left.tmuxPaneId === right.tmuxPaneId && left.sessionName === right.sessionName && left.agent === right.agent && left.agentSessionId === right.agentSessionId && left.agentStatus === right.agentStatus && left.phase === right.phase && left.lastEvent === right.lastEvent && left.source === right.source && left.confidence === right.confidence && left.since === right.since && left.updatedAt === right.updatedAt && left.eventId === right.eventId && left.message === right.message && left.revision === right.revision
 }
+function matchesProtocolEvent(event: AgentProtocolEvent, pane: AgentPaneState) {
+  if (event.paneId && event.paneId === pane.paneId) return true
+  if (event.tmuxPaneId && event.tmuxPaneId === pane.tmuxPaneId) return true
+  if (event.agentSessionId && event.agentSessionId === pane.agentSessionId) return true
+  return !!event.sessionName && event.sessionName === pane.sessionName && event.agent === pane.agent
+}
+function protocolEventKey(event: AgentProtocolEvent) {
+  return event.paneId || event.tmuxPaneId || event.agentSessionId || `${event.sessionName || ''}:${event.agent}`
+}
+function protocolEventIsRecent(event: AgentProtocolEvent, now: number) {
+  const timestamp = Date.parse(event.timestamp)
+  return Number.isFinite(timestamp) && now - timestamp <= protocolOverlayMaxAgeMs
+}
+function protocolAgentStatus(event: AgentProtocolEvent): AgentPaneState['agentStatus'] {
+  if (event.lastEvent === 'completed') return 'done'
+  if (event.phase === 'permission_required' || event.phase === 'needs_input') return 'blocked'
+  if (event.phase === 'working' || event.phase === 'retrying') return 'working'
+  if (event.phase === 'idle') return 'idle'
+  return 'unknown'
+}
+function applyProtocolEvent(pane: AgentPaneState, event: AgentProtocolEvent) {
+  return {
+    ...pane,
+    agent: event.agent || pane.agent,
+    agentSessionId: event.agentSessionId || pane.agentSessionId,
+    agentStatus: protocolAgentStatus(event),
+    phase: event.phase,
+    lastEvent: event.lastEvent,
+    source: event.source,
+    confidence: event.confidence,
+    since: event.timestamp,
+    updatedAt: event.timestamp,
+    eventId: event.eventId,
+    message: event.message,
+  }
+}
 
 export class AgentMonitor {
   private readonly scan: (hostId: string) => Promise<AgentPaneState[]>
@@ -41,7 +83,9 @@ export class AgentMonitor {
   private readonly intervalMs: number
   private readonly hostRefreshMs: number
   private readonly now: () => number
+  private readonly onNotification?: (event: Extract<AgentMonitorEvent, { type: 'agent_notification' }>) => void
   private readonly hosts = new Map<string, MonitorHostState>()
+  private readonly pendingProtocolEvents = new Map<string, Map<string, AgentProtocolEvent>>()
   private readonly listeners = new Set<(event: AgentMonitorEvent) => void>()
   private hostRefreshTimer: ReturnType<typeof setInterval> | null = null
   private running = false
@@ -58,6 +102,7 @@ export class AgentMonitor {
     this.intervalMs = Math.max(250, options.intervalMs || 1500)
     this.hostRefreshMs = Math.max(this.intervalMs, options.hostRefreshMs || 5000)
     this.now = options.now || (() => Date.now())
+    this.onNotification = options.onNotification
   }
 
   async start() {
@@ -81,6 +126,7 @@ export class AgentMonitor {
       state.scanning = false
     }
     for (const pane of [...this.hosts.values()].flatMap((state) => [...state.agents.values()])) forgetAgentPane(pane.paneId)
+    this.pendingProtocolEvents.clear()
     this.hosts.clear()
   }
 
@@ -102,6 +148,28 @@ export class AgentMonitor {
 
   async pollNow(hostId: string) {
     await this.pollHost(hostId)
+  }
+
+  ingestProtocolEvent(event: AgentProtocolEvent) {
+    if (!event.hostId || !event.eventId) return null
+    const state = this.hosts.get(event.hostId)
+    if (!state) {
+      const pending = this.pendingProtocolEvents.get(event.hostId) || new Map<string, AgentProtocolEvent>()
+      const key = protocolEventKey(event)
+      const previous = pending.get(key)
+      if (previous && Date.parse(previous.timestamp) >= Date.parse(event.timestamp)) return null
+      pending.set(key, event)
+      this.pendingProtocolEvents.set(event.hostId, pending)
+      return null
+    }
+    if (state.protocolEventIds.has(event.eventId)) return null
+    state.protocolEventIds.add(event.eventId)
+    const key = protocolEventKey(event)
+    const previous = state.protocolEvents.get(key)
+    if (previous && Date.parse(previous.timestamp) >= Date.parse(event.timestamp)) return null
+    state.protocolEvents.set(key, event)
+    if (!state.initialized) return null
+    return this.applyProtocolEventToState(event.hostId, state, event)
   }
 
   markSeen(paneId: string) {
@@ -130,7 +198,9 @@ export class AgentMonitor {
     const nextIds = new Set(hostIds.filter((hostId) => typeof hostId === 'string' && hostId.trim()))
     for (const hostId of nextIds) {
       if (this.hosts.has(hostId)) continue
-      const state: MonitorHostState = { agents: new Map(), revision: 0, initialized: false, disconnected: false, scanning: false, timer: null }
+      const protocolEvents = this.pendingProtocolEvents.get(hostId) || new Map()
+      const state: MonitorHostState = { agents: new Map(), protocolEvents, protocolEventIds: new Set([...protocolEvents.values()].map((event) => event.eventId)), revision: 0, initialized: false, disconnected: false, scanning: false, timer: null }
+      this.pendingProtocolEvents.delete(hostId)
       this.hosts.set(hostId, state)
       if (this.running) {
         state.timer = setInterval(() => void this.pollHost(hostId), this.intervalMs)
@@ -170,9 +240,12 @@ export class AgentMonitor {
     state.initialized = true
     state.disconnected = false
     const next = new Map<string, AgentPaneState>()
+    for (const [key, event] of state.protocolEvents) if (!protocolEventIsRecent(event, this.now())) state.protocolEvents.delete(key)
     for (const rawPane of agents) {
       const previous = state.agents.get(rawPane.paneId)
-      const pane = wasDisconnected && previous?.phase === 'disconnected' ? { ...rawPane, lastEvent: 'reconnected' as const, updatedAt: new Date(this.now()).toISOString(), eventId: hostId + ':' + rawPane.paneId + ':reconnected:' + this.now() } : rawPane
+      const reconnected = wasDisconnected && previous?.phase === 'disconnected' ? { ...rawPane, lastEvent: 'reconnected' as const, updatedAt: new Date(this.now()).toISOString(), eventId: hostId + ':' + rawPane.paneId + ':reconnected:' + this.now() } : rawPane
+      const matchingProtocolEvents = [...state.protocolEvents.values()].filter((event) => matchesProtocolEvent(event, reconnected)).filter((event) => event.paneId || event.tmuxPaneId || event.agentSessionId || agents.filter((candidate) => candidate.sessionName === event.sessionName && candidate.agent === event.agent).length === 1).sort((left, right) => left.timestamp.localeCompare(right.timestamp))
+      const pane = matchingProtocolEvents.reduce((current, event) => applyProtocolEvent(current, event), reconnected)
       next.set(pane.paneId, pane)
     }
     const previousAgents = state.agents
@@ -223,12 +296,27 @@ export class AgentMonitor {
     this.emit({ type: 'agent_monitor_error', initial: false, hostId, message: 'Agent monitor scan failed', retrying: true })
   }
 
+  private applyProtocolEventToState(hostId: string, state: MonitorHostState, event: AgentProtocolEvent) {
+    const panes = [...state.agents.values()].filter((pane) => matchesProtocolEvent(event, pane))
+    const current = panes.find((pane) => event.paneId === pane.paneId) || panes.find((pane) => event.tmuxPaneId === pane.tmuxPaneId) || panes.find((pane) => event.agentSessionId === pane.agentSessionId) || (panes.length === 1 ? panes[0] : undefined)
+    const paneId = current?.paneId || event.paneId || (event.tmuxPaneId ? `${hostId}:${event.tmuxPaneId}` : '')
+    if (!paneId || (!current && !event.sessionName)) return null
+    const base = current || { paneId, tmuxPaneId: event.tmuxPaneId || paneId.slice(paneId.indexOf(':') + 1), sessionName: event.sessionName!, agent: event.agent, agentSessionId: event.agentSessionId || paneId, agentStatus: 'unknown' as const, revision: 0 }
+    const pane = { ...applyProtocolEvent(base, event), revision: ++state.revision }
+    state.agents.set(pane.paneId, pane)
+    const changed: AgentMonitorEvent = { type: 'agent_status_changed', initial: false, hostId, sessionName: pane.sessionName, pane, eventId: event.eventId }
+    this.emit(changed)
+    if (pane.lastEvent && notificationEvents.has(pane.lastEvent)) this.emit({ type: 'agent_notification', initial: false, hostId, sessionName: pane.sessionName, pane, eventId: event.eventId })
+    return pane
+  }
+
   private emitSnapshot(listener: (event: AgentMonitorEvent) => void, hostId: string, state: MonitorHostState) {
     listener({ type: 'agent_status_snapshot', initial: true, hostId, revision: state.revision, agents: sortAgents(state.agents.values()), eventId: hostId + ':snapshot:' + state.revision })
   }
 
   private emit(event: AgentMonitorEvent) {
     for (const listener of this.listeners) listener(event)
+    if (event.type === 'agent_notification') this.onNotification?.(event)
   }
 
   private eventId(hostId: string, pane: AgentPaneState, event: AgentEvent | 'changed' | 'seen', revision: number) {
@@ -236,4 +324,4 @@ export class AgentMonitor {
   }
 }
 
-export const agentMonitor = new AgentMonitor()
+export const agentMonitor = new AgentMonitor({ onNotification: (event) => void persistAgentNotification(event) })

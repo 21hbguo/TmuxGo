@@ -8,7 +8,8 @@ import { useOptionalQueryClient } from '@/hooks/useOptionalQueryClient'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { buildSessionId, parseSessionName } from '@/lib/session-id'
 import { mergeAgentPaneEvent, removeAgentPaneEvent, summarizeAgentStates } from '@/lib/agent-status'
-import { api } from '@/lib/api'
+import { markAgentNotificationsRead, syncAgentPush, enableAgentPush } from '@/lib/agent-push'
+import { api, type AgentNotificationRecord } from '@/lib/api'
 import type { AgentPaneState, Session } from '@/types'
 import { FiAlertCircle, FiBell, FiBellOff, FiCheckCircle, FiX } from 'react-icons/fi'
 
@@ -84,6 +85,12 @@ function readMutedPanes() {
     return []
   }
 }
+function toNotificationItem(record: AgentNotificationRecord, t: (key: string, params?: Record<string, string>) => string): NotificationItem | null {
+  if (!record || typeof record.id !== 'string' || typeof record.hostId !== 'string' || typeof record.sessionName !== 'string' || typeof record.paneId !== 'string' || typeof record.agent !== 'string') return null
+  const status = record.status
+  if (!['blocked', 'done', 'permission_required', 'needs_input', 'failed', 'ended', 'disconnected'].includes(status)) return null
+  return { id: record.id, paneId: record.paneId, paneName: record.agent, hostId: record.hostId, sessionId: buildSessionId(record.hostId, record.sessionName), status, message: getAgentNotificationMessage(status, record.agent, record.sessionName, t), timestamp: typeof record.timestamp === 'string' ? record.timestamp : new Date().toISOString() }
+}
 export function PaneNotifications() {
   const [notifications, setNotifications] = useState<NotificationItem[]>(readStoredNotifications)
   const notificationsRef = useRef(notifications)
@@ -109,11 +116,28 @@ export function PaneNotifications() {
   const dismissNotification = (id: string) => {
     setVisibleIds((current) => current.filter((item) => item !== id))
     updateNotifications((current) => current.filter((item) => item.id !== id))
+    void markAgentNotificationsRead([id])
   }
   const clearAll = () => {
+    const ids = notificationsRef.current.map((notification) => notification.id)
     setVisibleIds([])
     updateNotifications(() => [])
+    if (ids.length) void markAgentNotificationsRead(ids)
   }
+  useEffect(() => {
+    if (!preferences.agentNotificationsEnabled) return
+    let active = true
+    void syncAgentPush().then((records) => {
+      if (!active || !records.length) return
+      const incoming = records.map((record) => toNotificationItem(record, t)).filter((item): item is NotificationItem => !!item)
+      if (!incoming.length) return
+      updateNotifications((current) => {
+        const ids = new Set(current.map((item) => item.id))
+        return [...incoming.filter((item) => !ids.has(item.id)), ...current]
+      })
+    })
+    return () => { active = false }
+  }, [preferences.agentNotificationsEnabled, t])
   useEffect(() => {
     const saved = readNotificationBubblePosition()
     setNotificationBubblePosition(saved ? clampNotificationBubblePosition(saved.x, saved.y) : clampNotificationBubblePosition(window.innerWidth - notificationBubbleSize - 16, window.innerHeight - notificationBubbleSize - 112))
@@ -184,6 +208,35 @@ export function PaneNotifications() {
       setCenterOpen(false)
     }
   }, [preferences.agentNotificationsEnabled])
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return
+    const handleServiceWorkerMessage = (event: MessageEvent) => {
+      const detail = event.data as { type?: string; id?: string; hostId?: string; sessionName?: string; paneId?: string; agent?: string; status?: string; timestamp?: string }
+      if (detail?.type !== 'tmuxgo-agent-notification-click' || typeof detail.hostId !== 'string' || typeof detail.sessionName !== 'string' || typeof detail.paneId !== 'string') return
+      const status = detail.status && ['blocked', 'done', 'permission_required', 'needs_input', 'failed', 'ended', 'disconnected'].includes(detail.status) ? detail.status as NotificationItem['status'] : 'blocked'
+      const agent = typeof detail.agent === 'string' && detail.agent ? detail.agent : 'agent'
+      const notification: NotificationItem = { id: typeof detail.id === 'string' ? detail.id : `${detail.hostId}:${detail.paneId}:push`, paneId: detail.paneId, paneName: agent, hostId: detail.hostId, sessionId: buildSessionId(detail.hostId, detail.sessionName), status, message: getAgentNotificationMessage(status, agent, detail.sessionName, t), timestamp: typeof detail.timestamp === 'string' ? detail.timestamp : new Date().toISOString() }
+      void openNotification(notification)
+    }
+    navigator.serviceWorker.addEventListener('message', handleServiceWorkerMessage)
+    return () => navigator.serviceWorker.removeEventListener('message', handleServiceWorkerMessage)
+  }, [t])
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const hostId = params.get('hostId')
+    const sessionName = params.get('sessionName')
+    const paneId = params.get('paneId')
+    const notificationId = params.get('notificationId')
+    if (!hostId || !sessionName || !paneId) return
+    const notification: NotificationItem = { id: notificationId || `${hostId}:${paneId}:push`, paneId, paneName: 'agent', hostId, sessionId: buildSessionId(hostId, sessionName), status: 'blocked', message: getAgentNotificationMessage('blocked', 'agent', sessionName, t), timestamp: new Date().toISOString() }
+    void openNotification(notification)
+    const url = new URL(window.location.href)
+    url.searchParams.delete('hostId')
+    url.searchParams.delete('sessionName')
+    url.searchParams.delete('paneId')
+    url.searchParams.delete('notificationId')
+    window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`)
+  }, [t])
   useEffect(() => {
     if (!preferences.agentNotificationsEnabled || !visibleIds.length) return
     const timer = window.setTimeout(() => setVisibleIds([]), preferences.agentNotificationDurationMs)
@@ -321,7 +374,10 @@ export function WatchButton({ paneId, compact = false }: { paneId: string; compa
     localStorage.setItem(mutedPanesStorageKey, JSON.stringify(updated))
     setIsWatched(!isWatched)
     window.dispatchEvent(new CustomEvent('tmuxgo-watched-panes-change', { detail: { paneId, watched: !isWatched } }))
-    if (!isWatched && 'Notification' in window && Notification.permission === 'default') void Notification.requestPermission()
+    if (!isWatched && 'Notification' in window) {
+      if (Notification.permission === 'default') void Notification.requestPermission().then((permission) => { if (permission === 'granted') void enableAgentPush() })
+      else if (Notification.permission === 'granted') void enableAgentPush()
+    }
   }
   const unavailable = !paneId
   const label = unavailable ? t('notification.watch') : isWatched ? t('notification.unwatch') : t('notification.watch')

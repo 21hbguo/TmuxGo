@@ -17,11 +17,26 @@
 | P1-07 | DONE | 覆盖本地、SSH、Agent 三种执行模式和扫描失败行为 | Gateway 测试、构建 |
 | P1-08 | DONE | 运行全量相关测试、构建并更新验收矩阵 | `docs/agent-monitor-worklog-20260808.md` |
 
-## Phase 2 以后
+## Phase 2
 
-| ID | 状态 | 任务 |
-|---|---|---|
-| P2-01 | TODO | 接入 tmux hook、pane 生命周期和 OSC 133 |
-| P2-02 | TODO | 增加 Claude Code Hook Adapter |
-| P2-03 | TODO | 评估 Codex App Server 及 OpenCode Server 原生接入 |
-| P2-04 | TODO | 增加 Web Push、设备订阅和跨设备未读同步 |
+| ID | 状态 | 任务 | 验证证据 |
+|---|---|---|---|
+| P2-01 | DONE | 接入 tmux hook、pane 生命周期、OSC 133 和进程树 | `agent-signals.test.ts`、`tmux-hooks.test.ts`、真实 tmux 3.4 降级检查 |
+
+## Phase 3
+
+| ID | 状态 | 任务 | 验证证据 |
+|---|---|---|---|
+| P3-01 | DONE | 统一 Claude、Codex、OpenCode 结构化事件和稳定 eventId | `agent-events.test.ts`、Gateway 构建 |
+| P3-02 | DONE | 通过 Agent WebSocket 转发事件并绑定连接 Host 身份 | `stream.ts`、Gateway 构建 |
+| P3-03 | DONE | 增加 token 保护的 HTTP Agent event 接口和 Host/pane 校验 | `routes/agent-events.test.ts` |
+| P3-04 | BLOCKED | 直接启动/部署 Codex App Server、OpenCode Server 和自动安装 Claude Hook | Claude 官方 Hook 页面超时；Codex App Server 开发者页 HTTP 403；需版本化官方运行时资料 |
+
+## Phase 4
+
+| ID | 状态 | 任务 | 验证证据 |
+|---|---|---|---|
+| P4-01 | DONE | 增加 Web Push、持久化 VAPID key 和脱敏 Push payload | `agent-notifications.test.ts`、`web-push` 依赖 |
+| P4-02 | DONE | 增加设备订阅、撤销和失效订阅清理 | `agent-notifications.test.ts`、404/410 清理代码路径 |
+| P4-03 | DONE | 支持跨设备未读查询和按设备标记已读 | `agent-notifications.test.ts` |
+| P4-04 | DONE | 接入 Service Worker、通知点击定位和前端通知中心合并 | `sw.js`、`agent-push.ts`、`PaneNotifications.tsx`、Frontend 测试/构建 |
