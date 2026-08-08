@@ -140,6 +140,18 @@ export interface HostPayload {
   jumpHost?: string
   knownHostsPolicy?: 'strict' | 'accept-new' | 'off'
 }
+export interface AgentNotificationRecord {
+  id: string
+  eventId: string
+  hostId: string
+  sessionName: string
+  paneId: string
+  agent: string
+  status: 'blocked' | 'done' | 'permission_required' | 'needs_input' | 'failed' | 'ended' | 'disconnected'
+  message: string
+  timestamp: string
+  readBy?: string[]
+}
 async function readResponseBody(response: Response) {
   if (typeof response.text === 'function') {
     const raw = await response.text()
@@ -326,6 +338,13 @@ export const api = {
     list: () => fetchApi<{ links: ShareLink[] }>('/api/shares'),
     create: (hostId: string, sessionName: string, expiresInMinutes: number) => fetchApi<CreatedShareLink>('/api/shares', { method: 'POST', body: JSON.stringify({ hostId, sessionName, expiresInMinutes }) }),
     revoke: (shareId: string) => fetchApi<{ ok: true }>(`/api/shares/${encodeURIComponent(shareId)}`, { method: 'DELETE' }),
+  },
+  agentNotifications: {
+    vapidPublicKey: () => fetchApi<{ publicKey: string }>('/api/agent-notifications/vapid-public-key'),
+    subscribe: (deviceId: string, subscription: unknown) => fetchApi<{ id: string; deviceId: string; endpoint: string; updatedAt: string }>('/api/agent-notifications/subscriptions', { method: 'POST', body: JSON.stringify({ deviceId, subscription }) }),
+    revoke: (deviceId: string, subscriptionId: string) => fetchApi<{ revoked: boolean }>(`/api/agent-notifications/subscriptions/${encodeURIComponent(subscriptionId)}?deviceId=${encodeURIComponent(deviceId)}`, { method: 'DELETE' }),
+    unread: (deviceId: string, limit = 100) => fetchApi<{ notifications: AgentNotificationRecord[] }>(`/api/agent-notifications/unread?deviceId=${encodeURIComponent(deviceId)}&limit=${limit}`),
+    read: (deviceId: string, ids: string[] = []) => fetchApi<{ changed: number }>('/api/agent-notifications/read', { method: 'POST', body: JSON.stringify({ deviceId, ids }) }),
   },
   hosts: {
     list: () => fetchApi<any[]>('/api/hosts'),

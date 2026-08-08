@@ -29,6 +29,8 @@ import { authRoutes } from './routes/auth.js'
 import { shareRoutes } from './routes/shares.js'
 import { getAccessCookieName, initializeAuthStore, isAuthEnabled, isPasswordChangeRequired, verifyAccessToken } from './lib/auth.js'
 import { agentMonitor } from './lib/agent-monitor.js'
+import { agentEventRoutes } from './routes/agent-events.js'
+import { agentNotificationRoutes } from './routes/agent-notifications.js'
 
 const fastify = Fastify({
   logger: createFastifyLoggerConfig(),
@@ -43,7 +45,7 @@ fastify.addHook('onRequest', async (request, reply) => {
   if (request.method === 'OPTIONS') return
   if (!isAuthEnabled()) return
   const routePath = request.url.split('?')[0]
-  if (!routePath.startsWith('/api/') || routePath === '/api/stream' || routePath === '/api/auth/status' || routePath === '/api/auth/login' || routePath === '/api/auth/refresh' || routePath === '/api/auth/logout' || routePath === '/api/shares/exchange') return
+  if (!routePath.startsWith('/api/') || routePath === '/api/stream' || routePath === '/api/agent-events' || routePath === '/api/auth/status' || routePath === '/api/auth/login' || routePath === '/api/auth/refresh' || routePath === '/api/auth/logout' || routePath === '/api/shares/exchange') return
   const authorization = request.headers.authorization
   const token = typeof authorization === 'string' && authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : ''
   const cookiePrefix = `${getAccessCookieName()}=`
@@ -87,6 +89,8 @@ await fastify.register(auditRoutes, { prefix: '/api' })
 await fastify.register(templateRoutes, { prefix: '/api' })
 await fastify.register(sessionArchiveRoutes, { prefix: '/api' })
 await fastify.register(pluginRoutes, { prefix: '/api' })
+await fastify.register(agentEventRoutes, { prefix: '/api' })
+await fastify.register(agentNotificationRoutes, { prefix: '/api' })
 
 const frontendDist = process.env.TMUXGO_FRONTEND_DIST || path.resolve(process.cwd(), '../frontend/dist')
 if (existsSync(frontendDist)) {
@@ -95,6 +99,10 @@ if (existsSync(frontendDist)) {
     prefix: '/',
     setHeaders(res, filePath) {
       const normalized = filePath.replace(/\\/g, '/')
+      if (normalized.endsWith('/sw.js')) {
+        res.setHeader('Cache-Control', 'no-cache')
+        return
+      }
       if (normalized.includes('/fonts/') || /\.(?:woff2?|ttf|otf)$/i.test(normalized)) {
         res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
         return

@@ -1,10 +1,16 @@
-import type { WebSocket } from 'ws'
 import { randomUUID } from 'crypto'
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
 
 const HEARTBEAT_TIMEOUT_MS = 45000
+export interface AgentSocket {
+  readyState: number
+  bufferedAmount?: number
+  send(data: string | Buffer): void
+  on(event: string, listener: (...args: any[]) => void): unknown
+  close?: (code?: number, reason?: string) => void
+}
 export interface AgentStatus {
   id: string
   name: string
@@ -18,25 +24,25 @@ export interface AgentStatus {
   reconnectCount: number
 }
 interface Agent extends AgentStatus {
-  socket: WebSocket
+  socket: AgentSocket
 }
 interface PendingTmuxRequest {
   agentId: string
-  socket: WebSocket
+  socket: AgentSocket
   resolve: (value: { stdout: string; stderr: string }) => void
   reject: (error: Error) => void
   timer: NodeJS.Timeout
 }
 interface PendingShellRequest {
   agentId: string
-  socket: WebSocket
+  socket: AgentSocket
   resolve: (value: { stdout: string; stderr: string; exitCode: number }) => void
   reject: (error: Error) => void
   timer: NodeJS.Timeout
 }
 interface AgentUploadState {
   agentId: string
-  socket: WebSocket
+  socket: AgentSocket
   uploadId: string
   ready: { resolve: () => void; reject: (error: Error) => void }
   chunk: { resolve: () => void; reject: (error: Error) => void } | null
@@ -55,7 +61,7 @@ export interface AgentTerminal {
 }
 interface AgentTerminalState {
   agentId: string
-  socket: WebSocket
+  socket: AgentSocket
   terminal: AgentTerminal
   dataListener: ((data: string) => void) | null
   exitListener: ((exitCode: number) => void) | null
@@ -64,7 +70,7 @@ interface AgentTerminalState {
 }
 interface PendingTerminalRequest {
   agentId: string
-  socket: WebSocket
+  socket: AgentSocket
   attachmentId: string
   resolve: (terminal: AgentTerminal) => void
   reject: (error: Error) => void
@@ -122,16 +128,17 @@ export class AgentManager {
     }
     if (changed) this.persistHistory()
   }
-  register(id: string, name: string, address: string, version: string, socket: WebSocket) {
+  register(id: string, name: string, address: string, version: string, socket: AgentSocket) {
     const previous = this.agents.get(id)
     if (previous?.socket === socket) {
-      previous.name = name
-      previous.address = address
-      previous.version = version
-      previous.lastSeenAt = new Date().toISOString()
-      this.history.set(id, this.toStatus(previous))
+      const current = previous
+      current.name = name
+      current.address = address
+      current.version = version
+      current.lastSeenAt = new Date().toISOString()
+      this.history.set(id, this.toStatus(current))
       this.persistHistory()
-      return this.toStatus(previous)
+      return this.toStatus(current)
     }
     if (previous && previous.socket !== socket) {
       this.rejectTmuxRequests(id, previous.socket, 'Agent reconnected')
@@ -160,7 +167,7 @@ export class AgentManager {
     console.log(`Agent registered: ${id} (${name})`)
     return this.toStatus(agent)
   }
-  unregister(id: string, socket: WebSocket, reason = 'Disconnected') {
+  unregister(id: string, socket: AgentSocket, reason = 'Disconnected') {
     const agent = this.agents.get(id)
     if (!agent || agent.socket !== socket) return false
     this.rejectTmuxRequests(id, socket, `Agent disconnected: ${reason}`)
@@ -174,7 +181,7 @@ export class AgentManager {
     console.log(`Agent unregistered: ${id}`)
     return true
   }
-  heartbeat(id: string, socket: WebSocket, version?: string) {
+  heartbeat(id: string, socket: AgentSocket, version?: string) {
     const agent = this.agents.get(id)
     if (!agent || agent.socket !== socket) return false
     agent.lastSeenAt = new Date().toISOString()
@@ -358,7 +365,7 @@ export class AgentManager {
       }
     })
   }
-  handleMessage(id: string, socket: WebSocket, message: unknown) {
+  handleMessage(id: string, socket: AgentSocket, message: unknown) {
     if (!message || typeof message !== 'object') return false
     const payload = message as { type?: unknown; requestId?: unknown; attachmentId?: unknown; uploadId?: unknown; stdout?: unknown; stderr?: unknown; message?: unknown; pid?: unknown; data?: unknown; exitCode?: unknown }
     if ((payload.type === 'tmux-result' || payload.type === 'tmux-error') && typeof payload.requestId === 'string') {
@@ -448,7 +455,7 @@ export class AgentManager {
     }
     return false
   }
-  private rejectTmuxRequests(agentId: string, socket: WebSocket, message: string) {
+  private rejectTmuxRequests(agentId: string, socket: AgentSocket, message: string) {
     for (const [requestId, pending] of this.pendingTmuxRequests) {
       if (pending.agentId !== agentId || pending.socket !== socket) continue
       clearTimeout(pending.timer)
@@ -456,7 +463,7 @@ export class AgentManager {
       pending.reject(new Error(message))
     }
   }
-  private rejectShellRequests(agentId: string, socket: WebSocket, message: string) {
+  private rejectShellRequests(agentId: string, socket: AgentSocket, message: string) {
     for (const [requestId, pending] of this.pendingShellRequests) {
       if (pending.agentId !== agentId || pending.socket !== socket) continue
       clearTimeout(pending.timer)
@@ -464,7 +471,7 @@ export class AgentManager {
       pending.reject(new Error(message))
     }
   }
-  private rejectUploads(agentId: string, socket: WebSocket, message: string) {
+  private rejectUploads(agentId: string, socket: AgentSocket, message: string) {
     for (const [uploadId, upload] of this.uploads) {
       if (upload.agentId !== agentId || upload.socket !== socket) continue
       if (upload.timer) clearTimeout(upload.timer)
@@ -496,7 +503,7 @@ export class AgentManager {
       state.socket.send(JSON.stringify({ type: 'terminal-detach', attachmentId: state.terminal.id }))
     } catch {}
   }
-  private closeTerminals(agentId: string, socket: WebSocket, exitCode: number) {
+  private closeTerminals(agentId: string, socket: AgentSocket, exitCode: number) {
     for (const [attachmentId, state] of this.terminals) {
       if (state.agentId !== agentId || state.socket !== socket) continue
       this.terminals.delete(attachmentId)

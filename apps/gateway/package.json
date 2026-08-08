@@ -17,6 +17,7 @@
     "@fastify/websocket": "^8.3.1",
     "fastify": "^4.25.0",
     "node-pty": "^1.1.0",
+    "web-push": "^3.6.7",
     "zod": "^3.22.0"
   },
   "devDependencies": {

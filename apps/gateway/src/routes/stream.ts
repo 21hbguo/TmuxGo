@@ -3,7 +3,7 @@ import type { SocketStream } from '@fastify/websocket'
 import * as pty from 'node-pty'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
-import { agentManager } from '../agent-manager.js'
+import { agentManager, type AgentSocket } from '../agent-manager.js'
 import { assertSessionAllowed, prepareSessionAttach } from '../lib/tmux-policy.js'
 import { recordStreamMetric, updateStreamMetric } from '../lib/perf-metrics.js'
 import { getHostById, getHostCredentials } from '../lib/hosts.js'
@@ -13,6 +13,7 @@ import { parseSessionRef } from '../lib/tmux-target.js'
 import { getAttachSnapshotDelays } from '../lib/attach-snapshot.js'
 import { execTmux } from '../lib/tmux-executor.js'
 import { agentMonitor } from '../lib/agent-monitor.js'
+import { ingestAgentEvent } from '../lib/agent-events.js'
 import { markAgentPaneSeen } from '../lib/agent-state.js'
 import { streamAttachMessageSchema, streamInputMessageSchema, streamMessageSchema, streamRegisterMessageSchema, streamResizeMessageSchema } from '../lib/request-validation.js'
 import { encodeStreamCellBinary, encodeStreamOutputBinary } from '../lib/stream-binary.js'
@@ -94,7 +95,8 @@ export async function streamRoutes(fastify: FastifyInstance) {
     let pendingResizeAck: { sessionName: string; hostId: string; cols: number; rows: number; seq: number; refreshComplete: boolean; outputObserved: boolean } | null = null
     const scrollBuffers = new Map<string, number>()
     const scrollRunning = new Set<string>()
-    const socket = connection.socket
+    const socket = connection.socket as unknown as AgentSocket & { close: (code?: number, reason?: string) => void }
+    const agentSocket = socket
     const shareStateTimer=shareTicket?setInterval(() => {
       if (shareLinkStore.isTicketActive(shareTicket)) return
       socket.close(1008,'Share link is unavailable')
@@ -566,7 +568,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
     socket.on('message', async (message: Buffer) => {
       try {
         const data: any = streamMessageSchema.parse(JSON.parse(message.toString()))
-        if (agentId && agentManager.handleMessage(agentId, socket, data)) return
+        if (agentId && agentManager.handleMessage(agentId, agentSocket, data)) return
         if (shareTicket) {
           if (!shareLinkStore.isTicketActive(shareTicket)) {
             socket.close(1008,'Share link is unavailable')
@@ -581,13 +583,27 @@ export async function streamRoutes(fastify: FastifyInstance) {
           case 'register': {
             const register = streamRegisterMessageSchema.parse(data)
             agentId = register.host.id
-            agentManager.register(register.host.id, register.host.name, register.host.address, register.version || 'unknown', socket)
+            agentManager.register(register.host.id, register.host.name, register.host.address, register.version || 'unknown', agentSocket)
             send({ type: 'registered', agentId: register.host.id })
             break
           }
           case 'heartbeat':
-            if (agentId) agentManager.heartbeat(agentId, socket, typeof data.version === 'string' ? data.version : undefined)
+            if (agentId) agentManager.heartbeat(agentId, agentSocket, typeof data.version === 'string' ? data.version : undefined)
             break
+          case 'agent-event': {
+            const hasEvent = data.event !== undefined
+            const hasPayload = data.payload !== undefined
+            if (hasEvent === hasPayload) throw new Error('Exactly one of event or payload is required')
+            const payload = hasEvent ? data.event : data.payload
+            if (!agentId || typeof payload !== 'object' || !payload || Array.isArray(payload)) throw new Error('Agent WebSocket is not registered')
+            const paneId = typeof data.paneId === 'string' ? data.paneId : undefined
+            if (paneId && !paneId.startsWith(`${agentId}:`)) throw new Error('Agent event pane does not belong to host')
+            const event = ingestAgentEvent(payload, { hostId: agentId, provider: typeof data.provider === 'string' ? data.provider : undefined, agent: typeof data.agent === 'string' ? data.agent : undefined, paneId, tmuxPaneId: typeof data.tmuxPaneId === 'string' ? data.tmuxPaneId : undefined, sessionName: typeof data.sessionName === 'string' ? data.sessionName : undefined, agentSessionId: typeof data.agentSessionId === 'string' ? data.agentSessionId : undefined, source: 'protocol' })
+            if (!event) throw new Error('Agent event cannot be normalized')
+            const applied = agentMonitor.ingestProtocolEvent(event)
+            send({ type: 'agent-event-accepted', eventId: event.eventId, applied: !!applied })
+            break
+          }
           case 'attach': {
             const attach = streamAttachMessageSchema.parse(data)
             recordStreamMetric('attachRequests')
@@ -852,7 +868,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
       unsubscribeAgentMonitor?.()
       unsubscribeAgentMonitor = null
       updateStreamMetric('activeClients', streamPerfMetricsActiveClientsDelta(-1))
-      if (agentId) agentManager.unregister(agentId, socket, reason.toString() || `WebSocket closed (${code})`)
+      if (agentId) agentManager.unregister(agentId, agentSocket, reason.toString() || `WebSocket closed (${code})`)
     })
     send({ type: 'connected', timestamp: Date.now() })
     unsubscribeAgentMonitor = agentMonitor.subscribe((event) => send(event))
