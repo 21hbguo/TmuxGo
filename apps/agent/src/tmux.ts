@@ -68,8 +68,8 @@ export class TmuxManager {
 
   async createSession(name: string): Promise<TmuxSession> {
     assertSessionAllowed(name)
-    if (process.env.INVOCATION_ID) await execFileAsync('systemd-run', ['--user', '--scope', '--quiet', '--collect', 'tmux', 'new-session', '-d', '-s', name])
-    else await execFileAsync('tmux', ['new-session', '-d', '-s', name])
+    if (process.env.INVOCATION_ID) await execFileAsync('systemd-run', ['--user', '--scope', '--quiet', '--collect', 'tmux', 'new-session', '-d', '-s', name, '-e', 'TMUXGO_ENV=1'])
+    else await execFileAsync('tmux', ['new-session', '-d', '-s', name, '-e', 'TMUXGO_ENV=1'])
     await this.enableMouse(name)
     const sessions = await this.listSessions()
     const session = sessions.find((s) => s.name === name)

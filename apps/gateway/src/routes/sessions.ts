@@ -317,7 +317,7 @@ export async function sessionRoutes(fastify: FastifyInstance) {
         return { ...existingSession, cwd: normalizedCwd }
       }
       assertSessionAllowed(name)
-      const newSessionArgs = ['-d', '-s', name]
+      const newSessionArgs = ['-d', '-s', name, '-e', 'TMUXGO_ENV=1']
       if (normalizedCwd) newSessionArgs.push('-c', normalizedCwd)
       await execTmux(hostId, ['new-session', ...newSessionArgs])
       if (layout?.windows?.length) {
