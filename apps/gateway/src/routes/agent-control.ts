@@ -3,6 +3,8 @@ import { z } from 'zod'
 import { getAgentEventToken, isAgentEventToken } from '../lib/agent-events.js'
 import { agentControl, readAgentPane, resolveAgentWaitTarget, splitAgentPane, type AgentWaitCondition, type AgentWaitTarget } from '../lib/agent-control.js'
 import { assertTargetAllowed } from '../lib/tmux-policy.js'
+import { getHostById } from '../lib/hosts.js'
+import { agentManager } from '../agent-manager.js'
 
 const paneIdSchema = z.string().min(3).max(256)
 const splitBody = z.object({
@@ -30,6 +32,9 @@ const waitBody = z.object({
 function parseHostPaneId(paneId: string) {
   return resolveAgentWaitTarget({ paneId })
 }
+async function assertKnownHost(hostId: string) {
+  if (hostId !== 'local' && !await getHostById(hostId) && !agentManager.getAgent(hostId)) throw new Error(`Host "${hostId}" is not registered`)
+}
 export async function agentControlRoutes(fastify: FastifyInstance) {
   fastify.post('/v1/control/panes/split', { bodyLimit: 64 * 1024 }, async (request, reply) => {
     if (!isAgentEventToken(getAgentEventToken(request.headers))) return reply.code(401).send({ message: 'Agent control token required', code: 'AGENT_CONTROL_AUTH_REQUIRED' })
@@ -37,6 +42,7 @@ export async function agentControlRoutes(fastify: FastifyInstance) {
     try {
       const body = splitBody.parse(request.body)
       const { hostId, tmuxPaneId } = parseHostPaneId(body.paneId)
+      await assertKnownHost(hostId)
       if (hostId === 'local') await assertTargetAllowed(tmuxPaneId)
       const createdPaneId = await splitAgentPane(hostId, tmuxPaneId, body.direction, body.cwd)
       reply.header('cache-control', 'no-store')
@@ -52,6 +58,7 @@ export async function agentControlRoutes(fastify: FastifyInstance) {
     try {
       const body = readBody.parse(request.body)
       const { hostId, tmuxPaneId } = parseHostPaneId(body.paneId)
+      await assertKnownHost(hostId)
       if (hostId === 'local') await assertTargetAllowed(tmuxPaneId)
       const output = await readAgentPane(hostId, tmuxPaneId, body.lines)
       reply.header('cache-control', 'no-store')
@@ -68,6 +75,7 @@ export async function agentControlRoutes(fastify: FastifyInstance) {
       const body = waitBody.parse(request.body)
       const target = body.target as AgentWaitTarget
       const { hostId } = resolveAgentWaitTarget(target, body.hostId || 'local')
+      await assertKnownHost(hostId)
       const condition = body.condition as AgentWaitCondition
       const result = await agentControl.wait(target, condition, { hostId, timeoutMs: body.timeoutMs })
       reply.header('cache-control', 'no-store')

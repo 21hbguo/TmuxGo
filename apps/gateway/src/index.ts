@@ -46,7 +46,7 @@ fastify.addHook('onRequest', async (request, reply) => {
   if (request.method === 'OPTIONS') return
   if (!isAuthEnabled()) return
   const routePath = request.url.split('?')[0]
-  if (!routePath.startsWith('/api/') || routePath === '/api/stream' || routePath === '/api/agent-events' || routePath.startsWith('/api/v1/control') || routePath === '/api/auth/status' || routePath === '/api/auth/login' || routePath === '/api/auth/refresh' || routePath === '/api/auth/logout' || routePath === '/api/shares/exchange') return
+  if (!routePath.startsWith('/api/') || routePath === '/api/stream' || routePath === '/api/agent-events' || routePath === '/api/v1/control/panes/split' || routePath === '/api/v1/control/panes/read' || routePath === '/api/v1/control/agent/wait' || routePath === '/api/auth/status' || routePath === '/api/auth/login' || routePath === '/api/auth/refresh' || routePath === '/api/auth/logout' || routePath === '/api/shares/exchange') return
   const authorization = request.headers.authorization
   const token = typeof authorization === 'string' && authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : ''
   const cookiePrefix = `${getAccessCookieName()}=`
