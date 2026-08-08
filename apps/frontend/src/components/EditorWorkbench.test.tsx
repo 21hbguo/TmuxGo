@@ -5,11 +5,21 @@ import { EditorWorkbench } from './EditorWorkbench'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import type { EditorGroupState, EditorLayoutNode, EditorLayoutSplit } from '@/stores/useConsoleStore'
 
+const resolveDefinitionMock = vi.hoisted(() => vi.fn())
+const openFileInEditorMock = vi.hoisted(() => vi.fn())
 const setScrollTop = vi.fn()
 const getScrollTop = vi.fn(() => 0)
 const setScrollLeft = vi.fn()
 const getScrollLeft = vi.fn(() => 0)
 const diffPropsRef:{ current:any[] } = { current: [] }
+const monacoMouseDownRef:{ current: ((event: any) => void) | null } = { current: null }
+vi.mock('@/lib/code-navigation', () => ({
+  resolveEditorDefinition: (...args: any[]) => resolveDefinitionMock(...args),
+}))
+vi.mock('@/lib/editor-open', () => ({
+  OPEN_EDITOR_LOCATION_EVENT: 'tmuxgo-open-editor-location',
+  openFileInEditor: (...args: any[]) => openFileInEditorMock(...args),
+}))
 vi.mock('@/lib/dynamic', () => ({
   default: (loader: any) => loader.toString().includes('mod.DiffEditor')
     ? ((props: any) => {
@@ -21,7 +31,7 @@ vi.mock('@/lib/dynamic', () => ({
         React.useEffect(() => {
           if (mountedRef.current) return
           mountedRef.current = true
-          onMount?.({ getScrollTop, setScrollTop, getScrollLeft, setScrollLeft, onDidChangeCursorPosition: vi.fn(() => ({ dispose: vi.fn() })), getAction: vi.fn(() => ({ run: vi.fn() })), getPosition: vi.fn(() => ({ lineNumber: 1, column: 1 })) })
+          onMount?.({ getScrollTop, setScrollTop, getScrollLeft, setScrollLeft, onDidChangeCursorPosition: vi.fn(() => ({ dispose: vi.fn() })), onMouseDown: (handler: (event: any) => void) => { monacoMouseDownRef.current = handler; return { dispose: vi.fn() } }, getAction: vi.fn(() => ({ run: vi.fn() })), getPosition: vi.fn(() => ({ lineNumber: 1, column: 1 })) })
         }, [onMount])
         return React.createElement('textarea', { 'aria-label': 'editor', value, onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => onChange?.(event.target.value), onDrop: (event: React.DragEvent<HTMLTextAreaElement>) => {
           if (event.defaultPrevented) return
@@ -45,6 +55,9 @@ vi.mock('@/i18n', () => ({
     if (key === 'editor.clear') return 'Clear'
     if (key === 'editor.find') return 'Find'
     if (key === 'editor.format') return 'Format'
+    if (key === 'editor.back') return 'Back'
+    if (key === 'editor.forward') return 'Forward'
+    if (key === 'editor.definition') return 'Go to definition'
     if (key === 'editor.preview') return 'Preview'
     if (key === 'editor.saved') return 'Saved'
     if (key === 'editor.save') return 'Save'
@@ -188,6 +201,13 @@ describe('EditorWorkbench', () => {
   const editor4 = createEditor('editor-4', 'src/fourth.ts', 'const value=4')
   beforeEach(() => {
     vi.useFakeTimers()
+    resolveDefinitionMock.mockReset()
+    openFileInEditorMock.mockReset()
+    openFileInEditorMock.mockImplementation(async (file: any) => {
+      useConsoleStore.getState().setActiveEditor(file.id)
+      return file.id
+    })
+    monacoMouseDownRef.current = null
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => window.setTimeout(() => cb(0), 0))
     vi.stubGlobal('cancelAnimationFrame', (id: number) => window.clearTimeout(id))
     setWorkbenchState({
@@ -726,5 +746,45 @@ describe('EditorWorkbench', () => {
     renderWorkbench()
     await vi.waitFor(() => expect(screen.getByTestId('diff-editor')).toBeInTheDocument())
     expect(diffPropsRef.current.at(-1)).toMatchObject({ original: 'const value=1', modified: 'const value=2', language: 'typescript' })
+  })
+  it('jumps to a definition with F12 and navigates back', async () => {
+    setWorkbenchState({
+      openEditors: [editor1, editor2],
+      activeEditorId: editor1.id,
+      editorGroups: [createGroup('group-1', [editor1.id, editor2.id], editor1.id)],
+      editorLayout: createLeaf('layout-1', 'group-1'),
+      activeEditorGroupId: 'group-1',
+    })
+    resolveDefinitionMock.mockResolvedValue({
+      status: 'success',
+      target: { ...editor2, type: 'file', line: 1, column: 7 },
+    })
+    renderWorkbench()
+    fireEvent.keyDown(window, { key: 'F12' })
+    await vi.waitFor(() => expect(openFileInEditorMock).toHaveBeenCalledWith(expect.objectContaining({ id: editor2.id, type: 'file' }), expect.objectContaining({ position: { line: 1, column: 7 } })))
+    expect(useConsoleStore.getState().activeEditorId).toBe(editor2.id)
+    const backButton = screen.getByRole('button', { name: 'Back' })
+    expect(backButton).not.toBeDisabled()
+    fireEvent.click(backButton)
+    await vi.waitFor(() => expect(useConsoleStore.getState().activeEditorId).toBe(editor1.id))
+    expect(screen.getByRole('button', { name: 'Forward' })).not.toBeDisabled()
+  })
+  it('jumps to a definition from a Monaco ctrl-click', async () => {
+    setWorkbenchState({
+      openEditors: [editor1, editor2],
+      activeEditorId: editor1.id,
+      editorGroups: [createGroup('group-1', [editor1.id, editor2.id], editor1.id)],
+      editorLayout: createLeaf('layout-1', 'group-1'),
+      activeEditorGroupId: 'group-1',
+    })
+    resolveDefinitionMock.mockResolvedValue({ status: 'success', target: { ...editor2, type: 'file', line: 2, column: 3 } })
+    renderWorkbench()
+    expect(monacoMouseDownRef.current).toBeTruthy()
+    monacoMouseDownRef.current?.({
+      event: { browserEvent: { button: 0, ctrlKey: true, metaKey: false, preventDefault: vi.fn(), stopPropagation: vi.fn() } },
+      target: { position: { lineNumber: 2, column: 4 } },
+    })
+    await vi.waitFor(() => expect(resolveDefinitionMock).toHaveBeenCalledWith(editor1, { line: 2, column: 4 }, expect.any(Array)))
+    expect(openFileInEditorMock).toHaveBeenCalledWith(expect.objectContaining({ id: editor2.id }), expect.objectContaining({ position: { line: 2, column: 3 } }))
   })
 })
