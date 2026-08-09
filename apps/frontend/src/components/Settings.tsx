@@ -517,8 +517,8 @@ export function Settings({ onClose }: SettingsProps) {
                       <input
                         type="range"
                         min={50}
-                        max={2048}
                         step={50}
+                        max={10240}
                         value={uploadRateLimitDraft}
                         onChange={(e) => setUploadRateLimitDraft(Number(e.target.value))}
                         onMouseUp={commitUploadRateLimit}
@@ -535,8 +535,8 @@ export function Settings({ onClose }: SettingsProps) {
                       <input
                         type="range"
                         min={50}
-                        max={2048}
                         step={50}
+                        max={10240}
                         value={downloadRateLimitDraft}
                         onChange={(e) => setDownloadRateLimitDraft(Number(e.target.value))}
                         onMouseUp={commitDownloadRateLimit}

@@ -124,7 +124,7 @@ export function UploadConfirmDialog() {
       body.append('targetRootId', targetRootId)
       body.append('targetPath', targetPath)
       body.append('conflictPolicy', 'rename')
-      body.append('rateLimitKBps', String(preferences.uploadRateLimitKBps || 200))
+      body.append('rateLimitKBps', String(preferences.uploadRateLimitKBps || 5120))
       body.append('background', 'true')
       uploadRequest.files.forEach((file) => body.append('files', file))
       addUploadJob({

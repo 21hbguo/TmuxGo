@@ -38,6 +38,19 @@ export interface TmuxExecResult {
 function escapeShellSingleQuoted(input: string) {
   return `'${input.replace(/'/g, `'\\''`)}'`
 }
+export function normalizeTmuxEnvArgs(args: string[]) {
+  const result: string[] = []
+  let needsSetEnv = false
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '-e' && args[i + 1] === 'TMUXGO_ENV=1') {
+      needsSetEnv = true
+      i++
+      continue
+    }
+    result.push(args[i])
+  }
+  return { args: result, needsSetEnv }
+}
 function toHostAddress(host: HostRecord) {
   return `${host.user}@${host.address}`
 }
@@ -194,6 +207,9 @@ async function runRemoteShell(host: HostRecord, command: string, options: TmuxEx
   }
 }
 export async function execTmux(hostIdRaw: string, args: string[], options: TmuxExecOptions = {}): Promise<TmuxExecResult> {
+  const normalized = normalizeTmuxEnvArgs(args)
+  if (normalized.needsSetEnv) await execTmux(hostIdRaw, ['setenv', '-g', 'TMUXGO_ENV', '1'], options)
+  args = normalized.args
   const hostId = parseHostInput(hostIdRaw)
   const host = await getHostById(hostId)
   if (!host) {

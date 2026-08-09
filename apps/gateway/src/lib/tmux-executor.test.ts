@@ -2,14 +2,21 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { execHostShell, execTmux } from './tmux-executor.js'
+import { execHostShell, execTmux, normalizeTmuxEnvArgs } from './tmux-executor.js'
 import { agentManager } from '../agent-manager.js'
 import { upsertRemoteHost } from './hosts.js'
 
 const execFileAsync = promisify(execFile)
+
+test('normalizes -e TMUXGO_ENV=1 into setenv fallback without touching other -e flags', () => {
+  assert.deepEqual(normalizeTmuxEnvArgs(['new-session', '-d', '-s', 'name', '-e', 'TMUXGO_ENV=1']), { args: ['new-session', '-d', '-s', 'name'], needsSetEnv: true })
+  assert.deepEqual(normalizeTmuxEnvArgs(['split-window', '-c', '#{pane_current_path}', '-e', 'TMUXGO_ENV=1', '-t', '%1', '-h']), { args: ['split-window', '-c', '#{pane_current_path}', '-t', '%1', '-h'], needsSetEnv: true })
+  assert.deepEqual(normalizeTmuxEnvArgs(['capture-pane', '-e', '-p', '-t', '%1']), { args: ['capture-pane', '-e', '-p', '-t', '%1'], needsSetEnv: false })
+  assert.deepEqual(normalizeTmuxEnvArgs(['list-sessions']), { args: ['list-sessions'], needsSetEnv: false })
+})
 
 test('executes local tmux and shell commands through the local host', async () => {
   const sessionName = `tmuxgo-executor-${process.pid}-${Date.now()}`
@@ -23,6 +30,23 @@ test('executes local tmux and shell commands through the local host', async () =
     assert.equal(shell.stdout, 'shell')
   } finally {
     await execFileAsync('tmux', ['kill-session', '-t', sessionName]).catch(() => {})
+  }
+})
+
+test('injects TMUXGO_ENV via setenv when new-session uses the legacy -e form', async () => {
+  const sessionName = `tmuxgo-executor-env-${process.pid}-${Date.now()}`
+  const marker = path.join(os.tmpdir(), `tmuxgo-env-${process.pid}-${Date.now()}`)
+  try {
+    await execTmux('local', ['new-session', '-d', '-s', sessionName, '-e', 'TMUXGO_ENV=1', 'sh', '-lc', `printf '%s' "$TMUXGO_ENV" > '${marker}'`])
+    let content = ''
+    for (let i = 0; i < 20 && !content; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      content = await readFile(marker, 'utf8').catch(() => '')
+    }
+    assert.equal(content, '1')
+  } finally {
+    await execFileAsync('tmux', ['kill-session', '-t', sessionName]).catch(() => {})
+    await rm(marker, { force: true }).catch(() => {})
   }
 })
 
