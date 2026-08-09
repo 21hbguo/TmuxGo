@@ -591,7 +591,7 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
     return () => window.removeEventListener(OPEN_EDITOR_LOCATION_EVENT, handleOpenEditorLocation as EventListener)
   }, [setActiveEditor])
   const renderTab = (editor: FileEditorDocument, groupEditors: FileEditorDocument[], groupId: string) => (
-    <div key={editor.id} className={`group relative flex h-7 w-fit min-w-24 max-w-44 shrink-0 items-center border-r border-[rgba(255,255,255,0.04)] ${editor.id === activeEditor?.id ? 'bg-bg-0' : 'bg-bg-1/80'}`}>
+    <div key={editor.id} className={`group relative flex h-7 w-44 shrink-0 items-center border-r border-[rgba(255,255,255,0.04)] ${editor.id === activeEditor?.id ? 'bg-bg-0' : 'bg-bg-1/80'}`}>
       <button draggable={editor.kind !== 'compare'} onDragStart={(event) => {
         if (editor.kind === 'compare') return
         const handle = { id: editor.id, hostId: editor.hostId, rootId: editor.rootId, rootLabel: editor.rootLabel, rootPath: editor.rootPath, path: editor.path, name: editor.name, absolutePath: editor.absolutePath, type: 'file' } satisfies FileDocumentHandle
@@ -626,7 +626,7 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
         clearActiveDraggedFile()
         setTabInsertionTarget(null)
         void handleTabButtonDrop(dragged, groupEditors, groupId, editor, side)
-      }} onClick={() => setActiveEditor(editor.id)} className={`flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5 text-body ${editor.id === activeEditor?.id ? 'text-text-1' : 'text-text-2 hover:text-text-1'}`}>
+      }} onClick={() => setActiveEditor(editor.id)} className={`flex min-w-0 flex-1 items-center gap-2 px-2.5 py-1.5 text-body ${editor.id === activeEditor?.id ? 'text-text-1' : 'text-text-2 hover:text-text-1'}`}>
         <span className={`h-2 w-2 rounded-full ${editor.dirty ? 'bg-warn' : editor.saving ? 'bg-accent' : 'border border-[var(--line)] bg-transparent'}`} />
         <span className="min-w-0 flex-1 truncate">{editor.name}</span>
       </button>
