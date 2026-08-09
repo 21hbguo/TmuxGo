@@ -13,8 +13,8 @@ const openUploadDialog = vi.fn()
 const pushToast = vi.fn()
 const invalidateQueries = vi.fn()
 const delayedSrcResolvers: Array<() => void> = []
-const preferencesGet = vi.fn(async () => ({ version: 1, updatedAt: '', customShortcuts: [], customShortcutsUpdatedAt: '', favoriteDirectories: [], favoriteDirectoriesUpdatedAt: '', sessionOrders: [], sessionOrdersUpdatedAt: '', uploadRateLimitKBps: 200, downloadRateLimitKBps: 200 }))
-const preferencesUpdate = vi.fn(async (payload: any) => ({ version: 1, updatedAt: '', customShortcuts: [], customShortcutsUpdatedAt: '', favoriteDirectories: payload.favoriteDirectories || [], favoriteDirectoriesUpdatedAt: payload.favoriteDirectoriesUpdatedAt || '', sessionOrders: [], sessionOrdersUpdatedAt: '', uploadRateLimitKBps: payload.uploadRateLimitKBps || 200, downloadRateLimitKBps: payload.downloadRateLimitKBps || 200 }))
+const preferencesGet = vi.fn(async () => ({ version: 1, updatedAt: '', customShortcuts: [], customShortcutsUpdatedAt: '', favoriteDirectories: [], favoriteDirectoriesUpdatedAt: '', sessionOrders: [], sessionOrdersUpdatedAt: '', uploadRateLimitKBps: 5120, downloadRateLimitKBps: 5120 }))
+const preferencesUpdate = vi.fn(async (payload: any) => ({ version: 1, updatedAt: '', customShortcuts: [], customShortcutsUpdatedAt: '', favoriteDirectories: payload.favoriteDirectories || [], favoriteDirectoriesUpdatedAt: payload.favoriteDirectoriesUpdatedAt || '', sessionOrders: [], sessionOrdersUpdatedAt: '', uploadRateLimitKBps: payload.uploadRateLimitKBps || 5120, downloadRateLimitKBps: payload.downloadRateLimitKBps || 5120 }))
 const consoleStoreState: { activeHostId: string; activeSessionId: string; filePanelWidth: number; setFilePanelWidth: typeof setFilePanelWidth; setFilePanelOpen: typeof setFilePanelOpen; openUploadDialog: typeof openUploadDialog; pushToast: typeof pushToast; openEditors: FileEditorDocument[]; activeEditorId: string | null } = { activeHostId: 'local', activeSessionId: 'session-a', filePanelWidth: 360, setFilePanelWidth, setFilePanelOpen, openUploadDialog, pushToast, openEditors: [], activeEditorId: null }
 
 const roots = [

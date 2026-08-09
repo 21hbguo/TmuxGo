@@ -10,6 +10,19 @@ const allowedSessions = new Set((process.env.TMUX_WEB_ALLOWED_SESSIONS || '').sp
 function isValidSessionName(name: string) {
   return /^[A-Za-z0-9._-]{1,64}$/.test(name)
 }
+function normalizeTmuxEnvArgs(args: string[]) {
+  const result: string[] = []
+  let needsSetEnv = false
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '-e' && args[i + 1] === 'TMUXGO_ENV=1') {
+      needsSetEnv = true
+      i++
+      continue
+    }
+    result.push(args[i])
+  }
+  return { args: result, needsSetEnv }
+}
 function assertSessionAllowed(name: string) {
   if (!isValidSessionName(name)) throw new Error('Invalid session name')
   if (allowedSessions.size && !allowedSessions.has(name)) throw new Error('Session is not allowed')
@@ -68,8 +81,9 @@ export class TmuxManager {
 
   async createSession(name: string): Promise<TmuxSession> {
     assertSessionAllowed(name)
-    if (process.env.INVOCATION_ID) await execFileAsync('systemd-run', ['--user', '--scope', '--quiet', '--collect', 'tmux', 'new-session', '-d', '-s', name, '-e', 'TMUXGO_ENV=1'])
-    else await execFileAsync('tmux', ['new-session', '-d', '-s', name, '-e', 'TMUXGO_ENV=1'])
+    await execFileAsync('tmux', ['setenv', '-g', 'TMUXGO_ENV', '1'])
+    if (process.env.INVOCATION_ID) await execFileAsync('systemd-run', ['--user', '--scope', '--quiet', '--collect', 'tmux', 'new-session', '-d', '-s', name])
+    else await execFileAsync('tmux', ['new-session', '-d', '-s', name])
     await this.enableMouse(name)
     const sessions = await this.listSessions()
     const session = sessions.find((s) => s.name === name)
@@ -86,7 +100,9 @@ export class TmuxManager {
 
   async executeTmux(args: string[]) {
     if (!Array.isArray(args) || !args.length || args.length > 64 || args.some((item) => typeof item !== 'string' || item.length > 4096)) throw new Error('Invalid tmux arguments')
-    const { stdout, stderr } = await execFileAsync('tmux', args)
+    const normalized = normalizeTmuxEnvArgs(args)
+    if (normalized.needsSetEnv) await execFileAsync('tmux', ['setenv', '-g', 'TMUXGO_ENV', '1'])
+    const { stdout, stderr } = await execFileAsync('tmux', normalized.args)
     return { stdout, stderr }
   }
   attach(name: string, cols: number, rows: number, exclusive: boolean) {

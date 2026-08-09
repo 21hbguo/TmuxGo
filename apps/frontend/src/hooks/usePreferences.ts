@@ -51,8 +51,8 @@ const defaultPreferences: Preferences = {
   terminalPadding: 0,
   language: 'zh',
   attachExclusive: true,
-  uploadRateLimitKBps: 200,
-  downloadRateLimitKBps: 200,
+  uploadRateLimitKBps: 5120,
+  downloadRateLimitKBps: 5120,
 }
 
 export function resolveFontId(_fontFamily?: string): AppFontId {

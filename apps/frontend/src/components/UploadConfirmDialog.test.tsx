@@ -24,7 +24,7 @@ vi.mock('@/hooks/useApi', () => ({
   useFileRoots: () => ({ data: [{ id: 'root-workspace', label: 'workspace', path: '/workspace' }] }),
 }))
 vi.mock('@/hooks/usePreferences', () => ({
-  usePreferences: () => ({ preferences: { uploadRateLimitKBps: 200 } }),
+  usePreferences: () => ({ preferences: { uploadRateLimitKBps: 5120 } }),
 }))
 vi.mock('@/i18n', () => ({
   useTranslation: () => ({ t: tMock }),
