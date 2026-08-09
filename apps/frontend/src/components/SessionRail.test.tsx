@@ -7,12 +7,14 @@ const setActiveSession = vi.fn()
 const setSessionPanelExpanded = vi.fn()
 const pushToast = vi.fn()
 const prompt = vi.fn(async () => null)
-const useOrderedSessionsMock = vi.fn(() => ({
+const useOrderedSessionsMock = vi.fn((...args: unknown[]) => ({
   data: [
     { id: 'session-a', name: 'alpha', windowCount: 1 },
     { id: 'session-b', name: 'beta', windowCount: 2 },
   ],
   moveSession: vi.fn(),
+  isError: false,
+  refetch: vi.fn(),
 }))
 
 vi.mock('@/stores/useConsoleStore', () => ({

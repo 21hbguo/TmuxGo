@@ -22,7 +22,7 @@ function createGraphData(){
   }
   commits.reverse()
   const branchHeads:GitGraphBranchHead[]=[
-    {name:'master',current:true,commit:{sha:'follow-29'}},
+    {name:'master',commit:{sha:'follow-29'}},
     {name:'feature-a',commit:{sha:'feature-29'}},
     {name:'feature-b',commit:{sha:'feature-20'}},
     {name:'release',commit:{sha:'merge-25'}},

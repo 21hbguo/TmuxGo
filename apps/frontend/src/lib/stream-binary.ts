@@ -56,7 +56,7 @@ export function decodeStreamOutputBinary(buffer: ArrayBuffer): DecodedStreamOutp
   offset += hostLen
   const sessionName = decoder.decode(bytes.subarray(offset, offset + sessionLen))
   offset += sessionLen
-  let payload = bytes.subarray(offset, offset + dataLen)
+  let payload: Uint8Array = bytes.subarray(offset, offset + dataLen)
   if (isGzipType(typeCode)) {
     try {
       payload = gunzipBytes(payload)

@@ -195,7 +195,7 @@ describe('ShortcutBar', () => {
     }
     queryClient.setQueryData(['session-snapshot', 'local', 'session-dev'], snapshot)
     snapshotGet.mockResolvedValue(snapshot)
-    let resolveZoom: ((value: { ok: boolean }) => void) | null = null
+    let resolveZoom: (value: { ok: boolean }) => void = () => {}
     zoomByPane.mockReturnValue(new Promise((resolve) => {
       resolveZoom = resolve
     }))
@@ -209,7 +209,7 @@ describe('ShortcutBar', () => {
     const cached: any = queryClient.getQueryData(['session-snapshot', 'local', 'session-dev'])
     expect(cached?.windows?.[0]?.zoomed).toBe(true)
     expect(cached?.activePaneId).toBe('local:%2')
-    resolveZoom?.({ ok: true })
+    resolveZoom({ ok: true })
     await act(async () => {
       await Promise.resolve()
     })

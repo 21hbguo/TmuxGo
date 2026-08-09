@@ -11,8 +11,8 @@ const KEYBOARD_VIEWPORT_GRACE_MS = 1500
 const KEYBOARD_PROBE_MS = 700
 const KEYBOARD_VERIFY_MS = 360
 const DEFERRED_INPUT_COMMIT_MS = 80
-const DELETE_REPEAT_DELAY_MS = 420
-const DELETE_REPEAT_INTERVAL_MS = 54
+const DELETE_REPEAT_DELAY_MS = 300
+const DELETE_REPEAT_INTERVAL_MS = 33
 const KEYBOARD_EVENT = 'mobile-keyboard-change'
 function isEdgeAndroid() {
   return /Android/i.test(navigator.userAgent) && /EdgA/i.test(navigator.userAgent)

@@ -83,6 +83,12 @@ function streamOf(info: SystemInfo) {
     activeProfile: s.activeProfile === 'background' || s.activeProfile === 'mobile' ? s.activeProfile : 'foreground',
     activeFlushInterval: num(s.activeFlushInterval),
     activeMaxChars: num(s.activeMaxChars),
+    compressFrames: num(s.compressFrames),
+    compressBytesIn: num(s.compressBytesIn),
+    compressBytesOut: num(s.compressBytesOut),
+    cellSnapshots: num(s.cellSnapshots),
+    cellDiffs: num(s.cellDiffs),
+    cellFallbackAnsi: num(s.cellFallbackAnsi),
   }
 }
 function Sparkline({ values, width = 140, height = 36, stroke = 'rgb(var(--accent))' }: { values: number[]; width?: number; height?: number; stroke?: string }) {

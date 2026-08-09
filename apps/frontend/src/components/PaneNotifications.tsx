@@ -23,6 +23,7 @@ interface NotificationItem {
   message: string
   timestamp: string
 }
+type TranslateFn = ReturnType<typeof useTranslation>['t']
 function getAgentNotificationStatus(pane: AgentPaneState): NotificationItem['status'] | null {
   if (pane.phase === 'permission_required' || pane.lastEvent === 'permission_required') return 'permission_required'
   if (pane.phase === 'needs_input' || pane.lastEvent === 'question_required') return 'needs_input'
@@ -33,8 +34,8 @@ function getAgentNotificationStatus(pane: AgentPaneState): NotificationItem['sta
   if (pane.agentStatus === 'blocked') return 'blocked'
   return null
 }
-function getAgentNotificationMessage(status: NotificationItem['status'], agent: string, session: string, t: (key: string, params?: Record<string, string>) => string) {
-  const key: Record<NotificationItem['status'], string> = {
+function getAgentNotificationMessage(status: NotificationItem['status'], agent: string, session: string, t: TranslateFn) {
+  const key: Record<NotificationItem['status'], Parameters<TranslateFn>[0]> = {
     blocked: 'agent.notification.blocked',
     done: 'agent.notification.done',
     permission_required: 'agent.notification.permission',
@@ -85,7 +86,7 @@ function readMutedPanes() {
     return []
   }
 }
-function toNotificationItem(record: AgentNotificationRecord, t: (key: string, params?: Record<string, string>) => string): NotificationItem | null {
+function toNotificationItem(record: AgentNotificationRecord, t: TranslateFn): NotificationItem | null {
   if (!record || typeof record.id !== 'string' || typeof record.hostId !== 'string' || typeof record.sessionName !== 'string' || typeof record.paneId !== 'string' || typeof record.agent !== 'string') return null
   const status = record.status
   if (!['blocked', 'done', 'permission_required', 'needs_input', 'failed', 'ended', 'disconnected'].includes(status)) return null

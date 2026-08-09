@@ -20,8 +20,8 @@ import { KeyCap } from './KeyCap'
 import { FiEdit2, FiTrash2 } from 'react-icons/fi'
 import type { CustomShortcut } from '@/types'
 
-const repeatDelay=420
-const repeatInterval=54
+const repeatDelay=300
+const repeatInterval=33
 const verticalRepeatDelay=420
 const verticalRepeatInterval=140
 const dragThreshold=12

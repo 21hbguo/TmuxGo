@@ -720,9 +720,9 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       <MobileBottomSheet open={!!mobileSessionMenu} onClose={() => setMobileSessionMenuId(null)} zClass="z-[85]" heightClass="p-3">
             <div className="flex justify-center pb-2"><div className="h-1 w-10 rounded-full bg-text-3/30" /></div>
             <div className="px-1 pb-2 text-sm text-text-1">{mobileSessionMenu?.name}</div>
-            <button onClick={() => { togglePinnedQuickSession(mobileSessionMenu?.id); setMobileSessionMenuId(null) }} className="tmuxgo-menu-item py-3 text-sm">{mobileSessionPinned ? t('mobile.quickSessionUnpin') : t('mobile.quickSessionPin')}</button>
-            <button onClick={() => { const sessionId = mobileSessionMenu?.id; setMobileSessionMenuId(null); void handleQuickSessionRename(sessionId) }} className="tmuxgo-menu-item py-3 text-sm">{t('drawer.renamePrompt')}</button>
-            <button onClick={() => { setMobileSessionMenuId(null); setPendingDeleteSessionId(mobileSessionMenu?.id) }} className="tmuxgo-menu-item tmuxgo-menu-item--danger mt-1 py-3 text-sm">{t('sidebar.confirmDelete')}</button>
+            <button onClick={() => { const sessionId = mobileSessionMenu?.id; if (sessionId) togglePinnedQuickSession(sessionId); setMobileSessionMenuId(null) }} className="tmuxgo-menu-item py-3 text-sm">{mobileSessionPinned ? t('mobile.quickSessionUnpin') : t('mobile.quickSessionPin')}</button>
+            <button onClick={() => { const sessionId = mobileSessionMenu?.id; setMobileSessionMenuId(null); if (sessionId) void handleQuickSessionRename(sessionId) }} className="tmuxgo-menu-item py-3 text-sm">{t('drawer.renamePrompt')}</button>
+            <button onClick={() => { setMobileSessionMenuId(null); setPendingDeleteSessionId(mobileSessionMenu?.id ?? null) }} className="tmuxgo-menu-item tmuxgo-menu-item--danger mt-1 py-3 text-sm">{t('sidebar.confirmDelete')}</button>
             <button onClick={() => { setMobileSessionMenuId(null); openDrawer('sessions') }} className="tmuxgo-menu-item mt-1 py-3 text-sm">{t('nav.sessions')}</button>
           </MobileBottomSheet>
       <UploadConfirmDialog />
