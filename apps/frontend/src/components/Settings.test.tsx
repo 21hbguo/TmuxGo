@@ -8,12 +8,9 @@ import { I18nProvider } from '@/i18n'
 const pushToast=vi.fn()
 const updatePreferences=vi.fn()
 const restartRebuild=vi.fn()
-const createHost=vi.fn()
-const deleteHost=vi.fn()
-const testHost=vi.fn()
 const copy=vi.fn()
 const shareApi=vi.hoisted(() => ({ list: vi.fn(), create: vi.fn(), revoke: vi.fn() }))
-const restartStatusState={ data: { status: 'idle', startedAt: null, finishedAt: null, summaryLines: [], exitCode: null, errorMessage: null }, refetch: vi.fn() }
+const restartStatusState: { data: { status: string; startedAt: string | null; finishedAt: string | null; summaryLines: string[]; exitCode: number | null; errorMessage: string | null }; refetch: ReturnType<typeof vi.fn> } = { data: { status: 'idle', startedAt: null, finishedAt: null, summaryLines: [], exitCode: null, errorMessage: null }, refetch: vi.fn() }
 vi.mock('@/stores/useConsoleStore', () => ({
   useConsoleStore: (selector: any) => selector({ pushToast, activeHostId: 'local', activeSessionId: 'session-local-dev' }),
 }))
@@ -54,9 +51,6 @@ vi.mock('@/hooks/useAppVersion', () => ({
 }))
 vi.mock('@/hooks/useApi', () => ({
   useHosts: () => ({ data: [{ id: 'edge', name: 'Edge', address: '10.0.0.8', user: 'deploy', port: 22, tags: ['agent', 'production'], userTags: ['production'], connectionMode: 'agent', agent: { version: '1.2.3', online: false, lastSeenAt: '2026-08-02T00:00:00.000Z', lastDisconnectedAt: '2026-08-02T00:01:00.000Z', disconnectReason: 'Heartbeat timed out', reconnectCount: 3 } }] }),
-  useCreateHost: () => ({ mutateAsync: createHost }),
-  useDeleteHost: () => ({ mutateAsync: deleteHost }),
-  useTestHost: () => ({ mutateAsync: testHost }),
   useRestartRebuildStatus: () => restartStatusState,
   useRestartRebuild: () => ({ mutateAsync: restartRebuild, isPending: false }),
 }))
@@ -68,18 +62,12 @@ describe('Settings restart rebuild', () => {
     pushToast.mockReset()
     updatePreferences.mockReset()
     restartRebuild.mockReset()
-    createHost.mockReset()
-    deleteHost.mockReset()
-    testHost.mockReset()
     copy.mockReset()
     shareApi.list.mockReset()
     shareApi.create.mockReset()
     shareApi.revoke.mockReset()
     copy.mockResolvedValue(true)
     shareApi.list.mockResolvedValue({ links: [] })
-    deleteHost.mockResolvedValue({ success: true })
-    createHost.mockResolvedValue({})
-    testHost.mockResolvedValue({ task: { title: 'Test host edge' } })
     restartStatusState.data = { status: 'idle', startedAt: null, finishedAt: null, summaryLines: [], exitCode: null, errorMessage: null }
     restartStatusState.refetch.mockReset()
     localStorage.setItem('tmuxgo-preferences', JSON.stringify({ language: 'en' }))
@@ -121,53 +109,18 @@ describe('Settings restart rebuild', () => {
     expect(screen.getByText('Starting TmuxGo development servers...')).toBeInTheDocument()
     expect(screen.getByText('Building systemd services...')).toBeInTheDocument()
   })
-  it('asks for confirmation before removing a host', async () => {
-    const user = userEvent.setup()
-    render(React.createElement(I18nProvider, null, React.createElement(Settings, { onClose: vi.fn() })))
-    await user.click(screen.getByRole('button', { name: 'Connection' }))
-    await user.click(screen.getByRole('button', { name: 'Remove' }))
-    expect(deleteHost).not.toHaveBeenCalled()
-    expect(screen.getByText('Remove host Edge and its saved connection details?')).toBeInTheDocument()
-    await user.click(screen.getAllByRole('button', { name: 'Remove' }).at(-1)!)
-    await waitFor(() => expect(deleteHost).toHaveBeenCalledWith('edge'))
-  })
-  it('starts a background host test', async () => {
-    const user = userEvent.setup()
-    render(React.createElement(I18nProvider, null, React.createElement(Settings, { onClose: vi.fn() })))
-    await user.click(screen.getByRole('button', { name: 'Connection' }))
-    await user.click(screen.getByRole('button', { name: 'Test' }))
-    await waitFor(() => expect(testHost).toHaveBeenCalledWith('edge'))
-    expect(screen.getByText('edge: Test host edge')).toBeInTheDocument()
-  })
-  it('renders host connection and Agent diagnostics', async () => {
+  it('no longer offers host management in the connection tab', async () => {
     const user = userEvent.setup()
     render(React.createElement(I18nProvider, null, React.createElement(Settings, { onClose: vi.fn() })))
     await act(async () => {
       await user.click(screen.getByRole('button', { name: 'Connection' }))
     })
-    expect(screen.getByText('Connection: Agent')).toBeInTheDocument()
-    expect(screen.getByText(/Last heartbeat/)).toBeInTheDocument()
-    expect(screen.getByText(/Reconnects 3/)).toBeInTheDocument()
-    expect(screen.getByText(/Disconnect reason: Heartbeat timed out/)).toBeInTheDocument()
-    expect(screen.getByText(/production/)).toBeInTheDocument()
-  })
-  it('edits user host tags without persisting the connection tag', async () => {
-    const user = userEvent.setup()
-    render(React.createElement(I18nProvider, null, React.createElement(Settings, { onClose: vi.fn() })))
-    await act(async () => {
-      await user.click(screen.getByRole('button', { name: 'Connection' }))
-    })
-    await act(async () => {
-      await user.click(screen.getByRole('button', { name: 'Edit Host' }))
-    })
-    const tags = screen.getByPlaceholderText('Tags, separated by commas')
-    expect(tags).toHaveValue('production')
-    await act(async () => {
-      await user.clear(tags)
-      await user.type(tags, 'production, critical')
-      await user.click(screen.getByRole('button', { name: 'Save Host' }))
-    })
-    await waitFor(() => expect(createHost).toHaveBeenCalledWith(expect.objectContaining({ tags: ['production', 'critical'] })))
+    expect(screen.queryByText('New Host')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Edit Host' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Remove' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Test' })).not.toBeInTheDocument()
+    expect(screen.queryByText(/Last heartbeat/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Disconnect reason/)).not.toBeInTheDocument()
   })
   it('creates and copies a session-scoped share link', async () => {
     const user = userEvent.setup()

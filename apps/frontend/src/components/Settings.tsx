@@ -14,7 +14,7 @@ import { api, type ShareLink } from '@/lib/api'
 import { changePassword, listAuthSessions, revokeAuthSession, revokeOtherAuthSessions, type AuthSession } from '@/lib/auth'
 import { parseSessionName } from '@/lib/session-id'
 import type { SessionArchive, SessionArchiveSummary } from '@/types'
-import { useCreateHost, useDeleteHost, useHosts, useRestartRebuild, useRestartRebuildStatus, useTestHost } from '@/hooks/useApi'
+import { useHosts, useRestartRebuild, useRestartRebuildStatus } from '@/hooks/useApi'
 import { PluginSettings } from './PluginSettings'
 import { SystemHealthPanel } from './SystemHealthPanel'
 import { Button } from './Button'
@@ -48,32 +48,12 @@ export function Settings({ onClose }: SettingsProps) {
   const [shareLoading, setShareLoading] = useState(false)
   const [shareCreating, setShareCreating] = useState(false)
   const [shareActionMessage, setShareActionMessage] = useState('')
-  const [hostIdDraft, setHostIdDraft] = useState('')
-  const [hostNameDraft, setHostNameDraft] = useState('')
-  const [hostAddressDraft, setHostAddressDraft] = useState('')
-  const [hostUserDraft, setHostUserDraft] = useState('')
-  const [hostPortDraft, setHostPortDraft] = useState('22')
-  const [hostPasswordDraft, setHostPasswordDraft] = useState('')
-  const [hostPrivateKeyPathDraft, setHostPrivateKeyPathDraft] = useState('')
-  const [hostGroupsDraft, setHostGroupsDraft] = useState('')
-  const [hostTagsDraft, setHostTagsDraft] = useState('')
-  const [hostFavoriteDraft, setHostFavoriteDraft] = useState(false)
-  const [hostUseAgentDraft, setHostUseAgentDraft] = useState(true)
-  const [hostJumpHostDraft, setHostJumpHostDraft] = useState('')
-  const [hostKnownHostsPolicyDraft, setHostKnownHostsPolicyDraft] = useState<'strict' | 'accept-new' | 'off'>('accept-new')
-  const [hostDialogOpen, setHostDialogOpen] = useState(false)
-  const [hostDialogMode, setHostDialogMode] = useState<'create' | 'edit'>('create')
-  const [hostActionMessage, setHostActionMessage] = useState('')
-  const [pendingDeleteHostId, setPendingDeleteHostId] = useState<string | null>(null)
   const [restartConfirmOpen, setRestartConfirmOpen] = useState(false)
   const [archiveDialogOpen, setArchiveDialogOpen] = useState(false)
   const [archives, setArchives] = useState<SessionArchiveSummary[]>([])
   const [archiveDetail, setArchiveDetail] = useState<SessionArchive | null>(null)
   const [archiveLoading, setArchiveLoading] = useState(false)
   const { data: hosts = [] } = useHosts()
-  const createHost = useCreateHost()
-  const deleteHost = useDeleteHost()
-  const testHost = useTestHost()
   const restartRebuild = useRestartRebuild()
   const { data: appVersionData, isLoading: appVersionLoading, error: appVersionError } = useAppVersion(activeTab === 'about')
   const restartStatusQuery = useRestartRebuildStatus(activeTab === 'about')
@@ -221,50 +201,6 @@ export function Settings({ onClose }: SettingsProps) {
       setShareActionMessage(err?.message || t('settings.shareActionFailed'))
     }
   }
-  const resetHostDraft = () => {
-    setHostIdDraft('')
-    setHostNameDraft('')
-    setHostAddressDraft('')
-    setHostUserDraft('')
-    setHostPortDraft('22')
-    setHostPasswordDraft('')
-    setHostPrivateKeyPathDraft('')
-    setHostGroupsDraft('')
-    setHostTagsDraft('')
-    setHostFavoriteDraft(false)
-    setHostUseAgentDraft(true)
-    setHostJumpHostDraft('')
-    setHostKnownHostsPolicyDraft('accept-new')
-  }
-  const openCreateHostDialog = () => {
-    resetHostDraft()
-    setHostDialogMode('create')
-    setHostDialogOpen(true)
-    setHostActionMessage('')
-  }
-  const openEditHostDialog = (host: any) => {
-    setHostIdDraft(host.id || '')
-    setHostNameDraft(host.name || '')
-    setHostAddressDraft(host.address || '')
-    setHostUserDraft(host.user || '')
-    setHostPortDraft(String(host.port || 22))
-    setHostPasswordDraft('')
-    setHostPrivateKeyPathDraft('')
-    setHostGroupsDraft(Array.isArray(host.groups) ? host.groups.join(', ') : '')
-    setHostTagsDraft(Array.isArray(host.userTags) ? host.userTags.join(', ') : '')
-    setHostFavoriteDraft(host.favorite === true)
-    setHostUseAgentDraft(host.usesAgent !== false)
-    setHostJumpHostDraft(host.jumpHost || '')
-    setHostKnownHostsPolicyDraft(host.knownHostsPolicy || 'accept-new')
-    setHostDialogMode('edit')
-    setHostDialogOpen(true)
-    setHostActionMessage('')
-  }
-  const closeHostDialog = () => {
-    setHostDialogOpen(false)
-    setHostPasswordDraft('')
-    setHostPrivateKeyPathDraft('')
-  }
   const loadArchives = async () => {
     setArchiveLoading(true)
     try {
@@ -308,41 +244,6 @@ export function Settings({ onClose }: SettingsProps) {
     } catch (err: any) {
       pushToast({ type: 'error', message: err?.message || t('settings.restartFailed') })
     }
-  }
-  const saveHost = async () => {
-    setHostActionMessage('')
-    try {
-      await createHost.mutateAsync({
-        id: hostIdDraft.trim(),
-        name: hostNameDraft.trim() || undefined,
-        address: hostAddressDraft.trim(),
-        user: hostUserDraft.trim(),
-        port: Number(hostPortDraft || '22') || 22,
-        password: hostPasswordDraft ? hostPasswordDraft : undefined,
-        privateKeyPath: hostPrivateKeyPathDraft || undefined,
-        groups: hostGroupsDraft.split(',').map((group) => group.trim()).filter(Boolean),
-        tags: hostTagsDraft.split(',').map((tag) => tag.trim()).filter(Boolean),
-        favorite: hostFavoriteDraft,
-        useAgent: hostUseAgentDraft,
-        jumpHost: hostJumpHostDraft,
-        knownHostsPolicy: hostKnownHostsPolicyDraft,
-      })
-      setHostActionMessage(t('settings.hostSaved'))
-      closeHostDialog()
-      resetHostDraft()
-    } catch (err: any) {
-      setHostActionMessage(err?.message || t('settings.hostSaveFailed'))
-    }
-  }
-  const confirmDeleteHost = async () => {
-    if (!pendingDeleteHostId) return
-    try {
-      await deleteHost.mutateAsync(pendingDeleteHostId)
-      setHostActionMessage(t('settings.hostRemoved'))
-    } catch (err: any) {
-      setHostActionMessage(err?.message || t('settings.hostRemoveFailed'))
-    }
-    setPendingDeleteHostId(null)
   }
   const restartStatusLabel = restartStatus.status === 'running' ? t('settings.restartStatusRunning') : restartStatus.status === 'success' ? t('settings.restartStatusSuccess') : restartStatus.status === 'error' ? t('settings.restartStatusFailed') : restartStatus.status === 'cancelled' ? t('tasks.status.cancelled') : t('settings.restartStatusIdle')
 
@@ -608,55 +509,6 @@ export function Settings({ onClose }: SettingsProps) {
           {activeTab === 'connection' && (
             <div className="space-y-6">
               <div>
-                <h3 className="text-text-1 text-sm font-medium mb-3">{t('settings.hosts')}</h3>
-                <div className="space-y-3 rounded-apple border border-[var(--line)] p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs text-text-3">{t('settings.hosts')}</span>
-                    <Button variant="primary" size="sm" onClick={openCreateHostDialog}>{t('settings.hostNew')}</Button>
-                  </div>
-                  <div className="space-y-2">
-                    {hosts.filter((host: any) => host.id !== 'local').map((host: any) => (
-                      <div key={host.id} className="rounded-apple border border-[var(--line)] bg-bg-2 px-2 py-2">
-                        <div className="min-w-0">
-                          <div className="truncate text-sm text-text-1">{host.name || host.id}</div>
-                          <div className="truncate text-xs text-text-3">{host.id} {host.user ? `${host.user}@` : ''}{host.address}:{host.port || 22}</div>
-                          {host.connectionMode && <div className="truncate text-xs text-text-3">{t('settings.hostConnectionMode', { mode: host.connectionMode === 'local' ? t('settings.hostConnectionMode.local') : host.connectionMode === 'agent' ? t('settings.hostConnectionMode.agent') : t('settings.hostConnectionMode.ssh') })}</div>}
-                          {(host.favorite || host.groups?.length || host.tags?.length) && <div className="truncate text-xs text-accent">{[host.favorite ? t('settings.hostFavorite') : '', ...(host.groups || []), ...(host.tags || [])].filter(Boolean).join(' · ')}</div>}
-                          {(host.hasPassword || host.hasPrivateKey || host.usesAgent || host.jumpHost) && <div className="truncate text-xs text-text-3">{[host.hasPassword ? t('settings.hostPasswordSaved') : '', host.hasPrivateKey ? t('settings.hostPrivateKeySaved') : '', host.usesAgent ? t('settings.hostAgentEnabled') : '', host.jumpHost ? t('settings.hostJumpHostSaved', { host: host.jumpHost }) : ''].filter(Boolean).join(' · ')}</div>}
-                          {typeof host.latencyMs === 'number' && <div className="truncate text-xs text-text-3">{t('settings.hostLatency', { value: host.latencyMs })}</div>}
-                          {host.lastConnectionError && <div className="truncate text-xs text-danger">{host.lastConnectionError}</div>}
-                          {host.agent && <div className="truncate text-xs text-text-3">{[t('settings.hostAgentState', { version: host.agent.version, status: host.agent.online ? t('settings.hostAgentOnline') : t('settings.hostAgentOffline') }), host.agent.lastSeenAt ? t('settings.hostAgentLastHeartbeat', { value: new Date(host.agent.lastSeenAt).toLocaleString() }) : '', t('settings.hostAgentReconnectCount', { count: host.agent.reconnectCount }), host.agent.disconnectReason ? t('settings.hostAgentDisconnectReason', { reason: host.agent.disconnectReason }) : '', !host.agent.online && host.agent.lastDisconnectedAt ? t('settings.hostAgentDisconnectedAt', { value: new Date(host.agent.lastDisconnectedAt).toLocaleString() }) : ''].filter(Boolean).join(' · ')}</div>}
-                        </div>
-                        <div className="mt-2 flex items-center gap-1">
-                          <Chip onClick={() => openEditHostDialog(host)}>{t('settings.hostEdit')}</Chip>
-                          <Chip
-                            onClick={async () => {
-                              setHostActionMessage('')
-                              try {
-                                const result = await testHost.mutateAsync(host.id)
-                                setHostActionMessage(`${host.id}: ${result.task.title}`)
-                              } catch (err: any) {
-                                setHostActionMessage(err?.message || t('settings.hostTestFailed'))
-                              }
-                            }}
-                          >
-                            {t('settings.hostTest')}
-                          </Chip>
-                          <Chip
-                            tone="danger"
-                            onClick={() => { setHostActionMessage(''); setPendingDeleteHostId(host.id) }}
-                          >
-                            {t('settings.hostRemove')}
-                          </Chip>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  {!!hostActionMessage && <span className="block text-xs text-text-2">{hostActionMessage}</span>}
-                </div>
-              </div>
-
-              <div>
                 <h3 className="text-text-1 text-sm font-medium mb-3">{t('settings.transfer')}</h3>
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
@@ -890,39 +742,7 @@ export function Settings({ onClose }: SettingsProps) {
         </div>
       </div>
 
-      {hostDialogOpen && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center tmuxgo-scrim p-4" onClick={closeHostDialog}>
-          <div className="tmuxgo-glass tmuxgo-glass-dialog w-full max-w-[420px] rounded-apple border p-4" onClick={(event) => event.stopPropagation()}>
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-base font-medium text-text-1">{hostDialogMode === 'create' ? t('settings.hostCreate') : t('settings.hostEdit')}</h3>
-              <Button variant="ghost" size="sm" aria-label="close" onClick={closeHostDialog}>✕</Button>
-            </div>
-            <div className="space-y-2">
-              <input value={hostIdDraft} disabled={hostDialogMode === 'edit'} onChange={(event) => setHostIdDraft(event.target.value)} placeholder={t('settings.hostId')} className="tmuxgo-control tmuxgo-input w-full rounded-apple px-2 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-60" />
-              <input value={hostNameDraft} onChange={(event) => setHostNameDraft(event.target.value)} placeholder={t('settings.hostNameOptional')} className="tmuxgo-control tmuxgo-input w-full rounded-apple px-2 py-1.5 text-sm" />
-              <input value={hostAddressDraft} onChange={(event) => setHostAddressDraft(event.target.value)} placeholder={t('settings.hostAddress')} className="tmuxgo-control tmuxgo-input w-full rounded-apple px-2 py-1.5 text-sm" />
-              <input value={hostUserDraft} onChange={(event) => setHostUserDraft(event.target.value)} placeholder={t('settings.hostUser')} className="tmuxgo-control tmuxgo-input w-full rounded-apple px-2 py-1.5 text-sm" />
-              <input value={hostPortDraft} onChange={(event) => setHostPortDraft(event.target.value)} placeholder={t('settings.hostPort')} className="tmuxgo-control tmuxgo-input w-full rounded-apple px-2 py-1.5 text-sm" />
-              <input type="password" value={hostPasswordDraft} onChange={(event) => setHostPasswordDraft(event.target.value)} placeholder={t('settings.hostPassword')} className="tmuxgo-control tmuxgo-input w-full rounded-apple px-2 py-1.5 text-sm" />
-              {hostDialogMode === 'edit' && <div className="text-xs text-text-3">{t('settings.hostPasswordKeep')}</div>}
-              <input value={hostPrivateKeyPathDraft} onChange={(event) => setHostPrivateKeyPathDraft(event.target.value)} placeholder={t('settings.hostPrivateKeyPath')} className="tmuxgo-control tmuxgo-input w-full rounded-apple px-2 py-1.5 text-sm" />
-              {hostDialogMode === 'edit' && <div className="text-xs text-text-3">{t('settings.hostPrivateKeyKeep')}</div>}
-              <input value={hostJumpHostDraft} onChange={(event) => setHostJumpHostDraft(event.target.value)} placeholder={t('settings.hostJumpHost')} className="tmuxgo-control tmuxgo-input w-full rounded-apple px-2 py-1.5 text-sm" />
-              <input value={hostGroupsDraft} onChange={(event) => setHostGroupsDraft(event.target.value)} placeholder={t('settings.hostGroups')} className="tmuxgo-control tmuxgo-input w-full rounded-apple px-2 py-1.5 text-sm" />
-              <input value={hostTagsDraft} onChange={(event) => setHostTagsDraft(event.target.value)} placeholder={t('settings.hostTags')} className="tmuxgo-control tmuxgo-input w-full rounded-apple px-2 py-1.5 text-sm" />
-              <label className="flex items-center gap-2 px-1 text-sm text-text-2"><input type="checkbox" checked={hostFavoriteDraft} onChange={(event) => setHostFavoriteDraft(event.target.checked)} className="accent-accent" />{t('settings.hostFavorite')}</label>
-              <label className="flex items-center gap-2 px-1 text-sm text-text-2"><input type="checkbox" checked={hostUseAgentDraft} onChange={(event) => setHostUseAgentDraft(event.target.checked)} className="accent-accent" />{t('settings.hostUseAgent')}</label>
-              <label className="flex items-center justify-between gap-3 px-1 text-sm text-text-2"><span>{t('settings.hostKnownHostsPolicy')}</span><select value={hostKnownHostsPolicyDraft} onChange={(event) => setHostKnownHostsPolicyDraft(event.target.value as 'strict' | 'accept-new' | 'off')} className="tmuxgo-control tmuxgo-select rounded-apple px-2 py-1.5 text-sm"><option value="strict">{t('settings.hostKnownHostsStrict')}</option><option value="accept-new">{t('settings.hostKnownHostsAcceptNew')}</option><option value="off">{t('settings.hostKnownHostsOff')}</option></select></label>
-            </div>
-            <div className="mt-4 flex items-center justify-end gap-2">
-              <Button size="sm" onClick={closeHostDialog}>{t('common.cancel')}</Button>
-              <Button variant="primary" size="sm" onClick={() => void saveHost()}>{t('settings.hostSave')}</Button>
-            </div>
-          </div>
-        </div>
-      )}
       {archiveDialogOpen && <div className="fixed inset-0 z-[70] flex items-center justify-center tmuxgo-scrim-strong p-4" onClick={() => setArchiveDialogOpen(false)}><div className="tmuxgo-glass tmuxgo-glass-dialog flex h-[75vh] w-full max-w-4xl flex-col overflow-hidden rounded-apple border" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b border-[var(--line)] px-4 py-3"><h3 className="text-base font-medium text-text-1">{t('settings.archives')}</h3><Button variant="ghost" size="sm" aria-label="close" onClick={() => setArchiveDialogOpen(false)}>✕</Button></div><div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[280px_1fr]"><div className="tmuxgo-scrollbar overflow-y-auto border-b border-[var(--line)] md:border-b-0 md:border-r">{archiveLoading && !archives.length && <div className="p-4 text-sm text-text-3">{t('common.loading')}</div>}{!archiveLoading && !archives.length && <div className="p-4 text-sm text-text-3">{t('settings.archiveEmpty')}</div>}{archives.map((archive) => <div key={archive.id} className={`tmuxgo-list-row flex border-b border-[var(--line)] ${archiveDetail?.id === archive.id ? 'tmuxgo-list-row--active' : 'tmuxgo-list-row--hover'}`}><button onClick={() => void openArchive(archive.id)} className="min-w-0 flex-1 p-3 text-left"><div className="truncate text-sm text-text-1">{archive.sessionName}</div><div className="mt-1 text-xs text-text-3">{new Date(archive.createdAt).toLocaleString()} · {archive.paneCount} · {Math.ceil(archive.size / 1024)} KB</div></button><button onClick={() => void deleteArchive(archive.id)} className="w-10 text-text-3 hover:text-danger" aria-label={t('settings.deleteArchive')}>×</button></div>)}</div><div className="tmuxgo-scrollbar min-h-0 overflow-y-auto p-4">{!archiveDetail && <div className="flex h-full items-center justify-center text-sm text-text-3">{t('settings.selectArchive')}</div>}{archiveDetail && <div className="space-y-4"><div><div className="text-base font-medium text-text-1">{archiveDetail.sessionName}</div><div className="mt-1 text-xs text-text-3">{archiveDetail.captureMode === 'history' ? t('settings.archiveHistory') : t('settings.archiveVisible')} · {new Date(archiveDetail.createdAt).toLocaleString()}</div></div>{archiveDetail.panes.map((pane) => <div key={pane.paneId}><div className="mb-1 text-xs text-text-3">{pane.windowName} / {pane.title}</div><pre className="overflow-x-auto whitespace-pre-wrap rounded-apple border border-[var(--line)] bg-bg-0 p-3 font-mono text-xs text-text-2">{pane.data || t('settings.archiveNoOutput')}</pre></div>)}</div>}</div></div></div></div>}
-      <ConfirmDialog open={!!pendingDeleteHostId} title={t('settings.hostRemoveConfirmTitle')} message={t('settings.hostRemoveConfirmMessage', { name: hosts.find((host: any) => host.id === pendingDeleteHostId)?.name || pendingDeleteHostId || '' })} confirmLabel={t('settings.hostRemove')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setPendingDeleteHostId(null)} onConfirm={() => void confirmDeleteHost()} />
       <ConfirmDialog open={restartConfirmOpen} title={t('settings.restartConfirmTitle')} message={t('settings.restartConfirmMessage')} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} onCancel={() => setRestartConfirmOpen(false)} onConfirm={() => void triggerRestartRebuild()} />
       {showAuditLog && <AuditLog onClose={() => setShowAuditLog(false)} />}
     </div>
