@@ -323,9 +323,23 @@ export interface FavoriteDirectory {
   name: string
   path: string
 }
+export interface WorkspaceEntry {
+  id: string
+  name: string
+  hostId: string
+  path: string
+  rootId: string
+  rootPath: string
+  rootLabel: string
+  relativePath: string
+  templateId: string | null
+  createdAt: string
+  updatedAt: string
+}
 export interface SessionWorkspaceEntry {
   sessionId: string
   hostId: string
+  workspaceId?: string
   workspacePath: string
   rootId: string
   rootPath: string

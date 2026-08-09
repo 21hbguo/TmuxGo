@@ -1,7 +1,7 @@
 import { getApiBase } from './runtime-endpoints'
 import { authenticatedFetch, getAccessToken, refreshAuth } from './auth'
 import { buildSessionId } from './session-id'
-import type { AuditEvent, CustomShortcut, FavoriteDirectory, FavoriteItem, FileContentMatch, FileContentResponse, FileItem, FileListResponse, FilePreviewResponse, FileRoot, FileUploadTarget, GitBranchesResponse, GitCommitResponse, GitDetectResponse, GitDiffResponse, GitDiffStatsResponse, GitHostState, GitHubPluginPreview, GitLogResponse, GitMergeResponse, GitRepositoryInfo, GitStatusResponse, PluginCommandLog, PluginInfo, PluginPermission, RemotePreferences, SessionArchive, SessionArchivePolicy, SessionArchiveSummary, SessionContinuityConfig, SessionLayout, SessionOrderPreference, SessionTemplate, SessionThumbnail, SessionWorkspaceEntry, Snippet, TrashEntry, UiPreferences, UploadJobResult, UploadedFile } from '@/types'
+import type { AuditEvent, CustomShortcut, FavoriteDirectory, FavoriteItem, FileContentMatch, FileContentResponse, FileItem, FileListResponse, FilePreviewResponse, FileRoot, FileUploadTarget, GitBranchesResponse, GitCommitResponse, GitDetectResponse, GitDiffResponse, GitDiffStatsResponse, GitHostState, GitHubPluginPreview, GitLogResponse, GitMergeResponse, GitRepositoryInfo, GitStatusResponse, PluginCommandLog, PluginInfo, PluginPermission, RemotePreferences, SessionArchive, SessionArchivePolicy, SessionArchiveSummary, SessionContinuityConfig, SessionLayout, SessionOrderPreference, SessionTemplate, SessionThumbnail, SessionWorkspaceEntry, Snippet, TrashEntry, UiPreferences, UploadJobResult, UploadedFile, WorkspaceEntry } from '@/types'
 
 export interface StreamSystemInfo {
   outputBytes: number
@@ -383,6 +383,12 @@ export const api = {
   hostsConfig: {
     get: () => fetchApi<{ hostsPath: string; credentialsPath: string; hosts: HostStoreFile; credentials: CredentialStoreFile }>('/api/hosts/config'),
     save: (payload: { hosts?: HostStoreFile; credentials?: CredentialStoreFile }) => fetchApi<{ hosts: HostStoreFile; credentials: CredentialStoreFile }>('/api/hosts/config', { method: 'PUT', body: JSON.stringify(payload) }),
+  },
+  workspaces: {
+    list: (hostId?: string) => fetchApi<{ workspaces: WorkspaceEntry[] }>(`/api/workspaces${hostId ? `?hostId=${encodeURIComponent(hostId)}` : ''}`),
+    create: (payload: { name: string; hostId: string; path: string; rootId?: string; rootPath?: string; rootLabel?: string; relativePath?: string; templateId?: string | null }) => fetchApi<{ workspace: WorkspaceEntry }>('/api/workspaces', { method: 'POST', body: JSON.stringify(payload) }),
+    update: (id: string, payload: Partial<{ name: string; hostId: string; path: string; rootId: string; rootPath: string; rootLabel: string; relativePath: string; templateId: string | null }>) => fetchApi<{ workspace: WorkspaceEntry }>(`/api/workspaces/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+    remove: (id: string) => fetchApi<{ success: boolean }>(`/api/workspaces/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   },
   sessions: {
     list: (hostId: string) => fetchApi<any[]>(`/api/hosts/${hostId}/sessions`),

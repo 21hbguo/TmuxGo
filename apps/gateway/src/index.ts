@@ -21,6 +21,7 @@ import { isRequestOriginAllowed } from './lib/request-origin.js'
 import { auditRoutes } from './routes/audit.js'
 import { recordAuditRequest } from './lib/audit-log.js'
 import { templateRoutes } from './routes/templates.js'
+import { workspaceRoutes } from './routes/workspaces.js'
 import { sessionArchiveRoutes } from './routes/session-archives.js'
 import { pluginRoutes } from './routes/plugins.js'
 import { pluginManager } from './lib/plugin-manager.js'
@@ -89,6 +90,7 @@ await fastify.register(clientEventRoutes, { prefix: '/api' })
 await fastify.register(gitRoutes, { prefix: '/api' })
 await fastify.register(auditRoutes, { prefix: '/api' })
 await fastify.register(templateRoutes, { prefix: '/api' })
+await fastify.register(workspaceRoutes, { prefix: '/api' })
 await fastify.register(sessionArchiveRoutes, { prefix: '/api' })
 await fastify.register(pluginRoutes, { prefix: '/api' })
 await fastify.register(agentEventRoutes, { prefix: '/api' })

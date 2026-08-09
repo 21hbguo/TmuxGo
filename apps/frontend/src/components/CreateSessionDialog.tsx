@@ -6,34 +6,51 @@ import { Chip } from './Chip'
 import { ModalPortal } from './ModalPortal'
 import { FilePanel, type FilePanelPickerTarget } from './FilePanel'
 import { isMobileDevice } from '@/hooks/useMobileKeyboard'
+import { useCreateWorkspace } from '@/hooks/useWorkspaces'
+import { usePrompt } from '@/hooks/usePrompt'
 import { useTranslation } from '@/i18n'
-import type { SessionTemplate } from '@/types'
+import type { SessionTemplate, WorkspaceEntry } from '@/types'
 
+export interface CreateSessionDialogWorkspace extends FilePanelPickerTarget {
+  workspaceId?: string
+  workspaceName?: string
+}
 export interface CreateSessionDialogResult {
   name: string
   cwd?: string
-  workspace?: FilePanelPickerTarget
+  workspace?: CreateSessionDialogWorkspace
 }
 interface CreateSessionDialogProps {
   open: boolean
   template: SessionTemplate | null
   defaultName: string
+  hostId: string
+  workspaces: WorkspaceEntry[]
+  initialWorkspace?: WorkspaceEntry | null
   onCreate: (result: CreateSessionDialogResult) => Promise<void> | void
   onClose: () => void
 }
-export function CreateSessionDialog({ open, template, defaultName, onCreate, onClose }: CreateSessionDialogProps) {
+function toDialogWorkspace(workspace: WorkspaceEntry): CreateSessionDialogWorkspace {
+  return { rootId: workspace.rootId, rootPath: workspace.rootPath, rootLabel: workspace.rootLabel, relativePath: workspace.relativePath, absolutePath: workspace.path, workspaceId: workspace.id, workspaceName: workspace.name }
+}
+export function CreateSessionDialog({ open, template, defaultName, hostId, workspaces, initialWorkspace, onCreate, onClose }: CreateSessionDialogProps) {
   const { t } = useTranslation()
+  const { prompt, PromptElement } = usePrompt()
+  const createWorkspace = useCreateWorkspace()
   const [name, setName] = useState(defaultName)
-  const [workspace, setWorkspace] = useState<FilePanelPickerTarget | null>(null)
+  const [workspace, setWorkspace] = useState<CreateSessionDialogWorkspace | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [creatingWorkspace, setCreatingWorkspace] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const isMobile = isMobileDevice()
+  const hostWorkspaces = workspaces.filter((item) => item.hostId === hostId)
   useEffect(() => {
     if (open) {
       setName(defaultName)
-      setWorkspace(null)
+      setWorkspace(initialWorkspace ? toDialogWorkspace(initialWorkspace) : null)
       setPickerOpen(false)
+      setCreatingWorkspace(false)
       setSubmitting(false)
       const timer = setTimeout(() => {
         inputRef.current?.focus()
@@ -41,12 +58,33 @@ export function CreateSessionDialog({ open, template, defaultName, onCreate, onC
       }, 50)
       return () => clearTimeout(timer)
     }
-  }, [open, defaultName])
+  }, [open, defaultName, initialWorkspace])
   if (!open || !template) return null
-  const handlePick = (target: FilePanelPickerTarget) => {
-    setWorkspace(target)
+  const handleSelectWorkspace = (workspaceId: string) => {
+    if (!workspaceId) return setWorkspace(null)
+    if (workspaceId === 'new') {
+      setCreatingWorkspace(true)
+      setPickerOpen(true)
+      return
+    }
+    const found = hostWorkspaces.find((item) => item.id === workspaceId)
+    if (found) setWorkspace(toDialogWorkspace(found))
+  }
+  const handlePick = async (target: FilePanelPickerTarget) => {
     setPickerOpen(false)
-    if (isMobile) setTimeout(() => inputRef.current?.focus(), 50)
+    const matched = hostWorkspaces.find((item) => item.path === target.absolutePath)
+    if (matched) return setWorkspace(toDialogWorkspace(matched))
+    if (creatingWorkspace) {
+      const wsName = await prompt(t('workspace.createTitle'), '')
+      if (wsName && wsName.trim()) {
+        try {
+          const created = await createWorkspace.mutateAsync({ name: wsName.trim(), hostId, path: target.absolutePath, rootId: target.rootId, rootPath: target.rootPath, rootLabel: target.rootLabel, relativePath: target.relativePath })
+          return setWorkspace(toDialogWorkspace(created.workspace))
+        } catch {}
+      }
+    }
+    setCreatingWorkspace(false)
+    setWorkspace({ ...target })
   }
   const handleCreate = async () => {
     const trimmed = name.trim()
@@ -65,7 +103,6 @@ export function CreateSessionDialog({ open, template, defaultName, onCreate, onC
     }
     if (e.key === 'Escape' && !pickerOpen) onClose()
   }
-  const workspaceLabel = workspace ? workspace.absolutePath : ''
   const containerClass = isMobile
     ? 'fixed inset-0 z-[80] flex flex-col bg-bg-0'
     : 'fixed inset-0 z-[80] flex items-center justify-center tmuxgo-scrim p-4'
@@ -100,20 +137,33 @@ export function CreateSessionDialog({ open, template, defaultName, onCreate, onC
               />
             </div>
             <div className="mt-2 flex items-center gap-2">
-              <div className="min-w-0 flex-1 truncate text-xs text-text-3" title={workspaceLabel || t('session.noWorkspace')}>
-                <span className="text-text-2">{t('session.workspace')}: </span>
-                <span className={workspace ? 'font-mono text-text-1' : 'text-text-3'}>{workspaceLabel || t('session.noWorkspace')}</span>
-              </div>
-              {workspace ? (
-                <Chip tone="default" onClick={() => setPickerOpen(true)}>{t('session.changeWorkspace')}</Chip>
-              ) : (
-                <Chip tone="accent" onClick={() => setPickerOpen((prev) => !prev)}>{pickerOpen ? t('session.hidePicker') : t('session.selectWorkspace')}</Chip>
-              )}
+              <select
+                value={workspace?.workspaceId || ''}
+                onChange={(e) => handleSelectWorkspace(e.target.value)}
+                className="tmuxgo-control tmuxgo-input min-w-0 flex-1 rounded-apple px-2 py-2 text-xs"
+              >
+                <option value="">{t('session.noWorkspace')}</option>
+                {hostWorkspaces.map((item) => (
+                  <option key={item.id} value={item.id}>{item.name} · {item.path}</option>
+                ))}
+                <option value="new">{t('workspace.createNew')}</option>
+              </select>
+              <Chip tone={workspace ? 'default' : 'accent'} onClick={() => { setCreatingWorkspace(false); setPickerOpen((prev) => !prev) }}>{pickerOpen ? t('session.hidePicker') : t('session.browseDirectory')}</Chip>
             </div>
+            {workspace && (
+              <div className="mt-1 flex items-center gap-2">
+                <div className="min-w-0 flex-1 truncate text-xs text-text-3" title={workspace.absolutePath}>
+                  <span className="text-text-2">{t('session.workspace')}: </span>
+                  <span className="font-mono text-text-1">{workspace.workspaceName || workspace.absolutePath}</span>
+                  {workspace.workspaceName && <span className="ml-2 font-mono text-text-3">{workspace.absolutePath}</span>}
+                </div>
+                <Chip tone="default" onClick={() => setWorkspace(null)}>{t('workspace.clear')}</Chip>
+              </div>
+            )}
           </div>
           {pickerOpen && (
             <div className={bodyClass}>
-              <FilePanel mode="picker" onPick={handlePick} onClose={() => setPickerOpen(false)} />
+              <FilePanel mode="picker" onPick={(target) => void handlePick(target)} onClose={() => setPickerOpen(false)} />
             </div>
           )}
           <div className="shrink-0 border-t border-[var(--line)] px-4 py-3" style={{ paddingBottom: isMobile ? 'max(env(safe-area-inset-bottom,0px),0.75rem)' : undefined }}>
@@ -127,6 +177,7 @@ export function CreateSessionDialog({ open, template, defaultName, onCreate, onC
           </div>
         </div>
       </div>
+      {PromptElement}
     </ModalPortal>
   )
 }

@@ -5,6 +5,7 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useBatchDeleteSessions, useCreateSession, useDeleteSession, useRenameSession, useWindows } from '@/hooks/useApi'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import { useMigrateSessionWorkspace, useRemoveSessionWorkspaces, useSetSessionWorkspace } from '@/hooks/useSessionWorkspaces'
+import { useWorkspaces } from '@/hooks/useWorkspaces'
 import { SessionTemplates, type Template } from './SessionTemplates'
 import { CreateSessionDialog } from './CreateSessionDialog'
 import { ModalPortal } from './ModalPortal'
@@ -46,6 +47,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
   const activeSessionId = useConsoleStore((state) => state.activeSessionId)
   const setActiveSession = useConsoleStore((state) => state.setActiveSession)
   const activeHostId = useConsoleStore((state) => state.activeHostId)
+  const { data: workspaces = [] } = useWorkspaces(activeHostId || undefined)
   const pushToast = useConsoleStore((state) => state.pushToast)
   const { data: sessions = [], moveSession, isError: sessionsError, error: sessionsErrorValue, refetch: refetchSessions } = useOrderedSessions(activeHostId || '')
   const { data: windowsData = [] } = useWindows(activeHostId || '', activeSessionId || '')
@@ -80,7 +82,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
     setCreateDialogTemplate(template)
     setCreateDialogOpen(true)
   }
-  const handleCreateSession = async ({ name, cwd, workspace }: { name: string; cwd?: string; workspace?: { rootId: string; rootPath: string; rootLabel: string; relativePath: string; absolutePath: string } }) => {
+  const handleCreateSession = async ({ name, cwd, workspace }: { name: string; cwd?: string; workspace?: { rootId: string; rootPath: string; rootLabel: string; relativePath: string; absolutePath: string; workspaceId?: string; workspaceName?: string } }) => {
     if (!activeHostId || !createDialogTemplate) return
     try {
       const created = await createSession.mutateAsync({ hostId: activeHostId, name, layout: createDialogTemplate.layout, cwd })
@@ -90,6 +92,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
             await setSessionWorkspace.mutateAsync({
               sessionId: created.id,
               hostId: activeHostId,
+              workspaceId: workspace.workspaceId,
               workspacePath: workspace.absolutePath,
               rootId: workspace.rootId,
               rootPath: workspace.rootPath,
@@ -456,7 +459,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
         </div>
       </div>
       {showTemplates && <ModalPortal><SessionTemplates onSelect={handleTemplateSelect} onClose={() => setShowTemplates(false)} /></ModalPortal>}
-      <CreateSessionDialog open={createDialogOpen} template={createDialogTemplate} defaultName={createDialogTemplate ? getTemplateSessionName(createDialogTemplate) : ''} onCreate={handleCreateSession} onClose={() => { setCreateDialogOpen(false); setCreateDialogTemplate(null) }} />
+      <CreateSessionDialog open={createDialogOpen} template={createDialogTemplate} defaultName={createDialogTemplate ? getTemplateSessionName(createDialogTemplate) : ''} hostId={activeHostId || ''} workspaces={workspaces} onCreate={handleCreateSession} onClose={() => { setCreateDialogOpen(false); setCreateDialogTemplate(null) }} />
       <ConfirmDialog open={!!pendingDeleteSessionId} title={t('sidebar.deleteTitle')} message={t('sidebar.deleteConfirm', { name: sessions.find((item: any) => item.id === pendingDeleteSessionId)?.name || '' })} confirmLabel={t('sidebar.confirmDelete')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setPendingDeleteSessionId(null)} onConfirm={() => void confirmDeleteSession()} />
       <ConfirmDialog open={batchDeleteConfirmOpen} title={t('sidebar.batchDeleteTitle')} message={t('sidebar.batchDeleteConfirm', { count: selectedSessionIds.length })} confirmLabel={t('sidebar.batchDeleteSelected')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setBatchDeleteConfirmOpen(false)} onConfirm={() => void confirmBatchDeleteSession()} />
       <PromptDialog open={newWindowPromptOpen} title={t('window.createTitle')} defaultValue={newWindowName} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} onCancel={() => setNewWindowPromptOpen(false)} onConfirm={(value) => { setNewWindowName(value); void confirmCreateWindow(value) }} />
