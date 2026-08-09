@@ -778,7 +778,6 @@ export const zh = {
   // EditorWorkbench
   'editor.find': '查找',
   'editor.clear': '清空',
-  'editor.format': '格式化',
   'editor.back': '返回',
   'editor.forward': '前进',
   'editor.definition': '跳转到定义',

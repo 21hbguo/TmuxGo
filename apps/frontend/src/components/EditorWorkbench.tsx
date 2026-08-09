@@ -10,6 +10,8 @@ import { clearActiveDraggedFile, FILE_DRAG_MIME, getActiveDraggedFile, readDragg
 import { OPEN_EDITOR_LOCATION_EVENT, openFileInEditor } from '@/lib/editor-open'
 import { resolveEditorDefinition } from '@/lib/code-navigation'
 import { useTranslation } from '@/i18n'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import { Button } from './Button'
 import { Chip } from './Chip'
 import { ConfirmDialog } from './ConfirmDialog'
@@ -64,81 +66,8 @@ function getTabSize(language: string) {
 function isImagePreviewable(editor: FileEditorDocument) {
   return !!editor.previewUrl
 }
-function escapeHtml(value: string) {
-  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;')
-}
-function applyInlineMarkdown(value: string) {
-  return value.replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/__([^_]+)__/g, '<strong>$1</strong>').replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>').replace(/(^|[^_])_([^_]+)_/g, '$1<em>$2</em>')
-}
 function renderMarkdown(content: string) {
-  const blocks = content.replace(/\r\n/g, '\n').split('\n')
-  const html:string[] = []
-  let paragraph:string[] = []
-  let listItems:string[] = []
-  let codeLines:string[] = []
-  let codeLanguage = ''
-  const flushParagraph = () => {
-    if (!paragraph.length) return
-    html.push(`<p>${applyInlineMarkdown(paragraph.join('<br />'))}</p>`)
-    paragraph = []
-  }
-  const flushList = () => {
-    if (!listItems.length) return
-    html.push(`<ul>${listItems.map((item) => `<li>${applyInlineMarkdown(item)}</li>`).join('')}</ul>`)
-    listItems = []
-  }
-  const flushCode = () => {
-    if (!codeLines.length) return
-    html.push(`<pre><code class="language-${escapeHtml(codeLanguage)}">${codeLines.join('\n')}</code></pre>`)
-    codeLines = []
-    codeLanguage = ''
-  }
-  for (const rawLine of blocks) {
-    const line = escapeHtml(rawLine)
-    if (rawLine.startsWith('```')) {
-      flushParagraph()
-      flushList()
-      if (codeLines.length) flushCode()
-      else codeLanguage = rawLine.slice(3).trim()
-      continue
-    }
-    if (codeLanguage || codeLines.length) {
-      codeLines.push(line)
-      continue
-    }
-    if (!rawLine.trim()) {
-      flushParagraph()
-      flushList()
-      continue
-    }
-    const heading = rawLine.match(/^(#{1,6})\s+(.*)$/)
-    if (heading) {
-      flushParagraph()
-      flushList()
-      const level = heading[1].length
-      html.push(`<h${level}>${applyInlineMarkdown(escapeHtml(heading[2]))}</h${level}>`)
-      continue
-    }
-    const quote = rawLine.match(/^>\s?(.*)$/)
-    if (quote) {
-      flushParagraph()
-      flushList()
-      html.push(`<blockquote>${applyInlineMarkdown(escapeHtml(quote[1]))}</blockquote>`)
-      continue
-    }
-    const list = rawLine.match(/^[-*]\s+(.*)$/)
-    if (list) {
-      flushParagraph()
-      listItems.push(escapeHtml(list[1]))
-      continue
-    }
-    flushList()
-    paragraph.push(line)
-  }
-  flushParagraph()
-  flushList()
-  flushCode()
-  return html.join('')
+  return DOMPurify.sanitize(marked.parse(content, { gfm: true, breaks: true }) as string)
 }
 function getAutoScrollStep(distance: number) {
   const absDistance = Math.abs(distance)
@@ -481,11 +410,6 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
         if (!gitDiff && !activeEditor.loading && !activeEditor.saving && !activeEditor.binary && !activeEditor.truncated) void onSaveEditor(activeEditor)
         return
       }
-      if (event.key.toLowerCase() === 'f' && event.shiftKey) {
-        event.preventDefault()
-        if (!gitDiff) void editorRefs.current[activeEditor.id]?.getAction?.('editor.action.formatDocument')?.run?.()
-        return
-      }
       if (event.key.toLowerCase() === 'w') {
         event.preventDefault()
         event.stopPropagation()
@@ -779,7 +703,7 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
         const currentEditor = openEditorsRef.current.find((item) => item.id === editor.id) || editor
         void goToDefinition(currentEditor, { line: position.lineNumber, column: position.column })
       })
-    }} onChange={(value) => setEditorContent(editor.id, value || '')} options={{ automaticLayout: true, minimap: { enabled: false }, fontFamily: preferences.fontFamily, fontSize: Math.max(12, preferences.fontSize), lineNumbers: 'on', lineNumbersMinChars: 4, glyphMargin: false, folding: true, guides: { indentation: true, bracketPairs: true }, bracketPairColorization: { enabled: true }, matchBrackets: 'always', renderLineHighlight: 'line', renderValidationDecorations: 'on', occurrencesHighlight: 'singleFile', selectionHighlight: true, codeLens: false, contextmenu: true, links: true, mouseWheelZoom: true, cursorSmoothCaretAnimation: 'on', scrollBeyondLastLine: false, scrollbar: { verticalScrollbarSize: 8, horizontalScrollbarSize: 8, alwaysConsumeMouseWheel: false, useShadows: false, verticalHasArrows: false, horizontalHasArrows: false }, overviewRulerBorder: false, wordWrap: 'off', wordWrapColumn: 120, wrappingIndent: 'same', tabSize: getTabSize(editor.language), insertSpaces: editor.language !== 'go', detectIndentation: true, formatOnPaste: true, formatOnType: true, trimAutoWhitespace: true, renderWhitespace: 'boundary', renderControlCharacters: false, smoothScrolling: true, cursorBlinking: preferences.cursorBlink ? 'blink' : 'solid', cursorStyle: 'line', dragAndDrop: false, dropIntoEditor: { enabled: false }, readOnlyMessage: { value: t('editor.readOnly') }, padding: { top: 16, bottom: 16 } }} />{autoScrollIndicator.active && autoScrollStateRef.current.editorId === editor.id && <span data-testid="editor-auto-scroll-indicator" className="pointer-events-none absolute z-20 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-accent/70 bg-bg-0/85 shadow-[0_0_0_1px_rgba(30,200,255,0.22)]" style={{ left: autoScrollIndicator.x, top: autoScrollIndicator.y }}><span className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-accent/70" /><span className="absolute left-0 top-1/2 h-px w-full -translate-y-1/2 bg-accent/70" /></span>}</div>{previewOpen && (editor.language === 'markdown' ? <div className="tmuxgo-scrollbar min-w-0 flex-1 overflow-auto bg-bg-1/60 px-6 py-5"><article className="prose prose-invert max-w-none text-sm text-text-2 [&_a]:text-accent [&_blockquote]:border-l-2 [&_blockquote]:border-[var(--line)] [&_blockquote]:pl-3 [&_code]:rounded-apple [&_code]:bg-bg-2 [&_code]:px-1.5 [&_code]:py-0.5 [&_h1]:mb-4 [&_h1]:text-3xl [&_h1]:text-text-1 [&_h2]:mb-3 [&_h2]:mt-6 [&_h2]:text-2xl [&_h2]:text-text-1 [&_h3]:mb-2 [&_h3]:mt-5 [&_h3]:text-xl [&_h3]:text-text-1 [&_li]:mb-1 [&_p]:mb-3 [&_pre]:overflow-auto [&_pre]:rounded-apple [&_pre]:bg-bg-0 [&_pre]:p-4 [&_strong]:text-text-1" dangerouslySetInnerHTML={{ __html: renderMarkdown(editor.content) || `<p>${t('editor.nothingToPreview')}</p>` }} /></div> : <iframe title={editor.name} srcDoc={editor.content} sandbox="allow-downloads allow-forms allow-modals allow-popups allow-scripts" referrerPolicy="no-referrer" className="h-full min-w-0 flex-1 border-0 bg-white" />)}</div>
+    }} onChange={(value) => setEditorContent(editor.id, value || '')} options={{ automaticLayout: true, minimap: { enabled: false }, fontFamily: preferences.fontFamily, fontSize: Math.max(12, preferences.fontSize), lineNumbers: 'on', lineNumbersMinChars: 4, glyphMargin: false, folding: true, guides: { indentation: true, bracketPairs: true }, bracketPairColorization: { enabled: true }, matchBrackets: 'always', renderLineHighlight: 'line', renderValidationDecorations: 'on', occurrencesHighlight: 'singleFile', selectionHighlight: true, codeLens: false, contextmenu: true, links: true, mouseWheelZoom: true, cursorSmoothCaretAnimation: 'on', scrollBeyondLastLine: false, scrollbar: { verticalScrollbarSize: 8, horizontalScrollbarSize: 8, alwaysConsumeMouseWheel: false, useShadows: false, verticalHasArrows: false, horizontalHasArrows: false }, overviewRulerBorder: false, wordWrap: 'off', wordWrapColumn: 120, wrappingIndent: 'same', tabSize: getTabSize(editor.language), insertSpaces: editor.language !== 'go', detectIndentation: true, formatOnPaste: true, formatOnType: true, trimAutoWhitespace: true, renderWhitespace: 'boundary', renderControlCharacters: false, smoothScrolling: true, cursorBlinking: preferences.cursorBlink ? 'blink' : 'solid', cursorStyle: 'line', dragAndDrop: false, dropIntoEditor: { enabled: false }, readOnlyMessage: { value: t('editor.readOnly') }, padding: { top: 16, bottom: 16 } }} />{autoScrollIndicator.active && autoScrollStateRef.current.editorId === editor.id && <span data-testid="editor-auto-scroll-indicator" className="pointer-events-none absolute z-20 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-accent/70 bg-bg-0/85 shadow-[0_0_0_1px_rgba(30,200,255,0.22)]" style={{ left: autoScrollIndicator.x, top: autoScrollIndicator.y }}><span className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-accent/70" /><span className="absolute left-0 top-1/2 h-px w-full -translate-y-1/2 bg-accent/70" /></span>}</div>{previewOpen && (editor.language === 'markdown' ? <div className="tmuxgo-scrollbar min-w-0 flex-1 overflow-auto bg-bg-1/60 px-6 py-5"><article dangerouslySetInnerHTML={{ __html: renderMarkdown(editor.content) || `<p>${t('editor.nothingToPreview')}</p>` }} className="prose prose-invert max-w-none text-sm text-text-2 [&_a]:text-accent [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-[var(--line)] [&_blockquote]:pl-3 [&_code]:rounded-apple [&_code]:bg-bg-2 [&_code]:px-1.5 [&_code]:py-0.5 [&_h1]:mb-4 [&_h1]:text-3xl [&_h1]:text-text-1 [&_h2]:mb-3 [&_h2]:mt-6 [&_h2]:text-2xl [&_h2]:text-text-1 [&_h3]:mb-2 [&_h3]:mt-5 [&_h3]:text-xl [&_h3]:text-text-1 [&_hr]:my-4 [&_hr]:border-[var(--line)] [&_img]:my-3 [&_img]:max-w-full [&_img]:rounded-apple [&_li]:mb-1 [&_ol]:mb-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:mb-3 [&_pre]:overflow-auto [&_pre]:rounded-apple [&_pre]:bg-bg-0 [&_pre]:p-4 [&_strong]:text-text-1 [&_table]:mb-3 [&_table]:w-full [&_table]:border-collapse [&_table]:border [&_table]:border-[var(--line)] [&_td]:border [&_td]:border-[var(--line)] [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-[var(--line)] [&_th]:bg-bg-2/60 [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:font-semibold [&_ul]:mb-3 [&_ul]:list-disc [&_ul]:pl-5" /></div> : <iframe title={editor.name} srcDoc={editor.content} sandbox="allow-downloads allow-forms allow-modals allow-popups allow-scripts" referrerPolicy="no-referrer" className="h-full min-w-0 flex-1 border-0 bg-white" />)}</div>
   }
   const closeAllEditors = () => {
     for (const editor of [...openEditors]) closeEditor(editor.id)
@@ -798,7 +722,6 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
             <Button size="icon-sm" aria-label={t('editor.forward')} title={t('editor.forward')} disabled={!navigationForwardRef.current.length} onClick={() => void goForwardInNavigation()}><FiArrowRight aria-hidden="true" size={14} /></Button>
             <Button size="sm" onClick={closeAllEditors}>{t('editor.clear')}</Button>
             <Button size="sm" onClick={() => void editorRefs.current[activeEditor.id]?.getAction?.('actions.find')?.run?.()}>{t('editor.find')}</Button>
-            <Button size="sm" onClick={() => void editorRefs.current[activeEditor.id]?.getAction?.('editor.action.formatDocument')?.run?.()}>{t('editor.format')}</Button>
             <Button size="icon-sm" aria-label={t('editor.definition')} title={t('editor.definition')} disabled={activeEditor.loading || activeEditor.binary || activeEditor.truncated || activeEditor.kind === 'compare'} onClick={() => { const position = getNavigationPosition(activeEditor.id); if (position) void goToDefinition(activeEditor, position) }}><FiCode aria-hidden="true" size={14} /></Button>
             {(activeEditor.language === 'markdown' || activeEditor.language === 'html') && <Button size="sm" variant={previewOpenById[activeEditor.id] !== false ? 'accent' : 'default'} onClick={() => setPreviewOpenById((current) => ({ ...current, [activeEditor.id]: current[activeEditor.id] === false }))}>{t('editor.preview')}</Button>}
             <Button size="sm" disabled={activeEditor.loading || activeEditor.saving || activeEditor.binary || activeEditor.truncated || !activeEditor.dirty} variant={activeEditor.loading || activeEditor.saving || activeEditor.binary || activeEditor.truncated || !activeEditor.dirty ? 'default' : 'accent'} onClick={() => void onSaveEditor(activeEditor)}>{activeEditor.saving ? t('editor.saving') : activeEditor.dirty ? t('editor.save') : t('editor.saved')}</Button>
