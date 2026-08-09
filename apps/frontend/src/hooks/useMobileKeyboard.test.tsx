@@ -1,11 +1,11 @@
 import { act, fireEvent, render, waitFor } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { useEffect, useRef } from 'react'
 import { useMobileKeyboard } from './useMobileKeyboard'
 
 let api: { focusKeyboard?: () => void; textarea?: HTMLTextAreaElement | null; isMobile?: boolean } = {}
 let viewportTarget: EventTarget
-let sendInputMock:(data: string) => void
+let sendInputMock: Mock<(data: string) => void>
 
 function Harness() {
   const terminalRef = useRef<HTMLDivElement>(null)
@@ -225,9 +225,9 @@ describe('useMobileKeyboard', () => {
     const textarea = api.textarea as HTMLTextAreaElement
     fireEvent.keyDown(textarea, { key: 'Backspace' })
     expect(sendInputMock).toHaveBeenCalledTimes(1)
-    act(() => vi.advanceTimersByTime(473))
+    act(() => vi.advanceTimersByTime(300))
     expect(sendInputMock).toHaveBeenCalledTimes(1)
-    act(() => vi.advanceTimersByTime(1))
+    act(() => vi.advanceTimersByTime(33))
     expect(sendInputMock).toHaveBeenCalledTimes(2)
     fireEvent.keyUp(textarea, { key: 'Backspace' })
     act(() => vi.runOnlyPendingTimers())

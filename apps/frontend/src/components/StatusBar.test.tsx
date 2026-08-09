@@ -17,7 +17,7 @@ const useSystemInfoMock = vi.hoisted(() => vi.fn(() => ({
   mem: { used: 1536, total: 4096 },
   disks: [{ mount: '/', used: 10240, total: 20480 }, { mount: '/data', used: 20480, total: 40960 }],
   dependencies: { tmux: true, git: true, python: true, rg: true, sshpass: false },
-  stream: { outputBytes: 0, outputChunks: 0, outputFlushes: 0, sanitizeCalls: 0, sanitizeChars: 0, attachRequests: 0, resizeRequests: 0, inputMessages: 0, backpressureSignals: 0, profileUpdates: 0, deferredFlushes: 0, socketBufferedBytes: 0, activeClients: 0, activeProfile: 'foreground' as const, activeFlushInterval: 4, activeMaxChars: 65536 },
+  stream: {},
 })))
 
 vi.mock('@/i18n', () => ({

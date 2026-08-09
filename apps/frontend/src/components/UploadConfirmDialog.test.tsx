@@ -14,7 +14,7 @@ const apiMocks = vi.hoisted(() => ({
   temporaryUploadTarget: vi.fn(async () => ({ rootId: 'app-tmp', rootLabel: 'tmp', rootPath: '/tmp/tmuxgo-paste', path: '', absolutePath: '/tmp/tmuxgo-paste', source: 'temporary' })),
   defaultUploadTarget: vi.fn(async () => ({ rootId: 'root-workspace', rootLabel: 'workspace', rootPath: '/workspace', path: '', absolutePath: '/workspace', source: 'pane' })),
   upload: vi.fn(),
-  tasks: vi.fn(async () => ({ tasks: [] })),
+  tasks: vi.fn(async () => ({ tasks: [] as unknown[] })),
 }))
 const tMock = vi.hoisted(() => vi.fn((key: string, vars?: Record<string, unknown>) => vars?.count ? `${key}:${vars.count}` : key))
 vi.mock('@/stores/useConsoleStore', () => ({

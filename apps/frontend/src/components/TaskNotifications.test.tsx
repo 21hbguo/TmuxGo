@@ -70,8 +70,8 @@ describe('TaskNotifications', () => {
       anchor = appendChild.mock.calls.find(([element]) => element instanceof HTMLAnchorElement)?.[0] as HTMLAnchorElement | undefined
       expect(anchor).toBeDefined()
     })
-    expect(anchor.href).toMatch(/^blob:/)
-    expect(anchor.download).toBe('demo.txt')
+    expect(anchor?.href).toMatch(/^blob:/)
+    expect(anchor?.download).toBe('demo.txt')
     expect(click).toHaveBeenCalled()
   })
   it('uses a browser notification while the page is hidden', () => {
