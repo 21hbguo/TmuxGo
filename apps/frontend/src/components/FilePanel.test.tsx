@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FilePanel } from './FilePanel'
+import { api } from '@/lib/api'
 import type { FileEditorDocument, FileItem, FileListResponse } from '@/types'
 
 const clipboardMocks = vi.hoisted(() => ({
@@ -78,6 +79,8 @@ vi.mock('@/lib/api', () => ({
       trashEntries: vi.fn(async () => ({ entries: [] })),
       restore: vi.fn(async () => ({ ok: true })),
       remove: vi.fn(async () => ({ ok: true })),
+      content: vi.fn(async () => ({ path: 'src/index.ts', type: 'file', size: 32, modifiedAt: '2026-05-26T00:00:00.000Z', binary: false, truncated: false, encoding: 'utf-8', content: 'hello\nworld' })),
+      saveContent: vi.fn(async (_hostId: string, _rootId: string, _path: string, content: string) => ({ ok: true, content, modifiedAt: '2026-05-26T00:00:00.000Z', size: content.length })),
       downloadTask: vi.fn(),
       downloadUrl: vi.fn(() => '/api/files/download'),
       imageUrl: vi.fn(() => '/api/files/image'),
@@ -105,6 +108,19 @@ vi.mock('@/i18n', () => ({
     if (key === 'file.copyPath') return 'Copy path'
     if (key === 'file.openPreview') return 'Open preview'
     if (key === 'file.openEditor') return 'Open in editor'
+    if (key === 'file.mobileEdit') return 'Edit'
+    if (key === 'file.mobileEditExit') return 'Exit editing'
+    if (key === 'file.mobileEditConfirmTitle') return 'Enter edit mode?'
+    if (key === 'file.mobileEditConfirmMessage') return 'Taps or scrolling may modify the file.'
+    if (key === 'file.mobileEditExitTitle') return 'Unsaved changes'
+    if (key === 'file.mobileEditExitMessage') return 'Exiting now will discard unsaved changes.'
+    if (key === 'file.mobileEditDiscard') return 'Discard and exit'
+    if (key === 'file.mobileEditKeepEditing') return 'Keep editing'
+    if (key === 'editor.save') return 'Save'
+    if (key === 'editor.saving') return 'Saving...'
+    if (key === 'editor.saved') return 'Saved'
+    if (key === 'common.confirm') return 'Confirm'
+    if (key === 'common.cancel') return 'Cancel'
     return key
   } }),
 }))
@@ -119,6 +135,8 @@ describe('FilePanel', () => {
     clipboardMocks.writeClipboardText.mockClear()
     preferencesGet.mockClear()
     preferencesUpdate.mockClear()
+    vi.mocked(api.files.content).mockClear()
+    vi.mocked(api.files.saveContent).mockClear()
     delayedSrcResolvers.length = 0
     consoleStoreState.activeHostId = 'local'
     consoleStoreState.activeSessionId = 'session-a'
@@ -422,6 +440,41 @@ describe('FilePanel', () => {
     window.dispatchEvent(new CustomEvent('tmuxgo-mobile-files-back', { detail: directoryBack }))
     expect(directoryBack.handled).toBe(true)
     await waitFor(() => expect(screen.getByText('docs')).toBeInTheDocument())
+  })
+  it('wraps long lines in mobile file preview', async () => {
+    render(React.createElement(FilePanel, { mode: 'mobile' }))
+    fireEvent.click((await screen.findByText('src')).closest('button') as HTMLButtonElement)
+    fireEvent.click(await screen.findByText('index.ts'))
+    const content = (await screen.findByText('line-1')).closest('span') as HTMLSpanElement
+    expect(content.className).toContain('whitespace-pre-wrap')
+  })
+  it('enters mobile edit mode after confirmation and saves', async () => {
+    render(React.createElement(FilePanel, { mode: 'mobile' }))
+    fireEvent.click((await screen.findByText('src')).closest('button') as HTMLButtonElement)
+    fireEvent.click(await screen.findByText('index.ts'))
+    fireEvent.click(await screen.findByText('Edit'))
+    expect(screen.getByText('Enter edit mode?')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('Confirm'))
+    const textarea = (await screen.findByLabelText('Edit')) as HTMLTextAreaElement
+    expect(textarea.value).toBe('hello\nworld')
+    fireEvent.change(textarea, { target: { value: 'hello\nworld\nchanged' } })
+    fireEvent.click(screen.getByText('Save'))
+    await waitFor(() => expect(vi.mocked(api.files.saveContent)).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(api.files.saveContent)).toHaveBeenCalledWith('local', 'root-workspace', 'src/index.ts', 'hello\nworld\nchanged', '2026-05-26T00:00:00.000Z')
+  })
+  it('confirms before discarding unsaved mobile edits', async () => {
+    render(React.createElement(FilePanel, { mode: 'mobile' }))
+    fireEvent.click((await screen.findByText('src')).closest('button') as HTMLButtonElement)
+    fireEvent.click(await screen.findByText('index.ts'))
+    fireEvent.click(await screen.findByText('Edit'))
+    fireEvent.click(screen.getByText('Confirm'))
+    const textarea = (await screen.findByLabelText('Edit')) as HTMLTextAreaElement
+    fireEvent.change(textarea, { target: { value: 'changed' } })
+    fireEvent.click(screen.getByText('Exit editing'))
+    expect(screen.getByText('Unsaved changes')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('Discard and exit'))
+    await waitFor(() => expect(screen.queryByLabelText('Edit')).not.toBeInTheDocument())
+    expect(vi.mocked(api.files.saveContent)).not.toHaveBeenCalled()
   })
   it('returns to previous directory on mobile after entering nested folders', async () => {
     render(React.createElement(FilePanel, { mode: 'mobile' }))

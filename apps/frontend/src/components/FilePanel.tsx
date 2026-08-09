@@ -356,6 +356,12 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
   const [fileSort, setFileSort] = useState<FileSort>(readFileSort)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: FileEntry | null; directoryPath: string; mobile: boolean } | null>(null)
   const [mobileView, setMobileView] = useState<'list' | 'preview'>('list')
+  const [mobileEditOpen, setMobileEditOpen] = useState(false)
+  const [mobileEditContent, setMobileEditContent] = useState('')
+  const [mobileEditSaved, setMobileEditSaved] = useState('')
+  const [mobileEditLoading, setMobileEditLoading] = useState(false)
+  const [mobileEditSaving, setMobileEditSaving] = useState(false)
+  const [mobileEditConfirm, setMobileEditConfirm] = useState<null | 'enter' | 'exit'>(null)
   const [favoriteDirectories, setFavoriteDirectories] = useState<FavoriteDirectory[]>([])
   const [contentReady] = useState(true)
   const [hideDotFiles, setHideDotFiles] = useState(readHideDotFiles)
@@ -370,6 +376,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
   const directoryLoadingRef = useRef<Map<string, Promise<FileItem[]>>>(new Map())
   const touchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const contextMenuRef = useRef(false)
+  const pendingSheetCloseAfterDiscardRef = useRef(false)
   const currentPathRef = useRef('')
   const mobileNavigationDepthRef = useRef(0)
   const uploadInputRef = useRef<HTMLInputElement>(null)
@@ -410,6 +417,8 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
   const root = activeRoot
   const listData = useMemo(() => rebaseListData(rawListData, activeRoot), [rawListData, activeRoot])
   const preview = useMemo(() => rebasePreview(rawPreview, activeRootBasePath), [rawPreview, activeRootBasePath])
+  const mobileEditDirty = mobileEditOpen && mobileEditContent !== mobileEditSaved
+  const mobileEditable = isMobile && mobileView === 'preview' && !!preview && preview.type === 'file' && !preview.binary && !preview.truncated && !preview.reason
   const searchResults = useMemo(() => rawSearchResults.slice(0, SEARCH_RESULT_LIMIT).map((item) => rebaseEntryPath(item, activeRootBasePath)), [rawSearchResults, activeRootBasePath])
   const rootLabelById = useMemo(() => Object.fromEntries(visibleRoots.map((item) => [item.id, item.label])), [visibleRoots])
   const rootPathById = useMemo(() => Object.fromEntries(visibleRoots.map((item) => [item.id, item.path])), [visibleRoots])
@@ -655,7 +664,8 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
       }
       if (mobileView === 'preview') {
         detail.handled = true
-        setMobileView('list')
+        if (mobileEditOpen && mobileEditContent !== mobileEditSaved) setMobileEditConfirm('exit')
+        else setMobileView('list')
         return
       }
       if (!currentPathRef.current) return
@@ -665,7 +675,13 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
     }
     window.addEventListener('tmuxgo-mobile-files-back', handleBack as EventListener)
     return () => window.removeEventListener('tmuxgo-mobile-files-back', handleBack as EventListener)
-  }, [isMobile, mobileView])
+  }, [isMobile, mobileEditContent, mobileEditOpen, mobileEditSaved, mobileView])
+  useEffect(() => {
+    setMobileEditOpen(false)
+    setMobileEditContent('')
+    setMobileEditSaved('')
+    setMobileEditConfirm(null)
+  }, [mobileView, selectedPath])
   const switchRoot = (nextRootId: string) => {
     setSelectedRootId(nextRootId)
     currentPathRef.current = ''
@@ -829,6 +845,57 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
     setSelectedPath(item.path)
     setSelectedPreviewLine(getPreviewLine(item))
     if (isMobile) setMobileView('preview')
+  }
+  const openMobileEditor = () => setMobileEditConfirm('enter')
+  const enterMobileEditor = async () => {
+    setMobileEditConfirm(null)
+    if (!selectedPath) return
+    setMobileEditLoading(true)
+    try {
+      const data = await api.files.content(fileHostId, activeRootId, resolveRootRelativePath(activeRootBasePath, selectedPath))
+      if (data.binary || data.truncated || data.reason) {
+        pushToast({ type: 'error', message: t('file.mobileEditUnavailable') })
+        return
+      }
+      setMobileEditContent(data.content)
+      setMobileEditSaved(data.content)
+      setMobileEditOpen(true)
+    } catch {
+      pushToast({ type: 'error', message: t('file.mobileEditLoadFailed') })
+    } finally {
+      setMobileEditLoading(false)
+    }
+  }
+  const saveMobileEditor = async () => {
+    if (!selectedPath || mobileEditSaving) return
+    setMobileEditSaving(true)
+    try {
+      const result = await api.files.saveContent(fileHostId, activeRootId, resolveRootRelativePath(activeRootBasePath, selectedPath), mobileEditContent, preview?.modifiedAt)
+      setMobileEditSaved(result.content)
+      pushToast({ type: 'success', message: t('editor.saved') })
+      void queryClient.invalidateQueries({ queryKey: ['file-preview', fileHostId, activeRootId] })
+    } catch (error) {
+      pushToast({ type: 'error', message: error instanceof Error ? error.message : t('file.mobileEditSaveFailed') })
+    } finally {
+      setMobileEditSaving(false)
+    }
+  }
+  const closeMobileEditor = () => {
+    if (mobileEditDirty) {
+      setMobileEditConfirm('exit')
+      return
+    }
+    setMobileEditOpen(false)
+  }
+  const discardMobileEditor = () => {
+    setMobileEditConfirm(null)
+    setMobileEditOpen(false)
+    setMobileEditContent('')
+    setMobileEditSaved('')
+    if (pendingSheetCloseAfterDiscardRef.current) {
+      pendingSheetCloseAfterDiscardRef.current = false
+      ;(onClose || (() => setFilePanelOpen(false)))()
+    }
   }
   const insertItemPath = (item: FileItem | FileContentMatch) => {
     const rootRelativePath = resolveRootRelativePath(activeRootBasePath, item.path)
@@ -1048,9 +1115,9 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
     ) : (
       <div className="tmuxgo-scrollbar h-full overflow-auto p-2 font-mono text-meta leading-5">
         {preview.lines.map((line) => (
-          <div key={line.number} className="grid grid-cols-[42px_1fr] gap-2">
+          <div key={line.number} className="grid grid-cols-[42px_minmax(0,1fr)] gap-2">
             <span className="select-none text-right text-text-3">{line.number}</span>
-            <span className="whitespace-pre text-text-2">{line.content || ' '}</span>
+            <span className="whitespace-pre-wrap break-words text-text-2">{line.content || ' '}</span>
           </div>
         ))}
       </div>
@@ -1289,7 +1356,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
       {!contentReady ? <div className="flex h-full items-center justify-center text-xs text-text-3">{t('file.loading')}</div> : <>
       <div className="shrink-0 border-b border-[var(--line)] px-2 py-2">
         <div className="flex items-center gap-1.5">
-          {isMobile && mobileView === 'preview' && <Button variant="ghost" size="icon-sm" aria-label="back to list" onClick={() => setMobileView('list')}>‹</Button>}
+          {isMobile && mobileView === 'preview' && <Button variant="ghost" size="icon-sm" aria-label="back to list" onClick={() => { if (mobileEditOpen) closeMobileEditor(); else setMobileView('list') }}>‹</Button>}
           {(isMobile ? mobileView !== 'preview' : isPicker) && !!currentPath && <Button variant="ghost" size="icon-sm" aria-label="go back" onClick={() => mobileNavigationDepthRef.current > 0 ? window.history.back() : goMobileParentDirectory()}>‹</Button>}
 
           <select value={selectedRootId} onChange={(e) => switchRoot(e.target.value)} className="tmuxgo-control tmuxgo-select min-w-0 flex-1 rounded-apple px-2 py-1 text-meta">
@@ -1302,7 +1369,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
             <Chip tone="accent" onClick={() => uploadInputRef.current?.click()}>{t('file.upload')}</Chip>
             <Chip title={t('file.trash')} aria-label="trash" onClick={() => void openTrash()}>♲</Chip>
             {activeFavorite && <Chip onClick={() => removeFavoriteDirectory(activeFavorite)}>{t('file.removeFavorite')}</Chip>}
-            <Button variant="ghost" size="icon-sm" aria-label="close" onClick={onClose || (() => setFilePanelOpen(false))}>×</Button>
+            <Button variant="ghost" size="icon-sm" aria-label="close" onClick={() => { if (mobileEditOpen && mobileEditDirty) { pendingSheetCloseAfterDiscardRef.current = true; setMobileEditConfirm('exit') } else (onClose || (() => setFilePanelOpen(false)))() }}>×</Button>
           </>}
         </div>
         {isPicker && <div className="mt-1 truncate font-mono text-caption text-text-3" title={joinPath(activeSourceRootPath, joinRelativePath(activeRootBasePath, currentPath))}>{joinPath(activeSourceRootPath, joinRelativePath(activeRootBasePath, currentPath)) || '/'}</div>}
@@ -1369,8 +1436,18 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
         {!listLoading && !searchLoading && !visibleItems.length && <div className="p-3 text-xs text-text-3">{showSearchResults ? t('file.noResults') : t('file.emptyDir')}</div>}
         {showSearchResults && rawSearchResults.length > SEARCH_RESULT_LIMIT && <div className="border-t border-[var(--line)] px-3 py-2 text-meta text-text-3">{t('file.tooManyResults', { count: SEARCH_RESULT_LIMIT })}</div>}
       </div>}
-      {isMobile && mobileView === 'preview' && <div className="min-h-0 flex-1 bg-bg-0">{previewBlock}</div>}
-      {isMobile && mobileView === 'preview' && selectedPath && <div className="border-t border-[var(--line)] p-3"><button onClick={() => insertPath(activeSourceRootPath ? joinPath(activeSourceRootPath, resolveRootRelativePath(activeRootBasePath, selectedPath)) : resolveRootRelativePath(activeRootBasePath, selectedPath))} className="w-full rounded-apple bg-accent/10 px-3 py-3 text-sm text-accent active:scale-[0.98]">{t('file.insertPath')}</button></div>}
+      {isMobile && mobileView === 'preview' && <div className="min-h-0 flex-1 bg-bg-0">{mobileEditOpen ? (mobileEditLoading ? <div className="flex h-full items-center justify-center p-3 text-xs text-text-3">{t('file.loading')}</div> : <textarea value={mobileEditContent} onChange={(event) => setMobileEditContent(event.target.value)} spellCheck={false} autoCapitalize="off" autoCorrect="off" aria-label={t('file.mobileEdit')} className="tmuxgo-scrollbar h-full w-full resize-none whitespace-pre overflow-auto bg-bg-0 p-2 font-mono text-meta leading-5 text-text-1 outline-none" />) : previewBlock}</div>}
+      {isMobile && mobileView === 'preview' && selectedPath && (mobileEditOpen ? (
+        <div className="flex gap-2 border-t border-[var(--line)] p-3">
+          <button disabled={mobileEditLoading || mobileEditSaving || !mobileEditDirty} onClick={() => void saveMobileEditor()} className="min-w-0 flex-1 rounded-apple bg-accent/10 px-3 py-3 text-sm text-accent active:scale-[0.98] disabled:opacity-40">{mobileEditSaving ? t('editor.saving') : t('editor.save')}</button>
+          <button disabled={mobileEditLoading || mobileEditSaving} onClick={closeMobileEditor} className="rounded-apple bg-bg-2 px-3 py-3 text-sm text-text-1 active:scale-[0.98]">{t('file.mobileEditExit')}</button>
+        </div>
+      ) : (
+        <div className="flex gap-2 border-t border-[var(--line)] p-3">
+          <button onClick={() => insertPath(activeSourceRootPath ? joinPath(activeSourceRootPath, resolveRootRelativePath(activeRootBasePath, selectedPath)) : resolveRootRelativePath(activeRootBasePath, selectedPath))} className="min-w-0 flex-1 rounded-apple bg-accent/10 px-3 py-3 text-sm text-accent active:scale-[0.98]">{t('file.insertPath')}</button>
+          {mobileEditable && <button onClick={openMobileEditor} className="rounded-apple bg-bg-2 px-3 py-3 text-sm text-text-1 active:scale-[0.98]">{t('file.mobileEdit')}</button>}
+        </div>
+      ))}
       {contextMenu && (
         <>
         <div className="fixed inset-0 z-[89]" onClick={() => setContextMenu(null)} />
@@ -1407,6 +1484,25 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
         tone="danger"
         onCancel={() => setPendingDeleteItem(null)}
         onConfirm={() => void confirmRemoveItem()}
+      />
+      <ConfirmDialog
+        open={mobileEditConfirm === 'enter'}
+        title={t('file.mobileEditConfirmTitle')}
+        message={t('file.mobileEditConfirmMessage')}
+        confirmLabel={t('common.confirm')}
+        cancelLabel={t('common.cancel')}
+        onCancel={() => setMobileEditConfirm(null)}
+        onConfirm={() => void enterMobileEditor()}
+      />
+      <ConfirmDialog
+        open={mobileEditConfirm === 'exit'}
+        title={t('file.mobileEditExitTitle')}
+        message={t('file.mobileEditExitMessage')}
+        confirmLabel={t('file.mobileEditDiscard')}
+        cancelLabel={t('file.mobileEditKeepEditing')}
+        tone="danger"
+        onCancel={() => setMobileEditConfirm(null)}
+        onConfirm={discardMobileEditor}
       />
       {lastTrashedItem && <div className="tmuxgo-float-surface absolute bottom-3 left-3 right-3 z-30 flex items-center gap-2 px-3 py-2 text-xs"><span className="min-w-0 flex-1 truncate text-text-2">{t('file.movedToTrash', { name: lastTrashedItem.name })}</span><Chip tone="accent" onClick={() => void restoreTrash(lastTrashedItem)}>{t('file.undo')}</Chip><Button variant="ghost" size="icon-sm" aria-label="close" onClick={() => setLastTrashedItem(null)}>×</Button></div>}
       {trashOpen && <ModalPortal><div className="fixed inset-0 z-[95] flex items-center justify-center tmuxgo-scrim-strong p-4" onClick={() => setTrashOpen(false)}><div className="tmuxgo-glass tmuxgo-glass-dialog w-full max-w-lg overflow-hidden rounded-apple border" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b border-[var(--line)] p-4"><div className="text-base font-medium text-text-1">{t('file.trash')}</div><Button variant="ghost" size="icon-sm" aria-label="close" onClick={() => setTrashOpen(false)}>×</Button></div><div className="tmuxgo-scrollbar max-h-[55vh] overflow-auto">{!trashEntries.length && <div className="p-6 text-center text-sm text-text-3">{t('file.trashEmpty')}</div>}{trashEntries.map((entry) => <div key={entry.id} className="flex items-center gap-3 border-b border-[var(--line)] px-4 py-3"><div className="min-w-0 flex-1"><div className="truncate text-sm text-text-1">{entry.name}</div><div className="truncate font-mono text-caption text-text-3">{entry.path} · {new Date(entry.deletedAt).toLocaleString()}</div></div><Chip tone="accent" onClick={() => void restoreTrash(entry)}>{t('file.restore')}</Chip></div>)}</div></div></div></ModalPortal>}
