@@ -155,7 +155,7 @@ export function useSessions(hostId: string) {
     queryFn: () => api.sessions.list(hostId),
     enabled: !!hostId,
     staleTime: 4000,
-    refetchInterval: 5000,
+    refetchInterval: 10000,
     refetchIntervalInBackground: false,
   })
 }

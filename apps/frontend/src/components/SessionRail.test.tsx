@@ -7,6 +7,13 @@ const setActiveSession = vi.fn()
 const setSessionPanelExpanded = vi.fn()
 const pushToast = vi.fn()
 const prompt = vi.fn(async () => null)
+const useOrderedSessionsMock = vi.fn(() => ({
+  data: [
+    { id: 'session-a', name: 'alpha', windowCount: 1 },
+    { id: 'session-b', name: 'beta', windowCount: 2 },
+  ],
+  moveSession: vi.fn(),
+}))
 
 vi.mock('@/stores/useConsoleStore', () => ({
   useConsoleStore: ((selector?: any) => {
@@ -21,13 +28,7 @@ vi.mock('@/stores/useConsoleStore', () => ({
   }) as any,
 }))
 vi.mock('@/hooks/useOrderedSessions', () => ({
-  useOrderedSessions: () => ({
-    data: [
-      { id: 'session-a', name: 'alpha', windowCount: 1 },
-      { id: 'session-b', name: 'beta', windowCount: 2 },
-    ],
-    moveSession: vi.fn(),
-  }),
+  useOrderedSessions: (...args: unknown[]) => useOrderedSessionsMock(...args),
 }))
 vi.mock('@/hooks/useApi', () => ({
   useCreateSession: () => ({ mutateAsync: vi.fn() }),
@@ -49,5 +50,10 @@ describe('SessionRail', () => {
     render(React.createElement(SessionRail))
     fireEvent.click(screen.getByText('beta'))
     expect(setActiveSession).toHaveBeenCalledWith('session-b')
+  })
+  it('keeps cached sessions visible after a refresh failure', () => {
+    useOrderedSessionsMock.mockReturnValueOnce({ data: [{ id: 'session-a', name: 'alpha', windowCount: 1 }], moveSession: vi.fn(), isError: true, refetch: vi.fn() })
+    render(React.createElement(SessionRail))
+    expect(screen.getByText('alpha')).toBeInTheDocument()
   })
 })

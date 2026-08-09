@@ -40,6 +40,14 @@ function formatSize(size: number) {
   if (size < 1024 * 1024) return `${Math.round(size / 1024)}KB`
   return `${Math.round(size / 1024 / 1024)}MB`
 }
+function formatModeBits(mode: number | undefined, type: 'file' | 'directory') {
+  if (typeof mode !== 'number' || !Number.isFinite(mode)) return '-'
+  const flags = ['r', 'w', 'x', 'r', 'w', 'x', 'r', 'w', 'x']
+  const bits = [0o400, 0o200, 0o100, 0o040, 0o020, 0o010, 0o004, 0o002, 0o001]
+  let symbolic = type === 'directory' ? 'd' : '-'
+  for (let i = 0; i < 9; i++) symbolic += mode & bits[i] ? flags[i] : '-'
+  return `${symbolic} (${mode.toString(8)})`
+}
 function insertPath(path: string) {
   window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data: quoteShellPath(path) } }))
 }
@@ -872,6 +880,12 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
     const rootRelativePath = resolveRootRelativePath(activeRootBasePath, item.path)
     return activeSourceRootPath ? joinPath(activeSourceRootPath, rootRelativePath) : rootRelativePath
   }
+  const getItemTooltip = (item: FileEntry) => {
+    const sizeLabel = item.type === 'directory' ? '—' : formatSize(item.size)
+    const modifiedLabel = item.modifiedAt ? new Date(item.modifiedAt).toLocaleString() : '—'
+    const detail = `${t('file.type')}: ${item.type === 'directory' ? t('file.dir') : t('file.file')} · ${t('file.size')}: ${sizeLabel} · ${t('file.modified')}: ${modifiedLabel}`
+    return `${getItemFullPath(item)}\n${detail}\n${t('file.permission')}: ${formatModeBits(item.mode, item.type)}`
+  }
   const startDownload = (item: FileItem | FileContentMatch) => {
     void api.files.downloadTask(fileHostId, activeRootId, resolveRootRelativePath(activeRootBasePath, item.path), preferences.downloadRateLimitKBps).then(() => {
       pushToast({ type: 'success', message: t('tasks.queued') })
@@ -1074,7 +1088,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
           role="button"
           tabIndex={0}
           data-file-path={item.type === 'file' ? item.path : undefined}
-          title={getItemFullPath(item)}
+          title={getItemTooltip(item)}
           {...bindFileDrag(item)}
           onClick={(e) => {
             e.preventDefault()
@@ -1147,7 +1161,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
       <button
         key={`${item.type}-${item.path}`}
         tabIndex={0}
-        title={getItemFullPath(item)}
+        title={getItemTooltip(item)}
         {...bindFileDrag(item)}
         onClick={() => openItem(item)}
         onDoubleClick={() => item.type === 'directory' ? void handleDesktopDirectoryToggle(item) : insertItemPath(item)}
@@ -1199,7 +1213,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
       <button
         key={`${item.type}-${item.path}`}
         tabIndex={0}
-        title={getItemFullPath(item)}
+        title={getItemTooltip(item)}
         onClick={() => openItem(item)}
         onDoubleClick={() => isPicker ? handlePickItem(item) : insertItemPath(item)}
         onKeyDown={(e) => selectFromKeyboard(item, e)}
@@ -1219,7 +1233,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
       <button
         key={`${item.type}-${item.path}`}
         tabIndex={0}
-        title={getItemFullPath(item)}
+        title={getItemTooltip(item)}
         onClick={() => openItem(item)}
         onDoubleClick={() => isPicker ? undefined : insertItemPath(item)}
         onKeyDown={(e) => selectFromKeyboard(item, e)}

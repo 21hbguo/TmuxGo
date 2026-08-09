@@ -231,7 +231,7 @@ describe('FilePanel', () => {
   it('hides desktop preview action in explorer context menu', async () => {
     render(React.createElement(FilePanel, { onOpenFile: vi.fn() }))
     fireEvent.click(await screen.findByText('src'))
-    const file = await screen.findByTitle('/workspace/src/index.ts')
+    const file = await screen.findByTitle(/^\/workspace\/src\/index\.ts /)
     fireEvent.contextMenu(file)
     expect(screen.getByText('Open in editor')).toBeInTheDocument()
     expect(screen.queryByText('Open preview')).not.toBeInTheDocument()
@@ -336,10 +336,10 @@ describe('FilePanel', () => {
     render(React.createElement(FilePanel))
     const input = screen.getByPlaceholderText('Search file names') as HTMLInputElement
     fireEvent.change(input, { target: { value: 'src' } })
-    const directory = await screen.findByTitle('/workspace/src')
+    const directory = await screen.findByTitle(/^\/workspace\/src /)
     expect(directory).toHaveTextContent('src')
     fireEvent.click(directory)
-    expect(await screen.findByTitle('/workspace/src/index.ts')).toHaveTextContent('index.ts')
+    expect(await screen.findByTitle(/^\/workspace\/src\/index\.ts /)).toHaveTextContent('index.ts')
   })
 
   it('enters a searched directory on mobile while keeping name search active', async () => {
