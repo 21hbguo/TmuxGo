@@ -67,7 +67,17 @@ function isImagePreviewable(editor: FileEditorDocument) {
   return !!editor.previewUrl
 }
 function renderMarkdown(content: string) {
-  return DOMPurify.sanitize(marked.parse(content, { gfm: true, breaks: true }) as string)
+  const segments: string[] = []
+  let last = 0
+  const codePattern = /```[\s\S]*?```/g
+  let match: RegExpExecArray | null
+  while ((match = codePattern.exec(content))) {
+    segments.push(content.slice(last, match.index), match[0])
+    last = match.index + match[0].length
+  }
+  segments.push(content.slice(last))
+  const parts = segments.map((segment, index) => index % 2 === 1 ? marked.parse(segment, { gfm: true }) as string : marked.parse(segment.replace(/\n{3,}/g, (m) => '<br>'.repeat(m.length - 2) + '\n\n'), { gfm: true, breaks: true }) as string)
+  return DOMPurify.sanitize(parts.join('\n'))
 }
 function getAutoScrollStep(distance: number) {
   const absDistance = Math.abs(distance)

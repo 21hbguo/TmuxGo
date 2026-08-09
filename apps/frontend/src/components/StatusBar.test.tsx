@@ -1,7 +1,15 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { StatusBar } from './StatusBar'
 
+const sessionsQueryMock = vi.hoisted(() => ({ dataUpdatedAt: Date.now(), isError: false }))
+const consoleStateMock = vi.hoisted(() => ({
+  activePaneId: 'local:%1',
+  activeHostId: 'local',
+  activeSessionId: 'session-local-dev',
+  connection: { status: 'connected' as 'connected' | 'attaching' | 'reconnecting' | 'disconnected', latency: 0, lastPing: '' },
+  terminalPerf: { attachLatency: 0, outputBytes: 0, outputEvents: 0, outputBacklog: 0, layoutFitCount: 0, lastOutputAt: '' },
+}))
 const useSystemInfoMock = vi.hoisted(() => vi.fn(() => ({
   hostId: 'local',
   gpu: null,
@@ -13,26 +21,47 @@ const useSystemInfoMock = vi.hoisted(() => vi.fn(() => ({
 })))
 
 vi.mock('@/i18n', () => ({
-  useTranslation: () => ({ t: (key: string) => key === 'status.connected' ? 'Connected' : key }),
+  useTranslation: () => ({ t: (key: string, params?: Record<string, string | number>) => {
+    const translations: Record<string, string> = {
+      'status.connected': 'Connected',
+      'status.sessionSync': 'SYNC',
+      'status.sessionSyncStatus': 'Session sync status',
+      'status.syncPending': '...',
+      'status.syncAge': '{seconds}s',
+      'status.syncFreshTitle': 'Sessions last synced {age} ago',
+      'status.syncDelayedTitle': 'Session sync delayed; last success {age} ago',
+      'status.syncFailedTitle': 'Session sync failed; last success {age} ago',
+      'status.syncPendingTitle': 'Waiting for the first session sync',
+      'status.failed': 'failed',
+      'status.host': 'HOST',
+      'status.hostScanStatus': 'Host scan status',
+      'status.scanFailed': 'scan failed',
+      'status.scanFailedTitle': 'Remote host agent scan failed; retrying',
+    }
+    let text = translations[key] || key
+    Object.entries(params || {}).forEach(([name, value]) => { text = text.replace(`{${name}}`, String(value)) })
+    return text
+  } }),
 }))
 vi.mock('@/stores/useConsoleStore', () => ({
-  useConsoleStore: (selector: any) => selector({
-    activePaneId: 'local:%1',
-    activeHostId: 'local',
-    activeSessionId: 'session-local-dev',
-    connection: { status: 'connected', latency: 0, lastPing: '' },
-    terminalPerf: { attachLatency: 0, outputBytes: 0, outputEvents: 0, outputBacklog: 0, layoutFitCount: 0, lastOutputAt: '' },
-  }),
+  useConsoleStore: (selector: any) => selector(consoleStateMock),
 }))
 vi.mock('@/hooks/useSystemInfo', () => ({
   useSystemInfo: useSystemInfoMock,
 }))
 vi.mock('@/hooks/useApi', () => ({
   useHosts: () => ({ data: [{ id: 'local', name: 'Local' }] }),
+  useSessions: () => sessionsQueryMock,
   useSessionSnapshot: () => ({ data: { panes: [{ id: 'local:%1', size: { cols: 120, rows: 30 } }] } }),
 }))
 
 describe('StatusBar', () => {
+  beforeEach(() => {
+    consoleStateMock.connection.status = 'connected'
+    sessionsQueryMock.dataUpdatedAt = Date.now()
+    sessionsQueryMock.isError = false
+  })
+  afterEach(() => vi.useRealTimers())
   it('groups context resources and connection into compact status sections', () => {
     render(<StatusBar />)
     const context = screen.getByLabelText('Workspace context')
@@ -44,6 +73,37 @@ describe('StatusBar', () => {
     expect(within(resources).getByText('42%')).toBeInTheDocument()
     expect(within(connection).getByText('Connected')).toBeInTheDocument()
     expect(useSystemInfoMock).toHaveBeenCalledWith('local', 2000)
+  })
+  it('shows the last successful session sync age and marks it delayed after 15 seconds', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-09T12:00:00Z'))
+    sessionsQueryMock.dataUpdatedAt = Date.now() - 14000
+    render(<StatusBar />)
+    const sync = screen.getByLabelText('Session sync status')
+    expect(within(sync).getByText('14s')).toBeInTheDocument()
+    expect(sync.firstElementChild).toHaveClass('text-accent-2')
+    act(() => vi.advanceTimersByTime(1000))
+    expect(within(sync).getByText('15s')).toBeInTheDocument()
+    expect(sync.firstElementChild).toHaveClass('text-warn')
+  })
+  it('shows a failed session refresh without losing its last successful age', () => {
+    sessionsQueryMock.dataUpdatedAt = Date.now() - 4000
+    sessionsQueryMock.isError = true
+    render(<StatusBar />)
+    const sync = screen.getByLabelText('Session sync status')
+    expect(within(sync).getByText('failed 4s')).toBeInTheDocument()
+    expect(sync.firstElementChild).toHaveClass('text-danger')
+  })
+  it('distinguishes a host scan failure from the gateway connection and clears it after retries recover', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-09T12:00:00Z'))
+    sessionsQueryMock.dataUpdatedAt = Date.now()
+    render(<StatusBar />)
+    act(() => window.dispatchEvent(new CustomEvent('tmuxgo-agent-monitor-error', { detail: { hostId: 'local' } })))
+    expect(within(screen.getByLabelText('Host scan status')).getByText('scan failed')).toBeInTheDocument()
+    expect(within(screen.getByLabelText('Connection status')).getByText('Connected')).toBeInTheDocument()
+    act(() => vi.advanceTimersByTime(5000))
+    expect(screen.queryByLabelText('Host scan status')).not.toBeInTheDocument()
   })
   it('shows the three largest disks and reveals all storage on hover', () => {
     useSystemInfoMock.mockImplementation(() => ({
