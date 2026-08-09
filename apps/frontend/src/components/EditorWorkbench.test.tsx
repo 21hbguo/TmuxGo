@@ -342,11 +342,11 @@ describe('EditorWorkbench', () => {
       screen.getByTestId('editor-group-secondary') as HTMLDivElement,
     ]
     for (const strip of strips) {
-      expect(strip.className).toContain('min-h-7')
+      expect(strip.className).toContain('min-h-6')
     }
     const tabs = ['index.ts', 'other.ts'].map((name) => screen.getByRole('button', { name }).parentElement as HTMLDivElement)
     for (const tab of tabs) {
-      expect(tab.className).toContain('h-7')
+      expect(tab.className).toContain('h-6')
     }
   })
   it('moves a dragged tab into the primary group and collapses the source split', async () => {

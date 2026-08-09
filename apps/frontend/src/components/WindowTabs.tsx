@@ -148,7 +148,7 @@ export function WindowTabs() {
             }
             const selected = selectedWindowIds.includes(window.id)
             return (
-              <Chip key={window.id} tone={selected ? 'danger' : 'default'} onClick={() => toggleBatchSelection(window.id)} className="whitespace-nowrap px-3 py-1.5 text-sm">
+              <Chip key={window.id} tone={selected ? 'danger' : 'default'} onClick={() => toggleBatchSelection(window.id)} className="whitespace-nowrap px-2.5 py-1 text-meta">
                 <span className="mr-1">{selected ? '☑' : '☐'}</span>{window.name}
               </Chip>
             )
@@ -162,7 +162,7 @@ export function WindowTabs() {
         })}
       </div>
       <div className="flex shrink-0 items-center gap-1">
-        <Chip onClick={handleOpenNewWindowPrompt} className="px-2 py-1.5" title={t('window.createTitle')} aria-label={t('window.createTitle')} disabled={createWindow.isPending}>
+        <Chip onClick={handleOpenNewWindowPrompt} className="px-2 py-1" title={t('window.createTitle')} aria-label={t('window.createTitle')} disabled={createWindow.isPending}>
           <FiPlus aria-hidden="true" size={13} />
         </Chip>
         <Chip onClick={toggleBatchMode} className={`px-2 py-1.5 ${batchMode ? 'tmuxgo-chip--accent' : ''}`} title={t(batchMode ? 'window.batchCancel' : 'window.batchMode')} aria-label={t(batchMode ? 'window.batchCancel' : 'window.batchMode')}>
