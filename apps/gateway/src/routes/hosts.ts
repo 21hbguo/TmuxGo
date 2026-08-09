@@ -1,13 +1,17 @@
 import type { FastifyInstance } from 'fastify'
+import { z } from 'zod'
 import { agentManager } from '../agent-manager.js'
 import { getHostConnectivity, removeHostConnectivity, setHostConnectivity } from '../lib/host-connectivity.js'
-import { getHostById, getHostCredentials, listAllHosts, removeRemoteHost, upsertRemoteHost, type HostRecord } from '../lib/hosts.js'
+import { getCredentialsPath, getHostsPath, getHostById, getHostCredentials, listAllHosts, readHostConfig, removeRemoteHost, saveHostConfig, upsertRemoteHost, type CredentialStoreFile, type HostRecord, type HostStoreFile } from '../lib/hosts.js'
 import { execHostShell, verifyHostConnectivity } from '../lib/tmux-executor.js'
 import { hostIdParamsSchema, remoteHostBodySchema } from '../lib/request-validation.js'
 import { taskManager, type TaskExecutionContext, type TaskManager } from '../lib/task-manager.js'
 interface HostTestTaskInput {
   hostId: string
 }
+const hostStoreSchema = z.object({ version: z.literal(2), hosts: z.array(z.record(z.unknown())) })
+const credentialStoreSchema = z.object({ version: z.literal(1), credentials: z.record(z.unknown()) })
+const hostConfigBodySchema = z.object({ hosts: hostStoreSchema.optional(), credentials: credentialStoreSchema.optional() })
 async function hostResponse(host: HostRecord) {
   const credentials = await getHostCredentials(host.id)
   const agent = agentManager.getAgentStatus(host.id)
@@ -83,6 +87,19 @@ export async function hostRoutes(fastify: FastifyInstance, options: { taskManage
         agent,
       })),
     ]
+  })
+
+  fastify.get('/hosts/config', async () => {
+    const { hosts, credentials } = await readHostConfig()
+    return { hostsPath: getHostsPath(), credentialsPath: getCredentialsPath(), hosts, credentials }
+  })
+  fastify.put('/hosts/config', async (request, reply) => {
+    const body = hostConfigBodySchema.parse(request.body)
+    try {
+      return await saveHostConfig(body as { hosts?: HostStoreFile; credentials?: CredentialStoreFile })
+    } catch (error) {
+      return reply.code(400).send({ message: error instanceof Error ? error.message : 'Invalid host config', code: 'INVALID_REQUEST' })
+    }
   })
 
   fastify.get('/hosts/:id', async (request) => {

@@ -181,6 +181,21 @@ export class AgentManager {
     console.log(`Agent unregistered: ${id}`)
     return true
   }
+  removeAgent(id: string) {
+    const agent = this.agents.get(id)
+    const existed = !!agent || this.history.has(id)
+    if (agent) {
+      this.rejectTmuxRequests(id, agent.socket, 'Agent removed')
+      this.rejectShellRequests(id, agent.socket, 'Agent removed')
+      this.rejectUploads(id, agent.socket, 'Agent removed')
+      this.closeTerminals(id, agent.socket, -1)
+      this.agents.delete(id)
+    }
+    this.history.delete(id)
+    this.persistHistory()
+    console.log(`Agent removed: ${id}`)
+    return existed
+  }
   heartbeat(id: string, socket: AgentSocket, version?: string) {
     const agent = this.agents.get(id)
     if (!agent || agent.socket !== socket) return false

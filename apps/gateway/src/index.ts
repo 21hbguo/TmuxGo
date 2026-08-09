@@ -32,6 +32,7 @@ import { agentMonitor } from './lib/agent-monitor.js'
 import { agentEventRoutes } from './routes/agent-events.js'
 import { agentNotificationRoutes } from './routes/agent-notifications.js'
 import { agentControlRoutes } from './routes/agent-control.js'
+import { agentRoutes } from './routes/agents.js'
 
 const fastify = Fastify({
   logger: createFastifyLoggerConfig(),
@@ -93,6 +94,7 @@ await fastify.register(pluginRoutes, { prefix: '/api' })
 await fastify.register(agentEventRoutes, { prefix: '/api' })
 await fastify.register(agentNotificationRoutes, { prefix: '/api' })
 await fastify.register(agentControlRoutes, { prefix: '/api' })
+await fastify.register(agentRoutes, { prefix: '/api' })
 
 const frontendDist = process.env.TMUXGO_FRONTEND_DIST || path.resolve(process.cwd(), '../frontend/dist')
 if (existsSync(frontendDist)) {
