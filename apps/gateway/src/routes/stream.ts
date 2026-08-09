@@ -1,13 +1,9 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { SocketStream } from '@fastify/websocket'
-import * as pty from 'node-pty'
-import { execFile } from 'child_process'
-import { promisify } from 'util'
 import { agentManager, type AgentSocket } from '../agent-manager.js'
 import { assertSessionAllowed, prepareSessionAttach } from '../lib/tmux-policy.js'
 import { recordStreamMetric, updateStreamMetric } from '../lib/perf-metrics.js'
-import { getHostById, getHostCredentials } from '../lib/hosts.js'
-import { buildHostSshOptions, resolveHostPassword } from '../lib/ssh-options.js'
+import { createTerminalAttachment } from '../lib/terminal-attachment.js'
 import { createTerminalOutputSanitizer, hasSubstantiveTerminalContent } from '../lib/terminal-output.js'
 import { parseSessionRef } from '../lib/tmux-target.js'
 import { getAttachSnapshotDelays } from '../lib/attach-snapshot.js'
@@ -21,15 +17,13 @@ import { AnsiParser, TerminalGrid, diffCells, encodeCellDiff, encodeCellSnapshot
 import { consumeWebSocketTicket, isAuthEnabled } from '../lib/auth.js'
 import { shareLinkStore, type ShareTicket } from '../lib/share-links.js'
 
-const execFileAsync = promisify(execFile)
-let sshPassAvailable: boolean | null = null
 interface TerminalProcess {
   pid: number
   resize: (cols: number, rows: number) => void
   write: (data: string) => void
   kill: () => void
   onData: (listener: (data: string) => void) => void
-  onExit: (listener: (event: { exitCode: number }) => void) => void
+  onExit: (listener: (exitCode: number) => void) => void
 }
 export async function streamRoutes(fastify: FastifyInstance) {
   fastify.get('/stream', { websocket: true }, (connection: SocketStream, request: FastifyRequest) => {
@@ -394,16 +388,6 @@ export async function streamRoutes(fastify: FastifyInstance) {
         flushOutput()
       }, flushDelay)
     }
-    async function hasSshPass() {
-      if (sshPassAvailable !== null) return sshPassAvailable
-      try {
-        await execFileAsync('sshpass', ['-V'])
-        sshPassAvailable = true
-      } catch {
-        sshPassAvailable = false
-      }
-      return sshPassAvailable
-    }
     async function runTmuxOnHost(hostId: string, args: string[]) {
       await execTmux(hostId, args)
     }
@@ -630,51 +614,8 @@ export async function streamRoutes(fastify: FastifyInstance) {
             const sharedSize = exclusive ? null : await getSessionWindowSize(sessionName, hostId)
             const cols = sharedSize?.cols || requestedCols
             const rows = sharedSize?.rows || requestedRows
-            const agent = hostId !== 'local' && !await getHostById(hostId) ? agentManager.getAgent(hostId) : null
-            if (agent) {
-              const terminal = await agentManager.attachTerminal(hostId, sessionName, cols, rows, exclusive)
-              ptyProcess = {
-                ...terminal,
-                onExit: (listener) => terminal.onExit((exitCode) => listener({ exitCode })),
-              }
-            } else if (hostId !== 'local') {
-              const host = await getHostById(hostId)
-              if (!host) throw new Error('Host not found')
-              const credentials = await getHostCredentials(host.id)
-              const target = `${host.user}@${host.address}`
-              const sshBaseArgs = ['-p', String(host.port), '-tt', '-o', 'ConnectTimeout=8', '-o', 'ServerAliveInterval=30', '-o', 'ServerAliveCountMax=3', ...buildHostSshOptions(host, credentials), target, '--', 'tmux', 'attach']
-              if (!exclusive) sshBaseArgs.push('-f', 'ignore-size,active-pane')
-              sshBaseArgs.push('-t', sessionName)
-              const hostPassword = resolveHostPassword(credentials)
-              if (hostPassword) {
-                if (!await hasSshPass()) throw new Error('sshpass is required for password auth')
-                ptyProcess = pty.spawn('sshpass', ['-e', 'ssh', '-o', 'BatchMode=no', ...sshBaseArgs], {
-                  name: 'xterm-256color',
-                  cols,
-                  rows,
-                  env: { ...process.env, SSHPASS: hostPassword, TERM: 'xterm-256color' },
-                })
-              } else {
-                ptyProcess = pty.spawn('ssh', ['-o', 'BatchMode=yes', ...sshBaseArgs], {
-                  name: 'xterm-256color',
-                  cols,
-                  rows,
-                  env: { ...process.env, TERM: 'xterm-256color' },
-                })
-              }
-            } else {
-              const attachArgs = ['attach']
-              if (!exclusive) {
-                attachArgs.push('-f', 'ignore-size,active-pane')
-              }
-              attachArgs.push('-t', sessionName)
-              ptyProcess = pty.spawn('tmux', attachArgs, {
-                name: 'xterm-256color',
-                cols,
-                rows,
-                env: { ...process.env, TERM: 'xterm-256color' },
-              })
-            }
+            const created = await createTerminalAttachment({ hostId, sessionName, cols, rows, exclusive })
+            ptyProcess = created
             attachedSessionName = sessionName
             attachedHostId = hostId
             attachedExclusive = exclusive
@@ -707,7 +648,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
                 completeResizeAck()
               }
             })
-            attachedProcess.onExit(({ exitCode }) => {
+            attachedProcess.onExit((exitCode) => {
               if (seq !== attachSeq) return
               const exitedSessionName = attachedSessionName
               const exitedHostId = attachedHostId
