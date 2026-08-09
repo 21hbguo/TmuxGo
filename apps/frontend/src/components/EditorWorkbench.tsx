@@ -591,7 +591,7 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
     return () => window.removeEventListener(OPEN_EDITOR_LOCATION_EVENT, handleOpenEditorLocation as EventListener)
   }, [setActiveEditor])
   const renderTab = (editor: FileEditorDocument, groupEditors: FileEditorDocument[], groupId: string) => (
-    <div key={editor.id} className={`group relative flex h-7 w-44 shrink-0 items-center border-r border-[rgba(255,255,255,0.04)] ${editor.id === activeEditor?.id ? 'bg-bg-0' : 'bg-bg-1/80'}`}>
+    <div key={editor.id} className={`group relative flex h-6 w-40 shrink-0 items-center border-r border-[rgba(255,255,255,0.04)] ${editor.id === activeEditor?.id ? 'bg-bg-0' : 'bg-bg-1/80'}`}>
       <button draggable={editor.kind !== 'compare'} onDragStart={(event) => {
         if (editor.kind === 'compare') return
         const handle = { id: editor.id, hostId: editor.hostId, rootId: editor.rootId, rootLabel: editor.rootLabel, rootPath: editor.rootPath, path: editor.path, name: editor.name, absolutePath: editor.absolutePath, type: 'file' } satisfies FileDocumentHandle
@@ -626,8 +626,8 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
         clearActiveDraggedFile()
         setTabInsertionTarget(null)
         void handleTabButtonDrop(dragged, groupEditors, groupId, editor, side)
-      }} onClick={() => setActiveEditor(editor.id)} className={`flex min-w-0 flex-1 items-center gap-2 px-2.5 py-1.5 text-body ${editor.id === activeEditor?.id ? 'text-text-1' : 'text-text-2 hover:text-text-1'}`}>
-        <span className={`h-2 w-2 rounded-full ${editor.dirty ? 'bg-warn' : editor.saving ? 'bg-accent' : 'border border-[var(--line)] bg-transparent'}`} />
+      }} onClick={() => setActiveEditor(editor.id)} className={`flex min-w-0 flex-1 items-center gap-1.5 px-2 text-meta ${editor.id === activeEditor?.id ? 'text-text-1' : 'text-text-2 hover:text-text-1'}`}>
+        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${editor.dirty ? 'bg-warn' : editor.saving ? 'bg-accent' : 'border border-[var(--line)] bg-transparent'}`} />
         <span className="min-w-0 flex-1 truncate">{editor.name}</span>
       </button>
       <Chip aria-label={`Close ${editor.name}`} className="mr-1.5 shrink-0 opacity-0 group-hover:opacity-100" onClick={() => {
@@ -637,7 +637,7 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
       {tabInsertionTarget?.groupId === groupId && tabInsertionTarget.editorId === editor.id && <span className={`pointer-events-none absolute inset-y-1 z-20 w-[2px] rounded-full bg-accent shadow-[0_0_0_1px_rgba(30,200,255,0.2)] ${tabInsertionTarget.side === 'before' ? 'left-0' : 'right-0'}`} />}
     </div>
   )
-  const renderTabStrip = (editors: FileEditorDocument[], groupId: string) => <div data-testid={`editor-group-${getLegacyGroupName(groupId)}`} data-editor-group-id={groupId} className={`tmuxgo-scrollbar-subtle relative flex min-h-7 items-stretch overflow-x-auto border-b border-[var(--line)] bg-bg-1 ${tabDropTarget?.groupId === groupId ? 'ring-1 ring-accent/40 ring-inset' : ''}`} onDragOver={(event) => {
+  const renderTabStrip = (editors: FileEditorDocument[], groupId: string) => <div data-testid={`editor-group-${getLegacyGroupName(groupId)}`} data-editor-group-id={groupId} className={`tmuxgo-scrollbar-subtle relative flex min-h-6 items-stretch overflow-x-auto border-b border-[var(--line)] bg-bg-1 ${tabDropTarget?.groupId === groupId ? 'ring-1 ring-accent/40 ring-inset' : ''}`} onDragOver={(event) => {
     if (!hasDraggedFile(event)) return
     const dragged = decodeDraggedFile(event)
     event.preventDefault()
