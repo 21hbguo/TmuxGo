@@ -69,6 +69,7 @@ interface FileItem {
   type: 'file' | 'directory'
   size: number
   modifiedAt: string
+  mode?: number
 }
 interface SearchMatchLine {
   number: number
@@ -171,7 +172,7 @@ def is_binary(data):
  return b'\\0' in data[:min(len(data),4096)]
 def file_item(root_path, abs_path, name):
  st=os.stat(abs_path)
- return {'name':name,'path':norm_rel(os.path.relpath(abs_path,root_path)),'type':'directory' if pathlib.Path(abs_path).is_dir() else 'file','size':st.st_size,'modifiedAt':iso(st.st_mtime)}
+ return {'name':name,'path':norm_rel(os.path.relpath(abs_path,root_path)),'type':'directory' if pathlib.Path(abs_path).is_dir() else 'file','size':st.st_size,'modifiedAt':iso(st.st_mtime),'mode':st.st_mode & 0o7777}
 def breadcrumbs(rel):
  parts=[p for p in rel.split('/') if p]
  out=[{'name':'/','path':''}]
@@ -357,7 +358,7 @@ for current_root,dirs,files in os.walk(abs_path):
     for i,line in enumerate(text.splitlines()):
      if len(matches)>=SEARCH_MATCH_LIMIT: break
      if match_line(line): matches.append({'number':i+1,'content':line[:240]})
-    if matches: results.append({'name':name,'path':relative,'type':'file','size':info.st_size,'modifiedAt':iso(info.st_mtime),'matches':matches})
+    if matches: results.append({'name':name,'path':relative,'type':'file','size':info.st_size,'modifiedAt':iso(info.st_mtime),'mode':info.st_mode & 0o7777,'matches':matches})
    except: pass
   if len(results)>=MAX_RESULTS: break
  if len(results)>=MAX_RESULTS: break
@@ -459,6 +460,7 @@ async function toFileItem(rootPath: string, absolutePath: string, name: string):
     type: info.isDirectory() ? 'directory' : 'file',
     size: info.size,
     modifiedAt: info.mtime.toISOString(),
+    mode: info.mode & 0o7777,
   }
 }
 async function listDirectory(rootId: string, relativePath: string) {
@@ -751,7 +753,7 @@ async function searchContentWithRg(rootPath: string, absolutePath: string, claus
         }
         try {
           const info = await stat(path.join(rootPath, item.path))
-          results.set(item.path, { name: item.name, path: item.path, type: 'file', size: info.size, modifiedAt: info.mtime.toISOString(), matches: item.matches })
+          results.set(item.path, { name: item.name, path: item.path, type: 'file', size: info.size, modifiedAt: info.mtime.toISOString(), mode: info.mode & 0o7777, matches: item.matches })
         } catch {}
         if (results.size >= MAX_RESULTS) return [...results.values()]
       }
@@ -781,7 +783,7 @@ async function searchContentFallback(rootId: string, clauses: string[][], basePa
       for (let i = 0; i < lines.length && matches.length < SEARCH_MATCH_LIMIT; i++) {
         if (matchesAnySearchTerm(lines[i], clauses)) matches.push({ number: i + 1, content: lines[i].slice(0, 240) })
       }
-      if (matches.length) results.push({ path: relativePath, name: path.basename(current), type: 'file', size: info.size, modifiedAt: info.mtime.toISOString(), matches })
+      if (matches.length) results.push({ path: relativePath, name: path.basename(current), type: 'file', size: info.size, modifiedAt: info.mtime.toISOString(), mode: info.mode & 0o7777, matches })
     } catch {}
     return results.length < MAX_RESULTS
   })

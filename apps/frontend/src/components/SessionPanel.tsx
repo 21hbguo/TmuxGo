@@ -193,7 +193,7 @@ export function SessionPanel() {
           </div>
         </div>
         <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
-          {isError ? <div className="p-3 text-xs text-danger"><div className="break-words">{error instanceof Error ? error.message : t('session.loadFailed')}</div><button onClick={() => void refetch()} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm mt-2 w-auto px-2 text-accent">{t('common.retry')}</button></div> : <SessionSortableList
+          {isError && !sessions.length ? <div className="p-3 text-xs text-danger"><div className="break-words">{error instanceof Error ? error.message : t('session.loadFailed')}</div><button onClick={() => void refetch()} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm mt-2 w-auto px-2 text-accent">{t('common.retry')}</button></div> : <SessionSortableList
             sessions={sessions}
             onMove={moveSession}
             listClassName="min-h-full"

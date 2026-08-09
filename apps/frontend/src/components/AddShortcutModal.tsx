@@ -128,34 +128,11 @@ function KeyStepEditor({ value, onChange, isMobile }: { value: string; onChange:
 export function AddShortcutModal({ onSave, onClose, isMobile, initialShortcut }: Props) {
   const { t } = useTranslation()
   const [label, setLabel] = useState(initialShortcut?.label || '')
-  const [mode, setMode] = useState<'keys' | 'text' | 'macro'>(initialShortcut?.steps?.length ? 'macro' : initialShortcut?.mode === 'text' ? 'text' : 'keys')
-  const [keys, setKeys] = useState(initialShortcut?.keys || '')
-  const [text, setText] = useState(initialShortcut?.text || '')
-  const [appendEnter, setAppendEnter] = useState(initialShortcut?.appendEnter === true)
   const [steps, setSteps] = useState<ShortcutStep[]>(() => {
     if (initialShortcut?.steps?.length) return initialShortcut.steps.map((s) => ({ ...s }))
     if (initialShortcut?.mode === 'text') return [{ type: 'text', text: initialShortcut.text || '', appendEnter: initialShortcut.appendEnter === true }]
     return initialShortcut?.keys ? [{ type: 'keys', keys: initialShortcut.keys }] : []
   })
-  const [recording, setRecording] = useState(false)
-  const [mods, setMods] = useState<Record<string, boolean>>({})
-  const [mainKey, setMainKey] = useState('')
-
-  const pickerKeys = useMemo(() => {
-    const parts: string[] = []
-    for (const m of MODIFIERS) {
-      if (mods[m]) parts.push(m)
-    }
-    if (mainKey) parts.push(mainKey)
-    return parts.join('+')
-  }, [mods, mainKey])
-
-  useEffect(() => {
-    if (isMobile && pickerKeys) {
-      setKeys(pickerKeys)
-      if (!label) setLabel(pickerKeys)
-    }
-  }, [pickerKeys, isMobile])
 
   const updateStep = useCallback((index: number, patch: Partial<ShortcutStep>) => {
     setSteps((prev) => prev.map((s, i) => i === index ? { ...s, ...patch } : s))
@@ -179,30 +156,8 @@ export function AddShortcutModal({ onSave, onClose, isMobile, initialShortcut }:
     })
   }, [])
 
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (!recording || mode !== 'keys') return
-    e.preventDefault()
-    e.stopPropagation()
-    if (e.key === 'Escape' && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) {
-      setRecording(false)
-      return
-    }
-    const combo = formatKeyEvent(e)
-    if (combo && !['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) {
-      setKeys(combo)
-      if (!label) setLabel(combo)
-      setRecording(false)
-    }
-  }, [label, mode, recording])
-
-  useEffect(() => {
-    window.addEventListener('keydown', handleKeyDown, true)
-    return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [handleKeyDown])
-
   const stepsValid = steps.length > 0 && steps.every((s) => s.type === 'keys' ? !!(s.keys || '').trim() : s.type === 'text' ? !!(s.text || '').trim() : typeof s.ms === 'number' && Number.isFinite(s.ms) && s.ms > 0 && s.ms <= 60000)
-  const canSave = label.trim() && (mode === 'keys' ? keys.trim() : mode === 'text' ? text.length > 0 : stepsValid)
-  const toggleMod = (m: string) => setMods((prev) => ({ ...prev, [m]: !prev[m] }))
+  const canSave = label.trim() && stepsValid
   const STEP_TYPE_LABEL: Record<ShortcutStep['type'], string> = { keys: t('shortcut.stepKeys'), text: t('shortcut.stepText'), wait: t('shortcut.stepWait') }
 
   const renderStepEditor = (step: ShortcutStep, index: number) => (
@@ -263,108 +218,24 @@ export function AddShortcutModal({ onSave, onClose, isMobile, initialShortcut }:
 
   return <ModalPortal>
     <div className="fixed inset-0 z-50 flex items-center justify-center tmuxgo-scrim" onClick={onClose}>
-      <div className={`tmuxgo-glass tmuxgo-glass-dialog ${mode === 'macro' ? 'w-96' : 'w-72'} rounded-apple border p-4 max-h-[85vh] overflow-y-auto`} onClick={(e) => e.stopPropagation()}>
+      <div className="tmuxgo-glass tmuxgo-glass-dialog w-96 rounded-apple border p-4 max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <h3 className="text-text-1 text-sm font-medium mb-3">{t(initialShortcut ? 'shortcut.edit' : 'shortcut.add')}</h3>
 
         <div className="space-y-3">
-          <div className="grid grid-cols-3 gap-1 p-1 rounded-apple bg-bg-2" role="tablist">
+          <div>
+            <div className="space-y-2">
+              {steps.map((step, index) => renderStepEditor(step, index))}
+              {steps.length === 0 && <div className="text-text-3 text-xs">{t('shortcut.noSteps')}</div>}
+            </div>
             <button
               type="button"
-              role="tab"
-              aria-selected={mode === 'keys'}
-              onClick={() => { setRecording(false); setMode('keys') }}
-              className={`rounded-apple px-2 py-1.5 text-xs transition-colors ${mode === 'keys' ? 'bg-bg-1 text-text-1 shadow-sm' : 'text-text-3 hover:text-text-2'}`}
+              onClick={addStep}
+              className="mt-2 flex w-full items-center justify-center gap-1 px-2 py-1.5 rounded-apple text-xs transition-colors border border-dashed border-[var(--line)] text-text-3 hover:text-text-2 hover:border-accent/50"
             >
-              {t('shortcut.modeKeys')}
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mode === 'text'}
-              onClick={() => { setRecording(false); setMode('text') }}
-              className={`rounded-apple px-2 py-1.5 text-xs transition-colors ${mode === 'text' ? 'bg-bg-1 text-text-1 shadow-sm' : 'text-text-3 hover:text-text-2'}`}
-            >
-              {t('shortcut.modeText')}
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mode === 'macro'}
-              onClick={() => { setRecording(false); setMode('macro') }}
-              className={`rounded-apple px-2 py-1.5 text-xs transition-colors ${mode === 'macro' ? 'bg-bg-1 text-text-1 shadow-sm' : 'text-text-3 hover:text-text-2'}`}
-            >
-              {t('shortcut.modeMacro')}
+              <FiPlus aria-hidden="true" size={13} />
+              {t('shortcut.addStep')}
             </button>
           </div>
-
-          {mode === 'keys' ? (
-            isMobile ? (
-              <div>
-                <label className="text-text-3 text-xs mb-1 block">{t('shortcut.keys')}</label>
-                <div className="flex gap-1 mb-2 flex-wrap">
-                  {MODIFIERS.map((m) => (
-                    <KeyCap key={m} variant="panel" size="sm" tone={mods[m] ? 'accent' : 'default'} onPress={() => toggleMod(m)}>
-                      {m}
-                    </KeyCap>
-                  ))}
-                </div>
-                <select
-                  value={mainKey}
-                  onChange={(e) => setMainKey(e.target.value)}
-                  className="tmuxgo-control tmuxgo-select w-full rounded-apple px-2 py-1.5 text-sm"
-                >
-                  <option value="">{t('shortcut.selectKey')}</option>
-                  {MAIN_KEYS.map((k) => <option key={k} value={k}>{k}</option>)}
-                </select>
-                {keys && <div className="text-accent text-xs mt-1">{keys}</div>}
-              </div>
-            ) : (
-              <div>
-                <label className="text-text-3 text-xs mb-1 block">{t('shortcut.keys')}</label>
-                <button
-                  onClick={() => setRecording(true)}
-                  className={`w-full px-2 py-1.5 rounded-apple text-sm text-left border transition-colors ${
-                    recording
-                      ? 'bg-accent/10 border-accent text-accent animate-pulse'
-                      : 'tmuxgo-control'
-                  }`}
-                >
-                  {recording ? t('shortcut.recording') : keys || t('shortcut.pressKeys')}
-                </button>
-              </div>
-            )
-          ) : mode === 'text' ? (
-            <div>
-              <label className="text-text-3 text-xs mb-1 block" htmlFor="shortcut-text">{t('shortcut.text')}</label>
-              <textarea
-                id="shortcut-text"
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                className="tmuxgo-control tmuxgo-input w-full min-h-24 resize-y rounded-apple px-2 py-1.5 text-sm"
-                placeholder={t('shortcut.textPlaceholder')}
-                maxLength={4096}
-              />
-              <label className="flex items-center gap-2 mt-2 text-text-2 text-xs cursor-pointer">
-                <input type="checkbox" checked={appendEnter} onChange={(e) => setAppendEnter(e.target.checked)} />
-                {t('shortcut.appendEnter')}
-              </label>
-            </div>
-          ) : (
-            <div>
-              <div className="space-y-2">
-                {steps.map((step, index) => renderStepEditor(step, index))}
-                {steps.length === 0 && <div className="text-text-3 text-xs">{t('shortcut.noSteps')}</div>}
-              </div>
-              <button
-                type="button"
-                onClick={addStep}
-                className="mt-2 flex w-full items-center justify-center gap-1 px-2 py-1.5 rounded-apple text-xs transition-colors border border-dashed border-[var(--line)] text-text-3 hover:text-text-2 hover:border-accent/50"
-              >
-                <FiPlus aria-hidden="true" size={13} />
-                {t('shortcut.addStep')}
-              </button>
-            </div>
-          )}
 
           <div>
             <label className="text-text-3 text-xs mb-1 block">{t('shortcut.label')}</label>
@@ -372,7 +243,7 @@ export function AddShortcutModal({ onSave, onClose, isMobile, initialShortcut }:
               value={label}
               onChange={(e) => setLabel(e.target.value)}
               className="tmuxgo-control tmuxgo-input w-full rounded-apple px-2 py-1.5 text-sm"
-              placeholder={mode === 'keys' ? keys || 'e.g. Shift+Tab' : mode === 'text' ? t('shortcut.textLabelPlaceholder') : t('shortcut.macroLabelPlaceholder')}
+              placeholder={t('shortcut.macroLabelPlaceholder')}
             />
           </div>
         </div>
@@ -388,13 +259,7 @@ export function AddShortcutModal({ onSave, onClose, isMobile, initialShortcut }:
             disabled={!canSave}
             onClick={() => {
               if (!canSave) return
-              if (mode === 'macro') {
-                onSave({ label: label.trim(), steps })
-              } else if (mode === 'text') {
-                onSave({ label: label.trim(), steps: [{ type: 'text', text, appendEnter }] })
-              } else {
-                onSave({ label: label.trim(), steps: [{ type: 'keys', keys: keys.trim() }] })
-              }
+              onSave({ label: label.trim(), steps })
             }}
           >
             {t('shortcut.save')}

@@ -186,6 +186,7 @@ export interface FileItem {
   type: 'file' | 'directory'
   size: number
   modifiedAt: string
+  mode?: number
 }
 export interface TrashEntry {
   id: string

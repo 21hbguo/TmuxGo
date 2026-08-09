@@ -373,7 +373,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
                 <Chip onClick={() => setSelectedSessionIds([])} className="flex-1 justify-center">{t('sidebar.batchClearAll')}</Chip>
                 <Chip tone="danger" disabled={!selectedSessionIds.length} className="flex-1 justify-center disabled:cursor-not-allowed" onClick={() => setBatchDeleteConfirmOpen(true)}>{t('sidebar.batchDeleteSelected')}</Chip>
               </div>}
-              {sessionsError ? <div className="rounded-apple bg-bg-2 p-3 text-xs text-danger"><div className="break-words">{sessionsErrorValue instanceof Error ? sessionsErrorValue.message : t('session.loadFailed')}</div><button onClick={() => void refetchSessions()} className="mt-2 rounded-apple bg-bg-1 px-2 py-1 text-accent">{t('common.retry')}</button></div> : <SessionSortableList
+              {sessionsError && !sessions.length ? <div className="rounded-apple bg-bg-2 p-3 text-xs text-danger"><div className="break-words">{sessionsErrorValue instanceof Error ? sessionsErrorValue.message : t('session.loadFailed')}</div><button onClick={() => void refetchSessions()} className="mt-2 rounded-apple bg-bg-1 px-2 py-1 text-accent">{t('common.retry')}</button></div> : <SessionSortableList
                 sessions={sessions}
                 onMove={moveSession}
                 listClassName="space-y-2"
