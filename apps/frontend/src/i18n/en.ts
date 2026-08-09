@@ -733,6 +733,17 @@ export const en = {
   'file.binaryFilePreview': 'Binary files are not editable here.',
   'file.nameCopiedInApp': 'File name copied in app',
   'file.relativePathCopiedInApp': 'Relative path copied in app',
+  'file.mobileEdit': 'Edit',
+  'file.mobileEditExit': 'Exit editing',
+  'file.mobileEditConfirmTitle': 'Enter edit mode?',
+  'file.mobileEditConfirmMessage': 'In edit mode, taps or scrolling may modify the file. Be careful not to edit by accident.',
+  'file.mobileEditExitTitle': 'Unsaved changes',
+  'file.mobileEditExitMessage': 'Exiting now will discard unsaved changes.',
+  'file.mobileEditDiscard': 'Discard and exit',
+  'file.mobileEditKeepEditing': 'Keep editing',
+  'file.mobileEditUnavailable': 'This file cannot be edited',
+  'file.mobileEditLoadFailed': 'Failed to load file',
+  'file.mobileEditSaveFailed': 'Save failed',
 
   // PasteConfirmDialog
   'paste.title': 'Confirm paste',

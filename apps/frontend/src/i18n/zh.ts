@@ -733,6 +733,17 @@ export const zh = {
   'file.binaryFilePreview': '二进制文件不可编辑',
   'file.nameCopiedInApp': '文件名已在应用内复制',
   'file.relativePathCopiedInApp': '相对路径已在应用内复制',
+  'file.mobileEdit': '编辑',
+  'file.mobileEditExit': '退出编辑',
+  'file.mobileEditConfirmTitle': '进入编辑模式？',
+  'file.mobileEditConfirmMessage': '编辑模式下，点按或滚动都可能修改文件，请注意避免误操作。',
+  'file.mobileEditExitTitle': '有未保存的修改',
+  'file.mobileEditExitMessage': '退出将丢失未保存的修改。',
+  'file.mobileEditDiscard': '不保存退出',
+  'file.mobileEditKeepEditing': '继续编辑',
+  'file.mobileEditUnavailable': '该文件无法编辑',
+  'file.mobileEditLoadFailed': '文件加载失败',
+  'file.mobileEditSaveFailed': '保存失败',
 
   // PasteConfirmDialog
   'paste.title': '确认粘贴',
