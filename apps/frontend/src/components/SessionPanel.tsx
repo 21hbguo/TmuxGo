@@ -1,10 +1,11 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
-import { useBatchDeleteSessions, useCreateSession, useDeleteSession, useRenameSession } from '@/hooks/useApi'
+import { useBatchDeleteSessions, useCreateSession, useDeleteSession, useRenameSession, useSessionTemplates } from '@/hooks/useApi'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
-import { useMigrateSessionWorkspace, useRemoveSessionWorkspaces, useSetSessionWorkspace } from '@/hooks/useSessionWorkspaces'
-import { SessionTemplates, type Template } from './SessionTemplates'
+import { useSessionWorkspaces, useSetSessionWorkspace, useRemoveSessionWorkspaces, useMigrateSessionWorkspace } from '@/hooks/useSessionWorkspaces'
+import { useRemoveWorkspace, useUpdateWorkspace, useWorkspaces } from '@/hooks/useWorkspaces'
+import { SessionTemplates, templates as builtinTemplates, type Template } from './SessionTemplates'
 import { CreateSessionDialog } from './CreateSessionDialog'
 import { getTemplateSessionName } from '@/lib/session-template'
 import { Chip } from './Chip'
@@ -16,7 +17,7 @@ import { usePrompt } from '@/hooks/usePrompt'
 import { SessionSortableList } from './SessionSortableList'
 import { HostSwitcher } from './HostSwitcher'
 import { AgentStatusBadge } from './AgentStatusBadge'
-import type { AgentStatus } from '@/types'
+import type { AgentStatus, Session, WorkspaceEntry } from '@/types'
 import { ModalPortal } from './ModalPortal'
 import { api } from '@/lib/api'
 import { useOptionalQueryClient } from '@/hooks/useOptionalQueryClient'
@@ -41,6 +42,14 @@ export function SessionPanel() {
   const setSessionWorkspace = useSetSessionWorkspace()
   const removeSessionWorkspaces = useRemoveSessionWorkspaces()
   const migrateSessionWorkspace = useMigrateSessionWorkspace()
+  const updateWorkspace = useUpdateWorkspace()
+  const removeWorkspace = useRemoveWorkspace()
+  const { data: sessionWorkspaces = [] } = useSessionWorkspaces()
+  const { data: workspaces = [] } = useWorkspaces(activeHostId || undefined)
+  const { data: sessionTemplates } = useSessionTemplates()
+  const [createDialogInitialWorkspace, setCreateDialogInitialWorkspace] = useState<WorkspaceEntry | null>(null)
+  const [pendingDeleteWorkspace, setPendingDeleteWorkspace] = useState<WorkspaceEntry | null>(null)
+  const [templateMenuWorkspaceId, setTemplateMenuWorkspaceId] = useState<string | null>(null)
   const { preferences } = usePreferences()
   const { t } = useTranslation()
   const { prompt, PromptElement } = usePrompt()
@@ -55,9 +64,49 @@ export function SessionPanel() {
     if (!activeHostId) return
     setShowTemplates(false)
     setCreateDialogTemplate(template)
+    setCreateDialogInitialWorkspace(null)
     setCreateDialogOpen(true)
   }
-  const handleCreateSession = async ({ name, cwd, workspace }: { name: string; cwd?: string; workspace?: { rootId: string; rootPath: string; rootLabel: string; relativePath: string; absolutePath: string } }) => {
+  const allTemplates = [...builtinTemplates, ...(sessionTemplates?.templates || [])]
+  const handleWorkspaceCreateSession = (workspace: WorkspaceEntry) => {
+    if (!activeHostId) return
+    const template = workspace.templateId ? allTemplates.find((item) => item.id === workspace.templateId) || builtinTemplates[0] : builtinTemplates[0]
+    setCreateDialogTemplate(template)
+    setCreateDialogInitialWorkspace(workspace)
+    setCreateDialogOpen(true)
+  }
+  const handleWorkspaceSetTemplate = async (workspace: WorkspaceEntry, templateId: string) => {
+    setTemplateMenuWorkspaceId(null)
+    try {
+      await updateWorkspace.mutateAsync({ id: workspace.id, payload: { templateId } })
+      pushToast({ type: 'success', message: t('workspace.templateUpdated', { name: workspace.name }) })
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('workspace.requestFailed') })
+    }
+  }
+  const handleWorkspaceRename = async (workspace: WorkspaceEntry) => {
+    if (!activeHostId) return
+    const name = await prompt(t('workspace.renamePrompt'), workspace.name)
+    if (!name || name === workspace.name) return
+    try {
+      await updateWorkspace.mutateAsync({ id: workspace.id, payload: { name: name.trim() } })
+      pushToast({ type: 'success', message: t('workspace.renamed', { name }) })
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('workspace.requestFailed') })
+    }
+  }
+  const confirmDeleteWorkspace = async () => {
+    if (!pendingDeleteWorkspace) return
+    const workspace = pendingDeleteWorkspace
+    try {
+      await removeWorkspace.mutateAsync(workspace.id)
+      pushToast({ type: 'success', message: t('workspace.deleted', { name: workspace.name }) })
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('workspace.requestFailed') })
+    }
+    setPendingDeleteWorkspace(null)
+  }
+  const handleCreateSession = async ({ name, cwd, workspace }: { name: string; cwd?: string; workspace?: { rootId: string; rootPath: string; rootLabel: string; relativePath: string; absolutePath: string; workspaceId?: string; workspaceName?: string } }) => {
     if (!activeHostId || !createDialogTemplate) return
     try {
       const created = await createSession.mutateAsync({ hostId: activeHostId, name, layout: createDialogTemplate.layout, cwd })
@@ -67,6 +116,7 @@ export function SessionPanel() {
             await setSessionWorkspace.mutateAsync({
               sessionId: created.id,
               hostId: activeHostId,
+              workspaceId: workspace.workspaceId,
               workspacePath: workspace.absolutePath,
               rootId: workspace.rootId,
               rootPath: workspace.rootPath,
@@ -168,6 +218,31 @@ export function SessionPanel() {
   useEffect(() => {
     setSelectedSessionIds((prev) => prev.filter((id) => sessions.some((item) => item.id === id)))
   }, [sessions])
+  const workspaceGroups = useMemo(() => {
+    const bySession = new Map(sessionWorkspaces.map((item) => [item.sessionId, item]))
+    const hostWorkspaces = workspaces.filter((item) => item.hostId === activeHostId)
+    const groups = new Map<string, Session[]>()
+    const groupKeyOf = (sessionId: string) => {
+      const entry = bySession.get(sessionId)
+      if (!entry) return ''
+      if (entry.workspaceId && hostWorkspaces.some((item) => item.id === entry.workspaceId)) return entry.workspaceId as string
+      return hostWorkspaces.find((item) => item.path === entry.workspacePath)?.id || ''
+    }
+    for (const session of sessions) {
+      const key = groupKeyOf(session.id)
+      const list = groups.get(key) || []
+      list.push(session)
+      groups.set(key, list)
+    }
+    const result: { key: string; workspace: WorkspaceEntry | null; sessions: Session[] }[] = []
+    for (const workspace of hostWorkspaces) {
+      const list = groups.get(workspace.id)
+      if (list?.length) result.push({ key: workspace.id, workspace, sessions: list })
+    }
+    const unclassified = groups.get('')
+    if (unclassified?.length) result.push({ key: '', workspace: null, sessions: unclassified })
+    return result
+  }, [sessions, workspaces, sessionWorkspaces, activeHostId])
   return (
     <>
       <div className="flex h-full min-h-0 flex-col bg-transparent">
@@ -193,29 +268,53 @@ export function SessionPanel() {
           </div>
         </div>
         <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
-          {isError && !sessions.length ? <div className="p-3 text-xs text-danger"><div className="break-words">{error instanceof Error ? error.message : t('session.loadFailed')}</div><button onClick={() => void refetch()} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm mt-2 w-auto px-2 text-accent">{t('common.retry')}</button></div> : <SessionSortableList
-            sessions={sessions}
-            onMove={moveSession}
-            listClassName="min-h-full"
-            getItemClassName={({ session, isDragging, isOverlay }) => `tmuxgo-list-row border-b border-[var(--line)] ${batchMode ? selectedSessionIds.includes(session.id) ? 'tmuxgo-list-row--batch' : 'tmuxgo-list-row--hover' : activeSessionId === session.id ? 'tmuxgo-list-row--active' : 'tmuxgo-list-row--hover'} ${isDragging && !isOverlay ? 'opacity-40' : ''} ${isOverlay ? 'rounded-apple border border-accent bg-bg-1 shadow-[0_20px_48px_rgba(0,0,0,0.42)]' : ''}`}
-            renderItem={({ session }) => (
-              <div className="flex items-center gap-1 pr-2">
-                {batchMode && <button onClick={() => toggleBatchSession(session.id)} className={`ml-2 flex h-7 w-5 shrink-0 items-center justify-center rounded-apple text-meta leading-none ${selectedSessionIds.includes(session.id) ? 'text-danger' : 'text-text-3'} hover:bg-bg-0`}>{selectedSessionIds.includes(session.id) ? '☑' : '☐'}</button>}
-                <button onClick={() => batchMode ? toggleBatchSession(session.id) : setActiveSession(session.id)} onDoubleClick={() => !batchMode && void handleRenameSession(session.id)} className={`min-w-0 flex-1 border-l-2 px-3 py-2 text-left ${batchMode ? selectedSessionIds.includes(session.id) ? 'border-danger' : 'border-transparent' : activeSessionId === session.id ? 'border-accent' : 'border-transparent'}`}>
-                  <div className="truncate text-sm text-text-1">{session.name}</div>
-                  <div className="mt-0.5 flex min-w-0 items-center gap-2 text-meta text-text-3"><span className="shrink-0 whitespace-nowrap">{t('sidebar.windows', { count: session.windowCount })}</span><AgentStatusBadge summary={session.agentSummary} onStatusClick={(status) => handleAgentStatusClick(session, status)} /></div>
-                </button>
-                {!batchMode && <button onClick={() => void handleRenameSession(session.id)} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-7 w-7 text-meta" aria-label={t('sidebar.renameSession')} title={t('sidebar.renameSession')}>✎</button>}
-                {!batchMode && <button onClick={() => setPendingDeleteSessionId(session.id)} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-7 w-7 text-meta hover:text-danger" aria-label={t('sidebar.deleteSession')} title={t('sidebar.deleteSession')}>×</button>}
-              </div>
-            )}
-          />}
+          {isError && !sessions.length ? <div className="p-3 text-xs text-danger"><div className="break-words">{error instanceof Error ? error.message : t('session.loadFailed')}</div><button onClick={() => void refetch()} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm mt-2 w-auto px-2 text-accent">{t('common.retry')}</button></div> : workspaceGroups.map(({ key, workspace, sessions: groupSessions }) => (
+            <div key={key || 'unclassified'}>
+              {workspace ? (
+                <div className="sticky top-0 z-10 relative flex items-center gap-1 border-b border-[var(--line)] bg-bg-0/95 px-2 py-1 backdrop-blur">
+                  <span className="min-w-0 flex-1 truncate text-xs font-semibold text-text-1">{workspace.name}</span>
+                  <span className="text-meta text-text-3">{groupSessions.length}</span>
+                  {!batchMode && <button onClick={() => handleWorkspaceCreateSession(workspace)} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-6 w-6 text-meta" aria-label={t('workspace.newSession')} title={t('workspace.newSession')}>＋</button>}
+                  {!batchMode && <button onClick={() => void handleWorkspaceRename(workspace)} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-6 w-6 text-meta" aria-label={t('workspace.rename')} title={t('workspace.rename')}>✎</button>}
+                  {!batchMode && <button onClick={() => setTemplateMenuWorkspaceId(templateMenuWorkspaceId === workspace.id ? null : workspace.id)} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-6 w-6 text-meta" aria-label={t('workspace.template')} title={t('workspace.template')}>▦</button>}
+                  {!batchMode && <button onClick={() => setPendingDeleteWorkspace(workspace)} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-6 w-6 text-meta hover:text-danger" aria-label={t('workspace.delete')} title={t('workspace.delete')}>🗑</button>}
+                  {templateMenuWorkspaceId === workspace.id && (
+                    <div className="absolute right-2 top-7 z-20 max-h-56 overflow-y-auto rounded-apple border border-[var(--line)] bg-bg-1 p-1 shadow-lg">
+                      {allTemplates.map((template) => (
+                        <button key={template.id} onClick={() => void handleWorkspaceSetTemplate(workspace, template.id)} className={`block w-full truncate rounded-apple px-2 py-1 text-left text-xs hover:bg-bg-0 ${workspace.templateId === template.id ? 'text-accent' : 'text-text-1'}`}>{template.name}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="sticky top-0 z-10 border-b border-[var(--line)] bg-bg-0/95 px-2 py-1 text-xs text-text-3">{t('workspace.unclassified')}</div>
+              )}
+              <SessionSortableList
+                sessions={groupSessions}
+                onMove={moveSession}
+                listClassName="min-h-full"
+                getItemClassName={({ session, isDragging, isOverlay }) => `tmuxgo-list-row border-b border-[var(--line)] ${batchMode ? selectedSessionIds.includes(session.id) ? 'tmuxgo-list-row--batch' : 'tmuxgo-list-row--hover' : activeSessionId === session.id ? 'tmuxgo-list-row--active' : 'tmuxgo-list-row--hover'} ${isDragging && !isOverlay ? 'opacity-40' : ''} ${isOverlay ? 'rounded-apple border border-accent bg-bg-1 shadow-[0_20px_48px_rgba(0,0,0,0.42)]' : ''}`}
+                renderItem={({ session }) => (
+                  <div className="flex items-center gap-1 pr-2">
+                    {batchMode && <button onClick={() => toggleBatchSession(session.id)} className={`ml-2 flex h-7 w-5 shrink-0 items-center justify-center rounded-apple text-meta leading-none ${selectedSessionIds.includes(session.id) ? 'text-danger' : 'text-text-3'} hover:bg-bg-0`}>{selectedSessionIds.includes(session.id) ? '☑' : '☐'}</button>}
+                    <button onClick={() => batchMode ? toggleBatchSession(session.id) : setActiveSession(session.id)} onDoubleClick={() => !batchMode && void handleRenameSession(session.id)} className={`min-w-0 flex-1 border-l-2 px-3 py-2 text-left ${batchMode ? selectedSessionIds.includes(session.id) ? 'border-danger' : 'border-transparent' : activeSessionId === session.id ? 'border-accent' : 'border-transparent'}`}>
+                      <div className="truncate text-sm text-text-1">{session.name}</div>
+                      <div className="mt-0.5 flex min-w-0 items-center gap-2 text-meta text-text-3"><span className="shrink-0 whitespace-nowrap">{t('sidebar.windows', { count: session.windowCount })}</span><AgentStatusBadge summary={session.agentSummary} onStatusClick={(status) => handleAgentStatusClick(session, status)} /></div>
+                    </button>
+                    {!batchMode && <button onClick={() => void handleRenameSession(session.id)} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-7 w-7 text-meta" aria-label={t('sidebar.renameSession')} title={t('sidebar.renameSession')}>✎</button>}
+                    {!batchMode && <button onClick={() => setPendingDeleteSessionId(session.id)} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-7 w-7 text-meta hover:text-danger" aria-label={t('sidebar.deleteSession')} title={t('sidebar.deleteSession')}>×</button>}
+                  </div>
+                )}
+              />
+            </div>
+          ))}
         </div>
         {preferences.showQuickActions && <div className="border-t border-[var(--line)] p-3"><div className="mb-2 text-caption uppercase tracking-[0.18em] text-text-3">{t('sidebar.quickActions')}</div><QuickActions /></div>}
       </div>
       {showTemplates && <ModalPortal><SessionTemplates onSelect={handleTemplateSelect} onClose={() => setShowTemplates(false)} /></ModalPortal>}
-      <CreateSessionDialog open={createDialogOpen} template={createDialogTemplate} defaultName={createDialogTemplate ? getTemplateSessionName(createDialogTemplate) : ''} onCreate={handleCreateSession} onClose={() => { setCreateDialogOpen(false); setCreateDialogTemplate(null) }} />
+      <CreateSessionDialog open={createDialogOpen} template={createDialogTemplate} defaultName={createDialogTemplate ? (createDialogInitialWorkspace ? `${createDialogInitialWorkspace.name}-${getTemplateSessionName(createDialogTemplate)}` : getTemplateSessionName(createDialogTemplate)) : ''} hostId={activeHostId || ''} workspaces={workspaces} initialWorkspace={createDialogInitialWorkspace} onCreate={handleCreateSession} onClose={() => { setCreateDialogOpen(false); setCreateDialogTemplate(null); setCreateDialogInitialWorkspace(null) }} />
       <ConfirmDialog open={!!pendingDeleteSessionId} title={t('sidebar.deleteTitle')} message={t('sidebar.deleteConfirm', { name: sessions.find((item) => item.id === pendingDeleteSessionId)?.name || '' })} confirmLabel={t('sidebar.confirmDelete')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setPendingDeleteSessionId(null)} onConfirm={() => void confirmDeleteSession()} />
+      <ConfirmDialog open={!!pendingDeleteWorkspace} title={t('workspace.deleteTitle')} message={t('workspace.deleteConfirm', { name: pendingDeleteWorkspace?.name || '' })} confirmLabel={t('workspace.deleteAction')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setPendingDeleteWorkspace(null)} onConfirm={() => void confirmDeleteWorkspace()} />
       <ConfirmDialog open={batchDeleteConfirmOpen} title={t('sidebar.batchDeleteTitle')} message={t('sidebar.batchDeleteConfirm', { count: selectedSessionIds.length })} confirmLabel={t('sidebar.batchDeleteSelected')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setBatchDeleteConfirmOpen(false)} onConfirm={() => void confirmBatchDeleteSession()} />
       {PromptElement}
     </>

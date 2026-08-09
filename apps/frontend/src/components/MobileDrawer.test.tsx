@@ -37,6 +37,9 @@ vi.mock('@/hooks/useSessionWorkspaces', () => ({
   useRemoveSessionWorkspaces: () => ({ mutateAsync: mutateRemoveSessionWorkspaces }),
   useMigrateSessionWorkspace: () => ({ mutateAsync: mutateMigrateSessionWorkspace }),
 }))
+vi.mock('@/hooks/useWorkspaces', () => ({
+  useWorkspaces: () => ({ data: [] }),
+}))
 vi.mock('@/i18n', () => ({
   useTranslation: () => ({ t: (key: string, params?: Record<string, string | number>) => {
     if (key === 'drawer.sessions') return 'Sessions'

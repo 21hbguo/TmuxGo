@@ -11,11 +11,15 @@ const mutateBatchDeleteSessions = vi.fn()
 const mutateSetSessionWorkspace = vi.fn()
 const mutateRemoveSessionWorkspaces = vi.fn()
 const mutateMigrateSessionWorkspace = vi.fn()
+const mutateUpdateWorkspace = vi.fn()
+const mutateRemoveWorkspace = vi.fn()
 const promptMock = vi.fn()
 const orderedSessions = [{ id: 'session-dev', name: 'dev', windowCount: 2, agentSummary: { idle: 2, working: 1, blocked: 0, done: 0, unknown: 0, total: 3 } }, { id: 'session-next', name: 'next', windowCount: 1 }]
 const moveSessionMock = vi.fn()
 const refetchSessionsMock = vi.fn()
 const orderedSessionQueryState: any = { data: orderedSessions, moveSession: moveSessionMock, isError: false, error: null, refetch: refetchSessionsMock }
+const workspacesState: any = { data: [] }
+const sessionWorkspacesState: any = { data: [] }
 
 vi.mock('@/hooks/useApi', () => ({
   useHosts: () => ({ data: [{ id: 'local', name: 'Local', address: '127.0.0.1', status: 'online', tags: [] }] }),
@@ -24,6 +28,7 @@ vi.mock('@/hooks/useApi', () => ({
   useRenameSession: () => ({ mutateAsync: mutateRenameSession }),
   useDeleteSession: () => ({ mutateAsync: mutateDeleteSession }),
   useBatchDeleteSessions: () => ({ mutateAsync: mutateBatchDeleteSessions }),
+  useSessionTemplates: () => ({ data: { templates: [] } }),
 }))
 vi.mock('@/hooks/usePreferences', () => ({
   usePreferences: () => ({ preferences: { showQuickActions: false } }),
@@ -32,9 +37,15 @@ vi.mock('@/hooks/useOrderedSessions', () => ({
   useOrderedSessions: () => orderedSessionQueryState,
 }))
 vi.mock('@/hooks/useSessionWorkspaces', () => ({
+  useSessionWorkspaces: () => sessionWorkspacesState,
   useSetSessionWorkspace: () => ({ mutateAsync: mutateSetSessionWorkspace }),
   useRemoveSessionWorkspaces: () => ({ mutateAsync: mutateRemoveSessionWorkspaces }),
   useMigrateSessionWorkspace: () => ({ mutateAsync: mutateMigrateSessionWorkspace }),
+}))
+vi.mock('@/hooks/useWorkspaces', () => ({
+  useWorkspaces: () => workspacesState,
+  useUpdateWorkspace: () => ({ mutateAsync: mutateUpdateWorkspace }),
+  useRemoveWorkspace: () => ({ mutateAsync: mutateRemoveWorkspace }),
 }))
 vi.mock('@/i18n', () => ({
   useTranslation: () => ({ t: (key: string, params?: Record<string, string | number>) => {
@@ -58,9 +69,10 @@ vi.mock('@/i18n', () => ({
 }))
 vi.mock('./SessionTemplates', () => ({
   SessionTemplates: ({ onSelect }: { onSelect: (template: { id: string; name: string; layout: { windows: { name: string; panes: {}[] }[] } }) => void }) => React.createElement('button', { onClick: () => onSelect({ id: 'default', name: 'default', layout: { windows: [{ name: 'main', panes: [{}] }] } }) }, 'select-template'),
+  templates: [{ id: 'default', name: 'default', description: '', layout: { windows: [{ name: 'main', panes: [{}] }] } }],
 }))
 vi.mock('./CreateSessionDialog', () => ({
-  CreateSessionDialog: ({ open, defaultName, onCreate }: { open: boolean; defaultName: string; onCreate: (result: { name: string }) => void }) => open ? React.createElement('button', { onClick: () => onCreate({ name: defaultName }) }, 'create-session') : null,
+  CreateSessionDialog: ({ open, defaultName, initialWorkspace, onCreate }: { open: boolean; defaultName: string; initialWorkspace?: any; onCreate: (result: { name: string; cwd?: string; workspace?: any }) => void }) => open ? React.createElement('button', { onClick: () => onCreate({ name: defaultName, cwd: initialWorkspace?.path, workspace: initialWorkspace ? { rootId: initialWorkspace.rootId, rootPath: initialWorkspace.rootPath, rootLabel: initialWorkspace.rootLabel, relativePath: initialWorkspace.relativePath, absolutePath: initialWorkspace.path, workspaceId: initialWorkspace.id, workspaceName: initialWorkspace.name } : undefined }) }, 'create-session') : null,
 }))
 vi.mock('./ConfirmDialog', () => ({
   ConfirmDialog: ({ open, onConfirm }: { open: boolean; onConfirm: () => void }) => open ? React.createElement('button', { onClick: onConfirm }, 'confirm-delete') : null,
@@ -90,6 +102,10 @@ describe('SessionPanel session actions', () => {
     mutateSetSessionWorkspace.mockReset()
     mutateRemoveSessionWorkspaces.mockReset()
     mutateMigrateSessionWorkspace.mockReset()
+    mutateUpdateWorkspace.mockReset()
+    mutateRemoveWorkspace.mockReset()
+    workspacesState.data = []
+    sessionWorkspacesState.data = []
     promptMock.mockReset()
     moveSessionMock.mockReset()
     refetchSessionsMock.mockReset()
@@ -169,5 +185,31 @@ describe('SessionPanel session actions', () => {
     fireEvent.click(screen.getByText('confirm-delete'))
     await waitFor(() => expect(mutateBatchDeleteSessions).toHaveBeenNthCalledWith(1, { hostId: 'local', payload: { mode: 'preview', sessionIds: ['session-dev'], filters: { includeAttached: true } } }))
     await waitFor(() => expect(mutateBatchDeleteSessions).toHaveBeenNthCalledWith(2, { hostId: 'local', payload: { mode: 'execute', sessionIds: ['session-dev'], filters: { includeAttached: true }, force: false } }))
+  })
+  it('groups sessions by workspace and shows unclassified group', () => {
+    workspacesState.data = [{ id: 'ws-1', name: 'tmuxgo', hostId: 'local', path: '/workspace/tmuxgo', rootId: 'root-workspace', rootPath: '/workspace', rootLabel: 'workspace', relativePath: 'tmuxgo', templateId: null, createdAt: '', updatedAt: '' }]
+    sessionWorkspacesState.data = [{ sessionId: 'session-dev', hostId: 'local', workspaceId: 'ws-1', workspacePath: '/workspace/tmuxgo', rootId: 'root-workspace', rootPath: '/workspace', rootLabel: 'workspace', relativePath: 'tmuxgo', updatedAt: '' }]
+    render(<SessionPanel />)
+    expect(screen.getByText('tmuxgo')).toBeInTheDocument()
+    expect(screen.getByText('workspace.unclassified')).toBeInTheDocument()
+  })
+  it('creates a session from a workspace with bound cwd and workspace binding', async () => {
+    workspacesState.data = [{ id: 'ws-1', name: 'tmuxgo', hostId: 'local', path: '/workspace/tmuxgo', rootId: 'root-workspace', rootPath: '/workspace', rootLabel: 'workspace', relativePath: 'tmuxgo', templateId: null, createdAt: '', updatedAt: '' }]
+    sessionWorkspacesState.data = [{ sessionId: 'session-dev', hostId: 'local', workspaceId: 'ws-1', workspacePath: '/workspace/tmuxgo', rootId: 'root-workspace', rootPath: '/workspace', rootLabel: 'workspace', relativePath: 'tmuxgo', updatedAt: '' }]
+    mutateCreateSession.mockResolvedValueOnce({ id: 'session-new', name: 'tmuxgo-default', windowCount: 1 })
+    render(<SessionPanel />)
+    fireEvent.click(screen.getByLabelText('workspace.newSession'))
+    fireEvent.click(screen.getByText('create-session'))
+    await waitFor(() => expect(mutateCreateSession).toHaveBeenCalledWith({ hostId: 'local', name: 'tmuxgo-default', layout: expect.any(Object), cwd: '/workspace/tmuxgo' }))
+    await waitFor(() => expect(mutateSetSessionWorkspace).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'session-new', workspaceId: 'ws-1', workspacePath: '/workspace/tmuxgo' })))
+  })
+  it('deletes a workspace and keeps sessions', async () => {
+    workspacesState.data = [{ id: 'ws-1', name: 'tmuxgo', hostId: 'local', path: '/workspace/tmuxgo', rootId: 'root-workspace', rootPath: '/workspace', rootLabel: 'workspace', relativePath: 'tmuxgo', templateId: null, createdAt: '', updatedAt: '' }]
+    sessionWorkspacesState.data = [{ sessionId: 'session-dev', hostId: 'local', workspaceId: 'ws-1', workspacePath: '/workspace/tmuxgo', rootId: 'root-workspace', rootPath: '/workspace', rootLabel: 'workspace', relativePath: 'tmuxgo', updatedAt: '' }]
+    mutateRemoveWorkspace.mockResolvedValueOnce({ success: true })
+    render(<SessionPanel />)
+    fireEvent.click(screen.getByLabelText('workspace.delete'))
+    fireEvent.click(screen.getByText('confirm-delete'))
+    await waitFor(() => expect(mutateRemoveWorkspace).toHaveBeenCalledWith('ws-1'))
   })
 })
