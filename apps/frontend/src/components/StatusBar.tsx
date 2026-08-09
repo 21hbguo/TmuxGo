@@ -4,13 +4,16 @@ import { useState, useRef, useEffect } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
 import { useSystemInfo } from '@/hooks/useSystemInfo'
-import { useHosts, useSessionSnapshot } from '@/hooks/useApi'
+import { useHosts, useSessions, useSessionSnapshot } from '@/hooks/useApi'
 import { Chip } from './Chip'
 import { AgentStatusBadge } from './AgentStatusBadge'
 
 const gb = (mb: number) => (mb / 1024).toFixed(1)
-type Tone = 'warn' | 'danger' | 'neutral'
+const SESSION_SYNC_DELAY_MS = 15000
+const AGENT_MONITOR_ERROR_TTL_MS = 5000
+type Tone = 'success' | 'warn' | 'danger' | 'neutral'
 const chipTone: Record<Tone, string> = {
+  success: 'border-accent-2/25 bg-accent-2/5 text-accent-2',
   warn: 'border-warn/30 bg-warn/10 text-warn',
   danger: 'border-danger/30 bg-danger/10 text-danger',
   neutral: 'border-text-1/10 bg-bg-2/45 text-text-2',
@@ -45,11 +48,30 @@ export function StatusBar() {
   const { t } = useTranslation()
   const sys = useSystemInfo(activeHostId || 'local', 2000)
   const { data: hosts = [] } = useHosts()
+  const sessionsQuery = useSessions(activeHostId || '')
   const { data: snapshotData } = useSessionSnapshot(activeHostId || '', activeSessionId || '')
   const panes = snapshotData?.panes || []
   const [traffic, setTraffic] = useState(0)
+  const [now, setNow] = useState(Date.now())
+  const [agentMonitorErrorAt, setAgentMonitorErrorAt] = useState(0)
   const lastBytesRef = useRef<number | null>(null)
   const lastTimeRef = useRef<number>(Date.now())
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [])
+  useEffect(() => {
+    setAgentMonitorErrorAt(0)
+    const handleAgentMonitorError = (event: Event) => {
+      const detail = (event as CustomEvent<{ hostId?: string }>).detail
+      if (detail?.hostId !== activeHostId) return
+      const timestamp = Date.now()
+      setAgentMonitorErrorAt(timestamp)
+      setNow(timestamp)
+    }
+    window.addEventListener('tmuxgo-agent-monitor-error', handleAgentMonitorError)
+    return () => window.removeEventListener('tmuxgo-agent-monitor-error', handleAgentMonitorError)
+  }, [activeHostId])
   useEffect(() => {
     if (!sys?.stream?.outputBytes) return
     const now = Date.now()
@@ -67,6 +89,12 @@ export function StatusBar() {
   const missingDependencies = sys ? Object.entries(sys.dependencies).filter(([, available]) => !available).map(([name]) => name) : []
   const disks = sys ? [...sys.disks].sort((a, b) => b.used - a.used) : []
   const visibleDisks = disks.slice(0, 3)
+  const sessionSyncSeconds = sessionsQuery.dataUpdatedAt ? Math.max(0, Math.floor((now - sessionsQuery.dataUpdatedAt) / 1000)) : null
+  const sessionSyncAge = sessionSyncSeconds === null ? t('status.syncPending') : t('status.syncAge', { seconds: sessionSyncSeconds })
+  const sessionSyncDelayed = sessionSyncSeconds !== null && sessionSyncSeconds * 1000 >= SESSION_SYNC_DELAY_MS
+  const sessionSyncTone: Tone = sessionsQuery.isError ? 'danger' : sessionSyncDelayed ? 'warn' : sessionSyncSeconds === null ? 'neutral' : 'success'
+  const sessionSyncTitle = sessionsQuery.isError ? t('status.syncFailedTitle', { age: sessionSyncAge }) : sessionSyncDelayed ? t('status.syncDelayedTitle', { age: sessionSyncAge }) : sessionSyncSeconds === null ? t('status.syncPendingTitle') : t('status.syncFreshTitle', { age: sessionSyncAge })
+  const agentMonitorFailed = agentMonitorErrorAt > 0 && now - agentMonitorErrorAt < AGENT_MONITOR_ERROR_TTL_MS
 
   const statusStyle = ({
     connected: { dot: 'bg-accent-2', text: 'text-accent-2', shell: 'border-accent-2/25 bg-accent-2/5' },
@@ -131,9 +159,13 @@ export function StatusBar() {
             )}
           </section>
         )}
-        <section aria-label="Connection status" className={`inline-flex h-5 shrink-0 items-center gap-1.5 rounded-full border px-2 font-medium ${statusStyle.shell}`} style={{ minWidth: '180px' }}>
-          <span className={`h-1.5 w-1.5 rounded-full ${statusStyle.dot}`} />
-          <span className={statusStyle.text}>{t(`status.${connection.status}`)}{connection.status === 'connected' && <><span className="ml-1 inline-block min-w-[3.2em] font-mono text-right tabular-nums">{connection.latency}ms</span><span className="mx-1 text-text-3">·</span><span className="inline-block min-w-[4em] font-mono text-right tabular-nums">{formatTraffic(traffic)}/s</span></>}</span>
+        <section aria-label="Connection status" className="flex shrink-0 items-center gap-1.5">
+          <span aria-label={t('status.sessionSyncStatus')}><ResourceChip label={t('status.sessionSync')} value={sessionsQuery.isError ? `${t('status.failed')} ${sessionSyncAge}` : sessionSyncAge} tone={sessionSyncTone} title={sessionSyncTitle} /></span>
+          {agentMonitorFailed && <span aria-label={t('status.hostScanStatus')}><ResourceChip label={t('status.host')} value={t('status.scanFailed')} tone="danger" title={t('status.scanFailedTitle')} /></span>}
+          <span className={`inline-flex h-5 items-center gap-1.5 rounded-full border px-2 font-medium ${statusStyle.shell}`} style={{ minWidth: '180px' }}>
+            <span className={`h-1.5 w-1.5 rounded-full ${statusStyle.dot}`} />
+            <span className={statusStyle.text}>{t(`status.${connection.status}`)}{connection.status === 'connected' && <><span className="ml-1 inline-block min-w-[3.2em] font-mono text-right tabular-nums">{connection.latency}ms</span><span className="mx-1 text-text-3">·</span><span className="inline-block min-w-[4em] font-mono text-right tabular-nums">{formatTraffic(traffic)}/s</span></>}</span>
+          </span>
         </section>
       </div>
     </footer>

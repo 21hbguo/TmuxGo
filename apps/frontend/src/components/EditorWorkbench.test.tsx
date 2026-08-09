@@ -809,4 +809,22 @@ describe('EditorWorkbench', () => {
     expect(html).toContain('<del>删除</del>')
     expect(html).toContain('<pre><code class="language-ts">')
   })
+  it('renders consecutive blank lines as visible gaps and keeps code block blank lines', () => {
+    const mdEditor = { ...editor1, id: 'local:root-workspace:docs/blank.md', name: 'blank.md', path: 'docs/blank.md', absolutePath: '/workspace/docs/blank.md', language: 'markdown', content: '前\n\n\n中\n\n```ts\nconst a = 1\n\n\nconst b = 2\n```\n\n\n后' }
+    setWorkbenchState({
+      openEditors: [mdEditor],
+      activeEditorId: mdEditor.id,
+      editorGroups: [createGroup('group-1', [mdEditor.id], mdEditor.id)],
+      editorLayout: createLeaf('layout-1', 'group-1'),
+      activeEditorGroupId: 'group-1',
+    })
+    renderWorkbench()
+    const article = document.querySelector('article')
+    if (!article) throw new Error('markdown preview not rendered')
+    const html = article.innerHTML
+    expect(html).toContain('<p>前<br></p>')
+    expect(html).toContain('<p>中</p>')
+    expect(html).toContain('<pre><code class="language-ts">const a = 1\n\n\nconst b = 2')
+    expect(html).toContain('<br><p>后</p>')
+  })
 })
