@@ -24,11 +24,11 @@ export interface HostCredentials {
   passwordEnv: string
   privateKeyPath: string
 }
-interface HostStoreFile {
+export interface HostStoreFile {
   version: 2
   hosts: HostRecord[]
 }
-interface CredentialStoreFile {
+export interface CredentialStoreFile {
   version: 1
   credentials: Record<string, HostCredentials>
 }
@@ -76,10 +76,10 @@ function getConfigDir() {
   if (baseDir) return baseDir
   return path.join(os.homedir(), '.tmuxgo')
 }
-function getHostsPath() {
+export function getHostsPath() {
   return path.join(getConfigDir(), 'hosts.json')
 }
-function getCredentialsPath() {
+export function getCredentialsPath() {
   return path.join(getConfigDir(), 'host-credentials.json')
 }
 function isValidHostId(value: string) {
@@ -306,4 +306,28 @@ export async function removeRemoteHost(hostIdRaw: string) {
   delete credentials.credentials[hostId]
   await Promise.all([writeHostStore({ version: 2, hosts: nextHosts }), writeCredentialStore(credentials)])
   return true
+}
+export async function readHostConfig() {
+  const { store, credentials } = await readRemoteState()
+  return { hosts: store, credentials }
+}
+export async function saveHostConfig(input: { hosts?: HostStoreFile; credentials?: CredentialStoreFile }) {
+  const { store, credentials: credentialStore } = await readRemoteState()
+  let hosts = store
+  let credentials = credentialStore
+  if (input.hosts !== undefined) {
+    if (input.hosts.version !== 2 || !Array.isArray(input.hosts.hosts)) throw new Error('Invalid host store')
+    hosts = { version: 2, hosts: input.hosts.hosts.map((item) => normalizeHostRecord(item)) }
+  }
+  if (input.credentials !== undefined) {
+    if (input.credentials.version !== 1 || !input.credentials.credentials || typeof input.credentials.credentials !== 'object' || Array.isArray(input.credentials.credentials)) throw new Error('Invalid credential store')
+    credentials = { version: 1, credentials: {} }
+    for (const [id, value] of Object.entries(input.credentials.credentials)) {
+      const normalized = normalizeCredentials(value)
+      if (isValidHostId(id) && hasCredentials(normalized)) credentials.credentials[id] = normalized
+    }
+  }
+  if (input.hosts !== undefined) await writeHostStore(hosts)
+  if (input.credentials !== undefined) await writeCredentialStore(credentials)
+  return { hosts, credentials }
 }
