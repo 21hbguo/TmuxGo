@@ -778,7 +778,6 @@ export const en = {
   // EditorWorkbench
   'editor.find': 'Find',
   'editor.clear': 'Clear',
-  'editor.format': 'Format',
   'editor.back': 'Back',
   'editor.forward': 'Forward',
   'editor.definition': 'Go to definition',

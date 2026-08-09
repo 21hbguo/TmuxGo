@@ -54,7 +54,6 @@ vi.mock('@/i18n', () => ({
   useTranslation: () => ({ t: (key: string) => {
     if (key === 'editor.clear') return 'Clear'
     if (key === 'editor.find') return 'Find'
-    if (key === 'editor.format') return 'Format'
     if (key === 'editor.back') return 'Back'
     if (key === 'editor.forward') return 'Forward'
     if (key === 'editor.definition') return 'Go to definition'
@@ -786,5 +785,28 @@ describe('EditorWorkbench', () => {
     })
     await vi.waitFor(() => expect(resolveDefinitionMock).toHaveBeenCalledWith(editor1, { line: 2, column: 4 }, expect.any(Array)))
     expect(openFileInEditorMock).toHaveBeenCalledWith(expect.objectContaining({ id: editor2.id }), expect.objectContaining({ position: { line: 2, column: 3 } }))
+  })
+  it('renders markdown preview with GFM tables, images, lists and strikethrough', () => {
+    const mdEditor = { ...editor1, id: 'local:root-workspace:docs/readme.md', name: 'readme.md', path: 'docs/readme.md', absolutePath: '/workspace/docs/readme.md', language: 'markdown', content: '# 标题\n\n| 列A | 列B |\n|---|---|\n| 1 | 2 |\n\n- 项目一\n1. 有序\n\n~~删除~~ ![图](https://example.com/a.png)\n\n```ts\nconst a = 1\n```' }
+    setWorkbenchState({
+      openEditors: [mdEditor],
+      activeEditorId: mdEditor.id,
+      editorGroups: [createGroup('group-1', [mdEditor.id], mdEditor.id)],
+      editorLayout: createLeaf('layout-1', 'group-1'),
+      activeEditorGroupId: 'group-1',
+    })
+    renderWorkbench()
+    const article = document.querySelector('article')
+    if (!article) throw new Error('markdown preview not rendered')
+    const html = article.innerHTML
+    expect(html).toContain('<h1>标题</h1>')
+    expect(html).toContain('<table>')
+    expect(html).toContain('<th>列A</th>')
+    expect(html).toContain('<td>1</td>')
+    expect(html).toContain('<li>项目一</li>')
+    expect(html).toContain('<ol>')
+    expect(html).toContain('<img src="https://example.com/a.png"')
+    expect(html).toContain('<del>删除</del>')
+    expect(html).toContain('<pre><code class="language-ts">')
   })
 })
