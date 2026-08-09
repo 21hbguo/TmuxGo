@@ -201,8 +201,10 @@ interface ConsoleState {
   filePanelOpen: boolean
   thumbnailPanelOpen: boolean
   gitPanelOpen: boolean
+  sshPanelOpen: boolean
   activePluginView: { pluginId: string; viewId: string } | null
   gitPanelWidth: number
+  sshPanelWidth: number
   gitByHost: Record<string, GitHostState>
   mobileFileSheetOpen: boolean
   sessionPanelWidth: number
@@ -236,8 +238,10 @@ interface ConsoleState {
   toggleThumbnailPanel: () => void
   setGitPanelOpen: (open: boolean) => void
   toggleGitPanel: () => void
+  toggleSshPanel: () => void
   setActivePluginView: (view: { pluginId: string; viewId: string } | null) => void
   setGitPanelWidth: (width: number) => void
+  setSshPanelWidth: (width: number) => void
   ensureGitHostState: (hostId: string) => void
   replaceGitByHost: (gitByHost: Record<string, GitHostState>) => void
   setGitFollowEditorRepo: (hostId: string, repoPath: string | null, filePath: string | null) => void
@@ -349,8 +353,10 @@ export const useConsoleStore = create<ConsoleState>()(persist((set) => ({
   filePanelOpen: false,
   thumbnailPanelOpen: false,
   gitPanelOpen: false,
+  sshPanelOpen: false,
   activePluginView: null,
   gitPanelWidth: 560,
+  sshPanelWidth: 320,
   gitByHost: {},
   mobileFileSheetOpen: false,
   sessionPanelWidth: 248,
@@ -373,16 +379,18 @@ export const useConsoleStore = create<ConsoleState>()(persist((set) => ({
   }),
   setActivePane: (id) => set({ activePaneId: id }),
   setCommandPalette: (open) => set({ showCommandPalette: open }),
-  setSessionPanelExpanded: (expanded) => set(expanded ? { sessionPanelExpanded: true, thumbnailPanelOpen: false, activePluginView: null } : { sessionPanelExpanded: false }),
-  toggleSessionPanel: () => set((state) => state.sessionPanelExpanded ? { sessionPanelExpanded: false } : { sessionPanelExpanded: true, thumbnailPanelOpen: false, gitPanelOpen: false, activePluginView: null }),
-  setFilePanelOpen: (open) => set((state) => open ? { filePanelOpen: true, thumbnailPanelOpen: false, sessionPanelExpanded: false, gitPanelOpen: false, activePluginView: null } : { filePanelOpen: false }),
-  toggleFilePanel: () => set((state) => state.filePanelOpen ? { filePanelOpen: false } : { filePanelOpen: true, thumbnailPanelOpen: false, sessionPanelExpanded: false, gitPanelOpen: false, activePluginView: null }),
-  setThumbnailPanelOpen: (open) => set((state) => open ? { thumbnailPanelOpen: true, filePanelOpen: false, sessionPanelExpanded: false, gitPanelOpen: false, activePluginView: null } : { thumbnailPanelOpen: false }),
-  toggleThumbnailPanel: () => set((state) => state.thumbnailPanelOpen ? { thumbnailPanelOpen: false } : { thumbnailPanelOpen: true, filePanelOpen: false, sessionPanelExpanded: false, gitPanelOpen: false, activePluginView: null }),
-  setGitPanelOpen: (open) => set((state) => open ? { gitPanelOpen: true, thumbnailPanelOpen: false, sessionPanelExpanded: false, filePanelOpen: false, activePluginView: null } : { gitPanelOpen: false }),
-  toggleGitPanel: () => set((state) => state.gitPanelOpen ? { gitPanelOpen: false } : { gitPanelOpen: true, thumbnailPanelOpen: false, sessionPanelExpanded: false, filePanelOpen: false, activePluginView: null }),
-  setActivePluginView: (view) => set((state) => view && state.activePluginView?.pluginId === view.pluginId && state.activePluginView.viewId === view.viewId ? { activePluginView: null } : view ? { activePluginView: view, filePanelOpen: false, thumbnailPanelOpen: false, sessionPanelExpanded: false, gitPanelOpen: false } : { activePluginView: null }),
+  setSessionPanelExpanded: (expanded) => set(expanded ? { sessionPanelExpanded: true, thumbnailPanelOpen: false, sshPanelOpen: false, activePluginView: null } : { sessionPanelExpanded: false }),
+  toggleSessionPanel: () => set((state) => state.sessionPanelExpanded ? { sessionPanelExpanded: false } : { sessionPanelExpanded: true, thumbnailPanelOpen: false, gitPanelOpen: false, sshPanelOpen: false, activePluginView: null }),
+  setFilePanelOpen: (open) => set((state) => open ? { filePanelOpen: true, thumbnailPanelOpen: false, sessionPanelExpanded: false, gitPanelOpen: false, sshPanelOpen: false, activePluginView: null } : { filePanelOpen: false }),
+  toggleFilePanel: () => set((state) => state.filePanelOpen ? { filePanelOpen: false } : { filePanelOpen: true, thumbnailPanelOpen: false, sessionPanelExpanded: false, gitPanelOpen: false, sshPanelOpen: false, activePluginView: null }),
+  setThumbnailPanelOpen: (open) => set((state) => open ? { thumbnailPanelOpen: true, filePanelOpen: false, sessionPanelExpanded: false, gitPanelOpen: false, sshPanelOpen: false, activePluginView: null } : { thumbnailPanelOpen: false }),
+  toggleThumbnailPanel: () => set((state) => state.thumbnailPanelOpen ? { thumbnailPanelOpen: false } : { thumbnailPanelOpen: true, filePanelOpen: false, sessionPanelExpanded: false, gitPanelOpen: false, sshPanelOpen: false, activePluginView: null }),
+  setGitPanelOpen: (open) => set((state) => open ? { gitPanelOpen: true, thumbnailPanelOpen: false, sessionPanelExpanded: false, filePanelOpen: false, sshPanelOpen: false, activePluginView: null } : { gitPanelOpen: false }),
+  toggleGitPanel: () => set((state) => state.gitPanelOpen ? { gitPanelOpen: false } : { gitPanelOpen: true, thumbnailPanelOpen: false, sessionPanelExpanded: false, filePanelOpen: false, sshPanelOpen: false, activePluginView: null }),
+  toggleSshPanel: () => set((state) => state.sshPanelOpen ? { sshPanelOpen: false } : { sshPanelOpen: true, filePanelOpen: false, thumbnailPanelOpen: false, sessionPanelExpanded: false, gitPanelOpen: false, activePluginView: null }),
+  setActivePluginView: (view) => set((state) => view && state.activePluginView?.pluginId === view.pluginId && state.activePluginView.viewId === view.viewId ? { activePluginView: null } : view ? { activePluginView: view, filePanelOpen: false, thumbnailPanelOpen: false, sessionPanelExpanded: false, gitPanelOpen: false, sshPanelOpen: false } : { activePluginView: null }),
   setGitPanelWidth: (width) => set({ gitPanelWidth: Math.max(380, Math.min(920, width)) }),
+  setSshPanelWidth: (width) => set({ sshPanelWidth: Math.max(260, Math.min(480, width)) }),
   ensureGitHostState: (hostId) => set((state) => ({ gitByHost: updateGitHostState(state.gitByHost, hostId, (current) => current) })),
   replaceGitByHost: (gitByHost) => set({ gitByHost }),
   setGitFollowEditorRepo: (hostId, repoPath, filePath) => set((state) => ({ gitByHost: updateGitHostState(state.gitByHost, hostId, (current) => {
@@ -527,7 +535,9 @@ export const useConsoleStore = create<ConsoleState>()(persist((set) => ({
       filePanelOpen: state.filePanelOpen,
       thumbnailPanelOpen: state.thumbnailPanelOpen,
       gitPanelOpen: state.gitPanelOpen,
+      sshPanelOpen: state.sshPanelOpen,
       gitPanelWidth: state.gitPanelWidth,
+      sshPanelWidth: state.sshPanelWidth,
       sessionPanelWidth: state.sessionPanelWidth,
       filePanelWidth: state.filePanelWidth,
       terminalPanelHeight: state.terminalPanelHeight,
@@ -565,7 +575,9 @@ export const useConsoleStore = create<ConsoleState>()(persist((set) => ({
       filePanelOpen: persistedState.filePanelOpen ?? current.filePanelOpen,
       thumbnailPanelOpen: persistedState.thumbnailPanelOpen ?? current.thumbnailPanelOpen,
       gitPanelOpen: persistedState.gitPanelOpen ?? current.gitPanelOpen,
+      sshPanelOpen: persistedState.sshPanelOpen ?? current.sshPanelOpen,
       gitPanelWidth: persistedState.gitPanelWidth ?? current.gitPanelWidth,
+      sshPanelWidth: persistedState.sshPanelWidth ?? current.sshPanelWidth,
       sessionPanelWidth: persistedState.sessionPanelWidth ?? current.sessionPanelWidth,
       filePanelWidth: persistedState.filePanelWidth ?? current.filePanelWidth,
       terminalPanelHeight: persistedState.terminalPanelHeight ?? current.terminalPanelHeight,
