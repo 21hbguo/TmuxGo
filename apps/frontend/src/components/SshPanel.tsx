@@ -1,8 +1,9 @@
 'use client'
-import { useState } from 'react'
-import { FiRefreshCw } from 'react-icons/fi'
+import { useEffect, useState } from 'react'
+import { FiFileText, FiRefreshCw } from 'react-icons/fi'
 import { useConsoleStore } from '@/stores/useConsoleStore'
-import { useCreateHost, useDeleteHost, useHosts, useSessions, useTestHost } from '@/hooks/useApi'
+import { useCreateHost, useDeleteHost, useHosts, useHostsConfig, useRemoveAgent, useSaveHostsConfig, useSessions, useTestHost } from '@/hooks/useApi'
+import { type CredentialStoreFile, type HostStoreFile } from '@/lib/api'
 import { useTranslation } from '@/i18n'
 import { useClipboard } from '@/hooks/useClipboard'
 import { Button } from './Button'
@@ -30,6 +31,7 @@ export function SshPanel() {
   const createHost = useCreateHost()
   const deleteHost = useDeleteHost()
   const testHost = useTestHost()
+  const removeAgent = useRemoveAgent()
   const { copy } = useClipboard()
   const [selectedHostId, setSelectedHostId] = useState<string | null>(null)
   const [attachHostId, setAttachHostId] = useState<string | null>(null)
@@ -53,12 +55,53 @@ export function SshPanel() {
   const [pendingDeleteHostId, setPendingDeleteHostId] = useState<string | null>(null)
   const [userMapDraft, setUserMapDraft] = useState('')
   const [allowedHostsDraft, setAllowedHostsDraft] = useState('')
+  const [jsonConfigOpen, setJsonConfigOpen] = useState(false)
+  const [hostsJsonDraft, setHostsJsonDraft] = useState('')
+  const [credentialsJsonDraft, setCredentialsJsonDraft] = useState('')
+  const [jsonConfigError, setJsonConfigError] = useState('')
+  const hostsConfig = useHostsConfig(jsonConfigOpen)
+  const saveHostsConfig = useSaveHostsConfig()
   const { data: sessions = [] } = useSessions(attachHostId || '')
   const localHosts = hosts.filter((host: any) => host.id === 'local')
   const agentHosts = hosts.filter((host: any) => host.id !== 'local' && (host.agent || host.connectionMode === 'agent'))
   const remoteHosts = hosts.filter((host: any) => host.id !== 'local' && !(host.agent || host.connectionMode === 'agent'))
   const selectedHost = hosts.find((host: any) => host.id === selectedHostId) || null
+  const pendingDeleteHost = hosts.find((host: any) => host.id === pendingDeleteHostId)
   const toggleGroup = (group: string) => setCollapsedGroups((prev) => ({ ...prev, [group]: !prev[group] }))
+  useEffect(() => {
+    if (jsonConfigOpen && hostsConfig.data) {
+      setHostsJsonDraft(JSON.stringify(hostsConfig.data.hosts, null, 2))
+      setCredentialsJsonDraft(JSON.stringify(hostsConfig.data.credentials, null, 2))
+    }
+  }, [jsonConfigOpen, hostsConfig.data])
+  const openJsonConfig = () => {
+    setJsonConfigError('')
+    setJsonConfigOpen(true)
+  }
+  const closeJsonConfig = () => {
+    setJsonConfigOpen(false)
+    setJsonConfigError('')
+  }
+  const saveJsonConfig = async () => {
+    setJsonConfigError('')
+    let hosts: HostStoreFile | undefined
+    let credentials: CredentialStoreFile | undefined
+    try {
+      if (hostsJsonDraft.trim()) hosts = JSON.parse(hostsJsonDraft) as HostStoreFile
+      if (credentialsJsonDraft.trim()) credentials = JSON.parse(credentialsJsonDraft) as CredentialStoreFile
+    } catch {
+      setJsonConfigError(t('sshPanel.jsonConfigInvalid'))
+      return
+    }
+    try {
+      await saveHostsConfig.mutateAsync({ hosts, credentials })
+      setJsonConfigOpen(false)
+      setJsonConfigError('')
+      pushToast({ type: 'success', message: t('sshPanel.jsonConfigSaved') })
+    } catch (err: any) {
+      setJsonConfigError(err?.message || t('sshPanel.jsonConfigSaveFailed'))
+    }
+  }
   const resetHostDraft = () => {
     setHostIdDraft('')
     setHostNameDraft('')
@@ -130,8 +173,10 @@ export function SshPanel() {
   }
   const confirmDeleteHost = async () => {
     if (!pendingDeleteHostId) return
+    const isAgent = !!(pendingDeleteHost?.agent || pendingDeleteHost?.connectionMode === 'agent')
     try {
-      await deleteHost.mutateAsync(pendingDeleteHostId)
+      if (isAgent) await removeAgent.mutateAsync(pendingDeleteHostId)
+      else await deleteHost.mutateAsync(pendingDeleteHostId)
       setHostActionMessage(t('sshPanel.removed'))
     } catch (err: any) {
       setHostActionMessage(err?.message || t('sshPanel.removeFailed'))
@@ -222,6 +267,7 @@ export function SshPanel() {
           <div className="text-sm font-semibold text-text-1">{t('sshPanel.title')}</div>
           <div className="flex items-center gap-1">
             <button aria-label={t('sshPanel.refresh')} title={t('sshPanel.refresh')} onClick={() => void refetchHosts()} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-7 w-7 text-meta"><FiRefreshCw aria-hidden="true" size={13} /></button>
+            <button aria-label={t('sshPanel.jsonConfig')} title={t('sshPanel.jsonConfig')} onClick={openJsonConfig} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-7 w-7 text-meta"><FiFileText aria-hidden="true" size={13} /></button>
             <Chip tone="accent" onClick={openCreateHostDialog}>{t('sshPanel.newHost')}</Chip>
           </div>
         </div>
@@ -301,7 +347,37 @@ export function SshPanel() {
           </div>
         </div>
       )}
-      <ConfirmDialog open={!!pendingDeleteHostId} title={t('sshPanel.removeTitle')} message={t('sshPanel.removeMessage', { name: hosts.find((host: any) => host.id === pendingDeleteHostId)?.name || pendingDeleteHostId || '' })} confirmLabel={t('sshPanel.delete')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setPendingDeleteHostId(null)} onConfirm={() => void confirmDeleteHost()} />
+      {jsonConfigOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center tmuxgo-scrim p-4" onClick={closeJsonConfig}>
+          <div className="tmuxgo-glass tmuxgo-glass-dialog flex h-full max-h-[80vh] w-full max-w-[640px] flex-col rounded-apple border p-4" onClick={(event) => event.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-base font-medium text-text-1">{t('sshPanel.jsonConfigTitle')}</h3>
+              <Button variant="ghost" size="sm" aria-label="close" onClick={closeJsonConfig}>✕</Button>
+            </div>
+            {!hostsConfig.data && <div className="text-xs text-text-3">{t('sshPanel.jsonConfigLoading')}</div>}
+            {hostsConfig.data && (
+              <div className="flex min-h-0 flex-1 flex-col gap-3">
+                <div>
+                  <div className="mb-1 text-xs text-text-3">{t('sshPanel.jsonConfigHosts')}</div>
+                  <div className="mb-1 font-mono text-[10px] text-text-3">{t('sshPanel.jsonConfigPath', { path: hostsConfig.data.hostsPath })}</div>
+                  <textarea value={hostsJsonDraft} onChange={(event) => setHostsJsonDraft(event.target.value)} aria-label={t('sshPanel.jsonConfigHosts')} spellCheck={false} className="tmuxgo-scrollbar h-40 w-full resize-none rounded-apple bg-bg-2 p-2 font-mono text-xs text-text-1" />
+                </div>
+                <div>
+                  <div className="mb-1 text-xs text-text-3">{t('sshPanel.jsonConfigCredentials')}</div>
+                  <div className="mb-1 font-mono text-[10px] text-text-3">{t('sshPanel.jsonConfigPath', { path: hostsConfig.data.credentialsPath })}</div>
+                  <textarea value={credentialsJsonDraft} onChange={(event) => setCredentialsJsonDraft(event.target.value)} aria-label={t('sshPanel.jsonConfigCredentials')} spellCheck={false} className="tmuxgo-scrollbar h-40 w-full resize-none rounded-apple bg-bg-2 p-2 font-mono text-xs text-text-1" />
+                </div>
+                {!!jsonConfigError && <div className="break-words text-xs text-danger">{jsonConfigError}</div>}
+                <div className="mt-auto flex items-center justify-end gap-2">
+                  <Button size="sm" onClick={closeJsonConfig}>{t('sshPanel.jsonConfigCancel')}</Button>
+                  <Button variant="primary" size="sm" onClick={() => void saveJsonConfig()}>{t('sshPanel.jsonConfigSave')}</Button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      <ConfirmDialog open={!!pendingDeleteHostId} title={t('sshPanel.removeTitle')} message={pendingDeleteHost?.agent || pendingDeleteHost?.connectionMode === 'agent' ? t('sshPanel.removeAgentConfirm', { name: pendingDeleteHost?.name || pendingDeleteHostId || '' }) : t('sshPanel.removeMessage', { name: pendingDeleteHost?.name || pendingDeleteHostId || '' })} confirmLabel={t('sshPanel.delete')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setPendingDeleteHostId(null)} onConfirm={() => void confirmDeleteHost()} />
     </div>
   )
 }

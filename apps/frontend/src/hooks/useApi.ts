@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api, type SystemTaskResponse } from '@/lib/api'
+import { api, type CredentialStoreFile, type HostStoreFile, type SystemTaskResponse } from '@/lib/api'
 import type { PluginPermission, SessionLayout, SessionTemplate } from '@/types'
 import type { GitBranchesResponse, GitCommitResponse, GitDetectResponse, GitDiffResponse, GitLogResponse, GitMergeResponse, GitRepositoryInfo, GitStatusResponse } from '@/types'
 
@@ -70,6 +70,28 @@ export function useDeleteHost() {
     mutationFn: (hostId: string) =>
       api.hosts.remove(hostId),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['hosts'] })
+    },
+  })
+}
+export function useRemoveAgent() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.agents.remove(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['hosts'] })
+    },
+  })
+}
+export function useHostsConfig(enabled = false) {
+  return useQuery({ queryKey: ['hosts-config'], queryFn: api.hostsConfig.get, enabled, staleTime: 30000 })
+}
+export function useSaveHostsConfig() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: { hosts?: HostStoreFile; credentials?: CredentialStoreFile }) => api.hostsConfig.save(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['hosts-config'] })
       queryClient.invalidateQueries({ queryKey: ['hosts'] })
     },
   })

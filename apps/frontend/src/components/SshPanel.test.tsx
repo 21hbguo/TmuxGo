@@ -8,6 +8,8 @@ const useHostsMock = vi.fn()
 const mutateCreateHost = vi.fn()
 const mutateDeleteHost = vi.fn()
 const mutateTestHost = vi.fn()
+const mutateRemoveAgent = vi.fn()
+const mutateSaveHostsConfig = vi.fn()
 const useSessionsMock = vi.fn()
 const refetchHostsMock = vi.fn()
 const hostRows: any[] = [
@@ -15,12 +17,21 @@ const hostRows: any[] = [
   { id: 'web-prod', name: 'Web Prod', address: '1.2.3.4', user: 'ubuntu', port: 22, status: 'offline', groups: ['prod'], favorite: true, usesAgent: false },
   { id: 'edge', name: 'Edge Agent', address: '10.0.0.5', user: 'admin', port: 2222, status: 'online', agent: { online: true, version: '1.2.3' }, connectionMode: 'agent' },
 ]
+const hostsConfigData = {
+  hostsPath: '/data/hosts.json',
+  credentialsPath: '/data/host-credentials.json',
+  hosts: { version: 2, hosts: [{ id: 'web-prod', address: '1.2.3.4' }] },
+  credentials: { version: 1, credentials: { 'web-prod': { user: 'ubuntu' } } },
+}
 
 vi.mock('@/hooks/useApi', () => ({
   useHosts: () => useHostsMock(),
   useCreateHost: () => ({ mutateAsync: mutateCreateHost }),
   useDeleteHost: () => ({ mutateAsync: mutateDeleteHost }),
   useTestHost: () => ({ mutateAsync: mutateTestHost }),
+  useRemoveAgent: () => ({ mutateAsync: mutateRemoveAgent }),
+  useHostsConfig: () => ({ data: hostsConfigData }),
+  useSaveHostsConfig: () => ({ mutateAsync: mutateSaveHostsConfig }),
   useSessions: (...args: any[]) => useSessionsMock(...args),
 }))
 vi.mock('@/i18n', () => ({
@@ -89,6 +100,17 @@ vi.mock('@/i18n', () => ({
       'sshPanel.usageExample': 'ssh tmuxgo@gateway attach --host <host> --session <name>',
       'sshPanel.docPath': 'Deploy docs',
       'sshPanel.docPathValue': 'apps/gateway/docs/ssh-gateway-deploy.md',
+      'sshPanel.jsonConfig': 'JSON Config',
+      'sshPanel.jsonConfigTitle': 'Edit JSON Config',
+      'sshPanel.jsonConfigHosts': 'Hosts (hosts.json)',
+      'sshPanel.jsonConfigCredentials': 'Credentials (host-credentials.json)',
+      'sshPanel.jsonConfigSave': 'Save',
+      'sshPanel.jsonConfigCancel': 'Cancel',
+      'sshPanel.jsonConfigInvalid': 'Invalid JSON',
+      'sshPanel.jsonConfigSaved': 'Config saved',
+      'sshPanel.jsonConfigPath': 'Path: {path}',
+      'sshPanel.jsonConfigLoading': 'Loading…',
+      'sshPanel.removeAgentConfirm': 'Remove agent {name} history?',
       'common.cancel': 'Cancel',
     }
     const value = map[key] ?? key
@@ -108,6 +130,8 @@ describe('SshPanel', () => {
     mutateCreateHost.mockReset()
     mutateDeleteHost.mockReset()
     mutateTestHost.mockReset()
+    mutateRemoveAgent.mockReset()
+    mutateSaveHostsConfig.mockReset()
     useSessionsMock.mockReset()
     refetchHostsMock.mockReset()
     useHostsMock.mockReturnValue({ data: hostRows, refetch: refetchHostsMock })
@@ -115,6 +139,8 @@ describe('SshPanel', () => {
     mutateCreateHost.mockResolvedValue({ id: 'created' })
     mutateDeleteHost.mockResolvedValue({ success: true })
     mutateTestHost.mockResolvedValue({ task: { title: 'ready' } })
+    mutateRemoveAgent.mockResolvedValue({ success: true })
+    mutateSaveHostsConfig.mockResolvedValue({ hosts: hostsConfigData.hosts, credentials: hostsConfigData.credentials })
     useConsoleStore.setState({
       sshPanelOpen: false,
       activeHostId: '',
@@ -198,5 +224,40 @@ describe('SshPanel', () => {
     expect(screen.getByText('Allowed hosts (TMUXGO_SSH_ALLOWED_HOSTS)')).toBeInTheDocument()
     expect(screen.getByText('ssh tmuxgo@gateway attach --host <host> --session <name>')).toBeInTheDocument()
     expect(screen.getByText('Deploy docs: apps/gateway/docs/ssh-gateway-deploy.md')).toBeInTheDocument()
+  })
+
+  it('deletes an agent row via removeAgent', async () => {
+    render(<SshPanel />)
+    fireEvent.click(screen.getAllByText('Delete')[2])
+    fireEvent.click(screen.getByText('confirm-delete'))
+    await waitFor(() => expect(mutateRemoveAgent).toHaveBeenCalledWith('edge'))
+    expect(mutateDeleteHost).not.toHaveBeenCalled()
+  })
+
+  it('opens the json config editor with both textareas', () => {
+    render(<SshPanel />)
+    fireEvent.click(screen.getByLabelText('JSON Config'))
+    expect(screen.getByLabelText('Hosts (hosts.json)')).toBeInTheDocument()
+    expect(screen.getByLabelText('Credentials (host-credentials.json)')).toBeInTheDocument()
+    expect(screen.getByLabelText('Hosts (hosts.json)')).toHaveValue(JSON.stringify(hostsConfigData.hosts, null, 2))
+  })
+
+  it('saves json config via saveHostsConfig', async () => {
+    render(<SshPanel />)
+    fireEvent.click(screen.getByLabelText('JSON Config'))
+    const nextHosts = { version: 2, hosts: [{ id: 'web-prod', address: '5.6.7.8' }] }
+    fireEvent.change(screen.getByLabelText('Hosts (hosts.json)'), { target: { value: JSON.stringify(nextHosts) } })
+    fireEvent.click(screen.getByText('Save'))
+    await waitFor(() => expect(mutateSaveHostsConfig).toHaveBeenCalledWith({ hosts: nextHosts, credentials: hostsConfigData.credentials }))
+    await waitFor(() => expect(screen.queryByLabelText('Hosts (hosts.json)')).not.toBeInTheDocument())
+  })
+
+  it('shows an error for invalid json and does not save', async () => {
+    render(<SshPanel />)
+    fireEvent.click(screen.getByLabelText('JSON Config'))
+    fireEvent.change(screen.getByLabelText('Hosts (hosts.json)'), { target: { value: '{bad json' } })
+    fireEvent.click(screen.getByText('Save'))
+    await waitFor(() => expect(screen.getByText('Invalid JSON')).toBeInTheDocument())
+    expect(mutateSaveHostsConfig).not.toHaveBeenCalled()
   })
 })

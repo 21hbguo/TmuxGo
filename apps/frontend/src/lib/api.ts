@@ -140,6 +140,14 @@ export interface HostPayload {
   jumpHost?: string
   knownHostsPolicy?: 'strict' | 'accept-new' | 'off'
 }
+export interface HostStoreFile {
+  version: 2
+  hosts: Record<string, unknown>[]
+}
+export interface CredentialStoreFile {
+  version: 1
+  credentials: Record<string, { password?: string; passwordEnv?: string; privateKeyPath?: string }>
+}
 export interface AgentNotificationRecord {
   id: string
   eventId: string
@@ -368,6 +376,13 @@ export const api = {
       }),
     githubAuthStatus: (id: string) =>
       fetchApi<{ ok: boolean; available: boolean; loggedIn: boolean | null }>(`/api/hosts/${encodeURIComponent(id)}/github/auth-status`),
+  },
+  agents: {
+    remove: (id: string) => fetchApi<{ success: boolean }>(`/api/agents/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  },
+  hostsConfig: {
+    get: () => fetchApi<{ hostsPath: string; credentialsPath: string; hosts: HostStoreFile; credentials: CredentialStoreFile }>('/api/hosts/config'),
+    save: (payload: { hosts?: HostStoreFile; credentials?: CredentialStoreFile }) => fetchApi<{ hosts: HostStoreFile; credentials: CredentialStoreFile }>('/api/hosts/config', { method: 'PUT', body: JSON.stringify(payload) }),
   },
   sessions: {
     list: (hostId: string) => fetchApi<any[]>(`/api/hosts/${hostId}/sessions`),
