@@ -105,11 +105,6 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   const { t } = useTranslation()
   const { prompt, PromptElement } = usePrompt()
   useGitPreferencesSync()
-  useEffect(() => {
-    localStorage.removeItem('tmuxgo-debug-ime')
-    localStorage.removeItem('tmuxgo-debug-mobile')
-  }, [])
-
   const { data: hostsData = [] } = useHosts()
   const { data: sessionsData = [], isFetched: sessionsFetched } = useOrderedSessions(activeHostId || '')
   const { data: snapshotData } = useSessionSnapshot(activeHostId || '', activeSessionId || '')
