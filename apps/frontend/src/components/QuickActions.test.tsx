@@ -26,7 +26,7 @@ vi.mock('@/hooks/useWebSocket', () => ({
   useWebSocket: () => ({ send }),
 }))
 vi.mock('@/hooks/useCustomShortcuts', () => ({
-  useCustomShortcuts: () => ({ shortcuts: [], addShortcut: vi.fn(), updateShortcut: vi.fn(), removeShortcut: vi.fn() }),
+  useCustomShortcuts: () => ({ shortcuts: [], addShortcut: vi.fn(), updateShortcut: vi.fn(), removeShortcut: vi.fn(), removeShortcuts: vi.fn() }),
   shortcutToSteps: vi.fn(() => []),
   stepToInput: vi.fn(() => ''),
   describeShortcut: vi.fn(() => ''),
