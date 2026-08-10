@@ -70,7 +70,7 @@ export async function createTerminalAttachment(options: CreateTerminalAttachment
     if (!host) throw new Error('Host not found')
     const credentials = await getHostCredentials(host.id)
     const target = `${host.user}@${host.address}`
-    const sshBaseArgs = ['-p', String(host.port), '-tt', '-o', 'ConnectTimeout=8', '-o', 'ServerAliveInterval=30', '-o', 'ServerAliveCountMax=3', ...buildHostSshOptions(host, credentials), target, '--', 'tmux', 'attach']
+    const sshBaseArgs = ['-p', String(host.port), '-tt', '-o', 'ConnectTimeout=8', '-o', 'ServerAliveInterval=30', '-o', 'ServerAliveCountMax=3', ...buildHostSshOptions(host, credentials), target, '--', host.tmuxPath || 'tmux', 'attach']
     if (!exclusive) sshBaseArgs.push('-f', 'ignore-size,active-pane')
     sshBaseArgs.push('-t', sessionName)
     const hostPassword = resolveHostPassword(credentials)
