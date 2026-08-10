@@ -291,6 +291,7 @@ export async function upsertRemoteHost(input: HostInput) {
     useAgent: input.useAgent === undefined ? (existing?.useAgent ?? true) : input.useAgent,
     jumpHost: input.jumpHost === undefined ? (existing?.jumpHost || '') : sanitizeJumpHost(input.jumpHost),
     knownHostsPolicy: input.knownHostsPolicy === undefined ? (existing?.knownHostsPolicy || 'accept-new') : sanitizeKnownHostsPolicy(input.knownHostsPolicy),
+    tmuxPath: input.tmuxPath === undefined ? (existing?.tmuxPath || '') : sanitizeTmuxPath(input.tmuxPath),
     createdAt: existing?.createdAt || now,
     updatedAt: now,
   }
