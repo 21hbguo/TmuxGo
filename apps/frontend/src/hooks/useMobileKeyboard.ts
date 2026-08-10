@@ -13,6 +13,7 @@ const KEYBOARD_VERIFY_MS = 360
 const DEFERRED_INPUT_COMMIT_MS = 80
 const DELETE_REPEAT_DELAY_MS = 300
 const DELETE_REPEAT_INTERVAL_MS = 33
+const DELETE_STOP_GRACE_MS = 150
 const KEYBOARD_EVENT = 'mobile-keyboard-change'
 function isEdgeAndroid() {
   return /Android/i.test(navigator.userAgent) && /EdgA/i.test(navigator.userAgent)
@@ -55,6 +56,7 @@ export function useMobileKeyboard(
   const deferredInputTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const deleteRepeatTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const deleteRepeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const deleteStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const deferredInputActiveRef = useRef(false)
   const keepAliveUntilRef = useRef(0)
   const viewportGraceUntilRef = useRef(0)
@@ -172,6 +174,10 @@ export function useMobileKeyboard(
     deferredInputTimerRef.current = null
   }, [])
   const stopDeleteRepeat = useCallback(() => {
+    if (deleteStopTimerRef.current) {
+      clearTimeout(deleteStopTimerRef.current)
+      deleteStopTimerRef.current = null
+    }
     if (deleteRepeatTimerRef.current) {
       clearTimeout(deleteRepeatTimerRef.current)
       deleteRepeatTimerRef.current = null
@@ -181,7 +187,21 @@ export function useMobileKeyboard(
       deleteRepeatIntervalRef.current = null
     }
   }, [])
+  const scheduleDeleteStop = useCallback(() => {
+    if (deleteStopTimerRef.current) return
+    deleteStopTimerRef.current = setTimeout(() => {
+      deleteStopTimerRef.current = null
+      if (deleteRepeatTimerRef.current) {
+        clearTimeout(deleteRepeatTimerRef.current)
+        deleteRepeatTimerRef.current = null
+      }
+    }, DELETE_STOP_GRACE_MS)
+  }, [])
   const startDeleteRepeat = useCallback(() => {
+    if (deleteStopTimerRef.current) {
+      clearTimeout(deleteStopTimerRef.current)
+      deleteStopTimerRef.current = null
+    }
     stopDeleteRepeat()
     deleteRepeatTimerRef.current = setTimeout(() => {
       deleteRepeatTimerRef.current = null
@@ -280,10 +300,8 @@ export function useMobileKeyboard(
       }
       if (e.key === 'Backspace') {
         e.preventDefault()
-        if (!e.repeat) {
-          sendInput('\x7f')
-          startDeleteRepeat()
-        }
+        sendInput('\x7f')
+        startDeleteRepeat()
         clearValue()
       } else if (e.key === 'Enter') {
         e.preventDefault()
@@ -301,7 +319,13 @@ export function useMobileKeyboard(
     }
 
     const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.key === 'Backspace') stopDeleteRepeat()
+      if (e.key === 'Backspace') {
+        if (deleteRepeatIntervalRef.current) {
+          clearInterval(deleteRepeatIntervalRef.current)
+          deleteRepeatIntervalRef.current = null
+        }
+        scheduleDeleteStop()
+      }
     }
 
     const handleBeforeInput = (e: InputEvent) => {
@@ -464,7 +488,7 @@ export function useMobileKeyboard(
       clearDeferredInputTimer()
       stopDeleteRepeat()
     }
-  }, [sendInput, clearValue, setImeComposing, focusKeyboard, closeKeyboard, confirmKeyboardOpen, scheduleKeyboardProbe, openKeyboard, keyboardLog, getInputText, flushDeferredInput, scheduleDeferredInputFlush, clearDeferredInputTimer, shouldDeferInput, startDeleteRepeat, stopDeleteRepeat])
+  }, [sendInput, clearValue, setImeComposing, focusKeyboard, closeKeyboard, confirmKeyboardOpen, scheduleKeyboardProbe, openKeyboard, keyboardLog, getInputText, flushDeferredInput, scheduleDeferredInputFlush, clearDeferredInputTimer, shouldDeferInput, startDeleteRepeat, stopDeleteRepeat, scheduleDeleteStop])
 
   useEffect(() => {
     if (!isMobile.current) return
