@@ -477,18 +477,20 @@ export function QuickActions({ mode='panel', onOpenFiles }:{ mode?:QuickActionsM
             </button>
           </div>
         </MobileBottomSheet>
-        <AddShortcutModal
-          key={editingShortcut?.id || 'new'}
-          isMobile={isMobile}
-          initialShortcut={editingShortcut || undefined}
-          onSave={(data)=>{
-            if (editingShortcut) updateShortcut(editingShortcut.id,data)
-            else addShortcut(data)
-            setEditingShortcut(null)
-            setShowModal(false)
-          }}
-          onClose={()=>{ setEditingShortcut(null); setShowModal(false) }}
-        />
+        {showModal&&(
+          <AddShortcutModal
+            key={editingShortcut?.id || 'new'}
+            isMobile={isMobile}
+            initialShortcut={editingShortcut || undefined}
+            onSave={(data)=>{
+              if (editingShortcut) updateShortcut(editingShortcut.id,data)
+              else addShortcut(data)
+              setEditingShortcut(null)
+              setShowModal(false)
+            }}
+            onClose={()=>{ setEditingShortcut(null); setShowModal(false) }}
+          />
+        )}
         <ConfirmDialog open={!!pendingShortcutDelete} title={t('shortcut.deleteTitle')} message={t('shortcut.deleteConfirm',{ label:pendingShortcutDelete?.label || '' })} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} tone="danger" onCancel={()=>setPendingShortcutDelete(null)} onConfirm={confirmDeleteShortcut} />
         <ConfirmDialog open={confirmKillOpen} title={t('quick.killTitle')} message={t('quick.killConfirm')} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} tone="danger" onCancel={()=>{ setPendingKillPaneId(null); setConfirmKillOpen(false) }} onConfirm={()=>void confirmKillPane()} />
         <PromptDialog open={newWindowPromptOpen} title={t('window.createTitle')} defaultValue={newWindowName} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} onCancel={()=>setNewWindowPromptOpen(false)} onConfirm={(value)=>{ setNewWindowName(value); void confirmCreateWindow(value) }} />
