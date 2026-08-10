@@ -20,10 +20,14 @@ interface NotificationItem {
   hostId: string
   sessionId: string
   status: 'blocked' | 'done' | 'permission_required' | 'needs_input' | 'failed' | 'ended' | 'disconnected'
+  title?: string
   message: string
   timestamp: string
 }
 type TranslateFn = ReturnType<typeof useTranslation>['t']
+function sanitizeNotificationMessage(value: string) {
+  return value.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '').replace(/(?:~|\/)[^\s,;)]{2,}/g, '[path]').replace(/\s+/g, ' ').trim().slice(0, 240)
+}
 function getAgentNotificationStatus(pane: AgentPaneState): NotificationItem['status'] | null {
   if (pane.phase === 'permission_required' || pane.lastEvent === 'permission_required') return 'permission_required'
   if (pane.phase === 'needs_input' || pane.lastEvent === 'question_required') return 'needs_input'
@@ -90,7 +94,7 @@ function toNotificationItem(record: AgentNotificationRecord, t: TranslateFn): No
   if (!record || typeof record.id !== 'string' || typeof record.hostId !== 'string' || typeof record.sessionName !== 'string' || typeof record.paneId !== 'string' || typeof record.agent !== 'string') return null
   const status = record.status
   if (!['blocked', 'done', 'permission_required', 'needs_input', 'failed', 'ended', 'disconnected'].includes(status)) return null
-  return { id: record.id, paneId: record.paneId, paneName: record.agent, hostId: record.hostId, sessionId: buildSessionId(record.hostId, record.sessionName), status, message: getAgentNotificationMessage(status, record.agent, record.sessionName, t), timestamp: typeof record.timestamp === 'string' ? record.timestamp : new Date().toISOString() }
+  return { id: record.id, paneId: record.paneId, paneName: record.agent, hostId: record.hostId, sessionId: buildSessionId(record.hostId, record.sessionName), status, title: record.title, message: sanitizeNotificationMessage(record.message) || getAgentNotificationMessage(status, record.agent, record.sessionName, t), timestamp: typeof record.timestamp === 'string' ? record.timestamp : new Date().toISOString() }
 }
 export function PaneNotifications() {
   const [notifications, setNotifications] = useState<NotificationItem[]>(readStoredNotifications)
@@ -212,11 +216,11 @@ export function PaneNotifications() {
   useEffect(() => {
     if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return
     const handleServiceWorkerMessage = (event: MessageEvent) => {
-      const detail = event.data as { type?: string; id?: string; hostId?: string; sessionName?: string; paneId?: string; agent?: string; status?: string; timestamp?: string }
+      const detail = event.data as { type?: string; id?: string; hostId?: string; sessionName?: string; paneId?: string; agent?: string; status?: string; title?: string; message?: string; timestamp?: string }
       if (detail?.type !== 'tmuxgo-agent-notification-click' || typeof detail.hostId !== 'string' || typeof detail.sessionName !== 'string' || typeof detail.paneId !== 'string') return
       const status = detail.status && ['blocked', 'done', 'permission_required', 'needs_input', 'failed', 'ended', 'disconnected'].includes(detail.status) ? detail.status as NotificationItem['status'] : 'blocked'
       const agent = typeof detail.agent === 'string' && detail.agent ? detail.agent : 'agent'
-      const notification: NotificationItem = { id: typeof detail.id === 'string' ? detail.id : `${detail.hostId}:${detail.paneId}:push`, paneId: detail.paneId, paneName: agent, hostId: detail.hostId, sessionId: buildSessionId(detail.hostId, detail.sessionName), status, message: getAgentNotificationMessage(status, agent, detail.sessionName, t), timestamp: typeof detail.timestamp === 'string' ? detail.timestamp : new Date().toISOString() }
+      const notification: NotificationItem = { id: typeof detail.id === 'string' ? detail.id : `${detail.hostId}:${detail.paneId}:push`, paneId: detail.paneId, paneName: agent, hostId: detail.hostId, sessionId: buildSessionId(detail.hostId, detail.sessionName), status, title: typeof detail.title === 'string' ? detail.title : undefined, message: sanitizeNotificationMessage(detail.message || '') || getAgentNotificationMessage(status, agent, detail.sessionName, t), timestamp: typeof detail.timestamp === 'string' ? detail.timestamp : new Date().toISOString() }
       void openNotification(notification)
     }
     navigator.serviceWorker.addEventListener('message', handleServiceWorkerMessage)
@@ -305,14 +309,14 @@ export function PaneNotifications() {
       if (!status) return
       const sessionId = buildSessionId(hostId, sessionName)
       const id = eventId || pane.eventId || `${pane.paneId}:${pane.revision}:${status}`
-      const message = getAgentNotificationMessage(status, pane.agent, sessionName, t)
-      const notification: NotificationItem = { id, paneId: pane.paneId, paneName: pane.agent, hostId, sessionId, status, message, timestamp: new Date().toISOString() }
+      const message = sanitizeNotificationMessage(pane.message || '') || getAgentNotificationMessage(status, pane.agent, sessionName, t)
+      const notification: NotificationItem = { id, paneId: pane.paneId, paneName: pane.agent, hostId, sessionId, status, title: pane.display?.title, message, timestamp: new Date().toISOString() }
       const isNew = !notificationsRef.current.some((item) => item.id === id)
       if (!isNew) return
       updateNotifications((current) => [notification, ...current.filter((item) => item.id !== id)])
       setVisibleIds((current) => [id, ...current.filter((item) => item !== id)].slice(0, 8))
       if (document.visibilityState === 'hidden' && 'Notification' in window && Notification.permission === 'granted') {
-        const browserNotification = new Notification(t('notification.title'), { body: message, tag: id })
+        const browserNotification = new Notification(notification.title || t('notification.title'), { body: message, tag: id })
         browserNotification.onclick = () => {
           window.focus()
           browserNotification.close()

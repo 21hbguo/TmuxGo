@@ -109,12 +109,12 @@ describe('PaneNotifications', () => {
     expect(screen.getAllByText('codex failed in dev')).toHaveLength(1)
     expect(JSON.parse(localStorage.getItem('tmuxgo-pane-notifications') || '[]')).toHaveLength(1)
   })
-  it('keeps terminal output out of notification history and visible text', () => {
+  it('redacts paths in notification messages', () => {
     render(<PaneNotifications />)
     act(() => window.dispatchEvent(new CustomEvent('tmuxgo-agent-notification', { detail: { type: 'agent_notification', hostId: 'local', sessionName: 'dev', eventId: 'local:local:%1:failed:11', pane: { paneId: 'local:%1', tmuxPaneId: '%1', sessionName: 'dev', agent: 'codex', agentStatus: 'unknown', phase: 'failed', lastEvent: 'failed', message: 'secret command /home/guo/private prompt', revision: 11 } } })))
-    expect(screen.getByText('codex failed in dev')).toBeInTheDocument()
-    expect(document.body.textContent).not.toContain('secret command /home/guo/private prompt')
-    expect(localStorage.getItem('tmuxgo-pane-notifications')).not.toContain('secret command /home/guo/private prompt')
+    expect(screen.getByText('secret command [path] prompt')).toBeInTheDocument()
+    expect(document.body.textContent).not.toContain('/home/guo/private')
+    expect(localStorage.getItem('tmuxgo-pane-notifications')).not.toContain('/home/guo/private')
   })
   it('clears agent metadata but keeps the terminal pane when it is removed', () => {
     queryCache.set(JSON.stringify(['session-snapshot', 'local', 'session-local-dev']), { panes: [{ id: 'local:%1', windowId: 'local:@1', title: 'codex', agent: 'codex', agentStatus: 'working', phase: 'working', revision: 3 }] })
