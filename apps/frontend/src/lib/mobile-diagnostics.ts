@@ -1,6 +1,11 @@
 'use client'
 import { getApiBase } from './runtime-endpoints'
 import { authenticatedFetch } from './auth'
+if (typeof window !== 'undefined' && window.location.hash.includes('debug-mobile')) {
+  try {
+    window.localStorage.setItem('tmuxgo-debug-mobile', 'upload')
+  } catch {}
+}
 
 type DiagnosticEvent=Record<string, unknown>&{event:string}
 type DiagnosticState={events:DiagnosticEvent[];sessionId:string}
