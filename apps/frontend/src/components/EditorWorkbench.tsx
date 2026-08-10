@@ -10,9 +10,9 @@ import { clearActiveDraggedFile, FILE_DRAG_MIME, getActiveDraggedFile, readDragg
 import { OPEN_EDITOR_LOCATION_EVENT, openFileInEditor } from '@/lib/editor-open'
 import { resolveEditorDefinition } from '@/lib/code-navigation'
 import { useTranslation } from '@/i18n'
-import { marked } from 'marked'
-import DOMPurify from 'dompurify'
+import { MARKDOWN_PROSE_CLASS, renderMarkdown } from '@/lib/markdown'
 import { Button } from './Button'
+import { ZoomSurface } from './ZoomSurface'
 import { Chip } from './Chip'
 import { ConfirmDialog } from './ConfirmDialog'
 import { DiffViewer } from './DiffViewer'
@@ -65,19 +65,6 @@ function getTabSize(language: string) {
 }
 function isImagePreviewable(editor: FileEditorDocument) {
   return !!editor.previewUrl
-}
-function renderMarkdown(content: string) {
-  const segments: string[] = []
-  let last = 0
-  const codePattern = /```[\s\S]*?```/g
-  let match: RegExpExecArray | null
-  while ((match = codePattern.exec(content))) {
-    segments.push(content.slice(last, match.index), match[0])
-    last = match.index + match[0].length
-  }
-  segments.push(content.slice(last))
-  const parts = segments.map((segment, index) => index % 2 === 1 ? marked.parse(segment, { gfm: true }) as string : marked.parse(segment.replace(/\n{3,}/g, (m) => '<br>'.repeat(m.length - 2) + '\n\n'), { gfm: true, breaks: true }) as string)
-  return DOMPurify.sanitize(parts.join('\n'))
 }
 function getAutoScrollStep(distance: number) {
   const absDistance = Math.abs(distance)
@@ -155,10 +142,11 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
   const [tabDropTarget, setTabDropTarget] = useState<{ groupId: string; placement: DropPlacement } | null>(null)
   const [tabInsertionTarget, setTabInsertionTarget] = useState<{ groupId: string; editorId: string; side: TabInsertSide } | null>(null)
   const [navigationVersion, setNavigationVersion] = useState(0)
-  const [imageScale, setImageScale] = useState(1)
-  const [imageOffset, setImageOffset] = useState({ x: 0, y: 0 })
-  const imageViewportRef = useRef<HTMLDivElement | null>(null)
-  const imageDragRef = useRef<{ pointerId: number; startX: number; startY: number; originX: number; originY: number } | null>(null)
+  const [previewSyncEnabled, setPreviewSyncEnabled] = useState(true)
+  const previewSyncEnabledRef = useRef(true)
+  previewSyncEnabledRef.current = previewSyncEnabled
+  const previewElRefs = useRef<Record<string, HTMLElement | null>>({})
+  const previewHighlightRef = useRef<Record<string, HTMLElement | null>>({})
   const splitResizeRef = useRef<{ active: boolean; direction: 'horizontal' | 'vertical'; splitId: string; container: HTMLDivElement | null } | null>(null)
   const editorById = new Map(openEditors.map((item) => [item.id, item]))
   const groupById = new Map(editorGroups.map((group) => [group.id, group]))
@@ -196,6 +184,33 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
     const position = editorRefs.current[editorId]?.getPosition?.()
     if (!position) return null
     return { line: position.lineNumber, column: position.column }
+  }
+  const syncPreviewToLine = (editorId: string, line: number) => {
+    const previewEl = previewElRefs.current[editorId]
+    if (!previewEl || !line) return
+    const blocks = Array.from(previewEl.querySelectorAll<HTMLElement>('[data-line]'))
+    let target: HTMLElement | null = null
+    for (const block of blocks) {
+      const start = Number(block.getAttribute('data-line'))
+      if (start <= line) target = block
+      else break
+    }
+    const previous = previewHighlightRef.current[editorId]
+    if (previous && previous !== target) previous.style.boxShadow = ''
+    previewHighlightRef.current[editorId] = target
+    if (!target) return
+    target.style.boxShadow = 'inset 0 0 0 1px var(--accent)'
+    target.scrollIntoView?.({ block: 'center' })
+  }
+  const jumpPreviewToEditor = (editorId: string) => (event: ReactMouseEvent<HTMLElement>) => {
+    const target = (event.target as HTMLElement).closest('[data-line]')
+    if (!target) return
+    const line = Number(target.getAttribute('data-line'))
+    const instance = editorRefs.current[editorId]
+    if (!instance || !line) return
+    instance.revealLineInCenter?.(line)
+    instance.setPosition?.({ lineNumber: line, column: 1 })
+    instance.focus?.()
   }
   const createNavigationEntry = (editor: FileEditorDocument, position?: { line: number; column: number } | null) => {
     const resolvedPosition = position || getNavigationPosition(editor.id)
@@ -489,8 +504,6 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
     setPaneDropTarget(null)
     setTabDropTarget(null)
     setTabInsertionTarget(null)
-    setImageScale(1)
-    setImageOffset({ x: 0, y: 0 })
   }, [activeEditor?.id])
   useEffect(() => {
     if (!activeHostId) return
@@ -656,36 +669,7 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
     }
     if (editor.loading) return <div className="flex h-full items-center justify-center text-sm text-text-3">{t('editor.loading', { name: editor.name })}</div>
     if (isImagePreviewable(editor)) {
-      return <div ref={focused ? imageViewportRef : undefined} className="flex h-full items-center justify-center overflow-hidden bg-bg-0 p-4" onWheel={focused ? (event) => {
-        if (!(event.ctrlKey || event.metaKey)) return
-        event.preventDefault()
-        const viewport = imageViewportRef.current
-        if (!viewport) return
-        const rect = viewport.getBoundingClientRect()
-        const pointX = event.clientX - rect.left - rect.width / 2 - imageOffset.x
-        const pointY = event.clientY - rect.top - rect.height / 2 - imageOffset.y
-        const nextScale = Math.max(0.25, Math.min(8, imageScale * (event.deltaY < 0 ? 1.12 : 0.9)))
-        const ratio = nextScale / imageScale
-        setImageScale(nextScale)
-        setImageOffset({ x: imageOffset.x - pointX * (ratio - 1), y: imageOffset.y - pointY * (ratio - 1) })
-      } : undefined} onDoubleClick={focused ? () => {
-        if (Math.abs(imageScale - 1) < 0.01) setImageScale(2)
-        else {
-          setImageScale(1)
-          setImageOffset({ x: 0, y: 0 })
-        }
-      } : undefined} onPointerDown={focused ? (event) => {
-        imageDragRef.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, originX: imageOffset.x, originY: imageOffset.y }
-        event.currentTarget.setPointerCapture(event.pointerId)
-      } : undefined} onPointerMove={focused ? (event) => {
-        const drag = imageDragRef.current
-        if (!drag || drag.pointerId !== event.pointerId || imageScale <= 1) return
-        setImageOffset({ x: drag.originX + event.clientX - drag.startX, y: drag.originY + event.clientY - drag.startY })
-      } : undefined} onPointerUp={focused ? (event) => {
-        if (imageDragRef.current?.pointerId === event.pointerId) imageDragRef.current = null
-      } : undefined} onPointerCancel={focused ? (event) => {
-        if (imageDragRef.current?.pointerId === event.pointerId) imageDragRef.current = null
-      } : undefined}><img src={editor.previewUrl} alt={editor.name} className="max-h-full max-w-full rounded-apple border border-[var(--line)] bg-bg-1 object-contain select-none" style={focused ? { transform: `translate(${imageOffset.x}px,${imageOffset.y}px) scale(${imageScale})`, transformOrigin: 'center center' } : undefined} />{focused && <div className="absolute right-4 top-3 rounded-full border border-[var(--line)] bg-bg-1/90 px-3 py-1 text-meta text-text-2">{Math.round(imageScale * 100)}%</div>}</div>
+      return <ZoomSurface active={focused} resetKey={editor.id} image className="flex h-full items-center justify-center overflow-hidden bg-bg-0 p-4"><img src={editor.previewUrl} alt={editor.name} className="max-h-full max-w-full rounded-apple border border-[var(--line)] bg-bg-1 object-contain select-none" /></ZoomSurface>
     }
     if (editor.problem || editor.binary || editor.truncated) return <div className="flex h-full items-center justify-center p-6"><div className="max-w-xl rounded-apple border border-[var(--line)] bg-bg-1 p-5"><div className="text-sm text-text-1">{editor.name}</div><div className="mt-2 text-sm text-text-3">{editor.problem || (editor.binary ? t('editor.binaryNotEditable') : t('editor.largePreviewOnly'))}</div></div></div>
     return <div className={`flex h-full min-h-0 ${previewOpen ? 'flex-row' : 'flex-col'}`}><div ref={(node) => { editorViewportRefs.current[editor.id] = node }} data-testid={focused ? 'editor-auto-scroll-zone' : undefined} onMouseDown={(event) => handleEditorMouseDown(editor.id, event)} className={`relative ${previewOpen ? 'min-w-0 flex-1 border-r border-[var(--line)]' : 'h-full'}`}><MonacoEditor key={editor.id} path={editor.absolutePath} language={editor.language} theme={getMonacoTheme(preferences.theme)} value={editor.content} onMount={(instance) => {
@@ -694,6 +678,7 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
       if (position) setCursorById((current) => ({ ...current, [editor.id]: { line: position.lineNumber, column: position.column } }))
       instance.onDidChangeCursorPosition?.((event: any) => {
         setCursorById((current) => ({ ...current, [editor.id]: { line: event.position.lineNumber, column: event.position.column } }))
+        if (previewSyncEnabledRef.current && editor.language === 'markdown' && previewOpen) syncPreviewToLine(editor.id, event.position.lineNumber)
       })
       const pendingPosition = pendingLocationRef.current[editor.id]
       if (pendingPosition) {
@@ -713,7 +698,7 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
         const currentEditor = openEditorsRef.current.find((item) => item.id === editor.id) || editor
         void goToDefinition(currentEditor, { line: position.lineNumber, column: position.column })
       })
-    }} onChange={(value) => setEditorContent(editor.id, value || '')} options={{ automaticLayout: true, minimap: { enabled: false }, fontFamily: preferences.fontFamily, fontSize: Math.max(12, preferences.fontSize), lineNumbers: 'on', lineNumbersMinChars: 4, glyphMargin: false, folding: true, guides: { indentation: true, bracketPairs: true }, bracketPairColorization: { enabled: true }, matchBrackets: 'always', renderLineHighlight: 'line', renderValidationDecorations: 'on', occurrencesHighlight: 'singleFile', selectionHighlight: true, codeLens: false, contextmenu: true, links: true, mouseWheelZoom: true, cursorSmoothCaretAnimation: 'on', scrollBeyondLastLine: false, scrollbar: { verticalScrollbarSize: 8, horizontalScrollbarSize: 8, alwaysConsumeMouseWheel: false, useShadows: false, verticalHasArrows: false, horizontalHasArrows: false }, overviewRulerBorder: false, wordWrap: 'off', wordWrapColumn: 120, wrappingIndent: 'same', tabSize: getTabSize(editor.language), insertSpaces: editor.language !== 'go', detectIndentation: true, formatOnPaste: true, formatOnType: true, trimAutoWhitespace: true, renderWhitespace: 'boundary', renderControlCharacters: false, smoothScrolling: true, cursorBlinking: preferences.cursorBlink ? 'blink' : 'solid', cursorStyle: 'line', dragAndDrop: false, dropIntoEditor: { enabled: false }, readOnlyMessage: { value: t('editor.readOnly') }, padding: { top: 16, bottom: 16 } }} />{autoScrollIndicator.active && autoScrollStateRef.current.editorId === editor.id && <span data-testid="editor-auto-scroll-indicator" className="pointer-events-none absolute z-20 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-accent/70 bg-bg-0/85 shadow-[0_0_0_1px_rgba(30,200,255,0.22)]" style={{ left: autoScrollIndicator.x, top: autoScrollIndicator.y }}><span className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-accent/70" /><span className="absolute left-0 top-1/2 h-px w-full -translate-y-1/2 bg-accent/70" /></span>}</div>{previewOpen && (editor.language === 'markdown' ? <div className="tmuxgo-scrollbar min-w-0 flex-1 overflow-auto bg-bg-1/60 px-6 py-5"><article dangerouslySetInnerHTML={{ __html: renderMarkdown(editor.content) || `<p>${t('editor.nothingToPreview')}</p>` }} className="prose prose-invert max-w-none text-sm text-text-2 [&_a]:text-accent [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-[var(--line)] [&_blockquote]:pl-3 [&_code]:rounded-apple [&_code]:bg-bg-2 [&_code]:px-1.5 [&_code]:py-0.5 [&_h1]:mb-4 [&_h1]:text-3xl [&_h1]:text-text-1 [&_h2]:mb-3 [&_h2]:mt-6 [&_h2]:text-2xl [&_h2]:text-text-1 [&_h3]:mb-2 [&_h3]:mt-5 [&_h3]:text-xl [&_h3]:text-text-1 [&_hr]:my-4 [&_hr]:border-[var(--line)] [&_img]:my-3 [&_img]:max-w-full [&_img]:rounded-apple [&_li]:mb-1 [&_ol]:mb-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:mb-3 [&_pre]:overflow-auto [&_pre]:rounded-apple [&_pre]:bg-bg-0 [&_pre]:p-4 [&_strong]:text-text-1 [&_table]:mb-3 [&_table]:w-full [&_table]:border-collapse [&_table]:border [&_table]:border-[var(--line)] [&_td]:border [&_td]:border-[var(--line)] [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-[var(--line)] [&_th]:bg-bg-2/60 [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:font-semibold [&_ul]:mb-3 [&_ul]:list-disc [&_ul]:pl-5" /></div> : <iframe title={editor.name} srcDoc={editor.content} sandbox="allow-downloads allow-forms allow-modals allow-popups allow-scripts" referrerPolicy="no-referrer" className="h-full min-w-0 flex-1 border-0 bg-white" />)}</div>
+    }} onChange={(value) => setEditorContent(editor.id, value || '')} options={{ automaticLayout: true, minimap: { enabled: false }, fontFamily: preferences.fontFamily, fontSize: Math.max(12, preferences.fontSize), lineNumbers: 'on', lineNumbersMinChars: 4, glyphMargin: false, folding: true, guides: { indentation: true, bracketPairs: true }, bracketPairColorization: { enabled: true }, matchBrackets: 'always', renderLineHighlight: 'line', renderValidationDecorations: 'on', occurrencesHighlight: 'singleFile', selectionHighlight: true, codeLens: false, contextmenu: true, links: true, mouseWheelZoom: true, cursorSmoothCaretAnimation: 'on', scrollBeyondLastLine: false, scrollbar: { verticalScrollbarSize: 8, horizontalScrollbarSize: 8, alwaysConsumeMouseWheel: false, useShadows: false, verticalHasArrows: false, horizontalHasArrows: false }, overviewRulerBorder: false, wordWrap: 'off', wordWrapColumn: 120, wrappingIndent: 'same', tabSize: getTabSize(editor.language), insertSpaces: editor.language !== 'go', detectIndentation: true, formatOnPaste: true, formatOnType: true, trimAutoWhitespace: true, renderWhitespace: 'boundary', renderControlCharacters: false, smoothScrolling: true, cursorBlinking: preferences.cursorBlink ? 'blink' : 'solid', cursorStyle: 'line', dragAndDrop: false, dropIntoEditor: { enabled: false }, readOnlyMessage: { value: t('editor.readOnly') }, padding: { top: 16, bottom: 16 } }} />{autoScrollIndicator.active && autoScrollStateRef.current.editorId === editor.id && <span data-testid="editor-auto-scroll-indicator" className="pointer-events-none absolute z-20 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-accent/70 bg-bg-0/85 shadow-[0_0_0_1px_rgba(30,200,255,0.22)]" style={{ left: autoScrollIndicator.x, top: autoScrollIndicator.y }}><span className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-accent/70" /><span className="absolute left-0 top-1/2 h-px w-full -translate-y-1/2 bg-accent/70" /></span>}</div>{previewOpen && (editor.language === 'markdown' ? <ZoomSurface active={focused} resetKey={editor.id} doubleClickZoom={false} className="tmuxgo-scrollbar min-w-0 flex-1 overflow-auto bg-bg-1/60 px-6 py-5"><article ref={(node) => { previewElRefs.current[editor.id] = node }} dangerouslySetInnerHTML={{ __html: renderMarkdown(editor.content) || `<p>${t('editor.nothingToPreview')}</p>` }} className={MARKDOWN_PROSE_CLASS} onDoubleClick={jumpPreviewToEditor(editor.id)} /></ZoomSurface> : <iframe title={editor.name} srcDoc={editor.content} sandbox="allow-downloads allow-forms allow-modals allow-popups allow-scripts" referrerPolicy="no-referrer" className="h-full min-w-0 flex-1 border-0 bg-white" />)}</div>
   }
   const closeAllEditors = () => {
     for (const editor of [...openEditors]) closeEditor(editor.id)
@@ -734,6 +719,7 @@ export function EditorWorkbench({ onSaveEditor, onOpenFile, onOpenFileAtPosition
             <Button size="sm" onClick={() => void editorRefs.current[activeEditor.id]?.getAction?.('actions.find')?.run?.()}>{t('editor.find')}</Button>
             <Button size="icon-sm" aria-label={t('editor.definition')} title={t('editor.definition')} disabled={activeEditor.loading || activeEditor.binary || activeEditor.truncated || activeEditor.kind === 'compare'} onClick={() => { const position = getNavigationPosition(activeEditor.id); if (position) void goToDefinition(activeEditor, position) }}><FiCode aria-hidden="true" size={14} /></Button>
             {(activeEditor.language === 'markdown' || activeEditor.language === 'html') && <Button size="sm" variant={previewOpenById[activeEditor.id] !== false ? 'accent' : 'default'} onClick={() => setPreviewOpenById((current) => ({ ...current, [activeEditor.id]: current[activeEditor.id] === false }))}>{t('editor.preview')}</Button>}
+            {activeEditor.language === 'markdown' && previewOpenById[activeEditor.id] !== false && <Button size="sm" variant={previewSyncEnabled ? 'accent' : 'default'} onClick={() => setPreviewSyncEnabled((current) => !current)}>{t('editor.syncPreview')}</Button>}
             <Button size="sm" disabled={activeEditor.loading || activeEditor.saving || activeEditor.binary || activeEditor.truncated || !activeEditor.dirty} variant={activeEditor.loading || activeEditor.saving || activeEditor.binary || activeEditor.truncated || !activeEditor.dirty ? 'default' : 'accent'} onClick={() => void onSaveEditor(activeEditor)}>{activeEditor.saving ? t('editor.saving') : activeEditor.dirty ? t('editor.save') : t('editor.saved')}</Button>
           </>}
         </div>

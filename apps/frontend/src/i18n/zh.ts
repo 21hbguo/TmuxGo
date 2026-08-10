@@ -574,8 +574,10 @@ export const zh = {
 
   // Custom Shortcuts
   'shortcut.custom': '自定义快捷键',
+  'shortcut.manage': '管理快捷键',
   'shortcut.add': '添加快捷键',
   'shortcut.edit': '编辑快捷键',
+  'shortcut.done': '完成',
   'shortcut.delete': '删除快捷键',
   'shortcut.deleteTitle': '删除快捷键',
   'shortcut.deleteConfirm': '确定删除快捷键“{label}”？',
@@ -808,6 +810,7 @@ export const zh = {
   'editor.definitionNotFound': '未找到定义',
   'editor.definitionUnsupported': '当前语言不支持定义跳转',
   'editor.preview': '预览',
+  'editor.syncPreview': '同步预览',
   'editor.saving': '保存中...',
   'editor.save': '保存',
   'editor.saved': '已保存',

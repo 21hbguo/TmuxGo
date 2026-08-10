@@ -13,6 +13,12 @@ const setScrollLeft = vi.fn()
 const getScrollLeft = vi.fn(() => 0)
 const diffPropsRef:{ current:any[] } = { current: [] }
 const monacoMouseDownRef:{ current: ((event: any) => void) | null } = { current: null }
+const monacoCursorHandlerRef:{ current: ((event: any) => void) | null } = { current: null }
+const editorInstanceMocks = vi.hoisted(() => ({
+  setPosition: vi.fn(),
+  revealLineInCenter: vi.fn(),
+  focus: vi.fn(),
+}))
 vi.mock('@/lib/code-navigation', () => ({
   resolveEditorDefinition: (...args: any[]) => resolveDefinitionMock(...args),
 }))
@@ -31,7 +37,7 @@ vi.mock('@/lib/dynamic', () => ({
         React.useEffect(() => {
           if (mountedRef.current) return
           mountedRef.current = true
-          onMount?.({ getScrollTop, setScrollTop, getScrollLeft, setScrollLeft, onDidChangeCursorPosition: vi.fn(() => ({ dispose: vi.fn() })), onMouseDown: (handler: (event: any) => void) => { monacoMouseDownRef.current = handler; return { dispose: vi.fn() } }, getAction: vi.fn(() => ({ run: vi.fn() })), getPosition: vi.fn(() => ({ lineNumber: 1, column: 1 })) })
+          onMount?.({ getScrollTop, setScrollTop, getScrollLeft, setScrollLeft, onDidChangeCursorPosition: (handler: (event: any) => void) => { monacoCursorHandlerRef.current = handler; return { dispose: vi.fn() } }, onMouseDown: (handler: (event: any) => void) => { monacoMouseDownRef.current = handler; return { dispose: vi.fn() } }, getAction: vi.fn(() => ({ run: vi.fn() })), getPosition: vi.fn(() => ({ lineNumber: 1, column: 1 })), setPosition: editorInstanceMocks.setPosition, revealLineInCenter: editorInstanceMocks.revealLineInCenter, focus: editorInstanceMocks.focus })
         }, [onMount])
         return React.createElement('textarea', { 'aria-label': 'editor', value, onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => onChange?.(event.target.value), onDrop: (event: React.DragEvent<HTMLTextAreaElement>) => {
           if (event.defaultPrevented) return
@@ -58,6 +64,7 @@ vi.mock('@/i18n', () => ({
     if (key === 'editor.forward') return 'Forward'
     if (key === 'editor.definition') return 'Go to definition'
     if (key === 'editor.preview') return 'Preview'
+    if (key === 'editor.syncPreview') return 'Sync preview'
     if (key === 'editor.saved') return 'Saved'
     if (key === 'editor.save') return 'Save'
     if (key === 'editor.saving') return 'Saving'
@@ -207,6 +214,10 @@ describe('EditorWorkbench', () => {
       return file.id
     })
     monacoMouseDownRef.current = null
+    monacoCursorHandlerRef.current = null
+    editorInstanceMocks.setPosition.mockReset()
+    editorInstanceMocks.revealLineInCenter.mockReset()
+    editorInstanceMocks.focus.mockReset()
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => window.setTimeout(() => cb(0), 0))
     vi.stubGlobal('cancelAnimationFrame', (id: number) => window.clearTimeout(id))
     setWorkbenchState({
@@ -786,6 +797,41 @@ describe('EditorWorkbench', () => {
     await vi.waitFor(() => expect(resolveDefinitionMock).toHaveBeenCalledWith(editor1, { line: 2, column: 4 }, expect.any(Array)))
     expect(openFileInEditorMock).toHaveBeenCalledWith(expect.objectContaining({ id: editor2.id }), expect.objectContaining({ position: { line: 2, column: 3 } }))
   })
+  it('jumps to the source line when double-clicking a markdown preview block', async () => {
+    const mdEditor = { ...editor1, id: 'local:root-workspace:docs/readme.md', name: 'readme.md', path: 'docs/readme.md', absolutePath: '/workspace/docs/readme.md', language: 'markdown', content: '# 标题\n\n正文段落' }
+    setWorkbenchState({
+      openEditors: [mdEditor],
+      activeEditorId: mdEditor.id,
+      editorGroups: [createGroup('group-1', [mdEditor.id], mdEditor.id)],
+      editorLayout: createLeaf('layout-1', 'group-1'),
+      activeEditorGroupId: 'group-1',
+    })
+    renderWorkbench()
+    const heading = document.querySelector('article h1')
+    if (!heading) throw new Error('markdown preview not rendered')
+    fireEvent.doubleClick(heading)
+    expect(editorInstanceMocks.revealLineInCenter).toHaveBeenCalledWith(1)
+    expect(editorInstanceMocks.setPosition).toHaveBeenCalledWith({ lineNumber: 1, column: 1 })
+    expect(editorInstanceMocks.focus).toHaveBeenCalled()
+  })
+  it('highlights the markdown preview block matching the editor cursor', async () => {
+    const mdEditor = { ...editor1, id: 'local:root-workspace:docs/readme.md', name: 'readme.md', path: 'docs/readme.md', absolutePath: '/workspace/docs/readme.md', language: 'markdown', content: '# 标题\n\n正文段落' }
+    setWorkbenchState({
+      openEditors: [mdEditor],
+      activeEditorId: mdEditor.id,
+      editorGroups: [createGroup('group-1', [mdEditor.id], mdEditor.id)],
+      editorLayout: createLeaf('layout-1', 'group-1'),
+      activeEditorGroupId: 'group-1',
+    })
+    renderWorkbench()
+    const paragraph = document.querySelector('article p')
+    if (!paragraph) throw new Error('markdown preview not rendered')
+    monacoCursorHandlerRef.current?.({ position: { lineNumber: 3, column: 1 } })
+    expect(paragraph.style.boxShadow).toContain('accent')
+    monacoCursorHandlerRef.current?.({ position: { lineNumber: 1, column: 1 } })
+    expect(paragraph.style.boxShadow).toBe('')
+    expect(document.querySelector('article h1')?.style.boxShadow).toContain('accent')
+  })
   it('renders markdown preview with GFM tables, images, lists and strikethrough', () => {
     const mdEditor = { ...editor1, id: 'local:root-workspace:docs/readme.md', name: 'readme.md', path: 'docs/readme.md', absolutePath: '/workspace/docs/readme.md', language: 'markdown', content: '# 标题\n\n| 列A | 列B |\n|---|---|\n| 1 | 2 |\n\n- 项目一\n1. 有序\n\n~~删除~~ ![图](https://example.com/a.png)\n\n```ts\nconst a = 1\n```' }
     setWorkbenchState({
@@ -799,15 +845,15 @@ describe('EditorWorkbench', () => {
     const article = document.querySelector('article')
     if (!article) throw new Error('markdown preview not rendered')
     const html = article.innerHTML
-    expect(html).toContain('<h1>标题</h1>')
-    expect(html).toContain('<table>')
+    expect(html).toContain('<h1 data-line="1">标题</h1>')
+    expect(html).toContain('<table data-line="3">')
     expect(html).toContain('<th>列A</th>')
     expect(html).toContain('<td>1</td>')
-    expect(html).toContain('<li>项目一</li>')
-    expect(html).toContain('<ol>')
+    expect(html).toContain('<li data-line="7">项目一</li>')
+    expect(html).toContain('<ol data-line="8">')
     expect(html).toContain('<img src="https://example.com/a.png"')
     expect(html).toContain('<del>删除</del>')
-    expect(html).toContain('<pre><code class="language-ts">')
+    expect(html).toContain('<pre data-line="12"><code class="language-ts">')
   })
   it('renders consecutive blank lines as visible gaps and keeps code block blank lines', () => {
     const mdEditor = { ...editor1, id: 'local:root-workspace:docs/blank.md', name: 'blank.md', path: 'docs/blank.md', absolutePath: '/workspace/docs/blank.md', language: 'markdown', content: '前\n\n\n中\n\n```ts\nconst a = 1\n\n\nconst b = 2\n```\n\n\n后' }
@@ -822,9 +868,9 @@ describe('EditorWorkbench', () => {
     const article = document.querySelector('article')
     if (!article) throw new Error('markdown preview not rendered')
     const html = article.innerHTML
-    expect(html).toContain('<p>前<br></p>')
-    expect(html).toContain('<p>中</p>')
-    expect(html).toContain('<pre><code class="language-ts">const a = 1\n\n\nconst b = 2')
-    expect(html).toContain('<br><p>后</p>')
+    expect(html).toContain('<p data-line="1">前<br></p>')
+    expect(html).toContain('<p data-line="4">中</p>')
+    expect(html).toContain('<pre data-line="6"><code class="language-ts">const a = 1\n\n\nconst b = 2')
+    expect(html).toContain('<br><p data-line="14">后</p>')
   })
 })

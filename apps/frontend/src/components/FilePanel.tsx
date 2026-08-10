@@ -12,6 +12,8 @@ import { writeClipboardText } from '@/lib/clipboard-text'
 import { quoteShellPath } from '@/lib/path-drop'
 import { api, fetchApiBlob } from '@/lib/api'
 import { clearActiveDraggedFile, FILE_DRAG_MIME, setActiveDraggedFile } from '@/lib/editor-drag'
+import { MARKDOWN_PROSE_CLASS, renderMarkdown } from '@/lib/markdown'
+import { ZoomSurface } from './ZoomSurface'
 import { useTranslation } from '@/i18n'
 import { Button } from './Button'
 import { Chip } from './Chip'
@@ -362,6 +364,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
   const [mobileEditLoading, setMobileEditLoading] = useState(false)
   const [mobileEditSaving, setMobileEditSaving] = useState(false)
   const [mobileEditConfirm, setMobileEditConfirm] = useState<null | 'enter' | 'exit'>(null)
+  const [mobileMarkdownContent, setMobileMarkdownContent] = useState<string | null>(null)
   const [favoriteDirectories, setFavoriteDirectories] = useState<FavoriteDirectory[]>([])
   const [contentReady] = useState(true)
   const [hideDotFiles, setHideDotFiles] = useState(readHideDotFiles)
@@ -419,6 +422,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
   const preview = useMemo(() => rebasePreview(rawPreview, activeRootBasePath), [rawPreview, activeRootBasePath])
   const mobileEditDirty = mobileEditOpen && mobileEditContent !== mobileEditSaved
   const mobileEditable = isMobile && mobileView === 'preview' && !!preview && preview.type === 'file' && !preview.binary && !preview.truncated && !preview.reason
+  const isMarkdownPreview = isMobile && mobileView === 'preview' && !!selectedPath && selectedPath.toLowerCase().endsWith('.md')
   const searchResults = useMemo(() => rawSearchResults.slice(0, SEARCH_RESULT_LIMIT).map((item) => rebaseEntryPath(item, activeRootBasePath)), [rawSearchResults, activeRootBasePath])
   const rootLabelById = useMemo(() => Object.fromEntries(visibleRoots.map((item) => [item.id, item.label])), [visibleRoots])
   const rootPathById = useMemo(() => Object.fromEntries(visibleRoots.map((item) => [item.id, item.path])), [visibleRoots])
@@ -1095,6 +1099,21 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
   }, [imagePreviewPath])
+  useEffect(() => {
+    if (!isMarkdownPreview) {
+      setMobileMarkdownContent(null)
+      return
+    }
+    let cancelled = false
+    setMobileMarkdownContent(null)
+    void api.files.content(fileHostId, activeRootId, resolveRootRelativePath(activeRootBasePath, selectedPath!)).then((data) => {
+      if (cancelled || data.binary || data.truncated || data.reason) return
+      setMobileMarkdownContent(data.content)
+    }).catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [activeRootBasePath, activeRootId, fileHostId, isMarkdownPreview, selectedPath])
   const previewBlock = preview ? (
     imagePreviewUrl ? (
       <div className="flex h-full min-h-0 flex-col">
@@ -1102,8 +1121,10 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
           <div className="font-mono text-text-1">{preview.path}</div>
           <div className="mt-1">{formatSize(preview.size)}</div>
         </div>
-        <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-auto px-3 pb-3">
-          <img src={imagePreviewUrl} alt={preview.path} className="mx-auto block max-h-full max-w-full rounded-apple border border-[var(--line)] bg-bg-1 object-contain" />
+        <div className="min-h-0 flex-1">
+          <ZoomSurface resetKey={preview.path} image className="h-full overflow-hidden">
+            <img src={imagePreviewUrl} alt={preview.path} className="max-h-full max-w-full rounded-apple border border-[var(--line)] bg-bg-1 object-contain select-none" />
+          </ZoomSurface>
         </div>
       </div>
     ) : preview.binary || preview.reason ? (
@@ -1112,6 +1133,10 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
         <div className="mt-2">{preview.reason === 'large-file' ? t('file.previewSkippedLarge') : preview.reason === 'binary-file' ? t('file.previewSkippedBinary') : t('file.previewUnavailable')}</div>
         <div className="mt-1">{formatSize(preview.size)}</div>
       </div>
+    ) : isMarkdownPreview && mobileMarkdownContent !== null ? (
+      <ZoomSurface resetKey={selectedPath} className="tmuxgo-scrollbar h-full overflow-auto px-3 py-3">
+        <article dangerouslySetInnerHTML={{ __html: renderMarkdown(mobileMarkdownContent) || `<p>${t('editor.nothingToPreview')}</p>` }} className={MARKDOWN_PROSE_CLASS} />
+      </ZoomSurface>
     ) : (
       <div className="tmuxgo-scrollbar h-full overflow-auto p-2 font-mono text-meta leading-5">
         {preview.lines.map((line) => (
