@@ -212,6 +212,27 @@ describe('useWebSocket',()=>{
     expect(socketInstances).toHaveLength(1)
     unmount()
   })
+  it('does not interrupt a connecting socket on ordinary focus',()=>{
+    const { unmount }=renderHook(() => useWebSocket())
+    expect(socketInstances).toHaveLength(1)
+    act(()=>{
+      window.dispatchEvent(new Event('focus'))
+    })
+    expect(socketInstances).toHaveLength(1)
+    expect(socketInstances[0].readyState).toBe(MockWebSocket.CONNECTING)
+    unmount()
+  })
+  it('replaces a connecting socket only after it has been stale for 8s',()=>{
+    const { unmount }=renderHook(() => useWebSocket())
+    expect(socketInstances).toHaveLength(1)
+    act(()=>{
+      vi.advanceTimersByTime(8001)
+      window.dispatchEvent(new Event('focus'))
+    })
+    expect(socketInstances[0].readyState).toBe(MockWebSocket.CLOSED)
+    expect(socketInstances).toHaveLength(2)
+    unmount()
+  })
   it('does not restart a pending authenticated connection on ordinary focus',async()=>{
     authState.enabled=true
     getWebSocketUrlMock.mockImplementation(()=>new Promise<string>(()=>{}))
