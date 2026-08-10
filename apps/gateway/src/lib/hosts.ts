@@ -16,6 +16,7 @@ export interface HostRecord {
   useAgent: boolean
   jumpHost: string
   knownHostsPolicy: KnownHostsPolicy
+  tmuxPath: string
   createdAt: string
   updatedAt: string
 }
@@ -53,6 +54,7 @@ export interface HostInput {
   useAgent?: boolean
   jumpHost?: string
   knownHostsPolicy?: KnownHostsPolicy
+  tmuxPath?: string
 }
 const emptyCredentials: HostCredentials = { password: '', passwordEnv: '', privateKeyPath: '' }
 const localHost: HostRecord = {
@@ -68,6 +70,7 @@ const localHost: HostRecord = {
   useAgent: false,
   jumpHost: '',
   knownHostsPolicy: 'strict',
+  tmuxPath: '',
   createdAt: '',
   updatedAt: '',
 }
@@ -134,6 +137,12 @@ function sanitizeJumpHost(value: string | undefined) {
 function sanitizeKnownHostsPolicy(value: unknown): KnownHostsPolicy {
   return value === 'strict' || value === 'off' || value === 'accept-new' ? value : 'accept-new'
 }
+function sanitizeTmuxPath(value: string | undefined) {
+  const tmuxPath = (value || '').trim()
+  if (!tmuxPath) return ''
+  if (tmuxPath.length > 4096 || /[\s\x00-\x1f'";$`&|<>()*?[\]{}]/.test(tmuxPath)) return ''
+  return tmuxPath
+}
 function sanitizeGroups(value: unknown) {
   if (!Array.isArray(value)) return []
   const groups = value.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter((item) => item.length > 0 && item.length <= 64 && !/[\x00-\x1f]/.test(item))
@@ -169,6 +178,7 @@ function normalizeHostRecord(raw: any): HostRecord {
     useAgent: raw?.useAgent !== false,
     jumpHost: sanitizeJumpHost(typeof raw?.jumpHost === 'string' ? raw.jumpHost : ''),
     knownHostsPolicy: sanitizeKnownHostsPolicy(raw?.knownHostsPolicy),
+    tmuxPath: sanitizeTmuxPath(typeof raw?.tmuxPath === 'string' ? raw.tmuxPath : ''),
     createdAt: typeof raw?.createdAt === 'string' && raw.createdAt ? raw.createdAt : new Date().toISOString(),
     updatedAt: typeof raw?.updatedAt === 'string' && raw.updatedAt ? raw.updatedAt : new Date().toISOString(),
   }
