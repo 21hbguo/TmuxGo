@@ -156,6 +156,7 @@ export interface AgentNotificationRecord {
   paneId: string
   agent: string
   status: 'blocked' | 'done' | 'permission_required' | 'needs_input' | 'failed' | 'ended' | 'disconnected'
+  title?: string
   message: string
   timestamp: string
   readBy?: string[]

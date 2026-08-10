@@ -11,6 +11,7 @@ import { useWindowQueryState } from '@/hooks/useWindowQueryState'
 import { AddShortcutModal } from './AddShortcutModal'
 import { ConfirmDialog } from './ConfirmDialog'
 import { PromptDialog } from './PromptDialog'
+import { MobileBottomSheet } from './MobileBottomSheet'
 import { api } from '@/lib/api'
 import { writeClipboardText } from '@/lib/clipboard-text'
 import { requestTerminalSelection } from '@/lib/terminal-selection'
@@ -418,6 +419,23 @@ function renderDockButton(def:ActionButtonDef,controller:ReturnType<typeof useQu
 export function QuickActions({ mode='panel', onOpenFiles }:{ mode?:QuickActionsMode; onOpenFiles?:()=>void }){
   const controller=useQuickActionController()
   const { t,activePaneId,shortcuts,recentShortcutButtons,addShortcut,updateShortcut,removeShortcut,showModal,setShowModal,editingShortcut,setEditingShortcut,isMobile,pendingShortcutDelete,setPendingShortcutDelete,confirmDeleteShortcut,confirmKillOpen,setConfirmKillOpen,pendingKillPaneId,setPendingKillPaneId,confirmKillPane,newWindowPromptOpen,setNewWindowPromptOpen,newWindowName,setNewWindowName,confirmCreateWindow,sendKey,runShortcut,runningShortcutId,primaryButtons,attachButton,fullscreenButton,dockCoreButtons }=controller
+  const [managingShortcuts,setManagingShortcuts]=useState(false)
+  const [selectedShortcutId,setSelectedShortcutId]=useState<string|null>(null)
+  const [dockManageOpen,setDockManageOpen]=useState(false)
+  const closeShortcutManage=()=>{ setManagingShortcuts(false); setSelectedShortcutId(null) }
+  const toggleManageShortcuts=()=>{
+    if(!managingShortcuts){ setManagingShortcuts(true); return }
+    if(selectedShortcutId){
+      const target=shortcuts.find((s)=>s.id===selectedShortcutId)
+      if(target){ closeShortcutManage(); setEditingShortcut(target); setShowModal(true); return }
+    }
+    closeShortcutManage()
+  }
+  const requestDeleteSelectedShortcut=()=>{
+    const target=shortcuts.find((s)=>s.id===selectedShortcutId)
+    if(target)setPendingShortcutDelete(target)
+  }
+  const confirmDeleteSelectedShortcut=()=>{ confirmDeleteShortcut(); closeShortcutManage() }
   if(mode==='dock'){
     return (
       <>
@@ -434,9 +452,44 @@ export function QuickActions({ mode='panel', onOpenFiles }:{ mode?:QuickActionsM
             {renderDockButton(attachButton,controller)}
             {renderDockButton(fullscreenButton,controller)}
             <WatchButton paneId={activePaneId || ''} compact />
+            <KeyCap variant="dock" aria-label={t('shortcut.manage')} title={t('shortcut.manage')} onPress={()=>setDockManageOpen(true)}>
+              <FiEdit2 aria-hidden="true" size={14} />
+            </KeyCap>
           </div>
         </div>
         </div>
+        <MobileBottomSheet open={dockManageOpen} onClose={()=>setDockManageOpen(false)} ariaLabel={t('shortcut.manage')}>
+          <div className="px-4 pt-4 pb-2 overflow-y-auto">
+            <div className="text-text-1 text-sm font-medium mb-2">{t('shortcut.custom')}</div>
+            {shortcuts.map((s)=>(
+              <div key={s.id} className="flex items-center gap-1 py-1">
+                <div className="flex-1 truncate text-sm text-text-1">{s.label}</div>
+                <button type="button" onClick={()=>{ setDockManageOpen(false); setEditingShortcut(s); setShowModal(true) }} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-apple text-text-3 transition-colors hover:bg-accent/15 hover:text-accent focus-visible:bg-accent/15 focus-visible:text-accent" aria-label={t('shortcut.edit')} title={t('shortcut.edit')}>
+                  <FiEdit2 aria-hidden="true" size={13} />
+                </button>
+                <button type="button" onClick={()=>setPendingShortcutDelete(s)} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-apple text-text-3 transition-colors hover:bg-danger/15 hover:text-danger focus-visible:bg-danger/15 focus-visible:text-danger" aria-label={t('shortcut.delete')} title={t('shortcut.delete')}>
+                  <FiTrash2 aria-hidden="true" size={13} />
+                </button>
+              </div>
+            ))}
+            <button onClick={()=>{ setDockManageOpen(false); setEditingShortcut(null); setShowModal(true) }} className="w-full px-2 py-1.5 rounded-apple text-xs transition-colors border border-dashed border-[var(--line)] text-text-3 hover:text-text-2 hover:border-accent/50 mt-1">
+              + {t('shortcut.add')}
+            </button>
+          </div>
+        </MobileBottomSheet>
+        <AddShortcutModal
+          key={editingShortcut?.id || 'new'}
+          isMobile={isMobile}
+          initialShortcut={editingShortcut || undefined}
+          onSave={(data)=>{
+            if (editingShortcut) updateShortcut(editingShortcut.id,data)
+            else addShortcut(data)
+            setEditingShortcut(null)
+            setShowModal(false)
+          }}
+          onClose={()=>{ setEditingShortcut(null); setShowModal(false) }}
+        />
+        <ConfirmDialog open={!!pendingShortcutDelete} title={t('shortcut.deleteTitle')} message={t('shortcut.deleteConfirm',{ label:pendingShortcutDelete?.label || '' })} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} tone="danger" onCancel={()=>setPendingShortcutDelete(null)} onConfirm={confirmDeleteShortcut} />
         <ConfirmDialog open={confirmKillOpen} title={t('quick.killTitle')} message={t('quick.killConfirm')} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} tone="danger" onCancel={()=>{ setPendingKillPaneId(null); setConfirmKillOpen(false) }} onConfirm={()=>void confirmKillPane()} />
         <PromptDialog open={newWindowPromptOpen} title={t('window.createTitle')} defaultValue={newWindowName} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} onCancel={()=>setNewWindowPromptOpen(false)} onConfirm={(value)=>{ setNewWindowName(value); void confirmCreateWindow(value) }} />
       </>
@@ -464,21 +517,25 @@ export function QuickActions({ mode='panel', onOpenFiles }:{ mode?:QuickActionsM
       <WatchButton paneId={activePaneId || ''} />
       {shortcuts.length>0&&(
         <div className="border-t border-[var(--line)] pt-2">
-          <div className="text-text-3 text-caption mb-1">{t('shortcut.custom')}</div>
-          {shortcuts.map((s)=>(
-            <div key={s.id} className="group flex items-center gap-1 mb-1">
-              <KeyCap variant="panel" size="md" onPress={() => { runShortcut(s) }} title={describeShortcut(s)} tone={runningShortcutId === s.id ? 'accent' : undefined} className={`flex-1 truncate ${runningShortcutId === s.id ? 'animate-pulse' : ''}`}>{s.label}</KeyCap>
-              <button type="button" onClick={()=>{ setEditingShortcut(s); setShowModal(true) }} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-apple text-text-3 transition-colors hover:bg-accent/15 hover:text-accent focus-visible:bg-accent/15 focus-visible:text-accent" aria-label={t('shortcut.edit')} title={t('shortcut.edit')}>
+          <div className="flex items-center justify-between mb-1">
+            <div className="text-text-3 text-caption">{t('shortcut.custom')}</div>
+            <div className="flex items-center gap-1">
+              <button type="button" onClick={toggleManageShortcuts} className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-apple text-text-3 transition-colors focus-visible:bg-accent/15 focus-visible:text-accent ${managingShortcuts?'bg-accent/15 text-accent':'hover:bg-accent/15 hover:text-accent'}`} aria-label={t('shortcut.edit')} title={managingShortcuts&&!selectedShortcutId?t('shortcut.done'):t('shortcut.edit')}>
                 <FiEdit2 aria-hidden="true" size={13} />
               </button>
-              <button type="button" onClick={()=>setPendingShortcutDelete(s)} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-apple text-text-3 transition-colors hover:bg-danger/15 hover:text-danger focus-visible:bg-danger/15 focus-visible:text-danger" aria-label={t('shortcut.delete')} title={t('shortcut.delete')}>
+              <button type="button" onClick={requestDeleteSelectedShortcut} disabled={!managingShortcuts||!selectedShortcutId} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-apple text-text-3 transition-colors hover:bg-danger/15 hover:text-danger focus-visible:bg-danger/15 focus-visible:text-danger disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-text-3" aria-label={t('shortcut.delete')} title={t('shortcut.delete')}>
                 <FiTrash2 aria-hidden="true" size={13} />
               </button>
+            </div>
+          </div>
+          {shortcuts.map((s)=>(
+            <div key={s.id} className="group flex items-center gap-1 mb-1">
+              <KeyCap variant="panel" size="md" onPress={()=>{ if(managingShortcuts){ setSelectedShortcutId(selectedShortcutId===s.id?null:s.id); return } runShortcut(s) }} title={describeShortcut(s)} tone={managingShortcuts?(selectedShortcutId===s.id?'accent':undefined):(runningShortcutId===s.id?'accent':undefined)} className={`flex-1 truncate ${!managingShortcuts&&runningShortcutId===s.id?'animate-pulse':''}`}>{s.label}</KeyCap>
             </div>
           ))}
         </div>
       )}
-      <button onClick={()=>{ setEditingShortcut(null); setShowModal(true) }} className="w-full px-2 py-1.5 rounded-apple text-xs transition-colors border border-dashed border-[var(--line)] text-text-3 hover:text-text-2 hover:border-accent/50">
+      <button onClick={()=>{ closeShortcutManage(); setEditingShortcut(null); setShowModal(true) }} className="w-full px-2 py-1.5 rounded-apple text-xs transition-colors border border-dashed border-[var(--line)] text-text-3 hover:text-text-2 hover:border-accent/50">
         + {t('shortcut.add')}
       </button>
       {showModal&&(
@@ -495,7 +552,7 @@ export function QuickActions({ mode='panel', onOpenFiles }:{ mode?:QuickActionsM
           onClose={()=>{ setEditingShortcut(null); setShowModal(false) }}
         />
       )}
-      <ConfirmDialog open={!!pendingShortcutDelete} title={t('shortcut.deleteTitle')} message={t('shortcut.deleteConfirm',{ label:pendingShortcutDelete?.label || '' })} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} tone="danger" onCancel={()=>setPendingShortcutDelete(null)} onConfirm={confirmDeleteShortcut} />
+      <ConfirmDialog open={!!pendingShortcutDelete} title={t('shortcut.deleteTitle')} message={t('shortcut.deleteConfirm',{ label:pendingShortcutDelete?.label || '' })} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} tone="danger" onCancel={()=>setPendingShortcutDelete(null)} onConfirm={confirmDeleteSelectedShortcut} />
       <ConfirmDialog open={confirmKillOpen} title={t('quick.killTitle')} message={t('quick.killConfirm')} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} tone="danger" onCancel={()=>{ setPendingKillPaneId(null); setConfirmKillOpen(false) }} onConfirm={()=>void confirmKillPane()} />
       <PromptDialog open={newWindowPromptOpen} title={t('window.createTitle')} defaultValue={newWindowName} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} onCancel={()=>setNewWindowPromptOpen(false)} onConfirm={(value)=>{ setNewWindowName(value); void confirmCreateWindow(value) }} />
     </div>
