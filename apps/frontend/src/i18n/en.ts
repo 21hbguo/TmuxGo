@@ -581,6 +581,7 @@ export const en = {
   'shortcut.delete': 'Delete Shortcut',
   'shortcut.deleteTitle': 'Delete Shortcut',
   'shortcut.deleteConfirm': 'Delete shortcut "{label}"?',
+  'shortcut.deleteConfirmMany': 'Delete {count} selected shortcuts?',
   'shortcut.label': 'Button Label',
   'shortcut.stepKeys': 'Keys',
   'shortcut.stepText': 'Text',
