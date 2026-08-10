@@ -47,7 +47,7 @@ function useQuickActionController() {
   const canSplit=!!activeSessionId&&!!activeWindow&&!pendingDirection
   const { send }=useWebSocket()
   const { refreshSnapshot, resolveFreshActivePaneId, optimisticallyToggleWindowZoom, discardOptimisticWindowZoom } = useSessionSnapshotSync()
-  const { shortcuts,addShortcut,updateShortcut,removeShortcut,removeShortcuts }=useCustomShortcuts()
+  const { shortcuts,addShortcut,updateShortcut,removeShortcuts }=useCustomShortcuts()
   const [showModal,setShowModal]=useState(false)
   const [editingShortcut,setEditingShortcut]=useState<typeof shortcuts[number]|null>(null)
   const [pendingShortcutDeletes,setPendingShortcutDeletes]=useState<typeof shortcuts>([])
