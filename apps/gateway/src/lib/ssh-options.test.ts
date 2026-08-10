@@ -16,6 +16,7 @@ const host: HostRecord = {
   useAgent: false,
   jumpHost: 'jump@bastion.example',
   knownHostsPolicy: 'strict',
+  tmuxPath: '',
   createdAt: '',
   updatedAt: '',
 }
