@@ -11,6 +11,7 @@ const snapshotGet = vi.fn()
 const zoomByPane = vi.fn()
 const killPane = vi.fn()
 const removeShortcut = vi.fn()
+const removeShortcuts = vi.fn()
 let windowsDataMock:any[]=[{ id:'win-1',sessionId:'session-dev',active:true }]
 const shortcutsMock=[{ id:'shortcut-a',label:'A',keys:'Ctrl+A',action:'input' },{ id:'shortcut-b',label:'B',keys:'Ctrl+B',action:'input' },{ id:'shortcut-text',label:'Status',mode:'text' as const,text:'printf ok',appendEnter:true },{ id:'shortcut-macro',label:'Deploy',steps:[{ type:'text',text:'cd /app',appendEnter:true },{ type:'wait',ms:500 },{ type:'keys',keys:'Ctrl+A' }] }]
 
@@ -21,7 +22,7 @@ vi.mock('@/hooks/useApi', () => ({
   useWindows: () => ({ data: windowsDataMock }),
 }))
 vi.mock('@/hooks/useCustomShortcuts', () => ({
-  useCustomShortcuts: () => ({ shortcuts: shortcutsMock, addShortcut: vi.fn(), updateShortcut: vi.fn(), removeShortcut }),
+  useCustomShortcuts: () => ({ shortcuts: shortcutsMock, addShortcut: vi.fn(), updateShortcut: vi.fn(), removeShortcut, removeShortcuts }),
   shortcutToSteps: (value: any) => value.steps || (value.mode === 'text' ? [{ type: 'text', text: value.text, appendEnter: value.appendEnter }] : [{ type: 'keys', keys: value.keys }]),
   stepToInput: (step: any) => step.type === 'text' ? step.text + (step.appendEnter ? '\r' : '') : step.keys === 'Ctrl+A' ? '\x01' : step.keys === 'Ctrl+B' ? '\x02' : '',
   describeShortcut: () => '',
@@ -41,6 +42,7 @@ describe('ShortcutBar', () => {
     zoomByPane.mockReset()
     killPane.mockReset()
     removeShortcut.mockReset()
+    removeShortcuts.mockReset()
     windowsDataMock=[{ id:'win-1',sessionId:'session-dev',active:true }]
     window.localStorage.clear()
     useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-dev', activePaneId: 'old-pane' })
@@ -364,7 +366,21 @@ describe('ShortcutBar', () => {
     expect(removeShortcut).not.toHaveBeenCalled()
     fireEvent.click(deleteButton)
     fireEvent.click(screen.getByRole('button', { name: '确认' }))
-    expect(removeShortcut).toHaveBeenCalledWith('shortcut-a')
+    expect(removeShortcuts).toHaveBeenCalledWith(['shortcut-a'])
+    expect(screen.getByRole('button', { name: '删除快捷键' })).toBeDisabled()
+  })
+  it('confirms before batch removing multiple selected shortcuts', () => {
+    render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar, { mode: 'panel' })))
+    fireEvent.click(screen.getByRole('button', { name: '编辑快捷键' }))
+    fireEvent.click(screen.getByRole('button', { name: 'A' }))
+    fireEvent.click(screen.getByRole('button', { name: 'B' }))
+    fireEvent.click(screen.getByRole('button', { name: '删除快捷键' }))
+    expect(screen.getByText('确定删除选中的 2 个快捷键？')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    expect(removeShortcuts).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '删除快捷键' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认' }))
+    expect(removeShortcuts).toHaveBeenCalledWith(['shortcut-a', 'shortcut-b'])
     expect(screen.getByRole('button', { name: '删除快捷键' })).toBeDisabled()
   })
   it('opens the shortcut manage sheet from dock and deletes a shortcut', () => {
@@ -374,7 +390,7 @@ describe('ShortcutBar', () => {
     expect(screen.getAllByRole('button', { name: '删除快捷键' })).toHaveLength(shortcutsMock.length)
     fireEvent.click(screen.getAllByRole('button', { name: '删除快捷键' })[0])
     fireEvent.click(screen.getByRole('button', { name: '确认' }))
-    expect(removeShortcut).toHaveBeenCalledWith('shortcut-a')
+    expect(removeShortcuts).toHaveBeenCalledWith(['shortcut-a'])
   })
   it('sends text shortcuts and appends enter only when configured', () => {
     render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))

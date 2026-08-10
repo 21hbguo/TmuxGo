@@ -581,6 +581,7 @@ export const zh = {
   'shortcut.delete': '删除快捷键',
   'shortcut.deleteTitle': '删除快捷键',
   'shortcut.deleteConfirm': '确定删除快捷键“{label}”？',
+  'shortcut.deleteConfirmMany': '确定删除选中的 {count} 个快捷键？',
   'shortcut.label': '按钮名称',
   'shortcut.stepKeys': '按键',
   'shortcut.stepText': '文本',
