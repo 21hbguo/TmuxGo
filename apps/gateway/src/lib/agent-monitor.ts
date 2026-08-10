@@ -33,6 +33,7 @@ interface AgentMonitorOptions {
 const notificationEvents = new Set<AgentEvent>(['permission_required', 'question_required', 'completed', 'failed', 'ended', 'disconnected'])
 const protocolOverlayMaxAgeMs = 30 * 60 * 1000
 const displayDefaultTtlMs = 60 * 1000
+const notificationThrottleMs = 30 * 1000
 
 function sortAgents(agents: Iterable<AgentPaneState>) {
   return [...agents].sort((left, right) => left.paneId.localeCompare(right.paneId))
@@ -110,6 +111,7 @@ export class AgentMonitor {
   private readonly hosts = new Map<string, MonitorHostState>()
   private readonly pendingProtocolEvents = new Map<string, Map<string, AgentProtocolEvent>>()
   private readonly listeners = new Set<(event: AgentMonitorEvent) => void>()
+  private readonly notificationThrottle = new Map<string, number>()
   private hostRefreshTimer: ReturnType<typeof setInterval> | null = null
   private running = false
   private startPromise: Promise<void> | null = null
@@ -150,6 +152,7 @@ export class AgentMonitor {
     }
     for (const pane of [...this.hosts.values()].flatMap((state) => [...state.agents.values()])) forgetAgentPane(pane.paneId)
     this.pendingProtocolEvents.clear()
+    this.notificationThrottle.clear()
     this.hosts.clear()
   }
 
@@ -294,6 +297,7 @@ export class AgentMonitor {
     }
     for (const previous of previousAgents.values()) {
       if (next.has(previous.paneId)) continue
+      this.clearNotificationThrottle(previous.paneId)
       forgetAgentPane(previous.paneId)
       state.revision += 1
       const eventId = hostId + ':' + previous.paneId + ':' + (previous.agentSessionId || previous.sessionName) + ':removed:' + state.revision
@@ -339,8 +343,21 @@ export class AgentMonitor {
   }
 
   private emit(event: AgentMonitorEvent) {
+    if (event.type === 'agent_notification' && !this.passesNotificationThrottle(event.pane, this.now())) return
     for (const listener of this.listeners) listener(event)
     if (event.type === 'agent_notification') this.onNotification?.(event)
+  }
+
+  private passesNotificationThrottle(pane: AgentPaneState, now: number) {
+    const key = pane.paneId + ':' + (pane.lastEvent || 'state')
+    const until = this.notificationThrottle.get(key)
+    if (until !== undefined && until > now) return false
+    this.notificationThrottle.set(key, now + notificationThrottleMs)
+    return true
+  }
+
+  private clearNotificationThrottle(paneId: string) {
+    for (const key of [...this.notificationThrottle.keys()]) if (key.startsWith(paneId + ':')) this.notificationThrottle.delete(key)
   }
 
   private eventId(hostId: string, pane: AgentPaneState, event: AgentEvent | 'changed' | 'seen', revision: number) {
