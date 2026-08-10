@@ -187,5 +187,10 @@ export function useCustomShortcuts() {
     persist(shortcuts.filter((s) => s.id !== id), new Date().toISOString())
   }, [shortcuts, persist])
 
-  return { shortcuts, addShortcut, updateShortcut, removeShortcut }
+  const removeShortcuts = useCallback((ids: string[]) => {
+    const idSet = new Set(ids)
+    persist(shortcuts.filter((s) => !idSet.has(s.id)), new Date().toISOString())
+  }, [shortcuts, persist])
+
+  return { shortcuts, addShortcut, updateShortcut, removeShortcut, removeShortcuts }
 }
