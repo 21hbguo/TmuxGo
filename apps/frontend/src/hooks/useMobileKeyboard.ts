@@ -3,8 +3,8 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { recordMobileDiagnostic } from '@/lib/mobile-diagnostics'
 
-const SENTINEL = '\u200b\u200b'
-const SENTINEL_CENTER = 1
+const SENTINEL = '  '
+const SENTINEL_CENTER = 2
 const KEYBOARD_OPEN_THRESHOLD = 120
 const KEYBOARD_CLOSE_THRESHOLD = 70
 const KEYBOARD_VIEWPORT_GRACE_MS = 1500
@@ -167,7 +167,7 @@ export function useMobileKeyboard(
     ta.value = SENTINEL
     try { ta.setSelectionRange(SENTINEL_CENTER, SENTINEL_CENTER) } catch {}
   }, [])
-  const getInputText = useCallback(() => textareaRef.current?.value.replace(/\u200b/g, '') || '', [])
+  const getInputText = useCallback(() => textareaRef.current?.value.slice(SENTINEL.length) || '', [])
   const clearDeferredInputTimer = useCallback(() => {
     if (!deferredInputTimerRef.current) return
     clearTimeout(deferredInputTimerRef.current)
@@ -367,11 +367,11 @@ export function useMobileKeyboard(
         clearDeferredInputTimer()
         deferredInputActiveRef.current = false
         setImeComposing(true)
-        composingLengthRef.current = text.length
+        composingLengthRef.current = textareaRef.current?.value.length || 0
         return
       }
       if (composingRef.current) {
-        composingLengthRef.current = text.length
+        composingLengthRef.current = textareaRef.current?.value.length || 0
         return
       }
       if (deferredInputActiveRef.current || shouldDeferInput(inputType, inputEvent.data) || inputType === 'insertText' && text.length > 1) {
@@ -419,7 +419,7 @@ export function useMobileKeyboard(
       clearDeferredInputTimer()
       deferredInputActiveRef.current = false
       const raw = ta.value
-      const text = raw.replace(/\u200b/g, '')
+      const text = raw
       setImeComposing(false)
       if (text) {
         sendInput(text)

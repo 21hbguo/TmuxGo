@@ -190,7 +190,7 @@ describe('useMobileKeyboard', () => {
       fireEvent.compositionEnd(textarea)
     })
     expect(sendInputMock).toHaveBeenCalledWith('中')
-    expect(textarea.value).toBe('\u200b\u200b')
+    expect(textarea.value).toBe('  ')
   })
   it('does not send enter while ime confirmation keydown is still composing', async () => {
     render(<Harness />)
@@ -203,7 +203,7 @@ describe('useMobileKeyboard', () => {
       fireEvent.compositionEnd(textarea)
     })
     expect(sendInputMock.mock.calls.map((call) => call[0])).toEqual(['中'])
-    expect(textarea.value).toBe('\u200b\u200b')
+    expect(textarea.value).toBe('  ')
   })
   it('handles repeated mobile delete input events', async () => {
     render(<Harness />)
@@ -299,7 +299,7 @@ describe('useMobileKeyboard', () => {
       fireEvent.compositionEnd(textarea)
     })
     expect(sendInputMock.mock.calls.map((call) => call[0])).toEqual(['中'])
-    expect(textarea.value).toBe('\u200b\u200b')
+    expect(textarea.value).toBe('  ')
   })
   it('commits replacement text after a short debounce so mobile prediction input stays responsive', async () => {
     render(<Harness />)
@@ -307,7 +307,7 @@ describe('useMobileKeyboard', () => {
     vi.useFakeTimers()
     const textarea = api.textarea as HTMLTextAreaElement
     act(() => {
-      textarea.value = '\u200bhello world\u200b'
+      textarea.value = '  hello world'
       textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertReplacementText', data: 'hello world' }))
     })
     expect(textarea.value).toContain('hello world')
@@ -320,7 +320,7 @@ describe('useMobileKeyboard', () => {
       vi.advanceTimersByTime(1)
     })
     expect(sendInputMock).toHaveBeenCalledWith('hello world')
-    expect(textarea.value).toBe('\u200b\u200b')
+    expect(textarea.value).toBe('  ')
   })
   it('does not enable mobile keyboard mode on coarse-pointer desktop user agents', async () => {
     vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
