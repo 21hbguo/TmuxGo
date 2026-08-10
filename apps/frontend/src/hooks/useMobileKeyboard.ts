@@ -382,6 +382,7 @@ export function useMobileKeyboard(
       }
       if (inputType === 'deleteContentBackward' || inputType === 'deleteContentForward' || inputType === 'deleteByCut' || inputType === 'deleteByDrag' || inputType === 'deleteContent') {
         sendInput('\x7f')
+        startDeleteRepeat()
         clearValue()
         return
       }
