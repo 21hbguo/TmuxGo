@@ -66,6 +66,15 @@ describe('QuickActions', () => {
     expect(paste).toHaveBeenCalledTimes(1)
     window.removeEventListener('tmuxgo-request-terminal-paste', paste)
   })
+  it('dock mode keeps the add-shortcut modal hidden until opened and closable', () => {
+    render(<QuickActions mode="dock" />)
+    expect(screen.queryByText('shortcut.add')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'shortcut.manage' }))
+    fireEvent.click(screen.getByRole('button', { name: '+ shortcut.add' }))
+    expect(screen.getByText('shortcut.add')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'shortcut.cancel' }))
+    expect(screen.queryByText('shortcut.add')).not.toBeInTheDocument()
+  })
   it('repeats backspace while held in the mobile shortcut bar', () => {
     vi.useFakeTimers()
     render(<QuickActions mode="dock" />)
