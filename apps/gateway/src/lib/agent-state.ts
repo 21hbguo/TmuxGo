@@ -53,6 +53,8 @@ interface PaneCandidate {
 interface AgentRecord extends AgentPaneState {
   rawStatus: AgentStatus
   rawPhase: AgentPhase
+  lastOutputTime: string
+  paneDead: boolean
 }
 interface AgentDetection {
   agent: string
@@ -222,6 +224,8 @@ function updateRecord(candidate: PaneCandidate, output: string, processAgent?: s
     eventId,
     message: detected.message,
     revision: ++nextRevision,
+    lastOutputTime: candidate.lastOutputTime,
+    paneDead: candidate.paneDead,
   }
   records.set(candidate.paneId, record)
   return toAgentPaneState(record)
@@ -230,12 +234,17 @@ function shouldCapture(candidate: PaneCandidate) {
   const command = normalizeCommand(candidate.currentCommand)
   return !!directAgents[command] || indirectCommands.has(command) || spinnerPattern.test(candidate.title) || blockedPattern.test(candidate.title) || !!candidate.tmuxHookEvent || candidate.paneDead
 }
+const processAgentCache = new Map<string, { expiresAt: number; pids: string[]; agents: Map<string, string> }>()
 async function getProcessAgents(hostId: string, candidates: PaneCandidate[]) {
   const panePids = [...new Set(candidates.map((candidate) => candidate.panePid).filter((panePid) => /^\d+$/.test(panePid)))]
   if (!panePids.length) return new Map<string, string>()
+  const cached = processAgentCache.get(hostId)
+  if (cached && cached.expiresAt > Date.now() && cached.pids.length === panePids.length && panePids.every((panePid) => cached.pids.includes(panePid))) return cached.agents
   try {
     const { stdout } = await execHostShell(hostId, 'ps -ww -eo pid=,ppid=,args=', { timeoutMs: 5000 })
-    return findChildProcessAgents(stdout, panePids, detectProcessAgent)
+    const agents = findChildProcessAgents(stdout, panePids, detectProcessAgent)
+    processAgentCache.set(hostId, { expiresAt: Date.now() + 5000, pids: panePids, agents })
+    return agents
   } catch {
     return null
   }
@@ -256,11 +265,16 @@ async function scanAgentPanes(hostId: string, sessionName?: string, allowedSessi
   const agentCandidates = candidates.filter((candidate) => shouldCapture(candidate) || !!processAgents?.get(candidate.panePid) || records.has(candidate.paneId))
   const states: AgentPaneState[] = []
   let index = 0
-  await Promise.all(Array.from({ length: Math.min(4, agentCandidates.length) }, async () => {
+  await Promise.all(Array.from({ length: Math.min(hostId === 'local' ? 8 : 4, agentCandidates.length) }, async () => {
     while (index < agentCandidates.length) {
       const candidate = agentCandidates[index++]
+      const previous = records.get(candidate.paneId)
+      if (previous && !candidate.tmuxHookEvent && previous.lastOutputTime === candidate.lastOutputTime && previous.paneDead === candidate.paneDead) {
+        states.push(toAgentPaneState(previous))
+        continue
+      }
       try {
-        const { stdout: output } = await execTmux(hostId, ['capture-pane', '-e', '-p', '-t', candidate.tmuxPaneId, '-S', '-80'])
+        const { stdout: output } = await execTmux(hostId, ['capture-pane', '-e', '-p', '-t', candidate.tmuxPaneId, '-S', '-80'], { timeoutMs: 2000 })
         const processAgent = processAgents ? processAgents.get(candidate.panePid) : undefined
         candidate.osc133Event = parseOsc133Events(output).at(-1)
         const state = updateRecord(candidate, output, processAgent, processScanFailed)

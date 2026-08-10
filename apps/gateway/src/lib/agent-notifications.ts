@@ -13,6 +13,7 @@ export interface AgentNotificationRecord {
   paneId: string
   agent: string
   status: 'blocked' | 'done' | 'permission_required' | 'needs_input' | 'failed' | 'ended' | 'disconnected'
+  title?: string
   message: string
   timestamp: string
   readBy: string[]
@@ -128,7 +129,7 @@ function configurePush(value: NotificationStore) {
 }
 async function sendPush(value: NotificationStore, notification: AgentNotificationRecord) {
   configurePush(value)
-  const payload = JSON.stringify({ type: 'agent_notification', id: notification.id, hostId: notification.hostId, sessionName: notification.sessionName, paneId: notification.paneId, agent: notification.agent, status: notification.status, message: notification.message, timestamp: notification.timestamp, url: `/?hostId=${encodeURIComponent(notification.hostId)}&sessionName=${encodeURIComponent(notification.sessionName)}&paneId=${encodeURIComponent(notification.paneId)}&notificationId=${encodeURIComponent(notification.id)}` })
+  const payload = JSON.stringify({ type: 'agent_notification', id: notification.id, hostId: notification.hostId, sessionName: notification.sessionName, paneId: notification.paneId, agent: notification.agent, status: notification.status, title: notification.title, message: notification.message, timestamp: notification.timestamp, url: `/?hostId=${encodeURIComponent(notification.hostId)}&sessionName=${encodeURIComponent(notification.sessionName)}&paneId=${encodeURIComponent(notification.paneId)}&notificationId=${encodeURIComponent(notification.id)}` })
   const removed = new Set<string>()
   await Promise.all(value.subscriptions.map(async (subscription) => {
     try {
@@ -193,7 +194,7 @@ export async function persistAgentNotification(event: MonitorNotificationEvent) 
   const existing = value.notifications.find((item) => item.id === event.eventId)
   if (existing) return existing
   const timestamp = event.pane.updatedAt || new Date().toISOString()
-  const notification: AgentNotificationRecord = { id: event.eventId, eventId: event.eventId, hostId: event.hostId, sessionName: event.sessionName, paneId: event.pane.paneId, agent: event.pane.agent, status, message: publicMessage(status, event.pane.agent), timestamp, readBy: [] }
+  const notification: AgentNotificationRecord = { id: event.eventId, eventId: event.eventId, hostId: event.hostId, sessionName: event.sessionName, paneId: event.pane.paneId, agent: event.pane.agent, status, title: event.pane.display?.title, message: event.pane.message || publicMessage(status, event.pane.agent), timestamp, readBy: [] }
   value.notifications = [notification, ...value.notifications].slice(0, 500)
   await saveStore(value)
   await sendPush(value, notification)
