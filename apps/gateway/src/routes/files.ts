@@ -23,7 +23,7 @@ const defaultRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const PREVIEW_LIMIT = 200 * 1024
 const LARGE_FILE_LIMIT = 512 * 1024
 const MAX_DIRS = 50000
-const MAX_FILES = 50000
+const MAX_FILES = 300000
 const MAX_RESULTS = 200
 const MAX_READ_LINES = 1200
 const DEFAULT_UPLOAD_DIR = 'uploads'
@@ -35,6 +35,7 @@ const GIT_REPOSITORY_MAX_DEPTH = 6
 const GIT_REPOSITORY_MAX_DIRS = 12000
 const GIT_REPOSITORY_MAX_RESULTS = 200
 const GIT_REPOSITORY_SKIP_DIRS = new Set(['.cache', '.local', '.npm', '.next', '.next-dev', '.next-prod', '.venv', '__pycache__', 'build', 'dist', 'node_modules', 'postgres_data', 'venv'])
+const FILE_SEARCH_SKIP_DIRS = new Set([...GIT_REPOSITORY_SKIP_DIRS, '.git', '.hg', '.pnpm-store', '.svn', 'Library', 'coverage', 'target', 'vendor'])
 export const TEMP_UPLOAD_ROOT_ID = 'app-tmp'
 const TEMP_UPLOAD_ROOT_LABEL = 'tmp'
 const DEFAULT_TEMP_UPLOAD_TTL_MS = 24 * 60 * 60 * 1000
@@ -640,6 +641,7 @@ async function walk(rootPath: string, startPath: string, visitor: (absolutePath:
         const result = await visitor(absolutePath, relativePath, 'directory')
         if (result === false) return
         if (result === 'skip') continue
+        if (FILE_SEARCH_SKIP_DIRS.has(entry.name)) continue
         queue.push(absolutePath)
       } else if (entry.isFile()) {
         files++
@@ -663,11 +665,64 @@ function matchesAnySearchTerm(value: string, clauses: string[][]) {
   const target = value.toLowerCase()
   return clauses.some((terms) => terms.some((term) => target.includes(term)))
 }
+let fdBinary: string | null | undefined
+async function resolveFdBinary() {
+  if (fdBinary !== undefined) return fdBinary
+  for (const name of ['fd', 'fdfind']) {
+    try {
+      const { stdout } = await execFileAsync(name, ['--version'], { timeout: 2000 })
+      if (stdout.toLowerCase().includes('fd')) { fdBinary = name; return fdBinary }
+    } catch {}
+  }
+  fdBinary = null
+  return fdBinary
+}
+function escapeGlob(value: string) {
+  return value.replace(/[*?[\]{}()!+@\\]/g, '\\$&')
+}
+async function searchNameWithFd(rootPath: string, absolutePath: string, clauses: string[][], includeDotFiles: boolean) {
+  const fd = await resolveFdBinary()
+  if (!fd) return null
+  const results: FileItem[] = []
+  const seen = new Set<string>()
+  for (const terms of clauses) {
+    const args = ['--hidden', '--no-ignore', '-i', '-t', 'f', '-t', 'd', '--max-results', '1000', '--print0']
+    for (const name of FILE_SEARCH_SKIP_DIRS) args.push('-E', name)
+    args.push('-g', `*${escapeGlob(terms[0])}*`, absolutePath)
+    let stdout: string
+    try {
+      ({ stdout } = await execFileAsync(fd, args, { maxBuffer: RG_MAX_BUFFER, timeout: 30000 }))
+    } catch (error) {
+      const err = error as Error & { code?: number }
+      if (err.code === 1 || err.code === 2) continue
+      throw error
+    }
+    for (const raw of stdout.split('\0')) {
+      if (!raw) continue
+      const relativePath = toRelative(rootPath, raw)
+      if (!includeDotFiles && isDotPath(relativePath)) continue
+      if (!matchesSearchQuery(path.basename(relativePath), clauses)) continue
+      if (seen.has(relativePath)) continue
+      seen.add(relativePath)
+      try {
+        results.push(await toFileItem(rootPath, raw, path.basename(raw)))
+      } catch {}
+      if (results.length >= MAX_RESULTS) return results
+    }
+  }
+  return results
+}
 async function searchName(rootId: string, query: string, basePath = '', includeDotFiles = true) {
   const clauses = parseSearchQuery(query)
   if (!clauses.length) return []
   const pathSearch = path.isAbsolute(query.trim())
   const { root, absolutePath } = await resolveInside(rootId, basePath)
+  if (!pathSearch) {
+    try {
+      const fdResults = await searchNameWithFd(root.path, absolutePath, clauses, includeDotFiles)
+      if (fdResults) return fdResults
+    } catch {}
+  }
   const results: FileItem[] = []
   await walk(root.path, absolutePath, async (current, relativePath, entryType) => {
     if (!includeDotFiles && isDotPath(relativePath)) return entryType === 'directory' ? 'skip' : undefined
@@ -709,7 +764,8 @@ async function discoverGitRepositories() {
 async function searchContentWithRg(rootPath: string, absolutePath: string, clauses: string[][], includeDotFiles = true) {
   const results = new Map<string, ContentSearchResult>()
   for (const terms of clauses) {
-    const args = ['--json', '-n', '-i', '--fixed-strings', '--hidden', '-uu']
+    const args = ['--json', '-n', '-i', '--fixed-strings', '--hidden', '-uu', '--max-filesize', '5M', '-m', '5']
+    for (const name of FILE_SEARCH_SKIP_DIRS) args.push('-g', `!${name}/**`)
     for (const term of terms) args.push('-e', term)
     args.push('.')
     try {
