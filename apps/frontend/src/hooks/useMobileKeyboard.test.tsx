@@ -263,6 +263,24 @@ describe('useMobileKeyboard', () => {
     act(() => vi.advanceTimersByTime(400))
     expect(sendInputMock).toHaveBeenCalledTimes(1)
   })
+  it('keeps deleting via the repeat timer when the IME only drives input events', async () => {
+    render(<Harness />)
+    await waitFor(() => expect(api.textarea).toBeTruthy())
+    vi.useFakeTimers()
+    const textarea = api.textarea as HTMLTextAreaElement
+    act(() => {
+      textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' }))
+    })
+    expect(sendInputMock).toHaveBeenCalledTimes(1)
+    act(() => vi.advanceTimersByTime(300))
+    expect(sendInputMock).toHaveBeenCalledTimes(1)
+    act(() => vi.advanceTimersByTime(33))
+    expect(sendInputMock).toHaveBeenCalledTimes(2)
+    act(() => vi.advanceTimersByTime(66))
+    expect(sendInputMock).toHaveBeenCalledTimes(4)
+    fireEvent.keyUp(textarea, { key: 'Backspace' })
+    act(() => vi.runOnlyPendingTimers())
+  })
   it('does not flush raw composition text as english when compositionstart is missing', async () => {
     render(<Harness />)
     await waitFor(() => expect(api.textarea).toBeTruthy())
