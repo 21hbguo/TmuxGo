@@ -5,7 +5,7 @@ import test from 'node:test'
 import os from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import { detectAgentEvidence, detectAgentPaneState, detectProcessAgent, resolveAgentStatus, summarizeAgentPanes } from './agent-state.js'
+import { detectAgentEvidence, detectAgentPaneState, detectProcessAgent, resolveAgentStatus, shouldSkipCapture, summarizeAgentPanes } from './agent-state.js'
 import { createTerminalOutputSanitizer } from './terminal-output.js'
 import { execTmux } from './tmux-executor.js'
 import { forgetAgentPane, getHostAgentPanes } from './agent-state.js'
@@ -20,8 +20,21 @@ test('detects codex lifecycle from terminal output', () => {
 test('ignores ordinary node processes', () => {
   assert.equal(detectAgentPaneState('node', 'gateway', 'Gateway listening on port 3001'), null)
 })
-test('detects agents from pane child processes', () => {
-  assert.equal(detectProcessAgent('node /home/guo/.nvm/versions/node/v22.22.0/bin/codex --dangerously-bypass-approvals-and-sandbox'), 'codex')
+test('skips capture only when last output time is stable and non-empty', () => {
+  const previous: any = { paneId: 'local:%1', lastOutputTime: '1723000000', paneDead: false }
+  const noTime: any = { paneId: 'local:%1', tmuxHookEvent: undefined, lastOutputTime: '', paneDead: false }
+  const stable: any = { paneId: 'local:%1', tmuxHookEvent: undefined, lastOutputTime: '1723000000', paneDead: false }
+  const changed: any = { paneId: 'local:%1', tmuxHookEvent: undefined, lastOutputTime: '1723000500', paneDead: false }
+  const hookEvent: any = { paneId: 'local:%1', tmuxHookEvent: { paneId: '%1', event: 'pane-command-started' }, lastOutputTime: '1723000000', paneDead: false }
+  const deadChanged: any = { paneId: 'local:%1', tmuxHookEvent: undefined, lastOutputTime: '1723000000', paneDead: true }
+  assert.equal(shouldSkipCapture(previous, noTime), false)
+  assert.equal(shouldSkipCapture(previous, stable), true)
+  assert.equal(shouldSkipCapture(previous, changed), false)
+  assert.equal(shouldSkipCapture(previous, hookEvent), false)
+  assert.equal(shouldSkipCapture(previous, deadChanged), false)
+  assert.equal(shouldSkipCapture(undefined, stable), false)
+})
+test('detects agents from pane child processes', () => {  assert.equal(detectProcessAgent('node /home/guo/.nvm/versions/node/v22.22.0/bin/codex --dangerously-bypass-approvals-and-sandbox'), 'codex')
   assert.equal(detectProcessAgent('/usr/local/bin/claude --dangerously-skip-permissions'), 'claude')
   assert.equal(detectProcessAgent('/usr/local/bin/reasonix'), 'reasonix')
   assert.equal(detectProcessAgent('node /srv/gateway.js'), null)
@@ -74,4 +87,8 @@ test('scans a local tmux Agent pane through the real executor path', async () =>
     await execFileAsync('tmux', ['kill-session', '-t', sessionName]).catch(() => {})
     await rm(tempDir, { recursive: true, force: true })
   }
+})
+test('detects reasonix working state from in-pane braille spinner', () => {
+  assert.deepEqual(detectAgentEvidence('node /home/guo/.nvm/versions/node/v22.22.0/bin/reasonix', '', '  ⣽  思考中… (242 秒 · Esc 取消) · ↓12.7K', 'reasonix')?.phase, 'working')
+  assert.deepEqual(detectAgentEvidence('node /home/guo/.nvm/versions/node/v22.22.0/bin/reasonix', '', '⎿  ⠙ 运行中 · 0 秒', 'reasonix')?.phase, 'working')
 })

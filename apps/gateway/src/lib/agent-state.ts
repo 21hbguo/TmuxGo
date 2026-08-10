@@ -56,6 +56,9 @@ interface AgentRecord extends AgentPaneState {
   lastOutputTime: string
   paneDead: boolean
 }
+export function shouldSkipCapture(previous: AgentRecord | undefined, candidate: PaneCandidate): previous is AgentRecord {
+  return !!previous && !candidate.tmuxHookEvent && !!candidate.lastOutputTime && previous.lastOutputTime === candidate.lastOutputTime && previous.paneDead === candidate.paneDead
+}
 interface AgentDetection {
   agent: string
   agentStatus: AgentStatus
@@ -118,7 +121,7 @@ function detectRawStatus(title: string, output: string): AgentStatus {
   const recent = getVisibleTerminalLines(output).slice(-16).join('\n')
   const visible = `${title}\n${recent}`
   if (blockedPattern.test(visible)) return 'blocked'
-  if (spinnerPattern.test(title) || workingPattern.test(recent)) return 'working'
+  if (spinnerPattern.test(title) || spinnerPattern.test(recent) || workingPattern.test(recent)) return 'working'
   return 'idle'
 }
 function detectRawPhase(candidate: PaneCandidate, title: string, output: string, processAgent?: string | null) {
@@ -140,7 +143,7 @@ function detectRawPhase(candidate: PaneCandidate, title: string, output: string,
     return { phase: 'idle' as const, source, confidence }
   }
   if (failurePattern.test(visible) || (!candidate.commandRunning && /^\d+$/.test(candidate.commandStatus) && Number(candidate.commandStatus) > 0)) return { phase: 'failed' as const, source: candidate.commandStatus ? 'tmux' as const : source, confidence: candidate.commandStatus ? 'medium' as const : confidence, message: 'Agent reported a failure' }
-  if (hook?.event === 'pane-command-started' || osc133?.type === 'command_started' || osc133?.type === 'output_started' || spinnerPattern.test(title) || workingPattern.test(recent) || candidate.commandRunning) return { phase: 'working' as const, source, confidence }
+  if (hook?.event === 'pane-command-started' || osc133?.type === 'command_started' || osc133?.type === 'output_started' || spinnerPattern.test(title) || spinnerPattern.test(recent) || workingPattern.test(recent) || candidate.commandRunning) return { phase: 'working' as const, source, confidence }
   return { phase: 'idle' as const, source, confidence }
 }
 function toLegacyStatus(phase: AgentPhase, completed: boolean): AgentStatus {
@@ -269,7 +272,7 @@ async function scanAgentPanes(hostId: string, sessionName?: string, allowedSessi
     while (index < agentCandidates.length) {
       const candidate = agentCandidates[index++]
       const previous = records.get(candidate.paneId)
-      if (previous && !candidate.tmuxHookEvent && previous.lastOutputTime === candidate.lastOutputTime && previous.paneDead === candidate.paneDead) {
+      if (shouldSkipCapture(previous, candidate)) {
         states.push(toAgentPaneState(previous))
         continue
       }
