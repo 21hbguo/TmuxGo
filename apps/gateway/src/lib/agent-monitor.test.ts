@@ -69,6 +69,48 @@ test('emits a disconnected notification once and a reconnected change after reco
   monitor.stop()
 })
 
+test('throttles repeated notifications for the same pane and stage', async () => {
+  let now = 1000000
+  let states: AgentPaneState[] = [pane('local:%1')]
+  const events: any[] = []
+  const monitor = new AgentMonitor({ getHostIds: async () => ['local'], scan: async () => states, intervalMs: 1000, now: () => now })
+  const unsubscribe = monitor.subscribe((event) => events.push(event))
+  await monitor.start()
+  const failedPane = (revision: number) => ({ ...pane('local:%1', 'failed', 'failed'), revision, eventId: 'local:%1:failed:' + revision })
+  const workingPane = (revision: number) => ({ ...pane('local:%1'), revision, eventId: 'local:%1:started:' + revision })
+  states = [failedPane(2)]
+  await monitor.pollNow('local')
+  states = [workingPane(3)]
+  await monitor.pollNow('local')
+  states = [failedPane(4)]
+  await monitor.pollNow('local')
+  assert.equal(events.filter((event) => event.type === 'agent_notification' && event.pane?.lastEvent === 'failed').length, 1)
+  now += 31000
+  states = [workingPane(5)]
+  await monitor.pollNow('local')
+  states = [failedPane(6)]
+  await monitor.pollNow('local')
+  assert.equal(events.filter((event) => event.type === 'agent_notification' && event.pane?.lastEvent === 'failed').length, 2)
+  unsubscribe()
+  monitor.stop()
+})
+test('clears the notification throttle when the pane is removed', async () => {
+  let now = 1000000
+  let states: AgentPaneState[] = [{ ...pane('local:%1', 'failed', 'failed'), revision: 2, eventId: 'local:%1:failed:2' }]
+  const events: any[] = []
+  const monitor = new AgentMonitor({ getHostIds: async () => ['local'], scan: async () => states, intervalMs: 1000, now: () => now })
+  const unsubscribe = monitor.subscribe((event) => events.push(event))
+  await monitor.start()
+  states = [{ ...pane('local:%1', 'failed', 'failed'), revision: 3, eventId: 'local:%1:failed:3' }]
+  await monitor.pollNow('local')
+  states = []
+  await monitor.pollNow('local')
+  states = [{ ...pane('local:%1', 'failed', 'failed'), revision: 4, eventId: 'local:%1:failed:4' }]
+  await monitor.pollNow('local')
+  assert.equal(events.filter((event) => event.type === 'agent_notification' && event.pane?.lastEvent === 'failed').length, 2)
+  unsubscribe()
+  monitor.stop()
+})
 test('keeps local, ssh, and agent hosts as independent monitor keys', async () => {
   const scanned: string[] = []
   const monitor = new AgentMonitor({ getHostIds: async () => ['local', 'ssh-host', 'agent-host'], scan: async (hostId) => { scanned.push(hostId); return [pane(hostId + ':%1')] }, intervalMs: 1000 })
