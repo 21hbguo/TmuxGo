@@ -288,6 +288,7 @@ export function useMobileKeyboard(
       End: '\x1b[F',
     }
     const handleKeyDown = (e: KeyboardEvent) => {
+      recordMobileDebug('keydown', { key: e.key, keyCode: e.keyCode, which: e.which, repeat: e.repeat, isComposing: e.isComposing, composing: composingRef.current, deferred: deferredInputActiveRef.current })
       if (composingRef.current || isImeKeyEvent(e)) return
       if (deferredInputActiveRef.current) {
         if (e.key === 'Enter' || e.key === 'Tab' || ARROW_KEYS[e.key]) {
@@ -319,6 +320,7 @@ export function useMobileKeyboard(
     }
 
     const handleKeyUp = (e: KeyboardEvent) => {
+      recordMobileDebug('keyup', { key: e.key, keyCode: e.keyCode, repeat: e.repeat })
       if (e.key === 'Backspace') {
         if (deleteRepeatIntervalRef.current) {
           clearInterval(deleteRepeatIntervalRef.current)
@@ -330,6 +332,7 @@ export function useMobileKeyboard(
 
     const handleBeforeInput = (e: InputEvent) => {
       const inputType = e.inputType
+      recordMobileDebug('beforeinput', { inputType, data: e.data || null, cancelled: e.defaultPrevented, composing: composingRef.current, deferred: deferredInputActiveRef.current })
       if (inputType === 'insertCompositionText') {
         stopDeleteRepeat()
         clearDeferredInputTimer()
@@ -358,6 +361,7 @@ export function useMobileKeyboard(
       const inputEvent = e as InputEvent
       const inputType = inputEvent.inputType
       const text = getInputText()
+      recordMobileDebug('input', { inputType, data: inputEvent.data || null, len: text.length, composing: composingRef.current, deferred: deferredInputActiveRef.current })
       if (inputType === 'insertCompositionText') {
         stopDeleteRepeat()
         clearDeferredInputTimer()
@@ -396,6 +400,7 @@ export function useMobileKeyboard(
     }
 
     const handleCompositionStart = () => {
+      recordMobileDebug('compositionstart')
       stopDeleteRepeat()
       clearDeferredInputTimer()
       deferredInputActiveRef.current = false
@@ -405,10 +410,12 @@ export function useMobileKeyboard(
     }
 
     const handleCompositionUpdate = () => {
+      recordMobileDebug('compositionupdate', { len: ta.value.length })
       if (ta) composingLengthRef.current = ta.value.length
     }
 
     const handleCompositionEnd = () => {
+      recordMobileDebug('compositionend', { len: ta.value.length })
       clearDeferredInputTimer()
       deferredInputActiveRef.current = false
       const raw = ta.value
