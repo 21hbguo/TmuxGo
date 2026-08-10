@@ -574,8 +574,10 @@ export const en = {
 
   // Custom Shortcuts
   'shortcut.custom': 'Custom Shortcuts',
+  'shortcut.manage': 'Manage Shortcuts',
   'shortcut.add': 'Add Shortcut',
   'shortcut.edit': 'Edit Shortcut',
+  'shortcut.done': 'Done',
   'shortcut.delete': 'Delete Shortcut',
   'shortcut.deleteTitle': 'Delete Shortcut',
   'shortcut.deleteConfirm': 'Delete shortcut "{label}"?',
@@ -808,6 +810,7 @@ export const en = {
   'editor.definitionNotFound': 'Definition not found',
   'editor.definitionUnsupported': 'Definition navigation is unavailable for this language',
   'editor.preview': 'Preview',
+  'editor.syncPreview': 'Sync preview',
   'editor.saving': 'Saving...',
   'editor.save': 'Save',
   'editor.saved': 'Saved',
