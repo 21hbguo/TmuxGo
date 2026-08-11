@@ -281,13 +281,14 @@ export async function streamRoutes(fastify: FastifyInstance) {
       const seq = attachSeq
       outputResyncRunning = true
       try {
-        const { stdout } = await execTmux(hostId, ['capture-pane', '-e', '-pt', sessionName, '-p'])
+        const snapshot = await captureWindowSnapshot(hostId, sessionName)
+        if (!snapshot) return
         if (!outputResyncPending || !ptyProcess || seq !== attachSeq || attachedSessionName !== sessionName || attachedHostId !== hostId) return
         if (getSocketBufferedBytes() >= SOCKET_BUFFER_HIGH_WATERMARK) {
           scheduleDeferredFlush()
           return
         }
-        const data = `\u001b[H\u001b[2J${String(stdout || '')}`
+        const data = snapshot
         let sent = false
         if (cellModeActive) sent = feedCellAndMaybeSend('output_resync', data, sessionName, hostId)
         if (!sent) {
@@ -406,6 +407,28 @@ export async function streamRoutes(fastify: FastifyInstance) {
         remaining -= step
       }
     }
+    async function captureWindowSnapshot(hostId: string, sessionName: string) {
+      const { stdout } = await execTmux(hostId, ['list-panes', '-t', sessionName, '-F', '#{pane_id}|#{pane_left}|#{pane_top}'])
+      const panes = String(stdout || '').trim().split('\n').filter(Boolean).map((line) => {
+        const [paneId, leftRaw, topRaw] = line.split('|')
+        const left = Number(leftRaw)
+        const top = Number(topRaw)
+        return { paneId, left: Number.isFinite(left) ? left : 0, top: Number.isFinite(top) ? top : 0 }
+      })
+      const parts: string[] = []
+      for (const pane of panes) {
+        if (!pane.paneId) continue
+        const { stdout: paneOutput } = await execTmux(hostId, ['capture-pane', '-e', '-pt', pane.paneId, '-p'])
+        const content = String(paneOutput || '').replace(/\n/g, '\r\n')
+        if (!content) continue
+        parts.push(`\u001b[${pane.top + 1};${pane.left + 1}H${content}`)
+      }
+      if (!parts.length) {
+        const { stdout: fallback } = await execTmux(hostId, ['capture-pane', '-e', '-pt', sessionName, '-p'])
+        return `\u001b[H\u001b[2J${String(fallback || '').replace(/\n/g, '\r\n')}`
+      }
+      return `\u001b[H\u001b[2J${parts.join('')}`
+    }
     function flushScroll(sessionName: string) {
       if (scrollRunning.has(sessionName)) return
       const lines = scrollBuffers.get(sessionName) || 0
@@ -436,11 +459,10 @@ export async function streamRoutes(fastify: FastifyInstance) {
     async function captureAttachedSnapshot(sessionName: string, seq: number) {
       if (!ptyProcess || !sessionName || attachVisibleOutputObserved || seq !== attachSeq || attachedSessionName !== sessionName) return
       try {
-        const { stdout } = await execTmux(attachedHostId, ['capture-pane', '-e', '-pt', sessionName, '-p'])
+        const snapshot = await captureWindowSnapshot(attachedHostId, sessionName)
         if (!ptyProcess || !sessionName || attachVisibleOutputObserved || seq !== attachSeq || attachedSessionName !== sessionName) return
-        const snapshot = String(stdout || '')
         if (!snapshot) return
-        const data = `\u001b[H\u001b[2J${snapshot}`
+        const data = snapshot
         let sent = false
         if (cellModeActive) sent = feedCellAndMaybeSend('output_resync', data, sessionName, attachedHostId)
         if (!sent && !sendTerminalOutput('output_resync', data, sessionName, attachedHostId)) return
