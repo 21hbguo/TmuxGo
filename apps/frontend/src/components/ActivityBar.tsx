@@ -1,7 +1,7 @@
 'use client'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
-import { FiBell, FiFolder, FiGitBranch, FiGrid, FiSearch, FiServer, FiSettings } from 'react-icons/fi'
+import { FiBell, FiFolder, FiGitBranch, FiGrid, FiServer, FiSettings } from 'react-icons/fi'
 import { FiActivity, FiBox, FiCode, FiCpu, FiDatabase, FiGlobe, FiTerminal, FiTool, FiZap } from 'react-icons/fi'
 import { usePlugins } from '@/hooks/useApi'
 
@@ -20,7 +20,6 @@ export function ActivityBar() {
   const activePluginView = useConsoleStore((state) => state.activePluginView)
   const setActivePluginView = useConsoleStore((state) => state.setActivePluginView)
   const toggleGitPanel = useConsoleStore((state) => state.toggleGitPanel)
-  const setCommandPalette = useConsoleStore((state) => state.setCommandPalette)
   const { t } = useTranslation()
   const { data } = usePlugins()
   const pluginViews = (data?.plugins || []).filter((plugin) => plugin.enabled && plugin.state === 'active').flatMap((plugin) => (plugin.manifest.contributes?.views || []).map((view) => ({ plugin, view })))
@@ -30,7 +29,6 @@ export function ActivityBar() {
     { id: 'files', label: t('activity.explorer'), icon: FiFolder, onClick: toggleFilePanel },
     { id: 'thumbnails', label: t('activity.thumbnails'), icon: FiGrid, onClick: toggleThumbnailPanel },
     { id: 'git', label: t('git.title'), icon: FiGitBranch, onClick: toggleGitPanel },
-    { id: 'search', label: t('activity.search'), icon: FiSearch, onClick: () => setCommandPalette(true) },
     { id: 'notifications', label: t('notification.title'), icon: FiBell, onClick: () => window.dispatchEvent(new CustomEvent('tmuxgo-toggle-notifications')) },
     { id: 'settings', label: t('activity.settings'), icon: FiSettings, onClick: () => window.dispatchEvent(new CustomEvent('tmuxgo-open-settings')) },
   ] as const
