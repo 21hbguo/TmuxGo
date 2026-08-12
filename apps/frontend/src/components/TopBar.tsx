@@ -4,12 +4,11 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import { ConnectionBadge } from './ConnectionBadge'
 import { useTranslation } from '@/i18n'
 import { useHosts, useSessions } from '@/hooks/useApi'
-import { FiSearch, FiSettings } from 'react-icons/fi'
+import { FiSettings } from 'react-icons/fi'
 
 export function TopBar() {
   const activeHostId = useConsoleStore((state) => state.activeHostId)
   const activeSessionId = useConsoleStore((state) => state.activeSessionId)
-  const setCommandPalette = useConsoleStore((state) => state.setCommandPalette)
   const { data: hosts = [] } = useHosts()
   const { data: sessions = [] } = useSessions(activeHostId || '')
   const { t } = useTranslation()
@@ -34,18 +33,6 @@ export function TopBar() {
               <span className="max-w-44 truncate text-sm text-text-1">{activeSession.name}</span>
             </>
           )}
-        </div>
-
-        <div className="flex flex-1 justify-center px-4">
-          <button
-            onClick={() => setCommandPalette(true)}
-            aria-label={t('search.placeholder')}
-            className="tmuxgo-glass-control flex h-9 w-full max-w-[360px] items-center gap-2 px-3 text-sm text-text-3 transition-colors"
-          >
-            <FiSearch aria-hidden="true" className="shrink-0" />
-            <span className="min-w-0 flex-1 truncate text-left">{t('search.placeholder')}</span>
-            <kbd className="tmuxgo-keycap tmuxgo-keycap--sm">{t('search.cmd')}</kbd>
-          </button>
         </div>
 
         <div className="flex shrink-0 items-center gap-2">

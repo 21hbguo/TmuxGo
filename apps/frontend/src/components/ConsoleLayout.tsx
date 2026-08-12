@@ -702,7 +702,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
             </div>
           )}
           <div className={keyboardOpen ? 'hidden' : 'h-[calc(48px+env(safe-area-inset-bottom))]'}>
-            <MobileNav docked gitOpen={mobileGitSheetOpen} onOpenDrawer={openDrawer} onOpenSettings={openSettings} onOpenSearch={openPalette} onOpenFiles={openMobileFiles} onOpenGit={openMobileGit} />
+            <MobileNav docked gitOpen={mobileGitSheetOpen} onOpenDrawer={openDrawer} onOpenSettings={openSettings} onOpenFiles={openMobileFiles} onOpenGit={openMobileGit} />
           </div>
           <div className={keyboardOpen ? 'block' : 'hidden'}>
             <ShortcutBar mode="dock" onOpenFiles={openMobileFiles} />

@@ -7,7 +7,6 @@ import { FiGitBranch } from 'react-icons/fi'
 interface MobileNavProps {
   onOpenDrawer: (type: 'sessions' | 'panes' | 'windows') => void
   onOpenSettings: () => void
-  onOpenSearch: () => void
   onOpenFiles: () => void
   onOpenGit: () => void
   gitOpen?: boolean
@@ -27,11 +26,10 @@ const icons = {
   panes: 'M3 3h18v18H3zM3 9h18M3 15h18M9 3v18M15 3v18',
   windows: 'M4 4h16v16H4zM4 9h16M9 4v16',
   files: 'M3 5h7l2 2h9v12H3z',
-  search: 'M11 3a8 8 0 1 0 0 16 8 8 0 0 0 0-16zM21 21l-4.35-4.35',
   settings: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z',
 }
 
-export function MobileNav({ onOpenDrawer, onOpenSettings, onOpenSearch, onOpenFiles, onOpenGit, gitOpen = false, docked = false }: MobileNavProps) {
+export function MobileNav({ onOpenDrawer, onOpenSettings, onOpenFiles, onOpenGit, gitOpen = false, docked = false }: MobileNavProps) {
   const connection = useConsoleStore((state) => state.connection)
   const attachLatency = useConsoleStore((state) => state.terminalPerf.attachLatency)
   const { t } = useTranslation()
@@ -46,7 +44,7 @@ export function MobileNav({ onOpenDrawer, onOpenSettings, onOpenSearch, onOpenFi
 
   return (
     <div data-mobile-nav className={containerClass} style={docked ? undefined : { bottom: 'var(--mobile-keyboard-inset, 0px)' }}>
-      <div className="grid h-12 grid-cols-7 items-center">
+      <div className="grid h-12 grid-cols-6 items-center">
         <button aria-label={t('nav.sessions')} onClick={() => onOpenDrawer('sessions')} className="tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px text-text-3 transition-all active:scale-95 active:bg-bg-2/50 active:text-accent">
           <NavIcon d={icons.sessions} />
           <span className="text-caption leading-none">{t('nav.sessions')}</span>
@@ -72,12 +70,7 @@ export function MobileNav({ onOpenDrawer, onOpenSettings, onOpenSearch, onOpenFi
           <span className="text-caption leading-none">{t('nav.git')}</span>
         </button>
 
-        <button aria-label={t('nav.search')} onClick={onOpenSearch} className="tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px text-text-3 transition-all active:scale-95 active:bg-bg-2/50 active:text-accent">
-          <NavIcon d={icons.search} />
-          <span className="text-caption leading-none">{t('nav.search')}</span>
-        </button>
-
-        <button onClick={onOpenSettings} aria-label={t('nav.settings')} className="tmuxgo-mobile-nav-button relative flex flex-col items-center justify-center gap-px text-text-3 transition-all active:scale-95 active:bg-bg-2/50 active:text-accent">
+        <button aria-label={t('nav.settings')} onClick={onOpenSettings} className="tmuxgo-mobile-nav-button relative flex flex-col items-center justify-center gap-px text-text-3 transition-all active:scale-95 active:bg-bg-2/50 active:text-accent">
           <div className="relative">
             <NavIcon d={icons.settings} />
             <div className={`absolute -top-1 -right-1.5 w-2.5 h-2.5 rounded-full ${statusColor} ${isRecovering ? 'animate-pulse' : ''} border border-bg-1`} />
