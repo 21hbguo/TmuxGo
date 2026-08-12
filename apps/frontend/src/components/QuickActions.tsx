@@ -117,22 +117,22 @@ function useQuickActionController() {
       repeatIntervalRef.current=null
     }
   },[])
-  const startRepeat=useCallback((data:string,delay=repeatDelay,interval=repeatInterval)=>{
+  const startRepeat=useCallback((action:()=>void,delay=repeatDelay,interval=repeatInterval)=>{
     stopRepeat()
-    sendKey(data)
+    action()
     repeatTimerRef.current=setTimeout(()=>{
-      repeatIntervalRef.current=setInterval(()=>sendKey(data),interval)
+      repeatIntervalRef.current=setInterval(action,interval)
     },delay)
-  },[sendKey,stopRepeat])
-  const armTouchRepeat=useCallback((data:string,delay=repeatDelay,interval=repeatInterval)=>{
+  },[stopRepeat])
+  const armTouchRepeat=useCallback((action:()=>void,delay=repeatDelay,interval=repeatInterval)=>{
     stopRepeat()
     pointerStateRef.current.repeatFired=false
     repeatTimerRef.current=setTimeout(()=>{
       pointerStateRef.current.repeatFired=true
-      sendKey(data)
-      repeatIntervalRef.current=setInterval(()=>sendKey(data),interval)
+      action()
+      repeatIntervalRef.current=setInterval(action,interval)
     },delay)
-  },[sendKey,stopRepeat])
+  },[stopRepeat])
   useEffect(()=>stopRepeat,[stopRepeat])
   useEffect(()=>()=>{ macroRunIdRef.current++ },[])
   const preventFocus=useCallback((e:ReactPointerEvent<HTMLButtonElement>)=>{e.preventDefault()},[])
@@ -395,9 +395,10 @@ function renderDockButton(def:ActionButtonDef,controller:ReturnType<typeof useQu
     onPointerDown={(e)=>{
       preventFocus(e); startPointer(e)
       if(def.disabled)return
-      if(def.repeat&&def.data){
-        if(e.pointerType!=='mouse'){ armTouchRepeat(def.data,def.repeatDelay,def.repeatInterval); return }
-        startRepeat(def.data,def.repeatDelay,def.repeatInterval)
+      if(def.repeat&&(def.data||def.onPress)){
+        const fire=()=>triggerDockButton(def,controller)
+        if(e.pointerType!=='mouse'){ armTouchRepeat(fire,def.repeatDelay,def.repeatInterval); return }
+        startRepeat(fire,def.repeatDelay,def.repeatInterval)
       }
     }}
     onPointerMove={trackPointer}
@@ -406,7 +407,7 @@ function renderDockButton(def:ActionButtonDef,controller:ReturnType<typeof useQu
       const blocked=isDockScrollBlocked()
       finishPointer(); finishDockGesture(e.pointerId)
       if(moved||blocked||def.disabled)return
-      if(def.repeat&&def.data){
+      if(def.repeat&&(def.data||def.onPress)){
         if(pointerType!=='mouse'&&!repeatFired)triggerDockButton(def,controller)
         return
       }
@@ -447,7 +448,7 @@ export function QuickActions({ mode='panel', onOpenFiles }:{ mode?:QuickActionsM
         <div className="mobile-nav-landscape-hide relative z-40 flex-shrink-0 bg-bg-1 border-t border-[var(--line)]">
           <div data-shortcut-bar data-keep-mobile-keyboard className="overflow-x-auto scrollbar-none pb-[env(safe-area-inset-bottom)]" style={{ minHeight:40 }} onPointerDownCapture={controller.startDockGesture} onPointerMove={controller.trackDockPointer} onPointerUpCapture={(e)=>controller.finishDockGesture(e.pointerId)} onPointerCancelCapture={(e)=>controller.finishDockGesture(e.pointerId)} onScroll={controller.trackDockScroll} onContextMenu={(e)=>e.preventDefault()}>
           <div className="flex gap-1 p-1.5 w-max min-h-[40px] items-center" onContextMenu={(e)=>e.preventDefault()}>
-            {recentShortcutButtons.map((s)=>renderDockButton({ key:s.id,label:s.label,busy:runningShortcutId===s.id,onPress:()=>{ runShortcut(s) } },controller))}
+            {recentShortcutButtons.map((s)=>renderDockButton({ key:s.id,label:s.label,busy:runningShortcutId===s.id,repeat:s.repeat===true,repeatDelay:verticalRepeatDelay,repeatInterval:verticalRepeatInterval,onPress:()=>{ runShortcut(s) } },controller))}
             {recentShortcutButtons.length>0&&<div className="w-px bg-[var(--line)] mx-1 self-stretch" />}
             {dockCoreButtons.map((def)=>renderDockButton(def,controller))}
             <div className="w-px bg-[var(--line)] mx-1 self-stretch" />
@@ -538,7 +539,7 @@ export function QuickActions({ mode='panel', onOpenFiles }:{ mode?:QuickActionsM
           <div className="shortcut-scroll-area tmuxgo-scrollbar-subtle grid max-h-[100px] grid-cols-2 gap-1 overflow-y-auto pr-1">
             {shortcuts.map((s)=>(
               <div key={s.id} className="group relative flex min-w-0 items-center">
-                <KeyCap variant="panel" size="md" onPress={()=>{ if(managingShortcuts){ toggleSelectShortcut(s.id); return } runShortcut(s) }} title={describeShortcut(s)} tone={managingShortcuts?(selectedShortcutIds.includes(s.id)?'accent':undefined):(runningShortcutId===s.id?'accent':undefined)} className={`min-w-0 flex-1 truncate pr-7 ${!managingShortcuts&&runningShortcutId===s.id?'animate-pulse':''}`}>{s.label}</KeyCap>
+                <KeyCap variant="panel" size="md" repeat={!managingShortcuts && s.repeat === true} repeatDelay={verticalRepeatDelay} repeatInterval={verticalRepeatInterval} onPress={()=>{ if(managingShortcuts){ toggleSelectShortcut(s.id); return } runShortcut(s) }} title={describeShortcut(s)} tone={managingShortcuts?(selectedShortcutIds.includes(s.id)?'accent':undefined):(runningShortcutId===s.id?'accent':undefined)} className={`min-w-0 flex-1 truncate pr-7 ${!managingShortcuts&&runningShortcutId===s.id?'animate-pulse':''}`}>{s.label}</KeyCap>
                 <button type="button" onClick={()=>{ setEditingShortcut(s); setShowModal(true) }} className={`absolute right-0 top-1/2 -translate-y-1/2 flex h-7 w-7 shrink-0 items-center justify-center rounded-apple text-text-3 transition-colors hover:bg-accent/15 hover:text-accent focus-visible:bg-accent/15 focus-visible:text-accent ${managingShortcuts?'':'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`} aria-label={t('shortcut.edit')} title={t('shortcut.edit')}>
                   <FiEdit2 aria-hidden="true" size={13} />
                 </button>

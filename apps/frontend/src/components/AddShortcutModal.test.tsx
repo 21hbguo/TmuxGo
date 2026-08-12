@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import React from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { AddShortcutModal } from './AddShortcutModal'
@@ -33,7 +33,7 @@ describe('AddShortcutModal macro validation', () => {
     fireEvent.change(combos[combos.length - 1], { target: { value: 'A' } })
     expect((screen.getByRole('button', { name: '保存' }) as HTMLButtonElement).disabled).toBe(false)
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
-    expect(onSave).toHaveBeenCalledWith({ label: 'Z', steps: [{ type: 'keys', keys: 'A' }] })
+    expect(onSave).toHaveBeenCalledWith({ label: 'Z', steps: [{ type: 'keys', keys: 'A' }], repeat: false })
   })
   it('re-syncs the key picker after reordering macro steps on mobile', async () => {
     renderModal({ onSave: vi.fn(), onClose: vi.fn(), isMobile: true, initialShortcut: { id: 'r', label: 'R', steps: [{ type: 'keys', keys: 'Ctrl+A' }, { type: 'keys', keys: 'Ctrl+B' }] } })
@@ -44,5 +44,26 @@ describe('AddShortcutModal macro validation', () => {
     fireEvent.click(screen.getAllByRole('button', { name: '上移' })[1])
     expect(combos()[1].value).toBe('B')
     expect(combos()[3].value).toBe('A')
+  })
+  it('saves repeat flag when hold-to-repeat is checked', async () => {
+    const onSave = vi.fn()
+    renderModal({ onSave, onClose: vi.fn(), initialShortcut: { id: 'r', label: 'R', steps: [{ type: 'keys', keys: 'PageUp' }] } })
+    await act(async () => {})
+    fireEvent.click(screen.getByLabelText('长按持续触发'))
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    expect(onSave).toHaveBeenCalledWith({ label: 'R', steps: [{ type: 'keys', keys: 'PageUp' }], repeat: true })
+  })
+  it('keeps repeat unchecked by default and restores it when editing', async () => {
+    const onSave = vi.fn()
+    renderModal({ onSave, onClose: vi.fn(), initialShortcut: { id: 'n', label: 'N', steps: [{ type: 'keys', keys: 'PageDown' }] } })
+    await act(async () => {})
+    const checkbox = screen.getByLabelText('长按持续触发') as HTMLInputElement
+    expect(checkbox.checked).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    expect(onSave).toHaveBeenCalledWith({ label: 'N', steps: [{ type: 'keys', keys: 'PageDown' }], repeat: false })
+    cleanup()
+    renderModal({ onSave, onClose: vi.fn(), initialShortcut: { id: 'e', label: 'E', steps: [{ type: 'keys', keys: 'PageUp' }], repeat: true } })
+    await act(async () => {})
+    expect((screen.getByLabelText('长按持续触发') as HTMLInputElement).checked).toBe(true)
   })
 })

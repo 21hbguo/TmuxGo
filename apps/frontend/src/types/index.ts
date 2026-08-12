@@ -316,6 +316,7 @@ export interface CustomShortcut {
   text?: string
   appendEnter?: boolean
   steps?: ShortcutStep[]
+  repeat?: boolean
 }
 export interface FavoriteDirectory {
   rootId: string

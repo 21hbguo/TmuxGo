@@ -128,6 +128,7 @@ function KeyStepEditor({ value, onChange, isMobile }: { value: string; onChange:
 export function AddShortcutModal({ onSave, onClose, isMobile, initialShortcut }: Props) {
   const { t } = useTranslation()
   const [label, setLabel] = useState(initialShortcut?.label || '')
+  const [repeat, setRepeat] = useState(initialShortcut?.repeat === true)
   const [steps, setSteps] = useState<ShortcutStep[]>(() => {
     if (initialShortcut?.steps?.length) return initialShortcut.steps.map((s) => ({ ...s }))
     if (initialShortcut?.mode === 'text') return [{ type: 'text', text: initialShortcut.text || '', appendEnter: initialShortcut.appendEnter === true }]
@@ -246,6 +247,10 @@ export function AddShortcutModal({ onSave, onClose, isMobile, initialShortcut }:
               placeholder={t('shortcut.macroLabelPlaceholder')}
             />
           </div>
+          <label className="flex items-center gap-1 text-text-2 text-xs cursor-pointer">
+            <input type="checkbox" checked={repeat} onChange={(e) => setRepeat(e.target.checked)} />
+            {t('shortcut.repeatHold')}
+          </label>
         </div>
 
         <div className="flex gap-2 mt-4">
@@ -259,7 +264,7 @@ export function AddShortcutModal({ onSave, onClose, isMobile, initialShortcut }:
             disabled={!canSave}
             onClick={() => {
               if (!canSave) return
-              onSave({ label: label.trim(), steps })
+              onSave({ label: label.trim(), steps, repeat })
             }}
           >
             {t('shortcut.save')}

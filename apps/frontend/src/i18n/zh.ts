@@ -596,6 +596,7 @@ export const zh = {
   'shortcut.macroLabelPlaceholder': '例如：一键部署',
   'shortcut.textPlaceholder': '输入要快速发送到终端的内容',
   'shortcut.appendEnter': '发送后回车',
+  'shortcut.repeatHold': '长按持续触发',
   'shortcut.recording': '按下组合键...',
   'shortcut.pressKeys': '点击录制',
   'shortcut.selectKey': '选择主键...',
