@@ -60,7 +60,7 @@ function useQuickActionController() {
   const repeatTimerRef=useRef<ReturnType<typeof setTimeout>|null>(null)
   const repeatIntervalRef=useRef<ReturnType<typeof setInterval>|null>(null)
   const pointerStateRef=useRef({id:-1,x:0,y:0,moved:false,pointerType:'',repeatFired:false})
-  const dockScrollRef=useRef({pointerId:-1,startScrollLeft:0,scrolling:false,suppressUntil:0})
+  const dockScrollRef=useRef({pointerId:-1,startScrollLeft:0,scrolling:false,suppressUntil:0,moved:false,x:0,y:0})
 
   useEffect(()=>{
     const check=()=>setIsMobile(window.innerWidth<1024)
@@ -140,14 +140,17 @@ function useQuickActionController() {
   const resetPointer=useCallback(()=>{pointerStateRef.current={id:-1,x:0,y:0,moved:false,pointerType:'',repeatFired:false}},[])
   const startDockGesture=useCallback((e:ReactPointerEvent<HTMLDivElement>)=>{
     if(e.pointerType==='mouse')return
-    dockScrollRef.current={pointerId:e.pointerId,startScrollLeft:e.currentTarget.scrollLeft,scrolling:false,suppressUntil:0}
+    dockScrollRef.current={pointerId:e.pointerId,startScrollLeft:e.currentTarget.scrollLeft,scrolling:false,suppressUntil:0,moved:false,x:e.clientX,y:e.clientY}
+  },[])
+  const trackDockPointer=useCallback((e:ReactPointerEvent<HTMLDivElement>)=>{
+    if(e.pointerType==='mouse')return
+    const state=dockScrollRef.current
+    if(state.pointerId!==e.pointerId||state.moved)return
+    if(Math.abs(e.clientX-state.x)>=dragThreshold||Math.abs(e.clientY-state.y)>=dragThreshold)state.moved=true
   },[])
   const trackDockScroll=useCallback((e:ReactUIEvent<HTMLDivElement>)=>{
     const state=dockScrollRef.current
-    if(state.pointerId===-1){
-      state.suppressUntil=Date.now()+scrollSuppressWindow
-      return
-    }
+    if(state.pointerId===-1||!state.moved)return
     if(Math.abs(e.currentTarget.scrollLeft-state.startScrollLeft)>0){
       state.scrolling=true
       state.suppressUntil=Date.now()+scrollSuppressWindow
@@ -160,6 +163,9 @@ function useQuickActionController() {
     state.pointerId=-1
     state.startScrollLeft=0
     state.scrolling=false
+    state.moved=false
+    state.x=0
+    state.y=0
   },[])
   const isDockScrollBlocked=useCallback(()=>dockScrollRef.current.suppressUntil>Date.now(),[])
   const trackPointer=useCallback((e:ReactPointerEvent<HTMLButtonElement>)=>{
@@ -358,7 +364,7 @@ function useQuickActionController() {
   ]
   const recentShortcutButtons=shortcuts
 
-  return { t,activePaneId,shortcuts,recentShortcutButtons,addShortcut,updateShortcut,removeShortcuts,showModal,setShowModal,editingShortcut,setEditingShortcut,isMobile,pendingShortcutDeletes,setPendingShortcutDeletes,confirmDeleteShortcut,confirmKillOpen,setConfirmKillOpen,pendingKillPaneId,setPendingKillPaneId,confirmKillPane,newWindowPromptOpen,setNewWindowPromptOpen,newWindowName,setNewWindowName,confirmCreateWindow,sendKey,runShortcut,runningShortcutId,startRepeat,armTouchRepeat,stopRepeat,preventFocus,startPointer,startDockGesture,trackDockScroll,finishDockGesture,isDockScrollBlocked,trackPointer,finishPointer,pointerStateRef,primaryButtons,attachButton,fullscreenButton,dockCoreButtons }
+  return { t,activePaneId,shortcuts,recentShortcutButtons,addShortcut,updateShortcut,removeShortcuts,showModal,setShowModal,editingShortcut,setEditingShortcut,isMobile,pendingShortcutDeletes,setPendingShortcutDeletes,confirmDeleteShortcut,confirmKillOpen,setConfirmKillOpen,pendingKillPaneId,setPendingKillPaneId,confirmKillPane,newWindowPromptOpen,setNewWindowPromptOpen,newWindowName,setNewWindowName,confirmCreateWindow,sendKey,runShortcut,runningShortcutId,startRepeat,armTouchRepeat,stopRepeat,preventFocus,startPointer,startDockGesture,trackDockPointer,trackDockScroll,finishDockGesture,isDockScrollBlocked,trackPointer,finishPointer,pointerStateRef,primaryButtons,attachButton,fullscreenButton,dockCoreButtons }
 }
 
 function triggerDockButton(def:ActionButtonDef,controller:ReturnType<typeof useQuickActionController>){
@@ -439,7 +445,7 @@ export function QuickActions({ mode='panel', onOpenFiles }:{ mode?:QuickActionsM
     return (
       <>
         <div className="mobile-nav-landscape-hide relative z-40 flex-shrink-0 bg-bg-1 border-t border-[var(--line)]">
-          <div data-shortcut-bar data-keep-mobile-keyboard className="overflow-x-auto scrollbar-none pb-[env(safe-area-inset-bottom)]" style={{ minHeight:40 }} onPointerDownCapture={controller.startDockGesture} onPointerUpCapture={(e)=>controller.finishDockGesture(e.pointerId)} onPointerCancelCapture={(e)=>controller.finishDockGesture(e.pointerId)} onScroll={controller.trackDockScroll} onContextMenu={(e)=>e.preventDefault()}>
+          <div data-shortcut-bar data-keep-mobile-keyboard className="overflow-x-auto scrollbar-none pb-[env(safe-area-inset-bottom)]" style={{ minHeight:40 }} onPointerDownCapture={controller.startDockGesture} onPointerMove={controller.trackDockPointer} onPointerUpCapture={(e)=>controller.finishDockGesture(e.pointerId)} onPointerCancelCapture={(e)=>controller.finishDockGesture(e.pointerId)} onScroll={controller.trackDockScroll} onContextMenu={(e)=>e.preventDefault()}>
           <div className="flex gap-1 p-1.5 w-max min-h-[40px] items-center" onContextMenu={(e)=>e.preventDefault()}>
             {recentShortcutButtons.map((s)=>renderDockButton({ key:s.id,label:s.label,busy:runningShortcutId===s.id,onPress:()=>{ runShortcut(s) } },controller))}
             {recentShortcutButtons.length>0&&<div className="w-px bg-[var(--line)] mx-1 self-stretch" />}

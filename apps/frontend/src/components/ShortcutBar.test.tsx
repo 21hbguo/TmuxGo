@@ -75,14 +75,15 @@ describe('ShortcutBar', () => {
     expect(send).not.toHaveBeenCalled()
     expect(zoomByPane).not.toHaveBeenCalled()
   })
-  it('does not trigger shortcut when the bar itself scrolls', () => {
+  it('does not trigger shortcut when the finger drags the bar while pressing', () => {
     render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))
     const bar=document.querySelector('[data-shortcut-bar]') as HTMLDivElement
     const button=screen.getByRole('button', { name: 'Enter' })
     fireEvent.pointerDown(button, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
+    fireEvent.pointerMove(button, { pointerId: 1, pointerType: 'touch', clientX: 30, clientY: 10 })
     bar.scrollLeft=42
     fireEvent.scroll(bar)
-    fireEvent.pointerUp(button, { pointerId: 1, pointerType: 'touch', clientX: 12, clientY: 10 })
+    fireEvent.pointerUp(button, { pointerId: 1, pointerType: 'touch', clientX: 30, clientY: 10 })
     expect(send).not.toHaveBeenCalled()
   })
   it('allows a stationary zoom tap after the previous dock scroll', async () => {
@@ -160,6 +161,16 @@ describe('ShortcutBar', () => {
     const event=createEvent.pointerDown(button, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
     fireEvent(button, event)
     expect(event.defaultPrevented).toBe(true)
+  })
+  it('does not suppress a dock tap right after an inertial scroll', () => {
+    const { container } = render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))
+    const bar = container.querySelector('[data-shortcut-bar]') as HTMLElement
+    bar.scrollLeft = 120
+    fireEvent.scroll(bar)
+    const right = screen.getByRole('button', { name: '→' })
+    fireEvent.pointerDown(right, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
+    fireEvent.pointerUp(right, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
+    expect(send).toHaveBeenCalledWith({ type: 'input', data: '\u001b[C' })
   })
   it('uses latest active pane from snapshot for zoom', async () => {
     snapshotGet.mockResolvedValue({ windows: [], panes: [{ id: 'local:%2', active: true }], activePaneId: 'local:%2' })
