@@ -237,10 +237,9 @@ export function PaneGrid({ sessionId: controlledSessionId }: { sessionId?: strin
     if (!sessionId) {
       pendingSwitchRef.current = false
       lastSessionRef.current = null
-       pendingSessionIdRef.current = null
-       pendingSessionNameRef.current = null
-       setVisibleSessionId('')
-       setVisibleSessionName('')
+      pendingSessionIdRef.current = null
+      pendingSessionNameRef.current = null
+      setVisibleSessionId('')
       return
     }
     if (!lastSessionRef.current) {
@@ -249,7 +248,6 @@ export function PaneGrid({ sessionId: controlledSessionId }: { sessionId?: strin
       pendingSessionNameRef.current = null
       if (!visibleSessionId) {
         setVisibleSessionId(sessionId)
-        setVisibleSessionName(sessionName)
       }
       return
     }
