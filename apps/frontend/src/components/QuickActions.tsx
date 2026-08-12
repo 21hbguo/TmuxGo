@@ -535,14 +535,16 @@ export function QuickActions({ mode='panel', onOpenFiles }:{ mode?:QuickActionsM
               </button>
             </div>
           </div>
-          {shortcuts.map((s)=>(
-            <div key={s.id} className="group flex items-center gap-1 mb-1">
-              <KeyCap variant="panel" size="md" onPress={()=>{ if(managingShortcuts){ toggleSelectShortcut(s.id); return } runShortcut(s) }} title={describeShortcut(s)} tone={managingShortcuts?(selectedShortcutIds.includes(s.id)?'accent':undefined):(runningShortcutId===s.id?'accent':undefined)} className={`flex-1 truncate ${!managingShortcuts&&runningShortcutId===s.id?'animate-pulse':''}`}>{s.label}</KeyCap>
-              <button type="button" onClick={()=>{ setEditingShortcut(s); setShowModal(true) }} className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-apple text-text-3 transition-colors hover:bg-accent/15 hover:text-accent focus-visible:bg-accent/15 focus-visible:text-accent ${managingShortcuts?'':'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`} aria-label={t('shortcut.edit')} title={t('shortcut.edit')}>
-                <FiEdit2 aria-hidden="true" size={13} />
-              </button>
-            </div>
-          ))}
+          <div className="tmuxgo-scrollbar-subtle grid max-h-[124px] grid-cols-2 gap-1 overflow-y-auto pr-1">
+            {shortcuts.map((s)=>(
+              <div key={s.id} className="group flex min-w-0 items-center gap-1">
+                <KeyCap variant="panel" size="md" onPress={()=>{ if(managingShortcuts){ toggleSelectShortcut(s.id); return } runShortcut(s) }} title={describeShortcut(s)} tone={managingShortcuts?(selectedShortcutIds.includes(s.id)?'accent':undefined):(runningShortcutId===s.id?'accent':undefined)} className={`h-9 min-w-0 flex-1 truncate ${!managingShortcuts&&runningShortcutId===s.id?'animate-pulse':''}`}>{s.label}</KeyCap>
+                <button type="button" onClick={()=>{ setEditingShortcut(s); setShowModal(true) }} className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-apple text-text-3 transition-colors hover:bg-accent/15 hover:text-accent focus-visible:bg-accent/15 focus-visible:text-accent ${managingShortcuts?'':'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`} aria-label={t('shortcut.edit')} title={t('shortcut.edit')}>
+                  <FiEdit2 aria-hidden="true" size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
       <button onClick={()=>{ closeShortcutManage(); setEditingShortcut(null); setShowModal(true) }} className="w-full px-2 py-1.5 rounded-apple text-xs transition-colors border border-dashed border-[var(--line)] text-text-3 hover:text-text-2 hover:border-accent/50">
