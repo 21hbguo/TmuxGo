@@ -33,11 +33,28 @@ export function SessionThumbnailPanel() {
   const { groups, create, update, remove } = useSplitGroups()
   const { t } = useTranslation()
   const [selectedSessionId, setSelectedSessionId] = useState('')
+  const [recentOrder, setRecentOrder] = useState<string[]>([])
   const thumbnails = useMemo(() => {
     const thumbnailById = new Map((data?.sessions || []).map((item) => [item.id, item]))
     return orderedSessions.map((session) => thumbnailById.get(session.id)).filter((item): item is NonNullable<typeof item> => !!item)
   }, [data?.sessions, orderedSessions])
-  const selectedThumbnail = thumbnails.find((item) => item.id === selectedSessionId) || null
+  const bumpRecent = useCallback((sessionId: string) => {
+    if (!sessionId) return
+    setRecentOrder((prev) => [sessionId, ...prev.filter((id) => id !== sessionId)].slice(0, 24))
+  }, [])
+  useEffect(() => { bumpRecent(activeSessionId || '') }, [activeSessionId, bumpRecent])
+  const orderedThumbnails = useMemo(() => {
+    const rank = new Map(recentOrder.map((id, index) => [id, index]))
+    return [...thumbnails].sort((a, b) => {
+      const rankA = rank.get(a.id)
+      const rankB = rank.get(b.id)
+      if (rankA == null && rankB == null) return 0
+      if (rankA == null) return 1
+      if (rankB == null) return -1
+      return rankA - rankB
+    })
+  }, [recentOrder, thumbnails])
+  const selectedThumbnail = orderedThumbnails.find((item) => item.id === selectedSessionId) || null
   useEffect(() => {
     setSelectedSessionId((current) => thumbnails.some((item) => item.id === current) ? current : thumbnails.find((item) => item.id === activeSessionId)?.id || thumbnails[0]?.id || '')
   }, [activeSessionId, thumbnails])
@@ -49,6 +66,7 @@ export function SessionThumbnailPanel() {
   const sessionNameOf = useCallback((sessionId: string) => thumbnails.find((item) => item.id === sessionId)?.name || sessionId, [thumbnails])
   const handleCardPointerDown = useCallback((e: React.PointerEvent, sessionId: string) => {
     if (e.pointerType === 'mouse' && e.button !== 0) return
+    try { e.currentTarget.setPointerCapture(e.pointerId) } catch {}
     dragStateRef.current = { pointerId: e.pointerId, x: e.clientX, y: e.clientY, sessionId, longPress: false, moved: false, timer: null }
     dragStateRef.current.timer = setTimeout(() => {
       const state = dragStateRef.current
@@ -125,8 +143,9 @@ export function SessionThumbnailPanel() {
       suppressClickRef.current = false
       return
     }
+    bumpRecent(sessionId)
     setSelectedSessionId(sessionId)
-  }, [])
+  }, [bumpRecent])
   const dropZoneClass: Record<DropZone, string> = {
     left: 'absolute left-0 top-0 z-20 h-full w-1/2 bg-accent/30',
     right: 'absolute right-0 top-0 z-20 h-full w-1/2 bg-accent/30',
@@ -164,16 +183,16 @@ export function SessionThumbnailPanel() {
       {isLoading && <div className="p-2 text-xs text-text-3">{t('thumbnail.loading')}</div>}
       {isError && <div className="p-2 text-xs text-text-3">{t('thumbnail.unavailable')}</div>}
       {!isLoading && !isError && !thumbnails.length && <div className="p-2 text-xs text-text-3">{t('thumbnail.empty')}</div>}
-      {!!selectedThumbnail && <div className="mb-2 overflow-hidden rounded-apple border border-accent bg-bg-0" data-testid="thumbnail-selected-card">
+      {!!selectedThumbnail && <div className="relative mb-2 overflow-hidden rounded-apple border border-accent bg-bg-0" data-testid="thumbnail-selected-card" data-split-session-id={selectedThumbnail.id}>
         <div className="flex h-8 items-center gap-2 border-b border-[var(--line)] px-3">
           <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
           <span className="min-w-0 flex-1 truncate font-mono text-xs text-text-1">{selectedThumbnail.name}</span>
           <span className="shrink-0 text-caption text-text-3">{selectedThumbnail.window?.name}</span>
         </div>
-        <div className="h-[54vh] min-h-[320px] max-h-[680px]"><PaneGrid key={selectedThumbnail.id} sessionId={selectedThumbnail.id} /></div>
+        <div className="relative h-[54vh] min-h-[320px] max-h-[680px]"><PaneGrid key={selectedThumbnail.id} sessionId={selectedThumbnail.id} />{dropHint?.sessionId === selectedThumbnail.id && dropHint && <div className={dropZoneClass[dropHint.zone]} />}</div>
       </div>}
       <div className="grid grid-cols-1 gap-2 min-[720px]:grid-cols-2">
-        {thumbnails.filter((thumbnail) => thumbnail.id !== selectedSessionId).map((thumbnail) => {
+        {orderedThumbnails.filter((thumbnail) => thumbnail.id !== selectedSessionId).map((thumbnail) => {
           const width = Math.max(1, ...thumbnail.panes.map((pane) => pane.left + pane.size.cols))
           const height = Math.max(1, ...thumbnail.panes.map((pane) => pane.top + pane.size.rows))
           const isDropTarget = dropHint?.sessionId === thumbnail.id
