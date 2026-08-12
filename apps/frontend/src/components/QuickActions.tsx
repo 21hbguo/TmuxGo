@@ -535,7 +535,7 @@ export function QuickActions({ mode='panel', onOpenFiles }:{ mode?:QuickActionsM
               </button>
             </div>
           </div>
-          <div className="tmuxgo-scrollbar-subtle grid max-h-[100px] grid-cols-2 gap-1 overflow-y-auto pr-1">
+          <div className="shortcut-scroll-area tmuxgo-scrollbar-subtle grid max-h-[100px] grid-cols-2 gap-1 overflow-y-auto pr-1">
             {shortcuts.map((s)=>(
               <div key={s.id} className="group flex min-w-0 items-center gap-1">
                 <KeyCap variant="panel" size="md" onPress={()=>{ if(managingShortcuts){ toggleSelectShortcut(s.id); return } runShortcut(s) }} title={describeShortcut(s)} tone={managingShortcuts?(selectedShortcutIds.includes(s.id)?'accent':undefined):(runningShortcutId===s.id?'accent':undefined)} className={`min-w-0 flex-1 truncate ${!managingShortcuts&&runningShortcutId===s.id?'animate-pulse':''}`}>{s.label}</KeyCap>
