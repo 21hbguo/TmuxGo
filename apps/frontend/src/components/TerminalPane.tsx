@@ -459,6 +459,11 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     sessionSnapshotRef.current = null
     sessionSnapshotRequestRef.current = null
     sessionSnapshotLoadedRef.current = { key: '', at: 0 }
+    const terminal = terminalInstance.current
+    if (terminal) {
+      try { terminal.clear?.() } catch {}
+      try { terminal.refresh?.(0, Math.max(0, (terminal.rows || 1) - 1)) } catch {}
+    }
   }, [activeHostId, sessionName])
   useEffect(() => {
     sendRef.current = send
@@ -569,6 +574,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     let mobileKeyboardTransition = false
     let writeBuffer = ''
     let writePending = false
+    let pendingPostImeSyncTimer: ReturnType<typeof setTimeout> | null = null
     let attachEventCount = 0
     let outputSinceLastAttach = false
 
@@ -1592,6 +1598,10 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       const handleHelperCompositionStart = () => {
         helperTextareaComposing = true
         document.body.classList.add('ime-composing')
+        if (pendingPostImeSyncTimer) {
+          clearTimeout(pendingPostImeSyncTimer)
+          pendingPostImeSyncTimer = null
+        }
         recordImeDebug('helper-compositionstart', { value: helperTextarea?.value || '' })
       }
       const handleHelperCompositionEnd = () => {
@@ -1600,8 +1610,12 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         recordImeDebug('helper-compositionend', { value: helperTextarea?.value || '' })
         requestAnimationFrame(() => {
           flushWriteBuffer()
-          syncHelperTextareaGeometry()
         })
+        if (pendingPostImeSyncTimer) clearTimeout(pendingPostImeSyncTimer)
+        pendingPostImeSyncTimer = setTimeout(() => {
+          pendingPostImeSyncTimer = null
+          syncHelperTextareaGeometry()
+        }, 300)
       }
       const handleHelperCompositionUpdate = (event: CompositionEvent) => {
         recordImeDebug('helper-compositionupdate', { data: event.data || '', value: helperTextarea?.value || '' })
@@ -1616,8 +1630,12 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         document.body.classList.remove('ime-composing')
         requestAnimationFrame(() => {
           flushWriteBuffer()
-          syncHelperTextareaGeometry()
         })
+        if (pendingPostImeSyncTimer) clearTimeout(pendingPostImeSyncTimer)
+        pendingPostImeSyncTimer = setTimeout(() => {
+          pendingPostImeSyncTimer = null
+          syncHelperTextareaGeometry()
+        }, 300)
       }
       const handleHelperBeforeInput = (event: InputEvent) => {
         recordImeDebug('helper-beforeinput', { inputType: event.inputType || '', data: event.data || '', value: helperTextarea?.value || '', composing: event.isComposing })
@@ -1775,6 +1793,10 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       paneResize.hide()
       if (layoutTimeout) clearTimeout(layoutTimeout)
       if (fontLayoutTimer) clearTimeout(fontLayoutTimer)
+      if (pendingPostImeSyncTimer) {
+        clearTimeout(pendingPostImeSyncTimer)
+        pendingPostImeSyncTimer = null
+      }
       if (resizeRevealFrame) cancelAnimationFrame(resizeRevealFrame)
       if (resizeStabilityFrame) cancelAnimationFrame(resizeStabilityFrame)
       terminalResizePending = false

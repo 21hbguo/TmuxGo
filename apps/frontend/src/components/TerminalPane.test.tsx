@@ -1486,6 +1486,31 @@ describe('TerminalPane', () => {
     expect(terminalMocks.write.mock.calls.some((call) => String(call[0]).includes('noise_during_ime'))).toBe(true)
     expect(document.body.classList.contains('ime-composing')).toBe(false)
   })
+  it('keeps helper textarea position stable after ime composition ends to avoid candidate window jumping', async () => {
+    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} subscribeOutput={webSocketMocks.subscribeOutput} />)
+    await waitFor(() => expect(webSocketMocks.lastOutputListener).toBeTruthy())
+    const helper = container.querySelector('.xterm-helper-textarea') as HTMLTextAreaElement
+    terminalCursorX = 0
+    terminalCursorY = 0
+    helper.focus()
+    window.dispatchEvent(new CustomEvent('tmuxgo-focus-terminal'))
+    await sleep(60)
+    expect(helper.style.left).toBe('0px')
+    expect(helper.style.top).toBe('0px')
+    const initialLeft = helper.style.left
+    const initialTop = helper.style.top
+    fireEvent.compositionStart(helper)
+    terminalCursorX = 11
+    terminalCursorY = 5
+    webSocketMocks.lastOutputListener?.({ data: 'echo back output that moves cursor', sessionName: 'dev' })
+    await sleep(20)
+    expect(terminalMocks.write).not.toHaveBeenCalled()
+    fireEvent.compositionEnd(helper)
+    await waitFor(() => expect(terminalMocks.write).toHaveBeenCalled())
+    await sleep(60)
+    expect(helper.style.left).toBe(initialLeft)
+    expect(helper.style.top).toBe(initialTop)
+  })
   it('stops delayed focus retries after desktop ime composition starts', async () => {
     const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(customKeyHandler).toBeTruthy())
