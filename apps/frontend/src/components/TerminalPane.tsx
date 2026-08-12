@@ -1497,16 +1497,19 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         })
         if (attachExclusiveRef.current) {
           const size = lastSizeRef.current
-          if (!size || size.cols !== cols || size.rows !== rows) scheduleInitialFit()
+          const sizeChanged = !size || size.cols !== cols || size.rows !== rows
+          if (sizeChanged) scheduleInitialFit()
           if (softRecover) scheduleTerminalRepaint(isMobileDevice ? MOBILE_TERMINAL_REPAINT_DELAYS : TERMINAL_REPAINT_DELAYS)
-          else softRecoverTerminalScreen('attached', true)
+          else if (sizeChanged) softRecoverTerminalScreen('attached', true)
           return
         }
         if (cols > 0 && rows > 0) {
+          const prevSharedSize = sharedSessionSizeRef.current
+          const sizeChanged = !prevSharedSize || prevSharedSize.cols !== cols || prevSharedSize.rows !== rows
           sharedSessionSizeRef.current = { cols, rows }
-          scheduleLayoutSync(0, true, true)
+          if (sizeChanged) scheduleLayoutSync(0, true, true)
           if (softRecover) scheduleTerminalRepaint(isMobileDevice ? MOBILE_TERMINAL_REPAINT_DELAYS : TERMINAL_REPAINT_DELAYS)
-          else softRecoverTerminalScreen('attached', true)
+          else if (sizeChanged) softRecoverTerminalScreen('attached', true)
         }
       }
       const handleResized = (event: Event) => {
