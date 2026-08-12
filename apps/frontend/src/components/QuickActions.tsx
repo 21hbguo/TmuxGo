@@ -537,9 +537,9 @@ export function QuickActions({ mode='panel', onOpenFiles }:{ mode?:QuickActionsM
           </div>
           <div className="shortcut-scroll-area tmuxgo-scrollbar-subtle grid max-h-[100px] grid-cols-2 gap-1 overflow-y-auto pr-1">
             {shortcuts.map((s)=>(
-              <div key={s.id} className="group flex min-w-0 items-center gap-1">
-                <KeyCap variant="panel" size="md" onPress={()=>{ if(managingShortcuts){ toggleSelectShortcut(s.id); return } runShortcut(s) }} title={describeShortcut(s)} tone={managingShortcuts?(selectedShortcutIds.includes(s.id)?'accent':undefined):(runningShortcutId===s.id?'accent':undefined)} className={`min-w-0 flex-1 truncate ${!managingShortcuts&&runningShortcutId===s.id?'animate-pulse':''}`}>{s.label}</KeyCap>
-                <button type="button" onClick={()=>{ setEditingShortcut(s); setShowModal(true) }} className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-apple text-text-3 transition-colors hover:bg-accent/15 hover:text-accent focus-visible:bg-accent/15 focus-visible:text-accent ${managingShortcuts?'':'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`} aria-label={t('shortcut.edit')} title={t('shortcut.edit')}>
+              <div key={s.id} className="group relative flex min-w-0 items-center">
+                <KeyCap variant="panel" size="md" onPress={()=>{ if(managingShortcuts){ toggleSelectShortcut(s.id); return } runShortcut(s) }} title={describeShortcut(s)} tone={managingShortcuts?(selectedShortcutIds.includes(s.id)?'accent':undefined):(runningShortcutId===s.id?'accent':undefined)} className={`min-w-0 flex-1 truncate pr-7 ${!managingShortcuts&&runningShortcutId===s.id?'animate-pulse':''}`}>{s.label}</KeyCap>
+                <button type="button" onClick={()=>{ setEditingShortcut(s); setShowModal(true) }} className={`absolute right-0 top-1/2 -translate-y-1/2 flex h-7 w-7 shrink-0 items-center justify-center rounded-apple text-text-3 transition-colors hover:bg-accent/15 hover:text-accent focus-visible:bg-accent/15 focus-visible:text-accent ${managingShortcuts?'':'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`} aria-label={t('shortcut.edit')} title={t('shortcut.edit')}>
                   <FiEdit2 aria-hidden="true" size={13} />
                 </button>
               </div>
