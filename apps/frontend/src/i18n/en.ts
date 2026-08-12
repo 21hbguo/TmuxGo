@@ -596,6 +596,7 @@ export const en = {
   'shortcut.macroLabelPlaceholder': 'e.g. One-click deploy',
   'shortcut.textPlaceholder': 'Enter text to send to the terminal',
   'shortcut.appendEnter': 'Send Enter after text',
+  'shortcut.repeatHold': 'Hold to repeat',
   'shortcut.recording': 'Press keys...',
   'shortcut.pressKeys': 'Click to record',
   'shortcut.selectKey': 'Select key...',

@@ -25,10 +25,11 @@ vi.mock('@/hooks/useApi', () => ({
 vi.mock('@/hooks/useWebSocket', () => ({
   useWebSocket: () => ({ send }),
 }))
+const customShortcutsState = vi.hoisted(() => ({ shortcuts: [] as any[] }))
 vi.mock('@/hooks/useCustomShortcuts', () => ({
-  useCustomShortcuts: () => ({ shortcuts: [], addShortcut: vi.fn(), updateShortcut: vi.fn(), removeShortcut: vi.fn(), removeShortcuts: vi.fn() }),
-  shortcutToSteps: vi.fn(() => []),
-  stepToInput: vi.fn(() => ''),
+  useCustomShortcuts: () => ({ shortcuts: customShortcutsState.shortcuts, addShortcut: vi.fn(), updateShortcut: vi.fn(), removeShortcut: vi.fn(), removeShortcuts: vi.fn() }),
+  shortcutToSteps: (s: any) => s.steps || [],
+  stepToInput: (s: any) => (s.type === 'keys' ? '\x1b[5~' : (s.text || '') + (s.appendEnter ? '\r' : '')),
   describeShortcut: vi.fn(() => ''),
   keysToEscape: vi.fn(() => ''),
 }))
@@ -53,6 +54,7 @@ describe('QuickActions', () => {
     send.mockReset()
     pushToast.mockReset()
     updatePreferences.mockReset()
+    customShortcutsState.shortcuts = []
   })
   it('keeps panel paste button from stealing terminal focus while dispatching paste', () => {
     const paste = vi.fn()
@@ -88,6 +90,37 @@ describe('QuickActions', () => {
     fireEvent.pointerUp(button, { pointerId: 1, pointerType: 'touch' })
     act(() => vi.runOnlyPendingTimers())
     expect(send.mock.calls).toHaveLength(2)
+    vi.useRealTimers()
+  })
+  it('repeats a hold-to-repeat custom shortcut while held in the mobile shortcut bar', () => {
+    vi.useFakeTimers()
+    customShortcutsState.shortcuts = [{ id: 'pgup', label: 'PgUp', repeat: true, steps: [{ type: 'keys', keys: 'PageUp' }] }]
+    render(<QuickActions mode="dock" />)
+    const button = screen.getByRole('button', { name: 'PgUp' })
+    fireEvent(button, createEvent.pointerDown(button, { pointerId: 1, pointerType: 'touch' }))
+    act(() => vi.advanceTimersByTime(419))
+    expect(send).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersByTime(2))
+    expect(send).toHaveBeenCalledWith({ type: 'input', data: '\x1b[5~' })
+    expect(send.mock.calls).toHaveLength(1)
+    act(() => vi.advanceTimersByTime(140))
+    expect(send.mock.calls).toHaveLength(2)
+    fireEvent.pointerUp(button, { pointerId: 1, pointerType: 'touch' })
+    act(() => vi.runOnlyPendingTimers())
+    expect(send.mock.calls).toHaveLength(2)
+    vi.useRealTimers()
+  })
+  it('does not repeat a custom shortcut without the repeat flag', () => {
+    vi.useFakeTimers()
+    customShortcutsState.shortcuts = [{ id: 'esc2', label: 'Esc2', steps: [{ type: 'keys', keys: 'Escape' }] }]
+    render(<QuickActions mode="dock" />)
+    const button = screen.getByRole('button', { name: 'Esc2' })
+    fireEvent(button, createEvent.pointerDown(button, { pointerId: 1, pointerType: 'touch' }))
+    act(() => vi.advanceTimersByTime(600))
+    expect(send).not.toHaveBeenCalled()
+    fireEvent.pointerUp(button, { pointerId: 1, pointerType: 'touch' })
+    expect(send).toHaveBeenCalledWith({ type: 'input', data: '\x1b[5~' })
+    expect(send.mock.calls).toHaveLength(1)
     vi.useRealTimers()
   })
 })

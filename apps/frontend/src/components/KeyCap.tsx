@@ -130,6 +130,7 @@ export function KeyCap(props: KeyCapProps) {
     : (e: ReactMouseEvent<HTMLButtonElement>) => {
         if (onClick) return onClick(e)
         if (disabled) return
+        if (repeat && e.detail !== 0) return
         if (onPress) void onPress()
       }
 
