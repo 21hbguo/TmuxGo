@@ -903,6 +903,7 @@ export const zh = {
   'session.selectThisFolder': '选择此目录',
   'session.workspaceHintSelected': '新建 pane 将自动 cd 到该工作区',
   'session.workspaceHintNone': '不选工作区时使用 tmux 默认目录',
+  'session.workspacePathMissing': '工作区路径无效，请重新选择工作区',
   'common.retry': '重试',
 
   // Workspaces
