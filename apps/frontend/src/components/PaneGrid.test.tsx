@@ -73,7 +73,7 @@ describe('PaneGrid', () => {
     act(() => {
       useConsoleStore.setState({ activeSessionId: 'session-dev2' })
     })
-    expect(screen.getByRole('button', { name: 'dev1' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'dev2' })).toBeInTheDocument()
     await waitFor(() => expect(sendMock).toHaveBeenCalledWith({ type: 'attach', hostId: 'local', sessionName: 'dev2', cols: 120, rows: 36, exclusive: true }))
     expect(sendMock.mock.calls.filter(([message]) => message?.type === 'attach').length).toBe(attachCallsBeforeSwitch + 1)
   })
@@ -83,15 +83,14 @@ describe('PaneGrid', () => {
     await waitFor(() => expect(sendMock).toHaveBeenCalledWith({ type: 'attach', hostId: 'local', sessionName: 'dev2', cols: 120, rows: 36, exclusive: true }))
     expect(useConsoleStore.getState().activeSessionId).toBe('session-dev1')
   })
-  it('keeps previous session visible until next session attaches', async () => {
+  it('switches to next session immediately on switch', async () => {
     render(<PaneGrid />)
     fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
     await waitFor(() => expect(sendMock).toHaveBeenCalledWith({ type: 'attach', hostId: 'local', sessionName: 'dev1', cols: 120, rows: 36, exclusive: true }))
     act(() => {
       useConsoleStore.setState({ activeSessionId: 'session-dev2' })
     })
-    expect(screen.getByRole('button', { name: 'dev1' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'dev2' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'dev2' })).toBeInTheDocument()
     await waitFor(() => expect(sendMock).toHaveBeenCalledWith({ type: 'attach', hostId: 'local', sessionName: 'dev2', cols: 120, rows: 36, exclusive: true }))
     act(() => {
       window.dispatchEvent(new CustomEvent('tmux-attached', { detail: { sessionName: 'dev2', cols: 120, rows: 36, hostId: 'local' } }))

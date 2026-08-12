@@ -64,11 +64,10 @@ export function PaneGrid({ sessionId: controlledSessionId }: { sessionId?: strin
   const pendingSessionIdRef = useRef<string | null>(null)
   const pendingSessionNameRef = useRef<string | null>(null)
   const [visibleSessionId, setVisibleSessionId] = useState(sessionId || '')
-  const [visibleSessionName, setVisibleSessionName] = useState(() => parseSessionName(activeHostId || 'local', sessionId || ''))
 
   const sessionName = parseSessionName(activeHostId || 'local', sessionId || '')
   const targetSessionName = pendingSessionNameRef.current || sessionName
-  const renderedSessionName = visibleSessionName || targetSessionName
+  const renderedSessionName = targetSessionName
 
   const sessionWindows = useMemo(() =>
     windowsData.filter((w: any) => w.sessionId === sessionId),
@@ -331,7 +330,6 @@ export function PaneGrid({ sessionId: controlledSessionId }: { sessionId?: strin
       isSessionAttachedRef.current = true
       if (pendingSessionIdRef.current && pendingSessionNameRef.current === detail.sessionName) {
         setVisibleSessionId(pendingSessionIdRef.current)
-        setVisibleSessionName(pendingSessionNameRef.current!)
         pendingSessionIdRef.current = null
         pendingSessionNameRef.current = null
       }
