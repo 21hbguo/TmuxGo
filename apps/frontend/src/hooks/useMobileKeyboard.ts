@@ -280,7 +280,7 @@ export function useMobileKeyboard(
     }
     const handleKeyDown = (e: KeyboardEvent) => {
       recordMobileDebug('keydown', { key: e.key, keyCode: e.keyCode, which: e.which, repeat: e.repeat, isComposing: e.isComposing, composing: composingRef.current, deferred: deferredInputActiveRef.current })
-      if (composingRef.current || isImeKeyEvent(e)) return
+      if (composingRef.current || (isImeKeyEvent(e) && !ARROW_KEYS[e.key])) return
       if (deferredInputActiveRef.current) {
         if (e.key === 'Enter' || e.key === 'Tab' || ARROW_KEYS[e.key]) {
           e.preventDefault()

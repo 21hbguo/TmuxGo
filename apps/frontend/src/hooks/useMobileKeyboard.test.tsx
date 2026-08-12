@@ -205,6 +205,27 @@ describe('useMobileKeyboard', () => {
     expect(sendInputMock.mock.calls.map((call) => call[0])).toEqual(['中'])
     expect(textarea.value).toBe('  ')
   })
+  it('sends arrow keys even when ime reports keyCode 229 while not composing', async () => {
+    render(<Harness />)
+    await waitFor(() => expect(api.textarea).toBeTruthy())
+    const textarea = api.textarea as HTMLTextAreaElement
+    sendInputMock.mockClear()
+    fireEvent.keyDown(textarea, { key: 'ArrowRight', keyCode: 229, which: 229 })
+    expect(sendInputMock).toHaveBeenCalledWith('\x1b[C')
+    fireEvent.keyDown(textarea, { key: 'ArrowLeft', keyCode: 229, which: 229 })
+    expect(sendInputMock).toHaveBeenCalledWith('\x1b[D')
+  })
+  it('keeps arrow keys for ime candidate selection while composing', async () => {
+    render(<Harness />)
+    await waitFor(() => expect(api.textarea).toBeTruthy())
+    const textarea = api.textarea as HTMLTextAreaElement
+    act(() => {
+      fireEvent.compositionStart(textarea)
+    })
+    sendInputMock.mockClear()
+    fireEvent.keyDown(textarea, { key: 'ArrowRight', keyCode: 229, which: 229, isComposing: true })
+    expect(sendInputMock).not.toHaveBeenCalled()
+  })
   it('handles repeated mobile delete input events', async () => {
     render(<Harness />)
     await waitFor(() => expect(api.textarea).toBeTruthy())
