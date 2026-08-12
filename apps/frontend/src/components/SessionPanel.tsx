@@ -1,10 +1,11 @@
 'use client'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useBatchDeleteSessions, useCreateSession, useDeleteSession, useRenameSession, useSessionTemplates } from '@/hooks/useApi'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import { useSessionWorkspaces, useSetSessionWorkspace, useRemoveSessionWorkspaces, useMigrateSessionWorkspace } from '@/hooks/useSessionWorkspaces'
 import { useRemoveWorkspace, useUpdateWorkspace, useWorkspaces } from '@/hooks/useWorkspaces'
+import { useSplitGroups } from '@/hooks/useSplitGroups'
 import { SessionTemplates, templates as builtinTemplates, type Template } from './SessionTemplates'
 import { CreateSessionDialog } from './CreateSessionDialog'
 import { getTemplateSessionName } from '@/lib/session-template'
@@ -41,6 +42,9 @@ export function SessionPanel() {
   const renameSession = useRenameSession()
   const setSessionWorkspace = useSetSessionWorkspace()
   const removeSessionWorkspaces = useRemoveSessionWorkspaces()
+  const { groups: splitGroups, remove: removeSplitGroup } = useSplitGroups()
+  const splitGroupsRef = useRef(splitGroups)
+  useEffect(() => { splitGroupsRef.current = splitGroups }, [splitGroups])
   const migrateSessionWorkspace = useMigrateSessionWorkspace()
   const updateWorkspace = useUpdateWorkspace()
   const removeWorkspace = useRemoveWorkspace()
@@ -142,6 +146,7 @@ export function SessionPanel() {
     try {
       await deleteSession.mutateAsync({ hostId: activeHostId, sessionId: pendingDeleteSessionId })
       try { await removeSessionWorkspaces.mutateAsync([pendingDeleteSessionId]) } catch {}
+      splitGroupsRef.current.filter((item) => item.primarySessionId === pendingDeleteSessionId || item.secondarySessionId === pendingDeleteSessionId).forEach((item) => removeSplitGroup(item.id))
       if (activeSessionId === pendingDeleteSessionId) setActiveSession(getNextSessionId(sessions, [pendingDeleteSessionId]))
       pushToast({ type: 'success', message: t('session.deleted', { name: session?.name || pendingDeleteSessionId }) })
     } catch (err) {
@@ -157,6 +162,7 @@ export function SessionPanel() {
       const deletedIds = new Set((execute.deleted || []).map((item) => item.sessionId))
       const deletedCount = typeof execute.deletedCount === 'number' ? execute.deletedCount : deletedIds.size
       if (deletedIds.size) { try { await removeSessionWorkspaces.mutateAsync(Array.from(deletedIds)) } catch {} }
+      if (deletedIds.size) splitGroupsRef.current.filter((item) => deletedIds.has(item.primarySessionId) || deletedIds.has(item.secondarySessionId)).forEach((item) => removeSplitGroup(item.id))
       if (activeSessionId && deletedIds.has(activeSessionId)) setActiveSession(getNextSessionId(sessions, Array.from(deletedIds)))
       pushToast({ type: 'success', message: t('sidebar.batchDeleteSuccess', { count: deletedCount }) })
       setSelectedSessionIds([])
