@@ -202,6 +202,7 @@ interface ConsoleState {
   thumbnailPanelOpen: boolean
   gitPanelOpen: boolean
   sshPanelOpen: boolean
+  activeSplitGroupId: string | null
   activePluginView: { pluginId: string; viewId: string } | null
   gitPanelWidth: number
   sshPanelWidth: number
@@ -236,6 +237,8 @@ interface ConsoleState {
   toggleFilePanel: () => void
   setThumbnailPanelOpen: (open: boolean) => void
   toggleThumbnailPanel: () => void
+  openSplitGroup: (id: string) => void
+  closeSplitGroup: () => void
   setGitPanelOpen: (open: boolean) => void
   toggleGitPanel: () => void
   toggleSshPanel: () => void
@@ -354,6 +357,7 @@ export const useConsoleStore = create<ConsoleState>()(persist((set) => ({
   thumbnailPanelOpen: false,
   gitPanelOpen: false,
   sshPanelOpen: false,
+  activeSplitGroupId: null,
   activePluginView: null,
   gitPanelWidth: 560,
   sshPanelWidth: 320,
@@ -373,9 +377,9 @@ export const useConsoleStore = create<ConsoleState>()(persist((set) => ({
     set({ activeHostId: id, activeSessionId: null, activePaneId: null })
   },
   setActiveSession: (id) => set((state) => {
-    if (state.activeSessionId === id) return state
+    if (state.activeSessionId === id && !state.activeSplitGroupId) return state
     writeActiveSessionId(state.activeHostId, id)
-    return { activeSessionId: id, activePaneId: null }
+    return { activeSessionId: id, activePaneId: null, activeSplitGroupId: null }
   }),
   setActivePane: (id) => set({ activePaneId: id }),
   setCommandPalette: (open) => set({ showCommandPalette: open }),
@@ -385,6 +389,8 @@ export const useConsoleStore = create<ConsoleState>()(persist((set) => ({
   toggleFilePanel: () => set((state) => state.filePanelOpen ? { filePanelOpen: false } : { filePanelOpen: true, thumbnailPanelOpen: false, sessionPanelExpanded: false, gitPanelOpen: false, sshPanelOpen: false, activePluginView: null }),
   setThumbnailPanelOpen: (open) => set((state) => open ? { thumbnailPanelOpen: true, filePanelOpen: false, sessionPanelExpanded: false, gitPanelOpen: false, sshPanelOpen: false, activePluginView: null } : { thumbnailPanelOpen: false }),
   toggleThumbnailPanel: () => set((state) => state.thumbnailPanelOpen ? { thumbnailPanelOpen: false } : { thumbnailPanelOpen: true, filePanelOpen: false, sessionPanelExpanded: false, gitPanelOpen: false, sshPanelOpen: false, activePluginView: null }),
+  openSplitGroup: (id) => set({ activeSplitGroupId: id, thumbnailPanelOpen: false, filePanelOpen: false, sessionPanelExpanded: false, gitPanelOpen: false, sshPanelOpen: false, activePluginView: null }),
+  closeSplitGroup: () => set({ activeSplitGroupId: null }),
   setGitPanelOpen: (open) => set((state) => open ? { gitPanelOpen: true, thumbnailPanelOpen: false, sessionPanelExpanded: false, filePanelOpen: false, sshPanelOpen: false, activePluginView: null } : { gitPanelOpen: false }),
   toggleGitPanel: () => set((state) => state.gitPanelOpen ? { gitPanelOpen: false } : { gitPanelOpen: true, thumbnailPanelOpen: false, sessionPanelExpanded: false, filePanelOpen: false, sshPanelOpen: false, activePluginView: null }),
   toggleSshPanel: () => set((state) => state.sshPanelOpen ? { sshPanelOpen: false } : { sshPanelOpen: true, filePanelOpen: false, thumbnailPanelOpen: false, sessionPanelExpanded: false, gitPanelOpen: false, activePluginView: null }),

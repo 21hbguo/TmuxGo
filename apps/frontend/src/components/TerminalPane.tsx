@@ -84,6 +84,7 @@ interface TerminalPaneProps {
   attachExclusive?: boolean
   onReady?: () => void
   subscribeOutput?: (hostId: string, sessionName: string, listener: (message: { data: string; sessionName?: string | null; hostId?: string | null; resync?: boolean }) => void) => () => void
+  send?: (data: any) => boolean
   onSwipeLeft?: () => void
   onSwipeRight?: () => void
 }
@@ -229,7 +230,7 @@ function resolveCandidateAbsolutePaths(path: string, cwd: string, roots: FileRoo
   return Array.from(new Set(candidates))
 }
 
-export function TerminalPane({ sessionName, onInput, onResize, attachExclusive = false, onReady, subscribeOutput, onSwipeLeft, onSwipeRight }: TerminalPaneProps) {
+export function TerminalPane({ sessionName, onInput, onResize, attachExclusive = false, onReady, subscribeOutput, send: sendProp, onSwipeLeft, onSwipeRight }: TerminalPaneProps) {
   const { preferences, updatePreferences, isReady: preferencesReady = true } = usePreferences()
   const { t } = useTranslation()
   const activeHostId = useConsoleStore((s) => s.activeHostId)
@@ -345,7 +346,8 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     terminalTarget.dispatchEvent(new MouseEvent('click', { ...options, buttons: 0, detail: 1 }))
   }, [])
 
-  const { send, subscribeOutput: subscribeWebSocketOutput } = useWebSocket()
+  const { send: defaultSend, subscribeOutput: subscribeWebSocketOutput } = useWebSocket()
+  const send = sendProp || defaultSend
   const subscribeOutputRef = useRef(subscribeOutput || subscribeWebSocketOutput)
   const sendRef = useRef(send)
   const sendInput = useCallback((data: string) => onInputRef.current?.(data), [])
