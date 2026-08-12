@@ -62,7 +62,7 @@ export async function createTerminalCore(options: TerminalCoreOptions) {
   if (!options.isMobile) {
     try {
       const { WebglAddon } = await import('@xterm/addon-webgl')
-      terminal.loadAddon(new WebglAddon(true))
+      terminal.loadAddon(new WebglAddon())
       rendererType = 'webgl'
     } catch {}
   }
