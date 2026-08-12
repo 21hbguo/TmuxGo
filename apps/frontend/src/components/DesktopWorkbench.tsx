@@ -13,6 +13,8 @@ import { SessionPanel } from './SessionPanel'
 import { SessionRail } from './SessionRail'
 import { EditorWorkbench } from './EditorWorkbench'
 import { TerminalDock } from './TerminalDock'
+import { SessionSplitView } from './SessionSplitView'
+import { useSplitGroups } from '@/hooks/useSplitGroups'
 import { useTranslation } from '@/i18n'
 import { PluginView } from './PluginView'
 
@@ -34,8 +36,11 @@ export function DesktopWorkbench() {
   const thumbnailPanelOpen = useConsoleStore((state) => state.thumbnailPanelOpen)
   const gitPanelOpen = useConsoleStore((state) => state.gitPanelOpen)
   const sshPanelOpen = useConsoleStore((state) => state.sshPanelOpen)
+  const activeSplitGroupId = useConsoleStore((state) => state.activeSplitGroupId)
   const activePluginView = useConsoleStore((state) => state.activePluginView)
   const setActivePluginView = useConsoleStore((state) => state.setActivePluginView)
+  const { groups: splitGroups } = useSplitGroups()
+  const activeSplitGroup = splitGroups.find((item) => item.id === activeSplitGroupId) || null
   const gitPanelWidth = useConsoleStore((state) => state.gitPanelWidth)
   const setGitPanelWidth = useConsoleStore((state) => state.setGitPanelWidth)
   const sshPanelWidth = useConsoleStore((state) => state.sshPanelWidth)
@@ -301,7 +306,9 @@ export function DesktopWorkbench() {
       )}
       {activePluginView && <PluginView pluginId={activePluginView.pluginId} viewId={activePluginView.viewId} onClose={() => setActivePluginView(null)} />}
       <div className="tmuxgo-content-surface relative flex min-h-0 min-w-0 flex-1 flex-col">
-        {openEditors.length > 0 ? (
+        {activeSplitGroup ? (
+          <SessionSplitView group={activeSplitGroup} />
+        ) : openEditors.length > 0 ? (
           <>
             <div className="min-h-0 flex-1">
               <EditorWorkbench onSaveEditor={handleSaveEditor} onOpenFile={handleOpenFileForDrop} onOpenFileAtPosition={handleOpenFileAtPosition} onCreateCompare={handleCreateCompare} />
