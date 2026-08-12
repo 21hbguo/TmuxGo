@@ -903,6 +903,7 @@ export const en = {
   'session.selectThisFolder': 'Select This Folder',
   'session.workspaceHintSelected': 'New panes will auto cd to this workspace',
   'session.workspaceHintNone': 'Without a workspace, tmux default directory is used',
+  'session.workspacePathMissing': 'Workspace path is invalid, please select a workspace again',
   'common.retry': 'Retry',
 
   // Workspaces

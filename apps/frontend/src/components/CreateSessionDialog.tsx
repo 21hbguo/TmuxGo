@@ -9,6 +9,7 @@ import { isMobileDevice } from '@/hooks/useMobileKeyboard'
 import { useCreateWorkspace } from '@/hooks/useWorkspaces'
 import { usePrompt } from '@/hooks/usePrompt'
 import { useTranslation } from '@/i18n'
+import { useConsoleStore } from '@/stores/useConsoleStore'
 import type { SessionTemplate, WorkspaceEntry } from '@/types'
 
 export interface CreateSessionDialogWorkspace extends FilePanelPickerTarget {
@@ -35,6 +36,7 @@ function toDialogWorkspace(workspace: WorkspaceEntry): CreateSessionDialogWorksp
 }
 export function CreateSessionDialog({ open, template, defaultName, hostId, workspaces, initialWorkspace, onCreate, onClose }: CreateSessionDialogProps) {
   const { t } = useTranslation()
+  const pushToast = useConsoleStore((state) => state.pushToast)
   const { prompt, PromptElement } = usePrompt()
   const createWorkspace = useCreateWorkspace()
   const [name, setName] = useState(defaultName)
@@ -89,6 +91,10 @@ export function CreateSessionDialog({ open, template, defaultName, hostId, works
   const handleCreate = async () => {
     const trimmed = name.trim()
     if (!trimmed || submitting) return
+    if (workspace && !workspace.absolutePath) {
+      pushToast({ type: 'error', message: t('session.workspacePathMissing') })
+      return
+    }
     setSubmitting(true)
     try {
       await onCreate({ name: trimmed, cwd: workspace?.absolutePath, workspace: workspace || undefined })
