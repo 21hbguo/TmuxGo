@@ -1,9 +1,10 @@
 import type { FastifyInstance } from 'fastify'
 import path from 'path'
+import { stat } from 'fs/promises'
 import { getTemplateWindowTargets, type SessionTemplateLayout } from '../lib/template-utils.js'
 import { assertSessionAllowed, isValidSessionName, prepareSessionAttach } from '../lib/tmux-policy.js'
 import { buildSessionId, parseSessionRef } from '../lib/tmux-target.js'
-import { execTmux } from '../lib/tmux-executor.js'
+import { execTmux, execHostShell } from '../lib/tmux-executor.js'
 import { getHostAgentPanes, summarizeAgentPanes } from '../lib/agent-state.js'
 import { agentMonitor } from '../lib/agent-monitor.js'
 import { emitPluginEvent } from '../lib/plugin-manager.js'
@@ -289,6 +290,25 @@ async function safePrepareSessionAttach(hostId: string, sessionName: string) {
   if (hostId !== 'local') return
   await prepareSessionAttach(sessionName)
 }
+async function assertCwdExists(hostId: string, cwd: string) {
+  if (hostId === 'local') {
+    try {
+      if (!(await stat(cwd)).isDirectory()) throw new Error('not a directory')
+      return
+    } catch {
+      throw new Error(`cwd directory does not exist: ${cwd}`)
+    }
+  }
+  let exists = false
+  try {
+    const result = await execHostShell(hostId, `test -d ${quoteShellValue(cwd)} && echo tmuxgo-cwd-ok`)
+    exists = result.stdout.includes('tmuxgo-cwd-ok')
+  } catch (err) {
+    const message = String((err as Error)?.message || '')
+    if (message.includes('SSH') || message.includes('Host key')) throw err
+  }
+  if (!exists) throw new Error(`cwd directory does not exist on host: ${cwd}`)
+}
 export async function sessionRoutes(fastify: FastifyInstance) {
   fastify.get('/hosts/:hostId/sessions', async (request) => {
     const { hostId } = request.params as { hostId: string }
@@ -317,6 +337,7 @@ export async function sessionRoutes(fastify: FastifyInstance) {
         return { ...existingSession, cwd: normalizedCwd }
       }
       assertSessionAllowed(name)
+      if (normalizedCwd) await assertCwdExists(hostId, normalizedCwd)
       const newSessionArgs = ['-d', '-s', name, '-e', 'TMUXGO_ENV=1']
       if (normalizedCwd) newSessionArgs.push('-c', normalizedCwd)
       await execTmux(hostId, ['new-session', ...newSessionArgs])
