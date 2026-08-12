@@ -942,6 +942,11 @@ a {
 .tmuxgo-keycap--pill {
   padding: 5px 14px;
 }
+.shortcut-scroll-area .tmuxgo-keycap {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  will-change: auto;
+}
 [data-theme="high-contrast"] .tmuxgo-keycap {
   background: transparent;
   -webkit-backdrop-filter: none;
