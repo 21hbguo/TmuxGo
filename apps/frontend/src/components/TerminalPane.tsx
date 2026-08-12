@@ -1097,6 +1097,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     }
     afterTerminalWriteRef.current = () => {
       if (!attachExclusiveRef.current && isMobileDevice) requestAnimationFrame(syncSharedViewport)
+      if (isMobileDevice && document.body.classList.contains('keyboard-open') && !isTerminalScrolledBack()) requestAnimationFrame(scrollTerminalToBottom)
     }
     const doFit = (force = false) => {
       if (!terminal || disposed) return false
@@ -1529,7 +1530,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         if (detail.reason === 'attached') return
         if (helperTextareaComposing || document.body.classList.contains('ime-composing')) return
         const mobileKeyboardLayout = isMobileDevice && detail.reason === 'viewport-sync'
-        const stickToBottom = isMobileDevice && !isTerminalScrolledBack()
+        const stickToBottom = isMobileDevice && (detail.keyboardOpen || !isTerminalScrolledBack())
         if (mobileKeyboardLayout) {
           mobileKeyboardTransition = true
           scheduleTerminalRepaint(MOBILE_TERMINAL_KEYBOARD_REPAINT_DELAYS, false, stickToBottom, true)

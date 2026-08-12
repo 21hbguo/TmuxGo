@@ -1307,7 +1307,7 @@ describe('TerminalPane', () => {
     expect(terminalMocks.reset).not.toHaveBeenCalled()
     expect(terminalMocks.clear).not.toHaveBeenCalled()
   })
-  it('pins mobile keyboard layout repaint to bottom only when already at bottom', async () => {
+  it('pins mobile keyboard layout repaint to bottom when already at bottom', async () => {
     mobileKeyboardMocks.isMobile = true
     render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(customKeyHandler).toBeTruthy())
@@ -1316,11 +1316,44 @@ describe('TerminalPane', () => {
     terminalMocks.scrollToBottom.mockClear()
     window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'viewport-sync', mobile: true, keyboardOpen: true } }))
     await waitFor(() => expect(terminalMocks.scrollToBottom).toHaveBeenCalled())
+  })
+  it('does not pin mobile keyboard repaint to bottom when keyboard closed and scrolled back', async () => {
+    mobileKeyboardMocks.isMobile = true
+    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    terminalBaseY = 80
+    terminalViewportY = 60
+    terminalMocks.scrollToBottom.mockClear()
+    window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'viewport-sync', mobile: true, keyboardOpen: false } }))
+    await sleep(180)
+    expect(terminalMocks.scrollToBottom).not.toHaveBeenCalled()
+  })
+  it('forces mobile keyboard-open repaint to bottom even when scrolled back', async () => {
+    mobileKeyboardMocks.isMobile = true
+    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    terminalBaseY = 80
     terminalViewportY = 60
     terminalMocks.scrollToBottom.mockClear()
     window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'viewport-sync', mobile: true, keyboardOpen: true } }))
-    await sleep(180)
+    await waitFor(() => expect(terminalMocks.scrollToBottom).toHaveBeenCalled())
+  })
+  it('sticks output to bottom while mobile keyboard is open', async () => {
+    mobileKeyboardMocks.isMobile = true
+    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(webSocketMocks.lastOutputListener).toBeTruthy())
+    document.body.classList.add('keyboard-open')
+    terminalBaseY = 80
+    terminalViewportY = 80
+    terminalMocks.scrollToBottom.mockClear()
+    webSocketMocks.lastOutputListener?.({ data: 'printf "stick_ok"\\r\\n', sessionName: 'dev' })
+    await waitFor(() => expect(terminalMocks.scrollToBottom).toHaveBeenCalled())
+    terminalViewportY = 60
+    terminalMocks.scrollToBottom.mockClear()
+    webSocketMocks.lastOutputListener?.({ data: 'printf "no_stick_ok"\\r\\n', sessionName: 'dev' })
+    await sleep(80)
     expect(terminalMocks.scrollToBottom).not.toHaveBeenCalled()
+    document.body.classList.remove('keyboard-open')
   })
   it('does not steal mobile keyboard input focus back to xterm', async () => {
     mobileKeyboardMocks.isMobile = true
