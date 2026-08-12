@@ -319,6 +319,36 @@ export function useMobileKeyboard(
         lastDeleteEventAtRef.current = Date.now()
       }
     }
+    const handleWindowKeyDown = (e: KeyboardEvent) => {
+      recordMobileDebug('window-keydown', { key: e.key, keyCode: e.keyCode, which: e.which, target: e.target instanceof Element ? `${e.target.tagName}.${String((e.target as HTMLElement).className || '').slice(0,60)}` : '', active: document.activeElement instanceof HTMLElement ? `${document.activeElement.tagName}.${String(document.activeElement.className || '').slice(0,60)}` : '' })
+      if (composingRef.current || isImeKeyEvent(e)) return
+      const active = document.activeElement
+      if (active === ta) return
+      if (active instanceof HTMLElement && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return
+      if (e.key === 'Backspace') {
+        e.preventDefault()
+        sendInput('\x7f')
+        startDeleteRepeat()
+        return
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        sendInput('\r')
+        return
+      }
+      if (e.key === 'Tab') {
+        e.preventDefault()
+        sendInput('\t')
+        return
+      }
+      if (ARROW_KEYS[e.key]) {
+        e.preventDefault()
+        sendInput(ARROW_KEYS[e.key])
+      }
+    }
+    const handleSelectionChange = () => {
+      recordMobileDebug('selectionchange', { start: ta.selectionStart ?? -1, end: ta.selectionEnd ?? -1, value: ta.value.slice(0, 12) })
+    }
 
     const handleBeforeInput = (e: InputEvent) => {
       const inputType = e.inputType
@@ -468,6 +498,8 @@ export function useMobileKeyboard(
     ta.addEventListener('compositionend', handleCompositionEnd)
     ta.addEventListener('focus', handleFocus)
     ta.addEventListener('blur', handleBlur)
+    ta.addEventListener('selectionchange', handleSelectionChange)
+    window.addEventListener('keydown', handleWindowKeyDown, true)
     document.addEventListener('pointerdown', handleKeepAliveCapture, true)
     document.addEventListener('touchstart', handleKeepAliveCapture, true)
     document.addEventListener('mousedown', handleKeepAliveCapture, true)
@@ -482,6 +514,8 @@ export function useMobileKeyboard(
       ta.removeEventListener('compositionend', handleCompositionEnd)
       ta.removeEventListener('focus', handleFocus)
       ta.removeEventListener('blur', handleBlur)
+      ta.removeEventListener('selectionchange', handleSelectionChange)
+      window.removeEventListener('keydown', handleWindowKeyDown, true)
       document.removeEventListener('pointerdown', handleKeepAliveCapture, true)
       document.removeEventListener('touchstart', handleKeepAliveCapture, true)
       document.removeEventListener('mousedown', handleKeepAliveCapture, true)
