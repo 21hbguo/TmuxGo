@@ -27,8 +27,8 @@ const verticalRepeatDelay=420
 const verticalRepeatInterval=140
 const dragThreshold=12
 const scrollSuppressWindow=180
-const RECENT_DOCK_SHORTCUTS_KEY = 'tmuxgo-recent-dock-shortcuts'
-const RECENT_DOCK_SHORTCUT_LIMIT = 6
+// const RECENT_DOCK_SHORTCUTS_KEY = 'tmuxgo-recent-dock-shortcuts'
+// const RECENT_DOCK_SHORTCUT_LIMIT = 6
 
 type QuickActionsMode='panel'|'dock'
 type ActionButtonDef={key:string,label:string,data?:string,repeat?:boolean,repeatDelay?:number,repeatInterval?:number,tone?:'default'|'accent'|'danger',disabled?:boolean,busy?:boolean,onPress?:()=>void|Promise<void>}
@@ -52,7 +52,7 @@ function useQuickActionController() {
   const [editingShortcut,setEditingShortcut]=useState<typeof shortcuts[number]|null>(null)
   const [pendingShortcutDeletes,setPendingShortcutDeletes]=useState<typeof shortcuts>([])
   const [isMobile,setIsMobile]=useState(false)
-  const [recentDockShortcutKeys,setRecentDockShortcutKeys]=useState<string[]>([])
+  // const [recentDockShortcutKeys,setRecentDockShortcutKeys]=useState<string[]>([])
   const [confirmKillOpen,setConfirmKillOpen]=useState(false)
   const [pendingKillPaneId,setPendingKillPaneId]=useState<string|null>(null)
   const [newWindowPromptOpen,setNewWindowPromptOpen]=useState(false)
@@ -68,15 +68,15 @@ function useQuickActionController() {
     window.addEventListener('resize',check)
     return ()=>window.removeEventListener('resize',check)
   },[])
-  useEffect(()=>{
-    if(typeof window==='undefined')return
-    try{
-      const raw=JSON.parse(localStorage.getItem(RECENT_DOCK_SHORTCUTS_KEY)||'[]')
-      setRecentDockShortcutKeys(Array.isArray(raw)?raw.filter((item):item is string=>typeof item==='string'&&item.length>0):[])
-    }catch{
-      setRecentDockShortcutKeys([])
-    }
-  },[])
+  // useEffect(()=>{
+  //   if(typeof window==='undefined')return
+  //   try{
+  //     const raw=JSON.parse(localStorage.getItem(RECENT_DOCK_SHORTCUTS_KEY)||'[]')
+  //     setRecentDockShortcutKeys(Array.isArray(raw)?raw.filter((item):item is string=>typeof item==='string'&&item.length>0):[])
+  //   }catch{
+  //     setRecentDockShortcutKeys([])
+  //   }
+  // },[])
 
   const sendKey=useCallback((data:string)=>send({ type:'input',data }),[send])
   const macroRunIdRef=useRef(0)
@@ -99,14 +99,14 @@ function useQuickActionController() {
       }
     })().catch(()=>{})
   },[sendKey])
-  const trackDockShortcutUse=useCallback((key:string)=>{
-    if(typeof window==='undefined'||!key)return
-    setRecentDockShortcutKeys((prev)=>{
-      const next=[key,...prev.filter((item)=>item!==key)].slice(0,RECENT_DOCK_SHORTCUT_LIMIT)
-      localStorage.setItem(RECENT_DOCK_SHORTCUTS_KEY,JSON.stringify(next))
-      return next
-    })
-  },[])
+  // const trackDockShortcutUse=useCallback((key:string)=>{
+  //   if(typeof window==='undefined'||!key)return
+  //   setRecentDockShortcutKeys((prev)=>{
+  //     const next=[key,...prev.filter((item)=>item!==key)].slice(0,RECENT_DOCK_SHORTCUT_LIMIT)
+  //     localStorage.setItem(RECENT_DOCK_SHORTCUTS_KEY,JSON.stringify(next))
+  //     return next
+  //   })
+  // },[])
   const stopRepeat=useCallback(()=>{
     if(repeatTimerRef.current){
       clearTimeout(repeatTimerRef.current)
@@ -356,25 +356,21 @@ function useQuickActionController() {
     { key:'dock-ctrl-d',label:'Ctrl+D',data:'\x04' },
     { key:'dock-ctrl-z',label:'Ctrl+Z',data:'\x1a' },
   ]
-  const recentShortcutButtons=useMemo(()=>{
-    const mapped=recentDockShortcutKeys.map((key)=>shortcuts.find((item)=>item.id===key)).filter(Boolean) as typeof shortcuts
-    const seen=new Set(mapped.map((item)=>item.id))
-    return [...mapped,...shortcuts.filter((item)=>!seen.has(item.id))]
-  },[recentDockShortcutKeys,shortcuts])
+  const recentShortcutButtons=shortcuts
 
-  return { t,activePaneId,shortcuts,recentShortcutButtons,addShortcut,updateShortcut,removeShortcuts,showModal,setShowModal,editingShortcut,setEditingShortcut,isMobile,pendingShortcutDeletes,setPendingShortcutDeletes,confirmDeleteShortcut,confirmKillOpen,setConfirmKillOpen,pendingKillPaneId,setPendingKillPaneId,confirmKillPane,newWindowPromptOpen,setNewWindowPromptOpen,newWindowName,setNewWindowName,confirmCreateWindow,sendKey,runShortcut,runningShortcutId,trackDockShortcutUse,startRepeat,armTouchRepeat,stopRepeat,preventFocus,startPointer,startDockGesture,trackDockScroll,finishDockGesture,isDockScrollBlocked,trackPointer,finishPointer,pointerStateRef,primaryButtons,attachButton,fullscreenButton,dockCoreButtons }
+  return { t,activePaneId,shortcuts,recentShortcutButtons,addShortcut,updateShortcut,removeShortcuts,showModal,setShowModal,editingShortcut,setEditingShortcut,isMobile,pendingShortcutDeletes,setPendingShortcutDeletes,confirmDeleteShortcut,confirmKillOpen,setConfirmKillOpen,pendingKillPaneId,setPendingKillPaneId,confirmKillPane,newWindowPromptOpen,setNewWindowPromptOpen,newWindowName,setNewWindowName,confirmCreateWindow,sendKey,runShortcut,runningShortcutId,startRepeat,armTouchRepeat,stopRepeat,preventFocus,startPointer,startDockGesture,trackDockScroll,finishDockGesture,isDockScrollBlocked,trackPointer,finishPointer,pointerStateRef,primaryButtons,attachButton,fullscreenButton,dockCoreButtons }
 }
 
 function triggerDockButton(def:ActionButtonDef,controller:ReturnType<typeof useQuickActionController>){
   if(def.disabled)return
   if(def.onPress){
-    controller.trackDockShortcutUse(def.key)
+    // controller.trackDockShortcutUse(def.key)
     void def.onPress()
     return
   }
   if(def.data){
     controller.sendKey(def.data)
-    controller.trackDockShortcutUse(def.key)
+    // controller.trackDockShortcutUse(def.key)
   }
 }
 
