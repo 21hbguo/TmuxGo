@@ -613,6 +613,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
           case 'attach': {
             const attach = streamAttachMessageSchema.parse(data)
             recordStreamMetric('attachRequests')
+            const attachStartedAt = Date.now()
             console.log('Attach requested', { hostId: attach.hostId, sessionName: attach.sessionName, exclusive: !!attach.exclusive, cols: attach.cols, rows: attach.rows })
             const { hostId, sessionName } = await resolveAttachTarget(attach)
             if (shareTicket&&(hostId!==shareTicket.hostId||sessionName!==shareTicket.sessionName)) throw new Error('Share scope does not allow this session')
@@ -630,6 +631,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
               send({ type: 'attached', sessionName, hostId, cols: attachedCols || requestedCols, rows: attachedRows || requestedRows, exclusive })
               scheduleClientRedraw(sessionName, ATTACH_REDRAW_DELAYS)
               scheduleAttachSnapshot(sessionName, attachSeq)
+              console.log('Attach completed (reuse)', { sessionName, elapsedMs: Date.now() - attachStartedAt })
               break
             }
             cleanup()
@@ -691,6 +693,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
             send({ type: 'attached', sessionName, hostId, cols, rows, exclusive })
             scheduleClientRedraw(sessionName, ATTACH_REDRAW_DELAYS)
             scheduleAttachSnapshot(sessionName, seq)
+            console.log('Attach completed (new)', { sessionName, cols, rows, elapsedMs: Date.now() - attachStartedAt })
             break
           }
           case 'resize': {
