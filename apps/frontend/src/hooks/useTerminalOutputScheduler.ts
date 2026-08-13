@@ -9,6 +9,20 @@ const MIN_FRAME_BUDGET = 4096
 const DIRECT_WRITE_IDLE_MS = 0
 const BACKPRESSURE_HIGH_WATERMARK = 65536
 const BACKPRESSURE_LOW_WATERMARK = 8192
+const FRAME_END_SEQUENCE = '\u001b[?25h'
+const MIN_FRAME_CUT = 256
+const INCOMPLETE_ESCAPE_REGEX = /\u001b(?:\[[0-?]*[ -/]*|\][^\x07]*|\([ -~]*)?$/
+function findFlushCut(buffer: string, limit: number) {
+  if (buffer.length <= limit) return buffer.length
+  const frameEnd = buffer.lastIndexOf(FRAME_END_SEQUENCE, limit)
+  if (frameEnd >= MIN_FRAME_CUT) return frameEnd + FRAME_END_SEQUENCE.length
+  let cut = limit
+  const incomplete = INCOMPLETE_ESCAPE_REGEX.exec(buffer.slice(0, cut))
+  if (incomplete && incomplete[0]) cut -= incomplete[0].length
+  if (cut <= 0) cut = limit
+  if (buffer.charCodeAt(cut - 1) >= 0xd800 && buffer.charCodeAt(cut - 1) <= 0xdbff) cut -= 1
+  return Math.max(1, cut)
+}
 
 interface UseTerminalOutputSchedulerOptions {
   fastOutputLimit?: number
@@ -54,8 +68,9 @@ export function useTerminalOutputScheduler({
   const flush = useCallback(() => {
     frameRef.current = null
     if (!bufferRef.current || writingRef.current) return
-    const chunk = bufferRef.current.slice(0, Math.min(frameBudget, adaptiveFrameBudgetRef.current))
-    bufferRef.current = bufferRef.current.slice(chunk.length)
+    const cut = findFlushCut(bufferRef.current, Math.min(frameBudget, adaptiveFrameBudgetRef.current))
+    const chunk = bufferRef.current.slice(0, cut)
+    bufferRef.current = bufferRef.current.slice(cut)
     writingRef.current = true
     const startedAt = performance.now()
     write(chunk, () => {
