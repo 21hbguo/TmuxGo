@@ -342,9 +342,6 @@ export async function streamRoutes(fastify: FastifyInstance) {
       }
       if (isCompleteFrame) {
         lastFrame = data
-      } else if (data.startsWith('\u001b[?25l') && dedupDropLogCount < 30) {
-        dedupDropLogCount++
-        console.warn(`[frame-incomplete#${dedupDropLogCount}] len=${data.length} tail=${JSON.stringify(data.slice(-40))}`)
       }
       recordStreamMetric('outputFlushes')
       recordStreamMetric('outputChunks')
