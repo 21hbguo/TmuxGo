@@ -13,7 +13,7 @@ import { ingestAgentEvent } from '../lib/agent-events.js'
 import { markAgentPaneSeen } from '../lib/agent-state.js'
 import { streamAttachMessageSchema, streamInputMessageSchema, streamMessageSchema, streamRegisterMessageSchema, streamResizeMessageSchema } from '../lib/request-validation.js'
 import { encodeStreamCellBinary, encodeStreamOutputBinary } from '../lib/stream-binary.js'
-import { AnsiParser, TerminalGrid, diffCells, encodeCellDiff, encodeCellSnapshot } from '../lib/terminal-grid/index.js'
+import { AnsiParser, TerminalGrid, diffCells, encodeCellDiff, encodeCellSnapshot, wcwidth } from '../lib/terminal-grid/index.js'
 import { consumeWebSocketTicket, isAuthEnabled } from '../lib/auth.js'
 import { shareLinkStore, type ShareTicket } from '../lib/share-links.js'
 
@@ -407,27 +407,47 @@ export async function streamRoutes(fastify: FastifyInstance) {
         remaining -= step
       }
     }
+    const SNAPSHOT_ANSI_REGEX = /\u001b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\u001b\\))/g
+    function snapshotLineWidth(line: string) {
+      let width = 0
+      for (const ch of line.replace(SNAPSHOT_ANSI_REGEX, '')) width += Math.max(1, wcwidth(ch.codePointAt(0) || 0))
+      return width
+    }
+    function buildPaneSnapshot(content: string, left: number, top: number, width: number, height: number) {
+      const lines = content.replace(/\r/g, '').split('\n')
+      const parts: string[] = []
+      for (let row = 0; row < height; row++) {
+        const line = lines[row] || ''
+        const pad = Math.max(0, width - snapshotLineWidth(line))
+        parts.push(`\u001b[${top + row + 1};${left + 1}H${line}\u001b[0m${pad > 0 ? `\u001b[${pad}X` : ''}`)
+      }
+      return parts.join('')
+    }
     async function captureWindowSnapshot(hostId: string, sessionName: string) {
-      const { stdout } = await execTmux(hostId, ['list-panes', '-t', sessionName, '-F', '#{pane_id}|#{pane_left}|#{pane_top}'])
+      const { stdout } = await execTmux(hostId, ['list-panes', '-t', sessionName, '-F', '#{pane_id}|#{pane_left}|#{pane_top}|#{pane_width}|#{pane_height}'])
       const panes = String(stdout || '').trim().split('\n').filter(Boolean).map((line) => {
-        const [paneId, leftRaw, topRaw] = line.split('|')
+        const [paneId, leftRaw, topRaw, widthRaw, heightRaw] = line.split('|')
         const left = Number(leftRaw)
         const top = Number(topRaw)
-        return { paneId, left: Number.isFinite(left) ? left : 0, top: Number.isFinite(top) ? top : 0 }
+        const width = Number(widthRaw)
+        const height = Number(heightRaw)
+        return { paneId, left: Number.isFinite(left) ? left : 0, top: Number.isFinite(top) ? top : 0, width: Number.isFinite(width) ? width : 0, height: Number.isFinite(height) ? height : 0 }
       })
       const parts: string[] = []
       for (const pane of panes) {
-        if (!pane.paneId) continue
+        if (!pane.paneId || pane.width <= 0 || pane.height <= 0) continue
         const { stdout: paneOutput } = await execTmux(hostId, ['capture-pane', '-e', '-pt', pane.paneId, '-p'])
-        const content = String(paneOutput || '').replace(/\n/g, '\r\n')
+        const content = String(paneOutput || '')
         if (!content) continue
-        parts.push(`\u001b[${pane.top + 1};${pane.left + 1}H${content}`)
+        parts.push(buildPaneSnapshot(content, pane.left, pane.top, pane.width, pane.height))
       }
       if (!parts.length) {
         const { stdout: fallback } = await execTmux(hostId, ['capture-pane', '-e', '-pt', sessionName, '-p'])
-        return `\u001b[H\u001b[2J${String(fallback || '').replace(/\n/g, '\r\n')}`
+        const content = String(fallback || '')
+        if (!content) return ''
+        return buildPaneSnapshot(content, 0, 0, attachedCols || 80, attachedRows || 24)
       }
-      return `\u001b[H\u001b[2J${parts.join('')}`
+      return parts.join('')
     }
     function flushScroll(sessionName: string) {
       if (scrollRunning.has(sessionName)) return
