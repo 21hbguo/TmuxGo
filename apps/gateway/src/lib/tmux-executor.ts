@@ -206,9 +206,21 @@ async function runRemoteShell(host: HostRecord, command: string, options: TmuxEx
     throw reportRemoteError(host, stderr, stdout, err?.message || 'SSH command failed')
   }
 }
+function isTmuxServerMissingError(message: string) {
+  const value = message.toLowerCase()
+  return value.includes('error connecting to') || value.includes('no server running') || value.includes('failed to connect to server')
+}
 export async function execTmux(hostIdRaw: string, args: string[], options: TmuxExecOptions = {}): Promise<TmuxExecResult> {
   const normalized = normalizeTmuxEnvArgs(args)
-  if (normalized.needsSetEnv) await execTmux(hostIdRaw, ['setenv', '-g', 'TMUXGO_ENV', '1'], options)
+  let deferSetEnv = false
+  if (normalized.needsSetEnv) {
+    try {
+      await execTmux(hostIdRaw, ['setenv', '-g', 'TMUXGO_ENV', '1'], options)
+    } catch (err: any) {
+      if (!isTmuxServerMissingError(String(err?.message || ''))) throw err
+      deferSetEnv = true
+    }
+  }
   args = normalized.args
   const hostId = parseHostInput(hostIdRaw)
   const host = await getHostById(hostId)
@@ -216,18 +228,27 @@ export async function execTmux(hostIdRaw: string, args: string[], options: TmuxE
     const agent = agentManager.getAgent(hostId)
     if (!agent) throw new Error(`Host "${hostId}" not found`)
     const result = await agentManager.executeTmux(hostId, args, options.timeoutMs || defaultTimeoutMs)
+    await retrySetEnvIfNeeded(deferSetEnv, hostId)
     return { ...result, host: toAgentHost(agent) }
   }
   if (host.id === 'local') {
     try {
       const result = await runLocalTmux(args, options)
+      await retrySetEnvIfNeeded(deferSetEnv, hostId)
       return { ...result, host }
     } catch (err: any) {
       throw new Error(normalizeErrorMessage(String(err?.stderr || err?.message || ''), 'tmux command failed'))
     }
   }
   const result = await runRemoteTmux(host, args, options)
+  await retrySetEnvIfNeeded(deferSetEnv, hostId)
   return { ...result, host }
+}
+async function retrySetEnvIfNeeded(deferSetEnv: boolean, hostIdRaw: string) {
+  if (!deferSetEnv) return
+  try {
+    await execTmux(hostIdRaw, ['setenv', '-g', 'TMUXGO_ENV', '1'])
+  } catch {}
 }
 export async function execHostShell(hostIdRaw: string, command: string, options: TmuxExecOptions = {}): Promise<TmuxExecResult> {
   const hostId = parseHostInput(hostIdRaw)

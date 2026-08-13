@@ -50,6 +50,27 @@ test('injects TMUXGO_ENV via setenv when new-session uses the legacy -e form', a
   }
 })
 
+test('creates session via cold start when tmux server is missing (setenv tolerated)', async (t) => {
+  const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-executor-cold-'))
+  const sessionName = `tmuxgo-cold-${process.pid}-${Date.now()}`
+  const previousTmpDir = process.env.TMUX_TMPDIR
+  process.env.TMUX_TMPDIR = tmpDir
+  t.after(async () => {
+    if (previousTmpDir === undefined) delete process.env.TMUX_TMPDIR
+    else process.env.TMUX_TMPDIR = previousTmpDir
+    await rm(tmpDir, { recursive: true, force: true })
+  })
+  try {
+    await execTmux('local', ['new-session', '-d', '-s', sessionName, '-e', 'TMUXGO_ENV=1'])
+    const panes = await execTmux('local', ['list-panes', '-t', sessionName, '-F', '#{pane_id}'])
+    assert.match(panes.stdout, /^%\d+\n?$/)
+    const env = await execTmux('local', ['show-environment', '-g', 'TMUXGO_ENV'])
+    assert.match(env.stdout.trim(), /^TMUXGO_ENV=1$/)
+  } finally {
+    await execFileAsync('tmux', ['kill-session', '-t', sessionName]).catch(() => {})
+  }
+})
+
 test('routes tmux and shell scans through an Agent host', async () => {
   const hostId = `agent-executor-${process.pid}-${Date.now()}`
   const messages: string[] = []

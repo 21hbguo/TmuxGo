@@ -23,6 +23,10 @@ function normalizeTmuxEnvArgs(args: string[]) {
   }
   return { args: result, needsSetEnv }
 }
+function isTmuxServerMissingError(message: string) {
+  const value = message.toLowerCase()
+  return value.includes('error connecting to') || value.includes('no server running') || value.includes('failed to connect to server')
+}
 function assertSessionAllowed(name: string) {
   if (!isValidSessionName(name)) throw new Error('Invalid session name')
   if (allowedSessions.size && !allowedSessions.has(name)) throw new Error('Session is not allowed')
@@ -81,9 +85,16 @@ export class TmuxManager {
 
   async createSession(name: string): Promise<TmuxSession> {
     assertSessionAllowed(name)
-    await execFileAsync('tmux', ['setenv', '-g', 'TMUXGO_ENV', '1'])
+    try {
+      await execFileAsync('tmux', ['setenv', '-g', 'TMUXGO_ENV', '1'])
+    } catch (err: any) {
+      if (!isTmuxServerMissingError(String(err?.message || ''))) throw err
+    }
     if (process.env.INVOCATION_ID) await execFileAsync('systemd-run', ['--user', '--scope', '--quiet', '--collect', 'tmux', 'new-session', '-d', '-s', name])
     else await execFileAsync('tmux', ['new-session', '-d', '-s', name])
+    try {
+      await execFileAsync('tmux', ['setenv', '-g', 'TMUXGO_ENV', '1'])
+    } catch {}
     await this.enableMouse(name)
     const sessions = await this.listSessions()
     const session = sessions.find((s) => s.name === name)
@@ -101,8 +112,19 @@ export class TmuxManager {
   async executeTmux(args: string[]) {
     if (!Array.isArray(args) || !args.length || args.length > 64 || args.some((item) => typeof item !== 'string' || item.length > 4096)) throw new Error('Invalid tmux arguments')
     const normalized = normalizeTmuxEnvArgs(args)
-    if (normalized.needsSetEnv) await execFileAsync('tmux', ['setenv', '-g', 'TMUXGO_ENV', '1'])
+    if (normalized.needsSetEnv) {
+      try {
+        await execFileAsync('tmux', ['setenv', '-g', 'TMUXGO_ENV', '1'])
+      } catch (err: any) {
+        if (!isTmuxServerMissingError(String(err?.message || ''))) throw err
+      }
+    }
     const { stdout, stderr } = await execFileAsync('tmux', normalized.args)
+    if (normalized.needsSetEnv) {
+      try {
+        await execFileAsync('tmux', ['setenv', '-g', 'TMUXGO_ENV', '1'])
+      } catch {}
+    }
     return { stdout, stderr }
   }
   attach(name: string, cols: number, rows: number, exclusive: boolean) {
