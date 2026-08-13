@@ -6,7 +6,7 @@ import { api } from '@/lib/api'
 const PROFILE='default'
 const STORAGE_KEY='tmuxgo-session-continuity'
 const STORAGE_UPDATED_AT_KEY='tmuxgo-session-continuity-updated-at'
-const REMOTE_PUSH_DEBOUNCE_MS=8000
+const REMOTE_PUSH_DEBOUNCE_MS=1000
 const defaultSessionContinuity=():SessionContinuityConfig=>({enabled:true,syncToServer:true,resumeOnReconnect:true,resumeOnNewDevice:true,maxResumePoints:20,archive:{enabled:false,captureMode:'none',maxBytesPerSession:262144,retentionDays:7},resumePoints:[],updatedAt:new Date().toISOString()})
 let continuityStore:SessionContinuityConfig=defaultSessionContinuity()
 const listeners=new Set<(value:SessionContinuityConfig)=>void>()
