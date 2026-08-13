@@ -194,32 +194,45 @@ function buildSessionFallback(hostId: string, name: string, session?: any) {
     ...session,
   }
 }
+const REQUEST_TIMEOUT_MS = 30000
 async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   const url = `${getApiBase()}${path}`
   const isFormData = typeof FormData !== 'undefined' && options?.body instanceof FormData
   const hasBody = options?.body !== undefined && options?.body !== null
   const headers = new Headers(options?.headers)
   if (!isFormData && hasBody && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
-  const response = await authenticatedFetch(url, {
-    ...options,
-    headers,
-  })
-  const data = await readResponseBody(response)
-  if (!response.ok) {
-    if (typeof data === 'string') throw parseApiError(response.status, data)
-    const error = data && typeof data === 'object' ? data as { message?: string; code?: string } : { message: 'Request failed', code: 'REQUEST_FAILED' }
-    const e = new Error(error.message || `HTTP ${response.status}`) as Error & { status?: number; code?: string }
-    e.status = response.status
-    e.code = error.code || 'REQUEST_FAILED'
-    throw e
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(new Error(`Request timed out after ${REQUEST_TIMEOUT_MS}ms`)), REQUEST_TIMEOUT_MS)
+  const externalSignal = options?.signal
+  const abortFromExternal = () => controller.abort(externalSignal?.reason)
+  if (externalSignal?.aborted) controller.abort(externalSignal.reason)
+  else externalSignal?.addEventListener('abort', abortFromExternal, { once: true })
+  try {
+    const response = await authenticatedFetch(url, {
+      ...options,
+      signal: controller.signal,
+      headers,
+    })
+    const data = await readResponseBody(response)
+    if (!response.ok) {
+      if (typeof data === 'string') throw parseApiError(response.status, data)
+      const error = data && typeof data === 'object' ? data as { message?: string; code?: string } : { message: 'Request failed', code: 'REQUEST_FAILED' }
+      const e = new Error(error.message || `HTTP ${response.status}`) as Error & { status?: number; code?: string }
+      e.status = response.status
+      e.code = error.code || 'REQUEST_FAILED'
+      throw e
+    }
+    if (data && typeof data === 'object' && 'ok' in data && data.ok === false) {
+      const body = data as { error?: string; message?: string; code?: string }
+      const e = new Error(body.error || body.message || 'Request failed') as Error & { code?: string }
+      e.code = body.code || 'REQUEST_FAILED'
+      throw e
+    }
+    return data
+  } finally {
+    clearTimeout(timeout)
+    externalSignal?.removeEventListener('abort', abortFromExternal)
   }
-  if (data && typeof data === 'object' && 'ok' in data && data.ok === false) {
-    const body = data as { error?: string; message?: string; code?: string }
-    const e = new Error(body.error || body.message || 'Request failed') as Error & { code?: string }
-    e.code = body.code || 'REQUEST_FAILED'
-    throw e
-  }
-  return data
 }
 function parseApiError(status: number, raw: string) {
   let message = `HTTP ${status}`

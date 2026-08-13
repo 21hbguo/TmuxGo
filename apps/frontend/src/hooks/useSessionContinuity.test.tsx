@@ -59,7 +59,7 @@ describe('useSessionContinuity',()=>{
       vi.advanceTimersByTime(100)
       await Promise.resolve()
       hookState!.upsertResumePoint({hostId:'local',sessionId:'session-a',sessionName:'session-a',windowId:null,paneId:null,cols:122,rows:36,exclusive:true})
-      vi.advanceTimersByTime(1200)
+      vi.advanceTimersByTime(8200)
       await Promise.resolve()
       await Promise.resolve()
     })
