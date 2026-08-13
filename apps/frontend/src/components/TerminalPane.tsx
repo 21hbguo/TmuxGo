@@ -43,6 +43,7 @@ const MOBILE_TERMINAL_RECOVERY_REPAINT_DELAYS = [48, 160]
 const MOBILE_TERMINAL_KEYBOARD_REPAINT_DELAYS = [0, 48, 160]
 const LAYOUT_REPAINT_DELAYS = [0, 32]
 const MOBILE_FIT_SIZE_TOLERANCE = 2
+const RESIZE_MASK_FAILSAFE_MS = 900
 const DEVICE_PIXEL_RATIO_TOLERANCE = 0.01
 const GITHUB_DEVICE_LOGIN_URL = 'https://github.com/login/device'
 let terminalResizePending = false
@@ -466,6 +467,12 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       try { terminal.clear?.() } catch {}
       try { terminal.refresh?.(0, Math.max(0, (terminal.rows || 1) - 1)) } catch {}
     }
+    terminalResizePending = false
+    const staleMask = resizeMaskRef.current
+    if (staleMask) {
+      staleMask.style.display = 'none'
+      staleMask.replaceChildren()
+    }
   }, [activeHostId, sessionName])
   useEffect(() => {
     sendRef.current = send
@@ -548,6 +555,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     let fontLayoutTimer: ReturnType<typeof setTimeout> | null = null
     let resizeRevealFrame: number | null = null
     let resizeStabilityFrame: number | null = null
+    let resizeMaskFailsafeTimer: ReturnType<typeof setTimeout> | null = null
     let resizeMaskGeneration = 0
     let resizeStableFrames = 0
     let resizeObservedSize = { width: 0, height: 0 }
@@ -740,7 +748,14 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     const showResizeMask = () => {
       if (resizeRevealFrame) cancelAnimationFrame(resizeRevealFrame)
       resizeRevealFrame = null
-      resizeMaskGeneration += 1
+      if (resizeMaskFailsafeTimer) clearTimeout(resizeMaskFailsafeTimer)
+      const generation = resizeMaskGeneration + 1
+      resizeMaskFailsafeTimer = setTimeout(() => {
+        resizeMaskFailsafeTimer = null
+        recordMobileDebug('terminal-resize-mask-failsafe', { generation })
+        revealResizeMask(generation)
+      }, RESIZE_MASK_FAILSAFE_MS)
+      resizeMaskGeneration = generation
       terminalResizePending = true
       const mask = resizeMaskRef.current
       if (mask && mask.style.display !== 'block') {
@@ -769,6 +784,10 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     }
     const revealResizeMask = (generation = resizeMaskGeneration) => {
       if (generation !== resizeMaskGeneration) return
+      if (resizeMaskFailsafeTimer) {
+        clearTimeout(resizeMaskFailsafeTimer)
+        resizeMaskFailsafeTimer = null
+      }
       if (resizeRevealFrame) cancelAnimationFrame(resizeRevealFrame)
       let synchronous = true
       const frame = requestAnimationFrame(() => {
@@ -1804,6 +1823,10 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       }
       if (resizeRevealFrame) cancelAnimationFrame(resizeRevealFrame)
       if (resizeStabilityFrame) cancelAnimationFrame(resizeStabilityFrame)
+      if (resizeMaskFailsafeTimer) {
+        clearTimeout(resizeMaskFailsafeTimer)
+        resizeMaskFailsafeTimer = null
+      }
       terminalResizePending = false
       resizeMaskRef.current?.replaceChildren()
       if (layoutFrame) cancelAnimationFrame(layoutFrame)
