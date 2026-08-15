@@ -162,7 +162,7 @@ describe('useWebSocket',()=>{
     window.removeEventListener('tmuxgo-agent-monitor-error', listeners.error as EventListener)
     unmount()
   })
-  it('replaces a stale socket after returning from the background',()=>{
+  it('keeps a live socket after returning from the background',()=>{
     const { unmount }=renderHook(() => useWebSocket())
     act(()=>{
       socketInstances[0].open()
@@ -172,11 +172,30 @@ describe('useWebSocket',()=>{
       Object.defineProperty(document,'visibilityState',{ configurable:true, value:'visible' })
       document.dispatchEvent(new Event('visibilitychange'))
     })
+    expect(socketInstances[0].readyState).toBe(MockWebSocket.OPEN)
+    expect(socketInstances).toHaveLength(1)
+    unmount()
+  })
+  it('reconnects when the probe ping times out after returning from the background',()=>{
+    preferenceState.autoReconnect=true
+    const { unmount }=renderHook(() => useWebSocket())
+    act(()=>{
+      socketInstances[0].open()
+      Object.defineProperty(document,'visibilityState',{ configurable:true, value:'hidden' })
+      document.dispatchEvent(new Event('visibilitychange'))
+      vi.advanceTimersByTime(1201)
+      Object.defineProperty(document,'visibilityState',{ configurable:true, value:'visible' })
+      document.dispatchEvent(new Event('visibilitychange'))
+      vi.advanceTimersByTime(1500)
+    })
     expect(socketInstances[0].readyState).toBe(MockWebSocket.CLOSED)
+    act(()=>{
+      vi.advanceTimersByTime(400)
+    })
     expect(socketInstances).toHaveLength(2)
     unmount()
   })
-  it('replaces a socket that is still connecting after returning from the background',()=>{
+  it('does not replace a socket that is still connecting after returning from the background',()=>{
     const { unmount }=renderHook(() => useWebSocket())
     act(()=>{
       Object.defineProperty(document,'visibilityState',{ configurable:true, value:'hidden' })
@@ -185,11 +204,17 @@ describe('useWebSocket',()=>{
       Object.defineProperty(document,'visibilityState',{ configurable:true, value:'visible' })
       document.dispatchEvent(new Event('visibilitychange'))
     })
+    expect(socketInstances[0].readyState).toBe(MockWebSocket.CONNECTING)
+    expect(socketInstances).toHaveLength(1)
+    act(()=>{
+      vi.advanceTimersByTime(8001)
+      window.dispatchEvent(new Event('focus'))
+    })
     expect(socketInstances[0].readyState).toBe(MockWebSocket.CLOSED)
     expect(socketInstances).toHaveLength(2)
     unmount()
   })
-  it('restarts a pending authenticated connection after returning from the background',async()=>{
+  it('keeps a pending authenticated connection after returning from the background',async()=>{
     authState.enabled=true
     let resolveFreshTicket:(url:string)=>void=()=>{}
     getWebSocketUrlMock.mockImplementationOnce(()=>new Promise<string>(()=>{})).mockImplementationOnce(()=>new Promise<string>((resolve)=>{resolveFreshTicket=resolve}))
@@ -202,6 +227,13 @@ describe('useWebSocket',()=>{
       vi.advanceTimersByTime(1201)
       Object.defineProperty(document,'visibilityState',{ configurable:true, value:'visible' })
       document.dispatchEvent(new Event('visibilitychange'))
+      await Promise.resolve()
+    })
+    expect(getWebSocketUrlMock).toHaveBeenCalledTimes(1)
+    expect(socketInstances).toHaveLength(0)
+    await act(async()=>{
+      vi.advanceTimersByTime(8001)
+      window.dispatchEvent(new Event('focus'))
       await Promise.resolve()
     })
     expect(getWebSocketUrlMock).toHaveBeenCalledTimes(2)

@@ -220,6 +220,32 @@ function handleMessage(connection: ConnectionState, data: any) {
       break
   }
 }
+let foregroundListenerReady=false
+function ensureForegroundListener() {
+  if (foregroundListenerReady||typeof window==='undefined') return
+  foregroundListenerReady=true
+  const handleForeground=()=>{
+    if (document.visibilityState!=='visible') return
+    connections.forEach((connection)=>{
+      if (connection.subscribers<=0) return
+      const ws=connection.ws
+      if (ws?.readyState===WebSocket.OPEN) {
+        sendPing(connection,1500)
+        return
+      }
+      if (connection.isConnecting) return
+      if (connection.reconnectTimer) {
+        clearTimeout(connection.reconnectTimer)
+        connection.reconnectTimer=null
+      }
+      connection.reconnectCount=0
+      connect(connection)
+    })
+  }
+  document.addEventListener('visibilitychange',handleForeground)
+  window.addEventListener('focus',handleForeground)
+  window.addEventListener('online',handleForeground)
+}
 export function useSessionSocket(hostId: string, sessionId: string) {
   const connectionRef = useRef<ConnectionState | null>(null)
   if (!connectionRef.current) connectionRef.current = getConnection(getKey(hostId, sessionId))
@@ -240,6 +266,7 @@ export function useSessionSocket(hostId: string, sessionId: string) {
   }, [connection])
   useEffect(() => {
     connection.subscribers += 1
+    ensureForegroundListener()
     connect(connection)
     if (!connection.pingTimer) {
       connection.pingTimer = setInterval(() => {
