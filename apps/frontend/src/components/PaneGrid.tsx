@@ -191,6 +191,9 @@ export function PaneGrid({ sessionId: controlledSessionId, socket, shared = fals
     clearInputFlushTimer()
     if (!isConnected || !isSessionAttachedRef.current || attachedRef.current !== targetSessionName) return
     if (inputQueueRef.current.length === 0) return
+    // #region debug-point B:queue-flush
+    fetch('http://127.0.0.1:7777/event', { method: 'POST', keepalive: true, body: JSON.stringify({ sessionId: 'tui-input-garble', runId: 'pre-fix', hypothesisId: 'B', location: 'PaneGrid.tsx', msg: '[DEBUG] input-queue-flush', data: { chunks: inputQueueRef.current.length }, ts: Date.now() }) }).catch(() => {})
+    // #endregion
     const queued = inputQueueRef.current.splice(0)
     let batch = ''
     for (const chunk of queued) {
@@ -418,6 +421,9 @@ export function PaneGrid({ sessionId: controlledSessionId, socket, shared = fals
         send({ type: 'input', data })
         return
       }
+      // #region debug-point B:queue-enqueue-while-connected
+      fetch('http://127.0.0.1:7777/event', { method: 'POST', keepalive: true, body: JSON.stringify({ sessionId: 'tui-input-garble', runId: 'pre-fix', hypothesisId: 'B', location: 'PaneGrid.tsx', msg: '[DEBUG] input-enqueued-while-connected', data: { queueLen: inputQueueRef.current.length, len: data.length }, ts: Date.now() }) }).catch(() => {})
+      // #endregion
       inputQueueRef.current.push(data)
       scheduleInputFlush()
       return
