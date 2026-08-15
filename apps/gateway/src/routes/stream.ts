@@ -89,12 +89,28 @@ export async function streamRoutes(fastify: FastifyInstance) {
     let pendingResizeAck: { sessionName: string; hostId: string; cols: number; rows: number; seq: number; refreshComplete: boolean; outputObserved: boolean } | null = null
     const scrollBuffers = new Map<string, number>()
     const scrollRunning = new Set<string>()
-    const socket = connection.socket as unknown as AgentSocket & { close: (code?: number, reason?: string) => void }
+    const socket = connection.socket as unknown as AgentSocket & { close: (code?: number, reason?: string) => void; ping: () => void; terminate: () => void }
     const agentSocket = socket
     const shareStateTimer=shareTicket?setInterval(() => {
       if (shareLinkStore.isTicketActive(shareTicket)) return
       socket.close(1008,'Share link is unavailable')
     },1000):null
+    const STREAM_PING_INTERVAL_MS = Math.max(5000, Number(process.env.TMUXGO_STREAM_PING_INTERVAL_MS || 25000) || 25000)
+    const STREAM_PONG_TIMEOUT_MS = STREAM_PING_INTERVAL_MS * 3
+    let lastSocketPongAt = Date.now()
+    socket.on('pong', () => { lastSocketPongAt = Date.now() })
+    socket.on('error', (err: unknown) => {
+      console.error('Stream socket error', err)
+      try { socket.terminate() } catch {}
+    })
+    const socketPingTimer = setInterval(() => {
+      if (socket.readyState !== 1) return
+      if (Date.now() - lastSocketPongAt > STREAM_PONG_TIMEOUT_MS) {
+        try { socket.terminate() } catch {}
+        return
+      }
+      try { socket.ping() } catch {}
+    }, STREAM_PING_INTERVAL_MS)
     let sanitizeTerminalOutput = createTerminalOutputSanitizer()
     function sanitizeOutput(chunk: string) {
       recordStreamMetric('sanitizeCalls')
@@ -849,6 +865,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
     })
     socket.on('close', (code: number, reason: Buffer) => {
       console.log('Client disconnected from stream')
+      clearInterval(socketPingTimer)
       cleanup()
       if (shareStateTimer) clearInterval(shareStateTimer)
       unsubscribeAgentMonitor?.()
