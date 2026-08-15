@@ -145,12 +145,18 @@ export async function changePassword(currentPassword: string, newPassword: strin
 }
 export async function getWebSocketUrl() {
   if (!authStatus.enabled) return getWebSocketBase()
-  let response = await authenticatedFetch('/api/auth/ws-ticket', { method: 'POST' }, false)
-  if (response.status === 401 && await refreshAuth()) response = await authenticatedFetch('/api/auth/ws-ticket', { method: 'POST' }, false)
-  const payload = await readPayload(response)
-  if (!response.ok) throw createAuthError(response.status, payload)
-  const ticket = payload && typeof payload.ticket === 'string' ? payload.ticket : ''
-  if (!ticket) throw new Error('Missing WebSocket ticket')
-  const separator = getWebSocketBase().includes('?') ? '&' : '?'
-  return `${getWebSocketBase()}${separator}ticket=${encodeURIComponent(ticket)}`
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 4000)
+  try {
+    let response = await authenticatedFetch('/api/auth/ws-ticket', { method: 'POST', signal: controller.signal }, false)
+    if (response.status === 401 && await refreshAuth()) response = await authenticatedFetch('/api/auth/ws-ticket', { method: 'POST', signal: controller.signal }, false)
+    const payload = await readPayload(response)
+    if (!response.ok) throw createAuthError(response.status, payload)
+    const ticket = payload && typeof payload.ticket === 'string' ? payload.ticket : ''
+    if (!ticket) throw new Error('Missing WebSocket ticket')
+    const separator = getWebSocketBase().includes('?') ? '&' : '?'
+    return `${getWebSocketBase()}${separator}ticket=${encodeURIComponent(ticket)}`
+  } finally {
+    clearTimeout(timeout)
+  }
 }

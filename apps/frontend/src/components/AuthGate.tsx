@@ -46,6 +46,27 @@ export function AuthGate({ children }: { children: ReactNode }) {
       unsubscribe()
     }
   }, [t])
+  useEffect(() => {
+    if (state !== 'error') return
+    const timer = setInterval(() => {
+      void (async () => {
+        try {
+          const status = await getAuthStatus()
+          if (!status.enabled) {
+            setState('ready')
+            return
+          }
+          if (status.authenticated) {
+            setState(status.passwordChangeRequired ? 'password' : 'ready')
+            return
+          }
+          if (await refreshAuth()) return
+          setState('login')
+        } catch {}
+      })()
+    }, 5000)
+    return () => clearInterval(timer)
+  }, [state])
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (submitting) return
