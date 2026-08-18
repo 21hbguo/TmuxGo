@@ -27,6 +27,23 @@
 
 ---
 
+## :bookmark_tabs: Table of Contents
+
+- [Why TmuxGo?](#fire-why-tmuxgo)
+- [Feature Overview](#sparkles-feature-overview)
+- [Quick Start](#rocket-quick-start)
+- [Runtime Modes and Restart Rules](#traffic_light-runtime-modes-and-restart-rules)
+- [Multi-Host and Remote SSH](#satellite-multi-host-and-remote-ssh)
+- [Production Deploy](#shield-production-deploy)
+- [Requirements](#package-requirements)
+- [Architecture](#jigsaw-architecture)
+- [Development and Verification](#wrench-development-and-verification)
+- [Common Shortcuts](#keyboard-common-shortcuts)
+- [Configuration and Persistence](#gear-configuration-and-persistence)
+- [Troubleshooting](#beetle-troubleshooting)
+- [Contributing](#handshake-contributing)
+- [License](#page_facing_up-license)
+
 ## :fire: Why TmuxGo?
 
 | :desktop_computer: **Desktop** | :iphone: **Mobile** | 📟 **Tablet** |
@@ -44,8 +61,8 @@
 
 | Area | Current capabilities |
 |:-----|:---------------------|
-| :globe_with_meridians: **Terminal and tmux** | Browser terminal powered by `xterm.js`, tmux attach, pane/window split and zoom, shared/exclusive attach, command palette, quick actions |
-| :bookmark_tabs: **Session management** | Create, rename, drag-sort, batch delete, audit log, and custom session templates with window count, pane count, layout, and startup commands |
+| :globe_with_meridians: **Terminal and tmux** | Browser terminal powered by `xterm.js`, tmux attach, pane/window split and zoom, shared/exclusive attach, split sessions, command palette, quick actions |
+| :bookmark_tabs: **Session management** | Create, rename, drag-sort, batch delete, audit log, named workspaces, and custom session templates with window count, pane count, layout, and startup commands |
 | :desktop_computer: **Desktop workspace** | Activity Bar, Session Rail, resizable Session/File/Git panels, embedded Terminal Dock |
 | :open_file_folder: **File workspace** | `workspace` / `home` roots, filename and content search, favorite directories, dotfile toggle, text and image preview, create/rename/delete, insert path into terminal, downloads, upload queue |
 | :pencil2: **Built-in editor** | Monaco editor, split editor groups, drag-to-open in a specific split, Markdown preview, image preview, Git diff viewer, read-only protection for large or binary files |
@@ -310,6 +327,10 @@ Common issues:
 2. System clipboard copy fails: prefer an HTTPS top-level tab and confirm clipboard permission in the browser
 3. Remote host connection fails: verify SSH reachability and confirm the target has `tmux`, `git`, and `python3`; install `sshpass` for password-based auth
 4. Git push or pull behaves unexpectedly: verify `git` and `gh` auth on the target host first, then retry from TmuxGo
+
+## :handshake: Contributing
+
+Issues, pull requests, and usage feedback are welcome. For development and verification commands, see [Development and Verification](#wrench-development-and-verification).
 
 ## :page_facing_up: License
 
