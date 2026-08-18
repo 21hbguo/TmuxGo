@@ -27,6 +27,23 @@
 
 ---
 
+## :bookmark_tabs: 目录
+
+- [为什么用 TmuxGo？](#fire-为什么用-tmuxgo)
+- [功能总览](#sparkles-功能总览)
+- [快速开始](#rocket-快速开始)
+- [运行模式与重启规则](#traffic_light-运行模式与重启规则)
+- [多主机与远程 SSH](#satellite-多主机与远程-ssh)
+- [生产部署](#shield-生产部署)
+- [依赖要求](#package-依赖要求)
+- [架构](#jigsaw-架构)
+- [开发与验证](#wrench-开发与验证)
+- [常用快捷键](#keyboard-常用快捷键)
+- [配置与持久化](#gear-配置与持久化)
+- [排障](#beetle-排障)
+- [贡献](#handshake-贡献)
+- [License](#page_facing_up-license)
+
 ## :fire: 为什么用 TmuxGo？
 
 | :desktop_computer: **桌面** | :iphone: **手机** | 📟 **平板** |
@@ -44,8 +61,8 @@
 
 | 模块 | 当前能力 |
 |:-----|:---------|
-| :globe_with_meridians: **终端与 tmux** | 基于 `xterm.js` 的浏览器终端、tmux 会话附着、窗口/窗格拆分、缩放、共享/独占附着、命令面板与快捷操作 |
-| :bookmark_tabs: **会话管理** | 新建、重命名、拖拽排序、批量删除、审计日志、自定义会话模板（窗口数、面板数、布局、初始命令） |
+| :globe_with_meridians: **终端与 tmux** | 基于 `xterm.js` 的浏览器终端、tmux 会话附着、窗口/窗格拆分、缩放、共享/独占附着、分屏会话、命令面板与快捷操作 |
+| :bookmark_tabs: **会话管理** | 新建、重命名、拖拽排序、批量删除、审计日志、命名工作区、自定义会话模板（窗口数、面板数、布局、初始命令） |
 | :desktop_computer: **桌面工作区** | Activity Bar、Session Rail、可调整宽度的 Session/File/Git 面板、内嵌终端 Dock |
 | :open_file_folder: **文件工作区** | `workspace` / `home` 根目录、文件名/内容搜索、收藏目录、点文件开关、文本/图片预览、新建/重命名/删除、路径插入终端、下载与上传队列 |
 | :pencil2: **内置编辑器** | Monaco 编辑器、分栏编辑、拖拽打开到指定分屏、Markdown 预览、图片预览、Git Diff 查看、大文件/二进制只读保护 |
@@ -322,6 +339,10 @@ tail -f /tmp/tmuxgo-agent.log
 2. 系统剪贴板复制失败：优先使用 HTTPS 顶层标签页，确认浏览器站点权限允许剪贴板访问
 3. 远端主机连接失败：检查 SSH 连通性、目标机是否安装 `tmux` / `git` / `python3`，密码式连接确认 `sshpass` 已安装
 4. Git 推送/拉取异常：先在目标主机确认 `git` 与 `gh` 认证状态，再回到 TmuxGo 操作
+
+## :handshake: 贡献
+
+欢迎提交 Issue、PR 或使用反馈。开发与验证命令见 [开发与验证](#wrench-开发与验证)。
 
 ## :page_facing_up: License
 
