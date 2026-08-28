@@ -3,7 +3,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { formatDroppedPaths, quoteShellPath } from '@/lib/path-drop'
 import { readDraggedFile } from '@/lib/editor-drag'
 
-export function useTerminalDrop(onInput: (data: string) => void, openUploadDialog: (request: { files: File[]; preferredRootId?: string; preferredPath?: string; insertPaths?: boolean; temporary?: boolean }) => void) {
+export function useTerminalDrop(onInput: (data: string) => void, openUploadDialog: (request: { files: File[]; preferredRootId?: string; preferredPath?: string; insertPaths?: boolean; temporary?: boolean }) => void, focusTerminal?: () => void) {
   const [isDropActive, setIsDropActive] = useState(false)
   const handleDragOver = useCallback((e: DragEvent) => {
     e.preventDefault()
@@ -25,10 +25,14 @@ export function useTerminalDrop(onInput: (data: string) => void, openUploadDialo
     const draggedFile = readDraggedFile(e.dataTransfer)
     if (draggedFile?.absolutePath) {
       onInput(quoteShellPath(draggedFile.absolutePath))
+      focusTerminal?.()
       return
     }
     const text = formatDroppedPaths(e.dataTransfer)
-    if (text) onInput(text)
-  }, [onInput, openUploadDialog])
+    if (text) {
+      onInput(text)
+      focusTerminal?.()
+    }
+  }, [focusTerminal, onInput, openUploadDialog])
   return useMemo(() => ({ isDropActive, handleDragOver, handleDragLeave, handleDrop }), [isDropActive, handleDragOver, handleDragLeave, handleDrop])
 }

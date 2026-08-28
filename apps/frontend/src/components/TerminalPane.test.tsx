@@ -1417,6 +1417,15 @@ describe('TerminalPane', () => {
     fireEvent.focus(container.firstChild as Element)
     expect(terminalMocks.focus).toHaveBeenCalled()
   })
+  it('refocuses terminal after dropping a file path', async () => {
+    const onInput=vi.fn()
+    const { container } = render(<TerminalPane sessionName="dev" onInput={onInput} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    terminalMocks.focus.mockClear()
+    fireEvent.drop(container.firstChild as Element, { dataTransfer: { files: [], getData: (type: string) => type === 'application/x-tmuxgo-file' ? JSON.stringify({ absolutePath: '/workspace/demo.ts' }) : '' } })
+    expect(onInput).toHaveBeenCalledWith("'/workspace/demo.ts'")
+    expect(terminalMocks.focus).toHaveBeenCalledTimes(1)
+  })
   it('does not blur active helper textarea during ime composition focus restore', async () => {
     const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(customKeyHandler).toBeTruthy())
