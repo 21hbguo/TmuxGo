@@ -353,7 +353,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
   const sendRef = useRef(send)
   const sendInput = useCallback((data: string) => onInputRef.current?.(data), [])
   const { textareaRef, focusKeyboard, isMobile: isMobileDevice } = useMobileKeyboard(sendInput, terminalRef)
-  const dropState = useTerminalDrop(sendInput, openUploadDialog)
+  const dropState = useTerminalDrop(sendInput, openUploadDialog, () => terminalInstance.current?.focus?.())
   const handlePasteFiles = useCallback((files: File[]) => openUploadDialog({ files, insertPaths: true, temporary: true }), [openUploadDialog])
   const pasteBridge = useTerminalPasteBridge(handlePasteFiles)
   const selectionSync = useTerminalSelectionSync(pushToast)
