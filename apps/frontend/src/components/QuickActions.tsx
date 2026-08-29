@@ -78,7 +78,11 @@ function useQuickActionController() {
   //   }
   // },[])
 
-  const sendKey=useCallback((data:string)=>send({ type:'input',data }),[send])
+  const sendKey=useCallback((data:string)=>{
+    if(send({ type:'input',data }))return true
+    pushToast({ type:'info',message:t('status.reconnecting') })
+    return false
+  },[pushToast,send,t])
   const macroRunIdRef=useRef(0)
   const [runningShortcutId,setRunningShortcutId]=useState<string|null>(null)
   const runShortcut=useCallback((s:CustomShortcut)=>{
@@ -92,7 +96,7 @@ function useQuickActionController() {
             await new Promise((resolve)=>setTimeout(resolve,step.ms||0))
             continue
           }
-          sendKey(stepToInput(step))
+          if(!sendKey(stepToInput(step)))return
         }
       }finally{
         if(runId===macroRunIdRef.current)setRunningShortcutId(null)
