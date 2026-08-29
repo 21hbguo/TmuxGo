@@ -941,6 +941,10 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
     void queryClient.invalidateQueries({ queryKey: ['file-search', fileHostId, activeRootId] })
     void queryClient.invalidateQueries({ queryKey: ['file-preview', fileHostId, activeRootId] })
   }, [activeRootId, fileHostId, queryClient])
+  useEffect(() => {
+    window.addEventListener('tmuxgo-app-recovered', refreshFiles)
+    return () => window.removeEventListener('tmuxgo-app-recovered', refreshFiles)
+  }, [refreshFiles])
   const clearExpandedDirectories = () => {
     setOpenDirectories(new Set())
     setDirectoryCache(new Map())

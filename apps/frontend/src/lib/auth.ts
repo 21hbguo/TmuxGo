@@ -66,7 +66,15 @@ export async function authenticatedFetch(path: string, init: RequestInit = {}, r
   const headers = new Headers(init.headers)
   if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`)
   const url = path.startsWith('http://') || path.startsWith('https://') ? path : `${getApiBase()}${path}`
-  const response = await fetch(url, { ...init, headers, credentials: 'include' })
+  let response: Response
+  try {
+    response = await fetch(url, { ...init, headers, credentials: 'include' })
+  } catch (error) {
+    const method = (init.method || 'GET').toUpperCase()
+    if (!retry || !['GET', 'HEAD'].includes(method) || !(error instanceof TypeError)) throw error
+    await new Promise<void>((resolve) => setTimeout(resolve, 500))
+    response = await fetch(url, { ...init, headers, credentials: 'include' })
+  }
   if (response.status !== 401 || !retry || !authStatus.enabled || path.startsWith('/api/auth/')) return response
   if (!await refreshAuth()) return response
   return authenticatedFetch(path, init, false)

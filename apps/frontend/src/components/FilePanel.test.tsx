@@ -677,6 +677,23 @@ describe('FilePanel', () => {
     await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
     expect(attempts).toBe(2)
   })
+  it('retries failed directory loading after app recovery', async () => {
+    const { api } = await import('@/lib/api')
+    let attempts = 0
+    vi.mocked(api.files.list).mockImplementation(async (_hostId: string, rootId: string, path = '') => {
+      if (rootId === 'root-workspace' && path === 'src') {
+        attempts += 1
+        if (attempts === 1) throw new Error('temporary failure')
+      }
+      return getListData(rootId, path)
+    })
+    render(React.createElement(FilePanel))
+    fireEvent.click(await screen.findByText('src'))
+    expect(await screen.findByText('Load failed')).toBeInTheDocument()
+    window.dispatchEvent(new Event('tmuxgo-app-recovered'))
+    await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
+    expect(attempts).toBe(2)
+  })
   it('reuses in-flight directory loading when toggled repeatedly', async () => {
     const { api } = await import('@/lib/api')
     vi.mocked(api.files.list).mockClear()

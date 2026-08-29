@@ -7,6 +7,8 @@ import { I18nProvider } from '@/i18n'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 
 const send = vi.fn()
+const defaultPushToast = useConsoleStore.getState().pushToast
+const pushToast = vi.fn((toast) => defaultPushToast(toast))
 const snapshotGet = vi.fn()
 const zoomByPane = vi.fn()
 const killPane = vi.fn()
@@ -37,7 +39,9 @@ vi.mock('@/lib/api', () => ({
 describe('ShortcutBar', () => {
   beforeEach(() => {
     vi.useFakeTimers()
-    send.mockClear()
+    send.mockReset()
+    send.mockReturnValue(true)
+    pushToast.mockClear()
     snapshotGet.mockReset()
     zoomByPane.mockReset()
     killPane.mockReset()
@@ -45,7 +49,7 @@ describe('ShortcutBar', () => {
     removeShortcuts.mockReset()
     windowsDataMock=[{ id:'win-1',sessionId:'session-dev',active:true }]
     window.localStorage.clear()
-    useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-dev', activePaneId: 'old-pane' })
+    useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-dev', activePaneId: 'old-pane', pushToast, toasts: [] })
   })
   afterEach(() => {
     vi.runOnlyPendingTimers()
@@ -108,6 +112,13 @@ describe('ShortcutBar', () => {
     fireEvent.pointerMove(button, { pointerId: 1, pointerType: 'touch', clientX: 26, clientY: 10 })
     fireEvent.pointerUp(button, { pointerId: 1, pointerType: 'touch', clientX: 26, clientY: 10 })
     expect(send).not.toHaveBeenCalled()
+  })
+  it('shows reconnecting feedback when a shortcut cannot be sent', () => {
+    send.mockReturnValue(false)
+    render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))
+    fireEvent.click(screen.getByRole('button', { name: 'Enter' }), { detail: 0 })
+    expect(send).toHaveBeenCalledWith({ type: 'input', data: '\r' })
+    expect(pushToast).toHaveBeenCalledWith({ type: 'info', message: '重连中' })
   })
   it('sends a single repeat key on touch tap release', () => {
     render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))
