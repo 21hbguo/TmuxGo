@@ -162,12 +162,12 @@ function matchesFileTypeFilter(item: { type: 'file' | 'directory' }, fileTypeFil
   return item.type === fileTypeFilter
 }
 function getFileVisual(path: string, type: 'file' | 'directory') {
-  if (type === 'directory') return { icon: <span className="inline-flex h-3 w-3 items-center justify-center font-mono text-caption leading-none text-[#dcb67a]">▣</span>, tone: 'text-text-1' }
+  if (type === 'directory') return { icon: <span className="inline-flex h-3 w-3 items-center justify-center font-mono text-caption leading-none text-accent">▣</span>, tone: 'text-text-1' }
   const lower = path.toLowerCase()
-  if (isImagePath(lower)) return { icon: <span className="inline-flex h-3 w-3 items-center justify-center font-mono text-caption leading-none text-[#61c7ff]">▧</span>, tone: 'text-[#8fdcff]' }
-  if (lower.endsWith('.md')) return { icon: <span className="inline-flex h-3 w-3 items-center justify-center font-mono text-caption leading-none text-[#79d2a6]">M</span>, tone: 'text-[#9de1bf]' }
-  if (CODE_EXTENSIONS.has(lower.slice(lower.lastIndexOf('.')))) return { icon: <span className="inline-flex h-3 w-3 items-center justify-center font-mono text-caption leading-none text-[#c2d1ff]">&lt;&gt;</span>, tone: 'text-text-1' }
-  return { icon: <span className="inline-flex h-3 w-3 items-center justify-center font-mono text-caption leading-none text-text-3">□</span>, tone: 'text-text-2' }
+  if (isImagePath(lower)) return { icon: <span className="inline-flex h-3 w-3 items-center justify-center font-mono text-caption leading-none text-accent">▧</span>, tone: 'text-text-1' }
+  if (lower.endsWith('.md')) return { icon: <span className="inline-flex h-3 w-3 items-center justify-center font-mono text-caption leading-none text-accent">M</span>, tone: 'text-text-1' }
+  if (CODE_EXTENSIONS.has(lower.slice(lower.lastIndexOf('.')))) return { icon: <span className="inline-flex h-3 w-3 items-center justify-center font-mono text-caption leading-none text-accent">&lt;&gt;</span>, tone: 'text-text-1' }
+  return { icon: <span className="inline-flex h-3 w-3 items-center justify-center font-mono text-caption leading-none text-accent">□</span>, tone: 'text-text-1' }
 }
 function getRootKind(root: FileRoot) {
   const label = root.label.toLowerCase()
@@ -1293,7 +1293,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
       >
         <div className="flex items-center gap-1.5">
           <span className="flex shrink-0 items-center gap-1">
-            {item.type === 'directory' && <span className="w-2 text-[#dcb67a]">{openDirectories.has(item.path) ? '▾' : '▸'}</span>}
+            {item.type === 'directory' && <span className="w-2 text-accent">{openDirectories.has(item.path) ? '▾' : '▸'}</span>}
             <span>{visual.icon}</span>
           </span>
           <span className={`min-w-0 flex-1 truncate font-mono ${item.type === 'directory' ? 'text-text-1' : visual.tone}`}>{item.name}</span>
@@ -1321,7 +1321,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
         className={`tmuxgo-list-row group h-7 w-full border-l-2 px-2 py-1 text-left text-meta leading-5 ${selectedPath === item.path ? 'tmuxgo-list-row--active border-accent' : 'border-transparent tmuxgo-list-row--hover'}`}
       >
         <div className="flex items-center gap-1.5">
-          <span className="text-[#dcb67a]">▸</span>
+          <span className="text-accent">▸</span>
           <span className="min-w-0 flex-1 truncate font-mono text-text-1">{item.name}</span>
         </div>
       </button>

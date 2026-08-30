@@ -13,6 +13,7 @@ const mutateRemoveSessionWorkspaces = vi.fn()
 const mutateMigrateSessionWorkspace = vi.fn()
 const mutateUpdateWorkspace = vi.fn()
 const mutateRemoveWorkspace = vi.fn()
+const mutateCreateWorkspace = vi.fn()
 const promptMock = vi.fn()
 const orderedSessions = [{ id: 'session-dev', name: 'dev', windowCount: 2, agentSummary: { idle: 2, working: 1, blocked: 0, done: 0, unknown: 0, total: 3 } }, { id: 'session-next', name: 'next', windowCount: 1 }]
 const moveSessionMock = vi.fn()
@@ -44,6 +45,7 @@ vi.mock('@/hooks/useSessionWorkspaces', () => ({
 }))
 vi.mock('@/hooks/useWorkspaces', () => ({
   useWorkspaces: () => workspacesState,
+  useCreateWorkspace: () => ({ mutateAsync: mutateCreateWorkspace }),
   useUpdateWorkspace: () => ({ mutateAsync: mutateUpdateWorkspace }),
   useRemoveWorkspace: () => ({ mutateAsync: mutateRemoveWorkspace }),
 }))
@@ -64,6 +66,9 @@ vi.mock('@/i18n', () => ({
     if (key === 'drawer.sessionName') return 'Session name:'
     if (key === 'drawer.renamePrompt') return 'Rename session:'
     if (key === 'common.cancel') return 'Cancel'
+    if (key === 'workspace.current') return 'Current workspace'
+    if (key === 'workspace.choose') return 'Choose workspace'
+    if (key === 'workspace.add') return 'Add workspace'
     return key
   } }),
 }))
@@ -104,6 +109,7 @@ describe('SessionPanel session actions', () => {
     mutateMigrateSessionWorkspace.mockReset()
     mutateUpdateWorkspace.mockReset()
     mutateRemoveWorkspace.mockReset()
+    mutateCreateWorkspace.mockReset()
     workspacesState.data = []
     sessionWorkspacesState.data = []
     promptMock.mockReset()
@@ -156,14 +162,23 @@ describe('SessionPanel session actions', () => {
   })
 
   it('activates the newly created session', async () => {
-    promptMock.mockResolvedValueOnce('default')
-    mutateCreateSession.mockResolvedValueOnce({ id: 'session-default', name: 'default', windowCount: 1 })
+    workspacesState.data = [{ id: 'ws-1', name: 'tmuxgo', hostId: 'local', path: '/workspace/tmuxgo', rootId: 'root-workspace', rootPath: '/workspace', rootLabel: 'workspace', relativePath: 'tmuxgo', templateId: null, createdAt: '', updatedAt: '' }]
+    sessionWorkspacesState.data = [{ sessionId: 'session-dev', hostId: 'local', workspaceId: 'ws-1', workspacePath: '/workspace/tmuxgo', rootId: 'root-workspace', rootPath: '/workspace', rootLabel: 'workspace', relativePath: 'tmuxgo', updatedAt: '' }]
+    mutateCreateSession.mockResolvedValueOnce({ id: 'session-default', name: 'tmuxgo-default', windowCount: 1 })
     render(<SessionPanel />)
     fireEvent.click(screen.getByText('New'))
     fireEvent.click(screen.getByText('select-template'))
     fireEvent.click(screen.getByText('create-session'))
-    await waitFor(() => expect(mutateCreateSession).toHaveBeenCalledWith({ hostId: 'local', name: 'default', layout: expect.any(Object) }))
+    await waitFor(() => expect(mutateCreateSession).toHaveBeenCalledWith({ hostId: 'local', name: 'tmuxgo-default', layout: expect.any(Object), cwd: '/workspace/tmuxgo' }))
     await waitFor(() => expect(useConsoleStore.getState().activeSessionId).toBe('session-default'))
+  })
+  it('uses the configured workspace template', () => {
+    workspacesState.data = [{ id: 'ws-1', name: 'tmuxgo', hostId: 'local', path: '/workspace/tmuxgo', rootId: 'root-workspace', rootPath: '/workspace', rootLabel: 'workspace', relativePath: 'tmuxgo', templateId: 'default', createdAt: '', updatedAt: '' }]
+    sessionWorkspacesState.data = [{ sessionId: 'session-dev', hostId: 'local', workspaceId: 'ws-1', workspacePath: '/workspace/tmuxgo', rootId: 'root-workspace', rootPath: '/workspace', rootLabel: 'workspace', relativePath: 'tmuxgo', updatedAt: '' }]
+    render(<SessionPanel />)
+    fireEvent.click(screen.getByText('New'))
+    expect(screen.getByText('create-session')).toBeInTheDocument()
+    expect(screen.queryByText('select-template')).not.toBeInTheDocument()
   })
 
   it('switches to the next session after deleting the active session', async () => {
@@ -190,8 +205,22 @@ describe('SessionPanel session actions', () => {
     workspacesState.data = [{ id: 'ws-1', name: 'tmuxgo', hostId: 'local', path: '/workspace/tmuxgo', rootId: 'root-workspace', rootPath: '/workspace', rootLabel: 'workspace', relativePath: 'tmuxgo', templateId: null, createdAt: '', updatedAt: '' }]
     sessionWorkspacesState.data = [{ sessionId: 'session-dev', hostId: 'local', workspaceId: 'ws-1', workspacePath: '/workspace/tmuxgo', rootId: 'root-workspace', rootPath: '/workspace', rootLabel: 'workspace', relativePath: 'tmuxgo', updatedAt: '' }]
     render(<SessionPanel />)
-    expect(screen.getByText('tmuxgo')).toBeInTheDocument()
+    expect(screen.getAllByText('tmuxgo')).toHaveLength(2)
     expect(screen.getByText('workspace.unclassified')).toBeInTheDocument()
+  })
+  it('keeps empty workspaces visible', () => {
+    workspacesState.data = [{ id: 'ws-1', name: 'tmuxgo', hostId: 'local', path: '/workspace/tmuxgo', rootId: 'root-workspace', rootPath: '/workspace', rootLabel: 'workspace', relativePath: 'tmuxgo', templateId: null, createdAt: '', updatedAt: '' }, { id: 'ws-2', name: 'empty', hostId: 'local', path: '/workspace/empty', rootId: 'root-workspace', rootPath: '/workspace', rootLabel: 'workspace', relativePath: 'empty', templateId: null, createdAt: '', updatedAt: '' }]
+    sessionWorkspacesState.data = [{ sessionId: 'session-dev', hostId: 'local', workspaceId: 'ws-1', workspacePath: '/workspace/tmuxgo', rootId: 'root-workspace', rootPath: '/workspace', rootLabel: 'workspace', relativePath: 'tmuxgo', updatedAt: '' }]
+    render(<SessionPanel />)
+    expect(screen.getByText('empty')).toBeInTheDocument()
+  })
+  it('switches to the selected workspace session', () => {
+    workspacesState.data = [{ id: 'ws-1', name: 'tmuxgo', hostId: 'local', path: '/workspace/tmuxgo', rootId: 'root-workspace', rootPath: '/workspace', rootLabel: 'workspace', relativePath: 'tmuxgo', templateId: null, createdAt: '', updatedAt: '' }, { id: 'ws-2', name: 'other', hostId: 'local', path: '/workspace/other', rootId: 'root-workspace', rootPath: '/workspace', rootLabel: 'workspace', relativePath: 'other', templateId: null, createdAt: '', updatedAt: '' }]
+    sessionWorkspacesState.data = [{ sessionId: 'session-dev', hostId: 'local', workspaceId: 'ws-1', workspacePath: '/workspace/tmuxgo', rootId: 'root-workspace', rootPath: '/workspace', rootLabel: 'workspace', relativePath: 'tmuxgo', updatedAt: '' }, { sessionId: 'session-next', hostId: 'local', workspaceId: 'ws-2', workspacePath: '/workspace/other', rootId: 'root-workspace', rootPath: '/workspace', rootLabel: 'workspace', relativePath: 'other', updatedAt: '' }]
+    render(<SessionPanel />)
+    fireEvent.click(screen.getByLabelText('Current workspace: tmuxgo'))
+    fireEvent.click(screen.getByLabelText('other'))
+    expect(useConsoleStore.getState().activeSessionId).toBe('session-next')
   })
   it('creates a session from a workspace with bound cwd and workspace binding', async () => {
     workspacesState.data = [{ id: 'ws-1', name: 'tmuxgo', hostId: 'local', path: '/workspace/tmuxgo', rootId: 'root-workspace', rootPath: '/workspace', rootLabel: 'workspace', relativePath: 'tmuxgo', templateId: null, createdAt: '', updatedAt: '' }]
@@ -199,6 +228,7 @@ describe('SessionPanel session actions', () => {
     mutateCreateSession.mockResolvedValueOnce({ id: 'session-new', name: 'tmuxgo-default', windowCount: 1 })
     render(<SessionPanel />)
     fireEvent.click(screen.getByLabelText('workspace.newSession'))
+    fireEvent.click(screen.getByText('select-template'))
     fireEvent.click(screen.getByText('create-session'))
     await waitFor(() => expect(mutateCreateSession).toHaveBeenCalledWith({ hostId: 'local', name: 'tmuxgo-default', layout: expect.any(Object), cwd: '/workspace/tmuxgo' }))
     await waitFor(() => expect(mutateSetSessionWorkspace).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'session-new', workspaceId: 'ws-1', workspacePath: '/workspace/tmuxgo' })))

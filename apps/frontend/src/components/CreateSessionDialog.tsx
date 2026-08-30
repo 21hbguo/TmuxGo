@@ -28,13 +28,14 @@ interface CreateSessionDialogProps {
   hostId: string
   workspaces: WorkspaceEntry[]
   initialWorkspace?: WorkspaceEntry | null
+  workspaceLocked?: boolean
   onCreate: (result: CreateSessionDialogResult) => Promise<void> | void
   onClose: () => void
 }
 function toDialogWorkspace(workspace: WorkspaceEntry): CreateSessionDialogWorkspace {
   return { rootId: workspace.rootId, rootPath: workspace.rootPath, rootLabel: workspace.rootLabel, relativePath: workspace.relativePath, absolutePath: workspace.path, workspaceId: workspace.id, workspaceName: workspace.name }
 }
-export function CreateSessionDialog({ open, template, defaultName, hostId, workspaces, initialWorkspace, onCreate, onClose }: CreateSessionDialogProps) {
+export function CreateSessionDialog({ open, template, defaultName, hostId, workspaces, initialWorkspace, workspaceLocked, onCreate, onClose }: CreateSessionDialogProps) {
   const { t } = useTranslation()
   const pushToast = useConsoleStore((state) => state.pushToast)
   const { prompt, PromptElement } = usePrompt()
@@ -142,7 +143,7 @@ export function CreateSessionDialog({ open, template, defaultName, hostId, works
                 className="tmuxgo-control tmuxgo-input min-w-0 flex-1 rounded-apple px-3 py-2 text-sm"
               />
             </div>
-            <div className="mt-2 flex items-center gap-2">
+            {!workspaceLocked && <div className="mt-2 flex items-center gap-2">
               <select
                 value={workspace?.workspaceId || ''}
                 onChange={(e) => handleSelectWorkspace(e.target.value)}
@@ -155,7 +156,7 @@ export function CreateSessionDialog({ open, template, defaultName, hostId, works
                 <option value="new">{t('workspace.createNew')}</option>
               </select>
               <Chip tone={workspace ? 'default' : 'accent'} onClick={() => { setCreatingWorkspace(false); setPickerOpen((prev) => !prev) }}>{pickerOpen ? t('session.hidePicker') : t('session.browseDirectory')}</Chip>
-            </div>
+            </div>}
             {workspace && (
               <div className="mt-1 flex items-center gap-2">
                 <div className="min-w-0 flex-1 truncate text-xs text-text-3" title={workspace.absolutePath}>
@@ -163,7 +164,7 @@ export function CreateSessionDialog({ open, template, defaultName, hostId, works
                   <span className="font-mono text-text-1">{workspace.workspaceName || workspace.absolutePath}</span>
                   {workspace.workspaceName && <span className="ml-2 font-mono text-text-3">{workspace.absolutePath}</span>}
                 </div>
-                <Chip tone="default" onClick={() => setWorkspace(null)}>{t('workspace.clear')}</Chip>
+                {!workspaceLocked && <Chip tone="default" onClick={() => setWorkspace(null)}>{t('workspace.clear')}</Chip>}
               </div>
             )}
           </div>
