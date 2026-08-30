@@ -33,6 +33,11 @@ describe('CreateSessionDialog workspace cwd', () => {
     await act(async () => {})
     expect(onCreate).toHaveBeenCalledWith({ name: 'new-session', cwd: '/home/guo/project/other/TmuxGo', workspace: expect.objectContaining({ absolutePath: '/home/guo/project/other/TmuxGo', workspaceId: 'ws-1' }) })
   })
+  it('keeps the selected workspace fixed', async () => {
+    renderDialog({ open: true, template, defaultName: 'tmuxgo-default', hostId: 'local', workspaces: [workspace], initialWorkspace: workspace, workspaceLocked: true, onCreate: vi.fn(), onClose: vi.fn() })
+    await act(async () => {})
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+  })
   it('submits without cwd when no workspace is selected', async () => {
     const onCreate = vi.fn(async () => {})
     renderDialog({ open: true, template, defaultName: 'plain', hostId: 'local', workspaces: [workspace], onCreate, onClose: vi.fn() })

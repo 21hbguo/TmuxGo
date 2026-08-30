@@ -19,7 +19,7 @@ export const paneResizeBodySchema = paneIdBodySchema.extend({ cols: z.number().f
 export const sessionCreateBodySchema = z.object({ name: z.string().min(1).max(64), layout: z.any().optional(), cwd: z.string().max(4096).optional() })
 export const sessionRenameBodySchema = z.object({ sessionId: z.string().min(1).max(256), name: z.string().min(1).max(64) })
 export const workspaceParamsSchema = z.object({ id: identifier })
-export const workspaceCreateBodySchema = z.object({ name: z.string().regex(/^[A-Za-z0-9._-]{1,64}$/), hostId: identifier, path: z.string().min(1).max(4096).refine((value) => value.startsWith('/'), 'Absolute path required'), rootId: z.string().max(120).optional(), rootPath: z.string().max(4096).optional(), rootLabel: z.string().max(120).optional(), relativePath: z.string().max(4096).optional(), templateId: z.string().max(128).nullable().optional() })
+export const workspaceCreateBodySchema = z.object({ name: z.string().trim().min(1).max(64), hostId: identifier, path: z.string().min(1).max(4096).refine((value) => value.startsWith('/'), 'Absolute path required'), rootId: z.string().max(120).optional(), rootPath: z.string().max(4096).optional(), rootLabel: z.string().max(120).optional(), relativePath: z.string().max(4096).optional(), templateId: z.string().max(128).nullable().optional() })
 export const workspaceUpdateBodySchema = workspaceCreateBodySchema.partial()
 export const gitFilesBodySchema = z.object({ path: repositoryPath, filePaths: z.array(repositoryFilePath).min(1).max(1000) })
 export const gitCommitBodySchema = z.object({ path: repositoryPath, message: z.string().min(1).max(65536), amend: z.boolean().optional(), background: z.boolean().optional() })

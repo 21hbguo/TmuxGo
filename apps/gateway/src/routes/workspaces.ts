@@ -34,7 +34,7 @@ function normalizeWorkspaces(input: unknown) {
     const name = safeString(raw.name, 64)
     const hostId = safeString(raw.hostId, 120)
     const workspacePath = safeString(raw.path, 4096)
-    if (!id || !name || !/^[A-Za-z0-9._-]{1,64}$/.test(name) || !hostId || !workspacePath.startsWith('/')) continue
+    if (!id || !name || !hostId || !workspacePath.startsWith('/')) continue
     const now = new Date().toISOString()
     workspaces.push({ id, name, hostId, path: workspacePath, rootId: safeString(raw.rootId, 120), rootPath: safeString(raw.rootPath, 4096), rootLabel: safeString(raw.rootLabel, 120), relativePath: safeString(raw.relativePath, 4096), templateId: typeof raw.templateId === 'string' && raw.templateId ? safeString(raw.templateId, 128) : null, createdAt: safeString(raw.createdAt, 64) || now, updatedAt: safeString(raw.updatedAt, 64) || now })
   }

@@ -4,7 +4,7 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useBatchDeleteSessions, useCreateSession, useDeleteSession, useRenameSession, useSessionTemplates } from '@/hooks/useApi'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import { useSessionWorkspaces, useSetSessionWorkspace, useRemoveSessionWorkspaces, useMigrateSessionWorkspace } from '@/hooks/useSessionWorkspaces'
-import { useRemoveWorkspace, useUpdateWorkspace, useWorkspaces } from '@/hooks/useWorkspaces'
+import { useCreateWorkspace, useRemoveWorkspace, useUpdateWorkspace, useWorkspaces } from '@/hooks/useWorkspaces'
 import { useSplitGroups } from '@/hooks/useSplitGroups'
 import { SessionTemplates, templates as builtinTemplates, type Template } from './SessionTemplates'
 import { CreateSessionDialog } from './CreateSessionDialog'
@@ -22,6 +22,8 @@ import type { AgentStatus, Session, WorkspaceEntry } from '@/types'
 import { ModalPortal } from './ModalPortal'
 import { api } from '@/lib/api'
 import { useOptionalQueryClient } from '@/hooks/useOptionalQueryClient'
+import { WorkspaceDirectoryPicker, type WorkspaceDirectoryTarget } from './WorkspaceDirectoryPicker'
+import { FiCheck, FiChevronDown, FiFolder, FiFolderPlus } from 'react-icons/fi'
 
 function getNextSessionId(sessions: { id: string }[], removedIds: string[]) {
   const removed = new Set(removedIds)
@@ -50,10 +52,15 @@ export function SessionPanel() {
   const removeWorkspace = useRemoveWorkspace()
   const { data: sessionWorkspaces = [] } = useSessionWorkspaces()
   const { data: workspaces = [] } = useWorkspaces(activeHostId || undefined)
+  const createWorkspace = useCreateWorkspace()
   const { data: sessionTemplates } = useSessionTemplates()
   const [createDialogInitialWorkspace, setCreateDialogInitialWorkspace] = useState<WorkspaceEntry | null>(null)
+  const [templateWorkspace, setTemplateWorkspace] = useState<WorkspaceEntry | null>(null)
   const [pendingDeleteWorkspace, setPendingDeleteWorkspace] = useState<WorkspaceEntry | null>(null)
   const [templateMenuWorkspaceId, setTemplateMenuWorkspaceId] = useState<string | null>(null)
+  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false)
+  const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false)
+  const workspaceMenuRef = useRef<HTMLDivElement>(null)
   const { preferences } = usePreferences()
   const { t } = useTranslation()
   const { prompt, PromptElement } = usePrompt()
@@ -68,16 +75,23 @@ export function SessionPanel() {
     if (!activeHostId) return
     setShowTemplates(false)
     setCreateDialogTemplate(template)
-    setCreateDialogInitialWorkspace(null)
+    setCreateDialogInitialWorkspace(templateWorkspace)
+    setTemplateWorkspace(null)
     setCreateDialogOpen(true)
   }
   const allTemplates = [...builtinTemplates, ...(sessionTemplates?.templates || [])]
   const handleWorkspaceCreateSession = (workspace: WorkspaceEntry) => {
     if (!activeHostId) return
-    const template = workspace.templateId ? allTemplates.find((item) => item.id === workspace.templateId) || builtinTemplates[0] : builtinTemplates[0]
-    setCreateDialogTemplate(template)
-    setCreateDialogInitialWorkspace(workspace)
-    setCreateDialogOpen(true)
+    setWorkspaceMenuOpen(false)
+    const template = workspace.templateId ? allTemplates.find((item) => item.id === workspace.templateId) : null
+    if (template) {
+      setCreateDialogTemplate(template)
+      setCreateDialogInitialWorkspace(workspace)
+      setCreateDialogOpen(true)
+      return
+    }
+    setTemplateWorkspace(workspace)
+    setShowTemplates(true)
   }
   const handleWorkspaceSetTemplate = async (workspace: WorkspaceEntry, templateId: string) => {
     setTemplateMenuWorkspaceId(null)
@@ -224,9 +238,17 @@ export function SessionPanel() {
   useEffect(() => {
     setSelectedSessionIds((prev) => prev.filter((id) => sessions.some((item) => item.id === id)))
   }, [sessions])
+  useEffect(() => {
+    if (!workspaceMenuOpen) return
+    const close = (event: MouseEvent) => {
+      if (!workspaceMenuRef.current?.contains(event.target as Node)) setWorkspaceMenuOpen(false)
+    }
+    window.addEventListener('mousedown', close)
+    return () => window.removeEventListener('mousedown', close)
+  }, [workspaceMenuOpen])
+  const hostWorkspaces = useMemo(() => workspaces.filter((item) => item.hostId === activeHostId), [workspaces, activeHostId])
   const workspaceGroups = useMemo(() => {
     const bySession = new Map(sessionWorkspaces.map((item) => [item.sessionId, item]))
-    const hostWorkspaces = workspaces.filter((item) => item.hostId === activeHostId)
     const groups = new Map<string, Session[]>()
     const groupKeyOf = (sessionId: string) => {
       const entry = bySession.get(sessionId)
@@ -242,18 +264,80 @@ export function SessionPanel() {
     }
     const result: { key: string; workspace: WorkspaceEntry | null; sessions: Session[] }[] = []
     for (const workspace of hostWorkspaces) {
-      const list = groups.get(workspace.id)
-      if (list?.length) result.push({ key: workspace.id, workspace, sessions: list })
+      result.push({ key: workspace.id, workspace, sessions: groups.get(workspace.id) || [] })
     }
     const unclassified = groups.get('')
     if (unclassified?.length) result.push({ key: '', workspace: null, sessions: unclassified })
     return result
-  }, [sessions, workspaces, sessionWorkspaces, activeHostId])
+  }, [sessions, hostWorkspaces, sessionWorkspaces])
+  const currentWorkspace = workspaceGroups.find((group) => group.sessions.some((session) => session.id === activeSessionId))?.workspace || null
+  const handleNewSession = () => {
+    if (!activeHostId) return
+    if (!hostWorkspaces.length) {
+      setWorkspacePickerOpen(true)
+      return
+    }
+    if (currentWorkspace) {
+      handleWorkspaceCreateSession(currentWorkspace)
+      return
+    }
+    setWorkspaceMenuOpen(true)
+  }
+  const handleWorkspaceSelect = (workspace: WorkspaceEntry) => {
+    const session = workspaceGroups.find((group) => group.workspace?.id === workspace.id)?.sessions[0]
+    setWorkspaceMenuOpen(false)
+    if (session) {
+      setActiveSession(session.id)
+      return
+    }
+    handleWorkspaceCreateSession(workspace)
+  }
+  const handleWorkspaceDirectoryPick = async (target: WorkspaceDirectoryTarget) => {
+    if (!activeHostId) return
+    const existing = hostWorkspaces.find((item) => item.path === target.absolutePath)
+    if (existing) {
+      setWorkspacePickerOpen(false)
+      handleWorkspaceSelect(existing)
+      return
+    }
+    const name = target.relativePath.split('/').filter(Boolean).pop() || target.rootLabel
+    try {
+      const created = await createWorkspace.mutateAsync({ name: name.slice(0, 64), hostId: activeHostId, path: target.absolutePath, rootId: target.rootId, rootPath: target.rootPath, rootLabel: target.rootLabel, relativePath: target.relativePath })
+      setWorkspacePickerOpen(false)
+      handleWorkspaceCreateSession(created.workspace)
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('workspace.requestFailed') })
+      throw err
+    }
+  }
   return (
     <>
       <div className="flex h-full min-h-0 flex-col bg-transparent">
         <div className="border-b border-[var(--line)] px-3 py-2">
           <HostSwitcher />
+          <div ref={workspaceMenuRef} className="relative mt-2">
+            <button onClick={() => {
+              if (!activeHostId || batchMode) return
+              if (!hostWorkspaces.length) setWorkspacePickerOpen(true)
+              else setWorkspaceMenuOpen((value) => !value)
+            }} className="tmuxgo-control flex h-8 w-full items-center gap-2 rounded-apple px-2 text-left text-xs text-text-2 hover:border-accent/50 hover:text-text-1 disabled:cursor-not-allowed disabled:opacity-60" disabled={batchMode} aria-label={`${t('workspace.current')}: ${currentWorkspace?.name || t('workspace.choose')}`}>
+              <FiFolder aria-hidden="true" className="shrink-0 text-accent" size={14} />
+              <span className="min-w-0 flex-1 truncate font-medium">{currentWorkspace?.name || t('workspace.choose')}</span>
+              <FiChevronDown aria-hidden="true" className="shrink-0 text-text-3" size={14} />
+            </button>
+            {workspaceMenuOpen && <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-30 overflow-hidden rounded-apple border border-[var(--line)] bg-bg-1 py-1 shadow-lg">
+              <div className="tmuxgo-scrollbar max-h-64 overflow-y-auto">
+                {hostWorkspaces.map((workspace) => <button key={workspace.id} onClick={() => handleWorkspaceSelect(workspace)} className={`flex w-full items-center gap-2 px-2.5 py-2 text-left text-xs ${currentWorkspace?.id === workspace.id ? 'bg-accent/10 text-text-1' : 'text-text-2 hover:bg-bg-2 hover:text-text-1'}`} aria-label={workspace.name}>
+                  <FiFolder aria-hidden="true" className="shrink-0 text-[#dcb67a]" size={14} />
+                  <span className="min-w-0 flex-1"><span className="block truncate font-medium">{workspace.name}</span><span className="block truncate font-mono text-caption text-text-3">{workspace.path}</span></span>
+                  {currentWorkspace?.id === workspace.id && <FiCheck aria-hidden="true" className="shrink-0 text-accent" size={14} />}
+                </button>)}
+              </div>
+              <div className="border-t border-[var(--line)] p-1">
+                <button onClick={() => { setWorkspaceMenuOpen(false); setWorkspacePickerOpen(true) }} className="flex w-full items-center gap-2 rounded-apple px-2 py-2 text-left text-xs text-accent hover:bg-bg-2"><FiFolderPlus aria-hidden="true" size={14} />{t('workspace.add')}</button>
+              </div>
+            </div>}
+          </div>
           <div className="mt-2 flex items-center justify-between">
             <div className="text-sm font-semibold text-text-1">{batchMode ? t('sidebar.batchSelectedCount', { count: selectedSessionIds.length }) : t('sidebar.sessions')}</div>
             <div className="flex items-center gap-1">
@@ -266,7 +350,7 @@ export function SessionPanel() {
                 </>
               ) : (
                 <>
-                  <Chip tone="accent" onClick={() => setShowTemplates(true)}>{t('sidebar.newAction')}</Chip>
+                  <Chip tone="accent" onClick={handleNewSession}>{t('sidebar.newAction')}</Chip>
                   <Chip onClick={toggleBatchMode}>{t('sidebar.batchDeleteAction')}</Chip>
                 </>
               )}
@@ -317,8 +401,9 @@ export function SessionPanel() {
         </div>
         {preferences.showQuickActions && <div className="border-t border-[var(--line)] p-3"><div className="mb-2 text-caption uppercase tracking-[0.18em] text-text-3">{t('sidebar.quickActions')}</div><QuickActions /></div>}
       </div>
-      {showTemplates && <ModalPortal><SessionTemplates onSelect={handleTemplateSelect} onClose={() => setShowTemplates(false)} /></ModalPortal>}
-      <CreateSessionDialog open={createDialogOpen} template={createDialogTemplate} defaultName={createDialogTemplate ? (createDialogInitialWorkspace ? `${createDialogInitialWorkspace.name}-${getTemplateSessionName(createDialogTemplate)}` : getTemplateSessionName(createDialogTemplate)) : ''} hostId={activeHostId || ''} workspaces={workspaces} initialWorkspace={createDialogInitialWorkspace} onCreate={handleCreateSession} onClose={() => { setCreateDialogOpen(false); setCreateDialogTemplate(null); setCreateDialogInitialWorkspace(null) }} />
+      {showTemplates && <ModalPortal><SessionTemplates onSelect={handleTemplateSelect} onClose={() => { setShowTemplates(false); setTemplateWorkspace(null) }} /></ModalPortal>}
+      {workspacePickerOpen && <WorkspaceDirectoryPicker hostId={activeHostId || ''} onPick={handleWorkspaceDirectoryPick} onClose={() => setWorkspacePickerOpen(false)} />}
+      <CreateSessionDialog open={createDialogOpen} template={createDialogTemplate} defaultName={createDialogTemplate ? (createDialogInitialWorkspace ? `${createDialogInitialWorkspace.name}-${getTemplateSessionName(createDialogTemplate)}` : getTemplateSessionName(createDialogTemplate)) : ''} hostId={activeHostId || ''} workspaces={workspaces} initialWorkspace={createDialogInitialWorkspace} workspaceLocked={!!createDialogInitialWorkspace} onCreate={handleCreateSession} onClose={() => { setCreateDialogOpen(false); setCreateDialogTemplate(null); setCreateDialogInitialWorkspace(null) }} />
       <ConfirmDialog open={!!pendingDeleteSessionId} title={t('sidebar.deleteTitle')} message={t('sidebar.deleteConfirm', { name: sessions.find((item) => item.id === pendingDeleteSessionId)?.name || '' })} confirmLabel={t('sidebar.confirmDelete')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setPendingDeleteSessionId(null)} onConfirm={() => void confirmDeleteSession()} />
       <ConfirmDialog open={!!pendingDeleteWorkspace} title={t('workspace.deleteTitle')} message={t('workspace.deleteConfirm', { name: pendingDeleteWorkspace?.name || '' })} confirmLabel={t('workspace.deleteAction')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setPendingDeleteWorkspace(null)} onConfirm={() => void confirmDeleteWorkspace()} />
       <ConfirmDialog open={batchDeleteConfirmOpen} title={t('sidebar.batchDeleteTitle')} message={t('sidebar.batchDeleteConfirm', { count: selectedSessionIds.length })} confirmLabel={t('sidebar.batchDeleteSelected')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setBatchDeleteConfirmOpen(false)} onConfirm={() => void confirmBatchDeleteSession()} />

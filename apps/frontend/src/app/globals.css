@@ -627,9 +627,6 @@ a {
   font-size: var(--fs-meta);
 }
 
-.tmuxgo-file-tree-node-selected {
-  background: rgb(var(--bg-2));
-}
 .tmuxgo-scrollbar {
   scrollbar-width: thin;
   scrollbar-color: rgb(var(--accent) / 0.5) rgb(var(--bg-2) / 0.55);

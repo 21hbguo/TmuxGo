@@ -43,7 +43,8 @@ test('workspaces CRUD roundtrip', async (t) => {
 
 test('validates workspace create payloads', () => {
   workspaceCreateBodySchema.parse({ name: 'good-name_1', hostId: 'local', path: '/workspace/x' })
-  assert.throws(() => workspaceCreateBodySchema.parse({ name: 'bad:name', hostId: 'local', path: '/workspace/x' }))
+  workspaceCreateBodySchema.parse({ name: '中文工作区', hostId: 'local', path: '/workspace/x' })
+  assert.throws(() => workspaceCreateBodySchema.parse({ name: '', hostId: 'local', path: '/workspace/x' }))
   assert.throws(() => workspaceCreateBodySchema.parse({ name: 'ok', hostId: 'local', path: 'relative/path' }))
   assert.throws(() => workspaceCreateBodySchema.parse({ name: 'ok', hostId: '', path: '/workspace/x' }))
 })
