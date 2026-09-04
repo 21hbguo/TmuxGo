@@ -91,7 +91,7 @@ cd TmuxGo
 - 在没有常驻服务管理器的环境中回退到本地启动脚本
 - 完成 `3000/3001` 健康检查，并输出本地地址与可用的 Tailscale HTTPS 地址
 
-安装完成后直接打开 `http://localhost:3000`。
+安装完成后，macOS 打开 `http://localhost:3001`；其他部署模式按启动输出打开对应地址。
 Agent 默认不安装启动；需要本机 agent 时执行 `TMUXGO_ENABLE_AGENT=1 ./install.sh` 或 `TMUXGO_ENABLE_AGENT=1 ./start.sh --restart`。
 
 > :bulb: 局域网可直接访问；远程访问建议先配置 [Tailscale](https://tailscale.com)。
@@ -107,8 +107,8 @@ Agent 默认不安装启动；需要本机 agent 时执行 `TMUXGO_ENABLE_AGENT=
 
 ## :traffic_light: 运行模式与重启规则
 
-- `3000` 是稳定版前端，默认由 `.next-prod` 预构建产物提供服务，也是 `systemd`、`launchd`、Tailscale 对外暴露的地址
-- `3001` 是 Gateway API 与 WebSocket 服务
+- `3000` 是 `start.sh` 启动的稳定版前端地址
+- macOS 的 `launchd` 只启动 `com.tmuxgo.gateway`，Gateway 在 `3001` 同时提供前端、API 与 WebSocket 服务
 - `3002` 是开发版前端地址，使用本地启动或 `npm run dev:frontend` 时启用热更新
 - 只执行 `build` / `test` 不会让已经运行的稳定版 `3000/3001` 自动更新
 - 改完源码要让稳定版立即生效，执行 `./start.sh --restart`
@@ -192,7 +192,6 @@ macOS:
 
 ```bash
 launchctl print gui/$(id -u)/com.tmuxgo.gateway || launchctl print user/$(id -u)/com.tmuxgo.gateway
-launchctl print gui/$(id -u)/com.tmuxgo.frontend || launchctl print user/$(id -u)/com.tmuxgo.frontend
 launchctl print gui/$(id -u)/com.tmuxgo.agent || launchctl print user/$(id -u)/com.tmuxgo.agent
 ```
 
@@ -210,7 +209,6 @@ macOS:
 
 ```bash
 tail -f ~/Library/Logs/TmuxGo/gateway.log
-tail -f ~/Library/Logs/TmuxGo/frontend.log
 tail -f ~/Library/Logs/TmuxGo/agent.log
 ```
 
@@ -339,6 +337,75 @@ tail -f /tmp/tmuxgo-agent.log
 2. 系统剪贴板复制失败：优先使用 HTTPS 顶层标签页，确认浏览器站点权限允许剪贴板访问
 3. 远端主机连接失败：检查 SSH 连通性、目标机是否安装 `tmux` / `git` / `python3`，密码式连接确认 `sshpass` 已安装
 4. Git 推送/拉取异常：先在目标主机确认 `git` 与 `gh` 认证状态，再回到 TmuxGo 操作
+
+### macOS arm64
+
+1. 现象：开终端或新建会话报 `posix_spawnp failed`，与使用 `bash` 或 `zsh` 无关。根因：`node-pty` 通过 `posix_spawnp` 执行 `node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper`，该文件缺少执行位。修法：
+
+```bash
+chmod 755 node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper
+/usr/local/bin/node scripts/smoke-node-pty.mjs
+```
+
+输出 `PTY_ENGINE_OK` 表示 `/bin/bash` PTY 可用。
+
+2. 现象：`spawn-helper` 之外，`.node`、`esbuild` 或 `swc` 等原生文件也没有执行位。根因：安装或解压时整批原生二进制丢失 `+x`。修法：项目已通过 `postinstall` 自动执行下列脚本；修复现有安装时直接运行：
+
+```bash
+bash scripts/fix-native-perms.sh
+```
+
+脚本使用 macOS BSD `find` 兼容的 `-perm -u+x`，等价于：
+
+```bash
+find node_modules -type f \( -name '*.node' -o -name 'spawn-helper' -o -name 'esbuild' -o -name 'swc' \) ! -perm -u+x -exec chmod 755 {} +
+```
+
+3. 现象：`brew install ripgrep` 报 `Operation not permitted @ apply2files`。根因：沙箱拦截了 Homebrew 对 `/opt/homebrew` 的写入。修法：在带系统目录写权限的终端中绕过 Homebrew，下载官方预编译包：
+
+```bash
+RG_VERSION=14.1.1
+RG_ARCHIVE="ripgrep-${RG_VERSION}-aarch64-apple-darwin.tar.gz"
+curl --http1.1 -fL -o "/tmp/${RG_ARCHIVE}" "https://gh-proxy.com/https://github.com/BurntSushi/ripgrep/releases/download/${RG_VERSION}/${RG_ARCHIVE}"
+tar -xzf "/tmp/${RG_ARCHIVE}" -C /tmp
+cp "/tmp/ripgrep-${RG_VERSION}-aarch64-apple-darwin/rg" /opt/homebrew/bin/rg
+chmod 755 /opt/homebrew/bin/rg
+xattr -dr com.apple.quarantine /opt/homebrew/bin/rg
+```
+
+4. 现象：GitHub release 下载报 `curl: (28)`、`curl: (16) HTTP2 framing` 或 `curl: (22) 502`。根因：代理阻断或重置了直连 `github.com` 的发布文件请求。修法：强制 HTTP/1.1，并通过 `https://gh-proxy.com/https://github.com/...` 下载，如上例。
+
+5. 现象：当前 shell 找不到 `tmux`、`rg` 或 `brew`。根因：Homebrew 位于 `/opt/homebrew`，但未加载到 `PATH`。修法：
+
+```bash
+export PATH="/opt/homebrew/bin:$PATH"
+eval "$(/opt/homebrew/bin/brew shellenv)"
+```
+
+6. 现象：`tmux ls` 报 `error connecting to /private/tmp/tmux-501/default (No such file)`。根因：没有正在运行的 tmux server，`default` 会话也不存在。修法：
+
+```bash
+/opt/homebrew/bin/tmux new-session -d -s default
+```
+
+7. 现象：按旧 README 打开 `http://localhost:3000` 无法访问。根因：macOS 仅注册 `com.tmuxgo.gateway`，前端由 Gateway 一并在 `3001` 提供。修法：打开 `http://localhost:3001`。
+
+8. 现象：登录后请求 `/api/hosts` 返回 `403 PASSWORD_CHANGE_REQUIRED`。根因：仍在使用默认账号 `admin/admin123`，首次登录被强制修改密码。修法：按浏览器提示修改密码后重试。
+
+9. 现象：`ps`、`sudo` 或写入 `/opt/homebrew` 报 `operation not permitted`。根因：命令仍在沙箱内，进程枚举或系统目录写入被限制。修法：关闭沙箱并使用带系统目录写权限的终端后，再执行权限修复、安装或复制命令。
+
+10. 现象：`/usr/bin/node: no such file or directory`。根因：Node 实际安装在 `/usr/local/bin/node`，也可能由 WorkBuddy 在 `~/.workbuddy/binaries/node` 管理。修法：使用实际路径运行 PTY 冒烟测试，例如 `/usr/local/bin/node scripts/smoke-node-pty.mjs`，不要假设 `/usr/bin/node` 存在。
+
+11. 现象：`find` 报 `bad mode '+111'`。根因：macOS 的 BSD `find` 不支持 GNU `find` 的 `-perm +111` 写法。修法：使用 `-perm -u+x`，见第 2 项命令。
+
+排障顺序：
+
+1. `launchctl print gui/$(id -u)/com.tmuxgo.gateway`，并检查 `~/Library/Logs/TmuxGo/gateway.log`
+2. `lsof -nP -iTCP:3001 -sTCP:LISTEN`
+3. 确认 `tmux`、`rg`、`lsof`、`node`、`python3` 都在 `PATH`
+4. 运行 `bash scripts/fix-native-perms.sh` 和 `/usr/local/bin/node scripts/smoke-node-pty.mjs`
+5. 登录并修改默认密码
+6. 新建终端，确认 gateway 日志出现 `Attach completed`
 
 ## :handshake: 贡献
 

@@ -91,7 +91,7 @@ cd TmuxGo
 - fall back to the local startup script when a background service manager is unavailable
 - verify `3000/3001` and print local URLs plus Tailscale HTTPS URLs when available
 
-After installation, open `http://localhost:3000`.
+After installation, open `http://localhost:3001` on macOS; use the address printed by the startup command for other deployment modes.
 Agent is not installed or started by default; use `TMUXGO_ENABLE_AGENT=1 ./install.sh` or `TMUXGO_ENABLE_AGENT=1 ./start.sh --restart` when you need it.
 
 > :bulb: LAN access works directly; for remote access, configure [Tailscale](https://tailscale.com) first.
@@ -107,8 +107,8 @@ If you only want dependencies and manual startup:
 
 ## :traffic_light: Runtime Modes and Restart Rules
 
-- `3000` is the stable frontend, served from the prebuilt `.next-prod` output and exposed by `systemd`, `launchd`, and Tailscale
-- `3001` is the Gateway API and WebSocket service
+- `3000` is the stable frontend address started by `start.sh`
+- macOS `launchd` starts only `com.tmuxgo.gateway`; the Gateway serves the frontend, API, and WebSocket on `3001`
 - `3002` is the development frontend with hot reload when you run local startup or `npm run dev:frontend`
 - Running only `build` or `test` does not refresh an already running stable `3000/3001`
 - To apply source changes to the stable stack, run `./start.sh --restart`
@@ -192,7 +192,6 @@ macOS:
 
 ```bash
 launchctl print gui/$(id -u)/com.tmuxgo.gateway || launchctl print user/$(id -u)/com.tmuxgo.gateway
-launchctl print gui/$(id -u)/com.tmuxgo.frontend || launchctl print user/$(id -u)/com.tmuxgo.frontend
 launchctl print gui/$(id -u)/com.tmuxgo.agent || launchctl print user/$(id -u)/com.tmuxgo.agent
 ```
 
@@ -210,7 +209,6 @@ macOS:
 
 ```bash
 tail -f ~/Library/Logs/TmuxGo/gateway.log
-tail -f ~/Library/Logs/TmuxGo/frontend.log
 tail -f ~/Library/Logs/TmuxGo/agent.log
 ```
 
@@ -327,6 +325,75 @@ Common issues:
 2. System clipboard copy fails: prefer an HTTPS top-level tab and confirm clipboard permission in the browser
 3. Remote host connection fails: verify SSH reachability and confirm the target has `tmux`, `git`, and `python3`; install `sshpass` for password-based auth
 4. Git push or pull behaves unexpectedly: verify `git` and `gh` auth on the target host first, then retry from TmuxGo
+
+### macOS arm64
+
+1. Symptom: opening a terminal or creating a session reports `posix_spawnp failed`. Cause: `node-pty` launches `node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper` with `posix_spawnp`, and the helper lacks an execute bit. Fix:
+
+```bash
+chmod 755 node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper
+/usr/local/bin/node scripts/smoke-node-pty.mjs
+```
+
+`PTY_ENGINE_OK` confirms that the `/bin/bash` PTY is working.
+
+2. Symptom: other native files such as `.node`, `esbuild`, or `swc` also lack an execute bit. Cause: installation or extraction stripped `+x` from native binaries. Fix: `postinstall` now runs the repair automatically. Repair an existing installation with:
+
+```bash
+bash scripts/fix-native-perms.sh
+```
+
+The script uses BSD `find` compatible `-perm -u+x`:
+
+```bash
+find node_modules -type f \( -name '*.node' -o -name 'spawn-helper' -o -name 'esbuild' -o -name 'swc' \) ! -perm -u+x -exec chmod 755 {} +
+```
+
+3. Symptom: `brew install ripgrep` reports `Operation not permitted @ apply2files`. Cause: a sandbox blocked Homebrew writes to `/opt/homebrew`. Fix: use a terminal with system-directory write access, then install the official prebuilt binary through the GitHub proxy:
+
+```bash
+RG_VERSION=14.1.1
+RG_ARCHIVE="ripgrep-${RG_VERSION}-aarch64-apple-darwin.tar.gz"
+curl --http1.1 -fL -o "/tmp/${RG_ARCHIVE}" "https://gh-proxy.com/https://github.com/BurntSushi/ripgrep/releases/download/${RG_VERSION}/${RG_ARCHIVE}"
+tar -xzf "/tmp/${RG_ARCHIVE}" -C /tmp
+cp "/tmp/ripgrep-${RG_VERSION}-aarch64-apple-darwin/rg" /opt/homebrew/bin/rg
+chmod 755 /opt/homebrew/bin/rg
+xattr -dr com.apple.quarantine /opt/homebrew/bin/rg
+```
+
+4. Symptom: GitHub release downloads fail with `curl: (28)`, `curl: (16) HTTP2 framing`, or `curl: (22) 502`. Cause: the proxy blocks or resets release downloads from `github.com`. Fix: use `curl --http1.1` and `https://gh-proxy.com/https://github.com/...` as in the preceding command.
+
+5. Symptom: the current shell cannot find `tmux`, `rg`, or `brew`. Cause: Homebrew is at `/opt/homebrew`, but its `PATH` has not been loaded. Fix:
+
+```bash
+export PATH="/opt/homebrew/bin:$PATH"
+eval "$(/opt/homebrew/bin/brew shellenv)"
+```
+
+6. Symptom: `tmux ls` reports `error connecting to /private/tmp/tmux-501/default (No such file)`. Cause: no tmux server or `default` session is running. Fix:
+
+```bash
+/opt/homebrew/bin/tmux new-session -d -s default
+```
+
+7. Symptom: `http://localhost:3000` from the old README is unavailable. Cause: macOS registers only `com.tmuxgo.gateway`, which also serves the frontend on `3001`. Fix: open `http://localhost:3001`.
+
+8. Symptom: `/api/hosts` returns `403 PASSWORD_CHANGE_REQUIRED` after login. Cause: the default `admin/admin123` account is still in use and requires a first-login password change. Fix: change the password in the browser and retry.
+
+9. Symptom: `ps`, `sudo`, or writes to `/opt/homebrew` report `operation not permitted`. Cause: the command is running in a sandbox that restricts process inspection or system-directory writes. Fix: run the command outside the sandbox with system-directory write access.
+
+10. Symptom: `/usr/bin/node: no such file or directory`. Cause: Node is installed at `/usr/local/bin/node` or managed by WorkBuddy at `~/.workbuddy/binaries/node`. Fix: use the actual Node path, for example `/usr/local/bin/node scripts/smoke-node-pty.mjs`; do not assume `/usr/bin/node` exists.
+
+11. Symptom: `find` reports `bad mode '+111'`. Cause: BSD `find` on macOS does not support GNU `find`'s `-perm +111` syntax. Fix: use `-perm -u+x`, as shown in item 2.
+
+Troubleshooting order:
+
+1. Run `launchctl print gui/$(id -u)/com.tmuxgo.gateway` and inspect `~/Library/Logs/TmuxGo/gateway.log`
+2. Run `lsof -nP -iTCP:3001 -sTCP:LISTEN`
+3. Confirm that `tmux`, `rg`, `lsof`, `node`, and `python3` are in `PATH`
+4. Run `bash scripts/fix-native-perms.sh` and `/usr/local/bin/node scripts/smoke-node-pty.mjs`
+5. Log in and change the default password
+6. Create a terminal and confirm `Attach completed` in the gateway log
 
 ## :handshake: Contributing
 

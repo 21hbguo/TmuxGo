@@ -28,6 +28,8 @@
     "proto:status": "npx tsx scripts/tmux-pane-status-prototype.ts",
     "proto:state": "npx tsx scripts/tmux-pane-state.ts",
     "test": "npx tsx scripts/run-tests.ts",
+    "postinstall": "bash scripts/fix-native-perms.sh",
+    "smoke:pty": "node scripts/smoke-node-pty.mjs",
     "verify": "npm test && npm run test:frontend && npm run test:e2e && npm run build"
   },
   "devDependencies": {

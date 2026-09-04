@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
-import { FiChevronRight, FiFolder, FiFolderPlus, FiX } from 'react-icons/fi'
+import { FiChevronLeft, FiChevronRight, FiFolder, FiFolderPlus, FiX } from 'react-icons/fi'
 import { api } from '@/lib/api'
 import { useFileList, useFileRoots } from '@/hooks/useApi'
 import { usePrompt } from '@/hooks/usePrompt'
@@ -30,12 +30,14 @@ export function WorkspaceDirectoryPicker({ hostId, onPick, onClose }: { hostId: 
   const [submitting, setSubmitting] = useState(false)
   const { data: currentDirectory, isLoading: currentLoading, isError: currentError, refetch: refetchCurrent } = useFileList(hostId, rootId, currentPath, !!rootId)
   const { data: selectedDirectory, isLoading: selectedLoading, isError: selectedError, refetch: refetchSelected } = useFileList(hostId, rootId, selectedPath, !!rootId && !!selectedPath)
-  const activeRoot = roots.find((item) => item.id === rootId) || roots[0] || null
+  const defaultRoot = roots.find((item) => item.label.toLowerCase() === 'home') || roots[0] || null
+  const activeRoot = roots.find((item) => item.id === rootId) || defaultRoot
+  const parentPath = currentDirectory?.breadcrumbs?.slice(-2)[0]?.path || ''
   const visibleItems = useMemo(() => (currentDirectory?.items || []).filter((item) => item.type === 'directory' && (showHidden || !item.name.startsWith('.'))), [currentDirectory, showHidden])
   const selectedItems = useMemo(() => (selectedDirectory?.items || []).filter((item) => item.type === 'directory' && (showHidden || !item.name.startsWith('.'))), [selectedDirectory, showHidden])
   useEffect(() => {
-    if (!rootId && roots[0]) setRootId(roots[0].id)
-  }, [rootId, roots])
+    if (!rootId && defaultRoot) setRootId(defaultRoot.id)
+  }, [rootId, defaultRoot])
   useEffect(() => {
     setCurrentPath('')
     setSelectedPath('')
@@ -66,6 +68,10 @@ export function WorkspaceDirectoryPicker({ hostId, onPick, onClose }: { hostId: 
     setCurrentPath(path)
     setSelectedPath('')
   }
+  const handleSelectChild = (path: string) => {
+    setCurrentPath(selectedPath)
+    setSelectedPath(path)
+  }
   return (
     <ModalPortal>
       <div className="fixed inset-0 z-[80] flex items-center justify-center tmuxgo-scrim p-4" onClick={onClose}>
@@ -79,6 +85,7 @@ export function WorkspaceDirectoryPicker({ hostId, onPick, onClose }: { hostId: 
             <select value={activeRoot?.id || ''} onChange={(event) => setRootId(event.target.value)} className="tmuxgo-control tmuxgo-input w-36 shrink-0 rounded-apple px-2 py-1.5 text-xs">
               {roots.map((root) => <option key={root.id} value={root.id}>{root.label}</option>)}
             </select>
+            <Button variant="ghost" size="icon-sm" aria-label={t('common.back')} title={t('common.back')} onClick={() => { setCurrentPath(parentPath); setSelectedPath('') }} disabled={!currentPath}><FiChevronLeft aria-hidden="true" size={16} /></Button>
             <div className="flex min-w-0 flex-1 items-center overflow-x-auto text-xs text-text-3">
               {(currentDirectory?.breadcrumbs || [{ name: activeRoot?.path || '/', path: '' }]).map((item, index) => <button key={item.path || 'root'} onClick={() => { setCurrentPath(item.path); setSelectedPath('') }} className="flex shrink-0 items-center hover:text-text-1"><span className="max-w-32 truncate">{item.name}</span>{index < (currentDirectory?.breadcrumbs?.length || 1) - 1 && <FiChevronRight aria-hidden="true" className="mx-1 shrink-0" size={13} />}</button>)}
             </div>
@@ -93,7 +100,7 @@ export function WorkspaceDirectoryPicker({ hostId, onPick, onClose }: { hostId: 
               {!selectedPath && <div className="px-3 py-2 text-xs text-text-3">{t('workspace.selectDirectory')}</div>}
               {selectedPath && selectedLoading && <div className="px-3 py-2 text-xs text-text-3">{t('file.loading')}</div>}
               {selectedPath && selectedError && <button onClick={() => void refetchSelected()} className="w-full px-3 py-2 text-left text-xs text-danger">{t('common.retry')}</button>}
-              {selectedPath && !selectedLoading && !selectedError && selectedItems.map((item) => <button key={item.path} onClick={() => setSelectedPath(item.path)} onDoubleClick={() => handleEnter(item.path)} className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs ${selectedPath === item.path ? 'bg-accent/15 text-text-1' : 'text-text-2 hover:bg-bg-2 hover:text-text-1'}`}><FiFolder aria-hidden="true" className="shrink-0 text-[#dcb67a]" size={14} /><span className="min-w-0 flex-1 truncate">{item.name}</span><FiChevronRight aria-hidden="true" className="shrink-0 text-text-3" size={13} /></button>)}
+              {selectedPath && !selectedLoading && !selectedError && selectedItems.map((item) => <button key={item.path} onClick={() => handleSelectChild(item.path)} onDoubleClick={() => handleEnter(item.path)} className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs ${selectedPath === item.path ? 'bg-accent/15 text-text-1' : 'text-text-2 hover:bg-bg-2 hover:text-text-1'}`}><FiFolder aria-hidden="true" className="shrink-0 text-[#dcb67a]" size={14} /><span className="min-w-0 flex-1 truncate">{item.name}</span><FiChevronRight aria-hidden="true" className="shrink-0 text-text-3" size={13} /></button>)}
             </div>
           </div>
           <div className="flex shrink-0 items-center justify-between gap-3 border-t border-[var(--line)] px-4 py-3">
