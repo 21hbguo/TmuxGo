@@ -112,6 +112,20 @@ describe('PaneGrid', () => {
     await waitFor(() => expect(sendMock).toHaveBeenCalledWith({ type: 'resize', hostId: 'local', cols: 123, rows: 36 }))
     expect(sendMock.mock.calls.filter(([message]) => message?.type === 'resize')).toHaveLength(1)
   })
+  it('does not report normal input to the debug endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('fetch', fetchMock)
+    socketState.isConnected = true
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    await waitFor(() => expect(sendMock).toHaveBeenCalledWith({ type: 'attach', hostId: 'local', sessionName: 'dev1', cols: 120, rows: 36, exclusive: true }))
+    act(() => {
+      window.dispatchEvent(new CustomEvent('tmux-attached', { detail: { sessionName: 'dev1', cols: 120, rows: 36, hostId: 'local' } }))
+      terminalProps.current?.onInput?.('x'.repeat(769))
+    })
+    await waitFor(() => expect(sendMock).toHaveBeenCalledWith({ type: 'input', data: 'x'.repeat(769) }))
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
   it('does not repeat resize after attach when tmux reports the same size', async () => {
     socketState.isConnected = true
     render(<PaneGrid />)

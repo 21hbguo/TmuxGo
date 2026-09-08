@@ -827,10 +827,10 @@ describe('EditorWorkbench', () => {
     const paragraph = document.querySelector('article p')
     if (!paragraph) throw new Error('markdown preview not rendered')
     monacoCursorHandlerRef.current?.({ position: { lineNumber: 3, column: 1 } })
-    expect(paragraph.style.boxShadow).toContain('accent')
+    expect((paragraph as HTMLElement).style.boxShadow).toContain('accent')
     monacoCursorHandlerRef.current?.({ position: { lineNumber: 1, column: 1 } })
-    expect(paragraph.style.boxShadow).toBe('')
-    expect(document.querySelector('article h1')?.style.boxShadow).toContain('accent')
+    expect((paragraph as HTMLElement).style.boxShadow).toBe('')
+    expect((document.querySelector('article h1') as HTMLElement | null)?.style.boxShadow).toContain('accent')
   })
   it('renders markdown preview with GFM tables, images, lists and strikethrough', () => {
     const mdEditor = { ...editor1, id: 'local:root-workspace:docs/readme.md', name: 'readme.md', path: 'docs/readme.md', absolutePath: '/workspace/docs/readme.md', language: 'markdown', content: '# 标题\n\n| 列A | 列B |\n|---|---|\n| 1 | 2 |\n\n- 项目一\n1. 有序\n\n~~删除~~ ![图](https://example.com/a.png)\n\n```ts\nconst a = 1\n```' }
