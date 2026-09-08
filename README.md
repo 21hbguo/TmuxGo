@@ -74,6 +74,18 @@
 
 ## :rocket: 快速开始
 
+### npm 一键安装
+
+macOS 或 Linux 直接执行：
+
+```bash
+npx --yes @21hbguo/tmuxgo install
+```
+
+该命令会安装 `tmux`、`ripgrep`、`python3`、`git`、`curl` 等生产依赖，复制预构建运行时到 `~/.tmuxgo/runtime`，创建 `default` tmux 会话并注册 Gateway 用户服务。它要求预先安装 Node.js 20 或更高版本；macOS 缺少 Homebrew 时会先安装 Homebrew。完成后打开 `http://localhost:3001`。
+
+### 源码部署（开发或离线）
+
 ```bash
 git clone https://github.com/21hbguo/TmuxGo.git
 cd TmuxGo
@@ -103,6 +115,14 @@ Agent 默认不安装启动；需要本机 agent 时执行 `TMUXGO_ENABLE_AGENT=
 ```bash
 ./bootstrap.sh
 ./start.sh
+```
+
+发布 npm 包：
+
+```bash
+npm login
+npm run pack:npx
+npm run publish:npx
 ```
 
 ## :traffic_light: 运行模式与重启规则

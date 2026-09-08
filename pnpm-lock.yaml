@@ -64,6 +64,36 @@ importers:
         specifier: ^5.3.0
         version: 5.9.3
 
+  apps/cli:
+    dependencies:
+      '@fastify/cors':
+        specifier: 8.5.0
+        version: 8.5.0
+      '@fastify/jwt':
+        specifier: 7.2.4
+        version: 7.2.4
+      '@fastify/multipart':
+        specifier: 8.3.1
+        version: 8.3.1
+      '@fastify/static':
+        specifier: 7.0.4
+        version: 7.0.4
+      '@fastify/websocket':
+        specifier: 8.3.1
+        version: 8.3.1
+      fastify:
+        specifier: 4.29.1
+        version: 4.29.1
+      node-pty:
+        specifier: 1.1.0
+        version: 1.1.0
+      web-push:
+        specifier: 3.6.7
+        version: 3.6.7
+      zod:
+        specifier: 3.25.76
+        version: 3.25.76
+
   apps/frontend:
     dependencies:
       '@dnd-kit/core':
