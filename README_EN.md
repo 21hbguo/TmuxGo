@@ -74,6 +74,18 @@
 
 ## :rocket: Quick Start
 
+### One-command npm install
+
+Run this directly on macOS or Linux:
+
+```bash
+npx --yes @21hbguo/tmuxgo install
+```
+
+The command installs production dependencies including `tmux`, `ripgrep`, `python3`, `git`, and `curl`, copies the prebuilt runtime to `~/.tmuxgo/runtime`, creates the `default` tmux session, and registers the Gateway user service. Node.js 20 or newer is required before running `npx`; on macOS, Homebrew is installed first when missing. Open `http://localhost:3001` when it completes.
+
+### Source deployment (development or offline)
+
 ```bash
 git clone https://github.com/21hbguo/TmuxGo.git
 cd TmuxGo
@@ -103,6 +115,14 @@ If you only want dependencies and manual startup:
 ```bash
 ./bootstrap.sh
 ./start.sh
+```
+
+Publish the npm package:
+
+```bash
+npm login
+npm run pack:npx
+npm run publish:npx
 ```
 
 ## :traffic_light: Runtime Modes and Restart Rules

@@ -246,6 +246,13 @@ describe('FilePanel', () => {
     fireEvent.click(await screen.findByText('Copy path'))
     expect(clipboardMocks.writeClipboardText).toHaveBeenCalledWith('/home/guo/project/demo.txt')
   })
+  it('drags favorite directory with its absolute path', async () => {
+    localStorage.setItem('tmuxgo-favorite-directories', JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]))
+    render(React.createElement(FilePanel))
+    const setData = vi.fn()
+    fireEvent.dragStart((await screen.findAllByRole('button', { name: '/home/guo/project' }))[0], { dataTransfer: { effectAllowed: 'none', setData } })
+    expect(setData).toHaveBeenCalledWith('application/x-tmuxgo-file', expect.stringContaining('"absolutePath":"/home/guo/project"'))
+  })
   it('hides desktop preview action in explorer context menu', async () => {
     render(React.createElement(FilePanel, { onOpenFile: vi.fn() }))
     fireEvent.click(await screen.findByText('src'))

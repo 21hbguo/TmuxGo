@@ -1,4 +1,5 @@
 node_modules
+apps/cli/vendor
 .next
 .next-dev
 .next-prod
