@@ -3,6 +3,10 @@ import { apiUrl } from './endpoints'
 import { ensureSession, openSession } from './session'
 
 test('fluency telemetry remains available during repeated output sampling', async ({ page, request }) => {
+  let debugRequests = 0
+  page.on('request', (request) => {
+    if (request.url().startsWith('http://127.0.0.1:7777/')) debugRequests += 1
+  })
   const name = `tmuxgo_fluency_${Date.now()}`
   const session = await ensureSession(request, name)
   const baselineResponse = await request.get(`${apiUrl}/api/system`)
@@ -51,19 +55,19 @@ test('fluency telemetry remains available during repeated output sampling', asyn
     const buffer = terminal?.buffer?.active
     if (!buffer) return false
     for (let index = Math.max(0, buffer.length - 120); index < buffer.length; index += 1) {
-      if (buffer.getLine(index)?.translateToString(true).includes('fluency_bulk_')) return true
+      if (buffer.getLine(index)?.translateToString(true).startsWith('fluency_bulk_')) return true
     }
     return false
   }, undefined, { timeout: 15000 })
-  await page.evaluate(() => {
-    window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data: 'printf "__TMUXGO_FLUENCY_INPUT__\\n"\r' } }))
-  })
+  await page.locator('[data-terminal] .xterm-helper-textarea').focus()
+  await page.keyboard.type('printf "__TMUXGO_FLUENCY_INPUT__\\n"')
+  await page.keyboard.press('Enter')
   await page.waitForFunction(() => {
     const terminal = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
     const buffer = terminal?.buffer?.active
     if (!buffer) return false
     for (let index = Math.max(0, buffer.length - 120); index < buffer.length; index += 1) {
-      if (buffer.getLine(index)?.translateToString(true).includes('__TMUXGO_FLUENCY_INPUT__')) return true
+      if (buffer.getLine(index)?.translateToString(true).trim() === '__TMUXGO_FLUENCY_INPUT__') return true
     }
     return false
   }, undefined, { timeout: 15000 })
@@ -72,7 +76,7 @@ test('fluency telemetry remains available during repeated output sampling', asyn
     const buffer = terminal?.buffer?.active
     if (!buffer) return false
     for (let index = Math.max(0, buffer.length - 120); index < buffer.length; index += 1) {
-      if (buffer.getLine(index)?.translateToString(true).includes('__TMUXGO_FLUENCY_DONE__')) return true
+      if (buffer.getLine(index)?.translateToString(true).trim() === '__TMUXGO_FLUENCY_DONE__') return true
     }
     return false
   }, undefined, { timeout: 15000 })
@@ -86,6 +90,8 @@ test('fluency telemetry remains available during repeated output sampling', asyn
     const sys = await fetch(`${baseUrl}/api/system`).then((res) => res.json())
     return { sys, frames: state?.frames || 0, longTasks: state?.longTasks || 0, maxFrameGap: state?.maxFrameGap || 0, maxLongTask: state?.maxLongTask || 0 }
   }, apiUrl)
+  await test.info().attach('fluency-metrics', { body: JSON.stringify({ frames: telemetry.frames, longTasks: telemetry.longTasks, maxFrameGap: telemetry.maxFrameGap, maxLongTask: telemetry.maxLongTask, debugRequests }), contentType: 'application/json' })
+  expect(debugRequests).toBe(0)
   expect(telemetry.frames).toBeGreaterThan(5)
   expect(telemetry.maxFrameGap).toBeLessThan(250)
   expect(telemetry.longTasks).toBeLessThanOrEqual(5)

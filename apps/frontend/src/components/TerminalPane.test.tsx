@@ -6,6 +6,7 @@ import type { Pane, Window as TmuxWindow } from '@/types'
 
 const onSelectionChangeHandlers: Array<() => void> = []
 let customKeyHandler: ((event: KeyboardEvent) => boolean) | null = null
+let terminalDataHandler: ((data: string) => void) | null = null
 let terminalSelection = 'printf "auto_copy_ok"'
 let terminalSelectionPosition: any = null
 let terminalBufferLines: string[] = []
@@ -231,7 +232,8 @@ vi.mock('@xterm/xterm', () => {
       this.element.appendChild(input)
       container.appendChild(this.element)
     }
-    onData() {
+    onData(handler: (data: string) => void) {
+      terminalDataHandler = handler
       return { dispose: vi.fn() }
     }
     onSelectionChange(handler: () => void) {
@@ -317,6 +319,7 @@ describe('TerminalPane', () => {
   beforeEach(() => {
     onSelectionChangeHandlers.length = 0
     customKeyHandler = null
+    terminalDataHandler = null
     resizeObserverCallback = null
     terminalSelection = 'printf "auto_copy_ok"'
     terminalSelectionPosition = null
@@ -1018,10 +1021,17 @@ describe('TerminalPane', () => {
     window.removeEventListener('tmuxgo-request-terminal-paste', requestPaste)
   })
   it('renders terminal output from targeted websocket subscription', async () => {
-    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    const fetchMock = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('fetch', fetchMock)
+    const onInput = vi.fn()
+    render(<TerminalPane sessionName="dev" onInput={onInput} onResize={vi.fn()} />)
     await waitFor(() => expect(webSocketMocks.lastOutputListener).toBeTruthy())
-    webSocketMocks.lastOutputListener?.({ data: 'printf \"targeted_output_ok\"\\r\\n', sessionName: 'dev', hostId: 'local' })
-    await waitFor(() => expect(terminalMocks.write).toHaveBeenCalledWith('printf \"targeted_output_ok\"\\r\\n'))
+    terminalDataHandler?.('pwd')
+    const output = '\u001b[?2004hprintf \"targeted_output_ok\"\\r\\n'
+    webSocketMocks.lastOutputListener?.({ data: output, sessionName: 'dev', hostId: 'local' })
+    await waitFor(() => expect(terminalMocks.write).toHaveBeenCalledWith(output))
+    expect(onInput).toHaveBeenCalledWith('pwd')
+    expect(fetchMock).not.toHaveBeenCalled()
   })
   it('renders websocket output for matching session only', async () => {
     render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} subscribeOutput={webSocketMocks.subscribeOutput} />)
@@ -1047,6 +1057,7 @@ describe('TerminalPane', () => {
     await waitFor(() => expect(terminalMocks.write).toHaveBeenCalledWith('\u001b[H\u001b[2Jsnapshot'))
   })
   it('routes websocket output through scheduler and reports backpressure', async () => {
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => window.setTimeout(() => cb(0), 0))
     render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} subscribeOutput={webSocketMocks.subscribeOutput} />)
     await waitFor(() => expect(webSocketMocks.lastOutputListener).toBeTruthy())
     terminalMocks.write.mockClear()

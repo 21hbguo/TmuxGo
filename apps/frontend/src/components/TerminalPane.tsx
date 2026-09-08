@@ -1310,10 +1310,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
     }
     const initTerminal = async () => {
       if (disposed) return
-      // #region debug-point CORE:reporter
-      const dbg = (hypothesisId: string, msg: string, data?: Record<string, unknown>) => { fetch('http://127.0.0.1:7777/event', { method: 'POST', keepalive: true, body: JSON.stringify({ sessionId: 'tui-input-garble', runId: 'pre-fix', hypothesisId, location: 'TerminalPane.tsx', msg: `[DEBUG] ${msg}`, data: data || {}, ts: Date.now() }) }).catch(() => {}) }
-      const dbgEsc = (s: string) => JSON.stringify(s.length > 300 ? s.slice(0, 300) + '\u2026' : s).slice(1, -1)
-      // #endregion
       const core = await createTerminalCore({
         container,
         preferences: preferencesRef.current,
@@ -1375,16 +1371,10 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       })
       disposables.push(
         terminal.onData((data: string) => {
-          // #region debug-point B:input-send
-          dbg('B', 'input-send', { data: dbgEsc(data), len: data.length })
-          // #endregion
           onInputRef.current?.(data)
         })
       )
       terminal.attachCustomKeyEventHandler((e: KeyboardEvent) => {
-        // #region debug-point A:modifier-key
-        if (e.ctrlKey || e.metaKey || e.altKey) dbg('A', 'modifier-key', { type: e.type, key: e.key, code: e.code, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, isComposing: e.isComposing })
-        // #endregion
         recordImeDebug('custom-key-handler', { key: e.key, code: e.code, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, keyCode: e.keyCode, isComposing: e.isComposing })
         if (isImeKeyEvent(e)) return true
         const isMac = isApplePlatform()
@@ -1441,9 +1431,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         selectionSync.setSelection(selection)
       }))
       const flushWriteBuffer = () => {
-        // #region debug-point C:writebuffer-flush
-        dbg('C', 'writebuffer-flush', { len: writeBuffer.length, writePending })
-        // #endregion
         if (!writeBuffer || !terminal?.write) { writeBuffer = ''; writePending = false; return }
         const data = writeBuffer
         writeBuffer = ''
@@ -1460,15 +1447,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         updateGithubDeviceLogin(raw)
         outputSinceLastAttach = true
         controlCarryRef.current = ''
-        // #region debug-point E:output-mode-scan
-        {
-          const modeSeqs = raw.match(/\u001b\[>[0-9;]*[a-zA-Z~]|\u001b\[6n|\u001b\[\?2004[hl]|\u001b\[27;[0-9;]+~/g)
-          if (modeSeqs) dbg('E', 'output-mode-seq', { seqs: JSON.stringify(modeSeqs.slice(0, 12)), len: raw.length })
-        }
-        // #endregion
-        // #region debug-point C:output-hold
-        if (pointerSyncActive || (!isMobileDevice && isDesktopImeComposing())) dbg('C', 'output-hold', { pointerSyncActive, composing: isDesktopImeComposing(), len: raw.length })
-        // #endregion
         // Hold terminal paints while desktop IME is composing so candidate window stays put.
         if (pointerSyncActive || (!isMobileDevice && isDesktopImeComposing())) {
           if (payload.resync) writeBuffer = raw
@@ -1642,9 +1620,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       }
       helperTextarea = terminal.textarea
       const handleHelperCompositionStart = () => {
-        // #region debug-point D:ime-start
-        dbg('D', 'ime-composition-start')
-        // #endregion
         helperTextareaComposing = true
         document.body.classList.add('ime-composing')
         if (pendingPostImeSyncTimer) {
@@ -1654,9 +1629,6 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
         recordImeDebug('helper-compositionstart', { value: helperTextarea?.value || '' })
       }
       const handleHelperCompositionEnd = () => {
-        // #region debug-point D:ime-end
-        dbg('D', 'ime-composition-end')
-        // #endregion
         helperTextareaComposing = false
         document.body.classList.remove('ime-composing')
         recordImeDebug('helper-compositionend', { value: helperTextarea?.value || '' })
