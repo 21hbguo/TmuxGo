@@ -48,6 +48,24 @@ describe('auth', () => {
     await expect(request).resolves.toBeInstanceOf(Response)
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
+  it('retries a dead connection without waiting', async () => {
+    const fetchMock=vi.fn().mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce(new Response('ok'))
+    vi.stubGlobal('fetch', fetchMock)
+    const { authenticatedFetch }=await import('./auth')
+    await expect(authenticatedFetch('/api/hosts')).resolves.toBeInstanceOf(Response)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+  it('retries a failed read request until the retry budget is exhausted', async () => {
+    vi.useFakeTimers()
+    const fetchMock=vi.fn().mockRejectedValue(new TypeError('Failed to fetch'))
+    vi.stubGlobal('fetch', fetchMock)
+    const { authenticatedFetch }=await import('./auth')
+    const request=authenticatedFetch('/api/hosts')
+    const failure=expect(request).rejects.toThrow('Failed to fetch')
+    await vi.advanceTimersByTimeAsync(5000)
+    await failure
+    expect(fetchMock).toHaveBeenCalledTimes(5)
+  })
   it('does not retry a failed write request', async () => {
     const fetchMock=vi.fn().mockRejectedValue(new TypeError('Failed to fetch'))
     vi.stubGlobal('fetch', fetchMock)

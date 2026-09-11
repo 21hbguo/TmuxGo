@@ -62,18 +62,22 @@ export function onAuthChange(listener: AuthListener) {
   listeners.add(listener)
   return () => listeners.delete(listener)
 }
+const NETWORK_RETRY_DELAYS = [0, 400, 1200, 2500]
 export async function authenticatedFetch(path: string, init: RequestInit = {}, retry = true): Promise<Response> {
   const headers = new Headers(init.headers)
   if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`)
   const url = path.startsWith('http://') || path.startsWith('https://') ? path : `${getApiBase()}${path}`
-  let response: Response
-  try {
-    response = await fetch(url, { ...init, headers, credentials: 'include' })
-  } catch (error) {
-    const method = (init.method || 'GET').toUpperCase()
-    if (!retry || !['GET', 'HEAD'].includes(method) || !(error instanceof TypeError)) throw error
-    await new Promise<void>((resolve) => setTimeout(resolve, 500))
-    response = await fetch(url, { ...init, headers, credentials: 'include' })
+  const method = (init.method || 'GET').toUpperCase()
+  const retryDelays = retry && ['GET', 'HEAD', 'PUT'].includes(method) ? NETWORK_RETRY_DELAYS : []
+  let response: Response | null = null
+  for (let attempt = 0; !response; attempt += 1) {
+    try {
+      response = await fetch(url, { ...init, headers, credentials: 'include' })
+    } catch (error) {
+      if (attempt >= retryDelays.length || !(error instanceof TypeError)) throw error
+      const delay = retryDelays[attempt]
+      if (delay) await new Promise<void>((resolve) => setTimeout(resolve, delay))
+    }
   }
   if (response.status !== 401 || !retry || !authStatus.enabled || path.startsWith('/api/auth/')) return response
   if (!await refreshAuth()) return response

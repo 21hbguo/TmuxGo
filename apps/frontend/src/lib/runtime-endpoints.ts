@@ -1,9 +1,7 @@
 function getBrowserApiBase() {
   const envBase=import.meta.env.VITE_API_URL
   if (envBase) return envBase
-  const protocol=window.location.protocol==='https:'?'https:':'http:'
-  const port=protocol==='https:'?'8443':'3001'
-  return `${protocol}//${window.location.hostname}:${port}`
+  return window.location.origin
 }
 export function getApiBase() {
   if (typeof window!=='undefined') {
