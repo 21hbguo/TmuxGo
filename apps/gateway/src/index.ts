@@ -142,6 +142,7 @@ const start = async () => {
     const host = process.env.TMUXGO_HOST?.trim() || '127.0.0.1'
     const warnings = getSecurityWarnings({ host, authEnabled: isAuthEnabled(), encryptedTransport: isEncryptedTransportConfigured(), tmuxVersion: await detectTmuxVersion(), passwordChangeRequired: isPasswordChangeRequired() })
     warnings.forEach((warning) => console.warn(`[security] ${warning}`))
+    if (!isLoopbackHost(host) && isPasswordChangeRequired()) throw new Error(`Refusing to expose a Gateway with the default password on ${host}; change the password while listening on localhost first`)
     if (!isLoopbackHost(host) && !isAuthEnabled() && !isInsecureModeAllowed()) throw new Error(`Refusing to expose an unauthenticated Gateway on ${host}; configure authentication or set TMUXGO_ALLOW_INSECURE=1 for an intentional insecure deployment`)
     await fastify.listen({ port, host })
     void agentMonitor.start()

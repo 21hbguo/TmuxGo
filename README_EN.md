@@ -249,7 +249,7 @@ tail -f ~/Library/Logs/TmuxGo/agent.log
 Every Gateway startup checks and logs whether authentication is enabled, whether the default password is still active, whether the bind address is loopback, whether an encrypted transport is configured, and whether `tmux -V` meets the security baseline.
 
 - A non-loopback bind without `TMUXGO_PUBLIC_URL=https://...` / `wss://...`, `TMUXGO_TLS_TERMINATED=1`, or `TMUXGO_ENCRYPTED_TRANSPORT=1` produces a prominent unencrypted-transport warning.
-- The default password produces a warning until it is changed.
+- The default password produces a warning until it is changed; a non-loopback bind refuses to start until the password is changed on localhost.
 - The recommended minimum `tmux` security version is [3.6b](https://github.com/tmux/tmux/releases/tag/3.6b), which includes the fix for [CVE-2026-11623](https://nvd.nist.gov/vuln/detail/CVE-2026-11623); the current upstream stable release is [3.7c](https://github.com/tmux/tmux/releases/tag/3.7c). A distro package with security backports may be acceptable, but keep the system packages updated.
 
 Check the installed version:
@@ -300,7 +300,12 @@ For temporary administration, use an SSH tunnel:
 ssh -N -L 3001:127.0.0.1:3001 user@gateway-host
 ```
 
-Then open `http://127.0.0.1:3001` locally. For production, prefer an HTTPS reverse proxy or VPN and block public access to port 3001 with the firewall.
+Then open `http://127.0.0.1:3001` locally. For production, prefer an HTTPS reverse proxy or VPN and block public access to port 3001 with the firewall. For example, expose HTTPS only:
+
+```bash
+sudo ufw allow 443/tcp
+sudo ufw deny 3001/tcp
+```
 
 ### Docker
 
