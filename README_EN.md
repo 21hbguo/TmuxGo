@@ -35,6 +35,7 @@
 - [Runtime Modes and Restart Rules](#traffic_light-runtime-modes-and-restart-rules)
 - [Multi-Host and Remote SSH](#satellite-multi-host-and-remote-ssh)
 - [Production Deploy](#shield-production-deploy)
+- [Secure Deployment](#lock-secure-deployment)
 - [Requirements](#package-requirements)
 - [Architecture](#jigsaw-architecture)
 - [Development and Verification](#wrench-development-and-verification)
@@ -106,8 +107,9 @@ cd TmuxGo
 After installation, open `http://localhost:3001` on macOS; use the address printed by the startup command for other deployment modes.
 Agent is not installed or started by default; use `TMUXGO_ENABLE_AGENT=1 ./install.sh` or `TMUXGO_ENABLE_AGENT=1 ./start.sh --restart` when you need it.
 
-> :bulb: LAN access works directly; for remote access, configure [Tailscale](https://tailscale.com) first.
-> :lock: For reliable copy to the system clipboard, prefer HTTPS access such as Tailscale HTTPS.
+> :lock: The Gateway binds to `127.0.0.1` by default and is not exposed directly to the LAN or Internet. Remote access must use Tailscale, WireGuard, an SSH tunnel, or an HTTPS reverse proxy.
+> :warning: A terminal connection has full tmux input, file, and Git permissions; never expose an unauthenticated Gateway or unencrypted `ws://` endpoint to an untrusted network.
+> :bulb: For reliable system clipboard access, prefer HTTPS such as Tailscale HTTPS.
 > :desktop_computer: The deployment side must run in a `tmux`-capable environment, ideally Linux, macOS, or WSL2. The access side only needs a browser.
 
 If you only want dependencies and manual startup:
@@ -232,12 +234,91 @@ tail -f ~/Library/Logs/TmuxGo/gateway.log
 tail -f ~/Library/Logs/TmuxGo/agent.log
 ```
 
+## :lock: Secure Deployment
+
+### Default security model
+
+- The Gateway binds to `127.0.0.1:3001` by default. Setting `TMUXGO_HOST=0.0.0.0` or another non-loopback address is an explicit network exposure.
+- Built-in username/password authentication is enabled by default. The default username is `admin`; the first `admin/admin123` login must be followed by a password change. Authentication state and device sessions are stored in `~/.tmuxgo/auth.json` with owner-only permissions.
+- API requests use short-lived access tokens and HttpOnly cookies. The terminal WebSocket requires a short-lived, single-use ticket. Explicit share links are the only anonymous exception and are scoped to one read-only session.
+- The Gateway does not terminate TLS. `ws://` and `http://` do not encrypt transport; cross-device access must use HTTPS/WSS or an encrypted network such as Tailscale, WireGuard, or an SSH tunnel.
+- Setting `TMUXGO_AUTH_USERNAME` or `TMUXGO_AUTH_PASSWORD` to an empty value disables authentication and is intended only for local development. A non-loopback unauthenticated Gateway refuses to start unless `TMUXGO_ALLOW_INSECURE=1` is explicitly set.
+
+### Startup security checks
+
+Every Gateway startup checks and logs whether authentication is enabled, whether the default password is still active, whether the bind address is loopback, whether an encrypted transport is configured, and whether `tmux -V` meets the security baseline.
+
+- A non-loopback bind without `TMUXGO_PUBLIC_URL=https://...` / `wss://...`, `TMUXGO_TLS_TERMINATED=1`, or `TMUXGO_ENCRYPTED_TRANSPORT=1` produces a prominent unencrypted-transport warning.
+- The default password produces a warning until it is changed.
+- The recommended minimum `tmux` security version is [3.6b](https://github.com/tmux/tmux/releases/tag/3.6b), which includes the fix for [CVE-2026-11623](https://nvd.nist.gov/vuln/detail/CVE-2026-11623); the current upstream stable release is [3.7c](https://github.com/tmux/tmux/releases/tag/3.7c). A distro package with security backports may be acceptable, but keep the system packages updated.
+
+Check the installed version:
+
+```bash
+tmux -V
+```
+
+Upgrade examples:
+
+```bash
+sudo apt update && sudo apt install --only-upgrade tmux
+brew update && brew upgrade tmux
+```
+
+### HTTPS reverse proxy
+
+Keep the Gateway on loopback:
+
+```bash
+export TMUXGO_HOST=127.0.0.1
+export TMUXGO_PUBLIC_URL=https://tmuxgo.example.com
+```
+
+The Nginx template is [`deploy/nginx/tmuxgo.conf.example`](deploy/nginx/tmuxgo.conf.example); the Caddy template is [`deploy/caddy/Caddyfile.example`](deploy/caddy/Caddyfile.example). Both templates forward WebSocket Upgrade and `X-Forwarded-Proto: https`. Once the proxy terminates TLS, the browser automatically uses `wss://` for `/api/stream`.
+
+After issuing a Let's Encrypt certificate with Nginx, put the certificate paths and hostname in the template. Caddy automatically obtains and renews certificates when started with a real domain. Restrict the proxy's 443 port with the firewall and keep port 3001 bound to localhost only.
+
+### Tailscale, WireGuard, and SSH tunnels
+
+Tailscale:
+
+```bash
+tailscale serve --yes --bg --https=443 http://127.0.0.1:3001
+```
+
+`./start.sh` also attempts to configure HTTPS when it detects a connected Tailscale client. Use the printed `https://...ts.net` address and do not share the plaintext `:3001` address.
+
+An encrypted private network such as WireGuard can bind the Gateway to the VPN address with an encrypted-transport marker:
+
+```bash
+TMUXGO_HOST=10.8.0.1 TMUXGO_ENCRYPTED_TRANSPORT=1 ./start-prod.sh
+```
+
+For temporary administration, use an SSH tunnel:
+
+```bash
+ssh -N -L 3001:127.0.0.1:3001 user@gateway-host
+```
+
+Then open `http://127.0.0.1:3001` locally. For production, prefer an HTTPS reverse proxy or VPN and block public access to port 3001 with the firewall.
+
+### Docker
+
+The Docker example publishes port 3001 on the host loopback address by default:
+
+```bash
+cp deploy/.env.example deploy/.env
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up --build
+```
+
+`deploy/docker-compose.yml` uses `127.0.0.1:3001:3001`. The container must listen on `0.0.0.0` for Docker forwarding, but the host-side exposure remains local-only. For remote access, put an HTTPS reverse proxy or VPN on the host; do not change the mapping to `3001:3001`.
+
 ## :package: Requirements
 
 | Dependency | Version | Required | Notes |
 |:-----------|:--------|:--------:|:------|
 | :green_circle: Node.js | >= 20 | :white_check_mark: | Runtime |
-| :green_circle: tmux | any | :white_check_mark: | Terminal multiplexer |
+| :green_circle: tmux | >= 3.6b (or a distro security backport) | :white_check_mark: | Terminal multiplexer; older versions produce a startup warning |
 | :green_circle: Build toolchain | `make` / `g++` / `pkg-config` | :white_check_mark: | Required by `node-pty` |
 | :green_circle: Base tools | `git` / `curl` / `python3` / `ripgrep` / `lsof` or `ss` | :white_check_mark: | Needed by install, file search, and startup scripts |
 | :blue_circle: Tailscale | latest | :o: | Remote access and HTTPS exposure |
@@ -305,12 +386,17 @@ Recommended delivery checklist:
 | Variable | Default | Description |
 |:---------|:--------|:------------|
 | `PORT` | `3001` | Gateway listen port |
+| `TMUXGO_HOST` | `127.0.0.1` | Gateway bind address; configure encrypted transport or HTTPS before network exposure |
 | `NEXT_PUBLIC_API_URL` | `http://127.0.0.1:3001` | Frontend base URL for Gateway |
 | `NEXT_DIST_DIR` | `.next` / `.next-prod` | Frontend build output directory |
 | `TMUXGO_ENABLE_AGENT` | `0` | Set to `1` to start or install Agent |
 | `GATEWAY_URL` | `ws://localhost:3001/api/stream` | Agent WebSocket URL for Gateway |
 | `TMUXGO_AUTH_USERNAME` | `admin` | Gateway login username |
 | `TMUXGO_AUTH_PASSWORD` | `admin123` | Gateway login password; it must be changed after the first default-password login |
+| `TMUXGO_PUBLIC_URL` | empty | Public URL; an `https://` or `wss://` value signals TLS |
+| `TMUXGO_TLS_TERMINATED` | `0` | Set to `1` when a reverse proxy terminates TLS |
+| `TMUXGO_ENCRYPTED_TRANSPORT` | `0` | Set to `1` when Tailscale / WireGuard / an SSH tunnel provides outer encryption |
+| `TMUXGO_ALLOW_INSECURE` | `0` | Allow a non-loopback unauthenticated Gateway; only for intentional temporary tests |
 | `GATEWAY_USERNAME` | `admin` | Username used by Agent to connect to Gateway |
 | `GATEWAY_PASSWORD` | empty | Password used by Agent to connect to Gateway; required explicitly when authentication is enabled |
 | `HOST_ID` | `agent-local` | Agent registration host ID |
@@ -320,7 +406,7 @@ Recommended delivery checklist:
 | `TMUXGO_CONFIG_DIR` | `~/.tmuxgo` | Host configuration directory, including `hosts.json` |
 | `TMUX_WEB_ALLOWED_SESSIONS` | empty | Comma-separated tmux session allowlist |
 
-Gateway authentication is enabled by default. Authentication state and device sessions are stored in `~/.tmuxgo/auth.json`; browsers refresh their session automatically after the first login. The default `admin/admin123` password must be changed on first use, and changing the password revokes all device sessions.
+Gateway authentication is enabled by default. Authentication state and device sessions are stored in `~/.tmuxgo/auth.json`; browsers refresh their session automatically after the first login. The default `admin/admin123` password must be changed on first use, and changing the password revokes all device sessions. Password authentication does not replace TLS; production deployments still require HTTPS/WSS or an encrypted network.
 
 ### Where Data Lives
 

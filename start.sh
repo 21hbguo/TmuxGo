@@ -33,15 +33,6 @@ launchd_domain() {
   fi
   echo "user/$uid"
 }
-resolve_local_ip() {
-  local ip
-  ip="$(python3 -c 'import socket; s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); s.settimeout(0); s.connect(("8.8.8.8",80)); print(s.getsockname()[0]); s.close()' 2>/dev/null || true)"
-  if [ -n "$ip" ]; then
-    echo "$ip"
-    return
-  fi
-  echo "localhost"
-}
 port_in_use() {
   local port=$1
   if has_cmd lsof && lsof -tiTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
@@ -263,16 +254,11 @@ FRONTEND_STABLE_LOG="/tmp/tmuxgo-frontend-stable.log"
 FRONTEND_DEV_LOG="/tmp/tmuxgo-frontend-dev.log"
 GATEWAY_LOG="/tmp/tmuxgo-gateway.log"
 AGENT_LOG="/tmp/tmuxgo-agent.log"
-TAILSCALE_IP=""
 TAILSCALE_DNS=""
 SECURE_FRONTEND_URL=""
 SECURE_GATEWAY_URL=""
 if has_cmd tailscale; then
-  TAILSCALE_IP="$(tailscale ip -4 2>/dev/null | head -n 1 || true)"
   TAILSCALE_DNS="$(tailscale status --json 2>/dev/null | python3 -c 'import json,sys; data=json.load(sys.stdin); print((data.get("Self") or {}).get("DNSName","").rstrip("."))' 2>/dev/null || true)"
-fi
-if [ -z "${TAILSCALE_IP:-}" ]; then
-  TAILSCALE_IP="$(resolve_local_ip)"
 fi
 if [ -n "${TAILSCALE_DNS:-}" ]; then
   SECURE_FRONTEND_URL="https://${TAILSCALE_DNS}"
@@ -325,7 +311,7 @@ if systemd_tmuxgo_active; then
   echo ""
   echo "TmuxGo services:"
   echo ""
-  echo "  TmuxGo: http://${TAILSCALE_IP}:3001"
+  echo "  Local:   http://127.0.0.1:3001"
   if [ -n "${SECURE_FRONTEND_URL:-}" ]; then
     echo "  Frontend HTTPS: ${SECURE_FRONTEND_URL}"
     echo "  Gateway HTTPS:  ${SECURE_GATEWAY_URL}"
@@ -384,7 +370,7 @@ if launchd_tmuxgo_active; then
   echo ""
   echo "TmuxGo services:"
   echo ""
-  echo "  TmuxGo: http://${TAILSCALE_IP}:3001"
+  echo "  Local:   http://127.0.0.1:3001"
   if [ -n "${SECURE_FRONTEND_URL:-}" ]; then
     echo "  Frontend HTTPS: ${SECURE_FRONTEND_URL}"
     echo "  Gateway HTTPS:  ${SECURE_GATEWAY_URL}"
@@ -504,9 +490,9 @@ fi
 echo ""
 echo "TmuxGo services:"
 echo ""
-echo "  Frontend stable: http://${TAILSCALE_IP}:3000"
-echo "  Frontend dev:    http://${TAILSCALE_IP}:3002"
-echo "  Gateway:   http://${TAILSCALE_IP}:3001"
+echo "  Frontend stable: http://127.0.0.1:3000"
+echo "  Frontend dev:    http://127.0.0.1:3002"
+echo "  Gateway:         http://127.0.0.1:3001"
 if [ -n "${SECURE_FRONTEND_URL:-}" ]; then
   echo "  Frontend HTTPS: ${SECURE_FRONTEND_URL}"
   echo "  Gateway HTTPS:  ${SECURE_GATEWAY_URL}"
