@@ -34,6 +34,7 @@ import { agentEventRoutes } from './routes/agent-events.js'
 import { agentNotificationRoutes } from './routes/agent-notifications.js'
 import { agentControlRoutes } from './routes/agent-control.js'
 import { agentRoutes } from './routes/agents.js'
+import { detectTmuxVersion, getSecurityWarnings, isEncryptedTransportConfigured, isInsecureModeAllowed, isLoopbackHost } from './lib/security.js'
 
 const fastify = Fastify({
   logger: createFastifyLoggerConfig(),
@@ -138,9 +139,13 @@ fastify.get('/health', async () => {
 const start = async () => {
   try {
     const port = parseInt(process.env.PORT || '3001')
-    await fastify.listen({ port, host: '0.0.0.0' })
+    const host = process.env.TMUXGO_HOST?.trim() || '127.0.0.1'
+    const warnings = getSecurityWarnings({ host, authEnabled: isAuthEnabled(), encryptedTransport: isEncryptedTransportConfigured(), tmuxVersion: await detectTmuxVersion(), passwordChangeRequired: isPasswordChangeRequired() })
+    warnings.forEach((warning) => console.warn(`[security] ${warning}`))
+    if (!isLoopbackHost(host) && !isAuthEnabled() && !isInsecureModeAllowed()) throw new Error(`Refusing to expose an unauthenticated Gateway on ${host}; configure authentication or set TMUXGO_ALLOW_INSECURE=1 for an intentional insecure deployment`)
+    await fastify.listen({ port, host })
     void agentMonitor.start()
-    console.log(`Gateway listening on port ${port}`)
+    console.log(`Gateway listening on ${host}:${port}`)
   } catch (err) {
     fastify.log.error(err)
     process.exit(1)

@@ -18,6 +18,8 @@
 <string>production</string>
 <key>PORT</key>
 <string>3001</string>
+<key>TMUXGO_HOST</key>
+<string>127.0.0.1</string>
 <key>PATH</key>
 <string>__TMUXGO_PATH__</string>
 </dict>

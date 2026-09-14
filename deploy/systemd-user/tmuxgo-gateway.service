@@ -12,6 +12,7 @@ RestartSec=3
 KillMode=control-group
 Environment=NODE_ENV=production
 Environment=PORT=3001
+Environment=TMUXGO_HOST=127.0.0.1
 Environment=PATH=__TMUXGO_PATH__
 
 [Install]
