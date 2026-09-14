@@ -1,0 +1,22 @@
+services:
+  tmuxgo:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+      TMUXGO_HOST: "0.0.0.0"
+      TMUXGO_AUTH_USERNAME: "${TMUXGO_AUTH_USERNAME:-admin}"
+      TMUXGO_AUTH_PASSWORD: "${TMUXGO_AUTH_PASSWORD:?TMUXGO_AUTH_PASSWORD is required}"
+      TMUXGO_PUBLIC_URL: "${TMUXGO_PUBLIC_URL:-}"
+    ports:
+      - "127.0.0.1:3001:3001"
+    volumes:
+      - tmuxgo-data:/home/tmuxgo/.tmuxgo
+      - tmuxgo-workspace:/workspace
+    init: true
+    restart: unless-stopped
+volumes:
+  tmuxgo-data:
+  tmuxgo-workspace:

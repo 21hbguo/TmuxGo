@@ -35,6 +35,7 @@
 - [运行模式与重启规则](#traffic_light-运行模式与重启规则)
 - [多主机与远程 SSH](#satellite-多主机与远程-ssh)
 - [生产部署](#shield-生产部署)
+- [安全部署](#lock-安全部署)
 - [依赖要求](#package-依赖要求)
 - [架构](#jigsaw-架构)
 - [开发与验证](#wrench-开发与验证)
@@ -106,8 +107,9 @@ cd TmuxGo
 安装完成后，macOS 打开 `http://localhost:3001`；其他部署模式按启动输出打开对应地址。
 Agent 默认不安装启动；需要本机 agent 时执行 `TMUXGO_ENABLE_AGENT=1 ./install.sh` 或 `TMUXGO_ENABLE_AGENT=1 ./start.sh --restart`。
 
-> :bulb: 局域网可直接访问；远程访问建议先配置 [Tailscale](https://tailscale.com)。
-> :lock: 若要稳定使用系统剪贴板复制，建议通过 HTTPS 域名访问，例如 Tailscale HTTPS。
+> :lock: Gateway 默认只监听 `127.0.0.1`，不会直接暴露到局域网或公网。远程访问必须使用 Tailscale、WireGuard、SSH 隧道或 HTTPS 反向代理。
+> :warning: 终端连接拥有完整的 tmux 输入、文件和 Git 操作权限；不要把未加密的 `ws://` 或未认证的 Gateway 暴露到不受信任网络。
+> :bulb: 若要稳定使用系统剪贴板复制，建议通过 HTTPS 域名访问，例如 Tailscale HTTPS。
 > :desktop_computer: 部署端需要运行在支持 `tmux` 的环境中，推荐 Linux、macOS、WSL2；访问端只需要浏览器。
 
 只安装依赖但不装常驻服务时，也可以手动启动：
@@ -232,12 +234,91 @@ tail -f ~/Library/Logs/TmuxGo/gateway.log
 tail -f ~/Library/Logs/TmuxGo/agent.log
 ```
 
+## :lock: 安全部署
+
+### 默认安全模型
+
+- Gateway 默认绑定 `127.0.0.1:3001`，只允许本机访问；设置 `TMUXGO_HOST=0.0.0.0` 或其他非回环地址才会对网络开放。
+- Gateway 默认启用内置账号密码认证，默认账号为 `admin`，首次使用 `admin/admin123` 登录后必须修改密码。认证状态和设备会话保存在 `~/.tmuxgo/auth.json`，文件权限会限制为仅当前用户可读写。
+- API 使用短期 access token 和 HttpOnly cookie；终端 WebSocket 必须先获取一次性短期 ticket。显式创建的共享链接是唯一的匿名例外，并且只允许指定会话的只读附着。
+- Gateway 本身不负责 TLS 终止。`ws://` 和 `http://` 不提供传输加密；跨设备访问必须让浏览器使用 HTTPS/WSS，或先通过 Tailscale、WireGuard、SSH 隧道等加密网络接入。
+- 将 `TMUXGO_AUTH_USERNAME` 或 `TMUXGO_AUTH_PASSWORD` 设为空会关闭认证，仅适合本机开发。非回环地址下关闭认证时 Gateway 默认拒绝启动，只有显式设置 `TMUXGO_ALLOW_INSECURE=1` 才会继续。
+
+### 启动安全检查
+
+每次 Gateway 启动都会检查并在日志中输出：认证是否启用、默认密码是否仍在使用、监听地址是否为回环地址、是否配置了加密传输信号，以及 `tmux -V` 是否达到安全基线。
+
+- 非回环监听且没有 `TMUXGO_PUBLIC_URL=https://...` / `wss://...`、`TMUXGO_TLS_TERMINATED=1` 或 `TMUXGO_ENCRYPTED_TRANSPORT=1` 时，会输出明显的未加密传输警告。
+- 默认密码仍在使用时，会输出修改密码提示。
+- 推荐最低 `tmux` 安全版本为 [3.6b](https://github.com/tmux/tmux/releases/tag/3.6b)，该版本包含 [CVE-2026-11623](https://nvd.nist.gov/vuln/detail/CVE-2026-11623) 修复；当前上游稳定版为 [3.7c](https://github.com/tmux/tmux/releases/tag/3.7c)。发行版如果提供了安全回补版本可以继续使用，但仍应定期更新系统包。
+
+检查版本：
+
+```bash
+tmux -V
+```
+
+升级示例：
+
+```bash
+sudo apt update && sudo apt install --only-upgrade tmux
+brew update && brew upgrade tmux
+```
+
+### HTTPS 反向代理
+
+先保持 Gateway 只监听本机：
+
+```bash
+export TMUXGO_HOST=127.0.0.1
+export TMUXGO_PUBLIC_URL=https://tmuxgo.example.com
+```
+
+Nginx 配置模板见 [`deploy/nginx/tmuxgo.conf.example`](deploy/nginx/tmuxgo.conf.example)，Caddy 配置模板见 [`deploy/caddy/Caddyfile.example`](deploy/caddy/Caddyfile.example)。两者都必须转发 WebSocket Upgrade，并向 Gateway 传递 `X-Forwarded-Proto: https`。代理完成 TLS 后，浏览器会自动使用 `wss://` 连接 `/api/stream`。
+
+Nginx 申请 Let's Encrypt 证书后，将证书路径和域名写入模板；Caddy 使用域名启动后会自动申请和续期证书。反向代理的 443 端口应通过防火墙限制来源，3001 只保留本机监听。
+
+### Tailscale、WireGuard 与 SSH 隧道
+
+Tailscale：
+
+```bash
+tailscale serve --yes --bg --https=443 http://127.0.0.1:3001
+```
+
+`./start.sh` 检测到已连接的 Tailscale 后也会尝试配置 HTTPS。访问输出的 `https://...ts.net` 地址，不要把 `:3001` 的明文地址分享给其他设备。
+
+WireGuard 等已经提供加密的私有网络可以让 Gateway 绑定 VPN 地址，并设置加密传输标记：
+
+```bash
+TMUXGO_HOST=10.8.0.1 TMUXGO_ENCRYPTED_TRANSPORT=1 ./start-prod.sh
+```
+
+SSH 隧道适合临时管理：
+
+```bash
+ssh -N -L 3001:127.0.0.1:3001 user@gateway-host
+```
+
+然后在本机打开 `http://127.0.0.1:3001`。生产环境仍建议使用 HTTPS 反向代理或 VPN，并在防火墙中拒绝来自公网的 3001 端口。
+
+### Docker
+
+Docker 示例默认只把宿主机的 3001 端口发布到回环地址：
+
+```bash
+cp deploy/.env.example deploy/.env
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up --build
+```
+
+`deploy/docker-compose.yml` 使用 `127.0.0.1:3001:3001`，容器内部必须监听 `0.0.0.0` 才能接收 Docker 转发；这不会改变宿主机只允许本机访问的边界。需要远程访问时，在宿主机上配置 HTTPS 反向代理或 VPN，不要直接改成 `3001:3001`。
+
 ## :package: 依赖要求
 
 | 依赖 | 版本 | 必需 | 说明 |
 |:-----|:-----|:----:|:-----|
 | :green_circle: Node.js | >= 20 | :white_check_mark: | 运行时 |
-| :green_circle: tmux | 任意 | :white_check_mark: | 终端复用器 |
+| :green_circle: tmux | >= 3.6b（或发行版安全回补） | :white_check_mark: | 终端复用器；旧版本启动时会告警 |
 | :green_circle: 构建工具链 | `make` / `g++` / `pkg-config` | :white_check_mark: | `node-pty` 原生依赖 |
 | :green_circle: 基础工具 | `git` / `curl` / `python3` / `ripgrep` / `lsof` 或 `ss` | :white_check_mark: | 安装、文件搜索、启动脚本依赖 |
 | :blue_circle: Tailscale | 最新版 | :o: | 远程访问、HTTPS 暴露 |
@@ -316,12 +397,17 @@ npm run test:ssh-e2e
 | 变量 | 默认值 | 说明 |
 |:-----|:-------|:-----|
 | `PORT` | `3001` | Gateway 监听端口 |
+| `TMUXGO_HOST` | `127.0.0.1` | Gateway 监听地址；远程部署前必须配置加密网络或 HTTPS |
 | `NEXT_PUBLIC_API_URL` | `http://127.0.0.1:3001` | 前端访问 Gateway 的基地址 |
 | `NEXT_DIST_DIR` | `.next` / `.next-prod` | 前端构建输出目录 |
 | `TMUXGO_ENABLE_AGENT` | `0` | 设为 `1` 时启动或安装 Agent |
 | `GATEWAY_URL` | `ws://localhost:3001/api/stream` | Agent 连接 Gateway 的 WebSocket 地址 |
 | `TMUXGO_AUTH_USERNAME` | `admin` | Gateway 登录账号 |
 | `TMUXGO_AUTH_PASSWORD` | `admin123` | Gateway 登录密码；首次以默认密码登录时必须修改 |
+| `TMUXGO_PUBLIC_URL` | 空 | 对外访问地址；使用 `https://` 或 `wss://` 表示已配置 TLS |
+| `TMUXGO_TLS_TERMINATED` | `0` | 反向代理已完成 TLS 终止时设为 `1` |
+| `TMUXGO_ENCRYPTED_TRANSPORT` | `0` | Tailscale / WireGuard / SSH 隧道等外层加密已启用时设为 `1` |
+| `TMUXGO_ALLOW_INSECURE` | `0` | 允许非回环未认证 Gateway 启动；仅用于明确的临时测试 |
 | `GATEWAY_USERNAME` | `admin` | Agent 连接 Gateway 使用的账号 |
 | `GATEWAY_PASSWORD` | 空 | Agent 连接 Gateway 使用的密码，启用认证时必须显式设置 |
 | `HOST_ID` | `agent-local` | Agent 注册主机 ID |
@@ -332,7 +418,7 @@ npm run test:ssh-e2e
 | `TMUXGO_ALLOWED_ORIGINS` | 空 | 额外允许访问 Gateway 的浏览器 Origin，多个值用逗号分隔 |
 | `TMUX_WEB_ALLOWED_SESSIONS` | 空 | 逗号分隔的 tmux 会话白名单 |
 
-Gateway 默认启用账号认证。认证状态与设备会话保存在 `~/.tmuxgo/auth.json`，浏览器首次登录后会自动续期；使用默认 `admin/admin123` 登录时必须修改密码，修改密码会撤销所有设备会话。
+Gateway 默认启用账号认证。认证状态与设备会话保存在 `~/.tmuxgo/auth.json`，浏览器首次登录后会自动续期；使用默认 `admin/admin123` 登录时必须修改密码，修改密码会撤销所有设备会话。认证是密码认证，不等同于 TLS；生产环境仍必须使用 HTTPS/WSS 或加密网络。
 
 ### 数据落点
 
