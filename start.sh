@@ -7,6 +7,7 @@ LAUNCHD_GATEWAY_LABEL="com.tmuxgo.gateway"
 LAUNCHD_AGENT_LABEL="com.tmuxgo.agent"
 LAUNCHD_LOG_DIR="$HOME/Library/Logs/TmuxGo"
 TMUXGO_ENABLE_AGENT="${TMUXGO_ENABLE_AGENT:-0}"
+export TMUXGO_HOST="${TMUXGO_HOST:-127.0.0.1}"
 acquire_lock() {
   if mkdir "$LOCK_DIR" 2>/dev/null; then
     trap 'rm -rf "$LOCK_DIR"' EXIT INT TERM

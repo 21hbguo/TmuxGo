@@ -14,6 +14,7 @@ COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/pnpm-lock.yaml ./pnpm-lock.yaml
 COPY --from=build /app/pnpm-workspace.yaml ./pnpm-workspace.yaml
 COPY --from=build /app/apps/gateway/package.json ./apps/gateway/package.json
+COPY --from=build /app/scripts/fix-native-perms.sh ./scripts/fix-native-perms.sh
 RUN pnpm install --prod --frozen-lockfile --filter gateway
 COPY --from=build /app/apps/gateway/dist ./apps/gateway/dist
 COPY --from=build /app/apps/frontend/dist ./apps/frontend/dist

@@ -10,6 +10,7 @@ export HOST_ID="${HOST_ID:-agent-local}"
 export HOST_NAME="${HOST_NAME:-$(hostname)}"
 export GATEWAY_URL="${GATEWAY_URL:-ws://127.0.0.1:3001/api/stream}"
 export PORT="${PORT:-3001}"
+export TMUXGO_HOST="${TMUXGO_HOST:-127.0.0.1}"
 npm run build:gateway
 npm run build:frontend
 npm run build:agent

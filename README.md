@@ -249,7 +249,7 @@ tail -f ~/Library/Logs/TmuxGo/agent.log
 每次 Gateway 启动都会检查并在日志中输出：认证是否启用、默认密码是否仍在使用、监听地址是否为回环地址、是否配置了加密传输信号，以及 `tmux -V` 是否达到安全基线。
 
 - 非回环监听且没有 `TMUXGO_PUBLIC_URL=https://...` / `wss://...`、`TMUXGO_TLS_TERMINATED=1` 或 `TMUXGO_ENCRYPTED_TRANSPORT=1` 时，会输出明显的未加密传输警告。
-- 默认密码仍在使用时，会输出修改密码提示。
+- 默认密码仍在使用时，会输出修改密码提示；非回环监听会直接拒绝启动，先绑定到 localhost 修改密码。
 - 推荐最低 `tmux` 安全版本为 [3.6b](https://github.com/tmux/tmux/releases/tag/3.6b)，该版本包含 [CVE-2026-11623](https://nvd.nist.gov/vuln/detail/CVE-2026-11623) 修复；当前上游稳定版为 [3.7c](https://github.com/tmux/tmux/releases/tag/3.7c)。发行版如果提供了安全回补版本可以继续使用，但仍应定期更新系统包。
 
 检查版本：
@@ -300,7 +300,12 @@ SSH 隧道适合临时管理：
 ssh -N -L 3001:127.0.0.1:3001 user@gateway-host
 ```
 
-然后在本机打开 `http://127.0.0.1:3001`。生产环境仍建议使用 HTTPS 反向代理或 VPN，并在防火墙中拒绝来自公网的 3001 端口。
+然后在本机打开 `http://127.0.0.1:3001`。生产环境仍建议使用 HTTPS 反向代理或 VPN，并在防火墙中拒绝来自公网的 3001 端口。例如仅开放 HTTPS：
+
+```bash
+sudo ufw allow 443/tcp
+sudo ufw deny 3001/tcp
+```
 
 ### Docker
 
