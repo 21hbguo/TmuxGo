@@ -74,9 +74,18 @@ if ! git merge --ff-only "$TARGET"; then
   die 1
 fi
 NEW_HEAD="$(git rev-parse HEAD)"
+install_deps() {
+  if [ -f pnpm-lock.yaml ] && command -v pnpm >/dev/null 2>&1; then
+    pnpm install --prefer-offline || return $?
+  elif [ -f pnpm-lock.yaml ] && command -v corepack >/dev/null 2>&1; then
+    corepack pnpm install --prefer-offline || return $?
+  else
+    npm install --no-audit --no-fund || return $?
+  fi
+}
 if git diff --name-only "$LOCAL" "$NEW_HEAD" | grep -qE '(^|/)(package(-lock)?\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml)$'; then
-  echo "[update] dependencies changed, running npm install..."
-  npm install --no-audit --no-fund || die 1
+  echo "[update] dependencies changed, installing..."
+  install_deps || die 1
 fi
 echo "[update] rebuilding and restarting services..."
 ./start.sh --restart --rebuild --preserve-tmux
