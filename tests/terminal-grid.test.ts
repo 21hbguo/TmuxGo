@@ -1,10 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'fs'
-import { join } from 'path'
+import { fileURLToPath } from 'url'
 import { AnsiParser, TerminalGrid, WIDE_CONT } from '../apps/gateway/src/lib/terminal-grid/index'
 
-const fixture = (name: string) => readFileSync(join('tests/fixtures/terminal-streams', name), 'utf8')
+const fixture = (name: string) => readFileSync(fileURLToPath(new URL(`./fixtures/terminal-streams/${name}`, import.meta.url)), 'utf8')
 
 test('plain ascii fixture parses', () => {
   const grid = new TerminalGrid(80, 24)
