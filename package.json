@@ -32,20 +32,39 @@
     "proto:status": "npx tsx scripts/tmux-pane-status-prototype.ts",
     "proto:state": "npx tsx scripts/tmux-pane-state.ts",
     "test": "npx tsx scripts/run-tests.ts",
-    "postinstall": "bash scripts/fix-native-perms.sh",
+    "postinstall": "bash scripts/fix-native-perms.sh && simple-git-hooks",
     "smoke:pty": "node scripts/smoke-node-pty.mjs",
+    "lint": "eslint .",
+    "typecheck": "tsc -p apps/frontend/tsconfig.json && tsc -p apps/gateway/tsconfig.json --noEmit && tsc -p apps/agent/tsconfig.json --noEmit",
     "verify": "npm test && npm run test:frontend && npm run test:e2e && npm run build"
   },
+  "simple-git-hooks": {
+    "pre-commit": "npx lint-staged"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,mjs}": [
+      "eslint --fix",
+      "prettier --write"
+    ]
+  },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.60.0",
     "@testing-library/jest-dom": "^6.4.8",
     "@testing-library/react": "^14.3.1",
     "@testing-library/user-event": "^14.5.2",
     "@vitejs/plugin-react": "^6.0.2",
+    "eslint": "^10.10.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.12.0",
     "jsdom": "^29.1.1",
+    "lint-staged": "^17.5.1",
+    "prettier": "^3.9.6",
+    "simple-git-hooks": "^2.14.0",
     "tsconfig-paths": "^4.2.0",
     "tsx": "4.23.11",
     "typescript": "^5.9.3",
+    "typescript-eslint": "^8.70.0",
     "vite-tsconfig-paths": "^6.1.1",
     "vitest": "^4.1.7"
   }

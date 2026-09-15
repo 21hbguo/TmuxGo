@@ -1,12 +1,10 @@
 # Global Rules
-- 代码不添加多余空行
-- 不生成任何注释
 - 变量命名格式保持前后一致
-- 代码紧凑，无空行分隔
-- 不添加无关空格、换行、注释
-- 输出纯代码，不解释，不说明
+- 代码紧凑，不写废话
 - 答复简洁专业、紧凑准确
 - 输出仅核心内容，不冗余表述
+- 协议编解码、tmux 行为 workaround、安全相关分支等非显而易见逻辑必须写注释说明意图
+- 提交前通过 eslint / prettier / typecheck，存量告警分批清理，不做一次性全仓格式化
 - 涉及 GitHub 远端操作时优先使用 github-ops skill
 - GitHub 的 push、pull、ls-remote、repo view、远端校验前先检查代理链路
 - 本机存在 Mihomo/Clash 本地代理时优先走 socks5h://127.0.0.1:7890
