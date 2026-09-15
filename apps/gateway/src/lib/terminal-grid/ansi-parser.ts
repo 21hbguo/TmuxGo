@@ -1,203 +1,172 @@
-import { ATTR_BOLD, ATTR_DIM, ATTR_ITALIC, ATTR_INVERSE, ATTR_UNDERLINE, FG_DEFAULT, FG_INDEXED, FG_TRUECOLOR, BG_DEFAULT, BG_INDEXED, BG_TRUECOLOR, TerminalGrid, packColorMode, getFgMode, getBgMode } from './grid.js'
+import { Terminal } from '@xterm/headless'
+import {
+  ATTR_BOLD,
+  ATTR_DIM,
+  ATTR_ITALIC,
+  ATTR_INVERSE,
+  ATTR_UNDERLINE,
+  BG_DEFAULT,
+  BG_INDEXED,
+  BG_TRUECOLOR,
+  FG_DEFAULT,
+  FG_INDEXED,
+  FG_TRUECOLOR,
+  TerminalGrid,
+  WIDE_CONT,
+  emptyCell,
+  packColorMode,
+} from './grid.js'
 
 export type ParseResult = { ok: boolean; unsupported?: string }
 
+type BufferCellLike = {
+  getWidth: () => number
+  getCode: () => number
+  getChars: () => string
+  getFgColor: () => number
+  getBgColor: () => number
+  isFgDefault: () => boolean
+  isFgPalette: () => boolean
+  isFgRGB: () => boolean
+  isBgDefault: () => boolean
+  isBgPalette: () => boolean
+  isBgRGB: () => boolean
+  isBold: () => number
+  isDim: () => number
+  isItalic: () => number
+  isUnderline: () => number
+  isInverse: () => number
+}
+
+type HeadlessTerminalCore = {
+  writeSync: (data: string | Uint8Array, maxSubsequentCalls?: number) => void
+}
+
+function getFgMode(cell: BufferCellLike) {
+  if (cell.isFgRGB()) return FG_TRUECOLOR
+  if (cell.isFgPalette()) return FG_INDEXED
+  return FG_DEFAULT
+}
+
+function getBgMode(cell: BufferCellLike) {
+  if (cell.isBgRGB()) return BG_TRUECOLOR
+  if (cell.isBgPalette()) return BG_INDEXED
+  return BG_DEFAULT
+}
+
+function getAttr(cell: BufferCellLike) {
+  let attr = 0
+  if (cell.isBold()) attr |= ATTR_BOLD
+  if (cell.isDim()) attr |= ATTR_DIM
+  if (cell.isItalic()) attr |= ATTR_ITALIC
+  if (cell.isUnderline()) attr |= ATTR_UNDERLINE
+  if (cell.isInverse()) attr |= ATTR_INVERSE
+  return packColorMode(getFgMode(cell), getBgMode(cell), attr)
+}
+
+/**
+ * Cell-mode terminal state backed by xterm's VT implementation.
+ *
+ * The old implementation duplicated a small subset of VT/ANSI behavior in
+ * this repository. That was sufficient for the original MVP, but it could
+ * drift from the browser xterm state on alternate-screen, scrolling,
+ * autowrap and other real-world terminal sequences. The public AnsiParser
+ * shape is kept so the existing cell transport does not need a protocol or
+ * routing rewrite; parsing authority now belongs to @xterm/headless.
+ */
 export class AnsiParser {
   grid: TerminalGrid
-  private escaped = false
-  private csi = false
-  private osc = false
-  private buf = ''
-  private lastUnsupported: string | null = null
+  private terminal: Terminal
+
   constructor(grid: TerminalGrid) {
     this.grid = grid
+    this.terminal = this.createTerminal()
+    this.syncGrid()
   }
-  resetParserState() {
-    this.escaped = false
-    this.csi = false
-    this.osc = false
-    this.buf = ''
-  }
-  feed(chunk: string): ParseResult {
-    for (let i = 0; i < chunk.length; i++) {
-      const ch = chunk[i]
-      const code = chunk.charCodeAt(i)
-      if (this.osc) {
-        if (ch === '\x07' || (this.buf.endsWith('\x1b') && ch === '\\')) {
-          this.osc = false
-          this.buf = ''
-          this.escaped = false
-        } else this.buf += ch
-        continue
-      }
-      if (this.csi) {
-        this.buf += ch
-        if (ch >= '@' && ch <= '~') {
-          this.handleCsi(this.buf)
-          this.csi = false
-          this.buf = ''
-          this.escaped = false
-        }
-        continue
-      }
-      if (this.escaped) {
-        if (ch === '[') {
-          this.csi = true
-          this.buf = ''
-          continue
-        }
-        if (ch === ']') {
-          this.osc = true
-          this.buf = ''
-          continue
-        }
-        // simple ESC sequences ignored / unsupported
-        this.escaped = false
-        // ignore unsupported simple ESC forms to keep cell mode alive
-        continue
-      }
-      if (code === 0x1b) {
-        this.escaped = true
-        continue
-      }
-      if (code < 32 && code !== 0x0a && code !== 0x0d && code !== 0x08 && code !== 0x09) continue
-      if (code === 0x09) {
-        const next = Math.min(this.grid.cols - 1, (Math.floor(this.grid.cursorX / 8) + 1) * 8)
-        this.grid.cursorX = next
-        continue
-      }
-      // UTF-16 surrogate pairs
-      let cp = code
-      if (code >= 0xd800 && code <= 0xdbff && i + 1 < chunk.length) {
-        const low = chunk.charCodeAt(i + 1)
-        if (low >= 0xdc00 && low <= 0xdfff) {
-          cp = 0x10000 + ((code - 0xd800) << 10) + (low - 0xdc00)
-          i++
-        }
-      }
-      this.grid.putCodePoint(cp)
-    }
-    return { ok: true }
-  }
-  private handleCsi(seq: string) {
-    const final = seq[seq.length - 1]
-    const body = seq.slice(0, -1)
-    const params = body.split(';').map((part) => {
-      if (!part) return 0
-      const n = Number(part)
-      return Number.isFinite(n) ? n : 0
+
+  private createTerminal() {
+    return new Terminal({
+      cols: Math.max(2, this.grid.cols),
+      rows: Math.max(1, this.grid.rows),
+      scrollback: 0,
+      allowProposedApi: true,
+      logLevel: 'off',
     })
-    const p0 = params[0] || 0
-    const p1 = params[1] || 0
-    switch (final) {
-      case 'A':
-        this.grid.cursorY = Math.max(0, this.grid.cursorY - (p0 || 1))
-        return true
-      case 'B':
-        this.grid.cursorY = Math.min(this.grid.rows - 1, this.grid.cursorY + (p0 || 1))
-        return true
-      case 'C':
-        this.grid.cursorX = Math.min(this.grid.cols - 1, this.grid.cursorX + (p0 || 1))
-        return true
-      case 'D':
-        this.grid.cursorX = Math.max(0, this.grid.cursorX - (p0 || 1))
-        return true
-      case 'H':
-      case 'f': {
-        const row = Math.max(1, p0 || 1) - 1
-        const col = Math.max(1, p1 || 1) - 1
-        this.grid.cursorY = Math.min(this.grid.rows - 1, row)
-        this.grid.cursorX = Math.min(this.grid.cols - 1, col)
-        return true
+  }
+
+  private getCore() {
+    // @xterm/headless intentionally exposes writes asynchronously at the public
+    // API. Cell transport needs the parsed buffer in the same gateway flush, so
+    // we use xterm's own synchronous CoreTerminal writer. xterm's serialize
+    // benchmark uses the same _core.writeSync bridge. Keep @xterm/headless on
+    // the 5.x line and cover this adapter with gateway tests.
+    const core = (this.terminal as unknown as { _core?: HeadlessTerminalCore })._core
+    if (!core?.writeSync) throw new Error('xterm headless synchronous core writer is unavailable')
+    return core
+  }
+
+  resetParserState() {
+    this.terminal.reset()
+    if (this.terminal.cols !== this.grid.cols || this.terminal.rows !== this.grid.rows) {
+      this.terminal.resize(Math.max(2, this.grid.cols), Math.max(1, this.grid.rows))
+    }
+    this.syncGrid()
+  }
+
+  feed(chunk: string): ParseResult {
+    if (!chunk) return { ok: true }
+    try {
+      if (this.terminal.cols !== this.grid.cols || this.terminal.rows !== this.grid.rows) {
+        this.terminal.resize(Math.max(2, this.grid.cols), Math.max(1, this.grid.rows))
       }
-      case 'J':
-        this.grid.eraseInDisplay(p0 || 0)
-        return true
-      case 'K':
-        this.grid.eraseInLine(p0 || 0)
-        return true
-      case 'm':
-        return this.handleSgr(params.length ? params : [0])
-      case 'G':
-        this.grid.cursorX = Math.min(this.grid.cols - 1, Math.max(0, (p0 || 1) - 1))
-        return true
-      case 'd':
-        this.grid.cursorY = Math.min(this.grid.rows - 1, Math.max(0, (p0 || 1) - 1))
-        return true
-      default:
-        // ignore unknown CSI rather than fail the whole cell session
-        return true
+      this.getCore().writeSync(chunk)
+      this.syncGrid()
+      return { ok: true }
+    } catch (error) {
+      return {
+        ok: false,
+        unsupported: error instanceof Error ? error.message : 'xterm-headless parse failed',
+      }
     }
   }
-  private handleSgr(params: number[]) {
-    let i = 0
-    while (i < params.length) {
-      const p = params[i] || 0
-      if (p === 0) {
-        this.grid.penAttr = packColorMode(FG_DEFAULT, BG_DEFAULT, 0)
-        this.grid.penFg = 0
-        this.grid.penBg = 0
-      } else if (p === 1) this.grid.penAttr |= ATTR_BOLD
-      else if (p === 2) this.grid.penAttr |= ATTR_DIM
-      else if (p === 3) this.grid.penAttr |= ATTR_ITALIC
-      else if (p === 4) this.grid.penAttr |= ATTR_UNDERLINE
-      else if (p === 7) this.grid.penAttr |= ATTR_INVERSE
-      else if (p === 22) this.grid.penAttr &= ~(ATTR_BOLD | ATTR_DIM)
-      else if (p === 23) this.grid.penAttr &= ~ATTR_ITALIC
-      else if (p === 24) this.grid.penAttr &= ~ATTR_UNDERLINE
-      else if (p === 27) this.grid.penAttr &= ~ATTR_INVERSE
-      else if (p >= 30 && p <= 37) {
-        this.grid.penAttr = packColorMode(FG_INDEXED, getBgMode(this.grid.penAttr), this.grid.penAttr)
-        this.grid.penFg = p - 30
-      } else if (p === 39) {
-        this.grid.penAttr = packColorMode(FG_DEFAULT, getBgMode(this.grid.penAttr), this.grid.penAttr)
-        this.grid.penFg = 0
-      } else if (p >= 40 && p <= 47) {
-        this.grid.penAttr = packColorMode(getFgMode(this.grid.penAttr), BG_INDEXED, this.grid.penAttr)
-        this.grid.penBg = p - 40
-      } else if (p === 49) {
-        this.grid.penAttr = packColorMode(getFgMode(this.grid.penAttr), BG_DEFAULT, this.grid.penAttr)
-        this.grid.penBg = 0
-      } else if (p >= 90 && p <= 97) {
-        this.grid.penAttr = packColorMode(FG_INDEXED, getBgMode(this.grid.penAttr), this.grid.penAttr)
-        this.grid.penFg = p - 90 + 8
-      } else if (p >= 100 && p <= 107) {
-        this.grid.penAttr = packColorMode(getFgMode(this.grid.penAttr), BG_INDEXED, this.grid.penAttr)
-        this.grid.penBg = p - 100 + 8
-      } else if (p === 38 || p === 48) {
-        const isFg = p === 38
-        const mode = params[i + 1] || 0
-        if (mode === 5) {
-          const idx = params[i + 2] || 0
-          if (isFg) {
-            this.grid.penAttr = packColorMode(FG_INDEXED, getBgMode(this.grid.penAttr), this.grid.penAttr)
-            this.grid.penFg = idx & 0xff
-          } else {
-            this.grid.penAttr = packColorMode(getFgMode(this.grid.penAttr), BG_INDEXED, this.grid.penAttr)
-            this.grid.penBg = idx & 0xff
-          }
-          i += 2
-        } else if (mode === 2) {
-          const r = params[i + 2] || 0
-          const g = params[i + 3] || 0
-          const b = params[i + 4] || 0
-          const rgb = ((r & 0xff) << 16) | ((g & 0xff) << 8) | (b & 0xff)
-          if (isFg) {
-            this.grid.penAttr = packColorMode(FG_TRUECOLOR, getBgMode(this.grid.penAttr), this.grid.penAttr)
-            this.grid.penFg = rgb
-          } else {
-            this.grid.penAttr = packColorMode(getFgMode(this.grid.penAttr), BG_TRUECOLOR, this.grid.penAttr)
-            this.grid.penBg = rgb
-          }
-          i += 4
-        } else {
-          // ignore unsupported color forms
+
+  dispose() {
+    this.terminal.dispose()
+  }
+
+  private syncGrid() {
+    const buffer = this.terminal.buffer.active
+    const cols = this.grid.cols
+    const rows = this.grid.rows
+    const cells = Array.from({ length: cols * rows }, () => emptyCell())
+    const reusableCell = buffer.getNullCell() as BufferCellLike
+
+    for (let y = 0; y < rows; y++) {
+      const line = buffer.getLine(buffer.viewportY + y)
+      if (!line) continue
+      for (let x = 0; x < cols; x++) {
+        const cell = line.getCell(x, reusableCell as any) as BufferCellLike | undefined
+        if (!cell) continue
+
+        const attr = getAttr(cell)
+        const fg = cell.isFgDefault() ? 0 : cell.getFgColor()
+        const bg = cell.isBgDefault() ? 0 : cell.getBgColor()
+        if (cell.getWidth() === 0) {
+          cells[y * cols + x] = { cp: WIDE_CONT, attr, fg, bg }
+          continue
         }
-      } else if (p !== 0) {
-        // ignore mild unknown sgr rather than fail hard for common reset-like values
+
+        const chars = cell.getChars()
+        const cp = cell.getCode() || chars.codePointAt(0) || 0x20
+        cells[y * cols + x] = { cp, attr, fg, bg }
       }
-      i++
     }
-    return true
+
+    this.grid.cells = cells
+    this.grid.cursorX = Math.max(0, Math.min(cols - 1, buffer.cursorX))
+    this.grid.cursorY = Math.max(0, Math.min(rows - 1, buffer.cursorY))
+    this.grid.penAttr = 0
+    this.grid.penFg = 0
+    this.grid.penBg = 0
   }
 }
