@@ -656,7 +656,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       </div>
       {!isMobile && preferences.showStatusBar && <StatusBar />}
       {isMobile && (
-        <div data-mobile-dock className="tmuxgo-glass tmuxgo-mobile-dock mobile-nav-landscape-hide relative z-40 w-auto shrink-0 shadow-[0_-8px_24px_rgba(0,0,0,0.28)]">
+        <div data-mobile-dock className="tmuxgo-glass tmuxgo-mobile-dock mobile-nav-landscape-hide relative z-40 w-auto shrink-0">
           {mobileQuickSessions.length > 0 && (
             <div className="tmuxgo-mobile-session-strip border-b px-2 pb-1 pt-1.5">
               <div className="flex gap-1 overflow-x-auto scrollbar-none">

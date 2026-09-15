@@ -59,7 +59,7 @@ export function TerminalSearch({ terminal, onClose }: TerminalSearchProps) {
   }
 
   return (
-    <div className="absolute top-2 right-2 z-50 bg-bg-1 border border-[var(--line)] rounded-apple shadow-lg p-2 flex items-center gap-2" onKeyDown={(e) => {
+    <div className="absolute top-2 right-2 z-50 bg-bg-1 border border-[var(--line)] rounded-apple p-2 flex items-center gap-2" onKeyDown={(e) => {
       if (e.key === 'Escape') {
         e.preventDefault()
         e.stopPropagation()

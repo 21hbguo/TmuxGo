@@ -380,9 +380,9 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
                 sessions={sessions}
                 onMove={moveSession}
                 listClassName="space-y-2"
-                getItemClassName={({ session, isDragging, isOverlay }) => `tmuxgo-list-row rounded-apple ${batchMode ? selectedSessionIds.includes(session.id) ? 'tmuxgo-list-row--batch' : '' : ''} ${isDragging && !isOverlay ? 'opacity-40' : ''} ${isOverlay ? 'shadow-[0_20px_48px_rgba(0,0,0,0.42)]' : ''}`}
+                getItemClassName={({ session, isDragging, isOverlay }) => `tmuxgo-list-row rounded-apple ${batchMode ? selectedSessionIds.includes(session.id) ? 'tmuxgo-list-row--batch' : '' : ''} ${isDragging && !isOverlay ? 'opacity-40' : ''}`}
                 renderItem={({ session, isOverlay }) => (
-                  <div className={`tmuxgo-list-row flex items-center gap-2 rounded-apple border p-2 ${batchMode ? selectedSessionIds.includes(session.id) ? 'tmuxgo-list-row--batch' : 'border-transparent bg-bg-2' : activeSessionId === session.id ? 'tmuxgo-list-row--active' : 'border-transparent bg-bg-2'} ${isOverlay ? 'border-accent bg-bg-1 shadow-[0_20px_48px_rgba(0,0,0,0.42)]' : ''}`}>
+                  <div className={`tmuxgo-list-row flex items-center gap-2 rounded-apple border p-2 ${batchMode ? selectedSessionIds.includes(session.id) ? 'tmuxgo-list-row--batch' : 'border-transparent bg-bg-2' : activeSessionId === session.id ? 'tmuxgo-list-row--active' : 'border-transparent bg-bg-2'} ${isOverlay ? 'border-accent bg-bg-1' : ''}`}>
                     {batchMode && <button onClick={() => toggleBatchSession(session.id)} className={`flex h-9 w-7 shrink-0 items-center justify-center rounded-apple text-sm leading-none ${selectedSessionIds.includes(session.id) ? 'text-danger' : 'text-text-3'} active:bg-bg-1`}>{selectedSessionIds.includes(session.id) ? '☑' : '☐'}</button>}
                     <button onClick={() => {
                       if (batchMode) {
