@@ -1,4 +1,5 @@
 import xtermHeadlessDefault, * as xtermHeadlessNs from '@xterm/headless'
+import { Unicode11Addon } from '@xterm/addon-unicode11'
 
 const { Terminal } = 'Terminal' in xtermHeadlessNs ? xtermHeadlessNs : xtermHeadlessDefault
 import {
@@ -77,13 +78,16 @@ export class AnsiParser {
   }
 
   private createTerminal() {
-    return new Terminal({
+    const terminal = new Terminal({
       cols: Math.max(2, this.grid.cols),
       rows: Math.max(1, this.grid.rows),
       scrollback: 0,
       allowProposedApi: true,
       logLevel: 'off',
     })
+    terminal.loadAddon(new Unicode11Addon())
+    terminal.unicode.activeVersion = '11'
+    return terminal
   }
 
   private getCore() {

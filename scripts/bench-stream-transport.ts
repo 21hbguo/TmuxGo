@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync } from 'fs'
 import { join } from 'path'
 import { encodeStreamOutputBinary } from '../apps/gateway/src/lib/stream-binary.ts'
-import { AnsiParser, TerminalGrid, encodeCellSnapshot, encodeCellDiff, diffCells } from '../apps/gateway/src/lib/terminal-grid/index.ts'
+import { AnsiParser, TerminalGrid, encodeCellSnapshotV2, encodeCellDiffV2, diffCells } from '../apps/gateway/src/lib/terminal-grid/index.ts'
 
 const dir = join('tests/fixtures/terminal-streams')
 for (const file of readdirSync(dir).sort()) {
@@ -13,12 +13,12 @@ for (const file of readdirSync(dir).sort()) {
   const parser = new AnsiParser(grid)
   const ok = parser.feed(text).ok
   grid.seq = 1
-  const snap = ok ? encodeCellSnapshot(grid) : Buffer.alloc(0)
+  const snap = ok ? encodeCellSnapshotV2(grid) : Buffer.alloc(0)
   const prev = grid.cloneCells()
   parser.feed(text)
   grid.seq = 2
   const changes = diffCells(prev, grid.cells, grid.cols, grid.rows)
-  const diff = encodeCellDiff(2, 1, grid.cursorX, grid.cursorY, 0, changes)
+  const diff = encodeCellDiffV2(2, 1, grid.cursorX, grid.cursorY, 0, changes)
   const ratio = plain.length ? (gzip.length / plain.length) : 1
   console.log(JSON.stringify({
     file,

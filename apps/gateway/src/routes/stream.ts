@@ -13,7 +13,7 @@ import { ingestAgentEvent } from '../lib/agent-events.js'
 import { markAgentPaneSeen } from '../lib/agent-state.js'
 import { streamAttachMessageSchema, streamInputMessageSchema, streamMessageSchema, streamRegisterMessageSchema, streamResizeMessageSchema } from '../lib/request-validation.js'
 import { encodeStreamCellBinary, encodeStreamOutputBinary } from '../lib/stream-binary.js'
-import { AnsiParser, TerminalGrid, diffCells, encodeCellDiff, encodeCellSnapshot, wcwidth } from '../lib/terminal-grid/index.js'
+import { AnsiParser, TerminalGrid, diffCells, encodeCellDiffV2, encodeCellSnapshotV2 } from '../lib/terminal-grid/index.js'
 import { consumeWebSocketTicket, isAuthEnabled } from '../lib/auth.js'
 import { shareLinkStore, type ShareTicket } from '../lib/share-links.js'
 
@@ -219,11 +219,11 @@ export async function streamRoutes(fastify: FastifyInstance) {
         return false
       }
     }
-    function sendCellFrame(type: 'cell_snapshot' | 'cell_diff', payload: Buffer, sessionName: string, hostId: string) {
+    function sendCellFrame(type: 'cell_snapshot_v2' | 'cell_diff_v2', payload: Buffer, sessionName: string, hostId: string) {
       if (socket.readyState !== 1 || !binaryOutputEnabled || !cellOutputEnabled) return false
       try {
         getSocketBufferedBytes()
-        const useGzip = compressOutputEnabled && type === 'cell_snapshot'
+        const useGzip = compressOutputEnabled && type === 'cell_snapshot_v2'
         const frame = encodeStreamCellBinary(type, hostId, sessionName, payload, {
           compress: useGzip,
           threshold: STREAM_COMPRESS_THRESHOLD,
@@ -267,12 +267,12 @@ export async function streamRoutes(fastify: FastifyInstance) {
       recordStreamMetric('cellDirtyCells', kind === 'output_resync' ? total : changes.length)
       let ok = false
       if (kind === 'output_resync' || dirtyRatio >= CELL_DIRTY_RATIO_SNAPSHOT || cellBaseSeq === 0) {
-        const payload = encodeCellSnapshot(cellGrid)
-        ok = sendCellFrame('cell_snapshot', payload, sessionName, hostId)
+        const payload = encodeCellSnapshotV2(cellGrid)
+        ok = sendCellFrame('cell_snapshot_v2', payload, sessionName, hostId)
         if (ok) recordStreamMetric('cellSnapshots')
       } else {
-        const payload = encodeCellDiff(cellGrid.seq, cellBaseSeq, cellGrid.cursorX, cellGrid.cursorY, cellGrid.flags, changes)
-        ok = sendCellFrame('cell_diff', payload, sessionName, hostId)
+        const payload = encodeCellDiffV2(cellGrid.seq, cellBaseSeq, cellGrid.cursorX, cellGrid.cursorY, cellGrid.flags, changes)
+        ok = sendCellFrame('cell_diff_v2', payload, sessionName, hostId)
         if (ok) recordStreamMetric('cellDiffs')
       }
       if (!ok) return false
@@ -423,19 +423,12 @@ export async function streamRoutes(fastify: FastifyInstance) {
         remaining -= step
       }
     }
-    const SNAPSHOT_ANSI_REGEX = /\u001b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\u001b\\))/g
-    function snapshotLineWidth(line: string) {
-      let width = 0
-      for (const ch of line.replace(SNAPSHOT_ANSI_REGEX, '')) width += Math.max(1, wcwidth(ch.codePointAt(0) || 0))
-      return width
-    }
     function buildPaneSnapshot(content: string, left: number, top: number, width: number, height: number) {
       const lines = content.replace(/\r/g, '').split('\n')
       const parts: string[] = []
       for (let row = 0; row < height; row++) {
         const line = lines[row] || ''
-        const pad = Math.max(0, width - snapshotLineWidth(line))
-        parts.push(`\u001b[${top + row + 1};${left + 1}H${line}\u001b[0m${pad > 0 ? `\u001b[${pad}X` : ''}`)
+        parts.push(`\u001b[${top + row + 1};${left + 1}H${line}\u001b[0m\u001b[K`)
       }
       return parts.join('')
     }
@@ -449,6 +442,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
         const height = Number(heightRaw)
         return { paneId, left: Number.isFinite(left) ? left : 0, top: Number.isFinite(top) ? top : 0, width: Number.isFinite(width) ? width : 0, height: Number.isFinite(height) ? height : 0 }
       })
+      panes.sort((a, b) => a.left - b.left || a.top - b.top)
       const parts: string[] = []
       for (const pane of panes) {
         if (!pane.paneId || pane.width <= 0 || pane.height <= 0) continue
