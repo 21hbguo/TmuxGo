@@ -150,7 +150,8 @@ export const en = {
   'settings.about': 'About',
   'settings.performance': 'Performance',
   'settings.performanceTitle': 'System Performance Health',
-  'settings.performanceDesc': 'Refreshes only while this tab is open. Resources and stream metrics are shown as cards; key metrics include ~1 minute history curves.',
+  'settings.performanceDesc':
+    'Refreshes only while this tab is open. Resources and stream metrics are shown as cards; key metrics include ~1 minute history curves.',
   'settings.performanceHost': 'Host',
   'settings.performanceRefresh': 'Refresh now',
   'settings.performanceUpdated': 'Updated',
@@ -368,7 +369,8 @@ export const en = {
   'settings.theme.nord': 'Nord',
   'settings.theme.catppuccin': 'Catppuccin',
   'settings.immersiveFullscreen': 'Fullscreen mode',
-  'settings.immersiveFullscreenDesc': 'Browser fullscreen immersion. Phones show a draggable back orb (tap to go back without leaving fullscreen); system back still exits fullscreen first.',
+  'settings.immersiveFullscreenDesc':
+    'Browser fullscreen immersion. Phones show a draggable back orb (tap to go back without leaving fullscreen); system back still exits fullscreen first.',
   'settings.immersiveFullscreenFailed': 'Fullscreen is unsupported or was blocked by the browser',
   'settings.layout': 'Layout',
   'settings.sidebarPosition': 'Sidebar position',
@@ -396,7 +398,8 @@ export const en = {
   'settings.aboutLoadFailed': 'Failed to load version info',
   'settings.aboutUpdateBehind': 'Update available ({count} commits behind)',
   'settings.updateTitle': 'App Update',
-  'settings.updateDesc': 'Pull the latest code from the remote repository, rebuild and restart services automatically. tmux sessions are preserved.',
+  'settings.updateDesc':
+    'Pull the latest code from the remote repository, rebuild and restart services automatically. tmux sessions are preserved.',
   'settings.updateAction': 'Update Now',
   'settings.updateCheck': 'Check for Updates',
   'settings.updateChecking': 'Checking',
@@ -405,7 +408,8 @@ export const en = {
   'settings.updateStatus': 'Update Status',
   'settings.updateDirty': 'Uncommitted local changes detected; the update may fail',
   'settings.updateConfirmTitle': 'Update TmuxGo?',
-  'settings.updateConfirmMessage': 'This pulls the latest code, rebuilds, and restarts services. Connections will briefly drop and recover automatically.',
+  'settings.updateConfirmMessage':
+    'This pulls the latest code, rebuilds, and restarts services. Connections will briefly drop and recover automatically.',
   'settings.updateSuccess': 'Already up to date',
   'settings.updateReloading': 'Update complete, refreshing…',
   'settings.updateFailed': 'Update failed',
@@ -418,7 +422,8 @@ export const en = {
   'settings.restartStatusSuccess': 'Success',
   'settings.restartStatusFailed': 'Failed',
   'settings.restartConfirmTitle': 'Restart TmuxGo services?',
-  'settings.restartConfirmMessage': 'This will run restart + rebuild for frontend and gateway without touching tmux or the agent.',
+  'settings.restartConfirmMessage':
+    'This will run restart + rebuild for frontend and gateway without touching tmux or the agent.',
   'settings.restartSuccess': 'Restart + rebuild completed',
   'settings.restartFailed': 'Restart + rebuild failed',
   'tasks.title': 'Tasks',
@@ -452,7 +457,8 @@ export const en = {
   'plugins.rollback': 'Rollback',
   'plugins.rolledBack': 'Rolled back {name}',
   'plugins.installed': 'Installed {name}',
-  'plugins.trustWarning': 'Build commands and plugin actions run as the current system user. Verify the source and commands before installing.',
+  'plugins.trustWarning':
+    'Build commands and plugin actions run as the current system user. Verify the source and commands before installing.',
   'plugins.installedTitle': 'Installed Plugins',
   'plugins.installedCount': '{count} plugins',
   'plugins.empty': 'No plugins installed',
@@ -628,6 +634,7 @@ export const en = {
   'pane.closed': 'Pane closed',
   'pane.closeFailed': 'Close failed',
   'pane.zoomFailed': 'Zoom failed',
+  'pane.switchFailed': 'Failed to switch pane',
   'pane.noActive': 'No active pane available',
   'githubAuth.title': 'GitHub login',
   'githubAuth.desc': 'Open GitHub device login and enter this code.',
@@ -755,7 +762,8 @@ export const en = {
   'file.mobileEdit': 'Edit',
   'file.mobileEditExit': 'Exit editing',
   'file.mobileEditConfirmTitle': 'Enter edit mode?',
-  'file.mobileEditConfirmMessage': 'In edit mode, taps or scrolling may modify the file. Be careful not to edit by accident.',
+  'file.mobileEditConfirmMessage':
+    'In edit mode, taps or scrolling may modify the file. Be careful not to edit by accident.',
   'file.mobileEditExitTitle': 'Unsaved changes',
   'file.mobileEditExitMessage': 'Exiting now will discard unsaved changes.',
   'file.mobileEditDiscard': 'Discard and exit',

@@ -6,7 +6,8 @@ import { useWebSocket } from '@/hooks/useWebSocket'
 import { useTranslation } from '@/i18n'
 import { usePreferences } from '@/hooks/usePreferences'
 import { isMobileDevice } from '@/hooks/useMobileKeyboard'
-import { useWindows } from '@/hooks/useApi'
+import { useSessionSnapshot, useWindows } from '@/hooks/useApi'
+import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import { useWindowQueryState } from '@/hooks/useWindowQueryState'
 import { api } from '@/lib/api'
 import { parseSessionName } from '@/lib/session-id'
@@ -68,9 +69,12 @@ export function PaneGrid({
   const { syncAfterWindowChange } = useSessionSnapshotSync()
   const pushToast = useConsoleStore((s) => s.pushToast)
   const setActiveSession = useConsoleStore((s) => s.setActiveSession)
+  const setActivePane = useConsoleStore((s) => s.setActivePane)
   const sessionId = controlledSessionId === undefined ? activeSessionId : controlledSessionId
   const isControlled = controlledSessionId !== undefined
+  const { data: orderedSessions = [] } = useOrderedSessions(activeHostId || '')
   const { data: windowsData = [] } = useWindows(activeHostId || '', sessionId || '')
+  const { data: snapshotData } = useSessionSnapshot(activeHostId || '', sessionId || '')
   const { getWindows, setWindows } = useWindowQueryState(activeHostId || '', sessionId || '')
   const exclusive = shared ? false : !isMobile || preferences.attachExclusive
   const attachedRef = useRef<string | null>(null)
@@ -106,10 +110,25 @@ export function PaneGrid({
     [windowsData, sessionId],
   )
   const activeWindowIndex = useMemo(() => sessionWindows.findIndex((w: any) => w.active), [sessionWindows])
+  const navLockRef = useRef(0)
+  const switchSession = useCallback(
+    (direction: -1 | 1) => {
+      if (!sessionId || orderedSessions.length <= 1) return
+      const currentIndex = orderedSessions.findIndex((item: any) => item.id === sessionId)
+      if (currentIndex < 0) return
+      const next = orderedSessions[(currentIndex + direction + orderedSessions.length) % orderedSessions.length]
+      if (next && next.id !== sessionId) setActiveSession(next.id)
+    },
+    [orderedSessions, sessionId, setActiveSession],
+  )
   const switchWindow = useCallback(
     async (direction: -1 | 1) => {
-      if (!activeHostId || !sessionId || sessionWindows.length <= 1) return
-      const nextIndex = (activeWindowIndex + direction + sessionWindows.length) % sessionWindows.length
+      if (!activeHostId || !sessionId || sessionWindows.length === 0) return
+      const nextIndex = activeWindowIndex + direction
+      if (nextIndex < 0 || nextIndex >= sessionWindows.length) {
+        switchSession(direction)
+        return
+      }
       const targetWindow = sessionWindows[nextIndex]
       if (!targetWindow) return
       const previousWindows = getWindows()
@@ -130,6 +149,7 @@ export function PaneGrid({
       sessionId,
       sessionWindows,
       activeWindowIndex,
+      switchSession,
       getWindows,
       setWindows,
       pushToast,
@@ -137,12 +157,66 @@ export function PaneGrid({
       t,
     ],
   )
+  const activeWindow = sessionWindows.find((item: any) => item.active) || sessionWindows[0] || null
+  const activeWindowZoomed = useMemo(() => {
+    const snapshotWindows = Array.isArray((snapshotData as any)?.windows) ? (snapshotData as any).windows : []
+    const snapshotWindow =
+      snapshotWindows.find((w: any) => w.id === (snapshotData as any)?.activeWindowId) ||
+      snapshotWindows.find((w: any) => w.id === activeWindow?.id)
+    if (snapshotWindow) return Boolean(snapshotWindow.zoomed)
+    return Boolean(activeWindow?.zoomed)
+  }, [snapshotData, activeWindow])
+  const zoomedPaneCount = useMemo(() => {
+    if (!activeWindowZoomed || !activeWindow) return 0
+    const panes = Array.isArray((snapshotData as any)?.panes) ? (snapshotData as any).panes : []
+    return panes.filter((pane: any) => pane.windowId === activeWindow.id).length
+  }, [activeWindowZoomed, activeWindow, snapshotData])
+  const switchPane = useCallback(
+    async (direction: -1 | 1) => {
+      const panes = Array.isArray((snapshotData as any)?.panes) ? (snapshotData as any).panes : []
+      const windowId = (snapshotData as any)?.activeWindowId || activeWindow?.id || ''
+      const windowPanes = panes
+        .filter((pane: any) => pane.windowId === windowId)
+        .sort((a: any, b: any) => (a.index ?? 0) - (b.index ?? 0))
+      if (windowPanes.length <= 1) return
+      const currentPaneId = String((snapshotData as any)?.activePaneId || useConsoleStore.getState().activePaneId || '')
+      const currentIndex = Math.max(
+        0,
+        windowPanes.findIndex((pane: any) => pane.id === currentPaneId),
+      )
+      const next = windowPanes[(currentIndex + direction + windowPanes.length) % windowPanes.length]
+      if (!next || next.id === currentPaneId) return
+      setActivePane(next.id)
+      try {
+        const result = await api.panes.select(next.id)
+        if (result?.ok === false) throw new Error(result.error || 'select pane failed')
+        void queryClient?.invalidateQueries({
+          queryKey: ['session-snapshot', activeHostId || 'local', sessionId || ''],
+        })
+      } catch {
+        pushToast({ type: 'error', message: t('pane.switchFailed') })
+      }
+    },
+    [snapshotData, activeWindow, setActivePane, queryClient, activeHostId, sessionId, pushToast, t],
+  )
+  const handleSwipe = useCallback(
+    (direction: -1 | 1) => {
+      const now = Date.now()
+      if (now - navLockRef.current < 400) return
+      navLockRef.current = now
+      if (activeWindowZoomed && zoomedPaneCount > 1) void switchPane(direction)
+      else void switchWindow(direction)
+    },
+    [activeWindowZoomed, zoomedPaneCount, switchPane, switchWindow],
+  )
   const handleSwipeLeft = useCallback(() => {
-    void switchWindow(1)
-  }, [switchWindow])
+    handleSwipe(1)
+  }, [handleSwipe])
   const handleSwipeRight = useCallback(() => {
-    void switchWindow(-1)
-  }, [switchWindow])
+    handleSwipe(-1)
+  }, [handleSwipe])
+  const swipeNavReady =
+    sessionWindows.length > 1 || orderedSessions.length > 1 || (activeWindowZoomed && zoomedPaneCount > 1)
 
   const sendResizeNow = useCallback(
     (size: { cols: number; rows: number }) => {
@@ -637,8 +711,8 @@ export function PaneGrid({
         onReady={handleReady}
         subscribeOutput={subscribeOutput}
         send={send}
-        onSwipeLeft={!isControlled && sessionWindows.length > 1 ? handleSwipeLeft : undefined}
-        onSwipeRight={!isControlled && sessionWindows.length > 1 ? handleSwipeRight : undefined}
+        onSwipeLeft={!isControlled && swipeNavReady ? handleSwipeLeft : undefined}
+        onSwipeRight={!isControlled && swipeNavReady ? handleSwipeRight : undefined}
       />
     </div>
   )
