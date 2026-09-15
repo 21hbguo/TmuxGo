@@ -1,4 +1,4 @@
-name: Refresh headless lockfiles
+name: Validate headless cell parser
 
 on:
   push:
@@ -8,12 +8,8 @@ on:
     branches:
       - master
 
-permissions:
-  contents: write
-
 jobs:
-  refresh-lockfiles:
-    if: github.actor != 'github-actions[bot]'
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,17 +22,9 @@ jobs:
         run: |
           corepack enable
           corepack prepare pnpm@11.7.0 --activate
-      - name: Refresh pnpm lockfile
-        run: pnpm install --lockfile-only --no-frozen-lockfile
-      - name: Refresh npm lockfile
-        run: npm install --package-lock-only --ignore-scripts
-      - name: Commit lockfiles
-        run: |
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add pnpm-lock.yaml package-lock.json
-          if git diff --cached --quiet; then
-            exit 0
-          fi
-          git commit -m "build: refresh lockfiles for xterm headless"
-          git push
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Run terminal transport tests
+        run: pnpm exec tsx --test tests/terminal-grid.test.ts tests/stream-binary.test.ts
+      - name: Build gateway
+        run: pnpm --filter gateway build
