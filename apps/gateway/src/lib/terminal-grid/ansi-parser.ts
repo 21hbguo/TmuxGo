@@ -31,11 +31,11 @@ type BufferCellLike = {
   isBgDefault: () => boolean
   isBgPalette: () => boolean
   isBgRGB: () => boolean
-  isBold: () => boolean
-  isDim: () => boolean
-  isItalic: () => boolean
-  isUnderline: () => boolean
-  isInverse: () => boolean
+  isBold: () => number
+  isDim: () => number
+  isItalic: () => number
+  isUnderline: () => number
+  isInverse: () => number
 }
 
 type HeadlessTerminalCore = {
