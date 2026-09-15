@@ -64,16 +64,6 @@ function getAttr(cell: BufferCellLike) {
   return packColorMode(getFgMode(cell), getBgMode(cell), attr)
 }
 
-/**
- * Cell-mode terminal state backed by xterm's VT implementation.
- *
- * The old implementation duplicated a small subset of VT/ANSI behavior in
- * this repository. That was sufficient for the original MVP, but it could
- * drift from the browser xterm state on alternate-screen, scrolling,
- * autowrap and other real-world terminal sequences. The public AnsiParser
- * shape is kept so the existing cell transport does not need a protocol or
- * routing rewrite; parsing authority now belongs to @xterm/headless.
- */
 export class AnsiParser {
   grid: TerminalGrid
   private terminal: Terminal
@@ -95,11 +85,6 @@ export class AnsiParser {
   }
 
   private getCore() {
-    // @xterm/headless intentionally exposes writes asynchronously at the public
-    // API. Cell transport needs the parsed buffer in the same gateway flush, so
-    // we use xterm's own synchronous CoreTerminal writer. xterm's serialize
-    // benchmark uses the same _core.writeSync bridge. Keep @xterm/headless on
-    // the 5.x line and cover this adapter with gateway tests.
     const core = (this.terminal as unknown as { _core?: HeadlessTerminalCore })._core
     if (!core?.writeSync) throw new Error('xterm headless synchronous core writer is unavailable')
     return core
@@ -151,14 +136,17 @@ export class AnsiParser {
         const attr = getAttr(cell)
         const fg = cell.isFgDefault() ? 0 : cell.getFgColor()
         const bg = cell.isBgDefault() ? 0 : cell.getBgColor()
-        if (cell.getWidth() === 0) {
-          cells[y * cols + x] = { cp: WIDE_CONT, attr, fg, bg }
+        const width = cell.getWidth()
+        if (width === 0) {
+          cells[y * cols + x] = { cp: WIDE_CONT, text: '', width: 0, attr, fg, bg }
           continue
         }
 
         const chars = cell.getChars()
-        const cp = cell.getCode() || chars.codePointAt(0) || 0x20
-        cells[y * cols + x] = { cp, attr, fg, bg }
+        const fallbackCp = cell.getCode() || 0x20
+        const text = chars || String.fromCodePoint(fallbackCp)
+        const cp = text.codePointAt(0) || fallbackCp
+        cells[y * cols + x] = { cp, text, width, attr, fg, bg }
       }
     }
 
