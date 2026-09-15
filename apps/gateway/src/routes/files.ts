@@ -1,1330 +1,76 @@
 import type { FastifyInstance } from 'fastify'
 import { randomUUID } from 'crypto'
-import { emitPluginEvent } from '../lib/plugin-manager.js'
 import { createReadStream, createWriteStream } from 'fs'
-import { cp, mkdir, opendir, readFile, realpath, rename, rm, stat, unlink, writeFile } from 'fs/promises'
-import { execFile, spawn } from 'child_process'
-import os from 'os'
+import { mkdir, stat } from 'fs/promises'
 import path from 'path'
-import { Transform } from 'stream'
 import { pipeline } from 'stream/promises'
-import { promisify } from 'util'
-import { fileURLToPath } from 'url'
-import { assertTargetAllowed } from '../lib/tmux-policy.js'
-import { readFile as readPreferencesFile } from 'fs/promises'
-import { fileContentBodySchema, fileEntryBodySchema, fileRemoveQuerySchema, fileRestoreBodySchema, fileTransferBodySchema, fileTrashBodySchema, hostParamsSchema } from '../lib/request-validation.js'
-import { getBreadcrumbs, isDotPath, isLikelyBinary, isPathInside, normalizeRelativePath, sanitizePathSegment } from '../lib/file-path.js'
-import { getRemoteFileHost, normalizeRemoteFileErrorMessage, quoteRemoteFileShellValue, runRemoteFilePython, spawnRemoteFileCommand } from '../lib/remote-file-command.js'
-import { taskManager, type TaskExecutionContext, type TaskManager } from '../lib/task-manager.js'
-import { agentManager } from '../agent-manager.js'
-
-const execFileAsync = promisify(execFile)
-const defaultRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..')
-const PREVIEW_LIMIT = 200 * 1024
-const LARGE_FILE_LIMIT = 512 * 1024
-const MAX_DIRS = 50000
-const MAX_FILES = 300000
-const MAX_RESULTS = 200
-const MAX_READ_LINES = 1200
-const DEFAULT_UPLOAD_DIR = 'uploads'
-const DEFAULT_UPLOAD_RATE_LIMIT_KBPS = 5120
-const MAX_UPLOAD_RATE_LIMIT_KBPS = 10 * 1024
-const SEARCH_MATCH_LIMIT = 3
-const RG_MAX_BUFFER = 16 * 1024 * 1024
-const GIT_REPOSITORY_MAX_DEPTH = 6
-const GIT_REPOSITORY_MAX_DIRS = 12000
-const GIT_REPOSITORY_MAX_RESULTS = 200
-const GIT_REPOSITORY_SKIP_DIRS = new Set(['.cache', '.local', '.npm', '.next', '.next-dev', '.next-prod', '.venv', '__pycache__', 'build', 'dist', 'node_modules', 'postgres_data', 'venv'])
-const FILE_SEARCH_SKIP_DIRS = new Set([...GIT_REPOSITORY_SKIP_DIRS, '.git', '.hg', '.pnpm-store', '.svn', 'Library', 'coverage', 'target', 'vendor'])
-export const TEMP_UPLOAD_ROOT_ID = 'app-tmp'
-const TEMP_UPLOAD_ROOT_LABEL = 'tmp'
-const DEFAULT_TEMP_UPLOAD_TTL_MS = 24 * 60 * 60 * 1000
-const DEFAULT_TEMP_UPLOAD_CLEANUP_INTERVAL_MS = 60 * 60 * 1000
-const DEFAULT_DOWNLOAD_ARTIFACT_TTL_MS = 24 * 60 * 60 * 1000
-const DEFAULT_DOWNLOAD_ARTIFACT_CLEANUP_INTERVAL_MS = 60 * 60 * 1000
-const DEFAULT_DOWNLOAD_ARTIFACT_MAX_COUNT = 100
-const DEFAULT_DOWNLOAD_ARTIFACT_MAX_BYTES = 1024 * 1024 * 1024
-const homeRoot = os.homedir()
-const rootSpec = process.env.TMUX_WEB_FILE_ROOTS || `workspace=${defaultRoot}${path.delimiter}home=${homeRoot}`
-const IMAGE_MIME_BY_EXT: Record<string, string> = {
-  '.avif': 'image/avif',
-  '.bmp': 'image/bmp',
-  '.gif': 'image/gif',
-  '.ico': 'image/x-icon',
-  '.jpeg': 'image/jpeg',
-  '.jpg': 'image/jpeg',
-  '.png': 'image/png',
-  '.tif': 'image/tiff',
-  '.tiff': 'image/tiff',
-  '.webp': 'image/webp',
-}
-
-interface FileRoot {
-  id: string
-  label: string
-  path: string
-}
-interface FileItem {
-  name: string
-  path: string
-  type: 'file' | 'directory'
-  size: number
-  modifiedAt: string
-  mode?: number
-}
-interface SearchMatchLine {
-  number: number
-  content: string
-}
-interface ContentSearchResult extends FileItem {
-  matches: SearchMatchLine[]
-}
-interface TrashEntry {
-  id: string
-  rootId: string
-  path: string
-  name: string
-  type: 'file' | 'directory'
-  deletedAt: string
-}
-interface StagedUploadFile {
-  name: string
-  stagedPath: string
-  size: number
-  destination?: { name: string; path: string; absolutePath: string }
-  uploaded?: { name: string; path: string; absolutePath: string; size: number }
-}
-interface BackgroundUploadInput {
-  hostId: string
-  targetRootId: string
-  targetPath: string
-  conflictPolicy: string
-  rateLimitKBps: number
-  files: StagedUploadFile[]
-}
-interface BackgroundDownloadInput {
-  hostId: string
-  rootId: string
-  path: string
-  rateLimitKBps: number
-  artifactId: string
-  downloadedBytes?: number
-  sourceSize?: number
-  sourceModifiedAt?: string
-}
-export interface GitRepositoryInfo {
-  path: string
-  label: string
-}
-
-let rootsCache: Promise<FileRoot[]> | null = null
-let tempUploadCleanupTimer: NodeJS.Timeout | null = null
-let downloadArtifactCleanupTimer: NodeJS.Timeout | null = null
-let downloadArtifactCleanupManager: TaskManager = taskManager
-async function getRoots() {
-  if (!rootsCache) {
-    rootsCache = Promise.all(rootSpec.split(path.delimiter).map((entry) => entry.trim()).filter(Boolean).map(async (entry, index) => {
-      const [labelRaw, pathRaw] = entry.includes('=') ? entry.split(/=(.*)/s).filter(Boolean) : ['', entry]
-      const resolved = await realpath(path.resolve(pathRaw))
-      return { id: `root-${index}`, label: labelRaw || path.basename(resolved) || resolved, path: resolved }
-    }))
-  }
-  return rootsCache
-}
-const REMOTE_FILE_SCRIPT = `import base64,datetime,json,os,pathlib,shutil,sys,urllib.parse
-PREVIEW_LIMIT=200*1024
-LARGE_FILE_LIMIT=512*1024
-MAX_RESULTS=200
-MAX_READ_LINES=1200
-SEARCH_MATCH_LIMIT=3
-DEFAULT_UPLOAD_DIR='uploads'
-payload=json.loads(base64.b64decode(sys.argv[1]).decode())
-def iso(ts):
- return datetime.datetime.fromtimestamp(ts,datetime.timezone.utc).isoformat(timespec='milliseconds').replace('+00:00','Z')
-def root_spec():
- return os.environ.get('TMUX_WEB_FILE_ROOTS') or f"workspace={os.getcwd()}{os.pathsep}home={os.path.expanduser('~')}"
-def roots():
- out=[]
- for i,entry in enumerate([e.strip() for e in root_spec().split(os.pathsep) if e.strip()]):
-  if '=' in entry: label,p=entry.split('=',1)
-  else: label,p='',entry
-  resolved=str(pathlib.Path(p).expanduser().resolve())
-  out.append({'id':f'root-{i}','label':label or pathlib.Path(resolved).name or resolved,'path':resolved})
- return out
-def norm_rel(value=''):
- return '/'.join([part for part in str(value).replace('\\\\','/').split('/') if part and part!='.'])
-def get_root(root_id):
- if isinstance(root_id,str) and root_id.startswith('git:'):
-  try: p=urllib.parse.unquote(root_id[4:])
-  except: raise Exception('Invalid root')
-  if not p: raise Exception('Invalid root')
-  base=str(pathlib.Path(p).resolve())
-  return {'id':root_id,'label':pathlib.Path(base).name or base,'path':base}
- for item in roots():
-  if item['id']==root_id: return item
- raise Exception('Invalid root')
-def resolve_inside(root_id, rel=''):
- root=get_root(root_id)
- base=pathlib.Path(root['path']).resolve()
- target=(base / norm_rel(rel)).resolve()
- if str(target)!=str(base) and str(target)[:len(str(base))+1]!=str(base)+os.sep: raise Exception('Path escapes root')
- return root,str(target),norm_rel(os.path.relpath(str(target),str(base)))
-def is_binary(data):
- return b'\\0' in data[:min(len(data),4096)]
-def file_item(root_path, abs_path, name):
- st=os.stat(abs_path)
- return {'name':name,'path':norm_rel(os.path.relpath(abs_path,root_path)),'type':'directory' if pathlib.Path(abs_path).is_dir() else 'file','size':st.st_size,'modifiedAt':iso(st.st_mtime),'mode':st.st_mode & 0o7777}
-def breadcrumbs(rel):
- parts=[p for p in rel.split('/') if p]
- out=[{'name':'/','path':''}]
- for i,name in enumerate(parts): out.append({'name':name,'path':'/'.join(parts[:i+1])})
- return out
-include_dotfiles=payload.get('includeDotFiles',True)
-if isinstance(include_dotfiles,str): include_dotfiles=include_dotfiles.lower()!='false'
-op=payload['op']
-if op=='roots':
- print(json.dumps(roots()));sys.exit(0)
-if op=='trash-list':
- trash=pathlib.Path.home()/'.tmuxgo'/'trash';items=[]
- if trash.exists():
-  for item in trash.iterdir():
-   try:
-    meta=json.loads((item/'meta.json').read_text(encoding='utf-8'));items.append(meta)
-   except: pass
- print(json.dumps(sorted(items,key=lambda item:item.get('deletedAt',''),reverse=True)));sys.exit(0)
-if op=='trash-restore':
- trash_id=str(payload.get('trashId',''))
- if not trash_id or '/' in trash_id or '\\\\' in trash_id: raise Exception('Invalid trash id')
- entry=pathlib.Path.home()/'.tmuxgo'/'trash'/trash_id;meta=json.loads((entry/'meta.json').read_text(encoding='utf-8'))
- root,target,rel=resolve_inside(meta['rootId'],meta['path'])
- if pathlib.Path(target).exists(): raise Exception('Restore target already exists')
- pathlib.Path(target).parent.mkdir(parents=True,exist_ok=True);shutil.move(str(entry/'data'),target);shutil.rmtree(entry)
- print(json.dumps({'ok':True,'item':file_item(root['path'],target,pathlib.Path(target).name)}));sys.exit(0)
-if op=='git-repositories':
- skip={'.cache','.local','.npm','.next','.next-dev','.next-prod','.venv','__pycache__','build','dist','node_modules','postgres_data','venv'}
- found={}
- dirs=0
- for root in roots():
-  queue=[(root['path'],0)]
-  while queue and dirs<12000 and len(found)<200:
-   current,depth=queue.pop(0);dirs+=1
-   try: entries=list(os.scandir(current))
-   except: continue
-   if any(entry.name=='.git' for entry in entries): found[current]={'path':current,'label':pathlib.Path(current).name or current}
-   if depth>=6: continue
-   for entry in entries:
-    if entry.name=='.git' or entry.name in skip or entry.name.startswith('.'): continue
-    try:
-     if entry.is_dir(follow_symlinks=False): queue.append((entry.path,depth+1))
-    except: pass
- print(json.dumps(sorted(found.values(),key=lambda item:(item['label'].lower(),item['path'].lower()))));sys.exit(0)
-if op=='default-upload-target':
- items=roots();root=next((item for item in items if item['label'].lower()=='workspace'),items[0] if items else None)
- if not root: raise Exception('No file roots configured')
- abs_path=str((pathlib.Path(root['path'])/DEFAULT_UPLOAD_DIR).resolve())
- print(json.dumps({'rootId':root['id'],'rootLabel':root['label'],'rootPath':root['path'],'path':DEFAULT_UPLOAD_DIR,'absolutePath':abs_path,'source':'fallback'}));sys.exit(0)
-root,abs_path,rel=resolve_inside(payload.get('root',''),payload.get('path',''))
-if op=='prepare-upload':
- name=str(payload.get('name','')).strip()
- if not name or '/' in name or '\\\\' in name or name in ('.','..'): raise Exception('Invalid name')
- pathlib.Path(abs_path).mkdir(parents=True,exist_ok=True);candidate=pathlib.Path(abs_path)/name;stem=candidate.stem;suffix=candidate.suffix;attempt=0
- while candidate.exists() and attempt<1000:
-  attempt+=1;candidate=pathlib.Path(abs_path)/f'{stem} ({attempt}){suffix}'
- if candidate.exists(): raise Exception('Too many conflicting files')
- print(json.dumps({'root':root,'directoryPath':rel,'directoryAbsolutePath':abs_path,'name':candidate.name,'path':norm_rel(os.path.relpath(str(candidate),root['path'])),'absolutePath':str(candidate)}));sys.exit(0)
-st=os.stat(abs_path)
-if op=='list':
- items=[]
- for entry in os.scandir(abs_path):
-  if entry.name in ('.','..'): continue
-  try: items.append(file_item(root['path'],entry.path,entry.name))
-  except: pass
- items.sort(key=lambda item:(0 if item['type']=='directory' else 1,item['name'].lower()))
- print(json.dumps({'root':root,'path':rel,'breadcrumbs':breadcrumbs(rel),'items':items}));sys.exit(0)
-if op=='preview':
- if pathlib.Path(abs_path).is_dir():
-  print(json.dumps({'path':rel,'type':'directory','size':st.st_size,'modifiedAt':iso(st.st_mtime),'binary':False,'truncated':False,'lines':[]}));sys.exit(0)
- if st.st_size>LARGE_FILE_LIMIT:
-  print(json.dumps({'path':rel,'type':'file','size':st.st_size,'modifiedAt':iso(st.st_mtime),'binary':False,'truncated':True,'reason':'large-file','lines':[]}));sys.exit(0)
- data=pathlib.Path(abs_path).read_bytes()
- if is_binary(data):
-  print(json.dumps({'path':rel,'type':'file','size':st.st_size,'modifiedAt':iso(st.st_mtime),'binary':True,'truncated':False,'reason':'binary-file','lines':[]}));sys.exit(0)
- start=max(1,int(payload.get('line',1) or 1))
- text=data[:PREVIEW_LIMIT].decode('utf-8',errors='replace')
- all_lines=text.splitlines()
- sliced=all_lines[start-1:start-1+MAX_READ_LINES]
- lines=[{'number':start+i,'content':content} for i,content in enumerate(sliced)]
- print(json.dumps({'path':rel,'type':'file','size':st.st_size,'modifiedAt':iso(st.st_mtime),'binary':False,'truncated':len(data)>PREVIEW_LIMIT or len(all_lines)>len(lines),'lines':lines}));sys.exit(0)
-if op=='content':
- if pathlib.Path(abs_path).is_dir():
-  print(json.dumps({'path':rel,'type':'directory','size':st.st_size,'modifiedAt':iso(st.st_mtime),'binary':False,'truncated':False,'reason':'directory','encoding':'utf8','content':''}));sys.exit(0)
- if st.st_size>LARGE_FILE_LIMIT:
-  print(json.dumps({'path':rel,'type':'file','size':st.st_size,'modifiedAt':iso(st.st_mtime),'binary':False,'truncated':True,'reason':'large-file','encoding':'utf8','content':''}));sys.exit(0)
- data=pathlib.Path(abs_path).read_bytes()
- if is_binary(data):
-  print(json.dumps({'path':rel,'type':'file','size':st.st_size,'modifiedAt':iso(st.st_mtime),'binary':True,'truncated':False,'reason':'binary-file','encoding':'utf8','content':''}));sys.exit(0)
- print(json.dumps({'path':rel,'type':'file','size':st.st_size,'modifiedAt':iso(st.st_mtime),'binary':False,'truncated':False,'encoding':'utf8','content':data.decode('utf-8')}));sys.exit(0)
-if op=='save':
- if pathlib.Path(abs_path).is_dir(): raise Exception('Directories cannot be saved')
- if st.st_size>LARGE_FILE_LIMIT: raise Exception('Large files are read only')
- current=pathlib.Path(abs_path).read_bytes()
- if is_binary(current): raise Exception('Binary files are read only')
- current_m=iso(st.st_mtime)
- if payload.get('modifiedAt') and payload['modifiedAt']!=current_m: raise Exception('FILE_MODIFIED:File changed on disk')
- pathlib.Path(abs_path).write_text(payload.get('content',''),encoding='utf-8')
- next_st=os.stat(abs_path)
- print(json.dumps({'ok':True,'content':payload.get('content',''),'modifiedAt':iso(next_st.st_mtime),'size':next_st.st_size}));sys.exit(0)
-if op=='create-file':
- name=payload.get('name','').strip()
- if not name or '/' in name or '\\\\' in name or name in ('.','..'): raise Exception('Invalid name')
- if not pathlib.Path(abs_path).is_dir(): raise Exception('Target directory not found')
- target=pathlib.Path(abs_path)/name
- if target.exists(): raise Exception('File already exists')
- target.write_text('',encoding='utf-8')
- print(json.dumps({'ok':True,'item':file_item(root['path'],str(target),name),'parentPath':rel}));sys.exit(0)
-if op=='create-directory':
- name=payload.get('name','').strip()
- if not name or '/' in name or '\\\\' in name or name in ('.','..'): raise Exception('Invalid name')
- if not pathlib.Path(abs_path).is_dir(): raise Exception('Target directory not found')
- target=pathlib.Path(abs_path)/name
- if target.exists(): raise Exception('Directory already exists')
- target.mkdir()
- print(json.dumps({'ok':True,'item':file_item(root['path'],str(target),name),'parentPath':rel}));sys.exit(0)
-if op=='rename':
- name=payload.get('name','').strip()
- if not name or '/' in name or '\\\\' in name or name in ('.','..'): raise Exception('Invalid name')
- if str(pathlib.Path(abs_path).resolve())==str(pathlib.Path(root['path']).resolve()): raise Exception('Root cannot be renamed')
- target=str(pathlib.Path(abs_path).with_name(name))
- if target!=abs_path and pathlib.Path(target).exists(): raise Exception('Target already exists')
- if target!=abs_path: pathlib.Path(abs_path).rename(target)
- print(json.dumps({'ok':True,'item':file_item(root['path'],target,name),'previousPath':rel}));sys.exit(0)
-if op in ('copy','move'):
- target_root,target_dir,target_rel=resolve_inside(payload.get('targetRoot',''),payload.get('targetPath',''))
- if not pathlib.Path(target_dir).is_dir(): raise Exception('Target directory not found')
- target=str(pathlib.Path(target_dir)/pathlib.Path(abs_path).name)
- if pathlib.Path(target).exists(): raise Exception('Target already exists')
- if op=='move': shutil.move(abs_path,target)
- elif pathlib.Path(abs_path).is_dir(): shutil.copytree(abs_path,target)
- else: shutil.copy2(abs_path,target)
- print(json.dumps({'ok':True,'item':file_item(target_root['path'],target,pathlib.Path(target).name),'previousPath':rel}));sys.exit(0)
-if op=='trash':
- if str(pathlib.Path(abs_path).resolve())==str(pathlib.Path(root['path']).resolve()): raise Exception('Root cannot be trashed')
- trash_id=datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%S%f')
- entry=pathlib.Path.home()/'.tmuxgo'/'trash'/trash_id;entry.mkdir(parents=True)
- typ='directory' if pathlib.Path(abs_path).is_dir() else 'file';deleted_at=iso(datetime.datetime.now(datetime.timezone.utc).timestamp())
- shutil.move(abs_path,str(entry/'data'));meta={'id':trash_id,'rootId':root['id'],'path':rel,'name':pathlib.Path(abs_path).name,'type':typ,'deletedAt':deleted_at};(entry/'meta.json').write_text(json.dumps(meta),encoding='utf-8')
- print(json.dumps({'ok':True,'entry':meta}));sys.exit(0)
-if op=='remove':
- if str(pathlib.Path(abs_path).resolve())==str(pathlib.Path(root['path']).resolve()): raise Exception('Root cannot be removed')
- typ='directory' if pathlib.Path(abs_path).is_dir() else 'file'
- shutil.rmtree(abs_path) if typ=='directory' else pathlib.Path(abs_path).unlink()
- print(json.dumps({'ok':True,'path':rel,'type':typ}));sys.exit(0)
-if op=='resolve-file':
- print(json.dumps({'root':root,'absolutePath':abs_path,'relativePath':rel,'size':st.st_size,'isFile':pathlib.Path(abs_path).is_file()}));sys.exit(0)
-query=str(payload.get('query','')).lower().strip()
-path_search=os.path.isabs(query)
-clauses=[[token.strip().lower() for token in part.split() if token.strip()] for part in query.split('|') if part.strip()]
-def match_name(name):
- low=name.lower()
- return any(all(term in low for term in clause) for clause in clauses)
-def match_content(text):
- low=text.lower()
- return any(all(term in low for term in clause) for clause in clauses)
-def match_line(text):
- low=text.lower()
- return any(any(term in low for term in clause) for clause in clauses)
-results=[]
-for current_root,dirs,files in os.walk(abs_path):
- if not include_dotfiles:
-  dirs[:]=[name for name in dirs if not any(part.startswith('.') and len(part)>1 for part in name.replace('\\\\','/').split('/'))]
- for name in list(dirs)+list(files):
-  current=os.path.join(current_root,name)
-  is_dir=os.path.isdir(current)
-  relative=norm_rel(os.path.relpath(current,root['path']))
-  if not include_dotfiles and any(part.startswith('.') and len(part)>1 for part in relative.split('/')): continue
-  if op=='search-name':
-   if not match_name(name) and not (path_search and match_name(current)): continue
-   try: results.append(file_item(root['path'],current,name))
-   except: pass
-  else:
-   if is_dir: continue
-   try:
-    info=os.stat(current)
-    if info.st_size>LARGE_FILE_LIMIT: continue
-    data=pathlib.Path(current).read_bytes()
-    if is_binary(data): continue
-    text=data.decode('utf-8',errors='replace')
-    if not match_content(text): continue
-    matches=[]
-    for i,line in enumerate(text.splitlines()):
-     if len(matches)>=SEARCH_MATCH_LIMIT: break
-     if match_line(line): matches.append({'number':i+1,'content':line[:240]})
-    if matches: results.append({'name':name,'path':relative,'type':'file','size':info.st_size,'modifiedAt':iso(info.st_mtime),'mode':info.st_mode & 0o7777,'matches':matches})
-   except: pass
-  if len(results)>=MAX_RESULTS: break
- if len(results)>=MAX_RESULTS: break
-print(json.dumps(results[:MAX_RESULTS]))`
-function encodeRemotePayload(payload: Record<string, unknown>) {
-  return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64')
-}
-async function runRemoteFileJson<T>(hostId: string, payload: Record<string, unknown>) {
-  return runRemoteFilePython<T>(hostId, REMOTE_FILE_SCRIPT, [encodeRemotePayload(payload)])
-}
-function readPositiveIntegerEnv(name: string, fallback: number) {
-  const value = Number(process.env[name])
-  return Number.isFinite(value) && value > 0 ? Math.round(value) : fallback
-}
-function getTemporaryUploadDir() {
-  return path.resolve(process.env.TMUXGO_TMP_DIR || path.join(os.homedir(), '.tmuxgo', 'tmp', 'paste'))
-}
-async function getTemporaryUploadTarget() {
-  const absolutePath = getTemporaryUploadDir()
-  await mkdir(absolutePath, { recursive: true })
-  return { rootId: TEMP_UPLOAD_ROOT_ID, rootLabel: TEMP_UPLOAD_ROOT_LABEL, rootPath: absolutePath, path: '', absolutePath, source: 'temporary' as const }
-}
-async function resolveTemporaryInside(relativePath = '') {
-  const target = await getTemporaryUploadTarget()
-  const root = { id: target.rootId, label: target.rootLabel, path: target.rootPath }
-  const normalizedPath = normalizeRelativePath(relativePath)
-  const requested = path.resolve(root.path, normalizedPath || '.')
-  if (!isPathInside(root.path, requested)) throw new Error('Path escapes root')
-  let actual = requested
-  try {
-    actual = await realpath(requested)
-  } catch {
-    actual = requested
-  }
-  if (!isPathInside(root.path, actual)) throw new Error('Path escapes root')
-  return { root, absolutePath: actual, relativePath: normalizeRelativePath(path.relative(root.path, actual)) }
-}
-export async function cleanupExpiredTemporaryUploads(now = Date.now()) {
-  const ttlMs = readPositiveIntegerEnv('TMUXGO_TMP_TTL_MS', DEFAULT_TEMP_UPLOAD_TTL_MS)
-  const dir = getTemporaryUploadDir()
-  let entries
-  try {
-    entries = await opendir(dir)
-  } catch {
-    return
-  }
-  for await (const entry of entries) {
-    const entryPath = path.join(dir, entry.name)
-    try {
-      const info = await stat(entryPath)
-      if (now - info.mtimeMs > ttlMs) await rm(entryPath, { recursive: true, force: true })
-    } catch {}
-  }
-}
-function startTemporaryUploadCleanup() {
-  if (tempUploadCleanupTimer) return
-  void cleanupExpiredTemporaryUploads()
-  const intervalMs = readPositiveIntegerEnv('TMUXGO_TMP_CLEANUP_INTERVAL_MS', DEFAULT_TEMP_UPLOAD_CLEANUP_INTERVAL_MS)
-  tempUploadCleanupTimer = setInterval(() => void cleanupExpiredTemporaryUploads(), intervalMs)
-  tempUploadCleanupTimer.unref?.()
-}
-async function resolveInside(rootId: string, relativePath = '') {
-  if (rootId === TEMP_UPLOAD_ROOT_ID) return resolveTemporaryInside(relativePath)
-  if (rootId.startsWith('git:')) return resolveGitInside(rootId, relativePath)
-  const roots = await getRoots()
-  const root = roots.find((item) => item.id === rootId)
-  if (!root) throw new Error('Invalid root')
-  const normalizedPath = normalizeRelativePath(relativePath)
-  const requested = path.resolve(root.path, normalizedPath || '.')
-  if (!isPathInside(root.path, requested)) throw new Error('Path escapes root')
-  let actual = requested
-  try {
-    actual = await realpath(requested)
-  } catch {
-    actual = requested
-  }
-  if (!isPathInside(root.path, actual)) throw new Error('Path escapes root')
-  return { root, absolutePath: actual, relativePath: normalizeRelativePath(path.relative(root.path, actual)) }
-}
-function resolveGitInside(rootId: string, relativePath = '') {
-  let repoPath = ''
-  try { repoPath = decodeURIComponent(rootId.slice(4)) } catch { throw new Error('Invalid root') }
-  if (!repoPath) throw new Error('Invalid root')
-  const base = path.resolve(repoPath)
-  const normalizedPath = normalizeRelativePath(relativePath)
-  const absolutePath = path.resolve(base, normalizedPath || '.')
-  if (!isPathInside(base, absolutePath)) throw new Error('Path escapes root')
-  const root = { id: rootId, label: path.basename(base) || base, path: base }
-  return Promise.resolve({ root, absolutePath, relativePath: normalizeRelativePath(path.relative(base, absolutePath)) })
-}
-function toRelative(rootPath: string, absolutePath: string) {
-  return normalizeRelativePath(path.relative(rootPath, absolutePath))
-}
-async function toFileItem(rootPath: string, absolutePath: string, name: string): Promise<FileItem> {
-  const info = await stat(absolutePath)
-  return {
-    name,
-    path: toRelative(rootPath, absolutePath),
-    type: info.isDirectory() ? 'directory' : 'file',
-    size: info.size,
-    modifiedAt: info.mtime.toISOString(),
-    mode: info.mode & 0o7777,
-  }
-}
-async function listDirectory(rootId: string, relativePath: string) {
-  const { root, absolutePath } = await resolveInside(rootId, relativePath)
-  const directory = await opendir(absolutePath)
-  const items: FileItem[] = []
-  for await (const entry of directory) {
-    if (entry.name === '.' || entry.name === '..') continue
-    try {
-      items.push(await toFileItem(root.path, path.join(absolutePath, entry.name), entry.name))
-    } catch {}
-  }
-  items.sort((a, b) => {
-    if (a.type !== b.type) return a.type === 'directory' ? -1 : 1
-    return a.name.localeCompare(b.name)
-  })
-  return { root, path: toRelative(root.path, absolutePath), breadcrumbs: getBreadcrumbs(toRelative(root.path, absolutePath)), items }
-}
-async function readPreview(rootId: string, relativePath: string, line = 1) {
-  const { root, absolutePath } = await resolveInside(rootId, relativePath)
-  const info = await stat(absolutePath)
-  if (info.isDirectory()) return { path: toRelative(root.path, absolutePath), type: 'directory', size: info.size, modifiedAt: info.mtime.toISOString(), binary: false, truncated: false, lines: [] }
-  if (info.size > LARGE_FILE_LIMIT) return { path: toRelative(root.path, absolutePath), type: 'file', size: info.size, modifiedAt: info.mtime.toISOString(), binary: false, truncated: true, reason: 'large-file', lines: [] }
-  const chunk = await readFile(absolutePath)
-  if (isLikelyBinary(chunk)) return { path: toRelative(root.path, absolutePath), type: 'file', size: info.size, modifiedAt: info.mtime.toISOString(), binary: true, truncated: false, reason: 'binary-file', lines: [] }
-  const startLine = Math.max(1, Number(line) || 1)
-  const text = chunk.subarray(0, PREVIEW_LIMIT).toString('utf8')
-  const allLines = text.split(/\r?\n/)
-  const lines = allLines.slice(startLine - 1, startLine - 1 + MAX_READ_LINES).map((content, index) => ({ number: startLine + index, content }))
-  return { path: toRelative(root.path, absolutePath), type: 'file', size: info.size, modifiedAt: info.mtime.toISOString(), binary: false, truncated: chunk.length > PREVIEW_LIMIT || allLines.length > lines.length, lines }
-}
-async function readContent(rootId: string, relativePath: string) {
-  const { root, absolutePath } = await resolveInside(rootId, relativePath)
-  const info = await stat(absolutePath)
-  if (info.isDirectory()) return { path: toRelative(root.path, absolutePath), type: 'directory', size: info.size, modifiedAt: info.mtime.toISOString(), binary: false, truncated: false, reason: 'directory', encoding: 'utf8', content: '' }
-  if (info.size > LARGE_FILE_LIMIT) return { path: toRelative(root.path, absolutePath), type: 'file', size: info.size, modifiedAt: info.mtime.toISOString(), binary: false, truncated: true, reason: 'large-file', encoding: 'utf8', content: '' }
-  const chunk = await readFile(absolutePath)
-  if (isLikelyBinary(chunk)) return { path: toRelative(root.path, absolutePath), type: 'file', size: info.size, modifiedAt: info.mtime.toISOString(), binary: true, truncated: false, reason: 'binary-file', encoding: 'utf8', content: '' }
-  return { path: toRelative(root.path, absolutePath), type: 'file', size: info.size, modifiedAt: info.mtime.toISOString(), binary: false, truncated: false, encoding: 'utf8', content: chunk.toString('utf8') }
-}
-async function saveContent(rootId: string, relativePath: string, content: string, modifiedAt?: string) {
-  const { absolutePath } = await resolveInside(rootId, relativePath)
-  const info = await stat(absolutePath)
-  if (info.isDirectory()) throw new Error('Directories cannot be saved')
-  if (info.size > LARGE_FILE_LIMIT) throw new Error('Large files are read only')
-  const existing = await readFile(absolutePath)
-  if (isLikelyBinary(existing)) throw new Error('Binary files are read only')
-  const currentModifiedAt = info.mtime.toISOString()
-  if (modifiedAt && modifiedAt !== currentModifiedAt) {
-    const error = new Error('File changed on disk')
-    ;(error as Error & { code?: string }).code = 'FILE_MODIFIED'
-    throw error
-  }
-  await writeFile(absolutePath, content, 'utf8')
-  const nextInfo = await stat(absolutePath)
-  return { ok: true as const, content, modifiedAt: nextInfo.mtime.toISOString(), size: nextInfo.size }
-}
-async function createFile(rootId: string, directoryPath: string, name: string) {
-  const safeName = sanitizePathSegment(name)
-  const { root, absolutePath, relativePath } = await resolveInside(rootId, directoryPath)
-  const info = await stat(absolutePath)
-  if (!info.isDirectory()) throw new Error('Target directory not found')
-  const targetPath = path.join(absolutePath, safeName)
-  if (await fileExists(targetPath)) throw new Error('File already exists')
-  await writeFile(targetPath, '', 'utf8')
-  return { ok: true as const, item: await toFileItem(root.path, targetPath, safeName), parentPath: relativePath }
-}
-async function createDirectory(rootId: string, directoryPath: string, name: string) {
-  const safeName = sanitizePathSegment(name)
-  const { root, absolutePath, relativePath } = await resolveInside(rootId, directoryPath)
-  const info = await stat(absolutePath)
-  if (!info.isDirectory()) throw new Error('Target directory not found')
-  const targetPath = path.join(absolutePath, safeName)
-  if (await fileExists(targetPath)) throw new Error('Directory already exists')
-  await mkdir(targetPath, { recursive: false })
-  return { ok: true as const, item: await toFileItem(root.path, targetPath, safeName), parentPath: relativePath }
-}
-async function renameEntry(rootId: string, relativePath: string, name: string) {
-  const safeName = sanitizePathSegment(name)
-  const { root, absolutePath, relativePath: currentPath } = await resolveInside(rootId, relativePath)
-  const targetPath = path.join(path.dirname(absolutePath), safeName)
-  if (absolutePath === root.path) throw new Error('Root cannot be renamed')
-  if (targetPath === absolutePath) return { ok: true as const, item: await toFileItem(root.path, absolutePath, safeName), previousPath: currentPath }
-  if (await fileExists(targetPath)) throw new Error('Target already exists')
-  await rename(absolutePath, targetPath)
-  return { ok: true as const, item: await toFileItem(root.path, targetPath, safeName), previousPath: currentPath }
-}
-async function removeEntry(rootId: string, relativePath: string) {
-  const { root, absolutePath, relativePath: currentPath } = await resolveInside(rootId, relativePath)
-  if (absolutePath === root.path) throw new Error('Root cannot be removed')
-  const info = await stat(absolutePath)
-  if (info.isDirectory()) await rm(absolutePath, { recursive: true, force: false })
-  else await unlink(absolutePath)
-  return { ok: true as const, path: currentPath, type: info.isDirectory() ? 'directory' as const : 'file' as const }
-}
-function getTrashDir() {
-  return path.join(process.env.TMUXGO_CONFIG_DIR || path.join(os.homedir(), '.tmuxgo'), 'trash')
-}
-async function movePath(source: string, target: string) {
-  try {
-    await rename(source, target)
-  } catch (error) {
-    const err = error as NodeJS.ErrnoException
-    if (err.code !== 'EXDEV') throw error
-    await cp(source, target, { recursive: true, preserveTimestamps: true })
-    await rm(source, { recursive: true, force: false })
-  }
-}
-async function transferEntry(rootId: string, relativePath: string, targetRootId: string, targetDirectoryPath: string, move: boolean) {
-  const source = await resolveInside(rootId, relativePath)
-  const targetDirectory = await resolveInside(targetRootId, targetDirectoryPath)
-  const targetDirectoryInfo = await stat(targetDirectory.absolutePath)
-  if (!targetDirectoryInfo.isDirectory()) throw new Error('Target directory not found')
-  if (source.absolutePath === source.root.path) throw new Error('Root cannot be transferred')
-  const targetPath = path.join(targetDirectory.absolutePath, path.basename(source.absolutePath))
-  if (await fileExists(targetPath)) throw new Error('Target already exists')
-  if (move) await movePath(source.absolutePath, targetPath)
-  else await cp(source.absolutePath, targetPath, { recursive: true, preserveTimestamps: true })
-  return { ok: true as const, item: await toFileItem(targetDirectory.root.path, targetPath, path.basename(targetPath)), previousPath: source.relativePath }
-}
-async function trashEntry(rootId: string, relativePath: string) {
-  const resolved = await resolveInside(rootId, relativePath)
-  if (resolved.absolutePath === resolved.root.path) throw new Error('Root cannot be trashed')
-  const info = await stat(resolved.absolutePath)
-  const id = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
-  const entryDir = path.join(getTrashDir(), id)
-  await mkdir(entryDir, { recursive: true })
-  await movePath(resolved.absolutePath, path.join(entryDir, 'data'))
-  const entry: TrashEntry = { id, rootId, path: resolved.relativePath, name: path.basename(resolved.absolutePath), type: info.isDirectory() ? 'directory' : 'file', deletedAt: new Date().toISOString() }
-  await writeFile(path.join(entryDir, 'meta.json'), JSON.stringify(entry), 'utf8')
-  return { ok: true as const, entry }
-}
-async function listTrashEntries() {
-  const entries: TrashEntry[] = []
-  let directory
-  try {
-    directory = await opendir(getTrashDir())
-  } catch {
-    return entries
-  }
-  for await (const item of directory) {
-    if (!item.isDirectory()) continue
-    try {
-      entries.push(JSON.parse(await readFile(path.join(getTrashDir(), item.name, 'meta.json'), 'utf8')) as TrashEntry)
-    } catch {}
-  }
-  return entries.sort((a, b) => b.deletedAt.localeCompare(a.deletedAt))
-}
-async function restoreTrashEntry(trashId: string) {
-  const id = sanitizePathSegment(trashId)
-  const entryDir = path.join(getTrashDir(), id)
-  const entry = JSON.parse(await readFile(path.join(entryDir, 'meta.json'), 'utf8')) as TrashEntry
-  const target = await resolveInside(entry.rootId, entry.path)
-  if (await fileExists(target.absolutePath)) throw new Error('Restore target already exists')
-  await mkdir(path.dirname(target.absolutePath), { recursive: true })
-  await movePath(path.join(entryDir, 'data'), target.absolutePath)
-  await rm(entryDir, { recursive: true, force: true })
-  return { ok: true as const, item: await toFileItem(target.root.path, target.absolutePath, path.basename(target.absolutePath)) }
-}
-async function walk(rootPath: string, startPath: string, visitor: (absolutePath: string, relativePath: string, entryType: 'file' | 'directory') => Promise<boolean | 'skip' | void>) {
-  const queue = [startPath]
-  let dirs = 0
-  let files = 0
-  while (queue.length && dirs < MAX_DIRS && files < MAX_FILES) {
-    const current = queue.shift()!
-    dirs++
-    let directory
-    try {
-      directory = await opendir(current)
-    } catch {
-      continue
-    }
-    for await (const entry of directory) {
-      const absolutePath = path.join(current, entry.name)
-      const relativePath = toRelative(rootPath, absolutePath)
-      if (entry.isDirectory()) {
-        const result = await visitor(absolutePath, relativePath, 'directory')
-        if (result === false) return
-        if (result === 'skip') continue
-        if (FILE_SEARCH_SKIP_DIRS.has(entry.name)) continue
-        queue.push(absolutePath)
-      } else if (entry.isFile()) {
-        files++
-        if (await visitor(absolutePath, relativePath, 'file') === false) return
-      }
-      if (dirs >= MAX_DIRS || files >= MAX_FILES) return
-    }
-  }
-}
-function parseSearchQuery(query: string) {
-  return query.split('|').map((part) => {
-    const tokens = Array.from(part.matchAll(/"([^"]+)"|(\S+)/g)).map((match) => (match[1] || match[2] || '').trim().toLowerCase()).filter(Boolean)
-    return [...new Set(tokens)]
-  }).filter((tokens) => tokens.length > 0)
-}
-function matchesSearchQuery(value: string, clauses: string[][]) {
-  const target = value.toLowerCase()
-  return clauses.some((terms) => terms.every((term) => target.includes(term)))
-}
-function matchesAnySearchTerm(value: string, clauses: string[][]) {
-  const target = value.toLowerCase()
-  return clauses.some((terms) => terms.some((term) => target.includes(term)))
-}
-let fdBinary: string | null | undefined
-async function resolveFdBinary() {
-  if (fdBinary !== undefined) return fdBinary
-  for (const name of ['fd', 'fdfind']) {
-    try {
-      const { stdout } = await execFileAsync(name, ['--version'], { timeout: 2000 })
-      if (stdout.toLowerCase().includes('fd')) { fdBinary = name; return fdBinary }
-    } catch {}
-  }
-  fdBinary = null
-  return fdBinary
-}
-function escapeGlob(value: string) {
-  return value.replace(/[*?[\]{}()!+@\\]/g, '\\$&')
-}
-async function searchNameWithFd(rootPath: string, absolutePath: string, clauses: string[][], includeDotFiles: boolean) {
-  const fd = await resolveFdBinary()
-  if (!fd) return null
-  const results: FileItem[] = []
-  const seen = new Set<string>()
-  for (const terms of clauses) {
-    const args = ['--hidden', '--no-ignore', '-i', '-t', 'f', '-t', 'd', '--max-results', '1000', '--print0']
-    for (const name of FILE_SEARCH_SKIP_DIRS) args.push('-E', name)
-    args.push('-g', `*${escapeGlob(terms[0])}*`, absolutePath)
-    let stdout: string
-    try {
-      ({ stdout } = await execFileAsync(fd, args, { maxBuffer: RG_MAX_BUFFER, timeout: 30000 }))
-    } catch (error) {
-      const err = error as Error & { code?: number }
-      if (err.code === 1 || err.code === 2) continue
-      throw error
-    }
-    for (const raw of stdout.split('\0')) {
-      if (!raw) continue
-      const relativePath = toRelative(rootPath, raw)
-      if (!includeDotFiles && isDotPath(relativePath)) continue
-      if (!matchesSearchQuery(path.basename(relativePath), clauses)) continue
-      if (seen.has(relativePath)) continue
-      seen.add(relativePath)
-      try {
-        results.push(await toFileItem(rootPath, raw, path.basename(raw)))
-      } catch {}
-      if (results.length >= MAX_RESULTS) return results
-    }
-  }
-  return results
-}
-async function searchName(rootId: string, query: string, basePath = '', includeDotFiles = true) {
-  const clauses = parseSearchQuery(query)
-  if (!clauses.length) return []
-  const pathSearch = path.isAbsolute(query.trim())
-  const { root, absolutePath } = await resolveInside(rootId, basePath)
-  if (!pathSearch) {
-    try {
-      const fdResults = await searchNameWithFd(root.path, absolutePath, clauses, includeDotFiles)
-      if (fdResults) return fdResults
-    } catch {}
-  }
-  const results: FileItem[] = []
-  await walk(root.path, absolutePath, async (current, relativePath, entryType) => {
-    if (!includeDotFiles && isDotPath(relativePath)) return entryType === 'directory' ? 'skip' : undefined
-    if (!matchesSearchQuery(path.basename(relativePath), clauses) && !(pathSearch && matchesSearchQuery(current, clauses))) return
-    try {
-      results.push(await toFileItem(root.path, current, path.basename(current)))
-    } catch {}
-    return results.length < MAX_RESULTS
-  })
-  return results
-}
-async function discoverGitRepositories() {
-  const roots = await getRoots()
-  const found = new Map<string, GitRepositoryInfo>()
-  let directories = 0
-  for (const root of roots) {
-    const queue = [{ path: root.path, depth: 0 }]
-    while (queue.length && directories < GIT_REPOSITORY_MAX_DIRS && found.size < GIT_REPOSITORY_MAX_RESULTS) {
-      const current = queue.shift()!
-      directories++
-      let directory
-      try {
-        directory = await opendir(current.path)
-      } catch {
-        continue
-      }
-      const entries = []
-      for await (const entry of directory) entries.push(entry)
-      if (entries.some((entry) => entry.name === '.git')) found.set(current.path, { path: current.path, label: path.basename(current.path) || current.path })
-      if (current.depth >= GIT_REPOSITORY_MAX_DEPTH) continue
-      for (const entry of entries) {
-        if (!entry.isDirectory() || entry.name === '.git' || entry.name.startsWith('.') || GIT_REPOSITORY_SKIP_DIRS.has(entry.name)) continue
-        queue.push({ path: path.join(current.path, entry.name), depth: current.depth + 1 })
-      }
-    }
-  }
-  return [...found.values()].sort((a, b) => a.label.localeCompare(b.label) || a.path.localeCompare(b.path))
-}
-async function searchContentWithRg(rootPath: string, absolutePath: string, clauses: string[][], includeDotFiles = true) {
-  const results = new Map<string, ContentSearchResult>()
-  for (const terms of clauses) {
-    const args = ['--json', '-n', '-i', '--fixed-strings', '--hidden', '-uu', '--max-filesize', '5M', '-m', '5']
-    for (const name of FILE_SEARCH_SKIP_DIRS) args.push('-g', `!${name}/**`)
-    for (const term of terms) args.push('-e', term)
-    args.push('.')
-    try {
-      const { stdout } = await execFileAsync('rg', args, { cwd: absolutePath, maxBuffer: RG_MAX_BUFFER })
-      const matchesByPath = new Map<string, { path: string; name: string; termHits: Set<string>; matches: SearchMatchLine[] }>()
-      for (const line of stdout.split('\n')) {
-        if (!line) continue
-        let payload: any
-        try {
-          payload = JSON.parse(line)
-        } catch {
-          continue
-        }
-        if (payload.type !== 'match') continue
-        const rawPath = typeof payload.data?.path?.text === 'string' ? payload.data.path.text : ''
-        if (!rawPath) continue
-        const resolvedPath = path.resolve(absolutePath, rawPath)
-        const relativePath = toRelative(rootPath, resolvedPath)
-        if (!includeDotFiles && isDotPath(relativePath)) continue
-        const lineNumber = Number(payload.data?.line_number || 0)
-        const content = typeof payload.data?.lines?.text === 'string' ? payload.data.lines.text.replace(/\r?\n$/, '').slice(0, 240) : ''
-        const item = matchesByPath.get(relativePath) || { path: relativePath, name: path.basename(relativePath), termHits: new Set<string>(), matches: [] }
-        const lowerContent = content.toLowerCase()
-        for (const term of terms) {
-          if (lowerContent.includes(term)) item.termHits.add(term)
-        }
-        if (lineNumber > 0 && content && item.matches.length < SEARCH_MATCH_LIMIT && !item.matches.some((entry) => entry.number === lineNumber)) {
-          item.matches.push({ number: lineNumber, content })
-        }
-        matchesByPath.set(relativePath, item)
-      }
-      for (const item of matchesByPath.values()) {
-        if (item.termHits.size !== terms.length) continue
-        if (results.has(item.path)) {
-          const current = results.get(item.path)!
-          for (const match of item.matches) {
-            if (current.matches.length >= SEARCH_MATCH_LIMIT) break
-            if (!current.matches.some((entry) => entry.number === match.number)) current.matches.push(match)
-          }
-          continue
-        }
-        try {
-          const info = await stat(path.join(rootPath, item.path))
-          results.set(item.path, { name: item.name, path: item.path, type: 'file', size: info.size, modifiedAt: info.mtime.toISOString(), mode: info.mode & 0o7777, matches: item.matches })
-        } catch {}
-        if (results.size >= MAX_RESULTS) return [...results.values()]
-      }
-    } catch (error) {
-      const err = error as Error & { code?: number }
-      if (err.code === 1) continue
-      throw error
-    }
-  }
-  return [...results.values()]
-}
-async function searchContentFallback(rootId: string, clauses: string[][], basePath = '', includeDotFiles = true) {
-  const { root, absolutePath } = await resolveInside(rootId, basePath)
-  const results: ContentSearchResult[] = []
-  await walk(root.path, absolutePath, async (current, relativePath, entryType) => {
-    if (!includeDotFiles && isDotPath(relativePath)) return entryType === 'directory' ? 'skip' : undefined
-    if (entryType !== 'file') return
-    try {
-      const info = await stat(current)
-      if (info.size > LARGE_FILE_LIMIT) return
-      const buffer = await readFile(current)
-      if (isLikelyBinary(buffer)) return
-      const text = buffer.toString('utf8')
-      if (!matchesSearchQuery(text, clauses)) return
-      const lines = text.split(/\r?\n/)
-      const matches: SearchMatchLine[] = []
-      for (let i = 0; i < lines.length && matches.length < SEARCH_MATCH_LIMIT; i++) {
-        if (matchesAnySearchTerm(lines[i], clauses)) matches.push({ number: i + 1, content: lines[i].slice(0, 240) })
-      }
-      if (matches.length) results.push({ path: relativePath, name: path.basename(current), type: 'file', size: info.size, modifiedAt: info.mtime.toISOString(), mode: info.mode & 0o7777, matches })
-    } catch {}
-    return results.length < MAX_RESULTS
-  })
-  return results
-}
-async function searchContent(rootId: string, query: string, basePath = '', includeDotFiles = true) {
-  const clauses = parseSearchQuery(query)
-  if (!clauses.length) return []
-  const { root, absolutePath } = await resolveInside(rootId, basePath)
-  try {
-    return await searchContentWithRg(root.path, absolutePath, clauses, includeDotFiles)
-  } catch {
-    return searchContentFallback(rootId, clauses, basePath, includeDotFiles)
-  }
-}
-function getFallbackRoot(roots: FileRoot[]) {
-  return roots.find((item) => item.label.toLowerCase() === 'workspace') || roots[0]
-}
-function mapAbsolutePathToRoot(roots: FileRoot[], absolutePath: string) {
-  const sortedRoots = [...roots].sort((a, b) => b.path.length - a.path.length)
-  return sortedRoots.find((root) => isPathInside(root.path, absolutePath)) || null
-}
-async function getPaneCurrentPath(paneId: string) {
-  await assertTargetAllowed(paneId)
-  const { stdout } = await execFileAsync('tmux', ['display-message', '-p', '-t', paneId, '#{pane_current_path}'])
-  return stdout.trim()
-}
-async function resolveDefaultUploadTarget(paneId?: string) {
-  const roots = await getRoots()
-  const fallbackRoot = getFallbackRoot(roots)
-  if (paneId) {
-    try {
-      const cwd = await getPaneCurrentPath(paneId)
-      const matchedRoot = mapAbsolutePathToRoot(roots, cwd)
-      if (matchedRoot) {
-        const relativePath = toRelative(matchedRoot.path, cwd)
-        return { rootId: matchedRoot.id, rootLabel: matchedRoot.label, rootPath: matchedRoot.path, path: relativePath, absolutePath: cwd, source: 'pane' as const }
-      }
-    } catch {}
-  }
-  const absolutePath = path.join(fallbackRoot.path, DEFAULT_UPLOAD_DIR)
-  return { rootId: fallbackRoot.id, rootLabel: fallbackRoot.label, rootPath: fallbackRoot.path, path: DEFAULT_UPLOAD_DIR, absolutePath, source: 'fallback' as const }
-}
-function sanitizeUploadFileName(filename: string) {
-  const normalized = path.basename(filename || '').replace(/\0/g, '').trim()
-  if (!normalized || normalized === '.' || normalized === '..') throw new Error('Invalid file name')
-  return normalized
-}
-async function fileExists(absolutePath: string) {
-  try {
-    await stat(absolutePath)
-    return true
-  } catch {
-    return false
-  }
-}
-async function resolveUploadDestination(directoryPath: string, fileName: string) {
-  const parsed = path.parse(fileName)
-  let attempt = 0
-  while (attempt < 1000) {
-    const candidateName = attempt === 0 ? fileName : `${parsed.name} (${attempt})${parsed.ext}`
-    const candidatePath = path.join(directoryPath, candidateName)
-    if (!(await fileExists(candidatePath))) return { candidateName, candidatePath }
-    attempt += 1
-  }
-  throw new Error('Too many conflicting files')
-}
-function normalizeUploadRateLimitKBps(input: unknown) {
-  const value = typeof input === 'number' ? input : typeof input === 'string' ? Number(input) : NaN
-  if (!Number.isFinite(value)) return DEFAULT_UPLOAD_RATE_LIMIT_KBPS
-  return Math.max(1, Math.min(MAX_UPLOAD_RATE_LIMIT_KBPS, Math.round(value)))
-}
-async function readStoredUploadRateLimitKBps(profile = 'default') {
-  const preferencesDir = process.env.TMUXGO_PREFERENCES_DIR || path.join(os.homedir(), '.tmuxgo', 'preferences')
-  const file = path.join(preferencesDir, `${profile}.json`)
-  try {
-    const content = await readPreferencesFile(file, 'utf8')
-    const parsed = JSON.parse(content)
-    return normalizeUploadRateLimitKBps(parsed?.uploadRateLimitKBps)
-  } catch {
-    return DEFAULT_UPLOAD_RATE_LIMIT_KBPS
-  }
-}
-async function readStoredDownloadRateLimitKBps(profile = 'default') {
-  const preferencesDir = process.env.TMUXGO_PREFERENCES_DIR || path.join(os.homedir(), '.tmuxgo', 'preferences')
-  const file = path.join(preferencesDir, `${profile}.json`)
-  try {
-    const content = await readPreferencesFile(file, 'utf8')
-    const parsed = JSON.parse(content)
-    return normalizeUploadRateLimitKBps(parsed?.downloadRateLimitKBps)
-  } catch {
-    return DEFAULT_UPLOAD_RATE_LIMIT_KBPS
-  }
-}
-function createRateLimitStream(rateLimitKBps: number) {
-  const bytesPerSecond = Math.max(1, rateLimitKBps) * 1024
-  let budget = bytesPerSecond
-  let lastRefill = Date.now()
-  const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
-  return new Transform({
-    async transform(chunk, _encoding, callback) {
-      let offset = 0
-      try {
-        while (offset < chunk.length) {
-          const now = Date.now()
-          const elapsed = now - lastRefill
-          if (elapsed > 0) {
-            budget = Math.min(bytesPerSecond, budget + (bytesPerSecond * elapsed) / 1000)
-            lastRefill = now
-          }
-          if (budget < 1) {
-            const waitMs = Math.max(1, Math.ceil(((1 - budget) / bytesPerSecond) * 1000))
-            await wait(waitMs)
-            continue
-          }
-          const size = Math.min(chunk.length - offset, Math.max(1, Math.floor(budget)))
-          this.push(chunk.subarray(offset, offset + size))
-          offset += size
-          budget -= size
-        }
-        callback()
-      } catch (err) {
-        callback(err as Error)
-      }
-    },
-  })
-}
-async function resolveDownloadRateLimitKBps(queryRateLimitKBps?: unknown, profile = 'default') {
-  const value = typeof queryRateLimitKBps === 'number' ? queryRateLimitKBps : typeof queryRateLimitKBps === 'string' && queryRateLimitKBps.trim() ? Number(queryRateLimitKBps) : NaN
-  if (Number.isFinite(value)) return normalizeUploadRateLimitKBps(value)
-  return readStoredDownloadRateLimitKBps(profile)
-}
-function getImageMimeType(filePath: string) {
-  return IMAGE_MIME_BY_EXT[path.extname(filePath).toLowerCase()] || ''
-}
-async function listDirectoryForHost(hostId: string, rootId: string, relativePath: string) {
-  if (hostId === 'local') return listDirectory(rootId, relativePath)
-  return runRemoteFileJson(hostId, { op: 'list', root: rootId, path: relativePath })
-}
-async function readPreviewForHost(hostId: string, rootId: string, relativePath: string, line = 1) {
-  if (hostId === 'local') return readPreview(rootId, relativePath, line)
-  return runRemoteFileJson(hostId, { op: 'preview', root: rootId, path: relativePath, line })
-}
-export async function readContentForHost(hostId: string, rootId: string, relativePath: string) {
-  if (hostId === 'local') return readContent(rootId, relativePath)
-  return runRemoteFileJson(hostId, { op: 'content', root: rootId, path: relativePath })
-}
-export async function saveContentForHost(hostId: string, rootId: string, relativePath: string, content: string, modifiedAt?: string) {
-  if (hostId === 'local') return saveContent(rootId, relativePath, content, modifiedAt)
-  try {
-    return await runRemoteFileJson(hostId, { op: 'save', root: rootId, path: relativePath, content, modifiedAt })
-  } catch (error) {
-    const err = error as Error & { code?: string }
-    if (err.message.startsWith('FILE_MODIFIED:')) {
-      err.message = err.message.slice('FILE_MODIFIED:'.length)
-      err.code = 'FILE_MODIFIED'
-    }
-    throw err
-  }
-}
-async function createFileForHost(hostId: string, rootId: string, directoryPath: string, name: string) {
-  if (hostId === 'local') return createFile(rootId, directoryPath, name)
-  return runRemoteFileJson(hostId, { op: 'create-file', root: rootId, path: directoryPath, name })
-}
-async function createDirectoryForHost(hostId: string, rootId: string, directoryPath: string, name: string) {
-  if (hostId === 'local') return createDirectory(rootId, directoryPath, name)
-  return runRemoteFileJson(hostId, { op: 'create-directory', root: rootId, path: directoryPath, name })
-}
-async function renameEntryForHost(hostId: string, rootId: string, relativePath: string, name: string) {
-  if (hostId === 'local') return renameEntry(rootId, relativePath, name)
-  return runRemoteFileJson(hostId, { op: 'rename', root: rootId, path: relativePath, name })
-}
-async function transferEntryForHost(hostId: string, rootId: string, relativePath: string, targetRootId: string, targetDirectoryPath: string, move: boolean) {
-  if (hostId === 'local') return transferEntry(rootId, relativePath, targetRootId, targetDirectoryPath, move)
-  return runRemoteFileJson(hostId, { op: move ? 'move' : 'copy', root: rootId, path: relativePath, targetRoot: targetRootId, targetPath: targetDirectoryPath })
-}
-async function trashEntryForHost(hostId: string, rootId: string, relativePath: string) {
-  if (hostId === 'local') return trashEntry(rootId, relativePath)
-  return runRemoteFileJson<{ ok: true; entry: TrashEntry }>(hostId, { op: 'trash', root: rootId, path: relativePath })
-}
-async function listTrashEntriesForHost(hostId: string) {
-  if (hostId === 'local') return listTrashEntries()
-  return runRemoteFileJson<TrashEntry[]>(hostId, { op: 'trash-list' })
-}
-async function restoreTrashEntryForHost(hostId: string, trashId: string) {
-  if (hostId === 'local') return restoreTrashEntry(trashId)
-  return runRemoteFileJson(hostId, { op: 'trash-restore', trashId })
-}
-async function removeEntryForHost(hostId: string, rootId: string, relativePath: string) {
-  if (hostId === 'local') return removeEntry(rootId, relativePath)
-  return runRemoteFileJson(hostId, { op: 'remove', root: rootId, path: relativePath })
-}
-async function searchNameForHost(hostId: string, rootId: string, query: string, basePath = '', includeDotFiles = true) {
-  if (hostId === 'local') return searchName(rootId, query, basePath, includeDotFiles)
-  return runRemoteFileJson(hostId, { op: 'search-name', root: rootId, path: basePath, query, includeDotFiles })
-}
-async function searchContentForHost(hostId: string, rootId: string, query: string, basePath = '', includeDotFiles = true) {
-  if (hostId === 'local') return searchContent(rootId, query, basePath, includeDotFiles)
-  return runRemoteFileJson(hostId, { op: 'search-content', root: rootId, path: basePath, query, includeDotFiles })
-}
-async function resolveDefaultUploadTargetForHost(hostId: string, paneId?: string) {
-  if (hostId === 'local') return resolveDefaultUploadTarget(paneId)
-  return runRemoteFileJson(hostId, { op: 'default-upload-target' })
-}
-export async function discoverGitRepositoriesForHost(hostId: string) {
-  if (hostId === 'local') return discoverGitRepositories()
-  return runRemoteFileJson<GitRepositoryInfo[]>(hostId, { op: 'git-repositories' })
-}
-async function resolveTemporaryUploadTargetForHost(hostId: string) {
-  if (hostId !== 'local') {
-    const target = await resolveDefaultUploadTargetForHost(hostId) as { rootId: string; rootLabel: string; rootPath: string; path: string; absolutePath: string; source: string }
-    return { ...target, source: 'temporary' as const }
-  }
-  return getTemporaryUploadTarget()
-}
-async function resolveFileForHost(hostId: string, rootId: string, relativePath: string) {
-  if (hostId === 'local') {
-    const resolved = await resolveInside(rootId, relativePath)
-    const info = await stat(resolved.absolutePath)
-    return { ...resolved, size: info.size, isFile: info.isFile() }
-  }
-  return runRemoteFileJson<{ root: FileRoot; absolutePath: string; relativePath: string; size: number; isFile: boolean }>(hostId, { op: 'resolve-file', root: rootId, path: relativePath })
-}
-async function waitForProcess(child: ReturnType<typeof spawn>, fallback: string) {
-  let stderr = ''
-  child.stderr?.on('data', (chunk) => { stderr += chunk.toString() })
-  await new Promise<void>((resolve, reject) => {
-    child.once('error', reject)
-    child.once('close', (code) => code === 0 ? resolve() : reject(new Error(normalizeRemoteFileErrorMessage(stderr, fallback))))
-  })
-}
-async function writeRemoteUpload(hostId: string, absolutePath: string, source: NodeJS.ReadableStream, rateLimitKBps: number, signal?: AbortSignal, progress?: Transform) {
-  if (agentManager.getAgent(hostId)) {
-    const throttled = progress ? source.pipe(progress).pipe(createRateLimitStream(rateLimitKBps)) : source.pipe(createRateLimitStream(rateLimitKBps))
-    await agentManager.uploadFile(hostId, absolutePath, throttled as AsyncIterable<Buffer>, signal)
-    return
-  }
-  const host = await getRemoteFileHost(hostId)
-  const script = `import os,pathlib,sys;p=pathlib.Path(sys.argv[1]);p.parent.mkdir(parents=True,exist_ok=True);t=p.with_name('.tmuxgo-upload-'+str(os.getpid()));f=t.open('wb');\nwhile True:\n b=sys.stdin.buffer.read(1024*1024)\n if not b: break\n f.write(b)\nf.close();os.replace(t,p)`
-  const child = await spawnRemoteFileCommand(host, `python3 -c ${quoteRemoteFileShellValue(script)} -- ${quoteRemoteFileShellValue(absolutePath)}`, signal)
-  const completion = waitForProcess(child, 'Remote upload failed')
-  try {
-    if (progress) await pipeline(source, progress, createRateLimitStream(rateLimitKBps), child.stdin!, { signal })
-    else await pipeline(source, createRateLimitStream(rateLimitKBps), child.stdin!, { signal })
-    await completion
-  } catch (error) {
-    await completion.catch(() => {})
-    throw error
-  }
-}
-function getDownloadProcessStream(child: ReturnType<typeof spawn>, fallback: string) {
-  let stderr = ''
-  child.stderr?.on('data', (chunk) => { stderr += chunk.toString() })
-  child.once('error', (error) => child.stdout?.destroy(error))
-  child.once('close', (code) => {
-    if (code !== 0) child.stdout?.destroy(new Error(normalizeRemoteFileErrorMessage(stderr, fallback)))
-  })
-  return child.stdout!
-}
-async function getDownloadStream(hostId: string, absolutePath: string, directory: boolean, signal?: AbortSignal) {
-  const archiveScript = `import os,pathlib,sys,zipfile\np=pathlib.Path(sys.argv[1]);z=zipfile.ZipFile(sys.stdout.buffer,'w',zipfile.ZIP_DEFLATED)\nfor root,dirs,files in os.walk(p):\n for name in files:\n  item=pathlib.Path(root)/name;z.write(item,str(pathlib.Path(p.name)/item.relative_to(p)))\nz.close()`
-  const fileScript = `import pathlib,sys;f=pathlib.Path(sys.argv[1]).open('rb')\nwhile True:\n b=f.read(1024*1024)\n if not b: break\n sys.stdout.buffer.write(b)`
-  if (hostId === 'local') return getDownloadProcessStream(spawn('python3', ['-c', directory ? archiveScript : fileScript, absolutePath], { stdio: ['ignore', 'pipe', 'pipe'], signal }), 'Download failed')
-  const host = await getRemoteFileHost(hostId)
-  const child = await spawnRemoteFileCommand(host, `python3 -c ${quoteRemoteFileShellValue(directory ? archiveScript : fileScript)} -- ${quoteRemoteFileShellValue(absolutePath)}`, signal)
-  return getDownloadProcessStream(child, 'Remote download failed')
-}
-
-function getUploadStagingDir() {
-  return path.join(process.env.TMUXGO_CONFIG_DIR?.trim() || path.join(os.homedir(), '.tmuxgo'), 'upload-staging')
-}
-function createTransferProgressStream(onChunk: (size: number) => void) {
-  return new Transform({ transform(chunk, _encoding, callback) {
-    onChunk(chunk.length)
-    callback(null, chunk)
-  } })
-}
-async function stageUploadFile(source: NodeJS.ReadableStream, fileName: string, rateLimitKBps: number) {
-  const stagingDir = getUploadStagingDir()
-  await mkdir(stagingDir, { recursive: true, mode: 0o700 })
-  const stagedPath = path.join(stagingDir, randomUUID())
-  await pipeline(source, createRateLimitStream(rateLimitKBps), createWriteStream(stagedPath, { mode: 0o600 }))
-  const info = await stat(stagedPath)
-  return { name: fileName, stagedPath, size: info.size }
-}
-async function runBackgroundUploadTask(input: unknown, context: TaskExecutionContext) {
-  const task = input as BackgroundUploadInput
-  if (task.conflictPolicy !== 'rename') throw new Error('Unsupported conflict policy')
-  const totalBytes = task.files.reduce((sum, file) => sum + file.size, 0)
-  let transferredBytes = task.files.reduce((sum, file) => sum + (file.uploaded?.size || 0), 0)
-  const startedAt = Date.now()
-  const reportProgress = (size: number) => {
-    transferredBytes += size
-    const elapsedMs = Math.max(1, Date.now() - startedAt)
-    context.setProgress(totalBytes ? (transferredBytes * 100) / totalBytes : 100, (transferredBytes * 1000) / elapsedMs)
-  }
-  let resolvedTarget: { root: FileRoot; absolutePath: string; relativePath: string } | null = null
-  for (const file of task.files) {
-    if (file.uploaded) continue
-    if (context.signal.aborted) throw new Error('Task cancelled')
-    if (!file.destination) {
-      if (task.hostId === 'local') {
-        if (!resolvedTarget) {
-          resolvedTarget = await resolveInside(task.targetRootId, task.targetPath)
-          await mkdir(resolvedTarget.absolutePath, { recursive: true })
-        }
-        const destination = await resolveUploadDestination(resolvedTarget.absolutePath, file.name)
-        file.destination = { name: destination.candidateName, path: toRelative(resolvedTarget.root.path, destination.candidatePath), absolutePath: destination.candidatePath }
-      } else {
-        const prepared = await runRemoteFileJson<{ root: FileRoot; directoryPath: string; directoryAbsolutePath: string; name: string; path: string; absolutePath: string }>(task.hostId, { op: 'prepare-upload', root: task.targetRootId, path: task.targetPath, name: file.name })
-        if (!resolvedTarget) resolvedTarget = { root: prepared.root, absolutePath: prepared.directoryAbsolutePath, relativePath: prepared.directoryPath }
-        file.destination = { name: prepared.name, path: prepared.path, absolutePath: prepared.absolutePath }
-      }
-      context.checkpoint()
-    }
-    const destination = file.destination
-    if (task.hostId === 'local') {
-      if (!resolvedTarget) {
-        resolvedTarget = await resolveInside(task.targetRootId, task.targetPath)
-        await mkdir(resolvedTarget.absolutePath, { recursive: true })
-      }
-      const temporaryPath = path.join(resolvedTarget.absolutePath, `.${destination.name}.tmuxgo-upload-${randomUUID()}`)
-      try {
-        await pipeline(createReadStream(file.stagedPath), createTransferProgressStream(reportProgress), createRateLimitStream(task.rateLimitKBps), createWriteStream(temporaryPath), { signal: context.signal })
-        await rename(temporaryPath, destination.absolutePath)
-      } catch (error) {
-        await unlink(temporaryPath).catch(() => {})
-        throw error
-      }
-    } else {
-      await writeRemoteUpload(task.hostId, destination.absolutePath, createReadStream(file.stagedPath), task.rateLimitKBps, context.signal, createTransferProgressStream(reportProgress))
-    }
-    file.uploaded = { ...destination, size: file.size }
-    context.checkpoint()
-    context.appendLog(`Uploaded ${file.uploaded.name}`)
-    context.setProgress(totalBytes ? (transferredBytes * 100) / totalBytes : 100)
-  }
-  await Promise.all(task.files.map((file) => unlink(file.stagedPath).catch(() => {})))
-  const files = task.files.map((file) => file.uploaded!).filter(Boolean)
-  if (resolvedTarget) emitPluginEvent('file.uploaded', { hostId: task.hostId, rootId: resolvedTarget.root.id, filePath: resolvedTarget.relativePath, files: files.map((file) => ({ name: file.name, path: file.path, size: file.size })) })
-  return { message: `Uploaded ${files.length} file${files.length === 1 ? '' : 's'}`, result: { files } }
-}
-function getDownloadArtifactDir() {
-  return path.join(process.env.TMUXGO_CONFIG_DIR?.trim() || path.join(os.homedir(), '.tmuxgo'), 'download-artifacts')
-}
-function getDownloadArtifactPath(artifactId: string) {
-  if (!/^[a-f0-9-]{36}$/i.test(artifactId)) throw new Error('Invalid download artifact')
-  return path.join(getDownloadArtifactDir(), artifactId)
-}
-function getRecentDownloadArtifactIds(backgroundTasks: TaskManager, now: number, ttlMs: number) {
-  const cutoff = now - ttlMs
-  const artifactIds = new Set<string>()
-  for (const task of backgroundTasks.list()) {
-    if (task.type !== 'file-download' || task.status !== 'success' || !task.finishedAt) continue
-    const finishedAt = Date.parse(task.finishedAt)
-    if (!Number.isFinite(finishedAt) || finishedAt < cutoff) continue
-    const result = task.result
-    const downloadUrl = result && typeof result === 'object' ? (result as { downloadUrl?: unknown }).downloadUrl : null
-    if (typeof downloadUrl !== 'string') continue
-    const match = downloadUrl.match(/\/files\/download-tasks\/([a-f0-9-]{36})$/i)
-    if (match) artifactIds.add(match[1])
-  }
-  return artifactIds
-}
-export async function cleanupExpiredDownloadArtifacts(now = Date.now(), backgroundTasks: TaskManager = taskManager) {
-  const ttlMs = readPositiveIntegerEnv('TMUXGO_DOWNLOAD_ARTIFACT_TTL_MS', DEFAULT_DOWNLOAD_ARTIFACT_TTL_MS)
-  const maxCount = readPositiveIntegerEnv('TMUXGO_DOWNLOAD_ARTIFACT_MAX_COUNT', DEFAULT_DOWNLOAD_ARTIFACT_MAX_COUNT)
-  const maxBytes = readPositiveIntegerEnv('TMUXGO_DOWNLOAD_ARTIFACT_MAX_BYTES', DEFAULT_DOWNLOAD_ARTIFACT_MAX_BYTES)
-  const protectedIds = getRecentDownloadArtifactIds(backgroundTasks, now, ttlMs)
-  let directory
-  try {
-    directory = await opendir(getDownloadArtifactDir())
-  } catch {
-    return
-  }
-  const entries: { name: string; entryPath: string; size: number; mtimeMs: number }[] = []
-  for await (const entry of directory) {
-    const entryPath = path.join(getDownloadArtifactDir(), entry.name)
-    try {
-      const info = await stat(entryPath)
-      if (!info.isFile()) continue
-      const temporary = /^[a-f0-9-]{36}\.tmp-[a-f0-9-]{36}$/i.test(entry.name)
-      if (temporary && now - info.mtimeMs > ttlMs) {
-        await rm(entryPath, { force: true })
-        continue
-      }
-      if (!temporary) entries.push({ name: entry.name, entryPath, size: info.size, mtimeMs: info.mtimeMs })
-    } catch {}
-  }
-  const retained: typeof entries = []
-  for (const entry of entries) {
-    if (now - entry.mtimeMs > ttlMs && !protectedIds.has(entry.name)) {
-      try {
-        await rm(entry.entryPath, { force: true })
-      } catch {
-        retained.push(entry)
-      }
-      continue
-    }
-    retained.push(entry)
-  }
-  let totalBytes = retained.reduce((sum, entry) => sum + entry.size, 0)
-  let count = retained.length
-  const removable = retained.filter((entry) => !protectedIds.has(entry.name)).sort((left, right) => left.mtimeMs - right.mtimeMs)
-  for (const entry of removable) {
-    if (count <= maxCount && totalBytes <= maxBytes) break
-    try {
-      await rm(entry.entryPath, { force: true })
-      count -= 1
-      totalBytes -= entry.size
-    } catch {}
-  }
-}
-function startDownloadArtifactCleanup(backgroundTasks: TaskManager) {
-  downloadArtifactCleanupManager = backgroundTasks
-  if (downloadArtifactCleanupTimer) return
-  void cleanupExpiredDownloadArtifacts(Date.now(), downloadArtifactCleanupManager)
-  const intervalMs = readPositiveIntegerEnv('TMUXGO_DOWNLOAD_ARTIFACT_CLEANUP_INTERVAL_MS', DEFAULT_DOWNLOAD_ARTIFACT_CLEANUP_INTERVAL_MS)
-  downloadArtifactCleanupTimer = setInterval(() => void cleanupExpiredDownloadArtifacts(Date.now(), downloadArtifactCleanupManager), intervalMs)
-  downloadArtifactCleanupTimer.unref?.()
-}
-export async function runBackgroundDownloadTask(input: unknown, context: TaskExecutionContext) {
-  const task = input as BackgroundDownloadInput
-  const fileInfo = await resolveFileForHost(task.hostId, task.rootId, task.path)
-  const directory = !fileInfo.isFile
-  const resumable = task.hostId === 'local' && fileInfo.isFile
-  const fileName = directory ? `${path.basename(fileInfo.absolutePath)}.zip` : path.basename(fileInfo.absolutePath)
-  const artifactPath = getDownloadArtifactPath(task.artifactId)
-  const temporaryPath = `${artifactPath}.tmp`
-  await mkdir(getDownloadArtifactDir(), { recursive: true, mode: 0o700 })
-  let downloadSize = fileInfo.size
-  let offset = 0
-  if (resumable) {
-    const sourceInfo = await stat(fileInfo.absolutePath)
-    downloadSize = sourceInfo.size
-    if (task.sourceSize !== sourceInfo.size || task.sourceModifiedAt !== sourceInfo.mtime.toISOString()) {
-      task.sourceSize = sourceInfo.size
-      task.sourceModifiedAt = sourceInfo.mtime.toISOString()
-      task.downloadedBytes = 0
-      await unlink(temporaryPath).catch(() => {})
-      context.checkpoint()
-    } else {
-      try {
-        const temporaryInfo = await stat(temporaryPath)
-        if (temporaryInfo.isFile() && temporaryInfo.size <= sourceInfo.size) offset = temporaryInfo.size
-        else await unlink(temporaryPath).catch(() => {})
-      } catch {}
-      task.downloadedBytes = offset
-      context.checkpoint()
-    }
-  }
-  const initialOffset = offset
-  let checkpointBytes = initialOffset
-  let transferredBytes = 0
-  const startedAt = Date.now()
-  const reportProgress = (size: number) => {
-    transferredBytes += size
-    const totalTransferredBytes = initialOffset + transferredBytes
-    if (resumable) {
-      task.downloadedBytes = totalTransferredBytes
-      if (totalTransferredBytes - checkpointBytes >= 1024 * 1024) {
-        checkpointBytes = totalTransferredBytes
-        context.checkpoint()
-      }
-    }
-    const elapsedMs = Math.max(1, Date.now() - startedAt)
-    context.setProgress(fileInfo.isFile ? (totalTransferredBytes * 100) / downloadSize : null, (transferredBytes * 1000) / elapsedMs)
-  }
-  try {
-    const source = resumable ? createReadStream(fileInfo.absolutePath, offset ? { start: offset } : undefined) : task.hostId === 'local' && fileInfo.isFile ? createReadStream(fileInfo.absolutePath) : await getDownloadStream(task.hostId, fileInfo.absolutePath, directory, context.signal)
-    await pipeline(source, createTransferProgressStream(reportProgress), createRateLimitStream(task.rateLimitKBps), createWriteStream(temporaryPath, { flags: resumable && offset ? 'a' : 'w', mode: 0o600 }), { signal: context.signal })
-    await rename(temporaryPath, artifactPath)
-    if (resumable) {
-      task.downloadedBytes = downloadSize
-      context.checkpoint()
-    }
-  } catch (error) {
-    if (!resumable) await unlink(temporaryPath).catch(() => {})
-    throw error
-  }
-  const artifact = await stat(artifactPath)
-  const downloadUrl = `/api/hosts/${encodeURIComponent(task.hostId)}/files/download-tasks/${task.artifactId}`
-  context.appendLog(`Prepared ${fileName}`)
-  return { message: `Prepared ${fileName}`, result: { downloadUrl, fileName, size: artifact.size } }
-}
+import { emitPluginEvent } from '../lib/plugin-manager.js'
+import {
+  fileContentBodySchema,
+  fileEntryBodySchema,
+  fileRemoveQuerySchema,
+  fileRestoreBodySchema,
+  fileTransferBodySchema,
+  fileTrashBodySchema,
+  hostParamsSchema,
+} from '../lib/request-validation.js'
+import { taskManager, type TaskManager } from '../lib/task-manager.js'
+import {
+  cleanupExpiredTemporaryUploads,
+  getRoots,
+  resolveFileForHost,
+  resolveInside,
+  runRemoteFileJson,
+  startTemporaryUploadCleanup,
+  toRelative,
+} from '../lib/files/file-roots.js'
+import {
+  createDirectoryForHost,
+  createFileForHost,
+  discoverGitRepositoriesForHost,
+  listDirectoryForHost,
+  listTrashEntriesForHost,
+  readContentForHost,
+  readPreviewForHost,
+  removeEntryForHost,
+  renameEntryForHost,
+  resolveDefaultUploadTargetForHost,
+  resolveTemporaryUploadTargetForHost,
+  restoreTrashEntryForHost,
+  saveContentForHost,
+  searchContentForHost,
+  searchNameForHost,
+  transferEntryForHost,
+  trashEntryForHost,
+} from '../lib/files/file-host.js'
+import {
+  cleanupExpiredDownloadArtifacts,
+  createRateLimitStream,
+  getDownloadArtifactPath,
+  getDownloadStream,
+  getImageMimeType,
+  normalizeUploadRateLimitKBps,
+  readStoredUploadRateLimitKBps,
+  resolveDownloadRateLimitKBps,
+  resolveUploadDestination,
+  runBackgroundDownloadTask,
+  runBackgroundUploadTask,
+  sanitizeUploadFileName,
+  stageUploadFile,
+  startDownloadArtifactCleanup,
+  writeRemoteUpload,
+} from '../lib/files/file-transfer.js'
+import { TEMP_UPLOAD_ROOT_ID, type FileRoot, type StagedUploadFile } from '../lib/files/file-types.js'
+export {
+  TEMP_UPLOAD_ROOT_ID,
+  cleanupExpiredTemporaryUploads,
+  cleanupExpiredDownloadArtifacts,
+  runBackgroundDownloadTask,
+  readContentForHost,
+  saveContentForHost,
+  discoverGitRepositoriesForHost,
+}
+export type { GitRepositoryInfo } from '../lib/files/file-types.js'
 export async function fileRoutes(fastify: FastifyInstance, options: { taskManager?: TaskManager } = {}) {
   const backgroundTasks = options.taskManager || taskManager
   backgroundTasks.register('file-upload', runBackgroundUploadTask)
@@ -1451,12 +197,24 @@ export async function fileRoutes(fastify: FastifyInstance, options: { taskManage
   fastify.get('/hosts/:hostId/files/search-name', async (request) => {
     const { hostId } = request.params as { hostId: string }
     const query = request.query as { root?: string; q?: string; basePath?: string; includeDotFiles?: string }
-    return searchNameForHost(hostId, query.root || '', query.q || '', query.basePath || '', query.includeDotFiles !== 'false')
+    return searchNameForHost(
+      hostId,
+      query.root || '',
+      query.q || '',
+      query.basePath || '',
+      query.includeDotFiles !== 'false',
+    )
   })
   fastify.get('/hosts/:hostId/files/search-content', async (request) => {
     const { hostId } = request.params as { hostId: string }
     const query = request.query as { root?: string; q?: string; basePath?: string; includeDotFiles?: string }
-    return searchContentForHost(hostId, query.root || '', query.q || '', query.basePath || '', query.includeDotFiles !== 'false')
+    return searchContentForHost(
+      hostId,
+      query.root || '',
+      query.q || '',
+      query.basePath || '',
+      query.includeDotFiles !== 'false',
+    )
   })
   fastify.get('/hosts/:hostId/files/default-upload-target', async (request) => {
     const { hostId } = request.params as { hostId: string }
@@ -1469,7 +227,9 @@ export async function fileRoutes(fastify: FastifyInstance, options: { taskManage
       return await resolveTemporaryUploadTargetForHost(hostId)
     } catch (error) {
       const err = error as Error
-      return reply.status(400).send({ message: err.message || 'Temporary upload target failed', code: 'TEMP_UPLOAD_TARGET_FAILED' })
+      return reply
+        .status(400)
+        .send({ message: err.message || 'Temporary upload target failed', code: 'TEMP_UPLOAD_TARGET_FAILED' })
     }
   })
   fastify.post('/hosts/:hostId/files/upload', async (request, reply) => {
@@ -1497,16 +257,41 @@ export async function fileRoutes(fastify: FastifyInstance, options: { taskManage
           await mkdir(resolvedTarget.absolutePath, { recursive: true })
         }
         if (hostId === 'local') {
-          const { candidateName, candidatePath } = await resolveUploadDestination(resolvedTarget!.absolutePath, safeName)
+          const { candidateName, candidatePath } = await resolveUploadDestination(
+            resolvedTarget!.absolutePath,
+            safeName,
+          )
           await pipeline(part.file, createRateLimitStream(rateLimitKBps), createWriteStream(candidatePath))
           const info = await stat(candidatePath)
-          uploadedFiles.push({ name: candidateName, path: toRelative(resolvedTarget!.root.path, candidatePath), absolutePath: candidatePath, size: info.size })
+          uploadedFiles.push({
+            name: candidateName,
+            path: toRelative(resolvedTarget!.root.path, candidatePath),
+            absolutePath: candidatePath,
+            size: info.size,
+          })
         } else {
-          const prepared = await runRemoteFileJson<{ root: FileRoot; directoryPath: string; directoryAbsolutePath: string; name: string; path: string; absolutePath: string }>(hostId, { op: 'prepare-upload', root: targetRootId, path: targetPath, name: safeName })
-          if (!resolvedTarget) resolvedTarget = { root: prepared.root, absolutePath: prepared.directoryAbsolutePath, relativePath: prepared.directoryPath }
+          const prepared = await runRemoteFileJson<{
+            root: FileRoot
+            directoryPath: string
+            directoryAbsolutePath: string
+            name: string
+            path: string
+            absolutePath: string
+          }>(hostId, { op: 'prepare-upload', root: targetRootId, path: targetPath, name: safeName })
+          if (!resolvedTarget)
+            resolvedTarget = {
+              root: prepared.root,
+              absolutePath: prepared.directoryAbsolutePath,
+              relativePath: prepared.directoryPath,
+            }
           await writeRemoteUpload(hostId, prepared.absolutePath, part.file, rateLimitKBps)
           const info = await resolveFileForHost(hostId, prepared.root.id, prepared.path)
-          uploadedFiles.push({ name: prepared.name, path: prepared.path, absolutePath: prepared.absolutePath, size: info.size })
+          uploadedFiles.push({
+            name: prepared.name,
+            path: prepared.path,
+            absolutePath: prepared.absolutePath,
+            size: info.size,
+          })
         }
         continue
       }
@@ -1519,7 +304,13 @@ export async function fileRoutes(fastify: FastifyInstance, options: { taskManage
     }
     if (background) {
       if (!stagedFiles.length) throw new Error('No files uploaded')
-      return reply.status(202).send({ task: await backgroundTasks.start({ type: 'file-upload', title: `Upload ${stagedFiles.length} file${stagedFiles.length === 1 ? '' : 's'}`, input: { hostId, targetRootId, targetPath, conflictPolicy, rateLimitKBps, files: stagedFiles } }) })
+      return reply.status(202).send({
+        task: await backgroundTasks.start({
+          type: 'file-upload',
+          title: `Upload ${stagedFiles.length} file${stagedFiles.length === 1 ? '' : 's'}`,
+          input: { hostId, targetRootId, targetPath, conflictPolicy, rateLimitKBps, files: stagedFiles },
+        }),
+      })
     }
     if (!resolvedTarget) throw new Error('No files uploaded')
     const result = {
@@ -1530,11 +321,16 @@ export async function fileRoutes(fastify: FastifyInstance, options: { taskManage
         rootPath: resolvedTarget.root.path,
         path: resolvedTarget.relativePath,
         absolutePath: resolvedTarget.absolutePath,
-        source: resolvedTarget.root.id === TEMP_UPLOAD_ROOT_ID ? 'temporary' as const : 'preferred' as const,
+        source: resolvedTarget.root.id === TEMP_UPLOAD_ROOT_ID ? ('temporary' as const) : ('preferred' as const),
       },
       files: uploadedFiles,
     }
-    emitPluginEvent('file.uploaded', { hostId, rootId: resolvedTarget.root.id, filePath: resolvedTarget.relativePath, files: uploadedFiles.map((file) => ({ name: file.name, path: file.path, size: file.size })) })
+    emitPluginEvent('file.uploaded', {
+      hostId,
+      rootId: resolvedTarget.root.id,
+      filePath: resolvedTarget.relativePath,
+      files: uploadedFiles.map((file) => ({ name: file.name, path: file.path, size: file.size })),
+    })
     return result
   })
   fastify.get('/hosts/:hostId/files/download', async (request, reply) => {
@@ -1548,7 +344,10 @@ export async function fileRoutes(fastify: FastifyInstance, options: { taskManage
       reply.header('Content-Type', directory ? 'application/zip' : 'application/octet-stream')
       if (!directory) reply.header('Content-Length', String(fileInfo.size))
       reply.header('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName).replace(/%20/g, ' ')}"`)
-      const stream = hostId === 'local' && !directory ? createReadStream(fileInfo.absolutePath) : await getDownloadStream(hostId, fileInfo.absolutePath, directory)
+      const stream =
+        hostId === 'local' && !directory
+          ? createReadStream(fileInfo.absolutePath)
+          : await getDownloadStream(hostId, fileInfo.absolutePath, directory)
       return reply.send(stream.pipe(createRateLimitStream(rateLimitKBps)))
     } catch (error) {
       const err = error as Error
@@ -1563,8 +362,16 @@ export async function fileRoutes(fastify: FastifyInstance, options: { taskManage
     try {
       const fileInfo = await resolveFileForHost(hostId, rootId, relativePath)
       const rateLimitKBps = await resolveDownloadRateLimitKBps(body?.rateLimitKBps)
-      const fileName = fileInfo.isFile ? path.basename(fileInfo.absolutePath) : `${path.basename(fileInfo.absolutePath)}.zip`
-      return reply.status(202).send({ task: await backgroundTasks.start({ type: 'file-download', title: `Download ${fileName}`, input: { hostId, rootId, path: relativePath, rateLimitKBps, artifactId: randomUUID() } }) })
+      const fileName = fileInfo.isFile
+        ? path.basename(fileInfo.absolutePath)
+        : `${path.basename(fileInfo.absolutePath)}.zip`
+      return reply.status(202).send({
+        task: await backgroundTasks.start({
+          type: 'file-download',
+          title: `Download ${fileName}`,
+          input: { hostId, rootId, path: relativePath, rateLimitKBps, artifactId: randomUUID() },
+        }),
+      })
     } catch (error) {
       const err = error as Error
       return reply.status(400).send({ message: err.message || 'Download failed', code: 'DOWNLOAD_FAILED' })
@@ -1573,18 +380,34 @@ export async function fileRoutes(fastify: FastifyInstance, options: { taskManage
   fastify.get('/hosts/:hostId/files/download-tasks/:artifactId', async (request, reply) => {
     const { hostId } = hostParamsSchema.parse(request.params)
     const { artifactId } = request.params as { artifactId: string }
-    const task = backgroundTasks.list().find((item) => item.type === 'file-download' && item.status === 'success' && typeof item.result === 'object' && item.result !== null && (item.result as { downloadUrl?: unknown }).downloadUrl === `/api/hosts/${encodeURIComponent(hostId)}/files/download-tasks/${artifactId}`)
+    const task = backgroundTasks
+      .list()
+      .find(
+        (item) =>
+          item.type === 'file-download' &&
+          item.status === 'success' &&
+          typeof item.result === 'object' &&
+          item.result !== null &&
+          (item.result as { downloadUrl?: unknown }).downloadUrl ===
+            `/api/hosts/${encodeURIComponent(hostId)}/files/download-tasks/${artifactId}`,
+      )
     const result = task?.result as { fileName?: unknown; size?: unknown } | undefined
-    if (!result || typeof result.fileName !== 'string' || typeof result.size !== 'number') return reply.status(404).send({ message: 'Download artifact not found', code: 'DOWNLOAD_ARTIFACT_NOT_FOUND' })
+    if (!result || typeof result.fileName !== 'string' || typeof result.size !== 'number')
+      return reply.status(404).send({ message: 'Download artifact not found', code: 'DOWNLOAD_ARTIFACT_NOT_FOUND' })
     try {
       const artifactPath = getDownloadArtifactPath(artifactId)
       reply.header('Content-Type', 'application/octet-stream')
       reply.header('Content-Length', String(result.size))
-      reply.header('Content-Disposition', `attachment; filename="${encodeURIComponent(result.fileName).replace(/%20/g, ' ')}"`)
+      reply.header(
+        'Content-Disposition',
+        `attachment; filename="${encodeURIComponent(result.fileName).replace(/%20/g, ' ')}"`,
+      )
       return reply.send(createReadStream(artifactPath))
     } catch (error) {
       const err = error as Error
-      return reply.status(404).send({ message: err.message || 'Download artifact not found', code: 'DOWNLOAD_ARTIFACT_NOT_FOUND' })
+      return reply
+        .status(404)
+        .send({ message: err.message || 'Download artifact not found', code: 'DOWNLOAD_ARTIFACT_NOT_FOUND' })
     }
   })
   fastify.get('/hosts/:hostId/files/image', async (request, reply) => {
@@ -1592,12 +415,21 @@ export async function fileRoutes(fastify: FastifyInstance, options: { taskManage
     const query = request.query as { root?: string; path?: string }
     try {
       const fileInfo = await resolveFileForHost(hostId, query.root || '', query.path || '')
-      if (!fileInfo.isFile) return reply.status(400).send({ message: 'Directories are not previewable here', code: 'IMAGE_PREVIEW_UNSUPPORTED' })
+      if (!fileInfo.isFile)
+        return reply
+          .status(400)
+          .send({ message: 'Directories are not previewable here', code: 'IMAGE_PREVIEW_UNSUPPORTED' })
       const mimeType = getImageMimeType(fileInfo.absolutePath)
-      if (!mimeType) return reply.status(400).send({ message: 'Image preview unavailable for this file type', code: 'IMAGE_TYPE_UNSUPPORTED' })
+      if (!mimeType)
+        return reply
+          .status(400)
+          .send({ message: 'Image preview unavailable for this file type', code: 'IMAGE_TYPE_UNSUPPORTED' })
       reply.header('Content-Type', mimeType)
       reply.header('Content-Length', String(fileInfo.size))
-      reply.header('Content-Disposition', `inline; filename="${encodeURIComponent(path.basename(fileInfo.absolutePath)).replace(/%20/g, ' ')}"`)
+      reply.header(
+        'Content-Disposition',
+        `inline; filename="${encodeURIComponent(path.basename(fileInfo.absolutePath)).replace(/%20/g, ' ')}"`,
+      )
       reply.header('Cache-Control', 'no-store')
       reply.header('X-Content-Type-Options', 'nosniff')
       if (hostId === 'local') return reply.send(createReadStream(fileInfo.absolutePath))
