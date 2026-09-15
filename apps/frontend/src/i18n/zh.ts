@@ -360,6 +360,8 @@ export const zh = {
   'settings.cursorBlink': '光标闪烁',
   'settings.terminalPadding': '终端内边距',
   'settings.resetDefaults': '恢复默认',
+  'settings.forceRefresh': '强制刷新',
+  'settings.forceRefreshDesc': '重新加载浏览器页面，断开并重新连接全部会话。',
   'settings.theme': '主题',
   'settings.theme.dark': '深色',
   'settings.theme.light': '浅色',
