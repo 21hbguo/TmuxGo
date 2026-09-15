@@ -3,3 +3,4 @@ packages:
 allowBuilds:
   esbuild: true
   node-pty: true
+  simple-git-hooks: true
