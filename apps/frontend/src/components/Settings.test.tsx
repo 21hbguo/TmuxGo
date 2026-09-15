@@ -53,6 +53,10 @@ vi.mock('@/hooks/useApi', () => ({
   useHosts: () => ({ data: [{ id: 'edge', name: 'Edge', address: '10.0.0.8', user: 'deploy', port: 22, tags: ['agent', 'production'], userTags: ['production'], connectionMode: 'agent', agent: { version: '1.2.3', online: false, lastSeenAt: '2026-08-02T00:00:00.000Z', lastDisconnectedAt: '2026-08-02T00:01:00.000Z', disconnectReason: 'Heartbeat timed out', reconnectCount: 3 } }] }),
   useRestartRebuildStatus: () => restartStatusState,
   useRestartRebuild: () => ({ mutateAsync: restartRebuild, isPending: false }),
+  useAppUpdateStatus: () => ({ data: null, isLoading: false, error: null, refetch: vi.fn() }),
+  useAppUpdateTask: () => ({ data: null, refetch: vi.fn() }),
+  useCheckAppUpdate: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useStartAppUpdate: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }))
 vi.mock('@/lib/api', () => ({
   api: { shares: shareApi },

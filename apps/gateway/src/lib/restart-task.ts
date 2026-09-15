@@ -1,5 +1,5 @@
 import { spawn } from 'child_process'
-import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
 export type RestartTaskStatus='idle'|'running'|'success'|'error'|'cancelled'
@@ -10,6 +10,7 @@ export interface RestartTaskState {
   summaryLines: string[]
   exitCode: number | null
   errorMessage: string | null
+  pid?: number | null
 }
 export interface RestartTaskRunner {
   getState(): RestartTaskState
@@ -20,6 +21,9 @@ interface RestartTaskRunnerOptions {
   rootDir?: string
   maxSummaryLines?: number
   statePath?: string
+  command?: string
+  args?: string[]
+  logPath?: string
 }
 const defaultState=():RestartTaskState=>({
   status:'idle',
@@ -28,24 +32,55 @@ const defaultState=():RestartTaskState=>({
   summaryLines:[],
   exitCode:null,
   errorMessage:null,
+  pid:null,
 })
 function getStatePath(options: RestartTaskRunnerOptions) {
   if (options.statePath) return options.statePath
   return path.join(process.env.TMUXGO_CONFIG_DIR?.trim() || path.join(os.homedir(), '.tmuxgo'), 'restart-task.json')
 }
-function readState(statePath: string): RestartTaskState {
+function pidAlive(pid: unknown): pid is number {
+  if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) return false
   try {
-    const parsed=JSON.parse(readFileSync(statePath,'utf8')) as Partial<RestartTaskState>
-    if (parsed.status!=='idle'&&parsed.status!=='running'&&parsed.status!=='success'&&parsed.status!=='error'&&parsed.status!=='cancelled') return defaultState()
-    const state:RestartTaskState={
-      status:parsed.status,
-      startedAt:typeof parsed.startedAt==='string'?parsed.startedAt:null,
-      finishedAt:typeof parsed.finishedAt==='string'?parsed.finishedAt:null,
-      summaryLines:Array.isArray(parsed.summaryLines)?parsed.summaryLines.filter((line):line is string=>typeof line==='string').slice(-20):[],
-      exitCode:typeof parsed.exitCode==='number'?parsed.exitCode:null,
-      errorMessage:typeof parsed.errorMessage==='string'?parsed.errorMessage:null,
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return (error as NodeJS.ErrnoException)?.code === 'EPERM'
+  }
+}
+function tailLines(logPath: string | undefined, maxLines: number): string[] | null {
+  if (!logPath) return null
+  try {
+    if (!existsSync(logPath)) return null
+    const size = statSync(logPath).size
+    const raw = readFileSync(logPath, 'utf8')
+    if (size === 0) return null
+    return raw.split(/\r?\n/).map((line) => line.trimEnd()).filter(Boolean).slice(-maxLines)
+  } catch {
+    return null
+  }
+}
+function parseState(statePath: string): RestartTaskState {
+  const parsed=JSON.parse(readFileSync(statePath,'utf8')) as Partial<RestartTaskState>
+  if (parsed.status!=='idle'&&parsed.status!=='running'&&parsed.status!=='success'&&parsed.status!=='error'&&parsed.status!=='cancelled') return defaultState()
+  return {
+    status:parsed.status,
+    startedAt:typeof parsed.startedAt==='string'?parsed.startedAt:null,
+    finishedAt:typeof parsed.finishedAt==='string'?parsed.finishedAt:null,
+    summaryLines:Array.isArray(parsed.summaryLines)?parsed.summaryLines.filter((line):line is string=>typeof line==='string').slice(-20):[],
+    exitCode:typeof parsed.exitCode==='number'?parsed.exitCode:null,
+    errorMessage:typeof parsed.errorMessage==='string'?parsed.errorMessage:null,
+    pid:typeof parsed.pid==='number'?parsed.pid:null,
+  }
+}
+function readState(statePath: string, logPath?: string, maxSummaryLines = 20): RestartTaskState {
+  try {
+    const state=parseState(statePath)
+    if (state.status==='running') {
+      const liveLog = tailLines(logPath, maxSummaryLines)
+      if (liveLog && liveLog.length) state.summaryLines = liveLog
     }
     if (state.status!=='running') return state
+    if (pidAlive(state.pid)) return state
     return {...state,status:'error',finishedAt:new Date().toISOString(),errorMessage:'Task interrupted by Gateway restart'}
   } catch {
     return defaultState()
@@ -65,23 +100,50 @@ export function createRestartTaskRunner(options:RestartTaskRunnerOptions={}):Res
   const rootDir=options.rootDir||path.resolve(process.cwd(),'..','..')
   const maxSummaryLines=options.maxSummaryLines||20
   const statePath=getStatePath(options)
-  let state=readState(statePath)
+  const logPath=options.logPath
+  const command=options.command||'./start.sh'
+  const commandArgs=options.args||['--restart','--rebuild','--preserve-tmux']
+  let state=readState(statePath,logPath,maxSummaryLines)
   if (state.status==='error'&&state.errorMessage==='Task interrupted by Gateway restart') writeState(statePath,state)
+  let adopted=state.status==='running'
   let child:ReturnType<typeof spawn>|null=null
   let runId=0
+  let logTimer:NodeJS.Timeout|null=null
+  const stopLogTimer=() => {
+    if (logTimer) clearInterval(logTimer)
+    logTimer=null
+  }
   const appendSummary=(chunk:string) => {
     const lines=chunk.split(/\r?\n/).map((line)=>line.trimEnd()).filter(Boolean)
     if (!lines.length) return
     state={...state,summaryLines:[...state.summaryLines,...lines].slice(-maxSummaryLines)}
     writeState(statePath,state)
   }
+  const startLogTimer=() => {
+    if (!logPath) return
+    stopLogTimer()
+    logTimer=setInterval(() => {
+      if (state.status!=='running') { stopLogTimer(); return }
+      const liveLog=tailLines(logPath,maxSummaryLines)
+      if (!liveLog||!liveLog.length) return
+      if (liveLog.join('\n')===state.summaryLines.join('\n')) return
+      state={...state,summaryLines:liveLog}
+      writeState(statePath,state)
+    },800)
+    if (typeof logTimer.unref==='function') logTimer.unref()
+  }
   return {
     getState() {
+      if (adopted) {
+        state=readState(statePath,logPath,maxSummaryLines)
+        if (state.status!=='running') adopted=false
+      }
       return state
     },
     async start() {
       if (state.status==='running') return state
       const activeRun=++runId
+      adopted=false
       state={
         status:'running',
         startedAt:new Date().toISOString(),
@@ -89,19 +151,24 @@ export function createRestartTaskRunner(options:RestartTaskRunnerOptions={}):Res
         summaryLines:[],
         exitCode:null,
         errorMessage:null,
+        pid:null,
       }
       writeState(statePath,state)
       try {
-        const nextChild=spawn('./start.sh',['--restart','--rebuild','--preserve-tmux'],{
+        const nextChild=spawn(command,commandArgs,{
           cwd:rootDir,
           env:process.env,
           stdio:['ignore','pipe','pipe'],
         })
         child=nextChild
+        state={...state,pid:nextChild.pid??null}
+        writeState(statePath,state)
+        startLogTimer()
         nextChild.stdout?.on('data',(chunk)=>appendSummary(String(chunk)))
         nextChild.stderr?.on('data',(chunk)=>appendSummary(String(chunk)))
         nextChild.on('error',(error) => {
           if (activeRun!==runId) return
+          stopLogTimer()
           state={
             ...state,
             status:'error',
@@ -115,12 +182,19 @@ export function createRestartTaskRunner(options:RestartTaskRunnerOptions={}):Res
         })
         nextChild.on('close',(code) => {
           if (activeRun!==runId) return
-          state={
-            ...state,
-            status:code===0?'success':'error',
-            finishedAt:new Date().toISOString(),
-            exitCode:code,
-            errorMessage:code===0?null:`Command exited with code ${code}`,
+          stopLogTimer()
+          let onDisk:RestartTaskState|null=null
+          try { onDisk=parseState(statePath) } catch {}
+          if (onDisk&&onDisk.status!=='running'&&onDisk.finishedAt) {
+            state=onDisk
+          } else {
+            state={
+              ...state,
+              status:code===0?'success':'error',
+              finishedAt:new Date().toISOString(),
+              exitCode:code,
+              errorMessage:code===0?null:`Command exited with code ${code}`,
+            }
           }
           child=null
           writeState(statePath,state)
@@ -135,11 +209,18 @@ export function createRestartTaskRunner(options:RestartTaskRunnerOptions={}):Res
     async cancel() {
       if (state.status!=='running') return state
       runId+=1
-      child?.kill('SIGTERM')
+      stopLogTimer()
+      if (child) child.kill('SIGTERM')
+      else if (pidAlive(state.pid)) { try { process.kill(state.pid as number,'SIGTERM') } catch {} }
       child=null
       state={...state,status:'cancelled',finishedAt:new Date().toISOString(),errorMessage:'Task cancelled'}
       writeState(statePath,state)
       return state
     },
   }
+}
+export function createUpdateTaskRunner(options:RestartTaskRunnerOptions={}):RestartTaskRunner {
+  const statePath=options.statePath||path.join(process.env.TMUXGO_CONFIG_DIR?.trim()||path.join(os.homedir(),'.tmuxgo'),'update-task.json')
+  const logPath=options.logPath||statePath.replace(/\.json$/,'.log')
+  return createRestartTaskRunner({...options,statePath,logPath,command:'bash',args:['scripts/self-update.sh',statePath]})
 }
