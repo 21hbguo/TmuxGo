@@ -9,15 +9,21 @@ export const STREAM_BINARY_TYPE_CELL_SNAPSHOT = 5
 export const STREAM_BINARY_TYPE_CELL_SNAPSHOT_GZIP = 6
 export const STREAM_BINARY_TYPE_CELL_DIFF = 7
 export const STREAM_BINARY_TYPE_CELL_DIFF_GZIP = 8
+export const STREAM_BINARY_TYPE_CELL_SNAPSHOT_V2 = 9
+export const STREAM_BINARY_TYPE_CELL_SNAPSHOT_V2_GZIP = 10
+export const STREAM_BINARY_TYPE_CELL_DIFF_V2 = 11
+export const STREAM_BINARY_TYPE_CELL_DIFF_V2_GZIP = 12
 
 export type StreamBinaryAnsiType = 'output' | 'output_resync'
-export type StreamBinaryCellType = 'cell_snapshot' | 'cell_diff'
+export type StreamBinaryCellType = 'cell_snapshot' | 'cell_diff' | 'cell_snapshot_v2' | 'cell_diff_v2'
 
 function typeCodeOf(type: StreamBinaryAnsiType | StreamBinaryCellType, gzip: boolean) {
   if (type === 'output') return gzip ? STREAM_BINARY_TYPE_OUTPUT_GZIP : STREAM_BINARY_TYPE_OUTPUT
   if (type === 'output_resync') return gzip ? STREAM_BINARY_TYPE_RESYNC_GZIP : STREAM_BINARY_TYPE_RESYNC
   if (type === 'cell_snapshot') return gzip ? STREAM_BINARY_TYPE_CELL_SNAPSHOT_GZIP : STREAM_BINARY_TYPE_CELL_SNAPSHOT
-  return gzip ? STREAM_BINARY_TYPE_CELL_DIFF_GZIP : STREAM_BINARY_TYPE_CELL_DIFF
+  if (type === 'cell_diff') return gzip ? STREAM_BINARY_TYPE_CELL_DIFF_GZIP : STREAM_BINARY_TYPE_CELL_DIFF
+  if (type === 'cell_snapshot_v2') return gzip ? STREAM_BINARY_TYPE_CELL_SNAPSHOT_V2_GZIP : STREAM_BINARY_TYPE_CELL_SNAPSHOT_V2
+  return gzip ? STREAM_BINARY_TYPE_CELL_DIFF_V2_GZIP : STREAM_BINARY_TYPE_CELL_DIFF_V2
 }
 
 export function gzipPayload(data: Buffer) {
@@ -63,6 +69,7 @@ export function encodeStreamOutputBinary(type: StreamBinaryAnsiType, hostId: str
 
 export function encodeStreamCellBinary(type: StreamBinaryCellType, hostId: string, sessionName: string, payload: Buffer, options?: { compress?: boolean; threshold?: number }) {
   const threshold = options?.threshold ?? 4096
-  const { payload: body, gzip } = maybeGzip(payload, options?.compress === true, type === 'cell_snapshot' ? 0 : threshold)
+  const isSnapshot = type === 'cell_snapshot' || type === 'cell_snapshot_v2'
+  const { payload: body, gzip } = maybeGzip(payload, options?.compress === true, isSnapshot ? 0 : threshold)
   return encodeStreamBinaryFrame(type, hostId, sessionName, body, gzip)
 }

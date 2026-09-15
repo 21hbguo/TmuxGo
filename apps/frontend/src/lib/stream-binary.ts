@@ -8,9 +8,13 @@ export const STREAM_BINARY_TYPE_CELL_SNAPSHOT = 5
 export const STREAM_BINARY_TYPE_CELL_SNAPSHOT_GZIP = 6
 export const STREAM_BINARY_TYPE_CELL_DIFF = 7
 export const STREAM_BINARY_TYPE_CELL_DIFF_GZIP = 8
+export const STREAM_BINARY_TYPE_CELL_SNAPSHOT_V2 = 9
+export const STREAM_BINARY_TYPE_CELL_SNAPSHOT_V2_GZIP = 10
+export const STREAM_BINARY_TYPE_CELL_DIFF_V2 = 11
+export const STREAM_BINARY_TYPE_CELL_DIFF_V2_GZIP = 12
 
 export type DecodedStreamOutput = {
-  type: 'output' | 'output_resync' | 'cell_snapshot' | 'cell_diff'
+  type: 'output' | 'output_resync' | 'cell_snapshot' | 'cell_diff' | 'cell_snapshot_v2' | 'cell_diff_v2'
   hostId: string
   sessionName: string
   data: string
@@ -22,6 +26,8 @@ function typeFromCode(typeCode: number): DecodedStreamOutput['type'] | null {
   if (typeCode === STREAM_BINARY_TYPE_RESYNC || typeCode === STREAM_BINARY_TYPE_RESYNC_GZIP) return 'output_resync'
   if (typeCode === STREAM_BINARY_TYPE_CELL_SNAPSHOT || typeCode === STREAM_BINARY_TYPE_CELL_SNAPSHOT_GZIP) return 'cell_snapshot'
   if (typeCode === STREAM_BINARY_TYPE_CELL_DIFF || typeCode === STREAM_BINARY_TYPE_CELL_DIFF_GZIP) return 'cell_diff'
+  if (typeCode === STREAM_BINARY_TYPE_CELL_SNAPSHOT_V2 || typeCode === STREAM_BINARY_TYPE_CELL_SNAPSHOT_V2_GZIP) return 'cell_snapshot_v2'
+  if (typeCode === STREAM_BINARY_TYPE_CELL_DIFF_V2 || typeCode === STREAM_BINARY_TYPE_CELL_DIFF_V2_GZIP) return 'cell_diff_v2'
   return null
 }
 
@@ -30,6 +36,8 @@ function isGzipType(typeCode: number) {
     || typeCode === STREAM_BINARY_TYPE_RESYNC_GZIP
     || typeCode === STREAM_BINARY_TYPE_CELL_SNAPSHOT_GZIP
     || typeCode === STREAM_BINARY_TYPE_CELL_DIFF_GZIP
+    || typeCode === STREAM_BINARY_TYPE_CELL_SNAPSHOT_V2_GZIP
+    || typeCode === STREAM_BINARY_TYPE_CELL_DIFF_V2_GZIP
 }
 
 export function gunzipBytes(data: Uint8Array): Uint8Array {
@@ -64,7 +72,7 @@ export function decodeStreamOutputBinary(buffer: ArrayBuffer): DecodedStreamOutp
       return null
     }
   }
-  if (kind === 'cell_snapshot' || kind === 'cell_diff') {
+  if (kind.startsWith('cell_')) {
     return { type: kind, hostId, sessionName, data: '', cellPayload: payload }
   }
   return { type: kind, hostId, sessionName, data: decoder.decode(payload) }
