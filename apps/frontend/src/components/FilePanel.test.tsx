@@ -579,10 +579,10 @@ describe('FilePanel', () => {
     await waitFor(() => expect(screen.getByText('guide.md')).toBeInTheDocument())
     const indexFile = screen.getByText('index.ts').closest('[role="button"]') as HTMLElement
     fireEvent.click(indexFile)
-    fireEvent.keyDown(indexFile, { key: 'ArrowDown' })
+    fireEvent.keyDown(indexFile, { key: 'ArrowUp' })
     await waitFor(() => expect(screen.getByText('guide.md').closest('[data-selected="true"]')).toBeInTheDocument())
     expect(screen.getByText('guide.md').closest('[role="button"]')).toHaveFocus()
-    fireEvent.keyDown(screen.getByText('guide.md').closest('[role="button"]') as HTMLElement, { key: 'ArrowUp' })
+    fireEvent.keyDown(screen.getByText('guide.md').closest('[role="button"]') as HTMLElement, { key: 'ArrowDown' })
     await waitFor(() => expect(screen.getByText('index.ts').closest('[data-selected="true"]')).toBeInTheDocument())
   })
   it('shows visible content search results when dotfiles are hidden', async () => {

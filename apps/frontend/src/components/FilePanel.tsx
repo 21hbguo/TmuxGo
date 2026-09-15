@@ -477,10 +477,10 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
       return []
     }
   }, [activeRootBasePath, activeRootId, directoryCache, fileHostId, setDirectoryStatus, storeDirectoryChildren, t])
-  const createTreeNodes = useCallback((items: FileItem[]): FileTreeNode[] => items.filter((item) => (!hideDotFiles || !isDotPath(item.path || item.name)) && matchesFileTypeFilter(item, fileTypeFilter)).map((item) => {
+  const createTreeNodes = useCallback((items: FileItem[]): FileTreeNode[] => items.filter((item) => (!hideDotFiles || !isDotPath(item.path || item.name)) && matchesFileTypeFilter(item, fileTypeFilter)).sort((a, b) => compareFileItems(a, b, fileSort)).map((item) => {
     const children = item.type === 'directory' && openDirectories.has(item.path) ? readDirectoryChildrenFromCache(directoryCache, activeRootId, activeRootBasePath, item.path) : undefined
     return { key: item.path, children: children ? createTreeNodes(children) : undefined, item }
-  }), [activeRootBasePath, activeRootId, directoryCache, fileTypeFilter, hideDotFiles, openDirectories])
+  }), [activeRootBasePath, activeRootId, directoryCache, fileSort, fileTypeFilter, hideDotFiles, openDirectories])
   const desktopTreeData = useMemo(() => !isMobile && !showSearchResults ? createTreeNodes(listData?.items || []) : [], [createTreeNodes, isMobile, listData?.items, showSearchResults])
 
   useEffect(() => {
