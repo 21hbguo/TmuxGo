@@ -10,8 +10,17 @@ import {
   STREAM_BINARY_TYPE_RESYNC_GZIP,
   STREAM_BINARY_TYPE_CELL_SNAPSHOT,
   STREAM_BINARY_TYPE_CELL_SNAPSHOT_GZIP,
+  STREAM_BINARY_TYPE_CELL_SNAPSHOT_V2,
+  STREAM_BINARY_TYPE_CELL_SNAPSHOT_V2_GZIP,
 } from '../apps/gateway/src/lib/stream-binary'
-import { TerminalGrid, AnsiParser, encodeCellSnapshot, encodeCellDiff, diffCells } from '../apps/gateway/src/lib/terminal-grid/index'
+import {
+  TerminalGrid,
+  AnsiParser,
+  encodeCellSnapshot,
+  encodeCellSnapshotV2,
+  encodeCellDiff,
+  diffCells,
+} from '../apps/gateway/src/lib/terminal-grid/index'
 
 function decodeHeader(buffer: Buffer) {
   assert.equal(buffer[0], 0x54)
@@ -73,6 +82,25 @@ test('ansi parser and cell snapshot roundtrip structure', () => {
   const frame = encodeStreamCellBinary('cell_snapshot', 'local', 'dev', snap, { compress: true, threshold: 1 })
   const decoded = decodeHeader(frame)
   assert.ok(decoded.typeCode === STREAM_BINARY_TYPE_CELL_SNAPSHOT || decoded.typeCode === STREAM_BINARY_TYPE_CELL_SNAPSHOT_GZIP)
+})
+
+test('cell v2 snapshot preserves grapheme text and width', () => {
+  const grid = new TerminalGrid(4, 2)
+  const parser = new AnsiParser(grid)
+  assert.equal(parser.feed('e\u0301').ok, true)
+  grid.seq = 3
+  const payload = encodeCellSnapshotV2(grid)
+  assert.ok(payload.length > 20)
+  const runLen = payload.readUInt16LE(20)
+  const width = payload.readUInt8(22)
+  const textLen = payload.readUInt16LE(24)
+  const text = payload.subarray(38, 38 + textLen).toString('utf8')
+  assert.equal(runLen, 1)
+  assert.equal(width, 1)
+  assert.equal(text, 'e\u0301')
+  const frame = encodeStreamCellBinary('cell_snapshot_v2', 'local', 'dev', payload, { compress: true, threshold: 1 })
+  const decoded = decodeHeader(frame)
+  assert.ok(decoded.typeCode === STREAM_BINARY_TYPE_CELL_SNAPSHOT_V2 || decoded.typeCode === STREAM_BINARY_TYPE_CELL_SNAPSHOT_V2_GZIP)
 })
 
 test('cell diff encodes changes', () => {
