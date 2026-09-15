@@ -31,14 +31,14 @@ type BufferCellLike = {
   isBgDefault: () => boolean
   isBgPalette: () => boolean
   isBgRGB: () => boolean
-  isBold: () => number
-  isDim: () => number
-  isItalic: () => number
-  isUnderline: () => number
-  isInverse: () => number
+  isBold: () => boolean
+  isDim: () => boolean
+  isItalic: () => boolean
+  isUnderline: () => boolean
+  isInverse: () => boolean
 }
 
-type SyncWritableTerminal = Terminal & {
+type HeadlessTerminalCore = {
   writeSync: (data: string | Uint8Array, maxSubsequentCalls?: number) => void
 }
 
@@ -94,6 +94,17 @@ export class AnsiParser {
     })
   }
 
+  private getCore() {
+    // @xterm/headless intentionally exposes writes asynchronously at the public
+    // API. Cell transport needs the parsed buffer in the same gateway flush, so
+    // we use xterm's own synchronous CoreTerminal writer. xterm's serialize
+    // benchmark uses the same _core.writeSync bridge. Keep @xterm/headless on
+    // the 5.x line and cover this adapter with gateway tests.
+    const core = (this.terminal as unknown as { _core?: HeadlessTerminalCore })._core
+    if (!core?.writeSync) throw new Error('xterm headless synchronous core writer is unavailable')
+    return core
+  }
+
   resetParserState() {
     this.terminal.reset()
     if (this.terminal.cols !== this.grid.cols || this.terminal.rows !== this.grid.rows) {
@@ -108,11 +119,7 @@ export class AnsiParser {
       if (this.terminal.cols !== this.grid.cols || this.terminal.rows !== this.grid.rows) {
         this.terminal.resize(Math.max(2, this.grid.cols), Math.max(1, this.grid.rows))
       }
-
-      // Cell frames are produced synchronously inside the current stream flush.
-      // xterm's synchronous writer is safe here because TmuxGo does not register
-      // asynchronous parser handlers on this headless instance.
-      ;(this.terminal as SyncWritableTerminal).writeSync(chunk)
+      this.getCore().writeSync(chunk)
       this.syncGrid()
       return { ok: true }
     } catch (error) {
