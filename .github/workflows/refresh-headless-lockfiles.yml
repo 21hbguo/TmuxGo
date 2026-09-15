@@ -25,6 +25,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Run terminal transport tests
-        run: pnpm exec tsx --test tests/terminal-grid.test.ts tests/stream-binary.test.ts
+        run: pnpm --filter gateway exec tsx --test ../../tests/terminal-grid.test.ts ../../tests/stream-binary.test.ts
       - name: Build gateway
         run: pnpm --filter gateway build
