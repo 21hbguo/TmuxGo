@@ -1,7 +1,7 @@
 import { getApiBase } from './runtime-endpoints'
 import { authenticatedFetch, getAccessToken, refreshAuth } from './auth'
 import { buildSessionId } from './session-id'
-import type { AuditEvent, CustomShortcut, FavoriteDirectory, FavoriteItem, FileContentMatch, FileContentResponse, FileItem, FileListResponse, FilePreviewResponse, FileRoot, FileUploadTarget, GitBranchesResponse, GitCommitResponse, GitDetectResponse, GitDiffResponse, GitDiffStatsResponse, GitHostState, GitHubPluginPreview, GitLogResponse, GitMergeResponse, GitRepositoryInfo, GitStatusResponse, PluginCommandLog, PluginInfo, PluginPermission, RemotePreferences, SessionArchive, SessionArchivePolicy, SessionArchiveSummary, SessionContinuityConfig, SessionLayout, SessionOrderPreference, SessionTemplate, SessionThumbnail, SessionWorkspaceEntry, Snippet, TrashEntry, UiPreferences, UploadJobResult, UploadedFile, WorkspaceEntry } from '@/types'
+import type { AuditEvent, CustomShortcut, FavoriteDirectory, FavoriteItem, FileContentMatch, FileContentResponse, FileItem, FileListResponse, FilePreviewResponse, FileRoot, FileUploadTarget, GitBranchesResponse, GitCommitResponse, GitDetectResponse, GitDiffResponse, GitDiffStatsResponse, GitHostState, GitHubPluginPreview, GitLogResponse, GitMergeResponse, GitRepositoryInfo, GitStatusResponse, PluginCommandLog, PluginInfo, PluginPermission, RemotePreferences, SessionArchive, SessionArchivePolicy, SessionArchiveSummary, SessionContinuityConfig, SessionLayout, SessionOrderPreference, SessionTemplate, SessionWorkspaceEntry, Snippet, TrashEntry, UiPreferences, UploadJobResult, UploadedFile, WorkspaceEntry } from '@/types'
 
 export interface StreamSystemInfo {
   outputBytes: number
@@ -393,7 +393,6 @@ export const api = {
   },
   sessions: {
     list: (hostId: string) => fetchApi<any[]>(`/api/hosts/${hostId}/sessions`),
-    thumbnails: (hostId: string) => fetchApi<{ sessions: SessionThumbnail[] }>(`/api/hosts/${hostId}/session-thumbnails`),
     create: async (hostId: string, name: string, layout?: SessionLayout, cwd?: string) => {
       try {
         const created = await fetchApi<any>(`/api/hosts/${hostId}/sessions`, {

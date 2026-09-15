@@ -641,7 +641,6 @@ export const zh = {
 
   // FilePanel
   'file.title': '文件',
-  'thumbnail.title': '会话缩略图',
   'split.title': '分屏会话',
   'split.primary': '主',
   'split.secondary': '副',
@@ -650,13 +649,6 @@ export const zh = {
   'split.open': '打开分屏',
   'split.delete': '删除分屏',
   'split.created': '{primary} ⇄ {secondary} 分屏已创建',
-  'thumbnail.refresh': '刷新缩略图',
-  'thumbnail.close': '关闭缩略图',
-  'thumbnail.refreshing': '每 2 秒更新',
-  'thumbnail.live': '每 2 秒更新',
-  'thumbnail.loading': '正在加载会话缩略图...',
-  'thumbnail.unavailable': '会话缩略图不可用。',
-  'thumbnail.empty': '没有可预览的会话。',
   'file.upload': '上传',
   'file.addFavorite': '添加收藏',
   'file.removeFavorite': '删收藏',
@@ -794,7 +786,6 @@ export const zh = {
   // ActivityBar
   'activity.sessions': '会话',
   'activity.explorer': '资源管理',
-  'activity.thumbnails': '会话缩略图',
   'activity.search': '搜索',
   'activity.settings': '设置',
   'activity.ssh': 'SSH',

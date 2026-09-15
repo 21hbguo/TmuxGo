@@ -181,17 +181,6 @@ export function useSessions(hostId: string) {
     refetchIntervalInBackground: false,
   })
 }
-export function useSessionThumbnails(hostId: string, enabled = true) {
-  return useQuery({
-    queryKey: ['session-thumbnails', hostId],
-    queryFn: () => api.sessions.thumbnails(hostId),
-    enabled: !!hostId && enabled,
-    staleTime: 2000,
-    refetchInterval: enabled ? 5000 : false,
-    refetchIntervalInBackground: false,
-  })
-}
-
 export function useCreateSession() {
   const queryClient = useQueryClient()
   return useMutation({
