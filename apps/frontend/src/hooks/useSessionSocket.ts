@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef } from 'react'
 import { getWebSocketBase } from '@/lib/runtime-endpoints'
 import { getWebSocketUrl, isAuthEnabled } from '@/lib/auth'
 import { decodeStreamOutputBinary } from '@/lib/stream-binary'
-import { decodeCellDiff, decodeCellSnapshot } from '@/lib/terminal-grid/decode-cell'
+import { decodeCellDiff, decodeCellDiffV2, decodeCellSnapshot, decodeCellSnapshotV2 } from '@/lib/terminal-grid/decode-cell'
 import { diffToAnsi, snapshotToAnsi } from '@/lib/terminal-grid/apply-cell'
 type OutputMessage = { data: string; sessionName?: string | null; hostId?: string | null; resync?: boolean }
 type OutputListener = (message: OutputMessage) => void
@@ -105,8 +105,8 @@ function connect(connection: ConnectionState) {
           if (typeof ArrayBuffer !== 'undefined' && event.data instanceof ArrayBuffer) {
             const decoded = decodeStreamOutputBinary(event.data)
             if (!decoded) return
-            if (decoded.type === 'cell_snapshot' && decoded.cellPayload) {
-              const snap = decodeCellSnapshot(decoded.cellPayload)
+            if ((decoded.type === 'cell_snapshot' || decoded.type === 'cell_snapshot_v2') && decoded.cellPayload) {
+              const snap = (decoded.type === 'cell_snapshot_v2' ? decodeCellSnapshotV2 : decodeCellSnapshot)(decoded.cellPayload)
               if (!snap) {
                 try { ws.send(JSON.stringify({ type: 'cell_resync_request', sessionName: decoded.sessionName, hostId: decoded.hostId })) } catch {}
                 return
@@ -115,8 +115,8 @@ function connect(connection: ConnectionState) {
               dispatchOutput(connection, { type: 'output_resync', data: ansi, sessionName: decoded.sessionName, hostId: decoded.hostId })
               return
             }
-            if (decoded.type === 'cell_diff' && decoded.cellPayload) {
-              const diff = decodeCellDiff(decoded.cellPayload)
+            if ((decoded.type === 'cell_diff' || decoded.type === 'cell_diff_v2') && decoded.cellPayload) {
+              const diff = (decoded.type === 'cell_diff_v2' ? decodeCellDiffV2 : decodeCellDiff)(decoded.cellPayload)
               if (!diff) return
               const ansi = diffToAnsi(diff)
               dispatchOutput(connection, { type: 'output', data: ansi, sessionName: decoded.sessionName, hostId: decoded.hostId })
