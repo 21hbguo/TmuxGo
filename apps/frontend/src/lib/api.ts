@@ -83,6 +83,23 @@ export interface SystemTaskResponse extends RestartRebuildTaskResponse {
   result?: unknown | null
   attempt?: number
 }
+export interface AppUpdateRef {
+  version: string
+  buildId: string
+  commit: string
+}
+export interface AppUpdateStatus {
+  available: boolean
+  branch: string | null
+  aheadBy: number
+  behindBy: number
+  dirty: boolean
+  checkedAt: string | null
+  error: string | null
+  current: AppUpdateRef
+  latest: AppUpdateRef | null
+  task: SystemTaskResponse
+}
 export interface BackgroundGitTaskResponse {
   task: SystemTaskResponse
 }
@@ -515,6 +532,10 @@ export const api = {
     info: (hostId = 'local') => fetchApi<SystemInfoResponse>(`/api/hosts/${encodeURIComponent(hostId)}/system`),
     restartRebuildStatus: () => fetchApi<RestartRebuildTaskResponse>('/api/system/restart-rebuild'),
     restartRebuild: () => fetchApi<RestartRebuildTaskResponse>('/api/system/restart-rebuild', { method: 'POST' }),
+    appUpdate: () => fetchApi<AppUpdateStatus>('/api/system/update'),
+    checkAppUpdate: () => fetchApi<AppUpdateStatus>('/api/system/update/check', { method: 'POST' }),
+    appUpdateTask: () => fetchApi<SystemTaskResponse>('/api/system/update/task'),
+    startAppUpdate: () => fetchApi<RestartRebuildTaskResponse>('/api/system/update', { method: 'POST' }),
     tasks: () => fetchApi<{ tasks: SystemTaskResponse[] }>('/api/system/tasks'),
     cancelTask: (taskId: string) => fetchApi<SystemTaskResponse>(`/api/system/tasks/${encodeURIComponent(taskId)}/cancel`, { method: 'POST' }),
     retryTask: (taskId: string) => fetchApi<SystemTaskResponse>(`/api/system/tasks/${encodeURIComponent(taskId)}/retry`, { method: 'POST' }),

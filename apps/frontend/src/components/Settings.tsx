@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { AuditLog } from './AuditLog'
 import { ConfirmDialog } from './ConfirmDialog'
 import { setImmersiveFullscreenMode, usePreferences } from '@/hooks/usePreferences'
@@ -14,7 +14,7 @@ import { api, type ShareLink } from '@/lib/api'
 import { changePassword, listAuthSessions, revokeAuthSession, revokeOtherAuthSessions, type AuthSession } from '@/lib/auth'
 import { parseSessionName } from '@/lib/session-id'
 import type { SessionArchive, SessionArchiveSummary } from '@/types'
-import { useHosts, useRestartRebuild, useRestartRebuildStatus } from '@/hooks/useApi'
+import { useHosts, useRestartRebuild, useRestartRebuildStatus, useAppUpdateStatus, useAppUpdateTask, useCheckAppUpdate, useStartAppUpdate } from '@/hooks/useApi'
 import { PluginSettings } from './PluginSettings'
 import { SystemHealthPanel } from './SystemHealthPanel'
 import { Button } from './Button'
@@ -49,6 +49,7 @@ export function Settings({ onClose }: SettingsProps) {
   const [shareCreating, setShareCreating] = useState(false)
   const [shareActionMessage, setShareActionMessage] = useState('')
   const [restartConfirmOpen, setRestartConfirmOpen] = useState(false)
+  const [updateConfirmOpen, setUpdateConfirmOpen] = useState(false)
   const [archiveDialogOpen, setArchiveDialogOpen] = useState(false)
   const [archives, setArchives] = useState<SessionArchiveSummary[]>([])
   const [archiveDetail, setArchiveDetail] = useState<SessionArchive | null>(null)
@@ -56,13 +57,23 @@ export function Settings({ onClose }: SettingsProps) {
   const { data: hosts = [] } = useHosts()
   const restartRebuild = useRestartRebuild()
   const { data: appVersionData, isLoading: appVersionLoading, error: appVersionError } = useAppVersion(activeTab === 'about')
+  const appUpdateQuery = useAppUpdateStatus(activeTab === 'about')
+  const updateTaskQuery = useAppUpdateTask(activeTab === 'about')
+  const checkAppUpdate = useCheckAppUpdate()
+  const startAppUpdate = useStartAppUpdate()
+  const updateInfo = appUpdateQuery.data
+  const updateTask = updateTaskQuery.data || updateInfo?.task || null
+  const updateTaskRunning = updateTask?.status === 'running' || startAppUpdate.isPending
+  const updateChecking = checkAppUpdate.isPending || appUpdateQuery.isLoading
+  const deployedNewer = !!appVersionData?.buildId && appVersionData.buildId !== APP_BUILD_ID
+  const updateAvailable = (updateInfo?.available ?? false) || deployedNewer
+  const latestRef = updateInfo?.latest || (appVersionData ? { version: appVersionData.version, buildId: appVersionData.buildId, commit: '' } : null)
   const restartStatusQuery = useRestartRebuildStatus(activeTab === 'about')
   const [terminalPaddingDraft, setTerminalPaddingDraft] = useState(preferences.terminalPadding)
   const [uploadRateLimitDraft, setUploadRateLimitDraft] = useState(preferences.uploadRateLimitKBps)
   const [downloadRateLimitDraft, setDownloadRateLimitDraft] = useState(preferences.downloadRateLimitKBps)
   const fontSizeLabel = Number.isInteger(preferences.fontSize) ? `${preferences.fontSize}` : preferences.fontSize.toFixed(1)
-  const appUpdateAvailable = !!appVersionData?.buildId && appVersionData.buildId !== APP_BUILD_ID
-  const aboutStatus = appVersionError ? t('settings.aboutLoadFailed') : appVersionLoading && !appVersionData ? t('settings.aboutChecking') : appUpdateAvailable ? t('settings.aboutUpdateAvailable') : t('settings.aboutUpdateCurrent')
+  const aboutStatus = updateTaskRunning ? t('settings.updateRunning') : updateInfo?.error || (appVersionError && !updateInfo) ? t('settings.aboutLoadFailed') : updateChecking && !updateInfo && !appVersionData ? t('settings.aboutChecking') : updateAvailable ? (updateInfo?.behindBy ? t('settings.aboutUpdateBehind', { count: updateInfo.behindBy }) : t('settings.aboutUpdateAvailable')) : t('settings.aboutUpdateCurrent')
   const restartStatus = restartStatusQuery.data || { status: 'idle', startedAt: null, finishedAt: null, summaryLines: [], exitCode: null, errorMessage: null }
   const restartRunning = restartStatus.status === 'running' || restartRebuild.isPending
   useEffect(() => {
@@ -77,6 +88,30 @@ export function Settings({ onClose }: SettingsProps) {
     }, 1000)
     return () => window.clearInterval(timer)
   }, [activeTab, restartStatus.status, restartStatusQuery])
+  const prevUpdateStatusRef = useRef<string | null>(null)
+  useEffect(() => {
+    const current = updateTask?.status || null
+    const prev = prevUpdateStatusRef.current
+    prevUpdateStatusRef.current = current
+    if (prev !== 'running' || !current || current === 'running') return
+    if (current === 'error') {
+      pushToast({ type: 'error', message: updateTask?.errorMessage || t('settings.updateFailed') })
+      return
+    }
+    if (current !== 'success') return
+    void (async () => {
+      try {
+        const result = await appUpdateQuery.refetch()
+        const commit = result.data?.current?.commit || result.data?.latest?.commit || ''
+        if (commit && !APP_BUILD_ID.endsWith(commit)) {
+          pushToast({ type: 'success', message: t('settings.updateReloading'), durationMs: 4000 })
+          window.setTimeout(() => window.location.reload(), 2000)
+          return
+        }
+      } catch {}
+      pushToast({ type: 'success', message: t('settings.updateSuccess') })
+    })()
+  }, [updateTask?.status, updateTask?.errorMessage])
 
   const tabs = [
     { id: 'general' as const, label: t('settings.general') },
@@ -107,8 +142,8 @@ export function Settings({ onClose }: SettingsProps) {
       `${t('settings.aboutCurrentVersion')}: ${APP_VERSION}`,
       `${t('settings.aboutCurrentBuild')}: ${APP_BUILD_ID}`,
       `${t('settings.aboutUpdateStatus')}: ${aboutStatus}`,
-      `${t('settings.aboutLatestVersion')}: ${appVersionData?.version || '-'}`,
-      `${t('settings.aboutLatestBuild')}: ${appVersionData?.buildId || '-'}`,
+      `${t('settings.aboutLatestVersion')}: ${latestRef?.version || '-'}`,
+      `${t('settings.aboutLatestBuild')}: ${latestRef?.buildId || '-'}`,
     ].join('\n')
     const copied = await copy(text)
     if (!copied) {
@@ -246,6 +281,23 @@ export function Settings({ onClose }: SettingsProps) {
     }
   }
   const restartStatusLabel = restartStatus.status === 'running' ? t('settings.restartStatusRunning') : restartStatus.status === 'success' ? t('settings.restartStatusSuccess') : restartStatus.status === 'error' ? t('settings.restartStatusFailed') : restartStatus.status === 'cancelled' ? t('tasks.status.cancelled') : t('settings.restartStatusIdle')
+  const updateTaskStatusLabel = !updateTask ? t('settings.restartStatusIdle') : updateTask.status === 'running' ? t('settings.restartStatusRunning') : updateTask.status === 'success' ? t('settings.restartStatusSuccess') : updateTask.status === 'error' ? t('settings.restartStatusFailed') : updateTask.status === 'cancelled' ? t('tasks.status.cancelled') : t('settings.restartStatusIdle')
+  const triggerCheckUpdate = async () => {
+    try {
+      await checkAppUpdate.mutateAsync()
+    } catch (err: any) {
+      pushToast({ type: 'error', message: err?.message || t('settings.updateCheckFailed') })
+    }
+  }
+  const triggerAppUpdate = async () => {
+    setUpdateConfirmOpen(false)
+    try {
+      await startAppUpdate.mutateAsync()
+      void updateTaskQuery.refetch()
+    } catch (err: any) {
+      pushToast({ type: 'error', message: err?.message || t('settings.updateFailed') })
+    }
+  }
 
   const toggleImmersiveFullscreen = async () => {
     try {
@@ -693,16 +745,42 @@ export function Settings({ onClose }: SettingsProps) {
                 </div>
                 <div className="border-t border-[var(--line)] flex items-center justify-between gap-4 px-4 py-3">
                   <span className="text-sm text-text-2">{t('settings.aboutLatestVersion')}</span>
-                  <span className="text-sm text-text-1">{appVersionLoading && !appVersionData ? '...' : appVersionData?.version || '-'}</span>
+                  <span className="text-sm text-text-1">{updateChecking && !latestRef ? '...' : latestRef?.version || '-'}</span>
                 </div>
                 <div className="border-t border-[var(--line)] flex items-center justify-between gap-4 px-4 py-3">
                   <span className="text-sm text-text-2">{t('settings.aboutLatestBuild')}</span>
-                  <span className="text-sm text-text-1">{appVersionLoading && !appVersionData ? '...' : appVersionData?.buildId || '-'}</span>
+                  <span className="text-sm text-text-1">{updateChecking && !latestRef ? '...' : latestRef?.buildId || '-'}</span>
                 </div>
                 <div className="border-t border-[var(--line)] flex items-center justify-between gap-4 px-4 py-3">
                   <span className="text-sm text-text-2">{t('settings.aboutUpdateStatus')}</span>
-                  <span className={`text-sm ${appUpdateAvailable ? 'text-warn' : appVersionError ? 'text-danger' : 'text-accent-2'}`}>{aboutStatus}</span>
+                  <span className={`text-sm ${updateTaskRunning || updateAvailable ? 'text-warn' : updateInfo?.error || appVersionError ? 'text-danger' : 'text-accent-2'}`}>{aboutStatus}</span>
                 </div>
+              </div>
+              <div className="rounded-apple border border-[var(--line)] bg-bg-2 p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-text-1">{t('settings.updateTitle')}</div>
+                    <div className="mt-1 text-xs text-text-3">{t('settings.updateDesc')}</div>
+                    {updateInfo?.dirty && <div className="mt-1 text-xs text-warn">{t('settings.updateDirty')}</div>}
+                  </div>
+                  <div className="flex shrink-0 gap-2">
+                    <Button variant="ghost" size="sm" disabled={updateChecking || updateTaskRunning} onClick={() => void triggerCheckUpdate()}>{updateChecking ? t('settings.updateChecking') : t('settings.updateCheck')}</Button>
+                    <Button variant="primary" disabled={updateTaskRunning} onClick={() => setUpdateConfirmOpen(true)}>{t('settings.updateAction')}</Button>
+                  </div>
+                </div>
+                {updateTask && (updateTask.status !== 'idle' || updateTask.summaryLines.length > 0) && (
+                  <div className="mt-4 rounded-apple border border-[var(--line)] px-3 py-2">
+                    <div className="flex items-center justify-between gap-4">
+                      <span className="text-sm text-text-2">{t('settings.updateStatus')}</span>
+                      <span className={`text-sm ${updateTask.status === 'success' ? 'text-accent-2' : updateTask.status === 'error' || updateTask.status === 'cancelled' ? 'text-danger' : updateTask.status === 'running' ? 'text-warn' : 'text-text-1'}`}>{updateTaskStatusLabel}</span>
+                    </div>
+                    {updateTask.summaryLines.length > 0 && (
+                      <div className="mt-2 rounded-apple bg-bg-1 px-2 py-2 font-mono text-xs text-text-2">
+                        {updateTask.summaryLines.map((line, index) => <div key={`${index}-${line}`}>{line}</div>)}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="rounded-apple border border-[var(--line)] bg-bg-2 p-4">
                 <div className="flex items-start justify-between gap-4">
@@ -724,7 +802,7 @@ export function Settings({ onClose }: SettingsProps) {
                   )}
                 </div>
               </div>
-              {appUpdateAvailable && <div className="text-xs text-text-3">{t('settings.aboutRefresh')}</div>}
+              {deployedNewer && <div className="text-xs text-text-3">{t('settings.aboutRefresh')}</div>}
               <div className="rounded-apple border border-[var(--line)] bg-bg-2 p-4">
                 <div className="flex items-center justify-between gap-4">
                   <div className="min-w-0">
@@ -744,6 +822,7 @@ export function Settings({ onClose }: SettingsProps) {
 
       {archiveDialogOpen && <div className="fixed inset-0 z-[70] flex items-center justify-center tmuxgo-scrim-strong p-4" onClick={() => setArchiveDialogOpen(false)}><div className="tmuxgo-glass tmuxgo-glass-dialog flex h-[75vh] w-full max-w-4xl flex-col overflow-hidden rounded-apple border" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b border-[var(--line)] px-4 py-3"><h3 className="text-base font-medium text-text-1">{t('settings.archives')}</h3><Button variant="ghost" size="sm" aria-label="close" onClick={() => setArchiveDialogOpen(false)}>✕</Button></div><div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[280px_1fr]"><div className="tmuxgo-scrollbar overflow-y-auto border-b border-[var(--line)] md:border-b-0 md:border-r">{archiveLoading && !archives.length && <div className="p-4 text-sm text-text-3">{t('common.loading')}</div>}{!archiveLoading && !archives.length && <div className="p-4 text-sm text-text-3">{t('settings.archiveEmpty')}</div>}{archives.map((archive) => <div key={archive.id} className={`tmuxgo-list-row flex border-b border-[var(--line)] ${archiveDetail?.id === archive.id ? 'tmuxgo-list-row--active' : 'tmuxgo-list-row--hover'}`}><button onClick={() => void openArchive(archive.id)} className="min-w-0 flex-1 p-3 text-left"><div className="truncate text-sm text-text-1">{archive.sessionName}</div><div className="mt-1 text-xs text-text-3">{new Date(archive.createdAt).toLocaleString()} · {archive.paneCount} · {Math.ceil(archive.size / 1024)} KB</div></button><button onClick={() => void deleteArchive(archive.id)} className="w-10 text-text-3 hover:text-danger" aria-label={t('settings.deleteArchive')}>×</button></div>)}</div><div className="tmuxgo-scrollbar min-h-0 overflow-y-auto p-4">{!archiveDetail && <div className="flex h-full items-center justify-center text-sm text-text-3">{t('settings.selectArchive')}</div>}{archiveDetail && <div className="space-y-4"><div><div className="text-base font-medium text-text-1">{archiveDetail.sessionName}</div><div className="mt-1 text-xs text-text-3">{archiveDetail.captureMode === 'history' ? t('settings.archiveHistory') : t('settings.archiveVisible')} · {new Date(archiveDetail.createdAt).toLocaleString()}</div></div>{archiveDetail.panes.map((pane) => <div key={pane.paneId}><div className="mb-1 text-xs text-text-3">{pane.windowName} / {pane.title}</div><pre className="overflow-x-auto whitespace-pre-wrap rounded-apple border border-[var(--line)] bg-bg-0 p-3 font-mono text-xs text-text-2">{pane.data || t('settings.archiveNoOutput')}</pre></div>)}</div>}</div></div></div></div>}
       <ConfirmDialog open={restartConfirmOpen} title={t('settings.restartConfirmTitle')} message={t('settings.restartConfirmMessage')} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} onCancel={() => setRestartConfirmOpen(false)} onConfirm={() => void triggerRestartRebuild()} />
+      <ConfirmDialog open={updateConfirmOpen} title={t('settings.updateConfirmTitle')} message={t('settings.updateConfirmMessage')} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} onCancel={() => setUpdateConfirmOpen(false)} onConfirm={() => void triggerAppUpdate()} />
       {showAuditLog && <AuditLog onClose={() => setShowAuditLog(false)} />}
     </div>
   )

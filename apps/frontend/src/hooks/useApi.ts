@@ -120,6 +120,32 @@ export function useRestartRebuild() {
     },
   })
 }
+export function useAppUpdateStatus(enabled = true) {
+  return useQuery({ queryKey: ['app-update-status'], queryFn: api.system.appUpdate, enabled, staleTime: 0, refetchInterval: enabled ? 60000 : false })
+}
+export function useAppUpdateTask(enabled = true) {
+  return useQuery({ queryKey: ['app-update-task'], queryFn: api.system.appUpdateTask, enabled, staleTime: 0, retry: false, refetchInterval: (query) => (query.state.data?.status === 'running' ? 1200 : false) })
+}
+export function useCheckAppUpdate() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.system.checkAppUpdate(),
+    onSuccess: (data) => {
+      queryClient.setQueryData(['app-update-status'], data)
+      if (data.task) queryClient.setQueryData(['app-update-task'], data.task)
+    },
+  })
+}
+export function useStartAppUpdate() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.system.startAppUpdate(),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['app-update-task'] })
+      void queryClient.invalidateQueries({ queryKey: ['app-update-status'] })
+    },
+  })
+}
 export function useSystemTasks(enabled = true, refetchIntervalInBackground = false) {
   return useQuery({ queryKey: ['system-tasks'], queryFn: api.system.tasks, enabled, staleTime: 0, refetchInterval: 2000, refetchIntervalInBackground })
 }

@@ -4,7 +4,8 @@ import { promisify } from 'util'
 import os from 'os'
 import fs from 'fs'
 import { streamPerfMetrics } from '../lib/perf-metrics.js'
-import { createRestartTaskRunner, type RestartTaskRunner } from '../lib/restart-task.js'
+import { createRestartTaskRunner, createUpdateTaskRunner, type RestartTaskRunner } from '../lib/restart-task.js'
+import { createUpdateChecker, type UpdateChecker } from '../lib/update-checker.js'
 import { taskManager, type TaskManager } from '../lib/task-manager.js'
 import { execHostShell } from '../lib/tmux-executor.js'
 import { observeNetWindow, type NetWindowStats } from '../lib/net-window.js'
@@ -219,6 +220,8 @@ async function getSystemInfo(hostId: string) {
 
 interface SystemRoutesOptions {
   createRestartRunner?: () => RestartTaskRunner
+  createUpdateRunner?: () => RestartTaskRunner
+  updateChecker?: UpdateChecker
   taskManager?: TaskManager
 }
 function getRestartTask(runner: RestartTaskRunner) {
@@ -227,6 +230,17 @@ function getRestartTask(runner: RestartTaskRunner) {
     id:'restart-rebuild',
     type:'restart-rebuild',
     title:'Restart + Rebuild',
+    ...state,
+    cancellable:state.status==='running',
+    retryable:state.status==='error'||state.status==='cancelled',
+  }
+}
+function getUpdateTask(runner: RestartTaskRunner) {
+  const state=runner.getState()
+  return {
+    id:'self-update',
+    type:'self-update',
+    title:'App Update',
     ...state,
     cancellable:state.status==='running',
     retryable:state.status==='error'||state.status==='cancelled',
@@ -244,6 +258,8 @@ function ensureLocalNetSampler() {
 }
 export async function systemRoutes(fastify: FastifyInstance, options: SystemRoutesOptions = {}) {
   const restartRunner=(options.createRestartRunner||createRestartTaskRunner)()
+  const updateRunner=(options.createUpdateRunner||createUpdateTaskRunner)()
+  const checker=options.updateChecker||createUpdateChecker()
   const backgroundTasks=options.taskManager||taskManager
   ensureLocalNetSampler()
   fastify.get('/system', async () => {
@@ -266,10 +282,11 @@ export async function systemRoutes(fastify: FastifyInstance, options: SystemRout
     const { hostId } = request.params as { hostId: string }
     return getSystemInfo(hostId)
   })
-  fastify.get('/system/tasks', async () => ({ tasks:[getRestartTask(restartRunner),...backgroundTasks.list()] }))
+  fastify.get('/system/tasks', async () => ({ tasks:[getRestartTask(restartRunner),getUpdateTask(updateRunner),...backgroundTasks.list()] }))
   fastify.get('/system/tasks/:taskId', async (request, reply) => {
     const { taskId }=request.params as { taskId:string }
     if (taskId==='restart-rebuild') return getRestartTask(restartRunner)
+    if (taskId==='self-update') return getUpdateTask(updateRunner)
     const task=backgroundTasks.get(taskId)
     return task||reply.status(404).send({ message:'Task not found',code:'TASK_NOT_FOUND' })
   })
@@ -278,6 +295,10 @@ export async function systemRoutes(fastify: FastifyInstance, options: SystemRout
     if (taskId==='restart-rebuild') {
       await restartRunner.cancel()
       return getRestartTask(restartRunner)
+    }
+    if (taskId==='self-update') {
+      await updateRunner.cancel()
+      return getUpdateTask(updateRunner)
     }
     const task=await backgroundTasks.cancel(taskId)
     return task||reply.status(404).send({ message:'Task not found',code:'TASK_NOT_FOUND' })
@@ -288,9 +309,17 @@ export async function systemRoutes(fastify: FastifyInstance, options: SystemRout
       await restartRunner.start()
       return getRestartTask(restartRunner)
     }
+    if (taskId==='self-update') {
+      await updateRunner.start()
+      return getUpdateTask(updateRunner)
+    }
     const task=await backgroundTasks.retry(taskId)
     return task||reply.status(404).send({ message:'Task not found',code:'TASK_NOT_FOUND' })
   })
   fastify.get('/system/restart-rebuild', async () => restartRunner.getState())
   fastify.post('/system/restart-rebuild', async () => restartRunner.start())
+  fastify.get('/system/update', async () => ({ ...(await checker.getStatus()), task: getUpdateTask(updateRunner) }))
+  fastify.post('/system/update/check', async () => ({ ...(await checker.getStatus(true)), task: getUpdateTask(updateRunner) }))
+  fastify.get('/system/update/task', async () => getUpdateTask(updateRunner))
+  fastify.post('/system/update', async () => updateRunner.start())
 }
