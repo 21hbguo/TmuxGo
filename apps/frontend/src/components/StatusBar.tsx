@@ -36,7 +36,7 @@ function ResourceChip({ label, value, tone = 'neutral', title }: { label: string
 function formatTraffic(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}M`
   if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)}K`
-  return `${bytes}B`
+  return `${Math.round(bytes)}B`
 }
 
 export function StatusBar() {
