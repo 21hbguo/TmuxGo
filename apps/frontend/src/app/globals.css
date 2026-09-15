@@ -22,8 +22,8 @@
   --glass-fill: rgb(255 255 255 / 8%);
   --glass-fill-strong: rgb(255 255 255 / 14%);
   --glass-fill-hover: rgb(255 255 255 / 14%);
-  --glass-rim: rgb(255 255 255 / 22%);
-  --glass-highlight: rgb(255 255 255 / 38%);
+  --glass-rim: var(--line);
+  --glass-highlight: rgb(255 255 255 / 14%);
   --glass-shadow: none;
   --glass-shadow-hover: none;
   --font-ui: "Maple Mono CN", monospace;
@@ -55,7 +55,7 @@
   --glass-fill: rgb(255 255 255 / 55%);
   --glass-fill-strong: rgb(255 255 255 / 75%);
   --glass-fill-hover: rgb(255 255 255 / 70%);
-  --glass-rim: rgb(255 255 255 / 85%);
+  --glass-rim: var(--line);
   --glass-highlight: rgb(255 255 255 / 100%);
   --glass-shadow: none;
   --glass-shadow-hover: none;
@@ -101,8 +101,8 @@
   --glow: 0 0 20px rgba(189,147,249,0.25);
   --glass-fill: rgb(255 255 255 / 8%);
   --glass-fill-hover: rgb(255 255 255 / 14%);
-  --glass-rim: rgb(255 255 255 / 22%);
-  --glass-highlight: rgb(255 255 255 / 38%);
+  --glass-rim: var(--line);
+  --glass-highlight: rgb(255 255 255 / 14%);
   --glass-shadow: none;
   --glass-shadow-hover: none;
 }
@@ -124,8 +124,8 @@
   --glow: 0 0 20px rgba(152,208,224,0.28);
   --glass-fill: rgb(255 255 255 / 8%);
   --glass-fill-hover: rgb(255 255 255 / 14%);
-  --glass-rim: rgb(255 255 255 / 22%);
-  --glass-highlight: rgb(255 255 255 / 38%);
+  --glass-rim: var(--line);
+  --glass-highlight: rgb(255 255 255 / 14%);
   --glass-shadow: none;
   --glass-shadow-hover: none;
 }
@@ -147,8 +147,8 @@
   --glow: 0 0 20px rgba(137,180,250,0.25);
   --glass-fill: rgb(255 255 255 / 8%);
   --glass-fill-hover: rgb(255 255 255 / 14%);
-  --glass-rim: rgb(255 255 255 / 22%);
-  --glass-highlight: rgb(255 255 255 / 38%);
+  --glass-rim: var(--line);
+  --glass-highlight: rgb(255 255 255 / 14%);
   --glass-shadow: none;
   --glass-shadow-hover: none;
 }
