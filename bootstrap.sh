@@ -134,7 +134,13 @@ verify_required
 if has_cmd tailscale && ! tailscale status >/dev/null 2>&1; then
   echo "Tailscale detected but not connected. Run: tailscale up"
 fi
-npm install
+if has_cmd pnpm; then
+  pnpm install --prefer-offline
+elif has_cmd corepack; then
+  corepack pnpm install --prefer-offline
+else
+  npm install --no-audit --no-fund
+fi
 echo "Bootstrap completed"
 echo "Run: ./install.sh"
 echo "Or: ./start.sh"
