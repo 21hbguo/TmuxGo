@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { emitStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PaneNotifications, WatchButton } from './PaneNotifications'
@@ -7,11 +8,23 @@ const mocks = vi.hoisted(() => {
   const queryCache = new Map<string, any>()
   return {
     preferenceState: { agentNotificationsEnabled: true, agentNotificationDurationMs: 5000 },
-    consoleState: { activeHostId: 'local', activeSessionId: 'local:other', activePaneId: 'local:%0', setActiveHost: vi.fn(), setActiveSession: vi.fn(), setActivePane: vi.fn() },
+    consoleState: {
+      activeHostId: 'local',
+      activeSessionId: 'local:other',
+      activePaneId: 'local:%0',
+      setActiveHost: vi.fn(),
+      setActiveSession: vi.fn(),
+      setActivePane: vi.fn(),
+    },
     queryCache,
     queryClient: {
       getQueryData: vi.fn((key: unknown[]) => queryCache.get(JSON.stringify(key))),
-      setQueryData: vi.fn((key: unknown[], value: any) => queryCache.set(JSON.stringify(key), typeof value === 'function' ? value(queryCache.get(JSON.stringify(key))) : value)),
+      setQueryData: vi.fn((key: unknown[], value: any) =>
+        queryCache.set(
+          JSON.stringify(key),
+          typeof value === 'function' ? value(queryCache.get(JSON.stringify(key))) : value,
+        ),
+      ),
     },
     snapshotGet: vi.fn(),
     windowSelect: vi.fn(),
@@ -22,12 +35,41 @@ const { preferenceState, consoleState, queryCache, queryClient, snapshotGet, win
 
 vi.mock('@/hooks/usePreferences', () => ({ usePreferences: () => ({ preferences: mocks.preferenceState }) }))
 vi.mock('@/hooks/useOptionalQueryClient', () => ({ useOptionalQueryClient: () => mocks.queryClient }))
-vi.mock('@/stores/useConsoleStore', () => ({ useConsoleStore: Object.assign((selector: any) => selector(mocks.consoleState), { getState: () => mocks.consoleState }) }))
-vi.mock('@/lib/api', () => ({ api: { snapshot: { get: mocks.snapshotGet }, windows: { select: mocks.windowSelect }, panes: { select: mocks.paneSelect } } }))
-vi.mock('@/i18n', () => ({ useTranslation: () => ({ t: (key: string, params?: Record<string, string>) => { const messages: Record<string, string> = { 'agent.notification.blocked': `${params?.agent} blocked in ${params?.session}`, 'agent.notification.done': `${params?.agent} finished in ${params?.session}`, 'agent.notification.permission': `${params?.agent} permission required in ${params?.session}`, 'agent.notification.question': `${params?.agent} needs input in ${params?.session}`, 'agent.notification.failed': `${params?.agent} failed in ${params?.session}`, 'agent.notification.ended': `${params?.agent} ended in ${params?.session}`, 'agent.notification.disconnected': `${params?.agent} disconnected in ${params?.session}` }; return messages[key] || key } }) }))
+vi.mock('@/stores/useConsoleStore', () => ({
+  useConsoleStore: Object.assign((selector: any) => selector(mocks.consoleState), {
+    getState: () => mocks.consoleState,
+  }),
+}))
+vi.mock('@/lib/api', () => ({
+  api: {
+    snapshot: { get: mocks.snapshotGet },
+    windows: { select: mocks.windowSelect },
+    panes: { select: mocks.paneSelect },
+  },
+}))
+vi.mock('@/i18n', () => ({
+  useTranslation: () => ({
+    t: (key: string, params?: Record<string, string>) => {
+      const messages: Record<string, string> = {
+        'agent.notification.blocked': `${params?.agent} blocked in ${params?.session}`,
+        'agent.notification.done': `${params?.agent} finished in ${params?.session}`,
+        'agent.notification.permission': `${params?.agent} permission required in ${params?.session}`,
+        'agent.notification.question': `${params?.agent} needs input in ${params?.session}`,
+        'agent.notification.failed': `${params?.agent} failed in ${params?.session}`,
+        'agent.notification.ended': `${params?.agent} ended in ${params?.session}`,
+        'agent.notification.disconnected': `${params?.agent} disconnected in ${params?.session}`,
+      }
+      return messages[key] || key
+    },
+  }),
+}))
 
 function emitAgentStatus(status: 'blocked' | 'done', revision: number) {
-  window.dispatchEvent(new CustomEvent('tmuxgo-agent-status', { detail: { hostId: 'local', sessionName: 'dev', pane: { paneId: 'local:%1', tmuxPaneId: '%1', sessionName: 'dev', agent: 'codex', agentStatus: status, revision } } }))
+  emitStreamEvent(STREAM_EVENT.agentStatus, {
+    hostId: 'local',
+    sessionName: 'dev',
+    pane: { paneId: 'local:%1', tmuxPaneId: '%1', sessionName: 'dev', agent: 'codex', agentStatus: status, revision },
+  })
 }
 
 describe('PaneNotifications', () => {
@@ -78,7 +120,10 @@ describe('PaneNotifications', () => {
     fireEvent.pointerMove(bubble, { pointerId: 1, pointerType: 'touch', clientX: 110, clientY: 130 })
     fireEvent.pointerUp(bubble, { pointerId: 1, pointerType: 'touch', clientX: 110, clientY: 130 })
     expect(bubble).toHaveStyle({ left: '100px', top: '120px' })
-    expect(JSON.parse(localStorage.getItem('tmuxgo-notification-bubble-position') || 'null')).toEqual({ x: 100, y: 120 })
+    expect(JSON.parse(localStorage.getItem('tmuxgo-notification-bubble-position') || 'null')).toEqual({
+      x: 100,
+      y: 120,
+    })
   })
   it('filters notifications from muted panes', () => {
     localStorage.setItem('tmuxgo-muted-pane-notifications', JSON.stringify(['local:%1']))
@@ -89,43 +134,143 @@ describe('PaneNotifications', () => {
   })
   it('restores an initial completed snapshot without notifying', () => {
     render(<PaneNotifications />)
-    act(() => window.dispatchEvent(new CustomEvent('tmuxgo-agent-status', { detail: { hostId: 'local', sessionName: 'dev', initial: true, pane: { paneId: 'local:%1', tmuxPaneId: '%1', sessionName: 'dev', agent: 'codex', agentStatus: 'done', revision: 8 } } })))
+    act(() =>
+      emitStreamEvent(STREAM_EVENT.agentStatus, {
+        hostId: 'local',
+        sessionName: 'dev',
+        initial: true,
+        pane: {
+          paneId: 'local:%1',
+          tmuxPaneId: '%1',
+          sessionName: 'dev',
+          agent: 'codex',
+          agentStatus: 'done',
+          revision: 8,
+        },
+      }),
+    )
     expect(screen.queryByText('codex finished in dev')).not.toBeInTheDocument()
     expect(JSON.parse(localStorage.getItem('tmuxgo-pane-notifications') || '[]')).toEqual([])
   })
   it('notifies from an explicit agent notification event', () => {
     render(<PaneNotifications />)
-    act(() => window.dispatchEvent(new CustomEvent('tmuxgo-agent-notification', { detail: { type: 'agent_notification', hostId: 'local', sessionName: 'dev', eventId: 'local:local:%1:completed:9', pane: { paneId: 'local:%1', tmuxPaneId: '%1', sessionName: 'dev', agent: 'codex', agentStatus: 'idle', phase: 'idle', lastEvent: 'completed', revision: 9 } } })))
+    act(() =>
+      emitStreamEvent(STREAM_EVENT.agentNotification, {
+        type: 'agent_notification',
+        hostId: 'local',
+        sessionName: 'dev',
+        eventId: 'local:local:%1:completed:9',
+        pane: {
+          paneId: 'local:%1',
+          tmuxPaneId: '%1',
+          sessionName: 'dev',
+          agent: 'codex',
+          agentStatus: 'idle',
+          phase: 'idle',
+          lastEvent: 'completed',
+          revision: 9,
+        },
+      }),
+    )
     expect(screen.getByText('codex finished in dev')).toBeInTheDocument()
     expect(JSON.parse(localStorage.getItem('tmuxgo-pane-notifications') || '[]')).toHaveLength(1)
   })
   it('deduplicates explicit notifications by event id', () => {
     render(<PaneNotifications />)
-    const detail = { type: 'agent_notification', hostId: 'local', sessionName: 'dev', eventId: 'local:local:%1:failed:10', pane: { paneId: 'local:%1', tmuxPaneId: '%1', sessionName: 'dev', agent: 'codex', agentStatus: 'unknown', phase: 'failed', lastEvent: 'failed', revision: 10 } }
+    const detail = {
+      type: 'agent_notification',
+      hostId: 'local',
+      sessionName: 'dev',
+      eventId: 'local:local:%1:failed:10',
+      pane: {
+        paneId: 'local:%1',
+        tmuxPaneId: '%1',
+        sessionName: 'dev',
+        agent: 'codex',
+        agentStatus: 'unknown',
+        phase: 'failed',
+        lastEvent: 'failed',
+        revision: 10,
+      },
+    }
     act(() => {
-      window.dispatchEvent(new CustomEvent('tmuxgo-agent-notification', { detail }))
-      window.dispatchEvent(new CustomEvent('tmuxgo-agent-notification', { detail }))
+      emitStreamEvent(STREAM_EVENT.agentNotification, detail)
+      emitStreamEvent(STREAM_EVENT.agentNotification, detail)
     })
     expect(screen.getAllByText('codex failed in dev')).toHaveLength(1)
     expect(JSON.parse(localStorage.getItem('tmuxgo-pane-notifications') || '[]')).toHaveLength(1)
   })
   it('redacts paths in notification messages', () => {
     render(<PaneNotifications />)
-    act(() => window.dispatchEvent(new CustomEvent('tmuxgo-agent-notification', { detail: { type: 'agent_notification', hostId: 'local', sessionName: 'dev', eventId: 'local:local:%1:failed:11', pane: { paneId: 'local:%1', tmuxPaneId: '%1', sessionName: 'dev', agent: 'codex', agentStatus: 'unknown', phase: 'failed', lastEvent: 'failed', message: 'secret command /home/guo/private prompt', revision: 11 } } })))
+    act(() =>
+      emitStreamEvent(STREAM_EVENT.agentNotification, {
+        type: 'agent_notification',
+        hostId: 'local',
+        sessionName: 'dev',
+        eventId: 'local:local:%1:failed:11',
+        pane: {
+          paneId: 'local:%1',
+          tmuxPaneId: '%1',
+          sessionName: 'dev',
+          agent: 'codex',
+          agentStatus: 'unknown',
+          phase: 'failed',
+          lastEvent: 'failed',
+          message: 'secret command /home/guo/private prompt',
+          revision: 11,
+        },
+      }),
+    )
     expect(screen.getByText('secret command [path] prompt')).toBeInTheDocument()
     expect(document.body.textContent).not.toContain('/home/guo/private')
     expect(localStorage.getItem('tmuxgo-pane-notifications')).not.toContain('/home/guo/private')
   })
   it('clears agent metadata but keeps the terminal pane when it is removed', () => {
-    queryCache.set(JSON.stringify(['session-snapshot', 'local', 'session-local-dev']), { panes: [{ id: 'local:%1', windowId: 'local:@1', title: 'codex', agent: 'codex', agentStatus: 'working', phase: 'working', revision: 3 }] })
+    queryCache.set(JSON.stringify(['session-snapshot', 'local', 'session-local-dev']), {
+      panes: [
+        {
+          id: 'local:%1',
+          windowId: 'local:@1',
+          title: 'codex',
+          agent: 'codex',
+          agentStatus: 'working',
+          phase: 'working',
+          revision: 3,
+        },
+      ],
+    })
     render(<PaneNotifications />)
-    act(() => window.dispatchEvent(new CustomEvent('tmuxgo-agent-status-removed', { detail: { type: 'agent_status_removed', hostId: 'local', sessionName: 'dev', paneId: 'local:%1', reason: 'pane_exited' } })))
-    expect(queryClient.getQueryData(['session-snapshot', 'local', 'session-local-dev'])).toEqual({ panes: [{ id: 'local:%1', windowId: 'local:@1', title: 'codex' }] })
+    act(() =>
+      emitStreamEvent(STREAM_EVENT.agentStatusRemoved, {
+        type: 'agent_status_removed',
+        hostId: 'local',
+        sessionName: 'dev',
+        paneId: 'local:%1',
+        reason: 'pane_exited',
+      }),
+    )
+    expect(queryClient.getQueryData(['session-snapshot', 'local', 'session-local-dev'])).toEqual({
+      panes: [{ id: 'local:%1', windowId: 'local:@1', title: 'codex' }],
+    })
   })
   it('does not show a duplicate notification after reconnecting', () => {
     render(<PaneNotifications />)
     act(() => emitAgentStatus('done', 9))
-    act(() => window.dispatchEvent(new CustomEvent('tmuxgo-agent-status', { detail: { hostId: 'local', sessionName: 'dev', initial: true, pane: { paneId: 'local:%1', tmuxPaneId: '%1', sessionName: 'dev', agent: 'codex', agentStatus: 'done', revision: 9 } } })))
+    act(() =>
+      emitStreamEvent(STREAM_EVENT.agentStatus, {
+        hostId: 'local',
+        sessionName: 'dev',
+        initial: true,
+        pane: {
+          paneId: 'local:%1',
+          tmuxPaneId: '%1',
+          sessionName: 'dev',
+          agent: 'codex',
+          agentStatus: 'done',
+          revision: 9,
+        },
+      }),
+    )
     expect(screen.getAllByText('codex finished in dev')).toHaveLength(1)
   })
   it('keeps notification history after the popup duration', () => {
@@ -140,13 +285,18 @@ describe('PaneNotifications', () => {
   it('uses a browser notification while the page is hidden', () => {
     const originalNotification = window.Notification
     const close = vi.fn()
-    const browserNotification = vi.fn(function (this: any) { this.close = close }) as any
+    const browserNotification = vi.fn(function (this: any) {
+      this.close = close
+    }) as any
     browserNotification.permission = 'granted'
     Object.defineProperty(window, 'Notification', { configurable: true, value: browserNotification })
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
     render(<PaneNotifications />)
     act(() => emitAgentStatus('done', 7))
-    expect(browserNotification).toHaveBeenCalledWith('notification.title', expect.objectContaining({ body: 'codex finished in dev' }))
+    expect(browserNotification).toHaveBeenCalledWith(
+      'notification.title',
+      expect.objectContaining({ body: 'codex finished in dev' }),
+    )
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
     Object.defineProperty(window, 'Notification', { configurable: true, value: originalNotification })
   })
@@ -167,7 +317,17 @@ describe('PaneNotifications', () => {
   })
   it('opens the target window and pane when a notification is clicked', async () => {
     vi.useRealTimers()
-    snapshotGet.mockResolvedValueOnce({ activeWindowId: 'local:@1', activePaneId: 'local:%0', panes: [{ id: 'local:%1', windowId: 'local:@2', active: false }] }).mockResolvedValueOnce({ activeWindowId: 'local:@2', activePaneId: 'local:%1', panes: [{ id: 'local:%1', windowId: 'local:@2', active: true }] })
+    snapshotGet
+      .mockResolvedValueOnce({
+        activeWindowId: 'local:@1',
+        activePaneId: 'local:%0',
+        panes: [{ id: 'local:%1', windowId: 'local:@2', active: false }],
+      })
+      .mockResolvedValueOnce({
+        activeWindowId: 'local:@2',
+        activePaneId: 'local:%1',
+        panes: [{ id: 'local:%1', windowId: 'local:@2', active: true }],
+      })
     render(<PaneNotifications />)
     act(() => emitAgentStatus('done', 4))
     fireEvent.click(screen.getByText('codex finished in dev'))
@@ -176,7 +336,10 @@ describe('PaneNotifications', () => {
     expect(paneSelect).toHaveBeenCalledWith('local:%1')
     expect(snapshotGet).toHaveBeenCalledTimes(2)
     expect(consoleState.setActiveSession).toHaveBeenCalledWith('session-local-dev')
-    expect(queryClient.setQueryData).toHaveBeenCalledWith(['session-snapshot', 'local', 'session-local-dev'], expect.objectContaining({ activePaneId: 'local:%1' }))
+    expect(queryClient.setQueryData).toHaveBeenCalledWith(
+      ['session-snapshot', 'local', 'session-local-dev'],
+      expect.objectContaining({ activePaneId: 'local:%1' }),
+    )
     expect(screen.queryByText('codex finished in dev')).not.toBeInTheDocument()
   })
 })

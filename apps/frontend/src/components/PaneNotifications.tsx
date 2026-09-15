@@ -11,6 +11,7 @@ import { mergeAgentPaneEvent, removeAgentPaneEvent, summarizeAgentStates } from 
 import { markAgentNotificationsRead, syncAgentPush, enableAgentPush } from '@/lib/agent-push'
 import { api, type AgentNotificationRecord } from '@/lib/api'
 import type { AgentPaneState, Session } from '@/types'
+import { subscribeStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import { FiAlertCircle, FiBell, FiBellOff, FiCheckCircle, FiX } from 'react-icons/fi'
 
 interface NotificationItem {
@@ -26,7 +27,12 @@ interface NotificationItem {
 }
 type TranslateFn = ReturnType<typeof useTranslation>['t']
 function sanitizeNotificationMessage(value: string) {
-  return value.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '').replace(/(?:~|\/)[^\s,;)]{2,}/g, '[path]').replace(/\s+/g, ' ').trim().slice(0, 240)
+  return value
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
+    .replace(/(?:~|\/)[^\s,;)]{2,}/g, '[path]')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 240)
 }
 function getAgentNotificationStatus(pane: AgentPaneState): NotificationItem['status'] | null {
   if (pane.phase === 'permission_required' || pane.lastEvent === 'permission_required') return 'permission_required'
@@ -38,7 +44,12 @@ function getAgentNotificationStatus(pane: AgentPaneState): NotificationItem['sta
   if (pane.agentStatus === 'blocked') return 'blocked'
   return null
 }
-function getAgentNotificationMessage(status: NotificationItem['status'], agent: string, session: string, t: TranslateFn) {
+function getAgentNotificationMessage(
+  status: NotificationItem['status'],
+  agent: string,
+  session: string,
+  t: TranslateFn,
+) {
   const key: Record<NotificationItem['status'], Parameters<TranslateFn>[0]> = {
     blocked: 'agent.notification.blocked',
     done: 'agent.notification.done',
@@ -77,7 +88,17 @@ function readNotificationBubblePosition() {
 function readStoredNotifications() {
   try {
     const raw = JSON.parse(localStorage.getItem(notificationsStorageKey) || '[]')
-    return Array.isArray(raw) ? raw.filter((item): item is NotificationItem => item && typeof item.id === 'string' && typeof item.paneId === 'string' && typeof item.timestamp === 'string').slice(0, 100) : []
+    return Array.isArray(raw)
+      ? raw
+          .filter(
+            (item): item is NotificationItem =>
+              item &&
+              typeof item.id === 'string' &&
+              typeof item.paneId === 'string' &&
+              typeof item.timestamp === 'string',
+          )
+          .slice(0, 100)
+      : []
   } catch {
     return []
   }
@@ -91,10 +112,31 @@ function readMutedPanes() {
   }
 }
 function toNotificationItem(record: AgentNotificationRecord, t: TranslateFn): NotificationItem | null {
-  if (!record || typeof record.id !== 'string' || typeof record.hostId !== 'string' || typeof record.sessionName !== 'string' || typeof record.paneId !== 'string' || typeof record.agent !== 'string') return null
+  if (
+    !record ||
+    typeof record.id !== 'string' ||
+    typeof record.hostId !== 'string' ||
+    typeof record.sessionName !== 'string' ||
+    typeof record.paneId !== 'string' ||
+    typeof record.agent !== 'string'
+  )
+    return null
   const status = record.status
-  if (!['blocked', 'done', 'permission_required', 'needs_input', 'failed', 'ended', 'disconnected'].includes(status)) return null
-  return { id: record.id, paneId: record.paneId, paneName: record.agent, hostId: record.hostId, sessionId: buildSessionId(record.hostId, record.sessionName), status, title: record.title, message: sanitizeNotificationMessage(record.message) || getAgentNotificationMessage(status, record.agent, record.sessionName, t), timestamp: typeof record.timestamp === 'string' ? record.timestamp : new Date().toISOString() }
+  if (!['blocked', 'done', 'permission_required', 'needs_input', 'failed', 'ended', 'disconnected'].includes(status))
+    return null
+  return {
+    id: record.id,
+    paneId: record.paneId,
+    paneName: record.agent,
+    hostId: record.hostId,
+    sessionId: buildSessionId(record.hostId, record.sessionName),
+    status,
+    title: record.title,
+    message:
+      sanitizeNotificationMessage(record.message) ||
+      getAgentNotificationMessage(status, record.agent, record.sessionName, t),
+    timestamp: typeof record.timestamp === 'string' ? record.timestamp : new Date().toISOString(),
+  }
 }
 export function PaneNotifications() {
   const [notifications, setNotifications] = useState<NotificationItem[]>(readStoredNotifications)
@@ -102,7 +144,15 @@ export function PaneNotifications() {
   const [visibleIds, setVisibleIds] = useState<string[]>([])
   const [centerOpen, setCenterOpen] = useState(false)
   const [notificationBubblePosition, setNotificationBubblePosition] = useState<{ x: number; y: number } | null>(null)
-  const notificationBubbleDragRef = useRef({ pointerId: -1, startX: 0, startY: 0, originX: 0, originY: 0, dragging: false, moved: false })
+  const notificationBubbleDragRef = useRef({
+    pointerId: -1,
+    startX: 0,
+    startY: 0,
+    originX: 0,
+    originY: 0,
+    dragging: false,
+    moved: false,
+  })
   const removedAgentKeysRef = useRef(new Set<string>())
   const { t } = useTranslation()
   const { preferences } = usePreferences()
@@ -134,19 +184,33 @@ export function PaneNotifications() {
     let active = true
     void syncAgentPush().then((records) => {
       if (!active || !records.length) return
-      const incoming = records.map((record) => toNotificationItem(record, t)).filter((item): item is NotificationItem => !!item)
+      const incoming = records
+        .map((record) => toNotificationItem(record, t))
+        .filter((item): item is NotificationItem => !!item)
       if (!incoming.length) return
       updateNotifications((current) => {
         const ids = new Set(current.map((item) => item.id))
         return [...incoming.filter((item) => !ids.has(item.id)), ...current]
       })
     })
-    return () => { active = false }
+    return () => {
+      active = false
+    }
   }, [preferences.agentNotificationsEnabled, t])
   useEffect(() => {
     const saved = readNotificationBubblePosition()
-    setNotificationBubblePosition(saved ? clampNotificationBubblePosition(saved.x, saved.y) : clampNotificationBubblePosition(window.innerWidth - notificationBubbleSize - 16, window.innerHeight - notificationBubbleSize - 112))
-    const handleResize = () => setNotificationBubblePosition((current) => current ? clampNotificationBubblePosition(current.x, current.y) : current)
+    setNotificationBubblePosition(
+      saved
+        ? clampNotificationBubblePosition(saved.x, saved.y)
+        : clampNotificationBubblePosition(
+            window.innerWidth - notificationBubbleSize - 16,
+            window.innerHeight - notificationBubbleSize - 112,
+          ),
+    )
+    const handleResize = () =>
+      setNotificationBubblePosition((current) =>
+        current ? clampNotificationBubblePosition(current.x, current.y) : current,
+      )
     window.addEventListener('resize', handleResize)
     window.visualViewport?.addEventListener('resize', handleResize)
     return () => {
@@ -155,9 +219,17 @@ export function PaneNotifications() {
     }
   }, [])
   const handleNotificationBubblePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (!notificationBubblePosition || event.pointerType === 'mouse' && event.button !== 0) return
+    if (!notificationBubblePosition || (event.pointerType === 'mouse' && event.button !== 0)) return
     event.currentTarget.setPointerCapture?.(event.pointerId)
-    notificationBubbleDragRef.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, originX: notificationBubblePosition.x, originY: notificationBubblePosition.y, dragging: true, moved: false }
+    notificationBubbleDragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: notificationBubblePosition.x,
+      originY: notificationBubblePosition.y,
+      dragging: true,
+      moved: false,
+    }
   }
   const handleNotificationBubblePointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
     const state = notificationBubbleDragRef.current
@@ -172,7 +244,9 @@ export function PaneNotifications() {
     const state = notificationBubbleDragRef.current
     if (!state.dragging || state.pointerId !== event.pointerId) return
     state.dragging = false
-    try { event.currentTarget.releasePointerCapture?.(event.pointerId) } catch {}
+    try {
+      event.currentTarget.releasePointerCapture?.(event.pointerId)
+    } catch {}
     if (state.moved) {
       setNotificationBubblePosition((current) => {
         if (!current) return current
@@ -193,10 +267,13 @@ export function PaneNotifications() {
     try {
       const key = ['session-snapshot', notification.hostId, notification.sessionId]
       const cached = queryClient?.getQueryData?.(key) as any
-      const snapshot = cached?.panes?.some?.((pane: any) => pane.id === notification.paneId) ? cached : await api.snapshot.get(notification.hostId, notification.sessionId)
+      const snapshot = cached?.panes?.some?.((pane: any) => pane.id === notification.paneId)
+        ? cached
+        : await api.snapshot.get(notification.hostId, notification.sessionId)
       const targetPane = snapshot?.panes?.find?.((pane: any) => pane.id === notification.paneId)
       if (!targetPane) return
-      if (targetPane.windowId && targetPane.windowId !== snapshot.activeWindowId) await api.windows.select(notification.hostId, notification.sessionId, targetPane.windowId)
+      if (targetPane.windowId && targetPane.windowId !== snapshot.activeWindowId)
+        await api.windows.select(notification.hostId, notification.sessionId, targetPane.windowId)
       await api.panes.select(notification.paneId)
       const nextSnapshot = await api.snapshot.get(notification.hostId, notification.sessionId)
       queryClient?.setQueryData(key, nextSnapshot)
@@ -216,11 +293,46 @@ export function PaneNotifications() {
   useEffect(() => {
     if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return
     const handleServiceWorkerMessage = (event: MessageEvent) => {
-      const detail = event.data as { type?: string; id?: string; hostId?: string; sessionName?: string; paneId?: string; agent?: string; status?: string; title?: string; message?: string; timestamp?: string }
-      if (detail?.type !== 'tmuxgo-agent-notification-click' || typeof detail.hostId !== 'string' || typeof detail.sessionName !== 'string' || typeof detail.paneId !== 'string') return
-      const status = detail.status && ['blocked', 'done', 'permission_required', 'needs_input', 'failed', 'ended', 'disconnected'].includes(detail.status) ? detail.status as NotificationItem['status'] : 'blocked'
+      const detail = event.data as {
+        type?: string
+        id?: string
+        hostId?: string
+        sessionName?: string
+        paneId?: string
+        agent?: string
+        status?: string
+        title?: string
+        message?: string
+        timestamp?: string
+      }
+      if (
+        detail?.type !== 'tmuxgo-agent-notification-click' ||
+        typeof detail.hostId !== 'string' ||
+        typeof detail.sessionName !== 'string' ||
+        typeof detail.paneId !== 'string'
+      )
+        return
+      const status =
+        detail.status &&
+        ['blocked', 'done', 'permission_required', 'needs_input', 'failed', 'ended', 'disconnected'].includes(
+          detail.status,
+        )
+          ? (detail.status as NotificationItem['status'])
+          : 'blocked'
       const agent = typeof detail.agent === 'string' && detail.agent ? detail.agent : 'agent'
-      const notification: NotificationItem = { id: typeof detail.id === 'string' ? detail.id : `${detail.hostId}:${detail.paneId}:push`, paneId: detail.paneId, paneName: agent, hostId: detail.hostId, sessionId: buildSessionId(detail.hostId, detail.sessionName), status, title: typeof detail.title === 'string' ? detail.title : undefined, message: sanitizeNotificationMessage(detail.message || '') || getAgentNotificationMessage(status, agent, detail.sessionName, t), timestamp: typeof detail.timestamp === 'string' ? detail.timestamp : new Date().toISOString() }
+      const notification: NotificationItem = {
+        id: typeof detail.id === 'string' ? detail.id : `${detail.hostId}:${detail.paneId}:push`,
+        paneId: detail.paneId,
+        paneName: agent,
+        hostId: detail.hostId,
+        sessionId: buildSessionId(detail.hostId, detail.sessionName),
+        status,
+        title: typeof detail.title === 'string' ? detail.title : undefined,
+        message:
+          sanitizeNotificationMessage(detail.message || '') ||
+          getAgentNotificationMessage(status, agent, detail.sessionName, t),
+        timestamp: typeof detail.timestamp === 'string' ? detail.timestamp : new Date().toISOString(),
+      }
       void openNotification(notification)
     }
     navigator.serviceWorker.addEventListener('message', handleServiceWorkerMessage)
@@ -233,7 +345,16 @@ export function PaneNotifications() {
     const paneId = params.get('paneId')
     const notificationId = params.get('notificationId')
     if (!hostId || !sessionName || !paneId) return
-    const notification: NotificationItem = { id: notificationId || `${hostId}:${paneId}:push`, paneId, paneName: 'agent', hostId, sessionId: buildSessionId(hostId, sessionName), status: 'blocked', message: getAgentNotificationMessage('blocked', 'agent', sessionName, t), timestamp: new Date().toISOString() }
+    const notification: NotificationItem = {
+      id: notificationId || `${hostId}:${paneId}:push`,
+      paneId,
+      paneName: 'agent',
+      hostId,
+      sessionId: buildSessionId(hostId, sessionName),
+      status: 'blocked',
+      message: getAgentNotificationMessage('blocked', 'agent', sessionName, t),
+      timestamp: new Date().toISOString(),
+    }
     void openNotification(notification)
     const url = new URL(window.location.href)
     url.searchParams.delete('hostId')
@@ -255,15 +376,21 @@ export function PaneNotifications() {
   useEffect(() => {
     const updateSnapshot = (hostId: string, sessionName: string, pane: AgentPaneState) => {
       const sessionId = buildSessionId(hostId, sessionName)
-      queryClient?.setQueryData(['session-snapshot', hostId, sessionId], (snapshot: any) => snapshot ? { ...snapshot, panes: mergeAgentPaneEvent(Array.isArray(snapshot.panes) ? snapshot.panes : [], pane) } : snapshot)
+      queryClient?.setQueryData(['session-snapshot', hostId, sessionId], (snapshot: any) =>
+        snapshot
+          ? { ...snapshot, panes: mergeAgentPaneEvent(Array.isArray(snapshot.panes) ? snapshot.panes : [], pane) }
+          : snapshot,
+      )
     }
     const updateSession = (hostId: string, sessionName: string, pane: AgentPaneState) => {
       const sessionId = buildSessionId(hostId, sessionName)
-      queryClient?.setQueryData<Session[]>(['sessions', hostId], (sessions) => sessions?.map((session) => {
-        if (session.id !== sessionId) return session
-        const agents = [...(session.agents || []).filter((item) => item.paneId !== pane.paneId), pane]
-        return { ...session, agents, agentSummary: summarizeAgentStates(agents) }
-      }))
+      queryClient?.setQueryData<Session[]>(['sessions', hostId], (sessions) =>
+        sessions?.map((session) => {
+          if (session.id !== sessionId) return session
+          const agents = [...(session.agents || []).filter((item) => item.paneId !== pane.paneId), pane]
+          return { ...session, agents, agentSummary: summarizeAgentStates(agents) }
+        }),
+      )
     }
     const updateAgentCache = (hostId: string, sessionName: string, pane: AgentPaneState) => {
       updateSnapshot(hostId, sessionName, pane)
@@ -271,12 +398,18 @@ export function PaneNotifications() {
     }
     const removeAgentCache = (hostId: string, sessionName: string, paneId: string) => {
       const sessionId = buildSessionId(hostId, sessionName)
-      queryClient?.setQueryData(['session-snapshot', hostId, sessionId], (snapshot: any) => snapshot ? { ...snapshot, panes: removeAgentPaneEvent(Array.isArray(snapshot.panes) ? snapshot.panes : [], paneId) } : snapshot)
-      queryClient?.setQueryData<Session[]>(['sessions', hostId], (sessions) => sessions?.map((session) => {
-        if (session.id !== sessionId) return session
-        const agents = (session.agents || []).filter((pane) => pane.paneId !== paneId)
-        return { ...session, agents, agentSummary: summarizeAgentStates(agents) }
-      }))
+      queryClient?.setQueryData(['session-snapshot', hostId, sessionId], (snapshot: any) =>
+        snapshot
+          ? { ...snapshot, panes: removeAgentPaneEvent(Array.isArray(snapshot.panes) ? snapshot.panes : [], paneId) }
+          : snapshot,
+      )
+      queryClient?.setQueryData<Session[]>(['sessions', hostId], (sessions) =>
+        sessions?.map((session) => {
+          if (session.id !== sessionId) return session
+          const agents = (session.agents || []).filter((pane) => pane.paneId !== paneId)
+          return { ...session, agents, agentSummary: summarizeAgentStates(agents) }
+        }),
+      )
     }
     const updateSnapshotCache = (hostId: string, agents: AgentPaneState[]) => {
       const bySession = new Map<string, AgentPaneState[]>()
@@ -290,18 +423,31 @@ export function PaneNotifications() {
       for (const query of snapshotQueries) {
         const sessionName = parseSessionName(hostId, String(query.queryKey[2] || ''))
         const agentByPane = new Map((bySession.get(sessionName) || []).map((pane) => [pane.paneId, pane]))
-        queryClient?.setQueryData(query.queryKey, (snapshot: any) => snapshot ? { ...snapshot, panes: Array.isArray(snapshot.panes) ? snapshot.panes.map((pane: any) => {
-          const incoming = agentByPane.get(pane.id)
-          return incoming ? mergeAgentPaneEvent([pane], incoming, true)[0] : removeAgentPaneEvent([pane], pane.id)[0]
-        }) : snapshot.panes } : snapshot)
+        queryClient?.setQueryData(query.queryKey, (snapshot: any) =>
+          snapshot
+            ? {
+                ...snapshot,
+                panes: Array.isArray(snapshot.panes)
+                  ? snapshot.panes.map((pane: any) => {
+                      const incoming = agentByPane.get(pane.id)
+                      return incoming
+                        ? mergeAgentPaneEvent([pane], incoming, true)[0]
+                        : removeAgentPaneEvent([pane], pane.id)[0]
+                    })
+                  : snapshot.panes,
+              }
+            : snapshot,
+        )
       }
       for (const pane of agents) {
         updateSnapshot(hostId, pane.sessionName, pane)
       }
-      queryClient?.setQueryData<Session[]>(['sessions', hostId], (sessions) => sessions?.map((session) => {
-        const sessionAgents = bySession.get(session.name) || []
-        return { ...session, agents: sessionAgents, agentSummary: summarizeAgentStates(sessionAgents) }
-      }))
+      queryClient?.setQueryData<Session[]>(['sessions', hostId], (sessions) =>
+        sessions?.map((session) => {
+          const sessionAgents = bySession.get(session.name) || []
+          return { ...session, agents: sessionAgents, agentSummary: summarizeAgentStates(sessionAgents) }
+        }),
+      )
     }
     const publishNotification = (hostId: string, sessionName: string, pane: AgentPaneState, eventId?: string) => {
       if (!preferences.agentNotificationsEnabled || readMutedPanes().includes(pane.paneId)) return
@@ -309,14 +455,29 @@ export function PaneNotifications() {
       if (!status) return
       const sessionId = buildSessionId(hostId, sessionName)
       const id = eventId || pane.eventId || `${pane.paneId}:${pane.revision}:${status}`
-      const message = sanitizeNotificationMessage(pane.message || '') || getAgentNotificationMessage(status, pane.agent, sessionName, t)
-      const notification: NotificationItem = { id, paneId: pane.paneId, paneName: pane.agent, hostId, sessionId, status, title: pane.display?.title, message, timestamp: new Date().toISOString() }
+      const message =
+        sanitizeNotificationMessage(pane.message || '') ||
+        getAgentNotificationMessage(status, pane.agent, sessionName, t)
+      const notification: NotificationItem = {
+        id,
+        paneId: pane.paneId,
+        paneName: pane.agent,
+        hostId,
+        sessionId,
+        status,
+        title: pane.display?.title,
+        message,
+        timestamp: new Date().toISOString(),
+      }
       const isNew = !notificationsRef.current.some((item) => item.id === id)
       if (!isNew) return
       updateNotifications((current) => [notification, ...current.filter((item) => item.id !== id)])
       setVisibleIds((current) => [id, ...current.filter((item) => item !== id)].slice(0, 8))
       if (document.visibilityState === 'hidden' && 'Notification' in window && Notification.permission === 'granted') {
-        const browserNotification = new Notification(notification.title || t('notification.title'), { body: message, tag: id })
+        const browserNotification = new Notification(notification.title || t('notification.title'), {
+          body: message,
+          tag: id,
+        })
         browserNotification.onclick = () => {
           window.focus()
           browserNotification.close()
@@ -324,47 +485,124 @@ export function PaneNotifications() {
         }
       }
     }
-    const handleAgentStatus = (event: Event) => {
-      const detail = (event as CustomEvent<{ hostId: string; sessionName: string; pane: AgentPaneState; initial?: boolean; eventId?: string }>).detail
+    const handleAgentStatus = (detail: {
+      hostId: string
+      sessionName: string
+      pane: AgentPaneState
+      initial?: boolean
+      eventId?: string
+    }) => {
       if (!detail?.hostId || !detail.sessionName || !detail.pane) return
       removedAgentKeysRef.current.delete(`${detail.hostId}:${detail.pane.paneId}`)
       updateAgentCache(detail.hostId, detail.sessionName, detail.pane)
       if (!detail.eventId && !detail.initial) publishNotification(detail.hostId, detail.sessionName, detail.pane)
     }
-    const handleAgentSnapshot = (event: Event) => {
-      const detail = (event as CustomEvent<{ hostId: string; initial?: boolean; agents: AgentPaneState[] }>).detail
+    const handleAgentSnapshot = (detail: { hostId: string; initial?: boolean; agents: AgentPaneState[] }) => {
       if (!detail?.hostId || !Array.isArray(detail.agents)) return
       updateSnapshotCache(detail.hostId, detail.agents)
     }
-    const handleAgentRemoved = (event: Event) => {
-      const detail = (event as CustomEvent<{ hostId: string; sessionName: string; paneId: string }>).detail
+    const handleAgentRemoved = (detail: { hostId: string; sessionName: string; paneId: string }) => {
       if (!detail?.hostId || !detail.sessionName || !detail.paneId) return
       removedAgentKeysRef.current.add(`${detail.hostId}:${detail.paneId}`)
       removeAgentCache(detail.hostId, detail.sessionName, detail.paneId)
     }
-    const handleAgentNotification = (event: Event) => {
-      const detail = (event as CustomEvent<{ hostId: string; sessionName: string; pane: AgentPaneState; eventId?: string; initial?: boolean }>).detail
+    const handleAgentNotification = (detail: {
+      hostId: string
+      sessionName: string
+      pane: AgentPaneState
+      eventId?: string
+      initial?: boolean
+    }) => {
       if (!detail?.hostId || !detail.sessionName || !detail.pane || detail.initial) return
-      if (!removedAgentKeysRef.current.has(`${detail.hostId}:${detail.pane.paneId}`)) updateAgentCache(detail.hostId, detail.sessionName, detail.pane)
+      if (!removedAgentKeysRef.current.has(`${detail.hostId}:${detail.pane.paneId}`))
+        updateAgentCache(detail.hostId, detail.sessionName, detail.pane)
       publishNotification(detail.hostId, detail.sessionName, detail.pane, detail.eventId)
     }
-    window.addEventListener('tmuxgo-agent-status', handleAgentStatus as EventListener)
-    window.addEventListener('tmuxgo-agent-status-snapshot', handleAgentSnapshot as EventListener)
-    window.addEventListener('tmuxgo-agent-status-removed', handleAgentRemoved as EventListener)
-    window.addEventListener('tmuxgo-agent-notification', handleAgentNotification as EventListener)
+    const unsubs = [
+      subscribeStreamEvent(STREAM_EVENT.agentStatus, handleAgentStatus),
+      subscribeStreamEvent(STREAM_EVENT.agentStatusSnapshot, handleAgentSnapshot),
+      subscribeStreamEvent(STREAM_EVENT.agentStatusRemoved, handleAgentRemoved),
+      subscribeStreamEvent(STREAM_EVENT.agentNotification, handleAgentNotification),
+    ]
     return () => {
-      window.removeEventListener('tmuxgo-agent-status', handleAgentStatus as EventListener)
-      window.removeEventListener('tmuxgo-agent-status-snapshot', handleAgentSnapshot as EventListener)
-      window.removeEventListener('tmuxgo-agent-status-removed', handleAgentRemoved as EventListener)
-      window.removeEventListener('tmuxgo-agent-notification', handleAgentNotification as EventListener)
+      for (const unsub of unsubs) unsub()
     }
   }, [preferences.agentNotificationsEnabled, queryClient, t])
-  const displayed = centerOpen ? notifications : notifications.filter((notification) => visibleIds.includes(notification.id))
+  const displayed = centerOpen
+    ? notifications
+    : notifications.filter((notification) => visibleIds.includes(notification.id))
   if (!preferences.agentNotificationsEnabled) return null
-  return <>
-    {notifications.length > 0 && notificationBubblePosition && <button type="button" onPointerDown={handleNotificationBubblePointerDown} onPointerMove={handleNotificationBubblePointerMove} onPointerUp={handleNotificationBubblePointerUp} onPointerCancel={handleNotificationBubblePointerUp} onClick={handleNotificationBubbleClick} onContextMenu={(event) => event.preventDefault()} aria-label={t('notification.title')} title={t('notification.title')} className="tmuxgo-glass pointer-events-auto fixed z-50 flex h-9 w-9 touch-none select-none items-center justify-center rounded-full border border-[var(--line)] bg-bg-1 text-text-2 lg:hidden" style={{ left: notificationBubblePosition.x, top: notificationBubblePosition.y }}><FiBell aria-hidden="true" /></button>}
-    {notifications.length > 0 && (centerOpen || displayed.length > 0) && <div className="pointer-events-auto fixed bottom-28 right-4 z-50 w-80 max-w-[calc(100vw-2rem)] lg:bottom-16"><div className="overflow-hidden rounded-apple border border-[var(--line)] bg-bg-1"><div className="flex items-center justify-between border-b border-[var(--line)] p-2"><button onClick={() => setCenterOpen((current) => !current)} className="text-xs text-text-2">{t('notification.title')} {notifications.length ? `(${notifications.length})` : ''}</button>{notifications.length > 0 && <button onClick={clearAll} className="text-xs text-text-3 hover:text-text-1">{t('notification.clearAll')}</button>}</div><div className="tmuxgo-scrollbar max-h-72 overflow-x-hidden overflow-y-auto">{!displayed.length && <div className="p-4 text-center text-sm text-text-3">{t('notification.empty')}</div>}{displayed.slice(0, centerOpen ? 100 : 5).map((notification) => { const attention = isAgentAttentionStatus(notification.status); return <div key={notification.id} className="flex border-b border-[var(--line)] hover:bg-bg-2"><button onClick={() => void openNotification(notification)} className="min-w-0 flex-1 p-2 text-left"><span className={`flex items-center gap-1.5 text-xs ${attention ? 'text-danger' : 'text-accent-2'}`}>{attention ? <FiAlertCircle aria-hidden="true" /> : <FiCheckCircle aria-hidden="true" />}{notification.paneName}</span><span className="mt-1 block text-sm text-text-1">{notification.message}</span><span className="mt-1 block text-caption text-text-3">{new Date(notification.timestamp).toLocaleString()}</span></button><button onClick={() => dismissNotification(notification.id)} className="flex w-9 shrink-0 items-start justify-center pt-2 text-text-3 hover:text-text-1" aria-label={t('common.close')}><FiX aria-hidden="true" /></button></div> })}</div></div></div>}
-  </>
+  return (
+    <>
+      {notifications.length > 0 && notificationBubblePosition && (
+        <button
+          type="button"
+          onPointerDown={handleNotificationBubblePointerDown}
+          onPointerMove={handleNotificationBubblePointerMove}
+          onPointerUp={handleNotificationBubblePointerUp}
+          onPointerCancel={handleNotificationBubblePointerUp}
+          onClick={handleNotificationBubbleClick}
+          onContextMenu={(event) => event.preventDefault()}
+          aria-label={t('notification.title')}
+          title={t('notification.title')}
+          className="tmuxgo-glass pointer-events-auto fixed z-50 flex h-9 w-9 touch-none select-none items-center justify-center rounded-full border border-[var(--line)] bg-bg-1 text-text-2 lg:hidden"
+          style={{ left: notificationBubblePosition.x, top: notificationBubblePosition.y }}
+        >
+          <FiBell aria-hidden="true" />
+        </button>
+      )}
+      {notifications.length > 0 && (centerOpen || displayed.length > 0) && (
+        <div className="pointer-events-auto fixed bottom-28 right-4 z-50 w-80 max-w-[calc(100vw-2rem)] lg:bottom-16">
+          <div className="overflow-hidden rounded-apple border border-[var(--line)] bg-bg-1">
+            <div className="flex items-center justify-between border-b border-[var(--line)] p-2">
+              <button onClick={() => setCenterOpen((current) => !current)} className="text-xs text-text-2">
+                {t('notification.title')} {notifications.length ? `(${notifications.length})` : ''}
+              </button>
+              {notifications.length > 0 && (
+                <button onClick={clearAll} className="text-xs text-text-3 hover:text-text-1">
+                  {t('notification.clearAll')}
+                </button>
+              )}
+            </div>
+            <div className="tmuxgo-scrollbar max-h-72 overflow-x-hidden overflow-y-auto">
+              {!displayed.length && (
+                <div className="p-4 text-center text-sm text-text-3">{t('notification.empty')}</div>
+              )}
+              {displayed.slice(0, centerOpen ? 100 : 5).map((notification) => {
+                const attention = isAgentAttentionStatus(notification.status)
+                return (
+                  <div key={notification.id} className="flex border-b border-[var(--line)] hover:bg-bg-2">
+                    <button
+                      onClick={() => void openNotification(notification)}
+                      className="min-w-0 flex-1 p-2 text-left"
+                    >
+                      <span
+                        className={`flex items-center gap-1.5 text-xs ${attention ? 'text-danger' : 'text-accent-2'}`}
+                      >
+                        {attention ? <FiAlertCircle aria-hidden="true" /> : <FiCheckCircle aria-hidden="true" />}
+                        {notification.paneName}
+                      </span>
+                      <span className="mt-1 block text-sm text-text-1">{notification.message}</span>
+                      <span className="mt-1 block text-caption text-text-3">
+                        {new Date(notification.timestamp).toLocaleString()}
+                      </span>
+                    </button>
+                    <button
+                      onClick={() => dismissNotification(notification.id)}
+                      className="flex w-9 shrink-0 items-start justify-center pt-2 text-text-3 hover:text-text-1"
+                      aria-label={t('common.close')}
+                    >
+                      <FiX aria-hidden="true" />
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  )
 }
 export function WatchButton({ paneId, compact = false }: { paneId: string; compact?: boolean }) {
   const [isWatched, setIsWatched] = useState(true)
@@ -380,11 +618,27 @@ export function WatchButton({ paneId, compact = false }: { paneId: string; compa
     setIsWatched(!isWatched)
     window.dispatchEvent(new CustomEvent('tmuxgo-watched-panes-change', { detail: { paneId, watched: !isWatched } }))
     if (!isWatched && 'Notification' in window) {
-      if (Notification.permission === 'default') void Notification.requestPermission().then((permission) => { if (permission === 'granted') void enableAgentPush() })
+      if (Notification.permission === 'default')
+        void Notification.requestPermission().then((permission) => {
+          if (permission === 'granted') void enableAgentPush()
+        })
       else if (Notification.permission === 'granted') void enableAgentPush()
     }
   }
   const unavailable = !paneId
   const label = unavailable ? t('notification.watch') : isWatched ? t('notification.unwatch') : t('notification.watch')
-  return <Chip onClick={toggle} disabled={unavailable} aria-pressed={isWatched} aria-label={label} title={label} tone={isWatched ? 'accent' : 'default'} className={`flex items-center ${compact ? 'px-[10px]' : 'w-full justify-center gap-2 px-[10px] py-[5px]'} ${unavailable ? 'cursor-not-allowed' : ''}`}>{isWatched ? <FiBell aria-hidden="true" /> : <FiBellOff aria-hidden="true" />}{!compact && <span>{label}</span>}</Chip>
+  return (
+    <Chip
+      onClick={toggle}
+      disabled={unavailable}
+      aria-pressed={isWatched}
+      aria-label={label}
+      title={label}
+      tone={isWatched ? 'accent' : 'default'}
+      className={`flex items-center ${compact ? 'px-[10px]' : 'w-full justify-center gap-2 px-[10px] py-[5px]'} ${unavailable ? 'cursor-not-allowed' : ''}`}
+    >
+      {isWatched ? <FiBell aria-hidden="true" /> : <FiBellOff aria-hidden="true" />}
+      {!compact && <span>{label}</span>}
+    </Chip>
+  )
 }

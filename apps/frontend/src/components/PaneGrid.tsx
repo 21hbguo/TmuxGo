@@ -13,6 +13,7 @@ import { parseSessionName } from '@/lib/session-id'
 import { useSessionContinuity } from '@/hooks/useSessionContinuity'
 import { useSessionSnapshotSync } from '@/hooks/useSessionSnapshotSync'
 import { useOptionalQueryClient } from '@/hooks/useOptionalQueryClient'
+import { emitStreamEvent, subscribeStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 
 const ATTACH_TIMEOUT = 5000
 const ATTACH_RETRY_DELAY = 900
@@ -25,10 +26,27 @@ export interface PaneGridSocket {
   send: (data: any) => boolean
   isConnected: boolean
   isSocketReady: boolean
-  subscribeOutput: (hostId: string, sessionName: string, listener: (message: { data: string; sessionName?: string | null; hostId?: string | null; resync?: boolean }) => void) => () => void
+  subscribeOutput: (
+    hostId: string,
+    sessionName: string,
+    listener: (message: {
+      data: string
+      sessionName?: string | null
+      hostId?: string | null
+      resync?: boolean
+    }) => void,
+  ) => () => void
 }
 
-export function PaneGrid({ sessionId: controlledSessionId, socket, shared = false }: { sessionId?: string; socket?: PaneGridSocket; shared?: boolean }) {
+export function PaneGrid({
+  sessionId: controlledSessionId,
+  socket,
+  shared = false,
+}: {
+  sessionId?: string
+  socket?: PaneGridSocket
+  shared?: boolean
+}) {
   const activeHostId = useConsoleStore((s) => s.activeHostId)
   const activeSessionId = useConsoleStore((s) => s.activeSessionId)
   const connectionStatus = useConsoleStore((s) => s.connection.status)
@@ -36,7 +54,12 @@ export function PaneGrid({ sessionId: controlledSessionId, socket, shared = fals
   const updateTerminalPerf = useConsoleStore((s) => s.updateTerminalPerf)
   const defaultConnection = useWebSocket()
   const { send, isConnected, isSocketReady, subscribeOutput } = socket || defaultConnection
-  const updateConnectionState = useCallback(((...args: Parameters<typeof updateConnection>) => { if (!socket) updateConnection(...args) }), [socket, updateConnection])
+  const updateConnectionState = useCallback(
+    (...args: Parameters<typeof updateConnection>) => {
+      if (!socket) updateConnection(...args)
+    },
+    [socket, updateConnection],
+  )
   const { t } = useTranslation()
   const { preferences } = usePreferences()
   const { sessionContinuity, upsertResumePoint } = useSessionContinuity()
@@ -49,7 +72,7 @@ export function PaneGrid({ sessionId: controlledSessionId, socket, shared = fals
   const isControlled = controlledSessionId !== undefined
   const { data: windowsData = [] } = useWindows(activeHostId || '', sessionId || '')
   const { getWindows, setWindows } = useWindowQueryState(activeHostId || '', sessionId || '')
-  const exclusive = shared ? false : (!isMobile || preferences.attachExclusive)
+  const exclusive = shared ? false : !isMobile || preferences.attachExclusive
   const attachedRef = useRef<string | null>(null)
   const sizeRef = useRef<{ cols: number; rows: number } | null>(null)
   const terminalReadyRef = useRef(false)
@@ -78,43 +101,60 @@ export function PaneGrid({ sessionId: controlledSessionId, socket, shared = fals
   const targetSessionName = pendingSessionNameRef.current || sessionName
   const renderedSessionName = targetSessionName
 
-  const sessionWindows = useMemo(() =>
-    windowsData.filter((w: any) => w.sessionId === sessionId),
-    [windowsData, sessionId]
+  const sessionWindows = useMemo(
+    () => windowsData.filter((w: any) => w.sessionId === sessionId),
+    [windowsData, sessionId],
   )
-  const activeWindowIndex = useMemo(() =>
-    sessionWindows.findIndex((w: any) => w.active),
-    [sessionWindows]
+  const activeWindowIndex = useMemo(() => sessionWindows.findIndex((w: any) => w.active), [sessionWindows])
+  const switchWindow = useCallback(
+    async (direction: -1 | 1) => {
+      if (!activeHostId || !sessionId || sessionWindows.length <= 1) return
+      const nextIndex = (activeWindowIndex + direction + sessionWindows.length) % sessionWindows.length
+      const targetWindow = sessionWindows[nextIndex]
+      if (!targetWindow) return
+      const previousWindows = getWindows()
+      setWindows(
+        previousWindows.map((w: any) => (w.sessionId === sessionId ? { ...w, active: w.id === targetWindow.id } : w)),
+      )
+      try {
+        const result = await api.windows.select(activeHostId, sessionId, targetWindow.id)
+        if (result.windows) setWindows(result.windows)
+        await syncAfterWindowChange()
+      } catch {
+        setWindows(previousWindows)
+        pushToast({ type: 'error', message: t('window.switchFailed') })
+      }
+    },
+    [
+      activeHostId,
+      sessionId,
+      sessionWindows,
+      activeWindowIndex,
+      getWindows,
+      setWindows,
+      pushToast,
+      syncAfterWindowChange,
+      t,
+    ],
   )
-  const switchWindow = useCallback(async (direction: -1 | 1) => {
-    if (!activeHostId || !sessionId || sessionWindows.length <= 1) return
-    const nextIndex = (activeWindowIndex + direction + sessionWindows.length) % sessionWindows.length
-    const targetWindow = sessionWindows[nextIndex]
-    if (!targetWindow) return
-    const previousWindows = getWindows()
-    setWindows(previousWindows.map((w: any) =>
-      w.sessionId === sessionId ? { ...w, active: w.id === targetWindow.id } : w
-    ))
-    try {
-      const result = await api.windows.select(activeHostId, sessionId, targetWindow.id)
-      if (result.windows) setWindows(result.windows)
-      await syncAfterWindowChange()
-    } catch {
-      setWindows(previousWindows)
-      pushToast({ type: 'error', message: t('window.switchFailed') })
-    }
-  }, [activeHostId, sessionId, sessionWindows, activeWindowIndex, getWindows, setWindows, pushToast, syncAfterWindowChange, t])
-  const handleSwipeLeft = useCallback(() => { void switchWindow(1) }, [switchWindow])
-  const handleSwipeRight = useCallback(() => { void switchWindow(-1) }, [switchWindow])
+  const handleSwipeLeft = useCallback(() => {
+    void switchWindow(1)
+  }, [switchWindow])
+  const handleSwipeRight = useCallback(() => {
+    void switchWindow(-1)
+  }, [switchWindow])
 
-  const sendResizeNow = useCallback((size: { cols: number; rows: number }) => {
-    if (!size.cols || !size.rows) return false
-    const prev = sentResizeRef.current
-    if (prev && prev.cols === size.cols && prev.rows === size.rows) return false
-    const sent = send({ type: 'resize', hostId: activeHostId || 'local', cols: size.cols, rows: size.rows })
-    if (sent) sentResizeRef.current = size
-    return sent
-  }, [activeHostId, send])
+  const sendResizeNow = useCallback(
+    (size: { cols: number; rows: number }) => {
+      if (!size.cols || !size.rows) return false
+      const prev = sentResizeRef.current
+      if (prev && prev.cols === size.cols && prev.rows === size.rows) return false
+      const sent = send({ type: 'resize', hostId: activeHostId || 'local', cols: size.cols, rows: size.rows })
+      if (sent) sentResizeRef.current = size
+      return sent
+    },
+    [activeHostId, send],
+  )
   const clearAttachTimers = useCallback(() => {
     if (attachTimerRef.current) {
       clearTimeout(attachTimerRef.current)
@@ -141,11 +181,23 @@ export function PaneGrid({ sessionId: controlledSessionId, socket, shared = fals
     pendingRemoteResizeRef.current = null
     if (!size) return
     if (!isConnected || attachedRef.current !== targetSessionName) {
-      window.dispatchEvent(new CustomEvent('tmux-resized', { detail: { hostId: activeHostId || 'local', sessionName: targetSessionName, cols: size.cols, rows: size.rows, localOnly: true } }))
+      emitStreamEvent(STREAM_EVENT.resized, {
+        hostId: activeHostId || 'local',
+        sessionName: targetSessionName,
+        cols: size.cols,
+        rows: size.rows,
+        localOnly: true,
+      })
       return
     }
     if (!sendResizeNow(size)) {
-      window.dispatchEvent(new CustomEvent('tmux-resized', { detail: { hostId: activeHostId || 'local', sessionName: targetSessionName, cols: size.cols, rows: size.rows, localOnly: true } }))
+      emitStreamEvent(STREAM_EVENT.resized, {
+        hostId: activeHostId || 'local',
+        sessionName: targetSessionName,
+        cols: size.cols,
+        rows: size.rows,
+        localOnly: true,
+      })
     }
   }, [activeHostId, clearResizeFlushTimer, isConnected, sendResizeNow, targetSessionName])
   const clearContinuityTimer = useCallback(() => {
@@ -174,19 +226,39 @@ export function PaneGrid({ sessionId: controlledSessionId, socket, shared = fals
     const archive = sessionContinuity.archive
     const key = `${activeHostId}:${sessionId}`
     const previous = lastArchiveCaptureRef.current
-    if (archive.enabled && archive.captureMode !== 'none' && (!previous || previous.key !== key || Date.now() - previous.at >= 60000)) {
+    if (
+      archive.enabled &&
+      archive.captureMode !== 'none' &&
+      (!previous || previous.key !== key || Date.now() - previous.at >= 60000)
+    ) {
       lastArchiveCaptureRef.current = { key, at: Date.now() }
       void api.sessionArchives.capture(activeHostId, sessionId, archive).catch(() => {})
     }
-  }, [activeHostId, sessionId, isControlled, sessionContinuity.enabled, sessionContinuity.archive, sessionName, sessionWindows, upsertResumePoint, exclusive])
-  const scheduleContinuityFlush = useCallback((delay = 0) => {
-    if (!sessionContinuity.enabled) return
-    if (continuityTimerRef.current) return
-    continuityTimerRef.current = setTimeout(() => {
-      continuityTimerRef.current = null
-      flushResumePoint()
-    }, Math.max(0, delay))
-  }, [flushResumePoint, sessionContinuity.enabled])
+  }, [
+    activeHostId,
+    sessionId,
+    isControlled,
+    sessionContinuity.enabled,
+    sessionContinuity.archive,
+    sessionName,
+    sessionWindows,
+    upsertResumePoint,
+    exclusive,
+  ])
+  const scheduleContinuityFlush = useCallback(
+    (delay = 0) => {
+      if (!sessionContinuity.enabled) return
+      if (continuityTimerRef.current) return
+      continuityTimerRef.current = setTimeout(
+        () => {
+          continuityTimerRef.current = null
+          flushResumePoint()
+        },
+        Math.max(0, delay),
+      )
+    },
+    [flushResumePoint, sessionContinuity.enabled],
+  )
   const flushInputQueue = useCallback(() => {
     clearInputFlushTimer()
     if (!isConnected || !isSessionAttachedRef.current || attachedRef.current !== targetSessionName) return
@@ -224,7 +296,14 @@ export function PaneGrid({ sessionId: controlledSessionId, socket, shared = fals
     attachStartedAtRef.current = typeof performance !== 'undefined' ? performance.now() : Date.now()
     isSessionAttachedRef.current = false
     updateConnectionState({ status: 'attaching' })
-    const sent = send({ type: 'attach', hostId: activeHostId || 'local', sessionName: targetSessionName, cols: size?.cols || 120, rows: size?.rows || 36, exclusive })
+    const sent = send({
+      type: 'attach',
+      hostId: activeHostId || 'local',
+      sessionName: targetSessionName,
+      cols: size?.cols || 120,
+      rows: size?.rows || 36,
+      exclusive,
+    })
     if (!sent) {
       attachInFlightRef.current = null
       return
@@ -301,19 +380,18 @@ export function PaneGrid({ sessionId: controlledSessionId, socket, shared = fals
       sentResizeRef.current = null
       if (terminalReadyRef.current) attachNow()
     }
-    window.addEventListener('ws-reconnected', handleReconnect)
-    return () => window.removeEventListener('ws-reconnected', handleReconnect)
+    return subscribeStreamEvent(STREAM_EVENT.reconnected, handleReconnect)
   }, [attachNow, clearAttachTimers, clearInputFlushTimer, clearContinuityTimer])
   useEffect(() => {
     if (lastExclusiveRef.current === exclusive) return
     lastExclusiveRef.current = exclusive
     if (!targetSessionName || !terminalReadyRef.current) return
-      clearAttachTimers()
-      attachedRef.current = null
-      attachInFlightRef.current = null
-      isSessionAttachedRef.current = false
-      sentResizeRef.current = null
-      attachNow()
+    clearAttachTimers()
+    attachedRef.current = null
+    attachInFlightRef.current = null
+    isSessionAttachedRef.current = false
+    sentResizeRef.current = null
+    attachNow()
   }, [exclusive, targetSessionName, attachNow, clearAttachTimers])
   useEffect(() => {
     if (!isSocketReady) return
@@ -327,8 +405,7 @@ export function PaneGrid({ sessionId: controlledSessionId, socket, shared = fals
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
   }, [activeHostId, isMobile, isSocketReady, send])
   useEffect(() => {
-    const handleAttached = (event: Event) => {
-      const detail = (event as CustomEvent).detail || {}
+    const handleAttached = (detail: any = {}) => {
       if (detail.sessionName !== targetSessionName) return
       if ((detail.hostId || 'local') !== (activeHostId || 'local')) return
       clearAttachTimers()
@@ -344,19 +421,30 @@ export function PaneGrid({ sessionId: controlledSessionId, socket, shared = fals
       const attachedCols = Number(detail.cols)
       const attachedRows = Number(detail.rows)
       if (attachedCols > 0 && attachedRows > 0) sentResizeRef.current = { cols: attachedCols, rows: attachedRows }
-      const attachLatency = Math.max(0, Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - attachStartedAtRef.current))
+      const attachLatency = Math.max(
+        0,
+        Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - attachStartedAtRef.current),
+      )
       updateConnectionState({ status: 'connected' })
       updateTerminalPerf({ attachLatency })
       flushInputQueue()
       if (exclusive && sizeRef.current) sendResizeNow(sizeRef.current)
       scheduleContinuityFlush(0)
     }
-    window.addEventListener('tmux-attached', handleAttached as EventListener)
-    return () => window.removeEventListener('tmux-attached', handleAttached as EventListener)
-  }, [activeHostId, exclusive, targetSessionName, clearAttachTimers, updateConnection, updateTerminalPerf, flushInputQueue, sendResizeNow, scheduleContinuityFlush])
+    return subscribeStreamEvent(STREAM_EVENT.attached, handleAttached)
+  }, [
+    activeHostId,
+    exclusive,
+    targetSessionName,
+    clearAttachTimers,
+    updateConnection,
+    updateTerminalPerf,
+    flushInputQueue,
+    sendResizeNow,
+    scheduleContinuityFlush,
+  ])
   useEffect(() => {
-    const handleDetached = (event: Event) => {
-      const detail = (event as CustomEvent).detail || {}
+    const handleDetached = (detail: any = {}) => {
       if ((detail.hostId || 'local') !== (activeHostId || 'local')) return
       if (detail.sessionName && detail.sessionName !== targetSessionName) return
       attachedRef.current = null
@@ -372,12 +460,10 @@ export function PaneGrid({ sessionId: controlledSessionId, socket, shared = fals
         }, ATTACH_RETRY_DELAY)
       }
     }
-    window.addEventListener('tmux-detached', handleDetached as EventListener)
-    return () => window.removeEventListener('tmux-detached', handleDetached as EventListener)
+    return subscribeStreamEvent(STREAM_EVENT.detached, handleDetached)
   }, [activeHostId, attachNow, clearAttachTimers, isSocketReady, targetSessionName, updateConnection])
   useEffect(() => {
-    const handleError = (event: Event) => {
-      const detail = (event as CustomEvent<{ hostId?: string; sessionName?: string; message?: string }>).detail || {}
+    const handleError = (detail: { hostId?: string; sessionName?: string; message?: string } = {}) => {
       if ((detail.hostId || 'local') !== (activeHostId || 'local')) return
       if (detail.sessionName && detail.sessionName !== targetSessionName) return
       clearAttachTimers()
@@ -395,42 +481,59 @@ export function PaneGrid({ sessionId: controlledSessionId, socket, shared = fals
       pushToast({ type: 'error', message: detail.message || t('session.requestFailed') })
       void queryClient?.invalidateQueries({ queryKey: ['sessions', activeHostId || 'local'] })
     }
-    window.addEventListener('tmux-error', handleError as EventListener)
-    return () => window.removeEventListener('tmux-error', handleError as EventListener)
-  }, [activeHostId, activeSessionId, isControlled, clearAttachTimers, pushToast, queryClient, setActiveSession, t, targetSessionName, updateConnection, visibleSessionId])
+    return subscribeStreamEvent(STREAM_EVENT.error, handleError)
+  }, [
+    activeHostId,
+    activeSessionId,
+    isControlled,
+    clearAttachTimers,
+    pushToast,
+    queryClient,
+    setActiveSession,
+    t,
+    targetSessionName,
+    updateConnection,
+    visibleSessionId,
+  ])
   useEffect(() => {
     if (isConnected) flushInputQueue()
   }, [isConnected, flushInputQueue])
 
-  useEffect(() => () => {
-    clearAttachTimers()
-    clearInputFlushTimer()
-    clearResizeFlushTimer()
-    clearContinuityTimer()
-    flushResumePoint()
-  }, [clearAttachTimers, clearInputFlushTimer, clearResizeFlushTimer, clearContinuityTimer, flushResumePoint])
+  useEffect(
+    () => () => {
+      clearAttachTimers()
+      clearInputFlushTimer()
+      clearResizeFlushTimer()
+      clearContinuityTimer()
+      flushResumePoint()
+    },
+    [clearAttachTimers, clearInputFlushTimer, clearResizeFlushTimer, clearContinuityTimer, flushResumePoint],
+  )
 
-  const handleInput = useCallback((data: string) => {
-    scheduleContinuityFlush(100)
-    const canWriteDirectly = isConnected && isSessionAttachedRef.current && attachedRef.current === targetSessionName
-    if (canWriteDirectly) {
-      if (inputQueueRef.current.length === 0 && data.length <= INPUT_BATCH_CHARS) {
-        send({ type: 'input', data })
+  const handleInput = useCallback(
+    (data: string) => {
+      scheduleContinuityFlush(100)
+      const canWriteDirectly = isConnected && isSessionAttachedRef.current && attachedRef.current === targetSessionName
+      if (canWriteDirectly) {
+        if (inputQueueRef.current.length === 0 && data.length <= INPUT_BATCH_CHARS) {
+          send({ type: 'input', data })
+          return
+        }
+        inputQueueRef.current.push(data)
+        scheduleInputFlush()
         return
       }
       inputQueueRef.current.push(data)
-      scheduleInputFlush()
-      return
-    }
-    inputQueueRef.current.push(data)
-    if (isSocketReady) {
-      scheduleInputFlush()
-    }
-    if (inputQueueRef.current.length > INPUT_QUEUE_LIMIT) {
-      inputQueueRef.current.splice(0, inputQueueRef.current.length - INPUT_QUEUE_LIMIT)
-    }
-    if (isSocketReady && terminalReadyRef.current) attachNow()
-  }, [attachNow, isConnected, isSocketReady, send, targetSessionName, scheduleInputFlush, scheduleContinuityFlush])
+      if (isSocketReady) {
+        scheduleInputFlush()
+      }
+      if (inputQueueRef.current.length > INPUT_QUEUE_LIMIT) {
+        inputQueueRef.current.splice(0, inputQueueRef.current.length - INPUT_QUEUE_LIMIT)
+      }
+      if (isSocketReady && terminalReadyRef.current) attachNow()
+    },
+    [attachNow, isConnected, isSocketReady, send, targetSessionName, scheduleInputFlush, scheduleContinuityFlush],
+  )
   useEffect(() => {
     if (attachedRef.current === targetSessionName) return
     attachNow()
@@ -448,21 +551,30 @@ export function PaneGrid({ sessionId: controlledSessionId, socket, shared = fals
     window.addEventListener('tmuxgo-terminal-input', handleTerminalInput as EventListener)
     return () => window.removeEventListener('tmuxgo-terminal-input', handleTerminalInput as EventListener)
   }, [handleInput])
-  const handleResize = useCallback((cols: number, rows: number) => {
-    const nextSize = { cols, rows }
-    sizeRef.current = nextSize
-    scheduleContinuityFlush(100)
-    if (!isConnected || attachedRef.current !== targetSessionName) {
-      window.dispatchEvent(new CustomEvent('tmux-resized', { detail: { hostId: activeHostId || 'local', sessionName: targetSessionName, cols, rows, localOnly: true } }))
-      return
-    }
-    pendingRemoteResizeRef.current = nextSize
-    if (resizeFlushTimerRef.current) return
-    resizeFlushTimerRef.current = setTimeout(() => {
-      resizeFlushTimerRef.current = null
-      flushPendingRemoteResize()
-    }, RESIZE_FLUSH_INTERVAL)
-  }, [activeHostId, flushPendingRemoteResize, isConnected, scheduleContinuityFlush, targetSessionName])
+  const handleResize = useCallback(
+    (cols: number, rows: number) => {
+      const nextSize = { cols, rows }
+      sizeRef.current = nextSize
+      scheduleContinuityFlush(100)
+      if (!isConnected || attachedRef.current !== targetSessionName) {
+        emitStreamEvent(STREAM_EVENT.resized, {
+          hostId: activeHostId || 'local',
+          sessionName: targetSessionName,
+          cols,
+          rows,
+          localOnly: true,
+        })
+        return
+      }
+      pendingRemoteResizeRef.current = nextSize
+      if (resizeFlushTimerRef.current) return
+      resizeFlushTimerRef.current = setTimeout(() => {
+        resizeFlushTimerRef.current = null
+        flushPendingRemoteResize()
+      }, RESIZE_FLUSH_INTERVAL)
+    },
+    [activeHostId, flushPendingRemoteResize, isConnected, scheduleContinuityFlush, targetSessionName],
+  )
   const handleReady = useCallback(() => {
     terminalReadyRef.current = true
     if (attachedRef.current === targetSessionName) return
@@ -478,7 +590,12 @@ export function PaneGrid({ sessionId: controlledSessionId, socket, shared = fals
     return () => clearInterval(timer)
   }, [flushResumePoint, isControlled, sessionContinuity.enabled, targetSessionName])
   useEffect(() => {
-    const handleOutput = (message: { data: string; sessionName?: string | null; hostId?: string | null; resync?: boolean }) => {
+    const handleOutput = (message: {
+      data: string
+      sessionName?: string | null
+      hostId?: string | null
+      resync?: boolean
+    }) => {
       if ((message.hostId || activeHostId || 'local') !== (activeHostId || 'local')) return
       if (message.sessionName && message.sessionName !== targetSessionName) return
       if (!message.data) return
@@ -512,7 +629,17 @@ export function PaneGrid({ sessionId: controlledSessionId, socket, shared = fals
           {t(`status.${connectionStatus}`)}
         </div>
       )}
-      <TerminalPane sessionName={renderedSessionName} onInput={handleInput} onResize={handleResize} attachExclusive={exclusive} onReady={handleReady} subscribeOutput={subscribeOutput} send={send} onSwipeLeft={!isControlled && sessionWindows.length > 1 ? handleSwipeLeft : undefined} onSwipeRight={!isControlled && sessionWindows.length > 1 ? handleSwipeRight : undefined} />
+      <TerminalPane
+        sessionName={renderedSessionName}
+        onInput={handleInput}
+        onResize={handleResize}
+        attachExclusive={exclusive}
+        onReady={handleReady}
+        subscribeOutput={subscribeOutput}
+        send={send}
+        onSwipeLeft={!isControlled && sessionWindows.length > 1 ? handleSwipeLeft : undefined}
+        onSwipeRight={!isControlled && sessionWindows.length > 1 ? handleSwipeRight : undefined}
+      />
     </div>
   )
 }

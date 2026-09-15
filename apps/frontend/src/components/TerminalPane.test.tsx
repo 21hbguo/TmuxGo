@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { emitStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TerminalPane } from './TerminalPane'
 import { DELETE_PREV_WORD_SEQUENCE } from '@/lib/terminal-keys'
@@ -19,9 +20,17 @@ let terminalConstructorOptions: any = null
 let terminalCellWidth = 8
 let terminalCellHeight = 16
 let resizeObserverCallback: (() => void) | null = null
-let terminalLinkProviders: Array<{ provideLinks: (bufferLineNumber: number, callback: (links: any[] | undefined) => void) => void }> = []
+let terminalLinkProviders: Array<{
+  provideLinks: (bufferLineNumber: number, callback: (links: any[] | undefined) => void) => void
+}> = []
 let terminalAddonHandlers: Array<(event: MouseEvent, uri: string) => void> = []
-type SessionSnapshotMock = { sessionName?: string; activeWindowId?: string | null; windows: TmuxWindow[]; panes: Array<Partial<Pane> & { id: string; active?: boolean }>; activePaneId: string | null }
+type SessionSnapshotMock = {
+  sessionName?: string
+  activeWindowId?: string | null
+  windows: TmuxWindow[]
+  panes: Array<Partial<Pane> & { id: string; active?: boolean }>
+  activePaneId: string | null
+}
 const terminalMocks = vi.hoisted(() => ({
   write: vi.fn(),
   refresh: vi.fn(),
@@ -46,11 +55,23 @@ const webglAddonMocks = vi.hoisted(() => ({
 }))
 const webSocketMocks = vi.hoisted(() => ({
   send: vi.fn(),
-  subscribeOutput: vi.fn((_hostId: string, _sessionName: string, listener: (message: { data: string; sessionName?: string | null; hostId?: string | null; resync?: boolean }) => void) => {
-    ;(webSocketMocks as any).lastOutputListener = listener
-    return vi.fn()
-  }),
-  lastOutputListener: null as ((message: { data: string; sessionName?: string | null; hostId?: string | null; resync?: boolean }) => void) | null,
+  subscribeOutput: vi.fn(
+    (
+      _hostId: string,
+      _sessionName: string,
+      listener: (message: {
+        data: string
+        sessionName?: string | null
+        hostId?: string | null
+        resync?: boolean
+      }) => void,
+    ) => {
+      ;(webSocketMocks as any).lastOutputListener = listener
+      return vi.fn()
+    },
+  ),
+  lastOutputListener: null as
+    ((message: { data: string; sessionName?: string | null; hostId?: string | null; resync?: boolean }) => void) | null,
 }))
 const clipboardMocks = vi.hoisted(() => ({
   writeClipboardText: vi.fn(async () => ({ copied: true, source: 'system', unavailable: false, reason: 'ok' })),
@@ -74,9 +95,30 @@ const apiMocks = vi.hoisted(() => ({
   paneSelect: vi.fn(async () => ({ ok: true })),
   githubAuthStatus: vi.fn(async () => ({ ok: true, available: true, loggedIn: false })),
   fileRoots: vi.fn(async () => [{ id: 'root-workspace', label: 'workspace', path: '/workspace' }]),
-  defaultUploadTarget: vi.fn(async () => ({ rootId: 'root-workspace', rootLabel: 'workspace', rootPath: '/workspace', path: '', absolutePath: '/workspace', source: 'pane' })),
-  fileContent: vi.fn(async () => ({ content: 'const ok = true\n', modifiedAt: '2026-06-02T00:00:00.000Z', size: 16, binary: false, truncated: false })),
-  filePreview: vi.fn(async () => ({ path: 'src/index.ts', type: 'file', size: 16, modifiedAt: '2026-06-02T00:00:00.000Z', binary: false, truncated: false, lines: [] })),
+  defaultUploadTarget: vi.fn(async () => ({
+    rootId: 'root-workspace',
+    rootLabel: 'workspace',
+    rootPath: '/workspace',
+    path: '',
+    absolutePath: '/workspace',
+    source: 'pane',
+  })),
+  fileContent: vi.fn(async () => ({
+    content: 'const ok = true\n',
+    modifiedAt: '2026-06-02T00:00:00.000Z',
+    size: 16,
+    binary: false,
+    truncated: false,
+  })),
+  filePreview: vi.fn(async () => ({
+    path: 'src/index.ts',
+    type: 'file',
+    size: 16,
+    modifiedAt: '2026-06-02T00:00:00.000Z',
+    binary: false,
+    truncated: false,
+    lines: [],
+  })),
 }))
 const mobileKeyboardMocks = vi.hoisted(() => ({
   focusKeyboard: vi.fn(),
@@ -89,7 +131,12 @@ const preferenceMocks = vi.hoisted(() => ({
 }))
 const openWindowMock = vi.hoisted(() => vi.fn())
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
-async function activateTerminalLink(container: HTMLElement, line: number, column: number, eventInit: MouseEventInit = {}) {
+async function activateTerminalLink(
+  container: HTMLElement,
+  line: number,
+  column: number,
+  eventInit: MouseEventInit = {},
+) {
   const screen = container.querySelector('.xterm-screen') as HTMLElement
   const providers = [...terminalLinkProviders]
   for (const provider of providers) {
@@ -108,7 +155,11 @@ async function activateTerminalLink(container: HTMLElement, line: number, column
   return null
 }
 function getTerminalLinks(line: number) {
-  return Promise.all(terminalLinkProviders.map((provider) => new Promise<any[] | undefined>((resolve) => provider.provideLinks(line, resolve)))).then((results) => results.flatMap((item) => item || []))
+  return Promise.all(
+    terminalLinkProviders.map(
+      (provider) => new Promise<any[] | undefined>((resolve) => provider.provideLinks(line, resolve)),
+    ),
+  ).then((results) => results.flatMap((item) => item || []))
 }
 
 vi.mock('@/hooks/usePreferences', () => ({
@@ -133,17 +184,67 @@ vi.mock('@/hooks/usePreferences', () => ({
   ensureAppFontLoaded: async () => {},
 }))
 vi.mock('@/hooks/useMobileKeyboard', () => ({
-  useMobileKeyboard: () => ({ textareaRef: mobileKeyboardMocks.textareaRef, focusKeyboard: mobileKeyboardMocks.focusKeyboard, isMobile: mobileKeyboardMocks.isMobile }),
+  useMobileKeyboard: () => ({
+    textareaRef: mobileKeyboardMocks.textareaRef,
+    focusKeyboard: mobileKeyboardMocks.focusKeyboard,
+    isMobile: mobileKeyboardMocks.isMobile,
+  }),
 }))
 vi.mock('@/hooks/useWebSocket', () => ({
   useWebSocket: () => ({ send: webSocketMocks.send, subscribeOutput: webSocketMocks.subscribeOutput }),
 }))
 vi.mock('@/stores/useConsoleStore', () => ({
-  useConsoleStore: Object.assign(((selector: any) => selector({ activeHostId: 'local', activePaneId: 'local:%1', pushToast: storeMocks.pushToast, updateTerminalPerf: storeMocks.updateTerminalPerf, setActivePane: storeMocks.setActivePane, openUploadDialog: storeMocks.openUploadDialog, terminalPerf: { attachLatency: 0, outputBytes: 0, outputEvents: 0, outputBacklog: 0, layoutFitCount: 0, lastOutputAt: '' } })) as any, { getState: () => ({ activePaneId: 'local:%1', terminalPerf: { attachLatency: 0, outputBytes: 0, outputEvents: 0, outputBacklog: 0, layoutFitCount: 0, lastOutputAt: '' }, openEditors: [], openEditor: storeMocks.openEditor, setEditorLoaded: storeMocks.setEditorLoaded, setFilePanelOpen: storeMocks.setFilePanelOpen }) }),
+  useConsoleStore: Object.assign(
+    ((selector: any) =>
+      selector({
+        activeHostId: 'local',
+        activePaneId: 'local:%1',
+        pushToast: storeMocks.pushToast,
+        updateTerminalPerf: storeMocks.updateTerminalPerf,
+        setActivePane: storeMocks.setActivePane,
+        openUploadDialog: storeMocks.openUploadDialog,
+        terminalPerf: {
+          attachLatency: 0,
+          outputBytes: 0,
+          outputEvents: 0,
+          outputBacklog: 0,
+          layoutFitCount: 0,
+          lastOutputAt: '',
+        },
+      })) as any,
+    {
+      getState: () => ({
+        activePaneId: 'local:%1',
+        terminalPerf: {
+          attachLatency: 0,
+          outputBytes: 0,
+          outputEvents: 0,
+          outputBacklog: 0,
+          layoutFitCount: 0,
+          lastOutputAt: '',
+        },
+        openEditors: [],
+        openEditor: storeMocks.openEditor,
+        setEditorLoaded: storeMocks.setEditorLoaded,
+        setFilePanelOpen: storeMocks.setFilePanelOpen,
+      }),
+    },
+  ),
 }))
 vi.mock('@/lib/api', () => ({
   fetchApiBlob: vi.fn(async () => new Blob(['image'])),
-  api: { snapshot: { get: apiMocks.snapshotGet }, panes: { resize: apiMocks.paneResize, select: apiMocks.paneSelect }, hosts: { githubAuthStatus: apiMocks.githubAuthStatus }, files: { roots: apiMocks.fileRoots, defaultUploadTarget: apiMocks.defaultUploadTarget, content: apiMocks.fileContent, preview: apiMocks.filePreview, imageUrl: vi.fn(() => '/api/files/image') } },
+  api: {
+    snapshot: { get: apiMocks.snapshotGet },
+    panes: { resize: apiMocks.paneResize, select: apiMocks.paneSelect },
+    hosts: { githubAuthStatus: apiMocks.githubAuthStatus },
+    files: {
+      roots: apiMocks.fileRoots,
+      defaultUploadTarget: apiMocks.defaultUploadTarget,
+      content: apiMocks.fileContent,
+      preview: apiMocks.filePreview,
+      imageUrl: vi.fn(() => '/api/files/image'),
+    },
+  },
 }))
 vi.mock('@/hooks/useOptionalQueryClient', () => ({
   useOptionalQueryClient: () => queryClientMocks,
@@ -173,7 +274,22 @@ vi.mock('@xterm/xterm', () => {
       register: vi.fn(),
     }
     _core = {
-      _renderService: { dimensions: { css: { canvas: { width: 800, height: 600 }, cell: { get width() { return terminalCellWidth }, get height() { return terminalCellHeight } } } }, clear: terminalMocks.renderClear },
+      _renderService: {
+        dimensions: {
+          css: {
+            canvas: { width: 800, height: 600 },
+            cell: {
+              get width() {
+                return terminalCellWidth
+              },
+              get height() {
+                return terminalCellHeight
+              },
+            },
+          },
+        },
+        clear: terminalMocks.renderClear,
+      },
       _selectionService: { _activeSelectionMode: 0 },
       viewport: { scrollBarWidth: 0 },
     }
@@ -278,11 +394,15 @@ vi.mock('@xterm/xterm', () => {
       terminalMocks.write(data)
       callback?.()
     }
-    registerLinkProvider(provider: { provideLinks: (bufferLineNumber: number, callback: (links: any[] | undefined) => void) => void }) {
+    registerLinkProvider(provider: {
+      provideLinks: (bufferLineNumber: number, callback: (links: any[] | undefined) => void) => void
+    }) {
       terminalLinkProviders.push(provider)
-      return { dispose: vi.fn(() => {
-        terminalLinkProviders = terminalLinkProviders.filter((item) => item !== provider)
-      }) }
+      return {
+        dispose: vi.fn(() => {
+          terminalLinkProviders = terminalLinkProviders.filter((item) => item !== provider)
+        }),
+      }
     }
     dispose() {
       terminalLifecycleMocks.dispose()
@@ -373,11 +493,32 @@ describe('TerminalPane', () => {
     apiMocks.fileRoots.mockClear()
     apiMocks.fileRoots.mockResolvedValue([{ id: 'root-workspace', label: 'workspace', path: '/workspace' }])
     apiMocks.defaultUploadTarget.mockClear()
-    apiMocks.defaultUploadTarget.mockResolvedValue({ rootId: 'root-workspace', rootLabel: 'workspace', rootPath: '/workspace', path: '', absolutePath: '/workspace', source: 'pane' })
+    apiMocks.defaultUploadTarget.mockResolvedValue({
+      rootId: 'root-workspace',
+      rootLabel: 'workspace',
+      rootPath: '/workspace',
+      path: '',
+      absolutePath: '/workspace',
+      source: 'pane',
+    })
     apiMocks.fileContent.mockClear()
-    apiMocks.fileContent.mockResolvedValue({ content: 'const ok = true\n', modifiedAt: '2026-06-02T00:00:00.000Z', size: 16, binary: false, truncated: false })
+    apiMocks.fileContent.mockResolvedValue({
+      content: 'const ok = true\n',
+      modifiedAt: '2026-06-02T00:00:00.000Z',
+      size: 16,
+      binary: false,
+      truncated: false,
+    })
     apiMocks.filePreview.mockClear()
-    apiMocks.filePreview.mockResolvedValue({ path: 'src/index.ts', type: 'file', size: 16, modifiedAt: '2026-06-02T00:00:00.000Z', binary: false, truncated: false, lines: [] })
+    apiMocks.filePreview.mockResolvedValue({
+      path: 'src/index.ts',
+      type: 'file',
+      size: 16,
+      modifiedAt: '2026-06-02T00:00:00.000Z',
+      binary: false,
+      truncated: false,
+      lines: [],
+    })
     mobileKeyboardMocks.focusKeyboard.mockClear()
     mobileKeyboardMocks.textareaRef.current = null
     mobileKeyboardMocks.isMobile = false
@@ -386,7 +527,8 @@ describe('TerminalPane', () => {
     openWindowMock.mockReset()
     openWindowMock.mockReturnValue({ closed: false } as Window)
     window.localStorage.clear()
-    delete (window as typeof window & { __tmuxgoMobileDebug?: { events: Array<Record<string, unknown>> } }).__tmuxgoMobileDebug
+    delete (window as typeof window & { __tmuxgoMobileDebug?: { events: Array<Record<string, unknown>> } })
+      .__tmuxgoMobileDebug
     Object.defineProperty(window, 'devicePixelRatio', { configurable: true, value: 1 })
     Object.defineProperty(window, 'open', { configurable: true, value: openWindowMock })
     ;(document as Document & { execCommand?: (command: string) => boolean }).execCommand = vi.fn((command: string) => {
@@ -404,13 +546,16 @@ describe('TerminalPane', () => {
       return 1
     })
     vi.stubGlobal('cancelAnimationFrame', vi.fn())
-    vi.stubGlobal('ResizeObserver', class {
-      constructor(callback: () => void) {
-        resizeObserverCallback = callback
-      }
-      observe() {}
-      disconnect() {}
-    })
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: () => void) {
+          resizeObserverCallback = callback
+        }
+        observe() {}
+        disconnect() {}
+      },
+    )
   })
   afterEach(() => {
     vi.useRealTimers()
@@ -438,11 +583,7 @@ describe('TerminalPane', () => {
   it('copies multiline selection within the tmux pane that contains the selection start on pointer release', async () => {
     terminalSelection = 'raw selection including another pane'
     terminalSelectionPosition = { start: { x: 2, y: 0 }, end: { x: 5, y: 2 } }
-    terminalBufferLines = [
-      'aa0123456789|right-pane-0',
-      'bb0123456789|right-pane-1',
-      'cc0123456789|right-pane-2',
-    ]
+    terminalBufferLines = ['aa0123456789|right-pane-0', 'bb0123456789|right-pane-1', 'cc0123456789|right-pane-2']
     queryClientMocks.getQueryData.mockReturnValue({
       sessionName: 'dev',
       activeWindowId: '@1',
@@ -462,7 +603,11 @@ describe('TerminalPane', () => {
     render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(terminalLifecycleMocks.open).toHaveBeenCalled())
     await waitFor(() => expect(webSocketMocks.lastOutputListener).toBeTruthy())
-    webSocketMocks.lastOutputListener?.({ data: '! First copy your one-time code: CFFE-7ABD\r\nPress Enter to open github.com in your browser...\r\n', sessionName: 'dev', hostId: 'local' })
+    webSocketMocks.lastOutputListener?.({
+      data: '! First copy your one-time code: CFFE-7ABD\r\nPress Enter to open github.com in your browser...\r\n',
+      sessionName: 'dev',
+      hostId: 'local',
+    })
     await waitFor(() => expect(screen.getByTestId('github-device-login-card')).toBeTruthy())
     expect(screen.getByText('CFFE-7ABD')).toBeTruthy()
     fireEvent.click(screen.getByTestId('github-device-login-open'))
@@ -477,7 +622,11 @@ describe('TerminalPane', () => {
     await waitFor(() => expect(terminalLifecycleMocks.open).toHaveBeenCalled())
     await waitFor(() => expect(apiMocks.githubAuthStatus).toHaveBeenCalledWith('local'))
     await waitFor(() => expect(webSocketMocks.lastOutputListener).toBeTruthy())
-    webSocketMocks.lastOutputListener?.({ data: '! First copy your one-time code: CFFE-7ABD\r\nPress Enter to open github.com in your browser...\r\n', sessionName: 'dev', hostId: 'local' })
+    webSocketMocks.lastOutputListener?.({
+      data: '! First copy your one-time code: CFFE-7ABD\r\nPress Enter to open github.com in your browser...\r\n',
+      sessionName: 'dev',
+      hostId: 'local',
+    })
     await waitFor(() => expect(screen.queryByTestId('github-device-login-card')).toBeNull())
   })
   it('resizes tmux pane through frontend border drag', async () => {
@@ -496,12 +645,30 @@ describe('TerminalPane', () => {
     apiMocks.snapshotGet.mockClear()
     const screen = container.querySelector('.xterm-screen') as HTMLElement
     const mask = container.querySelector('[data-testid="terminal-resize-mask"]') as HTMLElement
-    screen.getBoundingClientRect = vi.fn(() => ({ x: 0, y: 0, left: 0, top: 0, width: 960, height: 576, right: 960, bottom: 576, toJSON: () => ({}) } as DOMRect))
+    screen.getBoundingClientRect = vi.fn(
+      () =>
+        ({
+          x: 0,
+          y: 0,
+          left: 0,
+          top: 0,
+          width: 960,
+          height: 576,
+          right: 960,
+          bottom: 576,
+          toJSON: () => ({}),
+        }) as DOMRect,
+    )
     fireEvent.mouseDown(screen, { button: 0, clientX: 100, clientY: 20 })
     expect(mask.style.display).toBe('block')
     expect(mask.querySelector('.xterm-screen')).toBeTruthy()
     let resolveSnapshot = (_snapshot: SessionSnapshotMock) => {}
-    apiMocks.snapshotGet.mockImplementationOnce(() => new Promise((resolve) => { resolveSnapshot = resolve }))
+    apiMocks.snapshotGet.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSnapshot = resolve
+        }),
+    )
     fireEvent.mouseMove(window, { button: 0, clientX: 124, clientY: 20 })
     const guide = container.querySelector('[data-testid="pane-resize-guide"]') as HTMLElement
     expect(guide.style.display).toBe('block')
@@ -531,7 +698,20 @@ describe('TerminalPane', () => {
     const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(customKeyHandler).toBeTruthy())
     const screen = container.querySelector('.xterm-screen') as HTMLElement
-    screen.getBoundingClientRect = vi.fn(() => ({ x: 0, y: 0, left: 0, top: 0, width: 960, height: 576, right: 960, bottom: 576, toJSON: () => ({}) } as DOMRect))
+    screen.getBoundingClientRect = vi.fn(
+      () =>
+        ({
+          x: 0,
+          y: 0,
+          left: 0,
+          top: 0,
+          width: 960,
+          height: 576,
+          right: 960,
+          bottom: 576,
+          toJSON: () => ({}),
+        }) as DOMRect,
+    )
     fireEvent.mouseDown(screen, { button: 0, clientX: 100, clientY: 20 })
     fireEvent.mouseMove(window, { button: 0, clientX: 108, clientY: 20 })
     fireEvent.mouseMove(window, { button: 0, clientX: 124, clientY: 20 })
@@ -550,11 +730,28 @@ describe('TerminalPane', () => {
         { id: 'local:%2', windowId: '@1', left: 13, top: 0, size: { cols: 12, rows: 10 } },
       ],
     })
-    apiMocks.snapshotGet.mockResolvedValue({ windows: [], panes: [{ id: 'local:%2', active: true }], activePaneId: 'local:%2' })
+    apiMocks.snapshotGet.mockResolvedValue({
+      windows: [],
+      panes: [{ id: 'local:%2', active: true }],
+      activePaneId: 'local:%2',
+    })
     const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(customKeyHandler).toBeTruthy())
     const screen = container.querySelector('.xterm-screen') as HTMLElement
-    screen.getBoundingClientRect = vi.fn(() => ({ x: 0, y: 0, left: 0, top: 0, width: 960, height: 576, right: 960, bottom: 576, toJSON: () => ({}) } as DOMRect))
+    screen.getBoundingClientRect = vi.fn(
+      () =>
+        ({
+          x: 0,
+          y: 0,
+          left: 0,
+          top: 0,
+          width: 960,
+          height: 576,
+          right: 960,
+          bottom: 576,
+          toJSON: () => ({}),
+        }) as DOMRect,
+    )
     fireEvent.mouseDown(container.firstChild as Element, { button: 0, clientX: 120, clientY: 20 })
     fireEvent.mouseUp(window, { button: 0, clientX: 120, clientY: 20 })
     await waitFor(() => expect(storeMocks.setActivePane).toHaveBeenCalledWith('local:%2'))
@@ -571,11 +768,28 @@ describe('TerminalPane', () => {
       ],
       activePaneId: 'local:%2',
     })
-    apiMocks.snapshotGet.mockResolvedValue({ windows: [], panes: [{ id: 'local:%2', active: true }], activePaneId: 'local:%2' })
+    apiMocks.snapshotGet.mockResolvedValue({
+      windows: [],
+      panes: [{ id: 'local:%2', active: true }],
+      activePaneId: 'local:%2',
+    })
     const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(customKeyHandler).toBeTruthy())
     const screen = container.querySelector('.xterm-screen') as HTMLElement
-    screen.getBoundingClientRect = vi.fn(() => ({ x: 0, y: 0, left: 0, top: 0, width: 960, height: 576, right: 960, bottom: 576, toJSON: () => ({}) } as DOMRect))
+    screen.getBoundingClientRect = vi.fn(
+      () =>
+        ({
+          x: 0,
+          y: 0,
+          left: 0,
+          top: 0,
+          width: 960,
+          height: 576,
+          right: 960,
+          bottom: 576,
+          toJSON: () => ({}),
+        }) as DOMRect,
+    )
     fireEvent.mouseDown(container.firstChild as Element, { button: 0, clientX: 20, clientY: 20 })
     fireEvent.mouseUp(window, { button: 0, clientX: 20, clientY: 20 })
     await waitFor(() => expect(storeMocks.setActivePane).toHaveBeenCalledWith('local:%2'))
@@ -593,12 +807,26 @@ describe('TerminalPane', () => {
     expect(terminalLifecycleMocks.dispose).toHaveBeenCalledTimes(0)
   })
   it('does not recreate terminal instance after terminal perf updates', async () => {
-    const { rerender } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} subscribeOutput={webSocketMocks.subscribeOutput} />)
+    const { rerender } = render(
+      <TerminalPane
+        sessionName="dev"
+        onInput={vi.fn()}
+        onResize={vi.fn()}
+        subscribeOutput={webSocketMocks.subscribeOutput}
+      />,
+    )
     await waitFor(() => expect(terminalLifecycleMocks.open).toHaveBeenCalledTimes(1))
     terminalMocks.write.mockClear()
     webSocketMocks.lastOutputListener?.({ data: 'printf "rerender_output_ok"\\r\\n', sessionName: 'dev' })
     await waitFor(() => expect(terminalMocks.write).toHaveBeenCalledWith('printf "rerender_output_ok"\\r\\n'))
-    rerender(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} subscribeOutput={webSocketMocks.subscribeOutput} />)
+    rerender(
+      <TerminalPane
+        sessionName="dev"
+        onInput={vi.fn()}
+        onResize={vi.fn()}
+        subscribeOutput={webSocketMocks.subscribeOutput}
+      />,
+    )
     await sleep(20)
     expect(terminalLifecycleMocks.open).toHaveBeenCalledTimes(1)
     expect(terminalLifecycleMocks.dispose).toHaveBeenCalledTimes(0)
@@ -623,7 +851,9 @@ describe('TerminalPane', () => {
     render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(terminalLifecycleMocks.open).toHaveBeenCalledTimes(1))
     expect(webglAddonMocks.activate).toHaveBeenCalledTimes(1)
-    const events = ((window as typeof window & { __tmuxgoMobileDebug?: { events?: Array<Record<string, unknown>> } }).__tmuxgoMobileDebug?.events || [])
+    const events =
+      (window as typeof window & { __tmuxgoMobileDebug?: { events?: Array<Record<string, unknown>> } })
+        .__tmuxgoMobileDebug?.events || []
     expect(events.some((item) => item.event === 'terminal-renderer' && item.renderer === 'webgl')).toBe(true)
   })
   it('falls back to dom renderer when desktop webgl activation fails', async () => {
@@ -632,7 +862,9 @@ describe('TerminalPane', () => {
     render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(terminalLifecycleMocks.open).toHaveBeenCalledTimes(1))
     expect(webglAddonMocks.activate).toHaveBeenCalledTimes(1)
-    const events = ((window as typeof window & { __tmuxgoMobileDebug?: { events?: Array<Record<string, unknown>> } }).__tmuxgoMobileDebug?.events || [])
+    const events =
+      (window as typeof window & { __tmuxgoMobileDebug?: { events?: Array<Record<string, unknown>> } })
+        .__tmuxgoMobileDebug?.events || []
     expect(events.some((item) => item.event === 'terminal-renderer' && item.renderer === 'dom')).toBe(true)
   })
 
@@ -644,14 +876,21 @@ describe('TerminalPane', () => {
     const originalGetSelection = window.getSelection
     expect(helper.style.caretColor).toBe('')
     expect(helper.style.background).toBe('')
-    Object.defineProperty(window, 'getSelection', { configurable: true, value: () => ({ anchorNode: helper, focusNode: helper, removeAllRanges }) })
+    Object.defineProperty(window, 'getSelection', {
+      configurable: true,
+      value: () => ({ anchorNode: helper, focusNode: helper, removeAllRanges }),
+    })
     terminalSelection = 'printf "mouseup_copy_ok"'
     fireEvent.mouseDown(container.firstChild as Element)
     fireEvent.mouseUp(container.firstChild as Element)
     Object.defineProperty(window, 'getSelection', { configurable: true, value: originalGetSelection })
     expect(document.execCommand).toHaveBeenCalledWith('copy')
     expect(removeAllRanges).toHaveBeenCalled()
-    expect(storeMocks.pushToast).toHaveBeenCalledWith({ type: 'success', message: 'Copied 24 chars (native)', durationMs: 900 })
+    expect(storeMocks.pushToast).toHaveBeenCalledWith({
+      type: 'success',
+      message: 'Copied 24 chars (native)',
+      durationMs: 900,
+    })
     await sleep(20)
     expect(clipboardMocks.writeClipboardText).toHaveBeenCalledTimes(0)
   })
@@ -665,7 +904,9 @@ describe('TerminalPane', () => {
     expect(clipboardMocks.writeClipboardText).not.toHaveBeenCalled()
     fireEvent.mouseDown(container.firstChild as Element)
     fireEvent.mouseUp(window)
-    await waitFor(() => expect(clipboardMocks.writeClipboardText).toHaveBeenCalledWith('printf "retry_copy_ok"',{preferSync:true}))
+    await waitFor(() =>
+      expect(clipboardMocks.writeClipboardText).toHaveBeenCalledWith('printf "retry_copy_ok"', { preferSync: true }),
+    )
   })
   it('does not retry selection copy on unrelated global mouse release', async () => {
     render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
@@ -709,7 +950,16 @@ describe('TerminalPane', () => {
     const onInput = vi.fn()
     render(<TerminalPane sessionName="dev" onInput={onInput} onResize={vi.fn()} />)
     await waitFor(() => expect(customKeyHandler).toBeTruthy())
-    const handled = customKeyHandler?.({ key: 'Process', code: 'Enter', ctrlKey: true, metaKey: false, altKey: false, isComposing: false, keyCode: 229, which: 229 } as KeyboardEvent)
+    const handled = customKeyHandler?.({
+      key: 'Process',
+      code: 'Enter',
+      ctrlKey: true,
+      metaKey: false,
+      altKey: false,
+      isComposing: false,
+      keyCode: 229,
+      which: 229,
+    } as KeyboardEvent)
     expect(handled).toBe(true)
     expect(onInput).not.toHaveBeenCalled()
   })
@@ -717,13 +967,26 @@ describe('TerminalPane', () => {
     const onInput = vi.fn()
     render(<TerminalPane sessionName="dev" onInput={onInput} onResize={vi.fn()} />)
     await waitFor(() => expect(customKeyHandler).toBeTruthy())
-    const handled = customKeyHandler?.({ key: 'Delete', ctrlKey: false, metaKey: false, altKey: false, isComposing: false, keyCode: 229, which: 229 } as KeyboardEvent)
+    const handled = customKeyHandler?.({
+      key: 'Delete',
+      ctrlKey: false,
+      metaKey: false,
+      altKey: false,
+      isComposing: false,
+      keyCode: 229,
+      which: 229,
+    } as KeyboardEvent)
     expect(handled).toBe(true)
     expect(onInput).not.toHaveBeenCalled()
   })
   it('deduplicates explicit copy failure toast by reason and selection', async () => {
     ;(document as Document & { execCommand?: (command: string) => boolean }).execCommand = vi.fn(() => false)
-    clipboardMocks.writeClipboardText.mockResolvedValue({ copied: true, source: 'memory', unavailable: true, reason: 'permission_denied' })
+    clipboardMocks.writeClipboardText.mockResolvedValue({
+      copied: true,
+      source: 'memory',
+      unavailable: true,
+      reason: 'permission_denied',
+    })
     render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(customKeyHandler).toBeTruthy())
     terminalSelection = 'printf "dedupe_toast_ok"'
@@ -731,7 +994,10 @@ describe('TerminalPane', () => {
     customKeyHandler?.({ key: 'c', ctrlKey: true, metaKey: false, altKey: false } as KeyboardEvent)
     await sleep(80)
     expect(storeMocks.pushToast).toHaveBeenCalledTimes(1)
-    expect(storeMocks.pushToast).toHaveBeenCalledWith({ type: 'info', message: 'System clipboard blocked by browser, kept in app clipboard. Press Ctrl/Cmd+C to copy.' })
+    expect(storeMocks.pushToast).toHaveBeenCalledWith({
+      type: 'info',
+      message: 'System clipboard blocked by browser, kept in app clipboard. Press Ctrl/Cmd+C to copy.',
+    })
   })
 
   it('delays ctrl backspace repeat without relying on native repeat', async () => {
@@ -739,7 +1005,16 @@ describe('TerminalPane', () => {
     render(<TerminalPane sessionName="dev" onInput={onInput} onResize={vi.fn()} />)
     await waitFor(() => expect(customKeyHandler).toBeTruthy())
     vi.useFakeTimers()
-    expect(customKeyHandler?.({ key: 'Backspace', ctrlKey: true, metaKey: false, altKey: false, repeat: false, preventDefault: vi.fn() } as unknown as KeyboardEvent)).toBe(false)
+    expect(
+      customKeyHandler?.({
+        key: 'Backspace',
+        ctrlKey: true,
+        metaKey: false,
+        altKey: false,
+        repeat: false,
+        preventDefault: vi.fn(),
+      } as unknown as KeyboardEvent),
+    ).toBe(false)
     vi.advanceTimersByTime(419)
     expect(onInput.mock.calls.filter((call) => call[0] === DELETE_PREV_WORD_SEQUENCE)).toHaveLength(1)
     vi.advanceTimersByTime(1)
@@ -747,7 +1022,16 @@ describe('TerminalPane', () => {
     fireEvent.keyUp(window, { key: 'Backspace', ctrlKey: true })
     vi.runOnlyPendingTimers()
     expect(onInput.mock.calls.filter((call) => call[0] === DELETE_PREV_WORD_SEQUENCE)).toHaveLength(2)
-    expect(customKeyHandler?.({ key: 'Backspace', ctrlKey: true, metaKey: false, altKey: false, repeat: true, preventDefault: vi.fn() } as unknown as KeyboardEvent)).toBe(false)
+    expect(
+      customKeyHandler?.({
+        key: 'Backspace',
+        ctrlKey: true,
+        metaKey: false,
+        altKey: false,
+        repeat: true,
+        preventDefault: vi.fn(),
+      } as unknown as KeyboardEvent),
+    ).toBe(false)
   })
 
   it('routes native paste through unified paste request without fallback replay', async () => {
@@ -758,7 +1042,7 @@ describe('TerminalPane', () => {
     expect(customKeyHandler?.({ ctrlKey: true, metaKey: false, altKey: false, key: 'v' } as KeyboardEvent)).toBe(false)
     fireEvent.paste(container.firstChild as Element, {
       clipboardData: {
-        getData: (type: string) => type === 'text/plain' ? 'printf "native_paste_once"' : '',
+        getData: (type: string) => (type === 'text/plain' ? 'printf "native_paste_once"' : ''),
       },
     })
     await sleep(220)
@@ -777,7 +1061,7 @@ describe('TerminalPane', () => {
     target.addEventListener('paste', targetPaste)
     fireEvent.paste(target, {
       clipboardData: {
-        getData: (type: string) => type === 'text/plain' ? 'printf "blocked_direct_paste"' : '',
+        getData: (type: string) => (type === 'text/plain' ? 'printf "blocked_direct_paste"' : ''),
       },
     })
     await sleep(60)
@@ -820,7 +1104,7 @@ describe('TerminalPane', () => {
     target.setSelectionRange(target.value.length, target.value.length)
     fireEvent.paste(target, {
       clipboardData: {
-        getData: (type: string) => type === 'text/plain' ? 'printf "desktop_ime_after_paste"' : '',
+        getData: (type: string) => (type === 'text/plain' ? 'printf "desktop_ime_after_paste"' : ''),
       },
     })
     await sleep(60)
@@ -830,7 +1114,12 @@ describe('TerminalPane', () => {
     expect(document.activeElement).toBe(target)
     fireEvent.compositionStart(target)
     target.value = 'zhong'
-    const composing = new InputEvent('input', { bubbles: true, cancelable: true, data: 'zhong', inputType: 'insertCompositionText' })
+    const composing = new InputEvent('input', {
+      bubbles: true,
+      cancelable: true,
+      data: 'zhong',
+      inputType: 'insertCompositionText',
+    })
     target.dispatchEvent(composing)
     expect(composing.defaultPrevented).toBe(false)
     expect(target.value).toBe('zhong')
@@ -862,7 +1151,7 @@ describe('TerminalPane', () => {
     target.value = 'preedit-buffer'
     fireEvent.paste(target, {
       clipboardData: {
-        getData: (type: string) => type === 'text/plain' ? 'printf "paste_then_ime"' : '',
+        getData: (type: string) => (type === 'text/plain' ? 'printf "paste_then_ime"' : ''),
       },
     })
     await sleep(60)
@@ -870,7 +1159,12 @@ describe('TerminalPane', () => {
     expect(target.value).toBe('preedit-buffer')
     fireEvent.compositionStart(target)
     target.value = 'zhong'
-    const composing = new InputEvent('input', { bubbles: true, cancelable: true, data: 'zhong', inputType: 'insertCompositionText' })
+    const composing = new InputEvent('input', {
+      bubbles: true,
+      cancelable: true,
+      data: 'zhong',
+      inputType: 'insertCompositionText',
+    })
     target.dispatchEvent(composing)
     target.value = '中'
     fireEvent.compositionEnd(target)
@@ -895,16 +1189,26 @@ describe('TerminalPane', () => {
     target.focus()
     fireEvent.paste(target, {
       clipboardData: {
-        getData: (type: string) => type === 'text/plain' ? 'printf "paste_followup"' : '',
+        getData: (type: string) => (type === 'text/plain' ? 'printf "paste_followup"' : ''),
       },
     })
     await sleep(60)
     target.value = 'printf "paste_followup"'
-    const pasteInput = new InputEvent('input', { bubbles: true, cancelable: true, data: null, inputType: 'insertFromPaste' })
+    const pasteInput = new InputEvent('input', {
+      bubbles: true,
+      cancelable: true,
+      data: null,
+      inputType: 'insertFromPaste',
+    })
     target.dispatchEvent(pasteInput)
     target.value = 'zhong'
     fireEvent.compositionStart(target)
-    const composing = new InputEvent('input', { bubbles: true, cancelable: true, data: 'zhong', inputType: 'insertCompositionText' })
+    const composing = new InputEvent('input', {
+      bubbles: true,
+      cancelable: true,
+      data: 'zhong',
+      inputType: 'insertCompositionText',
+    })
     target.dispatchEvent(composing)
     await sleep(60)
     expect(pasteInput.defaultPrevented).toBe(false)
@@ -917,7 +1221,12 @@ describe('TerminalPane', () => {
   it('restores terminal focus after paste when clicking outside and back', async () => {
     const requestPaste = vi.fn()
     window.addEventListener('tmuxgo-request-terminal-paste', requestPaste)
-    const { container } = render(<><button type="button">outside</button><TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} /></>)
+    const { container } = render(
+      <>
+        <button type="button">outside</button>
+        <TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />
+      </>,
+    )
     await waitFor(() => expect(customKeyHandler).toBeTruthy())
     const target = container.querySelector('textarea') as HTMLTextAreaElement
     const outside = screen.getByRole('button', { name: 'outside' })
@@ -925,7 +1234,7 @@ describe('TerminalPane', () => {
     target.value = 'ime-buffer'
     fireEvent.paste(target, {
       clipboardData: {
-        getData: (type: string) => type === 'text/plain' ? 'printf "paste_focus_roundtrip"' : '',
+        getData: (type: string) => (type === 'text/plain' ? 'printf "paste_focus_roundtrip"' : ''),
       },
     })
     await sleep(60)
@@ -946,7 +1255,12 @@ describe('TerminalPane', () => {
     const target = container.querySelector('textarea') as HTMLTextAreaElement
     target.addEventListener('input', targetInput)
     target.value = 'zhong'
-    const composing = new InputEvent('input', { bubbles: true, cancelable: true, data: 'zhong', inputType: 'insertCompositionText' })
+    const composing = new InputEvent('input', {
+      bubbles: true,
+      cancelable: true,
+      data: 'zhong',
+      inputType: 'insertCompositionText',
+    })
     target.dispatchEvent(composing)
     target.value = '中'
     const committed = new InputEvent('input', { bubbles: true, cancelable: true, data: '中', inputType: 'insertText' })
@@ -969,7 +1283,12 @@ describe('TerminalPane', () => {
     target.addEventListener('input', targetInput)
     expect(customKeyHandler?.({ ctrlKey: true, metaKey: false, altKey: false, key: 'v' } as KeyboardEvent)).toBe(false)
     target.value = 'zhong'
-    const composing = new InputEvent('input', { bubbles: true, cancelable: true, data: 'zhong', inputType: 'insertCompositionText' })
+    const composing = new InputEvent('input', {
+      bubbles: true,
+      cancelable: true,
+      data: 'zhong',
+      inputType: 'insertCompositionText',
+    })
     target.dispatchEvent(composing)
     await sleep(220)
     expect(composing.defaultPrevented).toBe(false)
@@ -1034,7 +1353,14 @@ describe('TerminalPane', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
   it('renders websocket output for matching session only', async () => {
-    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} subscribeOutput={webSocketMocks.subscribeOutput} />)
+    render(
+      <TerminalPane
+        sessionName="dev"
+        onInput={vi.fn()}
+        onResize={vi.fn()}
+        subscribeOutput={webSocketMocks.subscribeOutput}
+      />,
+    )
     await waitFor(() => expect(webSocketMocks.lastOutputListener).toBeTruthy())
     expect(webSocketMocks.subscribeOutput).toHaveBeenCalledWith('local', 'dev', expect.any(Function))
     webSocketMocks.lastOutputListener?.({ data: 'printf "dev_only_output_ok"\\r\\n', sessionName: 'other' })
@@ -1044,21 +1370,58 @@ describe('TerminalPane', () => {
     await waitFor(() => expect(terminalMocks.write).toHaveBeenCalledWith('printf "dev_only_output_ok"\\r\\n'))
   })
   it('rebinds websocket output when the terminal session changes', async () => {
-    const view = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} subscribeOutput={webSocketMocks.subscribeOutput} />)
-    await waitFor(() => expect(webSocketMocks.subscribeOutput).toHaveBeenCalledWith('local', 'dev', expect.any(Function)))
-    view.rerender(<TerminalPane sessionName="other" onInput={vi.fn()} onResize={vi.fn()} subscribeOutput={webSocketMocks.subscribeOutput} />)
-    await waitFor(() => expect(webSocketMocks.subscribeOutput).toHaveBeenLastCalledWith('local', 'other', expect.any(Function)))
+    const view = render(
+      <TerminalPane
+        sessionName="dev"
+        onInput={vi.fn()}
+        onResize={vi.fn()}
+        subscribeOutput={webSocketMocks.subscribeOutput}
+      />,
+    )
+    await waitFor(() =>
+      expect(webSocketMocks.subscribeOutput).toHaveBeenCalledWith('local', 'dev', expect.any(Function)),
+    )
+    view.rerender(
+      <TerminalPane
+        sessionName="other"
+        onInput={vi.fn()}
+        onResize={vi.fn()}
+        subscribeOutput={webSocketMocks.subscribeOutput}
+      />,
+    )
+    await waitFor(() =>
+      expect(webSocketMocks.subscribeOutput).toHaveBeenLastCalledWith('local', 'other', expect.any(Function)),
+    )
   })
   it('applies authoritative output resync snapshots', async () => {
-    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} subscribeOutput={webSocketMocks.subscribeOutput} />)
+    render(
+      <TerminalPane
+        sessionName="dev"
+        onInput={vi.fn()}
+        onResize={vi.fn()}
+        subscribeOutput={webSocketMocks.subscribeOutput}
+      />,
+    )
     await waitFor(() => expect(webSocketMocks.lastOutputListener).toBeTruthy())
     terminalMocks.write.mockClear()
-    webSocketMocks.lastOutputListener?.({ data: '\u001b[H\u001b[2Jsnapshot', sessionName: 'dev', hostId: 'local', resync: true })
+    webSocketMocks.lastOutputListener?.({
+      data: '\u001b[H\u001b[2Jsnapshot',
+      sessionName: 'dev',
+      hostId: 'local',
+      resync: true,
+    })
     await waitFor(() => expect(terminalMocks.write).toHaveBeenCalledWith('\u001b[H\u001b[2Jsnapshot'))
   })
   it('routes websocket output through scheduler and reports backpressure', async () => {
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => window.setTimeout(() => cb(0), 0))
-    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} subscribeOutput={webSocketMocks.subscribeOutput} />)
+    render(
+      <TerminalPane
+        sessionName="dev"
+        onInput={vi.fn()}
+        onResize={vi.fn()}
+        subscribeOutput={webSocketMocks.subscribeOutput}
+      />,
+    )
     await waitFor(() => expect(webSocketMocks.lastOutputListener).toBeTruthy())
     terminalMocks.write.mockClear()
     webSocketMocks.send.mockClear()
@@ -1070,7 +1433,14 @@ describe('TerminalPane', () => {
     expect(webSocketMocks.send).toHaveBeenCalledWith({ type: 'stream_backpressure', level: 'normal', mobile: false })
   })
   it('keeps rendered output when output arrives before first attached event', async () => {
-    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} subscribeOutput={webSocketMocks.subscribeOutput} />)
+    render(
+      <TerminalPane
+        sessionName="dev"
+        onInput={vi.fn()}
+        onResize={vi.fn()}
+        subscribeOutput={webSocketMocks.subscribeOutput}
+      />,
+    )
     await waitFor(() => expect(webSocketMocks.lastOutputListener).toBeTruthy())
     terminalMocks.write.mockClear()
     terminalMocks.clearTextureAtlas.mockClear()
@@ -1080,7 +1450,7 @@ describe('TerminalPane', () => {
     webSocketMocks.send.mockClear()
     webSocketMocks.lastOutputListener?.({ data: 'printf "attach_race_ok"\\r\\n', sessionName: 'dev' })
     await waitFor(() => expect(terminalMocks.write).toHaveBeenCalledWith('printf "attach_race_ok"\\r\\n'))
-    window.dispatchEvent(new CustomEvent('tmux-attached', { detail: { sessionName: 'dev', cols: 120, rows: 36, exclusive: true } }))
+    emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev', cols: 120, rows: 36, exclusive: true })
     await waitFor(() => expect(terminalMocks.refresh).toHaveBeenCalled())
     expect(terminalMocks.clearTextureAtlas).not.toHaveBeenCalled()
     expect(terminalMocks.renderClear).not.toHaveBeenCalled()
@@ -1091,7 +1461,7 @@ describe('TerminalPane', () => {
   it('reuses the initial snapshot when attach follows immediately', async () => {
     render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
     await waitFor(() => expect(apiMocks.snapshotGet).toHaveBeenCalledTimes(1))
-    window.dispatchEvent(new CustomEvent('tmux-attached', { detail: { sessionName: 'dev', cols: 120, rows: 36, exclusive: true } }))
+    emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev', cols: 120, rows: 36, exclusive: true })
     await sleep(20)
     expect(apiMocks.snapshotGet).toHaveBeenCalledTimes(1)
   })
@@ -1102,14 +1472,16 @@ describe('TerminalPane', () => {
     await sleep(300)
     terminalMocks.refresh.mockClear()
     webSocketMocks.send.mockClear()
-    window.dispatchEvent(new CustomEvent('tmux-attached', { detail: { sessionName: 'other', cols: 120, rows: 36, exclusive: false } }))
+    emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'other', cols: 120, rows: 36, exclusive: false })
     await sleep(140)
     expect(terminalMocks.refresh).not.toHaveBeenCalled()
     expect(webSocketMocks.send).not.toHaveBeenCalledWith({ type: 'redraw', hostId: 'local', sessionName: 'dev' })
-    window.dispatchEvent(new CustomEvent('tmux-attached', { detail: { sessionName: 'dev', cols: 120, rows: 36, exclusive: false } }))
+    emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev', cols: 120, rows: 36, exclusive: false })
     await waitFor(() => expect(terminalMocks.refresh).toHaveBeenCalled())
     expect(webSocketMocks.send).toHaveBeenCalledWith({ type: 'redraw', hostId: 'local', sessionName: 'dev' })
-    expect(webSocketMocks.send.mock.calls.filter((call) => call[0]?.type === 'redraw' && call[0]?.sessionName === 'dev')).toHaveLength(1)
+    expect(
+      webSocketMocks.send.mock.calls.filter((call) => call[0]?.type === 'redraw' && call[0]?.sessionName === 'dev'),
+    ).toHaveLength(1)
   })
   it('keeps attach rendering soft and keeps ordinary layout changes soft', async () => {
     render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
@@ -1120,7 +1492,7 @@ describe('TerminalPane', () => {
     terminalMocks.reset.mockClear()
     terminalMocks.clear.mockClear()
     webSocketMocks.send.mockClear()
-    window.dispatchEvent(new CustomEvent('tmux-attached', { detail: { sessionName: 'dev', cols: 120, rows: 36, exclusive: true } }))
+    emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev', cols: 120, rows: 36, exclusive: true })
     await waitFor(() => expect(terminalMocks.refresh).toHaveBeenCalled())
     expect(terminalMocks.clearTextureAtlas).toHaveBeenCalled()
     expect(terminalMocks.renderClear).toHaveBeenCalled()
@@ -1128,7 +1500,9 @@ describe('TerminalPane', () => {
     expect(terminalMocks.clear).not.toHaveBeenCalled()
     expect(terminalMocks.refresh).toHaveBeenCalledWith(0, 35)
     expect(webSocketMocks.send).toHaveBeenCalledWith({ type: 'redraw', hostId: 'local', sessionName: 'dev' })
-    expect(webSocketMocks.send.mock.calls.filter((call) => call[0]?.type === 'redraw' && call[0]?.sessionName === 'dev')).toHaveLength(1)
+    expect(
+      webSocketMocks.send.mock.calls.filter((call) => call[0]?.type === 'redraw' && call[0]?.sessionName === 'dev'),
+    ).toHaveLength(1)
     terminalMocks.refresh.mockClear()
     terminalMocks.clearTextureAtlas.mockClear()
     terminalMocks.renderClear.mockClear()
@@ -1169,7 +1543,7 @@ describe('TerminalPane', () => {
     const terminalScreen = container.querySelector('.xterm-screen') as HTMLDivElement
     const terminalCanvas = document.createElement('canvas')
     terminalScreen.appendChild(terminalCanvas)
-    window.dispatchEvent(new CustomEvent('tmux-attached', { detail: { sessionName: 'dev', cols: 120, rows: 36, exclusive: true } }))
+    emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev', cols: 120, rows: 36, exclusive: true })
     await waitFor(() => expect(terminalMocks.refresh).toHaveBeenCalled())
     expect(terminalRoot).toBeTruthy()
     expect(terminalViewport).toBeTruthy()
@@ -1201,7 +1575,9 @@ describe('TerminalPane', () => {
   })
   it('resizes the terminal once for one observed desktop size change', async () => {
     const onResize = vi.fn()
-    const { container } = render(<TerminalPane sessionName="dev" attachExclusive onInput={vi.fn()} onResize={onResize} />)
+    const { container } = render(
+      <TerminalPane sessionName="dev" attachExclusive onInput={vi.fn()} onResize={onResize} />,
+    )
     await waitFor(() => expect(customKeyHandler).toBeTruthy())
     await waitFor(() => expect(resizeObserverCallback).toBeTruthy())
     const root = container.firstChild as HTMLElement
@@ -1214,14 +1590,16 @@ describe('TerminalPane', () => {
     await waitFor(() => expect(terminalMocks.resize).toHaveBeenCalledTimes(1))
     expect(onResize).toHaveBeenCalledTimes(1)
     const [cols, rows] = terminalMocks.resize.mock.calls[0]
-    window.dispatchEvent(new CustomEvent('tmux-resized', { detail: { hostId: 'local', sessionName: 'dev', cols, rows } }))
+    emitStreamEvent(STREAM_EVENT.resized, { hostId: 'local', sessionName: 'dev', cols, rows })
     resizeObserverCallback?.()
     expect(terminalMocks.resize).toHaveBeenCalledTimes(1)
     expect(onResize).toHaveBeenCalledTimes(1)
     await waitFor(() => expect(apiMocks.snapshotGet).toHaveBeenCalledTimes(1))
   })
   it('keeps the previous terminal frame visible until desktop resize settles', async () => {
-    const { container } = render(<TerminalPane sessionName="dev" attachExclusive onInput={vi.fn()} onResize={vi.fn()} />)
+    const { container } = render(
+      <TerminalPane sessionName="dev" attachExclusive onInput={vi.fn()} onResize={vi.fn()} />,
+    )
     await waitFor(() => expect(customKeyHandler).toBeTruthy())
     const root = container.firstChild as HTMLElement
     const mask = container.querySelector('[data-testid="terminal-resize-mask"]') as HTMLElement
@@ -1235,13 +1613,15 @@ describe('TerminalPane', () => {
     await sleep(20)
     expect(mask.style.display).toBe('block')
     const [cols, rows] = terminalMocks.resize.mock.calls.at(-1) || []
-    window.dispatchEvent(new CustomEvent('tmux-resized', { detail: { hostId: 'local', sessionName: 'dev', cols, rows } }))
+    emitStreamEvent(STREAM_EVENT.resized, { hostId: 'local', sessionName: 'dev', cols, rows })
     await waitFor(() => expect(mask.style.display).toBe('none'))
     expect(mask.childElementCount).toBe(0)
   })
   it('waits for mobile keyboard layout changes to settle before fitting', async () => {
     mobileKeyboardMocks.isMobile = true
-    const { container } = render(<TerminalPane sessionName="dev" attachExclusive onInput={vi.fn()} onResize={vi.fn()} />)
+    const { container } = render(
+      <TerminalPane sessionName="dev" attachExclusive onInput={vi.fn()} onResize={vi.fn()} />,
+    )
     await waitFor(() => expect(customKeyHandler).toBeTruthy())
     await waitFor(() => expect(resizeObserverCallback).toBeTruthy())
     const root = container.firstChild as HTMLElement
@@ -1252,18 +1632,24 @@ describe('TerminalPane', () => {
     terminalMocks.resize.mockClear()
     Object.defineProperty(root, 'clientHeight', { configurable: true, value: 520 })
     window.dispatchEvent(new CustomEvent('mobile-keyboard-change', { detail: { open: true } }))
-    window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'viewport-sync', mobile: true, keyboardOpen: true } }))
+    window.dispatchEvent(
+      new CustomEvent('tmuxgo-layout-change', {
+        detail: { reason: 'viewport-sync', mobile: true, keyboardOpen: true },
+      }),
+    )
     await sleep(100)
     expect(terminalMocks.resize).not.toHaveBeenCalled()
     Object.defineProperty(root, 'clientHeight', { configurable: true, value: 500 })
     resizeObserverCallback?.()
     expect(terminalMocks.resize).toHaveBeenCalled()
     const [cols, rows] = terminalMocks.resize.mock.calls.at(-1) || []
-    window.dispatchEvent(new CustomEvent('tmux-resized', { detail: { hostId: 'local', sessionName: 'dev', cols, rows, localOnly: true } }))
+    emitStreamEvent(STREAM_EVENT.resized, { hostId: 'local', sessionName: 'dev', cols, rows, localOnly: true })
   })
   it('does not mask the terminal while the mobile keyboard changes the viewport', async () => {
     mobileKeyboardMocks.isMobile = true
-    const { container } = render(<TerminalPane sessionName="dev" attachExclusive onInput={vi.fn()} onResize={vi.fn()} />)
+    const { container } = render(
+      <TerminalPane sessionName="dev" attachExclusive onInput={vi.fn()} onResize={vi.fn()} />,
+    )
     await waitFor(() => expect(customKeyHandler).toBeTruthy())
     const root = container.firstChild as HTMLElement
     const mask = container.querySelector('[data-testid="terminal-resize-mask"]') as HTMLElement
@@ -1325,7 +1711,11 @@ describe('TerminalPane', () => {
     terminalBaseY = 80
     terminalViewportY = 80
     terminalMocks.scrollToBottom.mockClear()
-    window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'viewport-sync', mobile: true, keyboardOpen: true } }))
+    window.dispatchEvent(
+      new CustomEvent('tmuxgo-layout-change', {
+        detail: { reason: 'viewport-sync', mobile: true, keyboardOpen: true },
+      }),
+    )
     await waitFor(() => expect(terminalMocks.scrollToBottom).toHaveBeenCalled())
   })
   it('does not pin mobile keyboard repaint to bottom when keyboard closed and scrolled back', async () => {
@@ -1335,7 +1725,11 @@ describe('TerminalPane', () => {
     terminalBaseY = 80
     terminalViewportY = 60
     terminalMocks.scrollToBottom.mockClear()
-    window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'viewport-sync', mobile: true, keyboardOpen: false } }))
+    window.dispatchEvent(
+      new CustomEvent('tmuxgo-layout-change', {
+        detail: { reason: 'viewport-sync', mobile: true, keyboardOpen: false },
+      }),
+    )
     await sleep(180)
     expect(terminalMocks.scrollToBottom).not.toHaveBeenCalled()
   })
@@ -1346,7 +1740,11 @@ describe('TerminalPane', () => {
     terminalBaseY = 80
     terminalViewportY = 60
     terminalMocks.scrollToBottom.mockClear()
-    window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'viewport-sync', mobile: true, keyboardOpen: true } }))
+    window.dispatchEvent(
+      new CustomEvent('tmuxgo-layout-change', {
+        detail: { reason: 'viewport-sync', mobile: true, keyboardOpen: true },
+      }),
+    )
     await waitFor(() => expect(terminalMocks.scrollToBottom).toHaveBeenCalled())
   })
   it('sticks output to bottom while mobile keyboard is open', async () => {
@@ -1395,12 +1793,11 @@ describe('TerminalPane', () => {
     })
     fireEvent.touchEnd(root, {
       touches: [],
-      changedTouches: [
-        { identifier: 2, clientX: 150, clientY: 0 },
-      ],
+      changedTouches: [{ identifier: 2, clientX: 150, clientY: 0 }],
     })
     await waitFor(() => expect(preferenceMocks.updatePreferences).toHaveBeenCalled())
-    const lastCall = preferenceMocks.updatePreferences.mock.calls[preferenceMocks.updatePreferences.mock.calls.length - 1]
+    const lastCall =
+      preferenceMocks.updatePreferences.mock.calls[preferenceMocks.updatePreferences.mock.calls.length - 1]
     expect(lastCall?.[0].fontSize).toBeGreaterThan(14)
   })
   it('updates terminal font size by desktop trackpad pinch', async () => {
@@ -1410,7 +1807,8 @@ describe('TerminalPane', () => {
     const event = fireEvent.wheel(root, { ctrlKey: true, deltaY: -20, cancelable: true })
     expect(event).toBe(false)
     await waitFor(() => expect(preferenceMocks.updatePreferences).toHaveBeenCalled())
-    const lastCall = preferenceMocks.updatePreferences.mock.calls[preferenceMocks.updatePreferences.mock.calls.length - 1]
+    const lastCall =
+      preferenceMocks.updatePreferences.mock.calls[preferenceMocks.updatePreferences.mock.calls.length - 1]
     expect(lastCall?.[0].fontSize).toBeGreaterThan(14)
   })
   it('updates terminal font size one step by Ctrl and mouse wheel', async () => {
@@ -1429,11 +1827,17 @@ describe('TerminalPane', () => {
     expect(terminalMocks.focus).toHaveBeenCalled()
   })
   it('refocuses terminal after dropping a file path', async () => {
-    const onInput=vi.fn()
+    const onInput = vi.fn()
     const { container } = render(<TerminalPane sessionName="dev" onInput={onInput} onResize={vi.fn()} />)
     await waitFor(() => expect(customKeyHandler).toBeTruthy())
     terminalMocks.focus.mockClear()
-    fireEvent.drop(container.firstChild as Element, { dataTransfer: { files: [], getData: (type: string) => type === 'application/x-tmuxgo-file' ? JSON.stringify({ absolutePath: '/workspace/demo.ts' }) : '' } })
+    fireEvent.drop(container.firstChild as Element, {
+      dataTransfer: {
+        files: [],
+        getData: (type: string) =>
+          type === 'application/x-tmuxgo-file' ? JSON.stringify({ absolutePath: '/workspace/demo.ts' }) : '',
+      },
+    })
     expect(onInput).toHaveBeenCalledWith("'/workspace/demo.ts'")
     expect(terminalMocks.focus).toHaveBeenCalledTimes(1)
   })
@@ -1491,7 +1895,14 @@ describe('TerminalPane', () => {
     expect(helper.value).toBe('zhong')
   })
   it('buffers terminal output until desktop ime composition ends', async () => {
-    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} subscribeOutput={webSocketMocks.subscribeOutput} />)
+    const { container } = render(
+      <TerminalPane
+        sessionName="dev"
+        onInput={vi.fn()}
+        onResize={vi.fn()}
+        subscribeOutput={webSocketMocks.subscribeOutput}
+      />,
+    )
     await waitFor(() => expect(webSocketMocks.lastOutputListener).toBeTruthy())
     const helper = container.querySelector('.xterm-helper-textarea') as HTMLTextAreaElement
     helper.focus()
@@ -1507,7 +1918,14 @@ describe('TerminalPane', () => {
     expect(document.body.classList.contains('ime-composing')).toBe(false)
   })
   it('keeps helper textarea position stable after ime composition ends to avoid candidate window jumping', async () => {
-    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} subscribeOutput={webSocketMocks.subscribeOutput} />)
+    const { container } = render(
+      <TerminalPane
+        sessionName="dev"
+        onInput={vi.fn()}
+        onResize={vi.fn()}
+        subscribeOutput={webSocketMocks.subscribeOutput}
+      />,
+    )
     await waitFor(() => expect(webSocketMocks.lastOutputListener).toBeTruthy())
     const helper = container.querySelector('.xterm-helper-textarea') as HTMLTextAreaElement
     terminalCursorX = 0
@@ -1556,8 +1974,13 @@ describe('TerminalPane', () => {
     await waitFor(() => expect(terminalLifecycleMocks.open).toHaveBeenCalled())
     terminalBufferLines = ['visit https://example.com/docs now']
     const initialHref = window.location.href
-    terminalAddonHandlers[0]?.(new MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0, ctrlKey: true }), 'https://example.com/docs')
-    await waitFor(() => expect(openWindowMock).toHaveBeenCalledWith('https://example.com/docs', '_blank', 'noopener,noreferrer'))
+    terminalAddonHandlers[0]?.(
+      new MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0, ctrlKey: true }),
+      'https://example.com/docs',
+    )
+    await waitFor(() =>
+      expect(openWindowMock).toHaveBeenCalledWith('https://example.com/docs', '_blank', 'noopener,noreferrer'),
+    )
     expect(window.location.href).toBe(initialHref)
   })
   it('does not navigate current app when browser blocks new window', async () => {
@@ -1566,8 +1989,13 @@ describe('TerminalPane', () => {
     await waitFor(() => expect(terminalLifecycleMocks.open).toHaveBeenCalled())
     terminalBufferLines = ['visit https://example.com/docs now']
     const initialHref = window.location.href
-    terminalAddonHandlers[0]?.(new MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0, ctrlKey: true }), 'https://example.com/docs')
-    await waitFor(() => expect(storeMocks.pushToast).toHaveBeenCalledWith({ type: 'error', message: 'terminal.linkOpenBlocked' }))
+    terminalAddonHandlers[0]?.(
+      new MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0, ctrlKey: true }),
+      'https://example.com/docs',
+    )
+    await waitFor(() =>
+      expect(storeMocks.pushToast).toHaveBeenCalledWith({ type: 'error', message: 'terminal.linkOpenBlocked' }),
+    )
     expect(window.location.href).toBe(initialHref)
   })
   it('opens file path on ctrl click', async () => {
@@ -1576,7 +2004,10 @@ describe('TerminalPane', () => {
     terminalBufferLines = ['cat ./src/index.ts:12:3']
     await activateTerminalLink(container, 1, 7, { ctrlKey: true })
     await waitFor(() => expect(storeMocks.openEditor).toHaveBeenCalled())
-    expect(storeMocks.openEditor.mock.calls[0][0]).toMatchObject({ path: 'src/index.ts', absolutePath: '/workspace/src/index.ts' })
+    expect(storeMocks.openEditor.mock.calls[0][0]).toMatchObject({
+      path: 'src/index.ts',
+      absolutePath: '/workspace/src/index.ts',
+    })
     expect(storeMocks.setFilePanelOpen).toHaveBeenCalledWith(true)
   })
   it('opens workspace relative file path with line number on ctrl click', async () => {
@@ -1584,10 +2015,27 @@ describe('TerminalPane', () => {
       { id: 'root-home', label: 'home', path: '/home/guo' },
       { id: 'root-workspace', label: 'workspace', path: '/workspace' },
     ])
-    apiMocks.defaultUploadTarget.mockResolvedValue({ rootId: 'root-home', rootLabel: 'home', rootPath: '/home/guo', path: 'project/other/TmuxGo', absolutePath: '/home/guo/project/other/TmuxGo', source: 'pane' })
+    apiMocks.defaultUploadTarget.mockResolvedValue({
+      rootId: 'root-home',
+      rootLabel: 'home',
+      rootPath: '/home/guo',
+      path: 'project/other/TmuxGo',
+      absolutePath: '/home/guo/project/other/TmuxGo',
+      source: 'pane',
+    })
     apiMocks.filePreview.mockImplementation((async (_hostId: string, rootId: string, path: string) => {
-      if (rootId === 'root-home' && path === 'project/other/TmuxGo/apps/frontend/src/components/TerminalPane.tsx') throw new Error('not found')
-      if (rootId === 'root-workspace' && path === 'apps/frontend/src/components/TerminalPane.tsx') return { path, type: 'file', size: 4096, modifiedAt: '2026-06-02T00:00:00.000Z', binary: false, truncated: false, lines: [] }
+      if (rootId === 'root-home' && path === 'project/other/TmuxGo/apps/frontend/src/components/TerminalPane.tsx')
+        throw new Error('not found')
+      if (rootId === 'root-workspace' && path === 'apps/frontend/src/components/TerminalPane.tsx')
+        return {
+          path,
+          type: 'file',
+          size: 4096,
+          modifiedAt: '2026-06-02T00:00:00.000Z',
+          binary: false,
+          truncated: false,
+          lines: [],
+        }
       throw new Error('not found')
     }) as any)
     const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
@@ -1600,8 +2048,18 @@ describe('TerminalPane', () => {
       path: 'apps/frontend/src/components/TerminalPane.tsx',
       absolutePath: '/workspace/apps/frontend/src/components/TerminalPane.tsx',
     })
-    expect(apiMocks.filePreview).toHaveBeenCalledWith('local', 'root-home', 'apps/frontend/src/components/TerminalPane.tsx', 145)
-    expect(apiMocks.filePreview).toHaveBeenCalledWith('local', 'root-workspace', 'apps/frontend/src/components/TerminalPane.tsx', 145)
+    expect(apiMocks.filePreview).toHaveBeenCalledWith(
+      'local',
+      'root-home',
+      'apps/frontend/src/components/TerminalPane.tsx',
+      145,
+    )
+    expect(apiMocks.filePreview).toHaveBeenCalledWith(
+      'local',
+      'root-workspace',
+      'apps/frontend/src/components/TerminalPane.tsx',
+      145,
+    )
   })
   it('registers file links with underline and pointer cursor decorations', async () => {
     render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
