@@ -1882,7 +1882,7 @@ export function TerminalPane({ sessionName, onInput, onResize, attachExclusive =
       <div ref={resizeMaskRef} data-testid="terminal-resize-mask" aria-hidden="true" className="pointer-events-none absolute inset-0 z-10 hidden overflow-hidden bg-bg-1" style={{ display: terminalResizePending ? 'block' : undefined }} />
       <div ref={paneResizeGuideRef} data-testid="pane-resize-guide" className="pointer-events-none absolute z-20 hidden bg-accent shadow-[0_0_6px_var(--accent)]" />
       {dropState.isDropActive && <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-apple border border-dashed border-accent bg-bg-0/70 text-sm text-accent shadow-[var(--glow)]">{t('terminal.dropUpload')}</div>}
-      {githubDeviceLogin && <div data-testid="github-device-login-card" className="absolute inset-x-3 bottom-3 z-20 ml-auto w-auto max-w-sm rounded-apple border border-accent/30 bg-bg-0/92 p-3 shadow-[0_18px_48px_rgba(0,0,0,0.38)] backdrop-blur" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} onTouchEnd={(e) => e.stopPropagation()}>
+      {githubDeviceLogin && <div data-testid="github-device-login-card" className="absolute inset-x-3 bottom-3 z-20 ml-auto w-auto max-w-sm rounded-apple border border-accent/30 bg-bg-0/92 p-3 backdrop-blur" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()} onTouchEnd={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="text-sm font-medium text-text-1">{t('githubAuth.title')}</div>

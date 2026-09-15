@@ -136,7 +136,7 @@ export function ImmersiveBackOrb() {
       onPointerUp={finishPointer}
       onPointerCancel={finishPointer}
       onContextMenu={(e) => e.preventDefault()}
-      className="tmuxgo-glass fixed z-[120] flex h-12 w-12 touch-none select-none items-center justify-center rounded-full border text-xs font-medium text-text-1 shadow-[0_8px_24px_rgba(0,0,0,0.35)] active:scale-95"
+      className="tmuxgo-glass fixed z-[120] flex h-12 w-12 touch-none select-none items-center justify-center rounded-full border text-xs font-medium text-text-1 active:scale-95"
       style={{ left: pos.x, top: pos.y }}
     >
       {t('immersive.backOrb')}

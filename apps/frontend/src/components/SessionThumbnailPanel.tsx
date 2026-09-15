@@ -212,7 +212,7 @@ export function SessionThumbnailPanel() {
         })}
       </div>
       {dragPreview && (
-        <div className="pointer-events-none fixed z-[100] rounded-apple border border-accent bg-bg-2 px-3 py-2 text-xs text-text-1 shadow-lg" style={{ left: dragPreview.x, top: dragPreview.y, transform: 'translate(-50%, -120%)' }}>
+        <div className="pointer-events-none fixed z-[100] rounded-apple border border-accent bg-bg-2 px-3 py-2 text-xs text-text-1" style={{ left: dragPreview.x, top: dragPreview.y, transform: 'translate(-50%, -120%)' }}>
           {sessionNameOf(dragPreview.sessionId)}
         </div>
       )}

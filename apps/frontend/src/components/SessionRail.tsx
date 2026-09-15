@@ -97,12 +97,12 @@ export function SessionRail() {
             listClassName="flex min-h-full flex-col gap-2"
             getItemClassName={({ session, isDragging, isOverlay }) => {
               const active = session.id === activeSessionId
-              return `rounded-apple ${isOverlay ? 'shadow-[0_18px_44px_rgba(0,0,0,0.42)]' : ''} ${isDragging && !isOverlay ? 'opacity-40' : ''}`
+              return `rounded-apple ${isDragging && !isOverlay ? 'opacity-40' : ''}`
             }}
             renderItem={({ session, isOverlay }) => {
               const active = session.id === activeSessionId
               return (
-                <button title={session.name} onClick={() => setActiveSession(session.id)} onDoubleClick={() => void handleRenameSession(session.id)} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, sessionId: session.id }) }} className={`tmuxgo-list-row flex h-11 min-w-0 w-full items-center gap-2 rounded-apple border px-2 text-left ${active ? 'tmuxgo-list-row--active' : 'border-transparent bg-transparent text-text-3 tmuxgo-list-row--hover hover:text-text-1'} ${isOverlay ? 'border-accent bg-bg-1 text-text-1 shadow-[0_18px_44px_rgba(0,0,0,0.42)]' : ''}`}>
+                <button title={session.name} onClick={() => setActiveSession(session.id)} onDoubleClick={() => void handleRenameSession(session.id)} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, sessionId: session.id }) }} className={`tmuxgo-list-row flex h-11 min-w-0 w-full items-center gap-2 rounded-apple border px-2 text-left ${active ? 'tmuxgo-list-row--active' : 'border-transparent bg-transparent text-text-3 tmuxgo-list-row--hover hover:text-text-1'} ${isOverlay ? 'border-accent bg-bg-1 text-text-1' : ''}`}>
                   <span className="flex min-w-0 flex-1 items-center gap-2 text-left">
                     <span className="relative shrink-0"><span className={`flex h-7 w-7 items-center justify-center rounded-apple text-meta font-semibold ${active ? 'bg-accent/10 text-accent' : 'bg-bg-2 text-text-2'}`}>{session.name.slice(0, 2).toUpperCase()}</span><span className="absolute -bottom-1 -right-1"><AgentStatusBadge summary={session.agentSummary} compact /></span></span>
                     <span className="min-w-0 flex-1">

@@ -19,7 +19,7 @@ export function TopBar() {
   return (
       <header className="tmuxgo-glass tmuxgo-glass-chrome relative z-30 flex h-14 shrink-0 items-center border-b px-3">
         <div className="flex min-w-0 items-center gap-2.5">
-          <img src="/app-icon.svg" alt="" className="h-8 w-8 shadow-sm" />
+          <img src="/app-icon.svg" alt="" className="h-8 w-8" />
           <span className="text-base font-semibold text-text-1">TmuxGo</span>
           {activeHost && (
             <>

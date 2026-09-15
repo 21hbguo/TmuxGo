@@ -325,7 +325,7 @@ export function SessionPanel() {
               <span className="min-w-0 flex-1 truncate font-medium">{currentWorkspace?.name || t('workspace.choose')}</span>
               <FiChevronDown aria-hidden="true" className="shrink-0 text-text-3" size={14} />
             </button>
-            {workspaceMenuOpen && <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-30 overflow-hidden rounded-apple border border-[var(--line)] bg-bg-1 py-1 shadow-lg">
+            {workspaceMenuOpen && <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-30 overflow-hidden rounded-apple border border-[var(--line)] bg-bg-1 py-1">
               <div className="tmuxgo-scrollbar max-h-64 overflow-y-auto">
                 {hostWorkspaces.map((workspace) => <button key={workspace.id} onClick={() => handleWorkspaceSelect(workspace)} className={`flex w-full items-center gap-2 px-2.5 py-2 text-left text-xs ${currentWorkspace?.id === workspace.id ? 'bg-accent/10 text-text-1' : 'text-text-2 hover:bg-bg-2 hover:text-text-1'}`} aria-label={workspace.name}>
                   <FiFolder aria-hidden="true" className="shrink-0 text-[#dcb67a]" size={14} />
@@ -369,7 +369,7 @@ export function SessionPanel() {
                   {!batchMode && <button onClick={() => setTemplateMenuWorkspaceId(templateMenuWorkspaceId === workspace.id ? null : workspace.id)} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-6 w-6 text-meta" aria-label={t('workspace.template')} title={t('workspace.template')}>▦</button>}
                   {!batchMode && <button onClick={() => setPendingDeleteWorkspace(workspace)} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-6 w-6 text-meta hover:text-danger" aria-label={t('workspace.delete')} title={t('workspace.delete')}>🗑</button>}
                   {templateMenuWorkspaceId === workspace.id && (
-                    <div className="absolute right-2 top-7 z-20 max-h-56 overflow-y-auto rounded-apple border border-[var(--line)] bg-bg-1 p-1 shadow-lg">
+                    <div className="absolute right-2 top-7 z-20 max-h-56 overflow-y-auto rounded-apple border border-[var(--line)] bg-bg-1 p-1">
                       {allTemplates.map((template) => (
                         <button key={template.id} onClick={() => void handleWorkspaceSetTemplate(workspace, template.id)} className={`block w-full truncate rounded-apple px-2 py-1 text-left text-xs hover:bg-bg-0 ${workspace.templateId === template.id ? 'text-accent' : 'text-text-1'}`}>{template.name}</button>
                       ))}
@@ -383,7 +383,7 @@ export function SessionPanel() {
                 sessions={groupSessions}
                 onMove={moveSession}
                 listClassName="min-h-full"
-                getItemClassName={({ session, isDragging, isOverlay }) => `tmuxgo-list-row border-b border-[var(--line)] ${batchMode ? selectedSessionIds.includes(session.id) ? 'tmuxgo-list-row--batch' : 'tmuxgo-list-row--hover' : activeSessionId === session.id ? 'tmuxgo-list-row--active' : 'tmuxgo-list-row--hover'} ${isDragging && !isOverlay ? 'opacity-40' : ''} ${isOverlay ? 'rounded-apple border border-accent bg-bg-1 shadow-[0_20px_48px_rgba(0,0,0,0.42)]' : ''}`}
+                getItemClassName={({ session, isDragging, isOverlay }) => `tmuxgo-list-row border-b border-[var(--line)] ${batchMode ? selectedSessionIds.includes(session.id) ? 'tmuxgo-list-row--batch' : 'tmuxgo-list-row--hover' : activeSessionId === session.id ? 'tmuxgo-list-row--active' : 'tmuxgo-list-row--hover'} ${isDragging && !isOverlay ? 'opacity-40' : ''} ${isOverlay ? 'rounded-apple border border-accent bg-bg-1' : ''}`}
                 renderItem={({ session }) => (
                   <div className="flex items-center gap-1 pr-2">
                     {batchMode && <button onClick={() => toggleBatchSession(session.id)} className={`ml-2 flex h-7 w-5 shrink-0 items-center justify-center rounded-apple text-meta leading-none ${selectedSessionIds.includes(session.id) ? 'text-danger' : 'text-text-3'} hover:bg-bg-0`}>{selectedSessionIds.includes(session.id) ? '☑' : '☐'}</button>}

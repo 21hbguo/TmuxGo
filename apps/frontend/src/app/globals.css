@@ -24,8 +24,8 @@
   --glass-fill-hover: rgb(255 255 255 / 14%);
   --glass-rim: rgb(255 255 255 / 22%);
   --glass-highlight: rgb(255 255 255 / 38%);
-  --glass-shadow: 0 6px 18px rgb(0 0 0 / 0.32);
-  --glass-shadow-hover: 0 10px 28px rgb(0 0 0 / 0.42);
+  --glass-shadow: none;
+  --glass-shadow-hover: none;
   --font-ui: "Maple Mono CN", monospace;
   --font-mono: "Maple Mono CN", monospace;
   --fs-caption: 10px;
@@ -57,8 +57,8 @@
   --glass-fill-hover: rgb(255 255 255 / 70%);
   --glass-rim: rgb(255 255 255 / 85%);
   --glass-highlight: rgb(255 255 255 / 100%);
-  --glass-shadow: 0 4px 14px rgb(48 52 60 / 0.14);
-  --glass-shadow-hover: 0 8px 22px rgb(48 52 60 / 0.22);
+  --glass-shadow: none;
+  --glass-shadow-hover: none;
 }
 
 [data-theme="high-contrast"] {
@@ -103,8 +103,8 @@
   --glass-fill-hover: rgb(255 255 255 / 14%);
   --glass-rim: rgb(255 255 255 / 22%);
   --glass-highlight: rgb(255 255 255 / 38%);
-  --glass-shadow: 0 6px 18px rgb(0 0 0 / 0.4);
-  --glass-shadow-hover: 0 10px 28px rgb(0 0 0 / 0.5);
+  --glass-shadow: none;
+  --glass-shadow-hover: none;
 }
 
 [data-theme="nord"] {
@@ -126,8 +126,8 @@
   --glass-fill-hover: rgb(255 255 255 / 14%);
   --glass-rim: rgb(255 255 255 / 22%);
   --glass-highlight: rgb(255 255 255 / 38%);
-  --glass-shadow: 0 6px 18px rgb(0 0 0 / 0.35);
-  --glass-shadow-hover: 0 10px 28px rgb(0 0 0 / 0.45);
+  --glass-shadow: none;
+  --glass-shadow-hover: none;
 }
 
 [data-theme="catppuccin"] {
@@ -149,8 +149,8 @@
   --glass-fill-hover: rgb(255 255 255 / 14%);
   --glass-rim: rgb(255 255 255 / 22%);
   --glass-highlight: rgb(255 255 255 / 38%);
-  --glass-shadow: 0 6px 18px rgb(0 0 0 / 0.4);
-  --glass-shadow-hover: 0 10px 28px rgb(0 0 0 / 0.5);
+  --glass-shadow: none;
+  --glass-shadow-hover: none;
 }
 
 @font-face {
@@ -288,7 +288,7 @@ a {
 .tmuxgo-material {
   border-color: var(--glass-rim);
   background: var(--glass-fill-strong);
-  box-shadow: inset 0 1px 0 var(--glass-highlight), var(--glass-shadow);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
 }
 .tmuxgo-glass {
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
@@ -308,7 +308,7 @@ a {
 .tmuxgo-glass-dialog {
   --glass-blur: 30px;
   background: var(--glass-fill-strong);
-  box-shadow: inset 0 1px 0 var(--glass-highlight), 0 24px 80px rgb(0 0 0 / 0.34);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
 }
 .tmuxgo-glass-control {
   border: 1px solid rgb(var(--text-1) / 0.08);
@@ -383,7 +383,7 @@ a {
   border: 1px solid var(--line);
   border-radius: 20px;
   background: var(--glass-fill-strong);
-  box-shadow: inset 0 1px 0 var(--glass-highlight), var(--glass-shadow);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
 }
@@ -834,8 +834,7 @@ a {
   border: 1px solid var(--glass-rim);
   box-shadow:
     inset 0 1px 0 var(--glass-highlight),
-    inset 0 -1px 0 rgb(255 255 255 / 6%),
-    var(--glass-shadow);
+    inset 0 -1px 0 rgb(255 255 255 / 6%);
   background: var(--glass-fill);
   color: var(--text-color, rgb(var(--text-1)));
   transition:
@@ -852,8 +851,7 @@ a {
   .tmuxgo-button:hover:not(:disabled) {
     box-shadow:
       inset 0 1px 0 var(--glass-highlight),
-      inset 0 -1px 0 rgb(255 255 255 / 8%),
-      var(--glass-shadow-hover);
+      inset 0 -1px 0 rgb(255 255 255 / 8%);
     background: var(--glass-fill-hover);
   }
 }
@@ -871,7 +869,6 @@ a {
   box-shadow:
     inset 0 1px 0 var(--glass-highlight),
     inset 0 -1px 0 rgb(255 255 255 / 6%),
-    var(--glass-shadow),
     0 0 0 2px rgb(var(--accent) / 0.55);
 }
 .tmuxgo-keycap:disabled,
@@ -980,8 +977,8 @@ a {
   border-radius: 999px;
   background: rgb(255 255 255 / 5%);
   border-color: rgb(255 255 255 / 12%);
-  --glass-shadow: 0 2px 8px rgb(0 0 0 / 0.18);
-  --glass-shadow-hover: 0 4px 14px rgb(0 0 0 / 0.28);
+  --glass-shadow: none;
+  --glass-shadow-hover: none;
   letter-spacing: 0.01em;
 }
 .tmuxgo-chip:hover:not(:disabled) {
@@ -1031,8 +1028,8 @@ a {
   font-size: var(--fs-body);
   padding: 8px 18px;
   border-radius: 999px;
-  --glass-shadow: 0 6px 18px rgb(0 0 0 / 0.28);
-  --glass-shadow-hover: 0 10px 28px rgb(0 0 0 / 0.38);
+  --glass-shadow: none;
+  --glass-shadow-hover: none;
 }
 .tmuxgo-button--sm {
   font-size: var(--fs-meta);
@@ -1066,8 +1063,8 @@ a {
   --text-color: rgb(var(--text-1));
   border-color: rgb(var(--accent) / 0.5);
   background: color-mix(in srgb, rgb(var(--accent)) 14%, transparent);
-  --glass-shadow: 0 4px 12px color-mix(in srgb, rgb(var(--accent)) 24%, transparent);
-  --glass-shadow-hover: 0 6px 18px color-mix(in srgb, rgb(var(--accent)) 36%, transparent);
+  --glass-shadow: none;
+  --glass-shadow-hover: none;
 }
 .tmuxgo-button--accent:hover:not(:disabled) {
   background: color-mix(in srgb, rgb(var(--accent)) 22%, transparent);
@@ -1080,19 +1077,14 @@ a {
   background: color-mix(in srgb, rgb(var(--accent)) 70%, transparent);
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.45),
-    inset 0 -1px 0 rgb(0 0 0 / 0.18),
-    0 6px 20px color-mix(in srgb, rgb(var(--accent)) 38%, transparent),
-    0 1px 2px rgb(0 0 0 / 0.18);
-  --glass-shadow-hover: 0 12px 32px color-mix(in srgb, rgb(var(--accent)) 55%, transparent);
+    inset 0 -1px 0 rgb(0 0 0 / 0.18);
 }
 .tmuxgo-button--primary:hover:not(:disabled) {
   background: color-mix(in srgb, rgb(var(--accent)) 82%, transparent);
   border-color: rgb(var(--accent) / 0.8);
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.55),
-    inset 0 -1px 0 rgb(0 0 0 / 0.20),
-    0 12px 32px color-mix(in srgb, rgb(var(--accent)) 55%, transparent),
-    0 2px 4px rgb(0 0 0 / 0.22);
+    inset 0 -1px 0 rgb(0 0 0 / 0.20);
 }
 
 .tmuxgo-button--danger {
@@ -1101,19 +1093,14 @@ a {
   background: color-mix(in srgb, rgb(var(--danger)) 60%, transparent);
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.42),
-    inset 0 -1px 0 rgb(0 0 0 / 0.18),
-    0 6px 20px color-mix(in srgb, rgb(var(--danger)) 42%, transparent),
-    0 1px 2px rgb(0 0 0 / 0.18);
-  --glass-shadow-hover: 0 12px 32px color-mix(in srgb, rgb(var(--danger)) 55%, transparent);
+    inset 0 -1px 0 rgb(0 0 0 / 0.18);
 }
 .tmuxgo-button--danger:hover:not(:disabled) {
   background: color-mix(in srgb, rgb(var(--danger)) 72%, transparent);
   border-color: rgb(var(--danger) / 0.75);
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.52),
-    inset 0 -1px 0 rgb(0 0 0 / 0.20),
-    0 12px 32px color-mix(in srgb, rgb(var(--danger)) 55%, transparent),
-    0 2px 4px rgb(0 0 0 / 0.22);
+    inset 0 -1px 0 rgb(0 0 0 / 0.20);
 }
 
 .tmuxgo-button--ghost {
@@ -1161,9 +1148,7 @@ a {
   border-color: rgb(var(--accent));
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.35),
-    inset 0 -1px 0 rgb(0 0 0 / 0.16),
-    0 6px 20px color-mix(in srgb, rgb(var(--accent)) 35%, transparent),
-    0 1px 2px rgb(0 0 0 / 0.18);
+    inset 0 -1px 0 rgb(0 0 0 / 0.16);
 }
 [data-theme="nord"] .tmuxgo-button--primary:hover:not(:disabled) {
   background: color-mix(in srgb, rgb(var(--accent)) 88%, white);
@@ -1175,9 +1160,7 @@ a {
   border-color: rgb(var(--danger));
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.32),
-    inset 0 -1px 0 rgb(0 0 0 / 0.16),
-    0 6px 20px color-mix(in srgb, rgb(var(--danger)) 35%, transparent),
-    0 1px 2px rgb(0 0 0 / 0.18);
+    inset 0 -1px 0 rgb(0 0 0 / 0.16);
 }
 [data-theme="nord"] .tmuxgo-button--danger:hover:not(:disabled) {
   background: color-mix(in srgb, rgb(var(--danger)) 88%, white);
