@@ -11,12 +11,22 @@ interface TerminalOutputInputOptions {
   controlCarryRef: { current: string }
 }
 type OutputPayload = { data: string; sessionName?: string | null; hostId?: string | null; resync?: boolean }
+const SELECTION_HOLD_MAX_BUFFER = 1024 * 1024
+const SELECTION_HOLD_CHECK_MS = 800
 export function createTerminalOutputInput(options: TerminalOutputInputOptions) {
   let writeBuffer = ''
   let writePending = false
   let pointerSyncActive = false
+  let selectionHold = false
+  let lastSelectionCheck = 0
   let outputSinceLastAttach = false
+  const releaseSelection = () => {
+    if (!selectionHold) return
+    selectionHold = false
+    flushWriteBuffer()
+  }
   const flushWriteBuffer = () => {
+    if (selectionHold) return
     const terminal = options.getTerminal()
     if (!writeBuffer || !terminal?.write) {
       writeBuffer = ''
@@ -46,9 +56,20 @@ export function createTerminalOutputInput(options: TerminalOutputInputOptions) {
     outputSinceLastAttach = true
     options.controlCarryRef.current = ''
     // Hold terminal paints while desktop IME is composing so candidate window stays put.
-    if (pointerSyncActive || (!options.isMobile && options.isDesktopImeComposing())) {
+    if (pointerSyncActive || selectionHold || (!options.isMobile && options.isDesktopImeComposing())) {
       if (payload.resync) writeBuffer = raw
       else writeBuffer += raw
+      if (selectionHold) {
+        if (writeBuffer.length > SELECTION_HOLD_MAX_BUFFER) releaseSelection()
+        else {
+          const now = Date.now()
+          if (now - lastSelectionCheck >= SELECTION_HOLD_CHECK_MS) {
+            lastSelectionCheck = now
+            if (!terminal.getSelection?.()) releaseSelection()
+          }
+        }
+        return
+      }
       if (pointerSyncActive && !writePending && !options.isDesktopImeComposing()) {
         writePending = true
         requestAnimationFrame(flushWriteBuffer)
@@ -56,6 +77,9 @@ export function createTerminalOutputInput(options: TerminalOutputInputOptions) {
       return
     }
     options.pushOutput(raw)
+  }
+  const holdSelection = () => {
+    selectionHold = true
   }
   const armPointerSync = () => {
     pointerSyncActive = true
@@ -70,6 +94,9 @@ export function createTerminalOutputInput(options: TerminalOutputInputOptions) {
   return {
     handleOutput,
     flushWriteBuffer,
+    holdSelection,
+    releaseSelection,
+    isSelectionHoldActive: () => selectionHold,
     armPointerSync,
     disarmPointerSync,
     clearPointerSync,
