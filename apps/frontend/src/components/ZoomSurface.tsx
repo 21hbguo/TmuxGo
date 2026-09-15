@@ -17,7 +17,16 @@ function getTouchDistance(touches: TouchList) {
 function clampScale(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value))
 }
-export function ZoomSurface({ children, className, active = true, image = false, resetKey, minScale = 0.25, maxScale = 8, doubleClickZoom = true }: ZoomSurfaceProps) {
+export function ZoomSurface({
+  children,
+  className,
+  active = true,
+  image = false,
+  resetKey,
+  minScale = 0.25,
+  maxScale = 8,
+  doubleClickZoom = true,
+}: ZoomSurfaceProps) {
   const viewportRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   const [scale, setScale] = useState(1)
@@ -30,11 +39,14 @@ export function ZoomSurface({ children, className, active = true, image = false,
   const gestureRef = useRef<number | null>(null)
   const touchDragRef = useRef<{ x: number; y: number; originX: number; originY: number } | null>(null)
   const dragRef = useRef<{ pointerId: number; x: number; y: number; originX: number; originY: number } | null>(null)
-  const updateScale = useCallback((next: number) => {
-    const clamped = clampScale(next, minScale, maxScale)
-    scaleRef.current = clamped
-    setScale(clamped)
-  }, [minScale, maxScale])
+  const updateScale = useCallback(
+    (next: number) => {
+      const clamped = clampScale(next, minScale, maxScale)
+      scaleRef.current = clamped
+      setScale(clamped)
+    },
+    [minScale, maxScale],
+  )
   const updateOffset = useCallback((next: { x: number; y: number }) => {
     offsetRef.current = next
     setOffset(next)
@@ -59,7 +71,14 @@ export function ZoomSurface({ children, className, active = true, image = false,
     const viewport = viewportRef.current
     if (!viewport || !active) return
     const handleWheel = (event: WheelEvent) => {
-      if (!(event.ctrlKey || event.metaKey)) return
+      if (!(event.ctrlKey || event.metaKey)) {
+        // 图片模式无滚动内容，普通滚轮（含触控板双指滚动、shift+滚轮）直接平移
+        if (!image) return
+        event.preventDefault()
+        const unit = event.deltaMode === 1 ? 16 : 1 // deltaMode=1 时单位是行，换算成像素
+        updateOffset({ x: offsetRef.current.x - event.deltaX * unit, y: offsetRef.current.y - event.deltaY * unit })
+        return
+      }
       event.preventDefault()
       const rect = viewport.getBoundingClientRect()
       const next = clampScale(scaleRef.current * (event.deltaY < 0 ? 1.12 : 0.9), minScale, maxScale)
@@ -79,21 +98,29 @@ export function ZoomSurface({ children, className, active = true, image = false,
     const handleTouchStart = (event: TouchEvent) => {
       if (event.touches.length === 2) {
         pinchRef.current = { distance: getTouchDistance(event.touches), scale: scaleRef.current }
-      } else if (event.touches.length === 1 && scaleRef.current > 1) {
-        touchDragRef.current = { x: event.touches[0].clientX, y: event.touches[0].clientY, originX: offsetRef.current.x, originY: offsetRef.current.y }
+      } else if (event.touches.length === 1 && (image || scaleRef.current > 1)) {
+        touchDragRef.current = {
+          x: event.touches[0].clientX,
+          y: event.touches[0].clientY,
+          originX: offsetRef.current.x,
+          originY: offsetRef.current.y,
+        }
       }
     }
     const handleTouchMove = (event: TouchEvent) => {
       const pinch = pinchRef.current
       if (pinch && event.touches.length === 2) {
         event.preventDefault()
-        updateScale(pinch.scale * getTouchDistance(event.touches) / pinch.distance)
+        updateScale((pinch.scale * getTouchDistance(event.touches)) / pinch.distance)
         return
       }
       const drag = touchDragRef.current
       if (drag && event.touches.length === 1) {
         event.preventDefault()
-        updateOffset({ x: drag.originX + event.touches[0].clientX - drag.x, y: drag.originY + event.touches[0].clientY - drag.y })
+        updateOffset({
+          x: drag.originX + event.touches[0].clientX - drag.x,
+          y: drag.originY + event.touches[0].clientY - drag.y,
+        })
       }
     }
     const handleTouchEnd = () => {
@@ -133,12 +160,19 @@ export function ZoomSurface({ children, className, active = true, image = false,
   }, [active, image, maxScale, minScale, updateOffset, updateScale])
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!active || event.pointerType !== 'mouse') return
-    dragRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, originX: offsetRef.current.x, originY: offsetRef.current.y }
+    dragRef.current = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      originX: offsetRef.current.x,
+      originY: offsetRef.current.y,
+    }
     event.currentTarget.setPointerCapture(event.pointerId)
   }
   const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current
-    if (!drag || drag.pointerId !== event.pointerId || scaleRef.current <= 1) return
+    // 非图片模式 100% 缩放时交给原生滚动；图片模式无滚动兜底，任意缩放都允许平移
+    if (!drag || drag.pointerId !== event.pointerId || (!image && scaleRef.current <= 1)) return
     updateOffset({ x: drag.originX + event.clientX - drag.x, y: drag.originY + event.clientY - drag.y })
   }
   const endDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -172,9 +206,49 @@ export function ZoomSurface({ children, className, active = true, image = false,
   }
   const transform = `translate(${offset.x}px, ${offset.y}px) scale(${scale})`
   return (
-    <div ref={viewportRef} className={`${className} relative`} onDoubleClick={handleDoubleClick} onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={endDrag} onPointerCancel={endDrag}>
-      {image ? <div className="flex h-full w-full items-center justify-center" style={{ transform, transformOrigin: 'center center' }}>{children}</div> : <div style={sized ? { width: natural.w * scale, height: natural.h * scale } : undefined}><div ref={contentRef} style={sized ? { width: natural.w, transform, transformOrigin: '0 0' } : undefined}>{children}</div></div>}
-      {active && <div className="pointer-events-none absolute right-3 top-3 z-10 flex items-center gap-0.5 rounded-full border border-[var(--line)] bg-bg-1/90 px-1.5 py-1 text-meta text-text-2"><button type="button" onClick={() => zoomBy(1 / 1.25)} className="pointer-events-auto px-1.5 hover:text-accent">−</button><span className="min-w-9 text-center">{Math.round(scale * 100)}%</span><button type="button" onClick={() => zoomBy(1.25)} className="pointer-events-auto px-1.5 hover:text-accent">+</button><button type="button" onClick={reset} className="pointer-events-auto px-1.5 hover:text-accent">↺</button></div>}
+    // onDragStart preventDefault：阻止 img 原生 HTML5 拖拽，否则 dragstart 会触发 pointercancel 中断平移
+    <div
+      ref={viewportRef}
+      className={`${className} relative`}
+      onDoubleClick={handleDoubleClick}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+      onDragStart={(event) => event.preventDefault()}
+    >
+      {image ? (
+        <div
+          className="flex h-full w-full items-center justify-center"
+          style={{ transform, transformOrigin: 'center center' }}
+        >
+          {children}
+        </div>
+      ) : (
+        <div style={sized ? { width: natural.w * scale, height: natural.h * scale } : undefined}>
+          <div ref={contentRef} style={sized ? { width: natural.w, transform, transformOrigin: '0 0' } : undefined}>
+            {children}
+          </div>
+        </div>
+      )}
+      {active && (
+        <div className="pointer-events-none absolute right-3 top-3 z-10 flex items-center gap-0.5 rounded-full border border-[var(--line)] bg-bg-1/90 px-1.5 py-1 text-meta text-text-2">
+          <button
+            type="button"
+            onClick={() => zoomBy(1 / 1.25)}
+            className="pointer-events-auto px-1.5 hover:text-accent"
+          >
+            −
+          </button>
+          <span className="min-w-9 text-center">{Math.round(scale * 100)}%</span>
+          <button type="button" onClick={() => zoomBy(1.25)} className="pointer-events-auto px-1.5 hover:text-accent">
+            +
+          </button>
+          <button type="button" onClick={reset} className="pointer-events-auto px-1.5 hover:text-accent">
+            ↺
+          </button>
+        </div>
+      )}
     </div>
   )
 }
