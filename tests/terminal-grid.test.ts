@@ -65,3 +65,14 @@ test('alternate screen does not overwrite the normal buffer', () => {
   assert.equal(parser.feed('\x1b[?1049l').ok, true)
   assert.equal(grid.get(0, 0).cp, 'n'.codePointAt(0))
 })
+
+test('grid resize clears reflowed headless content instead of wrapping it', () => {
+  const grid = new TerminalGrid(10, 4)
+  const parser = new AnsiParser(grid)
+  assert.equal(parser.feed('abcdefghij\r\nklmno').ok, true)
+  grid.resize(5, 4)
+  assert.equal(parser.feed('X').ok, true)
+  assert.equal(grid.get(0, 0).cp, 'X'.codePointAt(0))
+  assert.equal(grid.get(4, 0).cp, 0x20)
+  assert.equal(grid.get(0, 1).cp, 0x20)
+})
