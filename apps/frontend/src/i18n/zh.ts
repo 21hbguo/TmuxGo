@@ -368,7 +368,8 @@ export const zh = {
   'settings.theme.nord': 'Nord',
   'settings.theme.catppuccin': 'Catppuccin',
   'settings.immersiveFullscreen': '全屏模式',
-  'settings.immersiveFullscreenDesc': '浏览器全屏沉浸。手机端会出现可拖拽返回球（点击返回，不退出全屏）；系统返回键仍会先退出全屏。',
+  'settings.immersiveFullscreenDesc':
+    '浏览器全屏沉浸。手机端会出现可拖拽返回球（点击返回，不退出全屏）；系统返回键仍会先退出全屏。',
   'settings.immersiveFullscreenFailed': '当前浏览器不支持全屏，或已被拦截',
   'settings.layout': '布局',
   'settings.sidebarPosition': '侧边栏位置',
@@ -628,6 +629,7 @@ export const zh = {
   'pane.closed': '面板已关闭',
   'pane.closeFailed': '关闭失败',
   'pane.zoomFailed': '聚焦失败',
+  'pane.switchFailed': '切换面板失败',
   'pane.noActive': '当前没有可操作的面板',
   'githubAuth.title': 'GitHub 登录',
   'githubAuth.desc': '打开 GitHub 设备登录页并输入这组验证码。',

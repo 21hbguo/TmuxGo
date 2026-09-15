@@ -63,6 +63,10 @@ vi.mock('@/hooks/useMobileKeyboard', () => ({
 }))
 vi.mock('@/hooks/useApi', () => ({
   useWindows: () => ({ data: windowsData }),
+  useSessionSnapshot: () => ({ data: null }),
+}))
+vi.mock('@/hooks/useOrderedSessions', () => ({
+  useOrderedSessions: () => ({ data: [] }),
 }))
 vi.mock('@/hooks/useWindowQueryState', () => ({
   useWindowQueryState: () => ({ getWindows: () => [], setWindows: vi.fn() }),
