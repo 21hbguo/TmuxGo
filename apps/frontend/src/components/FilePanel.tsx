@@ -1172,7 +1172,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
       </div>
     )
   ) : (
-    <div className="p-3 text-xs text-text-3">
+    <div className="tmuxgo-scrollbar-subtle h-full overflow-auto p-3 text-xs text-text-3">
       <div className="text-text-2">{t('file.favorites')}</div>
       {visibleFavoriteDirectories.length ? (
         <div className="mt-2 space-y-1">
@@ -1467,9 +1467,9 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
         showContextMenu(e.clientX, e.clientY, null, currentPath)
       }}>
         {!showSearchResults && visibleFavoriteDirectories.length > 0 && (
-          <div className="border-b border-[var(--line)] p-3 trae-browser-inspect-draggable" onWheel={(e) => e.stopPropagation()}>
+          <div className="border-b border-[var(--line)] p-3 trae-browser-inspect-draggable">
             <div className="mb-2 text-caption uppercase tracking-[0.18em] text-text-3">{t('file.favoriteDirs')}</div>
-            <div className="space-y-1">
+            <div className="tmuxgo-scrollbar-subtle max-h-36 space-y-1 overflow-y-auto overscroll-contain">
               {visibleFavoriteDirectories.map((item) => (
                 <Chip key={`${item.rootId}-${item.path}`} {...bindFavoriteDirectoryDrag(item)} onClick={() => openDirectoryShortcut(item)} className="w-full truncate justify-start px-3 py-1.5 text-left font-mono text-xs" style={{ direction: 'rtl' }}>{formatDirectoryShortcutLabel(item.path, rootLabelById[item.rootId] || item.name, rootPathById[item.rootId] || '')}</Chip>
               ))}
