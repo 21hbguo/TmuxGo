@@ -15,6 +15,7 @@ import { collectTerminalLineLinks, openUrlInNewWindow, type TerminalLineLink } f
 import { chooseFileRoot, getRootRelativePath, resolveCandidateAbsolutePaths } from './terminal-paths'
 import { recordMobileDebug, recordImeDebug } from './terminal-debug'
 import { openFileInEditor } from './editor-open'
+import { subscribeStreamEvent, STREAM_EVENT } from './stream-events'
 import type { useTranslation } from '@/i18n'
 import type { FileDocumentHandle, FileRoot } from '@/types'
 const SCROLLBACK_LIMIT = 600
@@ -426,8 +427,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
       if (isMobileDevice) cancelTmuxCopyMode()
       if (isMobileDevice && attachExclusiveRef.current) layout.setMobileKeyboardTransition(true)
     }
-    const handleAttached = (event: Event) => {
-      const detail = (event as CustomEvent).detail || {}
+    const handleAttached = (detail: any = {}) => {
       if (detail.hostId && detail.hostId !== (activeHostIdRef.current || 'local')) return
       if (detail.sessionName && detail.sessionName !== sessionNameRef.current) return
       const cols = Number(detail.cols)
@@ -475,8 +475,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
         else if (sizeChanged) layout.softRecoverTerminalScreen('attached', true)
       }
     }
-    const handleResized = (event: Event) => {
-      const detail = (event as CustomEvent).detail || {}
+    const handleResized = (detail: any = {}) => {
       if (detail.hostId && detail.hostId !== (activeHostIdRef.current || 'local')) return
       if (detail.sessionName && detail.sessionName !== sessionNameRef.current) return
       const cols = Number(detail.cols)
@@ -492,8 +491,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
       if (disposed || generation !== mask.getGeneration() || cols !== terminal?.cols || rows !== terminal?.rows) return
       mask.reveal(generation)
     }
-    const handleResizeAbort = (event: Event) => {
-      const detail = (event as CustomEvent).detail || {}
+    const handleResizeAbort = (detail: any = {}) => {
       if (detail.hostId && detail.hostId !== (activeHostIdRef.current || 'local')) return
       if (detail.sessionName && detail.sessionName !== sessionNameRef.current) return
       if (mask.isPending()) mask.reveal()
@@ -550,10 +548,12 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
       layout.scheduleLayoutSync(0, true)
       if (isMobileDevice && !recovered) layout.recoverTerminalScreen('pageshow')
     }
-    window.addEventListener('tmux-attached', handleAttached as EventListener)
-    window.addEventListener('tmux-resized', handleResized as EventListener)
-    window.addEventListener('tmux-error', handleResizeAbort as EventListener)
-    window.addEventListener('tmux-detached', handleResizeAbort as EventListener)
+    const streamEventUnsubs = [
+      subscribeStreamEvent(STREAM_EVENT.attached, handleAttached),
+      subscribeStreamEvent(STREAM_EVENT.resized, handleResized),
+      subscribeStreamEvent(STREAM_EVENT.error, handleResizeAbort),
+      subscribeStreamEvent(STREAM_EVENT.detached, handleResizeAbort),
+    ]
     window.addEventListener('tmuxgo-layout-change', handleLayoutChange as EventListener)
     window.addEventListener('resize', handleWindowResize)
     window.addEventListener('keyup', handleKeyUp)
@@ -628,10 +628,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
     clipboardIme.attach()
     disposables.push({
       dispose: () => {
-        window.removeEventListener('tmux-attached', handleAttached as EventListener)
-        window.removeEventListener('tmux-resized', handleResized as EventListener)
-        window.removeEventListener('tmux-error', handleResizeAbort as EventListener)
-        window.removeEventListener('tmux-detached', handleResizeAbort as EventListener)
+        for (const unsub of streamEventUnsubs) unsub()
         window.removeEventListener('tmuxgo-layout-change', handleLayoutChange as EventListener)
         resubscribeOutputRef.current = () => {}
         unsubscribeOutput()

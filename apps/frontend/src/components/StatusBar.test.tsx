@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { emitStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { StatusBar } from './StatusBar'
 
@@ -7,41 +8,61 @@ const consoleStateMock = vi.hoisted(() => ({
   activePaneId: 'local:%1',
   activeHostId: 'local',
   activeSessionId: 'session-local-dev',
-  connection: { status: 'connected' as 'connected' | 'attaching' | 'reconnecting' | 'disconnected', latency: 0, lastPing: '' },
-  terminalPerf: { attachLatency: 0, outputBytes: 0, outputEvents: 0, outputBacklog: 0, layoutFitCount: 0, lastOutputAt: '' },
+  connection: {
+    status: 'connected' as 'connected' | 'attaching' | 'reconnecting' | 'disconnected',
+    latency: 0,
+    lastPing: '',
+  },
+  terminalPerf: {
+    attachLatency: 0,
+    outputBytes: 0,
+    outputEvents: 0,
+    outputBacklog: 0,
+    layoutFitCount: 0,
+    lastOutputAt: '',
+  },
 }))
-const useSystemInfoMock = vi.hoisted(() => vi.fn(() => ({
-  hostId: 'local',
-  gpu: null,
-  cpu: 42,
-  mem: { used: 1536, total: 4096 },
-  disks: [{ mount: '/', used: 10240, total: 20480 }, { mount: '/data', used: 20480, total: 40960 }],
-  dependencies: { tmux: true, git: true, python: true, rg: true, sshpass: false },
-  stream: {},
-})))
+const useSystemInfoMock = vi.hoisted(() =>
+  vi.fn(() => ({
+    hostId: 'local',
+    gpu: null,
+    cpu: 42,
+    mem: { used: 1536, total: 4096 },
+    disks: [
+      { mount: '/', used: 10240, total: 20480 },
+      { mount: '/data', used: 20480, total: 40960 },
+    ],
+    dependencies: { tmux: true, git: true, python: true, rg: true, sshpass: false },
+    stream: {},
+  })),
+)
 
 vi.mock('@/i18n', () => ({
-  useTranslation: () => ({ t: (key: string, params?: Record<string, string | number>) => {
-    const translations: Record<string, string> = {
-      'status.connected': 'Connected',
-      'status.sessionSync': 'SYNC',
-      'status.sessionSyncStatus': 'Session sync status',
-      'status.syncPending': '...',
-      'status.syncAge': '{seconds}s',
-      'status.syncFreshTitle': 'Sessions last synced {age} ago',
-      'status.syncDelayedTitle': 'Session sync delayed; last success {age} ago',
-      'status.syncFailedTitle': 'Session sync failed; last success {age} ago',
-      'status.syncPendingTitle': 'Waiting for the first session sync',
-      'status.failed': 'failed',
-      'status.host': 'HOST',
-      'status.hostScanStatus': 'Host scan status',
-      'status.scanFailed': 'scan failed',
-      'status.scanFailedTitle': 'Remote host agent scan failed; retrying',
-    }
-    let text = translations[key] || key
-    Object.entries(params || {}).forEach(([name, value]) => { text = text.replace(`{${name}}`, String(value)) })
-    return text
-  } }),
+  useTranslation: () => ({
+    t: (key: string, params?: Record<string, string | number>) => {
+      const translations: Record<string, string> = {
+        'status.connected': 'Connected',
+        'status.sessionSync': 'SYNC',
+        'status.sessionSyncStatus': 'Session sync status',
+        'status.syncPending': '...',
+        'status.syncAge': '{seconds}s',
+        'status.syncFreshTitle': 'Sessions last synced {age} ago',
+        'status.syncDelayedTitle': 'Session sync delayed; last success {age} ago',
+        'status.syncFailedTitle': 'Session sync failed; last success {age} ago',
+        'status.syncPendingTitle': 'Waiting for the first session sync',
+        'status.failed': 'failed',
+        'status.host': 'HOST',
+        'status.hostScanStatus': 'Host scan status',
+        'status.scanFailed': 'scan failed',
+        'status.scanFailedTitle': 'Remote host agent scan failed; retrying',
+      }
+      let text = translations[key] || key
+      Object.entries(params || {}).forEach(([name, value]) => {
+        text = text.replace(`{${name}}`, String(value))
+      })
+      return text
+    },
+  }),
 }))
 vi.mock('@/stores/useConsoleStore', () => ({
   useConsoleStore: (selector: any) => selector(consoleStateMock),
@@ -99,7 +120,7 @@ describe('StatusBar', () => {
     vi.setSystemTime(new Date('2026-08-09T12:00:00Z'))
     sessionsQueryMock.dataUpdatedAt = Date.now()
     render(<StatusBar />)
-    act(() => window.dispatchEvent(new CustomEvent('tmuxgo-agent-monitor-error', { detail: { hostId: 'local' } })))
+    act(() => emitStreamEvent(STREAM_EVENT.agentMonitorError, { hostId: 'local' }))
     expect(within(screen.getByLabelText('Host scan status')).getByText('scan failed')).toBeInTheDocument()
     expect(within(screen.getByLabelText('Connection status')).getByText('Connected')).toBeInTheDocument()
     act(() => vi.advanceTimersByTime(5000))
@@ -137,7 +158,10 @@ describe('StatusBar', () => {
       gpu: null,
       cpu: 42,
       mem: { used: 1536, total: 4096 },
-      disks: [{ mount: '/', used: 10240, total: 20480 }, { mount: '/data', used: 20480, total: 40960 }],
+      disks: [
+        { mount: '/', used: 10240, total: 20480 },
+        { mount: '/data', used: 20480, total: 40960 },
+      ],
       dependencies: { tmux: true, git: true, python: true, rg: true, sshpass: false },
       stream: {},
     }))

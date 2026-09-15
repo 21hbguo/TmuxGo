@@ -3,8 +3,14 @@ import { useCallback, useEffect, useRef } from 'react'
 import { getWebSocketBase } from '@/lib/runtime-endpoints'
 import { getWebSocketUrl, isAuthEnabled } from '@/lib/auth'
 import { decodeStreamOutputBinary } from '@/lib/stream-binary'
-import { decodeCellDiff, decodeCellDiffV2, decodeCellSnapshot, decodeCellSnapshotV2 } from '@/lib/terminal-grid/decode-cell'
+import {
+  decodeCellDiff,
+  decodeCellDiffV2,
+  decodeCellSnapshot,
+  decodeCellSnapshotV2,
+} from '@/lib/terminal-grid/decode-cell'
 import { diffToAnsi, snapshotToAnsi } from '@/lib/terminal-grid/apply-cell'
+import { emitStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 type OutputMessage = { data: string; sessionName?: string | null; hostId?: string | null; resync?: boolean }
 type OutputListener = (message: OutputMessage) => void
 type SocketOutputMessage = OutputMessage & { type?: string }
@@ -34,7 +40,22 @@ function getKey(hostId: string, sessionId: string) {
   return `${hostId || 'local'}\u0000${sessionId}`
 }
 function createConnection(key: string): ConnectionState {
-  return { key, ws: null, isConnecting: false, socketReady: false, attached: false, listeners: new Set(), subscribers: 0, reconnectCount: 0, reconnectTimer: null, pingTimer: null, pongTimer: null, lastPongAt: 0, connectAttempt: 0, closeExpected: false }
+  return {
+    key,
+    ws: null,
+    isConnecting: false,
+    socketReady: false,
+    attached: false,
+    listeners: new Set(),
+    subscribers: 0,
+    reconnectCount: 0,
+    reconnectTimer: null,
+    pingTimer: null,
+    pongTimer: null,
+    lastPongAt: 0,
+    connectAttempt: 0,
+    closeExpected: false,
+  }
 }
 function getConnection(key: string) {
   let connection = connections.get(key)
@@ -57,7 +78,9 @@ function detachSocketHandlers(connection: ConnectionState) {
     ws.onmessage = null
     ws.onerror = null
     ws.onclose = null
-    try { ws.close() } catch {}
+    try {
+      ws.close()
+    } catch {}
   }
   connection.ws = null
   connection.isConnecting = false
@@ -97,7 +120,11 @@ function connect(connection: ConnectionState) {
         connection.socketReady = true
         connection.reconnectCount = 0
         connection.lastPongAt = Date.now()
-        try { ws.send(JSON.stringify({ type: 'stream_caps', binaryOutput: true, compressOutput: 'gzip', cellOutput: false })) } catch {}
+        try {
+          ws.send(
+            JSON.stringify({ type: 'stream_caps', binaryOutput: true, compressOutput: 'gzip', cellOutput: false }),
+          )
+        } catch {}
         sendPing(connection)
       }
       ws.onmessage = (event) => {
@@ -106,23 +133,48 @@ function connect(connection: ConnectionState) {
             const decoded = decodeStreamOutputBinary(event.data)
             if (!decoded) return
             if ((decoded.type === 'cell_snapshot' || decoded.type === 'cell_snapshot_v2') && decoded.cellPayload) {
-              const snap = (decoded.type === 'cell_snapshot_v2' ? decodeCellSnapshotV2 : decodeCellSnapshot)(decoded.cellPayload)
+              const snap = (decoded.type === 'cell_snapshot_v2' ? decodeCellSnapshotV2 : decodeCellSnapshot)(
+                decoded.cellPayload,
+              )
               if (!snap) {
-                try { ws.send(JSON.stringify({ type: 'cell_resync_request', sessionName: decoded.sessionName, hostId: decoded.hostId })) } catch {}
+                try {
+                  ws.send(
+                    JSON.stringify({
+                      type: 'cell_resync_request',
+                      sessionName: decoded.sessionName,
+                      hostId: decoded.hostId,
+                    }),
+                  )
+                } catch {}
                 return
               }
               const ansi = snapshotToAnsi(snap)
-              dispatchOutput(connection, { type: 'output_resync', data: ansi, sessionName: decoded.sessionName, hostId: decoded.hostId })
+              dispatchOutput(connection, {
+                type: 'output_resync',
+                data: ansi,
+                sessionName: decoded.sessionName,
+                hostId: decoded.hostId,
+              })
               return
             }
             if ((decoded.type === 'cell_diff' || decoded.type === 'cell_diff_v2') && decoded.cellPayload) {
               const diff = (decoded.type === 'cell_diff_v2' ? decodeCellDiffV2 : decodeCellDiff)(decoded.cellPayload)
               if (!diff) return
               const ansi = diffToAnsi(diff)
-              dispatchOutput(connection, { type: 'output', data: ansi, sessionName: decoded.sessionName, hostId: decoded.hostId })
+              dispatchOutput(connection, {
+                type: 'output',
+                data: ansi,
+                sessionName: decoded.sessionName,
+                hostId: decoded.hostId,
+              })
               return
             }
-            dispatchOutput(connection, { type: decoded.type, data: decoded.data, sessionName: decoded.sessionName, hostId: decoded.hostId })
+            dispatchOutput(connection, {
+              type: decoded.type,
+              data: decoded.data,
+              sessionName: decoded.sessionName,
+              hostId: decoded.hostId,
+            })
             return
           }
           const raw = typeof event.data === 'string' ? event.data : String(event.data)
@@ -155,14 +207,22 @@ function connect(connection: ConnectionState) {
     }
   }
   if (isAuthEnabled()) {
-    void getWebSocketUrl().then((wsUrl) => {
-      if (attempt !== connection.connectAttempt || connection.subscribers <= 0 || connection.ws || !connection.isConnecting) return
-      openSocket(wsUrl)
-    }).catch(() => {
-      if (attempt !== connection.connectAttempt) return
-      connection.isConnecting = false
-      scheduleReconnect(connection)
-    })
+    void getWebSocketUrl()
+      .then((wsUrl) => {
+        if (
+          attempt !== connection.connectAttempt ||
+          connection.subscribers <= 0 ||
+          connection.ws ||
+          !connection.isConnecting
+        )
+          return
+        openSocket(wsUrl)
+      })
+      .catch(() => {
+        if (attempt !== connection.connectAttempt) return
+        connection.isConnecting = false
+        scheduleReconnect(connection)
+      })
     return
   }
   openSocket(getWebSocketBase())
@@ -181,7 +241,9 @@ function sendPing(connection: ConnectionState, timeout = PONG_TIMEOUT_MS) {
 function dispatchOutput(connection: ConnectionState, message: SocketOutputMessage) {
   const sessionName = message.sessionName
   if (sessionName && getKey(message.hostId || 'local', sessionName) !== connection.key) return
-  connection.listeners.forEach((listener) => listener({ data: message.data, sessionName: message.sessionName, hostId: message.hostId, resync: message.resync }))
+  connection.listeners.forEach((listener) =>
+    listener({ data: message.data, sessionName: message.sessionName, hostId: message.hostId, resync: message.resync }),
+  )
 }
 function handleMessage(connection: ConnectionState, data: any) {
   switch (data.type) {
@@ -191,7 +253,12 @@ function handleMessage(connection: ConnectionState, data: any) {
       break
     case 'output':
     case 'output_resync':
-      dispatchOutput(connection, { data: data.data, sessionName: data.sessionName ?? null, hostId: data.hostId ?? null, resync: data.type === 'output_resync' })
+      dispatchOutput(connection, {
+        data: data.data,
+        sessionName: data.sessionName ?? null,
+        hostId: data.hostId ?? null,
+        resync: data.type === 'output_resync',
+      })
       break
     case 'connected':
       connection.socketReady = true
@@ -199,20 +266,20 @@ function handleMessage(connection: ConnectionState, data: any) {
       break
     case 'attached':
       connection.attached = true
-      window.dispatchEvent(new CustomEvent('tmux-attached', { detail: data }))
+      emitStreamEvent(STREAM_EVENT.attached, data)
       break
     case 'resized':
-      window.dispatchEvent(new CustomEvent('tmux-resized', { detail: data }))
+      emitStreamEvent(STREAM_EVENT.resized, data)
       break
     case 'error':
       connection.attached = false
-      window.dispatchEvent(new CustomEvent('tmux-error', { detail: data }))
+      emitStreamEvent(STREAM_EVENT.error, data)
       break
     case 'detached':
-      window.dispatchEvent(new CustomEvent('tmux-detached', { detail: data }))
+      emitStreamEvent(STREAM_EVENT.detached, data)
       break
     case 'session-exit':
-      window.dispatchEvent(new CustomEvent('tmux-session-exit', { detail: data }))
+      emitStreamEvent(STREAM_EVENT.sessionExit, data)
       break
     case 'stream_caps':
       break
@@ -220,50 +287,56 @@ function handleMessage(connection: ConnectionState, data: any) {
       break
   }
 }
-let foregroundListenerReady=false
+let foregroundListenerReady = false
 function ensureForegroundListener() {
-  if (foregroundListenerReady||typeof window==='undefined') return
-  foregroundListenerReady=true
-  const handleForeground=()=>{
-    if (document.visibilityState!=='visible') return
-    connections.forEach((connection)=>{
-      if (connection.subscribers<=0) return
-      const ws=connection.ws
-      if (ws?.readyState===WebSocket.OPEN) {
-        sendPing(connection,1500)
+  if (foregroundListenerReady || typeof window === 'undefined') return
+  foregroundListenerReady = true
+  const handleForeground = () => {
+    if (document.visibilityState !== 'visible') return
+    connections.forEach((connection) => {
+      if (connection.subscribers <= 0) return
+      const ws = connection.ws
+      if (ws?.readyState === WebSocket.OPEN) {
+        sendPing(connection, 1500)
         return
       }
       if (connection.isConnecting) return
       if (connection.reconnectTimer) {
         clearTimeout(connection.reconnectTimer)
-        connection.reconnectTimer=null
+        connection.reconnectTimer = null
       }
-      connection.reconnectCount=0
+      connection.reconnectCount = 0
       connect(connection)
     })
   }
-  document.addEventListener('visibilitychange',handleForeground)
-  window.addEventListener('focus',handleForeground)
-  window.addEventListener('online',handleForeground)
+  document.addEventListener('visibilitychange', handleForeground)
+  window.addEventListener('focus', handleForeground)
+  window.addEventListener('online', handleForeground)
 }
 export function useSessionSocket(hostId: string, sessionId: string) {
   const connectionRef = useRef<ConnectionState | null>(null)
   if (!connectionRef.current) connectionRef.current = getConnection(getKey(hostId, sessionId))
   const connection = connectionRef.current
-  const send = useCallback((data: any) => {
-    if (connection.ws?.readyState === WebSocket.OPEN) {
-      connection.ws.send(JSON.stringify(data))
-      return true
-    }
-    return false
-  }, [connection])
-  const subscribeOutput = useCallback((host: string, session: string, listener: OutputListener) => {
-    if (getKey(host, session) !== connection.key) return () => {}
-    connection.listeners.add(listener)
-    return () => {
-      connection.listeners.delete(listener)
-    }
-  }, [connection])
+  const send = useCallback(
+    (data: any) => {
+      if (connection.ws?.readyState === WebSocket.OPEN) {
+        connection.ws.send(JSON.stringify(data))
+        return true
+      }
+      return false
+    },
+    [connection],
+  )
+  const subscribeOutput = useCallback(
+    (host: string, session: string, listener: OutputListener) => {
+      if (getKey(host, session) !== connection.key) return () => {}
+      connection.listeners.add(listener)
+      return () => {
+        connection.listeners.delete(listener)
+      }
+    },
+    [connection],
+  )
   useEffect(() => {
     connection.subscribers += 1
     ensureForegroundListener()
@@ -306,5 +379,10 @@ export function useSessionSocket(hostId: string, sessionId: string) {
       }
     }
   }, [connection])
-  return { send, isConnected: connection.socketReady && connection.attached, isSocketReady: connection.socketReady, subscribeOutput }
+  return {
+    send,
+    isConnected: connection.socketReady && connection.attached,
+    isSocketReady: connection.socketReady,
+    subscribeOutput,
+  }
 }

@@ -7,6 +7,7 @@ import { useSystemInfo } from '@/hooks/useSystemInfo'
 import { useHosts, useSessions, useSessionSnapshot } from '@/hooks/useApi'
 import { Chip } from './Chip'
 import { AgentStatusBadge } from './AgentStatusBadge'
+import { subscribeStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 
 const gb = (mb: number) => (mb / 1024).toFixed(1)
 const SESSION_SYNC_DELAY_MS = 15000
@@ -24,9 +25,22 @@ const resourceTone = (used: number, total: number): Tone => {
   if (ratio >= 0.75) return 'warn'
   return 'neutral'
 }
-function ResourceChip({ label, value, tone = 'neutral', title }: { label: string; value: string; tone?: Tone; title?: string }) {
+function ResourceChip({
+  label,
+  value,
+  tone = 'neutral',
+  title,
+}: {
+  label: string
+  value: string
+  tone?: Tone
+  title?: string
+}) {
   return (
-    <span title={title} className={`inline-flex h-5 items-center gap-1.5 rounded-full border px-2 font-mono tabular-nums ${chipTone[tone]}`}>
+    <span
+      title={title}
+      className={`inline-flex h-5 items-center gap-1.5 rounded-full border px-2 font-mono tabular-nums ${chipTone[tone]}`}
+    >
       <span className="text-caption font-medium uppercase tracking-[0.16em] text-text-3">{label}</span>
       <span className="text-caption font-semibold">{value}</span>
     </span>
@@ -62,15 +76,13 @@ export function StatusBar() {
   }, [])
   useEffect(() => {
     setAgentMonitorErrorAt(0)
-    const handleAgentMonitorError = (event: Event) => {
-      const detail = (event as CustomEvent<{ hostId?: string }>).detail
+    const handleAgentMonitorError = (detail: { hostId?: string }) => {
       if (detail?.hostId !== activeHostId) return
       const timestamp = Date.now()
       setAgentMonitorErrorAt(timestamp)
       setNow(timestamp)
     }
-    window.addEventListener('tmuxgo-agent-monitor-error', handleAgentMonitorError)
-    return () => window.removeEventListener('tmuxgo-agent-monitor-error', handleAgentMonitorError)
+    return subscribeStreamEvent(STREAM_EVENT.agentMonitorError, handleAgentMonitorError)
   }, [activeHostId])
   useEffect(() => {
     if (!sys?.stream?.outputBytes) return
@@ -86,44 +98,117 @@ export function StatusBar() {
 
   const activePane = panes.find((p: any) => p.id === activePaneId)
   const activeHost = hosts.find((h: any) => h.id === activeHostId)
-  const missingDependencies = sys ? Object.entries(sys.dependencies).filter(([, available]) => !available).map(([name]) => name) : []
+  const missingDependencies = sys
+    ? Object.entries(sys.dependencies)
+        .filter(([, available]) => !available)
+        .map(([name]) => name)
+    : []
   const disks = sys ? [...sys.disks].sort((a, b) => b.used - a.used) : []
   const visibleDisks = disks.slice(0, 3)
-  const sessionSyncSeconds = sessionsQuery.dataUpdatedAt ? Math.max(0, Math.floor((now - sessionsQuery.dataUpdatedAt) / 1000)) : null
-  const sessionSyncAge = sessionSyncSeconds === null ? t('status.syncPending') : t('status.syncAge', { seconds: sessionSyncSeconds })
+  const sessionSyncSeconds = sessionsQuery.dataUpdatedAt
+    ? Math.max(0, Math.floor((now - sessionsQuery.dataUpdatedAt) / 1000))
+    : null
+  const sessionSyncAge =
+    sessionSyncSeconds === null ? t('status.syncPending') : t('status.syncAge', { seconds: sessionSyncSeconds })
   const sessionSyncDelayed = sessionSyncSeconds !== null && sessionSyncSeconds * 1000 >= SESSION_SYNC_DELAY_MS
-  const sessionSyncTone: Tone = sessionsQuery.isError ? 'danger' : sessionSyncDelayed ? 'warn' : sessionSyncSeconds === null ? 'neutral' : 'success'
-  const sessionSyncTitle = sessionsQuery.isError ? t('status.syncFailedTitle', { age: sessionSyncAge }) : sessionSyncDelayed ? t('status.syncDelayedTitle', { age: sessionSyncAge }) : sessionSyncSeconds === null ? t('status.syncPendingTitle') : t('status.syncFreshTitle', { age: sessionSyncAge })
+  const sessionSyncTone: Tone = sessionsQuery.isError
+    ? 'danger'
+    : sessionSyncDelayed
+      ? 'warn'
+      : sessionSyncSeconds === null
+        ? 'neutral'
+        : 'success'
+  const sessionSyncTitle = sessionsQuery.isError
+    ? t('status.syncFailedTitle', { age: sessionSyncAge })
+    : sessionSyncDelayed
+      ? t('status.syncDelayedTitle', { age: sessionSyncAge })
+      : sessionSyncSeconds === null
+        ? t('status.syncPendingTitle')
+        : t('status.syncFreshTitle', { age: sessionSyncAge })
   const agentMonitorFailed = agentMonitorErrorAt > 0 && now - agentMonitorErrorAt < AGENT_MONITOR_ERROR_TTL_MS
 
-  const statusStyle = ({
-    connected: { dot: 'bg-accent-2', text: 'text-accent-2', shell: 'border-accent-2/25 bg-accent-2/5' },
-    attaching: { dot: 'bg-warn animate-pulse', text: 'text-warn', shell: 'border-warn/30 bg-warn/10' },
-    reconnecting: { dot: 'bg-warn animate-pulse', text: 'text-warn', shell: 'border-warn/30 bg-warn/10' },
-    disconnected: { dot: 'bg-danger', text: 'text-danger', shell: 'border-danger/30 bg-danger/10' },
-  } as Record<string, { dot: string; text: string; shell: string }>)[connection.status] || { dot: 'bg-text-3', text: 'text-text-3', shell: 'border-text-1/10 bg-bg-2/45' }
+  const statusStyle = (
+    {
+      connected: { dot: 'bg-accent-2', text: 'text-accent-2', shell: 'border-accent-2/25 bg-accent-2/5' },
+      attaching: { dot: 'bg-warn animate-pulse', text: 'text-warn', shell: 'border-warn/30 bg-warn/10' },
+      reconnecting: { dot: 'bg-warn animate-pulse', text: 'text-warn', shell: 'border-warn/30 bg-warn/10' },
+      disconnected: { dot: 'bg-danger', text: 'text-danger', shell: 'border-danger/30 bg-danger/10' },
+    } as Record<string, { dot: string; text: string; shell: string }>
+  )[connection.status] || { dot: 'bg-text-3', text: 'text-text-3', shell: 'border-text-1/10 bg-bg-2/45' }
 
   return (
-    <footer className="tmuxgo-glass tmuxgo-glass-chrome relative h-7 shrink-0 overflow-visible border-t px-3 text-meta text-text-3" style={{ borderTopColor: 'var(--line)', boxShadow: 'none' }}>
+    <footer
+      className="tmuxgo-glass tmuxgo-glass-chrome relative h-7 shrink-0 overflow-visible border-t px-3 text-meta text-text-3"
+      style={{ borderTopColor: 'var(--line)', boxShadow: 'none' }}
+    >
       <div className="relative flex h-full items-center justify-between gap-3">
         <section aria-label="Workspace context" className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
-
           {activePane && (
-            <span className="inline-flex h-5 items-center rounded-full border border-text-1/10 bg-bg-2/45 px-2 font-mono text-caption tabular-nums text-text-2">{activePane.size.cols}×{activePane.size.rows}</span>
+            <span className="inline-flex h-5 items-center rounded-full border border-text-1/10 bg-bg-2/45 px-2 font-mono text-caption tabular-nums text-text-2">
+              {activePane.size.cols}×{activePane.size.rows}
+            </span>
           )}
-          {activePane?.agent && <span className="inline-flex min-w-0 items-center gap-1.5"><span className="max-w-24 truncate text-caption text-text-2">{activePane.agent}</span><AgentStatusBadge status={activePane.agentStatus} /></span>}
-          {activePane?.display && (activePane.display.title || activePane.display.stateLabel || typeof activePane.display.tokens === 'number') && <span className="inline-flex min-w-0 items-center gap-1.5 font-mono text-caption text-text-3" title={activePane.display.title || ''}><span className="max-w-40 truncate">{activePane.display.stateLabel || activePane.display.title}</span>{typeof activePane.display.tokens === 'number' && <span className="shrink-0 tabular-nums text-accent-2">{activePane.display.tokens}t</span>}</span>}
+          {activePane?.agent && (
+            <span className="inline-flex min-w-0 items-center gap-1.5">
+              <span className="max-w-24 truncate text-caption text-text-2">{activePane.agent}</span>
+              <AgentStatusBadge status={activePane.agentStatus} />
+            </span>
+          )}
+          {activePane?.display &&
+            (activePane.display.title ||
+              activePane.display.stateLabel ||
+              typeof activePane.display.tokens === 'number') && (
+              <span
+                className="inline-flex min-w-0 items-center gap-1.5 font-mono text-caption text-text-3"
+                title={activePane.display.title || ''}
+              >
+                <span className="max-w-40 truncate">{activePane.display.stateLabel || activePane.display.title}</span>
+                {typeof activePane.display.tokens === 'number' && (
+                  <span className="shrink-0 tabular-nums text-accent-2">{activePane.display.tokens}t</span>
+                )}
+              </span>
+            )}
           {activeHost && (
-            <span className="min-w-0 truncate rounded-full border border-text-1/10 bg-bg-2/45 px-2 py-0.5 text-caption text-text-2">{activeHost.name}</span>
+            <span className="min-w-0 truncate rounded-full border border-text-1/10 bg-bg-2/45 px-2 py-0.5 text-caption text-text-2">
+              {activeHost.name}
+            </span>
           )}
         </section>
         {sys && (
           <section aria-label="System resources" className="flex min-w-0 items-center gap-1.5 overflow-visible">
-            {sys.gpu && <ResourceChip label="GPU" value={`${gb(sys.gpu.used)}/${gb(sys.gpu.total)}G`} tone={resourceTone(sys.gpu.used, sys.gpu.total)} />}
-            {missingDependencies.length > 0 && <ResourceChip label="DEP" value={String(missingDependencies.length)} tone="warn" title={missingDependencies.join(', ')} />}
-            <ResourceChip label="CPU" value={`${sys.cpu}%`} tone={sys.cpu >= 90 ? 'danger' : sys.cpu >= 75 ? 'warn' : 'neutral'} />
-            <ResourceChip label="MEM" value={`${gb(sys.mem.used)}/${gb(sys.mem.total)}G`} tone={resourceTone(sys.mem.used, sys.mem.total)} />
-            {visibleDisks.map((d) => <ResourceChip key={d.mount} label={d.mount} value={`${gb(d.used)}/${gb(d.total)}G`} tone={resourceTone(d.used, d.total)} />)}
+            {sys.gpu && (
+              <ResourceChip
+                label="GPU"
+                value={`${gb(sys.gpu.used)}/${gb(sys.gpu.total)}G`}
+                tone={resourceTone(sys.gpu.used, sys.gpu.total)}
+              />
+            )}
+            {missingDependencies.length > 0 && (
+              <ResourceChip
+                label="DEP"
+                value={String(missingDependencies.length)}
+                tone="warn"
+                title={missingDependencies.join(', ')}
+              />
+            )}
+            <ResourceChip
+              label="CPU"
+              value={`${sys.cpu}%`}
+              tone={sys.cpu >= 90 ? 'danger' : sys.cpu >= 75 ? 'warn' : 'neutral'}
+            />
+            <ResourceChip
+              label="MEM"
+              value={`${gb(sys.mem.used)}/${gb(sys.mem.total)}G`}
+              tone={resourceTone(sys.mem.used, sys.mem.total)}
+            />
+            {visibleDisks.map((d) => (
+              <ResourceChip
+                key={d.mount}
+                label={d.mount}
+                value={`${gb(d.used)}/${gb(d.total)}G`}
+                tone={resourceTone(d.used, d.total)}
+              />
+            ))}
             {disks.length > 3 && (
               <div
                 className="relative shrink-0"
@@ -141,15 +226,30 @@ export function StatusBar() {
                   className="h-5 px-2 font-mono text-caption font-semibold tabular-nums text-text-2 transition-colors hover:text-accent-2"
                 >
                   <span>{`+${disks.length - 3}`}</span>
-                  <span aria-hidden="true" className="h-1.5 w-1.5 -translate-y-0.5 rotate-45 border-b border-r border-current" />
+                  <span
+                    aria-hidden="true"
+                    className="h-1.5 w-1.5 -translate-y-0.5 rotate-45 border-b border-r border-current"
+                  />
                 </Chip>
                 {showAllDisks && (
                   <div className="absolute bottom-full right-0 z-50 pb-2" role="list" aria-label="All storage">
                     <div className="min-w-56 tmuxgo-float-surface p-1.5">
                       {disks.map((d) => (
-                        <div key={d.mount} role="listitem" className="flex h-6 items-center justify-between gap-5 rounded-apple px-2 font-mono text-caption tabular-nums text-text-2 hover:bg-bg-2/70">
+                        <div
+                          key={d.mount}
+                          role="listitem"
+                          className="flex h-6 items-center justify-between gap-5 rounded-apple px-2 font-mono text-caption tabular-nums text-text-2 hover:bg-bg-2/70"
+                        >
                           <span className="truncate text-text-3">{d.mount}</span>
-                          <span className={resourceTone(d.used, d.total) === 'danger' ? 'text-danger' : resourceTone(d.used, d.total) === 'warn' ? 'text-warn' : 'text-text-2'}>{`${gb(d.used)}/${gb(d.total)}G`}</span>
+                          <span
+                            className={
+                              resourceTone(d.used, d.total) === 'danger'
+                                ? 'text-danger'
+                                : resourceTone(d.used, d.total) === 'warn'
+                                  ? 'text-warn'
+                                  : 'text-text-2'
+                            }
+                          >{`${gb(d.used)}/${gb(d.total)}G`}</span>
                         </div>
                       ))}
                     </div>
@@ -160,11 +260,43 @@ export function StatusBar() {
           </section>
         )}
         <section aria-label="Connection status" className="flex shrink-0 items-center gap-1.5">
-          <span aria-label={t('status.sessionSyncStatus')}><ResourceChip label={t('status.sessionSync')} value={sessionsQuery.isError ? `${t('status.failed')} ${sessionSyncAge}` : sessionSyncAge} tone={sessionSyncTone} title={sessionSyncTitle} /></span>
-          {agentMonitorFailed && <span aria-label={t('status.hostScanStatus')}><ResourceChip label={t('status.host')} value={t('status.scanFailed')} tone="danger" title={t('status.scanFailedTitle')} /></span>}
-          <span className={`inline-flex h-5 items-center gap-1.5 rounded-full border px-2 font-medium ${statusStyle.shell}`} style={{ minWidth: '180px' }}>
+          <span aria-label={t('status.sessionSyncStatus')}>
+            <ResourceChip
+              label={t('status.sessionSync')}
+              value={sessionsQuery.isError ? `${t('status.failed')} ${sessionSyncAge}` : sessionSyncAge}
+              tone={sessionSyncTone}
+              title={sessionSyncTitle}
+            />
+          </span>
+          {agentMonitorFailed && (
+            <span aria-label={t('status.hostScanStatus')}>
+              <ResourceChip
+                label={t('status.host')}
+                value={t('status.scanFailed')}
+                tone="danger"
+                title={t('status.scanFailedTitle')}
+              />
+            </span>
+          )}
+          <span
+            className={`inline-flex h-5 items-center gap-1.5 rounded-full border px-2 font-medium ${statusStyle.shell}`}
+            style={{ minWidth: '180px' }}
+          >
             <span className={`h-1.5 w-1.5 rounded-full ${statusStyle.dot}`} />
-            <span className={statusStyle.text}>{t(`status.${connection.status}`)}{connection.status === 'connected' && <><span className="ml-1 inline-block min-w-[3.2em] font-mono text-right tabular-nums">{connection.latency}ms</span><span className="mx-1 text-text-3">·</span><span className="inline-block min-w-[4em] font-mono text-right tabular-nums">{formatTraffic(traffic)}/s</span></>}</span>
+            <span className={statusStyle.text}>
+              {t(`status.${connection.status}`)}
+              {connection.status === 'connected' && (
+                <>
+                  <span className="ml-1 inline-block min-w-[3.2em] font-mono text-right tabular-nums">
+                    {connection.latency}ms
+                  </span>
+                  <span className="mx-1 text-text-3">·</span>
+                  <span className="inline-block min-w-[4em] font-mono text-right tabular-nums">
+                    {formatTraffic(traffic)}/s
+                  </span>
+                </>
+              )}
+            </span>
           </span>
         </section>
       </div>
