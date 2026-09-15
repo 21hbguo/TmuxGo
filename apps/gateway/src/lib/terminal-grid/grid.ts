@@ -11,10 +11,10 @@ export const BG_DEFAULT = 0
 export const BG_INDEXED = 1
 export const BG_TRUECOLOR = 2
 
-export type Cell = { cp: number; attr: number; fg: number; bg: number }
+export type Cell = { cp: number; text: string; width: number; attr: number; fg: number; bg: number }
 
 export function emptyCell(): Cell {
-  return { cp: 0x20, attr: 0, fg: 0, bg: 0 }
+  return { cp: 0x20, text: ' ', width: 1, attr: 0, fg: 0, bg: 0 }
 }
 
 export function packColorMode(fgMode: number, bgMode: number, base = 0) {
@@ -30,7 +30,7 @@ export function getBgMode(attr: number) {
 }
 
 export function cellEqual(a: Cell, b: Cell) {
-  return a.cp === b.cp && a.attr === b.attr && a.fg === b.fg && a.bg === b.bg
+  return a.cp === b.cp && a.text === b.text && a.width === b.width && a.attr === b.attr && a.fg === b.fg && a.bg === b.bg
 }
 
 export function wcwidth(cp: number) {
@@ -104,7 +104,6 @@ export class TerminalGrid {
       this.cursorX = 0
       this.cursorY = Math.min(this.rows - 1, this.cursorY + 1)
       if (this.cursorY >= this.rows - 1 && this.cursorY === this.rows - 1) {
-        // simple scroll up
         this.scrollUp(1)
       }
       return
@@ -123,10 +122,11 @@ export class TerminalGrid {
       this.cursorX = 0
       this.cursorY = Math.min(this.rows - 1, this.cursorY + 1)
     }
-    const cell: Cell = { cp, attr: this.penAttr, fg: this.penFg, bg: this.penBg }
+    const text = String.fromCodePoint(cp)
+    const cell: Cell = { cp, text, width, attr: this.penAttr, fg: this.penFg, bg: this.penBg }
     this.set(this.cursorX, this.cursorY, cell)
     if (width === 2 && this.cursorX + 1 < this.cols) {
-      this.set(this.cursorX + 1, this.cursorY, { cp: WIDE_CONT, attr: this.penAttr, fg: this.penFg, bg: this.penBg })
+      this.set(this.cursorX + 1, this.cursorY, { cp: WIDE_CONT, text: '', width: 0, attr: this.penAttr, fg: this.penFg, bg: this.penBg })
     }
     this.cursorX = Math.min(this.cols - 1, this.cursorX + width)
   }
