@@ -199,24 +199,22 @@ export function PaneGrid({
     },
     [snapshotData, activeWindow, setActivePane, queryClient, activeHostId, sessionId, pushToast, t],
   )
-  const handleSwipe = useCallback(
-    (direction: -1 | 1) => {
+  const handleSwipeRef = useRef<(direction: -1 | 1) => void>(() => {})
+  useEffect(() => {
+    handleSwipeRef.current = (direction: -1 | 1) => {
       const now = Date.now()
       if (now - navLockRef.current < 400) return
       navLockRef.current = now
       if (activeWindowZoomed && zoomedPaneCount > 1) void switchPane(direction)
       else void switchWindow(direction)
-    },
-    [activeWindowZoomed, zoomedPaneCount, switchPane, switchWindow],
-  )
+    }
+  })
   const handleSwipeLeft = useCallback(() => {
-    handleSwipe(1)
-  }, [handleSwipe])
+    handleSwipeRef.current(1)
+  }, [])
   const handleSwipeRight = useCallback(() => {
-    handleSwipe(-1)
-  }, [handleSwipe])
-  const swipeNavReady =
-    sessionWindows.length > 1 || orderedSessions.length > 1 || (activeWindowZoomed && zoomedPaneCount > 1)
+    handleSwipeRef.current(-1)
+  }, [])
 
   const sendResizeNow = useCallback(
     (size: { cols: number; rows: number }) => {
@@ -711,8 +709,8 @@ export function PaneGrid({
         onReady={handleReady}
         subscribeOutput={subscribeOutput}
         send={send}
-        onSwipeLeft={!isControlled && swipeNavReady ? handleSwipeLeft : undefined}
-        onSwipeRight={!isControlled && swipeNavReady ? handleSwipeRight : undefined}
+        onSwipeLeft={!isControlled ? handleSwipeLeft : undefined}
+        onSwipeRight={!isControlled ? handleSwipeRight : undefined}
       />
     </div>
   )
