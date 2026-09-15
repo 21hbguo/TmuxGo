@@ -1,6 +1,6 @@
-import xtermHeadless from '@xterm/headless'
+import xtermHeadlessDefault, * as xtermHeadlessNs from '@xterm/headless'
 
-const { Terminal } = xtermHeadless
+const { Terminal } = 'Terminal' in xtermHeadlessNs ? xtermHeadlessNs : xtermHeadlessDefault
 import {
   ATTR_BOLD,
   ATTR_DIM,
@@ -104,6 +104,7 @@ export class AnsiParser {
     if (!chunk) return { ok: true }
     try {
       if (this.terminal.cols !== this.grid.cols || this.terminal.rows !== this.grid.rows) {
+        this.terminal.reset()
         this.terminal.resize(Math.max(2, this.grid.cols), Math.max(1, this.grid.rows))
       }
       this.getCore().writeSync(chunk)
