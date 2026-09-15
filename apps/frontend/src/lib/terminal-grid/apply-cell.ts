@@ -46,6 +46,15 @@ function cpToString(cp: number) {
   }
 }
 
+function isContinuation(cell: Cell | undefined) {
+  return !!cell && (cell.width === 0 || cell.cp === WIDE_CONT)
+}
+
+function cellText(cell: Cell) {
+  if (isContinuation(cell)) return ''
+  return cell.text || cpToString(cell.cp) || ' '
+}
+
 export function snapshotToAnsi(snapshot: CellSnapshot) {
   let out = SYNC_BEGIN
   let lastSgr = ''
@@ -53,13 +62,17 @@ export function snapshotToAnsi(snapshot: CellSnapshot) {
     out += `\x1b[${y + 1};1H`
     for (let x = 0; x < snapshot.cols; x++) {
       const cell = snapshot.cells[y * snapshot.cols + x]
-      if (!cell || cell.cp === WIDE_CONT) { out += ' '; continue }
+      if (!cell) {
+        out += ' '
+        continue
+      }
+      if (isContinuation(cell)) continue
       const sgr = sgrForCell(cell)
       if (sgr !== lastSgr) {
         out += sgr
         lastSgr = sgr
       }
-      out += cpToString(cell.cp) || ' '
+      out += cellText(cell)
     }
   }
   out += `\x1b[${snapshot.cursorY + 1};${snapshot.cursorX + 1}H\x1b[0m${SYNC_END}`
@@ -73,14 +86,14 @@ export function diffToAnsi(diff: CellDiff) {
   let out = SYNC_BEGIN
   let lastSgr = ''
   for (const change of diff.changes) {
-    if (change.cell.cp === WIDE_CONT) continue
+    if (isContinuation(change.cell)) continue
     out += `\x1b[${change.y + 1};${change.x + 1}H`
     const sgr = sgrForCell(change.cell)
     if (sgr !== lastSgr) {
       out += sgr
       lastSgr = sgr
     }
-    out += cpToString(change.cell.cp) || ' '
+    out += cellText(change.cell)
   }
   out += `\x1b[${diff.cursorY + 1};${diff.cursorX + 1}H\x1b[0m${SYNC_END}`
   return out
