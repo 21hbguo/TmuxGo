@@ -2,6 +2,7 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { usePreferences } from './usePreferences'
+import { isMobileDevice } from './useMobileKeyboard'
 import { getWebSocketBase } from '@/lib/runtime-endpoints'
 import { getWebSocketUrl, isAuthEnabled } from '@/lib/auth'
 import { recordMobileDiagnostic } from '@/lib/mobile-diagnostics'
@@ -13,8 +14,16 @@ const wsState:WSState={ws:null,reconnectTimer:null,reconnectCount:0,isConnecting
 type OutputMessage={data:string,sessionName?:string|null,hostId?:string|null,resync?:boolean}
 const outputListeners=new Map<string,Set<(message:OutputMessage)=>void>>()
 let cellLastSeq=0
+let mobileInteractiveProfileTimer:ReturnType<typeof setTimeout>|null=null
+let mobileInteractiveProfileActive=false
 const CONNECT_TIMEOUT_MS=10000
 const STALE_CONNECT_RESET_MS=8000
+const MOBILE_INTERACTIVE_PROFILE_MS=160
+function resetMobileInteractiveProfile() {
+  if (mobileInteractiveProfileTimer) clearTimeout(mobileInteractiveProfileTimer)
+  mobileInteractiveProfileTimer=null
+  mobileInteractiveProfileActive=false
+}
 function getOutputListenerKey(hostId:string,sessionName:string) {
   return `${hostId}\u0000${sessionName}`
 }
@@ -166,6 +175,7 @@ export function useWebSocket() {
       ws.binaryType='arraybuffer'
       ws.onopen=()=>{
         if (wsState.ws!==ws) return
+        resetMobileInteractiveProfile()
         clearConnectTimer()
         wsState.isConnecting=false
         wsState.closeExpected=false
@@ -221,6 +231,7 @@ export function useWebSocket() {
       }
       ws.onclose=()=>{
         if (wsState.ws!==ws) return
+        resetMobileInteractiveProfile()
         wsState.ws=null
         wsState.isConnecting=false
         wsState.socketReady=false
@@ -238,6 +249,7 @@ export function useWebSocket() {
       }
       ws.onerror=()=>{
         if (wsState.ws!==ws) return
+        resetMobileInteractiveProfile()
         wsState.isConnecting=false
         wsState.socketReady=false
         wsState.attached=false
@@ -253,6 +265,7 @@ export function useWebSocket() {
         wsState.onError?.()
       }
       } catch (err) {
+        resetMobileInteractiveProfile()
         clearConnectTimer()
         clearPongTimer()
         wsState.isConnecting=false
@@ -269,6 +282,7 @@ export function useWebSocket() {
         openSocket(wsUrl)
       }).catch(()=>{
         if (attempt!==wsState.connectAttempt) return
+        resetMobileInteractiveProfile()
         clearConnectTimer()
         clearPongTimer()
         wsState.isConnecting=false
@@ -297,6 +311,7 @@ export function useWebSocket() {
   },[connect,updateConnection,preferences.autoReconnect,preferences.reconnectInterval])
   const resetAndReconnect=useCallback(()=>{
     const ws=wsState.ws
+    resetMobileInteractiveProfile()
     updateConnection({status:'reconnecting'})
     wsState.connectAttempt+=1
     clearConnectTimer()
@@ -345,8 +360,26 @@ export function useWebSocket() {
     }
   },[connect,resetAndReconnect,sendPing])
   const send=useCallback((data:any)=>{
-    if (wsState.ws?.readyState===WebSocket.OPEN) {
-      wsState.ws.send(JSON.stringify(data))
+    const ws=wsState.ws
+    if (ws?.readyState===WebSocket.OPEN) {
+      if (data?.type==='input'&&typeof document!=='undefined'&&document.visibilityState==='visible'&&isMobileDevice()) {
+        if (!mobileInteractiveProfileActive) {
+          ws.send(JSON.stringify({type:'stream_profile',profile:'foreground'}))
+          mobileInteractiveProfileActive=true
+          recordMobileDebug('stream-profile-interactive-start')
+        }
+        if (mobileInteractiveProfileTimer) clearTimeout(mobileInteractiveProfileTimer)
+        ws.send(JSON.stringify(data))
+        mobileInteractiveProfileTimer=setTimeout(()=>{
+          mobileInteractiveProfileTimer=null
+          mobileInteractiveProfileActive=false
+          if (wsState.ws!==ws||ws.readyState!==WebSocket.OPEN) return
+          ws.send(JSON.stringify({type:'stream_profile',profile:'mobile'}))
+          recordMobileDebug('stream-profile-interactive-end')
+        },MOBILE_INTERACTIVE_PROFILE_MS)
+        return true
+      }
+      ws.send(JSON.stringify(data))
       return true
     }
     return false
@@ -403,6 +436,8 @@ export function useWebSocket() {
     const handleVisibilityChange=()=>{
       if (document.visibilityState==='visible') {
         ensureConnection(true)
+      } else {
+        resetMobileInteractiveProfile()
       }
     }
     const handlePageShow=()=>{
@@ -456,6 +491,7 @@ export function useWebSocket() {
             clearInterval(wsState.pingTimer)
             wsState.pingTimer=null
           }
+          resetMobileInteractiveProfile()
           clearConnectTimer()
           clearPongTimer()
           wsState.connectAttempt+=1
