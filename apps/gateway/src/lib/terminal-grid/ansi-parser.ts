@@ -1,4 +1,6 @@
-import { Terminal } from '@xterm/headless'
+import xtermHeadless from '@xterm/headless'
+
+const { Terminal } = xtermHeadless
 import {
   ATTR_BOLD,
   ATTR_DIM,
@@ -76,7 +78,7 @@ function getAttr(cell: BufferCellLike) {
  */
 export class AnsiParser {
   grid: TerminalGrid
-  private terminal: Terminal
+  private terminal: InstanceType<typeof Terminal>
 
   constructor(grid: TerminalGrid) {
     this.grid = grid
