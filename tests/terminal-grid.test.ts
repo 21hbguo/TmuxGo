@@ -46,7 +46,7 @@ test('alternate screen does not overwrite the normal buffer', () => {
   const grid = new TerminalGrid(20, 4)
   const parser = new AnsiParser(grid)
   assert.equal(parser.feed('normal').ok, true)
-  assert.equal(parser.feed('\x1b[?1049hALT').ok, true)
+  assert.equal(parser.feed('\x1b[?1049h\x1b[HALT').ok, true)
   assert.equal(grid.get(0, 0).cp, 'A'.codePointAt(0))
   assert.equal(parser.feed('\x1b[?1049l').ok, true)
   assert.equal(grid.get(0, 0).cp, 'n'.codePointAt(0))
