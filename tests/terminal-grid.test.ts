@@ -36,10 +36,24 @@ test('wide characters preserve xterm cell width', () => {
   const grid = new TerminalGrid(10, 4)
   const parser = new AnsiParser(grid)
   assert.equal(parser.feed('A你B').ok, true)
-  assert.equal(grid.get(0, 0).cp, 'A'.codePointAt(0))
+  assert.equal(grid.get(0, 0).text, 'A')
+  assert.equal(grid.get(0, 0).width, 1)
   assert.equal(grid.get(1, 0).cp, '你'.codePointAt(0))
+  assert.equal(grid.get(1, 0).text, '你')
+  assert.equal(grid.get(1, 0).width, 2)
   assert.equal(grid.get(2, 0).cp, WIDE_CONT)
+  assert.equal(grid.get(2, 0).text, '')
+  assert.equal(grid.get(2, 0).width, 0)
   assert.equal(grid.get(3, 0).cp, 'B'.codePointAt(0))
+})
+
+test('combining sequence stays in one grapheme cell', () => {
+  const grid = new TerminalGrid(10, 4)
+  const parser = new AnsiParser(grid)
+  assert.equal(parser.feed('e\u0301X').ok, true)
+  assert.equal(grid.get(0, 0).text, 'e\u0301')
+  assert.equal(grid.get(0, 0).width, 1)
+  assert.equal(grid.get(1, 0).text, 'X')
 })
 
 test('alternate screen does not overwrite the normal buffer', () => {
