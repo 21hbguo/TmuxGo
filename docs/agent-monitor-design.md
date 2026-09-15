@@ -1,5 +1,7 @@
 # Agent 状态监控设计方案
 
+> 状态：已实施
+
 ## 目标
 
 在 TmuxGo 中集成多层级（Session → Window → Pane）的 AI Agent 状态监控，实时展示 Claude Code、Codex 等 agent 的运行状态。

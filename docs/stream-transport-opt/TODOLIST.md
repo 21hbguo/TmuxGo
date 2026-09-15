@@ -1,5 +1,6 @@
 # 流式传输优化 TODOLIST
 
+> 状态：归档（实施完成，记录留存）  
 > 对应计划：`docs/stream-transport-opt/PLAN.md`  
 > 状态约定：`TODO` | `DOING` | `DONE` | `BLOCKED` | `SKIPPED`  
 > 执行规则：严格按 ID 顺序；未完成依赖不可开工；每完成一项更新状态与日期  

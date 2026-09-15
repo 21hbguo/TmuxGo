@@ -1,5 +1,7 @@
 # Agent 监控实施 TODO
 
+状态：已实施
+
 对应需求：`docs/agent-monitor-requirements-20260808.md`
 
 状态约定：`TODO`、`DOING`、`DONE`、`BLOCKED`、`SKIPPED`

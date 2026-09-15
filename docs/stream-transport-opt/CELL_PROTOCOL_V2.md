@@ -1,5 +1,7 @@
 # Cell Protocol v2
 
+> Status: implemented
+
 Cell protocol v2 keeps TmuxGo's existing snapshot/diff state-synchronization model while making the character payload grapheme-aware.
 
 The design follows two established terminal ideas:

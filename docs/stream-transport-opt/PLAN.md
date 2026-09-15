@@ -1,6 +1,6 @@
 # TmuxGo 流式传输优化计划：压缩 + Cell 差分
 
-> 状态：计划待评审（**尚未开工写代码**）  
+> 状态：已实施（实现与修复记录见 `WORKLOG.md`）  
 > 创建：2026-07-24  
 > 范围：`apps/gateway` 流式出口 + `apps/frontend` 接收/渲染路径  
 > 相关现状：binary 帧已存在（`stream-binary`）、`stream_caps`、profile/backpressure、整窗 `tmux attach` → ANSI → xterm

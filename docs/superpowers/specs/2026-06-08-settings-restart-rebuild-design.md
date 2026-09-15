@@ -1,5 +1,7 @@
 # Settings Restart Rebuild Design
 
+> Status: implemented
+
 ## Goal
 
 Add a `Restart + Rebuild` action in Settings that lets the user confirm and trigger `./start.sh --restart --rebuild`, then observe task state from the UI without leaving the app.

@@ -1,5 +1,7 @@
 # 回归清单
 
+> 状态：参考（手工回归 checklist）
+
 ## 必测
 - [ ] attach 本地 session
 - [ ] resize 终端

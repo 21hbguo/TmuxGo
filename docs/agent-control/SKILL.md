@@ -1,5 +1,7 @@
 # TmuxGo Agent Control
 
+> Status: reference（agent 使用手册）
+
 Give the coding agent the ability to operate the TmuxGo workbench from inside its own pane: split panes, read other panes' output, and wait for other agents to reach a state.
 
 ## Guard (read first)

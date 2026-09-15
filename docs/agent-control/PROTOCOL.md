@@ -1,5 +1,7 @@
 # TmuxGo Agent Control Plane (v1)
 
+> Status: implemented
+
 Versioned HTTP protocol that lets an AI coding agent operating inside a TmuxGo pane drive the workbench itself — split panes, read pane output, and wait for other agents to reach a state.
 
 Also defines the display-metadata patch protocol for `/api/agent-events`: semantic state (status/phase) is kept separate from display-only metadata (title / state_label / tokens), which carries a `seq` for ordering and a `ttl_ms` for expiry — the UI consumes only display fields.

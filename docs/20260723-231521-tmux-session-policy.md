@@ -1,7 +1,7 @@
 # TmuxGo Session Policy 计划
 
 - 日期：2026-07-23
-- 状态：草案
+- 状态：已实施
 - 范围：尊重老用户 tmux 配置，同时照顾无配置新用户的可用性
 - 相关代码：
   - `apps/agent/src/tmux.ts`（`enableMouse` / `createSession`）
