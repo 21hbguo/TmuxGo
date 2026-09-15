@@ -11,10 +11,24 @@ import { useClipboard } from '@/hooks/useClipboard'
 import { useAppVersion } from '@/hooks/useAppVersion'
 import { APP_BUILD_ID, APP_NAME, APP_VERSION } from '@/lib/app-version'
 import { api, type ShareLink } from '@/lib/api'
-import { changePassword, listAuthSessions, revokeAuthSession, revokeOtherAuthSessions, type AuthSession } from '@/lib/auth'
+import {
+  changePassword,
+  listAuthSessions,
+  revokeAuthSession,
+  revokeOtherAuthSessions,
+  type AuthSession,
+} from '@/lib/auth'
 import { parseSessionName } from '@/lib/session-id'
 import type { SessionArchive, SessionArchiveSummary } from '@/types'
-import { useHosts, useRestartRebuild, useRestartRebuildStatus, useAppUpdateStatus, useAppUpdateTask, useCheckAppUpdate, useStartAppUpdate } from '@/hooks/useApi'
+import {
+  useHosts,
+  useRestartRebuild,
+  useRestartRebuildStatus,
+  useAppUpdateStatus,
+  useAppUpdateTask,
+  useCheckAppUpdate,
+  useStartAppUpdate,
+} from '@/hooks/useApi'
 import { PluginSettings } from './PluginSettings'
 import { SystemHealthPanel } from './SystemHealthPanel'
 import { Button } from './Button'
@@ -32,7 +46,9 @@ export function Settings({ onClose }: SettingsProps) {
   const activeHostId = useConsoleStore((state) => state.activeHostId)
   const activeSessionId = useConsoleStore((state) => state.activeSessionId)
   const { copy } = useClipboard()
-  const [activeTab, setActiveTab] = useState<'general' | 'appearance' | 'connection' | 'security' | 'session' | 'plugins' | 'performance' | 'about'>('general')
+  const [activeTab, setActiveTab] = useState<
+    'general' | 'appearance' | 'connection' | 'security' | 'session' | 'plugins' | 'performance' | 'about'
+  >('general')
   const [showAuditLog, setShowAuditLog] = useState(false)
   const [authSessions, setAuthSessions] = useState<AuthSession[]>([])
   const [currentAuthSessionId, setCurrentAuthSessionId] = useState('')
@@ -43,7 +59,9 @@ export function Settings({ onClose }: SettingsProps) {
   const [passwordChanging, setPasswordChanging] = useState(false)
   const [shareLinks, setShareLinks] = useState<ShareLink[]>([])
   const [shareHostIdDraft, setShareHostIdDraft] = useState(activeHostId || 'local')
-  const [shareSessionNameDraft, setShareSessionNameDraft] = useState(parseSessionName(activeHostId || 'local', activeSessionId || ''))
+  const [shareSessionNameDraft, setShareSessionNameDraft] = useState(
+    parseSessionName(activeHostId || 'local', activeSessionId || ''),
+  )
   const [shareExpiresInMinutesDraft, setShareExpiresInMinutesDraft] = useState('60')
   const [shareLoading, setShareLoading] = useState(false)
   const [shareCreating, setShareCreating] = useState(false)
@@ -56,7 +74,11 @@ export function Settings({ onClose }: SettingsProps) {
   const [archiveLoading, setArchiveLoading] = useState(false)
   const { data: hosts = [] } = useHosts()
   const restartRebuild = useRestartRebuild()
-  const { data: appVersionData, isLoading: appVersionLoading, error: appVersionError } = useAppVersion(activeTab === 'about')
+  const {
+    data: appVersionData,
+    isLoading: appVersionLoading,
+    error: appVersionError,
+  } = useAppVersion(activeTab === 'about')
   const appUpdateQuery = useAppUpdateStatus(activeTab === 'about')
   const updateTaskQuery = useAppUpdateTask(activeTab === 'about')
   const checkAppUpdate = useCheckAppUpdate()
@@ -67,14 +89,35 @@ export function Settings({ onClose }: SettingsProps) {
   const updateChecking = checkAppUpdate.isPending || appUpdateQuery.isLoading
   const deployedNewer = !!appVersionData?.buildId && appVersionData.buildId !== APP_BUILD_ID
   const updateAvailable = (updateInfo?.available ?? false) || deployedNewer
-  const latestRef = updateInfo?.latest || (appVersionData ? { version: appVersionData.version, buildId: appVersionData.buildId, commit: '' } : null)
+  const latestRef =
+    updateInfo?.latest ||
+    (appVersionData ? { version: appVersionData.version, buildId: appVersionData.buildId, commit: '' } : null)
   const restartStatusQuery = useRestartRebuildStatus(activeTab === 'about')
   const [terminalPaddingDraft, setTerminalPaddingDraft] = useState(preferences.terminalPadding)
   const [uploadRateLimitDraft, setUploadRateLimitDraft] = useState(preferences.uploadRateLimitKBps)
   const [downloadRateLimitDraft, setDownloadRateLimitDraft] = useState(preferences.downloadRateLimitKBps)
-  const fontSizeLabel = Number.isInteger(preferences.fontSize) ? `${preferences.fontSize}` : preferences.fontSize.toFixed(1)
-  const aboutStatus = updateTaskRunning ? t('settings.updateRunning') : updateInfo?.error || (appVersionError && !updateInfo) ? t('settings.aboutLoadFailed') : updateChecking && !updateInfo && !appVersionData ? t('settings.aboutChecking') : updateAvailable ? (updateInfo?.behindBy ? t('settings.aboutUpdateBehind', { count: updateInfo.behindBy }) : t('settings.aboutUpdateAvailable')) : t('settings.aboutUpdateCurrent')
-  const restartStatus = restartStatusQuery.data || { status: 'idle', startedAt: null, finishedAt: null, summaryLines: [], exitCode: null, errorMessage: null }
+  const fontSizeLabel = Number.isInteger(preferences.fontSize)
+    ? `${preferences.fontSize}`
+    : preferences.fontSize.toFixed(1)
+  const aboutStatus = updateTaskRunning
+    ? t('settings.updateRunning')
+    : updateInfo?.error || (appVersionError && !updateInfo)
+      ? t('settings.aboutLoadFailed')
+      : updateChecking && !updateInfo && !appVersionData
+        ? t('settings.aboutChecking')
+        : updateAvailable
+          ? updateInfo?.behindBy
+            ? t('settings.aboutUpdateBehind', { count: updateInfo.behindBy })
+            : t('settings.aboutUpdateAvailable')
+          : t('settings.aboutUpdateCurrent')
+  const restartStatus = restartStatusQuery.data || {
+    status: 'idle',
+    startedAt: null,
+    finishedAt: null,
+    summaryLines: [],
+    exitCode: null,
+    errorMessage: null,
+  }
   const restartRunning = restartStatus.status === 'running' || restartRebuild.isPending
   useEffect(() => {
     setTerminalPaddingDraft(preferences.terminalPadding)
@@ -216,7 +259,11 @@ export function Settings({ onClose }: SettingsProps) {
     setShareCreating(true)
     setShareActionMessage('')
     try {
-      const result = await api.shares.create(shareHostIdDraft, shareSessionNameDraft.trim(), Number(shareExpiresInMinutesDraft))
+      const result = await api.shares.create(
+        shareHostIdDraft,
+        shareSessionNameDraft.trim(),
+        Number(shareExpiresInMinutesDraft),
+      )
       const copied = await copy(`${window.location.origin}/share#token=${result.token}`)
       setShareActionMessage(copied ? t('settings.shareCopied') : t('settings.shareCreated'))
       await loadShareLinks()
@@ -274,14 +321,34 @@ export function Settings({ onClose }: SettingsProps) {
       const next = await restartRebuild.mutateAsync()
       setRestartConfirmOpen(false)
       if (next.status === 'success') pushToast({ type: 'success', message: t('settings.restartSuccess') })
-      if (next.status === 'error') pushToast({ type: 'error', message: next.errorMessage || t('settings.restartFailed') })
+      if (next.status === 'error')
+        pushToast({ type: 'error', message: next.errorMessage || t('settings.restartFailed') })
       void restartStatusQuery.refetch()
     } catch (err: any) {
       pushToast({ type: 'error', message: err?.message || t('settings.restartFailed') })
     }
   }
-  const restartStatusLabel = restartStatus.status === 'running' ? t('settings.restartStatusRunning') : restartStatus.status === 'success' ? t('settings.restartStatusSuccess') : restartStatus.status === 'error' ? t('settings.restartStatusFailed') : restartStatus.status === 'cancelled' ? t('tasks.status.cancelled') : t('settings.restartStatusIdle')
-  const updateTaskStatusLabel = !updateTask ? t('settings.restartStatusIdle') : updateTask.status === 'running' ? t('settings.restartStatusRunning') : updateTask.status === 'success' ? t('settings.restartStatusSuccess') : updateTask.status === 'error' ? t('settings.restartStatusFailed') : updateTask.status === 'cancelled' ? t('tasks.status.cancelled') : t('settings.restartStatusIdle')
+  const restartStatusLabel =
+    restartStatus.status === 'running'
+      ? t('settings.restartStatusRunning')
+      : restartStatus.status === 'success'
+        ? t('settings.restartStatusSuccess')
+        : restartStatus.status === 'error'
+          ? t('settings.restartStatusFailed')
+          : restartStatus.status === 'cancelled'
+            ? t('tasks.status.cancelled')
+            : t('settings.restartStatusIdle')
+  const updateTaskStatusLabel = !updateTask
+    ? t('settings.restartStatusIdle')
+    : updateTask.status === 'running'
+      ? t('settings.restartStatusRunning')
+      : updateTask.status === 'success'
+        ? t('settings.restartStatusSuccess')
+        : updateTask.status === 'error'
+          ? t('settings.restartStatusFailed')
+          : updateTask.status === 'cancelled'
+            ? t('tasks.status.cancelled')
+            : t('settings.restartStatusIdle')
   const triggerCheckUpdate = async () => {
     try {
       await checkAppUpdate.mutateAsync()
@@ -308,11 +375,19 @@ export function Settings({ onClose }: SettingsProps) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center tmuxgo-scrim p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]" onClick={onClose}>
-      <div className="tmuxgo-glass tmuxgo-glass-dialog flex h-[70vh] md:h-[600px] w-full max-w-[700px] flex-col overflow-hidden rounded-apple border" onClick={(e) => e.stopPropagation()}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center tmuxgo-scrim p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]"
+      onClick={onClose}
+    >
+      <div
+        className="tmuxgo-glass tmuxgo-glass-dialog flex h-[70vh] md:h-[600px] w-full max-w-[700px] flex-col overflow-hidden rounded-apple border"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="shrink-0 p-4 border-b border-[var(--line)] flex items-center justify-between">
           <h2 className="text-text-1 text-lg font-medium">{t('settings.title')}</h2>
-          <Button variant="ghost" size="sm" aria-label="close" onClick={onClose}>✕</Button>
+          <Button variant="ghost" size="sm" aria-label="close" onClick={onClose}>
+            ✕
+          </Button>
         </div>
 
         <div className="tmuxgo-scrollbar shrink-0 flex overflow-x-auto border-b border-[var(--line)]">
@@ -321,9 +396,7 @@ export function Settings({ onClose }: SettingsProps) {
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={`px-4 py-3 text-sm ${
-                activeTab === tab.id
-                  ? 'text-text-1 border-b border-accent'
-                  : 'text-text-2 hover:text-text-1'
+                activeTab === tab.id ? 'text-text-1 border-b border-accent' : 'text-text-2 hover:text-text-1'
               }`}
             >
               {tab.label}
@@ -377,27 +450,47 @@ export function Settings({ onClose }: SettingsProps) {
                   <div className="flex items-center justify-between">
                     <span className="text-text-2 text-sm">{t('settings.agentNotificationsEnabled')}</span>
                     <button
-                      onClick={() => updatePreferences({ agentNotificationsEnabled: !preferences.agentNotificationsEnabled })}
+                      onClick={() =>
+                        updatePreferences({ agentNotificationsEnabled: !preferences.agentNotificationsEnabled })
+                      }
                       className={`w-10 h-6 rounded-full relative ${preferences.agentNotificationsEnabled ? 'bg-accent' : 'bg-bg-2'}`}
                       aria-label={t('settings.agentNotificationsEnabled')}
                       aria-pressed={preferences.agentNotificationsEnabled}
                     >
-                      <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${preferences.agentNotificationsEnabled ? 'right-1' : 'left-1'}`} />
+                      <div
+                        className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${preferences.agentNotificationsEnabled ? 'right-1' : 'left-1'}`}
+                      />
                     </button>
                   </div>
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-text-2 text-sm">{t('settings.agentNotificationDuration')}</span>
                     <select
                       value={preferences.agentNotificationDurationMs}
-                      onChange={(event) => updatePreferences({ agentNotificationDurationMs: Number(event.target.value) })}
+                      onChange={(event) =>
+                        updatePreferences({ agentNotificationDurationMs: Number(event.target.value) })
+                      }
                       disabled={!preferences.agentNotificationsEnabled}
                       className="tmuxgo-control tmuxgo-select rounded-apple px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-50"
                       aria-label={t('settings.agentNotificationDuration')}
                     >
-                      {[3000, 5000, 10000, 30000, 60000].map((duration) => <option key={duration} value={duration}>{t('settings.seconds', { count: duration / 1000 })}</option>)}
+                      {[3000, 5000, 10000, 30000, 60000].map((duration) => (
+                        <option key={duration} value={duration}>
+                          {t('settings.seconds', { count: duration / 1000 })}
+                        </option>
+                      ))}
                     </select>
                   </div>
                 </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-3 pt-4 border-t border-[var(--line)]">
+                <div className="min-w-0 pr-3">
+                  <div className="text-text-2 text-sm">{t('settings.forceRefresh')}</div>
+                  <div className="mt-1 text-caption text-text-3">{t('settings.forceRefreshDesc')}</div>
+                </div>
+                <Button size="sm" onClick={() => window.location.reload()}>
+                  {t('settings.forceRefresh')}
+                </Button>
               </div>
 
               <div className="pt-4 border-t border-[var(--line)]">
@@ -405,7 +498,6 @@ export function Settings({ onClose }: SettingsProps) {
                   {t('settings.resetDefaults')}
                 </Button>
               </div>
-
             </div>
           )}
 
@@ -424,9 +516,7 @@ export function Settings({ onClose }: SettingsProps) {
                           preferences.theme === theme ? 'border-accent' : 'border-transparent'
                         }`}
                       >
-                        <div className="text-text-1 text-sm">
-                          {t(`settings.theme.${key}` as any)}
-                        </div>
+                        <div className="text-text-1 text-sm">{t(`settings.theme.${key}` as any)}</div>
                       </button>
                     )
                   })}
@@ -442,7 +532,9 @@ export function Settings({ onClose }: SettingsProps) {
                     aria-label={t('settings.immersiveFullscreen')}
                     aria-pressed={preferences.immersiveFullscreen}
                   >
-                    <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${preferences.immersiveFullscreen ? 'right-1' : 'left-1'}`} />
+                    <div
+                      className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${preferences.immersiveFullscreen ? 'right-1' : 'left-1'}`}
+                    />
                   </button>
                 </div>
               </div>
@@ -458,9 +550,7 @@ export function Settings({ onClose }: SettingsProps) {
                           key={pos}
                           onClick={() => updatePreferences({ sidebarPosition: pos })}
                           className={`px-3 py-1.5 rounded-apple text-sm ${
-                            preferences.sidebarPosition === pos
-                              ? 'bg-accent text-bg-0'
-                              : 'bg-bg-2 text-text-2'
+                            preferences.sidebarPosition === pos ? 'bg-accent text-bg-0' : 'bg-bg-2 text-text-2'
                           }`}
                         >
                           {pos}
@@ -508,13 +598,19 @@ export function Settings({ onClose }: SettingsProps) {
                     <span className="text-text-2 text-sm">{t('settings.fontSize')}</span>
                     <div className="flex items-center gap-2">
                       <Chip
-                        onClick={() => updatePreferences({ fontSize: Math.max(8, Math.round((preferences.fontSize - 1) * 10) / 10) })}
+                        onClick={() =>
+                          updatePreferences({ fontSize: Math.max(8, Math.round((preferences.fontSize - 1) * 10) / 10) })
+                        }
                       >
                         -
                       </Chip>
                       <span className="text-text-1 text-sm w-12 text-center">{fontSizeLabel}px</span>
                       <Chip
-                        onClick={() => updatePreferences({ fontSize: Math.min(20, Math.round((preferences.fontSize + 1) * 10) / 10) })}
+                        onClick={() =>
+                          updatePreferences({
+                            fontSize: Math.min(20, Math.round((preferences.fontSize + 1) * 10) / 10),
+                          })
+                        }
                       >
                         +
                       </Chip>
@@ -524,9 +620,7 @@ export function Settings({ onClose }: SettingsProps) {
                     <span className="text-text-2 text-sm">{t('settings.cursorBlink')}</span>
                     <button
                       onClick={() => updatePreferences({ cursorBlink: !preferences.cursorBlink })}
-                      className={`w-10 h-6 rounded-full relative ${
-                        preferences.cursorBlink ? 'bg-accent' : 'bg-bg-2'
-                      }`}
+                      className={`w-10 h-6 rounded-full relative ${preferences.cursorBlink ? 'bg-accent' : 'bg-bg-2'}`}
                     >
                       <div
                         className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${
@@ -610,32 +704,161 @@ export function Settings({ onClose }: SettingsProps) {
                 <div className="text-sm font-medium text-text-1">{t('settings.securityPasswordTitle')}</div>
                 <div className="mt-1 text-xs text-text-3">{t('settings.securityPasswordDesc')}</div>
                 <div className="mt-4 space-y-2">
-                  <input type="password" autoComplete="current-password" value={currentPasswordDraft} onChange={(event) => setCurrentPasswordDraft(event.target.value)} placeholder={t('auth.currentPassword')} className="tmuxgo-control tmuxgo-input w-full rounded-apple px-2 py-1.5 text-sm" />
-                  <input type="password" autoComplete="new-password" minLength={8} value={newPasswordDraft} onChange={(event) => setNewPasswordDraft(event.target.value)} placeholder={t('auth.newPassword')} className="tmuxgo-control tmuxgo-input w-full rounded-apple px-2 py-1.5 text-sm" />
+                  <input
+                    type="password"
+                    autoComplete="current-password"
+                    value={currentPasswordDraft}
+                    onChange={(event) => setCurrentPasswordDraft(event.target.value)}
+                    placeholder={t('auth.currentPassword')}
+                    className="tmuxgo-control tmuxgo-input w-full rounded-apple px-2 py-1.5 text-sm"
+                  />
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    minLength={8}
+                    value={newPasswordDraft}
+                    onChange={(event) => setNewPasswordDraft(event.target.value)}
+                    placeholder={t('auth.newPassword')}
+                    className="tmuxgo-control tmuxgo-input w-full rounded-apple px-2 py-1.5 text-sm"
+                  />
                 </div>
-                <div className="mt-3 flex justify-end"><Button variant="primary" size="sm" disabled={passwordChanging || !currentPasswordDraft || newPasswordDraft.length < 8} onClick={() => void updateAccountPassword()}>{passwordChanging ? t('auth.passwordChanging') : t('auth.passwordChange')}</Button></div>
+                <div className="mt-3 flex justify-end">
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    disabled={passwordChanging || !currentPasswordDraft || newPasswordDraft.length < 8}
+                    onClick={() => void updateAccountPassword()}
+                  >
+                    {passwordChanging ? t('auth.passwordChanging') : t('auth.passwordChange')}
+                  </Button>
+                </div>
               </div>
               <div className="rounded-apple border border-[var(--line)] bg-bg-2 p-4">
                 <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0"><div className="text-sm font-medium text-text-1">{t('settings.securityDevicesTitle')}</div><div className="mt-1 text-xs text-text-3">{t('settings.securityDevicesDesc')}</div></div>
-                  <Button size="sm" className="shrink-0" disabled={authSessionsLoading || !authSessions.some((session) => session.id !== currentAuthSessionId)} onClick={() => void revokeOtherSessions()}>{t('settings.securityRevokeOthers')}</Button>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-text-1">{t('settings.securityDevicesTitle')}</div>
+                    <div className="mt-1 text-xs text-text-3">{t('settings.securityDevicesDesc')}</div>
+                  </div>
+                  <Button
+                    size="sm"
+                    className="shrink-0"
+                    disabled={
+                      authSessionsLoading || !authSessions.some((session) => session.id !== currentAuthSessionId)
+                    }
+                    onClick={() => void revokeOtherSessions()}
+                  >
+                    {t('settings.securityRevokeOthers')}
+                  </Button>
                 </div>
                 {authSessionsLoading && <div className="mt-4 text-sm text-text-3">{t('common.loading')}</div>}
-                {!authSessionsLoading && !authSessions.length && <div className="mt-4 text-sm text-text-3">{t('settings.securityNoDevices')}</div>}
-                {!authSessionsLoading && authSessions.length > 0 && <div className="mt-4 divide-y divide-[var(--line)] rounded-apple border border-[var(--line)]">{authSessions.map((session) => <div key={session.id} className="flex items-start gap-3 px-3 py-3"><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><span className="text-sm text-text-1">{session.id === currentAuthSessionId ? t('settings.securityCurrentDevice') : t('settings.securityDevice')}</span><span className="text-xs text-text-3">{session.ip || '-'}</span></div><div className="mt-1 break-words text-xs text-text-3">{session.userAgent || t('settings.securityUnknownDevice')}</div><div className="mt-1 text-xs text-text-3">{t('settings.securityCreatedAt', { value: new Date(session.createdAt).toLocaleString() })} · {t('settings.securityLastUsedAt', { value: new Date(session.lastUsedAt).toLocaleString() })} · {t('settings.securityExpiresAt', { value: new Date(session.expiresAt).toLocaleString() })}</div></div>{session.id !== currentAuthSessionId && <Button size="sm" className="shrink-0" onClick={() => void revokeSession(session.id)}>{t('settings.securityRevoke')}</Button>}</div>)}</div>}
+                {!authSessionsLoading && !authSessions.length && (
+                  <div className="mt-4 text-sm text-text-3">{t('settings.securityNoDevices')}</div>
+                )}
+                {!authSessionsLoading && authSessions.length > 0 && (
+                  <div className="mt-4 divide-y divide-[var(--line)] rounded-apple border border-[var(--line)]">
+                    {authSessions.map((session) => (
+                      <div key={session.id} className="flex items-start gap-3 px-3 py-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-text-1">
+                              {session.id === currentAuthSessionId
+                                ? t('settings.securityCurrentDevice')
+                                : t('settings.securityDevice')}
+                            </span>
+                            <span className="text-xs text-text-3">{session.ip || '-'}</span>
+                          </div>
+                          <div className="mt-1 break-words text-xs text-text-3">
+                            {session.userAgent || t('settings.securityUnknownDevice')}
+                          </div>
+                          <div className="mt-1 text-xs text-text-3">
+                            {t('settings.securityCreatedAt', { value: new Date(session.createdAt).toLocaleString() })} ·{' '}
+                            {t('settings.securityLastUsedAt', { value: new Date(session.lastUsedAt).toLocaleString() })}{' '}
+                            · {t('settings.securityExpiresAt', { value: new Date(session.expiresAt).toLocaleString() })}
+                          </div>
+                        </div>
+                        {session.id !== currentAuthSessionId && (
+                          <Button size="sm" className="shrink-0" onClick={() => void revokeSession(session.id)}>
+                            {t('settings.securityRevoke')}
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="rounded-apple border border-[var(--line)] bg-bg-2 p-4">
                 <div className="text-sm font-medium text-text-1">{t('settings.shareTitle')}</div>
                 <div className="mt-1 text-xs text-text-3">{t('settings.shareDesc')}</div>
                 <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                  <select aria-label={t('settings.shareHost')} value={shareHostIdDraft} onChange={(event) => setShareHostIdDraft(event.target.value)} className="tmuxgo-control tmuxgo-input rounded-apple px-2 py-1.5 text-sm"><option value="local">{t('settings.shareLocalHost')}</option>{hosts.map((host) => <option key={host.id} value={host.id}>{host.name || host.id}</option>)}</select>
-                  <input aria-label={t('settings.shareSession')} value={shareSessionNameDraft} onChange={(event) => setShareSessionNameDraft(event.target.value)} placeholder={t('settings.shareSession')} className="tmuxgo-control tmuxgo-input rounded-apple px-2 py-1.5 text-sm" />
-                  <select aria-label={t('settings.shareExpires')} value={shareExpiresInMinutesDraft} onChange={(event) => setShareExpiresInMinutesDraft(event.target.value)} className="tmuxgo-control tmuxgo-input rounded-apple px-2 py-1.5 text-sm"><option value="15">{t('settings.shareMinutes', { value: 15 })}</option><option value="60">{t('settings.shareHours', { value: 1 })}</option><option value="240">{t('settings.shareHours', { value: 4 })}</option><option value="1440">{t('settings.shareDays', { value: 1 })}</option></select>
+                  <select
+                    aria-label={t('settings.shareHost')}
+                    value={shareHostIdDraft}
+                    onChange={(event) => setShareHostIdDraft(event.target.value)}
+                    className="tmuxgo-control tmuxgo-input rounded-apple px-2 py-1.5 text-sm"
+                  >
+                    <option value="local">{t('settings.shareLocalHost')}</option>
+                    {hosts.map((host) => (
+                      <option key={host.id} value={host.id}>
+                        {host.name || host.id}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    aria-label={t('settings.shareSession')}
+                    value={shareSessionNameDraft}
+                    onChange={(event) => setShareSessionNameDraft(event.target.value)}
+                    placeholder={t('settings.shareSession')}
+                    className="tmuxgo-control tmuxgo-input rounded-apple px-2 py-1.5 text-sm"
+                  />
+                  <select
+                    aria-label={t('settings.shareExpires')}
+                    value={shareExpiresInMinutesDraft}
+                    onChange={(event) => setShareExpiresInMinutesDraft(event.target.value)}
+                    className="tmuxgo-control tmuxgo-input rounded-apple px-2 py-1.5 text-sm"
+                  >
+                    <option value="15">{t('settings.shareMinutes', { value: 15 })}</option>
+                    <option value="60">{t('settings.shareHours', { value: 1 })}</option>
+                    <option value="240">{t('settings.shareHours', { value: 4 })}</option>
+                    <option value="1440">{t('settings.shareDays', { value: 1 })}</option>
+                  </select>
                 </div>
-                <div className="mt-3 flex justify-end"><Button variant="primary" size="sm" disabled={shareCreating || !shareSessionNameDraft.trim()} onClick={() => void createShareLink()}>{shareCreating ? t('common.loading') : t('settings.shareCreate')}</Button></div>
+                <div className="mt-3 flex justify-end">
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    disabled={shareCreating || !shareSessionNameDraft.trim()}
+                    onClick={() => void createShareLink()}
+                  >
+                    {shareCreating ? t('common.loading') : t('settings.shareCreate')}
+                  </Button>
+                </div>
                 {shareLoading && <div className="mt-4 text-sm text-text-3">{t('common.loading')}</div>}
-                {!shareLoading && !shareLinks.length && <div className="mt-4 text-sm text-text-3">{t('settings.shareEmpty')}</div>}
-                {!shareLoading && shareLinks.length > 0 && <div className="mt-4 divide-y divide-[var(--line)] rounded-apple border border-[var(--line)]">{shareLinks.map((link) => <div key={link.id} className="flex items-center gap-3 px-3 py-3"><div className="min-w-0 flex-1"><div className="truncate text-sm text-text-1">{link.hostId}/{link.sessionName}</div><div className="mt-1 text-xs text-text-3">{link.revokedAt ? t('settings.shareRevokedAt', { value: new Date(link.revokedAt).toLocaleString() }) : t('settings.shareExpiresAt', { value: new Date(link.expiresAt).toLocaleString() })}</div></div>{!link.revokedAt && <Button size="sm" className="shrink-0" onClick={() => void revokeShareLink(link.id)}>{t('settings.shareRevoke')}</Button>}</div>)}</div>}
+                {!shareLoading && !shareLinks.length && (
+                  <div className="mt-4 text-sm text-text-3">{t('settings.shareEmpty')}</div>
+                )}
+                {!shareLoading && shareLinks.length > 0 && (
+                  <div className="mt-4 divide-y divide-[var(--line)] rounded-apple border border-[var(--line)]">
+                    {shareLinks.map((link) => (
+                      <div key={link.id} className="flex items-center gap-3 px-3 py-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm text-text-1">
+                            {link.hostId}/{link.sessionName}
+                          </div>
+                          <div className="mt-1 text-xs text-text-3">
+                            {link.revokedAt
+                              ? t('settings.shareRevokedAt', { value: new Date(link.revokedAt).toLocaleString() })
+                              : t('settings.shareExpiresAt', { value: new Date(link.expiresAt).toLocaleString() })}
+                          </div>
+                        </div>
+                        {!link.revokedAt && (
+                          <Button size="sm" className="shrink-0" onClick={() => void revokeShareLink(link.id)}>
+                            {t('settings.shareRevoke')}
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
               {authActionMessage && <div className="text-sm text-danger">{authActionMessage}</div>}
               {shareActionMessage && <div className="text-sm text-danger">{shareActionMessage}</div>}
@@ -653,47 +876,120 @@ export function Settings({ onClose }: SettingsProps) {
                       onClick={() => updateSessionContinuity({ enabled: !sessionContinuity.enabled })}
                       className={`w-10 h-6 rounded-full relative ${sessionContinuity.enabled ? 'bg-accent' : 'bg-bg-2'}`}
                     >
-                      <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${sessionContinuity.enabled ? 'right-1' : 'left-1'}`} />
+                      <div
+                        className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${sessionContinuity.enabled ? 'right-1' : 'left-1'}`}
+                      />
                     </button>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-text-2 text-sm">{t('settings.resumeOnReconnect')}</span>
                     <button
-                      onClick={() => updateSessionContinuity({ resumeOnReconnect: !sessionContinuity.resumeOnReconnect })}
+                      onClick={() =>
+                        updateSessionContinuity({ resumeOnReconnect: !sessionContinuity.resumeOnReconnect })
+                      }
                       className={`w-10 h-6 rounded-full relative ${sessionContinuity.resumeOnReconnect ? 'bg-accent' : 'bg-bg-2'}`}
                     >
-                      <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${sessionContinuity.resumeOnReconnect ? 'right-1' : 'left-1'}`} />
+                      <div
+                        className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${sessionContinuity.resumeOnReconnect ? 'right-1' : 'left-1'}`}
+                      />
                     </button>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-text-2 text-sm">{t('settings.resumeOnNewDevice')}</span>
                     <button
-                      onClick={() => updateSessionContinuity({ resumeOnNewDevice: !sessionContinuity.resumeOnNewDevice })}
+                      onClick={() =>
+                        updateSessionContinuity({ resumeOnNewDevice: !sessionContinuity.resumeOnNewDevice })
+                      }
                       className={`w-10 h-6 rounded-full relative ${sessionContinuity.resumeOnNewDevice ? 'bg-accent' : 'bg-bg-2'}`}
                     >
-                      <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${sessionContinuity.resumeOnNewDevice ? 'right-1' : 'left-1'}`} />
+                      <div
+                        className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${sessionContinuity.resumeOnNewDevice ? 'right-1' : 'left-1'}`}
+                      />
                     </button>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-text-2 text-sm">{t('settings.archiveEnabled')}</span>
                     <button
-                      onClick={() => updateSessionContinuity({ archive: { ...sessionContinuity.archive, enabled: !sessionContinuity.archive.enabled, captureMode: sessionContinuity.archive.enabled ? 'none' : sessionContinuity.archive.captureMode === 'none' ? 'visible' : sessionContinuity.archive.captureMode } })}
+                      onClick={() =>
+                        updateSessionContinuity({
+                          archive: {
+                            ...sessionContinuity.archive,
+                            enabled: !sessionContinuity.archive.enabled,
+                            captureMode: sessionContinuity.archive.enabled
+                              ? 'none'
+                              : sessionContinuity.archive.captureMode === 'none'
+                                ? 'visible'
+                                : sessionContinuity.archive.captureMode,
+                          },
+                        })
+                      }
                       className={`w-10 h-6 rounded-full relative ${sessionContinuity.archive.enabled ? 'bg-accent' : 'bg-bg-2'}`}
                     >
-                      <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${sessionContinuity.archive.enabled ? 'right-1' : 'left-1'}`} />
+                      <div
+                        className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${sessionContinuity.archive.enabled ? 'right-1' : 'left-1'}`}
+                      />
                     </button>
                   </div>
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-text-2 text-sm">{t('settings.archiveCaptureMode')}</span>
-                    <select value={sessionContinuity.archive.captureMode === 'none' ? 'visible' : sessionContinuity.archive.captureMode} disabled={!sessionContinuity.archive.enabled} onChange={(event) => updateSessionContinuity({ archive: { ...sessionContinuity.archive, captureMode: event.target.value as 'visible' | 'history' } })} className="tmuxgo-control tmuxgo-select rounded-apple px-3 py-1.5 text-sm disabled:opacity-50"><option value="visible">{t('settings.archiveVisible')}</option><option value="history">{t('settings.archiveHistory')}</option></select>
+                    <select
+                      value={
+                        sessionContinuity.archive.captureMode === 'none'
+                          ? 'visible'
+                          : sessionContinuity.archive.captureMode
+                      }
+                      disabled={!sessionContinuity.archive.enabled}
+                      onChange={(event) =>
+                        updateSessionContinuity({
+                          archive: {
+                            ...sessionContinuity.archive,
+                            captureMode: event.target.value as 'visible' | 'history',
+                          },
+                        })
+                      }
+                      className="tmuxgo-control tmuxgo-select rounded-apple px-3 py-1.5 text-sm disabled:opacity-50"
+                    >
+                      <option value="visible">{t('settings.archiveVisible')}</option>
+                      <option value="history">{t('settings.archiveHistory')}</option>
+                    </select>
                   </div>
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-text-2 text-sm">{t('settings.archiveMaxSize')}</span>
-                    <select value={sessionContinuity.archive.maxBytesPerSession} disabled={!sessionContinuity.archive.enabled} onChange={(event) => updateSessionContinuity({ archive: { ...sessionContinuity.archive, maxBytesPerSession: Number(event.target.value) } })} className="tmuxgo-control tmuxgo-select rounded-apple px-3 py-1.5 text-sm disabled:opacity-50"><option value={262144}>256 KB</option><option value={1048576}>1 MB</option><option value={4194304}>4 MB</option><option value={16777216}>16 MB</option><option value={33554432}>32 MB</option></select>
+                    <select
+                      value={sessionContinuity.archive.maxBytesPerSession}
+                      disabled={!sessionContinuity.archive.enabled}
+                      onChange={(event) =>
+                        updateSessionContinuity({
+                          archive: { ...sessionContinuity.archive, maxBytesPerSession: Number(event.target.value) },
+                        })
+                      }
+                      className="tmuxgo-control tmuxgo-select rounded-apple px-3 py-1.5 text-sm disabled:opacity-50"
+                    >
+                      <option value={262144}>256 KB</option>
+                      <option value={1048576}>1 MB</option>
+                      <option value={4194304}>4 MB</option>
+                      <option value={16777216}>16 MB</option>
+                      <option value={33554432}>32 MB</option>
+                    </select>
                   </div>
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-text-2 text-sm">{t('settings.archiveRetention')}</span>
-                    <input type="number" min={1} max={3650} value={sessionContinuity.archive.retentionDays} disabled={!sessionContinuity.archive.enabled} onChange={(event) => updateSessionContinuity({ archive: { ...sessionContinuity.archive, retentionDays: Math.max(1, Math.min(3650, Number(event.target.value) || 1)) } })} className="tmuxgo-control tmuxgo-input w-20 rounded-apple px-2 py-1.5 text-right text-sm disabled:opacity-50" />
+                    <input
+                      type="number"
+                      min={1}
+                      max={3650}
+                      value={sessionContinuity.archive.retentionDays}
+                      disabled={!sessionContinuity.archive.enabled}
+                      onChange={(event) =>
+                        updateSessionContinuity({
+                          archive: {
+                            ...sessionContinuity.archive,
+                            retentionDays: Math.max(1, Math.min(3650, Number(event.target.value) || 1)),
+                          },
+                        })
+                      }
+                      className="tmuxgo-control tmuxgo-input w-20 rounded-apple px-2 py-1.5 text-right text-sm disabled:opacity-50"
+                    />
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-text-2 text-sm">{t('settings.resumePointCount')}</span>
@@ -714,7 +1010,9 @@ export function Settings({ onClose }: SettingsProps) {
                     </div>
                   </div>
                   <div className="flex items-center justify-end">
-                    <Button size="sm" className="mr-2" onClick={openArchiveDialog}>{t('settings.viewArchives')}</Button>
+                    <Button size="sm" className="mr-2" onClick={openArchiveDialog}>
+                      {t('settings.viewArchives')}
+                    </Button>
                     <Button size="sm" onClick={() => updateSessionContinuity({ resumePoints: [] })}>
                       {t('settings.clearResumePoints')}
                     </Button>
@@ -745,15 +1043,23 @@ export function Settings({ onClose }: SettingsProps) {
                 </div>
                 <div className="border-t border-[var(--line)] flex items-center justify-between gap-4 px-4 py-3">
                   <span className="text-sm text-text-2">{t('settings.aboutLatestVersion')}</span>
-                  <span className="text-sm text-text-1">{updateChecking && !latestRef ? '...' : latestRef?.version || '-'}</span>
+                  <span className="text-sm text-text-1">
+                    {updateChecking && !latestRef ? '...' : latestRef?.version || '-'}
+                  </span>
                 </div>
                 <div className="border-t border-[var(--line)] flex items-center justify-between gap-4 px-4 py-3">
                   <span className="text-sm text-text-2">{t('settings.aboutLatestBuild')}</span>
-                  <span className="text-sm text-text-1">{updateChecking && !latestRef ? '...' : latestRef?.buildId || '-'}</span>
+                  <span className="text-sm text-text-1">
+                    {updateChecking && !latestRef ? '...' : latestRef?.buildId || '-'}
+                  </span>
                 </div>
                 <div className="border-t border-[var(--line)] flex items-center justify-between gap-4 px-4 py-3">
                   <span className="text-sm text-text-2">{t('settings.aboutUpdateStatus')}</span>
-                  <span className={`text-sm ${updateTaskRunning || updateAvailable ? 'text-warn' : updateInfo?.error || appVersionError ? 'text-danger' : 'text-accent-2'}`}>{aboutStatus}</span>
+                  <span
+                    className={`text-sm ${updateTaskRunning || updateAvailable ? 'text-warn' : updateInfo?.error || appVersionError ? 'text-danger' : 'text-accent-2'}`}
+                  >
+                    {aboutStatus}
+                  </span>
                 </div>
               </div>
               <div className="rounded-apple border border-[var(--line)] bg-bg-2 p-4">
@@ -764,19 +1070,34 @@ export function Settings({ onClose }: SettingsProps) {
                     {updateInfo?.dirty && <div className="mt-1 text-xs text-warn">{t('settings.updateDirty')}</div>}
                   </div>
                   <div className="flex shrink-0 gap-2">
-                    <Button variant="ghost" size="sm" disabled={updateChecking || updateTaskRunning} onClick={() => void triggerCheckUpdate()}>{updateChecking ? t('settings.updateChecking') : t('settings.updateCheck')}</Button>
-                    <Button variant="primary" disabled={updateTaskRunning} onClick={() => setUpdateConfirmOpen(true)}>{t('settings.updateAction')}</Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={updateChecking || updateTaskRunning}
+                      onClick={() => void triggerCheckUpdate()}
+                    >
+                      {updateChecking ? t('settings.updateChecking') : t('settings.updateCheck')}
+                    </Button>
+                    <Button variant="primary" disabled={updateTaskRunning} onClick={() => setUpdateConfirmOpen(true)}>
+                      {t('settings.updateAction')}
+                    </Button>
                   </div>
                 </div>
                 {updateTask && (updateTask.status !== 'idle' || updateTask.summaryLines.length > 0) && (
                   <div className="mt-4 rounded-apple border border-[var(--line)] px-3 py-2">
                     <div className="flex items-center justify-between gap-4">
                       <span className="text-sm text-text-2">{t('settings.updateStatus')}</span>
-                      <span className={`text-sm ${updateTask.status === 'success' ? 'text-accent-2' : updateTask.status === 'error' || updateTask.status === 'cancelled' ? 'text-danger' : updateTask.status === 'running' ? 'text-warn' : 'text-text-1'}`}>{updateTaskStatusLabel}</span>
+                      <span
+                        className={`text-sm ${updateTask.status === 'success' ? 'text-accent-2' : updateTask.status === 'error' || updateTask.status === 'cancelled' ? 'text-danger' : updateTask.status === 'running' ? 'text-warn' : 'text-text-1'}`}
+                      >
+                        {updateTaskStatusLabel}
+                      </span>
                     </div>
                     {updateTask.summaryLines.length > 0 && (
                       <div className="mt-2 rounded-apple bg-bg-1 px-2 py-2 font-mono text-xs text-text-2">
-                        {updateTask.summaryLines.map((line, index) => <div key={`${index}-${line}`}>{line}</div>)}
+                        {updateTask.summaryLines.map((line, index) => (
+                          <div key={`${index}-${line}`}>{line}</div>
+                        ))}
                       </div>
                     )}
                   </div>
@@ -788,16 +1109,29 @@ export function Settings({ onClose }: SettingsProps) {
                     <div className="text-sm font-medium text-text-1">{t('settings.restartTitle')}</div>
                     <div className="mt-1 text-xs text-text-3">{t('settings.restartDesc')}</div>
                   </div>
-                  <Button variant="primary" disabled={restartRunning} className="shrink-0" onClick={() => setRestartConfirmOpen(true)}>{t('settings.restartAction')}</Button>
+                  <Button
+                    variant="primary"
+                    disabled={restartRunning}
+                    className="shrink-0"
+                    onClick={() => setRestartConfirmOpen(true)}
+                  >
+                    {t('settings.restartAction')}
+                  </Button>
                 </div>
                 <div className="mt-4 rounded-apple border border-[var(--line)] px-3 py-2">
                   <div className="flex items-center justify-between gap-4">
                     <span className="text-sm text-text-2">{t('settings.restartStatus')}</span>
-                    <span className={`text-sm ${restartStatus.status === 'success' ? 'text-accent-2' : restartStatus.status === 'error' || restartStatus.status === 'cancelled' ? 'text-danger' : restartStatus.status === 'running' ? 'text-warn' : 'text-text-1'}`}>{restartStatusLabel}</span>
+                    <span
+                      className={`text-sm ${restartStatus.status === 'success' ? 'text-accent-2' : restartStatus.status === 'error' || restartStatus.status === 'cancelled' ? 'text-danger' : restartStatus.status === 'running' ? 'text-warn' : 'text-text-1'}`}
+                    >
+                      {restartStatusLabel}
+                    </span>
                   </div>
                   {restartStatus.summaryLines.length > 0 && (
                     <div className="mt-2 rounded-apple bg-bg-1 px-2 py-2 font-mono text-xs text-text-2">
-                      {restartStatus.summaryLines.map((line, index) => <div key={`${index}-${line}`}>{line}</div>)}
+                      {restartStatus.summaryLines.map((line, index) => (
+                        <div key={`${index}-${line}`}>{line}</div>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -809,20 +1143,118 @@ export function Settings({ onClose }: SettingsProps) {
                     <div className="text-sm font-medium text-text-1">{t('settings.auditLog')}</div>
                     <div className="mt-1 text-xs text-text-3">{t('settings.auditDesc')}</div>
                   </div>
-                  <Button variant="primary" className="shrink-0" onClick={() => setShowAuditLog(true)}>{t('settings.viewLog')}</Button>
+                  <Button variant="primary" className="shrink-0" onClick={() => setShowAuditLog(true)}>
+                    {t('settings.viewLog')}
+                  </Button>
                 </div>
               </div>
               <div className="flex items-center justify-end">
-                <Button variant="primary" onClick={() => void copyVersionInfo()}>{t('settings.aboutCopy')}</Button>
+                <Button variant="primary" onClick={() => void copyVersionInfo()}>
+                  {t('settings.aboutCopy')}
+                </Button>
               </div>
             </div>
           )}
         </div>
       </div>
 
-      {archiveDialogOpen && <div className="fixed inset-0 z-[70] flex items-center justify-center tmuxgo-scrim-strong p-4" onClick={() => setArchiveDialogOpen(false)}><div className="tmuxgo-glass tmuxgo-glass-dialog flex h-[75vh] w-full max-w-4xl flex-col overflow-hidden rounded-apple border" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b border-[var(--line)] px-4 py-3"><h3 className="text-base font-medium text-text-1">{t('settings.archives')}</h3><Button variant="ghost" size="sm" aria-label="close" onClick={() => setArchiveDialogOpen(false)}>✕</Button></div><div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[280px_1fr]"><div className="tmuxgo-scrollbar overflow-y-auto border-b border-[var(--line)] md:border-b-0 md:border-r">{archiveLoading && !archives.length && <div className="p-4 text-sm text-text-3">{t('common.loading')}</div>}{!archiveLoading && !archives.length && <div className="p-4 text-sm text-text-3">{t('settings.archiveEmpty')}</div>}{archives.map((archive) => <div key={archive.id} className={`tmuxgo-list-row flex border-b border-[var(--line)] ${archiveDetail?.id === archive.id ? 'tmuxgo-list-row--active' : 'tmuxgo-list-row--hover'}`}><button onClick={() => void openArchive(archive.id)} className="min-w-0 flex-1 p-3 text-left"><div className="truncate text-sm text-text-1">{archive.sessionName}</div><div className="mt-1 text-xs text-text-3">{new Date(archive.createdAt).toLocaleString()} · {archive.paneCount} · {Math.ceil(archive.size / 1024)} KB</div></button><button onClick={() => void deleteArchive(archive.id)} className="w-10 text-text-3 hover:text-danger" aria-label={t('settings.deleteArchive')}>×</button></div>)}</div><div className="tmuxgo-scrollbar min-h-0 overflow-y-auto p-4">{!archiveDetail && <div className="flex h-full items-center justify-center text-sm text-text-3">{t('settings.selectArchive')}</div>}{archiveDetail && <div className="space-y-4"><div><div className="text-base font-medium text-text-1">{archiveDetail.sessionName}</div><div className="mt-1 text-xs text-text-3">{archiveDetail.captureMode === 'history' ? t('settings.archiveHistory') : t('settings.archiveVisible')} · {new Date(archiveDetail.createdAt).toLocaleString()}</div></div>{archiveDetail.panes.map((pane) => <div key={pane.paneId}><div className="mb-1 text-xs text-text-3">{pane.windowName} / {pane.title}</div><pre className="overflow-x-auto whitespace-pre-wrap rounded-apple border border-[var(--line)] bg-bg-0 p-3 font-mono text-xs text-text-2">{pane.data || t('settings.archiveNoOutput')}</pre></div>)}</div>}</div></div></div></div>}
-      <ConfirmDialog open={restartConfirmOpen} title={t('settings.restartConfirmTitle')} message={t('settings.restartConfirmMessage')} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} onCancel={() => setRestartConfirmOpen(false)} onConfirm={() => void triggerRestartRebuild()} />
-      <ConfirmDialog open={updateConfirmOpen} title={t('settings.updateConfirmTitle')} message={t('settings.updateConfirmMessage')} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} onCancel={() => setUpdateConfirmOpen(false)} onConfirm={() => void triggerAppUpdate()} />
+      {archiveDialogOpen && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center tmuxgo-scrim-strong p-4"
+          onClick={() => setArchiveDialogOpen(false)}
+        >
+          <div
+            className="tmuxgo-glass tmuxgo-glass-dialog flex h-[75vh] w-full max-w-4xl flex-col overflow-hidden rounded-apple border"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-[var(--line)] px-4 py-3">
+              <h3 className="text-base font-medium text-text-1">{t('settings.archives')}</h3>
+              <Button variant="ghost" size="sm" aria-label="close" onClick={() => setArchiveDialogOpen(false)}>
+                ✕
+              </Button>
+            </div>
+            <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[280px_1fr]">
+              <div className="tmuxgo-scrollbar overflow-y-auto border-b border-[var(--line)] md:border-b-0 md:border-r">
+                {archiveLoading && !archives.length && (
+                  <div className="p-4 text-sm text-text-3">{t('common.loading')}</div>
+                )}
+                {!archiveLoading && !archives.length && (
+                  <div className="p-4 text-sm text-text-3">{t('settings.archiveEmpty')}</div>
+                )}
+                {archives.map((archive) => (
+                  <div
+                    key={archive.id}
+                    className={`tmuxgo-list-row flex border-b border-[var(--line)] ${archiveDetail?.id === archive.id ? 'tmuxgo-list-row--active' : 'tmuxgo-list-row--hover'}`}
+                  >
+                    <button onClick={() => void openArchive(archive.id)} className="min-w-0 flex-1 p-3 text-left">
+                      <div className="truncate text-sm text-text-1">{archive.sessionName}</div>
+                      <div className="mt-1 text-xs text-text-3">
+                        {new Date(archive.createdAt).toLocaleString()} · {archive.paneCount} ·{' '}
+                        {Math.ceil(archive.size / 1024)} KB
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => void deleteArchive(archive.id)}
+                      className="w-10 text-text-3 hover:text-danger"
+                      aria-label={t('settings.deleteArchive')}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <div className="tmuxgo-scrollbar min-h-0 overflow-y-auto p-4">
+                {!archiveDetail && (
+                  <div className="flex h-full items-center justify-center text-sm text-text-3">
+                    {t('settings.selectArchive')}
+                  </div>
+                )}
+                {archiveDetail && (
+                  <div className="space-y-4">
+                    <div>
+                      <div className="text-base font-medium text-text-1">{archiveDetail.sessionName}</div>
+                      <div className="mt-1 text-xs text-text-3">
+                        {archiveDetail.captureMode === 'history'
+                          ? t('settings.archiveHistory')
+                          : t('settings.archiveVisible')}{' '}
+                        · {new Date(archiveDetail.createdAt).toLocaleString()}
+                      </div>
+                    </div>
+                    {archiveDetail.panes.map((pane) => (
+                      <div key={pane.paneId}>
+                        <div className="mb-1 text-xs text-text-3">
+                          {pane.windowName} / {pane.title}
+                        </div>
+                        <pre className="overflow-x-auto whitespace-pre-wrap rounded-apple border border-[var(--line)] bg-bg-0 p-3 font-mono text-xs text-text-2">
+                          {pane.data || t('settings.archiveNoOutput')}
+                        </pre>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      <ConfirmDialog
+        open={restartConfirmOpen}
+        title={t('settings.restartConfirmTitle')}
+        message={t('settings.restartConfirmMessage')}
+        confirmLabel={t('common.confirm')}
+        cancelLabel={t('common.cancel')}
+        onCancel={() => setRestartConfirmOpen(false)}
+        onConfirm={() => void triggerRestartRebuild()}
+      />
+      <ConfirmDialog
+        open={updateConfirmOpen}
+        title={t('settings.updateConfirmTitle')}
+        message={t('settings.updateConfirmMessage')}
+        confirmLabel={t('common.confirm')}
+        cancelLabel={t('common.cancel')}
+        onCancel={() => setUpdateConfirmOpen(false)}
+        onConfirm={() => void triggerAppUpdate()}
+      />
       {showAuditLog && <AuditLog onClose={() => setShowAuditLog(false)} />}
     </div>
   )

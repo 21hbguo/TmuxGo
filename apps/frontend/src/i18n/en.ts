@@ -361,6 +361,8 @@ export const en = {
   'settings.cursorBlink': 'Cursor blink',
   'settings.terminalPadding': 'Terminal padding',
   'settings.resetDefaults': 'Reset to defaults',
+  'settings.forceRefresh': 'Force refresh',
+  'settings.forceRefreshDesc': 'Reloads the browser page; every session disconnects and reconnects.',
   'settings.theme': 'Theme',
   'settings.theme.dark': 'Dark',
   'settings.theme.light': 'Light',
