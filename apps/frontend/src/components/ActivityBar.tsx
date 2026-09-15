@@ -1,7 +1,7 @@
 'use client'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
-import { FiBell, FiFolder, FiGitBranch, FiGrid, FiServer, FiSettings } from 'react-icons/fi'
+import { FiBell, FiFolder, FiGitBranch, FiServer, FiSettings } from 'react-icons/fi'
 import { FiActivity, FiBox, FiCode, FiCpu, FiDatabase, FiGlobe, FiTerminal, FiTool, FiZap } from 'react-icons/fi'
 import { usePlugins } from '@/hooks/useApi'
 
@@ -12,8 +12,6 @@ export function ActivityBar() {
   const toggleSessionPanel = useConsoleStore((state) => state.toggleSessionPanel)
   const filePanelOpen = useConsoleStore((state) => state.filePanelOpen)
   const toggleFilePanel = useConsoleStore((state) => state.toggleFilePanel)
-  const thumbnailPanelOpen = useConsoleStore((state) => state.thumbnailPanelOpen)
-  const toggleThumbnailPanel = useConsoleStore((state) => state.toggleThumbnailPanel)
   const gitPanelOpen = useConsoleStore((state) => state.gitPanelOpen)
   const toggleSshPanel = useConsoleStore((state) => state.toggleSshPanel)
   const sshPanelOpen = useConsoleStore((state) => state.sshPanelOpen)
@@ -27,7 +25,6 @@ export function ActivityBar() {
     { id: 'sessions', label: t('activity.sessions'), icon: FiServer, onClick: toggleSessionPanel },
     { id: 'ssh', label: t('activity.ssh'), icon: FiGlobe, onClick: toggleSshPanel },
     { id: 'files', label: t('activity.explorer'), icon: FiFolder, onClick: toggleFilePanel },
-    { id: 'thumbnails', label: t('activity.thumbnails'), icon: FiGrid, onClick: toggleThumbnailPanel },
     { id: 'git', label: t('git.title'), icon: FiGitBranch, onClick: toggleGitPanel },
     { id: 'notifications', label: t('notification.title'), icon: FiBell, onClick: () => window.dispatchEvent(new CustomEvent('tmuxgo-toggle-notifications')) },
     { id: 'settings', label: t('activity.settings'), icon: FiSettings, onClick: () => window.dispatchEvent(new CustomEvent('tmuxgo-open-settings')) },
@@ -36,7 +33,7 @@ export function ActivityBar() {
     <aside className="tmuxgo-glass tmuxgo-glass-sidebar flex h-full w-14 shrink-0 flex-col items-center gap-2 border-r border-[var(--line)] py-3 overflow-hidden scrollbar-none">
       <img src="/app-icon.svg" alt="" className="mb-1 h-9 w-9" />
       {items.map((item) => {
-        const active = item.id === 'sessions' ? sessionPanelExpanded : item.id === 'ssh' ? sshPanelOpen : item.id === 'files' ? filePanelOpen : item.id === 'thumbnails' ? thumbnailPanelOpen : item.id === 'git' ? gitPanelOpen : false
+        const active = item.id === 'sessions' ? sessionPanelExpanded : item.id === 'ssh' ? sshPanelOpen : item.id === 'files' ? filePanelOpen : item.id === 'git' ? gitPanelOpen : false
         const Icon = item.icon
         return (
           <button key={item.id} aria-label={item.label} title={item.label} onClick={item.onClick} className={`tmuxgo-toolbar-icon ${active ? 'tmuxgo-toolbar-icon--active' : ''}`}>

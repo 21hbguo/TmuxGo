@@ -641,7 +641,6 @@ export const en = {
 
   // FilePanel
   'file.title': 'Files',
-  'thumbnail.title': 'Session thumbnails',
   'split.title': 'Split sessions',
   'split.primary': 'Primary',
   'split.secondary': 'Secondary',
@@ -650,13 +649,6 @@ export const en = {
   'split.open': 'Open split view',
   'split.delete': 'Delete split group',
   'split.created': 'Split created: {primary} ⇄ {secondary}',
-  'thumbnail.refresh': 'Refresh thumbnails',
-  'thumbnail.close': 'Close thumbnails',
-  'thumbnail.refreshing': 'Updating every 2 seconds',
-  'thumbnail.live': 'Updating every 2 seconds',
-  'thumbnail.loading': 'Loading session thumbnails...',
-  'thumbnail.unavailable': 'Session thumbnails are unavailable.',
-  'thumbnail.empty': 'No sessions to preview.',
   'file.upload': 'Upload',
   'file.addFavorite': 'Add to favorites',
   'file.removeFavorite': 'Unfavorite',
@@ -794,7 +786,6 @@ export const en = {
   // ActivityBar
   'activity.sessions': 'Sessions',
   'activity.explorer': 'Explorer',
-  'activity.thumbnails': 'Session thumbnails',
   'activity.search': 'Search',
   'activity.settings': 'Settings',
   'activity.ssh': 'SSH',

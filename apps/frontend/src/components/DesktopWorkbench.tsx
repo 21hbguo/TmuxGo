@@ -6,7 +6,6 @@ import type { FileDocumentHandle, FileEditorDocument } from '@/types'
 import { getEditorLanguage, openFileInEditor } from '@/lib/editor-open'
 import { ActivityBar } from './ActivityBar'
 import { FilePanel } from './FilePanel'
-import { SessionThumbnailPanel } from './SessionThumbnailPanel'
 import { GitPanel } from './GitPanel'
 import { SshPanel } from './SshPanel'
 import { SessionPanel } from './SessionPanel'
@@ -33,7 +32,6 @@ export function DesktopWorkbench() {
   const sessionPanelWidth = useConsoleStore((state) => state.sessionPanelWidth)
   const filePanelWidth = useConsoleStore((state) => state.filePanelWidth)
   const filePanelOpen = useConsoleStore((state) => state.filePanelOpen)
-  const thumbnailPanelOpen = useConsoleStore((state) => state.thumbnailPanelOpen)
   const gitPanelOpen = useConsoleStore((state) => state.gitPanelOpen)
   const sshPanelOpen = useConsoleStore((state) => state.sshPanelOpen)
   const activeSplitGroupId = useConsoleStore((state) => state.activeSplitGroupId)
@@ -247,7 +245,7 @@ export function DesktopWorkbench() {
   return (
     <div ref={containerRef} className="tmuxgo-workspace flex min-h-0 min-w-0 flex-1 overflow-hidden">
       <ActivityBar />
-      {thumbnailPanelOpen ? <SessionThumbnailPanel /> : <>
+      <>
       {sessionPanelExpanded ? (
         <div className="tmuxgo-content-surface relative shrink-0 border-r border-[var(--line)]" style={{ width: renderedSessionPanelWidth }}>
           <div className="h-full min-h-0">
@@ -321,7 +319,7 @@ export function DesktopWorkbench() {
           </div>
         )}
       </div>
-      </>}
+      </>
     </div>
   )
 }
