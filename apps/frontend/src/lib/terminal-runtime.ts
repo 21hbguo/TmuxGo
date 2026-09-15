@@ -380,6 +380,8 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
       terminal.onSelectionChange(() => {
         const selection = getSelectionText()
         selectionSync.setSelection(selection)
+        if (selection) outputInput.holdSelection()
+        else outputInput.releaseSelection()
       }),
     )
     let unsubscribeOutput = () => {}
@@ -594,6 +596,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
         }
       }
       void syncActivePane()
+      if (!getSelectionText()) outputInput.releaseSelection()
     }
     const handleFocusTerminal = () => {
       if (focus.isDesktopImeComposing()) return
@@ -653,6 +656,12 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
     layout.primeContainerSize()
     resizeObserver = new ResizeObserver(() => layout.notifyObservedResize())
     resizeObserver.observe(container)
+    const armSelectionHold = (event: MouseEvent | TouchEvent) => {
+      if (event instanceof MouseEvent && event.button !== 0) return
+      outputInput.holdSelection()
+    }
+    container.addEventListener('mousedown', armSelectionHold)
+    container.addEventListener('touchstart', armSelectionHold, { passive: true })
     container.addEventListener('touchstart', pinch.handleTouchStart, { passive: true })
     container.addEventListener('touchmove', pinch.handleTouchMove, { passive: false })
     container.addEventListener('touchend', pinch.handleTouchEnd, { passive: true })
@@ -673,6 +682,8 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
     }
     disposables.push({
       dispose: () => {
+        container.removeEventListener('mousedown', armSelectionHold)
+        container.removeEventListener('touchstart', armSelectionHold)
         container.removeEventListener('touchstart', pinch.handleTouchStart)
         container.removeEventListener('touchmove', pinch.handleTouchMove)
         container.removeEventListener('touchend', pinch.handleTouchEnd)
