@@ -5,7 +5,7 @@ const DEFAULT_FAST_OUTPUT_LIMIT = 24576
 const DEFAULT_FRAME_BUDGET = 32768
 const DEFAULT_FRAME_TIME_BUDGET = 8
 const MIN_FRAME_BUDGET = 4096
-const DIRECT_WRITE_IDLE_MS = 0
+const DIRECT_WRITE_IDLE_MS = 8
 const BACKPRESSURE_HIGH_WATERMARK = 65536
 const BACKPRESSURE_LOW_WATERMARK = 8192
 const FRAME_END_SEQUENCE = '\u001b[?25h'
@@ -53,7 +53,7 @@ export function useTerminalOutputScheduler({
   const writeTokenRef = useRef(0)
   const scheduleRef = useRef<() => void>(() => {})
   const adaptiveFrameBudgetRef = useRef(frameBudget)
-  const lastPushAtRef = useRef(0)
+  const lastPushAtRef = useRef(Number.NEGATIVE_INFINITY)
 
   const clearTimer = useCallback(() => {
     if (timerRef.current === null) return
@@ -148,7 +148,7 @@ export function useTerminalOutputScheduler({
     bufferRef.current = ''
     writingRef.current = false
     adaptiveFrameBudgetRef.current = frameBudget
-    lastPushAtRef.current = 0
+    lastPushAtRef.current = Number.NEGATIVE_INFINITY
     if (backpressureRef.current !== 'normal') {
       backpressureRef.current = 'normal'
       onBackpressure?.('normal', 0)
