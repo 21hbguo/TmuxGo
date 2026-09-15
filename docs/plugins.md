@@ -55,3 +55,11 @@ await tmuxgo.ui.notify('message', 'info')
 ```
 
 View 的 CSP 禁止直接联网。需要访问网络、文件或 tmux 时，通过声明的 Action 执行。完整示例位于 `examples/plugins/hello-tmuxgo`。
+
+## 内置 submodule：plugins/vscode-git-graph
+
+`plugins/vscode-git-graph` 是 git submodule，来源 `https://github.com/mhutchie/vscode-git-graph.git`，跟踪上游 `develop` 分支，当前固定 commit 见 `git submodule status`。
+
+用途：为 Git 面板的提交图可视化预留的上游参考实现与资源来源；当前尚未接入运行时（目录内无 `tmuxgo-plugin.json`，主程序不加载它），只随仓库 vendor 保留。未来若封装为 TmuxGo 插件，需补齐 manifest 并通过上文“安装与更新”流程以固定 commit 安装，不直接在主程序中引用其源码。
+
+升级策略：升级时在该 submodule 目录内 `git fetch` 后 checkout 目标 commit，主仓库提交新的 gitlink；升级后需确认其 license（见 `licenses/`）与 manifest 兼容性。升级属于独立变更，不与功能代码混入同一提交。

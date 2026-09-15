@@ -1,8 +1,9 @@
 # TmuxGo Agent 状态监控与通知需求分析
 
 - 日期：2026-08-08
+- 状态：已实施
 - 范围：Claude Code、Codex、OpenCode 等运行在 tmux pane 中的编码 Agent
-- 状态：Phase 1、Phase 2、Phase 3、Phase 4 已完成本轮定义范围；原生服务直连和自动 Hook 配置仍保留版本化评估边界
+- 进度：Phase 1、Phase 2、Phase 3、Phase 4 已完成本轮定义范围；原生服务直连和自动 Hook 配置仍保留版本化评估边界
 
 ## 1. 结论
 

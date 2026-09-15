@@ -1,6 +1,6 @@
-# Stream Binary Protocol Draft（待 T-P0-01 冻结）
+# Stream Binary Protocol Draft（已被 PROTOCOL.md 取代）
 
-> 状态：**DRAFT** — 确认后改名为 `PROTOCOL.md` 并删 draft 字样  
+> 状态：**SUPERSEDED** — 以 `PROTOCOL.md`（FROZEN）为准，本文仅留作历史记录  
 > Magic: `0x54 0x47`（`T``G`）  
 > 现网 version: `1`，type `1/2` 保持不变
 
