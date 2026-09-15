@@ -65,7 +65,7 @@ export function createTerminalOutputInput(options: TerminalOutputInputOptions) {
           const now = Date.now()
           if (now - lastSelectionCheck >= SELECTION_HOLD_CHECK_MS) {
             lastSelectionCheck = now
-            if (!terminal.getSelection?.()) releaseSelection()
+            if (!pointerSyncActive && !terminal.getSelection?.()) releaseSelection()
           }
         }
         return
