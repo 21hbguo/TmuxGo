@@ -702,6 +702,11 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ paneId }),
       }),
+    cwd: (paneId: string) =>
+      fetchApi<{ ok: boolean; cwd?: string; error?: string }>('/api/panes/cwd', {
+        method: 'POST',
+        body: JSON.stringify({ paneId }),
+      }),
     split: (paneId: string, direction: 'horizontal' | 'vertical') =>
       fetchApi<any>('/api/panes/split', {
         method: 'POST',

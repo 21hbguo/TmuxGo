@@ -773,6 +773,8 @@ export const en = {
   'file.mobileEditUnavailable': 'This file cannot be edited',
   'file.mobileEditLoadFailed': 'Failed to load file',
   'file.mobileEditSaveFailed': 'Save failed',
+  'file.followActivePath': 'Follow terminal cwd',
+  'file.followActivePathHint': 'Follow the active terminal working directory',
 
   // PasteConfirmDialog
   'paste.title': 'Confirm paste',
