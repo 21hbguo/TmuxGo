@@ -1,10 +1,36 @@
 'use client'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type RFBType from '@novnc/novnc'
-import { FiClipboard, FiCopy, FiEye, FiEyeOff, FiKey, FiMonitor, FiPlay, FiSquare, FiTool, FiX } from 'react-icons/fi'
+import {
+  FiActivity,
+  FiClipboard,
+  FiCopy,
+  FiEye,
+  FiEyeOff,
+  FiKey,
+  FiMonitor,
+  FiPlay,
+  FiSliders,
+  FiSquare,
+  FiTool,
+  FiX,
+} from 'react-icons/fi'
 import { Button } from './Button'
 import { api, type VncSetupStatus } from '@/lib/api'
 import { getWebSocketUrl } from '@/lib/auth'
+import {
+  attachVncInstrumentation,
+  installVncRequestThrottle,
+  measureVncRtt,
+  VNC_COMPRESSION_RANGE,
+  VNC_FPS_RANGE,
+  VNC_QUALITY_RANGE,
+  VNC_TUNING_DEFAULT,
+  VNC_TUNING_PRESETS,
+  type VncInstrumentation,
+  type VncStatsSample,
+  type VncTuning,
+} from '@/lib/vnc-tuning'
 import { getVncWebSocketBase } from '@/lib/runtime-endpoints'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
@@ -38,6 +64,39 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
     needSudo?: boolean
   } | null>(null)
   const [setupCopied, setSetupCopied] = useState(false)
+  // 画质参数与统计开关持久化到 localStorage；RFB setter 支持运行中实时生效，无需重连
+  const [tuning, setTuning] = useState<VncTuning>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('tmuxgo:vnc-tuning') || '') as Partial<VncTuning>
+      return {
+        quality: Math.min(
+          VNC_QUALITY_RANGE.max,
+          Math.max(VNC_QUALITY_RANGE.min, Number(saved.quality) || VNC_TUNING_DEFAULT.quality),
+        ),
+        compression: Math.min(
+          VNC_COMPRESSION_RANGE.max,
+          Math.max(VNC_COMPRESSION_RANGE.min, Number(saved.compression) || VNC_TUNING_DEFAULT.compression),
+        ),
+        maxFps: Math.min(
+          VNC_FPS_RANGE.max,
+          Math.max(VNC_FPS_RANGE.min, Number(saved.maxFps) || VNC_TUNING_DEFAULT.maxFps),
+        ),
+      }
+    } catch {
+      return VNC_TUNING_DEFAULT
+    }
+  })
+  const [tuningOpen, setTuningOpen] = useState(false)
+  const [showStats, setShowStats] = useState(() => localStorage.getItem('tmuxgo:vnc-stats') === '1')
+  const [stats, setStats] = useState<VncStatsSample & { rtt: number | null }>({
+    fps: 0,
+    inKbps: 0,
+    outKbps: 0,
+    rtt: null,
+  })
+  const instrumentationRef = useRef<VncInstrumentation | null>(null)
+  const tuningRef = useRef(tuning)
+  tuningRef.current = tuning
   const portRef = useRef(port)
   const hiddenRef = useRef(typeof document !== 'undefined' && document.hidden)
   // 隐藏时记录是否有活动连接：手动断开过的会话回到前台不自动重连；初始 true 兜底"挂着后台打开"场景
@@ -76,15 +135,20 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
       // 等待 ticket/模块期间发生了新的 connect 或卸载，丢弃本次结果避免双 RFB
       if (seq !== connectSeqRef.current || !containerRef.current) return
       portRef.current = targetPort
+      installVncRequestThrottle(RFB)
       const rfb = new RFB(containerRef.current, url, { shared: true })
       rfb.scaleViewport = true
       rfb.viewOnly = viewOnlyRef.current
-      // 交互优先：JPEG 质量中等 + tight 低压缩级别，画质/CPU/延迟折中
-      rfb.qualityLevel = 6
-      rfb.compressionLevel = 2
+      rfb.qualityLevel = tuningRef.current.quality
+      rfb.compressionLevel = tuningRef.current.compression
+      const instrumentation = attachVncInstrumentation(rfb)
+      instrumentation.setMaxFps(tuningRef.current.maxFps)
+      instrumentationRef.current = instrumentation
       rfb.addEventListener('connect', () => setStatus('connected'))
       rfb.addEventListener('disconnect', (event) => {
         rfbRef.current = null
+        instrumentationRef.current?.dispose()
+        instrumentationRef.current = null
         setStatus('disconnected')
         setCredentialTypes([])
         if (!event.detail.clean) setError(tRef.current('vnc.disconnectUnclean'))
@@ -128,6 +192,46 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
   useEffect(() => {
     if (rfbRef.current) rfbRef.current.viewOnly = viewOnly
   }, [viewOnly])
+  // 画质实时生效：quality/compression setter 会重发 SetEncodings；帧率写回 FBU 请求节流器
+  useEffect(() => {
+    try {
+      localStorage.setItem('tmuxgo:vnc-tuning', JSON.stringify(tuning))
+    } catch {
+      /* 存储不可用时静默 */
+    }
+    if (rfbRef.current) {
+      rfbRef.current.qualityLevel = tuning.quality
+      rfbRef.current.compressionLevel = tuning.compression
+    }
+    instrumentationRef.current?.setMaxFps(tuning.maxFps)
+  }, [tuning])
+  useEffect(() => {
+    try {
+      localStorage.setItem('tmuxgo:vnc-stats', showStats ? '1' : '0')
+    } catch {
+      /* 同上 */
+    }
+  }, [showStats])
+  // 统计采样：1s 出 fps/带宽，2s 一次 gateway RTT；仅连接中且开关打开时跑
+  useEffect(() => {
+    if (!showStats || status !== 'connected') return
+    const sampleTimer = setInterval(() => {
+      const sample = instrumentationRef.current?.sample() || { fps: 0, inKbps: 0, outKbps: 0 }
+      setStats((prev) => ({ ...sample, rtt: prev.rtt }))
+    }, 1000)
+    let rttCancelled = false
+    const pollRtt = () =>
+      void measureVncRtt().then((rtt) => {
+        if (!rttCancelled) setStats((prev) => ({ ...prev, rtt }))
+      })
+    pollRtt()
+    const rttTimer = setInterval(pollRtt, 2000)
+    return () => {
+      rttCancelled = true
+      clearInterval(sampleTimer)
+      clearInterval(rttTimer)
+    }
+  }, [showStats, status])
   useEffect(() => {
     if (!document.hidden) void connect(port)
     return () => {
@@ -314,6 +418,26 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
         <Button
           variant="ghost"
           size="icon-sm"
+          onClick={() => setTuningOpen((value) => !value)}
+          aria-label={t('vnc.tuning')}
+          title={t('vnc.tuning')}
+          className={tuningOpen ? 'text-accent' : ''}
+        >
+          <FiSliders size={14} />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={() => setShowStats((value) => !value)}
+          aria-label={t('vnc.showStats')}
+          title={t('vnc.showStats')}
+          className={showStats ? 'text-accent' : ''}
+        >
+          <FiActivity size={14} />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
           onClick={onClose}
           aria-label={t('common.close')}
           title={t('common.close')}
@@ -323,6 +447,78 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
       </header>
       <div className="relative min-h-0 flex-1 bg-black">
         <div ref={containerRef} className="absolute inset-0 overflow-hidden" />
+        {showStats && status === 'connected' && (
+          <div className="absolute right-3 top-3 z-20 rounded-apple bg-black/70 px-2.5 py-1 font-mono text-caption text-text-1">
+            {stats.fps} fps · ↓{stats.inKbps} KB/s ↑{stats.outKbps} KB/s
+            {stats.rtt !== null ? ` · ${stats.rtt}ms` : ''}
+          </div>
+        )}
+        {tuningOpen && (
+          <div className="tmuxgo-glass absolute right-3 top-10 z-20 flex w-64 flex-col gap-2.5 rounded-apple-lg p-3 text-xs text-text-1">
+            <div className="flex items-center justify-between">
+              <span className="font-medium">{t('vnc.tuning')}</span>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => setTuningOpen(false)}
+                aria-label={t('common.close')}
+              >
+                <FiX size={13} />
+              </Button>
+            </div>
+            <div className="flex gap-1.5">
+              {(['speed', 'balanced', 'saver'] as const).map((key) => {
+                const preset = VNC_TUNING_PRESETS[key]
+                const active =
+                  tuning.quality === preset.quality &&
+                  tuning.compression === preset.compression &&
+                  tuning.maxFps === preset.maxFps
+                return (
+                  <Button
+                    key={key}
+                    variant={active ? 'primary' : 'ghost'}
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => setTuning({ ...preset })}
+                  >
+                    {t(`vnc.preset.${key}`)}
+                  </Button>
+                )
+              })}
+            </div>
+            {(
+              [
+                { key: 'quality', label: t('vnc.quality'), range: VNC_QUALITY_RANGE },
+                { key: 'compression', label: t('vnc.compression'), range: VNC_COMPRESSION_RANGE },
+                { key: 'maxFps', label: t('vnc.maxFps'), range: VNC_FPS_RANGE },
+              ] as const
+            ).map(({ key, label, range }) => (
+              <label key={key} className="flex items-center gap-2">
+                <span className="w-14 shrink-0 text-text-3">{label}</span>
+                <input
+                  type="range"
+                  min={range.min}
+                  max={range.max}
+                  step={1}
+                  value={tuning[key]}
+                  onChange={(event) => setTuning((prev) => ({ ...prev, [key]: Number(event.target.value) }))}
+                  className="min-w-0 flex-1 accent-[var(--accent)]"
+                  aria-label={label}
+                />
+                <span className="w-6 text-right font-mono text-text-2">{tuning[key]}</span>
+              </label>
+            ))}
+            <label className="flex items-center justify-between">
+              <span className="text-text-3">{t('vnc.showStats')}</span>
+              <input
+                type="checkbox"
+                checked={showStats}
+                onChange={(event) => setShowStats(event.target.checked)}
+                className="accent-[var(--accent)]"
+              />
+            </label>
+          </div>
+        )}
         {credentialTypes.length > 0 && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/60 p-4">
             <form

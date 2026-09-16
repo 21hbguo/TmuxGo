@@ -1087,4 +1087,12 @@ export const zh = {
   'vnc.setupFailed': '安装失败',
   'vnc.copyCommand': '复制命令',
   'vnc.copied': '已复制',
+  'vnc.tuning': '画质调节',
+  'vnc.quality': '画质',
+  'vnc.compression': '压缩',
+  'vnc.maxFps': '帧率上限',
+  'vnc.preset.speed': '极速',
+  'vnc.preset.balanced': '均衡',
+  'vnc.preset.saver': '省流',
+  'vnc.showStats': '显示统计',
 } as const
