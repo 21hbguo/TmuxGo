@@ -756,6 +756,23 @@ describe('FilePanel', () => {
     await waitFor(() => expect((screen.getAllByRole('combobox')[0] as HTMLSelectElement).value).toBe('root-home'))
     await waitFor(() => expect(screen.getByText('guide.md')).toBeInTheDocument())
   })
+  it('suspends pane follow after manual navigation and resumes on pane change', async () => {
+    consoleStoreState.activePaneId = 'local:%1'
+    paneCwdMocks.cwd = '/workspace/src'
+    const view = render(React.createElement(FilePanel))
+    fireEvent.click(await screen.findByRole('switch', { name: 'Follow terminal cwd' }))
+    await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
+    // 手动切根 → 跟随挂起，同 pane 的 cwd 更新不再覆盖
+    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'root-home' } })
+    await waitFor(() => expect((screen.getAllByRole('combobox')[0] as HTMLSelectElement).value).toBe('root-home'))
+    paneCwdMocks.cwd = '/workspace'
+    view.rerender(React.createElement(FilePanel))
+    await waitFor(() => expect((screen.getAllByRole('combobox')[0] as HTMLSelectElement).value).toBe('root-home'))
+    // 切到别的 pane → 恢复跟随
+    consoleStoreState.activePaneId = 'local:%2'
+    view.rerender(React.createElement(FilePanel))
+    await waitFor(() => expect((screen.getAllByRole('combobox')[0] as HTMLSelectElement).value).toBe('root-workspace'))
+  })
   it('ignores a pane cwd outside the file roots', async () => {
     consoleStoreState.activePaneId = 'local:%1'
     paneCwdMocks.cwd = '/etc'
