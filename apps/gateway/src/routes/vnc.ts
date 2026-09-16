@@ -4,7 +4,16 @@ import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { SocketStream } from '@fastify/websocket'
 import { agentManager, type AgentSocket } from '../agent-manager.js'
 import { consumeWebSocketTicket, isAuthEnabled } from '../lib/auth.js'
-import { normalizeVncPort, VNC_LOOPBACK_HOST } from '../lib/vnc.js'
+import { execHostShell } from '../lib/tmux-executor.js'
+import {
+  normalizeVncPort,
+  parseVncProbe,
+  VNC_INSTALL_SCRIPT,
+  VNC_LOOPBACK_HOST,
+  VNC_MANUAL_INSTALL_COMMAND,
+  VNC_PROBE_COMMAND,
+  VNC_START_SCRIPT,
+} from '../lib/vnc.js'
 
 type VncSocket = AgentSocket & { close: (code?: number, reason?: string) => void }
 
@@ -60,7 +69,7 @@ export async function vncRoutes(fastify: FastifyInstance) {
       return
     }
     // 远端宿主机只走 agent 中继：agent 是主动拨入 gateway 的，gateway 无法反向连其内网；
-    // 由 agent 在宿主机本机拨 loopback VNC，数据以 base64 包进 agent JSON 通道
+    // 由 agent 在宿主机本机拨 loopback VNC，画面帧以二进制帧（vnc-data <id>\n+载荷）复用 agent WS 通道
     const connectionId = randomUUID()
     if (!agentManager.openVnc(hostId, connectionId, port, socket)) {
       socket.close(1011, 'Host is offline or has no agent connected')
@@ -69,5 +78,41 @@ export async function vncRoutes(fastify: FastifyInstance) {
     socket.on('message', (data: Buffer) => agentManager.sendVncData(connectionId, data))
     socket.on('close', () => agentManager.closeVnc(connectionId))
     socket.on('error', () => agentManager.closeVnc(connectionId))
+  })
+
+  // 空响应探活：前端用它估算浏览器→gateway 的 RTT
+  fastify.get('/vnc/ping', async () => ({ ok: true }))
+
+  // 环境探测：经 execHostShell 在目标机（local/ssh/agent 同一通道）跑只读探测脚本
+  fastify.get('/vnc/setup', async (request: FastifyRequest, reply) => {
+    const hostId = String((request.query as { hostId?: unknown }).hostId || 'local')
+    try {
+      const result = await execHostShell(hostId, VNC_PROBE_COMMAND, { timeoutMs: 15000 })
+      return { status: parseVncProbe(result.stdout), manualCommand: VNC_MANUAL_INSTALL_COMMAND }
+    } catch (err) {
+      return reply.code(502).send({ error: err instanceof Error ? err.message : 'VNC probe failed' })
+    }
+  })
+
+  fastify.post('/vnc/setup', async (request: FastifyRequest, reply) => {
+    const body = request.body as { hostId?: unknown; action?: unknown }
+    const hostId = String(body?.hostId || 'local')
+    const action = body?.action
+    const script = action === 'install' ? VNC_INSTALL_SCRIPT : action === 'start' ? VNC_START_SCRIPT : null
+    if (!script) return reply.code(400).send({ error: 'Invalid VNC setup action' })
+    try {
+      // 安装最多 120s（apt update 慢），启动 15s 足够
+      const result = await execHostShell(hostId, script, { timeoutMs: action === 'install' ? 120000 : 15000 })
+      const probed = await execHostShell(hostId, VNC_PROBE_COMMAND, { timeoutMs: 15000 })
+      return {
+        ok: result.stdout.includes(action === 'install' ? '__installed__' : '__started__'),
+        needSudo: result.stdout.includes('__need_sudo__'),
+        status: parseVncProbe(probed.stdout),
+        output: (result.stdout + result.stderr).trim().slice(0, 2000),
+        manualCommand: VNC_MANUAL_INSTALL_COMMAND,
+      }
+    } catch (err) {
+      return reply.code(502).send({ error: err instanceof Error ? err.message : 'VNC setup failed' })
+    }
   })
 }

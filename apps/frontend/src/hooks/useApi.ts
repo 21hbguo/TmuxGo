@@ -207,6 +207,20 @@ export function useSessions(hostId: string) {
     refetchIntervalInBackground: false,
   })
 }
+export function usePaneCwd(paneId: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: ['pane-cwd', paneId],
+    queryFn: async () => {
+      const result = await api.panes.cwd(paneId as string)
+      return result.ok ? result.cwd || '' : ''
+    },
+    enabled: enabled && !!paneId,
+    staleTime: 0,
+    retry: false,
+    refetchInterval: 3000,
+    refetchIntervalInBackground: false,
+  })
+}
 export function useCreateSession() {
   const queryClient = useQueryClient()
   return useMutation({

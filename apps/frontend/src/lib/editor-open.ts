@@ -4,7 +4,7 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import type { FileDocumentHandle } from '@/types'
 import type { useTranslation } from '@/i18n'
 
-const IMAGE_EXTENSIONS = new Set(['.avif','.bmp','.gif','.ico','.jpeg','.jpg','.png','.tif','.tiff','.webp'])
+const IMAGE_EXTENSIONS = new Set(['.avif', '.bmp', '.gif', '.ico', '.jpeg', '.jpg', '.png', '.tif', '.tiff', '.webp'])
 export const OPEN_EDITOR_LOCATION_EVENT = 'tmuxgo-open-editor-location'
 type TranslateFn = ReturnType<typeof useTranslation>['t']
 export function isImagePath(path: string) {
@@ -18,8 +18,15 @@ export function getEditorLanguage(path: string) {
   if (name === 'dockerfile') return 'dockerfile'
   if (name === 'makefile') return 'plaintext'
   if (name.endsWith('.c')) return 'c'
-  if (name.endsWith('.cc') || name.endsWith('.cpp') || name.endsWith('.cxx') || name.endsWith('.hpp') || name.endsWith('.h')) return 'cpp'
-  if (name.endsWith('.ts')) return 'typescript'
+  if (
+    name.endsWith('.cc') ||
+    name.endsWith('.cpp') ||
+    name.endsWith('.cxx') ||
+    name.endsWith('.hpp') ||
+    name.endsWith('.h')
+  )
+    return 'cpp'
+  if (name.endsWith('.ts') || name.endsWith('.mts') || name.endsWith('.cts')) return 'typescript'
   if (name.endsWith('.tsx')) return 'typescript'
   if (name.endsWith('.js')) return 'javascript'
   if (name.endsWith('.jsx')) return 'javascript'
@@ -49,10 +56,22 @@ export function getEditorLanguage(path: string) {
 }
 export function dispatchOpenEditorLocation(editorId: string, line?: number | null, column?: number | null) {
   if (typeof window === 'undefined' || !editorId || !line || line < 1) return
-  window.dispatchEvent(new CustomEvent(OPEN_EDITOR_LOCATION_EVENT, { detail: { editorId, line, column: column && column > 0 ? column : 1 } }))
+  window.dispatchEvent(
+    new CustomEvent(OPEN_EDITOR_LOCATION_EVENT, {
+      detail: { editorId, line, column: column && column > 0 ? column : 1 },
+    }),
+  )
 }
-export async function openFileInEditor(file: FileDocumentHandle, options: { t: TranslateFn; pushToast?: (toast: { type: 'success' | 'error' | 'info'; message: string; durationMs?: number }) => void; position?: { line?: number | null; column?: number | null } | null; openPanel?: boolean }) {
-  const { t, pushToast, position, openPanel=true } = options
+export async function openFileInEditor(
+  file: FileDocumentHandle,
+  options: {
+    t: TranslateFn
+    pushToast?: (toast: { type: 'success' | 'error' | 'info'; message: string; durationMs?: number }) => void
+    position?: { line?: number | null; column?: number | null } | null
+    openPanel?: boolean
+  },
+) {
+  const { t, pushToast, position, openPanel = true } = options
   const store = useConsoleStore.getState()
   if (openPanel) store.setFilePanelOpen(true)
   const existing = store.openEditors.find((item) => item.id === file.id)
@@ -100,7 +119,14 @@ export async function openFileInEditor(file: FileDocumentHandle, options: { t: T
       size: result.size,
       binary: result.binary,
       truncated: result.truncated,
-      problem: result.reason === 'large-file' ? t('desktop.largePreviewMode') : result.reason === 'binary-file' ? t('desktop.binaryNotEditable') : result.reason === 'directory' ? t('desktop.directoryNotEditable') : undefined,
+      problem:
+        result.reason === 'large-file'
+          ? t('desktop.largePreviewMode')
+          : result.reason === 'binary-file'
+            ? t('desktop.binaryNotEditable')
+            : result.reason === 'directory'
+              ? t('desktop.directoryNotEditable')
+              : undefined,
       previewUrl: undefined,
     })
   } catch (err) {
