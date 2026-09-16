@@ -14,10 +14,54 @@ const openUploadDialog = vi.fn()
 const pushToast = vi.fn()
 const invalidateQueries = vi.fn()
 const delayedSrcResolvers: Array<() => void> = []
-const preferencesGet = vi.fn(async () => ({ version: 1, updatedAt: '', customShortcuts: [], customShortcutsUpdatedAt: '', favoriteDirectories: [], favoriteDirectoriesUpdatedAt: '', sessionOrders: [], sessionOrdersUpdatedAt: '', uploadRateLimitKBps: 5120, downloadRateLimitKBps: 5120 }))
-const preferencesUpdate = vi.fn(async (payload: any) => ({ version: 1, updatedAt: '', customShortcuts: [], customShortcutsUpdatedAt: '', favoriteDirectories: payload.favoriteDirectories || [], favoriteDirectoriesUpdatedAt: payload.favoriteDirectoriesUpdatedAt || '', sessionOrders: [], sessionOrdersUpdatedAt: '', uploadRateLimitKBps: payload.uploadRateLimitKBps || 5120, downloadRateLimitKBps: payload.downloadRateLimitKBps || 5120 }))
+const preferencesGet = vi.fn(async () => ({
+  version: 1,
+  updatedAt: '',
+  customShortcuts: [],
+  customShortcutsUpdatedAt: '',
+  favoriteDirectories: [],
+  favoriteDirectoriesUpdatedAt: '',
+  sessionOrders: [],
+  sessionOrdersUpdatedAt: '',
+  uploadRateLimitKBps: 5120,
+  downloadRateLimitKBps: 5120,
+}))
+const preferencesUpdate = vi.fn(async (payload: any) => ({
+  version: 1,
+  updatedAt: '',
+  customShortcuts: [],
+  customShortcutsUpdatedAt: '',
+  favoriteDirectories: payload.favoriteDirectories || [],
+  favoriteDirectoriesUpdatedAt: payload.favoriteDirectoriesUpdatedAt || '',
+  sessionOrders: [],
+  sessionOrdersUpdatedAt: '',
+  uploadRateLimitKBps: payload.uploadRateLimitKBps || 5120,
+  downloadRateLimitKBps: payload.downloadRateLimitKBps || 5120,
+}))
 const paneCwdMocks = vi.hoisted(() => ({ calls: [] as Array<string | null>, cwd: '' }))
-const consoleStoreState: { activeHostId: string; activeSessionId: string; activePaneId: string | null; filePanelWidth: number; setFilePanelWidth: typeof setFilePanelWidth; setFilePanelOpen: typeof setFilePanelOpen; openUploadDialog: typeof openUploadDialog; pushToast: typeof pushToast; openEditors: FileEditorDocument[]; activeEditorId: string | null } = { activeHostId: 'local', activeSessionId: 'session-a', activePaneId: null, filePanelWidth: 360, setFilePanelWidth, setFilePanelOpen, openUploadDialog, pushToast, openEditors: [], activeEditorId: null }
+const consoleStoreState: {
+  activeHostId: string
+  activeSessionId: string
+  activePaneId: string | null
+  filePanelWidth: number
+  setFilePanelWidth: typeof setFilePanelWidth
+  setFilePanelOpen: typeof setFilePanelOpen
+  openUploadDialog: typeof openUploadDialog
+  pushToast: typeof pushToast
+  openEditors: FileEditorDocument[]
+  activeEditorId: string | null
+} = {
+  activeHostId: 'local',
+  activeSessionId: 'session-a',
+  activePaneId: null,
+  filePanelWidth: 360,
+  setFilePanelWidth,
+  setFilePanelOpen,
+  openUploadDialog,
+  pushToast,
+  openEditors: [],
+  activeEditorId: null,
+}
 
 const roots = [
   { id: 'root-workspace', label: 'Workspace', path: '/workspace' },
@@ -25,17 +69,116 @@ const roots = [
 ]
 let largeDirectoryItems: FileItem[] | null = null
 const getListData = (rootId: string, currentPath: string): FileListResponse => {
-  if (rootId === 'root-large' && largeDirectoryItems) return { root: roots.find((item) => item.id === rootId) || roots[0], path: currentPath, breadcrumbs: [{ name: '/', path: '' }], items: largeDirectoryItems }
+  if (rootId === 'root-large' && largeDirectoryItems)
+    return {
+      root: roots.find((item) => item.id === rootId) || roots[0],
+      path: currentPath,
+      breadcrumbs: [{ name: '/', path: '' }],
+      items: largeDirectoryItems,
+    }
   if (rootId === 'root-home' || rootId === 'root-workspace') {
     const root = roots.find((item) => item.id === rootId) || roots[0]
-    if (!currentPath) return { root, path: '', breadcrumbs: [{ name: '/', path: '' }], items: [{ name: 'src', path: 'src', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: 'docs', path: 'docs', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: 'project', path: 'project', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: 'downloads', path: 'downloads', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: '.env', path: '.env', type: 'file', size: 4, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
-    if (currentPath === 'src') return { root, path: 'src', breadcrumbs: [{ name: '/', path: '' }, { name: 'src', path: 'src' }], items: [{ name: 'nested', path: 'src/nested', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: 'index.ts', path: 'src/index.ts', type: 'file', size: 12, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
-    if (currentPath === 'src/nested') return { root, path: 'src/nested', breadcrumbs: [{ name: '/', path: '' }, { name: 'src', path: 'src' }, { name: 'nested', path: 'src/nested' }], items: [{ name: 'deep.ts', path: 'src/nested/deep.ts', type: 'file', size: 7, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
-    if (currentPath === 'docs') return { root, path: 'docs', breadcrumbs: [{ name: '/', path: '' }, { name: 'docs', path: 'docs' }], items: [{ name: 'guide.md', path: 'docs/guide.md', type: 'file', size: 16, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
-    if (currentPath === 'project') return { root, path: 'project', breadcrumbs: [{ name: '/', path: '' }, { name: 'project', path: 'project' }], items: [{ name: 'demo.txt', path: 'project/demo.txt', type: 'file', size: 8, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
-    if (currentPath === 'downloads') return { root, path: 'downloads', breadcrumbs: [{ name: '/', path: '' }, { name: 'downloads', path: 'downloads' }], items: [{ name: 'archive.zip', path: 'downloads/archive.zip', type: 'file', size: 32, modifiedAt: '2026-05-26T00:00:00.000Z' }, { name: 'photo.png', path: 'downloads/photo.png', type: 'file', size: 48, modifiedAt: '2026-05-26T00:00:00.000Z' }] }
+    if (!currentPath)
+      return {
+        root,
+        path: '',
+        breadcrumbs: [{ name: '/', path: '' }],
+        items: [
+          { name: 'src', path: 'src', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' },
+          { name: 'docs', path: 'docs', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' },
+          { name: 'project', path: 'project', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' },
+          { name: 'downloads', path: 'downloads', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' },
+          { name: '.env', path: '.env', type: 'file', size: 4, modifiedAt: '2026-05-26T00:00:00.000Z' },
+        ],
+      }
+    if (currentPath === 'src')
+      return {
+        root,
+        path: 'src',
+        breadcrumbs: [
+          { name: '/', path: '' },
+          { name: 'src', path: 'src' },
+        ],
+        items: [
+          { name: 'nested', path: 'src/nested', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' },
+          { name: 'index.ts', path: 'src/index.ts', type: 'file', size: 12, modifiedAt: '2026-05-26T00:00:00.000Z' },
+        ],
+      }
+    if (currentPath === 'src/nested')
+      return {
+        root,
+        path: 'src/nested',
+        breadcrumbs: [
+          { name: '/', path: '' },
+          { name: 'src', path: 'src' },
+          { name: 'nested', path: 'src/nested' },
+        ],
+        items: [
+          {
+            name: 'deep.ts',
+            path: 'src/nested/deep.ts',
+            type: 'file',
+            size: 7,
+            modifiedAt: '2026-05-26T00:00:00.000Z',
+          },
+        ],
+      }
+    if (currentPath === 'docs')
+      return {
+        root,
+        path: 'docs',
+        breadcrumbs: [
+          { name: '/', path: '' },
+          { name: 'docs', path: 'docs' },
+        ],
+        items: [
+          { name: 'guide.md', path: 'docs/guide.md', type: 'file', size: 16, modifiedAt: '2026-05-26T00:00:00.000Z' },
+        ],
+      }
+    if (currentPath === 'project')
+      return {
+        root,
+        path: 'project',
+        breadcrumbs: [
+          { name: '/', path: '' },
+          { name: 'project', path: 'project' },
+        ],
+        items: [
+          { name: 'demo.txt', path: 'project/demo.txt', type: 'file', size: 8, modifiedAt: '2026-05-26T00:00:00.000Z' },
+        ],
+      }
+    if (currentPath === 'downloads')
+      return {
+        root,
+        path: 'downloads',
+        breadcrumbs: [
+          { name: '/', path: '' },
+          { name: 'downloads', path: 'downloads' },
+        ],
+        items: [
+          {
+            name: 'archive.zip',
+            path: 'downloads/archive.zip',
+            type: 'file',
+            size: 32,
+            modifiedAt: '2026-05-26T00:00:00.000Z',
+          },
+          {
+            name: 'photo.png',
+            path: 'downloads/photo.png',
+            type: 'file',
+            size: 48,
+            modifiedAt: '2026-05-26T00:00:00.000Z',
+          },
+        ],
+      }
   }
-  return { root: roots.find((item) => item.id === rootId) || roots[0], path: currentPath, breadcrumbs: [{ name: '/', path: '' }], items: [] }
+  return {
+    root: roots.find((item) => item.id === rootId) || roots[0],
+    path: currentPath,
+    breadcrumbs: [{ name: '/', path: '' }],
+    items: [],
+  }
 }
 
 vi.mock('@/stores/useConsoleStore', () => ({
@@ -53,13 +196,90 @@ vi.mock('@/hooks/useApi', () => ({
     if (!enabled) return { data: undefined, isLoading: false }
     return { data: getListData(nextRootId || 'root-workspace', nextCurrentPath), isLoading: false }
   },
-  useFilePreview: (_hostId: string, _rootId: string, path: string, line = 1) => ({ data: path ? path.endsWith('.png') ? { path, type: 'file', size: 48, modifiedAt: '2026-05-26T00:00:00.000Z', binary: true, truncated: false, reason: 'binary-file', lines: [] } : { path, type: 'file', size: 32, modifiedAt: '2026-05-26T00:00:00.000Z', binary: false, truncated: false, lines: [{ number: line, content: `line-${line}` }] } : null }),
-  useFileSearch: (_hostId: string, _rootId: string, mode: string, query: string, basePath = '', includeDotFiles = true) => {
-    if (mode === 'content' && query === 'needle') return { data: [{ name: 'guide.md', path: 'docs/guide.md', type: 'file', size: 16, modifiedAt: '2026-05-26T00:00:00.000Z', matches: [{ number: 42, content: 'needle here' }] }], isFetching: false }
-    if (mode === 'content' && query === 'tmuxgo') return { data: includeDotFiles ? [{ name: '.history', path: '.history', type: 'file', size: 16, modifiedAt: '2026-05-26T00:00:00.000Z', matches: [{ number: 7, content: 'tmuxgo hidden' }] }] : [{ name: 'README.md', path: 'README.md', type: 'file', size: 32, modifiedAt: '2026-05-26T00:00:00.000Z', matches: [{ number: 3, content: 'TmuxGo visible' }] }], isFetching: false }
+  useFilePreview: (_hostId: string, _rootId: string, path: string, line = 1) => ({
+    data: path
+      ? path.endsWith('.png')
+        ? {
+            path,
+            type: 'file',
+            size: 48,
+            modifiedAt: '2026-05-26T00:00:00.000Z',
+            binary: true,
+            truncated: false,
+            reason: 'binary-file',
+            lines: [],
+          }
+        : {
+            path,
+            type: 'file',
+            size: 32,
+            modifiedAt: '2026-05-26T00:00:00.000Z',
+            binary: false,
+            truncated: false,
+            lines: [{ number: line, content: `line-${line}` }],
+          }
+      : null,
+  }),
+  useFileSearch: (
+    _hostId: string,
+    _rootId: string,
+    mode: string,
+    query: string,
+    basePath = '',
+    includeDotFiles = true,
+  ) => {
+    if (mode === 'content' && query === 'needle')
+      return {
+        data: [
+          {
+            name: 'guide.md',
+            path: 'docs/guide.md',
+            type: 'file',
+            size: 16,
+            modifiedAt: '2026-05-26T00:00:00.000Z',
+            matches: [{ number: 42, content: 'needle here' }],
+          },
+        ],
+        isFetching: false,
+      }
+    if (mode === 'content' && query === 'tmuxgo')
+      return {
+        data: includeDotFiles
+          ? [
+              {
+                name: '.history',
+                path: '.history',
+                type: 'file',
+                size: 16,
+                modifiedAt: '2026-05-26T00:00:00.000Z',
+                matches: [{ number: 7, content: 'tmuxgo hidden' }],
+              },
+            ]
+          : [
+              {
+                name: 'README.md',
+                path: 'README.md',
+                type: 'file',
+                size: 32,
+                modifiedAt: '2026-05-26T00:00:00.000Z',
+                matches: [{ number: 3, content: 'TmuxGo visible' }],
+              },
+            ],
+        isFetching: false,
+      }
     if (mode === 'content' && query === 'slow') return { data: [], isFetching: true }
-    if (query === 'docs' && !basePath) return { data: [{ name: 'docs', path: 'docs', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }], isFetching: false }
-    if (query === 'project' && !basePath) return { data: [{ name: 'project', path: 'project', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }], isFetching: false }
+    if (query === 'docs' && !basePath)
+      return {
+        data: [{ name: 'docs', path: 'docs', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }],
+        isFetching: false,
+      }
+    if (query === 'project' && !basePath)
+      return {
+        data: [
+          { name: 'project', path: 'project', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' },
+        ],
+        isFetching: false,
+      }
     return { data: [], isFetching: false }
   },
   usePaneCwd: (paneId: string | null) => {
@@ -80,12 +300,36 @@ vi.mock('@/lib/api', () => ({
       rename: vi.fn(async () => ({ ok: true, item: { path: 'renamed.txt' } })),
       copy: vi.fn(async () => ({ ok: true })),
       move: vi.fn(async () => ({ ok: true })),
-      trash: vi.fn(async () => ({ ok: true, entry: { id: 'trash-1', rootId: 'root-workspace', path: 'demo.txt', name: 'demo.txt', type: 'file', deletedAt: '2026-05-26T00:00:00.000Z' } })),
+      trash: vi.fn(async () => ({
+        ok: true,
+        entry: {
+          id: 'trash-1',
+          rootId: 'root-workspace',
+          path: 'demo.txt',
+          name: 'demo.txt',
+          type: 'file',
+          deletedAt: '2026-05-26T00:00:00.000Z',
+        },
+      })),
       trashEntries: vi.fn(async () => ({ entries: [] })),
       restore: vi.fn(async () => ({ ok: true })),
       remove: vi.fn(async () => ({ ok: true })),
-      content: vi.fn(async () => ({ path: 'src/index.ts', type: 'file', size: 32, modifiedAt: '2026-05-26T00:00:00.000Z', binary: false, truncated: false, encoding: 'utf-8', content: 'hello\nworld' })),
-      saveContent: vi.fn(async (_hostId: string, _rootId: string, _path: string, content: string) => ({ ok: true, content, modifiedAt: '2026-05-26T00:00:00.000Z', size: content.length })),
+      content: vi.fn(async () => ({
+        path: 'src/index.ts',
+        type: 'file',
+        size: 32,
+        modifiedAt: '2026-05-26T00:00:00.000Z',
+        binary: false,
+        truncated: false,
+        encoding: 'utf-8',
+        content: 'hello\nworld',
+      })),
+      saveContent: vi.fn(async (_hostId: string, _rootId: string, _path: string, content: string) => ({
+        ok: true,
+        content,
+        modifiedAt: '2026-05-26T00:00:00.000Z',
+        size: content.length,
+      })),
       downloadTask: vi.fn(),
       downloadUrl: vi.fn(() => '/api/files/download'),
       imageUrl: vi.fn(() => '/api/files/image'),
@@ -97,39 +341,41 @@ vi.mock('@/lib/api', () => ({
   },
 }))
 vi.mock('@/i18n', () => ({
-  useTranslation: () => ({ t: (key: string) => {
-    if (key === 'file.searchName') return 'Search file names'
-    if (key === 'file.searchContent') return 'Search file content'
-    if (key === 'file.all') return 'All'
-    if (key === 'file.file') return 'File'
-    if (key === 'file.dir') return 'Dir'
-    if (key === 'file.dotfiles') return 'Dotfiles'
-    if (key === 'file.loading') return 'Loading...'
-    if (key === 'file.treeLoadFailed') return 'Load failed'
-    if (key === 'file.retryLoad') return 'Retry'
-    if (key === 'file.removeFavorite') return 'Unfavorite'
-    if (key === 'file.clearExpanded') return 'Collapse all'
-    if (key === 'file.clearSearch') return 'Clear search'
-    if (key === 'file.copyPath') return 'Copy path'
-    if (key === 'file.openPreview') return 'Open preview'
-    if (key === 'file.openEditor') return 'Open in editor'
-    if (key === 'file.mobileEdit') return 'Edit'
-    if (key === 'file.mobileEditExit') return 'Exit editing'
-    if (key === 'file.mobileEditConfirmTitle') return 'Enter edit mode?'
-    if (key === 'file.mobileEditConfirmMessage') return 'Taps or scrolling may modify the file.'
-    if (key === 'file.mobileEditExitTitle') return 'Unsaved changes'
-    if (key === 'file.mobileEditExitMessage') return 'Exiting now will discard unsaved changes.'
-    if (key === 'file.mobileEditDiscard') return 'Discard and exit'
-    if (key === 'file.mobileEditKeepEditing') return 'Keep editing'
-    if (key === 'file.followActivePath') return 'Follow terminal cwd'
-    if (key === 'file.followActivePathHint') return 'Follow the active terminal working directory'
-    if (key === 'editor.save') return 'Save'
-    if (key === 'editor.saving') return 'Saving...'
-    if (key === 'editor.saved') return 'Saved'
-    if (key === 'common.confirm') return 'Confirm'
-    if (key === 'common.cancel') return 'Cancel'
-    return key
-  } }),
+  useTranslation: () => ({
+    t: (key: string) => {
+      if (key === 'file.searchName') return 'Search file names'
+      if (key === 'file.searchContent') return 'Search file content'
+      if (key === 'file.all') return 'All'
+      if (key === 'file.file') return 'File'
+      if (key === 'file.dir') return 'Dir'
+      if (key === 'file.dotfiles') return 'Dotfiles'
+      if (key === 'file.loading') return 'Loading...'
+      if (key === 'file.treeLoadFailed') return 'Load failed'
+      if (key === 'file.retryLoad') return 'Retry'
+      if (key === 'file.removeFavorite') return 'Unfavorite'
+      if (key === 'file.clearExpanded') return 'Collapse all'
+      if (key === 'file.clearSearch') return 'Clear search'
+      if (key === 'file.copyPath') return 'Copy path'
+      if (key === 'file.openPreview') return 'Open preview'
+      if (key === 'file.openEditor') return 'Open in editor'
+      if (key === 'file.mobileEdit') return 'Edit'
+      if (key === 'file.mobileEditExit') return 'Exit editing'
+      if (key === 'file.mobileEditConfirmTitle') return 'Enter edit mode?'
+      if (key === 'file.mobileEditConfirmMessage') return 'Taps or scrolling may modify the file.'
+      if (key === 'file.mobileEditExitTitle') return 'Unsaved changes'
+      if (key === 'file.mobileEditExitMessage') return 'Exiting now will discard unsaved changes.'
+      if (key === 'file.mobileEditDiscard') return 'Discard and exit'
+      if (key === 'file.mobileEditKeepEditing') return 'Keep editing'
+      if (key === 'file.followActivePath') return 'Follow terminal cwd'
+      if (key === 'file.followActivePathHint') return 'Follow the active terminal working directory'
+      if (key === 'editor.save') return 'Save'
+      if (key === 'editor.saving') return 'Saving...'
+      if (key === 'editor.saved') return 'Saved'
+      if (key === 'common.confirm') return 'Confirm'
+      if (key === 'common.cancel') return 'Cancel'
+      return key
+    },
+  }),
 }))
 
 describe('FilePanel', () => {
@@ -205,7 +451,10 @@ describe('FilePanel', () => {
   })
 
   it('opens a favorite directory shortcut on mobile', async () => {
-    localStorage.setItem('tmuxgo-favorite-directories', JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]))
+    localStorage.setItem(
+      'tmuxgo-favorite-directories',
+      JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]),
+    )
     render(React.createElement(FilePanel, { mode: 'mobile' }))
     const favoriteButtons = await screen.findAllByRole('button', { name: '/home/guo/project' })
     fireEvent.click(favoriteButtons[0])
@@ -213,7 +462,10 @@ describe('FilePanel', () => {
   })
 
   it('shows favorite directories as selectable roots', async () => {
-    localStorage.setItem('tmuxgo-favorite-directories', JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]))
+    localStorage.setItem(
+      'tmuxgo-favorite-directories',
+      JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]),
+    )
     render(React.createElement(FilePanel))
     expect(await screen.findByRole('option', { name: 'project' })).toBeInTheDocument()
     fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'favorite:root-home:project' } })
@@ -221,7 +473,10 @@ describe('FilePanel', () => {
   })
   it('opens file from favorite root with full relative path', async () => {
     const onOpenFile = vi.fn()
-    localStorage.setItem('tmuxgo-favorite-directories', JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]))
+    localStorage.setItem(
+      'tmuxgo-favorite-directories',
+      JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]),
+    )
     render(React.createElement(FilePanel, { onOpenFile }))
     await screen.findByRole('option', { name: 'project' })
     fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'favorite:root-home:project' } })
@@ -248,7 +503,10 @@ describe('FilePanel', () => {
     })
   })
   it('copies file path from favorite root with full absolute path', async () => {
-    localStorage.setItem('tmuxgo-favorite-directories', JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]))
+    localStorage.setItem(
+      'tmuxgo-favorite-directories',
+      JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]),
+    )
     render(React.createElement(FilePanel))
     await screen.findByRole('option', { name: 'project' })
     fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'favorite:root-home:project' } })
@@ -257,11 +515,19 @@ describe('FilePanel', () => {
     expect(clipboardMocks.writeClipboardText).toHaveBeenCalledWith('/home/guo/project/demo.txt')
   })
   it('drags favorite directory with its absolute path', async () => {
-    localStorage.setItem('tmuxgo-favorite-directories', JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]))
+    localStorage.setItem(
+      'tmuxgo-favorite-directories',
+      JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]),
+    )
     render(React.createElement(FilePanel))
     const setData = vi.fn()
-    fireEvent.dragStart((await screen.findAllByRole('button', { name: '/home/guo/project' }))[0], { dataTransfer: { effectAllowed: 'none', setData } })
-    expect(setData).toHaveBeenCalledWith('application/x-tmuxgo-file', expect.stringContaining('"absolutePath":"/home/guo/project"'))
+    fireEvent.dragStart((await screen.findAllByRole('button', { name: '/home/guo/project' }))[0], {
+      dataTransfer: { effectAllowed: 'none', setData },
+    })
+    expect(setData).toHaveBeenCalledWith(
+      'application/x-tmuxgo-file',
+      expect.stringContaining('"absolutePath":"/home/guo/project"'),
+    )
   })
   it('hides desktop preview action in explorer context menu', async () => {
     render(React.createElement(FilePanel, { onOpenFile: vi.fn() }))
@@ -272,7 +538,10 @@ describe('FilePanel', () => {
     expect(screen.queryByText('Open preview')).not.toBeInTheDocument()
   })
   it('removes selected favorite root from header without affecting home', async () => {
-    localStorage.setItem('tmuxgo-favorite-directories', JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]))
+    localStorage.setItem(
+      'tmuxgo-favorite-directories',
+      JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]),
+    )
     render(React.createElement(FilePanel))
     await screen.findByRole('option', { name: 'project' })
     fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'favorite:root-home:project' } })
@@ -284,27 +553,29 @@ describe('FilePanel', () => {
     expect(favorites).toEqual([])
   })
   it('follows the active editor and expands nested directories in explorer', async () => {
-    consoleStoreState.openEditors = [{
-      id: 'local:root-home:src/nested/deep.ts',
-      hostId: 'local',
-      rootId: 'root-home',
-      rootLabel: 'Home',
-      rootPath: '/home/guo',
-      path: 'src/nested/deep.ts',
-      name: 'deep.ts',
-      absolutePath: '/home/guo/src/nested/deep.ts',
-      language: 'typescript',
-      content: '',
-      savedContent: '',
-      modifiedAt: '',
-      size: 0,
-      dirty: false,
-      loading: false,
-      saving: false,
-      binary: false,
-      truncated: false,
-      type: 'file',
-    }]
+    consoleStoreState.openEditors = [
+      {
+        id: 'local:root-home:src/nested/deep.ts',
+        hostId: 'local',
+        rootId: 'root-home',
+        rootLabel: 'Home',
+        rootPath: '/home/guo',
+        path: 'src/nested/deep.ts',
+        name: 'deep.ts',
+        absolutePath: '/home/guo/src/nested/deep.ts',
+        language: 'typescript',
+        content: '',
+        savedContent: '',
+        modifiedAt: '',
+        size: 0,
+        dirty: false,
+        loading: false,
+        saving: false,
+        binary: false,
+        truncated: false,
+        type: 'file',
+      },
+    ]
     consoleStoreState.activeEditorId = 'local:root-home:src/nested/deep.ts'
     render(React.createElement(FilePanel))
     await waitFor(() => expect(screen.getByText('deep.ts')).toBeInTheDocument())
@@ -312,35 +583,45 @@ describe('FilePanel', () => {
     expect(document.querySelector('.tmuxgo-file-tree [data-selected="true"]')?.textContent).toContain('deep.ts')
   })
   it('switches to the matching favorite root for the active editor', async () => {
-    localStorage.setItem('tmuxgo-favorite-directories', JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'docs', path: 'docs' }, { rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]))
+    localStorage.setItem(
+      'tmuxgo-favorite-directories',
+      JSON.stringify([
+        { rootId: 'root-home', rootPath: '/home/guo', name: 'docs', path: 'docs' },
+        { rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' },
+      ]),
+    )
     const view = render(React.createElement(FilePanel))
     await screen.findByRole('option', { name: 'docs' })
     fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'favorite:root-home:docs' } })
     await waitFor(() => expect(screen.getByText('guide.md')).toBeInTheDocument())
-    consoleStoreState.openEditors = [{
-      id: 'local:root-home:project/demo.txt',
-      hostId: 'local',
-      rootId: 'root-home',
-      rootLabel: 'Home',
-      rootPath: '/home/guo',
-      path: 'project/demo.txt',
-      name: 'demo.txt',
-      absolutePath: '/home/guo/project/demo.txt',
-      language: 'plaintext',
-      content: '',
-      savedContent: '',
-      modifiedAt: '',
-      size: 0,
-      dirty: false,
-      loading: false,
-      saving: false,
-      binary: false,
-      truncated: false,
-      type: 'file',
-    }]
+    consoleStoreState.openEditors = [
+      {
+        id: 'local:root-home:project/demo.txt',
+        hostId: 'local',
+        rootId: 'root-home',
+        rootLabel: 'Home',
+        rootPath: '/home/guo',
+        path: 'project/demo.txt',
+        name: 'demo.txt',
+        absolutePath: '/home/guo/project/demo.txt',
+        language: 'plaintext',
+        content: '',
+        savedContent: '',
+        modifiedAt: '',
+        size: 0,
+        dirty: false,
+        loading: false,
+        saving: false,
+        binary: false,
+        truncated: false,
+        type: 'file',
+      },
+    ]
     consoleStoreState.activeEditorId = 'local:root-home:project/demo.txt'
     view.rerender(React.createElement(FilePanel))
-    await waitFor(() => expect((screen.getAllByRole('combobox')[0] as HTMLSelectElement).value).toBe('favorite:root-home:project'))
+    await waitFor(() =>
+      expect((screen.getAllByRole('combobox')[0] as HTMLSelectElement).value).toBe('favorite:root-home:project'),
+    )
     expect(screen.getByText('demo.txt')).toBeInTheDocument()
     expect(document.querySelector('.tmuxgo-file-tree [data-selected="true"]')?.textContent).toContain('demo.txt')
   })
@@ -391,7 +672,10 @@ describe('FilePanel', () => {
     expect(await screen.findByText('docs')).toBeInTheDocument()
   })
   it('keeps search query after switching root', async () => {
-    localStorage.setItem('tmuxgo-favorite-directories', JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]))
+    localStorage.setItem(
+      'tmuxgo-favorite-directories',
+      JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]),
+    )
     render(React.createElement(FilePanel))
     const input = screen.getByPlaceholderText('Search file names') as HTMLInputElement
     await screen.findByRole('option', { name: 'project' })
@@ -402,28 +686,33 @@ describe('FilePanel', () => {
     expect(input.value).toBe('project')
   })
   it('keeps the selected favorite root when the session changes', async () => {
-    localStorage.setItem('tmuxgo-favorite-directories', JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]))
-    consoleStoreState.openEditors = [{
-      id: 'local:root-home:project/demo.txt',
-      hostId: 'local',
-      rootId: 'root-home',
-      rootLabel: 'Home',
-      rootPath: '/home/guo',
-      path: 'project/demo.txt',
-      name: 'demo.txt',
-      absolutePath: '/home/guo/project/demo.txt',
-      language: 'plaintext',
-      content: '',
-      savedContent: '',
-      modifiedAt: '',
-      size: 0,
-      dirty: false,
-      loading: false,
-      saving: false,
-      binary: false,
-      truncated: false,
-      type: 'file',
-    }]
+    localStorage.setItem(
+      'tmuxgo-favorite-directories',
+      JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]),
+    )
+    consoleStoreState.openEditors = [
+      {
+        id: 'local:root-home:project/demo.txt',
+        hostId: 'local',
+        rootId: 'root-home',
+        rootLabel: 'Home',
+        rootPath: '/home/guo',
+        path: 'project/demo.txt',
+        name: 'demo.txt',
+        absolutePath: '/home/guo/project/demo.txt',
+        language: 'plaintext',
+        content: '',
+        savedContent: '',
+        modifiedAt: '',
+        size: 0,
+        dirty: false,
+        loading: false,
+        saving: false,
+        binary: false,
+        truncated: false,
+        type: 'file',
+      },
+    ]
     consoleStoreState.activeEditorId = 'local:root-home:project/demo.txt'
     const view = render(React.createElement(FilePanel))
     await screen.findByRole('option', { name: 'project' })
@@ -431,7 +720,9 @@ describe('FilePanel', () => {
     await waitFor(() => expect(screen.getByText('demo.txt')).toBeInTheDocument())
     consoleStoreState.activeSessionId = 'session-b'
     view.rerender(React.createElement(FilePanel))
-    await waitFor(() => expect((screen.getAllByRole('combobox')[0] as HTMLSelectElement).value).toBe('favorite:root-home:project'))
+    await waitFor(() =>
+      expect((screen.getAllByRole('combobox')[0] as HTMLSelectElement).value).toBe('favorite:root-home:project'),
+    )
     expect(screen.getByText('demo.txt')).toBeInTheDocument()
   })
   it('keeps the expanded directory when the session changes', async () => {
@@ -475,7 +766,10 @@ describe('FilePanel', () => {
     expect(screen.getByText('docs')).toBeInTheDocument()
   })
   it('keeps search query after opening favorite directory shortcut', async () => {
-    localStorage.setItem('tmuxgo-favorite-directories', JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]))
+    localStorage.setItem(
+      'tmuxgo-favorite-directories',
+      JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]),
+    )
     render(React.createElement(FilePanel))
     const input = screen.getByPlaceholderText('Search file names') as HTMLInputElement
     fireEvent.change(input, { target: { value: 'project' } })
@@ -500,7 +794,16 @@ describe('FilePanel', () => {
     await waitFor(() => expect(screen.getByText('docs')).toBeInTheDocument())
   })
   it('zooms markdown preview on mobile via toolbar buttons', async () => {
-    vi.mocked(api.files.content).mockResolvedValueOnce({ path: 'docs/guide.md', type: 'file', size: 16, modifiedAt: '2026-05-26T00:00:00.000Z', binary: false, truncated: false, encoding: 'utf-8', content: '# 标题' })
+    vi.mocked(api.files.content).mockResolvedValueOnce({
+      path: 'docs/guide.md',
+      type: 'file',
+      size: 16,
+      modifiedAt: '2026-05-26T00:00:00.000Z',
+      binary: false,
+      truncated: false,
+      encoding: 'utf-8',
+      content: '# 标题',
+    })
     render(React.createElement(FilePanel, { mode: 'mobile' }))
     fireEvent.click((await screen.findByText('docs')).closest('button') as HTMLButtonElement)
     fireEvent.click(await screen.findByText('guide.md'))
@@ -521,11 +824,22 @@ describe('FilePanel', () => {
     expect(screen.getByText('125%')).toBeInTheDocument()
   })
   it('renders markdown preview on mobile for .md files', async () => {
-    vi.mocked(api.files.content).mockResolvedValueOnce({ path: 'docs/guide.md', type: 'file', size: 16, modifiedAt: '2026-05-26T00:00:00.000Z', binary: false, truncated: false, encoding: 'utf-8', content: '# 标题\n\n**加粗**' })
+    vi.mocked(api.files.content).mockResolvedValueOnce({
+      path: 'docs/guide.md',
+      type: 'file',
+      size: 16,
+      modifiedAt: '2026-05-26T00:00:00.000Z',
+      binary: false,
+      truncated: false,
+      encoding: 'utf-8',
+      content: '# 标题\n\n**加粗**',
+    })
     render(React.createElement(FilePanel, { mode: 'mobile' }))
     fireEvent.click((await screen.findByText('docs')).closest('button') as HTMLButtonElement)
     fireEvent.click(await screen.findByText('guide.md'))
-    await waitFor(() => expect(vi.mocked(api.files.content)).toHaveBeenCalledWith('local', 'root-workspace', 'docs/guide.md'))
+    await waitFor(() =>
+      expect(vi.mocked(api.files.content)).toHaveBeenCalledWith('local', 'root-workspace', 'docs/guide.md'),
+    )
     expect(await screen.findByRole('heading', { name: '标题' })).toBeInTheDocument()
     expect(screen.getByText('加粗').tagName).toBe('STRONG')
   })
@@ -548,7 +862,13 @@ describe('FilePanel', () => {
     fireEvent.change(textarea, { target: { value: 'hello\nworld\nchanged' } })
     fireEvent.click(screen.getByText('Save'))
     await waitFor(() => expect(vi.mocked(api.files.saveContent)).toHaveBeenCalledTimes(1))
-    expect(vi.mocked(api.files.saveContent)).toHaveBeenCalledWith('local', 'root-workspace', 'src/index.ts', 'hello\nworld\nchanged', '2026-05-26T00:00:00.000Z')
+    expect(vi.mocked(api.files.saveContent)).toHaveBeenCalledWith(
+      'local',
+      'root-workspace',
+      'src/index.ts',
+      'hello\nworld\nchanged',
+      '2026-05-26T00:00:00.000Z',
+    )
   })
   it('confirms before discarding unsaved mobile edits', async () => {
     render(React.createElement(FilePanel, { mode: 'mobile' }))
@@ -578,8 +898,14 @@ describe('FilePanel', () => {
   })
   it('handles mobile back inside the workspace picker', async () => {
     const userAgent = navigator.userAgent
-    Object.defineProperty(navigator, 'userAgent', { configurable: true, value: 'Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 Chrome/138.0.0.0 Mobile Safari/537.36' })
-    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+    Object.defineProperty(navigator, 'userAgent', {
+      configurable: true,
+      value: 'Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 Chrome/138.0.0.0 Mobile Safari/537.36',
+    })
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    )
     render(React.createElement(FilePanel, { mode: 'picker' }))
     fireEvent.click((await screen.findByText('src')).closest('button') as HTMLButtonElement)
     expect(await screen.findByText('index.ts')).toBeInTheDocument()
@@ -592,7 +918,7 @@ describe('FilePanel', () => {
   })
   it('opens content search preview at matched line', async () => {
     render(React.createElement(FilePanel))
-    fireEvent.click(screen.getByRole('button', { name: 'content' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Search file content' }))
     fireEvent.change(screen.getByPlaceholderText('Search file content'), { target: { value: 'needle' } })
     fireEvent.click((await screen.findByText('guide.md')).closest('button') as HTMLButtonElement)
     expect(await screen.findByText(/L42:/)).toBeInTheDocument()
@@ -638,14 +964,14 @@ describe('FilePanel', () => {
   })
   it('shows visible content search results when dotfiles are hidden', async () => {
     render(React.createElement(FilePanel))
-    fireEvent.click(screen.getByRole('button', { name: 'content' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Search file content' }))
     fireEvent.change(screen.getByPlaceholderText('Search file content'), { target: { value: 'tmuxgo' } })
     expect(await screen.findByText('README.md')).toBeInTheDocument()
     expect(screen.queryByText('.history')).not.toBeInTheDocument()
   })
   it('does not show no-results while content search is still loading', async () => {
     render(React.createElement(FilePanel))
-    fireEvent.click(screen.getByRole('button', { name: 'content' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Search file content' }))
     fireEvent.change(screen.getByPlaceholderText('Search file content'), { target: { value: 'slow' } })
     expect(await screen.findByText('Loading...')).toBeInTheDocument()
     expect(screen.queryByText('file.noResults')).not.toBeInTheDocument()
@@ -666,13 +992,17 @@ describe('FilePanel', () => {
     fireEvent.click(src)
     await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
     expect(collapseAll).not.toBeDisabled()
-    expect(vi.mocked(api.files.list).mock.calls.filter(([, rootId, path]) => rootId === 'root-workspace' && path === 'src')).toHaveLength(1)
+    expect(
+      vi.mocked(api.files.list).mock.calls.filter(([, rootId, path]) => rootId === 'root-workspace' && path === 'src'),
+    ).toHaveLength(1)
     fireEvent.click(collapseAll)
     await waitFor(() => expect(screen.queryByText('index.ts')).not.toBeInTheDocument())
     expect(collapseAll).toBeDisabled()
     fireEvent.click(screen.getByText('src'))
     await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
-    expect(vi.mocked(api.files.list).mock.calls.filter(([, rootId, path]) => rootId === 'root-workspace' && path === 'src')).toHaveLength(2)
+    expect(
+      vi.mocked(api.files.list).mock.calls.filter(([, rootId, path]) => rootId === 'root-workspace' && path === 'src'),
+    ).toHaveLength(2)
   })
   it('keeps directory collapsed when async child loading resolves after collapse', async () => {
     const { api } = await import('@/lib/api')
@@ -766,13 +1096,21 @@ describe('FilePanel', () => {
     fireEvent.click(src)
     fireEvent.click(src)
     fireEvent.click(src)
-    expect(vi.mocked(api.files.list).mock.calls.filter(([, rootId, path]) => rootId === 'root-workspace' && path === 'src')).toHaveLength(1)
+    expect(
+      vi.mocked(api.files.list).mock.calls.filter(([, rootId, path]) => rootId === 'root-workspace' && path === 'src'),
+    ).toHaveLength(1)
     delayedSrcResolvers.splice(0).forEach((resolve) => resolve())
     await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
   })
   it('renders all large directory entries', async () => {
     roots.push({ id: 'root-large', label: 'Large', path: '/large' })
-    largeDirectoryItems = Array.from({ length: 121 }, (_, index) => ({ name: `file-${index}.txt`, path: `file-${index}.txt`, type: 'file', size: index, modifiedAt: '2026-05-26T00:00:00.000Z' }))
+    largeDirectoryItems = Array.from({ length: 121 }, (_, index) => ({
+      name: `file-${index}.txt`,
+      path: `file-${index}.txt`,
+      type: 'file',
+      size: index,
+      modifiedAt: '2026-05-26T00:00:00.000Z',
+    }))
     render(React.createElement(FilePanel))
     fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'root-large' } })
     expect(await screen.findByText('file-79.txt')).toBeInTheDocument()

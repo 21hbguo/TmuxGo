@@ -5,16 +5,40 @@ import path from 'path'
 import { mkdir, readFile, rename, stat, writeFile } from 'fs/promises'
 
 type ShortcutStep = { type: 'keys' | 'text' | 'wait'; keys?: string; text?: string; appendEnter?: boolean; ms?: number }
-type CustomShortcut = { id: string; label: string; mode?: 'keys' | 'text'; keys?: string; text?: string; appendEnter?: boolean; steps?: ShortcutStep[] }
+type CustomShortcut = {
+  id: string
+  label: string
+  mode?: 'keys' | 'text'
+  keys?: string
+  text?: string
+  appendEnter?: boolean
+  steps?: ShortcutStep[]
+}
 type FavoriteDirectory = { rootId: string; rootPath: string; name: string; path: string }
-type SessionWorkspaceEntry = { sessionId: string; hostId: string; workspacePath: string; rootId: string; rootPath: string; rootLabel: string; relativePath: string; updatedAt: string }
+type SessionWorkspaceEntry = {
+  sessionId: string
+  hostId: string
+  workspacePath: string
+  rootId: string
+  rootPath: string
+  rootLabel: string
+  relativePath: string
+  updatedAt: string
+}
 type SessionOrder = { hostId: string; orderedSessionIds: string[] }
 type Snippet = { id: string; name: string; command: string; description?: string; category?: string }
 type FavoriteItem = { id: string; type: 'host' | 'session' | 'pane'; name: string; target: string; addedAt: string }
 type GitMode = 'follow-editor' | 'locked'
 type GitSource = 'editor' | 'pane' | 'manual' | null
 type GitRepoEntry = { repoPath: string; label: string; lastUsedAt: number; pinned: boolean }
-type GitHostState = { mode: GitMode; currentRepoPath: string | null; currentFilePath: string | null; source: GitSource; lockedRepoPath: string | null; recentRepos: GitRepoEntry[] }
+type GitHostState = {
+  mode: GitMode
+  currentRepoPath: string | null
+  currentFilePath: string | null
+  source: GitSource
+  lockedRepoPath: string | null
+  recentRepos: GitRepoEntry[]
+}
 type SessionResumePoint = {
   hostId: string
   sessionId: string
@@ -116,7 +140,7 @@ const MAX_SNIPPET_COMMAND_LEN = 4096
 const MAX_SNIPPET_DESC_LEN = 512
 const MAX_SNIPPET_CATEGORY_LEN = 64
 const MAX_FAVORITE_TARGET_LEN = 1024
-const VALID_THEMES = ['dark', 'light', 'high-contrast', 'dracula', 'nord', 'catppuccin']
+const VALID_THEMES = ['dark', 'light', 'high-contrast', 'dracula', 'nord', 'catppuccin', 'sage']
 const VALID_SIDEBAR = ['left', 'right']
 const VALID_LANGUAGE = ['zh', 'en']
 const VALID_CAPTURE_MODES = ['none', 'visible', 'history']
@@ -229,9 +253,10 @@ function normalizeShortcuts(input: unknown) {
     if (!id || !label) continue
     const raw = entry as Record<string, unknown>
     const rawSteps = normalizeShortcutSteps(raw.steps)
-    const legacy = raw.mode === 'text'
-      ? { type: 'text' as const, text: raw.text, appendEnter: raw.appendEnter === true }
-      : { type: 'keys' as const, keys: raw.keys }
+    const legacy =
+      raw.mode === 'text'
+        ? { type: 'text' as const, text: raw.text, appendEnter: raw.appendEnter === true }
+        : { type: 'keys' as const, keys: raw.keys }
     const steps = rawSteps.length > 0 ? rawSteps : normalizeShortcutSteps([legacy])
     if (steps.length === 0) continue
     next.push({ id, label, steps })
@@ -279,7 +304,9 @@ function normalizeSessionOrders(input: unknown) {
   for (const entry of input) {
     if (!entry || typeof entry !== 'object') continue
     const hostId = safeString((entry as Record<string, unknown>).hostId, MAX_ID_LEN)
-    const orderedSessionIdsRaw = Array.isArray((entry as Record<string, unknown>).orderedSessionIds) ? (entry as Record<string, unknown>).orderedSessionIds as unknown[] : []
+    const orderedSessionIdsRaw = Array.isArray((entry as Record<string, unknown>).orderedSessionIds)
+      ? ((entry as Record<string, unknown>).orderedSessionIds as unknown[])
+      : []
     if (!hostId) continue
     const orderedSessionIds: string[] = []
     for (const item of orderedSessionIdsRaw) {
@@ -334,7 +361,10 @@ function normalizeSessionArchivePolicy(input: unknown): SessionArchivePolicy {
   if (!input || typeof input !== 'object') return fallback
   const raw = input as Record<string, unknown>
   const enabled = typeof raw.enabled === 'boolean' ? raw.enabled : fallback.enabled
-  const captureMode = typeof raw.captureMode === 'string' && VALID_CAPTURE_MODES.includes(raw.captureMode) ? raw.captureMode as 'none' | 'visible' | 'history' : fallback.captureMode
+  const captureMode =
+    typeof raw.captureMode === 'string' && VALID_CAPTURE_MODES.includes(raw.captureMode)
+      ? (raw.captureMode as 'none' | 'visible' | 'history')
+      : fallback.captureMode
   const maxBytesPerSession = normalizeInt(raw.maxBytesPerSession, fallback.maxBytesPerSession, 0, 32 * 1024 * 1024)
   const retentionDays = normalizeInt(raw.retentionDays, fallback.retentionDays, 1, 3650)
   return { enabled, captureMode, maxBytesPerSession, retentionDays }
@@ -379,13 +409,24 @@ function normalizeSessionContinuity(input: unknown): SessionContinuity {
   const raw = input as Record<string, unknown>
   const enabled = typeof raw.enabled === 'boolean' ? raw.enabled : fallback.enabled
   const syncToServer = typeof raw.syncToServer === 'boolean' ? raw.syncToServer : fallback.syncToServer
-  const resumeOnReconnect = typeof raw.resumeOnReconnect === 'boolean' ? raw.resumeOnReconnect : fallback.resumeOnReconnect
-  const resumeOnNewDevice = typeof raw.resumeOnNewDevice === 'boolean' ? raw.resumeOnNewDevice : fallback.resumeOnNewDevice
+  const resumeOnReconnect =
+    typeof raw.resumeOnReconnect === 'boolean' ? raw.resumeOnReconnect : fallback.resumeOnReconnect
+  const resumeOnNewDevice =
+    typeof raw.resumeOnNewDevice === 'boolean' ? raw.resumeOnNewDevice : fallback.resumeOnNewDevice
   const maxResumePoints = normalizeInt(raw.maxResumePoints, fallback.maxResumePoints, 1, MAX_RESUME_POINTS)
   const archive = normalizeSessionArchivePolicy(raw.archive)
   const resumePoints = normalizeSessionResumePoints(raw.resumePoints, maxResumePoints)
   const updatedAt = normalizeIso(raw.updatedAt, fallback.updatedAt)
-  return { enabled, syncToServer, resumeOnReconnect, resumeOnNewDevice, maxResumePoints, archive, resumePoints, updatedAt }
+  return {
+    enabled,
+    syncToServer,
+    resumeOnReconnect,
+    resumeOnNewDevice,
+    maxResumePoints,
+    archive,
+    resumePoints,
+    updatedAt,
+  }
 }
 function normalizeGitRepoEntries(input: unknown) {
   if (!Array.isArray(input)) return []
@@ -408,7 +449,15 @@ function normalizeGitRepoEntries(input: unknown) {
   return next
 }
 function normalizeGitHostState(input: unknown): GitHostState {
-  if (!input || typeof input !== 'object') return { mode: 'follow-editor', currentRepoPath: null, currentFilePath: null, source: null, lockedRepoPath: null, recentRepos: [] }
+  if (!input || typeof input !== 'object')
+    return {
+      mode: 'follow-editor',
+      currentRepoPath: null,
+      currentFilePath: null,
+      source: null,
+      lockedRepoPath: null,
+      recentRepos: [],
+    }
   const raw = input as Record<string, unknown>
   const mode = raw.mode === 'locked' ? 'locked' : 'follow-editor'
   const currentRepoPath = safeString(raw.currentRepoPath, MAX_ROOT_PATH_LEN) || null
@@ -437,14 +486,23 @@ function normalizeUiPreferences(input: unknown): UiPreferences {
   if (typeof raw.fontSize === 'number' && raw.fontSize >= 8 && raw.fontSize <= 32) result.fontSize = raw.fontSize
   if (typeof raw.fontFamily === 'string' && raw.fontFamily.length <= 256) result.fontFamily = raw.fontFamily
   if (typeof raw.cursorBlink === 'boolean') result.cursorBlink = raw.cursorBlink
-  if (typeof raw.sidebarPosition === 'string' && VALID_SIDEBAR.includes(raw.sidebarPosition)) result.sidebarPosition = raw.sidebarPosition
+  if (typeof raw.sidebarPosition === 'string' && VALID_SIDEBAR.includes(raw.sidebarPosition))
+    result.sidebarPosition = raw.sidebarPosition
   if (typeof raw.showStatusBar === 'boolean') result.showStatusBar = raw.showStatusBar
   if (typeof raw.showQuickActions === 'boolean') result.showQuickActions = raw.showQuickActions
-  if (typeof raw.agentNotificationsEnabled === 'boolean') result.agentNotificationsEnabled = raw.agentNotificationsEnabled
-  if (typeof raw.agentNotificationDurationMs === 'number' && raw.agentNotificationDurationMs >= 1000 && raw.agentNotificationDurationMs <= 300000) result.agentNotificationDurationMs = raw.agentNotificationDurationMs
+  if (typeof raw.agentNotificationsEnabled === 'boolean')
+    result.agentNotificationsEnabled = raw.agentNotificationsEnabled
+  if (
+    typeof raw.agentNotificationDurationMs === 'number' &&
+    raw.agentNotificationDurationMs >= 1000 &&
+    raw.agentNotificationDurationMs <= 300000
+  )
+    result.agentNotificationDurationMs = raw.agentNotificationDurationMs
   if (typeof raw.autoReconnect === 'boolean') result.autoReconnect = raw.autoReconnect
-  if (typeof raw.reconnectInterval === 'number' && raw.reconnectInterval >= 1000 && raw.reconnectInterval <= 60000) result.reconnectInterval = raw.reconnectInterval
-  if (typeof raw.terminalPadding === 'number' && raw.terminalPadding >= 0 && raw.terminalPadding <= 32) result.terminalPadding = raw.terminalPadding
+  if (typeof raw.reconnectInterval === 'number' && raw.reconnectInterval >= 1000 && raw.reconnectInterval <= 60000)
+    result.reconnectInterval = raw.reconnectInterval
+  if (typeof raw.terminalPadding === 'number' && raw.terminalPadding >= 0 && raw.terminalPadding <= 32)
+    result.terminalPadding = raw.terminalPadding
   if (typeof raw.language === 'string' && VALID_LANGUAGE.includes(raw.language)) result.language = raw.language
   if (typeof raw.attachExclusive === 'boolean') result.attachExclusive = raw.attachExclusive
   return result
@@ -459,7 +517,10 @@ function normalizeStore(input: unknown): PreferencesStore {
   if (!input || typeof input !== 'object') return fallback
   const raw = input as Record<string, unknown>
   const customShortcutsUpdatedAt = normalizeIso(raw.customShortcutsUpdatedAt, fallback.customShortcutsUpdatedAt)
-  const favoriteDirectoriesUpdatedAt = normalizeIso(raw.favoriteDirectoriesUpdatedAt, fallback.favoriteDirectoriesUpdatedAt)
+  const favoriteDirectoriesUpdatedAt = normalizeIso(
+    raw.favoriteDirectoriesUpdatedAt,
+    fallback.favoriteDirectoriesUpdatedAt,
+  )
   const sessionWorkspacesUpdatedAt = normalizeIso(raw.sessionWorkspacesUpdatedAt, fallback.sessionWorkspacesUpdatedAt)
   const sessionOrdersUpdatedAt = normalizeIso(raw.sessionOrdersUpdatedAt, fallback.sessionOrdersUpdatedAt)
   const snippetsUpdatedAt = normalizeIso(raw.snippetsUpdatedAt, fallback.snippetsUpdatedAt)
@@ -468,11 +529,20 @@ function normalizeStore(input: unknown): PreferencesStore {
   const gitByHostUpdatedAt = normalizeIso(raw.gitByHostUpdatedAt, fallback.gitByHostUpdatedAt)
   const uiPreferencesUpdatedAt = normalizeIso(raw.uiPreferencesUpdatedAt, fallback.uiPreferencesUpdatedAt)
   const updatedAtRaw = normalizeIso(raw.updatedAt, fallback.updatedAt)
-  const updatedAt = new Date(Math.max(
-    parseIsoMs(updatedAtRaw), parseIsoMs(customShortcutsUpdatedAt), parseIsoMs(favoriteDirectoriesUpdatedAt),
-    parseIsoMs(sessionWorkspacesUpdatedAt), parseIsoMs(sessionOrdersUpdatedAt), parseIsoMs(snippetsUpdatedAt), parseIsoMs(favoritesUpdatedAt),
-    parseIsoMs(sessionContinuityUpdatedAt), parseIsoMs(gitByHostUpdatedAt), parseIsoMs(uiPreferencesUpdatedAt),
-  )).toISOString()
+  const updatedAt = new Date(
+    Math.max(
+      parseIsoMs(updatedAtRaw),
+      parseIsoMs(customShortcutsUpdatedAt),
+      parseIsoMs(favoriteDirectoriesUpdatedAt),
+      parseIsoMs(sessionWorkspacesUpdatedAt),
+      parseIsoMs(sessionOrdersUpdatedAt),
+      parseIsoMs(snippetsUpdatedAt),
+      parseIsoMs(favoritesUpdatedAt),
+      parseIsoMs(sessionContinuityUpdatedAt),
+      parseIsoMs(gitByHostUpdatedAt),
+      parseIsoMs(uiPreferencesUpdatedAt),
+    ),
+  ).toISOString()
   return {
     version: 1,
     updatedAt,
@@ -554,7 +624,7 @@ export async function preferencesRoutes(fastify: FastifyInstance) {
   fastify.put('/preferences', { bodyLimit: MAX_BODY_BYTES }, async (request, reply) => {
     const query = request.query as { profile?: string }
     const profile = getProfileName(query.profile)
-    const body = (request.body && typeof request.body === 'object') ? request.body as Record<string, unknown> : {}
+    const body = request.body && typeof request.body === 'object' ? (request.body as Record<string, unknown>) : {}
     try {
       return await queueProfileWrite(profile, async () => {
         const current = await readStore(profile)
@@ -631,13 +701,23 @@ export async function preferencesRoutes(fastify: FastifyInstance) {
             next.uiPreferencesUpdatedAt = incomingAt
           }
         }
-        if ('uploadRateLimitKBps' in body) next.uploadRateLimitKBps = normalizeUploadRateLimitKBps(body.uploadRateLimitKBps)
-        if ('downloadRateLimitKBps' in body) next.downloadRateLimitKBps = normalizeUploadRateLimitKBps(body.downloadRateLimitKBps)
-        next.updatedAt = new Date(Math.max(
-          parseIsoMs(next.customShortcutsUpdatedAt), parseIsoMs(next.favoriteDirectoriesUpdatedAt),
-          parseIsoMs(next.sessionWorkspacesUpdatedAt), parseIsoMs(next.sessionOrdersUpdatedAt), parseIsoMs(next.snippetsUpdatedAt),
-          parseIsoMs(next.favoritesUpdatedAt), parseIsoMs(next.sessionContinuityUpdatedAt), parseIsoMs(next.gitByHostUpdatedAt), parseIsoMs(next.uiPreferencesUpdatedAt),
-        )).toISOString()
+        if ('uploadRateLimitKBps' in body)
+          next.uploadRateLimitKBps = normalizeUploadRateLimitKBps(body.uploadRateLimitKBps)
+        if ('downloadRateLimitKBps' in body)
+          next.downloadRateLimitKBps = normalizeUploadRateLimitKBps(body.downloadRateLimitKBps)
+        next.updatedAt = new Date(
+          Math.max(
+            parseIsoMs(next.customShortcutsUpdatedAt),
+            parseIsoMs(next.favoriteDirectoriesUpdatedAt),
+            parseIsoMs(next.sessionWorkspacesUpdatedAt),
+            parseIsoMs(next.sessionOrdersUpdatedAt),
+            parseIsoMs(next.snippetsUpdatedAt),
+            parseIsoMs(next.favoritesUpdatedAt),
+            parseIsoMs(next.sessionContinuityUpdatedAt),
+            parseIsoMs(next.gitByHostUpdatedAt),
+            parseIsoMs(next.uiPreferencesUpdatedAt),
+          ),
+        ).toISOString()
         await writeStore(profile, next)
         return next
       })

@@ -88,3 +88,72 @@ export const VNC_START_SCRIPT = [
 export const VNC_MANUAL_INSTALL_COMMAND =
   'sudo apt-get install -y x11vnc && x11vnc -display :0 -localhost -forever -shared -bg'
 export const VNC_PROBE_COMMAND = VNC_PROBE_SCRIPT
+
+export interface VncDisplay {
+  display: number
+  port: number
+  process: string | null
+  pid: number | null
+}
+
+// 列出 loopback 5900-5999 上在监听的 VNC display；__procs__ 段补进程名/命令行用于识别 server 类型
+export const VNC_DISPLAYS_SCRIPT = [
+  "ss -tlnpH 'sport >= :5900 and sport <= :5999' 2>/dev/null",
+  'echo __procs__',
+  "ps -eo pid=,comm=,args= 2>/dev/null | grep -E '[Xx]vnc|x11vnc|wayvnc|tigervnc|vncserver' | grep -v grep",
+].join('\n')
+
+export function parseVncDisplays(stdout: string): VncDisplay[] {
+  const [ssBlock] = stdout.split('__procs__')
+  const displays = new Map<number, VncDisplay>()
+  for (const line of ssBlock.split('\n')) {
+    const cols = line.trim().split(/\s+/)
+    if (cols.length < 4 || cols[0] !== 'LISTEN') continue
+    const portMatch = /:(\d+)$/.exec(cols[3])
+    if (!portMatch) continue
+    const port = Number(portMatch[1])
+    if (port < VNC_PORT_MIN || port > VNC_PORT_MAX) continue
+    // users:(("Xtigervnc",pid=1234,fd=5)) —— 无权限看进程信息时该段缺席
+    const procMatch = /"([^"]+)",pid=(\d+)/.exec(line)
+    displays.set(port, {
+      display: port - VNC_PORT_MIN,
+      port,
+      process: procMatch ? procMatch[1] : null,
+      pid: procMatch ? Number(procMatch[2]) : null,
+    })
+  }
+  return [...displays.values()].sort((a, b) => a.display - b.display)
+}
+
+// 起虚拟 display：仅 Xvnc 系能凭空造 X 会话；x11vnc 只能贴已有 display、wayvnc 需要 wayland 会话，均不支持
+export function vncDisplayStartScript(display: number): string {
+  return [
+    `n=${display}`,
+    'port=$((5900+n))',
+    'ss -tlnH "sport = :$port" 2>/dev/null | grep -q . && { echo __running__; exit 0; }',
+    // VncAuth 需要密码文件；缺了 Xvnc 会静默拒绝，提前报标记位让前端给指引
+    '[ -f "$HOME/.vnc/passwd" ] || { echo __need_password__; exit 0; }',
+    'srv=',
+    'for c in Xtigervnc Xvnc tigervncserver vncserver; do command -v "$c" >/dev/null 2>&1 && { srv=$c; break; }; done',
+    '[ -n "$srv" ] || { echo __no_server__; exit 0; }',
+    'case "$srv" in',
+    '  Xtigervnc|Xvnc) setsid "$srv" ":$n" -rfbport "$port" -localhost yes -SecurityTypes VncAuth -rfbauth "$HOME/.vnc/passwd" -geometry 1920x1080 -depth 24 </dev/null >/dev/null 2>&1 & ;;',
+    // vncserver/tigervncserver 包装器自己管参数与 passwd 校验
+    '  *) setsid "$srv" ":$n" -localhost yes -geometry 1920x1080 </dev/null >/dev/null 2>&1 & ;;',
+    'esac',
+    'sleep 1',
+    'ss -tlnH "sport = :$port" 2>/dev/null | grep -q . && echo __started__ || echo __failed__',
+  ].join('\n')
+}
+
+// 按监听端口 kill VNC server：优先 ss 拿 pid（同用户可见），拿不到退 fuser
+export function vncDisplayStopScript(port: number): string {
+  return [
+    `port=${port}`,
+    'pid=$(ss -tlnpH "sport = :$port" 2>/dev/null | sed -n \'s/.*pid=\\([0-9]*\\).*/\\1/p\' | head -1)',
+    '[ -n "$pid" ] && kill "$pid" 2>/dev/null',
+    '[ -z "$pid" ] && command -v fuser >/dev/null 2>&1 && fuser -k "$port/tcp" >/dev/null 2>&1',
+    'sleep 1',
+    'ss -tlnH "sport = :$port" 2>/dev/null | grep -q . || echo __stopped__',
+  ].join('\n')
+}
