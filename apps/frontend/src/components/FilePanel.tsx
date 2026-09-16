@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useFileList, useFilePreview, useFileRoots, useFileSearch } from '@/hooks/useApi'
+import { useFileList, useFilePreview, useFileRoots, useFileSearch, usePaneCwd } from '@/hooks/useApi'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useSessionWorkspaces } from '@/hooks/useSessionWorkspaces'
 import { isMobileDevice } from '@/hooks/useMobileKeyboard'
@@ -20,6 +20,7 @@ import { Chip } from './Chip'
 import { usePrompt } from '@/hooks/usePrompt'
 import { ConfirmDialog } from './ConfirmDialog'
 import { ModalPortal } from './ModalPortal'
+import { chooseFileRoot, getRootRelativePath } from '@/lib/terminal-paths'
 
 type SearchMode = 'name' | 'content'
 type FileTypeFilter = 'all' | 'file' | 'directory'
@@ -128,6 +129,14 @@ function readHideDotFiles() {
 }
 function writeHideDotFiles(value: boolean) {
   localStorage.setItem('tmuxgo-hide-dot-files', String(value))
+}
+const FOLLOW_ACTIVE_PATH_STORAGE_KEY = 'tmuxgo-file-follow-active-path'
+function readFollowActivePath() {
+  if (typeof window === 'undefined') return false
+  return localStorage.getItem(FOLLOW_ACTIVE_PATH_STORAGE_KEY) === 'true'
+}
+function writeFollowActivePath(value: boolean) {
+  localStorage.setItem(FOLLOW_ACTIVE_PATH_STORAGE_KEY, String(value))
 }
 const FILE_SORT_STORAGE_KEY = 'tmuxgo-file-sort'
 function readFileSort(): FileSort {
@@ -331,6 +340,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
   const queryClient = useQueryClient()
   const activeHostId = useConsoleStore((state) => state.activeHostId)
   const activeSessionId = useConsoleStore((state) => state.activeSessionId)
+  const activePaneId = useConsoleStore((state) => state.activePaneId)
   const openEditors = useConsoleStore((state) => state.openEditors)
   const activeEditorId = useConsoleStore((state) => state.activeEditorId)
   const filePanelWidth = useConsoleStore((state) => state.filePanelWidth)
@@ -346,7 +356,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
   const isPicker = mode === 'picker'
   const isMobile = mode === 'mobile' || (isPicker && isMobileDevice())
   const sessionWorkspacesQuery = useSessionWorkspaces()
-  const sessionWorkspaces = sessionWorkspacesQuery.data || []
+  const sessionWorkspaces = useMemo(() => sessionWorkspacesQuery.data || [], [sessionWorkspacesQuery.data])
   const [selectedRootId, setSelectedRootId] = useState('')
   const [currentPath, setCurrentPath] = useState('')
   const [selectedPath, setSelectedPath] = useState('')
@@ -368,6 +378,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
   const [favoriteDirectories, setFavoriteDirectories] = useState<FavoriteDirectory[]>([])
   const [contentReady] = useState(true)
   const [hideDotFiles, setHideDotFiles] = useState(readHideDotFiles)
+  const [followActivePath, setFollowActivePath] = useState(readFollowActivePath)
   const [openDirectories, setOpenDirectories] = useState<Set<string>>(new Set())
   const [searchNavigationPath, setSearchNavigationPath] = useState<string | null>(null)
   const [directoryCache, setDirectoryCache] = useState<Map<string, FileItem[]>>(new Map())
@@ -385,9 +396,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
   const uploadInputRef = useRef<HTMLInputElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const lastFollowedEditorKeyRef = useRef('')
-  const lastSessionIdRef = useRef<string | undefined>(undefined)
   const lastAppliedWorkspaceSessionRef = useRef<string | undefined>(undefined)
-  const suspendedFollowEditorIdRef = useRef<string | null>(null)
   const [pendingDeleteItem, setPendingDeleteItem] = useState<FileEntry | null>(null)
   const [lastTrashedItem, setLastTrashedItem] = useState<TrashEntry | null>(null)
   const [trashEntries, setTrashEntries] = useState<TrashEntry[]>([])
@@ -417,6 +426,8 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
   const { data: rawPreview } = useFilePreview(fileHostId, activeRootId, previewQueryPath, selectedPreviewLine)
   const searchBasePath = joinRelativePath(activeRootBasePath, currentPath)
   const { data: rawSearchResults = [], isFetching: searchLoading } = useFileSearch(fileHostId, activeRootId, searchMode, debouncedQuery, searchBasePath, !hideDotFiles)
+  const followPaneId = followActivePath && activePaneId?.startsWith(`${fileHostId}:`) ? activePaneId : null
+  const { data: activePaneCwd } = usePaneCwd(followPaneId, !isPicker)
   const root = activeRoot
   const listData = useMemo(() => rebaseListData(rawListData, activeRoot), [rawListData, activeRoot])
   const preview = useMemo(() => rebasePreview(rawPreview, activeRootBasePath), [rawPreview, activeRootBasePath])
@@ -502,7 +513,6 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
     setDirectoryStatusState(new Map())
     lastFollowedEditorKeyRef.current = ''
     lastAppliedWorkspaceSessionRef.current = undefined
-    suspendedFollowEditorIdRef.current = null
     directoryLoadingRef.current.clear()
   }, [fileHostId])
   useEffect(() => {
@@ -514,34 +524,9 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
     if (rootOptions.some((item) => item.id === selectedRootId)) return
     setSelectedRootId(rootOptions[0]?.id || '')
   }, [rootOptions, selectedRootId])
+  // 切 session 不再重置文件区；跟随行为统一由底部"跟随激活路径"开关控制
   useEffect(() => {
-    const nextSessionId = activeSessionId || ''
-    if (lastSessionIdRef.current === undefined) {
-      lastSessionIdRef.current = nextSessionId
-      return
-    }
-    if (lastSessionIdRef.current === nextSessionId) return
-    const prevSessionId = lastSessionIdRef.current
-    lastSessionIdRef.current = nextSessionId
-    if (!prevSessionId || !nextSessionId) return
-    const favoriteRoot = parseFavoriteRootOptionId(selectedRootId)
-    if (favoriteRoot) setSelectedRootId(favoriteRoot.rootId)
-    currentPathRef.current = ''
-    mobileNavigationDepthRef.current = 0
-    setCurrentPath('')
-    setSelectedPath('')
-    setSelectedPreviewLine(1)
-    setMobileView('list')
-    setOpenDirectories(new Set())
-    setSearchNavigationPath(null)
-    setDirectoryCache(new Map())
-    setDirectoryStatusState(new Map())
-    lastFollowedEditorKeyRef.current = ''
-    suspendedFollowEditorIdRef.current = activeEditorId
-    directoryLoadingRef.current.clear()
-  }, [activeEditorId, activeSessionId, selectedRootId])
-  useEffect(() => {
-    if (isPicker || mode === 'explorer') return
+    if (!followActivePath || isPicker || mode === 'explorer') return
     if (isSearching) return
     if (!activeSessionId || !rootOptions.length) return
     if (lastAppliedWorkspaceSessionRef.current === activeSessionId) return
@@ -557,7 +542,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
       currentPathRef.current = nextPath
       setCurrentPath(nextPath)
     }
-  }, [activeSessionId, rootOptions, sessionWorkspaces, sessionWorkspacesQuery.isFetching, isSearching, isPicker, mode, selectedRootId, currentPath])
+  }, [activeSessionId, followActivePath, rootOptions, sessionWorkspaces, sessionWorkspacesQuery.isFetching, isSearching, isPicker, mode, selectedRootId, currentPath])
   useEffect(() => {
     if (!openDirectories.size) return
     for (const itemPath of Array.from(openDirectories)) {
@@ -745,6 +730,24 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
     if (expanding) void loadDirectoryChildren(item)
     setSelectedPath(item.path)
   }
+  // 跟随激活 pane cwd：把绝对路径映射回 rootOption + 相对路径
+  const paneCwdFollowTarget = useMemo(() => {
+    if (!followActivePath || isPicker || !activePaneCwd || !visibleRoots.length) return null
+    const matched = chooseFileRoot(visibleRoots, activePaneCwd)
+    if (!matched) return null
+    const option = rootOptions.find((item) => item.sourceRootId === matched.id && item.basePath === '')
+    const relative = getRootRelativePath(matched.path, activePaneCwd)
+    if (!option || relative == null) return null
+    return { rootOptionId: option.id, path: relative }
+  }, [activePaneCwd, followActivePath, isPicker, rootOptions, visibleRoots])
+  useEffect(() => {
+    if (!paneCwdFollowTarget) return
+    if (selectedRootId !== paneCwdFollowTarget.rootOptionId) switchRoot(paneCwdFollowTarget.rootOptionId)
+    if (currentPathRef.current === paneCwdFollowTarget.path) return
+    currentPathRef.current = paneCwdFollowTarget.path
+    mobileNavigationDepthRef.current = 0
+    setCurrentPath(paneCwdFollowTarget.path)
+  }, [paneCwdFollowTarget, selectedRootId])
   const activeEditorFollowTarget = useMemo(() => {
     if (!activeEditor || activeEditor.kind === 'compare' || activeEditor.hostId !== fileHostId || !rootOptions.length) return null
     const matchedRoot = getMatchingRootOption(rootOptions, activeEditor.rootId, activeEditor.path)
@@ -754,11 +757,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
     return { key: `${activeEditor.id}:${matchedRoot.id}`, rootId: matchedRoot.id, path: nextPath, parentPath, basePath: matchedRoot.basePath }
   }, [activeEditor, fileHostId, rootOptions])
   useEffect(() => {
-    if (isMobile || isPicker || !activeEditorFollowTarget) return
-    if (suspendedFollowEditorIdRef.current) {
-      if (activeEditor?.id === suspendedFollowEditorIdRef.current) return
-      suspendedFollowEditorIdRef.current = null
-    }
+    if (isMobile || isPicker || !activeEditorFollowTarget || followPaneId) return
     if (activeEditorFollowTarget.rootId !== selectedRootId) {
       if (lastFollowedEditorKeyRef.current === activeEditorFollowTarget.key) return
       switchRoot(activeEditorFollowTarget.rootId)
@@ -777,7 +776,7 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
       return current.size === next.size && Array.from(current).every((item) => next.has(item)) ? current : next
     })
     void Promise.all(getDirectoryPathChain(activeEditorFollowTarget.parentPath).map((path) => loadDirectoryChildren({ name: getDirectoryName(path, activeRoot || roots[0] || { id: '', label: '', path: '' }), path, type: 'directory', size: 0, modifiedAt: '' })))
-  }, [activeEditor, activeEditorFollowTarget, activeRoot, isMobile, loadDirectoryChildren, query, roots, selectedRootId])
+  }, [activeEditor, activeEditorFollowTarget, activeRoot, followPaneId, isMobile, loadDirectoryChildren, query, roots, selectedRootId])
   useEffect(() => {
     if (isMobile || showSearchResults || !selectedPath || typeof window === 'undefined') return
     const frame = window.requestAnimationFrame(() => {
@@ -1497,6 +1496,12 @@ export function FilePanel({ mode = 'panel', dock = 'right', onClose, onOpenFile,
           {mobileEditable && <button onClick={openMobileEditor} className="rounded-apple bg-bg-2 px-3 py-3 text-sm text-text-1 active:scale-[0.98]">{t('file.mobileEdit')}</button>}
         </div>
       ))}
+      {!isPicker && (!isMobile || mobileView === 'list') && <div className="flex shrink-0 items-center justify-between gap-2 border-t border-[var(--line)] px-3 py-1.5">
+        <span className="min-w-0 truncate text-meta text-text-3" title={t('file.followActivePathHint')}>{t('file.followActivePath')}</span>
+        <button type="button" role="switch" aria-checked={followActivePath} aria-label={t('file.followActivePath')} onClick={() => { const next = !followActivePath; writeFollowActivePath(next); setFollowActivePath(next); if (next) lastFollowedEditorKeyRef.current = '' }} className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${followActivePath ? 'bg-accent' : 'bg-bg-2'}`}>
+          <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all ${followActivePath ? 'right-0.5' : 'left-0.5'}`} />
+        </button>
+      </div>}
       {contextMenu && (
         <>
         <div className="fixed inset-0 z-[89]" onClick={() => setContextMenu(null)} />

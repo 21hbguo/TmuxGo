@@ -767,6 +767,8 @@ export const zh = {
   'file.mobileEditUnavailable': '该文件无法编辑',
   'file.mobileEditLoadFailed': '文件加载失败',
   'file.mobileEditSaveFailed': '保存失败',
+  'file.followActivePath': '跟随终端目录',
+  'file.followActivePathHint': '跟随激活终端的工作目录',
 
   // PasteConfirmDialog
   'paste.title': '确认粘贴',
