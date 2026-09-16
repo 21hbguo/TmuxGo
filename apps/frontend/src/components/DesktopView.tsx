@@ -90,6 +90,7 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [displayBusy, setDisplayBusy] = useState<number | null>(null)
   const [displayHint, setDisplayHint] = useState('')
+  const [customPort, setCustomPort] = useState('')
   const [setupOpen, setSetupOpen] = useState(false)
   const [setupBusy, setSetupBusy] = useState<'' | 'check' | 'install' | 'start'>('')
   const [setupInfo, setSetupInfo] = useState<{
@@ -269,11 +270,19 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
     setStatus('idle')
   }, [])
 
+  const connectPort = useCallback(
+    (target: number) => {
+      setSelectedDisplay(target - VNC_PORT_RANGE.min)
+      setPickerOpen(false)
+      setCustomPort('')
+      writeVncPort(hostId, target)
+      void connect(target)
+    },
+    [connect, hostId],
+  )
   const handleConnect = useCallback(() => {
-    const target = Math.min(VNC_PORT_RANGE.max, Math.max(VNC_PORT_RANGE.min, VNC_PORT_RANGE.min + selectedDisplay))
-    writeVncPort(hostId, target)
-    void connect(target)
-  }, [connect, hostId, selectedDisplay])
+    connectPort(Math.min(VNC_PORT_RANGE.max, Math.max(VNC_PORT_RANGE.min, VNC_PORT_RANGE.min + selectedDisplay)))
+  }, [connectPort, selectedDisplay])
 
   const refreshDisplays = useCallback(async () => {
     try {
@@ -293,19 +302,14 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
         setDisplays(result.displays)
         if (result.needPassword) setDisplayHint(t('vnc.displayNeedPassword'))
         else if (result.noServer) setDisplayHint(t('vnc.displayNoServer'))
-        if (action === 'start' && result.ok) {
-          setSelectedDisplay(display)
-          const target = VNC_PORT_RANGE.min + display
-          writeVncPort(hostId, target)
-          void connect(target)
-        }
+        if (action === 'start' && result.ok) connectPort(VNC_PORT_RANGE.min + display)
       } catch {
         setDisplayHint(t('vnc.displayActionFailed'))
       } finally {
         setDisplayBusy(null)
       }
     },
-    [connect, hostId, t],
+    [connectPort, hostId, t],
   )
 
   // 连接状态变化后刷新 display 列表，让状态点跟上真实监听情况
@@ -512,9 +516,9 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
           </button>
           {pickerOpen && (
             <div className="tmuxgo-glass absolute left-0 top-8 z-20 flex w-52 flex-col gap-0.5 rounded-apple-lg p-1.5 text-xs text-text-1">
+              {/* 基础候选 :0-:9 ∪ 已探测到的运行中 display ∪ 当前选中项 */}
               {[...new Set([...Array(10).keys(), ...(displays || []).map((d) => d.display), selectedDisplay])]
-                .sort// 基础候选 :0-:9 ∪ 已探测到的运行中 display ∪ 当前选中项
-                ((a, b) => a - b)
+                .sort((a, b) => a - b)
                 .map((n) => {
                   const running = displays?.find((d) => d.display === n)
                   const busy = displayBusy === n
@@ -535,13 +539,10 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
                         type="button"
                         className="flex min-w-0 flex-1 items-baseline gap-1.5 text-left"
                         onClick={() => {
-                          setSelectedDisplay(n)
-                          setPickerOpen(false)
-                          // 选中即连：直接按 n 算端口，setState 是异步的不能走 handleConnect 闭包
-                          if (running) {
-                            const target = VNC_PORT_RANGE.min + n
-                            writeVncPort(hostId, target)
-                            void connect(target)
+                          if (running) connectPort(VNC_PORT_RANGE.min + n)
+                          else {
+                            setSelectedDisplay(n)
+                            setPickerOpen(false)
                           }
                         }}
                       >
@@ -570,6 +571,37 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
                 })}
               {displays === null && <div className="px-2 py-1 text-text-3">{t('vnc.displaysLoading')}</div>}
               {displayHint && <div className="px-2 py-1 text-[11px] text-warning">{displayHint}</div>}
+              {/* 兜底：列表外的端口手动输入（候选覆盖不到的非标准 display 仍可连） */}
+              <div className="mt-0.5 flex items-center gap-1.5 border-t border-[var(--line)]/50 px-2 pt-1.5">
+                <input
+                  value={customPort}
+                  onChange={(event) => setCustomPort(event.target.value.replace(/\D/g, '').slice(0, 4))}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter') return
+                    const next = Number(customPort)
+                    if (Number.isInteger(next) && next >= VNC_PORT_RANGE.min && next <= VNC_PORT_RANGE.max)
+                      connectPort(next)
+                  }}
+                  inputMode="numeric"
+                  placeholder="5900-5999"
+                  aria-label={t('vnc.customPort')}
+                  title={t('vnc.customPort')}
+                  className="h-6 min-w-0 flex-1 rounded-apple border border-[var(--line)] bg-bg-1 px-1.5 font-mono text-xs text-text-1 outline-none focus:border-accent"
+                />
+                <button
+                  type="button"
+                  aria-label={t('vnc.connect')}
+                  title={t('vnc.connect')}
+                  onClick={() => {
+                    const next = Number(customPort)
+                    if (Number.isInteger(next) && next >= VNC_PORT_RANGE.min && next <= VNC_PORT_RANGE.max)
+                      connectPort(next)
+                  }}
+                  className="shrink-0 text-accent hover:text-accent-2"
+                >
+                  <FiPlay size={11} />
+                </button>
+              </div>
             </div>
           )}
         </div>

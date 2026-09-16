@@ -1083,6 +1083,7 @@ export const en = {
   'vnc.displayNeedPassword': 'Run vncpasswd on the host first to set a VNC password',
   'vnc.displayNoServer': 'No Xvnc-type server installed on host; cannot create virtual displays',
   'vnc.displayActionFailed': 'Action failed',
+  'vnc.customPort': 'Custom port',
   'vnc.viewOnly': 'View only',
   'vnc.sendCad': 'Send Ctrl+Alt+Del',
   'vnc.paste': 'Paste clipboard into remote',
