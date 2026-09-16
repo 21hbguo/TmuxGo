@@ -1,8 +1,9 @@
 'use client'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type RFBType from '@novnc/novnc'
-import { FiClipboard, FiEye, FiEyeOff, FiKey, FiMonitor, FiPlay, FiSquare, FiX } from 'react-icons/fi'
+import { FiClipboard, FiCopy, FiEye, FiEyeOff, FiKey, FiMonitor, FiPlay, FiSquare, FiTool, FiX } from 'react-icons/fi'
 import { Button } from './Button'
+import { api, type VncSetupStatus } from '@/lib/api'
 import { getWebSocketUrl } from '@/lib/auth'
 import { getVncWebSocketBase } from '@/lib/runtime-endpoints'
 import { useConsoleStore } from '@/stores/useConsoleStore'
@@ -29,6 +30,14 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
   const [password, setPassword] = useState('')
   const [viewOnly, setViewOnly] = useState(false)
   const [portInput, setPortInput] = useState(String(port))
+  const [setupOpen, setSetupOpen] = useState(false)
+  const [setupBusy, setSetupBusy] = useState<'' | 'check' | 'install' | 'start'>('')
+  const [setupInfo, setSetupInfo] = useState<{
+    status: VncSetupStatus
+    manualCommand: string
+    needSudo?: boolean
+  } | null>(null)
+  const [setupCopied, setSetupCopied] = useState(false)
   const portRef = useRef(port)
   const hiddenRef = useRef(typeof document !== 'undefined' && document.hidden)
   // 隐藏时记录是否有活动连接：手动断开过的会话回到前台不自动重连；初始 true 兜底"挂着后台打开"场景
@@ -162,6 +171,47 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
     }
   }
 
+  const checkSetup = useCallback(async () => {
+    setSetupBusy('check')
+    try {
+      const result = await api.vnc.status(hostId)
+      setSetupInfo({ status: result.status, manualCommand: result.manualCommand })
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setSetupBusy('')
+    }
+  }, [hostId, pushToast])
+
+  const runSetup = useCallback(
+    async (action: 'install' | 'start') => {
+      setSetupBusy(action)
+      try {
+        const result = await api.vnc.setup(hostId, action)
+        setSetupInfo({ status: result.status, manualCommand: result.manualCommand, needSudo: result.needSudo })
+        if (result.ok) {
+          setSetupOpen(false)
+          void connect(portRef.current)
+        }
+      } catch (err) {
+        pushToast({ type: 'error', message: err instanceof Error ? err.message : String(err) })
+      } finally {
+        setSetupBusy('')
+      }
+    },
+    [hostId, pushToast, connect],
+  )
+
+  const copyManualCommand = useCallback(async (command: string) => {
+    try {
+      await navigator.clipboard.writeText(command)
+      setSetupCopied(true)
+      setTimeout(() => setSetupCopied(false), 1500)
+    } catch {
+      setSetupCopied(false)
+    }
+  }, [])
+
   const statusLabel =
     status === 'connected'
       ? t('vnc.connected')
@@ -245,6 +295,22 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
         >
           <FiClipboard size={14} />
         </Button>
+        {status !== 'connected' && status !== 'connecting' && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => {
+              const next = !setupOpen
+              setSetupOpen(next)
+              if (next && !setupInfo && !setupBusy) void checkSetup()
+            }}
+            aria-label={t('vnc.setupCheck')}
+            title={t('vnc.setupCheck')}
+            className={setupOpen ? 'text-accent' : ''}
+          >
+            <FiTool size={14} />
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="icon-sm"
@@ -289,6 +355,79 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
                 {t('vnc.connect')}
               </Button>
             </form>
+          </div>
+        )}
+        {setupOpen && credentialTypes.length === 0 && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/60 p-4">
+            <div className="tmuxgo-glass flex w-80 max-w-full flex-col gap-2 rounded-apple-lg p-4 text-xs text-text-1">
+              <div className="flex items-center justify-between">
+                <span className="font-medium">{t('vnc.setupCheck')}</span>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => setSetupOpen(false)}
+                  aria-label={t('common.close')}
+                >
+                  <FiX size={13} />
+                </Button>
+              </div>
+              {setupBusy === 'check' && <div className="text-text-3">{t('vnc.setupChecking')}</div>}
+              {setupInfo && (
+                <>
+                  <div className="text-text-3">
+                    {setupInfo.status.os || '?'}
+                    {setupInfo.status.server ? ` · ${setupInfo.status.server}` : ' · no vnc server'}
+                    {setupInfo.status.listening ? ' · :5900' : ''}
+                  </div>
+                  {setupInfo.status.hint === 'macos-builtin' && <div>{t('vnc.setupMacos')}</div>}
+                  {setupInfo.status.hint === 'wayland-compositor' && <div>{t('vnc.setupWayland')}</div>}
+                  {setupInfo.status.hint === 'unsupported-os' && <div>{t('vnc.setupUnsupported')}</div>}
+                  {setupInfo.status.listening && <div className="text-accent-2">{t('vnc.setupReady')}</div>}
+                  {setupInfo.status.supported && setupInfo.status.server && !setupInfo.status.listening && (
+                    <Button size="sm" disabled={!!setupBusy} onClick={() => void runSetup('start')}>
+                      {setupBusy === 'start' ? t('vnc.setupInstalling') : t('vnc.setupStart')}
+                    </Button>
+                  )}
+                  {setupInfo.status.supported &&
+                    !setupInfo.status.server &&
+                    setupInfo.status.sudo &&
+                    !setupInfo.needSudo && (
+                      <Button size="sm" disabled={!!setupBusy} onClick={() => void runSetup('install')}>
+                        {setupBusy === 'install' ? t('vnc.setupInstalling') : t('vnc.setupInstall')}
+                      </Button>
+                    )}
+                  {(setupInfo.needSudo ||
+                    (setupInfo.status.supported && !setupInfo.status.sudo && !setupInfo.status.server) ||
+                    setupInfo.status.hint === 'unsupported-os') && (
+                    <>
+                      <div className="text-text-3">
+                        {t(setupInfo.needSudo ? 'vnc.setupNeedSudo' : 'vnc.setupManual')}
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap rounded bg-bg-1 px-2 py-1 text-caption">
+                          {setupInfo.manualCommand}
+                        </code>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          onClick={() => void copyManualCommand(setupInfo.manualCommand)}
+                          aria-label={t('vnc.copyCommand')}
+                          title={t('vnc.copyCommand')}
+                        >
+                          <FiCopy size={13} />
+                        </Button>
+                      </div>
+                      {setupCopied && <div className="text-accent-2">{t('vnc.copied')}</div>}
+                    </>
+                  )}
+                </>
+              )}
+              {!setupInfo && setupBusy !== 'check' && (
+                <Button size="sm" onClick={() => void checkSetup()}>
+                  {t('vnc.setupCheck')}
+                </Button>
+              )}
+            </div>
           </div>
         )}
         {(status !== 'connected' || error) && credentialTypes.length === 0 && (
