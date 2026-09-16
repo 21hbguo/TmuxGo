@@ -13,10 +13,15 @@ interface TerminalOutputInputOptions {
 type OutputPayload = { data: string; sessionName?: string | null; hostId?: string | null; resync?: boolean }
 const SELECTION_HOLD_MAX_BUFFER = 1024 * 1024
 const SELECTION_HOLD_CHECK_MS = 800
+// A drag-select normally produces a selection within a few frames; if the
+// pointer stays "down" this long with no selection the sync state is stale
+// (e.g. mouseup lost outside the window) and must no longer block liveness.
+const POINTER_SYNC_STALE_MS = 1500
 export function createTerminalOutputInput(options: TerminalOutputInputOptions) {
   let writeBuffer = ''
   let writePending = false
   let pointerSyncActive = false
+  let pointerSyncArmedAt = 0
   let selectionHold = false
   let lastSelectionCheck = 0
   let outputSinceLastAttach = false
@@ -65,7 +70,8 @@ export function createTerminalOutputInput(options: TerminalOutputInputOptions) {
           const now = Date.now()
           if (now - lastSelectionCheck >= SELECTION_HOLD_CHECK_MS) {
             lastSelectionCheck = now
-            if (!pointerSyncActive && !terminal.getSelection?.()) releaseSelection()
+            const pointerStale = pointerSyncActive && now - pointerSyncArmedAt > POINTER_SYNC_STALE_MS
+            if ((!pointerSyncActive || pointerStale) && !terminal.getSelection?.()) releaseSelection()
           }
         }
         return
@@ -83,12 +89,16 @@ export function createTerminalOutputInput(options: TerminalOutputInputOptions) {
   }
   const armPointerSync = () => {
     pointerSyncActive = true
+    pointerSyncArmedAt = Date.now()
   }
   const disarmPointerSync = () => {
     pointerSyncActive = false
   }
   const clearPointerSync = () => {
     pointerSyncActive = false
+    // Pointer was cancelled/lost: drop the selection hold unless real text
+    // is still selected, otherwise output would freeze for a quiet pane.
+    if (selectionHold && !options.getTerminal()?.getSelection?.()) releaseSelection()
     flushWriteBuffer()
   }
   return {

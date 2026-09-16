@@ -4,7 +4,10 @@ import { useTerminalOutputScheduler } from './useTerminalOutputScheduler'
 describe('useTerminalOutputScheduler', () => {
   beforeEach(() => {
     vi.useFakeTimers()
-    vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1))
+    vi.stubGlobal(
+      'requestAnimationFrame',
+      vi.fn(() => 1),
+    )
     vi.stubGlobal('cancelAnimationFrame', vi.fn())
   })
   afterEach(() => {
@@ -19,8 +22,11 @@ describe('useTerminalOutputScheduler', () => {
     expect(write).toHaveBeenCalledWith('prompt', expect.any(Function))
     act(() => result.current.dispose())
   })
-  it('coalesces rapid follow-up chunks instead of issuing one write per chunk', () => {
-    const write = vi.fn((_chunk: string, done?: () => void) => done?.())
+  it('coalesces chunks pushed while a write is in flight', () => {
+    const callbacks: Array<(() => void) | undefined> = []
+    const write = vi.fn((_chunk: string, done?: () => void) => {
+      callbacks.push(done)
+    })
     const { result } = renderHook(() => useTerminalOutputScheduler({ write }))
     act(() => {
       result.current.push('a')
@@ -28,7 +34,7 @@ describe('useTerminalOutputScheduler', () => {
       result.current.push('c')
     })
     expect(write.mock.calls.map(([chunk]) => chunk)).toEqual(['a'])
-    act(() => vi.advanceTimersByTime(4))
+    act(() => callbacks[0]?.())
     expect(write.mock.calls.map(([chunk]) => chunk)).toEqual(['a', 'bc'])
     act(() => result.current.dispose())
   })
@@ -55,7 +61,9 @@ describe('useTerminalOutputScheduler', () => {
   })
   it('keeps backpressure high until queued output has actually drained', () => {
     let complete: (() => void) | undefined
-    const write = vi.fn((_chunk: string, done?: () => void) => { complete = done })
+    const write = vi.fn((_chunk: string, done?: () => void) => {
+      complete = done
+    })
     const onBackpressure = vi.fn()
     const { result } = renderHook(() => useTerminalOutputScheduler({ write, onBackpressure }))
     act(() => result.current.push('first'))
@@ -67,7 +75,9 @@ describe('useTerminalOutputScheduler', () => {
   })
   it('keeps the timeout fallback when more output reaches the flush limit', () => {
     const callbacks: Array<(() => void) | undefined> = []
-    const write = vi.fn((_chunk: string, done?: () => void) => { callbacks.push(done) })
+    const write = vi.fn((_chunk: string, done?: () => void) => {
+      callbacks.push(done)
+    })
     const { result } = renderHook(() => useTerminalOutputScheduler({ write }))
     act(() => result.current.push('first'))
     act(() => result.current.push('x'.repeat(70000)))
@@ -79,7 +89,9 @@ describe('useTerminalOutputScheduler', () => {
   })
   it('ignores completion callbacks from output discarded during resync', () => {
     const callbacks: Array<() => void> = []
-    const write = vi.fn((_chunk: string, done?: () => void) => { if (done) callbacks.push(done) })
+    const write = vi.fn((_chunk: string, done?: () => void) => {
+      if (done) callbacks.push(done)
+    })
     const onWrite = vi.fn()
     const { result } = renderHook(() => useTerminalOutputScheduler({ write, onWrite }))
     act(() => result.current.push('old'))

@@ -72,9 +72,7 @@ export async function refreshAttachedClient(hostId: string, sessionName: string,
     .filter((client) => client.name)
   const owned = clients.filter((client) => client.pid === pid)
   const targets = (owned.length ? owned : clients).map((client) => client.name)
-  for (const target of targets) {
-    await execTmux(hostId, ['refresh-client', '-t', target])
-  }
+  await Promise.all(targets.map((target) => execTmux(hostId, ['refresh-client', '-t', target]).catch(() => {})))
 }
 export async function getSessionWindowSize(hostId: string, sessionName: string) {
   try {

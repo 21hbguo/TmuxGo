@@ -1,6 +1,9 @@
 export const SCROLL_MAX_LINES = 24
 export const ATTACH_REDRAW_DELAYS = [48]
 export const REQUEST_REDRAW_DELAYS = [48]
+// Upper bound on how long a resize ACK may wait for post-resize PTY output
+// once the tmux refresh has completed; a quiet pane must not stall the ack.
+export const RESIZE_ACK_OUTPUT_WAIT_MS = 150
 export const SOCKET_BUFFER_HIGH_WATERMARK = 1048576
 export const SOCKET_BUFFER_EXTREME_WATERMARK = 4194304
 export const SOCKET_FLUSH_DEFER_MS = 24
