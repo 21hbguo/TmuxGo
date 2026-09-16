@@ -2169,19 +2169,18 @@ export function FilePanel({
                     placeholder={searchMode === 'name' ? t('file.searchName') : t('file.searchContent')}
                     className="tmuxgo-control tmuxgo-input w-full rounded-apple py-1 pl-7 pr-6 font-mono text-meta"
                   />
-                  {query && (
-                    <button
-                      onClick={() => {
-                        setQuery('')
-                        setDebouncedQuery('')
-                        setSearchNavigationPath(null)
-                      }}
-                      aria-label={t('file.clearSearch')}
-                      className="tmuxgo-toolbar-icon absolute right-0.5 top-1/2 h-6 w-6 -translate-y-1/2"
-                    >
-                      ×
-                    </button>
-                  )}
+                  <button
+                    onClick={() => {
+                      setQuery('')
+                      setDebouncedQuery('')
+                      setSearchNavigationPath(null)
+                    }}
+                    disabled={!query}
+                    aria-label={t('file.clearSearch')}
+                    className={`tmuxgo-toolbar-icon absolute right-0.5 top-1/2 h-6 w-6 -translate-y-1/2 ${query ? '' : 'opacity-40'}`}
+                  >
+                    ×
+                  </button>
                 </div>
                 <div className="flex shrink-0 items-center rounded-apple border border-[var(--line)] bg-bg-2 p-0.5">
                   {(['name', 'content'] as SearchMode[]).map((item) => (

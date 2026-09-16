@@ -153,6 +153,35 @@
   --glass-shadow-hover: none;
 }
 
+/* sage · 莫兰迪低饱和绿（参考 generate_image/app_v1）：UI 用 sans，mono 留给终端/路径/代码 */
+[data-theme="sage"] {
+  --bg-0: 18 28 23;
+  --bg-1: 26 43 35;
+  --bg-2: 42 63 54;
+  --accent: 91 168 130;
+  --accent-2: 107 160 184;
+  --warn: 196 149 106;
+  --danger: 212 112 112;
+  --text-1: 224 235 228;
+  --text-2: 139 163 152;
+  --text-3: 106 127 116;
+  --on-accent: 255 255 255;
+  --on-danger: 255 255 255;
+  --line: rgba(139,163,152,0.16);
+  --glow: 0 10px 32px rgba(0,0,0,0.3);
+  --glass-blur: 8px;
+  --glass-saturate: 120%;
+  --glass-fill: rgb(255 255 255 / 4%);
+  --glass-fill-strong: rgb(30 46 39 / 96%);
+  --glass-fill-hover: rgb(255 255 255 / 8%);
+  --glass-rim: var(--line);
+  --glass-highlight: rgb(255 255 255 / 7%);
+  --glass-shadow: none;
+  --glass-shadow-hover: none;
+  --font-ui: "Inter", "PingFang SC", "Noto Sans SC", ui-sans-serif, system-ui, sans-serif;
+  --radius-apple: 12px;
+}
+
 @font-face {
   font-family: 'Maple Mono CN';
   src: url('/fonts/MapleMonoCN-Regular.woff2') format('woff2');

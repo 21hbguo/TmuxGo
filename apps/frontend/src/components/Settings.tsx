@@ -506,20 +506,22 @@ export function Settings({ onClose }: SettingsProps) {
               <div>
                 <h3 className="text-text-1 text-sm font-medium mb-3">{t('settings.theme')}</h3>
                 <div className="grid grid-cols-3 gap-3">
-                  {(['dark', 'light', 'high-contrast', 'dracula', 'nord', 'catppuccin'] as const).map((theme) => {
-                    const key = theme === 'high-contrast' ? 'highContrast' : theme
-                    return (
-                      <button
-                        key={theme}
-                        onClick={() => updatePreferences({ theme })}
-                        className={`p-3 bg-bg-2 rounded-apple border-2 ${
-                          preferences.theme === theme ? 'border-accent' : 'border-transparent'
-                        }`}
-                      >
-                        <div className="text-text-1 text-sm">{t(`settings.theme.${key}` as any)}</div>
-                      </button>
-                    )
-                  })}
+                  {(['dark', 'light', 'high-contrast', 'dracula', 'nord', 'catppuccin', 'sage'] as const).map(
+                    (theme) => {
+                      const key = theme === 'high-contrast' ? 'highContrast' : theme
+                      return (
+                        <button
+                          key={theme}
+                          onClick={() => updatePreferences({ theme })}
+                          className={`p-3 bg-bg-2 rounded-apple border-2 ${
+                            preferences.theme === theme ? 'border-accent' : 'border-transparent'
+                          }`}
+                        >
+                          <div className="text-text-1 text-sm">{t(`settings.theme.${key}` as any)}</div>
+                        </button>
+                      )
+                    },
+                  )}
                 </div>
                 <div className="mt-3 flex items-center justify-between">
                   <div className="min-w-0 pr-3">
