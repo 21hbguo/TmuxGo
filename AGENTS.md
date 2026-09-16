@@ -10,3 +10,5 @@
 - 本机存在 Mihomo/Clash 本地代理时优先走 socks5h://127.0.0.1:7890
 - 可用 zsh 的 proxy_fast_local 快速接入代理
 - 若仓库已配置 git http.proxy 和 https.proxy，则优先复用仓库本地代理配置
+- 测试 session 画面、tmux 行为等一律在名为 test 的 tmux session 中进行，不得操作用户其他 session
+- 完成代码改动后必须重启运行中的 app 让用户能立即体验：生产实例用 `systemctl --user restart tmuxgo-gateway`（端口 3001，systemd user service），前端 dist 随请求读取无需重启但要重新 build；dev 实例为 3101 gateway + 5199 vite

@@ -252,6 +252,8 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
   // 统计采样：1s 出 fps/带宽，2s 一次 gateway RTT；仅连接中且开关打开时跑
   useEffect(() => {
     if (!showStats || status !== 'connected') return
+    // 打开面板前先丢弃累计值重置基线，否则首个样本把连接以来的总量摊进速率
+    instrumentationRef.current?.sample()
     const sampleTimer = setInterval(() => {
       const sample = instrumentationRef.current?.sample() || { fps: 0, inKbps: 0, outKbps: 0 }
       setStats((prev) => ({ ...sample, rtt: prev.rtt }))
@@ -487,8 +489,9 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
       <div className="relative min-h-0 flex-1 bg-black">
         <div ref={containerRef} className="absolute inset-0 overflow-hidden" />
         {showStats && status === 'connected' && (
-          <div className="absolute right-3 top-3 z-20 rounded-apple bg-black/70 px-2.5 py-1 font-mono text-caption text-text-1">
-            {stats.fps} fps · ↓{stats.inKbps} KB/s ↑{stats.outKbps} KB/s
+          // 浮层永远压在黑色画布上：文字固定白色，不随主题切换，浅色主题下也可读
+          <div className="absolute right-3 top-3 z-20 rounded-apple bg-black/70 px-2.5 py-1 font-mono text-caption tabular-nums text-white">
+            {stats.fps} fps · ↓{stats.inKbps.toFixed(1)} KB/s ↑{stats.outKbps.toFixed(1)} KB/s
             {stats.rtt !== null ? ` · ${stats.rtt}ms` : ''}
           </div>
         )}
