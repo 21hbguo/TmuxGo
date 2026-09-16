@@ -2182,7 +2182,7 @@ export function FilePanel({
                     ×
                   </button>
                 </div>
-                <div className="flex shrink-0 items-center rounded-apple border border-[var(--line)] bg-bg-2 p-0.5">
+                <div className="tmuxgo-segment flex shrink-0">
                   {(['name', 'content'] as SearchMode[]).map((item) => (
                     <button
                       key={item}
@@ -2193,7 +2193,7 @@ export function FilePanel({
                         setSearchMode(item)
                         setSearchNavigationPath(null)
                       }}
-                      className={`flex h-6 w-7 items-center justify-center rounded-full transition-colors ${searchMode === item ? 'bg-accent/15 text-accent' : 'text-text-3 hover:text-text-1'}`}
+                      className="tmuxgo-segment__item !px-0 w-7"
                     >
                       {item === 'name' ? <FiFileText size={13} /> : <FiAlignLeft size={13} />}
                     </button>
@@ -2202,7 +2202,7 @@ export function FilePanel({
               </div>
               {!isPicker && (
                 <div className="mt-1 flex items-center gap-1">
-                  <div className="flex items-center rounded-apple border border-[var(--line)] bg-bg-2 p-0.5">
+                  <div className="tmuxgo-segment">
                     {(['all', 'file', 'directory'] as FileTypeFilter[]).map((item) => (
                       <button
                         key={item}
@@ -2210,7 +2210,7 @@ export function FilePanel({
                         aria-label={item === 'all' ? t('file.all') : item === 'file' ? t('file.file') : t('file.dir')}
                         aria-pressed={fileTypeFilter === item}
                         onClick={() => setFileTypeFilter(item)}
-                        className={`flex h-6 w-7 items-center justify-center rounded-full transition-colors ${fileTypeFilter === item ? 'bg-accent/15 text-accent' : 'text-text-3 hover:text-text-1'}`}
+                        className="tmuxgo-segment__item !px-0 w-7"
                       >
                         {item === 'all' ? (
                           <FiLayers size={13} />
@@ -2271,19 +2271,22 @@ export function FilePanel({
                   </div>
                   <div className="tmuxgo-scrollbar-subtle max-h-36 space-y-1 overflow-y-auto overscroll-contain">
                     {visibleFavoriteDirectories.map((item) => (
-                      <Chip
+                      <button
                         key={`${item.rootId}-${item.path}`}
                         {...bindFavoriteDirectoryDrag(item)}
                         onClick={() => openDirectoryShortcut(item)}
-                        className="w-full truncate justify-start px-3 py-1.5 text-left font-mono text-xs"
-                        style={{ direction: 'rtl' }}
+                        title={item.path}
+                        className="tmuxgo-list-row tmuxgo-list-row--hover flex h-7 w-full items-center gap-1.5 rounded-lg px-2 text-left text-meta text-text-2 hover:text-text-1"
                       >
-                        {formatDirectoryShortcutLabel(
-                          item.path,
-                          rootLabelById[item.rootId] || item.name,
-                          rootPathById[item.rootId] || '',
-                        )}
-                      </Chip>
+                        <FiStar size={11} className="shrink-0 text-text-3" aria-hidden="true" />
+                        <span className="min-w-0 flex-1 truncate font-mono" style={{ direction: 'rtl' }}>
+                          {formatDirectoryShortcutLabel(
+                            item.path,
+                            rootLabelById[item.rootId] || item.name,
+                            rootPathById[item.rootId] || '',
+                          )}
+                        </span>
+                      </button>
                     ))}
                   </div>
                 </div>

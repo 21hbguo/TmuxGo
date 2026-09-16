@@ -15,8 +15,8 @@
   --text-3: 150 150 155;
   --on-accent: 255 255 255;
   --on-danger: 255 255 255;
-  --line: rgba(255,255,255,0.1);
-  --glow: 0 10px 32px rgba(0,0,0,0.24);
+  --line: rgba(255, 255, 255, 0.1);
+  --glow: 0 10px 32px rgba(0, 0, 0, 0.24);
   --glass-blur: 14px;
   --glass-saturate: 180%;
   --glass-fill: rgb(255 255 255 / 8%);
@@ -26,8 +26,9 @@
   --glass-highlight: rgb(255 255 255 / 14%);
   --glass-shadow: none;
   --glass-shadow-hover: none;
-  --font-ui: "Maple Mono CN", monospace;
-  --font-mono: "Maple Mono CN", monospace;
+  --font-ui: 'Maple Mono CN', monospace;
+  --font-mono: 'Maple Mono CN', monospace;
+  --radius-apple: 16px;
   --fs-caption: 10px;
   --fs-meta: 12px;
   --fs-body: 14px;
@@ -36,7 +37,7 @@
   color-scheme: dark;
 }
 
-[data-theme="light"] {
+[data-theme='light'] {
   color-scheme: light;
   --bg-0: 232 234 238;
   --bg-1: 248 249 251;
@@ -50,8 +51,8 @@
   --text-3: 90 90 95;
   --on-accent: 12 13 15;
   --on-danger: 12 13 15;
-  --line: rgba(60,60,67,0.16);
-  --glow: 0 12px 34px rgba(48,52,60,0.12);
+  --line: rgba(60, 60, 67, 0.16);
+  --glow: 0 12px 34px rgba(48, 52, 60, 0.12);
   --glass-fill: rgb(255 255 255 / 55%);
   --glass-fill-strong: rgb(255 255 255 / 75%);
   --glass-fill-hover: rgb(255 255 255 / 70%);
@@ -61,7 +62,7 @@
   --glass-shadow-hover: none;
 }
 
-[data-theme="high-contrast"] {
+[data-theme='high-contrast'] {
   --bg-0: 0 0 0;
   --bg-1: 10 10 10;
   --bg-2: 26 26 26;
@@ -74,17 +75,17 @@
   --text-3: 153 153 153;
   --on-accent: 0 0 0;
   --on-danger: 255 255 255;
-  --line: rgba(0,255,255,0.4);
-  --glow: 0 0 20px rgba(0,255,255,0.3);
+  --line: rgba(0, 255, 255, 0.4);
+  --glow: 0 0 20px rgba(0, 255, 255, 0.3);
   --glass-blur: 0px;
-  --glass-fill: rgba(10,10,10,1);
-  --glass-fill-strong: rgba(10,10,10,1);
-  --glass-rim: rgba(255,255,255,0.8);
+  --glass-fill: rgba(10, 10, 10, 1);
+  --glass-fill-strong: rgba(10, 10, 10, 1);
+  --glass-rim: rgba(255, 255, 255, 0.8);
   --glass-highlight: transparent;
   --glass-shadow: none;
 }
 
-[data-theme="dracula"] {
+[data-theme='dracula'] {
   --bg-0: 33 34 44;
   --bg-1: 40 42 54;
   --bg-2: 52 55 70;
@@ -97,8 +98,8 @@
   --text-3: 160 160 190;
   --on-accent: 18 18 24;
   --on-danger: 255 255 255;
-  --line: rgba(189,147,249,0.28);
-  --glow: 0 0 20px rgba(189,147,249,0.25);
+  --line: rgba(189, 147, 249, 0.28);
+  --glow: 0 0 20px rgba(189, 147, 249, 0.25);
   --glass-fill: rgb(255 255 255 / 8%);
   --glass-fill-hover: rgb(255 255 255 / 14%);
   --glass-rim: var(--line);
@@ -107,7 +108,7 @@
   --glass-shadow-hover: none;
 }
 
-[data-theme="nord"] {
+[data-theme='nord'] {
   --bg-0: 46 52 64;
   --bg-1: 59 66 82;
   --bg-2: 67 76 94;
@@ -120,8 +121,8 @@
   --text-3: 196 203 216;
   --on-accent: 36 41 51;
   --on-danger: 36 41 51;
-  --line: rgba(152,208,224,0.34);
-  --glow: 0 0 20px rgba(152,208,224,0.28);
+  --line: rgba(152, 208, 224, 0.34);
+  --glow: 0 0 20px rgba(152, 208, 224, 0.28);
   --glass-fill: rgb(255 255 255 / 8%);
   --glass-fill-hover: rgb(255 255 255 / 14%);
   --glass-rim: var(--line);
@@ -130,7 +131,7 @@
   --glass-shadow-hover: none;
 }
 
-[data-theme="catppuccin"] {
+[data-theme='catppuccin'] {
   --bg-0: 17 17 27;
   --bg-1: 24 24 37;
   --bg-2: 49 50 68;
@@ -143,8 +144,8 @@
   --text-3: 147 153 178;
   --on-accent: 17 17 27;
   --on-danger: 255 255 255;
-  --line: rgba(137,180,250,0.28);
-  --glow: 0 0 20px rgba(137,180,250,0.25);
+  --line: rgba(137, 180, 250, 0.28);
+  --glow: 0 0 20px rgba(137, 180, 250, 0.25);
   --glass-fill: rgb(255 255 255 / 8%);
   --glass-fill-hover: rgb(255 255 255 / 14%);
   --glass-rim: var(--line);
@@ -154,7 +155,7 @@
 }
 
 /* sage · 莫兰迪低饱和绿（参考 generate_image/app_v1）：UI 用 sans，mono 留给终端/路径/代码 */
-[data-theme="sage"] {
+[data-theme='sage'] {
   --bg-0: 18 28 23;
   --bg-1: 26 43 35;
   --bg-2: 42 63 54;
@@ -167,8 +168,8 @@
   --text-3: 106 127 116;
   --on-accent: 255 255 255;
   --on-danger: 255 255 255;
-  --line: rgba(139,163,152,0.16);
-  --glow: 0 10px 32px rgba(0,0,0,0.3);
+  --line: rgba(139, 163, 152, 0.16);
+  --glow: 0 10px 32px rgba(0, 0, 0, 0.3);
   --glass-blur: 8px;
   --glass-saturate: 120%;
   --glass-fill: rgb(255 255 255 / 4%);
@@ -178,7 +179,7 @@
   --glass-highlight: rgb(255 255 255 / 7%);
   --glass-shadow: none;
   --glass-shadow-hover: none;
-  --font-ui: "Inter", "PingFang SC", "Noto Sans SC", ui-sans-serif, system-ui, sans-serif;
+  --font-ui: 'Inter', 'PingFang SC', 'Noto Sans SC', ui-sans-serif, system-ui, sans-serif;
   --radius-apple: 12px;
 }
 
@@ -317,7 +318,6 @@ a {
 .tmuxgo-material {
   border-color: var(--glass-rim);
   background: var(--glass-fill-strong);
-  box-shadow: inset 0 1px 0 var(--glass-highlight);
 }
 .tmuxgo-glass {
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
@@ -337,19 +337,20 @@ a {
 .tmuxgo-glass-dialog {
   --glass-blur: 30px;
   background: var(--glass-fill-strong);
-  box-shadow: inset 0 1px 0 var(--glass-highlight);
 }
 .tmuxgo-glass-control {
   border: 1px solid rgb(var(--text-1) / 0.08);
   background: rgb(var(--bg-2) / 0.56);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08);
 }
 .tmuxgo-glass-control:hover {
   border-color: rgb(var(--accent) / 0.32);
   background: rgb(var(--bg-2) / 0.76);
 }
 .tmuxgo-icon-button {
-  transition: color 160ms ease, background-color 160ms ease, transform 160ms cubic-bezier(.2,.8,.2,1);
+  transition:
+    color 160ms ease,
+    background-color 160ms ease,
+    transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 .tmuxgo-icon-button:active {
   transform: scale(0.94);
@@ -361,11 +362,16 @@ a {
   height: 2.5rem;
   width: 2.5rem;
   flex-shrink: 0;
-  border-radius: 20px;
+  border-radius: var(--radius-apple, 12px);
   border: 1px solid transparent;
   background: transparent;
   color: rgb(var(--text-3));
-  transition: color 160ms ease, background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease, transform 160ms cubic-bezier(.2,.8,.2,1);
+  transition:
+    color 160ms ease,
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 .tmuxgo-toolbar-icon:hover:not(:disabled) {
   background: rgb(var(--bg-2) / 0.65);
@@ -393,7 +399,11 @@ a {
   width: 2.75rem;
 }
 .tmuxgo-list-row {
-  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease;
 }
 .tmuxgo-list-row--active {
   border-color: rgb(var(--accent) / 0.45);
@@ -408,11 +418,46 @@ a {
 .tmuxgo-list-row--hover:hover {
   background: rgb(var(--bg-2) / 0.55);
 }
+/* 分段控件：bg-2 容器 + accent 高亮项，替代各面板自写 pill 组 */
+.tmuxgo-segment {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-apple, 12px);
+  background: rgb(var(--bg-2) / 0.5);
+}
+.tmuxgo-segment__item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 28px;
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: calc(var(--radius-apple, 12px) - 4px);
+  background: transparent;
+  font-size: var(--fs-meta);
+  color: rgb(var(--text-3));
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+.tmuxgo-segment__item:hover {
+  color: rgb(var(--text-1));
+}
+.tmuxgo-segment__item--active,
+.tmuxgo-segment__item[aria-pressed='true'] {
+  background: rgb(var(--accent) / 0.15);
+  color: rgb(var(--accent));
+}
 .tmuxgo-float-surface {
   border: 1px solid var(--line);
-  border-radius: 20px;
+  border-radius: var(--radius-apple, 16px);
   background: var(--glass-fill-strong);
-  box-shadow: inset 0 1px 0 var(--glass-highlight);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
 }
@@ -437,7 +482,9 @@ a {
   padding: 0.375rem 0.75rem;
   text-align: left;
   color: rgb(var(--text-2));
-  transition: background-color 160ms ease, color 160ms ease;
+  transition:
+    background-color 160ms ease,
+    color 160ms ease;
 }
 .tmuxgo-menu-item:hover {
   background: rgb(var(--bg-2));
@@ -594,8 +641,11 @@ a {
   color: rgb(var(--text-2));
   outline: none;
   color-scheme: dark;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
-  transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease;
 }
 .tmuxgo-control:hover {
   border-color: color-mix(in srgb, var(--line) 68%, transparent);
@@ -607,7 +657,7 @@ a {
   border-color: rgb(var(--accent) / 0.55);
   background: rgb(var(--bg-2) / 0.42);
   color: rgb(var(--text-1));
-  box-shadow: 0 0 0 1px rgb(var(--accent) / 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  box-shadow: 0 0 0 1px rgb(var(--accent) / 0.12);
 }
 .tmuxgo-control::placeholder {
   color: rgb(var(--text-3) / 0.72);
@@ -626,10 +676,10 @@ a {
 .tmuxgo-textarea {
   color-scheme: dark;
 }
-[data-theme="light"] .tmuxgo-control,
-[data-theme="light"] .tmuxgo-select,
-[data-theme="light"] .tmuxgo-input,
-[data-theme="light"] .tmuxgo-textarea {
+[data-theme='light'] .tmuxgo-control,
+[data-theme='light'] .tmuxgo-select,
+[data-theme='light'] .tmuxgo-input,
+[data-theme='light'] .tmuxgo-textarea {
   color-scheme: light;
 }
 .tmuxgo-select option {
@@ -858,73 +908,33 @@ a {
   gap: 5px;
   position: relative;
   overflow: hidden;
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   border: 1px solid var(--glass-rim);
-  box-shadow:
-    inset 0 1px 0 var(--glass-highlight),
-    inset 0 -1px 0 rgb(255 255 255 / 6%);
   background: var(--glass-fill);
   color: var(--text-color, rgb(var(--text-1)));
   transition:
-    transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
-    box-shadow 0.25s ease,
-    background-color 0.2s ease,
-    border-color 0.2s ease,
-    color 0.2s ease;
-  will-change: transform;
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 @media (hover: hover) {
   .tmuxgo-keycap:hover:not(:disabled),
   .tmuxgo-chip:hover:not(:disabled),
   .tmuxgo-button:hover:not(:disabled) {
-    box-shadow:
-      inset 0 1px 0 var(--glass-highlight),
-      inset 0 -1px 0 rgb(255 255 255 / 8%);
     background: var(--glass-fill-hover);
   }
-}
-.tmuxgo-keycap:active:not(:disabled),
-.tmuxgo-chip:active:not(:disabled),
-.tmuxgo-button:active:not(:disabled) {
-  transform: scale(0.95);
-  transition-duration: 0.12s;
-  transition-timing-function: cubic-bezier(0.4, 0, 0.6, 1);
 }
 .tmuxgo-keycap:focus-visible,
 .tmuxgo-chip:focus-visible,
 .tmuxgo-button:focus-visible {
   outline: none;
-  box-shadow:
-    inset 0 1px 0 var(--glass-highlight),
-    inset 0 -1px 0 rgb(255 255 255 / 6%),
-    0 0 0 2px rgb(var(--accent) / 0.55);
+  box-shadow: 0 0 0 2px rgb(var(--accent) / 0.55);
 }
 .tmuxgo-keycap:disabled,
 .tmuxgo-chip:disabled,
 .tmuxgo-button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
-}
-
-/* pointer illumination — 鼠标位置出 radial 高光 */
-.tmuxgo-keycap::after,
-.tmuxgo-chip::after,
-.tmuxgo-button::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: radial-gradient(140px circle at var(--mx, 50%) var(--my, 50%),
-                              rgb(255 255 255 / 22%), transparent 60%);
-  opacity: 0;
-  transition: opacity 0.25s ease;
-  pointer-events: none;
-}
-.tmuxgo-keycap:is(:hover, :active)::after,
-.tmuxgo-chip:is(:hover, :active)::after,
-.tmuxgo-button:is(:hover, :active)::after {
-  opacity: 1;
 }
 
 /* =========================================================
@@ -984,7 +994,7 @@ a {
   backdrop-filter: none;
   will-change: auto;
 }
-[data-theme="high-contrast"] .tmuxgo-keycap {
+[data-theme='high-contrast'] .tmuxgo-keycap {
   background: transparent;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
@@ -1004,16 +1014,13 @@ a {
   font-weight: 500;
   padding: 4px 10px;
   border-radius: 999px;
-  background: rgb(255 255 255 / 5%);
-  border-color: rgb(255 255 255 / 12%);
-  --glass-shadow: none;
-  --glass-shadow-hover: none;
+  background: rgb(var(--bg-2) / 0.55);
+  border-color: var(--line);
   letter-spacing: 0.01em;
 }
 .tmuxgo-chip:hover:not(:disabled) {
   color: rgb(var(--text-1));
-  background: rgb(255 255 255 / 10%);
-  border-color: rgb(255 255 255 / 20%);
+  background: rgb(var(--bg-2) / 0.85);
 }
 .tmuxgo-chip--accent {
   --text-color: rgb(var(--text-1));
@@ -1036,7 +1043,7 @@ a {
   border-color: rgb(var(--danger) / 0.55);
   --text-color: rgb(var(--danger));
 }
-[data-theme="high-contrast"] .tmuxgo-chip {
+[data-theme='high-contrast'] .tmuxgo-chip {
   background: transparent;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
@@ -1046,8 +1053,13 @@ a {
   --glass-highlight: transparent;
   color: rgb(var(--text-1));
 }
-[data-theme="high-contrast"] .tmuxgo-chip--accent { color: rgb(var(--text-1)); border-color: rgb(0 255 255); }
-[data-theme="high-contrast"] .tmuxgo-chip--danger { color: rgb(255 68 68); }
+[data-theme='high-contrast'] .tmuxgo-chip--accent {
+  color: rgb(var(--text-1));
+  border-color: rgb(0 255 255);
+}
+[data-theme='high-contrast'] .tmuxgo-chip--danger {
+  color: rgb(255 68 68);
+}
 
 /* =========================================================
    L3 button · 中等动作按钮（确认/取消/恢复/重试/保存/删除）
@@ -1056,9 +1068,7 @@ a {
   --text-color: rgb(var(--text-1));
   font-size: var(--fs-body);
   padding: 8px 18px;
-  border-radius: 999px;
-  --glass-shadow: none;
-  --glass-shadow-hover: none;
+  border-radius: var(--radius-apple, 14px);
 }
 .tmuxgo-button--sm {
   font-size: var(--fs-meta);
@@ -1085,7 +1095,7 @@ a {
   padding: 0;
   width: 40px;
   height: 40px;
-  border-radius: 20px;
+  border-radius: var(--radius-apple, 14px);
 }
 
 .tmuxgo-button--accent {
@@ -1103,33 +1113,21 @@ a {
 .tmuxgo-button--primary {
   --text-color: rgb(var(--on-accent));
   border-color: rgb(var(--accent) / 0.6);
-  background: color-mix(in srgb, rgb(var(--accent)) 70%, transparent);
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.45),
-    inset 0 -1px 0 rgb(0 0 0 / 0.18);
+  background: rgb(var(--accent) / 0.82);
 }
 .tmuxgo-button--primary:hover:not(:disabled) {
-  background: color-mix(in srgb, rgb(var(--accent)) 82%, transparent);
+  background: rgb(var(--accent) / 0.95);
   border-color: rgb(var(--accent) / 0.8);
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.55),
-    inset 0 -1px 0 rgb(0 0 0 / 0.20);
 }
 
 .tmuxgo-button--danger {
   --text-color: rgb(var(--on-danger));
   border-color: rgb(var(--danger) / 0.55);
-  background: color-mix(in srgb, rgb(var(--danger)) 60%, transparent);
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.42),
-    inset 0 -1px 0 rgb(0 0 0 / 0.18);
+  background: rgb(var(--danger) / 0.72);
 }
 .tmuxgo-button--danger:hover:not(:disabled) {
-  background: color-mix(in srgb, rgb(var(--danger)) 72%, transparent);
+  background: rgb(var(--danger) / 0.85);
   border-color: rgb(var(--danger) / 0.75);
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.52),
-    inset 0 -1px 0 rgb(0 0 0 / 0.20);
 }
 
 .tmuxgo-button--ghost {
@@ -1137,87 +1135,72 @@ a {
   border-color: transparent;
   box-shadow: none;
   --text-color: rgb(var(--text-2));
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
 }
 .tmuxgo-button--ghost:hover:not(:disabled) {
   background: rgb(255 255 255 / 8%);
   border-color: rgb(255 255 255 / 14%);
   --text-color: rgb(var(--text-1));
-  box-shadow: inset 0 1px 0 var(--glass-highlight);
 }
 .tmuxgo-button--ghost:active:not(:disabled) {
   background: rgb(255 255 255 / 14%);
 }
 
-[data-theme="light"] .tmuxgo-chip {
+[data-theme='light'] .tmuxgo-chip {
   background: rgb(0 0 0 / 5%);
   border-color: rgb(0 0 0 / 10%);
 }
-[data-theme="light"] .tmuxgo-chip:hover:not(:disabled) {
+[data-theme='light'] .tmuxgo-chip:hover:not(:disabled) {
   background: rgb(0 0 0 / 8%);
   border-color: rgb(0 0 0 / 14%);
 }
-[data-theme="light"] .tmuxgo-button--ghost:hover:not(:disabled) {
+[data-theme='light'] .tmuxgo-button--ghost:hover:not(:disabled) {
   background: rgb(0 0 0 / 6%);
   border-color: rgb(0 0 0 / 10%);
 }
-[data-theme="light"] .tmuxgo-button--ghost:active:not(:disabled) {
+[data-theme='light'] .tmuxgo-button--ghost:active:not(:disabled) {
   background: rgb(0 0 0 / 10%);
 }
-[data-theme="light"] .tmuxgo-keycap::after,
-[data-theme="light"] .tmuxgo-chip::after,
-[data-theme="light"] .tmuxgo-button::after {
-  background: radial-gradient(140px circle at var(--mx, 50%) var(--my, 50%),
-                              rgb(0 0 0 / 10%), transparent 60%);
-}
-[data-theme="nord"] .tmuxgo-button--primary {
+[data-theme='nord'] .tmuxgo-button--primary {
   --text-color: rgb(var(--on-accent));
   background: rgb(var(--accent));
   border-color: rgb(var(--accent));
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.35),
-    inset 0 -1px 0 rgb(0 0 0 / 0.16);
 }
-[data-theme="nord"] .tmuxgo-button--primary:hover:not(:disabled) {
+[data-theme='nord'] .tmuxgo-button--primary:hover:not(:disabled) {
   background: color-mix(in srgb, rgb(var(--accent)) 88%, white);
   border-color: color-mix(in srgb, rgb(var(--accent)) 88%, white);
 }
-[data-theme="nord"] .tmuxgo-button--danger {
+[data-theme='nord'] .tmuxgo-button--danger {
   --text-color: rgb(var(--on-danger));
   background: rgb(var(--danger));
   border-color: rgb(var(--danger));
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.32),
-    inset 0 -1px 0 rgb(0 0 0 / 0.16);
 }
-[data-theme="nord"] .tmuxgo-button--danger:hover:not(:disabled) {
+[data-theme='nord'] .tmuxgo-button--danger:hover:not(:disabled) {
   background: color-mix(in srgb, rgb(var(--danger)) 88%, white);
   border-color: color-mix(in srgb, rgb(var(--danger)) 88%, white);
 }
-[data-theme="nord"] .tmuxgo-button--accent,
-[data-theme="nord"] .tmuxgo-chip--accent,
-[data-theme="nord"] .tmuxgo-keycap--accent {
+[data-theme='nord'] .tmuxgo-button--accent,
+[data-theme='nord'] .tmuxgo-chip--accent,
+[data-theme='nord'] .tmuxgo-keycap--accent {
   background: color-mix(in srgb, rgb(var(--accent)) 8%, transparent);
   border-color: rgb(var(--accent) / 0.5);
 }
-[data-theme="nord"] .tmuxgo-button--accent:hover:not(:disabled),
-[data-theme="nord"] .tmuxgo-chip--accent:hover:not(:disabled),
-[data-theme="nord"] .tmuxgo-keycap--accent:hover:not(:disabled) {
+[data-theme='nord'] .tmuxgo-button--accent:hover:not(:disabled),
+[data-theme='nord'] .tmuxgo-chip--accent:hover:not(:disabled),
+[data-theme='nord'] .tmuxgo-keycap--accent:hover:not(:disabled) {
   background: color-mix(in srgb, rgb(var(--accent)) 14%, transparent);
   border-color: rgb(var(--accent) / 0.65);
 }
-[data-theme="nord"] .tmuxgo-chip--danger,
-[data-theme="nord"] .tmuxgo-keycap--danger {
+[data-theme='nord'] .tmuxgo-chip--danger,
+[data-theme='nord'] .tmuxgo-keycap--danger {
   background: color-mix(in srgb, rgb(var(--danger)) 8%, transparent);
   border-color: rgb(var(--danger) / 0.5);
 }
-[data-theme="nord"] .tmuxgo-chip--danger:hover:not(:disabled),
-[data-theme="nord"] .tmuxgo-keycap--danger:hover:not(:disabled) {
+[data-theme='nord'] .tmuxgo-chip--danger:hover:not(:disabled),
+[data-theme='nord'] .tmuxgo-keycap--danger:hover:not(:disabled) {
   background: color-mix(in srgb, rgb(var(--danger)) 14%, transparent);
   border-color: rgb(var(--danger) / 0.65);
 }
-[data-theme="high-contrast"] .tmuxgo-button {
+[data-theme='high-contrast'] .tmuxgo-button {
   background: transparent;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
@@ -1227,13 +1210,13 @@ a {
   --glass-highlight: transparent;
   color: rgb(var(--text-1));
 }
-[data-theme="high-contrast"] .tmuxgo-button--primary {
+[data-theme='high-contrast'] .tmuxgo-button--primary {
   background: transparent;
   border-color: rgb(0 255 255);
   color: rgb(0 255 255);
   box-shadow: none;
 }
-[data-theme="high-contrast"] .tmuxgo-button--danger {
+[data-theme='high-contrast'] .tmuxgo-button--danger {
   background: transparent;
   border-color: rgb(255 68 68);
   color: rgb(255 68 68);
@@ -1247,21 +1230,13 @@ a {
   .tmuxgo-keycap,
   .tmuxgo-chip,
   .tmuxgo-button {
-    transition: opacity 0.2s ease, background-color 0.2s ease, color 0.2s ease;
-    transform: none !important;
+    transition:
+      background-color 0.2s ease,
+      color 0.2s ease;
   }
-  .tmuxgo-keycap:active:not(:disabled),
-  .tmuxgo-chip:active:not(:disabled),
-  .tmuxgo-button:active:not(:disabled) {
-    opacity: 0.7;
-    transform: none !important;
-  }
-  .tmuxgo-keycap::after,
-  .tmuxgo-chip::after,
-  .tmuxgo-button::after { display: none; }
 }
 
-@media (prefers-reduced-transparency: reduce), (forced-colors: active) {
+@media (forced-colors: active) {
   .tmuxgo-keycap,
   .tmuxgo-chip,
   .tmuxgo-button {

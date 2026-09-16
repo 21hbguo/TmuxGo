@@ -14,10 +14,10 @@ const SESSION_SYNC_DELAY_MS = 15000
 const AGENT_MONITOR_ERROR_TTL_MS = 5000
 type Tone = 'success' | 'warn' | 'danger' | 'neutral'
 const chipTone: Record<Tone, string> = {
-  success: 'border-accent-2/25 bg-accent-2/5 text-accent-2',
-  warn: 'border-warn/30 bg-warn/10 text-warn',
-  danger: 'border-danger/30 bg-danger/10 text-danger',
-  neutral: 'border-text-1/10 bg-bg-2/45 text-text-2',
+  success: 'bg-accent-2/10 text-accent-2',
+  warn: 'bg-warn/10 text-warn',
+  danger: 'bg-danger/10 text-danger',
+  neutral: 'bg-bg-2/40 text-text-2',
 }
 const resourceTone = (used: number, total: number): Tone => {
   const ratio = total > 0 ? used / total : 0
@@ -39,7 +39,7 @@ function ResourceChip({
   return (
     <span
       title={title}
-      className={`inline-flex h-5 items-center gap-1.5 rounded-full border px-2 font-mono tabular-nums ${chipTone[tone]}`}
+      className={`inline-flex h-5 items-center gap-1.5 rounded-md px-2 font-mono tabular-nums ${chipTone[tone]}`}
     >
       <span className="text-caption font-medium uppercase tracking-[0.16em] text-text-3">{label}</span>
       <span className="text-caption font-semibold">{value}</span>
@@ -129,12 +129,12 @@ export function StatusBar() {
 
   const statusStyle = (
     {
-      connected: { dot: 'bg-accent-2', text: 'text-accent-2', shell: 'border-accent-2/25 bg-accent-2/5' },
-      attaching: { dot: 'bg-warn animate-pulse', text: 'text-warn', shell: 'border-warn/30 bg-warn/10' },
-      reconnecting: { dot: 'bg-warn animate-pulse', text: 'text-warn', shell: 'border-warn/30 bg-warn/10' },
-      disconnected: { dot: 'bg-danger', text: 'text-danger', shell: 'border-danger/30 bg-danger/10' },
+      connected: { dot: 'bg-accent-2', text: 'text-accent-2', shell: 'bg-accent-2/10' },
+      attaching: { dot: 'bg-warn animate-pulse', text: 'text-warn', shell: 'bg-warn/10' },
+      reconnecting: { dot: 'bg-warn animate-pulse', text: 'text-warn', shell: 'bg-warn/10' },
+      disconnected: { dot: 'bg-danger', text: 'text-danger', shell: 'bg-danger/10' },
     } as Record<string, { dot: string; text: string; shell: string }>
-  )[connection.status] || { dot: 'bg-text-3', text: 'text-text-3', shell: 'border-text-1/10 bg-bg-2/45' }
+  )[connection.status] || { dot: 'bg-text-3', text: 'text-text-3', shell: 'bg-bg-2/40' }
 
   return (
     <footer
@@ -144,7 +144,7 @@ export function StatusBar() {
       <div className="relative flex h-full items-center justify-between gap-3">
         <section aria-label="Workspace context" className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
           {activePane && (
-            <span className="inline-flex h-5 items-center rounded-full border border-text-1/10 bg-bg-2/45 px-2 font-mono text-caption tabular-nums text-text-2">
+            <span className="inline-flex h-5 items-center rounded-md bg-bg-2/40 px-2 font-mono text-caption tabular-nums text-text-2">
               {activePane.size.cols}×{activePane.size.rows}
             </span>
           )}
@@ -169,7 +169,7 @@ export function StatusBar() {
               </span>
             )}
           {activeHost && (
-            <span className="min-w-0 truncate rounded-full border border-text-1/10 bg-bg-2/45 px-2 py-0.5 text-caption text-text-2">
+            <span className="min-w-0 truncate rounded-md bg-bg-2/40 px-2 py-0.5 text-caption text-text-2">
               {activeHost.name}
             </span>
           )}
@@ -279,7 +279,7 @@ export function StatusBar() {
             </span>
           )}
           <span
-            className={`inline-flex h-5 items-center gap-1.5 rounded-full border px-2 font-medium ${statusStyle.shell}`}
+            className={`inline-flex h-5 items-center gap-1.5 rounded-md px-2 font-medium ${statusStyle.shell}`}
             style={{ minWidth: '180px' }}
           >
             <span className={`h-1.5 w-1.5 rounded-full ${statusStyle.dot}`} />
