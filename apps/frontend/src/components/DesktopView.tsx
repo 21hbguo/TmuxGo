@@ -29,6 +29,12 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
   const [password, setPassword] = useState('')
   const [viewOnly, setViewOnly] = useState(false)
   const [portInput, setPortInput] = useState(String(port))
+  const portRef = useRef(port)
+  const hiddenRef = useRef(typeof document !== 'undefined' && document.hidden)
+  // 隐藏时记录是否有活动连接：手动断开过的会话回到前台不自动重连；初始 true 兜底"挂着后台打开"场景
+  const wasActiveRef = useRef(true)
+  // 可见性重连时免重复弹窗：提交过的凭据存 ref，securityfailure 时作废
+  const credentialsRef = useRef<{ username?: string; password: string } | null>(null)
   // RFB 事件回调在 connect 时注册一次，用 ref 拿最新 viewOnly/t，避免 connect 身份抖动触发重连
   const viewOnlyRef = useRef(viewOnly)
   const tRef = useRef(t)
@@ -60,9 +66,13 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
       }
       // 等待 ticket/模块期间发生了新的 connect 或卸载，丢弃本次结果避免双 RFB
       if (seq !== connectSeqRef.current || !containerRef.current) return
+      portRef.current = targetPort
       const rfb = new RFB(containerRef.current, url, { shared: true })
       rfb.scaleViewport = true
       rfb.viewOnly = viewOnlyRef.current
+      // 交互优先：JPEG 质量中等 + tight 低压缩级别，画质/CPU/延迟折中
+      rfb.qualityLevel = 6
+      rfb.compressionLevel = 2
       rfb.addEventListener('connect', () => setStatus('connected'))
       rfb.addEventListener('disconnect', (event) => {
         rfbRef.current = null
@@ -70,22 +80,32 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
         setCredentialTypes([])
         if (!event.detail.clean) setError(tRef.current('vnc.disconnectUnclean'))
       })
-      rfb.addEventListener('credentialsrequired', (event) => setCredentialTypes(event.detail.types))
-      rfb.addEventListener('securityfailure', (event) =>
-        setError(event.detail.reason || `${tRef.current('vnc.securityFailure')} (${event.detail.status})`),
-      )
+      rfb.addEventListener('credentialsrequired', (event) => {
+        const saved = credentialsRef.current
+        if (saved) {
+          rfb.sendCredentials({ username: saved.username, password: saved.password })
+          return
+        }
+        setCredentialTypes(event.detail.types)
+      })
+      rfb.addEventListener('securityfailure', (event) => {
+        credentialsRef.current = null
+        setError(event.detail.reason || `${tRef.current('vnc.securityFailure')} (${event.detail.status})`)
+      })
       rfb.addEventListener('desktopname', (event) => setDesktopName(event.detail.name))
       // 远端剪贴板同步到本地：浏览器要求用户手势/权限，失败静默降级
       rfb.addEventListener('clipboard', (event) => {
         void navigator.clipboard?.writeText(event.detail.text).catch(() => {})
       })
       rfbRef.current = rfb
+      wasActiveRef.current = true
     },
     [hostId],
   )
 
   const disconnect = useCallback(() => {
     connectSeqRef.current += 1
+    wasActiveRef.current = false
     rfbRef.current?.disconnect()
     rfbRef.current = null
     setStatus('idle')
@@ -100,16 +120,36 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
     if (rfbRef.current) rfbRef.current.viewOnly = viewOnly
   }, [viewOnly])
   useEffect(() => {
-    void connect(port)
+    if (!document.hidden) void connect(port)
     return () => {
       connectSeqRef.current += 1
       rfbRef.current?.disconnect()
       rfbRef.current = null
     }
   }, [connect, port])
+  // 浏览器 tab 隐藏即断流：整棵 VNC 链路（WS→TCP）随 RFB.disconnect 拆除，回前台自动重连
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.hidden) {
+        hiddenRef.current = true
+        wasActiveRef.current = rfbRef.current !== null
+        connectSeqRef.current += 1
+        rfbRef.current?.disconnect()
+        rfbRef.current = null
+        setCredentialTypes([])
+      } else if (hiddenRef.current) {
+        hiddenRef.current = false
+        if (wasActiveRef.current) void connect(portRef.current)
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => document.removeEventListener('visibilitychange', onVisibility)
+  }, [connect])
 
   const submitCredentials = () => {
-    rfbRef.current?.sendCredentials({ username: credentialTypes.includes('username') ? username : undefined, password })
+    const credentials = { username: credentialTypes.includes('username') ? username : undefined, password }
+    credentialsRef.current = credentials
+    rfbRef.current?.sendCredentials(credentials)
     setCredentialTypes([])
     setPassword('')
   }

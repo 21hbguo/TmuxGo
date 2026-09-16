@@ -68,7 +68,12 @@ class Agent {
       this.startHeartbeat()
     })
 
-    this.ws.on('message', (data: Buffer) => {
+    this.ws.on('message', (data: Buffer, isBinary: boolean) => {
+      // VNC 画面帧走二进制：vnc-data <connectionId>\n + 原始字节，避免 base64 膨胀
+      if (isBinary) {
+        this.handleVncBinary(data)
+        return
+      }
       try {
         const message = JSON.parse(data.toString())
         this.handleMessage(message)
@@ -168,10 +173,6 @@ class Agent {
 
       case 'vnc-open':
         this.openVnc(message)
-        break
-
-      case 'vnc-data':
-        this.writeVnc(message)
         break
 
       case 'vnc-close':
@@ -387,17 +388,26 @@ class Agent {
     const socket = net.connect({ host: '127.0.0.1', port })
     this.vncSockets.set(connectionId, socket)
     socket.on('connect', () => this.send({ type: 'vnc-opened', connectionId }))
-    socket.on('data', (chunk) => this.send({ type: 'vnc-data', connectionId, data: chunk.toString('base64') }))
+    socket.on('data', (chunk) => this.sendVncFrame(connectionId, chunk))
     socket.on('error', (err) => this.send({ type: 'vnc-error', connectionId, message: err.message }))
     socket.on('close', () => {
       if (this.vncSockets.delete(connectionId)) this.send({ type: 'vnc-closed', connectionId })
     })
   }
 
-  private writeVnc(message: any) {
-    const socket = this.vncSockets.get(message.connectionId)
-    if (!socket || typeof message.data !== 'string') return
-    socket.write(Buffer.from(message.data, 'base64'))
+  // gateway→agent 的下行帧也是二进制：header 行 + 载荷
+  private handleVncBinary(frame: Buffer) {
+    const separator = frame.indexOf(0x0a)
+    if (separator < 0) return
+    const header = frame.toString('ascii', 0, separator)
+    if (!header.startsWith('vnc-data ')) return
+    this.vncSockets.get(header.slice(9).trim())?.write(frame.subarray(separator + 1))
+  }
+
+  private sendVncFrame(connectionId: string, chunk: Buffer) {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(Buffer.concat([Buffer.from(`vnc-data ${connectionId}\n`, 'ascii'), chunk]))
+    }
   }
 
   private closeVnc(message: any) {

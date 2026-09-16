@@ -60,7 +60,7 @@ export async function vncRoutes(fastify: FastifyInstance) {
       return
     }
     // 远端宿主机只走 agent 中继：agent 是主动拨入 gateway 的，gateway 无法反向连其内网；
-    // 由 agent 在宿主机本机拨 loopback VNC，数据以 base64 包进 agent JSON 通道
+    // 由 agent 在宿主机本机拨 loopback VNC，画面帧以二进制帧（vnc-data <id>\n+载荷）复用 agent WS 通道
     const connectionId = randomUUID()
     if (!agentManager.openVnc(hostId, connectionId, port, socket)) {
       socket.close(1011, 'Host is offline or has no agent connected')
