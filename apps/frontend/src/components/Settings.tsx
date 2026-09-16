@@ -38,6 +38,17 @@ interface SettingsProps {
   onClose: () => void
 }
 
+/** 主题卡 mini 预览：bg 底色 + accent 色点 + 文本条，配色与各主题 css var 对应 */
+const THEME_PREVIEW: Record<string, { bg: string; accent: string; fg: string }> = {
+  dark: { bg: '#0c0d0f', accent: '#0a84ff', fg: '#f5f5f7' },
+  light: { bg: '#f8f9fb', accent: '#005ac8', fg: '#1c1c1e' },
+  'high-contrast': { bg: '#000000', accent: '#00ffff', fg: '#ffffff' },
+  dracula: { bg: '#282a36', accent: '#bd93f9', fg: '#f8f8f2' },
+  nord: { bg: '#3b4252', accent: '#98d0e0', fg: '#eceff4' },
+  catppuccin: { bg: '#11111b', accent: '#89b4fa', fg: '#cdd6f4' },
+  sage: { bg: '#1a2b23', accent: '#5ba882', fg: '#e0ebe4' },
+}
+
 export function Settings({ onClose }: SettingsProps) {
   const { preferences, updatePreferences, resetPreferences } = usePreferences()
   const { sessionContinuity, updateSessionContinuity } = useSessionContinuity()
@@ -509,6 +520,7 @@ export function Settings({ onClose }: SettingsProps) {
                   {(['dark', 'light', 'high-contrast', 'dracula', 'nord', 'catppuccin', 'sage'] as const).map(
                     (theme) => {
                       const key = theme === 'high-contrast' ? 'highContrast' : theme
+                      const preview = THEME_PREVIEW[theme]
                       return (
                         <button
                           key={theme}
@@ -517,6 +529,14 @@ export function Settings({ onClose }: SettingsProps) {
                             preferences.theme === theme ? 'border-accent' : 'border-transparent'
                           }`}
                         >
+                          <div
+                            className="mb-2 flex h-9 items-end gap-1 rounded-md border border-[var(--line)] p-1.5"
+                            style={{ background: preview.bg }}
+                            aria-hidden="true"
+                          >
+                            <span className="h-1 w-6 rounded-full" style={{ background: preview.accent }} />
+                            <span className="h-1 w-4 rounded-full opacity-60" style={{ background: preview.fg }} />
+                          </div>
                           <div className="text-text-1 text-sm">{t(`settings.theme.${key}` as any)}</div>
                         </button>
                       )
@@ -546,16 +566,15 @@ export function Settings({ onClose }: SettingsProps) {
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-text-2 text-sm">{t('settings.sidebarPosition')}</span>
-                    <div className="flex gap-2">
+                    <div className="tmuxgo-segment">
                       {(['left', 'right'] as const).map((pos) => (
                         <button
                           key={pos}
                           onClick={() => updatePreferences({ sidebarPosition: pos })}
-                          className={`px-3 py-1.5 rounded-apple text-sm ${
-                            preferences.sidebarPosition === pos ? 'bg-accent text-bg-0' : 'bg-bg-2 text-text-2'
-                          }`}
+                          aria-pressed={preferences.sidebarPosition === pos}
+                          className="tmuxgo-segment__item"
                         >
-                          {pos}
+                          {t(`settings.sidebarPosition.${pos}` as any)}
                         </button>
                       ))}
                     </div>

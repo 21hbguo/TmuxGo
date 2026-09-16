@@ -89,51 +89,136 @@ export function SessionRail() {
   return (
     <>
       <aside className="tmuxgo-content-surface flex h-full w-[clamp(61px,9vw,109px)] shrink-0 flex-col overflow-hidden border-r border-[var(--line)]">
-        <button onClick={() => setSessionPanelExpanded(true)} className="flex h-[45px] shrink-0 items-center gap-2 border-b border-[var(--line)] px-3 text-left text-xs font-semibold text-text-3 hover:bg-bg-2/55 hover:text-text-1"><FiChevronRight aria-hidden="true" className="shrink-0" /><span className="min-w-0 truncate">{t('sidebar.sessions')}</span></button>
+        <button
+          onClick={() => setSessionPanelExpanded(true)}
+          className="flex h-[45px] shrink-0 items-center gap-2 border-b border-[var(--line)] px-3 text-left text-xs font-semibold text-text-3 hover:bg-bg-2/55 hover:text-text-1"
+        >
+          <FiChevronRight aria-hidden="true" className="shrink-0" />
+          <span className="min-w-0 truncate">{t('sidebar.sessions')}</span>
+        </button>
         <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-2 py-2 scrollbar-none">
-          {isError && !sessions.length ? <Button variant="danger" size="sm" className="w-full" title={t('session.loadFailed')} onClick={() => void refetch()}>{t('common.retry')}</Button> : <SessionSortableList
-            sessions={sessions}
-            onMove={moveSession}
-            listClassName="flex min-h-full flex-col gap-2"
-            getItemClassName={({ session, isDragging, isOverlay }) => {
-              const active = session.id === activeSessionId
-              return `rounded-apple ${isDragging && !isOverlay ? 'opacity-40' : ''}`
-            }}
-            renderItem={({ session, isOverlay }) => {
-              const active = session.id === activeSessionId
-              return (
-                <button title={session.name} onClick={() => setActiveSession(session.id)} onDoubleClick={() => void handleRenameSession(session.id)} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, sessionId: session.id }) }} className={`tmuxgo-list-row flex h-11 min-w-0 w-full items-center gap-2 rounded-apple border px-2 text-left ${active ? 'tmuxgo-list-row--active' : 'border-transparent bg-transparent text-text-3 tmuxgo-list-row--hover hover:text-text-1'} ${isOverlay ? 'border-accent bg-bg-1 text-text-1' : ''}`}>
-                  <span className="flex min-w-0 flex-1 items-center gap-2 text-left">
-                    <span className="relative shrink-0"><span className={`flex h-7 w-7 items-center justify-center rounded-apple text-meta font-semibold ${active ? 'bg-accent/10 text-accent' : 'bg-bg-2 text-text-2'}`}>{session.name.slice(0, 2).toUpperCase()}</span><span className="absolute -bottom-1 -right-1"><AgentStatusBadge summary={session.agentSummary} compact /></span></span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-xs font-medium text-text-1">{session.name}</span>
-                      <span className="block truncate text-caption text-text-3">{t('sidebar.windows', { count: session.windowCount })}</span>
+          {isError && !sessions.length ? (
+            <Button
+              variant="danger"
+              size="sm"
+              className="w-full"
+              title={t('session.loadFailed')}
+              onClick={() => void refetch()}
+            >
+              {t('common.retry')}
+            </Button>
+          ) : (
+            <SessionSortableList
+              sessions={sessions}
+              onMove={moveSession}
+              listClassName="flex min-h-full flex-col gap-2"
+              getItemClassName={({ isDragging, isOverlay }) => {
+                return `rounded-apple ${isDragging && !isOverlay ? 'opacity-40' : ''}`
+              }}
+              renderItem={({ session, isOverlay }) => {
+                const active = session.id === activeSessionId
+                return (
+                  <button
+                    title={session.name}
+                    onClick={() => setActiveSession(session.id)}
+                    onDoubleClick={() => void handleRenameSession(session.id)}
+                    onContextMenu={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      setContextMenu({ x: e.clientX, y: e.clientY, sessionId: session.id })
+                    }}
+                    className={`tmuxgo-list-row flex h-11 min-w-0 w-full items-center gap-2 rounded-apple px-2 text-left ${active ? 'tmuxgo-list-row--active' : 'bg-transparent text-text-3 tmuxgo-list-row--hover hover:text-text-1'} ${isOverlay ? 'bg-bg-1 text-text-1' : ''}`}
+                  >
+                    <span className="flex min-w-0 flex-1 items-center gap-2 text-left">
+                      <span className="relative shrink-0">
+                        <span
+                          className={`flex h-7 w-7 items-center justify-center rounded-apple text-meta font-semibold ${active ? 'bg-accent/10 text-accent' : 'bg-bg-2 text-text-2'}`}
+                        >
+                          {session.name.slice(0, 2).toUpperCase()}
+                        </span>
+                        <span className="absolute -bottom-1 -right-1">
+                          <AgentStatusBadge summary={session.agentSummary} compact />
+                        </span>
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-xs font-medium text-text-1">{session.name}</span>
+                        <span className="block truncate text-caption text-text-3">
+                          {t('sidebar.windows', { count: session.windowCount })}
+                        </span>
+                      </span>
                     </span>
-                  </span>
-                </button>
-              )
-            }}
-          />}
+                  </button>
+                )
+              }}
+            />
+          )}
         </div>
         <div className="shrink-0 flex h-11 items-center justify-center border-t border-[var(--line)] px-2">
-          <button aria-label={t('sidebar.newSession')} title={t('sidebar.newSession')} onClick={() => setShowTemplates(true)} className="tmuxgo-toolbar-icon tmuxgo-glass-control h-10 w-full text-accent"><FiPlus aria-hidden="true" size={17} /></button>
+          <button
+            aria-label={t('sidebar.newSession')}
+            title={t('sidebar.newSession')}
+            onClick={() => setShowTemplates(true)}
+            className="tmuxgo-toolbar-icon tmuxgo-glass-control h-10 w-full text-accent"
+          >
+            <FiPlus aria-hidden="true" size={17} />
+          </button>
         </div>
       </aside>
-      {showTemplates && <ModalPortal><SessionTemplates onSelect={handleTemplateSelect} onClose={() => setShowTemplates(false)} /></ModalPortal>}
+      {showTemplates && (
+        <ModalPortal>
+          <SessionTemplates onSelect={handleTemplateSelect} onClose={() => setShowTemplates(false)} />
+        </ModalPortal>
+      )}
       {contextMenu && (
-        <div className="tmuxgo-menu fixed z-[90] w-40 py-1 text-xs" style={{ left: contextMenu.x, top: contextMenu.y }} onClick={(e) => e.stopPropagation()}>
-          <button onClick={() => { setSessionPanelExpanded(true); setContextMenu(null) }} className="tmuxgo-menu-item text-xs">
-            <FiChevronRight aria-hidden="true" size={13} />{t('sidebar.sessions')}
+        <div
+          className="tmuxgo-menu fixed z-[90] w-40 py-1 text-xs"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            onClick={() => {
+              setSessionPanelExpanded(true)
+              setContextMenu(null)
+            }}
+            className="tmuxgo-menu-item text-xs"
+          >
+            <FiChevronRight aria-hidden="true" size={13} />
+            {t('sidebar.sessions')}
           </button>
-          <button onClick={() => { void handleRenameSession(contextMenu.sessionId); setContextMenu(null) }} className="tmuxgo-menu-item text-xs">
-            <FiEdit2 aria-hidden="true" size={13} />{t('sidebar.renameSession')}
+          <button
+            onClick={() => {
+              void handleRenameSession(contextMenu.sessionId)
+              setContextMenu(null)
+            }}
+            className="tmuxgo-menu-item text-xs"
+          >
+            <FiEdit2 aria-hidden="true" size={13} />
+            {t('sidebar.renameSession')}
           </button>
-          <button onClick={() => { setPendingDeleteSessionId(contextMenu.sessionId); setContextMenu(null) }} className="tmuxgo-menu-item tmuxgo-menu-item--danger text-xs">
-            <FiTrash2 aria-hidden="true" size={13} />{t('sidebar.deleteSession')}
+          <button
+            onClick={() => {
+              setPendingDeleteSessionId(contextMenu.sessionId)
+              setContextMenu(null)
+            }}
+            className="tmuxgo-menu-item tmuxgo-menu-item--danger text-xs"
+          >
+            <FiTrash2 aria-hidden="true" size={13} />
+            {t('sidebar.deleteSession')}
           </button>
         </div>
       )}
-      <ConfirmDialog open={!!pendingDeleteSessionId} title={t('sidebar.deleteTitle')} message={t('sidebar.deleteConfirm', { name: sessions.find((item) => item.id === pendingDeleteSessionId)?.name || '' })} confirmLabel={t('sidebar.confirmDelete')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setPendingDeleteSessionId(null)} onConfirm={() => void confirmDeleteSession()} />
+      <ConfirmDialog
+        open={!!pendingDeleteSessionId}
+        title={t('sidebar.deleteTitle')}
+        message={t('sidebar.deleteConfirm', {
+          name: sessions.find((item) => item.id === pendingDeleteSessionId)?.name || '',
+        })}
+        confirmLabel={t('sidebar.confirmDelete')}
+        cancelLabel={t('common.cancel')}
+        tone="danger"
+        onCancel={() => setPendingDeleteSessionId(null)}
+        onConfirm={() => void confirmDeleteSession()}
+      />
       {PromptElement}
     </>
   )
