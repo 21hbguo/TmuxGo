@@ -1096,5 +1096,6 @@ export const zh = {
   'vnc.preset.speed': '极速',
   'vnc.preset.balanced': '均衡',
   'vnc.preset.saver': '省流',
+  'vnc.restorePrev': '恢复上次',
   'vnc.showStats': '显示统计',
 } as const

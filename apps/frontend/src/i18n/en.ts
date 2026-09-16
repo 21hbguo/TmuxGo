@@ -1102,5 +1102,6 @@ export const en = {
   'vnc.preset.speed': 'Speed',
   'vnc.preset.balanced': 'Balanced',
   'vnc.preset.saver': 'Saver',
+  'vnc.restorePrev': 'Restore previous',
   'vnc.showStats': 'Show stats',
 } as const

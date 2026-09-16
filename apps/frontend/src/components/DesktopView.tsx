@@ -47,6 +47,20 @@ const vncDebug = (...args: unknown[]) => {
     /* localStorage 不可用时静默 */
   }
 }
+
+const clampVncTuning = (saved: Partial<VncTuning>): VncTuning => ({
+  quality: Math.min(
+    VNC_QUALITY_RANGE.max,
+    Math.max(VNC_QUALITY_RANGE.min, Number(saved.quality) || VNC_TUNING_DEFAULT.quality),
+  ),
+  compression: Math.min(
+    VNC_COMPRESSION_RANGE.max,
+    Math.max(VNC_COMPRESSION_RANGE.min, Number(saved.compression) || VNC_TUNING_DEFAULT.compression),
+  ),
+  maxFps: Math.min(VNC_FPS_RANGE.max, Math.max(VNC_FPS_RANGE.min, Number(saved.maxFps) || VNC_TUNING_DEFAULT.maxFps)),
+})
+const sameVncTuning = (a: VncTuning, b: VncTuning) =>
+  a.quality === b.quality && a.compression === b.compression && a.maxFps === b.maxFps
 interface DesktopViewProps {
   hostId: string
   port: number
@@ -78,25 +92,38 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
   // 画质参数与统计开关持久化到 localStorage；RFB setter 支持运行中实时生效，无需重连
   const [tuning, setTuning] = useState<VncTuning>(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem('tmuxgo:vnc-tuning') || '') as Partial<VncTuning>
-      return {
-        quality: Math.min(
-          VNC_QUALITY_RANGE.max,
-          Math.max(VNC_QUALITY_RANGE.min, Number(saved.quality) || VNC_TUNING_DEFAULT.quality),
-        ),
-        compression: Math.min(
-          VNC_COMPRESSION_RANGE.max,
-          Math.max(VNC_COMPRESSION_RANGE.min, Number(saved.compression) || VNC_TUNING_DEFAULT.compression),
-        ),
-        maxFps: Math.min(
-          VNC_FPS_RANGE.max,
-          Math.max(VNC_FPS_RANGE.min, Number(saved.maxFps) || VNC_TUNING_DEFAULT.maxFps),
-        ),
-      }
+      return clampVncTuning(JSON.parse(localStorage.getItem('tmuxgo:vnc-tuning') || ''))
     } catch {
       return VNC_TUNING_DEFAULT
     }
   })
+  // 上一次画质配置：供"恢复上次"快速切回，随 current 一起持久化
+  const [prevTuning, setPrevTuning] = useState<VncTuning | null>(() => {
+    try {
+      const raw = localStorage.getItem('tmuxgo:vnc-tuning-prev')
+      return raw ? clampVncTuning(JSON.parse(raw)) : null
+    } catch {
+      return null
+    }
+  })
+  // 800ms 内的连续调整（滑杆拖动/连点）算同一轮，prev 只记录本轮开始前的值
+  const tuningChangedAtRef = useRef(0)
+  const applyTuning = useCallback(
+    (next: VncTuning) => {
+      const now = Date.now()
+      if (now - tuningChangedAtRef.current > 800 && !sameVncTuning(tuning, next)) {
+        setPrevTuning(tuning)
+        try {
+          localStorage.setItem('tmuxgo:vnc-tuning-prev', JSON.stringify(tuning))
+        } catch {
+          /* 存储不可用时静默 */
+        }
+      }
+      tuningChangedAtRef.current = now
+      setTuning(next)
+    },
+    [tuning],
+  )
   const [tuningOpen, setTuningOpen] = useState(false)
   const [showStats, setShowStats] = useState(() => localStorage.getItem('tmuxgo:vnc-stats') === '1')
   const [stats, setStats] = useState<VncStatsSample & { rtt: number | null }>({
@@ -521,13 +548,22 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
                     variant={active ? 'primary' : 'ghost'}
                     size="sm"
                     className="flex-1"
-                    onClick={() => setTuning({ ...preset })}
+                    onClick={() => applyTuning({ ...preset })}
                   >
                     {t(`vnc.preset.${key}`)}
                   </Button>
                 )
               })}
             </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={!prevTuning || sameVncTuning(prevTuning, tuning)}
+              onClick={() => prevTuning && applyTuning({ ...prevTuning })}
+              title={prevTuning ? `${prevTuning.quality}/${prevTuning.compression}/${prevTuning.maxFps}` : undefined}
+            >
+              {t('vnc.restorePrev')}
+            </Button>
             {(
               [
                 { key: 'quality', label: t('vnc.quality'), range: VNC_QUALITY_RANGE },
@@ -543,7 +579,7 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
                   max={range.max}
                   step={1}
                   value={tuning[key]}
-                  onChange={(event) => setTuning((prev) => ({ ...prev, [key]: Number(event.target.value) }))}
+                  onChange={(event) => applyTuning({ ...tuning, [key]: Number(event.target.value) })}
                   className="min-w-0 flex-1 accent-[var(--accent)]"
                   aria-label={label}
                 />
