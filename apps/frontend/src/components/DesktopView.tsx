@@ -24,12 +24,14 @@ import {
   measureVncRtt,
   VNC_COMPRESSION_RANGE,
   VNC_FPS_RANGE,
+  VNC_PORT_RANGE,
   VNC_QUALITY_RANGE,
   VNC_TUNING_DEFAULT,
   VNC_TUNING_PRESETS,
   type VncInstrumentation,
   type VncStatsSample,
   type VncTuning,
+  writeVncPort,
 } from '@/lib/vnc-tuning'
 import { getVncWebSocketBase } from '@/lib/runtime-endpoints'
 import { useConsoleStore } from '@/stores/useConsoleStore'
@@ -186,8 +188,11 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
 
   const handleConnect = useCallback(() => {
     const next = Number(portInput)
-    void connect(Number.isInteger(next) && next >= 5900 && next <= 5999 ? next : 5900)
-  }, [connect, portInput])
+    const target =
+      Number.isInteger(next) && next >= VNC_PORT_RANGE.min && next <= VNC_PORT_RANGE.max ? next : VNC_PORT_RANGE.min
+    writeVncPort(hostId, target)
+    void connect(target)
+  }, [connect, hostId, portInput])
 
   useEffect(() => {
     if (rfbRef.current) rfbRef.current.viewOnly = viewOnly

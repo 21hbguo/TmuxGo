@@ -5,6 +5,8 @@ import { authenticatedFetch } from './auth'
 export const VNC_QUALITY_RANGE = { min: 0, max: 9 } as const
 export const VNC_COMPRESSION_RANGE = { min: 0, max: 9 } as const
 export const VNC_FPS_RANGE = { min: 5, max: 60 } as const
+// 与 gateway 侧 loopback 端口白名单一致
+export const VNC_PORT_RANGE = { min: 5900, max: 5999 } as const
 
 export interface VncTuning {
   quality: number
@@ -133,6 +135,24 @@ export function attachVncInstrumentation(rfb: RFBType): VncInstrumentation {
       if (sock.__tmuxgoFbuTimer) clearTimeout(sock.__tmuxgoFbuTimer)
       sock.__tmuxgoFbuTimer = null
     },
+  }
+}
+
+// 按宿主机记住上次连接的 VNC 端口：不同机器的 display 号不同
+export function readVncPort(hostId: string): number | null {
+  try {
+    const raw = Number(localStorage.getItem(`tmuxgo:vnc-port:${hostId}`))
+    return Number.isInteger(raw) && raw >= VNC_PORT_RANGE.min && raw <= VNC_PORT_RANGE.max ? raw : null
+  } catch {
+    return null
+  }
+}
+
+export function writeVncPort(hostId: string, port: number) {
+  try {
+    localStorage.setItem(`tmuxgo:vnc-port:${hostId}`, String(port))
+  } catch {
+    /* 存储不可用时静默 */
   }
 }
 

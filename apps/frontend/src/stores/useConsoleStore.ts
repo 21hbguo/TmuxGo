@@ -21,6 +21,7 @@ import {
   writeActiveSessionId,
 } from '@/lib/console-device-state'
 import { createDebouncedStorage } from '@/lib/persist-storage'
+import { readVncPort } from '@/lib/vnc-tuning'
 
 const DEVICE_KIND: DeviceKind = detectDeviceKind()
 const IS_MOBILE_DEVICE = DEVICE_KIND === 'mobile'
@@ -672,12 +673,12 @@ export const useConsoleStore = create<ConsoleState>()(
                 }
               : { activePluginView: null, activeDesktop: null },
         ),
-      toggleDesktop: (hostId, port = 5900) =>
+      toggleDesktop: (hostId, port) =>
         set((state) =>
           state.activeDesktop
             ? { activeDesktop: null }
             : {
-                activeDesktop: { hostId, port },
+                activeDesktop: { hostId, port: port ?? readVncPort(hostId) ?? 5900 },
                 filePanelOpen: false,
                 sessionPanelExpanded: false,
                 gitPanelOpen: false,
