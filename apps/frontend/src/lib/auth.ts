@@ -42,7 +42,7 @@ async function readPayload(response: Response) {
   }
 }
 function createAuthError(status: number, payload: unknown) {
-  const body = payload && typeof payload === 'object' ? payload as { message?: string; code?: string } : {}
+  const body = payload && typeof payload === 'object' ? (payload as { message?: string; code?: string }) : {}
   const error = new Error(body.message || `HTTP ${status}`) as Error & { status?: number; code?: string }
   error.status = status
   error.code = body.code || 'AUTH_REQUEST_FAILED'
@@ -50,7 +50,13 @@ function createAuthError(status: number, payload: unknown) {
 }
 function updateToken(response: AuthResponse) {
   accessToken = response.accessToken
-  setAuthStatus({ enabled: true, authenticated: true, username: response.user?.username, sessionId: response.sessionId, passwordChangeRequired: response.passwordChangeRequired === true })
+  setAuthStatus({
+    enabled: true,
+    authenticated: true,
+    username: response.user?.username,
+    sessionId: response.sessionId,
+    passwordChangeRequired: response.passwordChangeRequired === true,
+  })
 }
 export function getAccessToken() {
   return accessToken
@@ -80,7 +86,7 @@ export async function authenticatedFetch(path: string, init: RequestInit = {}, r
     }
   }
   if (response.status !== 401 || !retry || !authStatus.enabled || path.startsWith('/api/auth/')) return response
-  if (!await refreshAuth()) return response
+  if (!(await refreshAuth())) return response
   return authenticatedFetch(path, init, false)
 }
 export async function getAuthStatus() {
@@ -88,11 +94,21 @@ export async function getAuthStatus() {
   const payload = await readPayload(response)
   if (!response.ok) throw createAuthError(response.status, payload)
   const status = payload as unknown as AuthStatus
-  setAuthStatus({ enabled: status.enabled === true, authenticated: status.authenticated === true, username: typeof status.username === 'string' ? status.username : undefined, sessionId: typeof status.sessionId === 'string' ? status.sessionId : undefined, passwordChangeRequired: status.passwordChangeRequired === true })
+  setAuthStatus({
+    enabled: status.enabled === true,
+    authenticated: status.authenticated === true,
+    username: typeof status.username === 'string' ? status.username : undefined,
+    sessionId: typeof status.sessionId === 'string' ? status.sessionId : undefined,
+    passwordChangeRequired: status.passwordChangeRequired === true,
+  })
   return authStatus
 }
 export async function login(username: string, password: string) {
-  const response = await authenticatedFetch('/api/auth/login', { method: 'POST', body: JSON.stringify({ username, password }), headers: { 'Content-Type': 'application/json' } }, false)
+  const response = await authenticatedFetch(
+    '/api/auth/login',
+    { method: 'POST', body: JSON.stringify({ username, password }), headers: { 'Content-Type': 'application/json' } },
+    false,
+  )
   const payload = await readPayload(response)
   if (!response.ok) throw createAuthError(response.status, payload)
   updateToken(payload as unknown as AuthResponse)
@@ -104,7 +120,11 @@ export async function refreshAuth() {
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 4000)
     try {
-      const response = await authenticatedFetch('/api/auth/refresh', { method: 'POST', signal: controller.signal }, false)
+      const response = await authenticatedFetch(
+        '/api/auth/refresh',
+        { method: 'POST', signal: controller.signal },
+        false,
+      )
       const payload = await readPayload(response)
       if (!response.ok) {
         accessToken = null
@@ -133,8 +153,12 @@ export async function listAuthSessions() {
   const response = await authenticatedFetch('/api/auth/sessions')
   const payload = await readPayload(response)
   if (!response.ok) throw createAuthError(response.status, payload)
-  const data = payload && typeof payload === 'object' ? payload as { sessions?: unknown; currentSessionId?: unknown } : {}
-  return { sessions: Array.isArray(data.sessions) ? data.sessions as AuthSession[] : [], currentSessionId: typeof data.currentSessionId === 'string' ? data.currentSessionId : '' }
+  const data =
+    payload && typeof payload === 'object' ? (payload as { sessions?: unknown; currentSessionId?: unknown }) : {}
+  return {
+    sessions: Array.isArray(data.sessions) ? (data.sessions as AuthSession[]) : [],
+    currentSessionId: typeof data.currentSessionId === 'string' ? data.currentSessionId : '',
+  }
 }
 export async function revokeAuthSession(sessionId: string) {
   const response = await authenticatedFetch(`/api/auth/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' })
@@ -149,25 +173,30 @@ export async function revokeOtherAuthSessions() {
   return payload as { deleted: number }
 }
 export async function changePassword(currentPassword: string, newPassword: string) {
-  const response = await authenticatedFetch('/api/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }), headers: { 'Content-Type': 'application/json' } })
+  const response = await authenticatedFetch('/api/auth/change-password', {
+    method: 'POST',
+    body: JSON.stringify({ currentPassword, newPassword }),
+    headers: { 'Content-Type': 'application/json' },
+  })
   const payload = await readPayload(response)
   if (!response.ok) throw createAuthError(response.status, payload)
   accessToken = null
   setAuthStatus({ enabled: authStatus.enabled, authenticated: false, username: authStatus.username })
 }
-export async function getWebSocketUrl() {
-  if (!authStatus.enabled) return getWebSocketBase()
+export async function getWebSocketUrl(base = getWebSocketBase()) {
+  if (!authStatus.enabled) return base
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 4000)
   try {
     let response = await authenticatedFetch('/api/auth/ws-ticket', { method: 'POST', signal: controller.signal }, false)
-    if (response.status === 401 && await refreshAuth()) response = await authenticatedFetch('/api/auth/ws-ticket', { method: 'POST', signal: controller.signal }, false)
+    if (response.status === 401 && (await refreshAuth()))
+      response = await authenticatedFetch('/api/auth/ws-ticket', { method: 'POST', signal: controller.signal }, false)
     const payload = await readPayload(response)
     if (!response.ok) throw createAuthError(response.status, payload)
     const ticket = payload && typeof payload.ticket === 'string' ? payload.ticket : ''
     if (!ticket) throw new Error('Missing WebSocket ticket')
-    const separator = getWebSocketBase().includes('?') ? '&' : '?'
-    return `${getWebSocketBase()}${separator}ticket=${encodeURIComponent(ticket)}`
+    const separator = base.includes('?') ? '&' : '?'
+    return `${base}${separator}ticket=${encodeURIComponent(ticket)}`
   } finally {
     clearTimeout(timeout)
   }

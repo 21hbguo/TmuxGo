@@ -76,6 +76,11 @@ interface PendingTerminalRequest {
   reject: (error: Error) => void
   timer: NodeJS.Timeout
 }
+interface VncConnection {
+  agentId: string
+  agentSocket: AgentSocket
+  socket: AgentSocket
+}
 export interface AgentManagerOptions {
   historyPath?: string | null
 }
@@ -86,7 +91,26 @@ function readHistory(historyPath: string) {
   try {
     const parsed = JSON.parse(readFileSync(historyPath, 'utf8')) as { agents?: unknown }
     if (!Array.isArray(parsed.agents)) return [] as AgentStatus[]
-    return parsed.agents.filter((value): value is AgentStatus => !!value && typeof value === 'object' && typeof (value as AgentStatus).id === 'string' && typeof (value as AgentStatus).name === 'string' && typeof (value as AgentStatus).address === 'string' && typeof (value as AgentStatus).version === 'string' && typeof (value as AgentStatus).online === 'boolean' && typeof (value as AgentStatus).lastSeenAt === 'string' && typeof (value as AgentStatus).reconnectCount === 'number').map((value) => ({ ...value, connectedAt: typeof value.connectedAt === 'string' ? value.connectedAt : null, lastDisconnectedAt: typeof value.lastDisconnectedAt === 'string' ? value.lastDisconnectedAt : null, disconnectReason: typeof value.disconnectReason === 'string' ? value.disconnectReason : null, reconnectCount: Math.max(0, Math.floor(value.reconnectCount)) }))
+    return parsed.agents
+      .filter(
+        (value): value is AgentStatus =>
+          !!value &&
+          typeof value === 'object' &&
+          typeof (value as AgentStatus).id === 'string' &&
+          typeof (value as AgentStatus).name === 'string' &&
+          typeof (value as AgentStatus).address === 'string' &&
+          typeof (value as AgentStatus).version === 'string' &&
+          typeof (value as AgentStatus).online === 'boolean' &&
+          typeof (value as AgentStatus).lastSeenAt === 'string' &&
+          typeof (value as AgentStatus).reconnectCount === 'number',
+      )
+      .map((value) => ({
+        ...value,
+        connectedAt: typeof value.connectedAt === 'string' ? value.connectedAt : null,
+        lastDisconnectedAt: typeof value.lastDisconnectedAt === 'string' ? value.lastDisconnectedAt : null,
+        disconnectReason: typeof value.disconnectReason === 'string' ? value.disconnectReason : null,
+        reconnectCount: Math.max(0, Math.floor(value.reconnectCount)),
+      }))
   } catch {
     return [] as AgentStatus[]
   }
@@ -111,6 +135,7 @@ export class AgentManager {
   private uploads = new Map<string, AgentUploadState>()
   private terminals = new Map<string, AgentTerminalState>()
   private pendingTerminalRequests = new Map<string, PendingTerminalRequest>()
+  private vncConnections = new Map<string, VncConnection>()
   constructor(options: AgentManagerOptions = {}) {
     this.historyPath = options.historyPath === undefined ? getHistoryPath() : options.historyPath
     if (!this.historyPath) return
@@ -145,6 +170,7 @@ export class AgentManager {
       this.rejectShellRequests(id, previous.socket, 'Agent reconnected')
       this.rejectUploads(id, previous.socket, 'Agent reconnected')
       this.closeTerminals(id, previous.socket, -1)
+      this.closeVncConnections(id, previous.socket, 'Agent reconnected')
     }
     const history = this.history.get(id)
     const timestamp = new Date().toISOString()
@@ -174,8 +200,14 @@ export class AgentManager {
     this.rejectShellRequests(id, socket, `Agent disconnected: ${reason}`)
     this.rejectUploads(id, socket, `Agent disconnected: ${reason}`)
     this.closeTerminals(id, socket, -1)
+    this.closeVncConnections(id, socket, `Agent disconnected: ${reason}`)
     this.agents.delete(id)
-    const status: AgentStatus = { ...this.toStatus(agent), online: false, lastDisconnectedAt: new Date().toISOString(), disconnectReason: reason }
+    const status: AgentStatus = {
+      ...this.toStatus(agent),
+      online: false,
+      lastDisconnectedAt: new Date().toISOString(),
+      disconnectReason: reason,
+    }
     this.history.set(id, status)
     this.persistHistory()
     console.log(`Agent unregistered: ${id}`)
@@ -189,6 +221,7 @@ export class AgentManager {
       this.rejectShellRequests(id, agent.socket, 'Agent removed')
       this.rejectUploads(id, agent.socket, 'Agent removed')
       this.closeTerminals(id, agent.socket, -1)
+      this.closeVncConnections(id, agent.socket, 'Agent removed')
       this.agents.delete(id)
     }
     this.history.delete(id)
@@ -219,7 +252,9 @@ export class AgentManager {
     return this.getAgent(id) || this.history.get(id)
   }
   getAllAgents() {
-    return Array.from(this.agents.keys()).map((id) => this.getAgent(id)).filter((agent): agent is AgentStatus => !!agent?.online)
+    return Array.from(this.agents.keys())
+      .map((id) => this.getAgent(id))
+      .filter((agent): agent is AgentStatus => !!agent?.online)
   }
   getAllAgentStatuses() {
     const statuses = new Map(this.history)
@@ -228,16 +263,26 @@ export class AgentManager {
   }
   executeTmux(id: string, args: string[], timeoutMs = 30000) {
     const agent = this.agents.get(id)
-    if (!agent || !this.toStatus(agent).online || agent.socket.readyState !== 1) return Promise.reject(new Error(`Agent "${id}" is not connected`))
-    if (!Array.isArray(args) || !args.length || args.length > 64 || args.some((item) => typeof item !== 'string' || item.length > 4096)) return Promise.reject(new Error('Invalid tmux arguments'))
+    if (!agent || !this.toStatus(agent).online || agent.socket.readyState !== 1)
+      return Promise.reject(new Error(`Agent "${id}" is not connected`))
+    if (
+      !Array.isArray(args) ||
+      !args.length ||
+      args.length > 64 ||
+      args.some((item) => typeof item !== 'string' || item.length > 4096)
+    )
+      return Promise.reject(new Error('Invalid tmux arguments'))
     const requestId = randomUUID()
     return new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        const pending = this.pendingTmuxRequests.get(requestId)
-        if (!pending) return
-        this.pendingTmuxRequests.delete(requestId)
-        reject(new Error('Agent tmux command timed out'))
-      }, Math.max(1000, Math.min(timeoutMs, 120000)))
+      const timer = setTimeout(
+        () => {
+          const pending = this.pendingTmuxRequests.get(requestId)
+          if (!pending) return
+          this.pendingTmuxRequests.delete(requestId)
+          reject(new Error('Agent tmux command timed out'))
+        },
+        Math.max(1000, Math.min(timeoutMs, 120000)),
+      )
       this.pendingTmuxRequests.set(requestId, { agentId: id, socket: agent.socket, resolve, reject, timer })
       try {
         agent.socket.send(JSON.stringify({ type: 'tmux', requestId, args }))
@@ -250,19 +295,25 @@ export class AgentManager {
   }
   executeShell(id: string, command: string, timeoutMs = 30000) {
     const agent = this.agents.get(id)
-    if (!agent || !this.toStatus(agent).online || agent.socket.readyState !== 1) return Promise.reject(new Error(`Agent "${id}" is not connected`))
+    if (!agent || !this.toStatus(agent).online || agent.socket.readyState !== 1)
+      return Promise.reject(new Error(`Agent "${id}" is not connected`))
     if (!command || command.length > 524288) return Promise.reject(new Error('Invalid Agent shell command'))
     const requestId = randomUUID()
     return new Promise<{ stdout: string; stderr: string; exitCode: number }>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        const pending = this.pendingShellRequests.get(requestId)
-        if (!pending) return
-        this.pendingShellRequests.delete(requestId)
-        reject(new Error('Agent shell command timed out'))
-      }, Math.max(1000, Math.min(timeoutMs, 120000)))
+      const timer = setTimeout(
+        () => {
+          const pending = this.pendingShellRequests.get(requestId)
+          if (!pending) return
+          this.pendingShellRequests.delete(requestId)
+          reject(new Error('Agent shell command timed out'))
+        },
+        Math.max(1000, Math.min(timeoutMs, 120000)),
+      )
       this.pendingShellRequests.set(requestId, { agentId: id, socket: agent.socket, resolve, reject, timer })
       try {
-        agent.socket.send(JSON.stringify({ type: 'shell', requestId, command, timeoutMs: Math.max(1000, Math.min(timeoutMs, 120000)) }))
+        agent.socket.send(
+          JSON.stringify({ type: 'shell', requestId, command, timeoutMs: Math.max(1000, Math.min(timeoutMs, 120000)) }),
+        )
       } catch (error) {
         clearTimeout(timer)
         this.pendingShellRequests.delete(requestId)
@@ -272,12 +323,24 @@ export class AgentManager {
   }
   async uploadFile(id: string, absolutePath: string, source: AsyncIterable<Buffer | string>, signal?: AbortSignal) {
     const agent = this.agents.get(id)
-    if (!agent || !this.toStatus(agent).online || agent.socket.readyState !== 1) throw new Error(`Agent "${id}" is not connected`)
+    if (!agent || !this.toStatus(agent).online || agent.socket.readyState !== 1)
+      throw new Error(`Agent "${id}" is not connected`)
     if (!absolutePath || absolutePath.length > 4096) throw new Error('Invalid Agent upload path')
     if (signal?.aborted) throw new Error('Task cancelled')
     const uploadId = randomUUID()
     let state!: AgentUploadState
-    const ready = new Promise<void>((resolve, reject) => { state = { agentId: id, socket: agent.socket, uploadId, ready: { resolve, reject }, chunk: null, complete: null, error: null, timer: null } })
+    const ready = new Promise<void>((resolve, reject) => {
+      state = {
+        agentId: id,
+        socket: agent.socket,
+        uploadId,
+        ready: { resolve, reject },
+        chunk: null,
+        complete: null,
+        error: null,
+        timer: null,
+      }
+    })
     const clearTimer = () => {
       if (!state!.timer) return
       clearTimeout(state!.timer)
@@ -297,7 +360,9 @@ export class AgentManager {
       state!.timer = setTimeout(() => fail(new Error('Agent file upload timed out')), 120000)
     }
     const abort = () => {
-      try { agent.socket.send(JSON.stringify({ type: 'file-upload-abort', uploadId })) } catch {}
+      try {
+        agent.socket.send(JSON.stringify({ type: 'file-upload-abort', uploadId }))
+      } catch {}
       fail(new Error('Task cancelled'))
     }
     this.uploads.set(uploadId, state!)
@@ -313,7 +378,9 @@ export class AgentManager {
         const data = Buffer.isBuffer(raw) ? raw : Buffer.from(raw)
         for (let offset = 0; offset < data.length; offset += 192 * 1024) {
           const chunk = data.subarray(offset, offset + 192 * 1024)
-          const acknowledged = new Promise<void>((resolve, reject) => { state!.chunk = { resolve, reject } })
+          const acknowledged = new Promise<void>((resolve, reject) => {
+            state!.chunk = { resolve, reject }
+          })
           armTimeout()
           agent.socket.send(JSON.stringify({ type: 'file-upload-chunk', uploadId, data: chunk.toString('base64') }))
           await acknowledged
@@ -321,13 +388,17 @@ export class AgentManager {
         }
       }
       if (state!.error) throw state!.error
-      const complete = new Promise<void>((resolve, reject) => { state!.complete = { resolve, reject } })
+      const complete = new Promise<void>((resolve, reject) => {
+        state!.complete = { resolve, reject }
+      })
       armTimeout()
       agent.socket.send(JSON.stringify({ type: 'file-upload-end', uploadId }))
       await complete
     } catch (error) {
       if (this.uploads.get(uploadId) === state) {
-        try { agent.socket.send(JSON.stringify({ type: 'file-upload-abort', uploadId })) } catch {}
+        try {
+          agent.socket.send(JSON.stringify({ type: 'file-upload-abort', uploadId }))
+        } catch {}
         fail(error instanceof Error ? error : new Error('Agent file upload failed'))
       }
       throw error
@@ -339,8 +410,19 @@ export class AgentManager {
   }
   attachTerminal(id: string, sessionName: string, cols: number, rows: number, exclusive: boolean, timeoutMs = 30000) {
     const agent = this.agents.get(id)
-    if (!agent || !this.toStatus(agent).online || agent.socket.readyState !== 1) return Promise.reject(new Error(`Agent "${id}" is not connected`))
-    if (!sessionName || sessionName.length > 256 || !Number.isInteger(cols) || !Number.isInteger(rows) || cols < 2 || rows < 1 || cols > 1000 || rows > 1000) return Promise.reject(new Error('Invalid Agent terminal attachment'))
+    if (!agent || !this.toStatus(agent).online || agent.socket.readyState !== 1)
+      return Promise.reject(new Error(`Agent "${id}" is not connected`))
+    if (
+      !sessionName ||
+      sessionName.length > 256 ||
+      !Number.isInteger(cols) ||
+      !Number.isInteger(rows) ||
+      cols < 2 ||
+      rows < 1 ||
+      cols > 1000 ||
+      rows > 1000
+    )
+      return Promise.reject(new Error('Invalid Agent terminal attachment'))
     const requestId = randomUUID()
     const attachmentId = randomUUID()
     let state: AgentTerminalState
@@ -359,19 +441,39 @@ export class AgentManager {
         if (state.exitCode !== null) listener(state.exitCode)
       },
     }
-    state = { agentId: id, socket: agent.socket, terminal, dataListener: null, exitListener: null, pendingData: [], exitCode: null }
+    state = {
+      agentId: id,
+      socket: agent.socket,
+      terminal,
+      dataListener: null,
+      exitListener: null,
+      pendingData: [],
+      exitCode: null,
+    }
     this.terminals.set(attachmentId, state)
     return new Promise<AgentTerminal>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        const pending = this.pendingTerminalRequests.get(requestId)
-        if (!pending) return
-        this.pendingTerminalRequests.delete(requestId)
-        this.terminals.delete(attachmentId)
-        reject(new Error('Agent terminal attachment timed out'))
-      }, Math.max(1000, Math.min(timeoutMs, 120000)))
-      this.pendingTerminalRequests.set(requestId, { agentId: id, socket: agent.socket, attachmentId, resolve, reject, timer })
+      const timer = setTimeout(
+        () => {
+          const pending = this.pendingTerminalRequests.get(requestId)
+          if (!pending) return
+          this.pendingTerminalRequests.delete(requestId)
+          this.terminals.delete(attachmentId)
+          reject(new Error('Agent terminal attachment timed out'))
+        },
+        Math.max(1000, Math.min(timeoutMs, 120000)),
+      )
+      this.pendingTerminalRequests.set(requestId, {
+        agentId: id,
+        socket: agent.socket,
+        attachmentId,
+        resolve,
+        reject,
+        timer,
+      })
       try {
-        agent.socket.send(JSON.stringify({ type: 'terminal-attach', requestId, attachmentId, sessionName, cols, rows, exclusive }))
+        agent.socket.send(
+          JSON.stringify({ type: 'terminal-attach', requestId, attachmentId, sessionName, cols, rows, exclusive }),
+        )
       } catch (error) {
         clearTimeout(timer)
         this.pendingTerminalRequests.delete(requestId)
@@ -382,14 +484,35 @@ export class AgentManager {
   }
   handleMessage(id: string, socket: AgentSocket, message: unknown) {
     if (!message || typeof message !== 'object') return false
-    const payload = message as { type?: unknown; requestId?: unknown; attachmentId?: unknown; uploadId?: unknown; stdout?: unknown; stderr?: unknown; message?: unknown; pid?: unknown; data?: unknown; exitCode?: unknown }
+    const payload = message as {
+      type?: unknown
+      requestId?: unknown
+      attachmentId?: unknown
+      uploadId?: unknown
+      connectionId?: unknown
+      stdout?: unknown
+      stderr?: unknown
+      message?: unknown
+      pid?: unknown
+      data?: unknown
+      exitCode?: unknown
+    }
     if ((payload.type === 'tmux-result' || payload.type === 'tmux-error') && typeof payload.requestId === 'string') {
       const pending = this.pendingTmuxRequests.get(payload.requestId)
       if (!pending || pending.agentId !== id || pending.socket !== socket) return false
       clearTimeout(pending.timer)
       this.pendingTmuxRequests.delete(payload.requestId)
-      if (payload.type === 'tmux-error') pending.reject(new Error(typeof payload.message === 'string' && payload.message ? payload.message : 'Agent tmux command failed'))
-      else pending.resolve({ stdout: typeof payload.stdout === 'string' ? payload.stdout : '', stderr: typeof payload.stderr === 'string' ? payload.stderr : '' })
+      if (payload.type === 'tmux-error')
+        pending.reject(
+          new Error(
+            typeof payload.message === 'string' && payload.message ? payload.message : 'Agent tmux command failed',
+          ),
+        )
+      else
+        pending.resolve({
+          stdout: typeof payload.stdout === 'string' ? payload.stdout : '',
+          stderr: typeof payload.stderr === 'string' ? payload.stderr : '',
+        })
       return true
     }
     if (payload.type === 'shell-result' && typeof payload.requestId === 'string') {
@@ -397,10 +520,20 @@ export class AgentManager {
       if (!pending || pending.agentId !== id || pending.socket !== socket) return false
       clearTimeout(pending.timer)
       this.pendingShellRequests.delete(payload.requestId)
-      pending.resolve({ stdout: typeof payload.stdout === 'string' ? payload.stdout : '', stderr: typeof payload.stderr === 'string' ? payload.stderr : '', exitCode: typeof payload.exitCode === 'number' ? payload.exitCode : 1 })
+      pending.resolve({
+        stdout: typeof payload.stdout === 'string' ? payload.stdout : '',
+        stderr: typeof payload.stderr === 'string' ? payload.stderr : '',
+        exitCode: typeof payload.exitCode === 'number' ? payload.exitCode : 1,
+      })
       return true
     }
-    if ((payload.type === 'file-upload-ready' || payload.type === 'file-upload-ack' || payload.type === 'file-upload-result' || payload.type === 'file-upload-error') && typeof payload.uploadId === 'string') {
+    if (
+      (payload.type === 'file-upload-ready' ||
+        payload.type === 'file-upload-ack' ||
+        payload.type === 'file-upload-result' ||
+        payload.type === 'file-upload-error') &&
+      typeof payload.uploadId === 'string'
+    ) {
       const upload = this.uploads.get(payload.uploadId)
       if (!upload || upload.agentId !== id || upload.socket !== socket) return false
       if (payload.type === 'file-upload-ready') upload.ready.resolve()
@@ -416,7 +549,9 @@ export class AgentManager {
           upload.chunk?.reject(error)
         }
       } else {
-        const error = new Error(typeof payload.message === 'string' && payload.message ? payload.message : 'Agent file upload failed')
+        const error = new Error(
+          typeof payload.message === 'string' && payload.message ? payload.message : 'Agent file upload failed',
+        )
         if (upload.timer) clearTimeout(upload.timer)
         this.uploads.delete(payload.uploadId)
         upload.error = error
@@ -426,7 +561,10 @@ export class AgentManager {
       }
       return true
     }
-    if ((payload.type === 'terminal-attached' || payload.type === 'terminal-error') && typeof payload.requestId === 'string') {
+    if (
+      (payload.type === 'terminal-attached' || payload.type === 'terminal-error') &&
+      typeof payload.requestId === 'string'
+    ) {
       const pending = this.pendingTerminalRequests.get(payload.requestId)
       if (!pending || pending.agentId !== id || pending.socket !== socket) return false
       const state = this.terminals.get(pending.attachmentId)
@@ -434,9 +572,16 @@ export class AgentManager {
         clearTimeout(pending.timer)
         this.pendingTerminalRequests.delete(payload.requestId)
         this.terminals.delete(pending.attachmentId)
-        pending.reject(new Error(typeof payload.message === 'string' && payload.message ? payload.message : 'Agent terminal attachment failed'))
+        pending.reject(
+          new Error(
+            typeof payload.message === 'string' && payload.message
+              ? payload.message
+              : 'Agent terminal attachment failed',
+          ),
+        )
       } else {
-        if (payload.attachmentId !== pending.attachmentId || typeof payload.pid !== 'number' || payload.pid <= 0) return false
+        if (payload.attachmentId !== pending.attachmentId || typeof payload.pid !== 'number' || payload.pid <= 0)
+          return false
         clearTimeout(pending.timer)
         this.pendingTerminalRequests.delete(payload.requestId)
         if (!state || state.agentId !== id || state.socket !== socket) {
@@ -448,7 +593,10 @@ export class AgentManager {
       }
       return true
     }
-    if ((payload.type === 'terminal-output' || payload.type === 'terminal-exit') && typeof payload.attachmentId === 'string') {
+    if (
+      (payload.type === 'terminal-output' || payload.type === 'terminal-exit') &&
+      typeof payload.attachmentId === 'string'
+    ) {
       const state = this.terminals.get(payload.attachmentId)
       if (!state || state.agentId !== id || state.socket !== socket) return false
       if (payload.type === 'terminal-output') {
@@ -468,7 +616,68 @@ export class AgentManager {
       }
       return true
     }
+    if (
+      (payload.type === 'vnc-opened' ||
+        payload.type === 'vnc-data' ||
+        payload.type === 'vnc-closed' ||
+        payload.type === 'vnc-error') &&
+      typeof payload.connectionId === 'string'
+    ) {
+      const conn = this.vncConnections.get(payload.connectionId)
+      // 清理竞态/断连重发的中继消息直接吞掉，fallthrough 会让 stream 回 error 打断 agent
+      if (!conn || conn.agentId !== id || conn.agentSocket !== socket) return true
+      if (payload.type === 'vnc-opened') return true
+      if (payload.type === 'vnc-data') {
+        if (typeof payload.data !== 'string') return false
+        conn.socket.send(Buffer.from(payload.data, 'base64'))
+        return true
+      }
+      this.vncConnections.delete(payload.connectionId)
+      const reason =
+        payload.type === 'vnc-error' && typeof payload.message === 'string' && payload.message
+          ? payload.message
+          : 'VNC connection closed'
+      conn.socket.close?.(payload.type === 'vnc-error' ? 1011 : 1000, reason)
+      return true
+    }
     return false
+  }
+  openVnc(agentId: string, connectionId: string, port: number, socket: AgentSocket) {
+    const agent = this.agents.get(agentId)
+    if (!agent || !this.toStatus(agent).online || agent.socket.readyState !== 1) return false
+    this.vncConnections.set(connectionId, { agentId, agentSocket: agent.socket, socket })
+    try {
+      agent.socket.send(JSON.stringify({ type: 'vnc-open', connectionId, port }))
+    } catch {
+      this.vncConnections.delete(connectionId)
+      return false
+    }
+    return true
+  }
+  sendVncData(connectionId: string, data: Buffer) {
+    const conn = this.vncConnections.get(connectionId)
+    const agent = conn && this.agents.get(conn.agentId)
+    if (!conn || !agent || agent.socket !== conn.agentSocket || agent.socket.readyState !== 1) return
+    try {
+      agent.socket.send(JSON.stringify({ type: 'vnc-data', connectionId, data: data.toString('base64') }))
+    } catch {}
+  }
+  closeVnc(connectionId: string) {
+    const conn = this.vncConnections.get(connectionId)
+    if (!conn) return
+    this.vncConnections.delete(connectionId)
+    const agent = this.agents.get(conn.agentId)
+    if (!agent || agent.socket !== conn.agentSocket || agent.socket.readyState !== 1) return
+    try {
+      agent.socket.send(JSON.stringify({ type: 'vnc-close', connectionId }))
+    } catch {}
+  }
+  private closeVncConnections(agentId: string, socket: AgentSocket, reason: string) {
+    for (const [connectionId, conn] of this.vncConnections) {
+      if (conn.agentId !== agentId || conn.agentSocket !== socket) continue
+      this.vncConnections.delete(connectionId)
+      conn.socket.close?.(1011, reason)
+    }
   }
   private rejectTmuxRequests(agentId: string, socket: AgentSocket, message: string) {
     for (const [requestId, pending] of this.pendingTmuxRequests) {
@@ -505,7 +714,17 @@ export class AgentManager {
     } catch {}
   }
   private resizeTerminal(state: AgentTerminalState, cols: number, rows: number) {
-    if (state.exitCode !== null || state.socket.readyState !== 1 || !Number.isInteger(cols) || !Number.isInteger(rows) || cols < 2 || rows < 1 || cols > 1000 || rows > 1000) return
+    if (
+      state.exitCode !== null ||
+      state.socket.readyState !== 1 ||
+      !Number.isInteger(cols) ||
+      !Number.isInteger(rows) ||
+      cols < 2 ||
+      rows < 1 ||
+      cols > 1000 ||
+      rows > 1000
+    )
+      return
     try {
       state.socket.send(JSON.stringify({ type: 'terminal-resize', attachmentId: state.terminal.id, cols, rows }))
     } catch {}
@@ -534,7 +753,9 @@ export class AgentManager {
   }
   private persistHistory() {
     if (!this.historyPath) return
-    const agents = Array.from(this.history.values()).sort((left, right) => right.lastSeenAt.localeCompare(left.lastSeenAt)).slice(0, 100)
+    const agents = Array.from(this.history.values())
+      .sort((left, right) => right.lastSeenAt.localeCompare(left.lastSeenAt))
+      .slice(0, 100)
     const ids = new Set(agents.map((agent) => agent.id))
     for (const id of this.history.keys()) if (!ids.has(id)) this.history.delete(id)
     writeHistory(this.historyPath, agents)
