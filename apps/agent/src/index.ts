@@ -13,6 +13,11 @@ const HEARTBEAT_INTERVAL = 15000
 const GATEWAY_USERNAME = process.env.GATEWAY_USERNAME || 'admin'
 const GATEWAY_PASSWORD = process.env.GATEWAY_PASSWORD || ''
 const AGENT_VERSION = process.env.TMUXGO_AGENT_VERSION || '0.1.0'
+// TMUXGO_VNC_DEBUG=1 时输出 VNC 排障日志
+const VNC_DEBUG = process.env.TMUXGO_VNC_DEBUG === '1'
+const vncDbg = (...args: unknown[]) => {
+  if (VNC_DEBUG) console.log('[vnc]', ...args)
+}
 const execFileAsync = promisify(execFile)
 interface FileUpload {
   path: string
@@ -385,12 +390,20 @@ class Agent {
       this.send({ type: 'vnc-error', connectionId, message: 'Invalid VNC target' })
       return
     }
+    vncDbg('open', { connectionId, port })
     const socket = net.connect({ host: '127.0.0.1', port })
     this.vncSockets.set(connectionId, socket)
-    socket.on('connect', () => this.send({ type: 'vnc-opened', connectionId }))
+    socket.on('connect', () => {
+      vncDbg('tcp connected', connectionId)
+      this.send({ type: 'vnc-opened', connectionId })
+    })
     socket.on('data', (chunk) => this.sendVncFrame(connectionId, chunk))
-    socket.on('error', (err) => this.send({ type: 'vnc-error', connectionId, message: err.message }))
+    socket.on('error', (err) => {
+      vncDbg('tcp error', connectionId, err.message)
+      this.send({ type: 'vnc-error', connectionId, message: err.message })
+    })
     socket.on('close', () => {
+      vncDbg('tcp closed', connectionId)
       if (this.vncSockets.delete(connectionId)) this.send({ type: 'vnc-closed', connectionId })
     })
   }
