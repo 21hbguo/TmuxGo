@@ -291,8 +291,11 @@ test('persists Agent history across Gateway restart with restricted permissions'
 test('relays VNC frames between browser socket and agent socket', () => {
   const manager = new AgentManager({ historyPath: null })
   const id = `agent-${Date.now()}-${Math.random()}`
-  const agentMessages: string[] = []
-  const agentSocket = { readyState: 1, send: (message: string) => agentMessages.push(message) } as unknown as WebSocket
+  const agentMessages: (string | Buffer)[] = []
+  const agentSocket = {
+    readyState: 1,
+    send: (message: string | Buffer) => agentMessages.push(message),
+  } as unknown as WebSocket
   const browserMessages: (string | Buffer)[] = []
   const browserSocket = {
     readyState: 1,
@@ -301,14 +304,24 @@ test('relays VNC frames between browser socket and agent socket', () => {
   } as unknown as WebSocket
   manager.register(id, 'agent', '127.0.0.1', '1.0.0', agentSocket)
   assert.equal(manager.openVnc(id, 'conn-1', 5900, browserSocket), true)
-  assert.deepEqual(JSON.parse(agentMessages[0]), { type: 'vnc-open', connectionId: 'conn-1', port: 5900 })
-  manager.sendVncData('conn-1', Buffer.from('RFB 003.008\n'))
-  assert.deepEqual(JSON.parse(agentMessages[1]), {
-    type: 'vnc-data',
+  assert.deepEqual(JSON.parse(agentMessages[0] as string), {
+    type: 'vnc-open',
     connectionId: 'conn-1',
-    data: Buffer.from('RFB 003.008\n').toString('base64'),
+    port: 5900,
   })
+  // 浏览器→agent 下行是二进制帧：vnc-data <connectionId>\n + 原始字节
+  manager.sendVncData('conn-1', Buffer.from('RFB 003.008\n'))
+  assert.deepEqual(agentMessages[1], Buffer.from('vnc-data conn-1\nRFB 003.008\n'))
+  // agent→浏览器上行同样是二进制帧，剥离 header 后直发浏览器 socket
   const frame = Buffer.from([0, 1, 2, 3])
+  manager.handleVncBinary(id, agentSocket, Buffer.concat([Buffer.from('vnc-data conn-1\n'), frame]))
+  assert.deepEqual(browserMessages[0], frame)
+  // 别的 socket/连接冒充的帧被丢弃
+  manager.handleVncBinary(id, { readyState: 1 } as WebSocket, Buffer.from('vnc-data conn-1\nxx'))
+  manager.handleVncBinary(id, agentSocket, Buffer.from('vnc-data conn-x\nxx'))
+  manager.handleVncBinary(id, agentSocket, Buffer.from('no-header'))
+  assert.equal(browserMessages.length, 1)
+  // 旧版 agent 的 base64 JSON vnc-data 仍能转发
   assert.equal(
     manager.handleMessage(id, agentSocket, {
       type: 'vnc-data',
@@ -317,16 +330,7 @@ test('relays VNC frames between browser socket and agent socket', () => {
     }),
     true,
   )
-  assert.deepEqual(browserMessages[0], frame)
-  assert.equal(
-    manager.handleMessage(id, { readyState: 1 } as WebSocket, {
-      type: 'vnc-data',
-      connectionId: 'conn-1',
-      data: frame.toString('base64'),
-    }),
-    true,
-  )
-  assert.equal(browserMessages.length, 1)
+  assert.equal(browserMessages.length, 2)
   assert.equal(manager.unregister(id, agentSocket), true)
 })
 
