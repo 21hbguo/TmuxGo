@@ -26,6 +26,17 @@ export async function paneRoutes(fastify: FastifyInstance) {
       return { ok: false, error: err.message }
     }
   })
+  fastify.post('/panes/cwd', async (request) => {
+    const { paneId } = paneIdBodySchema.parse(request.body)
+    try {
+      const { hostId, tmuxPaneId } = parsePaneId(paneId)
+      if (hostId === 'local') await assertTargetAllowed(tmuxPaneId)
+      const { stdout } = await execTmux(hostId, ['display-message', '-p', '-t', tmuxPaneId, '#{pane_current_path}'])
+      return { ok: true, cwd: stdout.trim() }
+    } catch (err: any) {
+      return { ok: false, error: err.message }
+    }
+  })
   fastify.post('/panes/split', async (request) => {
     const { paneId, direction } = paneSplitBodySchema.parse(request.body)
     try {

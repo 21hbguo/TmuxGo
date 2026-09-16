@@ -16,7 +16,8 @@ const invalidateQueries = vi.fn()
 const delayedSrcResolvers: Array<() => void> = []
 const preferencesGet = vi.fn(async () => ({ version: 1, updatedAt: '', customShortcuts: [], customShortcutsUpdatedAt: '', favoriteDirectories: [], favoriteDirectoriesUpdatedAt: '', sessionOrders: [], sessionOrdersUpdatedAt: '', uploadRateLimitKBps: 5120, downloadRateLimitKBps: 5120 }))
 const preferencesUpdate = vi.fn(async (payload: any) => ({ version: 1, updatedAt: '', customShortcuts: [], customShortcutsUpdatedAt: '', favoriteDirectories: payload.favoriteDirectories || [], favoriteDirectoriesUpdatedAt: payload.favoriteDirectoriesUpdatedAt || '', sessionOrders: [], sessionOrdersUpdatedAt: '', uploadRateLimitKBps: payload.uploadRateLimitKBps || 5120, downloadRateLimitKBps: payload.downloadRateLimitKBps || 5120 }))
-const consoleStoreState: { activeHostId: string; activeSessionId: string; filePanelWidth: number; setFilePanelWidth: typeof setFilePanelWidth; setFilePanelOpen: typeof setFilePanelOpen; openUploadDialog: typeof openUploadDialog; pushToast: typeof pushToast; openEditors: FileEditorDocument[]; activeEditorId: string | null } = { activeHostId: 'local', activeSessionId: 'session-a', filePanelWidth: 360, setFilePanelWidth, setFilePanelOpen, openUploadDialog, pushToast, openEditors: [], activeEditorId: null }
+const paneCwdMocks = vi.hoisted(() => ({ calls: [] as Array<string | null>, cwd: '' }))
+const consoleStoreState: { activeHostId: string; activeSessionId: string; activePaneId: string | null; filePanelWidth: number; setFilePanelWidth: typeof setFilePanelWidth; setFilePanelOpen: typeof setFilePanelOpen; openUploadDialog: typeof openUploadDialog; pushToast: typeof pushToast; openEditors: FileEditorDocument[]; activeEditorId: string | null } = { activeHostId: 'local', activeSessionId: 'session-a', activePaneId: null, filePanelWidth: 360, setFilePanelWidth, setFilePanelOpen, openUploadDialog, pushToast, openEditors: [], activeEditorId: null }
 
 const roots = [
   { id: 'root-workspace', label: 'Workspace', path: '/workspace' },
@@ -60,6 +61,10 @@ vi.mock('@/hooks/useApi', () => ({
     if (query === 'docs' && !basePath) return { data: [{ name: 'docs', path: 'docs', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }], isFetching: false }
     if (query === 'project' && !basePath) return { data: [{ name: 'project', path: 'project', type: 'directory', size: 0, modifiedAt: '2026-05-26T00:00:00.000Z' }], isFetching: false }
     return { data: [], isFetching: false }
+  },
+  usePaneCwd: (paneId: string | null) => {
+    paneCwdMocks.calls.push(paneId)
+    return { data: paneId ? paneCwdMocks.cwd : undefined }
   },
 }))
 vi.mock('@/lib/clipboard-text', () => ({
@@ -116,6 +121,8 @@ vi.mock('@/i18n', () => ({
     if (key === 'file.mobileEditExitMessage') return 'Exiting now will discard unsaved changes.'
     if (key === 'file.mobileEditDiscard') return 'Discard and exit'
     if (key === 'file.mobileEditKeepEditing') return 'Keep editing'
+    if (key === 'file.followActivePath') return 'Follow terminal cwd'
+    if (key === 'file.followActivePathHint') return 'Follow the active terminal working directory'
     if (key === 'editor.save') return 'Save'
     if (key === 'editor.saving') return 'Saving...'
     if (key === 'editor.saved') return 'Saved'
@@ -140,9 +147,12 @@ describe('FilePanel', () => {
     delayedSrcResolvers.length = 0
     consoleStoreState.activeHostId = 'local'
     consoleStoreState.activeSessionId = 'session-a'
+    consoleStoreState.activePaneId = null
     consoleStoreState.filePanelWidth = 360
     consoleStoreState.openEditors = []
     consoleStoreState.activeEditorId = null
+    paneCwdMocks.calls.length = 0
+    paneCwdMocks.cwd = ''
     largeDirectoryItems = null
     roots.splice(2)
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
@@ -391,7 +401,7 @@ describe('FilePanel', () => {
     await waitFor(() => expect(screen.getByText('project')).toBeInTheDocument())
     expect(input.value).toBe('project')
   })
-  it('falls back to source root when session changes from a favorite root', async () => {
+  it('keeps the selected favorite root when the session changes', async () => {
     localStorage.setItem('tmuxgo-favorite-directories', JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]))
     consoleStoreState.openEditors = [{
       id: 'local:root-home:project/demo.txt',
@@ -421,7 +431,48 @@ describe('FilePanel', () => {
     await waitFor(() => expect(screen.getByText('demo.txt')).toBeInTheDocument())
     consoleStoreState.activeSessionId = 'session-b'
     view.rerender(React.createElement(FilePanel))
+    await waitFor(() => expect((screen.getAllByRole('combobox')[0] as HTMLSelectElement).value).toBe('favorite:root-home:project'))
+    expect(screen.getByText('demo.txt')).toBeInTheDocument()
+  })
+  it('keeps the expanded directory when the session changes', async () => {
+    const view = render(React.createElement(FilePanel))
+    fireEvent.click(await screen.findByText('src'))
+    await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
+    consoleStoreState.activeSessionId = 'session-b'
+    view.rerender(React.createElement(FilePanel))
+    expect(screen.getByText('index.ts')).toBeInTheDocument()
+  })
+  it('does not query the pane cwd while follow is disabled', async () => {
+    consoleStoreState.activePaneId = 'local:%1'
+    render(React.createElement(FilePanel))
+    const toggle = await screen.findByRole('switch', { name: 'Follow terminal cwd' })
+    expect(toggle).toHaveAttribute('aria-checked', 'false')
+    expect(paneCwdMocks.calls.length).toBeGreaterThan(0)
+    expect(paneCwdMocks.calls.every((paneId) => paneId === null)).toBe(true)
+  })
+  it('follows the active pane cwd when enabled', async () => {
+    consoleStoreState.activePaneId = 'local:%1'
+    paneCwdMocks.cwd = '/workspace/src'
+    const view = render(React.createElement(FilePanel))
+    const toggle = await screen.findByRole('switch', { name: 'Follow terminal cwd' })
+    fireEvent.click(toggle)
+    await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
+    expect(toggle).toHaveAttribute('aria-checked', 'true')
+    expect(localStorage.getItem('tmuxgo-file-follow-active-path')).toBe('true')
+    expect(paneCwdMocks.calls).toContain('local:%1')
+    paneCwdMocks.cwd = '/home/guo/docs'
+    view.rerender(React.createElement(FilePanel))
     await waitFor(() => expect((screen.getAllByRole('combobox')[0] as HTMLSelectElement).value).toBe('root-home'))
+    await waitFor(() => expect(screen.getByText('guide.md')).toBeInTheDocument())
+  })
+  it('ignores a pane cwd outside the file roots', async () => {
+    consoleStoreState.activePaneId = 'local:%1'
+    paneCwdMocks.cwd = '/etc'
+    render(React.createElement(FilePanel))
+    fireEvent.click(await screen.findByRole('switch', { name: 'Follow terminal cwd' }))
+    await waitFor(() => expect(paneCwdMocks.calls).toContain('local:%1'))
+    expect((screen.getAllByRole('combobox')[0] as HTMLSelectElement).value).toBe('root-workspace')
+    expect(screen.getByText('docs')).toBeInTheDocument()
   })
   it('keeps search query after opening favorite directory shortcut', async () => {
     localStorage.setItem('tmuxgo-favorite-directories', JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]))

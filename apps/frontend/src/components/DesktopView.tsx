@@ -1,9 +1,36 @@
 'use client'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type RFBType from '@novnc/novnc'
-import { FiClipboard, FiEye, FiEyeOff, FiKey, FiMonitor, FiPlay, FiSquare, FiX } from 'react-icons/fi'
+import {
+  FiActivity,
+  FiClipboard,
+  FiCopy,
+  FiEye,
+  FiEyeOff,
+  FiKey,
+  FiMonitor,
+  FiPlay,
+  FiSliders,
+  FiSquare,
+  FiTool,
+  FiX,
+} from 'react-icons/fi'
 import { Button } from './Button'
+import { api, type VncSetupStatus } from '@/lib/api'
 import { getWebSocketUrl } from '@/lib/auth'
+import {
+  attachVncInstrumentation,
+  installVncRequestThrottle,
+  measureVncRtt,
+  VNC_COMPRESSION_RANGE,
+  VNC_FPS_RANGE,
+  VNC_QUALITY_RANGE,
+  VNC_TUNING_DEFAULT,
+  VNC_TUNING_PRESETS,
+  type VncInstrumentation,
+  type VncStatsSample,
+  type VncTuning,
+} from '@/lib/vnc-tuning'
 import { getVncWebSocketBase } from '@/lib/runtime-endpoints'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
@@ -29,6 +56,53 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
   const [password, setPassword] = useState('')
   const [viewOnly, setViewOnly] = useState(false)
   const [portInput, setPortInput] = useState(String(port))
+  const [setupOpen, setSetupOpen] = useState(false)
+  const [setupBusy, setSetupBusy] = useState<'' | 'check' | 'install' | 'start'>('')
+  const [setupInfo, setSetupInfo] = useState<{
+    status: VncSetupStatus
+    manualCommand: string
+    needSudo?: boolean
+  } | null>(null)
+  const [setupCopied, setSetupCopied] = useState(false)
+  // 画质参数与统计开关持久化到 localStorage；RFB setter 支持运行中实时生效，无需重连
+  const [tuning, setTuning] = useState<VncTuning>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('tmuxgo:vnc-tuning') || '') as Partial<VncTuning>
+      return {
+        quality: Math.min(
+          VNC_QUALITY_RANGE.max,
+          Math.max(VNC_QUALITY_RANGE.min, Number(saved.quality) || VNC_TUNING_DEFAULT.quality),
+        ),
+        compression: Math.min(
+          VNC_COMPRESSION_RANGE.max,
+          Math.max(VNC_COMPRESSION_RANGE.min, Number(saved.compression) || VNC_TUNING_DEFAULT.compression),
+        ),
+        maxFps: Math.min(
+          VNC_FPS_RANGE.max,
+          Math.max(VNC_FPS_RANGE.min, Number(saved.maxFps) || VNC_TUNING_DEFAULT.maxFps),
+        ),
+      }
+    } catch {
+      return VNC_TUNING_DEFAULT
+    }
+  })
+  const [tuningOpen, setTuningOpen] = useState(false)
+  const [showStats, setShowStats] = useState(() => localStorage.getItem('tmuxgo:vnc-stats') === '1')
+  const [stats, setStats] = useState<VncStatsSample & { rtt: number | null }>({
+    fps: 0,
+    inKbps: 0,
+    outKbps: 0,
+    rtt: null,
+  })
+  const instrumentationRef = useRef<VncInstrumentation | null>(null)
+  const tuningRef = useRef(tuning)
+  tuningRef.current = tuning
+  const portRef = useRef(port)
+  const hiddenRef = useRef(typeof document !== 'undefined' && document.hidden)
+  // 隐藏时记录是否有活动连接：手动断开过的会话回到前台不自动重连；初始 true 兜底"挂着后台打开"场景
+  const wasActiveRef = useRef(true)
+  // 可见性重连时免重复弹窗：提交过的凭据存 ref，securityfailure 时作废
+  const credentialsRef = useRef<{ username?: string; password: string } | null>(null)
   // RFB 事件回调在 connect 时注册一次，用 ref 拿最新 viewOnly/t，避免 connect 身份抖动触发重连
   const viewOnlyRef = useRef(viewOnly)
   const tRef = useRef(t)
@@ -60,32 +134,51 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
       }
       // 等待 ticket/模块期间发生了新的 connect 或卸载，丢弃本次结果避免双 RFB
       if (seq !== connectSeqRef.current || !containerRef.current) return
+      portRef.current = targetPort
+      installVncRequestThrottle(RFB)
       const rfb = new RFB(containerRef.current, url, { shared: true })
       rfb.scaleViewport = true
       rfb.viewOnly = viewOnlyRef.current
+      rfb.qualityLevel = tuningRef.current.quality
+      rfb.compressionLevel = tuningRef.current.compression
+      const instrumentation = attachVncInstrumentation(rfb)
+      instrumentation.setMaxFps(tuningRef.current.maxFps)
+      instrumentationRef.current = instrumentation
       rfb.addEventListener('connect', () => setStatus('connected'))
       rfb.addEventListener('disconnect', (event) => {
         rfbRef.current = null
+        instrumentationRef.current?.dispose()
+        instrumentationRef.current = null
         setStatus('disconnected')
         setCredentialTypes([])
         if (!event.detail.clean) setError(tRef.current('vnc.disconnectUnclean'))
       })
-      rfb.addEventListener('credentialsrequired', (event) => setCredentialTypes(event.detail.types))
-      rfb.addEventListener('securityfailure', (event) =>
-        setError(event.detail.reason || `${tRef.current('vnc.securityFailure')} (${event.detail.status})`),
-      )
+      rfb.addEventListener('credentialsrequired', (event) => {
+        const saved = credentialsRef.current
+        if (saved) {
+          rfb.sendCredentials({ username: saved.username, password: saved.password })
+          return
+        }
+        setCredentialTypes(event.detail.types)
+      })
+      rfb.addEventListener('securityfailure', (event) => {
+        credentialsRef.current = null
+        setError(event.detail.reason || `${tRef.current('vnc.securityFailure')} (${event.detail.status})`)
+      })
       rfb.addEventListener('desktopname', (event) => setDesktopName(event.detail.name))
       // 远端剪贴板同步到本地：浏览器要求用户手势/权限，失败静默降级
       rfb.addEventListener('clipboard', (event) => {
         void navigator.clipboard?.writeText(event.detail.text).catch(() => {})
       })
       rfbRef.current = rfb
+      wasActiveRef.current = true
     },
     [hostId],
   )
 
   const disconnect = useCallback(() => {
     connectSeqRef.current += 1
+    wasActiveRef.current = false
     rfbRef.current?.disconnect()
     rfbRef.current = null
     setStatus('idle')
@@ -99,17 +192,77 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
   useEffect(() => {
     if (rfbRef.current) rfbRef.current.viewOnly = viewOnly
   }, [viewOnly])
+  // 画质实时生效：quality/compression setter 会重发 SetEncodings；帧率写回 FBU 请求节流器
   useEffect(() => {
-    void connect(port)
+    try {
+      localStorage.setItem('tmuxgo:vnc-tuning', JSON.stringify(tuning))
+    } catch {
+      /* 存储不可用时静默 */
+    }
+    if (rfbRef.current) {
+      rfbRef.current.qualityLevel = tuning.quality
+      rfbRef.current.compressionLevel = tuning.compression
+    }
+    instrumentationRef.current?.setMaxFps(tuning.maxFps)
+  }, [tuning])
+  useEffect(() => {
+    try {
+      localStorage.setItem('tmuxgo:vnc-stats', showStats ? '1' : '0')
+    } catch {
+      /* 同上 */
+    }
+  }, [showStats])
+  // 统计采样：1s 出 fps/带宽，2s 一次 gateway RTT；仅连接中且开关打开时跑
+  useEffect(() => {
+    if (!showStats || status !== 'connected') return
+    const sampleTimer = setInterval(() => {
+      const sample = instrumentationRef.current?.sample() || { fps: 0, inKbps: 0, outKbps: 0 }
+      setStats((prev) => ({ ...sample, rtt: prev.rtt }))
+    }, 1000)
+    let rttCancelled = false
+    const pollRtt = () =>
+      void measureVncRtt().then((rtt) => {
+        if (!rttCancelled) setStats((prev) => ({ ...prev, rtt }))
+      })
+    pollRtt()
+    const rttTimer = setInterval(pollRtt, 2000)
+    return () => {
+      rttCancelled = true
+      clearInterval(sampleTimer)
+      clearInterval(rttTimer)
+    }
+  }, [showStats, status])
+  useEffect(() => {
+    if (!document.hidden) void connect(port)
     return () => {
       connectSeqRef.current += 1
       rfbRef.current?.disconnect()
       rfbRef.current = null
     }
   }, [connect, port])
+  // 浏览器 tab 隐藏即断流：整棵 VNC 链路（WS→TCP）随 RFB.disconnect 拆除，回前台自动重连
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.hidden) {
+        hiddenRef.current = true
+        wasActiveRef.current = rfbRef.current !== null
+        connectSeqRef.current += 1
+        rfbRef.current?.disconnect()
+        rfbRef.current = null
+        setCredentialTypes([])
+      } else if (hiddenRef.current) {
+        hiddenRef.current = false
+        if (wasActiveRef.current) void connect(portRef.current)
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => document.removeEventListener('visibilitychange', onVisibility)
+  }, [connect])
 
   const submitCredentials = () => {
-    rfbRef.current?.sendCredentials({ username: credentialTypes.includes('username') ? username : undefined, password })
+    const credentials = { username: credentialTypes.includes('username') ? username : undefined, password }
+    credentialsRef.current = credentials
+    rfbRef.current?.sendCredentials(credentials)
     setCredentialTypes([])
     setPassword('')
   }
@@ -121,6 +274,47 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
       pushToast({ type: 'error', message: t('vnc.clipboardDenied') })
     }
   }
+
+  const checkSetup = useCallback(async () => {
+    setSetupBusy('check')
+    try {
+      const result = await api.vnc.status(hostId)
+      setSetupInfo({ status: result.status, manualCommand: result.manualCommand })
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setSetupBusy('')
+    }
+  }, [hostId, pushToast])
+
+  const runSetup = useCallback(
+    async (action: 'install' | 'start') => {
+      setSetupBusy(action)
+      try {
+        const result = await api.vnc.setup(hostId, action)
+        setSetupInfo({ status: result.status, manualCommand: result.manualCommand, needSudo: result.needSudo })
+        if (result.ok) {
+          setSetupOpen(false)
+          void connect(portRef.current)
+        }
+      } catch (err) {
+        pushToast({ type: 'error', message: err instanceof Error ? err.message : String(err) })
+      } finally {
+        setSetupBusy('')
+      }
+    },
+    [hostId, pushToast, connect],
+  )
+
+  const copyManualCommand = useCallback(async (command: string) => {
+    try {
+      await navigator.clipboard.writeText(command)
+      setSetupCopied(true)
+      setTimeout(() => setSetupCopied(false), 1500)
+    } catch {
+      setSetupCopied(false)
+    }
+  }, [])
 
   const statusLabel =
     status === 'connected'
@@ -205,6 +399,42 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
         >
           <FiClipboard size={14} />
         </Button>
+        {status !== 'connected' && status !== 'connecting' && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => {
+              const next = !setupOpen
+              setSetupOpen(next)
+              if (next && !setupInfo && !setupBusy) void checkSetup()
+            }}
+            aria-label={t('vnc.setupCheck')}
+            title={t('vnc.setupCheck')}
+            className={setupOpen ? 'text-accent' : ''}
+          >
+            <FiTool size={14} />
+          </Button>
+        )}
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={() => setTuningOpen((value) => !value)}
+          aria-label={t('vnc.tuning')}
+          title={t('vnc.tuning')}
+          className={tuningOpen ? 'text-accent' : ''}
+        >
+          <FiSliders size={14} />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={() => setShowStats((value) => !value)}
+          aria-label={t('vnc.showStats')}
+          title={t('vnc.showStats')}
+          className={showStats ? 'text-accent' : ''}
+        >
+          <FiActivity size={14} />
+        </Button>
         <Button
           variant="ghost"
           size="icon-sm"
@@ -217,6 +447,78 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
       </header>
       <div className="relative min-h-0 flex-1 bg-black">
         <div ref={containerRef} className="absolute inset-0 overflow-hidden" />
+        {showStats && status === 'connected' && (
+          <div className="absolute right-3 top-3 z-20 rounded-apple bg-black/70 px-2.5 py-1 font-mono text-caption text-text-1">
+            {stats.fps} fps · ↓{stats.inKbps} KB/s ↑{stats.outKbps} KB/s
+            {stats.rtt !== null ? ` · ${stats.rtt}ms` : ''}
+          </div>
+        )}
+        {tuningOpen && (
+          <div className="tmuxgo-glass absolute right-3 top-10 z-20 flex w-64 flex-col gap-2.5 rounded-apple-lg p-3 text-xs text-text-1">
+            <div className="flex items-center justify-between">
+              <span className="font-medium">{t('vnc.tuning')}</span>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => setTuningOpen(false)}
+                aria-label={t('common.close')}
+              >
+                <FiX size={13} />
+              </Button>
+            </div>
+            <div className="flex gap-1.5">
+              {(['speed', 'balanced', 'saver'] as const).map((key) => {
+                const preset = VNC_TUNING_PRESETS[key]
+                const active =
+                  tuning.quality === preset.quality &&
+                  tuning.compression === preset.compression &&
+                  tuning.maxFps === preset.maxFps
+                return (
+                  <Button
+                    key={key}
+                    variant={active ? 'primary' : 'ghost'}
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => setTuning({ ...preset })}
+                  >
+                    {t(`vnc.preset.${key}`)}
+                  </Button>
+                )
+              })}
+            </div>
+            {(
+              [
+                { key: 'quality', label: t('vnc.quality'), range: VNC_QUALITY_RANGE },
+                { key: 'compression', label: t('vnc.compression'), range: VNC_COMPRESSION_RANGE },
+                { key: 'maxFps', label: t('vnc.maxFps'), range: VNC_FPS_RANGE },
+              ] as const
+            ).map(({ key, label, range }) => (
+              <label key={key} className="flex items-center gap-2">
+                <span className="w-14 shrink-0 text-text-3">{label}</span>
+                <input
+                  type="range"
+                  min={range.min}
+                  max={range.max}
+                  step={1}
+                  value={tuning[key]}
+                  onChange={(event) => setTuning((prev) => ({ ...prev, [key]: Number(event.target.value) }))}
+                  className="min-w-0 flex-1 accent-[var(--accent)]"
+                  aria-label={label}
+                />
+                <span className="w-6 text-right font-mono text-text-2">{tuning[key]}</span>
+              </label>
+            ))}
+            <label className="flex items-center justify-between">
+              <span className="text-text-3">{t('vnc.showStats')}</span>
+              <input
+                type="checkbox"
+                checked={showStats}
+                onChange={(event) => setShowStats(event.target.checked)}
+                className="accent-[var(--accent)]"
+              />
+            </label>
+          </div>
+        )}
         {credentialTypes.length > 0 && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/60 p-4">
             <form
@@ -249,6 +551,79 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
                 {t('vnc.connect')}
               </Button>
             </form>
+          </div>
+        )}
+        {setupOpen && credentialTypes.length === 0 && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/60 p-4">
+            <div className="tmuxgo-glass flex w-80 max-w-full flex-col gap-2 rounded-apple-lg p-4 text-xs text-text-1">
+              <div className="flex items-center justify-between">
+                <span className="font-medium">{t('vnc.setupCheck')}</span>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => setSetupOpen(false)}
+                  aria-label={t('common.close')}
+                >
+                  <FiX size={13} />
+                </Button>
+              </div>
+              {setupBusy === 'check' && <div className="text-text-3">{t('vnc.setupChecking')}</div>}
+              {setupInfo && (
+                <>
+                  <div className="text-text-3">
+                    {setupInfo.status.os || '?'}
+                    {setupInfo.status.server ? ` · ${setupInfo.status.server}` : ' · no vnc server'}
+                    {setupInfo.status.listening ? ' · :5900' : ''}
+                  </div>
+                  {setupInfo.status.hint === 'macos-builtin' && <div>{t('vnc.setupMacos')}</div>}
+                  {setupInfo.status.hint === 'wayland-compositor' && <div>{t('vnc.setupWayland')}</div>}
+                  {setupInfo.status.hint === 'unsupported-os' && <div>{t('vnc.setupUnsupported')}</div>}
+                  {setupInfo.status.listening && <div className="text-accent-2">{t('vnc.setupReady')}</div>}
+                  {setupInfo.status.supported && setupInfo.status.server && !setupInfo.status.listening && (
+                    <Button size="sm" disabled={!!setupBusy} onClick={() => void runSetup('start')}>
+                      {setupBusy === 'start' ? t('vnc.setupInstalling') : t('vnc.setupStart')}
+                    </Button>
+                  )}
+                  {setupInfo.status.supported &&
+                    !setupInfo.status.server &&
+                    setupInfo.status.sudo &&
+                    !setupInfo.needSudo && (
+                      <Button size="sm" disabled={!!setupBusy} onClick={() => void runSetup('install')}>
+                        {setupBusy === 'install' ? t('vnc.setupInstalling') : t('vnc.setupInstall')}
+                      </Button>
+                    )}
+                  {(setupInfo.needSudo ||
+                    (setupInfo.status.supported && !setupInfo.status.sudo && !setupInfo.status.server) ||
+                    setupInfo.status.hint === 'unsupported-os') && (
+                    <>
+                      <div className="text-text-3">
+                        {t(setupInfo.needSudo ? 'vnc.setupNeedSudo' : 'vnc.setupManual')}
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap rounded bg-bg-1 px-2 py-1 text-caption">
+                          {setupInfo.manualCommand}
+                        </code>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          onClick={() => void copyManualCommand(setupInfo.manualCommand)}
+                          aria-label={t('vnc.copyCommand')}
+                          title={t('vnc.copyCommand')}
+                        >
+                          <FiCopy size={13} />
+                        </Button>
+                      </div>
+                      {setupCopied && <div className="text-accent-2">{t('vnc.copied')}</div>}
+                    </>
+                  )}
+                </>
+              )}
+              {!setupInfo && setupBusy !== 'check' && (
+                <Button size="sm" onClick={() => void checkSetup()}>
+                  {t('vnc.setupCheck')}
+                </Button>
+              )}
+            </div>
           </div>
         )}
         {(status !== 'connected' || error) && credentialTypes.length === 0 && (

@@ -67,7 +67,12 @@ export async function streamRoutes(fastify: FastifyInstance) {
       } catch {}
     }, STREAM_PING_INTERVAL_MS)
     updateStreamMetric('activeClients', streamPerfMetricsActiveClientsDelta(1))
-    socket.on('message', async (message: Buffer) => {
+    socket.on('message', async (message: Buffer, isBinary: boolean) => {
+      // VNC 画面帧走二进制通道：vnc-data <connectionId>\n + 原始字节，避免 base64+JSON 的 33% 膨胀
+      if (isBinary) {
+        if (agentId) agentManager.handleVncBinary(agentId, agentSocket, message)
+        return
+      }
       try {
         const data: any = streamMessageSchema.parse(JSON.parse(message.toString()))
         if (agentId && agentManager.handleMessage(agentId, agentSocket, data)) return

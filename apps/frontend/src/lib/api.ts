@@ -1,7 +1,48 @@
 import { getApiBase } from './runtime-endpoints'
 import { authenticatedFetch, getAccessToken, refreshAuth } from './auth'
 import { buildSessionId } from './session-id'
-import type { AuditEvent, CustomShortcut, FavoriteDirectory, FavoriteItem, FileContentMatch, FileContentResponse, FileItem, FileListResponse, FilePreviewResponse, FileRoot, FileUploadTarget, GitBranchesResponse, GitCommitResponse, GitDetectResponse, GitDiffResponse, GitDiffStatsResponse, GitHostState, GitHubPluginPreview, GitLogResponse, GitMergeResponse, GitRepositoryInfo, GitStatusResponse, PluginCommandLog, PluginInfo, PluginPermission, RemotePreferences, SessionArchive, SessionArchivePolicy, SessionArchiveSummary, SessionContinuityConfig, SessionLayout, SessionOrderPreference, SessionTemplate, SessionWorkspaceEntry, Snippet, TrashEntry, UiPreferences, UploadJobResult, UploadedFile, WorkspaceEntry } from '@/types'
+import type {
+  AuditEvent,
+  CustomShortcut,
+  FavoriteDirectory,
+  FavoriteItem,
+  FileContentMatch,
+  FileContentResponse,
+  FileItem,
+  FileListResponse,
+  FilePreviewResponse,
+  FileRoot,
+  FileUploadTarget,
+  GitBranchesResponse,
+  GitCommitResponse,
+  GitDetectResponse,
+  GitDiffResponse,
+  GitDiffStatsResponse,
+  GitHostState,
+  GitHubPluginPreview,
+  GitLogResponse,
+  GitMergeResponse,
+  GitRepositoryInfo,
+  GitStatusResponse,
+  PluginCommandLog,
+  PluginInfo,
+  PluginPermission,
+  RemotePreferences,
+  SessionArchive,
+  SessionArchivePolicy,
+  SessionArchiveSummary,
+  SessionContinuityConfig,
+  SessionLayout,
+  SessionOrderPreference,
+  SessionTemplate,
+  SessionWorkspaceEntry,
+  Snippet,
+  TrashEntry,
+  UiPreferences,
+  UploadJobResult,
+  UploadedFile,
+  WorkspaceEntry,
+} from '@/types'
 
 export interface StreamSystemInfo {
   outputBytes: number
@@ -224,7 +265,10 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   const data = await readResponseBody(response)
   if (!response.ok) {
     if (typeof data === 'string') throw parseApiError(response.status, data)
-    const error = data && typeof data === 'object' ? data as { message?: string; code?: string } : { message: 'Request failed', code: 'REQUEST_FAILED' }
+    const error =
+      data && typeof data === 'object'
+        ? (data as { message?: string; code?: string })
+        : { message: 'Request failed', code: 'REQUEST_FAILED' }
     const e = new Error(error.message || `HTTP ${response.status}`) as Error & { status?: number; code?: string }
     e.status = response.status
     e.code = error.code || 'REQUEST_FAILED'
@@ -246,7 +290,8 @@ function parseApiError(status: number, raw: string) {
     if (data && typeof data === 'object') {
       if ('message' in data && typeof data.message === 'string' && data.message) message = data.message
       if ('code' in data && typeof data.code === 'string' && data.code) code = data.code
-      if ('ok' in data && data.ok === false && 'error' in data && typeof data.error === 'string' && data.error) message = data.error
+      if ('ok' in data && data.ok === false && 'error' in data && typeof data.error === 'string' && data.error)
+        message = data.error
     }
   } catch {
     if (raw.trim()) message = raw.trim()
@@ -261,7 +306,10 @@ export async function fetchApiBlob(path: string) {
   if (!response.ok) {
     const data = await readResponseBody(response)
     if (typeof data === 'string') throw parseApiError(response.status, data)
-    const error = data && typeof data === 'object' ? data as { message?: string; code?: string } : { message: 'Request failed', code: 'REQUEST_FAILED' }
+    const error =
+      data && typeof data === 'object'
+        ? (data as { message?: string; code?: string })
+        : { message: 'Request failed', code: 'REQUEST_FAILED' }
     const e = new Error(error.message || `HTTP ${response.status}`) as Error & { status?: number; code?: string }
     e.status = response.status
     e.code = error.code || 'REQUEST_FAILED'
@@ -269,7 +317,11 @@ export async function fetchApiBlob(path: string) {
   }
   return response.blob()
 }
-function uploadWithProgress(hostId: string, body: FormData, onProgress?: (loadedBytes: number, totalBytes: number) => void): Promise<UploadJobResult | { task: SystemTaskResponse }> {
+function uploadWithProgress(
+  hostId: string,
+  body: FormData,
+  onProgress?: (loadedBytes: number, totalBytes: number) => void,
+): Promise<UploadJobResult | { task: SystemTaskResponse }> {
   const url = `${getApiBase()}/api/hosts/${encodeURIComponent(hostId)}/files/upload`
   return new Promise((resolve, reject) => {
     let retried = false
@@ -288,10 +340,12 @@ function uploadWithProgress(hostId: string, body: FormData, onProgress?: (loaded
       xhr.onload = () => {
         if (xhr.status === 401 && !retried) {
           retried = true
-          void refreshAuth().then((ok) => {
-            if (ok) send()
-            else reject(parseApiError(xhr.status, xhr.responseText || ''))
-          }).catch(() => reject(parseApiError(xhr.status, xhr.responseText || '')))
+          void refreshAuth()
+            .then((ok) => {
+              if (ok) send()
+              else reject(parseApiError(xhr.status, xhr.responseText || ''))
+            })
+            .catch(() => reject(parseApiError(xhr.status, xhr.responseText || '')))
           return
         }
         if (xhr.status < 200 || xhr.status >= 300) {
@@ -318,34 +372,103 @@ function uploadWithProgress(hostId: string, body: FormData, onProgress?: (loaded
 export const api = {
   plugins: {
     list: () => fetchApi<{ plugins: PluginInfo[] }>('/api/plugins'),
-    link: (path: string) => fetchApi<PluginInfo>('/api/plugins/link', { method: 'POST', body: JSON.stringify({ path }) }),
-    setEnabled: (pluginId: string, enabled: boolean) => fetchApi<PluginInfo>(`/api/plugins/${encodeURIComponent(pluginId)}/enabled`, { method: 'PATCH', body: JSON.stringify({ enabled }) }),
-    setPermissions: (pluginId: string, permissions: PluginPermission[]) => fetchApi<PluginInfo>(`/api/plugins/${encodeURIComponent(pluginId)}/permissions`, { method: 'PUT', body: JSON.stringify({ permissions }) }),
-    context: (pluginId: string, context: Record<string, unknown>) => fetchApi<{ context: Record<string, unknown> }>(`/api/plugins/${encodeURIComponent(pluginId)}/context`, { method: 'POST', body: JSON.stringify({ context }) }),
-    uninstall: (pluginId: string, keepData = false) => fetchApi<{ ok: true }>(`/api/plugins/${encodeURIComponent(pluginId)}?keepData=${keepData}`, { method: 'DELETE' }),
-    invoke: (pluginId: string, actionId: string, context: Record<string, unknown>) => fetchApi<PluginCommandLog>(`/api/plugins/${encodeURIComponent(pluginId)}/actions/${encodeURIComponent(actionId)}/invoke`, { method: 'POST', body: JSON.stringify({ context }) }),
-    filesRead: (pluginId: string, hostId: string, root: string, path: string) => fetchApi<{ content: FileContentResponse }>(`/api/plugins/${encodeURIComponent(pluginId)}/files/read`, { method: 'POST', body: JSON.stringify({ hostId, root, path }) }),
-    filesWrite: (pluginId: string, hostId: string, root: string, path: string, content: string, modifiedAt?: string) => fetchApi<{ ok: true; content: string; modifiedAt: string; size: number }>(`/api/plugins/${encodeURIComponent(pluginId)}/files/write`, { method: 'PUT', body: JSON.stringify({ hostId, root, path, content, modifiedAt }) }),
-    logs: (pluginId?: string) => fetchApi<{ logs: PluginCommandLog[] }>(`/api/plugins/logs${pluginId ? `?pluginId=${encodeURIComponent(pluginId)}` : ''}`),
-    previewGitHub: (source: string, ref?: string) => fetchApi<GitHubPluginPreview>('/api/plugins/github/preview', { method: 'POST', body: JSON.stringify({ source, ref }) }),
-    installGitHub: (source: string, resolvedCommit: string, ref?: string) => fetchApi<PluginInfo>('/api/plugins/github/install', { method: 'POST', body: JSON.stringify({ source, resolvedCommit, ref }) }),
-    rollback: (pluginId: string) => fetchApi<PluginInfo>(`/api/plugins/${encodeURIComponent(pluginId)}/rollback`, { method: 'POST' }),
+    link: (path: string) =>
+      fetchApi<PluginInfo>('/api/plugins/link', { method: 'POST', body: JSON.stringify({ path }) }),
+    setEnabled: (pluginId: string, enabled: boolean) =>
+      fetchApi<PluginInfo>(`/api/plugins/${encodeURIComponent(pluginId)}/enabled`, {
+        method: 'PATCH',
+        body: JSON.stringify({ enabled }),
+      }),
+    setPermissions: (pluginId: string, permissions: PluginPermission[]) =>
+      fetchApi<PluginInfo>(`/api/plugins/${encodeURIComponent(pluginId)}/permissions`, {
+        method: 'PUT',
+        body: JSON.stringify({ permissions }),
+      }),
+    context: (pluginId: string, context: Record<string, unknown>) =>
+      fetchApi<{ context: Record<string, unknown> }>(`/api/plugins/${encodeURIComponent(pluginId)}/context`, {
+        method: 'POST',
+        body: JSON.stringify({ context }),
+      }),
+    uninstall: (pluginId: string, keepData = false) =>
+      fetchApi<{ ok: true }>(`/api/plugins/${encodeURIComponent(pluginId)}?keepData=${keepData}`, { method: 'DELETE' }),
+    invoke: (pluginId: string, actionId: string, context: Record<string, unknown>) =>
+      fetchApi<PluginCommandLog>(
+        `/api/plugins/${encodeURIComponent(pluginId)}/actions/${encodeURIComponent(actionId)}/invoke`,
+        { method: 'POST', body: JSON.stringify({ context }) },
+      ),
+    filesRead: (pluginId: string, hostId: string, root: string, path: string) =>
+      fetchApi<{ content: FileContentResponse }>(`/api/plugins/${encodeURIComponent(pluginId)}/files/read`, {
+        method: 'POST',
+        body: JSON.stringify({ hostId, root, path }),
+      }),
+    filesWrite: (pluginId: string, hostId: string, root: string, path: string, content: string, modifiedAt?: string) =>
+      fetchApi<{ ok: true; content: string; modifiedAt: string; size: number }>(
+        `/api/plugins/${encodeURIComponent(pluginId)}/files/write`,
+        { method: 'PUT', body: JSON.stringify({ hostId, root, path, content, modifiedAt }) },
+      ),
+    logs: (pluginId?: string) =>
+      fetchApi<{ logs: PluginCommandLog[] }>(
+        `/api/plugins/logs${pluginId ? `?pluginId=${encodeURIComponent(pluginId)}` : ''}`,
+      ),
+    previewGitHub: (source: string, ref?: string) =>
+      fetchApi<GitHubPluginPreview>('/api/plugins/github/preview', {
+        method: 'POST',
+        body: JSON.stringify({ source, ref }),
+      }),
+    installGitHub: (source: string, resolvedCommit: string, ref?: string) =>
+      fetchApi<PluginInfo>('/api/plugins/github/install', {
+        method: 'POST',
+        body: JSON.stringify({ source, resolvedCommit, ref }),
+      }),
+    rollback: (pluginId: string) =>
+      fetchApi<PluginInfo>(`/api/plugins/${encodeURIComponent(pluginId)}/rollback`, { method: 'POST' }),
     storage: {
       list: (pluginId: string) => fetchApi<{ keys: string[] }>(`/api/plugins/${encodeURIComponent(pluginId)}/storage`),
-      get: <T>(pluginId: string, key: string) => fetchApi<{ value: T }>(`/api/plugins/${encodeURIComponent(pluginId)}/storage/${encodeURIComponent(key)}`),
-      set: (pluginId: string, key: string, value: unknown) => fetchApi<{ ok: true }>(`/api/plugins/${encodeURIComponent(pluginId)}/storage/${encodeURIComponent(key)}`, { method: 'PUT', body: JSON.stringify({ value }) }),
-      remove: (pluginId: string, key: string) => fetchApi<{ ok: true }>(`/api/plugins/${encodeURIComponent(pluginId)}/storage/${encodeURIComponent(key)}`, { method: 'DELETE' }),
+      get: <T>(pluginId: string, key: string) =>
+        fetchApi<{ value: T }>(`/api/plugins/${encodeURIComponent(pluginId)}/storage/${encodeURIComponent(key)}`),
+      set: (pluginId: string, key: string, value: unknown) =>
+        fetchApi<{ ok: true }>(`/api/plugins/${encodeURIComponent(pluginId)}/storage/${encodeURIComponent(key)}`, {
+          method: 'PUT',
+          body: JSON.stringify({ value }),
+        }),
+      remove: (pluginId: string, key: string) =>
+        fetchApi<{ ok: true }>(`/api/plugins/${encodeURIComponent(pluginId)}/storage/${encodeURIComponent(key)}`, {
+          method: 'DELETE',
+        }),
     },
   },
   sessionArchives: {
-    list: (hostId: string, sessionId?: string) => fetchApi<{ archives: SessionArchiveSummary[] }>(`/api/hosts/${encodeURIComponent(hostId)}/session-archives${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ''}`),
-    get: (hostId: string, archiveId: string) => fetchApi<SessionArchive>(`/api/hosts/${encodeURIComponent(hostId)}/session-archives/${encodeURIComponent(archiveId)}`),
-    capture: (hostId: string, sessionId: string, policy: SessionArchivePolicy) => fetchApi<SessionArchiveSummary>(`/api/hosts/${encodeURIComponent(hostId)}/session-archives`, { method: 'POST', body: JSON.stringify({ sessionId, captureMode: policy.captureMode, maxBytesPerSession: policy.maxBytesPerSession, retentionDays: policy.retentionDays }) }),
-    remove: (hostId: string, archiveId: string) => fetchApi<{ ok: true }>(`/api/hosts/${encodeURIComponent(hostId)}/session-archives/${encodeURIComponent(archiveId)}`, { method: 'DELETE' }),
+    list: (hostId: string, sessionId?: string) =>
+      fetchApi<{ archives: SessionArchiveSummary[] }>(
+        `/api/hosts/${encodeURIComponent(hostId)}/session-archives${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ''}`,
+      ),
+    get: (hostId: string, archiveId: string) =>
+      fetchApi<SessionArchive>(
+        `/api/hosts/${encodeURIComponent(hostId)}/session-archives/${encodeURIComponent(archiveId)}`,
+      ),
+    capture: (hostId: string, sessionId: string, policy: SessionArchivePolicy) =>
+      fetchApi<SessionArchiveSummary>(`/api/hosts/${encodeURIComponent(hostId)}/session-archives`, {
+        method: 'POST',
+        body: JSON.stringify({
+          sessionId,
+          captureMode: policy.captureMode,
+          maxBytesPerSession: policy.maxBytesPerSession,
+          retentionDays: policy.retentionDays,
+        }),
+      }),
+    remove: (hostId: string, archiveId: string) =>
+      fetchApi<{ ok: true }>(
+        `/api/hosts/${encodeURIComponent(hostId)}/session-archives/${encodeURIComponent(archiveId)}`,
+        { method: 'DELETE' },
+      ),
   },
   sessionTemplates: {
     list: () => fetchApi<{ templates: SessionTemplate[] }>('/api/session-templates'),
-    update: (templates: SessionTemplate[]) => fetchApi<{ templates: SessionTemplate[] }>('/api/session-templates', { method: 'PUT', body: JSON.stringify({ templates }) }),
+    update: (templates: SessionTemplate[]) =>
+      fetchApi<{ templates: SessionTemplate[] }>('/api/session-templates', {
+        method: 'PUT',
+        body: JSON.stringify({ templates }),
+      }),
   },
   audit: {
     list: (options: { limit?: number; action?: string; result?: 'success' | 'failure'; hostId?: string } = {}) => {
@@ -358,19 +481,47 @@ export const api = {
     },
   },
   snapshot: {
-    get: (hostId: string, sessionId: string) => fetchApi<{ sessionId: string; sessionName: string; windows: any[]; panes: any[]; activeWindowId: string | null; activePaneId: string | null }>(`/api/hosts/${hostId}/sessions/${sessionId}/snapshot`),
+    get: (hostId: string, sessionId: string) =>
+      fetchApi<{
+        sessionId: string
+        sessionName: string
+        windows: any[]
+        panes: any[]
+        activeWindowId: string | null
+        activePaneId: string | null
+      }>(`/api/hosts/${hostId}/sessions/${sessionId}/snapshot`),
   },
   shares: {
     list: () => fetchApi<{ links: ShareLink[] }>('/api/shares'),
-    create: (hostId: string, sessionName: string, expiresInMinutes: number) => fetchApi<CreatedShareLink>('/api/shares', { method: 'POST', body: JSON.stringify({ hostId, sessionName, expiresInMinutes }) }),
-    revoke: (shareId: string) => fetchApi<{ ok: true }>(`/api/shares/${encodeURIComponent(shareId)}`, { method: 'DELETE' }),
+    create: (hostId: string, sessionName: string, expiresInMinutes: number) =>
+      fetchApi<CreatedShareLink>('/api/shares', {
+        method: 'POST',
+        body: JSON.stringify({ hostId, sessionName, expiresInMinutes }),
+      }),
+    revoke: (shareId: string) =>
+      fetchApi<{ ok: true }>(`/api/shares/${encodeURIComponent(shareId)}`, { method: 'DELETE' }),
   },
   agentNotifications: {
     vapidPublicKey: () => fetchApi<{ publicKey: string }>('/api/agent-notifications/vapid-public-key'),
-    subscribe: (deviceId: string, subscription: unknown) => fetchApi<{ id: string; deviceId: string; endpoint: string; updatedAt: string }>('/api/agent-notifications/subscriptions', { method: 'POST', body: JSON.stringify({ deviceId, subscription }) }),
-    revoke: (deviceId: string, subscriptionId: string) => fetchApi<{ revoked: boolean }>(`/api/agent-notifications/subscriptions/${encodeURIComponent(subscriptionId)}?deviceId=${encodeURIComponent(deviceId)}`, { method: 'DELETE' }),
-    unread: (deviceId: string, limit = 100) => fetchApi<{ notifications: AgentNotificationRecord[] }>(`/api/agent-notifications/unread?deviceId=${encodeURIComponent(deviceId)}&limit=${limit}`),
-    read: (deviceId: string, ids: string[] = []) => fetchApi<{ changed: number }>('/api/agent-notifications/read', { method: 'POST', body: JSON.stringify({ deviceId, ids }) }),
+    subscribe: (deviceId: string, subscription: unknown) =>
+      fetchApi<{ id: string; deviceId: string; endpoint: string; updatedAt: string }>(
+        '/api/agent-notifications/subscriptions',
+        { method: 'POST', body: JSON.stringify({ deviceId, subscription }) },
+      ),
+    revoke: (deviceId: string, subscriptionId: string) =>
+      fetchApi<{ revoked: boolean }>(
+        `/api/agent-notifications/subscriptions/${encodeURIComponent(subscriptionId)}?deviceId=${encodeURIComponent(deviceId)}`,
+        { method: 'DELETE' },
+      ),
+    unread: (deviceId: string, limit = 100) =>
+      fetchApi<{ notifications: AgentNotificationRecord[] }>(
+        `/api/agent-notifications/unread?deviceId=${encodeURIComponent(deviceId)}&limit=${limit}`,
+      ),
+    read: (deviceId: string, ids: string[] = []) =>
+      fetchApi<{ changed: number }>('/api/agent-notifications/read', {
+        method: 'POST',
+        body: JSON.stringify({ deviceId, ids }),
+      }),
   },
   hosts: {
     list: () => fetchApi<any[]>('/api/hosts'),
@@ -385,28 +536,70 @@ export const api = {
         method: 'DELETE',
       }),
     test: (id: string) =>
-      fetchApi<{ ok: boolean; message: string; mode: 'local' | 'key' | 'agent' | 'password'; code?: string }>(`/api/hosts/${id}/test`, {
-        method: 'POST',
-      }),
+      fetchApi<{ ok: boolean; message: string; mode: 'local' | 'key' | 'agent' | 'password'; code?: string }>(
+        `/api/hosts/${id}/test`,
+        {
+          method: 'POST',
+        },
+      ),
     startTest: (id: string) =>
       fetchApi<{ task: SystemTaskResponse }>(`/api/hosts/${encodeURIComponent(id)}/test-tasks`, {
         method: 'POST',
       }),
     githubAuthStatus: (id: string) =>
-      fetchApi<{ ok: boolean; available: boolean; loggedIn: boolean | null }>(`/api/hosts/${encodeURIComponent(id)}/github/auth-status`),
+      fetchApi<{ ok: boolean; available: boolean; loggedIn: boolean | null }>(
+        `/api/hosts/${encodeURIComponent(id)}/github/auth-status`,
+      ),
   },
   agents: {
-    remove: (id: string) => fetchApi<{ success: boolean }>(`/api/agents/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    remove: (id: string) =>
+      fetchApi<{ success: boolean }>(`/api/agents/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   },
   hostsConfig: {
-    get: () => fetchApi<{ hostsPath: string; credentialsPath: string; hosts: HostStoreFile; credentials: CredentialStoreFile }>('/api/hosts/config'),
-    save: (payload: { hosts?: HostStoreFile; credentials?: CredentialStoreFile }) => fetchApi<{ hosts: HostStoreFile; credentials: CredentialStoreFile }>('/api/hosts/config', { method: 'PUT', body: JSON.stringify(payload) }),
+    get: () =>
+      fetchApi<{ hostsPath: string; credentialsPath: string; hosts: HostStoreFile; credentials: CredentialStoreFile }>(
+        '/api/hosts/config',
+      ),
+    save: (payload: { hosts?: HostStoreFile; credentials?: CredentialStoreFile }) =>
+      fetchApi<{ hosts: HostStoreFile; credentials: CredentialStoreFile }>('/api/hosts/config', {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      }),
   },
   workspaces: {
-    list: (hostId?: string) => fetchApi<{ workspaces: WorkspaceEntry[] }>(`/api/workspaces${hostId ? `?hostId=${encodeURIComponent(hostId)}` : ''}`),
-    create: (payload: { name: string; hostId: string; path: string; rootId?: string; rootPath?: string; rootLabel?: string; relativePath?: string; templateId?: string | null }) => fetchApi<{ workspace: WorkspaceEntry }>('/api/workspaces', { method: 'POST', body: JSON.stringify(payload) }),
-    update: (id: string, payload: Partial<{ name: string; hostId: string; path: string; rootId: string; rootPath: string; rootLabel: string; relativePath: string; templateId: string | null }>) => fetchApi<{ workspace: WorkspaceEntry }>(`/api/workspaces/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) }),
-    remove: (id: string) => fetchApi<{ success: boolean }>(`/api/workspaces/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    list: (hostId?: string) =>
+      fetchApi<{ workspaces: WorkspaceEntry[] }>(
+        `/api/workspaces${hostId ? `?hostId=${encodeURIComponent(hostId)}` : ''}`,
+      ),
+    create: (payload: {
+      name: string
+      hostId: string
+      path: string
+      rootId?: string
+      rootPath?: string
+      rootLabel?: string
+      relativePath?: string
+      templateId?: string | null
+    }) => fetchApi<{ workspace: WorkspaceEntry }>('/api/workspaces', { method: 'POST', body: JSON.stringify(payload) }),
+    update: (
+      id: string,
+      payload: Partial<{
+        name: string
+        hostId: string
+        path: string
+        rootId: string
+        rootPath: string
+        rootLabel: string
+        relativePath: string
+        templateId: string | null
+      }>,
+    ) =>
+      fetchApi<{ workspace: WorkspaceEntry }>(`/api/workspaces/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      }),
+    remove: (id: string) =>
+      fetchApi<{ success: boolean }>(`/api/workspaces/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   },
   sessions: {
     list: (hostId: string) => fetchApi<any[]>(`/api/hosts/${hostId}/sessions`),
@@ -459,8 +652,7 @@ export const api = {
       }),
   },
   windows: {
-    list: (hostId: string, sessionId: string) =>
-      fetchApi<any[]>(`/api/hosts/${hostId}/sessions/${sessionId}/windows`),
+    list: (hostId: string, sessionId: string) => fetchApi<any[]>(`/api/hosts/${hostId}/sessions/${sessionId}/windows`),
     create: (hostId: string, sessionId: string, name: string) =>
       fetchApi<any>(`/api/hosts/${hostId}/sessions/${sessionId}/windows`, {
         method: 'POST',
@@ -491,7 +683,10 @@ export const api = {
     list: (windowId: string) => fetchApi<any[]>(`/api/windows/${windowId}/panes`),
     listBySession: (hostId: string, sessionId: string) =>
       fetchApi<any[]>(`/api/hosts/${hostId}/sessions/${sessionId}/panes`),
-    output: (paneId: string) => fetchApi<{ paneId: string; tmuxPaneId?: string; data: string }>(`/api/panes/${encodeURIComponent(paneId)}/output`),
+    output: (paneId: string) =>
+      fetchApi<{ paneId: string; tmuxPaneId?: string; data: string }>(
+        `/api/panes/${encodeURIComponent(paneId)}/output`,
+      ),
     create: (windowId: string, direction: 'horizontal' | 'vertical') =>
       fetchApi<any>(`/api/windows/${windowId}/panes`, {
         method: 'POST',
@@ -504,6 +699,11 @@ export const api = {
       }),
     select: (paneId: string) =>
       fetchApi<any>('/api/panes/select', {
+        method: 'POST',
+        body: JSON.stringify({ paneId }),
+      }),
+    cwd: (paneId: string) =>
+      fetchApi<{ ok: boolean; cwd?: string; error?: string }>('/api/panes/cwd', {
         method: 'POST',
         body: JSON.stringify({ paneId }),
       }),
@@ -537,65 +737,174 @@ export const api = {
     appUpdateTask: () => fetchApi<SystemTaskResponse>('/api/system/update/task'),
     startAppUpdate: () => fetchApi<RestartRebuildTaskResponse>('/api/system/update', { method: 'POST' }),
     tasks: () => fetchApi<{ tasks: SystemTaskResponse[] }>('/api/system/tasks'),
-    cancelTask: (taskId: string) => fetchApi<SystemTaskResponse>(`/api/system/tasks/${encodeURIComponent(taskId)}/cancel`, { method: 'POST' }),
-    retryTask: (taskId: string) => fetchApi<SystemTaskResponse>(`/api/system/tasks/${encodeURIComponent(taskId)}/retry`, { method: 'POST' }),
+    cancelTask: (taskId: string) =>
+      fetchApi<SystemTaskResponse>(`/api/system/tasks/${encodeURIComponent(taskId)}/cancel`, { method: 'POST' }),
+    retryTask: (taskId: string) =>
+      fetchApi<SystemTaskResponse>(`/api/system/tasks/${encodeURIComponent(taskId)}/retry`, { method: 'POST' }),
   },
   files: {
     roots: (hostId: string) => fetchApi<FileRoot[]>(`/api/hosts/${encodeURIComponent(hostId)}/files/roots`),
-    list: (hostId: string, root: string, path = '') => fetchApi<FileListResponse>(`/api/hosts/${encodeURIComponent(hostId)}/files/list?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}`),
-    preview: (hostId: string, root: string, path: string, line = 1) => fetchApi<FilePreviewResponse>(`/api/hosts/${encodeURIComponent(hostId)}/files/preview?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}&line=${line}`),
-    content: (hostId: string, root: string, path: string) => fetchApi<FileContentResponse>(`/api/hosts/${encodeURIComponent(hostId)}/files/content?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}`),
-    saveContent: (hostId: string, root: string, path: string, content: string, modifiedAt?: string) => fetchApi<{ ok: true; content: string; modifiedAt: string; size: number }>(`/api/hosts/${encodeURIComponent(hostId)}/files/content`, {
-      method: 'PUT',
-      body: JSON.stringify({ root, path, content, modifiedAt }),
-    }),
-    createFile: (hostId: string, root: string, path: string, name: string) => fetchApi<{ ok: true; item: FileItem; parentPath: string }>(`/api/hosts/${encodeURIComponent(hostId)}/files/create-file`, {
-      method: 'POST',
-      body: JSON.stringify({ root, path, name }),
-    }),
-    createDirectory: (hostId: string, root: string, path: string, name: string) => fetchApi<{ ok: true; item: FileItem; parentPath: string }>(`/api/hosts/${encodeURIComponent(hostId)}/files/create-directory`, {
-      method: 'POST',
-      body: JSON.stringify({ root, path, name }),
-    }),
-    rename: (hostId: string, root: string, path: string, name: string) => fetchApi<{ ok: true; item: FileItem; previousPath: string }>(`/api/hosts/${encodeURIComponent(hostId)}/files/rename`, {
-      method: 'POST',
-      body: JSON.stringify({ root, path, name }),
-    }),
-    copy: (hostId: string, root: string, path: string, targetRoot: string, targetPath: string) => fetchApi<{ ok: true; item: FileItem; previousPath: string }>(`/api/hosts/${encodeURIComponent(hostId)}/files/copy`, { method: 'POST', body: JSON.stringify({ root, path, targetRoot, targetPath }) }),
-    move: (hostId: string, root: string, path: string, targetRoot: string, targetPath: string) => fetchApi<{ ok: true; item: FileItem; previousPath: string }>(`/api/hosts/${encodeURIComponent(hostId)}/files/move`, { method: 'POST', body: JSON.stringify({ root, path, targetRoot, targetPath }) }),
-    trash: (hostId: string, root: string, path: string) => fetchApi<{ ok: true; entry: TrashEntry }>(`/api/hosts/${encodeURIComponent(hostId)}/files/trash`, { method: 'POST', body: JSON.stringify({ root, path }) }),
-    trashEntries: (hostId: string) => fetchApi<{ entries: TrashEntry[] }>(`/api/hosts/${encodeURIComponent(hostId)}/files/trash`),
-    restore: (hostId: string, trashId: string) => fetchApi<{ ok: true; item: FileItem }>(`/api/hosts/${encodeURIComponent(hostId)}/files/restore`, { method: 'POST', body: JSON.stringify({ trashId }) }),
-    remove: (hostId: string, root: string, path: string) => fetchApi<{ ok: true; path: string; type: 'file' | 'directory' }>(`/api/hosts/${encodeURIComponent(hostId)}/files/remove?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}`, {
-      method: 'DELETE',
-    }),
-    searchName: (hostId: string, root: string, q: string, basePath = '', includeDotFiles = true, signal?: AbortSignal) => fetchApi<FileItem[]>(`/api/hosts/${encodeURIComponent(hostId)}/files/search-name?root=${encodeURIComponent(root)}&q=${encodeURIComponent(q)}&basePath=${encodeURIComponent(basePath)}&includeDotFiles=${includeDotFiles ? 'true' : 'false'}`, { signal }),
-    searchContent: (hostId: string, root: string, q: string, basePath = '', includeDotFiles = true, signal?: AbortSignal) => fetchApi<FileContentMatch[]>(`/api/hosts/${encodeURIComponent(hostId)}/files/search-content?root=${encodeURIComponent(root)}&q=${encodeURIComponent(q)}&basePath=${encodeURIComponent(basePath)}&includeDotFiles=${includeDotFiles ? 'true' : 'false'}`, { signal }),
-    defaultUploadTarget: (hostId: string, paneId?: string) => fetchApi<FileUploadTarget>(`/api/hosts/${encodeURIComponent(hostId)}/files/default-upload-target${paneId ? `?paneId=${encodeURIComponent(paneId)}` : ''}`),
-    temporaryUploadTarget: (hostId: string) => fetchApi<FileUploadTarget>(`/api/hosts/${encodeURIComponent(hostId)}/files/temporary-upload-target`),
-    upload: (hostId: string, body: FormData, onProgress?: (loadedBytes: number, totalBytes: number) => void) => uploadWithProgress(hostId, body, onProgress),
-    downloadTask: (hostId: string, root: string, path: string, rateLimitKBps?: number) => fetchApi<{ task: SystemTaskResponse }>(`/api/hosts/${encodeURIComponent(hostId)}/files/download-tasks`, { method: 'POST', body: JSON.stringify({ root, path, rateLimitKBps }) }),
-    downloadUrl: (hostId: string, root: string, path: string, rateLimitKBps?: number, profile = 'default') => `${getApiBase()}/api/hosts/${encodeURIComponent(hostId)}/files/download?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}&profile=${encodeURIComponent(profile)}${typeof rateLimitKBps === 'number' ? `&rateLimitKBps=${encodeURIComponent(String(rateLimitKBps))}` : ''}`,
-    imageUrl: (hostId: string, root: string, path: string, modifiedAt?: string) => `${getApiBase()}/api/hosts/${encodeURIComponent(hostId)}/files/image?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}${modifiedAt ? `&modifiedAt=${encodeURIComponent(modifiedAt)}` : ''}`,
+    list: (hostId: string, root: string, path = '') =>
+      fetchApi<FileListResponse>(
+        `/api/hosts/${encodeURIComponent(hostId)}/files/list?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}`,
+      ),
+    preview: (hostId: string, root: string, path: string, line = 1) =>
+      fetchApi<FilePreviewResponse>(
+        `/api/hosts/${encodeURIComponent(hostId)}/files/preview?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}&line=${line}`,
+      ),
+    content: (hostId: string, root: string, path: string) =>
+      fetchApi<FileContentResponse>(
+        `/api/hosts/${encodeURIComponent(hostId)}/files/content?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}`,
+      ),
+    saveContent: (hostId: string, root: string, path: string, content: string, modifiedAt?: string) =>
+      fetchApi<{ ok: true; content: string; modifiedAt: string; size: number }>(
+        `/api/hosts/${encodeURIComponent(hostId)}/files/content`,
+        {
+          method: 'PUT',
+          body: JSON.stringify({ root, path, content, modifiedAt }),
+        },
+      ),
+    createFile: (hostId: string, root: string, path: string, name: string) =>
+      fetchApi<{ ok: true; item: FileItem; parentPath: string }>(
+        `/api/hosts/${encodeURIComponent(hostId)}/files/create-file`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ root, path, name }),
+        },
+      ),
+    createDirectory: (hostId: string, root: string, path: string, name: string) =>
+      fetchApi<{ ok: true; item: FileItem; parentPath: string }>(
+        `/api/hosts/${encodeURIComponent(hostId)}/files/create-directory`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ root, path, name }),
+        },
+      ),
+    rename: (hostId: string, root: string, path: string, name: string) =>
+      fetchApi<{ ok: true; item: FileItem; previousPath: string }>(
+        `/api/hosts/${encodeURIComponent(hostId)}/files/rename`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ root, path, name }),
+        },
+      ),
+    copy: (hostId: string, root: string, path: string, targetRoot: string, targetPath: string) =>
+      fetchApi<{ ok: true; item: FileItem; previousPath: string }>(
+        `/api/hosts/${encodeURIComponent(hostId)}/files/copy`,
+        { method: 'POST', body: JSON.stringify({ root, path, targetRoot, targetPath }) },
+      ),
+    move: (hostId: string, root: string, path: string, targetRoot: string, targetPath: string) =>
+      fetchApi<{ ok: true; item: FileItem; previousPath: string }>(
+        `/api/hosts/${encodeURIComponent(hostId)}/files/move`,
+        { method: 'POST', body: JSON.stringify({ root, path, targetRoot, targetPath }) },
+      ),
+    trash: (hostId: string, root: string, path: string) =>
+      fetchApi<{ ok: true; entry: TrashEntry }>(`/api/hosts/${encodeURIComponent(hostId)}/files/trash`, {
+        method: 'POST',
+        body: JSON.stringify({ root, path }),
+      }),
+    trashEntries: (hostId: string) =>
+      fetchApi<{ entries: TrashEntry[] }>(`/api/hosts/${encodeURIComponent(hostId)}/files/trash`),
+    restore: (hostId: string, trashId: string) =>
+      fetchApi<{ ok: true; item: FileItem }>(`/api/hosts/${encodeURIComponent(hostId)}/files/restore`, {
+        method: 'POST',
+        body: JSON.stringify({ trashId }),
+      }),
+    remove: (hostId: string, root: string, path: string) =>
+      fetchApi<{ ok: true; path: string; type: 'file' | 'directory' }>(
+        `/api/hosts/${encodeURIComponent(hostId)}/files/remove?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}`,
+        {
+          method: 'DELETE',
+        },
+      ),
+    searchName: (
+      hostId: string,
+      root: string,
+      q: string,
+      basePath = '',
+      includeDotFiles = true,
+      signal?: AbortSignal,
+    ) =>
+      fetchApi<FileItem[]>(
+        `/api/hosts/${encodeURIComponent(hostId)}/files/search-name?root=${encodeURIComponent(root)}&q=${encodeURIComponent(q)}&basePath=${encodeURIComponent(basePath)}&includeDotFiles=${includeDotFiles ? 'true' : 'false'}`,
+        { signal },
+      ),
+    searchContent: (
+      hostId: string,
+      root: string,
+      q: string,
+      basePath = '',
+      includeDotFiles = true,
+      signal?: AbortSignal,
+    ) =>
+      fetchApi<FileContentMatch[]>(
+        `/api/hosts/${encodeURIComponent(hostId)}/files/search-content?root=${encodeURIComponent(root)}&q=${encodeURIComponent(q)}&basePath=${encodeURIComponent(basePath)}&includeDotFiles=${includeDotFiles ? 'true' : 'false'}`,
+        { signal },
+      ),
+    defaultUploadTarget: (hostId: string, paneId?: string) =>
+      fetchApi<FileUploadTarget>(
+        `/api/hosts/${encodeURIComponent(hostId)}/files/default-upload-target${paneId ? `?paneId=${encodeURIComponent(paneId)}` : ''}`,
+      ),
+    temporaryUploadTarget: (hostId: string) =>
+      fetchApi<FileUploadTarget>(`/api/hosts/${encodeURIComponent(hostId)}/files/temporary-upload-target`),
+    upload: (hostId: string, body: FormData, onProgress?: (loadedBytes: number, totalBytes: number) => void) =>
+      uploadWithProgress(hostId, body, onProgress),
+    downloadTask: (hostId: string, root: string, path: string, rateLimitKBps?: number) =>
+      fetchApi<{ task: SystemTaskResponse }>(`/api/hosts/${encodeURIComponent(hostId)}/files/download-tasks`, {
+        method: 'POST',
+        body: JSON.stringify({ root, path, rateLimitKBps }),
+      }),
+    downloadUrl: (hostId: string, root: string, path: string, rateLimitKBps?: number, profile = 'default') =>
+      `${getApiBase()}/api/hosts/${encodeURIComponent(hostId)}/files/download?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}&profile=${encodeURIComponent(profile)}${typeof rateLimitKBps === 'number' ? `&rateLimitKBps=${encodeURIComponent(String(rateLimitKBps))}` : ''}`,
+    imageUrl: (hostId: string, root: string, path: string, modifiedAt?: string) =>
+      `${getApiBase()}/api/hosts/${encodeURIComponent(hostId)}/files/image?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}${modifiedAt ? `&modifiedAt=${encodeURIComponent(modifiedAt)}` : ''}`,
   },
   preferences: {
-    get: (profile = 'default') => fetchApi<RemotePreferences>(`/api/preferences?profile=${encodeURIComponent(profile)}`),
-    update: (payload: { customShortcuts?: CustomShortcut[]; customShortcutsUpdatedAt?: string; favoriteDirectories?: FavoriteDirectory[]; favoriteDirectoriesUpdatedAt?: string; sessionWorkspaces?: SessionWorkspaceEntry[]; sessionWorkspacesUpdatedAt?: string; sessionOrders?: SessionOrderPreference[]; sessionOrdersUpdatedAt?: string; snippets?: Snippet[]; snippetsUpdatedAt?: string; favorites?: FavoriteItem[]; favoritesUpdatedAt?: string; sessionContinuity?: SessionContinuityConfig; sessionContinuityUpdatedAt?: string; gitByHost?: Record<string, GitHostState>; gitByHostUpdatedAt?: string; uiPreferences?: UiPreferences; uiPreferencesUpdatedAt?: string; uploadRateLimitKBps?: number; downloadRateLimitKBps?: number }, profile = 'default') =>
+    get: (profile = 'default') =>
+      fetchApi<RemotePreferences>(`/api/preferences?profile=${encodeURIComponent(profile)}`),
+    update: (
+      payload: {
+        customShortcuts?: CustomShortcut[]
+        customShortcutsUpdatedAt?: string
+        favoriteDirectories?: FavoriteDirectory[]
+        favoriteDirectoriesUpdatedAt?: string
+        sessionWorkspaces?: SessionWorkspaceEntry[]
+        sessionWorkspacesUpdatedAt?: string
+        sessionOrders?: SessionOrderPreference[]
+        sessionOrdersUpdatedAt?: string
+        snippets?: Snippet[]
+        snippetsUpdatedAt?: string
+        favorites?: FavoriteItem[]
+        favoritesUpdatedAt?: string
+        sessionContinuity?: SessionContinuityConfig
+        sessionContinuityUpdatedAt?: string
+        gitByHost?: Record<string, GitHostState>
+        gitByHostUpdatedAt?: string
+        uiPreferences?: UiPreferences
+        uiPreferencesUpdatedAt?: string
+        uploadRateLimitKBps?: number
+        downloadRateLimitKBps?: number
+      },
+      profile = 'default',
+    ) =>
       fetchApi<RemotePreferences>(`/api/preferences?profile=${encodeURIComponent(profile)}`, {
         method: 'PUT',
         body: JSON.stringify(payload),
       }),
   },
   git: {
-    repositories: (hostId: string) =>
-      fetchApi<GitRepositoryInfo[]>(`/api/hosts/${hostId}/git/repositories`),
+    repositories: (hostId: string) => fetchApi<GitRepositoryInfo[]>(`/api/hosts/${hostId}/git/repositories`),
     detect: (hostId: string, path: string) =>
       fetchApi<GitDetectResponse>(`/api/hosts/${hostId}/git/detect?path=${encodeURIComponent(path)}`),
     detectFromPane: (hostId: string, paneId: string) =>
       fetchApi<GitDetectResponse>(`/api/hosts/${hostId}/git/detect?paneId=${encodeURIComponent(paneId)}`),
     status: (hostId: string, path: string) =>
       fetchApi<GitStatusResponse>(`/api/hosts/${hostId}/git/status?path=${encodeURIComponent(path)}`),
-    diff: (hostId: string, path: string, options?: { filePath?: string; staged?: boolean; commit?: string; workingTree?: boolean; untracked?: boolean }) => {
+    diff: (
+      hostId: string,
+      path: string,
+      options?: { filePath?: string; staged?: boolean; commit?: string; workingTree?: boolean; untracked?: boolean },
+    ) => {
       const params = new URLSearchParams({ path })
       if (options?.filePath) params.set('filePath', options.filePath)
       if (options?.staged) params.set('staged', 'true')
@@ -605,19 +914,45 @@ export const api = {
       return fetchApi<GitDiffResponse>(`/api/hosts/${hostId}/git/diff?${params}`)
     },
     diffStats: (hostId: string, path: string, base: string, head: string) =>
-      fetchApi<GitDiffStatsResponse>(`/api/hosts/${hostId}/git/diff-stats?path=${encodeURIComponent(path)}&base=${encodeURIComponent(base)}&head=${encodeURIComponent(head)}`),
+      fetchApi<GitDiffStatsResponse>(
+        `/api/hosts/${hostId}/git/diff-stats?path=${encodeURIComponent(path)}&base=${encodeURIComponent(base)}&head=${encodeURIComponent(head)}`,
+      ),
     stage: (hostId: string, path: string, filePaths: string[]) =>
-      fetchApi<{ ok: true }>(`/api/hosts/${hostId}/git/stage`, { method: 'POST', body: JSON.stringify({ path, filePaths }) }),
+      fetchApi<{ ok: true }>(`/api/hosts/${hostId}/git/stage`, {
+        method: 'POST',
+        body: JSON.stringify({ path, filePaths }),
+      }),
     unstage: (hostId: string, path: string, filePaths: string[]) =>
-      fetchApi<{ ok: true }>(`/api/hosts/${hostId}/git/unstage`, { method: 'POST', body: JSON.stringify({ path, filePaths }) }),
+      fetchApi<{ ok: true }>(`/api/hosts/${hostId}/git/unstage`, {
+        method: 'POST',
+        body: JSON.stringify({ path, filePaths }),
+      }),
     commit: (hostId: string, path: string, message: string, amend?: boolean, options?: { background?: boolean }) =>
-      fetchApi<GitCommitResponse | BackgroundGitTaskResponse>(`/api/hosts/${hostId}/git/commit`, { method: 'POST', body: JSON.stringify({ path, message, amend, ...options }) }),
+      fetchApi<GitCommitResponse | BackgroundGitTaskResponse>(`/api/hosts/${hostId}/git/commit`, {
+        method: 'POST',
+        body: JSON.stringify({ path, message, amend, ...options }),
+      }),
     discard: (hostId: string, path: string, filePaths: string[]) =>
-      fetchApi<{ ok: true }>(`/api/hosts/${hostId}/git/discard`, { method: 'POST', body: JSON.stringify({ path, filePaths }) }),
+      fetchApi<{ ok: true }>(`/api/hosts/${hostId}/git/discard`, {
+        method: 'POST',
+        body: JSON.stringify({ path, filePaths }),
+      }),
     resolve: (hostId: string, path: string, filePath: string, resolution: 'ours' | 'theirs' | 'mark') =>
-      fetchApi<{ ok: true; filePath: string; resolution: string }>(`/api/hosts/${hostId}/git/resolve`, { method: 'POST', body: JSON.stringify({ path, filePath, resolution }) }),
-    operation: (hostId: string, path: string, operation: 'merge' | 'rebase', action: 'continue' | 'abort', options?: { background?: boolean }) =>
-      fetchApi<{ ok: true; operation: string; action: string; message: string } | BackgroundGitTaskResponse>(`/api/hosts/${hostId}/git/operation`, { method: 'POST', body: JSON.stringify({ path, operation, action, ...options }) }),
+      fetchApi<{ ok: true; filePath: string; resolution: string }>(`/api/hosts/${hostId}/git/resolve`, {
+        method: 'POST',
+        body: JSON.stringify({ path, filePath, resolution }),
+      }),
+    operation: (
+      hostId: string,
+      path: string,
+      operation: 'merge' | 'rebase',
+      action: 'continue' | 'abort',
+      options?: { background?: boolean },
+    ) =>
+      fetchApi<{ ok: true; operation: string; action: string; message: string } | BackgroundGitTaskResponse>(
+        `/api/hosts/${hostId}/git/operation`,
+        { method: 'POST', body: JSON.stringify({ path, operation, action, ...options }) },
+      ),
     log: (hostId: string, path: string, options?: { limit?: number; skip?: number }) => {
       const params = new URLSearchParams({ path })
       if (options?.limit) params.set('limit', String(options.limit))
@@ -627,20 +962,72 @@ export const api = {
     branches: (hostId: string, path: string) =>
       fetchApi<GitBranchesResponse>(`/api/hosts/${hostId}/git/branches?path=${encodeURIComponent(path)}`),
     checkout: (hostId: string, path: string, branch: string) =>
-      fetchApi<{ ok: true; branch: string }>(`/api/hosts/${hostId}/git/checkout`, { method: 'POST', body: JSON.stringify({ path, branch }) }),
+      fetchApi<{ ok: true; branch: string }>(`/api/hosts/${hostId}/git/checkout`, {
+        method: 'POST',
+        body: JSON.stringify({ path, branch }),
+      }),
     createBranch: (hostId: string, path: string, name: string, startPoint?: string) =>
-      fetchApi<{ ok: true; branch: string }>(`/api/hosts/${hostId}/git/create-branch`, { method: 'POST', body: JSON.stringify({ path, name, startPoint }) }),
+      fetchApi<{ ok: true; branch: string }>(`/api/hosts/${hostId}/git/create-branch`, {
+        method: 'POST',
+        body: JSON.stringify({ path, name, startPoint }),
+      }),
     deleteBranch: (hostId: string, path: string, name: string, force?: boolean) =>
-      fetchApi<{ ok: true }>(`/api/hosts/${hostId}/git/delete-branch`, { method: 'POST', body: JSON.stringify({ path, name, force }) }),
+      fetchApi<{ ok: true }>(`/api/hosts/${hostId}/git/delete-branch`, {
+        method: 'POST',
+        body: JSON.stringify({ path, name, force }),
+      }),
     merge: (hostId: string, path: string, branch: string, noFF?: boolean, options?: { background?: boolean }) =>
-      fetchApi<GitMergeResponse | BackgroundGitTaskResponse>(`/api/hosts/${hostId}/git/merge`, { method: 'POST', body: JSON.stringify({ path, branch, noFF, ...options }) }),
+      fetchApi<GitMergeResponse | BackgroundGitTaskResponse>(`/api/hosts/${hostId}/git/merge`, {
+        method: 'POST',
+        body: JSON.stringify({ path, branch, noFF, ...options }),
+      }),
     fetch: (hostId: string, path: string, options?: { remote?: string; prune?: boolean; background?: boolean }) =>
-      fetchApi<{ ok: true; message: string } | BackgroundGitTaskResponse>(`/api/hosts/${hostId}/git/fetch`, { method: 'POST', body: JSON.stringify({ path, ...options }) }),
-    pull: (hostId: string, path: string, options?: { remote?: string; branch?: string; rebase?: boolean; background?: boolean }) =>
-      fetchApi<{ ok: boolean; conflicts: boolean; message: string } | BackgroundGitTaskResponse>(`/api/hosts/${hostId}/git/pull`, { method: 'POST', body: JSON.stringify({ path, ...options }) }),
-    push: (hostId: string, path: string, options?: { remote?: string; branch?: string; force?: boolean; setUpstream?: boolean; background?: boolean }) =>
-      fetchApi<{ ok: boolean; rejected: boolean; message: string } | BackgroundGitTaskResponse>(`/api/hosts/${hostId}/git/push`, { method: 'POST', body: JSON.stringify({ path, ...options }) }),
+      fetchApi<{ ok: true; message: string } | BackgroundGitTaskResponse>(`/api/hosts/${hostId}/git/fetch`, {
+        method: 'POST',
+        body: JSON.stringify({ path, ...options }),
+      }),
+    pull: (
+      hostId: string,
+      path: string,
+      options?: { remote?: string; branch?: string; rebase?: boolean; background?: boolean },
+    ) =>
+      fetchApi<{ ok: boolean; conflicts: boolean; message: string } | BackgroundGitTaskResponse>(
+        `/api/hosts/${hostId}/git/pull`,
+        { method: 'POST', body: JSON.stringify({ path, ...options }) },
+      ),
+    push: (
+      hostId: string,
+      path: string,
+      options?: { remote?: string; branch?: string; force?: boolean; setUpstream?: boolean; background?: boolean },
+    ) =>
+      fetchApi<{ ok: boolean; rejected: boolean; message: string } | BackgroundGitTaskResponse>(
+        `/api/hosts/${hostId}/git/push`,
+        { method: 'POST', body: JSON.stringify({ path, ...options }) },
+      ),
     remotes: (hostId: string, path: string) =>
-      fetchApi<{ remotes: { name: string; fetchUrl: string; pushUrl: string }[] }>(`/api/hosts/${hostId}/git/remotes?path=${encodeURIComponent(path)}`),
+      fetchApi<{ remotes: { name: string; fetchUrl: string; pushUrl: string }[] }>(
+        `/api/hosts/${hostId}/git/remotes?path=${encodeURIComponent(path)}`,
+      ),
   },
+  vnc: {
+    status: (hostId: string) =>
+      fetchApi<{ status: VncSetupStatus; manualCommand: string }>(
+        `/api/vnc/setup?hostId=${encodeURIComponent(hostId)}`,
+      ),
+    setup: (hostId: string, action: 'install' | 'start') =>
+      fetchApi<{ ok: boolean; needSudo?: boolean; status: VncSetupStatus; output?: string; manualCommand: string }>(
+        '/api/vnc/setup',
+        { method: 'POST', body: JSON.stringify({ hostId, action }) },
+      ),
+  },
+}
+
+export interface VncSetupStatus {
+  os: string
+  server: string | null
+  session: string
+  listening: boolean
+  sudo: boolean
+  supported: boolean
+  hint: string
 }

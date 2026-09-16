@@ -616,6 +616,7 @@ export class AgentManager {
       }
       return true
     }
+    // vnc-data 新协议走二进制帧（见 handleVncBinary）；JSON 分支留作旧 agent 兼容
     if (
       (payload.type === 'vnc-opened' ||
         payload.type === 'vnc-data' ||
@@ -659,8 +660,18 @@ export class AgentManager {
     const agent = conn && this.agents.get(conn.agentId)
     if (!conn || !agent || agent.socket !== conn.agentSocket || agent.socket.readyState !== 1) return
     try {
-      agent.socket.send(JSON.stringify({ type: 'vnc-data', connectionId, data: data.toString('base64') }))
+      agent.socket.send(Buffer.concat([Buffer.from(`vnc-data ${connectionId}\n`, 'ascii'), data]))
     } catch {}
+  }
+  handleVncBinary(agentId: string, socket: AgentSocket, frame: Buffer) {
+    const separator = frame.indexOf(0x0a)
+    if (separator < 0) return
+    const header = frame.toString('ascii', 0, separator)
+    if (!header.startsWith('vnc-data ')) return
+    const connectionId = header.slice(9).trim()
+    const conn = this.vncConnections.get(connectionId)
+    if (!conn || conn.agentId !== agentId || conn.agentSocket !== socket) return
+    conn.socket.send(frame.subarray(separator + 1))
   }
   closeVnc(connectionId: string) {
     const conn = this.vncConnections.get(connectionId)
