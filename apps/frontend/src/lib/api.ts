@@ -1019,7 +1019,21 @@ export const api = {
         '/api/vnc/setup',
         { method: 'POST', body: JSON.stringify({ hostId, action }) },
       ),
+    displays: (hostId: string) =>
+      fetchApi<{ displays: VncDisplay[] }>(`/api/vnc/displays?hostId=${encodeURIComponent(hostId)}`),
+    displayAction: (hostId: string, action: 'start' | 'stop', display: number) =>
+      fetchApi<{ ok: boolean; needPassword?: boolean; noServer?: boolean; displays: VncDisplay[] }>(
+        '/api/vnc/displays',
+        { method: 'POST', body: JSON.stringify({ hostId, action, display }) },
+      ),
   },
+}
+
+export interface VncDisplay {
+  display: number
+  port: number
+  process: string | null
+  pid: number | null
 }
 
 export interface VncSetupStatus {

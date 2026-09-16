@@ -34,7 +34,7 @@ const config: Config = {
         glow: '0 0 20px rgba(30,200,255,0.25)',
       },
       borderRadius: {
-        apple: '20px',
+        apple: 'var(--radius-apple, 20px)',
       },
       fontFamily: {
         sans: ['var(--font-ui)'],
