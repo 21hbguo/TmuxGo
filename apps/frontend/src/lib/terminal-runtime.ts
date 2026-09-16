@@ -19,6 +19,14 @@ import { subscribeStreamEvent, STREAM_EVENT } from './stream-events'
 import type { useTranslation } from '@/i18n'
 import type { FileDocumentHandle, FileRoot } from '@/types'
 const SCROLLBACK_LIMIT = 600
+// 切换攒流的静默窗口：attached 后每条输出重置该计时，静默 40ms 视为本批齐了——
+// 能把 gateway attach 后 48ms 的 refresh-client 重绘（ATTACH_REDRAW_DELAYS）并进同一笔 write。
+const SWITCH_FLUSH_QUIET_MS = 40
+// 从 attached 起的最长攒流窗口，防止嘈杂 session 的输出不断重置静默计时而迟迟不揭罩。
+const SWITCH_FLUSH_CAP_MS = 200
+// attach 始终不出输出时的兜底：超时照常 flush，退化为旧的清屏行为。
+const SWITCH_HOLD_TIMEOUT_MS = 800
+const SWITCH_CLEAR_SEQ = '\x1b[3J\x1b[2J\x1b[H'
 interface TerminalRuntimeOptions {
   container: HTMLElement
   isMobile: boolean
@@ -53,6 +61,7 @@ interface TerminalRuntimeOptions {
   resolvePaneAtPointRef: { current: (x: number, y: number) => string | null }
   paneResizeGuide: HTMLElement | null
   resizeMaskElement: HTMLElement | null
+  switchVeilElement: HTMLElement | null
   resizeMaskApiRef: { current: ReturnType<typeof createTerminalResizeMask> | null }
   queryClient: any
   pushToast: (toast: { type: 'success' | 'error' | 'info'; message: string; durationMs?: number }) => void
@@ -77,6 +86,7 @@ interface TerminalRuntimeOptions {
   updateGithubDeviceLogin: (raw: string) => void
   pushTerminalOutput: (data: string) => void
   disposeTerminalOutput: () => void
+  beginSessionSwitchRef: { current: () => void }
 }
 export function createTerminalRuntime(options: TerminalRuntimeOptions) {
   const container = options.container
@@ -120,6 +130,10 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
   let readyNotified = false
   let attachEventCount = 0
   let helperTextarea: HTMLTextAreaElement | null | undefined = null
+  let switchAttachedSeen = false
+  let switchBeganAt = 0
+  let switchAttachedAt = 0
+  let switchFlushTimer: ReturnType<typeof setTimeout> | null = null
   const getTerminal = () => terminal
   const isDisposed = () => disposed
   const notifyReady = () => {
@@ -144,6 +158,9 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
   }
   const mask = createTerminalResizeMask({ mask: options.resizeMaskElement, getTerminal })
   options.resizeMaskApiRef.current = mask
+  // 切换遮罩与 resize 遮罩用同工厂但独立实例：切换有自己的揭开时机（新帧写完），
+  // 不能跟 resize 的 reveal 路径互相干扰
+  const switchMask = createTerminalResizeMask({ mask: options.switchVeilElement, getTerminal })
   const layout = createTerminalLayout({
     container,
     isMobile: isMobileDevice,
@@ -188,8 +205,55 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
     getHostId: () => activeHostIdRef.current || 'local',
     getSessionName: () => sessionNameRef.current,
     onRawOutput: updateGithubDeviceLogin,
+    onOutput: () => {
+      if (outputInput.isSwitchHolding() && switchAttachedSeen) armSwitchFlush()
+    },
+    writeAtomic: (data) => {
+      getTerminal()?.write?.(data, () => {
+        afterTerminalWriteRef.current()
+        // 新帧解析+上屏完成后才揭开遮罩（reveal 内部再等两帧动画）
+        switchMask.reveal()
+      })
+    },
     controlCarryRef,
   })
+  const finishSessionSwitch = () => {
+    if (switchFlushTimer) {
+      clearTimeout(switchFlushTimer)
+      switchFlushTimer = null
+    }
+    if (!outputInput.isSwitchHolding()) return
+    // 尺寸协商（resize/fontScale 的 rAF 链）还在途就写帧，揭开遮罩后会再 reflow——
+    // 表现为"先 resize 到某个尺寸再回到实际尺寸"。等它落地再 flush，超时就放弃等。
+    if (layout.isSyncPending() && Date.now() - switchBeganAt < SWITCH_HOLD_TIMEOUT_MS) {
+      switchFlushTimer = setTimeout(finishSessionSwitch, 16)
+      return
+    }
+    switchAttachedSeen = false
+    outputInput.flushSwitchHold(SWITCH_CLEAR_SEQ)
+  }
+  const armSwitchFlush = () => {
+    if (switchFlushTimer) clearTimeout(switchFlushTimer)
+    const elapsed = Date.now() - switchAttachedAt
+    switchFlushTimer = setTimeout(
+      finishSessionSwitch,
+      Math.max(0, Math.min(SWITCH_FLUSH_QUIET_MS, SWITCH_FLUSH_CAP_MS - elapsed)),
+    )
+  }
+  const beginSessionSwitch = () => {
+    if (disposed || !terminal) return
+    // 不盖遮罩：hold 期间 xterm 本就保持旧帧原样，原子写一笔换帧；
+    // WebGL canvas 克隆有色彩管理失真（灰→黑），同尺寸切换不需要它
+    disposeTerminalOutput()
+    outputInput.beginSwitchHold()
+    switchAttachedSeen = false
+    switchBeganAt = Date.now()
+    switchAttachedAt = 0
+    if (switchFlushTimer) clearTimeout(switchFlushTimer)
+    // attach 失败/无输出的兜底，见 SWITCH_HOLD_TIMEOUT_MS 注释
+    switchFlushTimer = setTimeout(finishSessionSwitch, SWITCH_HOLD_TIMEOUT_MS)
+  }
+  options.beginSessionSwitchRef.current = beginSessionSwitch
   const imeHandlers = createTerminalImeHandlers({
     getHelperTextarea: () => helperTextarea,
     isComposing: focus.isComposing,
@@ -436,9 +500,38 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
       const rows = Number(detail.rows)
       if (!terminal || disposed) return
       const hadOutputBeforeAttach = outputInput.consumeAttachOutputFlag()
+      const switching = outputInput.isSwitchHolding()
+      if (switching) {
+        switchAttachedSeen = true
+        switchAttachedAt = Date.now()
+        // 已攒到首帧 → 进入静默合并窗口；没攒到 → 保留 beginSessionSwitch 的兜底定时器
+        if (outputInput.hasSwitchBuffered()) armSwitchFlush()
+      }
       attachEventCount += 1
       const initialAttach = attachEventCount === 1
       const softRecover = initialAttach && hadOutputBeforeAttach
+      if (switching) {
+        // 攒流期间只做尺寸协商。尺寸要变时先定格旧帧盖住 reflow/字体缩放；
+        // 同尺寸切换无遮罩——克隆 WebGL canvas 有色彩失真，且本身多余。
+        // snapshot 拉取和恢复性 repaint 一律跳过：flush 写回的帧即权威画面，
+        // 它们若揭开后落屏 = 二次重绘 + 字形重栅格化（先粗后细）。
+        const willResize = cols > 0 && rows > 0 && (cols !== terminal.cols || rows !== terminal.rows)
+        if (attachExclusiveRef.current) {
+          const size = lastSizeRef.current
+          const sizeChanged = !size || size.cols !== cols || size.rows !== rows
+          if (willResize) switchMask.show()
+          if (sizeChanged) layout.scheduleInitialFit()
+          return
+        }
+        if (cols > 0 && rows > 0) {
+          const prevSharedSize = sharedSessionSizeRef.current
+          const sizeChanged = !prevSharedSize || prevSharedSize.cols !== cols || prevSharedSize.rows !== rows
+          sharedSessionSizeRef.current = { cols, rows }
+          if (willResize) switchMask.show()
+          if (sizeChanged) layout.scheduleLayoutSync(0, true, true)
+        }
+        return
+      }
       const snapshot = snapshotLoader.load()
       const generation = mask.getGeneration()
       void snapshot
@@ -497,6 +590,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
       if (detail.hostId && detail.hostId !== (activeHostIdRef.current || 'local')) return
       if (detail.sessionName && detail.sessionName !== sessionNameRef.current) return
       if (mask.isPending()) mask.reveal()
+      finishSessionSwitch()
     }
     const handleLayoutChange = (event: Event) => {
       const detail = (event as CustomEvent).detail || {}
@@ -713,10 +807,15 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
   void initTerminal().catch(console.error)
   const dispose = () => {
     disposed = true
+    if (switchFlushTimer) {
+      clearTimeout(switchFlushTimer)
+      switchFlushTimer = null
+    }
     deleteWordRepeat.stop()
     paneResize.hide()
     layout.dispose()
     mask.dispose()
+    switchMask.dispose()
     imeHandlers.dispose()
     afterTerminalWriteRef.current = () => {}
     disposeTerminalOutput()

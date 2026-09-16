@@ -83,7 +83,6 @@ export function PaneGrid({
   const attachTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const attachRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const attachInFlightRef = useRef<string | null>(null)
-  const pendingSwitchRef = useRef(false)
   const lastSessionRef = useRef<string | null>(sessionId || null)
   const inputQueueRef = useRef<string[]>([])
   const resizeFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -395,7 +394,6 @@ export function PaneGrid({
 
   useEffect(() => {
     if (!sessionId) {
-      pendingSwitchRef.current = false
       lastSessionRef.current = null
       pendingSessionIdRef.current = null
       pendingSessionNameRef.current = null
@@ -412,7 +410,6 @@ export function PaneGrid({
       return
     }
     if (lastSessionRef.current !== sessionId) {
-      pendingSwitchRef.current = true
       lastSessionRef.current = sessionId
       pendingSessionIdRef.current = sessionId
       pendingSessionNameRef.current = sessionName
@@ -489,7 +486,6 @@ export function PaneGrid({
         pendingSessionIdRef.current = null
         pendingSessionNameRef.current = null
       }
-      pendingSwitchRef.current = false
       const attachedCols = Number(detail.cols)
       const attachedRows = Number(detail.rows)
       if (attachedCols > 0 && attachedRows > 0) sentResizeRef.current = { cols: attachedCols, rows: attachedRows }
@@ -543,7 +539,6 @@ export function PaneGrid({
       attachedRef.current = null
       isSessionAttachedRef.current = false
       sentResizeRef.current = null
-      pendingSwitchRef.current = false
       if (pendingSessionNameRef.current === detail.sessionName) {
         pendingSessionIdRef.current = null
         pendingSessionNameRef.current = null
@@ -692,10 +687,6 @@ export function PaneGrid({
 
   return (
     <div className="tmuxgo-content-surface relative h-full w-full min-h-0 min-w-0 overflow-hidden">
-      <div
-        className="absolute inset-0 z-10 pointer-events-none bg-gradient-to-b from-bg-1/5 via-bg-1/15 to-bg-1/30 transition-opacity duration-200"
-        style={{ opacity: pendingSwitchRef.current ? 1 : 0 }}
-      />
       {isMobile && connectionStatus !== 'connected' && (
         <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 px-3 py-1 rounded-full bg-bg-2/95 border border-[var(--line)] text-xs text-text-1">
           {t(`status.${connectionStatus}`)}

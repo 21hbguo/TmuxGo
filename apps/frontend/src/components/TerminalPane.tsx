@@ -75,6 +75,7 @@ export function TerminalPane({
   const terminalRef = useRef<HTMLDivElement>(null)
   const paneResizeGuideRef = useRef<HTMLDivElement>(null)
   const resizeMaskRef = useRef<HTMLDivElement>(null)
+  const switchVeilRef = useRef<HTMLDivElement>(null)
   const resizeMaskApiRef = useRef<ReturnType<typeof createTerminalResizeMask> | null>(null)
   const touchMovedRef = useRef(false)
   const terminalInstance = useRef<any>(null)
@@ -90,6 +91,7 @@ export function TerminalPane({
   const controlCarryRef = useRef('')
   const lastTapRef = useRef<{ x: number; y: number } | null>(null)
   const scheduleLayoutRef = useRef<(delay?: number, force?: boolean, resetFont?: boolean) => void>(() => {})
+  const beginSessionSwitchRef = useRef<() => void>(() => {})
   const activeHostIdRef = useRef(activeHostId)
   const updatePreferencesRef = useRef(updatePreferences)
   const tRef = useRef(t)
@@ -292,20 +294,9 @@ export function TerminalPane({
   }, [activeHostId, sessionName, subscribeOutput, subscribeWebSocketOutput])
   useEffect(() => {
     paneCwdRef.current = ''
-    const terminal = terminalInstance.current
-    if (terminal) {
-      try {
-        terminal.clear?.()
-      } catch {}
-      try {
-        terminal.refresh?.(0, Math.max(0, (terminal.rows || 1) - 1))
-      } catch {}
-    }
-    const staleMask = resizeMaskRef.current
-    if (staleMask) {
-      staleMask.style.display = 'none'
-      staleMask.replaceChildren()
-    }
+    // 切换 session 不清屏：定格旧画面 + 攒流，新 session 首帧写完后才揭开，
+    // 避免"黑屏→逐行重绘"以及 xterm 大写入跨帧解析造成的渐进刷新
+    beginSessionSwitchRef.current()
   }, [activeHostId, sessionName])
   useEffect(() => {
     sendRef.current = send
@@ -379,6 +370,7 @@ export function TerminalPane({
       resolvePaneAtPointRef,
       paneResizeGuide: paneResizeGuideRef.current,
       resizeMaskElement: resizeMaskRef.current,
+      switchVeilElement: switchVeilRef.current,
       resizeMaskApiRef,
       queryClient,
       pushToast,
@@ -403,6 +395,7 @@ export function TerminalPane({
       updateGithubDeviceLogin,
       pushTerminalOutput,
       disposeTerminalOutput,
+      beginSessionSwitchRef,
     })
     return () => runtime.dispose()
   }, [
@@ -467,6 +460,12 @@ export function TerminalPane({
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 z-10 hidden overflow-hidden bg-bg-1"
         style={{ display: resizeMaskApiRef.current?.isPending() ? 'block' : undefined }}
+      />
+      <div
+        ref={switchVeilRef}
+        data-testid="terminal-switch-veil"
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 z-10 hidden overflow-hidden bg-bg-1"
       />
       <div
         ref={paneResizeGuideRef}

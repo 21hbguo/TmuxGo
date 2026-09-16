@@ -1393,6 +1393,38 @@ describe('TerminalPane', () => {
       expect(webSocketMocks.subscribeOutput).toHaveBeenLastCalledWith('local', 'other', expect.any(Function)),
     )
   })
+  it('holds new session output during switch and flushes one atomic write', async () => {
+    const view = render(
+      <TerminalPane
+        sessionName="dev"
+        onInput={vi.fn()}
+        onResize={vi.fn()}
+        subscribeOutput={webSocketMocks.subscribeOutput}
+      />,
+    )
+    await waitFor(() => expect(webSocketMocks.lastOutputListener).toBeTruthy())
+    terminalMocks.write.mockClear()
+    view.rerender(
+      <TerminalPane
+        sessionName="other"
+        onInput={vi.fn()}
+        onResize={vi.fn()}
+        subscribeOutput={webSocketMocks.subscribeOutput}
+      />,
+    )
+    // 切换期间新 session 的输出只攒不写；同尺寸时无遮罩（克隆 WebGL canvas 有色彩失真）
+    const veil = view.container.querySelector('[data-testid="terminal-switch-veil"]') as HTMLElement
+    expect(veil.style.display).toBe('')
+    webSocketMocks.lastOutputListener?.({ data: 'other-frame', sessionName: 'other' })
+    await sleep(20)
+    expect(terminalMocks.write).not.toHaveBeenCalled()
+    // attached 报回的尺寸与当前 xterm 不同 → 遮罩定格旧帧盖住 reflow
+    emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'other', cols: 100, rows: 30, exclusive: false })
+    expect(veil.style.display).toBe('block')
+    // attached 后攒下的首帧连同清屏序列一笔写回，写完才揭开遮罩
+    await waitFor(() => expect(terminalMocks.write).toHaveBeenCalledWith('\x1b[3J\x1b[2J\x1b[Hother-frame'))
+    await waitFor(() => expect(veil.style.display).toBe('none'))
+  })
   it('applies authoritative output resync snapshots', async () => {
     render(
       <TerminalPane

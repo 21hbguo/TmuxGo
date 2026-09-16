@@ -8,6 +8,8 @@ interface TerminalOutputInputOptions {
   getSessionName: () => string | undefined
   onRawOutput?: (raw: string) => void
   onOutput?: () => void
+  // 切换 flush 的原子写通道：整帧一笔进 xterm，绕过 scheduler 的 32KB 切块
+  writeAtomic?: (data: string) => void
   controlCarryRef: { current: string }
 }
 type OutputPayload = { data: string; sessionName?: string | null; hostId?: string | null; resync?: boolean }
@@ -23,6 +25,7 @@ export function createTerminalOutputInput(options: TerminalOutputInputOptions) {
   let pointerSyncActive = false
   let pointerSyncArmedAt = 0
   let selectionHold = false
+  let switchHold = false
   let lastSelectionCheck = 0
   let outputSinceLastAttach = false
   const releaseSelection = () => {
@@ -31,7 +34,8 @@ export function createTerminalOutputInput(options: TerminalOutputInputOptions) {
     flushWriteBuffer()
   }
   const flushWriteBuffer = () => {
-    if (selectionHold) return
+    // switchHold 期间只允许 flushSwitchHold 原子写回，普通 flush 会破坏"旧帧→新帧"的单笔写入
+    if (selectionHold || switchHold) return
     const terminal = options.getTerminal()
     if (!writeBuffer || !terminal?.write) {
       writeBuffer = ''
@@ -60,6 +64,14 @@ export function createTerminalOutputInput(options: TerminalOutputInputOptions) {
     options.onRawOutput?.(raw)
     outputSinceLastAttach = true
     options.controlCarryRef.current = ''
+    // Session 切换期间攒流：新 session 的 attach 重绘先整帧缓存，
+    // 由调用方一次性写回，避免"清屏→逐行重绘"的中间态闪烁。
+    if (switchHold) {
+      if (payload.resync) writeBuffer = raw
+      else writeBuffer += raw
+      options.onOutput?.()
+      return
+    }
     // Hold terminal paints while desktop IME is composing so candidate window stays put.
     if (pointerSyncActive || selectionHold || (!options.isMobile && options.isDesktopImeComposing())) {
       if (payload.resync) writeBuffer = raw
@@ -87,6 +99,27 @@ export function createTerminalOutputInput(options: TerminalOutputInputOptions) {
   const holdSelection = () => {
     selectionHold = true
   }
+  const beginSwitchHold = () => {
+    switchHold = true
+    writeBuffer = ''
+    writePending = false
+  }
+  // 把切换期间攒下的输出一次性写回；prepend 用于在同一笔写入里
+  // 先清滚动区/屏幕（\x1b[3J\x1b[2J），保证"旧帧→新帧"原子替换。
+  const flushSwitchHold = (prepend = '') => {
+    switchHold = false
+    const data = writeBuffer
+    writeBuffer = ''
+    writePending = false
+    const payload = prepend + data
+    if (!payload) return
+    // 整帧必须一笔进 xterm：走 scheduler 会被按 32KB 切块，
+    // 拆开的"清屏序列+半帧"会先上屏一次，造成二次重绘
+    if (options.writeAtomic && options.getTerminal()?.write) options.writeAtomic(payload)
+    else options.pushOutput(payload)
+  }
+  const hasSwitchBuffered = () => writeBuffer.length > 0
+  const isSwitchHolding = () => switchHold
   const armPointerSync = () => {
     pointerSyncActive = true
     pointerSyncArmedAt = Date.now()
@@ -106,6 +139,10 @@ export function createTerminalOutputInput(options: TerminalOutputInputOptions) {
     flushWriteBuffer,
     holdSelection,
     releaseSelection,
+    beginSwitchHold,
+    flushSwitchHold,
+    hasSwitchBuffered,
+    isSwitchHolding,
     isSelectionHoldActive: () => selectionHold,
     armPointerSync,
     disarmPointerSync,
