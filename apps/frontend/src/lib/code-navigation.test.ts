@@ -79,7 +79,10 @@ describe('resolveEditorDefinition', () => {
       truncated: false,
     }
     const result = await resolveEditorDefinition(editor as any, { line: 2, column: 13 }, [editor as any])
-    expect(result).toMatchObject({ status: 'success', target: { id: 'editor-local', path: 'src/index.ts', line: 1, column: 7 } })
+    expect(result).toMatchObject({
+      status: 'success',
+      target: { id: 'editor-local', path: 'src/index.ts', line: 1, column: 7 },
+    })
     expect(contentMock).not.toHaveBeenCalled()
   })
   it('resolves an import through the src alias', async () => {
@@ -104,9 +107,20 @@ describe('resolveEditorDefinition', () => {
       binary: false,
       truncated: false,
     }
-    const target = { ...entry, id: 'editor-alias-target', path: 'src/other.ts', name: 'other.ts', absolutePath: '/workspace/src/other.ts', content: 'export const value = 1\n', savedContent: 'export const value = 1\n' }
+    const target = {
+      ...entry,
+      id: 'editor-alias-target',
+      path: 'src/other.ts',
+      name: 'other.ts',
+      absolutePath: '/workspace/src/other.ts',
+      content: 'export const value = 1\n',
+      savedContent: 'export const value = 1\n',
+    }
     const result = await resolveEditorDefinition(entry as any, { line: 2, column: 13 }, [entry as any, target as any])
-    expect(result).toMatchObject({ status: 'success', target: { id: 'editor-alias-target', path: 'src/other.ts', line: 1 } })
+    expect(result).toMatchObject({
+      status: 'success',
+      target: { id: 'editor-alias-target', path: 'src/other.ts', line: 1 },
+    })
     expect(contentMock).not.toHaveBeenCalled()
   })
   it('prefers unsaved content from an already open target editor', async () => {
@@ -151,5 +165,55 @@ describe('resolveEditorDefinition', () => {
     const result = await resolveEditorDefinition(editor as any, { line: 1, column: 1 }, [])
     expect(result).toEqual({ status: 'unsupported' })
     expect(contentMock).not.toHaveBeenCalled()
+  })
+  it('resolves definitions when the stored language is missing or stale', async () => {
+    const editor = {
+      id: 'editor-stale',
+      hostId: 'local',
+      rootId: 'root-workspace',
+      rootLabel: 'Workspace',
+      rootPath: '/workspace',
+      path: 'src/index.ts',
+      name: 'index.ts',
+      absolutePath: '/workspace/src/index.ts',
+      type: 'file',
+      language: 'plaintext',
+      content: 'const localValue = 1\nconsole.log(localValue)\n',
+      savedContent: '',
+      modifiedAt: '',
+      size: 0,
+      dirty: false,
+      loading: false,
+      saving: false,
+      binary: false,
+      truncated: false,
+    }
+    const result = await resolveEditorDefinition(editor as any, { line: 2, column: 13 }, [editor as any])
+    expect(result).toMatchObject({ status: 'success', target: { path: 'src/index.ts', line: 1 } })
+  })
+  it('resolves definitions in .mts files reported as plaintext', async () => {
+    const editor = {
+      id: 'editor-mts',
+      hostId: 'local',
+      rootId: 'root-workspace',
+      rootLabel: 'Workspace',
+      rootPath: '/workspace',
+      path: 'src/index.mts',
+      name: 'index.mts',
+      absolutePath: '/workspace/src/index.mts',
+      type: 'file',
+      language: 'plaintext',
+      content: 'const localValue = 1\nconsole.log(localValue)\n',
+      savedContent: '',
+      modifiedAt: '',
+      size: 0,
+      dirty: false,
+      loading: false,
+      saving: false,
+      binary: false,
+      truncated: false,
+    }
+    const result = await resolveEditorDefinition(editor as any, { line: 2, column: 13 }, [editor as any])
+    expect(result).toMatchObject({ status: 'success', target: { path: 'src/index.mts', line: 1 } })
   })
 })

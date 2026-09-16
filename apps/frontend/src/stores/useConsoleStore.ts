@@ -764,6 +764,11 @@ export const useConsoleStore = create<ConsoleState>()(
         set((state) => {
           const existing = state.openEditors.find((item) => item.id === file.id)
           if (existing) {
+            // 持久化恢复的旧数据可能缺 language（optional 字段），重新打开时按调用方计算值回填
+            const openEditors =
+              !existing.language && file.language
+                ? state.openEditors.map((item) => (item.id === file.id ? { ...item, language: file.language } : item))
+                : state.openEditors
             const editorGroups = state.editorGroups.map(normalizeEditorGroup)
             const existingGroupId = findEditorGroupIdByEditor(editorGroups, existing.id)
             if (existingGroupId) {
@@ -777,7 +782,7 @@ export const useConsoleStore = create<ConsoleState>()(
                   activeEditorGroupId: existingGroupId,
                 }),
               )
-              return nextState
+              return { openEditors, ...nextState }
             }
             const targetGroupId =
               getExistingEditorGroupId(editorGroups, state.activeEditorGroupId) || editorGroups[0]?.id || null
@@ -785,6 +790,7 @@ export const useConsoleStore = create<ConsoleState>()(
             const nextState = withLegacyEditorState(
               finalizeEditorWorkspace({
                 ...state,
+                openEditors,
                 editorGroups: editorGroups.map((group) =>
                   group.id === targetGroupId
                     ? { ...group, editorIds: [...group.editorIds, existing.id], activeEditorId: existing.id }
@@ -794,7 +800,7 @@ export const useConsoleStore = create<ConsoleState>()(
                 activeEditorGroupId: targetGroupId,
               }),
             )
-            return nextState
+            return { openEditors, ...nextState }
           }
           const targetGroupId =
             getExistingEditorGroupId(state.editorGroups, state.activeEditorGroupId) || state.editorGroups[0]?.id || null
@@ -926,17 +932,15 @@ export const useConsoleStore = create<ConsoleState>()(
           const side = placement === 'left' || placement === 'top' ? ('before' as const) : ('after' as const)
           const newGroup = createEditorGroup([id], id)
           const editorGroups = [
-            ...state.editorGroups
-              .map(normalizeEditorGroup)
-              .map((group) =>
-                group.id === sourceGroupId
-                  ? {
-                      ...group,
-                      editorIds: group.editorIds.filter((item) => item !== id),
-                      activeEditorId: group.activeEditorId === id ? null : group.activeEditorId,
-                    }
-                  : group,
-              ),
+            ...state.editorGroups.map(normalizeEditorGroup).map((group) =>
+              group.id === sourceGroupId
+                ? {
+                    ...group,
+                    editorIds: group.editorIds.filter((item) => item !== id),
+                    activeEditorId: group.activeEditorId === id ? null : group.activeEditorId,
+                  }
+                : group,
+            ),
             newGroup,
           ]
           let editorLayout = state.editorLayout || createEditorLayoutLeaf(resolvedTargetGroupId)

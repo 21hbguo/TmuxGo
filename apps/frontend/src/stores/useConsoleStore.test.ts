@@ -20,7 +20,7 @@ function createEditor(id: string, path: string, language = 'typescript') {
     name: path.split('/').pop() || path,
     absolutePath: `/workspace/${path}`,
     language,
-    type: 'file' as 'file',
+    type: 'file' as const,
   }
 }
 function collectGroupIds(node: any): string[] {
@@ -64,10 +64,26 @@ describe('useConsoleStore editor persistence', () => {
     expect(afterClose.state.openEditors).toEqual([])
     expect(afterClose.state.activeEditorId).toBeNull()
   })
+  it('backfills a missing language when reopening an existing editor', async () => {
+    const { useConsoleStore } = await importStore()
+    useConsoleStore.getState().openEditor({ ...sampleEditor, language: '' })
+    expect(useConsoleStore.getState().openEditors[0].language).toBe('')
+    useConsoleStore.getState().openEditor(sampleEditor)
+    expect(useConsoleStore.getState().openEditors[0].language).toBe('typescript')
+  })
   it('updates persisted active editor when switching tabs', async () => {
     const { useConsoleStore, flushPersistedStorage } = await importStore()
     useConsoleStore.getState().openEditor(sampleEditor)
-    useConsoleStore.getState().openEditor({ ...sampleEditor, id: 'local:root-workspace:docs/guide.md', path: 'docs/guide.md', name: 'guide.md', absolutePath: '/workspace/docs/guide.md', language: 'markdown' })
+    useConsoleStore
+      .getState()
+      .openEditor({
+        ...sampleEditor,
+        id: 'local:root-workspace:docs/guide.md',
+        path: 'docs/guide.md',
+        name: 'guide.md',
+        absolutePath: '/workspace/docs/guide.md',
+        language: 'markdown',
+      })
     useConsoleStore.getState().setActiveEditor(sampleEditor.id)
     flushPersistedStorage()
     const persisted = JSON.parse(localStorage.getItem('tmuxgo-console-state:desktop') || '{}')
@@ -86,7 +102,10 @@ describe('useConsoleStore editor persistence', () => {
   })
   it('separates mobile storage from desktop and skips desktop-only fields', async () => {
     const originalUA = navigator.userAgent
-    Object.defineProperty(navigator, 'userAgent', { value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148', configurable: true })
+    Object.defineProperty(navigator, 'userAgent', {
+      value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148',
+      configurable: true,
+    })
     try {
       const { useConsoleStore, flushPersistedStorage } = await importStore()
       useConsoleStore.getState().setSessionPanelWidth(300)
@@ -107,9 +126,27 @@ describe('useConsoleStore editor persistence', () => {
   })
   it('migrates legacy unified key to device-specific key for mobile', async () => {
     const originalUA = navigator.userAgent
-    Object.defineProperty(navigator, 'userAgent', { value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148', configurable: true })
+    Object.defineProperty(navigator, 'userAgent', {
+      value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148',
+      configurable: true,
+    })
     try {
-      const legacyState = { activeHostId: 'local', activeSessionId: 's1', gitByHost: { local: { mode: 'follow-editor', currentRepoPath: null, currentFilePath: null, source: null, lockedRepoPath: null, recentRepos: [] } }, sessionPanelWidth: 300, openEditors: [sampleEditor] }
+      const legacyState = {
+        activeHostId: 'local',
+        activeSessionId: 's1',
+        gitByHost: {
+          local: {
+            mode: 'follow-editor',
+            currentRepoPath: null,
+            currentFilePath: null,
+            source: null,
+            lockedRepoPath: null,
+            recentRepos: [],
+          },
+        },
+        sessionPanelWidth: 300,
+        openEditors: [sampleEditor],
+      }
       localStorage.setItem('tmuxgo-console-state', JSON.stringify({ state: legacyState, version: 1 }))
       const { useConsoleStore } = await importStore()
       const state = useConsoleStore.getState()
@@ -139,11 +176,25 @@ describe('useConsoleStore editor persistence', () => {
     const { useConsoleStore } = await import('./useConsoleStore')
     useConsoleStore.getState().ensureGitHostState('local')
     useConsoleStore.getState().setGitFollowEditorRepo('local', '/workspace/app', '/workspace/app/src/index.ts')
-    expect(useConsoleStore.getState().gitByHost.local).toMatchObject({ mode: 'follow-editor', currentRepoPath: '/workspace/app', currentFilePath: '/workspace/app/src/index.ts', source: 'editor' })
+    expect(useConsoleStore.getState().gitByHost.local).toMatchObject({
+      mode: 'follow-editor',
+      currentRepoPath: '/workspace/app',
+      currentFilePath: '/workspace/app/src/index.ts',
+      source: 'editor',
+    })
     useConsoleStore.getState().setGitLockedRepo('local', '/workspace/other')
-    expect(useConsoleStore.getState().gitByHost.local).toMatchObject({ mode: 'locked', currentRepoPath: '/workspace/other', lockedRepoPath: '/workspace/other', source: 'manual' })
+    expect(useConsoleStore.getState().gitByHost.local).toMatchObject({
+      mode: 'locked',
+      currentRepoPath: '/workspace/other',
+      lockedRepoPath: '/workspace/other',
+      source: 'manual',
+    })
     useConsoleStore.getState().resumeGitFollowEditor('local')
-    expect(useConsoleStore.getState().gitByHost.local).toMatchObject({ mode: 'follow-editor', lockedRepoPath: null, currentRepoPath: '/workspace/other' })
+    expect(useConsoleStore.getState().gitByHost.local).toMatchObject({
+      mode: 'follow-editor',
+      lockedRepoPath: null,
+      currentRepoPath: '/workspace/other',
+    })
   })
   it('creates nested editor groups when splitting multiple times', async () => {
     const { useConsoleStore } = await import('./useConsoleStore')
@@ -159,7 +210,9 @@ describe('useConsoleStore editor persistence', () => {
     expect(collectGroupIds(state.editorLayout)).toHaveLength(3)
     expect(state.editorLayout?.type).toBe('split')
     expect(state.activeEditorId).toBe(editor3.id)
-    expect(state.activeEditorGroupId).toBe(state.editorGroups.find((group) => group.editorIds.includes(editor3.id))?.id || null)
+    expect(state.activeEditorGroupId).toBe(
+      state.editorGroups.find((group) => group.editorIds.includes(editor3.id))?.id || null,
+    )
   })
   it('collapses empty groups after moving the last editor out', async () => {
     const { useConsoleStore } = await import('./useConsoleStore')
@@ -167,7 +220,9 @@ describe('useConsoleStore editor persistence', () => {
     useConsoleStore.getState().openEditor(sampleEditor)
     useConsoleStore.getState().openEditor(editor2)
     useConsoleStore.getState().placeEditorInSplit(editor2.id, 'right')
-    const primaryGroupId = useConsoleStore.getState().editorGroups.find((group) => group.editorIds.includes(sampleEditor.id))?.id
+    const primaryGroupId = useConsoleStore
+      .getState()
+      .editorGroups.find((group) => group.editorIds.includes(sampleEditor.id))?.id
     expect(primaryGroupId).toBeTruthy()
     useConsoleStore.getState().moveEditorToGroup(editor2.id, primaryGroupId as string)
     const state = useConsoleStore.getState()
