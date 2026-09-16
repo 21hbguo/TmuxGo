@@ -1103,5 +1103,8 @@ export const en = {
   'vnc.preset.balanced': 'Balanced',
   'vnc.preset.saver': 'Saver',
   'vnc.restorePrev': 'Restore previous',
+  'vnc.resolution': 'Remote size',
+  'vnc.resolution.off': 'Native',
+  'vnc.resolution.auto': 'Follow window',
   'vnc.showStats': 'Show stats',
 } as const
