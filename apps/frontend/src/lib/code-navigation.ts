@@ -30,11 +30,12 @@ export interface CodeNavigationTarget extends Omit<FileDocumentHandle, 'type'> {
   column: number
 }
 export type CodeNavigationResult =
-  | { status: 'success'; target: CodeNavigationTarget }
-  | { status: Exclude<ResolveStatus, 'success'> }
+  { status: 'success'; target: CodeNavigationTarget } | { status: Exclude<ResolveStatus, 'success'> }
 
 const SUPPORTED_LANGUAGES = new Set(['typescript', 'javascript'])
 const FILE_EXTENSIONS = ['.ts', '.tsx', '.d.ts', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs', '.json']
+// .d.ts 已被 .ts 后缀覆盖；扩展名判断用于兜底 editor.language 缺失/陈旧（持久化恢复、旧数据）的场景
+const NAVIGABLE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs']
 const HISTORY_FILE_LIMIT = 160
 let tsPromise: Promise<TsModule> | null = null
 
@@ -46,7 +47,7 @@ function normalizePath(value: string) {
   const input = (value || '').replace(/\\/g, '/')
   const absolute = input.startsWith('/')
   const parts = input.split('/').filter(Boolean)
-  const next:string[] = []
+  const next: string[] = []
   for (const part of parts) {
     if (part === '.') continue
     if (part === '..') {
@@ -100,7 +101,8 @@ function toScriptExtension(ts: TsModule, path: string) {
 function toScriptKind(ts: TsModule, path: string) {
   const lower = normalizePath(path).toLowerCase()
   if (lower.endsWith('.tsx')) return ts.ScriptKind.TSX
-  if (lower.endsWith('.ts') || lower.endsWith('.d.ts') || lower.endsWith('.mts') || lower.endsWith('.cts')) return ts.ScriptKind.TS
+  if (lower.endsWith('.ts') || lower.endsWith('.d.ts') || lower.endsWith('.mts') || lower.endsWith('.cts'))
+    return ts.ScriptKind.TS
   if (lower.endsWith('.jsx')) return ts.ScriptKind.JSX
   if (lower.endsWith('.json')) return ts.ScriptKind.JSON
   return ts.ScriptKind.JS
@@ -140,17 +142,38 @@ function hasModifier(ts: TsModule, node: import('typescript').Node, kind: import
 function collectImportBindings(ts: TsModule, sourceFile: import('typescript').SourceFile) {
   const bindings = new Map<string, ImportBinding>()
   for (const statement of sourceFile.statements) {
-    if (!ts.isImportDeclaration(statement) || !statement.importClause || !ts.isStringLiteralLike(statement.moduleSpecifier)) continue
+    if (
+      !ts.isImportDeclaration(statement) ||
+      !statement.importClause ||
+      !ts.isStringLiteralLike(statement.moduleSpecifier)
+    )
+      continue
     const specifier = statement.moduleSpecifier.text
-    if (statement.importClause.name) bindings.set(statement.importClause.name.text, { localName: statement.importClause.name.text, importedName: 'default', specifier, kind: 'default' })
+    if (statement.importClause.name)
+      bindings.set(statement.importClause.name.text, {
+        localName: statement.importClause.name.text,
+        importedName: 'default',
+        specifier,
+        kind: 'default',
+      })
     const namedBindings = statement.importClause.namedBindings
     if (!namedBindings) continue
     if (ts.isNamespaceImport(namedBindings)) {
-      bindings.set(namedBindings.name.text, { localName: namedBindings.name.text, importedName: '*', specifier, kind: 'namespace' })
+      bindings.set(namedBindings.name.text, {
+        localName: namedBindings.name.text,
+        importedName: '*',
+        specifier,
+        kind: 'namespace',
+      })
       continue
     }
     for (const element of namedBindings.elements) {
-      bindings.set(element.name.text, { localName: element.name.text, importedName: element.propertyName?.text || element.name.text, specifier, kind: 'named' })
+      bindings.set(element.name.text, {
+        localName: element.name.text,
+        importedName: element.propertyName?.text || element.name.text,
+        specifier,
+        kind: 'named',
+      })
     }
   }
   return bindings
@@ -163,7 +186,20 @@ function findLocalDeclarationByName(ts: TsModule, sourceFile: import('typescript
       target = node.name
       return
     }
-    if ((ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node) || ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node) || ts.isEnumDeclaration(node) || ts.isImportClause(node) || ts.isImportSpecifier(node) || ts.isNamespaceImport(node) || ts.isBindingElement(node)) && node.name && ts.isIdentifier(node.name) && node.name.text === name) {
+    if (
+      (ts.isFunctionDeclaration(node) ||
+        ts.isClassDeclaration(node) ||
+        ts.isInterfaceDeclaration(node) ||
+        ts.isTypeAliasDeclaration(node) ||
+        ts.isEnumDeclaration(node) ||
+        ts.isImportClause(node) ||
+        ts.isImportSpecifier(node) ||
+        ts.isNamespaceImport(node) ||
+        ts.isBindingElement(node)) &&
+      node.name &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === name
+    ) {
       target = node.name
       return
     }
@@ -172,17 +208,35 @@ function findLocalDeclarationByName(ts: TsModule, sourceFile: import('typescript
   visit(sourceFile)
   return target
 }
-function findExportedNode(ts: TsModule, sourceFile: import('typescript').SourceFile, importedName: string, kind: ImportBinding['kind']) {
+function findExportedNode(
+  ts: TsModule,
+  sourceFile: import('typescript').SourceFile,
+  importedName: string,
+  kind: ImportBinding['kind'],
+) {
   if (kind === 'namespace') return sourceFile
   if (kind === 'default') {
     for (const statement of sourceFile.statements) {
       if (ts.isExportAssignment(statement) && !statement.isExportEquals) return statement.expression
-      if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) && hasModifier(ts, statement, ts.SyntaxKind.DefaultKeyword) && hasModifier(ts, statement, ts.SyntaxKind.ExportKeyword)) return statement.name || statement
+      if (
+        (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) &&
+        hasModifier(ts, statement, ts.SyntaxKind.DefaultKeyword) &&
+        hasModifier(ts, statement, ts.SyntaxKind.ExportKeyword)
+      )
+        return statement.name || statement
     }
   }
   for (const statement of sourceFile.statements) {
     if (!hasModifier(ts, statement, ts.SyntaxKind.ExportKeyword)) continue
-    if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement) || ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement) || ts.isEnumDeclaration(statement)) && statement.name?.text === importedName) return statement.name
+    if (
+      (ts.isFunctionDeclaration(statement) ||
+        ts.isClassDeclaration(statement) ||
+        ts.isInterfaceDeclaration(statement) ||
+        ts.isTypeAliasDeclaration(statement) ||
+        ts.isEnumDeclaration(statement)) &&
+      statement.name?.text === importedName
+    )
+      return statement.name
     if (ts.isVariableStatement(statement)) {
       for (const declaration of statement.declarationList.declarations) {
         if (ts.isIdentifier(declaration.name) && declaration.name.text === importedName) return declaration.name
@@ -190,7 +244,13 @@ function findExportedNode(ts: TsModule, sourceFile: import('typescript').SourceF
     }
   }
   for (const statement of sourceFile.statements) {
-    if (!ts.isExportDeclaration(statement) || !statement.exportClause || !ts.isNamedExports(statement.exportClause) || statement.moduleSpecifier) continue
+    if (
+      !ts.isExportDeclaration(statement) ||
+      !statement.exportClause ||
+      !ts.isNamedExports(statement.exportClause) ||
+      statement.moduleSpecifier
+    )
+      continue
     for (const element of statement.exportClause.elements) {
       if (element.name.text !== importedName) continue
       return findLocalDeclarationByName(ts, sourceFile, element.propertyName?.text || element.name.text)
@@ -243,7 +303,9 @@ async function readStat(context: ResolverContext, absolutePath: string) {
       const result = await api.files.content(context.hostId, context.rootId, relativePath)
       if (result.type === 'directory') return { type: 'directory' as const }
       if (result.type !== 'file') return null
-      return result.binary || result.truncated ? { type: 'file' as const } : { type: 'file' as const, content: result.content }
+      return result.binary || result.truncated
+        ? { type: 'file' as const }
+        : { type: 'file' as const, content: result.content }
     } catch {
       return null
     }
@@ -320,10 +382,26 @@ async function resolvePackageEntry(context: ResolverContext, packageDir: string,
   const packageJson = await readResolverFile(context, joinPath(normalizedPackageDir, 'package.json'))
   if (packageJson) {
     try {
-      const parsed = JSON.parse(packageJson.content) as { types?: string; typings?: string; module?: string; main?: string; exports?: unknown }
+      const parsed = JSON.parse(packageJson.content) as {
+        types?: string
+        typings?: string
+        module?: string
+        main?: string
+        exports?: unknown
+      }
       const exportKey = subpath ? `./${subpath}` : '.'
-      const exportsValue = subpath ? (parsed.exports && typeof parsed.exports === 'object' && !Array.isArray(parsed.exports) ? (parsed.exports as Record<string, unknown>)[exportKey] : undefined) : parsed.exports
-      for (const candidate of [...readExportTarget(exportsValue), parsed.types || '', parsed.typings || '', parsed.module || '', parsed.main || '']) {
+      const exportsValue = subpath
+        ? parsed.exports && typeof parsed.exports === 'object' && !Array.isArray(parsed.exports)
+          ? (parsed.exports as Record<string, unknown>)[exportKey]
+          : undefined
+        : parsed.exports
+      for (const candidate of [
+        ...readExportTarget(exportsValue),
+        parsed.types || '',
+        parsed.typings || '',
+        parsed.module || '',
+        parsed.main || '',
+      ]) {
         if (!candidate) continue
         const resolved = await resolveFileCandidate(context, joinPath(normalizedPackageDir, candidate))
         if (resolved) return resolved
@@ -339,8 +417,10 @@ async function resolveModuleSpecifier(context: ResolverContext, absolutePath: st
   if (existing) return existing
   const promise = (async () => {
     if (!specifier) return null
-    if (specifier.startsWith('@/')) return resolveFileCandidate(context, joinPath(context.sourceRootPath, specifier.slice(2)))
-    if (!isBareSpecifier(specifier)) return resolveFileCandidate(context, joinPath(dirnamePath(normalizedAbsolutePath), specifier))
+    if (specifier.startsWith('@/'))
+      return resolveFileCandidate(context, joinPath(context.sourceRootPath, specifier.slice(2)))
+    if (!isBareSpecifier(specifier))
+      return resolveFileCandidate(context, joinPath(dirnamePath(normalizedAbsolutePath), specifier))
     const { packageName, subpath } = parsePackageSpecifier(specifier)
     let current = dirnamePath(normalizedAbsolutePath)
     while (hasRootPrefix(context.rootPath, current)) {
@@ -358,10 +438,22 @@ function collectModuleSpecifiers(ts: TsModule, sourceFile: import('typescript').
   const specifiers = new Set<string>()
   const visit = (node: import('typescript').Node) => {
     if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
-      if (node.moduleSpecifier && ts.isStringLiteralLike(node.moduleSpecifier)) specifiers.add(node.moduleSpecifier.text)
-    } else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference) && node.moduleReference.expression && ts.isStringLiteralLike(node.moduleReference.expression)) {
+      if (node.moduleSpecifier && ts.isStringLiteralLike(node.moduleSpecifier))
+        specifiers.add(node.moduleSpecifier.text)
+    } else if (
+      ts.isImportEqualsDeclaration(node) &&
+      ts.isExternalModuleReference(node.moduleReference) &&
+      node.moduleReference.expression &&
+      ts.isStringLiteralLike(node.moduleReference.expression)
+    ) {
       specifiers.add(node.moduleReference.expression.text)
-    } else if (ts.isCallExpression(node) && node.arguments.length === 1 && ts.isIdentifier(node.expression) && node.expression.text === 'require' && ts.isStringLiteralLike(node.arguments[0])) {
+    } else if (
+      ts.isCallExpression(node) &&
+      node.arguments.length === 1 &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === 'require' &&
+      ts.isStringLiteralLike(node.arguments[0])
+    ) {
       specifiers.add(node.arguments[0].text)
     }
     ts.forEachChild(node, visit)
@@ -378,7 +470,13 @@ async function buildProjectGraph(ts: TsModule, context: ResolverContext, entryFi
     const normalized = normalizePath(current.absolutePath)
     if (loaded.has(normalized)) continue
     loaded.set(normalized, current)
-    const sourceFile = ts.createSourceFile(normalized, current.content, ts.ScriptTarget.Latest, true, toScriptKind(ts, normalized))
+    const sourceFile = ts.createSourceFile(
+      normalized,
+      current.content,
+      ts.ScriptTarget.Latest,
+      true,
+      toScriptKind(ts, normalized),
+    )
     for (const specifier of collectModuleSpecifiers(ts, sourceFile)) {
       const resolved = await resolveModuleSpecifier(context, normalized, specifier)
       if (resolved && !loaded.has(normalizePath(resolved.absolutePath))) queue.push(resolved)
@@ -387,11 +485,25 @@ async function buildProjectGraph(ts: TsModule, context: ResolverContext, entryFi
   return loaded
 }
 async function getResolvedModules(context: ResolverContext, containingFile: string, moduleNames: string[]) {
-  const resolved = await Promise.all(moduleNames.map((moduleName) => resolveModuleSpecifier(context, containingFile, moduleName)))
+  const resolved = await Promise.all(
+    moduleNames.map((moduleName) => resolveModuleSpecifier(context, containingFile, moduleName)),
+  )
   return new Map(moduleNames.map((moduleName, index) => [moduleName, resolved[index] || null]))
 }
-export async function resolveEditorDefinition(editor: FileEditorDocument, position: { line: number; column: number }, openEditors: FileEditorDocument[]): Promise<CodeNavigationResult> {
-  if (!SUPPORTED_LANGUAGES.has(editor.language)) return { status: 'unsupported' }
+function isNavigableFileName(name: string) {
+  const lower = (name || '').toLowerCase()
+  return NAVIGABLE_EXTENSIONS.some((ext) => lower.endsWith(ext))
+}
+export async function resolveEditorDefinition(
+  editor: FileEditorDocument,
+  position: { line: number; column: number },
+  openEditors: FileEditorDocument[],
+): Promise<CodeNavigationResult> {
+  if (
+    !SUPPORTED_LANGUAGES.has(editor.language) &&
+    !isNavigableFileName(editor.name || editor.path || editor.absolutePath)
+  )
+    return { status: 'unsupported' }
   const ts = await loadTypeScript()
   const openEditorMap = new Map(openEditors.map((item) => [normalizePath(item.absolutePath), item] as const))
   openEditorMap.set(normalizePath(editor.absolutePath), editor)
@@ -408,7 +520,13 @@ export async function resolveEditorDefinition(editor: FileEditorDocument, positi
   }
   const entryFile = await readResolverFile(context, editor.absolutePath)
   if (!entryFile) return { status: 'not-found' }
-  const entrySourceFile = ts.createSourceFile(entryFile.absolutePath, entryFile.content, ts.ScriptTarget.Latest, true, toScriptKind(ts, entryFile.absolutePath))
+  const entrySourceFile = ts.createSourceFile(
+    entryFile.absolutePath,
+    entryFile.content,
+    ts.ScriptTarget.Latest,
+    true,
+    toScriptKind(ts, entryFile.absolutePath),
+  )
   const offset = getOffset(entryFile.content, position.line, position.column)
   const importBindings = collectImportBindings(ts, entrySourceFile)
   const nodeAtPosition = findNodeAtPosition(ts, entrySourceFile, offset)
@@ -441,9 +559,18 @@ export async function resolveEditorDefinition(editor: FileEditorDocument, positi
       if (binding) {
         const resolvedFile = await resolveModuleSpecifier(context, entryFile.absolutePath, binding.specifier)
         if (resolvedFile) {
-          const targetSource = ts.createSourceFile(resolvedFile.absolutePath, resolvedFile.content, ts.ScriptTarget.Latest, true, toScriptKind(ts, resolvedFile.absolutePath))
+          const targetSource = ts.createSourceFile(
+            resolvedFile.absolutePath,
+            resolvedFile.content,
+            ts.ScriptTarget.Latest,
+            true,
+            toScriptKind(ts, resolvedFile.absolutePath),
+          )
           const targetNode = findExportedNode(ts, targetSource, binding.importedName, binding.kind)
-          const location = ts.getLineAndCharacterOfPosition(targetSource, targetNode?.getStart(targetSource, false) || 0)
+          const location = ts.getLineAndCharacterOfPosition(
+            targetSource,
+            targetNode?.getStart(targetSource, false) || 0,
+          )
           return {
             status: 'success',
             target: {
@@ -467,7 +594,13 @@ export async function resolveEditorDefinition(editor: FileEditorDocument, positi
   const loadedFiles = await buildProjectGraph(ts, context, entryFile)
   const moduleNames = new Map<string, string[]>()
   for (const [fileName, file] of Array.from(loadedFiles.entries())) {
-    const sourceFile = ts.createSourceFile(fileName, file.content, ts.ScriptTarget.Latest, true, toScriptKind(ts, fileName))
+    const sourceFile = ts.createSourceFile(
+      fileName,
+      file.content,
+      ts.ScriptTarget.Latest,
+      true,
+      toScriptKind(ts, fileName),
+    )
     moduleNames.set(fileName, collectModuleSpecifiers(ts, sourceFile))
   }
   const moduleResolutionMap = new Map<string, Map<string, ResolverFile | null>>()
@@ -506,11 +639,16 @@ export async function resolveEditorDefinition(editor: FileEditorDocument, positi
       return fileNames.some((fileName) => fileName === normalized || fileName.startsWith(`${normalized}/`))
     },
     getScriptKind: (fileName) => toScriptKind(ts, fileName),
-    resolveModuleNames: (names, containingFile) => names.map((name) => {
-      const match = moduleResolutionMap.get(normalizePath(containingFile))?.get(name)
-      if (!match) return undefined
-      return { resolvedFileName: match.absolutePath, extension: toScriptExtension(ts, match.absolutePath), isExternalLibraryImport: match.absolutePath.includes('/node_modules/') }
-    }),
+    resolveModuleNames: (names, containingFile) =>
+      names.map((name) => {
+        const match = moduleResolutionMap.get(normalizePath(containingFile))?.get(name)
+        if (!match) return undefined
+        return {
+          resolvedFileName: match.absolutePath,
+          extension: toScriptExtension(ts, match.absolutePath),
+          isExternalLibraryImport: match.absolutePath.includes('/node_modules/'),
+        }
+      }),
   }
   const service = ts.createLanguageService(host)
   const program = service.getProgram()
@@ -526,7 +664,10 @@ export async function resolveEditorDefinition(editor: FileEditorDocument, positi
       const declaration = symbol?.valueDeclaration || symbol?.declarations?.[0]
       if (declaration) {
         const declarationFile = declaration.getSourceFile()
-        targetFile = loadedFiles.get(normalizePath(declarationFile.fileName)) || await resolveFileCandidate(context, declarationFile.fileName) || await readResolverFile(context, declarationFile.fileName)
+        targetFile =
+          loadedFiles.get(normalizePath(declarationFile.fileName)) ||
+          (await resolveFileCandidate(context, declarationFile.fileName)) ||
+          (await readResolverFile(context, declarationFile.fileName))
         targetStart = declaration.getStart(declarationFile, false)
       }
     }
@@ -535,13 +676,22 @@ export async function resolveEditorDefinition(editor: FileEditorDocument, positi
     const definitions = service.getDefinitionAtPosition(entryFile.absolutePath, offset) || []
     const target = definitions[0]
     if (target) {
-      targetFile = loadedFiles.get(normalizePath(target.fileName)) || await resolveFileCandidate(context, target.fileName) || await readResolverFile(context, target.fileName)
+      targetFile =
+        loadedFiles.get(normalizePath(target.fileName)) ||
+        (await resolveFileCandidate(context, target.fileName)) ||
+        (await readResolverFile(context, target.fileName))
       targetStart = target.textSpan.start
     }
   }
   service.dispose()
   if (!targetFile) return { status: 'not-found' }
-  const sourceFile = ts.createSourceFile(targetFile.absolutePath, targetFile.content, ts.ScriptTarget.Latest, true, toScriptKind(ts, targetFile.absolutePath))
+  const sourceFile = ts.createSourceFile(
+    targetFile.absolutePath,
+    targetFile.content,
+    ts.ScriptTarget.Latest,
+    true,
+    toScriptKind(ts, targetFile.absolutePath),
+  )
   const location = ts.getLineAndCharacterOfPosition(sourceFile, targetStart)
   const relativePath = toRelativePath(context.rootPath, targetFile.absolutePath) || targetFile.path
   return {
