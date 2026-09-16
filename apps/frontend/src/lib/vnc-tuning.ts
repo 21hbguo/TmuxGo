@@ -140,35 +140,44 @@ export function attachVncInstrumentation(rfb: RFBType): VncInstrumentation {
 
 // 远端分辨率调节：'off' 不动远端；'auto' 跟随视口（rfb.resizeSession）；
 // 'WxH' 直接发 SetDesktopSize。仅 ExtendedDesktopSize 协商成功后生效（x11vnc 不支持则自动无效）。
+// cleanup 会把远端恢复到协商时快照的原始分辨率——必须在 RFB.disconnect() 之前调用，socket 关了就发不出去了。
 export const VNC_RESOLUTION_PRESETS = ['1920x1080', '1600x900', '1366x768', '1280x720'] as const
 
 export function applyVncResolution(rfb: RFBType, RFB: typeof RFBType, mode: string, viewOnly: boolean): () => void {
   const anyRfb = rfb as any
   // 仅查看模式下禁止改远端分辨率
-  if (viewOnly) return () => {}
-  if (mode === 'auto') {
-    anyRfb.resizeSession = true
-    return () => {
-      anyRfb.resizeSession = false
-    }
-  }
-  anyRfb.resizeSession = false
+  if (viewOnly || mode === 'off') return () => {}
   const match = /^(\d{3,4})x(\d{3,4})$/.exec(mode)
-  if (!match) return () => {}
-  const width = Number(match[1])
-  const height = Number(match[2])
+  const fixed = mode === 'auto' ? null : match ? { w: Number(match[1]), h: Number(match[2]) } : null
+  if (mode !== 'auto' && !fixed) return () => {}
+  const send = (w: number, h: number) => {
+    if (!anyRfb._sock || !anyRfb._supportsSetDesktopSize) return
+    ;(RFB as any).messages.setDesktopSize(anyRfb._sock, w, h, anyRfb._screenID, anyRfb._screenFlags)
+  }
+  let applied = false
   let tries = 0
   const timer = setInterval(() => {
     if (tries++ > 20 || !anyRfb._sock) {
       clearInterval(timer)
       return
     }
-    // 服务端宣告支持 ExtendedDesktopSize 之前发 SetDesktopSize 是协议违规
-    if (!anyRfb._supportsSetDesktopSize) return
+    // 服务端宣告支持 ExtendedDesktopSize 且首帧到位前发 SetDesktopSize 是协议违规
+    if (!anyRfb._supportsSetDesktopSize || !anyRfb._fbWidth) return
+    // 每条连接只快照一次原始分辨率：切换模式时 cleanup 先恢复，若此刻重取会拿到已改过的尺寸
+    if (!anyRfb.__tmuxgoOriginalSize) anyRfb.__tmuxgoOriginalSize = { w: anyRfb._fbWidth, h: anyRfb._fbHeight }
     clearInterval(timer)
-    ;(RFB as any).messages.setDesktopSize(anyRfb._sock, width, height, anyRfb._screenID, anyRfb._screenFlags)
+    applied = true
+    if (fixed) send(fixed.w, fixed.h)
+    else anyRfb.resizeSession = true
   }, 500)
-  return () => clearInterval(timer)
+  return () => {
+    clearInterval(timer)
+    anyRfb.resizeSession = false
+    const original = anyRfb.__tmuxgoOriginalSize
+    if (applied && original && (anyRfb._fbWidth !== original.w || anyRfb._fbHeight !== original.h)) {
+      send(original.w, original.h)
+    }
+  }
 }
 
 // 按宿主机记住上次连接的 VNC 端口：不同机器的 display 号不同
