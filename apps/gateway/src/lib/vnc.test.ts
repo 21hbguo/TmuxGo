@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { normalizeVncPort, parseVncProbe } from './vnc.js'
+import { normalizeVncPort, parseVncDisplays, parseVncProbe } from './vnc.js'
 
 test('normalizeVncPort accepts display ports 5900-5999 and defaults to 5900', () => {
   assert.equal(normalizeVncPort(undefined), 5900)
@@ -40,4 +40,20 @@ test('parseVncProbe detects a running server and wayland/macos hints', () => {
   const windows = parseVncProbe('os=MINGW64_NT\n')
   assert.equal(windows.supported, false)
   assert.equal(windows.hint, 'unsupported-os')
+})
+
+test('parseVncDisplays maps listening ports to displays and dedupes ipv6', () => {
+  const stdout = [
+    'LISTEN 0 5 127.0.0.1:5909 0.0.0.0:* users:(("Xtigervnc",pid=3802271,fd=9))',
+    'LISTEN 0 5 [::1]:5909 [::]:* users:(("Xtigervnc",pid=3802271,fd=10))',
+    'LISTEN 0 5 127.0.0.1:5900 0.0.0.0:*',
+    'LISTEN 0 5 127.0.0.1:22 0.0.0.0:* users:(("sshd",pid=1,fd=3))',
+    '__procs__',
+    '3802271 Xtigervnc Xtigervnc :9',
+  ].join('\n')
+  const displays = parseVncDisplays(stdout)
+  assert.deepEqual(displays, [
+    { display: 0, port: 5900, process: null, pid: null },
+    { display: 9, port: 5909, process: 'Xtigervnc', pid: 3802271 },
+  ])
 })

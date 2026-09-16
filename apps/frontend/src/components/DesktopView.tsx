@@ -16,7 +16,7 @@ import {
   FiX,
 } from 'react-icons/fi'
 import { Button } from './Button'
-import { api, type VncSetupStatus } from '@/lib/api'
+import { api, type VncDisplay, type VncSetupStatus } from '@/lib/api'
 import { getWebSocketUrl } from '@/lib/auth'
 import {
   applyVncResolution,
@@ -84,7 +84,12 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [viewOnly, setViewOnly] = useState(false)
-  const [portInput, setPortInput] = useState(String(port))
+  const [selectedDisplay, setSelectedDisplay] = useState(port - 5900)
+  // 虚拟屏选择器：displays 为 null 表示尚未探测
+  const [displays, setDisplays] = useState<VncDisplay[] | null>(null)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [displayBusy, setDisplayBusy] = useState<number | null>(null)
+  const [displayHint, setDisplayHint] = useState('')
   const [setupOpen, setSetupOpen] = useState(false)
   const [setupBusy, setSetupBusy] = useState<'' | 'check' | 'install' | 'start'>('')
   const [setupInfo, setSetupInfo] = useState<{
@@ -265,12 +270,48 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
   }, [])
 
   const handleConnect = useCallback(() => {
-    const next = Number(portInput)
-    const target =
-      Number.isInteger(next) && next >= VNC_PORT_RANGE.min && next <= VNC_PORT_RANGE.max ? next : VNC_PORT_RANGE.min
+    const target = Math.min(VNC_PORT_RANGE.max, Math.max(VNC_PORT_RANGE.min, VNC_PORT_RANGE.min + selectedDisplay))
     writeVncPort(hostId, target)
     void connect(target)
-  }, [connect, hostId, portInput])
+  }, [connect, hostId, selectedDisplay])
+
+  const refreshDisplays = useCallback(async () => {
+    try {
+      const result = await api.vnc.displays(hostId)
+      setDisplays(result.displays)
+    } catch {
+      setDisplays(null)
+    }
+  }, [hostId])
+
+  const displayAction = useCallback(
+    async (action: 'start' | 'stop', display: number) => {
+      setDisplayBusy(display)
+      setDisplayHint('')
+      try {
+        const result = await api.vnc.displayAction(hostId, action, display)
+        setDisplays(result.displays)
+        if (result.needPassword) setDisplayHint(t('vnc.displayNeedPassword'))
+        else if (result.noServer) setDisplayHint(t('vnc.displayNoServer'))
+        if (action === 'start' && result.ok) {
+          setSelectedDisplay(display)
+          const target = VNC_PORT_RANGE.min + display
+          writeVncPort(hostId, target)
+          void connect(target)
+        }
+      } catch {
+        setDisplayHint(t('vnc.displayActionFailed'))
+      } finally {
+        setDisplayBusy(null)
+      }
+    },
+    [connect, hostId, t],
+  )
+
+  // 连接状态变化后刷新 display 列表，让状态点跟上真实监听情况
+  useEffect(() => {
+    if (status === 'connected' || status === 'disconnected') void refreshDisplays()
+  }, [status, refreshDisplays])
 
   useEffect(() => {
     if (rfbRef.current) rfbRef.current.viewOnly = viewOnly
@@ -444,17 +485,94 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
             {statusLabel ? ` · ${statusLabel}` : ''}
           </div>
         </div>
-        <input
-          value={portInput}
-          onChange={(event) => setPortInput(event.target.value.replace(/\D/g, '').slice(0, 4))}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') handleConnect()
-          }}
-          inputMode="numeric"
-          aria-label={t('vnc.port')}
-          title={t('vnc.port')}
-          className="h-7 w-16 rounded-apple border border-[var(--line)] bg-bg-1 px-2 text-xs text-text-1 outline-none focus:border-accent"
-        />
+        <div className="relative" onMouseLeave={() => setPickerOpen(false)}>
+          <button
+            type="button"
+            onClick={() => {
+              const next = !pickerOpen
+              setPickerOpen(next)
+              if (next) void refreshDisplays()
+            }}
+            aria-label={t('vnc.displays')}
+            title={t('vnc.displays')}
+            className="flex h-7 items-center gap-1.5 rounded-apple border border-[var(--line)] bg-bg-1 px-2 text-xs text-text-1 outline-none hover:border-accent"
+          >
+            <span
+              className="inline-block h-2 w-2 rounded-full"
+              style={{
+                background:
+                  displayBusy === selectedDisplay
+                    ? 'var(--warning, #d29922)'
+                    : displays?.some((d) => d.display === selectedDisplay)
+                      ? 'var(--accent-2)'
+                      : 'var(--text-3)',
+              }}
+            />
+            :{selectedDisplay}
+          </button>
+          {pickerOpen && (
+            <div className="tmuxgo-glass absolute left-0 top-8 z-20 flex w-52 flex-col gap-0.5 rounded-apple-lg p-1.5 text-xs text-text-1">
+              {[...new Set([...Array(10).keys(), ...(displays || []).map((d) => d.display), selectedDisplay])]
+                .sort// 基础候选 :0-:9 ∪ 已探测到的运行中 display ∪ 当前选中项
+                ((a, b) => a - b)
+                .map((n) => {
+                  const running = displays?.find((d) => d.display === n)
+                  const busy = displayBusy === n
+                  return (
+                    <div
+                      key={n}
+                      className={`group flex h-7 items-center gap-2 rounded-apple px-2 ${
+                        n === selectedDisplay ? 'bg-[var(--accent)]/10' : 'hover:bg-[var(--line)]/40'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-2 w-2 shrink-0 rounded-full ${busy ? 'animate-pulse' : ''}`}
+                        style={{
+                          background: busy ? 'var(--warning, #d29922)' : running ? 'var(--accent-2)' : 'var(--text-3)',
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="flex min-w-0 flex-1 items-baseline gap-1.5 text-left"
+                        onClick={() => {
+                          setSelectedDisplay(n)
+                          setPickerOpen(false)
+                          // 选中即连：直接按 n 算端口，setState 是异步的不能走 handleConnect 闭包
+                          if (running) {
+                            const target = VNC_PORT_RANGE.min + n
+                            writeVncPort(hostId, target)
+                            void connect(target)
+                          }
+                        }}
+                      >
+                        <span className="font-mono">:{n}</span>
+                        <span className="truncate text-text-3">
+                          {running?.process || `59${String(n).padStart(2, '0')}`}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        aria-label={running ? t('vnc.displayStop') : t('vnc.displayStart')}
+                        title={running ? t('vnc.displayStop') : t('vnc.displayStart')}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          void displayAction(running ? 'stop' : 'start', n)
+                        }}
+                        className={`shrink-0 opacity-0 transition-opacity group-hover:opacity-100 disabled:opacity-50 ${
+                          running ? 'text-red-400 hover:text-red-300' : 'text-accent-2 hover:text-accent'
+                        }`}
+                      >
+                        {running ? <FiSquare size={11} /> : <FiPlay size={11} />}
+                      </button>
+                    </div>
+                  )
+                })}
+              {displays === null && <div className="px-2 py-1 text-text-3">{t('vnc.displaysLoading')}</div>}
+              {displayHint && <div className="px-2 py-1 text-[11px] text-warning">{displayHint}</div>}
+            </div>
+          )}
+        </div>
         {status === 'connected' || status === 'connecting' ? (
           <Button
             variant="ghost"
