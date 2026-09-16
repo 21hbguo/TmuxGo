@@ -12,12 +12,13 @@ export interface VncTuning {
   quality: number
   compression: number
   maxFps: number
+  lossless: boolean
 }
 
 export const VNC_TUNING_PRESETS: Record<string, VncTuning> = {
-  speed: { quality: 8, compression: 1, maxFps: 60 },
-  balanced: { quality: 6, compression: 2, maxFps: 30 },
-  saver: { quality: 3, compression: 6, maxFps: 15 },
+  speed: { quality: 8, compression: 1, maxFps: 60, lossless: false },
+  balanced: { quality: 6, compression: 2, maxFps: 30, lossless: false },
+  saver: { quality: 3, compression: 6, maxFps: 15, lossless: false },
 }
 export const VNC_TUNING_DEFAULT = VNC_TUNING_PRESETS.balanced
 
@@ -75,8 +76,25 @@ export function installVncRequestThrottle(RFB: typeof RFBType) {
 
 export interface VncInstrumentation {
   setMaxFps: (fps: number) => void
+  setLossless: (on: boolean) => void
   sample: () => VncStatsSample
   dispose: () => void
+}
+
+// 无损模式：从 SetEncodings 协商列表剔除可携带 JPEG/H.264 有损载荷的编码
+//（encodings.encodingTight=7 在 quality<9 时会发 JPEG 子块，encodingJPEG=21，encodingH264=50），
+// 保留 copyRect/tightPNG/ZRLE/hextile/RRE/zlib/raw 这些恒无损编码。ID 与 core/encodings.js 对齐。
+const LOSSY_ENCODINGS = new Set([7, 21, 50])
+let losslessActive = false
+let encodingsPatched = false
+export function installVncLosslessFilter(RFB: typeof RFBType) {
+  if (encodingsPatched) return
+  const messages = (RFB as any).messages
+  const original = messages?.clientEncodings
+  if (typeof original !== 'function') return
+  encodingsPatched = true
+  messages.clientEncodings = (sock: unknown, encs: number[]) =>
+    original(sock, losslessActive ? encs.filter((e) => !LOSSY_ENCODINGS.has(e)) : encs)
 }
 
 export function attachVncInstrumentation(rfb: RFBType): VncInstrumentation {
@@ -84,7 +102,12 @@ export function attachVncInstrumentation(rfb: RFBType): VncInstrumentation {
   let bytesIn = 0
   let bytesOut = 0
   let disposed = false
-  const noop = { setMaxFps: () => {}, sample: () => ({ fps: 0, inKbps: 0, outKbps: 0 }), dispose: () => {} }
+  const noop = {
+    setMaxFps: () => {},
+    setLossless: () => {},
+    sample: () => ({ fps: 0, inKbps: 0, outKbps: 0 }),
+    dispose: () => {},
+  }
   const anyRfb = rfb as any
   const sock = anyRfb._sock as InstrumentedSock | undefined
   const ws = sock?._websocket
@@ -112,6 +135,12 @@ export function attachVncInstrumentation(rfb: RFBType): VncInstrumentation {
   return {
     setMaxFps(fps) {
       sock.__tmuxgoMaxFps = fps
+    },
+    setLossless(on) {
+      losslessActive = on
+      // 重发 SetEncodings 让协商立刻生效；仅 connected 态可发，与 noVNC 内部用法一致
+      if (anyRfb._rfbConnectionState === 'connected' && typeof anyRfb._sendEncodings === 'function')
+        anyRfb._sendEncodings()
     },
     sample() {
       const now = performance.now()

@@ -1100,5 +1100,7 @@ export const zh = {
   'vnc.resolution': '远端分辨率',
   'vnc.resolution.off': '原生',
   'vnc.resolution.auto': '跟随窗口',
+  'vnc.lossless': '无损画质',
+  'vnc.losslessHint': '剔除 JPEG/H.264 有损编码，文字逐像素无损；照片/视频类画面流量会增大',
   'vnc.showStats': '显示统计',
 } as const

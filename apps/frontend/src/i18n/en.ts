@@ -1106,5 +1106,7 @@ export const en = {
   'vnc.resolution': 'Remote size',
   'vnc.resolution.off': 'Native',
   'vnc.resolution.auto': 'Follow window',
+  'vnc.lossless': 'Lossless',
+  'vnc.losslessHint': 'Drops JPEG/H.264 encodings for pixel-perfect text; photo/video regions cost more bandwidth',
   'vnc.showStats': 'Show stats',
 } as const

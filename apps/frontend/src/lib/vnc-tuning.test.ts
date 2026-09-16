@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { attachVncInstrumentation, installVncRequestThrottle, VNC_FPS_RANGE } from './vnc-tuning'
+import {
+  attachVncInstrumentation,
+  installVncLosslessFilter,
+  installVncRequestThrottle,
+  VNC_FPS_RANGE,
+} from './vnc-tuning'
 
 function makeRfbClass() {
   const calls: unknown[][] = []
@@ -39,6 +44,47 @@ describe('installVncRequestThrottle', () => {
     send(sock, true, 0, 0, 100, 100)
     send(sock, true, 0, 0, 100, 100)
     expect(calls).toHaveLength(3)
+  })
+})
+
+describe('installVncLosslessFilter', () => {
+  it('filters lossy encodings only while enabled', () => {
+    const sent: number[][] = []
+    const ws = {
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      send: () => {},
+    } as unknown as WebSocket
+    const messages = { clientEncodings: (_sock: unknown, encs: number[]) => sent.push(encs) }
+    class FakeRfb {}
+    ;(FakeRfb as any).messages = messages
+    installVncLosslessFilter(FakeRfb as any)
+    const rfb = {
+      _sock: { _websocket: ws },
+      _framebufferUpdate: () => true,
+      _rfbConnectionState: 'connected',
+      _sendEncodings: vi.fn(),
+    } as any
+    const instrumentation = attachVncInstrumentation(rfb)
+    const send = (FakeRfb as any).messages.clientEncodings
+    send({}, [1, 7, -260, 16, 21, 50, 0])
+    instrumentation.setLossless(true)
+    send({}, [1, 7, -260, 16, 21, 50, 0])
+    instrumentation.setLossless(false)
+    send({}, [1, 7, -260, 16, 21, 50, 0])
+    expect(sent).toEqual([
+      [1, 7, -260, 16, 21, 50, 0],
+      [1, -260, 16, 0],
+      [1, 7, -260, 16, 21, 50, 0],
+    ])
+    // connected 态切开关会重发协商，非 connected 态不发
+    expect(rfb._sendEncodings).toHaveBeenCalledTimes(2)
+    rfb._rfbConnectionState = 'connecting'
+    instrumentation.setLossless(true)
+    expect(rfb._sendEncodings).toHaveBeenCalledTimes(2)
+    // 收尾复位模块级开关，避免泄漏到其他用例
+    instrumentation.setLossless(false)
+    instrumentation.dispose()
   })
 })
 
