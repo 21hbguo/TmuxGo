@@ -596,6 +596,8 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
     syncExclusiveViewport,
     syncSharedViewport,
     scheduleLayoutSync,
+    // 切换攒流用：resize/fontScale 的 rAF 链是否仍在途，flush 须等它落地
+    isSyncPending: () => Boolean(layoutFrame || layoutTimeout || sharedLayoutFrame),
     scheduleInitialFit,
     scheduleStableLayout,
     primeContainerSize,
