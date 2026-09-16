@@ -19,9 +19,11 @@ import { Button } from './Button'
 import { api, type VncSetupStatus } from '@/lib/api'
 import { getWebSocketUrl } from '@/lib/auth'
 import {
+  applyVncResolution,
   attachVncInstrumentation,
   installVncRequestThrottle,
   measureVncRtt,
+  VNC_RESOLUTION_PRESETS,
   VNC_COMPRESSION_RANGE,
   VNC_FPS_RANGE,
   VNC_PORT_RANGE,
@@ -124,6 +126,9 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
     },
     [tuning],
   )
+  // 远端分辨率：'off' 不动 / 'auto' 跟随窗口 / 'WxH' 固定预设；viewOnly 下不生效
+  const [resolution, setResolution] = useState(() => localStorage.getItem('tmuxgo:vnc-resolution') || 'off')
+  const resolutionCleanupRef = useRef<(() => void) | null>(null)
   const [tuningOpen, setTuningOpen] = useState(false)
   const [showStats, setShowStats] = useState(() => localStorage.getItem('tmuxgo:vnc-stats') === '1')
   const [stats, setStats] = useState<VncStatsSample & { rtt: number | null }>({
@@ -135,6 +140,8 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
   const instrumentationRef = useRef<VncInstrumentation | null>(null)
   const tuningRef = useRef(tuning)
   tuningRef.current = tuning
+  const resolutionRef = useRef(resolution)
+  resolutionRef.current = resolution
   const portRef = useRef(port)
   const hiddenRef = useRef(typeof document !== 'undefined' && document.hidden)
   // 隐藏时记录是否有活动连接：手动断开过的会话回到前台不自动重连；初始 true 兜底"挂着后台打开"场景
@@ -192,6 +199,7 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
       const instrumentation = attachVncInstrumentation(rfb)
       instrumentation.setMaxFps(tuningRef.current.maxFps)
       instrumentationRef.current = instrumentation
+      resolutionCleanupRef.current = applyVncResolution(rfb, RFB, resolutionRef.current, viewOnlyRef.current)
       rfb.addEventListener('connect', () => {
         vncDebug('rfb connected')
         setStatus('connected')
@@ -201,6 +209,8 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
         rfbRef.current = null
         instrumentationRef.current?.dispose()
         instrumentationRef.current = null
+        resolutionCleanupRef.current?.()
+        resolutionCleanupRef.current = null
         setStatus('disconnected')
         setCredentialTypes([])
         if (!event.detail.clean) {
@@ -269,6 +279,21 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
     }
     instrumentationRef.current?.setMaxFps(tuning.maxFps)
   }, [tuning])
+  // 分辨率实时生效：断连时随 RFB 一起释放，连接中直接发 SetDesktopSize
+  useEffect(() => {
+    try {
+      localStorage.setItem('tmuxgo:vnc-resolution', resolution)
+    } catch {
+      /* 存储不可用时静默 */
+    }
+    resolutionCleanupRef.current?.()
+    resolutionCleanupRef.current = null
+    const rfb = rfbRef.current
+    if (rfb) {
+      const RFB = rfb.constructor as typeof RFBType
+      resolutionCleanupRef.current = applyVncResolution(rfb, RFB, resolution, viewOnly)
+    }
+  }, [resolution, viewOnly])
   useEffect(() => {
     try {
       localStorage.setItem('tmuxgo:vnc-stats', showStats ? '1' : '0')
@@ -586,6 +611,24 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
                 <span className="w-6 text-right font-mono text-text-2">{tuning[key]}</span>
               </label>
             ))}
+            <label className="flex items-center gap-2">
+              <span className="w-14 shrink-0 text-text-3">{t('vnc.resolution')}</span>
+              <select
+                value={resolution}
+                onChange={(event) => setResolution(event.target.value)}
+                disabled={viewOnly}
+                title={viewOnly ? t('vnc.viewOnly') : undefined}
+                className="h-7 min-w-0 flex-1 rounded-apple border border-[var(--line)] bg-bg-1 px-1.5 text-xs text-text-1 outline-none focus:border-accent"
+              >
+                <option value="off">{t('vnc.resolution.off')}</option>
+                <option value="auto">{t('vnc.resolution.auto')}</option>
+                {VNC_RESOLUTION_PRESETS.map((preset) => (
+                  <option key={preset} value={preset}>
+                    {preset.replace('x', '×')}
+                  </option>
+                ))}
+              </select>
+            </label>
             <label className="flex items-center justify-between">
               <span className="text-text-3">{t('vnc.showStats')}</span>
               <input

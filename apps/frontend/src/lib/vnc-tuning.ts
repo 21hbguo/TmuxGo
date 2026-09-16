@@ -138,6 +138,39 @@ export function attachVncInstrumentation(rfb: RFBType): VncInstrumentation {
   }
 }
 
+// 远端分辨率调节：'off' 不动远端；'auto' 跟随视口（rfb.resizeSession）；
+// 'WxH' 直接发 SetDesktopSize。仅 ExtendedDesktopSize 协商成功后生效（x11vnc 不支持则自动无效）。
+export const VNC_RESOLUTION_PRESETS = ['1920x1080', '1600x900', '1366x768', '1280x720'] as const
+
+export function applyVncResolution(rfb: RFBType, RFB: typeof RFBType, mode: string, viewOnly: boolean): () => void {
+  const anyRfb = rfb as any
+  // 仅查看模式下禁止改远端分辨率
+  if (viewOnly) return () => {}
+  if (mode === 'auto') {
+    anyRfb.resizeSession = true
+    return () => {
+      anyRfb.resizeSession = false
+    }
+  }
+  anyRfb.resizeSession = false
+  const match = /^(\d{3,4})x(\d{3,4})$/.exec(mode)
+  if (!match) return () => {}
+  const width = Number(match[1])
+  const height = Number(match[2])
+  let tries = 0
+  const timer = setInterval(() => {
+    if (tries++ > 20 || !anyRfb._sock) {
+      clearInterval(timer)
+      return
+    }
+    // 服务端宣告支持 ExtendedDesktopSize 之前发 SetDesktopSize 是协议违规
+    if (!anyRfb._supportsSetDesktopSize) return
+    clearInterval(timer)
+    ;(RFB as any).messages.setDesktopSize(anyRfb._sock, width, height, anyRfb._screenID, anyRfb._screenFlags)
+  }, 500)
+  return () => clearInterval(timer)
+}
+
 // 按宿主机记住上次连接的 VNC 端口：不同机器的 display 号不同
 export function readVncPort(hostId: string): number | null {
   try {
