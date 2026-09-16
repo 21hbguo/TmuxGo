@@ -370,6 +370,7 @@ export const en = {
   'settings.theme.dracula': 'Dracula',
   'settings.theme.nord': 'Nord',
   'settings.theme.catppuccin': 'Catppuccin',
+  'settings.theme.sage': 'Sage',
   'settings.immersiveFullscreen': 'Fullscreen mode',
   'settings.immersiveFullscreenDesc':
     'Browser fullscreen immersion. Phones show a draggable back orb (tap to go back without leaving fullscreen); system back still exits fullscreen first.',
@@ -696,6 +697,7 @@ export const en = {
   'file.modified': 'Modified',
   'file.permission': 'Permissions',
   'file.dotfiles': 'Dotfiles',
+  'file.sort': 'Sort',
   'file.sortName': 'Name',
   'file.sortSize': 'Size',
   'file.sortModified': 'Modified',

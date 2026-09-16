@@ -12,11 +12,8 @@ type StoredPreferences = Partial<Preferences> & { _v?: number }
 
 export const FONT_MAPLE = '"Maple Mono CN", monospace'
 export const ALLOWED_FONT_FAMILIES = [FONT_MAPLE] as const
-const FONT_UI = '"Maple Mono CN", monospace'
-const FONT_MONO = '"Maple Mono CN", monospace'
-
 export interface Preferences {
-  theme: 'dark' | 'light' | 'high-contrast' | 'dracula' | 'nord' | 'catppuccin'
+  theme: 'dark' | 'light' | 'high-contrast' | 'dracula' | 'nord' | 'catppuccin' | 'sage'
   fontSize: number
   fontFamily: string
   cursorBlink: boolean
@@ -85,17 +82,8 @@ export async function ensureAppFontLoaded(fontFamily?: string, size = 14) {
 
 export function applyDocumentFont(_fontFamily?: string) {
   if (typeof document === 'undefined') return
-  const root = document.documentElement
-  root.setAttribute('data-font', 'maple')
-  root.style.setProperty('--font-ui', FONT_UI)
-  root.style.setProperty('--font-mono', FONT_MONO)
-  root.style.fontFamily = FONT_UI
-  if (document.body) {
-    document.body.style.fontFamily = FONT_UI
-    document.body.style.fontSynthesis = 'none'
-  }
-  const app = document.getElementById('root')
-  if (app) app.style.fontFamily = FONT_UI
+  // 不再 inline --font-ui/--font-mono/fontFamily：否则会盖住 [data-theme] 的 --font-ui 覆盖（如 sage 主题）
+  document.documentElement.setAttribute('data-font', 'maple')
 }
 
 let preferencesStore: Preferences = defaultPreferences
@@ -167,7 +155,14 @@ function readThemeBgHex() {
   const rawBg = getComputedStyle(document.documentElement).getPropertyValue('--bg-0').trim()
   const rgb = rawBg.split(/\s+/).map((part) => Number(part))
   if (rgb.length >= 3 && rgb.slice(0, 3).every((n) => Number.isFinite(n))) {
-    return `#${rgb.slice(0, 3).map((n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, '0')).join('')}`
+    return `#${rgb
+      .slice(0, 3)
+      .map((n) =>
+        Math.max(0, Math.min(255, Math.round(n)))
+          .toString(16)
+          .padStart(2, '0'),
+      )
+      .join('')}`
   }
   return '#0c0d0f'
 }
@@ -227,7 +222,9 @@ export function applyImmersivePresentation(active: boolean) {
   document.documentElement.toggleAttribute('data-immersive-fullscreen', active)
   applyThemeChrome(preferencesStore.theme)
   if (active) {
-    const height = Math.round(window.visualViewport?.height || window.innerHeight || (typeof screen !== 'undefined' ? screen.height : 0) || 0)
+    const height = Math.round(
+      window.visualViewport?.height || window.innerHeight || (typeof screen !== 'undefined' ? screen.height : 0) || 0,
+    )
     document.documentElement.style.setProperty('--immersive-vh', `${height}px`)
   } else {
     document.documentElement.style.removeProperty('--immersive-vh')
@@ -284,7 +281,11 @@ export function usePreferences() {
           const remoteMs = Date.parse(remoteUpdatedAt)
           if (remoteUi && Object.keys(remoteUi).length > 0) {
             if (!Number.isNaN(remoteMs) && (Number.isNaN(localMs) || remoteMs >= localMs)) {
-              const merged = { ...defaultPreferences, ...remoteUi, fontFamily: normalizeFontFamily(remoteUi.fontFamily) } as Preferences
+              const merged = {
+                ...defaultPreferences,
+                ...remoteUi,
+                fontFamily: normalizeFontFamily(remoteUi.fontFamily),
+              } as Preferences
               localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...merged, _v: PREFERENCES_VERSION }))
               localStorage.setItem(STORAGE_UPDATED_AT_KEY, remoteUpdatedAt || new Date().toISOString())
               emitPreferences(merged)
@@ -295,15 +296,22 @@ export function usePreferences() {
             }
             if (!Number.isNaN(localMs) && (Number.isNaN(remoteMs) || localMs > remoteMs)) {
               const current = readStoredPreferences()
-              await api.preferences.update({ uiPreferences: toUiPreferences(current), uiPreferencesUpdatedAt: localUpdatedAt }, PROFILE)
+              await api.preferences.update(
+                { uiPreferences: toUiPreferences(current), uiPreferencesUpdatedAt: localUpdatedAt },
+                PROFILE,
+              )
             }
           } else {
             const current = readStoredPreferences()
             const now = new Date().toISOString()
-            await api.preferences.update({ uiPreferences: toUiPreferences(current), uiPreferencesUpdatedAt: now }, PROFILE)
+            await api.preferences.update(
+              { uiPreferences: toUiPreferences(current), uiPreferencesUpdatedAt: now },
+              PROFILE,
+            )
             localStorage.setItem(STORAGE_UPDATED_AT_KEY, now)
           }
-        } catch {} finally {
+        } catch {
+        } finally {
           markPreferencesReady()
         }
       })()
@@ -360,7 +368,9 @@ export function usePreferences() {
     applyDocumentFont(updated.fontFamily)
     void ensureAppFontLoaded(updated.fontFamily, updated.fontSize)
     emitPreferences(updated)
-    void api.preferences.update({ uiPreferences: toUiPreferences(updated), uiPreferencesUpdatedAt: now }, PROFILE).catch(() => {})
+    void api.preferences
+      .update({ uiPreferences: toUiPreferences(updated), uiPreferencesUpdatedAt: now }, PROFILE)
+      .catch(() => {})
   }, [])
 
   const resetPreferences = useCallback(() => {
@@ -371,7 +381,9 @@ export function usePreferences() {
     emitPreferences(defaultPreferences)
     applyImmersivePresentation(false)
     void exitAppFullscreen().catch(() => {})
-    void api.preferences.update({ uiPreferences: toUiPreferences(defaultPreferences), uiPreferencesUpdatedAt: now }, PROFILE).catch(() => {})
+    void api.preferences
+      .update({ uiPreferences: toUiPreferences(defaultPreferences), uiPreferencesUpdatedAt: now }, PROFILE)
+      .catch(() => {})
   }, [])
 
   return { preferences, updatePreferences, resetPreferences, isReady }

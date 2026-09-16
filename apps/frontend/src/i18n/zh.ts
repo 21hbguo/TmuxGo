@@ -369,6 +369,7 @@ export const zh = {
   'settings.theme.dracula': 'Dracula',
   'settings.theme.nord': 'Nord',
   'settings.theme.catppuccin': 'Catppuccin',
+  'settings.theme.sage': 'Sage',
   'settings.immersiveFullscreen': '全屏模式',
   'settings.immersiveFullscreenDesc':
     '浏览器全屏沉浸。手机端会出现可拖拽返回球（点击返回，不退出全屏）；系统返回键仍会先退出全屏。',
@@ -691,6 +692,7 @@ export const zh = {
   'file.modified': '修改时间',
   'file.permission': '权限',
   'file.dotfiles': '点文件',
+  'file.sort': '排序',
   'file.sortName': '名称',
   'file.sortSize': '大小',
   'file.sortModified': '修改时间',
