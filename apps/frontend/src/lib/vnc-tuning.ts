@@ -141,7 +141,7 @@ export function attachVncInstrumentation(rfb: RFBType): VncInstrumentation {
 // 远端分辨率调节：'off' 不动远端；'auto' 跟随视口（rfb.resizeSession）；
 // 'WxH' 直接发 SetDesktopSize。仅 ExtendedDesktopSize 协商成功后生效（x11vnc 不支持则自动无效）。
 // cleanup 会把远端恢复到协商时快照的原始分辨率——必须在 RFB.disconnect() 之前调用，socket 关了就发不出去了。
-export const VNC_RESOLUTION_PRESETS = ['1920x1080', '1600x900', '1366x768', '1280x720'] as const
+export const VNC_RESOLUTION_PRESETS = ['2560x1440', '1920x1080', '1600x900', '1366x768', '1280x720'] as const
 
 export function applyVncResolution(rfb: RFBType, RFB: typeof RFBType, mode: string, viewOnly: boolean): () => void {
   const anyRfb = rfb as any
