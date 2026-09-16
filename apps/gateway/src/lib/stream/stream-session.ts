@@ -18,6 +18,7 @@ import {
   OUTPUT_BUFFER_MAX_CHARS,
   OUTPUT_PROFILES,
   REQUEST_REDRAW_DELAYS,
+  RESIZE_ACK_OUTPUT_WAIT_MS,
   SCROLL_MAX_LINES,
   SOCKET_BUFFER_EXTREME_WATERMARK,
   SOCKET_BUFFER_HIGH_WATERMARK,
@@ -68,6 +69,7 @@ export class StreamSession {
   attachVisibleOutputObserved = false
   attachSnapshotTimers: ReturnType<typeof setTimeout>[] = []
   pendingResizeAck: PendingResizeAck | null = null
+  resizeAckTimer: ReturnType<typeof setTimeout> | null = null
   scrollBuffers = new Map<string, number>()
   scrollRunning = new Set<string>()
   sanitizeTerminalOutput = createTerminalOutputSanitizer()
@@ -299,6 +301,10 @@ export class StreamSession {
     )
       return
     this.pendingResizeAck = null
+    if (this.resizeAckTimer) {
+      clearTimeout(this.resizeAckTimer)
+      this.resizeAckTimer = null
+    }
     this.flushOutput()
     this.send({
       type: 'resized',
@@ -465,6 +471,10 @@ export class StreamSession {
     const detachedHostId = this.attachedHostId
     this.attachSeq += 1
     this.pendingResizeAck = null
+    if (this.resizeAckTimer) {
+      clearTimeout(this.resizeAckTimer)
+      this.resizeAckTimer = null
+    }
     this.clearRedrawTimers()
     this.clearAttachSnapshotTimers()
     if (current) {
@@ -615,6 +625,10 @@ export class StreamSession {
       this.attachedCols = 0
       this.attachedRows = 0
       this.pendingResizeAck = null
+      if (this.resizeAckTimer) {
+        clearTimeout(this.resizeAckTimer)
+        this.resizeAckTimer = null
+      }
       this.clearAttachSnapshotTimers()
       this.clearRedrawTimers()
     })
@@ -659,6 +673,15 @@ export class StreamSession {
         if (this.pendingResizeAck !== pending) return
         pending.refreshComplete = true
         this.completeResizeAck()
+        if (this.pendingResizeAck !== pending) return
+        // A fully static pane may emit zero bytes after refresh; bound the
+        // output wait so the client-side resize mask cannot stall on it.
+        this.resizeAckTimer = setTimeout(() => {
+          this.resizeAckTimer = null
+          if (this.pendingResizeAck !== pending) return
+          pending.outputObserved = true
+          this.completeResizeAck()
+        }, RESIZE_ACK_OUTPUT_WAIT_MS)
       })
   }
   input(data: string) {

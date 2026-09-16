@@ -5,7 +5,7 @@ const DEFAULT_FAST_OUTPUT_LIMIT = 24576
 const DEFAULT_FRAME_BUDGET = 32768
 const DEFAULT_FRAME_TIME_BUDGET = 8
 const MIN_FRAME_BUDGET = 4096
-const DIRECT_WRITE_IDLE_MS = 8
+const DIRECT_WRITE_IDLE_MS = 0
 const BACKPRESSURE_HIGH_WATERMARK = 65536
 const BACKPRESSURE_LOW_WATERMARK = 8192
 const FRAME_END_SEQUENCE = '\u001b[?25h'
@@ -52,6 +52,7 @@ export function useTerminalOutputScheduler({
   const writingRef = useRef(false)
   const writeTokenRef = useRef(0)
   const scheduleRef = useRef<() => void>(() => {})
+  const flushRef = useRef<() => void>(() => {})
   const adaptiveFrameBudgetRef = useRef(frameBudget)
   const lastPushAtRef = useRef(Number.NEGATIVE_INFINITY)
 
@@ -60,11 +61,14 @@ export function useTerminalOutputScheduler({
     clearTimeout(timerRef.current)
     timerRef.current = null
   }, [])
-  const emitBackpressure = useCallback((level: 'high' | 'normal', backlog: number) => {
-    if (backpressureRef.current === level) return
-    backpressureRef.current = level
-    onBackpressure?.(level, backlog)
-  }, [onBackpressure])
+  const emitBackpressure = useCallback(
+    (level: 'high' | 'normal', backlog: number) => {
+      if (backpressureRef.current === level) return
+      backpressureRef.current = level
+      onBackpressure?.(level, backlog)
+    },
+    [onBackpressure],
+  )
   const flush = useCallback(() => {
     if (frameRef.current !== null) {
       cancelAnimationFrame(frameRef.current)
@@ -82,15 +86,18 @@ export function useTerminalOutputScheduler({
       if (writeToken !== writeTokenRef.current) return
       writingRef.current = false
       const elapsed = performance.now() - startedAt
-      if (elapsed > frameTimeBudget && adaptiveFrameBudgetRef.current > MIN_FRAME_BUDGET) adaptiveFrameBudgetRef.current = Math.max(MIN_FRAME_BUDGET, Math.floor(adaptiveFrameBudgetRef.current / 2))
-      else if (elapsed < frameTimeBudget / 2 && adaptiveFrameBudgetRef.current < frameBudget) adaptiveFrameBudgetRef.current = Math.min(frameBudget, Math.floor(adaptiveFrameBudgetRef.current * 1.5))
+      if (elapsed > frameTimeBudget && adaptiveFrameBudgetRef.current > MIN_FRAME_BUDGET)
+        adaptiveFrameBudgetRef.current = Math.max(MIN_FRAME_BUDGET, Math.floor(adaptiveFrameBudgetRef.current / 2))
+      else if (elapsed < frameTimeBudget / 2 && adaptiveFrameBudgetRef.current < frameBudget)
+        adaptiveFrameBudgetRef.current = Math.min(frameBudget, Math.floor(adaptiveFrameBudgetRef.current * 1.5))
       onWrite?.()
       const backlog = bufferRef.current.length
       if (backlog >= BACKPRESSURE_HIGH_WATERMARK) emitBackpressure('high', backlog)
       else if (backlog <= BACKPRESSURE_LOW_WATERMARK) emitBackpressure('normal', backlog)
-      if (backlog) scheduleRef.current()
+      if (backlog) flushRef.current()
     })
   }, [clearTimer, emitBackpressure, frameBudget, frameTimeBudget, onWrite, write])
+  flushRef.current = flush
   const schedule = useCallback(() => {
     if (frameRef.current !== null) return
     const frame = requestAnimationFrame(() => {
@@ -111,35 +118,44 @@ export function useTerminalOutputScheduler({
     }
   }, [clearTimer, flush, flushDelay])
   scheduleRef.current = schedule
-  const push = useCallback((raw: string) => {
-    const output = raw
-    onMetrics?.(raw, output.length, bufferRef.current.length)
-    if (!output) return
-    const now = performance.now()
-    const directWrite = !bufferRef.current && !writingRef.current && now - lastPushAtRef.current >= DIRECT_WRITE_IDLE_MS && output.length <= fastOutputLimit
-    lastPushAtRef.current = now
-    if (directWrite) {
-      writingRef.current = true
-      const writeToken = ++writeTokenRef.current
-      const startedAt = performance.now()
-      write(output, () => {
-        if (writeToken !== writeTokenRef.current) return
-        writingRef.current = false
-        const elapsed = performance.now() - startedAt
-        if (elapsed > frameTimeBudget && adaptiveFrameBudgetRef.current > MIN_FRAME_BUDGET) adaptiveFrameBudgetRef.current = Math.max(MIN_FRAME_BUDGET, Math.floor(adaptiveFrameBudgetRef.current / 2))
-        else if (elapsed < frameTimeBudget / 2 && adaptiveFrameBudgetRef.current < frameBudget) adaptiveFrameBudgetRef.current = Math.min(frameBudget, Math.floor(adaptiveFrameBudgetRef.current * 1.5))
-        onWrite?.()
-        const backlog = bufferRef.current.length
-        if (backlog >= BACKPRESSURE_HIGH_WATERMARK) emitBackpressure('high', backlog)
-        else if (backlog <= BACKPRESSURE_LOW_WATERMARK) emitBackpressure('normal', backlog)
-        if (backlog) scheduleRef.current()
-      })
-      return
-    }
-    bufferRef.current += output
-    if (bufferRef.current.length >= BACKPRESSURE_HIGH_WATERMARK) emitBackpressure('high', bufferRef.current.length)
-    scheduleRef.current()
-  }, [emitBackpressure, fastOutputLimit, frameBudget, frameTimeBudget, onMetrics, onWrite, write])
+  const push = useCallback(
+    (raw: string) => {
+      const output = raw
+      onMetrics?.(raw, output.length, bufferRef.current.length)
+      if (!output) return
+      const now = performance.now()
+      const directWrite =
+        !bufferRef.current &&
+        !writingRef.current &&
+        now - lastPushAtRef.current >= DIRECT_WRITE_IDLE_MS &&
+        output.length <= fastOutputLimit
+      lastPushAtRef.current = now
+      if (directWrite) {
+        writingRef.current = true
+        const writeToken = ++writeTokenRef.current
+        const startedAt = performance.now()
+        write(output, () => {
+          if (writeToken !== writeTokenRef.current) return
+          writingRef.current = false
+          const elapsed = performance.now() - startedAt
+          if (elapsed > frameTimeBudget && adaptiveFrameBudgetRef.current > MIN_FRAME_BUDGET)
+            adaptiveFrameBudgetRef.current = Math.max(MIN_FRAME_BUDGET, Math.floor(adaptiveFrameBudgetRef.current / 2))
+          else if (elapsed < frameTimeBudget / 2 && adaptiveFrameBudgetRef.current < frameBudget)
+            adaptiveFrameBudgetRef.current = Math.min(frameBudget, Math.floor(adaptiveFrameBudgetRef.current * 1.5))
+          onWrite?.()
+          const backlog = bufferRef.current.length
+          if (backlog >= BACKPRESSURE_HIGH_WATERMARK) emitBackpressure('high', backlog)
+          else if (backlog <= BACKPRESSURE_LOW_WATERMARK) emitBackpressure('normal', backlog)
+          if (backlog) flushRef.current()
+        })
+        return
+      }
+      bufferRef.current += output
+      if (bufferRef.current.length >= BACKPRESSURE_HIGH_WATERMARK) emitBackpressure('high', bufferRef.current.length)
+      scheduleRef.current()
+    },
+    [emitBackpressure, fastOutputLimit, frameBudget, frameTimeBudget, onMetrics, onWrite, write],
+  )
   const dispose = useCallback(() => {
     clearTimer()
     if (frameRef.current !== null) cancelAnimationFrame(frameRef.current)
