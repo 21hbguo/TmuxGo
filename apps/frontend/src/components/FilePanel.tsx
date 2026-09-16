@@ -608,6 +608,8 @@ export function FilePanel({
   const uploadInputRef = useRef<HTMLInputElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const lastFollowedEditorKeyRef = useRef('')
+  // 跟随时手动导航（收藏目录/根切换/上下级）先挂起跟随，等切换到别的 pane 再恢复
+  const [followSuspended, setFollowSuspended] = useState(false)
   const lastAppliedWorkspaceSessionRef = useRef<string | undefined>(undefined)
   const [pendingDeleteItem, setPendingDeleteItem] = useState<FileEntry | null>(null)
   const [lastTrashedItem, setLastTrashedItem] = useState<TrashEntry | null>(null)
@@ -664,6 +666,13 @@ export function FilePanel({
   )
   const followPaneId = followActivePath && activePaneId?.startsWith(`${fileHostId}:`) ? activePaneId : null
   const { data: activePaneCwd } = usePaneCwd(followPaneId, !isPicker)
+  // pane 切换即恢复跟随
+  const prevFollowPaneIdRef = useRef(followPaneId)
+  useEffect(() => {
+    if (prevFollowPaneIdRef.current === followPaneId) return
+    prevFollowPaneIdRef.current = followPaneId
+    setFollowSuspended(false)
+  }, [followPaneId])
   const root = activeRoot
   const listData = useMemo(() => rebaseListData(rawListData, activeRoot), [rawListData, activeRoot])
   const preview = useMemo(() => rebasePreview(rawPreview, activeRootBasePath), [rawPreview, activeRootBasePath])
@@ -809,6 +818,7 @@ export function FilePanel({
     setDirectoryCache(new Map())
     setDirectoryStatusState(new Map())
     lastFollowedEditorKeyRef.current = ''
+    setFollowSuspended(false)
     lastAppliedWorkspaceSessionRef.current = undefined
     directoryLoadingRef.current.clear()
   }, [fileHostId])
@@ -968,6 +978,7 @@ export function FilePanel({
     window.dispatchEvent(new CustomEvent('tmuxgo-mobile-files-push-level'))
   }
   const goMobileParentDirectory = () => {
+    setFollowSuspended(true)
     const parts = currentPathRef.current.split(/[\\/]+/).filter(Boolean)
     const nextPath = parts.slice(0, -1).join('/')
     currentPathRef.current = nextPath
@@ -1024,6 +1035,7 @@ export function FilePanel({
     directoryLoadingRef.current.clear()
   }
   const openDirectoryShortcut = (entry: { rootId: string; path: string }) => {
+    setFollowSuspended(true)
     const nextRootId = getFavoriteRootOptionId(entry)
     setSelectedRootId(nextRootId)
     if (isMobile) {
@@ -1091,13 +1103,13 @@ export function FilePanel({
     return { rootOptionId: option.id, path: relative }
   }, [activePaneCwd, followActivePath, isPicker, rootOptions, visibleRoots])
   useEffect(() => {
-    if (!paneCwdFollowTarget) return
+    if (!paneCwdFollowTarget || followSuspended) return
     if (selectedRootId !== paneCwdFollowTarget.rootOptionId) switchRoot(paneCwdFollowTarget.rootOptionId)
     if (currentPathRef.current === paneCwdFollowTarget.path) return
     currentPathRef.current = paneCwdFollowTarget.path
     mobileNavigationDepthRef.current = 0
     setCurrentPath(paneCwdFollowTarget.path)
-  }, [paneCwdFollowTarget, selectedRootId])
+  }, [paneCwdFollowTarget, selectedRootId, followSuspended])
   const activeEditorFollowTarget = useMemo(() => {
     if (!activeEditor || activeEditor.kind === 'compare' || activeEditor.hostId !== fileHostId || !rootOptions.length)
       return null
@@ -1220,6 +1232,7 @@ export function FilePanel({
         }
   const openItem = (item: FileEntry) => {
     if (item.type === 'directory') {
+      setFollowSuspended(true)
       if (isPicker) {
         currentPathRef.current = item.path
         setCurrentPath(item.path)
@@ -2065,7 +2078,10 @@ export function FilePanel({
 
               <select
                 value={selectedRootId}
-                onChange={(e) => switchRoot(e.target.value)}
+                onChange={(e) => {
+                  setFollowSuspended(true)
+                  switchRoot(e.target.value)
+                }}
                 className="tmuxgo-control tmuxgo-select min-w-0 flex-1 rounded-apple px-2 py-1 text-meta"
               >
                 {rootOptions.map((item) => (
@@ -2407,6 +2423,7 @@ export function FilePanel({
                   const next = !followActivePath
                   writeFollowActivePath(next)
                   setFollowActivePath(next)
+                  setFollowSuspended(false)
                   if (next) lastFollowedEditorKeyRef.current = ''
                 }}
                 className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${followActivePath ? 'bg-accent' : 'bg-bg-2'}`}
