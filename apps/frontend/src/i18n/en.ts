@@ -377,6 +377,8 @@ export const en = {
   'settings.immersiveFullscreenFailed': 'Fullscreen is unsupported or was blocked by the browser',
   'settings.layout': 'Layout',
   'settings.sidebarPosition': 'Sidebar position',
+  'settings.sidebarPosition.left': 'Left',
+  'settings.sidebarPosition.right': 'Right',
   'settings.showStatusBar': 'Status bar',
   'settings.showQuickActions': 'Quick Actions',
   'settings.language': 'Language',

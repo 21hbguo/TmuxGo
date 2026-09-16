@@ -376,6 +376,8 @@ export const zh = {
   'settings.immersiveFullscreenFailed': '当前浏览器不支持全屏，或已被拦截',
   'settings.layout': '布局',
   'settings.sidebarPosition': '侧边栏位置',
+  'settings.sidebarPosition.left': '左侧',
+  'settings.sidebarPosition.right': '右侧',
   'settings.showStatusBar': '状态栏',
   'settings.showQuickActions': '快捷操作',
   'settings.language': '语言',
