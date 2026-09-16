@@ -4,6 +4,11 @@ import os from 'os'
 import path from 'path'
 
 const HEARTBEAT_TIMEOUT_MS = 45000
+// TMUXGO_VNC_DEBUG=1 时输出 VNC 中继排障日志
+const VNC_DEBUG = process.env.TMUXGO_VNC_DEBUG === '1'
+const vncDbg = (...args: unknown[]) => {
+  if (VNC_DEBUG) console.log('[vnc]', ...args)
+}
 export interface AgentSocket {
   readyState: number
   bufferedAmount?: number
@@ -626,8 +631,14 @@ export class AgentManager {
     ) {
       const conn = this.vncConnections.get(payload.connectionId)
       // 清理竞态/断连重发的中继消息直接吞掉，fallthrough 会让 stream 回 error 打断 agent
-      if (!conn || conn.agentId !== id || conn.agentSocket !== socket) return true
-      if (payload.type === 'vnc-opened') return true
+      if (!conn || conn.agentId !== id || conn.agentSocket !== socket) {
+        vncDbg('drop stale vnc message', payload.type, payload.connectionId)
+        return true
+      }
+      if (payload.type === 'vnc-opened') {
+        vncDbg('agent vnc opened', payload.connectionId)
+        return true
+      }
       if (payload.type === 'vnc-data') {
         if (typeof payload.data !== 'string') return false
         conn.socket.send(Buffer.from(payload.data, 'base64'))
@@ -638,6 +649,7 @@ export class AgentManager {
         payload.type === 'vnc-error' && typeof payload.message === 'string' && payload.message
           ? payload.message
           : 'VNC connection closed'
+      vncDbg('agent vnc closed', payload.connectionId, payload.type, reason)
       conn.socket.close?.(payload.type === 'vnc-error' ? 1011 : 1000, reason)
       return true
     }
@@ -645,7 +657,15 @@ export class AgentManager {
   }
   openVnc(agentId: string, connectionId: string, port: number, socket: AgentSocket) {
     const agent = this.agents.get(agentId)
-    if (!agent || !this.toStatus(agent).online || agent.socket.readyState !== 1) return false
+    if (!agent || !this.toStatus(agent).online || agent.socket.readyState !== 1) {
+      vncDbg('openVnc refused', {
+        agentId,
+        hasAgent: !!agent,
+        online: agent ? this.toStatus(agent).online : false,
+        socketState: agent?.socket.readyState,
+      })
+      return false
+    }
     this.vncConnections.set(connectionId, { agentId, agentSocket: agent.socket, socket })
     try {
       agent.socket.send(JSON.stringify({ type: 'vnc-open', connectionId, port }))
@@ -670,7 +690,10 @@ export class AgentManager {
     if (!header.startsWith('vnc-data ')) return
     const connectionId = header.slice(9).trim()
     const conn = this.vncConnections.get(connectionId)
-    if (!conn || conn.agentId !== agentId || conn.agentSocket !== socket) return
+    if (!conn || conn.agentId !== agentId || conn.agentSocket !== socket) {
+      vncDbg('drop unmatched vnc binary', { agentId, connectionId, found: !!conn })
+      return
+    }
     conn.socket.send(frame.subarray(separator + 1))
   }
   closeVnc(connectionId: string) {

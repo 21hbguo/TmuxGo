@@ -38,6 +38,15 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
 
 type VncStatus = 'idle' | 'connecting' | 'connected' | 'disconnected'
+
+// VNC 排障日志：localStorage tmuxgo:vnc-debug=1 时输出到 console，默认关闭
+const vncDebug = (...args: unknown[]) => {
+  try {
+    if (localStorage.getItem('tmuxgo:vnc-debug') === '1') console.debug('[vnc]', ...args)
+  } catch {
+    /* localStorage 不可用时静默 */
+  }
+}
 interface DesktopViewProps {
   hostId: string
   port: number
@@ -105,6 +114,8 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
   const wasActiveRef = useRef(true)
   // 可见性重连时免重复弹窗：提交过的凭据存 ref，securityfailure 时作废
   const credentialsRef = useRef<{ username?: string; password: string } | null>(null)
+  // 底层 WS 关闭码/原因：RFB 的 disconnect 事件不带这些，单独捕获用于错误提示
+  const wsCloseRef = useRef<{ code: number; reason: string } | null>(null)
   // RFB 事件回调在 connect 时注册一次，用 ref 拿最新 viewOnly/t，避免 connect 身份抖动触发重连
   const viewOnlyRef = useRef(viewOnly)
   const tRef = useRef(t)
@@ -137,8 +148,16 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
       // 等待 ticket/模块期间发生了新的 connect 或卸载，丢弃本次结果避免双 RFB
       if (seq !== connectSeqRef.current || !containerRef.current) return
       portRef.current = targetPort
+      wsCloseRef.current = null
+      vncDebug('connect', { hostId, port: targetPort, url: url.replace(/ticket=[^&]+/, 'ticket=<redacted>') })
       installVncRequestThrottle(RFB)
       const rfb = new RFB(containerRef.current, url, { shared: true })
+      const ws = (rfb as unknown as { _sock?: { _websocket?: WebSocket } })._sock?._websocket
+      ws?.addEventListener('close', (event) => {
+        wsCloseRef.current = { code: event.code, reason: event.reason }
+        vncDebug('ws close', event.code, event.reason)
+      })
+      ws?.addEventListener('error', () => vncDebug('ws error'))
       rfb.scaleViewport = true
       rfb.viewOnly = viewOnlyRef.current
       rfb.qualityLevel = tuningRef.current.quality
@@ -146,16 +165,28 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
       const instrumentation = attachVncInstrumentation(rfb)
       instrumentation.setMaxFps(tuningRef.current.maxFps)
       instrumentationRef.current = instrumentation
-      rfb.addEventListener('connect', () => setStatus('connected'))
+      rfb.addEventListener('connect', () => {
+        vncDebug('rfb connected')
+        setStatus('connected')
+      })
       rfb.addEventListener('disconnect', (event) => {
+        vncDebug('rfb disconnect', event.detail)
         rfbRef.current = null
         instrumentationRef.current?.dispose()
         instrumentationRef.current = null
         setStatus('disconnected')
         setCredentialTypes([])
-        if (!event.detail.clean) setError(tRef.current('vnc.disconnectUnclean'))
+        if (!event.detail.clean) {
+          const wsClose = wsCloseRef.current
+          setError(
+            wsClose?.reason
+              ? `${tRef.current('vnc.disconnectUnclean')} (${wsClose.code} ${wsClose.reason})`
+              : tRef.current('vnc.disconnectUnclean'),
+          )
+        }
       })
       rfb.addEventListener('credentialsrequired', (event) => {
+        vncDebug('credentialsrequired', event.detail.types)
         const saved = credentialsRef.current
         if (saved) {
           rfb.sendCredentials({ username: saved.username, password: saved.password })
@@ -164,6 +195,7 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
         setCredentialTypes(event.detail.types)
       })
       rfb.addEventListener('securityfailure', (event) => {
+        vncDebug('securityfailure', event.detail)
         credentialsRef.current = null
         setError(event.detail.reason || `${tRef.current('vnc.securityFailure')} (${event.detail.status})`)
       })
@@ -251,12 +283,14 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
       if (document.hidden) {
         hiddenRef.current = true
         wasActiveRef.current = rfbRef.current !== null
+        vncDebug('hidden: disconnect', { wasActive: wasActiveRef.current })
         connectSeqRef.current += 1
         rfbRef.current?.disconnect()
         rfbRef.current = null
         setCredentialTypes([])
       } else if (hiddenRef.current) {
         hiddenRef.current = false
+        vncDebug('visible: reconnect?', { wasActive: wasActiveRef.current })
         if (wasActiveRef.current) void connect(portRef.current)
       }
     }
