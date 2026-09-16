@@ -21,7 +21,12 @@ import { UploadConfirmDialog } from './UploadConfirmDialog'
 import { UploadQueue } from './UploadQueue'
 import { AppVersionGuard } from './AppVersionGuard'
 import { ConfirmDialog } from './ConfirmDialog'
-import { createViewportStableState, getNextViewportStableState, getViewportLayoutState, normalizeKeyboardViewportState } from './consoleLayoutViewport'
+import {
+  createViewportStableState,
+  getNextViewportStableState,
+  getViewportLayoutState,
+  normalizeKeyboardViewportState,
+} from './consoleLayoutViewport'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useDeleteSession, useHosts, useRenameSession, useSessionSnapshot } from '@/hooks/useApi'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
@@ -36,6 +41,7 @@ import { readActiveHostId, readActiveSessionId } from '@/lib/console-device-stat
 import { FiX } from 'react-icons/fi'
 import { AgentStatusBadge } from './AgentStatusBadge'
 import { PluginView } from './PluginView'
+import { DesktopView } from './DesktopView'
 import { shouldResumeFromContinuity } from '@/lib/session-continuity-policy'
 
 const MOBILE_QUERY = '(max-width: 1023px)'
@@ -85,7 +91,7 @@ function recordMobileDebug(event: string, data?: Record<string, unknown>) {
   target.__tmuxgoMobileDebug = state
 }
 
-export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boolean }) {
+export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: boolean }) {
   const activeHostId = useConsoleStore((s) => s.activeHostId)
   const activeSessionId = useConsoleStore((s) => s.activeSessionId)
   const setActivePane = useConsoleStore((s) => s.setActivePane)
@@ -123,6 +129,7 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   const [showTasks, setShowTasks] = useState(false)
   const [mobileGitSheetOpen, setMobileGitSheetOpen] = useState(false)
   const [mobilePluginView, setMobilePluginView] = useState<{ pluginId: string; viewId: string } | null>(null)
+  const activeDesktop = useConsoleStore((s) => s.activeDesktop)
   const [keyboardOpen, setKeyboardOpen] = useState(false)
   const [mobileRecentSessionIds, setMobileRecentSessionIds] = useState<string[]>([])
   const [mobilePinnedSessionIds, setMobilePinnedSessionIds] = useState<string[]>([])
@@ -153,7 +160,9 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
     const fallback = sessionsData.filter((session: any) => !seen.has(session.id))
     return [...pinned, ...mergedRecent, ...fallback].slice(0, MOBILE_QUICK_SESSION_LIMIT)
   })()
-  const mobileSessionMenu = mobileSessionMenuId ? sessionsData.find((session: any) => session.id === mobileSessionMenuId) || null : null
+  const mobileSessionMenu = mobileSessionMenuId
+    ? sessionsData.find((session: any) => session.id === mobileSessionMenuId) || null
+    : null
   const mobileSessionPinned = !!mobileSessionMenuId && mobilePinnedSessionIds.includes(mobileSessionMenuId)
 
   const pushOverlay = useCallback((id: string) => {
@@ -175,16 +184,19 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       window.history.go(-backCount)
     }
   }, [])
-  const openDrawer = useCallback((type: 'sessions' | 'panes' | 'windows') => {
-    if (drawerOpen && drawerType === type) return
-    setDrawerType(type)
-    if (!drawerOpen) {
+  const openDrawer = useCallback(
+    (type: 'sessions' | 'panes' | 'windows') => {
+      if (drawerOpen && drawerType === type) return
+      setDrawerType(type)
+      if (!drawerOpen) {
+        setDrawerOpen(true)
+        pushOverlay('drawer')
+        return
+      }
       setDrawerOpen(true)
-      pushOverlay('drawer')
-      return
-    }
-    setDrawerOpen(true)
-  }, [drawerOpen, drawerType, pushOverlay])
+    },
+    [drawerOpen, drawerType, pushOverlay],
+  )
   const openSettings = useCallback(() => {
     if (showSettings) return
     setShowSettings(true)
@@ -250,19 +262,22 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
     clearTimeout(mobileSessionLongPressTimerRef.current)
     mobileSessionLongPressTimerRef.current = null
   }, [])
-  const handleQuickSessionRename = useCallback(async (sessionId: string) => {
-    if (!activeHostId) return
-    const session = sessionsData.find((item: any) => item.id === sessionId)
-    const name = await prompt(t('drawer.renamePrompt'), session?.name || '')
-    if (!name || name === session?.name) return
-    try {
-      const renamed = await renameSession.mutateAsync({ hostId: activeHostId, sessionId, name })
-      if (activeSessionId === sessionId && renamed?.id) setActiveSession(renamed.id)
-      pushToast({ type: 'success', message: t('session.renamed', { from: session?.name || sessionId, to: name }) })
-    } catch (err) {
-      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('session.requestFailed') })
-    }
-  }, [activeHostId, activeSessionId, prompt, pushToast, renameSession, sessionsData, setActiveSession, t])
+  const handleQuickSessionRename = useCallback(
+    async (sessionId: string) => {
+      if (!activeHostId) return
+      const session = sessionsData.find((item: any) => item.id === sessionId)
+      const name = await prompt(t('drawer.renamePrompt'), session?.name || '')
+      if (!name || name === session?.name) return
+      try {
+        const renamed = await renameSession.mutateAsync({ hostId: activeHostId, sessionId, name })
+        if (activeSessionId === sessionId && renamed?.id) setActiveSession(renamed.id)
+        pushToast({ type: 'success', message: t('session.renamed', { from: session?.name || sessionId, to: name }) })
+      } catch (err) {
+        pushToast({ type: 'error', message: err instanceof Error ? err.message : t('session.requestFailed') })
+      }
+    },
+    [activeHostId, activeSessionId, prompt, pushToast, renameSession, sessionsData, setActiveSession, t],
+  )
   const confirmDeleteSession = useCallback(async () => {
     if (!activeHostId || !pendingDeleteSessionId) return
     const session = sessionsData.find((item: any) => item.id === pendingDeleteSessionId)
@@ -277,15 +292,27 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       pushToast({ type: 'error', message: err instanceof Error ? err.message : t('session.requestFailed') })
     }
     setPendingDeleteSessionId(null)
-  }, [activeHostId, activeSessionId, deleteSession, pendingDeleteSessionId, pushToast, sessionsData, setActiveSession, t])
-  const togglePinnedQuickSession = useCallback((sessionId: string) => {
-    if (!activeHostId) return
-    setMobilePinnedSessionIds((prev) => {
-      const next = prev.includes(sessionId) ? prev.filter((id) => id !== sessionId) : [...prev, sessionId]
-      writeMobilePinnedSessions(activeHostId, next)
-      return next
-    })
-  }, [activeHostId])
+  }, [
+    activeHostId,
+    activeSessionId,
+    deleteSession,
+    pendingDeleteSessionId,
+    pushToast,
+    sessionsData,
+    setActiveSession,
+    t,
+  ])
+  const togglePinnedQuickSession = useCallback(
+    (sessionId: string) => {
+      if (!activeHostId) return
+      setMobilePinnedSessionIds((prev) => {
+        const next = prev.includes(sessionId) ? prev.filter((id) => id !== sessionId) : [...prev, sessionId]
+        writeMobilePinnedSessions(activeHostId, next)
+        return next
+      })
+    },
+    [activeHostId],
+  )
   const clearViewportSchedule = useCallback(() => {
     if (viewportFrameRef.current) {
       cancelAnimationFrame(viewportFrameRef.current)
@@ -303,15 +330,27 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       const viewportWidth = vv?.width || window.innerWidth
       const byClass = document.body.classList.contains('keyboard-open')
       const activeElement = document.activeElement
-      const keyboardOwnerActive = activeElement instanceof HTMLElement && activeElement.classList.contains('mobile-kb-input')
+      const keyboardOwnerActive =
+        activeElement instanceof HTMLElement && activeElement.classList.contains('mobile-kb-input')
       const normalizedKeyboard = normalizeKeyboardViewportState({
         keyboardOpen: keyboardStateRef.current.open,
         keyboardInset: keyboardStateRef.current.inset,
         bodyKeyboardOpen: byClass,
         keyboardOwnerActive,
       })
-      if (normalizedKeyboard.keyboardOpen !== keyboardStateRef.current.open || normalizedKeyboard.keyboardInset !== keyboardStateRef.current.inset) keyboardStateRef.current = { open: normalizedKeyboard.keyboardOpen, inset: normalizedKeyboard.keyboardInset }
-      recordMobileDebug('viewport-sync', { innerHeight: window.innerHeight, vvHeight: vv?.height || 0, vvWidth: vv?.width || 0, keyboardOpen: keyboardStateRef.current.open, keyboardInset: keyboardStateRef.current.inset, bodyKeyboardOpen: byClass })
+      if (
+        normalizedKeyboard.keyboardOpen !== keyboardStateRef.current.open ||
+        normalizedKeyboard.keyboardInset !== keyboardStateRef.current.inset
+      )
+        keyboardStateRef.current = { open: normalizedKeyboard.keyboardOpen, inset: normalizedKeyboard.keyboardInset }
+      recordMobileDebug('viewport-sync', {
+        innerHeight: window.innerHeight,
+        vvHeight: vv?.height || 0,
+        vvWidth: vv?.width || 0,
+        keyboardOpen: keyboardStateRef.current.open,
+        keyboardInset: keyboardStateRef.current.inset,
+        bodyKeyboardOpen: byClass,
+      })
       viewportStableRef.current = getNextViewportStableState({
         state: viewportStableRef.current,
         isMobileViewport,
@@ -348,15 +387,21 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
         ? Math.round(viewportHeight || state.nextHeight || window.innerHeight || 0)
         : state.nextHeight
       if (document.body.classList.contains('ime-composing')) return
-      if (isMobileViewport && appHeightNumRef.current && !open && Math.abs(nextHeight - appHeightNumRef.current) < 36) return
-      if (isMobileViewport && appHeightNumRef.current && open && Math.abs(nextHeight - appHeightNumRef.current) < 48) return
+      if (isMobileViewport && appHeightNumRef.current && !open && Math.abs(nextHeight - appHeightNumRef.current) < 36)
+        return
+      if (isMobileViewport && appHeightNumRef.current && open && Math.abs(nextHeight - appHeightNumRef.current) < 48)
+        return
       const nextValue = `${nextHeight}px`
       if (appHeightRef.current === nextValue) return
       appHeightRef.current = nextValue
       appHeightNumRef.current = nextHeight
       recordMobileDebug('app-height', { height: nextHeight, open })
       setAppHeight(nextValue)
-      window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'viewport-sync', height: nextHeight, keyboardOpen: open, mobile: isMobileViewport } }))
+      window.dispatchEvent(
+        new CustomEvent('tmuxgo-layout-change', {
+          detail: { reason: 'viewport-sync', height: nextHeight, keyboardOpen: open, mobile: isMobileViewport },
+        }),
+      )
     })
   }, [])
 
@@ -449,13 +494,28 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
     }
     const persistedSession = activeHostId ? readActiveSessionId(activeHostId) : null
     const persistedSessionExists = !!persistedSession && sessionsData.some((s: any) => s.id === persistedSession)
-    const resumeFromContinuity = shouldResumeFromContinuity(sessionContinuity.enabled, sessionContinuity.resumeOnReconnect, sessionContinuity.resumeOnNewDevice, !!persistedSession)
-    const continuityPoint = activeHostId && resumeFromContinuity ? sessionContinuity.resumePoints.find((item) => item.hostId === activeHostId) : null
-    const continuitySessionExists = !!continuityPoint?.sessionId && sessionsData.some((s: any) => s.id === continuityPoint.sessionId)
+    const resumeFromContinuity = shouldResumeFromContinuity(
+      sessionContinuity.enabled,
+      sessionContinuity.resumeOnReconnect,
+      sessionContinuity.resumeOnNewDevice,
+      !!persistedSession,
+    )
+    const continuityPoint =
+      activeHostId && resumeFromContinuity
+        ? sessionContinuity.resumePoints.find((item) => item.hostId === activeHostId)
+        : null
+    const continuitySessionExists =
+      !!continuityPoint?.sessionId && sessionsData.some((s: any) => s.id === continuityPoint.sessionId)
     const activeSessionExists = !!activeSessionId && sessionsData.some((s: any) => s.id === activeSessionId)
     if (!activeSessionId || !activeSessionExists) {
       const fallback = sessionsData[0]?.id || ''
-      setActiveSession(continuitySessionExists && continuityPoint ? continuityPoint.sessionId : persistedSessionExists && persistedSession ? persistedSession : fallback)
+      setActiveSession(
+        continuitySessionExists && continuityPoint
+          ? continuityPoint.sessionId
+          : persistedSessionExists && persistedSession
+            ? persistedSession
+            : fallback,
+      )
     }
   }, [sessionsData, sessionsFetched, activeSessionId, activeHostId, setActiveSession, sessionContinuity])
   useEffect(() => {
@@ -493,7 +553,8 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   useEffect(() => {
     const handleMobileFilesPushLevel = () => pushOverlay('mobile-files-level')
     window.addEventListener('tmuxgo-mobile-files-push-level', handleMobileFilesPushLevel as EventListener)
-    return () => window.removeEventListener('tmuxgo-mobile-files-push-level', handleMobileFilesPushLevel as EventListener)
+    return () =>
+      window.removeEventListener('tmuxgo-mobile-files-push-level', handleMobileFilesPushLevel as EventListener)
   }, [pushOverlay])
   useEffect(() => {
     const handleMobileGitPushLevel = () => pushOverlay('mobile-git-level')
@@ -526,18 +587,16 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       else if (top === 'palette') setCommandPalette(false)
       else if (top === 'mobile-files-level') {
         window.dispatchEvent(new CustomEvent('tmuxgo-mobile-files-back', { detail: { handled: false } }))
-      }
-      else if (top === 'mobile-files') {
+      } else if (top === 'mobile-files') {
         const detail = { handled: false }
         window.dispatchEvent(new CustomEvent('tmuxgo-mobile-files-back', { detail }))
         if (detail.handled) return
         setMobileFileSheetOpen(false)
-      }
-      else if (top === 'mobile-git-level') {
+      } else if (top === 'mobile-git-level') {
         window.dispatchEvent(new CustomEvent('tmuxgo-mobile-git-back', { detail: { handled: false } }))
-      }
-      else if (top === 'mobile-git') setMobileGitSheetOpen(false)
+      } else if (top === 'mobile-git') setMobileGitSheetOpen(false)
       else if (top === 'mobile-plugin') setMobilePluginView(null)
+      else if (top === 'desktop') useConsoleStore.getState().setActiveDesktop(null)
       stack.pop()
     }
     window.addEventListener('popstate', handlePopState)
@@ -546,17 +605,16 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   useEffect(() => {
     const handleAppBack = () => {
       const active = document.activeElement
-      const editable = active instanceof HTMLElement && (
-        active.tagName === 'INPUT' ||
-        active.tagName === 'TEXTAREA' ||
-        active.tagName === 'SELECT' ||
-        active.isContentEditable ||
-        active.classList.contains('mobile-kb-input')
-      )
-      const terminalKeyboard = active instanceof HTMLElement && (
-        active.classList.contains('mobile-kb-input') ||
-        !!active.closest('[data-terminal],.xterm,.xterm-screen')
-      )
+      const editable =
+        active instanceof HTMLElement &&
+        (active.tagName === 'INPUT' ||
+          active.tagName === 'TEXTAREA' ||
+          active.tagName === 'SELECT' ||
+          active.isContentEditable ||
+          active.classList.contains('mobile-kb-input'))
+      const terminalKeyboard =
+        active instanceof HTMLElement &&
+        (active.classList.contains('mobile-kb-input') || !!active.closest('[data-terminal],.xterm,.xterm-screen'))
       const keyboardOpen = keyboardStateRef.current.open || document.body.classList.contains('keyboard-open')
       const hasOverlay = overlayRef.current.length > 0
       if (hasOverlay && (!editable || terminalKeyboard)) {
@@ -605,6 +663,10 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
     window.addEventListener('tmuxgo-open-plugin-view', handleOpenPluginView as EventListener)
     return () => window.removeEventListener('tmuxgo-open-plugin-view', handleOpenPluginView as EventListener)
   }, [dismissSettings, isMobile, pushOverlay])
+  // 桌面投影在移动端以覆盖层呈现，需要进 history 栈保证返回键可关闭
+  useEffect(() => {
+    if (activeDesktop && isMobile) pushOverlay('desktop')
+  }, [activeDesktop, isMobile, pushOverlay])
   useEffect(() => {
     setMobileRecentSessionIds(readMobileRecentSessions(activeHostId || ''))
     setMobilePinnedSessionIds(readMobilePinnedSessions(activeHostId || ''))
@@ -646,7 +708,10 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
   }, [isMobile, openDrawer])
 
   return (
-    <div className="tmuxgo-app-shell flex w-screen flex-col overflow-hidden bg-bg-0" style={{ height: appHeight, ['--app-height' as any]: appHeight }}>
+    <div
+      className="tmuxgo-app-shell flex w-screen flex-col overflow-hidden bg-bg-0"
+      style={{ height: appHeight, ['--app-height' as any]: appHeight }}
+    >
       <InstallAppBanner />
       <ImmersiveBackOrb />
       <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
@@ -656,7 +721,10 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       </div>
       {!isMobile && preferences.showStatusBar && <StatusBar />}
       {isMobile && (
-        <div data-mobile-dock className="tmuxgo-glass tmuxgo-mobile-dock mobile-nav-landscape-hide relative z-40 w-auto shrink-0">
+        <div
+          data-mobile-dock
+          className="tmuxgo-glass tmuxgo-mobile-dock mobile-nav-landscape-hide relative z-40 w-auto shrink-0"
+        >
           {mobileQuickSessions.length > 0 && (
             <div className="tmuxgo-mobile-session-strip border-b px-2 pb-1 pt-1.5">
               <div className="flex gap-1 overflow-x-auto scrollbar-none">
@@ -694,7 +762,12 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
                       }}
                       className={`tmuxgo-list-row min-w-0 shrink-0 rounded-apple border px-3 py-1.5 text-xs ${active ? 'tmuxgo-list-row--active' : 'border-text-1/10 bg-bg-2/45 text-text-2 active:bg-bg-2'}`}
                     >
-                      <span className="flex max-w-[28vw] items-center gap-1.5"><span className="min-w-0 truncate">{mobilePinnedSessionIds.includes(session.id) ? `★ ${session.name}` : session.name}</span><AgentStatusBadge summary={session.agentSummary} compact /></span>
+                      <span className="flex max-w-[28vw] items-center gap-1.5">
+                        <span className="min-w-0 truncate">
+                          {mobilePinnedSessionIds.includes(session.id) ? `★ ${session.name}` : session.name}
+                        </span>
+                        <AgentStatusBadge summary={session.agentSummary} compact />
+                      </span>
                     </button>
                   )
                 })}
@@ -702,7 +775,14 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
             </div>
           )}
           <div className={keyboardOpen ? 'hidden' : 'h-[calc(48px+env(safe-area-inset-bottom))]'}>
-            <MobileNav docked gitOpen={mobileGitSheetOpen} onOpenDrawer={openDrawer} onOpenSettings={openSettings} onOpenFiles={openMobileFiles} onOpenGit={openMobileGit} />
+            <MobileNav
+              docked
+              gitOpen={mobileGitSheetOpen}
+              onOpenDrawer={openDrawer}
+              onOpenSettings={openSettings}
+              onOpenFiles={openMobileFiles}
+              onOpenGit={openMobileGit}
+            />
           </div>
           <div className={keyboardOpen ? 'block' : 'hidden'}>
             <ShortcutBar mode="dock" onOpenFiles={openMobileFiles} />
@@ -712,27 +792,130 @@ export function ConsoleLayout({ initialIsMobile=false }:{ initialIsMobile?:boole
       {showCommandPalette && <CommandPalette onClose={() => closeOverlay('palette')} />}
       {showSettings && <Settings onClose={dismissSettings} />}
       {showTasks && <TaskCenter onClose={dismissTasks} />}
-      <MobileBottomSheet open={!!mobileSessionMenu} onClose={() => setMobileSessionMenuId(null)} zClass="z-[85]" heightClass="p-3">
-            <div className="flex justify-center pb-2"><div className="h-1 w-10 rounded-full bg-text-3/30" /></div>
-            <div className="px-1 pb-2 text-sm text-text-1">{mobileSessionMenu?.name}</div>
-            <button onClick={() => { const sessionId = mobileSessionMenu?.id; if (sessionId) togglePinnedQuickSession(sessionId); setMobileSessionMenuId(null) }} className="tmuxgo-menu-item py-3 text-sm">{mobileSessionPinned ? t('mobile.quickSessionUnpin') : t('mobile.quickSessionPin')}</button>
-            <button onClick={() => { const sessionId = mobileSessionMenu?.id; setMobileSessionMenuId(null); if (sessionId) void handleQuickSessionRename(sessionId) }} className="tmuxgo-menu-item py-3 text-sm">{t('drawer.renamePrompt')}</button>
-            <button onClick={() => { setMobileSessionMenuId(null); setPendingDeleteSessionId(mobileSessionMenu?.id ?? null) }} className="tmuxgo-menu-item tmuxgo-menu-item--danger mt-1 py-3 text-sm">{t('sidebar.confirmDelete')}</button>
-            <button onClick={() => { setMobileSessionMenuId(null); openDrawer('sessions') }} className="tmuxgo-menu-item mt-1 py-3 text-sm">{t('nav.sessions')}</button>
-          </MobileBottomSheet>
+      <MobileBottomSheet
+        open={!!mobileSessionMenu}
+        onClose={() => setMobileSessionMenuId(null)}
+        zClass="z-[85]"
+        heightClass="p-3"
+      >
+        <div className="flex justify-center pb-2">
+          <div className="h-1 w-10 rounded-full bg-text-3/30" />
+        </div>
+        <div className="px-1 pb-2 text-sm text-text-1">{mobileSessionMenu?.name}</div>
+        <button
+          onClick={() => {
+            const sessionId = mobileSessionMenu?.id
+            if (sessionId) togglePinnedQuickSession(sessionId)
+            setMobileSessionMenuId(null)
+          }}
+          className="tmuxgo-menu-item py-3 text-sm"
+        >
+          {mobileSessionPinned ? t('mobile.quickSessionUnpin') : t('mobile.quickSessionPin')}
+        </button>
+        <button
+          onClick={() => {
+            const sessionId = mobileSessionMenu?.id
+            setMobileSessionMenuId(null)
+            if (sessionId) void handleQuickSessionRename(sessionId)
+          }}
+          className="tmuxgo-menu-item py-3 text-sm"
+        >
+          {t('drawer.renamePrompt')}
+        </button>
+        <button
+          onClick={() => {
+            setMobileSessionMenuId(null)
+            setPendingDeleteSessionId(mobileSessionMenu?.id ?? null)
+          }}
+          className="tmuxgo-menu-item tmuxgo-menu-item--danger mt-1 py-3 text-sm"
+        >
+          {t('sidebar.confirmDelete')}
+        </button>
+        <button
+          onClick={() => {
+            setMobileSessionMenuId(null)
+            openDrawer('sessions')
+          }}
+          className="tmuxgo-menu-item mt-1 py-3 text-sm"
+        >
+          {t('nav.sessions')}
+        </button>
+      </MobileBottomSheet>
       <UploadConfirmDialog />
       <UploadQueue />
       <AppVersionGuard />
       <ClipboardController />
-      <ConfirmDialog open={!!pendingDeleteSessionId} title={t('sidebar.deleteTitle')} message={t('sidebar.deleteConfirm', { name: sessionsData.find((item: any) => item.id === pendingDeleteSessionId)?.name || '' })} confirmLabel={t('sidebar.confirmDelete')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setPendingDeleteSessionId(null)} onConfirm={() => void confirmDeleteSession()} />
-      <MobileDrawer
-        isOpen={drawerOpen}
-        onClose={() => closeOverlay('drawer')}
-        type={drawerType}
+      <ConfirmDialog
+        open={!!pendingDeleteSessionId}
+        title={t('sidebar.deleteTitle')}
+        message={t('sidebar.deleteConfirm', {
+          name: sessionsData.find((item: any) => item.id === pendingDeleteSessionId)?.name || '',
+        })}
+        confirmLabel={t('sidebar.confirmDelete')}
+        cancelLabel={t('common.cancel')}
+        tone="danger"
+        onCancel={() => setPendingDeleteSessionId(null)}
+        onConfirm={() => void confirmDeleteSession()}
       />
-      <MobileBottomSheet open={mobileFileSheetOpen} onClose={() => closeOverlay('mobile-files')} heightClass="flex h-[75%] flex-col"><div className="flex shrink-0 justify-center py-2"><div className="h-1 w-10 rounded-full bg-text-3/30" /></div><div className="min-h-0 flex-1"><FilePanel mode="mobile" onClose={() => closeOverlay('mobile-files')} /></div></MobileBottomSheet>
-      <MobileBottomSheet open={mobileGitSheetOpen} onClose={() => closeOverlay('mobile-git')} zClass="z-[80]" heightClass="flex h-[88%] flex-col" ariaLabel={t('git.title')}><div className="relative flex h-11 shrink-0 items-center justify-center border-b border-[var(--line)]"><div className="absolute top-2 h-1 w-10 rounded-full bg-text-3/30" /><span className="pt-1 text-body font-medium text-text-1">{t('git.title')}</span><button ref={mobileGitCloseRef} aria-label={t('common.close')} title={t('common.close')} onClick={() => closeOverlay('mobile-git')} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--lg absolute right-1 top-0 text-text-3"><FiX aria-hidden="true" size={18} /></button></div><div className="min-h-0 flex-1"><GitPanel mode="mobile" /></div></MobileBottomSheet>
-      {mobilePluginView && <div className="fixed inset-0 z-[90] bg-bg-0" style={{ height: 'var(--app-height,100dvh)' }}><PluginView mode="mobile" pluginId={mobilePluginView.pluginId} viewId={mobilePluginView.viewId} onClose={() => closeOverlay('mobile-plugin')} /></div>}
+      <MobileDrawer isOpen={drawerOpen} onClose={() => closeOverlay('drawer')} type={drawerType} />
+      <MobileBottomSheet
+        open={mobileFileSheetOpen}
+        onClose={() => closeOverlay('mobile-files')}
+        heightClass="flex h-[75%] flex-col"
+      >
+        <div className="flex shrink-0 justify-center py-2">
+          <div className="h-1 w-10 rounded-full bg-text-3/30" />
+        </div>
+        <div className="min-h-0 flex-1">
+          <FilePanel mode="mobile" onClose={() => closeOverlay('mobile-files')} />
+        </div>
+      </MobileBottomSheet>
+      <MobileBottomSheet
+        open={mobileGitSheetOpen}
+        onClose={() => closeOverlay('mobile-git')}
+        zClass="z-[80]"
+        heightClass="flex h-[88%] flex-col"
+        ariaLabel={t('git.title')}
+      >
+        <div className="relative flex h-11 shrink-0 items-center justify-center border-b border-[var(--line)]">
+          <div className="absolute top-2 h-1 w-10 rounded-full bg-text-3/30" />
+          <span className="pt-1 text-body font-medium text-text-1">{t('git.title')}</span>
+          <button
+            ref={mobileGitCloseRef}
+            aria-label={t('common.close')}
+            title={t('common.close')}
+            onClick={() => closeOverlay('mobile-git')}
+            className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--lg absolute right-1 top-0 text-text-3"
+          >
+            <FiX aria-hidden="true" size={18} />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1">
+          <GitPanel mode="mobile" />
+        </div>
+      </MobileBottomSheet>
+      {mobilePluginView && (
+        <div className="fixed inset-0 z-[90] bg-bg-0" style={{ height: 'var(--app-height,100dvh)' }}>
+          <PluginView
+            mode="mobile"
+            pluginId={mobilePluginView.pluginId}
+            viewId={mobilePluginView.viewId}
+            onClose={() => closeOverlay('mobile-plugin')}
+          />
+        </div>
+      )}
+      {activeDesktop && (
+        <div className="fixed inset-0 z-[85] bg-bg-0" style={{ height: 'var(--app-height,100dvh)' }}>
+          <DesktopView
+            hostId={activeDesktop.hostId}
+            port={activeDesktop.port}
+            onClose={() => {
+              useConsoleStore.getState().setActiveDesktop(null)
+              closeOverlay('desktop')
+            }}
+          />
+        </div>
+      )}
       <ToastViewport />
       <PaneNotifications />
       <TaskNotifications />

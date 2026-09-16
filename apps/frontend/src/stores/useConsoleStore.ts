@@ -1,7 +1,25 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
-import type { ConnectionState, FileDocumentHandle, FileEditorDocument, GitHostState, GitMode, GitSource, UploadJob, TerminalPerfState } from '@/types'
-import { clearLegacyEditorStorage, detectDeviceKind, type DeviceKind, getConsoleStateStorageKey, type PersistedEditorMeta, readLegacyConsoleState, writeActiveHostId, writeActiveSessionId } from '@/lib/console-device-state'
+import type {
+  ConnectionState,
+  FileDocumentHandle,
+  FileEditorDocument,
+  GitHostState,
+  GitMode,
+  GitSource,
+  UploadJob,
+  TerminalPerfState,
+} from '@/types'
+import {
+  clearLegacyEditorStorage,
+  detectDeviceKind,
+  type DeviceKind,
+  getConsoleStateStorageKey,
+  type PersistedEditorMeta,
+  readLegacyConsoleState,
+  writeActiveHostId,
+  writeActiveSessionId,
+} from '@/lib/console-device-state'
 import { createDebouncedStorage } from '@/lib/persist-storage'
 
 const DEVICE_KIND: DeviceKind = detectDeviceKind()
@@ -35,19 +53,57 @@ interface EditorWorkspaceState {
 let editorGroupCounter = 0
 let editorLayoutCounter = 0
 function toEditorDocument(file: PersistedEditorMeta): FileEditorDocument {
-  return { ...file, type: 'file', content: '', savedContent: '', modifiedAt: '', size: 0, dirty: false, loading: true, saving: false, binary: false, truncated: false }
+  return {
+    ...file,
+    type: 'file',
+    content: '',
+    savedContent: '',
+    modifiedAt: '',
+    size: 0,
+    dirty: false,
+    loading: true,
+    saving: false,
+    binary: false,
+    truncated: false,
+  }
 }
 function pickEditorMeta(editor: FileEditorDocument): PersistedEditorMeta {
-  return { id: editor.id, hostId: editor.hostId, rootId: editor.rootId, rootLabel: editor.rootLabel, rootPath: editor.rootPath, path: editor.path, name: editor.name, absolutePath: editor.absolutePath, language: editor.language, kind: editor.kind, compareLeftId: editor.compareLeftId, compareRightId: editor.compareRightId }
+  return {
+    id: editor.id,
+    hostId: editor.hostId,
+    rootId: editor.rootId,
+    rootLabel: editor.rootLabel,
+    rootPath: editor.rootPath,
+    path: editor.path,
+    name: editor.name,
+    absolutePath: editor.absolutePath,
+    language: editor.language,
+    kind: editor.kind,
+    compareLeftId: editor.compareLeftId,
+    compareRightId: editor.compareRightId,
+  }
 }
-function createEditorGroup(editorIds: string[] = [], activeEditorId: string | null = editorIds.at(-1) || null): EditorGroupState {
+function createEditorGroup(
+  editorIds: string[] = [],
+  activeEditorId: string | null = editorIds.at(-1) || null,
+): EditorGroupState {
   const nextEditorIds = editorIds.filter((item, index, items) => items.indexOf(item) === index)
-  return { id: `editor-group-${++editorGroupCounter}`, editorIds: nextEditorIds, activeEditorId: activeEditorId && nextEditorIds.includes(activeEditorId) ? activeEditorId : nextEditorIds.at(-1) || null }
+  return {
+    id: `editor-group-${++editorGroupCounter}`,
+    editorIds: nextEditorIds,
+    activeEditorId:
+      activeEditorId && nextEditorIds.includes(activeEditorId) ? activeEditorId : nextEditorIds.at(-1) || null,
+  }
 }
 function createEditorLayoutLeaf(groupId: string): EditorLayoutLeaf {
   return { id: `editor-layout-${++editorLayoutCounter}`, type: 'group', groupId }
 }
-function createEditorLayoutSplit(direction: 'horizontal' | 'vertical', first: EditorLayoutNode, second: EditorLayoutNode, ratio = 0.5): EditorLayoutSplit {
+function createEditorLayoutSplit(
+  direction: 'horizontal' | 'vertical',
+  first: EditorLayoutNode,
+  second: EditorLayoutNode,
+  ratio = 0.5,
+): EditorLayoutSplit {
   return { id: `editor-layout-${++editorLayoutCounter}`, type: 'split', direction, ratio, first, second }
 }
 function isEditorLayoutSplit(node: EditorLayoutNode | null | undefined): node is EditorLayoutSplit {
@@ -60,7 +116,14 @@ function collectEditorLayoutGroupIds(node: EditorLayoutNode | null): string[] {
 }
 function normalizeEditorGroup(group: EditorGroupState): EditorGroupState {
   const editorIds = group.editorIds.filter((item, index, items) => items.indexOf(item) === index)
-  return { ...group, editorIds, activeEditorId: group.activeEditorId && editorIds.includes(group.activeEditorId) ? group.activeEditorId : editorIds.at(-1) || null }
+  return {
+    ...group,
+    editorIds,
+    activeEditorId:
+      group.activeEditorId && editorIds.includes(group.activeEditorId)
+        ? group.activeEditorId
+        : editorIds.at(-1) || null,
+  }
 }
 function getEditorGroupById(groups: EditorGroupState[], groupId: string | null | undefined) {
   if (!groupId) return null
@@ -83,12 +146,24 @@ function removeEditorGroupFromLayout(node: EditorLayoutNode | null, groupId: str
   if (nextFirst === node.first && nextSecond === node.second) return node
   return { ...node, first: nextFirst, second: nextSecond }
 }
-function splitEditorLayout(node: EditorLayoutNode, targetGroupId: string, direction: 'horizontal' | 'vertical', newGroupId: string, side: 'before' | 'after'): { node: EditorLayoutNode; inserted: boolean } {
+function splitEditorLayout(
+  node: EditorLayoutNode,
+  targetGroupId: string,
+  direction: 'horizontal' | 'vertical',
+  newGroupId: string,
+  side: 'before' | 'after',
+): { node: EditorLayoutNode; inserted: boolean } {
   if (!isEditorLayoutSplit(node)) {
     if (node.groupId !== targetGroupId) return { node, inserted: false }
     const currentLeaf = node
     const newLeaf = createEditorLayoutLeaf(newGroupId)
-    return { node: side === 'before' ? createEditorLayoutSplit(direction, newLeaf, currentLeaf) : createEditorLayoutSplit(direction, currentLeaf, newLeaf), inserted: true }
+    return {
+      node:
+        side === 'before'
+          ? createEditorLayoutSplit(direction, newLeaf, currentLeaf)
+          : createEditorLayoutSplit(direction, currentLeaf, newLeaf),
+      inserted: true,
+    }
   }
   const first = splitEditorLayout(node.first, targetGroupId, direction, newGroupId, side)
   if (first.inserted) return { node: { ...node, first: first.node }, inserted: true }
@@ -96,7 +171,11 @@ function splitEditorLayout(node: EditorLayoutNode, targetGroupId: string, direct
   if (second.inserted) return { node: { ...node, second: second.node }, inserted: true }
   return { node, inserted: false }
 }
-function updateEditorLayoutSplitRatio(node: EditorLayoutNode, splitId: string, ratio: number): { node: EditorLayoutNode; updated: boolean } {
+function updateEditorLayoutSplitRatio(
+  node: EditorLayoutNode,
+  splitId: string,
+  ratio: number,
+): { node: EditorLayoutNode; updated: boolean } {
   if (!isEditorLayoutSplit(node)) return { node, updated: false }
   if (node.id === splitId) return { node: { ...node, ratio: Math.max(0.2, Math.min(0.8, ratio)) }, updated: true }
   const first = updateEditorLayoutSplitRatio(node.first, splitId, ratio)
@@ -120,35 +199,45 @@ function pruneEmptyEditorGroups(groups: EditorGroupState[], layout: EditorLayout
   if (!nextLayout) nextLayout = createEditorLayoutLeaf(nextGroups[0].id)
   return { editorGroups: nextGroups.map(normalizeEditorGroup), editorLayout: nextLayout }
 }
-function finalizeEditorWorkspace(state: EditorWorkspaceState): Pick<EditorWorkspaceState, 'activeEditorId' | 'editorGroups' | 'editorLayout' | 'activeEditorGroupId'> {
+function finalizeEditorWorkspace(
+  state: EditorWorkspaceState,
+): Pick<EditorWorkspaceState, 'activeEditorId' | 'editorGroups' | 'editorLayout' | 'activeEditorGroupId'> {
   const openEditorIds = new Set(state.openEditors.map((item) => item.id))
-  let editorGroups = state.editorGroups.map((group) => normalizeEditorGroup({ ...group, editorIds: group.editorIds.filter((id) => openEditorIds.has(id)) }))
+  let editorGroups = state.editorGroups.map((group) =>
+    normalizeEditorGroup({ ...group, editorIds: group.editorIds.filter((id) => openEditorIds.has(id)) }),
+  )
   let editorLayout = state.editorLayout
   const pruned = pruneEmptyEditorGroups(editorGroups, editorLayout)
   editorGroups = pruned.editorGroups
   editorLayout = pruned.editorLayout
   let activeEditorId = state.activeEditorId && openEditorIds.has(state.activeEditorId) ? state.activeEditorId : null
-  let activeEditorGroupId = getExistingEditorGroupId(editorGroups, state.activeEditorGroupId) || editorGroups[0]?.id || null
+  let activeEditorGroupId =
+    getExistingEditorGroupId(editorGroups, state.activeEditorGroupId) || editorGroups[0]?.id || null
   if (activeEditorId) {
     const groupId = findEditorGroupIdByEditor(editorGroups, activeEditorId)
     if (groupId) {
       activeEditorGroupId = groupId
-      editorGroups = editorGroups.map((group) => group.id === groupId ? { ...group, activeEditorId } : group)
+      editorGroups = editorGroups.map((group) => (group.id === groupId ? { ...group, activeEditorId } : group))
     } else activeEditorId = null
   }
-  if (!activeEditorId && activeEditorGroupId) activeEditorId = getEditorGroupById(editorGroups, activeEditorGroupId)?.activeEditorId || null
+  if (!activeEditorId && activeEditorGroupId)
+    activeEditorId = getEditorGroupById(editorGroups, activeEditorGroupId)?.activeEditorId || null
   if (!activeEditorId) {
     const fallbackGroup = editorGroups.find((group) => group.editorIds.length)
     if (fallbackGroup) {
       activeEditorGroupId = fallbackGroup.id
       activeEditorId = fallbackGroup.activeEditorId || fallbackGroup.editorIds.at(-1) || null
-      editorGroups = editorGroups.map((group) => group.id === fallbackGroup.id ? { ...group, activeEditorId } : group)
+      editorGroups = editorGroups.map((group) => (group.id === fallbackGroup.id ? { ...group, activeEditorId } : group))
     }
   }
   if (!activeEditorGroupId && editorGroups[0]) activeEditorGroupId = editorGroups[0].id
   return { activeEditorId, editorGroups: editorGroups.map(normalizeEditorGroup), editorLayout, activeEditorGroupId }
 }
-function createLegacyEditorState(editorGroups: EditorGroupState[], editorLayout: EditorLayoutNode | null, activeEditorGroupId: string | null) {
+function createLegacyEditorState(
+  editorGroups: EditorGroupState[],
+  editorLayout: EditorLayoutNode | null,
+  activeEditorGroupId: string | null,
+) {
   const orderedGroupIds = collectEditorLayoutGroupIds(editorLayout)
   const primaryGroup = getEditorGroupById(editorGroups, orderedGroupIds[0]) || editorGroups[0] || null
   const secondaryGroup = getEditorGroupById(editorGroups, orderedGroupIds[1]) || null
@@ -160,35 +249,84 @@ function createLegacyEditorState(editorGroups: EditorGroupState[], editorLayout:
     editorSecondaryId: secondaryGroup?.activeEditorId || null,
     editorSplitDirection: secondaryGroup ? rootSplit?.direction || 'horizontal' : null,
     editorSplitRatio: secondaryGroup ? rootSplit?.ratio || 0.5 : 0.5,
-    activeEditorSlot: secondaryGroup && activeEditorGroupId === secondaryGroup.id ? 'secondary' as const : 'primary' as const,
+    activeEditorSlot:
+      secondaryGroup && activeEditorGroupId === secondaryGroup.id ? ('secondary' as const) : ('primary' as const),
   }
 }
-function withLegacyEditorState<T extends Pick<EditorWorkspaceState, 'editorGroups' | 'editorLayout' | 'activeEditorGroupId'>>(state: T) {
+function withLegacyEditorState<
+  T extends Pick<EditorWorkspaceState, 'editorGroups' | 'editorLayout' | 'activeEditorGroupId'>,
+>(state: T) {
   return { ...state, ...createLegacyEditorState(state.editorGroups, state.editorLayout, state.activeEditorGroupId) }
 }
 function createEmptyEditorWorkspace() {
   const group = createEditorGroup()
-  return withLegacyEditorState({ editorGroups: [group], editorLayout: createEditorLayoutLeaf(group.id), activeEditorGroupId: group.id, activeEditorId: null as string | null })
+  return withLegacyEditorState({
+    editorGroups: [group],
+    editorLayout: createEditorLayoutLeaf(group.id),
+    activeEditorGroupId: group.id,
+    activeEditorId: null as string | null,
+  })
 }
 function createEditorWorkspaceFromEditors(openEditors: FileEditorDocument[], activeEditorId: string | null) {
-  const group = createEditorGroup(openEditors.map((item) => item.id), activeEditorId)
-  return withLegacyEditorState(finalizeEditorWorkspace({ openEditors, activeEditorId, editorGroups: [group], editorLayout: createEditorLayoutLeaf(group.id), activeEditorGroupId: group.id }))
+  const group = createEditorGroup(
+    openEditors.map((item) => item.id),
+    activeEditorId,
+  )
+  return withLegacyEditorState(
+    finalizeEditorWorkspace({
+      openEditors,
+      activeEditorId,
+      editorGroups: [group],
+      editorLayout: createEditorLayoutLeaf(group.id),
+      activeEditorGroupId: group.id,
+    }),
+  )
 }
-function moveEditorBetweenGroups(state: EditorWorkspaceState, id: string, targetGroupId: string, targetId?: string | null) {
+function moveEditorBetweenGroups(
+  state: EditorWorkspaceState,
+  id: string,
+  targetGroupId: string,
+  targetId?: string | null,
+) {
   const sourceGroupId = findEditorGroupIdByEditor(state.editorGroups, id)
-  const resolvedTargetGroupId = getExistingEditorGroupId(state.editorGroups, targetGroupId) || sourceGroupId || state.activeEditorGroupId || state.editorGroups[0]?.id || null
+  const resolvedTargetGroupId =
+    getExistingEditorGroupId(state.editorGroups, targetGroupId) ||
+    sourceGroupId ||
+    state.activeEditorGroupId ||
+    state.editorGroups[0]?.id ||
+    null
   if (!sourceGroupId || !resolvedTargetGroupId) return null
   let editorGroups = state.editorGroups.map(normalizeEditorGroup)
   if (sourceGroupId === resolvedTargetGroupId) {
-    editorGroups = editorGroups.map((group) => group.id === resolvedTargetGroupId ? { ...group, editorIds: insertEditorId(group.editorIds, id, targetId), activeEditorId: id } : group)
-    return finalizeEditorWorkspace({ ...state, editorGroups, activeEditorId: id, activeEditorGroupId: resolvedTargetGroupId })
+    editorGroups = editorGroups.map((group) =>
+      group.id === resolvedTargetGroupId
+        ? { ...group, editorIds: insertEditorId(group.editorIds, id, targetId), activeEditorId: id }
+        : group,
+    )
+    return finalizeEditorWorkspace({
+      ...state,
+      editorGroups,
+      activeEditorId: id,
+      activeEditorGroupId: resolvedTargetGroupId,
+    })
   }
   editorGroups = editorGroups.map((group) => {
-    if (group.id === sourceGroupId) return { ...group, editorIds: group.editorIds.filter((item) => item !== id), activeEditorId: group.activeEditorId === id ? null : group.activeEditorId }
-    if (group.id === resolvedTargetGroupId) return { ...group, editorIds: insertEditorId(group.editorIds, id, targetId), activeEditorId: id }
+    if (group.id === sourceGroupId)
+      return {
+        ...group,
+        editorIds: group.editorIds.filter((item) => item !== id),
+        activeEditorId: group.activeEditorId === id ? null : group.activeEditorId,
+      }
+    if (group.id === resolvedTargetGroupId)
+      return { ...group, editorIds: insertEditorId(group.editorIds, id, targetId), activeEditorId: id }
     return group
   })
-  return finalizeEditorWorkspace({ ...state, editorGroups, activeEditorId: id, activeEditorGroupId: resolvedTargetGroupId })
+  return finalizeEditorWorkspace({
+    ...state,
+    editorGroups,
+    activeEditorId: id,
+    activeEditorGroupId: resolvedTargetGroupId,
+  })
 }
 interface ConsoleState {
   activeHostId: string | null
@@ -203,6 +341,7 @@ interface ConsoleState {
   sshPanelOpen: boolean
   activeSplitGroupId: string | null
   activePluginView: { pluginId: string; viewId: string } | null
+  activeDesktop: { hostId: string; port: number } | null
   gitPanelWidth: number
   sshPanelWidth: number
   gitByHost: Record<string, GitHostState>
@@ -223,7 +362,13 @@ interface ConsoleState {
   editorSplitRatio: number
   activeEditorSlot: 'primary' | 'secondary'
   editorsHydrated: boolean
-  uploadRequest: { files: File[]; preferredRootId?: string; preferredPath?: string; insertPaths?: boolean; temporary?: boolean } | null
+  uploadRequest: {
+    files: File[]
+    preferredRootId?: string
+    preferredPath?: string
+    insertPaths?: boolean
+    temporary?: boolean
+  } | null
   uploadJobs: UploadJob[]
   toasts: { id: string; type: 'success' | 'error' | 'info'; message: string; durationMs?: number }[]
   setActiveHost: (id: string) => void
@@ -240,6 +385,8 @@ interface ConsoleState {
   toggleGitPanel: () => void
   toggleSshPanel: () => void
   setActivePluginView: (view: { pluginId: string; viewId: string } | null) => void
+  toggleDesktop: (hostId: string, port?: number) => void
+  setActiveDesktop: (desktop: { hostId: string; port: number } | null) => void
   setGitPanelWidth: (width: number) => void
   setSshPanelWidth: (width: number) => void
   ensureGitHostState: (hostId: string) => void
@@ -255,7 +402,11 @@ interface ConsoleState {
   setTerminalPanelHeight: (height: number) => void
   openEditor: (file: FileDocumentHandle & { language: string }) => void
   openCompareEditor: (leftId: string, rightId: string) => string | null
-  placeEditorInSplit: (id: string, placement: 'center' | 'left' | 'right' | 'top' | 'bottom', targetGroupId?: string | null) => void
+  placeEditorInSplit: (
+    id: string,
+    placement: 'center' | 'left' | 'right' | 'top' | 'bottom',
+    targetGroupId?: string | null,
+  ) => void
   moveEditorToGroup: (id: string, targetGroupId: string, targetId?: string | null) => void
   setEditorSplitRatio: (splitId: string, ratio: number) => void
   closeEditor: (id: string) => void
@@ -264,7 +415,13 @@ interface ConsoleState {
   setEditorContent: (id: string, content: string) => void
   setEditorSaving: (id: string, saving: boolean) => void
   markEditorSaved: (id: string, content: string, modifiedAt: string, size: number) => void
-  openUploadDialog: (request: { files: File[]; preferredRootId?: string; preferredPath?: string; insertPaths?: boolean; temporary?: boolean }) => void
+  openUploadDialog: (request: {
+    files: File[]
+    preferredRootId?: string
+    preferredPath?: string
+    insertPaths?: boolean
+    temporary?: boolean
+  }) => void
   closeUploadDialog: () => void
   addUploadJob: (job: UploadJob) => void
   updateUploadJob: (id: string, patch: Partial<UploadJob>) => void
@@ -276,7 +433,14 @@ interface ConsoleState {
   updateTerminalPerf: (state: Partial<TerminalPerfState>) => void
 }
 function createDefaultGitHostState(): GitHostState {
-  return { mode: 'follow-editor', currentRepoPath: null, currentFilePath: null, source: null, lockedRepoPath: null, recentRepos: [] }
+  return {
+    mode: 'follow-editor',
+    currentRepoPath: null,
+    currentFilePath: null,
+    source: null,
+    lockedRepoPath: null,
+    recentRepos: [],
+  }
 }
 function touchGitRepo(state: GitHostState, repoPath: string) {
   const label = repoPath.split('/').filter(Boolean).pop() || repoPath
@@ -284,7 +448,11 @@ function touchGitRepo(state: GitHostState, repoPath: string) {
   const next = { repoPath, label, lastUsedAt: Date.now(), pinned: existing?.pinned || false }
   return [next, ...state.recentRepos.filter((item) => item.repoPath !== repoPath)].slice(0, 12)
 }
-function updateGitHostState(gitByHost: Record<string, GitHostState>, hostId: string, updater: (current: GitHostState) => GitHostState) {
+function updateGitHostState(
+  gitByHost: Record<string, GitHostState>,
+  hostId: string,
+  updater: (current: GitHostState) => GitHostState,
+) {
   const current = gitByHost[hostId] || createDefaultGitHostState()
   return { ...gitByHost, [hostId]: updater(current) }
 }
@@ -307,7 +475,11 @@ function migrateLegacyConsoleState() {
       const legacyUnified = JSON.parse(legacyUnifiedRaw)
       const legacyState = (legacyUnified && legacyUnified.state) || {}
       const state = IS_MOBILE_DEVICE
-        ? { activeHostId: legacyState.activeHostId ?? null, activeSessionId: legacyState.activeSessionId ?? null, gitByHost: legacyState.gitByHost ?? {} }
+        ? {
+            activeHostId: legacyState.activeHostId ?? null,
+            activeSessionId: legacyState.activeSessionId ?? null,
+            gitByHost: legacyState.gitByHost ?? {},
+          }
         : { ...legacyState, editorsHydrated: true }
       localStorage.setItem(NEW_KEY, JSON.stringify({ state, version: 1 }))
       localStorage.removeItem(LEGACY_UNIFIED_KEY)
@@ -321,280 +493,664 @@ function migrateLegacyConsoleState() {
     activeSessionId: null as string | null,
     gitByHost: {} as Record<string, GitHostState>,
   }
-  const state = IS_MOBILE_DEVICE ? baseState : {
-    ...baseState,
-    sessionPanelExpanded: true,
-    filePanelOpen: false,
-    gitPanelOpen: false,
-    gitPanelWidth: 560,
-    sessionPanelWidth: 248,
-    filePanelWidth: 240,
-    terminalPanelHeight: 300,
-    openEditors: legacy.openEditors,
-    activeEditorId: legacy.activeEditorId,
-    editorGroups: [] as EditorGroupState[],
-    editorLayout: null as EditorLayoutNode | null,
-    activeEditorGroupId: null as string | null,
-    editorsHydrated: true,
-  }
+  const state = IS_MOBILE_DEVICE
+    ? baseState
+    : {
+        ...baseState,
+        sessionPanelExpanded: true,
+        filePanelOpen: false,
+        gitPanelOpen: false,
+        gitPanelWidth: 560,
+        sessionPanelWidth: 248,
+        filePanelWidth: 240,
+        terminalPanelHeight: 300,
+        openEditors: legacy.openEditors,
+        activeEditorId: legacy.activeEditorId,
+        editorGroups: [] as EditorGroupState[],
+        editorLayout: null as EditorLayoutNode | null,
+        activeEditorGroupId: null as string | null,
+        editorsHydrated: true,
+      }
   localStorage.setItem(NEW_KEY, JSON.stringify({ state, version: 1 }))
   clearLegacyEditorStorage()
 }
 migrateLegacyConsoleState()
-export const useConsoleStore = create<ConsoleState>()(persist((set) => ({
-  activeHostId: null,
-  activeSessionId: null,
-  activePaneId: null,
-  connection: { status: 'disconnected', latency: 0, lastPing: new Date().toISOString() },
-  terminalPerf: { attachLatency: 0, outputBytes: 0, outputEvents: 0, outputBacklog: 0, layoutFitCount: 0, lastOutputAt: '' },
-  showCommandPalette: false,
-  sessionPanelExpanded: true,
-  filePanelOpen: false,
-  gitPanelOpen: false,
-  sshPanelOpen: false,
-  activeSplitGroupId: null,
-  activePluginView: null,
-  gitPanelWidth: 560,
-  sshPanelWidth: 320,
-  gitByHost: {},
-  mobileFileSheetOpen: false,
-  sessionPanelWidth: 248,
-  filePanelWidth: 240,
-  terminalPanelHeight: 300,
-  openEditors: [],
-  ...createEmptyEditorWorkspace(),
-  editorsHydrated: true,
-  uploadRequest: null,
-  uploadJobs: [],
-  toasts: [],
-  setActiveHost: (id) => {
-    writeActiveHostId(id)
-    set({ activeHostId: id, activeSessionId: null, activePaneId: null })
-  },
-  setActiveSession: (id) => set((state) => {
-    if (state.activeSessionId === id && !state.activeSplitGroupId) return state
-    writeActiveSessionId(state.activeHostId, id)
-    return { activeSessionId: id, activePaneId: null, activeSplitGroupId: null }
-  }),
-  setActivePane: (id) => set({ activePaneId: id }),
-  setCommandPalette: (open) => set({ showCommandPalette: open }),
-  setSessionPanelExpanded: (expanded) => set(expanded ? { sessionPanelExpanded: true, sshPanelOpen: false, activePluginView: null } : { sessionPanelExpanded: false }),
-  toggleSessionPanel: () => set((state) => state.sessionPanelExpanded ? { sessionPanelExpanded: false } : { sessionPanelExpanded: true, gitPanelOpen: false, sshPanelOpen: false, activePluginView: null }),
-  setFilePanelOpen: (open) => set((state) => open ? { filePanelOpen: true, sessionPanelExpanded: false, gitPanelOpen: false, sshPanelOpen: false, activePluginView: null } : { filePanelOpen: false }),
-  toggleFilePanel: () => set((state) => state.filePanelOpen ? { filePanelOpen: false } : { filePanelOpen: true, sessionPanelExpanded: false, gitPanelOpen: false, sshPanelOpen: false, activePluginView: null }),
-  openSplitGroup: (id) => set({ activeSplitGroupId: id, filePanelOpen: false, sessionPanelExpanded: false, gitPanelOpen: false, sshPanelOpen: false, activePluginView: null }),
-  closeSplitGroup: () => set({ activeSplitGroupId: null }),
-  setGitPanelOpen: (open) => set((state) => open ? { gitPanelOpen: true, sessionPanelExpanded: false, filePanelOpen: false, sshPanelOpen: false, activePluginView: null } : { gitPanelOpen: false }),
-  toggleGitPanel: () => set((state) => state.gitPanelOpen ? { gitPanelOpen: false } : { gitPanelOpen: true, sessionPanelExpanded: false, filePanelOpen: false, sshPanelOpen: false, activePluginView: null }),
-  toggleSshPanel: () => set((state) => state.sshPanelOpen ? { sshPanelOpen: false } : { sshPanelOpen: true, filePanelOpen: false, sessionPanelExpanded: false, gitPanelOpen: false, activePluginView: null }),
-  setActivePluginView: (view) => set((state) => view && state.activePluginView?.pluginId === view.pluginId && state.activePluginView.viewId === view.viewId ? { activePluginView: null } : view ? { activePluginView: view, filePanelOpen: false, sessionPanelExpanded: false, gitPanelOpen: false, sshPanelOpen: false } : { activePluginView: null }),
-  setGitPanelWidth: (width) => set({ gitPanelWidth: Math.max(380, Math.min(920, width)) }),
-  setSshPanelWidth: (width) => set({ sshPanelWidth: Math.max(260, Math.min(480, width)) }),
-  ensureGitHostState: (hostId) => set((state) => ({ gitByHost: updateGitHostState(state.gitByHost, hostId, (current) => current) })),
-  replaceGitByHost: (gitByHost) => set({ gitByHost }),
-  setGitFollowEditorRepo: (hostId, repoPath, filePath) => set((state) => ({ gitByHost: updateGitHostState(state.gitByHost, hostId, (current) => {
-    if (current.mode === 'locked') return { ...current, currentFilePath: filePath }
-    return { ...current, currentRepoPath: repoPath, currentFilePath: filePath, source: repoPath ? 'editor' as GitSource : current.source, recentRepos: repoPath ? touchGitRepo(current, repoPath) : current.recentRepos }
-  }) })),
-  setGitFollowPaneRepo: (hostId, repoPath, panePath) => set((state) => ({ gitByHost: updateGitHostState(state.gitByHost, hostId, (current) => {
-    if (current.mode === 'locked') return current
-    return { ...current, currentRepoPath: repoPath, currentFilePath: panePath, source: 'pane' as GitSource, recentRepos: repoPath ? touchGitRepo(current, repoPath) : current.recentRepos }
-  }) })),
-  setGitLockedRepo: (hostId, repoPath) => set((state) => ({ gitByHost: updateGitHostState(state.gitByHost, hostId, (current) => ({ ...current, mode: 'locked' as GitMode, currentRepoPath: repoPath, lockedRepoPath: repoPath, source: 'manual', recentRepos: touchGitRepo(current, repoPath) })) })),
-  resumeGitFollowEditor: (hostId) => set((state) => ({ gitByHost: updateGitHostState(state.gitByHost, hostId, (current) => ({ ...current, mode: 'follow-editor', lockedRepoPath: null, source: current.currentRepoPath ? 'editor' : null })) })),
-  pinGitRepo: (hostId, repoPath, pinned) => set((state) => ({ gitByHost: updateGitHostState(state.gitByHost, hostId, (current) => ({ ...current, recentRepos: current.recentRepos.map((item) => item.repoPath === repoPath ? { ...item, pinned } : item) })) })),
-  setMobileFileSheetOpen: (open) => set({ mobileFileSheetOpen: open }),
-  setSessionPanelWidth: (width) => set({ sessionPanelWidth: Math.max(208, Math.min(320, width)) }),
-  setFilePanelWidth: (width) => set({ filePanelWidth: Math.max(200, Math.min(520, width)) }),
-  setTerminalPanelHeight: (height) => set({ terminalPanelHeight: Math.max(180, Math.min(2000, height)) }),
-  openEditor: (file) => set((state) => {
-    const existing = state.openEditors.find((item) => item.id === file.id)
-    if (existing) {
-      let editorGroups = state.editorGroups.map(normalizeEditorGroup)
-      const existingGroupId = findEditorGroupIdByEditor(editorGroups, existing.id)
-      if (existingGroupId) {
-        const nextState = withLegacyEditorState(finalizeEditorWorkspace({ ...state, editorGroups: editorGroups.map((group) => group.id === existingGroupId ? { ...group, activeEditorId: existing.id } : group), activeEditorId: existing.id, activeEditorGroupId: existingGroupId }))
-        return nextState
-      }
-      const targetGroupId = getExistingEditorGroupId(editorGroups, state.activeEditorGroupId) || editorGroups[0]?.id || null
-      if (!targetGroupId) return state
-      const nextState = withLegacyEditorState(finalizeEditorWorkspace({ ...state, editorGroups: editorGroups.map((group) => group.id === targetGroupId ? { ...group, editorIds: [...group.editorIds, existing.id], activeEditorId: existing.id } : group), activeEditorId: existing.id, activeEditorGroupId: targetGroupId }))
-      return nextState
-    }
-    const targetGroupId = getExistingEditorGroupId(state.editorGroups, state.activeEditorGroupId) || state.editorGroups[0]?.id || null
-    const nextOpenEditors = [...state.openEditors, { ...file, content: '', savedContent: '', modifiedAt: '', size: 0, dirty: false, loading: true, saving: false, binary: false, truncated: false }]
-    let editorGroups = state.editorGroups.map(normalizeEditorGroup)
-    if (targetGroupId) editorGroups = editorGroups.map((group) => group.id === targetGroupId ? { ...group, editorIds: [...group.editorIds, file.id], activeEditorId: file.id } : group)
-    const nextState = withLegacyEditorState(finalizeEditorWorkspace({ ...state, openEditors: nextOpenEditors, editorGroups, activeEditorId: file.id, activeEditorGroupId: targetGroupId }))
-    return { openEditors: nextOpenEditors, ...nextState }
-  }),
-  openCompareEditor: (leftId, rightId) => {
-    const left = useConsoleStore.getState().openEditors.find((item) => item.id === leftId)
-    const right = useConsoleStore.getState().openEditors.find((item) => item.id === rightId)
-    if (!left || !right) return null
-    const compareId = `compare:${[leftId, rightId].sort().join('::')}`
-    set((state) => {
-      const existing = state.openEditors.find((item) => item.id === compareId)
-      if (existing) {
-        let editorGroups = state.editorGroups.map(normalizeEditorGroup)
-        const existingGroupId = findEditorGroupIdByEditor(editorGroups, existing.id)
-        if (existingGroupId) {
-          const nextState = withLegacyEditorState(finalizeEditorWorkspace({ ...state, editorGroups: editorGroups.map((group) => group.id === existingGroupId ? { ...group, activeEditorId: existing.id } : group), activeEditorId: existing.id, activeEditorGroupId: existingGroupId }))
-          return nextState
-        }
-      }
-      const targetGroupId = getExistingEditorGroupId(state.editorGroups, state.activeEditorGroupId) || state.editorGroups[0]?.id || null
-      const nextOpenEditors = [...state.openEditors, { id: compareId, hostId: left.hostId, rootId: left.rootId, rootLabel: left.rootLabel, rootPath: left.rootPath, path: left.path, name: `${left.name} <> ${right.name}`, absolutePath: '', language: left.language === right.language ? left.language : 'plaintext', content: '', savedContent: '', modifiedAt: '', size: 0, dirty: false, loading: false, saving: false, binary: false, truncated: false, kind: 'compare' as const, compareLeftId: leftId, compareRightId: rightId, type: 'file' as const }]
-      let editorGroups = state.editorGroups.map(normalizeEditorGroup)
-      if (targetGroupId) editorGroups = editorGroups.map((group) => group.id === targetGroupId ? { ...group, editorIds: [...group.editorIds, compareId], activeEditorId: compareId } : group)
-      const nextState = withLegacyEditorState(finalizeEditorWorkspace({ ...state, openEditors: nextOpenEditors, editorGroups, activeEditorId: compareId, activeEditorGroupId: targetGroupId }))
-      return { openEditors: nextOpenEditors, ...nextState }
-    })
-    return compareId
-  },
-  placeEditorInSplit: (id, placement, targetGroupId) => set((state) => {
-    if (!state.openEditors.some((item) => item.id === id)) return state
-    const resolvedTargetGroupId = getExistingEditorGroupId(state.editorGroups, targetGroupId) || getExistingEditorGroupId(state.editorGroups, state.activeEditorGroupId) || findEditorGroupIdByEditor(state.editorGroups, id) || state.editorGroups[0]?.id || null
-    if (!resolvedTargetGroupId) return state
-    if (placement === 'center') {
-      const nextState = moveEditorBetweenGroups(state, id, resolvedTargetGroupId)
-      if (!nextState) return state
-      const nextLegacyState = withLegacyEditorState(nextState)
-      return nextLegacyState
-    }
-    const sourceGroupId = findEditorGroupIdByEditor(state.editorGroups, id)
-    if (!sourceGroupId) return state
-    const direction = placement === 'left' || placement === 'right' ? 'horizontal' : 'vertical'
-    const side = placement === 'left' || placement === 'top' ? 'before' as const : 'after' as const
-    const newGroup = createEditorGroup([id], id)
-    let editorGroups = [...state.editorGroups.map(normalizeEditorGroup).map((group) => group.id === sourceGroupId ? { ...group, editorIds: group.editorIds.filter((item) => item !== id), activeEditorId: group.activeEditorId === id ? null : group.activeEditorId } : group), newGroup]
-    let editorLayout = state.editorLayout || createEditorLayoutLeaf(resolvedTargetGroupId)
-    const split = splitEditorLayout(editorLayout, resolvedTargetGroupId, direction, newGroup.id, side)
-    editorLayout = split.inserted ? split.node : side === 'before' ? createEditorLayoutSplit(direction, createEditorLayoutLeaf(newGroup.id), editorLayout) : createEditorLayoutSplit(direction, editorLayout, createEditorLayoutLeaf(newGroup.id))
-    const nextState = withLegacyEditorState(finalizeEditorWorkspace({ ...state, editorGroups, editorLayout, activeEditorId: id, activeEditorGroupId: newGroup.id }))
-    return nextState
-  }),
-  moveEditorToGroup: (id, targetGroupId, targetId) => set((state) => {
-    if (!state.openEditors.some((item) => item.id === id)) return state
-    const nextState = moveEditorBetweenGroups(state, id, targetGroupId, targetId)
-    if (!nextState) return state
-    const nextLegacyState = withLegacyEditorState(nextState)
-    return nextLegacyState
-  }),
-  setEditorSplitRatio: (splitId, ratio) => set((state) => {
-    if (!state.editorLayout) return state
-    const nextLayout = updateEditorLayoutSplitRatio(state.editorLayout, splitId, ratio)
-    if (!nextLayout.updated) return state
-    return withLegacyEditorState({ editorGroups: state.editorGroups, editorLayout: nextLayout.node, activeEditorGroupId: state.activeEditorGroupId })
-  }),
-  closeEditor: (id) => set((state) => {
-    const nextEditors = state.openEditors.filter((item) => item.id !== id)
-    const nextState = withLegacyEditorState(finalizeEditorWorkspace({
-      ...state,
-      openEditors: nextEditors,
-      editorGroups: state.editorGroups.map((group) => group.id === findEditorGroupIdByEditor(state.editorGroups, id) ? { ...group, editorIds: group.editorIds.filter((item) => item !== id), activeEditorId: group.activeEditorId === id ? null : group.activeEditorId } : group),
-      activeEditorId: state.activeEditorId === id ? null : state.activeEditorId,
-    }))
-    return { openEditors: nextEditors, ...nextState }
-  }),
-  setActiveEditor: (id) => set((state) => {
-    if (!id) return { activeEditorId: null }
-    const groupId = findEditorGroupIdByEditor(state.editorGroups, id)
-    if (!groupId) return state
-    return withLegacyEditorState(finalizeEditorWorkspace({ ...state, editorGroups: state.editorGroups.map((group) => group.id === groupId ? { ...group, activeEditorId: id } : group), activeEditorId: id, activeEditorGroupId: groupId }))
-  }),
-  setEditorLoaded: (id, patch) => set((state) => ({ openEditors: state.openEditors.map((item) => item.id === id ? { ...item, ...patch } : item) })),
-  setEditorContent: (id, content) => set((state) => ({ openEditors: state.openEditors.map((item) => item.id === id ? { ...item, content, dirty: content !== item.savedContent } : item) })),
-  setEditorSaving: (id, saving) => set((state) => ({ openEditors: state.openEditors.map((item) => item.id === id ? { ...item, saving } : item) })),
-  markEditorSaved: (id, content, modifiedAt, size) => set((state) => ({ openEditors: state.openEditors.map((item) => item.id === id ? { ...item, content, savedContent: content, modifiedAt, size, dirty: false, saving: false, loading: false, problem: undefined } : item) })),
-  openUploadDialog: (request) => set({ uploadRequest: request }),
-  closeUploadDialog: () => set({ uploadRequest: null }),
-  addUploadJob: (job) => set((state) => ({ uploadJobs: [job, ...state.uploadJobs].slice(0, 12) })),
-  updateUploadJob: (id, patch) => set((state) => ({ uploadJobs: state.uploadJobs.map((job) => job.id === id ? { ...job, ...patch } : job) })),
-  removeUploadJob: (id) => set((state) => ({ uploadJobs: state.uploadJobs.filter((job) => job.id !== id) })),
-  clearFinishedUploadJobs: () => set((state) => ({ uploadJobs: state.uploadJobs.filter((job) => job.status === 'queued' || job.status === 'uploading') })),
-  pushToast: (toast) => set((state) => ({ toasts: [...state.toasts, { id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, ...toast }] })),
-  removeToast: (id) => set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) })),
-  updateConnection: (newState) => set((state) => ({ connection: { ...state.connection, ...newState } })),
-  updateTerminalPerf: (newState) => set((state) => ({ terminalPerf: { ...state.terminalPerf, ...newState } })),
-}), {
-  name: getConsoleStateStorageKey(),
-  version: 1,
-  storage: createJSONStorage(() => createDebouncedStorage(120)),
-  partialize: (state) => {
-    const shared = {
-      activeHostId: state.activeHostId,
-      activeSessionId: state.activeSessionId,
-      gitByHost: state.gitByHost,
-    }
-    if (IS_MOBILE_DEVICE) return shared
-    return {
-      ...shared,
-      sessionPanelExpanded: state.sessionPanelExpanded,
-      filePanelOpen: state.filePanelOpen,
-      gitPanelOpen: state.gitPanelOpen,
-      sshPanelOpen: state.sshPanelOpen,
-      gitPanelWidth: state.gitPanelWidth,
-      sshPanelWidth: state.sshPanelWidth,
-      sessionPanelWidth: state.sessionPanelWidth,
-      filePanelWidth: state.filePanelWidth,
-      terminalPanelHeight: state.terminalPanelHeight,
-      openEditors: state.openEditors.map(pickEditorMeta),
-      activeEditorId: state.activeEditorId,
-      editorGroups: state.editorGroups,
-      editorLayout: state.editorLayout,
-      activeEditorGroupId: state.activeEditorGroupId,
-    }
-  },
-  merge: (persisted, current) => {
-    const persistedState = (persisted || {}) as Partial<ConsoleState>
-    const hasEditors = Array.isArray(persistedState.openEditors)
-    const rawEditors = hasEditors ? persistedState.openEditors! : []
-    const openEditors = hasEditors ? rawEditors.map((editor) => toEditorDocument(editor as PersistedEditorMeta)) : current.openEditors
-    const validEditorIds = new Set(openEditors.map((item) => item.id))
-    const hasGroups = Array.isArray(persistedState.editorGroups) && persistedState.editorGroups.length > 0
-    const editorGroups = hasGroups
-      ? persistedState.editorGroups!.map((group) => normalizeEditorGroup({ ...group, editorIds: group.editorIds.filter((id) => validEditorIds.has(id)) }))
-      : current.editorGroups
-    const editorLayout = persistedState.editorLayout ?? current.editorLayout
-    const activeEditorId = hasEditors
-      ? (persistedState.activeEditorId && validEditorIds.has(persistedState.activeEditorId) ? persistedState.activeEditorId : null)
-      : current.activeEditorId
-    const activeEditorGroupId = hasGroups
-      ? (getExistingEditorGroupId(editorGroups, persistedState.activeEditorGroupId) || editorGroups[0]?.id || null)
-      : current.activeEditorGroupId
-    const legacyState = createLegacyEditorState(editorGroups, editorLayout, activeEditorGroupId)
-    const gitByHost = persistedState.gitByHost && typeof persistedState.gitByHost === 'object' ? persistedState.gitByHost : {}
-    return {
-      ...current,
-      activeHostId: persistedState.activeHostId ?? current.activeHostId,
-      activeSessionId: persistedState.activeSessionId ?? current.activeSessionId,
-      sessionPanelExpanded: persistedState.sessionPanelExpanded ?? current.sessionPanelExpanded,
-      filePanelOpen: persistedState.filePanelOpen ?? current.filePanelOpen,
-      gitPanelOpen: persistedState.gitPanelOpen ?? current.gitPanelOpen,
-      sshPanelOpen: persistedState.sshPanelOpen ?? current.sshPanelOpen,
-      gitPanelWidth: persistedState.gitPanelWidth ?? current.gitPanelWidth,
-      sshPanelWidth: persistedState.sshPanelWidth ?? current.sshPanelWidth,
-      sessionPanelWidth: persistedState.sessionPanelWidth ?? current.sessionPanelWidth,
-      filePanelWidth: persistedState.filePanelWidth ?? current.filePanelWidth,
-      terminalPanelHeight: persistedState.terminalPanelHeight ?? current.terminalPanelHeight,
-      openEditors,
-      editorGroups,
-      editorLayout,
-      activeEditorId,
-      activeEditorGroupId,
-      gitByHost,
+export const useConsoleStore = create<ConsoleState>()(
+  persist(
+    (set) => ({
+      activeHostId: null,
+      activeSessionId: null,
       activePaneId: null,
-      connection: current.connection,
-      terminalPerf: current.terminalPerf,
+      connection: { status: 'disconnected', latency: 0, lastPing: new Date().toISOString() },
+      terminalPerf: {
+        attachLatency: 0,
+        outputBytes: 0,
+        outputEvents: 0,
+        outputBacklog: 0,
+        layoutFitCount: 0,
+        lastOutputAt: '',
+      },
       showCommandPalette: false,
+      sessionPanelExpanded: true,
+      filePanelOpen: false,
+      gitPanelOpen: false,
+      sshPanelOpen: false,
+      activeSplitGroupId: null,
       activePluginView: null,
+      activeDesktop: null,
+      gitPanelWidth: 560,
+      sshPanelWidth: 320,
+      gitByHost: {},
       mobileFileSheetOpen: false,
+      sessionPanelWidth: 248,
+      filePanelWidth: 240,
+      terminalPanelHeight: 300,
+      openEditors: [],
+      ...createEmptyEditorWorkspace(),
+      editorsHydrated: true,
       uploadRequest: null,
       uploadJobs: [],
       toasts: [],
-      editorsHydrated: true,
-      ...legacyState,
-    }
-  },
-}))
+      setActiveHost: (id) => {
+        writeActiveHostId(id)
+        set({ activeHostId: id, activeSessionId: null, activePaneId: null })
+      },
+      setActiveSession: (id) =>
+        set((state) => {
+          if (state.activeSessionId === id && !state.activeSplitGroupId) return state
+          writeActiveSessionId(state.activeHostId, id)
+          return { activeSessionId: id, activePaneId: null, activeSplitGroupId: null }
+        }),
+      setActivePane: (id) => set({ activePaneId: id }),
+      setCommandPalette: (open) => set({ showCommandPalette: open }),
+      setSessionPanelExpanded: (expanded) =>
+        set(
+          expanded
+            ? { sessionPanelExpanded: true, sshPanelOpen: false, activePluginView: null, activeDesktop: null }
+            : { sessionPanelExpanded: false },
+        ),
+      toggleSessionPanel: () =>
+        set((state) =>
+          state.sessionPanelExpanded
+            ? { sessionPanelExpanded: false }
+            : {
+                sessionPanelExpanded: true,
+                gitPanelOpen: false,
+                sshPanelOpen: false,
+                activePluginView: null,
+                activeDesktop: null,
+              },
+        ),
+      setFilePanelOpen: (open) =>
+        set((state) =>
+          open
+            ? {
+                filePanelOpen: true,
+                sessionPanelExpanded: false,
+                gitPanelOpen: false,
+                sshPanelOpen: false,
+                activePluginView: null,
+                activeDesktop: null,
+              }
+            : { filePanelOpen: false },
+        ),
+      toggleFilePanel: () =>
+        set((state) =>
+          state.filePanelOpen
+            ? { filePanelOpen: false }
+            : {
+                filePanelOpen: true,
+                sessionPanelExpanded: false,
+                gitPanelOpen: false,
+                sshPanelOpen: false,
+                activePluginView: null,
+                activeDesktop: null,
+              },
+        ),
+      openSplitGroup: (id) =>
+        set({
+          activeSplitGroupId: id,
+          filePanelOpen: false,
+          sessionPanelExpanded: false,
+          gitPanelOpen: false,
+          sshPanelOpen: false,
+          activePluginView: null,
+          activeDesktop: null,
+        }),
+      closeSplitGroup: () => set({ activeSplitGroupId: null }),
+      setGitPanelOpen: (open) =>
+        set((state) =>
+          open
+            ? {
+                gitPanelOpen: true,
+                sessionPanelExpanded: false,
+                filePanelOpen: false,
+                sshPanelOpen: false,
+                activePluginView: null,
+                activeDesktop: null,
+              }
+            : { gitPanelOpen: false },
+        ),
+      toggleGitPanel: () =>
+        set((state) =>
+          state.gitPanelOpen
+            ? { gitPanelOpen: false }
+            : {
+                gitPanelOpen: true,
+                sessionPanelExpanded: false,
+                filePanelOpen: false,
+                sshPanelOpen: false,
+                activePluginView: null,
+                activeDesktop: null,
+              },
+        ),
+      toggleSshPanel: () =>
+        set((state) =>
+          state.sshPanelOpen
+            ? { sshPanelOpen: false }
+            : {
+                sshPanelOpen: true,
+                filePanelOpen: false,
+                sessionPanelExpanded: false,
+                gitPanelOpen: false,
+                activePluginView: null,
+                activeDesktop: null,
+              },
+        ),
+      setActivePluginView: (view) =>
+        set((state) =>
+          view && state.activePluginView?.pluginId === view.pluginId && state.activePluginView.viewId === view.viewId
+            ? { activePluginView: null, activeDesktop: null }
+            : view
+              ? {
+                  activePluginView: view,
+                  filePanelOpen: false,
+                  sessionPanelExpanded: false,
+                  gitPanelOpen: false,
+                  sshPanelOpen: false,
+                  activeDesktop: null,
+                }
+              : { activePluginView: null, activeDesktop: null },
+        ),
+      toggleDesktop: (hostId, port = 5900) =>
+        set((state) =>
+          state.activeDesktop
+            ? { activeDesktop: null }
+            : {
+                activeDesktop: { hostId, port },
+                filePanelOpen: false,
+                sessionPanelExpanded: false,
+                gitPanelOpen: false,
+                sshPanelOpen: false,
+                activePluginView: null,
+              },
+        ),
+      setActiveDesktop: (desktop) =>
+        set(() =>
+          desktop
+            ? {
+                activeDesktop: desktop,
+                filePanelOpen: false,
+                sessionPanelExpanded: false,
+                gitPanelOpen: false,
+                sshPanelOpen: false,
+                activePluginView: null,
+              }
+            : { activeDesktop: null },
+        ),
+      setGitPanelWidth: (width) => set({ gitPanelWidth: Math.max(380, Math.min(920, width)) }),
+      setSshPanelWidth: (width) => set({ sshPanelWidth: Math.max(260, Math.min(480, width)) }),
+      ensureGitHostState: (hostId) =>
+        set((state) => ({ gitByHost: updateGitHostState(state.gitByHost, hostId, (current) => current) })),
+      replaceGitByHost: (gitByHost) => set({ gitByHost }),
+      setGitFollowEditorRepo: (hostId, repoPath, filePath) =>
+        set((state) => ({
+          gitByHost: updateGitHostState(state.gitByHost, hostId, (current) => {
+            if (current.mode === 'locked') return { ...current, currentFilePath: filePath }
+            return {
+              ...current,
+              currentRepoPath: repoPath,
+              currentFilePath: filePath,
+              source: repoPath ? ('editor' as GitSource) : current.source,
+              recentRepos: repoPath ? touchGitRepo(current, repoPath) : current.recentRepos,
+            }
+          }),
+        })),
+      setGitFollowPaneRepo: (hostId, repoPath, panePath) =>
+        set((state) => ({
+          gitByHost: updateGitHostState(state.gitByHost, hostId, (current) => {
+            if (current.mode === 'locked') return current
+            return {
+              ...current,
+              currentRepoPath: repoPath,
+              currentFilePath: panePath,
+              source: 'pane' as GitSource,
+              recentRepos: repoPath ? touchGitRepo(current, repoPath) : current.recentRepos,
+            }
+          }),
+        })),
+      setGitLockedRepo: (hostId, repoPath) =>
+        set((state) => ({
+          gitByHost: updateGitHostState(state.gitByHost, hostId, (current) => ({
+            ...current,
+            mode: 'locked' as GitMode,
+            currentRepoPath: repoPath,
+            lockedRepoPath: repoPath,
+            source: 'manual',
+            recentRepos: touchGitRepo(current, repoPath),
+          })),
+        })),
+      resumeGitFollowEditor: (hostId) =>
+        set((state) => ({
+          gitByHost: updateGitHostState(state.gitByHost, hostId, (current) => ({
+            ...current,
+            mode: 'follow-editor',
+            lockedRepoPath: null,
+            source: current.currentRepoPath ? 'editor' : null,
+          })),
+        })),
+      pinGitRepo: (hostId, repoPath, pinned) =>
+        set((state) => ({
+          gitByHost: updateGitHostState(state.gitByHost, hostId, (current) => ({
+            ...current,
+            recentRepos: current.recentRepos.map((item) => (item.repoPath === repoPath ? { ...item, pinned } : item)),
+          })),
+        })),
+      setMobileFileSheetOpen: (open) => set({ mobileFileSheetOpen: open }),
+      setSessionPanelWidth: (width) => set({ sessionPanelWidth: Math.max(208, Math.min(320, width)) }),
+      setFilePanelWidth: (width) => set({ filePanelWidth: Math.max(200, Math.min(520, width)) }),
+      setTerminalPanelHeight: (height) => set({ terminalPanelHeight: Math.max(180, Math.min(2000, height)) }),
+      openEditor: (file) =>
+        set((state) => {
+          const existing = state.openEditors.find((item) => item.id === file.id)
+          if (existing) {
+            const editorGroups = state.editorGroups.map(normalizeEditorGroup)
+            const existingGroupId = findEditorGroupIdByEditor(editorGroups, existing.id)
+            if (existingGroupId) {
+              const nextState = withLegacyEditorState(
+                finalizeEditorWorkspace({
+                  ...state,
+                  editorGroups: editorGroups.map((group) =>
+                    group.id === existingGroupId ? { ...group, activeEditorId: existing.id } : group,
+                  ),
+                  activeEditorId: existing.id,
+                  activeEditorGroupId: existingGroupId,
+                }),
+              )
+              return nextState
+            }
+            const targetGroupId =
+              getExistingEditorGroupId(editorGroups, state.activeEditorGroupId) || editorGroups[0]?.id || null
+            if (!targetGroupId) return state
+            const nextState = withLegacyEditorState(
+              finalizeEditorWorkspace({
+                ...state,
+                editorGroups: editorGroups.map((group) =>
+                  group.id === targetGroupId
+                    ? { ...group, editorIds: [...group.editorIds, existing.id], activeEditorId: existing.id }
+                    : group,
+                ),
+                activeEditorId: existing.id,
+                activeEditorGroupId: targetGroupId,
+              }),
+            )
+            return nextState
+          }
+          const targetGroupId =
+            getExistingEditorGroupId(state.editorGroups, state.activeEditorGroupId) || state.editorGroups[0]?.id || null
+          const nextOpenEditors = [
+            ...state.openEditors,
+            {
+              ...file,
+              content: '',
+              savedContent: '',
+              modifiedAt: '',
+              size: 0,
+              dirty: false,
+              loading: true,
+              saving: false,
+              binary: false,
+              truncated: false,
+            },
+          ]
+          let editorGroups = state.editorGroups.map(normalizeEditorGroup)
+          if (targetGroupId)
+            editorGroups = editorGroups.map((group) =>
+              group.id === targetGroupId
+                ? { ...group, editorIds: [...group.editorIds, file.id], activeEditorId: file.id }
+                : group,
+            )
+          const nextState = withLegacyEditorState(
+            finalizeEditorWorkspace({
+              ...state,
+              openEditors: nextOpenEditors,
+              editorGroups,
+              activeEditorId: file.id,
+              activeEditorGroupId: targetGroupId,
+            }),
+          )
+          return { openEditors: nextOpenEditors, ...nextState }
+        }),
+      openCompareEditor: (leftId, rightId) => {
+        const left = useConsoleStore.getState().openEditors.find((item) => item.id === leftId)
+        const right = useConsoleStore.getState().openEditors.find((item) => item.id === rightId)
+        if (!left || !right) return null
+        const compareId = `compare:${[leftId, rightId].sort().join('::')}`
+        set((state) => {
+          const existing = state.openEditors.find((item) => item.id === compareId)
+          if (existing) {
+            const editorGroups = state.editorGroups.map(normalizeEditorGroup)
+            const existingGroupId = findEditorGroupIdByEditor(editorGroups, existing.id)
+            if (existingGroupId) {
+              const nextState = withLegacyEditorState(
+                finalizeEditorWorkspace({
+                  ...state,
+                  editorGroups: editorGroups.map((group) =>
+                    group.id === existingGroupId ? { ...group, activeEditorId: existing.id } : group,
+                  ),
+                  activeEditorId: existing.id,
+                  activeEditorGroupId: existingGroupId,
+                }),
+              )
+              return nextState
+            }
+          }
+          const targetGroupId =
+            getExistingEditorGroupId(state.editorGroups, state.activeEditorGroupId) || state.editorGroups[0]?.id || null
+          const nextOpenEditors = [
+            ...state.openEditors,
+            {
+              id: compareId,
+              hostId: left.hostId,
+              rootId: left.rootId,
+              rootLabel: left.rootLabel,
+              rootPath: left.rootPath,
+              path: left.path,
+              name: `${left.name} <> ${right.name}`,
+              absolutePath: '',
+              language: left.language === right.language ? left.language : 'plaintext',
+              content: '',
+              savedContent: '',
+              modifiedAt: '',
+              size: 0,
+              dirty: false,
+              loading: false,
+              saving: false,
+              binary: false,
+              truncated: false,
+              kind: 'compare' as const,
+              compareLeftId: leftId,
+              compareRightId: rightId,
+              type: 'file' as const,
+            },
+          ]
+          let editorGroups = state.editorGroups.map(normalizeEditorGroup)
+          if (targetGroupId)
+            editorGroups = editorGroups.map((group) =>
+              group.id === targetGroupId
+                ? { ...group, editorIds: [...group.editorIds, compareId], activeEditorId: compareId }
+                : group,
+            )
+          const nextState = withLegacyEditorState(
+            finalizeEditorWorkspace({
+              ...state,
+              openEditors: nextOpenEditors,
+              editorGroups,
+              activeEditorId: compareId,
+              activeEditorGroupId: targetGroupId,
+            }),
+          )
+          return { openEditors: nextOpenEditors, ...nextState }
+        })
+        return compareId
+      },
+      placeEditorInSplit: (id, placement, targetGroupId) =>
+        set((state) => {
+          if (!state.openEditors.some((item) => item.id === id)) return state
+          const resolvedTargetGroupId =
+            getExistingEditorGroupId(state.editorGroups, targetGroupId) ||
+            getExistingEditorGroupId(state.editorGroups, state.activeEditorGroupId) ||
+            findEditorGroupIdByEditor(state.editorGroups, id) ||
+            state.editorGroups[0]?.id ||
+            null
+          if (!resolvedTargetGroupId) return state
+          if (placement === 'center') {
+            const nextState = moveEditorBetweenGroups(state, id, resolvedTargetGroupId)
+            if (!nextState) return state
+            const nextLegacyState = withLegacyEditorState(nextState)
+            return nextLegacyState
+          }
+          const sourceGroupId = findEditorGroupIdByEditor(state.editorGroups, id)
+          if (!sourceGroupId) return state
+          const direction = placement === 'left' || placement === 'right' ? 'horizontal' : 'vertical'
+          const side = placement === 'left' || placement === 'top' ? ('before' as const) : ('after' as const)
+          const newGroup = createEditorGroup([id], id)
+          const editorGroups = [
+            ...state.editorGroups
+              .map(normalizeEditorGroup)
+              .map((group) =>
+                group.id === sourceGroupId
+                  ? {
+                      ...group,
+                      editorIds: group.editorIds.filter((item) => item !== id),
+                      activeEditorId: group.activeEditorId === id ? null : group.activeEditorId,
+                    }
+                  : group,
+              ),
+            newGroup,
+          ]
+          let editorLayout = state.editorLayout || createEditorLayoutLeaf(resolvedTargetGroupId)
+          const split = splitEditorLayout(editorLayout, resolvedTargetGroupId, direction, newGroup.id, side)
+          editorLayout = split.inserted
+            ? split.node
+            : side === 'before'
+              ? createEditorLayoutSplit(direction, createEditorLayoutLeaf(newGroup.id), editorLayout)
+              : createEditorLayoutSplit(direction, editorLayout, createEditorLayoutLeaf(newGroup.id))
+          const nextState = withLegacyEditorState(
+            finalizeEditorWorkspace({
+              ...state,
+              editorGroups,
+              editorLayout,
+              activeEditorId: id,
+              activeEditorGroupId: newGroup.id,
+            }),
+          )
+          return nextState
+        }),
+      moveEditorToGroup: (id, targetGroupId, targetId) =>
+        set((state) => {
+          if (!state.openEditors.some((item) => item.id === id)) return state
+          const nextState = moveEditorBetweenGroups(state, id, targetGroupId, targetId)
+          if (!nextState) return state
+          const nextLegacyState = withLegacyEditorState(nextState)
+          return nextLegacyState
+        }),
+      setEditorSplitRatio: (splitId, ratio) =>
+        set((state) => {
+          if (!state.editorLayout) return state
+          const nextLayout = updateEditorLayoutSplitRatio(state.editorLayout, splitId, ratio)
+          if (!nextLayout.updated) return state
+          return withLegacyEditorState({
+            editorGroups: state.editorGroups,
+            editorLayout: nextLayout.node,
+            activeEditorGroupId: state.activeEditorGroupId,
+          })
+        }),
+      closeEditor: (id) =>
+        set((state) => {
+          const nextEditors = state.openEditors.filter((item) => item.id !== id)
+          const nextState = withLegacyEditorState(
+            finalizeEditorWorkspace({
+              ...state,
+              openEditors: nextEditors,
+              editorGroups: state.editorGroups.map((group) =>
+                group.id === findEditorGroupIdByEditor(state.editorGroups, id)
+                  ? {
+                      ...group,
+                      editorIds: group.editorIds.filter((item) => item !== id),
+                      activeEditorId: group.activeEditorId === id ? null : group.activeEditorId,
+                    }
+                  : group,
+              ),
+              activeEditorId: state.activeEditorId === id ? null : state.activeEditorId,
+            }),
+          )
+          return { openEditors: nextEditors, ...nextState }
+        }),
+      setActiveEditor: (id) =>
+        set((state) => {
+          if (!id) return { activeEditorId: null }
+          const groupId = findEditorGroupIdByEditor(state.editorGroups, id)
+          if (!groupId) return state
+          return withLegacyEditorState(
+            finalizeEditorWorkspace({
+              ...state,
+              editorGroups: state.editorGroups.map((group) =>
+                group.id === groupId ? { ...group, activeEditorId: id } : group,
+              ),
+              activeEditorId: id,
+              activeEditorGroupId: groupId,
+            }),
+          )
+        }),
+      setEditorLoaded: (id, patch) =>
+        set((state) => ({
+          openEditors: state.openEditors.map((item) => (item.id === id ? { ...item, ...patch } : item)),
+        })),
+      setEditorContent: (id, content) =>
+        set((state) => ({
+          openEditors: state.openEditors.map((item) =>
+            item.id === id ? { ...item, content, dirty: content !== item.savedContent } : item,
+          ),
+        })),
+      setEditorSaving: (id, saving) =>
+        set((state) => ({
+          openEditors: state.openEditors.map((item) => (item.id === id ? { ...item, saving } : item)),
+        })),
+      markEditorSaved: (id, content, modifiedAt, size) =>
+        set((state) => ({
+          openEditors: state.openEditors.map((item) =>
+            item.id === id
+              ? {
+                  ...item,
+                  content,
+                  savedContent: content,
+                  modifiedAt,
+                  size,
+                  dirty: false,
+                  saving: false,
+                  loading: false,
+                  problem: undefined,
+                }
+              : item,
+          ),
+        })),
+      openUploadDialog: (request) => set({ uploadRequest: request }),
+      closeUploadDialog: () => set({ uploadRequest: null }),
+      addUploadJob: (job) => set((state) => ({ uploadJobs: [job, ...state.uploadJobs].slice(0, 12) })),
+      updateUploadJob: (id, patch) =>
+        set((state) => ({ uploadJobs: state.uploadJobs.map((job) => (job.id === id ? { ...job, ...patch } : job)) })),
+      removeUploadJob: (id) => set((state) => ({ uploadJobs: state.uploadJobs.filter((job) => job.id !== id) })),
+      clearFinishedUploadJobs: () =>
+        set((state) => ({
+          uploadJobs: state.uploadJobs.filter((job) => job.status === 'queued' || job.status === 'uploading'),
+        })),
+      pushToast: (toast) =>
+        set((state) => ({
+          toasts: [...state.toasts, { id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, ...toast }],
+        })),
+      removeToast: (id) => set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) })),
+      updateConnection: (newState) => set((state) => ({ connection: { ...state.connection, ...newState } })),
+      updateTerminalPerf: (newState) => set((state) => ({ terminalPerf: { ...state.terminalPerf, ...newState } })),
+    }),
+    {
+      name: getConsoleStateStorageKey(),
+      version: 1,
+      storage: createJSONStorage(() => createDebouncedStorage(120)),
+      partialize: (state) => {
+        const shared = {
+          activeHostId: state.activeHostId,
+          activeSessionId: state.activeSessionId,
+          gitByHost: state.gitByHost,
+        }
+        if (IS_MOBILE_DEVICE) return shared
+        return {
+          ...shared,
+          sessionPanelExpanded: state.sessionPanelExpanded,
+          filePanelOpen: state.filePanelOpen,
+          gitPanelOpen: state.gitPanelOpen,
+          sshPanelOpen: state.sshPanelOpen,
+          gitPanelWidth: state.gitPanelWidth,
+          sshPanelWidth: state.sshPanelWidth,
+          sessionPanelWidth: state.sessionPanelWidth,
+          filePanelWidth: state.filePanelWidth,
+          terminalPanelHeight: state.terminalPanelHeight,
+          openEditors: state.openEditors.map(pickEditorMeta),
+          activeEditorId: state.activeEditorId,
+          editorGroups: state.editorGroups,
+          editorLayout: state.editorLayout,
+          activeEditorGroupId: state.activeEditorGroupId,
+        }
+      },
+      merge: (persisted, current) => {
+        const persistedState = (persisted || {}) as Partial<ConsoleState>
+        const hasEditors = Array.isArray(persistedState.openEditors)
+        const rawEditors = hasEditors ? persistedState.openEditors! : []
+        const openEditors = hasEditors
+          ? rawEditors.map((editor) => toEditorDocument(editor as PersistedEditorMeta))
+          : current.openEditors
+        const validEditorIds = new Set(openEditors.map((item) => item.id))
+        const hasGroups = Array.isArray(persistedState.editorGroups) && persistedState.editorGroups.length > 0
+        const editorGroups = hasGroups
+          ? persistedState.editorGroups!.map((group) =>
+              normalizeEditorGroup({ ...group, editorIds: group.editorIds.filter((id) => validEditorIds.has(id)) }),
+            )
+          : current.editorGroups
+        const editorLayout = persistedState.editorLayout ?? current.editorLayout
+        const activeEditorId = hasEditors
+          ? persistedState.activeEditorId && validEditorIds.has(persistedState.activeEditorId)
+            ? persistedState.activeEditorId
+            : null
+          : current.activeEditorId
+        const activeEditorGroupId = hasGroups
+          ? getExistingEditorGroupId(editorGroups, persistedState.activeEditorGroupId) || editorGroups[0]?.id || null
+          : current.activeEditorGroupId
+        const legacyState = createLegacyEditorState(editorGroups, editorLayout, activeEditorGroupId)
+        const gitByHost =
+          persistedState.gitByHost && typeof persistedState.gitByHost === 'object' ? persistedState.gitByHost : {}
+        return {
+          ...current,
+          activeHostId: persistedState.activeHostId ?? current.activeHostId,
+          activeSessionId: persistedState.activeSessionId ?? current.activeSessionId,
+          sessionPanelExpanded: persistedState.sessionPanelExpanded ?? current.sessionPanelExpanded,
+          filePanelOpen: persistedState.filePanelOpen ?? current.filePanelOpen,
+          gitPanelOpen: persistedState.gitPanelOpen ?? current.gitPanelOpen,
+          sshPanelOpen: persistedState.sshPanelOpen ?? current.sshPanelOpen,
+          gitPanelWidth: persistedState.gitPanelWidth ?? current.gitPanelWidth,
+          sshPanelWidth: persistedState.sshPanelWidth ?? current.sshPanelWidth,
+          sessionPanelWidth: persistedState.sessionPanelWidth ?? current.sessionPanelWidth,
+          filePanelWidth: persistedState.filePanelWidth ?? current.filePanelWidth,
+          terminalPanelHeight: persistedState.terminalPanelHeight ?? current.terminalPanelHeight,
+          openEditors,
+          editorGroups,
+          editorLayout,
+          activeEditorId,
+          activeEditorGroupId,
+          gitByHost,
+          activePaneId: null,
+          connection: current.connection,
+          terminalPerf: current.terminalPerf,
+          showCommandPalette: false,
+          activePluginView: null,
+          activeDesktop: null,
+          mobileFileSheetOpen: false,
+          uploadRequest: null,
+          uploadJobs: [],
+          toasts: [],
+          editorsHydrated: true,
+          ...legacyState,
+        }
+      },
+    },
+  ),
+)

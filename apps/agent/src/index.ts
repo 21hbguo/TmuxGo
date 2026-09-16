@@ -1,4 +1,5 @@
 import { execFile } from 'child_process'
+import net from 'net'
 import { createWriteStream } from 'fs'
 import { mkdir, rename, unlink } from 'fs/promises'
 import path from 'path'
@@ -35,6 +36,7 @@ class Agent {
   private refreshToken = ''
   private terminals = new Map<string, ReturnType<TmuxManager['attach']>>()
   private uploads = new Map<string, FileUpload>()
+  private vncSockets = new Map<string, net.Socket>()
 
   constructor() {
     this.tmux = new TmuxManager()
@@ -80,6 +82,7 @@ class Agent {
       this.stopHeartbeat()
       this.closeTerminals()
       this.closeUploads()
+      this.closeVncSockets()
       this.scheduleReconnect()
     })
 
@@ -102,7 +105,10 @@ class Agent {
 
   private startHeartbeat() {
     this.stopHeartbeat()
-    this.heartbeatTimer = setInterval(() => this.send({ type: 'heartbeat', version: AGENT_VERSION }), HEARTBEAT_INTERVAL)
+    this.heartbeatTimer = setInterval(
+      () => this.send({ type: 'heartbeat', version: AGENT_VERSION }),
+      HEARTBEAT_INTERVAL,
+    )
   }
 
   private stopHeartbeat() {
@@ -160,6 +166,18 @@ class Agent {
         this.detachTerminal(message)
         break
 
+      case 'vnc-open':
+        this.openVnc(message)
+        break
+
+      case 'vnc-data':
+        this.writeVnc(message)
+        break
+
+      case 'vnc-close':
+        this.closeVnc(message)
+        break
+
       default:
         console.log('Unknown message type:', message.type)
     }
@@ -190,10 +208,19 @@ class Agent {
     const timeoutMs = Number.isInteger(message.timeoutMs) ? Math.max(1000, Math.min(message.timeoutMs, 120000)) : 30000
     if (!requestId || !command || command.length > 524288) return
     try {
-      const { stdout, stderr } = await execFileAsync('sh', ['-lc', command], { timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024 })
+      const { stdout, stderr } = await execFileAsync('sh', ['-lc', command], {
+        timeout: timeoutMs,
+        maxBuffer: 32 * 1024 * 1024,
+      })
       this.send({ type: 'shell-result', requestId, stdout, stderr, exitCode: 0 })
     } catch (err: any) {
-      this.send({ type: 'shell-result', requestId, stdout: String(err?.stdout || ''), stderr: String(err?.stderr || err?.message || ''), exitCode: typeof err?.code === 'number' ? err.code : 1 })
+      this.send({
+        type: 'shell-result',
+        requestId,
+        stdout: String(err?.stdout || ''),
+        stderr: String(err?.stderr || err?.message || ''),
+        exitCode: typeof err?.code === 'number' ? err.code : 1,
+      })
     }
   }
 
@@ -201,17 +228,25 @@ class Agent {
     const uploadId = typeof message.uploadId === 'string' ? message.uploadId : ''
     const targetPath = typeof message.path === 'string' ? message.path : ''
     try {
-      if (!/^[a-f0-9-]{36}$/i.test(uploadId) || !path.isAbsolute(targetPath) || targetPath.length > 4096) throw new Error('Invalid file upload')
+      if (!/^[a-f0-9-]{36}$/i.test(uploadId) || !path.isAbsolute(targetPath) || targetPath.length > 4096)
+        throw new Error('Invalid file upload')
       if (this.uploads.has(uploadId)) throw new Error('Agent file upload already active')
       await mkdir(path.dirname(targetPath), { recursive: true })
-      const temporaryPath = path.join(path.dirname(targetPath), `.${path.basename(targetPath)}.tmuxgo-upload-${uploadId}`)
+      const temporaryPath = path.join(
+        path.dirname(targetPath),
+        `.${path.basename(targetPath)}.tmuxgo-upload-${uploadId}`,
+      )
       const stream = createWriteStream(temporaryPath, { mode: 0o600 })
       const upload = { path: targetPath, temporaryPath, stream }
       this.uploads.set(uploadId, upload)
       stream.once('error', (error) => this.failFileUpload(uploadId, error))
       stream.once('open', () => this.send({ type: 'file-upload-ready', uploadId }))
     } catch (error) {
-      this.send({ type: 'file-upload-error', uploadId, message: error instanceof Error ? error.message : 'Agent file upload failed' })
+      this.send({
+        type: 'file-upload-error',
+        uploadId,
+        message: error instanceof Error ? error.message : 'Agent file upload failed',
+      })
     }
   }
 
@@ -233,7 +268,9 @@ class Agent {
     const upload = this.uploads.get(uploadId)
     if (!upload) return
     try {
-      await new Promise<void>((resolve, reject) => upload.stream.end((error?: Error | null) => error ? reject(error) : resolve()))
+      await new Promise<void>((resolve, reject) =>
+        upload.stream.end((error?: Error | null) => (error ? reject(error) : resolve())),
+      )
       await rename(upload.temporaryPath, upload.path)
       this.uploads.delete(uploadId)
       this.send({ type: 'file-upload-result', uploadId })
@@ -257,14 +294,29 @@ class Agent {
     this.uploads.delete(uploadId)
     upload.stream.destroy()
     void unlink(upload.temporaryPath).catch(() => {})
-    this.send({ type: 'file-upload-error', uploadId, message: error instanceof Error ? error.message : 'Agent file upload failed' })
+    this.send({
+      type: 'file-upload-error',
+      uploadId,
+      message: error instanceof Error ? error.message : 'Agent file upload failed',
+    })
   }
 
   private async attachTerminal(message: any) {
     const requestId = typeof message.requestId === 'string' ? message.requestId : ''
     const attachmentId = typeof message.attachmentId === 'string' ? message.attachmentId : ''
     try {
-      if (!requestId || !/^[a-f0-9-]{36}$/i.test(attachmentId) || typeof message.sessionName !== 'string' || !Number.isInteger(message.cols) || !Number.isInteger(message.rows) || message.cols < 2 || message.rows < 1 || message.cols > 1000 || message.rows > 1000) throw new Error('Invalid terminal attachment')
+      if (
+        !requestId ||
+        !/^[a-f0-9-]{36}$/i.test(attachmentId) ||
+        typeof message.sessionName !== 'string' ||
+        !Number.isInteger(message.cols) ||
+        !Number.isInteger(message.rows) ||
+        message.cols < 2 ||
+        message.rows < 1 ||
+        message.cols > 1000 ||
+        message.rows > 1000
+      )
+        throw new Error('Invalid terminal attachment')
       this.detachTerminal({ attachmentId })
       await this.tmux.enableMouse(message.sessionName)
       const terminal = this.tmux.attach(message.sessionName, message.cols, message.rows, message.exclusive === true)
@@ -289,7 +341,16 @@ class Agent {
 
   private resizeTerminal(message: any) {
     const attachmentId = typeof message.attachmentId === 'string' ? message.attachmentId : ''
-    if (!attachmentId || !Number.isInteger(message.cols) || !Number.isInteger(message.rows) || message.cols < 2 || message.rows < 1 || message.cols > 1000 || message.rows > 1000) return
+    if (
+      !attachmentId ||
+      !Number.isInteger(message.cols) ||
+      !Number.isInteger(message.rows) ||
+      message.cols < 2 ||
+      message.rows < 1 ||
+      message.cols > 1000 ||
+      message.rows > 1000
+    )
+      return
     this.terminals.get(attachmentId)?.resize(message.cols, message.rows)
   }
 
@@ -314,6 +375,40 @@ class Agent {
     this.uploads.clear()
   }
 
+  // VNC 只拨本机回环地址（gateway 侧已校验端口范围，这里再兜底一次），
+  // RFB 二进制数据以 base64 复用现有 JSON 通道回传
+  private openVnc(message: any) {
+    const connectionId = typeof message.connectionId === 'string' ? message.connectionId : ''
+    const port = typeof message.port === 'number' ? message.port : 0
+    if (!connectionId || !Number.isInteger(port) || port < 5900 || port > 5999) {
+      this.send({ type: 'vnc-error', connectionId, message: 'Invalid VNC target' })
+      return
+    }
+    const socket = net.connect({ host: '127.0.0.1', port })
+    this.vncSockets.set(connectionId, socket)
+    socket.on('connect', () => this.send({ type: 'vnc-opened', connectionId }))
+    socket.on('data', (chunk) => this.send({ type: 'vnc-data', connectionId, data: chunk.toString('base64') }))
+    socket.on('error', (err) => this.send({ type: 'vnc-error', connectionId, message: err.message }))
+    socket.on('close', () => {
+      if (this.vncSockets.delete(connectionId)) this.send({ type: 'vnc-closed', connectionId })
+    })
+  }
+
+  private writeVnc(message: any) {
+    const socket = this.vncSockets.get(message.connectionId)
+    if (!socket || typeof message.data !== 'string') return
+    socket.write(Buffer.from(message.data, 'base64'))
+  }
+
+  private closeVnc(message: any) {
+    this.vncSockets.get(message.connectionId)?.destroy()
+  }
+
+  private closeVncSockets() {
+    for (const socket of this.vncSockets.values()) socket.destroy()
+    this.vncSockets.clear()
+  }
+
   private send(data: any) {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(data))
@@ -335,35 +430,49 @@ class Agent {
     const base = getGatewayHttpBase()
     const statusResponse = await fetch(`${base}/api/auth/status`)
     if (!statusResponse.ok) throw new Error(`Gateway status failed: HTTP ${statusResponse.status}`)
-    const status = await statusResponse.json() as { enabled?: boolean }
+    const status = (await statusResponse.json()) as { enabled?: boolean }
     if (!status.enabled) return ''
     if (!GATEWAY_USERNAME || !GATEWAY_PASSWORD) throw new Error('GATEWAY_USERNAME and GATEWAY_PASSWORD are required')
     if (!this.accessToken || !this.refreshToken) {
-      const loginResponse = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: GATEWAY_USERNAME, password: GATEWAY_PASSWORD }) })
+      const loginResponse = await fetch(`${base}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: GATEWAY_USERNAME, password: GATEWAY_PASSWORD }),
+      })
       if (!loginResponse.ok) throw new Error(`Gateway login failed: HTTP ${loginResponse.status}`)
-      const login = await loginResponse.json() as { accessToken?: string; refreshToken?: string }
+      const login = (await loginResponse.json()) as { accessToken?: string; refreshToken?: string }
       this.accessToken = login.accessToken || ''
       this.refreshToken = login.refreshToken || ''
     }
-    let ticketResponse = await fetch(`${base}/api/auth/ws-ticket`, { method: 'POST', headers: { Authorization: `Bearer ${this.accessToken}` } })
+    let ticketResponse = await fetch(`${base}/api/auth/ws-ticket`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${this.accessToken}` },
+    })
     if (ticketResponse.status === 401 && this.refreshToken) {
-      const refreshResponse = await fetch(`${base}/api/auth/refresh`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refreshToken: this.refreshToken }) })
+      const refreshResponse = await fetch(`${base}/api/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: this.refreshToken }),
+      })
       if (!refreshResponse.ok) {
         this.accessToken = ''
         this.refreshToken = ''
         throw new Error(`Gateway refresh failed: HTTP ${refreshResponse.status}`)
       }
-      const refreshed = await refreshResponse.json() as { accessToken?: string; refreshToken?: string }
+      const refreshed = (await refreshResponse.json()) as { accessToken?: string; refreshToken?: string }
       this.accessToken = refreshed.accessToken || ''
       this.refreshToken = refreshed.refreshToken || ''
-      ticketResponse = await fetch(`${base}/api/auth/ws-ticket`, { method: 'POST', headers: { Authorization: `Bearer ${this.accessToken}` } })
+      ticketResponse = await fetch(`${base}/api/auth/ws-ticket`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${this.accessToken}` },
+      })
     }
     if (!ticketResponse.ok) {
       this.accessToken = ''
       this.refreshToken = ''
       throw new Error(`Gateway ticket failed: HTTP ${ticketResponse.status}`)
     }
-    const ticket = await ticketResponse.json() as { ticket?: string }
+    const ticket = (await ticketResponse.json()) as { ticket?: string }
     if (!ticket.ticket) throw new Error('Gateway did not return a WebSocket ticket')
     return ticket.ticket
   }

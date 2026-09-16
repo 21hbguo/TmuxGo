@@ -11,6 +11,7 @@ import { hostRoutes } from './routes/hosts.js'
 import { sessionRoutes } from './routes/sessions.js'
 import { windowRoutes } from './routes/windows.js'
 import { streamRoutes } from './routes/stream.js'
+import { vncRoutes } from './routes/vnc.js'
 import { systemRoutes } from './routes/system.js'
 import { paneRoutes } from './routes/panes.js'
 import { fileRoutes } from './routes/files.js'
@@ -28,13 +29,25 @@ import { pluginManager } from './lib/plugin-manager.js'
 import { createFastifyLoggerConfig } from './lib/process-log.js'
 import { authRoutes } from './routes/auth.js'
 import { shareRoutes } from './routes/shares.js'
-import { getAccessCookieName, initializeAuthStore, isAuthEnabled, isPasswordChangeRequired, verifyAccessToken } from './lib/auth.js'
+import {
+  getAccessCookieName,
+  initializeAuthStore,
+  isAuthEnabled,
+  isPasswordChangeRequired,
+  verifyAccessToken,
+} from './lib/auth.js'
 import { agentMonitor } from './lib/agent-monitor.js'
 import { agentEventRoutes } from './routes/agent-events.js'
 import { agentNotificationRoutes } from './routes/agent-notifications.js'
 import { agentControlRoutes } from './routes/agent-control.js'
 import { agentRoutes } from './routes/agents.js'
-import { detectTmuxVersion, getSecurityWarnings, isEncryptedTransportConfigured, isInsecureModeAllowed, isLoopbackHost } from './lib/security.js'
+import {
+  detectTmuxVersion,
+  getSecurityWarnings,
+  isEncryptedTransportConfigured,
+  isInsecureModeAllowed,
+  isLoopbackHost,
+} from './lib/security.js'
 
 const fastify = Fastify({
   logger: createFastifyLoggerConfig(),
@@ -42,25 +55,61 @@ const fastify = Fastify({
 await initializeAuthStore()
 fastify.addHook('onRequest', async (request, reply) => {
   const forwardedHost = request.headers['x-forwarded-host']
-  if (isRequestOriginAllowed(request.headers.origin, request.headers.host, undefined, typeof forwardedHost === 'string' ? forwardedHost : undefined, request.ip)) return
+  if (
+    isRequestOriginAllowed(
+      request.headers.origin,
+      request.headers.host,
+      undefined,
+      typeof forwardedHost === 'string' ? forwardedHost : undefined,
+      request.ip,
+    )
+  )
+    return
   return reply.code(403).send({ message: 'Origin is not allowed', code: 'ORIGIN_NOT_ALLOWED' })
 })
 fastify.addHook('onRequest', async (request, reply) => {
   if (request.method === 'OPTIONS') return
   if (!isAuthEnabled()) return
   const routePath = request.url.split('?')[0]
-  if (!routePath.startsWith('/api/') || routePath === '/api/stream' || routePath === '/api/agent-events' || routePath === '/api/v1/control/panes/split' || routePath === '/api/v1/control/panes/read' || routePath === '/api/v1/control/agent/wait' || routePath === '/api/auth/status' || routePath === '/api/auth/login' || routePath === '/api/auth/refresh' || routePath === '/api/auth/logout' || routePath === '/api/shares/exchange') return
+  if (
+    !routePath.startsWith('/api/') ||
+    routePath === '/api/stream' ||
+    routePath === '/api/vnc' ||
+    routePath === '/api/agent-events' ||
+    routePath === '/api/v1/control/panes/split' ||
+    routePath === '/api/v1/control/panes/read' ||
+    routePath === '/api/v1/control/agent/wait' ||
+    routePath === '/api/auth/status' ||
+    routePath === '/api/auth/login' ||
+    routePath === '/api/auth/refresh' ||
+    routePath === '/api/auth/logout' ||
+    routePath === '/api/shares/exchange'
+  )
+    return
   const authorization = request.headers.authorization
-  const token = typeof authorization === 'string' && authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : ''
+  const token =
+    typeof authorization === 'string' && authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : ''
   const cookiePrefix = `${getAccessCookieName()}=`
-  const cookieToken = (request.headers.cookie || '').split(';').map((part) => part.trim()).find((part) => part.startsWith(cookiePrefix))?.slice(cookiePrefix.length) || ''
+  const cookieToken =
+    (request.headers.cookie || '')
+      .split(';')
+      .map((part) => part.trim())
+      .find((part) => part.startsWith(cookiePrefix))
+      ?.slice(cookiePrefix.length) || ''
   const payload = verifyAccessToken(token) || verifyAccessToken(cookieToken)
   if (!payload) return reply.code(401).send({ message: 'Authentication required', code: 'AUTH_REQUIRED' })
-  if (isPasswordChangeRequired() && routePath !== '/api/auth/change-password') return reply.code(403).send({ message: 'Password change is required', code: 'PASSWORD_CHANGE_REQUIRED' })
+  if (isPasswordChangeRequired() && routePath !== '/api/auth/change-password')
+    return reply.code(403).send({ message: 'Password change is required', code: 'PASSWORD_CHANGE_REQUIRED' })
 })
 fastify.addHook('onSend', recordAuditRequest)
 fastify.setErrorHandler((error, _request, reply) => {
-  if (error instanceof ZodError) return reply.code(400).send({ message: error.issues.map((issue) => `${issue.path.join('.') || 'request'}: ${issue.message}`).join('; '), code: 'INVALID_REQUEST' })
+  if (error instanceof ZodError)
+    return reply
+      .code(400)
+      .send({
+        message: error.issues.map((issue) => `${issue.path.join('.') || 'request'}: ${issue.message}`).join('; '),
+        code: 'INVALID_REQUEST',
+      })
   return reply.send(error)
 })
 
@@ -83,6 +132,7 @@ await fastify.register(hostRoutes, { prefix: '/api' })
 await fastify.register(sessionRoutes, { prefix: '/api' })
 await fastify.register(windowRoutes, { prefix: '/api' })
 await fastify.register(streamRoutes, { prefix: '/api' })
+await fastify.register(vncRoutes, { prefix: '/api' })
 await fastify.register(systemRoutes, { prefix: '/api' })
 await fastify.register(paneRoutes, { prefix: '/api' })
 await fastify.register(fileRoutes, { prefix: '/api' })
@@ -140,10 +190,22 @@ const start = async () => {
   try {
     const port = parseInt(process.env.PORT || '3001')
     const host = process.env.TMUXGO_HOST?.trim() || '127.0.0.1'
-    const warnings = getSecurityWarnings({ host, authEnabled: isAuthEnabled(), encryptedTransport: isEncryptedTransportConfigured(), tmuxVersion: await detectTmuxVersion(), passwordChangeRequired: isPasswordChangeRequired() })
+    const warnings = getSecurityWarnings({
+      host,
+      authEnabled: isAuthEnabled(),
+      encryptedTransport: isEncryptedTransportConfigured(),
+      tmuxVersion: await detectTmuxVersion(),
+      passwordChangeRequired: isPasswordChangeRequired(),
+    })
     warnings.forEach((warning) => console.warn(`[security] ${warning}`))
-    if (!isLoopbackHost(host) && isPasswordChangeRequired()) throw new Error(`Refusing to expose a Gateway with the default password on ${host}; change the password while listening on localhost first`)
-    if (!isLoopbackHost(host) && !isAuthEnabled() && !isInsecureModeAllowed()) throw new Error(`Refusing to expose an unauthenticated Gateway on ${host}; configure authentication or set TMUXGO_ALLOW_INSECURE=1 for an intentional insecure deployment`)
+    if (!isLoopbackHost(host) && isPasswordChangeRequired())
+      throw new Error(
+        `Refusing to expose a Gateway with the default password on ${host}; change the password while listening on localhost first`,
+      )
+    if (!isLoopbackHost(host) && !isAuthEnabled() && !isInsecureModeAllowed())
+      throw new Error(
+        `Refusing to expose an unauthenticated Gateway on ${host}; configure authentication or set TMUXGO_ALLOW_INSECURE=1 for an intentional insecure deployment`,
+      )
     await fastify.listen({ port, host })
     void agentMonitor.start()
     console.log(`Gateway listening on ${host}:${port}`)
