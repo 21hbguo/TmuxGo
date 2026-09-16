@@ -1093,4 +1093,12 @@ export const en = {
   'vnc.setupFailed': 'Setup failed',
   'vnc.copyCommand': 'Copy command',
   'vnc.copied': 'Copied',
+  'vnc.tuning': 'Display tuning',
+  'vnc.quality': 'Quality',
+  'vnc.compression': 'Compress',
+  'vnc.maxFps': 'Max FPS',
+  'vnc.preset.speed': 'Speed',
+  'vnc.preset.balanced': 'Balanced',
+  'vnc.preset.saver': 'Saver',
+  'vnc.showStats': 'Show stats',
 } as const

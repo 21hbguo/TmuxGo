@@ -80,6 +80,9 @@ export async function vncRoutes(fastify: FastifyInstance) {
     socket.on('error', () => agentManager.closeVnc(connectionId))
   })
 
+  // 空响应探活：前端用它估算浏览器→gateway 的 RTT
+  fastify.get('/vnc/ping', async () => ({ ok: true }))
+
   // 环境探测：经 execHostShell 在目标机（local/ssh/agent 同一通道）跑只读探测脚本
   fastify.get('/vnc/setup', async (request: FastifyRequest, reply) => {
     const hostId = String((request.query as { hostId?: unknown }).hostId || 'local')
