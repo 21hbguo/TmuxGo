@@ -7,7 +7,11 @@ import { consumeWebSocketTicket, isAuthEnabled } from '../lib/auth.js'
 import { execHostShell, openVncSshTunnel } from '../lib/tmux-executor.js'
 import {
   normalizeVncPort,
+  parseVncDisplays,
   parseVncProbe,
+  vncDisplayStartScript,
+  vncDisplayStopScript,
+  VNC_DISPLAYS_SCRIPT,
   VNC_INSTALL_SCRIPT,
   VNC_LOOPBACK_HOST,
   VNC_MANUAL_INSTALL_COMMAND,
@@ -125,6 +129,47 @@ export async function vncRoutes(fastify: FastifyInstance) {
 
   // 空响应探活：前端用它估算浏览器→gateway 的 RTT
   fastify.get('/vnc/ping', async () => ({ ok: true }))
+
+  // 列出目标机 loopback 上在跑的 VNC display（虚拟屏选择器数据源）
+  fastify.get('/vnc/displays', async (request: FastifyRequest, reply) => {
+    const hostId = String((request.query as { hostId?: unknown }).hostId || 'local')
+    try {
+      const result = await execHostShell(hostId, VNC_DISPLAYS_SCRIPT, { timeoutMs: 15000 })
+      return { displays: parseVncDisplays(result.stdout) }
+    } catch (err) {
+      return reply.code(502).send({ error: err instanceof Error ? err.message : 'VNC display scan failed' })
+    }
+  })
+
+  // 启停虚拟 display：display 校验为整数防注入，脚本内部再校验端口范围
+  fastify.post('/vnc/displays', async (request: FastifyRequest, reply) => {
+    const body = request.body as { hostId?: unknown; display?: unknown; action?: unknown }
+    const hostId = String(body?.hostId || 'local')
+    const display = typeof body?.display === 'number' ? body.display : Number(body?.display)
+    const action = body?.action
+    if (!Number.isInteger(display) || display < 0 || display > 99) {
+      return reply.code(400).send({ error: 'Invalid display number' })
+    }
+    const port = 5900 + display
+    const script =
+      action === 'start' ? vncDisplayStartScript(display) : action === 'stop' ? vncDisplayStopScript(port) : null
+    if (!script) return reply.code(400).send({ error: 'Invalid display action' })
+    try {
+      const result = await execHostShell(hostId, script, { timeoutMs: 15000 })
+      const probed = await execHostShell(hostId, VNC_DISPLAYS_SCRIPT, { timeoutMs: 15000 })
+      return {
+        ok:
+          result.stdout.includes('__started__') ||
+          result.stdout.includes('__stopped__') ||
+          result.stdout.includes('__running__'),
+        needPassword: result.stdout.includes('__need_password__'),
+        noServer: result.stdout.includes('__no_server__'),
+        displays: parseVncDisplays(probed.stdout),
+      }
+    } catch (err) {
+      return reply.code(502).send({ error: err instanceof Error ? err.message : 'VNC display action failed' })
+    }
+  })
 
   // 环境探测：经 execHostShell 在目标机（local/ssh/agent 同一通道）跑只读探测脚本
   fastify.get('/vnc/setup', async (request: FastifyRequest, reply) => {
