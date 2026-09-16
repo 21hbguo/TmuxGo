@@ -1077,6 +1077,7 @@ export const zh = {
   'vnc.displayNeedPassword': '需先在目标机运行 vncpasswd 设置 VNC 密码',
   'vnc.displayNoServer': '目标机未安装 Xvnc 系服务端（tigervnc 等），无法创建虚拟屏',
   'vnc.displayActionFailed': '操作失败',
+  'vnc.customPort': '自定义端口',
   'vnc.viewOnly': '仅查看',
   'vnc.sendCad': '发送 Ctrl+Alt+Del',
   'vnc.paste': '粘贴剪贴板到远端',
