@@ -1,5 +1,6 @@
-import { execFile } from 'child_process'
+import { execFile, spawn } from 'child_process'
 import { promises as fs } from 'fs'
+import net from 'net'
 import os from 'os'
 import path from 'path'
 import { promisify } from 'util'
@@ -13,7 +14,12 @@ const defaultTimeoutMs = 30000
 const sshCheckTimeoutMs = 5000
 const sshReadyTimeoutMs = 12000
 let sshPassAvailable: boolean | null = null
-const knownAuthMarkers = ['Permission denied', 'Permission denied (publickey', 'Permission denied (publickey,password', 'Permission denied (password']
+const knownAuthMarkers = [
+  'Permission denied',
+  'Permission denied (publickey',
+  'Permission denied (publickey,password',
+  'Permission denied (password',
+]
 const knownHostKeyMarkers = ['Host key verification failed', 'REMOTE HOST IDENTIFICATION HAS CHANGED', 'fingerprint']
 const knownTimeoutMarkers = ['Connection timed out', 'Operation timed out', 'No route to host']
 const knownNetworkMarkers = ['Could not resolve hostname', 'Connection refused', 'Network is unreachable']
@@ -98,10 +104,41 @@ async function getResolvedHost(hostIdRaw: string) {
   return host
 }
 function toAgentHost(agent: AgentStatus): HostRecord {
-  return { id: agent.id, name: agent.name, address: agent.address, user: '', port: 22, auth: 'auto', groups: [], tags: [], favorite: false, useAgent: true, jumpHost: '', knownHostsPolicy: 'strict', tmuxPath: '', createdAt: agent.connectedAt || agent.lastSeenAt, updatedAt: agent.lastSeenAt }
+  return {
+    id: agent.id,
+    name: agent.name,
+    address: agent.address,
+    user: '',
+    port: 22,
+    auth: 'auto',
+    groups: [],
+    tags: [],
+    favorite: false,
+    useAgent: true,
+    jumpHost: '',
+    knownHostsPolicy: 'strict',
+    tmuxPath: '',
+    createdAt: agent.connectedAt || agent.lastSeenAt,
+    updatedAt: agent.lastSeenAt,
+  }
 }
-function buildSshArgs(host: HostRecord, remoteCommand: string, options: TmuxExecOptions = {}, usePassword = false, credentials: HostCredentials) {
-  const args: string[] = ['-p', String(host.port), '-o', 'ConnectTimeout=8', '-o', 'ServerAliveInterval=30', '-o', 'ServerAliveCountMax=3']
+function buildSshArgs(
+  host: HostRecord,
+  remoteCommand: string,
+  options: TmuxExecOptions = {},
+  usePassword = false,
+  credentials: HostCredentials,
+) {
+  const args: string[] = [
+    '-p',
+    String(host.port),
+    '-o',
+    'ConnectTimeout=8',
+    '-o',
+    'ServerAliveInterval=30',
+    '-o',
+    'ServerAliveCountMax=3',
+  ]
   const controlPath = getControlPath(host)
   args.push('-o', `ControlPath=${controlPath}`)
   args.push('-o', 'ControlMaster=auto')
@@ -123,14 +160,20 @@ function buildSshArgs(host: HostRecord, remoteCommand: string, options: TmuxExec
   return args
 }
 async function runLocalTmux(args: string[], options: TmuxExecOptions = {}) {
-  const useSystemdScope=args[0]==='new-session'&&!!process.env.INVOCATION_ID
-  const command=useSystemdScope?'systemd-run':'tmux'
-  const commandArgs=useSystemdScope?['--user','--scope','--quiet','--collect','tmux',...args]:args
-  const { stdout, stderr } = await execFileAsync(command, commandArgs, { timeout: options.timeoutMs || defaultTimeoutMs, maxBuffer: 8 * 1024 * 1024 })
+  const useSystemdScope = args[0] === 'new-session' && !!process.env.INVOCATION_ID
+  const command = useSystemdScope ? 'systemd-run' : 'tmux'
+  const commandArgs = useSystemdScope ? ['--user', '--scope', '--quiet', '--collect', 'tmux', ...args] : args
+  const { stdout, stderr } = await execFileAsync(command, commandArgs, {
+    timeout: options.timeoutMs || defaultTimeoutMs,
+    maxBuffer: 8 * 1024 * 1024,
+  })
   return { stdout, stderr }
 }
 async function runLocalShell(command: string, options: TmuxExecOptions = {}) {
-  const { stdout, stderr } = await execFileAsync('sh', ['-lc', command], { timeout: options.timeoutMs || defaultTimeoutMs, maxBuffer: 8 * 1024 * 1024 })
+  const { stdout, stderr } = await execFileAsync('sh', ['-lc', command], {
+    timeout: options.timeoutMs || defaultTimeoutMs,
+    maxBuffer: 8 * 1024 * 1024,
+  })
   return { stdout, stderr }
 }
 async function runRemoteTmux(host: HostRecord, args: string[], options: TmuxExecOptions = {}) {
@@ -139,7 +182,7 @@ async function runRemoteTmux(host: HostRecord, args: string[], options: TmuxExec
   const credentials = await getHostCredentials(host.id)
   const passwordEnv = buildPasswordEnv(credentials)
   const hasPassword = !!passwordEnv
-  const canUseSshPass = hasPassword && await hasSshPass()
+  const canUseSshPass = hasPassword && (await hasSshPass())
   const sshArgs = buildSshArgs(host, remoteCommand, options, canUseSshPass, credentials)
   if (canUseSshPass) {
     try {
@@ -175,7 +218,7 @@ async function runRemoteShell(host: HostRecord, command: string, options: TmuxEx
   const credentials = await getHostCredentials(host.id)
   const passwordEnv = buildPasswordEnv(credentials)
   const hasPassword = !!passwordEnv
-  const canUseSshPass = hasPassword && await hasSshPass()
+  const canUseSshPass = hasPassword && (await hasSshPass())
   const sshArgs = buildSshArgs(host, `sh -lc ${escapeShellSingleQuoted(command)}`, options, canUseSshPass, credentials)
   if (canUseSshPass) {
     try {
@@ -208,9 +251,17 @@ async function runRemoteShell(host: HostRecord, command: string, options: TmuxEx
 }
 function isTmuxServerMissingError(message: string) {
   const value = message.toLowerCase()
-  return value.includes('error connecting to') || value.includes('no server running') || value.includes('failed to connect to server')
+  return (
+    value.includes('error connecting to') ||
+    value.includes('no server running') ||
+    value.includes('failed to connect to server')
+  )
 }
-export async function execTmux(hostIdRaw: string, args: string[], options: TmuxExecOptions = {}): Promise<TmuxExecResult> {
+export async function execTmux(
+  hostIdRaw: string,
+  args: string[],
+  options: TmuxExecOptions = {},
+): Promise<TmuxExecResult> {
   const normalized = normalizeTmuxEnvArgs(args)
   let deferSetEnv = false
   if (normalized.needsSetEnv) {
@@ -250,14 +301,19 @@ async function retrySetEnvIfNeeded(deferSetEnv: boolean, hostIdRaw: string) {
     await execTmux(hostIdRaw, ['setenv', '-g', 'TMUXGO_ENV', '1'])
   } catch {}
 }
-export async function execHostShell(hostIdRaw: string, command: string, options: TmuxExecOptions = {}): Promise<TmuxExecResult> {
+export async function execHostShell(
+  hostIdRaw: string,
+  command: string,
+  options: TmuxExecOptions = {},
+): Promise<TmuxExecResult> {
   const hostId = parseHostInput(hostIdRaw)
   const host = await getHostById(hostId)
   if (!host) {
     const agent = agentManager.getAgent(hostId)
     if (!agent) throw new Error(`Host "${hostId}" not found`)
     const result = await agentManager.executeShell(hostId, command, options.timeoutMs || defaultTimeoutMs)
-    if (result.exitCode !== 0) throw new Error(normalizeErrorMessage(`${result.stderr}\n${result.stdout}`, 'Agent shell command failed'))
+    if (result.exitCode !== 0)
+      throw new Error(normalizeErrorMessage(`${result.stderr}\n${result.stdout}`, 'Agent shell command failed'))
     return { stdout: result.stdout, stderr: result.stderr, host: toAgentHost(agent) }
   }
   if (host.id === 'local') {
@@ -271,12 +327,104 @@ export async function execHostShell(hostIdRaw: string, command: string, options:
   const result = await runRemoteShell(host, command, options)
   return { ...result, host }
 }
+// SSH 隧道兜底：agent 不在线的远端主机经 `ssh -L` 把远端 loopback VNC 映到 gateway 本机端口。
+// 刻意不用 ControlMaster 多路复用：挂到共享 master 的 -L 转发会随 master 生命周期泄漏，
+// 隧道用独立 ssh 进程，断连时直接 SIGTERM。
+export interface VncSshTunnel {
+  localPort: number
+  close: () => void
+}
+export async function pickFreeLoopbackPort(min = 5940, max = 5999): Promise<number | null> {
+  for (let port = min; port <= max; port++) {
+    const ok = await new Promise<boolean>((resolve) => {
+      const probe = net.createServer()
+      probe.once('error', () => resolve(false))
+      probe.once('listening', () => probe.close(() => resolve(true)))
+      probe.listen(port, '127.0.0.1')
+    })
+    if (ok) return port
+  }
+  return null
+}
+export async function openVncSshTunnel(hostIdRaw: string, remotePort: number): Promise<VncSshTunnel> {
+  const host = await getResolvedHost(hostIdRaw)
+  if (host.id === 'local' || !host.user || !host.address) throw new Error('Host has no SSH target configured')
+  const localPort = await pickFreeLoopbackPort()
+  if (!localPort) throw new Error('No free loopback port for SSH tunnel')
+  const credentials = await getHostCredentials(host.id)
+  const passwordEnv = buildPasswordEnv(credentials)
+  const canUseSshPass = !!passwordEnv && (await hasSshPass())
+  if (passwordEnv && !canUseSshPass) throw new Error('SSH password env configured but sshpass is not installed')
+  const args = [
+    '-N',
+    '-T',
+    '-o',
+    'ControlMaster=no',
+    '-o',
+    'ControlPath=none',
+    '-o',
+    'ExitOnForwardFailure=yes',
+    '-o',
+    'ConnectTimeout=8',
+    '-o',
+    'ServerAliveInterval=30',
+    '-o',
+    'ServerAliveCountMax=3',
+    '-L',
+    `127.0.0.1:${localPort}:127.0.0.1:${remotePort}`,
+    '-p',
+    String(host.port),
+    ...buildHostSshOptions(host, credentials),
+    ...(canUseSshPass ? [] : ['-o', 'BatchMode=yes']),
+    toHostAddress(host),
+  ]
+  const child = canUseSshPass
+    ? spawn('sshpass', ['-e', 'ssh', ...args], {
+        env: { ...process.env, ...passwordEnv },
+        stdio: ['ignore', 'ignore', 'pipe'],
+      })
+    : spawn('ssh', args, { stdio: ['ignore', 'ignore', 'pipe'] })
+  let stderr = ''
+  let spawnFailed = false
+  child.once('error', () => {
+    spawnFailed = true
+  })
+  child.stderr?.on('data', (chunk) => {
+    stderr += String(chunk)
+  })
+  const close = () => {
+    if (child.exitCode === null && !child.killed) child.kill('SIGTERM')
+  }
+  // 等隧道就绪：轮询本机转发端口直到接受 TCP 连接；ssh 提前退出即视为失败
+  const deadline = Date.now() + sshReadyTimeoutMs
+  while (Date.now() < deadline) {
+    if (spawnFailed || child.exitCode !== null || child.signalCode !== null) break
+    const up = await new Promise<boolean>((resolve) => {
+      const probe = net.connect({ host: '127.0.0.1', port: localPort })
+      probe.once('connect', () => {
+        probe.destroy()
+        resolve(true)
+      })
+      probe.once('error', () => resolve(false))
+      probe.setTimeout(500, () => {
+        probe.destroy()
+        resolve(false)
+      })
+    })
+    if (up) return { localPort, close }
+    await new Promise((resolve) => setTimeout(resolve, 300))
+  }
+  close()
+  throw new Error(normalizeErrorMessage(stderr, 'SSH tunnel failed'))
+}
+
 function extractErrorSummary(stderr: string, stdout: string, fallback: string) {
   return normalizeErrorMessage(`${stderr}\n${stdout}`, fallback)
 }
 function getConnectionErrorCode(message: string) {
   if (message === 'Host key verification failed') return 'HOST_KEY_ERROR'
-  if (message === 'SSH authentication failed' || message === 'SSH private key is unavailable') return 'AUTHENTICATION_ERROR'
+  if (message === 'SSH authentication failed' || message === 'SSH private key is unavailable')
+    return 'AUTHENTICATION_ERROR'
   if (message === 'SSH connection timed out' || message === 'SSH network is unreachable') return 'NETWORK_ERROR'
   return 'CONNECTION_ERROR'
 }
@@ -302,7 +450,12 @@ export async function verifyHostConnectivity(hostIdRaw: string) {
   const passwordEnv = buildPasswordEnv(credentials)
   const sshPassAvailable = await hasSshPass()
   if (passwordEnv && !sshPassAvailable) {
-    return { ok: false, message: 'sshpass is required for password auth', mode: 'password' as const, code: 'AUTHENTICATION_ERROR' as const }
+    return {
+      ok: false,
+      message: 'sshpass is required for password auth',
+      mode: 'password' as const,
+      code: 'AUTHENTICATION_ERROR' as const,
+    }
   }
   if (host.id === 'local') {
     return { ok: true, message: 'local host available', mode: 'local' as const }
@@ -312,14 +465,23 @@ export async function verifyHostConnectivity(hostIdRaw: string) {
   const tryPassword = async () => {
     if (!passwordEnv) return null
     try {
-      const { stdout } = await execFileAsync('sshpass', ['-e', 'ssh', ...buildSshArgs(host, 'echo tmuxgo-ok', {}, true, credentials)], {
-        timeout: sshReadyTimeoutMs,
-        env: { ...process.env, ...passwordEnv },
-        maxBuffer: 1024 * 1024,
-      })
+      const { stdout } = await execFileAsync(
+        'sshpass',
+        ['-e', 'ssh', ...buildSshArgs(host, 'echo tmuxgo-ok', {}, true, credentials)],
+        {
+          timeout: sshReadyTimeoutMs,
+          env: { ...process.env, ...passwordEnv },
+          maxBuffer: 1024 * 1024,
+        },
+      )
       const ok = stdout.trim() === 'tmuxgo-ok'
       if (ok) return { ok: true, message: 'ssh ready', mode: 'password' as const }
-      return { ok: false, message: 'SSH authentication failed', mode: 'password' as const, code: 'AUTHENTICATION_ERROR' as const }
+      return {
+        ok: false,
+        message: 'SSH authentication failed',
+        mode: 'password' as const,
+        code: 'AUTHENTICATION_ERROR' as const,
+      }
     } catch (err: any) {
       const stderr = String(err?.stderr || '')
       const stdout = String(err?.stdout || '')
@@ -330,16 +492,31 @@ export async function verifyHostConnectivity(hostIdRaw: string) {
   try {
     const { stdout } = await execFileAsync('ssh', checkArgs, { timeout: sshCheckTimeoutMs, maxBuffer: 1024 * 1024 })
     const ok = stdout.trim() === 'tmuxgo-ok'
-    if (ok) return { ok: true, message: 'ssh ready', mode: credentials.privateKeyPath ? 'key' as const : host.useAgent ? 'agent' as const : 'key' as const }
+    if (ok)
+      return {
+        ok: true,
+        message: 'ssh ready',
+        mode: credentials.privateKeyPath ? ('key' as const) : host.useAgent ? ('agent' as const) : ('key' as const),
+      }
   } catch (err: any) {
     const stderr = String(err?.stderr || '')
     const stdout = String(err?.stdout || '')
     const normalized = extractErrorSummary(stderr, stdout, err?.message || 'ssh validation failed')
     const passwordResult = await tryPassword()
     if (passwordResult) return passwordResult
-    return { ok: false, message: normalized, mode: credentials.privateKeyPath ? 'key' as const : host.useAgent ? 'agent' as const : 'key' as const, code: getConnectionErrorCode(normalized) }
+    return {
+      ok: false,
+      message: normalized,
+      mode: credentials.privateKeyPath ? ('key' as const) : host.useAgent ? ('agent' as const) : ('key' as const),
+      code: getConnectionErrorCode(normalized),
+    }
   }
   const passwordResult = await tryPassword()
   if (passwordResult) return passwordResult
-  return { ok: false, message: 'SSH authentication failed', mode: credentials.privateKeyPath ? 'key' as const : host.useAgent ? 'agent' as const : 'key' as const, code: 'AUTHENTICATION_ERROR' as const }
+  return {
+    ok: false,
+    message: 'SSH authentication failed',
+    mode: credentials.privateKeyPath ? ('key' as const) : host.useAgent ? ('agent' as const) : ('key' as const),
+    code: 'AUTHENTICATION_ERROR' as const,
+  }
 }

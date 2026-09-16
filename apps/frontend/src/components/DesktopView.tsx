@@ -21,6 +21,7 @@ import { getWebSocketUrl } from '@/lib/auth'
 import {
   applyVncResolution,
   attachVncInstrumentation,
+  installVncLosslessFilter,
   installVncRequestThrottle,
   measureVncRtt,
   VNC_RESOLUTION_PRESETS,
@@ -60,9 +61,10 @@ const clampVncTuning = (saved: Partial<VncTuning>): VncTuning => ({
     Math.max(VNC_COMPRESSION_RANGE.min, Number(saved.compression) || VNC_TUNING_DEFAULT.compression),
   ),
   maxFps: Math.min(VNC_FPS_RANGE.max, Math.max(VNC_FPS_RANGE.min, Number(saved.maxFps) || VNC_TUNING_DEFAULT.maxFps)),
+  lossless: Boolean(saved.lossless),
 })
 const sameVncTuning = (a: VncTuning, b: VncTuning) =>
-  a.quality === b.quality && a.compression === b.compression && a.maxFps === b.maxFps
+  a.quality === b.quality && a.compression === b.compression && a.maxFps === b.maxFps && a.lossless === b.lossless
 interface DesktopViewProps {
   hostId: string
   port: number
@@ -187,6 +189,7 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
       wsCloseRef.current = null
       vncDebug('connect', { hostId, port: targetPort, url: url.replace(/ticket=[^&]+/, 'ticket=<redacted>') })
       installVncRequestThrottle(RFB)
+      installVncLosslessFilter(RFB)
       const rfb = new RFB(containerRef.current, url, { shared: true })
       const ws = (rfb as unknown as { _sock?: { _websocket?: WebSocket } })._sock?._websocket
       ws?.addEventListener('close', (event) => {
@@ -200,6 +203,7 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
       rfb.compressionLevel = tuningRef.current.compression
       const instrumentation = attachVncInstrumentation(rfb)
       instrumentation.setMaxFps(tuningRef.current.maxFps)
+      instrumentation.setLossless(tuningRef.current.lossless)
       instrumentationRef.current = instrumentation
       resolutionCleanupRef.current = applyVncResolution(rfb, RFB, resolutionRef.current, viewOnlyRef.current)
       rfb.addEventListener('connect', () => {
@@ -283,6 +287,7 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
       rfbRef.current.compressionLevel = tuning.compression
     }
     instrumentationRef.current?.setMaxFps(tuning.maxFps)
+    instrumentationRef.current?.setLossless(tuning.lossless)
   }, [tuning])
   // 分辨率实时生效：断连时随 RFB 一起释放，连接中直接发 SetDesktopSize
   useEffect(() => {
@@ -572,10 +577,7 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
             <div className="flex gap-1.5">
               {(['speed', 'balanced', 'saver'] as const).map((key) => {
                 const preset = VNC_TUNING_PRESETS[key]
-                const active =
-                  tuning.quality === preset.quality &&
-                  tuning.compression === preset.compression &&
-                  tuning.maxFps === preset.maxFps
+                const active = sameVncTuning(tuning, preset)
                 return (
                   <Button
                     key={key}
@@ -637,6 +639,16 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
                   </option>
                 ))}
               </select>
+            </label>
+            <label className="flex items-center justify-between">
+              <span className="text-text-3">{t('vnc.lossless')}</span>
+              <input
+                type="checkbox"
+                checked={tuning.lossless}
+                onChange={(event) => applyTuning({ ...tuning, lossless: event.target.checked })}
+                className="accent-[var(--accent)]"
+                title={t('vnc.losslessHint')}
+              />
             </label>
             <label className="flex items-center justify-between">
               <span className="text-text-3">{t('vnc.showStats')}</span>

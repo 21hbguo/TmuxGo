@@ -4,7 +4,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { SocketStream } from '@fastify/websocket'
 import { agentManager, type AgentSocket } from '../agent-manager.js'
 import { consumeWebSocketTicket, isAuthEnabled } from '../lib/auth.js'
-import { execHostShell } from '../lib/tmux-executor.js'
+import { execHostShell, openVncSshTunnel } from '../lib/tmux-executor.js'
 import {
   normalizeVncPort,
   parseVncProbe,
@@ -94,12 +94,27 @@ export async function vncRoutes(fastify: FastifyInstance) {
       pipeTcpToSocket(net.connect({ host: VNC_LOOPBACK_HOST, port }), socket, dbg)
       return
     }
-    // 远端宿主机只走 agent 中继：agent 是主动拨入 gateway 的，gateway 无法反向连其内网；
-    // 由 agent 在宿主机本机拨 loopback VNC，画面帧以二进制帧（vnc-data <id>\n+载荷）复用 agent WS 通道
+    // 远端宿主机优先走 agent 中继：agent 主动拨入 gateway，画面帧以二进制帧复用 agent WS 通道；
+    // agent 不在线时回落 ssh -L 端口转发（需要主机配了可用的 SSH 目标），覆盖 SSH-only 部署
     const connectionId = randomUUID()
     if (!agentManager.openVnc(hostId, connectionId, port, socket)) {
-      dbg('vnc agent relay refused', { hostId, connectionId })
-      socket.close(1011, 'Host is offline or has no agent connected')
+      dbg('vnc agent relay refused, trying ssh tunnel', { hostId, connectionId })
+      void openVncSshTunnel(hostId, port)
+        .then((tunnel) => {
+          if (socket.readyState !== 1) {
+            tunnel.close()
+            return
+          }
+          dbg('vnc ssh tunnel opened', { hostId, localPort: tunnel.localPort })
+          socket.on('close', () => tunnel.close())
+          socket.on('error', () => tunnel.close())
+          pipeTcpToSocket(net.connect({ host: VNC_LOOPBACK_HOST, port: tunnel.localPort }), socket, dbg)
+        })
+        .catch((err) => {
+          const reason = err instanceof Error ? err.message : 'SSH tunnel failed'
+          dbg('vnc ssh tunnel failed', { hostId, error: reason })
+          socket.close(1011, `Agent offline; SSH tunnel failed: ${reason.slice(0, 80)}`)
+        })
       return
     }
     dbg('vnc agent relay opened', { hostId, connectionId })
