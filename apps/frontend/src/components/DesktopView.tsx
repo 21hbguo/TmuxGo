@@ -159,6 +159,8 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
   const connect = useCallback(
     async (targetPort: number) => {
       if (!containerRef.current) return
+      resolutionCleanupRef.current?.()
+      resolutionCleanupRef.current = null
       rfbRef.current?.disconnect()
       rfbRef.current = null
       containerRef.current.innerHTML = ''
@@ -250,6 +252,9 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
   const disconnect = useCallback(() => {
     connectSeqRef.current += 1
     wasActiveRef.current = false
+    // 先恢复远端分辨率再断连，cleanup 里发 SetDesktopSize 需要 socket 还活着
+    resolutionCleanupRef.current?.()
+    resolutionCleanupRef.current = null
     rfbRef.current?.disconnect()
     rfbRef.current = null
     setStatus('idle')
@@ -327,6 +332,8 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
     if (!document.hidden) void connect(port)
     return () => {
       connectSeqRef.current += 1
+      resolutionCleanupRef.current?.()
+      resolutionCleanupRef.current = null
       rfbRef.current?.disconnect()
       rfbRef.current = null
     }
@@ -339,6 +346,8 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
         wasActiveRef.current = rfbRef.current !== null
         vncDebug('hidden: disconnect', { wasActive: wasActiveRef.current })
         connectSeqRef.current += 1
+        resolutionCleanupRef.current?.()
+        resolutionCleanupRef.current = null
         rfbRef.current?.disconnect()
         rfbRef.current = null
         setCredentialTypes([])
