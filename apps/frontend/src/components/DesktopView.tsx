@@ -40,6 +40,7 @@ import {
   writeVncPort,
 } from '@/lib/vnc-tuning'
 import { getVncWebSocketBase } from '@/lib/runtime-endpoints'
+import { attachVncClipboardSync } from '@/lib/vnc-clipboard'
 import { useConsoleStore, type DesktopViewMode } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
 
@@ -164,8 +165,8 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
   const credentialsRef = useRef<{ username?: string; password: string } | null>(null)
   // 底层 WS 关闭码/原因：RFB 的 disconnect 事件不带这些，单独捕获用于错误提示
   const wsCloseRef = useRef<{ code: number; reason: string } | null>(null)
-  // 最近一次已同步的剪贴板文本（双向都写）：主动推送去重，避免环回
-  const lastClipboardRef = useRef('')
+  // 剪贴板双向透传：本地→远端靠 paste 事件零权限同步，远端→本地挂起补写到下一次手势
+  const clipboardSyncRef = useRef<ReturnType<typeof attachVncClipboardSync> | null>(null)
   // RFB 事件回调在 connect 时注册一次，用 ref 拿最新 viewOnly/t，避免 connect 身份抖动触发重连
   const viewOnlyRef = useRef(viewOnly)
   const tRef = useRef(t)
@@ -257,10 +258,9 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
         setError(event.detail.reason || `${tRef.current('vnc.securityFailure')} (${event.detail.status})`)
       })
       rfb.addEventListener('desktopname', (event) => setDesktopName(event.detail.name))
-      // 远端→本地剪贴板透传：浏览器要求聚焦/权限，失败静默降级
+      // 远端→本地剪贴板透传：浏览器要求聚焦/激活态/权限，写不进时挂起到下一次手势补写
       rfb.addEventListener('clipboard', (event) => {
-        lastClipboardRef.current = event.detail.text
-        void navigator.clipboard?.writeText(event.detail.text).catch(() => {})
+        clipboardSyncRef.current?.onServerClipboard(event.detail.text)
       })
       rfbRef.current = rfb
       wasActiveRef.current = true
@@ -419,105 +419,19 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
     document.addEventListener('visibilitychange', onVisibility)
     return () => document.removeEventListener('visibilitychange', onVisibility)
   }, [connect])
-  // 本地→远端剪贴板透传：
-  // capture 阶段拦下粘贴组合键（Ctrl/Cmd+V、Shift+Insert）的 keydown——stopPropagation 让 noVNC 收不到，
-  // 但不 preventDefault，浏览器照常触发 paste 事件；在 paste 事件里先 clipboardPasteFrom 同步文本，
-  // 再回放按键，远端处理粘贴键时剪贴板已是最新，全程无需剪贴板权限。
-  // 权限已授予（clipboard-read=granted，不主动弹授权）时在 pointerdown/focus/copy 再主动推一次，
-  // 覆盖远端右键粘贴等不经过本地按键的路径。
+  // 剪贴板双向透传：本地→远端走 paste 事件（零权限），远端→本地挂起补写到下一次手势；详见 lib/vnc-clipboard
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
-    interface HeldPaste {
-      code: 'KeyV' | 'Insert'
-      ctrl: boolean
-      shift: boolean
-      alt: boolean
-      meta: boolean
-      timer: number
-    }
-    let held: HeldPaste | null = null
-    const replay = (rfb: RFBType, h: HeldPaste) => {
-      // keysym：Control_L=0xffe3 Shift_L=0xffe1 Alt_L=0xffe9 Super_L=0xffeb；v=0x76 Insert=0xff63
-      const mods: Array<[number, string, boolean]> = [
-        [0xffe3, 'ControlLeft', h.ctrl],
-        [0xffe1, 'ShiftLeft', h.shift],
-        [0xffe9, 'AltLeft', h.alt],
-        [0xffeb, 'MetaLeft', h.meta],
-      ]
-      const keysym = h.code === 'Insert' ? 0xff63 : 0x76
-      for (const [sym, code, on] of mods) if (on) rfb.sendKey(sym, code, true)
-      rfb.sendKey(keysym, h.code, true)
-      rfb.sendKey(keysym, h.code, false)
-      for (const [sym, code, on] of [...mods].reverse()) if (on) rfb.sendKey(sym, code, false)
-    }
-    const isPasteCombo = (event: KeyboardEvent) =>
-      (event.code === 'KeyV' && (event.ctrlKey || event.metaKey)) ||
-      // Shift+Insert 是粘贴；Ctrl+Insert 是复制，不拦
-      (event.code === 'Insert' && event.shiftKey && !event.ctrlKey && !event.metaKey)
-    const onKeyDown = (event: KeyboardEvent) => {
-      const rfb = rfbRef.current
-      if (!rfb || viewOnlyRef.current || !isPasteCombo(event)) return
-      event.stopPropagation()
-      if (held) clearTimeout(held.timer)
-      held = {
-        code: event.code as HeldPaste['code'],
-        ctrl: event.ctrlKey,
-        shift: event.shiftKey,
-        alt: event.altKey,
-        meta: event.metaKey,
-        // 兜底：paste 事件没触发时回放按键，避免吞键
-        timer: window.setTimeout(() => {
-          const h = held
-          held = null
-          if (h) replay(rfb, h)
-        }, 400),
-      }
-    }
-    const onPaste = (event: ClipboardEvent) => {
-      const rfb = rfbRef.current
-      const h = held
-      held = null
-      if (h) clearTimeout(h.timer)
-      if (!rfb || viewOnlyRef.current) return
-      const text = event.clipboardData?.getData('text/plain') || ''
-      if (text) {
-        event.preventDefault()
-        lastClipboardRef.current = text
-        rfb.clipboardPasteFrom(text)
-      }
-      if (h) replay(rfb, h)
-    }
-    const syncFromLocal = () => {
-      const rfb = rfbRef.current
-      if (!rfb || viewOnlyRef.current || !navigator.permissions?.query || !navigator.clipboard?.readText) return
-      void navigator.permissions
-        .query({ name: 'clipboard-read' as PermissionName })
-        .then((perm) => (perm.state === 'granted' ? navigator.clipboard.readText() : null))
-        .then((text) => {
-          const current = rfbRef.current
-          if (text && text !== lastClipboardRef.current && current) {
-            lastClipboardRef.current = text
-            current.clipboardPasteFrom(text)
-          }
-        })
-        .catch(() => {})
-    }
-    const onCopy = () => setTimeout(syncFromLocal, 0)
-    container.addEventListener('keydown', onKeyDown, true)
-    container.addEventListener('paste', onPaste)
-    container.addEventListener('pointerdown', syncFromLocal)
-    document.addEventListener('copy', onCopy)
-    document.addEventListener('cut', onCopy)
-    window.addEventListener('focus', syncFromLocal)
+    const sync = attachVncClipboardSync(
+      container,
+      () => rfbRef.current,
+      () => viewOnlyRef.current,
+    )
+    clipboardSyncRef.current = sync
     return () => {
-      container.removeEventListener('keydown', onKeyDown, true)
-      container.removeEventListener('paste', onPaste)
-      container.removeEventListener('pointerdown', syncFromLocal)
-      document.removeEventListener('copy', onCopy)
-      document.removeEventListener('cut', onCopy)
-      window.removeEventListener('focus', syncFromLocal)
-      if (held) clearTimeout(held.timer)
+      clipboardSyncRef.current = null
+      sync.dispose()
     }
   }, [])
 
@@ -531,10 +445,7 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
   const pasteClipboard = async () => {
     try {
       const text = await navigator.clipboard.readText()
-      if (text) {
-        lastClipboardRef.current = text
-        rfbRef.current?.clipboardPasteFrom(text)
-      }
+      if (text) rfbRef.current?.clipboardPasteFrom(text)
     } catch {
       pushToast({ type: 'error', message: t('vnc.clipboardDenied') })
     }
