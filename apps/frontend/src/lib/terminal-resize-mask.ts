@@ -65,7 +65,9 @@ export function createTerminalResizeMask(options: TerminalResizeMaskOptions) {
         const maskRect = mask.getBoundingClientRect()
         snapshot.style.setProperty('inset', 'auto', 'important')
         snapshot.style.setProperty('left', `${screenRect.left - maskRect.left}px`, 'important')
-        snapshot.style.setProperty('top', `${screenRect.top - maskRect.top}px`, 'important')
+        // 底部锚定：容器变矮时保住 prompt 行不被裁掉，变高时留白在上方——
+        // 与 tmux reflow 的方向一致（grow 从 scrollback 往上拉行、光标留在底部）
+        snapshot.style.setProperty('top', `${maskRect.height - screenRect.height}px`, 'important')
         snapshot.style.setProperty('width', `${screenRect.width}px`, 'important')
         snapshot.style.setProperty('height', `${screenRect.height}px`, 'important')
         const sourceCanvases = Array.from(screen.querySelectorAll('canvas'))

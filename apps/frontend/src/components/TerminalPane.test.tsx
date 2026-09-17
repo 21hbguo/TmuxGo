@@ -1650,6 +1650,63 @@ describe('TerminalPane', () => {
     await waitFor(() => expect(mask.style.display).toBe('none'))
     expect(mask.childElementCount).toBe(0)
   })
+  it('reveals the resize mask right after a discrete size jump without waiting for resized', async () => {
+    const { container } = render(
+      <TerminalPane sessionName="dev" attachExclusive onInput={vi.fn()} onResize={vi.fn()} />,
+    )
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    await waitFor(() => expect(resizeObserverCallback).toBeTruthy())
+    const root = container.firstChild as HTMLElement
+    const mask = container.querySelector('[data-testid="terminal-resize-mask"]') as HTMLElement
+    Object.defineProperty(root, 'clientWidth', { configurable: true, value: 800 })
+    Object.defineProperty(root, 'clientHeight', { configurable: true, value: 520 })
+    resizeObserverCallback?.()
+    // 超过 250ms 连续窗口后的单次观察=离散步进（开文件/面板）：
+    // 本地 fit 落地即揭开，不发 resized 也已恢复
+    await sleep(300)
+    Object.defineProperty(root, 'clientHeight', { configurable: true, value: 400 })
+    terminalMocks.resize.mockClear()
+    resizeObserverCallback?.()
+    expect(mask.style.display).toBe('none')
+    expect(mask.childElementCount).toBe(0)
+    expect(terminalMocks.resize).toHaveBeenCalledTimes(1)
+  })
+  it('anchors the frozen resize frame to the bottom of the mask', async () => {
+    const { container } = render(
+      <TerminalPane sessionName="dev" attachExclusive onInput={vi.fn()} onResize={vi.fn()} />,
+    )
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    await waitFor(() => expect(resizeObserverCallback).toBeTruthy())
+    const root = container.firstChild as HTMLElement
+    const mask = container.querySelector('[data-testid="terminal-resize-mask"]') as HTMLElement
+    const screen = container.querySelector('.xterm-screen') as HTMLElement
+    screen.getBoundingClientRect = vi.fn(
+      () =>
+        ({
+          x: 0,
+          y: 0,
+          left: 0,
+          top: 0,
+          width: 960,
+          height: 576,
+          right: 960,
+          bottom: 576,
+          toJSON: () => ({}),
+        }) as DOMRect,
+    )
+    Object.defineProperty(root, 'clientWidth', { configurable: true, value: 800 })
+    Object.defineProperty(root, 'clientHeight', { configurable: true, value: 520 })
+    resizeObserverCallback?.()
+    // 连续第二次观察=拖拽 burst：遮罩等服务端确认，此时快照应保持可见供断言
+    Object.defineProperty(root, 'clientWidth', { configurable: true, value: 760 })
+    resizeObserverCallback?.()
+    expect(mask.style.display).toBe('block')
+    const snapshot = mask.querySelector('.xterm-screen') as HTMLElement
+    // maskRect.height=0（jsdom）→ top = 0 - 576：底部锚定使 prompt 行不被裁
+    expect(snapshot.style.top).toBe('-576px')
+    const [cols, rows] = terminalMocks.resize.mock.calls.at(-1) || []
+    emitStreamEvent(STREAM_EVENT.resized, { hostId: 'local', sessionName: 'dev', cols, rows })
+  })
   it('waits for mobile keyboard layout changes to settle before fitting', async () => {
     mobileKeyboardMocks.isMobile = true
     const { container } = render(

@@ -60,6 +60,9 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
   let lastRefreshAt = 0
   let lastDevicePixelRatio = window.devicePixelRatio || 1
   let mobileKeyboardTransition = false
+  let observedResizeBurst = 0
+  let observedResizeAt = 0
+  let earlyMaskReveal = false
   const isTerminalScrolledBack = () => {
     const terminal = getTerminal()
     const activeBuffer = terminal?.buffer?.active
@@ -366,6 +369,9 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
         lastSizeRef.current
       ) {
         recordMobileDebug('terminal-fit-noop', { width: currentWidth, height: currentHeight })
+        // 尺寸未变就不会有服务端 resize/resized：直接揭开，避免空等确认或 900ms failsafe
+        earlyMaskReveal = false
+        if (mask.isVisible()) mask.reveal()
         return true
       }
       applyTerminalOptions()
@@ -385,6 +391,10 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
           updateTerminalPerf({ layoutFitCount: perf.layoutFitCount + 1 })
           onResizeRef.current?.(cols, rows)
         }
+        // 离散步进（开关面板/编辑器）在本地 fit 后内容已收敛：直接揭开，
+        // 等服务端 resized 会让用户看到"先对、再 resize 一次"的二次跳变
+        const earlyReveal = earlyMaskReveal
+        earlyMaskReveal = false
         requestAnimationFrame(() => {
           if (isDisposed() || !terminal) return
           scheduleRendererStyleCorrection()
@@ -395,7 +405,7 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
           } else if (isMobileDevice) {
             repaintTerminalRenderer(false, stickToBottom)
           }
-          if (!sizeChanged && mask.isVisible()) mask.reveal()
+          if (mask.isVisible() && (!sizeChanged || earlyReveal)) mask.reveal()
         })
         notifyReady()
         return true
@@ -497,6 +507,9 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
         return
       }
       resizeStableFrames = 0
+      // 单次观察到的跳变=离散步进（面板/编辑器开合）：本地 fit 后即可揭开；
+      // 250ms 窗口内多次观察=连续拖拽/动画，仍等服务端 resized 收敛帧
+      earlyMaskReveal = observedResizeBurst <= 1
       scheduleLayoutSync(0, mobileKeyboardTransition, mobileKeyboardTransition)
       synchronous = false
     })
@@ -578,6 +591,9 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
       applyKeyboardClip()
       return
     }
+    const now = Date.now()
+    observedResizeBurst = now - observedResizeAt < 250 ? observedResizeBurst + 1 : 1
+    observedResizeAt = now
     if (hadContainerSize && !isMobileDevice) mask.show()
     scheduleStableLayout()
   }
