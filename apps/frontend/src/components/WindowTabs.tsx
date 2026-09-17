@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { FiMoreHorizontal, FiPlus, FiTrash2 } from 'react-icons/fi'
+import { useEffect, useState } from 'react'
+import { FiCheck, FiLayout, FiMoreHorizontal, FiPlus, FiTrash2 } from 'react-icons/fi'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { api } from '@/lib/api'
 import { useBatchKillWindows, useCreateWindow, useSessionSnapshot, useWindows } from '@/hooks/useApi'
@@ -12,11 +12,17 @@ import { Chip } from './Chip'
 import { ConfirmDialog } from './ConfirmDialog'
 import { PromptDialog } from './PromptDialog'
 import { summarizeAgentByWindow } from '@/lib/agent-status'
+import { setTerminalDockDragActive, TERMINAL_DOCK_DRAG_MIME } from '@/lib/terminal-dock-drag'
+import type { TerminalDockPosition } from '@/stores/useConsoleStore'
+
+const DOCK_POSITIONS: TerminalDockPosition[] = ['bottom', 'left', 'right']
 
 export function WindowTabs() {
   const activeHostId = useConsoleStore((s) => s.activeHostId)
   const activeSessionId = useConsoleStore((s) => s.activeSessionId)
   const pushToast = useConsoleStore((s) => s.pushToast)
+  const terminalDock = useConsoleStore((s) => s.terminalDock)
+  const setTerminalDock = useConsoleStore((s) => s.setTerminalDock)
   const { data: windows = [] } = useWindows(activeHostId || '', activeSessionId || '')
   const { data: snapshotData } = useSessionSnapshot(activeHostId || '', activeSessionId || '')
   const { getWindows, setWindows } = useWindowQueryState(activeHostId || '', activeSessionId || '')
@@ -30,6 +36,14 @@ export function WindowTabs() {
   const [pendingBatchDelete, setPendingBatchDelete] = useState(false)
   const [newWindowPromptOpen, setNewWindowPromptOpen] = useState(false)
   const [newWindowName, setNewWindowName] = useState('')
+  const [dockMenuPos, setDockMenuPos] = useState<{ x: number; y: number } | null>(null)
+
+  useEffect(() => {
+    if (!dockMenuPos) return
+    const close = () => setDockMenuPos(null)
+    window.addEventListener('mousedown', close)
+    return () => window.removeEventListener('mousedown', close)
+  }, [dockMenuPos])
 
   if (!activeSessionId || windows.length === 0) {
     return null
@@ -226,6 +240,24 @@ export function WindowTabs() {
           <FiPlus aria-hidden="true" size={13} />
         </Chip>
         <Chip
+          onClick={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect()
+            setDockMenuPos({ x: rect.right, y: rect.bottom + 4 })
+          }}
+          className="cursor-grab px-2 py-1.5"
+          title={t('terminal.dockHint', { position: t(`terminal.dock.${terminalDock}`) })}
+          aria-label={t('terminal.dockHint', { position: t(`terminal.dock.${terminalDock}`) })}
+          draggable
+          onDragStart={(event) => {
+            event.dataTransfer.setData(TERMINAL_DOCK_DRAG_MIME, '1')
+            event.dataTransfer.effectAllowed = 'move'
+            setTerminalDockDragActive(true)
+          }}
+          onDragEnd={() => setTerminalDockDragActive(false)}
+        >
+          <FiLayout aria-hidden="true" size={13} />
+        </Chip>
+        <Chip
           onClick={toggleBatchMode}
           className={`px-2 py-1.5 ${batchMode ? 'tmuxgo-chip--accent' : ''}`}
           title={t(batchMode ? 'window.batchCancel' : 'window.batchMode')}
@@ -234,6 +266,28 @@ export function WindowTabs() {
           <FiMoreHorizontal aria-hidden="true" size={13} />
         </Chip>
       </div>
+      {dockMenuPos && (
+        <div
+          className="tmuxgo-menu fixed z-[90] w-36 py-1 text-xs"
+          style={{ left: dockMenuPos.x - 144, top: dockMenuPos.y }}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {DOCK_POSITIONS.map((position) => (
+            <button
+              key={position}
+              className={`tmuxgo-menu-item text-xs ${position === terminalDock ? 'text-accent' : ''}`}
+              onClick={() => {
+                setTerminalDock(position)
+                setDockMenuPos(null)
+              }}
+            >
+              <FiCheck aria-hidden="true" size={13} className={position === terminalDock ? '' : 'opacity-0'} />
+              {t(`terminal.dock.${position}`)}
+            </button>
+          ))}
+        </div>
+      )}
       <PromptDialog
         open={newWindowPromptOpen}
         title={t('window.createTitle')}

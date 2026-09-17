@@ -44,6 +44,8 @@ export interface EditorLayoutSplit {
   second: EditorLayoutNode
 }
 export type EditorLayoutNode = EditorLayoutLeaf | EditorLayoutSplit
+export type TerminalDockPosition = 'bottom' | 'left' | 'right'
+const TERMINAL_DOCK_POSITIONS: TerminalDockPosition[] = ['bottom', 'left', 'right']
 interface EditorWorkspaceState {
   openEditors: FileEditorDocument[]
   activeEditorId: string | null
@@ -350,6 +352,8 @@ interface ConsoleState {
   sessionPanelWidth: number
   filePanelWidth: number
   terminalPanelHeight: number
+  terminalPanelWidth: number
+  terminalDock: TerminalDockPosition
   openEditors: FileEditorDocument[]
   activeEditorId: string | null
   editorGroups: EditorGroupState[]
@@ -401,6 +405,8 @@ interface ConsoleState {
   setSessionPanelWidth: (width: number) => void
   setFilePanelWidth: (width: number) => void
   setTerminalPanelHeight: (height: number) => void
+  setTerminalPanelWidth: (width: number) => void
+  setTerminalDock: (dock: TerminalDockPosition) => void
   openEditor: (file: FileDocumentHandle & { language: string }) => void
   openCompareEditor: (leftId: string, rightId: string) => string | null
   placeEditorInSplit: (
@@ -546,6 +552,8 @@ export const useConsoleStore = create<ConsoleState>()(
       sessionPanelWidth: 248,
       filePanelWidth: 240,
       terminalPanelHeight: 300,
+      terminalPanelWidth: 480,
+      terminalDock: 'bottom',
       openEditors: [],
       ...createEmptyEditorWorkspace(),
       editorsHydrated: true,
@@ -582,12 +590,12 @@ export const useConsoleStore = create<ConsoleState>()(
                 activeDesktop: null,
               },
         ),
+      // 会话区与文件区可共存：打开文件不再折叠会话面板
       setFilePanelOpen: (open) =>
         set((state) =>
           open
             ? {
                 filePanelOpen: true,
-                sessionPanelExpanded: false,
                 gitPanelOpen: false,
                 sshPanelOpen: false,
                 activePluginView: null,
@@ -601,7 +609,6 @@ export const useConsoleStore = create<ConsoleState>()(
             ? { filePanelOpen: false }
             : {
                 filePanelOpen: true,
-                sessionPanelExpanded: false,
                 gitPanelOpen: false,
                 sshPanelOpen: false,
                 activePluginView: null,
@@ -761,6 +768,8 @@ export const useConsoleStore = create<ConsoleState>()(
       setSessionPanelWidth: (width) => set({ sessionPanelWidth: Math.max(208, Math.min(320, width)) }),
       setFilePanelWidth: (width) => set({ filePanelWidth: Math.max(200, Math.min(520, width)) }),
       setTerminalPanelHeight: (height) => set({ terminalPanelHeight: Math.max(180, Math.min(2000, height)) }),
+      setTerminalPanelWidth: (width) => set({ terminalPanelWidth: Math.max(240, Math.min(2400, width)) }),
+      setTerminalDock: (dock) => set({ terminalDock: dock }),
       openEditor: (file) =>
         set((state) => {
           const existing = state.openEditors.find((item) => item.id === file.id)
@@ -1090,6 +1099,8 @@ export const useConsoleStore = create<ConsoleState>()(
           sessionPanelWidth: state.sessionPanelWidth,
           filePanelWidth: state.filePanelWidth,
           terminalPanelHeight: state.terminalPanelHeight,
+          terminalPanelWidth: state.terminalPanelWidth,
+          terminalDock: state.terminalDock,
           openEditors: state.openEditors.map(pickEditorMeta),
           activeEditorId: state.activeEditorId,
           editorGroups: state.editorGroups,
@@ -1136,6 +1147,11 @@ export const useConsoleStore = create<ConsoleState>()(
           sessionPanelWidth: persistedState.sessionPanelWidth ?? current.sessionPanelWidth,
           filePanelWidth: persistedState.filePanelWidth ?? current.filePanelWidth,
           terminalPanelHeight: persistedState.terminalPanelHeight ?? current.terminalPanelHeight,
+          terminalPanelWidth: persistedState.terminalPanelWidth ?? current.terminalPanelWidth,
+          terminalDock:
+            persistedState.terminalDock && TERMINAL_DOCK_POSITIONS.includes(persistedState.terminalDock)
+              ? persistedState.terminalDock
+              : current.terminalDock,
           openEditors,
           editorGroups,
           editorLayout,

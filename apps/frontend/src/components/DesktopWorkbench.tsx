@@ -16,6 +16,8 @@ import { SessionSplitView } from './SessionSplitView'
 import { useSplitGroups } from '@/hooks/useSplitGroups'
 import { useTranslation } from '@/i18n'
 import { PluginView } from './PluginView'
+import { isTerminalDockDrag } from '@/lib/terminal-dock-drag'
+import type { TerminalDockPosition } from '@/stores/useConsoleStore'
 
 const ACTIVITY_BAR_WIDTH = 56
 const SESSION_RAIL_WIDTH = 109
@@ -26,7 +28,9 @@ function clampValue(value: number, min: number, max: number) {
 export function DesktopWorkbench() {
   const { t } = useTranslation()
   const [mounted, setMounted] = useState(false)
-  useEffect(() => { setMounted(true) }, [])
+  useEffect(() => {
+    setMounted(true)
+  }, [])
   const activeHostId = useConsoleStore((state) => state.activeHostId)
   const sessionPanelExpanded = useConsoleStore((state) => state.sessionPanelExpanded)
   const sessionPanelWidth = useConsoleStore((state) => state.sessionPanelWidth)
@@ -70,8 +74,12 @@ export function DesktopWorkbench() {
   const minWorkspaceWidth = viewportWidth < 1180 ? 420 : 560
   const sessionPanelMin = clampValue(Math.floor(viewportWidth * 0.16), 208, 232)
   const sessionPanelMax = clampValue(Math.floor(viewportWidth * 0.22), sessionPanelMin, 320)
-  const renderedSessionPanelWidth = clampValue(previewSessionWidth ?? sessionPanelWidth, sessionPanelMin, sessionPanelMax)
-  const compactSessionWidth = clampValue(Math.floor(viewportWidth * 0.10), 70, SESSION_RAIL_WIDTH)
+  const renderedSessionPanelWidth = clampValue(
+    previewSessionWidth ?? sessionPanelWidth,
+    sessionPanelMin,
+    sessionPanelMax,
+  )
+  const compactSessionWidth = clampValue(Math.floor(viewportWidth * 0.1), 70, SESSION_RAIL_WIDTH)
   const leftWidth = ACTIVITY_BAR_WIDTH + (sessionPanelExpanded ? renderedSessionPanelWidth : compactSessionWidth)
   const gitPanelMin = clampValue(Math.floor(viewportWidth * 0.3), 380, 460)
   const gitPanelMax = Math.max(gitPanelMin, Math.min(920, viewportWidth - leftWidth - minWorkspaceWidth))
@@ -79,7 +87,12 @@ export function DesktopWorkbench() {
   const sshPanelMin = 260
   const sshPanelMax = Math.max(sshPanelMin, Math.min(480, viewportWidth - leftWidth - minWorkspaceWidth))
   const renderedSshPanelWidth = clampValue(previewSshWidth ?? sshPanelWidth, sshPanelMin, sshPanelMax)
-  const filePanelAvailable = viewportWidth - leftWidth - (gitPanelOpen ? renderedGitPanelWidth : 0) - (sshPanelOpen ? renderedSshPanelWidth : 0) - minWorkspaceWidth
+  const filePanelAvailable =
+    viewportWidth -
+    leftWidth -
+    (gitPanelOpen ? renderedGitPanelWidth : 0) -
+    (sshPanelOpen ? renderedSshPanelWidth : 0) -
+    minWorkspaceWidth
   const filePanelMaxBase = clampValue(Math.floor(viewportWidth * 0.36), 320, 520)
   const filePanelMax = clampValue(Math.min(filePanelMaxBase, filePanelAvailable), 240, filePanelMaxBase)
   const filePanelMin = clampValue(Math.floor(viewportWidth * 0.16), 200, Math.min(320, filePanelMax))
@@ -87,12 +100,28 @@ export function DesktopWorkbench() {
   const terminalMinHeight = clampValue(Math.floor(viewportHeight * 0.22), 150, 220)
   const terminalInlineMaxHeight = clampValue(Math.floor(viewportHeight * 0.58), terminalMinHeight, 760)
   const terminalMaxHeight = clampValue(viewportHeight - 12, terminalInlineMaxHeight, 2000)
+  const workspaceWidth = Math.max(
+    320,
+    viewportWidth -
+      leftWidth -
+      (filePanelOpen ? renderedFilePanelWidth : 0) -
+      (gitPanelOpen ? renderedGitPanelWidth : 0) -
+      (sshPanelOpen ? renderedSshPanelWidth : 0),
+  )
+  const terminalMinWidth = clampValue(Math.floor(viewportWidth * 0.18), 260, 440)
+  // 侧向停靠时给编辑区保留 ≥240px 即可，终端可以拉到接近全宽
+  const terminalMaxWidth = clampValue(workspaceWidth - 240, terminalMinWidth, 2000)
   const terminalPanelHeight = useConsoleStore((state) => state.terminalPanelHeight)
+  const terminalDock = useConsoleStore((state) => state.terminalDock)
+  const setTerminalDock = useConsoleStore((state) => state.setTerminalDock)
   const editorsHydrated = useConsoleStore((state) => state.editorsHydrated)
+  const [dockDragActive, setDockDragActive] = useState(false)
+  const [dockDropSide, setDockDropSide] = useState<TerminalDockPosition | null>(null)
   useEffect(() => {
     const element = containerRef.current
     if (!element) return
-    const update = () => setContainerSize({ width: Math.round(element.clientWidth), height: Math.round(element.clientHeight) })
+    const update = () =>
+      setContainerSize({ width: Math.round(element.clientWidth), height: Math.round(element.clientHeight) })
     update()
     let observer: ResizeObserver | null = null
     if (typeof ResizeObserver !== 'undefined') {
@@ -106,7 +135,11 @@ export function DesktopWorkbench() {
   useEffect(() => {
     const handleMove = (event: MouseEvent) => {
       if (resizingRef.current === 'session') {
-        pendingSessionWidthRef.current = clampValue(event.clientX - ACTIVITY_BAR_WIDTH, sessionPanelMin, sessionPanelMax)
+        pendingSessionWidthRef.current = clampValue(
+          event.clientX - ACTIVITY_BAR_WIDTH,
+          sessionPanelMin,
+          sessionPanelMax,
+        )
         if (frameRef.current) return
         frameRef.current = requestAnimationFrame(() => {
           frameRef.current = null
@@ -115,7 +148,11 @@ export function DesktopWorkbench() {
         return
       }
       if (resizingRef.current === 'file') {
-        const sessionOffset = ACTIVITY_BAR_WIDTH + (sessionPanelExpanded ? (previewSessionWidth ?? pendingSessionWidthRef.current ?? renderedSessionPanelWidth) : compactSessionWidth)
+        const sessionOffset =
+          ACTIVITY_BAR_WIDTH +
+          (sessionPanelExpanded
+            ? (previewSessionWidth ?? pendingSessionWidthRef.current ?? renderedSessionPanelWidth)
+            : compactSessionWidth)
         pendingFileWidthRef.current = clampValue(event.clientX - sessionOffset, filePanelMin, filePanelMax)
         if (frameRef.current) return
         frameRef.current = requestAnimationFrame(() => {
@@ -125,8 +162,14 @@ export function DesktopWorkbench() {
         return
       }
       if (resizingRef.current === 'git') {
-        const sessionOffset = ACTIVITY_BAR_WIDTH + (sessionPanelExpanded ? (previewSessionWidth ?? pendingSessionWidthRef.current ?? renderedSessionPanelWidth) : compactSessionWidth)
-        const fileOffset = sessionOffset + (filePanelOpen ? (previewFileWidth ?? pendingFileWidthRef.current ?? renderedFilePanelWidth) : 0)
+        const sessionOffset =
+          ACTIVITY_BAR_WIDTH +
+          (sessionPanelExpanded
+            ? (previewSessionWidth ?? pendingSessionWidthRef.current ?? renderedSessionPanelWidth)
+            : compactSessionWidth)
+        const fileOffset =
+          sessionOffset +
+          (filePanelOpen ? (previewFileWidth ?? pendingFileWidthRef.current ?? renderedFilePanelWidth) : 0)
         pendingGitWidthRef.current = clampValue(event.clientX - fileOffset, gitPanelMin, gitPanelMax)
         if (frameRef.current) return
         frameRef.current = requestAnimationFrame(() => {
@@ -136,9 +179,16 @@ export function DesktopWorkbench() {
         return
       }
       if (resizingRef.current === 'ssh') {
-        const sessionOffset = ACTIVITY_BAR_WIDTH + (sessionPanelExpanded ? (previewSessionWidth ?? pendingSessionWidthRef.current ?? renderedSessionPanelWidth) : compactSessionWidth)
-        const fileOffset = sessionOffset + (filePanelOpen ? (previewFileWidth ?? pendingFileWidthRef.current ?? renderedFilePanelWidth) : 0)
-        const gitOffset = fileOffset + (gitPanelOpen ? (previewGitWidth ?? pendingGitWidthRef.current ?? renderedGitPanelWidth) : 0)
+        const sessionOffset =
+          ACTIVITY_BAR_WIDTH +
+          (sessionPanelExpanded
+            ? (previewSessionWidth ?? pendingSessionWidthRef.current ?? renderedSessionPanelWidth)
+            : compactSessionWidth)
+        const fileOffset =
+          sessionOffset +
+          (filePanelOpen ? (previewFileWidth ?? pendingFileWidthRef.current ?? renderedFilePanelWidth) : 0)
+        const gitOffset =
+          fileOffset + (gitPanelOpen ? (previewGitWidth ?? pendingGitWidthRef.current ?? renderedGitPanelWidth) : 0)
         pendingSshWidthRef.current = clampValue(event.clientX - gitOffset, sshPanelMin, sshPanelMax)
         if (frameRef.current) return
         frameRef.current = requestAnimationFrame(() => {
@@ -179,37 +229,92 @@ export function DesktopWorkbench() {
       window.removeEventListener('mousemove', handleMove)
       window.removeEventListener('mouseup', handleUp)
     }
-  }, [compactSessionWidth, filePanelMax, filePanelMin, gitPanelMax, gitPanelMin, previewSessionWidth, previewSshWidth, renderedSessionPanelWidth, renderedSshPanelWidth, sessionPanelExpanded, sessionPanelMax, sessionPanelMin, setFilePanelWidth, setGitPanelWidth, setSessionPanelWidth, setSshPanelWidth, sshPanelMax, sshPanelMin])
-  const handleOpenFile = useCallback(async (file: FileDocumentHandle) => {
-    await openFileInEditor(file, { t, pushToast, openPanel: true })
-  }, [pushToast, t])
-  const handleOpenFileForDrop = useCallback(async (file: FileDocumentHandle) => {
-    if (file.type === 'directory') return ''
-    const existing = useConsoleStore.getState().openEditors.find((item) => item.id === file.id)
-    if (existing && !existing.loading) {
-      useConsoleStore.getState().setActiveEditor(existing.id)
-      return existing.id
+  }, [
+    compactSessionWidth,
+    filePanelMax,
+    filePanelMin,
+    gitPanelMax,
+    gitPanelMin,
+    previewSessionWidth,
+    previewSshWidth,
+    renderedSessionPanelWidth,
+    renderedSshPanelWidth,
+    sessionPanelExpanded,
+    sessionPanelMax,
+    sessionPanelMin,
+    setFilePanelWidth,
+    setGitPanelWidth,
+    setSessionPanelWidth,
+    setSshPanelWidth,
+    sshPanelMax,
+    sshPanelMin,
+  ])
+  const handleOpenFile = useCallback(
+    async (file: FileDocumentHandle) => {
+      await openFileInEditor(file, { t, pushToast, openPanel: true })
+    },
+    [pushToast, t],
+  )
+  const handleOpenFileForDrop = useCallback(
+    async (file: FileDocumentHandle) => {
+      if (file.type === 'directory') return ''
+      const existing = useConsoleStore.getState().openEditors.find((item) => item.id === file.id)
+      if (existing && !existing.loading) {
+        useConsoleStore.getState().setActiveEditor(existing.id)
+        return existing.id
+      }
+      await handleOpenFile(file)
+      return useConsoleStore.getState().openEditors.find((item) => item.id === file.id)?.id || file.id
+    },
+    [handleOpenFile],
+  )
+  const handleOpenFileAtPosition = useCallback(
+    async (file: FileDocumentHandle, placement: 'center' | 'left' | 'right' | 'top' | 'bottom') => {
+      const id = await handleOpenFileForDrop(file)
+      placeEditorInSplit(id, placement)
+      return id
+    },
+    [handleOpenFileForDrop, placeEditorInSplit],
+  )
+  const handleCreateCompare = useCallback(
+    async (source: FileDocumentHandle, targetId: string) => {
+      const target = useConsoleStore.getState().openEditors.find((item) => item.id === targetId)
+      if (!target || target.kind === 'compare') return
+      const sourceId = await handleOpenFileForDrop(source)
+      const openedSource = useConsoleStore.getState().openEditors.find((item) => item.id === sourceId)
+      const openedTarget = useConsoleStore.getState().openEditors.find((item) => item.id === targetId)
+      if (
+        !openedSource ||
+        !openedTarget ||
+        openedSource.binary ||
+        openedTarget.binary ||
+        openedSource.truncated ||
+        openedTarget.truncated ||
+        openedSource.loading ||
+        openedTarget.loading
+      ) {
+        pushToast({ type: 'error', message: t('editor.compareUnavailable') })
+        return
+      }
+      openCompareEditor(openedSource.id, openedTarget.id)
+    },
+    [handleOpenFileForDrop, openCompareEditor, pushToast, t],
+  )
+  useEffect(() => {
+    const handleDragStart = (event: DragEvent) => setDockDragActive(isTerminalDockDrag(event.dataTransfer))
+    const handleDragEnd = () => {
+      setDockDragActive(false)
+      setDockDropSide(null)
     }
-    await handleOpenFile(file)
-    return useConsoleStore.getState().openEditors.find((item) => item.id === file.id)?.id || file.id
-  }, [handleOpenFile])
-  const handleOpenFileAtPosition = useCallback(async (file: FileDocumentHandle, placement: 'center' | 'left' | 'right' | 'top' | 'bottom') => {
-    const id = await handleOpenFileForDrop(file)
-    placeEditorInSplit(id, placement)
-    return id
-  }, [handleOpenFileForDrop, placeEditorInSplit])
-  const handleCreateCompare = useCallback(async (source: FileDocumentHandle, targetId: string) => {
-    const target = useConsoleStore.getState().openEditors.find((item) => item.id === targetId)
-    if (!target || target.kind === 'compare') return
-    const sourceId = await handleOpenFileForDrop(source)
-    const openedSource = useConsoleStore.getState().openEditors.find((item) => item.id === sourceId)
-    const openedTarget = useConsoleStore.getState().openEditors.find((item) => item.id === targetId)
-    if (!openedSource || !openedTarget || openedSource.binary || openedTarget.binary || openedSource.truncated || openedTarget.truncated || openedSource.loading || openedTarget.loading) {
-      pushToast({ type: 'error', message: t('editor.compareUnavailable') })
-      return
+    window.addEventListener('dragstart', handleDragStart)
+    window.addEventListener('dragend', handleDragEnd)
+    window.addEventListener('drop', handleDragEnd)
+    return () => {
+      window.removeEventListener('dragstart', handleDragStart)
+      window.removeEventListener('dragend', handleDragEnd)
+      window.removeEventListener('drop', handleDragEnd)
     }
-    openCompareEditor(openedSource.id, openedTarget.id)
-  }, [handleOpenFileForDrop, openCompareEditor, pushToast, t])
+  }, [])
   useEffect(() => {
     if (!editorsHydrated) return
     if (restoredRef.current) return
@@ -219,19 +324,28 @@ export function DesktopWorkbench() {
     setFilePanelOpen(true)
     for (const editor of editors) void handleOpenFile(editor)
   }, [editorsHydrated, handleOpenFile, setFilePanelOpen])
-  const handleSaveEditor = useCallback(async (editor: FileEditorDocument) => {
-    if (editor.loading || editor.binary || editor.truncated) return
-    setEditorSaving(editor.id, true)
-    try {
-      const result = await api.files.saveContent(editor.hostId, editor.rootId, editor.path, editor.content, editor.modifiedAt || undefined)
-      markEditorSaved(editor.id, result.content, result.modifiedAt, result.size)
-      pushToast({ type: 'success', message: t('editor.saved') })
-    } catch (err) {
-      setEditorSaving(editor.id, false)
-      const message = err instanceof Error ? err.message : t('desktop.saveFailed')
-      pushToast({ type: 'error', message })
-    }
-  }, [markEditorSaved, pushToast, setEditorSaving])
+  const handleSaveEditor = useCallback(
+    async (editor: FileEditorDocument) => {
+      if (editor.loading || editor.binary || editor.truncated) return
+      setEditorSaving(editor.id, true)
+      try {
+        const result = await api.files.saveContent(
+          editor.hostId,
+          editor.rootId,
+          editor.path,
+          editor.content,
+          editor.modifiedAt || undefined,
+        )
+        markEditorSaved(editor.id, result.content, result.modifiedAt, result.size)
+        pushToast({ type: 'success', message: t('editor.saved') })
+      } catch (err) {
+        setEditorSaving(editor.id, false)
+        const message = err instanceof Error ? err.message : t('desktop.saveFailed')
+        pushToast({ type: 'error', message })
+      }
+    },
+    [markEditorSaved, pushToast, setEditorSaving],
+  )
   if (!mounted) {
     return (
       <div className="tmuxgo-workspace flex min-h-0 min-w-0 flex-1 overflow-hidden">
@@ -246,79 +360,151 @@ export function DesktopWorkbench() {
     <div ref={containerRef} className="tmuxgo-workspace flex min-h-0 min-w-0 flex-1 overflow-hidden">
       <ActivityBar />
       <>
-      {sessionPanelExpanded ? (
-        <div className="tmuxgo-content-surface relative shrink-0 border-r border-[var(--line)]" style={{ width: renderedSessionPanelWidth }}>
-          <div className="h-full min-h-0">
-            <SessionPanel />
-          </div>
-          <div className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-accent/40" onMouseDown={() => {
-            resizingRef.current = 'session'
-            pendingSessionWidthRef.current = sessionPanelWidth
-            setPreviewSessionWidth(sessionPanelWidth)
-            document.body.style.cursor = 'col-resize'
-            document.body.style.userSelect = 'none'
-          }} />
-        </div>
-      ) : <SessionRail />}
-      {filePanelOpen && (
-        <div className="tmuxgo-content-surface relative shrink-0 overflow-hidden border-r border-[var(--line)]" style={{ width: renderedFilePanelWidth }}>
-          <div className="h-full min-h-0 overflow-hidden">
-            <FilePanel mode="explorer" onOpenFile={handleOpenFile} />
-          </div>
-          <div className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-accent/40" onMouseDown={() => {
-            resizingRef.current = 'file'
-            pendingFileWidthRef.current = filePanelWidth
-            setPreviewFileWidth(filePanelWidth)
-            document.body.style.cursor = 'col-resize'
-            document.body.style.userSelect = 'none'
-          }} />
-        </div>
-      )}
-      {gitPanelOpen && (
-        <div className="tmuxgo-content-surface relative shrink-0 border-r border-[var(--line)]" style={{ width: renderedGitPanelWidth }}>
-          <div className="h-full min-h-0">
-            <GitPanel />
-          </div>
-          <div className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-accent/40" onMouseDown={() => {
-            resizingRef.current = 'git'
-            pendingGitWidthRef.current = gitPanelWidth
-            setPreviewGitWidth(gitPanelWidth)
-            document.body.style.cursor = 'col-resize'
-            document.body.style.userSelect = 'none'
-          }} />
-        </div>
-      )}
-      {sshPanelOpen && (
-        <div className="tmuxgo-content-surface relative shrink-0 border-r border-[var(--line)]" style={{ width: renderedSshPanelWidth }}>
-          <div className="h-full min-h-0">
-            <SshPanel />
-          </div>
-          <div className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-accent/40" onMouseDown={() => {
-            resizingRef.current = 'ssh'
-            pendingSshWidthRef.current = sshPanelWidth
-            setPreviewSshWidth(sshPanelWidth)
-            document.body.style.cursor = 'col-resize'
-            document.body.style.userSelect = 'none'
-          }} />
-        </div>
-      )}
-      {activePluginView && <PluginView pluginId={activePluginView.pluginId} viewId={activePluginView.viewId} onClose={() => setActivePluginView(null)} />}
-      <div className="tmuxgo-content-surface relative flex min-h-0 min-w-0 flex-1 flex-col">
-        {activeSplitGroup ? (
-          <SessionSplitView group={activeSplitGroup} />
-        ) : openEditors.length > 0 ? (
-          <>
-            <div className="min-h-0 flex-1">
-              <EditorWorkbench onSaveEditor={handleSaveEditor} onOpenFile={handleOpenFileForDrop} onOpenFileAtPosition={handleOpenFileAtPosition} onCreateCompare={handleCreateCompare} />
+        {sessionPanelExpanded ? (
+          <div
+            className="tmuxgo-content-surface relative shrink-0 border-r border-[var(--line)]"
+            style={{ width: renderedSessionPanelWidth }}
+          >
+            <div className="h-full min-h-0">
+              <SessionPanel />
             </div>
-            <TerminalDock minHeight={terminalMinHeight} maxHeight={terminalMaxHeight} dragViewportHeight={viewportHeight} />
-          </>
+            <div
+              className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-accent/40"
+              onMouseDown={() => {
+                resizingRef.current = 'session'
+                pendingSessionWidthRef.current = sessionPanelWidth
+                setPreviewSessionWidth(sessionPanelWidth)
+                document.body.style.cursor = 'col-resize'
+                document.body.style.userSelect = 'none'
+              }}
+            />
+          </div>
         ) : (
-          <div className="min-h-0 flex-1">
-            <TerminalDock fill />
+          <SessionRail />
+        )}
+        {filePanelOpen && (
+          <div
+            className="tmuxgo-content-surface relative shrink-0 overflow-hidden border-r border-[var(--line)]"
+            style={{ width: renderedFilePanelWidth }}
+          >
+            <div className="h-full min-h-0 overflow-hidden">
+              <FilePanel mode="explorer" onOpenFile={handleOpenFile} />
+            </div>
+            <div
+              className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-accent/40"
+              onMouseDown={() => {
+                resizingRef.current = 'file'
+                pendingFileWidthRef.current = filePanelWidth
+                setPreviewFileWidth(filePanelWidth)
+                document.body.style.cursor = 'col-resize'
+                document.body.style.userSelect = 'none'
+              }}
+            />
           </div>
         )}
-      </div>
+        {gitPanelOpen && (
+          <div
+            className="tmuxgo-content-surface relative shrink-0 border-r border-[var(--line)]"
+            style={{ width: renderedGitPanelWidth }}
+          >
+            <div className="h-full min-h-0">
+              <GitPanel />
+            </div>
+            <div
+              className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-accent/40"
+              onMouseDown={() => {
+                resizingRef.current = 'git'
+                pendingGitWidthRef.current = gitPanelWidth
+                setPreviewGitWidth(gitPanelWidth)
+                document.body.style.cursor = 'col-resize'
+                document.body.style.userSelect = 'none'
+              }}
+            />
+          </div>
+        )}
+        {sshPanelOpen && (
+          <div
+            className="tmuxgo-content-surface relative shrink-0 border-r border-[var(--line)]"
+            style={{ width: renderedSshPanelWidth }}
+          >
+            <div className="h-full min-h-0">
+              <SshPanel />
+            </div>
+            <div
+              className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-accent/40"
+              onMouseDown={() => {
+                resizingRef.current = 'ssh'
+                pendingSshWidthRef.current = sshPanelWidth
+                setPreviewSshWidth(sshPanelWidth)
+                document.body.style.cursor = 'col-resize'
+                document.body.style.userSelect = 'none'
+              }}
+            />
+          </div>
+        )}
+        {activePluginView && (
+          <PluginView
+            pluginId={activePluginView.pluginId}
+            viewId={activePluginView.viewId}
+            onClose={() => setActivePluginView(null)}
+          />
+        )}
+        <div
+          className={`tmuxgo-content-surface relative flex min-h-0 min-w-0 flex-1 ${terminalDock === 'bottom' ? 'flex-col' : 'flex-row'}`}
+        >
+          {activeSplitGroup ? (
+            <SessionSplitView group={activeSplitGroup} />
+          ) : openEditors.length > 0 ? (
+            <>
+              <TerminalDock
+                dock={terminalDock}
+                minHeight={terminalMinHeight}
+                maxHeight={terminalMaxHeight}
+                dragViewportHeight={viewportHeight}
+                minWidth={terminalMinWidth}
+                maxWidth={terminalMaxWidth}
+                dragViewportWidth={workspaceWidth}
+              />
+              <div className="min-h-0 min-w-0 flex-1">
+                <EditorWorkbench
+                  onSaveEditor={handleSaveEditor}
+                  onOpenFile={handleOpenFileForDrop}
+                  onOpenFileAtPosition={handleOpenFileAtPosition}
+                  onCreateCompare={handleCreateCompare}
+                />
+              </div>
+            </>
+          ) : (
+            <div className="min-h-0 flex-1">
+              <TerminalDock fill />
+            </div>
+          )}
+          {dockDragActive &&
+            openEditors.length > 0 &&
+            !activeSplitGroup &&
+            (['left', 'right', 'bottom'] as TerminalDockPosition[]).map((zone) => (
+              <div
+                key={zone}
+                className={`absolute z-30 transition-colors ${zone === 'left' ? 'left-0 top-0 bottom-0 w-24' : zone === 'right' ? 'right-0 top-0 bottom-0 w-24' : 'left-0 right-0 bottom-0 h-24'} ${dockDropSide === zone ? 'bg-accent/25' : 'bg-accent/5'}`}
+                onDragOver={(event) => {
+                  if (!isTerminalDockDrag(event.dataTransfer)) return
+                  event.preventDefault()
+                  event.dataTransfer.dropEffect = 'move'
+                  if (dockDropSide !== zone) setDockDropSide(zone)
+                }}
+                onDragLeave={() => {
+                  if (dockDropSide === zone) setDockDropSide(null)
+                }}
+                onDrop={(event) => {
+                  if (!isTerminalDockDrag(event.dataTransfer)) return
+                  event.preventDefault()
+                  setTerminalDock(zone)
+                  setDockDragActive(false)
+                  setDockDropSide(null)
+                }}
+              />
+            ))}
+        </div>
       </>
     </div>
   )

@@ -675,6 +675,7 @@ export const zh = {
   'file.addFavorite': '添加收藏',
   'file.removeFavorite': '删收藏',
   'file.clearExpanded': '全部收起',
+  'file.upToParent': '返回上一级',
   'file.clearSearch': '清空搜索',
   'editor.dropOpen': '松开打开文件',
   'editor.drop.center': '松开打开文件',
@@ -898,6 +899,10 @@ export const zh = {
   // TerminalPane
   'terminal.dropUpload': '拖放文件以上传',
   'terminal.linkOpenBlocked': '浏览器阻止了新窗口，请允许弹窗后重试',
+  'terminal.dock.bottom': '底部',
+  'terminal.dock.left': '左侧',
+  'terminal.dock.right': '右侧',
+  'terminal.dockHint': '终端区位置：{position}（点击切换，可拖到工作区边缘停靠）',
 
   // Clipboard
   'clipboard.copyFailed': '复制失败',

@@ -1,36 +1,64 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
+import type { TerminalDockPosition } from '@/stores/useConsoleStore'
 import { WindowTabs } from './WindowTabs'
 import { PaneGrid } from './PaneGrid'
-import { useTranslation } from '@/i18n'
 
 function clampValue(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value))
 }
-export function TerminalDock({ fill=false,minHeight=180,maxHeight=540,dragViewportHeight }:{ fill?: boolean; minHeight?: number; maxHeight?: number; dragViewportHeight?: number }) {
+export function TerminalDock({
+  fill = false,
+  dock = 'bottom',
+  minHeight = 180,
+  maxHeight = 540,
+  dragViewportHeight,
+  minWidth = 300,
+  maxWidth = 960,
+  dragViewportWidth,
+}: {
+  fill?: boolean
+  dock?: TerminalDockPosition
+  minHeight?: number
+  maxHeight?: number
+  dragViewportHeight?: number
+  minWidth?: number
+  maxWidth?: number
+  dragViewportWidth?: number
+}) {
+  const side = dock === 'left' || dock === 'right'
   const terminalPanelHeight = useConsoleStore((state) => state.terminalPanelHeight)
   const setTerminalPanelHeight = useConsoleStore((state) => state.setTerminalPanelHeight)
-  const { t } = useTranslation()
+  const terminalPanelWidth = useConsoleStore((state) => state.terminalPanelWidth)
+  const setTerminalPanelWidth = useConsoleStore((state) => state.setTerminalPanelWidth)
   const panelRef = useRef<HTMLElement>(null)
   const resizingRef = useRef(false)
-  const pendingHeightRef = useRef(terminalPanelHeight)
+  const pendingSizeRef = useRef(terminalPanelHeight)
   const frameRef = useRef<number | null>(null)
-  const [previewHeight,setPreviewHeight] = useState<number | null>(null)
-  const getResizeHeight = (clientY: number) => {
-    const bottom = panelRef.current?.getBoundingClientRect().bottom
-    if (bottom && Number.isFinite(bottom)) return clampValue(bottom-clientY,minHeight,maxHeight)
-    return clampValue((dragViewportHeight || window.innerHeight)-clientY-28,minHeight,maxHeight)
+  const [previewSize, setPreviewSize] = useState<number | null>(null)
+  const getResizeSize = (event: MouseEvent) => {
+    const rect = panelRef.current?.getBoundingClientRect()
+    if (side) {
+      // 右侧停靠时手柄在面板左缘，宽度 = 面板右边 - 鼠标 X；左侧停靠镜像
+      if (rect)
+        return clampValue(dock === 'right' ? rect.right - event.clientX : event.clientX - rect.left, minWidth, maxWidth)
+      const viewport = dragViewportWidth || window.innerWidth
+      return clampValue(dock === 'right' ? viewport - event.clientX : event.clientX, minWidth, maxWidth)
+    }
+    const bottom = rect?.bottom
+    if (bottom && Number.isFinite(bottom)) return clampValue(bottom - event.clientY, minHeight, maxHeight)
+    return clampValue((dragViewportHeight || window.innerHeight) - event.clientY - 28, minHeight, maxHeight)
   }
   useEffect(() => {
     if (fill) return
     const handleMove = (event: MouseEvent) => {
       if (!resizingRef.current) return
-      pendingHeightRef.current = getResizeHeight(event.clientY)
+      pendingSizeRef.current = getResizeSize(event)
       if (frameRef.current) return
       frameRef.current = requestAnimationFrame(() => {
         frameRef.current = null
-        setPreviewHeight(pendingHeightRef.current)
+        setPreviewSize(pendingSizeRef.current)
       })
     }
     const handleUp = () => {
@@ -39,9 +67,14 @@ export function TerminalDock({ fill=false,minHeight=180,maxHeight=540,dragViewpo
         frameRef.current = null
       }
       if (resizingRef.current) {
-        setTerminalPanelHeight(pendingHeightRef.current)
-        setPreviewHeight(null)
-        window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'terminal-panel-resize-end', height: pendingHeightRef.current } }))
+        if (side) setTerminalPanelWidth(pendingSizeRef.current)
+        else setTerminalPanelHeight(pendingSizeRef.current)
+        setPreviewSize(null)
+        window.dispatchEvent(
+          new CustomEvent('tmuxgo-layout-change', {
+            detail: { reason: 'terminal-panel-resize-end', size: pendingSizeRef.current },
+          }),
+        )
       }
       resizingRef.current = false
       document.body.style.cursor = ''
@@ -54,22 +87,40 @@ export function TerminalDock({ fill=false,minHeight=180,maxHeight=540,dragViewpo
       window.removeEventListener('mousemove', handleMove)
       window.removeEventListener('mouseup', handleUp)
     }
-  }, [dragViewportHeight, fill, maxHeight, minHeight, setTerminalPanelHeight])
-  const panelHeight = fill ? terminalPanelHeight : clampValue(previewHeight ?? terminalPanelHeight, minHeight, maxHeight)
+  })
+  // dock 变化后通知终端 refit
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'terminal-dock-change', dock } }))
+  }, [dock])
+  const baseSize = side ? terminalPanelWidth : terminalPanelHeight
+  const panelSize = fill
+    ? baseSize
+    : clampValue(previewSize ?? baseSize, side ? minWidth : minHeight, side ? maxWidth : maxHeight)
   const handleMouseDown = () => {
     resizingRef.current = true
-    pendingHeightRef.current = terminalPanelHeight
-    setPreviewHeight(terminalPanelHeight)
-    document.body.style.cursor = 'row-resize'
+    pendingSizeRef.current = baseSize
+    setPreviewSize(baseSize)
+    document.body.style.cursor = side ? 'col-resize' : 'row-resize'
     document.body.style.userSelect = 'none'
   }
   const handleDoubleClick = () => {
     if (fill) return
-    setTerminalPanelHeight(maxHeight)
+    if (side) setTerminalPanelWidth(maxWidth)
+    else setTerminalPanelHeight(maxHeight)
   }
+  const resizeHandleClass = side
+    ? `absolute top-0 bottom-0 z-10 w-1 cursor-col-resize hover:bg-accent/50 ${dock === 'right' ? 'left-0' : 'right-0'}`
+    : 'absolute left-0 right-0 top-0 z-10 h-1 cursor-row-resize hover:bg-accent/50'
   return (
-    <section ref={panelRef} className={`tmuxgo-content-surface ${fill ? 'relative flex h-full min-h-0 flex-1 flex-col' : 'relative shrink-0 border-t border-[var(--line)]'}`} style={fill ? undefined : { height: panelHeight }}>
-      {!fill && <div className="absolute left-0 right-0 top-0 z-10 h-1 cursor-row-resize hover:bg-accent/50" onMouseDown={handleMouseDown} onDoubleClick={handleDoubleClick} />}
+    // order 0/1 配合外层 flex 方向控制停靠侧，保持 JSX 位置不变避免 xterm 重挂载
+    <section
+      ref={panelRef}
+      className={`tmuxgo-content-surface ${fill ? 'relative flex h-full min-h-0 flex-1 flex-col' : `relative shrink-0 ${side ? (dock === 'right' ? 'border-l' : 'border-r') : 'border-t'} border-[var(--line)]`}`}
+      style={
+        fill ? undefined : side ? { width: panelSize, order: dock === 'left' ? 0 : 1 } : { height: panelSize, order: 1 }
+      }
+    >
+      {!fill && <div className={resizeHandleClass} onMouseDown={handleMouseDown} onDoubleClick={handleDoubleClick} />}
       <div className="flex h-full min-h-0 flex-col">
         <WindowTabs />
         <div className="min-h-0 flex-1">

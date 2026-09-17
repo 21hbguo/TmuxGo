@@ -25,6 +25,7 @@ import { MARKDOWN_PROSE_CLASS, renderMarkdown } from '@/lib/markdown'
 import { ZoomSurface } from './ZoomSurface'
 import {
   FiAlignLeft,
+  FiArrowUp,
   FiChevronsUp,
   FiEye,
   FiEyeOff,
@@ -699,6 +700,26 @@ export function FilePanel({
     () => Object.fromEntries(visibleRoots.map((item) => [item.id, item.path])),
     [visibleRoots],
   )
+  // 上一级目标：普通情况取 currentPath 父目录；位于收藏虚拟根时取其源 root 内收藏路径的父目录
+  const parentDirectory = useMemo(() => {
+    if (currentPath) {
+      const parent = getParentPath(currentPath)
+      return {
+        rootOptionId: activeRoot?.id || '',
+        path: parent,
+        label: joinPath(activeSourceRootPath, joinRelativePath(activeRootBasePath, parent)),
+      }
+    }
+    if (activeFavorite) {
+      const parent = getParentPath(activeFavorite.path)
+      return {
+        rootOptionId: activeFavorite.rootId,
+        path: parent,
+        label: joinPath(rootPathById[activeFavorite.rootId] || activeFavorite.rootPath, parent),
+      }
+    }
+    return null
+  }, [activeFavorite, activeRoot?.id, activeRootBasePath, activeSourceRootPath, currentPath, rootPathById])
   const activeEditor = useMemo(
     () => (activeEditorId ? openEditors.find((item) => item.id === activeEditorId) || null : null),
     [activeEditorId, openEditors],
@@ -1050,6 +1071,23 @@ export function FilePanel({
     setSelectedPreviewLine(1)
     setMobileView('list')
     setSearchNavigationPath(null)
+  }
+  const goParentDirectory = () => {
+    if (!parentDirectory) return
+    setFollowSuspended(true)
+    // 移动端已按目录进入推送过 history，返回需走 history.back() 让栈与 UI 同步
+    if (isMobile && currentPath && mobileNavigationDepthRef.current > 0) {
+      window.history.back()
+      return
+    }
+    // 收藏虚拟根的上一级在其源 root 内：切回源 root 并落到收藏路径的父目录
+    if (parentDirectory.rootOptionId !== selectedRootId) {
+      switchRoot(parentDirectory.rootOptionId)
+      currentPathRef.current = parentDirectory.path
+      setCurrentPath(parentDirectory.path)
+      return
+    }
+    goMobileParentDirectory()
   }
   const isFavoriteDirectory = (entry: { rootId: string; path: string }) =>
     favoriteDirectories.some((item) => item.rootId === entry.rootId && item.path === entry.path)
@@ -2305,6 +2343,26 @@ export function FilePanel({
                       </button>
                     ))}
                   </div>
+                </div>
+              )}
+              {!showSearchResults && parentDirectory && (
+                <div className="shrink-0 border-b border-[var(--line)] px-3 py-1.5">
+                  <button
+                    type="button"
+                    onClick={goParentDirectory}
+                    title={`${t('file.upToParent')}\n${parentDirectory.label || '/'}`}
+                    aria-label={t('file.upToParent')}
+                    className="tmuxgo-list-row tmuxgo-list-row--hover flex h-7 w-full items-center gap-1.5 rounded-lg px-2 text-left text-meta text-text-2 hover:text-text-1"
+                  >
+                    <FiArrowUp size={11} className="shrink-0 text-text-3" aria-hidden="true" />
+                    <span className="shrink-0 font-mono text-text-1">..</span>
+                    <span
+                      className="min-w-0 flex-1 truncate text-right font-mono text-caption text-text-3"
+                      style={{ direction: 'rtl' }}
+                    >
+                      {parentDirectory.label || '/'}
+                    </span>
+                  </button>
                 </div>
               )}
               {(listLoading || searchLoading) && <div className="p-3 text-xs text-text-3">{t('file.loading')}</div>}
