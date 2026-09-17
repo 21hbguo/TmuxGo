@@ -69,13 +69,18 @@ export async function openFileInEditor(
     pushToast?: (toast: { type: 'success' | 'error' | 'info'; message: string; durationMs?: number }) => void
     position?: { line?: number | null; column?: number | null } | null
     openPanel?: boolean
+    // 拖拽等显式打开：钉住新 tab，且不顶掉组内已有预览 tab
+    pinned?: boolean
   },
 ) {
-  const { t, pushToast, position, openPanel = true } = options
+  const { t, pushToast, position, openPanel = true, pinned } = options
   const store = useConsoleStore.getState()
   if (openPanel) store.setFilePanelOpen(true)
   const existing = store.openEditors.find((item) => item.id === file.id)
-  store.openEditor({ ...file, language: existing?.language || getEditorLanguage(file.path) })
+  store.openEditor(
+    { ...file, language: existing?.language || getEditorLanguage(file.path) },
+    pinned ? { preview: false, replacePreview: false } : undefined,
+  )
   dispatchOpenEditorLocation(file.id, position?.line, position?.column)
   if (existing?.dirty) return file.id
   store.setEditorLoaded(file.id, {

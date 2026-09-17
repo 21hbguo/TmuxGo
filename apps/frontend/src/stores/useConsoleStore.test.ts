@@ -325,4 +325,22 @@ describe('useConsoleStore editor persistence', () => {
     expect(state.openEditors[0].id).toBe(editor2.id)
     expect(state.openEditors[0].preview).toBe(false)
   })
+  it('keeps the preview tab when a dragged file opens pinned without replacing it', async () => {
+    const { useConsoleStore } = await import('./useConsoleStore')
+    const editor2 = createEditor('local:root-workspace:src/other.ts', 'src/other.ts')
+    const editor3 = createEditor('local:root-workspace:src/third.ts', 'src/third.ts')
+    useConsoleStore.getState().openEditor(sampleEditor)
+    useConsoleStore.getState().openEditor(editor2, { preview: false, replacePreview: false })
+    let state = useConsoleStore.getState()
+    // 拖拽打开：保留预览 tab，追加钉住的新 tab
+    expect(state.openEditors.map((item) => item.id)).toEqual([sampleEditor.id, editor2.id])
+    expect(state.openEditors[0].preview).toBe(true)
+    expect(state.openEditors[1].preview).toBe(false)
+    expect(state.activeEditorId).toBe(editor2.id)
+    // 后续普通点开仍然顶替预览槽位，钉住的 tab 不受影响
+    useConsoleStore.getState().openEditor(editor3)
+    state = useConsoleStore.getState()
+    expect(state.openEditors.map((item) => item.id)).toEqual([editor3.id, editor2.id])
+    expect(state.openEditors[0].preview).toBe(true)
+  })
 })
