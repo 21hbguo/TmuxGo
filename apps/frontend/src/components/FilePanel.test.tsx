@@ -756,6 +756,57 @@ describe('FilePanel', () => {
     await waitFor(() => expect((screen.getAllByRole('combobox')[0] as HTMLSelectElement).value).toBe('root-home'))
     await waitFor(() => expect(screen.getByText('guide.md')).toBeInTheDocument())
   })
+  it('highlights the active editor inside the followed pane cwd', async () => {
+    consoleStoreState.activePaneId = 'local:%1'
+    paneCwdMocks.cwd = '/workspace/src'
+    const view = render(React.createElement(FilePanel))
+    fireEvent.click(await screen.findByRole('switch', { name: 'Follow terminal cwd' }))
+    await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
+    consoleStoreState.openEditors = [
+      {
+        id: 'local:root-workspace:src/index.ts',
+        hostId: 'local',
+        rootId: 'root-workspace',
+        rootLabel: 'Workspace',
+        rootPath: '/workspace',
+        path: 'src/index.ts',
+        name: 'index.ts',
+        absolutePath: '/workspace/src/index.ts',
+        language: 'typescript',
+        content: '',
+        savedContent: '',
+        modifiedAt: '',
+        size: 0,
+        dirty: false,
+        loading: false,
+        saving: false,
+        binary: false,
+        truncated: false,
+        type: 'file',
+      },
+    ]
+    consoleStoreState.activeEditorId = 'local:root-workspace:src/index.ts'
+    view.rerender(React.createElement(FilePanel))
+    await waitFor(() =>
+      expect(document.querySelector('.tmuxgo-file-tree [data-selected="true"]')?.textContent).toContain('index.ts'),
+    )
+    // cwd 外的文件不高亮，也不挪动跟随的 currentPath
+    consoleStoreState.openEditors = [
+      {
+        ...consoleStoreState.openEditors[0],
+        id: 'local:root-workspace:docs/guide.md',
+        path: 'docs/guide.md',
+        name: 'guide.md',
+        absolutePath: '/workspace/docs/guide.md',
+      },
+    ]
+    consoleStoreState.activeEditorId = 'local:root-workspace:docs/guide.md'
+    view.rerender(React.createElement(FilePanel))
+    await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
+    expect(document.querySelector('.tmuxgo-file-tree [data-selected="true"]')?.textContent || '').not.toContain(
+      'guide.md',
+    )
+  })
   it('suspends pane follow after manual navigation and resumes on pane change', async () => {
     consoleStoreState.activePaneId = 'local:%1'
     paneCwdMocks.cwd = '/workspace/src'

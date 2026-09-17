@@ -2,11 +2,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { resolveEditorDefinition } from './code-navigation'
 
 const contentMock = vi.fn()
+const searchContentMock = vi.fn()
 
 vi.mock('./api', () => ({
   api: {
     files: {
       content: (...args: any[]) => contentMock(...args),
+      searchContent: (...args: any[]) => searchContentMock(...args),
     },
   },
 }))
@@ -14,6 +16,7 @@ vi.mock('./api', () => ({
 describe('resolveEditorDefinition', () => {
   afterEach(() => {
     contentMock.mockReset()
+    searchContentMock.mockReset()
     vi.restoreAllMocks()
   })
   it('resolves a local ts import definition across files', async () => {
@@ -160,11 +163,136 @@ describe('resolveEditorDefinition', () => {
     expect(result).toMatchObject({ status: 'success', target: { id: 'editor-other', path: 'src/other.ts', line: 3 } })
     expect(contentMock).not.toHaveBeenCalled()
   })
-  it('reports unsupported languages without reading files', async () => {
-    const editor = { language: 'python', content: '', absolutePath: '/workspace/main.py' }
+  it('reports not-found when no word sits at the position', async () => {
+    const editor = {
+      id: 'editor-py-empty',
+      hostId: 'local',
+      rootId: 'root-workspace',
+      rootLabel: 'Workspace',
+      rootPath: '/workspace',
+      path: 'main.py',
+      name: 'main.py',
+      absolutePath: '/workspace/main.py',
+      type: 'file',
+      language: 'python',
+      content: '',
+      savedContent: '',
+      modifiedAt: '',
+      size: 0,
+      dirty: false,
+      loading: false,
+      saving: false,
+      binary: false,
+      truncated: false,
+    }
     const result = await resolveEditorDefinition(editor as any, { line: 1, column: 1 }, [])
-    expect(result).toEqual({ status: 'unsupported' })
+    expect(result).toEqual({ status: 'not-found' })
     expect(contentMock).not.toHaveBeenCalled()
+  })
+  it('resolves a same-file python def without network calls', async () => {
+    const editor = {
+      id: 'editor-py',
+      hostId: 'local',
+      rootId: 'root-workspace',
+      rootLabel: 'Workspace',
+      rootPath: '/workspace',
+      path: 'main.py',
+      name: 'main.py',
+      absolutePath: '/workspace/main.py',
+      type: 'file',
+      language: 'python',
+      content: 'def helper():\n    return 1\n\nprint(helper())\n',
+      savedContent: '',
+      modifiedAt: '',
+      size: 0,
+      dirty: false,
+      loading: false,
+      saving: false,
+      binary: false,
+      truncated: false,
+    }
+    const result = await resolveEditorDefinition(editor as any, { line: 4, column: 8 }, [editor as any])
+    expect(result).toMatchObject({
+      status: 'success',
+      target: { path: 'main.py', line: 1, column: 5 },
+    })
+    expect(contentMock).not.toHaveBeenCalled()
+    expect(searchContentMock).not.toHaveBeenCalled()
+  })
+  it('resolves a cross-file definition through content search', async () => {
+    const editor = {
+      id: 'editor-py2',
+      hostId: 'local',
+      rootId: 'root-workspace',
+      rootLabel: 'Workspace',
+      rootPath: '/workspace',
+      path: 'main.py',
+      name: 'main.py',
+      absolutePath: '/workspace/main.py',
+      type: 'file',
+      language: 'python',
+      content: 'from lib import worker\nworker.run()\n',
+      savedContent: '',
+      modifiedAt: '',
+      size: 0,
+      dirty: false,
+      loading: false,
+      saving: false,
+      binary: false,
+      truncated: false,
+    }
+    searchContentMock.mockResolvedValue([
+      {
+        path: 'lib/worker.py',
+        name: 'worker.py',
+        type: 'file',
+        size: 10,
+        modifiedAt: '',
+        matches: [
+          { number: 1, content: 'worker = None' },
+          { number: 9, content: 'def worker():' },
+        ],
+      },
+    ])
+    const result = await resolveEditorDefinition(editor as any, { line: 2, column: 2 }, [editor as any])
+    expect(result).toMatchObject({
+      status: 'success',
+      target: { path: 'lib/worker.py', absolutePath: '/workspace/lib/worker.py', line: 9, column: 5 },
+    })
+  })
+  it('prefers definitions from open editors over remote search', async () => {
+    const entry = {
+      id: 'editor-sh',
+      hostId: 'local',
+      rootId: 'root-workspace',
+      rootLabel: 'Workspace',
+      rootPath: '/workspace',
+      path: 'run.sh',
+      name: 'run.sh',
+      absolutePath: '/workspace/run.sh',
+      type: 'file',
+      language: 'shell',
+      content: 'deploy\n',
+      savedContent: '',
+      modifiedAt: '',
+      size: 0,
+      dirty: false,
+      loading: false,
+      saving: false,
+      binary: false,
+      truncated: false,
+    }
+    const target = {
+      ...entry,
+      id: 'editor-sh-lib',
+      path: 'lib.sh',
+      name: 'lib.sh',
+      absolutePath: '/workspace/lib.sh',
+      content: 'deploy() {\n  echo ok\n}\n',
+    }
+    const result = await resolveEditorDefinition(entry as any, { line: 1, column: 2 }, [entry as any, target as any])
+    expect(result).toMatchObject({ status: 'success', target: { id: 'editor-sh-lib', path: 'lib.sh', line: 1 } })
+    expect(searchContentMock).not.toHaveBeenCalled()
   })
   it('resolves definitions when the stored language is missing or stale', async () => {
     const editor = {

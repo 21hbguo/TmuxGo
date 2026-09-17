@@ -157,7 +157,17 @@ export function WindowTabs() {
   }
 
   return (
-    <div className="flex items-center gap-1 border-b border-[var(--line)] bg-bg-1 px-2 py-1">
+    <div
+      className="flex items-center gap-1 border-b border-[var(--line)] bg-bg-1 px-2 py-1"
+      title={t('terminal.dockHint', { position: t(`terminal.dock.${terminalDock}`) })}
+      draggable
+      onDragStart={(event) => {
+        event.dataTransfer.setData(TERMINAL_DOCK_DRAG_MIME, '1')
+        event.dataTransfer.effectAllowed = 'move'
+        setTerminalDockDragActive(true)
+      }}
+      onDragEnd={() => setTerminalDockDragActive(false)}
+    >
       {batchMode && (
         <div className="flex shrink-0 items-center gap-1 border-r border-[var(--line)] pr-2">
           <Chip
@@ -247,13 +257,6 @@ export function WindowTabs() {
           className="cursor-grab px-2 py-1.5"
           title={t('terminal.dockHint', { position: t(`terminal.dock.${terminalDock}`) })}
           aria-label={t('terminal.dockHint', { position: t(`terminal.dock.${terminalDock}`) })}
-          draggable
-          onDragStart={(event) => {
-            event.dataTransfer.setData(TERMINAL_DOCK_DRAG_MIME, '1')
-            event.dataTransfer.effectAllowed = 'move'
-            setTerminalDockDragActive(true)
-          }}
-          onDragEnd={() => setTerminalDockDragActive(false)}
         >
           <FiLayout aria-hidden="true" size={13} />
         </Chip>

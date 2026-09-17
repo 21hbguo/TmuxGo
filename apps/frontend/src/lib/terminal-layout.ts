@@ -329,26 +329,26 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
       canvas.style.removeProperty('transform-origin')
     }
   }
-  const syncExclusiveViewport = () => {
+  const applyKeyboardClip = () => {
+    const terminal = getTerminal()
+    const screen = terminal?.element?.querySelector('.xterm-screen') as HTMLElement | null
+    if (!screen) return
+    // 键盘开合只压缩可视高度、行列数不变：把 canvas 上移锚住底部，prompt 行保持可见
+    const active = isMobileDevice && document.body.classList.contains('keyboard-open')
+    const canvas = active ? getCanvasSize() : null
+    const clip = canvas ? Math.max(0, canvas.height - getAvailableSize().height) : 0
+    if (clip > 0) screen.style.transform = `translateY(${-clip}px)`
+    else if (screen.style.transform) screen.style.removeProperty('transform')
+  }
+  const syncTerminalViewport = () => {
     const terminal = getTerminal()
     const element = terminal?.element as HTMLElement | null
     if (!element) return
-    if (!attachExclusiveRef.current) {
-      clearViewportStyles()
-      return
-    }
     clearViewportStyles()
+    applyKeyboardClip()
   }
-  const syncSharedViewport = () => {
-    const terminal = getTerminal()
-    const element = terminal?.element as HTMLElement | null
-    if (!element) return
-    if (attachExclusiveRef.current) {
-      clearViewportStyles()
-      return
-    }
-    clearViewportStyles()
-  }
+  const syncExclusiveViewport = syncTerminalViewport
+  const syncSharedViewport = syncTerminalViewport
   const doFit = (force = false) => {
     const terminal = getTerminal()
     if (!terminal || isDisposed()) return false
@@ -413,6 +413,20 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
       initialFitPending = false
       mobileKeyboardTransition = false
       syncSharedLayout(resetFont)
+      return
+    }
+    // 键盘开着时纯高度变化的非强制 sync 只做底部锚定：行数没变，refit 只会带来重排闪烁；
+    // 宽度变化（如旋转）不属此类，继续走正常 fit
+    const keyboardHeightOnly =
+      isMobileDevice &&
+      !force &&
+      lastSizeRef.current &&
+      Math.abs(container.clientWidth - lastFitSize.width) <= MOBILE_FIT_SIZE_TOLERANCE &&
+      document.body.classList.contains('keyboard-open')
+    if (keyboardHeightOnly) {
+      layoutRetryCount = 0
+      mobileKeyboardTransition = false
+      applyKeyboardClip()
       return
     }
     if (doFit(force)) {
@@ -549,9 +563,21 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
     )
       return
     const hadContainerSize = lastContainerSize.width > 0 && lastContainerSize.height > 0
+    const widthChanged = Math.abs(width - lastContainerSize.width) > MOBILE_FIT_SIZE_TOLERANCE
     lastContainerSize = { width, height }
     resizeObservedSize = { width, height }
     resizeStableFrames = 0
+    // 键盘开着时纯高度变化不 refit（宽度变仍走正常流程，如旋转）
+    if (
+      isMobileDevice &&
+      attachExclusiveRef.current &&
+      hadContainerSize &&
+      !widthChanged &&
+      document.body.classList.contains('keyboard-open')
+    ) {
+      applyKeyboardClip()
+      return
+    }
     if (hadContainerSize && !isMobileDevice) mask.show()
     scheduleStableLayout()
   }

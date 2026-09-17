@@ -167,7 +167,7 @@ vi.mock('@/hooks/usePreferences', () => ({
     preferences: {
       theme: 'dark',
       fontSize: 14,
-      fontFamily: '"Maple Mono CN", monospace',
+      fontFamily: '"JetBrains Mono", monospace',
       cursorBlink: true,
       sidebarPosition: 'left',
       showStatusBar: true,
@@ -560,6 +560,7 @@ describe('TerminalPane', () => {
   afterEach(() => {
     vi.useRealTimers()
     vi.unstubAllGlobals()
+    document.body.classList.remove('keyboard-open')
   })
 
   it('waits for preferences before opening the terminal', async () => {
@@ -1676,6 +1677,57 @@ describe('TerminalPane', () => {
     expect(terminalMocks.resize).toHaveBeenCalled()
     const [cols, rows] = terminalMocks.resize.mock.calls.at(-1) || []
     emitStreamEvent(STREAM_EVENT.resized, { hostId: 'local', sessionName: 'dev', cols, rows, localOnly: true })
+  })
+  it('anchors to the bottom instead of resizing while the mobile keyboard is open', async () => {
+    mobileKeyboardMocks.isMobile = true
+    const { container } = render(
+      <TerminalPane sessionName="dev" attachExclusive onInput={vi.fn()} onResize={vi.fn()} />,
+    )
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    await waitFor(() => expect(resizeObserverCallback).toBeTruthy())
+    const root = container.firstChild as HTMLElement
+    Object.defineProperty(root, 'clientWidth', { configurable: true, value: 390 })
+    Object.defineProperty(root, 'clientHeight', { configurable: true, value: 700 })
+    resizeObserverCallback?.()
+    await waitFor(() => expect(terminalMocks.resize).toHaveBeenCalled())
+    terminalMocks.resize.mockClear()
+    document.body.classList.add('keyboard-open')
+    Object.defineProperty(root, 'clientHeight', { configurable: true, value: 520 })
+    resizeObserverCallback?.()
+    await sleep(40)
+    expect(terminalMocks.resize).not.toHaveBeenCalled()
+    const screen = container.querySelector('.xterm-screen') as HTMLElement
+    expect(screen.style.transform).toBe('translateY(-80px)')
+    document.body.classList.remove('keyboard-open')
+    window.dispatchEvent(
+      new CustomEvent('tmuxgo-layout-change', {
+        detail: { reason: 'viewport-sync', mobile: true, keyboardOpen: false },
+      }),
+    )
+    Object.defineProperty(root, 'clientHeight', { configurable: true, value: 700 })
+    resizeObserverCallback?.()
+    await sleep(40)
+    expect(terminalMocks.resize).not.toHaveBeenCalled()
+    expect(screen.style.transform).toBe('')
+  })
+  it('still refits when the width changes while the mobile keyboard is open', async () => {
+    mobileKeyboardMocks.isMobile = true
+    const { container } = render(
+      <TerminalPane sessionName="dev" attachExclusive onInput={vi.fn()} onResize={vi.fn()} />,
+    )
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    await waitFor(() => expect(resizeObserverCallback).toBeTruthy())
+    const root = container.firstChild as HTMLElement
+    Object.defineProperty(root, 'clientWidth', { configurable: true, value: 390 })
+    Object.defineProperty(root, 'clientHeight', { configurable: true, value: 700 })
+    resizeObserverCallback?.()
+    await waitFor(() => expect(terminalMocks.resize).toHaveBeenCalled())
+    terminalMocks.resize.mockClear()
+    document.body.classList.add('keyboard-open')
+    Object.defineProperty(root, 'clientWidth', { configurable: true, value: 300 })
+    Object.defineProperty(root, 'clientHeight', { configurable: true, value: 520 })
+    resizeObserverCallback?.()
+    await waitFor(() => expect(terminalMocks.resize).toHaveBeenCalled())
   })
   it('does not mask the terminal while the mobile keyboard changes the viewport', async () => {
     mobileKeyboardMocks.isMobile = true

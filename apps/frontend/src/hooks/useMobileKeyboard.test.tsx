@@ -13,7 +13,11 @@ function Harness() {
   useEffect(() => {
     api = { focusKeyboard, textarea: textareaRef.current, isMobile }
   }, [focusKeyboard, isMobile, textareaRef])
-  return <div ref={terminalRef}><textarea ref={textareaRef} /></div>
+  return (
+    <div ref={terminalRef}>
+      <textarea ref={textareaRef} />
+    </div>
+  )
 }
 
 describe('useMobileKeyboard', () => {
@@ -21,7 +25,10 @@ describe('useMobileKeyboard', () => {
     api = {}
     sendInputMock = vi.fn()
     viewportTarget = new EventTarget()
-    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    )
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
       cb(0)
       return 1
@@ -33,7 +40,8 @@ describe('useMobileKeyboard', () => {
         width: 390,
         height: 800,
         addEventListener: (type: string, listener: EventListener) => viewportTarget.addEventListener(type, listener),
-        removeEventListener: (type: string, listener: EventListener) => viewportTarget.removeEventListener(type, listener),
+        removeEventListener: (type: string, listener: EventListener) =>
+          viewportTarget.removeEventListener(type, listener),
         dispatchEvent: (event: Event) => viewportTarget.dispatchEvent(event),
       },
     })
@@ -42,6 +50,7 @@ describe('useMobileKeyboard', () => {
     vi.useRealTimers()
     document.body.classList.remove('keyboard-open')
     document.documentElement.style.removeProperty('--mobile-keyboard-inset')
+    delete (window.navigator as any).virtualKeyboard
     vi.unstubAllGlobals()
   })
   it('does not reopen after a normal mobile keyboard blur', async () => {
@@ -112,7 +121,8 @@ describe('useMobileKeyboard', () => {
   })
   it('does not emit keyboard close events for closed viewport resize', async () => {
     const events: Array<{ open?: boolean; inset?: number }> = []
-    window.addEventListener('mobile-keyboard-change', ((event: Event) => events.push(((event as CustomEvent).detail || {}))) as EventListener)
+    window.addEventListener('mobile-keyboard-change', ((event: Event) =>
+      events.push((event as CustomEvent).detail || {})) as EventListener)
     render(<Harness />)
     await waitFor(() => expect(api.focusKeyboard).toBeTruthy())
     window.visualViewport?.dispatchEvent(new Event('resize'))
@@ -120,7 +130,10 @@ describe('useMobileKeyboard', () => {
     expect(events).toEqual([])
   })
   it('uses visual viewport resize for Edge Android keyboards', async () => {
-    Object.defineProperty(window.navigator, 'userAgent', { configurable: true, value: 'Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 Chrome/138.0.0.0 Mobile Safari/537.36 EdgA/138.0.0.0' })
+    Object.defineProperty(window.navigator, 'userAgent', {
+      configurable: true,
+      value: 'Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 Chrome/138.0.0.0 Mobile Safari/537.36 EdgA/138.0.0.0',
+    })
     render(<Harness />)
     await waitFor(() => expect(api.focusKeyboard).toBeTruthy())
     api.focusKeyboard?.()
@@ -136,7 +149,9 @@ describe('useMobileKeyboard', () => {
     act(() => {
       fireEvent.compositionStart(textarea)
       textarea.value = 'zhong'
-      textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertCompositionText', data: 'zhong' }))
+      textarea.dispatchEvent(
+        new InputEvent('input', { bubbles: true, inputType: 'insertCompositionText', data: 'zhong' }),
+      )
     })
     expect(document.body.classList.contains('ime-composing')).toBe(true)
     act(() => {
@@ -181,7 +196,9 @@ describe('useMobileKeyboard', () => {
     act(() => {
       fireEvent.compositionStart(textarea)
       textarea.value = 'zhong'
-      textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertCompositionText', data: 'zhong' }))
+      textarea.dispatchEvent(
+        new InputEvent('input', { bubbles: true, inputType: 'insertCompositionText', data: 'zhong' }),
+      )
     })
     expect(textarea.value).toBe('zhong')
     expect(sendInputMock).not.toHaveBeenCalled()
@@ -260,7 +277,11 @@ describe('useMobileKeyboard', () => {
     await waitFor(() => expect(api.textarea).toBeTruthy())
     const textarea = api.textarea as HTMLTextAreaElement
     act(() => {
-      const beforeInput = new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'deleteContentBackward' })
+      const beforeInput = new InputEvent('beforeinput', {
+        bubbles: true,
+        cancelable: true,
+        inputType: 'deleteContentBackward',
+      })
       expect(textarea.dispatchEvent(beforeInput)).toBe(true)
       textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' }))
       textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' }))
@@ -347,7 +368,9 @@ describe('useMobileKeyboard', () => {
     const textarea = api.textarea as HTMLTextAreaElement
     act(() => {
       textarea.value = 'zhong'
-      textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertCompositionText', data: 'zhong' }))
+      textarea.dispatchEvent(
+        new InputEvent('input', { bubbles: true, inputType: 'insertCompositionText', data: 'zhong' }),
+      )
     })
     act(() => {
       vi.advanceTimersByTime(650)
@@ -367,7 +390,9 @@ describe('useMobileKeyboard', () => {
     const textarea = api.textarea as HTMLTextAreaElement
     act(() => {
       textarea.value = '\u200b\u200bhello world'
-      textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertReplacementText', data: 'hello world' }))
+      textarea.dispatchEvent(
+        new InputEvent('input', { bubbles: true, inputType: 'insertReplacementText', data: 'hello world' }),
+      )
     })
     expect(textarea.value).toContain('hello world')
     expect(sendInputMock).not.toHaveBeenCalled()
@@ -381,9 +406,61 @@ describe('useMobileKeyboard', () => {
     expect(sendInputMock).toHaveBeenCalledWith('hello world')
     expect(textarea.value).toBe('\u200b\u200b')
   })
+  it('ignores visual viewport shifts while virtualKeyboard reports a stable inset', async () => {
+    Object.defineProperty(window.navigator, 'userAgent', {
+      configurable: true,
+      value: 'Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 Chrome/138.0.0.0 Mobile Safari/537.36',
+    })
+    const virtualKeyboard = {
+      overlaysContent: false,
+      boundingRect: { height: 280, width: 390, x: 0, y: 520 },
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }
+    Object.defineProperty(window.navigator, 'virtualKeyboard', { configurable: true, value: virtualKeyboard })
+    const events: Array<{ open?: boolean; inset?: number }> = []
+    window.addEventListener('mobile-keyboard-change', ((event: Event) =>
+      events.push((event as CustomEvent).detail || {})) as EventListener)
+    render(<Harness />)
+    await waitFor(() => expect(api.focusKeyboard).toBeTruthy())
+    expect(virtualKeyboard.overlaysContent).toBe(true)
+    api.focusKeyboard?.()
+    expect(document.body.classList.contains('keyboard-open')).toBe(true)
+    expect(events).toEqual([{ open: true, inset: 280 }])
+    // 地址栏收起导致 vv 变化，但 virtualKeyboard 高度不变 → 不应再次 emit
+    ;(window.visualViewport as any).height = 744
+    window.visualViewport?.dispatchEvent(new Event('resize'))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(events).toHaveLength(1)
+    expect(document.documentElement.style.getPropertyValue('--mobile-keyboard-inset')).toBe('280px')
+    expect(document.body.classList.contains('keyboard-open')).toBe(true)
+  })
+  it('falls back to visual viewport inset when virtualKeyboard reports zero', async () => {
+    const virtualKeyboard = {
+      overlaysContent: false,
+      boundingRect: { height: 0, width: 0, x: 0, y: 0 },
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }
+    Object.defineProperty(window.navigator, 'virtualKeyboard', { configurable: true, value: virtualKeyboard })
+    render(<Harness />)
+    await waitFor(() => expect(api.focusKeyboard).toBeTruthy())
+    api.focusKeyboard?.()
+    ;(window.visualViewport as any).height = 520
+    window.visualViewport?.dispatchEvent(new Event('resize'))
+    expect(document.body.classList.contains('keyboard-open')).toBe(true)
+    expect(document.documentElement.style.getPropertyValue('--mobile-keyboard-inset')).toBe('280px')
+  })
   it('does not enable mobile keyboard mode on coarse-pointer desktop user agents', async () => {
-    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
-    Object.defineProperty(window.navigator, 'userAgent', { configurable: true, value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36' })
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    )
+    Object.defineProperty(window.navigator, 'userAgent', {
+      configurable: true,
+      value:
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
+    })
     render(<Harness />)
     await waitFor(() => expect(api.focusKeyboard).toBeTruthy())
     expect(api.isMobile).toBe(false)

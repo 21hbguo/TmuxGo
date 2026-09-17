@@ -683,6 +683,7 @@ export const en = {
   'file.upToParent': 'Go to parent directory',
   'file.clearSearch': 'Clear search',
   'editor.dropOpen': 'DROP TO OPEN',
+  'editor.emptyArea': 'No open files — drag one in or double-click in Files',
   'editor.drop.center': 'DROP TO OPEN',
   'editor.drop.left': 'DROP LEFT',
   'editor.drop.right': 'DROP RIGHT',
@@ -908,7 +909,7 @@ export const en = {
   'terminal.dock.bottom': 'Bottom',
   'terminal.dock.left': 'Left',
   'terminal.dock.right': 'Right',
-  'terminal.dockHint': 'Terminal dock: {position} (click to switch, drag to workspace edge to dock)',
+  'terminal.dockHint': 'Terminal dock: {position} (click for options, drag this bar to a workspace edge to dock)',
 
   // Clipboard
   'clipboard.copyFailed': 'Copy failed',
@@ -1074,6 +1075,9 @@ export const en = {
   'git.switchRepo': 'Switch Repository',
 
   'vnc.title': 'Desktop',
+  'vnc.fullscreen': 'Fullscreen',
+  'vnc.minimize': 'Minimize',
+  'vnc.windowed': 'Windowed',
   'vnc.connect': 'Connect',
   'vnc.disconnect': 'Disconnect',
   'vnc.connecting': 'Connecting…',

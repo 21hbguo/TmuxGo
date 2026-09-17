@@ -46,6 +46,16 @@ export interface EditorLayoutSplit {
 export type EditorLayoutNode = EditorLayoutLeaf | EditorLayoutSplit
 export type TerminalDockPosition = 'bottom' | 'left' | 'right'
 const TERMINAL_DOCK_POSITIONS: TerminalDockPosition[] = ['bottom', 'left', 'right']
+export type DesktopViewMode = 'full' | 'window'
+export interface ActiveDesktop {
+  hostId: string
+  port: number
+  view: DesktopViewMode
+  minimized: boolean
+}
+// 侧栏面板互斥时桌面挂后台而非销毁：RFB 连接保留，下次点开免重连；窗口态桌面保持浮窗不受影响
+const parkDesktop = (desktop: ActiveDesktop | null): ActiveDesktop | null =>
+  desktop && desktop.view !== 'window' ? { ...desktop, minimized: true } : desktop
 interface EditorWorkspaceState {
   openEditors: FileEditorDocument[]
   activeEditorId: string | null
@@ -344,7 +354,7 @@ interface ConsoleState {
   sshPanelOpen: boolean
   activeSplitGroupId: string | null
   activePluginView: { pluginId: string; viewId: string } | null
-  activeDesktop: { hostId: string; port: number } | null
+  activeDesktop: ActiveDesktop | null
   gitPanelWidth: number
   sshPanelWidth: number
   gitByHost: Record<string, GitHostState>
@@ -392,6 +402,8 @@ interface ConsoleState {
   setActivePluginView: (view: { pluginId: string; viewId: string } | null) => void
   toggleDesktop: (hostId: string, port?: number) => void
   setActiveDesktop: (desktop: { hostId: string; port: number } | null) => void
+  setDesktopView: (view: DesktopViewMode) => void
+  setDesktopMinimized: (minimized: boolean) => void
   setGitPanelWidth: (width: number) => void
   setSshPanelWidth: (width: number) => void
   ensureGitHostState: (hostId: string) => void
@@ -573,9 +585,14 @@ export const useConsoleStore = create<ConsoleState>()(
       setActivePane: (id) => set({ activePaneId: id }),
       setCommandPalette: (open) => set({ showCommandPalette: open }),
       setSessionPanelExpanded: (expanded) =>
-        set(
+        set((state) =>
           expanded
-            ? { sessionPanelExpanded: true, sshPanelOpen: false, activePluginView: null, activeDesktop: null }
+            ? {
+                sessionPanelExpanded: true,
+                sshPanelOpen: false,
+                activePluginView: null,
+                activeDesktop: parkDesktop(state.activeDesktop),
+              }
             : { sessionPanelExpanded: false },
         ),
       toggleSessionPanel: () =>
@@ -587,7 +604,7 @@ export const useConsoleStore = create<ConsoleState>()(
                 gitPanelOpen: false,
                 sshPanelOpen: false,
                 activePluginView: null,
-                activeDesktop: null,
+                activeDesktop: parkDesktop(state.activeDesktop),
               },
         ),
       // 会话区与文件区可共存：打开文件不再折叠会话面板
@@ -599,7 +616,7 @@ export const useConsoleStore = create<ConsoleState>()(
                 gitPanelOpen: false,
                 sshPanelOpen: false,
                 activePluginView: null,
-                activeDesktop: null,
+                activeDesktop: parkDesktop(state.activeDesktop),
               }
             : { filePanelOpen: false },
         ),
@@ -612,19 +629,19 @@ export const useConsoleStore = create<ConsoleState>()(
                 gitPanelOpen: false,
                 sshPanelOpen: false,
                 activePluginView: null,
-                activeDesktop: null,
+                activeDesktop: parkDesktop(state.activeDesktop),
               },
         ),
       openSplitGroup: (id) =>
-        set({
+        set((state) => ({
           activeSplitGroupId: id,
           filePanelOpen: false,
           sessionPanelExpanded: false,
           gitPanelOpen: false,
           sshPanelOpen: false,
           activePluginView: null,
-          activeDesktop: null,
-        }),
+          activeDesktop: parkDesktop(state.activeDesktop),
+        })),
       closeSplitGroup: () => set({ activeSplitGroupId: null }),
       setGitPanelOpen: (open) =>
         set((state) =>
@@ -635,7 +652,7 @@ export const useConsoleStore = create<ConsoleState>()(
                 filePanelOpen: false,
                 sshPanelOpen: false,
                 activePluginView: null,
-                activeDesktop: null,
+                activeDesktop: parkDesktop(state.activeDesktop),
               }
             : { gitPanelOpen: false },
         ),
@@ -649,7 +666,7 @@ export const useConsoleStore = create<ConsoleState>()(
                 filePanelOpen: false,
                 sshPanelOpen: false,
                 activePluginView: null,
-                activeDesktop: null,
+                activeDesktop: parkDesktop(state.activeDesktop),
               },
         ),
       toggleSshPanel: () =>
@@ -662,13 +679,13 @@ export const useConsoleStore = create<ConsoleState>()(
                 sessionPanelExpanded: false,
                 gitPanelOpen: false,
                 activePluginView: null,
-                activeDesktop: null,
+                activeDesktop: parkDesktop(state.activeDesktop),
               },
         ),
       setActivePluginView: (view) =>
         set((state) =>
           view && state.activePluginView?.pluginId === view.pluginId && state.activePluginView.viewId === view.viewId
-            ? { activePluginView: null, activeDesktop: null }
+            ? { activePluginView: null }
             : view
               ? {
                   activePluginView: view,
@@ -676,28 +693,36 @@ export const useConsoleStore = create<ConsoleState>()(
                   sessionPanelExpanded: false,
                   gitPanelOpen: false,
                   sshPanelOpen: false,
-                  activeDesktop: null,
+                  activeDesktop: parkDesktop(state.activeDesktop),
                 }
-              : { activePluginView: null, activeDesktop: null },
+              : { activePluginView: null },
         ),
+      // 桌面 tab 是开关语义：未开→全屏开；已最小化→还原；可见→最小化挂后台（保留连接）
       toggleDesktop: (hostId, port) =>
         set((state) =>
-          state.activeDesktop
-            ? { activeDesktop: null }
-            : {
-                activeDesktop: { hostId, port: port ?? readVncPort(hostId) ?? 5900 },
+          !state.activeDesktop
+            ? {
+                activeDesktop: {
+                  hostId,
+                  port: port ?? readVncPort(hostId) ?? 5900,
+                  view: 'full',
+                  minimized: false,
+                },
                 filePanelOpen: false,
                 sessionPanelExpanded: false,
                 gitPanelOpen: false,
                 sshPanelOpen: false,
                 activePluginView: null,
+              }
+            : {
+                activeDesktop: { ...state.activeDesktop, minimized: !state.activeDesktop.minimized },
               },
         ),
       setActiveDesktop: (desktop) =>
         set(() =>
           desktop
             ? {
-                activeDesktop: desktop,
+                activeDesktop: { ...desktop, view: 'full', minimized: false },
                 filePanelOpen: false,
                 sessionPanelExpanded: false,
                 gitPanelOpen: false,
@@ -706,6 +731,12 @@ export const useConsoleStore = create<ConsoleState>()(
               }
             : { activeDesktop: null },
         ),
+      setDesktopView: (view) =>
+        set((state) =>
+          state.activeDesktop ? { activeDesktop: { ...state.activeDesktop, view, minimized: false } } : {},
+        ),
+      setDesktopMinimized: (minimized) =>
+        set((state) => (state.activeDesktop ? { activeDesktop: { ...state.activeDesktop, minimized } } : {})),
       setGitPanelWidth: (width) => set({ gitPanelWidth: Math.max(380, Math.min(920, width)) }),
       setSshPanelWidth: (width) => set({ sshPanelWidth: Math.max(260, Math.min(480, width)) }),
       ensureGitHostState: (hostId) =>
