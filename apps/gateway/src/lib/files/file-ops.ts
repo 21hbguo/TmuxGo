@@ -213,8 +213,8 @@ export async function transferEntry(
   const targetDirectoryInfo = await stat(targetDirectory.absolutePath)
   if (!targetDirectoryInfo.isDirectory()) throw new Error('Target directory not found')
   if (source.absolutePath === source.root.path) throw new Error('Root cannot be transferred')
-  const targetPath = path.join(targetDirectory.absolutePath, path.basename(source.absolutePath))
-  if (await fileExists(targetPath)) throw new Error('Target already exists')
+  const targetName = await availableCopyName(targetDirectory.absolutePath, path.basename(source.absolutePath))
+  const targetPath = path.join(targetDirectory.absolutePath, targetName)
   if (move) await movePath(source.absolutePath, targetPath)
   else await cp(source.absolutePath, targetPath, { recursive: true, preserveTimestamps: true })
   return {
@@ -222,6 +222,18 @@ export async function transferEntry(
     item: await toFileItem(targetDirectory.root.path, targetPath, path.basename(targetPath)),
     previousPath: source.relativePath,
   }
+}
+// 与 VSCode 一致的冲突改名：name.ext → name copy.ext → name copy 2.ext
+export async function availableCopyName(directory: string, name: string) {
+  const dot = name.lastIndexOf('.')
+  const hasExt = dot > 0
+  const stem = hasExt ? name.slice(0, dot) : name
+  const ext = hasExt ? name.slice(dot) : ''
+  for (let i = 0; i < 1000; i++) {
+    const candidate = i === 0 ? name : `${stem} copy${i === 1 ? '' : ` ${i}`}${ext}`
+    if (!(await fileExists(path.join(directory, candidate)))) return candidate
+  }
+  throw new Error('Too many conflicting files')
 }
 export async function trashEntry(rootId: string, relativePath: string) {
   const resolved = await resolveInside(rootId, relativePath)
