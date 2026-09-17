@@ -420,7 +420,10 @@ interface ConsoleState {
   setTerminalPanelHeight: (height: number) => void
   setTerminalPanelWidth: (width: number) => void
   setTerminalDock: (dock: TerminalDockPosition) => void
-  openEditor: (file: FileDocumentHandle & { language: string }, options?: { preview?: boolean }) => void
+  openEditor: (
+    file: FileDocumentHandle & { language: string },
+    options?: { preview?: boolean; replacePreview?: boolean },
+  ) => void
   openCompareEditor: (leftId: string, rightId: string) => string | null
   placeEditorInSplit: (
     id: string,
@@ -860,9 +863,11 @@ export const useConsoleStore = create<ConsoleState>()(
             preview: options?.preview ?? true,
           }
           let editorGroups = state.editorGroups.map(normalizeEditorGroup)
-          // 预览语义：组内未修改的预览 tab 被新文件原位替换，连点文件只留一个 tab
+          // 预览语义：组内未修改的预览 tab 被新文件原位替换，连点文件只留一个 tab；
+          // replacePreview=false（拖拽等显式打开）时跳过替换，保留已有预览 tab
           const previewId =
-            (targetGroupId &&
+            ((options?.replacePreview ?? true) &&
+              targetGroupId &&
               editorGroups
                 .find((group) => group.id === targetGroupId)
                 ?.editorIds.find((id) => {

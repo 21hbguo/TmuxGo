@@ -263,10 +263,11 @@ export function DesktopWorkbench() {
         useConsoleStore.getState().setActiveEditor(existing.id)
         return existing.id
       }
-      await handleOpenFile(file)
+      // 拖拽打开视为显式打开：钉住新 tab，保留目标组已有预览 tab
+      await openFileInEditor(file, { t, pushToast, openPanel: true, pinned: true })
       return useConsoleStore.getState().openEditors.find((item) => item.id === file.id)?.id || file.id
     },
-    [handleOpenFile],
+    [pushToast, t],
   )
   const handleOpenFileAtPosition = useCallback(
     async (file: FileDocumentHandle, placement: 'center' | 'left' | 'right' | 'top' | 'bottom') => {
@@ -454,9 +455,11 @@ export function DesktopWorkbench() {
         >
           {activeSplitGroup ? (
             <SessionSplitView group={activeSplitGroup} />
-          ) : openEditors.length > 0 || terminalDock !== 'bottom' ? (
+          ) : (
             <>
+              {/* TerminalDock 必须固定在同一个 JSX 位置：开关编辑器只改 props，避免 xterm 卸载重建导致的二次 attach/resize */}
               <TerminalDock
+                fill={openEditors.length === 0 && terminalDock === 'bottom'}
                 dock={terminalDock}
                 minHeight={terminalMinHeight}
                 maxHeight={terminalMaxHeight}
@@ -465,25 +468,23 @@ export function DesktopWorkbench() {
                 maxWidth={terminalMaxWidth}
                 dragViewportWidth={workspaceWidth}
               />
-              <div className="min-h-0 min-w-0 flex-1">
-                {openEditors.length > 0 ? (
-                  <EditorWorkbench
-                    onSaveEditor={handleSaveEditor}
-                    onOpenFile={handleOpenFileForDrop}
-                    onOpenFileAtPosition={handleOpenFileAtPosition}
-                    onCreateCompare={handleCreateCompare}
-                  />
-                ) : (
-                  <div className="flex h-full items-center justify-center text-sm text-text-3">
-                    {t('editor.emptyArea')}
-                  </div>
-                )}
-              </div>
+              {openEditors.length > 0 || terminalDock !== 'bottom' ? (
+                <div className="min-h-0 min-w-0 flex-1">
+                  {openEditors.length > 0 ? (
+                    <EditorWorkbench
+                      onSaveEditor={handleSaveEditor}
+                      onOpenFile={handleOpenFileForDrop}
+                      onOpenFileAtPosition={handleOpenFileAtPosition}
+                      onCreateCompare={handleCreateCompare}
+                    />
+                  ) : (
+                    <div className="flex h-full items-center justify-center text-sm text-text-3">
+                      {t('editor.emptyArea')}
+                    </div>
+                  )}
+                </div>
+              ) : null}
             </>
-          ) : (
-            <div className="min-h-0 flex-1">
-              <TerminalDock fill />
-            </div>
           )}
           {dockDragActive &&
             !activeSplitGroup &&
