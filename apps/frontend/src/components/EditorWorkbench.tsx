@@ -156,7 +156,6 @@ export function EditorWorkbench({
   const navigationPendingRef = useRef(false)
   const definitionPendingRef = useRef(false)
   const pendingLocationRef = useRef<Record<string, { line: number; column: number }>>({})
-  const pendingFocusRef = useRef<Set<string>>(new Set())
   const [pendingCloseEditorId, setPendingCloseEditorId] = useState<string | null>(null)
   const [previewOpenById, setPreviewOpenById] = useState<Record<string, boolean>>({})
   const [cursorById, setCursorById] = useState<Record<string, { line: number; column: number }>>({})
@@ -625,23 +624,19 @@ export function EditorWorkbench({
     const handleOpenEditorLocation = (event: Event) => {
       const detail = (event as CustomEvent<{ editorId?: string; line?: number; column?: number }>).detail
       const editorId = detail?.editorId
-      if (!editorId) return
       const line = Number(detail?.line)
       const column = Number(detail?.column) || 1
-      // 无 position 的普通打开也要把焦点交给编辑器，否则按键仍落在文件列表上
-      const hasPosition = Number.isFinite(line) && line >= 1
-      if (hasPosition) pendingLocationRef.current[editorId] = { line, column: Math.max(1, column) }
-      else pendingFocusRef.current.add(editorId)
+      if (!editorId || !Number.isFinite(line) || line < 1) return
+      pendingLocationRef.current[editorId] = { line, column: Math.max(1, column) }
       setActiveEditor(editorId)
       requestAnimationFrame(() => {
         const editor = editorRefs.current[editorId]
         const position = pendingLocationRef.current[editorId]
-        if (editor && position) {
-          editor.setPosition?.({ lineNumber: position.line, column: position.column })
-          editor.revealPositionInCenter?.({ lineNumber: position.line, column: position.column })
-          delete pendingLocationRef.current[editorId]
-        }
-        if (editor && (position || pendingFocusRef.current.delete(editorId))) editor.focus?.()
+        if (!editor || !position) return
+        editor.setPosition?.({ lineNumber: position.line, column: position.column })
+        editor.revealPositionInCenter?.({ lineNumber: position.line, column: position.column })
+        editor.focus?.()
+        delete pendingLocationRef.current[editorId]
       })
     }
     window.addEventListener(OPEN_EDITOR_LOCATION_EVENT, handleOpenEditorLocation as EventListener)
@@ -1044,8 +1039,6 @@ export function EditorWorkbench({
                 instance.revealPositionInCenter?.({ lineNumber: pendingPosition.line, column: pendingPosition.column })
                 instance.focus?.()
                 delete pendingLocationRef.current[editor.id]
-              } else if (pendingFocusRef.current.delete(editor.id)) {
-                instance.focus?.()
               }
               instance.onMouseDown?.((event: any) => {
                 const browserEvent = event?.event?.browserEvent
