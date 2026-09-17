@@ -714,7 +714,9 @@ export function EditorWorkbench({
         <span
           className={`h-1.5 w-1.5 shrink-0 rounded-full ${editor.dirty ? 'bg-warn' : editor.saving ? 'bg-accent' : 'border border-[var(--line)] bg-transparent'}`}
         />
-        <span className="min-w-0 flex-1 truncate">{editor.name}</span>
+        <span className={`min-w-0 flex-1 truncate ${editor.preview && !editor.dirty ? 'italic' : ''}`}>
+          {editor.name}
+        </span>
       </button>
       <Chip
         aria-label={`Close ${editor.name}`}

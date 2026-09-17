@@ -73,7 +73,7 @@ describe('useConsoleStore editor persistence', () => {
   })
   it('updates persisted active editor when switching tabs', async () => {
     const { useConsoleStore, flushPersistedStorage } = await importStore()
-    useConsoleStore.getState().openEditor(sampleEditor)
+    useConsoleStore.getState().openEditor(sampleEditor, { preview: false })
     useConsoleStore.getState().openEditor({
       ...sampleEditor,
       id: 'local:root-workspace:docs/guide.md',
@@ -198,8 +198,8 @@ describe('useConsoleStore editor persistence', () => {
     const { useConsoleStore } = await import('./useConsoleStore')
     const editor2 = createEditor('local:root-workspace:src/other.ts', 'src/other.ts')
     const editor3 = createEditor('local:root-workspace:src/third.ts', 'src/third.ts')
-    useConsoleStore.getState().openEditor(sampleEditor)
-    useConsoleStore.getState().openEditor(editor2)
+    useConsoleStore.getState().openEditor(sampleEditor, { preview: false })
+    useConsoleStore.getState().openEditor(editor2, { preview: false })
     useConsoleStore.getState().placeEditorInSplit(editor2.id, 'right')
     useConsoleStore.getState().openEditor(editor3)
     useConsoleStore.getState().placeEditorInSplit(editor3.id, 'bottom')
@@ -215,7 +215,7 @@ describe('useConsoleStore editor persistence', () => {
   it('collapses empty groups after moving the last editor out', async () => {
     const { useConsoleStore } = await import('./useConsoleStore')
     const editor2 = createEditor('local:root-workspace:src/other.ts', 'src/other.ts')
-    useConsoleStore.getState().openEditor(sampleEditor)
+    useConsoleStore.getState().openEditor(sampleEditor, { preview: false })
     useConsoleStore.getState().openEditor(editor2)
     useConsoleStore.getState().placeEditorInSplit(editor2.id, 'right')
     const primaryGroupId = useConsoleStore
@@ -232,7 +232,7 @@ describe('useConsoleStore editor persistence', () => {
   it('updates split ratio by split id and clamps the value', async () => {
     const { useConsoleStore } = await import('./useConsoleStore')
     const editor2 = createEditor('local:root-workspace:src/other.ts', 'src/other.ts')
-    useConsoleStore.getState().openEditor(sampleEditor)
+    useConsoleStore.getState().openEditor(sampleEditor, { preview: false })
     useConsoleStore.getState().openEditor(editor2)
     useConsoleStore.getState().placeEditorInSplit(editor2.id, 'right')
     const layout = useConsoleStore.getState().editorLayout
@@ -284,5 +284,45 @@ describe('useConsoleStore editor persistence', () => {
     useConsoleStore.getState().setDesktopView('full')
     // 切视图同时解除最小化
     expect(useConsoleStore.getState().activeDesktop).toMatchObject({ view: 'full', minimized: false })
+  })
+  it('replaces an unmodified preview tab when opening another file', async () => {
+    const { useConsoleStore } = await import('./useConsoleStore')
+    const editor2 = createEditor('local:root-workspace:src/other.ts', 'src/other.ts')
+    const editor3 = createEditor('local:root-workspace:src/third.ts', 'src/third.ts')
+    useConsoleStore.getState().openEditor(sampleEditor)
+    useConsoleStore.getState().openEditor(editor2)
+    let state = useConsoleStore.getState()
+    // 连续点开：预览 tab 被原位替换，始终只有一个 tab
+    expect(state.openEditors).toHaveLength(1)
+    expect(state.openEditors[0].id).toBe(editor2.id)
+    expect(state.activeEditorId).toBe(editor2.id)
+    expect(state.openEditors[0].preview).toBe(true)
+    useConsoleStore.getState().openEditor(editor3)
+    state = useConsoleStore.getState()
+    expect(state.openEditors).toHaveLength(1)
+    expect(state.openEditors[0].id).toBe(editor3.id)
+  })
+  it('pins a preview tab once edited so the next open adds a tab', async () => {
+    const { useConsoleStore } = await import('./useConsoleStore')
+    const editor2 = createEditor('local:root-workspace:src/other.ts', 'src/other.ts')
+    useConsoleStore.getState().openEditor(sampleEditor)
+    useConsoleStore.getState().setEditorContent(sampleEditor.id, 'changed')
+    useConsoleStore.getState().openEditor(editor2)
+    const state = useConsoleStore.getState()
+    expect(state.openEditors).toHaveLength(2)
+    expect(state.openEditors.map((item) => item.id)).toEqual([sampleEditor.id, editor2.id])
+    expect(state.openEditors[0].preview).toBe(false)
+    expect(state.openEditors[0].dirty).toBe(true)
+  })
+  it('opens a non-preview tab when requested', async () => {
+    const { useConsoleStore } = await import('./useConsoleStore')
+    const editor2 = createEditor('local:root-workspace:src/other.ts', 'src/other.ts')
+    useConsoleStore.getState().openEditor(sampleEditor)
+    useConsoleStore.getState().openEditor(editor2, { preview: false })
+    const state = useConsoleStore.getState()
+    // 钉住的打开也顶替预览槽位，但自身不再是预览
+    expect(state.openEditors).toHaveLength(1)
+    expect(state.openEditors[0].id).toBe(editor2.id)
+    expect(state.openEditors[0].preview).toBe(false)
   })
 })

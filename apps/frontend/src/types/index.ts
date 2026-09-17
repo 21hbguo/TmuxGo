@@ -20,7 +20,14 @@ export interface Host {
   lastCheckedAt?: string
   lastConnectionError?: string
   dependencies?: Record<string, boolean>
-  agent?: { version: string; online: boolean; lastSeenAt: string; lastDisconnectedAt?: string | null; disconnectReason: string | null; reconnectCount: number }
+  agent?: {
+    version: string
+    online: boolean
+    lastSeenAt: string
+    lastDisconnectedAt?: string | null
+    disconnectReason: string | null
+    reconnectCount: number
+  }
 }
 
 export interface Session {
@@ -34,7 +41,8 @@ export interface Session {
   agentSummary?: AgentSummary
 }
 export type SessionWindowSplitDirection = 'horizontal' | 'vertical'
-export type SessionWindowLayoutPreset = 'tiled' | 'even-horizontal' | 'even-vertical' | 'main-horizontal' | 'main-vertical'
+export type SessionWindowLayoutPreset =
+  'tiled' | 'even-horizontal' | 'even-vertical' | 'main-horizontal' | 'main-vertical'
 export interface SessionLayoutWindow {
   name: string
   panes: { command?: string; cwd?: string; env?: Record<string, string> }[]
@@ -90,8 +98,26 @@ export interface Pane {
   display?: AgentDisplayMetadata
 }
 export type AgentStatus = 'idle' | 'working' | 'blocked' | 'done' | 'unknown'
-export type AgentPhase = 'idle' | 'working' | 'needs_input' | 'permission_required' | 'retrying' | 'failed' | 'ended' | 'disconnected' | 'unknown'
-export type AgentEvent = 'started' | 'permission_required' | 'question_required' | 'completed' | 'failed' | 'retrying' | 'ended' | 'disconnected' | 'reconnected'
+export type AgentPhase =
+  | 'idle'
+  | 'working'
+  | 'needs_input'
+  | 'permission_required'
+  | 'retrying'
+  | 'failed'
+  | 'ended'
+  | 'disconnected'
+  | 'unknown'
+export type AgentEvent =
+  | 'started'
+  | 'permission_required'
+  | 'question_required'
+  | 'completed'
+  | 'failed'
+  | 'retrying'
+  | 'ended'
+  | 'disconnected'
+  | 'reconnected'
 export type AgentSource = 'protocol' | 'hook' | 'tmux' | 'osc133' | 'process' | 'pane_output'
 export type AgentConfidence = 'high' | 'medium' | 'low'
 export interface AgentDisplayMetadata {
@@ -229,6 +255,8 @@ export interface FileContentResponse {
 }
 export interface FileEditorDocument extends FileDocumentHandle {
   kind?: 'file' | 'compare'
+  // 预览 tab（VSCode 语义）：未修改时被下一次打开原位替换；编辑后钉住
+  preview?: boolean
   language: string
   content: string
   savedContent: string
@@ -606,8 +634,8 @@ export interface GitMergeResponse {
   conflicts: boolean
   message: string
 }
-export type GitMode='follow-editor'|'locked'
-export type GitSource='editor'|'pane'|'manual'|null
+export type GitMode = 'follow-editor' | 'locked'
+export type GitSource = 'editor' | 'pane' | 'manual' | null
 export interface GitRepoEntry {
   repoPath: string
   label: string

@@ -92,6 +92,7 @@ function pickEditorMeta(editor: FileEditorDocument): PersistedEditorMeta {
     absolutePath: editor.absolutePath,
     language: editor.language,
     kind: editor.kind,
+    preview: editor.preview,
     compareLeftId: editor.compareLeftId,
     compareRightId: editor.compareRightId,
   }
@@ -419,7 +420,7 @@ interface ConsoleState {
   setTerminalPanelHeight: (height: number) => void
   setTerminalPanelWidth: (width: number) => void
   setTerminalDock: (dock: TerminalDockPosition) => void
-  openEditor: (file: FileDocumentHandle & { language: string }) => void
+  openEditor: (file: FileDocumentHandle & { language: string }, options?: { preview?: boolean }) => void
   openCompareEditor: (leftId: string, rightId: string) => string | null
   placeEditorInSplit: (
     id: string,
@@ -801,7 +802,7 @@ export const useConsoleStore = create<ConsoleState>()(
       setTerminalPanelHeight: (height) => set({ terminalPanelHeight: Math.max(180, Math.min(2000, height)) }),
       setTerminalPanelWidth: (width) => set({ terminalPanelWidth: Math.max(240, Math.min(2400, width)) }),
       setTerminalDock: (dock) => set({ terminalDock: dock }),
-      openEditor: (file) =>
+      openEditor: (file, options) =>
         set((state) => {
           const existing = state.openEditors.find((item) => item.id === file.id)
           if (existing) {
@@ -845,26 +846,43 @@ export const useConsoleStore = create<ConsoleState>()(
           }
           const targetGroupId =
             getExistingEditorGroupId(state.editorGroups, state.activeEditorGroupId) || state.editorGroups[0]?.id || null
-          const nextOpenEditors = [
-            ...state.openEditors,
-            {
-              ...file,
-              content: '',
-              savedContent: '',
-              modifiedAt: '',
-              size: 0,
-              dirty: false,
-              loading: true,
-              saving: false,
-              binary: false,
-              truncated: false,
-            },
-          ]
+          const nextDoc: FileEditorDocument = {
+            ...file,
+            content: '',
+            savedContent: '',
+            modifiedAt: '',
+            size: 0,
+            dirty: false,
+            loading: true,
+            saving: false,
+            binary: false,
+            truncated: false,
+            preview: options?.preview ?? true,
+          }
           let editorGroups = state.editorGroups.map(normalizeEditorGroup)
+          // 预览语义：组内未修改的预览 tab 被新文件原位替换，连点文件只留一个 tab
+          const previewId =
+            (targetGroupId &&
+              editorGroups
+                .find((group) => group.id === targetGroupId)
+                ?.editorIds.find((id) => {
+                  const item = state.openEditors.find((entry) => entry.id === id)
+                  return !!item?.preview && !item.dirty
+                })) ||
+            null
+          const nextOpenEditors = previewId
+            ? state.openEditors.map((item) => (item.id === previewId ? nextDoc : item))
+            : [...state.openEditors, nextDoc]
           if (targetGroupId)
             editorGroups = editorGroups.map((group) =>
               group.id === targetGroupId
-                ? { ...group, editorIds: [...group.editorIds, file.id], activeEditorId: file.id }
+                ? {
+                    ...group,
+                    editorIds: previewId
+                      ? group.editorIds.map((id) => (id === previewId ? file.id : id))
+                      : [...group.editorIds, file.id],
+                    activeEditorId: file.id,
+                  }
                 : group,
             )
           const nextState = withLegacyEditorState(
@@ -1064,9 +1082,12 @@ export const useConsoleStore = create<ConsoleState>()(
         })),
       setEditorContent: (id, content) =>
         set((state) => ({
-          openEditors: state.openEditors.map((item) =>
-            item.id === id ? { ...item, content, dirty: content !== item.savedContent } : item,
-          ),
+          openEditors: state.openEditors.map((item) => {
+            if (item.id !== id) return item
+            const dirty = content !== item.savedContent
+            // 改脏即钉住：预览 tab 一旦编辑过就不再被替换
+            return { ...item, content, dirty, preview: dirty ? false : item.preview }
+          }),
         })),
       setEditorSaving: (id, saving) =>
         set((state) => ({
