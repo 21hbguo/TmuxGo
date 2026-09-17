@@ -680,6 +680,7 @@ export const en = {
   'file.addFavorite': 'Add to favorites',
   'file.removeFavorite': 'Unfavorite',
   'file.clearExpanded': 'Collapse all',
+  'file.upToParent': 'Go to parent directory',
   'file.clearSearch': 'Clear search',
   'editor.dropOpen': 'DROP TO OPEN',
   'editor.drop.center': 'DROP TO OPEN',
@@ -904,6 +905,10 @@ export const en = {
   // TerminalPane
   'terminal.dropUpload': 'Drop files to upload',
   'terminal.linkOpenBlocked': 'Browser blocked the new window. Allow pop-ups and try again.',
+  'terminal.dock.bottom': 'Bottom',
+  'terminal.dock.left': 'Left',
+  'terminal.dock.right': 'Right',
+  'terminal.dockHint': 'Terminal dock: {position} (click to switch, drag to workspace edge to dock)',
 
   // Clipboard
   'clipboard.copyFailed': 'Copy failed',
