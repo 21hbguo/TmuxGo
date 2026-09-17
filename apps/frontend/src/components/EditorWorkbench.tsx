@@ -738,6 +738,29 @@ export function EditorWorkbench({
       )}
     </div>
   )
+  // VSCode 式落点提示：只高亮实际落点区域（分屏半区/整组），不再平铺全部候选区
+  const renderDropOverlay = (placement: DropPlacement) => {
+    const zoneClass =
+      placement === 'left'
+        ? 'inset-y-0 left-0 right-1/2'
+        : placement === 'right'
+          ? 'inset-y-0 right-0 left-1/2'
+          : placement === 'top'
+            ? 'inset-x-0 top-0 bottom-1/2'
+            : placement === 'bottom'
+              ? 'inset-x-0 bottom-0 top-1/2'
+              : 'inset-0'
+    return (
+      <div className="pointer-events-none absolute inset-0 z-20">
+        <div className={`absolute rounded-apple border-2 border-accent/60 bg-accent/15 ${zoneClass}`} />
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="rounded-full border border-accent/50 bg-bg-0/90 px-4 py-1.5 text-xs tracking-[0.12em] text-accent shadow-lg">
+            {t(`editor.drop.${placement}` as never)}
+          </div>
+        </div>
+      </div>
+    )
+  }
   const renderTabStrip = (editors: FileEditorDocument[], groupId: string) => (
     <div
       data-testid={`editor-group-${getLegacyGroupName(groupId)}`}
@@ -781,25 +804,7 @@ export function EditorWorkbench({
         void handleTabStripDrop(dragged, groupId, placement)
       }}
     >
-      {tabDropTarget?.groupId === groupId && (
-        <div className="pointer-events-none absolute inset-0 z-10">
-          <div
-            className={`absolute inset-y-0 left-0 w-[18%] ${tabDropTarget.placement === 'left' ? 'bg-accent/15' : ''}`}
-          />
-          <div
-            className={`absolute inset-y-0 right-0 w-[18%] ${tabDropTarget.placement === 'right' ? 'bg-accent/15' : ''}`}
-          />
-          <div
-            className={`absolute inset-x-0 top-0 h-[38%] ${tabDropTarget.placement === 'top' ? 'bg-accent/15' : ''}`}
-          />
-          <div
-            className={`absolute inset-x-0 bottom-0 h-[38%] ${tabDropTarget.placement === 'bottom' ? 'bg-accent/15' : ''}`}
-          />
-          <div
-            className={`absolute inset-[24%] rounded-apple ${tabDropTarget.placement === 'center' ? 'bg-accent/12 border border-accent/40' : ''}`}
-          />
-        </div>
-      )}
+      {tabDropTarget?.groupId === groupId && renderDropOverlay(tabDropTarget.placement)}
       {editors.map((editor) => renderTab(editor, editors, groupId))}
     </div>
   )
@@ -859,30 +864,7 @@ export function EditorWorkbench({
           {editor && activeEditor?.id === editor.id && (
             <span className="pointer-events-none absolute inset-0 border border-accent/35" />
           )}
-          {paneDropTarget?.groupId === groupId && (
-            <div className="pointer-events-none absolute inset-[16px] z-20">
-              <div
-                className={`absolute inset-[28%] rounded-apple border border-dashed ${paneDropTarget.placement === 'center' ? 'border-accent bg-accent/12' : 'border-[var(--line)] bg-bg-1/35'}`}
-              />
-              <div
-                className={`absolute inset-y-0 left-0 w-[22%] rounded-l-apple border border-dashed ${paneDropTarget.placement === 'left' ? 'border-accent bg-accent/12' : 'border-[var(--line)] bg-bg-1/30'}`}
-              />
-              <div
-                className={`absolute inset-y-0 right-0 w-[22%] rounded-r-apple border border-dashed ${paneDropTarget.placement === 'right' ? 'border-accent bg-accent/12' : 'border-[var(--line)] bg-bg-1/30'}`}
-              />
-              <div
-                className={`absolute inset-x-0 top-0 h-[22%] rounded-t-apple border border-dashed ${paneDropTarget.placement === 'top' ? 'border-accent bg-accent/12' : 'border-[var(--line)] bg-bg-1/30'}`}
-              />
-              <div
-                className={`absolute inset-x-0 bottom-0 h-[22%] rounded-b-apple border border-dashed ${paneDropTarget.placement === 'bottom' ? 'border-accent bg-accent/12' : 'border-[var(--line)] bg-bg-1/30'}`}
-              />
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="rounded-full border border-accent/40 bg-bg-0/92 px-4 py-2 text-xs tracking-[0.24em] text-accent">
-                  {t(`editor.drop.${paneDropTarget.placement}` as never)}
-                </div>
-              </div>
-            </div>
-          )}
+          {paneDropTarget?.groupId === groupId && renderDropOverlay(paneDropTarget.placement)}
         </button>
       </div>
     )
@@ -1291,30 +1273,7 @@ export function EditorWorkbench({
           void handleGroupDrop(dragged, placement)
         }}
       >
-        {dropTarget && (
-          <div className="pointer-events-none absolute inset-[16px] z-20">
-            <div
-              className={`absolute inset-[28%] rounded-apple border border-dashed ${dropTarget === 'center' ? 'border-accent bg-accent/12' : 'border-[var(--line)] bg-bg-1/35'}`}
-            />
-            <div
-              className={`absolute inset-y-0 left-0 w-[22%] rounded-l-apple border border-dashed ${dropTarget === 'left' ? 'border-accent bg-accent/12' : 'border-[var(--line)] bg-bg-1/30'}`}
-            />
-            <div
-              className={`absolute inset-y-0 right-0 w-[22%] rounded-r-apple border border-dashed ${dropTarget === 'right' ? 'border-accent bg-accent/12' : 'border-[var(--line)] bg-bg-1/30'}`}
-            />
-            <div
-              className={`absolute inset-x-0 top-0 h-[22%] rounded-t-apple border border-dashed ${dropTarget === 'top' ? 'border-accent bg-accent/12' : 'border-[var(--line)] bg-bg-1/30'}`}
-            />
-            <div
-              className={`absolute inset-x-0 bottom-0 h-[22%] rounded-b-apple border border-dashed ${dropTarget === 'bottom' ? 'border-accent bg-accent/12' : 'border-[var(--line)] bg-bg-1/30'}`}
-            />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="rounded-full border border-accent/40 bg-bg-0/92 px-4 py-2 text-xs tracking-[0.24em] text-accent">
-                {t(`editor.drop.${dropTarget}` as never)}
-              </div>
-            </div>
-          </div>
-        )}
+        {dropTarget && renderDropOverlay(dropTarget)}
         <div className="flex h-full min-h-0 flex-col">{renderLayout(editorLayout)}</div>
       </div>
       <ConfirmDialog
