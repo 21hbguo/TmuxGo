@@ -1164,16 +1164,27 @@ export function FilePanel({
     }
   }, [activeEditor, fileHostId, rootOptions])
   useEffect(() => {
-    if (isMobile || isPicker || !activeEditorFollowTarget || followPaneId) return
+    if (isMobile || isPicker || !activeEditorFollowTarget) return
     if (activeEditorFollowTarget.rootId !== selectedRootId) {
+      // 跟随终端目录时不接管根切换：不同根的文件在当前视图不可见，无需处理
+      if (followPaneId) return
       if (lastFollowedEditorKeyRef.current === activeEditorFollowTarget.key) return
       switchRoot(activeEditorFollowTarget.rootId)
       return
     }
+    if (followPaneId) {
+      // 跟随模式不挪动 currentPath，只高亮落在当前目录视图内的文件
+      const parent = activeEditorFollowTarget.parentPath
+      if (currentPath && parent !== currentPath && !parent.startsWith(`${currentPath}/`)) return
+    }
     if (lastFollowedEditorKeyRef.current === activeEditorFollowTarget.key) return
     lastFollowedEditorKeyRef.current = activeEditorFollowTarget.key
     const nextSearchNavigationPath = query.trim() ? activeEditorFollowTarget.parentPath || '/' : null
-    setCurrentPath((value) => (value === '' ? value : ''))
+    // 非跟随模式回根目录再展开父链，跨目录文件也能高亮；跟随模式保持 cwd 视图不动
+    if (!followPaneId) {
+      currentPathRef.current = ''
+      setCurrentPath('')
+    }
     setSelectedPath((value) => (value === activeEditorFollowTarget.path ? value : activeEditorFollowTarget.path))
     setSelectedPreviewLine((value) => (value === 1 ? value : 1))
     setSearchNavigationPath((value) => (value === nextSearchNavigationPath ? value : nextSearchNavigationPath))
@@ -1197,8 +1208,10 @@ export function FilePanel({
     activeEditor,
     activeEditorFollowTarget,
     activeRoot,
+    currentPath,
     followPaneId,
     isMobile,
+    isPicker,
     loadDirectoryChildren,
     query,
     roots,

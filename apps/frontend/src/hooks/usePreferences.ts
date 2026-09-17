@@ -3,15 +3,16 @@ import { api } from '@/lib/api'
 import type { UiPreferences } from '@/types'
 
 export type Language = 'zh' | 'en'
-export type AppFontId = 'maple'
+export type AppFontId = 'jetbrains'
 export const PREFERENCES_VERSION = 4
 const STORAGE_KEY = 'tmuxgo-preferences'
 const STORAGE_UPDATED_AT_KEY = 'tmuxgo-preferences-updated-at'
 const PROFILE = 'default'
 type StoredPreferences = Partial<Preferences> & { _v?: number }
 
-export const FONT_MAPLE = '"Maple Mono CN", monospace'
-export const ALLOWED_FONT_FAMILIES = [FONT_MAPLE] as const
+// 与 VSCode 对齐：JetBrains Mono 拉丁 + 系统 CJK 回退
+export const FONT_JETBRAINS = '"JetBrains Mono", "Noto Sans Mono CJK SC", "PingFang SC", "Microsoft YaHei", monospace'
+export const ALLOWED_FONT_FAMILIES = [FONT_JETBRAINS] as const
 export interface Preferences {
   theme: 'dark' | 'light' | 'high-contrast' | 'dracula' | 'nord' | 'catppuccin' | 'sage'
   fontSize: number
@@ -35,7 +36,7 @@ export interface Preferences {
 const defaultPreferences: Preferences = {
   theme: 'dark',
   fontSize: 14,
-  fontFamily: FONT_MAPLE,
+  fontFamily: FONT_JETBRAINS,
   cursorBlink: true,
   sidebarPosition: 'left',
   showStatusBar: true,
@@ -53,15 +54,15 @@ const defaultPreferences: Preferences = {
 }
 
 export function resolveFontId(_fontFamily?: string): AppFontId {
-  return 'maple'
+  return 'jetbrains'
 }
 
 export function normalizeFontFamily(_fontFamily?: string) {
-  return FONT_MAPLE
+  return FONT_JETBRAINS
 }
 
 export function primaryFontName(_fontFamily?: string) {
-  return 'Maple Mono CN'
+  return 'JetBrains Mono'
 }
 
 let regularFontLoadPromise: Promise<void> | null = null
@@ -83,7 +84,7 @@ export async function ensureAppFontLoaded(fontFamily?: string, size = 14) {
 export function applyDocumentFont(_fontFamily?: string) {
   if (typeof document === 'undefined') return
   // 不再 inline --font-ui/--font-mono/fontFamily：否则会盖住 [data-theme] 的 --font-ui 覆盖（如 sage 主题）
-  document.documentElement.setAttribute('data-font', 'maple')
+  document.documentElement.setAttribute('data-font', 'jetbrains')
 }
 
 let preferencesStore: Preferences = defaultPreferences

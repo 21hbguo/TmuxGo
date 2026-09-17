@@ -491,7 +491,6 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
       if (nextOpen === lastKeyboardOpen) return
       lastKeyboardOpen = nextOpen
       if (isMobileDevice) cancelTmuxCopyMode()
-      if (isMobileDevice && attachExclusiveRef.current) layout.setMobileKeyboardTransition(true)
     }
     const handleAttached = (detail: any = {}) => {
       if (detail.hostId && detail.hostId !== (activeHostIdRef.current || 'local')) return
@@ -599,13 +598,9 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
       const mobileKeyboardLayout = isMobileDevice && detail.reason === 'viewport-sync'
       const stickToBottom = isMobileDevice && (detail.keyboardOpen || !layout.isTerminalScrolledBack())
       if (mobileKeyboardLayout) {
-        layout.setMobileKeyboardTransition(true)
-        layout.scheduleTerminalRepaint(
-          layout.delays.MOBILE_TERMINAL_KEYBOARD_REPAINT_DELAYS,
-          false,
-          stickToBottom,
-          true,
-        )
+        // 键盘开合不再升级 force fit：容器尺寸变化的普通 fit 已足够，
+        // 强制路径会多一次字形图集清空+全量重绘（用户看到的二次刷新）
+        layout.scheduleTerminalRepaint(layout.delays.MOBILE_TERMINAL_KEYBOARD_REPAINT_DELAYS, false, stickToBottom)
         return
       }
       if (detail.reason === 'terminal-panel-resize-end') {

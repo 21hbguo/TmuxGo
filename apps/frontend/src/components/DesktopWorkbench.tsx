@@ -109,8 +109,8 @@ export function DesktopWorkbench() {
       (sshPanelOpen ? renderedSshPanelWidth : 0),
   )
   const terminalMinWidth = clampValue(Math.floor(viewportWidth * 0.18), 260, 440)
-  // 侧向停靠时给编辑区保留 ≥240px 即可，终端可以拉到接近全宽
-  const terminalMaxWidth = clampValue(workspaceWidth - 240, terminalMinWidth, 2000)
+  // 侧向停靠时给编辑区保留 ≥160px 即可，终端可以拉到接近全宽
+  const terminalMaxWidth = clampValue(workspaceWidth - 160, terminalMinWidth, 2000)
   const terminalPanelHeight = useConsoleStore((state) => state.terminalPanelHeight)
   const terminalDock = useConsoleStore((state) => state.terminalDock)
   const setTerminalDock = useConsoleStore((state) => state.setTerminalDock)
@@ -454,7 +454,7 @@ export function DesktopWorkbench() {
         >
           {activeSplitGroup ? (
             <SessionSplitView group={activeSplitGroup} />
-          ) : openEditors.length > 0 ? (
+          ) : openEditors.length > 0 || terminalDock !== 'bottom' ? (
             <>
               <TerminalDock
                 dock={terminalDock}
@@ -466,12 +466,18 @@ export function DesktopWorkbench() {
                 dragViewportWidth={workspaceWidth}
               />
               <div className="min-h-0 min-w-0 flex-1">
-                <EditorWorkbench
-                  onSaveEditor={handleSaveEditor}
-                  onOpenFile={handleOpenFileForDrop}
-                  onOpenFileAtPosition={handleOpenFileAtPosition}
-                  onCreateCompare={handleCreateCompare}
-                />
+                {openEditors.length > 0 ? (
+                  <EditorWorkbench
+                    onSaveEditor={handleSaveEditor}
+                    onOpenFile={handleOpenFileForDrop}
+                    onOpenFileAtPosition={handleOpenFileAtPosition}
+                    onCreateCompare={handleCreateCompare}
+                  />
+                ) : (
+                  <div className="flex h-full items-center justify-center text-sm text-text-3">
+                    {t('editor.emptyArea')}
+                  </div>
+                )}
               </div>
             </>
           ) : (
@@ -480,7 +486,6 @@ export function DesktopWorkbench() {
             </div>
           )}
           {dockDragActive &&
-            openEditors.length > 0 &&
             !activeSplitGroup &&
             (['left', 'right', 'bottom'] as TerminalDockPosition[]).map((zone) => (
               <div

@@ -94,22 +94,29 @@ export function useMobileKeyboard(
     const virtualInset = getVirtualKeyboardInset()
     return virtualInset > 0 ? virtualInset : getViewportInset()
   }, [getViewportInset, getVirtualKeyboardInset])
-  const closeKeyboard = useCallback((blurInput = false) => {
-    clearKeyboardProbe()
-    clearKeyboardVerify()
-    const shouldEmitClose = keyboardOpenRef.current || keyboardInsetRef.current > 0 || keyboardPeakInsetRef.current > 0 || document.body.classList.contains('keyboard-open')
-    if (shouldEmitClose) recordMobileDebug('keyboard-close', { blurInput })
-    keyboardOpenRef.current = false
-    keyboardInsetRef.current = 0
-    keyboardPeakInsetRef.current = 0
-    keepAliveUntilRef.current = 0
-    viewportGraceUntilRef.current = 0
-    if (shouldEmitClose) keyboardLog('close')
-    document.body.classList.remove('keyboard-open')
-    document.documentElement.style.setProperty('--mobile-keyboard-inset', '0px')
-    if (blurInput && document.activeElement === textareaRef.current) textareaRef.current?.blur()
-    if (shouldEmitClose) emitKeyboardChange(false, 0)
-  }, [clearKeyboardProbe, clearKeyboardVerify, emitKeyboardChange, keyboardLog])
+  const closeKeyboard = useCallback(
+    (blurInput = false) => {
+      clearKeyboardProbe()
+      clearKeyboardVerify()
+      const shouldEmitClose =
+        keyboardOpenRef.current ||
+        keyboardInsetRef.current > 0 ||
+        keyboardPeakInsetRef.current > 0 ||
+        document.body.classList.contains('keyboard-open')
+      if (shouldEmitClose) recordMobileDebug('keyboard-close', { blurInput })
+      keyboardOpenRef.current = false
+      keyboardInsetRef.current = 0
+      keyboardPeakInsetRef.current = 0
+      keepAliveUntilRef.current = 0
+      viewportGraceUntilRef.current = 0
+      if (shouldEmitClose) keyboardLog('close')
+      document.body.classList.remove('keyboard-open')
+      document.documentElement.style.setProperty('--mobile-keyboard-inset', '0px')
+      if (blurInput && document.activeElement === textareaRef.current) textareaRef.current?.blur()
+      if (shouldEmitClose) emitKeyboardChange(false, 0)
+    },
+    [clearKeyboardProbe, clearKeyboardVerify, emitKeyboardChange, keyboardLog],
+  )
   const scheduleKeyboardVerify = useCallback(() => {
     clearKeyboardVerify()
     keyboardVerifyTimerRef.current = setTimeout(() => {
@@ -121,7 +128,8 @@ export function useMobileKeyboard(
       }
       const inset = getObservedKeyboardInset()
       const peakInset = Math.max(keyboardPeakInsetRef.current, keyboardInsetRef.current)
-      const recoveredEnough = inset <= KEYBOARD_CLOSE_THRESHOLD || (peakInset > 0 && (inset <= peakInset * 0.6 || peakInset - inset >= 100))
+      const recoveredEnough =
+        inset <= KEYBOARD_CLOSE_THRESHOLD || (peakInset > 0 && (inset <= peakInset * 0.6 || peakInset - inset >= 100))
       if (recoveredEnough && Date.now() > keepAliveUntilRef.current) {
         closeKeyboard(true)
         return
@@ -129,32 +137,43 @@ export function useMobileKeyboard(
       scheduleKeyboardVerify()
     }, KEYBOARD_VERIFY_MS)
   }, [clearKeyboardVerify, closeKeyboard, getObservedKeyboardInset])
-  const openKeyboard = useCallback((inset: number) => {
-    if (composingRef.current && keyboardOpenRef.current) return
-    keyboardLog('open', inset)
-    recordMobileDebug('keyboard-open', { inset })
-    document.body.classList.add('keyboard-open')
-    const clamped = Math.max(KEYBOARD_OPEN_THRESHOLD, inset)
-    const changed = !keyboardOpenRef.current || Math.abs(clamped - keyboardInsetRef.current) >= 1
-    keyboardOpenRef.current = true
-    keyboardInsetRef.current = clamped
-    keyboardPeakInsetRef.current = Math.max(keyboardPeakInsetRef.current, clamped)
-    document.documentElement.style.setProperty('--mobile-keyboard-inset', `${clamped}px`)
-    scheduleKeyboardVerify()
-    if (changed) emitKeyboardChange(true, clamped)
-  }, [emitKeyboardChange, keyboardLog, scheduleKeyboardVerify])
-  const updateKeyboardInset = useCallback((inset: number) => {
-    if (composingRef.current) return
-    if (!keyboardOpenRef.current || Math.abs(inset - keyboardInsetRef.current) < 1) return
-    keyboardInsetRef.current = inset
-    keyboardPeakInsetRef.current = Math.max(keyboardPeakInsetRef.current, inset)
-    document.documentElement.style.setProperty('--mobile-keyboard-inset', `${inset}px`)
-    scheduleKeyboardVerify()
-    emitKeyboardChange(true, inset)
-  }, [emitKeyboardChange, scheduleKeyboardVerify])
+  const openKeyboard = useCallback(
+    (inset: number) => {
+      if (composingRef.current && keyboardOpenRef.current) return
+      keyboardLog('open', inset)
+      recordMobileDebug('keyboard-open', { inset })
+      document.body.classList.add('keyboard-open')
+      const clamped = Math.max(KEYBOARD_OPEN_THRESHOLD, inset)
+      const changed = !keyboardOpenRef.current || Math.abs(clamped - keyboardInsetRef.current) >= 1
+      keyboardOpenRef.current = true
+      keyboardInsetRef.current = clamped
+      keyboardPeakInsetRef.current = Math.max(keyboardPeakInsetRef.current, clamped)
+      document.documentElement.style.setProperty('--mobile-keyboard-inset', `${clamped}px`)
+      scheduleKeyboardVerify()
+      if (changed) emitKeyboardChange(true, clamped)
+    },
+    [emitKeyboardChange, keyboardLog, scheduleKeyboardVerify],
+  )
+  const updateKeyboardInset = useCallback(
+    (inset: number) => {
+      if (composingRef.current) return
+      if (!keyboardOpenRef.current || Math.abs(inset - keyboardInsetRef.current) < 1) return
+      keyboardInsetRef.current = inset
+      keyboardPeakInsetRef.current = Math.max(keyboardPeakInsetRef.current, inset)
+      document.documentElement.style.setProperty('--mobile-keyboard-inset', `${inset}px`)
+      scheduleKeyboardVerify()
+      emitKeyboardChange(true, inset)
+    },
+    [emitKeyboardChange, scheduleKeyboardVerify],
+  )
   const isKeyboardOwnerActive = useCallback(() => {
     const ta = textareaRef.current
-    return !!ta && (document.activeElement === ta || Date.now() <= keepAliveUntilRef.current || (keyboardOpenRef.current && Date.now() <= viewportGraceUntilRef.current))
+    return (
+      !!ta &&
+      (document.activeElement === ta ||
+        Date.now() <= keepAliveUntilRef.current ||
+        (keyboardOpenRef.current && Date.now() <= viewportGraceUntilRef.current))
+    )
   }, [])
 
   const setImeComposing = useCallback((active: boolean) => {
@@ -166,7 +185,9 @@ export function useMobileKeyboard(
     const ta = textareaRef.current
     if (!ta || composingRef.current) return
     ta.value = SENTINEL
-    try { ta.setSelectionRange(SENTINEL_CENTER, SENTINEL_CENTER) } catch {}
+    try {
+      ta.setSelectionRange(SENTINEL_CENTER, SENTINEL_CENTER)
+    } catch {}
   }, [])
   const getInputText = useCallback(() => textareaRef.current?.value.replace(/\u200b/g, '') || '', [])
   const clearDeferredInputTimer = useCallback(() => {
@@ -217,23 +238,36 @@ export function useMobileKeyboard(
       clearValue()
     }, DEFERRED_INPUT_COMMIT_MS)
   }, [clearDeferredInputTimer, clearValue, getInputText, sendInput])
-  const shouldDeferInput = useCallback((inputType?: string, text?: string | null) => inputType === 'insertCompositionText' || inputType === 'insertReplacementText' || !!text && text.length > 1, [])
+  const shouldDeferInput = useCallback(
+    (inputType?: string, text?: string | null) =>
+      inputType === 'insertCompositionText' || inputType === 'insertReplacementText' || (!!text && text.length > 1),
+    [],
+  )
   const confirmKeyboardOpen = useCallback(() => {
     const ta = textareaRef.current
     if (!ta || document.activeElement !== ta) return false
-    const inset = getViewportInset()
+    const inset = getObservedKeyboardInset()
     if (inset < KEYBOARD_OPEN_THRESHOLD) return false
     openKeyboard(inset)
     return true
-  }, [getViewportInset, openKeyboard])
-  const scheduleKeyboardProbe = useCallback((blurOnMiss = false) => {
-    clearKeyboardProbe()
-    keyboardProbeTimerRef.current = setTimeout(() => {
-      keyboardProbeTimerRef.current = null
-      if (confirmKeyboardOpen()) return
-      if (blurOnMiss && !composingRef.current && !keyboardOpenRef.current && document.activeElement === textareaRef.current) textareaRef.current?.blur()
-    }, KEYBOARD_PROBE_MS)
-  }, [clearKeyboardProbe, confirmKeyboardOpen])
+  }, [getObservedKeyboardInset, openKeyboard])
+  const scheduleKeyboardProbe = useCallback(
+    (blurOnMiss = false) => {
+      clearKeyboardProbe()
+      keyboardProbeTimerRef.current = setTimeout(() => {
+        keyboardProbeTimerRef.current = null
+        if (confirmKeyboardOpen()) return
+        if (
+          blurOnMiss &&
+          !composingRef.current &&
+          !keyboardOpenRef.current &&
+          document.activeElement === textareaRef.current
+        )
+          textareaRef.current?.blur()
+      }, KEYBOARD_PROBE_MS)
+    },
+    [clearKeyboardProbe, confirmKeyboardOpen],
+  )
   const focusKeyboard = useCallback(() => {
     const ta = textareaRef.current
     if (!ta) return
@@ -279,7 +313,15 @@ export function useMobileKeyboard(
       End: '\x1b[F',
     }
     const handleKeyDown = (e: KeyboardEvent) => {
-      recordMobileDebug('keydown', { key: e.key, keyCode: e.keyCode, which: e.which, repeat: e.repeat, isComposing: e.isComposing, composing: composingRef.current, deferred: deferredInputActiveRef.current })
+      recordMobileDebug('keydown', {
+        key: e.key,
+        keyCode: e.keyCode,
+        which: e.which,
+        repeat: e.repeat,
+        isComposing: e.isComposing,
+        composing: composingRef.current,
+        deferred: deferredInputActiveRef.current,
+      })
       if (composingRef.current || (isImeKeyEvent(e) && !ARROW_KEYS[e.key])) return
       if (deferredInputActiveRef.current) {
         if (e.key === 'Enter' || e.key === 'Tab' || ARROW_KEYS[e.key]) {
@@ -320,11 +362,27 @@ export function useMobileKeyboard(
       }
     }
     const handleWindowKeyDown = (e: KeyboardEvent) => {
-      recordMobileDebug('window-keydown', { key: e.key, keyCode: e.keyCode, which: e.which, target: e.target instanceof Element ? `${e.target.tagName}.${String((e.target as HTMLElement).className || '').slice(0,60)}` : '', active: document.activeElement instanceof HTMLElement ? `${document.activeElement.tagName}.${String(document.activeElement.className || '').slice(0,60)}` : '' })
+      recordMobileDebug('window-keydown', {
+        key: e.key,
+        keyCode: e.keyCode,
+        which: e.which,
+        target:
+          e.target instanceof Element
+            ? `${e.target.tagName}.${String((e.target as HTMLElement).className || '').slice(0, 60)}`
+            : '',
+        active:
+          document.activeElement instanceof HTMLElement
+            ? `${document.activeElement.tagName}.${String(document.activeElement.className || '').slice(0, 60)}`
+            : '',
+      })
       if (composingRef.current || isImeKeyEvent(e)) return
       const active = document.activeElement
       if (active === ta) return
-      if (active instanceof HTMLElement && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return
+      if (
+        active instanceof HTMLElement &&
+        (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)
+      )
+        return
       if (e.key === 'Backspace') {
         e.preventDefault()
         sendInput('\x7f')
@@ -347,12 +405,22 @@ export function useMobileKeyboard(
       }
     }
     const handleSelectionChange = () => {
-      recordMobileDebug('selectionchange', { start: ta.selectionStart ?? -1, end: ta.selectionEnd ?? -1, value: ta.value.slice(0, 12) })
+      recordMobileDebug('selectionchange', {
+        start: ta.selectionStart ?? -1,
+        end: ta.selectionEnd ?? -1,
+        value: ta.value.slice(0, 12),
+      })
     }
 
     const handleBeforeInput = (e: InputEvent) => {
       const inputType = e.inputType
-      recordMobileDebug('beforeinput', { inputType, data: e.data || null, cancelled: e.defaultPrevented, composing: composingRef.current, deferred: deferredInputActiveRef.current })
+      recordMobileDebug('beforeinput', {
+        inputType,
+        data: e.data || null,
+        cancelled: e.defaultPrevented,
+        composing: composingRef.current,
+        deferred: deferredInputActiveRef.current,
+      })
       if (inputType === 'insertCompositionText') {
         stopDeleteRepeat()
         clearDeferredInputTimer()
@@ -381,7 +449,13 @@ export function useMobileKeyboard(
       const inputEvent = e as InputEvent
       const inputType = inputEvent.inputType
       const text = getInputText()
-      recordMobileDebug('input', { inputType, data: inputEvent.data || null, len: text.length, composing: composingRef.current, deferred: deferredInputActiveRef.current })
+      recordMobileDebug('input', {
+        inputType,
+        data: inputEvent.data || null,
+        len: text.length,
+        composing: composingRef.current,
+        deferred: deferredInputActiveRef.current,
+      })
       if (inputType === 'insertCompositionText') {
         stopDeleteRepeat()
         clearDeferredInputTimer()
@@ -394,7 +468,11 @@ export function useMobileKeyboard(
         composingLengthRef.current = textareaRef.current?.value.length || 0
         return
       }
-      if (deferredInputActiveRef.current || shouldDeferInput(inputType, inputEvent.data) || inputType === 'insertText' && text.length > 1) {
+      if (
+        deferredInputActiveRef.current ||
+        shouldDeferInput(inputType, inputEvent.data) ||
+        (inputType === 'insertText' && text.length > 1)
+      ) {
         stopDeleteRepeat()
         if (text) scheduleDeferredInputFlush()
         else {
@@ -404,7 +482,13 @@ export function useMobileKeyboard(
         }
         return
       }
-      if (inputType === 'deleteContentBackward' || inputType === 'deleteContentForward' || inputType === 'deleteByCut' || inputType === 'deleteByDrag' || inputType === 'deleteContent') {
+      if (
+        inputType === 'deleteContentBackward' ||
+        inputType === 'deleteContentForward' ||
+        inputType === 'deleteByCut' ||
+        inputType === 'deleteByDrag' ||
+        inputType === 'deleteContent'
+      ) {
         keyupPendingRef.current = false
         lastDeleteEventAtRef.current = Date.now()
         sendInput('\x7f')
@@ -522,7 +606,24 @@ export function useMobileKeyboard(
       clearDeferredInputTimer()
       stopDeleteRepeat()
     }
-  }, [sendInput, clearValue, setImeComposing, focusKeyboard, closeKeyboard, confirmKeyboardOpen, scheduleKeyboardProbe, openKeyboard, keyboardLog, getInputText, flushDeferredInput, scheduleDeferredInputFlush, clearDeferredInputTimer, shouldDeferInput, startDeleteRepeat, stopDeleteRepeat])
+  }, [
+    sendInput,
+    clearValue,
+    setImeComposing,
+    focusKeyboard,
+    closeKeyboard,
+    confirmKeyboardOpen,
+    scheduleKeyboardProbe,
+    openKeyboard,
+    keyboardLog,
+    getInputText,
+    flushDeferredInput,
+    scheduleDeferredInputFlush,
+    clearDeferredInputTimer,
+    shouldDeferInput,
+    startDeleteRepeat,
+    stopDeleteRepeat,
+  ])
 
   useEffect(() => {
     if (!isMobile.current) return
@@ -530,14 +631,22 @@ export function useMobileKeyboard(
     const handleViewportResize = () => {
       const vv = window.visualViewport
       if (!vv) return
-      recordMobileDebug('keyboard-viewport-resize', { height: vv.height, baseHeight: viewportBaseHeightRef.current, active: document.activeElement === textareaRef.current, open: keyboardOpenRef.current, composing: composingRef.current })
+      recordMobileDebug('keyboard-viewport-resize', {
+        height: vv.height,
+        baseHeight: viewportBaseHeightRef.current,
+        active: document.activeElement === textareaRef.current,
+        open: keyboardOpenRef.current,
+        composing: composingRef.current,
+      })
       if (composingRef.current) return
       if (!isKeyboardOwnerActive() && Date.now() > keepAliveUntilRef.current) {
-        if (!keyboardOpenRef.current && vv.height > viewportBaseHeightRef.current) viewportBaseHeightRef.current = vv.height
+        if (!keyboardOpenRef.current && vv.height > viewportBaseHeightRef.current)
+          viewportBaseHeightRef.current = vv.height
         closeKeyboard()
         return
       }
-      const inset = getViewportInset()
+      // overlaysContent 模式下 vv 变化来自地址栏而非键盘，优先取 virtualKeyboard 几何
+      const inset = getObservedKeyboardInset()
       const isOpen = keyboardOpenRef.current
       if (!isOpen && inset >= KEYBOARD_OPEN_THRESHOLD) {
         openKeyboard(inset)
@@ -563,7 +672,15 @@ export function useMobileKeyboard(
       composingRef.current = false
       closeKeyboard()
     }
-  }, [closeKeyboard, focusKeyboard, isKeyboardOwnerActive, openKeyboard, getViewportInset, scheduleKeyboardVerify, updateKeyboardInset])
+  }, [
+    closeKeyboard,
+    focusKeyboard,
+    isKeyboardOwnerActive,
+    openKeyboard,
+    getObservedKeyboardInset,
+    scheduleKeyboardVerify,
+    updateKeyboardInset,
+  ])
 
   useEffect(() => {
     const dismiss = () => closeKeyboard(true)

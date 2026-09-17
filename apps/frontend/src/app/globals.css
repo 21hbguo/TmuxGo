@@ -26,8 +26,9 @@
   --glass-highlight: rgb(255 255 255 / 14%);
   --glass-shadow: none;
   --glass-shadow-hover: none;
-  --font-ui: 'Maple Mono CN', monospace;
-  --font-mono: 'Maple Mono CN', monospace;
+  /* VSCode 风格：JetBrains Mono 拉丁 + 系统 CJK 回退（Linux/macOS/Windows 顺序） */
+  --font-ui: 'JetBrains Mono', 'Noto Sans Mono CJK SC', 'PingFang SC', 'Microsoft YaHei', monospace;
+  --font-mono: 'JetBrains Mono', 'Noto Sans Mono CJK SC', 'PingFang SC', 'Microsoft YaHei', monospace;
   --radius-apple: 16px;
   --fs-caption: 10px;
   --fs-meta: 12px;
@@ -184,15 +185,15 @@
 }
 
 @font-face {
-  font-family: 'Maple Mono CN';
-  src: url('/fonts/MapleMonoCN-Regular.woff2') format('woff2');
+  font-family: 'JetBrains Mono';
+  src: url('/fonts/JetBrainsMono-Regular.woff2') format('woff2');
   font-weight: 100 600;
   font-style: normal;
   font-display: swap;
 }
 @font-face {
-  font-family: 'Maple Mono CN';
-  src: url('/fonts/MapleMonoCN-Bold.woff2') format('woff2');
+  font-family: 'JetBrains Mono';
+  src: url('/fonts/JetBrainsMono-Bold.woff2') format('woff2');
   font-weight: 601 900;
   font-style: normal;
   font-display: swap;

@@ -494,17 +494,128 @@ function isNavigableFileName(name: string) {
   const lower = (name || '').toLowerCase()
   return NAVIGABLE_EXTENSIONS.some((ext) => lower.endsWith(ext))
 }
+function escapeRegExpText(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+// 非 TS/JS 语言的兜底定义跳转：按置信度排列的模式匹配（关键字定义 → 带返回类型 → 裸 name( → 标注/赋值）
+const GENERIC_DEFINITION_MODIFIERS =
+  '(?:export|default|async|public|private|protected|static|final|abstract|override|open|virtual|inline|constexpr|extern|mut|unsafe|internal|pub|readonly|declare|global)\\s+'
+function buildGenericDefinitionPatterns(word: string) {
+  const escaped = escapeRegExpText(word)
+  return [
+    // def foo( / function foo( / func (r *T) foo( / class Foo / const foo —— 关键字 + 可选接收者
+    new RegExp(
+      `^\\s*(?:${GENERIC_DEFINITION_MODIFIERS})*(?:def|function|func|fn|fun|class|interface|struct|enum|union|trait|impl|type|typedef|namespace|module|mod|sub|proc|procedure|macro|const|let|var|val|local)\\s+(?:\\([^()]*\\)\\s*)?${escaped}\\b`,
+    ),
+    // int foo( / public static String foo( —— 带返回类型的 C/Java 系定义
+    new RegExp(`^\\s*(?:${GENERIC_DEFINITION_MODIFIERS})*(?:[\\w.<>\\[\\]*&?]+\\s+)+${escaped}\\s*\\(`),
+    // foo( / foo () { —— shell 函数、K&R C、类方法
+    new RegExp(`^\\s*${escaped}\\s*\\(`),
+    // foo: / foo := —— 类型标注、Go 短变量声明
+    new RegExp(`^\\s*${escaped}\\s*:`),
+    // foo = / foo: T = —— 顶层赋值（排除 ==、=>）
+    new RegExp(`^\\s*${escaped}\\s*(?::[^=\\n]+)?=(?![=>])`),
+  ]
+}
+function extractWordAtPosition(content: string, line: number, column: number) {
+  const lineText = content.split(/\r?\n/)[Math.max(0, line - 1)] || ''
+  const index = Math.min(Math.max(0, column - 1), lineText.length)
+  const isWordChar = (char: string) => /[\p{L}\p{N}_$]/u.test(char)
+  let start = index
+  let end = index
+  while (start > 0 && isWordChar(lineText[start - 1])) start -= 1
+  while (end < lineText.length && isWordChar(lineText[end])) end += 1
+  const word = lineText.slice(start, end)
+  return word && /[\p{L}_$]/u.test(word[0]) ? word : null
+}
+function wordColumn(lineText: string, word: string) {
+  const match = new RegExp(`\\b${escapeRegExpText(word)}\\b`).exec(lineText)
+  return match ? match.index + 1 : 1
+}
+function findGenericDefinition(content: string, word: string, excludeLine: number) {
+  const lines = content.split(/\r?\n/)
+  for (const pattern of buildGenericDefinitionPatterns(word)) {
+    let selfHit: { line: number; column: number } | null = null
+    for (let index = 0; index < lines.length; index += 1) {
+      if (!pattern.test(lines[index])) continue
+      const hit = { line: index + 1, column: wordColumn(lines[index], word) }
+      if (index + 1 === excludeLine) {
+        // 光标就在定义行：记录后跳过，优先返回其它匹配；无其它匹配才返回自身（原地跳）
+        if (!selfHit) selfHit = hit
+        continue
+      }
+      return hit
+    }
+    if (selfHit) return selfHit
+  }
+  return null
+}
+async function resolveGenericDefinition(
+  context: ResolverContext,
+  entryFile: ResolverFile,
+  position: { line: number; column: number },
+): Promise<CodeNavigationResult> {
+  const word = extractWordAtPosition(entryFile.content, position.line, position.column)
+  if (!word) return { status: 'not-found' }
+  const toTarget = (file: FileDocumentHandle, hit: { line: number; column: number }): CodeNavigationResult => ({
+    status: 'success',
+    target: {
+      id: file.id,
+      hostId: file.hostId,
+      rootId: file.rootId,
+      rootLabel: file.rootLabel,
+      rootPath: file.rootPath,
+      path: file.path,
+      name: file.name,
+      absolutePath: file.absolutePath,
+      type: 'file',
+      line: hit.line,
+      column: hit.column,
+    },
+  })
+  const local = findGenericDefinition(entryFile.content, word, position.line)
+  if (local) return toTarget(entryFile, local)
+  // 已打开编辑器的内容（含未保存修改）优先于远端搜索
+  for (const openEditor of context.openEditors.values()) {
+    if (normalizePath(openEditor.absolutePath) === entryFile.absolutePath) continue
+    if (openEditor.kind === 'compare' || openEditor.binary || openEditor.truncated || !openEditor.content) continue
+    const hit = findGenericDefinition(openEditor.content, word, -1)
+    if (hit) return toTarget(openEditor, hit)
+  }
+  try {
+    const results = await api.files.searchContent(context.hostId, context.rootId, word)
+    for (const pattern of buildGenericDefinitionPatterns(word)) {
+      for (const file of results) {
+        if (file.type !== 'file') continue
+        const absolutePath = joinPath(context.rootPath, file.path)
+        if (normalizePath(absolutePath) === entryFile.absolutePath) continue
+        for (const match of file.matches || []) {
+          if (!pattern.test(match.content)) continue
+          return toTarget(
+            {
+              id: `${context.hostId}:${context.rootId}:${file.path}`,
+              hostId: context.hostId,
+              rootId: context.rootId,
+              rootLabel: context.rootLabel,
+              rootPath: context.rootPath,
+              path: file.path,
+              name: file.name || basenamePath(file.path),
+              absolutePath,
+              type: 'file',
+            },
+            { line: match.number, column: wordColumn(match.content, word) },
+          )
+        }
+      }
+    }
+  } catch {}
+  return { status: 'not-found' }
+}
 export async function resolveEditorDefinition(
   editor: FileEditorDocument,
   position: { line: number; column: number },
   openEditors: FileEditorDocument[],
 ): Promise<CodeNavigationResult> {
-  if (
-    !SUPPORTED_LANGUAGES.has(editor.language) &&
-    !isNavigableFileName(editor.name || editor.path || editor.absolutePath)
-  )
-    return { status: 'unsupported' }
-  const ts = await loadTypeScript()
   const openEditorMap = new Map(openEditors.map((item) => [normalizePath(item.absolutePath), item] as const))
   openEditorMap.set(normalizePath(editor.absolutePath), editor)
   const context: ResolverContext = {
@@ -520,6 +631,10 @@ export async function resolveEditorDefinition(
   }
   const entryFile = await readResolverFile(context, editor.absolutePath)
   if (!entryFile) return { status: 'not-found' }
+  const tsNavigable =
+    SUPPORTED_LANGUAGES.has(editor.language) || isNavigableFileName(editor.name || editor.path || editor.absolutePath)
+  if (!tsNavigable) return resolveGenericDefinition(context, entryFile, position)
+  const ts = await loadTypeScript()
   const entrySourceFile = ts.createSourceFile(
     entryFile.absolutePath,
     entryFile.content,

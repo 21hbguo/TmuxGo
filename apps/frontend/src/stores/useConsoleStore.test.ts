@@ -74,16 +74,14 @@ describe('useConsoleStore editor persistence', () => {
   it('updates persisted active editor when switching tabs', async () => {
     const { useConsoleStore, flushPersistedStorage } = await importStore()
     useConsoleStore.getState().openEditor(sampleEditor)
-    useConsoleStore
-      .getState()
-      .openEditor({
-        ...sampleEditor,
-        id: 'local:root-workspace:docs/guide.md',
-        path: 'docs/guide.md',
-        name: 'guide.md',
-        absolutePath: '/workspace/docs/guide.md',
-        language: 'markdown',
-      })
+    useConsoleStore.getState().openEditor({
+      ...sampleEditor,
+      id: 'local:root-workspace:docs/guide.md',
+      path: 'docs/guide.md',
+      name: 'guide.md',
+      absolutePath: '/workspace/docs/guide.md',
+      language: 'markdown',
+    })
     useConsoleStore.getState().setActiveEditor(sampleEditor.id)
     flushPersistedStorage()
     const persisted = JSON.parse(localStorage.getItem('tmuxgo-console-state:desktop') || '{}')
@@ -245,5 +243,46 @@ describe('useConsoleStore editor persistence', () => {
     expect(state.editorLayout?.type).toBe('split')
     expect(state.editorLayout?.type === 'split' ? state.editorLayout.ratio : null).toBe(0.8)
     expect(state.editorSplitRatio).toBe(0.8)
+  })
+  it('minimizes and restores the desktop instead of closing it', async () => {
+    const { useConsoleStore } = await import('./useConsoleStore')
+    useConsoleStore.getState().toggleDesktop('local', 5900)
+    let desktop = useConsoleStore.getState().activeDesktop
+    expect(desktop).toMatchObject({ hostId: 'local', port: 5900, view: 'full', minimized: false })
+    // 可见时再点桌面 tab → 最小化挂后台，activeDesktop 保留（不卸载、不重连）
+    useConsoleStore.getState().toggleDesktop('local')
+    desktop = useConsoleStore.getState().activeDesktop
+    expect(desktop).toMatchObject({ hostId: 'local', minimized: true })
+    // 最小化时再点 → 还原，连接仍在
+    useConsoleStore.getState().toggleDesktop('local')
+    desktop = useConsoleStore.getState().activeDesktop
+    expect(desktop).toMatchObject({ hostId: 'local', minimized: false })
+    // 关闭按钮才真正销毁
+    useConsoleStore.getState().setActiveDesktop(null)
+    expect(useConsoleStore.getState().activeDesktop).toBeNull()
+  })
+  it('parks the fullscreen desktop when another panel opens but keeps a floating window', async () => {
+    const { useConsoleStore } = await import('./useConsoleStore')
+    useConsoleStore.getState().toggleDesktop('local', 5900)
+    // 全屏态打开其他面板 → 挂后台
+    useConsoleStore.getState().toggleGitPanel()
+    expect(useConsoleStore.getState().gitPanelOpen).toBe(true)
+    expect(useConsoleStore.getState().activeDesktop).toMatchObject({ minimized: true })
+    // 窗口态打开其他面板 → 浮窗保留，可边用其他 tab 边用桌面
+    useConsoleStore.getState().setDesktopView('window')
+    useConsoleStore.getState().setDesktopMinimized(false)
+    useConsoleStore.getState().toggleFilePanel()
+    expect(useConsoleStore.getState().filePanelOpen).toBe(true)
+    expect(useConsoleStore.getState().activeDesktop).toMatchObject({ view: 'window', minimized: false })
+  })
+  it('switches desktop view between full and window', async () => {
+    const { useConsoleStore } = await import('./useConsoleStore')
+    useConsoleStore.getState().toggleDesktop('local', 5900)
+    useConsoleStore.getState().setDesktopView('window')
+    expect(useConsoleStore.getState().activeDesktop).toMatchObject({ view: 'window', minimized: false })
+    useConsoleStore.getState().setDesktopMinimized(true)
+    useConsoleStore.getState().setDesktopView('full')
+    // 切视图同时解除最小化
+    expect(useConsoleStore.getState().activeDesktop).toMatchObject({ view: 'full', minimized: false })
   })
 })

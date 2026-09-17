@@ -8,6 +8,9 @@ import {
   FiEye,
   FiEyeOff,
   FiKey,
+  FiMaximize2,
+  FiMinimize2,
+  FiMinus,
   FiMonitor,
   FiPlay,
   FiSliders,
@@ -37,7 +40,7 @@ import {
   writeVncPort,
 } from '@/lib/vnc-tuning'
 import { getVncWebSocketBase } from '@/lib/runtime-endpoints'
-import { useConsoleStore } from '@/stores/useConsoleStore'
+import { useConsoleStore, type DesktopViewMode } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
 
 type VncStatus = 'idle' | 'connecting' | 'connected' | 'disconnected'
@@ -68,10 +71,13 @@ const sameVncTuning = (a: VncTuning, b: VncTuning) =>
 interface DesktopViewProps {
   hostId: string
   port: number
+  view: DesktopViewMode
+  onViewChange: (view: DesktopViewMode) => void
+  onMinimize: () => void
   onClose: () => void
 }
 
-export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
+export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onClose }: DesktopViewProps) {
   const { t } = useTranslation()
   const pushToast = useConsoleStore((state) => state.pushToast)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -478,7 +484,12 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
           : ''
   return (
     <section className="tmuxgo-content-surface flex h-full min-h-0 flex-col overflow-hidden">
-      <header className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--line)] px-3">
+      <header
+        data-desktop-titlebar
+        className={`flex h-11 shrink-0 items-center gap-2 border-b border-[var(--line)] px-3 ${
+          view === 'window' ? 'touch-none select-none' : ''
+        }`}
+      >
         <span className="flex h-6 w-6 items-center justify-center rounded-apple bg-bg-2 text-accent">
           <FiMonitor size={13} />
         </span>
@@ -691,6 +702,35 @@ export function DesktopView({ hostId, port, onClose }: DesktopViewProps) {
           className={showStats ? 'text-accent' : ''}
         >
           <FiActivity size={14} />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={() => onViewChange('full')}
+          aria-label={t('vnc.fullscreen')}
+          title={t('vnc.fullscreen')}
+          className={view === 'full' ? 'text-accent' : ''}
+        >
+          <FiMaximize2 size={14} />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={onMinimize}
+          aria-label={t('vnc.minimize')}
+          title={t('vnc.minimize')}
+        >
+          <FiMinus size={14} />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={() => onViewChange('window')}
+          aria-label={t('vnc.windowed')}
+          title={t('vnc.windowed')}
+          className={view === 'window' ? 'text-accent' : ''}
+        >
+          <FiMinimize2 size={14} />
         </Button>
         <Button
           variant="ghost"

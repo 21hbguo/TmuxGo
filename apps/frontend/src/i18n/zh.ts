@@ -678,6 +678,7 @@ export const zh = {
   'file.upToParent': '返回上一级',
   'file.clearSearch': '清空搜索',
   'editor.dropOpen': '松开打开文件',
+  'editor.emptyArea': '暂无打开的文件，从文件区拖入或双击打开',
   'editor.drop.center': '松开打开文件',
   'editor.drop.left': '松开后在左侧打开',
   'editor.drop.right': '松开后在右侧打开',
@@ -902,7 +903,7 @@ export const zh = {
   'terminal.dock.bottom': '底部',
   'terminal.dock.left': '左侧',
   'terminal.dock.right': '右侧',
-  'terminal.dockHint': '终端区位置：{position}（点击切换，可拖到工作区边缘停靠）',
+  'terminal.dockHint': '终端区位置：{position}（点击展开选项，拖动此栏到工作区边缘停靠）',
 
   // Clipboard
   'clipboard.copyFailed': '复制失败',
@@ -1068,6 +1069,9 @@ export const zh = {
   'git.switchRepo': '切换仓库',
 
   'vnc.title': '桌面',
+  'vnc.fullscreen': '全屏',
+  'vnc.minimize': '最小化',
+  'vnc.windowed': '窗口化',
   'vnc.connect': '连接',
   'vnc.disconnect': '断开',
   'vnc.connecting': '连接中…',

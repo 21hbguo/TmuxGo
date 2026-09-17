@@ -42,6 +42,7 @@ import { FiX } from 'react-icons/fi'
 import { AgentStatusBadge } from './AgentStatusBadge'
 import { PluginView } from './PluginView'
 import { DesktopView } from './DesktopView'
+import { DesktopWindow } from './DesktopWindow'
 import { shouldResumeFromContinuity } from '@/lib/session-continuity-policy'
 
 const MOBILE_QUERY = '(max-width: 1023px)'
@@ -431,7 +432,11 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
   useEffect(() => {
     const handleOrientation = () => window.setTimeout(() => scheduleViewportSync(), 80)
     const handleResize = () => scheduleViewportSync()
-    const handleFullscreen = () => window.setTimeout(() => scheduleViewportSync(), 16)
+    const handleFullscreen = (event?: Event) => {
+      // 自身 viewport-sync 广播回流会再排一次相同同步，跳过
+      if ((event as CustomEvent | undefined)?.detail?.reason === 'viewport-sync') return
+      window.setTimeout(() => scheduleViewportSync(), 16)
+    }
     scheduleViewportSync()
     window.addEventListener('resize', handleResize)
     window.visualViewport?.addEventListener('resize', handleResize)
@@ -596,7 +601,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
         window.dispatchEvent(new CustomEvent('tmuxgo-mobile-git-back', { detail: { handled: false } }))
       } else if (top === 'mobile-git') setMobileGitSheetOpen(false)
       else if (top === 'mobile-plugin') setMobilePluginView(null)
-      else if (top === 'desktop') useConsoleStore.getState().setActiveDesktop(null)
+      else if (top === 'desktop') useConsoleStore.getState().setDesktopMinimized(true)
       stack.pop()
     }
     window.addEventListener('popstate', handlePopState)
@@ -665,7 +670,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
   }, [dismissSettings, isMobile, pushOverlay])
   // 桌面投影在移动端以覆盖层呈现，需要进 history 栈保证返回键可关闭
   useEffect(() => {
-    if (activeDesktop && isMobile) pushOverlay('desktop')
+    if (activeDesktop && !activeDesktop.minimized && isMobile) pushOverlay('desktop')
   }, [activeDesktop, isMobile, pushOverlay])
   useEffect(() => {
     setMobileRecentSessionIds(readMobileRecentSessions(activeHostId || ''))
@@ -905,15 +910,26 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
         </div>
       )}
       {activeDesktop && (
-        <div className="fixed inset-0 z-[85] bg-bg-0" style={{ height: 'var(--app-height,100dvh)' }}>
-          <DesktopView
-            hostId={activeDesktop.hostId}
-            port={activeDesktop.port}
-            onClose={() => {
-              useConsoleStore.getState().setActiveDesktop(null)
-              closeOverlay('desktop')
-            }}
-          />
+        // 最小化用 visibility 而非卸载：DesktopView 保持挂载，RFB 连接不断开
+        <div
+          className={`fixed inset-0 z-[85] ${
+            activeDesktop.minimized ? 'invisible' : activeDesktop.view === 'window' ? 'pointer-events-none' : 'bg-bg-0'
+          }`}
+          style={{ height: 'var(--app-height,100dvh)' }}
+        >
+          <DesktopWindow windowed={activeDesktop.view === 'window'}>
+            <DesktopView
+              hostId={activeDesktop.hostId}
+              port={activeDesktop.port}
+              view={activeDesktop.view}
+              onViewChange={(view) => useConsoleStore.getState().setDesktopView(view)}
+              onMinimize={() => useConsoleStore.getState().setDesktopMinimized(true)}
+              onClose={() => {
+                useConsoleStore.getState().setActiveDesktop(null)
+                closeOverlay('desktop')
+              }}
+            />
+          </DesktopWindow>
         </div>
       )}
       <ToastViewport />
