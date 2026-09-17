@@ -79,6 +79,14 @@ def breadcrumbs(rel):
  out=[{'name':'/','path':''}]
  for i,name in enumerate(parts): out.append({'name':name,'path':'/'.join(parts[:i+1])})
  return out
+def copy_name(directory,name):
+ dot=name.rfind('.')
+ stem,ext=(name[:dot],name[dot:]) if dot>0 else (name,'')
+ for i in range(1000):
+  suffix='' if i==0 else (' copy' if i==1 else ' copy '+str(i))
+  candidate=stem+suffix+ext
+  if not (pathlib.Path(directory)/candidate).exists(): return candidate
+ raise Exception('Too many conflicting files')
 include_dotfiles=payload.get('includeDotFiles',True)
 if isinstance(include_dotfiles,str): include_dotfiles=include_dotfiles.lower()!='false'
 op=payload['op']
@@ -201,8 +209,7 @@ if op=='rename':
 if op in ('copy','move'):
  target_root,target_dir,target_rel=resolve_inside(payload.get('targetRoot',''),payload.get('targetPath',''))
  if not pathlib.Path(target_dir).is_dir(): raise Exception('Target directory not found')
- target=str(pathlib.Path(target_dir)/pathlib.Path(abs_path).name)
- if pathlib.Path(target).exists(): raise Exception('Target already exists')
+ target=str(pathlib.Path(target_dir)/copy_name(target_dir,pathlib.Path(abs_path).name))
  if op=='move': shutil.move(abs_path,target)
  elif pathlib.Path(abs_path).is_dir(): shutil.copytree(abs_path,target)
  else: shutil.copy2(abs_path,target)

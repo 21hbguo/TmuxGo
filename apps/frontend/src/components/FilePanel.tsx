@@ -1601,7 +1601,7 @@ export function FilePanel({
           : currentPath
     try {
       const call = clip.move ? api.files.move : api.files.copy
-      await call(
+      const result = await call(
         fileHostId,
         clip.rootId,
         clip.path,
@@ -1610,7 +1610,7 @@ export function FilePanel({
       )
       if (clip.move) setFileClipboard(null)
       refreshFiles()
-      pushToast({ type: 'success', message: t(clip.move ? 'file.moved' : 'file.copied', { name: clip.name }) })
+      pushToast({ type: 'success', message: t(clip.move ? 'file.moved' : 'file.copied', { name: result.item.name }) })
     } catch (err) {
       pushToast({ type: 'error', message: err instanceof Error ? err.message : t('file.transferFailed') })
     }
