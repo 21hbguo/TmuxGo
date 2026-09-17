@@ -33,6 +33,7 @@ import {
   FiFileText,
   FiFolder,
   FiLayers,
+  FiRefreshCw,
   FiSearch,
   FiStar,
   FiTrash2,
@@ -616,6 +617,14 @@ export function FilePanel({
   const [lastTrashedItem, setLastTrashedItem] = useState<TrashEntry | null>(null)
   const [trashEntries, setTrashEntries] = useState<TrashEntry[]>([])
   const [trashOpen, setTrashOpen] = useState(false)
+  const [fileClipboard, setFileClipboard] = useState<{
+    hostId: string
+    rootId: string
+    path: string
+    itemPath: string
+    name: string
+    move: boolean
+  } | null>(null)
   const [imagePreviewUrl, setImagePreviewUrl] = useState('')
   const virtualRoots = useMemo(
     () =>
@@ -842,6 +851,7 @@ export function FilePanel({
     setFollowSuspended(false)
     lastAppliedWorkspaceSessionRef.current = undefined
     directoryLoadingRef.current.clear()
+    setFileClipboard(null)
   }, [fileHostId])
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedQuery(query.trim()), SEARCH_INPUT_DEBOUNCE_MS)
@@ -1569,6 +1579,96 @@ export function FilePanel({
   const showContextMenu = (x: number, y: number, item: FileEntry | null, directoryPath: string) => {
     setContextMenu({ x, y, item, directoryPath, mobile: isMobile })
   }
+  // 树模式下选中项可能在已展开目录的子级缓存里，需展开全量节点查找
+  const selectedItem = useMemo(() => {
+    if (!selectedPath) return null
+    const stack = [...desktopTreeData]
+    while (stack.length) {
+      const node = stack.pop()!
+      if (node.item.path === selectedPath) return node.item
+      if (node.children) stack.push(...node.children)
+    }
+    return visibleItems.find((item) => item.path === selectedPath) || null
+  }, [desktopTreeData, selectedPath, visibleItems])
+  const pasteFileClipboard = async () => {
+    const clip = fileClipboard
+    if (!clip || clip.hostId !== fileHostId) return
+    const targetDir =
+      selectedItem?.type === 'directory'
+        ? selectedItem.path
+        : selectedItem
+          ? getParentPath(selectedItem.path)
+          : currentPath
+    try {
+      const call = clip.move ? api.files.move : api.files.copy
+      await call(
+        fileHostId,
+        clip.rootId,
+        clip.path,
+        activeRootId,
+        resolveRootRelativePath(activeRootBasePath, targetDir),
+      )
+      if (clip.move) setFileClipboard(null)
+      refreshFiles()
+      pushToast({ type: 'success', message: t(clip.move ? 'file.moved' : 'file.copied', { name: clip.name }) })
+    } catch (err) {
+      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('file.transferFailed') })
+    }
+  }
+  // 对齐 VSCode Explorer：列表聚焦时支持文件级快捷键
+  const handleListKeyDown = (e: React.KeyboardEvent) => {
+    const target = e.target as HTMLElement | null
+    if (target?.closest('input,textarea,select,[contenteditable="true"]')) return
+    if (contextMenu || pendingDeleteItem) return
+    const mod = e.ctrlKey || e.metaKey
+    const key = e.key.toLowerCase()
+    if (e.key === 'F5' || (mod && key === 'r')) {
+      e.preventDefault()
+      refreshFiles()
+      return
+    }
+    if (mod && key === 'z' && !e.shiftKey) {
+      if (lastTrashedItem) {
+        e.preventDefault()
+        void restoreTrash(lastTrashedItem)
+      }
+      return
+    }
+    if (mod && key === 'v') {
+      if (fileClipboard) {
+        e.preventDefault()
+        void pasteFileClipboard()
+      }
+      return
+    }
+    if (!selectedItem) return
+    if (mod && (key === 'c' || key === 'x')) {
+      e.preventDefault()
+      const move = key === 'x'
+      setFileClipboard({
+        hostId: fileHostId,
+        rootId: activeRootId,
+        path: resolveRootRelativePath(activeRootBasePath, selectedItem.path),
+        itemPath: selectedItem.path,
+        name: selectedItem.name,
+        move,
+      })
+      pushToast({
+        type: 'success',
+        message: t(move ? 'file.markedCut' : 'file.markedCopy', { name: selectedItem.name }),
+      })
+      return
+    }
+    if (e.key === 'Delete') {
+      e.preventDefault()
+      void removeItem(selectedItem)
+      return
+    }
+    if (e.key === 'F2') {
+      e.preventDefault()
+      void renameItem(selectedItem)
+    }
+  }
   const selectFromKeyboard = (item: FileItem | FileContentMatch, e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       e.preventDefault()
@@ -1764,7 +1864,7 @@ export function FilePanel({
         <div
           key={`${item.path}::__row`}
           data-selected={selected ? 'true' : undefined}
-          className={`tmuxgo-list-row tmuxgo-file-tree-node group flex min-h-[22px] w-full items-center ${selected ? 'tmuxgo-list-row--active tmuxgo-file-tree-node-selected' : 'tmuxgo-list-row--hover'}`}
+          className={`tmuxgo-list-row tmuxgo-file-tree-node group flex min-h-[22px] w-full items-center ${selected ? 'tmuxgo-list-row--active tmuxgo-file-tree-node-selected' : 'tmuxgo-list-row--hover'} ${fileClipboard?.move && fileClipboard.rootId === activeRootId && fileClipboard.itemPath === item.path ? 'opacity-50' : ''}`}
           style={{ paddingLeft: `${depth * 12}px` }}
         >
           <button
@@ -2291,6 +2391,14 @@ export function FilePanel({
                   </div>
                   <div className="min-w-0 flex-1" />
                   <button
+                    onClick={refreshFiles}
+                    title={`${t('file.refresh')} (F5)`}
+                    aria-label={t('file.refresh')}
+                    className="tmuxgo-toolbar-icon h-7 w-7 shrink-0"
+                  >
+                    <FiRefreshCw size={14} />
+                  </button>
+                  <button
                     onClick={(e) => setSortMenu({ x: Math.min(e.clientX, window.innerWidth - 176), y: e.clientY + 6 })}
                     title={`${t('file.sort')}: ${fileSort.field === 'name' ? t('file.sortName') : fileSort.field === 'size' ? t('file.sortSize') : t('file.sortModified')} · ${fileSort.direction === 'asc' ? t('file.sortAsc') : t('file.sortDesc')}`}
                     aria-label={t('file.sort')}
@@ -2324,6 +2432,7 @@ export function FilePanel({
           {(!isMobile || mobileView === 'list') && (
             <div
               className="min-h-0 flex flex-1 flex-col overflow-hidden"
+              onKeyDown={handleListKeyDown}
               onContextMenu={(e) => {
                 if (isPicker) return
                 if ((e.target as HTMLElement).closest('button')) return
