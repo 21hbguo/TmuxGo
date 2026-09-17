@@ -55,7 +55,7 @@ export function getEditorLanguage(path: string) {
   return 'plaintext'
 }
 export function dispatchOpenEditorLocation(editorId: string, line?: number | null, column?: number | null) {
-  if (typeof window === 'undefined' || !editorId || !line || line < 1) return
+  if (typeof window === 'undefined' || !editorId) return
   window.dispatchEvent(
     new CustomEvent(OPEN_EDITOR_LOCATION_EVENT, {
       detail: { editorId, line, column: column && column > 0 ? column : 1 },
