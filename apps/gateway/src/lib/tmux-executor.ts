@@ -1,12 +1,15 @@
 import { execFile, spawn } from 'child_process'
-import { promises as fs } from 'fs'
 import net from 'net'
-import os from 'os'
-import path from 'path'
 import { promisify } from 'util'
 import { getHostById, getHostCredentials, type HostCredentials, type HostRecord } from './hosts.js'
 import { recordHostConnectionFailure } from './host-connectivity.js'
-import { buildHostSshOptions, resolveHostPassword } from './ssh-options.js'
+import {
+  buildHostSshOptions,
+  buildSshMultiplexArgs,
+  cleanupSshMultiplexSockets,
+  ensureSshMultiplexDir,
+  resolveHostPassword,
+} from './ssh-options.js'
 import { agentManager, type AgentStatus } from '../agent-manager.js'
 
 const execFileAsync = promisify(execFile)
@@ -25,10 +28,7 @@ const knownTimeoutMarkers = ['Connection timed out', 'Operation timed out', 'No 
 const knownNetworkMarkers = ['Could not resolve hostname', 'Connection refused', 'Network is unreachable']
 const knownMissingTmuxMarkers = ['tmux: command not found']
 const knownPrivateKeyMarkers = ['identity file', 'Load key']
-const sshMultiplexDir = path.join(os.tmpdir(), 'tmuxgo-ssh')
-function getControlPath(host: HostRecord) {
-  return path.join(sshMultiplexDir, `${host.user}@${host.address}:${host.port}`)
-}
+
 export type TmuxExecMode = 'json' | 'plain'
 export interface TmuxExecOptions {
   mode?: TmuxExecMode
@@ -139,10 +139,7 @@ function buildSshArgs(
     '-o',
     'ServerAliveCountMax=3',
   ]
-  const controlPath = getControlPath(host)
-  args.push('-o', `ControlPath=${controlPath}`)
-  args.push('-o', 'ControlMaster=auto')
-  args.push('-o', 'ControlPersist=600')
+  args.push(...buildSshMultiplexArgs(host))
   if (usePassword) {
     args.push('-o', 'BatchMode=no')
   } else if (options.mode === 'json' || options.allowPrompt !== true) {
@@ -177,7 +174,7 @@ async function runLocalShell(command: string, options: TmuxExecOptions = {}) {
   return { stdout, stderr }
 }
 async function runRemoteTmux(host: HostRecord, args: string[], options: TmuxExecOptions = {}) {
-  await ensureMultiplexDir()
+  await ensureSshMultiplexDir()
   const remoteCommand = `${escapeShellSingleQuoted(host.tmuxPath || 'tmux')} ${args.map((item) => escapeShellSingleQuoted(item)).join(' ')}`
   const credentials = await getHostCredentials(host.id)
   const passwordEnv = buildPasswordEnv(credentials)
@@ -214,7 +211,7 @@ async function runRemoteTmux(host: HostRecord, args: string[], options: TmuxExec
   }
 }
 async function runRemoteShell(host: HostRecord, command: string, options: TmuxExecOptions = {}) {
-  await ensureMultiplexDir()
+  await ensureSshMultiplexDir()
   const credentials = await getHostCredentials(host.id)
   const passwordEnv = buildPasswordEnv(credentials)
   const hasPassword = !!passwordEnv
@@ -428,15 +425,7 @@ function getConnectionErrorCode(message: string) {
   if (message === 'SSH connection timed out' || message === 'SSH network is unreachable') return 'NETWORK_ERROR'
   return 'CONNECTION_ERROR'
 }
-async function ensureMultiplexDir() {
-  await fs.mkdir(sshMultiplexDir, { recursive: true, mode: 0o700 })
-}
-
-export async function cleanupMultiplexSockets() {
-  try {
-    await fs.rm(sshMultiplexDir, { recursive: true, force: true })
-  } catch {}
-}
+export const cleanupMultiplexSockets = cleanupSshMultiplexSockets
 
 export async function verifyHostConnectivity(hostIdRaw: string) {
   const hostId = parseHostInput(hostIdRaw)
@@ -460,7 +449,7 @@ export async function verifyHostConnectivity(hostIdRaw: string) {
   if (host.id === 'local') {
     return { ok: true, message: 'local host available', mode: 'local' as const }
   }
-  await ensureMultiplexDir()
+  await ensureSshMultiplexDir()
   const checkArgs = buildSshArgs(host, 'echo tmuxgo-ok', { mode: 'json' }, false, credentials)
   const tryPassword = async () => {
     if (!passwordEnv) return null

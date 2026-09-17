@@ -15,12 +15,21 @@ import {
 export async function listDirectory(rootId: string, relativePath: string) {
   const { root, absolutePath } = await resolveInside(rootId, relativePath)
   const directory = await opendir(absolutePath)
-  const items: FileItem[] = []
+  const names: string[] = []
   for await (const entry of directory) {
     if (entry.name === '.' || entry.name === '..') continue
-    try {
-      items.push(await toFileItem(root.path, path.join(absolutePath, entry.name), entry.name))
-    } catch {}
+    names.push(entry.name)
+  }
+  // 逐项 stat 在大目录下明显拖慢列表，分批并发 stat
+  const items: FileItem[] = []
+  const statBatchSize = 64
+  for (let i = 0; i < names.length; i += statBatchSize) {
+    const batch = await Promise.all(
+      names
+        .slice(i, i + statBatchSize)
+        .map((name) => toFileItem(root.path, path.join(absolutePath, name), name).catch(() => null)),
+    )
+    for (const item of batch) if (item) items.push(item)
   }
   items.sort((a, b) => {
     if (a.type !== b.type) return a.type === 'directory' ? -1 : 1

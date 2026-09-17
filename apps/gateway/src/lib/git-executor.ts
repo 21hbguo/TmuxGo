@@ -2,7 +2,12 @@ import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { getHostById, getHostCredentials, type HostRecord } from './hosts.js'
 import { recordHostConnectionFailure } from './host-connectivity.js'
-import { buildHostSshOptions, resolveHostPassword } from './ssh-options.js'
+import {
+  buildHostSshOptions,
+  buildSshMultiplexArgs,
+  ensureSshMultiplexDir,
+  resolveHostPassword,
+} from './ssh-options.js'
 import { agentManager } from '../agent-manager.js'
 
 const execFileAsync = promisify(execFile)
@@ -44,21 +49,48 @@ async function hasSshPass() {
   }
 }
 
-
-async function runLocalGit(args: string[], cwd: string, timeoutMs: number, acceptExitCodeOne: boolean, signal?: AbortSignal) {
+async function runLocalGit(
+  args: string[],
+  cwd: string,
+  timeoutMs: number,
+  acceptExitCodeOne: boolean,
+  signal?: AbortSignal,
+) {
   try {
     return await execFileAsync('git', args, { cwd, timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024, signal })
   } catch (err: any) {
-    if (acceptExitCodeOne && err?.code === 1) return { stdout: String(err?.stdout || ''), stderr: String(err?.stderr || '') }
+    if (acceptExitCodeOne && err?.code === 1)
+      return { stdout: String(err?.stdout || ''), stderr: String(err?.stderr || '') }
     throw err
   }
 }
 
-async function runRemoteGit(host: HostRecord, args: string[], cwd: string, timeoutMs: number, acceptExitCodeOne: boolean, signal?: AbortSignal) {
+async function runRemoteGit(
+  host: HostRecord,
+  args: string[],
+  cwd: string,
+  timeoutMs: number,
+  acceptExitCodeOne: boolean,
+  signal?: AbortSignal,
+) {
   const remoteCommand = `cd ${escapeShellSingleQuoted(cwd)} && git ${args.map((a) => escapeShellSingleQuoted(a)).join(' ')}`
   const credentials = await getHostCredentials(host.id)
   const password = resolveHostPassword(credentials)
-  const sshArgs = ['-p', String(host.port), '-o', 'ConnectTimeout=8', '-o', `BatchMode=${password ? 'no' : 'yes'}`, ...buildHostSshOptions(host, credentials), '-T', `${host.user}@${host.address}`, '--', remoteCommand]
+  await ensureSshMultiplexDir()
+  const sshArgs = [
+    '-p',
+    String(host.port),
+    '-o',
+    'ConnectTimeout=8',
+    '-o',
+    `BatchMode=${password ? 'no' : 'yes'}`,
+    ...buildSshMultiplexArgs(host),
+    ...buildHostSshOptions(host, credentials),
+    '-T',
+    `${host.user}@${host.address}`,
+    '--',
+    remoteCommand,
+  ]
   if (password) {
     const canUseSshPass = await hasSshPass()
     if (!canUseSshPass) throw new Error('SSH password configured but sshpass is not installed')
@@ -70,33 +102,51 @@ async function runRemoteGit(host: HostRecord, args: string[], cwd: string, timeo
         signal,
       })
     } catch (err: any) {
-      if (acceptExitCodeOne && err?.code === 1) return { stdout: String(err?.stdout || ''), stderr: String(err?.stderr || '') }
-      throw reportRemoteError(host, `${err?.stderr || ''}\n${err?.stdout || ''}`, err?.message || 'SSH git command failed')
+      if (acceptExitCodeOne && err?.code === 1)
+        return { stdout: String(err?.stdout || ''), stderr: String(err?.stderr || '') }
+      throw reportRemoteError(
+        host,
+        `${err?.stderr || ''}\n${err?.stdout || ''}`,
+        err?.message || 'SSH git command failed',
+      )
     }
   }
   try {
     return await execFileAsync('ssh', sshArgs, { timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024, signal })
   } catch (err: any) {
-    if (acceptExitCodeOne && err?.code === 1) return { stdout: String(err?.stdout || ''), stderr: String(err?.stderr || '') }
-    throw reportRemoteError(host, `${err?.stderr || ''}\n${err?.stdout || ''}`, err?.message || 'SSH git command failed')
+    if (acceptExitCodeOne && err?.code === 1)
+      return { stdout: String(err?.stdout || ''), stderr: String(err?.stderr || '') }
+    throw reportRemoteError(
+      host,
+      `${err?.stderr || ''}\n${err?.stdout || ''}`,
+      err?.message || 'SSH git command failed',
+    )
   }
 }
 
-async function runAgentGit(hostId:string,args:string[],cwd:string,timeoutMs:number,acceptExitCodeOne:boolean) {
-  const command=`cd ${escapeShellSingleQuoted(cwd)} && git ${args.map((arg)=>escapeShellSingleQuoted(arg)).join(' ')}`
-  const result=await agentManager.executeShell(hostId,command,timeoutMs)
-  if (result.exitCode===0||acceptExitCodeOne&&result.exitCode===1) return {stdout:result.stdout,stderr:result.stderr}
-  throw new Error(normalizeErrorMessage(`${result.stderr}\n${result.stdout}`,'Agent git command failed'))
+async function runAgentGit(hostId: string, args: string[], cwd: string, timeoutMs: number, acceptExitCodeOne: boolean) {
+  const command = `cd ${escapeShellSingleQuoted(cwd)} && git ${args.map((arg) => escapeShellSingleQuoted(arg)).join(' ')}`
+  const result = await agentManager.executeShell(hostId, command, timeoutMs)
+  if (result.exitCode === 0 || (acceptExitCodeOne && result.exitCode === 1))
+    return { stdout: result.stdout, stderr: result.stderr }
+  throw new Error(normalizeErrorMessage(`${result.stderr}\n${result.stdout}`, 'Agent git command failed'))
 }
 
-export async function execGit(hostIdRaw: string, args: string[], cwd: string, timeoutMs?: number, acceptExitCodeOne = false, signal?: AbortSignal): Promise<GitExecResult> {
-  const hostId=hostIdRaw.trim()
+export async function execGit(
+  hostIdRaw: string,
+  args: string[],
+  cwd: string,
+  timeoutMs?: number,
+  acceptExitCodeOne = false,
+  signal?: AbortSignal,
+): Promise<GitExecResult> {
+  const hostId = hostIdRaw.trim()
   if (!hostId) throw new Error('Missing host id')
   const host = await getHostById(hostId)
   const timeout = timeoutMs || defaultTimeoutMs
   if (!host) {
     if (!agentManager.getAgent(hostId)) throw new Error(`Host "${hostId}" not found`)
-    return runAgentGit(hostId,args,cwd,timeout,acceptExitCodeOne)
+    return runAgentGit(hostId, args, cwd, timeout, acceptExitCodeOne)
   }
   if (host.id === 'local') {
     try {
