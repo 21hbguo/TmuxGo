@@ -20,6 +20,9 @@ let terminalConstructorOptions: any = null
 let terminalCellWidth = 8
 let terminalCellHeight = 16
 let resizeObserverCallback: (() => void) | null = null
+// 置 true 时 mock 的 terminal.write 不再同步回调，用于模拟输出仍在解析途中
+let deferTerminalWrites = false
+let deferredTerminalWriteCallbacks: Array<() => void> = []
 let terminalLinkProviders: Array<{
   provideLinks: (bufferLineNumber: number, callback: (links: any[] | undefined) => void) => void
 }> = []
@@ -392,7 +395,9 @@ vi.mock('@xterm/xterm', () => {
     }
     write(data: string, callback?: () => void) {
       terminalMocks.write(data)
-      callback?.()
+      if (deferTerminalWrites) {
+        if (callback) deferredTerminalWriteCallbacks.push(callback)
+      } else callback?.()
     }
     registerLinkProvider(provider: {
       provideLinks: (bufferLineNumber: number, callback: (links: any[] | undefined) => void) => void
@@ -452,6 +457,8 @@ describe('TerminalPane', () => {
     terminalConstructorOptions = null
     terminalCellWidth = 8
     terminalCellHeight = 16
+    deferTerminalWrites = false
+    deferredTerminalWriteCallbacks = []
     terminalLinkProviders = []
     terminalAddonHandlers = []
     terminalMocks.write.mockClear()
@@ -1706,6 +1713,98 @@ describe('TerminalPane', () => {
     expect(snapshot.style.top).toBe('-576px')
     const [cols, rows] = terminalMocks.resize.mock.calls.at(-1) || []
     emitStreamEvent(STREAM_EVENT.resized, { hostId: 'local', sessionName: 'dev', cols, rows })
+  })
+  it('keeps the resize mask until in-flight output writes complete after resized', async () => {
+    const { container } = render(
+      <TerminalPane sessionName="dev" attachExclusive onInput={vi.fn()} onResize={vi.fn()} />,
+    )
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    await waitFor(() => expect(resizeObserverCallback).toBeTruthy())
+    const root = container.firstChild as HTMLElement
+    const mask = container.querySelector('[data-testid="terminal-resize-mask"]') as HTMLElement
+    Object.defineProperty(root, 'clientWidth', { configurable: true, value: 800 })
+    Object.defineProperty(root, 'clientHeight', { configurable: true, value: 520 })
+    resizeObserverCallback?.()
+    Object.defineProperty(root, 'clientWidth', { configurable: true, value: 760 })
+    resizeObserverCallback?.()
+    await waitFor(() => expect(terminalMocks.resize).toHaveBeenCalled())
+    expect(mask.style.display).toBe('block')
+    // resized 到达时还有输出在 xterm.write 解析途中：屏障须按住揭罩，
+    // 否则旧列宽帧会闪进新网格
+    deferTerminalWrites = true
+    webSocketMocks.lastOutputListener?.({ data: 'late chunk', sessionName: 'dev', hostId: 'local' })
+    const [cols, rows] = terminalMocks.resize.mock.calls.at(-1) || []
+    emitStreamEvent(STREAM_EVENT.resized, { hostId: 'local', sessionName: 'dev', cols, rows })
+    await sleep(30)
+    expect(mask.style.display).toBe('block')
+    for (const done of deferredTerminalWriteCallbacks.splice(0)) done()
+    await waitFor(() => expect(mask.style.display).toBe('none'))
+  })
+  it('ignores a stale resized ack for an earlier size during rapid A->B->A changes', async () => {
+    const { container } = render(
+      <TerminalPane sessionName="dev" attachExclusive onInput={vi.fn()} onResize={vi.fn()} />,
+    )
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    await waitFor(() => expect(resizeObserverCallback).toBeTruthy())
+    const root = container.firstChild as HTMLElement
+    const mask = container.querySelector('[data-testid="terminal-resize-mask"]') as HTMLElement
+    Object.defineProperty(root, 'clientWidth', { configurable: true, value: 800 })
+    Object.defineProperty(root, 'clientHeight', { configurable: true, value: 520 })
+    resizeObserverCallback?.()
+    Object.defineProperty(root, 'clientWidth', { configurable: true, value: 760 })
+    resizeObserverCallback?.()
+    await waitFor(() => expect(terminalMocks.resize).toHaveBeenLastCalledWith(95, 32))
+    Object.defineProperty(root, 'clientWidth', { configurable: true, value: 800 })
+    resizeObserverCallback?.()
+    await waitFor(() => expect(terminalMocks.resize).toHaveBeenLastCalledWith(100, 32))
+    // 旧尺寸的 ACK 到达时本地已回到 A：不得据此揭罩
+    emitStreamEvent(STREAM_EVENT.resized, { hostId: 'local', sessionName: 'dev', cols: 95, rows: 32 })
+    await sleep(30)
+    expect(mask.style.display).toBe('block')
+    emitStreamEvent(STREAM_EVENT.resized, { hostId: 'local', sessionName: 'dev', cols: 100, rows: 32 })
+    await waitFor(() => expect(mask.style.display).toBe('none'))
+  })
+  it('keeps the mobile keyboard clip through the fit and style-correction frames', async () => {
+    mobileKeyboardMocks.isMobile = true
+    // 跨帧断言必须真实异步 rAF：全局同步 stub 会让修正先于锚定执行而掩盖缺陷
+    const queued = new Map<number, FrameRequestCallback>()
+    let nextId = 1
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      const id = nextId++
+      queued.set(id, cb)
+      return id
+    })
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => {
+      queued.delete(id)
+    })
+    const tick = (count = 1) => {
+      for (let i = 0; i < count; i++) {
+        const callbacks = [...queued.values()]
+        queued.clear()
+        for (const cb of callbacks) cb(0)
+      }
+    }
+    const { container } = render(
+      <TerminalPane sessionName="dev" attachExclusive onInput={vi.fn()} onResize={vi.fn()} />,
+    )
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    await waitFor(() => expect(resizeObserverCallback).toBeTruthy())
+    tick(8)
+    const root = container.firstChild as HTMLElement
+    Object.defineProperty(root, 'clientWidth', { configurable: true, value: 390 })
+    Object.defineProperty(root, 'clientHeight', { configurable: true, value: 700 })
+    resizeObserverCallback?.()
+    tick(8)
+    await waitFor(() => expect(terminalMocks.resize).toHaveBeenCalled())
+    // 键盘开着时旋转/改宽：doFit 在 fit 帧排样式修正、当帧写键盘锚定，
+    // 修正帧不得把 translateY 擦掉
+    document.body.classList.add('keyboard-open')
+    Object.defineProperty(root, 'clientWidth', { configurable: true, value: 300 })
+    Object.defineProperty(root, 'clientHeight', { configurable: true, value: 520 })
+    resizeObserverCallback?.()
+    tick(10)
+    const screen = container.querySelector('.xterm-screen') as HTMLElement
+    expect(screen.style.transform).toBe('translateY(-80px)')
   })
   it('waits for mobile keyboard layout changes to settle before fitting', async () => {
     mobileKeyboardMocks.isMobile = true

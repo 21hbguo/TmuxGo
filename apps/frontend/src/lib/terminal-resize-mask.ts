@@ -55,32 +55,42 @@ export function createTerminalResizeMask(options: TerminalResizeMaskOptions) {
     generation = nextGeneration
     setPending(true)
     const mask = options.mask
-    const terminal = options.getTerminal()
     if (mask && mask.style.display !== 'block') {
       mask.style.display = 'block'
-      const screen = terminal?.element?.querySelector('.xterm-screen') as HTMLElement | null
-      if (screen) {
-        const snapshot = screen.cloneNode(true) as HTMLElement
-        const screenRect = screen.getBoundingClientRect()
-        const maskRect = mask.getBoundingClientRect()
-        snapshot.style.setProperty('inset', 'auto', 'important')
-        snapshot.style.setProperty('left', `${screenRect.left - maskRect.left}px`, 'important')
-        // 底部锚定：容器变矮时保住 prompt 行不被裁掉，变高时留白在上方——
-        // 与 tmux reflow 的方向一致（grow 从 scrollback 往上拉行、光标留在底部）
-        snapshot.style.setProperty('top', `${maskRect.height - screenRect.height}px`, 'important')
-        snapshot.style.setProperty('width', `${screenRect.width}px`, 'important')
-        snapshot.style.setProperty('height', `${screenRect.height}px`, 'important')
-        const sourceCanvases = Array.from(screen.querySelectorAll('canvas'))
-        const snapshotCanvases = Array.from(snapshot.querySelectorAll('canvas'))
-        sourceCanvases.forEach((source, index) => {
-          try {
-            snapshotCanvases[index]?.getContext('2d')?.drawImage(source, 0, 0)
-          } catch {}
-        })
-        mask.replaceChildren(snapshot)
-      }
+      captureSnapshot()
     }
     return generation
+  }
+  const captureSnapshot = () => {
+    const mask = options.mask
+    const terminal = options.getTerminal()
+    if (!mask) return
+    const screen = terminal?.element?.querySelector('.xterm-screen') as HTMLElement | null
+    if (!screen) return
+    const snapshot = screen.cloneNode(true) as HTMLElement
+    const screenRect = screen.getBoundingClientRect()
+    const maskRect = mask.getBoundingClientRect()
+    snapshot.style.setProperty('inset', 'auto', 'important')
+    snapshot.style.setProperty('left', `${screenRect.left - maskRect.left}px`, 'important')
+    // 底部锚定：容器变矮时保住 prompt 行不被裁掉，变高时留白在上方——
+    // 与 tmux reflow 的方向一致（grow 从 scrollback 往上拉行、光标留在底部）
+    snapshot.style.setProperty('top', `${maskRect.height - screenRect.height}px`, 'important')
+    snapshot.style.setProperty('width', `${screenRect.width}px`, 'important')
+    snapshot.style.setProperty('height', `${screenRect.height}px`, 'important')
+    const sourceCanvases = Array.from(screen.querySelectorAll('canvas'))
+    const snapshotCanvases = Array.from(snapshot.querySelectorAll('canvas'))
+    sourceCanvases.forEach((source, index) => {
+      try {
+        snapshotCanvases[index]?.getContext('2d')?.drawImage(source, 0, 0)
+      } catch {}
+    })
+    mask.replaceChildren(snapshot)
+  }
+  // 拖动节流 fit 后遮罩仍在：把定格画面更新到已 reflow 的当前帧，
+  // 否则整段拖动都停在首张快照直到松手才跳变
+  const refresh = () => {
+    if (!pending || options.mask?.style.display !== 'block') return
+    captureSnapshot()
   }
   const hide = () => {
     setPending(false)
@@ -104,6 +114,7 @@ export function createTerminalResizeMask(options: TerminalResizeMaskOptions) {
     show,
     reveal,
     hide,
+    refresh,
     isVisible,
     dispose,
     isPending: () => pending,

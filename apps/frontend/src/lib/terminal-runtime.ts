@@ -86,6 +86,8 @@ interface TerminalRuntimeOptions {
   updateGithubDeviceLogin: (raw: string) => void
   pushTerminalOutput: (data: string) => void
   disposeTerminalOutput: () => void
+  // 输出写屏障：cb 在已排队输出全部写进 xterm 后调用（scheduler 内有界等待）
+  afterOutputWrites: (cb: () => void) => void
   beginSessionSwitchRef: { current: () => void }
 }
 export function createTerminalRuntime(options: TerminalRuntimeOptions) {
@@ -158,6 +160,15 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
   }
   const mask = createTerminalResizeMask({ mask: options.resizeMaskElement, getTerminal })
   options.resizeMaskApiRef.current = mask
+  // resized/本地 fit 只代表"尺寸已改"：此前排队的输出可能仍在 scheduler backlog
+  // 或 xterm.write 回调途中，先揭罩会把旧列宽帧闪进新网格。
+  // 统一等输出写屏障落地再揭，并用代次+尺寸复核丢弃过期请求
+  const revealMaskAfterWrites = (generation: number, matches: () => boolean = () => true) => {
+    options.afterOutputWrites(() => {
+      if (disposed || !mask.isPending() || generation !== mask.getGeneration() || !matches()) return
+      mask.reveal(generation)
+    })
+  }
   // 切换遮罩与 resize 遮罩用同工厂但独立实例：切换有自己的揭开时机（新帧写完），
   // 不能跟 resize 的 reveal 路径互相干扰
   const switchMask = createTerminalResizeMask({ mask: options.switchVeilElement, getTerminal })
@@ -173,6 +184,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
     onResizeRef,
     controlCarryRef,
     mask,
+    revealMask: (generation) => revealMaskAfterWrites(generation ?? mask.getGeneration()),
     getTerminalPerf: options.getTerminalPerf,
     updateTerminalPerf,
     notifyReady,
@@ -536,15 +548,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
       void snapshot
         .catch(() => null)
         .then(() => {
-          if (
-            !mask.isPending() ||
-            disposed ||
-            generation !== mask.getGeneration() ||
-            cols !== terminal?.cols ||
-            rows !== terminal?.rows
-          )
-            return
-          mask.reveal(generation)
+          revealMaskAfterWrites(generation, () => cols === terminal?.cols && rows === terminal?.rows)
         })
       if (attachExclusiveRef.current) {
         const size = lastSizeRef.current
@@ -583,7 +587,8 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
       }
       void snapshotLoader.load(true).catch(() => null)
       if (disposed || generation !== mask.getGeneration() || cols !== terminal?.cols || rows !== terminal?.rows) return
-      mask.reveal(generation)
+      // 屏障期间尺寸可能又变了（如快速 A->B->A 后到达的旧 ACK）：回调里复核
+      revealMaskAfterWrites(generation, () => cols === terminal?.cols && rows === terminal?.rows)
     }
     const handleResizeAbort = (detail: any = {}) => {
       if (detail.hostId && detail.hostId !== (activeHostIdRef.current || 'local')) return

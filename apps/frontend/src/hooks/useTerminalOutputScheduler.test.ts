@@ -103,4 +103,63 @@ describe('useTerminalOutputScheduler', () => {
     expect(write.mock.calls.map(([chunk]) => chunk)).toEqual(['old', 'snapshot'])
     act(() => result.current.dispose())
   })
+  it('resolves afterWrites immediately when no output is queued or in flight', () => {
+    const write = vi.fn((_chunk: string, done?: () => void) => done?.())
+    const { result } = renderHook(() => useTerminalOutputScheduler({ write }))
+    const barrier = vi.fn()
+    act(() => result.current.afterWrites(barrier))
+    expect(barrier).toHaveBeenCalledTimes(1)
+    act(() => result.current.dispose())
+  })
+  it('holds afterWrites until an in-flight write callback completes', () => {
+    let complete: (() => void) | undefined
+    const write = vi.fn((_chunk: string, done?: () => void) => {
+      complete = done
+    })
+    const { result } = renderHook(() => useTerminalOutputScheduler({ write }))
+    const barrier = vi.fn()
+    act(() => result.current.push('chunk'))
+    act(() => result.current.afterWrites(barrier))
+    expect(barrier).not.toHaveBeenCalled()
+    act(() => complete?.())
+    expect(barrier).toHaveBeenCalledTimes(1)
+    act(() => result.current.dispose())
+  })
+  it('holds afterWrites until buffered backlog has fully drained', () => {
+    const callbacks: Array<(() => void) | undefined> = []
+    const write = vi.fn((_chunk: string, done?: () => void) => {
+      callbacks.push(done)
+    })
+    const { result } = renderHook(() => useTerminalOutputScheduler({ write }))
+    const barrier = vi.fn()
+    act(() => result.current.push('first'))
+    act(() => result.current.push('second'))
+    act(() => result.current.afterWrites(barrier))
+    act(() => callbacks[0]?.())
+    // 'second' 现在才进 write：屏障必须等到它也落屏
+    expect(barrier).not.toHaveBeenCalled()
+    act(() => callbacks[1]?.())
+    expect(barrier).toHaveBeenCalledTimes(1)
+    act(() => result.current.dispose())
+  })
+  it('bounds the afterWrites wait when the write callback never fires', () => {
+    const write = vi.fn((_chunk: string, _done?: () => void) => {})
+    const { result } = renderHook(() => useTerminalOutputScheduler({ write }))
+    const barrier = vi.fn()
+    act(() => result.current.push('chunk'))
+    act(() => result.current.afterWrites(barrier))
+    expect(barrier).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersByTime(200))
+    expect(barrier).toHaveBeenCalledTimes(1)
+    act(() => result.current.dispose())
+  })
+  it('resolves pending afterWrites barriers on dispose', () => {
+    const write = vi.fn((_chunk: string, _done?: () => void) => {})
+    const { result } = renderHook(() => useTerminalOutputScheduler({ write }))
+    const barrier = vi.fn()
+    act(() => result.current.push('chunk'))
+    act(() => result.current.afterWrites(barrier))
+    act(() => result.current.dispose())
+    expect(barrier).toHaveBeenCalledTimes(1)
+  })
 })

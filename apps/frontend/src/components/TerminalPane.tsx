@@ -190,7 +190,11 @@ export function TerminalPane({
     },
     [isMobileDevice, updateTerminalPerf],
   )
-  const { push: pushTerminalOutput, dispose: disposeTerminalOutput } = useTerminalOutputScheduler({
+  const {
+    push: pushTerminalOutput,
+    dispose: disposeTerminalOutput,
+    afterWrites: afterTerminalOutputWrites,
+  } = useTerminalOutputScheduler({
     write: writeTerminalOutput,
     onWrite: handleTerminalWriteComplete,
     onMetrics: handleTerminalMetrics,
@@ -395,10 +399,12 @@ export function TerminalPane({
       updateGithubDeviceLogin,
       pushTerminalOutput,
       disposeTerminalOutput,
+      afterOutputWrites: afterTerminalOutputWrites,
       beginSessionSwitchRef,
     })
     return () => runtime.dispose()
   }, [
+    afterTerminalOutputWrites,
     disposeTerminalOutput,
     ensureFileRoots,
     handleDesktopPinch,
