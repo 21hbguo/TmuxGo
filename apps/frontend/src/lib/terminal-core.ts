@@ -44,13 +44,15 @@ export async function createTerminalCore(options: TerminalCoreOptions) {
   })
   terminal.loadAddon(new Unicode11Addon())
   terminal.unicode.activeVersion = '11'
-  terminal.loadAddon(new WebLinksAddon((event: MouseEvent, uri: string) => {
-    event.preventDefault()
-    event.stopPropagation()
-    event.stopImmediatePropagation?.()
-    if (!options.isLinkOpenGesture(event)) return
-    options.openUrl(uri)
-  }))
+  terminal.loadAddon(
+    new WebLinksAddon((event: MouseEvent, uri: string) => {
+      event.preventDefault()
+      event.stopPropagation()
+      event.stopImmediatePropagation?.()
+      if (!options.isLinkOpenGesture(event)) return
+      options.openUrl(uri)
+    }),
+  )
   terminal.open(options.container)
   const linkProvider = terminal.registerLinkProvider({
     provideLinks: (bufferLineNumber: number, callback: (links: any[] | undefined) => void) => {
@@ -62,7 +64,14 @@ export async function createTerminalCore(options: TerminalCoreOptions) {
   if (!options.isMobile) {
     try {
       const { WebglAddon } = await import('@xterm/addon-webgl')
-      terminal.loadAddon(new WebglAddon())
+      const webglAddon = new WebglAddon()
+      // addon 内部等 webglcontextrestored 约 3s，仍未恢复才 fire onContextLoss；
+      // 此时 dispose 回退 DOM renderer，避免 GL context 永久丢失后整屏空白
+      webglAddon.onContextLoss(() => {
+        options.recordRenderer('dom')
+        webglAddon.dispose()
+      })
+      terminal.loadAddon(webglAddon)
       rendererType = 'webgl'
     } catch {}
   }

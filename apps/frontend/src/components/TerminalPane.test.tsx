@@ -51,6 +51,7 @@ const terminalLifecycleMocks = vi.hoisted(() => ({
 }))
 const webglAddonState = vi.hoisted(() => ({
   throwOnActivate: false,
+  contextLossHandler: null as null | (() => void),
 }))
 const webglAddonMocks = vi.hoisted(() => ({
   activate: vi.fn(),
@@ -424,6 +425,10 @@ vi.mock('@xterm/addon-webgl', () => ({
     dispose() {
       webglAddonMocks.dispose()
     }
+    onContextLoss(handler: () => void) {
+      webglAddonState.contextLossHandler = handler
+      return { dispose: vi.fn() }
+    }
   },
 }))
 vi.mock('@xterm/addon-web-links', () => ({
@@ -473,6 +478,7 @@ describe('TerminalPane', () => {
     terminalLifecycleMocks.open.mockClear()
     terminalLifecycleMocks.dispose.mockClear()
     webglAddonState.throwOnActivate = false
+    webglAddonState.contextLossHandler = null
     webglAddonMocks.activate.mockClear()
     webglAddonMocks.dispose.mockClear()
     webSocketMocks.send.mockClear()
@@ -874,6 +880,15 @@ describe('TerminalPane', () => {
       (window as typeof window & { __tmuxgoMobileDebug?: { events?: Array<Record<string, unknown>> } })
         .__tmuxgoMobileDebug?.events || []
     expect(events.some((item) => item.event === 'terminal-renderer' && item.renderer === 'dom')).toBe(true)
+  })
+  it('disposes the webgl addon on context loss so xterm falls back to dom', async () => {
+    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(terminalLifecycleMocks.open).toHaveBeenCalledTimes(1))
+    expect(webglAddonMocks.activate).toHaveBeenCalledTimes(1)
+    expect(webglAddonState.contextLossHandler).toBeTruthy()
+    // GL context 未在 addon 内部 3s 窗口内恢复 → fire onContextLoss → dispose 回退 DOM
+    webglAddonState.contextLossHandler?.()
+    expect(webglAddonMocks.dispose).toHaveBeenCalledTimes(1)
   })
 
   it('copies final selection immediately on pointer release', async () => {
@@ -1432,6 +1447,61 @@ describe('TerminalPane', () => {
     // attached 后攒下的首帧连同清屏序列一笔写回，写完才揭开遮罩
     await waitFor(() => expect(terminalMocks.write).toHaveBeenCalledWith('\x1b[3J\x1b[2J\x1b[Hother-frame'))
     await waitFor(() => expect(veil.style.display).toBe('none'))
+  })
+  it('does not clear the screen when a switch ends without buffered output', async () => {
+    const view = render(
+      <TerminalPane
+        sessionName="dev"
+        onInput={vi.fn()}
+        onResize={vi.fn()}
+        subscribeOutput={webSocketMocks.subscribeOutput}
+      />,
+    )
+    await waitFor(() => expect(webSocketMocks.lastOutputListener).toBeTruthy())
+    terminalMocks.write.mockClear()
+    webSocketMocks.send.mockClear()
+    view.rerender(
+      <TerminalPane
+        sessionName="other"
+        onInput={vi.fn()}
+        onResize={vi.fn()}
+        subscribeOutput={webSocketMocks.subscribeOutput}
+      />,
+    )
+    // attach/首帧都没回（静态 session 或丢包）：hold 超时后不能只写清屏序列把旧帧抹掉
+    await sleep(900)
+    const clearOnlyWrites = terminalMocks.write.mock.calls.filter((call) => String(call[0] ?? '').startsWith('\x1b[3J'))
+    expect(clearOnlyWrites).toHaveLength(0)
+    expect(webSocketMocks.send).toHaveBeenCalledWith({ type: 'redraw', hostId: 'local', sessionName: 'other' })
+  })
+  it('restores a foregrounded mobile terminal without wiping its buffer', async () => {
+    mobileKeyboardMocks.isMobile = true
+    render(
+      <TerminalPane
+        sessionName="dev"
+        onInput={vi.fn()}
+        onResize={vi.fn()}
+        subscribeOutput={webSocketMocks.subscribeOutput}
+      />,
+    )
+    await waitFor(() => expect(webSocketMocks.lastOutputListener).toBeTruthy())
+    await waitFor(() => expect(resizeObserverCallback).toBeTruthy())
+    await sleep(300)
+    terminalMocks.reset.mockClear()
+    terminalMocks.clear.mockClear()
+    terminalMocks.clearTextureAtlas.mockClear()
+    terminalMocks.refresh.mockClear()
+    // visibilitychange 前台恢复必须走非破坏路径：clear+reset 会清空 buffer，
+    // 静态 session 没有新输出补帧就一直空白
+    document.dispatchEvent(new Event('visibilitychange'))
+    await waitFor(() => expect(terminalMocks.refresh).toHaveBeenCalled())
+    expect(terminalMocks.reset).not.toHaveBeenCalled()
+    expect(terminalMocks.clear).not.toHaveBeenCalled()
+    expect(terminalMocks.clearTextureAtlas).toHaveBeenCalled()
+    window.dispatchEvent(new Event('pageshow'))
+    await sleep(80)
+    expect(terminalMocks.reset).not.toHaveBeenCalled()
+    expect(terminalMocks.clear).not.toHaveBeenCalled()
   })
   it('applies authoritative output resync snapshots', async () => {
     render(

@@ -242,7 +242,15 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
       return
     }
     switchAttachedSeen = false
-    outputInput.flushSwitchHold(SWITCH_CLEAR_SEQ)
+    if (outputInput.hasSwitchBuffered()) {
+      outputInput.flushSwitchHold(SWITCH_CLEAR_SEQ)
+      return
+    }
+    // 没有攒到帧（attach/resync 未回或丢失）时不能光写清屏序列——那会把完好的
+    // 旧帧抹成空白直到下次输出。结束 hold 并主动拉一帧回来
+    outputInput.flushSwitchHold()
+    switchMask.reveal()
+    requestServerRedraw()
   }
   const armSwitchFlush = () => {
     if (switchFlushTimer) clearTimeout(switchFlushTimer)
@@ -631,7 +639,10 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
       const recovered = layout.syncRenderEnvironment('visibilitychange')
       layout.scheduleLayoutSync(0, true)
       if (isMobileDevice && !recovered) {
-        layout.recoverTerminalScreen('visibilitychange')
+        // 前台恢复必须非破坏：recoverTerminalScreen 会 clear+reset 清 buffer，
+        // serverRedraw=false 时静态 session 无人补帧 → 空白到下次输出。buffer
+        // 未坏时用 soft 恢复（清 renderer 缓存+重绘）即可还原画面
+        layout.softRecoverTerminalScreen('visibilitychange')
         return
       }
       if (recovered) return
@@ -642,7 +653,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
     const handlePageShow = () => {
       const recovered = layout.syncRenderEnvironment('pageshow')
       layout.scheduleLayoutSync(0, true)
-      if (isMobileDevice && !recovered) layout.recoverTerminalScreen('pageshow')
+      if (isMobileDevice && !recovered) layout.softRecoverTerminalScreen('pageshow')
     }
     const streamEventUnsubs = [
       subscribeStreamEvent(STREAM_EVENT.attached, handleAttached),
