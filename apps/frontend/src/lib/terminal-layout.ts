@@ -5,6 +5,9 @@ const TERMINAL_RECOVERY_REPAINT_DELAYS = [0, 16, 64, 180]
 const MOBILE_TERMINAL_RECOVERY_REPAINT_DELAYS = [48, 160]
 const MOBILE_FIT_SIZE_TOLERANCE = 2
 const DEVICE_PIXEL_RATIO_TOLERANCE = 0.01
+// 连续拖动期间的中间 fit 间隔：等 2 个稳定帧的收敛检测会被拖动无限推迟，
+// 需要节流推进让画面/远端尺寸跟上，又不能每帧全量 reflow
+const DRAG_FIT_INTERVAL_MS = 140
 interface TerminalLayoutOptions {
   container: HTMLElement
   isMobile: boolean
@@ -16,7 +19,15 @@ interface TerminalLayoutOptions {
   sharedSessionSizeRef: { current: { cols: number; rows: number } | null }
   onResizeRef: { current: ((cols: number, rows: number) => void) | undefined }
   controlCarryRef: { current: string }
-  mask: { show: () => number; reveal: (generation?: number) => void; isVisible: () => boolean }
+  mask: {
+    show: () => number
+    reveal: (generation?: number) => void
+    isVisible: () => boolean
+    // 拖动中间帧不揭罩时刷新定格快照，避免整段停在首帧
+    refresh?: () => void
+  }
+  // 揭罩屏障（runtime 注入）：等已排队输出写完再 reveal，缺省退化为直接 mask.reveal
+  revealMask?: (generation?: number) => void
   getTerminalPerf: () => {
     attachLatency: number
     outputBytes: number
@@ -63,6 +74,8 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
   let observedResizeBurst = 0
   let observedResizeAt = 0
   let earlyMaskReveal = false
+  let resizeThrottleAt = 0
+  const revealMask = (generation?: number) => (options.revealMask ?? mask.reveal)(generation)
   const isTerminalScrolledBack = () => {
     const terminal = getTerminal()
     const activeBuffer = terminal?.buffer?.active
@@ -223,7 +236,10 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
     renderer.rows.style.removeProperty('width')
     renderer.screen.style.removeProperty('width')
     renderer.screen.style.removeProperty('transform-origin')
-    renderer.screen.style.removeProperty('transform')
+    // transform 不能直接清：doFit 先排本修正到下一帧、再在当前帧 applyKeyboardClip，
+    // 无脑 removeProperty 会把刚写的键盘底部锚定 translateY 擦掉（prompt 下跳/被裁）。
+    // 统一交给 applyKeyboardClip 按当前键盘状态重算：非键盘场景它自己 removeProperty
+    applyKeyboardClip()
     renderer.screen.style.removeProperty('will-change')
     if (attachExclusiveRef.current) {
       renderer.rows.style.setProperty('height', '100%', 'important')
@@ -369,9 +385,10 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
         lastSizeRef.current
       ) {
         recordMobileDebug('terminal-fit-noop', { width: currentWidth, height: currentHeight })
-        // 尺寸未变就不会有服务端 resize/resized：直接揭开，避免空等确认或 900ms failsafe
+        // 尺寸未变就不会有新的服务端 resize。但拖动节流刚发过的 resize 其 ACK 还在途，
+        // burst>1 时留给 handleResized 揭；仅离散单步（burst<=1）确认无在途 ACK 才本地揭开
         earlyMaskReveal = false
-        if (mask.isVisible()) mask.reveal()
+        if (mask.isVisible() && observedResizeBurst <= 1) revealMask()
         return true
       }
       applyTerminalOptions()
@@ -405,7 +422,13 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
           } else if (isMobileDevice) {
             repaintTerminalRenderer(false, stickToBottom)
           }
-          if (mask.isVisible() && (!sizeChanged || earlyReveal)) mask.reveal()
+          // 拖动中间帧：本地 reflow 已落地但尺寸还要等服务端确认才揭罩，
+          // 先把定格快照更新到当前帧，避免整段拖动停在首帧
+          if (mask.isVisible() && sizeChanged && !earlyReveal) mask.refresh?.()
+          // burst>1（拖动中/刚结束）不本地揭罩：此前节流 fit 发出的 resize 其
+          // resized ACK 还在途，提前揭开会露出服务端尚未收敛的帧，交给
+          // handleResized/localOnly 路径；900ms failsafe 兜底
+          if (mask.isVisible() && observedResizeBurst <= 1 && (!sizeChanged || earlyReveal)) revealMask()
         })
         notifyReady()
         return true
@@ -533,7 +556,12 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
     if (terminal.cols !== size.cols || terminal.rows !== size.rows) {
       terminal.resize(size.cols, size.rows)
     }
-    sharedLayoutFrame = requestAnimationFrame(() => {
+    let synchronous = true
+    const frame = requestAnimationFrame(() => {
+      // 入口即释放句柄：下面任一分支 early return 之后都不得留下假 pending，
+      // 否则 isSyncPending 永久为真，finishSessionSwitch 会空等到 SWITCH_HOLD_TIMEOUT_MS
+      sharedLayoutFrame = null
+      synchronous = false
       if (isDisposed()) return
       const canvas = getCanvasSize()
       if (!canvas) return
@@ -559,8 +587,9 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
         updateTerminalPerf({ layoutFitCount: perf.layoutFitCount + 1 })
         onResizeRef.current?.(size.cols, size.rows)
       }
-      if (!sizeChanged && mask.isVisible()) mask.reveal()
+      if (!sizeChanged && mask.isVisible()) revealMask()
     })
+    if (synchronous) sharedLayoutFrame = frame
   }
   const primeContainerSize = () => {
     lastContainerSize = { width: container.clientWidth, height: container.clientHeight }
@@ -595,6 +624,14 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
     observedResizeBurst = now - observedResizeAt < 250 ? observedResizeBurst + 1 : 1
     observedResizeAt = now
     if (hadContainerSize && !isMobileDevice) mask.show()
+    // 拖动中每次观察都重置静止计数，等 2 个稳定帧的收敛永远到不了：
+    // burst>2（250ms 窗口内第 3 次起）视为拖动，按 DRAG_FIT_INTERVAL_MS 节流
+    // 做中间 fit 推进；单次/双次跳变仍走纯稳定检测，不多发 resize
+    if (observedResizeBurst > 2 && now - resizeThrottleAt >= DRAG_FIT_INTERVAL_MS) {
+      resizeThrottleAt = now
+      earlyMaskReveal = false
+      scheduleLayoutSync(0, false)
+    }
     scheduleStableLayout()
   }
   const notifyWindowResize = () => {

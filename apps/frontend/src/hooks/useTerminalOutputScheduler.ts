@@ -8,6 +8,8 @@ const MIN_FRAME_BUDGET = 4096
 const DIRECT_WRITE_IDLE_MS = 0
 const BACKPRESSURE_HIGH_WATERMARK = 65536
 const BACKPRESSURE_LOW_WATERMARK = 8192
+// 输出写屏障的上限：持续输出不能让等待方（如 resize 揭罩）无限挂起
+const WRITE_BARRIER_TIMEOUT_MS = 160
 const FRAME_END_SEQUENCE = '\u001b[?25h'
 const MIN_FRAME_CUT = 256
 const INCOMPLETE_ESCAPE_REGEX = /\u001b(?:\[[0-?]*[ -/]*|\][^\x07]*|\([ -~]*)?$/
@@ -55,6 +57,13 @@ export function useTerminalOutputScheduler({
   const flushRef = useRef<() => void>(() => {})
   const adaptiveFrameBudgetRef = useRef(frameBudget)
   const lastPushAtRef = useRef(Number.NEGATIVE_INFINITY)
+  const writeBarriersRef = useRef<Array<() => void>>([])
+  const resolveWriteBarriers = useCallback(() => {
+    const pending = writeBarriersRef.current
+    if (!pending.length) return
+    writeBarriersRef.current = []
+    for (const cb of pending) cb()
+  }, [])
 
   const clearTimer = useCallback(() => {
     if (timerRef.current === null) return
@@ -95,8 +104,9 @@ export function useTerminalOutputScheduler({
       if (backlog >= BACKPRESSURE_HIGH_WATERMARK) emitBackpressure('high', backlog)
       else if (backlog <= BACKPRESSURE_LOW_WATERMARK) emitBackpressure('normal', backlog)
       if (backlog) flushRef.current()
+      else resolveWriteBarriers()
     })
-  }, [clearTimer, emitBackpressure, frameBudget, frameTimeBudget, onWrite, write])
+  }, [clearTimer, emitBackpressure, frameBudget, frameTimeBudget, onWrite, resolveWriteBarriers, write])
   flushRef.current = flush
   const schedule = useCallback(() => {
     if (frameRef.current !== null) return
@@ -147,6 +157,7 @@ export function useTerminalOutputScheduler({
           if (backlog >= BACKPRESSURE_HIGH_WATERMARK) emitBackpressure('high', backlog)
           else if (backlog <= BACKPRESSURE_LOW_WATERMARK) emitBackpressure('normal', backlog)
           if (backlog) flushRef.current()
+          else resolveWriteBarriers()
         })
         return
       }
@@ -154,7 +165,30 @@ export function useTerminalOutputScheduler({
       if (bufferRef.current.length >= BACKPRESSURE_HIGH_WATERMARK) emitBackpressure('high', bufferRef.current.length)
       scheduleRef.current()
     },
-    [emitBackpressure, fastOutputLimit, frameBudget, frameTimeBudget, onMetrics, onWrite, write],
+    [emitBackpressure, fastOutputLimit, frameBudget, frameTimeBudget, onMetrics, onWrite, resolveWriteBarriers, write],
+  )
+  // 写屏障：等已进 scheduler 的输出（backlog + 在途 write 回调）全部落屏后回调。
+  // WebSocket 上 output 先于 resized 到达，但 xterm.write 是异步解析——
+  // 只认消息顺序会让旧列宽帧闪进新网格；持续输出时用超时封顶，不能无限挂起
+  const afterWrites = useCallback(
+    (cb: () => void) => {
+      let settled = false
+      const finish = () => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        writeBarriersRef.current = writeBarriersRef.current.filter((item) => item !== finish)
+        cb()
+      }
+      const timer = setTimeout(finish, WRITE_BARRIER_TIMEOUT_MS)
+      if (!writingRef.current && !bufferRef.current) {
+        finish()
+        return
+      }
+      writeBarriersRef.current.push(finish)
+      flush()
+    },
+    [flush],
   )
   const dispose = useCallback(() => {
     clearTimer()
@@ -165,11 +199,12 @@ export function useTerminalOutputScheduler({
     writingRef.current = false
     adaptiveFrameBudgetRef.current = frameBudget
     lastPushAtRef.current = Number.NEGATIVE_INFINITY
+    resolveWriteBarriers()
     if (backpressureRef.current !== 'normal') {
       backpressureRef.current = 'normal'
       onBackpressure?.('normal', 0)
     }
-  }, [clearTimer, frameBudget, onBackpressure])
+  }, [clearTimer, frameBudget, onBackpressure, resolveWriteBarriers])
   const getBacklog = useCallback(() => bufferRef.current.length, [])
-  return { push, flush, dispose, getBacklog }
+  return { push, flush, dispose, getBacklog, afterWrites }
 }
