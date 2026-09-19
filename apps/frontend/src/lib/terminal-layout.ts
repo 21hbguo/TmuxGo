@@ -17,6 +17,11 @@ interface TerminalLayoutOptions {
   attachExclusiveRef: { current: boolean }
   lastSizeRef: { current: { cols: number; rows: number } | null }
   sharedSessionSizeRef: { current: { cols: number; rows: number } | null }
+  // 最近一次本地 fit 发起、尚未等到 resized/localOnly 确认的行列数；null=无在途 resize。
+  // onResize 侧会合并后再实际发送，所以这里表示"已发起待确认"而非"已发送"；
+  // 由 runtime 侧 handleResized 按尺寸匹配清零（ACK 不带代次，只能对最后发起值消歧）。
+  // 可选：未接线的调用方退化为"永远无在途"，保持旧的即时揭开语义
+  pendingRemoteResizeRef?: { current: { cols: number; rows: number } | null }
   onResizeRef: { current: ((cols: number, rows: number) => void) | undefined }
   controlCarryRef: { current: string }
   mask: {
@@ -48,6 +53,7 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
   const attachExclusiveRef = options.attachExclusiveRef
   const lastSizeRef = options.lastSizeRef
   const sharedSessionSizeRef = options.sharedSessionSizeRef
+  const pendingRemoteResizeRef = options.pendingRemoteResizeRef ?? { current: null }
   const onResizeRef = options.onResizeRef
   const controlCarryRef = options.controlCarryRef
   const updateTerminalPerf = options.updateTerminalPerf
@@ -73,7 +79,6 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
   let mobileKeyboardTransition = false
   let observedResizeBurst = 0
   let observedResizeAt = 0
-  let earlyMaskReveal = false
   let resizeThrottleAt = 0
   const revealMask = (generation?: number) => (options.revealMask ?? mask.reveal)(generation)
   const isTerminalScrolledBack = () => {
@@ -385,10 +390,9 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
         lastSizeRef.current
       ) {
         recordMobileDebug('terminal-fit-noop', { width: currentWidth, height: currentHeight })
-        // 尺寸未变就不会有新的服务端 resize。但拖动节流刚发过的 resize 其 ACK 还在途，
-        // burst>1 时留给 handleResized 揭；仅离散单步（burst<=1）确认无在途 ACK 才本地揭开
-        earlyMaskReveal = false
-        if (mask.isVisible() && observedResizeBurst <= 1) revealMask()
+        // 本次 fit 没发 resize：只有在途 resize 全清（resized/localOnly 已回）才本地揭开；
+        // 有在途 resize 留给 handleResized 的屏障路径，900ms failsafe 兜底
+        if (mask.isVisible() && !pendingRemoteResizeRef.current) revealMask()
         return true
       }
       applyTerminalOptions()
@@ -406,12 +410,11 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
           lastSizeRef.current = { cols, rows }
           const perf = options.getTerminalPerf()
           updateTerminalPerf({ layoutFitCount: perf.layoutFitCount + 1 })
+          // 先于 onResize 置位：onResize 里去重/断线会同步发 localOnly resized 清掉它；
+          // 无回调则永远等不到确认，不置位
+          if (onResizeRef.current) pendingRemoteResizeRef.current = { cols, rows }
           onResizeRef.current?.(cols, rows)
         }
-        // 离散步进（开关面板/编辑器）在本地 fit 后内容已收敛：直接揭开，
-        // 等服务端 resized 会让用户看到"先对、再 resize 一次"的二次跳变
-        const earlyReveal = earlyMaskReveal
-        earlyMaskReveal = false
         requestAnimationFrame(() => {
           if (isDisposed() || !terminal) return
           scheduleRendererStyleCorrection()
@@ -424,11 +427,11 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
           }
           // 拖动中间帧：本地 reflow 已落地但尺寸还要等服务端确认才揭罩，
           // 先把定格快照更新到当前帧，避免整段拖动停在首帧
-          if (mask.isVisible() && sizeChanged && !earlyReveal) mask.refresh?.()
-          // burst>1（拖动中/刚结束）不本地揭罩：此前节流 fit 发出的 resize 其
-          // resized ACK 还在途，提前揭开会露出服务端尚未收敛的帧，交给
-          // handleResized/localOnly 路径；900ms failsafe 兜底
-          if (mask.isVisible() && observedResizeBurst <= 1 && (!sizeChanged || earlyReveal)) revealMask()
+          if (mask.isVisible() && sizeChanged && pendingRemoteResizeRef.current) mask.refresh?.()
+          // 只认真实在途状态：本次/此前 fit 发出的 resize 其 resized/localOnly 未回
+          // 就不揭（否则露出本地已重排、远端未收敛的中间帧）；无在途请求——比如纯
+          // 像素变化没改行列——立即揭开，不靠 burst 次数猜
+          if (mask.isVisible() && !pendingRemoteResizeRef.current) revealMask()
         })
         notifyReady()
         return true
@@ -530,9 +533,6 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
         return
       }
       resizeStableFrames = 0
-      // 单次观察到的跳变=离散步进（面板/编辑器开合）：本地 fit 后即可揭开；
-      // 250ms 窗口内多次观察=连续拖拽/动画，仍等服务端 resized 收敛帧
-      earlyMaskReveal = observedResizeBurst <= 1
       scheduleLayoutSync(0, mobileKeyboardTransition, mobileKeyboardTransition)
       synchronous = false
     })
@@ -585,9 +585,11 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
       if (sizeChanged) {
         const perf = options.getTerminalPerf()
         updateTerminalPerf({ layoutFitCount: perf.layoutFitCount + 1 })
+        if (onResizeRef.current) pendingRemoteResizeRef.current = { cols: size.cols, rows: size.rows }
         onResizeRef.current?.(size.cols, size.rows)
       }
-      if (!sizeChanged && mask.isVisible()) revealMask()
+      // 与 doFit 同一规则：有在途 resize 等 ACK，无则立即揭
+      if (mask.isVisible() && !pendingRemoteResizeRef.current) revealMask()
     })
     if (synchronous) sharedLayoutFrame = frame
   }
@@ -629,7 +631,6 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
     // 做中间 fit 推进；单次/双次跳变仍走纯稳定检测，不多发 resize
     if (observedResizeBurst > 2 && now - resizeThrottleAt >= DRAG_FIT_INTERVAL_MS) {
       resizeThrottleAt = now
-      earlyMaskReveal = false
       scheduleLayoutSync(0, false)
     }
     scheduleStableLayout()

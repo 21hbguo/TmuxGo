@@ -143,13 +143,18 @@ describe('useTerminalOutputScheduler', () => {
     act(() => result.current.dispose())
   })
   it('bounds the afterWrites wait when the write callback never fires', () => {
+    // 有界降级：write 回调始终不来时超时仍放行 barrier——这不是严格"写完成"证明，
+    // 只是防止慢写/丢回调把遮罩永久卡死的兜底，调用方不得据此断言首帧已绘制
     const write = vi.fn((_chunk: string, _done?: () => void) => {})
     const { result } = renderHook(() => useTerminalOutputScheduler({ write }))
     const barrier = vi.fn()
     act(() => result.current.push('chunk'))
     act(() => result.current.afterWrites(barrier))
     expect(barrier).not.toHaveBeenCalled()
-    act(() => vi.advanceTimersByTime(200))
+    // 160ms 内有界等待，write 未完成；超时后降级放行
+    act(() => vi.advanceTimersByTime(150))
+    expect(barrier).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersByTime(50))
     expect(barrier).toHaveBeenCalledTimes(1)
     act(() => result.current.dispose())
   })
