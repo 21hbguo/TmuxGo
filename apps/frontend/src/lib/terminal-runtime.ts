@@ -160,6 +160,9 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
   }
   const mask = createTerminalResizeMask({ mask: options.resizeMaskElement, getTerminal })
   options.resizeMaskApiRef.current = mask
+  // 已发送未确认的最近一次 resize 请求（resized ACK 无代次，只能按尺寸对末次消歧；
+  // 同尺寸旧 ACK 无法区分但语义等价——服务端已到该尺寸即可揭）
+  const pendingRemoteResizeRef: { current: { cols: number; rows: number } | null } = { current: null }
   // resized/本地 fit 只代表"尺寸已改"：此前排队的输出可能仍在 scheduler backlog
   // 或 xterm.write 回调途中，先揭罩会把旧列宽帧闪进新网格。
   // 统一等输出写屏障落地再揭，并用代次+尺寸复核丢弃过期请求
@@ -181,6 +184,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
     attachExclusiveRef,
     lastSizeRef,
     sharedSessionSizeRef,
+    pendingRemoteResizeRef,
     onResizeRef,
     controlCarryRef,
     mask,
@@ -515,6 +519,8 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
     const handleAttached = (detail: any = {}) => {
       if (detail.hostId && detail.hostId !== (activeHostIdRef.current || 'local')) return
       if (detail.sessionName && detail.sessionName !== sessionNameRef.current) return
+      // 新 attach 上下文里旧 session 的在途 resize 已无意义
+      pendingRemoteResizeRef.current = null
       const cols = Number(detail.cols)
       const rows = Number(detail.rows)
       if (!terminal || disposed) return
@@ -586,6 +592,10 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
       if (detail.sessionName && detail.sessionName !== sessionNameRef.current) return
       const cols = Number(detail.cols)
       const rows = Number(detail.rows)
+      // resized（含 localOnly）= 一次 resize 请求的确认：与在途尺寸匹配即清，
+      // 不匹配的是过期 ACK（A->B->A 中的旧 B），保持 pending 等末次确认
+      const pending = pendingRemoteResizeRef.current
+      if (pending && pending.cols === cols && pending.rows === rows) pendingRemoteResizeRef.current = null
       if (!terminal || cols !== terminal.cols || rows !== terminal.rows || (detail.localOnly && !attachEventCount))
         return
       const generation = mask.getGeneration()
@@ -601,6 +611,8 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
     const handleResizeAbort = (detail: any = {}) => {
       if (detail.hostId && detail.hostId !== (activeHostIdRef.current || 'local')) return
       if (detail.sessionName && detail.sessionName !== sessionNameRef.current) return
+      // error/detached 后不会再有 resized ACK：清在途标记让遮罩走兜底揭开
+      pendingRemoteResizeRef.current = null
       if (mask.isPending()) mask.reveal()
       finishSessionSwitch()
     }

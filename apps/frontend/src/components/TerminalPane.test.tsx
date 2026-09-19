@@ -1727,7 +1727,7 @@ describe('TerminalPane', () => {
     await waitFor(() => expect(mask.style.display).toBe('none'))
     expect(mask.childElementCount).toBe(0)
   })
-  it('reveals the resize mask right after a discrete size jump without waiting for resized', async () => {
+  it('keeps the resize mask until the discrete resize is acknowledged', async () => {
     const { container } = render(
       <TerminalPane sessionName="dev" attachExclusive onInput={vi.fn()} onResize={vi.fn()} />,
     )
@@ -1738,15 +1738,19 @@ describe('TerminalPane', () => {
     Object.defineProperty(root, 'clientWidth', { configurable: true, value: 800 })
     Object.defineProperty(root, 'clientHeight', { configurable: true, value: 520 })
     resizeObserverCallback?.()
-    // 超过 250ms 连续窗口后的单次观察=离散步进（开文件/面板）：
-    // 本地 fit 落地即揭开，不发 resized 也已恢复
+    // 超过 250ms 连续窗口后的单次观察=离散步进（开文件/面板）：行列已变、
+    // resize 请求在途——写屏障为空不代表远端已收敛，要等 resized/localOnly
     await sleep(300)
     Object.defineProperty(root, 'clientHeight', { configurable: true, value: 400 })
     terminalMocks.resize.mockClear()
     resizeObserverCallback?.()
-    expect(mask.style.display).toBe('none')
-    expect(mask.childElementCount).toBe(0)
+    await sleep(60)
+    expect(mask.style.display).toBe('block')
     expect(terminalMocks.resize).toHaveBeenCalledTimes(1)
+    const [cols, rows] = terminalMocks.resize.mock.calls[0]
+    emitStreamEvent(STREAM_EVENT.resized, { hostId: 'local', sessionName: 'dev', cols, rows })
+    await waitFor(() => expect(mask.style.display).toBe('none'))
+    expect(mask.childElementCount).toBe(0)
   })
   it('anchors the frozen resize frame to the bottom of the mask', async () => {
     const { container } = render(
@@ -1831,6 +1835,34 @@ describe('TerminalPane', () => {
     emitStreamEvent(STREAM_EVENT.resized, { hostId: 'local', sessionName: 'dev', cols: 95, rows: 32 })
     await sleep(30)
     expect(mask.style.display).toBe('block')
+    emitStreamEvent(STREAM_EVENT.resized, { hostId: 'local', sessionName: 'dev', cols: 100, rows: 32 })
+    await waitFor(() => expect(mask.style.display).toBe('none'))
+  })
+  it('accepts a same-size stale resized ack during A->B->A (documented protocol boundary)', async () => {
+    // ACK 不携带原请求代次，同尺寸旧 ACK 与当前 ACK 不可区分：pending 按尺寸匹配清零。
+    // 语义上等价——服务端发出该 ACK 时确实到达过这个尺寸；此用例固定该行为边界而非声称能识别代次
+    const { container } = render(
+      <TerminalPane sessionName="dev" attachExclusive onInput={vi.fn()} onResize={vi.fn()} />,
+    )
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    await waitFor(() => expect(resizeObserverCallback).toBeTruthy())
+    const root = container.firstChild as HTMLElement
+    const mask = container.querySelector('[data-testid="terminal-resize-mask"]') as HTMLElement
+    Object.defineProperty(root, 'clientWidth', { configurable: true, value: 800 })
+    Object.defineProperty(root, 'clientHeight', { configurable: true, value: 520 })
+    resizeObserverCallback?.()
+    // A(100) -> B(95)：在途 pending=95，A 的 ACK 迟到不匹配，遮罩保持
+    Object.defineProperty(root, 'clientWidth', { configurable: true, value: 760 })
+    resizeObserverCallback?.()
+    await waitFor(() => expect(terminalMocks.resize).toHaveBeenLastCalledWith(95, 32))
+    emitStreamEvent(STREAM_EVENT.resized, { hostId: 'local', sessionName: 'dev', cols: 100, rows: 32 })
+    await sleep(30)
+    expect(mask.style.display).toBe('block')
+    // B -> A(100)：pending 回到 100；此时第一次 A 的迟到 ACK（同样 100）到达——
+    // 按尺寸匹配会被当作当前确认接受（无法区分代次），遮罩揭开
+    Object.defineProperty(root, 'clientWidth', { configurable: true, value: 800 })
+    resizeObserverCallback?.()
+    await waitFor(() => expect(terminalMocks.resize).toHaveBeenLastCalledWith(100, 32))
     emitStreamEvent(STREAM_EVENT.resized, { hostId: 'local', sessionName: 'dev', cols: 100, rows: 32 })
     await waitFor(() => expect(mask.style.display).toBe('none'))
   })

@@ -55,6 +55,7 @@ function createHarness({ shared = false, mobile = false }: HarnessOptions = {}) 
   const mask = createTerminalResizeMask({ mask: maskElement, getTerminal: () => terminal })
   const onResize = vi.fn()
   const revealMask = vi.fn((generation?: number) => mask.reveal(generation))
+  const pendingRemoteResizeRef: { current: { cols: number; rows: number } | null } = { current: null }
   const layout = createTerminalLayout({
     container,
     isMobile: mobile,
@@ -63,7 +64,9 @@ function createHarness({ shared = false, mobile = false }: HarnessOptions = {}) 
     preferencesRef: { current: { fontSize: 16, fontFamily: 'monospace', cursorBlink: true, terminalPadding: 0 } },
     attachExclusiveRef: { current: !shared },
     lastSizeRef: { current: { cols: 80, rows: 24 } },
-    sharedSessionSizeRef: { current: null },
+    // shared 路径读 sharedSessionSizeRef：传 null 会在 syncSharedLayout 入口 return，测试空跑
+    sharedSessionSizeRef: { current: shared ? { cols: 80, rows: 24 } : null },
+    pendingRemoteResizeRef,
     onResizeRef: { current: onResize },
     controlCarryRef: { current: '' },
     mask,
@@ -89,6 +92,12 @@ function createHarness({ shared = false, mobile = false }: HarnessOptions = {}) 
     resizeCalls,
     onResize,
     revealMask,
+    pendingRemoteResizeRef,
+    // 模拟服务端 resized/localOnly 确认到达（runtime handleResized 的尺寸匹配清零）
+    ackResize(cols: number, rows: number) {
+      const pending = pendingRemoteResizeRef.current
+      if (pending && pending.cols === cols && pending.rows === rows) pendingRemoteResizeRef.current = null
+    },
     setSize(nextWidth: number, nextHeight: number) {
       width = nextWidth
       height = nextHeight
@@ -154,14 +163,67 @@ describe('terminal-layout', () => {
     expect(h.resizeCalls.at(-1)).toEqual([Math.floor(1282 / 10), Math.floor(480 / 20)])
     h.layout.dispose()
   })
-  it('reveals through the write barrier on a discrete single-step change', () => {
+  it('keeps the mask until the remote ACK arrives on a discrete single-step change', () => {
     const h = createHarness()
     h.layout.primeContainerSize()
     h.setSize(760, 480)
     h.layout.notifyObservedResize()
     for (let i = 0; i < 8; i++) tick()
+    // 行列变了（76x24）：已发 resize，ACK 未回前不揭——否则露出本地重排、远端未收敛的中间帧
+    expect(h.onResize).toHaveBeenCalledWith(76, 24)
+    expect(h.revealMask).not.toHaveBeenCalled()
+    expect(h.mask.isPending()).toBe(true)
+    // ACK 到达清在途后，下一次布局帧本地揭开（真实路径是 handleResized 的写屏障；
+    // 用 4px 像素抖动触发一次观察，行列不变、无在途 → 揭开）
+    h.ackResize(76, 24)
+    h.setSize(764, 480)
+    h.layout.notifyObservedResize()
+    for (let i = 0; i < 8; i++) tick()
     expect(h.revealMask).toHaveBeenCalled()
     h.layout.dispose()
+    h.mask.dispose()
+  })
+  it('reveals after a two-step pixel resize which never changes terminal cells', () => {
+    const h = createHarness()
+    vi.setSystemTime(1000)
+    h.layout.scheduleLayoutSync(0, true)
+    tick(8)
+    h.layout.primeContainerSize()
+    // 800->804->808px、单元格 10px：行列始终 80x24，没有任何 resize 发出，
+    // 不存在在途 ACK——不能按 burst 次数猜而罩到 900ms failsafe
+    h.setSize(804, 480)
+    h.layout.notifyObservedResize()
+    vi.setSystemTime(1016)
+    h.setSize(808, 480)
+    h.layout.notifyObservedResize()
+    tick(10)
+    expect(h.onResize).not.toHaveBeenCalled()
+    expect(h.mask.isPending()).toBe(false)
+    h.layout.dispose()
+    h.mask.dispose()
+  })
+  it('reveals pixel-only changes again after the previous resize ACK completed', () => {
+    const h = createHarness()
+    vi.setSystemTime(1000)
+    h.layout.primeContainerSize()
+    // 先发一次真实行列变化并等到 ACK 清在途
+    h.setSize(900, 480)
+    h.layout.notifyObservedResize()
+    tick(8)
+    expect(h.onResize).toHaveBeenCalledWith(90, 24)
+    expect(h.mask.isPending()).toBe(true)
+    h.ackResize(90, 24)
+    // ACK 完成后同格子内的像素变化再次 show，必须及时揭开而不是罩到 failsafe
+    vi.setSystemTime(1400)
+    h.setSize(904, 480)
+    h.layout.notifyObservedResize()
+    vi.setSystemTime(1416)
+    h.setSize(908, 480)
+    h.layout.notifyObservedResize()
+    tick(10)
+    expect(h.mask.isPending()).toBe(false)
+    h.layout.dispose()
+    h.mask.dispose()
   })
   it('keeps the mobile keyboard anchor across the renderer style-correction frame', () => {
     const h = createHarness({ mobile: true })
