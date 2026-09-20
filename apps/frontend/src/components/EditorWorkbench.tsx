@@ -591,12 +591,15 @@ export function EditorWorkbench({
     window.addEventListener('pointermove', handlePointerMove, true)
     window.addEventListener('pointerup', handlePointerUp, true)
     window.addEventListener('pointercancel', handlePointerUp, true)
+    // 窗口失焦 pointerup/cancel 可能不送达：blur 统一结算
+    window.addEventListener('blur', handlePointerUp)
     return () => {
       // effect 重跑/卸载兜底补 end，否则 burst 抑制永久卡住
       if (splitResizeRef.current?.active) emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'end' })
       window.removeEventListener('pointermove', handlePointerMove, true)
       window.removeEventListener('pointerup', handlePointerUp, true)
       window.removeEventListener('pointercancel', handlePointerUp, true)
+      window.removeEventListener('blur', handlePointerUp)
     }
   }, [setEditorSplitRatio])
   useEffect(() => {

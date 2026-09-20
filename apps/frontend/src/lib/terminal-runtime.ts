@@ -679,9 +679,11 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
       subscribeStreamEvent(STREAM_EVENT.error, handleResizeAbort),
       subscribeStreamEvent(STREAM_EVENT.detached, handleResizeAbort),
       // pointerup 后不等 2 帧稳定检测链（~48ms）——16ms 后（React 提交+RO 送达
-      // 已覆盖）直接调度 fit，让最终尺寸在 ~60ms 内进入 PaneGrid 提交窗口
+      // 已覆盖）直接调度 fit，让最终尺寸在 ~60ms 内进入 PaneGrid 提交窗口。
+      // 仅当本终端容器近期确有 RO 活动才加速：无关终端/编辑器/其它面板手势
+      // 的 end 不该触发这里额外的重排
       subscribeStreamEvent(STREAM_EVENT.resizeGesture, (detail: { phase?: string } = {}) => {
-        if (detail?.phase === 'end') layout.scheduleLayoutSync(16, true)
+        if (detail?.phase === 'end' && layout.hasRecentObservedResize()) layout.scheduleLayoutSync(16, true)
       }),
     ]
     window.addEventListener('tmuxgo-layout-change', handleLayoutChange as EventListener)

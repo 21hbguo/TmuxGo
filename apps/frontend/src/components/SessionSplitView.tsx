@@ -40,9 +40,13 @@ export function SessionSplitView({ group }: { group: SessionSplitGroup }) {
     },
     [horizontal],
   )
+  // 监听稳定注册：pointerdown 只改 ref 不触发渲染，若 effect 入口检查
+  // draggingRef 早退，up/move 监听永远装不上——start 发出后没有 end，
+  // 全局 burst 抑制永久卡住所有 PaneGrid。handler 内部用 ref 判断 active，
+  // up/cancel/blur/卸载统一走 settle，且一次手势只结算一次
   useEffect(() => {
-    if (!draggingRef.current) return
     const handleMove = (e: PointerEvent) => {
+      if (!draggingRef.current) return
       const el = containerRef.current
       if (!el) return
       const rect = el.getBoundingClientRect()
@@ -51,9 +55,10 @@ export function SessionSplitView({ group }: { group: SessionSplitGroup }) {
       previewRatioRef.current = next
       setPreviewRatio(next)
     }
-    const handleUp = () => {
-      if (draggingRef.current) emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'end' })
+    const settle = () => {
+      if (!draggingRef.current) return
       draggingRef.current = false
+      emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'end' })
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
       const finalRatio = previewRatioRef.current
@@ -62,14 +67,15 @@ export function SessionSplitView({ group }: { group: SessionSplitGroup }) {
       if (finalRatio !== null) update(group.id, { primaryRatio: finalRatio })
     }
     window.addEventListener('pointermove', handleMove)
-    window.addEventListener('pointerup', handleUp)
-    window.addEventListener('pointercancel', handleUp)
+    window.addEventListener('pointerup', settle)
+    window.addEventListener('pointercancel', settle)
+    window.addEventListener('blur', settle)
     return () => {
-      // effect 重跑/卸载兜底补 end，否则 burst 抑制永久卡住
-      if (draggingRef.current) emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'end' })
+      settle()
       window.removeEventListener('pointermove', handleMove)
-      window.removeEventListener('pointerup', handleUp)
-      window.removeEventListener('pointercancel', handleUp)
+      window.removeEventListener('pointerup', settle)
+      window.removeEventListener('pointercancel', settle)
+      window.removeEventListener('blur', settle)
     }
   }, [group.id, horizontal, update])
   const swap = useCallback(() => {

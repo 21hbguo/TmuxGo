@@ -84,10 +84,13 @@ export function TerminalDock({
     }
     window.addEventListener('mousemove', handleMove)
     window.addEventListener('mouseup', handleUp)
+    // 窗口失焦 mouseup 不会送达：blur 统一结算，否则 gesture end 丢失
+    window.addEventListener('blur', handleUp)
     return () => {
       if (frameRef.current) cancelAnimationFrame(frameRef.current)
       window.removeEventListener('mousemove', handleMove)
       window.removeEventListener('mouseup', handleUp)
+      window.removeEventListener('blur', handleUp)
     }
   })
   // 卸载兜底补 end（独立 mount-only effect：上面的 effect 无依赖、每次渲染都

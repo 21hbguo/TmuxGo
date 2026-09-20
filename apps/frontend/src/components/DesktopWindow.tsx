@@ -170,6 +170,7 @@ export function DesktopWindow({ windowed, children }: { windowed: boolean; child
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
+      onLostPointerCapture={onPointerUp}
     >
       {children}
       {windowed &&
