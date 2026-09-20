@@ -33,6 +33,7 @@ interface TerminalRuntimeOptions {
   terminalInstance: { current: any }
   onInputRef: { current: ((data: string) => void) | undefined }
   onResizeRef: { current: ((cols: number, rows: number) => void) | undefined }
+  onResizeActivityRef?: { current: (() => void) | undefined }
   attachExclusiveRef: { current: boolean }
   onReadyRef: { current: (() => void) | undefined }
   sessionNameRef: { current: string | undefined }
@@ -186,6 +187,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
     sharedSessionSizeRef,
     pendingRemoteResizeRef,
     onResizeRef,
+    onResizeActivityRef: options.onResizeActivityRef,
     controlCarryRef,
     mask,
     revealMask: (generation) => revealMaskAfterWrites(generation ?? mask.getGeneration()),

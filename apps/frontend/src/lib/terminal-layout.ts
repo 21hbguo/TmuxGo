@@ -23,6 +23,9 @@ interface TerminalLayoutOptions {
   // 可选：未接线的调用方退化为"永远无在途"，保持旧的即时揭开语义
   pendingRemoteResizeRef?: { current: { cols: number; rows: number } | null }
   onResizeRef: { current: ((cols: number, rows: number) => void) | undefined }
+  // 每次真实容器尺寸变化（RO 观察步长，远密于节流后的 fit/onResize）都回调：
+  // 供上层把远端 resize 的静止截止挂在真实拖动活动上，而不是稀疏 fit 通知
+  onResizeActivityRef?: { current: (() => void) | undefined }
   controlCarryRef: { current: string }
   mask: {
     show: () => number
@@ -606,6 +609,9 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
     lastContainerSize = { width, height }
     resizeObservedSize = { width, height }
     resizeStableFrames = 0
+    // 真实容器变化即算拖动活动（哪怕最终换算成相同行列）：远端静止窗以此为准，
+    // 不能用节流后 ~140ms 一发的 onResize 反推停止——慢拖/同格像素变也会命中
+    options.onResizeActivityRef?.current?.()
     // 键盘开着时纯高度变化不 refit（宽度变仍走正常流程，如旋转）
     if (
       isMobileDevice &&

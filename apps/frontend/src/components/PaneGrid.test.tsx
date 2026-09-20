@@ -1,3 +1,5 @@
+import { createTerminalLayout } from '@/lib/terminal-layout'
+import { createTerminalResizeMask } from '@/lib/terminal-resize-mask'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { emitStreamEvent, subscribeStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -15,6 +17,7 @@ const terminalProps = vi.hoisted(() => ({
     sessionName?: string
     onReady?: () => void
     onResize?: (cols: number, rows: number) => void
+    onResizeActivity?: () => void
     onInput?: (data: string) => void
   },
 }))
@@ -32,6 +35,7 @@ vi.mock('./TerminalPane', () => ({
     sessionName?: string
     onReady?: () => void
     onResize?: (cols: number, rows: number) => void
+    onResizeActivity?: () => void
     onInput?: (data: string) => void
   }) => {
     terminalProps.current = props
@@ -71,6 +75,105 @@ vi.mock('@/hooks/useOrderedSessions', () => ({
 vi.mock('@/hooks/useWindowQueryState', () => ({
   useWindowQueryState: () => ({ getWindows: () => [], setWindows: vi.fn() }),
 }))
+
+const frames = new Map<number, FrameRequestCallback>()
+let nextFrameId = 1
+const tick = (count = 1) => {
+  for (let i = 0; i < count; i++) {
+    const callbacks = [...frames.entries()]
+    frames.clear()
+    for (const [, cb] of callbacks) cb(0)
+  }
+}
+// 真实 layout harness：RO→layout→PaneGrid 联动回归用。onResize 走 mock 由用例
+// 自行桥接；onResizeActivity 直通 terminalProps（真实容器活动恒可达 PaneGrid）
+function createHarness() {
+  const container = document.createElement('div')
+  container.innerHTML =
+    '<div class="xterm"><div class="xterm-screen"><div class="xterm-rows"></div></div><div class="xterm-viewport"></div></div>'
+  document.body.append(container)
+  let width = 800
+  let height = 480
+  Object.defineProperties(container, {
+    clientWidth: { configurable: true, get: () => width },
+    clientHeight: { configurable: true, get: () => height },
+  })
+  const resizeCalls: Array<[number, number]> = []
+  const terminal: any = {
+    element: container.firstElementChild,
+    cols: 80,
+    rows: 24,
+    options: { fontSize: 16, fontFamily: 'monospace' },
+    _core: {
+      _renderService: {
+        dimensions: { css: { cell: { width: 10, height: 20 }, canvas: { width: 800, height: 480 } } },
+        clear: vi.fn(),
+      },
+    },
+    resize(cols: number, rows: number) {
+      this.cols = cols
+      this.rows = rows
+      resizeCalls.push([cols, rows])
+    },
+    refresh: vi.fn(),
+    scrollToBottom: vi.fn(),
+    clearTextureAtlas: vi.fn(),
+    clearSelection: vi.fn(),
+    buffer: { active: { baseY: 0, viewportY: 0 } },
+  }
+  const maskElement = document.createElement('div')
+  const mask = createTerminalResizeMask({ mask: maskElement, getTerminal: () => terminal })
+  const onResize = vi.fn()
+  const revealMask = vi.fn((generation?: number) => mask.reveal(generation))
+  const pendingRemoteResizeRef: { current: { cols: number; rows: number } | null } = { current: null }
+  const layout = createTerminalLayout({
+    container,
+    isMobile: false,
+    getTerminal: () => terminal,
+    isDisposed: () => false,
+    preferencesRef: { current: { fontSize: 16, fontFamily: 'monospace', cursorBlink: true, terminalPadding: 0 } },
+    attachExclusiveRef: { current: true },
+    lastSizeRef: { current: { cols: 80, rows: 24 } },
+    sharedSessionSizeRef: { current: null },
+    pendingRemoteResizeRef,
+    onResizeRef: { current: onResize },
+    onResizeActivityRef: { current: () => terminalProps.current?.onResizeActivity?.() },
+    controlCarryRef: { current: '' },
+    mask,
+    revealMask,
+    getTerminalPerf: () => ({
+      attachLatency: 0,
+      outputBytes: 0,
+      outputEvents: 0,
+      outputBacklog: 0,
+      layoutFitCount: 0,
+      lastOutputAt: '',
+    }),
+    updateTerminalPerf: vi.fn(),
+    notifyReady: vi.fn(),
+    requestServerRedraw: vi.fn(),
+  })
+  return {
+    layout,
+    container,
+    terminal,
+    mask,
+    maskElement,
+    resizeCalls,
+    onResize,
+    revealMask,
+    pendingRemoteResizeRef,
+    // 模拟服务端 resized/localOnly 确认到达（runtime handleResized 的尺寸匹配清零）
+    ackResize(cols: number, rows: number) {
+      const pending = pendingRemoteResizeRef.current
+      if (pending && pending.cols === cols && pending.rows === rows) pendingRemoteResizeRef.current = null
+    },
+    setSize(nextWidth: number, nextHeight: number) {
+      width = nextWidth
+      height = nextHeight
+    },
+  }
+}
 
 describe('PaneGrid', () => {
   beforeEach(() => {
@@ -551,5 +654,66 @@ describe('PaneGrid', () => {
     sendMock.mockClear()
     act(() => vi.advanceTimersByTime(1400))
     expect(sendMock.mock.calls.filter(([m]) => m.type === 'resize')).toHaveLength(0)
+  })
+  it('holds remote resize during continuous real container activity at 32ms RO cadence', () => {
+    vi.useFakeTimers()
+    frames.clear()
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      const id = nextFrameId++
+      frames.set(id, cb)
+      return id
+    })
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id))
+    socketState.isConnected = true
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    act(() => emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev1', hostId: 'local', cols: 80, rows: 24 }))
+    sendMock.mockClear()
+    const h = createHarness()
+    h.onResize.mockImplementation((cols: number, rows: number) => terminalProps.current?.onResize?.(cols, rows))
+    h.layout.primeContainerSize()
+    // RO 每 32ms 一次真实容器变化（拖动中）：静止截止被活动顺延，
+    // 节流 fit ~160ms 一发不得让远端在拖动途中发送
+    for (let i = 0; i < 32; i++) {
+      act(() => vi.advanceTimersByTime(32))
+      h.setSize(810 + i * 10, 480)
+      act(() => {
+        h.layout.notifyObservedResize()
+        tick()
+      })
+      const sent = sendMock.mock.calls.filter(([m]) => m.type === 'resize').at(-1)?.[0]
+      if (sent) act(() => emitStreamEvent(STREAM_EVENT.resized, { ...sent, sessionName: 'dev1' }))
+    }
+    const midDrag = sendMock.mock.calls.filter(([m]) => m.type === 'resize')
+    // 拖动收敛：停止观察后只发一次最终尺寸
+    act(() => vi.advanceTimersByTime(200))
+    act(() => tick(6))
+    act(() => vi.advanceTimersByTime(200))
+    const resizes = sendMock.mock.calls.filter(([m]) => m.type === 'resize')
+    h.layout.dispose()
+    h.container.remove()
+    vi.unstubAllGlobals()
+    expect(midDrag).toHaveLength(0)
+    expect(resizes.length).toBeLessThanOrEqual(1)
+  })
+  it('emits localOnly settle when the deduped final size matches the acknowledged size', () => {
+    vi.useFakeTimers()
+    socketState.isConnected = true
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    act(() => emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev1', hostId: 'local', cols: 120, rows: 36 }))
+    act(() => terminalProps.current?.onResize?.(121, 40))
+    act(() => vi.advanceTimersByTime(160))
+    act(() => emitStreamEvent(STREAM_EVENT.resized, { sessionName: 'dev1', hostId: 'local', cols: 121, rows: 40 }))
+    const completed = vi.fn()
+    const unsubscribe = subscribeStreamEvent(STREAM_EVENT.resized, completed)
+    sendMock.mockClear()
+    // A→B→A 已 ACK 路径：去重零发送但必须补 localOnly 释放终端 pending
+    act(() => terminalProps.current?.onResize?.(130, 40))
+    act(() => terminalProps.current?.onResize?.(121, 40))
+    act(() => vi.advanceTimersByTime(500))
+    unsubscribe()
+    expect(sendMock.mock.calls.filter(([m]) => m.type === 'resize')).toHaveLength(0)
+    expect(completed).toHaveBeenCalledWith(expect.objectContaining({ cols: 121, rows: 40, localOnly: true }))
   })
 })
