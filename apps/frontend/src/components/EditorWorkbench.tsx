@@ -292,7 +292,7 @@ export function EditorWorkbench({
         absolutePath: entry.absolutePath,
         type: 'file',
       },
-      { t, pushToast, position: { line: entry.line, column: entry.column }, openPanel: true },
+      { t, pushToast, position: { line: entry.line, column: entry.column }, openPanel: true, skipReload: true },
     )
   }
   const navigateToEntry = async (entry: NavigationEntry, sourceEntry?: NavigationEntry | null) => {
@@ -1009,6 +1009,10 @@ export function EditorWorkbench({
             value={editor.content}
             onMount={(instance) => {
               editorRefs.current[editor.id] = instance
+              // 卸载时清掉死引用：rAF 落位遇到死实例会落空,清掉后走 pendingLocation → remount 时 onMount 兜底
+              instance.onDidDispose?.(() => {
+                if (editorRefs.current[editor.id] === instance) delete editorRefs.current[editor.id]
+              })
               const position = instance.getPosition?.()
               if (position)
                 setCursorById((current) => ({
