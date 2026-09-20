@@ -19,6 +19,7 @@ const terminalProps = vi.hoisted(() => ({
     onResize?: (cols: number, rows: number) => void
     onResizeActivity?: () => void
     layoutSyncPendingRef?: { current: (() => boolean) | undefined }
+    peekFitSizeRef?: { current: (() => { cols: number; rows: number } | null) | undefined }
     onInput?: (data: string) => void
   },
 }))
@@ -38,6 +39,7 @@ vi.mock('./TerminalPane', () => ({
     onResize?: (cols: number, rows: number) => void
     onResizeActivity?: () => void
     layoutSyncPendingRef?: { current: (() => boolean) | undefined }
+    peekFitSizeRef?: { current: (() => { cols: number; rows: number } | null) | undefined }
     onInput?: (data: string) => void
   }) => {
     terminalProps.current = props
@@ -738,5 +740,116 @@ describe('PaneGrid', () => {
     act(() => vi.advanceTimersByTime(20))
     expect(sendMock).toHaveBeenLastCalledWith({ type: 'resize', hostId: 'local', cols: 130, rows: 40 })
     expect(sendMock.mock.calls.filter(([m]) => m.type === 'resize')).toHaveLength(1)
+  })
+  it('suppresses all remote sends during pointer drag and commits once after pointerup settle', () => {
+    vi.useFakeTimers()
+    socketState.isConnected = true
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    act(() => emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev1', hostId: 'local', cols: 120, rows: 36 }))
+    sendMock.mockClear()
+    act(() => emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'start' }))
+    // move 阶段：尺寸持续变化 + 时间远超静止窗，远端仍零发送
+    for (let c = 121; c <= 128; c++) {
+      act(() => terminalProps.current?.onResize?.(c, 40))
+      act(() => vi.advanceTimersByTime(60))
+    }
+    expect(sendMock.mock.calls.filter(([m]) => m.type === 'resize')).toHaveLength(0)
+    // pointerup → 50ms settle 内只发最终尺寸一次
+    act(() => emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'end' }))
+    act(() => vi.advanceTimersByTime(50))
+    const resizes = sendMock.mock.calls.filter(([m]) => m.type === 'resize')
+    expect(resizes).toHaveLength(1)
+    expect(resizes[0][0]).toMatchObject({ cols: 128, rows: 40 })
+  })
+  it('merges five rapid pointer drags into a single final remote resize', () => {
+    vi.useFakeTimers()
+    socketState.isConnected = true
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    act(() => emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev1', hostId: 'local', cols: 120, rows: 36 }))
+    sendMock.mockClear()
+    // 5 次快速 down/up（间隔 < settle 窗）：整个 burst 只提交最终一次
+    for (let i = 0; i < 5; i++) {
+      act(() => emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'start' }))
+      act(() => terminalProps.current?.onResize?.(121 + i * 4, 40))
+      act(() => vi.advanceTimersByTime(30))
+      act(() => terminalProps.current?.onResize?.(122 + i * 4, 40))
+      act(() => emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'end' }))
+      act(() => vi.advanceTimersByTime(30)) // up→下一次 down 间隔 30ms < 50ms settle
+    }
+    act(() => vi.advanceTimersByTime(200))
+    const resizes = sendMock.mock.calls.filter(([m]) => m.type === 'resize')
+    expect(resizes).toHaveLength(1)
+    expect(resizes[0][0]).toMatchObject({ cols: 138, rows: 40 })
+  })
+  it('commits independent pointer drags separated beyond the settle window', () => {
+    vi.useFakeTimers()
+    socketState.isConnected = true
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    act(() => emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev1', hostId: 'local', cols: 120, rows: 36 }))
+    sendMock.mockClear()
+    act(() => emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'start' }))
+    act(() => terminalProps.current?.onResize?.(130, 40))
+    act(() => emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'end' }))
+    act(() => vi.advanceTimersByTime(60))
+    act(() => emitStreamEvent(STREAM_EVENT.resized, { sessionName: 'dev1', hostId: 'local', cols: 130, rows: 40 }))
+    // 长间隔后的第二次独立拖动应各自提交
+    act(() => vi.advanceTimersByTime(500))
+    act(() => emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'start' }))
+    act(() => terminalProps.current?.onResize?.(140, 44))
+    act(() => emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'end' }))
+    act(() => vi.advanceTimersByTime(60))
+    const resizes = sendMock.mock.calls.filter(([m]) => m.type === 'resize')
+    expect(resizes).toHaveLength(2)
+    expect(resizes[1][0]).toMatchObject({ cols: 140, rows: 44 })
+  })
+  it('does not let an ACK pierce an active pointer burst', () => {
+    vi.useFakeTimers()
+    socketState.isConnected = true
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    act(() => emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev1', hostId: 'local', cols: 120, rows: 36 }))
+    sendMock.mockClear()
+    // 第一次拖拽提交 121（在途 ACK 未回）
+    act(() => emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'start' }))
+    act(() => terminalProps.current?.onResize?.(121, 40))
+    act(() => emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'end' }))
+    act(() => vi.advanceTimersByTime(60))
+    expect(sendMock.mock.calls.filter(([m]) => m.type === 'resize')).toHaveLength(1)
+    // 第二次拖拽期间 ACK 到达：只释放在途，不得穿透 burst 发 130
+    act(() => emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'start' }))
+    act(() => terminalProps.current?.onResize?.(130, 40))
+    act(() => emitStreamEvent(STREAM_EVENT.resized, { sessionName: 'dev1', hostId: 'local', cols: 121, rows: 40 }))
+    act(() => vi.advanceTimersByTime(200))
+    expect(sendMock.mock.calls.filter(([m]) => m.type === 'resize')).toHaveLength(1)
+    // pointerup settle 后补发最终尺寸
+    act(() => emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'end' }))
+    act(() => vi.advanceTimersByTime(60))
+    expect(sendMock).toHaveBeenLastCalledWith({ type: 'resize', hostId: 'local', cols: 130, rows: 40 })
+    expect(sendMock.mock.calls.filter(([m]) => m.type === 'resize')).toHaveLength(2)
+  })
+  it('keeps sending final size when local fit is still settling after pointerup', () => {
+    vi.useFakeTimers()
+    socketState.isConnected = true
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    act(() => emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev1', hostId: 'local', cols: 120, rows: 36 }))
+    sendMock.mockClear()
+    let settling = true
+    act(() => {
+      if (terminalProps.current?.layoutSyncPendingRef)
+        terminalProps.current.layoutSyncPendingRef.current = () => settling
+    })
+    act(() => emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'start' }))
+    act(() => terminalProps.current?.onResize?.(126, 40))
+    act(() => emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'end' }))
+    // settle 到期但本地 fit 未落地：继续等，不发中间尺寸
+    act(() => vi.advanceTimersByTime(60))
+    expect(sendMock.mock.calls.filter(([m]) => m.type === 'resize')).toHaveLength(0)
+    settling = false
+    act(() => vi.advanceTimersByTime(40))
+    expect(sendMock).toHaveBeenLastCalledWith({ type: 'resize', hostId: 'local', cols: 126, rows: 40 })
   })
 })

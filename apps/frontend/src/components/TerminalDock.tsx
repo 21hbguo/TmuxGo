@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
+import { emitStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import type { TerminalDockPosition } from '@/stores/useConsoleStore'
 import { WindowTabs } from './WindowTabs'
 import { PaneGrid } from './PaneGrid'
@@ -75,6 +76,7 @@ export function TerminalDock({
             detail: { reason: 'terminal-panel-resize-end', size: pendingSizeRef.current },
           }),
         )
+        emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'end' })
       }
       resizingRef.current = false
       document.body.style.cursor = ''
@@ -88,6 +90,14 @@ export function TerminalDock({
       window.removeEventListener('mouseup', handleUp)
     }
   })
+  // 卸载兜底补 end（独立 mount-only effect：上面的 effect 无依赖、每次渲染都
+  // cleanup，拖拽中重渲染会误发 end 提前结束 burst）
+  useEffect(
+    () => () => {
+      if (resizingRef.current) emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'end' })
+    },
+    [],
+  )
   // dock 变化后通知终端 refit
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('tmuxgo-layout-change', { detail: { reason: 'terminal-dock-change', dock } }))
@@ -100,6 +110,7 @@ export function TerminalDock({
     resizingRef.current = true
     pendingSizeRef.current = baseSize
     setPreviewSize(baseSize)
+    emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'start' })
     document.body.style.cursor = side ? 'col-resize' : 'row-resize'
     document.body.style.userSelect = 'none'
   }

@@ -1,6 +1,7 @@
 'use client'
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
+import { emitStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 
 export type DesktopWindowRect = { x: number; y: number; w: number; h: number }
 type ResizeDir = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
@@ -95,6 +96,8 @@ export function DesktopWindow({ windowed, children }: { windowed: boolean; child
       }
       event.currentTarget.setPointerCapture(event.pointerId)
       dragRef.current = { mode: zone ?? 'move', startX: event.clientX, startY: event.clientY, rect }
+      // 仅边缘 resize 手势上报 burst 生命周期；标题栏 move 不改变容器尺寸
+      if (zone) emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'start' })
       event.preventDefault()
     },
     [windowed, rect],
@@ -133,9 +136,20 @@ export function DesktopWindow({ windowed, children }: { windowed: boolean; child
     setRect(clampRect({ x, y, w, h }))
   }, [])
 
+  // 卸载兜底：拖拽中组件消失时补 end，否则 PaneGrid 的 burst 抑制会永久卡住
+  useEffect(
+    () => () => {
+      if (dragRef.current && dragRef.current.mode !== 'move')
+        emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'end' })
+    },
+    [],
+  )
+
   const onPointerUp = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (!dragRef.current) return
+    const wasResize = dragRef.current.mode !== 'move'
     dragRef.current = null
+    if (wasResize) emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'end' })
     if (event.currentTarget.hasPointerCapture(event.pointerId))
       event.currentTarget.releasePointerCapture(event.pointerId)
     setRect((current) => {

@@ -681,6 +681,9 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
     // resizeStabilityFrame 也算在途：稳定检测两帧窗口内 fit 尚未跑完，调用方
     // （如远端 resize 静止窗）需要"最终 fit 已落地"判据，不能只看调度句柄
     isSyncPending: () => Boolean(layoutFrame || layoutTimeout || sharedLayoutFrame || resizeStabilityFrame),
+    // 同步读当前容器几何对应的目标行列：pointer settle 提交时用它替代"等 fit
+    // 管线收尾"（稳定帧链 ~50ms），随后 fit 产出同尺寸走 dedup 不会二次发送
+    peekFitSize: () => getFitDimensions(),
     scheduleInitialFit,
     scheduleStableLayout,
     primeContainerSize,

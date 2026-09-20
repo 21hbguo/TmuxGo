@@ -1,6 +1,7 @@
 export const STREAM_EVENT = {
   attached: 'attached',
   resized: 'resized',
+  resizeGesture: 'resize-gesture',
   error: 'error',
   detached: 'detached',
   sessionExit: 'session-exit',
