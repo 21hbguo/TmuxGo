@@ -5,7 +5,9 @@ import { recordHostConnectionFailure } from './host-connectivity.js'
 import {
   buildHostSshOptions,
   buildSshMultiplexArgs,
+  buildSshPortArgs,
   ensureSshMultiplexDir,
+  getSshTarget,
   resolveHostPassword,
 } from './ssh-options.js'
 import { agentManager } from '../agent-manager.js'
@@ -59,8 +61,7 @@ export async function runRemoteFilePython<T>(hostId: string, script: string, arg
   const password = resolveHostPassword(credentials)
   await ensureSshMultiplexDir()
   const sshArgs = [
-    '-p',
-    String(host.port),
+    ...buildSshPortArgs(host),
     '-o',
     'ConnectTimeout=8',
     '-o',
@@ -68,7 +69,7 @@ export async function runRemoteFilePython<T>(hostId: string, script: string, arg
     ...buildSshMultiplexArgs(host),
     ...buildHostSshOptions(host, credentials),
     '-T',
-    `${host.user}@${host.address}`,
+    getSshTarget(host),
     '--',
     remoteCommand,
   ]
@@ -87,7 +88,7 @@ export async function runRemoteFilePython<T>(hostId: string, script: string, arg
       err?.message || 'SSH file command failed',
     )
     recordHostConnectionFailure(host.id, message)
-    throw new Error(message)
+    throw new Error(message, { cause: err })
   }
 }
 export async function spawnRemoteFileCommand(host: HostRecord, remoteCommand: string, signal?: AbortSignal) {
@@ -95,8 +96,7 @@ export async function spawnRemoteFileCommand(host: HostRecord, remoteCommand: st
   const password = resolveHostPassword(credentials)
   await ensureSshMultiplexDir()
   const sshArgs = [
-    '-p',
-    String(host.port),
+    ...buildSshPortArgs(host),
     '-o',
     'ConnectTimeout=8',
     '-o',
@@ -104,7 +104,7 @@ export async function spawnRemoteFileCommand(host: HostRecord, remoteCommand: st
     ...buildSshMultiplexArgs(host),
     ...buildHostSshOptions(host, credentials),
     '-T',
-    `${host.user}@${host.address}`,
+    getSshTarget(host),
     '--',
     remoteCommand,
   ]

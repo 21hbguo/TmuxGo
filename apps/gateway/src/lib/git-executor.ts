@@ -5,7 +5,9 @@ import { recordHostConnectionFailure } from './host-connectivity.js'
 import {
   buildHostSshOptions,
   buildSshMultiplexArgs,
+  buildSshPortArgs,
   ensureSshMultiplexDir,
+  getSshTarget,
   resolveHostPassword,
 } from './ssh-options.js'
 import { agentManager } from '../agent-manager.js'
@@ -78,8 +80,7 @@ async function runRemoteGit(
   const password = resolveHostPassword(credentials)
   await ensureSshMultiplexDir()
   const sshArgs = [
-    '-p',
-    String(host.port),
+    ...buildSshPortArgs(host),
     '-o',
     'ConnectTimeout=8',
     '-o',
@@ -87,7 +88,7 @@ async function runRemoteGit(
     ...buildSshMultiplexArgs(host),
     ...buildHostSshOptions(host, credentials),
     '-T',
-    `${host.user}@${host.address}`,
+    getSshTarget(host),
     '--',
     remoteCommand,
   ]

@@ -6,8 +6,10 @@ import { recordHostConnectionFailure } from './host-connectivity.js'
 import {
   buildHostSshOptions,
   buildSshMultiplexArgs,
+  buildSshPortArgs,
   cleanupSshMultiplexSockets,
   ensureSshMultiplexDir,
+  getSshTarget,
   resolveHostPassword,
 } from './ssh-options.js'
 import { agentManager, type AgentStatus } from '../agent-manager.js'
@@ -58,7 +60,7 @@ export function normalizeTmuxEnvArgs(args: string[]) {
   return { args: result, needsSetEnv }
 }
 function toHostAddress(host: HostRecord) {
-  return `${host.user}@${host.address}`
+  return getSshTarget(host)
 }
 function normalizeErrorMessage(raw: string, fallback: string) {
   const value = raw.trim() || fallback
@@ -130,8 +132,7 @@ function buildSshArgs(
   credentials: HostCredentials,
 ) {
   const args: string[] = [
-    '-p',
-    String(host.port),
+    ...buildSshPortArgs(host),
     '-o',
     'ConnectTimeout=8',
     '-o',
@@ -285,7 +286,9 @@ export async function execTmux(
       await retrySetEnvIfNeeded(deferSetEnv, hostId)
       return { ...result, host }
     } catch (err: any) {
-      throw new Error(normalizeErrorMessage(String(err?.stderr || err?.message || ''), 'tmux command failed'))
+      throw new Error(normalizeErrorMessage(String(err?.stderr || err?.message || ''), 'tmux command failed'), {
+        cause: err,
+      })
     }
   }
   const result = await runRemoteTmux(host, args, options)
@@ -296,7 +299,9 @@ async function retrySetEnvIfNeeded(deferSetEnv: boolean, hostIdRaw: string) {
   if (!deferSetEnv) return
   try {
     await execTmux(hostIdRaw, ['setenv', '-g', 'TMUXGO_ENV', '1'])
-  } catch {}
+  } catch {
+    // setenv 是尽力而为的环境标记，失败不影响主流程
+  }
 }
 export async function execHostShell(
   hostIdRaw: string,
@@ -318,7 +323,9 @@ export async function execHostShell(
       const result = await runLocalShell(command, options)
       return { ...result, host }
     } catch (err: any) {
-      throw new Error(normalizeErrorMessage(String(err?.stderr || err?.message || ''), 'shell command failed'))
+      throw new Error(normalizeErrorMessage(String(err?.stderr || err?.message || ''), 'shell command failed'), {
+        cause: err,
+      })
     }
   }
   const result = await runRemoteShell(host, command, options)
@@ -345,7 +352,9 @@ export async function pickFreeLoopbackPort(min = 5940, max = 5999): Promise<numb
 }
 export async function openVncSshTunnel(hostIdRaw: string, remotePort: number): Promise<VncSshTunnel> {
   const host = await getResolvedHost(hostIdRaw)
-  if (host.id === 'local' || !host.user || !host.address) throw new Error('Host has no SSH target configured')
+  // sshconfig 主机允许 user/address 为空（由 config 解析）；store 主机仍需完整连接参数
+  if (host.id === 'local' || (host.source !== 'sshconfig' && (!host.user || !host.address)))
+    throw new Error('Host has no SSH target configured')
   const localPort = await pickFreeLoopbackPort()
   if (!localPort) throw new Error('No free loopback port for SSH tunnel')
   const credentials = await getHostCredentials(host.id)
@@ -369,8 +378,7 @@ export async function openVncSshTunnel(hostIdRaw: string, remotePort: number): P
     'ServerAliveCountMax=3',
     '-L',
     `127.0.0.1:${localPort}:127.0.0.1:${remotePort}`,
-    '-p',
-    String(host.port),
+    ...buildSshPortArgs(host),
     ...buildHostSshOptions(host, credentials),
     ...(canUseSshPass ? [] : ['-o', 'BatchMode=yes']),
     toHostAddress(host),
@@ -485,7 +493,12 @@ export async function verifyHostConnectivity(hostIdRaw: string) {
       return {
         ok: true,
         message: 'ssh ready',
-        mode: credentials.privateKeyPath ? ('key' as const) : host.useAgent ? ('agent' as const) : ('key' as const),
+        mode:
+          credentials.privateKeyPath || host.identityFile
+            ? ('key' as const)
+            : host.useAgent
+              ? ('agent' as const)
+              : ('key' as const),
       }
   } catch (err: any) {
     const stderr = String(err?.stderr || '')
@@ -496,7 +509,12 @@ export async function verifyHostConnectivity(hostIdRaw: string) {
     return {
       ok: false,
       message: normalized,
-      mode: credentials.privateKeyPath ? ('key' as const) : host.useAgent ? ('agent' as const) : ('key' as const),
+      mode:
+        credentials.privateKeyPath || host.identityFile
+          ? ('key' as const)
+          : host.useAgent
+            ? ('agent' as const)
+            : ('key' as const),
       code: getConnectionErrorCode(normalized),
     }
   }
@@ -505,7 +523,12 @@ export async function verifyHostConnectivity(hostIdRaw: string) {
   return {
     ok: false,
     message: 'SSH authentication failed',
-    mode: credentials.privateKeyPath ? ('key' as const) : host.useAgent ? ('agent' as const) : ('key' as const),
+    mode:
+      credentials.privateKeyPath || host.identityFile
+        ? ('key' as const)
+        : host.useAgent
+          ? ('agent' as const)
+          : ('key' as const),
     code: 'AUTHENTICATION_ERROR' as const,
   }
 }

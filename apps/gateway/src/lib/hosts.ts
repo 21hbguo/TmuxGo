@@ -1,8 +1,10 @@
 import { promises as fs } from 'fs'
 import os from 'os'
 import path from 'path'
+import { listSshConfigHosts } from './ssh-config.js'
 
 export type KnownHostsPolicy = 'strict' | 'accept-new' | 'off'
+export type HostSource = 'local' | 'store' | 'sshconfig'
 export interface HostRecord {
   id: string
   name: string
@@ -19,6 +21,10 @@ export interface HostRecord {
   tmuxPath: string
   createdAt: string
   updatedAt: string
+  // source 为读取时派生字段，不落盘：sshconfig 条目的连接参数以 ~/.ssh/config 为准，store 记录仅作 overlay
+  source?: HostSource
+  configFile?: string
+  identityFile?: string
 }
 export interface HostCredentials {
   password: string
@@ -73,6 +79,7 @@ const localHost: HostRecord = {
   tmuxPath: '',
   createdAt: '',
   updatedAt: '',
+  source: 'local',
 }
 function getConfigDir() {
   const baseDir = process.env.TMUXGO_CONFIG_DIR?.trim()
@@ -145,7 +152,10 @@ function sanitizeTmuxPath(value: string | undefined) {
 }
 function sanitizeGroups(value: unknown) {
   if (!Array.isArray(value)) return []
-  const groups = value.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter((item) => item.length > 0 && item.length <= 64 && !/[\x00-\x1f]/.test(item))
+  const groups = value
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0 && item.length <= 64 && !/[\x00-\x1f]/.test(item))
   return Array.from(new Set(groups)).slice(0, 12)
 }
 function nextUpdatedAt(previous: string | undefined) {
@@ -201,10 +211,15 @@ async function readHostStore(): Promise<HostStoreData> {
       const credentials = normalizeCredentials(item)
       if (isValidHostId(id) && hasCredentials(credentials)) legacyCredentials[id] = credentials
     }
-    const needsMigration = parsed.version !== 2 || rawHosts.some((item: any) => 'password' in (item || {}) || 'passwordEnv' in (item || {}) || 'privateKeyPath' in (item || {}))
+    const needsMigration =
+      parsed.version !== 2 ||
+      rawHosts.some(
+        (item: any) => 'password' in (item || {}) || 'passwordEnv' in (item || {}) || 'privateKeyPath' in (item || {}),
+      )
     return { store: { version: 2, hosts }, legacyCredentials, needsMigration }
   } catch (err: any) {
-    if (err?.code === 'ENOENT') return { store: { version: 2, hosts: [] }, legacyCredentials: {}, needsMigration: false }
+    if (err?.code === 'ENOENT')
+      return { store: { version: 2, hosts: [] }, legacyCredentials: {}, needsMigration: false }
     throw err
   }
 }
@@ -258,13 +273,48 @@ export async function listRemoteHosts() {
   const { store } = await readRemoteState()
   return store.hosts
 }
+// ssh config 条目 + hosts.json overlay 合并：连接参数以 config 为准，overlay 提供 favorite/groups/tags/凭据等外围字段
+function mergeSshConfigHost(
+  entry: import('./ssh-config.js').SshConfigHost,
+  overlay: HostRecord | undefined,
+): HostRecord {
+  return {
+    id: entry.alias,
+    name: overlay?.name || entry.alias,
+    address: entry.hostName || entry.alias,
+    user: entry.user,
+    port: entry.port || 22,
+    auth: 'auto',
+    groups: overlay?.groups || [],
+    tags: overlay?.tags || [],
+    favorite: overlay?.favorite === true,
+    useAgent: entry.forwardAgent ? entry.forwardAgent === 'yes' : (overlay?.useAgent ?? true),
+    jumpHost: entry.proxyJump,
+    knownHostsPolicy: overlay?.knownHostsPolicy || 'accept-new',
+    tmuxPath: overlay?.tmuxPath || '',
+    createdAt: overlay?.createdAt || '',
+    updatedAt: overlay?.updatedAt || '',
+    source: 'sshconfig',
+    configFile: entry.sourceFile,
+    identityFile: entry.identityFile,
+  }
+}
+export async function listMergedRemoteHosts() {
+  const [storeHosts, configHosts] = await Promise.all([listRemoteHosts(), listSshConfigHosts().catch(() => [])])
+  const overlayById = new Map(storeHosts.map((host) => [host.id, host]))
+  const configAliases = new Set(configHosts.map((entry) => entry.alias))
+  return [
+    ...configHosts.map((entry) => mergeSshConfigHost(entry, overlayById.get(entry.alias))),
+    ...storeHosts.filter((host) => !configAliases.has(host.id)).map((host) => ({ ...host, source: 'store' as const })),
+  ]
+}
 export async function listAllHosts() {
-  const remoteHosts = await listRemoteHosts()
+  const remoteHosts = await listMergedRemoteHosts()
   return [localHost, ...remoteHosts]
 }
 export async function getHostById(hostId: string) {
   if (hostId === 'local') return localHost
-  const remoteHosts = await listRemoteHosts()
+  const remoteHosts = await listMergedRemoteHosts()
   return remoteHosts.find((item) => item.id === hostId) || null
 }
 export async function getHostCredentials(hostId: string) {
@@ -285,24 +335,33 @@ export async function upsertRemoteHost(input: HostInput) {
     user: sanitizeHostUser(input.user),
     port: sanitizeHostPort(input.port),
     auth: 'auto',
-    groups: input.groups === undefined ? (existing?.groups || []) : sanitizeGroups(input.groups),
-    tags: input.tags === undefined ? (existing?.tags || []) : sanitizeGroups(input.tags),
+    groups: input.groups === undefined ? existing?.groups || [] : sanitizeGroups(input.groups),
+    tags: input.tags === undefined ? existing?.tags || [] : sanitizeGroups(input.tags),
     favorite: input.favorite === undefined ? !!existing?.favorite : input.favorite,
     useAgent: input.useAgent === undefined ? (existing?.useAgent ?? true) : input.useAgent,
-    jumpHost: input.jumpHost === undefined ? (existing?.jumpHost || '') : sanitizeJumpHost(input.jumpHost),
-    knownHostsPolicy: input.knownHostsPolicy === undefined ? (existing?.knownHostsPolicy || 'accept-new') : sanitizeKnownHostsPolicy(input.knownHostsPolicy),
-    tmuxPath: input.tmuxPath === undefined ? (existing?.tmuxPath || '') : sanitizeTmuxPath(input.tmuxPath),
+    jumpHost: input.jumpHost === undefined ? existing?.jumpHost || '' : sanitizeJumpHost(input.jumpHost),
+    knownHostsPolicy:
+      input.knownHostsPolicy === undefined
+        ? existing?.knownHostsPolicy || 'accept-new'
+        : sanitizeKnownHostsPolicy(input.knownHostsPolicy),
+    tmuxPath: input.tmuxPath === undefined ? existing?.tmuxPath || '' : sanitizeTmuxPath(input.tmuxPath),
     createdAt: existing?.createdAt || now,
     updatedAt: now,
   }
   const credentials: HostCredentials = {
     password: input.password === undefined ? existingCredentials.password : sanitizePassword(input.password),
-    passwordEnv: input.passwordEnv === undefined ? existingCredentials.passwordEnv : sanitizePasswordEnv(input.passwordEnv),
-    privateKeyPath: input.privateKeyPath === undefined ? existingCredentials.privateKeyPath : sanitizePrivateKeyPath(input.privateKeyPath),
+    passwordEnv:
+      input.passwordEnv === undefined ? existingCredentials.passwordEnv : sanitizePasswordEnv(input.passwordEnv),
+    privateKeyPath:
+      input.privateKeyPath === undefined
+        ? existingCredentials.privateKeyPath
+        : sanitizePrivateKeyPath(input.privateKeyPath),
   }
   const nextHosts = store.hosts.filter((item) => item.id !== hostId)
   nextHosts.push(host)
-  nextHosts.sort((a, b) => Number(b.favorite) - Number(a.favorite) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
+  nextHosts.sort(
+    (a, b) => Number(b.favorite) - Number(a.favorite) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id),
+  )
   if (hasCredentials(credentials)) credentialStore.credentials[hostId] = credentials
   else delete credentialStore.credentials[hostId]
   await Promise.all([writeHostStore({ version: 2, hosts: nextHosts }), writeCredentialStore(credentialStore)])
@@ -331,7 +390,13 @@ export async function saveHostConfig(input: { hosts?: HostStoreFile; credentials
     hosts = { version: 2, hosts: input.hosts.hosts.map((item) => normalizeHostRecord(item)) }
   }
   if (input.credentials !== undefined) {
-    if (input.credentials.version !== 1 || !input.credentials.credentials || typeof input.credentials.credentials !== 'object' || Array.isArray(input.credentials.credentials)) throw new Error('Invalid credential store')
+    if (
+      input.credentials.version !== 1 ||
+      !input.credentials.credentials ||
+      typeof input.credentials.credentials !== 'object' ||
+      Array.isArray(input.credentials.credentials)
+    )
+      throw new Error('Invalid credential store')
     credentials = { version: 1, credentials: {} }
     for (const [id, value] of Object.entries(input.credentials.credentials)) {
       const normalized = normalizeCredentials(value)

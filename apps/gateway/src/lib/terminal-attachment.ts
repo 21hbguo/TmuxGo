@@ -6,7 +6,9 @@ import { getHostById, getHostCredentials } from './hosts.js'
 import {
   buildHostSshOptions,
   buildSshMultiplexArgs,
+  buildSshPortArgs,
   ensureSshMultiplexDir,
+  getSshTarget,
   resolveHostPassword,
 } from './ssh-options.js'
 
@@ -74,11 +76,10 @@ export async function createTerminalAttachment(options: CreateTerminalAttachment
     const host = await getHostById(hostId)
     if (!host) throw new Error('Host not found')
     const credentials = await getHostCredentials(host.id)
-    const target = `${host.user}@${host.address}`
+    const target = getSshTarget(host)
     await ensureSshMultiplexDir()
     const sshBaseArgs = [
-      '-p',
-      String(host.port),
+      ...buildSshPortArgs(host),
       '-tt',
       '-o',
       'ConnectTimeout=8',
