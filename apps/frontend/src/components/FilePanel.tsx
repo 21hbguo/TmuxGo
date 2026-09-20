@@ -991,12 +991,15 @@ export function FilePanel({
     }
     window.addEventListener('mousemove', handleMove)
     window.addEventListener('mouseup', handleUp)
+    // 窗口失焦时 mouseup 不会送达，必须结算否则 gesture end 丢失、burst 抑制卡住
+    window.addEventListener('blur', handleUp)
     return () => {
       if (frameRef.current) cancelAnimationFrame(frameRef.current)
       // 卸载兜底：拖拽中组件消失时补 end，否则 PaneGrid 的 burst 抑制永久卡住
       if (resizingRef.current) emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'end' })
       window.removeEventListener('mousemove', handleMove)
       window.removeEventListener('mouseup', handleUp)
+      window.removeEventListener('blur', handleUp)
     }
   }, [setFilePanelWidth])
   useEffect(() => {

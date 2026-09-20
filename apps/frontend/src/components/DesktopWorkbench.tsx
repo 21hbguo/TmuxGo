@@ -226,10 +226,13 @@ export function DesktopWorkbench() {
     }
     window.addEventListener('mousemove', handleMove)
     window.addEventListener('mouseup', handleUp)
+    // 窗口失焦 mouseup 不会送达：blur 统一结算，否则 gesture end 丢失
+    window.addEventListener('blur', handleUp)
     return () => {
       if (frameRef.current) cancelAnimationFrame(frameRef.current)
       window.removeEventListener('mousemove', handleMove)
       window.removeEventListener('mouseup', handleUp)
+      window.removeEventListener('blur', handleUp)
     }
   }, [
     compactSessionWidth,

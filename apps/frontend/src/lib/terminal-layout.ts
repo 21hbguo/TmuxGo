@@ -684,6 +684,9 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
     // 同步读当前容器几何对应的目标行列：pointer settle 提交时用它替代"等 fit
     // 管线收尾"（稳定帧链 ~50ms），随后 fit 产出同尺寸走 dedup 不会二次发送
     peekFitSize: () => getFitDimensions(),
+    // gesture end 的加速调度以此为 scope 门槛：本终端容器近期确有 RO 活动
+    // 才补一次提前 fit；无关终端/编辑器手势不触发额外重排
+    hasRecentObservedResize: (withinMs = 400) => observedResizeAt > 0 && Date.now() - observedResizeAt < withinMs,
     scheduleInitialFit,
     scheduleStableLayout,
     primeContainerSize,
