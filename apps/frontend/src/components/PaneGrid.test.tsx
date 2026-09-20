@@ -18,6 +18,7 @@ const terminalProps = vi.hoisted(() => ({
     onReady?: () => void
     onResize?: (cols: number, rows: number) => void
     onResizeActivity?: () => void
+    layoutSyncPendingRef?: { current: (() => boolean) | undefined }
     onInput?: (data: string) => void
   },
 }))
@@ -36,6 +37,7 @@ vi.mock('./TerminalPane', () => ({
     onReady?: () => void
     onResize?: (cols: number, rows: number) => void
     onResizeActivity?: () => void
+    layoutSyncPendingRef?: { current: (() => boolean) | undefined }
     onInput?: (data: string) => void
   }) => {
     terminalProps.current = props
@@ -715,5 +717,26 @@ describe('PaneGrid', () => {
     unsubscribe()
     expect(sendMock.mock.calls.filter(([m]) => m.type === 'resize')).toHaveLength(0)
     expect(completed).toHaveBeenCalledWith(expect.objectContaining({ cols: 121, rows: 40, localOnly: true }))
+  })
+  it('waits for the final local fit to land before sending the settled size', () => {
+    vi.useFakeTimers()
+    socketState.isConnected = true
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    act(() => emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev1', hostId: 'local', cols: 120, rows: 36 }))
+    sendMock.mockClear()
+    // 本地 fit 在途时静止窗到期也不发中间尺寸；落地后才发最终尺寸
+    let settling = true
+    act(() => {
+      if (terminalProps.current?.layoutSyncPendingRef)
+        terminalProps.current.layoutSyncPendingRef.current = () => settling
+    })
+    act(() => terminalProps.current?.onResize?.(130, 40))
+    act(() => vi.advanceTimersByTime(300))
+    expect(sendMock.mock.calls.filter(([m]) => m.type === 'resize')).toHaveLength(0)
+    settling = false
+    act(() => vi.advanceTimersByTime(20))
+    expect(sendMock).toHaveBeenLastCalledWith({ type: 'resize', hostId: 'local', cols: 130, rows: 40 })
+    expect(sendMock.mock.calls.filter(([m]) => m.type === 'resize')).toHaveLength(1)
   })
 })

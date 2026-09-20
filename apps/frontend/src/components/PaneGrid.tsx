@@ -22,8 +22,10 @@ const INPUT_QUEUE_LIMIT = 128
 const INPUT_FLUSH_INTERVAL = 4
 const INPUT_BATCH_CHARS = 768
 // 远端 resize 真 trailing debounce：拖动期间只更新目标尺寸，静止窗口到期且
-// 无在途请求才发送；ACK 只是释放在途许可，不得穿透未到期的静止窗口
-const RESIZE_QUIET_MS = 150
+// 无在途请求才发送；ACK 只是释放在途许可，不得穿透未到期的静止窗口。
+// 桌面 80ms（实测最后 activity→fit ~50ms，留 30ms 余量）；移动端 150ms
+const RESIZE_QUIET_DESKTOP_MS = 80
+const RESIZE_QUIET_MOBILE_MS = 150
 // 在途 resize 的 ACK 兜底超时：resized 不带代次，丢 ACK 不能永久卡住后续发送
 const RESIZE_ACK_STALE_MS = 1200
 
@@ -91,8 +93,11 @@ export function PaneGrid({
   const inputQueueRef = useRef<string[]>([])
   const resizeFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingRemoteResizeRef = useRef<{ cols: number; rows: number } | null>(null)
-  // 远端发送的静止窗口截止时刻：每次新尺寸顺延；到期后由 resizeQuietTimer 评估
+  // 远端发送的静止窗口截止时刻：每次新尺寸/真实容器活动顺延；到期后由
+  // resizeFlushTimer 评估；layoutSyncPendingRef 判定本地 fit 是否仍在落地
   const remoteQuietDeadlineRef = useRef(0)
+  const layoutSyncPendingRef = useRef<(() => boolean) | undefined>(undefined)
+  const resizeQuietMs = isMobile ? RESIZE_QUIET_MOBILE_MS : RESIZE_QUIET_DESKTOP_MS
   // 已发送未等回 resized 的 resize：在途限 1，期间新尺寸只进 pending 队列（latest-wins）
   const awaitingResizeAckRef = useRef<{ cols: number; rows: number } | null>(null)
   const resizeAckStaleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -307,6 +312,16 @@ export function PaneGrid({
           resizeFlushTimerRef.current = null
           flushPendingRemoteResize()
         }, remaining)
+      return
+    }
+    // 静止窗到但本地 fit 还在落地（稳定帧/调度在途）：再等一帧，
+    // 保证发送的是最终尺寸而非中间态——最终尺寸只允许一次发送
+    if (layoutSyncPendingRef.current?.()) {
+      if (!resizeFlushTimerRef.current)
+        resizeFlushTimerRef.current = setTimeout(() => {
+          resizeFlushTimerRef.current = null
+          flushPendingRemoteResize()
+        }, 16)
       return
     }
     clearResizeFlushTimer()
@@ -763,18 +778,19 @@ export function PaneGrid({
       }
       pendingRemoteResizeRef.current = nextSize
       // 每次新尺寸顺延静止窗口；已 armed 的 timer 到期时会按最新 deadline 再评估
-      remoteQuietDeadlineRef.current = Date.now() + RESIZE_QUIET_MS
+      remoteQuietDeadlineRef.current = Date.now() + resizeQuietMs
       if (resizeFlushTimerRef.current) return
       resizeFlushTimerRef.current = setTimeout(() => {
         resizeFlushTimerRef.current = null
         flushPendingRemoteResize()
-      }, RESIZE_QUIET_MS)
+      }, resizeQuietMs)
     },
     [
       activeHostId,
       clearResizeFlushTimer,
       flushPendingRemoteResize,
       isConnected,
+      resizeQuietMs,
       scheduleContinuityFlush,
       targetSessionName,
     ],
@@ -783,8 +799,8 @@ export function PaneGrid({
   // 节流后的 onResize 间隔可超静止窗，不能用 fit 通知反推拖动已停止
   const handleResizeActivity = useCallback(() => {
     if (!isConnected || attachedRef.current !== targetSessionName) return
-    remoteQuietDeadlineRef.current = Date.now() + RESIZE_QUIET_MS
-  }, [isConnected, targetSessionName])
+    remoteQuietDeadlineRef.current = Date.now() + resizeQuietMs
+  }, [isConnected, resizeQuietMs, targetSessionName])
   const handleReady = useCallback(() => {
     terminalReadyRef.current = true
     if (attachedRef.current === targetSessionName) return
@@ -840,6 +856,7 @@ export function PaneGrid({
         onInput={handleInput}
         onResize={handleResize}
         onResizeActivity={handleResizeActivity}
+        layoutSyncPendingRef={layoutSyncPendingRef}
         attachExclusive={exclusive}
         onReady={handleReady}
         subscribeOutput={subscribeOutput}

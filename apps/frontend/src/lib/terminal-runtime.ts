@@ -34,6 +34,8 @@ interface TerminalRuntimeOptions {
   onInputRef: { current: ((data: string) => void) | undefined }
   onResizeRef: { current: ((cols: number, rows: number) => void) | undefined }
   onResizeActivityRef?: { current: (() => void) | undefined }
+  // 供上层判断"本地 fit 是否仍在落地"（含稳定帧窗口）：远端 resize 发送须等它归零
+  layoutSyncPendingRef?: { current: (() => boolean) | undefined }
   attachExclusiveRef: { current: boolean }
   onReadyRef: { current: (() => void) | undefined }
   sessionNameRef: { current: string | undefined }
@@ -197,6 +199,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
     requestServerRedraw,
   })
   scheduleLayoutRef.current = layout.scheduleLayoutSync
+  if (options.layoutSyncPendingRef) options.layoutSyncPendingRef.current = layout.isSyncPending
   const focus = createTerminalFocus({
     container,
     isMobile: isMobileDevice,
