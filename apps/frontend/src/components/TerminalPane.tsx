@@ -34,6 +34,8 @@ interface TerminalPaneProps {
   onInput?: (data: string) => void
   onResize?: (cols: number, rows: number) => void
   onResizeActivity?: () => void
+  // 本地 fit 在途（稳定帧/layoutSync 未落地）判据，供远端 resize 发送侧等最终尺寸
+  layoutSyncPendingRef?: { current: (() => boolean) | undefined }
   attachExclusive?: boolean
   onReady?: () => void
   subscribeOutput?: (
@@ -55,6 +57,7 @@ export function TerminalPane({
   onInput,
   onResize,
   onResizeActivity,
+  layoutSyncPendingRef,
   attachExclusive = false,
   onReady,
   subscribeOutput,
@@ -368,6 +371,7 @@ export function TerminalPane({
       onInputRef,
       onResizeRef,
       onResizeActivityRef,
+      layoutSyncPendingRef,
       attachExclusiveRef,
       onReadyRef,
       sessionNameRef,
