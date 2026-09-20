@@ -4,6 +4,7 @@ import { getHostById, getHostCredentials, type HostRecord } from './hosts.js'
 import { recordHostConnectionFailure } from './host-connectivity.js'
 import {
   buildHostSshOptions,
+  buildSshConfigArgs,
   buildSshMultiplexArgs,
   buildSshPortArgs,
   ensureSshMultiplexDir,
@@ -80,6 +81,7 @@ async function runRemoteGit(
   const password = resolveHostPassword(credentials)
   await ensureSshMultiplexDir()
   const sshArgs = [
+    ...(await buildSshConfigArgs(host)),
     ...buildSshPortArgs(host),
     '-o',
     'ConnectTimeout=8',

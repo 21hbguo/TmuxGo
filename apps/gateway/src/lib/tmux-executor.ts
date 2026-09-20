@@ -5,6 +5,7 @@ import { getHostById, getHostCredentials, type HostCredentials, type HostRecord 
 import { recordHostConnectionFailure } from './host-connectivity.js'
 import {
   buildHostSshOptions,
+  buildSshConfigArgs,
   buildSshMultiplexArgs,
   buildSshPortArgs,
   cleanupSshMultiplexSockets,
@@ -124,7 +125,7 @@ function toAgentHost(agent: AgentStatus): HostRecord {
     updatedAt: agent.lastSeenAt,
   }
 }
-function buildSshArgs(
+async function buildSshArgs(
   host: HostRecord,
   remoteCommand: string,
   options: TmuxExecOptions = {},
@@ -132,6 +133,7 @@ function buildSshArgs(
   credentials: HostCredentials,
 ) {
   const args: string[] = [
+    ...(await buildSshConfigArgs(host)),
     ...buildSshPortArgs(host),
     '-o',
     'ConnectTimeout=8',
@@ -181,7 +183,7 @@ async function runRemoteTmux(host: HostRecord, args: string[], options: TmuxExec
   const passwordEnv = buildPasswordEnv(credentials)
   const hasPassword = !!passwordEnv
   const canUseSshPass = hasPassword && (await hasSshPass())
-  const sshArgs = buildSshArgs(host, remoteCommand, options, canUseSshPass, credentials)
+  const sshArgs = await buildSshArgs(host, remoteCommand, options, canUseSshPass, credentials)
   if (canUseSshPass) {
     try {
       const { stdout, stderr } = await execFileAsync('sshpass', ['-e', 'ssh', ...sshArgs], {
@@ -217,7 +219,13 @@ async function runRemoteShell(host: HostRecord, command: string, options: TmuxEx
   const passwordEnv = buildPasswordEnv(credentials)
   const hasPassword = !!passwordEnv
   const canUseSshPass = hasPassword && (await hasSshPass())
-  const sshArgs = buildSshArgs(host, `sh -lc ${escapeShellSingleQuoted(command)}`, options, canUseSshPass, credentials)
+  const sshArgs = await buildSshArgs(
+    host,
+    `sh -lc ${escapeShellSingleQuoted(command)}`,
+    options,
+    canUseSshPass,
+    credentials,
+  )
   if (canUseSshPass) {
     try {
       const { stdout, stderr } = await execFileAsync('sshpass', ['-e', 'ssh', ...sshArgs], {
@@ -378,6 +386,7 @@ export async function openVncSshTunnel(hostIdRaw: string, remotePort: number): P
     'ServerAliveCountMax=3',
     '-L',
     `127.0.0.1:${localPort}:127.0.0.1:${remotePort}`,
+    ...(await buildSshConfigArgs(host)),
     ...buildSshPortArgs(host),
     ...buildHostSshOptions(host, credentials),
     ...(canUseSshPass ? [] : ['-o', 'BatchMode=yes']),
@@ -458,13 +467,13 @@ export async function verifyHostConnectivity(hostIdRaw: string) {
     return { ok: true, message: 'local host available', mode: 'local' as const }
   }
   await ensureSshMultiplexDir()
-  const checkArgs = buildSshArgs(host, 'echo tmuxgo-ok', { mode: 'json' }, false, credentials)
+  const checkArgs = await buildSshArgs(host, 'echo tmuxgo-ok', { mode: 'json' }, false, credentials)
   const tryPassword = async () => {
     if (!passwordEnv) return null
     try {
       const { stdout } = await execFileAsync(
         'sshpass',
-        ['-e', 'ssh', ...buildSshArgs(host, 'echo tmuxgo-ok', {}, true, credentials)],
+        ['-e', 'ssh', ...(await buildSshArgs(host, 'echo tmuxgo-ok', {}, true, credentials))],
         {
           timeout: sshReadyTimeoutMs,
           env: { ...process.env, ...passwordEnv },

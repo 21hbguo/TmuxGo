@@ -5,6 +5,7 @@ import { agentManager, type AgentTerminal } from '../agent-manager.js'
 import { getHostById, getHostCredentials } from './hosts.js'
 import {
   buildHostSshOptions,
+  buildSshConfigArgs,
   buildSshMultiplexArgs,
   buildSshPortArgs,
   ensureSshMultiplexDir,
@@ -79,6 +80,7 @@ export async function createTerminalAttachment(options: CreateTerminalAttachment
     const target = getSshTarget(host)
     await ensureSshMultiplexDir()
     const sshBaseArgs = [
+      ...(await buildSshConfigArgs(host)),
       ...buildSshPortArgs(host),
       '-tt',
       '-o',

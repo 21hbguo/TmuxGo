@@ -25,6 +25,8 @@ export interface HostRecord {
   source?: HostSource
   configFile?: string
   identityFile?: string
+  // ForwardAgent 是「转发本地 agent 到远端」而非「用 agent 认证」，与 useAgent 语义不同，单独携带仅供展示
+  forwardAgent?: string
 }
 export interface HostCredentials {
   password: string
@@ -288,7 +290,7 @@ function mergeSshConfigHost(
     groups: overlay?.groups || [],
     tags: overlay?.tags || [],
     favorite: overlay?.favorite === true,
-    useAgent: entry.forwardAgent ? entry.forwardAgent === 'yes' : (overlay?.useAgent ?? true),
+    useAgent: overlay?.useAgent ?? true,
     jumpHost: entry.proxyJump,
     knownHostsPolicy: overlay?.knownHostsPolicy || 'accept-new',
     tmuxPath: overlay?.tmuxPath || '',
@@ -297,6 +299,7 @@ function mergeSshConfigHost(
     source: 'sshconfig',
     configFile: entry.sourceFile,
     identityFile: entry.identityFile,
+    forwardAgent: entry.forwardAgent || undefined,
   }
 }
 export async function listMergedRemoteHosts() {
