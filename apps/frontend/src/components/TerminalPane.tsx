@@ -33,6 +33,7 @@ interface TerminalPaneProps {
   sessionName?: string
   onInput?: (data: string) => void
   onResize?: (cols: number, rows: number) => void
+  onResizeActivity?: () => void
   attachExclusive?: boolean
   onReady?: () => void
   subscribeOutput?: (
@@ -53,6 +54,7 @@ export function TerminalPane({
   sessionName,
   onInput,
   onResize,
+  onResizeActivity,
   attachExclusive = false,
   onReady,
   subscribeOutput,
@@ -81,6 +83,7 @@ export function TerminalPane({
   const terminalInstance = useRef<any>(null)
   const onInputRef = useRef(onInput)
   const onResizeRef = useRef(onResize)
+  const onResizeActivityRef = useRef(onResizeActivity)
   const attachExclusiveRef = useRef(attachExclusive)
   const onReadyRef = useRef(onReady)
   const sessionNameRef = useRef(sessionName)
@@ -280,6 +283,9 @@ export function TerminalPane({
     onResizeRef.current = onResize
   }, [onResize])
   useEffect(() => {
+    onResizeActivityRef.current = onResizeActivity
+  }, [onResizeActivity])
+  useEffect(() => {
     attachExclusiveRef.current = attachExclusive
   }, [attachExclusive])
   useEffect(() => {
@@ -361,6 +367,7 @@ export function TerminalPane({
       terminalInstance,
       onInputRef,
       onResizeRef,
+      onResizeActivityRef,
       attachExclusiveRef,
       onReadyRef,
       sessionNameRef,

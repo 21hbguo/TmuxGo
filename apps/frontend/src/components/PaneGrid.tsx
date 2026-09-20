@@ -314,6 +314,16 @@ export function PaneGrid({
     const sent = sentResizeRef.current
     if (sent && sent.cols === size.cols && sent.rows === size.rows) {
       pendingRemoteResizeRef.current = null
+      // 到达此分支时无在途（上方已拦），同尺寸去重不是"流程完成"：
+      // layout 侧 pendingRemoteResize 在 onResize 前已置位，须补 localOnly
+      // 本地确认，否则终端等待态残留到超时兜底
+      emitStreamEvent(STREAM_EVENT.resized, {
+        hostId: activeHostId || 'local',
+        sessionName: targetSessionName,
+        cols: size.cols,
+        rows: size.rows,
+        localOnly: true,
+      })
       return
     }
     pendingRemoteResizeRef.current = null
@@ -734,10 +744,21 @@ export function PaneGrid({
         })
         return
       }
-      // 与远端当前尺寸一致且没在途：不产生任何发送
+      // 与远端当前尺寸一致且没在途：不产生任何发送，但要补 localOnly
+      // 完成本地确认——layout 在回调前已置 pendingRemoteResize，零网络发送
+      // 不等于流程完成，不补会残留终端等待态直到超时兜底
       const sent = sentResizeRef.current
       if (sent && sent.cols === cols && sent.rows === rows && !awaitingResizeAckRef.current) {
         pendingRemoteResizeRef.current = null
+        remoteQuietDeadlineRef.current = 0
+        clearResizeFlushTimer()
+        emitStreamEvent(STREAM_EVENT.resized, {
+          hostId: activeHostId || 'local',
+          sessionName: targetSessionName,
+          cols,
+          rows,
+          localOnly: true,
+        })
         return
       }
       pendingRemoteResizeRef.current = nextSize
@@ -749,8 +770,21 @@ export function PaneGrid({
         flushPendingRemoteResize()
       }, RESIZE_QUIET_MS)
     },
-    [activeHostId, flushPendingRemoteResize, isConnected, scheduleContinuityFlush, targetSessionName],
+    [
+      activeHostId,
+      clearResizeFlushTimer,
+      flushPendingRemoteResize,
+      isConnected,
+      scheduleContinuityFlush,
+      targetSessionName,
+    ],
   )
+  // RO 级真实容器活动（含同格像素变、慢拖）：每次观察都顺延远端静止截止——
+  // 节流后的 onResize 间隔可超静止窗，不能用 fit 通知反推拖动已停止
+  const handleResizeActivity = useCallback(() => {
+    if (!isConnected || attachedRef.current !== targetSessionName) return
+    remoteQuietDeadlineRef.current = Date.now() + RESIZE_QUIET_MS
+  }, [isConnected, targetSessionName])
   const handleReady = useCallback(() => {
     terminalReadyRef.current = true
     if (attachedRef.current === targetSessionName) return
@@ -805,6 +839,7 @@ export function PaneGrid({
         sessionName={renderedSessionName}
         onInput={handleInput}
         onResize={handleResize}
+        onResizeActivity={handleResizeActivity}
         attachExclusive={exclusive}
         onReady={handleReady}
         subscribeOutput={subscribeOutput}
