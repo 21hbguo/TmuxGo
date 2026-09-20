@@ -28,8 +28,6 @@ interface TerminalLayoutOptions {
     show: () => number
     reveal: (generation?: number) => void
     isVisible: () => boolean
-    // 拖动中间帧不揭罩时刷新定格快照，避免整段停在首帧
-    refresh?: () => void
   }
   // 揭罩屏障（runtime 注入）：等已排队输出写完再 reveal，缺省退化为直接 mask.reveal
   revealMask?: (generation?: number) => void
@@ -390,9 +388,9 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
         lastSizeRef.current
       ) {
         recordMobileDebug('terminal-fit-noop', { width: currentWidth, height: currentHeight })
-        // 本次 fit 没发 resize：只有在途 resize 全清（resized/localOnly 已回）才本地揭开；
-        // 有在途 resize 留给 handleResized 的屏障路径，900ms failsafe 兜底
-        if (mask.isVisible() && !pendingRemoteResizeRef.current) revealMask()
+        // 本次 fit 没发 resize：拖动中本地反馈不等远端收敛（允许短暂错位后收敛），
+        // 直接揭开；非拖动仍只有在途 resize 全清（resized/localOnly 已回）才本地揭开
+        if (mask.isVisible() && (!pendingRemoteResizeRef.current || observedResizeBurst > 2)) revealMask()
         return true
       }
       applyTerminalOptions()
@@ -425,13 +423,10 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
           } else if (isMobileDevice) {
             repaintTerminalRenderer(false, stickToBottom)
           }
-          // 拖动中间帧：本地 reflow 已落地但尺寸还要等服务端确认才揭罩，
-          // 先把定格快照更新到当前帧，避免整段拖动停在首帧
-          if (mask.isVisible() && sizeChanged && pendingRemoteResizeRef.current) mask.refresh?.()
-          // 只认真实在途状态：本次/此前 fit 发出的 resize 其 resized/localOnly 未回
-          // 就不揭（否则露出本地已重排、远端未收敛的中间帧）；无在途请求——比如纯
-          // 像素变化没改行列——立即揭开，不靠 burst 次数猜
-          if (mask.isVisible() && !pendingRemoteResizeRef.current) revealMask()
+          // 拖动（burst>2）期间本地视觉反馈不等远端收敛：本地 reflow 落地即揭，
+          // 允许短暂错位由后续远端重绘自动收敛；非拖动的离散 resize 仍等
+          // resized/localOnly 确认后才揭，避免旧列宽帧闪进新网格
+          if (mask.isVisible() && (!pendingRemoteResizeRef.current || observedResizeBurst > 2)) revealMask()
         })
         notifyReady()
         return true
@@ -588,8 +583,8 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
         if (onResizeRef.current) pendingRemoteResizeRef.current = { cols: size.cols, rows: size.rows }
         onResizeRef.current?.(size.cols, size.rows)
       }
-      // 与 doFit 同一规则：有在途 resize 等 ACK，无则立即揭
-      if (mask.isVisible() && !pendingRemoteResizeRef.current) revealMask()
+      // 与 doFit 同一规则：拖动中不等 ACK 直接揭，非拖动有在途 resize 等 ACK，无则立即揭
+      if (mask.isVisible() && (!pendingRemoteResizeRef.current || observedResizeBurst > 2)) revealMask()
     })
     if (synchronous) sharedLayoutFrame = frame
   }
@@ -625,7 +620,9 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
     const now = Date.now()
     observedResizeBurst = now - observedResizeAt < 250 ? observedResizeBurst + 1 : 1
     observedResizeAt = now
-    if (hadContainerSize && !isMobileDevice) mask.show()
+    // 拖动（burst>2）不盖整屏克隆遮罩：跟手优先，活画面渐进显示 + 节流 fit；
+    // 离散跳变仍盖遮罩避免露出旧列宽的中间帧
+    if (hadContainerSize && !isMobileDevice && observedResizeBurst <= 2) mask.show()
     // 拖动中每次观察都重置静止计数，等 2 个稳定帧的收敛永远到不了：
     // burst>2（250ms 窗口内第 3 次起）视为拖动，按 DRAG_FIT_INTERVAL_MS 节流
     // 做中间 fit 推进；单次/双次跳变仍走纯稳定检测，不多发 resize

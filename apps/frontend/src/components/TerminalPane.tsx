@@ -184,8 +184,12 @@ export function TerminalPane({
     [recordTerminalOutput],
   )
   const handleTerminalBackpressure = useCallback(
-    (level: 'high' | 'normal', backlog: number) => {
-      updateTerminalPerf({ outputBacklog: backlog })
+    (level: 'high' | 'normal', backlog: number, stats?: { inFlight: number; oldestAgeMs: number }) => {
+      updateTerminalPerf({
+        outputBacklog: backlog,
+        outputInFlight: stats?.inFlight ?? 0,
+        outputOldestAgeMs: Math.round(stats?.oldestAgeMs ?? 0),
+      })
       sendRef.current({ type: 'stream_backpressure', level, mobile: isMobileDevice })
     },
     [isMobileDevice, updateTerminalPerf],

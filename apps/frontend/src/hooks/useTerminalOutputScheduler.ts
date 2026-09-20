@@ -10,6 +10,9 @@ const BACKPRESSURE_HIGH_WATERMARK = 65536
 const BACKPRESSURE_LOW_WATERMARK = 8192
 // 输出写屏障的上限：持续输出不能让等待方（如 resize 揭罩）无限挂起
 const WRITE_BARRIER_TIMEOUT_MS = 160
+// 连续写占主线程的让出预算：backlog 期间逐笔同步链式写会拼成 >50ms 长任务，
+// 超过该连续工时后下一笔写经 setTimeout(0) 让出事件循环，输入/绘制得以插入
+const WRITE_YIELD_BUDGET_MS = 12
 const FRAME_END_SEQUENCE = '\u001b[?25h'
 const MIN_FRAME_CUT = 256
 const INCOMPLETE_ESCAPE_REGEX = /\u001b(?:\[[0-?]*[ -/]*|\][^\x07]*|\([ -~]*)?$/
@@ -34,7 +37,11 @@ interface UseTerminalOutputSchedulerOptions {
   write: (chunk: string, done?: () => void) => void
   onWrite?: () => void
   onMetrics?: (raw: string, outputLength: number, backlogLength: number) => void
-  onBackpressure?: (level: 'high' | 'normal', backlog: number) => void
+  onBackpressure?: (
+    level: 'high' | 'normal',
+    backlog: number,
+    stats?: { backlog: number; inFlight: number; oldestAgeMs: number },
+  ) => void
 }
 
 export function useTerminalOutputScheduler({
@@ -61,6 +68,11 @@ export function useTerminalOutputScheduler({
   // 每笔 write 完成扣减，扣到 0 即放行——之后新到的输出不延长等待
   const writeBarriersRef = useRef<Array<{ remaining: number; finish: () => void }>>([])
   const writingCharsRef = useRef(0)
+  // 连续写工时起点（queue 空→有 backlog 的第一笔起算）；backlog 排空时复位
+  const writeSpanStartRef = useRef(Number.NEGATIVE_INFINITY)
+  const yieldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // backlog 里最早字节的入队时间：0→非空时打点，供背压统计最老排队年龄
+  const oldestBacklogAtRef = useRef(Number.NEGATIVE_INFINITY)
   const resolveWriteBarriers = useCallback(() => {
     const pending = writeBarriersRef.current
     if (!pending.length) return
@@ -85,9 +97,40 @@ export function useTerminalOutputScheduler({
     (level: 'high' | 'normal', backlog: number) => {
       if (backpressureRef.current === level) return
       backpressureRef.current = level
-      onBackpressure?.(level, backlog)
+      onBackpressure?.(level, backlog, {
+        backlog,
+        inFlight: writingRef.current ? writingCharsRef.current : 0,
+        oldestAgeMs: Number.isFinite(oldestBacklogAtRef.current)
+          ? Math.max(0, performance.now() - oldestBacklogAtRef.current)
+          : 0,
+      })
     },
     [onBackpressure],
+  )
+  // 写完成后的续写决策：backlog 空→结算屏障并复位工时；连续工时超预算→
+  // setTimeout(0) 让出事件循环再写下一笔；否则继续同步链式写保持吞吐
+  const continueWrites = useCallback(
+    (backlog: number) => {
+      if (!backlog) {
+        writeSpanStartRef.current = Number.NEGATIVE_INFINITY
+        oldestBacklogAtRef.current = Number.NEGATIVE_INFINITY
+        resolveWriteBarriers()
+        return
+      }
+      const now = performance.now()
+      if (!Number.isFinite(writeSpanStartRef.current)) writeSpanStartRef.current = now
+      if (now - writeSpanStartRef.current >= WRITE_YIELD_BUDGET_MS) {
+        writeSpanStartRef.current = now
+        if (yieldTimerRef.current !== null) clearTimeout(yieldTimerRef.current)
+        yieldTimerRef.current = setTimeout(() => {
+          yieldTimerRef.current = null
+          flushRef.current()
+        }, 0)
+        return
+      }
+      flushRef.current()
+    },
+    [resolveWriteBarriers],
   )
   const flush = useCallback(() => {
     if (frameRef.current !== null) {
@@ -117,19 +160,9 @@ export function useTerminalOutputScheduler({
       if (backlog >= BACKPRESSURE_HIGH_WATERMARK) emitBackpressure('high', backlog)
       else if (backlog <= BACKPRESSURE_LOW_WATERMARK) emitBackpressure('normal', backlog)
       advanceWriteBarriers(chunk.length)
-      if (backlog) flushRef.current()
-      else resolveWriteBarriers()
+      continueWrites(backlog)
     })
-  }, [
-    advanceWriteBarriers,
-    clearTimer,
-    emitBackpressure,
-    frameBudget,
-    frameTimeBudget,
-    onWrite,
-    resolveWriteBarriers,
-    write,
-  ])
+  }, [advanceWriteBarriers, clearTimer, continueWrites, emitBackpressure, frameBudget, frameTimeBudget, onWrite, write])
   flushRef.current = flush
   const schedule = useCallback(() => {
     if (frameRef.current !== null) return
@@ -182,24 +215,24 @@ export function useTerminalOutputScheduler({
           if (backlog >= BACKPRESSURE_HIGH_WATERMARK) emitBackpressure('high', backlog)
           else if (backlog <= BACKPRESSURE_LOW_WATERMARK) emitBackpressure('normal', backlog)
           advanceWriteBarriers(output.length)
-          if (backlog) flushRef.current()
-          else resolveWriteBarriers()
+          continueWrites(backlog)
         })
         return
       }
+      if (!bufferRef.current) oldestBacklogAtRef.current = now
       bufferRef.current += output
       if (bufferRef.current.length >= BACKPRESSURE_HIGH_WATERMARK) emitBackpressure('high', bufferRef.current.length)
       scheduleRef.current()
     },
     [
       advanceWriteBarriers,
+      continueWrites,
       emitBackpressure,
       fastOutputLimit,
       frameBudget,
       frameTimeBudget,
       onMetrics,
       onWrite,
-      resolveWriteBarriers,
       write,
     ],
   )
@@ -235,11 +268,17 @@ export function useTerminalOutputScheduler({
     clearTimer()
     if (frameRef.current !== null) cancelAnimationFrame(frameRef.current)
     frameRef.current = null
+    if (yieldTimerRef.current !== null) {
+      clearTimeout(yieldTimerRef.current)
+      yieldTimerRef.current = null
+    }
     writeTokenRef.current += 1
     bufferRef.current = ''
     writingRef.current = false
     adaptiveFrameBudgetRef.current = frameBudget
     lastPushAtRef.current = Number.NEGATIVE_INFINITY
+    writeSpanStartRef.current = Number.NEGATIVE_INFINITY
+    oldestBacklogAtRef.current = Number.NEGATIVE_INFINITY
     resolveWriteBarriers()
     if (backpressureRef.current !== 'normal') {
       backpressureRef.current = 'normal'

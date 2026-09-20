@@ -86,12 +86,6 @@ export function createTerminalResizeMask(options: TerminalResizeMaskOptions) {
     })
     mask.replaceChildren(snapshot)
   }
-  // 拖动节流 fit 后遮罩仍在：把定格画面更新到已 reflow 的当前帧，
-  // 否则整段拖动都停在首张快照直到松手才跳变
-  const refresh = () => {
-    if (!pending || options.mask?.style.display !== 'block') return
-    captureSnapshot()
-  }
   const hide = () => {
     setPending(false)
     const mask = options.mask
@@ -114,7 +108,6 @@ export function createTerminalResizeMask(options: TerminalResizeMaskOptions) {
     show,
     reveal,
     hide,
-    refresh,
     isVisible,
     dispose,
     isPending: () => pending,

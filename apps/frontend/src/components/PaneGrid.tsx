@@ -22,6 +22,8 @@ const INPUT_QUEUE_LIMIT = 128
 const INPUT_FLUSH_INTERVAL = 4
 const INPUT_BATCH_CHARS = 768
 const RESIZE_FLUSH_INTERVAL = 32
+// 在途 resize 的 ACK 兜底超时：resized 不带代次，丢 ACK 不能永久卡住后续发送
+const RESIZE_ACK_STALE_MS = 1200
 
 export interface PaneGridSocket {
   send: (data: any) => boolean
@@ -87,6 +89,9 @@ export function PaneGrid({
   const inputQueueRef = useRef<string[]>([])
   const resizeFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingRemoteResizeRef = useRef<{ cols: number; rows: number } | null>(null)
+  // 已发送未等回 resized 的 resize：在途限 1，期间新尺寸只进 pending 队列（latest-wins）
+  const awaitingResizeAckRef = useRef<{ cols: number; rows: number } | null>(null)
+  const resizeAckStaleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const inputFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const sentResizeRef = useRef<{ cols: number; rows: number } | null>(null)
   const lastExclusiveRef = useRef(exclusive)
@@ -215,13 +220,24 @@ export function PaneGrid({
     handleSwipeRef.current(-1)
   }, [])
 
+  const flushPendingRemoteResizeRef = useRef<() => void>(() => {})
   const sendResizeNow = useCallback(
     (size: { cols: number; rows: number }) => {
       if (!size.cols || !size.rows) return false
       const prev = sentResizeRef.current
       if (prev && prev.cols === size.cols && prev.rows === size.rows) return false
       const sent = send({ type: 'resize', hostId: activeHostId || 'local', cols: size.cols, rows: size.rows })
-      if (sent) sentResizeRef.current = size
+      if (sent) {
+        sentResizeRef.current = size
+        awaitingResizeAckRef.current = size
+        if (resizeAckStaleTimerRef.current) clearTimeout(resizeAckStaleTimerRef.current)
+        // resized ACK 丢失兜底：超时清在途并把队列里最新尺寸补发出去
+        resizeAckStaleTimerRef.current = setTimeout(() => {
+          resizeAckStaleTimerRef.current = null
+          awaitingResizeAckRef.current = null
+          flushPendingRemoteResizeRef.current()
+        }, RESIZE_ACK_STALE_MS)
+      }
       return sent
     },
     [activeHostId, send],
@@ -249,9 +265,14 @@ export function PaneGrid({
   const flushPendingRemoteResize = useCallback(() => {
     clearResizeFlushTimer()
     const size = pendingRemoteResizeRef.current
-    pendingRemoteResizeRef.current = null
     if (!size) return
     if (!isConnected || attachedRef.current !== targetSessionName) {
+      pendingRemoteResizeRef.current = null
+      awaitingResizeAckRef.current = null
+      if (resizeAckStaleTimerRef.current) {
+        clearTimeout(resizeAckStaleTimerRef.current)
+        resizeAckStaleTimerRef.current = null
+      }
       emitStreamEvent(STREAM_EVENT.resized, {
         hostId: activeHostId || 'local',
         sessionName: targetSessionName,
@@ -261,6 +282,10 @@ export function PaneGrid({
       })
       return
     }
+    // 在途限 1：上一笔 resize 的 resized 未回前不再发送，队列只留最新尺寸；
+    // ACK 回来由 resized 订阅立即补发（latest-wins），停拖后的最终尺寸优先
+    if (awaitingResizeAckRef.current) return
+    pendingRemoteResizeRef.current = null
     if (!sendResizeNow(size)) {
       emitStreamEvent(STREAM_EVENT.resized, {
         hostId: activeHostId || 'local',
@@ -271,6 +296,7 @@ export function PaneGrid({
       })
     }
   }, [activeHostId, clearResizeFlushTimer, isConnected, sendResizeNow, targetSessionName])
+  flushPendingRemoteResizeRef.current = flushPendingRemoteResize
   const clearContinuityTimer = useCallback(() => {
     if (!continuityTimerRef.current) return
     clearTimeout(continuityTimerRef.current)
@@ -489,6 +515,12 @@ export function PaneGrid({
       const attachedCols = Number(detail.cols)
       const attachedRows = Number(detail.rows)
       if (attachedCols > 0 && attachedRows > 0) sentResizeRef.current = { cols: attachedCols, rows: attachedRows }
+      // 新 attach 上下文里上一 session 的在途 resize 无意义
+      awaitingResizeAckRef.current = null
+      if (resizeAckStaleTimerRef.current) {
+        clearTimeout(resizeAckStaleTimerRef.current)
+        resizeAckStaleTimerRef.current = null
+      }
       const attachLatency = Math.max(
         0,
         Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - attachStartedAtRef.current),
@@ -519,6 +551,11 @@ export function PaneGrid({
       attachInFlightRef.current = null
       isSessionAttachedRef.current = false
       sentResizeRef.current = null
+      awaitingResizeAckRef.current = null
+      if (resizeAckStaleTimerRef.current) {
+        clearTimeout(resizeAckStaleTimerRef.current)
+        resizeAckStaleTimerRef.current = null
+      }
       clearAttachTimers()
       updateConnectionState({ status: 'attaching' })
       if (terminalReadyRef.current && isSocketReady) {
@@ -531,6 +568,22 @@ export function PaneGrid({
     return subscribeStreamEvent(STREAM_EVENT.detached, handleDetached)
   }, [activeHostId, attachNow, clearAttachTimers, isSocketReady, targetSessionName, updateConnection])
   useEffect(() => {
+    const handleRemoteResized = (detail: any = {}) => {
+      if (detail?.localOnly) return
+      if ((detail.hostId || 'local') !== (activeHostId || 'local')) return
+      if (detail.sessionName && detail.sessionName !== targetSessionName) return
+      // ACK 无代次：远端 resized 到达即视为最近一笔 resize 已被服务端应用；
+      // 清在途后立刻把队列里攒着的最新尺寸补发出去（latest-wins）
+      awaitingResizeAckRef.current = null
+      if (resizeAckStaleTimerRef.current) {
+        clearTimeout(resizeAckStaleTimerRef.current)
+        resizeAckStaleTimerRef.current = null
+      }
+      flushPendingRemoteResize()
+    }
+    return subscribeStreamEvent(STREAM_EVENT.resized, handleRemoteResized)
+  }, [activeHostId, flushPendingRemoteResize, targetSessionName])
+  useEffect(() => {
     const handleError = (detail: { hostId?: string; sessionName?: string; message?: string } = {}) => {
       if ((detail.hostId || 'local') !== (activeHostId || 'local')) return
       if (detail.sessionName && detail.sessionName !== targetSessionName) return
@@ -539,6 +592,11 @@ export function PaneGrid({
       attachedRef.current = null
       isSessionAttachedRef.current = false
       sentResizeRef.current = null
+      awaitingResizeAckRef.current = null
+      if (resizeAckStaleTimerRef.current) {
+        clearTimeout(resizeAckStaleTimerRef.current)
+        resizeAckStaleTimerRef.current = null
+      }
       if (pendingSessionNameRef.current === detail.sessionName) {
         pendingSessionIdRef.current = null
         pendingSessionNameRef.current = null

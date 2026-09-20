@@ -68,9 +68,13 @@ describe('useTerminalOutputScheduler', () => {
     const { result } = renderHook(() => useTerminalOutputScheduler({ write, onBackpressure }))
     act(() => result.current.push('first'))
     act(() => result.current.push('x'.repeat(70000)))
-    expect(onBackpressure).toHaveBeenLastCalledWith('high', 70000)
+    expect(onBackpressure).toHaveBeenLastCalledWith(
+      'high',
+      70000,
+      expect.objectContaining({ backlog: 70000, inFlight: 5 }),
+    )
     act(() => complete?.())
-    expect(onBackpressure).toHaveBeenLastCalledWith('high', 70000)
+    expect(onBackpressure).toHaveBeenLastCalledWith('high', 70000, expect.objectContaining({ backlog: 70000 }))
     act(() => result.current.dispose())
   })
   it('keeps the timeout fallback when more output reaches the flush limit', () => {
@@ -176,6 +180,29 @@ describe('useTerminalOutputScheduler', () => {
     expect(barrier).toHaveBeenCalledTimes(1)
     expect(result.current.getBacklog()).toBe(0)
     act(() => callbacks[1]?.())
+    act(() => result.current.dispose())
+  })
+  it('yields the event loop between writes once continuous work exceeds the budget', () => {
+    // 主线程时间预算：backlog 排空前连续写超过 WRITE_YIELD_BUDGET_MS 后，
+    // 下一笔写必须经 setTimeout(0) 让出事件循环（输入/绘制可插入），
+    // 而不是一直在 write 回调里同步链式续写拼出 >50ms 长任务
+    const callbacks: Array<(() => void) | undefined> = []
+    const write = vi.fn((_chunk: string, done?: () => void) => {
+      callbacks.push(done)
+    })
+    const { result } = renderHook(() => useTerminalOutputScheduler({ write, frameBudget: 100 }))
+    act(() => result.current.push('a'))
+    act(() => result.current.push('x'.repeat(250)))
+    act(() => callbacks[0]?.())
+    expect(write.mock.calls.length).toBe(2)
+    act(() => callbacks[1]?.())
+    expect(write.mock.calls.length).toBe(3)
+    // 推进时钟超过 12ms 连续工时预算后完成写：下一笔须经 0ms timer 让出
+    act(() => vi.advanceTimersByTime(20))
+    act(() => callbacks[2]?.())
+    expect(write.mock.calls.length).toBe(3)
+    act(() => vi.advanceTimersByTime(1))
+    expect(write.mock.calls.length).toBe(4)
     act(() => result.current.dispose())
   })
   it('resolves pending afterWrites barriers on dispose', () => {
