@@ -43,7 +43,17 @@ interface PendingResizeAck {
   seq: number
   refreshComplete: boolean
   outputObserved: boolean
+  startedAt: number
 }
+// tmux 重绘帧边界：?25l 开帧、?25h 收帧；帧可能拆成多个 onData 事件到达，
+// 在帧尾未回前 flush 会把全屏重绘切成半帧（日志 frame-incomplete）
+const TMUX_FRAME_BEGIN = '\u001b[?25l'
+const TMUX_FRAME_END = '\u001b[?25h'
+const lastCompleteFrameEnd = (data: string) => {
+  const end = data.lastIndexOf(TMUX_FRAME_END)
+  return end < 0 ? -1 : end + TMUX_FRAME_END.length
+}
+const hasOpenFrame = (data: string) => data.lastIndexOf(TMUX_FRAME_BEGIN) > data.lastIndexOf(TMUX_FRAME_END)
 export class StreamSession {
   ptyProcess: TerminalProcess | null = null
   attachedSessionName: string | null = null
@@ -70,6 +80,7 @@ export class StreamSession {
   attachSnapshotTimers: ReturnType<typeof setTimeout>[] = []
   pendingResizeAck: PendingResizeAck | null = null
   resizeAckTimer: ReturnType<typeof setTimeout> | null = null
+  frameTailDeferred = false
   scrollBuffers = new Map<string, number>()
   scrollRunning = new Set<string>()
   sanitizeTerminalOutput = createTerminalOutputSanitizer()
@@ -187,6 +198,7 @@ export class StreamSession {
     recordStreamMetric('outputResyncRequests')
     this.outputBuffer = ''
     this.lastFrame = ''
+    this.frameTailDeferred = false
     this.sanitizeTerminalOutput = createTerminalOutputSanitizer()
     this.outputResyncPending = true
     if (this.outputTimer) {
@@ -257,8 +269,27 @@ export class StreamSession {
       this.scheduleDeferredFlush()
       return
     }
-    const data = this.outputBuffer
-    this.outputBuffer = ''
+    let data = this.outputBuffer
+    if (hasOpenFrame(data)) {
+      const completeEnd = lastCompleteFrameEnd(data)
+      if (completeEnd > 0) {
+        // 尾巴是未完成帧：只发完整帧前缀，尾巴留 buffer 等下一拍收齐
+        this.outputBuffer = data.slice(completeEnd)
+        data = data.slice(0, completeEnd)
+        this.scheduleDeferredFlush()
+      } else if (!this.frameTailDeferred) {
+        // 整包都是半个帧：defer 一拍等帧尾到齐，仅一次——仍不齐就按原样发，防卡死
+        this.frameTailDeferred = true
+        recordStreamMetric('frameTailDefers')
+        this.scheduleDeferredFlush()
+        return
+      } else {
+        this.outputBuffer = ''
+      }
+    } else {
+      this.outputBuffer = ''
+    }
+    this.frameTailDeferred = false
     const isCompleteFrame = data.startsWith('\u001b[?25l') && data.endsWith('\u001b[?25h')
     if (isCompleteFrame && data.length >= DEDUP_CHUNK_THRESHOLD && data === this.lastFrame) {
       recordStreamMetric('droppedDuplicateChunks', data.length)
@@ -279,11 +310,14 @@ export class StreamSession {
     }
     if (isCompleteFrame) {
       this.lastFrame = data
-    } else if (data.startsWith('\u001b[?25l') && this.dedupDropLogCount < 30) {
-      this.dedupDropLogCount++
-      console.warn(
-        `[frame-incomplete#${this.dedupDropLogCount}] len=${data.length} tail=${JSON.stringify(data.slice(-40))}`,
-      )
+    } else if (data.startsWith('\u001b[?25l')) {
+      recordStreamMetric('frameIncompleteSends')
+      if (this.dedupDropLogCount < 30) {
+        this.dedupDropLogCount++
+        console.warn(
+          `[frame-incomplete#${this.dedupDropLogCount}] len=${data.length} tail=${JSON.stringify(data.slice(-40))}`,
+        )
+      }
     }
     recordStreamMetric('outputFlushes')
     recordStreamMetric('outputChunks')
@@ -305,6 +339,8 @@ export class StreamSession {
       clearTimeout(this.resizeAckTimer)
       this.resizeAckTimer = null
     }
+    // resize→refresh完成→首笔输出→ACK 的全程耗时，定位慢在哪个环节用
+    updateStreamMetric('resizeAckWaitMs', Date.now() - pending.startedAt)
     this.flushOutput()
     this.send({
       type: 'resized',
@@ -499,6 +535,7 @@ export class StreamSession {
     this.sanitizeTerminalOutput = createTerminalOutputSanitizer()
     this.outputResyncPending = false
     this.outputResyncRunning = false
+    this.frameTailDeferred = false
     this.clientBackpressureHigh = false
     this.scrollBuffers.clear()
     if (notify) this.send({ type: 'detached', sessionName: detachedSessionName, hostId: detachedHostId })
@@ -661,6 +698,7 @@ export class StreamSession {
       seq: this.attachSeq,
       refreshComplete: false,
       outputObserved: false,
+      startedAt: Date.now(),
     }
     this.pendingResizeAck = pending
     this.ptyProcess.resize(nextCols, nextRows)
