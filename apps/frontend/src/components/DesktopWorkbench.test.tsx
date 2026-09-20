@@ -56,26 +56,28 @@ describe('DesktopWorkbench', () => {
       gitPanelOpen: false,
       gitPanelWidth: 320,
       terminalPanelHeight: 300,
-      openEditors: [{
-        id: 'local:root-workspace:src/index.ts',
-        hostId: 'local',
-        rootId: 'root-workspace',
-        rootLabel: 'Workspace',
-        rootPath: '/workspace',
-        path: 'src/index.ts',
-        name: 'index.ts',
-        absolutePath: '/workspace/src/index.ts',
-        language: 'typescript',
-        content: '',
-        savedContent: '',
-        modifiedAt: '',
-        size: 0,
-        dirty: false,
-        loading: false,
-        saving: false,
-        binary: false,
-        truncated: false,
-      }],
+      openEditors: [
+        {
+          id: 'local:root-workspace:src/index.ts',
+          hostId: 'local',
+          rootId: 'root-workspace',
+          rootLabel: 'Workspace',
+          rootPath: '/workspace',
+          path: 'src/index.ts',
+          name: 'index.ts',
+          absolutePath: '/workspace/src/index.ts',
+          language: 'typescript',
+          content: '',
+          savedContent: '',
+          modifiedAt: '',
+          size: 0,
+          dirty: false,
+          loading: false,
+          saving: false,
+          binary: false,
+          truncated: false,
+        },
+      ],
       activeEditorId: 'local:root-workspace:src/index.ts',
       editorsHydrated: true,
     } as any)
@@ -94,12 +96,46 @@ describe('DesktopWorkbench', () => {
     })
     render(React.createElement(DesktopWorkbench))
     await waitFor(() => expect(contentMock).toHaveBeenCalledWith('local', 'root-workspace', 'src/index.ts'))
-    await waitFor(() => expect(useConsoleStore.getState().openEditors[0]).toMatchObject({
-      content: 'const value=1',
-      savedContent: 'const value=1',
-      size: 12,
-      loading: false,
-      modifiedAt: '2026-06-02T00:00:00.000Z',
-    }))
+    await waitFor(() =>
+      expect(useConsoleStore.getState().openEditors[0]).toMatchObject({
+        content: 'const value=1',
+        savedContent: 'const value=1',
+        size: 12,
+        loading: false,
+        modifiedAt: '2026-06-02T00:00:00.000Z',
+      }),
+    )
+  })
+
+  it('does not request file content for git-diff editors during hydration', async () => {
+    useConsoleStore.setState({
+      openEditors: [
+        useConsoleStore.getState().openEditors[0],
+        {
+          id: 'git-diff?repo=%2Fworkspace',
+          hostId: 'local',
+          rootId: 'git',
+          rootLabel: 'Git',
+          rootPath: '/workspace',
+          path: '',
+          name: 'changes',
+          absolutePath: '',
+          language: 'diff',
+          content: '',
+          savedContent: '',
+          modifiedAt: '',
+          size: 0,
+          dirty: false,
+          loading: true,
+          saving: false,
+          binary: false,
+          truncated: false,
+        },
+      ],
+    } as any)
+    render(React.createElement(DesktopWorkbench))
+    await waitFor(() => expect(contentMock).toHaveBeenCalledWith('local', 'root-workspace', 'src/index.ts'))
+    expect(contentMock).toHaveBeenCalledTimes(1)
+    expect(contentMock).not.toHaveBeenCalledWith('local', 'git', expect.anything())
   })
 })

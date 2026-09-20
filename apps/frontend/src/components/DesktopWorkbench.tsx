@@ -1,6 +1,6 @@
 'use client'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useConsoleStore } from '@/stores/useConsoleStore'
+import { isPersistableEditorMeta, useConsoleStore } from '@/stores/useConsoleStore'
 import { api } from '@/lib/api'
 import { emitStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import type { FileDocumentHandle, FileEditorDocument } from '@/types'
@@ -333,7 +333,7 @@ export function DesktopWorkbench() {
     if (!editorsHydrated) return
     if (restoredRef.current) return
     restoredRef.current = true
-    const editors = useConsoleStore.getState().openEditors
+    const editors = useConsoleStore.getState().openEditors.filter(isPersistableEditorMeta)
     if (!editors.length) return
     setFilePanelOpen(true)
     for (const editor of editors) void handleOpenFile(editor)

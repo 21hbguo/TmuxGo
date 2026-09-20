@@ -64,6 +64,52 @@ describe('useConsoleStore editor persistence', () => {
     expect(afterClose.state.openEditors).toEqual([])
     expect(afterClose.state.activeEditorId).toBeNull()
   })
+  it('does not persist git-diff or compare editors', async () => {
+    const { useConsoleStore, flushPersistedStorage } = await importStore()
+    const editor2 = createEditor('local:root-workspace:src/other.ts', 'src/other.ts')
+    useConsoleStore.getState().openEditor(sampleEditor, { preview: false })
+    useConsoleStore.getState().openEditor(editor2, { preview: false })
+    useConsoleStore.getState().openEditor({
+      ...sampleEditor,
+      id: 'git-diff?repo=%2Fworkspace&ref=HEAD',
+      rootId: 'git',
+      rootLabel: 'Git',
+      path: '',
+      name: 'working tree changes',
+      language: 'diff',
+    })
+    useConsoleStore.getState().openCompareEditor(sampleEditor.id, editor2.id)
+    // 内存里保留全部 4 个，持久化只留文件编辑器
+    expect(useConsoleStore.getState().openEditors).toHaveLength(4)
+    flushPersistedStorage()
+    const persisted = JSON.parse(localStorage.getItem('tmuxgo-console-state:desktop') || '{}')
+    expect(persisted.state.openEditors.map((editor: any) => editor.id)).toEqual([sampleEditor.id, editor2.id])
+  })
+  it('drops persisted git-diff/compare entries during merge rehydrate', async () => {
+    const gitDiffEditor = { ...sampleEditor, id: 'git-diff?repo=%2Fworkspace', rootId: 'git', path: '' }
+    const compareEditor = {
+      ...sampleEditor,
+      id: 'compare:a::b',
+      kind: 'compare',
+      compareLeftId: 'a',
+      compareRightId: 'b',
+    }
+    localStorage.setItem(
+      'tmuxgo-console-state:desktop',
+      JSON.stringify({
+        version: 1,
+        state: {
+          openEditors: [sampleEditor, gitDiffEditor, compareEditor],
+          activeEditorId: 'git-diff?repo=%2Fworkspace',
+        },
+      }),
+    )
+    const { useConsoleStore } = await importStore()
+    const state = useConsoleStore.getState()
+    expect(state.openEditors.map((editor) => editor.id)).toEqual([sampleEditor.id])
+    // activeEditorId 指向被过滤的条目时由 validEditorIds 校验清空
+    expect(state.activeEditorId).toBeNull()
+  })
   it('backfills a missing language when reopening an existing editor', async () => {
     const { useConsoleStore } = await importStore()
     useConsoleStore.getState().openEditor({ ...sampleEditor, language: '' })

@@ -8,6 +8,8 @@ import { orderSessions } from '@/lib/session-order'
 const SESSION_ORDER_KEY_PREFIX = 'tmuxgo-session-order:'
 const SESSION_ORDER_UPDATED_AT_KEY_PREFIX = 'tmuxgo-session-order-updated-at:'
 const PROFILE = 'default'
+// loading 期 query.data 为 undefined，`|| []` 每次 render 产生新数组会让下游 memo/effect 空跑
+const EMPTY_SESSIONS: never[] = []
 
 function getSessionOrderKey(hostId: string) {
   return `${SESSION_ORDER_KEY_PREFIX}${hostId}`
@@ -52,7 +54,11 @@ function sanitizeSessionOrder(orderedSessionIds: string[], sessions: { id: strin
   }
   return nextOrder
 }
-function mergeRemoteSessionOrders(sessionOrders: SessionOrderPreference[], hostId: string, orderedSessionIds: string[]) {
+function mergeRemoteSessionOrders(
+  sessionOrders: SessionOrderPreference[],
+  hostId: string,
+  orderedSessionIds: string[],
+) {
   const next = sessionOrders.filter((entry) => entry.hostId !== hostId)
   next.push({ hostId, orderedSessionIds })
   return next
@@ -60,21 +66,30 @@ function mergeRemoteSessionOrders(sessionOrders: SessionOrderPreference[], hostI
 
 export function useOrderedSessions(hostId: string) {
   const query = useSessions(hostId)
-  const sessions = query.data || []
+  const sessions = query.data ?? EMPTY_SESSIONS
   const [sessionOrder, setSessionOrder] = useState<string[]>([])
   const syncHostRef = useRef('')
   const hydratedHostRef = useRef('')
-  const persistRemoteOrder = useCallback((orderedSessionIds: string[], updatedAt?: string, remoteSessionOrders?: SessionOrderPreference[]) => {
-    if (!hostId) return
-    const nextUpdatedAt = updatedAt || new Date().toISOString()
-    const push = async () => {
-      try {
-        const sessionOrders = remoteSessionOrders || (await api.preferences.get(PROFILE)).sessionOrders || []
-        await api.preferences.update({ sessionOrders: mergeRemoteSessionOrders(sessionOrders, hostId, orderedSessionIds), sessionOrdersUpdatedAt: nextUpdatedAt }, PROFILE)
-      } catch {}
-    }
-    void push()
-  }, [hostId])
+  const persistRemoteOrder = useCallback(
+    (orderedSessionIds: string[], updatedAt?: string, remoteSessionOrders?: SessionOrderPreference[]) => {
+      if (!hostId) return
+      const nextUpdatedAt = updatedAt || new Date().toISOString()
+      const push = async () => {
+        try {
+          const sessionOrders = remoteSessionOrders || (await api.preferences.get(PROFILE)).sessionOrders || []
+          await api.preferences.update(
+            {
+              sessionOrders: mergeRemoteSessionOrders(sessionOrders, hostId, orderedSessionIds),
+              sessionOrdersUpdatedAt: nextUpdatedAt,
+            },
+            PROFILE,
+          )
+        } catch {}
+      }
+      void push()
+    },
+    [hostId],
+  )
   useEffect(() => {
     setSessionOrder(readSessionOrder(hostId))
     syncHostRef.current = ''
@@ -88,7 +103,8 @@ export function useOrderedSessions(hostId: string) {
     const nextUpdatedAt = new Date().toISOString()
     setSessionOrder(normalizedOrder)
     writeSessionOrder(hostId, normalizedOrder, nextUpdatedAt)
-    if (syncHostRef.current === hostId && hydratedHostRef.current === hostId) persistRemoteOrder(normalizedOrder, nextUpdatedAt)
+    if (syncHostRef.current === hostId && hydratedHostRef.current === hostId)
+      persistRemoteOrder(normalizedOrder, nextUpdatedAt)
   }, [hostId, normalizedOrder, persistRemoteOrder, sessionOrder])
   useEffect(() => {
     if (!hostId || !sessions.length || syncHostRef.current === hostId) return
@@ -121,7 +137,8 @@ export function useOrderedSessions(hostId: string) {
         const nextUpdatedAt = localUpdatedAt || new Date().toISOString()
         setSessionOrder(localOrder)
         writeSessionOrder(hostId, localOrder, nextUpdatedAt)
-        if (!Number.isNaN(localMs) && (Number.isNaN(remoteMs) || localMs > remoteMs)) persistRemoteOrder(localOrder, nextUpdatedAt, remoteEntries)
+        if (!Number.isNaN(localMs) && (Number.isNaN(remoteMs) || localMs > remoteMs))
+          persistRemoteOrder(localOrder, nextUpdatedAt, remoteEntries)
       } catch {
         syncHostRef.current = hostId
         hydratedHostRef.current = hostId
