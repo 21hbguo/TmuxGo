@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { StreamSession } from './stream-session.js'
+import { RESYNC_RESET_SEQ } from './stream-config.js'
+import { createRequire } from 'node:module'
+const { Terminal } = createRequire(import.meta.url)('@xterm/headless') as any
 
 const FRAME_BEGIN = '\u001b[?25l'
 
@@ -80,8 +83,9 @@ test('flushOutputResync sends only the reset boundary, never a fabricated pane s
   // tmux 真实重绘（普通 output）恢复，不得夹带手拼 pane 定位块
   assert.equal(sent.length, 1)
   assert.equal(sent[0].type, 'output_resync')
-  assert.equal(sent[0].data, '\u001b[!p\u001b[2J\u001b[H')
-  assert.ok(!sent[0].data.includes('\u001b[0m'))
+  assert.equal(sent[0].data, RESYNC_RESET_SEQ)
+  assert.ok(sent[0].data.length < 64)
+  assert.ok(!sent[0].data.includes('\u001b[K'))
   assert.equal(session.outputResyncPending, false)
   session.cleanup()
 })
@@ -138,4 +142,22 @@ test('a stale resync success must not touch the new attach epoch either', async 
   assert.equal(session.outputResyncRunning, true)
   assert.equal(session.deferredFlushTimer, null)
   session.cleanup()
+})
+
+test('RESYNC_RESET_SEQ clears repaint-breaking state but preserves input modes', async () => {
+  // DECSTR 会把 ?1/?66/?2004 清成 false 而 tmux refresh 不重发——边界序列只能
+  // 复位重绘必需的状态（origin/insert/滚动区/字符集/SGR/清屏），输入模式必须原样
+  const t = new Terminal({ cols: 20, rows: 4, allowProposedApi: true })
+  const w = (s: string) => new Promise<void>((r) => t.write(s, r))
+  await w('\u001b[?1h\u001b[?66h\u001b[?2004h\u001b[?6h\u001b[4h\u001b[?7l\u001b[2;3r\u001b(0\x0f\u001b[31;1m')
+  await w(RESYNC_RESET_SEQ)
+  assert.equal(t.modes.applicationCursorKeysMode, true)
+  assert.equal(t.modes.applicationKeypadMode, true)
+  assert.equal(t.modes.bracketedPasteMode, true)
+  assert.equal(t.modes.originMode, false)
+  assert.equal(t.modes.insertMode, false)
+  assert.equal(t.modes.wraparoundMode, false)
+  const line = t.buffer.active.getLine(0)
+  assert.equal(line.translateToString(true).trim(), '')
+  t.dispose()
 })
