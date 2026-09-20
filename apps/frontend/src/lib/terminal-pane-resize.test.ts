@@ -18,7 +18,7 @@ const setup = (overrides: Record<string, any> = {}) => {
   const screen = makeScreen()
   const targetFor =
     overrides.targetFor ??
-    ((e: MouseEvent) => ({
+    ((_e: MouseEvent) => ({
       paneId: 'local:%1',
       axis: 'x' as const,
       startCell: 50,
@@ -86,6 +86,70 @@ describe('terminal-pane-resize commit coalescing', () => {
     expect(options.resizePane).toHaveBeenCalledTimes(2)
     expect(options.resizePane).toHaveBeenNthCalledWith(1, 'local:%1', { cols: 75 })
     expect(options.resizePane).toHaveBeenNthCalledWith(2, 'local:%1', { cols: 76 })
+    unsub()
+  })
+
+  it('keeps the queued commit when the next same-divider drag ends as a no-op', () => {
+    const { container, options, unsub } = setup()
+    down(container)
+    move(650) // → size 75，入队 pending
+    up()
+    vi.advanceTimersByTime(20)
+    // 第二次手势只是按下又松开（无移动）：pendingSize===sentSize → no-op
+    down(container)
+    up()
+    vi.advanceTimersByTime(200)
+    // 第一笔有效目标不得因 no-op 手势丢失
+    expect(options.resizePane).toHaveBeenCalledTimes(1)
+    expect(options.resizePane).toHaveBeenLastCalledWith('local:%1', { cols: 75 })
+    unsub()
+  })
+
+  it('does not let a paused pending fire mid-drag and replaces it with the new final size', () => {
+    const { container, options, unsub } = setup()
+    down(container)
+    move(650) // A=75 入队
+    up()
+    vi.advanceTimersByTime(50) // 距合并窗到期还剩 30ms
+    down(container) // 暂停 A 的计时
+    vi.advanceTimersByTime(100) // 拖拽中经过原到期点——不得中途发出 A
+    expect(options.resizePane).toHaveBeenCalledTimes(0)
+    move(660) // B=76
+    up()
+    vi.advanceTimersByTime(200)
+    expect(options.resizePane).toHaveBeenCalledTimes(1)
+    expect(options.resizePane).toHaveBeenLastCalledWith('local:%1', { cols: 76 })
+    unsub()
+  })
+
+  it('keeps per-pane pending commits on independent timers', () => {
+    let pane = 'local:%1'
+    const { container, options, unsub } = setup({
+      targetFor: () => ({
+        paneId: pane,
+        axis: 'x' as const,
+        startCell: 50,
+        startSize: 60,
+        paneStart: 0,
+        crossStart: 0,
+        crossSize: 40,
+      }),
+    })
+    down(container)
+    move(640) // %1 → 74
+    up()
+    vi.advanceTimersByTime(30) // %1 还剩 50ms
+    pane = 'local:%2'
+    down(container)
+    move(650) // %2 → 75
+    up()
+    // %1 的窗口不被 %2 的入队强制提前 flush，也不被覆盖——各自 80ms
+    vi.advanceTimersByTime(60) // t≈90：%1 已发，%2 还差 ~10ms
+    expect(options.resizePane).toHaveBeenCalledTimes(1)
+    expect(options.resizePane).toHaveBeenNthCalledWith(1, 'local:%1', { cols: 74 })
+    vi.advanceTimersByTime(40)
+    expect(options.resizePane).toHaveBeenCalledTimes(2)
+    expect(options.resizePane).toHaveBeenNthCalledWith(2, 'local:%2', { cols: 75 })
     unsub()
   })
 

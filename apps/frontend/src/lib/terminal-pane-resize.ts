@@ -15,37 +15,50 @@ interface TerminalPaneResizeOptions {
 }
 export function createTerminalPaneResizeController(options: TerminalPaneResizeOptions) {
   // 短合并窗：同一 pane+axis 连续快拖只在静止后提交最后目标（latest-wins），
-  // 与 PaneGrid 远端 WS 合并同语义；已发出的请求不可撤回，不同 pane/axis
-  // 各自独立 pending 不得互相覆盖
+  // 与 PaneGrid 远端 WS 合并同语义；不同 pane/axis 各自独立 pending——Map
+  // 按键隔离，跨 key 不互相覆盖也不互相强制 flush；已发出的请求不可撤回
   const RESIZE_COMMIT_MS = 80
   let drag: (PaneResizeTarget & { pendingSize: number; sentSize: number }) | null = null
   let hoverThrottle = 0
-  let pendingCommit: { paneId: string; axis: 'x' | 'y'; size: number; timer: ReturnType<typeof setTimeout> } | null =
-    null
-  const flushCommit = () => {
-    const pending = pendingCommit
-    pendingCommit = null
-    if (!pending) return
+  type PendingCommit = { paneId: string; axis: 'x' | 'y'; size: number; timer: ReturnType<typeof setTimeout> | null }
+  const pendingCommits = new Map<string, PendingCommit>()
+  const commitKey = (paneId: string, axis: 'x' | 'y') => `${paneId}|${axis}`
+  const commitEntry = (entry: PendingCommit) => {
     void options
-      .resizePane(pending.paneId, pending.axis === 'x' ? { cols: pending.size } : { rows: pending.size })
+      .resizePane(entry.paneId, entry.axis === 'x' ? { cols: entry.size } : { rows: entry.size })
       .catch(() => null)
       .then(() => {
         void options.loadSessionSnapshot().catch(() => null)
         options.dispatchLayoutChange()
       })
   }
-  const queueCommit = (paneId: string, axis: 'x' | 'y', size: number) => {
-    if (pendingCommit && (pendingCommit.paneId !== paneId || pendingCommit.axis !== axis)) flushCommit()
-    if (pendingCommit) clearTimeout(pendingCommit.timer)
-    pendingCommit = { paneId, axis, size, timer: setTimeout(flushCommit, RESIZE_COMMIT_MS) }
+  const armCommit = (key: string, entry: PendingCommit) => {
+    entry.timer = setTimeout(() => {
+      pendingCommits.delete(key)
+      commitEntry(entry)
+    }, RESIZE_COMMIT_MS)
   }
-  const dropPendingCommit = (paneId: string, axis: 'x' | 'y') => {
-    // 新一次拖拽开始：同 pane+axis 的待提交中间尺寸已被本手势取代，丢弃；
-    // 不丢会中途发出一个马上过期的尺寸
-    if (pendingCommit?.paneId === paneId && pendingCommit.axis === axis) {
-      clearTimeout(pendingCommit.timer)
-      pendingCommit = null
+  const queueCommit = (paneId: string, axis: 'x' | 'y', size: number) => {
+    const key = commitKey(paneId, axis)
+    const prev = pendingCommits.get(key)
+    if (prev?.timer) clearTimeout(prev.timer)
+    const entry: PendingCommit = { paneId, axis, size, timer: null }
+    pendingCommits.set(key, entry)
+    armCommit(key, entry)
+  }
+  // 同键新拖拽开始只暂停 pending 计时（拖拽中不发出即将过期的中间尺寸），
+  // 不删除——本次手势若以 no-op/cancel 结束，上一笔已完成的目标仍须提交
+  const pausePendingCommit = (paneId: string, axis: 'x' | 'y') => {
+    const pending = pendingCommits.get(commitKey(paneId, axis))
+    if (pending?.timer) {
+      clearTimeout(pending.timer)
+      pending.timer = null
     }
+  }
+  const resumePendingCommit = (paneId: string, axis: 'x' | 'y') => {
+    const key = commitKey(paneId, axis)
+    const pending = pendingCommits.get(key)
+    if (pending && !pending.timer) armCommit(key, pending)
   }
   const hideGuide = () => {
     if (options.guide) options.guide.style.display = 'none'
@@ -101,6 +114,8 @@ export function createTerminalPaneResizeController(options: TerminalPaneResizeOp
     // 整屏白闪，scope 错误——松手后由最终一次 resizePane + snapshot 重绘恢复
     emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'end' })
     if (!current.pendingSize || current.pendingSize === current.sentSize) {
+      // 本次手势无有效新尺寸：恢复同键被暂停的 pending，上一笔目标不丢
+      resumePendingCommit(current.paneId, current.axis)
       drag = null
       hideGuide()
       options.container.style.cursor = ''
@@ -124,7 +139,7 @@ export function createTerminalPaneResizeController(options: TerminalPaneResizeOp
     options.clearPointerSync()
     options.clearCopySelectionTimer()
     options.clearSelection()
-    dropPendingCommit(target.paneId, target.axis)
+    pausePendingCommit(target.paneId, target.axis)
     drag = { ...target, pendingSize: target.startSize, sentSize: target.startSize }
     emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'start' })
     syncGuide()
@@ -153,7 +168,11 @@ export function createTerminalPaneResizeController(options: TerminalPaneResizeOp
     // 卸载/销毁时若仍在拖拽必须补 end：PaneGrid 的 burst 抑制否则永久卡住
     if (drag) emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'end' })
     // 待提交尺寸立即发出而不是迟发：手势已合法完成，销毁不应丢用户意图
-    flushCommit()
+    for (const pending of pendingCommits.values()) {
+      if (pending.timer) clearTimeout(pending.timer)
+      commitEntry(pending)
+    }
+    pendingCommits.clear()
     drag = null
     removeWindowListeners()
     options.container.removeEventListener('mousedown', handleStart, true)
