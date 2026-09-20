@@ -1,79 +1,8 @@
 import { execTmux } from '../tmux-executor.js'
-import { updateStreamMetric } from '../perf-metrics.js'
 import { SCROLL_MAX_LINES } from './stream-config.js'
-export function buildPaneSnapshot(content: string, left: number, top: number, width: number, height: number) {
-  const lines = content.replace(/\r/g, '').split('\n')
-  const parts: string[] = []
-  for (let row = 0; row < height; row++) {
-    const line = lines[row] || ''
-    parts.push(`\u001b[${top + row + 1};${left + 1}H${line}\u001b[0m\u001b[K`)
-  }
-  return parts.join('')
-}
-export async function captureWindowSnapshot(
-  hostId: string,
-  sessionName: string,
-  fallbackCols: number,
-  fallbackRows: number,
-) {
-  const { stdout } = await execTmux(hostId, [
-    'list-panes',
-    '-t',
-    sessionName,
-    '-F',
-    '#{pane_id}|#{pane_left}|#{pane_top}|#{pane_width}|#{pane_height}',
-  ])
-  const panes = String(stdout || '')
-    .trim()
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => {
-      const [paneId, leftRaw, topRaw, widthRaw, heightRaw] = line.split('|')
-      const left = Number(leftRaw)
-      const top = Number(topRaw)
-      const width = Number(widthRaw)
-      const height = Number(heightRaw)
-      return {
-        paneId,
-        left: Number.isFinite(left) ? left : 0,
-        top: Number.isFinite(top) ? top : 0,
-        width: Number.isFinite(width) ? width : 0,
-        height: Number.isFinite(height) ? height : 0,
-      }
-    })
-  panes.sort((a, b) => a.left - b.left || a.top - b.top)
-  // 并行抓取各 pane：串行时大 pane 的 capture 会挡在小 pane 前面（ssl4mis 左 8.8KB
-  // 右 122B 实测差距明显）；拼接仍按坐标排序的结果数组下标，顺序语义不变
-  const captureStartedAt = Date.now()
-  const contents = await Promise.all(
-    panes.map((pane) =>
-      pane.paneId && pane.width > 0 && pane.height > 0
-        ? execTmux(hostId, ['capture-pane', '-e', '-pt', pane.paneId, '-p']).then((result) =>
-            String(result.stdout || ''),
-          )
-        : Promise.resolve(''),
-    ),
-  )
-  updateStreamMetric('snapshotCaptureMs', Date.now() - captureStartedAt)
-  updateStreamMetric('snapshotPanes', panes.length)
-  const parts: string[] = []
-  let snapshotBytes = 0
-  for (let i = 0; i < panes.length; i++) {
-    const pane = panes[i]
-    const content = contents[i]
-    if (!content) continue
-    snapshotBytes += content.length
-    parts.push(buildPaneSnapshot(content, pane.left, pane.top, pane.width, pane.height))
-  }
-  updateStreamMetric('snapshotBytes', snapshotBytes)
-  if (!parts.length) {
-    const { stdout: fallback } = await execTmux(hostId, ['capture-pane', '-e', '-pt', sessionName, '-p'])
-    const content = String(fallback || '')
-    if (!content) return ''
-    return buildPaneSnapshot(content, 0, 0, fallbackCols || 80, fallbackRows || 24)
-  }
-  return parts.join('')
-}
+// 已删除手拼快照路径（captureWindowSnapshot/buildPaneSnapshot）：pane capture 不含
+// tmux 边框，逐行 CSI K 越界抹邻 pane、行尾 SGR0 断跨行属性；整屏恢复改走
+// refresh-client 真实重绘（见 stream-session 的 resync/attach 兜底）
 export async function refreshAttachedClient(hostId: string, sessionName: string, clientPid: number) {
   if (!sessionName) return
   const pid = String(clientPid)

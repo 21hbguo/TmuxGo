@@ -70,3 +70,27 @@ test('flushOutput sends buffered bytes in order regardless of content shape', ()
   assert.equal(sent[1].data, 'next-c')
   session.cleanup()
 })
+
+test('flushOutputResync sends only the reset boundary, never a fabricated pane snapshot', async () => {
+  const { session, sent } = createSession()
+  session.outputResyncPending = true
+  await session.flushOutputResync()
+  // resync 负载必须是 DECSTR+ED+CUP 边界序列；真正的整屏内容由随后的
+  // tmux 真实重绘（普通 output）恢复，不得夹带手拼 pane 定位块
+  assert.equal(sent.length, 1)
+  assert.equal(sent[0].type, 'output_resync')
+  assert.equal(sent[0].data, '\u001b[!p\u001b[2J\u001b[H')
+  assert.ok(!sent[0].data.includes('\u001b[0m'))
+  session.cleanup()
+})
+
+test('flushOutputResync re-arms pending when the tmux redraw fails', async () => {
+  const { session, sent } = createSession()
+  session.outputResyncPending = true
+  // 'dev' session 不存在 → refreshAttachedClient 抛错 → pending 必须重新置位
+  // 走整轮重试，而不是把清屏后的残局交给普通输出
+  await session.flushOutputResync()
+  assert.equal(sent[0]?.type, 'output_resync')
+  assert.equal(session.outputResyncPending, true)
+  session.cleanup()
+})
