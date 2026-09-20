@@ -1814,7 +1814,38 @@ describe('TerminalPane', () => {
     for (const done of deferredTerminalWriteCallbacks.splice(0)) done()
     await waitFor(() => expect(mask.style.display).toBe('none'))
   })
-  it('ignores a stale resized ack for an earlier size during rapid A->B->A changes', async () => {
+  it('ignores a stale resized ack for an earlier size during discrete A->B->A changes', async () => {
+    // 每次观察间隔 >250ms 保持离散语义（burst 不累计）：离散 resize 的遮罩
+    // 仍等匹配尺寸的 ACK，过期 ACK 不得揭罩
+    const { container } = render(
+      <TerminalPane sessionName="dev" attachExclusive onInput={vi.fn()} onResize={vi.fn()} />,
+    )
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    await waitFor(() => expect(resizeObserverCallback).toBeTruthy())
+    const root = container.firstChild as HTMLElement
+    const mask = container.querySelector('[data-testid="terminal-resize-mask"]') as HTMLElement
+    Object.defineProperty(root, 'clientWidth', { configurable: true, value: 800 })
+    Object.defineProperty(root, 'clientHeight', { configurable: true, value: 520 })
+    resizeObserverCallback?.()
+    await waitFor(() => expect(terminalMocks.resize).toHaveBeenCalled())
+    await sleep(260)
+    Object.defineProperty(root, 'clientWidth', { configurable: true, value: 760 })
+    resizeObserverCallback?.()
+    await waitFor(() => expect(terminalMocks.resize).toHaveBeenLastCalledWith(95, 32))
+    await sleep(260)
+    Object.defineProperty(root, 'clientWidth', { configurable: true, value: 800 })
+    resizeObserverCallback?.()
+    await waitFor(() => expect(terminalMocks.resize).toHaveBeenLastCalledWith(100, 32))
+    // 旧尺寸的 ACK 到达时本地已回到 A：不得据此揭罩
+    emitStreamEvent(STREAM_EVENT.resized, { hostId: 'local', sessionName: 'dev', cols: 95, rows: 32 })
+    await sleep(30)
+    expect(mask.style.display).toBe('block')
+    emitStreamEvent(STREAM_EVENT.resized, { hostId: 'local', sessionName: 'dev', cols: 100, rows: 32 })
+    await waitFor(() => expect(mask.style.display).toBe('none'))
+  })
+  it('reveals the mask during continuous drag without waiting for remote ack', async () => {
+    // 跟手优先：连续拖动（burst>2）本地 reflow 落地即揭罩，不等远端收敛——
+    // 允许短暂错位，由后续远端重绘自动收敛；不要求任何 resized 事件
     const { container } = render(
       <TerminalPane sessionName="dev" attachExclusive onInput={vi.fn()} onResize={vi.fn()} />,
     )
@@ -1827,16 +1858,12 @@ describe('TerminalPane', () => {
     resizeObserverCallback?.()
     Object.defineProperty(root, 'clientWidth', { configurable: true, value: 760 })
     resizeObserverCallback?.()
-    await waitFor(() => expect(terminalMocks.resize).toHaveBeenLastCalledWith(95, 32))
-    Object.defineProperty(root, 'clientWidth', { configurable: true, value: 800 })
+    Object.defineProperty(root, 'clientWidth', { configurable: true, value: 720 })
     resizeObserverCallback?.()
-    await waitFor(() => expect(terminalMocks.resize).toHaveBeenLastCalledWith(100, 32))
-    // 旧尺寸的 ACK 到达时本地已回到 A：不得据此揭罩
-    emitStreamEvent(STREAM_EVENT.resized, { hostId: 'local', sessionName: 'dev', cols: 95, rows: 32 })
-    await sleep(30)
-    expect(mask.style.display).toBe('block')
-    emitStreamEvent(STREAM_EVENT.resized, { hostId: 'local', sessionName: 'dev', cols: 100, rows: 32 })
+    await waitFor(() => expect(terminalMocks.resize).toHaveBeenCalled())
+    // 无任何 resized ACK：拖动收敛后遮罩也必须自行揭开（900ms failsafe 之外）
     await waitFor(() => expect(mask.style.display).toBe('none'))
+    expect(mask.style.display).toBe('none')
   })
   it('accepts a same-size stale resized ack during A->B->A (documented protocol boundary)', async () => {
     // ACK 不携带原请求代次，同尺寸旧 ACK 与当前 ACK 不可区分：pending 按尺寸匹配清零。

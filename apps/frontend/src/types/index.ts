@@ -173,6 +173,9 @@ export interface TerminalPerfState {
   outputBytes: number
   outputEvents: number
   outputBacklog: number
+  // xterm.write 在途字节与 backlog 最老排队年龄：背压水位上报用
+  outputInFlight?: number
+  outputOldestAgeMs?: number
   layoutFitCount: number
   lastOutputAt: string
 }
