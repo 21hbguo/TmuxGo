@@ -10,7 +10,7 @@ import { parseSessionRef } from '../tmux-target.js'
 import { encodeStreamCellBinary, encodeStreamOutputBinary } from '../stream-binary.js'
 import { shareLinkStore, type ShareTicket } from '../share-links.js'
 import { StreamCellEncoder } from './stream-cell.js'
-import { applyScroll, captureWindowSnapshot, getSessionWindowSize, refreshAttachedClient } from './stream-tmux.js'
+import { applyScroll, getSessionWindowSize, refreshAttachedClient } from './stream-tmux.js'
 import {
   ATTACH_REDRAW_DELAYS,
   CLIENT_BACKPRESSURE_RESYNC_CHARS,
@@ -19,6 +19,7 @@ import {
   OUTPUT_PROFILES,
   REQUEST_REDRAW_DELAYS,
   RESIZE_ACK_OUTPUT_WAIT_MS,
+  RESYNC_RESET_SEQ,
   SCROLL_MAX_LINES,
   SOCKET_BUFFER_EXTREME_WATERMARK,
   SOCKET_BUFFER_HIGH_WATERMARK,
@@ -209,37 +210,39 @@ export class StreamSession {
     const sessionName = this.attachedSessionName
     const hostId = this.attachedHostId
     const seq = this.attachSeq
+    const pid = this.ptyProcess.pid
     this.outputResyncRunning = true
     try {
-      const snapshot = await captureWindowSnapshot(hostId, sessionName, this.attachedCols, this.attachedRows)
-      if (!snapshot) return
+      if (this.getSocketBufferedBytes() >= SOCKET_BUFFER_HIGH_WATERMARK) {
+        this.scheduleDeferredFlush()
+        return
+      }
+      // 恢复握手边界：先发 output_resync 让前端 dispose 队列并复位 xterm
+      // （DECSTR 清模式/滚动区/SGR，ED 清屏保留滚动历史），再由 tmux
+      // refresh-client 的真实重绘按普通 output 流入——手拼 pane 快照缺
+      // 边框/跨行 SGR 延续/光标模式，不能冒充整屏快照
+      if (!this.sendTerminalOutput('output_resync', RESYNC_RESET_SEQ, sessionName, hostId)) {
+        this.scheduleDeferredFlush()
+        return
+      }
+      // 先放行再 refresh：重绘字节走 onData 普通路径，若在 pending 期到达会被丢
+      this.outputResyncPending = false
+      if (this.cellOutputEnabled) this.cell.reset(this.attachedCols, this.attachedRows, this.binaryOutputEnabled)
+      await refreshAttachedClient(hostId, sessionName, pid)
       if (
-        !this.outputResyncPending ||
         !this.ptyProcess ||
         seq !== this.attachSeq ||
         this.attachedSessionName !== sessionName ||
         this.attachedHostId !== hostId
       )
         return
-      if (this.getSocketBufferedBytes() >= SOCKET_BUFFER_HIGH_WATERMARK) {
-        this.scheduleDeferredFlush()
-        return
-      }
-      const data = snapshot
-      let sent = false
-      if (this.cell.active) sent = this.feedCellAndMaybeSend('output_resync', data, sessionName, hostId)
-      if (!sent) {
-        if (!this.sendTerminalOutput('output_resync', data, sessionName, hostId)) {
-          this.scheduleDeferredFlush()
-          return
-        }
-      }
-      this.outputResyncPending = false
       recordStreamMetric('outputResyncCompleted')
       recordStreamMetric('outputFlushes')
       recordStreamMetric('outputChunks')
     } catch {
-      this.scheduleDeferredFlush()
+      // 重置已发出但 tmux 重绘失败：恢复 pending 走整轮重试，
+      // 否则放行普通输出会在清屏画面上叠出半残画面
+      this.outputResyncPending = true
     } finally {
       this.outputResyncRunning = false
       if (this.outputResyncPending) this.scheduleDeferredFlush()
@@ -388,6 +391,8 @@ export class StreamSession {
     for (const timer of this.attachSnapshotTimers) clearTimeout(timer)
     this.attachSnapshotTimers = []
   }
+  // attach 后迟迟看不到可见输出时的兜底：让 tmux 对该 client 做真实重绘，
+  // 重绘字节走普通 output 路径恢复画面（含边框/属性/光标），不再手拼快照
   async captureAttachedSnapshot(sessionName: string, seq: number) {
     if (
       !this.ptyProcess ||
@@ -398,30 +403,7 @@ export class StreamSession {
     )
       return
     try {
-      const snapshot = await captureWindowSnapshot(
-        this.attachedHostId,
-        sessionName,
-        this.attachedCols,
-        this.attachedRows,
-      )
-      if (
-        !this.ptyProcess ||
-        !sessionName ||
-        this.attachVisibleOutputObserved ||
-        seq !== this.attachSeq ||
-        this.attachedSessionName !== sessionName
-      )
-        return
-      if (!snapshot) return
-      const data = snapshot
-      let sent = false
-      if (this.cell.active) sent = this.feedCellAndMaybeSend('output_resync', data, sessionName, this.attachedHostId)
-      if (!sent && !this.sendTerminalOutput('output_resync', data, sessionName, this.attachedHostId)) return
-      this.attachVisibleOutputObserved = true
-      recordStreamMetric('outputResyncCompleted')
-      recordStreamMetric('outputFlushes')
-      recordStreamMetric('outputChunks')
-      recordStreamMetric('outputBytes', data.length)
+      await refreshAttachedClient(this.attachedHostId, sessionName, this.ptyProcess.pid)
     } catch {}
   }
   scheduleAttachSnapshot(sessionName: string, seq: number, delays = getAttachSnapshotDelays()) {

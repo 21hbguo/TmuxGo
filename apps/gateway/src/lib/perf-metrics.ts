@@ -30,9 +30,6 @@ export const streamPerfMetrics = {
   cellDirtyCells: 0,
   redrawRequests: 0,
   droppedDuplicateChunks: 0,
-  snapshotCaptureMs: 0,
-  snapshotPanes: 0,
-  snapshotBytes: 0,
   resizeAckWaitMs: 0,
 }
 export function recordStreamMetric<K extends keyof typeof streamPerfMetrics>(key: K, value = 1) {

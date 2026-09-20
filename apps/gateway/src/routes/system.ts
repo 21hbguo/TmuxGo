@@ -179,9 +179,6 @@ function getSafeStreamMetrics() {
     cellDirtyCells: safeNumber(streamPerfMetrics.cellDirtyCells),
     redrawRequests: safeNumber(streamPerfMetrics.redrawRequests),
     droppedDuplicateChunks: safeNumber(streamPerfMetrics.droppedDuplicateChunks),
-    snapshotCaptureMs: safeNumber(streamPerfMetrics.snapshotCaptureMs),
-    snapshotPanes: safeNumber(streamPerfMetrics.snapshotPanes),
-    snapshotBytes: safeNumber(streamPerfMetrics.snapshotBytes),
     resizeAckWaitMs: safeNumber(streamPerfMetrics.resizeAckWaitMs),
   }
 }
