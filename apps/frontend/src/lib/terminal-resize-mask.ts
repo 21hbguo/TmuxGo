@@ -42,6 +42,8 @@ export function createTerminalResizeMask(options: TerminalResizeMaskOptions) {
     })
     if (synchronous) revealFrame = frame
   }
+  let lastCaptureMaskW = 0
+  let lastCaptureMaskH = 0
   const show = () => {
     if (revealFrame) cancelAnimationFrame(revealFrame)
     revealFrame = null
@@ -55,9 +57,16 @@ export function createTerminalResizeMask(options: TerminalResizeMaskOptions) {
     generation = nextGeneration
     setPending(true)
     const mask = options.mask
-    if (mask && mask.style.display !== 'block') {
-      mask.style.display = 'block'
-      captureSnapshot()
+    if (mask) {
+      // 显示中再次 show（离散连跳/容器继续变）：几何变了必须重截，
+      // 否则克隆按旧 rect 挂在新尺寸的 mask 里——整帧偏移错位
+      const stale =
+        mask.style.display === 'block' &&
+        (Math.abs(mask.clientWidth - lastCaptureMaskW) > 1 || Math.abs(mask.clientHeight - lastCaptureMaskH) > 1)
+      if (mask.style.display !== 'block' || stale) {
+        mask.style.display = 'block'
+        captureSnapshot()
+      }
     }
     return generation
   }
@@ -72,11 +81,22 @@ export function createTerminalResizeMask(options: TerminalResizeMaskOptions) {
     const maskRect = mask.getBoundingClientRect()
     snapshot.style.setProperty('inset', 'auto', 'important')
     snapshot.style.setProperty('left', `${screenRect.left - maskRect.left}px`, 'important')
-    // 底部锚定：容器变矮时保住 prompt 行不被裁掉，变高时留白在上方——
-    // 与 tmux reflow 的方向一致（grow 从 scrollback 往上拉行、光标留在底部）
-    snapshot.style.setProperty('top', `${maskRect.height - screenRect.height}px`, 'important')
+    // 克隆必须贴在 screen 的真实 top（rect 已含 transform）：底部锚定
+    // maskH-screenH 只在 screen 底边恰好贴 mask 底边时等价——shared/非独占
+    // 模式下 screen 高度按行数走、不填满容器，底锚会把整帧下移、逐行出格。
+    // 唯一例外：screen 底边溢出 mask（容器已变矮、screen 还没跟上），上移
+    // 溢出量保住底部 prompt 行，与 tmux reflow 方向一致
+    const topOffset = screenRect.top - maskRect.top
+    const bottomOverflow = screenRect.bottom - maskRect.bottom
+    snapshot.style.setProperty('top', `${bottomOverflow > 1 ? topOffset - bottomOverflow : topOffset}px`, 'important')
     snapshot.style.setProperty('width', `${screenRect.width}px`, 'important')
     snapshot.style.setProperty('height', `${screenRect.height}px`, 'important')
+    // 源 screen 若带键盘裁剪 transform，偏移已计入 rect；克隆再应用会二次平移
+    snapshot.style.removeProperty('transform')
+    snapshot.style.removeProperty('transform-origin')
+    snapshot.style.removeProperty('will-change')
+    lastCaptureMaskW = mask.clientWidth
+    lastCaptureMaskH = mask.clientHeight
     const sourceCanvases = Array.from(screen.querySelectorAll('canvas'))
     const snapshotCanvases = Array.from(snapshot.querySelectorAll('canvas'))
     sourceCanvases.forEach((source, index) => {
