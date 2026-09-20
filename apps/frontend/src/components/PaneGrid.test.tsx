@@ -852,4 +852,35 @@ describe('PaneGrid', () => {
     act(() => vi.advanceTimersByTime(40))
     expect(sendMock).toHaveBeenLastCalledWith({ type: 'resize', hostId: 'local', cols: 126, rows: 40 })
   })
+  it('anchors the quiet window to the last container activity, not to the final fit', () => {
+    vi.useFakeTimers()
+    socketState.isConnected = true
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    act(() => emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev1', hostId: 'local', cols: 120, rows: 36 }))
+    sendMock.mockClear()
+    // t=0 真实容器活动；RO→稳定帧→fit 链 ~50ms 后 onResize 才到——
+    // 静止截止仍锚在 t=80（活动+quiet），不得因 fit 晚到而重开成 t=130
+    act(() => terminalProps.current?.onResizeActivity?.())
+    act(() => vi.advanceTimersByTime(50))
+    act(() => terminalProps.current?.onResize?.(130, 40))
+    act(() => vi.advanceTimersByTime(35)) // t=85
+    const resizes = sendMock.mock.calls.filter(([m]) => m.type === 'resize')
+    expect(resizes).toHaveLength(1)
+    expect(resizes[0][0]).toMatchObject({ cols: 130, rows: 40 })
+  })
+  it('keeps a full quiet window for onResize without recent container activity', () => {
+    vi.useFakeTimers()
+    socketState.isConnected = true
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    act(() => emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev1', hostId: 'local', cols: 120, rows: 36 }))
+    sendMock.mockClear()
+    // 无活动源的独立 onResize（初始 fit/字体变化）：仍走完整 now+quiet
+    act(() => terminalProps.current?.onResize?.(130, 40))
+    act(() => vi.advanceTimersByTime(70))
+    expect(sendMock.mock.calls.filter(([m]) => m.type === 'resize')).toHaveLength(0)
+    act(() => vi.advanceTimersByTime(30))
+    expect(sendMock).toHaveBeenLastCalledWith({ type: 'resize', hostId: 'local', cols: 130, rows: 40 })
+  })
 })

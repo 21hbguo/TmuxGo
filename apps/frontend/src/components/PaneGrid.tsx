@@ -103,6 +103,7 @@ export function PaneGrid({
   // 远端发送的静止窗口截止时刻：每次新尺寸/真实容器活动顺延；到期后由
   // resizeFlushTimer 评估；layoutSyncPendingRef 判定本地 fit 是否仍在落地
   const remoteQuietDeadlineRef = useRef(0)
+  const lastResizeActivityAtRef = useRef(0)
   // pointer 生命周期：down..up 之间硬抑制一切远端发送；up 后进入短 settle
   // 模式（RO 尾声用短顺延窗），settle 内新的 down 取消待发、合并回同一 burst
   const pointerDragActiveRef = useRef(false)
@@ -836,13 +837,18 @@ export function PaneGrid({
         return
       }
       pendingRemoteResizeRef.current = nextSize
-      // 每次新尺寸顺延静止窗口；已 armed 的 timer 到期时会按最新 deadline 再评估。
-      // pointer 拖拽中只攒 latest target（flush 内硬抑制）；settle 模式顺延封顶在
-      // pointerup+55ms，保证最终尺寸 ~60ms 内提交
-      if (!pointerDragActiveRef.current)
+      // 静止窗锚定到最后一次真实容器活动，而非本次 onResize 到达时刻：RO→稳定
+      // 帧→fit 链固有 ~50ms，用 now+quiet 会把已耗时间再叠加一遍（50+80=130）。
+      // 活动仍在窗内则沿用其锚点（最终 fit 只更新目标、不重开窗口）；无近期
+      // 活动源的独立 onResize（初始 fit/字体变化等）走完整 now+quiet。
+      if (!pointerDragActiveRef.current) {
+        const lastActivity = lastResizeActivityAtRef.current
         remoteQuietDeadlineRef.current = pointerSettleModeRef.current
           ? Math.min(Date.now() + RESIZE_POINTER_ACTIVITY_MS, pointerCommitCapRef.current)
-          : Date.now() + resizeQuietMs
+          : lastActivity && Date.now() - lastActivity < resizeQuietMs
+            ? lastActivity + resizeQuietMs
+            : Date.now() + resizeQuietMs
+      }
       if (resizeFlushTimerRef.current) return
       // 按真实剩余时间 arm：settle 模式下 deadline 可能已过/封顶，固定 50ms
       // 会把提交拖过 pointerup+60ms
@@ -868,6 +874,7 @@ export function PaneGrid({
   // 节流后的 onResize 间隔可超静止窗，不能用 fit 通知反推拖动已停止
   const handleResizeActivity = useCallback(() => {
     if (!isConnected || attachedRef.current !== targetSessionName) return
+    lastResizeActivityAtRef.current = Date.now()
     if (pointerDragActiveRef.current) return
     remoteQuietDeadlineRef.current = pointerSettleModeRef.current
       ? Math.min(Date.now() + RESIZE_POINTER_ACTIVITY_MS, pointerCommitCapRef.current)
