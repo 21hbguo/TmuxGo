@@ -249,4 +249,34 @@ describe('terminal-layout', () => {
     expect(screen.style.transform).toBe('translateY(-240px)')
     h.layout.dispose()
   })
+  it('does not keep the mask pending during a real window-resize drag (window event + RO)', () => {
+    const h = createHarness()
+    h.layout.primeContainerSize()
+    vi.setSystemTime(1000)
+    // 真实浏览器拖动：同一尺寸变化同时触发 window resize 与 RO——
+    // window handler 必须走共享的拖动判定，不能每次无条件 show 把遮罩焊死
+    for (let i = 0; i < 60; i++) {
+      vi.setSystemTime(1000 + i * 16)
+      h.setSize(810 + i * 4, 480)
+      h.layout.notifyWindowResize()
+      h.layout.notifyObservedResize()
+      tick()
+    }
+    expect(h.resizeCalls.length).toBeGreaterThan(0)
+    expect(h.mask.isPending()).toBe(false)
+    h.layout.dispose()
+    h.mask.dispose()
+  })
+  it('ignores a window resize event that did not change the container size', () => {
+    const h = createHarness()
+    h.layout.primeContainerSize()
+    vi.setSystemTime(1000)
+    h.layout.notifyWindowResize()
+    h.layout.notifyWindowResize()
+    tick(4)
+    expect(h.resizeCalls).toHaveLength(0)
+    expect(h.mask.isPending()).toBe(false)
+    h.layout.dispose()
+    h.mask.dispose()
+  })
 })
