@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useSplitGroups, type SessionSplitGroup } from '@/hooks/useSplitGroups'
+import { emitStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import { useSessionSocket } from '@/hooks/useSessionSocket'
 import { useSessions } from '@/hooks/useApi'
 import { PaneGrid } from './PaneGrid'
@@ -26,14 +27,19 @@ export function SessionSplitView({ group }: { group: SessionSplitGroup }) {
   const ratio = previewRatio ?? group.primaryRatio
   const horizontal = group.direction === 'horizontal'
   const primaryName = sessions.find((item: any) => item.id === group.primarySessionId)?.name || group.primarySessionId
-  const secondaryName = sessions.find((item: any) => item.id === group.secondarySessionId)?.name || group.secondarySessionId
-  const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    e.preventDefault()
-    draggingRef.current = true
-    previewRatioRef.current = null
-    document.body.style.cursor = horizontal ? 'col-resize' : 'row-resize'
-    document.body.style.userSelect = 'none'
-  }, [horizontal])
+  const secondaryName =
+    sessions.find((item: any) => item.id === group.secondarySessionId)?.name || group.secondarySessionId
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      e.preventDefault()
+      draggingRef.current = true
+      previewRatioRef.current = null
+      emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'start' })
+      document.body.style.cursor = horizontal ? 'col-resize' : 'row-resize'
+      document.body.style.userSelect = 'none'
+    },
+    [horizontal],
+  )
   useEffect(() => {
     if (!draggingRef.current) return
     const handleMove = (e: PointerEvent) => {
@@ -46,6 +52,7 @@ export function SessionSplitView({ group }: { group: SessionSplitGroup }) {
       setPreviewRatio(next)
     }
     const handleUp = () => {
+      if (draggingRef.current) emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'end' })
       draggingRef.current = false
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
@@ -58,6 +65,8 @@ export function SessionSplitView({ group }: { group: SessionSplitGroup }) {
     window.addEventListener('pointerup', handleUp)
     window.addEventListener('pointercancel', handleUp)
     return () => {
+      // effect 重跑/卸载兜底补 end，否则 burst 抑制永久卡住
+      if (draggingRef.current) emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'end' })
       window.removeEventListener('pointermove', handleMove)
       window.removeEventListener('pointerup', handleUp)
       window.removeEventListener('pointercancel', handleUp)
@@ -73,7 +82,10 @@ export function SessionSplitView({ group }: { group: SessionSplitGroup }) {
       <div className="shrink-0 border-b border-[var(--line)] bg-bg-1">
         <ShortcutBar mode="dock" onOpenFiles={toggleFilePanel} />
       </div>
-      <div ref={containerRef} className={`relative flex min-h-0 min-w-0 flex-1 overflow-hidden ${horizontal ? 'flex-row' : 'flex-col'}`}>
+      <div
+        ref={containerRef}
+        className={`relative flex min-h-0 min-w-0 flex-1 overflow-hidden ${horizontal ? 'flex-row' : 'flex-col'}`}
+      >
         <div className="relative min-h-0 min-w-0 overflow-hidden" style={primarySize}>
           <div className="absolute left-0 top-0 z-10 flex h-7 max-w-full items-center gap-2 border-b border-r border-[var(--line)] bg-bg-1/85 px-2 backdrop-blur">
             <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
@@ -82,16 +94,38 @@ export function SessionSplitView({ group }: { group: SessionSplitGroup }) {
           </div>
           <PaneGrid key={group.primarySessionId} sessionId={group.primarySessionId} socket={primarySocket} shared />
         </div>
-        <div onPointerDown={handlePointerDown} className={`z-20 shrink-0 bg-[var(--line)] transition-colors hover:bg-accent ${horizontal ? 'w-1 cursor-col-resize' : 'h-1 cursor-row-resize'}`} />
+        <div
+          onPointerDown={handlePointerDown}
+          className={`z-20 shrink-0 bg-[var(--line)] transition-colors hover:bg-accent ${horizontal ? 'w-1 cursor-col-resize' : 'h-1 cursor-row-resize'}`}
+        />
         <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden" style={secondarySize}>
           <div className="absolute left-0 top-0 z-10 flex h-7 max-w-full items-center gap-2 border-b border-r border-[var(--line)] bg-bg-1/85 px-2 backdrop-blur">
             <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-text-3/60" />
             <span className="min-w-0 flex-1 truncate font-mono text-caption text-text-2">{secondaryName}</span>
             <span className="shrink-0 text-caption text-text-3">{t('split.secondary')}</span>
-            <button aria-label={t('split.swap')} title={t('split.swap')} onClick={swap} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm text-text-3 hover:text-accent"><FiRepeat aria-hidden="true" size={13} /></button>
-            <button aria-label={t('split.close')} title={t('split.close')} onClick={closeSplitGroup} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm text-text-3 hover:text-danger"><FiX aria-hidden="true" size={13} /></button>
+            <button
+              aria-label={t('split.swap')}
+              title={t('split.swap')}
+              onClick={swap}
+              className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm text-text-3 hover:text-accent"
+            >
+              <FiRepeat aria-hidden="true" size={13} />
+            </button>
+            <button
+              aria-label={t('split.close')}
+              title={t('split.close')}
+              onClick={closeSplitGroup}
+              className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm text-text-3 hover:text-danger"
+            >
+              <FiX aria-hidden="true" size={13} />
+            </button>
           </div>
-          <PaneGrid key={group.secondarySessionId} sessionId={group.secondarySessionId} socket={secondarySocket} shared />
+          <PaneGrid
+            key={group.secondarySessionId}
+            sessionId={group.secondarySessionId}
+            socket={secondarySocket}
+            shared
+          />
         </div>
       </div>
     </div>

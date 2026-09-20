@@ -1,4 +1,5 @@
 import type { PaneResizeTarget } from './terminal-pane-interactions'
+import { emitStreamEvent, STREAM_EVENT } from './stream-events'
 interface TerminalPaneResizeOptions {
   container: HTMLElement
   guide: HTMLElement | null
@@ -7,15 +8,13 @@ interface TerminalPaneResizeOptions {
   getPaneResizeTarget: (event: MouseEvent) => PaneResizeTarget | null
   resizePane: (paneId: string, size: { cols?: number; rows?: number }) => Promise<unknown>
   loadSessionSnapshot: () => Promise<unknown>
-  showResizeMask: () => number
-  revealResizeMask: (generation: number) => void
   clearSelection: () => void
   clearCopySelectionTimer: () => void
   clearPointerSync: () => void
   dispatchLayoutChange: () => void
 }
 export function createTerminalPaneResizeController(options: TerminalPaneResizeOptions) {
-  let drag: (PaneResizeTarget & { pendingSize: number; sentSize: number; maskGeneration: number }) | null = null
+  let drag: (PaneResizeTarget & { pendingSize: number; sentSize: number }) | null = null
   let hoverThrottle = 0
   const hideGuide = () => {
     if (options.guide) options.guide.style.display = 'none'
@@ -67,21 +66,25 @@ export function createTerminalPaneResizeController(options: TerminalPaneResizeOp
   const endDrag = () => {
     const current = drag
     if (!current) return
+    // pane 分隔条拖动只允许本地 guide 跟手：terminal 级 mask 会盖住所有 pane 造成
+    // 整屏白闪，scope 错误——松手后由最终一次 resizePane + snapshot 重绘恢复
+    emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'end' })
     if (!current.pendingSize || current.pendingSize === current.sentSize) {
       drag = null
       hideGuide()
-      options.revealResizeMask(current.maskGeneration)
       options.container.style.cursor = ''
       removeWindowListeners()
       return
     }
     const size = current.pendingSize
     current.sentSize = size
-    void options.resizePane(current.paneId, current.axis === 'x' ? { cols: size } : { rows: size }).catch(() => null).then(() => {
-      void options.loadSessionSnapshot().catch(() => null)
-      options.dispatchLayoutChange()
-      options.revealResizeMask(current.maskGeneration)
-    })
+    void options
+      .resizePane(current.paneId, current.axis === 'x' ? { cols: size } : { rows: size })
+      .catch(() => null)
+      .then(() => {
+        void options.loadSessionSnapshot().catch(() => null)
+        options.dispatchLayoutChange()
+      })
     drag = null
     hideGuide()
     options.container.style.cursor = ''
@@ -96,7 +99,8 @@ export function createTerminalPaneResizeController(options: TerminalPaneResizeOp
     options.clearPointerSync()
     options.clearCopySelectionTimer()
     options.clearSelection()
-    drag = { ...target, pendingSize: target.startSize, sentSize: target.startSize, maskGeneration: options.showResizeMask() }
+    drag = { ...target, pendingSize: target.startSize, sentSize: target.startSize }
+    emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'start' })
     syncGuide()
     options.container.style.cursor = target.axis === 'x' ? 'col-resize' : 'row-resize'
     window.addEventListener('mousemove', handleMove)
@@ -109,7 +113,7 @@ export function createTerminalPaneResizeController(options: TerminalPaneResizeOp
     if (now - hoverThrottle < 50) return
     hoverThrottle = now
     const target = options.getPaneResizeTarget(event)
-    options.container.style.cursor = target ? target.axis === 'x' ? 'col-resize' : 'row-resize' : ''
+    options.container.style.cursor = target ? (target.axis === 'x' ? 'col-resize' : 'row-resize') : ''
   }
   const clearHover = () => {
     if (!drag) options.container.style.cursor = ''
@@ -120,6 +124,8 @@ export function createTerminalPaneResizeController(options: TerminalPaneResizeOp
     options.container.addEventListener('mouseleave', clearHover)
   }
   const dispose = () => {
+    // 卸载/销毁时若仍在拖拽必须补 end：PaneGrid 的 burst 抑制否则永久卡住
+    if (drag) emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'end' })
     drag = null
     removeWindowListeners()
     options.container.removeEventListener('mousedown', handleStart, true)

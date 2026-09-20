@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { emitStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
+import { emitStreamEvent, STREAM_EVENT, subscribeStreamEvent } from '@/lib/stream-events'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TerminalPane } from './TerminalPane'
 import { DELETE_PREV_WORD_SEQUENCE } from '@/lib/terminal-keys'
@@ -673,9 +673,13 @@ describe('TerminalPane', () => {
           toJSON: () => ({}),
         }) as DOMRect,
     )
+    const gestures: string[] = []
+    const unsubscribeGesture = subscribeStreamEvent(STREAM_EVENT.resizeGesture, (d: any) => gestures.push(d?.phase))
     fireEvent.mouseDown(screen, { button: 0, clientX: 100, clientY: 20 })
-    expect(mask.style.display).toBe('block')
-    expect(mask.querySelector('.xterm-screen')).toBeTruthy()
+    // pane 分隔条拖动不得罩 terminal 级 mask——mask 属于整个 xterm screen，
+    // 会盖住其它正常 pane 造成整屏白闪；只允许 divider guide 跟手
+    expect(mask.style.display).not.toBe('block')
+    expect(gestures).toEqual(['start'])
     let resolveSnapshot = (_snapshot: SessionSnapshotMock) => {}
     apiMocks.snapshotGet.mockImplementationOnce(
       () =>
@@ -687,17 +691,21 @@ describe('TerminalPane', () => {
     const guide = container.querySelector('[data-testid="pane-resize-guide"]') as HTMLElement
     expect(guide.style.display).toBe('block')
     expect(guide.style.left).toBe('119px')
+    expect(mask.style.display).not.toBe('block')
     expect(apiMocks.paneResize).not.toHaveBeenCalled()
     fireEvent.mouseUp(window)
     expect(guide.style.display).toBe('none')
-    expect(mask.style.display).toBe('block')
+    expect(mask.style.display).not.toBe('block')
+    expect(gestures).toEqual(['start', 'end'])
     await waitFor(() => expect(apiMocks.paneResize).toHaveBeenCalledWith('%1', { cols: 15 }))
+    expect(apiMocks.paneResize).toHaveBeenCalledTimes(1)
     await waitFor(() => expect(apiMocks.snapshotGet).toHaveBeenCalledTimes(1))
-    await waitFor(() => expect(mask.style.display).toBe('none'))
+    expect(mask.style.display).not.toBe('block')
     resolveSnapshot({ windows: [], panes: [], activePaneId: null })
     await sleep(100)
     expect(apiMocks.snapshotGet).toHaveBeenCalledTimes(1)
-    expect(mask.style.display).toBe('none')
+    expect(mask.style.display).not.toBe('block')
+    unsubscribeGesture()
   })
   it('sends final pane resize after mouseup while resize request is pending', async () => {
     queryClientMocks.getQueryData.mockReturnValue({

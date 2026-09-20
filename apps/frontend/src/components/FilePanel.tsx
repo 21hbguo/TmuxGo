@@ -21,6 +21,7 @@ import { writeClipboardText } from '@/lib/clipboard-text'
 import { quoteShellPath } from '@/lib/path-drop'
 import { api, fetchApiBlob } from '@/lib/api'
 import { clearActiveDraggedFile, FILE_DRAG_MIME, setActiveDraggedFile } from '@/lib/editor-drag'
+import { emitStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import { MARKDOWN_PROSE_CLASS, renderMarkdown } from '@/lib/markdown'
 import { ZoomSurface } from './ZoomSurface'
 import {
@@ -982,6 +983,7 @@ export function FilePanel({
       if (resizingRef.current) {
         setFilePanelWidth(pendingWidthRef.current)
         setPreviewWidth(null)
+        emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'end' })
       }
       resizingRef.current = false
       document.body.style.cursor = ''
@@ -991,6 +993,8 @@ export function FilePanel({
     window.addEventListener('mouseup', handleUp)
     return () => {
       if (frameRef.current) cancelAnimationFrame(frameRef.current)
+      // 卸载兜底：拖拽中组件消失时补 end，否则 PaneGrid 的 burst 抑制永久卡住
+      if (resizingRef.current) emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'end' })
       window.removeEventListener('mousemove', handleMove)
       window.removeEventListener('mouseup', handleUp)
     }
@@ -2192,6 +2196,7 @@ export function FilePanel({
             pendingWidthRef.current = filePanelWidth
             document.body.style.cursor = 'col-resize'
             document.body.style.userSelect = 'none'
+            emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'start' })
           }}
         />
       )}

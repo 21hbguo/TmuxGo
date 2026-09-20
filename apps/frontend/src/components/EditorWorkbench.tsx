@@ -17,6 +17,7 @@ import { OPEN_EDITOR_LOCATION_EVENT, openFileInEditor } from '@/lib/editor-open'
 import { resolveEditorDefinition } from '@/lib/code-navigation'
 import { useTranslation } from '@/i18n'
 import { MARKDOWN_PROSE_CLASS, renderMarkdown } from '@/lib/markdown'
+import { emitStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import { Button } from './Button'
 import { ZoomSurface } from './ZoomSurface'
 import { Chip } from './Chip'
@@ -582,6 +583,7 @@ export function EditorWorkbench({
         setEditorSplitRatio(resize.splitId, (event.clientY - rect.top) / rect.height)
     }
     const handlePointerUp = () => {
+      if (splitResizeRef.current?.active) emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'end' })
       splitResizeRef.current = null
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
@@ -590,6 +592,8 @@ export function EditorWorkbench({
     window.addEventListener('pointerup', handlePointerUp, true)
     window.addEventListener('pointercancel', handlePointerUp, true)
     return () => {
+      // effect 重跑/卸载兜底补 end，否则 burst 抑制永久卡住
+      if (splitResizeRef.current?.active) emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'end' })
       window.removeEventListener('pointermove', handlePointerMove, true)
       window.removeEventListener('pointerup', handlePointerUp, true)
       window.removeEventListener('pointercancel', handlePointerUp, true)
@@ -884,6 +888,7 @@ export function EditorWorkbench({
         <div
           data-testid="editor-split-resizer"
           onPointerDown={(event) => {
+            emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'start' })
             splitResizeRef.current = {
               active: true,
               direction: node.direction,

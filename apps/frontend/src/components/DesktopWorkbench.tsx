@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { api } from '@/lib/api'
+import { emitStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import type { FileDocumentHandle, FileEditorDocument } from '@/types'
 import { getEditorLanguage, openFileInEditor } from '@/lib/editor-open'
 import { ActivityBar } from './ActivityBar'
@@ -218,6 +219,7 @@ export function DesktopWorkbench() {
         setSshPanelWidth(pendingSshWidthRef.current)
         setPreviewSshWidth(null)
       }
+      if (resizingRef.current) emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'end' })
       resizingRef.current = null
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
@@ -249,6 +251,14 @@ export function DesktopWorkbench() {
     sshPanelMax,
     sshPanelMin,
   ])
+  // 卸载兜底补 end（独立 mount-only：上面的 effect 依赖 preview 宽度、拖拽中
+  // 每次移动都重跑 cleanup，不能在里面发 end）
+  useEffect(
+    () => () => {
+      if (resizingRef.current) emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'end' })
+    },
+    [],
+  )
   const handleOpenFile = useCallback(
     async (file: FileDocumentHandle) => {
       await openFileInEditor(file, { t, pushToast, openPanel: true })
@@ -373,6 +383,7 @@ export function DesktopWorkbench() {
               className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-accent/40"
               onMouseDown={() => {
                 resizingRef.current = 'session'
+                emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'start' })
                 pendingSessionWidthRef.current = sessionPanelWidth
                 setPreviewSessionWidth(sessionPanelWidth)
                 document.body.style.cursor = 'col-resize'
@@ -395,6 +406,7 @@ export function DesktopWorkbench() {
               className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-accent/40"
               onMouseDown={() => {
                 resizingRef.current = 'file'
+                emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'start' })
                 pendingFileWidthRef.current = filePanelWidth
                 setPreviewFileWidth(filePanelWidth)
                 document.body.style.cursor = 'col-resize'
@@ -415,6 +427,7 @@ export function DesktopWorkbench() {
               className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-accent/40"
               onMouseDown={() => {
                 resizingRef.current = 'git'
+                emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'start' })
                 pendingGitWidthRef.current = gitPanelWidth
                 setPreviewGitWidth(gitPanelWidth)
                 document.body.style.cursor = 'col-resize'
@@ -435,6 +448,7 @@ export function DesktopWorkbench() {
               className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-accent/40"
               onMouseDown={() => {
                 resizingRef.current = 'ssh'
+                emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'start' })
                 pendingSshWidthRef.current = sshPanelWidth
                 setPreviewSshWidth(sshPanelWidth)
                 document.body.style.cursor = 'col-resize'

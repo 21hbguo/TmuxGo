@@ -36,6 +36,8 @@ interface TerminalPaneProps {
   onResizeActivity?: () => void
   // 本地 fit 在途（稳定帧/layoutSync 未落地）判据，供远端 resize 发送侧等最终尺寸
   layoutSyncPendingRef?: { current: (() => boolean) | undefined }
+  // 同步读当前容器几何的目标行列：pointer settle 提交用它替代等 fit 管线收尾
+  peekFitSizeRef?: { current: (() => { cols: number; rows: number } | null) | undefined }
   attachExclusive?: boolean
   onReady?: () => void
   subscribeOutput?: (
@@ -58,6 +60,7 @@ export function TerminalPane({
   onResize,
   onResizeActivity,
   layoutSyncPendingRef,
+  peekFitSizeRef,
   attachExclusive = false,
   onReady,
   subscribeOutput,
@@ -372,6 +375,7 @@ export function TerminalPane({
       onResizeRef,
       onResizeActivityRef,
       layoutSyncPendingRef,
+      peekFitSizeRef,
       attachExclusiveRef,
       onReadyRef,
       sessionNameRef,

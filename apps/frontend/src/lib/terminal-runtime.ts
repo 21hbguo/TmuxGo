@@ -36,6 +36,8 @@ interface TerminalRuntimeOptions {
   onResizeActivityRef?: { current: (() => void) | undefined }
   // 供上层判断"本地 fit 是否仍在落地"（含稳定帧窗口）：远端 resize 发送须等它归零
   layoutSyncPendingRef?: { current: (() => boolean) | undefined }
+  // pointer settle 提交用：同步读当前容器几何的目标行列，替代等 fit 管线收尾
+  peekFitSizeRef?: { current: (() => { cols: number; rows: number } | null) | undefined }
   attachExclusiveRef: { current: boolean }
   onReadyRef: { current: (() => void) | undefined }
   sessionNameRef: { current: string | undefined }
@@ -200,6 +202,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
   })
   scheduleLayoutRef.current = layout.scheduleLayoutSync
   if (options.layoutSyncPendingRef) options.layoutSyncPendingRef.current = layout.isSyncPending
+  if (options.peekFitSizeRef) options.peekFitSizeRef.current = layout.peekFitSize
   const focus = createTerminalFocus({
     container,
     isMobile: isMobileDevice,
@@ -366,8 +369,6 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
     getPaneResizeTarget,
     resizePane: (paneId, size) => api.panes.resize(paneId, size),
     loadSessionSnapshot: () => snapshotLoader.load(true),
-    showResizeMask: mask.show,
-    revealResizeMask: mask.reveal,
     clearSelection: () => terminal?.clearSelection?.(),
     clearCopySelectionTimer: selectionSync.clearCopySelectionTimer,
     clearPointerSync: outputInput.disarmPointerSync,
@@ -677,6 +678,11 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
       subscribeStreamEvent(STREAM_EVENT.resized, handleResized),
       subscribeStreamEvent(STREAM_EVENT.error, handleResizeAbort),
       subscribeStreamEvent(STREAM_EVENT.detached, handleResizeAbort),
+      // pointerup 后不等 2 帧稳定检测链（~48ms）——16ms 后（React 提交+RO 送达
+      // 已覆盖）直接调度 fit，让最终尺寸在 ~60ms 内进入 PaneGrid 提交窗口
+      subscribeStreamEvent(STREAM_EVENT.resizeGesture, (detail: { phase?: string } = {}) => {
+        if (detail?.phase === 'end') layout.scheduleLayoutSync(16, true)
+      }),
     ]
     window.addEventListener('tmuxgo-layout-change', handleLayoutChange as EventListener)
     window.addEventListener('resize', handleWindowResize)
