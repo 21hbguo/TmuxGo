@@ -9,9 +9,12 @@ export const SOCKET_BUFFER_EXTREME_WATERMARK = 4194304
 export const SOCKET_FLUSH_DEFER_MS = 24
 export const OUTPUT_BUFFER_MAX_CHARS = 1048576
 export const CLIENT_BACKPRESSURE_RESYNC_CHARS = 16384
-// resync 边界序列：DECSTR 复位模式/滚动区/SGR（不清屏不留滚动历史损失），
-// ED 清可见屏 + CUP 归位，随后由 tmux 真实重绘恢复完整画面
-export const RESYNC_RESET_SEQ = '\u001b[!p\u001b[2J\u001b[H'
+// resync 边界序列（刻意不用 DECSTR）：tmux refresh 只重绘画面，不重发未变化的
+// 输入模式——DECSTR 会把 ?1 应用光标键/?66 小键盘/?2004 bracketed-paste 清掉且
+// tmux 不再补发，画面全等但输入协议悄悄坏掉。这里只重置会破坏重绘本身的状态：
+// SGR、插入模式、origin、滚动区、G0/G1 字符集+SI，再 ED 清可见屏（留 scrollback）
+// +CUP 归位。输入/鼠标/光标可见性等模式原样保留，由 tmux 自行管理
+export const RESYNC_RESET_SEQ = '\u001b[0m\u001b[4l\u001b[?6l\u001b[r\u001b(B\u001b)B\x0f\u001b[2J\u001b[H'
 export const STREAM_COMPRESS_ENABLED = process.env.TMUXGO_STREAM_COMPRESS !== '0'
 export const STREAM_COMPRESS_THRESHOLD = Math.max(0, Number(process.env.TMUXGO_STREAM_COMPRESS_THRESHOLD || 256) || 256)
 export const STREAM_CELL_ENABLED = process.env.TMUXGO_STREAM_CELL === '1'

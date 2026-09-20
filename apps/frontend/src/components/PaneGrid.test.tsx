@@ -409,7 +409,48 @@ describe('PaneGrid', () => {
       exclusive: true,
     })
   })
-  it('releases the queued latest size only after a matching ACK', () => {
+  it('merges continuous drags into one trailing send of the final size', () => {
+    vi.useFakeTimers()
+    socketState.isConnected = true
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    act(() => emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev1', hostId: 'local', cols: 120, rows: 36 }))
+    sendMock.mockClear()
+    // 持续快速变化（40ms 一格 < 150ms 静止窗）：远端零发送
+    for (let c = 121; c <= 130; c++) {
+      act(() => terminalProps.current?.onResize?.(c, 40))
+      act(() => vi.advanceTimersByTime(40))
+    }
+    expect(sendMock.mock.calls.filter(([m]) => m.type === 'resize')).toHaveLength(0)
+    // 停拖收敛：静止窗到期只发最终 130
+    act(() => vi.advanceTimersByTime(160))
+    const resizes = sendMock.mock.calls.filter(([m]) => m.type === 'resize')
+    expect(resizes).toHaveLength(1)
+    expect(resizes[0][0]).toMatchObject({ cols: 130, rows: 40 })
+  })
+  it('merges back-to-back drags and releases the queued size only after quiet + ACK', () => {
+    vi.useFakeTimers()
+    socketState.isConnected = true
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    act(() => emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev1', hostId: 'local', cols: 120, rows: 36 }))
+    sendMock.mockClear()
+    // 第一拖：121 静止后发出
+    act(() => terminalProps.current?.onResize?.(121, 40))
+    act(() => vi.advanceTimersByTime(160))
+    expect(sendMock.mock.calls.filter(([m]) => m.type === 'resize')).toHaveLength(1)
+    // 紧接第二拖 130/140：130 在途 ACK 未回，140 排队
+    act(() => terminalProps.current?.onResize?.(130, 40))
+    act(() => vi.advanceTimersByTime(160)) // 静止窗到但在途 → 不发
+    act(() => terminalProps.current?.onResize?.(140, 40))
+    act(() => vi.advanceTimersByTime(160)) // 140 静止窗也到
+    expect(sendMock.mock.calls.filter(([m]) => m.type === 'resize')).toHaveLength(1)
+    // ACK 到 → 只补最终 140
+    act(() => emitStreamEvent(STREAM_EVENT.resized, { sessionName: 'dev1', hostId: 'local', cols: 121, rows: 40 }))
+    expect(sendMock).toHaveBeenLastCalledWith({ type: 'resize', hostId: 'local', cols: 140, rows: 40 })
+    expect(sendMock.mock.calls.filter(([m]) => m.type === 'resize')).toHaveLength(2)
+  })
+  it('does not let an ACK pierce the still-open quiet window', () => {
     vi.useFakeTimers()
     socketState.isConnected = true
     render(<PaneGrid />)
@@ -417,12 +458,15 @@ describe('PaneGrid', () => {
     act(() => emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev1', hostId: 'local', cols: 120, rows: 36 }))
     sendMock.mockClear()
     act(() => terminalProps.current?.onResize?.(121, 40))
-    act(() => vi.advanceTimersByTime(40))
+    act(() => vi.advanceTimersByTime(160))
+    expect(sendMock.mock.calls.filter(([m]) => m.type === 'resize')).toHaveLength(1)
+    // 121 在途；新尺寸 130 静止窗还没到期时 ACK 到达：只释放在途，不得发送
     act(() => terminalProps.current?.onResize?.(130, 40))
     act(() => vi.advanceTimersByTime(40))
-    // 在途限 1：121 已发，130 排队等 ACK
-    expect(sendMock.mock.calls.filter(([m]) => m.type === 'resize')).toHaveLength(1)
     act(() => emitStreamEvent(STREAM_EVENT.resized, { sessionName: 'dev1', hostId: 'local', cols: 121, rows: 40 }))
+    expect(sendMock.mock.calls.filter(([m]) => m.type === 'resize')).toHaveLength(1)
+    // 静止窗到期后才发 130
+    act(() => vi.advanceTimersByTime(120))
     expect(sendMock).toHaveBeenLastCalledWith({ type: 'resize', hostId: 'local', cols: 130, rows: 40 })
   })
   it('rejects a wrong-size stale ACK without releasing the in-flight resize', () => {
@@ -433,13 +477,13 @@ describe('PaneGrid', () => {
     act(() => emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev1', hostId: 'local', cols: 120, rows: 36 }))
     sendMock.mockClear()
     act(() => terminalProps.current?.onResize?.(121, 40))
-    act(() => vi.advanceTimersByTime(40))
+    act(() => vi.advanceTimersByTime(160))
     act(() => terminalProps.current?.onResize?.(130, 40))
-    act(() => vi.advanceTimersByTime(40))
+    act(() => vi.advanceTimersByTime(160))
     expect(sendMock.mock.calls.filter(([m]) => m.type === 'resize')).toHaveLength(1)
     act(() => emitStreamEvent(STREAM_EVENT.resized, { sessionName: 'dev1', hostId: 'local', cols: 99, rows: 30 }))
     expect(sendMock.mock.calls.filter(([m]) => m.type === 'resize')).toHaveLength(1)
-    // 正确的 121 ACK 到达后才补发最新 130
+    // 正确的 121 ACK 到达后才补发最新 130（此时 130 静止窗已过）
     act(() => emitStreamEvent(STREAM_EVENT.resized, { sessionName: 'dev1', hostId: 'local', cols: 121, rows: 40 }))
     expect(sendMock).toHaveBeenLastCalledWith({ type: 'resize', hostId: 'local', cols: 130, rows: 40 })
   })
@@ -451,7 +495,7 @@ describe('PaneGrid', () => {
     act(() => emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev1', hostId: 'local', cols: 120, rows: 36 }))
     sendMock.mockClear()
     act(() => terminalProps.current?.onResize?.(121, 40))
-    act(() => vi.advanceTimersByTime(40))
+    act(() => vi.advanceTimersByTime(160))
     act(() => emitStreamEvent(STREAM_EVENT.resized, { sessionName: 'dev1', hostId: 'local', cols: 121, rows: 40 }))
     act(() => emitStreamEvent(STREAM_EVENT.resized, { sessionName: 'dev1', hostId: 'local', cols: 121, rows: 40 }))
     expect(sendMock.mock.calls.filter(([m]) => m.type === 'resize')).toHaveLength(1)
@@ -464,15 +508,32 @@ describe('PaneGrid', () => {
     act(() => emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev1', hostId: 'local', cols: 120, rows: 36 }))
     sendMock.mockClear()
     act(() => terminalProps.current?.onResize?.(121, 40))
-    act(() => vi.advanceTimersByTime(40))
+    act(() => vi.advanceTimersByTime(160))
     act(() => terminalProps.current?.onResize?.(130, 40))
-    act(() => vi.advanceTimersByTime(40))
-    // 121 的 ACK 丢失：1200ms 兜底清在途并补发最新 130
-    act(() => vi.advanceTimersByTime(1200))
+    // 121 的 ACK 丢失：1200ms 兜底清在途；此时 130 静止窗已过 → 补发最新 130
+    act(() => vi.advanceTimersByTime(1300))
     expect(sendMock).toHaveBeenLastCalledWith({ type: 'resize', hostId: 'local', cols: 130, rows: 40 })
     // 迟到的 121 旧 ACK 不得再推进任何状态
     sendMock.mockClear()
     act(() => emitStreamEvent(STREAM_EVENT.resized, { sessionName: 'dev1', hostId: 'local', cols: 121, rows: 40 }))
+    expect(sendMock.mock.calls.filter(([m]) => m.type === 'resize')).toHaveLength(0)
+  })
+  it('does not resend the size the remote already has', () => {
+    vi.useFakeTimers()
+    socketState.isConnected = true
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    act(() => emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev1', hostId: 'local', cols: 120, rows: 36 }))
+    sendMock.mockClear()
+    act(() => terminalProps.current?.onResize?.(121, 40))
+    act(() => vi.advanceTimersByTime(160))
+    expect(sendMock.mock.calls.filter(([m]) => m.type === 'resize')).toHaveLength(1)
+    act(() => emitStreamEvent(STREAM_EVENT.resized, { sessionName: 'dev1', hostId: 'local', cols: 121, rows: 40 }))
+    sendMock.mockClear()
+    // 拖走再拖回 121：最终尺寸与远端一致 → 零发送
+    act(() => terminalProps.current?.onResize?.(130, 40))
+    act(() => terminalProps.current?.onResize?.(121, 40))
+    act(() => vi.advanceTimersByTime(300))
     expect(sendMock.mock.calls.filter(([m]) => m.type === 'resize')).toHaveLength(0)
   })
   it('clears the stale ACK timer and queued size on unmount', () => {
@@ -483,12 +544,12 @@ describe('PaneGrid', () => {
     act(() => emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev1', hostId: 'local', cols: 120, rows: 36 }))
     sendMock.mockClear()
     act(() => terminalProps.current?.onResize?.(121, 40))
-    act(() => vi.advanceTimersByTime(40))
+    act(() => vi.advanceTimersByTime(160))
     act(() => terminalProps.current?.onResize?.(130, 40))
     act(() => vi.advanceTimersByTime(40))
     view.unmount()
     sendMock.mockClear()
-    act(() => vi.advanceTimersByTime(1300))
+    act(() => vi.advanceTimersByTime(1400))
     expect(sendMock.mock.calls.filter(([m]) => m.type === 'resize')).toHaveLength(0)
   })
 })

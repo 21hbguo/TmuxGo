@@ -21,7 +21,9 @@ const ATTACH_RETRY_DELAY = 900
 const INPUT_QUEUE_LIMIT = 128
 const INPUT_FLUSH_INTERVAL = 4
 const INPUT_BATCH_CHARS = 768
-const RESIZE_FLUSH_INTERVAL = 32
+// 远端 resize 真 trailing debounce：拖动期间只更新目标尺寸，静止窗口到期且
+// 无在途请求才发送；ACK 只是释放在途许可，不得穿透未到期的静止窗口
+const RESIZE_QUIET_MS = 150
 // 在途 resize 的 ACK 兜底超时：resized 不带代次，丢 ACK 不能永久卡住后续发送
 const RESIZE_ACK_STALE_MS = 1200
 
@@ -89,6 +91,8 @@ export function PaneGrid({
   const inputQueueRef = useRef<string[]>([])
   const resizeFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingRemoteResizeRef = useRef<{ cols: number; rows: number } | null>(null)
+  // 远端发送的静止窗口截止时刻：每次新尺寸顺延；到期后由 resizeQuietTimer 评估
+  const remoteQuietDeadlineRef = useRef(0)
   // 已发送未等回 resized 的 resize：在途限 1，期间新尺寸只进 pending 队列（latest-wins）
   const awaitingResizeAckRef = useRef<{ cols: number; rows: number } | null>(null)
   const resizeAckStaleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -267,6 +271,7 @@ export function PaneGrid({
   const clearRemoteResizeState = useCallback(() => {
     pendingRemoteResizeRef.current = null
     awaitingResizeAckRef.current = null
+    remoteQuietDeadlineRef.current = 0
     if (resizeAckStaleTimerRef.current) {
       clearTimeout(resizeAckStaleTimerRef.current)
       resizeAckStaleTimerRef.current = null
@@ -274,16 +279,14 @@ export function PaneGrid({
     clearResizeFlushTimer()
   }, [clearResizeFlushTimer])
   const flushPendingRemoteResize = useCallback(() => {
-    clearResizeFlushTimer()
     const size = pendingRemoteResizeRef.current
-    if (!size) return
+    if (!size) {
+      clearResizeFlushTimer()
+      remoteQuietDeadlineRef.current = 0
+      return
+    }
     if (!isConnected || attachedRef.current !== targetSessionName) {
-      pendingRemoteResizeRef.current = null
-      awaitingResizeAckRef.current = null
-      if (resizeAckStaleTimerRef.current) {
-        clearTimeout(resizeAckStaleTimerRef.current)
-        resizeAckStaleTimerRef.current = null
-      }
+      clearRemoteResizeState()
       emitStreamEvent(STREAM_EVENT.resized, {
         hostId: activeHostId || 'local',
         sessionName: targetSessionName,
@@ -294,8 +297,25 @@ export function PaneGrid({
       return
     }
     // 在途限 1：上一笔 resize 的 resized 未回前不再发送，队列只留最新尺寸；
-    // ACK 回来由 resized 订阅立即补发（latest-wins），停拖后的最终尺寸优先
+    // ACK 回来由 resized 订阅补发（latest-wins），停拖后的最终尺寸优先
     if (awaitingResizeAckRef.current) return
+    // 静止窗口未到期不发送（含 ACK 触发的补评估）：重排剩余时间再醒一次
+    const remaining = remoteQuietDeadlineRef.current - Date.now()
+    if (remaining > 0) {
+      if (!resizeFlushTimerRef.current)
+        resizeFlushTimerRef.current = setTimeout(() => {
+          resizeFlushTimerRef.current = null
+          flushPendingRemoteResize()
+        }, remaining)
+      return
+    }
+    clearResizeFlushTimer()
+    remoteQuietDeadlineRef.current = 0
+    const sent = sentResizeRef.current
+    if (sent && sent.cols === size.cols && sent.rows === size.rows) {
+      pendingRemoteResizeRef.current = null
+      return
+    }
     pendingRemoteResizeRef.current = null
     if (!sendResizeNow(size)) {
       emitStreamEvent(STREAM_EVENT.resized, {
@@ -306,7 +326,7 @@ export function PaneGrid({
         localOnly: true,
       })
     }
-  }, [activeHostId, clearResizeFlushTimer, isConnected, sendResizeNow, targetSessionName])
+  }, [activeHostId, clearRemoteResizeState, clearResizeFlushTimer, isConnected, sendResizeNow, targetSessionName])
   flushPendingRemoteResizeRef.current = flushPendingRemoteResize
   const clearContinuityTimer = useCallback(() => {
     if (!continuityTimerRef.current) return
@@ -714,12 +734,20 @@ export function PaneGrid({
         })
         return
       }
+      // 与远端当前尺寸一致且没在途：不产生任何发送
+      const sent = sentResizeRef.current
+      if (sent && sent.cols === cols && sent.rows === rows && !awaitingResizeAckRef.current) {
+        pendingRemoteResizeRef.current = null
+        return
+      }
       pendingRemoteResizeRef.current = nextSize
+      // 每次新尺寸顺延静止窗口；已 armed 的 timer 到期时会按最新 deadline 再评估
+      remoteQuietDeadlineRef.current = Date.now() + RESIZE_QUIET_MS
       if (resizeFlushTimerRef.current) return
       resizeFlushTimerRef.current = setTimeout(() => {
         resizeFlushTimerRef.current = null
         flushPendingRemoteResize()
-      }, RESIZE_FLUSH_INTERVAL)
+      }, RESIZE_QUIET_MS)
     },
     [activeHostId, flushPendingRemoteResize, isConnected, scheduleContinuityFlush, targetSessionName],
   )
