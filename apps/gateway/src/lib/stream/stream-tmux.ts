@@ -3,10 +3,21 @@ import { SCROLL_MAX_LINES } from './stream-config.js'
 // 已删除手拼快照路径（captureWindowSnapshot/buildPaneSnapshot）：pane capture 不含
 // tmux 边框，逐行 CSI K 越界抹邻 pane、行尾 SGR0 断跨行属性；整屏恢复改走
 // refresh-client 真实重绘（见 stream-session 的 resync/attach 兜底）
+// 测试缝：与 terminal-attachment 的 setPtySpawnForTest 同型，让 refresh 成败可控
+let execTmuxForRefresh = execTmux
+export function setRefreshExecForTest(fn: typeof execTmux | null) {
+  execTmuxForRefresh = fn ?? execTmux
+}
 export async function refreshAttachedClient(hostId: string, sessionName: string, clientPid: number) {
   if (!sessionName) return
   const pid = String(clientPid)
-  const { stdout } = await execTmux(hostId, ['list-clients', '-t', sessionName, '-F', '#{client_pid}|#{client_name}'])
+  const { stdout } = await execTmuxForRefresh(hostId, [
+    'list-clients',
+    '-t',
+    sessionName,
+    '-F',
+    '#{client_pid}|#{client_name}',
+  ])
   const clients = String(stdout)
     .trim()
     .split('\n')
@@ -17,8 +28,14 @@ export async function refreshAttachedClient(hostId: string, sessionName: string,
     })
     .filter((client) => client.name)
   const owned = clients.filter((client) => client.pid === pid)
-  const targets = (owned.length ? owned : clients).map((client) => client.name)
-  await Promise.all(targets.map((target) => execTmux(hostId, ['refresh-client', '-t', target]).catch(() => {})))
+  // 远端 attach 时 tmux client 跑在远端主机，client_pid 永远对不上本地 ssh
+  // 进程 pid，只能回退刷新该会话全部客户端；本地 host 下 owned 为空说明本连接
+  // 客户端已不在列表，拿刷新别人冒充本连接恢复会掩盖 resync 失败
+  const targets = owned.length ? owned : hostId === 'local' ? [] : clients
+  if (!targets.length) throw new Error(`refreshAttachedClient: no client for pid ${pid} on ${sessionName}`)
+  // 失败必须上抛：resync 已发清屏边界，吞掉 refresh 失败会留下清屏无重试的死屏；
+  // 调用方需要 best-effort 时在调用处自行 catch（resize/attach 兜底已是如此）
+  await Promise.all(targets.map((target) => execTmuxForRefresh(hostId, ['refresh-client', '-t', target.name])))
 }
 export async function getSessionWindowSize(hostId: string, sessionName: string) {
   try {
