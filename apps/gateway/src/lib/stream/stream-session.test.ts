@@ -3,8 +3,6 @@ import test from 'node:test'
 import { StreamSession } from './stream-session.js'
 
 const FRAME_BEGIN = '\u001b[?25l'
-const FRAME_END = '\u001b[?25h'
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 function createSession() {
   const sent: Array<{ type?: string; data?: string }> = []
@@ -21,56 +19,54 @@ function createSession() {
   session.attachedHostId = 'local'
   session.attachedCols = 80
   session.attachedRows = 24
+  session.ptyProcess = { pid: 0, resize() {}, write() {}, kill() {}, onData() {}, onExit() {} } as any
   return { session, sent }
 }
 
-test('flushOutput holds a wholly incomplete frame until its tail arrives', async () => {
+test('completeResizeAck sends buffered output before the resized ack', () => {
   const { session, sent } = createSession()
-  // 帧头先到、帧尾未回：不得把半个重绘帧发给客户端
-  session.outputBuffer = `${FRAME_BEGIN}\u001b[2J\u001b[Hpartial`
-  session.flushOutput()
-  assert.equal(sent.length, 0)
-  assert.ok(session.outputBuffer.endsWith('partial'))
-  assert.ok(session.frameTailDeferred)
-  // 帧尾到齐后下一拍整帧发出
-  session.outputBuffer += `rest${FRAME_END}`
-  await sleep(60)
-  const output = sent.find((m) => m.type === 'output')
-  assert.ok(output?.data)
-  assert.ok(output.data.startsWith(FRAME_BEGIN))
-  assert.ok(output.data.endsWith(FRAME_END))
+  // ACK 不得越过既有字节：前端时间点屏障按"已收到输出"计账，
+  // resized 抢先在 output 前到达会让屏障看到空队列而误判放行
+  session.outputBuffer = `${FRAME_BEGIN}\u001b[2J\u001b[Hresize-output`
+  session.pendingResizeAck = {
+    sessionName: 'dev',
+    hostId: 'local',
+    cols: 80,
+    rows: 24,
+    seq: session.attachSeq,
+    refreshComplete: true,
+    outputObserved: true,
+    startedAt: Date.now(),
+  }
+  session.completeResizeAck()
+  assert.deepEqual(
+    sent.map((m) => m.type),
+    ['output', 'resized'],
+  )
   assert.equal(session.outputBuffer, '')
   session.cleanup()
 })
 
-test('flushOutput sends the complete frame prefix and keeps the partial tail', async () => {
+test('flushOutput sends an unclosed cursor-hide sequence immediately (no frame-tail wait)', () => {
   const { session, sent } = createSession()
-  const frameA = `${FRAME_BEGIN}frame-A${FRAME_END}`
-  session.outputBuffer = frameA + `${FRAME_BEGIN}tail-not-yet`
-  session.flushOutput()
-  assert.equal(sent.length, 1)
-  assert.equal(sent[0].data, frameA)
-  assert.equal(session.outputBuffer, `${FRAME_BEGIN}tail-not-yet`)
-  session.cleanup()
-})
-
-test('flushOutput sends a still-incomplete frame after one bounded defer', async () => {
-  const { session, sent } = createSession()
+  // ?25l/?25h 不是可靠帧协议：只开不收的 chunk 也得原样立发，不能等帧尾
   session.outputBuffer = `${FRAME_BEGIN}never-closes`
   session.flushOutput()
-  assert.equal(sent.length, 0)
-  // 帧尾始终不来：defer 一次后仍按原样发，不能无限挂起
-  await sleep(60)
   assert.equal(sent.length, 1)
+  assert.equal(sent[0].type, 'output')
   assert.equal(sent[0].data, `${FRAME_BEGIN}never-closes`)
+  assert.equal(session.outputBuffer, '')
   session.cleanup()
 })
 
-test('flushOutput sends complete frames without deferring', () => {
+test('flushOutput sends buffered bytes in order regardless of content shape', () => {
   const { session, sent } = createSession()
-  session.outputBuffer = `${FRAME_BEGIN}ok${FRAME_END}`
+  session.outputBuffer = `plain-a${FRAME_BEGIN}mixed-b`
   session.flushOutput()
-  assert.equal(sent.length, 1)
-  assert.equal(session.frameTailDeferred, false)
+  session.outputBuffer = 'next-c'
+  session.flushOutput()
+  assert.equal(sent.length, 2)
+  assert.equal(sent[0].data, `plain-a${FRAME_BEGIN}mixed-b`)
+  assert.equal(sent[1].data, 'next-c')
   session.cleanup()
 })

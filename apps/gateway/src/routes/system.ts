@@ -182,8 +182,6 @@ function getSafeStreamMetrics() {
     snapshotCaptureMs: safeNumber(streamPerfMetrics.snapshotCaptureMs),
     snapshotPanes: safeNumber(streamPerfMetrics.snapshotPanes),
     snapshotBytes: safeNumber(streamPerfMetrics.snapshotBytes),
-    frameTailDefers: safeNumber(streamPerfMetrics.frameTailDefers),
-    frameIncompleteSends: safeNumber(streamPerfMetrics.frameIncompleteSends),
     resizeAckWaitMs: safeNumber(streamPerfMetrics.resizeAckWaitMs),
   }
 }

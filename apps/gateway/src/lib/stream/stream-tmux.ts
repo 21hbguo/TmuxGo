@@ -48,9 +48,9 @@ export async function captureWindowSnapshot(
   const contents = await Promise.all(
     panes.map((pane) =>
       pane.paneId && pane.width > 0 && pane.height > 0
-        ? execTmux(hostId, ['capture-pane', '-e', '-pt', pane.paneId, '-p'])
-            .then((result) => String(result.stdout || ''))
-            .catch(() => '')
+        ? execTmux(hostId, ['capture-pane', '-e', '-pt', pane.paneId, '-p']).then((result) =>
+            String(result.stdout || ''),
+          )
         : Promise.resolve(''),
     ),
   )

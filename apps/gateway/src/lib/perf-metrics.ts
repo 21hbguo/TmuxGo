@@ -33,8 +33,6 @@ export const streamPerfMetrics = {
   snapshotCaptureMs: 0,
   snapshotPanes: 0,
   snapshotBytes: 0,
-  frameTailDefers: 0,
-  frameIncompleteSends: 0,
   resizeAckWaitMs: 0,
 }
 export function recordStreamMetric<K extends keyof typeof streamPerfMetrics>(key: K, value = 1) {
