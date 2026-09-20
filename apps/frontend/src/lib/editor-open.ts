@@ -71,9 +71,11 @@ export async function openFileInEditor(
     openPanel?: boolean
     // 拖拽等显式打开：钉住新 tab，且不顶掉组内已有预览 tab
     pinned?: boolean
+    // 定义跳转/导航回退：已打开的干净文档不重载（loading 门会卸载 Monaco,rAF 落位打到已 dispose 死实例）
+    skipReload?: boolean
   },
 ) {
-  const { t, pushToast, position, openPanel = true, pinned } = options
+  const { t, pushToast, position, openPanel = true, pinned, skipReload } = options
   const store = useConsoleStore.getState()
   if (openPanel) store.setFilePanelOpen(true)
   const existing = store.openEditors.find((item) => item.id === file.id)
@@ -83,6 +85,7 @@ export async function openFileInEditor(
   )
   dispatchOpenEditorLocation(file.id, position?.line, position?.column)
   if (existing?.dirty) return file.id
+  if (skipReload && existing && !existing.problem) return file.id
   store.setEditorLoaded(file.id, {
     loading: true,
     saving: false,
