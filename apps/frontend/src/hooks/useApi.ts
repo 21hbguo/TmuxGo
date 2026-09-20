@@ -1,12 +1,22 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, type CredentialStoreFile, type HostStoreFile, type SystemTaskResponse } from '@/lib/api'
 import type { PluginPermission, SessionLayout, SessionTemplate } from '@/types'
-import type { GitBranchesResponse, GitCommitResponse, GitDetectResponse, GitDiffResponse, GitLogResponse, GitMergeResponse, GitRepositoryInfo, GitStatusResponse } from '@/types'
+import type {
+  GitBranchesResponse,
+  GitCommitResponse,
+  GitDetectResponse,
+  GitDiffResponse,
+  GitLogResponse,
+  GitMergeResponse,
+  GitRepositoryInfo,
+  GitStatusResponse,
+} from '@/types'
 
 function upsertSessionList(prev: any[] | undefined, session: any) {
   if (!session?.id) return prev || []
   if (!Array.isArray(prev) || prev.length === 0) return [session]
-  if (prev.some((item) => item?.id === session.id)) return prev.map((item) => item?.id === session.id ? { ...item, ...session } : item)
+  if (prev.some((item) => item?.id === session.id))
+    return prev.map((item) => (item?.id === session.id ? { ...item, ...session } : item))
   return [...prev, session]
 }
 function removeSessionListItem(prev: any[] | undefined, sessionId: string) {
@@ -57,8 +67,22 @@ export function useHost(id: string) {
 export function useCreateHost() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (payload: { id: string; name?: string; address: string; user: string; port?: number; password?: string; passwordEnv?: string; privateKeyPath?: string; groups?: string[]; tags?: string[]; favorite?: boolean; useAgent?: boolean; jumpHost?: string; knownHostsPolicy?: 'strict' | 'accept-new' | 'off' }) =>
-      api.hosts.create(payload),
+    mutationFn: (payload: {
+      id: string
+      name?: string
+      address: string
+      user: string
+      port?: number
+      password?: string
+      passwordEnv?: string
+      privateKeyPath?: string
+      groups?: string[]
+      tags?: string[]
+      favorite?: boolean
+      useAgent?: boolean
+      jumpHost?: string
+      knownHostsPolicy?: 'strict' | 'accept-new' | 'off'
+    }) => api.hosts.create(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['hosts'] })
     },
@@ -67,8 +91,7 @@ export function useCreateHost() {
 export function useDeleteHost() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (hostId: string) =>
-      api.hosts.remove(hostId),
+    mutationFn: (hostId: string) => api.hosts.remove(hostId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['hosts'] })
     },
@@ -89,17 +112,44 @@ export function useHostsConfig(enabled = false) {
 export function useSaveHostsConfig() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (payload: { hosts?: HostStoreFile; credentials?: CredentialStoreFile }) => api.hostsConfig.save(payload),
+    mutationFn: (payload: { hosts?: HostStoreFile; credentials?: CredentialStoreFile }) =>
+      api.hostsConfig.save(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['hosts-config'] })
       queryClient.invalidateQueries({ queryKey: ['hosts'] })
     },
   })
 }
+export function useSshConfig(enabled = false) {
+  return useQuery({ queryKey: ['ssh-config'], queryFn: api.sshConfig.get, enabled, staleTime: 10000 })
+}
+export function useSaveSshConfig() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (content: string) => api.sshConfig.save(content),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['ssh-config'] })
+      queryClient.invalidateQueries({ queryKey: ['hosts'] })
+    },
+  })
+}
+export function useAddSshConfigHost() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: { alias: string; hostName: string; user?: string; port?: number; identityFile?: string }) =>
+      api.sshConfig.addHost(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['ssh-config'] })
+      queryClient.invalidateQueries({ queryKey: ['hosts'] })
+    },
+  })
+}
+export function useResolveSshHost() {
+  return useMutation({ mutationFn: (hostId: string) => api.sshConfig.resolve(hostId) })
+}
 export function useTestHost() {
   return useMutation({
-    mutationFn: (hostId: string) =>
-      api.hosts.startTest(hostId),
+    mutationFn: (hostId: string) => api.hosts.startTest(hostId),
   })
 }
 export function useRestartRebuildStatus(enabled = true, refetchInterval: number | false = false) {
@@ -121,10 +171,23 @@ export function useRestartRebuild() {
   })
 }
 export function useAppUpdateStatus(enabled = true) {
-  return useQuery({ queryKey: ['app-update-status'], queryFn: api.system.appUpdate, enabled, staleTime: 0, refetchInterval: enabled ? 60000 : false })
+  return useQuery({
+    queryKey: ['app-update-status'],
+    queryFn: api.system.appUpdate,
+    enabled,
+    staleTime: 0,
+    refetchInterval: enabled ? 60000 : false,
+  })
 }
 export function useAppUpdateTask(enabled = true) {
-  return useQuery({ queryKey: ['app-update-task'], queryFn: api.system.appUpdateTask, enabled, staleTime: 0, retry: false, refetchInterval: (query) => (query.state.data?.status === 'running' ? 1200 : false) })
+  return useQuery({
+    queryKey: ['app-update-task'],
+    queryFn: api.system.appUpdateTask,
+    enabled,
+    staleTime: 0,
+    retry: false,
+    refetchInterval: (query) => (query.state.data?.status === 'running' ? 1200 : false),
+  })
 }
 export function useCheckAppUpdate() {
   const queryClient = useQueryClient()
@@ -147,20 +210,33 @@ export function useStartAppUpdate() {
   })
 }
 export function useSystemTasks(enabled = true, refetchIntervalInBackground = false) {
-  return useQuery({ queryKey: ['system-tasks'], queryFn: api.system.tasks, enabled, staleTime: 0, refetchInterval: 2000, refetchIntervalInBackground })
+  return useQuery({
+    queryKey: ['system-tasks'],
+    queryFn: api.system.tasks,
+    enabled,
+    staleTime: 0,
+    refetchInterval: 2000,
+    refetchIntervalInBackground,
+  })
 }
 export function useCancelSystemTask() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (taskId: string) => api.system.cancelTask(taskId),
-    onSuccess: (task) => queryClient.setQueryData<{ tasks: SystemTaskResponse[] }>(['system-tasks'], (data) => ({ tasks: (data?.tasks || []).map((item) => item.id === task.id ? task : item) })),
+    onSuccess: (task) =>
+      queryClient.setQueryData<{ tasks: SystemTaskResponse[] }>(['system-tasks'], (data) => ({
+        tasks: (data?.tasks || []).map((item) => (item.id === task.id ? task : item)),
+      })),
   })
 }
 export function useRetrySystemTask() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (taskId: string) => api.system.retryTask(taskId),
-    onSuccess: (task) => queryClient.setQueryData<{ tasks: SystemTaskResponse[] }>(['system-tasks'], (data) => ({ tasks: (data?.tasks || []).map((item) => item.id === task.id ? task : item) })),
+    onSuccess: (task) =>
+      queryClient.setQueryData<{ tasks: SystemTaskResponse[] }>(['system-tasks'], (data) => ({
+        tasks: (data?.tasks || []).map((item) => (item.id === task.id ? task : item)),
+      })),
   })
 }
 export function usePlugins(enabled = true) {
@@ -168,33 +244,67 @@ export function usePlugins(enabled = true) {
 }
 export function useLinkPlugin() {
   const queryClient = useQueryClient()
-  return useMutation({ mutationFn: (path: string) => api.plugins.link(path), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['plugins'] }) })
+  return useMutation({
+    mutationFn: (path: string) => api.plugins.link(path),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['plugins'] }),
+  })
 }
 export function useSetPluginEnabled() {
   const queryClient = useQueryClient()
-  return useMutation({ mutationFn: ({ pluginId, enabled }: { pluginId: string; enabled: boolean }) => api.plugins.setEnabled(pluginId, enabled), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['plugins'] }) })
+  return useMutation({
+    mutationFn: ({ pluginId, enabled }: { pluginId: string; enabled: boolean }) =>
+      api.plugins.setEnabled(pluginId, enabled),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['plugins'] }),
+  })
 }
 export function useSetPluginPermissions() {
   const queryClient = useQueryClient()
-  return useMutation({ mutationFn: ({ pluginId, permissions }: { pluginId: string; permissions: PluginPermission[] }) => api.plugins.setPermissions(pluginId, permissions), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['plugins'] }) })
+  return useMutation({
+    mutationFn: ({ pluginId, permissions }: { pluginId: string; permissions: PluginPermission[] }) =>
+      api.plugins.setPermissions(pluginId, permissions),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['plugins'] }),
+  })
 }
 export function useUninstallPlugin() {
   const queryClient = useQueryClient()
-  return useMutation({ mutationFn: ({ pluginId, keepData = false }: { pluginId: string; keepData?: boolean }) => api.plugins.uninstall(pluginId, keepData), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['plugins'] }) })
+  return useMutation({
+    mutationFn: ({ pluginId, keepData = false }: { pluginId: string; keepData?: boolean }) =>
+      api.plugins.uninstall(pluginId, keepData),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['plugins'] }),
+  })
 }
 export function useInvokePluginAction() {
-  return useMutation({ mutationFn: ({ pluginId, actionId, context }: { pluginId: string; actionId: string; context: Record<string, unknown> }) => api.plugins.invoke(pluginId, actionId, context) })
+  return useMutation({
+    mutationFn: ({
+      pluginId,
+      actionId,
+      context,
+    }: {
+      pluginId: string
+      actionId: string
+      context: Record<string, unknown>
+    }) => api.plugins.invoke(pluginId, actionId, context),
+  })
 }
 export function usePreviewGitHubPlugin() {
-  return useMutation({ mutationFn: ({ source, ref }: { source: string; ref?: string }) => api.plugins.previewGitHub(source, ref) })
+  return useMutation({
+    mutationFn: ({ source, ref }: { source: string; ref?: string }) => api.plugins.previewGitHub(source, ref),
+  })
 }
 export function useInstallGitHubPlugin() {
   const queryClient = useQueryClient()
-  return useMutation({ mutationFn: ({ source, resolvedCommit, ref }: { source: string; resolvedCommit: string; ref?: string }) => api.plugins.installGitHub(source, resolvedCommit, ref), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['plugins'] }) })
+  return useMutation({
+    mutationFn: ({ source, resolvedCommit, ref }: { source: string; resolvedCommit: string; ref?: string }) =>
+      api.plugins.installGitHub(source, resolvedCommit, ref),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['plugins'] }),
+  })
 }
 export function useRollbackPlugin() {
   const queryClient = useQueryClient()
-  return useMutation({ mutationFn: (pluginId: string) => api.plugins.rollback(pluginId), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['plugins'] }) })
+  return useMutation({
+    mutationFn: (pluginId: string) => api.plugins.rollback(pluginId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['plugins'] }),
+  })
 }
 
 export function useSessions(hostId: string) {
@@ -224,8 +334,17 @@ export function usePaneCwd(paneId: string | null, enabled: boolean) {
 export function useCreateSession() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ hostId, name, layout, cwd }: { hostId: string; name: string; layout?: SessionLayout; cwd?: string }) =>
-      api.sessions.create(hostId, name, layout, cwd),
+    mutationFn: ({
+      hostId,
+      name,
+      layout,
+      cwd,
+    }: {
+      hostId: string
+      name: string
+      layout?: SessionLayout
+      cwd?: string
+    }) => api.sessions.create(hostId, name, layout, cwd),
     onSuccess: (created, { hostId }) => {
       queryClient.setQueryData(['sessions', hostId], (prev: any[] | undefined) => upsertSessionList(prev, created))
       queryClient.invalidateQueries({ queryKey: ['sessions', hostId] })
@@ -238,7 +357,9 @@ export function useDeleteSession() {
     mutationFn: ({ hostId, sessionId }: { hostId: string; sessionId: string }) =>
       api.sessions.delete(hostId, sessionId),
     onSuccess: (_, { hostId, sessionId }) => {
-      queryClient.setQueryData(['sessions', hostId], (prev: any[] | undefined) => removeSessionListItem(prev, sessionId))
+      queryClient.setQueryData(['sessions', hostId], (prev: any[] | undefined) =>
+        removeSessionListItem(prev, sessionId),
+      )
       clearSessionQueries(queryClient, hostId, sessionId)
       queryClient.invalidateQueries({ queryKey: ['sessions', hostId] })
     },
@@ -247,16 +368,31 @@ export function useDeleteSession() {
 export function useBatchDeleteSessions() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ hostId, payload }: { hostId: string; payload: { mode?: 'preview' | 'execute'; sessionIds?: string[]; filters?: { createdBefore?: string; inactiveBefore?: string; nameIncludes?: string; includeAttached?: boolean }; limit?: number; force?: boolean } }) =>
-      api.sessions.batchDelete(hostId, payload),
+    mutationFn: ({
+      hostId,
+      payload,
+    }: {
+      hostId: string
+      payload: {
+        mode?: 'preview' | 'execute'
+        sessionIds?: string[]
+        filters?: { createdBefore?: string; inactiveBefore?: string; nameIncludes?: string; includeAttached?: boolean }
+        limit?: number
+        force?: boolean
+      }
+    }) => api.sessions.batchDelete(hostId, payload),
     onSuccess: (result, { hostId, payload }) => {
       if (result.mode === 'execute') {
         const deletedIds = new Set((result.deleted || []).map((item) => item.sessionId).filter(Boolean))
         if (deletedIds.size) {
-          queryClient.setQueryData(['sessions', hostId], (prev: any[] | undefined) => Array.isArray(prev) ? prev.filter((item) => !deletedIds.has(item?.id)) : prev || [])
+          queryClient.setQueryData(['sessions', hostId], (prev: any[] | undefined) =>
+            Array.isArray(prev) ? prev.filter((item) => !deletedIds.has(item?.id)) : prev || [],
+          )
           Array.from(deletedIds).forEach((sessionId) => clearSessionQueries(queryClient, hostId, sessionId))
         } else if (Array.isArray(payload.sessionIds) && payload.sessionIds.length) {
-          queryClient.setQueryData(['sessions', hostId], (prev: any[] | undefined) => Array.isArray(prev) ? prev.filter((item) => !payload.sessionIds?.includes(item?.id)) : prev || [])
+          queryClient.setQueryData(['sessions', hostId], (prev: any[] | undefined) =>
+            Array.isArray(prev) ? prev.filter((item) => !payload.sessionIds?.includes(item?.id)) : prev || [],
+          )
         }
       }
       queryClient.invalidateQueries({ queryKey: ['sessions', hostId] })
@@ -314,7 +450,15 @@ export function useKillWindow() {
 export function useBatchKillWindows() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ hostId, sessionId, windowIds }: { hostId: string; sessionId: string; windowIds: string[] }) => {
+    mutationFn: async ({
+      hostId,
+      sessionId,
+      windowIds,
+    }: {
+      hostId: string
+      sessionId: string
+      windowIds: string[]
+    }) => {
       const results: { id: string; ok: boolean; error?: string }[] = []
       for (const windowId of windowIds) {
         try {
@@ -332,7 +476,6 @@ export function useBatchKillWindows() {
     },
   })
 }
-
 
 export function usePanes(windowId: string) {
   return useQuery({
@@ -391,10 +534,20 @@ export function useFilePreview(hostId: string, root: string, path: string, line 
   })
 }
 
-export function useFileSearch(hostId: string, root: string, mode: 'name' | 'content', query: string, basePath = '', includeDotFiles = true) {
+export function useFileSearch(
+  hostId: string,
+  root: string,
+  mode: 'name' | 'content',
+  query: string,
+  basePath = '',
+  includeDotFiles = true,
+) {
   return useQuery({
     queryKey: ['file-search', hostId, root, mode, query, basePath, includeDotFiles],
-    queryFn: ({ signal }) => mode === 'name' ? api.files.searchName(hostId, root, query, basePath, includeDotFiles, signal) : api.files.searchContent(hostId, root, query, basePath, includeDotFiles, signal),
+    queryFn: ({ signal }) =>
+      mode === 'name'
+        ? api.files.searchName(hostId, root, query, basePath, includeDotFiles, signal)
+        : api.files.searchContent(hostId, root, query, basePath, includeDotFiles, signal),
     enabled: !!root && query.trim().length > 0,
     staleTime: 8000,
     gcTime: 60000,
@@ -438,9 +591,23 @@ export function useGitStatus(hostId: string, path: string, enabled = true) {
   })
 }
 
-export function useGitDiff(hostId: string, path: string, options?: { filePath?: string; staged?: boolean; commit?: string; workingTree?: boolean; untracked?: boolean }, enabled = true) {
+export function useGitDiff(
+  hostId: string,
+  path: string,
+  options?: { filePath?: string; staged?: boolean; commit?: string; workingTree?: boolean; untracked?: boolean },
+  enabled = true,
+) {
   return useQuery({
-    queryKey: ['git-diff', hostId, path, options?.filePath, options?.staged, options?.commit, options?.workingTree, options?.untracked],
+    queryKey: [
+      'git-diff',
+      hostId,
+      path,
+      options?.filePath,
+      options?.staged,
+      options?.commit,
+      options?.workingTree,
+      options?.untracked,
+    ],
     queryFn: () => api.git.diff(hostId, path, options),
     enabled: !!hostId && !!path && enabled,
     staleTime: 5000,
@@ -450,46 +617,100 @@ export function useGitDiff(hostId: string, path: string, options?: { filePath?: 
 export function useGitStage() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ hostId, path, filePaths }: { hostId: string; path: string; filePaths: string[] }) => api.git.stage(hostId, path, filePaths),
-    onSuccess: (_, { hostId, path }) => { qc.invalidateQueries({ queryKey: ['git-status', hostId, path] }); qc.invalidateQueries({ queryKey: ['git-diff', hostId, path] }) },
+    mutationFn: ({ hostId, path, filePaths }: { hostId: string; path: string; filePaths: string[] }) =>
+      api.git.stage(hostId, path, filePaths),
+    onSuccess: (_, { hostId, path }) => {
+      qc.invalidateQueries({ queryKey: ['git-status', hostId, path] })
+      qc.invalidateQueries({ queryKey: ['git-diff', hostId, path] })
+    },
   })
 }
 
 export function useGitUnstage() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ hostId, path, filePaths }: { hostId: string; path: string; filePaths: string[] }) => api.git.unstage(hostId, path, filePaths),
-    onSuccess: (_, { hostId, path }) => { qc.invalidateQueries({ queryKey: ['git-status', hostId, path] }); qc.invalidateQueries({ queryKey: ['git-diff', hostId, path] }) },
+    mutationFn: ({ hostId, path, filePaths }: { hostId: string; path: string; filePaths: string[] }) =>
+      api.git.unstage(hostId, path, filePaths),
+    onSuccess: (_, { hostId, path }) => {
+      qc.invalidateQueries({ queryKey: ['git-status', hostId, path] })
+      qc.invalidateQueries({ queryKey: ['git-diff', hostId, path] })
+    },
   })
 }
 
 export function useGitCommit() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ hostId, path, message, amend }: { hostId: string; path: string; message: string; amend?: boolean }) => api.git.commit(hostId, path, message, amend, { background:true }),
-    onSuccess: (_, { hostId, path }) => { qc.invalidateQueries({ queryKey: ['git-status', hostId, path] }); qc.invalidateQueries({ queryKey: ['git-diff', hostId, path] }); qc.invalidateQueries({ queryKey: ['git-log', hostId, path] }); qc.invalidateQueries({ queryKey: ['git-branches', hostId, path] }) },
+    mutationFn: ({
+      hostId,
+      path,
+      message,
+      amend,
+    }: {
+      hostId: string
+      path: string
+      message: string
+      amend?: boolean
+    }) => api.git.commit(hostId, path, message, amend, { background: true }),
+    onSuccess: (_, { hostId, path }) => {
+      qc.invalidateQueries({ queryKey: ['git-status', hostId, path] })
+      qc.invalidateQueries({ queryKey: ['git-diff', hostId, path] })
+      qc.invalidateQueries({ queryKey: ['git-log', hostId, path] })
+      qc.invalidateQueries({ queryKey: ['git-branches', hostId, path] })
+    },
   })
 }
 
 export function useGitDiscard() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ hostId, path, filePaths }: { hostId: string; path: string; filePaths: string[] }) => api.git.discard(hostId, path, filePaths),
-    onSuccess: (_, { hostId, path }) => { qc.invalidateQueries({ queryKey: ['git-status', hostId, path] }); qc.invalidateQueries({ queryKey: ['git-diff', hostId, path] }) },
+    mutationFn: ({ hostId, path, filePaths }: { hostId: string; path: string; filePaths: string[] }) =>
+      api.git.discard(hostId, path, filePaths),
+    onSuccess: (_, { hostId, path }) => {
+      qc.invalidateQueries({ queryKey: ['git-status', hostId, path] })
+      qc.invalidateQueries({ queryKey: ['git-diff', hostId, path] })
+    },
   })
 }
 export function useGitResolve() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ hostId, path, filePath, resolution }: { hostId: string; path: string; filePath: string; resolution: 'ours' | 'theirs' | 'mark' }) => api.git.resolve(hostId, path, filePath, resolution),
-    onSuccess: (_, { hostId, path }) => { qc.invalidateQueries({ queryKey: ['git-status', hostId, path] }); qc.invalidateQueries({ queryKey: ['git-diff', hostId, path] }) },
+    mutationFn: ({
+      hostId,
+      path,
+      filePath,
+      resolution,
+    }: {
+      hostId: string
+      path: string
+      filePath: string
+      resolution: 'ours' | 'theirs' | 'mark'
+    }) => api.git.resolve(hostId, path, filePath, resolution),
+    onSuccess: (_, { hostId, path }) => {
+      qc.invalidateQueries({ queryKey: ['git-status', hostId, path] })
+      qc.invalidateQueries({ queryKey: ['git-diff', hostId, path] })
+    },
   })
 }
 export function useGitOperation() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ hostId, path, operation, action }: { hostId: string; path: string; operation: 'merge' | 'rebase'; action: 'continue' | 'abort' }) => api.git.operation(hostId, path, operation, action, action==='continue'?{background:true}:undefined),
-    onSuccess: (_, { hostId, path }) => { qc.invalidateQueries({ queryKey: ['git-status', hostId, path] }); qc.invalidateQueries({ queryKey: ['git-log', hostId, path] }); qc.invalidateQueries({ queryKey: ['git-branches', hostId, path] }) },
+    mutationFn: ({
+      hostId,
+      path,
+      operation,
+      action,
+    }: {
+      hostId: string
+      path: string
+      operation: 'merge' | 'rebase'
+      action: 'continue' | 'abort'
+    }) => api.git.operation(hostId, path, operation, action, action === 'continue' ? { background: true } : undefined),
+    onSuccess: (_, { hostId, path }) => {
+      qc.invalidateQueries({ queryKey: ['git-status', hostId, path] })
+      qc.invalidateQueries({ queryKey: ['git-log', hostId, path] })
+      qc.invalidateQueries({ queryKey: ['git-branches', hostId, path] })
+    },
   })
 }
 export function useGitRemotes(hostId: string, path: string) {
@@ -522,55 +743,116 @@ export function useGitBranches(hostId: string, path: string, enabled = true) {
 export function useGitCheckout() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ hostId, path, branch }: { hostId: string; path: string; branch: string }) => api.git.checkout(hostId, path, branch),
-    onSuccess: (_, { hostId, path }) => { qc.invalidateQueries({ queryKey: ['git-status', hostId, path] }); qc.invalidateQueries({ queryKey: ['git-branches', hostId, path] }) },
+    mutationFn: ({ hostId, path, branch }: { hostId: string; path: string; branch: string }) =>
+      api.git.checkout(hostId, path, branch),
+    onSuccess: (_, { hostId, path }) => {
+      qc.invalidateQueries({ queryKey: ['git-status', hostId, path] })
+      qc.invalidateQueries({ queryKey: ['git-branches', hostId, path] })
+    },
   })
 }
 
 export function useGitCreateBranch() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ hostId, path, name, startPoint }: { hostId: string; path: string; name: string; startPoint?: string }) => api.git.createBranch(hostId, path, name, startPoint),
-    onSuccess: (_, { hostId, path }) => { qc.invalidateQueries({ queryKey: ['git-branches', hostId, path] }) },
+    mutationFn: ({
+      hostId,
+      path,
+      name,
+      startPoint,
+    }: {
+      hostId: string
+      path: string
+      name: string
+      startPoint?: string
+    }) => api.git.createBranch(hostId, path, name, startPoint),
+    onSuccess: (_, { hostId, path }) => {
+      qc.invalidateQueries({ queryKey: ['git-branches', hostId, path] })
+    },
   })
 }
 
 export function useGitDeleteBranch() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ hostId, path, name, force }: { hostId: string; path: string; name: string; force?: boolean }) => api.git.deleteBranch(hostId, path, name, force),
-    onSuccess: (_, { hostId, path }) => { qc.invalidateQueries({ queryKey: ['git-branches', hostId, path] }) },
+    mutationFn: ({ hostId, path, name, force }: { hostId: string; path: string; name: string; force?: boolean }) =>
+      api.git.deleteBranch(hostId, path, name, force),
+    onSuccess: (_, { hostId, path }) => {
+      qc.invalidateQueries({ queryKey: ['git-branches', hostId, path] })
+    },
   })
 }
 
 export function useGitMerge() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ hostId, path, branch, noFF }: { hostId: string; path: string; branch: string; noFF?: boolean }) => api.git.merge(hostId, path, branch, noFF, { background:true }),
-    onSuccess: (_, { hostId, path }) => { qc.invalidateQueries({ queryKey: ['git-status', hostId, path] }); qc.invalidateQueries({ queryKey: ['git-branches', hostId, path] }) },
+    mutationFn: ({ hostId, path, branch, noFF }: { hostId: string; path: string; branch: string; noFF?: boolean }) =>
+      api.git.merge(hostId, path, branch, noFF, { background: true }),
+    onSuccess: (_, { hostId, path }) => {
+      qc.invalidateQueries({ queryKey: ['git-status', hostId, path] })
+      qc.invalidateQueries({ queryKey: ['git-branches', hostId, path] })
+    },
   })
 }
 
 export function useGitFetch() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ hostId, path, remote, prune }: { hostId: string; path: string; remote?: string; prune?: boolean }) => api.git.fetch(hostId, path, { remote, prune, background:true }),
-    onSuccess: (_, { hostId, path }) => { qc.invalidateQueries({ queryKey: ['git-branches', hostId, path] }); qc.invalidateQueries({ queryKey: ['git-status', hostId, path] }); qc.invalidateQueries({ queryKey: ['git-log', hostId, path] }) },
+    mutationFn: ({ hostId, path, remote, prune }: { hostId: string; path: string; remote?: string; prune?: boolean }) =>
+      api.git.fetch(hostId, path, { remote, prune, background: true }),
+    onSuccess: (_, { hostId, path }) => {
+      qc.invalidateQueries({ queryKey: ['git-branches', hostId, path] })
+      qc.invalidateQueries({ queryKey: ['git-status', hostId, path] })
+      qc.invalidateQueries({ queryKey: ['git-log', hostId, path] })
+    },
   })
 }
 
 export function useGitPull() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ hostId, path, remote, branch, rebase }: { hostId: string; path: string; remote?: string; branch?: string; rebase?: boolean }) => api.git.pull(hostId, path, { remote, branch, rebase, background:true }),
-    onSuccess: (_, { hostId, path }) => { qc.invalidateQueries({ queryKey: ['git-status', hostId, path] }); qc.invalidateQueries({ queryKey: ['git-log', hostId, path] }) },
+    mutationFn: ({
+      hostId,
+      path,
+      remote,
+      branch,
+      rebase,
+    }: {
+      hostId: string
+      path: string
+      remote?: string
+      branch?: string
+      rebase?: boolean
+    }) => api.git.pull(hostId, path, { remote, branch, rebase, background: true }),
+    onSuccess: (_, { hostId, path }) => {
+      qc.invalidateQueries({ queryKey: ['git-status', hostId, path] })
+      qc.invalidateQueries({ queryKey: ['git-log', hostId, path] })
+    },
   })
 }
 
 export function useGitPush() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ hostId, path, remote, branch, force, setUpstream }: { hostId: string; path: string; remote?: string; branch?: string; force?: boolean; setUpstream?: boolean }) => api.git.push(hostId, path, { remote, branch, force, setUpstream, background:true }),
-    onSuccess: (_, { hostId, path }) => { qc.invalidateQueries({ queryKey: ['git-status', hostId, path] }); qc.invalidateQueries({ queryKey: ['git-branches', hostId, path] }); qc.invalidateQueries({ queryKey: ['git-log', hostId, path] }) },
+    mutationFn: ({
+      hostId,
+      path,
+      remote,
+      branch,
+      force,
+      setUpstream,
+    }: {
+      hostId: string
+      path: string
+      remote?: string
+      branch?: string
+      force?: boolean
+      setUpstream?: boolean
+    }) => api.git.push(hostId, path, { remote, branch, force, setUpstream, background: true }),
+    onSuccess: (_, { hostId, path }) => {
+      qc.invalidateQueries({ queryKey: ['git-status', hostId, path] })
+      qc.invalidateQueries({ queryKey: ['git-branches', hostId, path] })
+      qc.invalidateQueries({ queryKey: ['git-log', hostId, path] })
+    },
   })
 }

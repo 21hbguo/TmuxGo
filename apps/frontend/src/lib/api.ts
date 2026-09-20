@@ -206,6 +206,17 @@ export interface CredentialStoreFile {
   version: 1
   credentials: Record<string, { password?: string; passwordEnv?: string; privateKeyPath?: string }>
 }
+export interface SshConfigHostEntry {
+  alias: string
+  hostName: string
+  user: string
+  port: number | null
+  identityFile: string
+  proxyJump: string
+  forwardAgent: string
+  sourceFile: string
+  line: number
+}
 export interface AgentNotificationRecord {
   id: string
   eventId: string
@@ -565,6 +576,26 @@ export const api = {
         method: 'PUT',
         body: JSON.stringify(payload),
       }),
+  },
+  sshConfig: {
+    get: () => fetchApi<{ path: string; content: string; hosts: SshConfigHostEntry[] }>('/api/hosts/ssh-config'),
+    save: (content: string) =>
+      fetchApi<{ path: string }>('/api/hosts/ssh-config', { method: 'PUT', body: JSON.stringify({ content }) }),
+    addHost: (payload: { alias: string; hostName: string; user?: string; port?: number; identityFile?: string }) =>
+      fetchApi<{ path: string; alias: string }>('/api/hosts/ssh-config/hosts', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    resolve: (id: string) =>
+      fetchApi<{
+        hostname: string
+        user: string
+        port: number
+        identityFiles: string[]
+        proxyJump: string
+        forwardAgent: string
+        strictHostKeyChecking: string
+      }>(`/api/hosts/${encodeURIComponent(id)}/resolve`),
   },
   workspaces: {
     list: (hostId?: string) =>
