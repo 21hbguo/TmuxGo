@@ -634,12 +634,10 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
   }
   const notifyWindowResize = () => {
     syncRenderEnvironment('window-resize')
-    if (lastContainerSize.width > 0 && lastContainerSize.height > 0) {
-      if (!isMobileDevice) mask.show()
-      resizeObservedSize = { width: container.clientWidth, height: container.clientHeight }
-      resizeStableFrames = 0
-      scheduleStableLayout()
-    }
+    // window resize 与 RO 是同一次实际尺寸变化的两个信号：委托共享观察路径——
+    // 同尺寸早退不重复计数，burst/拖动免遮罩判定对两者一致生效；
+    // 无条件 mask.show 会让持续 window 事件一直重置 generation 使遮罩不撤
+    notifyObservedResize()
   }
   const scheduleFontLayout = () => {
     if (isMobileDevice) return
