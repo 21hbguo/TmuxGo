@@ -211,6 +211,13 @@ export class StreamSession {
     const hostId = this.attachedHostId
     const seq = this.attachSeq
     const pid = this.ptyProcess.pid
+    // 代次守卫：await 期间 cleanup/新 attach 后，旧 resync 的 catch/finally
+    // 不得再写 pending/running/timer——那些字段已属于新一轮 attach
+    const current = () =>
+      seq === this.attachSeq &&
+      this.attachedSessionName === sessionName &&
+      this.attachedHostId === hostId &&
+      !!this.ptyProcess
     this.outputResyncRunning = true
     try {
       if (this.getSocketBufferedBytes() >= SOCKET_BUFFER_HIGH_WATERMARK) {
@@ -228,26 +235,26 @@ export class StreamSession {
       // 先放行再 refresh：重绘字节走 onData 普通路径，若在 pending 期到达会被丢
       this.outputResyncPending = false
       if (this.cellOutputEnabled) this.cell.reset(this.attachedCols, this.attachedRows, this.binaryOutputEnabled)
-      await refreshAttachedClient(hostId, sessionName, pid)
-      if (
-        !this.ptyProcess ||
-        seq !== this.attachSeq ||
-        this.attachedSessionName !== sessionName ||
-        this.attachedHostId !== hostId
-      )
-        return
+      await this.redrawAttachedClient(hostId, sessionName, pid)
+      if (!current()) return
       recordStreamMetric('outputResyncCompleted')
       recordStreamMetric('outputFlushes')
       recordStreamMetric('outputChunks')
     } catch {
       // 重置已发出但 tmux 重绘失败：恢复 pending 走整轮重试，
       // 否则放行普通输出会在清屏画面上叠出半残画面
-      this.outputResyncPending = true
+      if (current()) this.outputResyncPending = true
     } finally {
-      this.outputResyncRunning = false
-      if (this.outputResyncPending) this.scheduleDeferredFlush()
-      else if (this.outputBuffer) this.flushOutput()
+      if (current()) {
+        this.outputResyncRunning = false
+        if (this.outputResyncPending) this.scheduleDeferredFlush()
+        else if (this.outputBuffer) this.flushOutput()
+      }
     }
+  }
+  // 测试缝：单测可注入受控 refresh 成败，不依赖真实 tmux session
+  redrawAttachedClient(hostId: string, sessionName: string, clientPid: number) {
+    return refreshAttachedClient(hostId, sessionName, clientPid)
   }
   flushOutput() {
     if (!this.attachedSessionName) return

@@ -73,6 +73,7 @@ test('flushOutput sends buffered bytes in order regardless of content shape', ()
 
 test('flushOutputResync sends only the reset boundary, never a fabricated pane snapshot', async () => {
   const { session, sent } = createSession()
+  ;(session as any).redrawAttachedClient = async () => {}
   session.outputResyncPending = true
   await session.flushOutputResync()
   // resync 负载必须是 DECSTR+ED+CUP 边界序列；真正的整屏内容由随后的
@@ -81,16 +82,60 @@ test('flushOutputResync sends only the reset boundary, never a fabricated pane s
   assert.equal(sent[0].type, 'output_resync')
   assert.equal(sent[0].data, '\u001b[!p\u001b[2J\u001b[H')
   assert.ok(!sent[0].data.includes('\u001b[0m'))
+  assert.equal(session.outputResyncPending, false)
   session.cleanup()
 })
 
 test('flushOutputResync re-arms pending when the tmux redraw fails', async () => {
   const { session, sent } = createSession()
+  // 受控失败：refresh 拒绝后 resync 必须保持 pending 走整轮重试，
+  // 而不是把清屏后的残局交给普通输出
+  ;(session as any).redrawAttachedClient = async () => {
+    throw new Error('refresh-client failure')
+  }
   session.outputResyncPending = true
-  // 'dev' session 不存在 → refreshAttachedClient 抛错 → pending 必须重新置位
-  // 走整轮重试，而不是把清屏后的残局交给普通输出
   await session.flushOutputResync()
   assert.equal(sent[0]?.type, 'output_resync')
   assert.equal(session.outputResyncPending, true)
+  session.cleanup()
+})
+
+test('a stale resync failure must not touch the new attach epoch', async () => {
+  const { session } = createSession()
+  let reject: (e: Error) => void = () => {}
+  ;(session as any).redrawAttachedClient = () => new Promise((_, r) => (reject = r))
+  session.outputResyncPending = true
+  const work = session.flushOutputResync()
+  // 模拟 cleanup + 新 attach：新一轮 resync 已在自己的 epoch 里运行
+  session.cleanup()
+  session.ptyProcess = { pid: 2, resize() {}, write() {}, kill() {}, onData() {}, onExit() {} } as any
+  session.attachedSessionName = 'new'
+  session.outputResyncPending = false
+  session.outputResyncRunning = true
+  reject(new Error('old redraw failed'))
+  await work
+  assert.equal(session.attachedSessionName, 'new')
+  assert.equal(session.outputResyncPending, false)
+  assert.equal(session.outputResyncRunning, true)
+  assert.equal(session.deferredFlushTimer, null)
+  session.cleanup()
+})
+
+test('a stale resync success must not touch the new attach epoch either', async () => {
+  const { session } = createSession()
+  let resolve: () => void = () => {}
+  ;(session as any).redrawAttachedClient = () => new Promise<void>((r) => (resolve = r))
+  session.outputResyncPending = true
+  const work = session.flushOutputResync()
+  session.cleanup()
+  session.ptyProcess = { pid: 2, resize() {}, write() {}, kill() {}, onData() {}, onExit() {} } as any
+  session.attachedSessionName = 'new'
+  session.outputResyncPending = false
+  session.outputResyncRunning = true
+  resolve()
+  await work
+  assert.equal(session.outputResyncPending, false)
+  assert.equal(session.outputResyncRunning, true)
+  assert.equal(session.deferredFlushTimer, null)
   session.cleanup()
 })
