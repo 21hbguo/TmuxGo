@@ -1,4 +1,5 @@
 import { execTmux } from '../tmux-executor.js'
+import { updateStreamMetric } from '../perf-metrics.js'
 import { SCROLL_MAX_LINES } from './stream-config.js'
 export function buildPaneSnapshot(content: string, left: number, top: number, width: number, height: number) {
   const lines = content.replace(/\r/g, '').split('\n')
@@ -41,14 +42,30 @@ export async function captureWindowSnapshot(
       }
     })
   panes.sort((a, b) => a.left - b.left || a.top - b.top)
+  // 并行抓取各 pane：串行时大 pane 的 capture 会挡在小 pane 前面（ssl4mis 左 8.8KB
+  // 右 122B 实测差距明显）；拼接仍按坐标排序的结果数组下标，顺序语义不变
+  const captureStartedAt = Date.now()
+  const contents = await Promise.all(
+    panes.map((pane) =>
+      pane.paneId && pane.width > 0 && pane.height > 0
+        ? execTmux(hostId, ['capture-pane', '-e', '-pt', pane.paneId, '-p'])
+            .then((result) => String(result.stdout || ''))
+            .catch(() => '')
+        : Promise.resolve(''),
+    ),
+  )
+  updateStreamMetric('snapshotCaptureMs', Date.now() - captureStartedAt)
+  updateStreamMetric('snapshotPanes', panes.length)
   const parts: string[] = []
-  for (const pane of panes) {
-    if (!pane.paneId || pane.width <= 0 || pane.height <= 0) continue
-    const { stdout: paneOutput } = await execTmux(hostId, ['capture-pane', '-e', '-pt', pane.paneId, '-p'])
-    const content = String(paneOutput || '')
+  let snapshotBytes = 0
+  for (let i = 0; i < panes.length; i++) {
+    const pane = panes[i]
+    const content = contents[i]
     if (!content) continue
+    snapshotBytes += content.length
     parts.push(buildPaneSnapshot(content, pane.left, pane.top, pane.width, pane.height))
   }
+  updateStreamMetric('snapshotBytes', snapshotBytes)
   if (!parts.length) {
     const { stdout: fallback } = await execTmux(hostId, ['capture-pane', '-e', '-pt', sessionName, '-p'])
     const content = String(fallback || '')

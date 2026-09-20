@@ -11,7 +11,13 @@ import { execHostShell } from '../lib/tmux-executor.js'
 import { observeNetWindow, type NetWindowStats } from '../lib/net-window.js'
 
 const execFileAsync = promisify(execFile)
-const dependencyCommands = { tmux: { command: 'tmux', args: ['-V'] }, git: { command: 'git', args: ['--version'] }, python: { command: 'python3', args: ['--version'] }, rg: { command: 'rg', args: ['--version'] }, sshpass: { command: 'sshpass', args: ['-V'] } } as const
+const dependencyCommands = {
+  tmux: { command: 'tmux', args: ['-V'] },
+  git: { command: 'git', args: ['--version'] },
+  python: { command: 'python3', args: ['--version'] },
+  rg: { command: 'rg', args: ['--version'] },
+  sshpass: { command: 'sshpass', args: ['-V'] },
+} as const
 const remoteSystemScript = `import json,os,shutil,subprocess
 def read_cpu():
  p=open('/proc/stat').readline().split()[1:];v=[int(x) for x in p];idle=v[3]+(v[4] if len(v)>4 else 0);total=sum(v);return round((total-idle)*100/total) if total else 0
@@ -50,7 +56,10 @@ async function getGpuInfo(): Promise<{ used: number; total: number } | null> {
       '--query-gpu=memory.used,memory.total',
       '--format=csv,noheader,nounits',
     ])
-    const [used, total] = stdout.trim().split(',').map((s) => parseInt(s.trim(), 10))
+    const [used, total] = stdout
+      .trim()
+      .split(',')
+      .map((s) => parseInt(s.trim(), 10))
     if (!isNaN(used) && !isNaN(total)) return { used, total }
   } catch {}
   return null
@@ -114,7 +123,11 @@ async function getNetwork(): Promise<{ sentBytes: number; recvBytes: number }> {
       if (colonIndex === -1) continue
       const name = line.slice(0, colonIndex).trim()
       if (name === 'lo') continue
-      const parts = line.slice(colonIndex + 1).trim().split(/\s+/).map(Number)
+      const parts = line
+        .slice(colonIndex + 1)
+        .trim()
+        .split(/\s+/)
+        .map(Number)
       if (parts.length >= 16) {
         recvBytes += parts[0] || 0
         sentBytes += parts[8] || 0
@@ -151,7 +164,10 @@ function getSafeStreamMetrics() {
     deferredFlushes: safeNumber(streamPerfMetrics.deferredFlushes),
     socketBufferedBytes: safeNumber(streamPerfMetrics.socketBufferedBytes),
     activeClients: safeNumber(streamPerfMetrics.activeClients),
-    activeProfile: streamPerfMetrics.activeProfile === 'background' || streamPerfMetrics.activeProfile === 'mobile' ? streamPerfMetrics.activeProfile : 'foreground',
+    activeProfile:
+      streamPerfMetrics.activeProfile === 'background' || streamPerfMetrics.activeProfile === 'mobile'
+        ? streamPerfMetrics.activeProfile
+        : 'foreground',
     activeFlushInterval: safeNumber(streamPerfMetrics.activeFlushInterval),
     activeMaxChars: safeNumber(streamPerfMetrics.activeMaxChars),
     compressFrames: safeNumber(streamPerfMetrics.compressFrames),
@@ -163,30 +179,38 @@ function getSafeStreamMetrics() {
     cellDirtyCells: safeNumber(streamPerfMetrics.cellDirtyCells),
     redrawRequests: safeNumber(streamPerfMetrics.redrawRequests),
     droppedDuplicateChunks: safeNumber(streamPerfMetrics.droppedDuplicateChunks),
+    snapshotCaptureMs: safeNumber(streamPerfMetrics.snapshotCaptureMs),
+    snapshotPanes: safeNumber(streamPerfMetrics.snapshotPanes),
+    snapshotBytes: safeNumber(streamPerfMetrics.snapshotBytes),
+    frameTailDefers: safeNumber(streamPerfMetrics.frameTailDefers),
+    frameIncompleteSends: safeNumber(streamPerfMetrics.frameIncompleteSends),
+    resizeAckWaitMs: safeNumber(streamPerfMetrics.resizeAckWaitMs),
   }
 }
 async function getDependencies() {
-  const entries = await Promise.all(Object.entries(dependencyCommands).map(async ([name, dependency]) => {
-    if (name === 'python') {
-      try {
-        await execFileAsync('python3', ['--version'])
-        return [name, true] as const
-      } catch {
+  const entries = await Promise.all(
+    Object.entries(dependencyCommands).map(async ([name, dependency]) => {
+      if (name === 'python') {
         try {
-          await execFileAsync('python', ['--version'])
+          await execFileAsync('python3', ['--version'])
           return [name, true] as const
         } catch {
-          return [name, false] as const
+          try {
+            await execFileAsync('python', ['--version'])
+            return [name, true] as const
+          } catch {
+            return [name, false] as const
+          }
         }
       }
-    }
-    try {
-      await execFileAsync(dependency.command, [...dependency.args])
-      return [name, true] as const
-    } catch {
-      return [name, false] as const
-    }
-  }))
+      try {
+        await execFileAsync(dependency.command, [...dependency.args])
+        return [name, true] as const
+      } catch {
+        return [name, false] as const
+      }
+    }),
+  )
   return Object.fromEntries(entries) as Record<keyof typeof dependencyCommands, boolean>
 }
 function quoteShellValue(value: string) {
@@ -194,18 +218,62 @@ function quoteShellValue(value: string) {
 }
 function normalizeHostSystemInfo(hostId: string, value: any) {
   const dependencies = value?.dependencies && typeof value.dependencies === 'object' ? value.dependencies : {}
-  const gpu = value?.gpu && Number.isFinite(Number(value.gpu.used)) && Number.isFinite(Number(value.gpu.total)) ? { used: safeNumber(value.gpu.used), total: safeNumber(value.gpu.total) } : null
-  const disks = Array.isArray(value?.disks) ? value.disks.filter((disk: any) => disk && typeof disk.mount === 'string').map((disk: any) => ({ mount: disk.mount, used: safeNumber(disk.used), total: safeNumber(disk.total) })) : []
-  const counters = value?.net && typeof value.net === 'object' ? { sentBytes: Math.max(0, safeNumber(value.net.sentBytes)), recvBytes: Math.max(0, safeNumber(value.net.recvBytes)) } : { sentBytes: 0, recvBytes: 0 }
+  const gpu =
+    value?.gpu && Number.isFinite(Number(value.gpu.used)) && Number.isFinite(Number(value.gpu.total))
+      ? { used: safeNumber(value.gpu.used), total: safeNumber(value.gpu.total) }
+      : null
+  const disks = Array.isArray(value?.disks)
+    ? value.disks
+        .filter((disk: any) => disk && typeof disk.mount === 'string')
+        .map((disk: any) => ({ mount: disk.mount, used: safeNumber(disk.used), total: safeNumber(disk.total) }))
+    : []
+  const counters =
+    value?.net && typeof value.net === 'object'
+      ? {
+          sentBytes: Math.max(0, safeNumber(value.net.sentBytes)),
+          recvBytes: Math.max(0, safeNumber(value.net.recvBytes)),
+        }
+      : { sentBytes: 0, recvBytes: 0 }
   const net = withNetWindow(hostId, counters)
-  return { hostId, gpu, cpu: Math.max(0, Math.min(100, safeNumber(value?.cpu))), mem: { used: safeNumber(value?.mem?.used), total: safeNumber(value?.mem?.total) }, disks, net, dependencies: { tmux: dependencies.tmux === true, git: dependencies.git === true, python: dependencies.python === true, rg: dependencies.rg === true, sshpass: dependencies.sshpass === true }, stream: getSafeStreamMetrics() }
+  return {
+    hostId,
+    gpu,
+    cpu: Math.max(0, Math.min(100, safeNumber(value?.cpu))),
+    mem: { used: safeNumber(value?.mem?.used), total: safeNumber(value?.mem?.total) },
+    disks,
+    net,
+    dependencies: {
+      tmux: dependencies.tmux === true,
+      git: dependencies.git === true,
+      python: dependencies.python === true,
+      rg: dependencies.rg === true,
+      sshpass: dependencies.sshpass === true,
+    },
+    stream: getSafeStreamMetrics(),
+  }
 }
 function withNetWindow(hostId: string, net: { sentBytes: number; recvBytes: number }): NetWindowStats {
   return observeNetWindow(hostId, net)
 }
 async function getLocalSystemInfo() {
-  const [gpu, cpu, mem, disks, net, dependencies] = await Promise.all([getGpuInfo(), getCpuUsage(), getMemory(), getDisk(), getNetwork(), getDependencies()])
-  return { hostId: 'local', gpu, cpu, mem, disks, net: withNetWindow('local', net), dependencies, stream: getSafeStreamMetrics() }
+  const [gpu, cpu, mem, disks, net, dependencies] = await Promise.all([
+    getGpuInfo(),
+    getCpuUsage(),
+    getMemory(),
+    getDisk(),
+    getNetwork(),
+    getDependencies(),
+  ])
+  return {
+    hostId: 'local',
+    gpu,
+    cpu,
+    mem,
+    disks,
+    net: withNetWindow('local', net),
+    dependencies,
+    stream: getSafeStreamMetrics(),
+  }
 }
 async function getRemoteSystemInfo(hostId: string) {
   const fallback = `has(){ command -v "$1" >/dev/null 2>&1 && printf true || printf false; }; printf '{"gpu":null,"cpu":0,"mem":{"used":0,"total":0},"disks":[],"net":{"sentBytes":0,"recvBytes":0},"dependencies":{"tmux":%s,"git":%s,"python":false,"rg":%s,"sshpass":%s}}' "$(has tmux)" "$(has git)" "$(has rg)" "$(has sshpass)"`
@@ -225,42 +293,44 @@ interface SystemRoutesOptions {
   taskManager?: TaskManager
 }
 function getRestartTask(runner: RestartTaskRunner) {
-  const state=runner.getState()
+  const state = runner.getState()
   return {
-    id:'restart-rebuild',
-    type:'restart-rebuild',
-    title:'Restart + Rebuild',
+    id: 'restart-rebuild',
+    type: 'restart-rebuild',
+    title: 'Restart + Rebuild',
     ...state,
-    cancellable:state.status==='running',
-    retryable:state.status==='error'||state.status==='cancelled',
+    cancellable: state.status === 'running',
+    retryable: state.status === 'error' || state.status === 'cancelled',
   }
 }
 function getUpdateTask(runner: RestartTaskRunner) {
-  const state=runner.getState()
+  const state = runner.getState()
   return {
-    id:'self-update',
-    type:'self-update',
-    title:'App Update',
+    id: 'self-update',
+    type: 'self-update',
+    title: 'App Update',
     ...state,
-    cancellable:state.status==='running',
-    retryable:state.status==='error'||state.status==='cancelled',
+    cancellable: state.status === 'running',
+    retryable: state.status === 'error' || state.status === 'cancelled',
   }
 }
 let localNetSampleTimer: NodeJS.Timeout | null = null
 function ensureLocalNetSampler() {
   if (localNetSampleTimer) return
   localNetSampleTimer = setInterval(() => {
-    void getNetwork().then((net) => {
-      withNetWindow('local', net)
-    }).catch(() => {})
+    void getNetwork()
+      .then((net) => {
+        withNetWindow('local', net)
+      })
+      .catch(() => {})
   }, 60_000)
   if (typeof localNetSampleTimer.unref === 'function') localNetSampleTimer.unref()
 }
 export async function systemRoutes(fastify: FastifyInstance, options: SystemRoutesOptions = {}) {
-  const restartRunner=(options.createRestartRunner||createRestartTaskRunner)()
-  const updateRunner=(options.createUpdateRunner||createUpdateTaskRunner)()
-  const checker=options.updateChecker||createUpdateChecker()
-  const backgroundTasks=options.taskManager||taskManager
+  const restartRunner = (options.createRestartRunner || createRestartTaskRunner)()
+  const updateRunner = (options.createUpdateRunner || createUpdateTaskRunner)()
+  const checker = options.updateChecker || createUpdateChecker()
+  const backgroundTasks = options.taskManager || taskManager
   ensureLocalNetSampler()
   fastify.get('/system', async () => {
     try {
@@ -272,7 +342,16 @@ export async function systemRoutes(fastify: FastifyInstance, options: SystemRout
         cpu: 0,
         mem: { used: 0, total: 0 },
         disks: [],
-        net: { sentBytes: 0, recvBytes: 0, daySentBytes: 0, dayRecvBytes: 0, last24hSentBytes: 0, last24hRecvBytes: 0, trackedMs: 0, windowMs: 0 },
+        net: {
+          sentBytes: 0,
+          recvBytes: 0,
+          daySentBytes: 0,
+          dayRecvBytes: 0,
+          last24hSentBytes: 0,
+          last24hRecvBytes: 0,
+          trackedMs: 0,
+          windowMs: 0,
+        },
         dependencies: { tmux: false, git: false, python: false, rg: false, sshpass: false },
         stream: getSafeStreamMetrics(),
       }
@@ -282,44 +361,49 @@ export async function systemRoutes(fastify: FastifyInstance, options: SystemRout
     const { hostId } = request.params as { hostId: string }
     return getSystemInfo(hostId)
   })
-  fastify.get('/system/tasks', async () => ({ tasks:[getRestartTask(restartRunner),getUpdateTask(updateRunner),...backgroundTasks.list()] }))
+  fastify.get('/system/tasks', async () => ({
+    tasks: [getRestartTask(restartRunner), getUpdateTask(updateRunner), ...backgroundTasks.list()],
+  }))
   fastify.get('/system/tasks/:taskId', async (request, reply) => {
-    const { taskId }=request.params as { taskId:string }
-    if (taskId==='restart-rebuild') return getRestartTask(restartRunner)
-    if (taskId==='self-update') return getUpdateTask(updateRunner)
-    const task=backgroundTasks.get(taskId)
-    return task||reply.status(404).send({ message:'Task not found',code:'TASK_NOT_FOUND' })
+    const { taskId } = request.params as { taskId: string }
+    if (taskId === 'restart-rebuild') return getRestartTask(restartRunner)
+    if (taskId === 'self-update') return getUpdateTask(updateRunner)
+    const task = backgroundTasks.get(taskId)
+    return task || reply.status(404).send({ message: 'Task not found', code: 'TASK_NOT_FOUND' })
   })
   fastify.post('/system/tasks/:taskId/cancel', async (request, reply) => {
-    const { taskId }=request.params as { taskId:string }
-    if (taskId==='restart-rebuild') {
+    const { taskId } = request.params as { taskId: string }
+    if (taskId === 'restart-rebuild') {
       await restartRunner.cancel()
       return getRestartTask(restartRunner)
     }
-    if (taskId==='self-update') {
+    if (taskId === 'self-update') {
       await updateRunner.cancel()
       return getUpdateTask(updateRunner)
     }
-    const task=await backgroundTasks.cancel(taskId)
-    return task||reply.status(404).send({ message:'Task not found',code:'TASK_NOT_FOUND' })
+    const task = await backgroundTasks.cancel(taskId)
+    return task || reply.status(404).send({ message: 'Task not found', code: 'TASK_NOT_FOUND' })
   })
   fastify.post('/system/tasks/:taskId/retry', async (request, reply) => {
-    const { taskId }=request.params as { taskId:string }
-    if (taskId==='restart-rebuild') {
+    const { taskId } = request.params as { taskId: string }
+    if (taskId === 'restart-rebuild') {
       await restartRunner.start()
       return getRestartTask(restartRunner)
     }
-    if (taskId==='self-update') {
+    if (taskId === 'self-update') {
       await updateRunner.start()
       return getUpdateTask(updateRunner)
     }
-    const task=await backgroundTasks.retry(taskId)
-    return task||reply.status(404).send({ message:'Task not found',code:'TASK_NOT_FOUND' })
+    const task = await backgroundTasks.retry(taskId)
+    return task || reply.status(404).send({ message: 'Task not found', code: 'TASK_NOT_FOUND' })
   })
   fastify.get('/system/restart-rebuild', async () => restartRunner.getState())
   fastify.post('/system/restart-rebuild', async () => restartRunner.start())
   fastify.get('/system/update', async () => ({ ...(await checker.getStatus()), task: getUpdateTask(updateRunner) }))
-  fastify.post('/system/update/check', async () => ({ ...(await checker.getStatus(true)), task: getUpdateTask(updateRunner) }))
+  fastify.post('/system/update/check', async () => ({
+    ...(await checker.getStatus(true)),
+    task: getUpdateTask(updateRunner),
+  }))
   fastify.get('/system/update/task', async () => getUpdateTask(updateRunner))
   fastify.post('/system/update', async () => updateRunner.start())
 }

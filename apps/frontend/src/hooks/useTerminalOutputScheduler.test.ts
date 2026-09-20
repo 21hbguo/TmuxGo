@@ -158,6 +158,26 @@ describe('useTerminalOutputScheduler', () => {
     expect(barrier).toHaveBeenCalledTimes(1)
     act(() => result.current.dispose())
   })
+  it('resolves afterWrites once the bytes queued at call time are written, ignoring later arrivals', () => {
+    // 时间点屏障：resize ACK 到达时只需等当时已入队的 resize 帧写完；
+    // 之后持续到达的输出（如左 pane 洪流）不延长揭罩等待
+    const callbacks: Array<(() => void) | undefined> = []
+    const write = vi.fn((_chunk: string, done?: () => void) => {
+      callbacks.push(done)
+    })
+    const { result } = renderHook(() => useTerminalOutputScheduler({ write }))
+    const barrier = vi.fn()
+    act(() => result.current.push('resize-frame'))
+    act(() => result.current.afterWrites(barrier))
+    // 屏障建立后再到的输出不得计入等待目标
+    act(() => result.current.push('flood'))
+    act(() => callbacks[0]?.())
+    // 'resize-frame' 写完即放行，尽管 'flood' 仍在写/排队
+    expect(barrier).toHaveBeenCalledTimes(1)
+    expect(result.current.getBacklog()).toBe(0)
+    act(() => callbacks[1]?.())
+    act(() => result.current.dispose())
+  })
   it('resolves pending afterWrites barriers on dispose', () => {
     const write = vi.fn((_chunk: string, _done?: () => void) => {})
     const { result } = renderHook(() => useTerminalOutputScheduler({ write }))

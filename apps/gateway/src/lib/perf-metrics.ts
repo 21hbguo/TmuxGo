@@ -30,6 +30,12 @@ export const streamPerfMetrics = {
   cellDirtyCells: 0,
   redrawRequests: 0,
   droppedDuplicateChunks: 0,
+  snapshotCaptureMs: 0,
+  snapshotPanes: 0,
+  snapshotBytes: 0,
+  frameTailDefers: 0,
+  frameIncompleteSends: 0,
+  resizeAckWaitMs: 0,
 }
 export function recordStreamMetric<K extends keyof typeof streamPerfMetrics>(key: K, value = 1) {
   const current = streamPerfMetrics[key]
@@ -37,6 +43,9 @@ export function recordStreamMetric<K extends keyof typeof streamPerfMetrics>(key
     ;(streamPerfMetrics[key] as number) += value
   }
 }
-export function updateStreamMetric<K extends keyof typeof streamPerfMetrics>(key: K, value: (typeof streamPerfMetrics)[K]) {
+export function updateStreamMetric<K extends keyof typeof streamPerfMetrics>(
+  key: K,
+  value: (typeof streamPerfMetrics)[K],
+) {
   streamPerfMetrics[key] = value
 }
