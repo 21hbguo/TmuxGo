@@ -80,6 +80,11 @@ function toEditorDocument(file: PersistedEditorMeta): FileEditorDocument {
     truncated: false,
   }
 }
+// git-diff 虚拟文档与 compare 编辑器没有文件后端（git-diff? id、kind=compare 的 compareLeftId/RightId 会悬空），
+// 刷新后无法经 files/content 恢复——写入与读取双侧过滤，存量 localStorage 脏条目也一并在 merge 时清除。
+export function isPersistableEditorMeta(editor: Pick<FileEditorDocument, 'id' | 'kind' | 'rootId'>) {
+  return (!editor.kind || editor.kind === 'file') && !editor.id.startsWith('git-diff?') && editor.rootId !== 'git'
+}
 function pickEditorMeta(editor: FileEditorDocument): PersistedEditorMeta {
   return {
     id: editor.id,
@@ -1158,7 +1163,7 @@ export const useConsoleStore = create<ConsoleState>()(
           terminalPanelHeight: state.terminalPanelHeight,
           terminalPanelWidth: state.terminalPanelWidth,
           terminalDock: state.terminalDock,
-          openEditors: state.openEditors.map(pickEditorMeta),
+          openEditors: state.openEditors.filter(isPersistableEditorMeta).map(pickEditorMeta),
           activeEditorId: state.activeEditorId,
           editorGroups: state.editorGroups,
           editorLayout: state.editorLayout,
@@ -1168,7 +1173,7 @@ export const useConsoleStore = create<ConsoleState>()(
       merge: (persisted, current) => {
         const persistedState = (persisted || {}) as Partial<ConsoleState>
         const hasEditors = Array.isArray(persistedState.openEditors)
-        const rawEditors = hasEditors ? persistedState.openEditors! : []
+        const rawEditors = hasEditors ? persistedState.openEditors!.filter(isPersistableEditorMeta) : []
         const openEditors = hasEditors
           ? rawEditors.map((editor) => toEditorDocument(editor as PersistedEditorMeta))
           : current.openEditors

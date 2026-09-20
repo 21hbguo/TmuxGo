@@ -36,7 +36,7 @@
 
 ### BFI-01 吸收编辑器代码跳转
 
-- 状态：`TODO`
+- 状态：`DONE`（已在主线落地，`apps/frontend/src/lib/code-navigation.ts` + 配套测试；`EditorWorkbench` F12/前进后退已接入）
 - 依赖：BFI-00
 - 来源：`feature/code-navigation`，`75a46ad`、`937c365`、`0c0769b`。
 - 内容：评估 `code-navigation.ts` 的 TypeScript 解析、打开文件、定义跳转、F12 和前进后退导航；适配当前编辑器状态和远程文件读取流程。
@@ -44,10 +44,11 @@
 
 ### BFI-02 修复 Git diff 编辑器持久化边界
 
-- 状态：`TODO`
+- 状态：`DONE`（`abe810e` 打在旧存储层不可 cherry-pick，已在新 zustand persist 层重做）
 - 依赖：BFI-00
 - 来源：`session-panel-enhancements`，`abe810e`。
 - 内容：评估 `git-diff?` 和 `rootId === 'git'` 编辑器在 `partialize`、恢复和 active editor 状态中的过滤策略。
+- 落地：`useConsoleStore.ts` 新增 `isPersistableEditorMeta`（排除 `kind!=='file'`、`git-diff?` 前缀、`rootId==='git'`），`partialize` 写入与 `merge` 读取双侧过滤（merge 侧顺带清除存量脏条目）；`DesktopWorkbench` hydration 循环加同款过滤做防御。
 - 验收：刷新页面不会恢复临时 diff 编辑器；普通文件编辑器、compare editor 和现有布局状态保持兼容；补充 store 和 EditorWorkbench 单测。
 
 ### BFI-03 稳定 FilePanel 和 SessionPanel 状态更新

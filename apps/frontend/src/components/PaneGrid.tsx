@@ -532,7 +532,7 @@ export function PaneGrid({
         attachNow()
       }, ATTACH_RETRY_DELAY)
     }, ATTACH_TIMEOUT)
-  }, [activeHostId, clearAttachTimers, exclusive, isSocketReady, send, targetSessionName, updateConnection])
+  }, [activeHostId, clearAttachTimers, exclusive, isSocketReady, send, targetSessionName, updateConnectionState])
 
   useEffect(() => {
     if (!sessionId) {
@@ -661,7 +661,7 @@ export function PaneGrid({
     exclusive,
     targetSessionName,
     clearAttachTimers,
-    updateConnection,
+    updateConnectionState,
     updateTerminalPerf,
     flushInputQueue,
     sendResizeNow,
@@ -694,7 +694,7 @@ export function PaneGrid({
     clearRemoteResizeState,
     isSocketReady,
     targetSessionName,
-    updateConnection,
+    updateConnectionState,
   ])
   useEffect(() => {
     const handleRemoteResized = (detail: any = {}) => {
@@ -745,7 +745,7 @@ export function PaneGrid({
     setActiveSession,
     t,
     targetSessionName,
-    updateConnection,
+    updateConnectionState,
     visibleSessionId,
   ])
   useEffect(() => {

@@ -448,7 +448,7 @@ export function useWebSocket() {
     wsState.reconnectCount = 0
     reconnectCountRef.current = 0
     connect()
-  }, [clearConnectTimer, clearPongTimer, connect])
+  }, [clearConnectTimer, clearPongTimer, connect, updateConnection])
   const ensureConnection = useCallback(
     (recover = false) => {
       const ws = wsState.ws
