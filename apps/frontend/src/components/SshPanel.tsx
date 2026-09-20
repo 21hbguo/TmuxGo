@@ -473,10 +473,14 @@ export function SshPanel() {
                           label={t('sshPanel.detail.tags')}
                           value={((host.userTags || host.tags || []) as string[]).join(', ') || '-'}
                         />
-                        <DetailRow
-                          label={t('sshPanel.detail.useAgent')}
-                          value={host.usesAgent ? t('sshPanel.yes') : t('sshPanel.no')}
-                        />
+                        {isSshConfig ? (
+                          <DetailRow label={t('sshPanel.detail.forwardAgent')} value={host.forwardAgent || '-'} />
+                        ) : (
+                          <DetailRow
+                            label={t('sshPanel.detail.useAgent')}
+                            value={host.usesAgent ? t('sshPanel.yes') : t('sshPanel.no')}
+                          />
+                        )}
                         <DetailRow label={t('sshPanel.detail.jumpHost')} value={host.jumpHost || '-'} />
                         <DetailRow
                           label={t('sshPanel.detail.knownHostsPolicy')}

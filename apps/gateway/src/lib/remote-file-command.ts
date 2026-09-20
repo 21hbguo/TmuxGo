@@ -4,6 +4,7 @@ import { getHostById, getHostCredentials, type HostRecord } from './hosts.js'
 import { recordHostConnectionFailure } from './host-connectivity.js'
 import {
   buildHostSshOptions,
+  buildSshConfigArgs,
   buildSshMultiplexArgs,
   buildSshPortArgs,
   ensureSshMultiplexDir,
@@ -61,6 +62,7 @@ export async function runRemoteFilePython<T>(hostId: string, script: string, arg
   const password = resolveHostPassword(credentials)
   await ensureSshMultiplexDir()
   const sshArgs = [
+    ...(await buildSshConfigArgs(host)),
     ...buildSshPortArgs(host),
     '-o',
     'ConnectTimeout=8',
@@ -96,6 +98,7 @@ export async function spawnRemoteFileCommand(host: HostRecord, remoteCommand: st
   const password = resolveHostPassword(credentials)
   await ensureSshMultiplexDir()
   const sshArgs = [
+    ...(await buildSshConfigArgs(host)),
     ...buildSshPortArgs(host),
     '-o',
     'ConnectTimeout=8',

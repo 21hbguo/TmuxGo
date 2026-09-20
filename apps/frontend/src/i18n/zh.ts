@@ -312,6 +312,7 @@ export const zh = {
   'sshPanel.detail.groups': '分组',
   'sshPanel.detail.tags': '标签',
   'sshPanel.detail.useAgent': 'SSH Agent',
+  'sshPanel.detail.forwardAgent': 'ForwardAgent',
   'sshPanel.detail.jumpHost': '跳板机',
   'sshPanel.detail.knownHostsPolicy': '主机密钥策略',
   'sshPanel.detail.latency': '延迟',

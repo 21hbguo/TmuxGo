@@ -2,6 +2,7 @@ import { promises as fs } from 'fs'
 import os from 'os'
 import path from 'path'
 import type { HostCredentials, HostRecord } from './hosts.js'
+import { resolveSshConfigPath } from './ssh-config.js'
 
 export function resolveHostPassword(credentials: HostCredentials) {
   if (credentials.password) return credentials.password
@@ -29,6 +30,12 @@ export function buildHostSshOptions(host: HostRecord, credentials: HostCredentia
 // sshconfig 主机不传 -p（Port 由 config 生效），目标只用 alias
 export function buildSshPortArgs(host: HostRecord) {
   return host.source === 'sshconfig' ? [] : ['-p', String(host.port)]
+}
+// sshconfig alias 只在解析所用的根 config 中定义；TMUXGO_SSH_CONFIG / VSCode remote.SSH.configFile
+// 指向非标路径时，默认 ~/.ssh/config 找不到 alias → 必须 -F 锚定根文件。
+// 注意不能用 host.configFile：那可能是 Include 子文件，alias 或 Host * 块定义在别处。
+export async function buildSshConfigArgs(host: HostRecord) {
+  return host.source === 'sshconfig' ? ['-F', await resolveSshConfigPath()] : []
 }
 export function getSshTarget(host: HostRecord) {
   return host.source === 'sshconfig' ? host.id : `${host.user}@${host.address}`

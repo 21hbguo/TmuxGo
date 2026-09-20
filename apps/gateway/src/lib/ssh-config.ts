@@ -270,9 +270,13 @@ export async function appendSshConfigHost(input: SshConfigHostInput) {
 }
 
 // `ssh -G` 不发起连接，毫秒级返回 effective 值；只在详情/resolve 端点按需调用。
+// -F 锚定与列表一致的根 config（TMUXGO_SSH_CONFIG / remote.SSH.configFile 可能指向非标路径）。
 export async function resolveSshHostEffective(alias: string) {
   if (!isListableAlias(alias)) throw new Error('Invalid host alias')
-  const { stdout } = await execFileAsync('ssh', ['-G', alias], { timeout: 5000, maxBuffer: 1024 * 1024 })
+  const { stdout } = await execFileAsync('ssh', ['-G', '-F', await resolveSshConfigPath(), alias], {
+    timeout: 5000,
+    maxBuffer: 1024 * 1024,
+  })
   const values = new Map<string, string>()
   const identityFiles: string[] = []
   for (const line of stdout.split('\n')) {

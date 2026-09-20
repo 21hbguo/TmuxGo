@@ -313,6 +313,7 @@ export const en = {
   'sshPanel.detail.groups': 'Groups',
   'sshPanel.detail.tags': 'Tags',
   'sshPanel.detail.useAgent': 'SSH agent',
+  'sshPanel.detail.forwardAgent': 'ForwardAgent',
   'sshPanel.detail.jumpHost': 'Jump host',
   'sshPanel.detail.knownHostsPolicy': 'Host key policy',
   'sshPanel.detail.latency': 'Latency',
