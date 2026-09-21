@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { renderMarkdown } from './markdown'
+import { locatePreviewBlock, renderMarkdown } from './markdown'
 describe('renderMarkdown line annotation', () => {
   it('annotates headings and paragraphs with source line numbers', () => {
     const html = renderMarkdown('# 标题\n\n第一段\n\n第二段')
@@ -23,5 +23,28 @@ describe('renderMarkdown line annotation', () => {
     const html = renderMarkdown('前\n\n\n中\n\n\n\n后')
     expect(html).toContain('<p data-line="1">')
     expect(html).toContain('前<br>')
+  })
+})
+describe('locatePreviewBlock', () => {
+  it('returns the last block whose data-line is at or above the cursor line', () => {
+    const article = document.createElement('article')
+    article.innerHTML = renderMarkdown('# 标题\n\n第一段\n\n第二段')
+    const [h1, p1, p2] = Array.from(article.querySelectorAll<HTMLElement>('[data-line]'))
+    expect(locatePreviewBlock(article, 3)).toBe(p1)
+    expect(locatePreviewBlock(article, 4)).toBe(p1)
+    expect(locatePreviewBlock(article, 5)).toBe(p2)
+    expect(locatePreviewBlock(article, 1)).toBe(h1)
+  })
+  it('falls back to the first block when the cursor is above it', () => {
+    const article = document.createElement('article')
+    article.innerHTML = '<p data-line="4">四行</p><p data-line="8">八行</p>'
+    const first = article.querySelector<HTMLElement>('[data-line="4"]')
+    expect(locatePreviewBlock(article, 1)).toBe(first)
+    expect(locatePreviewBlock(article, 3)).toBe(first)
+  })
+  it('returns null when the article has no annotated blocks', () => {
+    const article = document.createElement('article')
+    article.innerHTML = '<p>plain</p>'
+    expect(locatePreviewBlock(article, 5)).toBeNull()
   })
 })
