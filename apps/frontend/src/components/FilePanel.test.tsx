@@ -1058,26 +1058,27 @@ describe('FilePanel', () => {
     await waitFor(() => expect(screen.getByText('project').closest('[data-selected="true"]')).not.toBeInTheDocument())
     expect(screen.getByText('downloads').closest('[data-selected="true"]')).toBeInTheDocument()
   })
-  it('shift+click selects the visible-order range from the anchor and unions with ctrl selection', async () => {
+  it('shift+click replaces selection with the anchor→target range; ctrl+click keeps the anchor', async () => {
     render(React.createElement(FilePanel))
     // 顶层可见序为字母序 [docs, downloads, project, src]
     fireEvent.click(await screen.findByText('src'))
     await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
-    // ctrl+click docs → 并入 selection 且成为 anchor，不展开
+    // ctrl+click docs → 并入 selection、focus 跟到 docs，但 anchor 仍是 src（普通点击项）
     const docsRow = screen.getByText('docs').closest('[role="button"]') as HTMLElement
     fireEvent.click(docsRow, { ctrlKey: true })
     await waitFor(() => expect(screen.getByText('docs').closest('[data-selected="true"]')).toBeInTheDocument())
     expect(screen.queryByText('guide.md')).not.toBeInTheDocument()
-    // shift+click downloads → 区间 [docs, downloads] 与 {src, docs} 取并集
+    // shift+click downloads → selection 替换为 anchor(src)→downloads 区间
+    // = {downloads, project, src}；docs 被区间替换掉而不是保留
     const downloadsRow = screen.getByText('downloads').closest('[role="button"]') as HTMLElement
     fireEvent.click(downloadsRow, { shiftKey: true })
     await waitFor(() => {
-      for (const name of ['docs', 'downloads', 'src'])
+      for (const name of ['downloads', 'project', 'src'])
         expect(screen.getByText(name).closest('[data-selected="true"]')).toBeInTheDocument()
     })
-    for (const name of ['project', 'nested', 'index.ts'])
+    for (const name of ['docs', 'nested', 'index.ts'])
       expect(screen.getByText(name).closest('[data-selected="true"]')).not.toBeInTheDocument()
-    // anchor 跟随最后一次点击项
+    // focus 跟随最后一次点击项
     expect(screen.getByText('downloads').closest('[data-focused="true"]')).toBeInTheDocument()
     // 隐藏的 dotfile 不渲染也不入选
     expect(screen.queryByText('.env')).not.toBeInTheDocument()
