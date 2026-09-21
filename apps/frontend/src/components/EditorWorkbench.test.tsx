@@ -1222,7 +1222,12 @@ describe('EditorWorkbench', () => {
       target: { position: { lineNumber: 2, column: 4 } },
     })
     await vi.waitFor(() =>
-      expect(resolveDefinitionMock).toHaveBeenCalledWith(editor1, { line: 2, column: 4 }, expect.any(Array)),
+      expect(resolveDefinitionMock).toHaveBeenCalledWith(
+        editor1,
+        { line: 2, column: 4 },
+        expect.any(Array),
+        expect.any(AbortSignal),
+      ),
     )
     expect(openFileInEditorMock).toHaveBeenCalledWith(
       expect.objectContaining({ id: editor2.id }),

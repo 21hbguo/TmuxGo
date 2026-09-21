@@ -150,16 +150,22 @@ export async function discoverGitRepositories() {
   }
   return [...found.values()].sort((a, b) => a.label.localeCompare(b.label) || a.path.localeCompare(b.path))
 }
+// ext 只允许纯扩展名形态（.py/.ts/.c++ 等），挡住 glob 元字符注入 -g
+function sanitizeSearchExt(ext?: string) {
+  return ext && /^\.[\w+#-]{1,16}$/.test(ext) ? ext.toLowerCase() : ''
+}
 async function searchContentWithRg(
   rootPath: string,
   absolutePath: string,
   clauses: string[][],
   includeDotFiles = true,
+  ext = '',
 ) {
   const results = new Map<string, ContentSearchResult>()
   for (const terms of clauses) {
     const args = ['--json', '-n', '-i', '--fixed-strings', '--hidden', '-uu', '--max-filesize', '5M', '-m', '5']
     for (const name of FILE_SEARCH_SKIP_DIRS) args.push('-g', `!${name}/**`)
+    if (ext) args.push('-g', `*${ext}`)
     for (const term of terms) args.push('-e', term)
     args.push('.')
     try {
@@ -239,12 +245,19 @@ async function searchContentWithRg(
   }
   return [...results.values()]
 }
-async function searchContentFallback(rootId: string, clauses: string[][], basePath = '', includeDotFiles = true) {
+async function searchContentFallback(
+  rootId: string,
+  clauses: string[][],
+  basePath = '',
+  includeDotFiles = true,
+  ext = '',
+) {
   const { root, absolutePath } = await resolveInside(rootId, basePath)
   const results: ContentSearchResult[] = []
   await walk(root.path, absolutePath, async (current, relativePath, entryType) => {
     if (!includeDotFiles && isDotPath(relativePath)) return entryType === 'directory' ? 'skip' : undefined
     if (entryType !== 'file') return
+    if (ext && !path.basename(current).toLowerCase().endsWith(ext)) return
     try {
       const info = await stat(current)
       if (info.size > LARGE_FILE_LIMIT) return
@@ -272,13 +285,20 @@ async function searchContentFallback(rootId: string, clauses: string[][], basePa
   })
   return results
 }
-export async function searchContent(rootId: string, query: string, basePath = '', includeDotFiles = true) {
+export async function searchContent(
+  rootId: string,
+  query: string,
+  basePath = '',
+  includeDotFiles = true,
+  ext?: string,
+) {
   const clauses = parseSearchQuery(query)
   if (!clauses.length) return []
+  const fileExt = sanitizeSearchExt(ext)
   const { root, absolutePath } = await resolveInside(rootId, basePath)
   try {
-    return await searchContentWithRg(root.path, absolutePath, clauses, includeDotFiles)
+    return await searchContentWithRg(root.path, absolutePath, clauses, includeDotFiles, fileExt)
   } catch {
-    return searchContentFallback(rootId, clauses, basePath, includeDotFiles)
+    return searchContentFallback(rootId, clauses, basePath, includeDotFiles, fileExt)
   }
 }

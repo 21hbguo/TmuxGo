@@ -229,6 +229,8 @@ if op=='remove':
 if op=='resolve-file':
  print(json.dumps({'root':root,'absolutePath':abs_path,'relativePath':rel,'size':st.st_size,'isFile':pathlib.Path(abs_path).is_file()}));sys.exit(0)
 query=str(payload.get('query','')).lower().strip()
+# 可选扩展名过滤（与本地 searchContent 的 ext 对齐）；旧调用方不带此 key
+ext=str(payload.get('ext') or '').lower()
 path_search=os.path.isabs(query)
 clauses=[[token.strip().lower() for token in part.split() if token.strip()] for part in query.split('|') if part.strip()]
 def match_name(name):
@@ -255,6 +257,7 @@ for current_root,dirs,files in os.walk(abs_path):
    except: pass
   else:
    if is_dir: continue
+   if ext and not name.lower().endswith(ext): continue
    try:
     info=os.stat(current)
     if info.st_size>LARGE_FILE_LIMIT: continue

@@ -108,9 +108,11 @@ export async function searchContentForHost(
   query: string,
   basePath = '',
   includeDotFiles = true,
+  ext?: string,
 ) {
-  if (hostId === 'local') return searchContent(rootId, query, basePath, includeDotFiles)
-  return runRemoteFileJson(hostId, { op: 'search-content', root: rootId, path: basePath, query, includeDotFiles })
+  if (hostId === 'local') return searchContent(rootId, query, basePath, includeDotFiles, ext)
+  // ext 仅作 payload 附带字段：对端旧版脚本会忽略未知 key，天然向后兼容
+  return runRemoteFileJson(hostId, { op: 'search-content', root: rootId, path: basePath, query, includeDotFiles, ext })
 }
 export async function resolveDefaultUploadTargetForHost(hostId: string, paneId?: string) {
   if (hostId === 'local') return resolveDefaultUploadTarget(paneId)

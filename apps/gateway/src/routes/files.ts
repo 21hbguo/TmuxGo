@@ -207,13 +207,21 @@ export async function fileRoutes(fastify: FastifyInstance, options: { taskManage
   })
   fastify.get('/hosts/:hostId/files/search-content', async (request) => {
     const { hostId } = request.params as { hostId: string }
-    const query = request.query as { root?: string; q?: string; basePath?: string; includeDotFiles?: string }
+    const query = request.query as {
+      root?: string
+      q?: string
+      basePath?: string
+      includeDotFiles?: string
+      // 可选扩展名过滤（代码跳转按入口文件类型收窄扫描面）；旧客户端不带此参数
+      ext?: string
+    }
     return searchContentForHost(
       hostId,
       query.root || '',
       query.q || '',
       query.basePath || '',
       query.includeDotFiles !== 'false',
+      query.ext || undefined,
     )
   })
   fastify.get('/hosts/:hostId/files/default-upload-target', async (request) => {

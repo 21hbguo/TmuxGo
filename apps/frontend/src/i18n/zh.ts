@@ -869,6 +869,7 @@ export const zh = {
   'editor.definition': '跳转到定义',
   'editor.definitionNotFound': '未找到定义',
   'editor.definitionUnsupported': '当前语言不支持定义跳转',
+  'editor.definitionSearching': '正在搜索定义…',
   'editor.preview': '预览',
   'editor.syncPreview': '同步预览',
   'editor.saving': '保存中...',
