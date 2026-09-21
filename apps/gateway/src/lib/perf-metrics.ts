@@ -14,6 +14,8 @@ export const streamPerfMetrics = {
   copyModeCancelRequests: 0,
   inputMessages: 0,
   backpressureSignals: 0,
+  // 注意语义：计"被迟滞/宽限窗延迟评估"的次数而非"成功拦截"——其中一部分
+  // 在复查后仍会升级 resync，与 outputResyncRequests 对照看才有意义
   backpressureSuppressed: 0,
   profileUpdates: 0,
   deferredFlushes: 0,
