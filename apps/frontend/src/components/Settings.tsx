@@ -33,6 +33,7 @@ import { PluginSettings } from './PluginSettings'
 import { SystemHealthPanel } from './SystemHealthPanel'
 import { Button } from './Button'
 import { Chip } from './Chip'
+import { Select } from './Select'
 
 interface SettingsProps {
   onClose: () => void
@@ -420,14 +421,15 @@ export function Settings({ onClose }: SettingsProps) {
             <div className="space-y-6">
               <div>
                 <h3 className="text-text-1 text-sm font-medium mb-3">{t('settings.language')}</h3>
-                <select
+                <Select
                   value={preferences.language}
-                  onChange={(e) => updatePreferences({ language: e.target.value as 'zh' | 'en' })}
-                  className="tmuxgo-control tmuxgo-select rounded-apple px-3 py-2 text-sm"
-                >
-                  <option value="zh">中文</option>
-                  <option value="en">English</option>
-                </select>
+                  onChange={(v) => updatePreferences({ language: v as 'zh' | 'en' })}
+                  options={[
+                    { value: 'zh', label: '中文' },
+                    { value: 'en', label: 'English' },
+                  ]}
+                  className="rounded-apple px-3 py-2 text-sm"
+                />
               </div>
 
               <div>
@@ -475,21 +477,17 @@ export function Settings({ onClose }: SettingsProps) {
                   </div>
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-text-2 text-sm">{t('settings.agentNotificationDuration')}</span>
-                    <select
-                      value={preferences.agentNotificationDurationMs}
-                      onChange={(event) =>
-                        updatePreferences({ agentNotificationDurationMs: Number(event.target.value) })
-                      }
+                    <Select
+                      value={String(preferences.agentNotificationDurationMs)}
+                      onChange={(v) => updatePreferences({ agentNotificationDurationMs: Number(v) })}
                       disabled={!preferences.agentNotificationsEnabled}
-                      className="tmuxgo-control tmuxgo-select rounded-apple px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                      options={[3000, 5000, 10000, 30000, 60000].map((duration) => ({
+                        value: String(duration),
+                        label: t('settings.seconds', { count: duration / 1000 }),
+                      }))}
+                      className="rounded-apple px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-50"
                       aria-label={t('settings.agentNotificationDuration')}
-                    >
-                      {[3000, 5000, 10000, 30000, 60000].map((duration) => (
-                        <option key={duration} value={duration}>
-                          {t('settings.seconds', { count: duration / 1000 })}
-                        </option>
-                      ))}
-                    </select>
+                    />
                   </div>
                 </div>
               </div>
@@ -811,19 +809,16 @@ export function Settings({ onClose }: SettingsProps) {
                 <div className="text-sm font-medium text-text-1">{t('settings.shareTitle')}</div>
                 <div className="mt-1 text-xs text-text-3">{t('settings.shareDesc')}</div>
                 <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                  <select
+                  <Select
                     aria-label={t('settings.shareHost')}
                     value={shareHostIdDraft}
-                    onChange={(event) => setShareHostIdDraft(event.target.value)}
-                    className="tmuxgo-control tmuxgo-input rounded-apple px-2 py-1.5 text-sm"
-                  >
-                    <option value="local">{t('settings.shareLocalHost')}</option>
-                    {hosts.map((host) => (
-                      <option key={host.id} value={host.id}>
-                        {host.name || host.id}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={setShareHostIdDraft}
+                    options={[
+                      { value: 'local', label: t('settings.shareLocalHost') },
+                      ...hosts.map((host) => ({ value: host.id, label: host.name || host.id })),
+                    ]}
+                    className="rounded-apple px-2 py-1.5 text-sm"
+                  />
                   <input
                     aria-label={t('settings.shareSession')}
                     value={shareSessionNameDraft}
@@ -831,17 +826,18 @@ export function Settings({ onClose }: SettingsProps) {
                     placeholder={t('settings.shareSession')}
                     className="tmuxgo-control tmuxgo-input rounded-apple px-2 py-1.5 text-sm"
                   />
-                  <select
+                  <Select
                     aria-label={t('settings.shareExpires')}
                     value={shareExpiresInMinutesDraft}
-                    onChange={(event) => setShareExpiresInMinutesDraft(event.target.value)}
-                    className="tmuxgo-control tmuxgo-input rounded-apple px-2 py-1.5 text-sm"
-                  >
-                    <option value="15">{t('settings.shareMinutes', { value: 15 })}</option>
-                    <option value="60">{t('settings.shareHours', { value: 1 })}</option>
-                    <option value="240">{t('settings.shareHours', { value: 4 })}</option>
-                    <option value="1440">{t('settings.shareDays', { value: 1 })}</option>
-                  </select>
+                    onChange={setShareExpiresInMinutesDraft}
+                    options={[
+                      { value: '15', label: t('settings.shareMinutes', { value: 15 }) },
+                      { value: '60', label: t('settings.shareHours', { value: 1 }) },
+                      { value: '240', label: t('settings.shareHours', { value: 4 }) },
+                      { value: '1440', label: t('settings.shareDays', { value: 1 }) },
+                    ]}
+                    className="rounded-apple px-2 py-1.5 text-sm"
+                  />
                 </div>
                 <div className="mt-3 flex justify-end">
                   <Button
@@ -953,45 +949,47 @@ export function Settings({ onClose }: SettingsProps) {
                   </div>
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-text-2 text-sm">{t('settings.archiveCaptureMode')}</span>
-                    <select
+                    <Select
                       value={
                         sessionContinuity.archive.captureMode === 'none'
                           ? 'visible'
                           : sessionContinuity.archive.captureMode
                       }
                       disabled={!sessionContinuity.archive.enabled}
-                      onChange={(event) =>
+                      onChange={(v) =>
                         updateSessionContinuity({
                           archive: {
                             ...sessionContinuity.archive,
-                            captureMode: event.target.value as 'visible' | 'history',
+                            captureMode: v as 'visible' | 'history',
                           },
                         })
                       }
-                      className="tmuxgo-control tmuxgo-select rounded-apple px-3 py-1.5 text-sm disabled:opacity-50"
-                    >
-                      <option value="visible">{t('settings.archiveVisible')}</option>
-                      <option value="history">{t('settings.archiveHistory')}</option>
-                    </select>
+                      options={[
+                        { value: 'visible', label: t('settings.archiveVisible') },
+                        { value: 'history', label: t('settings.archiveHistory') },
+                      ]}
+                      className="rounded-apple px-3 py-1.5 text-sm disabled:opacity-50"
+                    />
                   </div>
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-text-2 text-sm">{t('settings.archiveMaxSize')}</span>
-                    <select
-                      value={sessionContinuity.archive.maxBytesPerSession}
+                    <Select
+                      value={String(sessionContinuity.archive.maxBytesPerSession)}
                       disabled={!sessionContinuity.archive.enabled}
-                      onChange={(event) =>
+                      onChange={(v) =>
                         updateSessionContinuity({
-                          archive: { ...sessionContinuity.archive, maxBytesPerSession: Number(event.target.value) },
+                          archive: { ...sessionContinuity.archive, maxBytesPerSession: Number(v) },
                         })
                       }
-                      className="tmuxgo-control tmuxgo-select rounded-apple px-3 py-1.5 text-sm disabled:opacity-50"
-                    >
-                      <option value={262144}>256 KB</option>
-                      <option value={1048576}>1 MB</option>
-                      <option value={4194304}>4 MB</option>
-                      <option value={16777216}>16 MB</option>
-                      <option value={33554432}>32 MB</option>
-                    </select>
+                      options={[
+                        { value: '262144', label: '256 KB' },
+                        { value: '1048576', label: '1 MB' },
+                        { value: '4194304', label: '4 MB' },
+                        { value: '16777216', label: '16 MB' },
+                        { value: '33554432', label: '32 MB' },
+                      ]}
+                      className="rounded-apple px-3 py-1.5 text-sm disabled:opacity-50"
+                    />
                   </div>
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-text-2 text-sm">{t('settings.archiveRetention')}</span>

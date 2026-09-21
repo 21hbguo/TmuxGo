@@ -3,12 +3,33 @@ import React from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { WorkspaceDirectoryPicker } from './WorkspaceDirectoryPicker'
 
-const { promptMock, createDirectoryMock, refetchCurrent, refetchSelected, rootsState } = vi.hoisted(() => ({ promptMock: vi.fn(), createDirectoryMock: vi.fn(), refetchCurrent: vi.fn(), refetchSelected: vi.fn(), rootsState: { value: [{ id: 'root-workspace', label: 'workspace', path: '/workspace' }] } }))
+const { promptMock, createDirectoryMock, refetchCurrent, refetchSelected, rootsState } = vi.hoisted(() => ({
+  promptMock: vi.fn(),
+  createDirectoryMock: vi.fn(),
+  refetchCurrent: vi.fn(),
+  refetchSelected: vi.fn(),
+  rootsState: { value: [{ id: 'root-workspace', label: 'workspace', path: '/workspace' }] },
+}))
 
 vi.mock('@/hooks/useApi', () => ({
   useFileRoots: () => ({ data: rootsState.value }),
   useFileList: (_hostId: string, _rootId: string, path: string) => ({
-    data: path === 'src' ? { breadcrumbs: [{ name: '/', path: '' }, { name: 'src', path: 'src' }], items: [{ name: 'nested', path: 'src/nested', type: 'directory', size: 0, modifiedAt: '' }] } : { breadcrumbs: [{ name: '/', path: '' }], items: [{ name: 'src', path: 'src', type: 'directory', size: 0, modifiedAt: '' }, { name: 'README.md', path: 'README.md', type: 'file', size: 0, modifiedAt: '' }] },
+    data:
+      path === 'src'
+        ? {
+            breadcrumbs: [
+              { name: '/', path: '' },
+              { name: 'src', path: 'src' },
+            ],
+            items: [{ name: 'nested', path: 'src/nested', type: 'directory', size: 0, modifiedAt: '' }],
+          }
+        : {
+            breadcrumbs: [{ name: '/', path: '' }],
+            items: [
+              { name: 'src', path: 'src', type: 'directory', size: 0, modifiedAt: '' },
+              { name: 'README.md', path: 'README.md', type: 'file', size: 0, modifiedAt: '' },
+            ],
+          },
     isLoading: false,
     isError: false,
     refetch: path ? refetchSelected : refetchCurrent,
@@ -38,7 +59,15 @@ describe('WorkspaceDirectoryPicker', () => {
     fireEvent.click(screen.getByText('src'))
     fireEvent.click(await screen.findByText('nested'))
     fireEvent.click(screen.getByText('workspace.openDirectory'))
-    await waitFor(() => expect(onPick).toHaveBeenCalledWith({ rootId: 'root-workspace', rootPath: '/workspace', rootLabel: 'workspace', relativePath: 'src/nested', absolutePath: '/workspace/src/nested' }))
+    await waitFor(() =>
+      expect(onPick).toHaveBeenCalledWith({
+        rootId: 'root-workspace',
+        rootPath: '/workspace',
+        rootLabel: 'workspace',
+        relativePath: 'src/nested',
+        absolutePath: '/workspace/src/nested',
+      }),
+    )
   })
   it('creates a directory in the selected root', async () => {
     promptMock.mockResolvedValueOnce('new-project')
@@ -48,11 +77,18 @@ describe('WorkspaceDirectoryPicker', () => {
     await waitFor(() => expect(createDirectoryMock).toHaveBeenCalledWith('local', 'root-workspace', '', 'new-project'))
   })
   it('starts from the home root when available', async () => {
-    rootsState.value = [{ id: 'root-workspace', label: 'workspace', path: '/workspace' }, { id: 'root-home', label: 'home', path: '/home/guo' }]
+    rootsState.value = [
+      { id: 'root-workspace', label: 'workspace', path: '/workspace' },
+      { id: 'root-home', label: 'home', path: '/home/guo' },
+    ]
     const onPick = vi.fn()
     render(<WorkspaceDirectoryPicker hostId="local" onPick={onPick} onClose={vi.fn()} />)
-    await waitFor(() => expect(screen.getByRole('combobox')).toHaveValue('root-home'))
+    await waitFor(() => expect(screen.getByRole('combobox')).toHaveAttribute('data-value', 'root-home'))
     fireEvent.click(screen.getByText('workspace.openDirectory'))
-    await waitFor(() => expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ rootId: 'root-home', rootPath: '/home/guo', absolutePath: '/home/guo' })))
+    await waitFor(() =>
+      expect(onPick).toHaveBeenCalledWith(
+        expect.objectContaining({ rootId: 'root-home', rootPath: '/home/guo', absolutePath: '/home/guo' }),
+      ),
+    )
   })
 })

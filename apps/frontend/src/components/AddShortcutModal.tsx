@@ -6,6 +6,7 @@ import { formatKeyEvent } from '@/hooks/useCustomShortcuts'
 import { Button } from './Button'
 import { ModalPortal } from './ModalPortal'
 import { KeyCap } from './KeyCap'
+import { Select } from './Select'
 import { FiChevronUp, FiChevronDown, FiTrash2, FiPlus } from 'react-icons/fi'
 import type { CustomShortcut, ShortcutStep } from '@/types'
 
@@ -21,15 +22,34 @@ const MODIFIERS = ['Ctrl', 'Alt', 'Shift', 'Meta'] as const
 const MAIN_KEYS = [
   ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split(''),
   ...'0123456789'.split(''),
-  'Tab', 'Esc', 'Enter', 'Space', 'Backspace', 'Delete',
-  'Up', 'Down', 'Left', 'Right',
-  'Home', 'End', 'PageUp', 'PageDown',
+  'Tab',
+  'Esc',
+  'Enter',
+  'Space',
+  'Backspace',
+  'Delete',
+  'Up',
+  'Down',
+  'Left',
+  'Right',
+  'Home',
+  'End',
+  'PageUp',
+  'PageDown',
   ...Array.from({ length: 12 }, (_, i) => `F${i + 1}`),
 ]
 
 const STEP_TYPE_OPTIONS: ShortcutStep['type'][] = ['keys', 'text', 'wait']
 
-function KeyStepEditor({ value, onChange, isMobile }: { value: string; onChange: (keys: string) => void; isMobile?: boolean }) {
+function KeyStepEditor({
+  value,
+  onChange,
+  isMobile,
+}: {
+  value: string
+  onChange: (keys: string) => void
+  isMobile?: boolean
+}) {
   const { t } = useTranslation()
   const [recording, setRecording] = useState(false)
   const [mods, setMods] = useState<Record<string, boolean>>({})
@@ -70,20 +90,23 @@ function KeyStepEditor({ value, onChange, isMobile }: { value: string; onChange:
     }
   }, [pickerKeys, isMobile])
 
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (!recording) return
-    e.preventDefault()
-    e.stopPropagation()
-    if (e.key === 'Escape' && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) {
-      setRecording(false)
-      return
-    }
-    const combo = formatKeyEvent(e)
-    if (combo && !['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) {
-      onChange(combo)
-      setRecording(false)
-    }
-  }, [recording, onChange])
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      if (!recording) return
+      e.preventDefault()
+      e.stopPropagation()
+      if (e.key === 'Escape' && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) {
+        setRecording(false)
+        return
+      }
+      const combo = formatKeyEvent(e)
+      if (combo && !['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) {
+        onChange(combo)
+        setRecording(false)
+      }
+    },
+    [recording, onChange],
+  )
 
   useEffect(() => {
     if (!isMobile && recording) {
@@ -97,19 +120,23 @@ function KeyStepEditor({ value, onChange, isMobile }: { value: string; onChange:
       <div className="space-y-1">
         <div className="flex gap-1 flex-wrap">
           {MODIFIERS.map((m) => (
-            <KeyCap key={m} variant="panel" size="sm" tone={mods[m] ? 'accent' : 'default'} onPress={() => setMods((prev) => ({ ...prev, [m]: !prev[m] }))}>
+            <KeyCap
+              key={m}
+              variant="panel"
+              size="sm"
+              tone={mods[m] ? 'accent' : 'default'}
+              onPress={() => setMods((prev) => ({ ...prev, [m]: !prev[m] }))}
+            >
               {m}
             </KeyCap>
           ))}
         </div>
-        <select
+        <Select
           value={mainKey}
-          onChange={(e) => setMainKey(e.target.value)}
-          className="tmuxgo-control tmuxgo-select w-full rounded-apple px-2 py-1 text-xs"
-        >
-          <option value="">{t('shortcut.selectKey')}</option>
-          {MAIN_KEYS.map((k) => <option key={k} value={k}>{k}</option>)}
-        </select>
+          onChange={setMainKey}
+          options={[{ value: '', label: t('shortcut.selectKey') }, ...MAIN_KEYS.map((k) => ({ value: k, label: k }))]}
+          className="w-full rounded-apple px-2 py-1 text-xs"
+        />
         {value && <div className="text-accent text-xs">{value}</div>}
       </div>
     )
@@ -131,12 +158,13 @@ export function AddShortcutModal({ onSave, onClose, isMobile, initialShortcut }:
   const [repeat, setRepeat] = useState(initialShortcut?.repeat === true)
   const [steps, setSteps] = useState<ShortcutStep[]>(() => {
     if (initialShortcut?.steps?.length) return initialShortcut.steps.map((s) => ({ ...s }))
-    if (initialShortcut?.mode === 'text') return [{ type: 'text', text: initialShortcut.text || '', appendEnter: initialShortcut.appendEnter === true }]
+    if (initialShortcut?.mode === 'text')
+      return [{ type: 'text', text: initialShortcut.text || '', appendEnter: initialShortcut.appendEnter === true }]
     return initialShortcut?.keys ? [{ type: 'keys', keys: initialShortcut.keys }] : []
   })
 
   const updateStep = useCallback((index: number, patch: Partial<ShortcutStep>) => {
-    setSteps((prev) => prev.map((s, i) => i === index ? { ...s, ...patch } : s))
+    setSteps((prev) => prev.map((s, i) => (i === index ? { ...s, ...patch } : s)))
   }, [])
 
   const addStep = useCallback(() => {
@@ -157,27 +185,66 @@ export function AddShortcutModal({ onSave, onClose, isMobile, initialShortcut }:
     })
   }, [])
 
-  const stepsValid = steps.length > 0 && steps.every((s) => s.type === 'keys' ? !!(s.keys || '').trim() : s.type === 'text' ? !!(s.text || '').trim() : typeof s.ms === 'number' && Number.isFinite(s.ms) && s.ms > 0 && s.ms <= 60000)
+  const stepsValid =
+    steps.length > 0 &&
+    steps.every((s) =>
+      s.type === 'keys'
+        ? !!(s.keys || '').trim()
+        : s.type === 'text'
+          ? !!(s.text || '').trim()
+          : typeof s.ms === 'number' && Number.isFinite(s.ms) && s.ms > 0 && s.ms <= 60000,
+    )
   const canSave = label.trim() && stepsValid
-  const STEP_TYPE_LABEL: Record<ShortcutStep['type'], string> = { keys: t('shortcut.stepKeys'), text: t('shortcut.stepText'), wait: t('shortcut.stepWait') }
+  const STEP_TYPE_LABEL: Record<ShortcutStep['type'], string> = {
+    keys: t('shortcut.stepKeys'),
+    text: t('shortcut.stepText'),
+    wait: t('shortcut.stepWait'),
+  }
 
   const renderStepEditor = (step: ShortcutStep, index: number) => (
     <div key={index} className="rounded-apple border border-[var(--line)] p-2 space-y-2">
       <div className="flex items-center gap-1">
-        <select
+        <Select
           value={step.type}
-          onChange={(e) => updateStep(index, { type: e.target.value as ShortcutStep['type'], keys: undefined, text: undefined, appendEnter: undefined, ms: undefined })}
-          className="tmuxgo-control tmuxgo-select flex-1 rounded-apple px-2 py-1 text-xs"
+          onChange={(v) =>
+            updateStep(index, {
+              type: v as ShortcutStep['type'],
+              keys: undefined,
+              text: undefined,
+              appendEnter: undefined,
+              ms: undefined,
+            })
+          }
+          options={STEP_TYPE_OPTIONS.map((opt) => ({ value: opt, label: STEP_TYPE_LABEL[opt] }))}
+          className="flex-1 rounded-apple px-2 py-1 text-xs"
+        />
+        <button
+          type="button"
+          onClick={() => moveStep(index, -1)}
+          disabled={index === 0}
+          aria-label={t('shortcut.moveUp')}
+          title={t('shortcut.moveUp')}
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-apple text-text-3 transition-colors hover:bg-accent/15 hover:text-accent disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-text-3"
         >
-          {STEP_TYPE_OPTIONS.map((opt) => <option key={opt} value={opt}>{STEP_TYPE_LABEL[opt]}</option>)}
-        </select>
-        <button type="button" onClick={() => moveStep(index, -1)} disabled={index === 0} aria-label={t('shortcut.moveUp')} title={t('shortcut.moveUp')} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-apple text-text-3 transition-colors hover:bg-accent/15 hover:text-accent disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-text-3">
           <FiChevronUp aria-hidden="true" size={13} />
         </button>
-        <button type="button" onClick={() => moveStep(index, 1)} disabled={index === steps.length - 1} aria-label={t('shortcut.moveDown')} title={t('shortcut.moveDown')} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-apple text-text-3 transition-colors hover:bg-accent/15 hover:text-accent disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-text-3">
+        <button
+          type="button"
+          onClick={() => moveStep(index, 1)}
+          disabled={index === steps.length - 1}
+          aria-label={t('shortcut.moveDown')}
+          title={t('shortcut.moveDown')}
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-apple text-text-3 transition-colors hover:bg-accent/15 hover:text-accent disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-text-3"
+        >
           <FiChevronDown aria-hidden="true" size={13} />
         </button>
-        <button type="button" onClick={() => removeStep(index)} aria-label={t('shortcut.removeStep')} title={t('shortcut.removeStep')} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-apple text-text-3 transition-colors hover:bg-danger/15 hover:text-danger">
+        <button
+          type="button"
+          onClick={() => removeStep(index)}
+          aria-label={t('shortcut.removeStep')}
+          title={t('shortcut.removeStep')}
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-apple text-text-3 transition-colors hover:bg-danger/15 hover:text-danger"
+        >
           <FiTrash2 aria-hidden="true" size={13} />
         </button>
       </div>
@@ -194,14 +261,20 @@ export function AddShortcutModal({ onSave, onClose, isMobile, initialShortcut }:
             maxLength={4096}
           />
           <label className="flex items-center gap-1 text-text-2 text-xs cursor-pointer">
-            <input type="checkbox" checked={step.appendEnter === true} onChange={(e) => updateStep(index, { appendEnter: e.target.checked })} />
+            <input
+              type="checkbox"
+              checked={step.appendEnter === true}
+              onChange={(e) => updateStep(index, { appendEnter: e.target.checked })}
+            />
             {t('shortcut.appendEnter')}
           </label>
         </div>
       )}
       {step.type === 'wait' && (
         <div>
-          <label className="text-text-3 text-xs mb-1 block" htmlFor={`shortcut-wait-${index}`}>{t('shortcut.waitMs')}</label>
+          <label className="text-text-3 text-xs mb-1 block" htmlFor={`shortcut-wait-${index}`}>
+            {t('shortcut.waitMs')}
+          </label>
           <input
             id={`shortcut-wait-${index}`}
             type="number"
@@ -217,60 +290,67 @@ export function AddShortcutModal({ onSave, onClose, isMobile, initialShortcut }:
     </div>
   )
 
-  return <ModalPortal>
-    <div className="fixed inset-0 z-50 flex items-center justify-center tmuxgo-scrim" onClick={onClose}>
-      <div className="tmuxgo-glass tmuxgo-glass-dialog w-96 rounded-apple border p-4 max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <h3 className="text-text-1 text-sm font-medium mb-3">{t(initialShortcut ? 'shortcut.edit' : 'shortcut.add')}</h3>
+  return (
+    <ModalPortal>
+      <div className="fixed inset-0 z-50 flex items-center justify-center tmuxgo-scrim" onClick={onClose}>
+        <div
+          className="tmuxgo-glass tmuxgo-glass-dialog w-96 rounded-apple border p-4 max-h-[85vh] overflow-y-auto"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <h3 className="text-text-1 text-sm font-medium mb-3">
+            {t(initialShortcut ? 'shortcut.edit' : 'shortcut.add')}
+          </h3>
 
-        <div className="space-y-3">
-          <div>
-            <div className="space-y-2">
-              {steps.map((step, index) => renderStepEditor(step, index))}
-              {steps.length === 0 && <div className="text-text-3 text-xs">{t('shortcut.noSteps')}</div>}
+          <div className="space-y-3">
+            <div>
+              <div className="space-y-2">
+                {steps.map((step, index) => renderStepEditor(step, index))}
+                {steps.length === 0 && <div className="text-text-3 text-xs">{t('shortcut.noSteps')}</div>}
+              </div>
+              <button
+                type="button"
+                onClick={addStep}
+                className="mt-2 flex w-full items-center justify-center gap-1 px-2 py-1.5 rounded-apple text-xs transition-colors border border-dashed border-[var(--line)] text-text-3 hover:text-text-2 hover:border-accent/50"
+              >
+                <FiPlus aria-hidden="true" size={13} />
+                {t('shortcut.addStep')}
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={addStep}
-              className="mt-2 flex w-full items-center justify-center gap-1 px-2 py-1.5 rounded-apple text-xs transition-colors border border-dashed border-[var(--line)] text-text-3 hover:text-text-2 hover:border-accent/50"
+
+            <div>
+              <label className="text-text-3 text-xs mb-1 block">{t('shortcut.label')}</label>
+              <input
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                className="tmuxgo-control tmuxgo-input w-full rounded-apple px-2 py-1.5 text-sm"
+                placeholder={t('shortcut.macroLabelPlaceholder')}
+              />
+            </div>
+            <label className="flex items-center gap-1 text-text-2 text-xs cursor-pointer">
+              <input type="checkbox" checked={repeat} onChange={(e) => setRepeat(e.target.checked)} />
+              {t('shortcut.repeatHold')}
+            </label>
+          </div>
+
+          <div className="flex gap-2 mt-4">
+            <Button variant="ghost" size="sm" className="flex-1" onClick={onClose}>
+              {t('shortcut.cancel')}
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              className="flex-1"
+              disabled={!canSave}
+              onClick={() => {
+                if (!canSave) return
+                onSave({ label: label.trim(), steps, repeat })
+              }}
             >
-              <FiPlus aria-hidden="true" size={13} />
-              {t('shortcut.addStep')}
-            </button>
+              {t('shortcut.save')}
+            </Button>
           </div>
-
-          <div>
-            <label className="text-text-3 text-xs mb-1 block">{t('shortcut.label')}</label>
-            <input
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              className="tmuxgo-control tmuxgo-input w-full rounded-apple px-2 py-1.5 text-sm"
-              placeholder={t('shortcut.macroLabelPlaceholder')}
-            />
-          </div>
-          <label className="flex items-center gap-1 text-text-2 text-xs cursor-pointer">
-            <input type="checkbox" checked={repeat} onChange={(e) => setRepeat(e.target.checked)} />
-            {t('shortcut.repeatHold')}
-          </label>
-        </div>
-
-        <div className="flex gap-2 mt-4">
-          <Button variant="ghost" size="sm" className="flex-1" onClick={onClose}>
-            {t('shortcut.cancel')}
-          </Button>
-          <Button
-            variant="primary"
-            size="sm"
-            className="flex-1"
-            disabled={!canSave}
-            onClick={() => {
-              if (!canSave) return
-              onSave({ label: label.trim(), steps, repeat })
-            }}
-          >
-            {t('shortcut.save')}
-          </Button>
         </div>
       </div>
-    </div>
-  </ModalPortal>
+    </ModalPortal>
+  )
 }

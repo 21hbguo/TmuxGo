@@ -378,6 +378,24 @@ vi.mock('@/i18n', () => ({
   }),
 }))
 
+// 自定义 Select：trigger 是 role=combobox 的 button，选项只在展开时渲染
+const rootCombobox = () => screen.getAllByRole('combobox')[0]
+const rootValue = () => rootCombobox().getAttribute('data-value')
+const chooseRoot = async (value: string) => {
+  fireEvent.click(rootCombobox())
+  const option = await waitFor(() => {
+    const el = document.querySelector(`[role="option"][data-value="${value}"]`)
+    if (!el) throw new Error(`option ${value} not rendered`)
+    return el
+  })
+  fireEvent.click(option)
+}
+const openRootSelect = async () => {
+  fireEvent.click(rootCombobox())
+  await screen.findByRole('listbox')
+}
+const closeRootSelect = () => fireEvent.keyDown(rootCombobox(), { key: 'Escape' })
+
 describe('FilePanel', () => {
   beforeEach(() => {
     localStorage.clear()
@@ -412,9 +430,13 @@ describe('FilePanel', () => {
 
   it('shows workspace as the default quick access root', async () => {
     render(React.createElement(FilePanel))
-    expect(await screen.findByRole('option', { name: 'Workspace' })).toBeInTheDocument()
-    expect(await screen.findByRole('option', { name: 'Home' })).toBeInTheDocument()
-    expect((screen.getAllByRole('combobox')[0] as HTMLSelectElement).value).toBe('root-workspace')
+    await openRootSelect()
+    expect(screen.getByRole('option', { name: 'Workspace' })).toBeInTheDocument()
+    closeRootSelect()
+    await openRootSelect()
+    expect(screen.getByRole('option', { name: 'Home' })).toBeInTheDocument()
+    closeRootSelect()
+    expect(rootValue()).toBe('root-workspace')
   })
   it('commits panel width after resizing completes', async () => {
     const { container } = render(React.createElement(FilePanel))
@@ -467,8 +489,10 @@ describe('FilePanel', () => {
       JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]),
     )
     render(React.createElement(FilePanel))
-    expect(await screen.findByRole('option', { name: 'project' })).toBeInTheDocument()
-    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'favorite:root-home:project' } })
+    await openRootSelect()
+    expect(screen.getByRole('option', { name: 'project' })).toBeInTheDocument()
+    closeRootSelect()
+    await chooseRoot('favorite:root-home:project')
     await waitFor(() => expect(screen.getByText('demo.txt')).toBeInTheDocument())
   })
   it('clears stale currentPath when opening a favorite shortcut after going to parent', async () => {
@@ -502,8 +526,10 @@ describe('FilePanel', () => {
       JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]),
     )
     render(React.createElement(FilePanel, { onOpenFile }))
+    await openRootSelect()
     await screen.findByRole('option', { name: 'project' })
-    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'favorite:root-home:project' } })
+    closeRootSelect()
+    await chooseRoot('favorite:root-home:project')
     fireEvent.click(await screen.findByText('demo.txt'))
     expect(onOpenFile).toHaveBeenCalledTimes(1)
     expect(onOpenFile.mock.calls[0][0]).toMatchObject({
@@ -532,8 +558,10 @@ describe('FilePanel', () => {
       JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]),
     )
     render(React.createElement(FilePanel))
+    await openRootSelect()
     await screen.findByRole('option', { name: 'project' })
-    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'favorite:root-home:project' } })
+    closeRootSelect()
+    await chooseRoot('favorite:root-home:project')
     fireEvent.contextMenu(await screen.findByText('demo.txt'))
     fireEvent.click(await screen.findByText('Copy path'))
     expect(clipboardMocks.writeClipboardText).toHaveBeenCalledWith('/home/guo/project/demo.txt')
@@ -567,12 +595,14 @@ describe('FilePanel', () => {
       JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]),
     )
     render(React.createElement(FilePanel))
+    await openRootSelect()
     await screen.findByRole('option', { name: 'project' })
-    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'favorite:root-home:project' } })
+    closeRootSelect()
+    await chooseRoot('favorite:root-home:project')
     const removeBtn = await screen.findByRole('button', { name: 'Unfavorite' })
     fireEvent.click(removeBtn)
     await waitFor(() => expect(screen.queryByRole('option', { name: 'project' })).not.toBeInTheDocument())
-    expect((screen.getAllByRole('combobox')[0] as HTMLSelectElement).value).toBe('root-home')
+    expect(rootValue()).toBe('root-home')
     const favorites = JSON.parse(localStorage.getItem('tmuxgo-favorite-directories') || '[]')
     expect(favorites).toEqual([])
   })
@@ -615,8 +645,10 @@ describe('FilePanel', () => {
       ]),
     )
     const view = render(React.createElement(FilePanel))
+    await openRootSelect()
     await screen.findByRole('option', { name: 'docs' })
-    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'favorite:root-home:docs' } })
+    closeRootSelect()
+    await chooseRoot('favorite:root-home:docs')
     await waitFor(() => expect(screen.getByText('guide.md')).toBeInTheDocument())
     consoleStoreState.openEditors = [
       {
@@ -643,9 +675,7 @@ describe('FilePanel', () => {
     ]
     consoleStoreState.activeEditorId = 'local:root-home:project/demo.txt'
     view.rerender(React.createElement(FilePanel))
-    await waitFor(() =>
-      expect((screen.getAllByRole('combobox')[0] as HTMLSelectElement).value).toBe('favorite:root-home:project'),
-    )
+    await waitFor(() => expect(rootValue()).toBe('favorite:root-home:project'))
     expect(screen.getByText('demo.txt')).toBeInTheDocument()
     expect(document.querySelector('.tmuxgo-file-tree [data-selected="true"]')?.textContent).toContain('demo.txt')
   })
@@ -702,10 +732,12 @@ describe('FilePanel', () => {
     )
     render(React.createElement(FilePanel))
     const input = screen.getByPlaceholderText('Search file names') as HTMLInputElement
+    await openRootSelect()
     await screen.findByRole('option', { name: 'project' })
+    closeRootSelect()
     fireEvent.change(input, { target: { value: 'project' } })
     expect(input.value).toBe('project')
-    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'favorite:root-home:project' } })
+    await chooseRoot('favorite:root-home:project')
     await waitFor(() => expect(screen.getByText('project')).toBeInTheDocument())
     expect(input.value).toBe('project')
   })
@@ -739,14 +771,14 @@ describe('FilePanel', () => {
     ]
     consoleStoreState.activeEditorId = 'local:root-home:project/demo.txt'
     const view = render(React.createElement(FilePanel))
+    await openRootSelect()
     await screen.findByRole('option', { name: 'project' })
-    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'favorite:root-home:project' } })
+    closeRootSelect()
+    await chooseRoot('favorite:root-home:project')
     await waitFor(() => expect(screen.getByText('demo.txt')).toBeInTheDocument())
     consoleStoreState.activeSessionId = 'session-b'
     view.rerender(React.createElement(FilePanel))
-    await waitFor(() =>
-      expect((screen.getAllByRole('combobox')[0] as HTMLSelectElement).value).toBe('favorite:root-home:project'),
-    )
+    await waitFor(() => expect(rootValue()).toBe('favorite:root-home:project'))
     expect(screen.getByText('demo.txt')).toBeInTheDocument()
   })
   it('keeps the expanded directory when the session changes', async () => {
@@ -777,7 +809,7 @@ describe('FilePanel', () => {
     expect(paneCwdMocks.calls).toContain('local:%1')
     paneCwdMocks.cwd = '/home/guo/docs'
     view.rerender(React.createElement(FilePanel))
-    await waitFor(() => expect((screen.getAllByRole('combobox')[0] as HTMLSelectElement).value).toBe('root-home'))
+    await waitFor(() => expect(rootValue()).toBe('root-home'))
     await waitFor(() => expect(screen.getByText('guide.md')).toBeInTheDocument())
   })
   it('highlights the active editor inside the followed pane cwd', async () => {
@@ -838,15 +870,15 @@ describe('FilePanel', () => {
     fireEvent.click(await screen.findByRole('switch', { name: 'Follow terminal cwd' }))
     await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
     // 手动切根 → 跟随挂起，同 pane 的 cwd 更新不再覆盖
-    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'root-home' } })
-    await waitFor(() => expect((screen.getAllByRole('combobox')[0] as HTMLSelectElement).value).toBe('root-home'))
+    await chooseRoot('root-home')
+    await waitFor(() => expect(rootValue()).toBe('root-home'))
     paneCwdMocks.cwd = '/workspace'
     view.rerender(React.createElement(FilePanel))
-    await waitFor(() => expect((screen.getAllByRole('combobox')[0] as HTMLSelectElement).value).toBe('root-home'))
+    await waitFor(() => expect(rootValue()).toBe('root-home'))
     // 切到别的 pane → 恢复跟随
     consoleStoreState.activePaneId = 'local:%2'
     view.rerender(React.createElement(FilePanel))
-    await waitFor(() => expect((screen.getAllByRole('combobox')[0] as HTMLSelectElement).value).toBe('root-workspace'))
+    await waitFor(() => expect(rootValue()).toBe('root-workspace'))
   })
   it('ignores a pane cwd outside the file roots', async () => {
     consoleStoreState.activePaneId = 'local:%1'
@@ -854,7 +886,7 @@ describe('FilePanel', () => {
     render(React.createElement(FilePanel))
     fireEvent.click(await screen.findByRole('switch', { name: 'Follow terminal cwd' }))
     await waitFor(() => expect(paneCwdMocks.calls).toContain('local:%1'))
-    expect((screen.getAllByRole('combobox')[0] as HTMLSelectElement).value).toBe('root-workspace')
+    expect(rootValue()).toBe('root-workspace')
     expect(screen.getByText('docs')).toBeInTheDocument()
   })
   it('keeps search query after opening favorite directory shortcut', async () => {
@@ -866,7 +898,7 @@ describe('FilePanel', () => {
     const input = screen.getByPlaceholderText('Search file names') as HTMLInputElement
     fireEvent.change(input, { target: { value: 'project' } })
     expect(input.value).toBe('project')
-    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'favorite:root-home:project' } })
+    await chooseRoot('favorite:root-home:project')
     await waitFor(() => expect(screen.getByText('demo.txt')).toBeInTheDocument())
     expect(input.value).toBe('project')
   })
@@ -1289,7 +1321,7 @@ describe('FilePanel', () => {
       modifiedAt: '2026-05-26T00:00:00.000Z',
     }))
     render(React.createElement(FilePanel))
-    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'root-large' } })
+    await chooseRoot('root-large')
     expect(await screen.findByText('file-79.txt')).toBeInTheDocument()
     expect(screen.getByText('file-80.txt')).toBeInTheDocument()
     expect(screen.getByText('file-120.txt')).toBeInTheDocument()

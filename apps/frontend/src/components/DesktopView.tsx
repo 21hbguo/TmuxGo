@@ -43,6 +43,7 @@ import { getVncWebSocketBase } from '@/lib/runtime-endpoints'
 import { attachVncClipboardSync } from '@/lib/vnc-clipboard'
 import { useConsoleStore, type DesktopViewMode } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
+import { Select } from './Select'
 
 type VncStatus = 'idle' | 'connecting' | 'connected' | 'disconnected'
 
@@ -832,21 +833,18 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
             ))}
             <label className="flex items-center gap-2">
               <span className="w-14 shrink-0 text-text-3">{t('vnc.resolution')}</span>
-              <select
+              <Select
                 value={resolution}
-                onChange={(event) => setResolution(event.target.value)}
+                onChange={setResolution}
                 disabled={viewOnly}
                 title={viewOnly ? t('vnc.viewOnly') : undefined}
-                className="h-7 min-w-0 flex-1 rounded-apple border border-[var(--line)] bg-bg-1 px-1.5 text-xs text-text-1 outline-none focus:border-accent"
-              >
-                <option value="off">{t('vnc.resolution.off')}</option>
-                <option value="auto">{t('vnc.resolution.auto')}</option>
-                {VNC_RESOLUTION_PRESETS.map((preset) => (
-                  <option key={preset} value={preset}>
-                    {preset.replace('x', '×')}
-                  </option>
-                ))}
-              </select>
+                options={[
+                  { value: 'off', label: t('vnc.resolution.off') },
+                  { value: 'auto', label: t('vnc.resolution.auto') },
+                  ...VNC_RESOLUTION_PRESETS.map((preset) => ({ value: preset, label: preset.replace('x', '×') })),
+                ]}
+                className="h-7 min-w-0 flex-1 rounded-apple px-1.5 text-xs"
+              />
             </label>
             <label className="flex items-center justify-between">
               <span className="text-text-3">{t('vnc.lossless')}</span>

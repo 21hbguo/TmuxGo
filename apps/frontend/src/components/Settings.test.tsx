@@ -5,14 +5,28 @@ import { act } from 'react'
 import { vi } from 'vitest'
 import { Settings } from './Settings'
 import { I18nProvider } from '@/i18n'
-const pushToast=vi.fn()
-const updatePreferences=vi.fn()
-const restartRebuild=vi.fn()
-const copy=vi.fn()
-const shareApi=vi.hoisted(() => ({ list: vi.fn(), create: vi.fn(), revoke: vi.fn() }))
-const restartStatusState: { data: { status: string; startedAt: string | null; finishedAt: string | null; summaryLines: string[]; exitCode: number | null; errorMessage: string | null }; refetch: ReturnType<typeof vi.fn> } = { data: { status: 'idle', startedAt: null, finishedAt: null, summaryLines: [], exitCode: null, errorMessage: null }, refetch: vi.fn() }
+const pushToast = vi.fn()
+const updatePreferences = vi.fn()
+const restartRebuild = vi.fn()
+const copy = vi.fn()
+const shareApi = vi.hoisted(() => ({ list: vi.fn(), create: vi.fn(), revoke: vi.fn() }))
+const restartStatusState: {
+  data: {
+    status: string
+    startedAt: string | null
+    finishedAt: string | null
+    summaryLines: string[]
+    exitCode: number | null
+    errorMessage: string | null
+  }
+  refetch: ReturnType<typeof vi.fn>
+} = {
+  data: { status: 'idle', startedAt: null, finishedAt: null, summaryLines: [], exitCode: null, errorMessage: null },
+  refetch: vi.fn(),
+}
 vi.mock('@/stores/useConsoleStore', () => ({
-  useConsoleStore: (selector: any) => selector({ pushToast, activeHostId: 'local', activeSessionId: 'session-local-dev' }),
+  useConsoleStore: (selector: any) =>
+    selector({ pushToast, activeHostId: 'local', activeSessionId: 'session-local-dev' }),
 }))
 vi.mock('@/hooks/usePreferences', () => ({
   usePreferences: () => ({
@@ -39,7 +53,14 @@ vi.mock('@/hooks/usePreferences', () => ({
 }))
 vi.mock('@/hooks/useSessionContinuity', () => ({
   useSessionContinuity: () => ({
-    sessionContinuity: { enabled: true, resumeOnReconnect: true, resumeOnNewDevice: false, resumePoints: [], maxResumePoints: 10, archive: { enabled: false, captureMode: 'none', maxBytesPerSession: 262144, retentionDays: 7 } },
+    sessionContinuity: {
+      enabled: true,
+      resumeOnReconnect: true,
+      resumeOnNewDevice: false,
+      resumePoints: [],
+      maxResumePoints: 10,
+      archive: { enabled: false, captureMode: 'none', maxBytesPerSession: 262144, retentionDays: 7 },
+    },
     updateSessionContinuity: vi.fn(),
   }),
 }))
@@ -50,7 +71,28 @@ vi.mock('@/hooks/useAppVersion', () => ({
   useAppVersion: () => ({ data: { version: '0.1.0', buildId: '0.1.0-1900913' }, isLoading: false, error: null }),
 }))
 vi.mock('@/hooks/useApi', () => ({
-  useHosts: () => ({ data: [{ id: 'edge', name: 'Edge', address: '10.0.0.8', user: 'deploy', port: 22, tags: ['agent', 'production'], userTags: ['production'], connectionMode: 'agent', agent: { version: '1.2.3', online: false, lastSeenAt: '2026-08-02T00:00:00.000Z', lastDisconnectedAt: '2026-08-02T00:01:00.000Z', disconnectReason: 'Heartbeat timed out', reconnectCount: 3 } }] }),
+  useHosts: () => ({
+    data: [
+      {
+        id: 'edge',
+        name: 'Edge',
+        address: '10.0.0.8',
+        user: 'deploy',
+        port: 22,
+        tags: ['agent', 'production'],
+        userTags: ['production'],
+        connectionMode: 'agent',
+        agent: {
+          version: '1.2.3',
+          online: false,
+          lastSeenAt: '2026-08-02T00:00:00.000Z',
+          lastDisconnectedAt: '2026-08-02T00:01:00.000Z',
+          disconnectReason: 'Heartbeat timed out',
+          reconnectCount: 3,
+        },
+      },
+    ],
+  }),
   useRestartRebuildStatus: () => restartStatusState,
   useRestartRebuild: () => ({ mutateAsync: restartRebuild, isPending: false }),
   useAppUpdateStatus: () => ({ data: null, isLoading: false, error: null, refetch: vi.fn() }),
@@ -72,13 +114,27 @@ describe('Settings restart rebuild', () => {
     shareApi.revoke.mockReset()
     copy.mockResolvedValue(true)
     shareApi.list.mockResolvedValue({ links: [] })
-    restartStatusState.data = { status: 'idle', startedAt: null, finishedAt: null, summaryLines: [], exitCode: null, errorMessage: null }
+    restartStatusState.data = {
+      status: 'idle',
+      startedAt: null,
+      finishedAt: null,
+      summaryLines: [],
+      exitCode: null,
+      errorMessage: null,
+    }
     restartStatusState.refetch.mockReset()
     localStorage.setItem('tmuxgo-preferences', JSON.stringify({ language: 'en' }))
   })
   it('asks for confirmation before triggering restart rebuild', async () => {
     const user = userEvent.setup()
-    restartRebuild.mockResolvedValue({ status: 'running', startedAt: '2026-06-08T00:00:00.000Z', finishedAt: null, summaryLines: ['Starting TmuxGo development servers...'], exitCode: null, errorMessage: null })
+    restartRebuild.mockResolvedValue({
+      status: 'running',
+      startedAt: '2026-06-08T00:00:00.000Z',
+      finishedAt: null,
+      summaryLines: ['Starting TmuxGo development servers...'],
+      exitCode: null,
+      errorMessage: null,
+    })
     render(React.createElement(I18nProvider, null, React.createElement(Settings, { onClose: vi.fn() })))
     await act(async () => {
       await user.click(screen.getByRole('button', { name: 'About' }))
@@ -93,7 +149,8 @@ describe('Settings restart rebuild', () => {
     render(React.createElement(I18nProvider, null, React.createElement(Settings, { onClose: vi.fn() })))
     await user.click(screen.getByRole('button', { name: 'Enable Agent notifications' }))
     expect(updatePreferences).toHaveBeenCalledWith({ agentNotificationsEnabled: false })
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Dismiss after' }), '30000')
+    await user.click(screen.getByRole('combobox', { name: 'Dismiss after' }))
+    await user.click(await screen.findByRole('option', { name: '30 seconds' }))
     expect(updatePreferences).toHaveBeenCalledWith({ agentNotificationDurationMs: 30000 })
   })
   it('renders running status and recent summary lines', async () => {
@@ -128,7 +185,15 @@ describe('Settings restart rebuild', () => {
   })
   it('creates and copies a session-scoped share link', async () => {
     const user = userEvent.setup()
-    shareApi.create.mockResolvedValue({ id: 'share-1', hostId: 'local', sessionName: 'dev', createdAt: '2026-08-02T00:00:00.000Z', expiresAt: '2026-08-02T01:00:00.000Z', revokedAt: null, token: 'share-token' })
+    shareApi.create.mockResolvedValue({
+      id: 'share-1',
+      hostId: 'local',
+      sessionName: 'dev',
+      createdAt: '2026-08-02T00:00:00.000Z',
+      expiresAt: '2026-08-02T01:00:00.000Z',
+      revokedAt: null,
+      token: 'share-token',
+    })
     render(React.createElement(I18nProvider, null, React.createElement(Settings, { onClose: vi.fn() })))
     await user.click(screen.getByRole('button', { name: 'Security' }))
     await user.click(screen.getByRole('button', { name: 'Create link' }))

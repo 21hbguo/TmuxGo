@@ -9,6 +9,7 @@ import { useTranslation } from '@/i18n'
 import type { FileUploadTarget } from '@/types'
 import { Button } from './Button'
 import { ModalPortal } from './ModalPortal'
+import { Select } from './Select'
 
 function formatSize(size: number) {
   if (size < 1024) return `${size}B`
@@ -39,7 +40,13 @@ export function UploadConfirmDialog() {
   const files = uploadRequest?.files || []
   const open = files.length > 0
   const totalSize = useMemo(() => files.reduce((sum, file) => sum + file.size, 0), [files])
-  const requestKey = useMemo(() => open ? `${uploadRequest?.temporary ? 'tmp' : 'default'}:${uploadRequest?.preferredRootId || ''}:${uploadRequest?.preferredPath || ''}:${files.map((file) => `${file.name}:${file.size}:${file.lastModified}`).join('|')}` : '', [open, uploadRequest?.temporary, uploadRequest?.preferredRootId, uploadRequest?.preferredPath, files])
+  const requestKey = useMemo(
+    () =>
+      open
+        ? `${uploadRequest?.temporary ? 'tmp' : 'default'}:${uploadRequest?.preferredRootId || ''}:${uploadRequest?.preferredPath || ''}:${files.map((file) => `${file.name}:${file.size}:${file.lastModified}`).join('|')}`
+        : '',
+    [open, uploadRequest?.temporary, uploadRequest?.preferredRootId, uploadRequest?.preferredPath, files],
+  )
 
   useEffect(() => {
     rootsRef.current = roots
@@ -58,16 +65,21 @@ export function UploadConfirmDialog() {
       setTargetRootId('')
       setTargetPath('')
       setLoadingTarget(true)
-      void api.files.temporaryUploadTarget(hostId).then((target) => {
-        if (cancelled) return
-        setTemporaryTarget(target)
-        setTargetRootId(target.rootId)
-        setTargetPath(target.path)
-      }).catch((err) => {
-        if (!cancelled) pushToast({ type: 'error', message: err instanceof Error ? err.message : t('upload.resolveFailed') })
-      }).finally(() => {
-        if (!cancelled) setLoadingTarget(false)
-      })
+      void api.files
+        .temporaryUploadTarget(hostId)
+        .then((target) => {
+          if (cancelled) return
+          setTemporaryTarget(target)
+          setTargetRootId(target.rootId)
+          setTargetPath(target.path)
+        })
+        .catch((err) => {
+          if (!cancelled)
+            pushToast({ type: 'error', message: err instanceof Error ? err.message : t('upload.resolveFailed') })
+        })
+        .finally(() => {
+          if (!cancelled) setLoadingTarget(false)
+        })
       return () => {
         cancelled = true
       }
@@ -80,19 +92,23 @@ export function UploadConfirmDialog() {
     }
     let cancelled = false
     setLoadingTarget(true)
-    void api.files.defaultUploadTarget(hostId, activePaneId || undefined).then((target) => {
-      if (cancelled) return
-      setTargetRootId(target.rootId)
-      setTargetPath(target.path)
-    }).catch((err) => {
-      if (cancelled) return
-      const fallbackRoot = rootsRef.current[0]
-      setTargetRootId(fallbackRoot?.id || '')
-      setTargetPath('')
-      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('upload.resolveFailed') })
-    }).finally(() => {
-      if (!cancelled) setLoadingTarget(false)
-    })
+    void api.files
+      .defaultUploadTarget(hostId, activePaneId || undefined)
+      .then((target) => {
+        if (cancelled) return
+        setTargetRootId(target.rootId)
+        setTargetPath(target.path)
+      })
+      .catch((err) => {
+        if (cancelled) return
+        const fallbackRoot = rootsRef.current[0]
+        setTargetRootId(fallbackRoot?.id || '')
+        setTargetPath('')
+        pushToast({ type: 'error', message: err instanceof Error ? err.message : t('upload.resolveFailed') })
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingTarget(false)
+      })
     return () => {
       cancelled = true
     }
@@ -102,10 +118,16 @@ export function UploadConfirmDialog() {
     setTargetRootId(roots[0].id)
   }, [open, uploadRequest?.temporary, targetRootId, roots])
 
-  const activeRoot = temporaryTarget && temporaryTarget.rootId === targetRootId ? { id: temporaryTarget.rootId, label: temporaryTarget.rootLabel, path: temporaryTarget.rootPath } : roots.find((item) => item.id === targetRootId) || roots[0] || null
+  const activeRoot =
+    temporaryTarget && temporaryTarget.rootId === targetRootId
+      ? { id: temporaryTarget.rootId, label: temporaryTarget.rootLabel, path: temporaryTarget.rootPath }
+      : roots.find((item) => item.id === targetRootId) || roots[0] || null
   const pathPreview = useMemo(() => {
     if (!activeRoot) return ''
-    const normalized = targetPath.split(/[\\/]+/).filter(Boolean).join('/')
+    const normalized = targetPath
+      .split(/[\\/]+/)
+      .filter(Boolean)
+      .join('/')
     return normalized ? `${activeRoot.path}/${normalized}` : activeRoot.path
   }, [activeRoot, targetPath])
 
@@ -150,31 +172,65 @@ export function UploadConfirmDialog() {
             try {
               const task = (await api.system.tasks()).tasks.find((item) => item.id === result.task.id)
               if (task?.status === 'success') {
-                const taskResult = task.result && typeof task.result === 'object' ? task.result as { files?: { absolutePath?: unknown }[] } : null
-                const uploadedFiles = taskResult?.files?.filter((file): file is { absolutePath: string } => typeof file.absolutePath === 'string') || []
-                updateUploadJob(jobId, { loadedBytes: totalBytes, totalBytes, status: 'success', finishedAt: new Date().toISOString() })
-                if (insertPaths && uploadedFiles.length) window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data: uploadedFiles.map((file) => quoteShellPath(file.absolutePath)).join(' ') } }))
+                const taskResult =
+                  task.result && typeof task.result === 'object'
+                    ? (task.result as { files?: { absolutePath?: unknown }[] })
+                    : null
+                const uploadedFiles =
+                  taskResult?.files?.filter(
+                    (file): file is { absolutePath: string } => typeof file.absolutePath === 'string',
+                  ) || []
+                updateUploadJob(jobId, {
+                  loadedBytes: totalBytes,
+                  totalBytes,
+                  status: 'success',
+                  finishedAt: new Date().toISOString(),
+                })
+                if (insertPaths && uploadedFiles.length)
+                  window.dispatchEvent(
+                    new CustomEvent('tmuxgo-terminal-input', {
+                      detail: { data: uploadedFiles.map((file) => quoteShellPath(file.absolutePath)).join(' ') },
+                    }),
+                  )
                 return
               }
               if (task && task.status !== 'running') {
-                updateUploadJob(jobId, { status: 'error', finishedAt: new Date().toISOString(), errorMessage: task.errorMessage || t('upload.failed') })
+                updateUploadJob(jobId, {
+                  status: 'error',
+                  finishedAt: new Date().toISOString(),
+                  errorMessage: task.errorMessage || t('upload.failed'),
+                })
                 return
               }
             } catch {}
             await new Promise((resolve) => window.setTimeout(resolve, 500))
           }
-          updateUploadJob(jobId, { status: 'error', finishedAt: new Date().toISOString(), errorMessage: t('upload.failed') })
+          updateUploadJob(jobId, {
+            status: 'error',
+            finishedAt: new Date().toISOString(),
+            errorMessage: t('upload.failed'),
+          })
         })()
         return
       }
-      updateUploadJob(jobId, { loadedBytes: totalBytes, totalBytes, status: 'success', finishedAt: new Date().toISOString(), result })
+      updateUploadJob(jobId, {
+        loadedBytes: totalBytes,
+        totalBytes,
+        status: 'success',
+        finishedAt: new Date().toISOString(),
+        result,
+      })
       if (insertPaths && result.files.length) {
         const data = result.files.map((file) => quoteShellPath(file.absolutePath)).join(' ')
         window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data } }))
       }
       pushToast({ type: 'success', message: t('upload.uploaded', { count: result.files.length }) })
     } catch (err) {
-      updateUploadJob(jobId, { status: 'error', finishedAt: new Date().toISOString(), errorMessage: err instanceof Error ? err.message : t('upload.failed') })
+      updateUploadJob(jobId, {
+        status: 'error',
+        finishedAt: new Date().toISOString(),
+        errorMessage: err instanceof Error ? err.message : t('upload.failed'),
+      })
       pushToast({ type: 'error', message: err instanceof Error ? err.message : t('upload.failed') })
     } finally {
       setSubmitting(false)
@@ -183,46 +239,84 @@ export function UploadConfirmDialog() {
 
   if (!open) return null
 
-  return <ModalPortal>
-    <div className="fixed inset-0 z-[95] flex items-center justify-center tmuxgo-scrim p-4" onClick={handleCancel}>
-      <div className="tmuxgo-glass tmuxgo-glass-dialog w-full max-w-2xl rounded-apple border p-5" onClick={(e) => e.stopPropagation()}>
-        <div className="text-lg text-text-1">{t('upload.title')}</div>
-        <div className="mt-2 flex flex-wrap gap-2 text-xs text-text-3">
-          <div className="tmuxgo-chip">{t('upload.file', { count: files.length })}</div>
-          <div className="tmuxgo-chip">{formatSize(totalSize)}</div>
-          <div className="tmuxgo-chip">{t('upload.renameConflict')}</div>
-          <div className="tmuxgo-chip">{preferences.uploadRateLimitKBps}KB/s</div>
-        </div>
-        <div className="mt-4 grid gap-3 md:grid-cols-[160px_1fr]">
-          <label className="text-sm text-text-2">{t('upload.root')}</label>
-          <select value={targetRootId} onChange={(e) => setTargetRootId(e.target.value)} disabled={!!uploadRequest?.temporary} className="tmuxgo-control tmuxgo-select rounded-apple px-3 py-2 text-sm disabled:opacity-70">
-            {temporaryTarget && uploadRequest?.temporary ? <option value={temporaryTarget.rootId}>{temporaryTarget.rootLabel}</option> : roots.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-          </select>
-          <label className="text-sm text-text-2">{t('upload.directory')}</label>
-          <input value={targetPath} onChange={(e) => setTargetPath(e.target.value)} disabled={!!uploadRequest?.temporary} placeholder={t('upload.directory')} className="tmuxgo-control tmuxgo-input rounded-apple px-3 py-2 font-mono text-sm disabled:opacity-70" />
-          <label className="text-sm text-text-2">{t('upload.target')}</label>
-          <div className="rounded-apple border border-[var(--line)] bg-bg-0 px-3 py-2 font-mono text-xs text-text-2">{loadingTarget ? t('upload.resolving') : pathPreview || '-'}</div>
-        </div>
-        <div className="mt-4 rounded-apple border border-[var(--line)] bg-bg-0 p-3">
-          <div className="mb-2 text-xs text-text-3">{t('upload.filesLabel')}</div>
-          <div className="tmuxgo-scrollbar max-h-48 space-y-1 overflow-auto">
-            {files.map((file) => (
-              <div key={`${file.name}-${file.size}-${file.lastModified}`} className="flex items-center gap-3 rounded-apple bg-bg-2 px-3 py-2 text-xs">
-                <div className="min-w-0 flex-1 truncate font-mono text-text-1">{file.name}</div>
-                <div className="shrink-0 text-text-3">{formatSize(file.size)}</div>
-              </div>
-            ))}
+  return (
+    <ModalPortal>
+      <div className="fixed inset-0 z-[95] flex items-center justify-center tmuxgo-scrim p-4" onClick={handleCancel}>
+        <div
+          className="tmuxgo-glass tmuxgo-glass-dialog w-full max-w-2xl rounded-apple border p-5"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="text-lg text-text-1">{t('upload.title')}</div>
+          <div className="mt-2 flex flex-wrap gap-2 text-xs text-text-3">
+            <div className="tmuxgo-chip">{t('upload.file', { count: files.length })}</div>
+            <div className="tmuxgo-chip">{formatSize(totalSize)}</div>
+            <div className="tmuxgo-chip">{t('upload.renameConflict')}</div>
+            <div className="tmuxgo-chip">{preferences.uploadRateLimitKBps}KB/s</div>
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-[160px_1fr]">
+            <label className="text-sm text-text-2">{t('upload.root')}</label>
+            <Select
+              value={targetRootId}
+              onChange={setTargetRootId}
+              disabled={!!uploadRequest?.temporary}
+              options={
+                temporaryTarget && uploadRequest?.temporary
+                  ? [{ value: temporaryTarget.rootId, label: temporaryTarget.rootLabel }]
+                  : roots.map((item) => ({ value: item.id, label: item.label }))
+              }
+              className="rounded-apple px-3 py-2 text-sm disabled:opacity-70"
+            />
+            <label className="text-sm text-text-2">{t('upload.directory')}</label>
+            <input
+              value={targetPath}
+              onChange={(e) => setTargetPath(e.target.value)}
+              disabled={!!uploadRequest?.temporary}
+              placeholder={t('upload.directory')}
+              className="tmuxgo-control tmuxgo-input rounded-apple px-3 py-2 font-mono text-sm disabled:opacity-70"
+            />
+            <label className="text-sm text-text-2">{t('upload.target')}</label>
+            <div className="rounded-apple border border-[var(--line)] bg-bg-0 px-3 py-2 font-mono text-xs text-text-2">
+              {loadingTarget ? t('upload.resolving') : pathPreview || '-'}
+            </div>
+          </div>
+          <div className="mt-4 rounded-apple border border-[var(--line)] bg-bg-0 p-3">
+            <div className="mb-2 text-xs text-text-3">{t('upload.filesLabel')}</div>
+            <div className="tmuxgo-scrollbar max-h-48 space-y-1 overflow-auto">
+              {files.map((file) => (
+                <div
+                  key={`${file.name}-${file.size}-${file.lastModified}`}
+                  className="flex items-center gap-3 rounded-apple bg-bg-2 px-3 py-2 text-xs"
+                >
+                  <div className="min-w-0 flex-1 truncate font-mono text-text-1">{file.name}</div>
+                  <div className="shrink-0 text-text-3">{formatSize(file.size)}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <label className="mt-4 flex items-center justify-between rounded-apple border border-[var(--line)] bg-bg-0 px-3 py-2 text-sm text-text-2">
+            <span>{t('upload.insertPaths')}</span>
+            <input
+              type="checkbox"
+              checked={insertPaths}
+              onChange={(e) => setInsertPaths(e.target.checked)}
+              className="h-4 w-4 accent-[rgb(var(--accent))]"
+            />
+          </label>
+          <div className="mt-5 flex justify-end gap-2">
+            <Button variant="ghost" size="sm" onClick={handleCancel}>
+              {t('upload.cancel')}
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={submitting || loadingTarget || !targetRootId}
+              onClick={() => void handleUpload()}
+            >
+              {submitting ? t('upload.starting') : t('upload.upload')}
+            </Button>
           </div>
         </div>
-        <label className="mt-4 flex items-center justify-between rounded-apple border border-[var(--line)] bg-bg-0 px-3 py-2 text-sm text-text-2">
-          <span>{t('upload.insertPaths')}</span>
-          <input type="checkbox" checked={insertPaths} onChange={(e) => setInsertPaths(e.target.checked)} className="h-4 w-4 accent-[rgb(var(--accent))]" />
-        </label>
-        <div className="mt-5 flex justify-end gap-2">
-          <Button variant="ghost" size="sm" onClick={handleCancel}>{t('upload.cancel')}</Button>
-          <Button variant="primary" size="sm" disabled={submitting || loadingTarget || !targetRootId} onClick={() => void handleUpload()}>{submitting ? t('upload.starting') : t('upload.upload')}</Button>
-        </div>
       </div>
-    </div>
-  </ModalPortal>
+    </ModalPortal>
+  )
 }

@@ -6,6 +6,7 @@ import { useSystemInfo, type SystemInfo } from '@/hooks/useSystemInfo'
 import { useHosts } from '@/hooks/useApi'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { Button } from './Button'
+import { Select } from './Select'
 
 const HISTORY_LEN = 60
 const gb = (mb: number) => (mb / 1024).toFixed(1)
@@ -282,18 +283,13 @@ export function SystemHealthPanel() {
           <div className="mt-1 text-caption text-text-3">{t('settings.performanceDesc')}</div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <select
+          <Select
             value={hostId}
-            onChange={(event) => setHostId(event.target.value)}
-            className="tmuxgo-control tmuxgo-select rounded-apple px-3 py-1.5 text-sm"
+            onChange={setHostId}
+            options={hostOptions.map(([id, label]) => ({ value: id, label }))}
+            className="rounded-apple px-3 py-1.5 text-sm"
             aria-label={t('settings.performanceHost')}
-          >
-            {hostOptions.map(([id, label]) => (
-              <option key={id} value={id}>
-                {label}
-              </option>
-            ))}
-          </select>
+          />
           <Button size="sm" onClick={() => setRefreshToken((value) => value + 1)}>
             {t('settings.performanceRefresh')}
           </Button>
