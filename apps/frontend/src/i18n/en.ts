@@ -1121,6 +1121,7 @@ export const en = {
   'vnc.credentialsRequired': 'VNC authentication required',
   'vnc.username': 'Username',
   'vnc.password': 'Password',
+  'vnc.rememberPassword': 'Remember password',
   'vnc.displays': 'Displays',
   'vnc.displaysLoading': 'Scanning…',
   'vnc.displayStart': 'Start this display',

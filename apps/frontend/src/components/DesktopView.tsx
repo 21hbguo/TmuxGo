@@ -70,6 +70,12 @@ const clampVncTuning = (saved: Partial<VncTuning>): VncTuning => ({
 })
 const sameVncTuning = (a: VncTuning, b: VncTuning) =>
   a.quality === b.quality && a.compression === b.compression && a.maxFps === b.maxFps && a.lossless === b.lossless
+const formatSize = (bytes: number) => {
+  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${Math.round(bytes)} B`
+}
 interface DesktopViewProps {
   hostId: string
   port: number
@@ -164,6 +170,9 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
   const wasActiveRef = useRef(true)
   // 可见性重连时免重复弹窗：提交过的凭据存 ref，securityfailure 时作废
   const credentialsRef = useRef<{ username?: string; password: string } | null>(null)
+  // 凭据属于哪个 display：切屏时旧屏密码不能带过去自动应答（会顶掉新屏已存的正确密码）
+  const credentialsForRef = useRef<number | null>(null)
+  const [rememberPassword, setRememberPassword] = useState(false)
   // 底层 WS 关闭码/原因：RFB 的 disconnect 事件不带这些，单独捕获用于错误提示
   const wsCloseRef = useRef<{ code: number; reason: string } | null>(null)
   // 剪贴板双向透传：本地→远端靠 paste 事件零权限同步，远端→本地挂起补写到下一次手势
@@ -187,13 +196,23 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
       setDesktopName('')
       setCredentialTypes([])
       const seq = ++connectSeqRef.current
+      const targetDisplay = targetPort - VNC_PORT_RANGE.min
+      // 换屏时丢弃上一屏的暂存凭据，避免旧密码被自动应答到新屏
+      if (credentialsForRef.current !== null && credentialsForRef.current !== targetDisplay) {
+        credentialsRef.current = null
+      }
+      credentialsForRef.current = targetDisplay
       let url: string
       let RFB: typeof RFBType
+      let storedPassword: string | undefined
       try {
-        ;[url, { default: RFB }] = await Promise.all([
+        let stored: { password?: string } | undefined
+        ;[url, { default: RFB }, stored] = await Promise.all([
           getWebSocketUrl(getVncWebSocketBase(hostId, targetPort)),
           import('@novnc/novnc'),
+          api.vnc.getPassword(hostId, targetDisplay).catch(() => undefined),
         ])
+        storedPassword = stored?.password
       } catch (err) {
         setStatus('idle')
         setError(err instanceof Error ? err.message : String(err))
@@ -201,6 +220,14 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
       }
       // 等待 ticket/模块期间发生了新的 connect 或卸载，丢弃本次结果避免双 RFB
       if (seq !== connectSeqRef.current || !containerRef.current) return
+      // 命中存储：预置 credentialsRef 让 credentialsrequired 自动应答不弹表单，同时预填表单给可手改路径
+      if (storedPassword) {
+        credentialsRef.current = { password: storedPassword }
+        setPassword(storedPassword)
+        setRememberPassword(true)
+      } else {
+        setRememberPassword(false)
+      }
       portRef.current = targetPort
       wsCloseRef.current = null
       vncDebug('connect', { hostId, port: targetPort, url: url.replace(/ticket=[^&]+/, 'ticket=<redacted>') })
@@ -256,6 +283,9 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
       rfb.addEventListener('securityfailure', (event) => {
         vncDebug('securityfailure', event.detail)
         credentialsRef.current = null
+        setRememberPassword(false)
+        // 存储的密码已被服务端拒绝：清掉防 auto-send→失败死循环，回落表单（预填值仍在可手改）
+        void api.vnc.deletePassword(hostId, targetDisplay).catch(() => {})
         setError(event.detail.reason || `${tRef.current('vnc.securityFailure')} (${event.detail.status})`)
       })
       rfb.addEventListener('desktopname', (event) => setDesktopName(event.detail.name))
@@ -326,6 +356,15 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
   useEffect(() => {
     if (status === 'connected' || status === 'disconnected') void refreshDisplays()
   }, [status, refreshDisplays])
+
+  // 5s 轮询 displays：stats 条 mem 列与 picker 行内存共用这一份数据，不起第二个定时器
+  useEffect(() => {
+    if (!((showStats && status === 'connected') || pickerOpen)) return
+    void refreshDisplays()
+    const timer = setInterval(() => void refreshDisplays(), 5000)
+    return () => clearInterval(timer)
+  }, [showStats, status, pickerOpen, refreshDisplays])
+  const selectedDisplayRssKB = displays?.find((d) => d.display === selectedDisplay)?.rssKB
 
   useEffect(() => {
     if (rfbRef.current) rfbRef.current.viewOnly = viewOnly
@@ -440,6 +479,10 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
     const credentials = { username: credentialTypes.includes('username') ? username : undefined, password }
     credentialsRef.current = credentials
     rfbRef.current?.sendCredentials(credentials)
+    // 记住密码：勾选写存储，未勾清残留（旧密码不能留下次误用）
+    const display = portRef.current - VNC_PORT_RANGE.min
+    if (rememberPassword) void api.vnc.setPassword(hostId, display, password).catch(() => {})
+    else void api.vnc.deletePassword(hostId, display).catch(() => {})
     setCredentialTypes([])
     setPassword('')
   }
@@ -581,6 +624,9 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
                           {running?.process || `59${String(n).padStart(2, '0')}`}
                         </span>
                       </button>
+                      <span className="shrink-0 font-mono text-[10px] text-text-3">
+                        {running?.rssKB ? formatSize(running.rssKB * 1024) : '~'}
+                      </span>
                       <button
                         type="button"
                         disabled={busy}
@@ -767,7 +813,8 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
           // 浮层永远压在黑色画布上：文字固定白色，不随主题切换，浅色主题下也可读
           <div className="absolute right-3 top-3 z-20 rounded-apple bg-black/70 px-2.5 py-1 font-mono text-caption tabular-nums text-white">
             {stats.fps} fps · ↓{stats.inKbps.toFixed(1)} KB/s ↑{stats.outKbps.toFixed(1)} KB/s
-            {stats.rtt !== null ? ` · ${stats.rtt}ms` : ''}
+            {stats.rtt !== null ? ` · ${stats.rtt}ms` : ''} · mem{' '}
+            {selectedDisplayRssKB ? formatSize(selectedDisplayRssKB * 1024) : '~'}
           </div>
         )}
         {tuningOpen && (
@@ -895,6 +942,14 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
                 autoFocus
                 className="h-8 rounded-apple border border-[var(--line)] bg-bg-1 px-2 text-xs text-text-1 outline-none focus:border-accent"
               />
+              <label className="flex items-center gap-1.5 text-caption text-text-2">
+                <input
+                  type="checkbox"
+                  checked={rememberPassword}
+                  onChange={(event) => setRememberPassword(event.target.checked)}
+                />
+                {t('vnc.rememberPassword')}
+              </label>
               <Button type="submit" size="sm">
                 {t('vnc.connect')}
               </Button>

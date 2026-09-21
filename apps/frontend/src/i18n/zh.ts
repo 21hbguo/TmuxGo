@@ -1115,6 +1115,7 @@ export const zh = {
   'vnc.credentialsRequired': '需要 VNC 认证',
   'vnc.username': '用户名',
   'vnc.password': '密码',
+  'vnc.rememberPassword': '记住密码',
   'vnc.displays': '虚拟屏',
   'vnc.displaysLoading': '探测中…',
   'vnc.displayStart': '启动该虚拟屏',

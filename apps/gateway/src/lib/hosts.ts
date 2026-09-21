@@ -32,6 +32,8 @@ export interface HostCredentials {
   password: string
   passwordEnv: string
   privateKeyPath: string
+  // VNC 虚拟屏记忆密码按 display 号分键（与 SSH 凭据同文件但维度独立）
+  vncDisplays?: Record<string, { password: string }>
 }
 export interface HostStoreFile {
   version: 2
@@ -165,15 +167,34 @@ function nextUpdatedAt(previous: string | undefined) {
   const previousMs = Date.parse(previous || '')
   return new Date(!Number.isNaN(previousMs) && now <= previousMs ? previousMs + 1 : now).toISOString()
 }
+function normalizeVncDisplays(raw: any): Record<string, { password: string }> | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const displays: Record<string, { password: string }> = {}
+  for (const [key, value] of Object.entries(raw)) {
+    const display = Number(key)
+    const password = sanitizePassword((value as any)?.password)
+    if (Number.isInteger(display) && display >= 0 && display <= 99 && password) {
+      displays[String(display)] = { password }
+    }
+  }
+  return Object.keys(displays).length ? displays : undefined
+}
 function normalizeCredentials(raw: any): HostCredentials {
+  const vncDisplays = normalizeVncDisplays(raw?.vncDisplays)
   return {
     password: sanitizePassword(typeof raw?.password === 'string' ? raw.password : ''),
     passwordEnv: sanitizePasswordEnv(typeof raw?.passwordEnv === 'string' ? raw.passwordEnv : ''),
     privateKeyPath: sanitizePrivateKeyPath(typeof raw?.privateKeyPath === 'string' ? raw.privateKeyPath : ''),
+    ...(vncDisplays ? { vncDisplays } : {}),
   }
 }
 function hasCredentials(credentials: HostCredentials) {
-  return !!(credentials.password || credentials.passwordEnv || credentials.privateKeyPath)
+  return !!(
+    credentials.password ||
+    credentials.passwordEnv ||
+    credentials.privateKeyPath ||
+    Object.keys(credentials.vncDisplays || {}).length
+  )
 }
 function normalizeHostRecord(raw: any): HostRecord {
   const id = sanitizeHostId(String(raw?.id || ''))
@@ -325,6 +346,42 @@ export async function getHostCredentials(hostId: string) {
   const { credentials } = await readRemoteState()
   return credentials.credentials[hostId] || emptyCredentials
 }
+// VNC 密码按 hostId+display 存取：'local' 也合法（本机虚拟屏），故只验 isValidHostId 不走 sanitizeHostId
+function sanitizeVncDisplay(value: unknown) {
+  const display = typeof value === 'number' ? value : Number(value)
+  if (!Number.isInteger(display) || display < 0 || display > 99) throw new Error('Invalid VNC display')
+  return display
+}
+export async function getVncDisplayPassword(hostId: string, display: unknown) {
+  if (!isValidHostId(hostId)) throw new Error('Invalid host id')
+  const key = String(sanitizeVncDisplay(display))
+  const store = await readCredentialStore()
+  return store.credentials[hostId]?.vncDisplays?.[key]?.password || undefined
+}
+export async function setVncDisplayPassword(hostId: string, display: unknown, password: unknown) {
+  if (!isValidHostId(hostId)) throw new Error('Invalid host id')
+  const key = String(sanitizeVncDisplay(display))
+  const sanitized = sanitizePassword(typeof password === 'string' ? password : '')
+  if (!sanitized) throw new Error('Invalid VNC password')
+  const store = await readCredentialStore()
+  const credentials = store.credentials[hostId] || { ...emptyCredentials }
+  credentials.vncDisplays = { ...(credentials.vncDisplays || {}), [key]: { password: sanitized } }
+  store.credentials[hostId] = credentials
+  await writeCredentialStore(store)
+}
+export async function deleteVncDisplayPassword(hostId: string, display: unknown) {
+  if (!isValidHostId(hostId)) throw new Error('Invalid host id')
+  const key = String(sanitizeVncDisplay(display))
+  const store = await readCredentialStore()
+  const credentials = store.credentials[hostId]
+  if (!credentials?.vncDisplays || !(key in credentials.vncDisplays)) return
+  const { [key]: _removed, ...rest } = credentials.vncDisplays
+  if (Object.keys(rest).length) credentials.vncDisplays = rest
+  else delete credentials.vncDisplays
+  // 仅剩 VNC 密码的宿主清空后整条剔除，保持文件无空壳
+  if (!hasCredentials(credentials)) delete store.credentials[hostId]
+  await writeCredentialStore(store)
+}
 export async function upsertRemoteHost(input: HostInput) {
   const hostId = sanitizeHostId(input.id)
   const { store, credentials: credentialStore } = await readRemoteState()
@@ -359,6 +416,8 @@ export async function upsertRemoteHost(input: HostInput) {
       input.privateKeyPath === undefined
         ? existingCredentials.privateKeyPath
         : sanitizePrivateKeyPath(input.privateKeyPath),
+    // VNC display 密码与 SSH 凭据维度独立，编辑主机资料时必须保留
+    ...(existingCredentials.vncDisplays ? { vncDisplays: existingCredentials.vncDisplays } : {}),
   }
   const nextHosts = store.hosts.filter((item) => item.id !== hostId)
   nextHosts.push(host)

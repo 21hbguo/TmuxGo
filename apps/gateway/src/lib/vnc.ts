@@ -94,17 +94,19 @@ export interface VncDisplay {
   port: number
   process: string | null
   pid: number | null
+  // server 进程 + 其子进程树的 RSS 合计（KB）；vncserver 是 perl 壳，真实占用在 Xtigervnc 子树
+  rssKB?: number
 }
 
-// 列出 loopback 5900-5999 上在监听的 VNC display；__procs__ 段补进程名/命令行用于识别 server 类型
+// 列出 loopback 5900-5999 上在监听的 VNC display；__procs__ 段输出全量 ps（pid/ppid/rss 用于聚合内存）
 export const VNC_DISPLAYS_SCRIPT = [
   "ss -tlnpH 'sport >= :5900 and sport <= :5999' 2>/dev/null",
   'echo __procs__',
-  "ps -eo pid=,comm=,args= 2>/dev/null | grep -E '[Xx]vnc|x11vnc|wayvnc|tigervnc|vncserver' | grep -v grep",
+  'ps -eo pid=,ppid=,comm=,args=,rss= 2>/dev/null',
 ].join('\n')
 
 export function parseVncDisplays(stdout: string): VncDisplay[] {
-  const [ssBlock] = stdout.split('__procs__')
+  const [ssBlock, procBlock = ''] = stdout.split('__procs__')
   const displays = new Map<number, VncDisplay>()
   for (const line of ssBlock.split('\n')) {
     const cols = line.trim().split(/\s+/)
@@ -121,6 +123,37 @@ export function parseVncDisplays(stdout: string): VncDisplay[] {
       process: procMatch ? procMatch[1] : null,
       pid: procMatch ? Number(procMatch[2]) : null,
     })
+  }
+  // pid→ppid 图向下收集 server 子树；旧格式（无 ppid/rss 列）或 ss 无 pid 时跳过
+  const rssByPid = new Map<number, number>()
+  const childrenByPpid = new Map<number, number[]>()
+  for (const line of procBlock.split('\n')) {
+    const cols = line.trim().split(/\s+/)
+    if (cols.length < 5 || !/^\d+$/.test(cols[0]) || !/^\d+$/.test(cols[1]) || !/^\d+$/.test(cols[cols.length - 1]))
+      continue
+    const pid = Number(cols[0])
+    rssByPid.set(pid, Number(cols[cols.length - 1]))
+    const ppid = Number(cols[1])
+    const list = childrenByPpid.get(ppid)
+    if (list) list.push(pid)
+    else childrenByPpid.set(ppid, [pid])
+  }
+  for (const display of displays.values()) {
+    if (display.pid === null) continue
+    let total = 0
+    let found = false
+    const stack = [display.pid]
+    while (stack.length) {
+      const pid = stack.pop()!
+      const rss = rssByPid.get(pid)
+      if (rss !== undefined) {
+        total += rss
+        found = true
+      }
+      const children = childrenByPpid.get(pid)
+      if (children) stack.push(...children)
+    }
+    if (found) display.rssKB = total
   }
   return [...displays.values()].sort((a, b) => a.display - b.display)
 }

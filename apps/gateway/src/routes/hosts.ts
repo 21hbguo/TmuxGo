@@ -7,6 +7,9 @@ import {
   getHostsPath,
   getHostById,
   getHostCredentials,
+  getVncDisplayPassword,
+  setVncDisplayPassword,
+  deleteVncDisplayPassword,
   listAllHosts,
   readHostConfig,
   removeRemoteHost,
@@ -36,6 +39,8 @@ const hostConfigBodySchema = z.object({
   credentials: credentialStoreSchema.optional(),
 })
 const sshConfigBodySchema = z.object({ content: z.string().max(256 * 1024) })
+const vncDisplayBodySchema = z.object({ display: z.number().int().min(0).max(99) })
+const vncPasswordBodySchema = vncDisplayBodySchema.extend({ password: z.string().min(1).max(1024) })
 const sshConfigHostBodySchema = z.object({
   alias: z.string().min(1).max(64),
   hostName: z.string().min(1).max(255),
@@ -213,6 +218,29 @@ export async function hostRoutes(fastify: FastifyInstance, options: { taskManage
       connectionMode: 'agent',
       agent,
     }
+  })
+  // VNC 记忆密码窄口：按 hostId+display 存 host-credentials.json 的 vncDisplays 子键，
+  // 不下发整个 credentials（RFB 认证密码在前端 sendCredentials 发出，必须可读取）
+  fastify.get('/hosts/:id/vnc/password', async (request, reply) => {
+    const { id } = hostIdParamsSchema.parse(request.params)
+    const display = Number((request.query as { display?: unknown }).display)
+    if (!Number.isInteger(display) || display < 0 || display > 99) {
+      return reply.code(400).send({ message: 'Invalid display', code: 'INVALID_REQUEST' })
+    }
+    const password = await getVncDisplayPassword(id, display)
+    return password === undefined ? {} : { password }
+  })
+  fastify.put('/hosts/:id/vnc/password', async (request) => {
+    const { id } = hostIdParamsSchema.parse(request.params)
+    const body = vncPasswordBodySchema.parse(request.body)
+    await setVncDisplayPassword(id, body.display, body.password)
+    return { success: true }
+  })
+  fastify.delete('/hosts/:id/vnc/password', async (request) => {
+    const { id } = hostIdParamsSchema.parse(request.params)
+    const body = vncDisplayBodySchema.parse(request.body)
+    await deleteVncDisplayPassword(id, body.display)
+    return { success: true }
   })
   fastify.post('/hosts', async (request) => {
     const body = remoteHostBodySchema.parse(request.body)

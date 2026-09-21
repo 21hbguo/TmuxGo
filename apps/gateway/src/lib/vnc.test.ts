@@ -58,3 +58,36 @@ test('parseVncDisplays maps listening ports to displays and dedupes ipv6', () =>
     { display: 9, port: 5909, process: 'Xtigervnc', pid: 3802271 },
   ])
 })
+
+test('parseVncDisplays aggregates rss over the server process subtree', () => {
+  const stdout = [
+    'LISTEN 0 5 127.0.0.1:5901 0.0.0.0:* users:(("vncserver",pid=100,fd=9))',
+    '__procs__',
+    // vncserver 是 perl 壳（pid=100），真实占用在 Xtigervnc 子树；999 与 100 无关不计入
+    '100 1 vncserver /usr/bin/vncserver :1 5000',
+    '101 100 Xtigervnc Xtigervnc :1 200000',
+    '102 101 sh -c xstartup 3000',
+    '999 1 sshd /usr/sbin/sshd 8000',
+  ].join('\n')
+  const displays = parseVncDisplays(stdout)
+  assert.equal(displays.length, 1)
+  assert.equal(displays[0].rssKB, 208000)
+})
+
+test('parseVncDisplays tolerates legacy ps output without ppid/rss columns', () => {
+  const stdout = [
+    'LISTEN 0 5 127.0.0.1:5902 0.0.0.0:* users:(("x11vnc",pid=55,fd=7))',
+    '__procs__',
+    '55 x11vnc x11vnc -display :0',
+  ].join('\n')
+  const displays = parseVncDisplays(stdout)
+  assert.equal(displays[0].pid, 55)
+  assert.equal(displays[0].rssKB, undefined)
+})
+
+test('parseVncDisplays leaves rssKB unset when the server pid is unknown', () => {
+  const stdout = ['LISTEN 0 5 127.0.0.1:5903 0.0.0.0:*', '__procs__', '100 1 Xtigervnc Xtigervnc :3 12345'].join('\n')
+  const displays = parseVncDisplays(stdout)
+  assert.equal(displays[0].pid, null)
+  assert.equal(displays[0].rssKB, undefined)
+})
