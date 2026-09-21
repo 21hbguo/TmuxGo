@@ -14,8 +14,21 @@ const zoomByPane = vi.fn()
 const killPane = vi.fn()
 const removeShortcut = vi.fn()
 const removeShortcuts = vi.fn()
-let windowsDataMock:any[]=[{ id:'win-1',sessionId:'session-dev',active:true }]
-const shortcutsMock=[{ id:'shortcut-a',label:'A',keys:'Ctrl+A',action:'input' },{ id:'shortcut-b',label:'B',keys:'Ctrl+B',action:'input' },{ id:'shortcut-text',label:'Status',mode:'text' as const,text:'printf ok',appendEnter:true },{ id:'shortcut-macro',label:'Deploy',steps:[{ type:'text',text:'cd /app',appendEnter:true },{ type:'wait',ms:500 },{ type:'keys',keys:'Ctrl+A' }] }]
+let windowsDataMock: any[] = [{ id: 'win-1', sessionId: 'session-dev', active: true }]
+const shortcutsMock = [
+  { id: 'shortcut-a', label: 'A', keys: 'Ctrl+A', action: 'input' },
+  { id: 'shortcut-b', label: 'B', keys: 'Ctrl+B', action: 'input' },
+  { id: 'shortcut-text', label: 'Status', mode: 'text' as const, text: 'printf ok', appendEnter: true },
+  {
+    id: 'shortcut-macro',
+    label: 'Deploy',
+    steps: [
+      { type: 'text', text: 'cd /app', appendEnter: true },
+      { type: 'wait', ms: 500 },
+      { type: 'keys', keys: 'Ctrl+A' },
+    ],
+  },
+]
 
 vi.mock('@/hooks/useWebSocket', () => ({
   useWebSocket: () => ({ send, isConnected: true, isSocketReady: true }),
@@ -24,9 +37,26 @@ vi.mock('@/hooks/useApi', () => ({
   useWindows: () => ({ data: windowsDataMock }),
 }))
 vi.mock('@/hooks/useCustomShortcuts', () => ({
-  useCustomShortcuts: () => ({ shortcuts: shortcutsMock, addShortcut: vi.fn(), updateShortcut: vi.fn(), removeShortcut, removeShortcuts }),
-  shortcutToSteps: (value: any) => value.steps || (value.mode === 'text' ? [{ type: 'text', text: value.text, appendEnter: value.appendEnter }] : [{ type: 'keys', keys: value.keys }]),
-  stepToInput: (step: any) => step.type === 'text' ? step.text + (step.appendEnter ? '\r' : '') : step.keys === 'Ctrl+A' ? '\x01' : step.keys === 'Ctrl+B' ? '\x02' : '',
+  useCustomShortcuts: () => ({
+    shortcuts: shortcutsMock,
+    addShortcut: vi.fn(),
+    updateShortcut: vi.fn(),
+    removeShortcut,
+    removeShortcuts,
+  }),
+  shortcutToSteps: (value: any) =>
+    value.steps ||
+    (value.mode === 'text'
+      ? [{ type: 'text', text: value.text, appendEnter: value.appendEnter }]
+      : [{ type: 'keys', keys: value.keys }]),
+  stepToInput: (step: any) =>
+    step.type === 'text'
+      ? step.text + (step.appendEnter ? '\r' : '')
+      : step.keys === 'Ctrl+A'
+        ? '\x01'
+        : step.keys === 'Ctrl+B'
+          ? '\x02'
+          : '',
   describeShortcut: () => '',
 }))
 vi.mock('@/lib/api', () => ({
@@ -47,9 +77,15 @@ describe('ShortcutBar', () => {
     killPane.mockReset()
     removeShortcut.mockReset()
     removeShortcuts.mockReset()
-    windowsDataMock=[{ id:'win-1',sessionId:'session-dev',active:true }]
+    windowsDataMock = [{ id: 'win-1', sessionId: 'session-dev', active: true }]
     window.localStorage.clear()
-    useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-dev', activePaneId: 'old-pane', pushToast, toasts: [] })
+    useConsoleStore.setState({
+      activeHostId: 'local',
+      activeSessionId: 'session-dev',
+      activePaneId: 'old-pane',
+      pushToast,
+      toasts: [],
+    })
   })
   afterEach(() => {
     vi.runOnlyPendingTimers()
@@ -81,11 +117,11 @@ describe('ShortcutBar', () => {
   })
   it('does not trigger shortcut when the finger drags the bar while pressing', () => {
     render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))
-    const bar=document.querySelector('[data-shortcut-bar]') as HTMLDivElement
-    const button=screen.getByRole('button', { name: 'Enter' })
+    const bar = document.querySelector('[data-shortcut-bar]') as HTMLDivElement
+    const button = screen.getByRole('button', { name: 'Enter' })
     fireEvent.pointerDown(button, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
     fireEvent.pointerMove(button, { pointerId: 1, pointerType: 'touch', clientX: 30, clientY: 10 })
-    bar.scrollLeft=42
+    bar.scrollLeft = 42
     fireEvent.scroll(bar)
     fireEvent.pointerUp(button, { pointerId: 1, pointerType: 'touch', clientX: 30, clientY: 10 })
     expect(send).not.toHaveBeenCalled()
@@ -94,11 +130,11 @@ describe('ShortcutBar', () => {
     snapshotGet.mockResolvedValue({ windows: [], panes: [{ id: 'local:%2', active: true }], activePaneId: 'local:%2' })
     zoomByPane.mockResolvedValue({ ok: true })
     render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))
-    const bar=document.querySelector('[data-shortcut-bar]') as HTMLDivElement
-    bar.scrollLeft=42
+    const bar = document.querySelector('[data-shortcut-bar]') as HTMLDivElement
+    bar.scrollLeft = 42
     fireEvent.scroll(bar)
     await act(async () => {
-      const button=screen.getByRole('button', { name: '聚焦' })
+      const button = screen.getByRole('button', { name: '聚焦' })
       fireEvent.pointerDown(button, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
       fireEvent.pointerUp(button, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
     })
@@ -168,8 +204,8 @@ describe('ShortcutBar', () => {
   })
   it('prevents default on touch pointerdown so mobile keyboard stays open', () => {
     render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))
-    const button=screen.getByRole('button', { name: 'Enter' })
-    const event=createEvent.pointerDown(button, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
+    const button = screen.getByRole('button', { name: 'Enter' })
+    const event = createEvent.pointerDown(button, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
     fireEvent(button, event)
     expect(event.defaultPrevented).toBe(true)
   })
@@ -220,10 +256,18 @@ describe('ShortcutBar', () => {
     queryClient.setQueryData(['session-snapshot', 'local', 'session-dev'], snapshot)
     snapshotGet.mockResolvedValue(snapshot)
     let resolveZoom: (value: { ok: boolean }) => void = () => {}
-    zoomByPane.mockReturnValue(new Promise((resolve) => {
-      resolveZoom = resolve
-    }))
-    render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(I18nProvider, null, React.createElement(ShortcutBar))))
+    zoomByPane.mockReturnValue(
+      new Promise((resolve) => {
+        resolveZoom = resolve
+      }),
+    )
+    render(
+      React.createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        React.createElement(I18nProvider, null, React.createElement(ShortcutBar)),
+      ),
+    )
     await act(async () => {
       const button = screen.getByRole('button', { name: '聚焦' })
       fireEvent.pointerDown(button, { pointerId: 1, clientX: 10, clientY: 10 })
@@ -252,7 +296,9 @@ describe('ShortcutBar', () => {
     expect(useConsoleStore.getState().toasts.at(-1)?.message).toBe('当前没有可操作的面板')
   })
   it('does not show error when kill succeeds but snapshot refresh fails afterward', async () => {
-    snapshotGet.mockResolvedValueOnce({ windows: [], panes: [{ id: 'local:%3', active: true }], activePaneId: 'local:%3' }).mockRejectedValueOnce(new Error('Request failed'))
+    snapshotGet
+      .mockResolvedValueOnce({ windows: [], panes: [{ id: 'local:%3', active: true }], activePaneId: 'local:%3' })
+      .mockRejectedValueOnce(new Error('Request failed'))
     killPane.mockResolvedValue({ ok: true })
     render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar)))
     await act(async () => {
@@ -269,10 +315,20 @@ describe('ShortcutBar', () => {
   })
   it('uses the latest pane when closing through a standard click', async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-    queryClient.setQueryData(['session-snapshot', 'local', 'session-dev'], { windows: [], panes: [{ id: 'local:%old', active: true }], activePaneId: 'local:%old' })
+    queryClient.setQueryData(['session-snapshot', 'local', 'session-dev'], {
+      windows: [],
+      panes: [{ id: 'local:%old', active: true }],
+      activePaneId: 'local:%old',
+    })
     snapshotGet.mockResolvedValue({ windows: [], panes: [{ id: 'local:%4', active: true }], activePaneId: 'local:%4' })
     killPane.mockResolvedValue({ ok: true })
-    render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(I18nProvider, null, React.createElement(ShortcutBar))))
+    render(
+      React.createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        React.createElement(I18nProvider, null, React.createElement(ShortcutBar)),
+      ),
+    )
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: '删面板' }))
       await Promise.resolve()
@@ -303,7 +359,13 @@ describe('ShortcutBar', () => {
       return snapshotCalls === 1 ? cachedSnapshot : liveSnapshot
     })
     zoomByPane.mockResolvedValue({ ok: true })
-    render(React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(I18nProvider, null, React.createElement(ShortcutBar))))
+    render(
+      React.createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        React.createElement(I18nProvider, null, React.createElement(ShortcutBar)),
+      ),
+    )
     await act(async () => {
       const button = screen.getByRole('button', { name: '聚焦' })
       fireEvent.pointerDown(button, { pointerId: 1, clientX: 10, clientY: 10 })
@@ -337,7 +399,7 @@ describe('ShortcutBar', () => {
     expect(screen.getByRole('button', { name: 'Ctrl+Z' })).toBeTruthy()
   })
   it('opens the mobile files tab from the dock', () => {
-    const openFiles=vi.fn()
+    const openFiles = vi.fn()
     render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar, { onOpenFiles: openFiles })))
     fireEvent.click(screen.getByRole('button', { name: '文件' }))
     expect(openFiles).toHaveBeenCalledTimes(1)
@@ -355,16 +417,18 @@ describe('ShortcutBar', () => {
   // })
   it('shows a single edit/delete pair in the section header for custom shortcuts', () => {
     render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar, { mode: 'panel' })))
-    const headerEditButtons=screen.getAllByRole('button', { name: '编辑快捷键' }).filter((b)=>b.className.includes('h-6'))
+    const headerEditButtons = screen
+      .getAllByRole('button', { name: '批量管理' })
+      .filter((b) => b.className.includes('h-6'))
     expect(headerEditButtons).toHaveLength(1)
-    const deleteButton=screen.getByRole('button', { name: '删除快捷键' })
+    const deleteButton = screen.getByRole('button', { name: '删除快捷键' })
     expect(deleteButton).toBeDisabled()
     expect(deleteButton.className).toContain('h-6')
     expect(deleteButton.className).toContain('w-6')
   })
   it('selects a shortcut in manage mode, edits it, and exits', () => {
     render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar, { mode: 'panel' })))
-    const headerEdit=()=>screen.getAllByRole('button', { name: '编辑快捷键' })[0]
+    const headerEdit = () => screen.getByRole('button', { name: /批量管理|完成管理/ })
     fireEvent.click(screen.getByRole('button', { name: 'A' }))
     expect(send).toHaveBeenCalledTimes(1)
     fireEvent.click(headerEdit())
@@ -379,9 +443,9 @@ describe('ShortcutBar', () => {
   })
   it('edits a shortcut directly from its row edit button without entering manage mode', () => {
     render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar, { mode: 'panel' })))
-    const editButtons=screen.getAllByRole('button', { name: '编辑快捷键' })
-    expect(editButtons.length).toBeGreaterThan(1)
-    fireEvent.click(editButtons[1])
+    const editButtons = screen.getAllByRole('button', { name: '编辑快捷键' })
+    expect(editButtons.length).toBeGreaterThan(0)
+    fireEvent.click(editButtons[0])
     expect(screen.getByRole('button', { name: '保存' })).toBeTruthy()
     expect(screen.getByDisplayValue('A')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '取消' }))
@@ -389,9 +453,9 @@ describe('ShortcutBar', () => {
   })
   it('confirms before removing a custom shortcut', () => {
     render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar, { mode: 'panel' })))
-    fireEvent.click(screen.getAllByRole('button', { name: '编辑快捷键' })[0])
+    fireEvent.click(screen.getByRole('button', { name: '批量管理' }))
     fireEvent.click(screen.getByRole('button', { name: 'A' }))
-    const deleteButton=screen.getByRole('button', { name: '删除快捷键' })
+    const deleteButton = screen.getByRole('button', { name: '删除快捷键' })
     expect(deleteButton).not.toBeDisabled()
     fireEvent.click(deleteButton)
     expect(removeShortcut).not.toHaveBeenCalled()
@@ -405,7 +469,7 @@ describe('ShortcutBar', () => {
   })
   it('confirms before batch removing multiple selected shortcuts', () => {
     render(React.createElement(I18nProvider, null, React.createElement(ShortcutBar, { mode: 'panel' })))
-    fireEvent.click(screen.getAllByRole('button', { name: '编辑快捷键' })[0])
+    fireEvent.click(screen.getByRole('button', { name: '批量管理' }))
     fireEvent.click(screen.getByRole('button', { name: 'A' }))
     fireEvent.click(screen.getByRole('button', { name: 'B' }))
     fireEvent.click(screen.getByRole('button', { name: '删除快捷键' }))
@@ -440,7 +504,9 @@ describe('ShortcutBar', () => {
     fireEvent.pointerUp(button, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
     expect(send).toHaveBeenCalledTimes(1)
     expect(send).toHaveBeenCalledWith({ type: 'input', data: 'cd /app\r' })
-    await act(async () => { vi.advanceTimersByTime(600) })
+    await act(async () => {
+      vi.advanceTimersByTime(600)
+    })
     expect(send).toHaveBeenCalledTimes(2)
     expect(send).toHaveBeenLastCalledWith({ type: 'input', data: '\x01' })
   })
@@ -453,7 +519,9 @@ describe('ShortcutBar', () => {
     const a = screen.getByRole('button', { name: 'A' })
     fireEvent.pointerDown(a, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
     fireEvent.pointerUp(a, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
-    await act(async () => { vi.advanceTimersByTime(600) })
+    await act(async () => {
+      vi.advanceTimersByTime(600)
+    })
     expect(send).toHaveBeenCalledTimes(2)
   })
   it('shows running state on a macro button while it executes', async () => {
@@ -462,7 +530,9 @@ describe('ShortcutBar', () => {
     fireEvent.pointerDown(button, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
     fireEvent.pointerUp(button, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 })
     expect(button.className).toContain('animate-pulse')
-    await act(async () => { vi.advanceTimersByTime(600) })
+    await act(async () => {
+      vi.advanceTimersByTime(600)
+    })
     expect(screen.getByRole('button', { name: 'Deploy' }).className).not.toContain('animate-pulse')
   })
 })
