@@ -4,19 +4,60 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
 import { Button } from './Button'
 import { Chip } from './Chip'
-import { useGitStatus, useGitStage, useGitUnstage, useGitCommit, useGitDiscard, useGitLog, useGitBranches, useGitCheckout, useGitCreateBranch, useGitDeleteBranch, useGitMerge, useGitFetch, useGitPull, useGitPush, useGitPaneDetect, useGitRepositories, useGitOperation, useGitRemotes, useGitResolve } from '@/hooks/useApi'
+import {
+  useGitStatus,
+  useGitStage,
+  useGitUnstage,
+  useGitCommit,
+  useGitDiscard,
+  useGitLog,
+  useGitBranches,
+  useGitCheckout,
+  useGitCreateBranch,
+  useGitDeleteBranch,
+  useGitMerge,
+  useGitFetch,
+  useGitPull,
+  useGitPush,
+  useGitPaneDetect,
+  useGitRepositories,
+  useGitOperation,
+  useGitRemotes,
+  useGitResolve,
+} from '@/hooks/useApi'
 import { useQueryClient } from '@tanstack/react-query'
 import { ConfirmDialog } from './ConfirmDialog'
 import type { GitFileChange, GitCommitInfo, GitStatusResponse } from '@/types'
 import { GitHistoryGraph } from './GitHistoryGraph'
 import type { GitGraphBranchHead, GitGraphCommit } from '@/lib/gitGraph'
-import { FiArrowRight, FiChevronLeft, FiDownload, FiFolder, FiLink, FiRefreshCw, FiSearch, FiSettings, FiUpload, FiX } from 'react-icons/fi'
+import {
+  FiArrowRight,
+  FiChevronLeft,
+  FiDownload,
+  FiFolder,
+  FiLink,
+  FiRefreshCw,
+  FiSearch,
+  FiSettings,
+  FiUpload,
+  FiX,
+} from 'react-icons/fi'
 import { api } from '@/lib/api'
 import { DiffViewer } from './DiffViewer'
+import { Select } from './Select'
 import { isImagePath, openFileInEditor } from '@/lib/editor-open'
 
 type GitTab = 'status' | 'history' | 'branches'
-type MobileGitDiff = { title: string; subtitle: string; filePath: string; label?: string; staged?: boolean; commit?: string; workingTree?: boolean; untracked?: boolean }
+type MobileGitDiff = {
+  title: string
+  subtitle: string
+  filePath: string
+  label?: string
+  staged?: boolean
+  commit?: string
+  workingTree?: boolean
+  untracked?: boolean
+}
 function isValidGitCommitInfo(commit: GitCommitInfo | null | undefined): commit is GitCommitInfo {
   return !!commit?.hash && !!commit.author && !!commit.date
 }
@@ -25,7 +66,13 @@ function isValidCommitDate(date: string) {
 }
 function normalizeGitGraphCommits(commits: GitCommitInfo[]) {
   const seen = new Set<string>()
-  const validCommits = commits.filter((commit) => isValidGitCommitInfo(commit) && isValidCommitDate(commit.date) && !seen.has(commit.hash) && !!seen.add(commit.hash))
+  const validCommits = commits.filter(
+    (commit) =>
+      isValidGitCommitInfo(commit) &&
+      isValidCommitDate(commit.date) &&
+      !seen.has(commit.hash) &&
+      !!seen.add(commit.hash),
+  )
   const commitSet = new Set(validCommits.map((commit) => commit.hash))
   return validCommits.map((commit) => ({
     sha: commit.hash,
@@ -37,16 +84,30 @@ function normalizeGitGraphCommits(commits: GitCommitInfo[]) {
     },
     authoredAt: commit.authorDate || commit.date,
     committedAt: commit.date,
-    parents: (commit.parents || []).filter((sha, index, arr) => !!sha && commitSet.has(sha) && arr.indexOf(sha) === index).map((sha) => ({ sha })),
+    parents: (commit.parents || [])
+      .filter((sha, index, arr) => !!sha && commitSet.has(sha) && arr.indexOf(sha) === index)
+      .map((sha) => ({ sha })),
   }))
 }
-function normalizeBranchHeads(branches: Array<{ name?: string; commitHash?: string; kind?: 'branch' | 'remote' | 'tag' }>, commitSet: Set<string>): GitGraphBranchHead[] {
+function normalizeBranchHeads(
+  branches: Array<{ name?: string; commitHash?: string; kind?: 'branch' | 'remote' | 'tag' }>,
+  commitSet: Set<string>,
+): GitGraphBranchHead[] {
   const seen = new Set<string>()
-  return branches.filter((branch): branch is { name: string; commitHash: string; kind?: 'branch' | 'remote' | 'tag' } => !!branch?.name && !!branch?.commitHash && commitSet.has(branch.commitHash) && !seen.has(`${branch.kind || 'branch'}:${branch.name}`) && !!seen.add(`${branch.kind || 'branch'}:${branch.name}`)).map((branch) => ({
-    name: branch.name,
-    commit: { sha: branch.commitHash },
-    kind: branch.kind || 'branch',
-  }))
+  return branches
+    .filter(
+      (branch): branch is { name: string; commitHash: string; kind?: 'branch' | 'remote' | 'tag' } =>
+        !!branch?.name &&
+        !!branch?.commitHash &&
+        commitSet.has(branch.commitHash) &&
+        !seen.has(`${branch.kind || 'branch'}:${branch.name}`) &&
+        !!seen.add(`${branch.kind || 'branch'}:${branch.name}`),
+    )
+    .map((branch) => ({
+      name: branch.name,
+      commit: { sha: branch.commitHash },
+      kind: branch.kind || 'branch',
+    }))
 }
 function normalizeCurrentBranch(currentBranch: string | undefined, branchHeads: GitGraphBranchHead[]) {
   if (!currentBranch) return undefined
@@ -55,34 +116,88 @@ function normalizeCurrentBranch(currentBranch: string | undefined, branchHeads: 
 
 function statusIcon(status: GitFileChange['status']) {
   switch (status) {
-    case 'added': return { icon: 'A', color: 'text-green-400' }
-    case 'modified': return { icon: 'M', color: 'text-yellow-400' }
-    case 'deleted': return { icon: 'D', color: 'text-danger' }
-    case 'renamed': return { icon: 'R', color: 'text-blue-400' }
-    case 'copied': return { icon: 'C', color: 'text-blue-400' }
-    case 'unmerged': return { icon: 'U', color: 'text-danger' }
-    default: return { icon: '?', color: 'text-text-3' }
+    case 'added':
+      return { icon: 'A', color: 'text-green-400' }
+    case 'modified':
+      return { icon: 'M', color: 'text-yellow-400' }
+    case 'deleted':
+      return { icon: 'D', color: 'text-danger' }
+    case 'renamed':
+      return { icon: 'R', color: 'text-blue-400' }
+    case 'copied':
+      return { icon: 'C', color: 'text-blue-400' }
+    case 'unmerged':
+      return { icon: 'U', color: 'text-danger' }
+    default:
+      return { icon: '?', color: 'text-text-3' }
   }
 }
 
 type TFunc = (key: string, params?: Record<string, string | number>) => string
 function GitLoadError({ onRetry, t }: { onRetry: () => void; t: TFunc }) {
-  return <div className="flex h-full min-h-32 flex-col items-center justify-center gap-2 p-3 text-meta text-text-3"><span>{t('git.loadFailed')}</span><Chip tone="accent" onClick={onRetry}>{t('common.retry')}</Chip></div>
+  return (
+    <div className="flex h-full min-h-32 flex-col items-center justify-center gap-2 p-3 text-meta text-text-3">
+      <span>{t('git.loadFailed')}</span>
+      <Chip tone="accent" onClick={onRetry}>
+        {t('common.retry')}
+      </Chip>
+    </div>
+  )
 }
 
-function FileRow({ file, staged, onStage, onUnstage, onDiscard, onViewDiff, t }: { file: GitFileChange; staged: boolean; onStage: () => void; onUnstage: () => void; onDiscard: () => void; onViewDiff: () => void; t: TFunc }) {
+function FileRow({
+  file,
+  staged,
+  onStage,
+  onUnstage,
+  onDiscard,
+  onViewDiff,
+  t,
+}: {
+  file: GitFileChange
+  staged: boolean
+  onStage: () => void
+  onUnstage: () => void
+  onDiscard: () => void
+  onViewDiff: () => void
+  t: TFunc
+}) {
   const { icon, color } = statusIcon(file.status)
   return (
     <div className="group flex min-h-11 items-center gap-2 px-3 py-1 hover:bg-bg-2 lg:min-h-0" onClick={onViewDiff}>
       <span className={`w-4 text-center text-meta font-bold ${color}`}>{icon}</span>
-      <span className="min-w-0 flex-1 truncate text-meta text-text-2" title={file.path}>{file.path}</span>
+      <span className="min-w-0 flex-1 truncate text-meta text-text-2" title={file.path}>
+        {file.path}
+      </span>
       <div className="flex shrink-0 items-center gap-1 opacity-100 lg:opacity-0 lg:group-hover:opacity-100">
         {staged ? (
-          <Chip onClick={(e) => { e.stopPropagation(); onUnstage() }}>{t('git.unstage')}</Chip>
+          <Chip
+            onClick={(e) => {
+              e.stopPropagation()
+              onUnstage()
+            }}
+          >
+            {t('git.unstage')}
+          </Chip>
         ) : (
           <>
-            <Chip onClick={(e) => { e.stopPropagation(); onStage() }}>{t('git.stage')}</Chip>
-            <Chip tone="danger" onClick={(e) => { e.stopPropagation(); onDiscard() }}>{t('git.discard')}</Chip>
+            <Chip
+              onClick={(e) => {
+                e.stopPropagation()
+                onStage()
+              }}
+            >
+              {t('git.stage')}
+            </Chip>
+            <Chip
+              tone="danger"
+              onClick={(e) => {
+                e.stopPropagation()
+                onDiscard()
+              }}
+            >
+              {t('git.discard')}
+            </Chip>
           </>
         )}
       </div>
@@ -90,12 +205,25 @@ function FileRow({ file, staged, onStage, onUnstage, onDiscard, onViewDiff, t }:
   )
 }
 
-function Section({ title, count, children, defaultOpen = true }: { title: string; count: number; children: React.ReactNode; defaultOpen?: boolean }) {
+function Section({
+  title,
+  count,
+  children,
+  defaultOpen = true,
+}: {
+  title: string
+  count: number
+  children: React.ReactNode
+  defaultOpen?: boolean
+}) {
   const [open, setOpen] = useState(defaultOpen)
   if (count === 0) return null
   return (
     <div>
-      <button onClick={() => setOpen(!open)} className="flex min-h-11 w-full items-center gap-2 px-3 py-1.5 text-meta font-semibold text-text-3 hover:bg-bg-2 lg:min-h-0">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex min-h-11 w-full items-center gap-2 px-3 py-1.5 text-meta font-semibold text-text-3 hover:bg-bg-2 lg:min-h-0"
+      >
         <span className="text-caption">{open ? '▼' : '▶'}</span>
         <span>{title}</span>
         <span className="ml-auto rounded-full bg-bg-2 px-1.5 py-0.5 text-caption">{count}</span>
@@ -105,7 +233,17 @@ function Section({ title, count, children, defaultOpen = true }: { title: string
   )
 }
 
-function StatusTab({ hostId, repoPath, onOpenDiff, t }: { hostId: string; repoPath: string; onOpenDiff?: (diff: MobileGitDiff) => void; t: TFunc }) {
+function StatusTab({
+  hostId,
+  repoPath,
+  onOpenDiff,
+  t,
+}: {
+  hostId: string
+  repoPath: string
+  onOpenDiff?: (diff: MobileGitDiff) => void
+  t: TFunc
+}) {
   const { data: status, isError, refetch } = useGitStatus(hostId, repoPath)
   const stage = useGitStage()
   const unstage = useGitUnstage()
@@ -115,76 +253,212 @@ function StatusTab({ hostId, repoPath, onOpenDiff, t }: { hostId: string; repoPa
   const pushToast = useConsoleStore((s) => s.pushToast)
   const [pendingDiscard, setPendingDiscard] = useState<string | null>(null)
 
-  const openDiff = useCallback((file: GitFileChange, isStaged: boolean, untracked = false) => {
-    if (isImagePath(file.path)) {
-      void openFileInEditor(
-        {
-          id: `git-file?${encodeURIComponent(repoPath)}?${file.path}`,
-          hostId,
-          rootId: `git:${encodeURIComponent(repoPath)}`,
-          rootLabel: 'Git',
-          rootPath: repoPath,
-          path: file.path,
-          name: file.path,
-          absolutePath: `${repoPath}/${file.path}`,
-          type: 'file',
-        },
-        { t: t as never, pushToast: pushToast as never },
-      )
-      return
-    }
-    if (onOpenDiff) {
-      onOpenDiff({ title: file.path, subtitle: isStaged ? t('git.staged') : untracked ? t('git.untracked') : t('git.unstaged'), filePath: file.path, staged: isStaged, untracked })
-      return
-    }
-    const params = new URLSearchParams({ hostId, repoPath, filePath: file.path })
-    if (isStaged) params.set('staged', '1')
-    useConsoleStore.getState().openEditor({
-      id: `git-diff?${params.toString()}`,
-      hostId,
-      rootId: 'git',
-      rootLabel: 'Git',
-      rootPath: repoPath,
-      path: file.path,
-      name: `${file.path} (diff)`,
-      absolutePath: `${repoPath}/${file.path}`,
-      language: 'diff',
-      type: 'file',
-    })
-  }, [hostId, onOpenDiff, repoPath, t])
+  const openDiff = useCallback(
+    (file: GitFileChange, isStaged: boolean, untracked = false) => {
+      if (isImagePath(file.path)) {
+        void openFileInEditor(
+          {
+            id: `git-file?${encodeURIComponent(repoPath)}?${file.path}`,
+            hostId,
+            rootId: `git:${encodeURIComponent(repoPath)}`,
+            rootLabel: 'Git',
+            rootPath: repoPath,
+            path: file.path,
+            name: file.path,
+            absolutePath: `${repoPath}/${file.path}`,
+            type: 'file',
+          },
+          { t: t as never, pushToast: pushToast as never },
+        )
+        return
+      }
+      if (onOpenDiff) {
+        onOpenDiff({
+          title: file.path,
+          subtitle: isStaged ? t('git.staged') : untracked ? t('git.untracked') : t('git.unstaged'),
+          filePath: file.path,
+          staged: isStaged,
+          untracked,
+        })
+        return
+      }
+      const params = new URLSearchParams({ hostId, repoPath, filePath: file.path })
+      if (isStaged) params.set('staged', '1')
+      useConsoleStore.getState().openEditor({
+        id: `git-diff?${params.toString()}`,
+        hostId,
+        rootId: 'git',
+        rootLabel: 'Git',
+        rootPath: repoPath,
+        path: file.path,
+        name: `${file.path} (diff)`,
+        absolutePath: `${repoPath}/${file.path}`,
+        language: 'diff',
+        type: 'file',
+      })
+    },
+    [hostId, onOpenDiff, repoPath, t],
+  )
 
   if (isError) return <GitLoadError onRetry={() => void refetch()} t={t} />
   if (!status) return <div className="p-3 text-meta text-text-3">{t('git.detecting')}</div>
-  const hasChanges = status.staged.length + status.unstaged.length + status.untracked.length + status.conflicted.length === 0
+  const hasChanges =
+    status.staged.length + status.unstaged.length + status.untracked.length + status.conflicted.length === 0
 
   return (
     <>
       {hasChanges && <div className="p-3 text-meta text-text-3">{t('git.noChanges')}</div>}
       <Section title={t('git.staged')} count={status.staged.length}>
-        {status.staged.map((f) => <FileRow key={`s-${f.path}`} file={f} staged onStage={() => {}} onUnstage={() => unstage.mutate({ hostId, path: repoPath, filePaths: [f.path] })} onDiscard={() => {}} onViewDiff={() => openDiff(f, true)} t={t} />)}
+        {status.staged.map((f) => (
+          <FileRow
+            key={`s-${f.path}`}
+            file={f}
+            staged
+            onStage={() => {}}
+            onUnstage={() => unstage.mutate({ hostId, path: repoPath, filePaths: [f.path] })}
+            onDiscard={() => {}}
+            onViewDiff={() => openDiff(f, true)}
+            t={t}
+          />
+        ))}
       </Section>
       <Section title={t('git.unstaged')} count={status.unstaged.length}>
-        {status.unstaged.map((f) => <FileRow key={`u-${f.path}`} file={f} staged={false} onStage={() => stage.mutate({ hostId, path: repoPath, filePaths: [f.path] })} onUnstage={() => {}} onDiscard={() => setPendingDiscard(f.path)} onViewDiff={() => openDiff(f, false)} t={t} />)}
+        {status.unstaged.map((f) => (
+          <FileRow
+            key={`u-${f.path}`}
+            file={f}
+            staged={false}
+            onStage={() => stage.mutate({ hostId, path: repoPath, filePaths: [f.path] })}
+            onUnstage={() => {}}
+            onDiscard={() => setPendingDiscard(f.path)}
+            onViewDiff={() => openDiff(f, false)}
+            t={t}
+          />
+        ))}
       </Section>
       <Section title={t('git.untracked')} count={status.untracked.length}>
         {status.untracked.map((f) => (
-          <div key={`un-${f}`} className={`group flex min-h-11 items-center gap-2 px-3 py-1 hover:bg-bg-2 lg:min-h-0 ${onOpenDiff ? 'cursor-pointer' : ''}`} onClick={() => onOpenDiff && openDiff({ path: f, status: 'added', staged: false }, false, true)}>
+          <div
+            key={`un-${f}`}
+            className={`group flex min-h-11 items-center gap-2 px-3 py-1 hover:bg-bg-2 lg:min-h-0 ${onOpenDiff ? 'cursor-pointer' : ''}`}
+            onClick={() => onOpenDiff && openDiff({ path: f, status: 'added', staged: false }, false, true)}
+          >
             <span className="w-4 text-center text-meta font-bold text-text-3">?</span>
             <span className="min-w-0 flex-1 truncate text-meta text-text-2">{f}</span>
-            <button onClick={(event) => { event.stopPropagation(); stage.mutate({ hostId, path: repoPath, filePaths: [f] }) }} className="shrink-0 rounded-apple px-1.5 py-0.5 text-caption text-text-3 opacity-100 hover:bg-bg-2 hover:text-text-1 lg:opacity-0 lg:group-hover:opacity-100">{t('git.stage')}</button>
+            <button
+              onClick={(event) => {
+                event.stopPropagation()
+                stage.mutate({ hostId, path: repoPath, filePaths: [f] })
+              }}
+              className="shrink-0 rounded-apple px-1.5 py-0.5 text-caption text-text-3 opacity-100 hover:bg-bg-2 hover:text-text-1 lg:opacity-0 lg:group-hover:opacity-100"
+            >
+              {t('git.stage')}
+            </button>
           </div>
         ))}
       </Section>
       <Section title={t('git.conflicted')} count={status.conflicted.length}>
-        {status.conflicted.map((f) => <div key={`c-${f.path}`} className="border-b border-[var(--line)] px-3 py-2"><button onClick={() => openDiff(f, false)} className="block w-full truncate text-left text-meta text-text-2">{f.path}</button><div className="mt-2 flex flex-wrap gap-1"><Chip tone="accent" onClick={() => resolve.mutate({ hostId, path: repoPath, filePath: f.path, resolution: 'ours' })}>{t('git.useOurs')}</Chip><Chip tone="accent" onClick={() => resolve.mutate({ hostId, path: repoPath, filePath: f.path, resolution: 'theirs' })}>{t('git.useTheirs')}</Chip><Chip tone="accent" onClick={() => resolve.mutate({ hostId, path: repoPath, filePath: f.path, resolution: 'mark' })}>{t('git.markResolved')}</Chip></div></div>)}
+        {status.conflicted.map((f) => (
+          <div key={`c-${f.path}`} className="border-b border-[var(--line)] px-3 py-2">
+            <button
+              onClick={() => openDiff(f, false)}
+              className="block w-full truncate text-left text-meta text-text-2"
+            >
+              {f.path}
+            </button>
+            <div className="mt-2 flex flex-wrap gap-1">
+              <Chip
+                tone="accent"
+                onClick={() => resolve.mutate({ hostId, path: repoPath, filePath: f.path, resolution: 'ours' })}
+              >
+                {t('git.useOurs')}
+              </Chip>
+              <Chip
+                tone="accent"
+                onClick={() => resolve.mutate({ hostId, path: repoPath, filePath: f.path, resolution: 'theirs' })}
+              >
+                {t('git.useTheirs')}
+              </Chip>
+              <Chip
+                tone="accent"
+                onClick={() => resolve.mutate({ hostId, path: repoPath, filePath: f.path, resolution: 'mark' })}
+              >
+                {t('git.markResolved')}
+              </Chip>
+            </div>
+          </div>
+        ))}
       </Section>
-      {status.operation && <div className="flex gap-2 border-y border-[var(--line)] p-3"><Button variant="primary" size="sm" disabled={status.conflicted.length > 0} className="flex-1" onClick={() => operation.mutate({ hostId, path: repoPath, operation: status.operation!, action: 'continue' }, { onError: (error) => pushToast({ type: 'error', message: `${t('git.operationFailed')}: ${error.message}` }) })}>{t('git.continueOperation', { operation: status.operation })}</Button><Button variant="danger" size="sm" onClick={() => operation.mutate({ hostId, path: repoPath, operation: status.operation!, action: 'abort' }, { onError: (error) => pushToast({ type: 'error', message: `${t('git.operationFailed')}: ${error.message}` }) })}>{t('git.abortOperation', { operation: status.operation })}</Button></div>}
-      <ConfirmDialog open={!!pendingDiscard} title={t('git.discardTitle')} message={t('git.discardConfirm', { file: pendingDiscard || '' })} confirmLabel={t('git.discard')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setPendingDiscard(null)} onConfirm={() => { if (pendingDiscard) { discard.mutate({ hostId, path: repoPath, filePaths: [pendingDiscard] }); setPendingDiscard(null) } }} />
+      {status.operation && (
+        <div className="flex gap-2 border-y border-[var(--line)] p-3">
+          <Button
+            variant="primary"
+            size="sm"
+            disabled={status.conflicted.length > 0}
+            className="flex-1"
+            onClick={() =>
+              operation.mutate(
+                { hostId, path: repoPath, operation: status.operation!, action: 'continue' },
+                {
+                  onError: (error) =>
+                    pushToast({ type: 'error', message: `${t('git.operationFailed')}: ${error.message}` }),
+                },
+              )
+            }
+          >
+            {t('git.continueOperation', { operation: status.operation })}
+          </Button>
+          <Button
+            variant="danger"
+            size="sm"
+            onClick={() =>
+              operation.mutate(
+                { hostId, path: repoPath, operation: status.operation!, action: 'abort' },
+                {
+                  onError: (error) =>
+                    pushToast({ type: 'error', message: `${t('git.operationFailed')}: ${error.message}` }),
+                },
+              )
+            }
+          >
+            {t('git.abortOperation', { operation: status.operation })}
+          </Button>
+        </div>
+      )}
+      <ConfirmDialog
+        open={!!pendingDiscard}
+        title={t('git.discardTitle')}
+        message={t('git.discardConfirm', { file: pendingDiscard || '' })}
+        confirmLabel={t('git.discard')}
+        cancelLabel={t('common.cancel')}
+        tone="danger"
+        onCancel={() => setPendingDiscard(null)}
+        onConfirm={() => {
+          if (pendingDiscard) {
+            discard.mutate({ hostId, path: repoPath, filePaths: [pendingDiscard] })
+            setPendingDiscard(null)
+          }
+        }}
+      />
     </>
   )
 }
 
-function HistoryTab({ hostId, repoPath, status, onOpenWorkingTree, onOpenCommit, t }: { hostId: string; repoPath: string; status?: GitStatusResponse; onOpenWorkingTree: () => void; onOpenCommit?: (commit: GitGraphCommit) => void; t: TFunc }) {
+function HistoryTab({
+  hostId,
+  repoPath,
+  status,
+  onOpenWorkingTree,
+  onOpenCommit,
+  t,
+}: {
+  hostId: string
+  repoPath: string
+  status?: GitStatusResponse
+  onOpenWorkingTree: () => void
+  onOpenCommit?: (commit: GitGraphCommit) => void
+  t: TFunc
+}) {
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isError, refetch } = useGitLogPaged(hostId, repoPath)
   const { data: branchesData } = useGitBranches(hostId, repoPath)
   const [searchQuery, setSearchQuery] = useState('')
@@ -204,23 +478,45 @@ function HistoryTab({ hostId, repoPath, status, onOpenWorkingTree, onOpenCommit,
   if (!data) return <div className="p-3 text-meta text-text-3">{t('git.detecting')}</div>
   const committedCommits = normalizeGitGraphCommits(data)
   const commitSet = new Set(committedCommits.map((commit) => commit.sha))
-  const branchHeads = normalizeBranchHeads([
-    ...(branchesData?.branches || []).map((branch) => ({ ...branch, kind: 'branch' as const })),
-    ...(branchesData?.refs || []),
-  ], commitSet)
+  const branchHeads = normalizeBranchHeads(
+    [
+      ...(branchesData?.branches || []).map((branch) => ({ ...branch, kind: 'branch' as const })),
+      ...(branchesData?.refs || []),
+    ],
+    commitSet,
+  )
   const currentBranch = normalizeCurrentBranch(branchesData?.current, branchHeads)
   const headCommit = branchesData?.branches.find((branch) => branch.current)?.commitHash
-  const workingTreePaths = status ? new Set([...status.staged.map((file) => file.path), ...status.unstaged.map((file) => file.path), ...status.untracked, ...status.conflicted.map((file) => file.path)]) : new Set<string>()
-  const commits: GitGraphCommit[] = workingTreePaths.size ? [{
-    sha: '__WORKING_TREE__',
-    shortSha: 'WIP',
-    subject: t('git.workingTreeChanges', { count: workingTreePaths.size }),
-    author: { name: t('git.workingTreeSummary', { staged: status?.staged.length || 0, unstaged: status?.unstaged.length || 0, untracked: status?.untracked.length || 0, conflicted: status?.conflicted.length || 0 }) },
-    authoredAt: committedCommits[0]?.committedAt || new Date().toISOString(),
-    committedAt: committedCommits[0]?.committedAt || new Date().toISOString(),
-    parents: headCommit && commitSet.has(headCommit) ? [{ sha: headCommit }] : [],
-    workingTree: true,
-  }, ...committedCommits] : committedCommits
+  const workingTreePaths = status
+    ? new Set([
+        ...status.staged.map((file) => file.path),
+        ...status.unstaged.map((file) => file.path),
+        ...status.untracked,
+        ...status.conflicted.map((file) => file.path),
+      ])
+    : new Set<string>()
+  const commits: GitGraphCommit[] = workingTreePaths.size
+    ? [
+        {
+          sha: '__WORKING_TREE__',
+          shortSha: 'WIP',
+          subject: t('git.workingTreeChanges', { count: workingTreePaths.size }),
+          author: {
+            name: t('git.workingTreeSummary', {
+              staged: status?.staged.length || 0,
+              unstaged: status?.unstaged.length || 0,
+              untracked: status?.untracked.length || 0,
+              conflicted: status?.conflicted.length || 0,
+            }),
+          },
+          authoredAt: committedCommits[0]?.committedAt || new Date().toISOString(),
+          committedAt: committedCommits[0]?.committedAt || new Date().toISOString(),
+          parents: headCommit && commitSet.has(headCommit) ? [{ sha: headCommit }] : [],
+          workingTree: true,
+        },
+        ...committedCommits,
+      ]
+    : committedCommits
   const openCommitDiff = (commit: GitGraphCommit) => {
     if (commit.workingTree) {
       onOpenWorkingTree()
@@ -249,24 +545,45 @@ function HistoryTab({ hostId, repoPath, status, onOpenWorkingTree, onOpenCommit,
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-10 shrink-0 items-center gap-2 border-b border-[var(--line)] px-3">
         <FiSearch aria-hidden="true" className="shrink-0 text-text-3" size={14} />
-        <input ref={searchRef} value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder={t('git.searchCommits')} className="min-w-0 flex-1 bg-transparent text-meta text-text-1 outline-none placeholder:text-text-3" />
-        {searchQuery && <button type="button" aria-label={t('git.clearSearch')} title={t('git.clearSearch')} onClick={() => setSearchQuery('')} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-6 w-6"><FiX aria-hidden="true" size={13} /></button>}
+        <input
+          ref={searchRef}
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+          placeholder={t('git.searchCommits')}
+          className="min-w-0 flex-1 bg-transparent text-meta text-text-1 outline-none placeholder:text-text-3"
+        />
+        {searchQuery && (
+          <button
+            type="button"
+            aria-label={t('git.clearSearch')}
+            title={t('git.clearSearch')}
+            onClick={() => setSearchQuery('')}
+            className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-6 w-6"
+          >
+            <FiX aria-hidden="true" size={13} />
+          </button>
+        )}
         <span className="shrink-0 font-mono text-caption text-text-3">{commits.length}</span>
       </div>
-      <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain" data-git-history-scroll="1">
-        {commits.length === 0 ? <div className="p-3 text-meta text-text-3">{t('git.noChanges')}</div> : (
-        <GitHistoryGraph
-          commits={commits}
-          branchHeads={branchHeads}
-          onLoadMore={fetchNextPage}
-          hasMore={hasNextPage}
-          isFetchingMore={isFetchingNextPage}
-          currentBranch={currentBranch}
-          onCommitClick={openCommitDiff}
-          formatDate={formatDate}
-          formatDateFull={formatDateFull}
-          searchQuery={searchQuery}
-        />
+      <div
+        className="tmuxgo-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain"
+        data-git-history-scroll="1"
+      >
+        {commits.length === 0 ? (
+          <div className="p-3 text-meta text-text-3">{t('git.noChanges')}</div>
+        ) : (
+          <GitHistoryGraph
+            commits={commits}
+            branchHeads={branchHeads}
+            onLoadMore={fetchNextPage}
+            hasMore={hasNextPage}
+            isFetchingMore={isFetchingNextPage}
+            currentBranch={currentBranch}
+            onCommitClick={openCommitDiff}
+            formatDate={formatDate}
+            formatDateFull={formatDateFull}
+            searchQuery={searchQuery}
+          />
         )}
       </div>
     </div>
@@ -279,7 +596,12 @@ function useGitLogPaged(hostId: string, repoPath: string) {
   const pagesRef = useRef<{ key: string; pages: GitCommitInfo[][] }>({ key, pages: [] })
   const page = pagination.key === key ? pagination.page : 0
   const pageSize = 200
-  const { data, isLoading, isError, refetch } = useGitLog(hostId, repoPath, { limit: pageSize, skip: page * pageSize }, true)
+  const { data, isLoading, isError, refetch } = useGitLog(
+    hostId,
+    repoPath,
+    { limit: pageSize, skip: page * pageSize },
+    true,
+  )
   if (pagesRef.current.key !== key) pagesRef.current = { key, pages: [] }
 
   if (data && data.commits.length > 0) {
@@ -315,20 +637,25 @@ function formatDate(dateValue: string | number | Date) {
     if (!Number.isFinite(d.getTime())) return String(dateValue)
     const now = new Date()
     const sameYear = d.getFullYear() === now.getFullYear()
-    return d.toLocaleString([], sameYear ? {
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    } : {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    })
+    return d.toLocaleString(
+      [],
+      sameYear
+        ? {
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+          }
+        : {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+          },
+    )
   } catch {
     return String(dateValue)
   }
@@ -368,10 +695,17 @@ function BranchesTab({ hostId, repoPath, t }: { hostId: string; repoPath: string
 
   const handleCreate = () => {
     if (!newBranchName.trim()) return
-    createBranch.mutate({ hostId, path: repoPath, name: newBranchName.trim() }, {
-      onSuccess: () => { pushToast({ type: 'success', message: t('git.createBranchSuccess') }); setShowCreate(false); setNewBranchName('') },
-      onError: (err) => pushToast({ type: 'error', message: err.message }),
-    })
+    createBranch.mutate(
+      { hostId, path: repoPath, name: newBranchName.trim() },
+      {
+        onSuccess: () => {
+          pushToast({ type: 'success', message: t('git.createBranchSuccess') })
+          setShowCreate(false)
+          setNewBranchName('')
+        },
+        onError: (err) => pushToast({ type: 'error', message: err.message }),
+      },
+    )
   }
 
   return (
@@ -379,33 +713,111 @@ function BranchesTab({ hostId, repoPath, t }: { hostId: string; repoPath: string
       <div className="border-b border-[var(--line)] px-3 py-2">
         {showCreate ? (
           <div className="flex gap-1">
-            <input value={newBranchName} onChange={(e) => setNewBranchName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleCreate()} placeholder={t('git.branchName')} className="tmuxgo-control tmuxgo-input flex-1 rounded-apple px-2 py-1 text-meta" autoFocus />
-            <Chip tone="accent" onClick={handleCreate}>{t('common.confirm')}</Chip>
+            <input
+              value={newBranchName}
+              onChange={(e) => setNewBranchName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+              placeholder={t('git.branchName')}
+              className="tmuxgo-control tmuxgo-input flex-1 rounded-apple px-2 py-1 text-meta"
+              autoFocus
+            />
+            <Chip tone="accent" onClick={handleCreate}>
+              {t('common.confirm')}
+            </Chip>
             <Chip onClick={() => setShowCreate(false)}>{t('common.cancel')}</Chip>
           </div>
         ) : (
-          <div className="flex items-center justify-between gap-2"><button onClick={() => setShowCreate(true)} className="text-meta text-accent hover:text-text-1">+ {t('git.newBranch')}</button><label className="flex items-center gap-1.5 text-caption text-text-3"><input type="checkbox" checked={noFF} onChange={(event) => setNoFF(event.target.checked)} className="accent-accent" />{t('git.noFF')}</label></div>
+          <div className="flex items-center justify-between gap-2">
+            <button onClick={() => setShowCreate(true)} className="text-meta text-accent hover:text-text-1">
+              + {t('git.newBranch')}
+            </button>
+            <label className="flex items-center gap-1.5 text-caption text-text-3">
+              <input
+                type="checkbox"
+                checked={noFF}
+                onChange={(event) => setNoFF(event.target.checked)}
+                className="accent-accent"
+              />
+              {t('git.noFF')}
+            </label>
+          </div>
         )}
       </div>
       {data.branches.map((b) => (
         <div key={b.name} className="group flex min-h-11 items-center gap-2 px-3 py-1.5 hover:bg-bg-2 lg:min-h-0">
-          <span className={`w-3 text-center text-meta ${b.current ? 'text-text-1' : 'text-text-2'}`}>{b.current ? '●' : ''}</span>
+          <span className={`w-3 text-center text-meta ${b.current ? 'text-text-1' : 'text-text-2'}`}>
+            {b.current ? '●' : ''}
+          </span>
           <div className="min-w-0 flex-1">
-            <div className={`truncate text-meta ${b.current ? 'font-semibold text-accent' : 'text-text-1'}`}>{b.name}</div>
+            <div className={`truncate text-meta ${b.current ? 'font-semibold text-accent' : 'text-text-1'}`}>
+              {b.name}
+            </div>
             {b.lastCommitSubject && <div className="truncate text-caption text-text-3">{b.lastCommitSubject}</div>}
           </div>
           <div className="flex shrink-0 items-center gap-1 opacity-100 lg:opacity-0 lg:group-hover:opacity-100">
             {!b.current && (
               <>
-                <Chip onClick={() => checkout.mutate({ hostId, path: repoPath, branch: b.name }, { onSuccess: () => pushToast({ type: 'success', message: t('git.checkoutSuccess', { branch: b.name }) }), onError: (err) => pushToast({ type: 'error', message: err.message }) })}>{t('git.checkout')}</Chip>
-                <Chip onClick={() => merge.mutate({ hostId, path: repoPath, branch: b.name, noFF }, { onSuccess: (result) => pushToast({ type: 'success', message: 'task' in result ? t('tasks.queued') : t('git.mergeSuccess') }), onError: (err) => pushToast({ type: 'error', message: t('git.mergeFailed') + ': ' + err.message }) })}>{t('git.merge')}</Chip>
-                <Chip tone="danger" onClick={() => setPendingDelete(b.name)}>✕</Chip>
+                <Chip
+                  onClick={() =>
+                    checkout.mutate(
+                      { hostId, path: repoPath, branch: b.name },
+                      {
+                        onSuccess: () =>
+                          pushToast({ type: 'success', message: t('git.checkoutSuccess', { branch: b.name }) }),
+                        onError: (err) => pushToast({ type: 'error', message: err.message }),
+                      },
+                    )
+                  }
+                >
+                  {t('git.checkout')}
+                </Chip>
+                <Chip
+                  onClick={() =>
+                    merge.mutate(
+                      { hostId, path: repoPath, branch: b.name, noFF },
+                      {
+                        onSuccess: (result) =>
+                          pushToast({
+                            type: 'success',
+                            message: 'task' in result ? t('tasks.queued') : t('git.mergeSuccess'),
+                          }),
+                        onError: (err) =>
+                          pushToast({ type: 'error', message: t('git.mergeFailed') + ': ' + err.message }),
+                      },
+                    )
+                  }
+                >
+                  {t('git.merge')}
+                </Chip>
+                <Chip tone="danger" onClick={() => setPendingDelete(b.name)}>
+                  ✕
+                </Chip>
               </>
             )}
           </div>
         </div>
       ))}
-      <ConfirmDialog open={!!pendingDelete} title={t('git.deleteBranch')} message={t('git.deleteBranchConfirm', { name: pendingDelete || '' })} confirmLabel={t('git.deleteBranch')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setPendingDelete(null)} onConfirm={() => { if (pendingDelete) { deleteBranch.mutate({ hostId, path: repoPath, name: pendingDelete }, { onSuccess: () => pushToast({ type: 'success', message: t('git.deleteBranch') }), onError: (err) => pushToast({ type: 'error', message: err.message }) }); setPendingDelete(null) } }} />
+      <ConfirmDialog
+        open={!!pendingDelete}
+        title={t('git.deleteBranch')}
+        message={t('git.deleteBranchConfirm', { name: pendingDelete || '' })}
+        confirmLabel={t('git.deleteBranch')}
+        cancelLabel={t('common.cancel')}
+        tone="danger"
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={() => {
+          if (pendingDelete) {
+            deleteBranch.mutate(
+              { hostId, path: repoPath, name: pendingDelete },
+              {
+                onSuccess: () => pushToast({ type: 'success', message: t('git.deleteBranch') }),
+                onError: (err) => pushToast({ type: 'error', message: err.message }),
+              },
+            )
+            setPendingDelete(null)
+          }
+        }}
+      />
     </div>
   )
 }
@@ -437,11 +849,18 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
   const [amend, setAmend] = useState(false)
   const gitState = activeHostId ? gitByHost[activeHostId] : undefined
   const repoPath = gitState?.currentRepoPath || null
-  const activeEditor = activeEditorId ? openEditors.find((editor) => editor.id === activeEditorId && !editor.id.startsWith('git-diff?')) : null
+  const activeEditor = activeEditorId
+    ? openEditors.find((editor) => editor.id === activeEditorId && !editor.id.startsWith('git-diff?'))
+    : null
   const followPane = gitState?.mode !== 'locked' && (!activeEditor || !repoPath)
   const { data: paneDetect } = useGitPaneDetect(activeHostId || '', activePaneId || '', followPane)
   const { data: status, isError: statusError } = useGitStatus(activeHostId || '', repoPath || '', !!repoPath)
-  const { data: discoveredRepos = [], isLoading: repositoriesLoading, isError: repositoriesError, refetch: refetchRepositories } = useGitRepositories(activeHostId || '', repoPickerOpen)
+  const {
+    data: discoveredRepos = [],
+    isLoading: repositoriesLoading,
+    isError: repositoriesError,
+    refetch: refetchRepositories,
+  } = useGitRepositories(activeHostId || '', repoPickerOpen)
   const { data: remotesData } = useGitRemotes(activeHostId || '', repoPath || '')
   const commit = useGitCommit()
   const stageAll = useGitStage()
@@ -450,23 +869,58 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
   const pull = useGitPull()
   const push = useGitPush()
   const queryClient = useQueryClient()
-  const pinnedRepos = useMemo(() => (gitState?.recentRepos || []).filter((item) => item.pinned), [gitState?.recentRepos])
-  const otherRepos = useMemo(() => (gitState?.recentRepos || []).filter((item) => !item.pinned), [gitState?.recentRepos])
+  const pinnedRepos = useMemo(
+    () => (gitState?.recentRepos || []).filter((item) => item.pinned),
+    [gitState?.recentRepos],
+  )
+  const otherRepos = useMemo(
+    () => (gitState?.recentRepos || []).filter((item) => !item.pinned),
+    [gitState?.recentRepos],
+  )
   const remotes = remotesData?.remotes || []
-  const repoOptions = useMemo(() => [...pinnedRepos, ...otherRepos, ...discoveredRepos.map((item) => ({ repoPath: item.path, label: item.label, lastUsedAt: 0, pinned: false }))].filter((item, index, items) => items.findIndex((candidate) => candidate.repoPath === item.repoPath) === index), [discoveredRepos, otherRepos, pinnedRepos])
+  const repoOptions = useMemo(
+    () =>
+      [
+        ...pinnedRepos,
+        ...otherRepos,
+        ...discoveredRepos.map((item) => ({ repoPath: item.path, label: item.label, lastUsedAt: 0, pinned: false })),
+      ].filter((item, index, items) => items.findIndex((candidate) => candidate.repoPath === item.repoPath) === index),
+    [discoveredRepos, otherRepos, pinnedRepos],
+  )
   const filteredRepoOptions = useMemo(() => {
     const query = manualRepoPath.trim().toLocaleLowerCase()
-    return (query ? repoOptions.filter((item) => item.label.toLocaleLowerCase().includes(query) || item.repoPath.toLocaleLowerCase().includes(query)) : repoOptions).slice(0, 50)
+    return (
+      query
+        ? repoOptions.filter(
+            (item) =>
+              item.label.toLocaleLowerCase().includes(query) || item.repoPath.toLocaleLowerCase().includes(query),
+          )
+        : repoOptions
+    ).slice(0, 50)
   }, [manualRepoPath, repoOptions])
-  const statusCount = status ? status.staged.length + status.unstaged.length + status.untracked.length + status.conflicted.length : 0
-  const stageablePaths = status ? Array.from(new Set([...status.unstaged.map((file) => file.path), ...status.untracked, ...status.conflicted.map((file) => file.path)])) : []
+  const statusCount = status
+    ? status.staged.length + status.unstaged.length + status.untracked.length + status.conflicted.length
+    : 0
+  const stageablePaths = status
+    ? Array.from(
+        new Set([
+          ...status.unstaged.map((file) => file.path),
+          ...status.untracked,
+          ...status.conflicted.map((file) => file.path),
+        ]),
+      )
+    : []
 
   useEffect(() => {
     if (activeHostId) ensureGitHostState(activeHostId)
   }, [activeHostId, ensureGitHostState])
   useEffect(() => {
     if (!activeHostId || !followPane || !paneDetect) return
-    setGitFollowPaneRepo(activeHostId, paneDetect.isGitRepo ? paneDetect.rootPath || paneDetect.path || null : null, paneDetect.path || null)
+    setGitFollowPaneRepo(
+      activeHostId,
+      paneDetect.isGitRepo ? paneDetect.rootPath || paneDetect.path || null : null,
+      paneDetect.path || null,
+    )
   }, [activeHostId, followPane, paneDetect, setGitFollowPaneRepo])
   useEffect(() => {
     if (mode !== 'mobile') return
@@ -482,10 +936,17 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
 
   const handleCommit = () => {
     if (!activeHostId || !repoPath || !commitMessage.trim()) return
-    commit.mutate({ hostId: activeHostId, path: repoPath, message: commitMessage.trim(), amend }, {
-      onSuccess: (result) => { setCommitMessage(''); setAmend(false); pushToast({ type: 'success', message: 'task' in result ? t('tasks.queued') : t('git.commitSuccess') }) },
-      onError: (err) => pushToast({ type: 'error', message: t('git.commitFailed') + ': ' + err.message }),
-    })
+    commit.mutate(
+      { hostId: activeHostId, path: repoPath, message: commitMessage.trim(), amend },
+      {
+        onSuccess: (result) => {
+          setCommitMessage('')
+          setAmend(false)
+          pushToast({ type: 'success', message: 'task' in result ? t('tasks.queued') : t('git.commitSuccess') })
+        },
+        onError: (err) => pushToast({ type: 'error', message: t('git.commitFailed') + ': ' + err.message }),
+      },
+    )
   }
   const handleSelectRepo = async (path: string) => {
     if (!activeHostId || !path || repoSwitchingPath) return
@@ -512,7 +973,10 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
   }
   const handleRepoSearchSubmit = () => {
     const query = manualRepoPath.trim().toLocaleLowerCase()
-    const match = filteredRepoOptions.find((item) => item.label.toLocaleLowerCase() === query || item.repoPath.toLocaleLowerCase() === query) || filteredRepoOptions[0]
+    const match =
+      filteredRepoOptions.find(
+        (item) => item.label.toLocaleLowerCase() === query || item.repoPath.toLocaleLowerCase() === query,
+      ) || filteredRepoOptions[0]
     if (match) void handleSelectRepo(match.repoPath)
     else handleOpenRepo()
   }
@@ -520,10 +984,49 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
     setMobileDiff(diff)
     window.dispatchEvent(new CustomEvent('tmuxgo-mobile-git-push-level'))
   }
-  const handleOpenMobileCommit = (commit: GitGraphCommit) => handleOpenMobileDiff({ title: commit.subject, subtitle: commit.shortSha, filePath: '', label: commit.shortSha, commit: commit.sha })
+  const handleOpenMobileCommit = (commit: GitGraphCommit) =>
+    handleOpenMobileDiff({
+      title: commit.subject,
+      subtitle: commit.shortSha,
+      filePath: '',
+      label: commit.shortSha,
+      commit: commit.sha,
+    })
 
-  if (!activeHostId) return <div className="flex h-full items-center justify-center p-3 text-meta text-text-3">{t('git.noRepo')}</div>
-  if (mode === 'mobile' && mobileDiff && repoPath) return <div className="flex h-full min-h-0 flex-col"><div className="flex h-11 shrink-0 items-center border-b border-[var(--line)]"><button type="button" aria-label={t('common.back')} title={t('common.back')} onClick={() => window.history.back()} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--lg text-text-2"><FiChevronLeft aria-hidden="true" size={20} /></button><div className="min-w-0 flex-1 pr-3"><div className="truncate text-body font-medium text-text-1">{mobileDiff.title}</div><div className="truncate font-mono text-caption text-text-3">{mobileDiff.subtitle}</div></div></div><div className="min-h-0 flex-1"><DiffViewer hostId={activeHostId} repoPath={repoPath} filePath={mobileDiff.filePath} staged={mobileDiff.staged} commit={mobileDiff.commit} workingTree={mobileDiff.workingTree} untracked={mobileDiff.untracked} label={mobileDiff.label || mobileDiff.title} /></div></div>
+  if (!activeHostId)
+    return <div className="flex h-full items-center justify-center p-3 text-meta text-text-3">{t('git.noRepo')}</div>
+  if (mode === 'mobile' && mobileDiff && repoPath)
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="flex h-11 shrink-0 items-center border-b border-[var(--line)]">
+          <button
+            type="button"
+            aria-label={t('common.back')}
+            title={t('common.back')}
+            onClick={() => window.history.back()}
+            className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--lg text-text-2"
+          >
+            <FiChevronLeft aria-hidden="true" size={20} />
+          </button>
+          <div className="min-w-0 flex-1 pr-3">
+            <div className="truncate text-body font-medium text-text-1">{mobileDiff.title}</div>
+            <div className="truncate font-mono text-caption text-text-3">{mobileDiff.subtitle}</div>
+          </div>
+        </div>
+        <div className="min-h-0 flex-1">
+          <DiffViewer
+            hostId={activeHostId}
+            repoPath={repoPath}
+            filePath={mobileDiff.filePath}
+            staged={mobileDiff.staged}
+            commit={mobileDiff.commit}
+            workingTree={mobileDiff.workingTree}
+            untracked={mobileDiff.untracked}
+            label={mobileDiff.label || mobileDiff.title}
+          />
+        </div>
+      </div>
+    )
 
   return (
     <div className={`flex h-full min-h-0 flex-col ${mode === 'mobile' ? '' : 'bg-bg-1'}`}>
@@ -543,36 +1046,232 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
           </div>
         </div>
         {repoPath && (
-          <div className="mt-1 truncate text-meta text-text-3" title={repoPath}>{repoPath}</div>
+          <div className="mt-1 truncate text-meta text-text-3" title={repoPath}>
+            {repoPath}
+          </div>
         )}
         {repoPath && (
           <div className="mt-2 flex items-center gap-1">
-            <button aria-label={t('git.switchRepo')} title={t('git.switchRepo')} onClick={() => setRepoPickerOpen((open) => !open)} className={`tmuxgo-toolbar-icon tmuxgo-toolbar-icon--lg lg:h-7 lg:w-7 ${repoPickerOpen ? 'tmuxgo-toolbar-icon--active' : ''}`}><FiFolder aria-hidden="true" size={14} /></button>
+            <button
+              aria-label={t('git.switchRepo')}
+              title={t('git.switchRepo')}
+              onClick={() => setRepoPickerOpen((open) => !open)}
+              className={`tmuxgo-toolbar-icon tmuxgo-toolbar-icon--lg lg:h-7 lg:w-7 ${repoPickerOpen ? 'tmuxgo-toolbar-icon--active' : ''}`}
+            >
+              <FiFolder aria-hidden="true" size={14} />
+            </button>
             {gitState?.mode === 'locked' && (
-              <button aria-label={t('git.followCurrentFile')} title={t('git.followCurrentFile')} onClick={() => activeHostId && resumeGitFollowEditor(activeHostId)} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--lg text-accent lg:h-7 lg:w-7"><FiLink aria-hidden="true" size={14} /></button>
+              <button
+                aria-label={t('git.followCurrentFile')}
+                title={t('git.followCurrentFile')}
+                onClick={() => activeHostId && resumeGitFollowEditor(activeHostId)}
+                className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--lg text-accent lg:h-7 lg:w-7"
+              >
+                <FiLink aria-hidden="true" size={14} />
+              </button>
             )}
-            <button aria-label={t('git.fetch')} title={t('git.fetch')} disabled={fetch.isPending} onClick={() => activeHostId && fetch.mutate({ hostId: activeHostId, path: repoPath, remote: selectedRemote || undefined, prune: fetchPrune }, { onSuccess: (result) => { pushToast({ type: 'success', message: 'task' in result ? t('tasks.queued') : t('git.fetchSuccess') }); queryClient.invalidateQueries({ queryKey: ['git-status'] }) }, onError: (err) => pushToast({ type: 'error', message: err.message }) })} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--lg lg:h-7 lg:w-7"><FiRefreshCw aria-hidden="true" className={fetch.isPending ? 'animate-spin' : ''} size={14} /></button>
-            <button aria-label={t('git.pull')} title={t('git.pull')} disabled={pull.isPending} onClick={() => activeHostId && pull.mutate({ hostId: activeHostId, path: repoPath, remote: selectedRemote || undefined, rebase: pullRebase }, { onSuccess: (result) => { pushToast({ type: 'success', message: 'task' in result ? t('tasks.queued') : t('git.pullSuccess') }); queryClient.invalidateQueries({ queryKey: ['git-status'] }) }, onError: (err) => pushToast({ type: 'error', message: err.message }) })} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--lg lg:h-7 lg:w-7"><FiDownload aria-hidden="true" size={14} /></button>
-            <button aria-label={t('git.push')} title={t('git.push')} disabled={push.isPending} onClick={() => activeHostId && push.mutate({ hostId: activeHostId, path: repoPath, remote: selectedRemote || undefined, branch: pushSetUpstream ? status?.branch : undefined, force: pushForce, setUpstream: pushSetUpstream }, { onSuccess: (result) => { pushToast({ type: 'success', message: 'task' in result ? t('tasks.queued') : t('git.pushSuccess') }); queryClient.invalidateQueries({ queryKey: ['git-status'] }) }, onError: (err) => pushToast({ type: 'error', message: err.message.includes('rejected') ? t('git.pushRejected') : err.message }) })} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--lg lg:h-7 lg:w-7"><FiUpload aria-hidden="true" size={14} /></button>
-            <button aria-label={t('git.options')} title={t('git.options')} onClick={() => setGitOptionsOpen((open) => !open)} className={`tmuxgo-toolbar-icon tmuxgo-toolbar-icon--lg lg:h-7 lg:w-7 ${gitOptionsOpen ? 'tmuxgo-toolbar-icon--active' : ''}`}><FiSettings aria-hidden="true" size={14} /></button>
+            <button
+              aria-label={t('git.fetch')}
+              title={t('git.fetch')}
+              disabled={fetch.isPending}
+              onClick={() =>
+                activeHostId &&
+                fetch.mutate(
+                  { hostId: activeHostId, path: repoPath, remote: selectedRemote || undefined, prune: fetchPrune },
+                  {
+                    onSuccess: (result) => {
+                      pushToast({
+                        type: 'success',
+                        message: 'task' in result ? t('tasks.queued') : t('git.fetchSuccess'),
+                      })
+                      queryClient.invalidateQueries({ queryKey: ['git-status'] })
+                    },
+                    onError: (err) => pushToast({ type: 'error', message: err.message }),
+                  },
+                )
+              }
+              className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--lg lg:h-7 lg:w-7"
+            >
+              <FiRefreshCw aria-hidden="true" className={fetch.isPending ? 'animate-spin' : ''} size={14} />
+            </button>
+            <button
+              aria-label={t('git.pull')}
+              title={t('git.pull')}
+              disabled={pull.isPending}
+              onClick={() =>
+                activeHostId &&
+                pull.mutate(
+                  { hostId: activeHostId, path: repoPath, remote: selectedRemote || undefined, rebase: pullRebase },
+                  {
+                    onSuccess: (result) => {
+                      pushToast({
+                        type: 'success',
+                        message: 'task' in result ? t('tasks.queued') : t('git.pullSuccess'),
+                      })
+                      queryClient.invalidateQueries({ queryKey: ['git-status'] })
+                    },
+                    onError: (err) => pushToast({ type: 'error', message: err.message }),
+                  },
+                )
+              }
+              className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--lg lg:h-7 lg:w-7"
+            >
+              <FiDownload aria-hidden="true" size={14} />
+            </button>
+            <button
+              aria-label={t('git.push')}
+              title={t('git.push')}
+              disabled={push.isPending}
+              onClick={() =>
+                activeHostId &&
+                push.mutate(
+                  {
+                    hostId: activeHostId,
+                    path: repoPath,
+                    remote: selectedRemote || undefined,
+                    branch: pushSetUpstream ? status?.branch : undefined,
+                    force: pushForce,
+                    setUpstream: pushSetUpstream,
+                  },
+                  {
+                    onSuccess: (result) => {
+                      pushToast({
+                        type: 'success',
+                        message: 'task' in result ? t('tasks.queued') : t('git.pushSuccess'),
+                      })
+                      queryClient.invalidateQueries({ queryKey: ['git-status'] })
+                    },
+                    onError: (err) =>
+                      pushToast({
+                        type: 'error',
+                        message: err.message.includes('rejected') ? t('git.pushRejected') : err.message,
+                      }),
+                  },
+                )
+              }
+              className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--lg lg:h-7 lg:w-7"
+            >
+              <FiUpload aria-hidden="true" size={14} />
+            </button>
+            <button
+              aria-label={t('git.options')}
+              title={t('git.options')}
+              onClick={() => setGitOptionsOpen((open) => !open)}
+              className={`tmuxgo-toolbar-icon tmuxgo-toolbar-icon--lg lg:h-7 lg:w-7 ${gitOptionsOpen ? 'tmuxgo-toolbar-icon--active' : ''}`}
+            >
+              <FiSettings aria-hidden="true" size={14} />
+            </button>
           </div>
         )}
-        {gitOptionsOpen && repoPath && <div className="mt-2 grid gap-2 border-t border-[var(--line)] pt-2 text-meta text-text-2"><label className="flex items-center justify-between gap-3"><span>{t('git.remote')}</span><select value={selectedRemote} onChange={(event) => setSelectedRemote(event.target.value)} className="tmuxgo-control tmuxgo-select min-w-0 rounded-apple px-2 py-1"><option value="">auto</option>{remotes.map((remote) => <option key={remote.name} value={remote.name}>{remote.name}</option>)}</select></label><label className="flex items-center justify-between gap-3"><span>{t('git.prune')}</span><input type="checkbox" checked={fetchPrune} onChange={(event) => setFetchPrune(event.target.checked)} className="accent-accent" /></label><label className="flex items-center justify-between gap-3"><span>{t('git.rebasePull')}</span><input type="checkbox" checked={pullRebase} onChange={(event) => setPullRebase(event.target.checked)} className="accent-accent" /></label><label className="flex items-center justify-between gap-3"><span>{t('git.forceWithLease')}</span><input type="checkbox" checked={pushForce} onChange={(event) => setPushForce(event.target.checked)} className="accent-accent" /></label><label className="flex items-center justify-between gap-3"><span>{t('git.setUpstream')}</span><input type="checkbox" checked={pushSetUpstream} onChange={(event) => setPushSetUpstream(event.target.checked)} className="accent-accent" /></label></div>}
+        {gitOptionsOpen && repoPath && (
+          <div className="mt-2 grid gap-2 border-t border-[var(--line)] pt-2 text-meta text-text-2">
+            <label className="flex items-center justify-between gap-3">
+              <span>{t('git.remote')}</span>
+              <Select
+                value={selectedRemote}
+                onChange={setSelectedRemote}
+                options={[
+                  { value: '', label: 'auto' },
+                  ...remotes.map((remote) => ({ value: remote.name, label: remote.name })),
+                ]}
+                className="min-w-0 rounded-apple px-2 py-1 text-meta"
+              />
+            </label>
+            <label className="flex items-center justify-between gap-3">
+              <span>{t('git.prune')}</span>
+              <input
+                type="checkbox"
+                checked={fetchPrune}
+                onChange={(event) => setFetchPrune(event.target.checked)}
+                className="accent-accent"
+              />
+            </label>
+            <label className="flex items-center justify-between gap-3">
+              <span>{t('git.rebasePull')}</span>
+              <input
+                type="checkbox"
+                checked={pullRebase}
+                onChange={(event) => setPullRebase(event.target.checked)}
+                className="accent-accent"
+              />
+            </label>
+            <label className="flex items-center justify-between gap-3">
+              <span>{t('git.forceWithLease')}</span>
+              <input
+                type="checkbox"
+                checked={pushForce}
+                onChange={(event) => setPushForce(event.target.checked)}
+                className="accent-accent"
+              />
+            </label>
+            <label className="flex items-center justify-between gap-3">
+              <span>{t('git.setUpstream')}</span>
+              <input
+                type="checkbox"
+                checked={pushSetUpstream}
+                onChange={(event) => setPushSetUpstream(event.target.checked)}
+                className="accent-accent"
+              />
+            </label>
+          </div>
+        )}
         {repoPickerOpen && (
           <div className="mt-2 border-t border-[var(--line)] pt-2">
             <div className="tmuxgo-control flex items-center gap-2 rounded-apple px-2">
               <FiSearch aria-hidden="true" className="shrink-0 text-text-3" size={13} />
-              <input value={manualRepoPath} disabled={!!repoSwitchingPath} onChange={(event) => setManualRepoPath(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') handleRepoSearchSubmit() }} placeholder={t('git.selectRepo')} className="min-w-0 flex-1 bg-transparent py-1.5 text-meta text-text-1 outline-none disabled:opacity-60" autoFocus />
-              {(repositoriesLoading || repoSwitchingPath) ? <FiRefreshCw aria-hidden="true" className="shrink-0 animate-spin text-text-3" size={13} /> : manualRepoPath && <button aria-label={t('git.openRepo')} title={t('git.openRepo')} onClick={handleRepoSearchSubmit} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-6 w-6 text-accent"><FiArrowRight aria-hidden="true" size={13} /></button>}
+              <input
+                value={manualRepoPath}
+                disabled={!!repoSwitchingPath}
+                onChange={(event) => setManualRepoPath(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') handleRepoSearchSubmit()
+                }}
+                placeholder={t('git.selectRepo')}
+                className="min-w-0 flex-1 bg-transparent py-1.5 text-meta text-text-1 outline-none disabled:opacity-60"
+                autoFocus
+              />
+              {repositoriesLoading || repoSwitchingPath ? (
+                <FiRefreshCw aria-hidden="true" className="shrink-0 animate-spin text-text-3" size={13} />
+              ) : (
+                manualRepoPath && (
+                  <button
+                    aria-label={t('git.openRepo')}
+                    title={t('git.openRepo')}
+                    onClick={handleRepoSearchSubmit}
+                    className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-6 w-6 text-accent"
+                  >
+                    <FiArrowRight aria-hidden="true" size={13} />
+                  </button>
+                )
+              )}
             </div>
-            {!!filteredRepoOptions.length && <div className="tmuxgo-scrollbar mt-1 max-h-32 overflow-x-hidden overflow-y-auto">
-              {filteredRepoOptions.map((item) => <button key={item.repoPath} disabled={!!repoSwitchingPath} onClick={() => void handleSelectRepo(item.repoPath)} className={`flex w-full items-center gap-2 rounded-apple px-2 py-1.5 text-left hover:bg-bg-2 disabled:opacity-60 ${repoPath === item.repoPath ? 'text-accent' : 'text-text-2'}`}>
-                <span className="shrink-0 text-meta font-medium">{item.label}</span>
-                <span className="min-w-0 flex-1 truncate font-mono text-caption text-text-3">{item.repoPath}</span>
-              </button>)}
-            </div>}
-            {!filteredRepoOptions.length && repositoriesError && <button type="button" onClick={() => void refetchRepositories()} className="mt-1 w-full rounded-apple px-2 py-2 text-left text-meta text-accent hover:bg-bg-2">{t('git.repoSearchFailed')} · {t('common.retry')}</button>}
-            {!filteredRepoOptions.length && !repositoriesLoading && !repositoriesError && manualRepoPath && <div className="px-2 py-2 text-meta text-text-3">{t('git.noRepoResults')}</div>}
+            {!!filteredRepoOptions.length && (
+              <div className="tmuxgo-scrollbar mt-1 max-h-32 overflow-x-hidden overflow-y-auto">
+                {filteredRepoOptions.map((item) => (
+                  <button
+                    key={item.repoPath}
+                    disabled={!!repoSwitchingPath}
+                    onClick={() => void handleSelectRepo(item.repoPath)}
+                    className={`flex w-full items-center gap-2 rounded-apple px-2 py-1.5 text-left hover:bg-bg-2 disabled:opacity-60 ${repoPath === item.repoPath ? 'text-accent' : 'text-text-2'}`}
+                  >
+                    <span className="shrink-0 text-meta font-medium">{item.label}</span>
+                    <span className="min-w-0 flex-1 truncate font-mono text-caption text-text-3">{item.repoPath}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {!filteredRepoOptions.length && repositoriesError && (
+              <button
+                type="button"
+                onClick={() => void refetchRepositories()}
+                className="mt-1 w-full rounded-apple px-2 py-2 text-left text-meta text-accent hover:bg-bg-2"
+              >
+                {t('git.repoSearchFailed')} · {t('common.retry')}
+              </button>
+            )}
+            {!filteredRepoOptions.length && !repositoriesLoading && !repositoriesError && manualRepoPath && (
+              <div className="px-2 py-2 text-meta text-text-3">{t('git.noRepoResults')}</div>
+            )}
           </div>
         )}
       </div>
@@ -580,17 +1279,61 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
         <>
           <div className="flex border-b border-[var(--line)]">
             {(['status', 'history', 'branches'] as const).map((tab) => (
-              <button key={tab} onClick={() => setActiveTab(tab)} className={`min-h-11 flex-1 py-1.5 text-meta font-medium transition-colors lg:min-h-0 ${activeTab === tab ? 'border-b border-accent text-text-1' : 'text-text-2 hover:text-text-1'}`}>
-                {t(`git.${tab}`)}{tab === 'status' && statusCount > 0 ? ` ${statusCount}` : ''}
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`min-h-11 flex-1 py-1.5 text-meta font-medium transition-colors lg:min-h-0 ${activeTab === tab ? 'border-b border-accent text-text-1' : 'text-text-2 hover:text-text-1'}`}
+              >
+                {t(`git.${tab}`)}
+                {tab === 'status' && statusCount > 0 ? ` ${statusCount}` : ''}
               </button>
             ))}
           </div>
-          <div className={`tmuxgo-scrollbar min-h-0 flex-1 ${activeTab === 'history' ? 'overflow-hidden' : 'overflow-x-hidden overflow-y-auto'}`}>
-            {activeTab === 'status' && <StatusTab hostId={activeHostId} repoPath={repoPath} onOpenDiff={mode === 'mobile' ? handleOpenMobileDiff : undefined} t={t as TFunc} />}
-            {activeTab === 'history' && <HistoryTab hostId={activeHostId} repoPath={repoPath} status={status} onOpenWorkingTree={mode === 'mobile' ? () => handleOpenMobileDiff({ title: t('git.workingTreeChanges', { count: statusCount }), subtitle: 'WIP', filePath: '', workingTree: true }) : () => {
-              const params = new URLSearchParams({ hostId: activeHostId, repoPath, workingTree: '1' })
-              useConsoleStore.getState().openEditor({ id: `git-diff?${params.toString()}`, hostId: activeHostId, rootId: 'git', rootLabel: 'Git', rootPath: repoPath, path: '', name: t('git.workingTreeChanges', { count: statusCount }), absolutePath: `${repoPath} (WIP)`, language: 'diff', type: 'file' })
-            }} onOpenCommit={mode === 'mobile' ? handleOpenMobileCommit : undefined} t={t as TFunc} />}
+          <div
+            className={`tmuxgo-scrollbar min-h-0 flex-1 ${activeTab === 'history' ? 'overflow-hidden' : 'overflow-x-hidden overflow-y-auto'}`}
+          >
+            {activeTab === 'status' && (
+              <StatusTab
+                hostId={activeHostId}
+                repoPath={repoPath}
+                onOpenDiff={mode === 'mobile' ? handleOpenMobileDiff : undefined}
+                t={t as TFunc}
+              />
+            )}
+            {activeTab === 'history' && (
+              <HistoryTab
+                hostId={activeHostId}
+                repoPath={repoPath}
+                status={status}
+                onOpenWorkingTree={
+                  mode === 'mobile'
+                    ? () =>
+                        handleOpenMobileDiff({
+                          title: t('git.workingTreeChanges', { count: statusCount }),
+                          subtitle: 'WIP',
+                          filePath: '',
+                          workingTree: true,
+                        })
+                    : () => {
+                        const params = new URLSearchParams({ hostId: activeHostId, repoPath, workingTree: '1' })
+                        useConsoleStore.getState().openEditor({
+                          id: `git-diff?${params.toString()}`,
+                          hostId: activeHostId,
+                          rootId: 'git',
+                          rootLabel: 'Git',
+                          rootPath: repoPath,
+                          path: '',
+                          name: t('git.workingTreeChanges', { count: statusCount }),
+                          absolutePath: `${repoPath} (WIP)`,
+                          language: 'diff',
+                          type: 'file',
+                        })
+                      }
+                }
+                onOpenCommit={mode === 'mobile' ? handleOpenMobileCommit : undefined}
+                t={t as TFunc}
+              />
+            )}
             {activeTab === 'branches' && <BranchesTab hostId={activeHostId} repoPath={repoPath} t={t as TFunc} />}
           </div>
           {activeTab === 'status' && (
@@ -598,7 +1341,9 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
               <textarea
                 value={commitMessage}
                 onChange={(e) => setCommitMessage(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleCommit() }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleCommit()
+                }}
                 placeholder={t('git.commitMessage')}
                 rows={2}
                 className="tmuxgo-control tmuxgo-textarea w-full resize-none rounded-apple px-2 py-1.5 text-meta"
@@ -606,19 +1351,47 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
               <div className="mt-2 flex items-center gap-2">
                 <button
                   onClick={handleCommit}
-                  disabled={!commitMessage.trim() || !amend && !status?.staged.length}
+                  disabled={!commitMessage.trim() || (!amend && !status?.staged.length)}
                   className={`flex-1 rounded-apple py-1.5 text-meta font-medium ${commitMessage.trim() && (amend || status?.staged.length) ? 'bg-accent text-bg-0 hover:opacity-90' : 'bg-bg-2 text-text-3'}`}
                 >
                   {t('git.commit')}
                 </button>
                 {stageablePaths.length > 0 && (
-                  <Chip onClick={() => activeHostId && repoPath && stageAll.mutate({ hostId: activeHostId, path: repoPath, filePaths: stageablePaths })}>{t('git.stageAll')}</Chip>
+                  <Chip
+                    onClick={() =>
+                      activeHostId &&
+                      repoPath &&
+                      stageAll.mutate({ hostId: activeHostId, path: repoPath, filePaths: stageablePaths })
+                    }
+                  >
+                    {t('git.stageAll')}
+                  </Chip>
                 )}
                 {status && status.staged.length > 0 && (
-                  <Chip onClick={() => activeHostId && repoPath && unstageAll.mutate({ hostId: activeHostId, path: repoPath, filePaths: status.staged.map((f) => f.path) })}>{t('git.unstageAll')}</Chip>
+                  <Chip
+                    onClick={() =>
+                      activeHostId &&
+                      repoPath &&
+                      unstageAll.mutate({
+                        hostId: activeHostId,
+                        path: repoPath,
+                        filePaths: status.staged.map((f) => f.path),
+                      })
+                    }
+                  >
+                    {t('git.unstageAll')}
+                  </Chip>
                 )}
               </div>
-              <label className="mt-2 flex items-center gap-2 text-caption text-text-3"><input type="checkbox" checked={amend} onChange={(event) => setAmend(event.target.checked)} className="accent-accent" />{t('git.amend')}</label>
+              <label className="mt-2 flex items-center gap-2 text-caption text-text-3">
+                <input
+                  type="checkbox"
+                  checked={amend}
+                  onChange={(event) => setAmend(event.target.checked)}
+                  className="accent-accent"
+                />
+                {t('git.amend')}
+              </label>
             </div>
           )}
         </>
@@ -627,8 +1400,18 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
         <div className="flex h-full flex-col items-center justify-center gap-3 p-5 text-meta text-text-3">
           <div>{gitState?.currentFilePath ? t('git.fileNotInRepo') : t('git.noActiveEditor')}</div>
           <div className="flex w-full max-w-md gap-2">
-            <input value={manualRepoPath} onChange={(event) => setManualRepoPath(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void handleOpenRepo() }} placeholder={t('git.selectRepo')} className="tmuxgo-control tmuxgo-input min-w-0 flex-1 rounded-apple px-2.5 py-1.5 text-meta" />
-            <Button variant="primary" size="sm" disabled={!manualRepoPath.trim()} onClick={() => void handleOpenRepo()}>{t('git.openRepo')}</Button>
+            <input
+              value={manualRepoPath}
+              onChange={(event) => setManualRepoPath(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') void handleOpenRepo()
+              }}
+              placeholder={t('git.selectRepo')}
+              className="tmuxgo-control tmuxgo-input min-w-0 flex-1 rounded-apple px-2.5 py-1.5 text-meta"
+            />
+            <Button variant="primary" size="sm" disabled={!manualRepoPath.trim()} onClick={() => void handleOpenRepo()}>
+              {t('git.openRepo')}
+            </Button>
           </div>
         </div>
       )}

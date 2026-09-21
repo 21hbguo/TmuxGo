@@ -47,6 +47,7 @@ import { Chip } from './Chip'
 import { usePrompt } from '@/hooks/usePrompt'
 import { ConfirmDialog } from './ConfirmDialog'
 import { ModalPortal } from './ModalPortal'
+import { Select } from './Select'
 import { chooseFileRoot, getRootRelativePath } from '@/lib/terminal-paths'
 
 type SearchMode = 'name' | 'content'
@@ -2423,20 +2424,15 @@ export function FilePanel({
                 </Button>
               )}
 
-              <select
+              <Select
                 value={selectedRootId}
-                onChange={(e) => {
+                onChange={(v) => {
                   setFollowSuspended(true)
-                  switchRoot(e.target.value)
+                  switchRoot(v)
                 }}
-                className="tmuxgo-control tmuxgo-select min-w-0 flex-1 rounded-apple px-2 py-1 text-meta"
-              >
-                {rootOptions.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
+                options={rootOptions.map((item) => ({ value: item.id, label: item.label }))}
+                className="min-w-0 flex-1 rounded-apple px-2 py-1 text-meta"
+              />
               {isPicker ? (
                 <>
                   <Chip tone="accent" onClick={handlePickCurrentFolder}>

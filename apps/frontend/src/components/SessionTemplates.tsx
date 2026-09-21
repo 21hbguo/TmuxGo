@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { useTranslation } from '@/i18n'
 import { Button } from './Button'
 import { Chip } from './Chip'
+import { Select } from './Select'
 import { useSessionTemplates, useUpdateSessionTemplates } from '@/hooks/useApi'
 import type { SessionLayout, SessionTemplate, SessionWindowLayoutPreset, SessionWindowSplitDirection } from '@/types'
 
@@ -36,7 +37,13 @@ function createPane(index: number): CustomPaneConfig {
   return { id: `pane-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`, command: '', cwd: '', env: '' }
 }
 function createWindow(index: number): CustomWindowConfig {
-  return { id: `window-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`, name: `win-${index + 1}`, panes: [createPane(0)], splitDirection: 'horizontal', layoutPreset: 'tiled' }
+  return {
+    id: `window-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`,
+    name: `win-${index + 1}`,
+    panes: [createPane(0)],
+    splitDirection: 'horizontal',
+    layoutPreset: 'tiled',
+  }
 }
 function parseEnv(value: string) {
   const env: Record<string, string> = {}
@@ -48,13 +55,58 @@ function parseEnv(value: string) {
   return env
 }
 function toCustomWindows(template: SessionTemplate) {
-  return template.layout.windows.map((window, windowIndex) => ({ id: `window-${Date.now()}-${windowIndex}`, name: window.name, splitDirection: window.splitDirection || 'horizontal', layoutPreset: window.layoutPreset || 'tiled', panes: window.panes.map((pane, paneIndex) => ({ id: `pane-${Date.now()}-${windowIndex}-${paneIndex}`, command: pane.command || '', cwd: pane.cwd || '', env: Object.entries(pane.env || {}).map(([key, value]) => `${key}=${value}`).join('\n') })) }))
+  return template.layout.windows.map((window, windowIndex) => ({
+    id: `window-${Date.now()}-${windowIndex}`,
+    name: window.name,
+    splitDirection: window.splitDirection || 'horizontal',
+    layoutPreset: window.layoutPreset || 'tiled',
+    panes: window.panes.map((pane, paneIndex) => ({
+      id: `pane-${Date.now()}-${windowIndex}-${paneIndex}`,
+      command: pane.command || '',
+      cwd: pane.cwd || '',
+      env: Object.entries(pane.env || {})
+        .map(([key, value]) => `${key}=${value}`)
+        .join('\n'),
+    })),
+  }))
 }
 const templates: SessionTemplate[] = [
-  { id: 'default', name: 'Default', description: 'Single window with one pane', layout: { windows: [{ name: 'main', panes: [{}] }] } },
-  { id: 'dev', name: 'Development', description: 'Editor + terminal + server', layout: { windows: [{ name: 'editor', panes: [{ command: 'vim' }] }, { name: 'terminal', panes: [{}] }, { name: 'server', panes: [{ command: 'npm run dev' }] }] } },
-  { id: 'monitor', name: 'Monitoring', description: 'Multiple monitoring panes', layout: { windows: [{ name: 'monitor', panes: [{ command: 'htop' }, { command: 'docker stats' }] }] } },
-  { id: 'training', name: 'ML Training', description: 'Training + monitoring + logs', layout: { windows: [{ name: 'training', panes: [{ command: 'python train.py' }] }, { name: 'gpu', panes: [{ command: 'nvidia-smi -l 1' }] }, { name: 'logs', panes: [{ command: 'tail -f logs/train.log' }] }] } },
+  {
+    id: 'default',
+    name: 'Default',
+    description: 'Single window with one pane',
+    layout: { windows: [{ name: 'main', panes: [{}] }] },
+  },
+  {
+    id: 'dev',
+    name: 'Development',
+    description: 'Editor + terminal + server',
+    layout: {
+      windows: [
+        { name: 'editor', panes: [{ command: 'vim' }] },
+        { name: 'terminal', panes: [{}] },
+        { name: 'server', panes: [{ command: 'npm run dev' }] },
+      ],
+    },
+  },
+  {
+    id: 'monitor',
+    name: 'Monitoring',
+    description: 'Multiple monitoring panes',
+    layout: { windows: [{ name: 'monitor', panes: [{ command: 'htop' }, { command: 'docker stats' }] }] },
+  },
+  {
+    id: 'training',
+    name: 'ML Training',
+    description: 'Training + monitoring + logs',
+    layout: {
+      windows: [
+        { name: 'training', panes: [{ command: 'python train.py' }] },
+        { name: 'gpu', panes: [{ command: 'nvidia-smi -l 1' }] },
+        { name: 'logs', panes: [{ command: 'tail -f logs/train.log' }] },
+      ],
+    },
+  },
 ]
 const templateI18nKeys: Record<string, { name: string; desc: string }> = {
   default: { name: 'templates.default', desc: 'templates.defaultDesc' },
@@ -62,7 +114,13 @@ const templateI18nKeys: Record<string, { name: string; desc: string }> = {
   monitor: { name: 'templates.monitoring', desc: 'templates.monitoringDesc' },
   training: { name: 'templates.training', desc: 'templates.trainingDesc' },
 }
-export function SessionTemplates({ onSelect, onClose }: { onSelect: (template: SessionTemplate) => void; onClose: () => void }) {
+export function SessionTemplates({
+  onSelect,
+  onClose,
+}: {
+  onSelect: (template: SessionTemplate) => void
+  onClose: () => void
+}) {
   const { t } = useTranslation()
   const { data } = useSessionTemplates()
   const updateTemplates = useUpdateSessionTemplates()
@@ -79,17 +137,61 @@ export function SessionTemplates({ onSelect, onClose }: { onSelect: (template: S
     setCustomWindows(template ? toCustomWindows(template) : [createWindow(0)])
     setShowCustom(true)
   }
-  const updateWindow = (id: string, patch: Partial<CustomWindowConfig>) => setCustomWindows((current) => current.map((window) => window.id === id ? { ...window, ...patch } : window))
-  const updatePane = (windowId: string, paneId: string, patch: Partial<CustomPaneConfig>) => setCustomWindows((current) => current.map((window) => window.id === windowId ? { ...window, panes: window.panes.map((pane) => pane.id === paneId ? { ...pane, ...patch } : pane) } : window))
-  const addWindow = () => setCustomWindows((current) => current.length >= maxCustomWindows ? current : [...current, createWindow(current.length)])
-  const addPane = (windowId: string) => setCustomWindows((current) => current.map((window) => window.id === windowId && window.panes.length < maxCustomPanes ? { ...window, panes: [...window.panes, createPane(window.panes.length)] } : window))
-  const removeWindow = (id: string) => setCustomWindows((current) => current.length <= 1 ? current : current.filter((window) => window.id !== id))
-  const removePane = (windowId: string, paneId: string) => setCustomWindows((current) => current.map((window) => window.id === windowId && window.panes.length > 1 ? { ...window, panes: window.panes.filter((pane) => pane.id !== paneId) } : window))
+  const updateWindow = (id: string, patch: Partial<CustomWindowConfig>) =>
+    setCustomWindows((current) => current.map((window) => (window.id === id ? { ...window, ...patch } : window)))
+  const updatePane = (windowId: string, paneId: string, patch: Partial<CustomPaneConfig>) =>
+    setCustomWindows((current) =>
+      current.map((window) =>
+        window.id === windowId
+          ? { ...window, panes: window.panes.map((pane) => (pane.id === paneId ? { ...pane, ...patch } : pane)) }
+          : window,
+      ),
+    )
+  const addWindow = () =>
+    setCustomWindows((current) =>
+      current.length >= maxCustomWindows ? current : [...current, createWindow(current.length)],
+    )
+  const addPane = (windowId: string) =>
+    setCustomWindows((current) =>
+      current.map((window) =>
+        window.id === windowId && window.panes.length < maxCustomPanes
+          ? { ...window, panes: [...window.panes, createPane(window.panes.length)] }
+          : window,
+      ),
+    )
+  const removeWindow = (id: string) =>
+    setCustomWindows((current) => (current.length <= 1 ? current : current.filter((window) => window.id !== id)))
+  const removePane = (windowId: string, paneId: string) =>
+    setCustomWindows((current) =>
+      current.map((window) =>
+        window.id === windowId && window.panes.length > 1
+          ? { ...window, panes: window.panes.filter((pane) => pane.id !== paneId) }
+          : window,
+      ),
+    )
   const buildTemplate = (): SessionTemplate => {
     const now = new Date().toISOString()
-    const layout: SessionLayout = { windows: customWindows.map((window, index) => ({ name: window.name.trim() || `win-${index + 1}`, splitDirection: window.splitDirection, layoutPreset: window.layoutPreset, panes: window.panes.map((pane) => ({ command: pane.command.trim() || undefined, cwd: pane.cwd.trim() || undefined, env: Object.keys(parseEnv(pane.env)).length ? parseEnv(pane.env) : undefined })) })) }
+    const layout: SessionLayout = {
+      windows: customWindows.map((window, index) => ({
+        name: window.name.trim() || `win-${index + 1}`,
+        splitDirection: window.splitDirection,
+        layoutPreset: window.layoutPreset,
+        panes: window.panes.map((pane) => ({
+          command: pane.command.trim() || undefined,
+          cwd: pane.cwd.trim() || undefined,
+          env: Object.keys(parseEnv(pane.env)).length ? parseEnv(pane.env) : undefined,
+        })),
+      })),
+    }
     const existing = savedTemplates.find((template) => template.id === editingId)
-    return { id: editingId || `custom-${Date.now().toString(36)}`, name: templateName.trim() || 'Custom', description: templateDescription.trim(), layout, createdAt: existing?.createdAt || now, updatedAt: now }
+    return {
+      id: editingId || `custom-${Date.now().toString(36)}`,
+      name: templateName.trim() || 'Custom',
+      description: templateDescription.trim(),
+      layout,
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+    }
   }
   const createTemplate = async (save: boolean) => {
     const template = buildTemplate()
@@ -97,8 +199,195 @@ export function SessionTemplates({ onSelect, onClose }: { onSelect: (template: S
     onSelect(template)
     setShowCustom(false)
   }
-  const deleteTemplate = async (id: string) => updateTemplates.mutateAsync(savedTemplates.filter((template) => template.id !== id))
-  return <div className="fixed inset-0 z-50 flex items-center justify-center tmuxgo-scrim p-4"><div className="tmuxgo-glass tmuxgo-glass-dialog flex max-h-[85vh] w-full max-w-[720px] flex-col overflow-hidden rounded-apple border"><div className="border-b border-[var(--line)] p-4"><h2 className="text-lg font-medium text-text-1">{t('templates.title')}</h2><p className="mt-1 text-sm text-text-3">{t('templates.desc')}</p></div><div className="tmuxgo-scrollbar grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-x-hidden overflow-y-auto p-4 sm:grid-cols-2"><button onClick={() => openCustom()} className="rounded-apple border border-dashed border-accent/40 bg-bg-2 p-4 text-left hover:border-accent hover:bg-bg-1"><div className="font-medium text-text-1">{t('templates.custom')}</div><div className="mt-1 text-sm text-text-3">{t('templates.customDesc')}</div></button>{templates.map((template) => <button key={template.id} onClick={() => onSelect(template)} className="rounded-apple border border-transparent bg-bg-2 p-4 text-left hover:border-accent hover:bg-bg-1"><div className="font-medium text-text-1">{t(templateI18nKeys[template.id].name as any)}</div><div className="mt-1 text-sm text-text-3">{t(templateI18nKeys[template.id].desc as any)}</div><div className="mt-3 text-xs text-text-3">{template.layout.windows.map((window) => `${window.name} (${window.panes.length})`).join(' · ')}</div></button>)}{savedTemplates.map((template) => <div key={template.id} className="rounded-apple border border-[var(--line)] bg-bg-2 p-4"><button onClick={() => onSelect(template)} className="block w-full text-left"><div className="font-medium text-text-1">{template.name}</div><div className="mt-1 text-sm text-text-3">{template.description || t('templates.saved')}</div><div className="mt-3 text-xs text-text-3">{template.layout.windows.map((window) => `${window.name} (${window.panes.length})`).join(' · ')}</div></button><div className="mt-3 flex gap-2"><Chip tone="accent" onClick={() => openCustom(template)}>{t('templates.edit')}</Chip><Chip tone="danger" onClick={() => void deleteTemplate(template.id)}>{t('templates.delete')}</Chip></div></div>)}</div><div className="flex justify-end border-t border-[var(--line)] p-4"><Button variant="ghost" size="sm" onClick={onClose}>{t('templates.cancel')}</Button></div></div>{showCustom && <div className="fixed inset-0 z-[60] flex items-center justify-center tmuxgo-scrim-strong p-4" onClick={() => setShowCustom(false)}><div className="tmuxgo-glass tmuxgo-glass-dialog flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-apple border p-4" onClick={(event) => event.stopPropagation()}><div className="grid gap-2 sm:grid-cols-2"><input value={templateName} onChange={(event) => setTemplateName(event.target.value)} placeholder={t('templates.name')} className="tmuxgo-control tmuxgo-input rounded-apple px-3 py-2 text-sm" /><input value={templateDescription} onChange={(event) => setTemplateDescription(event.target.value)} placeholder={t('templates.description')} className="tmuxgo-control tmuxgo-input rounded-apple px-3 py-2 text-sm" /></div><div className="tmuxgo-scrollbar mt-4 min-h-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto pr-1">{customWindows.map((window, windowIndex) => <div key={window.id} className="rounded-apple border border-[var(--line)] bg-bg-2 p-3"><div className="flex items-center gap-2"><input value={window.name} onChange={(event) => updateWindow(window.id, { name: event.target.value })} className="tmuxgo-control tmuxgo-input min-w-0 flex-1 rounded-apple px-2 py-1.5 text-sm" placeholder={t('templates.windowNamePlaceholder', { index: windowIndex + 1 })} /><select value={window.splitDirection} onChange={(event) => updateWindow(window.id, { splitDirection: event.target.value as SessionWindowSplitDirection })} className="tmuxgo-control tmuxgo-select rounded-apple px-2 py-1.5 text-xs">{splitDirectionOptions.map((item) => <option key={item.value} value={item.value}>{t(item.label as any)}</option>)}</select><select value={window.layoutPreset} onChange={(event) => updateWindow(window.id, { layoutPreset: event.target.value as SessionWindowLayoutPreset })} className="tmuxgo-control tmuxgo-select rounded-apple px-2 py-1.5 text-xs">{layoutPresetOptions.map((item) => <option key={item.value} value={item.value}>{t(item.label as any)}</option>)}</select><Chip tone="danger" disabled={customWindows.length <= 1} onClick={() => removeWindow(window.id)}>×</Chip></div><div className="mt-3 space-y-2">{window.panes.map((pane, paneIndex) => <div key={pane.id} className="grid gap-2 rounded-apple border border-[var(--line)] bg-bg-0 p-2 md:grid-cols-[80px_1fr_1fr_1fr_28px]"><div className="self-center text-xs text-text-3">{t('templates.paneIndex', { index: paneIndex + 1 })}</div><input value={pane.command} onChange={(event) => updatePane(window.id, pane.id, { command: event.target.value })} placeholder={t('templates.command')} className="tmuxgo-control tmuxgo-input rounded-apple px-2 py-1.5 font-mono text-xs" /><input value={pane.cwd} onChange={(event) => updatePane(window.id, pane.id, { cwd: event.target.value })} placeholder={t('templates.cwd')} className="tmuxgo-control tmuxgo-input rounded-apple px-2 py-1.5 font-mono text-xs" /><textarea value={pane.env} onChange={(event) => updatePane(window.id, pane.id, { env: event.target.value })} placeholder={t('templates.env')} rows={1} className="tmuxgo-control tmuxgo-input resize-none rounded-apple px-2 py-1.5 font-mono text-xs" /><Chip tone="danger" disabled={window.panes.length <= 1} onClick={() => removePane(window.id, pane.id)}>×</Chip></div>)}</div><Chip tone="accent" disabled={window.panes.length >= maxCustomPanes} className="mt-2 disabled:cursor-not-allowed" onClick={() => addPane(window.id)}>+ {t('templates.addPane')}</Chip></div>)}</div><div className="mt-4 flex items-center justify-between gap-2"><Button size="sm" disabled={customWindows.length >= maxCustomWindows} className="disabled:cursor-not-allowed" onClick={addWindow}>+ {t('templates.addWindow')}</Button><div className="flex gap-2"><Button variant="ghost" size="sm" onClick={() => setShowCustom(false)}>{t('common.cancel')}</Button><Button size="sm" onClick={() => void createTemplate(false)}>{t('templates.runOnce')}</Button><Button variant="primary" size="sm" disabled={updateTemplates.isPending} className="disabled:cursor-not-allowed" onClick={() => void createTemplate(true)}>{t('templates.saveAndCreate')}</Button></div></div></div></div>}</div>
+  const deleteTemplate = async (id: string) =>
+    updateTemplates.mutateAsync(savedTemplates.filter((template) => template.id !== id))
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center tmuxgo-scrim p-4">
+      <div className="tmuxgo-glass tmuxgo-glass-dialog flex max-h-[85vh] w-full max-w-[720px] flex-col overflow-hidden rounded-apple border">
+        <div className="border-b border-[var(--line)] p-4">
+          <h2 className="text-lg font-medium text-text-1">{t('templates.title')}</h2>
+          <p className="mt-1 text-sm text-text-3">{t('templates.desc')}</p>
+        </div>
+        <div className="tmuxgo-scrollbar grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-x-hidden overflow-y-auto p-4 sm:grid-cols-2">
+          <button
+            onClick={() => openCustom()}
+            className="rounded-apple border border-dashed border-accent/40 bg-bg-2 p-4 text-left hover:border-accent hover:bg-bg-1"
+          >
+            <div className="font-medium text-text-1">{t('templates.custom')}</div>
+            <div className="mt-1 text-sm text-text-3">{t('templates.customDesc')}</div>
+          </button>
+          {templates.map((template) => (
+            <button
+              key={template.id}
+              onClick={() => onSelect(template)}
+              className="rounded-apple border border-transparent bg-bg-2 p-4 text-left hover:border-accent hover:bg-bg-1"
+            >
+              <div className="font-medium text-text-1">{t(templateI18nKeys[template.id].name as any)}</div>
+              <div className="mt-1 text-sm text-text-3">{t(templateI18nKeys[template.id].desc as any)}</div>
+              <div className="mt-3 text-xs text-text-3">
+                {template.layout.windows.map((window) => `${window.name} (${window.panes.length})`).join(' · ')}
+              </div>
+            </button>
+          ))}
+          {savedTemplates.map((template) => (
+            <div key={template.id} className="rounded-apple border border-[var(--line)] bg-bg-2 p-4">
+              <button onClick={() => onSelect(template)} className="block w-full text-left">
+                <div className="font-medium text-text-1">{template.name}</div>
+                <div className="mt-1 text-sm text-text-3">{template.description || t('templates.saved')}</div>
+                <div className="mt-3 text-xs text-text-3">
+                  {template.layout.windows.map((window) => `${window.name} (${window.panes.length})`).join(' · ')}
+                </div>
+              </button>
+              <div className="mt-3 flex gap-2">
+                <Chip tone="accent" onClick={() => openCustom(template)}>
+                  {t('templates.edit')}
+                </Chip>
+                <Chip tone="danger" onClick={() => void deleteTemplate(template.id)}>
+                  {t('templates.delete')}
+                </Chip>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="flex justify-end border-t border-[var(--line)] p-4">
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            {t('templates.cancel')}
+          </Button>
+        </div>
+      </div>
+      {showCustom && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center tmuxgo-scrim-strong p-4"
+          onClick={() => setShowCustom(false)}
+        >
+          <div
+            className="tmuxgo-glass tmuxgo-glass-dialog flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-apple border p-4"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="grid gap-2 sm:grid-cols-2">
+              <input
+                value={templateName}
+                onChange={(event) => setTemplateName(event.target.value)}
+                placeholder={t('templates.name')}
+                className="tmuxgo-control tmuxgo-input rounded-apple px-3 py-2 text-sm"
+              />
+              <input
+                value={templateDescription}
+                onChange={(event) => setTemplateDescription(event.target.value)}
+                placeholder={t('templates.description')}
+                className="tmuxgo-control tmuxgo-input rounded-apple px-3 py-2 text-sm"
+              />
+            </div>
+            <div className="tmuxgo-scrollbar mt-4 min-h-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto pr-1">
+              {customWindows.map((window, windowIndex) => (
+                <div key={window.id} className="rounded-apple border border-[var(--line)] bg-bg-2 p-3">
+                  <div className="flex items-center gap-2">
+                    <input
+                      value={window.name}
+                      onChange={(event) => updateWindow(window.id, { name: event.target.value })}
+                      className="tmuxgo-control tmuxgo-input min-w-0 flex-1 rounded-apple px-2 py-1.5 text-sm"
+                      placeholder={t('templates.windowNamePlaceholder', { index: windowIndex + 1 })}
+                    />
+                    <Select
+                      value={window.splitDirection}
+                      onChange={(v) => updateWindow(window.id, { splitDirection: v as SessionWindowSplitDirection })}
+                      options={splitDirectionOptions.map((item) => ({
+                        value: item.value,
+                        label: t(item.label as any),
+                      }))}
+                      className="rounded-apple px-2 py-1.5 text-xs"
+                    />
+                    <Select
+                      value={window.layoutPreset}
+                      onChange={(v) => updateWindow(window.id, { layoutPreset: v as SessionWindowLayoutPreset })}
+                      options={layoutPresetOptions.map((item) => ({ value: item.value, label: t(item.label as any) }))}
+                      className="rounded-apple px-2 py-1.5 text-xs"
+                    />
+                    <Chip tone="danger" disabled={customWindows.length <= 1} onClick={() => removeWindow(window.id)}>
+                      ×
+                    </Chip>
+                  </div>
+                  <div className="mt-3 space-y-2">
+                    {window.panes.map((pane, paneIndex) => (
+                      <div
+                        key={pane.id}
+                        className="grid gap-2 rounded-apple border border-[var(--line)] bg-bg-0 p-2 md:grid-cols-[80px_1fr_1fr_1fr_28px]"
+                      >
+                        <div className="self-center text-xs text-text-3">
+                          {t('templates.paneIndex', { index: paneIndex + 1 })}
+                        </div>
+                        <input
+                          value={pane.command}
+                          onChange={(event) => updatePane(window.id, pane.id, { command: event.target.value })}
+                          placeholder={t('templates.command')}
+                          className="tmuxgo-control tmuxgo-input rounded-apple px-2 py-1.5 font-mono text-xs"
+                        />
+                        <input
+                          value={pane.cwd}
+                          onChange={(event) => updatePane(window.id, pane.id, { cwd: event.target.value })}
+                          placeholder={t('templates.cwd')}
+                          className="tmuxgo-control tmuxgo-input rounded-apple px-2 py-1.5 font-mono text-xs"
+                        />
+                        <textarea
+                          value={pane.env}
+                          onChange={(event) => updatePane(window.id, pane.id, { env: event.target.value })}
+                          placeholder={t('templates.env')}
+                          rows={1}
+                          className="tmuxgo-control tmuxgo-input resize-none rounded-apple px-2 py-1.5 font-mono text-xs"
+                        />
+                        <Chip
+                          tone="danger"
+                          disabled={window.panes.length <= 1}
+                          onClick={() => removePane(window.id, pane.id)}
+                        >
+                          ×
+                        </Chip>
+                      </div>
+                    ))}
+                  </div>
+                  <Chip
+                    tone="accent"
+                    disabled={window.panes.length >= maxCustomPanes}
+                    className="mt-2 disabled:cursor-not-allowed"
+                    onClick={() => addPane(window.id)}
+                  >
+                    + {t('templates.addPane')}
+                  </Chip>
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 flex items-center justify-between gap-2">
+              <Button
+                size="sm"
+                disabled={customWindows.length >= maxCustomWindows}
+                className="disabled:cursor-not-allowed"
+                onClick={addWindow}
+              >
+                + {t('templates.addWindow')}
+              </Button>
+              <div className="flex gap-2">
+                <Button variant="ghost" size="sm" onClick={() => setShowCustom(false)}>
+                  {t('common.cancel')}
+                </Button>
+                <Button size="sm" onClick={() => void createTemplate(false)}>
+                  {t('templates.runOnce')}
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  disabled={updateTemplates.isPending}
+                  className="disabled:cursor-not-allowed"
+                  onClick={() => void createTemplate(true)}
+                >
+                  {t('templates.saveAndCreate')}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 export { templates }
 export type Template = SessionTemplate

@@ -22,6 +22,7 @@ import { useClipboard } from '@/hooks/useClipboard'
 import { Button } from './Button'
 import { Chip } from './Chip'
 import { ConfirmDialog } from './ConfirmDialog'
+import { Select } from './Select'
 
 function StatusDot({ host }: { host: any }) {
   const isOnline = host.agent ? host.agent.online === true : host.status === 'online'
@@ -770,17 +771,16 @@ export function SshPanel() {
               )}
               <label className="flex items-center justify-between gap-3 px-1 text-sm text-text-2">
                 <span>{t('sshPanel.hostKnownHostsPolicy')}</span>
-                <select
+                <Select
                   value={hostKnownHostsPolicyDraft}
-                  onChange={(event) =>
-                    setHostKnownHostsPolicyDraft(event.target.value as 'strict' | 'accept-new' | 'off')
-                  }
-                  className="tmuxgo-control tmuxgo-select rounded-apple px-2 py-1.5 text-sm"
-                >
-                  <option value="strict">{t('sshPanel.hostKnownHostsStrict')}</option>
-                  <option value="accept-new">{t('sshPanel.hostKnownHostsAcceptNew')}</option>
-                  <option value="off">{t('sshPanel.hostKnownHostsOff')}</option>
-                </select>
+                  onChange={(v) => setHostKnownHostsPolicyDraft(v as 'strict' | 'accept-new' | 'off')}
+                  options={[
+                    { value: 'strict', label: t('sshPanel.hostKnownHostsStrict') },
+                    { value: 'accept-new', label: t('sshPanel.hostKnownHostsAcceptNew') },
+                    { value: 'off', label: t('sshPanel.hostKnownHostsOff') },
+                  ]}
+                  className="rounded-apple px-2 py-1.5 text-sm"
+                />
               </label>
             </div>
             <div className="mt-4 flex items-center justify-end gap-2">

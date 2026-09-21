@@ -11,6 +11,7 @@ import { usePrompt } from '@/hooks/usePrompt'
 import { useTranslation } from '@/i18n'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import type { SessionTemplate, WorkspaceEntry } from '@/types'
+import { Select } from './Select'
 
 export interface CreateSessionDialogWorkspace extends FilePanelPickerTarget {
   workspaceId?: string
@@ -33,9 +34,27 @@ interface CreateSessionDialogProps {
   onClose: () => void
 }
 function toDialogWorkspace(workspace: WorkspaceEntry): CreateSessionDialogWorkspace {
-  return { rootId: workspace.rootId, rootPath: workspace.rootPath, rootLabel: workspace.rootLabel, relativePath: workspace.relativePath, absolutePath: workspace.path, workspaceId: workspace.id, workspaceName: workspace.name }
+  return {
+    rootId: workspace.rootId,
+    rootPath: workspace.rootPath,
+    rootLabel: workspace.rootLabel,
+    relativePath: workspace.relativePath,
+    absolutePath: workspace.path,
+    workspaceId: workspace.id,
+    workspaceName: workspace.name,
+  }
 }
-export function CreateSessionDialog({ open, template, defaultName, hostId, workspaces, initialWorkspace, workspaceLocked, onCreate, onClose }: CreateSessionDialogProps) {
+export function CreateSessionDialog({
+  open,
+  template,
+  defaultName,
+  hostId,
+  workspaces,
+  initialWorkspace,
+  workspaceLocked,
+  onCreate,
+  onClose,
+}: CreateSessionDialogProps) {
   const { t } = useTranslation()
   const pushToast = useConsoleStore((state) => state.pushToast)
   const { prompt, PromptElement } = usePrompt()
@@ -81,7 +100,15 @@ export function CreateSessionDialog({ open, template, defaultName, hostId, works
       const wsName = await prompt(t('workspace.createTitle'), '')
       if (wsName && wsName.trim()) {
         try {
-          const created = await createWorkspace.mutateAsync({ name: wsName.trim(), hostId, path: target.absolutePath, rootId: target.rootId, rootPath: target.rootPath, rootLabel: target.rootLabel, relativePath: target.relativePath })
+          const created = await createWorkspace.mutateAsync({
+            name: wsName.trim(),
+            hostId,
+            path: target.absolutePath,
+            rootId: target.rootId,
+            rootPath: target.rootPath,
+            rootLabel: target.rootLabel,
+            relativePath: target.relativePath,
+          })
           return setWorkspace(toDialogWorkspace(created.workspace))
         } catch {}
       }
@@ -125,12 +152,20 @@ export function CreateSessionDialog({ open, template, defaultName, hostId, works
         <div className={dialogClass} onClick={(e) => e.stopPropagation()} onKeyDown={handleKeyDown}>
           <div className="shrink-0 border-b border-[var(--line)] px-4 py-3">
             <div className="flex items-center gap-2">
-              {isMobile && <Button variant="ghost" size="icon-sm" aria-label={t('common.cancel')} onClick={onClose}>‹</Button>}
+              {isMobile && (
+                <Button variant="ghost" size="icon-sm" aria-label={t('common.cancel')} onClick={onClose}>
+                  ‹
+                </Button>
+              )}
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium text-text-1">{t('session.createTitle')}</div>
                 <div className="truncate text-caption text-text-3">{template.name}</div>
               </div>
-              {!isMobile && <Button variant="ghost" size="icon-sm" aria-label={t('common.cancel')} onClick={onClose}>×</Button>}
+              {!isMobile && (
+                <Button variant="ghost" size="icon-sm" aria-label={t('common.cancel')} onClick={onClose}>
+                  ×
+                </Button>
+              )}
             </div>
             <div className="mt-2 flex items-center gap-2">
               <input
@@ -143,42 +178,75 @@ export function CreateSessionDialog({ open, template, defaultName, hostId, works
                 className="tmuxgo-control tmuxgo-input min-w-0 flex-1 rounded-apple px-3 py-2 text-sm"
               />
             </div>
-            {!workspaceLocked && <div className="mt-2 flex items-center gap-2">
-              <select
-                value={workspace?.workspaceId || ''}
-                onChange={(e) => handleSelectWorkspace(e.target.value)}
-                className="tmuxgo-control tmuxgo-input min-w-0 flex-1 rounded-apple px-2 py-2 text-xs"
-              >
-                <option value="">{t('session.noWorkspace')}</option>
-                {hostWorkspaces.map((item) => (
-                  <option key={item.id} value={item.id}>{item.name} · {item.path}</option>
-                ))}
-                <option value="new">{t('workspace.createNew')}</option>
-              </select>
-              <Chip tone={workspace ? 'default' : 'accent'} onClick={() => { setCreatingWorkspace(false); setPickerOpen((prev) => !prev) }}>{pickerOpen ? t('session.hidePicker') : t('session.browseDirectory')}</Chip>
-            </div>}
+            {!workspaceLocked && (
+              <div className="mt-2 flex items-center gap-2">
+                <Select
+                  value={workspace?.workspaceId || ''}
+                  onChange={handleSelectWorkspace}
+                  options={[
+                    { value: '', label: t('session.noWorkspace') },
+                    ...hostWorkspaces.map((item) => ({ value: item.id, label: `${item.name} · ${item.path}` })),
+                    { value: 'new', label: t('workspace.createNew') },
+                  ]}
+                  className="min-w-0 flex-1 rounded-apple px-2 py-2 text-xs"
+                />
+                <Chip
+                  tone={workspace ? 'default' : 'accent'}
+                  onClick={() => {
+                    setCreatingWorkspace(false)
+                    setPickerOpen((prev) => !prev)
+                  }}
+                >
+                  {pickerOpen ? t('session.hidePicker') : t('session.browseDirectory')}
+                </Chip>
+              </div>
+            )}
             {workspace && (
               <div className="mt-1 flex items-center gap-2">
                 <div className="min-w-0 flex-1 truncate text-xs text-text-3" title={workspace.absolutePath}>
                   <span className="text-text-2">{t('session.workspace')}: </span>
                   <span className="font-mono text-text-1">{workspace.workspaceName || workspace.absolutePath}</span>
-                  {workspace.workspaceName && <span className="ml-2 font-mono text-text-3">{workspace.absolutePath}</span>}
+                  {workspace.workspaceName && (
+                    <span className="ml-2 font-mono text-text-3">{workspace.absolutePath}</span>
+                  )}
                 </div>
-                {!workspaceLocked && <Chip tone="default" onClick={() => setWorkspace(null)}>{t('workspace.clear')}</Chip>}
+                {!workspaceLocked && (
+                  <Chip tone="default" onClick={() => setWorkspace(null)}>
+                    {t('workspace.clear')}
+                  </Chip>
+                )}
               </div>
             )}
           </div>
           {pickerOpen && (
             <div className={bodyClass}>
-              <FilePanel mode="picker" onPick={(target) => void handlePick(target)} onClose={() => setPickerOpen(false)} />
+              <FilePanel
+                mode="picker"
+                onPick={(target) => void handlePick(target)}
+                onClose={() => setPickerOpen(false)}
+              />
             </div>
           )}
-          <div className="shrink-0 border-t border-[var(--line)] px-4 py-3" style={{ paddingBottom: isMobile ? 'max(env(safe-area-inset-bottom,0px),0.75rem)' : undefined }}>
+          <div
+            className="shrink-0 border-t border-[var(--line)] px-4 py-3"
+            style={{ paddingBottom: isMobile ? 'max(env(safe-area-inset-bottom,0px),0.75rem)' : undefined }}
+          >
             <div className="flex items-center justify-between gap-2">
-              <div className="text-caption text-text-3">{workspace ? t('session.workspaceHintSelected') : t('session.workspaceHintNone')}</div>
+              <div className="text-caption text-text-3">
+                {workspace ? t('session.workspaceHintSelected') : t('session.workspaceHintNone')}
+              </div>
               <div className="flex gap-2">
-                <Button variant="ghost" size="sm" onClick={onClose} disabled={submitting}>{t('common.cancel')}</Button>
-                <Button variant="primary" size="sm" onClick={() => void handleCreate()} disabled={!name.trim() || submitting}>{t('session.createAction')}</Button>
+                <Button variant="ghost" size="sm" onClick={onClose} disabled={submitting}>
+                  {t('common.cancel')}
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => void handleCreate()}
+                  disabled={!name.trim() || submitting}
+                >
+                  {t('session.createAction')}
+                </Button>
               </div>
             </div>
           </div>
