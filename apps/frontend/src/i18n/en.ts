@@ -123,6 +123,9 @@ export const en = {
   'drawer.noWindows': 'No windows',
   'drawer.sessionName': 'Session name:',
   'drawer.renamePrompt': 'Rename session:',
+  'drawer.expandPanes': 'Expand panes',
+  'drawer.collapsePanes': 'Collapse panes',
+  'drawer.paneCount': '{count} panes',
 
   // ConnectionBadge
   'badge.connected': 'Connected',

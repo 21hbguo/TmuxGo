@@ -7,8 +7,10 @@ import {
   useCreateSession,
   useDeleteSession,
   useRenameSession,
+  useSessionPanes,
   useWindows,
 } from '@/hooks/useApi'
+import { useOptionalQueryClient } from '@/hooks/useOptionalQueryClient'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import {
   useMigrateSessionWorkspace,
@@ -21,7 +23,7 @@ import { CreateSessionDialog } from './CreateSessionDialog'
 import { ModalPortal } from './ModalPortal'
 import { getTemplateSessionName } from '@/lib/session-template'
 import { useTranslation } from '@/i18n'
-import { FiPlus, FiTrash2 } from 'react-icons/fi'
+import { FiChevronRight, FiPlus, FiTrash2 } from 'react-icons/fi'
 import { Button } from './Button'
 import { Chip } from './Chip'
 import { usePrompt } from '@/hooks/usePrompt'
@@ -56,7 +58,10 @@ interface MobileDrawerProps {
 export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
   const activeSessionId = useConsoleStore((state) => state.activeSessionId)
   const setActiveSession = useConsoleStore((state) => state.setActiveSession)
+  const activePaneId = useConsoleStore((state) => state.activePaneId)
+  const setActivePane = useConsoleStore((state) => state.setActivePane)
   const activeHostId = useConsoleStore((state) => state.activeHostId)
+  const queryClient = useOptionalQueryClient()
   const { data: workspaces = [] } = useWorkspaces(activeHostId || undefined)
   const pushToast = useConsoleStore((state) => state.pushToast)
   const {
@@ -67,6 +72,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
     refetch: refetchSessions,
   } = useOrderedSessions(activeHostId || '')
   const { data: windowsData = [] } = useWindows(activeHostId || '', activeSessionId || '')
+  const { data: sessionPanes = [] } = useSessionPanes(activeHostId || '', activeSessionId || '')
   const { getWindows, setWindows } = useWindowQueryState(activeHostId || '', activeSessionId || '')
   const createWindow = useCreateWindow()
   const batchKillWindows = useBatchKillWindows()
@@ -91,6 +97,8 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
   const [windowBatchDeleteConfirmOpen, setWindowBatchDeleteConfirmOpen] = useState(false)
   const [newWindowPromptOpen, setNewWindowPromptOpen] = useState(false)
   const [newWindowName, setNewWindowName] = useState('')
+  // 记录与默认态（active window 展开、其余折叠）相翻转的行，重开抽屉时清空重置
+  const [flippedWindowIds, setFlippedWindowIds] = useState<Set<string>>(new Set())
 
   const handleTemplateSelect = (template: Template) => {
     if (!activeHostId) return
@@ -308,6 +316,21 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
   }, [sessions])
 
   const sessionWindows = windowsData.filter((w: any) => w.sessionId === activeSessionId)
+  const panesByWindow = new Map<string, any[]>()
+  for (const pane of sessionPanes) {
+    const list = panesByWindow.get(pane.windowId) || []
+    list.push(pane)
+    panesByWindow.set(pane.windowId, list)
+  }
+  const isWindowExpanded = (window: any) => Boolean(window.active) !== flippedWindowIds.has(window.id)
+  const toggleWindowExpand = (windowId: string) => {
+    setFlippedWindowIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(windowId)) next.delete(windowId)
+      else next.add(windowId)
+      return next
+    })
+  }
   const handleSelectWindow = async (windowId: string) => {
     if (!activeHostId || !activeSessionId) return
     const previousWindows = getWindows()
@@ -320,6 +343,22 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
     } catch {
       setWindows(previousWindows)
       pushToast({ type: 'error', message: t('window.switchFailed') })
+    }
+    handleClose()
+  }
+  const handleSelectPane = async (pane: any) => {
+    if (!activeHostId || !activeSessionId) return
+    try {
+      // 与桌面端一致：跨 window 时先 select-window 再 select-pane，顺序不能颠倒
+      const currentWindowId = sessionWindows.find((w: any) => w.active)?.id
+      if (pane.windowId && pane.windowId !== currentWindowId)
+        await api.windows.select(activeHostId, activeSessionId, pane.windowId)
+      await api.panes.select(pane.id)
+      const nextSnapshot = await api.snapshot.get(activeHostId, activeSessionId)
+      queryClient?.setQueryData(['session-snapshot', activeHostId, activeSessionId], nextSnapshot)
+      setActivePane(pane.id)
+    } catch {
+      pushToast({ type: 'error', message: t('pane.switchFailed') })
     }
     handleClose()
   }
@@ -401,6 +440,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
     setWindowBatchMode(false)
     setSelectedWindowIds([])
     setWindowBatchDeleteConfirmOpen(false)
+    setFlippedWindowIds(new Set())
   }, [isOpen, type])
 
   if (!visible) return null
@@ -642,15 +682,60 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
                       </button>
                     )
                   }
+                  const windowPanes = panesByWindow.get(window.id) || []
+                  const expanded = isWindowExpanded(window)
                   return (
-                    <button
-                      key={window.id}
-                      onClick={() => void handleSelectWindow(window.id)}
-                      className={`w-full rounded-apple p-3 text-left transition-colors ${window.active ? 'border border-accent bg-accent/10' : 'bg-bg-2 active:bg-bg-1'}`}
-                    >
-                      <div className="truncate text-text-1">{window.name}</div>
-                      <div className="text-text-3 text-xs">#{window.index + 1}</div>
-                    </button>
+                    <div key={window.id}>
+                      <div
+                        className={`flex w-full items-stretch rounded-apple transition-colors ${window.active ? 'border border-accent bg-accent/10' : 'bg-bg-2 active:bg-bg-1'}`}
+                      >
+                        <button
+                          onClick={() => void handleSelectWindow(window.id)}
+                          className="min-w-0 flex-1 p-3 text-left"
+                        >
+                          <div className="truncate text-text-1">{window.name}</div>
+                          <div className="text-text-3 text-xs">
+                            #{window.index + 1}
+                            {windowPanes.length > 0 && (
+                              <span aria-label={t('drawer.paneCount', { count: windowPanes.length })}>
+                                {' '}
+                                ·{windowPanes.length}
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                        {windowPanes.length > 0 && (
+                          <button
+                            onClick={(event) => {
+                              // 展开/折叠只改本地状态，不能触发整行的窗口切换
+                              event.stopPropagation()
+                              toggleWindowExpand(window.id)
+                            }}
+                            aria-label={expanded ? t('drawer.collapsePanes') : t('drawer.expandPanes')}
+                            className="flex shrink-0 items-center px-3 text-text-3 active:bg-bg-1 rounded-r-apple"
+                          >
+                            <FiChevronRight
+                              className={`transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
+                              size={14}
+                            />
+                          </button>
+                        )}
+                      </div>
+                      {expanded && windowPanes.length > 0 && (
+                        <div className="ml-4 mt-1 space-y-1 border-l border-text-3/20 pl-3">
+                          {windowPanes.map((pane: any) => (
+                            <button
+                              key={pane.id}
+                              onClick={() => void handleSelectPane(pane)}
+                              className={`w-full rounded-apple px-2 py-2 text-left transition-colors ${pane.id === activePaneId ? 'border border-accent/50 bg-accent/10 text-accent' : 'text-text-2 active:bg-bg-1'}`}
+                            >
+                              <div className="truncate text-sm">{pane.title || 'shell'}</div>
+                              <div className="text-text-3 text-xs">#{pane.index}</div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   )
                 })
               )}

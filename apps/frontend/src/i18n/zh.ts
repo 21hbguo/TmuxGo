@@ -123,6 +123,9 @@ export const zh = {
   'drawer.noWindows': '没有窗口',
   'drawer.sessionName': '会话名称：',
   'drawer.renamePrompt': '重命名会话：',
+  'drawer.expandPanes': '展开面板',
+  'drawer.collapsePanes': '折叠面板',
+  'drawer.paneCount': '{count} 个面板',
 
   // ConnectionBadge
   'badge.connected': '已连接',
