@@ -18,7 +18,7 @@ import { ensureTmuxgoTheme, tmuxgoThemeName } from '@/lib/monaco-theme'
 import type { Monaco } from '@monaco-editor/react'
 import { resolveEditorDefinition } from '@/lib/code-navigation'
 import { useTranslation } from '@/i18n'
-import { MARKDOWN_PROSE_CLASS, renderMarkdown } from '@/lib/markdown'
+import { MARKDOWN_PROSE_CLASS, locatePreviewBlock, renderMarkdown } from '@/lib/markdown'
 import { emitStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import { Button } from './Button'
 import { ZoomSurface } from './ZoomSurface'
@@ -176,8 +176,6 @@ export function EditorWorkbench({
   } | null>(null)
   const [navigationVersion, setNavigationVersion] = useState(0)
   const [previewSyncEnabled, setPreviewSyncEnabled] = useState(true)
-  const previewSyncEnabledRef = useRef(true)
-  previewSyncEnabledRef.current = previewSyncEnabled
   const previewElRefs = useRef<Record<string, HTMLElement | null>>({})
   const previewHighlightRef = useRef<Record<string, HTMLElement | null>>({})
   const splitResizeRef = useRef<{
@@ -242,19 +240,14 @@ export function EditorWorkbench({
   const syncPreviewToLine = (editorId: string, line: number) => {
     const previewEl = previewElRefs.current[editorId]
     if (!previewEl || !line) return
-    const blocks = Array.from(previewEl.querySelectorAll<HTMLElement>('[data-line]'))
-    let target: HTMLElement | null = null
-    for (const block of blocks) {
-      const start = Number(block.getAttribute('data-line'))
-      if (start <= line) target = block
-      else break
-    }
+    const target = locatePreviewBlock(previewEl, line)
     const previous = previewHighlightRef.current[editorId]
-    if (previous && previous !== target) previous.style.boxShadow = ''
+    if (previous && previous !== target) previous.classList.remove('md-source-loc')
     previewHighlightRef.current[editorId] = target
     if (!target) return
-    target.style.boxShadow = 'inset 0 0 0 1px var(--accent)'
-    target.scrollIntoView?.({ block: 'center' })
+    target.classList.add('md-source-loc')
+    // 同块内移动不重复滚动，nearest 只做不打扰式对齐
+    if (target !== previous) target.scrollIntoView?.({ block: 'nearest' })
   }
   const jumpPreviewToEditor = (editorId: string) => (event: ReactMouseEvent<HTMLElement>) => {
     const target = (event.target as HTMLElement).closest('[data-line]')
@@ -266,6 +259,13 @@ export function EditorWorkbench({
     instance.setPosition?.({ lineNumber: line, column: 1 })
     instance.focus?.()
   }
+  // md 预览跟随光标：cursor 变化、content 重渲（新 DOM 需重打高亮）、开关/编辑器切换都走这里
+  useEffect(() => {
+    if (!previewSyncEnabled || !activeEditor || activeEditor.language !== 'markdown') return
+    if (previewOpenById[activeEditor.id] === false) return
+    syncPreviewToLine(activeEditor.id, cursor?.line || 1)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewSyncEnabled, activeEditor?.id, activeEditor?.language, activeEditor?.content, previewOpenById, cursor])
   const createNavigationEntry = (editor: FileEditorDocument, position?: { line: number; column: number } | null) => {
     const resolvedPosition = position || getNavigationPosition(editor.id)
     if (!resolvedPosition) return null
@@ -1040,8 +1040,7 @@ export function EditorWorkbench({
                   ...current,
                   [editor.id]: { line: event.position.lineNumber, column: event.position.column },
                 }))
-                if (previewSyncEnabledRef.current && editor.language === 'markdown' && previewOpen)
-                  syncPreviewToLine(editor.id, event.position.lineNumber)
+                // 预览跟随由下方 effect 统一驱动（cursorById 变化即触发）
               })
               const pendingPosition = pendingLocationRef.current[editor.id]
               if (pendingPosition) {

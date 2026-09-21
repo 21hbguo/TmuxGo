@@ -120,5 +120,16 @@ export function renderMarkdown(content: string) {
   )
   return DOMPurify.sanitize(parts.join('\n'))
 }
+export function locatePreviewBlock(article: HTMLElement, line: number): HTMLElement | null {
+  const blocks = Array.from(article.querySelectorAll<HTMLElement>('[data-line]'))
+  let target: HTMLElement | null = null
+  for (const block of blocks) {
+    const start = Number(block.getAttribute('data-line'))
+    if (start <= line) target = block
+    else break
+  }
+  // 光标在首个块上方（如文件首行空行/frontmatter）时回落到第一个块
+  return target || blocks[0] || null
+}
 export const MARKDOWN_PROSE_CLASS =
   'prose max-w-none text-sm text-text-2 [&_a]:text-accent [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-[var(--line)] [&_blockquote]:pl-3 [&_blockquote]:not-italic [&_blockquote]:text-text-2 [&_code]:rounded-apple [&_code]:bg-bg-2 [&_code]:text-text-1 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:before:content-none [&_code]:after:content-none [&_h1]:mb-4 [&_h1]:text-3xl [&_h1]:text-text-1 [&_h2]:mb-3 [&_h2]:mt-6 [&_h2]:text-2xl [&_h2]:text-text-1 [&_h3]:mb-2 [&_h3]:mt-5 [&_h3]:text-xl [&_h3]:text-text-1 [&_h4]:mt-4 [&_h4]:text-lg [&_h4]:text-text-1 [&_h5]:mt-4 [&_h5]:text-base [&_h5]:text-text-1 [&_h6]:mt-3 [&_h6]:text-sm [&_h6]:text-text-1 [&_hr]:my-4 [&_hr]:border-[var(--line)] [&_img]:my-3 [&_img]:max-w-full [&_img]:rounded-apple [&_li]:mb-1 [&_li>p]:mb-1 [&_ol]:mb-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:mb-3 [&_pre]:overflow-auto [&_pre]:rounded-apple [&_pre]:bg-bg-0 [&_pre]:p-4 [&_pre]:text-text-1 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_strong]:text-text-1 [&_table]:mb-3 [&_table]:w-full [&_table]:border-collapse [&_table]:border [&_table]:border-[var(--line)] [&_td]:border [&_td]:border-[var(--line)] [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-[var(--line)] [&_th]:bg-bg-2/60 [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:font-semibold [&_th]:text-text-1 [&_ul]:mb-3 [&_ul]:list-disc [&_ul]:pl-5'

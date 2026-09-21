@@ -1255,3 +1255,10 @@ a {
     -webkit-backdrop-filter: url(#liquid-lens) blur(4px) saturate(var(--glass-saturate));
   }
 }
+
+/* md 预览光标定位高亮：accent 左竖条 + 淡底（VSCode 预览同步风格） */
+.md-source-loc {
+  background: rgb(var(--accent) / 0.1);
+  box-shadow: inset 2px 0 0 rgb(var(--accent) / 0.65);
+  border-radius: 4px;
+}

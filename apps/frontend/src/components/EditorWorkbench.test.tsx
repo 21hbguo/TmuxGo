@@ -309,19 +309,17 @@ describe('EditorWorkbench', () => {
   function createOpenFileHandler() {
     return vi.fn(async (file) => {
       useConsoleStore.getState().openEditor({ ...file, language: 'typescript' })
-      useConsoleStore
-        .getState()
-        .setEditorLoaded(file.id, {
-          content: '',
-          savedContent: '',
-          modifiedAt: '',
-          size: 0,
-          dirty: false,
-          loading: false,
-          saving: false,
-          binary: false,
-          truncated: false,
-        })
+      useConsoleStore.getState().setEditorLoaded(file.id, {
+        content: '',
+        savedContent: '',
+        modifiedAt: '',
+        size: 0,
+        dirty: false,
+        loading: false,
+        saving: false,
+        binary: false,
+        truncated: false,
+      })
       return file.id
     })
   }
@@ -1276,11 +1274,15 @@ describe('EditorWorkbench', () => {
     renderWorkbench()
     const paragraph = document.querySelector('article p')
     if (!paragraph) throw new Error('markdown preview not rendered')
-    monacoCursorHandlerRef.current?.({ position: { lineNumber: 3, column: 1 } })
-    expect((paragraph as HTMLElement).style.boxShadow).toContain('accent')
-    monacoCursorHandlerRef.current?.({ position: { lineNumber: 1, column: 1 } })
-    expect((paragraph as HTMLElement).style.boxShadow).toBe('')
-    expect((document.querySelector('article h1') as HTMLElement | null)?.style.boxShadow).toContain('accent')
+    await act(async () => {
+      monacoCursorHandlerRef.current?.({ position: { lineNumber: 3, column: 1 } })
+    })
+    expect(paragraph.classList.contains('md-source-loc')).toBe(true)
+    await act(async () => {
+      monacoCursorHandlerRef.current?.({ position: { lineNumber: 1, column: 1 } })
+    })
+    expect(paragraph.classList.contains('md-source-loc')).toBe(false)
+    expect(document.querySelector('article h1')?.classList.contains('md-source-loc')).toBe(true)
   })
   it('renders markdown preview with GFM tables, images, lists and strikethrough', () => {
     const mdEditor = {
@@ -1304,7 +1306,8 @@ describe('EditorWorkbench', () => {
     const article = document.querySelector('article')
     if (!article) throw new Error('markdown preview not rendered')
     const html = article.innerHTML
-    expect(html).toContain('<h1 data-line="1">标题</h1>')
+    expect(article.querySelector('h1')).toHaveAttribute('data-line', '1')
+    expect(article.querySelector('h1')).toHaveTextContent('标题')
     expect(html).toContain('<table data-line="3">')
     expect(html).toContain('<th>列A</th>')
     expect(html).toContain('<td>1</td>')
@@ -1335,7 +1338,7 @@ describe('EditorWorkbench', () => {
     const article = document.querySelector('article')
     if (!article) throw new Error('markdown preview not rendered')
     const html = article.innerHTML
-    expect(html).toContain('<p data-line="1">前<br></p>')
+    expect(article.querySelector('[data-line="1"]')).toHaveTextContent('前')
     expect(html).toContain('<p data-line="4">中</p>')
     expect(html).toContain('<pre data-line="6"><code class="language-ts">const a = 1\n\n\nconst b = 2')
     expect(html).toContain('<br><p data-line="14">后</p>')
