@@ -2,20 +2,30 @@
 
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
-import { FiGitBranch } from 'react-icons/fi'
+import { FiGitBranch, FiMonitor } from 'react-icons/fi'
 
 interface MobileNavProps {
   onOpenDrawer: (type: 'sessions' | 'panes' | 'windows') => void
   onOpenSettings: () => void
   onOpenFiles: () => void
   onOpenGit: () => void
+  onOpenDesktop: () => void
   gitOpen?: boolean
   docked?: boolean
 }
 
 function NavIcon({ d, size = 18 }: { d: string; size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <path d={d} />
     </svg>
   )
@@ -26,10 +36,19 @@ const icons = {
   panes: 'M3 3h18v18H3zM3 9h18M3 15h18M9 3v18M15 3v18',
   windows: 'M4 4h16v16H4zM4 9h16M9 4v16',
   files: 'M3 5h7l2 2h9v12H3z',
-  settings: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z',
+  settings:
+    'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z',
 }
 
-export function MobileNav({ onOpenDrawer, onOpenSettings, onOpenFiles, onOpenGit, gitOpen = false, docked = false }: MobileNavProps) {
+export function MobileNav({
+  onOpenDrawer,
+  onOpenSettings,
+  onOpenFiles,
+  onOpenGit,
+  onOpenDesktop,
+  gitOpen = false,
+  docked = false,
+}: MobileNavProps) {
   const connection = useConsoleStore((state) => state.connection)
   const attachLatency = useConsoleStore((state) => state.terminalPerf.attachLatency)
   const { t } = useTranslation()
@@ -43,37 +62,77 @@ export function MobileNav({ onOpenDrawer, onOpenSettings, onOpenFiles, onOpenGit
     : 'tmuxgo-glass tmuxgo-mobile-nav mobile-nav-landscape-hide fixed left-2 right-2 z-40 rounded-apple border pb-[env(safe-area-inset-bottom)] transition-transform duration-200'
 
   return (
-    <div data-mobile-nav className={containerClass} style={docked ? undefined : { bottom: 'var(--mobile-keyboard-inset, 0px)' }}>
-      <div className="grid h-12 grid-cols-6 items-center">
-        <button aria-label={t('nav.sessions')} onClick={() => onOpenDrawer('sessions')} className="tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px text-text-3 transition-all active:scale-95 active:bg-bg-2/50 active:text-accent">
+    <div
+      data-mobile-nav
+      className={containerClass}
+      style={docked ? undefined : { bottom: 'var(--mobile-keyboard-inset, 0px)' }}
+    >
+      <div className="grid h-12 grid-cols-7 items-center">
+        <button
+          aria-label={t('nav.sessions')}
+          onClick={() => onOpenDrawer('sessions')}
+          className="tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px text-text-3 transition-all active:scale-95 active:bg-bg-2/50 active:text-accent"
+        >
           <NavIcon d={icons.sessions} />
           <span className="text-caption leading-none">{t('nav.sessions')}</span>
         </button>
 
-        <button aria-label={t('nav.windows')} onClick={() => onOpenDrawer('windows')} className="tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px text-text-3 transition-all active:scale-95 active:bg-bg-2/50 active:text-accent">
+        <button
+          aria-label={t('nav.windows')}
+          onClick={() => onOpenDrawer('windows')}
+          className="tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px text-text-3 transition-all active:scale-95 active:bg-bg-2/50 active:text-accent"
+        >
           <NavIcon d={icons.windows} />
           <span className="text-caption leading-none">{t('nav.windows')}</span>
         </button>
 
-        <button aria-label={t('nav.panes')} onClick={() => onOpenDrawer('panes')} className="tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px text-text-3 transition-all active:scale-95 active:bg-bg-2/50 active:text-accent">
+        <button
+          aria-label={t('nav.panes')}
+          onClick={() => onOpenDrawer('panes')}
+          className="tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px text-text-3 transition-all active:scale-95 active:bg-bg-2/50 active:text-accent"
+        >
           <NavIcon d={icons.panes} />
           <span className="text-caption leading-none">{t('nav.panes')}</span>
         </button>
 
-        <button aria-label={t('nav.files')} onClick={onOpenFiles} className="tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px text-text-3 transition-all active:scale-95 active:bg-bg-2/50 active:text-accent">
+        <button
+          aria-label={t('nav.files')}
+          onClick={onOpenFiles}
+          className="tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px text-text-3 transition-all active:scale-95 active:bg-bg-2/50 active:text-accent"
+        >
           <NavIcon d={icons.files} />
           <span className="text-caption leading-none">{t('nav.files')}</span>
         </button>
 
-        <button aria-label={t('nav.git')} aria-current={gitOpen ? 'page' : undefined} onClick={onOpenGit} className={`tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px transition-all active:scale-95 active:bg-bg-2/50 ${gitOpen ? 'tmuxgo-mobile-nav-button--active' : 'text-text-3 active:text-accent'}`}>
+        <button
+          aria-label={t('nav.git')}
+          aria-current={gitOpen ? 'page' : undefined}
+          onClick={onOpenGit}
+          className={`tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px transition-all active:scale-95 active:bg-bg-2/50 ${gitOpen ? 'tmuxgo-mobile-nav-button--active' : 'text-text-3 active:text-accent'}`}
+        >
           <FiGitBranch aria-hidden="true" size={18} />
           <span className="text-caption leading-none">{t('nav.git')}</span>
         </button>
 
-        <button aria-label={t('nav.settings')} onClick={onOpenSettings} className="tmuxgo-mobile-nav-button relative flex flex-col items-center justify-center gap-px text-text-3 transition-all active:scale-95 active:bg-bg-2/50 active:text-accent">
+        <button
+          aria-label={t('vnc.title')}
+          onClick={onOpenDesktop}
+          className="tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px text-text-3 transition-all active:scale-95 active:bg-bg-2/50 active:text-accent"
+        >
+          <FiMonitor aria-hidden="true" size={18} />
+          <span className="text-caption leading-none">{t('vnc.title')}</span>
+        </button>
+
+        <button
+          aria-label={t('nav.settings')}
+          onClick={onOpenSettings}
+          className="tmuxgo-mobile-nav-button relative flex flex-col items-center justify-center gap-px text-text-3 transition-all active:scale-95 active:bg-bg-2/50 active:text-accent"
+        >
           <div className="relative">
             <NavIcon d={icons.settings} />
-            <div className={`absolute -top-1 -right-1.5 w-2.5 h-2.5 rounded-full ${statusColor} ${isRecovering ? 'animate-pulse' : ''} border border-bg-1`} />
+            <div
+              className={`absolute -top-1 -right-1.5 w-2.5 h-2.5 rounded-full ${statusColor} ${isRecovering ? 'animate-pulse' : ''} border border-bg-1`}
+            />
           </div>
           <span className="text-caption leading-none">{statusText}</span>
         </button>

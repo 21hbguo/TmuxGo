@@ -16,6 +16,7 @@ import {
   FiSliders,
   FiSquare,
   FiTool,
+  FiType,
   FiX,
 } from 'react-icons/fi'
 import { Button } from './Button'
@@ -43,7 +44,21 @@ import { getVncWebSocketBase } from '@/lib/runtime-endpoints'
 import { attachVncClipboardSync } from '@/lib/vnc-clipboard'
 import { useConsoleStore, type DesktopViewMode } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
+import { MOBILE_QUERY } from '@/lib/console-device-state'
 import { Select } from './Select'
+
+// 可打印字符 → XK keysym：ASCII 直映射，其余用 Unicode code point + 0x01000000（XK 扩展规则）
+const keysymForChar = (ch: string) => {
+  const cp = ch.codePointAt(0)!
+  return cp >= 0x20 && cp <= 0x7e ? cp : 0x01000000 | cp
+}
+const MOBILE_KEYSYM: Record<string, number> = {
+  Backspace: 0xff08,
+  Enter: 0xff0d,
+  Tab: 0xff09,
+  Escape: 0xff1b,
+  Delete: 0xffff,
+}
 
 type VncStatus = 'idle' | 'connecting' | 'connected' | 'disconnected'
 
@@ -173,6 +188,18 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
   // 凭据属于哪个 display：切屏时旧屏密码不能带过去自动应答（会顶掉新屏已存的正确密码）
   const credentialsForRef = useRef<number | null>(null)
   const [rememberPassword, setRememberPassword] = useState(false)
+  // 移动端适配：窄屏+竖屏给横屏引导，键盘条走 sendKey 逐字符注入
+  const [isMobileLayout, setIsMobileLayout] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia(MOBILE_QUERY).matches,
+  )
+  const [isPortrait, setIsPortrait] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(orientation: portrait)').matches,
+  )
+  const [rotateHintDismissed, setRotateHintDismissed] = useState(false)
+  const [mobileKeyboardOpen, setMobileKeyboardOpen] = useState(false)
+  const keyboardInputRef = useRef<HTMLInputElement>(null)
+  // 我们主动 lock 过横屏才在卸载/断开时 unlock，避免动用户原本的系统方向锁
+  const orientationLockedRef = useRef(false)
   // 底层 WS 关闭码/原因：RFB 的 disconnect 事件不带这些，单独捕获用于错误提示
   const wsCloseRef = useRef<{ code: number; reason: string } | null>(null)
   // 剪贴板双向透传：本地→远端靠 paste 事件零权限同步，远端→本地挂起补写到下一次手势
@@ -365,6 +392,91 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
     return () => clearInterval(timer)
   }, [showStats, status, pickerOpen, refreshDisplays])
   const selectedDisplayRssKB = displays?.find((d) => d.display === selectedDisplay)?.rssKB
+
+  // 窄屏/竖屏状态实时跟随（窗口缩放、设备旋转）
+  useEffect(() => {
+    const mobileMq = window.matchMedia(MOBILE_QUERY)
+    const portraitMq = window.matchMedia('(orientation: portrait)')
+    const syncMobile = () => setIsMobileLayout(mobileMq.matches)
+    const syncPortrait = () => setIsPortrait(portraitMq.matches)
+    mobileMq.addEventListener('change', syncMobile)
+    portraitMq.addEventListener('change', syncPortrait)
+    syncMobile()
+    syncPortrait()
+    return () => {
+      mobileMq.removeEventListener('change', syncMobile)
+      portraitMq.removeEventListener('change', syncPortrait)
+    }
+  }, [])
+  // 卸载或断开连接时归还方向锁（仅我们 lock 过的情况）
+  useEffect(() => {
+    if (status === 'connected' || !orientationLockedRef.current) return
+    orientationLockedRef.current = false
+    try {
+      screen.orientation?.unlock?.()
+    } catch {
+      /* iOS Safari 无此 API */
+    }
+  }, [status])
+  useEffect(
+    () => () => {
+      if (!orientationLockedRef.current) return
+      orientationLockedRef.current = false
+      try {
+        screen.orientation?.unlock?.()
+      } catch {
+        /* 同上 */
+      }
+    },
+    [],
+  )
+  const enterLandscapeFullscreen = () => {
+    setRotateHintDismissed(true)
+    // Android Chrome 要先 fullscreen 才能 lock；iOS Safari 两 API 都没有，失败静默只当提示
+    containerRef.current
+      ?.requestFullscreen?.()
+      .then(() => {
+        // lock 在部分 TS DOM lib / iOS Safari 缺席：可选调用+失败静默
+        return (screen.orientation as { lock?: (o: string) => Promise<void> } | undefined)?.lock?.('landscape')
+      })
+      .then(() => {
+        orientationLockedRef.current = true
+      })
+      .catch(() => {})
+  }
+  const sendMobileKey = (keysym: number, code = '') => {
+    rfbRef.current?.sendKey(keysym, code, true)
+    rfbRef.current?.sendKey(keysym, code, false)
+  }
+  // 非受控 input + inputType 分支：IME 组字整串提交也逐字符发，Backspace 在 keydown 已拦故不会重复
+  const handleKeyboardNativeInput = (event: React.FormEvent<HTMLInputElement>) => {
+    const ev = event.nativeEvent as InputEvent
+    if ((ev.inputType === 'insertText' || ev.inputType === 'insertCompositionText') && ev.data) {
+      for (const ch of ev.data) sendMobileKey(keysymForChar(ch))
+    } else if (ev.inputType === 'deleteContentBackward') {
+      sendMobileKey(MOBILE_KEYSYM.Backspace, 'Backspace')
+    } else if (ev.inputType === 'deleteContentForward') {
+      sendMobileKey(MOBILE_KEYSYM.Delete, 'Delete')
+    }
+  }
+  const handleKeyboardKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    const keysym = MOBILE_KEYSYM[event.key]
+    if (keysym === undefined) return
+    event.preventDefault()
+    sendMobileKey(keysym, event.key)
+    if (event.key === 'Escape') setMobileKeyboardOpen(false)
+  }
+  // 输入条存在期间失焦即收回；开/关条都不动 rfb 连接
+  const toggleMobileKeyboard = () => {
+    setMobileKeyboardOpen((open) => {
+      const next = !open
+      if (next) {
+        if (keyboardInputRef.current) keyboardInputRef.current.value = ''
+        setTimeout(() => keyboardInputRef.current?.focus(), 0)
+      }
+      return next
+    })
+  }
 
   useEffect(() => {
     if (rfbRef.current) rfbRef.current.viewOnly = viewOnly
@@ -722,6 +834,19 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
         >
           <FiKey size={14} />
         </Button>
+        {isMobileLayout && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={toggleMobileKeyboard}
+            disabled={status !== 'connected' || viewOnly}
+            aria-label={t('vnc.mobileKeyboard')}
+            title={t('vnc.mobileKeyboard')}
+            className={mobileKeyboardOpen ? 'text-accent' : ''}
+          >
+            <FiType size={14} />
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="icon-sm"
@@ -809,6 +934,64 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
       </header>
       <div className="relative min-h-0 flex-1 bg-black">
         <div ref={containerRef} className="absolute inset-0 overflow-hidden" />
+        {isMobileLayout && isPortrait && status === 'connected' && !rotateHintDismissed && (
+          <div className="tmuxgo-glass absolute left-1/2 top-3 z-20 flex -translate-x-1/2 items-center gap-2 rounded-apple-lg px-3 py-1.5 text-xs text-text-1">
+            <span>{t('vnc.rotateHint')}</span>
+            <button
+              type="button"
+              onClick={enterLandscapeFullscreen}
+              className="rounded-apple bg-accent/15 px-2 py-0.5 text-accent"
+            >
+              {t('vnc.landscapeFullscreen')}
+            </button>
+            <button
+              type="button"
+              onClick={() => setRotateHintDismissed(true)}
+              aria-label={t('common.close')}
+              className="text-text-3"
+            >
+              <FiX size={13} />
+            </button>
+          </div>
+        )}
+        {isMobileLayout && mobileKeyboardOpen && status === 'connected' && (
+          // 虚拟键盘顶起时画布被压缩：bottom 跟随 --mobile-keyboard-inset（与 MobileNav 同一变量）
+          <div
+            className="tmuxgo-glass absolute inset-x-2 z-20 flex items-center gap-1.5 rounded-apple-lg p-1.5"
+            style={{ bottom: 'calc(8px + var(--mobile-keyboard-inset, 0px))' }}
+          >
+            <input
+              ref={keyboardInputRef}
+              onInput={handleKeyboardNativeInput}
+              onKeyDown={handleKeyboardKeyDown}
+              onBlur={() => setMobileKeyboardOpen(false)}
+              autoFocus
+              autoCapitalize="off"
+              autoCorrect="off"
+              autoComplete="off"
+              aria-label={t('vnc.mobileKeyboard')}
+              placeholder={t('vnc.mobileKeyboardPlaceholder')}
+              className="h-8 min-w-0 flex-1 rounded-apple border border-[var(--line)] bg-bg-1 px-2 text-xs text-text-1 outline-none focus:border-accent"
+            />
+            <button
+              type="button"
+              // mousedown 抢在 input blur 前：否则失焦先收条，点击丢失
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => sendMobileKey(MOBILE_KEYSYM.Enter, 'Enter')}
+              className="h-8 shrink-0 rounded-apple bg-accent/15 px-2.5 text-xs text-accent"
+            >
+              Enter
+            </button>
+            <button
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => setMobileKeyboardOpen(false)}
+              className="h-8 shrink-0 rounded-apple px-2.5 text-xs text-text-2"
+            >
+              {t('common.close')}
+            </button>
+          </div>
+        )}
         {showStats && status === 'connected' && (
           // 浮层永远压在黑色画布上：文字固定白色，不随主题切换，浅色主题下也可读
           <div className="absolute right-3 top-3 z-20 rounded-apple bg-black/70 px-2.5 py-1 font-mono text-caption tabular-nums text-white">

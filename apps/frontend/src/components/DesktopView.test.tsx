@@ -1,49 +1,58 @@
 import React, { act } from 'react'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DesktopView } from './DesktopView'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 
-const { getPasswordMock, setPasswordMock, deletePasswordMock, displaysMock, sendCredentialsMock, MockRFB } = vi.hoisted(
-  () => {
-    const sendCredentials = vi.fn()
-    class RFB {
-      static instances: RFB[] = []
-      handlers = new Map<string, ((event: { detail: any }) => void)[]>()
-      sendCredentials = sendCredentials
-      disconnect = vi.fn()
-      clipboardPasteFrom = vi.fn()
-      scaleViewport = false
-      viewOnly = false
-      qualityLevel = 0
-      compressionLevel = 0
-      constructor(
-        public target: HTMLElement,
-        public url: string,
-        public options: unknown,
-      ) {
-        RFB.instances.push(this)
-      }
-      addEventListener(type: string, fn: (event: { detail: any }) => void) {
-        const list = this.handlers.get(type) || []
-        list.push(fn)
-        this.handlers.set(type, list)
-      }
-      removeEventListener() {}
-      emit(type: string, detail: any) {
-        for (const fn of this.handlers.get(type) || []) fn({ detail })
-      }
+const {
+  getPasswordMock,
+  setPasswordMock,
+  deletePasswordMock,
+  displaysMock,
+  sendCredentialsMock,
+  sendKeyMock,
+  MockRFB,
+} = vi.hoisted(() => {
+  const sendCredentials = vi.fn()
+  const sendKey = vi.fn()
+  class RFB {
+    static instances: RFB[] = []
+    handlers = new Map<string, ((event: { detail: any }) => void)[]>()
+    sendCredentials = sendCredentials
+    sendKey = sendKey
+    disconnect = vi.fn()
+    clipboardPasteFrom = vi.fn()
+    scaleViewport = false
+    viewOnly = false
+    qualityLevel = 0
+    compressionLevel = 0
+    constructor(
+      public target: HTMLElement,
+      public url: string,
+      public options: unknown,
+    ) {
+      RFB.instances.push(this)
     }
-    return {
-      getPasswordMock: vi.fn(),
-      setPasswordMock: vi.fn(),
-      deletePasswordMock: vi.fn(),
-      displaysMock: vi.fn(),
-      sendCredentialsMock: sendCredentials,
-      MockRFB: RFB,
+    addEventListener(type: string, fn: (event: { detail: any }) => void) {
+      const list = this.handlers.get(type) || []
+      list.push(fn)
+      this.handlers.set(type, list)
     }
-  },
-)
+    removeEventListener() {}
+    emit(type: string, detail: any) {
+      for (const fn of this.handlers.get(type) || []) fn({ detail })
+    }
+  }
+  return {
+    getPasswordMock: vi.fn(),
+    setPasswordMock: vi.fn(),
+    deletePasswordMock: vi.fn(),
+    displaysMock: vi.fn(),
+    sendCredentialsMock: sendCredentials,
+    sendKeyMock: sendKey,
+    MockRFB: RFB,
+  }
+})
 
 vi.mock('@novnc/novnc', () => ({ default: MockRFB }))
 vi.mock('@/lib/auth', () => ({ getWebSocketUrl: vi.fn().mockResolvedValue('ws://test/vnc') }))
@@ -96,11 +105,20 @@ vi.mock('@/i18n', () => ({
         'vnc.rememberPassword': 'Remember password',
         'vnc.connect': 'Connect',
         'vnc.securityFailure': 'Security handshake failed',
+        'vnc.rotateHint': 'Landscape works better',
+        'vnc.landscapeFullscreen': 'Rotate & fullscreen',
+        'vnc.mobileKeyboard': 'Keyboard input',
+        'vnc.mobileKeyboardPlaceholder': 'Type to send keys',
+        'common.close': 'Close',
       }
       return map[key] || key
     },
   }),
 }))
+
+// matchMedia mock：mobileMatches 控 MOBILE_QUERY，portraitMatches 控 orientation
+let mobileMatches = false
+let portraitMatches = false
 
 const renderView = (port = 5900) =>
   render(
@@ -128,6 +146,17 @@ describe('DesktopView VNC password memory', () => {
     deletePasswordMock.mockReset().mockResolvedValue({ success: true })
     displaysMock.mockReset().mockResolvedValue({ displays: [] })
     sendCredentialsMock.mockReset()
+    sendKeyMock.mockReset()
+    mobileMatches = false
+    portraitMatches = false
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: query.includes('max-width') ? mobileMatches : portraitMatches,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    })
     window.localStorage.clear()
     useConsoleStore.setState({ activeHostId: 'local', pushToast: vi.fn(), toasts: [] })
   })
@@ -196,5 +225,54 @@ describe('DesktopView VNC password memory', () => {
     expect(runningRow.textContent).toContain('200.0 MB')
     const stoppedRow = rows.find((el) => el.textContent === ':35903~')!
     expect(stoppedRow.textContent).toContain('~')
+  })
+
+  it('shows the rotate hint on mobile portrait and dismisses it', async () => {
+    mobileMatches = true
+    portraitMatches = true
+    renderView()
+    await waitFor(() => expect(lastRfb()).toBeTruthy())
+    await act(async () => {
+      lastRfb().emit('connect', {})
+    })
+    const hint = screen.getByText('Landscape works better').closest('div')!
+    fireEvent.click(within(hint).getByRole('button', { name: 'Close' }))
+    expect(screen.queryByText('Landscape works better')).toBeNull()
+  })
+
+  it('does not show the rotate hint on desktop layout', async () => {
+    renderView()
+    await waitFor(() => expect(lastRfb()).toBeTruthy())
+    await act(async () => {
+      lastRfb().emit('connect', {})
+    })
+    expect(screen.queryByText('Landscape works better')).toBeNull()
+  })
+
+  it('sends printable chars and special keys through the mobile keyboard bar', async () => {
+    mobileMatches = true
+    renderView()
+    await waitFor(() => expect(lastRfb()).toBeTruthy())
+    await act(async () => {
+      lastRfb().emit('connect', {})
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Keyboard input' }))
+    const input = screen.getByPlaceholderText('Type to send keys')
+    // 'a'=0x61 down+up，中文走 0x01000000|codePoint
+    fireEvent.input(input, { inputType: 'insertText', data: 'a中' })
+    expect(sendKeyMock).toHaveBeenCalledWith(0x61, '', true)
+    expect(sendKeyMock).toHaveBeenCalledWith(0x61, '', false)
+    expect(sendKeyMock).toHaveBeenCalledWith(0x01000000 | 0x4e2d, '', true)
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(sendKeyMock).toHaveBeenCalledWith(0xff0d, 'Enter', true)
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(sendKeyMock).toHaveBeenCalledWith(0xff1b, 'Escape', true)
+    expect(screen.queryByPlaceholderText('Type to send keys')).toBeNull()
+  })
+
+  it('keeps the keyboard button hidden on desktop layout', async () => {
+    renderView()
+    await waitFor(() => expect(lastRfb()).toBeTruthy())
+    expect(screen.queryByRole('button', { name: 'Keyboard input' })).toBeNull()
   })
 })
