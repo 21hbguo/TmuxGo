@@ -1150,10 +1150,13 @@ export function FilePanel({
     setFollowSuspended(true)
     const nextRootId = getFavoriteRootOptionId(entry)
     setSelectedRootId(nextRootId)
+    // 收藏虚拟根必须无条件从自身 basePath 列起——否则从收藏 A 返回上一级后
+    // currentPath 残留 A 的父目录，点收藏 B 会拼出 baseB+父A 的不存在路径，
+    // 触发 useFileList retry 指数退避卡数秒（远端 SSH 往返更慢）
+    currentPathRef.current = ''
+    setCurrentPath('')
     if (isMobile) {
-      currentPathRef.current = ''
       mobileNavigationDepthRef.current = 0
-      setCurrentPath('')
     } else {
       setOpenDirectories(new Set())
       setDirectoryStatusState(new Map())

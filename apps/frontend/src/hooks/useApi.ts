@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, type CredentialStoreFile, type HostStoreFile, type SystemTaskResponse } from '@/lib/api'
 import type { PluginPermission, SessionLayout, SessionTemplate } from '@/types'
 import type {
@@ -521,6 +521,9 @@ export function useFileList(hostId: string, root: string, path: string, enabled 
     enabled: !!root && enabled,
     staleTime: 8000,
     gcTime: 60000,
+    // 切 root/目录时保留上一份列表占位：否则新 key 首次取数期间 data=undefined
+    // 树区会空窗（收藏切换遇 retry 退避时尤甚）
+    placeholderData: keepPreviousData,
   })
 }
 

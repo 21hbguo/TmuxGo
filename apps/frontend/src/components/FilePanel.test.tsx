@@ -471,6 +471,30 @@ describe('FilePanel', () => {
     fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'favorite:root-home:project' } })
     await waitFor(() => expect(screen.getByText('demo.txt')).toBeInTheDocument())
   })
+  it('clears stale currentPath when opening a favorite shortcut after going to parent', async () => {
+    // 回归：收藏 A(嵌套 src/nested)→..→收藏 B 时，桌面分支曾不清 currentPath，
+    // 导致 listQueryPath 拼成 'project/src' 拉空表（真实环境表现为 retry 退避卡数秒）
+    localStorage.setItem(
+      'tmuxgo-favorite-directories',
+      JSON.stringify([
+        { rootId: 'root-workspace', rootPath: '/workspace', name: 'nested', path: 'src/nested' },
+        { rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' },
+      ]),
+    )
+    render(React.createElement(FilePanel))
+    const favoriteA = await screen.findByRole('button', { name: '/workspace/src/nested' })
+    fireEvent.click(favoriteA)
+    await waitFor(() => expect(screen.getByText('deep.ts')).toBeInTheDocument())
+    // 返回上一级 → 落回源 root 的 src
+    fireEvent.click(screen.getByRole('button', { name: 'file.upToParent' }))
+    await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
+    // 点收藏 B → 必须从 B 的 basePath('project')列起
+    vi.mocked(api.files.list).mockClear()
+    fireEvent.click(screen.getByRole('button', { name: '/home/guo/project' }))
+    await waitFor(() => expect(screen.getByText('demo.txt')).toBeInTheDocument())
+    expect(vi.mocked(api.files.list).mock.calls.some(([, , path]) => path === 'project/src')).toBe(false)
+  })
+
   it('opens file from favorite root with full relative path', async () => {
     const onOpenFile = vi.fn()
     localStorage.setItem(
