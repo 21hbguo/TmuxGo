@@ -203,6 +203,11 @@ export function TerminalPane({
     },
     [isMobileDevice, updateTerminalPerf],
   )
+  const handleBackpressureSuppressed = useCallback(() => {
+    // resize 宽限窗拦截计数：经 gateway backpressureSuppressed metric 进入
+    // SystemHealthPanel，让"没闪"有积极的可观测证据而非只能看指标没跳
+    sendRef.current({ type: 'stream_backpressure_suppressed' })
+  }, [])
   const {
     push: pushTerminalOutput,
     dispose: disposeTerminalOutput,
@@ -212,6 +217,7 @@ export function TerminalPane({
     onWrite: handleTerminalWriteComplete,
     onMetrics: handleTerminalMetrics,
     onBackpressure: handleTerminalBackpressure,
+    onBackpressureSuppressed: handleBackpressureSuppressed,
   })
   const handleTouchScroll = useCallback(
     (lines: number) =>

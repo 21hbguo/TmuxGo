@@ -160,6 +160,7 @@ function getSafeStreamMetrics() {
     copyModeCancelRequests: safeNumber(streamPerfMetrics.copyModeCancelRequests),
     inputMessages: safeNumber(streamPerfMetrics.inputMessages),
     backpressureSignals: safeNumber(streamPerfMetrics.backpressureSignals),
+    backpressureSuppressed: safeNumber(streamPerfMetrics.backpressureSuppressed),
     profileUpdates: safeNumber(streamPerfMetrics.profileUpdates),
     deferredFlushes: safeNumber(streamPerfMetrics.deferredFlushes),
     socketBufferedBytes: safeNumber(streamPerfMetrics.socketBufferedBytes),

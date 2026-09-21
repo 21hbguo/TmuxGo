@@ -182,6 +182,7 @@ export const en = {
   'settings.performanceInput': 'Input messages',
   'settings.performanceDeferred': 'Deferred flushes',
   'settings.performanceResync': 'Resync done/req',
+  'settings.performanceSuppressed': 'Backpressure suppressed',
   'settings.performanceAttach': 'Attach requests',
   'settings.performanceCompressFrames': 'Compressed frames',
   'settings.performanceCompressSaved': 'Compression saved',

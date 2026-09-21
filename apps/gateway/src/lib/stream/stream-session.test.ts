@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { StreamSession } from './stream-session.js'
-import { RESYNC_RESET_SEQ } from './stream-config.js'
+import { RESYNC_HYSTERESIS_MS, RESYNC_RESET_SEQ } from './stream-config.js'
+import { streamPerfMetrics } from '../perf-metrics.js'
 import { createRequire } from 'node:module'
 const { Terminal } = createRequire(import.meta.url)('@xterm/headless') as any
 
@@ -160,4 +161,47 @@ test('RESYNC_RESET_SEQ clears repaint-breaking state but preserves input modes',
   const line = t.buffer.active.getLine(0)
   assert.equal(line.translateToString(true).trim(), '')
   t.dispose()
+})
+
+test('setBackpressure high defers resync until congestion persists past hysteresis', async () => {
+  const { session, sent } = createSession()
+  // 测试缝：不触真实 tmux refresh
+  ;(session as any).redrawAttachedClient = async () => {}
+  session.outputBuffer = 'x'.repeat(20000)
+  const before = streamPerfMetrics.backpressureSuppressed
+  session.setBackpressure('high', false)
+  // 瞬时超限不立即 resync：先记 suppressed + 挂复查
+  assert.equal(session.outputResyncPending, false)
+  assert.equal(streamPerfMetrics.backpressureSuppressed, before + 1)
+  // 拥塞持续过迟滞窗 → 升级 resync
+  await new Promise((r) => setTimeout(r, RESYNC_HYSTERESIS_MS + 60))
+  assert.ok(sent.some((m) => m.type === 'output_resync'))
+  session.cleanup()
+})
+
+test('hysteresis filters a one-shot burst that drains before the recheck', async () => {
+  const { session, sent } = createSession()
+  ;(session as any).redrawAttachedClient = async () => {}
+  session.outputBuffer = 'x'.repeat(20000)
+  session.setBackpressure('high', false)
+  // 突发在复查前排空（flushOutput 正常把缓冲发出去的场景）
+  session.outputBuffer = ''
+  await new Promise((r) => setTimeout(r, RESYNC_HYSTERESIS_MS + 60))
+  assert.equal(session.outputResyncPending, false)
+  assert.ok(!sent.some((m) => m.type === 'output_resync'))
+  session.cleanup()
+})
+
+test('queueOutput over-limit also goes through hysteresis instead of instant resync', async () => {
+  const { session, sent } = createSession()
+  ;(session as any).redrawAttachedClient = async () => {}
+  session.clientBackpressureHigh = true
+  session.queueOutput('x'.repeat(20000))
+  assert.equal(session.outputResyncPending, false)
+  // 缓冲经正常 flush 排空后复查不升级；保留缓冲则升级
+  session.queueOutput('y'.repeat(20000))
+  session.outputBuffer = ''
+  await new Promise((r) => setTimeout(r, RESYNC_HYSTERESIS_MS + 60))
+  assert.ok(!sent.some((m) => m.type === 'output_resync'))
+  session.cleanup()
 })

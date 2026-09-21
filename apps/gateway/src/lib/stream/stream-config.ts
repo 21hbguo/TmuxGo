@@ -9,6 +9,10 @@ export const SOCKET_BUFFER_EXTREME_WATERMARK = 4194304
 export const SOCKET_FLUSH_DEFER_MS = 24
 export const OUTPUT_BUFFER_MAX_CHARS = 1048576
 export const CLIENT_BACKPRESSURE_RESYNC_CHARS = 16384
+// 拥塞 resync 迟滞：超限不立即 resync，先记 suppressed 并挂复查——pane resize
+// 重绘等一次性突发的缓冲即最终帧，排空后复查不再超限即天然过滤；
+// 只有持续超限（真拥塞）才升级 resync
+export const RESYNC_HYSTERESIS_MS = 100
 // resync 边界序列（刻意不用 DECSTR）：tmux refresh 只重绘画面，不重发未变化的
 // 输入模式——DECSTR 会把 ?1 应用光标键/?66 小键盘/?2004 bracketed-paste 清掉且
 // tmux 不再补发，画面全等但输入协议悄悄坏掉。这里只重置会破坏重绘本身的状态：

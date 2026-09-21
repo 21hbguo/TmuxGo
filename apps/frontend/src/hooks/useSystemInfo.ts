@@ -34,6 +34,7 @@ export interface SystemInfo {
     resizeRequests: number
     inputMessages: number
     backpressureSignals: number
+    backpressureSuppressed: number
     profileUpdates: number
     deferredFlushes: number
     socketBufferedBytes: number

@@ -181,6 +181,7 @@ export const zh = {
   'settings.performanceInput': '输入消息',
   'settings.performanceDeferred': '延迟 Flush',
   'settings.performanceResync': 'Resync 完成/请求',
+  'settings.performanceSuppressed': '背压抑制次数',
   'settings.performanceAttach': 'Attach 次数',
   'settings.performanceCompressFrames': '压缩帧',
   'settings.performanceCompressSaved': '压缩节省',

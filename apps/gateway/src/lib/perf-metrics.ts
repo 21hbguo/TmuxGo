@@ -14,6 +14,7 @@ export const streamPerfMetrics = {
   copyModeCancelRequests: 0,
   inputMessages: 0,
   backpressureSignals: 0,
+  backpressureSuppressed: 0,
   profileUpdates: 0,
   deferredFlushes: 0,
   socketBufferedBytes: 0,
