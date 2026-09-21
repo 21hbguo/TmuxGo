@@ -1,5 +1,7 @@
 import { randomUUID } from 'crypto'
 import net from 'net'
+import path from 'path'
+import { readdir, readFile } from 'fs/promises'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { SocketStream } from '@fastify/websocket'
 import { agentManager, type AgentSocket } from '../agent-manager.js'
@@ -129,6 +131,20 @@ export async function vncRoutes(fastify: FastifyInstance) {
 
   // 空响应探活：前端用它估算浏览器→gateway 的 RTT
   fastify.get('/vnc/ping', async () => ({ ok: true }))
+
+  // 个别移动浏览器对动态 import 的 chunk URL 存在模块缓存毒化死锁(请求根本不发)，
+  // 前端检测到 import 超时后改为 fetch 此路由取回文本再走 blob import。hash 随构建变化故按 glob 找
+  fastify.get('/vnc/client-module', async (_request, reply) => {
+    const dist = process.env.TMUXGO_FRONTEND_DIST || path.resolve(process.cwd(), '../frontend/dist')
+    try {
+      const name = (await readdir(path.join(dist, 'assets'))).find((f) => /^rfb-[\w-]+\.js$/.test(f))
+      if (!name) return reply.code(404).send({ message: 'vnc client module not built' })
+      reply.header('cache-control', 'no-store')
+      return reply.type('text/javascript').send(await readFile(path.join(dist, 'assets', name)))
+    } catch {
+      return reply.code(404).send({ message: 'vnc client module unavailable' })
+    }
+  })
 
   // 列出目标机 loopback 上在跑的 VNC display（虚拟屏选择器数据源）
   fastify.get('/vnc/displays', async (request: FastifyRequest, reply) => {
