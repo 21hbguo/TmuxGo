@@ -567,9 +567,12 @@ export function FilePanel({
   const sessionWorkspaces = useMemo(() => sessionWorkspacesQuery.data || [], [sessionWorkspacesQuery.data])
   const [selectedRootId, setSelectedRootId] = useState('')
   const [currentPath, setCurrentPath] = useState('')
-  // selectedPath = 焦点/anchor 项；selectedPaths = 完整多选集合（VSCode Explorer 语义）
+  // selectedPath = focus 项（跟随所有点击）；selectedPaths = 完整多选集合（VSCode Explorer 语义）
   const [selectedPath, setSelectedPath] = useState('')
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set())
+  // shift+click 区间锚点：仅普通点击/单选更新；ctrl+click 与 shift+click 只动 focus 不动 anchor
+  // （VSCode list 语义，见 microsoft/vscode#77575）
+  const [selectionAnchor, setSelectionAnchor] = useState('')
   const [selectedPreviewLine, setSelectedPreviewLine] = useState(1)
   const [query, setQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
@@ -893,7 +896,8 @@ export function FilePanel({
       }
       return changed ? next : current
     })
-  }, [knownItemByPath])
+    if (selectionAnchor && !knownItemByPath.has(selectionAnchor)) setSelectionAnchor('')
+  }, [knownItemByPath, selectionAnchor])
 
   useEffect(() => {
     if (!selectedRootId && rootOptions[0]) setSelectedRootId(rootOptions[0].id)
@@ -917,6 +921,7 @@ export function FilePanel({
     lastAppliedWorkspaceSessionRef.current = undefined
     directoryLoadingRef.current.clear()
     setSelectedPaths(new Set())
+    setSelectionAnchor('')
     setFileClipboard(null)
   }, [fileHostId])
   useEffect(() => {
@@ -1088,6 +1093,7 @@ export function FilePanel({
     setCurrentPath(nextPath)
     setSelectedPath('')
     setSelectedPaths(new Set())
+    setSelectionAnchor('')
     setSelectedPreviewLine(1)
     setSearchNavigationPath((value) => {
       if (!value) return null
@@ -1131,6 +1137,7 @@ export function FilePanel({
     setCurrentPath('')
     setSelectedPath('')
     setSelectedPaths(new Set())
+    setSelectionAnchor('')
     setSelectedPreviewLine(1)
     setMobileView('list')
     setOpenDirectories(new Set())
@@ -1153,6 +1160,7 @@ export function FilePanel({
     }
     setSelectedPath('')
     setSelectedPaths(new Set())
+    setSelectionAnchor('')
     setSelectedPreviewLine(1)
     setMobileView('list')
     setSearchNavigationPath(null)
@@ -1204,9 +1212,10 @@ export function FilePanel({
   // —— VSCode Explorer 选择语义 ——
   const selectSinglePath = (path: string) => {
     setSelectedPath(path)
+    setSelectionAnchor(path)
     setSelectedPaths(path ? new Set([path]) : new Set())
   }
-  // ctrl+click：切换该项选中态并成为新 anchor；不打开文件、不动目录展开（展开交给 ▸）
+  // ctrl+click：切换该项选中态并更新 focus；不动 anchor、不打开文件、不动目录展开（展开交给 ▸）
   const toggleItemSelection = (item: FileEntry) => {
     setSelectedPaths((current) => {
       const next = new Set(current)
@@ -1216,17 +1225,18 @@ export function FilePanel({
     })
     setSelectedPath(item.path)
   }
-  // shift+click：anchor(最近普通/ctrl 点击项)到目标项的可见序区间并入现有 selection；无 anchor 退化为单选
+  // shift+click：selection 替换为 anchor→目标项的可见序区间（VSCode 是 setSelection 而非并入）；
+  // focus 跟随目标项，anchor 保持不动；无 anchor 退化为单选
   const selectRangeTo = (item: FileEntry) => {
     const order = flatVisibleItems.map((entry) => entry.path)
     const targetIndex = order.indexOf(item.path)
-    const anchorIndex = order.indexOf(selectedPath)
+    const anchorIndex = order.indexOf(selectionAnchor)
     if (targetIndex < 0 || anchorIndex < 0) {
       selectSinglePath(item.path)
       return
     }
     const [lo, hi] = anchorIndex < targetIndex ? [anchorIndex, targetIndex] : [targetIndex, anchorIndex]
-    setSelectedPaths((current) => new Set([...current, ...order.slice(lo, hi + 1)]))
+    setSelectedPaths(new Set(order.slice(lo, hi + 1)))
     setSelectedPath(item.path)
   }
   // 行点击分流：返回 true 表示已被多选手势消费（不执行打开/展开动作）
@@ -1672,6 +1682,7 @@ export function FilePanel({
       )
       const renamedPath = stripBasePath(result.item.path, activeRootBasePath)
       if (selectedPath === item.path) setSelectedPath(renamedPath)
+      if (selectionAnchor === item.path) setSelectionAnchor(renamedPath)
       // selection 里的旧路径同步映射到新路径
       setSelectedPaths((current) => {
         if (!current.has(item.path)) return current
@@ -1764,6 +1775,7 @@ export function FilePanel({
         return next
       })
       setSelectedPaths((current) => new Set([...current].filter((path) => !removedPaths.has(path))))
+      if (removedPaths.has(selectionAnchor)) setSelectionAnchor('')
       if (removedPaths.has(selectedPath)) {
         setSelectedPath('')
         setSelectedPreviewLine(1)
