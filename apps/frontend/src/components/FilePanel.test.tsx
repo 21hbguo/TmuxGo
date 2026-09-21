@@ -1016,7 +1016,7 @@ describe('FilePanel', () => {
     expect(await screen.findByText('src')).toBeInTheDocument()
     expect(screen.queryByText('.env')).not.toBeInTheDocument()
   })
-  it('moves between visible files with arrow keys in the desktop tree', async () => {
+  it('moves between all visible rows (directories included) with arrow keys in the desktop tree', async () => {
     render(React.createElement(FilePanel))
     fireEvent.click(await screen.findByText('src'))
     await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
@@ -1024,11 +1024,95 @@ describe('FilePanel', () => {
     await waitFor(() => expect(screen.getByText('guide.md')).toBeInTheDocument())
     const indexFile = screen.getByText('index.ts').closest('[role="button"]') as HTMLElement
     fireEvent.click(indexFile)
+    // 目录行也是可选中项：index.ts 上一行是 src/nested
     fireEvent.keyDown(indexFile, { key: 'ArrowUp' })
-    await waitFor(() => expect(screen.getByText('guide.md').closest('[data-selected="true"]')).toBeInTheDocument())
-    expect(screen.getByText('guide.md').closest('[role="button"]')).toHaveFocus()
-    fireEvent.keyDown(screen.getByText('guide.md').closest('[role="button"]') as HTMLElement, { key: 'ArrowDown' })
+    await waitFor(() => expect(screen.getByText('nested').closest('[data-selected="true"]')).toBeInTheDocument())
+    expect(screen.getByText('nested').closest('[role="button"]')).toHaveFocus()
+    fireEvent.keyDown(screen.getByText('nested').closest('[role="button"]') as HTMLElement, { key: 'ArrowDown' })
     await waitFor(() => expect(screen.getByText('index.ts').closest('[data-selected="true"]')).toBeInTheDocument())
+    expect(screen.getByText('index.ts').closest('[role="button"]')).toHaveFocus()
+  })
+  it('ctrl+click toggles selection without opening files or toggling directories', async () => {
+    render(React.createElement(FilePanel))
+    const docsRow = (await screen.findByText('docs')).closest('[role="button"]') as HTMLElement
+    fireEvent.click(docsRow)
+    // 展开后行节点会被虚拟列表按 index 复用 → 重新查询
+    await waitFor(() => expect(screen.getByText('guide.md')).toBeInTheDocument())
+    const projectRow = screen.getByText('project').closest('[role="button"]') as HTMLElement
+    const downloadsRow = screen.getByText('downloads').closest('[role="button"]') as HTMLElement
+    await waitFor(() => expect(screen.getByText('docs').closest('[data-selected="true"]')).toBeInTheDocument())
+    // ctrl+click 追加目录进 selection，且不展开目录
+    fireEvent.click(projectRow, { ctrlKey: true })
+    fireEvent.click(downloadsRow, { ctrlKey: true })
+    await waitFor(() => {
+      expect(screen.getByText('project').closest('[data-selected="true"]')).toBeInTheDocument()
+      expect(screen.getByText('downloads').closest('[data-selected="true"]')).toBeInTheDocument()
+      expect(screen.getByText('docs').closest('[data-selected="true"]')).toBeInTheDocument()
+    })
+    // docs 普通点击已展开 → guide.md 渲染但未选中；downloads/project ctrl+click 未展开
+    expect(screen.getByText('guide.md').closest('[data-selected="true"]')).not.toBeInTheDocument()
+    expect(screen.queryByText('archive.zip')).not.toBeInTheDocument()
+    expect(screen.queryByText('demo.txt')).not.toBeInTheDocument()
+    // ctrl+click 已选中项 → 反选
+    fireEvent.click(projectRow, { ctrlKey: true })
+    await waitFor(() => expect(screen.getByText('project').closest('[data-selected="true"]')).not.toBeInTheDocument())
+    expect(screen.getByText('downloads').closest('[data-selected="true"]')).toBeInTheDocument()
+  })
+  it('shift+click selects the visible-order range from the anchor and unions with ctrl selection', async () => {
+    render(React.createElement(FilePanel))
+    // 顶层可见序为字母序 [docs, downloads, project, src]
+    fireEvent.click(await screen.findByText('src'))
+    await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
+    // ctrl+click docs → 并入 selection 且成为 anchor，不展开
+    const docsRow = screen.getByText('docs').closest('[role="button"]') as HTMLElement
+    fireEvent.click(docsRow, { ctrlKey: true })
+    await waitFor(() => expect(screen.getByText('docs').closest('[data-selected="true"]')).toBeInTheDocument())
+    expect(screen.queryByText('guide.md')).not.toBeInTheDocument()
+    // shift+click downloads → 区间 [docs, downloads] 与 {src, docs} 取并集
+    const downloadsRow = screen.getByText('downloads').closest('[role="button"]') as HTMLElement
+    fireEvent.click(downloadsRow, { shiftKey: true })
+    await waitFor(() => {
+      for (const name of ['docs', 'downloads', 'src'])
+        expect(screen.getByText(name).closest('[data-selected="true"]')).toBeInTheDocument()
+    })
+    for (const name of ['project', 'nested', 'index.ts'])
+      expect(screen.getByText(name).closest('[data-selected="true"]')).not.toBeInTheDocument()
+    // anchor 跟随最后一次点击项
+    expect(screen.getByText('downloads').closest('[data-focused="true"]')).toBeInTheDocument()
+    // 隐藏的 dotfile 不渲染也不入选
+    expect(screen.queryByText('.env')).not.toBeInTheDocument()
+  })
+  it('ctrl+A selects every visible row', async () => {
+    render(React.createElement(FilePanel))
+    const srcRow = (await screen.findByText('src')).closest('[role="button"]') as HTMLElement
+    fireEvent.click(srcRow)
+    await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
+    fireEvent.keyDown(srcRow, { key: 'a', ctrlKey: true })
+    await waitFor(() => {
+      for (const name of ['src', 'nested', 'index.ts', 'docs', 'project', 'downloads'])
+        expect(screen.getByText(name).closest('[data-selected="true"]')).toBeInTheDocument()
+    })
+    // 未展开的 docs 子项与隐藏的 dotfile 不计入
+    expect(screen.queryByText('guide.md')).not.toBeInTheDocument()
+    expect(screen.queryByText('.env')).not.toBeInTheDocument()
+  })
+  it('deletes the whole selection with a count in the confirm dialog', async () => {
+    const trash = vi.spyOn(api.files, 'trash').mockResolvedValue({ entry: { id: 't1' } } as any)
+    render(React.createElement(FilePanel))
+    const docsRow = (await screen.findByText('docs')).closest('[role="button"]') as HTMLElement
+    fireEvent.click(docsRow, { ctrlKey: true })
+    fireEvent.click(screen.getByText('downloads').closest('[role="button"]') as HTMLElement, { ctrlKey: true })
+    // Delete 从行上冒泡到列表容器的 handleListKeyDown
+    fireEvent.keyDown(docsRow, { key: 'Delete' })
+    // t() mock 对未映射 key 原样返回：多选删除用 deleteConfirmMany 文案
+    expect(await screen.findByText('file.deleteConfirmMany')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+    await waitFor(() => expect(trash).toHaveBeenCalledTimes(2))
+    await waitFor(() => {
+      expect(screen.getByText('docs').closest('[data-selected="true"]')).not.toBeInTheDocument()
+      expect(screen.getByText('downloads').closest('[data-selected="true"]')).not.toBeInTheDocument()
+    })
+    trash.mockRestore()
   })
   it('shows visible content search results when dotfiles are hidden', async () => {
     render(React.createElement(FilePanel))
