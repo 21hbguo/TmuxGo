@@ -620,6 +620,8 @@ export const en = {
   'shortcut.add': 'Add Shortcut',
   'shortcut.edit': 'Edit Shortcut',
   'shortcut.done': 'Done',
+  'shortcut.batchManage': 'Manage shortcuts',
+  'shortcut.batchDone': 'Done managing',
   'shortcut.delete': 'Delete Shortcut',
   'shortcut.deleteTitle': 'Delete Shortcut',
   'shortcut.deleteConfirm': 'Delete shortcut "{label}"?',

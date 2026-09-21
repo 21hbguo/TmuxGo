@@ -615,6 +615,8 @@ export const zh = {
   'shortcut.add': '添加快捷键',
   'shortcut.edit': '编辑快捷键',
   'shortcut.done': '完成',
+  'shortcut.batchManage': '批量管理',
+  'shortcut.batchDone': '完成管理',
   'shortcut.delete': '删除快捷键',
   'shortcut.deleteTitle': '删除快捷键',
   'shortcut.deleteConfirm': '确定删除快捷键“{label}”？',
