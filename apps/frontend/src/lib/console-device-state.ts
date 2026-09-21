@@ -8,6 +8,9 @@ const CONSOLE_STATE_STORAGE_KEY_PREFIX = 'tmuxgo-console-state'
 
 const MOBILE_BROWSER_UA = /Android|iPhone|iPad|iPod|Mobile|HarmonyOS|Windows Phone/i
 
+// 与 Tailwind lg 断点对齐的移动端布局判定（ConsoleLayout/DesktopView 等共用，勿各写一份）
+export const MOBILE_QUERY = '(max-width: 1023px)'
+
 export type DeviceKind = 'mobile' | 'desktop'
 
 export function detectDeviceKind(): DeviceKind {

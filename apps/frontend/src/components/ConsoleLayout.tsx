@@ -44,8 +44,7 @@ import { PluginView } from './PluginView'
 import { DesktopView } from './DesktopView'
 import { DesktopWindow } from './DesktopWindow'
 import { shouldResumeFromContinuity } from '@/lib/session-continuity-policy'
-
-const MOBILE_QUERY = '(max-width: 1023px)'
+import { MOBILE_QUERY } from '@/lib/console-device-state'
 const MOBILE_RECENT_SESSIONS_KEY_PREFIX = 'tmuxgo-mobile-recent-sessions:'
 const MOBILE_PINNED_SESSIONS_KEY_PREFIX = 'tmuxgo-mobile-pinned-sessions:'
 const MOBILE_QUICK_SESSION_LIMIT = 5
@@ -787,6 +786,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
               onOpenSettings={openSettings}
               onOpenFiles={openMobileFiles}
               onOpenGit={openMobileGit}
+              onOpenDesktop={() => useConsoleStore.getState().toggleDesktop(activeHostId || 'local')}
             />
           </div>
           <div className={keyboardOpen ? 'block' : 'hidden'}>
