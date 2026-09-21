@@ -63,6 +63,8 @@ const MOBILE_KEYSYM: Record<string, number> = {
 type VncStatus = 'idle' | 'connecting' | 'connected' | 'disconnected'
 
 // VNC 排障日志：localStorage tmuxgo:vnc-debug=1 时输出到 console，默认关闭
+// noVNC Websock 无内建握手超时：WS 升级卡死时 15s 兜底转错误态
+const VNC_CONNECT_TIMEOUT_MS = 15000
 const vncDebug = (...args: unknown[]) => {
   try {
     if (localStorage.getItem('tmuxgo:vnc-debug') === '1') console.debug('[vnc]', ...args)
@@ -202,6 +204,14 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
   const orientationLockedRef = useRef(false)
   // 底层 WS 关闭码/原因：RFB 的 disconnect 事件不带这些，单独捕获用于错误提示
   const wsCloseRef = useRef<{ code: number; reason: string } | null>(null)
+  // noVNC 的 Websock 没有连接超时：弱网/代理下 WS 升级卡死会让 connecting 无限挂起，前端兜底限时
+  const connectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const clearConnectTimeout = () => {
+    if (connectTimeoutRef.current !== null) {
+      clearTimeout(connectTimeoutRef.current)
+      connectTimeoutRef.current = null
+    }
+  }
   // 剪贴板双向透传：本地→远端靠 paste 事件零权限同步，远端→本地挂起补写到下一次手势
   const clipboardSyncRef = useRef<ReturnType<typeof attachVncClipboardSync> | null>(null)
   // RFB 事件回调在 connect 时注册一次，用 ref 拿最新 viewOnly/t，避免 connect 身份抖动触发重连
@@ -210,6 +220,25 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
   viewOnlyRef.current = viewOnly
   tRef.current = t
 
+  // 连接落空（拒连/超时）时探测真实在跑的虚拟屏：有别的屏在跑就展开选择器指路，避免默认端口扑空无从下手
+  const suggestDisplays = useCallback(
+    (attemptedDisplay: number) => {
+      void api.vnc
+        .displays(hostId)
+        .then((result) => {
+          setDisplays(result.displays)
+          const others = result.displays.filter((d) => d.display !== attemptedDisplay)
+          if (others.length > 0) {
+            setDisplayHint(
+              tRef.current('vnc.displayDetected', { display: others.map((d) => `:${d.display}`).join(', ') }),
+            )
+            setPickerOpen(true)
+          }
+        })
+        .catch(() => {})
+    },
+    [hostId],
+  )
   const connect = useCallback(
     async (targetPort: number) => {
       if (!containerRef.current) return
@@ -258,76 +287,97 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
       portRef.current = targetPort
       wsCloseRef.current = null
       vncDebug('connect', { hostId, port: targetPort, url: url.replace(/ticket=[^&]+/, 'ticket=<redacted>') })
-      installVncRequestThrottle(RFB)
-      installVncLosslessFilter(RFB)
-      const rfb = new RFB(containerRef.current, url, { shared: true })
-      const ws = (rfb as unknown as { _sock?: { _websocket?: WebSocket } })._sock?._websocket
-      ws?.addEventListener('close', (event) => {
-        wsCloseRef.current = { code: event.code, reason: event.reason }
-        vncDebug('ws close', event.code, event.reason)
-      })
-      ws?.addEventListener('error', () => vncDebug('ws error'))
-      rfb.scaleViewport = true
-      rfb.viewOnly = viewOnlyRef.current
-      rfb.qualityLevel = tuningRef.current.quality
-      rfb.compressionLevel = tuningRef.current.compression
-      const instrumentation = attachVncInstrumentation(rfb)
-      instrumentation.setMaxFps(tuningRef.current.maxFps)
-      instrumentation.setLossless(tuningRef.current.lossless)
-      instrumentationRef.current = instrumentation
-      resolutionCleanupRef.current = applyVncResolution(rfb, RFB, resolutionRef.current, viewOnlyRef.current)
-      rfb.addEventListener('connect', () => {
-        vncDebug('rfb connected')
-        setStatus('connected')
-      })
-      rfb.addEventListener('disconnect', (event) => {
-        vncDebug('rfb disconnect', event.detail)
-        rfbRef.current = null
-        instrumentationRef.current?.dispose()
-        instrumentationRef.current = null
-        resolutionCleanupRef.current?.()
-        resolutionCleanupRef.current = null
-        setStatus('disconnected')
-        setCredentialTypes([])
-        if (!event.detail.clean) {
-          const wsClose = wsCloseRef.current
-          setError(
-            wsClose?.reason
-              ? `${tRef.current('vnc.disconnectUnclean')} (${wsClose.code} ${wsClose.reason})`
-              : tRef.current('vnc.disconnectUnclean'),
-          )
-        }
-      })
-      rfb.addEventListener('credentialsrequired', (event) => {
-        vncDebug('credentialsrequired', event.detail.types)
-        const saved = credentialsRef.current
-        if (saved) {
-          rfb.sendCredentials({ username: saved.username, password: saved.password })
-          return
-        }
-        setCredentialTypes(event.detail.types)
-      })
-      rfb.addEventListener('securityfailure', (event) => {
-        vncDebug('securityfailure', event.detail)
-        credentialsRef.current = null
-        setRememberPassword(false)
-        // 存储的密码已被服务端拒绝：清掉防 auto-send→失败死循环，回落表单（预填值仍在可手改）
-        void api.vnc.deletePassword(hostId, targetDisplay).catch(() => {})
-        setError(event.detail.reason || `${tRef.current('vnc.securityFailure')} (${event.detail.status})`)
-      })
-      rfb.addEventListener('desktopname', (event) => setDesktopName(event.detail.name))
-      // 远端→本地剪贴板透传：浏览器要求聚焦/激活态/权限，写不进时挂起到下一次手势补写
-      rfb.addEventListener('clipboard', (event) => {
-        clipboardSyncRef.current?.onServerClipboard(event.detail.text)
-      })
-      rfbRef.current = rfb
-      wasActiveRef.current = true
+      try {
+        installVncRequestThrottle(RFB)
+        installVncLosslessFilter(RFB)
+        const rfb = new RFB(containerRef.current, url, { shared: true })
+        const ws = (rfb as unknown as { _sock?: { _websocket?: WebSocket } })._sock?._websocket
+        ws?.addEventListener('close', (event) => {
+          wsCloseRef.current = { code: event.code, reason: event.reason }
+          vncDebug('ws close', event.code, event.reason)
+        })
+        ws?.addEventListener('error', () => vncDebug('ws error'))
+        rfb.scaleViewport = true
+        rfb.viewOnly = viewOnlyRef.current
+        rfb.qualityLevel = tuningRef.current.quality
+        rfb.compressionLevel = tuningRef.current.compression
+        const instrumentation = attachVncInstrumentation(rfb)
+        instrumentation.setMaxFps(tuningRef.current.maxFps)
+        instrumentation.setLossless(tuningRef.current.lossless)
+        instrumentationRef.current = instrumentation
+        resolutionCleanupRef.current = applyVncResolution(rfb, RFB, resolutionRef.current, viewOnlyRef.current)
+        rfb.addEventListener('connect', () => {
+          vncDebug('rfb connected')
+          clearConnectTimeout()
+          setStatus('connected')
+        })
+        rfb.addEventListener('disconnect', (event) => {
+          vncDebug('rfb disconnect', event.detail)
+          clearConnectTimeout()
+          rfbRef.current = null
+          instrumentationRef.current?.dispose()
+          instrumentationRef.current = null
+          resolutionCleanupRef.current?.()
+          resolutionCleanupRef.current = null
+          setStatus('disconnected')
+          setCredentialTypes([])
+          if (!event.detail.clean) {
+            const wsClose = wsCloseRef.current
+            setError(
+              wsClose?.reason
+                ? `${tRef.current('vnc.disconnectUnclean')} (${wsClose.code} ${wsClose.reason})`
+                : tRef.current('vnc.disconnectUnclean'),
+            )
+            suggestDisplays(targetDisplay)
+          }
+        })
+        rfb.addEventListener('credentialsrequired', (event) => {
+          vncDebug('credentialsrequired', event.detail.types)
+          // 等用户输入期间不能再算超时——表单可能挂几分钟
+          clearConnectTimeout()
+          const saved = credentialsRef.current
+          if (saved) {
+            rfb.sendCredentials({ username: saved.username, password: saved.password })
+            return
+          }
+          setCredentialTypes(event.detail.types)
+        })
+        rfb.addEventListener('securityfailure', (event) => {
+          vncDebug('securityfailure', event.detail)
+          credentialsRef.current = null
+          setRememberPassword(false)
+          // 存储的密码已被服务端拒绝：清掉防 auto-send→失败死循环，回落表单（预填值仍在可手改）
+          void api.vnc.deletePassword(hostId, targetDisplay).catch(() => {})
+          setError(event.detail.reason || `${tRef.current('vnc.securityFailure')} (${event.detail.status})`)
+        })
+        rfb.addEventListener('desktopname', (event) => setDesktopName(event.detail.name))
+        // 远端→本地剪贴板透传：浏览器要求聚焦/激活态/权限，写不进时挂起到下一次手势补写
+        rfb.addEventListener('clipboard', (event) => {
+          clipboardSyncRef.current?.onServerClipboard(event.detail.text)
+        })
+        rfbRef.current = rfb
+        wasActiveRef.current = true
+        clearConnectTimeout()
+        connectTimeoutRef.current = setTimeout(() => {
+          connectTimeoutRef.current = null
+          rfb.disconnect()
+          // disconnect 事件在异常状态机下未必派发，状态直接兜底
+          setStatus('disconnected')
+          setError(tRef.current('vnc.connectTimeout'))
+          suggestDisplays(targetDisplay)
+        }, VNC_CONNECT_TIMEOUT_MS)
+      } catch (err) {
+        // RFB 构造/instrumentation 同步抛错也必须落地：否则 status 永远停在 connecting 且无错误提示
+        setStatus('idle')
+        setError(err instanceof Error ? err.message : String(err))
+      }
     },
-    [hostId],
+    [hostId, suggestDisplays],
   )
 
   const disconnect = useCallback(() => {
     connectSeqRef.current += 1
+    clearConnectTimeout()
     wasActiveRef.current = false
     // 先恢复远端分辨率再断连，cleanup 里发 SetDesktopSize 需要 socket 还活着
     resolutionCleanupRef.current?.()
@@ -543,6 +593,7 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
     if (!document.hidden) void connect(port)
     return () => {
       connectSeqRef.current += 1
+      clearConnectTimeout()
       resolutionCleanupRef.current?.()
       resolutionCleanupRef.current = null
       rfbRef.current?.disconnect()
@@ -557,6 +608,7 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
         wasActiveRef.current = rfbRef.current !== null
         vncDebug('hidden: disconnect', { wasActive: wasActiveRef.current })
         connectSeqRef.current += 1
+        clearConnectTimeout()
         resolutionCleanupRef.current?.()
         resolutionCleanupRef.current = null
         rfbRef.current?.disconnect()
@@ -649,13 +701,15 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
   }, [])
 
   const statusLabel =
-    status === 'connected'
-      ? t('vnc.connected')
-      : status === 'connecting'
-        ? t('vnc.connecting')
-        : status === 'disconnected'
-          ? t('vnc.disconnected')
-          : ''
+    credentialTypes.length > 0
+      ? t('vnc.credentialsRequired')
+      : status === 'connected'
+        ? t('vnc.connected')
+        : status === 'connecting'
+          ? t('vnc.connecting')
+          : status === 'disconnected'
+            ? t('vnc.disconnected')
+            : ''
   return (
     <section className="tmuxgo-content-surface flex h-full min-h-0 flex-col overflow-hidden">
       <header

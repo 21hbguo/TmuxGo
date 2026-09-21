@@ -275,4 +275,57 @@ describe('DesktopView VNC password memory', () => {
     await waitFor(() => expect(lastRfb()).toBeTruthy())
     expect(screen.queryByRole('button', { name: 'Keyboard input' })).toBeNull()
   })
+
+  it('times out a stalled handshake and suggests other running displays', async () => {
+    vi.useFakeTimers()
+    try {
+      displaysMock.mockResolvedValue({
+        displays: [{ display: 9, port: 5909, process: 'Xtigervnc', pid: 1, rssKB: 1024 }],
+      })
+      renderView()
+      await act(async () => {})
+      await act(async () => {})
+      expect(lastRfb()).toBeTruthy()
+      await act(async () => {
+        vi.advanceTimersByTime(16000)
+      })
+      expect(lastRfb().disconnect).toHaveBeenCalled()
+      await act(async () => {})
+      await act(async () => {})
+      expect(screen.getByText('vnc.connectTimeout')).toBeTruthy()
+      expect(displaysMock).toHaveBeenCalled()
+      expect(screen.getByText('vnc.displayDetected')).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('opens the display picker with a hint after an unclean disconnect', async () => {
+    displaysMock.mockResolvedValue({
+      displays: [{ display: 9, port: 5909, process: 'Xtigervnc', pid: 1, rssKB: 1024 }],
+    })
+    renderView()
+    await waitFor(() => expect(lastRfb()).toBeTruthy())
+    // suggestDisplays 的 fetch 解析是微任务，合并在同一 act 内冲刷避免状态更新落在 act 外
+    await act(async () => {
+      lastRfb().emit('disconnect', { clean: false })
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(screen.getByText('vnc.displayDetected')).toBeTruthy())
+    expect(displaysMock).toHaveBeenCalled()
+  })
+
+  it('does not suggest displays when the attempted display itself is running', async () => {
+    displaysMock.mockResolvedValue({
+      displays: [{ display: 0, port: 5900, process: 'Xtigervnc', pid: 1 }],
+    })
+    renderView()
+    await waitFor(() => expect(lastRfb()).toBeTruthy())
+    await act(async () => {
+      lastRfb().emit('disconnect', { clean: false })
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(displaysMock).toHaveBeenCalled())
+    expect(screen.queryByText('vnc.displayDetected')).toBeNull()
+  })
 })
