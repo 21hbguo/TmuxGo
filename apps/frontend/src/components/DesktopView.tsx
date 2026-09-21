@@ -333,13 +333,13 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
         })
         rfb.addEventListener('credentialsrequired', (event) => {
           vncDebug('credentialsrequired', event.detail.types)
-          // 等用户输入期间不能再算超时——表单可能挂几分钟
-          clearConnectTimeout()
           const saved = credentialsRef.current
           if (saved) {
             rfb.sendCredentials({ username: saved.username, password: saved.password })
             return
           }
+          // 等用户输入期间不能再算超时——表单可能挂几分钟；自动应答路径保留计时，服务端卡住仍受兜底
+          clearConnectTimeout()
           setCredentialTypes(event.detail.types)
         })
         rfb.addEventListener('securityfailure', (event) => {
