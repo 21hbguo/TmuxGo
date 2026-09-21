@@ -1,3 +1,4 @@
+import '../test-env.js'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -53,7 +54,13 @@ function withConfigDir(t: { after: (fn: () => void | Promise<void>) => void }) {
 }
 test('creates a remote SSH attachment with expected ssh arguments', async (t) => {
   await withConfigDir(t)()
-  await upsertRemoteHost({ id: 'remote', address: 'remote.example', user: 'guo', port: 2222, privateKeyPath: '/home/guo/.ssh/id_ed25519' })
+  await upsertRemoteHost({
+    id: 'remote',
+    address: 'remote.example',
+    user: 'guo',
+    port: 2222,
+    privateKeyPath: '/home/guo/.ssh/id_ed25519',
+  })
   const spawned: Array<{ file: string; args: string[] }> = []
   const fakes: Array<ReturnType<typeof fakePty>> = []
   setPtySpawnForTest((file, args, _options) => {
@@ -62,7 +69,13 @@ test('creates a remote SSH attachment with expected ssh arguments', async (t) =>
     fakes.push(fake)
     return fake
   })
-  const attachment = await createTerminalAttachment({ hostId: 'remote', sessionName: 'dev', cols: 100, rows: 30, exclusive: false })
+  const attachment = await createTerminalAttachment({
+    hostId: 'remote',
+    sessionName: 'dev',
+    cols: 100,
+    rows: 30,
+    exclusive: false,
+  })
   assert.equal(attachment.pid, 100)
   assert.equal(spawned.length, 1)
   assert.equal(spawned[0].file, 'ssh')
@@ -89,7 +102,13 @@ test('creates a local tmux attachment and adapts pty events', async () => {
     fakes.push(fake)
     return fake
   })
-  const attachment = await createTerminalAttachment({ hostId: 'local', sessionName: 'work', cols: 120, rows: 40, exclusive: true })
+  const attachment = await createTerminalAttachment({
+    hostId: 'local',
+    sessionName: 'work',
+    cols: 120,
+    rows: 40,
+    exclusive: true,
+  })
   assert.equal(attachment.pid, 200)
   assert.equal(spawned.length, 1)
   assert.equal(spawned[0].file, 'tmux')
@@ -115,15 +134,31 @@ test('creates an agent attachment and adapts onExit to a plain exit code', async
   await withConfigDir(t)()
   const hostId = `agent-attach-${process.pid}-${Date.now()}`
   let attachmentId = ''
-  const socket = { readyState: 1, send: (message: string) => {
-    const request = JSON.parse(message)
-    if (request.type === 'terminal-attach') {
-      attachmentId = request.attachmentId
-      void Promise.resolve().then(() => agentManager.handleMessage(hostId, socket as any, { type: 'terminal-attached', requestId: request.requestId, attachmentId: request.attachmentId, pid: 4242 }))
-    }
-  } } as any
+  const socket = {
+    readyState: 1,
+    send: (message: string) => {
+      const request = JSON.parse(message)
+      if (request.type === 'terminal-attach') {
+        attachmentId = request.attachmentId
+        void Promise.resolve().then(() =>
+          agentManager.handleMessage(hostId, socket as any, {
+            type: 'terminal-attached',
+            requestId: request.requestId,
+            attachmentId: request.attachmentId,
+            pid: 4242,
+          }),
+        )
+      }
+    },
+  } as any
   agentManager.register(hostId, 'agent-host', '127.0.0.1', '1.0.0', socket)
-  const attachment = await createTerminalAttachment({ hostId, sessionName: 'dev', cols: 80, rows: 24, exclusive: false })
+  const attachment = await createTerminalAttachment({
+    hostId,
+    sessionName: 'dev',
+    cols: 80,
+    rows: 24,
+    exclusive: false,
+  })
   assert.equal(attachment.pid, 4242)
   let exitCode: number | null = null
   attachment.onExit((code) => {

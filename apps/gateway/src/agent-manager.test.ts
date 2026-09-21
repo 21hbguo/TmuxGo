@@ -1,3 +1,4 @@
+import './test-env.js'
 import assert from 'node:assert/strict'
 import { mkdtemp, readFile, rm, stat } from 'fs/promises'
 import os from 'os'

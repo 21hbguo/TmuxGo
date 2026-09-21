@@ -1,3 +1,4 @@
+import '../test-env.js'
 import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'fs/promises'
 import os from 'os'
@@ -19,14 +20,33 @@ test('serializes concurrent preference updates for one profile', async (t) => {
   await fastify.register(preferencesRoutes)
   const updatedAt = new Date(Date.now() + 1000).toISOString()
   const responses = await Promise.all([
-    fastify.inject({ method: 'PUT', url: '/preferences?profile=default', payload: { uiPreferences: { theme: 'light' }, uiPreferencesUpdatedAt: updatedAt } }),
-    fastify.inject({ method: 'PUT', url: '/preferences?profile=default', payload: { customShortcuts: [{ id: 'new', label: 'New', keys: 'Ctrl+N' }], customShortcutsUpdatedAt: updatedAt } }),
-    fastify.inject({ method: 'PUT', url: '/preferences?profile=default', payload: { favorites: [{ id: 'local', type: 'host', name: 'Local', target: 'local', addedAt: updatedAt }], favoritesUpdatedAt: updatedAt } }),
+    fastify.inject({
+      method: 'PUT',
+      url: '/preferences?profile=default',
+      payload: { uiPreferences: { theme: 'light' }, uiPreferencesUpdatedAt: updatedAt },
+    }),
+    fastify.inject({
+      method: 'PUT',
+      url: '/preferences?profile=default',
+      payload: { customShortcuts: [{ id: 'new', label: 'New', keys: 'Ctrl+N' }], customShortcutsUpdatedAt: updatedAt },
+    }),
+    fastify.inject({
+      method: 'PUT',
+      url: '/preferences?profile=default',
+      payload: {
+        favorites: [{ id: 'local', type: 'host', name: 'Local', target: 'local', addedAt: updatedAt }],
+        favoritesUpdatedAt: updatedAt,
+      },
+    }),
   ])
   responses.forEach((response) => assert.equal(response.statusCode, 200))
   const stored = await fastify.inject({ method: 'GET', url: '/preferences?profile=default' })
   assert.equal(stored.statusCode, 200)
-  const body = stored.json() as { uiPreferences: { theme?: string }; customShortcuts: { id: string }[]; favorites: { id: string }[] }
+  const body = stored.json() as {
+    uiPreferences: { theme?: string }
+    customShortcuts: { id: string }[]
+    favorites: { id: string }[]
+  }
   assert.equal(body.uiPreferences.theme, 'light')
   assert.equal(body.customShortcuts[0]?.id, 'new')
   assert.equal(body.favorites[0]?.id, 'local')
@@ -50,10 +70,19 @@ test('normalizes text shortcuts without losing line breaks', async (t) => {
   const response = await fastify.inject({
     method: 'PUT',
     url: '/preferences?profile=default',
-    payload: { customShortcuts: [{ id: 'run', label: 'Run', mode: 'text', text, appendEnter: 'yes' }, { id: 'old', label: 'Old', keys: 'Ctrl+O' }], customShortcutsUpdatedAt: updatedAt },
+    payload: {
+      customShortcuts: [
+        { id: 'run', label: 'Run', mode: 'text', text, appendEnter: 'yes' },
+        { id: 'old', label: 'Old', keys: 'Ctrl+O' },
+      ],
+      customShortcutsUpdatedAt: updatedAt,
+    },
   })
   assert.equal(response.statusCode, 200)
-  const shortcuts = response.json().customShortcuts as { id: string; steps: { type: string; text?: string; keys?: string; appendEnter?: boolean }[] }[]
+  const shortcuts = response.json().customShortcuts as {
+    id: string
+    steps: { type: string; text?: string; keys?: string; appendEnter?: boolean }[]
+  }[]
   assert.equal(shortcuts[0]?.id, 'run')
   assert.equal(shortcuts[0]?.steps?.[0]?.type, 'text')
   assert.equal(shortcuts[0]?.steps?.[0]?.text, text.slice(0, 4096))
@@ -82,24 +111,29 @@ test('normalizes macro shortcut steps and drops invalid ones', async (t) => {
     method: 'PUT',
     url: '/preferences?profile=default',
     payload: {
-      customShortcuts: [{
-        id: 'deploy',
-        label: 'Deploy',
-        steps: [
-          { type: 'text', text: 'cd /app', appendEnter: true },
-          { type: 'wait', ms: 800 },
-          { type: 'keys', keys: 'Ctrl+L' },
-          { type: 'bogus', text: 'x' },
-          { type: 'wait', ms: 0 },
-          { type: 'text', text: '' },
-          { type: 'wait', ms: 999999 },
-        ],
-      }],
+      customShortcuts: [
+        {
+          id: 'deploy',
+          label: 'Deploy',
+          steps: [
+            { type: 'text', text: 'cd /app', appendEnter: true },
+            { type: 'wait', ms: 800 },
+            { type: 'keys', keys: 'Ctrl+L' },
+            { type: 'bogus', text: 'x' },
+            { type: 'wait', ms: 0 },
+            { type: 'text', text: '' },
+            { type: 'wait', ms: 999999 },
+          ],
+        },
+      ],
       customShortcutsUpdatedAt: updatedAt,
     },
   })
   assert.equal(response.statusCode, 200)
-  const shortcuts = response.json().customShortcuts as { id: string; steps: { type: string; text?: string; keys?: string; appendEnter?: boolean; ms?: number }[] }[]
+  const shortcuts = response.json().customShortcuts as {
+    id: string
+    steps: { type: string; text?: string; keys?: string; appendEnter?: boolean; ms?: number }[]
+  }[]
   const steps = shortcuts[0]?.steps
   assert.equal(steps?.length, 4)
   assert.deepEqual(steps?.[0], { type: 'text', text: 'cd /app', appendEnter: true })

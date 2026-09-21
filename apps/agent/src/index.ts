@@ -1,5 +1,6 @@
 import { execFile } from 'child_process'
 import net from 'net'
+import os from 'os'
 import { createWriteStream } from 'fs'
 import { mkdir, rename, unlink } from 'fs/promises'
 import path from 'path'
@@ -13,6 +14,13 @@ const HEARTBEAT_INTERVAL = 15000
 const GATEWAY_USERNAME = process.env.GATEWAY_USERNAME || 'admin'
 const GATEWAY_PASSWORD = process.env.GATEWAY_PASSWORD || ''
 const AGENT_VERSION = process.env.TMUXGO_AGENT_VERSION || '0.1.0'
+
+// 上报主网卡 IPv4 而非 loopback，SSH tab Agents 区才能分辨真实远端
+function primaryIpv4() {
+  for (const infos of Object.values(os.networkInterfaces()))
+    for (const info of infos ?? []) if (info && info.family === 'IPv4' && !info.internal) return info.address
+  return '127.0.0.1'
+}
 // TMUXGO_VNC_DEBUG=1 时输出 VNC 排障日志
 const VNC_DEBUG = process.env.TMUXGO_VNC_DEBUG === '1'
 const vncDbg = (...args: unknown[]) => {
@@ -107,7 +115,7 @@ class Agent {
       host: {
         id: process.env.HOST_ID || 'agent-local',
         name: process.env.HOST_NAME || 'local-machine',
-        address: '127.0.0.1',
+        address: process.env.HOST_ADDRESS || primaryIpv4(),
       },
       version: AGENT_VERSION,
     })

@@ -1,3 +1,4 @@
+import '../test-env.js'
 import assert from 'node:assert/strict'
 import { mkdtemp, readFile, rm } from 'fs/promises'
 import os from 'os'
@@ -27,7 +28,10 @@ test('auth persists independent sessions and rotates refresh tokens', async () =
   const persisted = JSON.parse(await readFile(path.join(configDir, 'auth.json'), 'utf8'))
   assert.equal(typeof persisted.passwordHash, 'string')
   assert.equal(typeof persisted.signingKey, 'string')
-  assert.equal(persisted.sessions.every((session: { refreshTokenHash?: string }) => typeof session.refreshTokenHash === 'string'), true)
+  assert.equal(
+    persisted.sessions.every((session: { refreshTokenHash?: string }) => typeof session.refreshTokenHash === 'string'),
+    true,
+  )
   await rm(configDir, { recursive: true, force: true })
 })
 

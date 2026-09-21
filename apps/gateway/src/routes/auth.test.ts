@@ -1,3 +1,4 @@
+import '../test-env.js'
 import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'fs/promises'
 import os from 'os'
@@ -32,35 +33,99 @@ test('rejects anonymous session revocation and records authentication audit even
   const { authRoutes } = await import(`./auth.js?test=${Date.now()}-${Math.random()}`)
   app.addHook('onSend', recordAuditRequest)
   await app.register(authRoutes, { prefix: '/api' })
-  const failedLogin = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'test-user', password: 'wrong-password' } })
+  const failedLogin = await app.inject({
+    method: 'POST',
+    url: '/api/auth/login',
+    payload: { username: 'test-user', password: 'wrong-password' },
+  })
   assert.equal(failedLogin.statusCode, 401)
-  const firstLogin = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'test-user', password: 'test-password' } })
+  const firstLogin = await app.inject({
+    method: 'POST',
+    url: '/api/auth/login',
+    payload: { username: 'test-user', password: 'test-password' },
+  })
   assert.equal(firstLogin.statusCode, 200)
   const first = firstLogin.json() as { accessToken: string; sessionId: string }
   await t.test('issues a WebSocket ticket with a valid access cookie when Bearer is stale', async () => {
-    const ticket = await app.inject({ method: 'POST', url: '/api/auth/ws-ticket', headers: { authorization: 'Bearer stale-token', cookie: `tmuxgo_access_token=${first.accessToken}` } })
+    const ticket = await app.inject({
+      method: 'POST',
+      url: '/api/auth/ws-ticket',
+      headers: { authorization: 'Bearer stale-token', cookie: `tmuxgo_access_token=${first.accessToken}` },
+    })
     assert.equal(ticket.statusCode, 200)
     assert.equal(typeof (ticket.json() as { ticket?: unknown }).ticket, 'string')
   })
-  const anonymousLogout = await app.inject({ method: 'POST', url: '/api/auth/logout', payload: { sessionId: first.sessionId } })
+  const anonymousLogout = await app.inject({
+    method: 'POST',
+    url: '/api/auth/logout',
+    payload: { sessionId: first.sessionId },
+  })
   assert.equal(anonymousLogout.statusCode, 401)
-  const sessions = await app.inject({ method: 'GET', url: '/api/auth/sessions', headers: { authorization: `Bearer ${first.accessToken}` } })
+  const sessions = await app.inject({
+    method: 'GET',
+    url: '/api/auth/sessions',
+    headers: { authorization: `Bearer ${first.accessToken}` },
+  })
   assert.equal(sessions.statusCode, 200)
-  assert.equal((sessions.json() as { sessions: { id: string }[] }).sessions.some((session) => session.id === first.sessionId), true)
-  const secondLogin = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'test-user', password: 'test-password' } })
+  assert.equal(
+    (sessions.json() as { sessions: { id: string }[] }).sessions.some((session) => session.id === first.sessionId),
+    true,
+  )
+  const secondLogin = await app.inject({
+    method: 'POST',
+    url: '/api/auth/login',
+    payload: { username: 'test-user', password: 'test-password' },
+  })
   const second = secondLogin.json() as { sessionId: string }
-  const revoked = await app.inject({ method: 'DELETE', url: `/api/auth/sessions/${second.sessionId}`, headers: { authorization: `Bearer ${first.accessToken}` } })
+  const revoked = await app.inject({
+    method: 'DELETE',
+    url: `/api/auth/sessions/${second.sessionId}`,
+    headers: { authorization: `Bearer ${first.accessToken}` },
+  })
   assert.equal(revoked.statusCode, 200)
-  const thirdLogin = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { username: 'test-user', password: 'test-password' } })
+  const thirdLogin = await app.inject({
+    method: 'POST',
+    url: '/api/auth/login',
+    payload: { username: 'test-user', password: 'test-password' },
+  })
   assert.equal(thirdLogin.statusCode, 200)
-  const revokeOthers = await app.inject({ method: 'POST', url: '/api/auth/sessions/revoke-others', headers: { authorization: `Bearer ${first.accessToken}` } })
+  const revokeOthers = await app.inject({
+    method: 'POST',
+    url: '/api/auth/sessions/revoke-others',
+    headers: { authorization: `Bearer ${first.accessToken}` },
+  })
   assert.equal(revokeOthers.statusCode, 200)
-  const changed = await app.inject({ method: 'POST', url: '/api/auth/change-password', headers: { authorization: `Bearer ${first.accessToken}` }, payload: { currentPassword: 'test-password', newPassword: 'changed-password' } })
+  const changed = await app.inject({
+    method: 'POST',
+    url: '/api/auth/change-password',
+    headers: { authorization: `Bearer ${first.accessToken}` },
+    payload: { currentPassword: 'test-password', newPassword: 'changed-password' },
+  })
   assert.equal(changed.statusCode, 200)
   const events = await readAuditEvents()
-  assert.equal(events.some((event) => event.action === 'post-auth-login' && event.result === 'failure'), true)
-  assert.equal(events.some((event) => event.action === 'delete-auth-sessions' && event.result === 'success'), true)
-  assert.equal(events.some((event) => event.action === 'post-auth-sessions-revoke-others' && event.result === 'success'), true)
-  assert.equal(events.some((event) => event.action === 'post-auth-change-password' && event.result === 'success'), true)
-  assert.equal(events.some((event) => event.target.includes('test-password') || event.target.includes('wrong-password') || event.target.includes('changed-password')), false)
+  assert.equal(
+    events.some((event) => event.action === 'post-auth-login' && event.result === 'failure'),
+    true,
+  )
+  assert.equal(
+    events.some((event) => event.action === 'delete-auth-sessions' && event.result === 'success'),
+    true,
+  )
+  assert.equal(
+    events.some((event) => event.action === 'post-auth-sessions-revoke-others' && event.result === 'success'),
+    true,
+  )
+  assert.equal(
+    events.some((event) => event.action === 'post-auth-change-password' && event.result === 'success'),
+    true,
+  )
+  assert.equal(
+    events.some(
+      (event) =>
+        event.target.includes('test-password') ||
+        event.target.includes('wrong-password') ||
+        event.target.includes('changed-password'),
+    ),
+    false,
+  )
 })
