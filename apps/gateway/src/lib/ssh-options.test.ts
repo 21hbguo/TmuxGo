@@ -8,7 +8,7 @@ import {
   getSshTarget,
 } from './ssh-options.js'
 import type { HostRecord } from './hosts.js'
-import { resolveSshConfigPath } from './ssh-config.js'
+import { defaultSshConfigPath, resolveSshConfigPath } from './ssh-config.js'
 
 const host: HostRecord = {
   id: 'edge',
@@ -75,8 +75,9 @@ test('sshconfig hosts connect via bare alias without translating connection para
   assert.deepEqual(buildSshPortArgs(aliasHost), [])
   assert.equal(getSshTarget(aliasHost), 'hlsj')
   assert.ok(getSshControlPath(aliasHost).endsWith('/alias-hlsj'))
-  // -F 锚定根 config 而非 host.configFile（后者可能是 Include 子文件）
-  assert.deepEqual(await buildSshConfigArgs(aliasHost), ['-F', await resolveSshConfigPath()])
+  // 默认 ~/.ssh/config 时省略 -F，保留 /etc/ssh/ssh_config 原生语义
+  const configPath = await resolveSshConfigPath()
+  assert.deepEqual(await buildSshConfigArgs(aliasHost), configPath === defaultSshConfigPath() ? [] : ['-F', configPath])
   assert.deepEqual(await buildSshConfigArgs(host), [])
 })
 

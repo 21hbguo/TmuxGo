@@ -149,6 +149,9 @@ async function collectBlocks(
   }
 }
 
+export function defaultSshConfigPath() {
+  return path.join(os.homedir(), '.ssh', 'config')
+}
 export async function resolveSshConfigPath() {
   const fromEnv = process.env.TMUXGO_SSH_CONFIG?.trim()
   if (fromEnv) return expandHome(fromEnv)
@@ -161,7 +164,13 @@ export async function resolveSshConfigPath() {
   } catch {
     // settings.json 缺失/损坏时回落默认路径
   }
-  return path.join(os.homedir(), '.ssh', 'config')
+  return defaultSshConfigPath()
+}
+// -F 会连 /etc/ssh/ssh_config（stock SendEnv/HashKnownHosts/conf.d Include）一起跳过；
+// 仅当根 config 非默认时才显式锚定，默认路径省略以保持原生语义
+export async function sshConfigFileArgs() {
+  const configPath = await resolveSshConfigPath()
+  return configPath === defaultSshConfigPath() ? [] : ['-F', configPath]
 }
 
 export async function listSshConfigHosts(configPath?: string) {
@@ -273,7 +282,7 @@ export async function appendSshConfigHost(input: SshConfigHostInput) {
 // -F 锚定与列表一致的根 config（TMUXGO_SSH_CONFIG / remote.SSH.configFile 可能指向非标路径）。
 export async function resolveSshHostEffective(alias: string) {
   if (!isListableAlias(alias)) throw new Error('Invalid host alias')
-  const { stdout } = await execFileAsync('ssh', ['-G', '-F', await resolveSshConfigPath(), alias], {
+  const { stdout } = await execFileAsync('ssh', ['-G', ...(await sshConfigFileArgs()), alias], {
     timeout: 5000,
     maxBuffer: 1024 * 1024,
   })
