@@ -23,6 +23,7 @@ import { api, fetchApiBlob } from '@/lib/api'
 import { clearActiveDraggedFile, FILE_DRAG_MIME, readDraggedFile, setActiveDraggedFile } from '@/lib/editor-drag'
 import { emitStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import { MARKDOWN_PROSE_CLASS, renderMarkdown } from '@/lib/markdown'
+import { getFileIcon } from '@/lib/file-icons'
 import { ZoomSurface } from './ZoomSurface'
 import {
   FiAlignLeft,
@@ -62,39 +63,6 @@ const PREFERENCES_PROFILE = 'default'
 const SEARCH_INPUT_DEBOUNCE_MS = 160
 const SEARCH_RESULT_LIMIT = 200
 const IMAGE_EXTENSIONS = new Set(['.avif', '.bmp', '.gif', '.ico', '.jpeg', '.jpg', '.png', '.tif', '.tiff', '.webp'])
-const CODE_EXTENSIONS = new Set([
-  '.c',
-  '.cc',
-  '.conf',
-  '.cpp',
-  '.css',
-  '.go',
-  '.h',
-  '.hpp',
-  '.html',
-  '.ini',
-  '.java',
-  '.js',
-  '.json',
-  '.jsx',
-  '.kt',
-  '.md',
-  '.php',
-  '.py',
-  '.rb',
-  '.rs',
-  '.scss',
-  '.sh',
-  '.sql',
-  '.svg',
-  '.toml',
-  '.ts',
-  '.tsx',
-  '.xml',
-  '.yaml',
-  '.yml',
-  '.zsh',
-])
 
 function formatSize(size: number) {
   if (size < 1024) return `${size}B`
@@ -251,52 +219,10 @@ function matchesFileTypeFilter(item: { type: 'file' | 'directory' }, fileTypeFil
   if (fileTypeFilter === 'all') return true
   return item.type === fileTypeFilter
 }
-function getFileVisual(path: string, type: 'file' | 'directory') {
-  if (type === 'directory')
-    return {
-      icon: (
-        <span className="inline-flex h-3 w-3 items-center justify-center font-mono text-caption leading-none text-accent">
-          ▣
-        </span>
-      ),
-      tone: 'text-text-1',
-    }
-  const lower = path.toLowerCase()
-  if (isImagePath(lower))
-    return {
-      icon: (
-        <span className="inline-flex h-3 w-3 items-center justify-center font-mono text-caption leading-none text-accent">
-          ▧
-        </span>
-      ),
-      tone: 'text-text-1',
-    }
-  if (lower.endsWith('.md'))
-    return {
-      icon: (
-        <span className="inline-flex h-3 w-3 items-center justify-center font-mono text-caption leading-none text-accent">
-          M
-        </span>
-      ),
-      tone: 'text-text-1',
-    }
-  if (CODE_EXTENSIONS.has(lower.slice(lower.lastIndexOf('.'))))
-    return {
-      icon: (
-        <span className="inline-flex h-3 w-3 items-center justify-center font-mono text-caption leading-none text-accent">
-          &lt;&gt;
-        </span>
-      ),
-      tone: 'text-text-1',
-    }
-  return {
-    icon: (
-      <span className="inline-flex h-3 w-3 items-center justify-center font-mono text-caption leading-none text-accent">
-        □
-      </span>
-    ),
-    tone: 'text-text-1',
-  }
+// 图标层委托给 file-icons（VSCode 风格：品牌色 si 图标 + vsc 兜底）；
+// tone 语义保留，open 透传目录展开态
+function getFileVisual(path: string, type: 'file' | 'directory', open = false) {
+  return { icon: getFileIcon(path, type, { open }), tone: 'text-text-1' }
 }
 function getRootKind(root: FileRoot) {
   const label = root.label.toLowerCase()
@@ -2101,9 +2027,9 @@ export function FilePanel({
   const renderDesktopTree = (nodes: FileTreeNode[], depth = 0): React.ReactNode[] =>
     nodes.flatMap((node) => {
       const item = node.item
-      const visual = getFileVisual(item.path, item.type)
-      const favoritePath = { rootId: activeRootId, path: joinRelativePath(activeRootBasePath, item.path) }
       const expanded = item.type === 'directory' && openDirectories.has(item.path)
+      const visual = getFileVisual(item.path, item.type, expanded)
+      const favoritePath = { rootId: activeRootId, path: joinRelativePath(activeRootBasePath, item.path) }
       const cachedChildren = expanded
         ? readDirectoryChildrenFromCache(directoryCache, activeRootId, activeRootBasePath, item.path)
         : undefined
@@ -2296,7 +2222,7 @@ export function FilePanel({
                       {t('file.loading')}
                     </div>,
                   ]
-        const visual = getFileVisual(item.path, item.type)
+        const visual = getFileVisual(item.path, item.type, openDirectories.has(item.path))
         const rowSelected = selectedPaths.size ? selectedPaths.has(item.path) : selectedPath === item.path
         return [
           <button
@@ -2427,8 +2353,10 @@ export function FilePanel({
           className={`tmuxgo-list-row group h-7 w-full border-l-2 px-2 py-[3px] text-left text-meta leading-4 ${selectedPath === item.path ? 'tmuxgo-list-row--active border-accent' : 'border-transparent tmuxgo-list-row--hover'}`}
         >
           <div className="flex items-center gap-1.5">
-            <span className="shrink-0">{getFileVisual(item.path, item.type).icon}</span>
-            <span className={`min-w-0 flex-1 truncate font-mono ${getFileVisual(item.path, item.type).tone}`}>
+            <span className="shrink-0">{getFileVisual(item.path, item.type, openDirectories.has(item.path)).icon}</span>
+            <span
+              className={`min-w-0 flex-1 truncate font-mono ${getFileVisual(item.path, item.type, openDirectories.has(item.path)).tone}`}
+            >
               {item.name}
             </span>
             <span className="opacity-0 text-caption text-text-3 group-hover:opacity-100 transition-opacity">
