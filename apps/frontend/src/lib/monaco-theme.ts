@@ -61,7 +61,6 @@ export function ensureTmuxgoTheme(monaco: Monaco, theme: string) {
   const name = tmuxgoThemeName(theme)
   const bg0 = readVar('--bg-0', theme === 'light' ? '#e8eaee' : '#0c0d0f')
   const bg1 = readVar('--bg-1', theme === 'light' ? '#f8f9fb' : '#18191c')
-  const bg2 = readVar('--bg-2', theme === 'light' ? '#e0e2e7' : '#2a2b30')
   const text1 = readVar('--text-1', theme === 'light' ? '#1c1c1e' : '#f5f5f7')
   const text3 = readVar('--text-3', theme === 'light' ? '#5a5a5f' : '#96969b')
   const accent = readVar('--accent', '#0a84ff')
@@ -87,9 +86,10 @@ export function ensureTmuxgoTheme(monaco: Monaco, theme: string) {
       'editorSuggestWidget.border': line,
       'editorHoverWidget.background': bg1,
       'editorHoverWidget.border': line,
-      'scrollbarSlider.background': `${bg2}80`,
-      'scrollbarSlider.hoverBackground': `${bg2}b3`,
-      'scrollbarSlider.activeBackground': `${bg2}cc`,
+      // 与 .tmuxgo-scrollbar-subtle 统一：常态 text-3 细灰条，悬停/拖拽转 accent
+      'scrollbarSlider.background': `${text3}66`,
+      'scrollbarSlider.hoverBackground': `${accent}8c`,
+      'scrollbarSlider.activeBackground': `${accent}cc`,
     },
   })
   return name
