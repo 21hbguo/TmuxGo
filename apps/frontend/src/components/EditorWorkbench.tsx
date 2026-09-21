@@ -14,6 +14,8 @@ import {
   setActiveDraggedFile,
 } from '@/lib/editor-drag'
 import { OPEN_EDITOR_LOCATION_EVENT, openFileInEditor } from '@/lib/editor-open'
+import { ensureTmuxgoTheme, tmuxgoThemeName } from '@/lib/monaco-theme'
+import type { Monaco } from '@monaco-editor/react'
 import { resolveEditorDefinition } from '@/lib/code-navigation'
 import { useTranslation } from '@/i18n'
 import { MARKDOWN_PROSE_CLASS, renderMarkdown } from '@/lib/markdown'
@@ -61,9 +63,7 @@ function getParentDir(path: string) {
   return normalized.slice(0, index)
 }
 function getMonacoTheme(theme: string) {
-  if (theme === 'light') return 'vs'
-  if (theme === 'high-contrast') return 'hc-black'
-  return 'vs-dark'
+  return tmuxgoThemeName(theme)
 }
 function getTabSize(language: string) {
   if (language === 'python' || language === 'yaml') return 4
@@ -140,6 +140,7 @@ export function EditorWorkbench({
   const { preferences } = usePreferences()
   const { t } = useTranslation()
   const editorRefs = useRef<Record<string, any>>({})
+  const monacoRef = useRef<Monaco | null>(null)
   const editorViewportRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const openEditorsRef = useRef(openEditors)
   openEditorsRef.current = openEditors
@@ -196,6 +197,12 @@ export function EditorWorkbench({
   const gitMode = activeHostId ? gitByHost[activeHostId]?.mode || 'follow-editor' : 'follow-editor'
   const { data: detectResult } = useGitDetect(activeHostId || '', followFilePath)
   const cursor = activeEditor ? cursorById[activeEditor.id] : null
+  // 主题切换：CSS 变量已由 usePreferences 落到 data-theme，重定义同名主题再 setTheme 生效
+  useEffect(() => {
+    const monaco = monacoRef.current
+    if (!monaco) return
+    monaco.editor.setTheme(ensureTmuxgoTheme(monaco, preferences.theme))
+  }, [preferences.theme])
   const getLegacyGroupName = (groupId: string) => {
     const index = orderedGroupIds.indexOf(groupId)
     if (index === 0) return 'primary'
@@ -941,6 +948,10 @@ export function EditorWorkbench({
           modified={compareRight.content}
           language={editor.language}
           theme={getMonacoTheme(preferences.theme)}
+          beforeMount={(monaco) => {
+            monacoRef.current = monaco
+            ensureTmuxgoTheme(monaco, preferences.theme)
+          }}
           options={{
             readOnly: true,
             renderSideBySide: true,
@@ -1006,6 +1017,10 @@ export function EditorWorkbench({
             path={editor.absolutePath}
             language={editor.language}
             theme={getMonacoTheme(preferences.theme)}
+            beforeMount={(monaco) => {
+              monacoRef.current = monaco
+              ensureTmuxgoTheme(monaco, preferences.theme)
+            }}
             value={editor.content}
             onMount={(instance) => {
               editorRefs.current[editor.id] = instance
