@@ -1058,6 +1058,18 @@ export const api = {
         '/api/vnc/displays',
         { method: 'POST', body: JSON.stringify({ hostId, action, display }) },
       ),
+    getPassword: (hostId: string, display: number) =>
+      fetchApi<{ password?: string }>(`/api/hosts/${encodeURIComponent(hostId)}/vnc/password?display=${display}`),
+    setPassword: (hostId: string, display: number, password: string) =>
+      fetchApi<{ success: boolean }>(`/api/hosts/${encodeURIComponent(hostId)}/vnc/password`, {
+        method: 'PUT',
+        body: JSON.stringify({ display, password }),
+      }),
+    deletePassword: (hostId: string, display: number) =>
+      fetchApi<{ success: boolean }>(`/api/hosts/${encodeURIComponent(hostId)}/vnc/password`, {
+        method: 'DELETE',
+        body: JSON.stringify({ display }),
+      }),
   },
 }
 
@@ -1066,6 +1078,7 @@ export interface VncDisplay {
   port: number
   process: string | null
   pid: number | null
+  rssKB?: number
 }
 
 export interface VncSetupStatus {
