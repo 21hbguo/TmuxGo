@@ -337,12 +337,6 @@ function readDirectoryStatusFromCache(
 ) {
   return cache.get(getDirectoryCacheKey(rootId, rootBasePath, itemPath))
 }
-function matchesSearchEntry(item: FileItem, query: string, mode: SearchMode, results: FileEntry[]) {
-  if (!query.trim()) return true
-  if (results.some((entry) => entry.path === item.path)) return true
-  if (mode === 'content') return false
-  return item.name.toLowerCase().includes(query.trim().toLowerCase())
-}
 function resolveRootRelativePath(basePath: string, itemPath: string) {
   return joinRelativePath(basePath, itemPath)
 }
