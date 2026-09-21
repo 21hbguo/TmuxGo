@@ -20,7 +20,7 @@ import type {
 import { writeClipboardText } from '@/lib/clipboard-text'
 import { quoteShellPath } from '@/lib/path-drop'
 import { api, fetchApiBlob } from '@/lib/api'
-import { clearActiveDraggedFile, FILE_DRAG_MIME, setActiveDraggedFile } from '@/lib/editor-drag'
+import { clearActiveDraggedFile, FILE_DRAG_MIME, readDraggedFile, setActiveDraggedFile } from '@/lib/editor-drag'
 import { emitStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import { MARKDOWN_PROSE_CLASS, renderMarkdown } from '@/lib/markdown'
 import { ZoomSurface } from './ZoomSurface'
@@ -567,7 +567,9 @@ export function FilePanel({
   const sessionWorkspaces = useMemo(() => sessionWorkspacesQuery.data || [], [sessionWorkspacesQuery.data])
   const [selectedRootId, setSelectedRootId] = useState('')
   const [currentPath, setCurrentPath] = useState('')
+  // selectedPath = 焦点/anchor 项；selectedPaths = 完整多选集合（VSCode Explorer 语义）
   const [selectedPath, setSelectedPath] = useState('')
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set())
   const [selectedPreviewLine, setSelectedPreviewLine] = useState(1)
   const [query, setQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
@@ -614,7 +616,8 @@ export function FilePanel({
   // 跟随时手动导航（收藏目录/根切换/上下级）先挂起跟随，等切换到别的 pane 再恢复
   const [followSuspended, setFollowSuspended] = useState(false)
   const lastAppliedWorkspaceSessionRef = useRef<string | undefined>(undefined)
-  const [pendingDeleteItem, setPendingDeleteItem] = useState<FileEntry | null>(null)
+  const [pendingDeleteItems, setPendingDeleteItems] = useState<FileEntry[]>([])
+  const [dropTargetPath, setDropTargetPath] = useState<string | null>(null)
   const [lastTrashedItem, setLastTrashedItem] = useState<TrashEntry | null>(null)
   const [trashEntries, setTrashEntries] = useState<TrashEntry[]>([])
   const [trashOpen, setTrashOpen] = useState(false)
@@ -830,6 +833,67 @@ export function FilePanel({
     () => (!isMobile && !showSearchResults ? createTreeNodes(listData?.items || []) : []),
     [createTreeNodes, isMobile, listData?.items, showSearchResults],
   )
+  // 可见行扁平序：shift 区间/方向键/Ctrl+A 以此为准（DOM 序不可靠——VirtualizedRows 只渲染视窗内行）
+  const flatVisibleItems = useMemo((): FileEntry[] => {
+    const out: FileEntry[] = []
+    const walkTree = (nodes: FileTreeNode[]) => {
+      for (const node of nodes) {
+        out.push(node.item)
+        if (node.children) walkTree(node.children)
+      }
+    }
+    const walkEntries = (list: FileEntry[]) => {
+      for (const item of list) {
+        if ((hideDotFiles && isDotPath(item.path || item.name)) || !matchesFileTypeFilter(item, fileTypeFilter))
+          continue
+        out.push(item)
+        if (item.type === 'directory' && openDirectories.has(item.path)) {
+          const children = readDirectoryChildrenFromCache(directoryCache, activeRootId, activeRootBasePath, item.path)
+          if (children) walkEntries(children)
+        }
+      }
+    }
+    if (isMobile || isPicker) out.push(...visibleItems)
+    else if (showSearchResults) walkEntries(visibleItems)
+    else walkTree(desktopTreeData)
+    return out
+  }, [
+    activeRootBasePath,
+    activeRootId,
+    desktopTreeData,
+    directoryCache,
+    fileTypeFilter,
+    hideDotFiles,
+    isMobile,
+    isPicker,
+    openDirectories,
+    showSearchResults,
+    visibleItems,
+  ])
+  // 选中项可能位于折叠目录的缓存里：批量操作与存在性清理用全量已知项，而非仅可见行
+  const knownItemByPath = useMemo(() => {
+    const map = new Map<string, FileEntry>()
+    for (const item of flatVisibleItems) map.set(item.path, item)
+    for (const items of directoryCache.values()) for (const item of items) map.set(item.path, item)
+    return map
+  }, [flatVisibleItems, directoryCache])
+  const selectedItems = useMemo(
+    () => [...selectedPaths].map((path) => knownItemByPath.get(path)).filter((i): i is FileEntry => !!i),
+    [selectedPaths, knownItemByPath],
+  )
+  // 删除/刷新后清理 selection：仅保留仍存在于可见行或目录缓存中的项
+  useEffect(() => {
+    setSelectedPaths((current) => {
+      if (!current.size) return current
+      let changed = false
+      const next = new Set<string>()
+      for (const path of current) {
+        if (knownItemByPath.has(path)) next.add(path)
+        else changed = true
+      }
+      return changed ? next : current
+    })
+  }, [knownItemByPath])
 
   useEffect(() => {
     if (!selectedRootId && rootOptions[0]) setSelectedRootId(rootOptions[0].id)
@@ -852,6 +916,7 @@ export function FilePanel({
     setFollowSuspended(false)
     lastAppliedWorkspaceSessionRef.current = undefined
     directoryLoadingRef.current.clear()
+    setSelectedPaths(new Set())
     setFileClipboard(null)
   }, [fileHostId])
   useEffect(() => {
@@ -1022,6 +1087,7 @@ export function FilePanel({
     currentPathRef.current = nextPath
     setCurrentPath(nextPath)
     setSelectedPath('')
+    setSelectedPaths(new Set())
     setSelectedPreviewLine(1)
     setSearchNavigationPath((value) => {
       if (!value) return null
@@ -1064,6 +1130,7 @@ export function FilePanel({
     mobileNavigationDepthRef.current = 0
     setCurrentPath('')
     setSelectedPath('')
+    setSelectedPaths(new Set())
     setSelectedPreviewLine(1)
     setMobileView('list')
     setOpenDirectories(new Set())
@@ -1085,6 +1152,7 @@ export function FilePanel({
       setDirectoryStatusState(new Map())
     }
     setSelectedPath('')
+    setSelectedPaths(new Set())
     setSelectedPreviewLine(1)
     setMobileView('list')
     setSearchNavigationPath(null)
@@ -1133,6 +1201,46 @@ export function FilePanel({
       .catch(() => {})
     if (selectedRootId === getFavoriteRootOptionId(entry)) switchRoot(entry.rootId)
   }
+  // —— VSCode Explorer 选择语义 ——
+  const selectSinglePath = (path: string) => {
+    setSelectedPath(path)
+    setSelectedPaths(path ? new Set([path]) : new Set())
+  }
+  // ctrl+click：切换该项选中态并成为新 anchor；不打开文件、不动目录展开（展开交给 ▸）
+  const toggleItemSelection = (item: FileEntry) => {
+    setSelectedPaths((current) => {
+      const next = new Set(current)
+      if (next.has(item.path)) next.delete(item.path)
+      else next.add(item.path)
+      return next
+    })
+    setSelectedPath(item.path)
+  }
+  // shift+click：anchor(最近普通/ctrl 点击项)到目标项的可见序区间并入现有 selection；无 anchor 退化为单选
+  const selectRangeTo = (item: FileEntry) => {
+    const order = flatVisibleItems.map((entry) => entry.path)
+    const targetIndex = order.indexOf(item.path)
+    const anchorIndex = order.indexOf(selectedPath)
+    if (targetIndex < 0 || anchorIndex < 0) {
+      selectSinglePath(item.path)
+      return
+    }
+    const [lo, hi] = anchorIndex < targetIndex ? [anchorIndex, targetIndex] : [targetIndex, anchorIndex]
+    setSelectedPaths((current) => new Set([...current, ...order.slice(lo, hi + 1)]))
+    setSelectedPath(item.path)
+  }
+  // 行点击分流：返回 true 表示已被多选手势消费（不执行打开/展开动作）
+  const applyRowSelectGesture = (item: FileEntry, e: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }) => {
+    if (e.shiftKey) {
+      selectRangeTo(item)
+      return true
+    }
+    if (e.ctrlKey || e.metaKey) {
+      toggleItemSelection(item)
+      return true
+    }
+    return false
+  }
   const handleDesktopDirectoryToggle = (item: FileItem) => {
     let expanding = false
     setOpenDirectories((current) => {
@@ -1145,7 +1253,7 @@ export function FilePanel({
       return next
     })
     if (expanding) void loadDirectoryChildren(item)
-    setSelectedPath(item.path)
+    selectSinglePath(item.path)
   }
   // 跟随激活 pane cwd：把绝对路径映射回 rootOption + 相对路径
   const paneCwdFollowTarget = useMemo(() => {
@@ -1203,6 +1311,12 @@ export function FilePanel({
       setCurrentPath('')
     }
     setSelectedPath((value) => (value === activeEditorFollowTarget.path ? value : activeEditorFollowTarget.path))
+    // 跟随高亮即单选（VSCode reveal 语义）
+    setSelectedPaths((current) =>
+      current.size === 1 && current.has(activeEditorFollowTarget.path)
+        ? current
+        : new Set([activeEditorFollowTarget.path]),
+    )
     setSelectedPreviewLine((value) => (value === 1 ? value : 1))
     setSearchNavigationPath((value) => (value === nextSearchNavigationPath ? value : nextSearchNavigationPath))
     setOpenDirectories((current) => {
@@ -1237,7 +1351,8 @@ export function FilePanel({
   useEffect(() => {
     if (isMobile || showSearchResults || !selectedPath || typeof window === 'undefined') return
     const frame = window.requestAnimationFrame(() => {
-      const element = document.querySelector('.tmuxgo-file-tree [data-selected="true"]') as HTMLElement | null
+      const element = (document.querySelector('.tmuxgo-file-tree [data-focused="true"]') ||
+        document.querySelector('.tmuxgo-file-tree [data-selected="true"]')) as HTMLElement | null
       element?.scrollIntoView?.({ block: 'nearest' })
     })
     return () => window.cancelAnimationFrame(frame)
@@ -1268,13 +1383,64 @@ export function FilePanel({
       : {
           draggable: true,
           onDragStart: (event: React.DragEvent<HTMLElement>) => {
-            const handle = createFileHandle(item)
+            // 拖已选中项 = 拖整个 selection；拖未选中项 = 单拖（VSCode Explorer 语义）
+            const draggedItems = selectedPaths.has(item.path) && selectedItems.length > 1 ? selectedItems : [item]
+            const handle: FileDocumentHandle & { items?: FileDocumentHandle[] } = {
+              ...createFileHandle(item),
+              ...(draggedItems.length > 1 ? { items: draggedItems.map((entry) => createFileHandle(entry)) } : {}),
+            }
             setActiveDraggedFile(handle)
-            event.dataTransfer.effectAllowed = 'copy'
+            event.dataTransfer.effectAllowed = draggedItems.length > 1 ? 'copyMove' : 'copy'
             event.dataTransfer.setData(FILE_DRAG_MIME, JSON.stringify(handle))
           },
           onDragEnd: () => clearActiveDraggedFile(),
         }
+  // 同面板目录 drop：payload.items[] 循环 move；目标为某拖拽目录自身/子级时跳过该项
+  const dropMoveItems = async (payload: FileDocumentHandle & { items?: FileDocumentHandle[] }, targetDir: string) => {
+    const handles = payload.items?.length ? payload.items : [payload]
+    const target = resolveRootRelativePath(activeRootBasePath, targetDir)
+    const failed: string[] = []
+    let moved = 0
+    for (const handle of handles) {
+      if (handle.type === 'directory' && (target === handle.path || target.startsWith(`${handle.path}/`))) {
+        failed.push(handle.name)
+        continue
+      }
+      try {
+        await api.files.move(fileHostId, handle.rootId, handle.path, activeRootId, target)
+        moved += 1
+      } catch {
+        failed.push(handle.name)
+      }
+    }
+    if (moved) refreshFiles()
+    if (moved)
+      pushToast({
+        type: 'success',
+        message: moved > 1 ? t('file.movedMany', { count: moved }) : t('file.moved', { name: handles[0]!.name }),
+      })
+    if (failed.length) pushToast({ type: 'error', message: t('file.moveFailedMany', { count: failed.length }) })
+  }
+  const bindDirectoryDrop = (item: FileEntry) => {
+    if (isMobile || item.type !== 'directory') return {}
+    return {
+      onDragOver: (event: React.DragEvent<HTMLElement>) => {
+        if (!event.dataTransfer.types.includes(FILE_DRAG_MIME)) return
+        event.preventDefault()
+        event.dataTransfer.dropEffect = 'move'
+        setDropTargetPath(item.path)
+      },
+      onDragLeave: () => setDropTargetPath((current) => (current === item.path ? null : current)),
+      onDrop: (event: React.DragEvent<HTMLElement>) => {
+        const payload = readDraggedFile(event.dataTransfer)
+        setDropTargetPath(null)
+        if (!payload) return
+        event.preventDefault()
+        event.stopPropagation()
+        void dropMoveItems(payload, item.path)
+      },
+    }
+  }
   const bindFavoriteDirectoryDrag = (item: FavoriteDirectory) =>
     isMobile
       ? {}
@@ -1304,15 +1470,12 @@ export function FilePanel({
       if (isPicker) {
         currentPathRef.current = item.path
         setCurrentPath(item.path)
-        setSelectedPath('')
+        selectSinglePath('')
         setSelectedPreviewLine(1)
         setSearchNavigationPath(isSearching ? item.path : null)
         return
       }
-      if (!isMobile && showSearchResults) {
-        void handleDesktopDirectoryToggle(item)
-        return
-      }
+      // 桌面树/搜索结果：目录普通点击 = 选中 + 展开/收起（选中由 toggle 内部 selectSinglePath 完成）
       if (!isMobile) {
         void handleDesktopDirectoryToggle(item)
         return
@@ -1320,16 +1483,17 @@ export function FilePanel({
       pushMobileNavigationHistory()
       currentPathRef.current = item.path
       setCurrentPath(item.path)
-      setSelectedPath('')
+      selectSinglePath('')
       setSelectedPreviewLine(1)
       setMobileView('list')
       setSearchNavigationPath(isSearching ? item.path : null)
       return
     }
     if (isPicker) return
+    // 打开文件即单选：selection 收敛为该项，不破坏 preview/编辑器语义
+    selectSinglePath(item.path)
     if (!isMobile && openInEditor(item)) return
     if (isMobile) pushMobileNavigationHistory()
-    setSelectedPath(item.path)
     setSelectedPreviewLine(getPreviewLine(item))
     if (isMobile) setMobileView('preview')
   }
@@ -1506,62 +1670,119 @@ export function FilePanel({
         resolveRootRelativePath(activeRootBasePath, item.path),
         name.trim(),
       )
-      if (selectedPath === item.path) setSelectedPath(stripBasePath(result.item.path, activeRootBasePath))
+      const renamedPath = stripBasePath(result.item.path, activeRootBasePath)
+      if (selectedPath === item.path) setSelectedPath(renamedPath)
+      // selection 里的旧路径同步映射到新路径
+      setSelectedPaths((current) => {
+        if (!current.has(item.path)) return current
+        const next = new Set(current)
+        next.delete(item.path)
+        next.add(renamedPath)
+        return next
+      })
       refreshFiles()
       pushToast({ type: 'success', message: t('file.renamed', { name: item.name }) })
     } catch (err) {
       pushToast({ type: 'error', message: err instanceof Error ? err.message : t('file.renameFailed') })
     }
   }
-  const transferItem = async (item: FileItem | FileContentMatch, move: boolean) => {
-    const targetPath = await prompt(t('file.targetDirectory'), getParentRelativePath(item, currentPath))
-    if (targetPath === null) return
-    try {
-      if (move)
-        await api.files.move(
+  // 批量 copy/move：目标目录只提示一次，失败项汇总后一次性 toast
+  const transferItems = async (items: FileEntry[], move: boolean) => {
+    const targetPath = await prompt(
+      t('file.targetDirectory'),
+      getParentRelativePath(items[0] || ({ path: '' } as FileEntry), currentPath),
+    )
+    if (targetPath === null || !items.length) return
+    const target = resolveRootRelativePath(activeRootBasePath, targetPath.trim())
+    const call = move ? api.files.move : api.files.copy
+    const failed: string[] = []
+    let done = 0
+    for (const item of items) {
+      try {
+        await call(
           fileHostId,
           activeRootId,
           resolveRootRelativePath(activeRootBasePath, item.path),
           activeRootId,
-          resolveRootRelativePath(activeRootBasePath, targetPath.trim()),
+          target,
         )
-      else
-        await api.files.copy(
-          fileHostId,
-          activeRootId,
-          resolveRootRelativePath(activeRootBasePath, item.path),
-          activeRootId,
-          resolveRootRelativePath(activeRootBasePath, targetPath.trim()),
-        )
-      refreshFiles()
-      pushToast({ type: 'success', message: t(move ? 'file.moved' : 'file.copied', { name: item.name }) })
-    } catch (err) {
-      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('file.transferFailed') })
+        done += 1
+      } catch {
+        failed.push(item.name)
+      }
     }
+    if (done) refreshFiles()
+    if (failed.length) pushToast({ type: 'error', message: t('file.transferFailedMany', { count: failed.length }) })
+    else
+      pushToast({
+        type: 'success',
+        message:
+          items.length > 1
+            ? t(move ? 'file.movedMany' : 'file.copiedMany', { count: done })
+            : t(move ? 'file.moved' : 'file.copied', { name: items[0]!.name }),
+      })
   }
-  const removeItem = async (item: FileItem | FileContentMatch) => {
-    setPendingDeleteItem(item)
+  const removeSelection = () => {
+    const items = selectedItems.length ? selectedItems : selectedItem ? [selectedItem] : []
+    if (items.length) setPendingDeleteItems(items)
   }
   const confirmRemoveItem = async () => {
-    const item = pendingDeleteItem
-    if (!item) return
-    setPendingDeleteItem(null)
-    try {
-      const result = await api.files.trash(
-        fileHostId,
-        activeRootId,
-        resolveRootRelativePath(activeRootBasePath, item.path),
-      )
-      setLastTrashedItem(result.entry)
-      if (selectedPath === item.path) {
+    const items = pendingDeleteItems
+    if (!items.length) return
+    setPendingDeleteItems([])
+    const removedPaths = new Set<string>()
+    const failed: string[] = []
+    let lastEntry: TrashEntry | null = null
+    for (const item of items) {
+      try {
+        const result = await api.files.trash(
+          fileHostId,
+          activeRootId,
+          resolveRootRelativePath(activeRootBasePath, item.path),
+        )
+        lastEntry = result.entry
+        removedPaths.add(item.path)
+      } catch {
+        failed.push(item.name)
+      }
+    }
+    if (lastEntry) setLastTrashedItem(lastEntry)
+    if (removedPaths.size) {
+      // 失效目录缓存（自身及子级），防止已删项经缓存“复活”进 knownItemByPath
+      setDirectoryCache((current) => {
+        const next = new Map(current)
+        for (const key of [...next.keys()]) {
+          if (
+            [...removedPaths].some((p) => {
+              const joined = joinRelativePath(activeRootBasePath, p)
+              return key.endsWith(`:${joined}`) || key.includes(`:${joined}/`)
+            })
+          ) {
+            next.delete(key)
+          }
+        }
+        return next
+      })
+      setSelectedPaths((current) => new Set([...current].filter((path) => !removedPaths.has(path))))
+      if (removedPaths.has(selectedPath)) {
         setSelectedPath('')
         setSelectedPreviewLine(1)
       }
       refreshFiles()
-      pushToast({ type: 'success', message: t('file.movedToTrash', { name: item.name }) })
-    } catch (err) {
-      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('file.deleteFailed') })
     }
+    if (failed.length)
+      pushToast({
+        type: 'error',
+        message: t('file.deleteFailedMany', { count: failed.length, names: failed.join(', ') }),
+      })
+    else
+      pushToast({
+        type: 'success',
+        message:
+          items.length > 1
+            ? t('file.movedToTrashMany', { count: items.length })
+            : t('file.movedToTrash', { name: items[0]!.name }),
+      })
   }
   const openTrash = async () => {
     try {
@@ -1626,12 +1847,20 @@ export function FilePanel({
   const handleListKeyDown = (e: React.KeyboardEvent) => {
     const target = e.target as HTMLElement | null
     if (target?.closest('input,textarea,select,[contenteditable="true"]')) return
-    if (contextMenu || pendingDeleteItem) return
+    if (contextMenu || pendingDeleteItems.length) return
     const mod = e.ctrlKey || e.metaKey
     const key = e.key.toLowerCase()
     if (e.key === 'F5' || (mod && key === 'r')) {
       e.preventDefault()
       refreshFiles()
+      return
+    }
+    // Ctrl+A：全选可见行（目录行也计入）
+    if (mod && key === 'a' && !isMobile) {
+      e.preventDefault()
+      const paths = flatVisibleItems.map((item) => item.path)
+      setSelectedPaths(new Set(paths))
+      if (!paths.includes(selectedPath)) setSelectedPath(paths[0] || '')
       return
     }
     if (mod && key === 'z' && !e.shiftKey) {
@@ -1648,8 +1877,8 @@ export function FilePanel({
       }
       return
     }
-    if (!selectedItem) return
-    if (mod && (key === 'c' || key === 'x')) {
+    if (!selectedItem && !selectedPaths.size) return
+    if (selectedItem && mod && (key === 'c' || key === 'x')) {
       e.preventDefault()
       const move = key === 'x'
       setFileClipboard({
@@ -1668,10 +1897,10 @@ export function FilePanel({
     }
     if (e.key === 'Delete') {
       e.preventDefault()
-      void removeItem(selectedItem)
+      removeSelection()
       return
     }
-    if (e.key === 'F2') {
+    if (e.key === 'F2' && selectedItem) {
       e.preventDefault()
       void renameItem(selectedItem)
     }
@@ -1866,12 +2095,16 @@ export function FilePanel({
       const loadStatus = expanded
         ? readDirectoryStatusFromCache(directoryStatus, activeRootId, activeRootBasePath, item.path)
         : undefined
-      const selected = selectedPath === item.path
+      // 多选集合优先；selectedPaths 为空时回退 selectedPath（跟随高亮等路径）
+      const selected = selectedPaths.size ? selectedPaths.has(item.path) : selectedPath === item.path
+      const focused = selectedPath === item.path
       const row = (
         <div
           key={`${item.path}::__row`}
           data-selected={selected ? 'true' : undefined}
-          className={`tmuxgo-list-row tmuxgo-file-tree-node group flex min-h-[22px] w-full items-center ${selected ? 'tmuxgo-list-row--active tmuxgo-file-tree-node-selected' : 'tmuxgo-list-row--hover'} ${fileClipboard?.move && fileClipboard.rootId === activeRootId && fileClipboard.itemPath === item.path ? 'opacity-50' : ''}`}
+          data-focused={focused ? 'true' : undefined}
+          {...bindDirectoryDrop(item)}
+          className={`tmuxgo-list-row tmuxgo-file-tree-node group flex min-h-[22px] w-full items-center ${selected ? 'tmuxgo-list-row--active tmuxgo-file-tree-node-selected' : 'tmuxgo-list-row--hover'} ${focused && selectedPaths.size > 1 ? 'outline outline-1 -outline-offset-1 outline-accent/60' : ''} ${dropTargetPath === item.path ? 'tmuxgo-list-row--active' : ''} ${fileClipboard?.move && fileClipboard.rootId === activeRootId && fileClipboard.itemPath === item.path ? 'opacity-50' : ''}`}
           style={{ paddingLeft: `${depth * 12}px` }}
         >
           <button
@@ -1889,44 +2122,49 @@ export function FilePanel({
           <div
             role="button"
             tabIndex={0}
-            data-file-path={item.type === 'file' ? item.path : undefined}
+            data-row-path={item.path}
             title={getItemTooltip(item)}
             {...bindFileDrag(item)}
             onClick={(e) => {
               e.preventDefault()
+              if (applyRowSelectGesture(item, e)) return
               if (item.type === 'directory') void handleDesktopDirectoryToggle(item)
-              else {
-                setSelectedPath(item.path)
-                openItem(item)
-              }
+              else openItem(item)
             }}
             onKeyDown={(e) => {
-              if (item.type === 'file' && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+              if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
                 e.preventDefault()
-                const files = Array.from(
-                  e.currentTarget.closest('.tmuxgo-file-tree')?.querySelectorAll<HTMLElement>('[data-file-path]') || [],
-                )
-                const next =
-                  files[
-                    files.findIndex((entry) => entry.dataset.filePath === item.path) + (e.key === 'ArrowUp' ? -1 : 1)
-                  ]
-                if (!next?.dataset.filePath) return
-                setSelectedPath(next.dataset.filePath)
+                // 方向键走数据序而非 DOM 序：目录行同样参与，且不受虚拟滚动裁剪影响
+                const order = flatVisibleItems.map((entry) => entry.path)
+                const nextPath = order[order.indexOf(item.path) + (e.key === 'ArrowUp' ? -1 : 1)]
+                if (!nextPath) return
+                selectSinglePath(nextPath)
                 setSelectedPreviewLine(1)
-                next.focus()
+                e.currentTarget
+                  .closest('.tmuxgo-file-tree')
+                  ?.querySelector<HTMLElement>(`[data-row-path="${CSS.escape(nextPath)}"]`)
+                  ?.focus()
+                return
+              }
+              // VSCode 树导航：→ 展开未展开目录，← 收起已展开目录
+              if (item.type === 'directory' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+                const expanded = openDirectories.has(item.path)
+                if ((e.key === 'ArrowRight' && !expanded) || (e.key === 'ArrowLeft' && expanded)) {
+                  e.preventDefault()
+                  void handleDesktopDirectoryToggle(item)
+                }
                 return
               }
               if (e.key !== 'Enter' && e.key !== ' ') return
               e.preventDefault()
               if (item.type === 'directory') void handleDesktopDirectoryToggle(item)
-              else {
-                setSelectedPath(item.path)
-                openItem(item)
-              }
+              else openItem(item)
             }}
             onContextMenu={(e) => {
               e.preventDefault()
               e.stopPropagation()
+              // VSCode：右键点在未选中项 → 先把 selection 切到该项再弹菜单
+              if (!selectedPaths.has(item.path)) selectSinglePath(item.path)
               showContextMenu(e.clientX, e.clientY, item, getParentRelativePath(item, currentPath))
             }}
             onDoubleClick={() =>
@@ -2044,13 +2282,18 @@ export function FilePanel({
                     </div>,
                   ]
         const visual = getFileVisual(item.path, item.type)
+        const rowSelected = selectedPaths.size ? selectedPaths.has(item.path) : selectedPath === item.path
         return [
           <button
             key={`${item.type}-${item.path}`}
             tabIndex={0}
             title={getItemTooltip(item)}
             {...bindFileDrag(item)}
-            onClick={() => openItem(item)}
+            {...bindDirectoryDrop(item)}
+            onClick={(e) => {
+              if (applyRowSelectGesture(item, e)) return
+              openItem(item)
+            }}
             onDoubleClick={() =>
               item.type === 'directory' ? void handleDesktopDirectoryToggle(item) : insertItemPath(item)
             }
@@ -2064,6 +2307,7 @@ export function FilePanel({
             }}
             onContextMenu={(e) => {
               e.preventDefault()
+              if (!selectedPaths.has(item.path)) selectSinglePath(item.path)
               showContextMenu(e.clientX, e.clientY, item, getParentRelativePath(item, currentPath))
             }}
             onTouchStart={(e) => {
@@ -2084,7 +2328,7 @@ export function FilePanel({
               if (touchTimerRef.current) clearTimeout(touchTimerRef.current)
               touchTimerRef.current = null
             }}
-            className={`tmuxgo-list-row group w-full border-l-2 px-2 py-[3px] text-left text-meta leading-4 ${selectedPath === item.path ? 'tmuxgo-list-row--active border-accent' : 'border-transparent tmuxgo-list-row--hover'}`}
+            className={`tmuxgo-list-row group w-full border-l-2 px-2 py-[3px] text-left text-meta leading-4 ${rowSelected ? 'tmuxgo-list-row--active border-accent' : 'border-transparent tmuxgo-list-row--hover'} ${dropTargetPath === item.path ? 'tmuxgo-list-row--active' : ''}`}
             style={!isMobile && showSearchResults ? { paddingLeft: `${8 + depth * 14}px` } : undefined}
           >
             <div className="flex items-center gap-1.5">
@@ -2187,6 +2431,13 @@ export function FilePanel({
   const desktopTreeRows = renderDesktopTree(desktopTreeData)
   const desktopTreeSelectedIndex = getTreeRowIndex(desktopTreeData, selectedPath)
   const mobileRows = renderMobileList(visibleItems)
+  // 右键项已选中 → 菜单作用于整个 selection；未选中 → 仅该项（onContextMenu 已先把它切成单选）
+  const contextMenuSelection: FileEntry[] =
+    contextMenu?.item && selectedPaths.has(contextMenu.item.path) && selectedItems.length > 1
+      ? selectedItems
+      : contextMenu?.item
+        ? [contextMenu.item]
+        : []
 
   return (
     <aside className={shellClass} style={shellStyle}>
@@ -2447,6 +2698,19 @@ export function FilePanel({
                 e.preventDefault()
                 showContextMenu(e.clientX, e.clientY, null, currentPath)
               }}
+              onDragOver={(e) => {
+                // 列表空白区 drop = 移入 currentPath；目录行自身已 stopPropagation
+                if (!e.dataTransfer.types.includes(FILE_DRAG_MIME)) return
+                e.preventDefault()
+                e.dataTransfer.dropEffect = 'move'
+              }}
+              onDrop={(e) => {
+                const payload = readDraggedFile(e.dataTransfer)
+                if (!payload || isPicker) return
+                e.preventDefault()
+                setDropTargetPath(null)
+                void dropMoveItems(payload, currentPath)
+              }}
             >
               {!showSearchResults && visibleFavoriteDirectories.length > 0 && (
                 <div className="border-b border-[var(--line)] p-3 trae-browser-inspect-draggable">
@@ -2702,7 +2966,7 @@ export function FilePanel({
                 {isMobile && contextMenu.item?.type === 'file' && (
                   <button
                     onClick={() => {
-                      setSelectedPath(contextMenu.item!.path)
+                      selectSinglePath(contextMenu.item!.path)
                       setSelectedPreviewLine(getPreviewLine(contextMenu.item!))
                       setContextMenu(null)
                     }}
@@ -2714,34 +2978,41 @@ export function FilePanel({
                 {contextMenu.item && (
                   <button
                     onClick={() => {
-                      startDownload(contextMenu.item!)
+                      // 右键点在已选中项上 → 菜单作用于整个 selection
+                      for (const entry of contextMenuSelection) startDownload(entry)
                       setContextMenu(null)
                     }}
                     className="tmuxgo-menu-item py-2 text-xs hover:text-accent"
                   >
-                    {t('file.download')}
+                    {contextMenuSelection.length > 1
+                      ? t('file.downloadMany', { count: contextMenuSelection.length })
+                      : t('file.download')}
                   </button>
                 )}
                 {contextMenu.item && (
                   <button
                     onClick={() => {
-                      void transferItem(contextMenu.item!, false)
+                      void transferItems(contextMenuSelection, false)
                       setContextMenu(null)
                     }}
                     className="tmuxgo-menu-item py-2 text-xs hover:text-accent"
                   >
-                    {t('file.copy')}
+                    {contextMenuSelection.length > 1
+                      ? t('file.copyMany', { count: contextMenuSelection.length })
+                      : t('file.copy')}
                   </button>
                 )}
                 {contextMenu.item && (
                   <button
                     onClick={() => {
-                      void transferItem(contextMenu.item!, true)
+                      void transferItems(contextMenuSelection, true)
                       setContextMenu(null)
                     }}
                     className="tmuxgo-menu-item py-2 text-xs hover:text-accent"
                   >
-                    {t('file.move')}
+                    {contextMenuSelection.length > 1
+                      ? t('file.moveMany', { count: contextMenuSelection.length })
+                      : t('file.move')}
                   </button>
                 )}
                 {contextMenu.item && (
@@ -2776,12 +3047,14 @@ export function FilePanel({
                 {contextMenu.item && (
                   <button
                     onClick={() => {
-                      void removeItem(contextMenu.item!)
+                      setPendingDeleteItems(contextMenuSelection)
                       setContextMenu(null)
                     }}
                     className="tmuxgo-menu-item tmuxgo-menu-item--danger py-2 text-xs"
                   >
-                    {t('file.moveToTrash')}
+                    {contextMenuSelection.length > 1
+                      ? t('file.moveToTrashMany', { count: contextMenuSelection.length })
+                      : t('file.moveToTrash')}
                   </button>
                 )}
               </div>
@@ -2834,17 +3107,25 @@ export function FilePanel({
       )}
       {PromptElement}
       <ConfirmDialog
-        open={!!pendingDeleteItem}
+        open={pendingDeleteItems.length > 0}
         title={t('file.delete')}
-        message={t('file.deleteConfirm', {
-          type:
-            pendingDeleteItem?.type === 'directory' ? t('file.newFolder').toLowerCase() : t('file.file').toLowerCase(),
-          path: pendingDeleteItem ? resolveRootRelativePath(activeRootBasePath, pendingDeleteItem.path) : '',
-        })}
+        message={
+          pendingDeleteItems.length > 1
+            ? t('file.deleteConfirmMany', { count: pendingDeleteItems.length })
+            : t('file.deleteConfirm', {
+                type:
+                  pendingDeleteItems[0]?.type === 'directory'
+                    ? t('file.newFolder').toLowerCase()
+                    : t('file.file').toLowerCase(),
+                path: pendingDeleteItems[0]
+                  ? resolveRootRelativePath(activeRootBasePath, pendingDeleteItems[0].path)
+                  : '',
+              })
+        }
         confirmLabel={t('common.confirm')}
         cancelLabel={t('common.cancel')}
         tone="danger"
-        onCancel={() => setPendingDeleteItem(null)}
+        onCancel={() => setPendingDeleteItems([])}
         onConfirm={() => void confirmRemoveItem()}
       />
       <ConfirmDialog
