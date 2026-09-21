@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FilePanel } from './FilePanel'
@@ -353,6 +353,7 @@ vi.mock('@/i18n', () => ({
       if (key === 'file.treeLoadFailed') return 'Load failed'
       if (key === 'file.retryLoad') return 'Retry'
       if (key === 'file.removeFavorite') return 'Unfavorite'
+      if (key === 'file.addFavorite') return 'Favorite'
       if (key === 'file.clearExpanded') return 'Collapse all'
       if (key === 'file.clearSearch') return 'Clear search'
       if (key === 'file.copyPath') return 'Copy path'
@@ -467,11 +468,44 @@ describe('FilePanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Favorite src' }))
     let favorites = JSON.parse(localStorage.getItem('tmuxgo-favorite-directories') || '[]')
     expect(favorites.map((item: any) => `${item.rootId}:${item.path}`)).toEqual(['root-workspace:src'])
-    fireEvent.click(screen.getByRole('button', { name: 'Unfavorite src' }))
+    const tree = document.querySelector('.tmuxgo-file-tree') as HTMLElement
+    fireEvent.click(within(tree).getByRole('button', { name: 'Unfavorite src' }))
     favorites = JSON.parse(localStorage.getItem('tmuxgo-favorite-directories') || '[]')
     expect(favorites).toEqual([])
   })
 
+  it('keeps an unfavorited directory row as hollow until re-favorited', async () => {
+    localStorage.setItem(
+      'tmuxgo-favorite-directories',
+      JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]),
+    )
+    render(React.createElement(FilePanel))
+    const favoritesSection = (await screen.findByText('file.favoriteDirs')).parentElement as HTMLElement
+    fireEvent.click(within(favoritesSection).getByRole('button', { name: 'Unfavorite project' }))
+    // 持久层立即删除，但行保留且星变空心
+    expect(JSON.parse(localStorage.getItem('tmuxgo-favorite-directories') || '[]')).toEqual([])
+    const readd = within(favoritesSection).getByRole('button', { name: 'Favorite project' })
+    fireEvent.click(readd)
+    expect(
+      JSON.parse(localStorage.getItem('tmuxgo-favorite-directories') || '[]').map(
+        (item: any) => `${item.rootId}:${item.path}`,
+      ),
+    ).toEqual(['root-home:project'])
+    expect(within(favoritesSection).getByRole('button', { name: 'Unfavorite project' })).toBeInTheDocument()
+  })
+  it('falls back to the source root at the same path when unfavoriting the open favorite root', async () => {
+    localStorage.setItem(
+      'tmuxgo-favorite-directories',
+      JSON.stringify([{ rootId: 'root-home', rootPath: '/home/guo', name: 'project', path: 'project' }]),
+    )
+    render(React.createElement(FilePanel))
+    await chooseRoot('favorite:root-home:project')
+    await waitFor(() => expect(screen.getByText('demo.txt')).toBeInTheDocument())
+    fireEvent.click(await screen.findByRole('button', { name: 'Unfavorite project' }))
+    // 收藏根消失后回落到源 root 的同路径，而非被 reconcile 弹回 roots[0]
+    await waitFor(() => expect(rootValue()).toBe('root-home'))
+    expect(screen.getByText('demo.txt')).toBeInTheDocument()
+  })
   it('opens a favorite directory shortcut on mobile', async () => {
     localStorage.setItem(
       'tmuxgo-favorite-directories',

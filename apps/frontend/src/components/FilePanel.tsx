@@ -517,6 +517,8 @@ export function FilePanel({
   const [mobileEditConfirm, setMobileEditConfirm] = useState<null | 'enter' | 'exit'>(null)
   const [mobileMarkdownContent, setMobileMarkdownContent] = useState<string | null>(null)
   const [favoriteDirectories, setFavoriteDirectories] = useState<FavoriteDirectory[]>([])
+  // 已取消但暂留显示的收藏项（key=`rootId:path`），host 切换或重载时清空
+  const [unfavoritedEntries, setUnfavoritedEntries] = useState<Map<string, FavoriteDirectory>>(new Map())
   const [contentReady] = useState(true)
   const [hideDotFiles, setHideDotFiles] = useState(readHideDotFiles)
   const [followActivePath, setFollowActivePath] = useState(readFollowActivePath)
@@ -675,10 +677,14 @@ export function FilePanel({
     if (showSearchResults) return filtered
     return [...filtered].sort((a, b) => compareFileItems(a, b, fileSort))
   }, [fileTypeFilter, fileSort, hideDotFiles, items, showSearchResults])
-  const visibleFavoriteDirectories = useMemo(
-    () => (hideDotFiles ? favoriteDirectories.filter((item) => !isDotPath(item.path)) : favoriteDirectories),
-    [hideDotFiles, favoriteDirectories],
-  )
+  const visibleFavoriteDirectories = useMemo(() => {
+    const hidden = (item: FavoriteDirectory) => hideDotFiles && isDotPath(item.path)
+    const pending = Array.from(unfavoritedEntries.values()).filter(
+      (item) =>
+        !hidden(item) && !favoriteDirectories.some((entry) => entry.rootId === item.rootId && entry.path === item.path),
+    )
+    return [...favoriteDirectories.filter((item) => !hidden(item)), ...pending]
+  }, [hideDotFiles, favoriteDirectories, unfavoritedEntries])
   const storeDirectoryChildren = useCallback(
     (rootId: string, rootBasePath: string, itemPath: string, items: FileItem[]) => {
       setDirectoryCache((current) => {
@@ -844,6 +850,7 @@ export function FilePanel({
     setSelectedPaths(new Set())
     setSelectionAnchor('')
     setFileClipboard(null)
+    setUnfavoritedEntries(new Map())
   }, [fileHostId])
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedQuery(query.trim()), SEARCH_INPUT_DEBOUNCE_MS)
@@ -1108,30 +1115,56 @@ export function FilePanel({
   }
   const isFavoriteDirectory = (entry: { rootId: string; path: string }) =>
     favoriteDirectories.some((item) => item.rootId === entry.rootId && item.path === entry.path)
+  const favoriteKeyOf = (entry: { rootId: string; path: string }) => `${entry.rootId}:${entry.path}`
+  const markUnfavorited = (entry: FavoriteDirectory) =>
+    setUnfavoritedEntries((current) => new Map(current).set(favoriteKeyOf(entry), entry))
+  const unmarkUnfavorited = (entry: { rootId: string; path: string }) =>
+    setUnfavoritedEntries((current) => {
+      if (!current.has(favoriteKeyOf(entry))) return current
+      const next = new Map(current)
+      next.delete(favoriteKeyOf(entry))
+      return next
+    })
+  const persistFavoriteDirectories = (next: { entries: FavoriteDirectory[]; updatedAt: string }) => {
+    setFavoriteDirectories(next.entries)
+    void api.preferences
+      .update({ favoriteDirectories: next.entries, favoriteDirectoriesUpdatedAt: next.updatedAt }, PREFERENCES_PROFILE)
+      .catch(() => {})
+  }
   const toggleFavoriteDirectory = (item: FileItem) => {
     if (!root) return
     const nextRootId = activeRoot?.sourceRootId || ''
     const nextRootPath = roots.find((entry) => entry.id === nextRootId)?.path || root.path
     const nextPath = joinRelativePath(activeRootBasePath, item.path)
     const nextName = getDirectoryName(nextPath, { ...root, path: nextRootPath })
-    const next = toggleFavoriteDirectoryEntry({
+    const entry: FavoriteDirectory = {
       rootId: nextRootId,
       rootPath: nextRootPath,
       name: nextName,
       path: nextPath,
-    })
-    setFavoriteDirectories(next.entries)
-    void api.preferences
-      .update({ favoriteDirectories: next.entries, favoriteDirectoriesUpdatedAt: next.updatedAt }, PREFERENCES_PROFILE)
-      .catch(() => {})
+    }
+    const wasFavorite = isFavoriteDirectory(entry)
+    persistFavoriteDirectories(toggleFavoriteDirectoryEntry(entry))
+    // 取消侧进暂留列表，让收藏区行变空心而非立刻消失；收藏侧清掉暂留
+    if (wasFavorite) markUnfavorited(entry)
+    else unmarkUnfavorited(entry)
   }
-  const removeFavoriteDirectory = (entry: { rootId: string; path: string }) => {
-    const next = removeFavoriteDirectoryEntry(entry)
-    setFavoriteDirectories(next.entries)
-    void api.preferences
-      .update({ favoriteDirectories: next.entries, favoriteDirectoriesUpdatedAt: next.updatedAt }, PREFERENCES_PROFILE)
-      .catch(() => {})
-    if (selectedRootId === getFavoriteRootOptionId(entry)) switchRoot(entry.rootId)
+  const removeFavoriteDirectory = (entry: FavoriteDirectory) => {
+    persistFavoriteDirectories(removeFavoriteDirectoryEntry(entry))
+    markUnfavorited(entry)
+    // 取消的正是当前打开的收藏虚拟根：落回源 root 的同路径，避免 reconcile 弹回 roots[0]
+    if (selectedRootId === getFavoriteRootOptionId(entry)) {
+      switchRoot(entry.rootId)
+      currentPathRef.current = entry.path
+      setCurrentPath(entry.path)
+    }
+  }
+  const toggleFavoriteAreaEntry = (item: FavoriteDirectory) => {
+    if (isFavoriteDirectory(item)) removeFavoriteDirectory(item)
+    else {
+      persistFavoriteDirectories(toggleFavoriteDirectoryEntry(item))
+      unmarkUnfavorited(item)
+    }
   }
   // —— VSCode Explorer 选择语义 ——
   const selectSinglePath = (path: string) => {
@@ -2651,24 +2684,46 @@ export function FilePanel({
                     {t('file.favoriteDirs')}
                   </div>
                   <div className="tmuxgo-scrollbar-subtle max-h-36 space-y-1 overflow-y-auto overscroll-contain">
-                    {visibleFavoriteDirectories.map((item) => (
-                      <button
-                        key={`${item.rootId}-${item.path}`}
-                        {...bindFavoriteDirectoryDrag(item)}
-                        onClick={() => openDirectoryShortcut(item)}
-                        title={item.path}
-                        className="tmuxgo-list-row tmuxgo-list-row--hover flex h-7 w-full items-center gap-1.5 rounded-lg px-2 text-left text-meta text-text-2 hover:text-text-1"
-                      >
-                        <FiStar size={11} className="shrink-0 text-text-3" aria-hidden="true" />
-                        <span className="min-w-0 flex-1 truncate font-mono" style={{ direction: 'rtl' }}>
-                          {formatDirectoryShortcutLabel(
-                            item.path,
-                            rootLabelById[item.rootId] || item.name,
-                            rootPathById[item.rootId] || '',
-                          )}
-                        </span>
-                      </button>
-                    ))}
+                    {visibleFavoriteDirectories.map((item) => {
+                      const favorited = isFavoriteDirectory(item)
+                      return (
+                        <div
+                          key={`${item.rootId}-${item.path}`}
+                          {...bindFavoriteDirectoryDrag(item)}
+                          title={item.path}
+                          className={`tmuxgo-list-row tmuxgo-list-row--hover flex h-7 w-full items-center gap-1.5 rounded-lg px-2 text-left text-meta text-text-2 ${favorited ? '' : 'opacity-60'}`}
+                        >
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              toggleFavoriteAreaEntry(item)
+                            }}
+                            aria-label={`${favorited ? t('file.removeFavorite') : t('file.addFavorite')} ${item.name}`}
+                            title={favorited ? t('file.removeFavorite') : t('file.addFavorite')}
+                            className="shrink-0 rounded-apple hover:text-text-1"
+                          >
+                            <FiStar
+                              size={11}
+                              fill={favorited ? 'currentColor' : 'none'}
+                              className={favorited ? 'text-accent' : 'text-text-3'}
+                            />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openDirectoryShortcut(item)}
+                            className="min-w-0 flex-1 truncate text-left font-mono hover:text-text-1"
+                            style={{ direction: 'rtl' }}
+                          >
+                            {formatDirectoryShortcutLabel(
+                              item.path,
+                              rootLabelById[item.rootId] || item.name,
+                              rootPathById[item.rootId] || '',
+                            )}
+                          </button>
+                        </div>
+                      )
+                    })}
                   </div>
                 </div>
               )}
