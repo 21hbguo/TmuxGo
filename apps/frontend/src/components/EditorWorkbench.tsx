@@ -962,6 +962,7 @@ export function EditorWorkbench({
             scrollBeyondLastLine: false,
             wordWrap: 'off',
             renderOverviewRuler: false,
+            lineNumbersMinChars: 2,
             scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10, alwaysConsumeMouseWheel: false },
           }}
         />
@@ -1069,7 +1070,8 @@ export function EditorWorkbench({
               fontFamily: preferences.fontFamily,
               fontSize: Math.max(12, preferences.fontSize),
               lineNumbers: 'on',
-              lineNumbersMinChars: 4,
+              lineNumbersMinChars: 2,
+              lineDecorationsWidth: 0,
               glyphMargin: false,
               folding: true,
               guides: { indentation: true, bracketPairs: true },
