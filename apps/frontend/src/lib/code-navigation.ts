@@ -12,6 +12,8 @@ interface ResolverContext {
   rootId: string
   rootLabel: string
   rootPath: string
+  // 搜索结果 file.path 相对的真实 root 路径——编辑器 rootPath 可能是收藏虚拟根，不能直接 join
+  searchRootPath: string
   sourceRootPath: string
   openEditors: Map<string, FileEditorDocument>
   statCache: Map<string, Promise<{ type: 'file' | 'directory'; content?: string } | null>>
@@ -37,6 +39,7 @@ const FILE_EXTENSIONS = ['.ts', '.tsx', '.d.ts', '.mts', '.cts', '.js', '.jsx', 
 // .d.ts 已被 .ts 后缀覆盖；扩展名判断用于兜底 editor.language 缺失/陈旧（持久化恢复、旧数据）的场景
 const NAVIGABLE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs']
 const HISTORY_FILE_LIMIT = 160
+const SEARCH_CONTENT_TIMEOUT_MS = 12_000
 let tsPromise: Promise<TsModule> | null = null
 
 function loadTypeScript() {
@@ -528,6 +531,47 @@ function extractWordAtPosition(content: string, line: number, column: number) {
   const word = lineText.slice(start, end)
   return word && /[\p{L}_$]/u.test(word[0]) ? word : null
 }
+// Python 式 import 感知：from a.b import word / import a.b.word —— 把符号映射回模块路径，
+// 同名 def 在同目录多个文件里时（如 val_2D.py 与 test_2D_fully.py 都定义 test_single_volume）按模块名定胜负
+function extractImportModuleHints(content: string, word: string) {
+  const hints = new Set<string>()
+  const fromRe = /^\s*from\s+([\w.]+)\s+import\s+(\([\s\S]*?\)|[^#\n(]*)/gm
+  for (const match of content.matchAll(fromRe)) {
+    const modulePath = match[1].replace(/\./g, '/')
+    const names = match[2]
+      .replace(/[()\\]/g, ' ')
+      .split(/[\s,]+/)
+      .map((part) =>
+        part
+          .trim()
+          .split(/\s+as\s+/)[0]
+          .trim(),
+      )
+    if (!names.includes(word)) continue
+    // from a.b import c：c 可能是 a/b.py 内的符号，也可能是子模块 a/b/c.py —— 两种都提示
+    hints.add(modulePath)
+    hints.add(`${modulePath}/${word}`)
+  }
+  const importRe = /^\s*import\s+([\w.]+)(?:\s+as\s+(\w+))?/gm
+  for (const match of content.matchAll(importRe)) {
+    const parts = match[1].split('.')
+    if (match[2] === word || parts[parts.length - 1] === word) hints.add(parts.join('/'))
+  }
+  return [...hints]
+}
+function moduleHintScore(path: string, hints: string[]) {
+  if (!hints.length) return 0
+  const noExt = path.replace(/\.[^./]+$/, '')
+  return hints.some((hint) => noExt === hint || noExt.endsWith(`/${hint}`)) ? 1 : 0
+}
+// 与入口文件目录共享的路径段数：跨文件候选按邻近度降序，兄弟目录 > 其它 worktree
+function sharedDirectoryDepth(entryDir: string, filePath: string) {
+  const entry = entryDir.split('/').filter(Boolean)
+  const candidate = dirnamePath(filePath).split('/').filter(Boolean)
+  let depth = 0
+  while (depth < entry.length && depth < candidate.length && entry[depth] === candidate[depth]) depth += 1
+  return depth
+}
 function wordColumn(lineText: string, word: string) {
   const match = new RegExp(`\\b${escapeRegExpText(word)}\\b`).exec(lineText)
   return match ? match.index + 1 : 1
@@ -582,13 +626,39 @@ async function resolveGenericDefinition(
     const hit = findGenericDefinition(openEditor.content, word, -1)
     if (hit) return toTarget(openEditor, hit)
   }
-  try {
-    const results = await api.files.searchContent(context.hostId, context.rootId, word)
-    for (const pattern of buildGenericDefinitionPatterns(word)) {
-      for (const file of results) {
-        if (file.type !== 'file') continue
-        const absolutePath = joinPath(context.rootPath, file.path)
-        if (normalizePath(absolutePath) === entryFile.absolutePath) continue
+  // 跨文件搜索先限定入口文件所在子树，再退回整 root：
+  // 1) 大 root（如整个 ~）全量内容搜索可达分钟级，期间导航互斥锁会静默吞掉后续点击
+  // 2) 多 worktree/同名模块下按搜索返回序取首条会跳错目录，同子树优先也更贴近脚本式 import 语义
+  const entryDir = dirnamePath(entryFile.path)
+  const patterns = buildGenericDefinitionPatterns(word)
+  const moduleHints = extractImportModuleHints(entryFile.content, word)
+  for (const basePath of entryDir ? [entryDir, ''] : ['']) {
+    let results: Awaited<ReturnType<typeof api.files.searchContent>>
+    try {
+      results = await api.files.searchContent(
+        context.hostId,
+        context.rootId,
+        word,
+        basePath,
+        true,
+        AbortSignal.timeout(SEARCH_CONTENT_TIMEOUT_MS),
+      )
+    } catch {
+      continue
+    }
+    const candidates = results
+      .filter(
+        (file) =>
+          file.type === 'file' && normalizePath(joinPath(context.searchRootPath, file.path)) !== entryFile.absolutePath,
+      )
+      .sort(
+        (a, b) =>
+          moduleHintScore(b.path, moduleHints) - moduleHintScore(a.path, moduleHints) ||
+          sharedDirectoryDepth(entryDir, b.path) - sharedDirectoryDepth(entryDir, a.path),
+      )
+    for (const pattern of patterns) {
+      for (const file of candidates) {
+        const absolutePath = joinPath(context.searchRootPath, file.path)
         for (const match of file.matches || []) {
           if (!pattern.test(match.content)) continue
           return toTarget(
@@ -608,7 +678,7 @@ async function resolveGenericDefinition(
         }
       }
     }
-  } catch {}
+  }
   return { status: 'not-found' }
 }
 export async function resolveEditorDefinition(
@@ -618,11 +688,16 @@ export async function resolveEditorDefinition(
 ): Promise<CodeNavigationResult> {
   const openEditorMap = new Map(openEditors.map((item) => [normalizePath(item.absolutePath), item] as const))
   openEditorMap.set(normalizePath(editor.absolutePath), editor)
+  const normalizedAbs = normalizePath(editor.absolutePath)
+  const normalizedRel = normalizePath(editor.path)
   const context: ResolverContext = {
     hostId: editor.hostId,
     rootId: editor.rootId,
     rootLabel: editor.rootLabel,
     rootPath: normalizePath(editor.rootPath),
+    searchRootPath: normalizedAbs.endsWith(`/${normalizedRel}`)
+      ? normalizedAbs.slice(0, normalizedAbs.length - normalizedRel.length - 1)
+      : normalizePath(editor.rootPath),
     sourceRootPath: joinPath(editor.rootPath, 'src'),
     openEditors: openEditorMap,
     statCache: new Map(),
