@@ -133,11 +133,26 @@ export async function vncRoutes(fastify: FastifyInstance) {
   fastify.get('/vnc/ping', async () => ({ ok: true }))
 
   // 个别移动浏览器对动态 import 的 chunk URL 存在模块缓存毒化死锁(请求根本不发)，
-  // 前端检测到 import 超时后改为 fetch 此路由取回文本再走 blob import。hash 随构建变化故按 glob 找
+  // 前端检测到 import 超时后改为 fetch 此路由取回文本再走 blob import。
+  // chunk hash 随构建变化：优先读 vite manifest（key/src 含 @novnc/novnc 的条目），
+  // manifest 缺失或结构不符再退回 rfb-*.js glob，防止 chunk 改名导致路由静默 404
+  const resolveClientModuleName = async (dist: string) => {
+    try {
+      const manifest = JSON.parse(await readFile(path.join(dist, '.vite/manifest.json'), 'utf8')) as Record<
+        string,
+        { file?: string; src?: string; name?: string }
+      >
+      for (const [key, entry] of Object.entries(manifest)) {
+        if (typeof entry?.file !== 'string') continue
+        if (key.includes('@novnc/novnc') || entry.src?.includes('@novnc/novnc')) return path.basename(entry.file)
+      }
+    } catch {}
+    return (await readdir(path.join(dist, 'assets'))).find((f) => /^rfb-[\w-]+\.js$/.test(f)) || null
+  }
   fastify.get('/vnc/client-module', async (_request, reply) => {
     const dist = process.env.TMUXGO_FRONTEND_DIST || path.resolve(process.cwd(), '../frontend/dist')
     try {
-      const name = (await readdir(path.join(dist, 'assets'))).find((f) => /^rfb-[\w-]+\.js$/.test(f))
+      const name = await resolveClientModuleName(dist)
       if (!name) return reply.code(404).send({ message: 'vnc client module not built' })
       reply.header('cache-control', 'no-store')
       return reply.type('text/javascript').send(await readFile(path.join(dist, 'assets', name)))
