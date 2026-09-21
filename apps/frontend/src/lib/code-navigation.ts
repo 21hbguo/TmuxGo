@@ -533,12 +533,24 @@ function extractWordAtPosition(content: string, line: number, column: number) {
 }
 // Python 式 import 感知：from a.b import word / import a.b.word —— 把符号映射回模块路径，
 // 同名 def 在同目录多个文件里时（如 val_2D.py 与 test_2D_fully.py 都定义 test_single_volume）按模块名定胜负
+interface ModuleHint {
+  // PEP 328：前导点单独计数，N 个点 = 从入口文件目录向上 N-1 层；0 = 绝对 import。
+  // 不能混进 modulePath（'.→/' 会把 ..pkg 转成 //pkg 被 normalize 成 pkg，语义错误）
+  levels: number
+  // 去掉前导点后的模块路径（'/' 分隔）；from . import x 时为空串（目标即入口所在包）
+  modulePath: string
+  // true: word 是模块成员（from a.b import word → 在模块文件里找 word 定义）；
+  // false: word 是模块本身（import a.b / from a.b import 子模块 → 跳到文件顶部）
+  member: boolean
+}
 function extractImportModuleHints(content: string, word: string) {
-  const hints = new Set<string>()
-  const fromRe = /^\s*from\s+([\w.]+)\s+import\s+(\([\s\S]*?\)|[^#\n(]*)/gm
+  const hints = new Map<string, ModuleHint>()
+  const push = (hint: ModuleHint) => hints.set(`${hint.levels}:${hint.modulePath}:${hint.member}`, hint)
+  const fromRe = /^\s*from\s+(\.*)([\w.]*)\s+import\s+(\([\s\S]*?\)|[^#\n(]*)/gm
   for (const match of content.matchAll(fromRe)) {
-    const modulePath = match[1].replace(/\./g, '/')
-    const names = match[2]
+    const levels = match[1].length
+    const modulePath = match[2].replace(/\./g, '/')
+    const names = match[3]
       .replace(/[()\\]/g, ' ')
       .split(/[\s,]+/)
       .map((part) =>
@@ -548,21 +560,24 @@ function extractImportModuleHints(content: string, word: string) {
           .trim(),
       )
     if (!names.includes(word)) continue
-    // from a.b import c：c 可能是 a/b.py 内的符号，也可能是子模块 a/b/c.py —— 两种都提示
-    hints.add(modulePath)
-    hints.add(`${modulePath}/${word}`)
+    // from a.b import c：c 可能是 a/b.py 内的符号（member），也可能是子模块 a/b/c.py —— 两种都提示
+    push({ levels, modulePath, member: true })
+    push({ levels, modulePath: modulePath ? `${modulePath}/${word}` : word, member: false })
   }
   const importRe = /^\s*import\s+([\w.]+)(?:\s+as\s+(\w+))?/gm
   for (const match of content.matchAll(importRe)) {
     const parts = match[1].split('.')
-    if (match[2] === word || parts[parts.length - 1] === word) hints.add(parts.join('/'))
+    if (match[2] === word || parts[parts.length - 1] === word)
+      push({ levels: 0, modulePath: parts.join('/'), member: false })
   }
-  return [...hints]
+  return [...hints.values()]
 }
-function moduleHintScore(path: string, hints: string[]) {
+function moduleHintScore(path: string, hints: ModuleHint[]) {
   if (!hints.length) return 0
   const noExt = path.replace(/\.[^./]+$/, '')
-  return hints.some((hint) => noExt === hint || noExt.endsWith(`/${hint}`)) ? 1 : 0
+  return hints.some((hint) => hint.modulePath && (noExt === hint.modulePath || noExt.endsWith(`/${hint.modulePath}`)))
+    ? 1
+    : 0
 }
 // 与入口文件目录共享的路径段数：跨文件候选按邻近度降序，兄弟目录 > 其它 worktree
 function sharedDirectoryDepth(entryDir: string, filePath: string) {
@@ -594,10 +609,59 @@ function findGenericDefinition(content: string, word: string, excludeLine: numbe
   }
   return null
 }
+function ascendDir(dir: string, levels: number) {
+  let current = dir
+  for (let i = 0; i < levels; i += 1) current = dirnamePath(current)
+  return current
+}
+// import 直解快速路径：把 module 提示在入口目录向上 3 级（root 内）映射成 *.py / __init__.py 直接读取，
+// 命中即零 rg 调用（<100ms）—— Python 跳转的主场景就是跳 import 进来的符号
+async function resolvePythonImport(
+  context: ResolverContext,
+  entryFile: ResolverFile,
+  word: string,
+  hints: ModuleHint[],
+  signal?: AbortSignal,
+): Promise<{ file: ResolverFile; line: number; column: number } | null> {
+  const entryDir = dirnamePath(entryFile.absolutePath)
+  const rootPath = normalizePath(context.rootPath)
+  // 绝对 import 的基准目录序列：入口目录 + 向上最多 3 级，近似 sys.path 的就近命中（同包/父包优先）
+  const absoluteBases: string[] = []
+  for (let dir = entryDir; absoluteBases.length < 4 && hasRootPrefix(rootPath, dir); dir = dirnamePath(dir)) {
+    absoluteBases.push(dir)
+    if (dir === '/' || dir === rootPath) break
+  }
+  for (const hint of hints) {
+    const bases =
+      hint.levels > 0
+        ? [ascendDir(entryDir, hint.levels - 1)].filter((dir) => hasRootPrefix(rootPath, dir))
+        : absoluteBases
+    for (const base of bases) {
+      if (signal?.aborted) return null
+      const moduleBase = hint.modulePath ? joinPath(base, hint.modulePath) : base
+      // member: 模块文件内找 word 定义；非 member: word 即模块，跳到文件顶部
+      const candidates = hint.member
+        ? [...(hint.modulePath ? [`${moduleBase}.py`] : []), joinPath(moduleBase, '__init__.py')].map((path) => ({
+            path,
+            member: true,
+          }))
+        : [`${moduleBase}.py`, joinPath(moduleBase, '__init__.py')].map((path) => ({ path, member: false }))
+      for (const candidate of candidates) {
+        const file = await readResolverFile(context, candidate.path)
+        if (!file) continue
+        if (!candidate.member) return { file, line: 1, column: 1 }
+        const hit = findGenericDefinition(file.content, word, -1)
+        if (hit) return { file, line: hit.line, column: hit.column }
+      }
+    }
+  }
+  return null
+}
 async function resolveGenericDefinition(
   context: ResolverContext,
   entryFile: ResolverFile,
   position: { line: number; column: number },
+  signal?: AbortSignal,
 ): Promise<CodeNavigationResult> {
   const word = extractWordAtPosition(entryFile.content, position.line, position.column)
   if (!word) return { status: 'not-found' }
@@ -626,13 +690,27 @@ async function resolveGenericDefinition(
     const hit = findGenericDefinition(openEditor.content, word, -1)
     if (hit) return toTarget(openEditor, hit)
   }
+  // import 直解：module 提示映射到具体文件读内容定位，命中则完全不跑 rg（慢搜索根源）
+  const moduleHints = extractImportModuleHints(entryFile.content, word)
+  if (moduleHints.length && !signal?.aborted) {
+    const importHit = await resolvePythonImport(context, entryFile, word, moduleHints, signal)
+    if (importHit) return toTarget(importHit.file, importHit)
+  }
   // 跨文件搜索先限定入口文件所在子树，再退回整 root：
   // 1) 大 root（如整个 ~）全量内容搜索可达分钟级，期间导航互斥锁会静默吞掉后续点击
   // 2) 多 worktree/同名模块下按搜索返回序取首条会跳错目录，同子树优先也更贴近脚本式 import 语义
+  // 兜底范围序列：入口目录逐级后退最多 3 级（去重），首个命中即返回；全部落空才整 root
   const entryDir = dirnamePath(entryFile.path)
+  const scopes: string[] = []
+  for (let dir = entryDir, depth = 0; depth <= 3 && dir && dir !== '.'; depth += 1, dir = dirnamePath(dir)) {
+    if (!scopes.includes(dir)) scopes.push(dir)
+  }
+  scopes.push('')
   const patterns = buildGenericDefinitionPatterns(word)
-  const moduleHints = extractImportModuleHints(entryFile.content, word)
-  for (const basePath of entryDir ? [entryDir, ''] : ['']) {
+  // 按入口扩展名收窄 rg 扫描面（.py 只扫 *.py），进一步压缩大 root 下的搜索耗时
+  const entryExt = /\.[^./]+$/.exec(entryFile.name || basenamePath(entryFile.absolutePath))?.[0]
+  for (const basePath of scopes) {
+    if (signal?.aborted) return { status: 'not-found' }
     let results: Awaited<ReturnType<typeof api.files.searchContent>>
     try {
       results = await api.files.searchContent(
@@ -641,9 +719,14 @@ async function resolveGenericDefinition(
         word,
         basePath,
         true,
-        AbortSignal.timeout(SEARCH_CONTENT_TIMEOUT_MS),
+        // 外部取消（用户发起新一次跳转）与单请求 12s 超时合并为一个 signal
+        signal
+          ? AbortSignal.any([AbortSignal.timeout(SEARCH_CONTENT_TIMEOUT_MS), signal])
+          : AbortSignal.timeout(SEARCH_CONTENT_TIMEOUT_MS),
+        entryExt,
       )
     } catch {
+      if (signal?.aborted) return { status: 'not-found' }
       continue
     }
     const candidates = results
@@ -685,6 +768,7 @@ export async function resolveEditorDefinition(
   editor: FileEditorDocument,
   position: { line: number; column: number },
   openEditors: FileEditorDocument[],
+  signal?: AbortSignal,
 ): Promise<CodeNavigationResult> {
   const openEditorMap = new Map(openEditors.map((item) => [normalizePath(item.absolutePath), item] as const))
   openEditorMap.set(normalizePath(editor.absolutePath), editor)
@@ -708,7 +792,7 @@ export async function resolveEditorDefinition(
   if (!entryFile) return { status: 'not-found' }
   const tsNavigable =
     SUPPORTED_LANGUAGES.has(editor.language) || isNavigableFileName(editor.name || editor.path || editor.absolutePath)
-  if (!tsNavigable) return resolveGenericDefinition(context, entryFile, position)
+  if (!tsNavigable) return resolveGenericDefinition(context, entryFile, position, signal)
   const ts = await loadTypeScript()
   const entrySourceFile = ts.createSourceFile(
     entryFile.absolutePath,

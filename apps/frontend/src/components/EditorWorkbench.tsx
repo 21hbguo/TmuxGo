@@ -156,7 +156,7 @@ export function EditorWorkbench({
   const navigationBackRef = useRef<NavigationEntry[]>([])
   const navigationForwardRef = useRef<NavigationEntry[]>([])
   const navigationPendingRef = useRef(false)
-  const definitionPendingRef = useRef(false)
+  const definitionAbortRef = useRef<AbortController | null>(null)
   const pendingLocationRef = useRef<Record<string, { line: number; column: number }>>({})
   const [pendingCloseEditorId, setPendingCloseEditorId] = useState<string | null>(null)
   const [previewOpenById, setPreviewOpenById] = useState<Record<string, boolean>>({})
@@ -357,7 +357,6 @@ export function EditorWorkbench({
   const goToDefinition = async (editor: FileEditorDocument, position: { line: number; column: number }) => {
     if (
       navigationPendingRef.current ||
-      definitionPendingRef.current ||
       editor.loading ||
       editor.binary ||
       editor.truncated ||
@@ -366,9 +365,18 @@ export function EditorWorkbench({
       return
     const sourceEntry = createNavigationEntry(editor, position)
     if (!sourceEntry) return
-    definitionPendingRef.current = true
+    // 不吞点击：上一次跳转仍在跑（如大 root rg 全扫）时取消它，用新位置重新发起
+    definitionAbortRef.current?.abort()
+    const controller = new AbortController()
+    definitionAbortRef.current = controller
+    // 慢搜索兜底提示：超过 800ms 未出结果时告知"搜索中"，避免用户感知为点击无反应
+    const slowTimer = setTimeout(() => {
+      if (definitionAbortRef.current === controller)
+        pushToast({ type: 'info', message: t('editor.definitionSearching') })
+    }, 800)
     try {
-      const result = await resolveEditorDefinition(editor, position, openEditorsRef.current)
+      const result = await resolveEditorDefinition(editor, position, openEditorsRef.current, controller.signal)
+      if (controller.signal.aborted) return
       if (result.status === 'unsupported') {
         pushToast({ type: 'info', message: t('editor.definitionUnsupported') })
         return
@@ -379,9 +387,11 @@ export function EditorWorkbench({
       }
       await navigateToEntry(result.target, sourceEntry)
     } catch (error) {
+      if (controller.signal.aborted) return
       pushToast({ type: 'error', message: error instanceof Error ? error.message : t('editor.definitionNotFound') })
     } finally {
-      definitionPendingRef.current = false
+      clearTimeout(slowTimer)
+      if (definitionAbortRef.current === controller) definitionAbortRef.current = null
     }
   }
   const resolveTabInsertTargetId = (

@@ -875,6 +875,7 @@ export const en = {
   'editor.definition': 'Go to definition',
   'editor.definitionNotFound': 'Definition not found',
   'editor.definitionUnsupported': 'Definition navigation is unavailable for this language',
+  'editor.definitionSearching': 'Searching for definition…',
   'editor.preview': 'Preview',
   'editor.syncPreview': 'Sync preview',
   'editor.saving': 'Saving...',

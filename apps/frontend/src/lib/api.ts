@@ -868,9 +868,10 @@ export const api = {
       basePath = '',
       includeDotFiles = true,
       signal?: AbortSignal,
+      ext?: string,
     ) =>
       fetchApi<FileContentMatch[]>(
-        `/api/hosts/${encodeURIComponent(hostId)}/files/search-content?root=${encodeURIComponent(root)}&q=${encodeURIComponent(q)}&basePath=${encodeURIComponent(basePath)}&includeDotFiles=${includeDotFiles ? 'true' : 'false'}`,
+        `/api/hosts/${encodeURIComponent(hostId)}/files/search-content?root=${encodeURIComponent(root)}&q=${encodeURIComponent(q)}&basePath=${encodeURIComponent(basePath)}&includeDotFiles=${includeDotFiles ? 'true' : 'false'}${ext ? `&ext=${encodeURIComponent(ext)}` : ''}`,
         { signal },
       ),
     defaultUploadTarget: (hostId: string, paneId?: string) =>

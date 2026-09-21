@@ -311,6 +311,7 @@ describe('resolveEditorDefinition', () => {
       'project/repo-a',
       true,
       expect.anything(),
+      '.py',
     )
     expect(result).toMatchObject({
       status: 'success',
@@ -386,19 +387,31 @@ describe('resolveEditorDefinition', () => {
       binary: false,
       truncated: false,
     }
-    searchContentMock.mockResolvedValueOnce([]).mockResolvedValueOnce([
-      {
-        path: 'shared/lib.py',
-        name: 'lib.py',
-        type: 'file',
-        size: 10,
-        modifiedAt: '',
-        matches: [{ number: 3, content: 'def helper():' }],
-      },
-    ])
+    // 逐级后退：project/repo-a → project 都落空，最后 '' 整 root 命中
+    searchContentMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([
+        {
+          path: 'shared/lib.py',
+          name: 'lib.py',
+          type: 'file',
+          size: 10,
+          modifiedAt: '',
+          matches: [{ number: 3, content: 'def helper():' }],
+        },
+      ])
     const result = await resolveEditorDefinition(editor as any, { line: 1, column: 11 }, [editor as any])
-    expect(searchContentMock).toHaveBeenCalledTimes(2)
-    expect(searchContentMock).toHaveBeenLastCalledWith('local', 'root-home', 'helper', '', true, expect.anything())
+    expect(searchContentMock).toHaveBeenCalledTimes(3)
+    expect(searchContentMock).toHaveBeenLastCalledWith(
+      'local',
+      'root-home',
+      'helper',
+      '',
+      true,
+      expect.anything(),
+      '.py',
+    )
     expect(result).toMatchObject({ status: 'success', target: { path: 'shared/lib.py', line: 3 } })
   })
   it('returns not-found instead of wedging when content search fails', async () => {
@@ -510,5 +523,153 @@ describe('resolveEditorDefinition', () => {
     }
     const result = await resolveEditorDefinition(editor as any, { line: 2, column: 13 }, [editor as any])
     expect(result).toMatchObject({ status: 'success', target: { path: 'src/index.mts', line: 1 } })
+  })
+  const mockFiles = (files: Record<string, string>) => {
+    contentMock.mockImplementation(async (_hostId: string, _rootId: string, path: string) => {
+      if (!(path in files)) throw new Error('ENOENT')
+      return {
+        path,
+        type: 'file',
+        size: files[path].length,
+        modifiedAt: '',
+        binary: false,
+        truncated: false,
+        encoding: 'utf8',
+        content: files[path],
+      }
+    })
+  }
+  const pyEditor = (overrides: Record<string, unknown>) => ({
+    id: 'editor-py-import',
+    hostId: 'local',
+    rootId: 'root-workspace',
+    rootLabel: 'Workspace',
+    rootPath: '/workspace',
+    path: 'main.py',
+    name: 'main.py',
+    absolutePath: '/workspace/main.py',
+    type: 'file',
+    language: 'python',
+    content: '',
+    savedContent: '',
+    modifiedAt: '',
+    size: 0,
+    dirty: false,
+    loading: false,
+    saving: false,
+    binary: false,
+    truncated: false,
+    ...overrides,
+  })
+  it('resolves a from-import symbol by direct module read without content search', async () => {
+    const editor = pyEditor({ content: 'from lib.worker import run\nresult = run\n' })
+    mockFiles({ 'lib/worker.py': 'def run():\n    return 1\n' })
+    const result = await resolveEditorDefinition(editor as any, { line: 2, column: 10 }, [editor as any])
+    expect(result).toMatchObject({
+      status: 'success',
+      target: { path: 'lib/worker.py', absolutePath: '/workspace/lib/worker.py', line: 1, column: 5 },
+    })
+    expect(searchContentMock).not.toHaveBeenCalled()
+  })
+  it('resolves a from-import submodule to the file itself', async () => {
+    // from lib import worker：worker 是子模块 lib/worker.py 而非符号，跳文件顶部
+    const editor = pyEditor({ content: 'from lib import worker\nworker.run()\n' })
+    mockFiles({ 'lib/worker.py': 'def run():\n    pass\n' })
+    const result = await resolveEditorDefinition(editor as any, { line: 2, column: 1 }, [editor as any])
+    expect(result).toMatchObject({
+      status: 'success',
+      target: { path: 'lib/worker.py', line: 1, column: 1 },
+    })
+    expect(searchContentMock).not.toHaveBeenCalled()
+  })
+  it('resolves relative imports by counting leading dots (PEP 328)', async () => {
+    // from ..shared import util：2 个点 = 入口目录向上 1 层再找 shared.py
+    const editor = pyEditor({
+      path: 'pkg/sub/main.py',
+      name: 'main.py',
+      absolutePath: '/workspace/pkg/sub/main.py',
+      content: 'from ..shared import util\nresult = util\n',
+    })
+    mockFiles({ 'pkg/shared.py': 'def util():\n    return 0\n' })
+    const result = await resolveEditorDefinition(editor as any, { line: 2, column: 10 }, [editor as any])
+    expect(result).toMatchObject({
+      status: 'success',
+      target: { path: 'pkg/shared.py', absolutePath: '/workspace/pkg/shared.py', line: 1, column: 5 },
+    })
+    expect(searchContentMock).not.toHaveBeenCalled()
+  })
+  it('resolves same-package relative imports (from . import x)', async () => {
+    const editor = pyEditor({
+      path: 'pkg/main.py',
+      name: 'main.py',
+      absolutePath: '/workspace/pkg/main.py',
+      content: 'from . import helper\nhelper.do()\n',
+    })
+    mockFiles({ 'pkg/helper.py': 'def do():\n    pass\n' })
+    const result = await resolveEditorDefinition(editor as any, { line: 2, column: 1 }, [editor as any])
+    expect(result).toMatchObject({
+      status: 'success',
+      target: { path: 'pkg/helper.py', line: 1, column: 1 },
+    })
+    expect(searchContentMock).not.toHaveBeenCalled()
+  })
+  it('backs off search scope level by level before falling back to root', async () => {
+    // 深层入口目录：scope 序列 = entryDir 逐级退 3 级 + '' 兜底
+    const editor = pyEditor({
+      rootId: 'root-home',
+      rootLabel: 'Home',
+      rootPath: '/home/user',
+      path: 'a/b/c/d/e/f.py',
+      name: 'f.py',
+      absolutePath: '/home/user/a/b/c/d/e/f.py',
+      content: 'result = helper()\n',
+    })
+    searchContentMock.mockResolvedValue([])
+    const result = await resolveEditorDefinition(editor as any, { line: 1, column: 11 }, [editor as any])
+    expect(result).toEqual({ status: 'not-found' })
+    expect(searchContentMock.mock.calls.map((call) => call[3])).toEqual(['a/b/c/d/e', 'a/b/c/d', 'a/b/c', 'a/b', ''])
+    // ext 透传：.py 入口只扫 *.py
+    expect(searchContentMock.mock.calls.every((call) => call[6] === '.py')).toBe(true)
+  })
+  it('stops at the first scope that produces a definition hit', async () => {
+    const editor = pyEditor({
+      rootId: 'root-home',
+      rootLabel: 'Home',
+      rootPath: '/home/user',
+      path: 'a/b/c/f.py',
+      name: 'f.py',
+      absolutePath: '/home/user/a/b/c/f.py',
+      content: 'result = helper()\n',
+    })
+    searchContentMock.mockImplementation(async (_h: string, _r: string, _q: string, basePath: string) =>
+      basePath === 'a/b'
+        ? [
+            {
+              path: 'a/b/lib.py',
+              name: 'lib.py',
+              type: 'file',
+              size: 10,
+              modifiedAt: '',
+              matches: [{ number: 7, content: 'def helper():' }],
+            },
+          ]
+        : [],
+    )
+    const result = await resolveEditorDefinition(editor as any, { line: 1, column: 11 }, [editor as any])
+    expect(result).toMatchObject({ status: 'success', target: { path: 'a/b/lib.py', line: 7 } })
+    expect(searchContentMock.mock.calls.map((call) => call[3])).toEqual(['a/b/c', 'a/b'])
+  })
+  it('omits the ext filter for extensionless entry files', async () => {
+    const editor = pyEditor({
+      path: 'Makefile',
+      name: 'Makefile',
+      absolutePath: '/workspace/Makefile',
+      language: 'makefile',
+      content: 'all: deploy\n',
+    })
+    searchContentMock.mockResolvedValue([])
+    const result = await resolveEditorDefinition(editor as any, { line: 1, column: 7 }, [editor as any])
+    expect(result).toEqual({ status: 'not-found' })
+    expect(searchContentMock.mock.calls[0][6]).toBeUndefined()
   })
 })
