@@ -260,6 +260,173 @@ describe('resolveEditorDefinition', () => {
       target: { path: 'lib/worker.py', absolutePath: '/workspace/lib/worker.py', line: 9, column: 5 },
     })
   })
+  it('scopes content search to the entry directory and prefers sibling files', async () => {
+    // 大 root 下整树搜索分钟级且会跳错 worktree：必须带 basePath 且按目录邻近度排序
+    const editor = {
+      id: 'editor-py3',
+      hostId: 'local',
+      rootId: 'root-home',
+      rootLabel: 'Home',
+      rootPath: '/home/user',
+      path: 'project/repo-a/train.py',
+      name: 'train.py',
+      absolutePath: '/home/user/project/repo-a/train.py',
+      type: 'file',
+      language: 'python',
+      content: 'from val import run\nresult = run()\n',
+      savedContent: '',
+      modifiedAt: '',
+      size: 0,
+      dirty: false,
+      loading: false,
+      saving: false,
+      binary: false,
+      truncated: false,
+    }
+    searchContentMock.mockResolvedValue([
+      // 别的 worktree 排在前面也不能抢
+      {
+        path: 'project/repo-b/val.py',
+        name: 'val.py',
+        type: 'file',
+        size: 10,
+        modifiedAt: '',
+        matches: [{ number: 5, content: 'def run(x):' }],
+      },
+      {
+        path: 'project/repo-a/val.py',
+        name: 'val.py',
+        type: 'file',
+        size: 10,
+        modifiedAt: '',
+        matches: [{ number: 12, content: 'def run(x):' }],
+      },
+    ])
+    const result = await resolveEditorDefinition(editor as any, { line: 2, column: 11 }, [editor as any])
+    expect(searchContentMock).toHaveBeenNthCalledWith(
+      1,
+      'local',
+      'root-home',
+      'run',
+      'project/repo-a',
+      true,
+      expect.anything(),
+    )
+    expect(result).toMatchObject({
+      status: 'success',
+      target: { path: 'project/repo-a/val.py', line: 12, column: 5 },
+    })
+  })
+  it('uses import module hints to disambiguate same-dir duplicate definitions', async () => {
+    // from val import run：即使 test_val.py 也定义 run 且搜索返回序靠前，仍跳 val.py
+    const editor = {
+      id: 'editor-py6',
+      hostId: 'local',
+      rootId: 'root-home',
+      rootLabel: 'Home',
+      rootPath: '/home/user',
+      path: 'project/repo-a/train.py',
+      name: 'train.py',
+      absolutePath: '/home/user/project/repo-a/train.py',
+      type: 'file',
+      language: 'python',
+      content: 'from val import run\nresult = run()\n',
+      savedContent: '',
+      modifiedAt: '',
+      size: 0,
+      dirty: false,
+      loading: false,
+      saving: false,
+      binary: false,
+      truncated: false,
+    }
+    searchContentMock.mockResolvedValue([
+      {
+        path: 'project/repo-a/test_val.py',
+        name: 'test_val.py',
+        type: 'file',
+        size: 10,
+        modifiedAt: '',
+        matches: [{ number: 8, content: 'def run(case):' }],
+      },
+      {
+        path: 'project/repo-a/val.py',
+        name: 'val.py',
+        type: 'file',
+        size: 10,
+        modifiedAt: '',
+        matches: [{ number: 12, content: 'def run(x):' }],
+      },
+    ])
+    const result = await resolveEditorDefinition(editor as any, { line: 2, column: 11 }, [editor as any])
+    expect(result).toMatchObject({
+      status: 'success',
+      target: { path: 'project/repo-a/val.py', line: 12 },
+    })
+  })
+  it('falls back to root-wide search when the entry subtree has no match', async () => {
+    const editor = {
+      id: 'editor-py4',
+      hostId: 'local',
+      rootId: 'root-home',
+      rootLabel: 'Home',
+      rootPath: '/home/user',
+      path: 'project/repo-a/train.py',
+      name: 'train.py',
+      absolutePath: '/home/user/project/repo-a/train.py',
+      type: 'file',
+      language: 'python',
+      content: 'result = helper()\n',
+      savedContent: '',
+      modifiedAt: '',
+      size: 0,
+      dirty: false,
+      loading: false,
+      saving: false,
+      binary: false,
+      truncated: false,
+    }
+    searchContentMock.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      {
+        path: 'shared/lib.py',
+        name: 'lib.py',
+        type: 'file',
+        size: 10,
+        modifiedAt: '',
+        matches: [{ number: 3, content: 'def helper():' }],
+      },
+    ])
+    const result = await resolveEditorDefinition(editor as any, { line: 1, column: 11 }, [editor as any])
+    expect(searchContentMock).toHaveBeenCalledTimes(2)
+    expect(searchContentMock).toHaveBeenLastCalledWith('local', 'root-home', 'helper', '', true, expect.anything())
+    expect(result).toMatchObject({ status: 'success', target: { path: 'shared/lib.py', line: 3 } })
+  })
+  it('returns not-found instead of wedging when content search fails', async () => {
+    const editor = {
+      id: 'editor-py5',
+      hostId: 'local',
+      rootId: 'root-home',
+      rootLabel: 'Home',
+      rootPath: '/home/user',
+      path: 'project/repo-a/train.py',
+      name: 'train.py',
+      absolutePath: '/home/user/project/repo-a/train.py',
+      type: 'file',
+      language: 'python',
+      content: 'result = helper()\n',
+      savedContent: '',
+      modifiedAt: '',
+      size: 0,
+      dirty: false,
+      loading: false,
+      saving: false,
+      binary: false,
+      truncated: false,
+    }
+    searchContentMock.mockRejectedValue(new DOMException('timed out', 'TimeoutError'))
+    const result = await resolveEditorDefinition(editor as any, { line: 1, column: 11 }, [editor as any])
+    expect(result).toEqual({ status: 'not-found' })
+  })
   it('prefers definitions from open editors over remote search', async () => {
     const entry = {
       id: 'editor-sh',
