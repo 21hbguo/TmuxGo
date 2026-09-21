@@ -1,3 +1,4 @@
+import '../test-env.js'
 import assert from 'node:assert/strict'
 import { mkdtemp, readFile, rm } from 'fs/promises'
 import os from 'os'
@@ -32,8 +33,13 @@ test('runs host diagnostics as a persistent task and keeps the synchronous endpo
   const taskId = (started.json() as { task: { id: string } }).task.id
   const completed = await waitForTask(manager, taskId)
   assert.equal(completed.status, 'success')
-  assert.equal(completed.result && typeof completed.result === 'object' ? (completed.result as { hostId?: string }).hostId : null, 'local')
-  const persisted = JSON.parse(await readFile(path.join(configDir, 'tasks.json'), 'utf8')) as { tasks: { id: string; status: string }[] }
+  assert.equal(
+    completed.result && typeof completed.result === 'object' ? (completed.result as { hostId?: string }).hostId : null,
+    'local',
+  )
+  const persisted = JSON.parse(await readFile(path.join(configDir, 'tasks.json'), 'utf8')) as {
+    tasks: { id: string; status: string }[]
+  }
   assert.equal(persisted.tasks[0]?.id, taskId)
   assert.equal(persisted.tasks[0]?.status, 'success')
   const host = await fastify.inject({ method: 'GET', url: '/hosts/local' })

@@ -1,3 +1,4 @@
+import '../test-env.js'
 import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'fs/promises'
 import os from 'os'
@@ -18,7 +19,17 @@ test('workspaces CRUD roundtrip', async (t) => {
   const { workspaceRoutes } = await import(`./workspaces.js?test=${Date.now()}-${Math.random()}`)
   const fastify = Fastify()
   await fastify.register(workspaceRoutes)
-  const created = await fastify.inject({ method: 'POST', url: '/workspaces', payload: { name: 'tmuxgo', hostId: 'local', path: '/workspace/tmuxgo', rootId: 'root-workspace', templateId: 'dev' } })
+  const created = await fastify.inject({
+    method: 'POST',
+    url: '/workspaces',
+    payload: {
+      name: 'tmuxgo',
+      hostId: 'local',
+      path: '/workspace/tmuxgo',
+      rootId: 'root-workspace',
+      templateId: 'dev',
+    },
+  })
   assert.equal(created.statusCode, 200)
   const workspace = created.json().workspace as { id: string; name: string; path: string; templateId: string | null }
   assert.equal(workspace.name, 'tmuxgo')
@@ -29,7 +40,11 @@ test('workspaces CRUD roundtrip', async (t) => {
   assert.equal((listed.json().workspaces as unknown[]).length, 1)
   const filtered = await fastify.inject({ method: 'GET', url: '/workspaces?hostId=other' })
   assert.equal((filtered.json().workspaces as unknown[]).length, 0)
-  const patched = await fastify.inject({ method: 'PATCH', url: `/workspaces/${workspace.id}`, payload: { name: 'tmuxgo2', templateId: null } })
+  const patched = await fastify.inject({
+    method: 'PATCH',
+    url: `/workspaces/${workspace.id}`,
+    payload: { name: 'tmuxgo2', templateId: null },
+  })
   assert.equal(patched.statusCode, 200)
   assert.equal(patched.json().workspace.name, 'tmuxgo2')
   assert.equal(patched.json().workspace.templateId, null)

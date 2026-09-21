@@ -1,3 +1,4 @@
+import '../test-env.js'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, rm, writeFile } from 'fs/promises'
@@ -17,17 +18,25 @@ test('runs plugin commands without inheriting sensitive gateway environment', as
     const pluginRoot = path.join(temp, 'plugin')
     const scriptPath = path.join(pluginRoot, 'env.js')
     await mkdir(pluginRoot, { recursive: true })
-    await writeFile(path.join(pluginRoot, 'tmuxgo-plugin.json'), JSON.stringify({
-      schemaVersion: 1,
-      id: 'env-check',
-      name: 'Env Check',
-      version: '1.0.0',
-      minTmuxGoVersion: '0.1.0',
-      platforms: ['linux', 'macos', 'windows'],
-      permissions: ['actions.execute'],
-      contributes: { actions: [{ id: 'print', title: 'Print env', command: [process.execPath, scriptPath] }] },
-    }), 'utf8')
-    await writeFile(scriptPath, "const keys=['TMUXGO_AUTH_PASSWORD','GATEWAY_PASSWORD','PATH','TMUXGO_PLUGIN_ID','TMUXGO_API_URL'];console.log(JSON.stringify(Object.fromEntries(keys.map((key)=>[key,process.env[key]||null]))))", 'utf8')
+    await writeFile(
+      path.join(pluginRoot, 'tmuxgo-plugin.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        id: 'env-check',
+        name: 'Env Check',
+        version: '1.0.0',
+        minTmuxGoVersion: '0.1.0',
+        platforms: ['linux', 'macos', 'windows'],
+        permissions: ['actions.execute'],
+        contributes: { actions: [{ id: 'print', title: 'Print env', command: [process.execPath, scriptPath] }] },
+      }),
+      'utf8',
+    )
+    await writeFile(
+      scriptPath,
+      "const keys=['TMUXGO_AUTH_PASSWORD','GATEWAY_PASSWORD','PATH','TMUXGO_PLUGIN_ID','TMUXGO_API_URL'];console.log(JSON.stringify(Object.fromEntries(keys.map((key)=>[key,process.env[key]||null]))))",
+      'utf8',
+    )
     const manager = new PluginManager()
     await manager.link(pluginRoot)
     await manager.setGrantedPermissions('env-check', ['actions.execute'])

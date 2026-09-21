@@ -1,3 +1,4 @@
+import '../test-env.js'
 import assert from 'node:assert/strict'
 import { mkdtemp, readFile, rm, stat, writeFile } from 'fs/promises'
 import os from 'os'
@@ -14,7 +15,7 @@ test('process log rotates at size limit', async () => {
     await writeFile(logPath, seed, { mode: 0o600 })
     const stream = createProcessLogStream({ teeStdout: false })
     await new Promise<void>((resolve, reject) => {
-      stream.write(Buffer.from('hello-after-rotate\n'), (error) => error ? reject(error) : resolve())
+      stream.write(Buffer.from('hello-after-rotate\n'), (error) => (error ? reject(error) : resolve()))
     })
     await new Promise<void>((resolve) => stream.end(resolve))
     const rotated = await readFile(`${logPath}.1`)

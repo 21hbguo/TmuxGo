@@ -1,3 +1,4 @@
+import '../test-env.js'
 import assert from 'node:assert/strict'
 import Fastify from 'fastify'
 import test from 'node:test'
@@ -35,7 +36,11 @@ test('DELETE /agents/:id removes an Agent and reports success:false for a missin
   const socket = { readyState: 1, send: () => {} } as unknown as WebSocket
   const fastify = Fastify()
   fastify.setErrorHandler((error: unknown, _request, reply) => {
-    if (error instanceof ZodError) return reply.code(400).send({ message: error.issues.map((issue) => `${issue.path.join('.') || 'request'}: ${issue.message}`).join('; '), code: 'INVALID_REQUEST' })
+    if (error instanceof ZodError)
+      return reply.code(400).send({
+        message: error.issues.map((issue) => `${issue.path.join('.') || 'request'}: ${issue.message}`).join('; '),
+        code: 'INVALID_REQUEST',
+      })
     return reply.send(error as Error)
   })
   await fastify.register(agentRoutes, { agentManager: manager })

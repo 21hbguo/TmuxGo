@@ -1,3 +1,4 @@
+import '../test-env.js'
 import assert from 'node:assert/strict'
 import { mkdtemp, readFile, rm, stat, writeFile } from 'fs/promises'
 import os from 'os'
@@ -20,7 +21,10 @@ test('stores only hashed share tokens and issues single-use tickets', async () =
   assert.equal('token' in exchanged, false)
   assert.equal(exchanged.link.id, created.id)
   const ticket = store.consumeTicket(exchanged.ticket)
-  assert.deepEqual(ticket && { hostId: ticket.hostId, sessionName: ticket.sessionName }, { hostId: 'local', sessionName: 'shared-session' })
+  assert.deepEqual(ticket && { hostId: ticket.hostId, sessionName: ticket.sessionName }, {
+    hostId: 'local',
+    sessionName: 'shared-session',
+  })
   assert.equal(store.consumeTicket(exchanged.ticket), null)
   await rm(configDir, { recursive: true, force: true })
 })
