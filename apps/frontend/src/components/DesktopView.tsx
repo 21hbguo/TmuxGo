@@ -22,6 +22,7 @@ import {
 import { Button } from './Button'
 import { api, type VncDisplay, type VncSetupStatus } from '@/lib/api'
 import { getWebSocketUrl } from '@/lib/auth'
+import { loadNovnc } from '@/lib/novnc-loader'
 import {
   applyVncResolution,
   attachVncInstrumentation,
@@ -280,7 +281,7 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
         let stored: { password?: string } | undefined
         ;[url, { default: RFB }, stored] = await Promise.all([
           getWebSocketUrl(getVncWebSocketBase(hostId, targetPort)),
-          import('@novnc/novnc'),
+          loadNovnc(),
           api.vnc.getPassword(hostId, targetDisplay).catch(() => undefined),
         ])
         storedPassword = stored?.password
