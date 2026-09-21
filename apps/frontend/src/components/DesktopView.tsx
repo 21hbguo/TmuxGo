@@ -206,6 +206,7 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
   const wsCloseRef = useRef<{ code: number; reason: string } | null>(null)
   // noVNC 的 Websock 没有连接超时：弱网/代理下 WS 升级卡死会让 connecting 无限挂起，前端兜底限时
   const connectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const connectTimedOutRef = useRef(false)
   const clearConnectTimeout = () => {
     if (connectTimeoutRef.current !== null) {
       clearTimeout(connectTimeoutRef.current)
@@ -253,6 +254,20 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
       setCredentialTypes([])
       const seq = ++connectSeqRef.current
       const targetDisplay = targetPort - VNC_PORT_RANGE.min
+      // 超时必须覆盖整条管线：ticket/import(getPassword) 任一 await 挂起时 RFB 还没构造，
+      // 放在 Promise.all 之后就永远兜不住——noVNC 的 Websock 自身没有握手超时
+      connectTimedOutRef.current = false
+      clearConnectTimeout()
+      connectTimeoutRef.current = setTimeout(() => {
+        connectTimeoutRef.current = null
+        connectTimedOutRef.current = true
+        // 作废本次 connect：若在 await 中挂起，后续 resolve 的 seq 检查会丢弃它
+        connectSeqRef.current++
+        rfbRef.current?.disconnect()
+        setStatus('disconnected')
+        setError(tRef.current('vnc.connectTimeout'))
+        suggestDisplays(targetDisplay)
+      }, VNC_CONNECT_TIMEOUT_MS)
       // 换屏时丢弃上一屏的暂存凭据，避免旧密码被自动应答到新屏
       if (credentialsForRef.current !== null && credentialsForRef.current !== targetDisplay) {
         credentialsRef.current = null
@@ -270,6 +285,7 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
         ])
         storedPassword = stored?.password
       } catch (err) {
+        clearConnectTimeout()
         setStatus('idle')
         setError(err instanceof Error ? err.message : String(err))
         return
@@ -321,7 +337,8 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
           resolutionCleanupRef.current = null
           setStatus('disconnected')
           setCredentialTypes([])
-          if (!event.detail.clean) {
+          // 超时已置过错误，disconnect 事件晚到时不再覆盖
+          if (!event.detail.clean && !connectTimedOutRef.current) {
             const wsClose = wsCloseRef.current
             setError(
               wsClose?.reason
@@ -357,17 +374,9 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
         })
         rfbRef.current = rfb
         wasActiveRef.current = true
-        clearConnectTimeout()
-        connectTimeoutRef.current = setTimeout(() => {
-          connectTimeoutRef.current = null
-          rfb.disconnect()
-          // disconnect 事件在异常状态机下未必派发，状态直接兜底
-          setStatus('disconnected')
-          setError(tRef.current('vnc.connectTimeout'))
-          suggestDisplays(targetDisplay)
-        }, VNC_CONNECT_TIMEOUT_MS)
       } catch (err) {
         // RFB 构造/instrumentation 同步抛错也必须落地：否则 status 永远停在 connecting 且无错误提示
+        clearConnectTimeout()
         setStatus('idle')
         setError(err instanceof Error ? err.message : String(err))
       }

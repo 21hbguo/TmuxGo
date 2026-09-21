@@ -1,0 +1,103 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VNC WS 探针</title>
+<style>
+  body { font: 13px/1.7 ui-monospace,monospace; background:#111; color:#cfcfcf; padding:12px; }
+  .ok { color:#5fd75f } .err { color:#ff6b6b } .head { color:#87afff; margin-top:10px }
+  #out { white-space:pre-wrap; word-break:break-all }
+</style>
+</head>
+<body>
+<div id="out"><div class="head">VNC WS 探针</div></div>
+<script>
+const out = document.getElementById('out')
+function log(msg, cls) {
+  const t = new Date().toISOString().slice(11, 23)
+  const div = document.createElement('div')
+  if (cls) div.className = cls
+  div.textContent = t + ' ' + msg
+  out.appendChild(div)
+  try {
+    fetch('/api/client-events', {
+      method: 'POST', credentials: 'include',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionId: 'vnc-probe', events: [{ t, msg: String(msg) }] })
+    }).catch(() => {})
+  } catch (e) {}
+}
+function getTicket() {
+  return fetch('/api/auth/ws-ticket', {
+    method: 'POST', credentials: 'include',
+    headers: { 'content-type': 'application/json' }, body: '{}'
+  }).then(async r => {
+    const j = await r.json().catch(() => ({}))
+    log('ws-ticket HTTP ' + r.status + (j.ticket ? ' 已签发' : ' 无ticket:' + JSON.stringify(j).slice(0, 90)), j.ticket ? 'ok' : 'err')
+    return j.ticket || ''
+  }).catch(e => { log('ws-ticket fetch异常: ' + e.message, 'err'); return '' })
+}
+function testWs(url, label) {
+  return new Promise(resolve => {
+    const shown = url.replace(/ticket=[^&]+/, 'ticket=***')
+    log(label + ' new WebSocket: ' + shown)
+    let done = false
+    const finish = r => { if (!done) { done = true; log(label + ' => ' + r, r.startsWith('成功') || r.startsWith('onopen') ? 'ok' : 'err'); resolve() } }
+    try {
+      const ws = new WebSocket(url, [])
+      log(label + ' 构造成功 readyState=' + ws.readyState)
+      const to = setTimeout(() => finish('超时20s readyState=' + ws.readyState), 20000)
+      ws.onopen = () => log(label + ' onopen readyState=' + ws.readyState, 'ok')
+      ws.onmessage = e => {
+        const len = e.data && (e.data.byteLength || e.data.length || 0)
+        log(label + ' onmessage type=' + typeof e.data + ' len=' + len, 'ok')
+        clearTimeout(to); try { ws.close() } catch (x) {}
+        finish('成功(收到数据 len=' + len + ')')
+      }
+      ws.onerror = () => { clearTimeout(to); finish('onerror readyState=' + ws.readyState) }
+      ws.onclose = e => { clearTimeout(to); finish('onclose code=' + e.code + ' reason=' + (e.reason || '-') + ' wasClean=' + e.wasClean) }
+    } catch (err) { finish('构造异常: ' + err.name + ' ' + err.message) }
+  })
+}
+(async () => {
+  log('UA: ' + navigator.userAgent)
+  log('origin: ' + location.origin + '  protocol: ' + location.protocol)
+  const proto = location.protocol === 'https:' ? 'wss://' : 'ws://'
+  const base = proto + location.host
+
+  let ticket = await getTicket()
+  await testWs(base + '/api/stream?ticket=' + ticket, '[stream]')
+
+  ticket = await getTicket()
+  await testWs(base + '/api/vnc?hostId=local&port=5909&ticket=' + ticket, '[vnc:5909]')
+
+  try {
+    const r = await fetch('/api/vnc?hostId=local&port=5909', { credentials: 'include' })
+    const txt = await r.text()
+    log('[vnc-plainGET] HTTP ' + r.status + ' body=' + txt.slice(0, 90), r.status < 500 ? 'ok' : 'err')
+  } catch (e) { log('[vnc-plainGET] fetch异常: ' + e.message, 'err') }
+
+  const t0 = Date.now()
+  try {
+    const r = await fetch('/assets/rfb-Cw3mtRGP.js', { cache: 'no-store' })
+    const body = await r.text()
+    log('[rfb-fetch] HTTP ' + r.status + ' len=' + body.length + ' 耗时' + (Date.now() - t0) + 'ms', r.ok ? 'ok' : 'err')
+  } catch (e) { log('[rfb-fetch] 异常: ' + e.message + ' 耗时' + (Date.now() - t0) + 'ms', 'err') }
+
+  const t1 = Date.now()
+  const importTimeout = setTimeout(() => log('[rfb-import] 仍在等待... ' + (Date.now() - t1) + 'ms', 'err'), 8000)
+  try {
+    const mod = await import('/assets/rfb-Cw3mtRGP.js')
+    clearTimeout(importTimeout)
+    log('[rfb-import] 成功 keys=' + Object.keys(mod).join(',') + ' 耗时' + (Date.now() - t1) + 'ms', 'ok')
+  } catch (e) {
+    clearTimeout(importTimeout)
+    log('[rfb-import] 异常: ' + e.message + ' 耗时' + (Date.now() - t1) + 'ms', 'err')
+  }
+
+  log('=== 完成，请把本页内容截图/复制发回 ===', 'head')
+})()
+</script>
+</body>
+</html>
