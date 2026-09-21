@@ -2,9 +2,19 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
-import { useBatchDeleteSessions, useCreateSession, useDeleteSession, useRenameSession, useWindows } from '@/hooks/useApi'
+import {
+  useBatchDeleteSessions,
+  useCreateSession,
+  useDeleteSession,
+  useRenameSession,
+  useWindows,
+} from '@/hooks/useApi'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
-import { useMigrateSessionWorkspace, useRemoveSessionWorkspaces, useSetSessionWorkspace } from '@/hooks/useSessionWorkspaces'
+import {
+  useMigrateSessionWorkspace,
+  useRemoveSessionWorkspaces,
+  useSetSessionWorkspace,
+} from '@/hooks/useSessionWorkspaces'
 import { useWorkspaces } from '@/hooks/useWorkspaces'
 import { SessionTemplates, type Template } from './SessionTemplates'
 import { CreateSessionDialog } from './CreateSessionDialog'
@@ -21,7 +31,7 @@ import { api } from '@/lib/api'
 import { QuickActions } from './QuickActions'
 import { ConfirmDialog } from './ConfirmDialog'
 import { PromptDialog } from './PromptDialog'
-import { SessionSortableList } from './SessionSortableList'
+import { SessionStandaloneSortableList } from './SessionSortableList'
 import { HostSwitcher } from './HostSwitcher'
 import { AgentStatusBadge } from './AgentStatusBadge'
 
@@ -49,7 +59,13 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
   const activeHostId = useConsoleStore((state) => state.activeHostId)
   const { data: workspaces = [] } = useWorkspaces(activeHostId || undefined)
   const pushToast = useConsoleStore((state) => state.pushToast)
-  const { data: sessions = [], moveSession, isError: sessionsError, error: sessionsErrorValue, refetch: refetchSessions } = useOrderedSessions(activeHostId || '')
+  const {
+    data: sessions = [],
+    moveSession,
+    isError: sessionsError,
+    error: sessionsErrorValue,
+    refetch: refetchSessions,
+  } = useOrderedSessions(activeHostId || '')
   const { data: windowsData = [] } = useWindows(activeHostId || '', activeSessionId || '')
   const { getWindows, setWindows } = useWindowQueryState(activeHostId || '', activeSessionId || '')
   const createWindow = useCreateWindow()
@@ -82,10 +98,31 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
     setCreateDialogTemplate(template)
     setCreateDialogOpen(true)
   }
-  const handleCreateSession = async ({ name, cwd, workspace }: { name: string; cwd?: string; workspace?: { rootId: string; rootPath: string; rootLabel: string; relativePath: string; absolutePath: string; workspaceId?: string; workspaceName?: string } }) => {
+  const handleCreateSession = async ({
+    name,
+    cwd,
+    workspace,
+  }: {
+    name: string
+    cwd?: string
+    workspace?: {
+      rootId: string
+      rootPath: string
+      rootLabel: string
+      relativePath: string
+      absolutePath: string
+      workspaceId?: string
+      workspaceName?: string
+    }
+  }) => {
     if (!activeHostId || !createDialogTemplate) return
     try {
-      const created = await createSession.mutateAsync({ hostId: activeHostId, name, layout: createDialogTemplate.layout, cwd })
+      const created = await createSession.mutateAsync({
+        hostId: activeHostId,
+        name,
+        layout: createDialogTemplate.layout,
+        cwd,
+      })
       if (created?.id) {
         if (cwd && workspace) {
           try {
@@ -196,7 +233,11 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
     if (!name || name === session?.name) return
     try {
       const renamed = await renameSession.mutateAsync({ hostId: activeHostId, sessionId, name })
-      if (renamed?.id && renamed.id !== sessionId) { try { await migrateSessionWorkspace.mutateAsync({ fromId: sessionId, toId: renamed.id }) } catch {} }
+      if (renamed?.id && renamed.id !== sessionId) {
+        try {
+          await migrateSessionWorkspace.mutateAsync({ fromId: sessionId, toId: renamed.id })
+        } catch {}
+      }
       if (activeSessionId === sessionId && renamed?.id) setActiveSession(renamed.id)
       pushToast({ type: 'success', message: t('session.renamed', { from: session?.name || sessionId, to: name }) })
     } catch (err) {
@@ -208,8 +249,11 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
     const session = sessions.find((item: any) => item.id === pendingDeleteSessionId)
     try {
       await deleteSession.mutateAsync({ hostId: activeHostId, sessionId: pendingDeleteSessionId })
-      try { await removeSessionWorkspaces.mutateAsync([pendingDeleteSessionId]) } catch {}
-      if (activeSessionId === pendingDeleteSessionId) setActiveSession(getNextSessionId(sessions, [pendingDeleteSessionId]))
+      try {
+        await removeSessionWorkspaces.mutateAsync([pendingDeleteSessionId])
+      } catch {}
+      if (activeSessionId === pendingDeleteSessionId)
+        setActiveSession(getNextSessionId(sessions, [pendingDeleteSessionId]))
       pushToast({ type: 'success', message: t('session.deleted', { name: session?.name || pendingDeleteSessionId }) })
       onClose()
     } catch (err) {
@@ -220,12 +264,28 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
   const confirmBatchDeleteSession = async () => {
     if (!activeHostId || !selectedSessionIds.length) return
     try {
-      const preview = await batchDeleteSessions.mutateAsync({ hostId: activeHostId, payload: { mode: 'preview', sessionIds: selectedSessionIds, filters: { includeAttached: true } } })
-      const execute = await batchDeleteSessions.mutateAsync({ hostId: activeHostId, payload: { mode: 'execute', sessionIds: selectedSessionIds, filters: { includeAttached: true }, force: preview.forceRequired === true } })
+      const preview = await batchDeleteSessions.mutateAsync({
+        hostId: activeHostId,
+        payload: { mode: 'preview', sessionIds: selectedSessionIds, filters: { includeAttached: true } },
+      })
+      const execute = await batchDeleteSessions.mutateAsync({
+        hostId: activeHostId,
+        payload: {
+          mode: 'execute',
+          sessionIds: selectedSessionIds,
+          filters: { includeAttached: true },
+          force: preview.forceRequired === true,
+        },
+      })
       const deletedIds = new Set((execute.deleted || []).map((item) => item.sessionId))
       const deletedCount = typeof execute.deletedCount === 'number' ? execute.deletedCount : deletedIds.size
-      if (deletedIds.size) { try { await removeSessionWorkspaces.mutateAsync(Array.from(deletedIds)) } catch {} }
-      if (activeSessionId && deletedIds.has(activeSessionId)) setActiveSession(getNextSessionId(sessions, Array.from(deletedIds)))
+      if (deletedIds.size) {
+        try {
+          await removeSessionWorkspaces.mutateAsync(Array.from(deletedIds))
+        } catch {}
+      }
+      if (activeSessionId && deletedIds.has(activeSessionId))
+        setActiveSession(getNextSessionId(sessions, Array.from(deletedIds)))
       pushToast({ type: 'success', message: t('sidebar.batchDeleteSuccess', { count: deletedCount }) })
       setSelectedSessionIds([])
       setBatchMode(false)
@@ -236,7 +296,9 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
     setBatchDeleteConfirmOpen(false)
   }
   const toggleBatchSession = (sessionId: string) => {
-    setSelectedSessionIds((prev) => prev.includes(sessionId) ? prev.filter((id) => id !== sessionId) : [...prev, sessionId])
+    setSelectedSessionIds((prev) =>
+      prev.includes(sessionId) ? prev.filter((id) => id !== sessionId) : [...prev, sessionId],
+    )
   }
   useEffect(() => {
     setSelectedSessionIds((prev) => {
@@ -249,9 +311,9 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
   const handleSelectWindow = async (windowId: string) => {
     if (!activeHostId || !activeSessionId) return
     const previousWindows = getWindows()
-    setWindows(previousWindows.map((w: any) =>
-      w.sessionId === activeSessionId ? { ...w, active: w.id === windowId } : w
-    ))
+    setWindows(
+      previousWindows.map((w: any) => (w.sessionId === activeSessionId ? { ...w, active: w.id === windowId } : w)),
+    )
     try {
       const result = await api.windows.select(activeHostId, activeSessionId, windowId)
       if (result.windows) setWindows(result.windows)
@@ -298,12 +360,18 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
     if (!next) setSelectedWindowIds([])
   }
   const toggleWindowSelection = (windowId: string) => {
-    setSelectedWindowIds((prev) => prev.includes(windowId) ? prev.filter((id) => id !== windowId) : [...prev, windowId])
+    setSelectedWindowIds((prev) =>
+      prev.includes(windowId) ? prev.filter((id) => id !== windowId) : [...prev, windowId],
+    )
   }
   const handleWindowBatchDelete = async () => {
     if (!activeHostId || !activeSessionId || selectedWindowIds.length === 0) return
     try {
-      const results = await batchKillWindows.mutateAsync({ hostId: activeHostId, sessionId: activeSessionId, windowIds: selectedWindowIds })
+      const results = await batchKillWindows.mutateAsync({
+        hostId: activeHostId,
+        sessionId: activeSessionId,
+        windowIds: selectedWindowIds,
+      })
       const success = results.filter((r) => r.ok).length
       const failed = results.length - success
       if (failed === 0) {
@@ -314,7 +382,11 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
         pushToast({ type: 'error', message: t('window.batchDeleteFailed', { count: failed }) })
       }
     } catch (err) {
-      pushToast({ type: 'error', message: err instanceof Error ? err.message : t('window.batchDeleteFailed', { count: selectedWindowIds.length }) })
+      pushToast({
+        type: 'error',
+        message:
+          err instanceof Error ? err.message : t('window.batchDeleteFailed', { count: selectedWindowIds.length }),
+      })
     } finally {
       setWindowBatchDeleteConfirmOpen(false)
       setWindowBatchMode(false)
@@ -344,79 +416,199 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
         className={`tmuxgo-glass tmuxgo-glass-dialog absolute bottom-0 left-0 right-0 flex max-h-[75%] flex-col overflow-hidden border-t transition-transform duration-200 ease-out ${closing ? 'translate-y-full' : ''}`}
         style={{ paddingBottom: 'env(safe-area-inset-bottom,0px)' }}
       >
-        <div className="flex justify-center py-2 touch-none" onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd} onTouchCancel={handleTouchEnd}>
+        <div
+          className="flex justify-center py-2 touch-none"
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          onTouchCancel={handleTouchEnd}
+        >
           <div className="w-10 h-1 rounded-full bg-text-3/30" />
         </div>
         <div className="flex items-center justify-between px-4 pb-3">
           <h3 className="text-text-1 font-medium">
-            {type === 'sessions' ? batchMode ? t('sidebar.batchSelectedCount', { count: selectedSessionIds.length }) : t('drawer.sessions') : type === 'windows' ? t('drawer.windowsTitle') : t('drawer.panes')}
+            {type === 'sessions'
+              ? batchMode
+                ? t('sidebar.batchSelectedCount', { count: selectedSessionIds.length })
+                : t('drawer.sessions')
+              : type === 'windows'
+                ? t('drawer.windowsTitle')
+                : t('drawer.panes')}
           </h3>
           <div className="flex items-center gap-2">
-            {type === 'sessions' && <Chip onClick={() => {
-              setBatchMode((prev) => !prev)
-              setSelectedSessionIds([])
-            }}>{batchMode ? t('sidebar.batchCancelAction') : t('sidebar.batchDeleteAction')}</Chip>}
-            {type === 'windows' && !windowBatchMode && <Chip onClick={handleOpenNewWindowPrompt} aria-label={t('window.createTitle')} title={t('window.createTitle')} disabled={createWindow.isPending}><FiPlus aria-hidden="true" size={14} /></Chip>}
-            {type === 'windows' && <Chip onClick={toggleWindowBatchMode}>{windowBatchMode ? t('window.batchCancel') : t('window.batchMode')}</Chip>}
-            <Button variant="ghost" size="icon-sm" aria-label="close" onClick={handleClose}>✕</Button>
+            {type === 'sessions' && (
+              <Chip
+                onClick={() => {
+                  setBatchMode((prev) => !prev)
+                  setSelectedSessionIds([])
+                }}
+              >
+                {batchMode ? t('sidebar.batchCancelAction') : t('sidebar.batchDeleteAction')}
+              </Chip>
+            )}
+            {type === 'windows' && !windowBatchMode && (
+              <Chip
+                onClick={handleOpenNewWindowPrompt}
+                aria-label={t('window.createTitle')}
+                title={t('window.createTitle')}
+                disabled={createWindow.isPending}
+              >
+                <FiPlus aria-hidden="true" size={14} />
+              </Chip>
+            )}
+            {type === 'windows' && (
+              <Chip onClick={toggleWindowBatchMode}>
+                {windowBatchMode ? t('window.batchCancel') : t('window.batchMode')}
+              </Chip>
+            )}
+            <Button variant="ghost" size="icon-sm" aria-label="close" onClick={handleClose}>
+              ✕
+            </Button>
           </div>
         </div>
-        <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 pb-4 scrollbar-none" style={{ WebkitOverflowScrolling: 'touch' }}>
+        <div
+          className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 pb-4 scrollbar-none"
+          style={{ WebkitOverflowScrolling: 'touch' }}
+        >
           {type === 'sessions' && (
             <div className="space-y-2">
               <HostSwitcher mode="mobile" />
-              {!batchMode && <Chip
-                onClick={() => setShowTemplates(true)}
-                className="w-full justify-start p-3 border border-dashed"
-              >
-                + {t('sidebar.newSession')}
-              </Chip>}
-              {batchMode && <div className="grid grid-cols-3 gap-2">
-                <Chip onClick={() => setSelectedSessionIds(sessions.map((session) => session.id))} className="flex-1 justify-center">{t('sidebar.batchSelectAll')}</Chip>
-                <Chip onClick={() => setSelectedSessionIds([])} className="flex-1 justify-center">{t('sidebar.batchClearAll')}</Chip>
-                <Chip tone="danger" disabled={!selectedSessionIds.length} className="flex-1 justify-center disabled:cursor-not-allowed" onClick={() => setBatchDeleteConfirmOpen(true)}>{t('sidebar.batchDeleteSelected')}</Chip>
-              </div>}
-              {sessionsError && !sessions.length ? <div className="rounded-apple bg-bg-2 p-3 text-xs text-danger"><div className="break-words">{sessionsErrorValue instanceof Error ? sessionsErrorValue.message : t('session.loadFailed')}</div><button onClick={() => void refetchSessions()} className="mt-2 rounded-apple bg-bg-1 px-2 py-1 text-accent">{t('common.retry')}</button></div> : <SessionSortableList
-                sessions={sessions}
-                onMove={moveSession}
-                listClassName="space-y-2"
-                getItemClassName={({ session, isDragging, isOverlay }) => `tmuxgo-list-row rounded-apple ${batchMode ? selectedSessionIds.includes(session.id) ? 'tmuxgo-list-row--batch' : '' : ''} ${isDragging && !isOverlay ? 'opacity-40' : ''}`}
-                renderItem={({ session, isOverlay }) => (
-                  <div className={`tmuxgo-list-row flex items-center gap-2 rounded-apple border p-2 ${batchMode ? selectedSessionIds.includes(session.id) ? 'tmuxgo-list-row--batch' : 'border-transparent bg-bg-2' : activeSessionId === session.id ? 'tmuxgo-list-row--active' : 'border-transparent bg-bg-2'} ${isOverlay ? 'border-accent bg-bg-1' : ''}`}>
-                    {batchMode && <button onClick={() => toggleBatchSession(session.id)} className={`flex h-9 w-7 shrink-0 items-center justify-center rounded-apple text-sm leading-none ${selectedSessionIds.includes(session.id) ? 'text-danger' : 'text-text-3'} active:bg-bg-1`}>{selectedSessionIds.includes(session.id) ? '☑' : '☐'}</button>}
-                    <button onClick={() => {
-                      if (batchMode) {
-                        toggleBatchSession(session.id)
-                        return
-                      }
-                      setActiveSession(session.id)
-                      handleClose()
-                    }} className="min-w-0 flex-1 px-1 py-1 text-left">
-                      <div className="truncate text-text-1">{session.name}</div>
-                      <div className="mt-0.5 flex items-center gap-2 text-xs text-text-3"><span className="shrink-0 whitespace-nowrap">{t('drawer.windows', { count: session.windowCount })}</span><AgentStatusBadge summary={session.agentSummary} /></div>
-                    </button>
-                    {!batchMode && <div className="flex shrink-0 items-center gap-1">
-                      <button onClick={() => void handleRenameSession(session.id)} className="rounded-apple px-2 py-2 text-xs text-text-2 active:bg-bg-1" aria-label={t('sidebar.renameSession')} title={t('sidebar.renameSession')}>✎</button>
-                      <button onClick={() => setPendingDeleteSessionId(session.id)} className="rounded-apple px-2 py-2 text-sm text-text-2 active:bg-bg-1" aria-label={t('sidebar.deleteSession')} title={t('sidebar.deleteSession')}>×</button>
-                    </div>}
+              {!batchMode && (
+                <Chip onClick={() => setShowTemplates(true)} className="w-full justify-start p-3 border border-dashed">
+                  + {t('sidebar.newSession')}
+                </Chip>
+              )}
+              {batchMode && (
+                <div className="grid grid-cols-3 gap-2">
+                  <Chip
+                    onClick={() => setSelectedSessionIds(sessions.map((session) => session.id))}
+                    className="flex-1 justify-center"
+                  >
+                    {t('sidebar.batchSelectAll')}
+                  </Chip>
+                  <Chip onClick={() => setSelectedSessionIds([])} className="flex-1 justify-center">
+                    {t('sidebar.batchClearAll')}
+                  </Chip>
+                  <Chip
+                    tone="danger"
+                    disabled={!selectedSessionIds.length}
+                    className="flex-1 justify-center disabled:cursor-not-allowed"
+                    onClick={() => setBatchDeleteConfirmOpen(true)}
+                  >
+                    {t('sidebar.batchDeleteSelected')}
+                  </Chip>
+                </div>
+              )}
+              {sessionsError && !sessions.length ? (
+                <div className="rounded-apple bg-bg-2 p-3 text-xs text-danger">
+                  <div className="break-words">
+                    {sessionsErrorValue instanceof Error ? sessionsErrorValue.message : t('session.loadFailed')}
                   </div>
-                )}
-              />}
+                  <button
+                    onClick={() => void refetchSessions()}
+                    className="mt-2 rounded-apple bg-bg-1 px-2 py-1 text-accent"
+                  >
+                    {t('common.retry')}
+                  </button>
+                </div>
+              ) : (
+                <SessionStandaloneSortableList
+                  sessions={sessions}
+                  onMove={moveSession}
+                  listClassName="space-y-2"
+                  getItemClassName={({ session, isDragging, isOverlay }) =>
+                    `tmuxgo-list-row rounded-apple ${batchMode ? (selectedSessionIds.includes(session.id) ? 'tmuxgo-list-row--batch' : '') : ''} ${isDragging && !isOverlay ? 'opacity-40' : ''}`
+                  }
+                  renderItem={({ session, isOverlay }) => (
+                    <div
+                      className={`tmuxgo-list-row flex items-center gap-2 rounded-apple border p-2 ${batchMode ? (selectedSessionIds.includes(session.id) ? 'tmuxgo-list-row--batch' : 'border-transparent bg-bg-2') : activeSessionId === session.id ? 'tmuxgo-list-row--active' : 'border-transparent bg-bg-2'} ${isOverlay ? 'border-accent bg-bg-1' : ''}`}
+                    >
+                      {batchMode && (
+                        <button
+                          onClick={() => toggleBatchSession(session.id)}
+                          className={`flex h-9 w-7 shrink-0 items-center justify-center rounded-apple text-sm leading-none ${selectedSessionIds.includes(session.id) ? 'text-danger' : 'text-text-3'} active:bg-bg-1`}
+                        >
+                          {selectedSessionIds.includes(session.id) ? '☑' : '☐'}
+                        </button>
+                      )}
+                      <button
+                        onClick={() => {
+                          if (batchMode) {
+                            toggleBatchSession(session.id)
+                            return
+                          }
+                          setActiveSession(session.id)
+                          handleClose()
+                        }}
+                        className="min-w-0 flex-1 px-1 py-1 text-left"
+                      >
+                        <div className="truncate text-text-1">{session.name}</div>
+                        <div className="mt-0.5 flex items-center gap-2 text-xs text-text-3">
+                          <span className="shrink-0 whitespace-nowrap">
+                            {t('drawer.windows', { count: session.windowCount })}
+                          </span>
+                          <AgentStatusBadge summary={session.agentSummary} />
+                        </div>
+                      </button>
+                      {!batchMode && (
+                        <div className="flex shrink-0 items-center gap-1">
+                          <button
+                            onClick={() => void handleRenameSession(session.id)}
+                            className="rounded-apple px-2 py-2 text-xs text-text-2 active:bg-bg-1"
+                            aria-label={t('sidebar.renameSession')}
+                            title={t('sidebar.renameSession')}
+                          >
+                            ✎
+                          </button>
+                          <button
+                            onClick={() => setPendingDeleteSessionId(session.id)}
+                            className="rounded-apple px-2 py-2 text-sm text-text-2 active:bg-bg-1"
+                            aria-label={t('sidebar.deleteSession')}
+                            title={t('sidebar.deleteSession')}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                />
+              )}
             </div>
           )}
-          {type === 'panes' && (
-            <QuickActions />
-          )}
+          {type === 'panes' && <QuickActions />}
           {type === 'windows' && (
             <div className="space-y-2">
-              {windowBatchMode && (() => {
-                const nonActiveIds = sessionWindows.filter((w: any) => !w.active).map((w: any) => w.id)
-                return <div className="grid grid-cols-3 gap-2">
-                  <Chip onClick={() => setSelectedWindowIds(nonActiveIds)} className="flex-1 justify-center" disabled={nonActiveIds.length === 0}>{t('window.batchSelectAll')}</Chip>
-                  <Chip onClick={() => setSelectedWindowIds([])} className="flex-1 justify-center" disabled={selectedWindowIds.length === 0}>{t('window.batchClearAll')}</Chip>
-                  <Chip tone="danger" className="flex-1 justify-center disabled:cursor-not-allowed" disabled={selectedWindowIds.length === 0} onClick={() => setWindowBatchDeleteConfirmOpen(true)}>{t('window.batchDeleteSelected', { count: selectedWindowIds.length })}</Chip>
-                </div>
-              })()}
+              {windowBatchMode &&
+                (() => {
+                  const nonActiveIds = sessionWindows.filter((w: any) => !w.active).map((w: any) => w.id)
+                  return (
+                    <div className="grid grid-cols-3 gap-2">
+                      <Chip
+                        onClick={() => setSelectedWindowIds(nonActiveIds)}
+                        className="flex-1 justify-center"
+                        disabled={nonActiveIds.length === 0}
+                      >
+                        {t('window.batchSelectAll')}
+                      </Chip>
+                      <Chip
+                        onClick={() => setSelectedWindowIds([])}
+                        className="flex-1 justify-center"
+                        disabled={selectedWindowIds.length === 0}
+                      >
+                        {t('window.batchClearAll')}
+                      </Chip>
+                      <Chip
+                        tone="danger"
+                        className="flex-1 justify-center disabled:cursor-not-allowed"
+                        disabled={selectedWindowIds.length === 0}
+                        onClick={() => setWindowBatchDeleteConfirmOpen(true)}
+                      >
+                        {t('window.batchDeleteSelected', { count: selectedWindowIds.length })}
+                      </Chip>
+                    </div>
+                  )
+                })()}
               {sessionWindows.length === 0 ? (
                 <div className="text-center text-text-3 py-4">{t('drawer.noWindows')}</div>
               ) : (
@@ -424,9 +616,14 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
                   if (windowBatchMode) {
                     if (window.active) {
                       return (
-                        <div key={window.id} className="w-full rounded-apple border border-accent/30 bg-accent/10 p-3 opacity-60">
+                        <div
+                          key={window.id}
+                          className="w-full rounded-apple border border-accent/30 bg-accent/10 p-3 opacity-60"
+                        >
                           <div className="truncate text-text-1">{window.name}</div>
-                          <div className="text-text-3 text-xs">#{window.index + 1} · {t('window.cannotDeleteActive')}</div>
+                          <div className="text-text-3 text-xs">
+                            #{window.index + 1} · {t('window.cannotDeleteActive')}
+                          </div>
                         </div>
                       )
                     }
@@ -437,7 +634,10 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
                         onClick={() => toggleWindowSelection(window.id)}
                         className={`w-full rounded-apple p-3 text-left transition-colors ${selected ? 'border border-danger bg-danger/10' : 'bg-bg-2 active:bg-bg-1'}`}
                       >
-                        <div className="truncate text-text-1">{selected ? '☑ ' : '☐ '}{window.name}</div>
+                        <div className="truncate text-text-1">
+                          {selected ? '☑ ' : '☐ '}
+                          {window.name}
+                        </div>
                         <div className="text-text-3 text-xs">#{window.index + 1}</div>
                       </button>
                     )
@@ -458,12 +658,67 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
           )}
         </div>
       </div>
-      {showTemplates && <ModalPortal><SessionTemplates onSelect={handleTemplateSelect} onClose={() => setShowTemplates(false)} /></ModalPortal>}
-      <CreateSessionDialog open={createDialogOpen} template={createDialogTemplate} defaultName={createDialogTemplate ? getTemplateSessionName(createDialogTemplate) : ''} hostId={activeHostId || ''} workspaces={workspaces} onCreate={handleCreateSession} onClose={() => { setCreateDialogOpen(false); setCreateDialogTemplate(null) }} />
-      <ConfirmDialog open={!!pendingDeleteSessionId} title={t('sidebar.deleteTitle')} message={t('sidebar.deleteConfirm', { name: sessions.find((item: any) => item.id === pendingDeleteSessionId)?.name || '' })} confirmLabel={t('sidebar.confirmDelete')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setPendingDeleteSessionId(null)} onConfirm={() => void confirmDeleteSession()} />
-      <ConfirmDialog open={batchDeleteConfirmOpen} title={t('sidebar.batchDeleteTitle')} message={t('sidebar.batchDeleteConfirm', { count: selectedSessionIds.length })} confirmLabel={t('sidebar.batchDeleteSelected')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setBatchDeleteConfirmOpen(false)} onConfirm={() => void confirmBatchDeleteSession()} />
-      <PromptDialog open={newWindowPromptOpen} title={t('window.createTitle')} defaultValue={newWindowName} confirmLabel={t('common.confirm')} cancelLabel={t('common.cancel')} onCancel={() => setNewWindowPromptOpen(false)} onConfirm={(value) => { setNewWindowName(value); void confirmCreateWindow(value) }} />
-      <ConfirmDialog open={windowBatchDeleteConfirmOpen} title={t('window.batchDeleteTitle')} message={t('window.batchDeleteConfirm', { count: selectedWindowIds.length })} confirmLabel={t('window.batchDeleteSelected', { count: selectedWindowIds.length })} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setWindowBatchDeleteConfirmOpen(false)} onConfirm={() => void handleWindowBatchDelete()} />
+      {showTemplates && (
+        <ModalPortal>
+          <SessionTemplates onSelect={handleTemplateSelect} onClose={() => setShowTemplates(false)} />
+        </ModalPortal>
+      )}
+      <CreateSessionDialog
+        open={createDialogOpen}
+        template={createDialogTemplate}
+        defaultName={createDialogTemplate ? getTemplateSessionName(createDialogTemplate) : ''}
+        hostId={activeHostId || ''}
+        workspaces={workspaces}
+        onCreate={handleCreateSession}
+        onClose={() => {
+          setCreateDialogOpen(false)
+          setCreateDialogTemplate(null)
+        }}
+      />
+      <ConfirmDialog
+        open={!!pendingDeleteSessionId}
+        title={t('sidebar.deleteTitle')}
+        message={t('sidebar.deleteConfirm', {
+          name: sessions.find((item: any) => item.id === pendingDeleteSessionId)?.name || '',
+        })}
+        confirmLabel={t('sidebar.confirmDelete')}
+        cancelLabel={t('common.cancel')}
+        tone="danger"
+        onCancel={() => setPendingDeleteSessionId(null)}
+        onConfirm={() => void confirmDeleteSession()}
+      />
+      <ConfirmDialog
+        open={batchDeleteConfirmOpen}
+        title={t('sidebar.batchDeleteTitle')}
+        message={t('sidebar.batchDeleteConfirm', { count: selectedSessionIds.length })}
+        confirmLabel={t('sidebar.batchDeleteSelected')}
+        cancelLabel={t('common.cancel')}
+        tone="danger"
+        onCancel={() => setBatchDeleteConfirmOpen(false)}
+        onConfirm={() => void confirmBatchDeleteSession()}
+      />
+      <PromptDialog
+        open={newWindowPromptOpen}
+        title={t('window.createTitle')}
+        defaultValue={newWindowName}
+        confirmLabel={t('common.confirm')}
+        cancelLabel={t('common.cancel')}
+        onCancel={() => setNewWindowPromptOpen(false)}
+        onConfirm={(value) => {
+          setNewWindowName(value)
+          void confirmCreateWindow(value)
+        }}
+      />
+      <ConfirmDialog
+        open={windowBatchDeleteConfirmOpen}
+        title={t('window.batchDeleteTitle')}
+        message={t('window.batchDeleteConfirm', { count: selectedWindowIds.length })}
+        confirmLabel={t('window.batchDeleteSelected', { count: selectedWindowIds.length })}
+        cancelLabel={t('common.cancel')}
+        tone="danger"
+        onCancel={() => setWindowBatchDeleteConfirmOpen(false)}
+        onConfirm={() => void handleWindowBatchDelete()}
+      />
       {PromptElement}
     </div>
   )

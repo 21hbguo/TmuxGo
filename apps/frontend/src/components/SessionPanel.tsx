@@ -1,9 +1,20 @@
 'use client'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
-import { useBatchDeleteSessions, useCreateSession, useDeleteSession, useRenameSession, useSessionTemplates } from '@/hooks/useApi'
+import {
+  useBatchDeleteSessions,
+  useCreateSession,
+  useDeleteSession,
+  useRenameSession,
+  useSessionTemplates,
+} from '@/hooks/useApi'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
-import { useSessionWorkspaces, useSetSessionWorkspace, useRemoveSessionWorkspaces, useMigrateSessionWorkspace } from '@/hooks/useSessionWorkspaces'
+import {
+  useSessionWorkspaces,
+  useSetSessionWorkspace,
+  useRemoveSessionWorkspaces,
+  useMigrateSessionWorkspace,
+} from '@/hooks/useSessionWorkspaces'
 import { useCreateWorkspace, useRemoveWorkspace, useUpdateWorkspace, useWorkspaces } from '@/hooks/useWorkspaces'
 import { useSplitGroups } from '@/hooks/useSplitGroups'
 import { SessionTemplates, templates as builtinTemplates, type Template } from './SessionTemplates'
@@ -15,7 +26,29 @@ import { QuickActions } from './QuickActions'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useTranslation } from '@/i18n'
 import { usePrompt } from '@/hooks/usePrompt'
-import { SessionSortableList } from './SessionSortableList'
+import {
+  DndContext,
+  DragOverlay,
+  KeyboardSensor,
+  MouseSensor,
+  TouchSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragOverEvent,
+  type DragStartEvent,
+} from '@dnd-kit/core'
+import { sortableKeyboardCoordinates } from '@dnd-kit/sortable'
+import {
+  SessionSortableList,
+  SessionGroupDropZone,
+  findPreviewGroup,
+  movePreviewBetweenGroups,
+  orderByIds,
+  type GetClassNameArgs,
+  type RenderSessionArgs,
+} from './SessionSortableList'
 import { HostSwitcher } from './HostSwitcher'
 import { AgentStatusBadge } from './AgentStatusBadge'
 import type { AgentStatus, Session, WorkspaceEntry } from '@/types'
@@ -46,7 +79,9 @@ export function SessionPanel() {
   const removeSessionWorkspaces = useRemoveSessionWorkspaces()
   const { groups: splitGroups, remove: removeSplitGroup } = useSplitGroups()
   const splitGroupsRef = useRef(splitGroups)
-  useEffect(() => { splitGroupsRef.current = splitGroups }, [splitGroups])
+  useEffect(() => {
+    splitGroupsRef.current = splitGroups
+  }, [splitGroups])
   const migrateSessionWorkspace = useMigrateSessionWorkspace()
   const updateWorkspace = useUpdateWorkspace()
   const removeWorkspace = useRemoveWorkspace()
@@ -124,10 +159,31 @@ export function SessionPanel() {
     }
     setPendingDeleteWorkspace(null)
   }
-  const handleCreateSession = async ({ name, cwd, workspace }: { name: string; cwd?: string; workspace?: { rootId: string; rootPath: string; rootLabel: string; relativePath: string; absolutePath: string; workspaceId?: string; workspaceName?: string } }) => {
+  const handleCreateSession = async ({
+    name,
+    cwd,
+    workspace,
+  }: {
+    name: string
+    cwd?: string
+    workspace?: {
+      rootId: string
+      rootPath: string
+      rootLabel: string
+      relativePath: string
+      absolutePath: string
+      workspaceId?: string
+      workspaceName?: string
+    }
+  }) => {
     if (!activeHostId || !createDialogTemplate) return
     try {
-      const created = await createSession.mutateAsync({ hostId: activeHostId, name, layout: createDialogTemplate.layout, cwd })
+      const created = await createSession.mutateAsync({
+        hostId: activeHostId,
+        name,
+        layout: createDialogTemplate.layout,
+        cwd,
+      })
       if (created?.id) {
         if (cwd && workspace) {
           try {
@@ -159,9 +215,17 @@ export function SessionPanel() {
     const session = sessions.find((item) => item.id === pendingDeleteSessionId)
     try {
       await deleteSession.mutateAsync({ hostId: activeHostId, sessionId: pendingDeleteSessionId })
-      try { await removeSessionWorkspaces.mutateAsync([pendingDeleteSessionId]) } catch {}
-      splitGroupsRef.current.filter((item) => item.primarySessionId === pendingDeleteSessionId || item.secondarySessionId === pendingDeleteSessionId).forEach((item) => removeSplitGroup(item.id))
-      if (activeSessionId === pendingDeleteSessionId) setActiveSession(getNextSessionId(sessions, [pendingDeleteSessionId]))
+      try {
+        await removeSessionWorkspaces.mutateAsync([pendingDeleteSessionId])
+      } catch {}
+      splitGroupsRef.current
+        .filter(
+          (item) =>
+            item.primarySessionId === pendingDeleteSessionId || item.secondarySessionId === pendingDeleteSessionId,
+        )
+        .forEach((item) => removeSplitGroup(item.id))
+      if (activeSessionId === pendingDeleteSessionId)
+        setActiveSession(getNextSessionId(sessions, [pendingDeleteSessionId]))
       pushToast({ type: 'success', message: t('session.deleted', { name: session?.name || pendingDeleteSessionId }) })
     } catch (err) {
       pushToast({ type: 'error', message: err instanceof Error ? err.message : t('session.requestFailed') })
@@ -171,13 +235,32 @@ export function SessionPanel() {
   const confirmBatchDeleteSession = async () => {
     if (!activeHostId || !selectedSessionIds.length) return
     try {
-      const preview = await batchDeleteSessions.mutateAsync({ hostId: activeHostId, payload: { mode: 'preview', sessionIds: selectedSessionIds, filters: { includeAttached: true } } })
-      const execute = await batchDeleteSessions.mutateAsync({ hostId: activeHostId, payload: { mode: 'execute', sessionIds: selectedSessionIds, filters: { includeAttached: true }, force: preview.forceRequired === true } })
+      const preview = await batchDeleteSessions.mutateAsync({
+        hostId: activeHostId,
+        payload: { mode: 'preview', sessionIds: selectedSessionIds, filters: { includeAttached: true } },
+      })
+      const execute = await batchDeleteSessions.mutateAsync({
+        hostId: activeHostId,
+        payload: {
+          mode: 'execute',
+          sessionIds: selectedSessionIds,
+          filters: { includeAttached: true },
+          force: preview.forceRequired === true,
+        },
+      })
       const deletedIds = new Set((execute.deleted || []).map((item) => item.sessionId))
       const deletedCount = typeof execute.deletedCount === 'number' ? execute.deletedCount : deletedIds.size
-      if (deletedIds.size) { try { await removeSessionWorkspaces.mutateAsync(Array.from(deletedIds)) } catch {} }
-      if (deletedIds.size) splitGroupsRef.current.filter((item) => deletedIds.has(item.primarySessionId) || deletedIds.has(item.secondarySessionId)).forEach((item) => removeSplitGroup(item.id))
-      if (activeSessionId && deletedIds.has(activeSessionId)) setActiveSession(getNextSessionId(sessions, Array.from(deletedIds)))
+      if (deletedIds.size) {
+        try {
+          await removeSessionWorkspaces.mutateAsync(Array.from(deletedIds))
+        } catch {}
+      }
+      if (deletedIds.size)
+        splitGroupsRef.current
+          .filter((item) => deletedIds.has(item.primarySessionId) || deletedIds.has(item.secondarySessionId))
+          .forEach((item) => removeSplitGroup(item.id))
+      if (activeSessionId && deletedIds.has(activeSessionId))
+        setActiveSession(getNextSessionId(sessions, Array.from(deletedIds)))
       pushToast({ type: 'success', message: t('sidebar.batchDeleteSuccess', { count: deletedCount }) })
       setSelectedSessionIds([])
       setBatchMode(false)
@@ -193,7 +276,11 @@ export function SessionPanel() {
     if (!name || name === session?.name) return
     try {
       const renamed = await renameSession.mutateAsync({ hostId: activeHostId, sessionId, name })
-      if (renamed?.id && renamed.id !== sessionId) { try { await migrateSessionWorkspace.mutateAsync({ fromId: sessionId, toId: renamed.id }) } catch {} }
+      if (renamed?.id && renamed.id !== sessionId) {
+        try {
+          await migrateSessionWorkspace.mutateAsync({ fromId: sessionId, toId: renamed.id })
+        } catch {}
+      }
       if (activeSessionId === sessionId && renamed?.id) setActiveSession(renamed.id)
       pushToast({ type: 'success', message: t('session.renamed', { from: session?.name || sessionId, to: name }) })
     } catch (err) {
@@ -205,9 +292,14 @@ export function SessionPanel() {
     setSelectedSessionIds([])
   }
   const toggleBatchSession = (sessionId: string) => {
-    setSelectedSessionIds((prev) => prev.includes(sessionId) ? prev.filter((id) => id !== sessionId) : [...prev, sessionId])
+    setSelectedSessionIds((prev) =>
+      prev.includes(sessionId) ? prev.filter((id) => id !== sessionId) : [...prev, sessionId],
+    )
   }
-  const handleAgentStatusClick = async (session: { id: string; agents?: { paneId: string; agentStatus: AgentStatus }[] }, status: AgentStatus) => {
+  const handleAgentStatusClick = async (
+    session: { id: string; agents?: { paneId: string; agentStatus: AgentStatus }[] },
+    status: AgentStatus,
+  ) => {
     const candidates = session.agents?.filter((agent) => agent.agentStatus === status)
     if (!candidates?.length || !activeHostId) return
     const currentPaneId = useConsoleStore.getState().activePaneId
@@ -219,10 +311,13 @@ export function SessionPanel() {
       const sessionId = session.id
       const key = ['session-snapshot', hostId, sessionId]
       const cached = queryClient?.getQueryData?.(key) as any
-      const snapshot = cached?.panes?.some?.((p: any) => p.id === pane.paneId) ? cached : await api.snapshot.get(hostId, sessionId)
+      const snapshot = cached?.panes?.some?.((p: any) => p.id === pane.paneId)
+        ? cached
+        : await api.snapshot.get(hostId, sessionId)
       const targetPane = snapshot?.panes?.find?.((p: any) => p.id === pane.paneId)
       if (!targetPane) return
-      if (targetPane.windowId && targetPane.windowId !== snapshot.activeWindowId) await api.windows.select(hostId, sessionId, targetPane.windowId)
+      if (targetPane.windowId && targetPane.windowId !== snapshot.activeWindowId)
+        await api.windows.select(hostId, sessionId, targetPane.windowId)
       await api.panes.select(pane.paneId)
       const nextSnapshot = await api.snapshot.get(hostId, sessionId)
       queryClient?.setQueryData(key, nextSnapshot)
@@ -246,14 +341,18 @@ export function SessionPanel() {
     window.addEventListener('mousedown', close)
     return () => window.removeEventListener('mousedown', close)
   }, [workspaceMenuOpen])
-  const hostWorkspaces = useMemo(() => workspaces.filter((item) => item.hostId === activeHostId), [workspaces, activeHostId])
+  const hostWorkspaces = useMemo(
+    () => workspaces.filter((item) => item.hostId === activeHostId),
+    [workspaces, activeHostId],
+  )
   const workspaceGroups = useMemo(() => {
     const bySession = new Map(sessionWorkspaces.map((item) => [item.sessionId, item]))
     const groups = new Map<string, Session[]>()
     const groupKeyOf = (sessionId: string) => {
       const entry = bySession.get(sessionId)
       if (!entry) return ''
-      if (entry.workspaceId && hostWorkspaces.some((item) => item.id === entry.workspaceId)) return entry.workspaceId as string
+      if (entry.workspaceId && hostWorkspaces.some((item) => item.id === entry.workspaceId))
+        return entry.workspaceId as string
       return hostWorkspaces.find((item) => item.path === entry.workspacePath)?.id || ''
     }
     for (const session of sessions) {
@@ -270,7 +369,135 @@ export function SessionPanel() {
     if (unclassified?.length) result.push({ key: '', workspace: null, sessions: unclassified })
     return result
   }, [sessions, hostWorkspaces, sessionWorkspaces])
-  const currentWorkspace = workspaceGroups.find((group) => group.sessions.some((session) => session.id === activeSessionId))?.workspace || null
+  const currentWorkspace =
+    workspaceGroups.find((group) => group.sessions.some((session) => session.id === activeSessionId))?.workspace || null
+  // —— 跨组拖拽：DndContext 上移到此，预览序按组 key 存 ——
+  const sessionDndSensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 220, tolerance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
+  const [dragSessionId, setDragSessionId] = useState<string | null>(null)
+  const [dragPreview, setDragPreview] = useState<Record<string, string[]> | null>(null)
+  const dragSourceKeyRef = useRef('')
+  // 拖拽期间未分类组即使为空也要渲染成可落点
+  const displayedGroups = useMemo(() => {
+    if (!dragPreview) return workspaceGroups
+    const list = workspaceGroups.map((group) => ({
+      ...group,
+      sessions: orderByIds(sessions, dragPreview[group.key] || []),
+    }))
+    if (!list.some((group) => group.key === '')) list.push({ key: '', workspace: null, sessions: [] })
+    return list
+  }, [dragPreview, workspaceGroups, sessions])
+  const dragSession = sessions.find((item) => item.id === dragSessionId) || null
+  const handleSessionDragStart = (event: DragStartEvent) => {
+    const id = String(event.active.id)
+    setDragSessionId(id)
+    const preview: Record<string, string[]> = {}
+    for (const group of workspaceGroups) preview[group.key] = group.sessions.map((session) => session.id)
+    if (!('' in preview)) preview[''] = []
+    setDragPreview(preview)
+    dragSourceKeyRef.current = findPreviewGroup(preview, id) || ''
+  }
+  const handleSessionDragOver = (event: DragOverEvent) => {
+    const activeId = event.active?.id ? String(event.active.id) : null
+    const overId = event.over?.id ? String(event.over.id) : null
+    if (!activeId || !overId || activeId === overId) return
+    setDragPreview((current) => (current ? movePreviewBetweenGroups(current, activeId, overId) : current))
+  }
+  const resetSessionDrag = () => {
+    setDragSessionId(null)
+    setDragPreview(null)
+  }
+  const handleSessionDragEnd = (_event: DragEndEvent) => {
+    const preview = dragPreview
+    const sessionId = dragSessionId
+    resetSessionDrag()
+    if (!preview || !sessionId) return
+    const targetKey = findPreviewGroup(preview, sessionId)
+    if (targetKey != null && targetKey !== dragSourceKeyRef.current) {
+      if (targetKey === '') {
+        // 拖到未分类：删掉 workspace 归属即可，groupKeyOf 自动归 ''
+        void removeSessionWorkspaces.mutateAsync([sessionId]).catch(() => {})
+      } else {
+        const workspace = hostWorkspaces.find((item) => item.id === targetKey)
+        if (workspace && activeHostId)
+          void setSessionWorkspace
+            .mutateAsync({
+              sessionId,
+              hostId: activeHostId,
+              workspaceId: workspace.id,
+              workspacePath: workspace.path,
+              rootId: workspace.rootId,
+              rootPath: workspace.rootPath,
+              rootLabel: workspace.rootLabel,
+              relativePath: workspace.relativePath,
+              updatedAt: new Date().toISOString(),
+            })
+            .catch(() => {})
+      }
+    }
+    // 全局序 = 各组预览序按显示顺序拼接（moveSession 收全量有序 id）
+    const order = workspaceGroups.map((group) => group.key)
+    if ('' in preview && !order.includes('')) order.push('')
+    moveSession(order.flatMap((key) => preview[key] || []))
+  }
+  const handleUnclassifiedCreateSession = () => {
+    if (!activeHostId) return
+    // 无 workspace 实体：直接开 Default 模板对话框，创建后不写 sessionWorkspaces → 落未分类
+    setCreateDialogTemplate(builtinTemplates[0] || null)
+    setCreateDialogInitialWorkspace(null)
+    setCreateDialogOpen(true)
+  }
+  const sessionItemClassName = ({ session, isDragging, isOverlay }: GetClassNameArgs) =>
+    `tmuxgo-list-row border-b border-[var(--line)] ${batchMode ? (selectedSessionIds.includes(session.id) ? 'tmuxgo-list-row--batch' : 'tmuxgo-list-row--hover') : activeSessionId === session.id ? 'tmuxgo-list-row--active' : 'tmuxgo-list-row--hover'} ${isDragging && !isOverlay ? 'opacity-40' : ''} ${isOverlay ? 'rounded-apple border border-accent bg-bg-1' : ''}`
+  const renderSessionItem = ({ session }: RenderSessionArgs) => (
+    <div className="flex items-center gap-1 pr-2">
+      {batchMode && (
+        <button
+          onClick={() => toggleBatchSession(session.id)}
+          className={`ml-2 flex h-7 w-5 shrink-0 items-center justify-center rounded-apple text-meta leading-none ${selectedSessionIds.includes(session.id) ? 'text-danger' : 'text-text-3'} hover:bg-bg-0`}
+        >
+          {selectedSessionIds.includes(session.id) ? '☑' : '☐'}
+        </button>
+      )}
+      <button
+        onClick={() => (batchMode ? toggleBatchSession(session.id) : setActiveSession(session.id))}
+        onDoubleClick={() => !batchMode && void handleRenameSession(session.id)}
+        className={`min-w-0 flex-1 border-l-2 px-3 py-2 text-left ${batchMode ? (selectedSessionIds.includes(session.id) ? 'border-danger' : 'border-transparent') : activeSessionId === session.id ? 'border-accent' : 'border-transparent'}`}
+      >
+        <div className="truncate text-sm text-text-1">{session.name}</div>
+        <div className="mt-0.5 flex min-w-0 items-center gap-2 text-meta text-text-3">
+          <span className="shrink-0 whitespace-nowrap">{t('sidebar.windows', { count: session.windowCount })}</span>
+          <AgentStatusBadge
+            summary={session.agentSummary}
+            onStatusClick={(status) => handleAgentStatusClick(session, status)}
+          />
+        </div>
+      </button>
+      {!batchMode && (
+        <button
+          onClick={() => void handleRenameSession(session.id)}
+          className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-7 w-7 text-meta"
+          aria-label={t('sidebar.renameSession')}
+          title={t('sidebar.renameSession')}
+        >
+          ✎
+        </button>
+      )}
+      {!batchMode && (
+        <button
+          onClick={() => setPendingDeleteSessionId(session.id)}
+          className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-7 w-7 text-meta hover:text-danger"
+          aria-label={t('sidebar.deleteSession')}
+          title={t('sidebar.deleteSession')}
+        >
+          ×
+        </button>
+      )}
+    </div>
+  )
   const handleNewSession = () => {
     if (!activeHostId) return
     if (!hostWorkspaces.length) {
@@ -302,7 +529,15 @@ export function SessionPanel() {
     }
     const name = target.relativePath.split('/').filter(Boolean).pop() || target.rootLabel
     try {
-      const created = await createWorkspace.mutateAsync({ name: name.slice(0, 64), hostId: activeHostId, path: target.absolutePath, rootId: target.rootId, rootPath: target.rootPath, rootLabel: target.rootLabel, relativePath: target.relativePath })
+      const created = await createWorkspace.mutateAsync({
+        name: name.slice(0, 64),
+        hostId: activeHostId,
+        path: target.absolutePath,
+        rootId: target.rootId,
+        rootPath: target.rootPath,
+        rootLabel: target.rootLabel,
+        relativePath: target.relativePath,
+      })
       setWorkspacePickerOpen(false)
       handleWorkspaceCreateSession(created.workspace)
     } catch (err) {
@@ -316,41 +551,87 @@ export function SessionPanel() {
         <div className="border-b border-[var(--line)] px-3 py-2">
           <HostSwitcher />
           <div ref={workspaceMenuRef} className="relative mt-2">
-            <button onClick={() => {
-              if (!activeHostId || batchMode) return
-              if (!hostWorkspaces.length) setWorkspacePickerOpen(true)
-              else setWorkspaceMenuOpen((value) => !value)
-            }} className="tmuxgo-control flex h-8 w-full items-center gap-2 rounded-apple px-2 text-left text-xs text-text-2 hover:border-accent/50 hover:text-text-1 disabled:cursor-not-allowed disabled:opacity-60" disabled={batchMode} aria-label={`${t('workspace.current')}: ${currentWorkspace?.name || t('workspace.choose')}`}>
+            <button
+              onClick={() => {
+                if (!activeHostId || batchMode) return
+                if (!hostWorkspaces.length) setWorkspacePickerOpen(true)
+                else setWorkspaceMenuOpen((value) => !value)
+              }}
+              className="tmuxgo-control flex h-8 w-full items-center gap-2 rounded-apple px-2 text-left text-xs text-text-2 hover:border-accent/50 hover:text-text-1 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={batchMode}
+              aria-label={`${t('workspace.current')}: ${currentWorkspace?.name || t('workspace.choose')}`}
+            >
               <FiFolder aria-hidden="true" className="shrink-0 text-accent" size={14} />
-              <span className="min-w-0 flex-1 truncate font-medium">{currentWorkspace?.name || t('workspace.choose')}</span>
+              <span className="min-w-0 flex-1 truncate font-medium">
+                {currentWorkspace?.name || t('workspace.choose')}
+              </span>
               <FiChevronDown aria-hidden="true" className="shrink-0 text-text-3" size={14} />
             </button>
-            {workspaceMenuOpen && <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-30 overflow-hidden rounded-apple border border-[var(--line)] bg-bg-1 py-1">
-              <div className="tmuxgo-scrollbar max-h-64 overflow-y-auto">
-                {hostWorkspaces.map((workspace) => <button key={workspace.id} onClick={() => handleWorkspaceSelect(workspace)} className={`flex w-full items-center gap-2 px-2.5 py-2 text-left text-xs ${currentWorkspace?.id === workspace.id ? 'bg-accent/10 text-text-1' : 'text-text-2 hover:bg-bg-2 hover:text-text-1'}`} aria-label={workspace.name}>
-                  <FiFolder aria-hidden="true" className="shrink-0 text-[#dcb67a]" size={14} />
-                  <span className="min-w-0 flex-1"><span className="block truncate font-medium">{workspace.name}</span><span className="block truncate font-mono text-caption text-text-3">{workspace.path}</span></span>
-                  {currentWorkspace?.id === workspace.id && <FiCheck aria-hidden="true" className="shrink-0 text-accent" size={14} />}
-                </button>)}
+            {workspaceMenuOpen && (
+              <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-30 overflow-hidden rounded-apple border border-[var(--line)] bg-bg-1 py-1">
+                <div className="tmuxgo-scrollbar max-h-64 overflow-y-auto">
+                  {hostWorkspaces.map((workspace) => (
+                    <button
+                      key={workspace.id}
+                      onClick={() => handleWorkspaceSelect(workspace)}
+                      className={`flex w-full items-center gap-2 px-2.5 py-2 text-left text-xs ${currentWorkspace?.id === workspace.id ? 'bg-accent/10 text-text-1' : 'text-text-2 hover:bg-bg-2 hover:text-text-1'}`}
+                      aria-label={workspace.name}
+                    >
+                      <FiFolder aria-hidden="true" className="shrink-0 text-[#dcb67a]" size={14} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium">{workspace.name}</span>
+                        <span className="block truncate font-mono text-caption text-text-3">{workspace.path}</span>
+                      </span>
+                      {currentWorkspace?.id === workspace.id && (
+                        <FiCheck aria-hidden="true" className="shrink-0 text-accent" size={14} />
+                      )}
+                    </button>
+                  ))}
+                </div>
+                <div className="border-t border-[var(--line)] p-1">
+                  <button
+                    onClick={() => {
+                      setWorkspaceMenuOpen(false)
+                      setWorkspacePickerOpen(true)
+                    }}
+                    className="flex w-full items-center gap-2 rounded-apple px-2 py-2 text-left text-xs text-accent hover:bg-bg-2"
+                  >
+                    <FiFolderPlus aria-hidden="true" size={14} />
+                    {t('workspace.add')}
+                  </button>
+                </div>
               </div>
-              <div className="border-t border-[var(--line)] p-1">
-                <button onClick={() => { setWorkspaceMenuOpen(false); setWorkspacePickerOpen(true) }} className="flex w-full items-center gap-2 rounded-apple px-2 py-2 text-left text-xs text-accent hover:bg-bg-2"><FiFolderPlus aria-hidden="true" size={14} />{t('workspace.add')}</button>
-              </div>
-            </div>}
+            )}
           </div>
           <div className="mt-2 flex items-center justify-between">
-            <div className="text-sm font-semibold text-text-1">{batchMode ? t('sidebar.batchSelectedCount', { count: selectedSessionIds.length }) : t('sidebar.sessions')}</div>
+            <div className="text-sm font-semibold text-text-1">
+              {batchMode
+                ? t('sidebar.batchSelectedCount', { count: selectedSessionIds.length })
+                : t('sidebar.sessions')}
+            </div>
             <div className="flex items-center gap-1">
               {batchMode ? (
                 <>
-                  <Chip onClick={() => setSelectedSessionIds(sessions.map((session) => session.id))}>{t('sidebar.batchSelectAll')}</Chip>
+                  <Chip onClick={() => setSelectedSessionIds(sessions.map((session) => session.id))}>
+                    {t('sidebar.batchSelectAll')}
+                  </Chip>
                   <Chip onClick={() => setSelectedSessionIds([])}>{t('sidebar.batchClearAll')}</Chip>
-                  <Chip tone="danger" disabled={!selectedSessionIds.length} onClick={() => setBatchDeleteConfirmOpen(true)}>{t('sidebar.batchDeleteSelected')}</Chip>
-                  <Chip tone="accent" onClick={toggleBatchMode}>{t('sidebar.batchCancelAction')}</Chip>
+                  <Chip
+                    tone="danger"
+                    disabled={!selectedSessionIds.length}
+                    onClick={() => setBatchDeleteConfirmOpen(true)}
+                  >
+                    {t('sidebar.batchDeleteSelected')}
+                  </Chip>
+                  <Chip tone="accent" onClick={toggleBatchMode}>
+                    {t('sidebar.batchCancelAction')}
+                  </Chip>
                 </>
               ) : (
                 <>
-                  <Chip tone="accent" onClick={handleNewSession}>{t('sidebar.newAction')}</Chip>
+                  <Chip tone="accent" onClick={handleNewSession}>
+                    {t('sidebar.newAction')}
+                  </Chip>
                   <Chip onClick={toggleBatchMode}>{t('sidebar.batchDeleteAction')}</Chip>
                 </>
               )}
@@ -358,55 +639,201 @@ export function SessionPanel() {
           </div>
         </div>
         <div className="tmuxgo-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
-          {isError && !sessions.length ? <div className="p-3 text-xs text-danger"><div className="break-words">{error instanceof Error ? error.message : t('session.loadFailed')}</div><button onClick={() => void refetch()} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm mt-2 w-auto px-2 text-accent">{t('common.retry')}</button></div> : workspaceGroups.map(({ key, workspace, sessions: groupSessions }) => (
-            <div key={key || 'unclassified'}>
-              {workspace ? (
-                <div className="sticky top-0 z-10 relative flex items-center gap-1 border-b border-[var(--line)] bg-bg-0/95 px-2 py-1 backdrop-blur">
-                  <span className="min-w-0 flex-1 truncate text-xs font-semibold text-text-1">{workspace.name}</span>
-                  <span className="text-meta text-text-3">{groupSessions.length}</span>
-                  {!batchMode && <button onClick={() => handleWorkspaceCreateSession(workspace)} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-6 w-6 text-meta" aria-label={t('workspace.newSession')} title={t('workspace.newSession')}>＋</button>}
-                  {!batchMode && <button onClick={() => void handleWorkspaceRename(workspace)} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-6 w-6 text-meta" aria-label={t('workspace.rename')} title={t('workspace.rename')}>✎</button>}
-                  {!batchMode && <button onClick={() => setTemplateMenuWorkspaceId(templateMenuWorkspaceId === workspace.id ? null : workspace.id)} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-6 w-6 text-meta" aria-label={t('workspace.template')} title={t('workspace.template')}>▦</button>}
-                  {!batchMode && <button onClick={() => setPendingDeleteWorkspace(workspace)} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-6 w-6 text-meta hover:text-danger" aria-label={t('workspace.delete')} title={t('workspace.delete')}>🗑</button>}
-                  {templateMenuWorkspaceId === workspace.id && (
-                    <div className="absolute right-2 top-7 z-20 max-h-56 overflow-y-auto rounded-apple border border-[var(--line)] bg-bg-1 p-1">
-                      {allTemplates.map((template) => (
-                        <button key={template.id} onClick={() => void handleWorkspaceSetTemplate(workspace, template.id)} className={`block w-full truncate rounded-apple px-2 py-1 text-left text-xs hover:bg-bg-0 ${workspace.templateId === template.id ? 'text-accent' : 'text-text-1'}`}>{template.name}</button>
-                      ))}
+          {isError && !sessions.length ? (
+            <div className="p-3 text-xs text-danger">
+              <div className="break-words">{error instanceof Error ? error.message : t('session.loadFailed')}</div>
+              <button
+                onClick={() => void refetch()}
+                className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm mt-2 w-auto px-2 text-accent"
+              >
+                {t('common.retry')}
+              </button>
+            </div>
+          ) : (
+            <DndContext
+              sensors={sessionDndSensors}
+              collisionDetection={closestCenter}
+              onDragStart={handleSessionDragStart}
+              onDragOver={handleSessionDragOver}
+              onDragEnd={handleSessionDragEnd}
+              onDragCancel={resetSessionDrag}
+            >
+              {displayedGroups.map(({ key, workspace, sessions: groupSessions }) => (
+                <SessionGroupDropZone key={key || 'unclassified'} id={`group:${key}`}>
+                  {workspace ? (
+                    <div className="sticky top-0 z-10 relative flex items-center gap-1 border-b border-[var(--line)] bg-bg-0/95 px-2 py-1 backdrop-blur">
+                      <span className="min-w-0 flex-1 truncate text-xs font-semibold text-text-1">
+                        {workspace.name}
+                      </span>
+                      <span className="text-meta text-text-3">{groupSessions.length}</span>
+                      {!batchMode && (
+                        <button
+                          onClick={() => handleWorkspaceCreateSession(workspace)}
+                          className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-6 w-6 text-meta"
+                          aria-label={t('workspace.newSession')}
+                          title={t('workspace.newSession')}
+                        >
+                          ＋
+                        </button>
+                      )}
+                      {!batchMode && (
+                        <button
+                          onClick={() => void handleWorkspaceRename(workspace)}
+                          className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-6 w-6 text-meta"
+                          aria-label={t('workspace.rename')}
+                          title={t('workspace.rename')}
+                        >
+                          ✎
+                        </button>
+                      )}
+                      {!batchMode && (
+                        <button
+                          onClick={() =>
+                            setTemplateMenuWorkspaceId(templateMenuWorkspaceId === workspace.id ? null : workspace.id)
+                          }
+                          className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-6 w-6 text-meta"
+                          aria-label={t('workspace.template')}
+                          title={t('workspace.template')}
+                        >
+                          ▦
+                        </button>
+                      )}
+                      {!batchMode && (
+                        <button
+                          onClick={() => setPendingDeleteWorkspace(workspace)}
+                          className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-6 w-6 text-meta hover:text-danger"
+                          aria-label={t('workspace.delete')}
+                          title={t('workspace.delete')}
+                        >
+                          🗑
+                        </button>
+                      )}
+                      {templateMenuWorkspaceId === workspace.id && (
+                        <div className="absolute right-2 top-7 z-20 max-h-56 overflow-y-auto rounded-apple border border-[var(--line)] bg-bg-1 p-1">
+                          {allTemplates.map((template) => (
+                            <button
+                              key={template.id}
+                              onClick={() => void handleWorkspaceSetTemplate(workspace, template.id)}
+                              className={`block w-full truncate rounded-apple px-2 py-1 text-left text-xs hover:bg-bg-0 ${workspace.templateId === template.id ? 'text-accent' : 'text-text-1'}`}
+                            >
+                              {template.name}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="sticky top-0 z-10 relative flex items-center gap-1 border-b border-[var(--line)] bg-bg-0/95 px-2 py-1 backdrop-blur">
+                      <span className="min-w-0 flex-1 truncate text-xs text-text-3">{t('workspace.unclassified')}</span>
+                      <span className="text-meta text-text-3">{groupSessions.length}</span>
+                      {!batchMode && (
+                        <button
+                          onClick={handleUnclassifiedCreateSession}
+                          className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-6 w-6 text-meta"
+                          aria-label={t('sidebar.newAction')}
+                          title={t('sidebar.newAction')}
+                        >
+                          ＋
+                        </button>
+                      )}
                     </div>
                   )}
-                </div>
-              ) : (
-                <div className="sticky top-0 z-10 border-b border-[var(--line)] bg-bg-0/95 px-2 py-1 text-xs text-text-3">{t('workspace.unclassified')}</div>
-              )}
-              <SessionSortableList
-                sessions={groupSessions}
-                onMove={moveSession}
-                listClassName="min-h-full"
-                getItemClassName={({ session, isDragging, isOverlay }) => `tmuxgo-list-row border-b border-[var(--line)] ${batchMode ? selectedSessionIds.includes(session.id) ? 'tmuxgo-list-row--batch' : 'tmuxgo-list-row--hover' : activeSessionId === session.id ? 'tmuxgo-list-row--active' : 'tmuxgo-list-row--hover'} ${isDragging && !isOverlay ? 'opacity-40' : ''} ${isOverlay ? 'rounded-apple border border-accent bg-bg-1' : ''}`}
-                renderItem={({ session }) => (
-                  <div className="flex items-center gap-1 pr-2">
-                    {batchMode && <button onClick={() => toggleBatchSession(session.id)} className={`ml-2 flex h-7 w-5 shrink-0 items-center justify-center rounded-apple text-meta leading-none ${selectedSessionIds.includes(session.id) ? 'text-danger' : 'text-text-3'} hover:bg-bg-0`}>{selectedSessionIds.includes(session.id) ? '☑' : '☐'}</button>}
-                    <button onClick={() => batchMode ? toggleBatchSession(session.id) : setActiveSession(session.id)} onDoubleClick={() => !batchMode && void handleRenameSession(session.id)} className={`min-w-0 flex-1 border-l-2 px-3 py-2 text-left ${batchMode ? selectedSessionIds.includes(session.id) ? 'border-danger' : 'border-transparent' : activeSessionId === session.id ? 'border-accent' : 'border-transparent'}`}>
-                      <div className="truncate text-sm text-text-1">{session.name}</div>
-                      <div className="mt-0.5 flex min-w-0 items-center gap-2 text-meta text-text-3"><span className="shrink-0 whitespace-nowrap">{t('sidebar.windows', { count: session.windowCount })}</span><AgentStatusBadge summary={session.agentSummary} onStatusClick={(status) => handleAgentStatusClick(session, status)} /></div>
-                    </button>
-                    {!batchMode && <button onClick={() => void handleRenameSession(session.id)} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-7 w-7 text-meta" aria-label={t('sidebar.renameSession')} title={t('sidebar.renameSession')}>✎</button>}
-                    {!batchMode && <button onClick={() => setPendingDeleteSessionId(session.id)} className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-7 w-7 text-meta hover:text-danger" aria-label={t('sidebar.deleteSession')} title={t('sidebar.deleteSession')}>×</button>}
+                  <SessionSortableList
+                    sessions={groupSessions}
+                    listClassName="min-h-full"
+                    getItemClassName={sessionItemClassName}
+                    renderItem={renderSessionItem}
+                  />
+                </SessionGroupDropZone>
+              ))}
+              <DragOverlay dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.22,1,0.36,1)' }}>
+                {dragSession ? (
+                  <div className={sessionItemClassName({ session: dragSession, isDragging: true, isOverlay: true })}>
+                    {renderSessionItem({ session: dragSession, isDragging: true, isOverlay: true })}
                   </div>
-                )}
-              />
-            </div>
-          ))}
+                ) : null}
+              </DragOverlay>
+            </DndContext>
+          )}
         </div>
-        {preferences.showQuickActions && <div className="border-t border-[var(--line)] p-3"><div className="mb-2 text-caption uppercase tracking-[0.18em] text-text-3">{t('sidebar.quickActions')}</div><QuickActions /></div>}
+        {preferences.showQuickActions && (
+          <div className="border-t border-[var(--line)] p-3">
+            <div className="mb-2 text-caption uppercase tracking-[0.18em] text-text-3">{t('sidebar.quickActions')}</div>
+            <QuickActions />
+          </div>
+        )}
       </div>
-      {showTemplates && <ModalPortal><SessionTemplates onSelect={handleTemplateSelect} onClose={() => { setShowTemplates(false); setTemplateWorkspace(null) }} /></ModalPortal>}
-      {workspacePickerOpen && <WorkspaceDirectoryPicker hostId={activeHostId || ''} onPick={handleWorkspaceDirectoryPick} onClose={() => setWorkspacePickerOpen(false)} />}
-      <CreateSessionDialog open={createDialogOpen} template={createDialogTemplate} defaultName={createDialogTemplate ? (createDialogInitialWorkspace ? `${createDialogInitialWorkspace.name}-${getTemplateSessionName(createDialogTemplate)}` : getTemplateSessionName(createDialogTemplate)) : ''} hostId={activeHostId || ''} workspaces={workspaces} initialWorkspace={createDialogInitialWorkspace} workspaceLocked={!!createDialogInitialWorkspace} onCreate={handleCreateSession} onClose={() => { setCreateDialogOpen(false); setCreateDialogTemplate(null); setCreateDialogInitialWorkspace(null) }} />
-      <ConfirmDialog open={!!pendingDeleteSessionId} title={t('sidebar.deleteTitle')} message={t('sidebar.deleteConfirm', { name: sessions.find((item) => item.id === pendingDeleteSessionId)?.name || '' })} confirmLabel={t('sidebar.confirmDelete')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setPendingDeleteSessionId(null)} onConfirm={() => void confirmDeleteSession()} />
-      <ConfirmDialog open={!!pendingDeleteWorkspace} title={t('workspace.deleteTitle')} message={t('workspace.deleteConfirm', { name: pendingDeleteWorkspace?.name || '' })} confirmLabel={t('workspace.deleteAction')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setPendingDeleteWorkspace(null)} onConfirm={() => void confirmDeleteWorkspace()} />
-      <ConfirmDialog open={batchDeleteConfirmOpen} title={t('sidebar.batchDeleteTitle')} message={t('sidebar.batchDeleteConfirm', { count: selectedSessionIds.length })} confirmLabel={t('sidebar.batchDeleteSelected')} cancelLabel={t('common.cancel')} tone="danger" onCancel={() => setBatchDeleteConfirmOpen(false)} onConfirm={() => void confirmBatchDeleteSession()} />
+      {showTemplates && (
+        <ModalPortal>
+          <SessionTemplates
+            onSelect={handleTemplateSelect}
+            onClose={() => {
+              setShowTemplates(false)
+              setTemplateWorkspace(null)
+            }}
+          />
+        </ModalPortal>
+      )}
+      {workspacePickerOpen && (
+        <WorkspaceDirectoryPicker
+          hostId={activeHostId || ''}
+          onPick={handleWorkspaceDirectoryPick}
+          onClose={() => setWorkspacePickerOpen(false)}
+        />
+      )}
+      <CreateSessionDialog
+        open={createDialogOpen}
+        template={createDialogTemplate}
+        defaultName={
+          createDialogTemplate
+            ? createDialogInitialWorkspace
+              ? `${createDialogInitialWorkspace.name}-${getTemplateSessionName(createDialogTemplate)}`
+              : getTemplateSessionName(createDialogTemplate)
+            : ''
+        }
+        hostId={activeHostId || ''}
+        workspaces={workspaces}
+        initialWorkspace={createDialogInitialWorkspace}
+        workspaceLocked={!!createDialogInitialWorkspace}
+        onCreate={handleCreateSession}
+        onClose={() => {
+          setCreateDialogOpen(false)
+          setCreateDialogTemplate(null)
+          setCreateDialogInitialWorkspace(null)
+        }}
+      />
+      <ConfirmDialog
+        open={!!pendingDeleteSessionId}
+        title={t('sidebar.deleteTitle')}
+        message={t('sidebar.deleteConfirm', {
+          name: sessions.find((item) => item.id === pendingDeleteSessionId)?.name || '',
+        })}
+        confirmLabel={t('sidebar.confirmDelete')}
+        cancelLabel={t('common.cancel')}
+        tone="danger"
+        onCancel={() => setPendingDeleteSessionId(null)}
+        onConfirm={() => void confirmDeleteSession()}
+      />
+      <ConfirmDialog
+        open={!!pendingDeleteWorkspace}
+        title={t('workspace.deleteTitle')}
+        message={t('workspace.deleteConfirm', { name: pendingDeleteWorkspace?.name || '' })}
+        confirmLabel={t('workspace.deleteAction')}
+        cancelLabel={t('common.cancel')}
+        tone="danger"
+        onCancel={() => setPendingDeleteWorkspace(null)}
+        onConfirm={() => void confirmDeleteWorkspace()}
+      />
+      <ConfirmDialog
+        open={batchDeleteConfirmOpen}
+        title={t('sidebar.batchDeleteTitle')}
+        message={t('sidebar.batchDeleteConfirm', { count: selectedSessionIds.length })}
+        confirmLabel={t('sidebar.batchDeleteSelected')}
+        cancelLabel={t('common.cancel')}
+        tone="danger"
+        onCancel={() => setBatchDeleteConfirmOpen(false)}
+        onConfirm={() => void confirmBatchDeleteSession()}
+      />
       {PromptElement}
     </>
   )
