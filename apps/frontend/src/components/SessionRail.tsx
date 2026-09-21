@@ -10,7 +10,7 @@ import { ConfirmDialog } from './ConfirmDialog'
 import { useTranslation } from '@/i18n'
 import { Button } from './Button'
 import { usePrompt } from '@/hooks/usePrompt'
-import { SessionSortableList } from './SessionSortableList'
+import { SessionStandaloneSortableList } from './SessionSortableList'
 import { FiChevronRight, FiEdit2, FiPlus, FiTrash2 } from 'react-icons/fi'
 import { AgentStatusBadge } from './AgentStatusBadge'
 
@@ -108,7 +108,7 @@ export function SessionRail() {
               {t('common.retry')}
             </Button>
           ) : (
-            <SessionSortableList
+            <SessionStandaloneSortableList
               sessions={sessions}
               onMove={moveSession}
               listClassName="flex min-h-full flex-col gap-2"

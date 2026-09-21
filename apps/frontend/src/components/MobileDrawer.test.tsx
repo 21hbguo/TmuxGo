@@ -17,7 +17,12 @@ const promptMock = vi.fn()
 
 vi.mock('@/hooks/useApi', () => ({
   useHosts: () => ({ data: [{ id: 'local', name: 'Local', address: '127.0.0.1', status: 'online', tags: [] }] }),
-  useSessions: () => ({ data: [{ id: 'session-dev', name: 'dev', windowCount: 2 }, { id: 'session-next', name: 'next', windowCount: 1 }] }),
+  useSessions: () => ({
+    data: [
+      { id: 'session-dev', name: 'dev', windowCount: 2 },
+      { id: 'session-next', name: 'next', windowCount: 1 },
+    ],
+  }),
   useCreateSession: () => ({ mutateAsync: mutateCreateSession }),
   useRenameSession: () => ({ mutateAsync: mutateRenameSession }),
   useDeleteSession: () => ({ mutateAsync: mutateDeleteSession }),
@@ -30,7 +35,13 @@ vi.mock('@/hooks/useWindowQueryState', () => ({
   useWindowQueryState: () => ({ getWindows: () => [], setWindows: vi.fn() }),
 }))
 vi.mock('@/hooks/useOrderedSessions', () => ({
-  useOrderedSessions: () => ({ data: [{ id: 'session-dev', name: 'dev', windowCount: 2 }, { id: 'session-next', name: 'next', windowCount: 1 }], moveSession: vi.fn() }),
+  useOrderedSessions: () => ({
+    data: [
+      { id: 'session-dev', name: 'dev', windowCount: 2 },
+      { id: 'session-next', name: 'next', windowCount: 1 },
+    ],
+    moveSession: vi.fn(),
+  }),
 }))
 vi.mock('@/hooks/useSessionWorkspaces', () => ({
   useSetSessionWorkspace: () => ({ mutateAsync: mutateSetSessionWorkspace }),
@@ -41,22 +52,24 @@ vi.mock('@/hooks/useWorkspaces', () => ({
   useWorkspaces: () => ({ data: [] }),
 }))
 vi.mock('@/i18n', () => ({
-  useTranslation: () => ({ t: (key: string, params?: Record<string, string | number>) => {
-    if (key === 'drawer.sessions') return 'Sessions'
-    if (key === 'drawer.panes') return 'Panes'
-    if (key === 'drawer.windows') return `${params?.count || 0} windows`
-    if (key === 'drawer.renamePrompt') return 'Rename session:'
-    if (key === 'drawer.sessionName') return 'Session name:'
-    if (key === 'sidebar.newSession') return '+ New Session'
-    if (key === 'sidebar.renameSession') return 'Rename session'
-    if (key === 'sidebar.deleteSession') return 'Delete session'
-    if (key === 'sidebar.reorderSession') return 'Reorder session'
-    if (key === 'sidebar.deleteTitle') return 'Delete session'
-    if (key === 'sidebar.deleteConfirm') return `Delete ${params?.name || ''}?`
-    if (key === 'sidebar.confirmDelete') return 'Delete'
-    if (key === 'common.cancel') return 'Cancel'
-    return key
-  } }),
+  useTranslation: () => ({
+    t: (key: string, params?: Record<string, string | number>) => {
+      if (key === 'drawer.sessions') return 'Sessions'
+      if (key === 'drawer.panes') return 'Panes'
+      if (key === 'drawer.windows') return `${params?.count || 0} windows`
+      if (key === 'drawer.renamePrompt') return 'Rename session:'
+      if (key === 'drawer.sessionName') return 'Session name:'
+      if (key === 'sidebar.newSession') return '+ New Session'
+      if (key === 'sidebar.renameSession') return 'Rename session'
+      if (key === 'sidebar.deleteSession') return 'Delete session'
+      if (key === 'sidebar.reorderSession') return 'Reorder session'
+      if (key === 'sidebar.deleteTitle') return 'Delete session'
+      if (key === 'sidebar.deleteConfirm') return `Delete ${params?.name || ''}?`
+      if (key === 'sidebar.confirmDelete') return 'Delete'
+      if (key === 'common.cancel') return 'Cancel'
+      return key
+    },
+  }),
 }))
 vi.mock('./SessionTemplates', () => ({
   SessionTemplates: () => React.createElement('div'),
@@ -74,10 +87,38 @@ vi.mock('./QuickActions', () => ({
   QuickActions: () => React.createElement('div'),
 }))
 vi.mock('./ConfirmDialog', () => ({
-  ConfirmDialog: ({ open, onConfirm }: { open: boolean; onConfirm: () => void }) => open ? React.createElement('button', { onClick: onConfirm }, 'confirm-delete') : null,
+  ConfirmDialog: ({ open, onConfirm }: { open: boolean; onConfirm: () => void }) =>
+    open ? React.createElement('button', { onClick: onConfirm }, 'confirm-delete') : null,
 }))
 vi.mock('./SessionSortableList', () => ({
-  SessionSortableList: ({ sessions, renderItem }: { sessions: any[]; renderItem: (args: { session: any; isDragging: boolean; isOverlay: boolean }) => React.ReactNode }) => React.createElement('div', null, sessions.map((session) => React.createElement('div', { key: session.id }, renderItem({ session, isDragging: false, isOverlay: false })))),
+  SessionSortableList: ({
+    sessions,
+    renderItem,
+  }: {
+    sessions: any[]
+    renderItem: (args: { session: any; isDragging: boolean; isOverlay: boolean }) => React.ReactNode
+  }) =>
+    React.createElement(
+      'div',
+      null,
+      sessions.map((session) =>
+        React.createElement('div', { key: session.id }, renderItem({ session, isDragging: false, isOverlay: false })),
+      ),
+    ),
+  SessionStandaloneSortableList: ({
+    sessions,
+    renderItem,
+  }: {
+    sessions: any[]
+    renderItem: (args: { session: any; isDragging: boolean; isOverlay: boolean }) => React.ReactNode
+  }) =>
+    React.createElement(
+      'div',
+      null,
+      sessions.map((session) =>
+        React.createElement('div', { key: session.id }, renderItem({ session, isDragging: false, isOverlay: false })),
+      ),
+    ),
 }))
 
 describe('MobileDrawer session actions', () => {
@@ -111,7 +152,13 @@ describe('MobileDrawer session actions', () => {
     promptMock.mockResolvedValueOnce('dev-renamed')
     render(<MobileDrawer isOpen onClose={vi.fn()} type="sessions" />)
     fireEvent.click(screen.getAllByLabelText('Rename session')[0])
-    await waitFor(() => expect(mutateRenameSession).toHaveBeenCalledWith({ hostId: 'local', sessionId: 'session-dev', name: 'dev-renamed' }))
+    await waitFor(() =>
+      expect(mutateRenameSession).toHaveBeenCalledWith({
+        hostId: 'local',
+        sessionId: 'session-dev',
+        name: 'dev-renamed',
+      }),
+    )
     await waitFor(() => expect(useConsoleStore.getState().activeSessionId).toBe('session-dev-renamed'))
   })
 
