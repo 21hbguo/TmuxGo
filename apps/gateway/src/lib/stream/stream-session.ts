@@ -343,7 +343,12 @@ export class StreamSession {
     this.outputBuffer += output
     const congestedLimit = this.clientBackpressureHigh ? CLIENT_BACKPRESSURE_RESYNC_CHARS : OUTPUT_BUFFER_MAX_CHARS
     if (this.outputBuffer.length > congestedLimit) {
-      this.maybeResyncCongested(() => this.outputBuffer.length > congestedLimit)
+      // 判据惰性重算：迟滞窗内 clientBackpressureHigh 可能翻转，复查须用当时阈值
+      this.maybeResyncCongested(
+        () =>
+          this.outputBuffer.length >
+          (this.clientBackpressureHigh ? CLIENT_BACKPRESSURE_RESYNC_CHARS : OUTPUT_BUFFER_MAX_CHARS),
+      )
       return
     }
     const profile = OUTPUT_PROFILES[this.outputProfile]
