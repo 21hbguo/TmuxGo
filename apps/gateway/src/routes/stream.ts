@@ -81,7 +81,16 @@ export async function streamRoutes(fastify: FastifyInstance) {
             socket.close(1008, 'Share link is unavailable')
             return
           }
-          if (!['attach', 'detach', 'ping', 'stream_profile', 'stream_backpressure'].includes(data.type)) {
+          if (
+            ![
+              'attach',
+              'detach',
+              'ping',
+              'stream_profile',
+              'stream_backpressure',
+              'stream_backpressure_suppressed',
+            ].includes(data.type)
+          ) {
             session.send({ type: 'error', code: 'SHARE_READ_ONLY', message: 'Shared terminal is read-only' })
             return
           }
@@ -160,6 +169,10 @@ export async function streamRoutes(fastify: FastifyInstance) {
             break
           case 'stream_backpressure':
             session.setBackpressure(data.level, !!data.mobile)
+            break
+          case 'stream_backpressure_suppressed':
+            // 前端 resize 宽限窗拦截的 high 上报计数（每窗每 pane 至多一条）
+            recordStreamMetric('backpressureSuppressed')
             break
           case 'pane_scroll': {
             const scrollLines = Number(data.lines) || 0

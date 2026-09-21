@@ -19,6 +19,7 @@ import {
   OUTPUT_PROFILES,
   REQUEST_REDRAW_DELAYS,
   RESIZE_ACK_OUTPUT_WAIT_MS,
+  RESYNC_HYSTERESIS_MS,
   RESYNC_RESET_SEQ,
   SCROLL_MAX_LINES,
   SOCKET_BUFFER_EXTREME_WATERMARK,
@@ -60,6 +61,7 @@ export class StreamSession {
   deferredFlushTimer: ReturnType<typeof setTimeout> | null = null
   outputResyncPending = false
   outputResyncRunning = false
+  resyncHysteresisTimer: ReturnType<typeof setTimeout> | null = null
   redrawTimers: ReturnType<typeof setTimeout>[] = []
   outputProfile: OutputProfileName = 'foreground'
   clientBackpressureHigh = false
@@ -197,6 +199,18 @@ export class StreamSession {
     }
     this.scheduleDeferredFlush()
   }
+  // 拥塞 resync 迟滞：调用方在判据首次超限时调用——记 suppressed 并挂
+  // RESYNC_HYSTERESIS_MS 复查；到时仍超限才升级 resync。一次性突发
+  // （pane resize 重绘、远端输出浪涌）排空后复查不再超限，天然被过滤；
+  // 判据由调用方传入，复查沿用时超时的那一份
+  maybeResyncCongested(congested: () => boolean) {
+    if (this.outputResyncPending || this.resyncHysteresisTimer || !congested()) return
+    recordStreamMetric('backpressureSuppressed')
+    this.resyncHysteresisTimer = setTimeout(() => {
+      this.resyncHysteresisTimer = null
+      if (!this.outputResyncPending && congested()) this.requestLatestFrameResync()
+    }, RESYNC_HYSTERESIS_MS)
+  }
   scheduleDeferredFlush() {
     if (this.deferredFlushTimer) return
     recordStreamMetric('deferredFlushes')
@@ -329,7 +343,7 @@ export class StreamSession {
     this.outputBuffer += output
     const congestedLimit = this.clientBackpressureHigh ? CLIENT_BACKPRESSURE_RESYNC_CHARS : OUTPUT_BUFFER_MAX_CHARS
     if (this.outputBuffer.length > congestedLimit) {
-      this.requestLatestFrameResync()
+      this.maybeResyncCongested(() => this.outputBuffer.length > congestedLimit)
       return
     }
     const profile = OUTPUT_PROFILES[this.outputProfile]
@@ -479,6 +493,10 @@ export class StreamSession {
     if (this.deferredFlushTimer) {
       clearTimeout(this.deferredFlushTimer)
       this.deferredFlushTimer = null
+    }
+    if (this.resyncHysteresisTimer) {
+      clearTimeout(this.resyncHysteresisTimer)
+      this.resyncHysteresisTimer = null
     }
     this.outputBuffer = ''
     this.sanitizeTerminalOutput = createTerminalOutputSanitizer()
@@ -714,12 +732,11 @@ export class StreamSession {
     if (level === 'high') {
       this.clientBackpressureHigh = true
       this.syncOutputProfile(mobile ? 'mobile' : 'background')
-      if (
-        this.outputBuffer.length >= CLIENT_BACKPRESSURE_RESYNC_CHARS ||
-        this.getSocketBufferedBytes() >= SOCKET_BUFFER_HIGH_WATERMARK
-      ) {
-        this.requestLatestFrameResync()
-      }
+      this.maybeResyncCongested(
+        () =>
+          this.outputBuffer.length >= CLIENT_BACKPRESSURE_RESYNC_CHARS ||
+          this.getSocketBufferedBytes() >= SOCKET_BUFFER_HIGH_WATERMARK,
+      )
     } else if (level === 'normal') {
       this.clientBackpressureHigh = false
       this.syncOutputProfile(mobile ? 'mobile' : 'foreground')

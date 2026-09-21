@@ -1,9 +1,12 @@
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { emitStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
+import { RESIZE_BACKPRESSURE_GRACE_MS, resetResizeBackpressureGrace } from '@/lib/resize-grace'
 import { useTerminalOutputScheduler } from './useTerminalOutputScheduler'
 describe('useTerminalOutputScheduler', () => {
   beforeEach(() => {
     vi.useFakeTimers()
+    resetResizeBackpressureGrace()
     vi.stubGlobal(
       'requestAnimationFrame',
       vi.fn(() => 1),
@@ -203,6 +206,42 @@ describe('useTerminalOutputScheduler', () => {
     expect(write.mock.calls.length).toBe(3)
     act(() => vi.advanceTimersByTime(1))
     expect(write.mock.calls.length).toBe(4)
+    act(() => result.current.dispose())
+  })
+  it('suppresses high backpressure during the resize grace window without consuming the edge', () => {
+    // resize 突发（缓冲即最终帧）不应上报 high；但边沿不得被消费——
+    // 窗口过后 backlog 仍超阈值时下一笔 push 必须自然补报
+    const nowSpy = vi.spyOn(performance, 'now')
+    nowSpy.mockReturnValue(1000)
+    // write 永不回调 → 首笔在途，后续 push 全部进 backlog
+    const write = vi.fn((_chunk: string, _done?: () => void) => {})
+    const onBackpressure = vi.fn()
+    const onBackpressureSuppressed = vi.fn()
+    const { result } = renderHook(() => useTerminalOutputScheduler({ write, onBackpressure, onBackpressureSuppressed }))
+    act(() => emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'end' }))
+    act(() => result.current.push('a'))
+    act(() => result.current.push('x'.repeat(70000)))
+    expect(onBackpressure).not.toHaveBeenCalledWith('high', expect.anything(), expect.anything())
+    expect(onBackpressureSuppressed).toHaveBeenCalledTimes(1)
+    // 窗口内再次积压也只通知一次
+    act(() => result.current.push('y'.repeat(70000)))
+    expect(onBackpressureSuppressed).toHaveBeenCalledTimes(1)
+    // 窗口过后积压仍在 → 补报 high（证明边沿没被吞掉）
+    nowSpy.mockReturnValue(1000 + RESIZE_BACKPRESSURE_GRACE_MS + 10)
+    act(() => result.current.push('z'))
+    expect(onBackpressure).toHaveBeenCalledWith('high', expect.any(Number), expect.anything())
+    nowSpy.mockRestore()
+    act(() => result.current.dispose())
+  })
+  it('reports high backpressure normally outside the grace window', () => {
+    const write = vi.fn((_chunk: string, done?: () => void) => done?.())
+    const onBackpressure = vi.fn()
+    const onBackpressureSuppressed = vi.fn()
+    const { result } = renderHook(() => useTerminalOutputScheduler({ write, onBackpressure, onBackpressureSuppressed }))
+    act(() => emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'start' }))
+    act(() => result.current.push('x'.repeat(70000)))
+    expect(onBackpressure).toHaveBeenCalledWith('high', expect.any(Number), expect.anything())
+    expect(onBackpressureSuppressed).not.toHaveBeenCalled()
     act(() => result.current.dispose())
   })
   it('resolves pending afterWrites barriers on dispose', () => {

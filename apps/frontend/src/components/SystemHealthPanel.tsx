@@ -76,6 +76,7 @@ function streamOf(info: SystemInfo) {
     resizeRequests: num(s.resizeRequests),
     inputMessages: num(s.inputMessages),
     backpressureSignals: num(s.backpressureSignals),
+    backpressureSuppressed: num(s.backpressureSuppressed),
     profileUpdates: num(s.profileUpdates),
     deferredFlushes: num(s.deferredFlushes),
     socketBufferedBytes: num(s.socketBufferedBytes),
@@ -91,21 +92,46 @@ function streamOf(info: SystemInfo) {
     cellFallbackAnsi: num(s.cellFallbackAnsi),
   }
 }
-function Sparkline({ values, width = 140, height = 36, stroke = 'rgb(var(--accent))' }: { values: number[]; width?: number; height?: number; stroke?: string }) {
+function Sparkline({
+  values,
+  width = 140,
+  height = 36,
+  stroke = 'rgb(var(--accent))',
+}: {
+  values: number[]
+  width?: number
+  height?: number
+  stroke?: string
+}) {
   if (values.length < 2) {
     return <div className="flex h-9 items-center text-caption text-text-3">—</div>
   }
   const min = Math.min(...values)
   const max = Math.max(...values)
   const range = max - min || 1
-  const points = values.map((value, index) => {
-    const x = (index / (values.length - 1)) * width
-    const y = height - ((value - min) / range) * (height - 4) - 2
-    return `${x.toFixed(1)},${y.toFixed(1)}`
-  }).join(' ')
+  const points = values
+    .map((value, index) => {
+      const x = (index / (values.length - 1)) * width
+      const y = height - ((value - min) / range) * (height - 4) - 2
+      return `${x.toFixed(1)},${y.toFixed(1)}`
+    })
+    .join(' ')
   return (
-    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="block overflow-visible" aria-hidden>
-      <polyline fill="none" stroke={stroke} strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" points={points} />
+    <svg
+      width={width}
+      height={height}
+      viewBox={`0 0 ${width} ${height}`}
+      className="block overflow-visible"
+      aria-hidden
+    >
+      <polyline
+        fill="none"
+        stroke={stroke}
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        points={points}
+      />
     </svg>
   )
 }
@@ -117,16 +143,40 @@ function ProgressBar({ ratio, tone }: { ratio: number; tone: Tone }) {
     </div>
   )
 }
-function MetricCard({ title, value, sub, tone = 'neutral', series, unit }: { title: string; value: string; sub?: string; tone?: Tone; series?: number[]; unit?: string }) {
+function MetricCard({
+  title,
+  value,
+  sub,
+  tone = 'neutral',
+  series,
+  unit,
+}: {
+  title: string
+  value: string
+  sub?: string
+  tone?: Tone
+  series?: number[]
+  unit?: string
+}) {
   return (
     <div className="rounded-apple border border-[var(--line)] bg-bg-2 p-3">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="text-caption uppercase tracking-[0.12em] text-text-3">{title}</div>
-          <div className={`mt-1 font-mono text-lg font-semibold tabular-nums ${toneText[tone]}`}>{value}{unit ? <span className="ml-1 text-xs font-normal text-text-3">{unit}</span> : null}</div>
+          <div className={`mt-1 font-mono text-lg font-semibold tabular-nums ${toneText[tone]}`}>
+            {value}
+            {unit ? <span className="ml-1 text-xs font-normal text-text-3">{unit}</span> : null}
+          </div>
           {sub ? <div className="mt-1 text-caption text-text-3">{sub}</div> : null}
         </div>
-        {series ? <Sparkline values={series} stroke={tone === 'danger' ? 'rgb(var(--danger))' : tone === 'warn' ? 'rgb(var(--warn))' : 'rgb(var(--accent))'} /> : null}
+        {series ? (
+          <Sparkline
+            values={series}
+            stroke={
+              tone === 'danger' ? 'rgb(var(--danger))' : tone === 'warn' ? 'rgb(var(--warn))' : 'rgb(var(--accent))'
+            }
+          />
+        ) : null}
       </div>
     </div>
   )
@@ -146,7 +196,9 @@ export function SystemHealthPanel() {
   const { data: hosts = [] } = useHosts()
   const [hostId, setHostId] = useState(activeHostId || 'local')
   const [refreshToken, setRefreshToken] = useState(0)
-  const [pageVisible, setPageVisible] = useState(typeof document === 'undefined' ? true : document.visibilityState === 'visible')
+  const [pageVisible, setPageVisible] = useState(
+    typeof document === 'undefined' ? true : document.visibilityState === 'visible',
+  )
   const [history, setHistory] = useState<HistorySample[]>([])
   const [updatedAt, setUpdatedAt] = useState<number | null>(null)
   const interval = hostId === 'local' ? 1000 : 2500
@@ -202,14 +254,25 @@ export function SystemHealthPanel() {
     })
   }, [info])
   const stream = info ? streamOf(info) : null
-  const series = (pick: (sample: HistorySample) => number | null | undefined) => history.map(pick).filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
-  const missingDependencies = info ? Object.entries(info.dependencies || {}).filter(([, ok]) => !ok).map(([name]) => name) : []
+  const series = (pick: (sample: HistorySample) => number | null | undefined) =>
+    history.map(pick).filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+  const missingDependencies = info
+    ? Object.entries(info.dependencies || {})
+        .filter(([, ok]) => !ok)
+        .map(([name]) => name)
+    : []
   const disks = info ? [...(info.disks || [])].sort((a, b) => b.used - a.used) : []
   const cpuTone = info ? pctTone(info.cpu) : 'neutral'
   const memTone = info ? resourceTone(info.mem.used, info.mem.total) : 'neutral'
   const gpuTone = info?.gpu ? resourceTone(info.gpu.used, info.gpu.total) : 'neutral'
-  const bufferTone = stream && stream.socketBufferedBytes >= 1024 * 1024 ? 'danger' : stream && stream.socketBufferedBytes >= 256 * 1024 ? 'warn' : 'neutral'
-  const backpressureTone = stream && stream.backpressureSignals > 0 ? (stream.backpressureSignals >= 20 ? 'danger' : 'warn') : 'neutral'
+  const bufferTone =
+    stream && stream.socketBufferedBytes >= 1024 * 1024
+      ? 'danger'
+      : stream && stream.socketBufferedBytes >= 256 * 1024
+        ? 'warn'
+        : 'neutral'
+  const backpressureTone =
+    stream && stream.backpressureSignals > 0 ? (stream.backpressureSignals >= 20 ? 'danger' : 'warn') : 'neutral'
   const droppedTone = stream && stream.droppedOutputChars > 0 ? 'warn' : 'neutral'
   return (
     <div className="space-y-4">
@@ -219,17 +282,34 @@ export function SystemHealthPanel() {
           <div className="mt-1 text-caption text-text-3">{t('settings.performanceDesc')}</div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <select value={hostId} onChange={(event) => setHostId(event.target.value)} className="tmuxgo-control tmuxgo-select rounded-apple px-3 py-1.5 text-sm" aria-label={t('settings.performanceHost')}>
-            {hostOptions.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+          <select
+            value={hostId}
+            onChange={(event) => setHostId(event.target.value)}
+            className="tmuxgo-control tmuxgo-select rounded-apple px-3 py-1.5 text-sm"
+            aria-label={t('settings.performanceHost')}
+          >
+            {hostOptions.map(([id, label]) => (
+              <option key={id} value={id}>
+                {label}
+              </option>
+            ))}
           </select>
-          <Button size="sm" onClick={() => setRefreshToken((value) => value + 1)}>{t('settings.performanceRefresh')}</Button>
+          <Button size="sm" onClick={() => setRefreshToken((value) => value + 1)}>
+            {t('settings.performanceRefresh')}
+          </Button>
         </div>
       </div>
       <div className="flex items-center justify-between text-caption text-text-3">
-        <span>{t('settings.performanceUpdated')}: {updatedAt ? new Date(updatedAt).toLocaleTimeString() : '—'}</span>
-        <span>{hostId === 'local' ? t('settings.performanceIntervalLocal') : t('settings.performanceIntervalRemote')}</span>
+        <span>
+          {t('settings.performanceUpdated')}: {updatedAt ? new Date(updatedAt).toLocaleTimeString() : '—'}
+        </span>
+        <span>
+          {hostId === 'local' ? t('settings.performanceIntervalLocal') : t('settings.performanceIntervalRemote')}
+        </span>
       </div>
-      {!info && <div className="rounded-apple border border-[var(--line)] p-4 text-sm text-text-3">{t('common.loading')}</div>}
+      {!info && (
+        <div className="rounded-apple border border-[var(--line)] p-4 text-sm text-text-3">{t('common.loading')}</div>
+      )}
       {info && (
         <>
           <div>
@@ -239,9 +319,20 @@ export function SystemHealthPanel() {
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <div className="text-caption uppercase tracking-[0.12em] text-text-3">CPU</div>
-                    <div className={`mt-1 font-mono text-lg font-semibold tabular-nums ${toneText[cpuTone]}`}>{info.cpu}%</div>
+                    <div className={`mt-1 font-mono text-lg font-semibold tabular-nums ${toneText[cpuTone]}`}>
+                      {info.cpu}%
+                    </div>
                   </div>
-                  <Sparkline values={series((sample) => sample.cpu)} stroke={cpuTone === 'danger' ? 'rgb(var(--danger))' : cpuTone === 'warn' ? 'rgb(var(--warn))' : 'rgb(var(--accent))'} />
+                  <Sparkline
+                    values={series((sample) => sample.cpu)}
+                    stroke={
+                      cpuTone === 'danger'
+                        ? 'rgb(var(--danger))'
+                        : cpuTone === 'warn'
+                          ? 'rgb(var(--warn))'
+                          : 'rgb(var(--accent))'
+                    }
+                  />
                 </div>
                 <ProgressBar ratio={info.cpu / 100} tone={cpuTone} />
               </div>
@@ -249,10 +340,23 @@ export function SystemHealthPanel() {
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <div className="text-caption uppercase tracking-[0.12em] text-text-3">MEM</div>
-                    <div className={`mt-1 font-mono text-lg font-semibold tabular-nums ${toneText[memTone]}`}>{gb(info.mem.used)}/{gb(info.mem.total)}G</div>
-                    <div className="mt-1 text-caption text-text-3">{info.mem.total > 0 ? `${Math.round((info.mem.used / info.mem.total) * 100)}%` : '—'}</div>
+                    <div className={`mt-1 font-mono text-lg font-semibold tabular-nums ${toneText[memTone]}`}>
+                      {gb(info.mem.used)}/{gb(info.mem.total)}G
+                    </div>
+                    <div className="mt-1 text-caption text-text-3">
+                      {info.mem.total > 0 ? `${Math.round((info.mem.used / info.mem.total) * 100)}%` : '—'}
+                    </div>
                   </div>
-                  <Sparkline values={series((sample) => sample.memPct)} stroke={memTone === 'danger' ? 'rgb(var(--danger))' : memTone === 'warn' ? 'rgb(var(--warn))' : 'rgb(var(--accent))'} />
+                  <Sparkline
+                    values={series((sample) => sample.memPct)}
+                    stroke={
+                      memTone === 'danger'
+                        ? 'rgb(var(--danger))'
+                        : memTone === 'warn'
+                          ? 'rgb(var(--warn))'
+                          : 'rgb(var(--accent))'
+                    }
+                  />
                 </div>
                 <ProgressBar ratio={info.mem.total > 0 ? info.mem.used / info.mem.total : 0} tone={memTone} />
               </div>
@@ -261,15 +365,33 @@ export function SystemHealthPanel() {
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <div className="text-caption uppercase tracking-[0.12em] text-text-3">GPU</div>
-                      <div className={`mt-1 font-mono text-lg font-semibold tabular-nums ${toneText[gpuTone]}`}>{gb(info.gpu.used)}/{gb(info.gpu.total)}G</div>
-                      <div className="mt-1 text-caption text-text-3">{info.gpu.total > 0 ? `${Math.round((info.gpu.used / info.gpu.total) * 100)}%` : '—'}</div>
+                      <div className={`mt-1 font-mono text-lg font-semibold tabular-nums ${toneText[gpuTone]}`}>
+                        {gb(info.gpu.used)}/{gb(info.gpu.total)}G
+                      </div>
+                      <div className="mt-1 text-caption text-text-3">
+                        {info.gpu.total > 0 ? `${Math.round((info.gpu.used / info.gpu.total) * 100)}%` : '—'}
+                      </div>
                     </div>
-                    <Sparkline values={series((sample) => sample.gpuPct)} stroke={gpuTone === 'danger' ? 'rgb(var(--danger))' : gpuTone === 'warn' ? 'rgb(var(--warn))' : 'rgb(var(--accent))'} />
+                    <Sparkline
+                      values={series((sample) => sample.gpuPct)}
+                      stroke={
+                        gpuTone === 'danger'
+                          ? 'rgb(var(--danger))'
+                          : gpuTone === 'warn'
+                            ? 'rgb(var(--warn))'
+                            : 'rgb(var(--accent))'
+                      }
+                    />
                   </div>
                   <ProgressBar ratio={info.gpu.total > 0 ? info.gpu.used / info.gpu.total : 0} tone={gpuTone} />
                 </div>
               )}
-              <MetricCard title={t('settings.performanceActiveClients')} value={String(stream?.activeClients ?? 0)} series={series((sample) => sample.activeClients)} sub={stream ? `${t('settings.performanceProfile')}: ${stream.activeProfile}` : undefined} />
+              <MetricCard
+                title={t('settings.performanceActiveClients')}
+                value={String(stream?.activeClients ?? 0)}
+                series={series((sample) => sample.activeClients)}
+                sub={stream ? `${t('settings.performanceProfile')}: ${stream.activeProfile}` : undefined}
+              />
             </div>
           </div>
           {disks.length > 0 && (
@@ -281,8 +403,12 @@ export function SystemHealthPanel() {
                   return (
                     <div key={disk.mount} className="rounded-apple border border-[var(--line)] bg-bg-2 p-3">
                       <div className="flex items-center justify-between gap-2">
-                        <div className="truncate font-mono text-sm text-text-1" title={disk.mount}>{disk.mount}</div>
-                        <div className={`font-mono text-sm tabular-nums ${toneText[tone]}`}>{gb(disk.used)}/{gb(disk.total)}G</div>
+                        <div className="truncate font-mono text-sm text-text-1" title={disk.mount}>
+                          {disk.mount}
+                        </div>
+                        <div className={`font-mono text-sm tabular-nums ${toneText[tone]}`}>
+                          {gb(disk.used)}/{gb(disk.total)}G
+                        </div>
                       </div>
                       <ProgressBar ratio={disk.total > 0 ? disk.used / disk.total : 0} tone={tone} />
                     </div>
@@ -294,40 +420,96 @@ export function SystemHealthPanel() {
           <div>
             <h3 className="mb-2 text-sm font-medium text-text-1">{t('settings.performanceStream')}</h3>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <MetricCard title={t('settings.performanceOutputRate')} value={fmtRate(history[history.length - 1]?.outputRate || 0)} series={series((sample) => sample.outputRate)} sub={`${t('settings.performanceTotal')}: ${fmtBytes(stream?.outputBytes || 0)}`} />
-              <MetricCard title={t('settings.performanceNetSent')} value={fmtRate(history[history.length - 1]?.netSentRate || 0)} series={series((sample) => sample.netSentRate)} sub={`${t('settings.performanceNetDay')}: ${fmtBytes(info?.net?.daySentBytes || 0)} · ${t('settings.performanceNet24h')}: ${fmtBytes(info?.net?.last24hSentBytes || 0)}`} />
-              <MetricCard title={t('settings.performanceNetRecv')} value={fmtRate(history[history.length - 1]?.netRecvRate || 0)} series={series((sample) => sample.netRecvRate)} sub={`${t('settings.performanceNetDay')}: ${fmtBytes(info?.net?.dayRecvBytes || 0)} · ${t('settings.performanceNet24h')}: ${fmtBytes(info?.net?.last24hRecvBytes || 0)}`} />
+              <MetricCard
+                title={t('settings.performanceOutputRate')}
+                value={fmtRate(history[history.length - 1]?.outputRate || 0)}
+                series={series((sample) => sample.outputRate)}
+                sub={`${t('settings.performanceTotal')}: ${fmtBytes(stream?.outputBytes || 0)}`}
+              />
+              <MetricCard
+                title={t('settings.performanceNetSent')}
+                value={fmtRate(history[history.length - 1]?.netSentRate || 0)}
+                series={series((sample) => sample.netSentRate)}
+                sub={`${t('settings.performanceNetDay')}: ${fmtBytes(info?.net?.daySentBytes || 0)} · ${t('settings.performanceNet24h')}: ${fmtBytes(info?.net?.last24hSentBytes || 0)}`}
+              />
+              <MetricCard
+                title={t('settings.performanceNetRecv')}
+                value={fmtRate(history[history.length - 1]?.netRecvRate || 0)}
+                series={series((sample) => sample.netRecvRate)}
+                sub={`${t('settings.performanceNetDay')}: ${fmtBytes(info?.net?.dayRecvBytes || 0)} · ${t('settings.performanceNet24h')}: ${fmtBytes(info?.net?.last24hRecvBytes || 0)}`}
+              />
               <div className="rounded-apple border border-[var(--line)] bg-bg-2 p-3 sm:col-span-2">
-                <div className="text-caption uppercase tracking-[0.12em] text-text-3">{t('settings.performanceNetWindow')}</div>
+                <div className="text-caption uppercase tracking-[0.12em] text-text-3">
+                  {t('settings.performanceNetWindow')}
+                </div>
                 <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
                     <div className="text-caption text-text-3">{t('settings.performanceNetDay')}</div>
-                    <div className="mt-1 font-mono text-sm tabular-nums text-text-1">{t('settings.performanceNetSent')} {fmtBytes(info?.net?.daySentBytes || 0)}</div>
-                    <div className="mt-0.5 font-mono text-sm tabular-nums text-text-1">{t('settings.performanceNetRecv')} {fmtBytes(info?.net?.dayRecvBytes || 0)}</div>
+                    <div className="mt-1 font-mono text-sm tabular-nums text-text-1">
+                      {t('settings.performanceNetSent')} {fmtBytes(info?.net?.daySentBytes || 0)}
+                    </div>
+                    <div className="mt-0.5 font-mono text-sm tabular-nums text-text-1">
+                      {t('settings.performanceNetRecv')} {fmtBytes(info?.net?.dayRecvBytes || 0)}
+                    </div>
                   </div>
                   <div>
                     <div className="text-caption text-text-3">{t('settings.performanceNet24h')}</div>
-                    <div className="mt-1 font-mono text-sm tabular-nums text-text-1">{t('settings.performanceNetSent')} {fmtBytes(info?.net?.last24hSentBytes || 0)}</div>
-                    <div className="mt-0.5 font-mono text-sm tabular-nums text-text-1">{t('settings.performanceNetRecv')} {fmtBytes(info?.net?.last24hRecvBytes || 0)}</div>
+                    <div className="mt-1 font-mono text-sm tabular-nums text-text-1">
+                      {t('settings.performanceNetSent')} {fmtBytes(info?.net?.last24hSentBytes || 0)}
+                    </div>
+                    <div className="mt-0.5 font-mono text-sm tabular-nums text-text-1">
+                      {t('settings.performanceNetRecv')} {fmtBytes(info?.net?.last24hRecvBytes || 0)}
+                    </div>
                   </div>
                 </div>
-                <div className="mt-2 text-caption text-text-3">{t('settings.performanceNetSince', { hours: fmtTrackedHours(info?.net?.trackedMs || 0) })} · {t('settings.performanceTotal')} {t('settings.performanceNetSent')} {fmtBytes(info?.net?.sentBytes || 0)} / {t('settings.performanceNetRecv')} {fmtBytes(info?.net?.recvBytes || 0)}</div>
+                <div className="mt-2 text-caption text-text-3">
+                  {t('settings.performanceNetSince', { hours: fmtTrackedHours(info?.net?.trackedMs || 0) })} ·{' '}
+                  {t('settings.performanceTotal')} {t('settings.performanceNetSent')}{' '}
+                  {fmtBytes(info?.net?.sentBytes || 0)} / {t('settings.performanceNetRecv')}{' '}
+                  {fmtBytes(info?.net?.recvBytes || 0)}
+                </div>
               </div>
-              <MetricCard title={t('settings.performanceSocketBuffer')} value={fmtBytes(stream?.socketBufferedBytes || 0)} series={series((sample) => sample.socketBufferedBytes)} tone={bufferTone} />
-              <MetricCard title={t('settings.performanceBackpressure')} value={String(stream?.backpressureSignals || 0)} series={series((sample) => sample.backpressureSignals)} tone={backpressureTone} sub={`${t('settings.performanceRate')}: ${(history[history.length - 1]?.backpressureRate || 0).toFixed(2)}/s`} />
-              <MetricCard title={t('settings.performanceDropped')} value={String(stream?.droppedOutputChars || 0)} series={series((sample) => sample.droppedOutputChars)} tone={droppedTone} />
+              <MetricCard
+                title={t('settings.performanceSocketBuffer')}
+                value={fmtBytes(stream?.socketBufferedBytes || 0)}
+                series={series((sample) => sample.socketBufferedBytes)}
+                tone={bufferTone}
+              />
+              <MetricCard
+                title={t('settings.performanceBackpressure')}
+                value={String(stream?.backpressureSignals || 0)}
+                series={series((sample) => sample.backpressureSignals)}
+                tone={backpressureTone}
+                sub={`${t('settings.performanceRate')}: ${(history[history.length - 1]?.backpressureRate || 0).toFixed(2)}/s`}
+              />
+              <MetricCard
+                title={t('settings.performanceDropped')}
+                value={String(stream?.droppedOutputChars || 0)}
+                series={series((sample) => sample.droppedOutputChars)}
+                tone={droppedTone}
+              />
             </div>
             <div className="mt-3 rounded-apple border border-[var(--line)] bg-bg-2 px-3 py-2">
-              <StatRow label={t('settings.performanceFlushInterval')} value={`${stream?.activeFlushInterval ?? 0} ms`} />
+              <StatRow
+                label={t('settings.performanceFlushInterval')}
+                value={`${stream?.activeFlushInterval ?? 0} ms`}
+              />
               <StatRow label={t('settings.performanceMaxChars')} value={stream?.activeMaxChars ?? 0} />
               <StatRow label={t('settings.performanceFlushes')} value={stream?.outputFlushes ?? 0} />
               <StatRow label={t('settings.performanceChunks')} value={stream?.outputChunks ?? 0} />
               <StatRow label={t('settings.performanceInput')} value={stream?.inputMessages ?? 0} />
               <StatRow label={t('settings.performanceDeferred')} value={stream?.deferredFlushes ?? 0} />
-              <StatRow label={t('settings.performanceResync')} value={`${stream?.outputResyncCompleted ?? 0}/${stream?.outputResyncRequests ?? 0}`} />
+              <StatRow
+                label={t('settings.performanceResync')}
+                value={`${stream?.outputResyncCompleted ?? 0}/${stream?.outputResyncRequests ?? 0}`}
+              />
+              <StatRow label={t('settings.performanceSuppressed')} value={stream?.backpressureSuppressed ?? 0} />
               <StatRow label={t('settings.performanceAttach')} value={stream?.attachRequests ?? 0} />
               <StatRow label={t('settings.performanceCompressFrames')} value={stream?.compressFrames ?? 0} />
-              <StatRow label={t('settings.performanceCompressSaved')} value={fmtBytes(Math.max(0, (stream?.compressBytesIn ?? 0) - (stream?.compressBytesOut ?? 0)))} />
+              <StatRow
+                label={t('settings.performanceCompressSaved')}
+                value={fmtBytes(Math.max(0, (stream?.compressBytesIn ?? 0) - (stream?.compressBytesOut ?? 0)))}
+              />
               <StatRow label={t('settings.performanceCellSnapshots')} value={stream?.cellSnapshots ?? 0} />
               <StatRow label={t('settings.performanceCellDiffs')} value={stream?.cellDiffs ?? 0} />
               <StatRow label={t('settings.performanceCellFallback')} value={stream?.cellFallbackAnsi ?? 0} />
@@ -337,13 +519,22 @@ export function SystemHealthPanel() {
             <h3 className="mb-2 text-sm font-medium text-text-1">{t('settings.performanceDependencies')}</h3>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
               {Object.entries(info.dependencies || {}).map(([name, ok]) => (
-                <div key={name} className={`rounded-apple border px-2 py-2 text-center text-sm ${ok ? 'border-accent-2/30 bg-accent-2/10 text-accent-2' : 'border-danger/30 bg-danger/10 text-danger'}`}>
+                <div
+                  key={name}
+                  className={`rounded-apple border px-2 py-2 text-center text-sm ${ok ? 'border-accent-2/30 bg-accent-2/10 text-accent-2' : 'border-danger/30 bg-danger/10 text-danger'}`}
+                >
                   <div className="font-mono">{name}</div>
-                  <div className="mt-1 text-caption">{ok ? t('settings.performanceDepOk') : t('settings.performanceDepMissing')}</div>
+                  <div className="mt-1 text-caption">
+                    {ok ? t('settings.performanceDepOk') : t('settings.performanceDepMissing')}
+                  </div>
                 </div>
               ))}
             </div>
-            {missingDependencies.length > 0 && <div className="mt-2 text-caption text-warn">{t('settings.performanceDepWarn', { list: missingDependencies.join(', ') })}</div>}
+            {missingDependencies.length > 0 && (
+              <div className="mt-2 text-caption text-warn">
+                {t('settings.performanceDepWarn', { list: missingDependencies.join(', ') })}
+              </div>
+            )}
           </div>
         </>
       )}

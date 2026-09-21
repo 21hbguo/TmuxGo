@@ -1,5 +1,6 @@
 'use client'
 import { useCallback, useRef } from 'react'
+import { isResizeBackpressureGraceActive } from '@/lib/resize-grace'
 
 const DEFAULT_FAST_OUTPUT_LIMIT = 24576
 const DEFAULT_FRAME_BUDGET = 32768
@@ -42,6 +43,7 @@ interface UseTerminalOutputSchedulerOptions {
     backlog: number,
     stats?: { backlog: number; inFlight: number; oldestAgeMs: number },
   ) => void
+  onBackpressureSuppressed?: (backlog: number) => void
 }
 
 export function useTerminalOutputScheduler({
@@ -53,6 +55,7 @@ export function useTerminalOutputScheduler({
   onWrite,
   onMetrics,
   onBackpressure,
+  onBackpressureSuppressed,
 }: UseTerminalOutputSchedulerOptions) {
   const bufferRef = useRef('')
   const frameRef = useRef<number | null>(null)
@@ -93,9 +96,22 @@ export function useTerminalOutputScheduler({
     clearTimeout(timerRef.current)
     timerRef.current = null
   }, [])
+  // resize 宽限窗内每窗只通知一次 suppressed，避免突发期逐 push 刷 WS 消息
+  const suppressedNotifiedRef = useRef(false)
   const emitBackpressure = useCallback(
     (level: 'high' | 'normal', backlog: number) => {
       if (backpressureRef.current === level) return
+      // resize 宽限窗：抑制 high 边沿且*不消费*该转换（不写 ref）——窗口过后
+      // backlog 仍 ≥高水位时下一笔 push/write 完成会再走这里自然补报；
+      // 若写成"丢了就丢"，窗口内撞上真拥塞会让 gateway 永远收不到 high
+      if (level === 'high' && isResizeBackpressureGraceActive()) {
+        if (!suppressedNotifiedRef.current) {
+          suppressedNotifiedRef.current = true
+          onBackpressureSuppressed?.(backlog)
+        }
+        return
+      }
+      suppressedNotifiedRef.current = false
       backpressureRef.current = level
       onBackpressure?.(level, backlog, {
         backlog,
@@ -105,7 +121,7 @@ export function useTerminalOutputScheduler({
           : 0,
       })
     },
-    [onBackpressure],
+    [onBackpressure, onBackpressureSuppressed],
   )
   // 写完成后的续写决策：backlog 空→结算屏障并复位工时；连续工时超预算→
   // setTimeout(0) 让出事件循环再写下一笔；否则继续同步链式写保持吞吐
