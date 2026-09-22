@@ -23,6 +23,7 @@ import {
   netStatsRx,
   netStatsTx,
 } from '@/lib/net-stats'
+import { encodePasteBinary, shouldUsePasteBinary } from '@/lib/paste-safety'
 type WSState = {
   ws: WebSocket | null
   reconnectTimer: ReturnType<typeof setTimeout> | null
@@ -508,6 +509,38 @@ export function useWebSocket() {
   const send = useCallback((data: any) => {
     const ws = wsState.ws
     if (ws?.readyState === WebSocket.OPEN) {
+      // Oversized paste: binary paste-data frame to avoid JSON escape bloat.
+      // Small input stays on the JSON type:input path unchanged.
+      if (
+        data?.type === 'input' &&
+        typeof data.data === 'string' &&
+        data.hostId &&
+        data.sessionName &&
+        shouldUsePasteBinary(data.data)
+      ) {
+        const frame = encodePasteBinary(String(data.hostId), String(data.sessionName), data.data)
+        if (typeof document !== 'undefined' && document.visibilityState === 'visible' && isMobileDevice()) {
+          if (!mobileInteractiveProfileActive) {
+            trackedSend(ws, JSON.stringify({ type: 'stream_profile', profile: 'foreground' }))
+            mobileInteractiveProfileActive = true
+            recordMobileDebug('stream-profile-interactive-start')
+          }
+          if (mobileInteractiveProfileTimer) clearTimeout(mobileInteractiveProfileTimer)
+          netStatsTx()
+          ws.send(frame)
+          mobileInteractiveProfileTimer = setTimeout(() => {
+            mobileInteractiveProfileTimer = null
+            mobileInteractiveProfileActive = false
+            if (wsState.ws !== ws || ws.readyState !== WebSocket.OPEN) return
+            trackedSend(ws, JSON.stringify({ type: 'stream_profile', profile: 'mobile' }))
+            recordMobileDebug('stream-profile-interactive-end')
+          }, MOBILE_INTERACTIVE_PROFILE_MS)
+          return true
+        }
+        netStatsTx()
+        ws.send(frame)
+        return true
+      }
       if (
         data?.type === 'input' &&
         typeof document !== 'undefined' &&

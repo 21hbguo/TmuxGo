@@ -81,7 +81,9 @@ test('ansi parser and cell snapshot roundtrip structure', () => {
   assert.ok(snap.length > 18)
   const frame = encodeStreamCellBinary('cell_snapshot', 'local', 'dev', snap, { compress: true, threshold: 1 })
   const decoded = decodeHeader(frame)
-  assert.ok(decoded.typeCode === STREAM_BINARY_TYPE_CELL_SNAPSHOT || decoded.typeCode === STREAM_BINARY_TYPE_CELL_SNAPSHOT_GZIP)
+  assert.ok(
+    decoded.typeCode === STREAM_BINARY_TYPE_CELL_SNAPSHOT || decoded.typeCode === STREAM_BINARY_TYPE_CELL_SNAPSHOT_GZIP,
+  )
 })
 
 test('cell v2 snapshot preserves grapheme text and width', () => {
@@ -100,7 +102,10 @@ test('cell v2 snapshot preserves grapheme text and width', () => {
   assert.equal(text, 'e\u0301')
   const frame = encodeStreamCellBinary('cell_snapshot_v2', 'local', 'dev', payload, { compress: true, threshold: 1 })
   const decoded = decodeHeader(frame)
-  assert.ok(decoded.typeCode === STREAM_BINARY_TYPE_CELL_SNAPSHOT_V2 || decoded.typeCode === STREAM_BINARY_TYPE_CELL_SNAPSHOT_V2_GZIP)
+  assert.ok(
+    decoded.typeCode === STREAM_BINARY_TYPE_CELL_SNAPSHOT_V2 ||
+      decoded.typeCode === STREAM_BINARY_TYPE_CELL_SNAPSHOT_V2_GZIP,
+  )
 })
 
 test('cell diff encodes changes', () => {
@@ -114,4 +119,57 @@ test('cell diff encodes changes', () => {
   assert.ok(changes.length >= 1)
   const payload = encodeCellDiff(2, 1, grid.cursorX, grid.cursorY, 0, changes)
   assert.ok(payload.length >= 20)
+})
+
+import { applyPasteDataFrame, parsePasteDataFrame } from '../apps/gateway/src/lib/stream/paste-binary.js'
+
+function makePasteSession(overrides: Record<string, unknown> = {}) {
+  const written: string[] = []
+  const session = {
+    attachedHostId: 'local',
+    attachedSessionName: 'dev',
+    attachedPassive: false,
+    ptyProcess: {
+      write(d: string) {
+        written.push(d)
+      },
+    },
+    // Mirrors StreamSession.input passive gate
+    input(d: string) {
+      if (!session.attachedPassive && session.ptyProcess) session.ptyProcess.write(d)
+    },
+    ...overrides,
+  } as any
+  return { session, written }
+}
+
+test('paste-data frame decodes and writes to matching pty', () => {
+  const { session, written } = makePasteSession()
+  const text = 'echo hello\nline2'
+  const frame = Buffer.concat([Buffer.from('paste-data local dev\n', 'ascii'), Buffer.from(text, 'utf8')])
+  const parsed = parsePasteDataFrame(frame)
+  assert.deepEqual(parsed, { hostId: 'local', sessionName: 'dev', data: text })
+  assert.equal(applyPasteDataFrame(session, frame), 'ok')
+  assert.deepEqual(written, [text])
+})
+
+test('paste-data rejects target mismatch', () => {
+  const { session, written } = makePasteSession()
+  const frame = Buffer.from('paste-data local other\nxx', 'ascii')
+  assert.equal(applyPasteDataFrame(session, frame), 'mismatch')
+  assert.equal(written.length, 0)
+})
+
+test('paste-data refuses write when passive attach', () => {
+  const { session, written } = makePasteSession({ attachedPassive: true })
+  const frame = Buffer.from('paste-data local dev\nevil', 'ascii')
+  assert.equal(applyPasteDataFrame(session, frame), 'ok')
+  assert.equal(written.length, 0)
+})
+
+test('paste-data rejects invalid frames', () => {
+  const { session, written } = makePasteSession()
+  assert.equal(applyPasteDataFrame(session, Buffer.from('vnc-data x\nyy', 'ascii')), 'invalid')
+  assert.equal(applyPasteDataFrame(session, Buffer.from('paste-data h', 'ascii')), 'invalid')
+  assert.equal(written.length, 0)
 })

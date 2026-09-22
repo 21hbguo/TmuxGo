@@ -15,6 +15,7 @@ import { useSessionContinuity } from '@/hooks/useSessionContinuity'
 import { useSessionSnapshotSync } from '@/hooks/useSessionSnapshotSync'
 import { useOptionalQueryClient } from '@/hooks/useOptionalQueryClient'
 import { emitStreamEvent, subscribeStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
+import { shouldUsePasteBinary } from '@/lib/paste-safety'
 
 const ATTACH_TIMEOUT = 5000
 const ATTACH_RETRY_DELAY = 900
@@ -886,6 +887,16 @@ export function PaneGrid({
     (data: string) => {
       scheduleContinuityFlush(100)
       const canWriteDirectly = isConnected && isSessionAttachedRef.current && attachedRef.current === targetSessionName
+      // Oversized paste: single binary paste-data frame, skip 768-char JSON batching.
+      if (canWriteDirectly && shouldUsePasteBinary(data)) {
+        send({
+          type: 'input',
+          data,
+          hostId: activeHostId || 'local',
+          sessionName: targetSessionName,
+        })
+        return
+      }
       if (canWriteDirectly) {
         if (inputQueueRef.current.length === 0 && data.length <= INPUT_BATCH_CHARS) {
           send({ type: 'input', data })
