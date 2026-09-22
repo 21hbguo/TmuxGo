@@ -952,6 +952,7 @@ export const zh = {
 
   // TerminalPane
   'terminal.dropUpload': '拖放文件以上传',
+  'terminal.viewingHistory': '正在查看历史 · 返回实时输出',
   'terminal.linkOpenBlocked': '浏览器阻止了新窗口，请允许弹窗后重试',
   'terminal.dock.bottom': '底部',
   'terminal.dock.left': '左侧',
