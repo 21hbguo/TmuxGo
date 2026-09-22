@@ -110,6 +110,7 @@ export const zh = {
   'status.packets': '包',
   'status.netStats': 'WebSocket 收发统计',
   'status.netStatsTitle': '近 60 秒：发包 {tx} · 收包 {rx} · ping 丢包 {loss}',
+  'status.netStatsValue': '发 {tx} · 收 {rx} · {loss}',
 
   // MobileNav
   'nav.sessions': '会话',

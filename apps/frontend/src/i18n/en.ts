@@ -110,6 +110,7 @@ export const en = {
   'status.packets': 'PKT',
   'status.netStats': 'WebSocket packet stats',
   'status.netStatsTitle': 'Last 60s: sent {tx} · received {rx} · ping loss {loss}',
+  'status.netStatsValue': 'TX {tx} · RX {rx} · {loss}',
 
   // MobileNav
   'nav.sessions': 'Sessions',

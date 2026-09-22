@@ -139,7 +139,6 @@ export function StatusBar() {
         : t('status.syncFreshTitle', { age: sessionSyncAge })
   const agentMonitorFailed = agentMonitorErrorAt > 0 && now - agentMonitorErrorAt < AGENT_MONITOR_ERROR_TTL_MS
   const netStats = getNetStats()
-  const netLossTone: Tone = netStats.lossPct >= 5 ? 'danger' : netStats.lossPct >= 1 ? 'warn' : 'success'
 
   const statusStyle = (
     {
@@ -295,8 +294,12 @@ export function StatusBar() {
           <span aria-label={t('status.netStats')}>
             <ResourceChip
               label={t('status.packets')}
-              value={`↑${formatCount(netStats.tx)} ↓${formatCount(netStats.rx)} ${formatLoss(netStats.lossPct)}`}
-              tone={netLossTone}
+              value={t('status.netStatsValue', {
+                tx: formatCount(netStats.tx),
+                rx: formatCount(netStats.rx),
+                loss: formatLoss(netStats.lossPct),
+              })}
+              tone="success"
               title={t('status.netStatsTitle', {
                 tx: netStats.tx,
                 rx: netStats.rx,
