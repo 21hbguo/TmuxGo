@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { ensureSession, getActivePaneOutput, openSession } from './session'
+import { ensureTestWindow, getActivePaneOutput, openSession } from './session'
 const manualPasteTitle = /^(Paste manually|手动粘贴)$/
 const confirmPasteTitle = /^(Confirm paste|确认粘贴)$/
 const clipboardUnavailableText = /(clipboard unavailable|剪贴板不可用)/i
@@ -14,14 +14,16 @@ async function focusTerminalInput(page: any) {
 }
 
 test('shows manual paste dialog when system clipboard throws', async ({ page, request }) => {
-  const session = await ensureSession(request, 'tmuxgo_e2e_clip')
+  const { session } = await ensureTestWindow(request, 'clip')
   await openSession(page, session)
   await page.evaluate(() => {
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
       value: {
         readText: async () => {
-          throw new Error('failed to paste image: clipboard unavailable:Unkonwn error while interacting with the clipboard: x11 server connection timed out because it was unreachable')
+          throw new Error(
+            'failed to paste image: clipboard unavailable:Unkonwn error while interacting with the clipboard: x11 server connection timed out because it was unreachable',
+          )
         },
       },
     })
@@ -32,14 +34,16 @@ test('shows manual paste dialog when system clipboard throws', async ({ page, re
 })
 
 test('keyboard paste shortcut falls back when system clipboard throws', async ({ page, request }) => {
-  const session = await ensureSession(request, 'tmuxgo_e2e_clip')
+  const { session } = await ensureTestWindow(request, 'clip')
   await openSession(page, session)
   await page.evaluate(() => {
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
       value: {
         readText: async () => {
-          throw new Error('failed to paste image: clipboard unavailable:Unkonwn error while interacting with the clipboard: x11 server connection timed out because it was unreachable')
+          throw new Error(
+            'failed to paste image: clipboard unavailable:Unkonwn error while interacting with the clipboard: x11 server connection timed out because it was unreachable',
+          )
         },
       },
     })
@@ -50,7 +54,7 @@ test('keyboard paste shortcut falls back when system clipboard throws', async ({
 })
 
 test('can paste manual fallback text into tmux session', async ({ page, request }) => {
-  const session = await ensureSession(request, 'tmuxgo_e2e_clip')
+  const { session } = await ensureTestWindow(request, 'clip')
   await openSession(page, session)
   await page.evaluate(() => {
     Object.defineProperty(navigator, 'clipboard', {
@@ -73,7 +77,7 @@ test('can paste manual fallback text into tmux session', async ({ page, request 
 })
 
 test('send allows terminal typing after refocus', async ({ page, request }) => {
-  const session = await ensureSession(request, 'tmuxgo_e2e_clip')
+  const { session } = await ensureTestWindow(request, 'clip')
   await openSession(page, session)
   await page.evaluate(() => {
     Object.defineProperty(navigator, 'clipboard', {
@@ -99,11 +103,15 @@ test('send allows terminal typing after refocus', async ({ page, request }) => {
 })
 
 test('focus request restores desktop ime helper geometry after confirmed paste', async ({ page, request }) => {
-  const session = await ensureSession(request, 'tmuxgo_e2e_clip')
+  const { session } = await ensureTestWindow(request, 'clip')
   await openSession(page, session)
   await page.waitForFunction(() => !!document.querySelector('[data-terminal] .xterm-helper-textarea'))
   await page.evaluate(() => {
-    window.dispatchEvent(new CustomEvent('tmuxgo-request-terminal-paste', { detail: { text: 'printf "ime_geometry_ok"', source: 'system' } }))
+    window.dispatchEvent(
+      new CustomEvent('tmuxgo-request-terminal-paste', {
+        detail: { text: 'printf "ime_geometry_ok"', source: 'system' },
+      }),
+    )
   })
   await expect(page.getByText(confirmPasteTitle)).toBeVisible()
   await page.getByRole('button', { name: sendButtonName }).click()
@@ -112,14 +120,26 @@ test('focus request restores desktop ime helper geometry after confirmed paste',
     const helper = document.querySelector('[data-terminal] .xterm-helper-textarea') as HTMLTextAreaElement | null
     if (!helper) return null
     const rect = helper.getBoundingClientRect()
-    return document.activeElement === helper && rect.width > 0 && rect.height > 0 && helper.style.left !== '-9999em' ? { left: helper.style.left, top: helper.style.top, width: helper.style.width, height: helper.style.height, zIndex: helper.style.zIndex } : null
+    return document.activeElement === helper && rect.width > 0 && rect.height > 0 && helper.style.left !== '-9999em'
+      ? {
+          left: helper.style.left,
+          top: helper.style.top,
+          width: helper.style.width,
+          height: helper.style.height,
+          zIndex: helper.style.zIndex,
+        }
+      : null
   })
   const value = await metrics.jsonValue()
-  expect(value).toMatchObject({ width: expect.stringMatching(/px$/), height: expect.stringMatching(/px$/), zIndex: '-5' })
+  expect(value).toMatchObject({
+    width: expect.stringMatching(/px$/),
+    height: expect.stringMatching(/px$/),
+    zIndex: '-5',
+  })
 })
 
 test('can copy into app clipboard and paste back when system clipboard is unavailable', async ({ page, request }) => {
-  const session = await ensureSession(request, 'tmuxgo_e2e_clip')
+  const { session } = await ensureTestWindow(request, 'clip')
   await openSession(page, session)
   await page.evaluate(() => {
     Object.defineProperty(navigator, 'clipboard', {

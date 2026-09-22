@@ -118,7 +118,8 @@ async function main() {
       })) !== 0
     )
       throw new Error('E2E frontend build failed')
-    if ((await run('tmux', ['new-session', '-d', '-s', 'tmuxgo-e2e'], { cwd: root, env: tmuxEnv })) !== 0)
+    // 真实 tmux 行为测试只允许操作隔离 server 上名为 test 的 session（AGENTS.md）
+    if ((await run('tmux', ['new-session', '-d', '-s', 'test'], { cwd: root, env: tmuxEnv })) !== 0)
       throw new Error('E2E tmux startup failed')
     gateway = spawn(tsxBin, ['apps/gateway/src/index.ts'], {
       cwd: root,
