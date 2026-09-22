@@ -17,7 +17,19 @@ import {
   STREAM_BINARY_TYPE_CELL_SNAPSHOT_GZIP,
   STREAM_BINARY_TYPE_CELL_SNAPSHOT_V2,
   STREAM_BINARY_TYPE_CELL_SNAPSHOT_V2_GZIP,
+  encodeStreamOutputBinaryCompact,
+  encodeStreamOutputBinaryCompactAsync,
+  encodeStreamCellBinaryCompact,
+  encodeStreamCellBinaryCompactAsync,
+  STREAM_BINARY_VERSION_COMPACT,
 } from '../apps/gateway/src/lib/stream-binary'
+import { StreamRouteDictionary, STREAM_ROUTE_MAX } from '../apps/gateway/src/lib/stream/stream-route'
+import {
+  maybeCompressAgentOutput,
+  decodeAgentOutput,
+  AGENT_COMPRESS_THRESHOLD,
+} from '../apps/gateway/src/lib/agent-terminal-output'
+import { applyPasteDataFrame, parsePasteDataFrame } from '../apps/gateway/src/lib/stream/paste-binary.js'
 import {
   TerminalGrid,
   AnsiParser,
@@ -126,7 +138,108 @@ test('cell diff encodes changes', () => {
   assert.ok(payload.length >= 20)
 })
 
-import { applyPasteDataFrame, parsePasteDataFrame } from '../apps/gateway/src/lib/stream/paste-binary.js'
+function decodeCompactHeader(buffer: Buffer) {
+  assert.equal(buffer[0], 0x54)
+  assert.equal(buffer[1], 0x47)
+  assert.equal(buffer[2], STREAM_BINARY_VERSION_COMPACT)
+  const typeCode = buffer[3]
+  const routeIdx = buffer.readUInt16LE(4)
+  const dataLen = buffer.readUInt32LE(8)
+  return { typeCode, routeIdx, payload: buffer.subarray(12, 12 + dataLen) }
+}
+
+test('encodeStreamOutputBinaryCompact roundtrips with route index', () => {
+  const encoded = encodeStreamOutputBinaryCompact('output', 7, 'hello-compact\n')
+  const decoded = decodeCompactHeader(encoded)
+  assert.equal(decoded.typeCode, STREAM_BINARY_TYPE_OUTPUT)
+  assert.equal(decoded.routeIdx, 7)
+  assert.equal(decoded.payload.toString('utf8'), 'hello-compact\n')
+  assert.equal(encoded.length, 12 + Buffer.byteLength('hello-compact\n'))
+})
+
+test('compact frame smaller than v1 full header for short host/session', () => {
+  const v1 = encodeStreamOutputBinary('output', 'local', 'dev', 'x')
+  const v2 = encodeStreamOutputBinaryCompact('output', 1, 'x')
+  assert.ok(v2.length < v1.length)
+  assert.equal(v1.length - v2.length, 'local'.length + 'dev'.length)
+})
+
+test('encodeStreamOutputBinaryCompact rejects invalid route index', () => {
+  assert.throws(() => encodeStreamOutputBinaryCompact('output', 0, 'x'))
+  assert.throws(() => encodeStreamOutputBinaryCompact('output', 0x10000, 'x'))
+})
+
+test('stream route dictionary assigns stable indices and resolves', () => {
+  const dict = new StreamRouteDictionary()
+  assert.equal(dict.assign('local', 'dev'), 1)
+  assert.equal(dict.assign('local', 'other'), 2)
+  assert.equal(dict.assign('local', 'dev'), 1)
+  assert.deepEqual(dict.resolve(1), { routeIdx: 1, hostId: 'local', sessionName: 'dev' })
+  assert.equal(dict.resolve(0), null)
+  assert.equal(dict.resolve(99), null)
+  dict.clear()
+  assert.equal(dict.size, 0)
+})
+
+test('stream route dictionary returns null when full', () => {
+  const dict = new StreamRouteDictionary()
+  for (let i = 1; i <= STREAM_ROUTE_MAX; i++) dict.assign('h', 's' + i)
+  assert.equal(dict.assign('h', 'overflow'), null)
+})
+
+test('agent terminal-output gzip compress and decode roundtrip', () => {
+  const plain = 'ansi color line with padding to exceed threshold\n'.repeat(20)
+  assert.ok(Buffer.byteLength(plain) >= AGENT_COMPRESS_THRESHOLD)
+  const framed = maybeCompressAgentOutput(plain, true)
+  assert.equal(framed.encoding, 'gzip')
+  assert.ok(framed.data.length < plain.length)
+  assert.equal(decodeAgentOutput(framed.data, framed.encoding), plain)
+})
+
+test('agent terminal-output falls back to plaintext for small frames', () => {
+  const framed = maybeCompressAgentOutput('tiny', true)
+  assert.equal(framed.encoding, undefined)
+  assert.equal(decodeAgentOutput(framed.data, undefined), 'tiny')
+})
+
+test('agent terminal-output gzip decode failure returns null (drop frame)', () => {
+  assert.equal(decodeAgentOutput('not-valid-base64-gzip!!!', 'gzip'), null)
+})
+
+test('mixed v1 and compact frames decode independently', () => {
+  const v1 = encodeStreamOutputBinary('output', 'local', 'dev', 'full-header')
+  const v2 = encodeStreamOutputBinaryCompact('output', 3, 'compact-frame')
+  assert.equal(decodeHeader(v1).hostId, 'local')
+  const d2 = decodeCompactHeader(v2)
+  assert.equal(d2.routeIdx, 3)
+  assert.equal(d2.payload.toString('utf8'), 'compact-frame')
+  assert.equal(v1[2], 1)
+  assert.equal(v2[2], STREAM_BINARY_VERSION_COMPACT)
+})
+
+test('unknown route index is not resolvable (frontend drops frame)', () => {
+  const dict = new StreamRouteDictionary()
+  dict.assign('local', 'dev')
+  const frame = encodeStreamOutputBinaryCompact('output', 9, 'orphan')
+  assert.equal(dict.resolve(decodeCompactHeader(frame).routeIdx), null)
+})
+
+test('compact gzip output uses type 3 and gunzips', () => {
+  const data = 'compress me '.repeat(200)
+  const frame = encodeStreamOutputBinaryCompact('output', 2, data, { compress: true, threshold: 64 })
+  const decoded = decodeCompactHeader(frame)
+  assert.equal(decoded.typeCode, STREAM_BINARY_TYPE_OUTPUT_GZIP)
+  assert.equal(gunzipSync(decoded.payload).toString('utf8'), data)
+})
+
+test('encodeStreamCellBinaryCompact roundtrips cell payload', () => {
+  const payload = Buffer.from([1, 2, 3, 4, 5])
+  const frame = encodeStreamCellBinaryCompact('cell_snapshot', 4, payload, { compress: false })
+  const decoded = decodeCompactHeader(frame)
+  assert.equal(decoded.typeCode, STREAM_BINARY_TYPE_CELL_SNAPSHOT)
+  assert.equal(decoded.routeIdx, 4)
+  assert.deepEqual([...decoded.payload], [1, 2, 3, 4, 5])
+})
 
 function makePasteSession(overrides: Record<string, unknown> = {}) {
   const written: string[] = []
@@ -234,4 +347,29 @@ test('shouldMaybeGzip mirrors threshold/force rules', () => {
   assert.equal(shouldMaybeGzip(10, true, 256, true), true)
   assert.equal(shouldMaybeGzip(10, false, 256, true), false)
   assert.equal(shouldMaybeGzip(0, true, 256, true), false)
+})
+
+test('async compact encode roundtrips compressed resync with route index', async () => {
+  const data = 'async compact payload '.repeat(120) + '\n'
+  const { frame, gzipFailed } = await encodeStreamOutputBinaryCompactAsync('output_resync', 5, data, {
+    compress: true,
+    threshold: 64,
+  })
+  assert.equal(gzipFailed, false)
+  const decoded = decodeCompactHeader(frame)
+  assert.equal(decoded.typeCode, STREAM_BINARY_TYPE_RESYNC_GZIP)
+  assert.equal(decoded.routeIdx, 5)
+  assert.equal(gunzipSync(decoded.payload).toString('utf8'), data)
+})
+
+test('async compact cell encode roundtrips', async () => {
+  const payload = Buffer.from([9, 8, 7, 6])
+  const { frame, gzipFailed } = await encodeStreamCellBinaryCompactAsync('cell_snapshot_v2', 3, payload, {
+    compress: false,
+  })
+  assert.equal(gzipFailed, false)
+  const decoded = decodeCompactHeader(frame)
+  assert.equal(decoded.typeCode, STREAM_BINARY_TYPE_CELL_SNAPSHOT_V2)
+  assert.equal(decoded.routeIdx, 3)
+  assert.deepEqual([...decoded.payload], [9, 8, 7, 6])
 })

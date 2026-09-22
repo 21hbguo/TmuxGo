@@ -6,7 +6,7 @@ import { isMobileDevice } from './useMobileKeyboard'
 import { getWebSocketBase } from '@/lib/runtime-endpoints'
 import { getWebSocketUrl, isAuthEnabled } from '@/lib/auth'
 import { recordMobileDiagnostic } from '@/lib/mobile-diagnostics'
-import { decodeStreamOutputBinary } from '@/lib/stream-binary'
+import { decodeStreamOutputBinary, type StreamRouteMap } from '@/lib/stream-binary'
 import {
   decodeCellDiff,
   decodeCellDiffV2,
@@ -26,6 +26,7 @@ import {
 import { encodePasteBinary, shouldUsePasteBinary } from '@/lib/paste-safety'
 type WSState = {
   ws: WebSocket | null
+  routes: Map<number, { hostId: string; sessionName: string }>
   reconnectTimer: ReturnType<typeof setTimeout> | null
   reconnectCount: number
   isConnecting: boolean
@@ -50,6 +51,7 @@ type WSState = {
 }
 const wsState: WSState = {
   ws: null,
+  routes: new Map(),
   reconnectTimer: null,
   reconnectCount: 0,
   isConnecting: false,
@@ -147,7 +149,16 @@ export function useWebSocket() {
           break
         }
         case 'stream_caps':
+          if (data.compactHeader !== true) wsState.routes.clear()
           break
+        case 'stream_route': {
+          const routeIdx = Number(data.routeIdx)
+          const hostId = typeof data.hostId === 'string' ? data.hostId : ''
+          const sessionName = typeof data.sessionName === 'string' ? data.sessionName : ''
+          if (Number.isInteger(routeIdx) && routeIdx > 0 && hostId && sessionName)
+            wsState.routes.set(routeIdx, { hostId, sessionName })
+          break
+        }
         case 'connected':
           wsState.socketReady = true
           wsState.attached = false
@@ -276,6 +287,8 @@ export function useWebSocket() {
           wsState.closeExpected = false
           wsState.socketReady = true
           wsState.attached = false
+          // 重连后服务端字典从 1 重建，旧 route 映射必须作废
+          wsState.routes.clear()
           wsState.reconnectCount = 0
           reconnectCountRef.current = 0
           wsState.lastPongAt = Date.now()
@@ -285,7 +298,13 @@ export function useWebSocket() {
           try {
             trackedSend(
               ws,
-              JSON.stringify({ type: 'stream_caps', binaryOutput: true, compressOutput: 'gzip', cellOutput: false }),
+              JSON.stringify({
+                type: 'stream_caps',
+                binaryOutput: true,
+                compressOutput: 'gzip',
+                cellOutput: false,
+                compactHeader: true,
+              }),
             )
           } catch {}
           sendPing()
@@ -296,7 +315,7 @@ export function useWebSocket() {
           netStatsRx()
           try {
             if (typeof ArrayBuffer !== 'undefined' && event.data instanceof ArrayBuffer) {
-              const decoded = decodeStreamOutputBinary(event.data)
+              const decoded = decodeStreamOutputBinary(event.data, wsState.routes as StreamRouteMap)
               if (!decoded) return
               if ((decoded.type === 'cell_snapshot' || decoded.type === 'cell_snapshot_v2') && decoded.cellPayload) {
                 const snap = (decoded.type === 'cell_snapshot_v2' ? decodeCellSnapshotV2 : decodeCellSnapshot)(
