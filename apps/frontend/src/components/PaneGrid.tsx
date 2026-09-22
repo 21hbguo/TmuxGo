@@ -11,6 +11,7 @@ import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import { useWindowQueryState } from '@/hooks/useWindowQueryState'
 import { api } from '@/lib/api'
 import { parseSessionName } from '@/lib/session-id'
+import { pickRecentSessionId } from '@/lib/recent-session'
 import { useSessionContinuity } from '@/hooks/useSessionContinuity'
 import { useSessionSnapshotSync } from '@/hooks/useSessionSnapshotSync'
 import { useOptionalQueryClient } from '@/hooks/useOptionalQueryClient'
@@ -1080,6 +1081,14 @@ export function PaneGrid({
     // 有会话未选中→选最近会话。复用既有入口，不增强制导览
     const hasHosts = (hostsData?.length ?? 0) > 0
     const hasSessions = orderedSessions.length > 0
+    // 「最近」按设备端连续性记录取本主机最后访问且仍存在的会话；
+    // 无有效记录时退回手动排序首位，不改变用户侧栏排序
+    const recentSessionId =
+      pickRecentSessionId(
+        sessionContinuity.resumePoints,
+        activeHostId || 'local',
+        orderedSessions.map((item: any) => item.id),
+      ) ?? orderedSessions[0]?.id
     const openCreateSession = () => {
       setSessionPanelExpanded(true)
       window.dispatchEvent(new Event('tmuxgo-open-create-session'))
@@ -1106,7 +1115,7 @@ export function PaneGrid({
         ) : hasSessions ? (
           <button
             className="rounded-apple bg-accent/10 px-3 py-1.5 text-sm text-accent hover:bg-accent/20"
-            onClick={() => setActiveSession(orderedSessions[0]!.id)}
+            onClick={() => recentSessionId && setActiveSession(recentSessionId)}
           >
             {t('grid.selectRecent')}
           </button>
