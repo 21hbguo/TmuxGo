@@ -90,8 +90,10 @@ export function TerminalPane({
   const [historyState, setHistoryState] = useState<{ away: boolean; fresh: boolean }>({ away: false, fresh: false })
   const viewportDisposersRef = useRef<Array<{ dispose: () => void } | undefined>>([])
   // 历史浏览提示：仅依赖 xterm 本地滚动状态（viewportY<baseY 表示离开实时
-  // 位置）；alternate buffer（Vim 等全屏应用）baseY=0 永不误报；返回实时只
-  // 做本地 scrollToBottom，旁观端不改变任何 tmux 状态
+  // 位置）；alternate buffer（Vim 等全屏应用）baseY=0 永不误报。按钮语义只
+  // 是「返回当前缓冲区底部」——刻意不发 copy_mode_cancel：前端没有 pane 级
+  // copy-mode 真实状态，且旁观/只读端不得改变他人会话状态；若要覆盖 tmux
+  // 历史，须先读到真实 copy-mode 状态再走现有 copy_mode_cancel 路径
   const attachViewportListeners = useCallback(() => {
     viewportDisposersRef.current.forEach((disposer) => disposer?.dispose?.())
     viewportDisposersRef.current = []
@@ -540,8 +542,17 @@ export function TerminalPane({
         <button
           type="button"
           data-testid="terminal-back-to-live"
+          data-terminal-overlay
           className="absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-[var(--line)] bg-bg-2/95 px-3 py-1 text-xs text-text-1 shadow"
-          onClick={() => terminalInstance.current?.scrollToBottom?.()}
+          // 指针/触摸全链路隔离终端容器：父容器 touchEnd 会派发终端点击并唤起
+          // 移动键盘（隔离写法同下方 GitHub 登录卡片），冒泡会误触终端
+          onClick={(e) => {
+            e.stopPropagation()
+            terminalInstance.current?.scrollToBottom?.()
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+          onTouchEnd={(e) => e.stopPropagation()}
         >
           {t('terminal.viewingHistory')}
           {historyState.fresh && <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-accent" />}
@@ -555,6 +566,7 @@ export function TerminalPane({
       {githubDeviceLogin && (
         <div
           data-testid="github-device-login-card"
+          data-terminal-overlay
           className="absolute inset-x-3 bottom-3 z-20 ml-auto w-auto max-w-sm rounded-apple border border-accent/30 bg-bg-0/92 p-3 backdrop-blur"
           onClick={(e) => e.stopPropagation()}
           onMouseDown={(e) => e.stopPropagation()}

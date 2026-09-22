@@ -819,6 +819,9 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
     resizeObserver.observe(container)
     const armSelectionHold = (event: MouseEvent | TouchEvent) => {
       if (event instanceof MouseEvent && event.button !== 0) return
+      // 浮层控件（data-terminal-overlay）按压不武装长按选词：原生监听不受
+      // React 层 stopPropagation 约束，须在此判 target
+      if (event.target instanceof Element && event.target.closest('[data-terminal-overlay]')) return
       outputInput.holdSelection()
     }
     container.addEventListener('mousedown', armSelectionHold)

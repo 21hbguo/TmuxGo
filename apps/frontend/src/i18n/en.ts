@@ -587,9 +587,11 @@ export const en = {
   'grid.control.attaching': 'Attaching terminal…',
   'grid.control.readonly': 'Read-only share',
   'grid.control.takeover': 'Take over',
+  'grid.control.takeoverPending': 'Takeover requested…',
   'grid.input.pending': 'Pending input queued',
   'grid.input.retry': 'Retry now',
   'grid.input.clear': 'Clear pending input',
+  'grid.input.cleared': 'Pending input cleared',
 
   // TerminalSearch
   'terminalSearch.placeholder': 'Search...',
@@ -967,7 +969,7 @@ export const en = {
 
   // TerminalPane
   'terminal.dropUpload': 'Drop files to upload',
-  'terminal.viewingHistory': 'Viewing history · Back to live output',
+  'terminal.viewingHistory': 'Viewing history · Back to buffer bottom',
   'terminal.linkOpenBlocked': 'Browser blocked the new window. Allow pop-ups and try again.',
   'terminal.dock.bottom': 'Bottom',
   'terminal.dock.left': 'Left',
