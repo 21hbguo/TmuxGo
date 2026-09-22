@@ -797,7 +797,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
         onCancel={() => setNewWindowPromptOpen(false)}
         onConfirm={(value) => {
           setNewWindowName(value)
-          void confirmCreateWindow(value)
+          return confirmCreateWindow(value)
         }}
       />
       <ConfirmDialog

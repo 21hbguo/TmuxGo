@@ -1,6 +1,7 @@
-import { act, createEvent, fireEvent, render, screen } from '@testing-library/react'
+import { act, createEvent, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { QuickActions } from './QuickActions'
+import { api } from '@/lib/api'
 
 const send = vi.fn()
 const pushToast = vi.fn()
@@ -55,6 +56,7 @@ describe('QuickActions', () => {
     pushToast.mockReset()
     updatePreferences.mockReset()
     customShortcutsState.shortcuts = []
+    vi.mocked(api.panes.kill).mockReset()
   })
   it('keeps panel paste button from stealing terminal focus while dispatching paste', () => {
     const paste = vi.fn()
@@ -67,6 +69,38 @@ describe('QuickActions', () => {
     fireEvent.click(button)
     expect(paste).toHaveBeenCalledTimes(1)
     window.removeEventListener('tmuxgo-request-terminal-paste', paste)
+  })
+  it('submits the kill-pane confirm only once on rapid double click', async () => {
+    let resolveKill: (value: any) => void = () => {}
+    const panesKill = vi.mocked(api.panes.kill)
+    panesKill.mockImplementation(
+      () =>
+        new Promise<any>((resolve) => {
+          resolveKill = resolve
+        }),
+    )
+    render(<QuickActions mode="panel" />)
+    fireEvent.click(screen.getByRole('button', { name: 'quick.killPane' }))
+    const confirm = await screen.findByRole('button', { name: 'common.confirm' })
+    fireEvent.click(confirm)
+    fireEvent.click(confirm)
+    expect(panesKill).toHaveBeenCalledTimes(1)
+    expect(panesKill).toHaveBeenCalledWith('%1')
+    await act(async () => resolveKill({}))
+  })
+  it('toasts a kill-pane failure once and allows retry', async () => {
+    const panesKill = vi.mocked(api.panes.kill)
+    panesKill.mockRejectedValueOnce(new Error('nope')).mockResolvedValueOnce({})
+    render(<QuickActions mode="panel" />)
+    fireEvent.click(screen.getByRole('button', { name: 'quick.killPane' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'common.confirm' }))
+    await waitFor(() => expect(panesKill).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(pushToast).toHaveBeenCalledWith(expect.objectContaining({ type: 'error' })))
+    // 失败后弹窗由调用方收尾关闭，重新发起可以重试
+    fireEvent.click(screen.getByRole('button', { name: 'quick.killPane' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'common.confirm' }))
+    await waitFor(() => expect(panesKill).toHaveBeenCalledTimes(2))
+    expect(pushToast.mock.calls.filter(([arg]: any) => arg?.type === 'error')).toHaveLength(1)
   })
   it('dock mode keeps the add-shortcut modal hidden until opened and closable', () => {
     render(<QuickActions mode="dock" />)

@@ -405,7 +405,7 @@ export function PluginSettings() {
         onCancel={() => setPendingDelete(null)}
         onConfirm={() => {
           if (!pendingDelete) return
-          void uninstall
+          return uninstall
             .mutateAsync({ pluginId: pendingDelete.pluginId })
             .then(() => setPendingDelete(null))
             .catch(notifyError)
@@ -423,7 +423,7 @@ export function PluginSettings() {
         onCancel={() => setPendingPermission(null)}
         onConfirm={() => {
           if (!pendingPermission) return
-          void updatePermission(pendingPermission.plugin, pendingPermission.permission, true).then(() =>
+          return updatePermission(pendingPermission.plugin, pendingPermission.permission, true).then(() =>
             setPendingPermission(null),
           )
         }}

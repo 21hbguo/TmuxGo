@@ -3267,7 +3267,7 @@ export function FilePanel({
         cancelLabel={t('common.cancel')}
         tone="danger"
         onCancel={() => setPendingDeleteItems([])}
-        onConfirm={() => void confirmRemoveItem()}
+        onConfirm={confirmRemoveItem}
       />
       <ConfirmDialog
         open={mobileEditConfirm === 'enter'}
@@ -3276,7 +3276,7 @@ export function FilePanel({
         confirmLabel={t('common.confirm')}
         cancelLabel={t('common.cancel')}
         onCancel={() => setMobileEditConfirm(null)}
-        onConfirm={() => void enterMobileEditor()}
+        onConfirm={enterMobileEditor}
       />
       <ConfirmDialog
         open={mobileEditConfirm === 'exit'}

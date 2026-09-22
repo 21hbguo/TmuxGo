@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import React from 'react'
 import { vi } from 'vitest'
@@ -7,6 +7,7 @@ import { I18nProvider } from '@/i18n'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 
 const selectWindow = vi.fn()
+const killWindow = vi.fn()
 const snapshotGet = vi.fn()
 const invokePluginAction = vi.fn()
 let plugins: any[] = []
@@ -38,7 +39,10 @@ vi.mock('@/hooks/useWindowQueryState', () => ({
 }))
 vi.mock('@/lib/api', () => ({
   api: {
-    windows: { select: (...args: any[]) => selectWindow(...args) },
+    windows: {
+      select: (...args: any[]) => selectWindow(...args),
+      kill: (...args: any[]) => killWindow(...args),
+    },
     snapshot: { get: (...args: any[]) => snapshotGet(...args) },
   },
 }))
@@ -47,6 +51,7 @@ describe('CommandPalette', () => {
   beforeEach(() => {
     localStorage.setItem('tmuxgo-preferences', JSON.stringify({ language: 'en' }))
     selectWindow.mockReset()
+    killWindow.mockReset()
     snapshotGet.mockReset()
     invokePluginAction.mockReset()
     plugins = []
@@ -118,6 +123,26 @@ describe('CommandPalette', () => {
     await user.keyboard('{ArrowDown}')
     expect(scrollSpy).toHaveBeenCalled()
     expect(document.body.querySelector('[data-selected="true"]')?.textContent).toContain('Switch window: Main')
+  })
+  it('submits the kill-window confirm only once on rapid double click', async () => {
+    let resolveKill: (value: any) => void = () => {}
+    killWindow.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveKill = resolve
+        }),
+    )
+    const user = userEvent.setup()
+    render(React.createElement(I18nProvider, null, React.createElement(CommandPalette, { onClose: () => {} })))
+    const input = screen.getByPlaceholderText('Search hosts, sessions, windows...')
+    await user.type(input, 'kill')
+    await user.keyboard('{Enter}')
+    const confirm = await screen.findByRole('button', { name: 'Confirm' })
+    fireEvent.click(confirm)
+    fireEvent.click(confirm)
+    expect(killWindow).toHaveBeenCalledTimes(1)
+    expect(killWindow).toHaveBeenCalledWith('local', 'session-dev', 'local:@1')
+    await act(async () => resolveKill({ windows: [] }))
   })
   it('lists and invokes active plugin actions with the current context', async () => {
     const user = userEvent.setup()
