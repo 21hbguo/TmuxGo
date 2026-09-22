@@ -1263,7 +1263,7 @@ export function Settings({ onClose }: SettingsProps) {
         confirmLabel={t('common.confirm')}
         cancelLabel={t('common.cancel')}
         onCancel={() => setRestartConfirmOpen(false)}
-        onConfirm={() => void triggerRestartRebuild()}
+        onConfirm={triggerRestartRebuild}
       />
       <ConfirmDialog
         open={updateConfirmOpen}
@@ -1272,7 +1272,7 @@ export function Settings({ onClose }: SettingsProps) {
         confirmLabel={t('common.confirm')}
         cancelLabel={t('common.cancel')}
         onCancel={() => setUpdateConfirmOpen(false)}
-        onConfirm={() => void triggerAppUpdate()}
+        onConfirm={triggerAppUpdate}
       />
       {showAuditLog && <AuditLog onClose={() => setShowAuditLog(false)} />}
     </div>

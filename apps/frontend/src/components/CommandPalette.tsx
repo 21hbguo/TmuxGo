@@ -457,7 +457,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
           cancelLabel={t('common.cancel')}
           tone="danger"
           onCancel={() => setPendingKillWindow(null)}
-          onConfirm={() => void confirmKillWindow()}
+          onConfirm={confirmKillWindow}
         />
         <PromptDialog
           open={!!pendingRenameWindow}
@@ -466,7 +466,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
           confirmLabel={t('common.confirm')}
           cancelLabel={t('common.cancel')}
           onCancel={() => setPendingRenameWindow(null)}
-          onConfirm={(value) => void confirmRenameWindow(value)}
+          onConfirm={confirmRenameWindow}
         />
       </div>
     </ModalPortal>

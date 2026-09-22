@@ -300,7 +300,7 @@ export function WindowTabs() {
         onCancel={() => setNewWindowPromptOpen(false)}
         onConfirm={(value) => {
           setNewWindowName(value)
-          void confirmCreateWindow(value)
+          return confirmCreateWindow(value)
         }}
       />
       <ConfirmDialog

@@ -855,7 +855,7 @@ export function QuickActions({ mode = 'panel', onOpenFiles }: { mode?: QuickActi
             setPendingKillPaneId(null)
             setConfirmKillOpen(false)
           }}
-          onConfirm={() => void confirmKillPane()}
+          onConfirm={confirmKillPane}
         />
         <PromptDialog
           open={newWindowPromptOpen}
@@ -866,7 +866,7 @@ export function QuickActions({ mode = 'panel', onOpenFiles }: { mode?: QuickActi
           onCancel={() => setNewWindowPromptOpen(false)}
           onConfirm={(value) => {
             setNewWindowName(value)
-            void confirmCreateWindow(value)
+            return confirmCreateWindow(value)
           }}
         />
       </>
@@ -1042,7 +1042,7 @@ export function QuickActions({ mode = 'panel', onOpenFiles }: { mode?: QuickActi
           setPendingKillPaneId(null)
           setConfirmKillOpen(false)
         }}
-        onConfirm={() => void confirmKillPane()}
+        onConfirm={confirmKillPane}
       />
       <PromptDialog
         open={newWindowPromptOpen}
@@ -1053,7 +1053,7 @@ export function QuickActions({ mode = 'panel', onOpenFiles }: { mode?: QuickActi
         onCancel={() => setNewWindowPromptOpen(false)}
         onConfirm={(value) => {
           setNewWindowName(value)
-          void confirmCreateWindow(value)
+          return confirmCreateWindow(value)
         }}
       />
     </div>

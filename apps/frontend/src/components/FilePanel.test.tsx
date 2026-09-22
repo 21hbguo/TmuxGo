@@ -1230,7 +1230,10 @@ describe('FilePanel', () => {
     fireEvent.keyDown(docsRow, { key: 'Delete' })
     // t() mock 对未映射 key 原样返回：多选删除用 deleteConfirmMany 文案
     expect(await screen.findByText('file.deleteConfirmMany')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+    const confirmButton = screen.getByRole('button', { name: 'Confirm' })
+    // 连点两次也只提交一次删除请求
+    fireEvent.click(confirmButton)
+    fireEvent.click(confirmButton)
     await waitFor(() => expect(trash).toHaveBeenCalledTimes(2))
     await waitFor(() => {
       expect(screen.getByText('docs').closest('[data-selected="true"]')).not.toBeInTheDocument()

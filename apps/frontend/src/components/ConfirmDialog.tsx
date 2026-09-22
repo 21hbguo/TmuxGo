@@ -39,20 +39,35 @@ export function ConfirmDialog({
     if (!open) return
     setConfirming(false)
     // 关闭时焦点还给原触发元素；初始焦点走 cancel 按钮的 autoFocus
-    // （ModalPortal 二次挂载时普通 useEffect 拿不到 ref）
+    // （ModalPortal 二次挂载时普通 useEffect 拿不到 ref）。
+    // 触发元素可能已随操作结果卸载（如被删的行），仅仍在文档中时才回焦，
+    // 否则 focus 调用落空、焦点错误地掉到背后的终端
     const previouslyFocused = document.activeElement as HTMLElement | null
-    return () => previouslyFocused?.focus?.()
+    return () => {
+      if (previouslyFocused?.isConnected) previouslyFocused.focus()
+    }
   }, [open])
+
+  useEffect(() => {
+    // busy 时两个按钮都 disabled，原焦点没有落脚点；
+    // 先泊到容器（tabIndex=-1 仅程序聚焦），后续 Tab 由 handleKeyDown 的 busy 分支钳制
+    if (open && busyState) dialogRef.current?.focus()
+  }, [open, busyState])
 
   if (!open) return null
 
   const handleConfirm = () => {
     if (busyState) return
     const result = onConfirm()
-    // Promise 期间保持执行中：双击/连点只提交一次
+    // Promise 期间保持执行中：双击/连点只提交一次。
+    // 用 then(fulfilled, rejected) 而非 finally：finally 返回的新 Promise 会延续拒绝，
+    // 形成未处理拒绝链；错误提示归调用方（且只提示一次），组件只负责恢复执行态、允许重试
     if (result && typeof result.then === 'function') {
       setConfirming(true)
-      void result.finally(() => setConfirming(false))
+      result.then(
+        () => setConfirming(false),
+        () => setConfirming(false),
+      )
     }
   }
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -63,6 +78,13 @@ export function ConfirmDialog({
       return
     }
     if (e.key !== 'Tab') return
+    if (busyState) {
+      // busy 时两按钮均 disabled，下方 focusables 查询为空会让 Tab 默认行为放跑焦点；
+      // 单独钳制：preventDefault + 焦点收回容器，正/反向 Tab 均不离开弹窗
+      e.preventDefault()
+      if (!dialogRef.current?.contains(document.activeElement)) dialogRef.current?.focus()
+      return
+    }
     // 焦点圈禁在弹窗内，Tab 不穿到背后的终端
     const focusables = Array.from(
       dialogRef.current?.querySelectorAll<HTMLElement>(
@@ -72,11 +94,14 @@ export function ConfirmDialog({
     if (!focusables.length) return
     const first = focusables[0]
     const last = focusables[focusables.length - 1]
-    const active = document.activeElement
-    if (e.shiftKey && active === first) {
+    const active = document.activeElement as HTMLElement | null
+    // 容器自身（tabIndex=-1）可持焦但不在循环序列里：busy 结束焦点正泊在容器上，
+    // 这里按“不在序列”处理，否则容器上的 Shift+Tab 会默认后退逃出弹窗
+    const inCycle = !!active && focusables.includes(active)
+    if (e.shiftKey && (active === first || !inCycle)) {
       e.preventDefault()
       last.focus()
-    } else if (!e.shiftKey && (active === last || !dialogRef.current?.contains(active))) {
+    } else if (!e.shiftKey && (active === last || !inCycle)) {
       e.preventDefault()
       first.focus()
     }
@@ -93,7 +118,8 @@ export function ConfirmDialog({
           role="dialog"
           aria-modal="true"
           aria-label={title}
-          className="tmuxgo-glass tmuxgo-glass-dialog w-full max-w-md rounded-apple border p-5"
+          tabIndex={-1}
+          className="tmuxgo-glass tmuxgo-glass-dialog w-full max-w-md rounded-apple border p-5 outline-none"
           onClick={(e) => e.stopPropagation()}
           onKeyDown={handleKeyDown}
         >

@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import React from 'react'
+import React, { act } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SessionPanel } from './SessionPanel'
 import { useConsoleStore } from '@/stores/useConsoleStore'
@@ -143,9 +143,12 @@ vi.mock('./CreateSessionDialog', () => ({
         )
       : null,
 }))
+const confirmHandlers = new Map<string, () => unknown>()
 vi.mock('./ConfirmDialog', () => ({
-  ConfirmDialog: ({ open, onConfirm }: { open: boolean; onConfirm: () => void }) =>
-    open ? React.createElement('button', { onClick: onConfirm }, 'confirm-delete') : null,
+  ConfirmDialog: ({ open, title, onConfirm }: { open: boolean; title: string; onConfirm: () => unknown }) => {
+    if (open) confirmHandlers.set(title, onConfirm)
+    return open ? React.createElement('button', { onClick: onConfirm }, 'confirm-delete') : null
+  },
 }))
 vi.mock('./QuickActions', () => ({
   QuickActions: () => React.createElement('div'),
@@ -598,5 +601,51 @@ describe('SessionPanel session actions', () => {
     fireEvent.click(screen.getByLabelText('workspace.delete'))
     fireEvent.click(screen.getByText('confirm-delete'))
     await waitFor(() => expect(mutateRemoveWorkspace).toHaveBeenCalledWith('ws-1'))
+  })
+  it('hands the pending removal promise to the workspace delete dialog', async () => {
+    workspacesState.data = [
+      {
+        id: 'ws-1',
+        name: 'tmuxgo',
+        hostId: 'local',
+        path: '/workspace/tmuxgo',
+        rootId: 'root-workspace',
+        rootPath: '/workspace',
+        rootLabel: 'workspace',
+        relativePath: 'tmuxgo',
+        templateId: null,
+        createdAt: '',
+        updatedAt: '',
+      },
+    ]
+    sessionWorkspacesState.data = [
+      {
+        sessionId: 'session-dev',
+        hostId: 'local',
+        workspaceId: 'ws-1',
+        workspacePath: '/workspace/tmuxgo',
+        rootId: 'root-workspace',
+        rootPath: '/workspace',
+        rootLabel: 'workspace',
+        relativePath: 'tmuxgo',
+        updatedAt: '',
+      },
+    ]
+    let resolveRemove: (value: any) => void = () => {}
+    mutateRemoveWorkspace.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveRemove = resolve
+        }),
+    )
+    render(<SessionPanel />)
+    fireEvent.click(screen.getByLabelText('workspace.delete'))
+    let result: unknown
+    await act(async () => {
+      result = confirmHandlers.get('workspace.deleteTitle')?.()
+    })
+    // Promise 真正传给弹窗 → 弹窗据此 busy 防重复提交（旧写法 void 丢弃时拿不到）
+    expect(typeof (result as PromiseLike<unknown>)?.then).toBe('function')
+    await act(async () => resolveRemove({ success: true }))
   })
 })
