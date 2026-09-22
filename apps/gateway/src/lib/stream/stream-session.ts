@@ -11,6 +11,7 @@ import { encodeStreamCellBinary, encodeStreamOutputBinary } from '../stream-bina
 import { shareLinkStore, type ShareTicket } from '../share-links.js'
 import { StreamCellEncoder } from './stream-cell.js'
 import { applyScroll, getSessionWindowSize, refreshAttachedClient } from './stream-tmux.js'
+import { acquireSharedTerminal, type SharedTerminal } from './shared-terminal.js'
 import {
   ATTACH_REDRAW_DELAYS,
   CLIENT_BACKPRESSURE_RESYNC_CHARS,
@@ -27,6 +28,7 @@ import {
   SOCKET_FLUSH_DEFER_MS,
   STREAM_CELL_ENABLED,
   STREAM_COMPRESS_ENABLED,
+  STREAM_FANOUT_ENABLED,
   STREAM_COMPRESS_THRESHOLD,
   type OutputProfileName,
   type TerminalProcess,
@@ -127,6 +129,8 @@ interface PendingResizeAck {
 }
 export class StreamSession {
   ptyProcess: TerminalProcess | null = null
+  // fan-out 枢纽：非空表示 ptyProcess 指向共享 SharedTerminal.PTY，kill/resize 归 hub 管
+  sharedHub: SharedTerminal | null = null
   attachedSessionName: string | null = null
   attachedHostId = 'local'
   attachedExclusive = false
@@ -335,6 +339,9 @@ export class StreamSession {
       // 先放行再 refresh：重绘字节走 onData 普通路径，若在 pending 期到达会被丢
       this.outputResyncPending = false
       if (this.cellOutputEnabled) this.cell.reset(this.attachedCols, this.attachedRows, this.binaryOutputEnabled)
+      // 共享 hub 权衡：单 tmux client 的 refresh-client 无法只刷请求端——重绘
+      // 进共享 PTY 后扇出全部订阅者；边界帧（output_resync）仍只发本端，
+      // 旧端多收一次全屏重绘（幂等），避免为 per-subscriber 刷屏再拆一条 PTY
       await this.redrawAttachedClient(hostId, sessionName, pid)
       if (!current()) return
       recordStreamMetric('outputResyncCompleted')
@@ -387,7 +394,15 @@ export class StreamSession {
         this.resizeAckTimer = null
       }
     }
-    this.ptyProcess.resize(cols, rows)
+    if (this.sharedHub) {
+      // 共享 PTY 只允许仲裁 force 或 exclusive owner 主张尺寸；其余 peer
+      // （ignore-size 旁观端）只同步本地视图 + window-size 事件，避免互抢
+      if (force || (this.attachedExclusive && this.isExclusiveOwner())) {
+        if (force || cols !== this.sharedHub.cols || rows !== this.sharedHub.rows) this.sharedHub.resizePty(cols, rows)
+      }
+    } else {
+      this.ptyProcess.resize(cols, rows)
+    }
     this.attachedCols = cols
     this.attachedRows = rows
     if (this.cellOutputEnabled) this.cell.reset(cols, rows, this.cellOutputEnabled && this.binaryOutputEnabled)
@@ -613,7 +628,13 @@ export class StreamSession {
     }
     this.clearRedrawTimers()
     this.clearAttachSnapshotTimers()
-    if (current) {
+    if (this.sharedHub) {
+      const hub = this.sharedHub
+      this.sharedHub = null
+      this.ptyProcess = null
+      // 最后一个订阅者离开时 hub 内部才 kill PTY
+      hub.unsubscribe(this)
+    } else if (current) {
       current.kill()
       this.ptyProcess = null
     }
@@ -690,7 +711,50 @@ export class StreamSession {
     const exclusive = this.shareTicket ? false : !!attach.exclusive
     const passive = this.shareTicket ? true : !!attach.passive
     if (
+      STREAM_FANOUT_ENABLED &&
+      this.sharedHub &&
+      this.attachedSessionName === sessionName &&
+      this.attachedHostId === hostId
+    ) {
+      // 已在同一 hub 上：exclusive/passive 原位切换（steal/refocus），不重建 PTY。
+      // PTY 恒为 exclusive-capable，故尺寸主张与写准入只由 session 标志决定
+      this.attachedExclusive = exclusive
+      this.attachedPassive = passive
+      this.attachVisibleOutputObserved = false
+      if (exclusive && requestedCols > 0 && requestedRows > 0) {
+        claimExclusiveOwnership(this)
+        this.desiredCols = requestedCols
+        this.desiredRows = requestedRows
+        this.assertSeq = ++assertOrderSeq
+        if (requestedCols !== this.sharedHub.cols || requestedRows !== this.sharedHub.rows) {
+          this.sharedHub.resizePty(requestedCols, requestedRows)
+          this.attachedCols = requestedCols
+          this.attachedRows = requestedRows
+        }
+        schedulePeerWindowSync(hostId, sessionName)
+      } else {
+        this.attachedCols = this.sharedHub.cols
+        this.attachedRows = this.sharedHub.rows
+      }
+      this.registerPeer()
+      this.send({
+        type: 'attached',
+        sessionName,
+        hostId,
+        cols: this.attachedCols || requestedCols,
+        rows: this.attachedRows || requestedRows,
+        exclusive,
+      })
+      // 切换模式后需整帧恢复：边界只发本端，refresh-client 重绘经共享 PTY
+      // 扇出到全部订阅者（单 tmux client 无法只刷一端，见 flushOutputResync 注释）
+      this.scheduleClientRedraw(sessionName, ATTACH_REDRAW_DELAYS)
+      this.scheduleAttachSnapshot(sessionName, this.attachSeq)
+      console.log('Attach completed (hub reuse)', { sessionName, elapsedMs: Date.now() - attachStartedAt })
+      return
+    }
+    if (
       this.ptyProcess &&
+      !this.sharedHub &&
       this.attachedSessionName === sessionName &&
       this.attachedExclusive === exclusive &&
       this.attachedHostId === hostId
@@ -726,11 +790,60 @@ export class StreamSession {
       return
     }
     this.cleanup()
-    const sharedSize = exclusive ? null : await getSessionWindowSize(hostId, sessionName)
+    const sharedSize = exclusive ? null : await windowSizeQuery(hostId, sessionName)
     const cols = sharedSize?.cols || requestedCols
     const rows = sharedSize?.rows || requestedRows
+    const seq = this.attachSeq
+    if (STREAM_FANOUT_ENABLED) {
+      const { hub, reused } = await acquireSharedTerminal({ hostId, sessionName, cols, rows })
+      this.sharedHub = hub
+      this.ptyProcess = hub.pty
+      hub.subscribe(this)
+      // 复用时以 hub 当前尺寸为权威（首订者/owner 可能已改过 window）
+      const attachCols = reused ? hub.cols : cols
+      const attachRows = reused ? hub.rows : rows
+      this.attachedSessionName = sessionName
+      this.attachedHostId = hostId
+      this.attachedExclusive = exclusive
+      this.attachedPassive = passive
+      this.attachedCols = attachCols
+      this.attachedRows = attachRows
+      if (exclusive) {
+        this.desiredCols = requestedCols > 0 ? requestedCols : attachCols
+        this.desiredRows = requestedRows > 0 ? requestedRows : attachRows
+        this.assertSeq = ++assertOrderSeq
+        claimExclusiveOwnership(this)
+        if (this.desiredCols !== hub.cols || this.desiredRows !== hub.rows) {
+          hub.resizePty(this.desiredCols, this.desiredRows)
+          this.attachedCols = this.desiredCols
+          this.attachedRows = this.desiredRows
+        }
+      }
+      this.registerPeer()
+      if (this.cellOutputEnabled)
+        this.cell.reset(attachCols, attachRows, this.cellOutputEnabled && this.binaryOutputEnabled)
+      this.attachVisibleOutputObserved = false
+      this.lastFrame = ''
+      this.dedupDropLogCount = 0
+      if (!this.ptyProcess) throw new Error('Terminal attachment failed')
+      this.send({ type: 'attached', sessionName, hostId, cols: this.attachedCols, rows: this.attachedRows, exclusive })
+      if (exclusive) schedulePeerWindowSync(hostId, sessionName)
+      // 新订者：refresh-client 补整帧。单 tmux client 的重绘字节进共享 PTY 后
+      // 会扇出给全部订阅者——旧端多收一次全屏重绘（幂等覆盖），换取不拆 PTY
+      this.scheduleClientRedraw(sessionName, ATTACH_REDRAW_DELAYS)
+      this.scheduleAttachSnapshot(sessionName, seq)
+      console.log('Attach completed (fanout)', {
+        sessionName,
+        cols: this.attachedCols,
+        rows: this.attachedRows,
+        reused,
+        elapsedMs: Date.now() - attachStartedAt,
+      })
+      return
+    }
     const created = await createTerminalAttachment({ hostId, sessionName, cols, rows, exclusive })
     this.ptyProcess = created
+    this.sharedHub = null
     this.attachedSessionName = sessionName
     this.attachedHostId = hostId
     this.attachedExclusive = exclusive
@@ -748,7 +861,6 @@ export class StreamSession {
     this.attachVisibleOutputObserved = false
     this.lastFrame = ''
     this.dedupDropLogCount = 0
-    const seq = this.attachSeq
     const attachedProcess = this.ptyProcess
     if (!attachedProcess) throw new Error('Terminal attachment failed')
     attachedProcess.onData((output: string) => {
@@ -774,34 +886,7 @@ export class StreamSession {
     })
     attachedProcess.onExit((exitCode) => {
       if (seq !== this.attachSeq) return
-      const exitedSessionName = this.attachedSessionName
-      const exitedHostId = this.attachedHostId
-      const exitedExclusive = this.attachedExclusive
-      this.flushOutput()
-      this.send({
-        type: 'session-exit',
-        exitCode,
-        hostId: exitedHostId,
-        sessionName: exitedSessionName,
-        exclusive: exitedExclusive,
-      })
-      this.send({ type: 'detached', hostId: exitedHostId, sessionName: exitedSessionName, exitCode })
-      this.unregisterPeer()
-      this.ptyProcess = null
-      this.attachedSessionName = null
-      this.attachedHostId = 'local'
-      this.attachedExclusive = false
-      this.attachedPassive = false
-      this.attachedCols = 0
-      this.attachedRows = 0
-      this.pendingResizeAck = null
-      if (this.resizeAckTimer) {
-        clearTimeout(this.resizeAckTimer)
-        this.resizeAckTimer = null
-      }
-      this.clearAttachSnapshotTimers()
-      this.clearRedrawTimers()
-      if (exitedSessionName) schedulePeerWindowSync(exitedHostId, exitedSessionName)
+      this.handleProcessExit(exitCode)
     })
     this.send({ type: 'attached', sessionName, hostId, cols, rows, exclusive })
     if (exclusive) schedulePeerWindowSync(hostId, sessionName)
@@ -809,11 +894,78 @@ export class StreamSession {
     this.scheduleAttachSnapshot(sessionName, seq)
     console.log('Attach completed (new)', { sessionName, cols, rows, elapsedMs: Date.now() - attachStartedAt })
   }
+  // 共享 hub 输出入口：sanitize 已在 hub 完成，这里只做本端 resync 丢弃/组帧/ACK
+  onSharedOutput(filtered: string) {
+    if (!this.attachedSessionName || !this.sharedHub) return
+    if (this.outputResyncPending) {
+      recordStreamMetric('droppedOutputChars', filtered.length)
+      if (this.pendingResizeAck) {
+        this.pendingResizeAck.outputObserved = true
+        this.completeResizeAck()
+      }
+      return
+    }
+    if (filtered) {
+      if (!this.attachVisibleOutputObserved && hasSubstantiveTerminalContent(filtered))
+        this.attachVisibleOutputObserved = true
+      this.queueOutput(filtered)
+    }
+    if (this.pendingResizeAck) {
+      this.pendingResizeAck.outputObserved = true
+      this.completeResizeAck()
+    }
+  }
+  onSharedExit(exitCode: number) {
+    if (!this.attachedSessionName) return
+    this.handleProcessExit(exitCode)
+  }
+  private handleProcessExit(exitCode: number) {
+    const exitedSessionName = this.attachedSessionName
+    const exitedHostId = this.attachedHostId
+    const exitedExclusive = this.attachedExclusive
+    this.flushOutput()
+    this.send({
+      type: 'session-exit',
+      exitCode,
+      hostId: exitedHostId,
+      sessionName: exitedSessionName,
+      exclusive: exitedExclusive,
+    })
+    this.send({ type: 'detached', hostId: exitedHostId, sessionName: exitedSessionName, exitCode })
+    this.unregisterPeer()
+    this.sharedHub = null
+    this.ptyProcess = null
+    this.attachedSessionName = null
+    this.attachedHostId = 'local'
+    this.attachedExclusive = false
+    this.attachedPassive = false
+    this.attachedCols = 0
+    this.attachedRows = 0
+    this.pendingResizeAck = null
+    if (this.resizeAckTimer) {
+      clearTimeout(this.resizeAckTimer)
+      this.resizeAckTimer = null
+    }
+    this.clearAttachSnapshotTimers()
+    this.clearRedrawTimers()
+    if (exitedSessionName) schedulePeerWindowSync(exitedHostId, exitedSessionName)
+  }
   resize(cols: number, rows: number) {
     recordStreamMetric('resizeRequests')
     if (!this.ptyProcess) return
     // 被动/旁观端禁止改 client 尺寸，避免与 owner 的 window 主张打架
     if (this.attachedPassive) {
+      this.send({
+        type: 'resized',
+        sessionName: this.attachedSessionName,
+        hostId: this.attachedHostId,
+        cols: this.attachedCols,
+        rows: this.attachedRows,
+      })
+      return
+    }
+    // 共享 PTY 上非 owner 的 resize 只回当前尺寸：多端不同视口不得互抢 window
+    if (this.sharedHub && !(this.attachedExclusive && this.isExclusiveOwner())) {
       this.send({
         type: 'resized',
         sessionName: this.attachedSessionName,
@@ -847,7 +999,8 @@ export class StreamSession {
       startedAt: Date.now(),
     }
     this.pendingResizeAck = pending
-    this.ptyProcess.resize(nextCols, nextRows)
+    if (this.sharedHub) this.sharedHub.resizePty(nextCols, nextRows)
+    else this.ptyProcess.resize(nextCols, nextRows)
     this.attachedCols = nextCols
     this.attachedRows = nextRows
     if (this.attachedExclusive && this.isExclusiveOwner()) {
@@ -898,6 +1051,11 @@ export class StreamSession {
     this.assertSeq = 0
     releaseExclusiveOwnership(this)
     this.send({ type: 'exclusive-revoked', hostId, sessionName })
+    if (this.sharedHub) {
+      // 共享 PTY 不随降级拆掉：本端转 passive 继续旁观，前端收到
+      // exclusive-revoked 后以 shared+passive 原位重附着（hub reuse 分支）
+      return
+    }
     const proc = this.ptyProcess
     if (proc) {
       this.ptyProcess = null
@@ -912,7 +1070,7 @@ export class StreamSession {
   }
   markAgentSeen(paneId: string) {
     if (!paneId.startsWith(this.attachedHostId + ':')) return
-    agentMonitor.markSeen(paneId) || markAgentPaneSeen(paneId)
+    if (!agentMonitor.markSeen(paneId)) markAgentPaneSeen(paneId)
   }
   applyCaps(data: { binaryOutput?: boolean; compressOutput?: string; cellOutput?: boolean }) {
     this.binaryOutputEnabled = data.binaryOutput === true
