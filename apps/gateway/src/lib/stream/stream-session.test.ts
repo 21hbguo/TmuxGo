@@ -3,7 +3,12 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { gunzipSync } from 'zlib'
 import { schedulePeerWindowSync, setWindowSizeQueryForTest, StreamSession } from './stream-session.js'
-import { RESYNC_HYSTERESIS_MS, RESYNC_RESET_SEQ } from './stream-config.js'
+import {
+  RESYNC_HYSTERESIS_MS,
+  RESYNC_RESET_SEQ,
+  SOCKET_BUFFER_HIGH_WATERMARK,
+  SOCKET_FLUSH_DEFER_MS,
+} from './stream-config.js'
 import { streamPerfMetrics } from '../perf-metrics.js'
 import { createRequire } from 'node:module'
 const { Terminal } = createRequire(import.meta.url)('@xterm/headless') as any
@@ -26,7 +31,7 @@ function createSession() {
   session.attachedCols = 80
   session.attachedRows = 24
   session.ptyProcess = { pid: 0, resize() {}, write() {}, kill() {}, onData() {}, onExit() {} } as any
-  return { session, sent }
+  return { session, sent, socket }
 }
 
 test('completeResizeAck sends buffered output before the resized ack', () => {
@@ -104,6 +109,44 @@ test('flushOutputResync re-arms pending when the tmux redraw fails', async () =>
   await session.flushOutputResync()
   assert.equal(sent[0]?.type, 'output_resync')
   assert.equal(session.outputResyncPending, true)
+  session.cleanup()
+})
+
+test('flushOutput defers while the socket buffer is at the high watermark, then flushes after it drains', async () => {
+  const { session, sent, socket } = createSession()
+  // 高水位：flushOutput 不得发送，只挂延迟 flush 等排空
+  socket.bufferedAmount = SOCKET_BUFFER_HIGH_WATERMARK
+  session.outputBuffer = 'held-by-backpressure'
+  session.flushOutput()
+  assert.equal(sent.length, 0)
+  assert.equal(session.outputBuffer, 'held-by-backpressure')
+  assert.ok(session.deferredFlushTimer)
+  // 缓冲排空到水位以下后，延迟 flush 自动补发积压
+  socket.bufferedAmount = 0
+  await new Promise((r) => setTimeout(r, SOCKET_FLUSH_DEFER_MS + 40))
+  assert.equal(session.deferredFlushTimer, null)
+  assert.equal(sent.length, 1)
+  assert.equal(sent[0].type, 'output')
+  assert.equal(sent[0].data, 'held-by-backpressure')
+  assert.equal(session.outputBuffer, '')
+  session.cleanup()
+})
+
+test('flushOutputResync defers at the high watermark and resumes the resync after drain', async () => {
+  const { session, sent, socket } = createSession()
+  ;(session as any).redrawAttachedClient = async () => {}
+  // resync 同样受背压约束：水位超限先挂延迟，不得硬发 output_resync
+  socket.bufferedAmount = SOCKET_BUFFER_HIGH_WATERMARK
+  session.outputResyncPending = true
+  await session.flushOutputResync()
+  assert.equal(sent.length, 0)
+  assert.equal(session.outputResyncPending, true)
+  assert.ok(session.deferredFlushTimer)
+  socket.bufferedAmount = 0
+  await new Promise((r) => setTimeout(r, SOCKET_FLUSH_DEFER_MS + 40))
+  assert.equal(session.deferredFlushTimer, null)
+  assert.ok(sent.some((m) => m.type === 'output_resync'))
+  assert.equal(session.outputResyncPending, false)
   session.cleanup()
 })
 
