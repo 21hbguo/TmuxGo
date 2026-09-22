@@ -74,6 +74,24 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - run: sudo apt-get update && sudo apt-get install -y tmux ripgrep
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      # 轻量冒烟：登录 + 终端附着 + 基本输入；重量级 fluency/multiclient 仍走下方手动 e2e
+      - run: pnpm run test:smoke
+        env:
+          CI: '1'
   e2e:
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch'
