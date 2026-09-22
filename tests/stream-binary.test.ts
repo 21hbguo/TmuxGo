@@ -1,9 +1,14 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { randomBytes } from 'node:crypto'
 import { gunzipSync } from 'zlib'
 import {
   encodeStreamOutputBinary,
+  encodeStreamOutputBinaryAsync,
   encodeStreamCellBinary,
+  encodeStreamCellBinaryAsync,
+  maybeGzipAsync,
+  shouldMaybeGzip,
   STREAM_BINARY_TYPE_OUTPUT,
   STREAM_BINARY_TYPE_RESYNC,
   STREAM_BINARY_TYPE_OUTPUT_GZIP,
@@ -13,7 +18,9 @@ import {
   STREAM_BINARY_TYPE_CELL_SNAPSHOT_V2,
   STREAM_BINARY_TYPE_CELL_SNAPSHOT_V2_GZIP,
   encodeStreamOutputBinaryCompact,
+  encodeStreamOutputBinaryCompactAsync,
   encodeStreamCellBinaryCompact,
+  encodeStreamCellBinaryCompactAsync,
   STREAM_BINARY_VERSION_COMPACT,
 } from '../apps/gateway/src/lib/stream-binary'
 import { StreamRouteDictionary, STREAM_ROUTE_MAX } from '../apps/gateway/src/lib/stream/stream-route'
@@ -231,4 +238,86 @@ test('encodeStreamCellBinaryCompact roundtrips cell payload', () => {
   assert.equal(decoded.typeCode, STREAM_BINARY_TYPE_CELL_SNAPSHOT)
   assert.equal(decoded.routeIdx, 4)
   assert.deepEqual([...decoded.payload], [1, 2, 3, 4, 5])
+})
+
+test('async encode roundtrips compressed resync payload', async () => {
+  const data = 'abc def ghi jkl mno pqr '.repeat(200) + '\n'
+  const { frame, gzipFailed } = await encodeStreamOutputBinaryAsync('output_resync', 'local', 'dev', data, {
+    compress: true,
+    threshold: 4096,
+  })
+  assert.equal(gzipFailed, false)
+  const decoded = decodeHeader(frame)
+  assert.equal(decoded.typeCode, STREAM_BINARY_TYPE_RESYNC_GZIP)
+  assert.equal(gunzipSync(decoded.payload).toString('utf8'), data)
+  assert.ok(decoded.payload.length < Buffer.byteLength(data))
+})
+
+test('async encode keeps tiny output plaintext below threshold', async () => {
+  const { frame, gzipFailed } = await encodeStreamOutputBinaryAsync('output', 'local', 'dev', 'tiny', {
+    compress: true,
+    threshold: 4096,
+  })
+  assert.equal(gzipFailed, false)
+  const decoded = decodeHeader(frame)
+  assert.equal(decoded.typeCode, STREAM_BINARY_TYPE_OUTPUT)
+  assert.equal(decoded.payload.toString('utf8'), 'tiny')
+})
+
+test('async gzip falls back to plaintext when compression does not shrink', async () => {
+  // 高熵随机负载 gzip 后不小于明文：按协议回退明文帧，且不算失败
+  const raw = randomBytes(2048)
+  const { payload, gzip, failed } = await maybeGzipAsync(raw, true, 0)
+  assert.equal(failed, false)
+  assert.equal(gzip, false)
+  assert.equal(payload, raw)
+})
+
+test('async cell snapshot encode roundtrips', async () => {
+  const grid = new TerminalGrid(30, 8)
+  const parser = new AnsiParser(grid)
+  parser.feed('hello cell payload '.repeat(40))
+  grid.seq = 1
+  const payload = encodeCellSnapshotV2(grid)
+  const { frame, gzipFailed } = await encodeStreamCellBinaryAsync('cell_snapshot_v2', 'local', 'dev', payload, {
+    compress: true,
+    threshold: 256,
+  })
+  assert.equal(gzipFailed, false)
+  const decoded = decodeHeader(frame)
+  assert.equal(decoded.typeCode, STREAM_BINARY_TYPE_CELL_SNAPSHOT_V2_GZIP)
+  assert.equal(gunzipSync(decoded.payload).compare(payload), 0)
+})
+
+test('shouldMaybeGzip mirrors threshold/force rules', () => {
+  assert.equal(shouldMaybeGzip(100, true, 256, false), false)
+  assert.equal(shouldMaybeGzip(256, true, 256, false), true)
+  assert.equal(shouldMaybeGzip(10, true, 256, true), true)
+  assert.equal(shouldMaybeGzip(10, false, 256, true), false)
+  assert.equal(shouldMaybeGzip(0, true, 256, true), false)
+})
+
+test('async compact encode roundtrips compressed resync with route index', async () => {
+  const data = 'async compact payload '.repeat(120) + '\n'
+  const { frame, gzipFailed } = await encodeStreamOutputBinaryCompactAsync('output_resync', 5, data, {
+    compress: true,
+    threshold: 64,
+  })
+  assert.equal(gzipFailed, false)
+  const decoded = decodeCompactHeader(frame)
+  assert.equal(decoded.typeCode, STREAM_BINARY_TYPE_RESYNC_GZIP)
+  assert.equal(decoded.routeIdx, 5)
+  assert.equal(gunzipSync(decoded.payload).toString('utf8'), data)
+})
+
+test('async compact cell encode roundtrips', async () => {
+  const payload = Buffer.from([9, 8, 7, 6])
+  const { frame, gzipFailed } = await encodeStreamCellBinaryCompactAsync('cell_snapshot_v2', 3, payload, {
+    compress: false,
+  })
+  assert.equal(gzipFailed, false)
+  const decoded = decodeCompactHeader(frame)
+  assert.equal(decoded.typeCode, STREAM_BINARY_TYPE_CELL_SNAPSHOT_V2)
+  assert.equal(decoded.routeIdx, 3)
+  assert.deepEqual([...decoded.payload], [9, 8, 7, 6])
 })
