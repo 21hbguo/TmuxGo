@@ -135,6 +135,47 @@ test('background tmuxgo pages cannot disturb the active page', async ({ browser,
   await contextB.close()
 })
 
+// 不同尺寸设备附着同一 session：后到的窄 client 抢走 window 尺寸后，宽 client
+// 的 client pty 与 window 发散，tmux 只在左上角画 window 区域（画面残缺）。
+// 网关仲裁须把被抢占端 pty/xterm 同步到 window 尺寸；窄 client 断开后再回弹
+test('a narrower client demotes then restores the wider client view', async ({ browser, baseURL, request }) => {
+  const name = `mc_d_${Date.now()}`
+  const session = await ensureSession(request, name)
+
+  const contextA = await browser.newContext({ baseURL, viewport: { width: 1600, height: 900 } })
+  const pageA = await contextA.newPage()
+  await openSession(pageA, session, { expectHeader: false })
+  await pageA.waitForFunction(() => (window as any).__tmuxgoTerminal?.cols > 0, null, { timeout: 15000 })
+  await expectSizeSync(pageA, name)
+  const wide = tmuxSize(name)
+
+  // B 更窄、激活态附着：window-size latest 让 B 抢走 window 尺寸
+  const contextB = await browser.newContext({ baseURL, viewport: { width: 760, height: 500 } })
+  const pageB = await contextB.newPage()
+  await openSession(pageB, session, { expectHeader: false })
+  await pageB.waitForFunction(() => (window as any).__tmuxgoTerminal?.cols > 0, null, { timeout: 15000 })
+  await pageB.bringToFront()
+  await expectSizeSync(pageB, name)
+  const narrow = tmuxSize(name)
+  expect(narrow.cols).toBeLessThan(wide.cols)
+
+  // A 失焦被动但 client pty 已被仲裁同步：xterm 收敛到 window 尺寸，
+  // 不能停在旧列宽（发散态正是"内容只有一半"的来源）
+  await expectSizeSync(pageA, name)
+  const demotedA = await termState(pageA)
+  expect(demotedA.cols).toBe(narrow.cols)
+
+  // B 断开：tmux 不会自动回弹 window，网关须由幸存的独占端拉回期望尺寸
+  await contextB.close()
+  await pageA.bringToFront()
+  await expect.poll(() => tmuxSize(name).cols, { timeout: 10000, intervals: [200, 400, 800] }).toBe(wide.cols)
+  await expectSizeSync(pageA, name)
+  const restoredA = await termState(pageA)
+  expect(restoredA.cols).toBe(wide.cols)
+
+  await contextA.close()
+})
+
 // 焦点在 app 间来回切换的回归:失焦页降级共享附着,网关按 window_height 起 pty
 // 会少掉状态行,xterm 收缩后回前台独占 attach 再推回会话——每循环 -1 行
 test('focus in/out cycles keep tmux window size stable', async ({ browser, baseURL, request }) => {

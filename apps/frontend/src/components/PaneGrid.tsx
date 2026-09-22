@@ -147,6 +147,9 @@ export function PaneGrid({
   const layoutSyncPendingRef = useRef<(() => boolean) | undefined>(undefined)
   const peekFitSizeRef = useRef<(() => { cols: number; rows: number } | null) | undefined>(undefined)
   const resizeQuietMs = isMobile ? RESIZE_QUIET_MOBILE_MS : RESIZE_QUIET_DESKTOP_MS
+  // 服务端 window 尺寸仲裁推送的尺寸：服务端已把本端 pty 同步过去，
+  // 布局回声 resize 须被识别（不发包、不覆盖 sizeRef 期望尺寸）
+  const pushedSizeRef = useRef<{ cols: number; rows: number } | null>(null)
   // 已发送未等回 resized 的 resize：在途限 1，期间新尺寸只进 pending 队列（latest-wins）
   const awaitingResizeAckRef = useRef<{ cols: number; rows: number } | null>(null)
   const resizeAckStaleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -449,6 +452,26 @@ export function PaneGrid({
     }
     return subscribeStreamEvent(STREAM_EVENT.resizeGesture, handleResizeGesture)
   }, [clearResizeFlushTimer, flushPendingRemoteResize])
+  // 服务端 window 尺寸仲裁：本端 client pty 已被同步到推送尺寸——记 pushed
+  // 并把 sentResize 对齐，让随后布局回声 resize 走 dedup 不再发包
+  useEffect(() => {
+    const handleWindowSize = (detail: any = {}) => {
+      if ((detail.hostId || 'local') !== (activeHostId || 'local')) return
+      if (detail.sessionName !== targetSessionName) return
+      const cols = Number(detail.cols)
+      const rows = Number(detail.rows)
+      if (cols <= 0 || rows <= 0) return
+      pushedSizeRef.current = { cols, rows }
+      sentResizeRef.current = { cols, rows }
+      // 推送尺寸推翻了在途 resize 的目标：ACK 不会按旧尺寸回来，直接释放在途
+      awaitingResizeAckRef.current = null
+      if (resizeAckStaleTimerRef.current) {
+        clearTimeout(resizeAckStaleTimerRef.current)
+        resizeAckStaleTimerRef.current = null
+      }
+    }
+    return subscribeStreamEvent(STREAM_EVENT.windowSize, handleWindowSize)
+  }, [activeHostId, targetSessionName])
   const clearContinuityTimer = useCallback(() => {
     if (!continuityTimerRef.current) return
     clearTimeout(continuityTimerRef.current)
@@ -562,6 +585,7 @@ export function PaneGrid({
       attachInFlightRef.current = null
       attachedRef.current = null
       sentResizeRef.current = null
+      pushedSizeRef.current = null
       updateConnectionState({ status: 'attaching' })
       attachRetryTimerRef.current = setTimeout(() => {
         attachTimerRef.current = null
@@ -612,6 +636,7 @@ export function PaneGrid({
     attachInFlightRef.current = null
     isSessionAttachedRef.current = false
     sentResizeRef.current = null
+    pushedSizeRef.current = null
     inputQueueRef.current = []
   }, [targetSessionName, clearAttachTimers, clearInputFlushTimer, clearContinuityTimer, clearRemoteResizeState])
   useEffect(() => {
@@ -624,6 +649,7 @@ export function PaneGrid({
       attachInFlightRef.current = null
       isSessionAttachedRef.current = false
       sentResizeRef.current = null
+      pushedSizeRef.current = null
       flushResumePoint()
     }
   }, [
@@ -646,6 +672,7 @@ export function PaneGrid({
       attachInFlightRef.current = null
       isSessionAttachedRef.current = false
       sentResizeRef.current = null
+      pushedSizeRef.current = null
       if (terminalReadyRef.current) attachNow()
     }
     return subscribeStreamEvent(STREAM_EVENT.reconnected, handleReconnect)
@@ -661,6 +688,7 @@ export function PaneGrid({
     attachInFlightRef.current = null
     isSessionAttachedRef.current = false
     sentResizeRef.current = null
+    pushedSizeRef.current = null
     attachNow()
   }, [exclusive, attachPassive, targetSessionName, attachNow, clearAttachTimers, clearRemoteResizeState])
   useEffect(() => {
@@ -723,6 +751,7 @@ export function PaneGrid({
       attachInFlightRef.current = null
       isSessionAttachedRef.current = false
       sentResizeRef.current = null
+      pushedSizeRef.current = null
       clearRemoteResizeState()
       clearAttachTimers()
       updateConnectionState({ status: 'attaching' })
@@ -770,6 +799,7 @@ export function PaneGrid({
       attachedRef.current = null
       isSessionAttachedRef.current = false
       sentResizeRef.current = null
+      pushedSizeRef.current = null
       clearRemoteResizeState()
       if (pendingSessionNameRef.current === detail.sessionName) {
         pendingSessionIdRef.current = null
@@ -854,6 +884,23 @@ export function PaneGrid({
   const handleResize = useCallback(
     (cols: number, rows: number) => {
       const nextSize = { cols, rows }
+      // 仲裁推送尺寸的布局回声：服务端已把本端 pty 同步到该尺寸——不发包、
+      // 不覆盖 sizeRef 期望尺寸（refocus 重新 attach 时要按期望尺寸主张）
+      const pushed = pushedSizeRef.current
+      if (pushed && pushed.cols === cols && pushed.rows === rows) {
+        pendingRemoteResizeRef.current = null
+        remoteQuietDeadlineRef.current = 0
+        clearResizeFlushTimer()
+        emitStreamEvent(STREAM_EVENT.resized, {
+          hostId: activeHostId || 'local',
+          sessionName: targetSessionName,
+          cols,
+          rows,
+          localOnly: true,
+        })
+        return
+      }
+      pushedSizeRef.current = null
       sizeRef.current = nextSize
       scheduleContinuityFlush(100)
       if (!isConnected || attachedRef.current !== targetSessionName) {

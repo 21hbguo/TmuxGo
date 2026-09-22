@@ -17,6 +17,9 @@ interface TerminalLayoutOptions {
   attachExclusiveRef: { current: boolean }
   lastSizeRef: { current: { cols: number; rows: number } | null }
   sharedSessionSizeRef: { current: { cols: number; rows: number } | null }
+  // 独占端被服务端尺寸仲裁降级时非 null：跟随 window 尺寸按共享渲染（缩放字体
+  // 铺满容器），真实容器变化时清空并重新走独占 fit 主张自己的尺寸
+  followedWindowSizeRef?: { current: { cols: number; rows: number } | null }
   // 最近一次本地 fit 发起、尚未等到 resized/localOnly 确认的行列数；null=无在途 resize。
   // onResize 侧会合并后再实际发送，所以这里表示"已发起待确认"而非"已发送"；
   // 由 runtime 侧 handleResized 按尺寸匹配清零（ACK 不带代次，只能对最后发起值消歧）。
@@ -54,6 +57,7 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
   const attachExclusiveRef = options.attachExclusiveRef
   const lastSizeRef = options.lastSizeRef
   const sharedSessionSizeRef = options.sharedSessionSizeRef
+  const followedWindowSizeRef = options.followedWindowSizeRef ?? { current: null }
   const pendingRemoteResizeRef = options.pendingRemoteResizeRef ?? { current: null }
   const onResizeRef = options.onResizeRef
   const controlCarryRef = options.controlCarryRef
@@ -233,6 +237,9 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
     if (!screen || !rows || !viewport) return null
     return { element, screen, rows, viewport }
   }
+  // 降级跟随期间视共享：渲染修正/视口同步按共享语义走（独占 rows height:100%
+  // 会把 60 列画面在 200 列容器里拉伸，共享渲染才是缩放字体铺满）
+  const isExclusiveRender = () => attachExclusiveRef.current && !followedWindowSizeRef.current
   const applyRendererStyleCorrection = () => {
     if (isDisposed()) return
     const renderer = getRendererElements()
@@ -247,7 +254,7 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
     // 统一交给 applyKeyboardClip 按当前键盘状态重算：非键盘场景它自己 removeProperty
     applyKeyboardClip()
     renderer.screen.style.removeProperty('will-change')
-    if (attachExclusiveRef.current) {
+    if (isExclusiveRender()) {
       renderer.rows.style.setProperty('height', '100%', 'important')
       renderer.screen.style.setProperty('height', '100%', 'important')
       const cellHeight = Number(terminal?._core?._renderService?.dimensions?.css?.cell?.height)
@@ -442,7 +449,7 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
     const resetFont = pendingLayoutResetFont
     pendingLayoutForce = false
     pendingLayoutResetFont = false
-    if (!attachExclusiveRef.current) {
+    if (!attachExclusiveRef.current || followedWindowSizeRef.current) {
       layoutRetryCount = 0
       initialFitPending = false
       mobileKeyboardTransition = false
@@ -538,7 +545,7 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
   }
   const syncSharedLayout = (resetFont: boolean, attempt = 0) => {
     const terminal = getTerminal()
-    if (!terminal || isDisposed() || attachExclusiveRef.current) return
+    if (!terminal || isDisposed() || isExclusiveRender()) return
     const size = sharedSessionSizeRef.current
     if (!size || size.cols <= 0 || size.rows <= 0) return
     const stickToBottom = isMobileDevice && !isTerminalScrolledBack()
@@ -607,6 +614,8 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
     const hadContainerSize = lastContainerSize.width > 0 && lastContainerSize.height > 0
     const widthChanged = Math.abs(width - lastContainerSize.width) > MOBILE_FIT_SIZE_TOLERANCE
     lastContainerSize = { width, height }
+    // 真实容器变化是新的尺寸主张：解除仲裁降级跟随，让独占 fit 重新抢回 window
+    followedWindowSizeRef.current = null
     resizeObservedSize = { width, height }
     resizeStableFrames = 0
     // 真实容器变化即算拖动活动（哪怕最终换算成相同行列）：远端静止窗以此为准，

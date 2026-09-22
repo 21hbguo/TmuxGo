@@ -147,6 +147,9 @@ export function useWebSocket() {
         case 'resized':
           emitStreamEvent(STREAM_EVENT.resized, data)
           break
+        case 'window-size':
+          emitStreamEvent(STREAM_EVENT.windowSize, data)
+          break
         case 'error':
           wsState.attached = false
           emitStreamEvent(STREAM_EVENT.error, data)

@@ -168,6 +168,9 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
   // 已发送未确认的最近一次 resize 请求（resized ACK 无代次，只能按尺寸对末次消歧；
   // 同尺寸旧 ACK 无法区分但语义等价——服务端已到该尺寸即可揭）
   const pendingRemoteResizeRef: { current: { cols: number; rows: number } | null } = { current: null }
+  // 服务端尺寸仲裁把本独占端降级（其它 client 抢走了 window 尺寸）时跟随
+  // window 尺寸渲染；真实容器变化由 layout 清空后重新主张
+  const followedWindowSizeRef: { current: { cols: number; rows: number } | null } = { current: null }
   // resized/本地 fit 只代表"尺寸已改"：此前排队的输出可能仍在 scheduler backlog
   // 或 xterm.write 回调途中，先揭罩会把旧列宽帧闪进新网格。
   // 统一等输出写屏障落地再揭，并用代次+尺寸复核丢弃过期请求
@@ -189,6 +192,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
     attachExclusiveRef,
     lastSizeRef,
     sharedSessionSizeRef,
+    followedWindowSizeRef,
     pendingRemoteResizeRef,
     onResizeRef,
     onResizeActivityRef: options.onResizeActivityRef,
@@ -525,8 +529,9 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
     const handleAttached = (detail: any = {}) => {
       if (detail.hostId && detail.hostId !== (activeHostIdRef.current || 'local')) return
       if (detail.sessionName && detail.sessionName !== sessionNameRef.current) return
-      // 新 attach 上下文里旧 session 的在途 resize 已无意义
+      // 新 attach 上下文里旧 session 的在途 resize/降级跟随已无意义
       pendingRemoteResizeRef.current = null
+      followedWindowSizeRef.current = null
       const cols = Number(detail.cols)
       const rows = Number(detail.rows)
       if (!terminal || disposed) return
@@ -622,6 +627,23 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
       if (mask.isPending()) mask.reveal()
       finishSessionSwitch()
     }
+    // 服务端 window 尺寸仲裁推送：本端 client pty 已被同步到该尺寸，
+    // 前端须把渲染网格对齐过去，否则旧列宽帧在新 pty 坐标系下错位残缺
+    const handleWindowSize = (detail: any = {}) => {
+      if (detail.hostId && detail.hostId !== (activeHostIdRef.current || 'local')) return
+      if (detail.sessionName && detail.sessionName !== sessionNameRef.current) return
+      const cols = Number(detail.cols)
+      const rows = Number(detail.rows)
+      if (!terminal || disposed || cols <= 0 || rows <= 0) return
+      sharedSessionSizeRef.current = { cols, rows }
+      // 仲裁后的 ACK 语义：在途 resize 的目标已被推翻，按新尺寸确认清掉
+      pendingRemoteResizeRef.current = null
+      if (attachExclusiveRef.current) {
+        // 独占端被抢占降级：跟随 window 尺寸按共享渲染直到真实容器变化
+        followedWindowSizeRef.current = { cols, rows }
+      }
+      layout.scheduleLayoutSync(0, true)
+    }
     const handleLayoutChange = (event: Event) => {
       const detail = (event as CustomEvent).detail || {}
       if (detail.reason === 'attached') return
@@ -676,6 +698,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
     const streamEventUnsubs = [
       subscribeStreamEvent(STREAM_EVENT.attached, handleAttached),
       subscribeStreamEvent(STREAM_EVENT.resized, handleResized),
+      subscribeStreamEvent(STREAM_EVENT.windowSize, handleWindowSize),
       subscribeStreamEvent(STREAM_EVENT.error, handleResizeAbort),
       subscribeStreamEvent(STREAM_EVENT.detached, handleResizeAbort),
       // pointerup 后不等 2 帧稳定检测链（~48ms）——16ms 后（React 提交+RO 送达
