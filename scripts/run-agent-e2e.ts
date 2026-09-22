@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawn, type ChildProcess } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -14,6 +15,23 @@ let agent: ChildProcess | undefined
 let cleaned = false
 const username = 'agent-e2e-user'
 const password = 'agent-e2e-password'
+function assertSupportedNode() {
+  const [major, minor] = process.versions.node.split('.').map(Number)
+  if (!((major === 20 && minor >= 19) || (major === 22 && minor >= 12) || major >= 24)) {
+    throw new Error(`Unsupported Node.js ${process.version}. Need ^20.19 || ^22.12 || >=24 (nvm use with .nvmrc)`)
+  }
+}
+function resolveBin(name: string) {
+  const candidates = [
+    join(root, 'node_modules', '.bin', name),
+    join(root, 'apps', 'frontend', 'node_modules', '.bin', name),
+    join(root, 'apps', 'gateway', 'node_modules', '.bin', name),
+    join(root, 'apps', 'agent', 'node_modules', '.bin', name),
+  ]
+  const found = candidates.find((candidate) => existsSync(candidate))
+  if (!found) throw new Error(`Unable to resolve ${name} binary (looked in node_modules/.bin and workspace bins)`)
+  return found
+}
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -83,8 +101,20 @@ async function run(command: string, args: string[], env: NodeJS.ProcessEnv) {
     child.once('exit', (code) => resolve(code ?? 1))
   })
 }
-function startGateway(bin: string, apiPort: number, tmuxEnv: NodeJS.ProcessEnv) {
-  return spawn(join(bin, 'tsx'), ['apps/gateway/src/index.ts'], { cwd: root, stdio: 'inherit', env: { ...tmuxEnv, PORT: String(apiPort), TMUXGO_CONFIG_DIR: configDir, TMUXGO_AUTH_USERNAME: username, TMUXGO_AUTH_PASSWORD: password } })
+function startGateway(tsxBin: string, apiPort: number, tmuxEnv: NodeJS.ProcessEnv) {
+  return spawn(tsxBin, ['apps/gateway/src/index.ts'], {
+    cwd: root,
+    stdio: 'inherit',
+    env: {
+      ...tmuxEnv,
+      PORT: String(apiPort),
+      TMUXGO_CONFIG_DIR: configDir,
+      TMUXGO_PREFERENCES_DIR: join(configDir, 'preferences'),
+      TMUXGO_TMP_DIR: join(configDir, 'tmp'),
+      TMUXGO_AUTH_USERNAME: username,
+      TMUXGO_AUTH_PASSWORD: password,
+    },
+  })
 }
 async function verifyTerminal(url: string, hostId: string) {
   return new Promise<void>((resolve, reject) => {
@@ -136,24 +166,25 @@ async function cleanup() {
   if (tmuxDir) await rm(tmuxDir, { recursive: true, force: true })
 }
 async function main() {
+  assertSupportedNode()
   configDir = await mkdtemp(join(tmpdir(), 'tmuxgo-agent-e2e-'))
   tmuxDir = await mkdtemp(join(tmpdir(), 'tmuxgo-agent-e2e-tmux-'))
   try {
     const apiPort = await port()
     const apiUrl = `http://127.0.0.1:${apiPort}`
     const hostId = 'agent-e2e'
-    const bin = join(root, 'node_modules', '.bin')
+    const tsxBin = resolveBin('tsx')
     const tmuxEnv = { ...process.env, TMUX: '', TMUX_TMPDIR: tmuxDir }
     if (await run('tmux', ['new-session', '-d', '-s', 'agent-e2e'], tmuxEnv) !== 0) throw new Error('Agent E2E tmux startup failed')
-    gateway = startGateway(bin, apiPort, tmuxEnv)
+    gateway = startGateway(tsxBin, apiPort, tmuxEnv)
     await waitFor(`${apiUrl}/health`, gateway)
     const accessToken = await login(apiUrl)
-    agent = spawn(join(bin, 'tsx'), ['apps/agent/src/index.ts'], { cwd: root, stdio: 'inherit', env: { ...tmuxEnv, GATEWAY_URL: `ws://127.0.0.1:${apiPort}/api/stream`, GATEWAY_USERNAME: username, GATEWAY_PASSWORD: password, HOST_ID: hostId, HOST_NAME: 'agent-e2e' } })
+    agent = spawn(tsxBin, ['apps/agent/src/index.ts'], { cwd: root, stdio: 'inherit', env: { ...tmuxEnv, GATEWAY_URL: `ws://127.0.0.1:${apiPort}/api/stream`, GATEWAY_USERNAME: username, GATEWAY_PASSWORD: password, HOST_ID: hostId, HOST_NAME: 'agent-e2e' } })
     await waitForAgent(apiUrl, agent, hostId, accessToken)
     const ticket = await getWebSocketTicket(apiUrl, accessToken)
     await verifyTerminal(`ws://127.0.0.1:${apiPort}/api/stream?ticket=${encodeURIComponent(ticket)}`, hostId)
     await stop(gateway)
-    gateway = startGateway(bin, apiPort, tmuxEnv)
+    gateway = startGateway(tsxBin, apiPort, tmuxEnv)
     await waitFor(`${apiUrl}/health`, gateway)
     const recoveryResponse = await fetch(`${apiUrl}/api/hosts/${hostId}`, { headers: { Authorization: `Bearer ${accessToken}` } })
     assert.equal(recoveryResponse.ok, true)

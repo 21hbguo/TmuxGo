@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -9,6 +10,22 @@ let frontendDist = ''
 let tmuxDir = ''
 let gateway: ChildProcess | undefined
 let cleaned = false
+function assertSupportedNode() {
+  const [major, minor] = process.versions.node.split('.').map(Number)
+  if (!((major === 20 && minor >= 19) || (major === 22 && minor >= 12) || major >= 24)) {
+    throw new Error(`Unsupported Node.js ${process.version}. Need ^20.19 || ^22.12 || >=24 (nvm use with .nvmrc)`)
+  }
+}
+function resolveBin(name: string) {
+  const candidates = [
+    join(root, 'node_modules', '.bin', name),
+    join(root, 'apps', 'frontend', 'node_modules', '.bin', name),
+    join(root, 'apps', 'gateway', 'node_modules', '.bin', name),
+  ]
+  const found = candidates.find((candidate) => existsSync(candidate))
+  if (!found) throw new Error(`Unable to resolve ${name} binary (looked in node_modules/.bin and workspace bins)`)
+  return found
+}
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -66,6 +83,7 @@ function handleSignal(code: number) {
 process.once('SIGINT', () => handleSignal(130))
 process.once('SIGTERM', () => handleSignal(143))
 async function main() {
+  assertSupportedNode()
   configDir = await mkdtemp(join(tmpdir(), 'tmuxgo-auth-e2e-'))
   frontendDist = await mkdtemp(join(tmpdir(), 'tmuxgo-auth-e2e-frontend-'))
   tmuxDir = await mkdtemp(join(tmpdir(), 'tmuxgo-auth-e2e-tmux-'))
@@ -77,18 +95,42 @@ async function main() {
     const password = process.env.TMUXGO_AUTH_E2E_PASSWORD || 'e2e-password'
     const testFiles = process.env.TMUXGO_AUTH_E2E_TESTS?.split(',').filter(Boolean) || ['e2e/auth.spec.ts']
     const restartTests = process.env.TMUXGO_AUTH_E2E_RESTART_TESTS?.split(',').filter(Boolean) || []
-    const bin = join(root, 'node_modules', '.bin')
-    if (await run(join(bin, 'vite'), ['build', '--outDir', frontendDist, '--emptyOutDir'], { cwd: join(root, 'apps/frontend'), env: { ...process.env, VITE_API_URL: apiUrl } }) !== 0) throw new Error('Authentication E2E frontend build failed')
+    const viteBin = resolveBin('vite')
+    const tsxBin = resolveBin('tsx')
+    const playwrightBin = resolveBin('playwright')
+    if (await run(viteBin, ['build', '--outDir', frontendDist, '--emptyOutDir'], { cwd: join(root, 'apps/frontend'), env: { ...process.env, VITE_API_URL: apiUrl } }) !== 0) throw new Error('Authentication E2E frontend build failed')
     if (await run('tmux', ['new-session', '-d', '-s', 'auth-e2e'], { cwd: root, env: { ...process.env, TMUX: '', TMUX_TMPDIR: tmuxDir } }) !== 0) throw new Error('Authentication E2E tmux startup failed')
-    const gatewayEnv = { ...process.env, PORT: String(apiPort), TMUX: '', TMUX_TMPDIR: tmuxDir, TMUXGO_CONFIG_DIR: configDir, TMUXGO_AUTH_USERNAME: username, TMUXGO_AUTH_PASSWORD: password, TMUXGO_FRONTEND_DIST: frontendDist }
+    const gatewayEnv = {
+      ...process.env,
+      PORT: String(apiPort),
+      TMUX: '',
+      TMUX_TMPDIR: tmuxDir,
+      TMUXGO_CONFIG_DIR: configDir,
+      TMUXGO_PREFERENCES_DIR: join(configDir, 'preferences'),
+      TMUXGO_TMP_DIR: join(configDir, 'tmp'),
+      TMUXGO_AUTH_USERNAME: username,
+      TMUXGO_AUTH_PASSWORD: password,
+      TMUXGO_FRONTEND_DIST: frontendDist,
+    }
     const startGateway = async () => {
-      gateway = spawn(join(bin, 'tsx'), ['apps/gateway/src/index.ts'], { cwd: root, stdio: 'inherit', env: gatewayEnv })
+      gateway = spawn(tsxBin, ['apps/gateway/src/index.ts'], { cwd: root, stdio: 'inherit', env: gatewayEnv })
       await waitFor(`${apiUrl}/health`, gateway)
       await waitFor(appUrl, gateway)
     }
-    const testEnv = { ...process.env, TMUXGO_PLUGIN_E2E_URL: appUrl, TMUXGO_AUTH_E2E_URL: appUrl, TMUXGO_AUTH_E2E_API_URL: apiUrl, TMUXGO_AUTH_E2E_USERNAME: username, TMUXGO_AUTH_E2E_PASSWORD: password, TMUXGO_AUTH_E2E_STORAGE: join(configDir, 'restart-storage.json') }
+    const testEnv = {
+      ...process.env,
+      TMUXGO_PLUGIN_E2E_URL: appUrl,
+      TMUXGO_AUTH_E2E_URL: appUrl,
+      TMUXGO_AUTH_E2E_API_URL: apiUrl,
+      TMUXGO_AUTH_E2E_USERNAME: username,
+      TMUXGO_AUTH_E2E_PASSWORD: password,
+      TMUXGO_AUTH_E2E_STORAGE: join(configDir, 'restart-storage.json'),
+      TMUXGO_CONFIG_DIR: configDir,
+      TMUXGO_PREFERENCES_DIR: join(configDir, 'preferences'),
+      TMUXGO_TMP_DIR: join(configDir, 'tmp'),
+    }
     const runPlaywright = (files: string[]) => new Promise<number>((resolve, reject) => {
-      const child = spawn(join(bin, 'playwright'), ['test', ...files], { cwd: root, stdio: 'inherit', env: testEnv })
+      const child = spawn(playwrightBin, ['test', ...files], { cwd: root, stdio: 'inherit', env: testEnv })
       child.once('error', reject)
       child.once('exit', (code) => resolve(code ?? 1))
     })
