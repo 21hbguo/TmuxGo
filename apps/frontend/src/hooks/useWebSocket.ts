@@ -286,6 +286,8 @@ export function useWebSocket() {
           wsState.closeExpected = false
           wsState.socketReady = true
           wsState.attached = false
+          // 重连后服务端字典从 1 重建，旧 route 映射必须作废
+          wsState.routes.clear()
           wsState.reconnectCount = 0
           reconnectCountRef.current = 0
           wsState.lastPongAt = Date.now()

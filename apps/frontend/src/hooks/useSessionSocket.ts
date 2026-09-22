@@ -122,6 +122,8 @@ function connect(connection: ConnectionState) {
         connection.socketReady = true
         connection.reconnectCount = 0
         connection.lastPongAt = Date.now()
+        // 重连后服务端字典从 1 重建，旧 route 映射必须作废
+        connection.routes.clear()
         try {
           ws.send(
             JSON.stringify({
