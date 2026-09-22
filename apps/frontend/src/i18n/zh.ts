@@ -609,6 +609,7 @@ export const zh = {
   'common.confirm': '确认',
   'common.close': '关闭',
   'common.loading': '加载中...',
+  'common.loadFailed': '加载失败',
   'palette.newSession': '新建会话',
   'palette.splitHorizontal': '横向分割当前面板',
   'palette.splitVertical': '纵向分割当前面板',

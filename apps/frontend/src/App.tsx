@@ -3,7 +3,7 @@ import { ConsoleLayout } from '@/components/ConsoleLayout'
 import { DropGuard } from '@/components/DropGuard'
 import { QueryProvider } from '@/components/QueryProvider'
 import { I18nProvider } from '@/i18n'
-import { recoverFromChunkLoadError } from '@/lib/chunk-recovery'
+import { hasUnsavedEditors, recoverFromChunkLoadError } from '@/lib/chunk-recovery'
 import { GlassPointerEffect } from '@/components/GlassPointerEffect'
 import { AuthGate } from '@/components/AuthGate'
 import { SharedTerminal } from '@/components/SharedTerminal'
@@ -15,6 +15,9 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { error: Error
     return { error }
   }
   componentDidCatch(error: Error, _: ErrorInfo) {
+    // 有未保存编辑时不自动整页刷新，避免为恢复 chunk 静默丢编辑状态；
+    // 此时落到下方整页报错 UI，由用户自行决定手动重载
+    if (hasUnsavedEditors()) return
     if (recoverFromChunkLoadError(error.message || '', window.sessionStorage, () => window.location.reload())) return
   }
   render() {
