@@ -15,19 +15,26 @@ vi.mock('@/hooks/useApi', () => ({
   useHosts: () => ({ data: [{ id: 'local', name: 'Local', address: '127.0.0.1', status: 'online', tags: [] }] }),
   usePlugins: () => ({ data: { plugins } }),
   useInvokePluginAction: () => ({ mutateAsync: invokePluginAction }),
-  useWindows: () => ({ data: [
-    { id: 'local:@1', sessionId: 'session-dev', index: 0, name: 'Main', active: true },
-    { id: 'local:@2', sessionId: 'session-dev', index: 1, name: 'Logs', active: false },
-  ] }),
+  useWindows: () => ({
+    data: [
+      { id: 'local:@1', sessionId: 'session-dev', index: 0, name: 'Main', active: true },
+      { id: 'local:@2', sessionId: 'session-dev', index: 1, name: 'Logs', active: false },
+    ],
+  }),
 }))
 vi.mock('@/hooks/useOrderedSessions', () => ({
-  useOrderedSessions: () => ({ data: [{ id: 'session-dev', hostId: 'local', name: 'Dev', createdAt: '', lastActiveAt: '', windowCount: 2 }] }),
+  useOrderedSessions: () => ({
+    data: [{ id: 'session-dev', hostId: 'local', name: 'Dev', createdAt: '', lastActiveAt: '', windowCount: 2 }],
+  }),
 }))
 vi.mock('@/hooks/useWindowQueryState', () => ({
-  useWindowQueryState: () => ({ getWindows: () => [
-    { id: 'local:@1', sessionId: 'session-dev', index: 0, name: 'Main', active: true },
-    { id: 'local:@2', sessionId: 'session-dev', index: 1, name: 'Logs', active: false },
-  ], setWindows: vi.fn() }),
+  useWindowQueryState: () => ({
+    getWindows: () => [
+      { id: 'local:@1', sessionId: 'session-dev', index: 0, name: 'Main', active: true },
+      { id: 'local:@2', sessionId: 'session-dev', index: 1, name: 'Logs', active: false },
+    ],
+    setWindows: vi.fn(),
+  }),
 }))
 vi.mock('@/lib/api', () => ({
   api: {
@@ -57,9 +64,7 @@ describe('CommandPalette', () => {
 
   it('supports keyboard selection for session items', async () => {
     const user = userEvent.setup()
-    render(
-      React.createElement(I18nProvider, null, React.createElement(CommandPalette, { onClose: () => {} }))
-    )
+    render(React.createElement(I18nProvider, null, React.createElement(CommandPalette, { onClose: () => {} })))
     const input = screen.getByPlaceholderText('Search hosts, sessions, windows...')
     await user.click(input)
     await user.keyboard('{ArrowDown}{Enter}')
@@ -67,14 +72,19 @@ describe('CommandPalette', () => {
   })
   it('syncs active pane after switching window', async () => {
     const user = userEvent.setup()
-    selectWindow.mockResolvedValue({ ok: true, windows: [
-      { id: 'local:@1', sessionId: 'session-dev', index: 0, name: 'Main', active: false },
-      { id: 'local:@2', sessionId: 'session-dev', index: 1, name: 'Logs', active: true },
-    ] })
-    snapshotGet.mockResolvedValue({ windows: [], panes: [{ id: 'local:%new', active: true }], activePaneId: 'local:%new' })
-    render(
-      React.createElement(I18nProvider, null, React.createElement(CommandPalette, { onClose: () => {} }))
-    )
+    selectWindow.mockResolvedValue({
+      ok: true,
+      windows: [
+        { id: 'local:@1', sessionId: 'session-dev', index: 0, name: 'Main', active: false },
+        { id: 'local:@2', sessionId: 'session-dev', index: 1, name: 'Logs', active: true },
+      ],
+    })
+    snapshotGet.mockResolvedValue({
+      windows: [],
+      panes: [{ id: 'local:%new', active: true }],
+      activePaneId: 'local:%new',
+    })
+    render(React.createElement(I18nProvider, null, React.createElement(CommandPalette, { onClose: () => {} })))
     const input = screen.getByPlaceholderText('Search hosts, sessions, windows...')
     await user.click(input)
     await user.type(input, 'logs')
@@ -83,17 +93,57 @@ describe('CommandPalette', () => {
     expect(snapshotGet).toHaveBeenCalledWith('local', 'session-dev')
     expect(useConsoleStore.getState().activePaneId).toBe('local:%new')
   })
+  it('matches Chinese synonyms for split actions', async () => {
+    const user = userEvent.setup()
+    render(React.createElement(I18nProvider, null, React.createElement(CommandPalette, { onClose: () => {} })))
+    const input = screen.getByPlaceholderText('Search hosts, sessions, windows...')
+    await user.type(input, '分屏')
+    expect(screen.getByText('Split pane horizontal')).toBeTruthy()
+    expect(screen.getByText('Split pane vertical')).toBeTruthy()
+    expect(screen.queryByText('Kill active window')).toBeNull()
+  })
+  it('orders sessions first and keeps dangerous actions last on empty query', () => {
+    render(React.createElement(I18nProvider, null, React.createElement(CommandPalette, { onClose: () => {} })))
+    const itemButtons = [...document.body.querySelectorAll('button.w-full')]
+    expect(itemButtons[0]?.textContent).toContain('Dev')
+    expect(itemButtons.at(-1)?.textContent).toContain('Kill active window')
+  })
+  it('scrolls the selected item into view on arrow keys', async () => {
+    const user = userEvent.setup()
+    const scrollSpy = vi.fn()
+    Element.prototype.scrollIntoView = scrollSpy
+    render(React.createElement(I18nProvider, null, React.createElement(CommandPalette, { onClose: () => {} })))
+    const input = screen.getByPlaceholderText('Search hosts, sessions, windows...')
+    await user.click(input)
+    await user.keyboard('{ArrowDown}')
+    expect(scrollSpy).toHaveBeenCalled()
+    expect(document.body.querySelector('[data-selected="true"]')?.textContent).toContain('Switch window: Main')
+  })
   it('lists and invokes active plugin actions with the current context', async () => {
     const user = userEvent.setup()
-    plugins = [{ pluginId: 'test.plugin', enabled: true, state: 'active', manifest: { name: 'Test Plugin', contributes: { actions: [{ id: 'inspect', title: 'Inspect Context', command: ['test'] }] } } }]
+    plugins = [
+      {
+        pluginId: 'test.plugin',
+        enabled: true,
+        state: 'active',
+        manifest: {
+          name: 'Test Plugin',
+          contributes: { actions: [{ id: 'inspect', title: 'Inspect Context', command: ['test'] }] },
+        },
+      },
+    ]
     invokePluginAction.mockResolvedValue({ status: 'success', stdout: 'plugin complete', stderr: '' })
-    render(
-      React.createElement(I18nProvider, null, React.createElement(CommandPalette, { onClose: () => {} }))
-    )
+    render(React.createElement(I18nProvider, null, React.createElement(CommandPalette, { onClose: () => {} })))
     const input = screen.getByPlaceholderText('Search hosts, sessions, windows...')
     await user.type(input, 'inspect')
     await user.keyboard('{Enter}')
-    await waitFor(() => expect(invokePluginAction).toHaveBeenCalledWith({ pluginId: 'test.plugin', actionId: 'inspect', context: { hostId: 'local', sessionId: 'session-dev', paneId: 'local:%old', source: 'command-palette' } }))
+    await waitFor(() =>
+      expect(invokePluginAction).toHaveBeenCalledWith({
+        pluginId: 'test.plugin',
+        actionId: 'inspect',
+        context: { hostId: 'local', sessionId: 'session-dev', paneId: 'local:%old', source: 'command-palette' },
+      }),
+    )
     expect(useConsoleStore.getState().toasts.at(-1)?.message).toBe('plugin complete')
   })
 })
