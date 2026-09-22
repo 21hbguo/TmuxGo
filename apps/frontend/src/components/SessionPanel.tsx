@@ -833,7 +833,7 @@ export function SessionPanel() {
         cancelLabel={t('common.cancel')}
         tone="danger"
         onCancel={() => setPendingDeleteWorkspace(null)}
-        onConfirm={() => void confirmDeleteWorkspace()}
+        onConfirm={confirmDeleteWorkspace}
       />
       <ConfirmDialog
         open={batchDeleteConfirmOpen}
