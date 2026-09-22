@@ -1298,6 +1298,11 @@ a {
       opacity 0.12s ease 0.2s,
       visibility 0s;
   }
+  /* data-tip 缺省/为空时不出气泡（attr() 缺省为空串会画出空框） */
+  .tmuxgo-tip:not([data-tip])::after,
+  .tmuxgo-tip[data-tip='']::after {
+    content: none;
+  }
   /* 贴右缘的按钮：气泡右对齐防溢出 section overflow-hidden 裁掉 */
   .tmuxgo-tip--right::after {
     left: auto;
