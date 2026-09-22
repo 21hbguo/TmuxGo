@@ -123,8 +123,13 @@ export async function streamRoutes(fastify: FastifyInstance) {
               register.host.address,
               register.version || 'unknown',
               agentSocket,
+              register.caps,
             )
-            session.send({ type: 'registered', agentId: register.host.id })
+            session.send({
+              type: 'registered',
+              agentId: register.host.id,
+              caps: agentManager.getRegisterCaps(register.host.id),
+            })
             break
           }
           case 'heartbeat':

@@ -10,10 +10,15 @@ import { parseSessionRef } from '../tmux-target.js'
 import {
   encodeStreamCellBinary,
   encodeStreamCellBinaryAsync,
+  encodeStreamCellBinaryCompact,
+  encodeStreamCellBinaryCompactAsync,
   encodeStreamOutputBinary,
   encodeStreamOutputBinaryAsync,
+  encodeStreamOutputBinaryCompact,
+  encodeStreamOutputBinaryCompactAsync,
   shouldMaybeGzip,
 } from '../stream-binary.js'
+import { StreamRouteDictionary } from './stream-route.js'
 import { shareLinkStore, type ShareTicket } from '../share-links.js'
 import { StreamCellEncoder } from './stream-cell.js'
 import { applyScroll, getSessionWindowSize, refreshAttachedClient } from './stream-tmux.js'
@@ -33,6 +38,7 @@ import {
   SOCKET_BUFFER_HIGH_WATERMARK,
   SOCKET_FLUSH_DEFER_MS,
   STREAM_CELL_ENABLED,
+  STREAM_COMPACT_ENABLED,
   STREAM_COMPRESS_ENABLED,
   STREAM_FANOUT_ENABLED,
   STREAM_COMPRESS_THRESHOLD,
@@ -164,6 +170,9 @@ export class StreamSession {
   binaryOutputEnabled = false
   compressOutputEnabled = false
   cellOutputEnabled = false
+  compactHeaderEnabled = false
+  routes = new StreamRouteDictionary()
+  private announcedRoutes = new Set<number>()
   cell = new StreamCellEncoder()
   attachSeq = 0
   attachVisibleOutputObserved = false
@@ -271,6 +280,8 @@ export class StreamSession {
     }
     if (this.socket.readyState !== 1) return false
     const seq = this.attachSeq
+    // route announce must enqueue before the binary frame (same send chain FIFO)
+    const routeIdx = this.binaryOutputEnabled ? this.ensureRoute(hostId, sessionName) : null
     if (!this.binaryOutputEnabled) {
       return this.enqueueFrame(() => {
         if (seq !== this.attachSeq || this.socket.readyState !== 1) return false
@@ -295,10 +306,14 @@ export class StreamSession {
         if (seq !== this.attachSeq || this.socket.readyState !== 1) return false
         try {
           this.getSocketBufferedBytes()
-          const frame = encodeStreamOutputBinary(type, hostId, sessionName, data, {
+          const encodeOpts = {
             compress: this.compressOutputEnabled,
             threshold: STREAM_COMPRESS_THRESHOLD,
-          })
+          }
+          const frame =
+            routeIdx != null
+              ? encodeStreamOutputBinaryCompact(type, routeIdx, data, encodeOpts)
+              : encodeStreamOutputBinary(type, hostId, sessionName, data, encodeOpts)
           this.socket.send(frame)
           recordStreamMetric('outputBytes', frame.length)
           this.getSocketBufferedBytes()
@@ -313,10 +328,14 @@ export class StreamSession {
       if (seq !== this.attachSeq || this.socket.readyState !== 1) return false
       try {
         this.getSocketBufferedBytes()
-        const { frame, gzipFailed } = await encodeStreamOutputBinaryAsync(type, hostId, sessionName, data, {
+        const encodeOpts = {
           compress: this.compressOutputEnabled,
           threshold: STREAM_COMPRESS_THRESHOLD,
-        })
+        }
+        const { frame, gzipFailed } =
+          routeIdx != null
+            ? await encodeStreamOutputBinaryCompactAsync(type, routeIdx, data, encodeOpts)
+            : await encodeStreamOutputBinaryAsync(type, hostId, sessionName, data, encodeOpts)
         // gzip 失败：encode 内已回退明文，此处只记 metric，不断连不丢帧
         if (gzipFailed) recordStreamMetric('compressFailures')
         const typeCode = frame[3]
@@ -346,16 +365,18 @@ export class StreamSession {
     const seq = this.attachSeq
     const useGzip = this.compressOutputEnabled && type === 'cell_snapshot_v2'
     const isSnapshot = type === 'cell_snapshot_v2'
+    const routeIdx = this.ensureRoute(hostId, sessionName)
     const tryCompress = shouldMaybeGzip(payload.length, useGzip, isSnapshot ? 0 : STREAM_COMPRESS_THRESHOLD)
     if (!tryCompress) {
       return this.enqueueFrame(() => {
         if (seq !== this.attachSeq || this.socket.readyState !== 1) return false
         try {
           this.getSocketBufferedBytes()
-          const frame = encodeStreamCellBinary(type, hostId, sessionName, payload, {
-            compress: useGzip,
-            threshold: STREAM_COMPRESS_THRESHOLD,
-          })
+          const encodeOpts = { compress: useGzip, threshold: STREAM_COMPRESS_THRESHOLD }
+          const frame =
+            routeIdx != null
+              ? encodeStreamCellBinaryCompact(type, routeIdx, payload, encodeOpts)
+              : encodeStreamCellBinary(type, hostId, sessionName, payload, encodeOpts)
           const typeCode = frame[3]
           if (typeCode === 6 || typeCode === 8) {
             recordStreamMetric('compressFrames')
@@ -375,10 +396,11 @@ export class StreamSession {
       if (seq !== this.attachSeq || this.socket.readyState !== 1) return false
       try {
         this.getSocketBufferedBytes()
-        const { frame, gzipFailed } = await encodeStreamCellBinaryAsync(type, hostId, sessionName, payload, {
-          compress: useGzip,
-          threshold: STREAM_COMPRESS_THRESHOLD,
-        })
+        const encodeOptsCell = { compress: useGzip, threshold: STREAM_COMPRESS_THRESHOLD }
+        const { frame, gzipFailed } =
+          routeIdx != null
+            ? await encodeStreamCellBinaryCompactAsync(type, routeIdx, payload, encodeOptsCell)
+            : await encodeStreamCellBinaryAsync(type, hostId, sessionName, payload, encodeOptsCell)
         if (gzipFailed) recordStreamMetric('compressFailures')
         const typeCode = frame[3]
         if (typeCode === 6 || typeCode === 8) {
@@ -838,6 +860,8 @@ export class StreamSession {
     }
     this.outputBuffer = ''
     this.sanitizeTerminalOutput = createTerminalOutputSanitizer()
+    this.routes.clear()
+    this.announcedRoutes.clear()
     this.sanitizeMode = 'light'
     this.outputResyncPending = false
     this.outputResyncRunning = false
@@ -1262,10 +1286,26 @@ export class StreamSession {
     if (!paneId.startsWith(this.attachedHostId + ':')) return
     if (!agentMonitor.markSeen(paneId)) markAgentPaneSeen(paneId)
   }
-  applyCaps(data: { binaryOutput?: boolean; compressOutput?: string; cellOutput?: boolean }) {
+  /** Assign route for host+session; announce stream_route before first compact frame. */
+  private ensureRoute(hostId: string, sessionName: string): number | null {
+    if (!this.compactHeaderEnabled || !this.binaryOutputEnabled || !sessionName) return null
+    const routeIdx = this.routes.assign(hostId, sessionName)
+    if (routeIdx == null) return null
+    if (!this.announcedRoutes.has(routeIdx)) {
+      this.announcedRoutes.add(routeIdx)
+      this.send({ type: 'stream_route', routeIdx, hostId, sessionName })
+    }
+    return routeIdx
+  }
+  applyCaps(data: { binaryOutput?: boolean; compressOutput?: string; cellOutput?: boolean; compactHeader?: boolean }) {
     this.binaryOutputEnabled = data.binaryOutput === true
     this.compressOutputEnabled = STREAM_COMPRESS_ENABLED && this.binaryOutputEnabled && data.compressOutput === 'gzip'
     this.cellOutputEnabled = STREAM_CELL_ENABLED && this.binaryOutputEnabled && data.cellOutput === true
+    this.compactHeaderEnabled = STREAM_COMPACT_ENABLED && this.binaryOutputEnabled && data.compactHeader === true
+    if (!this.compactHeaderEnabled) {
+      this.routes.clear()
+      this.announcedRoutes.clear()
+    }
     if (this.cellOutputEnabled)
       this.cell.reset(
         this.attachedCols || 80,
@@ -1278,6 +1318,7 @@ export class StreamSession {
       binaryOutput: this.binaryOutputEnabled,
       compressOutput: this.compressOutputEnabled ? 'gzip' : false,
       cellOutput: this.cellOutputEnabled,
+      compactHeader: this.compactHeaderEnabled,
     })
   }
   requestCellResync() {
