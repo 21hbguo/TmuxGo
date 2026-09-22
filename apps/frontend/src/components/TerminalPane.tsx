@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useState } from 'react'
 import '@xterm/xterm/css/xterm.css'
 import { usePreferences, ensureAppFontLoaded } from '@/hooks/usePreferences'
 import { useMobileKeyboard } from '@/hooks/useMobileKeyboard'
@@ -87,6 +87,31 @@ export function TerminalPane({
   const resizeMaskApiRef = useRef<ReturnType<typeof createTerminalResizeMask> | null>(null)
   const touchMovedRef = useRef(false)
   const terminalInstance = useRef<any>(null)
+  const [historyState, setHistoryState] = useState<{ away: boolean; fresh: boolean }>({ away: false, fresh: false })
+  const viewportDisposersRef = useRef<Array<{ dispose: () => void } | undefined>>([])
+  // 历史浏览提示：仅依赖 xterm 本地滚动状态（viewportY<baseY 表示离开实时
+  // 位置）；alternate buffer（Vim 等全屏应用）baseY=0 永不误报；返回实时只
+  // 做本地 scrollToBottom，旁观端不改变任何 tmux 状态
+  const attachViewportListeners = useCallback(() => {
+    viewportDisposersRef.current.forEach((disposer) => disposer?.dispose?.())
+    viewportDisposersRef.current = []
+    const term = terminalInstance.current
+    if (!term?.onScroll) return
+    const syncHistoryState = (freshOutput = false) => {
+      const buffer = term.buffer?.active
+      if (!buffer) return
+      const away = buffer.type !== 'alternate' && buffer.viewportY < buffer.baseY
+      setHistoryState((prev) => {
+        const next = { away, fresh: away && (prev.fresh || freshOutput) }
+        return prev.away === next.away && prev.fresh === next.fresh ? prev : next
+      })
+    }
+    viewportDisposersRef.current.push(
+      term.onScroll(() => syncHistoryState()),
+      term.onWriteParsed?.(() => syncHistoryState(true)),
+    )
+    syncHistoryState()
+  }, [])
   const onInputRef = useRef(onInput)
   const onResizeRef = useRef(onResize)
   const onResizeActivityRef = useRef(onResizeActivity)
@@ -301,8 +326,11 @@ export function TerminalPane({
     attachExclusiveRef.current = attachExclusive
   }, [attachExclusive])
   useEffect(() => {
-    onReadyRef.current = onReady
-  }, [onReady])
+    onReadyRef.current = () => {
+      attachViewportListeners()
+      onReady?.()
+    }
+  }, [onReady, attachViewportListeners])
   useEffect(() => {
     sessionNameRef.current = sessionName
   }, [sessionName])
@@ -427,7 +455,12 @@ export function TerminalPane({
       afterOutputWrites: afterTerminalOutputWrites,
       beginSessionSwitchRef,
     })
-    return () => runtime.dispose()
+    return () => {
+      viewportDisposersRef.current.forEach((disposer) => disposer?.dispose?.())
+      viewportDisposersRef.current = []
+      setHistoryState({ away: false, fresh: false })
+      runtime.dispose()
+    }
   }, [
     afterTerminalOutputWrites,
     disposeTerminalOutput,
@@ -503,6 +536,17 @@ export function TerminalPane({
         data-testid="pane-resize-guide"
         className="pointer-events-none absolute z-20 hidden bg-accent shadow-[0_0_6px_var(--accent)]"
       />
+      {historyState.away && (
+        <button
+          type="button"
+          data-testid="terminal-back-to-live"
+          className="absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-[var(--line)] bg-bg-2/95 px-3 py-1 text-xs text-text-1 shadow"
+          onClick={() => terminalInstance.current?.scrollToBottom?.()}
+        >
+          {t('terminal.viewingHistory')}
+          {historyState.fresh && <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-accent" />}
+        </button>
+      )}
       {dropState.isDropActive && (
         <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-apple border border-dashed border-accent bg-bg-0/70 text-sm text-accent shadow-[var(--glow)]">
           {t('terminal.dropUpload')}

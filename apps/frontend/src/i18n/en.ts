@@ -959,6 +959,7 @@ export const en = {
 
   // TerminalPane
   'terminal.dropUpload': 'Drop files to upload',
+  'terminal.viewingHistory': 'Viewing history · Back to live output',
   'terminal.linkOpenBlocked': 'Browser blocked the new window. Allow pop-ups and try again.',
   'terminal.dock.bottom': 'Bottom',
   'terminal.dock.left': 'Left',
