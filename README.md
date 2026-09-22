@@ -83,7 +83,7 @@ macOS 或 Linux 直接执行：
 npx --yes @21hbguo/tmuxgo install
 ```
 
-该命令会安装 `tmux`、`ripgrep`、`python3`、`git`、`curl` 等生产依赖，复制预构建运行时到 `~/.tmuxgo/runtime`，创建 `default` tmux 会话并注册 Gateway 用户服务。它要求预先安装 Node.js 20 或更高版本；macOS 缺少 Homebrew 时会先安装 Homebrew。完成后打开 `http://localhost:3001`。
+该命令会安装 `tmux`、`ripgrep`、`python3`、`git`、`curl` 等生产依赖，复制预构建运行时到 `~/.tmuxgo/runtime`，创建 `default` tmux 会话并注册 Gateway 用户服务。它要求预先安装 Node.js（^20.19 / ^22.12 / >=24）；macOS 缺少 Homebrew 时会先安装 Homebrew。完成后打开 `http://localhost:3001`。
 
 ### 源码部署（开发或离线）
 
@@ -95,7 +95,7 @@ cd TmuxGo
 
 `install.sh` 会自动完成这些事情：
 
-- 安装或切换到 Node.js 20
+- 检查 Node.js 版本（^20.19 / ^22.12 / >=24），不满足时经 nvm 安装最新 LTS
 - 安装 `tmux`、`ripgrep`、`lsof/ss`、`python3` 和原生构建工具链
 - 执行 `npm install`
 - 构建 Gateway 和稳定版 Frontend（`.next-prod`），设置 `TMUXGO_ENABLE_AGENT=1` 时同时构建 Agent
