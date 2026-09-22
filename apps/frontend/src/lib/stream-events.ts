@@ -2,6 +2,7 @@ export const STREAM_EVENT = {
   attached: 'attached',
   resized: 'resized',
   windowSize: 'window-size',
+  exclusiveRevoked: 'exclusive-revoked',
   resizeGesture: 'resize-gesture',
   error: 'error',
   detached: 'detached',

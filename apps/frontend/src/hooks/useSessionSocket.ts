@@ -271,6 +271,9 @@ function handleMessage(connection: ConnectionState, data: any) {
     case 'resized':
       emitStreamEvent(STREAM_EVENT.resized, data)
       break
+    case 'exclusive-revoked':
+      emitStreamEvent(STREAM_EVENT.exclusiveRevoked, data)
+      break
     case 'error':
       connection.attached = false
       emitStreamEvent(STREAM_EVENT.error, data)
