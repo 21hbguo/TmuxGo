@@ -17,6 +17,7 @@ import {
   useTestHost,
 } from '@/hooks/useApi'
 import { type CredentialStoreFile, type HostStoreFile } from '@/lib/api'
+import { isImeKeyEvent } from '@/lib/terminal-platform'
 import { useTranslation } from '@/i18n'
 import { useClipboard } from '@/hooks/useClipboard'
 import { Button } from './Button'
@@ -571,6 +572,8 @@ export function SshPanel() {
             value={quickAddDraft}
             onChange={(event) => setQuickAddDraft(event.target.value)}
             onKeyDown={(event) => {
+              // IME 组字期选词 Enter 不触发快速添加
+              if (isImeKeyEvent(event.nativeEvent)) return
               if (event.key === 'Enter') void quickAddHost()
             }}
             placeholder={t('sshPanel.quickAddHint')}
