@@ -1054,6 +1054,30 @@ describe('FilePanel', () => {
     await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
     expect(screen.queryByText('deep.ts')).not.toBeInTheDocument()
   })
+  it('stops mobile back at the followed pane cwd instead of climbing to root', async () => {
+    consoleStoreState.activePaneId = 'local:%1'
+    paneCwdMocks.cwd = '/workspace/src'
+    render(React.createElement(FilePanel, { mode: 'mobile' }))
+    fireEvent.click(await screen.findByRole('switch', { name: 'Follow terminal cwd' }))
+    await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
+
+    // 锚点(跟随落点 src)上按返回:不处理,交给 sheet 关闭
+    const atFloor = { handled: false }
+    window.dispatchEvent(new CustomEvent('tmuxgo-mobile-files-back', { detail: atFloor }))
+    expect(atFloor.handled).toBe(false)
+    expect(screen.getByText('index.ts')).toBeInTheDocument()
+
+    // 锚点之下的子目录仍可逐级上溯;回到锚点后再次返回仍放行
+    fireEvent.click(screen.getByText('nested'))
+    await waitFor(() => expect(screen.getByText('deep.ts')).toBeInTheDocument())
+    const belowFloor = { handled: false }
+    window.dispatchEvent(new CustomEvent('tmuxgo-mobile-files-back', { detail: belowFloor }))
+    expect(belowFloor.handled).toBe(true)
+    await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
+    const atFloorAgain = { handled: false }
+    window.dispatchEvent(new CustomEvent('tmuxgo-mobile-files-back', { detail: atFloorAgain }))
+    expect(atFloorAgain.handled).toBe(false)
+  })
   it('handles mobile back inside the workspace picker', async () => {
     const userAgent = navigator.userAgent
     Object.defineProperty(navigator, 'userAgent', {
