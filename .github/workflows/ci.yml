@@ -40,6 +40,7 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # pnpm test 收集 tests/ 与 apps/gateway/src 全部用例（含鉴权/分享/终端流），失败即阻断
       - run: pnpm test
       - run: pnpm run test:frontend
   build:

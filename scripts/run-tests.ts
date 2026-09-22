@@ -29,7 +29,7 @@ function collectTests(dir: string, acc: string[] = []) {
 assertSupportedNode()
 
 const root = process.cwd()
-const files = collectTests(join(root, 'tests'))
+const files = collectTests(join(root, 'apps/gateway/src')).concat(collectTests(join(root, 'tests')))
 if (files.length === 0) {
   console.error('No test files found')
   process.exit(1)
