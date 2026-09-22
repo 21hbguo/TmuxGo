@@ -572,6 +572,12 @@ export const zh = {
   // PaneGrid
   'grid.noWindows': '没有打开的窗口',
   'grid.selectSession': '从侧边栏选择一个会话',
+  'grid.control.owned': '可输入 · 本机控制',
+  'grid.control.spectating': '旁观中 · 当前控制权不在本页',
+  'grid.control.inactive': '旁观中 · 本页未激活',
+  'grid.control.attaching': '正在附着终端…',
+  'grid.control.readonly': '只读分享',
+  'grid.control.takeover': '接管',
 
   // TerminalSearch
   'terminalSearch.placeholder': '搜索...',

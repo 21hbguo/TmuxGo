@@ -577,6 +577,12 @@ export const en = {
   // PaneGrid
   'grid.noWindows': 'No windows open',
   'grid.selectSession': 'Select a session from the sidebar',
+  'grid.control.owned': 'Writable · local control',
+  'grid.control.spectating': 'Spectating · control is elsewhere',
+  'grid.control.inactive': 'Spectating · page inactive',
+  'grid.control.attaching': 'Attaching terminal…',
+  'grid.control.readonly': 'Read-only share',
+  'grid.control.takeover': 'Take over',
 
   // TerminalSearch
   'terminalSearch.placeholder': 'Search...',
