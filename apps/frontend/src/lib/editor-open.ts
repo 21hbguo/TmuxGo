@@ -4,7 +4,19 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import type { FileDocumentHandle } from '@/types'
 import type { useTranslation } from '@/i18n'
 
-const IMAGE_EXTENSIONS = new Set(['.avif', '.bmp', '.gif', '.ico', '.jpeg', '.jpg', '.png', '.tif', '.tiff', '.webp'])
+const IMAGE_EXTENSIONS = new Set([
+  '.avif',
+  '.bmp',
+  '.gif',
+  '.ico',
+  '.jpeg',
+  '.jpg',
+  '.png',
+  '.svg',
+  '.tif',
+  '.tiff',
+  '.webp',
+])
 export const OPEN_EDITOR_LOCATION_EVENT = 'tmuxgo-open-editor-location'
 type TranslateFn = ReturnType<typeof useTranslation>['t']
 export function isImagePath(path: string) {
@@ -52,6 +64,7 @@ export function getEditorLanguage(path: string) {
   if (name.endsWith('.toml')) return 'ini'
   if (name.endsWith('.ini') || name.endsWith('.cfg') || name.endsWith('.conf')) return 'ini'
   if (name.endsWith('.yml') || name.endsWith('.yaml')) return 'yaml'
+  if (name.endsWith('.csv')) return 'csv'
   return 'plaintext'
 }
 export function dispatchOpenEditorLocation(editorId: string, line?: number | null, column?: number | null) {

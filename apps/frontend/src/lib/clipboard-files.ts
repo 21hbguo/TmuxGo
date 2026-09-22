@@ -4,6 +4,7 @@ const IMAGE_EXTENSIONS: Record<string, string> = {
   'image/gif': 'gif',
   'image/jpeg': 'jpg',
   'image/png': 'png',
+  'image/svg+xml': 'svg',
   'image/tiff': 'tiff',
   'image/webp': 'webp',
 }
@@ -36,5 +37,7 @@ export function extractClipboardImageFiles(data: DataTransfer | null | undefined
   const files = imageFilesFromItems(data?.items)
   const source = files.length ? files : imageFilesFromList(data?.files)
   const now = new Date()
-  return source.map((file, index) => new File([file], nameFor(file, index, now), { type: file.type, lastModified: Date.now() }))
+  return source.map(
+    (file, index) => new File([file], nameFor(file, index, now), { type: file.type, lastModified: Date.now() }),
+  )
 }

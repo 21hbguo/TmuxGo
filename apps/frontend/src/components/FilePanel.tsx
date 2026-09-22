@@ -63,7 +63,19 @@ const FAVORITE_UPDATED_AT_STORAGE_KEY = 'tmuxgo-favorite-directories-updated-at'
 const PREFERENCES_PROFILE = 'default'
 const SEARCH_INPUT_DEBOUNCE_MS = 160
 const SEARCH_RESULT_LIMIT = 200
-const IMAGE_EXTENSIONS = new Set(['.avif', '.bmp', '.gif', '.ico', '.jpeg', '.jpg', '.png', '.tif', '.tiff', '.webp'])
+const IMAGE_EXTENSIONS = new Set([
+  '.avif',
+  '.bmp',
+  '.gif',
+  '.ico',
+  '.jpeg',
+  '.jpg',
+  '.png',
+  '.svg',
+  '.tif',
+  '.tiff',
+  '.webp',
+])
 
 function formatSize(size: number) {
   if (size < 1024) return `${size}B`
@@ -1931,7 +1943,11 @@ export function FilePanel({
     preview?.path &&
     preview.type === 'file' &&
     isImagePath(preview.path) &&
-    (preview.binary || preview.reason === 'binary-file' || preview.reason === 'large-file')
+    // svg 是文本不会被标 binary,也直接走图片预览(<img> 会播放 SMIL/CSS 动画)
+    (preview.binary ||
+      preview.reason === 'binary-file' ||
+      preview.reason === 'large-file' ||
+      preview.path.toLowerCase().endsWith('.svg'))
       ? api.files.imageUrl(
           fileHostId,
           activeRootId,
