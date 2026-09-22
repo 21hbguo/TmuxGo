@@ -107,6 +107,9 @@ export const zh = {
   'status.hostScanStatus': '主机扫描状态',
   'status.scanFailed': '扫描失败',
   'status.scanFailedTitle': '远程主机 Agent 扫描失败，正在重试',
+  'status.packets': '包',
+  'status.netStats': 'WebSocket 收发统计',
+  'status.netStatsTitle': '近 60 秒：发包 {tx} · 收包 {rx} · ping 丢包 {loss}',
 
   // MobileNav
   'nav.sessions': '会话',

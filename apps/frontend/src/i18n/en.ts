@@ -107,6 +107,9 @@ export const en = {
   'status.hostScanStatus': 'Host scan status',
   'status.scanFailed': 'scan failed',
   'status.scanFailedTitle': 'Remote host agent scan failed; retrying',
+  'status.packets': 'PKT',
+  'status.netStats': 'WebSocket packet stats',
+  'status.netStatsTitle': 'Last 60s: sent {tx} · received {rx} · ping loss {loss}',
 
   // MobileNav
   'nav.sessions': 'Sessions',

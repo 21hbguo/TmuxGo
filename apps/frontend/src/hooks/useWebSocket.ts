@@ -15,6 +15,14 @@ import {
 } from '@/lib/terminal-grid/decode-cell'
 import { diffToAnsi, snapshotToAnsi } from '@/lib/terminal-grid/apply-cell'
 import { emitStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
+import {
+  netStatsFlushPending,
+  netStatsPingSent,
+  netStatsPong,
+  netStatsReset,
+  netStatsRx,
+  netStatsTx,
+} from '@/lib/net-stats'
 type WSState = {
   ws: WebSocket | null
   reconnectTimer: ReturnType<typeof setTimeout> | null
@@ -79,6 +87,10 @@ function resetMobileInteractiveProfile() {
 function getOutputListenerKey(hostId: string, sessionName: string) {
   return `${hostId}\u0000${sessionName}`
 }
+function trackedSend(ws: WebSocket, payload: string) {
+  netStatsTx()
+  ws.send(payload)
+}
 function recordMobileDebug(event: string, data?: Record<string, unknown>) {
   recordMobileDiagnostic(
     event,
@@ -119,6 +131,7 @@ export function useWebSocket() {
       switch (data.type) {
         case 'pong':
           wsState.lastPongAt = Date.now()
+          netStatsPong()
           clearPongTimer()
           updateConnection({ latency: Date.now() - (data.timestamp || Date.now()), lastPing: new Date().toISOString() })
           break
@@ -187,10 +200,12 @@ export function useWebSocket() {
     (timeout = 8000) => {
       const ws = wsState.ws
       if (!ws || ws.readyState !== WebSocket.OPEN) return
-      ws.send(JSON.stringify({ type: 'ping', timestamp: Date.now() }))
+      netStatsPingSent()
+      trackedSend(ws, JSON.stringify({ type: 'ping', timestamp: Date.now() }))
       clearPongTimer()
       wsState.pongTimer = setTimeout(() => {
         if (wsState.ws !== ws || ws.readyState !== WebSocket.OPEN) return
+        netStatsFlushPending()
         wsState.closeExpected = false
         ws.close()
       }, timeout)
@@ -265,8 +280,10 @@ export function useWebSocket() {
           wsState.lastPongAt = Date.now()
           updateConnection({ status: 'attaching', latency: 0 })
           recordMobileDebug('ws-open')
+          netStatsReset()
           try {
-            ws.send(
+            trackedSend(
+              ws,
               JSON.stringify({ type: 'stream_caps', binaryOutput: true, compressOutput: 'gzip', cellOutput: false }),
             )
           } catch {}
@@ -275,6 +292,7 @@ export function useWebSocket() {
           wsState.onOpen?.()
         }
         ws.onmessage = (event) => {
+          netStatsRx()
           try {
             if (typeof ArrayBuffer !== 'undefined' && event.data instanceof ArrayBuffer) {
               const decoded = decodeStreamOutputBinary(event.data)
@@ -285,7 +303,8 @@ export function useWebSocket() {
                 )
                 if (!snap) {
                   try {
-                    ws.send(
+                    trackedSend(
+                      ws,
                       JSON.stringify({
                         type: 'cell_resync_request',
                         sessionName: decoded.sessionName,
@@ -310,7 +329,8 @@ export function useWebSocket() {
                 if (!diff) return
                 if (cellLastSeq !== 0 && diff.baseSeq !== cellLastSeq) {
                   try {
-                    ws.send(
+                    trackedSend(
+                      ws,
                       JSON.stringify({
                         type: 'cell_resync_request',
                         sessionName: decoded.sessionName,
@@ -354,6 +374,7 @@ export function useWebSocket() {
           wsState.attached = false
           clearConnectTimer()
           clearPongTimer()
+          netStatsFlushPending()
           const expected = wsState.closeExpected
           wsState.closeExpected = false
           recordMobileDebug('ws-close', { expected, visibility: document.visibilityState })
@@ -371,6 +392,7 @@ export function useWebSocket() {
           wsState.attached = false
           clearConnectTimer()
           clearPongTimer()
+          netStatsFlushPending()
           ws.onopen = null
           ws.onmessage = null
           ws.onerror = null
@@ -493,22 +515,22 @@ export function useWebSocket() {
         isMobileDevice()
       ) {
         if (!mobileInteractiveProfileActive) {
-          ws.send(JSON.stringify({ type: 'stream_profile', profile: 'foreground' }))
+          trackedSend(ws, JSON.stringify({ type: 'stream_profile', profile: 'foreground' }))
           mobileInteractiveProfileActive = true
           recordMobileDebug('stream-profile-interactive-start')
         }
         if (mobileInteractiveProfileTimer) clearTimeout(mobileInteractiveProfileTimer)
-        ws.send(JSON.stringify(data))
+        trackedSend(ws, JSON.stringify(data))
         mobileInteractiveProfileTimer = setTimeout(() => {
           mobileInteractiveProfileTimer = null
           mobileInteractiveProfileActive = false
           if (wsState.ws !== ws || ws.readyState !== WebSocket.OPEN) return
-          ws.send(JSON.stringify({ type: 'stream_profile', profile: 'mobile' }))
+          trackedSend(ws, JSON.stringify({ type: 'stream_profile', profile: 'mobile' }))
           recordMobileDebug('stream-profile-interactive-end')
         }, MOBILE_INTERACTIVE_PROFILE_MS)
         return true
       }
-      ws.send(JSON.stringify(data))
+      trackedSend(ws, JSON.stringify(data))
       return true
     }
     return false
