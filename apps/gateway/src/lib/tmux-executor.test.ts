@@ -1,8 +1,6 @@
 import '../test-env.js'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -15,8 +13,7 @@ import {
 } from './tmux-executor.js'
 import { agentManager } from '../agent-manager.js'
 import { upsertRemoteHost } from './hosts.js'
-
-const execFileAsync = promisify(execFile)
+import { killTestTmuxSession, TEST_TMUX_SESSION } from '../test-tmux.js'
 
 test('normalizes -e TMUXGO_ENV=1 into setenv fallback without touching other -e flags', () => {
   assert.deepEqual(normalizeTmuxEnvArgs(['new-session', '-d', '-s', 'name', '-e', 'TMUXGO_ENV=1']), {
@@ -34,8 +31,9 @@ test('normalizes -e TMUXGO_ENV=1 into setenv fallback without touching other -e 
   assert.deepEqual(normalizeTmuxEnvArgs(['list-sessions']), { args: ['list-sessions'], needsSetEnv: false })
 })
 
+// 真实 tmux 用例：只操作隔离 server 上的 test session（test-tmux.ts 约定）
 test('executes local tmux and shell commands through the local host', async () => {
-  const sessionName = `tmuxgo-executor-${process.pid}-${Date.now()}`
+  const sessionName = TEST_TMUX_SESSION
   try {
     const tmux = await execTmux('local', [
       'new-session',
@@ -53,12 +51,12 @@ test('executes local tmux and shell commands through the local host', async () =
     assert.equal(shell.host.id, 'local')
     assert.equal(shell.stdout, 'shell')
   } finally {
-    await execFileAsync('tmux', ['kill-session', '-t', sessionName]).catch(() => {})
+    await killTestTmuxSession()
   }
 })
 
 test('injects TMUXGO_ENV via setenv when new-session uses the legacy -e form', async () => {
-  const sessionName = `tmuxgo-executor-env-${process.pid}-${Date.now()}`
+  const sessionName = TEST_TMUX_SESSION
   const marker = path.join(os.tmpdir(), `tmuxgo-env-${process.pid}-${Date.now()}`)
   try {
     await execTmux('local', [
@@ -79,14 +77,14 @@ test('injects TMUXGO_ENV via setenv when new-session uses the legacy -e form', a
     }
     assert.equal(content, '1')
   } finally {
-    await execFileAsync('tmux', ['kill-session', '-t', sessionName]).catch(() => {})
+    await killTestTmuxSession()
     await rm(marker, { force: true }).catch(() => {})
   }
 })
 
 test('creates session via cold start when tmux server is missing (setenv tolerated)', async (t) => {
   const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-executor-cold-'))
-  const sessionName = `tmuxgo-cold-${process.pid}-${Date.now()}`
+  const sessionName = TEST_TMUX_SESSION
   const previousTmpDir = process.env.TMUX_TMPDIR
   process.env.TMUX_TMPDIR = tmpDir
   t.after(async () => {
@@ -101,7 +99,8 @@ test('creates session via cold start when tmux server is missing (setenv tolerat
     const env = await execTmux('local', ['show-environment', '-g', 'TMUXGO_ENV'])
     assert.match(env.stdout.trim(), /^TMUXGO_ENV=1$/)
   } finally {
-    await execFileAsync('tmux', ['kill-session', '-t', sessionName]).catch(() => {})
+    // TMUX_TMPDIR 此刻仍指向本用例私有目录：kill 的是冷启动 server 上的 test
+    await killTestTmuxSession()
   }
 })
 
