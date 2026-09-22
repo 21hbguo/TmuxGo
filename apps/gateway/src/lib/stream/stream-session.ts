@@ -568,7 +568,12 @@ export class StreamSession {
       else void this.flushOutputResync()
       return
     }
-    if (!this.outputBuffer) return
+    if (!this.outputBuffer) {
+      // buffer 已空但发送链仍有在途异步帧（gzip）：返回链尾让调用方可等待，
+      // 否则 queueOutput 内联 flush 后外层再 flush 会误判「已发出」而抢跑断言
+      if (this.sendChainDepth > 0) return this.sendChainTail.then(() => true)
+      return
+    }
     if (this.getSocketBufferedBytes() >= SOCKET_BUFFER_HIGH_WATERMARK) {
       this.scheduleDeferredFlush()
       return

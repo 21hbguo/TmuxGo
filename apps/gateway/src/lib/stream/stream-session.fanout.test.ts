@@ -144,8 +144,8 @@ test('two attaches on same host+session share one PTY and both receive output', 
     b.sent.length = 0
     // hub sanitize 一次后扇出：两端各自组帧发送
     spawns[0].emitData('hello-fanout')
-    sa.flushOutput()
-    sb.flushOutput()
+    await sa.flushOutput()
+    await sb.flushOutput()
     assert.ok(
       a.sent.some((m) => m.type === 'output' && m.data.includes('hello-fanout')),
       'client A should receive output',
@@ -187,7 +187,7 @@ test('one detach keeps PTY alive for the remaining subscriber; last detach kills
     assert.equal(countSharedTerminals(), 1)
 
     spawns[0].emitData('still-alive')
-    sb.flushOutput()
+    await sb.flushOutput()
     assert.ok(b.sent.some((m) => m.type === 'output' && m.data.includes('still-alive')))
 
     sb.cleanup()
@@ -269,8 +269,8 @@ test('subscribers with different caps get their own encodings from shared output
     b.sent.length = 0
     const payload = 'X'.repeat(2000)
     spawns[0].emitData(payload)
-    sa.flushOutput()
-    sb.flushOutput()
+    await sa.flushOutput()
+    await sb.flushOutput()
 
     const aBinary = a.sent.find((m) => m.__binary)
     const bJson = b.sent.find((m) => m.type === 'output')
