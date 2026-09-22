@@ -104,12 +104,10 @@ fastify.addHook('onRequest', async (request, reply) => {
 fastify.addHook('onSend', recordAuditRequest)
 fastify.setErrorHandler((error, _request, reply) => {
   if (error instanceof ZodError)
-    return reply
-      .code(400)
-      .send({
-        message: error.issues.map((issue) => `${issue.path.join('.') || 'request'}: ${issue.message}`).join('; '),
-        code: 'INVALID_REQUEST',
-      })
+    return reply.code(400).send({
+      message: error.issues.map((issue) => `${issue.path.join('.') || 'request'}: ${issue.message}`).join('; '),
+      code: 'INVALID_REQUEST',
+    })
   return reply.send(error)
 })
 
@@ -217,11 +215,33 @@ const start = async () => {
 
 start()
 
-const shutdown = async () => {
-  agentMonitor.stop()
-  await pluginManager.shutdown()
-  await cleanupMultiplexSockets()
-  process.exit(0)
+const SHUTDOWN_TIMEOUT_MS = 5000
+let shutdownPromise: Promise<void> | null = null
+const shutdown = () => {
+  if (shutdownPromise) return shutdownPromise
+  shutdownPromise = (async () => {
+    // 活跃 HTTP/WS 连接可能无限阻塞 fastify.close()，超时兜底保证有界退出
+    const forceExit = setTimeout(() => {
+      fastify.log.warn('Graceful shutdown timed out; forcing exit')
+      process.exit(1)
+    }, SHUTDOWN_TIMEOUT_MS)
+    forceExit.unref()
+    try {
+      agentMonitor.stop()
+      // ws 长连接不随 HTTP server 关闭自动断开，显式终止以免阻塞排空
+      fastify.websocketServer.clients.forEach((socket: { terminate: () => void }) => socket.terminate())
+      await pluginManager.shutdown()
+      await cleanupMultiplexSockets()
+      await fastify.close()
+      process.exit(0)
+    } catch (err) {
+      fastify.log.error(err)
+      process.exit(1)
+    } finally {
+      clearTimeout(forceExit)
+    }
+  })()
+  return shutdownPromise
 }
 process.on('SIGINT', shutdown)
 process.on('SIGTERM', shutdown)
