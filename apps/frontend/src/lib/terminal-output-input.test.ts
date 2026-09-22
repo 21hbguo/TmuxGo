@@ -1,20 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createTerminalOutputInput } from './terminal-output-input'
 
-function makeHarness(selection = '') {
+function makeHarness(selection = '', overrides: Record<string, unknown> = {}) {
   const pushed: string[] = []
   const terminal = { write: vi.fn(), getSelection: () => selection }
+  const disposeOutput = vi.fn()
   const outputInput = createTerminalOutputInput({
     getTerminal: () => terminal,
     pushOutput: (data) => pushed.push(data),
-    disposeOutput: vi.fn(),
+    disposeOutput,
     isDesktopImeComposing: () => false,
     isMobile: false,
     getHostId: () => 'local',
     getSessionName: () => 'main',
     controlCarryRef: { current: '' },
+    ...overrides,
   })
-  return { outputInput, pushed, terminal }
+  return { outputInput, pushed, terminal, disposeOutput }
 }
 
 describe('createTerminalOutputInput selection hold', () => {
@@ -89,5 +91,73 @@ describe('createTerminalOutputInput selection hold', () => {
     outputInput.handleOutput('tick-2')
     expect(outputInput.isSelectionHoldActive()).toBe(true)
     expect(pushed).toEqual([])
+  })
+})
+
+describe('createTerminalOutputInput default direct write', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.stubGlobal(
+      'requestAnimationFrame',
+      vi.fn(() => 1),
+    )
+    vi.stubGlobal('cancelAnimationFrame', vi.fn())
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+
+  it('pushes output directly without touching writeBuffer when no hold is active', () => {
+    const { outputInput, pushed } = makeHarness()
+    outputInput.handleOutput('direct-1')
+    outputInput.handleOutput('direct-2')
+    expect(pushed).toEqual(['direct-1', 'direct-2'])
+    expect(outputInput.hasWriteBuffered()).toBe(false)
+    outputInput.flushWriteBuffer()
+    expect(pushed).toEqual(['direct-1', 'direct-2'])
+  })
+
+  it('disposes prior output on resync then writes the new frame directly', () => {
+    const { outputInput, pushed, disposeOutput } = makeHarness()
+    outputInput.handleOutput({ data: 'snap', sessionName: 'main', hostId: 'local', resync: true })
+    expect(disposeOutput).toHaveBeenCalledTimes(1)
+    expect(pushed).toEqual(['snap'])
+    expect(outputInput.hasWriteBuffered()).toBe(false)
+  })
+
+  it('still buffers during selection hold and never leaves residue after release', () => {
+    const { outputInput, pushed } = makeHarness('selected')
+    outputInput.holdSelection()
+    outputInput.handleOutput('held')
+    expect(pushed).toEqual([])
+    expect(outputInput.hasWriteBuffered()).toBe(true)
+    outputInput.releaseSelection()
+    expect(pushed).toEqual(['held'])
+    expect(outputInput.hasWriteBuffered()).toBe(false)
+  })
+
+  it('flushes switch hold as one atomic writeAtomic call', () => {
+    const writeAtomic = vi.fn()
+    const { outputInput, pushed } = makeHarness('', { writeAtomic })
+    outputInput.beginSwitchHold()
+    outputInput.handleOutput('frame-a')
+    outputInput.handleOutput('frame-b')
+    expect(pushed).toEqual([])
+    expect(outputInput.hasWriteBuffered()).toBe(true)
+    outputInput.flushSwitchHold('\x1b[3J\x1b[2J')
+    expect(writeAtomic).toHaveBeenCalledTimes(1)
+    expect(writeAtomic).toHaveBeenCalledWith('\x1b[3J\x1b[2Jframe-aframe-b')
+    expect(pushed).toEqual([])
+    expect(outputInput.hasWriteBuffered()).toBe(false)
+    expect(outputInput.isSwitchHolding()).toBe(false)
+  })
+
+  it('falls back to pushOutput for switch flush when writeAtomic is absent', () => {
+    const { outputInput, pushed } = makeHarness()
+    outputInput.beginSwitchHold()
+    outputInput.handleOutput('only-frame')
+    outputInput.flushSwitchHold()
+    expect(pushed).toEqual(['only-frame'])
   })
 })

@@ -126,6 +126,59 @@ test('cell diff encodes changes', () => {
   assert.ok(payload.length >= 20)
 })
 
+import { applyPasteDataFrame, parsePasteDataFrame } from '../apps/gateway/src/lib/stream/paste-binary.js'
+
+function makePasteSession(overrides: Record<string, unknown> = {}) {
+  const written: string[] = []
+  const session = {
+    attachedHostId: 'local',
+    attachedSessionName: 'dev',
+    attachedPassive: false,
+    ptyProcess: {
+      write(d: string) {
+        written.push(d)
+      },
+    },
+    // Mirrors StreamSession.input passive gate
+    input(d: string) {
+      if (!session.attachedPassive && session.ptyProcess) session.ptyProcess.write(d)
+    },
+    ...overrides,
+  } as any
+  return { session, written }
+}
+
+test('paste-data frame decodes and writes to matching pty', () => {
+  const { session, written } = makePasteSession()
+  const text = 'echo hello\nline2'
+  const frame = Buffer.concat([Buffer.from('paste-data local dev\n', 'ascii'), Buffer.from(text, 'utf8')])
+  const parsed = parsePasteDataFrame(frame)
+  assert.deepEqual(parsed, { hostId: 'local', sessionName: 'dev', data: text })
+  assert.equal(applyPasteDataFrame(session, frame), 'ok')
+  assert.deepEqual(written, [text])
+})
+
+test('paste-data rejects target mismatch', () => {
+  const { session, written } = makePasteSession()
+  const frame = Buffer.from('paste-data local other\nxx', 'ascii')
+  assert.equal(applyPasteDataFrame(session, frame), 'mismatch')
+  assert.equal(written.length, 0)
+})
+
+test('paste-data refuses write when passive attach', () => {
+  const { session, written } = makePasteSession({ attachedPassive: true })
+  const frame = Buffer.from('paste-data local dev\nevil', 'ascii')
+  assert.equal(applyPasteDataFrame(session, frame), 'ok')
+  assert.equal(written.length, 0)
+})
+
+test('paste-data rejects invalid frames', () => {
+  const { session, written } = makePasteSession()
+  assert.equal(applyPasteDataFrame(session, Buffer.from('vnc-data x\nyy', 'ascii')), 'invalid')
+  assert.equal(applyPasteDataFrame(session, Buffer.from('paste-data h', 'ascii')), 'invalid')
+  assert.equal(written.length, 0)
+})
+
 test('async encode roundtrips compressed resync payload', async () => {
   const data = 'abc def ghi jkl mno pqr '.repeat(200) + '\n'
   const { frame, gzipFailed } = await encodeStreamOutputBinaryAsync('output_resync', 'local', 'dev', data, {
