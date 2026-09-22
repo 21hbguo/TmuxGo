@@ -112,7 +112,8 @@ async function main() {
       throw new Error('Authentication E2E frontend build failed')
     // tmux/gateway 用空 HOME，避免用户 ~/.tmux.conf 的失效选项让隔离 server 起在 config-error 屏
     const tmuxEnv = { ...process.env, TMUX: '', TMUX_TMPDIR: tmuxDir, HOME: configDir }
-    if ((await run('tmux', ['new-session', '-d', '-s', 'auth-e2e'], { cwd: root, env: tmuxEnv })) !== 0)
+    // 真实 tmux 行为测试只允许操作隔离 server 上名为 test 的 session（AGENTS.md）
+    if ((await run('tmux', ['new-session', '-d', '-s', 'test'], { cwd: root, env: tmuxEnv })) !== 0)
       throw new Error('Authentication E2E tmux startup failed')
     const gatewayEnv = {
       ...process.env,

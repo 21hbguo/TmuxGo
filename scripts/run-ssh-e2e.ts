@@ -16,7 +16,10 @@ const jumpHost = process.env.TMUXGO_SSH_E2E_JUMP_HOST?.trim() || ''
 const port = Number(process.env.TMUXGO_SSH_E2E_PORT || 22)
 const knownHostsPolicy = process.env.TMUXGO_SSH_E2E_KNOWN_HOSTS_POLICY || 'strict'
 const hostId = 'ssh-e2e'
-const sessionName = `tmuxgo_ssh_e2e_${Date.now()}`
+// 真实 tmux 行为只在名为 test 的 session（AGENTS.md 约束，远端同样适用）。
+// 远端是用户真实 server：先查后建，已存在 test 直接拒跑，绝不向其中输入或删除
+const sessionName = 'test'
+let createdSession = false
 let configDir = ''
 let gateway: ChildProcess | undefined
 let cleaned = false
@@ -55,7 +58,7 @@ async function availablePort() {
         reject(new Error('Unable to reserve SSH E2E port'))
         return
       }
-      server.close((error) => error ? reject(error) : resolve(address.port))
+      server.close((error) => (error ? reject(error) : resolve(address.port)))
     })
   })
 }
@@ -103,8 +106,12 @@ async function request(apiUrl: string, path: string, method = 'GET', body?: unkn
 }
 async function verifyTerminal(apiUrl: string) {
   return new Promise<void>((resolve, reject) => {
-    const marker = `TMUXGO-SSH-E2E-${Date.now()}`
+    // 结果由 shell 运行时计算：命令行回显不含答案，不能作为执行证据
+    const operandA = 3 + Math.floor(Math.random() * 40)
+    const operandB = 3 + Math.floor(Math.random() * 40)
+    const expected = String(operandA * operandB)
     const socket = new WebSocket(`${apiUrl.replace(/^http/, 'ws')}/api/stream`)
+    let outputText = ''
     let outputSeen = false
     let resizeSeen = false
     let finished = false
@@ -120,21 +127,26 @@ async function verifyTerminal(apiUrl: string) {
       if (outputSeen && resizeSeen) finish()
     }
     const timeout = setTimeout(() => finish(new Error('SSH terminal attach timed out')), 30000)
-    socket.on('open', () => socket.send(JSON.stringify({ type: 'attach', hostId, sessionName, exclusive: true, cols: 80, rows: 24 })))
+    socket.on('open', () =>
+      socket.send(JSON.stringify({ type: 'attach', hostId, sessionName, exclusive: true, cols: 80, rows: 24 })),
+    )
     socket.on('message', (raw) => {
       try {
         const message = JSON.parse(raw.toString()) as { type?: string; data?: string; message?: string }
         if (message.type === 'attached') {
           socket.send(JSON.stringify({ type: 'resize', cols: 100, rows: 30 }))
-          socket.send(JSON.stringify({ type: 'input', data: `printf '${marker}\\n'\r` }))
+          socket.send(JSON.stringify({ type: 'input', data: `echo $((${operandA}*${operandB}))\r` }))
         }
         if (message.type === 'resized') {
           resizeSeen = true
           complete()
         }
-        if ((message.type === 'output' || message.type === 'output_resync') && message.data?.includes(marker)) {
-          outputSeen = true
-          complete()
+        if (message.type === 'output' || message.type === 'output_resync') {
+          outputText += message.data || ''
+          if (outputText.split('\n').some((line) => line.trim() === expected)) {
+            outputSeen = true
+            complete()
+          }
         }
         if (message.type === 'error') finish(new Error(message.message || 'SSH terminal error'))
       } catch (error) {
@@ -147,9 +159,16 @@ async function verifyTerminal(apiUrl: string) {
 async function cleanup(apiUrl: string) {
   if (cleaned) return
   cleaned = true
-  try {
-    await request(apiUrl, `/api/hosts/${hostId}/sessions/${encodeURIComponent(`session-${hostId}-${sessionName}`)}`, 'DELETE')
-  } catch {}
+  // 只删本次自己创建的 test session；已存在时上面已拒跑，不会走到这
+  if (createdSession) {
+    try {
+      await request(
+        apiUrl,
+        `/api/hosts/${hostId}/sessions/${encodeURIComponent(`session-${hostId}-${sessionName}`)}`,
+        'DELETE',
+      )
+    } catch {}
+  }
   await stop(gateway)
   if (configDir) await rm(configDir, { recursive: true, force: true })
 }
@@ -157,16 +176,19 @@ async function main() {
   assertSupportedNode()
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('TMUXGO_SSH_E2E_PORT must be a valid port')
   if (knownHostsPolicy !== 'strict') throw new Error('TMUXGO_SSH_E2E_KNOWN_HOSTS_POLICY must be strict')
-  if (authMode === 'key' && !privateKeyPath) throw new Error('TMUXGO_SSH_E2E_PRIVATE_KEY_PATH is required when TMUXGO_SSH_E2E_AUTH=key')
-  if (authMode === 'agent' && privateKeyPath) throw new Error('TMUXGO_SSH_E2E_PRIVATE_KEY_PATH must be unset when TMUXGO_SSH_E2E_AUTH=agent')
-  if (authMode === 'agent' && !process.env.SSH_AUTH_SOCK) throw new Error('SSH_AUTH_SOCK is required when TMUXGO_SSH_E2E_AUTH=agent')
+  if (authMode === 'key' && !privateKeyPath)
+    throw new Error('TMUXGO_SSH_E2E_PRIVATE_KEY_PATH is required when TMUXGO_SSH_E2E_AUTH=key')
+  if (authMode === 'agent' && privateKeyPath)
+    throw new Error('TMUXGO_SSH_E2E_PRIVATE_KEY_PATH must be unset when TMUXGO_SSH_E2E_AUTH=agent')
+  if (authMode === 'agent' && !process.env.SSH_AUTH_SOCK)
+    throw new Error('SSH_AUTH_SOCK is required when TMUXGO_SSH_E2E_AUTH=agent')
   configDir = await mkdtemp(join(tmpdir(), 'tmuxgo-ssh-e2e-'))
   const apiPort = await availablePort()
   const apiUrl = `http://127.0.0.1:${apiPort}`
   try {
     gateway = startGateway(apiPort)
     await waitFor(`${apiUrl}/health`, gateway)
-    const host = await request(apiUrl, '/api/hosts', 'POST', {
+    const host = (await request(apiUrl, '/api/hosts', 'POST', {
       id: hostId,
       name: 'SSH E2E',
       address: hostAddress,
@@ -176,15 +198,22 @@ async function main() {
       useAgent: authMode === 'agent',
       jumpHost: jumpHost || undefined,
       knownHostsPolicy,
-    }) as { knownHostsPolicy?: string; usesAgent?: boolean; hasPrivateKey?: boolean }
+    })) as { knownHostsPolicy?: string; usesAgent?: boolean; hasPrivateKey?: boolean }
     assert.equal(host.knownHostsPolicy, 'strict')
     assert.equal(host.usesAgent, authMode === 'agent')
     assert.equal(host.hasPrivateKey, authMode === 'key')
-    const connectivity = await request(apiUrl, `/api/hosts/${hostId}/test`, 'POST') as { ok?: boolean; mode?: string }
+    const connectivity = (await request(apiUrl, `/api/hosts/${hostId}/test`, 'POST')) as { ok?: boolean; mode?: string }
     assert.equal(connectivity.ok, true)
     assert.equal(connectivity.mode, authMode)
-    const session = await request(apiUrl, `/api/hosts/${hostId}/sessions`, 'POST', { name: sessionName }) as { id?: string; name?: string }
+    const remoteSessions = (await request(apiUrl, `/api/hosts/${hostId}/sessions`)) as { name?: string }[]
+    if (remoteSessions.some((session) => session.name === sessionName))
+      throw new Error(`Remote host already has a '${sessionName}' session; refusing SSH E2E to avoid touching it`)
+    const session = (await request(apiUrl, `/api/hosts/${hostId}/sessions`, 'POST', { name: sessionName })) as {
+      id?: string
+      name?: string
+    }
     assert.equal(session.name, sessionName)
+    createdSession = true
     await verifyTerminal(apiUrl)
     await stop(gateway)
     gateway = startGateway(apiPort)

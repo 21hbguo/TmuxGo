@@ -28,19 +28,23 @@ jobs:
       - run: pnpm run check:eslint-warnings
       - run: pnpm run typecheck
       # 只校验本 PR/push 变更文件的格式，不做全仓格式化；与本地 lint-staged 互补
+      # 基准由 scripts/ci-changed-range.ts 按来源解析（PR 三点 / push before /
+      # 手动触发 / 无有效父基准），空集合时显式 echo，不做静默零文件通过
       - name: Check formatting of changed files
         run: |
-          if [ -n "${{ github.base_ref }}" ]; then
-            range="origin/${{ github.base_ref }}...HEAD"
+          range=$(pnpm exec tsx scripts/ci-changed-range.ts \
+            --event "${{ github.event_name }}" \
+            --base-ref "${{ github.base_ref }}" \
+            --before "${{ github.event.before }}")
+          echo "Changed-files range: $range"
+          changed=$(mktemp)
+          trap 'rm -f "$changed"' EXIT
+          git diff --name-only -z --diff-filter=ACMR "$range" > "$changed"
+          if [ -s "$changed" ]; then
+            tr '\0' '\n' < "$changed"
+            xargs -0 pnpm exec prettier --check --ignore-unknown < "$changed"
           else
-            range="${{ github.event.before }}..HEAD"
-          fi
-          files=$(git diff --name-only --diff-filter=ACMR $range)
-          if [ -z "$files" ]; then
-            echo "No changed files to check"
-          else
-            echo "$files"
-            echo "$files" | tr '\n' '\0' | xargs -0 pnpm exec prettier --check --ignore-unknown
+            echo "No changed files to check (range: $range)"
           fi
   test:
     runs-on: ubuntu-latest

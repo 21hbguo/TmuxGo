@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { ensureSession, openSession } from './session'
+import { ensureSession, ensureTestWindow, openSession } from './session'
 
 test('home page smoke flow', async ({ page }) => {
   await page.goto('/')
@@ -15,7 +15,8 @@ test('mobile viewport fits visible screen', async ({ browser, baseURL }) => {
     viewport: { width: 390, height: 844 },
     isMobile: true,
     hasTouch: true,
-    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+    userAgent:
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
   })
   const page = await context.newPage()
   await page.goto('/')
@@ -49,7 +50,8 @@ test('mobile stable page loads without application error', async ({ browser, bas
     viewport: { width: 390, height: 844 },
     isMobile: true,
     hasTouch: true,
-    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+    userAgent:
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
   })
   const page = await context.newPage()
   const pageErrors: string[] = []
@@ -68,7 +70,8 @@ test('mobile quick session switches while keyboard is closed', async ({ browser,
     viewport: { width: 390, height: 844 },
     isMobile: true,
     hasTouch: true,
-    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+    userAgent:
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
   })
   const page = await context.newPage()
   await openSession(page, first, { expectHeader: false })
@@ -81,7 +84,9 @@ test('mobile quick session switches while keyboard is closed', async ({ browser,
     const input = document.querySelector('.mobile-kb-input') as HTMLTextAreaElement | null
     input?.focus({ preventScroll: true })
     ;(window as typeof window & { __tmuxgoKeyboardFocusEvents?: string[] }).__tmuxgoKeyboardFocusEvents = []
-    input?.addEventListener('blur', () => (window as typeof window & { __tmuxgoKeyboardFocusEvents?: string[] }).__tmuxgoKeyboardFocusEvents?.push('blur'))
+    input?.addEventListener('blur', () =>
+      (window as typeof window & { __tmuxgoKeyboardFocusEvents?: string[] }).__tmuxgoKeyboardFocusEvents?.push('blur'),
+    )
     document.body.classList.add('keyboard-open')
     window.dispatchEvent(new CustomEvent('mobile-keyboard-change', { detail: { open: true, inset: 280 } }))
   })
@@ -89,8 +94,19 @@ test('mobile quick session switches while keyboard is closed', async ({ browser,
   const activeSessionId = await page.evaluate(() => localStorage.getItem('tmuxgo-active-session:local'))
   const keyboardSwitchButton = page.locator('.tmuxgo-mobile-session-strip button').nth(1)
   await keyboardSwitchButton.tap()
-  await expect.poll(() => page.evaluate(() => localStorage.getItem('tmuxgo-active-session:local'))).not.toBe(activeSessionId)
-  await expect.poll(() => page.evaluate(() => ({ active: document.activeElement?.classList.contains('mobile-kb-input'), events: (window as typeof window & { __tmuxgoKeyboardFocusEvents?: string[] }).__tmuxgoKeyboardFocusEvents || [], open: document.body.classList.contains('keyboard-open') }))).toEqual({ active: true, events: [], open: true })
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem('tmuxgo-active-session:local')))
+    .not.toBe(activeSessionId)
+  await expect
+    .poll(() =>
+      page.evaluate(() => ({
+        active: document.activeElement?.classList.contains('mobile-kb-input'),
+        events:
+          (window as typeof window & { __tmuxgoKeyboardFocusEvents?: string[] }).__tmuxgoKeyboardFocusEvents || [],
+        open: document.body.classList.contains('keyboard-open'),
+      })),
+    )
+    .toEqual({ active: true, events: [], open: true })
   await context.close()
 })
 test('mobile dock restores nav after keyboard closes in compact viewport', async ({ browser, baseURL }) => {
@@ -99,50 +115,67 @@ test('mobile dock restores nav after keyboard closes in compact viewport', async
     viewport: { width: 844, height: 390 },
     isMobile: true,
     hasTouch: true,
-    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+    userAgent:
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
   })
   const page = await context.newPage()
   await page.goto('/')
   await expect(page.locator('[data-mobile-nav]')).toBeVisible()
-  await page.evaluate(() => window.dispatchEvent(new CustomEvent('mobile-keyboard-change', { detail: { open: true, inset: 280 } })))
+  await page.evaluate(() =>
+    window.dispatchEvent(new CustomEvent('mobile-keyboard-change', { detail: { open: true, inset: 280 } })),
+  )
   await expect(page.locator('[data-mobile-nav]')).not.toBeVisible()
   await expect(page.locator('[data-shortcut-bar]')).toBeVisible()
-  await page.evaluate(() => window.dispatchEvent(new CustomEvent('mobile-keyboard-change', { detail: { open: false, inset: 0 } })))
+  await page.evaluate(() =>
+    window.dispatchEvent(new CustomEvent('mobile-keyboard-change', { detail: { open: false, inset: 0 } })),
+  )
   await expect(page.locator('[data-mobile-nav]')).toBeVisible()
   await expect(page.locator('[data-shortcut-bar]')).not.toBeVisible()
   await context.close()
 })
-test('mobile terminal stays within viewport and renders active session output', async ({ browser, baseURL, request }) => {
-  const name = `tmuxgo_mobile_${Date.now()}`
+test('mobile terminal stays within viewport and renders active session output', async ({
+  browser,
+  baseURL,
+  request,
+}) => {
   const context = await browser.newContext({
     baseURL,
     viewport: { width: 390, height: 844 },
     isMobile: true,
     hasTouch: true,
-    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+    userAgent:
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
   })
   const page = await context.newPage()
-  const session = await ensureSession(request, name)
+  const { session } = await ensureTestWindow(request, 'mobile-terminal')
   await openSession(page, session, { expectHeader: false })
   const marker = `__TMUXGO_MOBILE_${Date.now()}__`
-  await page.waitForFunction(() => {
-    const t = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
-    return !!t?.cols && !!t?.rows
-  }, undefined, { timeout: 15000 })
+  await page.waitForFunction(
+    () => {
+      const t = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
+      return !!t?.cols && !!t?.rows
+    },
+    undefined,
+    { timeout: 15000 },
+  )
   await page.evaluate((value) => {
     window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data: `printf '${value}\\n'\r` } }))
   }, marker)
-  await page.waitForFunction((value) => {
-    const t = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
-    const buffer = t?.buffer?.active
-    if (!buffer || !t?.rows) return false
-    const start = Math.max(0, Number(buffer.baseY) || 0)
-    const end = Math.min(buffer.length, start + t.rows)
-    for (let i = start; i < end; i += 1) {
-      if (buffer.getLine(i)?.translateToString(true).includes(value)) return true
-    }
-    return false
-  }, marker, { timeout: 15000 })
+  await page.waitForFunction(
+    (value) => {
+      const t = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
+      const buffer = t?.buffer?.active
+      if (!buffer || !t?.rows) return false
+      const start = Math.max(0, Number(buffer.baseY) || 0)
+      const end = Math.min(buffer.length, start + t.rows)
+      for (let i = start; i < end; i += 1) {
+        if (buffer.getLine(i)?.translateToString(true).includes(value)) return true
+      }
+      return false
+    },
+    marker,
+    { timeout: 15000 },
+  )
   const metrics = await page.evaluate(() => {
     const term = document.querySelector('[data-terminal]') as HTMLElement | null
     const xterm = term?.querySelector('.xterm') as HTMLElement | null
