@@ -1,6 +1,7 @@
 import '../../test-env.js'
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { gunzipSync } from 'zlib'
 import { schedulePeerWindowSync, setWindowSizeQueryForTest, StreamSession } from './stream-session.js'
 import { RESYNC_HYSTERESIS_MS, RESYNC_RESET_SEQ } from './stream-config.js'
 import { streamPerfMetrics } from '../perf-metrics.js'
@@ -328,4 +329,56 @@ test('peer reconcile demotes peers to the window size and restores the surviving
   } finally {
     setWindowSizeQueryForTest(null)
   }
+})
+
+test('compressed and tiny frames keep FIFO across concurrent flushes', async () => {
+  const frames: Buffer[] = []
+  const socket = {
+    readyState: 1,
+    bufferedAmount: 0,
+    send(data: string | Buffer) {
+      frames.push(typeof data === 'string' ? Buffer.from(data, 'utf8') : Buffer.from(data))
+    },
+    close() {},
+  }
+  const session = new StreamSession(socket, null)
+  session.attachedSessionName = 'dev'
+  session.attachedHostId = 'local'
+  session.attachedCols = 80
+  session.attachedRows = 24
+  session.ptyProcess = { pid: 0, resize() {}, write() {}, kill() {}, onData() {}, onExit() {} } as any
+  session.binaryOutputEnabled = true
+  session.compressOutputEnabled = true
+
+  const chunk = (tag: string) => `${FRAME_BEGIN}payload-${tag} ${'abcdefghij'.repeat(60)} end-${tag}`
+  // 两段可压缩大帧、一段低于阈值的小帧、再来一段大帧：同轮连续 flush 不等待。
+  // 小帧虽不压缩，也必须挂到发送链尾，不得超车越过在途的压缩帧
+  session.outputBuffer = chunk('1')
+  const p1 = session.flushOutput()
+  session.outputBuffer = chunk('2')
+  const p2 = session.flushOutput()
+  session.outputBuffer = 'tiny-frame'
+  const p3 = session.flushOutput()
+  session.outputBuffer = chunk('3')
+  const p4 = session.flushOutput()
+  await Promise.all([p1, p2, p3, p4])
+
+  const contents = frames.map((frame) => {
+    const typeCode = frame[3]
+    const hostLen = frame.readUInt16LE(4)
+    const sessionLen = frame.readUInt16LE(6)
+    const payload = frame.subarray(12 + hostLen + sessionLen)
+    if (typeCode === 3 || typeCode === 4) return gunzipSync(payload).toString('utf8')
+    return payload.toString('utf8')
+  })
+  assert.equal(contents.length, 4)
+  assert.ok(contents[0].includes('payload-1'))
+  assert.ok(contents[1].includes('payload-2'))
+  assert.equal(contents[2], 'tiny-frame')
+  assert.ok(contents[3].includes('payload-3'))
+  // 前三段可压缩负载必须真的走了 gzip 帧
+  assert.equal(frames[0][3], 3)
+  assert.equal(frames[1][3], 3)
+  assert.equal(frames[3][3], 3)
+  session.cleanup()
 })
