@@ -22,6 +22,8 @@ export const RESYNC_RESET_SEQ = '\u001b[0m\u001b[4l\u001b[?6l\u001b[r\u001b(B\u0
 export const STREAM_COMPRESS_ENABLED = process.env.TMUXGO_STREAM_COMPRESS !== '0'
 export const STREAM_COMPRESS_THRESHOLD = Math.max(0, Number(process.env.TMUXGO_STREAM_COMPRESS_THRESHOLD || 256) || 256)
 export const STREAM_CELL_ENABLED = process.env.TMUXGO_STREAM_CELL === '1'
+// 会话级 PTY 输出 fan-out：默认开；TMUXGO_STREAM_FANOUT=0 回退每连接一条 PTY
+export const STREAM_FANOUT_ENABLED = process.env.TMUXGO_STREAM_FANOUT !== '0'
 export const CELL_DIRTY_RATIO_SNAPSHOT = 0.55
 export const DEDUP_CHUNK_THRESHOLD = Math.max(0, Number(process.env.TMUXGO_DEDUP_CHUNK_THRESHOLD || 512) || 512)
 export const FOREGROUND_FLUSH_INTERVAL = Math.max(1, Number(process.env.TMUXGO_FLUSH_INTERVAL || 4) || 4)
