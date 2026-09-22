@@ -16,6 +16,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: false
+          fetch-depth: 0
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -23,7 +24,24 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec eslint . --quiet
+      # 输出 warning 统计并对照基线：只允许下降，不引入 --max-warnings 0 硬门槛
+      - run: pnpm run check:eslint-warnings
       - run: pnpm run typecheck
+      # 只校验本 PR/push 变更文件的格式，不做全仓格式化；与本地 lint-staged 互补
+      - name: Check formatting of changed files
+        run: |
+          if [ -n "${{ github.base_ref }}" ]; then
+            range="origin/${{ github.base_ref }}...HEAD"
+          else
+            range="${{ github.event.before }}..HEAD"
+          fi
+          files=$(git diff --name-only --diff-filter=ACMR $range)
+          if [ -z "$files" ]; then
+            echo "No changed files to check"
+          else
+            echo "$files"
+            echo "$files" | tr '\n' '\0' | xargs -0 pnpm exec prettier --check --ignore-unknown
+          fi
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -40,6 +58,7 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # pnpm test 收集 tests/ 与 apps/gateway/src 全部用例（含鉴权/分享/终端流），失败即阻断
       - run: pnpm test
       - run: pnpm run test:frontend
   build:
@@ -55,6 +74,24 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - run: sudo apt-get update && sudo apt-get install -y tmux ripgrep
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      # 轻量冒烟：登录 + 终端附着 + 基本输入；重量级 fluency/multiclient 仍走下方手动 e2e
+      - run: pnpm run test:smoke
+        env:
+          CI: '1'
   e2e:
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch'

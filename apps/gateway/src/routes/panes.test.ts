@@ -1,22 +1,20 @@
 import '../test-env.js'
 import assert from 'node:assert/strict'
-import { execFile } from 'node:child_process'
 import { realpath } from 'node:fs/promises'
-import { promisify } from 'node:util'
 import Fastify from 'fastify'
 import test from 'node:test'
+import { execTmuxFile, killTestTmuxSession, TEST_TMUX_SESSION } from '../test-tmux.js'
 import { paneRoutes } from './panes.js'
 
-const execFileAsync = promisify(execFile)
-
+// 真实 tmux 用例：只操作隔离 server 上的 test session（test-tmux.ts 约定）
 test('returns the current path for a local pane', async () => {
-  const sessionName = `tmuxgo-pane-cwd-${process.pid}-${Date.now()}`
+  const sessionName = TEST_TMUX_SESSION
   const cwd = process.cwd()
   const fastify = Fastify()
   await fastify.register(paneRoutes)
   try {
-    await execFileAsync('tmux', ['new-session', '-d', '-s', sessionName, '-c', cwd])
-    const { stdout } = await execFileAsync('tmux', ['list-panes', '-t', sessionName, '-F', '#{pane_id}'])
+    await execTmuxFile('tmux', ['new-session', '-d', '-s', sessionName, '-c', cwd])
+    const { stdout } = await execTmuxFile('tmux', ['list-panes', '-t', sessionName, '-F', '#{pane_id}'])
     const paneId = `local:${stdout.trim().split('\n')[0]}`
     const response = await fastify.inject({ method: 'POST', url: '/panes/cwd', payload: { paneId } })
     assert.equal(response.statusCode, 200)
@@ -25,7 +23,7 @@ test('returns the current path for a local pane', async () => {
     assert.equal(body.cwd, await realpath(cwd).catch(() => cwd))
   } finally {
     await fastify.close()
-    await execFileAsync('tmux', ['kill-session', '-t', sessionName]).catch(() => {})
+    await killTestTmuxSession()
   }
 })
 test('rejects malformed and unknown pane ids without throwing', async () => {
