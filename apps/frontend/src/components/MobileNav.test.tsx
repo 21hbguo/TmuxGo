@@ -1,5 +1,5 @@
 import React from 'react'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MobileNav } from './MobileNav'
 import { useConsoleStore } from '@/stores/useConsoleStore'
@@ -54,5 +54,39 @@ describe('MobileNav', () => {
     renderNav({ onOpenDesktop })
     fireEvent.click(screen.getByRole('button', { name: 'Desktop' }))
     expect(onOpenDesktop).toHaveBeenCalledTimes(1)
+  })
+
+  it('always labels the settings entry as Settings while status stays separate', () => {
+    renderNav()
+    const settingsButton = screen.getByRole('button', { name: 'Settings' })
+    // 设置按钮不再用延迟数字/省略号代替名称
+    expect(settingsButton.textContent).toContain('Settings')
+    expect(settingsButton.textContent).not.toContain('ms')
+    // 连接状态独立展示在底栏状态行
+    expect(screen.getByText('12/30ms')).toBeTruthy()
+    act(() => {
+      useConsoleStore.setState({
+        connection: { status: 'disconnected', latency: 0, lastPing: '' },
+      } as any)
+    })
+    expect(screen.getByText('Off')).toBeTruthy()
+  })
+
+  it('marks every open entry with aria-current and the active style', () => {
+    const { container } = renderNav({
+      sessionsOpen: true,
+      filesOpen: true,
+      gitOpen: true,
+      settingsOpen: true,
+    })
+    for (const name of ['Sessions', 'Files', 'Git', 'Settings']) {
+      const button = screen.getByRole('button', { name })
+      expect(button.getAttribute('aria-current')).toBe('page')
+      expect(button.className).toContain('tmuxgo-mobile-nav-button--active')
+    }
+    const inactive = screen.getByRole('button', { name: 'Desktop' })
+    expect(inactive.getAttribute('aria-current')).toBeNull()
+    expect(inactive.className).not.toContain('tmuxgo-mobile-nav-button--active')
+    expect(container.querySelectorAll('[aria-current="page"]')).toHaveLength(4)
   })
 })
