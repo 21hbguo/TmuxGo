@@ -52,6 +52,8 @@ export class StreamSession {
   attachedSessionName: string | null = null
   attachedHostId = 'local'
   attachedExclusive = false
+  // 被动旁观附着（后台/失焦页）：丢弃一切会话级写操作，见 input/queueScroll
+  attachedPassive = false
   attachedCols = 0
   attachedRows = 0
   outputBuffer = ''
@@ -395,7 +397,8 @@ export class StreamSession {
   queueScroll(sessionName: string, hostId: string, lines: number) {
     if (!sessionName || !lines) return
     assertSessionAllowed(sessionName)
-    if (hostId !== this.attachedHostId) return
+    // copy-mode 滚动是 pane 全局状态，被动 client 滚动会改所有旁观者的视图
+    if (this.attachedPassive || hostId !== this.attachedHostId) return
     recordStreamMetric('paneScrollRequests')
     const next = (this.scrollBuffers.get(sessionName) || 0) + lines
     this.scrollBuffers.set(sessionName, Math.max(-SCROLL_MAX_LINES * 4, Math.min(SCROLL_MAX_LINES * 4, next)))
@@ -405,7 +408,7 @@ export class StreamSession {
   cancelCopyMode(sessionName: string, hostId: string) {
     if (!sessionName) return
     assertSessionAllowed(sessionName)
-    if (hostId !== this.attachedHostId) return
+    if (this.attachedPassive || hostId !== this.attachedHostId) return
     recordStreamMetric('copyModeCancelRequests')
     void execTmux(this.attachedHostId, ['send-keys', '-t', sessionName, '-X', 'cancel']).catch(() => {})
   }
@@ -489,6 +492,7 @@ export class StreamSession {
     this.attachedSessionName = null
     this.attachedHostId = 'local'
     this.attachedExclusive = false
+    this.attachedPassive = false
     this.attachedCols = 0
     this.attachedRows = 0
     if (this.outputTimer) {
@@ -526,7 +530,14 @@ export class StreamSession {
     assertSessionAllowed(sessionNameRaw)
     return { hostId, sessionName: sessionNameRaw }
   }
-  async attach(attach: { hostId?: unknown; sessionName?: unknown; exclusive?: boolean; cols?: number; rows?: number }) {
+  async attach(attach: {
+    hostId?: unknown
+    sessionName?: unknown
+    exclusive?: boolean
+    passive?: boolean
+    cols?: number
+    rows?: number
+  }) {
     recordStreamMetric('attachRequests')
     const attachStartedAt = Date.now()
     console.log('Attach requested', {
@@ -543,12 +554,15 @@ export class StreamSession {
     const requestedCols = attach.cols || 80
     const requestedRows = attach.rows || 24
     const exclusive = this.shareTicket ? false : !!attach.exclusive
+    const passive = this.shareTicket ? true : !!attach.passive
     if (
       this.ptyProcess &&
       this.attachedSessionName === sessionName &&
       this.attachedExclusive === exclusive &&
       this.attachedHostId === hostId
     ) {
+      // 同 pty 复用：passive 只影响写操作准入，原位更新即可，无需重建附着
+      this.attachedPassive = passive
       this.attachVisibleOutputObserved = false
       if (
         exclusive &&
@@ -582,6 +596,7 @@ export class StreamSession {
     this.attachedSessionName = sessionName
     this.attachedHostId = hostId
     this.attachedExclusive = exclusive
+    this.attachedPassive = passive
     this.attachedCols = cols
     this.attachedRows = rows
     if (this.cellOutputEnabled) this.cell.reset(cols, rows, this.cellOutputEnabled && this.binaryOutputEnabled)
@@ -630,6 +645,7 @@ export class StreamSession {
       this.attachedSessionName = null
       this.attachedHostId = 'local'
       this.attachedExclusive = false
+      this.attachedPassive = false
       this.attachedCols = 0
       this.attachedRows = 0
       this.pendingResizeAck = null
@@ -695,7 +711,9 @@ export class StreamSession {
   }
   input(data: string) {
     recordStreamMetric('inputMessages')
-    if (this.ptyProcess) this.ptyProcess.write(data)
+    // 被动附着不得写 pty：键鼠输入（含滚轮→copy-mode）经 client stdin 直达
+    // tmux server，是全局副作用，后台页必须完全无写能力
+    if (this.ptyProcess && !this.attachedPassive) this.ptyProcess.write(data)
   }
   markAgentSeen(paneId: string) {
     if (!paneId.startsWith(this.attachedHostId + ':')) return

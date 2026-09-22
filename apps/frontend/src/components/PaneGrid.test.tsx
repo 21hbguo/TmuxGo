@@ -183,6 +183,8 @@ describe('PaneGrid', () => {
   beforeEach(() => {
     sendMock.mockClear()
     subscribeOutputMock.mockClear()
+    // jsdom 无焦点概念（hasFocus 恒 false），补 stub 让页面处于激活态
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true)
     socketState.isConnected = false
     socketState.isSocketReady = true
     terminalProps.current = null
@@ -257,6 +259,45 @@ describe('PaneGrid', () => {
       }),
     )
     expect(useConsoleStore.getState().activeSessionId).toBe('session-dev1')
+  })
+  it('attaches as a passive shared observer while the page is unfocused', async () => {
+    vi.mocked(document.hasFocus).mockReturnValue(false)
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    await waitFor(() =>
+      expect(sendMock).toHaveBeenCalledWith({
+        type: 'attach',
+        hostId: 'local',
+        sessionName: 'dev1',
+        cols: 120,
+        rows: 36,
+        exclusive: false,
+        passive: true,
+      }),
+    )
+  })
+  it('re-attaches exclusive after the page regains focus', async () => {
+    const hasFocus = vi.mocked(document.hasFocus)
+    hasFocus.mockReturnValue(false)
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    await waitFor(() =>
+      expect(sendMock).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'attach', sessionName: 'dev1', exclusive: false, passive: true }),
+      ),
+    )
+    sendMock.mockClear()
+    hasFocus.mockReturnValue(true)
+    act(() => {
+      window.dispatchEvent(new Event('focus'))
+    })
+    await waitFor(() =>
+      expect(sendMock).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'attach', sessionName: 'dev1', exclusive: true }),
+      ),
+    )
+    const lastAttach = sendMock.mock.calls.filter(([m]) => m?.type === 'attach').at(-1)?.[0]
+    expect(lastAttach).not.toHaveProperty('passive')
   })
   it('switches to next session immediately on switch', async () => {
     render(<PaneGrid />)

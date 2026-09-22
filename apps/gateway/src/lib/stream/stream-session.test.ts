@@ -193,6 +193,32 @@ test('hysteresis filters a one-shot burst that drains before the recheck', async
   session.cleanup()
 })
 
+test('passive attach drops input, scroll and copy-mode cancel', () => {
+  const { session } = createSession()
+  const written: string[] = []
+  session.ptyProcess = {
+    pid: 0,
+    resize() {},
+    write(d: string) {
+      written.push(d)
+    },
+    kill() {},
+    onData() {},
+    onExit() {},
+  } as any
+  session.attachedPassive = true
+  session.input('x')
+  session.queueScroll('dev', 'local', 3)
+  session.cancelCopyMode('dev', 'local')
+  assert.equal(written.length, 0)
+  assert.equal(session.scrollBuffers.size, 0)
+  // 恢复非被动后写入恢复
+  session.attachedPassive = false
+  session.input('x')
+  assert.equal(written.length, 1)
+  session.cleanup()
+})
+
 test('queueOutput over-limit also goes through hysteresis instead of instant resync', async () => {
   const { session, sent } = createSession()
   ;(session as any).redrawAttachedClient = async () => {}

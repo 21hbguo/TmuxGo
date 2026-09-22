@@ -89,7 +89,40 @@ export function PaneGrid({
   const { data: windowsData = [] } = useWindows(activeHostId || '', sessionId || '')
   const { data: snapshotData } = useSessionSnapshot(activeHostId || '', sessionId || '')
   const { getWindows, setWindows } = useWindowQueryState(activeHostId || '', sessionId || '')
-  const exclusive = shared ? false : !isMobile || preferences.attachExclusive
+  const [pageActive, setPageActive] = useState(
+    () => typeof document === 'undefined' || (document.visibilityState !== 'hidden' && document.hasFocus()),
+  )
+  useEffect(() => {
+    let blurTimer: ReturnType<typeof setTimeout> | null = null
+    const sync = () => setPageActive(document.visibilityState !== 'hidden' && document.hasFocus())
+    // blur 防抖：地址栏/DevTools 等瞬时失焦不触发降级，250ms 未回归才认定失活
+    const onBlur = () => {
+      if (blurTimer) clearTimeout(blurTimer)
+      blurTimer = setTimeout(sync, 250)
+    }
+    const onFocus = () => {
+      if (blurTimer) {
+        clearTimeout(blurTimer)
+        blurTimer = null
+      }
+      sync()
+    }
+    window.addEventListener('focus', onFocus)
+    window.addEventListener('blur', onBlur)
+    document.addEventListener('visibilitychange', sync)
+    return () => {
+      window.removeEventListener('focus', onFocus)
+      window.removeEventListener('blur', onBlur)
+      document.removeEventListener('visibilitychange', sync)
+      if (blurTimer) clearTimeout(blurTimer)
+    }
+  }, [])
+  // 非激活页降级为被动旁观附着：独占 client 的 attach/resize 按 tmux
+  // window-size latest 抢占会话尺寸、reflow 激活页画面；后台键鼠输入
+  // （滚轮→copy-mode 是 pane 全局状态）也会越权影响他人——passive 让网关
+  // 丢弃 input/pane_scroll/copy_mode_cancel，配合 ignore-size 彻底交出控制权
+  const exclusive = shared ? false : preferences.attachExclusive && pageActive
+  const attachPassive = !pageActive
   const attachedRef = useRef<string | null>(null)
   const sizeRef = useRef<{ cols: number; rows: number } | null>(null)
   const terminalReadyRef = useRef(false)
@@ -119,7 +152,7 @@ export function PaneGrid({
   const resizeAckStaleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const inputFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const sentResizeRef = useRef<{ cols: number; rows: number } | null>(null)
-  const lastExclusiveRef = useRef(exclusive)
+  const lastAttachModeRef = useRef(`${exclusive}:${attachPassive}`)
   const lastExternalInputRef = useRef<{ data: string; at: number } | null>(null)
   const attachStartedAtRef = useRef(0)
   const lastOutputAtRef = useRef('')
@@ -249,6 +282,9 @@ export function PaneGrid({
   const sendResizeNow = useCallback(
     (size: { cols: number; rows: number }) => {
       if (!size.cols || !size.rows) return false
+      // 后台页不得向远端推尺寸：降级切换窗口期内仍持有独占 pty，一笔迟到的
+      // resize 会抢会话尺寸；调用方收到 false 走 localOnly 本地确认收尾
+      if (document.visibilityState === 'hidden') return false
       const prev = sentResizeRef.current
       if (prev && prev.cols === size.cols && prev.rows === size.rows) return false
       const sent = send({ type: 'resize', hostId: activeHostId || 'local', cols: size.cols, rows: size.rows })
@@ -501,7 +537,7 @@ export function PaneGrid({
   }, [flushInputQueue])
   const attachNow = useCallback(() => {
     if (!targetSessionName || !isSocketReady || !terminalReadyRef.current) return
-    const attachKey = `${activeHostId || 'local'}:${targetSessionName}:${exclusive ? 'exclusive' : 'shared'}`
+    const attachKey = `${activeHostId || 'local'}:${targetSessionName}:${exclusive ? 'exclusive' : 'shared'}:${attachPassive ? 'passive' : 'active'}`
     if (attachInFlightRef.current === attachKey) return
     const size = sizeRef.current
     clearAttachTimers()
@@ -516,6 +552,7 @@ export function PaneGrid({
       cols: size?.cols || 120,
       rows: size?.rows || 36,
       exclusive,
+      ...(attachPassive ? { passive: true } : {}),
     })
     if (!sent) {
       attachInFlightRef.current = null
@@ -532,7 +569,16 @@ export function PaneGrid({
         attachNow()
       }, ATTACH_RETRY_DELAY)
     }, ATTACH_TIMEOUT)
-  }, [activeHostId, clearAttachTimers, exclusive, isSocketReady, send, targetSessionName, updateConnectionState])
+  }, [
+    activeHostId,
+    attachPassive,
+    clearAttachTimers,
+    exclusive,
+    isSocketReady,
+    send,
+    targetSessionName,
+    updateConnectionState,
+  ])
 
   useEffect(() => {
     if (!sessionId) {
@@ -605,8 +651,9 @@ export function PaneGrid({
     return subscribeStreamEvent(STREAM_EVENT.reconnected, handleReconnect)
   }, [attachNow, clearAttachTimers, clearInputFlushTimer, clearContinuityTimer, clearRemoteResizeState])
   useEffect(() => {
-    if (lastExclusiveRef.current === exclusive) return
-    lastExclusiveRef.current = exclusive
+    const mode = `${exclusive}:${attachPassive}`
+    if (lastAttachModeRef.current === mode) return
+    lastAttachModeRef.current = mode
     if (!targetSessionName || !terminalReadyRef.current) return
     clearAttachTimers()
     clearRemoteResizeState()
@@ -615,7 +662,7 @@ export function PaneGrid({
     isSessionAttachedRef.current = false
     sentResizeRef.current = null
     attachNow()
-  }, [exclusive, targetSessionName, attachNow, clearAttachTimers, clearRemoteResizeState])
+  }, [exclusive, attachPassive, targetSessionName, attachNow, clearAttachTimers, clearRemoteResizeState])
   useEffect(() => {
     if (!isSocketReady) return
     const profile = isMobile ? 'mobile' : document.visibilityState === 'visible' ? 'foreground' : 'background'
