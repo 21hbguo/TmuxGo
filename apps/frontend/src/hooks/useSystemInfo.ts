@@ -64,11 +64,20 @@ export function useSystemInfo(hostId = 'local', interval = 2000, enabled = true,
         active = false
       }
     }
+    // 慢于轮询周期的响应会与下一次 setInterval 触发重叠：在途时直接跳过，
+    // 保证同一主机最多一个请求并发，避免旧响应乱序覆盖新数据
+    let inflight = false
     const poll = async () => {
+      if (inflight) return
+      inflight = true
       try {
         const data = await api.system.info(hostId)
         if (active) setInfo(data)
-      } catch {}
+      } catch {
+        // 轮询失败静默忽略，等下一周期重试；inflight 仍需复位
+      } finally {
+        inflight = false
+      }
     }
     poll()
     timerRef.current = setInterval(poll, interval)

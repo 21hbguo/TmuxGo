@@ -71,21 +71,22 @@ export const en = {
   'sidebar.splitV': 'Split V',
   'sidebar.newSession': '+ New Session',
   'sidebar.newAction': 'New',
-  'sidebar.deleteSession': 'Delete session',
+  'sidebar.deleteSession': 'End session',
   'sidebar.renameSession': 'Rename session',
   'sidebar.reorderSession': 'Reorder session',
-  'sidebar.deleteConfirm': 'Delete session "{name}"? This cannot be undone.',
-  'sidebar.deleteTitle': 'Delete session',
-  'sidebar.confirmDelete': 'Delete',
-  'sidebar.batchDeleteAction': 'Batch Delete',
+  'sidebar.deleteConfirm': 'End session "{name}"? Its programs will be terminated and cannot be restored.',
+  'sidebar.deleteTitle': 'End session',
+  'sidebar.confirmDelete': 'End session',
+  'sidebar.batchDeleteAction': 'Batch End',
   'sidebar.batchCancelAction': 'Cancel Batch',
-  'sidebar.batchDeleteSelected': 'Delete Selected',
+  'sidebar.batchDeleteSelected': 'End Selected',
   'sidebar.batchSelectAll': 'Select All',
   'sidebar.batchClearAll': 'Clear',
   'sidebar.batchSelectedCount': '{count} selected',
-  'sidebar.batchDeleteTitle': 'Delete Sessions',
-  'sidebar.batchDeleteConfirm': 'Delete {count} selected sessions? This cannot be undone.',
-  'sidebar.batchDeleteSuccess': 'Deleted {count} sessions',
+  'sidebar.batchDeleteTitle': 'End Sessions',
+  'sidebar.batchDeleteConfirm':
+    'End {count} selected sessions? Their programs will be terminated and cannot be restored.',
+  'sidebar.batchDeleteSuccess': 'Ended {count} sessions',
   'sidebar.windows': '{count} windows',
   'hostSwitcher.label': 'Host',
 
@@ -576,7 +577,19 @@ export const en = {
 
   // PaneGrid
   'grid.noWindows': 'No windows open',
+  'grid.addHost': 'Add host',
+  'grid.createSession': 'New session',
+  'grid.selectRecent': 'Select recent session',
   'grid.selectSession': 'Select a session from the sidebar',
+  'grid.control.owned': 'Writable · local control',
+  'grid.control.spectating': 'Spectating · control is elsewhere',
+  'grid.control.inactive': 'Spectating · page inactive',
+  'grid.control.attaching': 'Attaching terminal…',
+  'grid.control.readonly': 'Read-only share',
+  'grid.control.takeover': 'Take over',
+  'grid.input.pending': 'Pending input queued',
+  'grid.input.retry': 'Retry now',
+  'grid.input.clear': 'Clear pending input',
 
   // TerminalSearch
   'terminalSearch.placeholder': 'Search...',
@@ -741,6 +754,8 @@ export const en = {
   'file.favoritesHint': 'Favorite directories will appear here for quick access from Workspace or Home.',
   'file.favoriteDirs': 'Favorite Directories',
   'file.noResults': 'No results',
+  'file.loadFailed': 'Failed to load directory',
+  'file.hostOffline': 'Host offline; will refresh when it recovers',
   'file.tooManyResults': 'Too many results, showing first {count}',
   'file.insertPath': 'Insert path to terminal',
   'file.openEditor': 'Open in editor',
@@ -822,6 +837,9 @@ export const en = {
   'file.mobileViewSource': 'Source',
   'file.mobileViewRendered': 'Preview',
   'file.followActivePath': 'Follow terminal cwd',
+  'file.followSuspended': 'Following paused',
+  'file.followManual': 'Manual browsing',
+  'file.followResume': 'Resume following',
   'file.followActivePathHint': 'Follow the active terminal working directory',
 
   // PasteConfirmDialog
@@ -891,6 +909,7 @@ export const en = {
   'editor.saving': 'Saving...',
   'editor.save': 'Save',
   'editor.saved': 'Saved',
+  'editor.saveFailedKept': 'Save failed; changes are kept',
   'editor.loading': 'Loading {name}...',
   'editor.binaryNotEditable': 'Binary files are not editable here.',
   'editor.largePreviewOnly': 'Large files open in preview only for now.',
@@ -948,6 +967,7 @@ export const en = {
 
   // TerminalPane
   'terminal.dropUpload': 'Drop files to upload',
+  'terminal.viewingHistory': 'Viewing history · Back to live output',
   'terminal.linkOpenBlocked': 'Browser blocked the new window. Allow pop-ups and try again.',
   'terminal.dock.bottom': 'Bottom',
   'terminal.dock.left': 'Left',
@@ -967,7 +987,7 @@ export const en = {
 
   // Session CRUD
   'session.created': 'Session {name} created',
-  'session.deleted': 'Session {name} deleted',
+  'session.deleted': 'Session {name} ended',
   'session.renamed': 'Session {from} renamed to {to}',
   'session.requestFailed': 'Request failed',
   'session.loadFailed': 'Failed to load sessions',
@@ -1028,6 +1048,9 @@ export const en = {
   'nav.files': 'Files',
   'nav.git': 'Git',
   'nav.off': 'Off',
+  'nav.more': 'More',
+  'nav.compactBar': 'Compact bar',
+  'nav.fullBar': 'Full bar',
 
   // FilePanel extra
   'file.inserted': 'Inserted {name}',

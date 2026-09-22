@@ -26,50 +26,58 @@ vi.mock('@/lib/editor-open', () => ({
   OPEN_EDITOR_LOCATION_EVENT: 'tmuxgo-open-editor-location',
   openFileInEditor: (...args: any[]) => openFileInEditorMock(...args),
 }))
-vi.mock('@/lib/dynamic', () => ({
-  default: (loader: any) =>
-    loader.toString().includes('mod.DiffEditor')
-      ? (props: any) => {
+vi.mock('@/lib/dynamic', async () => {
+  // CsvTable 也走 dynamic()：返回真实组件，其余 monaco loader 维持原有替身
+  const { CsvTable } = await import('./CsvTable')
+  const MonacoStub = ({ value, onChange, onMount }: any) => {
+    const mountedRef = React.useRef(false)
+    React.useEffect(() => {
+      if (mountedRef.current) return
+      mountedRef.current = true
+      onMount?.({
+        getScrollTop,
+        setScrollTop,
+        getScrollLeft,
+        setScrollLeft,
+        onDidChangeCursorPosition: (handler: (event: any) => void) => {
+          monacoCursorHandlerRef.current = handler
+          return { dispose: vi.fn() }
+        },
+        onMouseDown: (handler: (event: any) => void) => {
+          monacoMouseDownRef.current = handler
+          return { dispose: vi.fn() }
+        },
+        getAction: vi.fn(() => ({ run: vi.fn() })),
+        getPosition: vi.fn(() => ({ lineNumber: 1, column: 1 })),
+        setPosition: editorInstanceMocks.setPosition,
+        revealLineInCenter: editorInstanceMocks.revealLineInCenter,
+        focus: editorInstanceMocks.focus,
+      })
+    }, [onMount])
+    return React.createElement('textarea', {
+      'aria-label': 'editor',
+      value,
+      onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => onChange?.(event.target.value),
+      onDrop: (event: React.DragEvent<HTMLTextAreaElement>) => {
+        if (event.defaultPrevented) return
+        const text = event.dataTransfer?.getData('text/plain') || ''
+        if (text) onChange?.(`${value}${text}`)
+      },
+    })
+  }
+  return {
+    default: (loader: any) => {
+      const src = loader.toString()
+      if (src.includes('mod.DiffEditor'))
+        return (props: any) => {
           diffPropsRef.current.push(props)
           return React.createElement('div', { 'data-testid': 'diff-editor' })
         }
-      : ({ value, onChange, onMount }: any) => {
-          const mountedRef = React.useRef(false)
-          React.useEffect(() => {
-            if (mountedRef.current) return
-            mountedRef.current = true
-            onMount?.({
-              getScrollTop,
-              setScrollTop,
-              getScrollLeft,
-              setScrollLeft,
-              onDidChangeCursorPosition: (handler: (event: any) => void) => {
-                monacoCursorHandlerRef.current = handler
-                return { dispose: vi.fn() }
-              },
-              onMouseDown: (handler: (event: any) => void) => {
-                monacoMouseDownRef.current = handler
-                return { dispose: vi.fn() }
-              },
-              getAction: vi.fn(() => ({ run: vi.fn() })),
-              getPosition: vi.fn(() => ({ lineNumber: 1, column: 1 })),
-              setPosition: editorInstanceMocks.setPosition,
-              revealLineInCenter: editorInstanceMocks.revealLineInCenter,
-              focus: editorInstanceMocks.focus,
-            })
-          }, [onMount])
-          return React.createElement('textarea', {
-            'aria-label': 'editor',
-            value,
-            onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => onChange?.(event.target.value),
-            onDrop: (event: React.DragEvent<HTMLTextAreaElement>) => {
-              if (event.defaultPrevented) return
-              const text = event.dataTransfer?.getData('text/plain') || ''
-              if (text) onChange?.(`${value}${text}`)
-            },
-          })
-        },
-}))
+      if (src.includes('CsvTable')) return (props: any) => React.createElement(CsvTable, props)
+      return MonacoStub
+    },
+  }
+})
 vi.mock('@monaco-editor/react', () => ({
   default: () => null,
   DiffEditor: () => null,
@@ -95,6 +103,9 @@ vi.mock('@/i18n', () => ({
       if (key === 'editor.saving') return 'Saving'
       if (key === 'common.confirm') return 'Confirm'
       if (key === 'common.cancel') return 'Cancel'
+      if (key === 'common.retry') return 'Retry'
+      if (key === 'common.close') return 'Close'
+      if (key === 'editor.saveFailedKept') return 'Save failed; changes are kept'
       return key
     },
   }),
@@ -324,6 +335,21 @@ describe('EditorWorkbench', () => {
     })
   }
 
+  it('shows in-place retry after save failure while keeping dirty content', () => {
+    const onSaveEditor = vi.fn(async () => {})
+    useConsoleStore.setState({
+      openEditors: [{ ...editor1, content: 'const value=2', dirty: true, saveError: 'network down' }],
+    } as any)
+    renderWorkbench({ onSaveEditor })
+    expect(screen.getByText(/Save failed; changes are kept/)).toBeTruthy()
+    expect(screen.getByText(/network down/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(onSaveEditor).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    expect(screen.queryByText(/Save failed; changes are kept/)).toBeNull()
+    expect(useConsoleStore.getState().openEditors[0]?.saveError).toBeUndefined()
+    expect(useConsoleStore.getState().openEditors[0]?.dirty).toBe(true)
+  })
   it('closes the active editor on ctrl+w', () => {
     renderWorkbench()
     fireEvent.keyDown(window, { key: 'w', ctrlKey: true })
