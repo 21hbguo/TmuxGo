@@ -328,7 +328,10 @@ export class StreamSession {
       // （DECSTR 清模式/滚动区/SGR，ED 清屏保留滚动历史），再由 tmux
       // refresh-client 的真实重绘按普通 output 流入——手拼 pane 快照缺
       // 边框/跨行 SGR 延续/光标模式，不能冒充整屏快照
-      if (!this.sendTerminalOutput('output_resync', RESYNC_RESET_SEQ, sessionName, hostId)) {
+      // cell 模式禁止带 ESC[2J 的整屏清屏：后续 cell snapshot 在 DEC 2026
+      // 同步块内原地重画，先清屏会造成拥塞恢复时的肉眼闪烁
+      const resyncBoundary = this.cellOutputEnabled ? RESYNC_RESET_SEQ.replace('\u001b[2J', '') : RESYNC_RESET_SEQ
+      if (!this.sendTerminalOutput('output_resync', resyncBoundary, sessionName, hostId)) {
         this.scheduleDeferredFlush()
         return
       }

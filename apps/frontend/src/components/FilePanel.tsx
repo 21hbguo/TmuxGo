@@ -510,6 +510,7 @@ export function FilePanel({
   const [selectedPreviewLine, setSelectedPreviewLine] = useState(1)
   const [query, setQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
+  const [listPageLimit, setListPageLimit] = useState<number | undefined>(undefined)
   const [searchMode, setSearchMode] = useState<SearchMode>('name')
   const [fileTypeFilter, setFileTypeFilter] = useState<FileTypeFilter>('all')
   const [fileSort, setFileSort] = useState<FileSort>(readFileSort)
@@ -609,8 +610,17 @@ export function FilePanel({
     return favoriteDirectories.find((item) => item.rootId === parsed.rootId && item.path === parsed.path) || null
   }, [favoriteDirectories, selectedRootId])
   const listQueryPath = joinRelativePath(activeRootBasePath, currentPath)
+  useEffect(() => {
+    setListPageLimit(undefined)
+  }, [listQueryPath, activeRootId, activeRootBasePath])
   const previewQueryPath = joinRelativePath(activeRootBasePath, selectedPath)
-  const { data: rawListData, isLoading: listLoading } = useFileList(fileHostId, activeRootId, listQueryPath, true)
+  const { data: rawListData, isLoading: listLoading } = useFileList(
+    fileHostId,
+    activeRootId,
+    listQueryPath,
+    true,
+    listPageLimit,
+  )
   const { data: rawPreview } = useFilePreview(fileHostId, activeRootId, previewQueryPath, selectedPreviewLine)
   const searchBasePath = joinRelativePath(activeRootBasePath, currentPath)
   const { data: rawSearchResults = [], isFetching: searchLoading } = useFileSearch(
@@ -1595,6 +1605,9 @@ export function FilePanel({
       message: result.unavailable ? t('file.relativePathCopiedInApp') : t('file.relativePathCopied'),
     })
   }
+  const loadMoreList = useCallback(() => {
+    setListPageLimit((prev) => (prev ?? 1500) + 1500)
+  }, [])
   const refreshFiles = useCallback(() => {
     setDirectoryCache(new Map())
     setDirectoryStatusState(new Map())
@@ -2826,6 +2839,20 @@ export function FilePanel({
               {!listLoading && !searchLoading && !visibleItems.length && (
                 <div className="p-3 text-xs text-text-3">
                   {showSearchResults ? t('file.noResults') : t('file.emptyDir')}
+                </div>
+              )}
+              {!listLoading && !showSearchResults && listData?.truncated && (
+                <div className="border-t border-[var(--line)] px-3 py-2">
+                  <button
+                    type="button"
+                    onClick={loadMoreList}
+                    className="w-full rounded-apple px-2 py-1.5 text-left text-meta text-text-3 hover:bg-bg-2 hover:text-text-1"
+                  >
+                    {t('file.loadMore', {
+                      shown: listData.items.length,
+                      total: listData.totalCount ?? listData.items.length,
+                    })}
+                  </button>
                 </div>
               )}
               {showSearchResults && rawSearchResults.length > SEARCH_RESULT_LIMIT && (

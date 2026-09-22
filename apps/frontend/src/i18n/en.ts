@@ -765,6 +765,7 @@ export const en = {
   'file.markedCopy': '{name} copied — Ctrl+V to paste',
   'file.markedCut': '{name} cut — Ctrl+V to move',
   'file.refresh': 'Refresh',
+  'file.loadMore': 'Show more ({shown}/{total})',
   'file.transferFailed': 'File operation failed',
   'file.transferFailedMany': '{count} items failed',
   'file.trash': 'Trash',

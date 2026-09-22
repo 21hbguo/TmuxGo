@@ -13,7 +13,7 @@ import {
   decodeCellSnapshot,
   decodeCellSnapshotV2,
 } from '@/lib/terminal-grid/decode-cell'
-import { diffToAnsi, snapshotToAnsi } from '@/lib/terminal-grid/apply-cell'
+import { applyCellToXterm, diffToAnsi, snapshotToAnsi } from '@/lib/terminal-grid/apply-cell'
 import { emitStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import {
   netStatsFlushPending,
@@ -71,7 +71,15 @@ const wsState: WSState = {
   listenersReady: false,
   cleanupListeners: null,
 }
-type OutputMessage = { data: string; sessionName?: string | null; hostId?: string | null; resync?: boolean }
+type OutputMessage = {
+  data: string
+  sessionName?: string | null
+  hostId?: string | null
+  resync?: boolean
+  cell?:
+    | { kind: 'snapshot'; snapshot: import('@/lib/terminal-grid/decode-cell').CellSnapshot }
+    | { kind: 'diff'; diff: import('@/lib/terminal-grid/decode-cell').CellDiff }
+}
 const outputListeners = new Map<string, Set<(message: OutputMessage) => void>>()
 let cellLastSeq = 0
 let mobileInteractiveProfileTimer: ReturnType<typeof setTimeout> | null = null
@@ -284,7 +292,7 @@ export function useWebSocket() {
           try {
             trackedSend(
               ws,
-              JSON.stringify({ type: 'stream_caps', binaryOutput: true, compressOutput: 'gzip', cellOutput: false }),
+              JSON.stringify({ type: 'stream_caps', binaryOutput: true, compressOutput: 'gzip', cellOutput: true }),
             )
           } catch {}
           sendPing()
@@ -321,6 +329,7 @@ export function useWebSocket() {
                   data: ansi,
                   sessionName: decoded.sessionName,
                   hostId: decoded.hostId,
+                  cell: { kind: 'snapshot', snapshot: snap },
                 })
                 return
               }
@@ -347,6 +356,7 @@ export function useWebSocket() {
                   data: ansi,
                   sessionName: decoded.sessionName,
                   hostId: decoded.hostId,
+                  cell: { kind: 'diff', diff },
                 })
                 return
               }
