@@ -7,7 +7,13 @@ import { agentMonitor } from '../agent-monitor.js'
 import { markAgentPaneSeen } from '../agent-state.js'
 import { assertSessionAllowed, prepareSessionAttach } from '../tmux-policy.js'
 import { parseSessionRef } from '../tmux-target.js'
-import { encodeStreamCellBinary, encodeStreamOutputBinary } from '../stream-binary.js'
+import {
+  encodeStreamCellBinary,
+  encodeStreamCellBinaryAsync,
+  encodeStreamOutputBinary,
+  encodeStreamOutputBinaryAsync,
+  shouldMaybeGzip,
+} from '../stream-binary.js'
 import { shareLinkStore, type ShareTicket } from '../share-links.js'
 import { StreamCellEncoder } from './stream-cell.js'
 import { applyScroll, getSessionWindowSize, refreshAttachedClient } from './stream-tmux.js'
@@ -163,22 +169,68 @@ export class StreamSession {
   scrollBuffers = new Map<string, number>()
   scrollRunning = new Set<string>()
   sanitizeTerminalOutput = createTerminalOutputSanitizer()
+  // 同一 WebSocket 的帧 FIFO 发送链：gzip 走 zlib 线程池异步完成，期间到达
+  // 的帧（无需压缩的小帧、控制消息、resync 后的 output）必须挂到链尾排队，
+  // 否则会超车造成帧序错乱。链空闲且任务同步完成时直接返回同步结果，
+  // 不为统一 async 而白白引入微任务延迟。
+  private sendChainTail: Promise<void> = Promise.resolve()
+  private sendChainDepth = 0
+  private enqueueFrame(task: () => boolean | Promise<boolean>): boolean | Promise<boolean> {
+    if (this.sendChainDepth === 0) {
+      let result: boolean | Promise<boolean>
+      try {
+        result = task()
+      } catch {
+        return false
+      }
+      // 同步完成（无需压缩的快路径）：零延迟返回
+      if (typeof result === 'boolean') return result
+      // 异步任务已启动：成为链头，后续帧只能排它后面
+      this.sendChainDepth = 1
+      const head = result.then(
+        (ok) => ok,
+        () => false,
+      )
+      this.sendChainTail = head.then(() => {
+        this.sendChainDepth--
+      })
+      return head
+    }
+    this.sendChainDepth++
+    const next = this.sendChainTail.then(async () => {
+      try {
+        return await task()
+      } catch {
+        return false
+      }
+    })
+    this.sendChainTail = next.then(() => {
+      this.sendChainDepth--
+    })
+    return next
+  }
   constructor(
     private socket: StreamSocketLike,
     private shareTicket: ShareTicket | null,
   ) {
     this.syncOutputProfile('foreground')
   }
-  send(data: any) {
-    if (this.socket.readyState !== 1) return false
-    try {
-      this.getSocketBufferedBytes()
-      this.socket.send(JSON.stringify(data))
-      this.getSocketBufferedBytes()
-      return true
-    } catch {
-      return false
-    }
+  send(data: any): boolean | Promise<boolean> {
+    // 任务内校验 attachSeq：cleanup/新 attach 后旧 epoch 在途帧作废，
+    // 不得把上一轮的输出/控制消息写进新一轮会话
+    const seq = this.attachSeq
+    return this.enqueueFrame(() => {
+      if (seq !== this.attachSeq) return false
+      if (this.socket.readyState !== 1) return false
+      try {
+        this.getSocketBufferedBytes()
+        this.socket.send(JSON.stringify(data))
+        this.getSocketBufferedBytes()
+        return true
+      } catch {
+        return false
+      }
+    })
   }
   getSocketBufferedBytes() {
     const buffered = Math.max(0, Number(this.socket.bufferedAmount) || 0)
@@ -201,69 +253,159 @@ export class StreamSession {
     recordStreamMetric('sanitizeChars', chunk.length)
     return this.sanitizeTerminalOutput(chunk)
   }
-  sendTerminalOutput(type: 'output' | 'output_resync', data: string, sessionName: string, hostId: string) {
+  sendTerminalOutput(
+    type: 'output' | 'output_resync',
+    data: string,
+    sessionName: string,
+    hostId: string,
+  ): boolean | Promise<boolean> {
     if (this.shareTicket && !shareLinkStore.isTicketActive(this.shareTicket)) {
       this.socket.close(1008, 'Share link is unavailable')
       return false
     }
     if (this.socket.readyState !== 1) return false
-    try {
-      this.getSocketBufferedBytes()
-      if (this.binaryOutputEnabled) {
-        const rawLen = Buffer.byteLength(data || '', 'utf8')
-        const frame = encodeStreamOutputBinary(type, hostId, sessionName, data, {
+    const seq = this.attachSeq
+    if (!this.binaryOutputEnabled) {
+      return this.enqueueFrame(() => {
+        if (seq !== this.attachSeq || this.socket.readyState !== 1) return false
+        try {
+          this.getSocketBufferedBytes()
+          this.socket.send(JSON.stringify({ type, data, sessionName, hostId }))
+          recordStreamMetric('outputBytes', Buffer.byteLength(data || '', 'utf8'))
+          this.getSocketBufferedBytes()
+          return true
+        } catch {
+          return false
+        }
+      })
+    }
+    const rawLen = Buffer.byteLength(data || '', 'utf8')
+    const force = type === 'output_resync'
+    // 阈值判断同步完成（resync 无视阈值强制尝试），只有真需要压缩才进线程池
+    const tryCompress = shouldMaybeGzip(rawLen, this.compressOutputEnabled, STREAM_COMPRESS_THRESHOLD, force)
+    if (!tryCompress) {
+      // 小帧/未启用压缩：同步编码 + 发送链快路径（链空闲即刻发出）
+      return this.enqueueFrame(() => {
+        if (seq !== this.attachSeq || this.socket.readyState !== 1) return false
+        try {
+          this.getSocketBufferedBytes()
+          const frame = encodeStreamOutputBinary(type, hostId, sessionName, data, {
+            compress: this.compressOutputEnabled,
+            threshold: STREAM_COMPRESS_THRESHOLD,
+          })
+          this.socket.send(frame)
+          recordStreamMetric('outputBytes', frame.length)
+          this.getSocketBufferedBytes()
+          return true
+        } catch {
+          return false
+        }
+      })
+    }
+    // 需要压缩：zlib 异步执行不堵事件循环；经发送链保证与前后帧的 FIFO
+    return this.enqueueFrame(async () => {
+      if (seq !== this.attachSeq || this.socket.readyState !== 1) return false
+      try {
+        this.getSocketBufferedBytes()
+        const { frame, gzipFailed } = await encodeStreamOutputBinaryAsync(type, hostId, sessionName, data, {
           compress: this.compressOutputEnabled,
           threshold: STREAM_COMPRESS_THRESHOLD,
         })
+        // gzip 失败：encode 内已回退明文，此处只记 metric，不断连不丢帧
+        if (gzipFailed) recordStreamMetric('compressFailures')
         const typeCode = frame[3]
         if (typeCode === 3 || typeCode === 4) {
           recordStreamMetric('compressFrames')
           recordStreamMetric('compressBytesIn', rawLen)
           recordStreamMetric('compressBytesOut', frame.length - 12)
         }
+        // 压缩期间连接可能已关闭：写前复查，避免向关闭的 socket 写入
+        if (this.socket.readyState !== 1) return false
         this.socket.send(frame)
         recordStreamMetric('outputBytes', frame.length)
-      } else {
-        this.socket.send(JSON.stringify({ type, data, sessionName, hostId }))
-        recordStreamMetric('outputBytes', Buffer.byteLength(data || '', 'utf8'))
+        this.getSocketBufferedBytes()
+        return true
+      } catch {
+        return false
       }
-      this.getSocketBufferedBytes()
-      return true
-    } catch {
-      return false
-    }
+    })
   }
-  sendCellFrame(type: 'cell_snapshot_v2' | 'cell_diff_v2', payload: Buffer, sessionName: string, hostId: string) {
+  sendCellFrame(
+    type: 'cell_snapshot_v2' | 'cell_diff_v2',
+    payload: Buffer,
+    sessionName: string,
+    hostId: string,
+  ): boolean | Promise<boolean> {
     if (this.socket.readyState !== 1 || !this.binaryOutputEnabled || !this.cellOutputEnabled) return false
-    try {
-      this.getSocketBufferedBytes()
-      const useGzip = this.compressOutputEnabled && type === 'cell_snapshot_v2'
-      const frame = encodeStreamCellBinary(type, hostId, sessionName, payload, {
-        compress: useGzip,
-        threshold: STREAM_COMPRESS_THRESHOLD,
+    const seq = this.attachSeq
+    const useGzip = this.compressOutputEnabled && type === 'cell_snapshot_v2'
+    const isSnapshot = type === 'cell_snapshot_v2'
+    const tryCompress = shouldMaybeGzip(payload.length, useGzip, isSnapshot ? 0 : STREAM_COMPRESS_THRESHOLD)
+    if (!tryCompress) {
+      return this.enqueueFrame(() => {
+        if (seq !== this.attachSeq || this.socket.readyState !== 1) return false
+        try {
+          this.getSocketBufferedBytes()
+          const frame = encodeStreamCellBinary(type, hostId, sessionName, payload, {
+            compress: useGzip,
+            threshold: STREAM_COMPRESS_THRESHOLD,
+          })
+          const typeCode = frame[3]
+          if (typeCode === 6 || typeCode === 8) {
+            recordStreamMetric('compressFrames')
+            recordStreamMetric('compressBytesIn', payload.length)
+            recordStreamMetric('compressBytesOut', frame.length - 12)
+          }
+          this.socket.send(frame)
+          recordStreamMetric('outputBytes', frame.length)
+          this.getSocketBufferedBytes()
+          return true
+        } catch {
+          return false
+        }
       })
-      const typeCode = frame[3]
-      if (typeCode === 6 || typeCode === 8) {
-        recordStreamMetric('compressFrames')
-        recordStreamMetric('compressBytesIn', payload.length)
-        recordStreamMetric('compressBytesOut', frame.length - 12)
-      }
-      this.socket.send(frame)
-      recordStreamMetric('outputBytes', frame.length)
-      this.getSocketBufferedBytes()
-      return true
-    } catch {
-      return false
     }
+    return this.enqueueFrame(async () => {
+      if (seq !== this.attachSeq || this.socket.readyState !== 1) return false
+      try {
+        this.getSocketBufferedBytes()
+        const { frame, gzipFailed } = await encodeStreamCellBinaryAsync(type, hostId, sessionName, payload, {
+          compress: useGzip,
+          threshold: STREAM_COMPRESS_THRESHOLD,
+        })
+        if (gzipFailed) recordStreamMetric('compressFailures')
+        const typeCode = frame[3]
+        if (typeCode === 6 || typeCode === 8) {
+          recordStreamMetric('compressFrames')
+          recordStreamMetric('compressBytesIn', payload.length)
+          recordStreamMetric('compressBytesOut', frame.length - 12)
+        }
+        if (this.socket.readyState !== 1) return false
+        this.socket.send(frame)
+        recordStreamMetric('outputBytes', frame.length)
+        this.getSocketBufferedBytes()
+        return true
+      } catch {
+        return false
+      }
+    })
   }
-  feedCellAndMaybeSend(kind: 'output' | 'output_resync', data: string, sessionName: string, hostId: string) {
+  feedCellAndMaybeSend(
+    kind: 'output' | 'output_resync',
+    data: string,
+    sessionName: string,
+    hostId: string,
+  ): boolean | Promise<boolean> {
     const result = this.cell.feed(kind, data, this.attachedCols, this.attachedRows)
     if (result.kind === 'skip') return true
     if (result.kind === 'fallback') return false
-    if (!this.sendCellFrame(result.type, result.payload, sessionName, hostId)) return false
+    const sent = this.sendCellFrame(result.type, result.payload, sessionName, hostId)
+    if (sent === false) return false
+    // 帧体已在 feed 时编好并进入 FIFO 链：baseSeq 立即前移，后续 diff 以本帧
+    // 为基准——不能等异步发送 resolve 再 markSent，否则两帧间隙 feed 会算错基准
     recordStreamMetric(result.metric)
     this.cell.markSent()
-    return true
+    return sent
   }
   requestLatestFrameResync() {
     if (this.outputResyncPending) {
@@ -328,10 +470,15 @@ export class StreamSession {
       // （DECSTR 清模式/滚动区/SGR，ED 清屏保留滚动历史），再由 tmux
       // refresh-client 的真实重绘按普通 output 流入——手拼 pane 快照缺
       // 边框/跨行 SGR 延续/光标模式，不能冒充整屏快照
-      if (!this.sendTerminalOutput('output_resync', RESYNC_RESET_SEQ, sessionName, hostId)) {
-        this.scheduleDeferredFlush()
+      // 压缩时经发送链异步完成：必须等 resync 帧真正发出再放行后续 output，
+      // 保证「resync → 重绘 output」的帧序
+      const sent = this.sendTerminalOutput('output_resync', RESYNC_RESET_SEQ, sessionName, hostId)
+      const ok = typeof sent === 'boolean' ? sent : await sent
+      if (!ok) {
+        if (current()) this.scheduleDeferredFlush()
         return
       }
+      if (!current()) return
       // 先放行再 refresh：重绘字节走 onData 普通路径，若在 pending 期到达会被丢
       this.outputResyncPending = false
       if (this.cellOutputEnabled) this.cell.reset(this.attachedCols, this.attachedRows, this.binaryOutputEnabled)
@@ -399,7 +546,7 @@ export class StreamSession {
       rows,
     })
   }
-  flushOutput() {
+  flushOutput(): boolean | Promise<boolean> | undefined {
     if (!this.attachedSessionName) return
     if (this.outputResyncPending) {
       if (this.getSocketBufferedBytes() >= SOCKET_BUFFER_HIGH_WATERMARK) this.scheduleDeferredFlush()
@@ -422,18 +569,39 @@ export class StreamSession {
       }
       return
     }
-    let sent = false
-    if (this.cell.active)
-      sent = this.feedCellAndMaybeSend('output', data, this.attachedSessionName, this.attachedHostId)
-    if (!sent) {
-      if (!this.sendTerminalOutput('output', data, this.attachedSessionName, this.attachedHostId)) {
-        this.outputBuffer = data + this.outputBuffer
-        return
-      }
+    const seq = this.attachSeq
+    let sent: boolean | Promise<boolean>
+    if (this.cell.active) {
+      const cellSent = this.feedCellAndMaybeSend('output', data, this.attachedSessionName, this.attachedHostId)
+      // Promise = cell 帧已进发送链（保序在途）；false = 解析回退/发送失败 → 走 ANSI 路径
+      if (cellSent !== false) sent = cellSent
+      else sent = this.sendTerminalOutput('output', data, this.attachedSessionName, this.attachedHostId)
+    } else {
+      sent = this.sendTerminalOutput('output', data, this.attachedSessionName, this.attachedHostId)
     }
-    if (isCompleteFrame) this.lastFrame = data
-    recordStreamMetric('outputFlushes')
-    recordStreamMetric('outputChunks')
+    if (sent === false) {
+      this.outputBuffer = data + this.outputBuffer
+      return false
+    }
+    if (sent === true) {
+      if (isCompleteFrame) this.lastFrame = data
+      recordStreamMetric('outputFlushes')
+      recordStreamMetric('outputChunks')
+      return true
+    }
+    // 异步（压缩）路径：帧已在链上按序发送，resolve 后再记账。
+    // 发送失败仅在同 epoch 时回填 buffer 重试——cleanup/新 attach 后回填
+    // 会把旧一轮 data 污染进新一轮 outputBuffer
+    return sent.then((ok) => {
+      if (!ok) {
+        if (seq === this.attachSeq) this.outputBuffer = data + this.outputBuffer
+        return false
+      }
+      if (isCompleteFrame) this.lastFrame = data
+      recordStreamMetric('outputFlushes')
+      recordStreamMetric('outputChunks')
+      return true
+    })
   }
   completeResizeAck() {
     const pending = this.pendingResizeAck
