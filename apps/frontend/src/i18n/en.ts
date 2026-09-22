@@ -898,6 +898,7 @@ export const en = {
   'editor.saving': 'Saving...',
   'editor.save': 'Save',
   'editor.saved': 'Saved',
+  'editor.saveFailedKept': 'Save failed; changes are kept',
   'editor.loading': 'Loading {name}...',
   'editor.binaryNotEditable': 'Binary files are not editable here.',
   'editor.largePreviewOnly': 'Large files open in preview only for now.',

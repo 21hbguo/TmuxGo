@@ -139,6 +139,7 @@ export function EditorWorkbench({
   const moveEditorToGroup = useConsoleStore((state) => state.moveEditorToGroup)
   const closeEditor = useConsoleStore((state) => state.closeEditor)
   const setEditorContent = useConsoleStore((state) => state.setEditorContent)
+  const setEditorSaveError = useConsoleStore((state) => state.setEditorSaveError)
   const ensureGitHostState = useConsoleStore((state) => state.ensureGitHostState)
   const setGitFollowEditorRepo = useConsoleStore((state) => state.setGitFollowEditorRepo)
   const gitByHost = useConsoleStore((state) => state.gitByHost)
@@ -1302,6 +1303,27 @@ export function EditorWorkbench({
           )}
         </div>
       </div>
+      {activeEditor?.saveError && (
+        <div className="flex items-center gap-2 border-b border-[var(--line)] bg-danger/10 px-3 py-1.5 text-xs text-danger">
+          <span className="min-w-0 flex-1 truncate">
+            {t('editor.saveFailedKept')} · {activeEditor.saveError}
+          </span>
+          <button
+            className="shrink-0 text-accent hover:underline disabled:opacity-40"
+            disabled={activeEditor.saving}
+            onClick={() => void onSaveEditor(activeEditor)}
+          >
+            {t('common.retry')}
+          </button>
+          <button
+            aria-label={t('common.close')}
+            className="shrink-0 text-text-3 hover:text-text-1"
+            onClick={() => setEditorSaveError(activeEditor.id, undefined)}
+          >
+            ×
+          </button>
+        </div>
+      )}
       <div
         className="relative min-h-0 flex-1 bg-bg-0"
         onDragOver={(event) => {

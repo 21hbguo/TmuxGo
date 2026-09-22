@@ -528,6 +528,7 @@ export function FilePanel({
   const [mobileEditSaved, setMobileEditSaved] = useState('')
   const [mobileEditLoading, setMobileEditLoading] = useState(false)
   const [mobileEditSaving, setMobileEditSaving] = useState(false)
+  const [mobileEditError, setMobileEditError] = useState<string | null>(null)
   const [mobileEditConfirm, setMobileEditConfirm] = useState<null | 'enter' | 'exit'>(null)
   const [mobileFileContent, setMobileFileContent] = useState<string | null>(null)
   const [mobileSourceView, setMobileSourceView] = useState(false)
@@ -1536,6 +1537,7 @@ export function FilePanel({
   const saveMobileEditor = async () => {
     if (!selectedPath || mobileEditSaving) return
     setMobileEditSaving(true)
+    setMobileEditError(null)
     try {
       const result = await api.files.saveContent(
         fileHostId,
@@ -1548,7 +1550,9 @@ export function FilePanel({
       pushToast({ type: 'success', message: t('editor.saved') })
       void queryClient.invalidateQueries({ queryKey: ['file-preview', fileHostId, activeRootId] })
     } catch (error) {
-      pushToast({ type: 'error', message: error instanceof Error ? error.message : t('file.mobileEditSaveFailed') })
+      const message = error instanceof Error ? error.message : t('file.mobileEditSaveFailed')
+      setMobileEditError(message)
+      pushToast({ type: 'error', message })
     } finally {
       setMobileEditSaving(false)
     }
@@ -1559,12 +1563,14 @@ export function FilePanel({
       return
     }
     setMobileEditOpen(false)
+    setMobileEditError(null)
   }
   const discardMobileEditor = () => {
     setMobileEditConfirm(null)
     setMobileEditOpen(false)
     setMobileEditContent('')
     setMobileEditSaved('')
+    setMobileEditError(null)
     if (pendingSheetCloseAfterDiscardRef.current) {
       pendingSheetCloseAfterDiscardRef.current = false
       ;(onClose || (() => setFilePanelOpen(false)))()
@@ -2889,21 +2895,44 @@ export function FilePanel({
             mobileView === 'preview' &&
             selectedPath &&
             (mobileEditOpen ? (
-              <div className="flex gap-2 border-t border-[var(--line)] p-3">
-                <button
-                  disabled={mobileEditLoading || mobileEditSaving || !mobileEditDirty}
-                  onClick={() => void saveMobileEditor()}
-                  className="min-w-0 flex-1 rounded-apple bg-accent/10 px-3 py-3 text-sm text-accent active:scale-[0.98] disabled:opacity-40"
-                >
-                  {mobileEditSaving ? t('editor.saving') : t('editor.save')}
-                </button>
-                <button
-                  disabled={mobileEditLoading || mobileEditSaving}
-                  onClick={closeMobileEditor}
-                  className="rounded-apple bg-bg-2 px-3 py-3 text-sm text-text-1 active:scale-[0.98]"
-                >
-                  {t('file.mobileEditExit')}
-                </button>
+              <div className="border-t border-[var(--line)]">
+                {mobileEditError && (
+                  <div className="flex items-center gap-2 bg-danger/10 px-3 py-2 text-xs text-danger">
+                    <span className="min-w-0 flex-1 truncate">
+                      {t('editor.saveFailedKept')} · {mobileEditError}
+                    </span>
+                    <button
+                      className="shrink-0 text-accent disabled:opacity-40"
+                      disabled={mobileEditSaving}
+                      onClick={() => void saveMobileEditor()}
+                    >
+                      {t('common.retry')}
+                    </button>
+                    <button
+                      aria-label={t('common.close')}
+                      className="shrink-0 text-text-3"
+                      onClick={() => setMobileEditError(null)}
+                    >
+                      ×
+                    </button>
+                  </div>
+                )}
+                <div className="flex gap-2 p-3">
+                  <button
+                    disabled={mobileEditLoading || mobileEditSaving || !mobileEditDirty}
+                    onClick={() => void saveMobileEditor()}
+                    className="min-w-0 flex-1 rounded-apple bg-accent/10 px-3 py-3 text-sm text-accent active:scale-[0.98] disabled:opacity-40"
+                  >
+                    {mobileEditSaving ? t('editor.saving') : t('editor.save')}
+                  </button>
+                  <button
+                    disabled={mobileEditLoading || mobileEditSaving}
+                    onClick={closeMobileEditor}
+                    className="rounded-apple bg-bg-2 px-3 py-3 text-sm text-text-1 active:scale-[0.98]"
+                  >
+                    {t('file.mobileEditExit')}
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="flex gap-2 border-t border-[var(--line)] p-3">
