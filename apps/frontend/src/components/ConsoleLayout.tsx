@@ -782,10 +782,16 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
               </div>
             </div>
           )}
-          <div className={keyboardOpen ? 'hidden' : 'h-[calc(48px+env(safe-area-inset-bottom))]'}>
+          <div className={keyboardOpen ? 'hidden' : 'h-[calc(60px+env(safe-area-inset-bottom))]'}>
             <MobileNav
               docked
               gitOpen={mobileGitSheetOpen}
+              sessionsOpen={drawerOpen && drawerType === 'sessions'}
+              windowsOpen={drawerOpen && drawerType === 'windows'}
+              panesOpen={drawerOpen && drawerType === 'panes'}
+              filesOpen={mobileFileSheetOpen}
+              desktopOpen={!!activeDesktop}
+              settingsOpen={showSettings}
               onOpenDrawer={openDrawer}
               onOpenSettings={openSettings}
               onOpenFiles={openMobileFiles}

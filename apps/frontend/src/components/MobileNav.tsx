@@ -11,6 +11,12 @@ interface MobileNavProps {
   onOpenGit: () => void
   onOpenDesktop: () => void
   gitOpen?: boolean
+  sessionsOpen?: boolean
+  windowsOpen?: boolean
+  panesOpen?: boolean
+  filesOpen?: boolean
+  desktopOpen?: boolean
+  settingsOpen?: boolean
   docked?: boolean
 }
 
@@ -47,6 +53,12 @@ export function MobileNav({
   onOpenGit,
   onOpenDesktop,
   gitOpen = false,
+  sessionsOpen = false,
+  windowsOpen = false,
+  panesOpen = false,
+  filesOpen = false,
+  desktopOpen = false,
+  settingsOpen = false,
   docked = false,
 }: MobileNavProps) {
   const connection = useConsoleStore((state) => state.connection)
@@ -60,6 +72,9 @@ export function MobileNav({
   const containerClass = docked
     ? 'tmuxgo-mobile-nav mobile-nav-landscape-hide h-full pb-[env(safe-area-inset-bottom)] transition-transform duration-200'
     : 'tmuxgo-glass tmuxgo-mobile-nav mobile-nav-landscape-hide fixed left-2 right-2 z-40 rounded-apple border pb-[env(safe-area-inset-bottom)] transition-transform duration-200'
+  // 所有入口统一选中反馈（对齐 Git 的 aria-current + 选中样式）
+  const navButtonClass = (active: boolean) =>
+    `tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px transition-all active:scale-95 active:bg-bg-2/50 ${active ? 'tmuxgo-mobile-nav-button--active' : 'text-text-3 active:text-accent'}`
 
   return (
     <div
@@ -67,11 +82,14 @@ export function MobileNav({
       className={containerClass}
       style={docked ? undefined : { bottom: 'var(--mobile-keyboard-inset, 0px)' }}
     >
+      {/* 连接状态独立成一行：不再占用「设置」按钮的文字位 */}
+      <div className="flex h-3 items-center justify-center text-caption leading-none text-text-3">{statusText}</div>
       <div className="grid h-12 grid-cols-7 items-center">
         <button
           aria-label={t('nav.sessions')}
+          aria-current={sessionsOpen ? 'page' : undefined}
           onClick={() => onOpenDrawer('sessions')}
-          className="tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px text-text-3 transition-all active:scale-95 active:bg-bg-2/50 active:text-accent"
+          className={navButtonClass(sessionsOpen)}
         >
           <NavIcon d={icons.sessions} />
           <span className="text-caption leading-none">{t('nav.sessions')}</span>
@@ -79,8 +97,9 @@ export function MobileNav({
 
         <button
           aria-label={t('nav.windows')}
+          aria-current={windowsOpen ? 'page' : undefined}
           onClick={() => onOpenDrawer('windows')}
-          className="tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px text-text-3 transition-all active:scale-95 active:bg-bg-2/50 active:text-accent"
+          className={navButtonClass(windowsOpen)}
         >
           <NavIcon d={icons.windows} />
           <span className="text-caption leading-none">{t('nav.windows')}</span>
@@ -88,8 +107,9 @@ export function MobileNav({
 
         <button
           aria-label={t('nav.panes')}
+          aria-current={panesOpen ? 'page' : undefined}
           onClick={() => onOpenDrawer('panes')}
-          className="tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px text-text-3 transition-all active:scale-95 active:bg-bg-2/50 active:text-accent"
+          className={navButtonClass(panesOpen)}
         >
           <NavIcon d={icons.panes} />
           <span className="text-caption leading-none">{t('nav.panes')}</span>
@@ -97,8 +117,9 @@ export function MobileNav({
 
         <button
           aria-label={t('nav.files')}
+          aria-current={filesOpen ? 'page' : undefined}
           onClick={onOpenFiles}
-          className="tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px text-text-3 transition-all active:scale-95 active:bg-bg-2/50 active:text-accent"
+          className={navButtonClass(filesOpen)}
         >
           <NavIcon d={icons.files} />
           <span className="text-caption leading-none">{t('nav.files')}</span>
@@ -108,7 +129,7 @@ export function MobileNav({
           aria-label={t('nav.git')}
           aria-current={gitOpen ? 'page' : undefined}
           onClick={onOpenGit}
-          className={`tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px transition-all active:scale-95 active:bg-bg-2/50 ${gitOpen ? 'tmuxgo-mobile-nav-button--active' : 'text-text-3 active:text-accent'}`}
+          className={navButtonClass(gitOpen)}
         >
           <FiGitBranch aria-hidden="true" size={18} />
           <span className="text-caption leading-none">{t('nav.git')}</span>
@@ -116,8 +137,9 @@ export function MobileNav({
 
         <button
           aria-label={t('vnc.title')}
+          aria-current={desktopOpen ? 'page' : undefined}
           onClick={onOpenDesktop}
-          className="tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px text-text-3 transition-all active:scale-95 active:bg-bg-2/50 active:text-accent"
+          className={navButtonClass(desktopOpen)}
         >
           <FiMonitor aria-hidden="true" size={18} />
           <span className="text-caption leading-none">{t('vnc.title')}</span>
@@ -125,8 +147,9 @@ export function MobileNav({
 
         <button
           aria-label={t('nav.settings')}
+          aria-current={settingsOpen ? 'page' : undefined}
           onClick={onOpenSettings}
-          className="tmuxgo-mobile-nav-button relative flex flex-col items-center justify-center gap-px text-text-3 transition-all active:scale-95 active:bg-bg-2/50 active:text-accent"
+          className={navButtonClass(settingsOpen)}
         >
           <div className="relative">
             <NavIcon d={icons.settings} />
@@ -134,7 +157,7 @@ export function MobileNav({
               className={`absolute -top-1 -right-1.5 w-2.5 h-2.5 rounded-full ${statusColor} ${isRecovering ? 'animate-pulse' : ''} border border-bg-1`}
             />
           </div>
-          <span className="text-caption leading-none">{statusText}</span>
+          <span className="text-caption leading-none">{t('nav.settings')}</span>
         </button>
       </div>
     </div>
