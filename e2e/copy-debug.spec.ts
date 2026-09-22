@@ -1,10 +1,9 @@
 import { test, expect } from '@playwright/test'
-import { ensureSession, openSession } from './session'
+import { ensureTestWindow, openSession } from './session'
 const clipboardUnavailableText = /(clipboard unavailable|剪贴板不可用)/i
 
 test('copy observability smoke', async ({ page, request }) => {
-  const name = `tmuxgo_copy_debug_${Date.now()}`
-  const session = await ensureSession(request, name)
+  const { session } = await ensureTestWindow(request, 'copy-debug')
   await openSession(page, session)
   await page.evaluate(() => {
     Object.defineProperty(navigator, 'clipboard', {
