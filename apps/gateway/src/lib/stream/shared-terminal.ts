@@ -1,6 +1,6 @@
 import { recordStreamMetric, updateStreamMetric } from '../perf-metrics.js'
 import { createTerminalAttachment } from '../terminal-attachment.js'
-import { createTerminalOutputSanitizer } from '../terminal-output.js'
+import { createTerminalOutputSanitizer, hasSubstantiveTerminalContent } from '../terminal-output.js'
 import type { TerminalProcess } from './stream-config.js'
 
 // 会话级输出 fan-out 枢纽：同一 host+session 只保留一份 tmux attach PTY，
@@ -23,6 +23,8 @@ export class SharedTerminal {
   cols: number
   rows: number
   private sanitize = createTerminalOutputSanitizer()
+  // hub 创建即 attach 边界：首轮 heavy 完整清洗，实质输出确认后回 light 稳态
+  private sanitizeMode: 'light' | 'heavy' = 'heavy'
   dead = false
   constructor(
     readonly key: string,
@@ -63,8 +65,11 @@ export class SharedTerminal {
     if (this.dead) return
     recordStreamMetric('sanitizeCalls')
     recordStreamMetric('sanitizeChars', chunk.length)
-    const filtered = this.sanitize(chunk)
+    const filtered = this.sanitize(chunk, this.sanitizeMode)
     if (!filtered) return
+    if (this.sanitizeMode === 'heavy' && hasSubstantiveTerminalContent(filtered)) {
+      this.sanitizeMode = 'light'
+    }
     for (const sub of this.subscribers) sub.onSharedOutput(filtered)
   }
   private handleExit(exitCode: number) {
