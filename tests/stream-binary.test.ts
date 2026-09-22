@@ -1,9 +1,14 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { randomBytes } from 'node:crypto'
 import { gunzipSync } from 'zlib'
 import {
   encodeStreamOutputBinary,
+  encodeStreamOutputBinaryAsync,
   encodeStreamCellBinary,
+  encodeStreamCellBinaryAsync,
+  maybeGzipAsync,
+  shouldMaybeGzip,
   STREAM_BINARY_TYPE_OUTPUT,
   STREAM_BINARY_TYPE_RESYNC,
   STREAM_BINARY_TYPE_OUTPUT_GZIP,
@@ -172,4 +177,61 @@ test('paste-data rejects invalid frames', () => {
   assert.equal(applyPasteDataFrame(session, Buffer.from('vnc-data x\nyy', 'ascii')), 'invalid')
   assert.equal(applyPasteDataFrame(session, Buffer.from('paste-data h', 'ascii')), 'invalid')
   assert.equal(written.length, 0)
+})
+
+test('async encode roundtrips compressed resync payload', async () => {
+  const data = 'abc def ghi jkl mno pqr '.repeat(200) + '\n'
+  const { frame, gzipFailed } = await encodeStreamOutputBinaryAsync('output_resync', 'local', 'dev', data, {
+    compress: true,
+    threshold: 4096,
+  })
+  assert.equal(gzipFailed, false)
+  const decoded = decodeHeader(frame)
+  assert.equal(decoded.typeCode, STREAM_BINARY_TYPE_RESYNC_GZIP)
+  assert.equal(gunzipSync(decoded.payload).toString('utf8'), data)
+  assert.ok(decoded.payload.length < Buffer.byteLength(data))
+})
+
+test('async encode keeps tiny output plaintext below threshold', async () => {
+  const { frame, gzipFailed } = await encodeStreamOutputBinaryAsync('output', 'local', 'dev', 'tiny', {
+    compress: true,
+    threshold: 4096,
+  })
+  assert.equal(gzipFailed, false)
+  const decoded = decodeHeader(frame)
+  assert.equal(decoded.typeCode, STREAM_BINARY_TYPE_OUTPUT)
+  assert.equal(decoded.payload.toString('utf8'), 'tiny')
+})
+
+test('async gzip falls back to plaintext when compression does not shrink', async () => {
+  // 高熵随机负载 gzip 后不小于明文：按协议回退明文帧，且不算失败
+  const raw = randomBytes(2048)
+  const { payload, gzip, failed } = await maybeGzipAsync(raw, true, 0)
+  assert.equal(failed, false)
+  assert.equal(gzip, false)
+  assert.equal(payload, raw)
+})
+
+test('async cell snapshot encode roundtrips', async () => {
+  const grid = new TerminalGrid(30, 8)
+  const parser = new AnsiParser(grid)
+  parser.feed('hello cell payload '.repeat(40))
+  grid.seq = 1
+  const payload = encodeCellSnapshotV2(grid)
+  const { frame, gzipFailed } = await encodeStreamCellBinaryAsync('cell_snapshot_v2', 'local', 'dev', payload, {
+    compress: true,
+    threshold: 256,
+  })
+  assert.equal(gzipFailed, false)
+  const decoded = decodeHeader(frame)
+  assert.equal(decoded.typeCode, STREAM_BINARY_TYPE_CELL_SNAPSHOT_V2_GZIP)
+  assert.equal(gunzipSync(decoded.payload).compare(payload), 0)
+})
+
+test('shouldMaybeGzip mirrors threshold/force rules', () => {
+  assert.equal(shouldMaybeGzip(100, true, 256, false), false)
+  assert.equal(shouldMaybeGzip(256, true, 256, false), true)
+  assert.equal(shouldMaybeGzip(10, true, 256, true), true)
+  assert.equal(shouldMaybeGzip(10, false, 256, true), false)
+  assert.equal(shouldMaybeGzip(0, true, 256, true), false)
 })
