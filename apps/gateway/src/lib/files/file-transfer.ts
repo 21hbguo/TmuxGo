@@ -25,6 +25,7 @@ import {
   DEFAULT_DOWNLOAD_ARTIFACT_MAX_BYTES,
   DEFAULT_DOWNLOAD_ARTIFACT_MAX_COUNT,
   DEFAULT_DOWNLOAD_ARTIFACT_TTL_MS,
+  DEFAULT_TEMP_UPLOAD_TTL_MS,
   DEFAULT_UPLOAD_DIR,
   DEFAULT_UPLOAD_RATE_LIMIT_KBPS,
   IMAGE_MIME_BY_EXT,
@@ -433,20 +434,40 @@ export async function cleanupExpiredDownloadArtifacts(now = Date.now(), backgrou
     } catch {}
   }
 }
+// upload-staging 是上传中转目录：只有全部文件成功才会逐个 unlink，任务中途
+// 失败/进程重启会残留落盘文件。与 tmp/paste 同一 TTL 语义限时清扫
+export async function cleanupExpiredStagedUploads(now = Date.now()) {
+  const ttlMs = readPositiveIntegerEnv('TMUXGO_TMP_TTL_MS', DEFAULT_TEMP_UPLOAD_TTL_MS)
+  const dir = getUploadStagingDir()
+  let directory
+  try {
+    directory = await opendir(dir)
+  } catch {
+    return
+  }
+  for await (const entry of directory) {
+    const entryPath = path.join(dir, entry.name)
+    try {
+      const info = await stat(entryPath)
+      if (now - info.mtimeMs > ttlMs) await rm(entryPath, { recursive: true, force: true })
+    } catch {}
+  }
+}
 let downloadArtifactCleanupTimer: NodeJS.Timeout | null = null
 let downloadArtifactCleanupManager: TaskManager = taskManager
 export function startDownloadArtifactCleanup(backgroundTasks: TaskManager) {
   downloadArtifactCleanupManager = backgroundTasks
   if (downloadArtifactCleanupTimer) return
-  void cleanupExpiredDownloadArtifacts(Date.now(), downloadArtifactCleanupManager)
+  const runCleanup = () => {
+    void cleanupExpiredDownloadArtifacts(Date.now(), downloadArtifactCleanupManager)
+    void cleanupExpiredStagedUploads()
+  }
+  runCleanup()
   const intervalMs = readPositiveIntegerEnv(
     'TMUXGO_DOWNLOAD_ARTIFACT_CLEANUP_INTERVAL_MS',
     DEFAULT_DOWNLOAD_ARTIFACT_CLEANUP_INTERVAL_MS,
   )
-  downloadArtifactCleanupTimer = setInterval(
-    () => void cleanupExpiredDownloadArtifacts(Date.now(), downloadArtifactCleanupManager),
-    intervalMs,
-  )
+  downloadArtifactCleanupTimer = setInterval(runCleanup, intervalMs)
   downloadArtifactCleanupTimer.unref?.()
 }
 export async function runBackgroundDownloadTask(input: unknown, context: TaskExecutionContext) {
