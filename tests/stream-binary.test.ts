@@ -1,9 +1,14 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { randomBytes } from 'node:crypto'
 import { gunzipSync } from 'zlib'
 import {
   encodeStreamOutputBinary,
+  encodeStreamOutputBinaryAsync,
   encodeStreamCellBinary,
+  encodeStreamCellBinaryAsync,
+  maybeGzipAsync,
+  shouldMaybeGzip,
   STREAM_BINARY_TYPE_OUTPUT,
   STREAM_BINARY_TYPE_RESYNC,
   STREAM_BINARY_TYPE_OUTPUT_GZIP,
@@ -81,7 +86,9 @@ test('ansi parser and cell snapshot roundtrip structure', () => {
   assert.ok(snap.length > 18)
   const frame = encodeStreamCellBinary('cell_snapshot', 'local', 'dev', snap, { compress: true, threshold: 1 })
   const decoded = decodeHeader(frame)
-  assert.ok(decoded.typeCode === STREAM_BINARY_TYPE_CELL_SNAPSHOT || decoded.typeCode === STREAM_BINARY_TYPE_CELL_SNAPSHOT_GZIP)
+  assert.ok(
+    decoded.typeCode === STREAM_BINARY_TYPE_CELL_SNAPSHOT || decoded.typeCode === STREAM_BINARY_TYPE_CELL_SNAPSHOT_GZIP,
+  )
 })
 
 test('cell v2 snapshot preserves grapheme text and width', () => {
@@ -100,7 +107,10 @@ test('cell v2 snapshot preserves grapheme text and width', () => {
   assert.equal(text, 'e\u0301')
   const frame = encodeStreamCellBinary('cell_snapshot_v2', 'local', 'dev', payload, { compress: true, threshold: 1 })
   const decoded = decodeHeader(frame)
-  assert.ok(decoded.typeCode === STREAM_BINARY_TYPE_CELL_SNAPSHOT_V2 || decoded.typeCode === STREAM_BINARY_TYPE_CELL_SNAPSHOT_V2_GZIP)
+  assert.ok(
+    decoded.typeCode === STREAM_BINARY_TYPE_CELL_SNAPSHOT_V2 ||
+      decoded.typeCode === STREAM_BINARY_TYPE_CELL_SNAPSHOT_V2_GZIP,
+  )
 })
 
 test('cell diff encodes changes', () => {
@@ -114,4 +124,114 @@ test('cell diff encodes changes', () => {
   assert.ok(changes.length >= 1)
   const payload = encodeCellDiff(2, 1, grid.cursorX, grid.cursorY, 0, changes)
   assert.ok(payload.length >= 20)
+})
+
+import { applyPasteDataFrame, parsePasteDataFrame } from '../apps/gateway/src/lib/stream/paste-binary.js'
+
+function makePasteSession(overrides: Record<string, unknown> = {}) {
+  const written: string[] = []
+  const session = {
+    attachedHostId: 'local',
+    attachedSessionName: 'dev',
+    attachedPassive: false,
+    ptyProcess: {
+      write(d: string) {
+        written.push(d)
+      },
+    },
+    // Mirrors StreamSession.input passive gate
+    input(d: string) {
+      if (!session.attachedPassive && session.ptyProcess) session.ptyProcess.write(d)
+    },
+    ...overrides,
+  } as any
+  return { session, written }
+}
+
+test('paste-data frame decodes and writes to matching pty', () => {
+  const { session, written } = makePasteSession()
+  const text = 'echo hello\nline2'
+  const frame = Buffer.concat([Buffer.from('paste-data local dev\n', 'ascii'), Buffer.from(text, 'utf8')])
+  const parsed = parsePasteDataFrame(frame)
+  assert.deepEqual(parsed, { hostId: 'local', sessionName: 'dev', data: text })
+  assert.equal(applyPasteDataFrame(session, frame), 'ok')
+  assert.deepEqual(written, [text])
+})
+
+test('paste-data rejects target mismatch', () => {
+  const { session, written } = makePasteSession()
+  const frame = Buffer.from('paste-data local other\nxx', 'ascii')
+  assert.equal(applyPasteDataFrame(session, frame), 'mismatch')
+  assert.equal(written.length, 0)
+})
+
+test('paste-data refuses write when passive attach', () => {
+  const { session, written } = makePasteSession({ attachedPassive: true })
+  const frame = Buffer.from('paste-data local dev\nevil', 'ascii')
+  assert.equal(applyPasteDataFrame(session, frame), 'ok')
+  assert.equal(written.length, 0)
+})
+
+test('paste-data rejects invalid frames', () => {
+  const { session, written } = makePasteSession()
+  assert.equal(applyPasteDataFrame(session, Buffer.from('vnc-data x\nyy', 'ascii')), 'invalid')
+  assert.equal(applyPasteDataFrame(session, Buffer.from('paste-data h', 'ascii')), 'invalid')
+  assert.equal(written.length, 0)
+})
+
+test('async encode roundtrips compressed resync payload', async () => {
+  const data = 'abc def ghi jkl mno pqr '.repeat(200) + '\n'
+  const { frame, gzipFailed } = await encodeStreamOutputBinaryAsync('output_resync', 'local', 'dev', data, {
+    compress: true,
+    threshold: 4096,
+  })
+  assert.equal(gzipFailed, false)
+  const decoded = decodeHeader(frame)
+  assert.equal(decoded.typeCode, STREAM_BINARY_TYPE_RESYNC_GZIP)
+  assert.equal(gunzipSync(decoded.payload).toString('utf8'), data)
+  assert.ok(decoded.payload.length < Buffer.byteLength(data))
+})
+
+test('async encode keeps tiny output plaintext below threshold', async () => {
+  const { frame, gzipFailed } = await encodeStreamOutputBinaryAsync('output', 'local', 'dev', 'tiny', {
+    compress: true,
+    threshold: 4096,
+  })
+  assert.equal(gzipFailed, false)
+  const decoded = decodeHeader(frame)
+  assert.equal(decoded.typeCode, STREAM_BINARY_TYPE_OUTPUT)
+  assert.equal(decoded.payload.toString('utf8'), 'tiny')
+})
+
+test('async gzip falls back to plaintext when compression does not shrink', async () => {
+  // 高熵随机负载 gzip 后不小于明文：按协议回退明文帧，且不算失败
+  const raw = randomBytes(2048)
+  const { payload, gzip, failed } = await maybeGzipAsync(raw, true, 0)
+  assert.equal(failed, false)
+  assert.equal(gzip, false)
+  assert.equal(payload, raw)
+})
+
+test('async cell snapshot encode roundtrips', async () => {
+  const grid = new TerminalGrid(30, 8)
+  const parser = new AnsiParser(grid)
+  parser.feed('hello cell payload '.repeat(40))
+  grid.seq = 1
+  const payload = encodeCellSnapshotV2(grid)
+  const { frame, gzipFailed } = await encodeStreamCellBinaryAsync('cell_snapshot_v2', 'local', 'dev', payload, {
+    compress: true,
+    threshold: 256,
+  })
+  assert.equal(gzipFailed, false)
+  const decoded = decodeHeader(frame)
+  assert.equal(decoded.typeCode, STREAM_BINARY_TYPE_CELL_SNAPSHOT_V2_GZIP)
+  assert.equal(gunzipSync(decoded.payload).compare(payload), 0)
+})
+
+test('shouldMaybeGzip mirrors threshold/force rules', () => {
+  assert.equal(shouldMaybeGzip(100, true, 256, false), false)
+  assert.equal(shouldMaybeGzip(256, true, 256, false), true)
+  assert.equal(shouldMaybeGzip(10, true, 256, true), true)
+  assert.equal(shouldMaybeGzip(10, false, 256, true), false)
+  assert.equal(shouldMaybeGzip(0, true, 256, true), false)
 })

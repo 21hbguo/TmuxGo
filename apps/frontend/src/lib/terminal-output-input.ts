@@ -73,6 +73,8 @@ export function createTerminalOutputInput(options: TerminalOutputInputOptions) {
       return
     }
     // Hold terminal paints while desktop IME is composing so candidate window stays put.
+    // 默认路径（无 hold）不经 writeBuffer，直接 pushOutput 直达 xterm——
+    // 与 gateway 4ms 攒包叠加时二次缓冲会放大输入回显延迟。
     if (pointerSyncActive || selectionHold || (!options.isMobile && options.isDesktopImeComposing())) {
       if (payload.resync) writeBuffer = raw
       else writeBuffer += raw
@@ -148,6 +150,8 @@ export function createTerminalOutputInput(options: TerminalOutputInputOptions) {
     disarmPointerSync,
     clearPointerSync,
     isPointerSyncActive: () => pointerSyncActive,
+    // 测试/诊断：writeBuffer 是否仍有未 flush 内容（默认直写路径应恒为 false）
+    hasWriteBuffered: () => writeBuffer.length > 0,
     consumeAttachOutputFlag: () => {
       const had = outputSinceLastAttach
       outputSinceLastAttach = false
