@@ -1,23 +1,25 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
 import Fastify from 'fastify'
+import { execTmuxFile, killTestTmuxSession, TEST_TMUX_SESSION } from '../apps/gateway/src/test-tmux'
 import { windowRoutes } from '../apps/gateway/src/routes/windows'
 
-const execFileAsync = promisify(execFile)
-
+// 真实 tmux 用例：只操作隔离 server 上的 test session（test-tmux.ts 约定）
 test('window routes return the created window and active pane from the active window', async () => {
-  const sessionName = `tmuxgo-test-${process.pid}-${Date.now()}`
+  const sessionName = TEST_TMUX_SESSION
   const fastify = Fastify()
   await windowRoutes(fastify)
   try {
-    await execFileAsync('tmux', ['new-session', '-d', '-s', sessionName])
-    const { stdout } = await execFileAsync('tmux', ['list-windows', '-t', sessionName, '-F', '#{window_index}'])
+    await execTmuxFile('tmux', ['new-session', '-d', '-s', sessionName])
+    const { stdout } = await execTmuxFile('tmux', ['list-windows', '-t', sessionName, '-F', '#{window_index}'])
     const firstIndex = Number(stdout.trim())
-    await execFileAsync('tmux', ['new-window', '-d', '-t', `${sessionName}:${firstIndex + 2}`, '-n', 'old-last'])
+    await execTmuxFile('tmux', ['new-window', '-d', '-t', `${sessionName}:${firstIndex + 2}`, '-n', 'old-last'])
     const sessionId = `session-local-${sessionName}`
-    const createResponse = await fastify.inject({ method: 'POST', url: `/hosts/local/sessions/${sessionId}/windows`, payload: { name: 'created' } })
+    const createResponse = await fastify.inject({
+      method: 'POST',
+      url: `/hosts/local/sessions/${sessionId}/windows`,
+      payload: { name: 'created' },
+    })
     assert.equal(createResponse.statusCode, 200)
     const created = createResponse.json()
     assert.equal(created.name, 'created')
@@ -30,6 +32,6 @@ test('window routes return the created window and active pane from the active wi
     assert.equal(activePane.windowId, snapshot.activeWindowId)
   } finally {
     await fastify.close()
-    await execFileAsync('tmux', ['kill-session', '-t', sessionName]).catch(() => {})
+    await killTestTmuxSession()
   }
 })
