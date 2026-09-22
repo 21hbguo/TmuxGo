@@ -518,12 +518,9 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
   const toggleFullscreen = () => {
     // 移动端 overlay 本就铺满，view:'full' 是死按钮；统一走横屏全屏（iOS 静默失败可接受）。
     // PC 端对根 section 做真 requestFullscreen：windowed 模式下也只全屏桌面本体，
-    // 不拖外层 overlay；进出全屏不动 RFB 连接
-    if (isMobileLayout) {
-      enterLandscapeFullscreen()
-      return
-    }
+    // 不拖外层 overlay；进出全屏不动 RFB 连接。已全屏时优先退出，移动端才有退出入口
     if (document.fullscreenElement) void document.exitFullscreen()
+    else if (isMobileLayout) enterLandscapeFullscreen()
     else void sectionRef.current?.requestFullscreen?.()
   }
   const sendMobileKey = (keysym: number, code = '') => {
