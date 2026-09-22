@@ -27,6 +27,8 @@ export const streamPerfMetrics = {
   compressFrames: 0,
   compressBytesIn: 0,
   compressBytesOut: 0,
+  // gzip 线程池压缩失败回退明文的次数（不断连不丢帧，仅记账）
+  compressFailures: 0,
   cellSnapshots: 0,
   cellDiffs: 0,
   cellFallbackAnsi: 0,
