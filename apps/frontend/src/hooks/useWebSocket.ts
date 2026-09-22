@@ -6,7 +6,7 @@ import { isMobileDevice } from './useMobileKeyboard'
 import { getWebSocketBase } from '@/lib/runtime-endpoints'
 import { getWebSocketUrl, isAuthEnabled } from '@/lib/auth'
 import { recordMobileDiagnostic } from '@/lib/mobile-diagnostics'
-import { decodeStreamOutputBinary } from '@/lib/stream-binary'
+import { decodeStreamOutputBinary, type StreamRouteMap } from '@/lib/stream-binary'
 import {
   decodeCellDiff,
   decodeCellDiffV2,
@@ -23,8 +23,10 @@ import {
   netStatsRx,
   netStatsTx,
 } from '@/lib/net-stats'
+import { encodePasteBinary, shouldUsePasteBinary } from '@/lib/paste-safety'
 type WSState = {
   ws: WebSocket | null
+  routes: Map<number, { hostId: string; sessionName: string }>
   reconnectTimer: ReturnType<typeof setTimeout> | null
   reconnectCount: number
   isConnecting: boolean
@@ -49,6 +51,7 @@ type WSState = {
 }
 const wsState: WSState = {
   ws: null,
+  routes: new Map(),
   reconnectTimer: null,
   reconnectCount: 0,
   isConnecting: false,
@@ -154,7 +157,16 @@ export function useWebSocket() {
           break
         }
         case 'stream_caps':
+          if (data.compactHeader !== true) wsState.routes.clear()
           break
+        case 'stream_route': {
+          const routeIdx = Number(data.routeIdx)
+          const hostId = typeof data.hostId === 'string' ? data.hostId : ''
+          const sessionName = typeof data.sessionName === 'string' ? data.sessionName : ''
+          if (Number.isInteger(routeIdx) && routeIdx > 0 && hostId && sessionName)
+            wsState.routes.set(routeIdx, { hostId, sessionName })
+          break
+        }
         case 'connected':
           wsState.socketReady = true
           wsState.attached = false
@@ -283,6 +295,8 @@ export function useWebSocket() {
           wsState.closeExpected = false
           wsState.socketReady = true
           wsState.attached = false
+          // 重连后服务端字典从 1 重建，旧 route 映射必须作废
+          wsState.routes.clear()
           wsState.reconnectCount = 0
           reconnectCountRef.current = 0
           wsState.lastPongAt = Date.now()
@@ -292,7 +306,13 @@ export function useWebSocket() {
           try {
             trackedSend(
               ws,
-              JSON.stringify({ type: 'stream_caps', binaryOutput: true, compressOutput: 'gzip', cellOutput: true }),
+              JSON.stringify({
+                type: 'stream_caps',
+                binaryOutput: true,
+                compressOutput: 'gzip',
+                cellOutput: true,
+                compactHeader: true,
+              }),
             )
           } catch {}
           sendPing()
@@ -303,7 +323,7 @@ export function useWebSocket() {
           netStatsRx()
           try {
             if (typeof ArrayBuffer !== 'undefined' && event.data instanceof ArrayBuffer) {
-              const decoded = decodeStreamOutputBinary(event.data)
+              const decoded = decodeStreamOutputBinary(event.data, wsState.routes as StreamRouteMap)
               if (!decoded) return
               if ((decoded.type === 'cell_snapshot' || decoded.type === 'cell_snapshot_v2') && decoded.cellPayload) {
                 const snap = (decoded.type === 'cell_snapshot_v2' ? decodeCellSnapshotV2 : decodeCellSnapshot)(
@@ -518,6 +538,38 @@ export function useWebSocket() {
   const send = useCallback((data: any) => {
     const ws = wsState.ws
     if (ws?.readyState === WebSocket.OPEN) {
+      // Oversized paste: binary paste-data frame to avoid JSON escape bloat.
+      // Small input stays on the JSON type:input path unchanged.
+      if (
+        data?.type === 'input' &&
+        typeof data.data === 'string' &&
+        data.hostId &&
+        data.sessionName &&
+        shouldUsePasteBinary(data.data)
+      ) {
+        const frame = encodePasteBinary(String(data.hostId), String(data.sessionName), data.data)
+        if (typeof document !== 'undefined' && document.visibilityState === 'visible' && isMobileDevice()) {
+          if (!mobileInteractiveProfileActive) {
+            trackedSend(ws, JSON.stringify({ type: 'stream_profile', profile: 'foreground' }))
+            mobileInteractiveProfileActive = true
+            recordMobileDebug('stream-profile-interactive-start')
+          }
+          if (mobileInteractiveProfileTimer) clearTimeout(mobileInteractiveProfileTimer)
+          netStatsTx()
+          ws.send(frame)
+          mobileInteractiveProfileTimer = setTimeout(() => {
+            mobileInteractiveProfileTimer = null
+            mobileInteractiveProfileActive = false
+            if (wsState.ws !== ws || ws.readyState !== WebSocket.OPEN) return
+            trackedSend(ws, JSON.stringify({ type: 'stream_profile', profile: 'mobile' }))
+            recordMobileDebug('stream-profile-interactive-end')
+          }, MOBILE_INTERACTIVE_PROFILE_MS)
+          return true
+        }
+        netStatsTx()
+        ws.send(frame)
+        return true
+      }
       if (
         data?.type === 'input' &&
         typeof document !== 'undefined' &&

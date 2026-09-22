@@ -21,12 +21,17 @@ export const streamPerfMetrics = {
   deferredFlushes: 0,
   socketBufferedBytes: 0,
   activeClients: 0,
+  // 会话级 fan-out：当前存活的 SharedTerminal 数 / attach 复用已有 hub PTY 次数
+  sharedTerminals: 0,
+  sharedPtyReuses: 0,
   activeProfile: 'foreground' as 'foreground' | 'background' | 'mobile',
   activeFlushInterval: 8,
   activeMaxChars: 65536,
   compressFrames: 0,
   compressBytesIn: 0,
   compressBytesOut: 0,
+  // gzip 线程池压缩失败回退明文的次数（不断连不丢帧，仅记账）
+  compressFailures: 0,
   cellSnapshots: 0,
   cellDiffs: 0,
   cellFallbackAnsi: 0,

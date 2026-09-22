@@ -86,6 +86,9 @@ export async function createTerminalAttachment(options: CreateTerminalAttachment
       '-o',
       'ConnectTimeout=8',
       '-o',
+      // 弱网跨主机：请求 SSH 链路压缩（server 不支持时安全回退）
+      'Compression=yes',
+      '-o',
       'ServerAliveInterval=30',
       '-o',
       'ServerAliveCountMax=3',

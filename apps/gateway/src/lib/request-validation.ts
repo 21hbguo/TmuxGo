@@ -121,4 +121,9 @@ export const streamRegisterMessageSchema = z.object({
   type: z.literal('register'),
   version: z.string().min(1).max(128).optional(),
   host: z.object({ id: identifier, name: z.string().min(1).max(120), address: z.string().min(1).max(255) }),
+  caps: z
+    .object({
+      compressTerminalOutput: z.boolean().optional(),
+    })
+    .optional(),
 })

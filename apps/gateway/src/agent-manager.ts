@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+import { decodeAgentOutput } from './lib/agent-terminal-output.js'
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
@@ -28,8 +29,12 @@ export interface AgentStatus {
   disconnectReason: string | null
   reconnectCount: number
 }
+interface AgentCaps {
+  compressTerminalOutput?: boolean
+}
 interface Agent extends AgentStatus {
   socket: AgentSocket
+  caps?: AgentCaps
 }
 interface PendingTmuxRequest {
   agentId: string
@@ -158,13 +163,14 @@ export class AgentManager {
     }
     if (changed) this.persistHistory()
   }
-  register(id: string, name: string, address: string, version: string, socket: AgentSocket) {
+  register(id: string, name: string, address: string, version: string, socket: AgentSocket, caps?: AgentCaps) {
     const previous = this.agents.get(id)
     if (previous?.socket === socket) {
       const current = previous
       current.name = name
       current.address = address
       current.version = version
+      if (caps) current.caps = caps
       current.lastSeenAt = new Date().toISOString()
       this.history.set(id, this.toStatus(current))
       this.persistHistory()
@@ -184,6 +190,7 @@ export class AgentManager {
       name,
       address,
       version,
+      caps,
       online: true,
       connectedAt: timestamp,
       lastSeenAt: timestamp,
@@ -197,6 +204,16 @@ export class AgentManager {
     this.persistHistory()
     console.log(`Agent registered: ${id} (${name})`)
     return this.toStatus(agent)
+  }
+  /** Caps echoed to agent on register (only fields Gateway accepts). */
+  getRegisterCaps(id: string): AgentCaps | undefined {
+    const caps = this.agents.get(id)?.caps
+    if (!caps?.compressTerminalOutput) return undefined
+    return { compressTerminalOutput: true }
+  }
+  agentAcceptsTerminalGzip(id: string, socket: AgentSocket) {
+    const agent = this.agents.get(id)
+    return !!agent && agent.socket === socket && agent.caps?.compressTerminalOutput === true
   }
   unregister(id: string, socket: AgentSocket, reason = 'Disconnected') {
     const agent = this.agents.get(id)
@@ -606,8 +623,12 @@ export class AgentManager {
       if (!state || state.agentId !== id || state.socket !== socket) return false
       if (payload.type === 'terminal-output') {
         if (typeof payload.data !== 'string') return false
-        if (state.dataListener) state.dataListener(payload.data)
-        else state.pendingData.push(payload.data)
+        const encoding = (payload as { encoding?: unknown }).encoding
+        const text = decodeAgentOutput(payload.data, typeof encoding === 'string' ? encoding : undefined)
+        // gzip decode failure: drop frame, keep connection (PROTOCOL.extend.md A.2)
+        if (text === null) return true
+        if (state.dataListener) state.dataListener(text)
+        else state.pendingData.push(text)
       } else {
         this.terminals.delete(payload.attachmentId)
         state.exitCode = typeof payload.exitCode === 'number' ? payload.exitCode : -1
