@@ -1010,4 +1010,45 @@ describe('multi-device exclusive ownership', () => {
       ),
     )
   })
+
+  it('shows spectating state with a takeover entry that re-claims via existing arbitration', async () => {
+    socketState.isConnected = true
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    await waitFor(() => expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'attach' })))
+    act(() => {
+      emitStreamEvent(STREAM_EVENT.attached, { hostId: 'local', sessionName: 'dev1', cols: 120, rows: 36 })
+    })
+    expect(document.querySelector('[data-ownership]')?.getAttribute('data-ownership')).toBe('owned')
+    act(() => {
+      emitStreamEvent(STREAM_EVENT.exclusiveRevoked, { hostId: 'local', sessionName: 'dev1' })
+    })
+    await waitFor(() =>
+      expect(document.querySelector('[data-ownership]')?.getAttribute('data-ownership')).toBe('spectating'),
+    )
+    sendMock.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: 'grid.control.takeover' }))
+    await waitFor(() =>
+      expect(sendMock).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'attach', sessionName: 'dev1', exclusive: true }),
+      ),
+    )
+  })
+
+  it('read-only share shows readonly status and never a takeover entry', () => {
+    render(
+      <PaneGrid
+        sessionId="session-dev1"
+        shared
+        socket={{
+          send: sendMock,
+          isConnected: true,
+          isSocketReady: true,
+          subscribeOutput: subscribeOutputMock,
+        }}
+      />,
+    )
+    expect(document.querySelector('[data-ownership]')?.getAttribute('data-ownership')).toBe('readonly')
+    expect(screen.queryByRole('button', { name: 'grid.control.takeover' })).toBeNull()
+  })
 })

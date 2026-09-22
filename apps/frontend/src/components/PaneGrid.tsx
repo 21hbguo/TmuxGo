@@ -1070,13 +1070,44 @@ export function PaneGrid({
     )
   }
 
+  // 控制权状态条：区分 可输入/旁观/附着中/只读分享——被动旁观时输入会被
+  // 服务端丢弃，若没有提示用户会以为键盘失灵；只读分享绝不显示接管入口
+  const ownershipStatus = shared
+    ? 'readonly'
+    : ownershipLost
+      ? 'spectating'
+      : !isSocketReady || !isConnected || connectionStatus !== 'connected'
+        ? 'attaching'
+        : !pageActive
+          ? 'inactive'
+          : 'owned'
+  const ownershipLabel =
+    ownershipStatus === 'attaching'
+      ? connectionStatus === 'reconnecting'
+        ? t('status.reconnecting')
+        : connectionStatus === 'disconnected'
+          ? t('status.disconnected')
+          : t('grid.control.attaching')
+      : t(`grid.control.${ownershipStatus}`)
   return (
     <div className="tmuxgo-content-surface relative h-full w-full min-h-0 min-w-0 overflow-hidden">
-      {isMobile && connectionStatus !== 'connected' && (
-        <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 px-3 py-1 rounded-full bg-bg-2/95 border border-[var(--line)] text-xs text-text-1">
-          {t(`status.${connectionStatus}`)}
-        </div>
-      )}
+      <div
+        data-ownership={ownershipStatus}
+        className={`absolute top-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 px-3 py-1 rounded-full border text-xs transition-opacity ${
+          ownershipStatus === 'owned'
+            ? 'border-transparent bg-transparent text-text-3/70'
+            : ownershipStatus === 'spectating' || ownershipStatus === 'inactive'
+              ? 'border-[var(--line)] bg-bg-2/95 text-warn'
+              : 'border-[var(--line)] bg-bg-2/95 text-text-1'
+        }`}
+      >
+        {ownershipLabel}
+        {ownershipStatus === 'spectating' && (
+          <button className="text-accent hover:underline" onClick={() => setOwnershipLost(false)}>
+            {t('grid.control.takeover')}
+          </button>
+        )}
+      </div>
       <TerminalPane
         sessionName={renderedSessionName}
         onInput={handleInput}
