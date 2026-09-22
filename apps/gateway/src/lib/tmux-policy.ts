@@ -2,7 +2,12 @@ import { execFile } from 'child_process'
 import { promisify } from 'util'
 
 const execFileAsync = promisify(execFile)
-const allowedSessions = new Set((process.env.TMUX_WEB_ALLOWED_SESSIONS || '').split(',').map((name) => name.trim()).filter(Boolean))
+const allowedSessions = new Set(
+  (process.env.TMUX_WEB_ALLOWED_SESSIONS || '')
+    .split(',')
+    .map((name) => name.trim())
+    .filter(Boolean),
+)
 
 export function isValidSessionName(name: string) {
   return /^[A-Za-z0-9._-]{1,64}$/.test(name)
@@ -14,13 +19,23 @@ export function assertSessionAllowed(sessionName: string) {
 export async function assertTargetAllowed(target: string, expectedSessionName?: string) {
   const sessionName = await getTargetSessionName(target)
   assertSessionAllowed(sessionName)
-  if (expectedSessionName && sessionName !== expectedSessionName) throw new Error('Tmux target does not belong to session')
+  if (expectedSessionName && sessionName !== expectedSessionName)
+    throw new Error('Tmux target does not belong to session')
   return sessionName
 }
-export async function prepareSessionAttach(sessionName: string) {
+type PrepareSessionAttach = (sessionName: string) => Promise<void>
+async function defaultPrepareSessionAttach(sessionName: string) {
   assertSessionAllowed(sessionName)
   await execFileAsync('tmux', ['set-option', '-t', sessionName, 'destroy-unattached', 'off'])
   await execFileAsync('tmux', ['set-option', '-t', sessionName, '-g', 'mouse', 'on'])
+}
+let prepareSessionAttachImpl: PrepareSessionAttach = defaultPrepareSessionAttach
+// 测试缝：单测 attach 路径不触真实 tmux set-option
+export function setPrepareSessionAttachForTest(fn: PrepareSessionAttach | null) {
+  prepareSessionAttachImpl = fn ?? defaultPrepareSessionAttach
+}
+export async function prepareSessionAttach(sessionName: string) {
+  await prepareSessionAttachImpl(sessionName)
 }
 async function getTargetSessionName(target: string) {
   if (!target) throw new Error('Missing tmux target')

@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { getWebSocketBase } from '@/lib/runtime-endpoints'
 import { getWebSocketUrl, isAuthEnabled } from '@/lib/auth'
-import { decodeStreamOutputBinary } from '@/lib/stream-binary'
+import { decodeStreamOutputBinary, type StreamRouteMap } from '@/lib/stream-binary'
 import {
   decodeCellDiff,
   decodeCellDiffV2,
@@ -16,6 +16,7 @@ type OutputListener = (message: OutputMessage) => void
 type SocketOutputMessage = OutputMessage & { type?: string }
 interface ConnectionState {
   key: string
+  routes: Map<number, { hostId: string; sessionName: string }>
   ws: WebSocket | null
   isConnecting: boolean
   socketReady: boolean
@@ -43,6 +44,7 @@ function getKey(hostId: string, sessionId: string) {
 function createConnection(key: string): ConnectionState {
   return {
     key,
+    routes: new Map(),
     ws: null,
     isConnecting: false,
     socketReady: false,
@@ -121,15 +123,26 @@ function connect(connection: ConnectionState) {
         connection.socketReady = true
         connection.reconnectCount = 0
         connection.lastPongAt = Date.now()
+        // 重连后服务端字典从 1 重建，旧 route 映射必须作废
+        connection.routes.clear()
         try {
-          ws.send(JSON.stringify({ type: 'stream_caps', binaryOutput: true, compressOutput: 'gzip', cellOutput: true }))
+          ws.send(
+            JSON.stringify({
+              type: 'stream_caps',
+              binaryOutput: true,
+              compressOutput: 'gzip',
+              // cell 由服务端 TMUXGO_STREAM_CELL 门控；声明 true 才能安全打开
+              cellOutput: true,
+              compactHeader: true,
+            }),
+          )
         } catch {}
         sendPing(connection)
       }
       ws.onmessage = (event) => {
         try {
           if (typeof ArrayBuffer !== 'undefined' && event.data instanceof ArrayBuffer) {
-            const decoded = decodeStreamOutputBinary(event.data)
+            const decoded = decodeStreamOutputBinary(event.data, connection.routes as StreamRouteMap)
             if (!decoded) return
             if ((decoded.type === 'cell_snapshot' || decoded.type === 'cell_snapshot_v2') && decoded.cellPayload) {
               const snap = (decoded.type === 'cell_snapshot_v2' ? decodeCellSnapshotV2 : decodeCellSnapshot)(
@@ -300,7 +313,16 @@ function handleMessage(connection: ConnectionState, data: any) {
       emitStreamEvent(STREAM_EVENT.sessionExit, data)
       break
     case 'stream_caps':
+      if (data.compactHeader !== true) connection.routes.clear()
       break
+    case 'stream_route': {
+      const routeIdx = Number(data.routeIdx)
+      const hostId = typeof data.hostId === 'string' ? data.hostId : ''
+      const sessionName = typeof data.sessionName === 'string' ? data.sessionName : ''
+      if (Number.isInteger(routeIdx) && routeIdx > 0 && hostId && sessionName)
+        connection.routes.set(routeIdx, { hostId, sessionName })
+      break
+    }
     default:
       break
   }
