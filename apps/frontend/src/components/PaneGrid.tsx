@@ -129,6 +129,9 @@ export function PaneGrid({
   // 被其它端抢走 session 独占所有权时降级为旁观，直到本页再次获得焦点
   // （pageActive 上升沿）才重新 claim exclusive——避免双端 pageActive 互抢
   const [ownershipLost, setOwnershipLost] = useState(false)
+  // 「接管」进行中标记：完成条件是收到真实 attached 事件（handleAttached 清除），
+  // 点击按钮本身不算接管完成；被 revoke 拒绝回落旁观时恢复可重试
+  const [takeoverPending, setTakeoverPending] = useState(false)
   // 失焦只降 passive（禁写），保持 exclusive 尺寸/渲染：
   // 若失焦就交出 exclusive，会走 shared 重附着并拆掉 height:100%，终端高度立刻变矮，
   // 且要刷新才能恢复。仅 ownership 被抢时才真正交出 exclusive。
@@ -580,7 +583,9 @@ export function PaneGrid({
     clearInputFlushTimer()
     inputQueueRef.current = []
     setPendingInputCount(0)
-  }, [clearInputFlushTimer])
+    // 只给轻量反馈，不回显待发内容（可能含密码）
+    pushToast({ type: 'info', message: t('grid.input.cleared') })
+  }, [clearInputFlushTimer, pushToast, t])
   const attachNow = useCallback(() => {
     if (!targetSessionName || !isSocketReady || !terminalReadyRef.current) return
     const attachKey = `${activeHostId || 'local'}:${targetSessionName}:${exclusive ? 'exclusive' : 'shared'}:${attachPassive ? 'passive' : 'active'}`
@@ -737,6 +742,7 @@ export function PaneGrid({
     if (ownershipSessionRef.current === targetSessionName) return
     ownershipSessionRef.current = targetSessionName
     setOwnershipLost(false)
+    setTakeoverPending(false)
   }, [targetSessionName, activeHostId])
   useEffect(() => {
     const handleExclusiveRevoked = (detail: any = {}) => {
@@ -744,6 +750,7 @@ export function PaneGrid({
       if ((detail.hostId || 'local') !== (activeHostId || 'local')) return
       if (detail.sessionName && targetSessionName && detail.sessionName !== targetSessionName) return
       setOwnershipLost(true)
+      setTakeoverPending(false)
     }
     return subscribeStreamEvent(STREAM_EVENT.exclusiveRevoked, handleExclusiveRevoked)
   }, [activeHostId, targetSessionName])
@@ -766,6 +773,7 @@ export function PaneGrid({
       attachInFlightRef.current = null
       attachedRef.current = targetSessionName
       isSessionAttachedRef.current = true
+      setTakeoverPending(false)
       if (pendingSessionIdRef.current && pendingSessionNameRef.current === detail.sessionName) {
         setVisibleSessionId(pendingSessionIdRef.current)
         pendingSessionIdRef.current = null
@@ -1137,23 +1145,41 @@ export function PaneGrid({
   // 链路中断或存在待发输入时在状态条内给出可见提示与明确动作；
   // 「网络恢复」不等于「会话可输入」——可输入仍由 ownershipStatus=owned 表达
   const linkInterrupted = !isConnected || connectionStatus === 'reconnecting' || connectionStatus === 'disconnected'
+  // 就绪态无可行动项时整条收起（不再常驻遮挡终端顶部）；旁观/附着中/断连/
+  // 待发输入/接管请求中才展开为可行动条。max-w+flex-wrap 让 320px 窄屏下
+  // 按钮不被裁掉、可换行
+  const statusCollapsed = ownershipStatus === 'owned' && pendingInputCount === 0 && !takeoverPending
   return (
     <div className="tmuxgo-content-surface relative h-full w-full min-h-0 min-w-0 overflow-hidden">
       <div
         data-ownership={ownershipStatus}
-        className={`absolute top-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 px-3 py-1 rounded-full border text-xs transition-opacity ${
-          ownershipStatus === 'owned'
-            ? 'border-transparent bg-transparent text-text-3/70'
-            : ownershipStatus === 'spectating' || ownershipStatus === 'inactive'
-              ? 'border-[var(--line)] bg-bg-2/95 text-warn'
-              : 'border-[var(--line)] bg-bg-2/95 text-text-1'
+        className={`absolute top-2 left-1/2 -translate-x-1/2 z-20 max-w-[calc(100%-1rem)] items-center justify-center gap-2 rounded-full border px-3 py-1 text-center text-xs transition-opacity ${
+          statusCollapsed
+            ? 'hidden'
+            : `flex flex-wrap ${
+                ownershipStatus === 'spectating' || ownershipStatus === 'inactive'
+                  ? 'border-[var(--line)] bg-bg-2/95 text-warn'
+                  : 'border-[var(--line)] bg-bg-2/95 text-text-1'
+              }`
         }`}
       >
-        {ownershipLabel}
-        {ownershipStatus === 'spectating' && (
-          <button className="text-accent hover:underline" onClick={() => setOwnershipLost(false)}>
-            {t('grid.control.takeover')}
-          </button>
+        {!statusCollapsed && ownershipStatus !== 'owned' && ownershipLabel}
+        {takeoverPending ? (
+          <span data-testid="takeover-pending" className="text-text-3">
+            {t('grid.control.takeoverPending')}
+          </span>
+        ) : (
+          ownershipStatus === 'spectating' && (
+            <button
+              className="text-accent hover:underline"
+              onClick={() => {
+                setTakeoverPending(true)
+                setOwnershipLost(false)
+              }}
+            >
+              {t('grid.control.takeover')}
+            </button>
+          )
         )}
         {linkInterrupted && retryConnection && (
           <button className="text-accent hover:underline" onClick={retryConnection}>
@@ -1162,7 +1188,7 @@ export function PaneGrid({
         )}
         {pendingInputCount > 0 && (
           <>
-            <span className="text-warn">· {t('grid.input.pending')}</span>
+            <span className="text-warn">{t('grid.input.pending')}</span>
             <button className="text-accent hover:underline" onClick={clearPendingInput}>
               {t('grid.input.clear')}
             </button>

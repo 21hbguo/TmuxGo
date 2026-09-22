@@ -2475,7 +2475,7 @@ describe('TerminalPane', () => {
       terminalScrollHandlers.forEach((handler) => handler())
     })
     const button = screen.getByTestId('terminal-back-to-live')
-    expect(button.textContent).toMatch(/返回实时输出|Back to live|terminal\.viewingHistory/)
+    expect(button.textContent).toMatch(/返回缓冲区底部|Back to buffer bottom|terminal\.viewingHistory/)
     // 离开实时位置期间有新输出 → 提示点，不强拉底部
     act(() => {
       terminalWriteParsedHandlers.forEach((handler) => handler())
@@ -2487,6 +2487,34 @@ describe('TerminalPane', () => {
       terminalScrollHandlers.forEach((handler) => handler())
     })
     expect(screen.queryByTestId('terminal-back-to-live')).toBeNull()
+  })
+  it('isolates back-to-live pointer and touch events from the terminal container', async () => {
+    mobileKeyboardMocks.isMobile = true
+    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(terminalLifecycleMocks.open).toHaveBeenCalled())
+    act(() => {
+      terminalBaseY = 100
+      terminalViewportY = 40
+      terminalScrollHandlers.forEach((handler) => handler())
+    })
+    const button = screen.getByTestId('terminal-back-to-live')
+    // 冒泡到容器会派发终端点击并唤起移动键盘；容器原生手势链也要拦（data-terminal-overlay）
+    mobileKeyboardMocks.focusKeyboard.mockClear()
+    webSocketMocks.send.mockClear()
+    fireEvent.mouseDown(button)
+    fireEvent.touchStart(button, {
+      touches: [{ identifier: 1, clientX: 5, clientY: 5 }],
+      changedTouches: [{ identifier: 1, clientX: 5, clientY: 5 }],
+    })
+    fireEvent.touchMove(button, {
+      touches: [{ identifier: 1, clientX: 5, clientY: 60 }],
+      changedTouches: [{ identifier: 1, clientX: 5, clientY: 60 }],
+    })
+    fireEvent.touchEnd(button, { changedTouches: [{ identifier: 1, clientX: 5, clientY: 60 }] })
+    expect(mobileKeyboardMocks.focusKeyboard).not.toHaveBeenCalled()
+    expect(webSocketMocks.send).not.toHaveBeenCalled()
+    fireEvent.click(button)
+    expect(terminalMocks.scrollToBottom).toHaveBeenCalled()
   })
   it('never shows the history hint on the alternate buffer (fullscreen apps)', async () => {
     render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)

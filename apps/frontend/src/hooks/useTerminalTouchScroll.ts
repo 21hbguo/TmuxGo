@@ -18,6 +18,12 @@ const TWO_FINGER_PINCH_PX = 40
 const TWO_FINGER_DOUBLE_TAP_MS = 420
 const TWO_FINGER_DOUBLE_TAP_DISTANCE = 80
 
+// 浮层控件（data-terminal-overlay 标记，如历史按钮/登录卡）上的触摸不进入终端
+// 手势链：本 hook 监听是容器上的原生 addEventListener，React 层 stopPropagation
+// 拦不到这里，必须在各 handler 源头判 target
+const isOverlayTouch = (event: TouchEvent) =>
+  event.target instanceof Element && !!event.target.closest('[data-terminal-overlay]')
+
 export function useTerminalTouchScroll({
   isMobile,
   onScroll,
@@ -196,6 +202,7 @@ export function useTerminalTouchScroll({
         // single finger breaks double-tap chain only if far from pending two-finger sequence wait
       }
       resetTwoFinger()
+      if (isOverlayTouch(e)) return
       stateRef.current.startY = e.touches[0].clientY
       stateRef.current.startX = e.touches[0].clientX
       stateRef.current.lastY = stateRef.current.startY
@@ -212,6 +219,7 @@ export function useTerminalTouchScroll({
   const handleTouchMove = useCallback(
     (e: TouchEvent) => {
       if (!callbacksRef.current.isMobile) return
+      if (isOverlayTouch(e)) return
       if (e.touches.length >= 2) {
         invalidateTwoFingerIfMoved(e.touches)
         stateRef.current.moved = true
@@ -257,6 +265,7 @@ export function useTerminalTouchScroll({
   const SWIPE_THRESHOLD = 50
   const handleTouchEnd = useCallback(
     (e: TouchEvent) => {
+      if (isOverlayTouch(e)) return
       const twoFinger = twoFingerRef.current
       if (twoFinger.active && e.touches.length < 2) {
         const handled = tryRegisterTwoFingerTap()
@@ -322,17 +331,21 @@ export function useTerminalTouchScroll({
     },
     [resetTwoFinger, tryRegisterTwoFingerTap],
   )
-  const handleTouchCancel = useCallback(() => {
-    clearMomentum()
-    resetTwoFinger()
-    lastTwoFingerTapRef.current = null
-    stateRef.current.carryY = 0
-    stateRef.current.moved = false
-    stateRef.current.swipeEligible = false
-    stateRef.current.direction = 'unknown'
-    lastTapRef.current = null
-    callbacksRef.current.onTouchMovedChange(false)
-  }, [clearMomentum, resetTwoFinger])
+  const handleTouchCancel = useCallback(
+    (e: TouchEvent) => {
+      if (isOverlayTouch(e)) return
+      clearMomentum()
+      resetTwoFinger()
+      lastTwoFingerTapRef.current = null
+      stateRef.current.carryY = 0
+      stateRef.current.moved = false
+      stateRef.current.swipeEligible = false
+      stateRef.current.direction = 'unknown'
+      lastTapRef.current = null
+      callbacksRef.current.onTouchMovedChange(false)
+    },
+    [clearMomentum, resetTwoFinger],
+  )
   const dispose = useCallback(() => {
     clearMomentum()
     resetTwoFinger()
