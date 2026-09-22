@@ -261,7 +261,7 @@ describe('PaneGrid', () => {
     )
     expect(useConsoleStore.getState().activeSessionId).toBe('session-dev1')
   })
-  it('attaches as a passive shared observer while the page is unfocused', async () => {
+  it('keeps exclusive size on blur but attaches as passive (no height shrink)', async () => {
     vi.mocked(document.hasFocus).mockReturnValue(false)
     render(<PaneGrid />)
     fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
@@ -272,7 +272,7 @@ describe('PaneGrid', () => {
         sessionName: 'dev1',
         cols: 120,
         rows: 36,
-        exclusive: false,
+        exclusive: true,
         passive: true,
       }),
     )
@@ -284,7 +284,7 @@ describe('PaneGrid', () => {
     fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
     await waitFor(() =>
       expect(sendMock).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'attach', sessionName: 'dev1', exclusive: false, passive: true }),
+        expect.objectContaining({ type: 'attach', sessionName: 'dev1', exclusive: true, passive: true }),
       ),
     )
     sendMock.mockClear()

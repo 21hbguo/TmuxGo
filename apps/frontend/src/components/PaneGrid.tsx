@@ -124,7 +124,10 @@ export function PaneGrid({
   // 被其它端抢走 session 独占所有权时降级为旁观，直到本页再次获得焦点
   // （pageActive 上升沿）才重新 claim exclusive——避免双端 pageActive 互抢
   const [ownershipLost, setOwnershipLost] = useState(false)
-  const exclusive = shared ? false : preferences.attachExclusive && pageActive && !ownershipLost
+  // 失焦只降 passive（禁写），保持 exclusive 尺寸/渲染：
+  // 若失焦就交出 exclusive，会走 shared 重附着并拆掉 height:100%，终端高度立刻变矮，
+  // 且要刷新才能恢复。仅 ownership 被抢时才真正交出 exclusive。
+  const exclusive = shared ? false : preferences.attachExclusive && !ownershipLost
   const attachPassive = !pageActive || (!shared && ownershipLost)
   const attachedRef = useRef<string | null>(null)
   const sizeRef = useRef<{ cols: number; rows: number } | null>(null)
@@ -294,7 +297,7 @@ export function PaneGrid({
       if (document.visibilityState === 'hidden') return false
       // 非独占/旁观端只本地对齐共享尺寸，禁止向服务端推 size：
       // 否则降级竞态里一笔 120x36 resize 会经 exclusive pty 把 window 抢回
-      if (!exclusive) return false
+      if (!exclusive || attachPassive) return false
       const prev = sentResizeRef.current
       if (prev && prev.cols === size.cols && prev.rows === size.rows) return false
       const sent = send({ type: 'resize', hostId: activeHostId || 'local', cols: size.cols, rows: size.rows })
@@ -311,7 +314,7 @@ export function PaneGrid({
       }
       return sent
     },
-    [activeHostId, exclusive, send],
+    [activeHostId, attachPassive, exclusive, send],
   )
   const clearAttachTimers = useCallback(() => {
     if (attachTimerRef.current) {
