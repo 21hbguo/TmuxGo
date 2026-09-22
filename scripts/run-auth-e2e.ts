@@ -40,7 +40,7 @@ async function port() {
         reject(new Error('Unable to reserve E2E port'))
         return
       }
-      server.close((error) => error ? reject(error) : resolve(address.port))
+      server.close((error) => (error ? reject(error) : resolve(address.port)))
     })
   })
 }
@@ -72,10 +72,15 @@ async function cleanup() {
   if (cleaned) return
   cleaned = true
   await stop(gateway)
-  if (tmuxDir) await run('tmux', ['kill-server'], { cwd: root, env: { ...process.env, TMUX: '', TMUX_TMPDIR: tmuxDir } }).catch(() => undefined)
-  if (configDir) await rm(configDir, { recursive: true, force: true })
-  if (frontendDist) await rm(frontendDist, { recursive: true, force: true })
-  if (tmuxDir) await rm(tmuxDir, { recursive: true, force: true })
+  if (tmuxDir)
+    await run('tmux', ['kill-server'], { cwd: root, env: { ...process.env, TMUX: '', TMUX_TMPDIR: tmuxDir } }).catch(
+      () => undefined,
+    )
+  // gateway 停止后仍可能延迟写入 configDir，rm 需重试避免 ENOTEMPTY 假失败
+  const rmOpts = { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }
+  if (configDir) await rm(configDir, rmOpts)
+  if (frontendDist) await rm(frontendDist, rmOpts)
+  if (tmuxDir) await rm(tmuxDir, rmOpts)
 }
 function handleSignal(code: number) {
   void cleanup().finally(() => process.exit(code))
@@ -98,11 +103,21 @@ async function main() {
     const viteBin = resolveBin('vite')
     const tsxBin = resolveBin('tsx')
     const playwrightBin = resolveBin('playwright')
-    if (await run(viteBin, ['build', '--outDir', frontendDist, '--emptyOutDir'], { cwd: join(root, 'apps/frontend'), env: { ...process.env, VITE_API_URL: apiUrl } }) !== 0) throw new Error('Authentication E2E frontend build failed')
-    if (await run('tmux', ['new-session', '-d', '-s', 'auth-e2e'], { cwd: root, env: { ...process.env, TMUX: '', TMUX_TMPDIR: tmuxDir } }) !== 0) throw new Error('Authentication E2E tmux startup failed')
+    if (
+      (await run(viteBin, ['build', '--outDir', frontendDist, '--emptyOutDir'], {
+        cwd: join(root, 'apps/frontend'),
+        env: { ...process.env, VITE_API_URL: apiUrl },
+      })) !== 0
+    )
+      throw new Error('Authentication E2E frontend build failed')
+    // tmux/gateway 用空 HOME，避免用户 ~/.tmux.conf 的失效选项让隔离 server 起在 config-error 屏
+    const tmuxEnv = { ...process.env, TMUX: '', TMUX_TMPDIR: tmuxDir, HOME: configDir }
+    if ((await run('tmux', ['new-session', '-d', '-s', 'auth-e2e'], { cwd: root, env: tmuxEnv })) !== 0)
+      throw new Error('Authentication E2E tmux startup failed')
     const gatewayEnv = {
       ...process.env,
       PORT: String(apiPort),
+      HOME: configDir,
       TMUX: '',
       TMUX_TMPDIR: tmuxDir,
       TMUXGO_CONFIG_DIR: configDir,
@@ -129,11 +144,12 @@ async function main() {
       TMUXGO_PREFERENCES_DIR: join(configDir, 'preferences'),
       TMUXGO_TMP_DIR: join(configDir, 'tmp'),
     }
-    const runPlaywright = (files: string[]) => new Promise<number>((resolve, reject) => {
-      const child = spawn(playwrightBin, ['test', ...files], { cwd: root, stdio: 'inherit', env: testEnv })
-      child.once('error', reject)
-      child.once('exit', (code) => resolve(code ?? 1))
-    })
+    const runPlaywright = (files: string[]) =>
+      new Promise<number>((resolve, reject) => {
+        const child = spawn(playwrightBin, ['test', ...files], { cwd: root, stdio: 'inherit', env: testEnv })
+        child.once('error', reject)
+        child.once('exit', (code) => resolve(code ?? 1))
+      })
     await startGateway()
     const result = await runPlaywright(testFiles)
     if (result === 0 && restartTests.length) {
