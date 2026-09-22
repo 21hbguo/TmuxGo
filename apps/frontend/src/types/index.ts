@@ -275,6 +275,7 @@ export interface FileEditorDocument extends FileDocumentHandle {
   binary: boolean
   truncated: boolean
   problem?: string
+  saveError?: string
   previewUrl?: string
   compareLeftId?: string
   compareRightId?: string

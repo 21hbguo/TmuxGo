@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { emitStreamEvent, STREAM_EVENT, subscribeStreamEvent } from '@/lib/stream-events'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TerminalPane } from './TerminalPane'
@@ -13,6 +13,9 @@ let terminalSelectionPosition: any = null
 let terminalBufferLines: string[] = []
 let terminalBaseY = 0
 let terminalViewportY = 0
+let terminalBufferType: 'normal' | 'alternate' = 'normal'
+const terminalScrollHandlers: Array<() => void> = []
+const terminalWriteParsedHandlers: Array<() => void> = []
 let terminalCursorX = 0
 let terminalCursorY = 0
 let terminalUnicodeActiveVersion = '6'
@@ -299,6 +302,9 @@ vi.mock('@xterm/xterm', () => {
     }
     buffer = {
       active: {
+        get type() {
+          return terminalBufferType
+        },
         get baseY() {
           return terminalBaseY
         },
@@ -354,6 +360,14 @@ vi.mock('@xterm/xterm', () => {
     }
     onData(handler: (data: string) => void) {
       terminalDataHandler = handler
+      return { dispose: vi.fn() }
+    }
+    onScroll(handler: () => void) {
+      terminalScrollHandlers.push(handler)
+      return { dispose: vi.fn() }
+    }
+    onWriteParsed(handler: () => void) {
+      terminalWriteParsedHandlers.push(handler)
       return { dispose: vi.fn() }
     }
     onSelectionChange(handler: () => void) {
@@ -456,6 +470,9 @@ describe('TerminalPane', () => {
     terminalBufferLines = []
     terminalBaseY = 0
     terminalViewportY = 0
+    terminalBufferType = 'normal'
+    terminalScrollHandlers.length = 0
+    terminalWriteParsedHandlers.length = 0
     terminalCursorX = 0
     terminalCursorY = 0
     terminalUnicodeActiveVersion = '6'
@@ -2446,5 +2463,41 @@ describe('TerminalPane', () => {
     const fileLink = links.find((item) => item.text === 'apps/frontend/src/components/TerminalPane.tsx:145')
     expect(fileLink).toBeTruthy()
     expect(fileLink?.decorations).toEqual({ pointerCursor: true, underline: true })
+  })
+  it('shows back-to-live only while scrolled away, marks fresh output, and returns to live', async () => {
+    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(terminalLifecycleMocks.open).toHaveBeenCalled())
+    // 实时位置不显示额外按钮
+    expect(screen.queryByTestId('terminal-back-to-live')).toBeNull()
+    act(() => {
+      terminalBaseY = 100
+      terminalViewportY = 40
+      terminalScrollHandlers.forEach((handler) => handler())
+    })
+    const button = screen.getByTestId('terminal-back-to-live')
+    expect(button.textContent).toMatch(/返回实时输出|Back to live|terminal\.viewingHistory/)
+    // 离开实时位置期间有新输出 → 提示点，不强拉底部
+    act(() => {
+      terminalWriteParsedHandlers.forEach((handler) => handler())
+    })
+    expect(button.querySelector('.bg-accent')).toBeTruthy()
+    fireEvent.click(button)
+    expect(terminalMocks.scrollToBottom).toHaveBeenCalled()
+    act(() => {
+      terminalScrollHandlers.forEach((handler) => handler())
+    })
+    expect(screen.queryByTestId('terminal-back-to-live')).toBeNull()
+  })
+  it('never shows the history hint on the alternate buffer (fullscreen apps)', async () => {
+    render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(terminalLifecycleMocks.open).toHaveBeenCalled())
+    act(() => {
+      terminalBufferType = 'alternate'
+      terminalBaseY = 0
+      terminalViewportY = 0
+      terminalScrollHandlers.forEach((handler) => handler())
+      terminalWriteParsedHandlers.forEach((handler) => handler())
+    })
+    expect(screen.queryByTestId('terminal-back-to-live')).toBeNull()
   })
 })

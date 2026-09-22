@@ -11,7 +11,10 @@ const subscribeOutputMock = vi.hoisted(() =>
   vi.fn((_hostId: string, _sessionName: string, _listener: unknown) => vi.fn()),
 )
 const socketState = vi.hoisted(() => ({ isConnected: false, isSocketReady: true }))
+const retryConnectionMock = vi.hoisted(() => vi.fn())
 const windowsData = vi.hoisted(() => [] as any[])
+const hostsMockData = vi.hoisted(() => ({ value: [{ id: 'local' }] as any[] | undefined }))
+const orderedSessionsData = vi.hoisted(() => ({ value: [] as any[] }))
 const terminalProps = vi.hoisted(() => ({
   current: null as null | {
     sessionName?: string
@@ -52,6 +55,7 @@ vi.mock('@/hooks/useWebSocket', () => ({
     isConnected: socketState.isConnected,
     isSocketReady: socketState.isSocketReady,
     subscribeOutput: subscribeOutputMock,
+    retryConnection: retryConnectionMock,
   }),
 }))
 vi.mock('@/i18n', () => ({
@@ -70,11 +74,12 @@ vi.mock('@/hooks/useMobileKeyboard', () => ({
   isMobileDevice: () => false,
 }))
 vi.mock('@/hooks/useApi', () => ({
+  useHosts: () => ({ data: hostsMockData.value }),
   useWindows: () => ({ data: windowsData }),
   useSessionSnapshot: () => ({ data: null }),
 }))
 vi.mock('@/hooks/useOrderedSessions', () => ({
-  useOrderedSessions: () => ({ data: [] }),
+  useOrderedSessions: () => ({ data: orderedSessionsData.value }),
 }))
 vi.mock('@/hooks/useWindowQueryState', () => ({
   useWindowQueryState: () => ({ getWindows: () => [], setWindows: vi.fn() }),
@@ -189,6 +194,8 @@ describe('PaneGrid', () => {
     socketState.isConnected = false
     socketState.isSocketReady = true
     terminalProps.current = null
+    hostsMockData.value = [{ id: 'local' }]
+    orderedSessionsData.value = []
     continuityState.value = {
       enabled: false,
       archive: { enabled: false, captureMode: 'none', maxBytesPerSession: 262144, retentionDays: 7 },
@@ -936,6 +943,8 @@ describe('multi-device exclusive ownership', () => {
     socketState.isConnected = false
     socketState.isSocketReady = true
     terminalProps.current = null
+    hostsMockData.value = [{ id: 'local' }]
+    orderedSessionsData.value = []
     continuityState.value = {
       enabled: false,
       archive: { enabled: false, captureMode: 'none', maxBytesPerSession: 262144, retentionDays: 7 },
@@ -1009,5 +1018,133 @@ describe('multi-device exclusive ownership', () => {
         expect.objectContaining({ type: 'attach', exclusive: true, sessionName: 'dev1' }),
       ),
     )
+  })
+
+  it('shows spectating state with a takeover entry that re-claims via existing arbitration', async () => {
+    socketState.isConnected = true
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    await waitFor(() => expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'attach' })))
+    act(() => {
+      emitStreamEvent(STREAM_EVENT.attached, { hostId: 'local', sessionName: 'dev1', cols: 120, rows: 36 })
+    })
+    expect(document.querySelector('[data-ownership]')?.getAttribute('data-ownership')).toBe('owned')
+    act(() => {
+      emitStreamEvent(STREAM_EVENT.exclusiveRevoked, { hostId: 'local', sessionName: 'dev1' })
+    })
+    await waitFor(() =>
+      expect(document.querySelector('[data-ownership]')?.getAttribute('data-ownership')).toBe('spectating'),
+    )
+    sendMock.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: 'grid.control.takeover' }))
+    await waitFor(() =>
+      expect(sendMock).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'attach', sessionName: 'dev1', exclusive: true }),
+      ),
+    )
+  })
+
+  it('read-only share shows readonly status and never a takeover entry', () => {
+    render(
+      <PaneGrid
+        sessionId="session-dev1"
+        shared
+        socket={{
+          send: sendMock,
+          isConnected: true,
+          isSocketReady: true,
+          subscribeOutput: subscribeOutputMock,
+        }}
+      />,
+    )
+    expect(document.querySelector('[data-ownership]')?.getAttribute('data-ownership')).toBe('readonly')
+    expect(screen.queryByRole('button', { name: 'grid.control.takeover' })).toBeNull()
+  })
+
+  it('shows pending input chip while disconnected and clear prevents any resend', async () => {
+    socketState.isConnected = true
+    const view = render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    await waitFor(() => expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'attach' })))
+    act(() => {
+      emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev1', cols: 120, rows: 36, hostId: 'local' })
+    })
+    // 断线后键入 → 入队并显示待发提示 + 动作入口
+    act(() => {
+      socketState.isConnected = false
+    })
+    view.rerender(<PaneGrid />)
+    act(() => {
+      terminalProps.current?.onInput?.('ls\n')
+    })
+    expect(screen.getByText(/grid\.input\.pending/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'grid.input.clear' }))
+    expect(screen.queryByText(/grid\.input\.pending/)).toBeNull()
+    // 恢复连接后已清空的输入绝不补发
+    sendMock.mockClear()
+    act(() => {
+      socketState.isConnected = true
+    })
+    view.rerender(<PaneGrid />)
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(sendMock.mock.calls.filter(([message]) => message?.type === 'input')).toHaveLength(0)
+  })
+
+  it('empty state offers next-step entry for each scenario', () => {
+    useConsoleStore.setState({ activeSessionId: '' } as any)
+    // 有主机无会话 → 新建会话（SessionPanel 监听 tmuxgo-open-create-session）
+    const listener = vi.fn()
+    window.addEventListener('tmuxgo-open-create-session', listener)
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'grid.createSession' }))
+    expect(listener).toHaveBeenCalled()
+    expect(useConsoleStore.getState().sessionPanelExpanded).toBe(true)
+    window.removeEventListener('tmuxgo-open-create-session', listener)
+  })
+  it('empty state offers select-recent when sessions exist', () => {
+    orderedSessionsData.value = [{ id: 'session-dev1' }]
+    useConsoleStore.setState({ activeSessionId: '' } as any)
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'grid.selectRecent' }))
+    expect(useConsoleStore.getState().activeSessionId).toBe('session-dev1')
+  })
+  it('empty state offers add-host when no hosts are configured', () => {
+    hostsMockData.value = []
+    useConsoleStore.setState({ activeSessionId: '' } as any)
+    render(<PaneGrid />)
+    expect(screen.getByRole('button', { name: 'grid.addHost' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'grid.createSession' })).toBeNull()
+  })
+
+  it('auto-flushes queued input after reconnect and offers a retry entry', async () => {
+    socketState.isConnected = true
+    const view = render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    await waitFor(() => expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'attach' })))
+    act(() => {
+      emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev1', cols: 120, rows: 36, hostId: 'local' })
+    })
+    act(() => {
+      socketState.isConnected = false
+    })
+    view.rerender(<PaneGrid />)
+    act(() => {
+      terminalProps.current?.onInput?.('pwd\n')
+    })
+    expect(screen.getByText(/grid\.input\.pending/)).toBeTruthy()
+    // 链路中断时提供「立即重试」入口
+    fireEvent.click(screen.getByRole('button', { name: 'grid.input.retry' }))
+    expect(retryConnectionMock).toHaveBeenCalled()
+    // 恢复连接并重新附着成功：既有自动补发行为清空队列与提示
+    sendMock.mockClear()
+    act(() => {
+      socketState.isConnected = true
+    })
+    view.rerender(<PaneGrid />)
+    act(() => {
+      emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev1', cols: 120, rows: 36, hostId: 'local' })
+    })
+    await waitFor(() => expect(sendMock).toHaveBeenCalledWith({ type: 'input', data: 'pwd\n' }))
+    expect(screen.queryByText(/grid\.input\.pending/)).toBeNull()
   })
 })

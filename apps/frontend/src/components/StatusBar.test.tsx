@@ -93,7 +93,29 @@ describe('StatusBar', () => {
     expect(within(resources).getByText('CPU')).toBeInTheDocument()
     expect(within(resources).getByText('42%')).toBeInTheDocument()
     expect(within(connection).getByText('Connected')).toBeInTheDocument()
-    expect(useSystemInfoMock).toHaveBeenCalledWith('local', 2000)
+    expect(useSystemInfoMock).toHaveBeenCalledWith('local', 2000, true)
+  })
+  it('pauses system info polling while the page is hidden and resumes on return', () => {
+    const original = Object.getOwnPropertyDescriptor(document, 'visibilityState')
+    const setVisibility = (value: string) =>
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => value })
+    try {
+      setVisibility('visible')
+      render(<StatusBar />)
+      expect(useSystemInfoMock).toHaveBeenLastCalledWith('local', 2000, true)
+      setVisibility('hidden')
+      act(() => {
+        document.dispatchEvent(new Event('visibilitychange'))
+      })
+      expect(useSystemInfoMock).toHaveBeenLastCalledWith('local', 2000, false)
+      setVisibility('visible')
+      act(() => {
+        document.dispatchEvent(new Event('visibilitychange'))
+      })
+      expect(useSystemInfoMock).toHaveBeenLastCalledWith('local', 2000, true)
+    } finally {
+      if (original) Object.defineProperty(document, 'visibilityState', original)
+    }
   })
   it('shows the last successful session sync age and marks it delayed after 15 seconds', () => {
     vi.useFakeTimers()

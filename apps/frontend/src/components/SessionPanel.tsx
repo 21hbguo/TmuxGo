@@ -330,6 +330,17 @@ export function SessionPanel() {
     window.addEventListener('tmuxgo-open-session-templates', handleOpenTemplates as EventListener)
     return () => window.removeEventListener('tmuxgo-open-session-templates', handleOpenTemplates as EventListener)
   }, [])
+  // 空状态「新建会话」入口：复用未分类创建流程（Default 模板）
+  useEffect(() => {
+    const handleOpenCreate = () => {
+      if (!activeHostId) return
+      setCreateDialogTemplate(builtinTemplates[0] || null)
+      setCreateDialogInitialWorkspace(null)
+      setCreateDialogOpen(true)
+    }
+    window.addEventListener('tmuxgo-open-create-session', handleOpenCreate)
+    return () => window.removeEventListener('tmuxgo-open-create-session', handleOpenCreate)
+  }, [activeHostId])
   useEffect(() => {
     setSelectedSessionIds((prev) => prev.filter((id) => sessions.some((item) => item.id === id)))
   }, [sessions])
@@ -812,7 +823,7 @@ export function SessionPanel() {
         cancelLabel={t('common.cancel')}
         tone="danger"
         onCancel={() => setPendingDeleteSessionId(null)}
-        onConfirm={() => void confirmDeleteSession()}
+        onConfirm={confirmDeleteSession}
       />
       <ConfirmDialog
         open={!!pendingDeleteWorkspace}
@@ -828,11 +839,12 @@ export function SessionPanel() {
         open={batchDeleteConfirmOpen}
         title={t('sidebar.batchDeleteTitle')}
         message={t('sidebar.batchDeleteConfirm', { count: selectedSessionIds.length })}
+        items={sessions.filter((session) => selectedSessionIds.includes(session.id)).map((session) => session.name)}
         confirmLabel={t('sidebar.batchDeleteSelected')}
         cancelLabel={t('common.cancel')}
         tone="danger"
         onCancel={() => setBatchDeleteConfirmOpen(false)}
-        onConfirm={() => void confirmBatchDeleteSession()}
+        onConfirm={confirmBatchDeleteSession}
       />
       {PromptElement}
     </>

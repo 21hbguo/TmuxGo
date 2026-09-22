@@ -732,5 +732,5 @@ export function useWebSocket() {
       }
     }
   }, [clearConnectTimer, connect, ensureConnection, handleMessage, scheduleReconnect, sendPing, clearPongTimer])
-  return { send, isConnected, isSocketReady, subscribeOutput }
+  return { send, isConnected, isSocketReady, subscribeOutput, retryConnection: () => ensureConnection(true) }
 }

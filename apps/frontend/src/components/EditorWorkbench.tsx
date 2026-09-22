@@ -25,12 +25,13 @@ import { ZoomSurface } from './ZoomSurface'
 import { Chip } from './Chip'
 import { ConfirmDialog } from './ConfirmDialog'
 import { DiffViewer } from './DiffViewer'
-import { CsvTable } from './CsvTable'
 import dynamic from '@/lib/dynamic'
 import { FiArrowLeft, FiArrowRight, FiCode } from 'react-icons/fi'
 
 const MonacoEditor = dynamic(() => import('@monaco-editor/react').then((mod) => ({ default: mod.default })))
 const MonacoDiffEditor = dynamic(() => import('@monaco-editor/react').then((mod) => ({ default: mod.DiffEditor })))
+// CSV 预览仅在打开 csv 预览时用，懒加载避免进主入口静态依赖
+const CsvTable = dynamic(() => import('./CsvTable').then((mod) => ({ default: mod.CsvTable })))
 const AUTO_SCROLL_DEADZONE = 10
 const AUTO_SCROLL_MAX_STEP = 42
 const EDGE_DROP_RATIO = 0.22
@@ -138,6 +139,7 @@ export function EditorWorkbench({
   const moveEditorToGroup = useConsoleStore((state) => state.moveEditorToGroup)
   const closeEditor = useConsoleStore((state) => state.closeEditor)
   const setEditorContent = useConsoleStore((state) => state.setEditorContent)
+  const setEditorSaveError = useConsoleStore((state) => state.setEditorSaveError)
   const ensureGitHostState = useConsoleStore((state) => state.ensureGitHostState)
   const setGitFollowEditorRepo = useConsoleStore((state) => state.setGitFollowEditorRepo)
   const gitByHost = useConsoleStore((state) => state.gitByHost)
@@ -1301,6 +1303,27 @@ export function EditorWorkbench({
           )}
         </div>
       </div>
+      {activeEditor?.saveError && (
+        <div className="flex items-center gap-2 border-b border-[var(--line)] bg-danger/10 px-3 py-1.5 text-xs text-danger">
+          <span className="min-w-0 flex-1 truncate">
+            {t('editor.saveFailedKept')} · {activeEditor.saveError}
+          </span>
+          <button
+            className="shrink-0 text-accent hover:underline disabled:opacity-40"
+            disabled={activeEditor.saving}
+            onClick={() => void onSaveEditor(activeEditor)}
+          >
+            {t('common.retry')}
+          </button>
+          <button
+            aria-label={t('common.close')}
+            className="shrink-0 text-text-3 hover:text-text-1"
+            onClick={() => setEditorSaveError(activeEditor.id, undefined)}
+          >
+            ×
+          </button>
+        </div>
+      )}
       <div
         className="relative min-h-0 flex-1 bg-bg-0"
         onDragOver={(event) => {
