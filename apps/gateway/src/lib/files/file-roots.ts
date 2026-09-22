@@ -148,7 +148,10 @@ if op=='list':
   try: items.append(file_item(root['path'],entry.path,entry.name))
   except: pass
  items.sort(key=lambda item:(0 if item['type']=='directory' else 1,item['name'].lower()))
- print(json.dumps({'root':root,'path':rel,'breadcrumbs':breadcrumbs(rel),'items':items}));sys.exit(0)
+ try: page_limit=max(50,int(payload.get('limit') or 1500))
+ except: page_limit=1500
+ page=items[:page_limit]
+ print(json.dumps({'root':root,'path':rel,'breadcrumbs':breadcrumbs(rel),'items':page,'truncated':len(items)>len(page),'totalCount':len(items),'etag':'','modifiedAt':''}));sys.exit(0)
 if op=='preview':
  if pathlib.Path(abs_path).is_dir():
   print(json.dumps({'path':rel,'type':'directory','size':st.st_size,'modifiedAt':iso(st.st_mtime),'binary':False,'truncated':False,'lines':[]}));sys.exit(0)

@@ -1,6 +1,5 @@
 import { recordStreamMetric } from '../perf-metrics.js'
 import { AnsiParser, TerminalGrid, diffCells, encodeCellDiffV2, encodeCellSnapshotV2 } from '../terminal-grid/index.js'
-import { CELL_DIRTY_RATIO_SNAPSHOT } from './stream-config.js'
 export type CellFeedResult =
   | { kind: 'frame'; type: 'cell_snapshot_v2' | 'cell_diff_v2'; payload: Buffer; metric: 'cellSnapshots' | 'cellDiffs' }
   | { kind: 'skip' }
@@ -48,7 +47,6 @@ export class StreamCellEncoder {
     }
     const changes = kind === 'output_resync' ? [] : diffCells(prev, this.grid.cells, this.grid.cols, this.grid.rows)
     const total = Math.max(1, this.grid.cols * this.grid.rows)
-    const dirtyRatio = kind === 'output_resync' ? 1 : changes.length / total
     const cursorChanged =
       this.grid.cursorX !== this.lastCursorX ||
       this.grid.cursorY !== this.lastCursorY ||
@@ -58,7 +56,12 @@ export class StreamCellEncoder {
     }
     this.grid.seq += 1
     recordStreamMetric('cellDirtyCells', kind === 'output_resync' ? total : changes.length)
-    if (kind === 'output_resync' || dirtyRatio >= CELL_DIRTY_RATIO_SNAPSHOT || this.baseSeq === 0) {
+    // 拥塞/高脏比优先拼脏区 diff（changes 即多块脏矩形的 cell 列表）；
+    // 仅 seq 断裂（output_resync）、首次 attach（baseSeq===0）或整屏全变
+    // （diff 会比 RLE snapshot 更大）时才发 snapshot——禁止普通高脏比路径
+    // 走整屏 snapshot 清屏闪烁
+    const fullRewrite = changes.length >= total
+    if (kind === 'output_resync' || this.baseSeq === 0 || fullRewrite) {
       return {
         kind: 'frame',
         type: 'cell_snapshot_v2',

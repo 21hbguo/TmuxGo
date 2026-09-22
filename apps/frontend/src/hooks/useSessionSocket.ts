@@ -32,6 +32,7 @@ interface ConnectionState {
   closeExpected: boolean
 }
 const connections = new Map<string, ConnectionState>()
+let cellLastSeq = 0
 const RECONNECT_BASE_MS = 1000
 const RECONNECT_MAX_MS = 15000
 const PING_INTERVAL_MS = 10000
@@ -130,7 +131,8 @@ function connect(connection: ConnectionState) {
               type: 'stream_caps',
               binaryOutput: true,
               compressOutput: 'gzip',
-              cellOutput: false,
+              // cell 由服务端 TMUXGO_STREAM_CELL 门控；声明 true 才能安全打开
+              cellOutput: true,
               compactHeader: true,
             }),
           )
@@ -158,25 +160,41 @@ function connect(connection: ConnectionState) {
                 } catch {}
                 return
               }
+              cellLastSeq = snap.seq
               const ansi = snapshotToAnsi(snap)
               dispatchOutput(connection, {
                 type: 'output_resync',
                 data: ansi,
                 sessionName: decoded.sessionName,
                 hostId: decoded.hostId,
-              })
+                cell: { kind: 'snapshot', snapshot: snap },
+              } as any)
               return
             }
             if ((decoded.type === 'cell_diff' || decoded.type === 'cell_diff_v2') && decoded.cellPayload) {
               const diff = (decoded.type === 'cell_diff_v2' ? decodeCellDiffV2 : decodeCellDiff)(decoded.cellPayload)
               if (!diff) return
+              if (cellLastSeq !== 0 && diff.baseSeq !== cellLastSeq) {
+                try {
+                  ws.send(
+                    JSON.stringify({
+                      type: 'cell_resync_request',
+                      sessionName: decoded.sessionName,
+                      hostId: decoded.hostId,
+                    }),
+                  )
+                } catch {}
+                return
+              }
+              cellLastSeq = diff.seq
               const ansi = diffToAnsi(diff)
               dispatchOutput(connection, {
                 type: 'output',
                 data: ansi,
                 sessionName: decoded.sessionName,
                 hostId: decoded.hostId,
-              })
+                cell: { kind: 'diff', diff },
+              } as any)
               return
             }
             dispatchOutput(connection, {

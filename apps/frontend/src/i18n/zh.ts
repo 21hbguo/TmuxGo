@@ -760,6 +760,7 @@ export const zh = {
   'file.markedCopy': '{name} 已复制，Ctrl+V 粘贴',
   'file.markedCut': '{name} 已剪切，Ctrl+V 移动',
   'file.refresh': '刷新',
+  'file.loadMore': '加载更多（{shown}/{total}）',
   'file.transferFailed': '文件操作失败',
   'file.transferFailedMany': '{count} 项操作失败',
   'file.trash': '回收站',
