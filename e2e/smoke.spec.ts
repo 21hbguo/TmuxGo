@@ -5,7 +5,8 @@ test('home page smoke flow', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByText('TmuxGo').first()).toBeVisible()
   await expect(page.getByText(/(Sessions|会话)/).first()).toBeVisible()
-  await expect(page.getByRole('button', { name: /^(New|新建)$/ })).toBeVisible()
+  // SessionPanel 头部 New Chip 与未分组区「＋」按钮同名，strict-mode 双命中：取首个
+  await expect(page.getByRole('button', { name: /^(New|新建)$/ }).first()).toBeVisible()
   await expect(page.locator('main').nth(1)).toBeVisible()
   await expect(page.getByRole('button', { name: /(Settings|设置)/ }).last()).toBeVisible()
 })
