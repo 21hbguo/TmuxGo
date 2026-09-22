@@ -615,6 +615,7 @@ export const en = {
   'common.confirm': 'Confirm',
   'common.close': 'Close',
   'common.loading': 'Loading...',
+  'common.loadFailed': 'Load failed',
   'palette.newSession': 'New session',
   'palette.splitHorizontal': 'Split pane horizontal',
   'palette.splitVertical': 'Split pane vertical',
