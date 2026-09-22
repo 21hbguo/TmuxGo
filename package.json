@@ -2,10 +2,14 @@
   "name": "tmuxgo",
   "private": true,
   "packageManager": "pnpm@11.7.0",
+  "engines": {
+    "node": "^20.19.0 || ^22.12.0 || >=24.0.0"
+  },
   "workspaces": [
     "apps/*"
   ],
   "scripts": {
+    "env:check": "node -e \"const[a,b]=process.versions.node.split('.').map(Number);if(!((a===20&&b>=19)||(a===22&&b>=12)||a>=24)){console.error('Unsupported Node.js '+process.version+'. Need ^20.19 || ^22.12 || >=24');process.exit(1)}console.log('Node.js '+process.version+' OK')\"",
     "dev": "node scripts/dev.mjs",
     "dev:frontend": "npm run dev --workspace=frontend",
     "dev:gateway": "npm run dev --workspace=gateway",
@@ -27,7 +31,7 @@
     "test:auth-restart-e2e": "TMUXGO_AUTH_E2E_TESTS=e2e/auth-restart-login.spec.ts TMUXGO_AUTH_E2E_RESTART_TESTS=e2e/auth-restart-check.spec.ts tsx scripts/run-auth-e2e.ts",
     "test:agent-e2e": "tsx scripts/run-agent-e2e.ts",
     "test:ssh-e2e": "tsx scripts/run-ssh-e2e.ts",
-    "test:fluency-e2e": "./start.sh --restart --rebuild >/tmp/tmuxgo-start-fluency.log 2>&1 && playwright test e2e/fluency.spec.ts",
+    "test:fluency-e2e": "tsx scripts/run-e2e.ts e2e/fluency.spec.ts",
     "verify:fluency": "npx tsx scripts/verify-fluency-metrics.ts",
     "proto:status": "npx tsx scripts/tmux-pane-status-prototype.ts",
     "proto:state": "npx tsx scripts/tmux-pane-state.ts",
