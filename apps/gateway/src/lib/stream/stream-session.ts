@@ -47,6 +47,10 @@ interface StreamSocketLike {
 const streamPeers = new Map<string, Set<StreamSession>>()
 const windowSyncTimers = new Map<string, ReturnType<typeof setTimeout>>()
 let assertOrderSeq = 0
+// 会话级唯一独占所有权：同一 host+session 同时只允许一个 exclusive 写端。
+// 多端/多标签同时 pageActive 时后到的 exclusive claim 会踢掉前任，
+// 保证「当前在用」等同单实例，失焦/被抢端不再抢 window-size 或写输入。
+const exclusiveOwners = new Map<string, StreamSession>()
 const WINDOW_SYNC_DELAY_MS = 80
 const WINDOW_SYNC_SETTLE_MS = 60
 function peerKey(hostId: string, sessionName: string) {
@@ -56,6 +60,23 @@ function peerKey(hostId: string, sessionName: string) {
 let windowSizeQuery: typeof getSessionWindowSize = getSessionWindowSize
 export function setWindowSizeQueryForTest(fn: typeof getSessionWindowSize | null) {
   windowSizeQuery = fn ?? getSessionWindowSize
+}
+export function resetExclusiveOwnershipForTest() {
+  exclusiveOwners.clear()
+}
+export function claimExclusiveOwnership(session: StreamSession) {
+  if (!session.attachedSessionName) return
+  const key = peerKey(session.attachedHostId, session.attachedSessionName)
+  const prev = exclusiveOwners.get(key)
+  if (prev && prev !== session) prev.demoteFromExclusive()
+  exclusiveOwners.set(key, session)
+  session.exclusiveOwnerKey = key
+}
+export function releaseExclusiveOwnership(session: StreamSession) {
+  if (session.exclusiveOwnerKey && exclusiveOwners.get(session.exclusiveOwnerKey) === session) {
+    exclusiveOwners.delete(session.exclusiveOwnerKey)
+  }
+  session.exclusiveOwnerKey = null
 }
 export function schedulePeerWindowSync(hostId: string, sessionName: string, delay = WINDOW_SYNC_DELAY_MS) {
   const key = peerKey(hostId, sessionName)
@@ -77,13 +98,17 @@ async function reconcileWindowPeers(key: string) {
   // 其它 window-size 策略（smallest 等）下重读的实际尺寸仍为权威
   const champion = [...peers].reduce<StreamSession | null>(
     (best, peer) =>
-      peer.ptyProcess && peer.attachedExclusive && peer.desiredCols > 0 && (!best || peer.assertSeq > best.assertSeq)
+      peer.ptyProcess &&
+      peer.attachedExclusive &&
+      peer.isExclusiveOwner() &&
+      peer.desiredCols > 0 &&
+      (!best || peer.assertSeq > best.assertSeq)
         ? peer
         : best,
     null,
   )
   if (champion && (!win || champion.desiredCols !== win.cols || champion.desiredRows !== win.rows)) {
-    champion.applyWindowSize(champion.desiredCols, champion.desiredRows)
+    champion.applyWindowSize(champion.desiredCols, champion.desiredRows, true)
     await new Promise((resolve) => setTimeout(resolve, WINDOW_SYNC_SETTLE_MS))
     win = await windowSizeQuery(hostId, sessionName).catch(() => win)
   }
@@ -107,6 +132,7 @@ export class StreamSession {
   attachedExclusive = false
   // 被动旁观附着（后台/失焦页）：丢弃一切会话级写操作，见 input/queueScroll
   attachedPassive = false
+  exclusiveOwnerKey: string | null = null
   attachedCols = 0
   attachedRows = 0
   // 独占端期望的 window 尺寸与主张代次：reconcile 用最近主张者（assertSeq 最大）
@@ -349,9 +375,9 @@ export class StreamSession {
   // 由 reconcile 调用：把本 client 的 pty 同步到 window 实际尺寸并推 window-size
   // 事件让前端跟随。对 ignore-size client 是纯视图同步；对独占 client 是等值
   // 尺寸主张（实测 resize 到与 window 相同尺寸不会抢占 window）
-  applyWindowSize(cols: number, rows: number) {
+  applyWindowSize(cols: number, rows: number, force = false) {
     if (!this.ptyProcess || !this.attachedSessionName || cols <= 0 || rows <= 0) return
-    if (cols === this.attachedCols && rows === this.attachedRows) return
+    if (!force && cols === this.attachedCols && rows === this.attachedRows) return
     // 在途 resize 的目标尺寸已被仲裁推翻：completeResizeAck 的 attachedCols
     // 守卫不成立会让 pending 永久残留，作废后由 window-size 事件接管确认
     if (this.pendingResizeAck && (this.pendingResizeAck.cols !== cols || this.pendingResizeAck.rows !== rows)) {
@@ -577,6 +603,7 @@ export class StreamSession {
     const current = this.ptyProcess
     const detachedSessionName = this.attachedSessionName
     const detachedHostId = this.attachedHostId
+    releaseExclusiveOwnership(this)
     this.unregisterPeer()
     this.attachSeq += 1
     this.pendingResizeAck = null
@@ -673,6 +700,7 @@ export class StreamSession {
       this.attachVisibleOutputObserved = false
       if (exclusive && requestedCols > 0 && requestedRows > 0) {
         // 复用即一次尺寸主张（refocus 回来要抢回 window）：更新期望并调度仲裁
+        claimExclusiveOwnership(this)
         this.desiredCols = requestedCols
         this.desiredRows = requestedRows
         this.assertSeq = ++assertOrderSeq
@@ -713,6 +741,7 @@ export class StreamSession {
       this.desiredCols = cols
       this.desiredRows = rows
       this.assertSeq = ++assertOrderSeq
+      claimExclusiveOwnership(this)
     }
     this.registerPeer()
     if (this.cellOutputEnabled) this.cell.reset(cols, rows, this.cellOutputEnabled && this.binaryOutputEnabled)
@@ -810,8 +839,8 @@ export class StreamSession {
     this.ptyProcess.resize(nextCols, nextRows)
     this.attachedCols = nextCols
     this.attachedRows = nextRows
-    if (this.attachedExclusive) {
-      // 独占 resize 是一次尺寸主张：window 落定后把其它附着同步到新尺寸
+    if (this.attachedExclusive && this.isExclusiveOwner()) {
+      // 独占 owner 的 resize 是一次尺寸主张：window 落定后把其它附着同步到新尺寸
       this.desiredCols = nextCols
       this.desiredRows = nextRows
       this.assertSeq = ++assertOrderSeq
@@ -834,6 +863,29 @@ export class StreamSession {
           this.completeResizeAck()
         }, RESIZE_ACK_OUTPUT_WAIT_MS)
       })
+  }
+  isExclusiveOwner() {
+    if (this.exclusiveOwnerKey) return exclusiveOwners.get(this.exclusiveOwnerKey) === this
+    return this.attachedExclusive
+  }
+  // 被新的 exclusive claim 抢走所有权：立刻写降级，并摘掉可抢尺寸的 exclusive client。
+  // 不在本函数内 reattach（会与 claim 竞态）；前端收到 exclusive-revoked 后以 shared+passive 重附着。
+  demoteFromExclusive() {
+    if (!this.attachedSessionName) return
+    const hostId = this.attachedHostId
+    const sessionName = this.attachedSessionName
+    this.attachedExclusive = false
+    this.attachedPassive = true
+    this.desiredCols = 0
+    this.desiredRows = 0
+    this.assertSeq = 0
+    releaseExclusiveOwnership(this)
+    this.send({ type: 'exclusive-revoked', hostId, sessionName })
+    const proc = this.ptyProcess
+    if (proc) {
+      this.ptyProcess = null
+      proc.kill()
+    }
   }
   input(data: string) {
     recordStreamMetric('inputMessages')

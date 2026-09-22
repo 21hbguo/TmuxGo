@@ -121,8 +121,11 @@ export function PaneGrid({
   // window-size latest 抢占会话尺寸、reflow 激活页画面；后台键鼠输入
   // （滚轮→copy-mode 是 pane 全局状态）也会越权影响他人——passive 让网关
   // 丢弃 input/pane_scroll/copy_mode_cancel，配合 ignore-size 彻底交出控制权
-  const exclusive = shared ? false : preferences.attachExclusive && pageActive
-  const attachPassive = !pageActive
+  // 被其它端抢走 session 独占所有权时降级为旁观，直到本页再次获得焦点
+  // （pageActive 上升沿）才重新 claim exclusive——避免双端 pageActive 互抢
+  const [ownershipLost, setOwnershipLost] = useState(false)
+  const exclusive = shared ? false : preferences.attachExclusive && pageActive && !ownershipLost
+  const attachPassive = !pageActive || (!shared && ownershipLost)
   const attachedRef = useRef<string | null>(null)
   const sizeRef = useRef<{ cols: number; rows: number } | null>(null)
   const terminalReadyRef = useRef(false)
@@ -156,6 +159,7 @@ export function PaneGrid({
   const inputFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const sentResizeRef = useRef<{ cols: number; rows: number } | null>(null)
   const lastAttachModeRef = useRef(`${exclusive}:${attachPassive}`)
+  const prevPageActiveRef = useRef(pageActive)
   const lastExternalInputRef = useRef<{ data: string; at: number } | null>(null)
   const attachStartedAtRef = useRef(0)
   const lastOutputAtRef = useRef('')
@@ -702,6 +706,38 @@ export function PaneGrid({
     document.addEventListener('visibilitychange', handleVisibilityChange)
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
   }, [activeHostId, isMobile, isSocketReady, send])
+  useEffect(() => {
+    // 失焦→聚焦的上升沿才重新争用独占；已聚焦时被 revoke 不自动抢回，防止双活互抢
+    if (pageActive && !prevPageActiveRef.current) setOwnershipLost(false)
+    prevPageActiveRef.current = pageActive
+  }, [pageActive])
+  const ownershipSessionRef = useRef<string | null>(targetSessionName)
+  useEffect(() => {
+    // 仅在真正切换 session 时清所有权丢失标记，避免与 exclusive-revoked 抢状态
+    if (ownershipSessionRef.current === targetSessionName) return
+    ownershipSessionRef.current = targetSessionName
+    setOwnershipLost(false)
+  }, [targetSessionName, activeHostId])
+  useEffect(() => {
+    const handleExclusiveRevoked = (detail: any = {}) => {
+      // 同 host 即降级：多端抢焦时 session 名解析可能短暂不一致，宁可降级也不双写
+      if ((detail.hostId || 'local') !== (activeHostId || 'local')) return
+      if (detail.sessionName && targetSessionName && detail.sessionName !== targetSessionName) return
+      setOwnershipLost(true)
+    }
+    return subscribeStreamEvent(STREAM_EVENT.exclusiveRevoked, handleExclusiveRevoked)
+  }, [activeHostId, targetSessionName])
+  useEffect(() => {
+    // 所有权变化必须立刻重建附着（shared+passive 或重新 claim），不能只依赖 mode 字符串
+    if (!targetSessionName || !terminalReadyRef.current || !isSocketReady) return
+    clearAttachTimers()
+    clearRemoteResizeState()
+    attachedRef.current = null
+    attachInFlightRef.current = null
+    isSessionAttachedRef.current = false
+    attachNow()
+    // attachNow 必须进依赖：ownershipLost 翻转会连带更新 exclusive/passive 闭包
+  }, [ownershipLost, attachNow, isSocketReady, targetSessionName, clearAttachTimers, clearRemoteResizeState])
   useEffect(() => {
     const handleAttached = (detail: any = {}) => {
       if (detail.sessionName !== targetSessionName) return
