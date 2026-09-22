@@ -34,7 +34,7 @@ vi.mock('@/hooks/useApi', () => ({
   useCreateWindow: () => ({ mutateAsync: mutateCreateWindow, isPending: false }),
   useBatchKillWindows: () => ({ mutateAsync: mutateBatchKillWindows, isPending: false }),
   useWindows: () => ({ data: windowsMock }),
-  useSessionPanes: () => ({ data: panesMock }),
+  useSessionSnapshot: () => ({ data: { panes: panesMock } }),
 }))
 vi.mock('@/hooks/useWindowQueryState', () => ({
   useWindowQueryState: () => ({ getWindows: () => windowsMock, setWindows: vi.fn() }),
