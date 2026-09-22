@@ -21,6 +21,9 @@ export const streamPerfMetrics = {
   deferredFlushes: 0,
   socketBufferedBytes: 0,
   activeClients: 0,
+  // 会话级 fan-out：当前存活的 SharedTerminal 数 / attach 复用已有 hub PTY 次数
+  sharedTerminals: 0,
+  sharedPtyReuses: 0,
   activeProfile: 'foreground' as 'foreground' | 'background' | 'mobile',
   activeFlushInterval: 8,
   activeMaxChars: 65536,
