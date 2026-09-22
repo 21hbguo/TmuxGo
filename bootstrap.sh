@@ -136,6 +136,10 @@ verify_required
 if has_cmd tailscale && ! tailscale status >/dev/null 2>&1; then
   echo "Tailscale detected but not connected. Run: tailscale up"
 fi
+# 依赖安装前拉齐 submodule（如 plugins/vscode-git-graph）；非 git 仓库或失败仅警告
+if has_cmd git && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  git submodule update --init --recursive || echo "Warning: git submodule update failed (continuing)"
+fi
 if has_cmd pnpm; then
   pnpm install --prefer-offline
 elif has_cmd corepack; then

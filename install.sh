@@ -5,13 +5,37 @@ cd "$ROOT_DIR"
 has_cmd() {
   command -v "$1" >/dev/null 2>&1
 }
-wait_http_ok() {
-  local url=$1
-  local retry=$2
-  for i in $(seq 1 "$retry"); do
-    if curl -fsS "$url" >/dev/null 2>&1; then
+LAST_HTTP_CODE=000
+# curl -w %{http_code} 在连接失败时为 000；非 -f 模式下 4xx/5xx 也会打印状态码
+http_code() {
+  local code
+  code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 2 "$1" 2>/dev/null || true)"
+  LAST_HTTP_CODE="${code:-000}"
+}
+# 前端就绪：/version.json 或 / 任一返回 200
+wait_frontend_ok() {
+  local retry=$1
+  for _ in $(seq 1 "$retry"); do
+    http_code "http://127.0.0.1:3001/version.json"
+    if [ "$LAST_HTTP_CODE" = 200 ]; then
       return 0
     fi
+    http_code "http://127.0.0.1:3001/"
+    if [ "$LAST_HTTP_CODE" = 200 ]; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+# API 就绪：/api/hosts 返回 200 或 401（401=认证开启且未登录，视为健康）
+wait_api_ok() {
+  local retry=$1
+  for _ in $(seq 1 "$retry"); do
+    http_code "http://127.0.0.1:3001/api/hosts"
+    case "$LAST_HTTP_CODE" in
+      200|401) return 0 ;;
+    esac
     sleep 1
   done
   return 1
@@ -46,12 +70,12 @@ elif launchd_user_ready; then
 else
   "$ROOT_DIR/start.sh" --restart --rebuild
 fi
-if ! wait_http_ok "http://127.0.0.1:3001/api/hosts" 90; then
-  echo "Gateway health check failed."
+if ! wait_api_ok 90; then
+  echo "Gateway health check failed: API not ready (HTTP $LAST_HTTP_CODE on /api/hosts)."
   exit 1
 fi
-if ! wait_http_ok "http://127.0.0.1:3001" 90; then
-  echo "Frontend health check failed."
+if ! wait_frontend_ok 90; then
+  echo "Frontend health check failed: frontend not ready (HTTP $LAST_HTTP_CODE on / or /version.json)."
   exit 1
 fi
 HOST_IP="$(resolve_host)"
