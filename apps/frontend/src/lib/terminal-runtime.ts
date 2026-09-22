@@ -529,11 +529,19 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
     const handleAttached = (detail: any = {}) => {
       if (detail.hostId && detail.hostId !== (activeHostIdRef.current || 'local')) return
       if (detail.sessionName && detail.sessionName !== sessionNameRef.current) return
-      // 新 attach 上下文里旧 session 的在途 resize/降级跟随已无意义
+      // 新 attach 上下文里旧 session 的在途 resize 已无意义
       pendingRemoteResizeRef.current = null
-      followedWindowSizeRef.current = null
       const cols = Number(detail.cols)
       const rows = Number(detail.rows)
+      // 必须以服务端 attached.exclusive 为准：ownership 降级后本地
+      // attachExclusiveRef 可能仍短暂为 true，若此时清 followed 并走独占
+      // fit，会用本机容器尺寸把刚被抢走的 window 再抢回来（xterm≠tmux）。
+      const serverExclusive = detail.exclusive === true
+      if (!serverExclusive) {
+        if (cols > 0 && rows > 0) followedWindowSizeRef.current = { cols, rows }
+      } else {
+        followedWindowSizeRef.current = null
+      }
       if (!terminal || disposed) return
       const hadOutputBeforeAttach = outputInput.consumeAttachOutputFlag()
       const switching = outputInput.isSwitchHolding()
@@ -552,7 +560,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
         // snapshot 拉取和恢复性 repaint 一律跳过：flush 写回的帧即权威画面，
         // 它们若揭开后落屏 = 二次重绘 + 字形重栅格化（先粗后细）。
         const willResize = cols > 0 && rows > 0 && (cols !== terminal.cols || rows !== terminal.rows)
-        if (attachExclusiveRef.current) {
+        if (serverExclusive) {
           const size = lastSizeRef.current
           const sizeChanged = !size || size.cols !== cols || size.rows !== rows
           if (willResize) switchMask.show()
@@ -575,7 +583,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
         .then(() => {
           revealMaskAfterWrites(generation, () => cols === terminal?.cols && rows === terminal?.rows)
         })
-      if (attachExclusiveRef.current) {
+      if (serverExclusive) {
         const size = lastSizeRef.current
         const sizeChanged = !size || size.cols !== cols || size.rows !== rows
         if (sizeChanged) layout.scheduleInitialFit()

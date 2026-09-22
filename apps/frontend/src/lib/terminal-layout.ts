@@ -384,7 +384,8 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
   const doFit = (force = false) => {
     const terminal = getTerminal()
     if (!terminal || isDisposed()) return false
-    if (!attachExclusiveRef.current) return false
+    // 仲裁降级跟随期间禁止独占 fit：否则容器 RO 抖动会用本机尺寸抢 window
+    if (!attachExclusiveRef.current || followedWindowSizeRef.current) return false
     try {
       const stickToBottom = isMobileDevice && !isTerminalScrolledBack()
       const currentWidth = container.clientWidth
@@ -614,8 +615,13 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
     const hadContainerSize = lastContainerSize.width > 0 && lastContainerSize.height > 0
     const widthChanged = Math.abs(width - lastContainerSize.width) > MOBILE_FIT_SIZE_TOLERANCE
     lastContainerSize = { width, height }
-    // 真实容器变化是新的尺寸主张：解除仲裁降级跟随，让独占 fit 重新抢回 window
-    followedWindowSizeRef.current = null
+    // 真实容器变化是新的尺寸主张：仅独占渲染时解除降级跟随并 fit；
+    // 非独占/跟随中清 followed 会误触发 doFit 抢 window
+    if (isExclusiveRender()) followedWindowSizeRef.current = null
+    else if (followedWindowSizeRef.current) {
+      // 保持跟随，但仍要走共享布局对齐
+      scheduleLayoutSync(0, true)
+    }
     resizeObservedSize = { width, height }
     resizeStableFrames = 0
     // 真实容器变化即算拖动活动（哪怕最终换算成相同行列）：远端静止窗以此为准，
