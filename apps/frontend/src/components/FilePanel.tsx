@@ -23,6 +23,7 @@ import { api, fetchApiBlob } from '@/lib/api'
 import { clearActiveDraggedFile, FILE_DRAG_MIME, readDraggedFile, setActiveDraggedFile } from '@/lib/editor-drag'
 import { emitStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import { MARKDOWN_PROSE_CLASS, renderMarkdown } from '@/lib/markdown'
+import { CsvTable } from './CsvTable'
 import { getFileIcon } from '@/lib/file-icons'
 import { ZoomSurface } from './ZoomSurface'
 import {
@@ -527,7 +528,8 @@ export function FilePanel({
   const [mobileEditLoading, setMobileEditLoading] = useState(false)
   const [mobileEditSaving, setMobileEditSaving] = useState(false)
   const [mobileEditConfirm, setMobileEditConfirm] = useState<null | 'enter' | 'exit'>(null)
-  const [mobileMarkdownContent, setMobileMarkdownContent] = useState<string | null>(null)
+  const [mobileFileContent, setMobileFileContent] = useState<string | null>(null)
+  const [mobileSourceView, setMobileSourceView] = useState(false)
   const [favoriteDirectories, setFavoriteDirectories] = useState<FavoriteDirectory[]>([])
   // 已取消但暂留显示的收藏项（key=`rootId:path`），host 切换或重载时清空
   const [unfavoritedEntries, setUnfavoritedEntries] = useState<Map<string, FavoriteDirectory>>(new Map())
@@ -548,6 +550,9 @@ export function FilePanel({
   const pendingSheetCloseAfterDiscardRef = useRef(false)
   const currentPathRef = useRef('')
   const mobileNavigationDepthRef = useRef(0)
+  // 跟随终端目录的返回锚点:跟随落到的 pane cwd 作为系统返回的"根目录",
+  // 到达该层后再次返回直接关闭文件 tab;越过它(面板内 ‹ 上一级)亦同
+  const mobileNavFloorRef = useRef<string | null>(null)
   const uploadInputRef = useRef<HTMLInputElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const lastFollowedEditorKeyRef = useRef('')
@@ -637,8 +642,17 @@ export function FilePanel({
     !preview.binary &&
     !preview.truncated &&
     !preview.reason
-  const isMarkdownPreview =
-    isMobile && mobileView === 'preview' && !!selectedPath && selectedPath.toLowerCase().endsWith('.md')
+  // 手机端默认渲染视图:md→markdown/html→iframe/csv→表格,其余文本走源码行号;
+  // 图片/svg 走 imagePreviewPath 分支天然渲染
+  const mobileRenderKind = useMemo<'markdown' | 'html' | 'csv' | null>(() => {
+    if (!isMobile || mobileView !== 'preview' || !selectedPath || !preview) return null
+    if (preview.type !== 'file' || preview.binary || preview.reason) return null
+    const lower = selectedPath.toLowerCase()
+    if (lower.endsWith('.md')) return 'markdown'
+    if (lower.endsWith('.html') || lower.endsWith('.htm')) return 'html'
+    if (lower.endsWith('.csv')) return 'csv'
+    return null
+  }, [isMobile, mobileView, preview, selectedPath])
   const searchResults = useMemo(
     () => rawSearchResults.slice(0, SEARCH_RESULT_LIMIT).map((item) => rebaseEntryPath(item, activeRootBasePath)),
     [rawSearchResults, activeRootBasePath],
@@ -844,6 +858,7 @@ export function FilePanel({
   useEffect(() => {
     currentPathRef.current = ''
     mobileNavigationDepthRef.current = 0
+    mobileNavFloorRef.current = null
     setSelectedRootId('')
     setCurrentPath('')
     setSelectedPath('')
@@ -1057,23 +1072,29 @@ export function FilePanel({
         return
       }
       if (!currentPathRef.current) return
+      // 跟随锚点之上不再上溯:位于锚点本身或锚点上方(面板 ‹ 上一级越过去)
+      // 时放行,由 sheet 层关闭文件 tab;锚点之下正常逐级上溯
+      const floor = followActivePath ? mobileNavFloorRef.current : null
+      if (floor && !currentPathRef.current.startsWith(`${floor}/`)) return
       detail.handled = true
       mobileNavigationDepthRef.current = Math.max(0, mobileNavigationDepthRef.current - 1)
       goMobileParentDirectory()
     }
     window.addEventListener('tmuxgo-mobile-files-back', handleBack as EventListener)
     return () => window.removeEventListener('tmuxgo-mobile-files-back', handleBack as EventListener)
-  }, [isMobile, mobileEditContent, mobileEditOpen, mobileEditSaved, mobileView])
+  }, [followActivePath, isMobile, mobileEditContent, mobileEditOpen, mobileEditSaved, mobileView])
   useEffect(() => {
     setMobileEditOpen(false)
     setMobileEditContent('')
     setMobileEditSaved('')
     setMobileEditConfirm(null)
+    setMobileSourceView(false)
   }, [mobileView, selectedPath])
   const switchRoot = (nextRootId: string) => {
     setSelectedRootId(nextRootId)
     currentPathRef.current = ''
     mobileNavigationDepthRef.current = 0
+    mobileNavFloorRef.current = null
     setCurrentPath('')
     setSelectedPath('')
     setSelectedPaths(new Set())
@@ -1247,6 +1268,8 @@ export function FilePanel({
   useEffect(() => {
     if (!paneCwdFollowTarget || followSuspended) return
     if (selectedRootId !== paneCwdFollowTarget.rootOptionId) switchRoot(paneCwdFollowTarget.rootOptionId)
+    // 锚点随跟随落点更新:同路径提前返回前也要先落锚,保证返回楼层存在
+    mobileNavFloorRef.current = paneCwdFollowTarget.path
     if (currentPathRef.current === paneCwdFollowTarget.path) return
     currentPathRef.current = paneCwdFollowTarget.path
     mobileNavigationDepthRef.current = 0
@@ -1977,23 +2000,23 @@ export function FilePanel({
     }
   }, [imagePreviewPath])
   useEffect(() => {
-    if (!isMarkdownPreview) {
-      setMobileMarkdownContent(null)
+    if (!mobileRenderKind) {
+      setMobileFileContent(null)
       return
     }
     let cancelled = false
-    setMobileMarkdownContent(null)
+    setMobileFileContent(null)
     void api.files
       .content(fileHostId, activeRootId, resolveRootRelativePath(activeRootBasePath, selectedPath!))
       .then((data) => {
         if (cancelled || data.binary || data.truncated || data.reason) return
-        setMobileMarkdownContent(data.content)
+        setMobileFileContent(data.content)
       })
       .catch(() => undefined)
     return () => {
       cancelled = true
     }
-  }, [activeRootBasePath, activeRootId, fileHostId, isMarkdownPreview, selectedPath])
+  }, [activeRootBasePath, activeRootId, fileHostId, mobileRenderKind, selectedPath])
   const previewBlock = preview ? (
     imagePreviewUrl ? (
       <div className="flex h-full min-h-0 flex-col">
@@ -2023,15 +2046,29 @@ export function FilePanel({
         </div>
         <div className="mt-1">{formatSize(preview.size)}</div>
       </div>
-    ) : isMarkdownPreview && mobileMarkdownContent !== null ? (
-      <ZoomSurface resetKey={selectedPath} className="tmuxgo-scrollbar h-full overflow-auto px-3 py-3">
-        <article
-          dangerouslySetInnerHTML={{
-            __html: renderMarkdown(mobileMarkdownContent) || `<p>${t('editor.nothingToPreview')}</p>`,
-          }}
-          className={MARKDOWN_PROSE_CLASS}
+    ) : mobileRenderKind && !mobileSourceView && mobileFileContent !== null ? (
+      mobileRenderKind === 'markdown' ? (
+        <ZoomSurface resetKey={selectedPath} className="tmuxgo-scrollbar h-full overflow-auto px-3 py-3">
+          <article
+            dangerouslySetInnerHTML={{
+              __html: renderMarkdown(mobileFileContent) || `<p>${t('editor.nothingToPreview')}</p>`,
+            }}
+            className={MARKDOWN_PROSE_CLASS}
+          />
+        </ZoomSurface>
+      ) : mobileRenderKind === 'csv' ? (
+        <div className="flex h-full min-h-0 flex-col">
+          <CsvTable content={mobileFileContent} emptyLabel={t('editor.nothingToPreview')} />
+        </div>
+      ) : (
+        <iframe
+          title={preview.path}
+          srcDoc={mobileFileContent}
+          sandbox="allow-downloads allow-forms allow-modals allow-popups allow-scripts"
+          referrerPolicy="no-referrer"
+          className="h-full w-full border-0 bg-white"
         />
-      </ZoomSurface>
+      )
     ) : (
       <div className="tmuxgo-scrollbar h-full overflow-auto p-2 font-mono text-meta leading-5">
         {preview.lines.map((line) => (
@@ -2855,6 +2892,14 @@ export function FilePanel({
                 >
                   {t('file.insertPath')}
                 </button>
+                {mobileRenderKind && (
+                  <button
+                    onClick={() => setMobileSourceView((value) => !value)}
+                    className="rounded-apple bg-bg-2 px-3 py-3 text-sm text-text-1 active:scale-[0.98]"
+                  >
+                    {mobileSourceView ? t('file.mobileViewRendered') : t('file.mobileViewSource')}
+                  </button>
+                )}
                 {mobileEditable && (
                   <button
                     onClick={openMobileEditor}
