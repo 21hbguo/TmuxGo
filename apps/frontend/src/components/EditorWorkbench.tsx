@@ -25,12 +25,13 @@ import { ZoomSurface } from './ZoomSurface'
 import { Chip } from './Chip'
 import { ConfirmDialog } from './ConfirmDialog'
 import { DiffViewer } from './DiffViewer'
-import { CsvTable } from './CsvTable'
 import dynamic from '@/lib/dynamic'
 import { FiArrowLeft, FiArrowRight, FiCode } from 'react-icons/fi'
 
 const MonacoEditor = dynamic(() => import('@monaco-editor/react').then((mod) => ({ default: mod.default })))
 const MonacoDiffEditor = dynamic(() => import('@monaco-editor/react').then((mod) => ({ default: mod.DiffEditor })))
+// CSV 预览仅在打开 csv 预览时用，懒加载避免进主入口静态依赖
+const CsvTable = dynamic(() => import('./CsvTable').then((mod) => ({ default: mod.CsvTable })))
 const AUTO_SCROLL_DEADZONE = 10
 const AUTO_SCROLL_MAX_STEP = 42
 const EDGE_DROP_RATIO = 0.22
