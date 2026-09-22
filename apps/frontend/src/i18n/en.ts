@@ -1114,6 +1114,8 @@ export const en = {
   'vnc.fullscreen': 'Fullscreen',
   'vnc.minimize': 'Minimize',
   'vnc.windowed': 'Windowed',
+  'vnc.fullView': 'Full view',
+  'vnc.moreActions': 'More actions',
   'vnc.connect': 'Connect',
   'vnc.disconnect': 'Disconnect',
   'vnc.connecting': 'Connecting…',

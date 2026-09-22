@@ -1262,3 +1262,46 @@ a {
   box-shadow: inset 2px 0 0 rgb(var(--accent) / 0.65);
   border-radius: 4px;
 }
+
+/* 快速 tooltip：读 data-tip 替代原生 title（OS 级 ~1.5s 延迟太慢）。
+   仅 hover 能力设备启用——触屏没有 hover，showing 气泡反而挡点击 */
+@media (hover: hover) {
+  .tmuxgo-tip {
+    position: relative;
+  }
+  .tmuxgo-tip::after {
+    content: attr(data-tip);
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 60;
+    padding: 3px 8px;
+    border: 1px solid var(--glass-rim);
+    border-radius: 6px;
+    background: var(--glass-fill-strong);
+    color: rgb(var(--text-1));
+    font-size: 11px;
+    line-height: 1.4;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    transition:
+      opacity 0.12s ease,
+      visibility 0s linear 0.34s;
+  }
+  .tmuxgo-tip:hover::after {
+    opacity: 1;
+    visibility: visible;
+    transition:
+      opacity 0.12s ease 0.2s,
+      visibility 0s;
+  }
+  /* 贴右缘的按钮：气泡右对齐防溢出 section overflow-hidden 裁掉 */
+  .tmuxgo-tip--right::after {
+    left: auto;
+    right: 0;
+    transform: none;
+  }
+}
