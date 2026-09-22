@@ -109,6 +109,17 @@ vi.mock('@/i18n', () => ({
         'vnc.landscapeFullscreen': 'Rotate & fullscreen',
         'vnc.mobileKeyboard': 'Keyboard input',
         'vnc.mobileKeyboardPlaceholder': 'Type to send keys',
+        'vnc.viewOnly': 'View only',
+        'vnc.sendCad': 'Send Ctrl+Alt+Del',
+        'vnc.tuning': 'Display tuning',
+        'vnc.showStats': 'Show stats',
+        'vnc.minimize': 'Minimize',
+        'vnc.fullscreen': 'Fullscreen',
+        'vnc.windowed': 'Windowed',
+        'vnc.fullView': 'Full view',
+        'vnc.moreActions': 'More actions',
+        'vnc.paste': 'Paste',
+        'vnc.disconnect': 'Disconnect',
         'common.close': 'Close',
       }
       return map[key] || key
@@ -313,6 +324,75 @@ describe('DesktopView VNC password memory', () => {
     })
     await waitFor(() => expect(screen.getByText('vnc.displayDetected')).toBeTruthy())
     expect(displaysMock).toHaveBeenCalled()
+  })
+
+  it('collapses low-frequency buttons into the overflow menu on mobile', async () => {
+    mobileMatches = true
+    renderView()
+    await waitFor(() => expect(lastRfb()).toBeTruthy())
+    // 低频按钮不在 header,窗口化移动端隐藏
+    expect(screen.queryByRole('button', { name: 'View only' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Display tuning' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Minimize' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Windowed' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }))
+    // 菜单项 icon+label 行；点击执行原动作并关菜单
+    expect(screen.getByText('View only')).toBeTruthy()
+    expect(screen.getByText('Minimize')).toBeTruthy()
+    fireEvent.click(screen.getByText('View only'))
+    expect(screen.queryByText('View only')).toBeNull()
+  })
+
+  it('keeps every toolbar button inline on desktop and toggles windowed view', async () => {
+    const onViewChange = vi.fn()
+    render(
+      <DesktopView
+        hostId="local"
+        port={5900}
+        view="full"
+        onViewChange={onViewChange}
+        onMinimize={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    )
+    await waitFor(() => expect(lastRfb()).toBeTruthy())
+    expect(screen.getByRole('button', { name: 'View only' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Display tuning' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Minimize' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'More actions' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Windowed' }))
+    expect(onViewChange).toHaveBeenCalledWith('window')
+  })
+
+  it('requests real browser fullscreen on the root section instead of switching view', async () => {
+    const requestFullscreen = vi.fn().mockResolvedValue(undefined)
+    const exitFullscreen = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(window.HTMLElement.prototype, 'requestFullscreen', {
+      configurable: true,
+      value: requestFullscreen,
+    })
+    Object.defineProperty(document, 'exitFullscreen', { configurable: true, value: exitFullscreen })
+    const onViewChange = vi.fn()
+    try {
+      render(
+        <DesktopView
+          hostId="local"
+          port={5900}
+          view="full"
+          onViewChange={onViewChange}
+          onMinimize={vi.fn()}
+          onClose={vi.fn()}
+        />,
+      )
+      await waitFor(() => expect(lastRfb()).toBeTruthy())
+      fireEvent.click(screen.getByRole('button', { name: 'Fullscreen' }))
+      expect(requestFullscreen).toHaveBeenCalledTimes(1)
+      // 语义是浏览器全屏,不再是 app 内铺满切换
+      expect(onViewChange).not.toHaveBeenCalled()
+    } finally {
+      delete (window.HTMLElement.prototype as any).requestFullscreen
+      delete (document as any).exitFullscreen
+    }
   })
 
   it('does not suggest displays when the attempted display itself is running', async () => {

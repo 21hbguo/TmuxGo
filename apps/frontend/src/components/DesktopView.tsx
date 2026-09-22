@@ -9,9 +9,11 @@ import {
   FiEyeOff,
   FiKey,
   FiMaximize2,
+  FiMinimize,
   FiMinimize2,
   FiMinus,
   FiMonitor,
+  FiMoreHorizontal,
   FiPlay,
   FiSliders,
   FiSquare,
@@ -120,6 +122,10 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
   // 虚拟屏选择器：displays 为 null 表示尚未探测
   const [displays, setDisplays] = useState<VncDisplay[] | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false)
+  // 真·浏览器全屏状态：fullscreenElement 驱动，fullscreenchange 同步图标/高亮
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const sectionRef = useRef<HTMLElement | null>(null)
   const [displayBusy, setDisplayBusy] = useState<number | null>(null)
   const [displayHint, setDisplayHint] = useState('')
   const [customPort, setCustomPort] = useState('')
@@ -504,6 +510,22 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
       })
       .catch(() => {})
   }
+  useEffect(() => {
+    const onFullscreenChange = () => setIsFullscreen(Boolean(document.fullscreenElement))
+    document.addEventListener('fullscreenchange', onFullscreenChange)
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange)
+  }, [])
+  const toggleFullscreen = () => {
+    // 移动端 overlay 本就铺满，view:'full' 是死按钮；统一走横屏全屏（iOS 静默失败可接受）。
+    // PC 端对根 section 做真 requestFullscreen：windowed 模式下也只全屏桌面本体，
+    // 不拖外层 overlay；进出全屏不动 RFB 连接
+    if (isMobileLayout) {
+      enterLandscapeFullscreen()
+      return
+    }
+    if (document.fullscreenElement) void document.exitFullscreen()
+    else void sectionRef.current?.requestFullscreen?.()
+  }
   const sendMobileKey = (keysym: number, code = '') => {
     rfbRef.current?.sendKey(keysym, code, true)
     rfbRef.current?.sendKey(keysym, code, false)
@@ -721,7 +743,7 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
             ? t('vnc.disconnected')
             : ''
   return (
-    <section className="tmuxgo-content-surface flex h-full min-h-0 flex-col overflow-hidden">
+    <section ref={sectionRef} className="tmuxgo-content-surface flex h-full min-h-0 flex-col overflow-hidden">
       <header
         data-desktop-titlebar
         className={`flex h-11 shrink-0 items-center gap-2 border-b border-[var(--line)] px-3 ${
@@ -747,8 +769,8 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
               if (next) void refreshDisplays()
             }}
             aria-label={t('vnc.displays')}
-            title={t('vnc.displays')}
-            className="flex h-7 items-center gap-1.5 rounded-apple border border-[var(--line)] bg-bg-1 px-2 text-xs text-text-1 outline-none hover:border-accent"
+            data-tip={t('vnc.displays')}
+            className="tmuxgo-tip flex h-7 items-center gap-1.5 rounded-apple border border-[var(--line)] bg-bg-1 px-2 text-xs text-text-1 outline-none hover:border-accent"
           >
             <span
               className="inline-block h-2 w-2 rounded-full"
@@ -764,97 +786,106 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
             :{selectedDisplay}
           </button>
           {pickerOpen && (
-            <div className="tmuxgo-glass absolute left-0 top-8 z-20 flex w-52 flex-col gap-0.5 rounded-apple-lg p-1.5 text-xs text-text-1">
-              {/* 基础候选 :0-:9 ∪ 已探测到的运行中 display ∪ 当前选中项 */}
-              {[...new Set([...Array(10).keys(), ...(displays || []).map((d) => d.display), selectedDisplay])]
-                .sort((a, b) => a - b)
-                .map((n) => {
-                  const running = displays?.find((d) => d.display === n)
-                  const busy = displayBusy === n
-                  return (
-                    <div
-                      key={n}
-                      className={`group flex h-7 items-center gap-2 rounded-apple px-2 ${
-                        n === selectedDisplay ? 'bg-[var(--accent)]/10' : 'hover:bg-[var(--line)]/40'
-                      }`}
-                    >
-                      <span
-                        className={`inline-block h-2 w-2 shrink-0 rounded-full ${busy ? 'animate-pulse' : ''}`}
-                        style={{
-                          background: busy ? 'var(--warning, #d29922)' : running ? 'var(--accent-2)' : 'var(--text-3)',
-                        }}
-                      />
-                      <button
-                        type="button"
-                        className="flex min-w-0 flex-1 items-baseline gap-1.5 text-left"
-                        onClick={() => {
-                          if (running) connectPort(VNC_PORT_RANGE.min + n)
-                          else {
-                            setSelectedDisplay(n)
-                            setPickerOpen(false)
-                          }
-                        }}
-                      >
-                        <span className="font-mono">:{n}</span>
-                        <span className="truncate text-text-3">
-                          {running?.process || `59${String(n).padStart(2, '0')}`}
-                        </span>
-                      </button>
-                      <span className="shrink-0 font-mono text-[10px] text-text-3">
-                        {running?.rssKB ? formatSize(running.rssKB * 1024) : '~'}
-                      </span>
-                      <button
-                        type="button"
-                        disabled={busy}
-                        aria-label={running ? t('vnc.displayStop') : t('vnc.displayStart')}
-                        title={running ? t('vnc.displayStop') : t('vnc.displayStart')}
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          void displayAction(running ? 'stop' : 'start', n)
-                        }}
-                        className={`shrink-0 opacity-0 transition-opacity group-hover:opacity-100 disabled:opacity-50 ${
-                          running ? 'text-red-400 hover:text-red-300' : 'text-accent-2 hover:text-accent'
+            <>
+              {/* 触屏无 mouseleave：fixed backdrop 兜底点击外部关闭 */}
+              <div className="fixed inset-0 z-10" onClick={() => setPickerOpen(false)} />
+              <div className="tmuxgo-glass absolute left-0 top-8 z-20 flex w-52 flex-col gap-0.5 rounded-apple-lg p-1.5 text-xs text-text-1">
+                {/* 基础候选 :0-:9 ∪ 已探测到的运行中 display ∪ 当前选中项 */}
+                {[...new Set([...Array(10).keys(), ...(displays || []).map((d) => d.display), selectedDisplay])]
+                  .sort((a, b) => a - b)
+                  .map((n) => {
+                    const running = displays?.find((d) => d.display === n)
+                    const busy = displayBusy === n
+                    return (
+                      <div
+                        key={n}
+                        className={`group flex h-7 items-center gap-2 rounded-apple px-2 ${
+                          n === selectedDisplay ? 'bg-[var(--accent)]/10' : 'hover:bg-[var(--line)]/40'
                         }`}
                       >
-                        {running ? <FiSquare size={11} /> : <FiPlay size={11} />}
-                      </button>
-                    </div>
-                  )
-                })}
-              {displays === null && <div className="px-2 py-1 text-text-3">{t('vnc.displaysLoading')}</div>}
-              {displayHint && <div className="px-2 py-1 text-[11px] text-warning">{displayHint}</div>}
-              {/* 兜底：列表外的端口手动输入（候选覆盖不到的非标准 display 仍可连） */}
-              <div className="mt-0.5 flex items-center gap-1.5 border-t border-[var(--line)]/50 px-2 pt-1.5">
-                <input
-                  value={customPort}
-                  onChange={(event) => setCustomPort(event.target.value.replace(/\D/g, '').slice(0, 4))}
-                  onKeyDown={(event) => {
-                    if (event.key !== 'Enter') return
-                    const next = Number(customPort)
-                    if (Number.isInteger(next) && next >= VNC_PORT_RANGE.min && next <= VNC_PORT_RANGE.max)
-                      connectPort(next)
-                  }}
-                  inputMode="numeric"
-                  placeholder="5900-5999"
-                  aria-label={t('vnc.customPort')}
-                  title={t('vnc.customPort')}
-                  className="h-6 min-w-0 flex-1 rounded-apple border border-[var(--line)] bg-bg-1 px-1.5 font-mono text-xs text-text-1 outline-none focus:border-accent"
-                />
-                <button
-                  type="button"
-                  aria-label={t('vnc.connect')}
-                  title={t('vnc.connect')}
-                  onClick={() => {
-                    const next = Number(customPort)
-                    if (Number.isInteger(next) && next >= VNC_PORT_RANGE.min && next <= VNC_PORT_RANGE.max)
-                      connectPort(next)
-                  }}
-                  className="shrink-0 text-accent hover:text-accent-2"
-                >
-                  <FiPlay size={11} />
-                </button>
+                        <span
+                          className={`inline-block h-2 w-2 shrink-0 rounded-full ${busy ? 'animate-pulse' : ''}`}
+                          style={{
+                            background: busy
+                              ? 'var(--warning, #d29922)'
+                              : running
+                                ? 'var(--accent-2)'
+                                : 'var(--text-3)',
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="flex min-w-0 flex-1 items-baseline gap-1.5 text-left"
+                          onClick={() => {
+                            if (running) connectPort(VNC_PORT_RANGE.min + n)
+                            else {
+                              setSelectedDisplay(n)
+                              setPickerOpen(false)
+                            }
+                          }}
+                        >
+                          <span className="font-mono">:{n}</span>
+                          <span className="truncate text-text-3">
+                            {running?.process || `59${String(n).padStart(2, '0')}`}
+                          </span>
+                        </button>
+                        <span className="shrink-0 font-mono text-[10px] text-text-3">
+                          {running?.rssKB ? formatSize(running.rssKB * 1024) : '~'}
+                        </span>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          aria-label={running ? t('vnc.displayStop') : t('vnc.displayStart')}
+                          data-tip={running ? t('vnc.displayStop') : t('vnc.displayStart')}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            void displayAction(running ? 'stop' : 'start', n)
+                          }}
+                          // 触屏没有 hover：[@media(hover:none)] 常显，否则仍 hover 才出
+                          className={`tmuxgo-tip shrink-0 opacity-0 transition-opacity group-hover:opacity-100 [@media(hover:none)]:opacity-100 disabled:opacity-50 ${
+                            running ? 'text-red-400 hover:text-red-300' : 'text-accent-2 hover:text-accent'
+                          }`}
+                        >
+                          {running ? <FiSquare size={11} /> : <FiPlay size={11} />}
+                        </button>
+                      </div>
+                    )
+                  })}
+                {displays === null && <div className="px-2 py-1 text-text-3">{t('vnc.displaysLoading')}</div>}
+                {displayHint && <div className="px-2 py-1 text-[11px] text-warning">{displayHint}</div>}
+                {/* 兜底：列表外的端口手动输入（候选覆盖不到的非标准 display 仍可连） */}
+                <div className="mt-0.5 flex items-center gap-1.5 border-t border-[var(--line)]/50 px-2 pt-1.5">
+                  <input
+                    value={customPort}
+                    onChange={(event) => setCustomPort(event.target.value.replace(/\D/g, '').slice(0, 4))}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Enter') return
+                      const next = Number(customPort)
+                      if (Number.isInteger(next) && next >= VNC_PORT_RANGE.min && next <= VNC_PORT_RANGE.max)
+                        connectPort(next)
+                    }}
+                    inputMode="numeric"
+                    placeholder="5900-5999"
+                    aria-label={t('vnc.customPort')}
+                    title={t('vnc.customPort')}
+                    className="h-6 min-w-0 flex-1 rounded-apple border border-[var(--line)] bg-bg-1 px-1.5 font-mono text-xs text-text-1 outline-none focus:border-accent"
+                  />
+                  <button
+                    type="button"
+                    aria-label={t('vnc.connect')}
+                    data-tip={t('vnc.connect')}
+                    onClick={() => {
+                      const next = Number(customPort)
+                      if (Number.isInteger(next) && next >= VNC_PORT_RANGE.min && next <= VNC_PORT_RANGE.max)
+                        connectPort(next)
+                    }}
+                    className="tmuxgo-tip shrink-0 text-accent hover:text-accent-2"
+                  >
+                    <FiPlay size={11} />
+                  </button>
+                </div>
               </div>
-            </div>
+            </>
           )}
         </div>
         {status === 'connected' || status === 'connecting' ? (
@@ -863,7 +894,8 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
             size="icon-sm"
             onClick={disconnect}
             aria-label={t('vnc.disconnect')}
-            title={t('vnc.disconnect')}
+            data-tip={t('vnc.disconnect')}
+            className="tmuxgo-tip"
           >
             <FiSquare size={14} />
           </Button>
@@ -873,31 +905,38 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
             size="icon-sm"
             onClick={handleConnect}
             aria-label={t('vnc.connect')}
-            title={t('vnc.connect')}
+            data-tip={t('vnc.connect')}
+            className="tmuxgo-tip"
           >
             <FiPlay size={14} />
           </Button>
         )}
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={() => setViewOnly((value) => !value)}
-          aria-label={t('vnc.viewOnly')}
-          title={t('vnc.viewOnly')}
-          className={viewOnly ? 'text-accent' : ''}
-        >
-          {viewOnly ? <FiEyeOff size={14} /> : <FiEye size={14} />}
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={() => rfbRef.current?.sendCtrlAltDel()}
-          disabled={status !== 'connected' || viewOnly}
-          aria-label={t('vnc.sendCad')}
-          title={t('vnc.sendCad')}
-        >
-          <FiKey size={14} />
-        </Button>
+        {/* 移动端低频按钮收进溢出菜单：header 12 个 icon ≈570px > 375px 屏宽会被裁掉 */}
+        {!isMobileLayout && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => setViewOnly((value) => !value)}
+            aria-label={t('vnc.viewOnly')}
+            data-tip={t('vnc.viewOnly')}
+            className={`tmuxgo-tip ${viewOnly ? 'text-accent' : ''}`}
+          >
+            {viewOnly ? <FiEyeOff size={14} /> : <FiEye size={14} />}
+          </Button>
+        )}
+        {!isMobileLayout && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => rfbRef.current?.sendCtrlAltDel()}
+            disabled={status !== 'connected' || viewOnly}
+            aria-label={t('vnc.sendCad')}
+            data-tip={t('vnc.sendCad')}
+            className="tmuxgo-tip"
+          >
+            <FiKey size={14} />
+          </Button>
+        )}
         {isMobileLayout && (
           <Button
             variant="ghost"
@@ -905,8 +944,8 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
             onClick={toggleMobileKeyboard}
             disabled={status !== 'connected' || viewOnly}
             aria-label={t('vnc.mobileKeyboard')}
-            title={t('vnc.mobileKeyboard')}
-            className={mobileKeyboardOpen ? 'text-accent' : ''}
+            data-tip={t('vnc.mobileKeyboard')}
+            className={`tmuxgo-tip ${mobileKeyboardOpen ? 'text-accent' : ''}`}
           >
             <FiType size={14} />
           </Button>
@@ -917,11 +956,12 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
           onClick={() => void pasteClipboard()}
           disabled={status !== 'connected' || viewOnly}
           aria-label={t('vnc.paste')}
-          title={t('vnc.paste')}
+          data-tip={t('vnc.paste')}
+          className="tmuxgo-tip"
         >
           <FiClipboard size={14} />
         </Button>
-        {status !== 'connected' && status !== 'connecting' && (
+        {!isMobileLayout && status !== 'connected' && status !== 'connecting' && (
           <Button
             variant="ghost"
             size="icon-sm"
@@ -931,67 +971,171 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
               if (next && !setupInfo && !setupBusy) void checkSetup()
             }}
             aria-label={t('vnc.setupCheck')}
-            title={t('vnc.setupCheck')}
-            className={setupOpen ? 'text-accent' : ''}
+            data-tip={t('vnc.setupCheck')}
+            className={`tmuxgo-tip ${setupOpen ? 'text-accent' : ''}`}
           >
             <FiTool size={14} />
+          </Button>
+        )}
+        {!isMobileLayout && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => setTuningOpen((value) => !value)}
+            aria-label={t('vnc.tuning')}
+            data-tip={t('vnc.tuning')}
+            className={`tmuxgo-tip ${tuningOpen ? 'text-accent' : ''}`}
+          >
+            <FiSliders size={14} />
+          </Button>
+        )}
+        {!isMobileLayout && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => setShowStats((value) => !value)}
+            aria-label={t('vnc.showStats')}
+            data-tip={t('vnc.showStats')}
+            className={`tmuxgo-tip ${showStats ? 'text-accent' : ''}`}
+          >
+            <FiActivity size={14} />
           </Button>
         )}
         <Button
           variant="ghost"
           size="icon-sm"
-          onClick={() => setTuningOpen((value) => !value)}
-          aria-label={t('vnc.tuning')}
-          title={t('vnc.tuning')}
-          className={tuningOpen ? 'text-accent' : ''}
-        >
-          <FiSliders size={14} />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={() => setShowStats((value) => !value)}
-          aria-label={t('vnc.showStats')}
-          title={t('vnc.showStats')}
-          className={showStats ? 'text-accent' : ''}
-        >
-          <FiActivity size={14} />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={() => onViewChange('full')}
+          onClick={toggleFullscreen}
           aria-label={t('vnc.fullscreen')}
-          title={t('vnc.fullscreen')}
-          className={view === 'full' ? 'text-accent' : ''}
+          data-tip={t('vnc.fullscreen')}
+          className={`tmuxgo-tip ${isFullscreen ? 'text-accent' : ''}`}
         >
-          <FiMaximize2 size={14} />
+          {isFullscreen ? <FiMinimize size={14} /> : <FiMaximize2 size={14} />}
         </Button>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={onMinimize}
-          aria-label={t('vnc.minimize')}
-          title={t('vnc.minimize')}
-        >
-          <FiMinus size={14} />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={() => onViewChange('window')}
-          aria-label={t('vnc.windowed')}
-          title={t('vnc.windowed')}
-          className={view === 'window' ? 'text-accent' : ''}
-        >
-          <FiMinimize2 size={14} />
-        </Button>
+        {!isMobileLayout && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={onMinimize}
+            aria-label={t('vnc.minimize')}
+            data-tip={t('vnc.minimize')}
+            className="tmuxgo-tip"
+          >
+            <FiMinus size={14} />
+          </Button>
+        )}
+        {/* 窗口化仅 PC:MIN_W=420 > 移动屏宽,修好前不给入口;view==='window' 时点击回 'full' */}
+        {!isMobileLayout && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => onViewChange(view === 'window' ? 'full' : 'window')}
+            aria-label={view === 'window' ? t('vnc.fullView') : t('vnc.windowed')}
+            data-tip={view === 'window' ? t('vnc.fullView') : t('vnc.windowed')}
+            className={`tmuxgo-tip ${view === 'window' ? 'text-accent' : ''}`}
+          >
+            <FiMinimize2 size={14} />
+          </Button>
+        )}
+        {isMobileLayout && (
+          <div className="relative">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => setMoreOpen((value) => !value)}
+              aria-label={t('vnc.moreActions')}
+              data-tip={t('vnc.moreActions')}
+              className={`tmuxgo-tip tmuxgo-tip--right ${moreOpen ? 'text-accent' : ''}`}
+            >
+              <FiMoreHorizontal size={14} />
+            </Button>
+            {moreOpen && (
+              <>
+                {/* 触屏无 hover,backdrop 兜底点击外部关闭 */}
+                <div className="fixed inset-0 z-10" onClick={() => setMoreOpen(false)} />
+                <div className="tmuxgo-glass absolute right-0 top-8 z-20 flex w-44 flex-col gap-0.5 rounded-apple-lg p-1.5 text-xs text-text-1">
+                  {(
+                    [
+                      {
+                        key: 'viewOnly',
+                        icon: viewOnly ? FiEyeOff : FiEye,
+                        label: t('vnc.viewOnly'),
+                        active: viewOnly,
+                        onClick: () => setViewOnly((value) => !value),
+                      },
+                      {
+                        key: 'sendCad',
+                        icon: FiKey,
+                        label: t('vnc.sendCad'),
+                        disabled: status !== 'connected' || viewOnly,
+                        onClick: () => rfbRef.current?.sendCtrlAltDel(),
+                      },
+                      // setupCheck 与 header 内联版同条件：仅未连接时出现
+                      ...(status !== 'connected' && status !== 'connecting'
+                        ? [
+                            {
+                              key: 'setupCheck',
+                              icon: FiTool,
+                              label: t('vnc.setupCheck'),
+                              active: setupOpen,
+                              onClick: () => {
+                                const next = !setupOpen
+                                setSetupOpen(next)
+                                if (next && !setupInfo && !setupBusy) void checkSetup()
+                              },
+                            },
+                          ]
+                        : []),
+                      {
+                        key: 'tuning',
+                        icon: FiSliders,
+                        label: t('vnc.tuning'),
+                        active: tuningOpen,
+                        onClick: () => setTuningOpen((value) => !value),
+                      },
+                      {
+                        key: 'stats',
+                        icon: FiActivity,
+                        label: t('vnc.showStats'),
+                        active: showStats,
+                        onClick: () => setShowStats((value) => !value),
+                      },
+                      {
+                        key: 'minimize',
+                        icon: FiMinus,
+                        label: t('vnc.minimize'),
+                        onClick: onMinimize,
+                      },
+                    ] as const
+                  ).map((item) => (
+                    <button
+                      key={item.key}
+                      type="button"
+                      disabled={'disabled' in item ? item.disabled : false}
+                      onClick={() => {
+                        item.onClick()
+                        setMoreOpen(false)
+                      }}
+                      className="flex w-full items-center gap-2 rounded-apple px-2.5 py-2 text-left transition-colors hover:bg-[var(--line)]/40 disabled:opacity-40"
+                    >
+                      <item.icon
+                        size={13}
+                        className={`shrink-0 ${'active' in item && item.active ? 'text-accent' : 'text-text-3'}`}
+                      />
+                      <span className="truncate">{item.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
         <Button
           variant="ghost"
           size="icon-sm"
           onClick={onClose}
           aria-label={t('common.close')}
-          title={t('common.close')}
+          data-tip={t('common.close')}
+          className="tmuxgo-tip tmuxgo-tip--right"
         >
           <FiX size={15} />
         </Button>
@@ -1099,7 +1243,8 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
               size="sm"
               disabled={!prevTuning || sameVncTuning(prevTuning, tuning)}
               onClick={() => prevTuning && applyTuning({ ...prevTuning })}
-              title={prevTuning ? `${prevTuning.quality}/${prevTuning.compression}/${prevTuning.maxFps}` : undefined}
+              data-tip={prevTuning ? `${prevTuning.quality}/${prevTuning.compression}/${prevTuning.maxFps}` : undefined}
+              className="tmuxgo-tip"
             >
               {t('vnc.restorePrev')}
             </Button>
@@ -1258,7 +1403,8 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
                           size="icon-sm"
                           onClick={() => void copyManualCommand(setupInfo.manualCommand)}
                           aria-label={t('vnc.copyCommand')}
-                          title={t('vnc.copyCommand')}
+                          data-tip={t('vnc.copyCommand')}
+                          className="tmuxgo-tip"
                         >
                           <FiCopy size={13} />
                         </Button>

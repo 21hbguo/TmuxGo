@@ -1108,6 +1108,8 @@ export const zh = {
   'vnc.fullscreen': '全屏',
   'vnc.minimize': '最小化',
   'vnc.windowed': '窗口化',
+  'vnc.fullView': '铺满视图',
+  'vnc.moreActions': '更多操作',
   'vnc.connect': '连接',
   'vnc.disconnect': '断开',
   'vnc.connecting': '连接中…',
