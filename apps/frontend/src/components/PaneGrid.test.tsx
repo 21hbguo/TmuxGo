@@ -13,6 +13,8 @@ const subscribeOutputMock = vi.hoisted(() =>
 const socketState = vi.hoisted(() => ({ isConnected: false, isSocketReady: true }))
 const retryConnectionMock = vi.hoisted(() => vi.fn())
 const windowsData = vi.hoisted(() => [] as any[])
+const hostsMockData = vi.hoisted(() => ({ value: [{ id: 'local' }] as any[] | undefined }))
+const orderedSessionsData = vi.hoisted(() => ({ value: [] as any[] }))
 const terminalProps = vi.hoisted(() => ({
   current: null as null | {
     sessionName?: string
@@ -72,11 +74,12 @@ vi.mock('@/hooks/useMobileKeyboard', () => ({
   isMobileDevice: () => false,
 }))
 vi.mock('@/hooks/useApi', () => ({
+  useHosts: () => ({ data: hostsMockData.value }),
   useWindows: () => ({ data: windowsData }),
   useSessionSnapshot: () => ({ data: null }),
 }))
 vi.mock('@/hooks/useOrderedSessions', () => ({
-  useOrderedSessions: () => ({ data: [] }),
+  useOrderedSessions: () => ({ data: orderedSessionsData.value }),
 }))
 vi.mock('@/hooks/useWindowQueryState', () => ({
   useWindowQueryState: () => ({ getWindows: () => [], setWindows: vi.fn() }),
@@ -191,6 +194,8 @@ describe('PaneGrid', () => {
     socketState.isConnected = false
     socketState.isSocketReady = true
     terminalProps.current = null
+    hostsMockData.value = [{ id: 'local' }]
+    orderedSessionsData.value = []
     continuityState.value = {
       enabled: false,
       archive: { enabled: false, captureMode: 'none', maxBytesPerSession: 262144, retentionDays: 7 },
@@ -938,6 +943,8 @@ describe('multi-device exclusive ownership', () => {
     socketState.isConnected = false
     socketState.isSocketReady = true
     terminalProps.current = null
+    hostsMockData.value = [{ id: 'local' }]
+    orderedSessionsData.value = []
     continuityState.value = {
       enabled: false,
       archive: { enabled: false, captureMode: 'none', maxBytesPerSession: 262144, retentionDays: 7 },
@@ -1081,6 +1088,32 @@ describe('multi-device exclusive ownership', () => {
     view.rerender(<PaneGrid />)
     await new Promise((resolve) => setTimeout(resolve, 30))
     expect(sendMock.mock.calls.filter(([message]) => message?.type === 'input')).toHaveLength(0)
+  })
+
+  it('empty state offers next-step entry for each scenario', () => {
+    useConsoleStore.setState({ activeSessionId: '' } as any)
+    // 有主机无会话 → 新建会话（SessionPanel 监听 tmuxgo-open-create-session）
+    const listener = vi.fn()
+    window.addEventListener('tmuxgo-open-create-session', listener)
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'grid.createSession' }))
+    expect(listener).toHaveBeenCalled()
+    expect(useConsoleStore.getState().sessionPanelExpanded).toBe(true)
+    window.removeEventListener('tmuxgo-open-create-session', listener)
+  })
+  it('empty state offers select-recent when sessions exist', () => {
+    orderedSessionsData.value = [{ id: 'session-dev1' }]
+    useConsoleStore.setState({ activeSessionId: '' } as any)
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'grid.selectRecent' }))
+    expect(useConsoleStore.getState().activeSessionId).toBe('session-dev1')
+  })
+  it('empty state offers add-host when no hosts are configured', () => {
+    hostsMockData.value = []
+    useConsoleStore.setState({ activeSessionId: '' } as any)
+    render(<PaneGrid />)
+    expect(screen.getByRole('button', { name: 'grid.addHost' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'grid.createSession' })).toBeNull()
   })
 
   it('auto-flushes queued input after reconnect and offers a retry entry', async () => {

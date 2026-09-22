@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useFileList, useFilePreview, useFileRoots, useFileSearch, usePaneCwd } from '@/hooks/useApi'
+import { useFileList, useFilePreview, useFileRoots, useFileSearch, useHosts, usePaneCwd } from '@/hooks/useApi'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useSessionWorkspaces } from '@/hooks/useSessionWorkspaces'
 import { isMobileDevice } from '@/hooks/useMobileKeyboard'
@@ -494,6 +494,9 @@ export function FilePanel({
   const { t } = useTranslation()
   const { prompt, PromptElement } = usePrompt()
   const fileHostId = activeHostId || 'local'
+  const { data: hostsData = [] } = useHosts()
+  const activeHostStatus = hostsData.find((host) => host.id === fileHostId)?.status
+  const hostOffline = activeHostStatus === 'offline' || activeHostStatus === 'unreachable'
   const { data: roots = [] } = useFileRoots(fileHostId)
   const isPicker = mode === 'picker'
   const isMobile = mode === 'mobile' || (isPicker && isMobileDevice())
@@ -615,13 +618,11 @@ export function FilePanel({
     setListPageLimit(undefined)
   }, [listQueryPath, activeRootId, activeRootBasePath])
   const previewQueryPath = joinRelativePath(activeRootBasePath, selectedPath)
-  const { data: rawListData, isLoading: listLoading } = useFileList(
-    fileHostId,
-    activeRootId,
-    listQueryPath,
-    true,
-    listPageLimit,
-  )
+  const {
+    data: rawListData,
+    isLoading: listLoading,
+    isError: listError,
+  } = useFileList(fileHostId, activeRootId, listQueryPath, true, listPageLimit)
   const { data: rawPreview } = useFilePreview(fileHostId, activeRootId, previewQueryPath, selectedPreviewLine)
   const searchBasePath = joinRelativePath(activeRootBasePath, currentPath)
   const { data: rawSearchResults = [], isFetching: searchLoading } = useFileSearch(
@@ -2844,7 +2845,13 @@ export function FilePanel({
               )}
               {!listLoading && !searchLoading && !visibleItems.length && (
                 <div className="p-3 text-xs text-text-3">
-                  {showSearchResults ? t('file.noResults') : t('file.emptyDir')}
+                  {hostOffline
+                    ? t('file.hostOffline')
+                    : showSearchResults
+                      ? t('file.noResults')
+                      : listError
+                        ? t('file.loadFailed')
+                        : t('file.emptyDir')}
                 </div>
               )}
               {!listLoading && !showSearchResults && listData?.truncated && (
@@ -2969,8 +2976,21 @@ export function FilePanel({
           {!isPicker && (!isMobile || mobileView === 'list') && (
             <div className="flex shrink-0 items-center justify-between gap-2 border-t border-[var(--line)] px-3 py-1.5">
               <span className="min-w-0 truncate text-meta text-text-3" title={t('file.followActivePathHint')}>
-                {t('file.followActivePath')}
+                {followActivePath
+                  ? followSuspended
+                    ? t('file.followSuspended')
+                    : t('file.followActivePath')
+                  : t('file.followManual')}
               </span>
+              {followActivePath && followSuspended && (
+                <button
+                  type="button"
+                  className="shrink-0 text-meta text-accent hover:underline"
+                  onClick={() => setFollowSuspended(false)}
+                >
+                  {t('file.followResume')}
+                </button>
+              )}
               <button
                 type="button"
                 role="switch"

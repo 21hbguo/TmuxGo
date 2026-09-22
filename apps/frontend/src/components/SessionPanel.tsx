@@ -330,6 +330,17 @@ export function SessionPanel() {
     window.addEventListener('tmuxgo-open-session-templates', handleOpenTemplates as EventListener)
     return () => window.removeEventListener('tmuxgo-open-session-templates', handleOpenTemplates as EventListener)
   }, [])
+  // 空状态「新建会话」入口：复用未分类创建流程（Default 模板）
+  useEffect(() => {
+    const handleOpenCreate = () => {
+      if (!activeHostId) return
+      setCreateDialogTemplate(builtinTemplates[0] || null)
+      setCreateDialogInitialWorkspace(null)
+      setCreateDialogOpen(true)
+    }
+    window.addEventListener('tmuxgo-open-create-session', handleOpenCreate)
+    return () => window.removeEventListener('tmuxgo-open-create-session', handleOpenCreate)
+  }, [activeHostId])
   useEffect(() => {
     setSelectedSessionIds((prev) => prev.filter((id) => sessions.some((item) => item.id === id)))
   }, [sessions])

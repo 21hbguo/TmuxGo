@@ -572,6 +572,9 @@ export const zh = {
   // PaneGrid
   'grid.noWindows': '没有打开的窗口',
   'grid.selectSession': '从侧边栏选择一个会话',
+  'grid.addHost': '添加主机',
+  'grid.createSession': '新建会话',
+  'grid.selectRecent': '选择最近会话',
   'grid.control.owned': '可输入 · 本机控制',
   'grid.control.spectating': '旁观中 · 当前控制权不在本页',
   'grid.control.inactive': '旁观中 · 本页未激活',
@@ -745,6 +748,8 @@ export const zh = {
   'file.favoritesHint': '收藏目录后会显示在这里，方便从 Workspace 或 Home 快速返回。',
   'file.favoriteDirs': '收藏目录',
   'file.noResults': '无结果',
+  'file.loadFailed': '目录加载失败',
+  'file.hostOffline': '主机离线，恢复后自动刷新',
   'file.tooManyResults': '结果过多，显示前 {count} 条',
   'file.insertPath': '插入路径到终端',
   'file.openEditor': '在编辑器中打开',
@@ -825,6 +830,9 @@ export const zh = {
   'file.mobileViewSource': '源码',
   'file.mobileViewRendered': '预览',
   'file.followActivePath': '跟随终端目录',
+  'file.followSuspended': '已暂停跟随',
+  'file.followManual': '手动浏览',
+  'file.followResume': '恢复跟随',
   'file.followActivePathHint': '跟随激活终端的工作目录',
 
   // PasteConfirmDialog
