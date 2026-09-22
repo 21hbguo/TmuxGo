@@ -442,6 +442,7 @@ interface ConsoleState {
   setEditorLoaded: (id: string, patch: Partial<FileEditorDocument>) => void
   setEditorContent: (id: string, content: string) => void
   setEditorSaving: (id: string, saving: boolean) => void
+  setEditorSaveError: (id: string, saveError?: string) => void
   markEditorSaved: (id: string, content: string, modifiedAt: string, size: number) => void
   openUploadDialog: (request: {
     files: File[]
@@ -1103,6 +1104,10 @@ export const useConsoleStore = create<ConsoleState>()(
         set((state) => ({
           openEditors: state.openEditors.map((item) => (item.id === id ? { ...item, saving } : item)),
         })),
+      setEditorSaveError: (id, saveError) =>
+        set((state) => ({
+          openEditors: state.openEditors.map((item) => (item.id === id ? { ...item, saveError } : item)),
+        })),
       markEditorSaved: (id, content, modifiedAt, size) =>
         set((state) => ({
           openEditors: state.openEditors.map((item) =>
@@ -1117,6 +1122,7 @@ export const useConsoleStore = create<ConsoleState>()(
                   saving: false,
                   loading: false,
                   problem: undefined,
+                  saveError: undefined,
                 }
               : item,
           ),

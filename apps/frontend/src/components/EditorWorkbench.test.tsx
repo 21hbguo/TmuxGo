@@ -103,6 +103,9 @@ vi.mock('@/i18n', () => ({
       if (key === 'editor.saving') return 'Saving'
       if (key === 'common.confirm') return 'Confirm'
       if (key === 'common.cancel') return 'Cancel'
+      if (key === 'common.retry') return 'Retry'
+      if (key === 'common.close') return 'Close'
+      if (key === 'editor.saveFailedKept') return 'Save failed; changes are kept'
       return key
     },
   }),
@@ -332,6 +335,21 @@ describe('EditorWorkbench', () => {
     })
   }
 
+  it('shows in-place retry after save failure while keeping dirty content', () => {
+    const onSaveEditor = vi.fn(async () => {})
+    useConsoleStore.setState({
+      openEditors: [{ ...editor1, content: 'const value=2', dirty: true, saveError: 'network down' }],
+    } as any)
+    renderWorkbench({ onSaveEditor })
+    expect(screen.getByText(/Save failed; changes are kept/)).toBeTruthy()
+    expect(screen.getByText(/network down/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(onSaveEditor).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    expect(screen.queryByText(/Save failed; changes are kept/)).toBeNull()
+    expect(useConsoleStore.getState().openEditors[0]?.saveError).toBeUndefined()
+    expect(useConsoleStore.getState().openEditors[0]?.dirty).toBe(true)
+  })
   it('closes the active editor on ctrl+w', () => {
     renderWorkbench()
     fireEvent.keyDown(window, { key: 'w', ctrlKey: true })

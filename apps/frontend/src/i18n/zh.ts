@@ -891,6 +891,7 @@ export const zh = {
   'editor.saving': '保存中...',
   'editor.save': '保存',
   'editor.saved': '已保存',
+  'editor.saveFailedKept': '保存失败，修改仍保留',
   'editor.loading': '加载 {name} 中...',
   'editor.binaryNotEditable': '二进制文件不可编辑',
   'editor.largePreviewOnly': '大文件暂仅支持预览模式',

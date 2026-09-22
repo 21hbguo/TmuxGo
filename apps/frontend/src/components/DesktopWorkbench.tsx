@@ -56,6 +56,7 @@ export function DesktopWorkbench() {
   const setFilePanelWidth = useConsoleStore((state) => state.setFilePanelWidth)
   const setFilePanelOpen = useConsoleStore((state) => state.setFilePanelOpen)
   const setEditorSaving = useConsoleStore((state) => state.setEditorSaving)
+  const setEditorSaveError = useConsoleStore((state) => state.setEditorSaveError)
   const markEditorSaved = useConsoleStore((state) => state.markEditorSaved)
   const openCompareEditor = useConsoleStore((state) => state.openCompareEditor)
   const placeEditorInSplit = useConsoleStore((state) => state.placeEditorInSplit)
@@ -345,6 +346,7 @@ export function DesktopWorkbench() {
     async (editor: FileEditorDocument) => {
       if (editor.loading || editor.binary || editor.truncated) return
       setEditorSaving(editor.id, true)
+      setEditorSaveError(editor.id, undefined)
       try {
         const result = await api.files.saveContent(
           editor.hostId,
@@ -358,10 +360,11 @@ export function DesktopWorkbench() {
       } catch (err) {
         setEditorSaving(editor.id, false)
         const message = err instanceof Error ? err.message : t('desktop.saveFailed')
+        setEditorSaveError(editor.id, message)
         pushToast({ type: 'error', message })
       }
     },
-    [markEditorSaved, pushToast, setEditorSaving],
+    [markEditorSaved, pushToast, setEditorSaving, setEditorSaveError],
   )
   if (!mounted) {
     return (
