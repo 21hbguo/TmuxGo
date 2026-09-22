@@ -43,6 +43,7 @@ import {
   FiX,
 } from 'react-icons/fi'
 import { api } from '@/lib/api'
+import { isImeKeyEvent } from '@/lib/terminal-platform'
 import { DiffViewer } from './DiffViewer'
 import { Select } from './Select'
 import { isImagePath, openFileInEditor } from '@/lib/editor-open'
@@ -716,7 +717,10 @@ function BranchesTab({ hostId, repoPath, t }: { hostId: string; repoPath: string
             <input
               value={newBranchName}
               onChange={(e) => setNewBranchName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+              onKeyDown={(e) => {
+                if (isImeKeyEvent(e.nativeEvent)) return
+                if (e.key === 'Enter') handleCreate()
+              }}
               placeholder={t('git.branchName')}
               className="tmuxgo-control tmuxgo-input flex-1 rounded-apple px-2 py-1 text-meta"
               autoFocus
@@ -1224,6 +1228,7 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
                 disabled={!!repoSwitchingPath}
                 onChange={(event) => setManualRepoPath(event.target.value)}
                 onKeyDown={(event) => {
+                  if (isImeKeyEvent(event.nativeEvent)) return
                   if (event.key === 'Enter') handleRepoSearchSubmit()
                 }}
                 placeholder={t('git.selectRepo')}
@@ -1404,6 +1409,7 @@ export function GitPanel({ mode = 'desktop' }: { mode?: 'desktop' | 'mobile' }) 
               value={manualRepoPath}
               onChange={(event) => setManualRepoPath(event.target.value)}
               onKeyDown={(event) => {
+                if (isImeKeyEvent(event.nativeEvent)) return
                 if (event.key === 'Enter') void handleOpenRepo()
               }}
               placeholder={t('git.selectRepo')}

@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Button } from './Button'
 import { useTranslation } from '@/i18n'
+import { isImeKeyEvent } from '@/lib/terminal-platform'
 
 interface TerminalSearchProps {
   terminal: any
@@ -26,9 +27,7 @@ export function TerminalSearch({ terminal, onClose }: TerminalSearchProps) {
       setResults([])
       return
     }
-    const searchAddon = terminal._addonManager?._addons?.find(
-      (a: any) => a.instance?.findNext
-    )?.instance
+    const searchAddon = terminal._addonManager?._addons?.find((a: any) => a.instance?.findNext)?.instance
     if (searchAddon) {
       searchAddon.findNext(term, {})
       setResults([0])
@@ -38,9 +37,7 @@ export function TerminalSearch({ terminal, onClose }: TerminalSearchProps) {
 
   const navigateResult = (direction: number) => {
     if (!terminal) return
-    const searchAddon = terminal._addonManager?._addons?.find(
-      (a: any) => a.instance?.findNext
-    )?.instance
+    const searchAddon = terminal._addonManager?._addons?.find((a: any) => a.instance?.findNext)?.instance
     if (searchAddon) {
       if (direction > 0) {
         searchAddon.findNext(query, {})
@@ -59,22 +56,27 @@ export function TerminalSearch({ terminal, onClose }: TerminalSearchProps) {
   }
 
   return (
-    <div className="absolute top-2 right-2 z-50 bg-bg-1 border border-[var(--line)] rounded-apple p-2 flex items-center gap-2" onKeyDown={(e) => {
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        e.stopPropagation()
-        onClose()
-      }
-      if (e.key === 'Enter') {
-        e.preventDefault()
-        e.stopPropagation()
-        if (e.shiftKey) {
-          navigateResult(-1)
-        } else {
-          navigateResult(1)
+    <div
+      className="absolute top-2 right-2 z-50 bg-bg-1 border border-[var(--line)] rounded-apple p-2 flex items-center gap-2"
+      onKeyDown={(e) => {
+        // IME 组字期按键交给输入法（input 内守卫未拦截时事件会冒泡至此）
+        if (isImeKeyEvent(e.nativeEvent)) return
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          e.stopPropagation()
+          onClose()
         }
-      }
-    }}>
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          e.stopPropagation()
+          if (e.shiftKey) {
+            navigateResult(-1)
+          } else {
+            navigateResult(1)
+          }
+        }
+      }}
+    >
       <input
         ref={inputRef}
         type="text"
@@ -83,6 +85,8 @@ export function TerminalSearch({ terminal, onClose }: TerminalSearchProps) {
         placeholder={t('terminalSearch.placeholder')}
         className="tmuxgo-control tmuxgo-input w-48 rounded-apple px-2 py-1 text-sm"
         onKeyDown={(e) => {
+          // IME 组字期按键交给输入法：选词 Enter/Escape 不得导航结果/关闭
+          if (isImeKeyEvent(e.nativeEvent)) return
           if (e.key === 'Escape') {
             e.preventDefault()
             e.stopPropagation()

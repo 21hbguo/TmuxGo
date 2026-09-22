@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import React from 'react'
 import { vi } from 'vitest'
@@ -145,5 +145,37 @@ describe('CommandPalette', () => {
       }),
     )
     expect(useConsoleStore.getState().toasts.at(-1)?.message).toBe('plugin complete')
+  })
+  it('does not consume Enter, arrows or Escape during IME composition', async () => {
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+    render(React.createElement(I18nProvider, null, React.createElement(CommandPalette, { onClose })))
+    const input = screen.getByPlaceholderText('Search hosts, sessions, windows...')
+    await user.click(input)
+    // 拼音选词键（isComposing 或 keyCode 229 两种上报路径都要拦）
+    fireEvent.keyDown(input, { key: 'Enter', keyCode: 229, isComposing: true })
+    fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 })
+    fireEvent.keyDown(input, { key: 'Process' })
+    fireEvent.keyDown(input, { key: 'ArrowDown', keyCode: 229, isComposing: true })
+    fireEvent.keyDown(input, { key: 'ArrowUp', keyCode: 229, isComposing: true })
+    fireEvent.keyDown(input, { key: 'Escape', keyCode: 229, isComposing: true })
+    expect(onClose).not.toHaveBeenCalled()
+    expect(selectWindow).not.toHaveBeenCalled()
+    expect(document.body.querySelector('[data-selected="true"]')?.textContent).toContain('Dev')
+  })
+  it('resumes normal key handling once composition ends', async () => {
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+    render(React.createElement(I18nProvider, null, React.createElement(CommandPalette, { onClose })))
+    const input = screen.getByPlaceholderText('Search hosts, sessions, windows...')
+    await user.click(input)
+    fireEvent.keyDown(input, { key: 'Enter', keyCode: 229, isComposing: true })
+    expect(onClose).not.toHaveBeenCalled()
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    expect(document.body.querySelector('[data-selected="true"]')?.textContent).toContain('Switch window: Main')
+    fireEvent.keyDown(input, { key: 'ArrowUp' })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(useConsoleStore.getState().activeSessionId).toBe('session-dev')
   })
 })
