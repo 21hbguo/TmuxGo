@@ -18,7 +18,7 @@
 <a href="https://github.com/tmux/tmux"><img src="https://img.shields.io/badge/tmux-required-1BB91F?logo=tmux&logoColor=white" alt="tmux"></a>
 </p>
 <p>
-<a href="https://nextjs.org"><img src="https://img.shields.io/badge/Next.js-14-black?logo=next.js" alt="Next.js"></a>
+<a href="https://vite.dev"><img src="https://img.shields.io/badge/Vite-8-646CFF?logo=vite&logoColor=white" alt="Vite"></a>
 <a href="https://www.typescriptlang.org"><img src="https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white" alt="TypeScript"></a>
 <a href="https://tailwindcss.com"><img src="https://img.shields.io/badge/Tailwind-3.4-06B6D4?logo=tailwindcss&logoColor=white" alt="Tailwind CSS"></a>
 </p>
@@ -71,7 +71,7 @@
 | :satellite: **多主机** | 默认本地主机 + SSH 远端主机、连接测试、主机切换后终端/文件/Git 同步切换 |
 | :iphone: **移动端 / PWA** | 抽屉导航、触控滚动、虚拟键盘、移动快捷条、剪贴板保护、添加到主屏幕安装横幅 |
 | :brain: **持续化与同步** | 主题、快捷键、收藏、命令片段、会话顺序、Git 工作区状态、会话持续化会同步到浏览器本地与 `~/.tmuxgo/preferences` |
-| :package: **版本与发布感知** | 稳定版/开发版前端分离、构建版本检查、发现新构建后前端提示刷新 |
+| :package: **版本与发布感知** | Vite 构建产物与开发热更分离、构建版本检查、发现新构建后前端提示刷新 |
 
 ## :rocket: 快速开始
 
@@ -98,11 +98,11 @@ cd TmuxGo
 - 检查 Node.js 版本（^20.19 / ^22.12 / >=24），不满足时经 nvm 安装最新 LTS
 - 安装 `tmux`、`ripgrep`、`lsof/ss`、`python3` 和原生构建工具链
 - 执行 `npm install`
-- 构建 Gateway 和稳定版 Frontend（`.next-prod`），设置 `TMUXGO_ENABLE_AGENT=1` 时同时构建 Agent
+- 构建 Gateway 和静态 Frontend（`apps/frontend/dist`，Vite），设置 `TMUXGO_ENABLE_AGENT=1` 时同时构建 Agent
 - 在 Linux 上安装并启动 `systemd --user` 服务
 - 在 macOS 上安装并启动 `launchd` 服务
 - 在没有常驻服务管理器的环境中回退到本地启动脚本
-- 完成 `3000/3001` 健康检查，并输出本地地址与可用的 Tailscale HTTPS 地址
+- 完成 `3001` 健康检查（Gateway 同时提供 API 与静态前端），并输出本地地址与可用的 Tailscale HTTPS 地址
 
 安装完成后，macOS 打开 `http://localhost:3001`；其他部署模式按启动输出打开对应地址。
 Agent 默认不安装启动；需要本机 agent 时执行 `TMUXGO_ENABLE_AGENT=1 ./install.sh` 或 `TMUXGO_ENABLE_AGENT=1 ./start.sh --restart`。
@@ -129,13 +129,13 @@ npm run publish:npx
 
 ## :traffic_light: 运行模式与重启规则
 
-- `3000` 是 `start.sh` 启动的稳定版前端地址
-- macOS 的 `launchd` 只启动 `com.tmuxgo.gateway`，Gateway 在 `3001` 同时提供前端、API 与 WebSocket 服务
-- `3002` 是开发版前端地址，使用本地启动或 `npm run dev:frontend` 时启用热更新
-- 只执行 `build` / `test` 不会让已经运行的稳定版 `3000/3001` 自动更新
-- 改完源码要让稳定版立即生效，执行 `./start.sh --restart`
-- 如果前端源码比 `.next-prod` 新，`./start.sh --restart` 会自动升级为重建稳定版
-- 需要显式强制重建时执行 `./start.sh --restart --rebuild`
+- **生产入口只有 `3001`**：Gateway 同时提供 API、WebSocket 与静态前端；`http://127.0.0.1:3001/` 返回 `200`
+- 生产环境没有独立的 `3000` 稳定前端进程，也没有 `3002` Next.js 热更端口；前端是 Vite 构建产物，由 Gateway 托管
+- Linux 生产实例用 systemd user service：改 Gateway 源码后执行 `systemctl --user restart tmuxgo-gateway`
+- 改前端源码后执行 `npm run build`（或 `npm run build:frontend`）重建 `apps/frontend/dist`；Gateway 按请求读取 dist，无需为静态资源单独重启
+- 开发实例为 `3101` Gateway + `5199` Vite dev（热更新），与生产入口分离
+- 只执行 `build` / `test` 不会让已经在跑的 Gateway 进程加载新的 Gateway 代码；Gateway 代码变更必须 restart
+- 需要脚本方式重建并重启时仍可使用 `./start.sh --restart`（可加 `--rebuild` 强制重建）
 - 不使用 `systemd` / `launchd` 的本地生产启动可执行 `./start-prod.sh`
 
 ## :satellite: 多主机与远程 SSH
@@ -144,6 +144,8 @@ npm run publish:npx
 - 可以在设置面板里新增远端主机：`id / address / user / port / password / passwordEnv`
 - 主机切换后，Session 列表、文件树、编辑器打开目标、Git 状态都会跟随切换
 - 优先推荐 SSH Key；如果使用密码或密码环境变量，需要额外安装 `sshpass`
+- 主机 `useAgent: true` 表示用 SSH Agent 认证，要求部署端已有可用的 SSH Agent（`SSH_AUTH_SOCK`）
+- TmuxGo Agent 组件默认不安装（`TMUXGO_ENABLE_AGENT` 默认 `0`）；需要 Agent 能力时显式启用
 - 主机配置默认保存在 `~/.tmuxgo/hosts.json`，也可以通过 `TMUXGO_CONFIG_DIR` 改位置
 
 ## :shield: 生产部署
@@ -206,7 +208,6 @@ Linux:
 
 ```bash
 systemctl --user status tmuxgo-gateway.service
-systemctl --user status tmuxgo-frontend.service
 systemctl --user status tmuxgo-agent.service
 ```
 
@@ -223,7 +224,6 @@ Linux:
 
 ```bash
 journalctl --user -u tmuxgo-gateway.service -f
-journalctl --user -u tmuxgo-frontend.service -f
 journalctl --user -u tmuxgo-agent.service -f
 ```
 
@@ -339,19 +339,19 @@ tailscale version
 ## :jigsaw: 架构
 
 ```text
-┌──────────┐   WebSocket    ┌──────────┐   PTY / SSH / Git / Files   ┌──────────┐
-│ Frontend │ ◄────────────► │ Gateway  │ ◄──────────────────────────► │  Agent   │
-│ (Next.js)│                │ (Fastify)│                               │ (tmux)   │
-└──────────┘                └──────────┘                               └──────────┘
+┌──────────────┐   HTTP / WS    ┌──────────────────────────────┐   PTY / SSH / Git / Files   ┌──────────┐
+│ Vite 静态资源 │ ◄────────────► │ Gateway :3001                │ ◄──────────────────────────► │  Agent   │
+│ (dist 托管)   │  同源托管于 3001 │ API + WebSocket + 静态前端    │                               │ (tmux)   │
+└──────────────┘                └──────────────────────────────┘                               └──────────┘
 ```
 
 | 服务 | 端口 | 技术栈 |
 |:-----|:-----|:-------|
-| :globe_with_meridians: Frontend（稳定版） | `3000` | Next.js 14、React 18、xterm.js、Monaco、Tailwind |
-| :hammer_and_wrench: Frontend（开发版） | `3002` | Next.js 热更新 |
-| :electric_plug: Gateway | `3001` | Fastify、WebSocket、node-pty、SSH、文件与 Git 路由 |
-| :satellite: Agent（可选） | - | `tmux` 附着、主机注册、终端流转发 |
-| :lock: Tailscale HTTPS | `443`、`8443` | `start.sh` 自动配置到前端与 Gateway |
+| :globe_with_meridians: Frontend 静态资源（生产） | 由 Gateway `3001` 托管 | Vite 8 构建的 `apps/frontend/dist`，React 18、xterm.js、Monaco、Tailwind |
+| :electric_plug: Gateway（生产唯一入口） | `3001` | Fastify、WebSocket、node-pty、SSH、文件与 Git 路由；同源托管静态前端 |
+| :hammer_and_wrench: Gateway + Vite（开发） | `3101` + `5199` | dev Gateway + Vite dev 热更新（`npm run dev`） |
+| :satellite: Agent（可选，默认不装） | - | `tmux` 附着、主机注册、终端流转发；需 `TMUXGO_ENABLE_AGENT=1` |
+| :lock: Tailscale HTTPS | `443`、`8443` | `start.sh` 自动配置到 `3001` |
 
 ## :wrench: 开发与验证
 
@@ -381,8 +381,8 @@ npm run test:ssh-e2e
 交付时建议按这个顺序验证：
 
 1. `npm test` / `npm run test:frontend` / 必要时 `npm run test:e2e`
-2. `./start.sh --restart`
-3. 检查 `3000` 或 Tailscale HTTPS 是否已经加载新构建，而不是只看 `3002`
+2. 改了前端就 `npm run build` 重建 `apps/frontend/dist`；改了 Gateway 就 `systemctl --user restart tmuxgo-gateway`（脚本部署可用 `./start.sh --restart`）
+3. 只检查生产入口 `http://127.0.0.1:3001/` 或 Tailscale HTTPS 是否已经加载新构建；不要用开发端口 `5199` 当交付依据
 
 ## :keyboard: 常用快捷键
 
@@ -403,8 +403,8 @@ npm run test:ssh-e2e
 |:-----|:-------|:-----|
 | `PORT` | `3001` | Gateway 监听端口 |
 | `TMUXGO_HOST` | `127.0.0.1` | Gateway 监听地址；远程部署前必须配置加密网络或 HTTPS |
-| `NEXT_PUBLIC_API_URL` | `http://127.0.0.1:3001` | 前端访问 Gateway 的基地址 |
-| `NEXT_DIST_DIR` | `.next` / `.next-prod` | 前端构建输出目录 |
+| `VITE_API_URL` | `http://127.0.0.1:3001` | 构建/开发时代理或访问 Gateway 的基地址 |
+| `TMUXGO_FRONTEND_DIST` | `apps/frontend/dist` | Gateway 托管的前端静态资源目录 |
 | `TMUXGO_ENABLE_AGENT` | `0` | 设为 `1` 时启动或安装 Agent |
 | `GATEWAY_URL` | `ws://localhost:3001/api/stream` | Agent 连接 Gateway 的 WebSocket 地址 |
 | `TMUXGO_AUTH_USERNAME` | `admin` | Gateway 登录账号 |
@@ -423,7 +423,7 @@ npm run test:ssh-e2e
 | `TMUXGO_ALLOWED_ORIGINS` | 空 | 额外允许访问 Gateway 的浏览器 Origin，多个值用逗号分隔 |
 | `TMUX_WEB_ALLOWED_SESSIONS` | 空 | 逗号分隔的 tmux 会话白名单 |
 
-Gateway 默认启用账号认证。认证状态与设备会话保存在 `~/.tmuxgo/auth.json`，浏览器首次登录后会自动续期；使用默认 `admin/admin123` 登录时必须修改密码，修改密码会撤销所有设备会话。认证是密码认证，不等同于 TLS；生产环境仍必须使用 HTTPS/WSS 或加密网络。
+Gateway 默认启用账号认证。未登录访问受保护 API（如 `/api/hosts`）返回 `401`。认证状态与设备会话保存在 `~/.tmuxgo/auth.json`，浏览器首次登录后会自动续期；使用默认 `admin/admin123` 登录时必须修改密码，修改密码会撤销所有设备会话。认证是密码认证，不等同于 TLS；生产环境仍必须使用 HTTPS/WSS 或加密网络。
 
 ### 数据落点
 
@@ -437,14 +437,14 @@ Gateway 默认启用账号认证。认证状态与设备会话保存在 `~/.tmux
 
 ```bash
 tail -f /tmp/tmuxgo-gateway.log
-tail -f /tmp/tmuxgo-frontend-stable.log
-tail -f /tmp/tmuxgo-frontend-dev.log
 tail -f /tmp/tmuxgo-agent.log
+# systemd 生产实例：
+# journalctl --user -u tmuxgo-gateway.service -f
 ```
 
 常见问题：
 
-1. `3002` 看到了新页面，但 `3000` 还是旧版本：执行 `./start.sh --restart`，必要时加 `--rebuild`
+1. 改了前端但 `3001` 仍是旧页面：先 `npm run build` 重建 dist；Gateway 代码有变时 `systemctl --user restart tmuxgo-gateway`（或 `./start.sh --restart`），不要去盯开发端口 `5199`
 2. 系统剪贴板复制失败：优先使用 HTTPS 顶层标签页，确认浏览器站点权限允许剪贴板访问
 3. 远端主机连接失败：检查 SSH 连通性、目标机是否安装 `tmux` / `git` / `python3`，密码式连接确认 `sshpass` 已安装
 4. Git 推送/拉取异常：先在目标主机确认 `git` 与 `gh` 认证状态，再回到 TmuxGo 操作
@@ -499,15 +499,16 @@ eval "$(/opt/homebrew/bin/brew shellenv)"
 /opt/homebrew/bin/tmux new-session -d -s default
 ```
 
-7. 现象：按旧 README 打开 `http://localhost:3000` 无法访问。根因：macOS 仅注册 `com.tmuxgo.gateway`，前端由 Gateway 一并在 `3001` 提供。修法：打开 `http://localhost:3001`。
+7. 现象：按旧 README 打开 `http://localhost:3000` 无法访问。根因：生产只有 Gateway 入口 `3001`（API + WebSocket + Vite 静态前端），不存在 `3000` 稳定前端进程。修法：打开 `http://localhost:3001`。
 
-8. 现象：登录后请求 `/api/hosts` 返回 `403 PASSWORD_CHANGE_REQUIRED`。根因：仍在使用默认账号 `admin/admin123`，首次登录被强制修改密码。修法：按浏览器提示修改密码后重试。
+8. 现象：未登录请求 `/api/hosts` 返回 `401 AUTH_REQUIRED`。根因：Gateway 默认启用账号认证。修法：先登录（默认 `admin/admin123`，首次强制改密）。
+9. 现象：登录后请求 `/api/hosts` 返回 `403 PASSWORD_CHANGE_REQUIRED`。根因：仍在使用默认账号 `admin/admin123`，首次登录被强制修改密码。修法：按浏览器提示修改密码后重试。
 
-9. 现象：`ps`、`sudo` 或写入 `/opt/homebrew` 报 `operation not permitted`。根因：命令仍在沙箱内，进程枚举或系统目录写入被限制。修法：关闭沙箱并使用带系统目录写权限的终端后，再执行权限修复、安装或复制命令。
+10. 现象：`ps`、`sudo` 或写入 `/opt/homebrew` 报 `operation not permitted`。根因：命令仍在沙箱内，进程枚举或系统目录写入被限制。修法：关闭沙箱并使用带系统目录写权限的终端后，再执行权限修复、安装或复制命令。
 
-10. 现象：`/usr/bin/node: no such file or directory`。根因：Node 实际安装在 `/usr/local/bin/node`，也可能由 WorkBuddy 在 `~/.workbuddy/binaries/node` 管理。修法：使用实际路径运行 PTY 冒烟测试，例如 `/usr/local/bin/node scripts/smoke-node-pty.mjs`，不要假设 `/usr/bin/node` 存在。
+11. 现象：`/usr/bin/node: no such file or directory`。根因：Node 实际安装在 `/usr/local/bin/node`，也可能由 WorkBuddy 在 `~/.workbuddy/binaries/node` 管理。修法：使用实际路径运行 PTY 冒烟测试，例如 `/usr/local/bin/node scripts/smoke-node-pty.mjs`，不要假设 `/usr/bin/node` 存在。
 
-11. 现象：`find` 报 `bad mode '+111'`。根因：macOS 的 BSD `find` 不支持 GNU `find` 的 `-perm +111` 写法。修法：使用 `-perm -u+x`，见第 2 项命令。
+12. 现象：`find` 报 `bad mode '+111'`。根因：macOS 的 BSD `find` 不支持 GNU `find` 的 `-perm +111` 写法。修法：使用 `-perm -u+x`，见第 2 项命令。
 
 排障顺序：
 
