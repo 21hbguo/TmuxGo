@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawn, type ChildProcess } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -24,6 +25,21 @@ function requireEnv(name: string) {
   const value = process.env[name]?.trim()
   if (!value) throw new Error(`${name} is required for SSH E2E`)
   return value
+}
+function assertSupportedNode() {
+  const [major, minor] = process.versions.node.split('.').map(Number)
+  if (!((major === 20 && minor >= 19) || (major === 22 && minor >= 12) || major >= 24)) {
+    throw new Error(`Unsupported Node.js ${process.version}. Need ^20.19 || ^22.12 || >=24 (nvm use with .nvmrc)`)
+  }
+}
+function resolveBin(name: string) {
+  const candidates = [
+    join(root, 'node_modules', '.bin', name),
+    join(root, 'apps', 'gateway', 'node_modules', '.bin', name),
+  ]
+  const found = candidates.find((candidate) => existsSync(candidate))
+  if (!found) throw new Error(`Unable to resolve ${name} binary (looked in node_modules/.bin and workspace bins)`)
+  return found
 }
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -61,11 +77,18 @@ async function stop(process: ChildProcess | undefined) {
   if (process.exitCode === null) process.kill('SIGKILL')
 }
 function startGateway(apiPort: number) {
-  const bin = join(root, 'node_modules', '.bin')
-  return spawn(join(bin, 'tsx'), ['apps/gateway/src/index.ts'], {
+  return spawn(resolveBin('tsx'), ['apps/gateway/src/index.ts'], {
     cwd: root,
     stdio: 'inherit',
-    env: { ...process.env, PORT: String(apiPort), TMUXGO_CONFIG_DIR: configDir, TMUXGO_AUTH_USERNAME: '', TMUXGO_AUTH_PASSWORD: '' },
+    env: {
+      ...process.env,
+      PORT: String(apiPort),
+      TMUXGO_CONFIG_DIR: configDir,
+      TMUXGO_PREFERENCES_DIR: join(configDir, 'preferences'),
+      TMUXGO_TMP_DIR: join(configDir, 'tmp'),
+      TMUXGO_AUTH_USERNAME: '',
+      TMUXGO_AUTH_PASSWORD: '',
+    },
   })
 }
 async function request(apiUrl: string, path: string, method = 'GET', body?: unknown) {
@@ -131,6 +154,7 @@ async function cleanup(apiUrl: string) {
   if (configDir) await rm(configDir, { recursive: true, force: true })
 }
 async function main() {
+  assertSupportedNode()
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('TMUXGO_SSH_E2E_PORT must be a valid port')
   if (knownHostsPolicy !== 'strict') throw new Error('TMUXGO_SSH_E2E_KNOWN_HOSTS_POLICY must be strict')
   if (authMode === 'key' && !privateKeyPath) throw new Error('TMUXGO_SSH_E2E_PRIVATE_KEY_PATH is required when TMUXGO_SSH_E2E_AUTH=key')
@@ -170,7 +194,9 @@ async function main() {
     await cleanup(apiUrl)
   }
 }
-void main().catch((error) => {
+void main().catch(async (error) => {
   console.error(error)
+  if (configDir && !cleaned) await rm(configDir, { recursive: true, force: true }).catch(() => undefined)
+  await stop(gateway)
   process.exitCode = 1
 })
