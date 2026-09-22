@@ -622,6 +622,7 @@ export function FilePanel({
     data: rawListData,
     isLoading: listLoading,
     isError: listError,
+    refetch: refetchList,
   } = useFileList(fileHostId, activeRootId, listQueryPath, true, listPageLimit)
   const { data: rawPreview } = useFilePreview(fileHostId, activeRootId, previewQueryPath, selectedPreviewLine)
   const searchBasePath = joinRelativePath(activeRootBasePath, currentPath)
@@ -2844,14 +2845,25 @@ export function FilePanel({
                 />
               )}
               {!listLoading && !searchLoading && !visibleItems.length && (
-                <div className="p-3 text-xs text-text-3">
-                  {hostOffline
-                    ? t('file.hostOffline')
-                    : showSearchResults
-                      ? t('file.noResults')
-                      : listError
-                        ? t('file.loadFailed')
-                        : t('file.emptyDir')}
+                <div className="flex items-center gap-2 p-3 text-xs text-text-3">
+                  <span>
+                    {hostOffline
+                      ? t('file.hostOffline')
+                      : showSearchResults
+                        ? t('file.noResults')
+                        : listError
+                          ? t('file.loadFailed')
+                          : t('file.emptyDir')}
+                  </span>
+                  {listError && !hostOffline && (
+                    <button
+                      type="button"
+                      onClick={() => void refetchList()}
+                      className="shrink-0 text-accent hover:underline"
+                    >
+                      {t('common.retry')}
+                    </button>
+                  )}
                 </div>
               )}
               {!listLoading && !showSearchResults && listData?.truncated && (
@@ -2986,7 +2998,11 @@ export function FilePanel({
                 <button
                   type="button"
                   className="shrink-0 text-meta text-accent hover:underline"
-                  onClick={() => setFollowSuspended(false)}
+                  onClick={() => {
+                    setFollowSuspended(false)
+                    // 清空已跟随标记，让恢复后立即重新对齐当前终端目录
+                    lastFollowedEditorKeyRef.current = ''
+                  }}
                 >
                   {t('file.followResume')}
                 </button>
