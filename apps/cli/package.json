@@ -17,11 +17,10 @@
     "postinstall": "node lib/postinstall.mjs"
   },
   "engines": {
-    "node": ">=20"
+    "node": "^20.19.0 || ^22.12.0 || >=24.0.0"
   },
   "dependencies": {
     "@fastify/cors": "8.5.0",
-    "@fastify/jwt": "7.2.4",
     "@fastify/multipart": "8.3.1",
     "@fastify/static": "7.0.4",
     "@fastify/websocket": "8.3.1",

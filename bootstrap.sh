@@ -1,7 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-NODE_MAJOR=20
+# Node 版本下限对齐 vite 的 engines（^20.19 || ^22.12 || >=24）：
+# 20.19/22.12 是 require(esm) 解除实验标记的 LTS 首发版，低于它们的同主版本跑不动前端构建
+NODE_SUPPORTED_EXPR='const[a,b]=process.versions.node.split(".").map(Number);process.exit((a===20&&b>=19)||(a===22&&b>=12)||a>=24?0:1)'
 NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
 cd "$ROOT_DIR"
 has_cmd() {
@@ -19,8 +21,8 @@ run_privileged() {
   echo "Missing sudo. Re-run as root or install sudo."
   exit 1
 }
-node_major() {
-  node -p "process.versions.node.split('.')[0]" 2>/dev/null || true
+node_supported() {
+  has_cmd node && has_cmd npm && node -e "$NODE_SUPPORTED_EXPR" >/dev/null 2>&1
 }
 load_nvm() {
   [ -s "$NVM_DIR/nvm.sh" ] || return 1
@@ -74,7 +76,7 @@ install_brew_packages() {
 }
 install_nvm() {
   if ! has_cmd curl; then
-    echo "curl is required to install Node.js 20."
+    echo "curl is required to install Node.js."
     exit 1
   fi
   if [ ! -s "$NVM_DIR/nvm.sh" ]; then
@@ -82,19 +84,19 @@ install_nvm() {
   fi
   load_nvm
 }
-ensure_node20() {
-  if has_cmd node && has_cmd npm && [ "$(node_major)" = "$NODE_MAJOR" ]; then
+ensure_node() {
+  if node_supported; then
     return
   fi
   load_nvm || true
   if ! type nvm >/dev/null 2>&1; then
     install_nvm
   fi
-  nvm install "$NODE_MAJOR" >/dev/null
-  nvm use "$NODE_MAJOR" >/dev/null
+  nvm install --lts >/dev/null
+  nvm use --lts >/dev/null
   hash -r
-  if ! has_cmd node || ! has_cmd npm || [ "$(node_major)" != "$NODE_MAJOR" ]; then
-    echo "Failed to activate Node.js $NODE_MAJOR."
+  if ! node_supported; then
+    echo "Failed to activate a supported Node.js (^20.19 || ^22.12 || >=24)."
     exit 1
   fi
 }
@@ -126,9 +128,9 @@ case "$PKG_MANAGER" in
     install_brew_packages
     ;;
 esac
-ensure_node20
+ensure_node
 if type nvm >/dev/null 2>&1; then
-  nvm use "$NODE_MAJOR" >/dev/null 2>&1 || true
+  nvm use --lts >/dev/null 2>&1 || true
 fi
 verify_required
 if has_cmd tailscale && ! tailscale status >/dev/null 2>&1; then

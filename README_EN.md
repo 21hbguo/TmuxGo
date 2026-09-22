@@ -83,7 +83,7 @@ Run this directly on macOS or Linux:
 npx --yes @21hbguo/tmuxgo install
 ```
 
-The command installs production dependencies including `tmux`, `ripgrep`, `python3`, `git`, and `curl`, copies the prebuilt runtime to `~/.tmuxgo/runtime`, creates the `default` tmux session, and registers the Gateway user service. Node.js 20 or newer is required before running `npx`; on macOS, Homebrew is installed first when missing. Open `http://localhost:3001` when it completes.
+The command installs production dependencies including `tmux`, `ripgrep`, `python3`, `git`, and `curl`, copies the prebuilt runtime to `~/.tmuxgo/runtime`, creates the `default` tmux session, and registers the Gateway user service. Node.js ^20.19 / ^22.12 / >=24 is required before running `npx`; on macOS, Homebrew is installed first when missing. Open `http://localhost:3001` when it completes.
 
 ### Source deployment (development or offline)
 
@@ -95,7 +95,7 @@ cd TmuxGo
 
 `install.sh` will automatically:
 
-- install or switch to Node.js 20
+- verify Node.js (^20.19 / ^22.12 / >=24), installing the latest LTS via nvm when unsupported
 - install `tmux`, `ripgrep`, `lsof/ss`, `python3`, and native build tools
 - run `npm install`
 - build Gateway and the stable Frontend (`.next-prod`), plus Agent when `TMUXGO_ENABLE_AGENT=1`
