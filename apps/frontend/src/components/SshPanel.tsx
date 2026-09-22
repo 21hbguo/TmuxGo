@@ -906,7 +906,7 @@ export function SshPanel() {
         cancelLabel={t('common.cancel')}
         tone="danger"
         onCancel={() => setPendingDeleteHostId(null)}
-        onConfirm={() => void confirmDeleteHost()}
+        onConfirm={confirmDeleteHost}
       />
     </div>
   )
