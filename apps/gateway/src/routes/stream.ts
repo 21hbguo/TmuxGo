@@ -14,6 +14,7 @@ import {
 import { consumeWebSocketTicket, isAuthEnabled } from '../lib/auth.js'
 import { shareLinkStore, type ShareTicket } from '../lib/share-links.js'
 import { StreamSession } from '../lib/stream/stream-session.js'
+import { applyPasteDataFrame } from '../lib/stream/paste-binary.js'
 import { STREAM_PING_INTERVAL_MS, STREAM_PONG_TIMEOUT_MS } from '../lib/stream/stream-config.js'
 function streamPerfMetricsActiveClientsDelta(delta: number) {
   const next = Math.max(0, Number((globalThis as any).__tmuxgoActiveClients || 0) + delta)
@@ -68,8 +69,25 @@ export async function streamRoutes(fastify: FastifyInstance) {
     }, STREAM_PING_INTERVAL_MS)
     updateStreamMetric('activeClients', streamPerfMetricsActiveClientsDelta(1))
     socket.on('message', async (message: Buffer, isBinary: boolean) => {
-      // VNC 画面帧走二进制通道：vnc-data <connectionId>\n + 原始字节，避免 base64+JSON 的 33% 膨胀
+      // Binary channel: paste-data (browser oversized paste) and vnc-data (agent frames)
       if (isBinary) {
+        const separator = message.indexOf(0x0a)
+        const header = separator >= 0 ? message.toString('ascii', 0, separator) : ''
+        if (header.startsWith('paste-data ')) {
+          if (shareTicket) {
+            if (!shareLinkStore.isTicketActive(shareTicket)) {
+              socket.close(1008, 'Share link is unavailable')
+              return
+            }
+            session.send({ type: 'error', code: 'SHARE_READ_ONLY', message: 'Shared terminal is read-only' })
+            return
+          }
+          const result = applyPasteDataFrame(session, message)
+          if (result === 'mismatch') session.send({ type: 'error', message: 'paste-data target mismatch' })
+          else if (result === 'too_large') session.send({ type: 'error', message: 'paste-data too large' })
+          else if (result === 'invalid') session.send({ type: 'error', message: 'paste-data invalid frame' })
+          return
+        }
         if (agentId) agentManager.handleVncBinary(agentId, agentSocket, message)
         return
       }
