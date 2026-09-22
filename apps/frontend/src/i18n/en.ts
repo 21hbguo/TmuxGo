@@ -1048,6 +1048,9 @@ export const en = {
   'nav.files': 'Files',
   'nav.git': 'Git',
   'nav.off': 'Off',
+  'nav.more': 'More',
+  'nav.compactBar': 'Compact bar',
+  'nav.fullBar': 'Full bar',
 
   // FilePanel extra
   'file.inserted': 'Inserted {name}',

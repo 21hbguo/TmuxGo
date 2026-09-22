@@ -1041,6 +1041,9 @@ export const zh = {
   'nav.files': '文件',
   'nav.git': 'Git',
   'nav.off': '离线',
+  'nav.more': '更多',
+  'nav.compactBar': '精简底栏',
+  'nav.fullBar': '完整底栏',
 
   // FilePanel extra
   'file.inserted': '已插入 {name}',

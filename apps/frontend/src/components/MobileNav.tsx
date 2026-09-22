@@ -1,8 +1,18 @@
 'use client'
 
+import { useEffect, useRef, useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
-import { FiGitBranch, FiMonitor } from 'react-icons/fi'
+import { FiGitBranch, FiMonitor, FiMoreHorizontal } from 'react-icons/fi'
+
+const NAV_COMPACT_KEY = 'tmuxgo-mobile-nav-compact'
+function readNavCompact() {
+  try {
+    return localStorage.getItem(NAV_COMPACT_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
 
 interface MobileNavProps {
   onOpenDrawer: (type: 'sessions' | 'panes' | 'windows') => void
@@ -69,97 +79,224 @@ export function MobileNav({
   const isRecovering = connection.status === 'reconnecting' || connection.status === 'attaching'
   const statusColor = isConnected ? 'bg-accent-2' : isRecovering ? 'bg-warn' : 'bg-danger'
   const statusText = isConnected ? `${connection.latency ?? 0}/${attachLatency}ms` : isRecovering ? '...' : t('nav.off')
+  // 精简布局可选：默认保留原七项；切换持久化，随时可回退
+  const [compact, setCompact] = useState(readNavCompact)
+  const [moreOpen, setMoreOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!moreOpen) return
+    const close = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setMoreOpen(false)
+    }
+    window.addEventListener('mousedown', close)
+    return () => window.removeEventListener('mousedown', close)
+  }, [moreOpen])
+  const toggleCompact = () => {
+    const next = !compact
+    setCompact(next)
+    setMoreOpen(false)
+    try {
+      localStorage.setItem(NAV_COMPACT_KEY, String(next))
+    } catch {
+      // 隐私模式等场景 localStorage 不可用：仅本次会话生效
+    }
+  }
   const containerClass = docked
-    ? 'tmuxgo-mobile-nav mobile-nav-landscape-hide h-full pb-[env(safe-area-inset-bottom)] transition-transform duration-200'
+    ? 'tmuxgo-mobile-nav mobile-nav-landscape-hide relative h-full pb-[env(safe-area-inset-bottom)] transition-transform duration-200'
     : 'tmuxgo-glass tmuxgo-mobile-nav mobile-nav-landscape-hide fixed left-2 right-2 z-40 rounded-apple border pb-[env(safe-area-inset-bottom)] transition-transform duration-200'
   // 所有入口统一选中反馈（对齐 Git 的 aria-current + 选中样式）
   const navButtonClass = (active: boolean) =>
     `tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px transition-all active:scale-95 active:bg-bg-2/50 ${active ? 'tmuxgo-mobile-nav-button--active' : 'text-text-3 active:text-accent'}`
+  // 更多面板内的条目：同语义、同选中反馈，点击后收起
+  const moreEntries = [
+    {
+      key: 'panes',
+      label: t('nav.panes'),
+      open: panesOpen,
+      icon: <NavIcon d={icons.panes} />,
+      onClick: () => onOpenDrawer('panes'),
+    },
+    {
+      key: 'git',
+      label: t('nav.git'),
+      open: gitOpen,
+      icon: <FiGitBranch aria-hidden="true" size={18} />,
+      onClick: onOpenGit,
+    },
+    {
+      key: 'desktop',
+      label: t('vnc.title'),
+      open: desktopOpen,
+      icon: <FiMonitor aria-hidden="true" size={18} />,
+      onClick: onOpenDesktop,
+    },
+    {
+      key: 'settings',
+      label: t('nav.settings'),
+      open: settingsOpen,
+      icon: <NavIcon d={icons.settings} />,
+      onClick: onOpenSettings,
+    },
+  ]
 
   return (
     <div
+      ref={rootRef}
       data-mobile-nav
       className={containerClass}
       style={docked ? undefined : { bottom: 'var(--mobile-keyboard-inset, 0px)' }}
     >
       {/* 连接状态独立成一行：不再占用「设置」按钮的文字位 */}
-      <div className="flex h-3 items-center justify-center text-caption leading-none text-text-3">{statusText}</div>
-      <div className="grid h-12 grid-cols-7 items-center">
+      <div className="relative flex h-3 items-center justify-center text-caption leading-none text-text-3">
+        {statusText}
         <button
-          aria-label={t('nav.sessions')}
-          aria-current={sessionsOpen ? 'page' : undefined}
-          onClick={() => onOpenDrawer('sessions')}
-          className={navButtonClass(sessionsOpen)}
+          aria-label={compact ? t('nav.fullBar') : t('nav.compactBar')}
+          className="absolute right-2 top-1/2 -translate-y-1/2 px-1 text-text-3 active:text-accent"
+          onClick={toggleCompact}
         >
-          <NavIcon d={icons.sessions} />
-          <span className="text-caption leading-none">{t('nav.sessions')}</span>
-        </button>
-
-        <button
-          aria-label={t('nav.windows')}
-          aria-current={windowsOpen ? 'page' : undefined}
-          onClick={() => onOpenDrawer('windows')}
-          className={navButtonClass(windowsOpen)}
-        >
-          <NavIcon d={icons.windows} />
-          <span className="text-caption leading-none">{t('nav.windows')}</span>
-        </button>
-
-        <button
-          aria-label={t('nav.panes')}
-          aria-current={panesOpen ? 'page' : undefined}
-          onClick={() => onOpenDrawer('panes')}
-          className={navButtonClass(panesOpen)}
-        >
-          <NavIcon d={icons.panes} />
-          <span className="text-caption leading-none">{t('nav.panes')}</span>
-        </button>
-
-        <button
-          aria-label={t('nav.files')}
-          aria-current={filesOpen ? 'page' : undefined}
-          onClick={onOpenFiles}
-          className={navButtonClass(filesOpen)}
-        >
-          <NavIcon d={icons.files} />
-          <span className="text-caption leading-none">{t('nav.files')}</span>
-        </button>
-
-        <button
-          aria-label={t('nav.git')}
-          aria-current={gitOpen ? 'page' : undefined}
-          onClick={onOpenGit}
-          className={navButtonClass(gitOpen)}
-        >
-          <FiGitBranch aria-hidden="true" size={18} />
-          <span className="text-caption leading-none">{t('nav.git')}</span>
-        </button>
-
-        <button
-          aria-label={t('vnc.title')}
-          aria-current={desktopOpen ? 'page' : undefined}
-          onClick={onOpenDesktop}
-          className={navButtonClass(desktopOpen)}
-        >
-          <FiMonitor aria-hidden="true" size={18} />
-          <span className="text-caption leading-none">{t('vnc.title')}</span>
-        </button>
-
-        <button
-          aria-label={t('nav.settings')}
-          aria-current={settingsOpen ? 'page' : undefined}
-          onClick={onOpenSettings}
-          className={navButtonClass(settingsOpen)}
-        >
-          <div className="relative">
-            <NavIcon d={icons.settings} />
-            <div
-              className={`absolute -top-1 -right-1.5 w-2.5 h-2.5 rounded-full ${statusColor} ${isRecovering ? 'animate-pulse' : ''} border border-bg-1`}
-            />
-          </div>
-          <span className="text-caption leading-none">{t('nav.settings')}</span>
+          {compact ? '⊞' : '⊟'}
         </button>
       </div>
+      {compact && moreOpen && (
+        <div
+          data-mobile-nav-more
+          className="tmuxgo-float-surface absolute bottom-full left-2 right-2 z-50 mb-1 grid grid-cols-4 gap-1 rounded-apple border p-2"
+        >
+          {moreEntries.map((entry) => (
+            <button
+              key={entry.key}
+              aria-label={entry.label}
+              aria-current={entry.open ? 'page' : undefined}
+              onClick={() => {
+                setMoreOpen(false)
+                entry.onClick()
+              }}
+              className={navButtonClass(entry.open)}
+            >
+              {entry.icon}
+              <span className="text-caption leading-none">{entry.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {compact ? (
+        <div className="grid h-12 grid-cols-4 items-center">
+          <button
+            aria-label={t('nav.sessions')}
+            aria-current={sessionsOpen ? 'page' : undefined}
+            onClick={() => onOpenDrawer('sessions')}
+            className={navButtonClass(sessionsOpen)}
+          >
+            <NavIcon d={icons.sessions} />
+            <span className="text-caption leading-none">{t('nav.sessions')}</span>
+          </button>
+          <button
+            aria-label={t('nav.windows')}
+            aria-current={windowsOpen ? 'page' : undefined}
+            onClick={() => onOpenDrawer('windows')}
+            className={navButtonClass(windowsOpen)}
+          >
+            <NavIcon d={icons.windows} />
+            <span className="text-caption leading-none">{t('nav.windows')}</span>
+          </button>
+          <button
+            aria-label={t('nav.files')}
+            aria-current={filesOpen ? 'page' : undefined}
+            onClick={onOpenFiles}
+            className={navButtonClass(filesOpen)}
+          >
+            <NavIcon d={icons.files} />
+            <span className="text-caption leading-none">{t('nav.files')}</span>
+          </button>
+          <button
+            aria-label={t('nav.more')}
+            aria-expanded={moreOpen}
+            aria-current={moreEntries.some((entry) => entry.open) ? 'page' : undefined}
+            onClick={() => setMoreOpen((value) => !value)}
+            className={navButtonClass(moreEntries.some((entry) => entry.open))}
+          >
+            <FiMoreHorizontal aria-hidden="true" size={18} />
+            <span className="text-caption leading-none">{t('nav.more')}</span>
+          </button>
+        </div>
+      ) : (
+        <div className="grid h-12 grid-cols-7 items-center">
+          <button
+            aria-label={t('nav.sessions')}
+            aria-current={sessionsOpen ? 'page' : undefined}
+            onClick={() => onOpenDrawer('sessions')}
+            className={navButtonClass(sessionsOpen)}
+          >
+            <NavIcon d={icons.sessions} />
+            <span className="text-caption leading-none">{t('nav.sessions')}</span>
+          </button>
+
+          <button
+            aria-label={t('nav.windows')}
+            aria-current={windowsOpen ? 'page' : undefined}
+            onClick={() => onOpenDrawer('windows')}
+            className={navButtonClass(windowsOpen)}
+          >
+            <NavIcon d={icons.windows} />
+            <span className="text-caption leading-none">{t('nav.windows')}</span>
+          </button>
+
+          <button
+            aria-label={t('nav.panes')}
+            aria-current={panesOpen ? 'page' : undefined}
+            onClick={() => onOpenDrawer('panes')}
+            className={navButtonClass(panesOpen)}
+          >
+            <NavIcon d={icons.panes} />
+            <span className="text-caption leading-none">{t('nav.panes')}</span>
+          </button>
+
+          <button
+            aria-label={t('nav.files')}
+            aria-current={filesOpen ? 'page' : undefined}
+            onClick={onOpenFiles}
+            className={navButtonClass(filesOpen)}
+          >
+            <NavIcon d={icons.files} />
+            <span className="text-caption leading-none">{t('nav.files')}</span>
+          </button>
+
+          <button
+            aria-label={t('nav.git')}
+            aria-current={gitOpen ? 'page' : undefined}
+            onClick={onOpenGit}
+            className={navButtonClass(gitOpen)}
+          >
+            <FiGitBranch aria-hidden="true" size={18} />
+            <span className="text-caption leading-none">{t('nav.git')}</span>
+          </button>
+
+          <button
+            aria-label={t('vnc.title')}
+            aria-current={desktopOpen ? 'page' : undefined}
+            onClick={onOpenDesktop}
+            className={navButtonClass(desktopOpen)}
+          >
+            <FiMonitor aria-hidden="true" size={18} />
+            <span className="text-caption leading-none">{t('vnc.title')}</span>
+          </button>
+
+          <button
+            aria-label={t('nav.settings')}
+            aria-current={settingsOpen ? 'page' : undefined}
+            onClick={onOpenSettings}
+            className={navButtonClass(settingsOpen)}
+          >
+            <div className="relative">
+              <NavIcon d={icons.settings} />
+              <div
+                className={`absolute -top-1 -right-1.5 w-2.5 h-2.5 rounded-full ${statusColor} ${isRecovering ? 'animate-pulse' : ''} border border-bg-1`}
+              />
+            </div>
+            <span className="text-caption leading-none">{t('nav.settings')}</span>
+          </button>
+        </div>
+      )}
     </div>
   )
 }
