@@ -1170,6 +1170,34 @@ describe('multi-device exclusive ownership', () => {
     fireEvent.click(screen.getByRole('button', { name: 'grid.selectRecent' }))
     expect(useConsoleStore.getState().activeSessionId).toBe('session-dev1')
   })
+  // U4 验收：用户手动把 A 排第一、最后访问 B 后，「最近」入口必须打开 B——
+  // 手动排序只决定侧栏顺序，不参与最近语义
+  it('select-recent opens last-visited session, not first in manual order', () => {
+    orderedSessionsData.value = [{ id: 'session-a' }, { id: 'session-b' }]
+    continuityState.value.resumePoints = [
+      { hostId: 'local', sessionId: 'session-a', sessionName: 'a', lastSeenAt: '2026-09-23T01:00:00Z' },
+      { hostId: 'local', sessionId: 'session-b', sessionName: 'b', lastSeenAt: '2026-09-23T02:00:00Z' },
+    ]
+    useConsoleStore.setState({ activeSessionId: '' } as any)
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'grid.selectRecent' }))
+    expect(useConsoleStore.getState().activeSessionId).toBe('session-b')
+  })
+  // 会话删除后 resumePoint 残留（无 removeResumePoint 调用方）——必须排除失效
+  // 目标并按 lastSeenAt 落到仍存在的最近会话，其他主机的记录也不参与本机选择
+  it('select-recent skips stale and other-host resume points', () => {
+    orderedSessionsData.value = [{ id: 'session-a' }, { id: 'session-b' }]
+    continuityState.value.resumePoints = [
+      { hostId: 'local', sessionId: 'session-deleted', sessionName: 'gone', lastSeenAt: '2026-09-23T03:00:00Z' },
+      { hostId: 'remote-1', sessionId: 'session-a', sessionName: 'a', lastSeenAt: '2026-09-23T02:30:00Z' },
+      { hostId: 'local', sessionId: 'session-b', sessionName: 'b', lastSeenAt: '2026-09-23T02:00:00Z' },
+      { hostId: 'local', sessionId: 'session-a', sessionName: 'a', lastSeenAt: '2026-09-23T01:00:00Z' },
+    ]
+    useConsoleStore.setState({ activeSessionId: '' } as any)
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'grid.selectRecent' }))
+    expect(useConsoleStore.getState().activeSessionId).toBe('session-b')
+  })
   it('empty state offers add-host when no hosts are configured', () => {
     hostsMockData.value = []
     useConsoleStore.setState({ activeSessionId: '' } as any)
