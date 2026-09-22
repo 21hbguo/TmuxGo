@@ -292,6 +292,9 @@ export function PaneGrid({
       // 后台页不得向远端推尺寸：降级切换窗口期内仍持有独占 pty，一笔迟到的
       // resize 会抢会话尺寸；调用方收到 false 走 localOnly 本地确认收尾
       if (document.visibilityState === 'hidden') return false
+      // 非独占/旁观端只本地对齐共享尺寸，禁止向服务端推 size：
+      // 否则降级竞态里一笔 120x36 resize 会经 exclusive pty 把 window 抢回
+      if (!exclusive) return false
       const prev = sentResizeRef.current
       if (prev && prev.cols === size.cols && prev.rows === size.rows) return false
       const sent = send({ type: 'resize', hostId: activeHostId || 'local', cols: size.cols, rows: size.rows })
@@ -308,7 +311,7 @@ export function PaneGrid({
       }
       return sent
     },
-    [activeHostId, send],
+    [activeHostId, exclusive, send],
   )
   const clearAttachTimers = useCallback(() => {
     if (attachTimerRef.current) {

@@ -812,6 +812,17 @@ export class StreamSession {
   resize(cols: number, rows: number) {
     recordStreamMetric('resizeRequests')
     if (!this.ptyProcess) return
+    // 被动/旁观端禁止改 client 尺寸，避免与 owner 的 window 主张打架
+    if (this.attachedPassive) {
+      this.send({
+        type: 'resized',
+        sessionName: this.attachedSessionName,
+        hostId: this.attachedHostId,
+        cols: this.attachedCols,
+        rows: this.attachedRows,
+      })
+      return
+    }
     const nextCols = Math.max(2, Math.round(cols))
     const nextRows = Math.max(1, Math.round(rows))
     if (!Number.isFinite(nextCols) || !Number.isFinite(nextRows) || !this.attachedSessionName) return
@@ -866,6 +877,12 @@ export class StreamSession {
   }
   isExclusiveOwner() {
     if (this.exclusiveOwnerKey) return exclusiveOwners.get(this.exclusiveOwnerKey) === this
+    // 本 session 已有正式 owner 时，无 key 的连接一律不是 owner（防降级后误主张）
+    if (this.attachedSessionName) {
+      const key = peerKey(this.attachedHostId, this.attachedSessionName)
+      if (exclusiveOwners.has(key)) return exclusiveOwners.get(key) === this
+    }
+    // 未接入所有权表的旧路径/测试
     return this.attachedExclusive
   }
   // 被新的 exclusive claim 抢走所有权：立刻写降级，并摘掉可抢尺寸的 exclusive client。
