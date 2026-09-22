@@ -1,3 +1,5 @@
+import { useConsoleStore } from '@/stores/useConsoleStore'
+
 const CHUNK_RELOAD_KEY='tmuxgo-chunk-reload'
 const chunkErrorPatterns=[
   /loading chunk \d+ failed/i,
@@ -24,4 +26,8 @@ export function recoverFromChunkLoadError(message:string,storage:ChunkRecoverySt
 }
 export function clearChunkReloadFlag(storage:ChunkRecoveryStorage) {
   storage.removeItem(CHUNK_RELOAD_KEY)
+}
+// 整页刷新前的未保存编辑保护：有 dirty 编辑器时不允许静默 reload
+export function hasUnsavedEditors() {
+  return useConsoleStore.getState().openEditors.some((editor) => editor.dirty)
 }
