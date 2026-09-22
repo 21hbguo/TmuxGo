@@ -1044,6 +1044,66 @@ describe('multi-device exclusive ownership', () => {
     )
   })
 
+  it('collapses the status bar while owned and expands it for actionable states', async () => {
+    socketState.isConnected = true
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    await waitFor(() => expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'attach' })))
+    act(() => {
+      emitStreamEvent(STREAM_EVENT.attached, { hostId: 'local', sessionName: 'dev1', cols: 120, rows: 36 })
+    })
+    const ownedBar = document.querySelector('[data-ownership]') as HTMLElement
+    expect(ownedBar.getAttribute('data-ownership')).toBe('owned')
+    // 正常就绪态整条收起（不再常驻遮挡终端）；状态标记仍在 DOM 可查
+    expect(ownedBar.className).toContain('hidden')
+    // 320px 窄屏约束（类名层面）：限宽常驻 + 展开态可换行，按钮不被裁掉
+    expect(ownedBar.className).toContain('max-w-')
+    act(() => {
+      emitStreamEvent(STREAM_EVENT.exclusiveRevoked, { hostId: 'local', sessionName: 'dev1' })
+    })
+    await waitFor(() =>
+      expect(document.querySelector('[data-ownership]')?.getAttribute('data-ownership')).toBe('spectating'),
+    )
+    const spectatingBar = document.querySelector('[data-ownership]') as HTMLElement
+    expect(spectatingBar.className).toContain('flex')
+    expect(spectatingBar.className).toContain('flex-wrap')
+    expect(spectatingBar.className).not.toContain('hidden')
+  })
+
+  it('keeps takeover pending until a real attach succeeds and restores retry on revoke', async () => {
+    socketState.isConnected = true
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    await waitFor(() => expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'attach' })))
+    act(() => {
+      emitStreamEvent(STREAM_EVENT.attached, { hostId: 'local', sessionName: 'dev1', cols: 120, rows: 36 })
+      emitStreamEvent(STREAM_EVENT.exclusiveRevoked, { hostId: 'local', sessionName: 'dev1' })
+    })
+    await waitFor(() =>
+      expect(document.querySelector('[data-ownership]')?.getAttribute('data-ownership')).toBe('spectating'),
+    )
+    sendMock.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: 'grid.control.takeover' }))
+    // 点击≠接管：进入请求中态，入口消失
+    expect(screen.getByTestId('takeover-pending')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'grid.control.takeover' })).toBeNull()
+    // 被拒回落旁观 → 恢复可重试入口
+    act(() => {
+      emitStreamEvent(STREAM_EVENT.exclusiveRevoked, { hostId: 'local', sessionName: 'dev1' })
+    })
+    expect(screen.queryByTestId('takeover-pending')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'grid.control.takeover' }))
+    await waitFor(() =>
+      expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'attach', sessionName: 'dev1' })),
+    )
+    expect(screen.getByTestId('takeover-pending')).toBeTruthy()
+    // 完成条件=真实 attached 事件
+    act(() => {
+      emitStreamEvent(STREAM_EVENT.attached, { hostId: 'local', sessionName: 'dev1', cols: 120, rows: 36 })
+    })
+    expect(screen.queryByTestId('takeover-pending')).toBeNull()
+  })
+
   it('read-only share shows readonly status and never a takeover entry', () => {
     render(
       <PaneGrid
@@ -1080,6 +1140,8 @@ describe('multi-device exclusive ownership', () => {
     expect(screen.getByText(/grid\.input\.pending/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'grid.input.clear' }))
     expect(screen.queryByText(/grid\.input\.pending/)).toBeNull()
+    // 清空后给轻量反馈，且不回显待发内容
+    expect(useConsoleStore.getState().toasts.at(-1)?.message).toBe('grid.input.cleared')
     // 恢复连接后已清空的输入绝不补发
     sendMock.mockClear()
     act(() => {

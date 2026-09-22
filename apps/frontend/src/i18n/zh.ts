@@ -581,9 +581,11 @@ export const zh = {
   'grid.control.attaching': '正在附着终端…',
   'grid.control.readonly': '只读分享',
   'grid.control.takeover': '接管',
+  'grid.control.takeoverPending': '接管请求中…',
   'grid.input.pending': '存在待发送输入',
   'grid.input.retry': '立即重试',
   'grid.input.clear': '清空待发输入',
+  'grid.input.cleared': '待发输入已清空',
 
   // TerminalSearch
   'terminalSearch.placeholder': '搜索...',
@@ -961,7 +963,7 @@ export const zh = {
 
   // TerminalPane
   'terminal.dropUpload': '拖放文件以上传',
-  'terminal.viewingHistory': '正在查看历史 · 返回实时输出',
+  'terminal.viewingHistory': '正在查看历史 · 返回缓冲区底部',
   'terminal.linkOpenBlocked': '浏览器阻止了新窗口，请允许弹窗后重试',
   'terminal.dock.bottom': '底部',
   'terminal.dock.left': '左侧',
