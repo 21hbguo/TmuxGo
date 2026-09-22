@@ -217,7 +217,7 @@ export function SessionRail() {
         cancelLabel={t('common.cancel')}
         tone="danger"
         onCancel={() => setPendingDeleteSessionId(null)}
-        onConfirm={() => void confirmDeleteSession()}
+        onConfirm={confirmDeleteSession}
       />
       {PromptElement}
     </>

@@ -870,7 +870,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
         cancelLabel={t('common.cancel')}
         tone="danger"
         onCancel={() => setPendingDeleteSessionId(null)}
-        onConfirm={() => void confirmDeleteSession()}
+        onConfirm={confirmDeleteSession}
       />
       <MobileDrawer isOpen={drawerOpen} onClose={() => closeOverlay('drawer')} type={drawerType} />
       <MobileBottomSheet

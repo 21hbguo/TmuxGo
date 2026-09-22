@@ -812,7 +812,7 @@ export function SessionPanel() {
         cancelLabel={t('common.cancel')}
         tone="danger"
         onCancel={() => setPendingDeleteSessionId(null)}
-        onConfirm={() => void confirmDeleteSession()}
+        onConfirm={confirmDeleteSession}
       />
       <ConfirmDialog
         open={!!pendingDeleteWorkspace}
@@ -828,11 +828,12 @@ export function SessionPanel() {
         open={batchDeleteConfirmOpen}
         title={t('sidebar.batchDeleteTitle')}
         message={t('sidebar.batchDeleteConfirm', { count: selectedSessionIds.length })}
+        items={sessions.filter((session) => selectedSessionIds.includes(session.id)).map((session) => session.name)}
         confirmLabel={t('sidebar.batchDeleteSelected')}
         cancelLabel={t('common.cancel')}
         tone="danger"
         onCancel={() => setBatchDeleteConfirmOpen(false)}
-        onConfirm={() => void confirmBatchDeleteSession()}
+        onConfirm={confirmBatchDeleteSession}
       />
       {PromptElement}
     </>

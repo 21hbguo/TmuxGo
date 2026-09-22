@@ -773,17 +773,20 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
         cancelLabel={t('common.cancel')}
         tone="danger"
         onCancel={() => setPendingDeleteSessionId(null)}
-        onConfirm={() => void confirmDeleteSession()}
+        onConfirm={confirmDeleteSession}
       />
       <ConfirmDialog
         open={batchDeleteConfirmOpen}
         title={t('sidebar.batchDeleteTitle')}
         message={t('sidebar.batchDeleteConfirm', { count: selectedSessionIds.length })}
+        items={sessions
+          .filter((session: any) => selectedSessionIds.includes(session.id))
+          .map((session: any) => session.name)}
         confirmLabel={t('sidebar.batchDeleteSelected')}
         cancelLabel={t('common.cancel')}
         tone="danger"
         onCancel={() => setBatchDeleteConfirmOpen(false)}
-        onConfirm={() => void confirmBatchDeleteSession()}
+        onConfirm={confirmBatchDeleteSession}
       />
       <PromptDialog
         open={newWindowPromptOpen}
@@ -801,11 +804,14 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
         open={windowBatchDeleteConfirmOpen}
         title={t('window.batchDeleteTitle')}
         message={t('window.batchDeleteConfirm', { count: selectedWindowIds.length })}
+        items={windowsData
+          .filter((window: any) => selectedWindowIds.includes(window.id))
+          .map((window: any) => window.name || `#${window.index}`)}
         confirmLabel={t('window.batchDeleteSelected', { count: selectedWindowIds.length })}
         cancelLabel={t('common.cancel')}
         tone="danger"
         onCancel={() => setWindowBatchDeleteConfirmOpen(false)}
-        onConfirm={() => void handleWindowBatchDelete()}
+        onConfirm={handleWindowBatchDelete}
       />
       {PromptElement}
     </div>

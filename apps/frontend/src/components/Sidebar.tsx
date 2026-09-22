@@ -39,7 +39,10 @@ export function Sidebar() {
   useEffect(() => {
     const handleMove = (event: MouseEvent) => {
       if (!resizingRef.current) return
-      pendingWidthRef.current = Math.max(208, Math.min(320, preferences.sidebarPosition === 'right' ? window.innerWidth - event.clientX : event.clientX))
+      pendingWidthRef.current = Math.max(
+        208,
+        Math.min(320, preferences.sidebarPosition === 'right' ? window.innerWidth - event.clientX : event.clientX),
+      )
       if (frameRef.current) return
       frameRef.current = requestAnimationFrame(() => {
         frameRef.current = null
@@ -133,7 +136,10 @@ export function Sidebar() {
 
   return (
     <>
-      <aside className={`relative flex shrink-0 flex-col bg-bg-1 ${preferences.sidebarPosition === 'right' ? 'border-l border-[var(--line)]' : 'border-r border-[var(--line)]'}`} style={{ width: previewWidth ?? sessionPanelWidth }}>
+      <aside
+        className={`relative flex shrink-0 flex-col bg-bg-1 ${preferences.sidebarPosition === 'right' ? 'border-l border-[var(--line)]' : 'border-r border-[var(--line)]'}`}
+        style={{ width: previewWidth ?? sessionPanelWidth }}
+      >
         <div className="flex items-center justify-between border-b border-[var(--line)] p-3">
           <span className="text-text-2 text-sm font-medium">{t('sidebar.sessions')}</span>
           <Button variant="ghost" size="icon-sm" aria-label="collapse" onClick={() => setSessionPanelExpanded(false)}>
@@ -195,21 +201,22 @@ export function Sidebar() {
         />
       </aside>
 
-      {showTemplates && <ModalPortal>
-        <SessionTemplates
-          onSelect={handleTemplateSelect}
-          onClose={() => setShowTemplates(false)}
-        />
-      </ModalPortal>}
+      {showTemplates && (
+        <ModalPortal>
+          <SessionTemplates onSelect={handleTemplateSelect} onClose={() => setShowTemplates(false)} />
+        </ModalPortal>
+      )}
       <ConfirmDialog
         open={!!pendingDeleteSessionId}
         title={t('sidebar.deleteTitle')}
-        message={t('sidebar.deleteConfirm', { name: sessions.find((s: any) => s.id === pendingDeleteSessionId)?.name || '' })}
+        message={t('sidebar.deleteConfirm', {
+          name: sessions.find((s: any) => s.id === pendingDeleteSessionId)?.name || '',
+        })}
         confirmLabel={t('sidebar.confirmDelete')}
         cancelLabel={t('common.cancel')}
         tone="danger"
         onCancel={() => setPendingDeleteSessionId(null)}
-        onConfirm={() => void confirmDeleteSession()}
+        onConfirm={confirmDeleteSession}
       />
       {PromptElement}
     </>
