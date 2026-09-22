@@ -6,6 +6,7 @@ import { mkdir, rename, unlink } from 'fs/promises'
 import path from 'path'
 import WebSocket from 'ws'
 import { TmuxManager } from './tmux.js'
+import { gzipSync } from 'zlib'
 import { promisify } from 'util'
 
 const GATEWAY_URL = process.env.GATEWAY_URL || 'ws://localhost:3001/api/stream'
@@ -14,6 +15,20 @@ const HEARTBEAT_INTERVAL = 15000
 const GATEWAY_USERNAME = process.env.GATEWAY_USERNAME || 'admin'
 const GATEWAY_PASSWORD = process.env.GATEWAY_PASSWORD || ''
 const AGENT_VERSION = process.env.TMUXGO_AGENT_VERSION || '0.1.0'
+// 上行预压缩阈值：小于该明文长度不压，避免 base64 膨胀（PROTOCOL.extend.md A.2）
+const COMPRESS_THRESHOLD = 256
+function maybeCompressOutput(data: string, enabled: boolean): { data: string; encoding?: 'gzip' } {
+  if (!enabled || !data) return { data }
+  const raw = Buffer.from(data, 'utf8')
+  if (raw.length < COMPRESS_THRESHOLD) return { data }
+  try {
+    const encoded = gzipSync(raw).toString('base64')
+    if (encoded.length >= raw.length) return { data }
+    return { data: encoded, encoding: 'gzip' }
+  } catch {
+    return { data }
+  }
+}
 
 // 上报主网卡 IPv4 而非 loopback，SSH tab Agents 区才能分辨真实远端
 function primaryIpv4() {
@@ -50,6 +65,7 @@ class Agent {
   private terminals = new Map<string, ReturnType<TmuxManager['attach']>>()
   private uploads = new Map<string, FileUpload>()
   private vncSockets = new Map<string, net.Socket>()
+  private compressTerminalOutput = false
 
   constructor() {
     this.tmux = new TmuxManager()
@@ -98,6 +114,7 @@ class Agent {
     this.ws.on('close', () => {
       console.log('Disconnected from gateway')
       this.stopHeartbeat()
+      this.compressTerminalOutput = false
       this.closeTerminals()
       this.closeUploads()
       this.closeVncSockets()
@@ -118,6 +135,7 @@ class Agent {
         address: process.env.HOST_ADDRESS || primaryIpv4(),
       },
       version: AGENT_VERSION,
+      caps: { compressTerminalOutput: true },
     })
   }
 
@@ -141,7 +159,11 @@ class Agent {
         return
 
       case 'registered':
-        console.log(`Registered as agent ${message.agentId || process.env.HOST_ID || 'agent-local'}`)
+        this.compressTerminalOutput = message?.caps?.compressTerminalOutput === true
+        console.log(
+          `Registered as agent ${message.agentId || process.env.HOST_ID || 'agent-local'}` +
+            (this.compressTerminalOutput ? ' (terminal gzip on)' : ''),
+        )
         return
 
       case 'tmux':
@@ -335,7 +357,10 @@ class Agent {
       await this.tmux.enableMouse(message.sessionName)
       const terminal = this.tmux.attach(message.sessionName, message.cols, message.rows, message.exclusive === true)
       this.terminals.set(attachmentId, terminal)
-      terminal.onData((data) => this.send({ type: 'terminal-output', attachmentId, data }))
+      terminal.onData((data) => {
+        const framed = maybeCompressOutput(data, this.compressTerminalOutput)
+        this.send({ type: 'terminal-output', attachmentId, ...framed })
+      })
       terminal.onExit(({ exitCode }) => {
         if (this.terminals.get(attachmentId) !== terminal) return
         this.terminals.delete(attachmentId)
