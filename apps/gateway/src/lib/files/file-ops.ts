@@ -12,7 +12,38 @@ import {
   type FileItem,
   type TrashEntry,
 } from './file-types.js'
-export async function listDirectory(rootId: string, relativePath: string) {
+// 目录列表增量缓存：同目录二次打开命中（dir mtime 未变且在 TTL 内）；
+// 子节点懒加载由前端 loadDirectoryChildren 负责，不递归全树
+const LIST_CACHE_TTL_MS = Math.max(1000, Number(process.env.TMUXGO_FILE_LIST_TTL_MS || 4000) || 4000)
+const LIST_CACHE_MAX = 64
+const LIST_PAGE_LIMIT = Math.max(50, Number(process.env.TMUXGO_FILE_LIST_LIMIT || 1500) || 1500)
+type ListCacheEntry = {
+  mtimeMs: number
+  etag: string
+  at: number
+  payload: Awaited<ReturnType<typeof listDirectoryUncached>>
+}
+const listDirectoryCache = new Map<string, ListCacheEntry>()
+
+export function invalidateListCache(rootId?: string, relativePath?: string) {
+  if (!rootId) {
+    listDirectoryCache.clear()
+    return
+  }
+  if (relativePath === undefined) {
+    for (const key of [...listDirectoryCache.keys()]) {
+      if (key.startsWith(`${rootId}\u0000`)) listDirectoryCache.delete(key)
+    }
+    return
+  }
+  // key 含 pageLimit 后缀：按 root+path 前缀删除，避免不同 limit 残留
+  const prefix = `${rootId}\u0000${relativePath}\u0000`
+  for (const key of [...listDirectoryCache.keys()]) {
+    if (key.startsWith(prefix)) listDirectoryCache.delete(key)
+  }
+}
+
+async function listDirectoryUncached(rootId: string, relativePath: string, pageLimit = LIST_PAGE_LIMIT) {
   const { root, absolutePath } = await resolveInside(rootId, relativePath)
   const directory = await opendir(absolutePath)
   const names: string[] = []
@@ -35,13 +66,48 @@ export async function listDirectory(rootId: string, relativePath: string) {
     if (a.type !== b.type) return a.type === 'directory' ? -1 : 1
     return a.name.localeCompare(b.name)
   })
+  const limit = Math.max(50, pageLimit || LIST_PAGE_LIMIT)
+  const itemsPage = items.slice(0, limit)
   return {
     root,
     path: toRelative(root.path, absolutePath),
     breadcrumbs: getBreadcrumbs(toRelative(root.path, absolutePath)),
-    items,
+    items: itemsPage,
+    truncated: items.length > itemsPage.length,
+    totalCount: items.length,
+    etag: '',
+    modifiedAt: '',
   }
 }
+
+export async function listDirectory(rootId: string, relativePath: string, limit?: number) {
+  const { absolutePath } = await resolveInside(rootId, relativePath)
+  const info = await stat(absolutePath)
+  const mtimeMs = Math.floor(info.mtimeMs)
+  const pageLimit = limit || LIST_PAGE_LIMIT
+  const key = `${rootId}\u0000${relativePath}\u0000${pageLimit}`
+  const now = Date.now()
+  const hit = listDirectoryCache.get(key)
+  if (hit && hit.mtimeMs === mtimeMs && now - hit.at < LIST_CACHE_TTL_MS) {
+    hit.at = now
+    return {
+      ...hit.payload,
+      etag: `${mtimeMs}-${hit.payload.totalCount ?? hit.payload.items.length}`,
+      modifiedAt: new Date(mtimeMs).toISOString(),
+    }
+  }
+  const payload = await listDirectoryUncached(rootId, relativePath, limit)
+  const etag = `${mtimeMs}-${payload.totalCount ?? payload.items.length}`
+  const stamped = { ...payload, etag, modifiedAt: new Date(mtimeMs).toISOString() }
+  // 逐出最旧
+  if (listDirectoryCache.size >= LIST_CACHE_MAX) {
+    const oldest = listDirectoryCache.keys().next().value
+    if (oldest !== undefined) listDirectoryCache.delete(oldest)
+  }
+  listDirectoryCache.set(key, { mtimeMs, etag, at: now, payload: stamped })
+  return stamped
+}
+
 export async function readPreview(rootId: string, relativePath: string, line = 1) {
   const { root, absolutePath } = await resolveInside(rootId, relativePath)
   const info = await stat(absolutePath)
@@ -160,6 +226,8 @@ export async function saveContent(rootId: string, relativePath: string, content:
   }
   await writeFile(absolutePath, content, 'utf8')
   const nextInfo = await stat(absolutePath)
+  const parentPath = relativePath.includes('/') ? relativePath.slice(0, relativePath.lastIndexOf('/')) : ''
+  invalidateListCache(rootId, parentPath)
   return { ok: true as const, content, modifiedAt: nextInfo.mtime.toISOString(), size: nextInfo.size }
 }
 export async function createFile(rootId: string, directoryPath: string, name: string) {
@@ -170,6 +238,7 @@ export async function createFile(rootId: string, directoryPath: string, name: st
   const targetPath = path.join(absolutePath, safeName)
   if (await fileExists(targetPath)) throw new Error('File already exists')
   await writeFile(targetPath, '', 'utf8')
+  invalidateListCache(rootId, directoryPath || relativePath)
   return { ok: true as const, item: await toFileItem(root.path, targetPath, safeName), parentPath: relativePath }
 }
 export async function createDirectory(rootId: string, directoryPath: string, name: string) {
@@ -180,6 +249,7 @@ export async function createDirectory(rootId: string, directoryPath: string, nam
   const targetPath = path.join(absolutePath, safeName)
   if (await fileExists(targetPath)) throw new Error('Directory already exists')
   await mkdir(targetPath, { recursive: false })
+  invalidateListCache(rootId, directoryPath || relativePath)
   return { ok: true as const, item: await toFileItem(root.path, targetPath, safeName), parentPath: relativePath }
 }
 export async function renameEntry(rootId: string, relativePath: string, name: string) {
@@ -191,6 +261,8 @@ export async function renameEntry(rootId: string, relativePath: string, name: st
     return { ok: true as const, item: await toFileItem(root.path, absolutePath, safeName), previousPath: currentPath }
   if (await fileExists(targetPath)) throw new Error('Target already exists')
   await rename(absolutePath, targetPath)
+  const parentRel = currentPath.includes('/') ? currentPath.slice(0, currentPath.lastIndexOf('/')) : ''
+  invalidateListCache(rootId, parentRel)
   return { ok: true as const, item: await toFileItem(root.path, targetPath, safeName), previousPath: currentPath }
 }
 export async function removeEntry(rootId: string, relativePath: string) {
@@ -199,6 +271,8 @@ export async function removeEntry(rootId: string, relativePath: string) {
   const info = await stat(absolutePath)
   if (info.isDirectory()) await rm(absolutePath, { recursive: true, force: false })
   else await unlink(absolutePath)
+  const parentRel = currentPath.includes('/') ? currentPath.slice(0, currentPath.lastIndexOf('/')) : ''
+  invalidateListCache(rootId, parentRel)
   return { ok: true as const, path: currentPath, type: info.isDirectory() ? ('directory' as const) : ('file' as const) }
 }
 export async function transferEntry(
@@ -217,6 +291,11 @@ export async function transferEntry(
   const targetPath = path.join(targetDirectory.absolutePath, targetName)
   if (move) await movePath(source.absolutePath, targetPath)
   else await cp(source.absolutePath, targetPath, { recursive: true, preserveTimestamps: true })
+  invalidateListCache(
+    rootId,
+    source.relativePath.includes('/') ? source.relativePath.slice(0, source.relativePath.lastIndexOf('/')) : '',
+  )
+  invalidateListCache(targetRootId, targetDirectory.relativePath)
   return {
     ok: true as const,
     item: await toFileItem(targetDirectory.root.path, targetPath, path.basename(targetPath)),
@@ -243,6 +322,10 @@ export async function trashEntry(rootId: string, relativePath: string) {
   const entryDir = path.join(getTrashDir(), id)
   await mkdir(entryDir, { recursive: true })
   await movePath(resolved.absolutePath, path.join(entryDir, 'data'))
+  const trashParent = resolved.relativePath.includes('/')
+    ? resolved.relativePath.slice(0, resolved.relativePath.lastIndexOf('/'))
+    : ''
+  invalidateListCache(rootId, trashParent)
   const entry: TrashEntry = {
     id,
     rootId,
@@ -279,6 +362,10 @@ export async function restoreTrashEntry(trashId: string) {
   await mkdir(path.dirname(target.absolutePath), { recursive: true })
   await movePath(path.join(entryDir, 'data'), target.absolutePath)
   await rm(entryDir, { recursive: true, force: true })
+  invalidateListCache(
+    entry.rootId,
+    target.relativePath.includes('/') ? target.relativePath.slice(0, target.relativePath.lastIndexOf('/')) : '',
+  )
   return {
     ok: true as const,
     item: await toFileItem(target.root.path, target.absolutePath, path.basename(target.absolutePath)),

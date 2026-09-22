@@ -514,12 +514,14 @@ export function useFileRoots(hostId = 'local') {
   })
 }
 
-export function useFileList(hostId: string, root: string, path: string, enabled = true) {
+export function useFileList(hostId: string, root: string, path: string, enabled = true, limit?: number) {
   return useQuery({
-    queryKey: ['file-list', hostId, root, path],
-    queryFn: () => api.files.list(hostId, root, path),
+    queryKey: ['file-list', hostId, root, path, limit ?? 0],
+    // AbortSignal：key 切换/组件卸载时中止在途请求，React Query 丢弃过期响应
+    queryFn: ({ signal }) => api.files.list(hostId, root, path, signal, limit),
     enabled: !!root && enabled,
-    staleTime: 8000,
+    // 同目录二次打开命中缓存（gateway 另有 mtime/etag 缓存）
+    staleTime: 15000,
     gcTime: 60000,
     // 切 root/目录时保留上一份列表占位：否则新 key 首次取数期间 data=undefined
     // 树区会空窗（收藏切换遇 retry 退避时尤甚）

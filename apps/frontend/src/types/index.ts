@@ -213,6 +213,10 @@ export interface FileListResponse {
   path: string
   breadcrumbs: FileBreadcrumb[]
   items: FileItem[]
+  truncated?: boolean
+  totalCount?: number
+  etag?: string
+  modifiedAt?: string
 }
 
 export interface FilePreviewLine {
