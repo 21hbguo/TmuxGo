@@ -163,6 +163,8 @@ export class StreamSession {
   scrollBuffers = new Map<string, number>()
   scrollRunning = new Set<string>()
   sanitizeTerminalOutput = createTerminalOutputSanitizer()
+  // 边界（resync 重建 / 新 attach 首轮）先走 heavy 完整清洗，稳态回 light 只剥 DA
+  sanitizeMode: 'light' | 'heavy' = 'light'
   constructor(
     private socket: StreamSocketLike,
     private shareTicket: ShareTicket | null,
@@ -199,7 +201,7 @@ export class StreamSession {
   sanitizeOutput(chunk: string) {
     recordStreamMetric('sanitizeCalls')
     recordStreamMetric('sanitizeChars', chunk.length)
-    return this.sanitizeTerminalOutput(chunk)
+    return this.sanitizeTerminalOutput(chunk, this.sanitizeMode)
   }
   sendTerminalOutput(type: 'output' | 'output_resync', data: string, sessionName: string, hostId: string) {
     if (this.shareTicket && !shareLinkStore.isTicketActive(this.shareTicket)) {
@@ -277,7 +279,9 @@ export class StreamSession {
     recordStreamMetric('outputResyncRequests')
     this.outputBuffer = ''
     this.lastFrame = ''
+    // resync 边界：重建 carry 并切 heavy，重绘首轮做完整噪音清洗
     this.sanitizeTerminalOutput = createTerminalOutputSanitizer()
+    this.sanitizeMode = 'heavy'
     this.outputResyncPending = true
     if (this.outputTimer) {
       clearTimeout(this.outputTimer)
@@ -640,6 +644,7 @@ export class StreamSession {
     }
     this.outputBuffer = ''
     this.sanitizeTerminalOutput = createTerminalOutputSanitizer()
+    this.sanitizeMode = 'light'
     this.outputResyncPending = false
     this.outputResyncRunning = false
     this.clientBackpressureHigh = false
@@ -698,6 +703,8 @@ export class StreamSession {
       // 同 pty 复用：passive 只影响写操作准入，原位更新即可，无需重建附着
       this.attachedPassive = passive
       this.attachVisibleOutputObserved = false
+      // 新 attach/复用首轮：完整清洗历史噪音，可见输出确认后回 light
+      this.sanitizeMode = 'heavy'
       if (exclusive && requestedCols > 0 && requestedRows > 0) {
         // 复用即一次尺寸主张（refocus 回来要抢回 window）：更新期望并调度仲裁
         claimExclusiveOwnership(this)
@@ -748,6 +755,8 @@ export class StreamSession {
     this.attachVisibleOutputObserved = false
     this.lastFrame = ''
     this.dedupDropLogCount = 0
+    // 新 attach 首轮：heavy 完整清洗；首轮可见输出确认后回 light
+    this.sanitizeMode = 'heavy'
     const seq = this.attachSeq
     const attachedProcess = this.ptyProcess
     if (!attachedProcess) throw new Error('Terminal attachment failed')
@@ -763,8 +772,11 @@ export class StreamSession {
       }
       const filtered = this.sanitizeOutput(output)
       if (filtered) {
-        if (!this.attachVisibleOutputObserved && hasSubstantiveTerminalContent(filtered))
+        if (!this.attachVisibleOutputObserved && hasSubstantiveTerminalContent(filtered)) {
           this.attachVisibleOutputObserved = true
+          // 首轮可见输出已到：边界清洗完成，后续 chunk 回 light 只剥 DA
+          this.sanitizeMode = 'light'
+        }
         this.queueOutput(filtered)
       }
       if (this.pendingResizeAck) {
