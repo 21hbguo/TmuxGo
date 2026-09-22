@@ -1,6 +1,7 @@
 import { gzipSync, gunzipSync } from 'zlib'
 
 export const STREAM_BINARY_VERSION = 1
+export const STREAM_BINARY_VERSION_COMPACT = 2
 export const STREAM_BINARY_TYPE_OUTPUT = 1
 export const STREAM_BINARY_TYPE_RESYNC = 2
 export const STREAM_BINARY_TYPE_OUTPUT_GZIP = 3
@@ -22,7 +23,8 @@ function typeCodeOf(type: StreamBinaryAnsiType | StreamBinaryCellType, gzip: boo
   if (type === 'output_resync') return gzip ? STREAM_BINARY_TYPE_RESYNC_GZIP : STREAM_BINARY_TYPE_RESYNC
   if (type === 'cell_snapshot') return gzip ? STREAM_BINARY_TYPE_CELL_SNAPSHOT_GZIP : STREAM_BINARY_TYPE_CELL_SNAPSHOT
   if (type === 'cell_diff') return gzip ? STREAM_BINARY_TYPE_CELL_DIFF_GZIP : STREAM_BINARY_TYPE_CELL_DIFF
-  if (type === 'cell_snapshot_v2') return gzip ? STREAM_BINARY_TYPE_CELL_SNAPSHOT_V2_GZIP : STREAM_BINARY_TYPE_CELL_SNAPSHOT_V2
+  if (type === 'cell_snapshot_v2')
+    return gzip ? STREAM_BINARY_TYPE_CELL_SNAPSHOT_V2_GZIP : STREAM_BINARY_TYPE_CELL_SNAPSHOT_V2
   return gzip ? STREAM_BINARY_TYPE_CELL_DIFF_V2_GZIP : STREAM_BINARY_TYPE_CELL_DIFF_V2
 }
 
@@ -43,7 +45,13 @@ export function maybeGzip(data: Buffer, enabled: boolean, threshold: number) {
   return { payload: compressed, gzip: true }
 }
 
-export function encodeStreamBinaryFrame(type: StreamBinaryAnsiType | StreamBinaryCellType, hostId: string, sessionName: string, payload: Buffer, gzip = false) {
+export function encodeStreamBinaryFrame(
+  type: StreamBinaryAnsiType | StreamBinaryCellType,
+  hostId: string,
+  sessionName: string,
+  payload: Buffer,
+  gzip = false,
+) {
   const host = Buffer.from(hostId || '', 'utf8')
   const session = Buffer.from(sessionName || '', 'utf8')
   if (host.length > 0xffff || session.length > 0xffff) throw new Error('stream binary header too large')
@@ -58,7 +66,13 @@ export function encodeStreamBinaryFrame(type: StreamBinaryAnsiType | StreamBinar
   return Buffer.concat([header, host, session, payload])
 }
 
-export function encodeStreamOutputBinary(type: StreamBinaryAnsiType, hostId: string, sessionName: string, data: string, options?: { compress?: boolean; threshold?: number }) {
+export function encodeStreamOutputBinary(
+  type: StreamBinaryAnsiType,
+  hostId: string,
+  sessionName: string,
+  data: string,
+  options?: { compress?: boolean; threshold?: number },
+) {
   const raw = Buffer.from(data || '', 'utf8')
   const threshold = options?.threshold ?? 4096
   const force = type === 'output_resync'
@@ -67,9 +81,60 @@ export function encodeStreamOutputBinary(type: StreamBinaryAnsiType, hostId: str
   return encodeStreamBinaryFrame(type, hostId, sessionName, payload, gzip)
 }
 
-export function encodeStreamCellBinary(type: StreamBinaryCellType, hostId: string, sessionName: string, payload: Buffer, options?: { compress?: boolean; threshold?: number }) {
+export function encodeStreamCellBinary(
+  type: StreamBinaryCellType,
+  hostId: string,
+  sessionName: string,
+  payload: Buffer,
+  options?: { compress?: boolean; threshold?: number },
+) {
   const threshold = options?.threshold ?? 4096
   const isSnapshot = type === 'cell_snapshot' || type === 'cell_snapshot_v2'
   const { payload: body, gzip } = maybeGzip(payload, options?.compress === true, isSnapshot ? 0 : threshold)
   return encodeStreamBinaryFrame(type, hostId, sessionName, body, gzip)
+}
+
+export function encodeStreamBinaryFrameCompact(
+  type: StreamBinaryAnsiType | StreamBinaryCellType,
+  routeIdx: number,
+  payload: Buffer,
+  gzip = false,
+) {
+  if (!Number.isInteger(routeIdx) || routeIdx < 1 || routeIdx > 0xffff)
+    throw new Error('stream binary route index out of range')
+  const header = Buffer.allocUnsafe(12)
+  header.writeUInt8(0x54, 0)
+  header.writeUInt8(0x47, 1)
+  header.writeUInt8(STREAM_BINARY_VERSION_COMPACT, 2)
+  header.writeUInt8(typeCodeOf(type, gzip), 3)
+  header.writeUInt16LE(routeIdx, 4)
+  header.writeUInt16LE(0, 6)
+  header.writeUInt32LE(payload.length, 8)
+  return Buffer.concat([header, payload])
+}
+
+export function encodeStreamOutputBinaryCompact(
+  type: StreamBinaryAnsiType,
+  routeIdx: number,
+  data: string,
+  options?: { compress?: boolean; threshold?: number },
+) {
+  const raw = Buffer.from(data || '', 'utf8')
+  const threshold = options?.threshold ?? 4096
+  const force = type === 'output_resync'
+  const allow = options?.compress === true && (force || raw.length >= threshold)
+  const { payload, gzip } = maybeGzip(raw, allow, force ? 0 : threshold)
+  return encodeStreamBinaryFrameCompact(type, routeIdx, payload, gzip)
+}
+
+export function encodeStreamCellBinaryCompact(
+  type: StreamBinaryCellType,
+  routeIdx: number,
+  payload: Buffer,
+  options?: { compress?: boolean; threshold?: number },
+) {
+  const threshold = options?.threshold ?? 4096
+  const isSnapshot = type === 'cell_snapshot' || type === 'cell_snapshot_v2'
+  const { payload: body, gzip } = maybeGzip(payload, options?.compress === true, isSnapshot ? 0 : threshold)
+  return encodeStreamBinaryFrameCompact(type, routeIdx, body, gzip)
 }

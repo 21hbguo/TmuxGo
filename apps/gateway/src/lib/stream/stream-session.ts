@@ -7,7 +7,13 @@ import { agentMonitor } from '../agent-monitor.js'
 import { markAgentPaneSeen } from '../agent-state.js'
 import { assertSessionAllowed, prepareSessionAttach } from '../tmux-policy.js'
 import { parseSessionRef } from '../tmux-target.js'
-import { encodeStreamCellBinary, encodeStreamOutputBinary } from '../stream-binary.js'
+import {
+  encodeStreamCellBinary,
+  encodeStreamCellBinaryCompact,
+  encodeStreamOutputBinary,
+  encodeStreamOutputBinaryCompact,
+} from '../stream-binary.js'
+import { StreamRouteDictionary } from './stream-route.js'
 import { shareLinkStore, type ShareTicket } from '../share-links.js'
 import { StreamCellEncoder } from './stream-cell.js'
 import { applyScroll, getSessionWindowSize, refreshAttachedClient } from './stream-tmux.js'
@@ -26,6 +32,7 @@ import {
   SOCKET_BUFFER_HIGH_WATERMARK,
   SOCKET_FLUSH_DEFER_MS,
   STREAM_CELL_ENABLED,
+  STREAM_COMPACT_ENABLED,
   STREAM_COMPRESS_ENABLED,
   STREAM_COMPRESS_THRESHOLD,
   type OutputProfileName,
@@ -154,6 +161,9 @@ export class StreamSession {
   binaryOutputEnabled = false
   compressOutputEnabled = false
   cellOutputEnabled = false
+  compactHeaderEnabled = false
+  routes = new StreamRouteDictionary()
+  private announcedRoutes = new Set<number>()
   cell = new StreamCellEncoder()
   attachSeq = 0
   attachVisibleOutputObserved = false
@@ -211,10 +221,15 @@ export class StreamSession {
       this.getSocketBufferedBytes()
       if (this.binaryOutputEnabled) {
         const rawLen = Buffer.byteLength(data || '', 'utf8')
-        const frame = encodeStreamOutputBinary(type, hostId, sessionName, data, {
+        const routeIdx = this.ensureRoute(hostId, sessionName)
+        const encodeOpts = {
           compress: this.compressOutputEnabled,
           threshold: STREAM_COMPRESS_THRESHOLD,
-        })
+        }
+        const frame =
+          routeIdx != null
+            ? encodeStreamOutputBinaryCompact(type, routeIdx, data, encodeOpts)
+            : encodeStreamOutputBinary(type, hostId, sessionName, data, encodeOpts)
         const typeCode = frame[3]
         if (typeCode === 3 || typeCode === 4) {
           recordStreamMetric('compressFrames')
@@ -238,10 +253,12 @@ export class StreamSession {
     try {
       this.getSocketBufferedBytes()
       const useGzip = this.compressOutputEnabled && type === 'cell_snapshot_v2'
-      const frame = encodeStreamCellBinary(type, hostId, sessionName, payload, {
-        compress: useGzip,
-        threshold: STREAM_COMPRESS_THRESHOLD,
-      })
+      const routeIdx = this.ensureRoute(hostId, sessionName)
+      const encodeOpts = { compress: useGzip, threshold: STREAM_COMPRESS_THRESHOLD }
+      const frame =
+        routeIdx != null
+          ? encodeStreamCellBinaryCompact(type, routeIdx, payload, encodeOpts)
+          : encodeStreamCellBinary(type, hostId, sessionName, payload, encodeOpts)
       const typeCode = frame[3]
       if (typeCode === 6 || typeCode === 8) {
         recordStreamMetric('compressFrames')
@@ -640,6 +657,8 @@ export class StreamSession {
     }
     this.outputBuffer = ''
     this.sanitizeTerminalOutput = createTerminalOutputSanitizer()
+    this.routes.clear()
+    this.announcedRoutes.clear()
     this.outputResyncPending = false
     this.outputResyncRunning = false
     this.clientBackpressureHigh = false
@@ -914,10 +933,26 @@ export class StreamSession {
     if (!paneId.startsWith(this.attachedHostId + ':')) return
     agentMonitor.markSeen(paneId) || markAgentPaneSeen(paneId)
   }
-  applyCaps(data: { binaryOutput?: boolean; compressOutput?: string; cellOutput?: boolean }) {
+  /** Assign route for host+session; announce stream_route before first compact frame. */
+  private ensureRoute(hostId: string, sessionName: string): number | null {
+    if (!this.compactHeaderEnabled || !this.binaryOutputEnabled || !sessionName) return null
+    const routeIdx = this.routes.assign(hostId, sessionName)
+    if (routeIdx == null) return null
+    if (!this.announcedRoutes.has(routeIdx)) {
+      this.announcedRoutes.add(routeIdx)
+      this.send({ type: 'stream_route', routeIdx, hostId, sessionName })
+    }
+    return routeIdx
+  }
+  applyCaps(data: { binaryOutput?: boolean; compressOutput?: string; cellOutput?: boolean; compactHeader?: boolean }) {
     this.binaryOutputEnabled = data.binaryOutput === true
     this.compressOutputEnabled = STREAM_COMPRESS_ENABLED && this.binaryOutputEnabled && data.compressOutput === 'gzip'
     this.cellOutputEnabled = STREAM_CELL_ENABLED && this.binaryOutputEnabled && data.cellOutput === true
+    this.compactHeaderEnabled = STREAM_COMPACT_ENABLED && this.binaryOutputEnabled && data.compactHeader === true
+    if (!this.compactHeaderEnabled) {
+      this.routes.clear()
+      this.announcedRoutes.clear()
+    }
     if (this.cellOutputEnabled)
       this.cell.reset(
         this.attachedCols || 80,
@@ -930,6 +965,7 @@ export class StreamSession {
       binaryOutput: this.binaryOutputEnabled,
       compressOutput: this.compressOutputEnabled ? 'gzip' : false,
       cellOutput: this.cellOutputEnabled,
+      compactHeader: this.compactHeaderEnabled,
     })
   }
   requestCellResync() {
