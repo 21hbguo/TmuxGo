@@ -584,6 +584,9 @@ export const en = {
   'grid.control.attaching': 'Attaching terminal…',
   'grid.control.readonly': 'Read-only share',
   'grid.control.takeover': 'Take over',
+  'grid.input.pending': 'Pending input queued',
+  'grid.input.retry': 'Retry now',
+  'grid.input.clear': 'Clear pending input',
 
   // TerminalSearch
   'terminalSearch.placeholder': 'Search...',

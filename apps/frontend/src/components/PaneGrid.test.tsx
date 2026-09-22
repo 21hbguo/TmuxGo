@@ -11,6 +11,7 @@ const subscribeOutputMock = vi.hoisted(() =>
   vi.fn((_hostId: string, _sessionName: string, _listener: unknown) => vi.fn()),
 )
 const socketState = vi.hoisted(() => ({ isConnected: false, isSocketReady: true }))
+const retryConnectionMock = vi.hoisted(() => vi.fn())
 const windowsData = vi.hoisted(() => [] as any[])
 const terminalProps = vi.hoisted(() => ({
   current: null as null | {
@@ -52,6 +53,7 @@ vi.mock('@/hooks/useWebSocket', () => ({
     isConnected: socketState.isConnected,
     isSocketReady: socketState.isSocketReady,
     subscribeOutput: subscribeOutputMock,
+    retryConnection: retryConnectionMock,
   }),
 }))
 vi.mock('@/i18n', () => ({
@@ -1050,5 +1052,66 @@ describe('multi-device exclusive ownership', () => {
     )
     expect(document.querySelector('[data-ownership]')?.getAttribute('data-ownership')).toBe('readonly')
     expect(screen.queryByRole('button', { name: 'grid.control.takeover' })).toBeNull()
+  })
+
+  it('shows pending input chip while disconnected and clear prevents any resend', async () => {
+    socketState.isConnected = true
+    const view = render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    await waitFor(() => expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'attach' })))
+    act(() => {
+      emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev1', cols: 120, rows: 36, hostId: 'local' })
+    })
+    // 断线后键入 → 入队并显示待发提示 + 动作入口
+    act(() => {
+      socketState.isConnected = false
+    })
+    view.rerender(<PaneGrid />)
+    act(() => {
+      terminalProps.current?.onInput?.('ls\n')
+    })
+    expect(screen.getByText(/grid\.input\.pending/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'grid.input.clear' }))
+    expect(screen.queryByText(/grid\.input\.pending/)).toBeNull()
+    // 恢复连接后已清空的输入绝不补发
+    sendMock.mockClear()
+    act(() => {
+      socketState.isConnected = true
+    })
+    view.rerender(<PaneGrid />)
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(sendMock.mock.calls.filter(([message]) => message?.type === 'input')).toHaveLength(0)
+  })
+
+  it('auto-flushes queued input after reconnect and offers a retry entry', async () => {
+    socketState.isConnected = true
+    const view = render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    await waitFor(() => expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'attach' })))
+    act(() => {
+      emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev1', cols: 120, rows: 36, hostId: 'local' })
+    })
+    act(() => {
+      socketState.isConnected = false
+    })
+    view.rerender(<PaneGrid />)
+    act(() => {
+      terminalProps.current?.onInput?.('pwd\n')
+    })
+    expect(screen.getByText(/grid\.input\.pending/)).toBeTruthy()
+    // 链路中断时提供「立即重试」入口
+    fireEvent.click(screen.getByRole('button', { name: 'grid.input.retry' }))
+    expect(retryConnectionMock).toHaveBeenCalled()
+    // 恢复连接并重新附着成功：既有自动补发行为清空队列与提示
+    sendMock.mockClear()
+    act(() => {
+      socketState.isConnected = true
+    })
+    view.rerender(<PaneGrid />)
+    act(() => {
+      emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev1', cols: 120, rows: 36, hostId: 'local' })
+    })
+    await waitFor(() => expect(sendMock).toHaveBeenCalledWith({ type: 'input', data: 'pwd\n' }))
+    expect(screen.queryByText(/grid\.input\.pending/)).toBeNull()
   })
 })
