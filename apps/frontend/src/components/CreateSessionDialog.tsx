@@ -9,6 +9,7 @@ import dynamic from '@/lib/dynamic'
 import { isMobileDevice } from '@/hooks/useMobileKeyboard'
 import { useCreateWorkspace } from '@/hooks/useWorkspaces'
 import { usePrompt } from '@/hooks/usePrompt'
+import { isImeKeyEvent } from '@/lib/terminal-platform'
 import { useTranslation } from '@/i18n'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import type { SessionTemplate, WorkspaceEntry } from '@/types'
@@ -135,6 +136,8 @@ export function CreateSessionDialog({
     }
   }
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // IME 组字期按键交给输入法：选词 Enter/Escape 不得触发创建/关闭
+    if (isImeKeyEvent(e.nativeEvent)) return
     if (e.key === 'Enter' && !pickerOpen) {
       e.preventDefault()
       void handleCreate()

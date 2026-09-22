@@ -9,7 +9,7 @@ import { ConfirmDialog } from './ConfirmDialog'
 import { PromptDialog } from './PromptDialog'
 import { writeClipboardText } from '@/lib/clipboard-text'
 import { requestTerminalSelection } from '@/lib/terminal-selection'
-import { isApplePlatform } from '@/lib/terminal-platform'
+import { isApplePlatform, isImeKeyEvent } from '@/lib/terminal-platform'
 import { useSessionSnapshotSync } from '@/hooks/useSessionSnapshotSync'
 import { useHosts, useInvokePluginAction, usePlugins, useWindows } from '@/hooks/useApi'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
@@ -389,6 +389,9 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
               autoCorrect="off"
               spellCheck={false}
               onKeyDown={(e) => {
+                // IME 组字期 Enter/方向键/Escape 归输入法选词，不消费为应用动作；
+                // 判定需 isComposing 与 keyCode 229 双保险，见 isImeKeyEvent 注释
+                if (isImeKeyEvent(e.nativeEvent)) return
                 if (e.key === 'Escape') {
                   e.preventDefault()
                   close()
