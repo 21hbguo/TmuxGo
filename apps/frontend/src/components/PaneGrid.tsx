@@ -51,6 +51,7 @@ export interface PaneGridSocket {
       resync?: boolean
     }) => void,
   ) => () => void
+  retryConnection?: () => void
 }
 
 export function PaneGrid({
@@ -68,7 +69,7 @@ export function PaneGrid({
   const updateConnection = useConsoleStore((s) => s.updateConnection)
   const updateTerminalPerf = useConsoleStore((s) => s.updateTerminalPerf)
   const defaultConnection = useWebSocket()
-  const { send, isConnected, isSocketReady, subscribeOutput } = socket || defaultConnection
+  const { send, isConnected, isSocketReady, subscribeOutput, retryConnection } = socket || defaultConnection
   const updateConnectionState = useCallback(
     (...args: Parameters<typeof updateConnection>) => {
       if (!socket) updateConnection(...args)
@@ -138,6 +139,7 @@ export function PaneGrid({
   const attachInFlightRef = useRef<string | null>(null)
   const lastSessionRef = useRef<string | null>(sessionId || null)
   const inputQueueRef = useRef<string[]>([])
+  const [pendingInputCount, setPendingInputCount] = useState(0)
   const resizeFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingRemoteResizeRef = useRef<{ cols: number; rows: number } | null>(null)
   // 远端发送的静止窗口截止时刻：每次新尺寸/真实容器活动顺延；到期后由
@@ -547,6 +549,7 @@ export function PaneGrid({
     if (!isConnected || !isSessionAttachedRef.current || attachedRef.current !== targetSessionName) return
     if (inputQueueRef.current.length === 0) return
     const queued = inputQueueRef.current.splice(0)
+    setPendingInputCount(0)
     let batch = ''
     for (const chunk of queued) {
       if (!chunk) continue
@@ -569,6 +572,12 @@ export function PaneGrid({
       flushInputQueue()
     }, INPUT_FLUSH_INTERVAL)
   }, [flushInputQueue])
+  // 用户显式丢弃待发输入：清空队列并取消已排程的补发——清空后绝不自动重放
+  const clearPendingInput = useCallback(() => {
+    clearInputFlushTimer()
+    inputQueueRef.current = []
+    setPendingInputCount(0)
+  }, [clearInputFlushTimer])
   const attachNow = useCallback(() => {
     if (!targetSessionName || !isSocketReady || !terminalReadyRef.current) return
     const attachKey = `${activeHostId || 'local'}:${targetSessionName}:${exclusive ? 'exclusive' : 'shared'}:${attachPassive ? 'passive' : 'active'}`
@@ -649,6 +658,7 @@ export function PaneGrid({
     sentResizeRef.current = null
     pushedSizeRef.current = null
     inputQueueRef.current = []
+    setPendingInputCount(0)
   }, [targetSessionName, clearAttachTimers, clearInputFlushTimer, clearContinuityTimer, clearRemoteResizeState])
   useEffect(() => {
     if (!socket && connectionStatus === 'disconnected') {
@@ -903,6 +913,7 @@ export function PaneGrid({
           return
         }
         inputQueueRef.current.push(data)
+        setPendingInputCount(inputQueueRef.current.length)
         scheduleInputFlush()
         return
       }
@@ -913,6 +924,7 @@ export function PaneGrid({
       if (inputQueueRef.current.length > INPUT_QUEUE_LIMIT) {
         inputQueueRef.current.splice(0, inputQueueRef.current.length - INPUT_QUEUE_LIMIT)
       }
+      setPendingInputCount(inputQueueRef.current.length)
       if (isSocketReady && terminalReadyRef.current) attachNow()
     },
     [attachNow, isConnected, isSocketReady, send, targetSessionName, scheduleInputFlush, scheduleContinuityFlush],
@@ -1089,6 +1101,9 @@ export function PaneGrid({
           ? t('status.disconnected')
           : t('grid.control.attaching')
       : t(`grid.control.${ownershipStatus}`)
+  // 链路中断或存在待发输入时在状态条内给出可见提示与明确动作；
+  // 「网络恢复」不等于「会话可输入」——可输入仍由 ownershipStatus=owned 表达
+  const linkInterrupted = !isConnected || connectionStatus === 'reconnecting' || connectionStatus === 'disconnected'
   return (
     <div className="tmuxgo-content-surface relative h-full w-full min-h-0 min-w-0 overflow-hidden">
       <div
@@ -1106,6 +1121,19 @@ export function PaneGrid({
           <button className="text-accent hover:underline" onClick={() => setOwnershipLost(false)}>
             {t('grid.control.takeover')}
           </button>
+        )}
+        {linkInterrupted && retryConnection && (
+          <button className="text-accent hover:underline" onClick={retryConnection}>
+            {t('grid.input.retry')}
+          </button>
+        )}
+        {pendingInputCount > 0 && (
+          <>
+            <span className="text-warn">· {t('grid.input.pending')}</span>
+            <button className="text-accent hover:underline" onClick={clearPendingInput}>
+              {t('grid.input.clear')}
+            </button>
+          </>
         )}
       </div>
       <TerminalPane

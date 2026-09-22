@@ -578,6 +578,9 @@ export const zh = {
   'grid.control.attaching': '正在附着终端…',
   'grid.control.readonly': '只读分享',
   'grid.control.takeover': '接管',
+  'grid.input.pending': '存在待发送输入',
+  'grid.input.retry': '立即重试',
+  'grid.input.clear': '清空待发输入',
 
   // TerminalSearch
   'terminalSearch.placeholder': '搜索...',
