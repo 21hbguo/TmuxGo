@@ -185,6 +185,7 @@ describe('PaneGrid', () => {
     subscribeOutputMock.mockClear()
     // jsdom 无焦点概念（hasFocus 恒 false），补 stub 让页面处于激活态
     vi.spyOn(document, 'hasFocus').mockReturnValue(true)
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' })
     socketState.isConnected = false
     socketState.isSocketReady = true
     terminalProps.current = null
@@ -923,5 +924,90 @@ describe('PaneGrid', () => {
     expect(sendMock.mock.calls.filter(([m]) => m.type === 'resize')).toHaveLength(0)
     act(() => vi.advanceTimersByTime(30))
     expect(sendMock).toHaveBeenLastCalledWith({ type: 'resize', hostId: 'local', cols: 130, rows: 40 })
+  })
+})
+
+describe('multi-device exclusive ownership', () => {
+  beforeEach(() => {
+    sendMock.mockClear()
+    subscribeOutputMock.mockClear()
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true)
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' })
+    socketState.isConnected = false
+    socketState.isSocketReady = true
+    terminalProps.current = null
+    continuityState.value = {
+      enabled: false,
+      archive: { enabled: false, captureMode: 'none', maxBytesPerSession: 262144, retentionDays: 7 },
+      resumePoints: [],
+    }
+    continuityState.upsertResumePoint.mockReset()
+    useConsoleStore.setState({
+      activeHostId: 'local',
+      activeSessionId: 'session-dev1',
+      activePaneId: null,
+      connection: { status: 'attaching', latency: 0, lastPing: new Date().toISOString() },
+      terminalPerf: {
+        attachLatency: 0,
+        outputBytes: 0,
+        outputEvents: 0,
+        outputBacklog: 0,
+        layoutFitCount: 0,
+        lastOutputAt: '',
+      },
+    } as any)
+    sendMock.mockImplementation(() => true)
+  })
+  it('demotes to shared+passive after exclusive-revoked and reclaims on refocus', async () => {
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    await waitFor(() =>
+      expect(sendMock).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'attach', sessionName: 'dev1', exclusive: true }),
+      ),
+    )
+    sendMock.mockClear()
+    act(() => {
+      emitStreamEvent(STREAM_EVENT.exclusiveRevoked, { hostId: 'local', sessionName: 'dev1' })
+    })
+    await waitFor(() =>
+      expect(sendMock).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'attach', sessionName: 'dev1', exclusive: false, passive: true }),
+      ),
+    )
+    // 仍保持旁观，不自动抢回（防双端 pageActive 互抢）
+    sendMock.mockClear()
+    await new Promise((r) => setTimeout(r, 30))
+    expect(sendMock).not.toHaveBeenCalled()
+
+    // 失焦（已旁观，无需再 attach）→ 聚焦：重新 claim exclusive（电脑回来继续用）
+    vi.mocked(document.hasFocus).mockReturnValue(false)
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' })
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    vi.mocked(document.hasFocus).mockReturnValue(true)
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' })
+    sendMock.mockClear()
+    act(() => {
+      window.dispatchEvent(new Event('focus'))
+    })
+    await waitFor(() =>
+      expect(sendMock).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'attach', sessionName: 'dev1', exclusive: true }),
+      ),
+    )
+    const last = sendMock.mock.calls.filter(([m]) => m?.type === 'attach').at(-1)?.[0]
+    expect(last).not.toHaveProperty('passive')
+  })
+
+  it('single focused page keeps exclusive attach (single-instance baseline)', async () => {
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    await waitFor(() =>
+      expect(sendMock).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'attach', exclusive: true, sessionName: 'dev1' }),
+      ),
+    )
   })
 })
