@@ -25,6 +25,7 @@ import { ZoomSurface } from './ZoomSurface'
 import { Chip } from './Chip'
 import { ConfirmDialog } from './ConfirmDialog'
 import { DiffViewer } from './DiffViewer'
+import { CsvTable } from './CsvTable'
 import dynamic from '@/lib/dynamic'
 import { FiArrowLeft, FiArrowRight, FiCode } from 'react-icons/fi'
 
@@ -72,6 +73,10 @@ function getTabSize(language: string) {
 }
 function isImagePreviewable(editor: FileEditorDocument) {
   return !!editor.previewUrl
+}
+// 有右侧预览面的文本语言：md/html 渲染预览，csv 渲染表格
+function isPreviewableLanguage(language: string) {
+  return language === 'markdown' || language === 'html' || language === 'csv'
 }
 function getAutoScrollStep(distance: number) {
   const absDistance = Math.abs(distance)
@@ -931,8 +936,7 @@ export function EditorWorkbench({
     )
   }
   const renderSurface = (editor: FileEditorDocument, focused: boolean) => {
-    const previewOpen =
-      (editor.language === 'markdown' || editor.language === 'html') && previewOpenById[editor.id] !== false
+    const previewOpen = isPreviewableLanguage(editor.language) && previewOpenById[editor.id] !== false
     const compareLeft = editor.compareLeftId
       ? openEditors.find((item) => item.id === editor.compareLeftId) || null
       : null
@@ -1137,7 +1141,9 @@ export function EditorWorkbench({
           )}
         </div>
         {previewOpen &&
-          (editor.language === 'markdown' ? (
+          (editor.language === 'csv' ? (
+            <CsvTable content={editor.content} emptyLabel={t('editor.nothingToPreview')} />
+          ) : editor.language === 'markdown' ? (
             <ZoomSurface
               active={focused}
               resetKey={editor.id}
@@ -1229,7 +1235,7 @@ export function EditorWorkbench({
               >
                 <FiCode aria-hidden="true" size={14} />
               </Button>
-              {(activeEditor.language === 'markdown' || activeEditor.language === 'html') && (
+              {isPreviewableLanguage(activeEditor.language) && (
                 <Button
                   size="sm"
                   variant={previewOpenById[activeEditor.id] !== false ? 'accent' : 'default'}

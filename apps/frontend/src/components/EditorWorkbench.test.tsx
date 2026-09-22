@@ -398,6 +398,21 @@ describe('EditorWorkbench', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
     expect(screen.queryByTitle('page.html')).not.toBeInTheDocument()
   })
+  it('renders csv preview as a table and can hide it', () => {
+    const editor = createEditor('editor-csv', 'data.csv', 'name,age\nalice,30\nbob,25', { language: 'csv' })
+    setWorkbenchState({
+      openEditors: [editor],
+      activeEditorId: editor.id,
+      editorGroups: [createGroup('group-1', [editor.id], editor.id)],
+      editorLayout: createLeaf('layout-1', 'group-1'),
+      activeEditorGroupId: 'group-1',
+    })
+    renderWorkbench()
+    expect(screen.getByRole('columnheader', { name: 'name' })).toBeInTheDocument()
+    expect(screen.getByRole('cell', { name: 'alice' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
+    expect(screen.queryByRole('columnheader')).not.toBeInTheDocument()
+  })
   it('clears all opened editors from the toolbar button', async () => {
     setWorkbenchState({
       openEditors: [editor1, editor2, editor3],
