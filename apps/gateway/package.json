@@ -16,7 +16,7 @@
     "@fastify/websocket": "^8.3.1",
     "@xterm/addon-unicode11": "^0.9.0",
     "@xterm/headless": "^5.5.0",
-    "fastify": "^4.25.0",
+    "fastify": "^5.12.5",
     "node-pty": "^1.1.0",
     "web-push": "^3.6.7",
     "zod": "^3.22.0"
