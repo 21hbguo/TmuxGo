@@ -162,7 +162,7 @@ export function EditorWorkbench({
   const navigationForwardRef = useRef<NavigationEntry[]>([])
   const navigationPendingRef = useRef(false)
   const definitionAbortRef = useRef<AbortController | null>(null)
-  const pendingLocationRef = useRef<Record<string, { line: number; column: number }>>({})
+  const pendingLocationRef = useRef<Record<string, { line: number; column: number; appliedAt?: number }>>({})
   const [pendingCloseEditorId, setPendingCloseEditorId] = useState<string | null>(null)
   const [previewOpenById, setPreviewOpenById] = useState<Record<string, boolean>>({})
   const [cursorById, setCursorById] = useState<Record<string, { line: number; column: number }>>({})
@@ -649,6 +649,25 @@ export function EditorWorkbench({
     gitMode,
     setGitFollowEditorRepo,
   ])
+  // 落位应用+校验：getPosition 未达目标视为实例将销毁/未就绪，保留 pending 交给 remount 兜底；
+  // 首次校验成功后仍保留一小段复用窗口（loading 门重挂/StrictMode 重挂竞态），超时惰性清除
+  const applyPendingLocation = (editorId: string, instance: any) => {
+    const pending = pendingLocationRef.current[editorId]
+    if (!pending || !instance) return false
+    if (pending.appliedAt && Date.now() - pending.appliedAt > 1500) {
+      delete pendingLocationRef.current[editorId]
+      return false
+    }
+    // 目标行超出模型行数按 EOF 记落位，否则 pending 永不消费会残留成陈旧跳转
+    const lineCount = instance.getModel?.()?.getLineCount?.() ?? 0
+    const line = lineCount ? Math.min(pending.line, lineCount) : pending.line
+    instance.setPosition?.({ lineNumber: line, column: pending.column })
+    instance.revealPositionInCenter?.({ lineNumber: line, column: pending.column })
+    instance.focus?.()
+    if (instance.getPosition?.()?.lineNumber !== line) return false
+    pending.appliedAt ||= Date.now()
+    return true
+  }
   useEffect(() => {
     const handleOpenEditorLocation = (event: Event) => {
       const detail = (event as CustomEvent<{ editorId?: string; line?: number; column?: number }>).detail
@@ -659,13 +678,7 @@ export function EditorWorkbench({
       pendingLocationRef.current[editorId] = { line, column: Math.max(1, column) }
       setActiveEditor(editorId)
       requestAnimationFrame(() => {
-        const editor = editorRefs.current[editorId]
-        const position = pendingLocationRef.current[editorId]
-        if (!editor || !position) return
-        editor.setPosition?.({ lineNumber: position.line, column: position.column })
-        editor.revealPositionInCenter?.({ lineNumber: position.line, column: position.column })
-        editor.focus?.()
-        delete pendingLocationRef.current[editorId]
+        applyPendingLocation(editorId, editorRefs.current[editorId])
       })
     }
     window.addEventListener(OPEN_EDITOR_LOCATION_EVENT, handleOpenEditorLocation as EventListener)
@@ -1057,11 +1070,15 @@ export function EditorWorkbench({
                 // 预览跟随由下方 effect 统一驱动（cursorById 变化即触发）
               })
               const pendingPosition = pendingLocationRef.current[editor.id]
-              if (pendingPosition) {
-                instance.setPosition?.({ lineNumber: pendingPosition.line, column: pendingPosition.column })
-                instance.revealPositionInCenter?.({ lineNumber: pendingPosition.line, column: pendingPosition.column })
-                instance.focus?.()
-                delete pendingLocationRef.current[editor.id]
+              if (pendingPosition && applyPendingLocation(editor.id, instance)) {
+                // 首个布局可能未就绪（容器刚脱离 display:none）导致 reveal 落空：下一帧补一次居中
+                requestAnimationFrame(() => {
+                  if (editorRefs.current[editor.id] === instance)
+                    instance.revealPositionInCenter?.({
+                      lineNumber: pendingPosition.line,
+                      column: pendingPosition.column,
+                    })
+                })
               }
               instance.onMouseDown?.((event: any) => {
                 const browserEvent = event?.event?.browserEvent
