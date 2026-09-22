@@ -23,6 +23,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec eslint . --quiet
+      # 输出 warning 统计并对照基线：只允许下降，不引入 --max-warnings 0 硬门槛
+      - run: pnpm run check:eslint-warnings
       - run: pnpm run typecheck
   test:
     runs-on: ubuntu-latest

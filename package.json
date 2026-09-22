@@ -39,6 +39,7 @@
     "postinstall": "bash scripts/fix-native-perms.sh && simple-git-hooks",
     "smoke:pty": "node scripts/smoke-node-pty.mjs",
     "lint": "eslint .",
+    "check:eslint-warnings": "tsx scripts/check-eslint-warnings.ts",
     "typecheck": "tsc -p apps/frontend/tsconfig.json && tsc -p apps/gateway/tsconfig.json --noEmit && tsc -p apps/agent/tsconfig.json --noEmit",
     "verify": "npm test && npm run test:frontend && npm run test:e2e && npm run build"
   },
