@@ -60,6 +60,7 @@ export const IMAGE_MIME_BY_EXT: Record<string, string> = {
   '.jpeg': 'image/jpeg',
   '.jpg': 'image/jpeg',
   '.png': 'image/png',
+  '.svg': 'image/svg+xml',
   '.tif': 'image/tiff',
   '.tiff': 'image/tiff',
   '.webp': 'image/webp',
