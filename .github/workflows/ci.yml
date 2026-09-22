@@ -16,6 +16,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: false
+          fetch-depth: 0
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -26,6 +27,21 @@ jobs:
       # 输出 warning 统计并对照基线：只允许下降，不引入 --max-warnings 0 硬门槛
       - run: pnpm run check:eslint-warnings
       - run: pnpm run typecheck
+      # 只校验本 PR/push 变更文件的格式，不做全仓格式化；与本地 lint-staged 互补
+      - name: Check formatting of changed files
+        run: |
+          if [ -n "${{ github.base_ref }}" ]; then
+            range="origin/${{ github.base_ref }}...HEAD"
+          else
+            range="${{ github.event.before }}..HEAD"
+          fi
+          files=$(git diff --name-only --diff-filter=ACMR $range)
+          if [ -z "$files" ]; then
+            echo "No changed files to check"
+          else
+            echo "$files"
+            echo "$files" | tr '\n' '\0' | xargs -0 pnpm exec prettier --check --ignore-unknown
+          fi
   test:
     runs-on: ubuntu-latest
     strategy:
