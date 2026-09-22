@@ -6,9 +6,7 @@ import { emitStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import type { FileDocumentHandle, FileEditorDocument } from '@/types'
 import { getEditorLanguage, openFileInEditor } from '@/lib/editor-open'
 import { ActivityBar } from './ActivityBar'
-import { FilePanel } from './FilePanel'
-import { GitPanel } from './GitPanel'
-import { SshPanel } from './SshPanel'
+import dynamic from '@/lib/dynamic'
 import { SessionPanel } from './SessionPanel'
 import { SessionRail } from './SessionRail'
 import { EditorWorkbench } from './EditorWorkbench'
@@ -16,9 +14,14 @@ import { TerminalDock } from './TerminalDock'
 import { SessionSplitView } from './SessionSplitView'
 import { useSplitGroups } from '@/hooks/useSplitGroups'
 import { useTranslation } from '@/i18n'
-import { PluginView } from './PluginView'
 import { isTerminalDockDrag } from '@/lib/terminal-dock-drag'
 import type { TerminalDockPosition } from '@/stores/useConsoleStore'
+
+// 默认关闭的侧栏/插件面板动态加载：开 panel 时才拉取对应 chunk，缩小主入口
+const FilePanel = dynamic(() => import('./FilePanel').then((m) => ({ default: m.FilePanel })))
+const GitPanel = dynamic(() => import('./GitPanel').then((m) => ({ default: m.GitPanel })))
+const SshPanel = dynamic(() => import('./SshPanel').then((m) => ({ default: m.SshPanel })))
+const PluginView = dynamic(() => import('./PluginView').then((m) => ({ default: m.PluginView })))
 
 const ACTIVITY_BAR_WIDTH = 56
 const SESSION_RAIL_WIDTH = 109

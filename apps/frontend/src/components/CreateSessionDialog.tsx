@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from 'react'
 import { Button } from './Button'
 import { Chip } from './Chip'
 import { ModalPortal } from './ModalPortal'
-import { FilePanel, type FilePanelPickerTarget } from './FilePanel'
+import type { FilePanelPickerTarget } from './FilePanel'
+import dynamic from '@/lib/dynamic'
 import { isMobileDevice } from '@/hooks/useMobileKeyboard'
 import { useCreateWorkspace } from '@/hooks/useWorkspaces'
 import { usePrompt } from '@/hooks/usePrompt'
@@ -12,6 +13,9 @@ import { useTranslation } from '@/i18n'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import type { SessionTemplate, WorkspaceEntry } from '@/types'
 import { Select } from './Select'
+
+// 目录选择器仅 pickerOpen 时才用到，FilePanel 动态加载以免进入主入口
+const FilePanel = dynamic(() => import('./FilePanel').then((m) => ({ default: m.FilePanel })))
 
 export interface CreateSessionDialogWorkspace extends FilePanelPickerTarget {
   workspaceId?: string
