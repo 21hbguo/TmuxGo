@@ -18,7 +18,7 @@
 <a href="https://github.com/tmux/tmux"><img src="https://img.shields.io/badge/tmux-required-1BB91F?logo=tmux&logoColor=white" alt="tmux"></a>
 </p>
 <p>
-<a href="https://nextjs.org"><img src="https://img.shields.io/badge/Next.js-14-black?logo=next.js" alt="Next.js"></a>
+<a href="https://vite.dev"><img src="https://img.shields.io/badge/Vite-8-646CFF?logo=vite&logoColor=white" alt="Vite"></a>
 <a href="https://www.typescriptlang.org"><img src="https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white" alt="TypeScript"></a>
 <a href="https://tailwindcss.com"><img src="https://img.shields.io/badge/Tailwind-3.4-06B6D4?logo=tailwindcss&logoColor=white" alt="Tailwind CSS"></a>
 </p>
@@ -71,7 +71,7 @@
 | :satellite: **Multi-host** | Built-in local host plus SSH remote hosts, connectivity test, host switching that propagates to terminal, files, and Git |
 | :iphone: **Mobile / PWA** | Drawer navigation, touch scrolling, virtual keyboard, mobile shortcut bar, clipboard safety, install-to-home-screen banner |
 | :brain: **Persistence and sync** | Theme, shortcuts, favorites, snippets, session order, Git workspace state, and session continuity sync between browser storage and `~/.tmuxgo/preferences` |
-| :package: **Version and release awareness** | Stable/dev frontend split, build version checks, refresh prompt when a newer build is deployed |
+| :package: **Version and release awareness** | Vite build artifact vs dev hot-reload split, build version checks, refresh prompt when a newer build is deployed |
 
 ## :rocket: Quick Start
 
@@ -98,11 +98,11 @@ cd TmuxGo
 - verify Node.js (^20.19 / ^22.12 / >=24), installing the latest LTS via nvm when unsupported
 - install `tmux`, `ripgrep`, `lsof/ss`, `python3`, and native build tools
 - run `npm install`
-- build Gateway and the stable Frontend (`.next-prod`), plus Agent when `TMUXGO_ENABLE_AGENT=1`
+- build Gateway and the static Frontend (`apps/frontend/dist`, Vite), plus Agent when `TMUXGO_ENABLE_AGENT=1`
 - install and start user-level `systemd` services on Linux
 - install and start user-level `launchd` services on macOS
 - fall back to the local startup script when a background service manager is unavailable
-- verify `3000/3001` and print local URLs plus Tailscale HTTPS URLs when available
+- verify `3001` (Gateway serves API and static frontend) and print local URLs plus Tailscale HTTPS URLs when available
 
 After installation, open `http://localhost:3001` on macOS; use the address printed by the startup command for other deployment modes.
 Agent is not installed or started by default; use `TMUXGO_ENABLE_AGENT=1 ./install.sh` or `TMUXGO_ENABLE_AGENT=1 ./start.sh --restart` when you need it.
@@ -129,13 +129,13 @@ npm run publish:npx
 
 ## :traffic_light: Runtime Modes and Restart Rules
 
-- `3000` is the stable frontend address started by `start.sh`
-- macOS `launchd` starts only `com.tmuxgo.gateway`; the Gateway serves the frontend, API, and WebSocket on `3001`
-- `3002` is the development frontend with hot reload when you run local startup or `npm run dev:frontend`
-- Running only `build` or `test` does not refresh an already running stable `3000/3001`
-- To apply source changes to the stable stack, run `./start.sh --restart`
-- If frontend sources are newer than `.next-prod`, `./start.sh --restart` auto-upgrades to a stable rebuild
-- To force a rebuild explicitly, run `./start.sh --restart --rebuild`
+- **The only production entry is `3001`**: the Gateway serves API, WebSocket, and the static frontend; `http://127.0.0.1:3001/` returns `200`
+- There is no separate `3000` stable frontend process and no `3002` Next.js hot-reload port; the frontend is a Vite build artifact hosted by the Gateway
+- Linux production uses the systemd user unit: after changing Gateway source, run `systemctl --user restart tmuxgo-gateway`
+- After changing frontend source, run `npm run build` (or `npm run build:frontend`) to rebuild `apps/frontend/dist`; the Gateway reads dist per request, so no separate restart is needed for static assets
+- The development stack is Gateway `3101` + Vite dev `5199` (hot reload), separate from the production entry
+- Running only `build` or `test` does not load new Gateway code into a running process; Gateway changes require a restart
+- For a scripted rebuild + restart, `./start.sh --restart` still works (add `--rebuild` to force a rebuild)
 - For local production startup without `systemd` or `launchd`, use `./start-prod.sh`
 
 ## :satellite: Multi-Host and Remote SSH
@@ -144,6 +144,8 @@ npm run publish:npx
 - Add remote hosts from Settings with `id / address / user / port / password / passwordEnv`
 - Once you switch host, session lists, file trees, editor targets, and Git state switch with it
 - SSH keys are the preferred path; password or password-env hosts require `sshpass`
+- Host `useAgent: true` means SSH-agent authentication and requires a working SSH Agent on the deploy host (`SSH_AUTH_SOCK`)
+- The TmuxGo Agent component is not installed by default (`TMUXGO_ENABLE_AGENT` defaults to `0`); enable it explicitly when needed
 - Host definitions are stored in `~/.tmuxgo/hosts.json` by default, or under `TMUXGO_CONFIG_DIR`
 
 ## :shield: Production Deploy
@@ -206,7 +208,6 @@ Linux:
 
 ```bash
 systemctl --user status tmuxgo-gateway.service
-systemctl --user status tmuxgo-frontend.service
 systemctl --user status tmuxgo-agent.service
 ```
 
@@ -223,7 +224,6 @@ Linux:
 
 ```bash
 journalctl --user -u tmuxgo-gateway.service -f
-journalctl --user -u tmuxgo-frontend.service -f
 journalctl --user -u tmuxgo-agent.service -f
 ```
 
@@ -339,19 +339,19 @@ tailscale version
 ## :jigsaw: Architecture
 
 ```text
-┌──────────┐   WebSocket    ┌──────────┐   PTY / SSH / Git / Files   ┌──────────┐
-│ Frontend │ ◄────────────► │ Gateway  │ ◄──────────────────────────► │  Agent   │
-│ (Next.js)│                │ (Fastify)│                               │ (tmux)   │
-└──────────┘                └──────────┘                               └──────────┘
+┌──────────────┐   HTTP / WS    ┌──────────────────────────────┐   PTY / SSH / Git / Files   ┌──────────┐
+│ Vite static  │ ◄────────────► │ Gateway :3001                │ ◄──────────────────────────► │  Agent   │
+│ assets       │  same-origin   │ API + WebSocket + static UI  │                               │ (tmux)   │
+└──────────────┘                └──────────────────────────────┘                               └──────────┘
 ```
 
 | Service | Port | Stack |
 |:--------|:-----|:------|
-| :globe_with_meridians: Frontend (stable) | `3000` | Next.js 14, React 18, xterm.js, Monaco, Tailwind |
-| :hammer_and_wrench: Frontend (dev) | `3002` | Next.js hot reload |
-| :electric_plug: Gateway | `3001` | Fastify, WebSocket, node-pty, SSH, file and Git routes |
-| :satellite: Agent (optional) | - | `tmux` attach, host registration, terminal stream forwarding |
-| :lock: Tailscale HTTPS | `443`, `8443` | Auto-configured by `start.sh` for frontend and Gateway |
+| :globe_with_meridians: Frontend static assets (production) | Hosted by Gateway on `3001` | Vite 8 build output (`apps/frontend/dist`), React 18, xterm.js, Monaco, Tailwind |
+| :electric_plug: Gateway (sole production entry) | `3001` | Fastify, WebSocket, node-pty, SSH, file and Git routes; same-origin static frontend |
+| :hammer_and_wrench: Gateway + Vite (development) | `3101` + `5199` | dev Gateway + Vite dev hot reload (`npm run dev`) |
+| :satellite: Agent (optional, off by default) | - | `tmux` attach, host registration, terminal stream forwarding; requires `TMUXGO_ENABLE_AGENT=1` |
+| :lock: Tailscale HTTPS | `443`, `8443` | Auto-configured by `start.sh` to `3001` |
 
 ## :wrench: Development and Verification
 
@@ -370,8 +370,8 @@ npm run verify
 Recommended delivery checklist:
 
 1. `npm test` / `npm run test:frontend` / `npm run test:e2e` when relevant
-2. `./start.sh --restart`
-3. Verify that `3000` or the Tailscale HTTPS URL is serving the new build, not just `3002`
+2. Rebuild the frontend with `npm run build` (updates `apps/frontend/dist`); restart Gateway with `systemctl --user restart tmuxgo-gateway` when Gateway code changed (scripted installs can use `./start.sh --restart`)
+3. Verify only the production entry `http://127.0.0.1:3001/` or the Tailscale HTTPS URL is serving the new build; do not treat dev port `5199` as delivery evidence
 
 ## :keyboard: Common Shortcuts
 
@@ -392,8 +392,8 @@ Recommended delivery checklist:
 |:---------|:--------|:------------|
 | `PORT` | `3001` | Gateway listen port |
 | `TMUXGO_HOST` | `127.0.0.1` | Gateway bind address; configure encrypted transport or HTTPS before network exposure |
-| `NEXT_PUBLIC_API_URL` | `http://127.0.0.1:3001` | Frontend base URL for Gateway |
-| `NEXT_DIST_DIR` | `.next` / `.next-prod` | Frontend build output directory |
+| `VITE_API_URL` | `http://127.0.0.1:3001` | Gateway base URL used at build/dev time |
+| `TMUXGO_FRONTEND_DIST` | `apps/frontend/dist` | Frontend static assets directory served by Gateway |
 | `TMUXGO_ENABLE_AGENT` | `0` | Set to `1` to start or install Agent |
 | `GATEWAY_URL` | `ws://localhost:3001/api/stream` | Agent WebSocket URL for Gateway |
 | `TMUXGO_AUTH_USERNAME` | `admin` | Gateway login username |
@@ -411,7 +411,7 @@ Recommended delivery checklist:
 | `TMUXGO_CONFIG_DIR` | `~/.tmuxgo` | Host configuration directory, including `hosts.json` |
 | `TMUX_WEB_ALLOWED_SESSIONS` | empty | Comma-separated tmux session allowlist |
 
-Gateway authentication is enabled by default. Authentication state and device sessions are stored in `~/.tmuxgo/auth.json`; browsers refresh their session automatically after the first login. The default `admin/admin123` password must be changed on first use, and changing the password revokes all device sessions. Password authentication does not replace TLS; production deployments still require HTTPS/WSS or an encrypted network.
+Gateway authentication is enabled by default. Unauthenticated access to protected APIs such as `/api/hosts` returns `401`. Authentication state and device sessions are stored in `~/.tmuxgo/auth.json`; browsers refresh their session automatically after the first login. The default `admin/admin123` password must be changed on first use, and changing the password revokes all device sessions. Password authentication does not replace TLS; production deployments still require HTTPS/WSS or an encrypted network.
 
 ### Where Data Lives
 
@@ -425,14 +425,14 @@ Local startup logs:
 
 ```bash
 tail -f /tmp/tmuxgo-gateway.log
-tail -f /tmp/tmuxgo-frontend-stable.log
-tail -f /tmp/tmuxgo-frontend-dev.log
 tail -f /tmp/tmuxgo-agent.log
+# systemd production instance:
+# journalctl --user -u tmuxgo-gateway.service -f
 ```
 
 Common issues:
 
-1. `3002` shows the new UI but `3000` is still old: run `./start.sh --restart`, add `--rebuild` if needed
+1. Frontend changed but `3001` still serves the old UI: run `npm run build` to rebuild dist; if Gateway code changed, `systemctl --user restart tmuxgo-gateway` (or `./start.sh --restart`); do not validate against dev port `5199`
 2. System clipboard copy fails: prefer an HTTPS top-level tab and confirm clipboard permission in the browser
 3. Remote host connection fails: verify SSH reachability and confirm the target has `tmux`, `git`, and `python3`; install `sshpass` for password-based auth
 4. Git push or pull behaves unexpectedly: verify `git` and `gh` auth on the target host first, then retry from TmuxGo
@@ -487,15 +487,16 @@ eval "$(/opt/homebrew/bin/brew shellenv)"
 /opt/homebrew/bin/tmux new-session -d -s default
 ```
 
-7. Symptom: `http://localhost:3000` from the old README is unavailable. Cause: macOS registers only `com.tmuxgo.gateway`, which also serves the frontend on `3001`. Fix: open `http://localhost:3001`.
+7. Symptom: `http://localhost:3000` from the old README is unavailable. Cause: production only has the Gateway entry `3001` (API + WebSocket + Vite static frontend); there is no `3000` stable frontend process. Fix: open `http://localhost:3001`.
 
-8. Symptom: `/api/hosts` returns `403 PASSWORD_CHANGE_REQUIRED` after login. Cause: the default `admin/admin123` account is still in use and requires a first-login password change. Fix: change the password in the browser and retry.
+8. Symptom: unauthenticated `/api/hosts` returns `401 AUTH_REQUIRED`. Cause: Gateway authentication is enabled by default. Fix: log in first (default `admin/admin123`; password change forced on first login).
+9. Symptom: `/api/hosts` returns `403 PASSWORD_CHANGE_REQUIRED` after login. Cause: the default `admin/admin123` account is still in use and requires a first-login password change. Fix: change the password in the browser and retry.
 
-9. Symptom: `ps`, `sudo`, or writes to `/opt/homebrew` report `operation not permitted`. Cause: the command is running in a sandbox that restricts process inspection or system-directory writes. Fix: run the command outside the sandbox with system-directory write access.
+10. Symptom: `ps`, `sudo`, or writes to `/opt/homebrew` report `operation not permitted`. Cause: the command is running in a sandbox that restricts process inspection or system-directory writes. Fix: run the command outside the sandbox with system-directory write access.
 
-10. Symptom: `/usr/bin/node: no such file or directory`. Cause: Node is installed at `/usr/local/bin/node` or managed by WorkBuddy at `~/.workbuddy/binaries/node`. Fix: use the actual Node path, for example `/usr/local/bin/node scripts/smoke-node-pty.mjs`; do not assume `/usr/bin/node` exists.
+11. Symptom: `/usr/bin/node: no such file or directory`. Cause: Node is installed at `/usr/local/bin/node` or managed by WorkBuddy at `~/.workbuddy/binaries/node`. Fix: use the actual Node path, for example `/usr/local/bin/node scripts/smoke-node-pty.mjs`; do not assume `/usr/bin/node` exists.
 
-11. Symptom: `find` reports `bad mode '+111'`. Cause: BSD `find` on macOS does not support GNU `find`'s `-perm +111` syntax. Fix: use `-perm -u+x`, as shown in item 2.
+12. Symptom: `find` reports `bad mode '+111'`. Cause: BSD `find` on macOS does not support GNU `find`'s `-perm +111` syntax. Fix: use `-perm -u+x`, as shown in item 2.
 
 Troubleshooting order:
 
