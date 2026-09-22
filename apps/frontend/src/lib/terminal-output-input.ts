@@ -1,3 +1,4 @@
+import { applyCellToXterm } from './terminal-grid/apply-cell'
 interface TerminalOutputInputOptions {
   getTerminal: () => any
   pushOutput: (data: string) => void
@@ -12,7 +13,13 @@ interface TerminalOutputInputOptions {
   writeAtomic?: (data: string) => void
   controlCarryRef: { current: string }
 }
-type OutputPayload = { data: string; sessionName?: string | null; hostId?: string | null; resync?: boolean }
+type OutputPayload = {
+  data: string
+  sessionName?: string | null
+  hostId?: string | null
+  resync?: boolean
+  cell?: { kind: 'snapshot'; snapshot: any } | { kind: 'diff'; diff: any }
+}
 const SELECTION_HOLD_MAX_BUFFER = 1024 * 1024
 const SELECTION_HOLD_CHECK_MS = 800
 // A drag-select normally produces a selection within a few frames; if the
@@ -59,8 +66,19 @@ export function createTerminalOutputInput(options: TerminalOutputInputOptions) {
     if (payload.sessionName && payload.sessionName !== currentSessionName) return
     const raw = payload.data
     const terminal = options.getTerminal()
-    if (!raw || !terminal?.write) return
     if (payload.resync) options.disposeOutput()
+    // cell 帧优先直写 xterm buffer（失败才退回 ANSI write 管道）
+    if (payload.cell) {
+      if (!terminal) return
+      if (applyCellToXterm(terminal, payload.cell as any)) {
+        options.onRawOutput?.(raw || '')
+        outputSinceLastAttach = true
+        options.controlCarryRef.current = ''
+        options.onOutput?.()
+        return
+      }
+    }
+    if (!raw || !terminal?.write) return
     options.onRawOutput?.(raw)
     outputSinceLastAttach = true
     options.controlCarryRef.current = ''

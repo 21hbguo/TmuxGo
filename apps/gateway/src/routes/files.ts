@@ -84,8 +84,9 @@ export async function fileRoutes(fastify: FastifyInstance, options: { taskManage
   })
   fastify.get('/hosts/:hostId/files/list', async (request) => {
     const { hostId } = request.params as { hostId: string }
-    const query = request.query as { root?: string; path?: string }
-    return listDirectoryForHost(hostId, query.root || '', query.path || '')
+    const query = request.query as { root?: string; path?: string; limit?: string }
+    const limit = query.limit ? Math.max(50, Number(query.limit) || 0) : undefined
+    return listDirectoryForHost(hostId, query.root || '', query.path || '', limit)
   })
   fastify.get('/hosts/:hostId/files/preview', async (request) => {
     const { hostId } = request.params as { hostId: string }

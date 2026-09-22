@@ -776,10 +776,13 @@ export const api = {
   },
   files: {
     roots: (hostId: string) => fetchApi<FileRoot[]>(`/api/hosts/${encodeURIComponent(hostId)}/files/roots`),
-    list: (hostId: string, root: string, path = '') =>
-      fetchApi<FileListResponse>(
-        `/api/hosts/${encodeURIComponent(hostId)}/files/list?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}`,
-      ),
+    list: (hostId: string, root: string, path = '', signal?: AbortSignal, limit?: number) => {
+      const qs = new URLSearchParams({ root, path })
+      if (typeof limit === 'number' && limit > 0) qs.set('limit', String(limit))
+      return fetchApi<FileListResponse>(`/api/hosts/${encodeURIComponent(hostId)}/files/list?${qs.toString()}`, {
+        signal,
+      })
+    },
     preview: (hostId: string, root: string, path: string, line = 1) =>
       fetchApi<FilePreviewResponse>(
         `/api/hosts/${encodeURIComponent(hostId)}/files/preview?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}&line=${line}`,
