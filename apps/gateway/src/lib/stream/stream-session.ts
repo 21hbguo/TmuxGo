@@ -37,6 +37,59 @@ interface StreamSocketLike {
   send: (data: string | Buffer) => void
   close: (code?: number, reason?: string) => void
 }
+// 同 session 全部 stream 连接的 window 尺寸仲裁。
+// tmux window 尺寸由"最近主张"的 client 决定（window-size latest / aggressive-resize）：
+// 其余附着——ignore-size 的共享/被动端、被抢占的独占端——client pty 尺寸不再等于
+// window，tmux 只在屏幕左上角画 window 区域 → 画面残缺且不随时间自愈；驱动端
+// 断开后 window 也不会回弹。这里在独占 attach/resize/连接断开/窗口切换后做一次
+// reconcile：读真实 window 尺寸，把所有连接的 pty 同步过去并推 window-size 事件；
+// 独占 owner 断开时由最近主张的幸存独占端拉回期望尺寸。
+const streamPeers = new Map<string, Set<StreamSession>>()
+const windowSyncTimers = new Map<string, ReturnType<typeof setTimeout>>()
+let assertOrderSeq = 0
+const WINDOW_SYNC_DELAY_MS = 80
+const WINDOW_SYNC_SETTLE_MS = 60
+function peerKey(hostId: string, sessionName: string) {
+  return `${hostId}\0${sessionName}`
+}
+// 测试缝：reconcile 的 window 尺寸查询可注入，不依赖真实 tmux session
+let windowSizeQuery: typeof getSessionWindowSize = getSessionWindowSize
+export function setWindowSizeQueryForTest(fn: typeof getSessionWindowSize | null) {
+  windowSizeQuery = fn ?? getSessionWindowSize
+}
+export function schedulePeerWindowSync(hostId: string, sessionName: string, delay = WINDOW_SYNC_DELAY_MS) {
+  const key = peerKey(hostId, sessionName)
+  if (windowSyncTimers.has(key)) return
+  const timer = setTimeout(() => {
+    windowSyncTimers.delete(key)
+    void reconcileWindowPeers(key).catch(() => {})
+  }, delay)
+  windowSyncTimers.set(key, timer)
+}
+async function reconcileWindowPeers(key: string) {
+  const peers = streamPeers.get(key)
+  if (!peers || !peers.size) return
+  const [hostId, sessionName] = key.split('\0')
+  if (!hostId || !sessionName) return
+  let win = await windowSizeQuery(hostId, sessionName).catch(() => null)
+  // assertSeq 最大的独占端是 window 尺寸的最近主张者：它与 window 不一致说明
+  // tmux 读数落在主张前，或 owner 已断开且 tmux 未回弹——由它拉回期望尺寸；
+  // 其它 window-size 策略（smallest 等）下重读的实际尺寸仍为权威
+  const champion = [...peers].reduce<StreamSession | null>(
+    (best, peer) =>
+      peer.ptyProcess && peer.attachedExclusive && peer.desiredCols > 0 && (!best || peer.assertSeq > best.assertSeq)
+        ? peer
+        : best,
+    null,
+  )
+  if (champion && (!win || champion.desiredCols !== win.cols || champion.desiredRows !== win.rows)) {
+    champion.applyWindowSize(champion.desiredCols, champion.desiredRows)
+    await new Promise((resolve) => setTimeout(resolve, WINDOW_SYNC_SETTLE_MS))
+    win = await windowSizeQuery(hostId, sessionName).catch(() => win)
+  }
+  if (!win || win.cols <= 0 || win.rows <= 0) return
+  for (const peer of peers) peer.applyWindowSize(win.cols, win.rows)
+}
 interface PendingResizeAck {
   sessionName: string
   hostId: string
@@ -56,6 +109,11 @@ export class StreamSession {
   attachedPassive = false
   attachedCols = 0
   attachedRows = 0
+  // 独占端期望的 window 尺寸与主张代次：reconcile 用最近主张者（assertSeq 最大）
+  // 恢复 owner 断开后的 window 尺寸
+  desiredCols = 0
+  desiredRows = 0
+  assertSeq = 0
   outputBuffer = ''
   lastFrame = ''
   dedupDropLogCount = 0
@@ -272,6 +330,49 @@ export class StreamSession {
   redrawAttachedClient(hostId: string, sessionName: string, clientPid: number) {
     return refreshAttachedClient(hostId, sessionName, clientPid)
   }
+  registerPeer() {
+    if (!this.attachedSessionName) return
+    const key = peerKey(this.attachedHostId, this.attachedSessionName)
+    let set = streamPeers.get(key)
+    if (!set) {
+      set = new Set()
+      streamPeers.set(key, set)
+    }
+    set.add(this)
+  }
+  unregisterPeer() {
+    if (!this.attachedSessionName) return
+    const key = peerKey(this.attachedHostId, this.attachedSessionName)
+    const set = streamPeers.get(key)
+    if (set && set.delete(this) && !set.size) streamPeers.delete(key)
+  }
+  // 由 reconcile 调用：把本 client 的 pty 同步到 window 实际尺寸并推 window-size
+  // 事件让前端跟随。对 ignore-size client 是纯视图同步；对独占 client 是等值
+  // 尺寸主张（实测 resize 到与 window 相同尺寸不会抢占 window）
+  applyWindowSize(cols: number, rows: number) {
+    if (!this.ptyProcess || !this.attachedSessionName || cols <= 0 || rows <= 0) return
+    if (cols === this.attachedCols && rows === this.attachedRows) return
+    // 在途 resize 的目标尺寸已被仲裁推翻：completeResizeAck 的 attachedCols
+    // 守卫不成立会让 pending 永久残留，作废后由 window-size 事件接管确认
+    if (this.pendingResizeAck && (this.pendingResizeAck.cols !== cols || this.pendingResizeAck.rows !== rows)) {
+      this.pendingResizeAck = null
+      if (this.resizeAckTimer) {
+        clearTimeout(this.resizeAckTimer)
+        this.resizeAckTimer = null
+      }
+    }
+    this.ptyProcess.resize(cols, rows)
+    this.attachedCols = cols
+    this.attachedRows = rows
+    if (this.cellOutputEnabled) this.cell.reset(cols, rows, this.cellOutputEnabled && this.binaryOutputEnabled)
+    this.send({
+      type: 'window-size',
+      sessionName: this.attachedSessionName,
+      hostId: this.attachedHostId,
+      cols,
+      rows,
+    })
+  }
   flushOutput() {
     if (!this.attachedSessionName) return
     if (this.outputResyncPending) {
@@ -476,6 +577,7 @@ export class StreamSession {
     const current = this.ptyProcess
     const detachedSessionName = this.attachedSessionName
     const detachedHostId = this.attachedHostId
+    this.unregisterPeer()
     this.attachSeq += 1
     this.pendingResizeAck = null
     if (this.resizeAckTimer) {
@@ -495,6 +597,8 @@ export class StreamSession {
     this.attachedPassive = false
     this.attachedCols = 0
     this.attachedRows = 0
+    this.desiredCols = 0
+    this.desiredRows = 0
     if (this.outputTimer) {
       clearTimeout(this.outputTimer)
       this.outputTimer = null
@@ -514,6 +618,9 @@ export class StreamSession {
     this.clientBackpressureHigh = false
     this.scrollBuffers.clear()
     if (notify) this.send({ type: 'detached', sessionName: detachedSessionName, hostId: detachedHostId })
+    // 本端 client 消失后 tmux 不回弹 window 尺寸：调度仲裁让幸存的最近主张
+    // 独占端拉回期望尺寸、其余端同步到最终 window
+    if (detachedSessionName) schedulePeerWindowSync(detachedHostId, detachedSessionName)
   }
   async resolveAttachTarget(data: { hostId?: unknown; sessionName?: unknown }) {
     const hostId = typeof data.hostId === 'string' && data.hostId.trim() ? data.hostId.trim() : 'local'
@@ -564,16 +671,19 @@ export class StreamSession {
       // 同 pty 复用：passive 只影响写操作准入，原位更新即可，无需重建附着
       this.attachedPassive = passive
       this.attachVisibleOutputObserved = false
-      if (
-        exclusive &&
-        requestedCols > 0 &&
-        requestedRows > 0 &&
-        (requestedCols !== this.attachedCols || requestedRows !== this.attachedRows)
-      ) {
-        this.ptyProcess.resize(requestedCols, requestedRows)
-        this.attachedCols = requestedCols
-        this.attachedRows = requestedRows
+      if (exclusive && requestedCols > 0 && requestedRows > 0) {
+        // 复用即一次尺寸主张（refocus 回来要抢回 window）：更新期望并调度仲裁
+        this.desiredCols = requestedCols
+        this.desiredRows = requestedRows
+        this.assertSeq = ++assertOrderSeq
+        if (requestedCols !== this.attachedCols || requestedRows !== this.attachedRows) {
+          this.ptyProcess.resize(requestedCols, requestedRows)
+          this.attachedCols = requestedCols
+          this.attachedRows = requestedRows
+        }
+        schedulePeerWindowSync(hostId, sessionName)
       }
+      this.registerPeer()
       this.send({
         type: 'attached',
         sessionName,
@@ -599,6 +709,12 @@ export class StreamSession {
     this.attachedPassive = passive
     this.attachedCols = cols
     this.attachedRows = rows
+    if (exclusive) {
+      this.desiredCols = cols
+      this.desiredRows = rows
+      this.assertSeq = ++assertOrderSeq
+    }
+    this.registerPeer()
     if (this.cellOutputEnabled) this.cell.reset(cols, rows, this.cellOutputEnabled && this.binaryOutputEnabled)
     this.attachVisibleOutputObserved = false
     this.lastFrame = ''
@@ -641,6 +757,7 @@ export class StreamSession {
         exclusive: exitedExclusive,
       })
       this.send({ type: 'detached', hostId: exitedHostId, sessionName: exitedSessionName, exitCode })
+      this.unregisterPeer()
       this.ptyProcess = null
       this.attachedSessionName = null
       this.attachedHostId = 'local'
@@ -655,8 +772,10 @@ export class StreamSession {
       }
       this.clearAttachSnapshotTimers()
       this.clearRedrawTimers()
+      if (exitedSessionName) schedulePeerWindowSync(exitedHostId, exitedSessionName)
     })
     this.send({ type: 'attached', sessionName, hostId, cols, rows, exclusive })
+    if (exclusive) schedulePeerWindowSync(hostId, sessionName)
     this.scheduleClientRedraw(sessionName, ATTACH_REDRAW_DELAYS)
     this.scheduleAttachSnapshot(sessionName, seq)
     console.log('Attach completed (new)', { sessionName, cols, rows, elapsedMs: Date.now() - attachStartedAt })
@@ -691,6 +810,13 @@ export class StreamSession {
     this.ptyProcess.resize(nextCols, nextRows)
     this.attachedCols = nextCols
     this.attachedRows = nextRows
+    if (this.attachedExclusive) {
+      // 独占 resize 是一次尺寸主张：window 落定后把其它附着同步到新尺寸
+      this.desiredCols = nextCols
+      this.desiredRows = nextRows
+      this.assertSeq = ++assertOrderSeq
+      schedulePeerWindowSync(this.attachedHostId, this.attachedSessionName)
+    }
     if (this.cellOutputEnabled) this.cell.reset(nextCols, nextRows, this.cellOutputEnabled && this.binaryOutputEnabled)
     void this.refreshAttachedClient(pending.sessionName)
       .catch(() => {})

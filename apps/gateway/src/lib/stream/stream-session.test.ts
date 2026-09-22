@@ -1,7 +1,7 @@
 import '../../test-env.js'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { StreamSession } from './stream-session.js'
+import { schedulePeerWindowSync, setWindowSizeQueryForTest, StreamSession } from './stream-session.js'
 import { RESYNC_HYSTERESIS_MS, RESYNC_RESET_SEQ } from './stream-config.js'
 import { streamPerfMetrics } from '../perf-metrics.js'
 import { createRequire } from 'node:module'
@@ -231,4 +231,101 @@ test('queueOutput over-limit also goes through hysteresis instead of instant res
   await new Promise((r) => setTimeout(r, RESYNC_HYSTERESIS_MS + 60))
   assert.ok(!sent.some((m) => m.type === 'output_resync'))
   session.cleanup()
+})
+
+function createPeer(cols: number, rows: number) {
+  const { session, sent } = createSession()
+  const resized: Array<[number, number]> = []
+  session.ptyProcess = {
+    pid: 0,
+    resize(c: number, r: number) {
+      resized.push([c, r])
+    },
+    write() {},
+    kill() {},
+    onData() {},
+    onExit() {},
+  } as any
+  session.attachedCols = cols
+  session.attachedRows = rows
+  return { session, sent, resized }
+}
+
+test('applyWindowSize syncs the client pty to the window size and pushes the event', () => {
+  const { session, sent, resized } = createPeer(200, 50)
+  session.applyWindowSize(60, 24)
+  assert.deepEqual(resized, [[60, 24]])
+  assert.equal(session.attachedCols, 60)
+  assert.equal(session.attachedRows, 24)
+  const pushed = sent.find((m) => m.type === 'window-size') as any
+  assert.equal(pushed?.cols, 60)
+  assert.equal(pushed?.rows, 24)
+  // 同尺寸收敛不重复推送
+  sent.length = 0
+  session.applyWindowSize(60, 24)
+  assert.equal(sent.length, 0)
+  session.cleanup()
+})
+
+test('applyWindowSize invalidates a pending resize ack whose target was overridden', () => {
+  const { session } = createPeer(200, 50)
+  session.pendingResizeAck = {
+    sessionName: 'dev',
+    hostId: 'local',
+    cols: 120,
+    rows: 40,
+    seq: session.attachSeq,
+    refreshComplete: false,
+    outputObserved: false,
+    startedAt: Date.now(),
+  }
+  session.applyWindowSize(60, 24)
+  assert.equal(session.pendingResizeAck, null)
+  session.cleanup()
+})
+
+test('peer reconcile demotes peers to the window size and restores the surviving owner', async () => {
+  // 模拟 tmux window 尺寸源：pty resize 到与 window 不同的值会抢占 window
+  // （实测 window-size latest 行为），同值则保持——reconcile 两端都依赖这一点
+  let winSize: { cols: number; rows: number } | null = { cols: 60, rows: 24 }
+  setWindowSizeQueryForTest(async () => winSize)
+  try {
+    const desk = createPeer(200, 50)
+    const phone = createPeer(60, 24)
+    // desk 先主张 200，phone 后主张 60（window 已是 60）
+    desk.session.attachedExclusive = true
+    desk.session.desiredCols = 200
+    desk.session.desiredRows = 50
+    desk.session.assertSeq = 1
+    phone.session.attachedExclusive = true
+    phone.session.desiredCols = 60
+    phone.session.desiredRows = 24
+    phone.session.assertSeq = 2
+    // pty resize 等价于尺寸主张：更新模拟的 window 尺寸源
+    const track = (peer: ReturnType<typeof createPeer>) => {
+      const original = peer.session.ptyProcess!.resize.bind(peer.session.ptyProcess)
+      peer.session.ptyProcess!.resize = ((c: number, r: number) => {
+        winSize = { cols: c, rows: r }
+        original(c, r)
+      }) as any
+    }
+    track(desk)
+    track(phone)
+    desk.session.registerPeer()
+    phone.session.registerPeer()
+    schedulePeerWindowSync('local', 'dev', 0)
+    await new Promise((r) => setTimeout(r, 120))
+    // 仲裁后输家 pty 被同步到 window 尺寸并收到 window-size 推送
+    assert.deepEqual(desk.resized.at(-1), [60, 24])
+    assert.ok(desk.sent.some((m) => m.type === 'window-size' && (m as any).cols === 60))
+    // owner 断开：tmux 不回弹，由幸存的最近主张独占端拉回期望尺寸
+    phone.session.cleanup()
+    await new Promise((r) => setTimeout(r, 200))
+    assert.deepEqual(winSize, { cols: 200, rows: 50 })
+    assert.equal(desk.session.attachedCols, 200)
+    assert.ok(desk.sent.some((m) => m.type === 'window-size' && (m as any).cols === 200))
+    desk.session.cleanup()
+  } finally {
+    setWindowSizeQueryForTest(null)
+  }
 })
