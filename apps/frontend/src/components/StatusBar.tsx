@@ -8,6 +8,7 @@ import { useHosts, useSessions, useSessionSnapshot } from '@/hooks/useApi'
 import { Chip } from './Chip'
 import { AgentStatusBadge } from './AgentStatusBadge'
 import { subscribeStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
+import { getNetStats } from '@/lib/net-stats'
 
 const gb = (mb: number) => (mb / 1024).toFixed(1)
 const SESSION_SYNC_DELAY_MS = 15000
@@ -51,6 +52,17 @@ function formatTraffic(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}M`
   if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)}K`
   return `${Math.round(bytes)}B`
+}
+
+function formatCount(n: number): string {
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`
+  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}K`
+  return String(n)
+}
+
+// Integer percentages render without decimals; fractional ones are capped at 1 decimal.
+function formatLoss(pct: number): string {
+  return `${Number(pct.toFixed(1))}%`
 }
 
 export function StatusBar() {
@@ -126,6 +138,8 @@ export function StatusBar() {
         ? t('status.syncPendingTitle')
         : t('status.syncFreshTitle', { age: sessionSyncAge })
   const agentMonitorFailed = agentMonitorErrorAt > 0 && now - agentMonitorErrorAt < AGENT_MONITOR_ERROR_TTL_MS
+  const netStats = getNetStats()
+  const netLossTone: Tone = netStats.lossPct >= 5 ? 'danger' : netStats.lossPct >= 1 ? 'warn' : 'success'
 
   const statusStyle = (
     {
@@ -278,6 +292,18 @@ export function StatusBar() {
               />
             </span>
           )}
+          <span aria-label={t('status.netStats')}>
+            <ResourceChip
+              label={t('status.packets')}
+              value={`↑${formatCount(netStats.tx)} ↓${formatCount(netStats.rx)} ${formatLoss(netStats.lossPct)}`}
+              tone={netLossTone}
+              title={t('status.netStatsTitle', {
+                tx: netStats.tx,
+                rx: netStats.rx,
+                loss: formatLoss(netStats.lossPct),
+              })}
+            />
+          </span>
           <span
             className={`inline-flex h-5 items-center gap-1.5 rounded-md px-2 font-medium ${statusStyle.shell}`}
             style={{ minWidth: '180px' }}
