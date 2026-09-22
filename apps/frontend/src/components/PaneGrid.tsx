@@ -6,7 +6,7 @@ import { useWebSocket } from '@/hooks/useWebSocket'
 import { useTranslation } from '@/i18n'
 import { usePreferences } from '@/hooks/usePreferences'
 import { isMobileDevice } from '@/hooks/useMobileKeyboard'
-import { useSessionSnapshot, useWindows } from '@/hooks/useApi'
+import { useHosts, useSessionSnapshot, useWindows } from '@/hooks/useApi'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import { useWindowQueryState } from '@/hooks/useWindowQueryState'
 import { api } from '@/lib/api'
@@ -85,9 +85,12 @@ export function PaneGrid({
   const pushToast = useConsoleStore((s) => s.pushToast)
   const setActiveSession = useConsoleStore((s) => s.setActiveSession)
   const setActivePane = useConsoleStore((s) => s.setActivePane)
+  const toggleSshPanel = useConsoleStore((s) => s.toggleSshPanel)
+  const setSessionPanelExpanded = useConsoleStore((s) => s.setSessionPanelExpanded)
   const sessionId = controlledSessionId === undefined ? activeSessionId : controlledSessionId
   const isControlled = controlledSessionId !== undefined
   const { data: orderedSessions = [] } = useOrderedSessions(activeHostId || '')
+  const { data: hostsData } = useHosts()
   const { data: windowsData = [] } = useWindows(activeHostId || '', sessionId || '')
   const { data: snapshotData } = useSessionSnapshot(activeHostId || '', sessionId || '')
   const { getWindows, setWindows } = useWindowQueryState(activeHostId || '', sessionId || '')
@@ -1073,11 +1076,41 @@ export function PaneGrid({
   }, [activeHostId, scheduleContinuityFlush, targetSessionName, subscribeOutput])
 
   if (!sessionId) {
+    // 空状态给明确下一步：无主机→添加主机；有主机无会话→新建会话；
+    // 有会话未选中→选最近会话。复用既有入口，不增强制导览
+    const hasHosts = (hostsData?.length ?? 0) > 0
+    const hasSessions = orderedSessions.length > 0
+    const openCreateSession = () => {
+      setSessionPanelExpanded(true)
+      window.dispatchEvent(new Event('tmuxgo-open-create-session'))
+    }
     return (
       <div className="flex-1 flex flex-col items-center justify-center text-text-3 gap-4">
         <div className="text-6xl">⊞</div>
         <div className="text-lg">{t('grid.noWindows')}</div>
         <div className="text-sm">{t('grid.selectSession')}</div>
+        {hostsData && !hasHosts ? (
+          <button
+            className="rounded-apple bg-accent/10 px-3 py-1.5 text-sm text-accent hover:bg-accent/20"
+            onClick={() => toggleSshPanel()}
+          >
+            {t('grid.addHost')}
+          </button>
+        ) : hasHosts && !hasSessions ? (
+          <button
+            className="rounded-apple bg-accent/10 px-3 py-1.5 text-sm text-accent hover:bg-accent/20"
+            onClick={openCreateSession}
+          >
+            {t('grid.createSession')}
+          </button>
+        ) : hasSessions ? (
+          <button
+            className="rounded-apple bg-accent/10 px-3 py-1.5 text-sm text-accent hover:bg-accent/20"
+            onClick={() => setActiveSession(orderedSessions[0]!.id)}
+          >
+            {t('grid.selectRecent')}
+          </button>
+        ) : null}
       </div>
     )
   }

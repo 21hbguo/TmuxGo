@@ -577,6 +577,9 @@ export const en = {
 
   // PaneGrid
   'grid.noWindows': 'No windows open',
+  'grid.addHost': 'Add host',
+  'grid.createSession': 'New session',
+  'grid.selectRecent': 'Select recent session',
   'grid.selectSession': 'Select a session from the sidebar',
   'grid.control.owned': 'Writable · local control',
   'grid.control.spectating': 'Spectating · control is elsewhere',
@@ -751,6 +754,8 @@ export const en = {
   'file.favoritesHint': 'Favorite directories will appear here for quick access from Workspace or Home.',
   'file.favoriteDirs': 'Favorite Directories',
   'file.noResults': 'No results',
+  'file.loadFailed': 'Failed to load directory',
+  'file.hostOffline': 'Host offline; will refresh when it recovers',
   'file.tooManyResults': 'Too many results, showing first {count}',
   'file.insertPath': 'Insert path to terminal',
   'file.openEditor': 'Open in editor',
@@ -832,6 +837,9 @@ export const en = {
   'file.mobileViewSource': 'Source',
   'file.mobileViewRendered': 'Preview',
   'file.followActivePath': 'Follow terminal cwd',
+  'file.followSuspended': 'Following paused',
+  'file.followManual': 'Manual browsing',
+  'file.followResume': 'Resume following',
   'file.followActivePathHint': 'Follow the active terminal working directory',
 
   // PasteConfirmDialog
