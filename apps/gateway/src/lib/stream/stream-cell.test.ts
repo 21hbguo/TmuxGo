@@ -16,7 +16,7 @@ test('high dirty ratio prefers cell_diff not snapshot', () => {
   if (a.kind !== 'frame') return
   assert.equal(a.type, 'cell_snapshot_v2')
   enc2.markSent()
-  const b = feedText(enc2, 'XXXXX67890')
+  const b = feedText(enc2, 'XXXXX56789')
   assert.equal(b.kind, 'frame')
   if (b.kind !== 'frame') return
   assert.equal(b.type, 'cell_diff_v2')

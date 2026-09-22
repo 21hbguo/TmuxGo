@@ -1,17 +1,33 @@
 // env injected by scripts/run-tests.ts (TMUXGO_CONFIG_DIR etc.)
-import test from 'node:test'
+import test, { before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import os from 'node:os'
 import path from 'node:path'
-import { mkdtemp, mkdir, rm, writeFile, utimes } from 'node:fs/promises'
+import { mkdir, rm, writeFile, utimes } from 'node:fs/promises'
 
-// rootSpec/TTL 在模块加载时读取：必须先设 env 再动态 import
-const rootDir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-list-cache-'))
-process.env.TMUX_WEB_FILE_ROOTS = `workspace=${rootDir}`
-process.env.TMUXGO_FILE_LIST_TTL_MS = '60000'
-const { invalidateListCache, listDirectory } = await import('../apps/gateway/src/lib/files/file-ops.js')
+// rootSpec/TTL 在模块加载时读取：必须先设 env 再动态 import。
+// tsx/cjs 不支持 top-level await，用 before 钩子装载。
+const rootDir = path.join(os.tmpdir(), `tmuxgo-list-cache-${process.pid}`)
+let invalidateListCache: any
+let listDirectory: any
 
-test('listDirectory caches by mtime and invalidates on mutation', async (t) => {
+before(async () => {
+  await mkdir(rootDir, { recursive: true })
+  process.env.TMUX_WEB_FILE_ROOTS = `workspace=${rootDir}`
+  process.env.TMUXGO_FILE_LIST_TTL_MS = '60000'
+  const mod = await import('../apps/gateway/src/lib/files/file-ops.js')
+  invalidateListCache = mod.invalidateListCache
+  listDirectory = mod.listDirectory
+})
+
+after(async () => {
+  invalidateListCache?.()
+  delete process.env.TMUX_WEB_FILE_ROOTS
+  delete process.env.TMUXGO_FILE_LIST_TTL_MS
+  await rm(rootDir, { recursive: true, force: true })
+})
+
+test('listDirectory caches by mtime and invalidates on mutation', async () => {
   await mkdir(path.join(rootDir, 'a'))
   await writeFile(path.join(rootDir, 'a', 'one.txt'), '1')
   invalidateListCache()
@@ -29,15 +45,9 @@ test('listDirectory caches by mtime and invalidates on mutation', async (t) => {
   invalidateListCache('root-0', 'a')
   const third = await listDirectory('root-0', 'a')
   assert.equal(third.items.length, 2)
-  t.after(async () => {
-    invalidateListCache()
-    delete process.env.TMUX_WEB_FILE_ROOTS
-    delete process.env.TMUXGO_FILE_LIST_TTL_MS
-    await rm(rootDir, { recursive: true, force: true })
-  })
 })
 
-test('large directory list is truncated with totalCount', async (t) => {
+test('large directory list is truncated with totalCount', async () => {
   // LIST_PAGE_LIMIT 在模块加载时读取；截断路径用显式 limit 参数验证
   await mkdir(path.join(rootDir, 'big'))
   for (let i = 0; i < 80; i++) await writeFile(path.join(rootDir, 'big', `f${i}.txt`), 'x')
@@ -46,10 +56,4 @@ test('large directory list is truncated with totalCount', async (t) => {
   assert.equal(res.items.length, 50)
   assert.equal(res.truncated, true)
   assert.equal(res.totalCount, 80)
-  t.after(async () => {
-    invalidateListCache()
-    delete process.env.TMUX_WEB_FILE_ROOTS
-    delete process.env.TMUXGO_FILE_LIST_TTL_MS
-    await rm(rootDir, { recursive: true, force: true })
-  })
 })
