@@ -61,7 +61,7 @@ test('background tmuxgo pages cannot disturb the active page', async ({ browser,
   const nameA = `mc_a_${Date.now()}`
   const nameB = `mc_b_${Date.now()}`
   const sessionA = await ensureSession(request, nameA)
-  const sessionB = await ensureSession(request, nameB)
+  await ensureSession(request, nameB)
 
   const contextA = await browser.newContext({ baseURL, viewport: { width: 1400, height: 900 } })
   const pageA = await contextA.newPage()
@@ -130,6 +130,46 @@ test('background tmuxgo pages cannot disturb the active page', async ({ browser,
   await pageA.mouse.wheel(0, 2400)
   await expectSizeSync(pageA, nameA)
   expect(paneInMode(nameA)).toBeDefined()
+
+  await contextA.close()
+  await contextB.close()
+})
+
+// 焦点在 app 间来回切换的回归:失焦页降级共享附着,网关按 window_height 起 pty
+// 会少掉状态行,xterm 收缩后回前台独占 attach 再推回会话——每循环 -1 行
+test('focus in/out cycles keep tmux window size stable', async ({ browser, baseURL, request }) => {
+  const name = `mc_c_${Date.now()}`
+  const session = await ensureSession(request, name)
+
+  // 同视口两个页面附着同一 session:焦点交替等价于 alt-tab 进出 TmuxGo,
+  // 同尺寸下任何收缩只能来自共享/独占尺寸语义失配
+  const contextA = await browser.newContext({ baseURL, viewport: { width: 1400, height: 900 } })
+  const pageA = await contextA.newPage()
+  await openSession(pageA, session, { expectHeader: false })
+  await pageA.waitForFunction(() => (window as any).__tmuxgoTerminal?.cols > 0, null, { timeout: 15000 })
+  await expectSizeSync(pageA, name)
+
+  const contextB = await browser.newContext({ baseURL, viewport: { width: 1400, height: 900 } })
+  const pageB = await contextB.newPage()
+  await openSession(pageB, session, { expectHeader: false })
+  await pageB.waitForFunction(() => (window as any).__tmuxgoTerminal?.cols > 0, null, { timeout: 15000 })
+
+  // B 新开抢焦点 → 先回到 A 取得基线
+  await pageA.bringToFront()
+  await pageA.waitForTimeout(900)
+  await expectSizeSync(pageA, name)
+  const baseline = tmuxSize(name)
+
+  for (let i = 0; i < 6; i += 1) {
+    await pageB.bringToFront()
+    await pageB.waitForTimeout(800)
+    await pageA.bringToFront()
+    await pageA.waitForTimeout(800)
+  }
+  const after = tmuxSize(name)
+  console.log('size after focus cycles:', JSON.stringify(baseline), '->', JSON.stringify(after))
+  expect(after).toEqual(baseline)
+  await expectSizeSync(pageA, name)
 
   await contextA.close()
   await contextB.close()

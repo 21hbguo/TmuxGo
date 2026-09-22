@@ -44,12 +44,17 @@ export async function getSessionWindowSize(hostId: string, sessionName: string) 
       '-p',
       '-t',
       sessionName,
-      '#{window_width}|#{window_height}',
+      '#{window_width}|#{window_height}|#{status}',
     ])
-    const [colsText, rowsText] = stdout.trim().split('|')
+    const [colsText, rowsText, statusText] = stdout.trim().split('|')
     const cols = parseInt(colsText, 10)
     const rows = parseInt(rowsText, 10)
-    if (cols > 0 && rows > 0) return { cols, rows }
+    // window_height 是 pane 内容区高度,不含状态行;附着所需的 client 等价
+    // 高度 = window_height + status 行数。若直接按 window_height 起 pty,
+    // 前端 xterm 会被收缩一行,回前台独占 attach 再把它推回会话尺寸——
+    // 每次 失焦/回前台 循环会话高度 -1
+    const statusRows = statusText === 'off' ? 0 : parseInt(statusText, 10) || 1
+    if (cols > 0 && rows > 0) return { cols, rows: rows + statusRows }
   } catch {}
   return null
 }
