@@ -23,6 +23,7 @@ const editorInstanceMocks = vi.hoisted(() => ({
 }))
 vi.mock('@/lib/code-navigation', () => ({
   resolveEditorDefinition: (...args: any[]) => resolveDefinitionMock(...args),
+  warmupCodeNavigation: () => {},
 }))
 vi.mock('@/lib/editor-open', () => ({
   OPEN_EDITOR_LOCATION_EVENT: 'tmuxgo-open-editor-location',
