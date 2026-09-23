@@ -16,6 +16,9 @@ export function sharedTerminalKey(hostId: string, sessionName: string) {
 export interface SharedTerminalSubscriber {
   onSharedOutput(filtered: string): void
   onSharedExit(exitCode: number): void
+  // 广播重绘边界回调：某订阅者的 refresh-client 重绘即将经 hub 扇出，
+  // 先收 output_resync 边界帧做原子替换（见 broadcastRedrawBoundary）
+  onSharedRedrawBoundary(): void
 }
 
 export class SharedTerminal {
@@ -59,6 +62,14 @@ export class SharedTerminal {
   write(data: string) {
     if (this.dead) return
     this.pty.write(data)
+  }
+  // 广播重绘边界：单 tmux client 的 refresh-client 无法只刷新订者——重绘
+  // 字节进共享 PTY 后必然扇出全部订阅者，普通 output 路径无 reset 语义，
+  // 旧端整屏叠加即花屏。调用方必须在 refresh 前调用本方法：给除 except
+  // 外的每个订阅者补发 output_resync 边界，各端按原子替换处理
+  broadcastRedrawBoundary(except?: SharedTerminalSubscriber) {
+    if (this.dead) return
+    for (const sub of this.subscribers) if (sub !== except) sub.onSharedRedrawBoundary()
   }
   // sanitize 只在 hub 做一次（含跨 chunk carry）；订阅者收到的已是过滤后字节
   private handleData(chunk: string) {

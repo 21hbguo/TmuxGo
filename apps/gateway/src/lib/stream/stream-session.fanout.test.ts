@@ -225,7 +225,8 @@ test('exclusive claim demotes previous; passive stays write-blocked; resync only
     sb.input('ok')
     assert.equal(spawns[0].writes.length, 1)
 
-    // resync 只清请求端缓冲
+    // resync 只清请求端缓冲；共享 hub 的 refresh 重绘会扇出全部订阅者——
+    // 其它端在重绘前收 output_resync 边界做原子替换，积压先 flush 不丢
     sa.outputBuffer = 'stale-a'
     sb.outputBuffer = 'stale-b'
     ;(sa as any).redrawAttachedClient = async () => {}
@@ -236,7 +237,10 @@ test('exclusive claim demotes previous; passive stays write-blocked; resync only
     assert.equal(sb.outputBuffer, 'stale-b')
     await sa.flushOutputResync()
     assert.ok(a.sent.some((m) => m.type === 'output_resync' && m.data === RESYNC_RESET_SEQ))
-    assert.ok(!b.sent.some((m) => m.type === 'output_resync'))
+    const bOutIdx = b.sent.findIndex((m) => m.type === 'output' && m.data === 'stale-b')
+    const bResyncIdx = b.sent.findIndex((m) => m.type === 'output_resync')
+    assert.ok(bOutIdx >= 0 && bResyncIdx > bOutIdx, 'B 的帧序：stale 输出 → reset 边界')
+    assert.equal(b.sent.filter((m) => m.type === 'output_resync').length, 1)
 
     sa.cleanup()
     sb.cleanup()
@@ -374,6 +378,144 @@ test('non-owner shared resize does not drive the shared PTY', async () => {
     sa.cleanup()
     sb.cleanup()
     assert.equal(spawns[0].killed, true)
+  } finally {
+    teardownEnv()
+  }
+})
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+// attach 重绘合并去重（RB）：list-clients 回包 pid 必须命中 hub pty
+// （首个 spawn pid=1000）refresh-client 才有目标；计数只算 refresh-client
+function setupRefreshExec(fail = false) {
+  const calls: string[][] = []
+  setRefreshExecForTest(async (_host: string, args: string[]) => {
+    calls.push(args)
+    if (args[0] === 'refresh-client') {
+      if (fail) throw new Error('refresh-client failure')
+      return { stdout: '', stderr: '', host: null } as any
+    }
+    return { stdout: '1000|/dev/pts/mock\n', stderr: '', host: null } as any
+  })
+  return () => calls.filter((args) => args[0] === 'refresh-client').length
+}
+
+test('attach refresh dedup: visible output before the first slot cancels every refresh', async () => {
+  setupEnv()
+  const spawns = setupPtySpawn()
+  const refreshCount = setupRefreshExec()
+  resetExclusiveOwnershipForTest()
+  resetSharedTerminalsForTest()
+  try {
+    const a = createSocket()
+    const sa = new StreamSession(a.socket as any, null)
+    await sa.attach({ hostId: 'local', sessionName: 'test', exclusive: false, cols: 80, rows: 24 })
+    // attach 返回后同步到达的首个有效输出：0/48/120 槽位全部应取消
+    spawns[0].emitData('seed-output')
+    await sleep(200)
+    assert.equal(refreshCount(), 0)
+    sa.cleanup()
+  } finally {
+    teardownEnv()
+  }
+})
+
+test('attach refresh dedup: quiet pane fires once per merged slot (0/48/120 = 3, was 4)', async () => {
+  setupEnv()
+  setupPtySpawn()
+  const refreshCount = setupRefreshExec()
+  resetExclusiveOwnershipForTest()
+  resetSharedTerminalsForTest()
+  try {
+    const a = createSocket()
+    const sa = new StreamSession(a.socket as any, null)
+    await sa.attach({ hostId: 'local', sessionName: 'test', exclusive: false, cols: 80, rows: 24 })
+    // 无输出：两路兜底原会在 48ms 撞车双发（0+48+48+120=4）；合并后每槽一次
+    await sleep(200)
+    assert.equal(refreshCount(), 3)
+    sa.cleanup()
+  } finally {
+    teardownEnv()
+  }
+})
+
+test('attach refresh dedup: failing refresh keeps exactly one bounded retry', async () => {
+  setupEnv()
+  setupPtySpawn()
+  const refreshCount = setupRefreshExec(true)
+  resetExclusiveOwnershipForTest()
+  resetSharedTerminalsForTest()
+  try {
+    const a = createSocket()
+    const sa = new StreamSession(a.socket as any, null)
+    await sa.attach({ hostId: 'local', sessionName: 'test', exclusive: false, cols: 80, rows: 24 })
+    // t=0 失败 → t=48 重试失败 → done：t=120 不再发，总数 2 而非 3
+    await sleep(200)
+    assert.equal(refreshCount(), 2)
+    sa.cleanup()
+  } finally {
+    teardownEnv()
+  }
+})
+
+test('attach refresh dedup: output mid-window cancels the remaining slots', async () => {
+  setupEnv()
+  const spawns = setupPtySpawn()
+  const refreshCount = setupRefreshExec()
+  resetExclusiveOwnershipForTest()
+  resetSharedTerminalsForTest()
+  try {
+    const a = createSocket()
+    const sa = new StreamSession(a.socket as any, null)
+    await sa.attach({ hostId: 'local', sessionName: 'test', exclusive: false, cols: 80, rows: 24 })
+    await sleep(60) // 0/48 槽位已各发一次
+    spawns[0].emitData('late-output')
+    await sleep(200) // 120 槽位看到有效输出 → done
+    assert.equal(refreshCount(), 2)
+    sa.cleanup()
+  } finally {
+    teardownEnv()
+  }
+})
+
+test('fanout redraw broadcast: B attach redraws once and peers get the reset boundary first', async () => {
+  setupEnv()
+  const spawns = setupPtySpawn()
+  const refreshCount = setupRefreshExec()
+  resetExclusiveOwnershipForTest()
+  resetSharedTerminalsForTest()
+  try {
+    const a = createSocket()
+    const b = createSocket()
+    const sa = new StreamSession(a.socket as any, null)
+    const sb = new StreamSession(b.socket as any, null)
+    await sa.attach({ hostId: 'local', sessionName: 'test', exclusive: false, cols: 80, rows: 24 })
+    spawns[0].emitData('seed-a') // A 首轮有效输出 → A 的兜底计划直接 done
+    await sleep(10)
+    a.sent.length = 0
+
+    await sb.attach({ hostId: 'local', sessionName: 'test', exclusive: false, cols: 80, rows: 24 })
+    await sleep(10) // B 的 t=0 槽位：先广播 output_resync 边界，再 refresh
+    spawns[0].emitData('REDRAW-MARKER') // 共享重绘字节经 hub 扇出两端
+    await sleep(200)
+
+    assert.equal(refreshCount(), 1, 'B attach 合并后只发一次 refresh-client')
+    const aResyncs = a.sent.filter((m) => m.type === 'output_resync')
+    assert.equal(aResyncs.length, 1, 'A 只收一次 reset 边界')
+    assert.equal(aResyncs[0].data, RESYNC_RESET_SEQ)
+    const aRedraws = a.sent.filter(
+      (m) => m.type === 'output' && typeof m.data === 'string' && m.data.includes('REDRAW-MARKER'),
+    )
+    assert.equal(aRedraws.length, 1, 'A 收到的整屏重绘只一次')
+    const resyncIdx = a.sent.findIndex((m) => m.type === 'output_resync')
+    const redrawIdx = a.sent.findIndex(
+      (m) => m.type === 'output' && typeof m.data === 'string' && m.data.includes('REDRAW-MARKER'),
+    )
+    assert.ok(resyncIdx >= 0 && redrawIdx > resyncIdx, '帧序必须是 边界 → 重绘，才能原子替换')
+    // 新订者同样收到一份边界（恢复语义按端下发，重绘字节只能广播）
+    assert.equal(b.sent.filter((m) => m.type === 'output_resync').length, 1)
+    sa.cleanup()
+    sb.cleanup()
   } finally {
     teardownEnv()
   }
