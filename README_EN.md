@@ -76,48 +76,42 @@ http://localhost:3001
 <tr>
 <td width="50%" valign="top">
 
-### 🌐 Browser-first
-
-No desktop client required. Terminal, files, editor, and Git live in one browser workspace for local machines and remote servers.
+<h3>🌐 Browser-first</h3>
+<p>No desktop client required. Terminal, files, editor, and Git live in one browser workspace for local machines and remote servers.</p>
 
 </td>
 <td width="50%" valign="top">
 
-### 🧠 Context stays alive
-
-The browser can close while `tmux` keeps running. Long builds, training jobs, logs, and interactive tasks stay available when you come back.
+<h3>🧠 Context stays alive</h3>
+<p>The browser can close while <code>tmux</code> keeps running. Long builds, training jobs, logs, and interactive tasks stay available when you come back.</p>
 
 </td>
 </tr>
 <tr>
 <td width="50%" valign="top">
 
-### 🧰 IDE-like workspace
-
-TmuxGo is more than a Web Terminal: sessions, Files, Monaco Editor, Git Workbench, and Terminal Dock are part of the same workspace.
+<h3>🧰 IDE-like workspace</h3>
+<p>TmuxGo is more than a Web Terminal: sessions, Files, Monaco Editor, Git Workbench, and Terminal Dock are part of the same workspace.</p>
 
 </td>
 <td width="50%" valign="top">
 
-### 📱 Cross-device handoff
-
-Start on desktop, check status on your phone, continue on a tablet. Sessions, layout, and active context can follow you.
+<h3>📱 Cross-device handoff</h3>
+<p>Start on desktop, check status on your phone, continue on a tablet. Sessions, layout, and active context can follow you.</p>
 
 </td>
 </tr>
 <tr>
 <td width="50%" valign="top">
 
-### 🖥️ Multi-host
-
-Manage the local machine and SSH hosts in one place. Session, file, and Git context switch together with the selected host.
+<h3>🖥️ Multi-host</h3>
+<p>Manage the local machine and SSH hosts in one place. Session, file, and Git context switch together with the selected host.</p>
 
 </td>
 <td width="50%" valign="top">
 
-### 🔐 Security-aware
-
-Loopback-only by default, built-in authentication, and explicit HTTPS/WSS deployment paths make remote exposure intentional rather than accidental.
+<h3>🔐 Security-aware</h3>
+<p>Loopback-only by default, built-in authentication, and explicit HTTPS/WSS deployment paths make remote exposure intentional rather than accidental.</p>
 
 </td>
 </tr>
