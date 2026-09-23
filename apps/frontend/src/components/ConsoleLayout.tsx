@@ -811,7 +811,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
         open={!!mobileSessionMenu}
         onClose={() => setMobileSessionMenuId(null)}
         zClass="z-[85]"
-        heightClass="p-3"
+        heightClass="flex h-[75%] flex-col p-3"
       >
         <div className="flex justify-center pb-2">
           <div className="h-1 w-10 rounded-full bg-text-3/30" />
@@ -889,7 +889,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
         open={mobileGitSheetOpen}
         onClose={() => closeOverlay('mobile-git')}
         zClass="z-[80]"
-        heightClass="flex h-[88%] flex-col"
+        heightClass="flex h-[75%] flex-col"
         ariaLabel={t('git.title')}
       >
         <div className="relative flex h-11 shrink-0 items-center justify-center border-b border-[var(--line)]">

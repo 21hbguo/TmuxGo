@@ -2104,7 +2104,8 @@ export function FilePanel({
     <div className="tmuxgo-scrollbar-subtle h-full overflow-auto p-3 text-xs text-text-3">
       <div className="text-text-2">{t('file.favorites')}</div>
       {visibleFavoriteDirectories.length ? (
-        <div className="mt-2 space-y-1">
+        // 限高约 3 行半，超出滚动，避免收藏多时把空态顶满
+        <div className="tmuxgo-scrollbar-subtle mt-2 max-h-28 space-y-1 overflow-y-auto pr-1">
           {visibleFavoriteDirectories.map((item) => (
             <Chip
               key={`${item.rootId}-${item.path}`}
@@ -2757,7 +2758,7 @@ export function FilePanel({
                   <div className="mb-2 text-caption uppercase tracking-[0.18em] text-text-3">
                     {t('file.favoriteDirs')}
                   </div>
-                  <div className="tmuxgo-scrollbar-subtle max-h-36 space-y-1 overflow-y-auto overscroll-contain">
+                  <div className="tmuxgo-scrollbar-subtle max-h-28 space-y-1 overflow-y-auto overscroll-contain">
                     {visibleFavoriteDirectories.map((item) => {
                       const favorited = isFavoriteDirectory(item)
                       return (
