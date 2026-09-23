@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import React from 'react'
 import { act } from 'react'
@@ -143,6 +143,36 @@ describe('Settings restart rebuild', () => {
     expect(screen.getByText('Restart TmuxGo services?')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Confirm' }))
     await waitFor(() => expect(restartRebuild).toHaveBeenCalledTimes(1))
+  })
+  it('submits the restart rebuild confirm only once on rapid double click', async () => {
+    let resolveRestart: (value: any) => void = () => {}
+    restartRebuild.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveRestart = resolve
+        }),
+    )
+    const user = userEvent.setup()
+    render(React.createElement(I18nProvider, null, React.createElement(Settings, { onClose: vi.fn() })))
+    await act(async () => {
+      await user.click(screen.getByRole('button', { name: 'About' }))
+    })
+    await user.click(screen.getByRole('button', { name: 'Restart + Rebuild' }))
+    expect(screen.getByText('Restart TmuxGo services?')).toBeInTheDocument()
+    const confirm = screen.getByRole('button', { name: 'Confirm' })
+    fireEvent.click(confirm)
+    fireEvent.click(confirm)
+    expect(restartRebuild).toHaveBeenCalledTimes(1)
+    await act(async () =>
+      resolveRestart({
+        status: 'success',
+        startedAt: '2026-06-08T00:00:00.000Z',
+        finishedAt: '2026-06-08T00:00:10.000Z',
+        summaryLines: [],
+        exitCode: 0,
+        errorMessage: null,
+      }),
+    )
   })
   it('updates Agent notification settings', async () => {
     const user = userEvent.setup()

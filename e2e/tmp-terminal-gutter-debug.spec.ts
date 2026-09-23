@@ -1,14 +1,17 @@
 import { test, expect } from '@playwright/test'
-import { ensureSession, openSession } from './session'
+import { ensureTestWindow, openSession } from './session'
 
 test('terminal content fills container height', async ({ page, request }) => {
-  const name = `tmuxgo_gutter_${Date.now()}`
-  const session = await ensureSession(request, name)
+  const { session } = await ensureTestWindow(request, 'gutter')
   await openSession(page, session, { expectHeader: false })
-  await page.waitForFunction(() => {
-    const t = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
-    return !!t?.cols && !!t?.rows && document.querySelector('[data-terminal] canvas')
-  }, undefined, { timeout: 15000 })
+  await page.waitForFunction(
+    () => {
+      const t = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
+      return !!t?.cols && !!t?.rows && document.querySelector('[data-terminal] canvas')
+    },
+    undefined,
+    { timeout: 15000 },
+  )
   await page.waitForTimeout(1200)
   await page.evaluate(() => {
     const terminal = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
@@ -22,8 +25,8 @@ test('terminal content fills container height', async ({ page, request }) => {
     const rows = terminal?.querySelector('.xterm-rows') as HTMLElement | null
     const lastRow = rows?.lastElementChild
     const canvas = screen?.querySelector('canvas') as HTMLCanvasElement | null
-    const rect = (node: Element | null) => node ? (node as HTMLElement).getBoundingClientRect().toJSON() : null
-    const style = (node: Element | null) => node ? getComputedStyle(node as Element) : null
+    const rect = (node: Element | null) => (node ? (node as HTMLElement).getBoundingClientRect().toJSON() : null)
+    const style = (node: Element | null) => (node ? getComputedStyle(node as Element) : null)
     return {
       terminalRect: rect(terminal),
       xtermRect: rect(xterm),
@@ -32,29 +35,39 @@ test('terminal content fills container height', async ({ page, request }) => {
       rowsRect: rect(rows),
       lastRowRect: rect(lastRow),
       canvasRect: rect(canvas),
-      terminalStyle: terminal ? {
-        paddingTop: style(terminal)?.paddingTop,
-        paddingRight: style(terminal)?.paddingRight,
-        paddingBottom: style(terminal)?.paddingBottom,
-        paddingLeft: style(terminal)?.paddingLeft,
-        overflow: style(terminal)?.overflow,
-      } : null,
-      viewportStyle: viewport ? {
-        overflow: style(viewport)?.overflow,
-        background: style(viewport)?.backgroundColor,
-      } : null,
-      screenStyle: screen ? {
-        position: style(screen)?.position,
-        inset: `${style(screen)?.top}/${style(screen)?.right}/${style(screen)?.bottom}/${style(screen)?.left}`,
-      } : null,
-      rowsStyle: rows ? {
-        width: style(rows)?.width,
-        height: style(rows)?.height,
-      } : null,
-      canvasStyle: canvas ? {
-        width: style(canvas)?.width,
-        height: style(canvas)?.height,
-      } : null,
+      terminalStyle: terminal
+        ? {
+            paddingTop: style(terminal)?.paddingTop,
+            paddingRight: style(terminal)?.paddingRight,
+            paddingBottom: style(terminal)?.paddingBottom,
+            paddingLeft: style(terminal)?.paddingLeft,
+            overflow: style(terminal)?.overflow,
+          }
+        : null,
+      viewportStyle: viewport
+        ? {
+            overflow: style(viewport)?.overflow,
+            background: style(viewport)?.backgroundColor,
+          }
+        : null,
+      screenStyle: screen
+        ? {
+            position: style(screen)?.position,
+            inset: `${style(screen)?.top}/${style(screen)?.right}/${style(screen)?.bottom}/${style(screen)?.left}`,
+          }
+        : null,
+      rowsStyle: rows
+        ? {
+            width: style(rows)?.width,
+            height: style(rows)?.height,
+          }
+        : null,
+      canvasStyle: canvas
+        ? {
+            width: style(canvas)?.width,
+            height: style(canvas)?.height,
+          }
+        : null,
       term: (() => {
         const t = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
         return {
@@ -64,7 +77,11 @@ test('terminal content fills container height', async ({ page, request }) => {
           lineHeight: t?.options?.lineHeight || 0,
           proposed: (() => {
             try {
-              return t?._addonManager?._addons?.find((item: any) => item?.instance?.proposeDimensions)?.instance?.proposeDimensions?.() || null
+              return (
+                t?._addonManager?._addons
+                  ?.find((item: any) => item?.instance?.proposeDimensions)
+                  ?.instance?.proposeDimensions?.() || null
+              )
             } catch {
               return null
             }

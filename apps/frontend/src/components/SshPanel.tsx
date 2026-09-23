@@ -17,8 +17,10 @@ import {
   useTestHost,
 } from '@/hooks/useApi'
 import { type CredentialStoreFile, type HostStoreFile } from '@/lib/api'
+import { isImeKeyEvent } from '@/lib/terminal-platform'
 import { useTranslation } from '@/i18n'
 import { useClipboard } from '@/hooks/useClipboard'
+import { useEscapeClose } from '@/hooks/useEscapeClose'
 import { Button } from './Button'
 import { Chip } from './Chip'
 import { ConfirmDialog } from './ConfirmDialog'
@@ -271,6 +273,10 @@ export function SshPanel() {
     setHostPasswordDraft('')
     setHostPrivateKeyPathDraft('')
   }
+  // 三个内嵌弹窗各占一层，共存时 ESC 只关最上层
+  useEscapeClose(closeHostDialog, hostDialogOpen)
+  useEscapeClose(closeSshConfig, sshConfigOpen)
+  useEscapeClose(closeJsonConfig, jsonConfigOpen)
   const saveHost = async () => {
     setHostActionMessage('')
     try {
@@ -571,6 +577,8 @@ export function SshPanel() {
             value={quickAddDraft}
             onChange={(event) => setQuickAddDraft(event.target.value)}
             onKeyDown={(event) => {
+              // IME 组字期选词 Enter 不触发快速添加
+              if (isImeKeyEvent(event.nativeEvent)) return
               if (event.key === 'Enter') void quickAddHost()
             }}
             placeholder={t('sshPanel.quickAddHint')}
@@ -906,7 +914,7 @@ export function SshPanel() {
         cancelLabel={t('common.cancel')}
         tone="danger"
         onCancel={() => setPendingDeleteHostId(null)}
-        onConfirm={() => void confirmDeleteHost()}
+        onConfirm={confirmDeleteHost}
       />
     </div>
   )

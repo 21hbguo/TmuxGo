@@ -545,6 +545,10 @@ a {
   border-radius: 0;
   background: rgb(var(--bg-1));
 }
+/* 精简导航的「更多」面板 bottom-full 弹到 dock 盒外，仅展开期间放开裁剪，平时保持 overflow:hidden */
+.tmuxgo-mobile-dock:has([data-mobile-nav-more]) {
+  overflow: visible;
+}
 .tmuxgo-mobile-nav {
   border: 0;
   background: rgb(var(--bg-1));

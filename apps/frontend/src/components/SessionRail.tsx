@@ -10,6 +10,7 @@ import { ConfirmDialog } from './ConfirmDialog'
 import { useTranslation } from '@/i18n'
 import { Button } from './Button'
 import { usePrompt } from '@/hooks/usePrompt'
+import { useEscapeClose } from '@/hooks/useEscapeClose'
 import { SessionStandaloneSortableList } from './SessionSortableList'
 import { FiChevronRight, FiEdit2, FiPlus, FiTrash2 } from 'react-icons/fi'
 import { AgentStatusBadge } from './AgentStatusBadge'
@@ -81,6 +82,7 @@ export function SessionRail() {
     window.addEventListener('mousedown', close)
     return () => window.removeEventListener('mousedown', close)
   }, [contextMenu])
+  useEscapeClose(() => setContextMenu(null), contextMenu !== null)
   useEffect(() => {
     const handleOpenTemplates = () => setShowTemplates(true)
     window.addEventListener('tmuxgo-open-session-templates', handleOpenTemplates as EventListener)
@@ -217,7 +219,7 @@ export function SessionRail() {
         cancelLabel={t('common.cancel')}
         tone="danger"
         onCancel={() => setPendingDeleteSessionId(null)}
-        onConfirm={() => void confirmDeleteSession()}
+        onConfirm={confirmDeleteSession}
       />
       {PromptElement}
     </>

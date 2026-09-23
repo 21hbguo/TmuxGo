@@ -1,11 +1,9 @@
 import '../test-env.js'
 import assert from 'node:assert/strict'
-import { execFile } from 'node:child_process'
 import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import test from 'node:test'
 import os from 'node:os'
 import path from 'node:path'
-import { promisify } from 'node:util'
 import {
   detectAgentEvidence,
   detectAgentPaneState,
@@ -17,8 +15,7 @@ import {
 import { createTerminalOutputSanitizer } from './terminal-output.js'
 import { execTmux } from './tmux-executor.js'
 import { forgetAgentPane, getHostAgentPanes } from './agent-state.js'
-
-const execFileAsync = promisify(execFile)
+import { killTestTmuxSession, TEST_TMUX_SESSION } from '../test-tmux.js'
 
 test('detects codex lifecycle from terminal output', () => {
   assert.deepEqual(detectAgentPaneState('node', '⠹ TmuxGo', '• Working (10s • esc to interrupt)\n›'), {
@@ -116,8 +113,9 @@ test('sanitizes terminal device attributes across chunks', () => {
   assert.equal(sanitize('2cnext'), 'next')
 })
 
+// 真实 tmux 用例：只操作隔离 server 上的 test session（test-tmux.ts 约定）
 test('scans a local tmux Agent pane through the real executor path', async () => {
-  const sessionName = `tmuxgo-agent-scan-${process.pid}-${Date.now()}`
+  const sessionName = TEST_TMUX_SESSION
   const tempDir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-agent-scan-'))
   const agentPath = path.join(tempDir, 'worker')
   const agentScript = [
@@ -141,7 +139,7 @@ test('scans a local tmux Agent pane through the real executor path', async () =>
     assert.equal(states[0]?.confidence, 'low')
   } finally {
     if (paneId) forgetAgentPane(paneId)
-    await execFileAsync('tmux', ['kill-session', '-t', sessionName]).catch(() => {})
+    await killTestTmuxSession()
     await rm(tempDir, { recursive: true, force: true })
   }
 })

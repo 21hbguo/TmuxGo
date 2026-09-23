@@ -2,21 +2,19 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { PaneGrid } from './PaneGrid'
 import { StatusBar } from './StatusBar'
-import { CommandPalette } from './CommandPalette'
+
 import { ClipboardController } from './ClipboardController'
 import { MobileNav } from './MobileNav'
 import { MobileDrawer } from './MobileDrawer'
 import { MobileBottomSheet } from './MobileBottomSheet'
-import { Settings } from './Settings'
-import { TaskCenter } from './TaskCenter'
+
 import { InstallAppBanner } from './InstallAppBanner'
 import { ImmersiveBackOrb } from './ImmersiveBackOrb'
 import { ShortcutBar } from './ShortcutBar'
 import { ToastViewport } from './ToastViewport'
 import { PaneNotifications } from './PaneNotifications'
 import { TaskNotifications } from './TaskNotifications'
-import { FilePanel } from './FilePanel'
-import { GitPanel } from './GitPanel'
+import dynamic from '@/lib/dynamic'
 import { UploadConfirmDialog } from './UploadConfirmDialog'
 import { UploadQueue } from './UploadQueue'
 import { AppVersionGuard } from './AppVersionGuard'
@@ -40,11 +38,17 @@ import { useTranslation } from '@/i18n'
 import { readActiveHostId, readActiveSessionId } from '@/lib/console-device-state'
 import { FiX } from 'react-icons/fi'
 import { AgentStatusBadge } from './AgentStatusBadge'
-import { PluginView } from './PluginView'
-import { DesktopView } from './DesktopView'
 import { DesktopWindow } from './DesktopWindow'
 import { shouldResumeFromContinuity } from '@/lib/session-continuity-policy'
 import { MOBILE_QUERY } from '@/lib/console-device-state'
+// 默认关闭、无全局副作用的面板走动态加载，避免拖大主入口；占位限面板内部（fallback null）
+const Settings = dynamic(() => import('./Settings').then((m) => ({ default: m.Settings })))
+const TaskCenter = dynamic(() => import('./TaskCenter').then((m) => ({ default: m.TaskCenter })))
+const CommandPalette = dynamic(() => import('./CommandPalette').then((m) => ({ default: m.CommandPalette })))
+const FilePanel = dynamic(() => import('./FilePanel').then((m) => ({ default: m.FilePanel })))
+const GitPanel = dynamic(() => import('./GitPanel').then((m) => ({ default: m.GitPanel })))
+const PluginView = dynamic(() => import('./PluginView').then((m) => ({ default: m.PluginView })))
+const DesktopView = dynamic(() => import('./DesktopView').then((m) => ({ default: m.DesktopView })))
 const MOBILE_RECENT_SESSIONS_KEY_PREFIX = 'tmuxgo-mobile-recent-sessions:'
 const MOBILE_PINNED_SESSIONS_KEY_PREFIX = 'tmuxgo-mobile-pinned-sessions:'
 const MOBILE_QUICK_SESSION_LIMIT = 5
@@ -778,10 +782,16 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
               </div>
             </div>
           )}
-          <div className={keyboardOpen ? 'hidden' : 'h-[calc(48px+env(safe-area-inset-bottom))]'}>
+          <div className={keyboardOpen ? 'hidden' : 'h-[calc(60px+env(safe-area-inset-bottom))]'}>
             <MobileNav
               docked
               gitOpen={mobileGitSheetOpen}
+              sessionsOpen={drawerOpen && drawerType === 'sessions'}
+              windowsOpen={drawerOpen && drawerType === 'windows'}
+              panesOpen={drawerOpen && drawerType === 'panes'}
+              filesOpen={mobileFileSheetOpen}
+              desktopOpen={!!activeDesktop}
+              settingsOpen={showSettings}
               onOpenDrawer={openDrawer}
               onOpenSettings={openSettings}
               onOpenFiles={openMobileFiles}
@@ -801,7 +811,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
         open={!!mobileSessionMenu}
         onClose={() => setMobileSessionMenuId(null)}
         zClass="z-[85]"
-        heightClass="p-3"
+        heightClass="flex h-[75%] flex-col p-3"
       >
         <div className="flex justify-center pb-2">
           <div className="h-1 w-10 rounded-full bg-text-3/30" />
@@ -860,7 +870,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
         cancelLabel={t('common.cancel')}
         tone="danger"
         onCancel={() => setPendingDeleteSessionId(null)}
-        onConfirm={() => void confirmDeleteSession()}
+        onConfirm={confirmDeleteSession}
       />
       <MobileDrawer isOpen={drawerOpen} onClose={() => closeOverlay('drawer')} type={drawerType} />
       <MobileBottomSheet
@@ -879,7 +889,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
         open={mobileGitSheetOpen}
         onClose={() => closeOverlay('mobile-git')}
         zClass="z-[80]"
-        heightClass="flex h-[88%] flex-col"
+        heightClass="flex h-[75%] flex-col"
         ariaLabel={t('git.title')}
       >
         <div className="relative flex h-11 shrink-0 items-center justify-center border-b border-[var(--line)]">

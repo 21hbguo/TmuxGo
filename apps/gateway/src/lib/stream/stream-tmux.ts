@@ -58,6 +58,24 @@ export async function getSessionWindowSize(hostId: string, sessionName: string) 
   } catch {}
   return null
 }
+// 仲裁恢复兜底：幸存端全是 ignore-size 附着（非 fanout 共享端）时 pty resize
+// 不驱动 window，需直连 resize-window。rows 入参是附着尺寸（含 status 行），
+// resize-window -y 要 pane 内容区高度 window_height = rows - statusRows
+export async function resizeSessionWindow(hostId: string, sessionName: string, cols: number, rows: number) {
+  if (!sessionName || cols <= 0 || rows <= 0) return
+  const { stdout } = await execTmux(hostId, ['display-message', '-p', '-t', sessionName, '#{status}'])
+  const statusText = stdout.trim()
+  const statusRows = statusText === 'off' ? 0 : parseInt(statusText, 10) || 1
+  await execTmux(hostId, [
+    'resize-window',
+    '-t',
+    sessionName,
+    '-x',
+    String(cols),
+    '-y',
+    String(Math.max(1, rows - statusRows)),
+  ])
+}
 export async function applyScroll(hostId: string, sessionName: string, lines: number) {
   if (!lines) return
   const action = lines > 0 ? 'scroll-up' : 'scroll-down'

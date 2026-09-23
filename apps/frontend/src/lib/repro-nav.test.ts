@@ -14,6 +14,7 @@ const mountedEditorIdRef = vi.hoisted(() => ({ current: null as string | null })
 
 vi.mock('@/lib/code-navigation', () => ({
   resolveEditorDefinition: (...args: any[]) => resolveDefinitionMock(...args),
+  warmupCodeNavigation: () => {},
 }))
 vi.mock('@/lib/api', () => ({
   api: {

@@ -4,6 +4,7 @@ import { useEffect, useRef, type MouseEvent, type TouchEvent } from 'react'
 import { useTranslation } from '@/i18n'
 import { Button } from './Button'
 import { ModalPortal } from './ModalPortal'
+import { useEscapeClose } from '@/hooks/useEscapeClose'
 
 interface PasteConfirmDialogProps {
   open: boolean
@@ -17,11 +18,22 @@ interface PasteConfirmDialogProps {
   onCancel: () => void
 }
 
-export function PasteConfirmDialog({ open, text, meta, mode = 'confirm', onTextChange, onRetryPermission, onSend, onEscapeSend, onCancel }: PasteConfirmDialogProps) {
+export function PasteConfirmDialog({
+  open,
+  text,
+  meta,
+  mode = 'confirm',
+  onTextChange,
+  onRetryPermission,
+  onSend,
+  onEscapeSend,
+  onCancel,
+}: PasteConfirmDialogProps) {
   const { t } = useTranslation()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
   const isManual = mode === 'manual'
+  useEscapeClose(onCancel, open)
   useEffect(() => {
     if (!open || !isManual) return
     const focusToEnd = () => {
@@ -43,11 +55,6 @@ export function PasteConfirmDialog({ open, text, meta, mode = 'confirm', onTextC
     if (!open || isManual) return
     const handleDocumentKeyDown = (e: KeyboardEvent) => {
       if (dialogRef.current?.contains(e.target as Node)) return
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        onCancel()
-        return
-      }
       if (e.key !== 'Enter' || e.isComposing || e.shiftKey) return
       e.preventDefault()
       e.stopPropagation()
@@ -60,39 +67,55 @@ export function PasteConfirmDialog({ open, text, meta, mode = 'confirm', onTextC
   const preventFocus = (e: MouseEvent<HTMLButtonElement> | TouchEvent<HTMLButtonElement>) => {
     e.preventDefault()
   }
-  return <ModalPortal>
-    <div className="fixed inset-0 z-[85] flex items-center justify-center tmuxgo-scrim p-4" onClick={onCancel}>
-      <div
-        ref={dialogRef}
-        className="tmuxgo-glass tmuxgo-glass-dialog w-full max-w-2xl rounded-apple border p-5"
-        onClick={(e) => e.stopPropagation()}
-        onKeyDownCapture={(e) => {
-          e.stopPropagation()
-          if (e.key === 'Escape') {
+  return (
+    <ModalPortal>
+      <div className="fixed inset-0 z-[85] flex items-center justify-center tmuxgo-scrim p-4" onClick={onCancel}>
+        <div
+          ref={dialogRef}
+          className="tmuxgo-glass tmuxgo-glass-dialog w-full max-w-2xl rounded-apple border p-5"
+          onClick={(e) => e.stopPropagation()}
+          onKeyDownCapture={(e) => {
+            e.stopPropagation()
+            if (e.key !== 'Enter' || e.nativeEvent.isComposing || e.shiftKey) return
             e.preventDefault()
-            onCancel()
-            return
-          }
-          if (e.key !== 'Enter' || e.nativeEvent.isComposing || e.shiftKey) return
-          e.preventDefault()
-          if (text) onSend()
-        }}
-      >
-        <div className="text-lg text-text-1">{isManual ? t('paste.manualTitle') : t('paste.title')}</div>
-        {isManual && <div className="mt-2 text-sm text-text-3">{t('paste.manualDesc')}</div>}
-        <div className="mt-2 flex flex-wrap gap-2 text-xs text-text-3">
-          {meta.map((item) => (
-            <div key={item} className="tmuxgo-chip">{item}</div>
-          ))}
-        </div>
-        <textarea ref={textareaRef} value={text} onChange={(e) => onTextChange?.(e.target.value)} className="tmuxgo-control tmuxgo-textarea mt-4 h-48 max-h-[40vh] w-full resize-none rounded-apple p-3 text-xs" autoFocus={isManual} spellCheck={false} />
-        <div className="mt-5 flex flex-wrap justify-end gap-2">
-          <Button variant="ghost" size="sm" preventFocus onClick={onCancel}>{t('paste.cancel')}</Button>
-          {isManual && <Button size="sm" preventFocus onClick={onRetryPermission}>{t('paste.retryPermission')}</Button>}
-          <Button size="sm" preventFocus onClick={onEscapeSend}>{t('paste.escapePaste')}</Button>
-          <Button variant="primary" size="sm" preventFocus disabled={!text} onClick={onSend}>{t('paste.send')}</Button>
+            if (text) onSend()
+          }}
+        >
+          <div className="text-lg text-text-1">{isManual ? t('paste.manualTitle') : t('paste.title')}</div>
+          {isManual && <div className="mt-2 text-sm text-text-3">{t('paste.manualDesc')}</div>}
+          <div className="mt-2 flex flex-wrap gap-2 text-xs text-text-3">
+            {meta.map((item) => (
+              <div key={item} className="tmuxgo-chip">
+                {item}
+              </div>
+            ))}
+          </div>
+          <textarea
+            ref={textareaRef}
+            value={text}
+            onChange={(e) => onTextChange?.(e.target.value)}
+            className="tmuxgo-control tmuxgo-textarea mt-4 h-48 max-h-[40vh] w-full resize-none rounded-apple p-3 text-xs"
+            autoFocus={isManual}
+            spellCheck={false}
+          />
+          <div className="mt-5 flex flex-wrap justify-end gap-2">
+            <Button variant="ghost" size="sm" preventFocus onClick={onCancel}>
+              {t('paste.cancel')}
+            </Button>
+            {isManual && (
+              <Button size="sm" preventFocus onClick={onRetryPermission}>
+                {t('paste.retryPermission')}
+              </Button>
+            )}
+            <Button size="sm" preventFocus onClick={onEscapeSend}>
+              {t('paste.escapePaste')}
+            </Button>
+            <Button variant="primary" size="sm" preventFocus disabled={!text} onClick={onSend}>
+              {t('paste.send')}
+            </Button>
+          </div>
         </div>
       </div>
-    </div>
-  </ModalPortal>
+    </ModalPortal>
+  )
 }

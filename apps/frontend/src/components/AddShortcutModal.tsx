@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useTranslation } from '@/i18n'
 import { formatKeyEvent } from '@/hooks/useCustomShortcuts'
+import { useEscapeClose } from '@/hooks/useEscapeClose'
 import { Button } from './Button'
 import { ModalPortal } from './ModalPortal'
 import { KeyCap } from './KeyCap'
@@ -52,6 +53,8 @@ function KeyStepEditor({
 }) {
   const { t } = useTranslation()
   const [recording, setRecording] = useState(false)
+  // 录键时占住 ESC 顶层（空操作）：Escape 只退出录制，不连带关掉外层弹窗
+  useEscapeClose(() => {}, recording)
   const [mods, setMods] = useState<Record<string, boolean>>({})
   const [mainKey, setMainKey] = useState('')
   const onChangeRef = useRef(onChange)
@@ -154,6 +157,7 @@ function KeyStepEditor({
 
 export function AddShortcutModal({ onSave, onClose, isMobile, initialShortcut }: Props) {
   const { t } = useTranslation()
+  useEscapeClose(onClose)
   const [label, setLabel] = useState(initialShortcut?.label || '')
   const [repeat, setRepeat] = useState(initialShortcut?.repeat === true)
   const [steps, setSteps] = useState<ShortcutStep[]>(() => {

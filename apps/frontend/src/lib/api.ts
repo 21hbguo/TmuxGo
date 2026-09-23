@@ -729,10 +729,10 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ paneId: session }),
       }),
-    select: (paneId: string) =>
+    select: (paneId: string, options?: { keepZoom?: boolean }) =>
       fetchApi<any>('/api/panes/select', {
         method: 'POST',
-        body: JSON.stringify({ paneId }),
+        body: JSON.stringify({ paneId, keepZoom: options?.keepZoom === true }),
       }),
     cwd: (paneId: string) =>
       fetchApi<{ ok: boolean; cwd?: string; error?: string }>('/api/panes/cwd', {

@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useFileList, useFilePreview, useFileRoots, useFileSearch, usePaneCwd } from '@/hooks/useApi'
+import { useFileList, useFilePreview, useFileRoots, useFileSearch, useHosts, usePaneCwd } from '@/hooks/useApi'
+import { useEscapeClose } from '@/hooks/useEscapeClose'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useSessionWorkspaces } from '@/hooks/useSessionWorkspaces'
 import { isMobileDevice } from '@/hooks/useMobileKeyboard'
@@ -494,6 +495,9 @@ export function FilePanel({
   const { t } = useTranslation()
   const { prompt, PromptElement } = usePrompt()
   const fileHostId = activeHostId || 'local'
+  const { data: hostsData = [] } = useHosts()
+  const activeHostStatus = hostsData.find((host) => host.id === fileHostId)?.status
+  const hostOffline = activeHostStatus === 'offline' || activeHostStatus === 'unreachable'
   const { data: roots = [] } = useFileRoots(fileHostId)
   const isPicker = mode === 'picker'
   const isMobile = mode === 'mobile' || (isPicker && isMobileDevice())
@@ -528,6 +532,7 @@ export function FilePanel({
   const [mobileEditSaved, setMobileEditSaved] = useState('')
   const [mobileEditLoading, setMobileEditLoading] = useState(false)
   const [mobileEditSaving, setMobileEditSaving] = useState(false)
+  const [mobileEditError, setMobileEditError] = useState<string | null>(null)
   const [mobileEditConfirm, setMobileEditConfirm] = useState<null | 'enter' | 'exit'>(null)
   const [mobileFileContent, setMobileFileContent] = useState<string | null>(null)
   const [mobileSourceView, setMobileSourceView] = useState(false)
@@ -565,6 +570,10 @@ export function FilePanel({
   const [lastTrashedItem, setLastTrashedItem] = useState<TrashEntry | null>(null)
   const [trashEntries, setTrashEntries] = useState<TrashEntry[]>([])
   const [trashOpen, setTrashOpen] = useState(false)
+  // 回收站弹窗与两个浮层菜单各占一层 ESC
+  useEscapeClose(() => setTrashOpen(false), trashOpen)
+  useEscapeClose(() => setContextMenu(null), contextMenu !== null)
+  useEscapeClose(() => setSortMenu(null), sortMenu !== null)
   const [fileClipboard, setFileClipboard] = useState<{
     hostId: string
     rootId: string
@@ -614,13 +623,12 @@ export function FilePanel({
     setListPageLimit(undefined)
   }, [listQueryPath, activeRootId, activeRootBasePath])
   const previewQueryPath = joinRelativePath(activeRootBasePath, selectedPath)
-  const { data: rawListData, isLoading: listLoading } = useFileList(
-    fileHostId,
-    activeRootId,
-    listQueryPath,
-    true,
-    listPageLimit,
-  )
+  const {
+    data: rawListData,
+    isLoading: listLoading,
+    isError: listError,
+    refetch: refetchList,
+  } = useFileList(fileHostId, activeRootId, listQueryPath, true, listPageLimit)
   const { data: rawPreview } = useFilePreview(fileHostId, activeRootId, previewQueryPath, selectedPreviewLine)
   const searchBasePath = joinRelativePath(activeRootBasePath, currentPath)
   const { data: rawSearchResults = [], isFetching: searchLoading } = useFileSearch(
@@ -1536,6 +1544,7 @@ export function FilePanel({
   const saveMobileEditor = async () => {
     if (!selectedPath || mobileEditSaving) return
     setMobileEditSaving(true)
+    setMobileEditError(null)
     try {
       const result = await api.files.saveContent(
         fileHostId,
@@ -1548,7 +1557,9 @@ export function FilePanel({
       pushToast({ type: 'success', message: t('editor.saved') })
       void queryClient.invalidateQueries({ queryKey: ['file-preview', fileHostId, activeRootId] })
     } catch (error) {
-      pushToast({ type: 'error', message: error instanceof Error ? error.message : t('file.mobileEditSaveFailed') })
+      const message = error instanceof Error ? error.message : t('file.mobileEditSaveFailed')
+      setMobileEditError(message)
+      pushToast({ type: 'error', message })
     } finally {
       setMobileEditSaving(false)
     }
@@ -1559,12 +1570,14 @@ export function FilePanel({
       return
     }
     setMobileEditOpen(false)
+    setMobileEditError(null)
   }
   const discardMobileEditor = () => {
     setMobileEditConfirm(null)
     setMobileEditOpen(false)
     setMobileEditContent('')
     setMobileEditSaved('')
+    setMobileEditError(null)
     if (pendingSheetCloseAfterDiscardRef.current) {
       pendingSheetCloseAfterDiscardRef.current = false
       ;(onClose || (() => setFilePanelOpen(false)))()
@@ -2096,7 +2109,8 @@ export function FilePanel({
     <div className="tmuxgo-scrollbar-subtle h-full overflow-auto p-3 text-xs text-text-3">
       <div className="text-text-2">{t('file.favorites')}</div>
       {visibleFavoriteDirectories.length ? (
-        <div className="mt-2 space-y-1">
+        // 限高约 3 行半，超出滚动，避免收藏多时把空态顶满
+        <div className="tmuxgo-scrollbar-subtle mt-2 max-h-28 space-y-1 overflow-y-auto pr-1">
           {visibleFavoriteDirectories.map((item) => (
             <Chip
               key={`${item.rootId}-${item.path}`}
@@ -2749,7 +2763,7 @@ export function FilePanel({
                   <div className="mb-2 text-caption uppercase tracking-[0.18em] text-text-3">
                     {t('file.favoriteDirs')}
                   </div>
-                  <div className="tmuxgo-scrollbar-subtle max-h-36 space-y-1 overflow-y-auto overscroll-contain">
+                  <div className="tmuxgo-scrollbar-subtle max-h-28 space-y-1 overflow-y-auto overscroll-contain">
                     {visibleFavoriteDirectories.map((item) => {
                       const favorited = isFavoriteDirectory(item)
                       return (
@@ -2837,8 +2851,25 @@ export function FilePanel({
                 />
               )}
               {!listLoading && !searchLoading && !visibleItems.length && (
-                <div className="p-3 text-xs text-text-3">
-                  {showSearchResults ? t('file.noResults') : t('file.emptyDir')}
+                <div className="flex items-center gap-2 p-3 text-xs text-text-3">
+                  <span>
+                    {hostOffline
+                      ? t('file.hostOffline')
+                      : showSearchResults
+                        ? t('file.noResults')
+                        : listError
+                          ? t('file.loadFailed')
+                          : t('file.emptyDir')}
+                  </span>
+                  {listError && !hostOffline && (
+                    <button
+                      type="button"
+                      onClick={() => void refetchList()}
+                      className="shrink-0 text-accent hover:underline"
+                    >
+                      {t('common.retry')}
+                    </button>
+                  )}
                 </div>
               )}
               {!listLoading && !showSearchResults && listData?.truncated && (
@@ -2889,21 +2920,44 @@ export function FilePanel({
             mobileView === 'preview' &&
             selectedPath &&
             (mobileEditOpen ? (
-              <div className="flex gap-2 border-t border-[var(--line)] p-3">
-                <button
-                  disabled={mobileEditLoading || mobileEditSaving || !mobileEditDirty}
-                  onClick={() => void saveMobileEditor()}
-                  className="min-w-0 flex-1 rounded-apple bg-accent/10 px-3 py-3 text-sm text-accent active:scale-[0.98] disabled:opacity-40"
-                >
-                  {mobileEditSaving ? t('editor.saving') : t('editor.save')}
-                </button>
-                <button
-                  disabled={mobileEditLoading || mobileEditSaving}
-                  onClick={closeMobileEditor}
-                  className="rounded-apple bg-bg-2 px-3 py-3 text-sm text-text-1 active:scale-[0.98]"
-                >
-                  {t('file.mobileEditExit')}
-                </button>
+              <div className="border-t border-[var(--line)]">
+                {mobileEditError && (
+                  <div className="flex items-center gap-2 bg-danger/10 px-3 py-2 text-xs text-danger">
+                    <span className="min-w-0 flex-1 truncate">
+                      {t('editor.saveFailedKept')} · {mobileEditError}
+                    </span>
+                    <button
+                      className="shrink-0 text-accent disabled:opacity-40"
+                      disabled={mobileEditSaving}
+                      onClick={() => void saveMobileEditor()}
+                    >
+                      {t('common.retry')}
+                    </button>
+                    <button
+                      aria-label={t('common.close')}
+                      className="shrink-0 text-text-3"
+                      onClick={() => setMobileEditError(null)}
+                    >
+                      ×
+                    </button>
+                  </div>
+                )}
+                <div className="flex gap-2 p-3">
+                  <button
+                    disabled={mobileEditLoading || mobileEditSaving || !mobileEditDirty}
+                    onClick={() => void saveMobileEditor()}
+                    className="min-w-0 flex-1 rounded-apple bg-accent/10 px-3 py-3 text-sm text-accent active:scale-[0.98] disabled:opacity-40"
+                  >
+                    {mobileEditSaving ? t('editor.saving') : t('editor.save')}
+                  </button>
+                  <button
+                    disabled={mobileEditLoading || mobileEditSaving}
+                    onClick={closeMobileEditor}
+                    className="rounded-apple bg-bg-2 px-3 py-3 text-sm text-text-1 active:scale-[0.98]"
+                  >
+                    {t('file.mobileEditExit')}
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="flex gap-2 border-t border-[var(--line)] p-3">
@@ -2940,8 +2994,25 @@ export function FilePanel({
           {!isPicker && (!isMobile || mobileView === 'list') && (
             <div className="flex shrink-0 items-center justify-between gap-2 border-t border-[var(--line)] px-3 py-1.5">
               <span className="min-w-0 truncate text-meta text-text-3" title={t('file.followActivePathHint')}>
-                {t('file.followActivePath')}
+                {followActivePath
+                  ? followSuspended
+                    ? t('file.followSuspended')
+                    : t('file.followActivePath')
+                  : t('file.followManual')}
               </span>
+              {followActivePath && followSuspended && (
+                <button
+                  type="button"
+                  className="shrink-0 text-meta text-accent hover:underline"
+                  onClick={() => {
+                    setFollowSuspended(false)
+                    // 清空已跟随标记，让恢复后立即重新对齐当前终端目录
+                    lastFollowedEditorKeyRef.current = ''
+                  }}
+                >
+                  {t('file.followResume')}
+                </button>
+              )}
               <button
                 type="button"
                 role="switch"
@@ -3202,7 +3273,7 @@ export function FilePanel({
         cancelLabel={t('common.cancel')}
         tone="danger"
         onCancel={() => setPendingDeleteItems([])}
-        onConfirm={() => void confirmRemoveItem()}
+        onConfirm={confirmRemoveItem}
       />
       <ConfirmDialog
         open={mobileEditConfirm === 'enter'}
@@ -3211,7 +3282,7 @@ export function FilePanel({
         confirmLabel={t('common.confirm')}
         cancelLabel={t('common.cancel')}
         onCancel={() => setMobileEditConfirm(null)}
-        onConfirm={() => void enterMobileEditor()}
+        onConfirm={enterMobileEditor}
       />
       <ConfirmDialog
         open={mobileEditConfirm === 'exit'}

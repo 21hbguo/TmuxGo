@@ -46,6 +46,14 @@ function loadTypeScript() {
   if (!tsPromise) tsPromise = import('typescript')
   return tsPromise
 }
+// 预热：首个编辑器挂载后空闲预取 3.4MB typescript chunk，避免首次跳转卡在下载上；
+// Safari 无 requestIdleCallback，退回延迟 setTimeout
+export function warmupCodeNavigation() {
+  const idle =
+    (globalThis as { requestIdleCallback?: (cb: () => void) => void }).requestIdleCallback?.bind(globalThis) ??
+    ((cb: () => void) => void setTimeout(cb, 1500))
+  idle(() => void loadTypeScript())
+}
 function normalizePath(value: string) {
   const input = (value || '').replace(/\\/g, '/')
   const absolute = input.startsWith('/')
@@ -128,7 +136,13 @@ function getOffset(content: string, line: number, column: number) {
   }
   return content.length
 }
-function findNodeAtPosition(ts: TsModule, sourceFile: import('typescript').SourceFile, position: number) {
+function findNodeAtPosition(
+  ts: TsModule,
+  sourceFile: import('typescript').SourceFile,
+  position: number,
+): import('typescript').Node | null {
+  // 显式返回标注：target 在嵌套 visit 闭包内赋值，TS 会把 return 的推断类型收窄成 null，
+  // 不标注则调用点拿到 null 类型，后续属性访问全部变 never
   let target: import('typescript').Node | null = null
   const visit = (node: import('typescript').Node) => {
     if (position < node.getFullStart() || position >= node.getEnd()) return
@@ -189,15 +203,14 @@ function findLocalDeclarationByName(ts: TsModule, sourceFile: import('typescript
       target = node.name
       return
     }
+    // import 绑定不在此命中：import 进来的符号由 resolveExportedSymbol 沿 import 源继续追，
+    // 返回 specifier 会把 barrel 的 import 行误当真实声明
     if (
       (ts.isFunctionDeclaration(node) ||
         ts.isClassDeclaration(node) ||
         ts.isInterfaceDeclaration(node) ||
         ts.isTypeAliasDeclaration(node) ||
         ts.isEnumDeclaration(node) ||
-        ts.isImportClause(node) ||
-        ts.isImportSpecifier(node) ||
-        ts.isNamespaceImport(node) ||
         ts.isBindingElement(node)) &&
       node.name &&
       ts.isIdentifier(node.name) &&
@@ -211,25 +224,89 @@ function findLocalDeclarationByName(ts: TsModule, sourceFile: import('typescript
   visit(sourceFile)
   return target
 }
-function findExportedNode(
+interface ExportedSymbolHit {
+  file: ResolverFile
+  sourceFile: import('typescript').SourceFile
+  node: import('typescript').Node
+}
+// 沿导出链追到真实声明：named/star re-export、export 别名、import 后再 export、
+// `export default <identifier>` 都继续向下解析。seen 按「文件+kind+符号」去重，
+// 保证循环 re-export 终止；signal 取消即停。找不到返回 null，由调用方决定失败语义
+async function resolveExportedSymbol(
   ts: TsModule,
-  sourceFile: import('typescript').SourceFile,
+  context: ResolverContext,
+  file: ResolverFile,
   importedName: string,
   kind: ImportBinding['kind'],
-) {
-  if (kind === 'namespace') return sourceFile
+  seen: Set<string>,
+  signal?: AbortSignal,
+): Promise<ExportedSymbolHit | null> {
+  const key = `${normalizePath(file.absolutePath)}:${kind}:${importedName}`
+  if (signal?.aborted || seen.has(key)) return null
+  seen.add(key)
+  const sourceFile = ts.createSourceFile(
+    file.absolutePath,
+    file.content,
+    ts.ScriptTarget.Latest,
+    true,
+    toScriptKind(ts, file.absolutePath),
+  )
+  if (kind === 'namespace') return { file, sourceFile, node: sourceFile }
+  const bindings = collectImportBindings(ts, sourceFile)
+  const follow = async (specifier: string, name: string, nextKind: ImportBinding['kind']) => {
+    const next = await resolveModuleSpecifier(context, file.absolutePath, specifier)
+    return next ? resolveExportedSymbol(ts, context, next, name, nextKind, seen, signal) : null
+  }
+  // 本地名解析：来自 import 的符号继续追 import 源（import 后再 export），否则取本地声明
+  const resolveLocal = async (localName: string): Promise<ExportedSymbolHit | null> => {
+    const binding = bindings.get(localName)
+    if (binding) return follow(binding.specifier, binding.importedName, binding.kind)
+    const node = findLocalDeclarationByName(ts, sourceFile, localName)
+    return node ? { file, sourceFile, node } : null
+  }
   if (kind === 'default') {
     for (const statement of sourceFile.statements) {
-      if (ts.isExportAssignment(statement) && !statement.isExportEquals) return statement.expression
+      if (ts.isExportAssignment(statement)) {
+        // export default foo / export = foo：标识符只是引用，须落到其真实声明
+        if (ts.isIdentifier(statement.expression)) {
+          const hit = await resolveLocal(statement.expression.text)
+          if (hit) return hit
+        }
+        return { file, sourceFile, node: statement.expression }
+      }
       if (
         (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) &&
         hasModifier(ts, statement, ts.SyntaxKind.DefaultKeyword) &&
         hasModifier(ts, statement, ts.SyntaxKind.ExportKeyword)
       )
-        return statement.name || statement
+        return { file, sourceFile, node: statement.name || statement }
     }
   }
+  // default 查找对应名为 default 的具名导出（export { x as default }）
+  const lookupName = kind === 'default' ? 'default' : importedName
   for (const statement of sourceFile.statements) {
+    if (ts.isExportDeclaration(statement)) {
+      if (!statement.moduleSpecifier || !ts.isStringLiteralLike(statement.moduleSpecifier) || !statement.exportClause)
+        continue
+      if (ts.isNamedExports(statement.exportClause)) {
+        for (const element of statement.exportClause.elements) {
+          if (element.name.text !== lookupName) continue
+          // export { a as b } from './m'：导出名 b 命中后追到 ./m 里的原名 a
+          const nextName = element.propertyName?.text || element.name.text
+          const hit = await follow(
+            statement.moduleSpecifier.text,
+            nextName,
+            nextName === 'default' ? 'default' : 'named',
+          )
+          if (hit) return hit
+        }
+      } else if (statement.exportClause.name.text === lookupName) {
+        // export * as ns from './m'：等价于把整模块作为 ns 导出
+        const hit = await follow(statement.moduleSpecifier.text, '*', 'namespace')
+        if (hit) return hit
+      }
+      continue
+    }
     if (!hasModifier(ts, statement, ts.SyntaxKind.ExportKeyword)) continue
     if (
       (ts.isFunctionDeclaration(statement) ||
@@ -237,29 +314,46 @@ function findExportedNode(
         ts.isInterfaceDeclaration(statement) ||
         ts.isTypeAliasDeclaration(statement) ||
         ts.isEnumDeclaration(statement)) &&
-      statement.name?.text === importedName
+      statement.name?.text === lookupName
     )
-      return statement.name
+      return { file, sourceFile, node: statement.name }
     if (ts.isVariableStatement(statement)) {
       for (const declaration of statement.declarationList.declarations) {
-        if (ts.isIdentifier(declaration.name) && declaration.name.text === importedName) return declaration.name
+        if (ts.isIdentifier(declaration.name) && declaration.name.text === lookupName)
+          return { file, sourceFile, node: declaration.name }
       }
     }
   }
+  // export { foo }（无 moduleSpecifier）：本地名可能来自 import（继续追）或本地声明
   for (const statement of sourceFile.statements) {
     if (
       !ts.isExportDeclaration(statement) ||
+      statement.moduleSpecifier ||
       !statement.exportClause ||
-      !ts.isNamedExports(statement.exportClause) ||
-      statement.moduleSpecifier
+      !ts.isNamedExports(statement.exportClause)
     )
       continue
     for (const element of statement.exportClause.elements) {
-      if (element.name.text !== importedName) continue
-      return findLocalDeclarationByName(ts, sourceFile, element.propertyName?.text || element.name.text)
+      if (element.name.text !== lookupName) continue
+      const hit = await resolveLocal(element.propertyName?.text || element.name.text)
+      if (hit) return hit
     }
   }
-  return findLocalDeclarationByName(ts, sourceFile, importedName)
+  // export * 最后走：本地具名导出与具名 re-export 语义上优先于星号转发；default 不经 export * 转发
+  if (kind !== 'default') {
+    for (const statement of sourceFile.statements) {
+      if (
+        !ts.isExportDeclaration(statement) ||
+        statement.exportClause ||
+        !statement.moduleSpecifier ||
+        !ts.isStringLiteralLike(statement.moduleSpecifier)
+      )
+        continue
+      const hit = await follow(statement.moduleSpecifier.text, importedName, kind)
+      if (hit) return hit
+    }
+  }
+  return resolveLocal(lookupName)
 }
 function isBareSpecifier(value: string) {
   return value !== '' && !value.startsWith('.') && !value.startsWith('/')
@@ -832,30 +926,32 @@ export async function resolveEditorDefinition(
       const binding = importBindings.get(identifier.text)
       if (binding) {
         const resolvedFile = await resolveModuleSpecifier(context, entryFile.absolutePath, binding.specifier)
-        if (resolvedFile) {
-          const targetSource = ts.createSourceFile(
-            resolvedFile.absolutePath,
-            resolvedFile.content,
-            ts.ScriptTarget.Latest,
-            true,
-            toScriptKind(ts, resolvedFile.absolutePath),
-          )
-          const targetNode = findExportedNode(ts, targetSource, binding.importedName, binding.kind)
-          const location = ts.getLineAndCharacterOfPosition(
-            targetSource,
-            targetNode?.getStart(targetSource, false) || 0,
-          )
+        // 快捷路径只有命中真实声明才返回 success；落空交给下方语义解析兜底，
+        // 严禁旧逻辑 targetNode||0 把「模块找到了但符号没找到」伪装成 1:1 成功
+        const hit = resolvedFile
+          ? await resolveExportedSymbol(
+              ts,
+              context,
+              resolvedFile,
+              binding.importedName,
+              binding.kind,
+              new Set(),
+              signal,
+            )
+          : null
+        if (hit) {
+          const location = ts.getLineAndCharacterOfPosition(hit.sourceFile, hit.node.getStart(hit.sourceFile, false))
           return {
             status: 'success',
             target: {
-              id: resolvedFile.id,
-              hostId: resolvedFile.hostId,
-              rootId: resolvedFile.rootId,
-              rootLabel: resolvedFile.rootLabel,
-              rootPath: resolvedFile.rootPath,
-              path: toRelativePath(context.rootPath, resolvedFile.absolutePath) || resolvedFile.path,
-              name: resolvedFile.name,
-              absolutePath: resolvedFile.absolutePath,
+              id: hit.file.id,
+              hostId: hit.file.hostId,
+              rootId: hit.file.rootId,
+              rootLabel: hit.file.rootLabel,
+              rootPath: hit.file.rootPath,
+              path: toRelativePath(context.rootPath, hit.file.absolutePath) || hit.file.path,
+              name: hit.file.name,
+              absolutePath: hit.file.absolutePath,
               type: 'file',
               line: location.line + 1,
               column: location.character + 1,
@@ -959,13 +1055,54 @@ export async function resolveEditorDefinition(
   }
   service.dispose()
   if (!targetFile) return { status: 'not-found' }
-  const sourceFile = ts.createSourceFile(
+  let sourceFile = ts.createSourceFile(
     targetFile.absolutePath,
     targetFile.content,
     ts.ScriptTarget.Latest,
     true,
     toScriptKind(ts, targetFile.absolutePath),
   )
+  // 落点若是 import/export 中转绑定（specifier/clause/namespace），说明 alias 链断在中途：
+  // 沿该语句的模块源追到真实声明；追不到即明确失败，不能把中转行当定义返回
+  let importSpecifier: string | null = null
+  let importedName = ''
+  let importedKind: ImportBinding['kind'] = 'named'
+  let cursor = findNodeAtPosition(ts, sourceFile, targetStart)
+  while (cursor) {
+    if (ts.isImportSpecifier(cursor) || ts.isExportSpecifier(cursor)) {
+      importedName = cursor.propertyName?.text || cursor.name.text
+      importedKind = 'named'
+    } else if (ts.isNamespaceImport(cursor)) {
+      importedName = '*'
+      importedKind = 'namespace'
+    } else if (ts.isImportClause(cursor) && !importedName) {
+      importedName = 'default'
+      importedKind = 'default'
+    } else if (ts.isImportDeclaration(cursor) || ts.isExportDeclaration(cursor)) {
+      importSpecifier =
+        cursor.moduleSpecifier && ts.isStringLiteralLike(cursor.moduleSpecifier) ? cursor.moduleSpecifier.text : null
+      break
+    }
+    cursor = cursor.parent
+  }
+  if (importSpecifier && importedName) {
+    const moduleFile = await resolveModuleSpecifier(context, targetFile.absolutePath, importSpecifier)
+    const hit = moduleFile
+      ? await resolveExportedSymbol(
+          ts,
+          context,
+          moduleFile,
+          importedName,
+          importedName === 'default' ? 'default' : importedKind,
+          new Set(),
+          signal,
+        )
+      : null
+    if (!hit) return { status: 'not-found' }
+    targetFile = hit.file
+    sourceFile = hit.sourceFile
+    targetStart = hit.node.getStart(hit.sourceFile, false)
+  }
   const location = ts.getLineAndCharacterOfPosition(sourceFile, targetStart)
   const relativePath = toRelativePath(context.rootPath, targetFile.absolutePath) || targetFile.path
   return {

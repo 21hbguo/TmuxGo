@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { emitStreamEvent, subscribeStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PaneGrid } from './PaneGrid'
+import { api } from '@/lib/api'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 
 const sendMock = vi.hoisted(() => vi.fn((_message: any) => true))
@@ -11,7 +12,10 @@ const subscribeOutputMock = vi.hoisted(() =>
   vi.fn((_hostId: string, _sessionName: string, _listener: unknown) => vi.fn()),
 )
 const socketState = vi.hoisted(() => ({ isConnected: false, isSocketReady: true }))
+const retryConnectionMock = vi.hoisted(() => vi.fn())
 const windowsData = vi.hoisted(() => [] as any[])
+const hostsMockData = vi.hoisted(() => ({ value: [{ id: 'local' }] as any[] | undefined }))
+const orderedSessionsData = vi.hoisted(() => ({ value: [] as any[] }))
 const terminalProps = vi.hoisted(() => ({
   current: null as null | {
     sessionName?: string
@@ -21,8 +25,11 @@ const terminalProps = vi.hoisted(() => ({
     layoutSyncPendingRef?: { current: (() => boolean) | undefined }
     peekFitSizeRef?: { current: (() => { cols: number; rows: number } | null) | undefined }
     onInput?: (data: string) => void
+    onSwipeLeft?: () => void
+    onSwipeRight?: () => void
   },
 }))
+const snapshotMockData = vi.hoisted(() => ({ value: null as any }))
 const continuityState = vi.hoisted(() => ({
   value: {
     enabled: false,
@@ -41,6 +48,8 @@ vi.mock('./TerminalPane', () => ({
     layoutSyncPendingRef?: { current: (() => boolean) | undefined }
     peekFitSizeRef?: { current: (() => { cols: number; rows: number } | null) | undefined }
     onInput?: (data: string) => void
+    onSwipeLeft?: () => void
+    onSwipeRight?: () => void
   }) => {
     terminalProps.current = props
     return <button onClick={props.onReady}>{props.sessionName || 'empty-session'}</button>
@@ -52,6 +61,7 @@ vi.mock('@/hooks/useWebSocket', () => ({
     isConnected: socketState.isConnected,
     isSocketReady: socketState.isSocketReady,
     subscribeOutput: subscribeOutputMock,
+    retryConnection: retryConnectionMock,
   }),
 }))
 vi.mock('@/i18n', () => ({
@@ -70,11 +80,12 @@ vi.mock('@/hooks/useMobileKeyboard', () => ({
   isMobileDevice: () => false,
 }))
 vi.mock('@/hooks/useApi', () => ({
+  useHosts: () => ({ data: hostsMockData.value }),
   useWindows: () => ({ data: windowsData }),
-  useSessionSnapshot: () => ({ data: null }),
+  useSessionSnapshot: () => ({ data: snapshotMockData.value }),
 }))
 vi.mock('@/hooks/useOrderedSessions', () => ({
-  useOrderedSessions: () => ({ data: [] }),
+  useOrderedSessions: () => ({ data: orderedSessionsData.value }),
 }))
 vi.mock('@/hooks/useWindowQueryState', () => ({
   useWindowQueryState: () => ({ getWindows: () => [], setWindows: vi.fn() }),
@@ -189,6 +200,10 @@ describe('PaneGrid', () => {
     socketState.isConnected = false
     socketState.isSocketReady = true
     terminalProps.current = null
+    hostsMockData.value = [{ id: 'local' }]
+    orderedSessionsData.value = []
+    snapshotMockData.value = null
+    windowsData.length = 0
     continuityState.value = {
       enabled: false,
       archive: { enabled: false, captureMode: 'none', maxBytesPerSession: 262144, retentionDays: 7 },
@@ -260,6 +275,31 @@ describe('PaneGrid', () => {
       }),
     )
     expect(useConsoleStore.getState().activeSessionId).toBe('session-dev1')
+  })
+  // zoom 全屏翻页：滑动切 pane 必须带 keepZoom，否则网关 select-pane 会 unzoom
+  it('swipes between panes of a zoomed window with keepZoom', async () => {
+    const selectSpy = vi.spyOn(api.panes, 'select').mockResolvedValue({ ok: true })
+    windowsData.push({ id: 'local:@1', sessionId: 'session-dev1', active: true, zoomed: true })
+    snapshotMockData.value = {
+      windows: [{ id: 'local:@1', zoomed: true }],
+      panes: [
+        { id: 'local:%1', windowId: 'local:@1', index: 0 },
+        { id: 'local:%2', windowId: 'local:@1', index: 1 },
+      ],
+      activeWindowId: 'local:@1',
+      activePaneId: 'local:%1',
+    }
+    try {
+      render(<PaneGrid />)
+      await waitFor(() => expect(terminalProps.current?.onSwipeLeft).toBeTruthy())
+      await act(async () => {
+        terminalProps.current!.onSwipeLeft!()
+      })
+      expect(selectSpy).toHaveBeenCalledWith('local:%2', { keepZoom: true })
+      expect(useConsoleStore.getState().activePaneId).toBe('local:%2')
+    } finally {
+      selectSpy.mockRestore()
+    }
   })
   it('keeps exclusive size on blur but attaches as passive (no height shrink)', async () => {
     vi.mocked(document.hasFocus).mockReturnValue(false)
@@ -936,6 +976,10 @@ describe('multi-device exclusive ownership', () => {
     socketState.isConnected = false
     socketState.isSocketReady = true
     terminalProps.current = null
+    hostsMockData.value = [{ id: 'local' }]
+    orderedSessionsData.value = []
+    snapshotMockData.value = null
+    windowsData.length = 0
     continuityState.value = {
       enabled: false,
       archive: { enabled: false, captureMode: 'none', maxBytesPerSession: 262144, retentionDays: 7 },
@@ -1009,5 +1053,223 @@ describe('multi-device exclusive ownership', () => {
         expect.objectContaining({ type: 'attach', exclusive: true, sessionName: 'dev1' }),
       ),
     )
+  })
+
+  it('shows spectating state with a takeover entry that re-claims via existing arbitration', async () => {
+    socketState.isConnected = true
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    await waitFor(() => expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'attach' })))
+    act(() => {
+      emitStreamEvent(STREAM_EVENT.attached, { hostId: 'local', sessionName: 'dev1', cols: 120, rows: 36 })
+    })
+    expect(document.querySelector('[data-ownership]')?.getAttribute('data-ownership')).toBe('owned')
+    act(() => {
+      emitStreamEvent(STREAM_EVENT.exclusiveRevoked, { hostId: 'local', sessionName: 'dev1' })
+    })
+    await waitFor(() =>
+      expect(document.querySelector('[data-ownership]')?.getAttribute('data-ownership')).toBe('spectating'),
+    )
+    sendMock.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: 'grid.control.takeover' }))
+    await waitFor(() =>
+      expect(sendMock).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'attach', sessionName: 'dev1', exclusive: true }),
+      ),
+    )
+  })
+
+  it('collapses the status bar while owned and expands it for actionable states', async () => {
+    socketState.isConnected = true
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    await waitFor(() => expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'attach' })))
+    act(() => {
+      emitStreamEvent(STREAM_EVENT.attached, { hostId: 'local', sessionName: 'dev1', cols: 120, rows: 36 })
+    })
+    const ownedBar = document.querySelector('[data-ownership]') as HTMLElement
+    expect(ownedBar.getAttribute('data-ownership')).toBe('owned')
+    // 正常就绪态整条收起（不再常驻遮挡终端）；状态标记仍在 DOM 可查
+    expect(ownedBar.className).toContain('hidden')
+    // 320px 窄屏约束（类名层面）：限宽常驻 + 展开态可换行，按钮不被裁掉
+    expect(ownedBar.className).toContain('max-w-')
+    act(() => {
+      emitStreamEvent(STREAM_EVENT.exclusiveRevoked, { hostId: 'local', sessionName: 'dev1' })
+    })
+    await waitFor(() =>
+      expect(document.querySelector('[data-ownership]')?.getAttribute('data-ownership')).toBe('spectating'),
+    )
+    const spectatingBar = document.querySelector('[data-ownership]') as HTMLElement
+    expect(spectatingBar.className).toContain('flex')
+    expect(spectatingBar.className).toContain('flex-wrap')
+    expect(spectatingBar.className).not.toContain('hidden')
+  })
+
+  it('keeps takeover pending until a real attach succeeds and restores retry on revoke', async () => {
+    socketState.isConnected = true
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    await waitFor(() => expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'attach' })))
+    act(() => {
+      emitStreamEvent(STREAM_EVENT.attached, { hostId: 'local', sessionName: 'dev1', cols: 120, rows: 36 })
+      emitStreamEvent(STREAM_EVENT.exclusiveRevoked, { hostId: 'local', sessionName: 'dev1' })
+    })
+    await waitFor(() =>
+      expect(document.querySelector('[data-ownership]')?.getAttribute('data-ownership')).toBe('spectating'),
+    )
+    sendMock.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: 'grid.control.takeover' }))
+    // 点击≠接管：进入请求中态，入口消失
+    expect(screen.getByTestId('takeover-pending')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'grid.control.takeover' })).toBeNull()
+    // 被拒回落旁观 → 恢复可重试入口
+    act(() => {
+      emitStreamEvent(STREAM_EVENT.exclusiveRevoked, { hostId: 'local', sessionName: 'dev1' })
+    })
+    expect(screen.queryByTestId('takeover-pending')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'grid.control.takeover' }))
+    await waitFor(() =>
+      expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'attach', sessionName: 'dev1' })),
+    )
+    expect(screen.getByTestId('takeover-pending')).toBeTruthy()
+    // 完成条件=真实 attached 事件
+    act(() => {
+      emitStreamEvent(STREAM_EVENT.attached, { hostId: 'local', sessionName: 'dev1', cols: 120, rows: 36 })
+    })
+    expect(screen.queryByTestId('takeover-pending')).toBeNull()
+  })
+
+  it('read-only share shows readonly status and never a takeover entry', () => {
+    render(
+      <PaneGrid
+        sessionId="session-dev1"
+        shared
+        socket={{
+          send: sendMock,
+          isConnected: true,
+          isSocketReady: true,
+          subscribeOutput: subscribeOutputMock,
+        }}
+      />,
+    )
+    expect(document.querySelector('[data-ownership]')?.getAttribute('data-ownership')).toBe('readonly')
+    expect(screen.queryByRole('button', { name: 'grid.control.takeover' })).toBeNull()
+  })
+
+  it('shows pending input chip while disconnected and clear prevents any resend', async () => {
+    socketState.isConnected = true
+    const view = render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    await waitFor(() => expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'attach' })))
+    act(() => {
+      emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev1', cols: 120, rows: 36, hostId: 'local' })
+    })
+    // 断线后键入 → 入队并显示待发提示 + 动作入口
+    act(() => {
+      socketState.isConnected = false
+    })
+    view.rerender(<PaneGrid />)
+    act(() => {
+      terminalProps.current?.onInput?.('ls\n')
+    })
+    expect(screen.getByText(/grid\.input\.pending/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'grid.input.clear' }))
+    expect(screen.queryByText(/grid\.input\.pending/)).toBeNull()
+    // 清空后给轻量反馈，且不回显待发内容
+    expect(useConsoleStore.getState().toasts.at(-1)?.message).toBe('grid.input.cleared')
+    // 恢复连接后已清空的输入绝不补发
+    sendMock.mockClear()
+    act(() => {
+      socketState.isConnected = true
+    })
+    view.rerender(<PaneGrid />)
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(sendMock.mock.calls.filter(([message]) => message?.type === 'input')).toHaveLength(0)
+  })
+
+  it('empty state offers next-step entry for each scenario', () => {
+    useConsoleStore.setState({ activeSessionId: '' } as any)
+    // 有主机无会话 → 新建会话（SessionPanel 监听 tmuxgo-open-create-session）
+    const listener = vi.fn()
+    window.addEventListener('tmuxgo-open-create-session', listener)
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'grid.createSession' }))
+    expect(listener).toHaveBeenCalled()
+    expect(useConsoleStore.getState().sessionPanelExpanded).toBe(true)
+    window.removeEventListener('tmuxgo-open-create-session', listener)
+  })
+  it('empty state offers select-recent when sessions exist', () => {
+    orderedSessionsData.value = [{ id: 'session-dev1' }]
+    useConsoleStore.setState({ activeSessionId: '' } as any)
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'grid.selectRecent' }))
+    expect(useConsoleStore.getState().activeSessionId).toBe('session-dev1')
+  })
+  // U4 验收：用户手动把 A 排第一、最后访问 B 后，「最近」入口必须打开 B——
+  // 手动排序只决定侧栏顺序，不参与最近语义
+  it('select-recent opens last-visited session, not first in manual order', () => {
+    orderedSessionsData.value = [{ id: 'session-a' }, { id: 'session-b' }]
+    continuityState.value.resumePoints = [
+      { hostId: 'local', sessionId: 'session-a', sessionName: 'a', lastSeenAt: '2026-09-23T01:00:00Z' },
+      { hostId: 'local', sessionId: 'session-b', sessionName: 'b', lastSeenAt: '2026-09-23T02:00:00Z' },
+    ]
+    useConsoleStore.setState({ activeSessionId: '' } as any)
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'grid.selectRecent' }))
+    expect(useConsoleStore.getState().activeSessionId).toBe('session-b')
+  })
+  // 会话删除后 resumePoint 残留（无 removeResumePoint 调用方）——必须排除失效
+  // 目标并按 lastSeenAt 落到仍存在的最近会话，其他主机的记录也不参与本机选择
+  it('select-recent skips stale and other-host resume points', () => {
+    orderedSessionsData.value = [{ id: 'session-a' }, { id: 'session-b' }]
+    continuityState.value.resumePoints = [
+      { hostId: 'local', sessionId: 'session-deleted', sessionName: 'gone', lastSeenAt: '2026-09-23T03:00:00Z' },
+      { hostId: 'remote-1', sessionId: 'session-a', sessionName: 'a', lastSeenAt: '2026-09-23T02:30:00Z' },
+      { hostId: 'local', sessionId: 'session-b', sessionName: 'b', lastSeenAt: '2026-09-23T02:00:00Z' },
+      { hostId: 'local', sessionId: 'session-a', sessionName: 'a', lastSeenAt: '2026-09-23T01:00:00Z' },
+    ]
+    useConsoleStore.setState({ activeSessionId: '' } as any)
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'grid.selectRecent' }))
+    expect(useConsoleStore.getState().activeSessionId).toBe('session-b')
+  })
+  it('empty state offers add-host when no hosts are configured', () => {
+    hostsMockData.value = []
+    useConsoleStore.setState({ activeSessionId: '' } as any)
+    render(<PaneGrid />)
+    expect(screen.getByRole('button', { name: 'grid.addHost' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'grid.createSession' })).toBeNull()
+  })
+
+  it('auto-flushes queued input after reconnect and offers a retry entry', async () => {
+    socketState.isConnected = true
+    const view = render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    await waitFor(() => expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'attach' })))
+    act(() => {
+      emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev1', cols: 120, rows: 36, hostId: 'local' })
+    })
+    act(() => {
+      socketState.isConnected = false
+    })
+    view.rerender(<PaneGrid />)
+    act(() => {
+      terminalProps.current?.onInput?.('pwd\n')
+    })
+    expect(screen.getByText(/grid\.input\.pending/)).toBeTruthy()
+    // 链路中断时提供「立即重试」入口
+    fireEvent.click(screen.getByRole('button', { name: 'grid.input.retry' }))
+    expect(retryConnectionMock).toHaveBeenCalled()
+    // 恢复连接并重新附着成功：既有自动补发行为清空队列与提示
+    sendMock.mockClear()
+    act(() => {
+      socketState.isConnected = true
+    })
+    view.rerender(<PaneGrid />)
+    act(() => {
+      emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev1', cols: 120, rows: 36, hostId: 'local' })
+    })
+    await waitFor(() => expect(sendMock).toHaveBeenCalledWith({ type: 'input', data: 'pwd\n' }))
+    expect(screen.queryByText(/grid\.input\.pending/)).toBeNull()
   })
 })
