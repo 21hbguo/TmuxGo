@@ -46,6 +46,14 @@ function loadTypeScript() {
   if (!tsPromise) tsPromise = import('typescript')
   return tsPromise
 }
+// 预热：首个编辑器挂载后空闲预取 3.4MB typescript chunk，避免首次跳转卡在下载上；
+// Safari 无 requestIdleCallback，退回延迟 setTimeout
+export function warmupCodeNavigation() {
+  const idle =
+    (globalThis as { requestIdleCallback?: (cb: () => void) => void }).requestIdleCallback?.bind(globalThis) ??
+    ((cb: () => void) => void setTimeout(cb, 1500))
+  idle(() => void loadTypeScript())
+}
 function normalizePath(value: string) {
   const input = (value || '').replace(/\\/g, '/')
   const absolute = input.startsWith('/')

@@ -17,7 +17,7 @@ import { OPEN_EDITOR_LOCATION_EVENT, openFileInEditor } from '@/lib/editor-open'
 import type { EditorLocationRestore } from '@/lib/editor-open'
 import { ensureTmuxgoTheme, tmuxgoThemeName } from '@/lib/monaco-theme'
 import type { Monaco } from '@monaco-editor/react'
-import { resolveEditorDefinition } from '@/lib/code-navigation'
+import { resolveEditorDefinition, warmupCodeNavigation } from '@/lib/code-navigation'
 import { useTranslation } from '@/i18n'
 import { MARKDOWN_PROSE_CLASS, locatePreviewBlock, renderMarkdown } from '@/lib/markdown'
 import { emitStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
@@ -1231,6 +1231,7 @@ export function EditorWorkbench({
             value={editor.content}
             onMount={(instance) => {
               editorRefs.current[editor.id] = instance
+              warmupCodeNavigation()
               const snapshot = (viewStateRef.current[editor.id] ||= {
                 position: null,
                 selection: null,
