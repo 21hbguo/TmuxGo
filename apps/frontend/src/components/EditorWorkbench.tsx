@@ -14,6 +14,7 @@ import {
   setActiveDraggedFile,
 } from '@/lib/editor-drag'
 import { OPEN_EDITOR_LOCATION_EVENT, openFileInEditor } from '@/lib/editor-open'
+import type { EditorLocationRestore } from '@/lib/editor-open'
 import { ensureTmuxgoTheme, tmuxgoThemeName } from '@/lib/monaco-theme'
 import type { Monaco } from '@monaco-editor/react'
 import { resolveEditorDefinition } from '@/lib/code-navigation'
@@ -49,6 +50,7 @@ interface NavigationEntry {
   type: 'file'
   line: number
   column: number
+  viewState?: EditorLocationRestore
 }
 function isEditorLayoutSplit(node: EditorLayoutNode): node is EditorLayoutSplit {
   return node.type === 'split'
@@ -164,7 +166,21 @@ export function EditorWorkbench({
   const navigationForwardRef = useRef<NavigationEntry[]>([])
   const navigationPendingRef = useRef(false)
   const definitionAbortRef = useRef<AbortController | null>(null)
-  const pendingLocationRef = useRef<Record<string, { line: number; column: number; appliedAt?: number }>>({})
+  const pendingLocationRef = useRef<
+    Record<string, { line: number; column: number; reveal: 'center' | 'preserve'; viewState?: EditorLocationRestore }>
+  >({})
+  // 每个 tab 最新视图快照：Monaco 卸载分支会 dispose 模型且不存 viewState，remount 恢复靠它
+  const viewStateRef = useRef<
+    Record<
+      string,
+      {
+        position: { line: number; column: number } | null
+        selection: EditorLocationRestore['selection']
+        scrollTop: number
+        scrollLeft: number
+      }
+    >
+  >({})
   const [pendingCloseEditorId, setPendingCloseEditorId] = useState<string | null>(null)
   const [previewOpenById, setPreviewOpenById] = useState<Record<string, boolean>>({})
   const [cursorById, setCursorById] = useState<Record<string, { line: number; column: number }>>({})
@@ -238,11 +254,10 @@ export function EditorWorkbench({
   const getTabInsertSide = (rect: DOMRect, clientX: number) =>
     clientX <= rect.left + rect.width / 2 ? ('before' as const) : ('after' as const)
   const getNavigationPosition = (editorId: string) => {
-    const cursorState = cursorById[editorId]
-    if (cursorState) return cursorState
+    // 存活实例优先：cursorById 是 React 提交后的快照，连续操作时可能滞后一拍
     const position = editorRefs.current[editorId]?.getPosition?.()
-    if (!position) return null
-    return { line: position.lineNumber, column: position.column }
+    if (position) return { line: position.lineNumber, column: position.column }
+    return cursorById[editorId] || null
   }
   const syncPreviewToLine = (editorId: string, line: number) => {
     const previewEl = previewElRefs.current[editorId]
@@ -276,6 +291,15 @@ export function EditorWorkbench({
   const createNavigationEntry = (editor: FileEditorDocument, position?: { line: number; column: number } | null) => {
     const resolvedPosition = position || getNavigationPosition(editor.id)
     if (!resolvedPosition) return null
+    // 顺带快照选区/视口：返回/前进据此恢复，不再强制居中
+    const instance = editorRefs.current[editor.id]
+    const viewState: EditorLocationRestore | undefined = instance
+      ? {
+          scrollTop: Number(instance.getScrollTop?.() || 0),
+          scrollLeft: Number(instance.getScrollLeft?.() || 0),
+          selection: instance.getSelection?.() || null,
+        }
+      : undefined
     return {
       id: editor.id,
       hostId: editor.hostId,
@@ -288,12 +312,20 @@ export function EditorWorkbench({
       type: 'file' as const,
       line: resolvedPosition.line,
       column: resolvedPosition.column,
+      viewState,
     } satisfies NavigationEntry
   }
   const sameNavigationEntry = (left: NavigationEntry | null | undefined, right: NavigationEntry | null | undefined) =>
     !!left && !!right && left.id === right.id && left.line === right.line && left.column === right.column
   const syncNavigationState = () => setNavigationVersion((current) => current + 1)
+  // 在途定义搜索作废入口：返回/前进、手动切换、关源文件、显式打开、卸载都使迟到的 resolver 结果失效
+  const cancelPendingDefinition = () => {
+    definitionAbortRef.current?.abort()
+    definitionAbortRef.current = null
+  }
+  useEffect(() => () => cancelPendingDefinition(), [])
   const openNavigationEntry = async (entry: NavigationEntry) => {
+    let failed = false
     await openFileInEditor(
       {
         id: entry.id,
@@ -306,20 +338,35 @@ export function EditorWorkbench({
         absolutePath: entry.absolutePath,
         type: 'file',
       },
-      { t, pushToast, position: { line: entry.line, column: entry.column }, openPanel: true, skipReload: true },
+      {
+        t,
+        pushToast,
+        position: { line: entry.line, column: entry.column },
+        openPanel: true,
+        skipReload: true,
+        restore: entry.viewState,
+        onError: () => {
+          failed = true
+        },
+      },
     )
+    return !failed
   }
   const navigateToEntry = async (entry: NavigationEntry, sourceEntry?: NavigationEntry | null) => {
     if (navigationPendingRef.current || sameNavigationEntry(sourceEntry, entry)) return
     navigationPendingRef.current = true
     try {
-      if (
+      const pushedSource =
         sourceEntry &&
         !sameNavigationEntry(navigationBackRef.current[navigationBackRef.current.length - 1], sourceEntry)
-      )
-        navigationBackRef.current.push(sourceEntry)
+      if (pushedSource) navigationBackRef.current.push(sourceEntry)
+      const forwardSnapshot = navigationForwardRef.current
       navigationForwardRef.current = []
-      await openNavigationEntry(entry)
+      // 打开失败（删除/权限/读取错误）时回滚栈，历史不丢
+      if (!(await openNavigationEntry(entry))) {
+        if (pushedSource) navigationBackRef.current.pop()
+        navigationForwardRef.current = forwardSnapshot
+      }
       syncNavigationState()
     } finally {
       navigationPendingRef.current = false
@@ -329,15 +376,19 @@ export function EditorWorkbench({
     if (navigationPendingRef.current) return
     const entry = navigationBackRef.current.pop()
     if (!entry) return
+    // 确认返回后，在途定义搜索的迟到结果不得再导航/改历史；空栈空按不作废搜索
+    cancelPendingDefinition()
     const currentEntry = activeEditor && !gitDiff ? createNavigationEntry(activeEditor) : null
     navigationPendingRef.current = true
     try {
-      if (
+      const pushedForward =
         currentEntry &&
         !sameNavigationEntry(navigationForwardRef.current[navigationForwardRef.current.length - 1], currentEntry)
-      )
-        navigationForwardRef.current.push(currentEntry)
-      await openNavigationEntry(entry)
+      if (pushedForward) navigationForwardRef.current.push(currentEntry)
+      if (!(await openNavigationEntry(entry))) {
+        navigationBackRef.current.push(entry)
+        if (pushedForward) navigationForwardRef.current.pop()
+      }
       syncNavigationState()
     } finally {
       navigationPendingRef.current = false
@@ -347,15 +398,19 @@ export function EditorWorkbench({
     if (navigationPendingRef.current) return
     const entry = navigationForwardRef.current.pop()
     if (!entry) return
+    // 同 goBack：确认前进后才作废在途搜索
+    cancelPendingDefinition()
     const currentEntry = activeEditor && !gitDiff ? createNavigationEntry(activeEditor) : null
     navigationPendingRef.current = true
     try {
-      if (
+      const pushedBack =
         currentEntry &&
         !sameNavigationEntry(navigationBackRef.current[navigationBackRef.current.length - 1], currentEntry)
-      )
-        navigationBackRef.current.push(currentEntry)
-      await openNavigationEntry(entry)
+      if (pushedBack) navigationBackRef.current.push(currentEntry)
+      if (!(await openNavigationEntry(entry))) {
+        navigationForwardRef.current.push(entry)
+        if (pushedBack) navigationBackRef.current.pop()
+      }
       syncNavigationState()
     } finally {
       navigationPendingRef.current = false
@@ -384,6 +439,10 @@ export function EditorWorkbench({
     try {
       const result = await resolveEditorDefinition(editor, position, openEditorsRef.current, controller.signal)
       if (controller.signal.aborted) return
+      const latestState = useConsoleStore.getState()
+      // 搜索期间用户已手动切走或源文件被关闭：迟到的结果不得再导航/改历史/弹提示
+      if (!latestState.openEditors.some((item) => item.id === editor.id) || latestState.activeEditorId !== editor.id)
+        return
       if (result.status === 'unsupported') {
         pushToast({ type: 'info', message: t('editor.definitionUnsupported') })
         return
@@ -434,6 +493,7 @@ export function EditorWorkbench({
     placeEditorInSplit(id, placement, resolvedGroupId)
   }
   const handleGroupDrop = async (dragged: FileDocumentHandle, placement: DropPlacement, groupId?: string | null) => {
+    cancelPendingDefinition()
     const resolvedGroupId = resolveDropGroupId(groupId)
     if (isOpenEditorId(dragged.id)) {
       if (!resolvedGroupId) {
@@ -454,6 +514,7 @@ export function EditorWorkbench({
     targetEditor: FileEditorDocument,
     side: TabInsertSide,
   ) => {
+    cancelPendingDefinition()
     const insertTargetId = resolveTabInsertTargetId(groupEditors, dragged.id, targetEditor.id, side)
     if (isOpenEditorId(dragged.id)) {
       moveEditorToGroup(dragged.id, groupId, insertTargetId)
@@ -462,6 +523,7 @@ export function EditorWorkbench({
     await openDraggedFileInGroup(dragged, groupId, insertTargetId)
   }
   const handleTabStripDrop = async (dragged: FileDocumentHandle, groupId: string, placement: DropPlacement) => {
+    cancelPendingDefinition()
     if (placement === 'center') {
       if (isOpenEditorId(dragged.id)) moveEditorToGroup(dragged.id, groupId)
       else await openDraggedFileInGroup(dragged, groupId)
@@ -524,18 +586,22 @@ export function EditorWorkbench({
       const target = event.target
       if (target instanceof Element && target.closest('[data-terminal],.xterm,.xterm-screen')) return
       if (event.key === 'F12' && activeEditor && !gitDiff) {
+        // stopPropagation：防止 Monaco 原生按键/外层处理对同一动作二次响应
         event.preventDefault()
+        event.stopPropagation()
         const position = getNavigationPosition(activeEditor.id)
         if (position) void goToDefinition(activeEditor, position)
         return
       }
       if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.key === 'ArrowLeft') {
         event.preventDefault()
+        event.stopPropagation()
         void goBackInNavigation()
         return
       }
       if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.key === 'ArrowRight') {
         event.preventDefault()
+        event.stopPropagation()
         void goForwardInNavigation()
         return
       }
@@ -556,6 +622,7 @@ export function EditorWorkbench({
         event.preventDefault()
         event.stopPropagation()
         event.stopImmediatePropagation?.()
+        cancelPendingDefinition()
         if (activeEditor.dirty) {
           setPendingCloseEditorId(activeEditor.id)
           return
@@ -651,33 +718,81 @@ export function EditorWorkbench({
     gitMode,
     setGitFollowEditorRepo,
   ])
-  // 落位应用+校验：getPosition 未达目标视为实例将销毁/未就绪，保留 pending 交给 remount 兜底；
-  // 首次校验成功后仍保留一小段复用窗口（loading 门重挂/StrictMode 重挂竞态），超时惰性清除
+  // 落位应用+校验：行列按当前模型范围钳制，setPosition 后 getPosition 未达目标视为实例将销毁/未就绪，
+  // 保留 pending 交给 remount 兜底；落位成功即一次性消费——同一导航的 loading/StrictMode 重挂改由
+  // viewStateRef 快照恢复，不再用固定时间窗判定所有权，避免覆盖用户之后手动改的位置
   const applyPendingLocation = (editorId: string, instance: any) => {
     const pending = pendingLocationRef.current[editorId]
     if (!pending || !instance) return false
-    if (pending.appliedAt && Date.now() - pending.appliedAt > 1500) {
-      delete pendingLocationRef.current[editorId]
-      return false
-    }
-    // 目标行超出模型行数按 EOF 记落位，否则 pending 永不消费会残留成陈旧跳转
-    const lineCount = instance.getModel?.()?.getLineCount?.() ?? 0
+    const model = instance.getModel?.()
+    const lineCount = model?.getLineCount?.() ?? 0
     const line = lineCount ? Math.min(pending.line, lineCount) : pending.line
-    instance.setPosition?.({ lineNumber: line, column: pending.column })
-    instance.revealPositionInCenter?.({ lineNumber: line, column: pending.column })
+    const maxColumn = model?.getLineMaxColumn?.(line) ?? pending.column
+    const column = Math.max(1, Math.min(pending.column, maxColumn))
+    instance.setPosition?.({ lineNumber: line, column })
+    const restore = pending.viewState
+    if (pending.reveal === 'preserve') {
+      // 返回/前进：还原历史选区与视口，不强制把目标行拉到屏幕中央
+      if (restore?.selection) instance.setSelection?.(restore.selection)
+      if (restore) {
+        instance.setScrollTop?.(restore.scrollTop ?? 0)
+        instance.setScrollLeft?.(restore.scrollLeft ?? 0)
+      }
+    } else {
+      instance.revealPositionInCenter?.({ lineNumber: line, column })
+    }
     instance.focus?.()
     if (instance.getPosition?.()?.lineNumber !== line) return false
-    pending.appliedAt ||= Date.now()
+    delete pendingLocationRef.current[editorId]
+    const snapshot = viewStateRef.current[editorId]
+    if (snapshot) {
+      snapshot.position = { line, column }
+      if (pending.reveal === 'preserve' && restore) {
+        snapshot.selection = restore.selection ?? null
+        snapshot.scrollTop = restore.scrollTop ?? snapshot.scrollTop
+        snapshot.scrollLeft = restore.scrollLeft ?? snapshot.scrollLeft
+      }
+    }
     return true
+  }
+  // remount 兜底：无新落位请求时把用户最后的光标/选区/视口恢复到新实例上
+  const restoreViewSnapshot = (editorId: string, instance: any) => {
+    const snapshot = viewStateRef.current[editorId]
+    if (!snapshot || !instance) return
+    const model = instance.getModel?.()
+    const lineCount = model?.getLineCount?.() ?? 0
+    const position = snapshot.position
+    if (position) {
+      const line = lineCount ? Math.min(position.line, lineCount) : position.line
+      const maxColumn = model?.getLineMaxColumn?.(line) ?? position.column
+      instance.setPosition?.({ lineNumber: line, column: Math.min(position.column, maxColumn) })
+    }
+    if (snapshot.selection) instance.setSelection?.(snapshot.selection)
+    instance.setScrollTop?.(snapshot.scrollTop)
+    instance.setScrollLeft?.(snapshot.scrollLeft)
   }
   useEffect(() => {
     const handleOpenEditorLocation = (event: Event) => {
-      const detail = (event as CustomEvent<{ editorId?: string; line?: number; column?: number }>).detail
+      const detail = (
+        event as CustomEvent<{
+          editorId?: string
+          line?: number
+          column?: number
+          restore?: EditorLocationRestore
+        }>
+      ).detail
       const editorId = detail?.editorId
       const line = Number(detail?.line)
       const column = Number(detail?.column) || 1
       if (!editorId || !Number.isFinite(line) || line < 1) return
-      pendingLocationRef.current[editorId] = { line, column: Math.max(1, column) }
+      // 显式打开/跳转优先：任何 location 事件都使在途定义搜索的迟到结果失效
+      cancelPendingDefinition()
+      pendingLocationRef.current[editorId] = {
+        line,
+        column: Math.max(1, column),
+        reveal: detail?.restore ? 'preserve' : 'center',
+        viewState: detail?.restore || undefined,
+      }
       setActiveEditor(editorId)
       requestAnimationFrame(() => {
         applyPendingLocation(editorId, editorRefs.current[editorId])
@@ -686,6 +801,13 @@ export function EditorWorkbench({
     window.addEventListener(OPEN_EDITOR_LOCATION_EVENT, handleOpenEditorLocation as EventListener)
     return () => window.removeEventListener(OPEN_EDITOR_LOCATION_EVENT, handleOpenEditorLocation as EventListener)
   }, [setActiveEditor])
+  // 已关闭 tab 的 pending/快照即时作废，重开同一文件不被陈旧落位劫持
+  useEffect(() => {
+    for (const id of Object.keys(pendingLocationRef.current))
+      if (!openEditors.some((item) => item.id === id)) delete pendingLocationRef.current[id]
+    for (const id of Object.keys(viewStateRef.current))
+      if (!openEditors.some((item) => item.id === id)) delete viewStateRef.current[id]
+  }, [openEditors])
   const renderTab = (editor: FileEditorDocument, groupEditors: FileEditorDocument[], groupId: string) => (
     <div
       key={editor.id}
@@ -752,7 +874,10 @@ export function EditorWorkbench({
           setTabInsertionTarget(null)
           void handleTabButtonDrop(dragged, groupEditors, groupId, editor, side)
         }}
-        onClick={() => setActiveEditor(editor.id)}
+        onClick={() => {
+          cancelPendingDefinition()
+          setActiveEditor(editor.id)
+        }}
         className={`flex min-w-0 flex-1 items-center gap-1.5 px-2 text-meta ${editor.id === activeEditor?.id ? 'text-text-1' : 'text-text-2 hover:text-text-1'}`}
       >
         <span
@@ -766,6 +891,7 @@ export function EditorWorkbench({
         aria-label={`Close ${editor.name}`}
         className="mr-1.5 shrink-0 opacity-0 group-hover:opacity-100"
         onClick={() => {
+          cancelPendingDefinition()
           if (editor.dirty) {
             setPendingCloseEditorId(editor.id)
             return
@@ -859,7 +985,11 @@ export function EditorWorkbench({
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {renderTabStrip(groupEditors, groupId)}
         <button
-          onClick={() => editor && setActiveEditor(editor.id)}
+          onClick={() => {
+            if (!editor) return
+            cancelPendingDefinition()
+            setActiveEditor(editor.id)
+          }}
           className="relative min-h-0 min-w-0 flex-1 overflow-hidden text-left"
           onDragOverCapture={(event) => {
             if (!hasDraggedFile(event)) return
@@ -1054,33 +1184,57 @@ export function EditorWorkbench({
             value={editor.content}
             onMount={(instance) => {
               editorRefs.current[editor.id] = instance
-              // 卸载时清掉死引用：rAF 落位遇到死实例会落空,清掉后走 pendingLocation → remount 时 onMount 兜底
-              instance.onDidDispose?.(() => {
-                if (editorRefs.current[editor.id] === instance) delete editorRefs.current[editor.id]
+              const snapshot = (viewStateRef.current[editor.id] ||= {
+                position: null,
+                selection: null,
+                scrollTop: 0,
+                scrollLeft: 0,
               })
               const position = instance.getPosition?.()
+              // 快照已有位置时不能被新实例的初始 1:1 覆盖，否则 remount 恢复丢掉用户位置
+              if (position && !snapshot.position)
+                snapshot.position = { line: position.lineNumber, column: position.column }
               if (position)
                 setCursorById((current) => ({
                   ...current,
                   [editor.id]: { line: position.lineNumber, column: position.column },
                 }))
               instance.onDidChangeCursorPosition?.((event: any) => {
+                snapshot.position = { line: event.position.lineNumber, column: event.position.column }
+                snapshot.selection = instance.getSelection?.() || null
                 setCursorById((current) => ({
                   ...current,
                   [editor.id]: { line: event.position.lineNumber, column: event.position.column },
                 }))
                 // 预览跟随由下方 effect 统一驱动（cursorById 变化即触发）
               })
+              instance.onDidScrollChange?.((event: any) => {
+                snapshot.scrollTop = Number(event?.scrollTop ?? instance.getScrollTop?.() ?? 0)
+                snapshot.scrollLeft = Number(event?.scrollLeft ?? instance.getScrollLeft?.() ?? 0)
+              })
+              // 卸载时清掉死引用并留最终快照：rAF 落位遇到死实例会落空,清掉后走 pendingLocation → remount 时 onMount 兜底
+              instance.onDidDispose?.(() => {
+                if (editorRefs.current[editor.id] === instance) delete editorRefs.current[editor.id]
+                const finalPosition = instance.getPosition?.()
+                if (finalPosition) snapshot.position = { line: finalPosition.lineNumber, column: finalPosition.column }
+                snapshot.selection = instance.getSelection?.() || snapshot.selection
+                snapshot.scrollTop = Number(instance.getScrollTop?.() ?? snapshot.scrollTop)
+                snapshot.scrollLeft = Number(instance.getScrollLeft?.() ?? snapshot.scrollLeft)
+              })
               const pendingPosition = pendingLocationRef.current[editor.id]
-              if (pendingPosition && applyPendingLocation(editor.id, instance)) {
-                // 首个布局可能未就绪（容器刚脱离 display:none）导致 reveal 落空：下一帧补一次居中
-                requestAnimationFrame(() => {
-                  if (editorRefs.current[editor.id] === instance)
-                    instance.revealPositionInCenter?.({
-                      lineNumber: pendingPosition.line,
-                      column: pendingPosition.column,
-                    })
-                })
+              if (pendingPosition) {
+                if (applyPendingLocation(editor.id, instance) && pendingPosition.reveal === 'center') {
+                  // 首个布局可能未就绪（容器刚脱离 display:none）导致 reveal 落空：下一帧补一次居中
+                  requestAnimationFrame(() => {
+                    if (editorRefs.current[editor.id] === instance)
+                      instance.revealPositionInCenter?.({
+                        lineNumber: pendingPosition.line,
+                        column: pendingPosition.column,
+                      })
+                  })
+                }
+              } else {
+                restoreViewSnapshot(editor.id, instance)
               }
               instance.onMouseDown?.((event: any) => {
                 const browserEvent = event?.event?.browserEvent
@@ -1193,6 +1347,7 @@ export function EditorWorkbench({
     )
   }
   const closeAllEditors = () => {
+    cancelPendingDefinition()
     for (const editor of [...openEditors]) closeEditor(editor.id)
   }
   if (!activeEditor) return null
@@ -1370,6 +1525,7 @@ export function EditorWorkbench({
         onCancel={() => setPendingCloseEditorId(null)}
         onConfirm={() => {
           if (pendingCloseEditorId) {
+            cancelPendingDefinition()
             closeEditor(pendingCloseEditorId)
             setPendingCloseEditorId(null)
           }
