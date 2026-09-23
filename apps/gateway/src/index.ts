@@ -155,19 +155,19 @@ if (existsSync(frontendDist)) {
     setHeaders(res, filePath) {
       const normalized = filePath.replace(/\\/g, '/')
       if (normalized.endsWith('/sw.js')) {
-        res.setHeader('Cache-Control', 'no-cache')
+        res.header('Cache-Control', 'no-cache')
         return
       }
       if (normalized.includes('/fonts/') || /\.(?:woff2?|ttf|otf)$/i.test(normalized)) {
-        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+        res.header('Cache-Control', 'public, max-age=31536000, immutable')
         return
       }
       if (/\.(?:js|css|svg|png|jpg|jpeg|gif|webp|ico|map)$/i.test(normalized)) {
-        res.setHeader('Cache-Control', 'public, max-age=604800')
+        res.header('Cache-Control', 'public, max-age=604800')
         return
       }
       if (normalized.endsWith('/index.html') || normalized.endsWith('index.html')) {
-        res.setHeader('Cache-Control', 'no-cache')
+        res.header('Cache-Control', 'no-cache')
       }
     },
   })
