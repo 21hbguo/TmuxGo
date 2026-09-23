@@ -1,5 +1,4 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import type { SocketStream } from '@fastify/websocket'
 import { agentManager, type AgentSocket } from '../agent-manager.js'
 import { recordStreamMetric, updateStreamMetric } from '../lib/perf-metrics.js'
 import { agentMonitor } from '../lib/agent-monitor.js'
@@ -22,20 +21,21 @@ function streamPerfMetricsActiveClientsDelta(delta: number) {
   return next
 }
 export async function streamRoutes(fastify: FastifyInstance) {
-  fastify.get('/stream', { websocket: true }, (connection: SocketStream, request: FastifyRequest) => {
+  // @fastify/websocket v9+ 直传 ws socket（不再有 connection 包装），类型由插件 RouteOptions 推断
+  fastify.get('/stream', { websocket: true }, (rawSocket, request: FastifyRequest) => {
     const query = request.query as { ticket?: unknown }
     const ticket = typeof query.ticket === 'string' ? query.ticket : ''
     const shareTicket: ShareTicket | null = ticket ? shareLinkStore.consumeTicket(ticket) : null
-    if (isAuthEnabled() && !shareTicket && !consumeWebSocketTicket(ticket)) {
-      connection.socket.close(1008, 'Authentication required')
-      return
-    }
-    console.log('Client connected to stream')
-    const socket = connection.socket as unknown as AgentSocket & {
+    const socket = rawSocket as unknown as AgentSocket & {
       close: (code?: number, reason?: string) => void
       ping: () => void
       terminate: () => void
     }
+    if (isAuthEnabled() && !shareTicket && !consumeWebSocketTicket(ticket)) {
+      socket.close(1008, 'Authentication required')
+      return
+    }
+    console.log('Client connected to stream')
     const agentSocket = socket
     const session = new StreamSession(socket, shareTicket)
     let agentId: string | null = null
