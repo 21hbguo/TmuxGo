@@ -8,6 +8,7 @@ import { useTranslation } from '@/i18n'
 import { useSessionContinuity } from '@/hooks/useSessionContinuity'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useClipboard } from '@/hooks/useClipboard'
+import { useEscapeClose } from '@/hooks/useEscapeClose'
 import { useAppVersion } from '@/hooks/useAppVersion'
 import { APP_BUILD_ID, APP_NAME, APP_VERSION } from '@/lib/app-version'
 import { api, type ShareLink } from '@/lib/api'
@@ -51,6 +52,7 @@ const THEME_PREVIEW: Record<string, { bg: string; accent: string; fg: string }> 
 }
 
 export function Settings({ onClose }: SettingsProps) {
+  useEscapeClose(onClose)
   const { preferences, updatePreferences, resetPreferences } = usePreferences()
   const { sessionContinuity, updateSessionContinuity } = useSessionContinuity()
   const { t } = useTranslation()

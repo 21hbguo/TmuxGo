@@ -11,6 +11,7 @@ import { writeClipboardText } from '@/lib/clipboard-text'
 import { requestTerminalSelection } from '@/lib/terminal-selection'
 import { isApplePlatform, isImeKeyEvent } from '@/lib/terminal-platform'
 import { useSessionSnapshotSync } from '@/hooks/useSessionSnapshotSync'
+import { useEscapeClose } from '@/hooks/useEscapeClose'
 import { useHosts, useInvokePluginAction, usePlugins, useWindows } from '@/hooks/useApi'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import { useWindowQueryState } from '@/hooks/useWindowQueryState'
@@ -59,6 +60,7 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
     setCommandPalette(false)
     onClose()
   }
+  useEscapeClose(close)
 
   useEffect(() => {
     setTimeout(() => inputRef.current?.focus(), 50)

@@ -47,6 +47,7 @@ import { getVncWebSocketBase } from '@/lib/runtime-endpoints'
 import { attachVncClipboardSync } from '@/lib/vnc-clipboard'
 import { isImeKeyEvent } from '@/lib/terminal-platform'
 import { useConsoleStore, type DesktopViewMode } from '@/stores/useConsoleStore'
+import { useEscapeClose } from '@/hooks/useEscapeClose'
 import { useTranslation } from '@/i18n'
 import { MOBILE_QUERY } from '@/lib/console-device-state'
 import { Select } from './Select'
@@ -124,6 +125,8 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
   const [displays, setDisplays] = useState<VncDisplay[] | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
+  useEscapeClose(() => setPickerOpen(false), pickerOpen)
+  useEscapeClose(() => setMoreOpen(false), moreOpen)
   // 真·浏览器全屏状态：fullscreenElement 驱动，fullscreenchange 同步图标/高亮
   const [isFullscreen, setIsFullscreen] = useState(false)
   const sectionRef = useRef<HTMLElement | null>(null)

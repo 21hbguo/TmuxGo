@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useFileList, useFilePreview, useFileRoots, useFileSearch, useHosts, usePaneCwd } from '@/hooks/useApi'
+import { useEscapeClose } from '@/hooks/useEscapeClose'
 import { usePreferences } from '@/hooks/usePreferences'
 import { useSessionWorkspaces } from '@/hooks/useSessionWorkspaces'
 import { isMobileDevice } from '@/hooks/useMobileKeyboard'
@@ -569,6 +570,10 @@ export function FilePanel({
   const [lastTrashedItem, setLastTrashedItem] = useState<TrashEntry | null>(null)
   const [trashEntries, setTrashEntries] = useState<TrashEntry[]>([])
   const [trashOpen, setTrashOpen] = useState(false)
+  // 回收站弹窗与两个浮层菜单各占一层 ESC
+  useEscapeClose(() => setTrashOpen(false), trashOpen)
+  useEscapeClose(() => setContextMenu(null), contextMenu !== null)
+  useEscapeClose(() => setSortMenu(null), sortMenu !== null)
   const [fileClipboard, setFileClipboard] = useState<{
     hostId: string
     rootId: string

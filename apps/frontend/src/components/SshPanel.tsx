@@ -20,6 +20,7 @@ import { type CredentialStoreFile, type HostStoreFile } from '@/lib/api'
 import { isImeKeyEvent } from '@/lib/terminal-platform'
 import { useTranslation } from '@/i18n'
 import { useClipboard } from '@/hooks/useClipboard'
+import { useEscapeClose } from '@/hooks/useEscapeClose'
 import { Button } from './Button'
 import { Chip } from './Chip'
 import { ConfirmDialog } from './ConfirmDialog'
@@ -272,6 +273,10 @@ export function SshPanel() {
     setHostPasswordDraft('')
     setHostPrivateKeyPathDraft('')
   }
+  // 三个内嵌弹窗各占一层，共存时 ESC 只关最上层
+  useEscapeClose(closeHostDialog, hostDialogOpen)
+  useEscapeClose(closeSshConfig, sshConfigOpen)
+  useEscapeClose(closeJsonConfig, jsonConfigOpen)
   const saveHost = async () => {
     setHostActionMessage('')
     try {

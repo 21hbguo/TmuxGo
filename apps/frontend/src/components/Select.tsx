@@ -1,6 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { FiCheck, FiChevronDown } from 'react-icons/fi'
+import { useEscapeClose } from '@/hooks/useEscapeClose'
 
 export interface SelectOption {
   value: string
@@ -45,6 +46,8 @@ export function Select({
     setOpen(false)
     if (focusTrigger) triggerRef.current?.focus()
   }
+  // 下拉开着时占住 ESC 顶层，防止把底下的弹窗一起关掉
+  useEscapeClose(() => close(true), open)
   const commit = (index: number) => {
     const option = options[index]
     if (!option) return
