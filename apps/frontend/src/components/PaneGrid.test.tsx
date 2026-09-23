@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { emitStreamEvent, subscribeStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PaneGrid } from './PaneGrid'
+import { api } from '@/lib/api'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 
 const sendMock = vi.hoisted(() => vi.fn((_message: any) => true))
@@ -24,8 +25,11 @@ const terminalProps = vi.hoisted(() => ({
     layoutSyncPendingRef?: { current: (() => boolean) | undefined }
     peekFitSizeRef?: { current: (() => { cols: number; rows: number } | null) | undefined }
     onInput?: (data: string) => void
+    onSwipeLeft?: () => void
+    onSwipeRight?: () => void
   },
 }))
+const snapshotMockData = vi.hoisted(() => ({ value: null as any }))
 const continuityState = vi.hoisted(() => ({
   value: {
     enabled: false,
@@ -44,6 +48,8 @@ vi.mock('./TerminalPane', () => ({
     layoutSyncPendingRef?: { current: (() => boolean) | undefined }
     peekFitSizeRef?: { current: (() => { cols: number; rows: number } | null) | undefined }
     onInput?: (data: string) => void
+    onSwipeLeft?: () => void
+    onSwipeRight?: () => void
   }) => {
     terminalProps.current = props
     return <button onClick={props.onReady}>{props.sessionName || 'empty-session'}</button>
@@ -76,7 +82,7 @@ vi.mock('@/hooks/useMobileKeyboard', () => ({
 vi.mock('@/hooks/useApi', () => ({
   useHosts: () => ({ data: hostsMockData.value }),
   useWindows: () => ({ data: windowsData }),
-  useSessionSnapshot: () => ({ data: null }),
+  useSessionSnapshot: () => ({ data: snapshotMockData.value }),
 }))
 vi.mock('@/hooks/useOrderedSessions', () => ({
   useOrderedSessions: () => ({ data: orderedSessionsData.value }),
@@ -196,6 +202,8 @@ describe('PaneGrid', () => {
     terminalProps.current = null
     hostsMockData.value = [{ id: 'local' }]
     orderedSessionsData.value = []
+    snapshotMockData.value = null
+    windowsData.length = 0
     continuityState.value = {
       enabled: false,
       archive: { enabled: false, captureMode: 'none', maxBytesPerSession: 262144, retentionDays: 7 },
@@ -267,6 +275,31 @@ describe('PaneGrid', () => {
       }),
     )
     expect(useConsoleStore.getState().activeSessionId).toBe('session-dev1')
+  })
+  // zoom 全屏翻页：滑动切 pane 必须带 keepZoom，否则网关 select-pane 会 unzoom
+  it('swipes between panes of a zoomed window with keepZoom', async () => {
+    const selectSpy = vi.spyOn(api.panes, 'select').mockResolvedValue({ ok: true })
+    windowsData.push({ id: 'local:@1', sessionId: 'session-dev1', active: true, zoomed: true })
+    snapshotMockData.value = {
+      windows: [{ id: 'local:@1', zoomed: true }],
+      panes: [
+        { id: 'local:%1', windowId: 'local:@1', index: 0 },
+        { id: 'local:%2', windowId: 'local:@1', index: 1 },
+      ],
+      activeWindowId: 'local:@1',
+      activePaneId: 'local:%1',
+    }
+    try {
+      render(<PaneGrid />)
+      await waitFor(() => expect(terminalProps.current?.onSwipeLeft).toBeTruthy())
+      await act(async () => {
+        terminalProps.current!.onSwipeLeft!()
+      })
+      expect(selectSpy).toHaveBeenCalledWith('local:%2', { keepZoom: true })
+      expect(useConsoleStore.getState().activePaneId).toBe('local:%2')
+    } finally {
+      selectSpy.mockRestore()
+    }
   })
   it('keeps exclusive size on blur but attaches as passive (no height shrink)', async () => {
     vi.mocked(document.hasFocus).mockReturnValue(false)
@@ -945,6 +978,8 @@ describe('multi-device exclusive ownership', () => {
     terminalProps.current = null
     hostsMockData.value = [{ id: 'local' }]
     orderedSessionsData.value = []
+    snapshotMockData.value = null
+    windowsData.length = 0
     continuityState.value = {
       enabled: false,
       archive: { enabled: false, captureMode: 'none', maxBytesPerSession: 262144, retentionDays: 7 },
