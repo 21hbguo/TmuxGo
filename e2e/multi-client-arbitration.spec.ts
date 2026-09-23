@@ -31,10 +31,26 @@ async function termState(page: any) {
       cols: t?.cols || 0,
       rows: t?.rows || 0,
       rowsWidth: rows?.getBoundingClientRect().width || 0,
+      cellWidth: Number(t?._core?._renderService?.dimensions?.css?.cell?.width) || 0,
       vis: document.visibilityState,
       focus: document.hasFocus(),
     }
   })
+}
+
+// P1-C-4：tmux window cols === xterm.cols === DOM 行区宽换算列数。
+// 行区像素宽 / 渲染单元格宽得到的列数须与 window 一致——宽容器里右侧空半屏
+// 时该换算列数会明显小于 window cols（或 xterm cols 本身落后）
+async function expectWidthConsistency(page: any, sessionName: string) {
+  const t = await termState(page)
+  const w = tmuxSize(sessionName)
+  expect(t.cols).toBe(w.cols)
+  expect(t.cellWidth).toBeGreaterThan(0)
+  // css.cell.width 是取整值（8 vs 实际 ~8.04），整行累计可差 ~0.9 列：
+  // 断言换算列数与 window 差 <1 列——右半屏空白时行区宽/列数会显著对不上
+  const impliedCols = t.rowsWidth / t.cellWidth
+  const detail = `rowsWidth=${t.rowsWidth} cellWidth=${t.cellWidth} cols=${t.cols} win=${w.cols}`
+  expect(Math.abs(impliedCols - w.cols), detail).toBeLessThan(1)
 }
 
 // 激活页独占会话尺寸：tmux window 与 xterm 行列数一致才放行
@@ -172,6 +188,28 @@ test('a narrower client demotes then restores the wider client view', async ({ b
   await expectSizeSync(pageA, name)
   const restoredA = await termState(pageA)
   expect(restoredA.cols).toBe(wide.cols)
+  await expectWidthConsistency(pageA, name)
+
+  // 第二轮抢占且 B 断开前再次 resize：恢复目标仍是 A 的宽尺寸，
+  // 不能被 B 的最后一次尺寸带偏
+  const contextB2 = await browser.newContext({ baseURL, viewport: { width: 760, height: 500 } })
+  const pageB2 = await contextB2.newPage()
+  await openSession(pageB2, session, { expectHeader: false })
+  await pageB2.waitForFunction(() => (window as any).__tmuxgoTerminal?.cols > 0, null, { timeout: 15000 })
+  await pageB2.bringToFront()
+  await expectSizeSync(pageB2, name)
+  expect(tmuxSize(name).cols).toBeLessThan(wide.cols)
+  await pageB2.setViewportSize({ width: 900, height: 560 })
+  await pageB2.waitForTimeout(400)
+  await expectSizeSync(pageB2, name)
+  const resizedNarrow = tmuxSize(name)
+  expect(resizedNarrow.cols).toBeLessThan(wide.cols)
+
+  await contextB2.close()
+  await pageA.bringToFront()
+  await expect.poll(() => tmuxSize(name).cols, { timeout: 10000, intervals: [200, 400, 800] }).toBe(wide.cols)
+  await expectSizeSync(pageA, name)
+  await expectWidthConsistency(pageA, name)
 
   await contextA.close()
 })
