@@ -11,6 +11,7 @@ import {
   useWindows,
 } from '@/hooks/useApi'
 import { useOptionalQueryClient } from '@/hooks/useOptionalQueryClient'
+import { useEscapeClose } from '@/hooks/useEscapeClose'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import {
   useMigrateSessionWorkspace,
@@ -217,6 +218,8 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
     resetPanelPosition()
     onClose()
   }, [isOpen, onClose, resetPanelPosition])
+
+  useEscapeClose(handleClose, isOpen)
 
   const handleTouchStart = (e: React.TouchEvent) => {
     startYRef.current = e.touches[0].clientY

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button } from './Button'
 import { ModalPortal } from './ModalPortal'
+import { useEscapeClose } from '@/hooks/useEscapeClose'
 
 interface ConfirmDialogProps {
   open: boolean
@@ -54,6 +55,8 @@ export function ConfirmDialog({
     if (open && busyState) dialogRef.current?.focus()
   }, [open, busyState])
 
+  useEscapeClose(onCancel, open && !busyState)
+
   if (!open) return null
 
   const handleConfirm = () => {
@@ -71,12 +74,6 @@ export function ConfirmDialog({
     }
   }
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === 'Escape') {
-      e.preventDefault()
-      e.stopPropagation()
-      if (!busyState) onCancel()
-      return
-    }
     if (e.key !== 'Tab') return
     if (busyState) {
       // busy 时两按钮均 disabled，下方 focusables 查询为空会让 Tab 默认行为放跑焦点；

@@ -5,6 +5,7 @@ import { quoteShellPath } from '@/lib/path-drop'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useFileRoots } from '@/hooks/useApi'
 import { usePreferences } from '@/hooks/usePreferences'
+import { useEscapeClose } from '@/hooks/useEscapeClose'
 import { useTranslation } from '@/i18n'
 import type { FileUploadTarget } from '@/types'
 import { Button } from './Button'
@@ -135,6 +136,7 @@ export function UploadConfirmDialog() {
     if (submitting) return
     closeUploadDialog()
   }
+  useEscapeClose(handleCancel, open)
 
   const handleUpload = async () => {
     if (!uploadRequest || !targetRootId) return

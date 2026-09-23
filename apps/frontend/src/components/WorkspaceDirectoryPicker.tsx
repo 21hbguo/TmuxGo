@@ -4,6 +4,7 @@ import { FiChevronLeft, FiChevronRight, FiFolder, FiFolderPlus, FiX } from 'reac
 import { api } from '@/lib/api'
 import { useFileList, useFileRoots } from '@/hooks/useApi'
 import { usePrompt } from '@/hooks/usePrompt'
+import { useEscapeClose } from '@/hooks/useEscapeClose'
 import { useTranslation } from '@/i18n'
 import { Button } from './Button'
 import { ModalPortal } from './ModalPortal'
@@ -37,6 +38,7 @@ export function WorkspaceDirectoryPicker({
   const [selectedPath, setSelectedPath] = useState('')
   const [showHidden, setShowHidden] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  useEscapeClose(onClose, !submitting)
   const {
     data: currentDirectory,
     isLoading: currentLoading,
