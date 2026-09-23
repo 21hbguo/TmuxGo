@@ -1,91 +1,170 @@
 <div align="center">
 
-# :zap: TmuxGo
+<br />
 
-### :round_pushpin: 浏览器里的 tmux 工作台，桌面/手机/平板无缝接力
+# ⚡ TmuxGo
 
-<p><strong>简体中文</strong> · <a href="README_EN.md">English</a></p>
+### 把 `tmux` 变成一个随处可开的浏览器工作台
 
-> 不用装客户端，浏览器打开就是你的终端、文件区和 Git 工作台。  
-> 在桌面开始，在手机继续，在平板查看。  
-> **同一套会话，同一套上下文，不再断片。**
-
-![TmuxGo cover](assets/cover_tmuxgo_cn_vip.png)
+**Terminal · Files · Editor · Git · Multi-host · PWA**
 
 <p>
-<a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
-<a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D20-339933?logo=node.js&logoColor=white" alt="Node"></a>
-<a href="https://github.com/tmux/tmux"><img src="https://img.shields.io/badge/tmux-required-1BB91F?logo=tmux&logoColor=white" alt="tmux"></a>
+  <a href="README_EN.md">English</a>
+  ·
+  <strong>简体中文</strong>
 </p>
+
 <p>
-<a href="https://vite.dev"><img src="https://img.shields.io/badge/Vite-8-646CFF?logo=vite&logoColor=white" alt="Vite"></a>
-<a href="https://www.typescriptlang.org"><img src="https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white" alt="TypeScript"></a>
-<a href="https://tailwindcss.com"><img src="https://img.shields.io/badge/Tailwind-3.4-06B6D4?logo=tailwindcss&logoColor=white" alt="Tailwind CSS"></a>
+  <a href="https://github.com/21hbguo/TmuxGo/actions/workflows/ci.yml">
+    <img src="https://github.com/21hbguo/TmuxGo/actions/workflows/ci.yml/badge.svg?branch=master" alt="CI">
+  </a>
+  <a href="https://github.com/21hbguo/TmuxGo/stargazers">
+    <img src="https://img.shields.io/github/stars/21hbguo/TmuxGo?style=flat-square&logo=github" alt="GitHub stars">
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/github/license/21hbguo/TmuxGo?style=flat-square" alt="License">
+  </a>
+  <a href="https://nodejs.org">
+    <img src="https://img.shields.io/badge/Node.js-%5E20.19%20%7C%20%5E22.12%20%7C%20%3E%3D24-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node.js">
+  </a>
+</p>
+
+<p>
+  <a href="#rocket-快速开始"><strong>快速开始</strong></a>
+  ·
+  <a href="#sparkles-功能亮点"><strong>功能亮点</strong></a>
+  ·
+  <a href="#lock-安全部署"><strong>安全部署</strong></a>
+  ·
+  <a href="#wrench-开发与验证"><strong>开发</strong></a>
+</p>
+
+<br />
+
+<img src="assets/cover_tmuxgo_cn_vip.png" alt="TmuxGo browser tmux workspace" width="100%" />
+
+<br />
+
+<p>
+  <strong>让终端继续活着，让工作区跟着你走。</strong><br />
+  浏览器关掉，tmux 会话仍在；换到手机、平板或另一台电脑，继续同一个上下文。
 </p>
 
 </div>
 
 ---
 
-## :bookmark_tabs: 目录
+## :rocket: 一条命令开始
 
-- [为什么用 TmuxGo？](#fire-为什么用-tmuxgo)
-- [功能总览](#sparkles-功能总览)
-- [快速开始](#rocket-快速开始)
-- [运行模式与重启规则](#traffic_light-运行模式与重启规则)
-- [多主机与远程 SSH](#satellite-多主机与远程-ssh)
-- [生产部署](#shield-生产部署)
-- [安全部署](#lock-安全部署)
-- [依赖要求](#package-依赖要求)
-- [架构](#jigsaw-架构)
-- [开发与验证](#wrench-开发与验证)
-- [常用快捷键](#keyboard-常用快捷键)
-- [配置与持久化](#gear-配置与持久化)
-- [排障](#beetle-排障)
-- [贡献](#handshake-贡献)
-- [License](#page_facing_up-license)
-
-## :fire: 为什么用 TmuxGo？
-
-| :desktop_computer: **桌面** | :iphone: **手机** | 📟 **平板** |
-|:---:|:---:|:---:|
-| 多窗格、多编辑器、多侧栏并行工作 | 触控友好、虚拟按键、抽屉导航 | 分屏查看日志、代码、Git 历史 |
-
-:point_right: **一个会话，三块屏幕，状态不丢、思路不断。**
-
-- :globe_with_meridians: **随时访问** - 浏览器即可接入，本地、局域网、Tailscale 都可用
-- :electric_plug: **会话常驻** - 浏览器关掉后，`tmux` 里的工作仍继续
-- :repeat: **跨设备接力** - 会话、布局、活动窗格、恢复点都可延续
-- :lock: **默认独占附着** - 桌面和移动端默认以独占模式恢复，避免误抢焦点
-
-## :sparkles: 功能总览
-
-| 模块 | 当前能力 |
-|:-----|:---------|
-| :globe_with_meridians: **终端与 tmux** | 基于 `xterm.js` 的浏览器终端、tmux 会话附着、窗口/窗格拆分、缩放、共享/独占附着、分屏会话、命令面板与快捷操作 |
-| :bookmark_tabs: **会话管理** | 新建、重命名、拖拽排序、批量删除、审计日志、命名工作区、自定义会话模板（窗口数、面板数、布局、初始命令） |
-| :desktop_computer: **桌面工作区** | Activity Bar、Session Rail、可调整宽度的 Session/File/Git 面板、内嵌终端 Dock |
-| :open_file_folder: **文件工作区** | `workspace` / `home` 根目录、文件名/内容搜索、收藏目录、点文件开关、文本/图片预览、新建/重命名/删除、路径插入终端、下载与上传队列 |
-| :pencil2: **内置编辑器** | Monaco 编辑器、分栏编辑、拖拽打开到指定分屏、Markdown 预览、图片预览、Git Diff 查看、大文件/二进制只读保护 |
-| :octocat: **Git 工作台** | 状态、历史图、分支、暂存/取消暂存、提交、丢弃改动、拉取/推送/合并、切换/新建/删除分支、固定仓库、跟随当前文件仓库、`gh` 设备登录辅助提示 |
-| :satellite: **多主机** | 默认本地主机 + SSH 远端主机、连接测试、主机切换后终端/文件/Git 同步切换 |
-| :iphone: **移动端 / PWA** | 抽屉导航、触控滚动、虚拟键盘、移动快捷条、剪贴板保护、添加到主屏幕安装横幅 |
-| :brain: **持续化与同步** | 主题、快捷键、收藏、命令片段、会话顺序、Git 工作区状态、会话持续化会同步到浏览器本地与 `~/.tmuxgo/preferences` |
-| :package: **版本与发布感知** | Vite 构建产物与开发热更分离、构建版本检查、发现新构建后前端提示刷新 |
-
-## :rocket: 快速开始
-
-### npm 一键安装
-
-macOS 或 Linux 直接执行：
+在 macOS 或 Linux 上：
 
 ```bash
 npx --yes @21hbguo/tmuxgo install
 ```
 
-该命令会安装 `tmux`、`ripgrep`、`python3`、`git`、`curl` 等生产依赖，复制预构建运行时到 `~/.tmuxgo/runtime`，创建 `default` tmux 会话并注册 Gateway 用户服务。它要求预先安装 Node.js（^20.19 / ^22.12 / >=24）；macOS 缺少 Homebrew 时会先安装 Homebrew。完成后打开 `http://localhost:3001`。
+安装完成后打开：
 
-### 源码部署（开发或离线）
+```text
+http://localhost:3001
+```
+
+> 部署端运行 TmuxGo，访问端只需要浏览器。Gateway 默认绑定 `127.0.0.1`，远程访问建议使用 Tailscale / WireGuard / SSH Tunnel / HTTPS 反向代理。
+
+## :fire: 为什么是 TmuxGo？
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### 🌐 Browser-first
+
+不用额外安装桌面客户端。终端、文件、编辑器和 Git 都在浏览器里，适合本机、服务器与远程开发环境。
+
+</td>
+<td width="50%" valign="top">
+
+### 🧠 Context stays alive
+
+浏览器可以关，`tmux` 不会停。长时间训练、编译、日志和交互式任务可以持续运行，再回来继续。
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### 🧰 IDE-like workspace
+
+不只是 Web Terminal。TmuxGo 把 Session、Files、Monaco Editor、Git Workbench 和 Terminal Dock 放进同一个工作区。
+
+</td>
+<td width="50%" valign="top">
+
+### 📱 Cross-device handoff
+
+桌面开始，手机看状态，平板继续处理。会话、布局和活动上下文可以持续衔接。
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### 🖥️ Multi-host
+
+本地主机和 SSH 远端主机统一管理。切换主机时，会话、文件和 Git 上下文一起切换。
+
+</td>
+<td width="50%" valign="top">
+
+### 🔐 Security-aware
+
+默认仅监听本机，内置认证，并明确区分 HTTP/WS 与 HTTPS/WSS 场景，适合通过私有网络或反向代理安全暴露。
+
+</td>
+</tr>
+</table>
+
+> **适合这些场景：** 远程开发 · 长时间训练/实验 · Homelab/服务器运维 · 多仓库 Git 工作流 · 移动端查看任务状态
+
+## :sparkles: 功能亮点
+
+| 能力 | 你能做什么 |
+|:--|:--|
+| **Terminal + tmux** | 浏览器终端、tmux attach、窗口/窗格拆分、缩放、共享/独占附着、分屏会话、快捷操作 |
+| **Workspace + Sessions** | 命名工作区、会话模板、拖拽排序、批量管理、跨工作区组织 tmux session |
+| **Files + Editor** | 文件树、搜索、上传下载、Monaco 编辑器、Markdown / 图片预览、分栏编辑 |
+| **Git Workbench** | Status、History、Branch、Stage/Unstage、Commit、Pull/Push/Merge、Diff |
+| **Remote Hosts** | 本地主机 + SSH 远程主机、连接测试、主机级 Session / Files / Git 切换 |
+| **Mobile / PWA** | 触控导航、虚拟按键、快捷条、剪贴板保护、添加到主屏幕 |
+| **Persistence** | 主题、快捷键、收藏、会话顺序、工作区状态和恢复信息持久化 |
+| **Security** | 本地监听默认值、账号认证、一次性 WebSocket ticket、HTTPS/Tailscale 部署路径 |
+
+<details>
+<summary><strong>完整功能说明</strong></summary>
+
+<br />
+
+- **会话管理**：新建、重命名、拖拽排序、批量删除、审计日志、命名工作区、自定义 Session Template
+- **桌面布局**：Activity Bar、Session Rail、可调整宽度的 Session / File / Git 面板、Terminal Dock
+- **文件能力**：`workspace` / `home` 根目录、文件名/内容搜索、收藏、点文件、文本/图片预览、上传下载
+- **编辑器**：Monaco、分栏编辑、拖拽到指定分屏、Markdown 预览、Git Diff、大文件/二进制保护
+- **Git**：状态、历史图、分支、暂存、提交、丢弃、拉取、推送、合并、固定仓库
+- **多主机**：Local + SSH Remote；切换主机后 Session / Files / Git 同步切换
+- **移动端**：Drawer、触控滚动、虚拟键盘、移动快捷条、PWA 安装
+- **同步**：浏览器本地状态 + `~/.tmuxgo/preferences` 持久化
+
+</details>
+
+## :rocket: 快速开始
+
+### 推荐：npm 一键安装
+
+```bash
+npx --yes @21hbguo/tmuxgo install
+```
+
+该命令会准备运行依赖、复制预构建运行时到 `~/.tmuxgo/runtime`、创建默认 tmux 会话并注册 Gateway 用户服务。Node.js 需要满足 `^20.19 || ^22.12 || >=24`。
+
+### 从源码部署
 
 ```bash
 git clone https://github.com/21hbguo/TmuxGo.git
@@ -93,39 +172,38 @@ cd TmuxGo
 ./install.sh
 ```
 
-`install.sh` 会自动完成这些事情：
+安装脚本会处理 Node.js、tmux、ripgrep、原生构建工具链、Frontend/Gateway 构建，以及 Linux `systemd --user` / macOS `launchd` 服务。
 
-- 检查 Node.js 版本（^20.19 / ^22.12 / >=24），不满足时经 nvm 安装最新 LTS
-- 安装 `tmux`、`ripgrep`、`lsof/ss`、`python3` 和原生构建工具链
-- 执行 `npm install`
-- 构建 Gateway 和静态 Frontend（`apps/frontend/dist`，Vite），设置 `TMUXGO_ENABLE_AGENT=1` 时同时构建 Agent
-- 在 Linux 上安装并启动 `systemd --user` 服务
-- 在 macOS 上安装并启动 `launchd` 服务
-- 在没有常驻服务管理器的环境中回退到本地启动脚本
-- 完成 `3001` 健康检查（Gateway 同时提供 API 与静态前端），并输出本地地址与可用的 Tailscale HTTPS 地址
+需要本机 Agent 时：
 
-安装完成后，macOS 打开 `http://localhost:3001`；其他部署模式按启动输出打开对应地址。
-Agent 默认不安装启动；需要本机 agent 时执行 `TMUXGO_ENABLE_AGENT=1 ./install.sh` 或 `TMUXGO_ENABLE_AGENT=1 ./start.sh --restart`。
+```bash
+TMUXGO_ENABLE_AGENT=1 ./install.sh
+```
 
-> :lock: Gateway 默认只监听 `127.0.0.1`，不会直接暴露到局域网或公网。远程访问必须使用 Tailscale、WireGuard、SSH 隧道或 HTTPS 反向代理。
-> :warning: 终端连接拥有完整的 tmux 输入、文件和 Git 操作权限；不要把未加密的 `ws://` 或未认证的 Gateway 暴露到不受信任网络。
-> :bulb: 若要稳定使用系统剪贴板复制，建议通过 HTTPS 域名访问，例如 Tailscale HTTPS。
-> :desktop_computer: 部署端需要运行在支持 `tmux` 的环境中，推荐 Linux、macOS、WSL2；访问端只需要浏览器。
-
-只安装依赖但不装常驻服务时，也可以手动启动：
+### 手动启动
 
 ```bash
 ./bootstrap.sh
 ./start.sh
 ```
 
-发布 npm 包：
+> [!IMPORTANT]
+> TmuxGo 的终端连接拥有实际的 shell、文件与 Git 操作能力。不要把未认证或未加密的 Gateway 暴露到不受信任网络。
 
-```bash
-npm login
-npm run pack:npx
-npm run publish:npx
-```
+## :compass: 文档导航
+
+| 想了解 | 入口 |
+|:--|:--|
+| TmuxGo 在生产和开发模式下如何运行 | [运行模式与重启规则](#traffic_light-运行模式与重启规则) |
+| 如何管理本地与 SSH 远端机器 | [多主机与远程 SSH](#satellite-多主机与远程-ssh) |
+| 如何部署到 Linux / macOS / Docker | [生产部署](#shield-生产部署) |
+| 如何使用 HTTPS、Tailscale、WireGuard | [安全部署](#lock-安全部署) |
+| 系统和依赖要求 | [依赖要求](#package-依赖要求) |
+| 前后端 / Gateway / Agent 结构 | [架构](#jigsaw-架构) |
+| 开发、测试、CI | [开发与验证](#wrench-开发与验证) |
+| 快捷键 | [常用快捷键](#keyboard-常用快捷键) |
+| 环境变量和持久化 | [配置与持久化](#gear-配置与持久化) |
+| 常见错误 | [排障](#beetle-排障) |
 
 ## :traffic_light: 运行模式与重启规则
 
