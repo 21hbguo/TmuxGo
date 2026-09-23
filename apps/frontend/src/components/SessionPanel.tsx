@@ -689,7 +689,9 @@ export function SessionPanel() {
                       <FiFolder aria-hidden="true" className="shrink-0 text-accent" size={13} />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-xs font-semibold text-text-1">{workspace.name}</span>
-                        <span className="block truncate font-mono text-[10px] leading-4 text-text-3">{workspace.path}</span>
+                        <span className="block truncate font-mono text-[10px] leading-4 text-text-3">
+                          {workspace.path}
+                        </span>
                       </span>
                       <span className="rounded-full bg-bg-2 px-1.5 py-0.5 text-caption tabular-nums text-text-3">
                         {groupSessions.length}
