@@ -36,6 +36,16 @@ const CsvTable = dynamic(() => import('./CsvTable').then((mod) => ({ default: mo
 const AUTO_SCROLL_DEADZONE = 10
 const AUTO_SCROLL_MAX_STEP = 42
 const EDGE_DROP_RATIO = 0.22
+let monacoDefinitionProviderDisabled = false
+// Monaco 自带 Ctrl+点击跳转经内置 TS provider 把符号解析到 import 位置，与自定义 resolver 竞争；
+// 关闭内置 definitions provider（保留 hover/completion 等其余特性），跳转统一走 goToDefinition
+const disableMonacoDefinitionProvider = (monaco: Monaco) => {
+  if (monacoDefinitionProviderDisabled) return
+  monacoDefinitionProviderDisabled = true
+  const ts = (monaco.languages as { typescript?: any }).typescript
+  for (const defaults of [ts?.typescriptDefaults, ts?.javascriptDefaults])
+    defaults?.setModeConfiguration?.({ ...defaults.modeConfiguration, definitions: false })
+}
 type DropPlacement = 'center' | 'left' | 'right' | 'top' | 'bottom'
 type TabInsertSide = 'before' | 'after'
 interface NavigationEntry {
@@ -718,6 +728,26 @@ export function EditorWorkbench({
     gitMode,
     setGitFollowEditorRepo,
   ])
+  // 隐藏/未布局实例上 reveal/setScrollTop 会静默落空（position 已对但 scroll 不动——
+  // openFileInEditor 先 dispatch location 再异步取内容，loading 门恰在此窗内）。
+  // 按帧校验视口真实生效、未生效重试；实例被替换或新落位覆盖时作废旧重试
+  const retryViewApply = (
+    editorId: string,
+    instance: any,
+    settled: () => boolean,
+    apply: () => void,
+    attempts = 60,
+  ) => {
+    const tick = (left: number) => {
+      // 新 pending 出现即让位——新落位自带重试链，旧链继续会与其互抢视口
+      if (left <= 0 || editorRefs.current[editorId] !== instance || pendingLocationRef.current[editorId] || settled())
+        return
+      apply()
+      requestAnimationFrame(() => tick(left - 1))
+    }
+    // 首检也走帧回调：本 pending 删除在 applyPendingLocation 同步段尾，帧前已完成
+    requestAnimationFrame(() => tick(attempts))
+  }
   // 落位应用+校验：行列按当前模型范围钳制，setPosition 后 getPosition 未达目标视为实例将销毁/未就绪，
   // 保留 pending 交给 remount 兜底；落位成功即一次性消费——同一导航的 loading/StrictMode 重挂改由
   // viewStateRef 快照恢复，不再用固定时间窗判定所有权，避免覆盖用户之后手动改的位置
@@ -737,9 +767,23 @@ export function EditorWorkbench({
       if (restore) {
         instance.setScrollTop?.(restore.scrollTop ?? 0)
         instance.setScrollLeft?.(restore.scrollLeft ?? 0)
+        const targetTop = restore.scrollTop ?? 0
+        retryViewApply(
+          editorId,
+          instance,
+          () => Math.abs((instance.getScrollTop?.() ?? 0) - targetTop) <= 2,
+          () => instance.setScrollTop?.(targetTop),
+        )
       }
     } else {
       instance.revealPositionInCenter?.({ lineNumber: line, column })
+      const targetInView = () =>
+        (instance.getVisibleRanges?.() || []).some(
+          (range: any) => range.startLineNumber <= line && line <= range.endLineNumber,
+        )
+      retryViewApply(editorId, instance, targetInView, () =>
+        instance.revealPositionInCenter?.({ lineNumber: line, column }),
+      )
     }
     instance.focus?.()
     if (instance.getPosition?.()?.lineNumber !== line) return false
@@ -985,9 +1029,10 @@ export function EditorWorkbench({
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {renderTabStrip(groupEditors, groupId)}
         <button
-          onClick={() => {
+          onClick={(event) => {
             if (!editor) return
-            cancelPendingDefinition()
+            // Ctrl/Cmd+点击本身即定义跳转（Monaco onMouseDown 已启动 resolver），本次 click 不得把它 abort
+            if (!event.ctrlKey && !event.metaKey) cancelPendingDefinition()
             setActiveEditor(editor.id)
           }}
           className="relative min-h-0 min-w-0 flex-1 overflow-hidden text-left"
@@ -1110,6 +1155,7 @@ export function EditorWorkbench({
           beforeMount={(monaco) => {
             monacoRef.current = monaco
             ensureTmuxgoTheme(monaco, preferences.theme)
+            disableMonacoDefinitionProvider(monaco)
           }}
           options={{
             readOnly: true,
@@ -1180,6 +1226,7 @@ export function EditorWorkbench({
             beforeMount={(monaco) => {
               monacoRef.current = monaco
               ensureTmuxgoTheme(monaco, preferences.theme)
+              disableMonacoDefinitionProvider(monaco)
             }}
             value={editor.content}
             onMount={(instance) => {
@@ -1222,18 +1269,8 @@ export function EditorWorkbench({
                 snapshot.scrollLeft = Number(instance.getScrollLeft?.() ?? snapshot.scrollLeft)
               })
               const pendingPosition = pendingLocationRef.current[editor.id]
-              if (pendingPosition) {
-                if (applyPendingLocation(editor.id, instance) && pendingPosition.reveal === 'center') {
-                  // 首个布局可能未就绪（容器刚脱离 display:none）导致 reveal 落空：下一帧补一次居中
-                  requestAnimationFrame(() => {
-                    if (editorRefs.current[editor.id] === instance)
-                      instance.revealPositionInCenter?.({
-                        lineNumber: pendingPosition.line,
-                        column: pendingPosition.column,
-                      })
-                  })
-                }
-              } else {
+              if (pendingPosition) applyPendingLocation(editor.id, instance)
+              else {
                 restoreViewSnapshot(editor.id, instance)
               }
               instance.onMouseDown?.((event: any) => {
