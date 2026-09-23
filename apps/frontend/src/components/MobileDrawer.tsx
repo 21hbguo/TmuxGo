@@ -456,7 +456,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
       />
       <div
         ref={panelRef}
-        className={`tmuxgo-glass tmuxgo-glass-dialog absolute bottom-0 left-0 right-0 flex max-h-[75%] flex-col overflow-hidden border-t transition-transform duration-200 ease-out ${closing ? 'translate-y-full' : ''}`}
+        className={`tmuxgo-glass tmuxgo-glass-dialog absolute bottom-0 left-0 right-0 flex h-[75%] flex-col overflow-hidden border-t transition-transform duration-200 ease-out ${closing ? 'translate-y-full' : ''}`}
         style={{ paddingBottom: 'env(safe-area-inset-bottom,0px)' }}
       >
         <div

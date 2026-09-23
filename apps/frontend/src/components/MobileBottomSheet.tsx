@@ -16,7 +16,7 @@ export function MobileBottomSheet({
   open,
   onClose,
   children,
-  heightClass = 'flex flex-col max-h-[75%]',
+  heightClass = 'flex h-[75%] flex-col',
   closeOnBackdrop = true,
   zClass = 'z-50',
   ariaLabel,
