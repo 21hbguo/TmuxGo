@@ -21,7 +21,7 @@ import {
 import { StreamRouteDictionary } from './stream-route.js'
 import { shareLinkStore, type ShareTicket } from '../share-links.js'
 import { StreamCellEncoder } from './stream-cell.js'
-import { applyScroll, getSessionWindowSize, refreshAttachedClient } from './stream-tmux.js'
+import { applyScroll, getSessionWindowSize, refreshAttachedClient, resizeSessionWindow } from './stream-tmux.js'
 import { acquireSharedTerminal, type SharedTerminal } from './shared-terminal.js'
 import {
   ATTACH_REDRAW_DELAYS,
@@ -121,10 +121,40 @@ async function reconcileWindowPeers(key: string) {
         : best,
     null,
   )
+  let restored: { cols: number; rows: number } | null = null
   if (champion && (!win || champion.desiredCols !== win.cols || champion.desiredRows !== win.rows)) {
     champion.applyWindowSize(champion.desiredCols, champion.desiredRows, true)
+    restored = { cols: champion.desiredCols, rows: champion.desiredRows }
+  } else if (!champion) {
+    // 无任何存活 owner：window 会停在断开者/末次主张的尺寸上（tmux 不自动回弹）。
+    // 由被降级但仍附着的端里主张代次最大者拉回它独占时的尺寸——它多半就是
+    // 即将回前台的端；此分支只在无人持有所有权时进入，故后台/旁观端不会
+    // 覆盖正被使用的 window（尺寸依据在 demote 时留存，见 demoteFromExclusive）
+    const fallback = [...peers].reduce<StreamSession | null>(
+      (best, peer) =>
+        peer.ptyProcess &&
+        peer.lastExclusiveCols > 0 &&
+        peer.lastExclusiveRows > 0 &&
+        (!best || peer.lastExclusiveSeq > best.lastExclusiveSeq)
+          ? peer
+          : best,
+      null,
+    )
+    if (fallback && (!win || fallback.lastExclusiveCols !== win.cols || fallback.lastExclusiveRows !== win.rows)) {
+      fallback.applyWindowSize(fallback.lastExclusiveCols, fallback.lastExclusiveRows, true)
+      restored = { cols: fallback.lastExclusiveCols, rows: fallback.lastExclusiveRows }
+    }
+  }
+  if (restored) {
     await new Promise((resolve) => setTimeout(resolve, WINDOW_SYNC_SETTLE_MS))
     win = await windowSizeQuery(hostId, sessionName).catch(() => win)
+    if (!win || win.cols !== restored.cols || win.rows !== restored.rows) {
+      // ignore-size 附着（非 fanout 共享端）pty resize 不驱动 window：
+      // 直连 resize-window 兜底把 window 拉到目标尺寸
+      await resizeSessionWindow(hostId, sessionName, restored.cols, restored.rows).catch(() => {})
+      await new Promise((resolve) => setTimeout(resolve, WINDOW_SYNC_SETTLE_MS))
+      win = await windowSizeQuery(hostId, sessionName).catch(() => win)
+    }
   }
   if (!win || win.cols <= 0 || win.rows <= 0) return
   for (const peer of peers) peer.applyWindowSize(win.cols, win.rows)
@@ -156,6 +186,12 @@ export class StreamSession {
   desiredCols = 0
   desiredRows = 0
   assertSeq = 0
+  // 被降级端最近一次独占主张的留存：desired 在降级时清零，若无留存，owner
+  // 断开后再无 champion 可恢复 window。仅 reconcile 的 fallback 分支读它——
+  // 不是尺寸主张，不影响在任 owner 的仲裁
+  lastExclusiveCols = 0
+  lastExclusiveRows = 0
+  lastExclusiveSeq = 0
   outputBuffer = ''
   lastFrame = ''
   dedupDropLogCount = 0
@@ -849,6 +885,9 @@ export class StreamSession {
     this.attachedRows = 0
     this.desiredCols = 0
     this.desiredRows = 0
+    this.lastExclusiveCols = 0
+    this.lastExclusiveRows = 0
+    this.lastExclusiveSeq = 0
     if (this.outputTimer) {
       clearTimeout(this.outputTimer)
       this.outputTimer = null
@@ -1158,6 +1197,9 @@ export class StreamSession {
     this.attachedPassive = false
     this.attachedCols = 0
     this.attachedRows = 0
+    this.lastExclusiveCols = 0
+    this.lastExclusiveRows = 0
+    this.lastExclusiveSeq = 0
     this.pendingResizeAck = null
     if (this.resizeAckTimer) {
       clearTimeout(this.resizeAckTimer)
@@ -1263,6 +1305,11 @@ export class StreamSession {
     const sessionName = this.attachedSessionName
     this.attachedExclusive = false
     this.attachedPassive = true
+    // 降级前留存本次独占主张：本端仍是存活 peer，owner 断开且无人接管时
+    // reconcile 用它把 window 拉回（desired 清零后这是唯一恢复依据）
+    this.lastExclusiveCols = this.desiredCols || this.attachedCols
+    this.lastExclusiveRows = this.desiredRows || this.attachedRows
+    this.lastExclusiveSeq = this.assertSeq
     this.desiredCols = 0
     this.desiredRows = 0
     this.assertSeq = 0
