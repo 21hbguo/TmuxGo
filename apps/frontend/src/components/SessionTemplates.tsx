@@ -5,6 +5,7 @@ import { Button } from './Button'
 import { Chip } from './Chip'
 import { Select } from './Select'
 import { useSessionTemplates, useUpdateSessionTemplates } from '@/hooks/useApi'
+import { useEscapeClose } from '@/hooks/useEscapeClose'
 import type { SessionLayout, SessionTemplate, SessionWindowLayoutPreset, SessionWindowSplitDirection } from '@/types'
 
 interface CustomPaneConfig {
@@ -126,6 +127,9 @@ export function SessionTemplates({
   const updateTemplates = useUpdateSessionTemplates()
   const savedTemplates = data?.templates || []
   const [showCustom, setShowCustom] = useState(false)
+  // 两层弹层各挂一层：自定义层开着时外层让位，ESC 只关最上层
+  useEscapeClose(onClose, !showCustom)
+  useEscapeClose(() => setShowCustom(false), showCustom)
   const [editingId, setEditingId] = useState('')
   const [templateName, setTemplateName] = useState('Custom')
   const [templateDescription, setTemplateDescription] = useState('')
@@ -202,8 +206,11 @@ export function SessionTemplates({
   const deleteTemplate = async (id: string) =>
     updateTemplates.mutateAsync(savedTemplates.filter((template) => template.id !== id))
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center tmuxgo-scrim p-4">
-      <div className="tmuxgo-glass tmuxgo-glass-dialog flex max-h-[85vh] w-full max-w-[720px] flex-col overflow-hidden rounded-apple border">
+    <div className="fixed inset-0 z-50 flex items-center justify-center tmuxgo-scrim p-4" onClick={onClose}>
+      <div
+        className="tmuxgo-glass tmuxgo-glass-dialog flex max-h-[85vh] w-full max-w-[720px] flex-col overflow-hidden rounded-apple border"
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="border-b border-[var(--line)] p-4">
           <h2 className="text-lg font-medium text-text-1">{t('templates.title')}</h2>
           <p className="mt-1 text-sm text-text-3">{t('templates.desc')}</p>
@@ -258,7 +265,11 @@ export function SessionTemplates({
       {showCustom && (
         <div
           className="fixed inset-0 z-[60] flex items-center justify-center tmuxgo-scrim-strong p-4"
-          onClick={() => setShowCustom(false)}
+          onClick={(event) => {
+            // 内层遮罩嵌在外层遮罩的 React 树里，不拦会冒泡把外层也关掉
+            event.stopPropagation()
+            setShowCustom(false)
+          }}
         >
           <div
             className="tmuxgo-glass tmuxgo-glass-dialog flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-apple border p-4"

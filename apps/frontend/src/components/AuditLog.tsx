@@ -2,6 +2,7 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from '@/i18n'
 import { useAuditLog } from '@/hooks/useApi'
+import { useEscapeClose } from '@/hooks/useEscapeClose'
 import { Button } from './Button'
 import { ModalPortal } from './ModalPortal'
 import { Select } from './Select'
@@ -10,6 +11,7 @@ interface AuditLogProps {
   onClose: () => void
 }
 export function AuditLog({ onClose }: AuditLogProps) {
+  useEscapeClose(onClose)
   const [result, setResult] = useState<'' | 'success' | 'failure'>('')
   const [query, setQuery] = useState('')
   const { t } = useTranslation()

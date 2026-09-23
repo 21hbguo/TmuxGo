@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button } from './Button'
 import { ModalPortal } from './ModalPortal'
+import { useEscapeClose } from '@/hooks/useEscapeClose'
 import { isImeKeyEvent } from '@/lib/terminal-platform'
 
 interface PromptDialogProps {
@@ -38,6 +39,8 @@ export function PromptDialog({
       }, 50)
     }
   }, [open, defaultValue])
+
+  useEscapeClose(onCancel, open && !confirming)
 
   if (!open) return null
   const submit = () => {
@@ -77,7 +80,6 @@ export function PromptDialog({
                 e.preventDefault()
                 submit()
               }
-              if (e.key === 'Escape' && !confirming) onCancel()
             }}
             className="tmuxgo-control tmuxgo-input mt-3 w-full rounded-apple px-3 py-2 text-sm"
           />
