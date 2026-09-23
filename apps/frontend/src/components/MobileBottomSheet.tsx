@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, type ReactNode } from 'react'
+import { useEscapeClose } from '@/hooks/useEscapeClose'
 
 interface MobileBottomSheetProps {
   open: boolean
@@ -23,6 +24,7 @@ export function MobileBottomSheet({
 }: MobileBottomSheetProps) {
   const [visible, setVisible] = useState(false)
   const [closing, setClosing] = useState(false)
+  useEscapeClose(onClose, open)
 
   useEffect(() => {
     if (open) {
