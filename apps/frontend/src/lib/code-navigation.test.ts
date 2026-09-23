@@ -672,4 +672,91 @@ describe('resolveEditorDefinition', () => {
     expect(result).toEqual({ status: 'not-found' })
     expect(searchContentMock.mock.calls[0][6]).toBeUndefined()
   })
+  const tsEditor = (overrides: Record<string, unknown>) => ({
+    id: 'editor-ts-entry',
+    hostId: 'local',
+    rootId: 'root-workspace',
+    rootLabel: 'Workspace',
+    rootPath: '/workspace',
+    path: 'entry.ts',
+    name: 'entry.ts',
+    absolutePath: '/workspace/entry.ts',
+    type: 'file',
+    language: 'typescript',
+    content: '',
+    savedContent: '',
+    modifiedAt: '',
+    size: 0,
+    dirty: false,
+    loading: false,
+    saving: false,
+    binary: false,
+    truncated: false,
+    ...overrides,
+  })
+  // §二 fixture：impl.ts 的 foo 函数名在 3:17，任何落 1:1/barrel/import specifier 的都是假成功
+  const IMPL_TS = '// header\n\nexport function foo() { return 1 }\n'
+  it('follows a named re-export to the real declaration', async () => {
+    const editor = tsEditor({ content: "import { foo } from './barrel'\nfoo()\n" })
+    mockFiles({ 'impl.ts': IMPL_TS, 'barrel.ts': "// barrel\nexport { foo } from './impl'\n" })
+    const result = await resolveEditorDefinition(editor as any, { line: 2, column: 2 }, [editor as any])
+    expect(result).toMatchObject({
+      status: 'success',
+      target: { path: 'impl.ts', absolutePath: '/workspace/impl.ts', line: 3, column: 17 },
+    })
+  })
+  it('follows a star re-export to the real declaration', async () => {
+    const editor = tsEditor({ content: "import { foo } from './barrel'\nfoo()\n" })
+    mockFiles({ 'impl.ts': IMPL_TS, 'barrel.ts': "// barrel\nexport * from './impl'\n" })
+    const result = await resolveEditorDefinition(editor as any, { line: 2, column: 2 }, [editor as any])
+    expect(result).toMatchObject({
+      status: 'success',
+      target: { path: 'impl.ts', absolutePath: '/workspace/impl.ts', line: 3, column: 17 },
+    })
+  })
+  it('follows an import-then-export barrel to the real declaration', async () => {
+    const editor = tsEditor({ content: "import { foo } from './barrel'\nfoo()\n" })
+    mockFiles({
+      'impl.ts': IMPL_TS,
+      'barrel.ts': "import { foo } from './impl'\nexport { foo }\n",
+    })
+    const result = await resolveEditorDefinition(editor as any, { line: 2, column: 2 }, [editor as any])
+    expect(result).toMatchObject({
+      status: 'success',
+      target: { path: 'impl.ts', absolutePath: '/workspace/impl.ts', line: 3, column: 17 },
+    })
+  })
+  it('follows a re-export alias to the original declaration', async () => {
+    const editor = tsEditor({ content: "import { foo } from './barrel'\nfoo()\n" })
+    mockFiles({
+      'impl.ts': '// header\nexport function real() { return 1 }\n',
+      'barrel.ts': "// barrel\nexport { real as foo } from './impl'\n",
+    })
+    const result = await resolveEditorDefinition(editor as any, { line: 2, column: 2 }, [editor as any])
+    expect(result).toMatchObject({
+      status: 'success',
+      target: { path: 'impl.ts', absolutePath: '/workspace/impl.ts', line: 2, column: 17 },
+    })
+  })
+  it('resolves a default import to the function declaration, not the export reference', async () => {
+    const editor = tsEditor({ content: "import foo from './default'\nfoo()\n" })
+    mockFiles({ 'default.ts': '// header\nfunction foo() { return 1 }\nexport default foo\n' })
+    const result = await resolveEditorDefinition(editor as any, { line: 2, column: 2 }, [editor as any])
+    expect(result).toMatchObject({
+      status: 'success',
+      target: { path: 'default.ts', absolutePath: '/workspace/default.ts', line: 2, column: 10 },
+    })
+  })
+  it('terminates on circular re-exports with a clear failure', async () => {
+    const editor = tsEditor({ content: "import { foo } from './a'\nfoo()\n" })
+    mockFiles({ 'a.ts': "export * from './b'\n", 'b.ts': "export * from './a'\n" })
+    const result = await resolveEditorDefinition(editor as any, { line: 2, column: 2 }, [editor as any])
+    expect(result).toEqual({ status: 'not-found' })
+  })
+  it('fails clearly when the re-exported symbol does not exist', async () => {
+    const editor = tsEditor({ content: "import { missing } from './barrel'\nmissing()\n" })
+    mockFiles({ 'impl.ts': IMPL_TS, 'barrel.ts': "// barrel\nexport * from './impl'\n" })
+    const result = await resolveEditorDefinition(editor as any, { line: 2, column: 2 }, [editor as any])
+    expect(result).toEqual({ status: 'not-found' })
+  })
 })
