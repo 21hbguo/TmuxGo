@@ -7,6 +7,12 @@ type ResolveStatus = 'success' | 'not-found' | 'unsupported'
 interface ResolverFile extends FileDocumentHandle {
   content: string
 }
+// 最近 tsconfig 的有效解析结果：paths 目标统一相对 pathsBase（= baseUrl 或 tsconfig 目录）
+interface TsconfigResolution {
+  baseUrl?: string
+  pathsBase: string
+  paths: Record<string, string[]>
+}
 interface ResolverContext {
   hostId: string
   rootId: string
@@ -19,6 +25,7 @@ interface ResolverContext {
   statCache: Map<string, Promise<{ type: 'file' | 'directory'; content?: string } | null>>
   fileCache: Map<string, Promise<ResolverFile | null>>
   moduleCache: Map<string, Promise<ResolverFile | null>>
+  tsconfigCache: Map<string, Promise<TsconfigResolution | null>>
 }
 interface ImportBinding {
   localName: string
@@ -254,7 +261,7 @@ async function resolveExportedSymbol(
   if (kind === 'namespace') return { file, sourceFile, node: sourceFile }
   const bindings = collectImportBindings(ts, sourceFile)
   const follow = async (specifier: string, name: string, nextKind: ImportBinding['kind']) => {
-    const next = await resolveModuleSpecifier(context, file.absolutePath, specifier)
+    const next = await resolveModuleSpecifier(ts, context, file.absolutePath, specifier, signal)
     return next ? resolveExportedSymbol(ts, context, next, name, nextKind, seen, signal) : null
   }
   // 本地名解析：来自 import 的符号继续追 import 源（import 后再 export），否则取本地声明
@@ -451,11 +458,27 @@ async function readResolverFile(context: ResolverContext, absolutePath: string) 
   context.fileCache.set(normalized, promise)
   return promise
 }
+// NodeNext/ESM 允许 import './x.js' 实际指向 x.ts 源码：按字面路径读取失败后按 TS 映射表换扩展名重试
+const ESM_EXTENSION_REWRITE: [string, string[]][] = [
+  ['.js', ['.ts', '.tsx', '.d.ts']],
+  ['.jsx', ['.tsx', '.d.ts']],
+  ['.mjs', ['.mts', '.d.mts']],
+  ['.cjs', ['.cts', '.d.cts']],
+]
 async function resolveFileCandidate(context: ResolverContext, absolutePath: string) {
   const normalized = normalizePath(absolutePath)
   if (withFileExtension(normalized)) {
     const direct = await readResolverFile(context, normalized)
     if (direct) return direct
+    const lower = normalized.toLowerCase()
+    for (const [jsExt, tsExts] of ESM_EXTENSION_REWRITE) {
+      if (!lower.endsWith(jsExt)) continue
+      for (const tsExt of tsExts) {
+        const rewritten = await readResolverFile(context, `${normalized.slice(0, -jsExt.length)}${tsExt}`)
+        if (rewritten) return rewritten
+      }
+      break
+    }
   } else {
     for (const ext of FILE_EXTENSIONS) {
       const withExt = await readResolverFile(context, `${normalized}${ext}`)
@@ -469,6 +492,30 @@ async function resolveFileCandidate(context: ResolverContext, absolutePath: stri
     if (indexFile) return indexFile
   }
   return null
+}
+// exports 通配子路径：key 含单个 `*` 时与 './sub' 做前缀+后缀夹配，命中段代入目标字符串的 `*`
+// （如 {"./*": "./dist/*.js"} + pkg/sub → ./dist/sub.js）。多 key 命中取最长前缀，与 Node 一致
+function matchExportsWildcard(record: Record<string, unknown>, exportKey: string): unknown {
+  let best: { prefix: string; suffix: string; value: unknown } | null = null
+  for (const [key, value] of Object.entries(record)) {
+    const starIndex = key.indexOf('*')
+    if (starIndex < 0 || key.indexOf('*', starIndex + 1) >= 0 || !key.startsWith('.')) continue
+    const prefix = key.slice(0, starIndex)
+    const suffix = key.slice(starIndex + 1)
+    if (exportKey.length < prefix.length + suffix.length) continue
+    if (!exportKey.startsWith(prefix) || !exportKey.endsWith(suffix)) continue
+    if (!best || prefix.length > best.prefix.length) best = { prefix, suffix, value }
+  }
+  if (!best) return undefined
+  const star = exportKey.slice(best.prefix.length, exportKey.length - best.suffix.length)
+  const substitute = (value: unknown): unknown => {
+    if (typeof value === 'string') return value.replace(/\*/g, star)
+    if (Array.isArray(value)) return value.map(substitute)
+    if (value && typeof value === 'object')
+      return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, substitute(item)]))
+    return value
+  }
+  return substitute(best.value)
 }
 async function resolvePackageEntry(context: ResolverContext, packageDir: string, subpath: string) {
   const normalizedPackageDir = normalizePath(packageDir)
@@ -486,12 +533,15 @@ async function resolvePackageEntry(context: ResolverContext, packageDir: string,
         main?: string
         exports?: unknown
       }
+      const exportsRecord =
+        parsed.exports && typeof parsed.exports === 'object' && !Array.isArray(parsed.exports)
+          ? (parsed.exports as Record<string, unknown>)
+          : null
       const exportKey = subpath ? `./${subpath}` : '.'
-      const exportsValue = subpath
-        ? parsed.exports && typeof parsed.exports === 'object' && !Array.isArray(parsed.exports)
-          ? (parsed.exports as Record<string, unknown>)[exportKey]
-          : undefined
-        : parsed.exports
+      // 精确 key 优先；未命中才走通配（key 存在但值为 null 是「禁止导入」语义，不能回落通配）
+      let exportsValue = subpath ? exportsRecord?.[exportKey] : parsed.exports
+      if (subpath && exportsValue === undefined && exportsRecord)
+        exportsValue = matchExportsWildcard(exportsRecord, exportKey)
       for (const candidate of [
         ...readExportTarget(exportsValue),
         parsed.types || '',
@@ -507,20 +557,136 @@ async function resolvePackageEntry(context: ResolverContext, packageDir: string,
   }
   return resolveFileCandidate(context, joinPath(normalizedPackageDir, subpath))
 }
-async function resolveModuleSpecifier(context: ResolverContext, absolutePath: string, specifier: string) {
+// tsconfig.json 是 JSONC：用 ts.parseConfigFileTextToJson 容忍注释/尾逗号；parse 失败返回 null
+function parseTsconfigJson(ts: TsModule, file: ResolverFile) {
+  const parsed = ts.parseConfigFileTextToJson(file.absolutePath, file.content)
+  const config = parsed.config as
+    { compilerOptions?: { baseUrl?: unknown; paths?: unknown }; extends?: unknown } | undefined
+  if (!config || typeof config !== 'object') return null
+  const dir = dirnamePath(file.absolutePath)
+  const compilerOptions = config.compilerOptions
+  const baseUrl =
+    compilerOptions && typeof compilerOptions.baseUrl === 'string' && compilerOptions.baseUrl
+      ? joinPath(dir, compilerOptions.baseUrl)
+      : undefined
+  const paths: Record<string, string[]> = {}
+  const rawPaths = compilerOptions?.paths
+  if (rawPaths && typeof rawPaths === 'object' && !Array.isArray(rawPaths)) {
+    for (const [key, value] of Object.entries(rawPaths)) {
+      const targets = Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+      if (targets.length) paths[key] = targets
+    }
+  }
+  return { dir, baseUrl, paths, extends: typeof config.extends === 'string' ? config.extends : '' }
+}
+// 解析结果按 tsconfig 文件路径缓存；extends 只做单层合并（只认 './x' 相对路径且须留在 root 内），
+// 更深继承链与包名 extends 不支持——真实项目里多层链极少，递归会带来环检测与读放大
+async function readTsconfigResolution(
+  ts: TsModule,
+  context: ResolverContext,
+  file: ResolverFile,
+): Promise<TsconfigResolution | null> {
+  const cacheKey = normalizePath(file.absolutePath)
+  const cached = context.tsconfigCache.get(cacheKey)
+  if (cached) return cached
+  const promise = (async (): Promise<TsconfigResolution | null> => {
+    const own = parseTsconfigJson(ts, file)
+    if (!own) return null
+    let base: { baseUrl?: string; paths: Record<string, string[]> } | null = null
+    if (own.extends.startsWith('.')) {
+      const basePath = joinPath(own.dir, own.extends.endsWith('.json') ? own.extends : `${own.extends}.json`)
+      if (hasRootPrefix(context.rootPath, basePath)) {
+        const baseFile = await readResolverFile(context, basePath)
+        const baseOwn = baseFile ? parseTsconfigJson(ts, baseFile) : null
+        if (baseOwn) base = { baseUrl: baseOwn.baseUrl, paths: baseOwn.paths }
+      }
+    }
+    const paths = Object.keys(own.paths).length ? own.paths : base?.paths || {}
+    const baseUrl = own.baseUrl || base?.baseUrl
+    return { baseUrl, paths, pathsBase: baseUrl || own.dir }
+  })()
+  context.tsconfigCache.set(cacheKey, promise)
+  return promise
+}
+// paths 匹配：精确 key 优先，通配按最长 `*` 前缀排序（TS 语义），每条 pattern 的目标数组按序回退
+async function resolveTsconfigPaths(context: ResolverContext, resolution: TsconfigResolution, specifier: string) {
+  const candidates: { star: string; targets: string[] }[] = []
+  const exactTargets = resolution.paths[specifier]
+  if (exactTargets) candidates.push({ star: '', targets: exactTargets })
+  const wildcards: { prefix: string; suffix: string; targets: string[] }[] = []
+  for (const [key, targets] of Object.entries(resolution.paths)) {
+    const starIndex = key.indexOf('*')
+    if (starIndex < 0 || key.indexOf('*', starIndex + 1) >= 0 || key === specifier) continue
+    const prefix = key.slice(0, starIndex)
+    const suffix = key.slice(starIndex + 1)
+    if (specifier.length < prefix.length + suffix.length) continue
+    if (!specifier.startsWith(prefix) || !specifier.endsWith(suffix)) continue
+    wildcards.push({ prefix, suffix, targets })
+  }
+  wildcards.sort((a, b) => b.prefix.length - a.prefix.length)
+  for (const match of wildcards)
+    candidates.push({
+      star: specifier.slice(match.prefix.length, specifier.length - match.suffix.length),
+      targets: match.targets,
+    })
+  for (const candidate of candidates) {
+    for (const target of candidate.targets) {
+      const mapped = target.includes('*') ? target.replace(/\*/g, candidate.star) : target
+      const resolved = await resolveFileCandidate(context, joinPath(resolution.pathsBase, mapped))
+      if (resolved) return resolved
+    }
+  }
+  return null
+}
+// 只用「最近一个 tsconfig」（与 tsc 一致）：命中与否都不再向上找第二个；找不到文件才继续上溯
+async function resolveTsconfigModule(
+  ts: TsModule,
+  context: ResolverContext,
+  fromDir: string,
+  specifier: string,
+  signal?: AbortSignal,
+) {
+  const root = normalizePath(context.rootPath)
+  let resolution: TsconfigResolution | null = null
+  for (let dir = normalizePath(fromDir); hasRootPrefix(root, dir); dir = dirnamePath(dir)) {
+    if (signal?.aborted) return null
+    const file = await readResolverFile(context, joinPath(dir, 'tsconfig.json'))
+    if (file) {
+      resolution = await readTsconfigResolution(ts, context, file)
+      break
+    }
+    if (dir === root || dir === '/') break
+  }
+  if (!resolution) return null
+  const resolved = await resolveTsconfigPaths(context, resolution, specifier)
+  if (resolved) return resolved
+  if (resolution.baseUrl) return resolveFileCandidate(context, joinPath(resolution.baseUrl, specifier))
+  return null
+}
+async function resolveModuleSpecifier(
+  ts: TsModule,
+  context: ResolverContext,
+  absolutePath: string,
+  specifier: string,
+  signal?: AbortSignal,
+) {
   const normalizedAbsolutePath = normalizePath(absolutePath)
   const cacheKey = `${normalizedAbsolutePath}::${specifier}`
   const existing = context.moduleCache.get(cacheKey)
   if (existing) return existing
   const promise = (async () => {
-    if (!specifier) return null
-    if (specifier.startsWith('@/'))
-      return resolveFileCandidate(context, joinPath(context.sourceRootPath, specifier.slice(2)))
+    if (!specifier || signal?.aborted) return null
     if (!isBareSpecifier(specifier))
       return resolveFileCandidate(context, joinPath(dirnamePath(normalizedAbsolutePath), specifier))
+    // bare specifier：tsconfig paths → baseUrl → 硬编码 '@/' 兜底 → node_modules 逐层上溯
+    const aliased = await resolveTsconfigModule(ts, context, dirnamePath(normalizedAbsolutePath), specifier, signal)
+    if (aliased) return aliased
+    if (specifier.startsWith('@/'))
+      return resolveFileCandidate(context, joinPath(context.sourceRootPath, specifier.slice(2)))
     const { packageName, subpath } = parsePackageSpecifier(specifier)
     let current = dirnamePath(normalizedAbsolutePath)
     while (hasRootPrefix(context.rootPath, current)) {
+      if (signal?.aborted) return null
       const resolved = await resolvePackageEntry(context, joinPath(current, 'node_modules', packageName), subpath)
       if (resolved) return resolved
       if (current === normalizePath(context.rootPath) || current === '/') break
@@ -575,15 +741,20 @@ async function buildProjectGraph(ts: TsModule, context: ResolverContext, entryFi
       toScriptKind(ts, normalized),
     )
     for (const specifier of collectModuleSpecifiers(ts, sourceFile)) {
-      const resolved = await resolveModuleSpecifier(context, normalized, specifier)
+      const resolved = await resolveModuleSpecifier(ts, context, normalized, specifier)
       if (resolved && !loaded.has(normalizePath(resolved.absolutePath))) queue.push(resolved)
     }
   }
   return loaded
 }
-async function getResolvedModules(context: ResolverContext, containingFile: string, moduleNames: string[]) {
+async function getResolvedModules(
+  ts: TsModule,
+  context: ResolverContext,
+  containingFile: string,
+  moduleNames: string[],
+) {
   const resolved = await Promise.all(
-    moduleNames.map((moduleName) => resolveModuleSpecifier(context, containingFile, moduleName)),
+    moduleNames.map((moduleName) => resolveModuleSpecifier(ts, context, containingFile, moduleName)),
   )
   return new Map(moduleNames.map((moduleName, index) => [moduleName, resolved[index] || null]))
 }
@@ -881,6 +1052,7 @@ export async function resolveEditorDefinition(
     statCache: new Map(),
     fileCache: new Map(),
     moduleCache: new Map(),
+    tsconfigCache: new Map(),
   }
   const entryFile = await readResolverFile(context, editor.absolutePath)
   if (!entryFile) return { status: 'not-found' }
@@ -901,7 +1073,7 @@ export async function resolveEditorDefinition(
   if (nodeAtPosition) {
     if (ts.isStringLiteralLike(nodeAtPosition)) {
       const stringLiteral = nodeAtPosition as import('typescript').StringLiteralLike
-      const resolvedFile = await resolveModuleSpecifier(context, entryFile.absolutePath, stringLiteral.text)
+      const resolvedFile = await resolveModuleSpecifier(ts, context, entryFile.absolutePath, stringLiteral.text, signal)
       if (resolvedFile) {
         return {
           status: 'success',
@@ -925,7 +1097,13 @@ export async function resolveEditorDefinition(
       const identifier = nodeAtPosition as import('typescript').Identifier
       const binding = importBindings.get(identifier.text)
       if (binding) {
-        const resolvedFile = await resolveModuleSpecifier(context, entryFile.absolutePath, binding.specifier)
+        const resolvedFile = await resolveModuleSpecifier(
+          ts,
+          context,
+          entryFile.absolutePath,
+          binding.specifier,
+          signal,
+        )
         // 快捷路径只有命中真实声明才返回 success；落空交给下方语义解析兜底，
         // 严禁旧逻辑 targetNode||0 把「模块找到了但符号没找到」伪装成 1:1 成功
         const hit = resolvedFile
@@ -975,7 +1153,7 @@ export async function resolveEditorDefinition(
   }
   const moduleResolutionMap = new Map<string, Map<string, ResolverFile | null>>()
   for (const [fileName, specs] of Array.from(moduleNames.entries())) {
-    moduleResolutionMap.set(fileName, await getResolvedModules(context, fileName, specs))
+    moduleResolutionMap.set(fileName, await getResolvedModules(ts, context, fileName, specs))
   }
   const fileNames = Array.from(loadedFiles.keys())
   const compilerOptions: import('typescript').CompilerOptions = {
@@ -1086,7 +1264,7 @@ export async function resolveEditorDefinition(
     cursor = cursor.parent
   }
   if (importSpecifier && importedName) {
-    const moduleFile = await resolveModuleSpecifier(context, targetFile.absolutePath, importSpecifier)
+    const moduleFile = await resolveModuleSpecifier(ts, context, targetFile.absolutePath, importSpecifier, signal)
     const hit = moduleFile
       ? await resolveExportedSymbol(
           ts,
