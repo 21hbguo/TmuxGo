@@ -76,48 +76,42 @@ http://localhost:3001
 <tr>
 <td width="50%" valign="top">
 
-### 🌐 Browser-first
-
-不用额外安装桌面客户端。终端、文件、编辑器和 Git 都在浏览器里，适合本机、服务器与远程开发环境。
+<h3>🌐 Browser-first</h3>
+<p>不用额外安装桌面客户端。终端、文件、编辑器和 Git 都在浏览器里，适合本机、服务器与远程开发环境。</p>
 
 </td>
 <td width="50%" valign="top">
 
-### 🧠 Context stays alive
-
-浏览器可以关，`tmux` 不会停。长时间训练、编译、日志和交互式任务可以持续运行，再回来继续。
+<h3>🧠 Context stays alive</h3>
+<p>浏览器可以关，<code>tmux</code> 不会停。长时间训练、编译、日志和交互式任务可以持续运行，再回来继续。</p>
 
 </td>
 </tr>
 <tr>
 <td width="50%" valign="top">
 
-### 🧰 IDE-like workspace
-
-不只是 Web Terminal。TmuxGo 把 Session、Files、Monaco Editor、Git Workbench 和 Terminal Dock 放进同一个工作区。
+<h3>🧰 IDE-like workspace</h3>
+<p>不只是 Web Terminal。TmuxGo 把 Session、Files、Monaco Editor、Git Workbench 和 Terminal Dock 放进同一个工作区。</p>
 
 </td>
 <td width="50%" valign="top">
 
-### 📱 Cross-device handoff
-
-桌面开始，手机看状态，平板继续处理。会话、布局和活动上下文可以持续衔接。
+<h3>📱 Cross-device handoff</h3>
+<p>桌面开始，手机看状态，平板继续处理。会话、布局和活动上下文可以持续衔接。</p>
 
 </td>
 </tr>
 <tr>
 <td width="50%" valign="top">
 
-### 🖥️ Multi-host
-
-本地主机和 SSH 远端主机统一管理。切换主机时，会话、文件和 Git 上下文一起切换。
+<h3>🖥️ Multi-host</h3>
+<p>本地主机和 SSH 远端主机统一管理。切换主机时，会话、文件和 Git 上下文一起切换。</p>
 
 </td>
 <td width="50%" valign="top">
 
-### 🔐 Security-aware
-
-默认仅监听本机，内置认证，并明确区分 HTTP/WS 与 HTTPS/WSS 场景，适合通过私有网络或反向代理安全暴露。
+<h3>🔐 Security-aware</h3>
+<p>默认仅监听本机，内置认证，并明确区分 HTTP/WS 与 HTTPS/WSS 场景，适合通过私有网络或反向代理安全暴露。</p>
 
 </td>
 </tr>
