@@ -46,7 +46,7 @@ async function port() {
         reject(new Error('Unable to reserve E2E port'))
         return
       }
-      server.close((error) => error ? reject(error) : resolve(address.port))
+      server.close((error) => (error ? reject(error) : resolve(address.port)))
     })
   })
 }
@@ -62,16 +62,23 @@ async function waitFor(url: string, process: ChildProcess) {
   throw new Error(`${url} did not become ready`)
 }
 async function login(apiUrl: string) {
-  const response = await fetch(`${apiUrl}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) })
+  const response = await fetch(`${apiUrl}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  })
   if (!response.ok) throw new Error(`Agent E2E login failed: HTTP ${response.status}`)
-  const result = await response.json() as { accessToken?: string }
+  const result = (await response.json()) as { accessToken?: string }
   if (!result.accessToken) throw new Error('Agent E2E login did not return an access token')
   return result.accessToken
 }
 async function getWebSocketTicket(apiUrl: string, accessToken: string) {
-  const response = await fetch(`${apiUrl}/api/auth/ws-ticket`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } })
+  const response = await fetch(`${apiUrl}/api/auth/ws-ticket`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
   if (!response.ok) throw new Error(`Agent E2E ticket failed: HTTP ${response.status}`)
-  const result = await response.json() as { ticket?: string }
+  const result = (await response.json()) as { ticket?: string }
   if (!result.ticket) throw new Error('Agent E2E ticket response is invalid')
   return result.ticket
 }
@@ -80,8 +87,10 @@ async function waitForAgent(apiUrl: string, process: ChildProcess, hostId: strin
   while (Date.now() < deadline) {
     if (process.exitCode !== null) throw new Error('Agent exited before registering')
     try {
-      const response = await fetch(`${apiUrl}/api/hosts/${hostId}`, { headers: { Authorization: `Bearer ${accessToken}` } })
-      const host = await response.json() as { connectionMode?: string; agent?: { online?: boolean } }
+      const response = await fetch(`${apiUrl}/api/hosts/${hostId}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      })
+      const host = (await response.json()) as { connectionMode?: string; agent?: { online?: boolean } }
       if (response.ok && host.connectionMode === 'agent' && host.agent?.online === true) return
     } catch {}
     await delay(200)
@@ -118,8 +127,12 @@ function startGateway(tsxBin: string, apiPort: number, tmuxEnv: NodeJS.ProcessEn
 }
 async function verifyTerminal(url: string, hostId: string) {
   return new Promise<void>((resolve, reject) => {
-    const marker = `TMUXGO-AGENT-E2E-${Date.now()}`
+    // 结果由 shell 运行时计算：命令行回显不含答案，不能作为执行证据
+    const operandA = 3 + Math.floor(Math.random() * 40)
+    const operandB = 3 + Math.floor(Math.random() * 40)
+    const expected = String(operandA * operandB)
     const socket = new WebSocket(url)
+    let outputText = ''
     let outputSeen = false
     let resizeSeen = false
     const finish = (error?: Error) => {
@@ -132,21 +145,26 @@ async function verifyTerminal(url: string, hostId: string) {
       if (outputSeen && resizeSeen) finish()
     }
     const timeout = setTimeout(() => finish(new Error('Agent terminal attach timed out')), 30000)
-    socket.on('open', () => socket.send(JSON.stringify({ type: 'attach', hostId, sessionName: 'agent-e2e', exclusive: true, cols: 80, rows: 24 })))
+    socket.on('open', () =>
+      socket.send(JSON.stringify({ type: 'attach', hostId, sessionName: 'test', exclusive: true, cols: 80, rows: 24 })),
+    )
     socket.on('message', (raw) => {
       try {
         const message = JSON.parse(raw.toString()) as { type?: string; data?: string; message?: string }
         if (message.type === 'attached') {
           socket.send(JSON.stringify({ type: 'resize', cols: 100, rows: 30 }))
-          socket.send(JSON.stringify({ type: 'input', data: `printf '${marker}\\n'\n` }))
+          socket.send(JSON.stringify({ type: 'input', data: `echo $((${operandA}*${operandB}))\r` }))
         }
         if (message.type === 'resized') {
           resizeSeen = true
           complete()
         }
-        if ((message.type === 'output' || message.type === 'output_resync') && message.data?.includes(marker)) {
-          outputSeen = true
-          complete()
+        if (message.type === 'output' || message.type === 'output_resync') {
+          outputText += message.data || ''
+          if (outputText.split('\n').some((line) => line.trim() === expected)) {
+            outputSeen = true
+            complete()
+          }
         }
         if (message.type === 'error') finish(new Error(message.message || 'Agent terminal error'))
       } catch (error) {
@@ -161,7 +179,8 @@ async function cleanup() {
   cleaned = true
   await stop(agent)
   await stop(gateway)
-  if (tmuxDir) await run('tmux', ['kill-server'], { ...process.env, TMUX: '', TMUX_TMPDIR: tmuxDir }).catch(() => undefined)
+  if (tmuxDir)
+    await run('tmux', ['kill-server'], { ...process.env, TMUX: '', TMUX_TMPDIR: tmuxDir }).catch(() => undefined)
   if (configDir) await rm(configDir, { recursive: true, force: true })
   if (tmuxDir) await rm(tmuxDir, { recursive: true, force: true })
 }
@@ -175,20 +194,38 @@ async function main() {
     const hostId = 'agent-e2e'
     const tsxBin = resolveBin('tsx')
     const tmuxEnv = { ...process.env, TMUX: '', TMUX_TMPDIR: tmuxDir }
-    if (await run('tmux', ['new-session', '-d', '-s', 'agent-e2e'], tmuxEnv) !== 0) throw new Error('Agent E2E tmux startup failed')
+    // 真实 tmux 行为测试只允许操作隔离 server 上名为 test 的 session（AGENTS.md）
+    if ((await run('tmux', ['new-session', '-d', '-s', 'test'], tmuxEnv)) !== 0)
+      throw new Error('Agent E2E tmux startup failed')
     gateway = startGateway(tsxBin, apiPort, tmuxEnv)
     await waitFor(`${apiUrl}/health`, gateway)
     const accessToken = await login(apiUrl)
-    agent = spawn(tsxBin, ['apps/agent/src/index.ts'], { cwd: root, stdio: 'inherit', env: { ...tmuxEnv, GATEWAY_URL: `ws://127.0.0.1:${apiPort}/api/stream`, GATEWAY_USERNAME: username, GATEWAY_PASSWORD: password, HOST_ID: hostId, HOST_NAME: 'agent-e2e' } })
+    agent = spawn(tsxBin, ['apps/agent/src/index.ts'], {
+      cwd: root,
+      stdio: 'inherit',
+      env: {
+        ...tmuxEnv,
+        GATEWAY_URL: `ws://127.0.0.1:${apiPort}/api/stream`,
+        GATEWAY_USERNAME: username,
+        GATEWAY_PASSWORD: password,
+        HOST_ID: hostId,
+        HOST_NAME: 'agent-e2e',
+      },
+    })
     await waitForAgent(apiUrl, agent, hostId, accessToken)
     const ticket = await getWebSocketTicket(apiUrl, accessToken)
     await verifyTerminal(`ws://127.0.0.1:${apiPort}/api/stream?ticket=${encodeURIComponent(ticket)}`, hostId)
     await stop(gateway)
     gateway = startGateway(tsxBin, apiPort, tmuxEnv)
     await waitFor(`${apiUrl}/health`, gateway)
-    const recoveryResponse = await fetch(`${apiUrl}/api/hosts/${hostId}`, { headers: { Authorization: `Bearer ${accessToken}` } })
+    const recoveryResponse = await fetch(`${apiUrl}/api/hosts/${hostId}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
     assert.equal(recoveryResponse.ok, true)
-    const recoveryHost = await recoveryResponse.json() as { connectionMode?: string; agent?: { online?: boolean; disconnectReason?: string } }
+    const recoveryHost = (await recoveryResponse.json()) as {
+      connectionMode?: string
+      agent?: { online?: boolean; disconnectReason?: string }
+    }
     assert.equal(recoveryHost.connectionMode, 'agent')
     assert.equal(recoveryHost.agent?.online, false)
     assert.equal(recoveryHost.agent?.disconnectReason, 'Gateway restarted')

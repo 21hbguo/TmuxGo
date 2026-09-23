@@ -21,7 +21,7 @@ import {
 import { StreamRouteDictionary } from './stream-route.js'
 import { shareLinkStore, type ShareTicket } from '../share-links.js'
 import { StreamCellEncoder } from './stream-cell.js'
-import { applyScroll, getSessionWindowSize, refreshAttachedClient } from './stream-tmux.js'
+import { applyScroll, getSessionWindowSize, refreshAttachedClient, resizeSessionWindow } from './stream-tmux.js'
 import { acquireSharedTerminal, type SharedTerminal } from './shared-terminal.js'
 import {
   ATTACH_REDRAW_DELAYS,
@@ -121,10 +121,40 @@ async function reconcileWindowPeers(key: string) {
         : best,
     null,
   )
+  let restored: { cols: number; rows: number } | null = null
   if (champion && (!win || champion.desiredCols !== win.cols || champion.desiredRows !== win.rows)) {
     champion.applyWindowSize(champion.desiredCols, champion.desiredRows, true)
+    restored = { cols: champion.desiredCols, rows: champion.desiredRows }
+  } else if (!champion) {
+    // 无任何存活 owner：window 会停在断开者/末次主张的尺寸上（tmux 不自动回弹）。
+    // 由被降级但仍附着的端里主张代次最大者拉回它独占时的尺寸——它多半就是
+    // 即将回前台的端；此分支只在无人持有所有权时进入，故后台/旁观端不会
+    // 覆盖正被使用的 window（尺寸依据在 demote 时留存，见 demoteFromExclusive）
+    const fallback = [...peers].reduce<StreamSession | null>(
+      (best, peer) =>
+        peer.ptyProcess &&
+        peer.lastExclusiveCols > 0 &&
+        peer.lastExclusiveRows > 0 &&
+        (!best || peer.lastExclusiveSeq > best.lastExclusiveSeq)
+          ? peer
+          : best,
+      null,
+    )
+    if (fallback && (!win || fallback.lastExclusiveCols !== win.cols || fallback.lastExclusiveRows !== win.rows)) {
+      fallback.applyWindowSize(fallback.lastExclusiveCols, fallback.lastExclusiveRows, true)
+      restored = { cols: fallback.lastExclusiveCols, rows: fallback.lastExclusiveRows }
+    }
+  }
+  if (restored) {
     await new Promise((resolve) => setTimeout(resolve, WINDOW_SYNC_SETTLE_MS))
     win = await windowSizeQuery(hostId, sessionName).catch(() => win)
+    if (!win || win.cols !== restored.cols || win.rows !== restored.rows) {
+      // ignore-size 附着（非 fanout 共享端）pty resize 不驱动 window：
+      // 直连 resize-window 兜底把 window 拉到目标尺寸
+      await resizeSessionWindow(hostId, sessionName, restored.cols, restored.rows).catch(() => {})
+      await new Promise((resolve) => setTimeout(resolve, WINDOW_SYNC_SETTLE_MS))
+      win = await windowSizeQuery(hostId, sessionName).catch(() => win)
+    }
   }
   if (!win || win.cols <= 0 || win.rows <= 0) return
   for (const peer of peers) peer.applyWindowSize(win.cols, win.rows)
@@ -156,6 +186,12 @@ export class StreamSession {
   desiredCols = 0
   desiredRows = 0
   assertSeq = 0
+  // 被降级端最近一次独占主张的留存：desired 在降级时清零，若无留存，owner
+  // 断开后再无 champion 可恢复 window。仅 reconcile 的 fallback 分支读它——
+  // 不是尺寸主张，不影响在任 owner 的仲裁
+  lastExclusiveCols = 0
+  lastExclusiveRows = 0
+  lastExclusiveSeq = 0
   outputBuffer = ''
   lastFrame = ''
   dedupDropLogCount = 0
@@ -176,7 +212,20 @@ export class StreamSession {
   cell = new StreamCellEncoder()
   attachSeq = 0
   attachVisibleOutputObserved = false
-  attachSnapshotTimers: ReturnType<typeof setTimeout>[] = []
+  attachRefreshTimers: ReturnType<typeof setTimeout>[] = []
+  // attach 重绘合并状态：主动重绘（ATTACH_REDRAW_DELAYS）与无输出兜底
+  // （attach-snapshot delays）原是两路独立定时器，48ms 槽位撞车会在同一
+  // 时间窗双发 refresh-client。合并后共用本状态：同一 attachSeq+hostId+
+  // sessionName 只许一个在途 refresh；首个有效输出确认后 done，剩余槽位
+  // 空转；失败只留一次有界重试（failures 上限），tmux 故障不会无限刷
+  attachRefresh: {
+    seq: number
+    sessionName: string
+    hostId: string
+    failures: number
+    inFlight: Promise<void> | null
+    done: boolean
+  } | null = null
   pendingResizeAck: PendingResizeAck | null = null
   resizeAckTimer: ReturnType<typeof setTimeout> | null = null
   scrollBuffers = new Map<string, number>()
@@ -516,8 +565,9 @@ export class StreamSession {
       this.outputResyncPending = false
       if (this.cellOutputEnabled) this.cell.reset(this.attachedCols, this.attachedRows, this.binaryOutputEnabled)
       // 共享 hub 权衡：单 tmux client 的 refresh-client 无法只刷请求端——重绘
-      // 进共享 PTY 后扇出全部订阅者；边界帧（output_resync）仍只发本端，
-      // 旧端多收一次全屏重绘（幂等），避免为 per-subscriber 刷屏再拆一条 PTY
+      // 进共享 PTY 后扇出全部订阅者。本端边界已发，给其它订阅者补同款
+      // output_resync 边界（except 排除本端防重复清屏），换取不拆 PTY
+      if (this.sharedHub) this.sharedHub.broadcastRedrawBoundary(this)
       await this.redrawAttachedClient(hostId, sessionName, pid)
       if (!current()) return
       recordStreamMetric('outputResyncCompleted')
@@ -760,41 +810,78 @@ export class StreamSession {
     for (const timer of this.redrawTimers) clearTimeout(timer)
     this.redrawTimers = []
   }
-  clearAttachSnapshotTimers() {
-    for (const timer of this.attachSnapshotTimers) clearTimeout(timer)
-    this.attachSnapshotTimers = []
-  }
-  // attach 后迟迟看不到可见输出时的兜底：让 tmux 对该 client 做真实重绘，
-  // 重绘字节走普通 output 路径恢复画面（含边框/属性/光标），不再手拼快照
-  async captureAttachedSnapshot(sessionName: string, seq: number) {
-    if (
-      !this.ptyProcess ||
-      !sessionName ||
-      this.attachVisibleOutputObserved ||
-      seq !== this.attachSeq ||
-      this.attachedSessionName !== sessionName
-    )
-      return
-    try {
-      await refreshAttachedClient(this.attachedHostId, sessionName, this.ptyProcess.pid)
-    } catch {}
-  }
-  scheduleAttachSnapshot(sessionName: string, seq: number, delays = getAttachSnapshotDelays()) {
-    if (!sessionName) return
-    this.clearAttachSnapshotTimers()
-    for (const delay of delays) {
-      const timer = setTimeout(() => {
-        this.attachSnapshotTimers = this.attachSnapshotTimers.filter((item) => item !== timer)
-        if (this.attachVisibleOutputObserved || seq !== this.attachSeq || this.attachedSessionName !== sessionName)
-          return
-        void this.captureAttachedSnapshot(sessionName, seq)
-      }, delay)
-      this.attachSnapshotTimers.push(timer)
-    }
+  clearAttachRefreshTimers() {
+    for (const timer of this.attachRefreshTimers) clearTimeout(timer)
+    this.attachRefreshTimers = []
   }
   async refreshAttachedClient(sessionName: string) {
     if (!this.ptyProcess || !sessionName) return
+    // 共享 PTY 的 refresh-client 重绘字节会扇出全部订阅者，普通 output 无
+    // 复位语义会让旧端整屏叠加花屏——refresh 前先广播 output_resync 边界
+    // （含本端），各接收端按原子替换处理，不依赖 tmux 恰好发清屏序列
+    if (this.sharedHub) this.sharedHub.broadcastRedrawBoundary()
     await refreshAttachedClient(this.attachedHostId, sessionName, this.ptyProcess.pid)
+  }
+  // attach 重绘合并调度：两路延时去重排序后各触发一次，全部汇入
+  // runAttachRefresh 共享 dedup 状态
+  scheduleAttachRefresh(sessionName: string, seq: number) {
+    if (!sessionName) return
+    this.clearAttachRefreshTimers()
+    this.attachRefresh = {
+      seq,
+      sessionName,
+      hostId: this.attachedHostId,
+      failures: 0,
+      inFlight: null,
+      done: false,
+    }
+    const delays = [...new Set([...ATTACH_REDRAW_DELAYS, ...getAttachSnapshotDelays()])].sort((a, b) => a - b)
+    for (const delay of delays) {
+      const timer = setTimeout(() => {
+        this.attachRefreshTimers = this.attachRefreshTimers.filter((item) => item !== timer)
+        void this.runAttachRefresh(sessionName, seq)
+      }, delay)
+      this.attachRefreshTimers.push(timer)
+    }
+  }
+  // attach 兜底槽位的统一出口（合并协议见 attachRefresh 字段注释）。
+  // inFlight 复用合并并发触发；refreshAttachedClient 拒绝计入 failures，
+  // 第二次失败即 done——只保留一次有界重试
+  private runAttachRefresh(sessionName: string, seq: number): Promise<void> | undefined {
+    const s = this.attachRefresh
+    if (!s || s.seq !== seq || s.sessionName !== sessionName) return
+    if (
+      s.done ||
+      seq !== this.attachSeq ||
+      this.attachedSessionName !== sessionName ||
+      this.attachedHostId !== s.hostId ||
+      !this.ptyProcess
+    )
+      return
+    if (this.attachVisibleOutputObserved) {
+      s.done = true
+      return
+    }
+    if (s.inFlight) return s.inFlight
+    if (s.failures >= 2) {
+      s.done = true
+      return
+    }
+    recordStreamMetric('attachRefreshExecs')
+    const work = this.refreshAttachedClient(sessionName).then(
+      () => {},
+      () => {
+        if (s === this.attachRefresh) {
+          s.failures += 1
+          recordStreamMetric('attachRefreshFailures')
+        }
+      },
+    )
+    s.inFlight = work
+    void work.finally(() => {
+      if (s === this.attachRefresh) s.inFlight = null
+    })
+    return work
   }
   scheduleClientRedraw(sessionName: string | null = this.attachedSessionName, delays = [48]) {
     if (!sessionName) return
@@ -829,7 +916,8 @@ export class StreamSession {
       this.resizeAckTimer = null
     }
     this.clearRedrawTimers()
-    this.clearAttachSnapshotTimers()
+    this.clearAttachRefreshTimers()
+    this.attachRefresh = null
     if (this.sharedHub) {
       const hub = this.sharedHub
       this.sharedHub = null
@@ -849,6 +937,9 @@ export class StreamSession {
     this.attachedRows = 0
     this.desiredCols = 0
     this.desiredRows = 0
+    this.lastExclusiveCols = 0
+    this.lastExclusiveRows = 0
+    this.lastExclusiveSeq = 0
     if (this.outputTimer) {
       clearTimeout(this.outputTimer)
       this.outputTimer = null
@@ -950,10 +1041,9 @@ export class StreamSession {
         rows: this.attachedRows || requestedRows,
         exclusive,
       })
-      // 切换模式后需整帧恢复：边界只发本端，refresh-client 重绘经共享 PTY
-      // 扇出到全部订阅者（单 tmux client 无法只刷一端，见 flushOutputResync 注释）
-      this.scheduleClientRedraw(sessionName, ATTACH_REDRAW_DELAYS)
-      this.scheduleAttachSnapshot(sessionName, this.attachSeq)
+      // 切换模式后需整帧恢复：refresh-client 重绘经共享 PTY 扇出全部订阅者
+      // （单 tmux client 无法只刷一端），各端靠 output_resync 边界原子替换
+      this.scheduleAttachRefresh(sessionName, this.attachSeq)
       console.log('Attach completed (hub reuse)', { sessionName, elapsedMs: Date.now() - attachStartedAt })
       return
     }
@@ -991,8 +1081,7 @@ export class StreamSession {
         rows: this.attachedRows || requestedRows,
         exclusive,
       })
-      this.scheduleClientRedraw(sessionName, ATTACH_REDRAW_DELAYS)
-      this.scheduleAttachSnapshot(sessionName, this.attachSeq)
+      this.scheduleAttachRefresh(sessionName, this.attachSeq)
       console.log('Attach completed (reuse)', { sessionName, elapsedMs: Date.now() - attachStartedAt })
       return
     }
@@ -1038,9 +1127,8 @@ export class StreamSession {
       this.send({ type: 'attached', sessionName, hostId, cols: this.attachedCols, rows: this.attachedRows, exclusive })
       if (exclusive) schedulePeerWindowSync(hostId, sessionName)
       // 新订者：refresh-client 补整帧。单 tmux client 的重绘字节进共享 PTY 后
-      // 会扇出给全部订阅者——旧端多收一次全屏重绘（幂等覆盖），换取不拆 PTY
-      this.scheduleClientRedraw(sessionName, ATTACH_REDRAW_DELAYS)
-      this.scheduleAttachSnapshot(sessionName, seq)
+      // 扇出全部订阅者——各端以 output_resync 边界原子替换（见 broadcastRedrawBoundary）
+      this.scheduleAttachRefresh(sessionName, seq)
       console.log('Attach completed (fanout)', {
         sessionName,
         cols: this.attachedCols,
@@ -1104,8 +1192,7 @@ export class StreamSession {
     })
     this.send({ type: 'attached', sessionName, hostId, cols, rows, exclusive })
     if (exclusive) schedulePeerWindowSync(hostId, sessionName)
-    this.scheduleClientRedraw(sessionName, ATTACH_REDRAW_DELAYS)
-    this.scheduleAttachSnapshot(sessionName, seq)
+    this.scheduleAttachRefresh(sessionName, seq)
     console.log('Attach completed (new)', { sessionName, cols, rows, elapsedMs: Date.now() - attachStartedAt })
   }
   // 共享 hub 输出入口：sanitize 已在 hub 完成，这里只做本端 resync 丢弃/组帧/ACK
@@ -1131,6 +1218,21 @@ export class StreamSession {
       this.pendingResizeAck.outputObserved = true
       this.completeResizeAck()
     }
+  }
+  // 共享 hub 广播重绘边界（SharedTerminal.broadcastRedrawBoundary 回调）：
+  // 别的订阅者触发的 refresh-client 重绘即将经 hub 扇出为本端普通 output。
+  // 先冲掉积压保持「旧输出→边界→整屏新帧」帧序，再发 output_resync 边界
+  // 并让前端原子替换；帧级去重/cell 基准一并复位，否则与旧帧全等的重绘
+  // 会在清屏后被去重丢掉留下空屏。本端正在跑自己的 resync 时跳过——
+  // 边界由其 resync 流程发，重复发会双清屏
+  onSharedRedrawBoundary() {
+    if (!this.attachedSessionName || !this.sharedHub || this.outputResyncPending) return
+    this.flushOutput()
+    const boundary = this.cellOutputEnabled ? RESYNC_RESET_SEQ.replace('\u001b[2J', '') : RESYNC_RESET_SEQ
+    void this.sendTerminalOutput('output_resync', boundary, this.attachedSessionName, this.attachedHostId)
+    this.lastFrame = ''
+    if (this.cellOutputEnabled) this.cell.reset(this.attachedCols, this.attachedRows, this.binaryOutputEnabled)
+    recordStreamMetric('sharedRedrawBoundaries')
   }
   onSharedExit(exitCode: number) {
     if (!this.attachedSessionName) return
@@ -1158,13 +1260,17 @@ export class StreamSession {
     this.attachedPassive = false
     this.attachedCols = 0
     this.attachedRows = 0
+    this.lastExclusiveCols = 0
+    this.lastExclusiveRows = 0
+    this.lastExclusiveSeq = 0
     this.pendingResizeAck = null
     if (this.resizeAckTimer) {
       clearTimeout(this.resizeAckTimer)
       this.resizeAckTimer = null
     }
-    this.clearAttachSnapshotTimers()
+    this.clearAttachRefreshTimers()
     this.clearRedrawTimers()
+    this.attachRefresh = null
     if (exitedSessionName) schedulePeerWindowSync(exitedHostId, exitedSessionName)
   }
   resize(cols: number, rows: number) {
@@ -1263,6 +1369,11 @@ export class StreamSession {
     const sessionName = this.attachedSessionName
     this.attachedExclusive = false
     this.attachedPassive = true
+    // 降级前留存本次独占主张：本端仍是存活 peer，owner 断开且无人接管时
+    // reconcile 用它把 window 拉回（desired 清零后这是唯一恢复依据）
+    this.lastExclusiveCols = this.desiredCols || this.attachedCols
+    this.lastExclusiveRows = this.desiredRows || this.attachedRows
+    this.lastExclusiveSeq = this.assertSeq
     this.desiredCols = 0
     this.desiredRows = 0
     this.assertSeq = 0

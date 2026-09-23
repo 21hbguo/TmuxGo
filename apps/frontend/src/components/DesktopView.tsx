@@ -45,7 +45,9 @@ import {
 } from '@/lib/vnc-tuning'
 import { getVncWebSocketBase } from '@/lib/runtime-endpoints'
 import { attachVncClipboardSync } from '@/lib/vnc-clipboard'
+import { isImeKeyEvent } from '@/lib/terminal-platform'
 import { useConsoleStore, type DesktopViewMode } from '@/stores/useConsoleStore'
+import { useEscapeClose } from '@/hooks/useEscapeClose'
 import { useTranslation } from '@/i18n'
 import { MOBILE_QUERY } from '@/lib/console-device-state'
 import { Select } from './Select'
@@ -123,6 +125,8 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
   const [displays, setDisplays] = useState<VncDisplay[] | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
+  useEscapeClose(() => setPickerOpen(false), pickerOpen)
+  useEscapeClose(() => setMoreOpen(false), moreOpen)
   // 真·浏览器全屏状态：fullscreenElement 驱动，fullscreenchange 同步图标/高亮
   const [isFullscreen, setIsFullscreen] = useState(false)
   const sectionRef = useRef<HTMLElement | null>(null)
@@ -539,6 +543,8 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
     }
   }
   const handleKeyboardKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    // IME 组字期按键归输入法：选词 Enter 不得向远端转发 Return
+    if (isImeKeyEvent(event.nativeEvent)) return
     const keysym = MOBILE_KEYSYM[event.key]
     if (keysym === undefined) return
     event.preventDefault()
@@ -856,6 +862,8 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
                     value={customPort}
                     onChange={(event) => setCustomPort(event.target.value.replace(/\D/g, '').slice(0, 4))}
                     onKeyDown={(event) => {
+                      // IME 组字期选词 Enter 不触发连接
+                      if (isImeKeyEvent(event.nativeEvent)) return
                       if (event.key !== 'Enter') return
                       const next = Number(customPort)
                       if (Number.isInteger(next) && next >= VNC_PORT_RANGE.min && next <= VNC_PORT_RANGE.max)

@@ -4,14 +4,20 @@ import { useEffect, useRef, useState } from 'react'
 import { Button } from './Button'
 import { Chip } from './Chip'
 import { ModalPortal } from './ModalPortal'
-import { FilePanel, type FilePanelPickerTarget } from './FilePanel'
+import type { FilePanelPickerTarget } from './FilePanel'
+import dynamic from '@/lib/dynamic'
 import { isMobileDevice } from '@/hooks/useMobileKeyboard'
 import { useCreateWorkspace } from '@/hooks/useWorkspaces'
 import { usePrompt } from '@/hooks/usePrompt'
+import { useEscapeClose } from '@/hooks/useEscapeClose'
+import { isImeKeyEvent } from '@/lib/terminal-platform'
 import { useTranslation } from '@/i18n'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import type { SessionTemplate, WorkspaceEntry } from '@/types'
 import { Select } from './Select'
+
+// 目录选择器仅 pickerOpen 时才用到，FilePanel 动态加载以免进入主入口
+const FilePanel = dynamic(() => import('./FilePanel').then((m) => ({ default: m.FilePanel })))
 
 export interface CreateSessionDialogWorkspace extends FilePanelPickerTarget {
   workspaceId?: string
@@ -81,6 +87,9 @@ export function CreateSessionDialog({
       return () => clearTimeout(timer)
     }
   }, [open, defaultName, initialWorkspace])
+  // 目录选择器展开时占顶层：ESC 先收选择器，再按一次才关整个弹窗
+  useEscapeClose(() => setPickerOpen(false), open && pickerOpen)
+  useEscapeClose(onClose, open && !pickerOpen)
   if (!open || !template) return null
   const handleSelectWorkspace = (workspaceId: string) => {
     if (!workspaceId) return setWorkspace(null)
@@ -131,11 +140,12 @@ export function CreateSessionDialog({
     }
   }
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // IME 组字期按键交给输入法：选词 Enter/Escape 不得触发创建/关闭
+    if (isImeKeyEvent(e.nativeEvent)) return
     if (e.key === 'Enter' && !pickerOpen) {
       e.preventDefault()
       void handleCreate()
     }
-    if (e.key === 'Escape' && !pickerOpen) onClose()
   }
   const containerClass = isMobile
     ? 'fixed inset-0 z-[80] flex flex-col bg-bg-0'

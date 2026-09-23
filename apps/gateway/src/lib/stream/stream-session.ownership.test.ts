@@ -12,7 +12,6 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   claimExclusiveOwnership,
-  releaseExclusiveOwnership,
   resetExclusiveOwnershipForTest,
   schedulePeerWindowSync,
   setWindowSizeQueryForTest,
@@ -197,6 +196,69 @@ test('S4 double-active multi-device: only one exclusive owner remains', () => {
   a.session.cleanup()
   b.session.cleanup()
   resetExclusiveOwnershipForTest()
+})
+
+test('S6 owner disconnects; demoted survivor restores window to its last exclusive size', async () => {
+  resetExclusiveOwnershipForTest()
+  let winSize: { cols: number; rows: number } | null = { cols: 80, rows: 24 }
+  setWindowSizeQueryForTest(async () => winSize)
+  try {
+    const desk = createPeer(200, 50)
+    const phone = createPeer(80, 24)
+    const track = (peer: ReturnType<typeof createPeer>) => {
+      const original = peer.session.ptyProcess!.resize.bind(peer.session.ptyProcess)
+      peer.session.ptyProcess!.resize = ((c: number, r: number) => {
+        winSize = { cols: c, rows: r }
+        original(c, r)
+      }) as any
+    }
+    track(desk)
+    track(phone)
+
+    desk.session.attachedExclusive = true
+    desk.session.desiredCols = 200
+    desk.session.desiredRows = 50
+    desk.session.assertSeq = 1
+    claimExclusiveOwnership(desk.session)
+
+    phone.session.attachedExclusive = true
+    phone.session.desiredCols = 80
+    phone.session.desiredRows = 24
+    phone.session.assertSeq = 2
+    claimExclusiveOwnership(phone.session)
+    assert.equal(desk.session.attachedPassive, true)
+    // demote 留存恢复依据：desired 清零但 lastExclusive 保留
+    assert.equal(desk.session.desiredCols, 0)
+    assert.equal(desk.session.lastExclusiveCols, 200)
+    assert.equal(desk.session.lastExclusiveRows, 50)
+    assert.equal(desk.session.lastExclusiveSeq, 1)
+    // demote 摘掉 exclusive pty；生产由前端以 shared 重附着，这里补回 mock
+    if (!desk.session.ptyProcess) {
+      desk.session.ptyProcess = {
+        pid: 1,
+        resize: (c: number, r: number) => {
+          winSize = { cols: c, rows: r }
+          desk.resized.push([c, r])
+        },
+        write: (d: string) => desk.writes.push(d),
+        kill: () => {},
+        onData: () => {},
+        onExit: () => {},
+      } as any
+    }
+
+    // phone 断开且无人再 claim：reconcile fallback 由 desk 拉回 window
+    phone.session.cleanup()
+    await new Promise((r) => setTimeout(r, 300))
+    assert.deepEqual(winSize, { cols: 200, rows: 50 })
+    // desk 收到 window-size 推送；恢复只改尺寸，不补发所有权
+    assert.ok(desk.sent.some((m) => m.type === 'window-size' && (m as any).cols === 200))
+    assert.equal(desk.session.isExclusiveOwner(), false)
+    desk.session.cleanup()
+  } finally {
+    setWindowSizeQueryForTest(null)
+    resetExclusiveOwnershipForTest()
+  }
 })
 
 test('S5 release on cleanup frees ownership for next client', () => {

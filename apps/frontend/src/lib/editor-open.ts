@@ -19,6 +19,17 @@ const IMAGE_EXTENSIONS = new Set([
 ])
 export const OPEN_EDITOR_LOCATION_EVENT = 'tmuxgo-open-editor-location'
 type TranslateFn = ReturnType<typeof useTranslation>['t']
+// 返回/前进恢复载荷：落位时还原选区与视口而不是强制居中
+export interface EditorLocationRestore {
+  scrollTop?: number
+  scrollLeft?: number
+  selection?: {
+    startLineNumber: number
+    startColumn: number
+    endLineNumber: number
+    endColumn: number
+  } | null
+}
 export function isImagePath(path: string) {
   const lower = path.toLowerCase()
   const dot = lower.lastIndexOf('.')
@@ -67,11 +78,16 @@ export function getEditorLanguage(path: string) {
   if (name.endsWith('.csv')) return 'csv'
   return 'plaintext'
 }
-export function dispatchOpenEditorLocation(editorId: string, line?: number | null, column?: number | null) {
+export function dispatchOpenEditorLocation(
+  editorId: string,
+  line?: number | null,
+  column?: number | null,
+  restore?: EditorLocationRestore | null,
+) {
   if (typeof window === 'undefined' || !editorId || !line || line < 1) return
   window.dispatchEvent(
     new CustomEvent(OPEN_EDITOR_LOCATION_EVENT, {
-      detail: { editorId, line, column: column && column > 0 ? column : 1 },
+      detail: { editorId, line, column: column && column > 0 ? column : 1, restore: restore || undefined },
     }),
   )
 }
@@ -86,9 +102,13 @@ export async function openFileInEditor(
     pinned?: boolean
     // 定义跳转/导航回退：已打开的干净文档不重载（loading 门会卸载 Monaco,rAF 落位打到已 dispose 死实例）
     skipReload?: boolean
+    // 历史回退：携带选区/视口快照，落位走恢复而非居中
+    restore?: EditorLocationRestore | null
+    // 读取失败回调：导航栈据此回滚，不因打开失败丢历史
+    onError?: (message: string) => void
   },
 ) {
-  const { t, pushToast, position, openPanel = true, pinned, skipReload } = options
+  const { t, pushToast, position, openPanel = true, pinned, skipReload, restore, onError } = options
   const store = useConsoleStore.getState()
   if (openPanel) store.setFilePanelOpen(true)
   const existing = store.openEditors.find((item) => item.id === file.id)
@@ -96,7 +116,7 @@ export async function openFileInEditor(
     { ...file, language: existing?.language || getEditorLanguage(file.path) },
     pinned ? { preview: false, replacePreview: false } : undefined,
   )
-  dispatchOpenEditorLocation(file.id, position?.line, position?.column)
+  dispatchOpenEditorLocation(file.id, position?.line, position?.column, restore)
   if (existing?.dirty) return file.id
   if (skipReload && existing && !existing.problem) return file.id
   store.setEditorLoaded(file.id, {
@@ -127,6 +147,7 @@ export async function openFileInEditor(
       const message = err instanceof Error ? err.message : t('desktop.openFailed')
       store.setEditorLoaded(file.id, { loading: false, problem: message })
       pushToast?.({ type: 'error', message })
+      onError?.(message)
     }
     return file.id
   }
@@ -154,6 +175,7 @@ export async function openFileInEditor(
     const message = err instanceof Error ? err.message : t('desktop.openFailed')
     store.setEditorLoaded(file.id, { loading: false, problem: message })
     pushToast?.({ type: 'error', message })
+    onError?.(message)
   }
   return file.id
 }

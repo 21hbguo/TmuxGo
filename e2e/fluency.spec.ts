@@ -1,28 +1,51 @@
 import { test, expect } from '@playwright/test'
 import { apiUrl } from './endpoints'
-import { ensureSession, openSession } from './session'
+import { ensureTestWindow, openSession } from './session'
 
 test('fluency telemetry remains available during repeated output sampling', async ({ page, request }) => {
   let debugRequests = 0
   page.on('request', (request) => {
     if (request.url().startsWith('http://127.0.0.1:7777/')) debugRequests += 1
   })
-  const name = `tmuxgo_fluency_${Date.now()}`
-  const session = await ensureSession(request, name)
+  const { session } = await ensureTestWindow(request, 'fluency')
   const baselineResponse = await request.get(`${apiUrl}/api/system`)
   const baseline = await baselineResponse.json()
   await openSession(page, session)
-  await page.waitForFunction(() => {
-    const text = document.body.innerText
-    return !text.includes('没有打开的窗口') && !text.includes('No open window')
-  }, undefined, { timeout: 15000 })
-  await page.waitForFunction(() => {
-    const t = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
-    return !!t?.cols && !!t?.rows
-  }, undefined, { timeout: 15000 })
+  await page.waitForFunction(
+    () => {
+      const text = document.body.innerText
+      return !text.includes('没有打开的窗口') && !text.includes('No open window')
+    },
+    undefined,
+    { timeout: 15000 },
+  )
+  await page.waitForFunction(
+    () => {
+      const t = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
+      return !!t?.cols && !!t?.rows
+    },
+    undefined,
+    { timeout: 15000 },
+  )
   await page.evaluate(() => {
-    const target = window as typeof window & { __tmuxgoFluency?: { frames: number; longTasks: number; maxFrameGap: number; maxLongTask: number; stop: boolean; observer?: PerformanceObserver } }
-    const state = { frames: 0, longTasks: 0, maxFrameGap: 0, maxLongTask: 0, stop: false, observer: undefined as PerformanceObserver | undefined }
+    const target = window as typeof window & {
+      __tmuxgoFluency?: {
+        frames: number
+        longTasks: number
+        maxFrameGap: number
+        maxLongTask: number
+        stop: boolean
+        observer?: PerformanceObserver
+      }
+    }
+    const state = {
+      frames: 0,
+      longTasks: 0,
+      maxFrameGap: 0,
+      maxLongTask: 0,
+      stop: false,
+      observer: undefined as PerformanceObserver | undefined,
+    }
     let lastFrame = performance.now()
     const tick = (now: number) => {
       state.frames += 1
@@ -47,50 +70,94 @@ test('fluency telemetry remains available during repeated output sampling', asyn
       window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data: `printf "fluency_${i}\\n"` } }))
       window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data: '\r' } }))
     }
-    window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data: '(for i in $(seq 1 1200); do printf "fluency_bulk_%04d abcdefghijklmnopqrstuvwxyz\\n" "$i"; sleep 0.002; done; printf "__TMUXGO_FLUENCY_DONE__\\n") &' } }))
+    window.dispatchEvent(
+      new CustomEvent('tmuxgo-terminal-input', {
+        detail: {
+          data: '(for i in $(seq 1 1200); do printf "fluency_bulk_%04d abcdefghijklmnopqrstuvwxyz\\n" "$i"; sleep 0.002; done; printf "__TMUXGO_FLUENCY_DONE__\\n") &',
+        },
+      }),
+    )
     window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data: '\r' } }))
   })
-  await page.waitForFunction(() => {
-    const terminal = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
-    const buffer = terminal?.buffer?.active
-    if (!buffer) return false
-    for (let index = Math.max(0, buffer.length - 120); index < buffer.length; index += 1) {
-      if (buffer.getLine(index)?.translateToString(true).startsWith('fluency_bulk_')) return true
-    }
-    return false
-  }, undefined, { timeout: 15000 })
+  await page.waitForFunction(
+    () => {
+      const terminal = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
+      const buffer = terminal?.buffer?.active
+      if (!buffer) return false
+      for (let index = Math.max(0, buffer.length - 120); index < buffer.length; index += 1) {
+        if (buffer.getLine(index)?.translateToString(true).startsWith('fluency_bulk_')) return true
+      }
+      return false
+    },
+    undefined,
+    { timeout: 15000 },
+  )
   await page.locator('[data-terminal] .xterm-helper-textarea').focus()
   await page.keyboard.type('printf "__TMUXGO_FLUENCY_INPUT__\\n"')
   await page.keyboard.press('Enter')
-  await page.waitForFunction(() => {
-    const terminal = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
-    const buffer = terminal?.buffer?.active
-    if (!buffer) return false
-    for (let index = Math.max(0, buffer.length - 120); index < buffer.length; index += 1) {
-      if (buffer.getLine(index)?.translateToString(true).trim() === '__TMUXGO_FLUENCY_INPUT__') return true
-    }
-    return false
-  }, undefined, { timeout: 15000 })
-  await page.waitForFunction(() => {
-    const terminal = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
-    const buffer = terminal?.buffer?.active
-    if (!buffer) return false
-    for (let index = Math.max(0, buffer.length - 120); index < buffer.length; index += 1) {
-      if (buffer.getLine(index)?.translateToString(true).trim() === '__TMUXGO_FLUENCY_DONE__') return true
-    }
-    return false
-  }, undefined, { timeout: 15000 })
+  await page.waitForFunction(
+    () => {
+      const terminal = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
+      const buffer = terminal?.buffer?.active
+      if (!buffer) return false
+      for (let index = Math.max(0, buffer.length - 120); index < buffer.length; index += 1) {
+        if (buffer.getLine(index)?.translateToString(true).trim() === '__TMUXGO_FLUENCY_INPUT__') return true
+      }
+      return false
+    },
+    undefined,
+    { timeout: 15000 },
+  )
+  await page.waitForFunction(
+    () => {
+      const terminal = (window as typeof window & { __tmuxgoTerminal?: any }).__tmuxgoTerminal
+      const buffer = terminal?.buffer?.active
+      if (!buffer) return false
+      for (let index = Math.max(0, buffer.length - 120); index < buffer.length; index += 1) {
+        if (buffer.getLine(index)?.translateToString(true).trim() === '__TMUXGO_FLUENCY_DONE__') return true
+      }
+      return false
+    },
+    undefined,
+    { timeout: 15000 },
+  )
   await page.waitForTimeout(200)
   const telemetry = await page.evaluate(async (baseUrl) => {
-    const state = (window as typeof window & { __tmuxgoFluency?: { frames: number; longTasks: number; maxFrameGap: number; maxLongTask: number; stop: boolean; observer?: PerformanceObserver } }).__tmuxgoFluency
+    const state = (
+      window as typeof window & {
+        __tmuxgoFluency?: {
+          frames: number
+          longTasks: number
+          maxFrameGap: number
+          maxLongTask: number
+          stop: boolean
+          observer?: PerformanceObserver
+        }
+      }
+    ).__tmuxgoFluency
     if (state) {
       state.stop = true
       state.observer?.disconnect()
     }
     const sys = await fetch(`${baseUrl}/api/system`).then((res) => res.json())
-    return { sys, frames: state?.frames || 0, longTasks: state?.longTasks || 0, maxFrameGap: state?.maxFrameGap || 0, maxLongTask: state?.maxLongTask || 0 }
+    return {
+      sys,
+      frames: state?.frames || 0,
+      longTasks: state?.longTasks || 0,
+      maxFrameGap: state?.maxFrameGap || 0,
+      maxLongTask: state?.maxLongTask || 0,
+    }
   }, apiUrl)
-  await test.info().attach('fluency-metrics', { body: JSON.stringify({ frames: telemetry.frames, longTasks: telemetry.longTasks, maxFrameGap: telemetry.maxFrameGap, maxLongTask: telemetry.maxLongTask, debugRequests }), contentType: 'application/json' })
+  await test.info().attach('fluency-metrics', {
+    body: JSON.stringify({
+      frames: telemetry.frames,
+      longTasks: telemetry.longTasks,
+      maxFrameGap: telemetry.maxFrameGap,
+      maxLongTask: telemetry.maxLongTask,
+      debugRequests,
+    }),
+    contentType: 'application/json',
+  })
   expect(debugRequests).toBe(0)
   expect(telemetry.frames).toBeGreaterThan(5)
   expect(telemetry.maxFrameGap).toBeLessThan(250)

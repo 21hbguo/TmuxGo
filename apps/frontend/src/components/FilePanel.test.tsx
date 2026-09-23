@@ -39,6 +39,7 @@ const preferencesUpdate = vi.fn(async (payload: any) => ({
   downloadRateLimitKBps: payload.downloadRateLimitKBps || 5120,
 }))
 const paneCwdMocks = vi.hoisted(() => ({ calls: [] as Array<string | null>, cwd: '' }))
+const hostsMock = vi.hoisted(() => ({ value: [{ id: 'local', status: 'online' }] as any[] }))
 const consoleStoreState: {
   activeHostId: string
   activeSessionId: string
@@ -191,6 +192,7 @@ vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => ({ invalidateQueries }),
 }))
 vi.mock('@/hooks/useApi', () => ({
+  useHosts: () => ({ data: hostsMock.value }),
   useFileRoots: () => ({ data: roots }),
   useFileList: (_hostId: string, nextRootId: string, nextCurrentPath: string, enabled = true) => {
     if (!enabled) return { data: undefined, isLoading: false }
@@ -368,6 +370,12 @@ vi.mock('@/i18n', () => ({
       if (key === 'file.mobileEditDiscard') return 'Discard and exit'
       if (key === 'file.mobileEditKeepEditing') return 'Keep editing'
       if (key === 'file.followActivePath') return 'Follow terminal cwd'
+      if (key === 'file.followSuspended') return 'Following paused'
+      if (key === 'file.followManual') return 'Manual browsing'
+      if (key === 'file.followResume') return 'Resume following'
+      if (key === 'file.hostOffline') return 'Host offline'
+      if (key === 'file.loadFailed') return 'Load failed'
+      if (key === 'file.emptyDir') return 'Empty directory'
       if (key === 'file.followActivePathHint') return 'Follow the active terminal working directory'
       if (key === 'editor.save') return 'Save'
       if (key === 'editor.saving') return 'Saving...'
@@ -418,6 +426,7 @@ describe('FilePanel', () => {
     consoleStoreState.activeEditorId = null
     paneCwdMocks.calls.length = 0
     paneCwdMocks.cwd = ''
+    hostsMock.value = [{ id: 'local', status: 'online' }]
     largeDirectoryItems = null
     roots.splice(2)
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
@@ -1221,7 +1230,10 @@ describe('FilePanel', () => {
     fireEvent.keyDown(docsRow, { key: 'Delete' })
     // t() mock 对未映射 key 原样返回：多选删除用 deleteConfirmMany 文案
     expect(await screen.findByText('file.deleteConfirmMany')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+    const confirmButton = screen.getByRole('button', { name: 'Confirm' })
+    // 连点两次也只提交一次删除请求
+    fireEvent.click(confirmButton)
+    fireEvent.click(confirmButton)
     await waitFor(() => expect(trash).toHaveBeenCalledTimes(2))
     await waitFor(() => {
       expect(screen.getByText('docs').closest('[data-selected="true"]')).not.toBeInTheDocument()
@@ -1383,5 +1395,27 @@ describe('FilePanel', () => {
     expect(await screen.findByText('file-79.txt')).toBeInTheDocument()
     expect(screen.getByText('file-80.txt')).toBeInTheDocument()
     expect(screen.getByText('file-120.txt')).toBeInTheDocument()
+  })
+  it('labels follow state and offers resume after manual browsing', async () => {
+    consoleStoreState.activePaneId = 'local:%1'
+    paneCwdMocks.cwd = '/workspace/src'
+    render(React.createElement(FilePanel))
+    expect(screen.getByText('Manual browsing')).toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('switch', { name: 'Follow terminal cwd' }))
+    await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
+    // 手动切根 → 跟随挂起：状态条改为「已暂停跟随」并提供恢复入口
+    await chooseRoot('root-home')
+    await waitFor(() => expect(screen.getByText('Following paused')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: 'Resume following' }))
+    await waitFor(() => expect(screen.getByText('Follow terminal cwd')).toBeInTheDocument())
+  })
+  it('shows host offline hint instead of a generic empty directory', async () => {
+    roots.push({ id: 'root-large', label: 'Large', path: '/large' })
+    largeDirectoryItems = []
+    hostsMock.value = [{ id: 'local', status: 'offline' }]
+    render(React.createElement(FilePanel))
+    await chooseRoot('root-large')
+    expect(await screen.findByText('Host offline')).toBeInTheDocument()
+    expect(screen.queryByText('Empty directory')).not.toBeInTheDocument()
   })
 })

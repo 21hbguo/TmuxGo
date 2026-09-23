@@ -7,10 +7,11 @@ import {
   useCreateSession,
   useDeleteSession,
   useRenameSession,
-  useSessionPanes,
+  useSessionSnapshot,
   useWindows,
 } from '@/hooks/useApi'
 import { useOptionalQueryClient } from '@/hooks/useOptionalQueryClient'
+import { useEscapeClose } from '@/hooks/useEscapeClose'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import {
   useMigrateSessionWorkspace,
@@ -72,7 +73,10 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
     refetch: refetchSessions,
   } = useOrderedSessions(activeHostId || '')
   const { data: windowsData = [] } = useWindows(activeHostId || '', activeSessionId || '')
-  const { data: sessionPanes = [] } = useSessionPanes(activeHostId || '', activeSessionId || '')
+  // 复用 session-snapshot 的 panes（与 session-panes 同 getTmuxSessionPanes 数据源）：
+  // snapshot 有 5s 轮询且结构操作后 refreshSnapshot 会即时写回，避免 pane 列表滞后
+  const { data: snapshotData } = useSessionSnapshot(activeHostId || '', activeSessionId || '')
+  const sessionPanes = snapshotData?.panes || []
   const { getWindows, setWindows } = useWindowQueryState(activeHostId || '', activeSessionId || '')
   const createWindow = useCreateWindow()
   const batchKillWindows = useBatchKillWindows()
@@ -214,6 +218,8 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
     resetPanelPosition()
     onClose()
   }, [isOpen, onClose, resetPanelPosition])
+
+  useEscapeClose(handleClose, isOpen)
 
   const handleTouchStart = (e: React.TouchEvent) => {
     startYRef.current = e.touches[0].clientY
@@ -453,7 +459,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
       />
       <div
         ref={panelRef}
-        className={`tmuxgo-glass tmuxgo-glass-dialog absolute bottom-0 left-0 right-0 flex max-h-[75%] flex-col overflow-hidden border-t transition-transform duration-200 ease-out ${closing ? 'translate-y-full' : ''}`}
+        className={`tmuxgo-glass tmuxgo-glass-dialog absolute bottom-0 left-0 right-0 flex h-[75%] flex-col overflow-hidden border-t transition-transform duration-200 ease-out ${closing ? 'translate-y-full' : ''}`}
         style={{ paddingBottom: 'env(safe-area-inset-bottom,0px)' }}
       >
         <div
@@ -770,17 +776,20 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
         cancelLabel={t('common.cancel')}
         tone="danger"
         onCancel={() => setPendingDeleteSessionId(null)}
-        onConfirm={() => void confirmDeleteSession()}
+        onConfirm={confirmDeleteSession}
       />
       <ConfirmDialog
         open={batchDeleteConfirmOpen}
         title={t('sidebar.batchDeleteTitle')}
         message={t('sidebar.batchDeleteConfirm', { count: selectedSessionIds.length })}
+        items={sessions
+          .filter((session: any) => selectedSessionIds.includes(session.id))
+          .map((session: any) => session.name)}
         confirmLabel={t('sidebar.batchDeleteSelected')}
         cancelLabel={t('common.cancel')}
         tone="danger"
         onCancel={() => setBatchDeleteConfirmOpen(false)}
-        onConfirm={() => void confirmBatchDeleteSession()}
+        onConfirm={confirmBatchDeleteSession}
       />
       <PromptDialog
         open={newWindowPromptOpen}
@@ -791,18 +800,21 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
         onCancel={() => setNewWindowPromptOpen(false)}
         onConfirm={(value) => {
           setNewWindowName(value)
-          void confirmCreateWindow(value)
+          return confirmCreateWindow(value)
         }}
       />
       <ConfirmDialog
         open={windowBatchDeleteConfirmOpen}
         title={t('window.batchDeleteTitle')}
         message={t('window.batchDeleteConfirm', { count: selectedWindowIds.length })}
+        items={windowsData
+          .filter((window: any) => selectedWindowIds.includes(window.id))
+          .map((window: any) => window.name || `#${window.index}`)}
         confirmLabel={t('window.batchDeleteSelected', { count: selectedWindowIds.length })}
         cancelLabel={t('common.cancel')}
         tone="danger"
         onCancel={() => setWindowBatchDeleteConfirmOpen(false)}
-        onConfirm={() => void handleWindowBatchDelete()}
+        onConfirm={handleWindowBatchDelete}
       />
       {PromptElement}
     </div>

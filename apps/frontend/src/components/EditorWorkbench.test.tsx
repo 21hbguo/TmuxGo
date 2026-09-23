@@ -5,6 +5,7 @@ import { EditorWorkbench } from './EditorWorkbench'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import type { EditorGroupState, EditorLayoutNode, EditorLayoutSplit } from '@/stores/useConsoleStore'
 
+const liveEditors = vi.hoisted(() => new Map<string, any>())
 const resolveDefinitionMock = vi.hoisted(() => vi.fn())
 const openFileInEditorMock = vi.hoisted(() => vi.fn())
 const setScrollTop = vi.fn()
@@ -16,60 +17,120 @@ const monacoMouseDownRef: { current: ((event: any) => void) | null } = { current
 const monacoCursorHandlerRef: { current: ((event: any) => void) | null } = { current: null }
 const editorInstanceMocks = vi.hoisted(() => ({
   setPosition: vi.fn(),
+  setSelection: vi.fn(),
   revealLineInCenter: vi.fn(),
   focus: vi.fn(),
 }))
 vi.mock('@/lib/code-navigation', () => ({
   resolveEditorDefinition: (...args: any[]) => resolveDefinitionMock(...args),
+  warmupCodeNavigation: () => {},
 }))
 vi.mock('@/lib/editor-open', () => ({
   OPEN_EDITOR_LOCATION_EVENT: 'tmuxgo-open-editor-location',
   openFileInEditor: (...args: any[]) => openFileInEditorMock(...args),
 }))
-vi.mock('@/lib/dynamic', () => ({
-  default: (loader: any) =>
-    loader.toString().includes('mod.DiffEditor')
-      ? (props: any) => {
+vi.mock('@/lib/dynamic', async () => {
+  // CsvTable 也走 dynamic()：返回真实组件，其余 monaco loader 维持原有替身
+  const { CsvTable } = await import('./CsvTable')
+  // 有状态 Monaco 替身：每个 path 一个存活实例，保留光标/选区/滚动与行内容，支持 dispose→remount
+  const MonacoStub = ({ value, onChange, onMount, path }: any) => {
+    const valueRef = React.useRef(value)
+    valueRef.current = value
+    React.useEffect(() => {
+      let position = { lineNumber: 1, column: 1 }
+      let selection: any = null
+      let scrollTop = 0
+      let scrollLeft = 0
+      let cursorHandler: ((event: any) => void) | undefined
+      let scrollHandler: ((event: any) => void) | undefined
+      const disposalHandlers: (() => void)[] = []
+      const instance = {
+        getPosition: () => ({ ...position }),
+        setPosition: (next: any) => {
+          position = { lineNumber: next.lineNumber, column: next.column }
+          editorInstanceMocks.setPosition(next)
+          cursorHandler?.({ position })
+        },
+        getSelection: () => (selection ? { ...selection } : null),
+        setSelection: (next: any) => {
+          selection = { ...next }
+          position = { lineNumber: next.endLineNumber, column: next.endColumn }
+          editorInstanceMocks.setSelection(next)
+          cursorHandler?.({ position })
+        },
+        getScrollTop: () => scrollTop,
+        setScrollTop: (next: number) => {
+          scrollTop = next
+          setScrollTop(next)
+          scrollHandler?.({ scrollTop, scrollLeft })
+        },
+        getScrollLeft: () => scrollLeft,
+        setScrollLeft: (next: number) => {
+          scrollLeft = next
+          setScrollLeft(next)
+          scrollHandler?.({ scrollTop, scrollLeft })
+        },
+        getModel: () => ({
+          getLineCount: () => valueRef.current.split('\n').length,
+          getLineMaxColumn: (line: number) => (valueRef.current.split('\n')[line - 1] || '').length + 1,
+        }),
+        revealPositionInCenter: vi.fn(),
+        revealLineInCenter: (line: number) => editorInstanceMocks.revealLineInCenter(line),
+        focus: () => editorInstanceMocks.focus(),
+        onDidChangeCursorPosition: (handler: (event: any) => void) => {
+          cursorHandler = (event: any) => {
+            position = { ...event.position }
+            handler(event)
+          }
+          monacoCursorHandlerRef.current = cursorHandler
+          return { dispose: vi.fn() }
+        },
+        onDidScrollChange: (handler: (event: any) => void) => {
+          scrollHandler = handler
+          return { dispose: vi.fn() }
+        },
+        onDidDispose: (handler: () => void) => {
+          disposalHandlers.push(handler)
+          return { dispose: vi.fn() }
+        },
+        onMouseDown: (handler: (event: any) => void) => {
+          monacoMouseDownRef.current = handler
+          return { dispose: vi.fn() }
+        },
+        getAction: vi.fn(() => ({ run: vi.fn() })),
+      }
+      liveEditors.set(path, instance)
+      onMount?.(instance)
+      return () => {
+        disposalHandlers.forEach((handler) => handler())
+        liveEditors.delete(path)
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
+    return React.createElement('textarea', {
+      'aria-label': 'editor',
+      value,
+      onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => onChange?.(event.target.value),
+      onDrop: (event: React.DragEvent<HTMLTextAreaElement>) => {
+        if (event.defaultPrevented) return
+        const text = event.dataTransfer?.getData('text/plain') || ''
+        if (text) onChange?.(`${value}${text}`)
+      },
+    })
+  }
+  return {
+    default: (loader: any) => {
+      const src = loader.toString()
+      if (src.includes('mod.DiffEditor'))
+        return (props: any) => {
           diffPropsRef.current.push(props)
           return React.createElement('div', { 'data-testid': 'diff-editor' })
         }
-      : ({ value, onChange, onMount }: any) => {
-          const mountedRef = React.useRef(false)
-          React.useEffect(() => {
-            if (mountedRef.current) return
-            mountedRef.current = true
-            onMount?.({
-              getScrollTop,
-              setScrollTop,
-              getScrollLeft,
-              setScrollLeft,
-              onDidChangeCursorPosition: (handler: (event: any) => void) => {
-                monacoCursorHandlerRef.current = handler
-                return { dispose: vi.fn() }
-              },
-              onMouseDown: (handler: (event: any) => void) => {
-                monacoMouseDownRef.current = handler
-                return { dispose: vi.fn() }
-              },
-              getAction: vi.fn(() => ({ run: vi.fn() })),
-              getPosition: vi.fn(() => ({ lineNumber: 1, column: 1 })),
-              setPosition: editorInstanceMocks.setPosition,
-              revealLineInCenter: editorInstanceMocks.revealLineInCenter,
-              focus: editorInstanceMocks.focus,
-            })
-          }, [onMount])
-          return React.createElement('textarea', {
-            'aria-label': 'editor',
-            value,
-            onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => onChange?.(event.target.value),
-            onDrop: (event: React.DragEvent<HTMLTextAreaElement>) => {
-              if (event.defaultPrevented) return
-              const text = event.dataTransfer?.getData('text/plain') || ''
-              if (text) onChange?.(`${value}${text}`)
-            },
-          })
-        },
-}))
+      if (src.includes('CsvTable')) return (props: any) => React.createElement(CsvTable, props)
+      return MonacoStub
+    },
+  }
+})
 vi.mock('@monaco-editor/react', () => ({
   default: () => null,
   DiffEditor: () => null,
@@ -95,6 +156,9 @@ vi.mock('@/i18n', () => ({
       if (key === 'editor.saving') return 'Saving'
       if (key === 'common.confirm') return 'Confirm'
       if (key === 'common.cancel') return 'Cancel'
+      if (key === 'common.retry') return 'Retry'
+      if (key === 'common.close') return 'Close'
+      if (key === 'editor.saveFailedKept') return 'Save failed; changes are kept'
       return key
     },
   }),
@@ -271,7 +335,9 @@ describe('EditorWorkbench', () => {
     })
     monacoMouseDownRef.current = null
     monacoCursorHandlerRef.current = null
+    liveEditors.clear()
     editorInstanceMocks.setPosition.mockReset()
+    editorInstanceMocks.setSelection.mockReset()
     editorInstanceMocks.revealLineInCenter.mockReset()
     editorInstanceMocks.focus.mockReset()
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => window.setTimeout(() => cb(0), 0))
@@ -324,6 +390,55 @@ describe('EditorWorkbench', () => {
     })
   }
 
+  // 导航验收基线：A/B 同组，opener 派发真实 location 事件，resolver 可控
+  function setupNavigationReview() {
+    const content = Array.from({ length: 100 }, (_, index) => `// line ${index + 1} -------------------`).join('\n')
+    const source = { ...editor1, content }
+    const target = { ...editor2, content }
+    setWorkbenchState({
+      openEditors: [source, target],
+      activeEditorId: source.id,
+      editorGroups: [createGroup('group-1', [source.id, target.id], source.id)],
+      editorLayout: createLeaf('layout-1', 'group-1'),
+      activeEditorGroupId: 'group-1',
+    })
+    openFileInEditorMock.mockImplementation(async (file: any, options: any) => {
+      useConsoleStore.getState().setActiveEditor(file.id)
+      window.dispatchEvent(
+        new CustomEvent('tmuxgo-open-editor-location', {
+          detail: { editorId: file.id, ...options?.position, restore: options?.restore },
+        }),
+      )
+      return file.id
+    })
+    resolveDefinitionMock.mockResolvedValue({
+      status: 'success',
+      target: { ...target, type: 'file', line: 60, column: 10 },
+    })
+    const view = renderWorkbench()
+    return { source, target, view }
+  }
+  const advanceNavigation = async (ms = 20) => {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ms)
+    })
+  }
+
+  it('shows in-place retry after save failure while keeping dirty content', () => {
+    const onSaveEditor = vi.fn(async () => {})
+    useConsoleStore.setState({
+      openEditors: [{ ...editor1, content: 'const value=2', dirty: true, saveError: 'network down' }],
+    } as any)
+    renderWorkbench({ onSaveEditor })
+    expect(screen.getByText(/Save failed; changes are kept/)).toBeTruthy()
+    expect(screen.getByText(/network down/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(onSaveEditor).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    expect(screen.queryByText(/Save failed; changes are kept/)).toBeNull()
+    expect(useConsoleStore.getState().openEditors[0]?.saveError).toBeUndefined()
+    expect(useConsoleStore.getState().openEditors[0]?.dirty).toBe(true)
+  })
   it('closes the active editor on ctrl+w', () => {
     renderWorkbench()
     fireEvent.keyDown(window, { key: 'w', ctrlKey: true })
@@ -1362,5 +1477,221 @@ describe('EditorWorkbench', () => {
     expect(html).toContain('<p data-line="4">中</p>')
     expect(html).toContain('<pre data-line="6"><code class="language-ts">const a = 1\n\n\nconst b = 2')
     expect(html).toContain('<br><p data-line="14">后</p>')
+  })
+
+  it.each([
+    {
+      name: 'Alt+Left',
+      trigger: () => fireEvent.keyDown(window, { key: 'ArrowLeft', altKey: true }),
+    },
+    {
+      name: 'the Back button',
+      trigger: () => fireEvent.click(screen.getByRole('button', { name: 'Back' })),
+    },
+  ])('a stale definition result does not navigate or pollute history after $name', async ({ trigger }) => {
+    const { source, target } = setupNavigationReview()
+    act(() => liveEditors.get(source.absolutePath).setPosition({ lineNumber: 22, column: 4 }))
+    fireEvent.keyDown(window, { key: 'F12' })
+    await advanceNavigation()
+    expect(liveEditors.get(target.absolutePath).getPosition()).toEqual({ lineNumber: 60, column: 10 })
+    let finish: any
+    resolveDefinitionMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+    )
+    fireEvent.keyDown(window, { key: 'F12' })
+    trigger()
+    await advanceNavigation()
+    expect(useConsoleStore.getState().activeEditorId).toBe(source.id)
+    expect(liveEditors.get(source.absolutePath).getPosition()).toEqual({ lineNumber: 22, column: 4 })
+    await act(async () => {
+      finish({ status: 'success', target: { ...target, type: 'file', line: 90, column: 10 } })
+      await vi.advanceTimersByTimeAsync(20)
+    })
+    expect(useConsoleStore.getState().activeEditorId).toBe(source.id)
+    expect(liveEditors.get(source.absolutePath).getPosition()).toEqual({ lineNumber: 22, column: 4 })
+    // 历史栈未被旧结果污染：Forward 仍回到离开 B 时的 60:10
+    fireEvent.keyDown(window, { key: 'ArrowRight', altKey: true })
+    await advanceNavigation()
+    expect(useConsoleStore.getState().activeEditorId).toBe(target.id)
+    expect(liveEditors.get(target.absolutePath).getPosition()).toEqual({ lineNumber: 60, column: 10 })
+  })
+  it('a stale definition result does not steal focus after a manual tab switch', async () => {
+    const { target } = setupNavigationReview()
+    let finish: any
+    resolveDefinitionMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+    )
+    fireEvent.keyDown(window, { key: 'F12' })
+    fireEvent.click(screen.getByRole('button', { name: 'other.ts' }))
+    await advanceNavigation()
+    expect(useConsoleStore.getState().activeEditorId).toBe(target.id)
+    await act(async () => {
+      finish({ status: 'success', target: { ...editor3, type: 'file', line: 90, column: 10 } })
+      await vi.advanceTimersByTimeAsync(20)
+    })
+    expect(useConsoleStore.getState().activeEditorId).toBe(target.id)
+    expect(openFileInEditorMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ id: editor3.id }),
+      expect.anything(),
+    )
+  })
+  it('a stale definition result does not reopen a closed source file', async () => {
+    const { target } = setupNavigationReview()
+    let finish: any
+    resolveDefinitionMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+    )
+    fireEvent.keyDown(window, { key: 'F12' })
+    act(() => useConsoleStore.getState().closeEditor('editor-1'))
+    await act(async () => {
+      finish({ status: 'success', target: { ...target, type: 'file', line: 90, column: 10 } })
+      await vi.advanceTimersByTimeAsync(20)
+    })
+    // 旧结果不得发起导航：target 被 store 正常激活而非旧结果跳转，落位也不会到 90:10
+    expect(openFileInEditorMock).not.toHaveBeenCalledWith(expect.objectContaining({ id: target.id }), expect.anything())
+    expect(liveEditors.get(target.absolutePath).getPosition()).toEqual({ lineNumber: 1, column: 1 })
+  })
+  it('a stale definition result does not navigate after the workbench unmounts', async () => {
+    const { target, view } = setupNavigationReview()
+    let finish: any
+    resolveDefinitionMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+    )
+    fireEvent.keyDown(window, { key: 'F12' })
+    view.unmount()
+    await act(async () => {
+      finish({ status: 'success', target: { ...target, type: 'file', line: 90, column: 10 } })
+      await vi.advanceTimersByTimeAsync(20)
+    })
+    expect(openFileInEditorMock).not.toHaveBeenCalledWith(expect.objectContaining({ id: target.id }), expect.anything())
+  })
+  it('keeps the back entry when the target file fails to open', async () => {
+    const { source, target } = setupNavigationReview()
+    act(() => liveEditors.get(source.absolutePath).setPosition({ lineNumber: 22, column: 4 }))
+    fireEvent.keyDown(window, { key: 'F12' })
+    await advanceNavigation()
+    expect(useConsoleStore.getState().activeEditorId).toBe(target.id)
+    openFileInEditorMock.mockImplementationOnce(async (file: any, options: any) => {
+      useConsoleStore.getState().setActiveEditor(file.id)
+      options?.onError?.('read failed')
+      return file.id
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    await advanceNavigation()
+    // 打开失败：back 栈回滚可重试，forward 不残留
+    expect(screen.getByRole('button', { name: 'Forward' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Back' })).not.toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    await advanceNavigation()
+    expect(useConsoleStore.getState().activeEditorId).toBe(source.id)
+    expect(liveEditors.get(source.absolutePath).getPosition()).toEqual({ lineNumber: 22, column: 4 })
+  })
+  it('a stale pending location does not override the user cursor after a quick remount', async () => {
+    const { source, target } = setupNavigationReview()
+    act(() =>
+      window.dispatchEvent(
+        new CustomEvent('tmuxgo-open-editor-location', { detail: { editorId: source.id, line: 33, column: 3 } }),
+      ),
+    )
+    await advanceNavigation()
+    expect(liveEditors.get(source.absolutePath).getPosition()).toEqual({ lineNumber: 33, column: 3 })
+    act(() => liveEditors.get(source.absolutePath).setPosition({ lineNumber: 44, column: 5 }))
+    act(() => useConsoleStore.getState().setActiveEditor(target.id))
+    act(() => useConsoleStore.getState().setActiveEditor(source.id))
+    expect(liveEditors.get(source.absolutePath).getPosition()).toEqual({ lineNumber: 44, column: 5 })
+  })
+  it('re-applies the landed position when a remount belongs to the same navigation', async () => {
+    const { source, target } = setupNavigationReview()
+    act(() =>
+      window.dispatchEvent(
+        new CustomEvent('tmuxgo-open-editor-location', { detail: { editorId: source.id, line: 33, column: 3 } }),
+      ),
+    )
+    await advanceNavigation()
+    expect(liveEditors.get(source.absolutePath).getPosition()).toEqual({ lineNumber: 33, column: 3 })
+    act(() => useConsoleStore.getState().setActiveEditor(target.id))
+    act(() => useConsoleStore.getState().setActiveEditor(source.id))
+    expect(liveEditors.get(source.absolutePath).getPosition()).toEqual({ lineNumber: 33, column: 3 })
+  })
+  it('applies a pending location once the target finishes loading', async () => {
+    const content = Array.from({ length: 100 }, (_, index) => `// line ${index + 1}`).join('\n')
+    const loadingEditor = createEditor('editor-loading', 'src/loading.ts', '', { loading: true })
+    setWorkbenchState({
+      openEditors: [editor1, loadingEditor],
+      activeEditorId: editor1.id,
+      editorGroups: [createGroup('group-1', [editor1.id, loadingEditor.id], editor1.id)],
+      editorLayout: createLeaf('layout-1', 'group-1'),
+      activeEditorGroupId: 'group-1',
+    })
+    renderWorkbench()
+    act(() =>
+      window.dispatchEvent(
+        new CustomEvent('tmuxgo-open-editor-location', { detail: { editorId: loadingEditor.id, line: 77, column: 2 } }),
+      ),
+    )
+    await advanceNavigation()
+    expect(useConsoleStore.getState().activeEditorId).toBe(loadingEditor.id)
+    expect(liveEditors.has(loadingEditor.absolutePath)).toBe(false)
+    act(() => useConsoleStore.getState().setEditorLoaded(loadingEditor.id, { loading: false, content }))
+    await advanceNavigation()
+    expect(liveEditors.get(loadingEditor.absolutePath).getPosition()).toEqual({ lineNumber: 77, column: 2 })
+  })
+  it('clamps a pending location column to the model line range', async () => {
+    renderWorkbench()
+    act(() =>
+      window.dispatchEvent(
+        new CustomEvent('tmuxgo-open-editor-location', { detail: { editorId: editor1.id, line: 1, column: 99 } }),
+      ),
+    )
+    await advanceNavigation()
+    // 'const value=1' 行宽 13，列钳到 maxColumn 14
+    expect(liveEditors.get(editor1.absolutePath).getPosition()).toEqual({ lineNumber: 1, column: 14 })
+  })
+  it('restores selection and scroll on Back without forcing the line to center', async () => {
+    const { source, target } = setupNavigationReview()
+    const sourceInstance = liveEditors.get(source.absolutePath)
+    act(() => {
+      sourceInstance.setPosition({ lineNumber: 22, column: 4 })
+      sourceInstance.setSelection({
+        startLineNumber: 22,
+        startColumn: 4,
+        endLineNumber: 25,
+        endColumn: 2,
+      })
+      sourceInstance.setScrollTop(200)
+      sourceInstance.setScrollLeft(30)
+    })
+    fireEvent.keyDown(window, { key: 'F12' })
+    await advanceNavigation()
+    const targetInstance = liveEditors.get(target.absolutePath)
+    expect(targetInstance.getPosition()).toEqual({ lineNumber: 60, column: 10 })
+    expect(targetInstance.revealPositionInCenter).toHaveBeenCalled()
+    fireEvent.keyDown(window, { key: 'ArrowLeft', altKey: true })
+    await advanceNavigation()
+    expect(useConsoleStore.getState().activeEditorId).toBe(source.id)
+    const remounted = liveEditors.get(source.absolutePath)
+    expect(remounted).not.toBe(sourceInstance)
+    expect(remounted.getPosition()).toEqual({ lineNumber: 25, column: 2 })
+    expect(remounted.getSelection()).toEqual({
+      startLineNumber: 22,
+      startColumn: 4,
+      endLineNumber: 25,
+      endColumn: 2,
+    })
+    expect(remounted.getScrollTop()).toBe(200)
+    expect(remounted.getScrollLeft()).toBe(30)
+    expect(remounted.revealPositionInCenter).not.toHaveBeenCalled()
   })
 })

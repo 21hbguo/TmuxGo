@@ -8,6 +8,7 @@ import { useTranslation } from '@/i18n'
 import { useSessionContinuity } from '@/hooks/useSessionContinuity'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useClipboard } from '@/hooks/useClipboard'
+import { useEscapeClose } from '@/hooks/useEscapeClose'
 import { useAppVersion } from '@/hooks/useAppVersion'
 import { APP_BUILD_ID, APP_NAME, APP_VERSION } from '@/lib/app-version'
 import { api, type ShareLink } from '@/lib/api'
@@ -51,6 +52,7 @@ const THEME_PREVIEW: Record<string, { bg: string; accent: string; fg: string }> 
 }
 
 export function Settings({ onClose }: SettingsProps) {
+  useEscapeClose(onClose)
   const { preferences, updatePreferences, resetPreferences } = usePreferences()
   const { sessionContinuity, updateSessionContinuity } = useSessionContinuity()
   const { t } = useTranslation()
@@ -668,6 +670,28 @@ export function Settings({ onClose }: SettingsProps) {
                   </div>
                 </div>
               </div>
+
+              <div>
+                <h3 className="text-text-1 text-sm font-medium mb-3">{t('settings.editor')}</h3>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-text-2 text-sm">{t('settings.editorWheelScrollLines')}</span>
+                    <Select
+                      value={String(preferences.editorWheelScrollLines ?? 0)}
+                      onChange={(v) => updatePreferences({ editorWheelScrollLines: Number(v) })}
+                      options={[
+                        { value: '0', label: t('settings.editorWheelScrollLines.auto') },
+                        ...[1, 2, 3, 4, 5, 6, 8, 10].map((lines) => ({
+                          value: String(lines),
+                          label: t('settings.lines', { count: lines }),
+                        })),
+                      ]}
+                      className="rounded-apple px-3 py-1.5 text-sm"
+                      aria-label={t('settings.editorWheelScrollLines')}
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
@@ -1263,7 +1287,7 @@ export function Settings({ onClose }: SettingsProps) {
         confirmLabel={t('common.confirm')}
         cancelLabel={t('common.cancel')}
         onCancel={() => setRestartConfirmOpen(false)}
-        onConfirm={() => void triggerRestartRebuild()}
+        onConfirm={triggerRestartRebuild}
       />
       <ConfirmDialog
         open={updateConfirmOpen}
@@ -1272,7 +1296,7 @@ export function Settings({ onClose }: SettingsProps) {
         confirmLabel={t('common.confirm')}
         cancelLabel={t('common.cancel')}
         onCancel={() => setUpdateConfirmOpen(false)}
-        onConfirm={() => void triggerAppUpdate()}
+        onConfirm={triggerAppUpdate}
       />
       {showAuditLog && <AuditLog onClose={() => setShowAuditLog(false)} />}
     </div>

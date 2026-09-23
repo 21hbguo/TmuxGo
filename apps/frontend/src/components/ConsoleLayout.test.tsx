@@ -4,8 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConsoleLayout } from './ConsoleLayout'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 
-let snapshotDataMock:any={ windows: [], panes: [], activePaneId: null }
-let sessionsDataMock:any[]=[]
+let snapshotDataMock: any = { windows: [], panes: [], activePaneId: null }
+let sessionsDataMock: any[] = []
 const renameSessionMock = vi.fn()
 const deleteSessionMock = vi.fn()
 
@@ -14,9 +14,20 @@ vi.mock('./PaneGrid', () => ({ PaneGrid: () => React.createElement('div') }))
 vi.mock('./StatusBar', () => ({ StatusBar: () => React.createElement('div') }))
 vi.mock('./CommandPalette', () => ({ CommandPalette: () => React.createElement('div') }))
 vi.mock('./ClipboardController', () => ({ ClipboardController: () => React.createElement('div') }))
-vi.mock('./MobileNav', () => ({ MobileNav: ({ onOpenFiles, onOpenGit }: { onOpenFiles: () => void; onOpenGit: () => void }) => React.createElement(React.Fragment, null, React.createElement('button', { onClick: onOpenFiles }, 'open-files'), React.createElement('button', { onClick: onOpenGit }, 'open-git')) }))
+vi.mock('./MobileNav', () => ({
+  MobileNav: ({ onOpenFiles, onOpenGit }: { onOpenFiles: () => void; onOpenGit: () => void }) =>
+    React.createElement(
+      React.Fragment,
+      null,
+      React.createElement('button', { onClick: onOpenFiles }, 'open-files'),
+      React.createElement('button', { onClick: onOpenGit }, 'open-git'),
+    ),
+}))
 vi.mock('./MobileDrawer', () => ({ MobileDrawer: () => React.createElement('div') }))
-vi.mock('./Settings', () => ({ Settings: ({ onClose }: { onClose: () => void }) => React.createElement('button', { onClick: onClose }, 'close-settings') }))
+vi.mock('./Settings', () => ({
+  Settings: ({ onClose }: { onClose: () => void }) =>
+    React.createElement('button', { onClick: onClose }, 'close-settings'),
+}))
 vi.mock('./InstallAppBanner', () => ({ InstallAppBanner: () => React.createElement('div') }))
 vi.mock('./ShortcutBar', () => ({ ShortcutBar: () => React.createElement('div', null, 'shortcut-bar') }))
 vi.mock('./ToastViewport', () => ({ ToastViewport: () => React.createElement('div') }))
@@ -25,8 +36,23 @@ vi.mock('./UploadConfirmDialog', () => ({ UploadConfirmDialog: () => React.creat
 vi.mock('./UploadQueue', () => ({ UploadQueue: () => React.createElement('div') }))
 vi.mock('./AppVersionGuard', () => ({ AppVersionGuard: () => React.createElement('div') }))
 vi.mock('./DesktopWorkbench', () => ({ DesktopWorkbench: () => React.createElement('div') }))
-vi.mock('./PluginView', () => ({ PluginView: ({ pluginId, viewId }: { pluginId: string; viewId: string }) => React.createElement('div', null, `plugin-view:${pluginId}:${viewId}`) }))
-vi.mock('./GitPanel', () => ({ GitPanel: () => React.createElement('div', null, 'mobile-git-panel', React.createElement('button', { onClick: () => window.dispatchEvent(new CustomEvent('tmuxgo-mobile-git-push-level')) }, 'open-git-detail')) }))
+vi.mock('./PluginView', () => ({
+  PluginView: ({ pluginId, viewId }: { pluginId: string; viewId: string }) =>
+    React.createElement('div', null, `plugin-view:${pluginId}:${viewId}`),
+}))
+vi.mock('./GitPanel', () => ({
+  GitPanel: () =>
+    React.createElement(
+      'div',
+      null,
+      'mobile-git-panel',
+      React.createElement(
+        'button',
+        { onClick: () => window.dispatchEvent(new CustomEvent('tmuxgo-mobile-git-push-level')) },
+        'open-git-detail',
+      ),
+    ),
+}))
 vi.mock('@/hooks/usePreferences', () => ({ usePreferences: () => ({ preferences: { showStatusBar: false } }) }))
 vi.mock('@/hooks/useApi', () => ({
   useHosts: () => ({ data: [{ id: 'local', name: 'Local', address: '127.0.0.1', status: 'online', tags: [] }] }),
@@ -42,16 +68,30 @@ vi.mock('@/hooks/usePrompt', () => ({
   usePrompt: () => ({ prompt: vi.fn(), PromptElement: null }),
 }))
 vi.mock('./FilePanel', () => ({
-  FilePanel: () => React.createElement('div', null,
-    React.createElement('button', { onClick: () => window.dispatchEvent(new CustomEvent('tmuxgo-mobile-files-push-level')) }, 'push-level'),
-    React.createElement('button', { onClick: () => window.dispatchEvent(new CustomEvent('tmuxgo-mobile-files-back', { detail: { handled: true } })) }, 'consume-back'),
-  ),
+  FilePanel: () =>
+    React.createElement(
+      'div',
+      null,
+      React.createElement(
+        'button',
+        { onClick: () => window.dispatchEvent(new CustomEvent('tmuxgo-mobile-files-push-level')) },
+        'push-level',
+      ),
+      React.createElement(
+        'button',
+        {
+          onClick: () =>
+            window.dispatchEvent(new CustomEvent('tmuxgo-mobile-files-back', { detail: { handled: true } })),
+        },
+        'consume-back',
+      ),
+    ),
 }))
 
 describe('ConsoleLayout mobile files overlay stack', () => {
   beforeEach(() => {
-    snapshotDataMock={ windows: [], panes: [], activePaneId: null }
-    sessionsDataMock=[]
+    snapshotDataMock = { windows: [], panes: [], activePaneId: null }
+    sessionsDataMock = []
     renameSessionMock.mockReset()
     deleteSessionMock.mockReset()
     window.localStorage.clear()
@@ -81,12 +121,15 @@ describe('ConsoleLayout mobile files overlay stack', () => {
     })
   })
   it('restores active pane from snapshot after switching session', async () => {
-    sessionsDataMock=[{ id:'session-a',name:'A' },{ id:'session-b',name:'B' }]
-    snapshotDataMock={ windows: [], panes: [{ id: 'pane-a', active: true }], activePaneId: 'pane-a' }
+    sessionsDataMock = [
+      { id: 'session-a', name: 'A' },
+      { id: 'session-b', name: 'B' },
+    ]
+    snapshotDataMock = { windows: [], panes: [{ id: 'pane-a', active: true }], activePaneId: 'pane-a' }
     useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-a', activePaneId: 'pane-a' } as any)
-    const view=render(React.createElement(ConsoleLayout, { initialIsMobile: false }))
+    const view = render(React.createElement(ConsoleLayout, { initialIsMobile: false }))
     await waitFor(() => expect(useConsoleStore.getState().activePaneId).toBe('pane-a'))
-    snapshotDataMock={ windows: [], panes: [{ id: 'pane-b', active: true }], activePaneId: 'pane-b' }
+    snapshotDataMock = { windows: [], panes: [{ id: 'pane-b', active: true }], activePaneId: 'pane-b' }
     useConsoleStore.getState().setActiveSession('session-b')
     expect(useConsoleStore.getState().activePaneId).toBeNull()
     view.rerender(React.createElement(ConsoleLayout, { initialIsMobile: false }))
@@ -130,14 +173,14 @@ describe('ConsoleLayout mobile files overlay stack', () => {
   it('opens and closes the mobile Git sheet from the bottom navigation', async () => {
     render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
     fireEvent.click(screen.getByText('open-git'))
-    expect(screen.getByText('mobile-git-panel')).toBeTruthy()
+    expect(await screen.findByText('mobile-git-panel')).toBeTruthy()
     window.dispatchEvent(new PopStateEvent('popstate'))
     await waitFor(() => expect(screen.queryByText('mobile-git-panel')).toBeNull())
   })
   it('returns from a mobile Git commit before closing the Git sheet', async () => {
     render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
     fireEvent.click(screen.getByText('open-git'))
-    fireEvent.click(screen.getByText('open-git-detail'))
+    fireEvent.click(await screen.findByText('open-git-detail'))
     window.dispatchEvent(new PopStateEvent('popstate'))
     expect(screen.getByText('mobile-git-panel')).toBeTruthy()
     window.dispatchEvent(new PopStateEvent('popstate'))
@@ -156,13 +199,19 @@ describe('ConsoleLayout mobile files overlay stack', () => {
   it('closes desktop settings when opening a plugin view', async () => {
     Object.defineProperty(window, 'matchMedia', {
       writable: true,
-      value: vi.fn().mockImplementation(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+      value: vi
+        .fn()
+        .mockImplementation(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
     })
     vi.spyOn(window.history, 'back').mockImplementation(() => {})
     render(React.createElement(ConsoleLayout, { initialIsMobile: false }))
     act(() => window.dispatchEvent(new CustomEvent('tmuxgo-open-settings')))
     await screen.findByText('close-settings')
-    act(() => window.dispatchEvent(new CustomEvent('tmuxgo-open-plugin-view', { detail: { pluginId: 'test.plugin', viewId: 'main' } })))
+    act(() =>
+      window.dispatchEvent(
+        new CustomEvent('tmuxgo-open-plugin-view', { detail: { pluginId: 'test.plugin', viewId: 'main' } }),
+      ),
+    )
     await waitFor(() => expect(screen.queryByText('close-settings')).toBeNull())
     expect(useConsoleStore.getState().activePluginView).toEqual({ pluginId: 'test.plugin', viewId: 'main' })
   })
@@ -170,7 +219,11 @@ describe('ConsoleLayout mobile files overlay stack', () => {
     render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
     act(() => window.dispatchEvent(new CustomEvent('tmuxgo-open-settings')))
     await screen.findByText('close-settings')
-    act(() => window.dispatchEvent(new CustomEvent('tmuxgo-open-plugin-view', { detail: { pluginId: 'test.plugin', viewId: 'main' } })))
+    act(() =>
+      window.dispatchEvent(
+        new CustomEvent('tmuxgo-open-plugin-view', { detail: { pluginId: 'test.plugin', viewId: 'main' } }),
+      ),
+    )
     await screen.findByText('plugin-view:test.plugin:main')
     expect(screen.queryByText('close-settings')).toBeNull()
     act(() => window.dispatchEvent(new PopStateEvent('popstate')))
@@ -198,14 +251,24 @@ describe('ConsoleLayout mobile files overlay stack', () => {
     nowSpy.mockReturnValue(1_000_000)
     render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
     expect(pushStateSpy).toHaveBeenCalledWith({ tmuxgoRoot: true }, '')
-    const rootPushes = pushStateSpy.mock.calls.filter((call) => (call[0] as { tmuxgoRoot?: boolean } | null)?.tmuxgoRoot).length
+    const rootPushes = pushStateSpy.mock.calls.filter(
+      (call) => (call[0] as { tmuxgoRoot?: boolean } | null)?.tmuxgoRoot,
+    ).length
     window.dispatchEvent(new PopStateEvent('popstate'))
-    expect(pushStateSpy.mock.calls.filter((call) => (call[0] as { tmuxgoRoot?: boolean } | null)?.tmuxgoRoot).length).toBe(rootPushes + 1)
-    expect(useConsoleStore.getState().toasts.some((toast) => toast.message === 'common.pressBackAgainToExit')).toBe(true)
-    const afterFirst = pushStateSpy.mock.calls.filter((call) => (call[0] as { tmuxgoRoot?: boolean } | null)?.tmuxgoRoot).length
+    expect(
+      pushStateSpy.mock.calls.filter((call) => (call[0] as { tmuxgoRoot?: boolean } | null)?.tmuxgoRoot).length,
+    ).toBe(rootPushes + 1)
+    expect(useConsoleStore.getState().toasts.some((toast) => toast.message === 'common.pressBackAgainToExit')).toBe(
+      true,
+    )
+    const afterFirst = pushStateSpy.mock.calls.filter(
+      (call) => (call[0] as { tmuxgoRoot?: boolean } | null)?.tmuxgoRoot,
+    ).length
     nowSpy.mockReturnValue(1_000_500)
     window.dispatchEvent(new PopStateEvent('popstate'))
-    expect(pushStateSpy.mock.calls.filter((call) => (call[0] as { tmuxgoRoot?: boolean } | null)?.tmuxgoRoot).length).toBe(afterFirst + 1)
+    expect(
+      pushStateSpy.mock.calls.filter((call) => (call[0] as { tmuxgoRoot?: boolean } | null)?.tmuxgoRoot).length,
+    ).toBe(afterFirst + 1)
   })
   it('adds a history level when opening the mobile session drawer from new session', () => {
     const pushStateSpy = vi.spyOn(window.history, 'pushState')
@@ -214,7 +277,10 @@ describe('ConsoleLayout mobile files overlay stack', () => {
     expect(pushStateSpy).toHaveBeenCalledWith({ overlay: 'drawer' }, '')
   })
   it('renders up to available sessions when fewer than five exist', async () => {
-    sessionsDataMock=[{ id:'session-a',name:'alpha' },{ id:'session-b',name:'beta' }]
+    sessionsDataMock = [
+      { id: 'session-a', name: 'alpha' },
+      { id: 'session-b', name: 'beta' },
+    ]
     useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-a' } as any)
     render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
     await waitFor(() => expect(screen.getByRole('button', { name: 'alpha' })).toBeTruthy())
@@ -229,16 +295,16 @@ describe('ConsoleLayout mobile files overlay stack', () => {
     expect(screen.queryByRole('button', { name: 'gamma' })).toBeNull()
   })
   it('limits quick session bar to five most recent sessions and keeps it visible above shortcut bar', async () => {
-    sessionsDataMock=[
-      { id:'session-a',name:'alpha' },
-      { id:'session-b',name:'beta' },
-      { id:'session-c',name:'gamma' },
-      { id:'session-d',name:'delta' },
-      { id:'session-e',name:'epsilon' },
-      { id:'session-f',name:'zeta' },
+    sessionsDataMock = [
+      { id: 'session-a', name: 'alpha' },
+      { id: 'session-b', name: 'beta' },
+      { id: 'session-c', name: 'gamma' },
+      { id: 'session-d', name: 'delta' },
+      { id: 'session-e', name: 'epsilon' },
+      { id: 'session-f', name: 'zeta' },
     ]
     useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-a' } as any)
-    const view=render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
+    const view = render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
     await waitFor(() => expect(screen.getByRole('button', { name: 'alpha' })).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: 'epsilon' }))
     view.rerender(React.createElement(ConsoleLayout, { initialIsMobile: true }))
@@ -261,7 +327,7 @@ describe('ConsoleLayout mobile files overlay stack', () => {
     fireEvent.pointerUp(epsilonButton, { pointerId: 1, pointerType: 'touch' })
   })
   it('opens quick session menu from context menu and can jump to sessions drawer', async () => {
-    sessionsDataMock=[{ id:'session-a',name:'alpha' }]
+    sessionsDataMock = [{ id: 'session-a', name: 'alpha' }]
     useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-a' } as any)
     render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
     const sessionButton = await screen.findByRole('button', { name: 'alpha' })
@@ -270,16 +336,16 @@ describe('ConsoleLayout mobile files overlay stack', () => {
     fireEvent.click(screen.getByText('nav.sessions'))
   })
   it('keeps pinned quick sessions ahead of recent sessions', async () => {
-    sessionsDataMock=[
-      { id:'session-a',name:'alpha' },
-      { id:'session-b',name:'beta' },
-      { id:'session-c',name:'gamma' },
-      { id:'session-d',name:'delta' },
-      { id:'session-e',name:'epsilon' },
-      { id:'session-f',name:'zeta' },
+    sessionsDataMock = [
+      { id: 'session-a', name: 'alpha' },
+      { id: 'session-b', name: 'beta' },
+      { id: 'session-c', name: 'gamma' },
+      { id: 'session-d', name: 'delta' },
+      { id: 'session-e', name: 'epsilon' },
+      { id: 'session-f', name: 'zeta' },
     ]
     useConsoleStore.setState({ activeHostId: 'local', activeSessionId: 'session-a' } as any)
-    const view=render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
+    const view = render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
     const betaButton = await screen.findByRole('button', { name: 'beta' })
     fireEvent.contextMenu(betaButton)
     fireEvent.click(screen.getByText('mobile.quickSessionPin'))

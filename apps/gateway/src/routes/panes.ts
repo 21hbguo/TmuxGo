@@ -3,7 +3,12 @@ import { assertTargetAllowed } from '../lib/tmux-policy.js'
 import { execTmux } from '../lib/tmux-executor.js'
 import { markAgentPaneSeen } from '../lib/agent-state.js'
 import { agentMonitor } from '../lib/agent-monitor.js'
-import { paneIdBodySchema, paneResizeBodySchema, paneSplitBodySchema } from '../lib/request-validation.js'
+import {
+  paneIdBodySchema,
+  paneResizeBodySchema,
+  paneSelectBodySchema,
+  paneSplitBodySchema,
+} from '../lib/request-validation.js'
 
 function parsePaneId(paneId: string) {
   const separator = paneId.indexOf(':')
@@ -15,11 +20,21 @@ function parsePaneId(paneId: string) {
 }
 export async function paneRoutes(fastify: FastifyInstance) {
   fastify.post('/panes/select', async (request) => {
-    const { paneId } = paneIdBodySchema.parse(request.body)
+    const { paneId, keepZoom } = paneSelectBodySchema.parse(request.body)
     try {
       const { hostId, tmuxPaneId } = parsePaneId(paneId)
       if (hostId === 'local') await assertTargetAllowed(tmuxPaneId)
-      await execTmux(hostId, ['select-pane', '-t', tmuxPaneId])
+      try {
+        // keepZoom → select-pane -Z（tmux>=3.3）：zoom 状态下直接换 zoomed pane，
+        // 不退出 zoom（移动端 zoom 全屏翻页依赖该语义）；未 zoom 时 -Z 为 no-op
+        await execTmux(hostId, keepZoom ? ['select-pane', '-Z', '-t', tmuxPaneId] : ['select-pane', '-t', tmuxPaneId])
+      } catch (err) {
+        if (!keepZoom) throw err
+        // -Z 缺失的旧版 tmux 回落：select 会 unzoom，按当前 zoom flag 补回 -Z
+        await execTmux(hostId, ['select-pane', '-t', tmuxPaneId])
+        const { stdout } = await execTmux(hostId, ['display-message', '-p', '-t', tmuxPaneId, '#{window_zoomed_flag}'])
+        if (stdout.trim() !== '1') await execTmux(hostId, ['resize-pane', '-Z', '-t', tmuxPaneId])
+      }
       agentMonitor.markSeen(paneId) || markAgentPaneSeen(paneId)
       return { ok: true }
     } catch (err: any) {
@@ -43,7 +58,16 @@ export async function paneRoutes(fastify: FastifyInstance) {
       const { hostId, tmuxPaneId } = parsePaneId(paneId)
       if (hostId === 'local') await assertTargetAllowed(tmuxPaneId)
       const flag = direction === 'horizontal' ? '-h' : '-v'
-      await execTmux(hostId, ['split-window', '-c', '#{pane_current_path}', '-e', 'TMUXGO_ENV=1', '-t', tmuxPaneId, flag])
+      await execTmux(hostId, [
+        'split-window',
+        '-c',
+        '#{pane_current_path}',
+        '-e',
+        'TMUXGO_ENV=1',
+        '-t',
+        tmuxPaneId,
+        flag,
+      ])
       return { ok: true }
     } catch (err: any) {
       return { ok: false, error: err.message }

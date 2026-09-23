@@ -72,7 +72,15 @@ export function StatusBar() {
   const activeHostId = useConsoleStore((state) => state.activeHostId)
   const activeSessionId = useConsoleStore((state) => state.activeSessionId)
   const { t } = useTranslation()
-  const sys = useSystemInfo(activeHostId || 'local', 2000)
+  const [pageVisible, setPageVisible] = useState(
+    typeof document === 'undefined' ? true : document.visibilityState === 'visible',
+  )
+  useEffect(() => {
+    const onVis = () => setPageVisible(document.visibilityState === 'visible')
+    document.addEventListener('visibilitychange', onVis)
+    return () => document.removeEventListener('visibilitychange', onVis)
+  }, [])
+  const sys = useSystemInfo(activeHostId || 'local', 2000, pageVisible)
   const { data: hosts = [] } = useHosts()
   const sessionsQuery = useSessions(activeHostId || '')
   const { data: snapshotData } = useSessionSnapshot(activeHostId || '', activeSessionId || '')

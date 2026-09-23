@@ -300,18 +300,21 @@ export function WindowTabs() {
         onCancel={() => setNewWindowPromptOpen(false)}
         onConfirm={(value) => {
           setNewWindowName(value)
-          void confirmCreateWindow(value)
+          return confirmCreateWindow(value)
         }}
       />
       <ConfirmDialog
         open={pendingBatchDelete}
         title={t('window.batchDeleteTitle')}
         message={t('window.batchDeleteConfirm', { count: selectedWindowIds.length })}
+        items={sessionWindows
+          .filter((window: any) => selectedWindowIds.includes(window.id))
+          .map((window: any) => window.name || `#${window.index}`)}
         confirmLabel={t('window.batchDeleteSelected', { count: selectedWindowIds.length })}
         cancelLabel={t('common.cancel')}
         tone="danger"
         onCancel={() => setPendingBatchDelete(false)}
-        onConfirm={() => void handleBatchDelete()}
+        onConfirm={handleBatchDelete}
       />
     </div>
   )
