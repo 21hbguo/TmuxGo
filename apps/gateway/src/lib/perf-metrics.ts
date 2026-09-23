@@ -37,6 +37,12 @@ export const streamPerfMetrics = {
   cellFallbackAnsi: 0,
   cellDirtyCells: 0,
   redrawRequests: 0,
+  // attach 重绘合并出口的 refresh-client 实发次数 / 失败次数（dedup 生效
+  // 与否直接看 attachRefreshExecs 是否明显低于触发的槽位数）
+  attachRefreshExecs: 0,
+  attachRefreshFailures: 0,
+  // 共享 hub 广播重绘边界帧次数：每订阅者每轮广播重绘计一次
+  sharedRedrawBoundaries: 0,
   droppedDuplicateChunks: 0,
   resizeAckWaitMs: 0,
 }
