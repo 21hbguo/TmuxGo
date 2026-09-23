@@ -26,6 +26,49 @@ test('returns the current path for a local pane', async () => {
     await killTestTmuxSession()
   }
 })
+// keepZoom 语义：zoom 状态下 select-pane -Z 直接换 zoomed pane 不退出 zoom；
+// 不带 keepZoom 维持旧语义（select 会 unzoom）——移动端 zoom 全屏翻页依赖此区分
+test('keeps window zoomed when selecting another pane with keepZoom', async () => {
+  const sessionName = TEST_TMUX_SESSION
+  const fastify = Fastify()
+  await fastify.register(paneRoutes)
+  try {
+    await execTmuxFile('tmux', ['new-session', '-d', '-s', sessionName, '-x', '120', '-y', '40'])
+    await execTmuxFile('tmux', ['split-window', '-t', sessionName, '-h'])
+    const { stdout } = await execTmuxFile('tmux', ['list-panes', '-t', sessionName, '-F', '#{pane_id}'])
+    const [p0, p1] = stdout.trim().split('\n')
+    await execTmuxFile('tmux', ['select-pane', '-t', p0])
+    await execTmuxFile('tmux', ['resize-pane', '-Z', '-t', p0])
+    const response = await fastify.inject({
+      method: 'POST',
+      url: '/panes/select',
+      payload: { paneId: `local:${p1}`, keepZoom: true },
+    })
+    assert.equal(response.statusCode, 200)
+    assert.equal((response.json() as { ok: boolean }).ok, true)
+    const { stdout: zoomed } = await execTmuxFile('tmux', [
+      'display-message',
+      '-p',
+      '-t',
+      sessionName,
+      '#{window_zoomed_flag}|#{pane_id}',
+    ])
+    assert.equal(zoomed.trim(), `1|${p1}`)
+    const plain = await fastify.inject({ method: 'POST', url: '/panes/select', payload: { paneId: `local:${p0}` } })
+    assert.equal((plain.json() as { ok: boolean }).ok, true)
+    const { stdout: unzoomed } = await execTmuxFile('tmux', [
+      'display-message',
+      '-p',
+      '-t',
+      sessionName,
+      '#{window_zoomed_flag}|#{pane_id}',
+    ])
+    assert.equal(unzoomed.trim(), `0|${p0}`)
+  } finally {
+    await fastify.close()
+    await killTestTmuxSession()
+  }
+})
 test('rejects malformed and unknown pane ids without throwing', async () => {
   const fastify = Fastify()
   await fastify.register(paneRoutes)

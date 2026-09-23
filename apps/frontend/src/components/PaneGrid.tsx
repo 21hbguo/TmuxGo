@@ -270,7 +270,9 @@ export function PaneGrid({
       if (!next || next.id === currentPaneId) return
       setActivePane(next.id)
       try {
-        const result = await api.panes.select(next.id)
+        // keepZoom → select-pane -Z：zoom 全屏翻页语义，循环到的 pane 保持 zoom，
+        // 不掉回平铺；未 zoom 时网关侧为 no-op
+        const result = await api.panes.select(next.id, { keepZoom: activeWindowZoomed })
         if (result?.ok === false) throw new Error(result.error || 'select pane failed')
         void queryClient?.invalidateQueries({
           queryKey: ['session-snapshot', activeHostId || 'local', sessionId || ''],
@@ -279,7 +281,7 @@ export function PaneGrid({
         pushToast({ type: 'error', message: t('pane.switchFailed') })
       }
     },
-    [snapshotData, activeWindow, setActivePane, queryClient, activeHostId, sessionId, pushToast, t],
+    [snapshotData, activeWindow, activeWindowZoomed, setActivePane, queryClient, activeHostId, sessionId, pushToast, t],
   )
   const handleSwipeRef = useRef<(direction: -1 | 1) => void>(() => {})
   useEffect(() => {
