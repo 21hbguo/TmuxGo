@@ -16,6 +16,7 @@ import {
 import { OPEN_EDITOR_LOCATION_EVENT, openFileInEditor } from '@/lib/editor-open'
 import type { EditorLocationRestore } from '@/lib/editor-open'
 import { ensureTmuxgoTheme, tmuxgoThemeName } from '@/lib/monaco-theme'
+import { attachWheelScrollLines } from '@/lib/editor-wheel-scroll'
 import type { Monaco } from '@monaco-editor/react'
 import { resolveEditorDefinition, warmupCodeNavigation } from '@/lib/code-navigation'
 import { useTranslation } from '@/i18n'
@@ -160,6 +161,9 @@ export function EditorWorkbench({
   const { t } = useTranslation()
   const editorRefs = useRef<Record<string, any>>({})
   const monacoRef = useRef<Monaco | null>(null)
+  const wheelScrollLinesRef = useRef(preferences.editorWheelScrollLines)
+  wheelScrollLinesRef.current = preferences.editorWheelScrollLines
+  const wheelScrollDisposersRef = useRef(new Map<string, () => void>())
   const editorViewportRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const openEditorsRef = useRef(openEditors)
   openEditorsRef.current = openEditors
@@ -334,6 +338,34 @@ export function EditorWorkbench({
     definitionAbortRef.current = null
   }
   useEffect(() => () => cancelPendingDefinition(), [])
+  // 每格滚轮固定行数：attach 一次长期生效，行数变化经 ref 热更新，无需重挂监听
+  const releaseEditorWheelScroll = (editorId: string) => {
+    wheelScrollDisposersRef.current.get(editorId)?.()
+    wheelScrollDisposersRef.current.delete(editorId)
+  }
+  const attachEditorWheelScroll = (editorId: string, dom: HTMLElement | null | undefined, instance: any) => {
+    releaseEditorWheelScroll(editorId)
+    if (!dom || !instance) return
+    const dispose = attachWheelScrollLines(dom, () => wheelScrollLinesRef.current, {
+      getScrollTop: () => Number(instance.getScrollTop?.() || 0),
+      getMaxScrollTop: () =>
+        Math.max(0, Number(instance.getScrollHeight?.() || 0) - Number(instance.getLayoutInfo?.().height || 0)),
+      getLineHeight: () => {
+        const option = monacoRef.current?.editor?.EditorOption?.lineHeight
+        const value = option !== undefined ? Number(instance.getOption?.(option)) : 0
+        return value > 0 ? value : 20
+      },
+      setScrollTop: (top) => instance.setScrollTop?.(top, monacoRef.current?.editor?.ScrollType?.Smooth),
+    })
+    wheelScrollDisposersRef.current.set(editorId, dispose)
+  }
+  useEffect(
+    () => () => {
+      wheelScrollDisposersRef.current.forEach((dispose) => dispose())
+      wheelScrollDisposersRef.current.clear()
+    },
+    [],
+  )
   const openNavigationEntry = async (entry: NavigationEntry) => {
     let failed = false
     await openFileInEditor(
@@ -1157,6 +1189,11 @@ export function EditorWorkbench({
             ensureTmuxgoTheme(monaco, preferences.theme)
             disableMonacoDefinitionProvider(monaco)
           }}
+          onMount={(diffInstance) => {
+            const modified = diffInstance?.getModifiedEditor?.()
+            attachEditorWheelScroll(editor.id, diffInstance?.getContainerDomNode?.(), modified)
+            diffInstance?.onDidDispose?.(() => releaseEditorWheelScroll(editor.id))
+          }}
           options={{
             readOnly: true,
             renderSideBySide: true,
@@ -1231,6 +1268,7 @@ export function EditorWorkbench({
             value={editor.content}
             onMount={(instance) => {
               editorRefs.current[editor.id] = instance
+              attachEditorWheelScroll(editor.id, instance.getDomNode?.(), instance)
               warmupCodeNavigation()
               const snapshot = (viewStateRef.current[editor.id] ||= {
                 position: null,
@@ -1262,6 +1300,7 @@ export function EditorWorkbench({
               })
               // 卸载时清掉死引用并留最终快照：rAF 落位遇到死实例会落空,清掉后走 pendingLocation → remount 时 onMount 兜底
               instance.onDidDispose?.(() => {
+                releaseEditorWheelScroll(editor.id)
                 if (editorRefs.current[editor.id] === instance) delete editorRefs.current[editor.id]
                 const finalPosition = instance.getPosition?.()
                 if (finalPosition) snapshot.position = { line: finalPosition.lineNumber, column: finalPosition.column }
