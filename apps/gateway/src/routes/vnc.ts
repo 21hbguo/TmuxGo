@@ -3,7 +3,6 @@ import net from 'net'
 import path from 'path'
 import { readdir, readFile } from 'fs/promises'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import type { SocketStream } from '@fastify/websocket'
 import { agentManager, type AgentSocket } from '../agent-manager.js'
 import { consumeWebSocketTicket, isAuthEnabled } from '../lib/auth.js'
 import { execHostShell, openVncSshTunnel } from '../lib/tmux-executor.js'
@@ -78,8 +77,9 @@ function pipeTcpToSocket(tcp: net.Socket, socket: VncSocket, dbg: VncDbg = noopD
 const VNC_DEBUG = process.env.TMUXGO_VNC_DEBUG === '1'
 
 export async function vncRoutes(fastify: FastifyInstance) {
-  fastify.get('/vnc', { websocket: true }, (connection: SocketStream, request: FastifyRequest) => {
-    const socket = connection.socket as unknown as VncSocket
+  // @fastify/websocket v9+ 直传 ws socket（不再有 connection 包装），类型由插件 RouteOptions 推断
+  fastify.get('/vnc', { websocket: true }, (rawSocket, request: FastifyRequest) => {
+    const socket = rawSocket as unknown as VncSocket
     const dbg: VncDbg = VNC_DEBUG ? (msg, extra) => request.log.info({ vnc: true, ...extra }, msg) : noopDbg
     const query = request.query as { ticket?: unknown; hostId?: unknown; port?: unknown }
     const ticket = typeof query.ticket === 'string' ? query.ticket : ''
