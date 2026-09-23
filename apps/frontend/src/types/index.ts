@@ -392,6 +392,7 @@ export interface UiPreferences {
   autoReconnect?: boolean
   reconnectInterval?: number
   terminalPadding?: number
+  editorWheelScrollLines?: number
   language?: string
   attachExclusive?: boolean
 }

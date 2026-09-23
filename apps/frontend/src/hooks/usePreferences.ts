@@ -27,6 +27,8 @@ export interface Preferences {
   autoReconnect: boolean
   reconnectInterval: number
   terminalPadding: number
+  // 编辑器每格滚轮滚动行数；0 = Monaco 原生行为（按平台 delta 归一化）
+  editorWheelScrollLines: number
   language: Language
   attachExclusive: boolean
   uploadRateLimitKBps: number
@@ -47,6 +49,7 @@ const defaultPreferences: Preferences = {
   autoReconnect: true,
   reconnectInterval: 3000,
   terminalPadding: 0,
+  editorWheelScrollLines: 0,
   language: 'zh',
   attachExclusive: true,
   uploadRateLimitKBps: 5120,
@@ -107,6 +110,7 @@ function toUiPreferences(p: Preferences): UiPreferences {
     autoReconnect: p.autoReconnect,
     reconnectInterval: p.reconnectInterval,
     terminalPadding: p.terminalPadding,
+    editorWheelScrollLines: p.editorWheelScrollLines,
     language: p.language,
     attachExclusive: p.attachExclusive,
   }

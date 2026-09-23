@@ -668,6 +668,28 @@ export function Settings({ onClose }: SettingsProps) {
                   </div>
                 </div>
               </div>
+
+              <div>
+                <h3 className="text-text-1 text-sm font-medium mb-3">{t('settings.editor')}</h3>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-text-2 text-sm">{t('settings.editorWheelScrollLines')}</span>
+                    <Select
+                      value={String(preferences.editorWheelScrollLines ?? 0)}
+                      onChange={(v) => updatePreferences({ editorWheelScrollLines: Number(v) })}
+                      options={[
+                        { value: '0', label: t('settings.editorWheelScrollLines.auto') },
+                        ...[1, 2, 3, 4, 5, 6, 8, 10].map((lines) => ({
+                          value: String(lines),
+                          label: t('settings.lines', { count: lines }),
+                        })),
+                      ]}
+                      className="rounded-apple px-3 py-1.5 text-sm"
+                      aria-label={t('settings.editorWheelScrollLines')}
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
