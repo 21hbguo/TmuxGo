@@ -1,91 +1,170 @@
 <div align="center">
 
-# :zap: TmuxGo
+<br />
 
-### :round_pushpin: A browser-native tmux workspace with seamless handoff across desktop, phone, and tablet
+# ⚡ TmuxGo
 
-<p><a href="README.md">简体中文</a> · <strong>English</strong></p>
+### Turn `tmux` into a browser workspace you can open anywhere
 
-> No client required. Open a browser and get your terminal, file workspace, and Git tools in one place.  
-> Start on desktop, continue on phone, review on tablet.  
-> **Same session, same context, no broken flow.**
-
-![TmuxGo cover](assets/cover_tmuxgo_vip.png)
+**Terminal · Files · Editor · Git · Multi-host · PWA**
 
 <p>
-<a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
-<a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D20-339933?logo=node.js&logoColor=white" alt="Node"></a>
-<a href="https://github.com/tmux/tmux"><img src="https://img.shields.io/badge/tmux-required-1BB91F?logo=tmux&logoColor=white" alt="tmux"></a>
+  <a href="README.md">简体中文</a>
+  ·
+  <strong>English</strong>
 </p>
+
 <p>
-<a href="https://vite.dev"><img src="https://img.shields.io/badge/Vite-8-646CFF?logo=vite&logoColor=white" alt="Vite"></a>
-<a href="https://www.typescriptlang.org"><img src="https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white" alt="TypeScript"></a>
-<a href="https://tailwindcss.com"><img src="https://img.shields.io/badge/Tailwind-3.4-06B6D4?logo=tailwindcss&logoColor=white" alt="Tailwind CSS"></a>
+  <a href="https://github.com/21hbguo/TmuxGo/actions/workflows/ci.yml">
+    <img src="https://github.com/21hbguo/TmuxGo/actions/workflows/ci.yml/badge.svg?branch=master" alt="CI">
+  </a>
+  <a href="https://github.com/21hbguo/TmuxGo/stargazers">
+    <img src="https://img.shields.io/github/stars/21hbguo/TmuxGo?style=flat-square&logo=github" alt="GitHub stars">
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/github/license/21hbguo/TmuxGo?style=flat-square" alt="License">
+  </a>
+  <a href="https://nodejs.org">
+    <img src="https://img.shields.io/badge/Node.js-%5E20.19%20%7C%20%5E22.12%20%7C%20%3E%3D24-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node.js">
+  </a>
+</p>
+
+<p>
+  <a href="#rocket-quick-start"><strong>Quick Start</strong></a>
+  ·
+  <a href="#sparkles-highlights"><strong>Highlights</strong></a>
+  ·
+  <a href="#lock-secure-deployment"><strong>Security</strong></a>
+  ·
+  <a href="#wrench-development-and-verification"><strong>Development</strong></a>
+</p>
+
+<br />
+
+<img src="assets/cover_tmuxgo_vip.png" alt="TmuxGo browser tmux workspace" width="100%" />
+
+<br />
+
+<p>
+  <strong>Keep the shell alive. Bring the workspace to the browser.</strong><br />
+  Close the tab, keep the tmux session. Switch devices and continue with the same context.
 </p>
 
 </div>
 
 ---
 
-## :bookmark_tabs: Table of Contents
+## :rocket: Start with one command
 
-- [Why TmuxGo?](#fire-why-tmuxgo)
-- [Feature Overview](#sparkles-feature-overview)
-- [Quick Start](#rocket-quick-start)
-- [Runtime Modes and Restart Rules](#traffic_light-runtime-modes-and-restart-rules)
-- [Multi-Host and Remote SSH](#satellite-multi-host-and-remote-ssh)
-- [Production Deploy](#shield-production-deploy)
-- [Secure Deployment](#lock-secure-deployment)
-- [Requirements](#package-requirements)
-- [Architecture](#jigsaw-architecture)
-- [Development and Verification](#wrench-development-and-verification)
-- [Common Shortcuts](#keyboard-common-shortcuts)
-- [Configuration and Persistence](#gear-configuration-and-persistence)
-- [Troubleshooting](#beetle-troubleshooting)
-- [Contributing](#handshake-contributing)
-- [License](#page_facing_up-license)
-
-## :fire: Why TmuxGo?
-
-| :desktop_computer: **Desktop** | :iphone: **Mobile** | 📟 **Tablet** |
-|:---:|:---:|:---:|
-| Multiple panes, editors, and side panels | Touch-friendly navigation, virtual keys, drawer UI | Side-by-side logs, code, and Git history |
-
-:point_right: **One session, three screens, no interruption.**
-
-- :globe_with_meridians: **Reach it anywhere** - browser access over localhost, LAN, or Tailscale
-- :electric_plug: **Sessions stay alive** - your `tmux` work continues after the browser closes
-- :repeat: **Cross-device continuity** - sessions, layouts, active panes, and resume points carry over
-- :lock: **Exclusive attach by default** - desktop and mobile restore in exclusive mode to avoid focus conflicts
-
-## :sparkles: Feature Overview
-
-| Area | Current capabilities |
-|:-----|:---------------------|
-| :globe_with_meridians: **Terminal and tmux** | Browser terminal powered by `xterm.js`, tmux attach, pane/window split and zoom, shared/exclusive attach, split sessions, command palette, quick actions |
-| :bookmark_tabs: **Session management** | Create, rename, drag-sort, batch delete, audit log, named workspaces, and custom session templates with window count, pane count, layout, and startup commands |
-| :desktop_computer: **Desktop workspace** | Activity Bar, Session Rail, resizable Session/File/Git panels, embedded Terminal Dock |
-| :open_file_folder: **File workspace** | `workspace` / `home` roots, filename and content search, favorite directories, dotfile toggle, text and image preview, create/rename/delete, insert path into terminal, downloads, upload queue |
-| :pencil2: **Built-in editor** | Monaco editor, split editor groups, drag-to-open in a specific split, Markdown preview, image preview, Git diff viewer, read-only protection for large or binary files |
-| :octocat: **Git workbench** | Status, history graph, branches, stage/unstage, commit, discard, fetch/pull/push/merge, checkout/create/delete branch, pinned repos, follow-current-file repo mode, `gh` device-login helper |
-| :satellite: **Multi-host** | Built-in local host plus SSH remote hosts, connectivity test, host switching that propagates to terminal, files, and Git |
-| :iphone: **Mobile / PWA** | Drawer navigation, touch scrolling, virtual keyboard, mobile shortcut bar, clipboard safety, install-to-home-screen banner |
-| :brain: **Persistence and sync** | Theme, shortcuts, favorites, snippets, session order, Git workspace state, and session continuity sync between browser storage and `~/.tmuxgo/preferences` |
-| :package: **Version and release awareness** | Vite build artifact vs dev hot-reload split, build version checks, refresh prompt when a newer build is deployed |
-
-## :rocket: Quick Start
-
-### One-command npm install
-
-Run this directly on macOS or Linux:
+On macOS or Linux:
 
 ```bash
 npx --yes @21hbguo/tmuxgo install
 ```
 
-The command installs production dependencies including `tmux`, `ripgrep`, `python3`, `git`, and `curl`, copies the prebuilt runtime to `~/.tmuxgo/runtime`, creates the `default` tmux session, and registers the Gateway user service. Node.js ^20.19 / ^22.12 / >=24 is required before running `npx`; on macOS, Homebrew is installed first when missing. Open `http://localhost:3001` when it completes.
+Then open:
 
-### Source deployment (development or offline)
+```text
+http://localhost:3001
+```
+
+> TmuxGo runs on the host; the client only needs a browser. The Gateway binds to `127.0.0.1` by default. For remote access, prefer Tailscale, WireGuard, an SSH tunnel, or an HTTPS reverse proxy.
+
+## :fire: Why TmuxGo?
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### 🌐 Browser-first
+
+No desktop client required. Terminal, files, editor, and Git live in one browser workspace for local machines and remote servers.
+
+</td>
+<td width="50%" valign="top">
+
+### 🧠 Context stays alive
+
+The browser can close while `tmux` keeps running. Long builds, training jobs, logs, and interactive tasks stay available when you come back.
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### 🧰 IDE-like workspace
+
+TmuxGo is more than a Web Terminal: sessions, Files, Monaco Editor, Git Workbench, and Terminal Dock are part of the same workspace.
+
+</td>
+<td width="50%" valign="top">
+
+### 📱 Cross-device handoff
+
+Start on desktop, check status on your phone, continue on a tablet. Sessions, layout, and active context can follow you.
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### 🖥️ Multi-host
+
+Manage the local machine and SSH hosts in one place. Session, file, and Git context switch together with the selected host.
+
+</td>
+<td width="50%" valign="top">
+
+### 🔐 Security-aware
+
+Loopback-only by default, built-in authentication, and explicit HTTPS/WSS deployment paths make remote exposure intentional rather than accidental.
+
+</td>
+</tr>
+</table>
+
+> **Great for:** remote development · long-running training/jobs · homelab/server operations · multi-repo Git workflows · mobile task monitoring
+
+## :sparkles: Highlights
+
+| Capability | What it gives you |
+|:--|:--|
+| **Terminal + tmux** | Browser terminal, tmux attach, pane/window split, zoom, shared/exclusive attach, split sessions, quick actions |
+| **Workspace + Sessions** | Named workspaces, session templates, drag sorting, batch management, workspace-based session organization |
+| **Files + Editor** | File tree, search, upload/download, Monaco, Markdown/image preview, split editing |
+| **Git Workbench** | Status, history, branches, stage/unstage, commit, pull/push/merge, diff |
+| **Remote Hosts** | Local machine + SSH hosts, connectivity checks, host-scoped Session / Files / Git |
+| **Mobile / PWA** | Touch navigation, virtual keys, shortcut bar, clipboard safety, add-to-home-screen |
+| **Persistence** | Theme, shortcuts, favorites, session order, workspace state, and resume information |
+| **Security** | Loopback default, account auth, one-time WebSocket tickets, HTTPS/Tailscale deployment paths |
+
+<details>
+<summary><strong>Full capability overview</strong></summary>
+
+<br />
+
+- **Session management**: create, rename, drag-sort, batch delete, audit log, named workspaces, custom session templates
+- **Desktop layout**: Activity Bar, Session Rail, resizable Session / File / Git panels, Terminal Dock
+- **Files**: `workspace` / `home` roots, filename/content search, favorites, dotfiles, preview, upload/download
+- **Editor**: Monaco, split groups, drag-to-open, Markdown preview, Git diff, large/binary file protection
+- **Git**: status, graph, branches, staging, commit, discard, pull, push, merge, pinned repositories
+- **Multi-host**: local + SSH remote hosts with synchronized Session / Files / Git context switching
+- **Mobile**: drawer navigation, touch scrolling, virtual keyboard, mobile shortcut bar, PWA install
+- **Persistence**: browser state plus `~/.tmuxgo/preferences`
+
+</details>
+
+## :rocket: Quick Start
+
+### Recommended: one-command npm install
+
+```bash
+npx --yes @21hbguo/tmuxgo install
+```
+
+This prepares runtime dependencies, copies the prebuilt runtime to `~/.tmuxgo/runtime`, creates the default tmux session, and registers the Gateway user service. Node.js must satisfy `^20.19 || ^22.12 || >=24`.
+
+### Deploy from source
 
 ```bash
 git clone https://github.com/21hbguo/TmuxGo.git
@@ -93,39 +172,38 @@ cd TmuxGo
 ./install.sh
 ```
 
-`install.sh` will automatically:
+The installer handles Node.js, tmux, ripgrep, native build dependencies, Frontend/Gateway builds, and Linux `systemd --user` / macOS `launchd` services.
 
-- verify Node.js (^20.19 / ^22.12 / >=24), installing the latest LTS via nvm when unsupported
-- install `tmux`, `ripgrep`, `lsof/ss`, `python3`, and native build tools
-- run `npm install`
-- build Gateway and the static Frontend (`apps/frontend/dist`, Vite), plus Agent when `TMUXGO_ENABLE_AGENT=1`
-- install and start user-level `systemd` services on Linux
-- install and start user-level `launchd` services on macOS
-- fall back to the local startup script when a background service manager is unavailable
-- verify `3001` (Gateway serves API and static frontend) and print local URLs plus Tailscale HTTPS URLs when available
+Enable the local Agent when needed:
 
-After installation, open `http://localhost:3001` on macOS; use the address printed by the startup command for other deployment modes.
-Agent is not installed or started by default; use `TMUXGO_ENABLE_AGENT=1 ./install.sh` or `TMUXGO_ENABLE_AGENT=1 ./start.sh --restart` when you need it.
+```bash
+TMUXGO_ENABLE_AGENT=1 ./install.sh
+```
 
-> :lock: The Gateway binds to `127.0.0.1` by default and is not exposed directly to the LAN or Internet. Remote access must use Tailscale, WireGuard, an SSH tunnel, or an HTTPS reverse proxy.
-> :warning: A terminal connection has full tmux input, file, and Git permissions; never expose an unauthenticated Gateway or unencrypted `ws://` endpoint to an untrusted network.
-> :bulb: For reliable system clipboard access, prefer HTTPS such as Tailscale HTTPS.
-> :desktop_computer: The deployment side must run in a `tmux`-capable environment, ideally Linux, macOS, or WSL2. The access side only needs a browser.
-
-If you only want dependencies and manual startup:
+### Manual startup
 
 ```bash
 ./bootstrap.sh
 ./start.sh
 ```
 
-Publish the npm package:
+> [!IMPORTANT]
+> A TmuxGo terminal connection has real shell, file, and Git permissions. Never expose an unauthenticated or unencrypted Gateway to an untrusted network.
 
-```bash
-npm login
-npm run pack:npx
-npm run publish:npx
-```
+## :compass: Documentation map
+
+| Need | Go to |
+|:--|:--|
+| Production vs development runtime behavior | [Runtime modes and restart rules](#traffic_light-runtime-modes-and-restart-rules) |
+| Local and SSH remote hosts | [Multi-host and remote SSH](#satellite-multi-host-and-remote-ssh) |
+| Linux / macOS / Docker deployment | [Production deploy](#shield-production-deploy) |
+| HTTPS, Tailscale, WireGuard, SSH tunneling | [Secure deployment](#lock-secure-deployment) |
+| System and dependency requirements | [Requirements](#package-requirements) |
+| Frontend / Gateway / Agent structure | [Architecture](#jigsaw-architecture) |
+| Development, tests, CI | [Development and verification](#wrench-development-and-verification) |
+| Keyboard shortcuts | [Common shortcuts](#keyboard-common-shortcuts) |
+| Environment variables and persistence | [Configuration and persistence](#gear-configuration-and-persistence) |
+| Common failures | [Troubleshooting](#beetle-troubleshooting) |
 
 ## :traffic_light: Runtime Modes and Restart Rules
 
