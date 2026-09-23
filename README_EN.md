@@ -121,16 +121,16 @@ http://localhost:3001
 
 ## :sparkles: Highlights
 
-| Capability | What it gives you |
-|:--|:--|
-| **Terminal + tmux** | Browser terminal, tmux attach, pane/window split, zoom, shared/exclusive attach, split sessions, quick actions |
-| **Workspace + Sessions** | Named workspaces, session templates, drag sorting, batch management, workspace-based session organization |
-| **Files + Editor** | File tree, search, upload/download, Monaco, Markdown/image preview, split editing |
-| **Git Workbench** | Status, history, branches, stage/unstage, commit, pull/push/merge, diff |
-| **Remote Hosts** | Local machine + SSH hosts, connectivity checks, host-scoped Session / Files / Git |
-| **Mobile / PWA** | Touch navigation, virtual keys, shortcut bar, clipboard safety, add-to-home-screen |
-| **Persistence** | Theme, shortcuts, favorites, session order, workspace state, and resume information |
-| **Security** | Loopback default, account auth, one-time WebSocket tickets, HTTPS/Tailscale deployment paths |
+| Capability               | What it gives you                                                                                              |
+| :----------------------- | :------------------------------------------------------------------------------------------------------------- |
+| **Terminal + tmux**      | Browser terminal, tmux attach, pane/window split, zoom, shared/exclusive attach, split sessions, quick actions |
+| **Workspace + Sessions** | Named workspaces, session templates, drag sorting, batch management, workspace-based session organization      |
+| **Files + Editor**       | File tree, search, upload/download, Monaco, Markdown/image preview, split editing                              |
+| **Git Workbench**        | Status, history, branches, stage/unstage, commit, pull/push/merge, diff                                        |
+| **Remote Hosts**         | Local machine + SSH hosts, connectivity checks, host-scoped Session / Files / Git                              |
+| **Mobile / PWA**         | Touch navigation, virtual keys, shortcut bar, clipboard safety, add-to-home-screen                             |
+| **Persistence**          | Theme, shortcuts, favorites, session order, workspace state, and resume information                            |
+| **Security**             | Loopback default, account auth, one-time WebSocket tickets, HTTPS/Tailscale deployment paths                   |
 
 <details>
 <summary><strong>Full capability overview</strong></summary>
@@ -186,18 +186,18 @@ TMUXGO_ENABLE_AGENT=1 ./install.sh
 
 ## :compass: Documentation map
 
-| Need | Go to |
-|:--|:--|
+| Need                                       | Go to                                                                             |
+| :----------------------------------------- | :-------------------------------------------------------------------------------- |
 | Production vs development runtime behavior | [Runtime modes and restart rules](#traffic_light-runtime-modes-and-restart-rules) |
-| Local and SSH remote hosts | [Multi-host and remote SSH](#satellite-multi-host-and-remote-ssh) |
-| Linux / macOS / Docker deployment | [Production deploy](#shield-production-deploy) |
-| HTTPS, Tailscale, WireGuard, SSH tunneling | [Secure deployment](#lock-secure-deployment) |
-| System and dependency requirements | [Requirements](#package-requirements) |
-| Frontend / Gateway / Agent structure | [Architecture](#jigsaw-architecture) |
-| Development, tests, CI | [Development and verification](#wrench-development-and-verification) |
-| Keyboard shortcuts | [Common shortcuts](#keyboard-common-shortcuts) |
-| Environment variables and persistence | [Configuration and persistence](#gear-configuration-and-persistence) |
-| Common failures | [Troubleshooting](#beetle-troubleshooting) |
+| Local and SSH remote hosts                 | [Multi-host and remote SSH](#satellite-multi-host-and-remote-ssh)                 |
+| Linux / macOS / Docker deployment          | [Production deploy](#shield-production-deploy)                                    |
+| HTTPS, Tailscale, WireGuard, SSH tunneling | [Secure deployment](#lock-secure-deployment)                                      |
+| System and dependency requirements         | [Requirements](#package-requirements)                                             |
+| Frontend / Gateway / Agent structure       | [Architecture](#jigsaw-architecture)                                              |
+| Development, tests, CI                     | [Development and verification](#wrench-development-and-verification)              |
+| Keyboard shortcuts                         | [Common shortcuts](#keyboard-common-shortcuts)                                    |
+| Environment variables and persistence      | [Configuration and persistence](#gear-configuration-and-persistence)              |
+| Common failures                            | [Troubleshooting](#beetle-troubleshooting)                                        |
 
 ## :traffic_light: Runtime Modes and Restart Rules
 
@@ -392,16 +392,16 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml up --build
 
 ## :package: Requirements
 
-| Dependency | Version | Required | Notes |
-|:-----------|:--------|:--------:|:------|
-| :green_circle: Node.js | >= 20 | :white_check_mark: | Runtime |
-| :green_circle: tmux | >= 3.6b (or a distro security backport) | :white_check_mark: | Terminal multiplexer; older versions produce a startup warning |
-| :green_circle: Build toolchain | `make` / `g++` / `pkg-config` | :white_check_mark: | Required by `node-pty` |
-| :green_circle: Base tools | `git` / `curl` / `python3` / `ripgrep` / `lsof` or `ss` | :white_check_mark: | Needed by install, file search, and startup scripts |
-| :blue_circle: Tailscale | latest | :o: | Remote access and HTTPS exposure |
-| :blue_circle: sshpass | latest | :o: | Only required for password-based SSH hosts |
-| :blue_circle: GitHub CLI (`gh`) | latest | :o: | GitHub device-login helper and auth-state detection |
-| :desktop_computer: OS | Linux / macOS / WSL2 | - | Deployment-side runtime environment |
+| Dependency                      | Version                                                 |      Required      | Notes                                                          |
+| :------------------------------ | :------------------------------------------------------ | :----------------: | :------------------------------------------------------------- |
+| :green_circle: Node.js          | >= 20                                                   | :white_check_mark: | Runtime                                                        |
+| :green_circle: tmux             | >= 3.6b (or a distro security backport)                 | :white_check_mark: | Terminal multiplexer; older versions produce a startup warning |
+| :green_circle: Build toolchain  | `make` / `g++` / `pkg-config`                           | :white_check_mark: | Required by `node-pty`                                         |
+| :green_circle: Base tools       | `git` / `curl` / `python3` / `ripgrep` / `lsof` or `ss` | :white_check_mark: | Needed by install, file search, and startup scripts            |
+| :blue_circle: Tailscale         | latest                                                  |        :o:         | Remote access and HTTPS exposure                               |
+| :blue_circle: sshpass           | latest                                                  |        :o:         | Only required for password-based SSH hosts                     |
+| :blue_circle: GitHub CLI (`gh`) | latest                                                  |        :o:         | GitHub device-login helper and auth-state detection            |
+| :desktop_computer: OS           | Linux / macOS / WSL2                                    |         -          | Deployment-side runtime environment                            |
 
 ```bash
 node -v && npm -v && tmux -V
@@ -417,13 +417,13 @@ tailscale version
 └──────────────┘                └──────────────────────────────┘                               └──────────┘
 ```
 
-| Service | Port | Stack |
-|:--------|:-----|:------|
-| :globe_with_meridians: Frontend static assets (production) | Hosted by Gateway on `3001` | Vite 8 build output (`apps/frontend/dist`), React 18, xterm.js, Monaco, Tailwind |
-| :electric_plug: Gateway (sole production entry) | `3001` | Fastify, WebSocket, node-pty, SSH, file and Git routes; same-origin static frontend |
-| :hammer_and_wrench: Gateway + Vite (development) | `3101` + `5199` | dev Gateway + Vite dev hot reload (`npm run dev`) |
-| :satellite: Agent (optional, off by default) | - | `tmux` attach, host registration, terminal stream forwarding; requires `TMUXGO_ENABLE_AGENT=1` |
-| :lock: Tailscale HTTPS | `443`, `8443` | Auto-configured by `start.sh` to `3001` |
+| Service                                                    | Port                        | Stack                                                                                          |
+| :--------------------------------------------------------- | :-------------------------- | :--------------------------------------------------------------------------------------------- |
+| :globe_with_meridians: Frontend static assets (production) | Hosted by Gateway on `3001` | Vite 8 build output (`apps/frontend/dist`), React 18, xterm.js, Monaco, Tailwind               |
+| :electric_plug: Gateway (sole production entry)            | `3001`                      | Fastify, WebSocket, node-pty, SSH, file and Git routes; same-origin static frontend            |
+| :hammer_and_wrench: Gateway + Vite (development)           | `3101` + `5199`             | dev Gateway + Vite dev hot reload (`npm run dev`)                                              |
+| :satellite: Agent (optional, off by default)               | -                           | `tmux` attach, host registration, terminal stream forwarding; requires `TMUXGO_ENABLE_AGENT=1` |
+| :lock: Tailscale HTTPS                                     | `443`, `8443`               | Auto-configured by `start.sh` to `3001`                                                        |
 
 ## :wrench: Development and Verification
 
@@ -447,11 +447,11 @@ Recommended delivery checklist:
 
 ## :keyboard: Common Shortcuts
 
-| Shortcut | Action |
-|:---------|:-------|
-| `Ctrl+K` / `Cmd+K` | Open or close the command palette |
-| `Ctrl+B` / `Cmd+B` | Toggle the session sidebar |
-| `Ctrl+E` / `Cmd+E` | Toggle the file explorer |
+| Shortcut                            | Action                                                           |
+| :---------------------------------- | :--------------------------------------------------------------- |
+| `Ctrl+K` / `Cmd+K`                  | Open or close the command palette                                |
+| `Ctrl+B` / `Cmd+B`                  | Toggle the session sidebar                                       |
+| `Ctrl+E` / `Cmd+E`                  | Toggle the file explorer                                         |
 | Quick Actions / Mobile Shortcut Bar | Send Enter, delete word, clear line, split pane, zoom, kill pane |
 
 > :bulb: Native `tmux` shortcuts still work inside the terminal. Custom shortcuts are persisted through the preference store.
@@ -460,28 +460,28 @@ Recommended delivery checklist:
 
 ### Environment Variables
 
-| Variable | Default | Description |
-|:---------|:--------|:------------|
-| `PORT` | `3001` | Gateway listen port |
-| `TMUXGO_HOST` | `127.0.0.1` | Gateway bind address; configure encrypted transport or HTTPS before network exposure |
-| `VITE_API_URL` | `http://127.0.0.1:3001` | Gateway base URL used at build/dev time |
-| `TMUXGO_FRONTEND_DIST` | `apps/frontend/dist` | Frontend static assets directory served by Gateway |
-| `TMUXGO_ENABLE_AGENT` | `0` | Set to `1` to start or install Agent |
-| `GATEWAY_URL` | `ws://localhost:3001/api/stream` | Agent WebSocket URL for Gateway |
-| `TMUXGO_AUTH_USERNAME` | `admin` | Gateway login username |
-| `TMUXGO_AUTH_PASSWORD` | `admin123` | Gateway login password; it must be changed after the first default-password login |
-| `TMUXGO_PUBLIC_URL` | empty | Public URL; an `https://` or `wss://` value signals TLS |
-| `TMUXGO_TLS_TERMINATED` | `0` | Set to `1` when a reverse proxy terminates TLS |
-| `TMUXGO_ENCRYPTED_TRANSPORT` | `0` | Set to `1` when Tailscale / WireGuard / an SSH tunnel provides outer encryption |
-| `TMUXGO_ALLOW_INSECURE` | `0` | Allow a non-loopback unauthenticated Gateway; only for intentional temporary tests |
-| `GATEWAY_USERNAME` | `admin` | Username used by Agent to connect to Gateway |
-| `GATEWAY_PASSWORD` | empty | Password used by Agent to connect to Gateway; required explicitly when authentication is enabled |
-| `HOST_ID` | `agent-local` | Agent registration host ID |
-| `HOST_NAME` | `local-machine` or hostname | Agent display name |
-| `TMUX_WEB_FILE_ROOTS` | `workspace=<repo>:home=<home>` | File tree roots, for example `workspace=/srv/code:home=/home/guo` |
-| `TMUXGO_PREFERENCES_DIR` | `~/.tmuxgo/preferences` | Synced store for preferences, favorites, and session continuity |
-| `TMUXGO_CONFIG_DIR` | `~/.tmuxgo` | Host configuration directory, including `hosts.json` |
-| `TMUX_WEB_ALLOWED_SESSIONS` | empty | Comma-separated tmux session allowlist |
+| Variable                     | Default                          | Description                                                                                      |
+| :--------------------------- | :------------------------------- | :----------------------------------------------------------------------------------------------- |
+| `PORT`                       | `3001`                           | Gateway listen port                                                                              |
+| `TMUXGO_HOST`                | `127.0.0.1`                      | Gateway bind address; configure encrypted transport or HTTPS before network exposure             |
+| `VITE_API_URL`               | `http://127.0.0.1:3001`          | Gateway base URL used at build/dev time                                                          |
+| `TMUXGO_FRONTEND_DIST`       | `apps/frontend/dist`             | Frontend static assets directory served by Gateway                                               |
+| `TMUXGO_ENABLE_AGENT`        | `0`                              | Set to `1` to start or install Agent                                                             |
+| `GATEWAY_URL`                | `ws://localhost:3001/api/stream` | Agent WebSocket URL for Gateway                                                                  |
+| `TMUXGO_AUTH_USERNAME`       | `admin`                          | Gateway login username                                                                           |
+| `TMUXGO_AUTH_PASSWORD`       | `admin123`                       | Gateway login password; it must be changed after the first default-password login                |
+| `TMUXGO_PUBLIC_URL`          | empty                            | Public URL; an `https://` or `wss://` value signals TLS                                          |
+| `TMUXGO_TLS_TERMINATED`      | `0`                              | Set to `1` when a reverse proxy terminates TLS                                                   |
+| `TMUXGO_ENCRYPTED_TRANSPORT` | `0`                              | Set to `1` when Tailscale / WireGuard / an SSH tunnel provides outer encryption                  |
+| `TMUXGO_ALLOW_INSECURE`      | `0`                              | Allow a non-loopback unauthenticated Gateway; only for intentional temporary tests               |
+| `GATEWAY_USERNAME`           | `admin`                          | Username used by Agent to connect to Gateway                                                     |
+| `GATEWAY_PASSWORD`           | empty                            | Password used by Agent to connect to Gateway; required explicitly when authentication is enabled |
+| `HOST_ID`                    | `agent-local`                    | Agent registration host ID                                                                       |
+| `HOST_NAME`                  | `local-machine` or hostname      | Agent display name                                                                               |
+| `TMUX_WEB_FILE_ROOTS`        | `workspace=<repo>:home=<home>`   | File tree roots, for example `workspace=/srv/code:home=/home/guo`                                |
+| `TMUXGO_PREFERENCES_DIR`     | `~/.tmuxgo/preferences`          | Synced store for preferences, favorites, and session continuity                                  |
+| `TMUXGO_CONFIG_DIR`          | `~/.tmuxgo`                      | Host configuration directory, including `hosts.json`                                             |
+| `TMUX_WEB_ALLOWED_SESSIONS`  | empty                            | Comma-separated tmux session allowlist                                                           |
 
 Gateway authentication is enabled by default. Unauthenticated access to protected APIs such as `/api/hosts` returns `401`. Authentication state and device sessions are stored in `~/.tmuxgo/auth.json`; browsers refresh their session automatically after the first login. The default `admin/admin123` password must be changed on first use, and changing the password revokes all device sessions. Password authentication does not replace TLS; production deployments still require HTTPS/WSS or an encrypted network.
 

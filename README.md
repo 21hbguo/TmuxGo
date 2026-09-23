@@ -121,16 +121,16 @@ http://localhost:3001
 
 ## :sparkles: 功能亮点
 
-| 能力 | 你能做什么 |
-|:--|:--|
-| **Terminal + tmux** | 浏览器终端、tmux attach、窗口/窗格拆分、缩放、共享/独占附着、分屏会话、快捷操作 |
-| **Workspace + Sessions** | 命名工作区、会话模板、拖拽排序、批量管理、跨工作区组织 tmux session |
-| **Files + Editor** | 文件树、搜索、上传下载、Monaco 编辑器、Markdown / 图片预览、分栏编辑 |
-| **Git Workbench** | Status、History、Branch、Stage/Unstage、Commit、Pull/Push/Merge、Diff |
-| **Remote Hosts** | 本地主机 + SSH 远程主机、连接测试、主机级 Session / Files / Git 切换 |
-| **Mobile / PWA** | 触控导航、虚拟按键、快捷条、剪贴板保护、添加到主屏幕 |
-| **Persistence** | 主题、快捷键、收藏、会话顺序、工作区状态和恢复信息持久化 |
-| **Security** | 本地监听默认值、账号认证、一次性 WebSocket ticket、HTTPS/Tailscale 部署路径 |
+| 能力                     | 你能做什么                                                                      |
+| :----------------------- | :------------------------------------------------------------------------------ |
+| **Terminal + tmux**      | 浏览器终端、tmux attach、窗口/窗格拆分、缩放、共享/独占附着、分屏会话、快捷操作 |
+| **Workspace + Sessions** | 命名工作区、会话模板、拖拽排序、批量管理、跨工作区组织 tmux session             |
+| **Files + Editor**       | 文件树、搜索、上传下载、Monaco 编辑器、Markdown / 图片预览、分栏编辑            |
+| **Git Workbench**        | Status、History、Branch、Stage/Unstage、Commit、Pull/Push/Merge、Diff           |
+| **Remote Hosts**         | 本地主机 + SSH 远程主机、连接测试、主机级 Session / Files / Git 切换            |
+| **Mobile / PWA**         | 触控导航、虚拟按键、快捷条、剪贴板保护、添加到主屏幕                            |
+| **Persistence**          | 主题、快捷键、收藏、会话顺序、工作区状态和恢复信息持久化                        |
+| **Security**             | 本地监听默认值、账号认证、一次性 WebSocket ticket、HTTPS/Tailscale 部署路径     |
 
 <details>
 <summary><strong>完整功能说明</strong></summary>
@@ -186,18 +186,18 @@ TMUXGO_ENABLE_AGENT=1 ./install.sh
 
 ## :compass: 文档导航
 
-| 想了解 | 入口 |
-|:--|:--|
-| TmuxGo 在生产和开发模式下如何运行 | [运行模式与重启规则](#traffic_light-运行模式与重启规则) |
-| 如何管理本地与 SSH 远端机器 | [多主机与远程 SSH](#satellite-多主机与远程-ssh) |
-| 如何部署到 Linux / macOS / Docker | [生产部署](#shield-生产部署) |
-| 如何使用 HTTPS、Tailscale、WireGuard | [安全部署](#lock-安全部署) |
-| 系统和依赖要求 | [依赖要求](#package-依赖要求) |
-| 前后端 / Gateway / Agent 结构 | [架构](#jigsaw-架构) |
-| 开发、测试、CI | [开发与验证](#wrench-开发与验证) |
-| 快捷键 | [常用快捷键](#keyboard-常用快捷键) |
-| 环境变量和持久化 | [配置与持久化](#gear-配置与持久化) |
-| 常见错误 | [排障](#beetle-排障) |
+| 想了解                               | 入口                                                    |
+| :----------------------------------- | :------------------------------------------------------ |
+| TmuxGo 在生产和开发模式下如何运行    | [运行模式与重启规则](#traffic_light-运行模式与重启规则) |
+| 如何管理本地与 SSH 远端机器          | [多主机与远程 SSH](#satellite-多主机与远程-ssh)         |
+| 如何部署到 Linux / macOS / Docker    | [生产部署](#shield-生产部署)                            |
+| 如何使用 HTTPS、Tailscale、WireGuard | [安全部署](#lock-安全部署)                              |
+| 系统和依赖要求                       | [依赖要求](#package-依赖要求)                           |
+| 前后端 / Gateway / Agent 结构        | [架构](#jigsaw-架构)                                    |
+| 开发、测试、CI                       | [开发与验证](#wrench-开发与验证)                        |
+| 快捷键                               | [常用快捷键](#keyboard-常用快捷键)                      |
+| 环境变量和持久化                     | [配置与持久化](#gear-配置与持久化)                      |
+| 常见错误                             | [排障](#beetle-排障)                                    |
 
 ## :traffic_light: 运行模式与重启规则
 
@@ -392,16 +392,16 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml up --build
 
 ## :package: 依赖要求
 
-| 依赖 | 版本 | 必需 | 说明 |
-|:-----|:-----|:----:|:-----|
-| :green_circle: Node.js | >= 20 | :white_check_mark: | 运行时 |
-| :green_circle: tmux | >= 3.6b（或发行版安全回补） | :white_check_mark: | 终端复用器；旧版本启动时会告警 |
-| :green_circle: 构建工具链 | `make` / `g++` / `pkg-config` | :white_check_mark: | `node-pty` 原生依赖 |
-| :green_circle: 基础工具 | `git` / `curl` / `python3` / `ripgrep` / `lsof` 或 `ss` | :white_check_mark: | 安装、文件搜索、启动脚本依赖 |
-| :blue_circle: Tailscale | 最新版 | :o: | 远程访问、HTTPS 暴露 |
-| :blue_circle: sshpass | 最新版 | :o: | 仅密码式 SSH 远端主机需要 |
-| :blue_circle: GitHub CLI (`gh`) | 最新版 | :o: | GitHub 设备登录辅助与认证状态检测 |
-| :desktop_computer: 系统 | Linux / macOS / WSL2 | - | 部署端运行环境 |
+| 依赖                            | 版本                                                    |        必需        | 说明                              |
+| :------------------------------ | :------------------------------------------------------ | :----------------: | :-------------------------------- |
+| :green_circle: Node.js          | >= 20                                                   | :white_check_mark: | 运行时                            |
+| :green_circle: tmux             | >= 3.6b（或发行版安全回补）                             | :white_check_mark: | 终端复用器；旧版本启动时会告警    |
+| :green_circle: 构建工具链       | `make` / `g++` / `pkg-config`                           | :white_check_mark: | `node-pty` 原生依赖               |
+| :green_circle: 基础工具         | `git` / `curl` / `python3` / `ripgrep` / `lsof` 或 `ss` | :white_check_mark: | 安装、文件搜索、启动脚本依赖      |
+| :blue_circle: Tailscale         | 最新版                                                  |        :o:         | 远程访问、HTTPS 暴露              |
+| :blue_circle: sshpass           | 最新版                                                  |        :o:         | 仅密码式 SSH 远端主机需要         |
+| :blue_circle: GitHub CLI (`gh`) | 最新版                                                  |        :o:         | GitHub 设备登录辅助与认证状态检测 |
+| :desktop_computer: 系统         | Linux / macOS / WSL2                                    |         -          | 部署端运行环境                    |
 
 ```bash
 node -v && npm -v && tmux -V
@@ -417,13 +417,13 @@ tailscale version
 └──────────────┘                └──────────────────────────────┘                               └──────────┘
 ```
 
-| 服务 | 端口 | 技术栈 |
-|:-----|:-----|:-------|
+| 服务                                             | 端口                   | 技术栈                                                                   |
+| :----------------------------------------------- | :--------------------- | :----------------------------------------------------------------------- |
 | :globe_with_meridians: Frontend 静态资源（生产） | 由 Gateway `3001` 托管 | Vite 8 构建的 `apps/frontend/dist`，React 18、xterm.js、Monaco、Tailwind |
-| :electric_plug: Gateway（生产唯一入口） | `3001` | Fastify、WebSocket、node-pty、SSH、文件与 Git 路由；同源托管静态前端 |
-| :hammer_and_wrench: Gateway + Vite（开发） | `3101` + `5199` | dev Gateway + Vite dev 热更新（`npm run dev`） |
-| :satellite: Agent（可选，默认不装） | - | `tmux` 附着、主机注册、终端流转发；需 `TMUXGO_ENABLE_AGENT=1` |
-| :lock: Tailscale HTTPS | `443`、`8443` | `start.sh` 自动配置到 `3001` |
+| :electric_plug: Gateway（生产唯一入口）          | `3001`                 | Fastify、WebSocket、node-pty、SSH、文件与 Git 路由；同源托管静态前端     |
+| :hammer_and_wrench: Gateway + Vite（开发）       | `3101` + `5199`        | dev Gateway + Vite dev 热更新（`npm run dev`）                           |
+| :satellite: Agent（可选，默认不装）              | -                      | `tmux` 附着、主机注册、终端流转发；需 `TMUXGO_ENABLE_AGENT=1`            |
+| :lock: Tailscale HTTPS                           | `443`、`8443`          | `start.sh` 自动配置到 `3001`                                             |
 
 ## :wrench: 开发与验证
 
@@ -458,11 +458,11 @@ npm run test:ssh-e2e
 
 ## :keyboard: 常用快捷键
 
-| 快捷键 | 作用 |
-|:-------|:-----|
-| `Ctrl+K` / `Cmd+K` | 打开或关闭命令面板 |
-| `Ctrl+B` / `Cmd+B` | 打开或关闭会话侧栏 |
-| `Ctrl+E` / `Cmd+E` | 打开或关闭文件资源管理器 |
+| 快捷键                     | 作用                                       |
+| :------------------------- | :----------------------------------------- |
+| `Ctrl+K` / `Cmd+K`         | 打开或关闭命令面板                         |
+| `Ctrl+B` / `Cmd+B`         | 打开或关闭会话侧栏                         |
+| `Ctrl+E` / `Cmd+E`         | 打开或关闭文件资源管理器                   |
 | Quick Actions / 移动快捷条 | 发送回车、删词、清行、分屏、聚焦、关闭面板 |
 
 > :bulb: `tmux` 原生快捷键仍然可以在终端内继续使用；自定义快捷键会同步保存到偏好存储。
@@ -471,29 +471,29 @@ npm run test:ssh-e2e
 
 ### 环境变量
 
-| 变量 | 默认值 | 说明 |
-|:-----|:-------|:-----|
-| `PORT` | `3001` | Gateway 监听端口 |
-| `TMUXGO_HOST` | `127.0.0.1` | Gateway 监听地址；远程部署前必须配置加密网络或 HTTPS |
-| `VITE_API_URL` | `http://127.0.0.1:3001` | 构建/开发时代理或访问 Gateway 的基地址 |
-| `TMUXGO_FRONTEND_DIST` | `apps/frontend/dist` | Gateway 托管的前端静态资源目录 |
-| `TMUXGO_ENABLE_AGENT` | `0` | 设为 `1` 时启动或安装 Agent |
-| `GATEWAY_URL` | `ws://localhost:3001/api/stream` | Agent 连接 Gateway 的 WebSocket 地址 |
-| `TMUXGO_AUTH_USERNAME` | `admin` | Gateway 登录账号 |
-| `TMUXGO_AUTH_PASSWORD` | `admin123` | Gateway 登录密码；首次以默认密码登录时必须修改 |
-| `TMUXGO_PUBLIC_URL` | 空 | 对外访问地址；使用 `https://` 或 `wss://` 表示已配置 TLS |
-| `TMUXGO_TLS_TERMINATED` | `0` | 反向代理已完成 TLS 终止时设为 `1` |
-| `TMUXGO_ENCRYPTED_TRANSPORT` | `0` | Tailscale / WireGuard / SSH 隧道等外层加密已启用时设为 `1` |
-| `TMUXGO_ALLOW_INSECURE` | `0` | 允许非回环未认证 Gateway 启动；仅用于明确的临时测试 |
-| `GATEWAY_USERNAME` | `admin` | Agent 连接 Gateway 使用的账号 |
-| `GATEWAY_PASSWORD` | 空 | Agent 连接 Gateway 使用的密码，启用认证时必须显式设置 |
-| `HOST_ID` | `agent-local` | Agent 注册主机 ID |
-| `HOST_NAME` | `local-machine` 或机器名 | Agent 注册显示名 |
-| `TMUX_WEB_FILE_ROOTS` | `workspace=<repo>:home=<home>` | 文件树根目录列表，例如 `workspace=/srv/code:home=/home/guo` |
-| `TMUXGO_PREFERENCES_DIR` | `~/.tmuxgo/preferences` | 偏好、收藏、会话持续化等同步存储目录 |
-| `TMUXGO_CONFIG_DIR` | `~/.tmuxgo` | 主机配置目录，默认包含 `hosts.json` |
-| `TMUXGO_ALLOWED_ORIGINS` | 空 | 额外允许访问 Gateway 的浏览器 Origin，多个值用逗号分隔 |
-| `TMUX_WEB_ALLOWED_SESSIONS` | 空 | 逗号分隔的 tmux 会话白名单 |
+| 变量                         | 默认值                           | 说明                                                        |
+| :--------------------------- | :------------------------------- | :---------------------------------------------------------- |
+| `PORT`                       | `3001`                           | Gateway 监听端口                                            |
+| `TMUXGO_HOST`                | `127.0.0.1`                      | Gateway 监听地址；远程部署前必须配置加密网络或 HTTPS        |
+| `VITE_API_URL`               | `http://127.0.0.1:3001`          | 构建/开发时代理或访问 Gateway 的基地址                      |
+| `TMUXGO_FRONTEND_DIST`       | `apps/frontend/dist`             | Gateway 托管的前端静态资源目录                              |
+| `TMUXGO_ENABLE_AGENT`        | `0`                              | 设为 `1` 时启动或安装 Agent                                 |
+| `GATEWAY_URL`                | `ws://localhost:3001/api/stream` | Agent 连接 Gateway 的 WebSocket 地址                        |
+| `TMUXGO_AUTH_USERNAME`       | `admin`                          | Gateway 登录账号                                            |
+| `TMUXGO_AUTH_PASSWORD`       | `admin123`                       | Gateway 登录密码；首次以默认密码登录时必须修改              |
+| `TMUXGO_PUBLIC_URL`          | 空                               | 对外访问地址；使用 `https://` 或 `wss://` 表示已配置 TLS    |
+| `TMUXGO_TLS_TERMINATED`      | `0`                              | 反向代理已完成 TLS 终止时设为 `1`                           |
+| `TMUXGO_ENCRYPTED_TRANSPORT` | `0`                              | Tailscale / WireGuard / SSH 隧道等外层加密已启用时设为 `1`  |
+| `TMUXGO_ALLOW_INSECURE`      | `0`                              | 允许非回环未认证 Gateway 启动；仅用于明确的临时测试         |
+| `GATEWAY_USERNAME`           | `admin`                          | Agent 连接 Gateway 使用的账号                               |
+| `GATEWAY_PASSWORD`           | 空                               | Agent 连接 Gateway 使用的密码，启用认证时必须显式设置       |
+| `HOST_ID`                    | `agent-local`                    | Agent 注册主机 ID                                           |
+| `HOST_NAME`                  | `local-machine` 或机器名         | Agent 注册显示名                                            |
+| `TMUX_WEB_FILE_ROOTS`        | `workspace=<repo>:home=<home>`   | 文件树根目录列表，例如 `workspace=/srv/code:home=/home/guo` |
+| `TMUXGO_PREFERENCES_DIR`     | `~/.tmuxgo/preferences`          | 偏好、收藏、会话持续化等同步存储目录                        |
+| `TMUXGO_CONFIG_DIR`          | `~/.tmuxgo`                      | 主机配置目录，默认包含 `hosts.json`                         |
+| `TMUXGO_ALLOWED_ORIGINS`     | 空                               | 额外允许访问 Gateway 的浏览器 Origin，多个值用逗号分隔      |
+| `TMUX_WEB_ALLOWED_SESSIONS`  | 空                               | 逗号分隔的 tmux 会话白名单                                  |
 
 Gateway 默认启用账号认证。未登录访问受保护 API（如 `/api/hosts`）返回 `401`。认证状态与设备会话保存在 `~/.tmuxgo/auth.json`，浏览器首次登录后会自动续期；使用默认 `admin/admin123` 登录时必须修改密码，修改密码会撤销所有设备会话。认证是密码认证，不等同于 TLS；生产环境仍必须使用 HTTPS/WSS 或加密网络。
 
