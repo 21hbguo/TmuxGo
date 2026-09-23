@@ -124,7 +124,8 @@ describe('resolveEditorDefinition', () => {
       status: 'success',
       target: { id: 'editor-alias-target', path: 'src/other.ts', line: 1 },
     })
-    expect(contentMock).not.toHaveBeenCalled()
+    // '@/x' 现在先向上探测 tsconfig paths（miss 才回落硬编码 sourceRootPath），允许 tsconfig.json 探测读
+    expect(contentMock.mock.calls.every((call) => String(call[2]).endsWith('tsconfig.json'))).toBe(true)
   })
   it('prefers unsaved content from an already open target editor', async () => {
     const entry = {
@@ -758,5 +759,103 @@ describe('resolveEditorDefinition', () => {
     mockFiles({ 'impl.ts': IMPL_TS, 'barrel.ts': "// barrel\nexport * from './impl'\n" })
     const result = await resolveEditorDefinition(editor as any, { line: 2, column: 2 }, [editor as any])
     expect(result).toEqual({ status: 'not-found' })
+  })
+  describe('tsconfig paths / ESM mapping', () => {
+    it('resolves a paths alias via the nearest tsconfig (JSONC tolerant)', async () => {
+      const editor = tsEditor({ content: "import { value } from '#/lib'\nconsole.log(value)\n" })
+      mockFiles({
+        // JSONC：注释与尾逗号都必须能解析
+        'tsconfig.json': '{\n  // alias\n  "compilerOptions": { "paths": { "#/*": ["./src/*"], } },\n}\n',
+        'src/lib.ts': 'export const value = 1\n',
+      })
+      const result = await resolveEditorDefinition(editor as any, { line: 2, column: 13 }, [editor as any])
+      expect(result).toMatchObject({
+        status: 'success',
+        target: { path: 'src/lib.ts', absolutePath: '/workspace/src/lib.ts', line: 1, column: 14 },
+      })
+    })
+    it('resolves a bare specifier through baseUrl', async () => {
+      const editor = tsEditor({ content: "import { value } from 'util'\nconsole.log(value)\n" })
+      mockFiles({
+        'tsconfig.json': '{"compilerOptions":{"baseUrl":"src"}}\n',
+        'src/util.ts': 'export const value = 1\n',
+      })
+      const result = await resolveEditorDefinition(editor as any, { line: 2, column: 13 }, [editor as any])
+      expect(result).toMatchObject({
+        status: 'success',
+        target: { path: 'src/util.ts', absolutePath: '/workspace/src/util.ts', line: 1 },
+      })
+    })
+    it('falls back to the next paths array target when the first misses', async () => {
+      const editor = tsEditor({ content: "import { value } from '#/lib'\nconsole.log(value)\n" })
+      mockFiles({
+        'tsconfig.json': '{"compilerOptions":{"paths":{"#/*":["./missing/*","./src/*"]}}}\n',
+        'src/lib.ts': 'export const value = 1\n',
+      })
+      const result = await resolveEditorDefinition(editor as any, { line: 2, column: 13 }, [editor as any])
+      expect(result).toMatchObject({ status: 'success', target: { path: 'src/lib.ts', line: 1 } })
+    })
+    it('maps a ./impl.js import to the impl.ts source file (NodeNext style)', async () => {
+      const editor = tsEditor({ content: "import { foo } from './impl.js'\nfoo()\n" })
+      mockFiles({ 'impl.ts': IMPL_TS })
+      const result = await resolveEditorDefinition(editor as any, { line: 2, column: 2 }, [editor as any])
+      expect(result).toMatchObject({
+        status: 'success',
+        target: { path: 'impl.ts', absolutePath: '/workspace/impl.ts', line: 3, column: 17 },
+      })
+    })
+    it('resolves a package exports wildcard subpath', async () => {
+      const editor = tsEditor({ content: "import { value } from 'pkg/sub'\nconsole.log(value)\n" })
+      mockFiles({
+        'node_modules/pkg/package.json': '{"exports":{"./*":"./dist/*.js"}}\n',
+        'node_modules/pkg/dist/sub.js': 'export const value = 1\n',
+      })
+      const result = await resolveEditorDefinition(editor as any, { line: 2, column: 13 }, [editor as any])
+      expect(result).toMatchObject({
+        status: 'success',
+        target: { path: 'node_modules/pkg/dist/sub.js', line: 1 },
+      })
+    })
+    it('merges compilerOptions from a single-level extends tsconfig', async () => {
+      const editor = tsEditor({ content: "import { value } from '#/lib'\nconsole.log(value)\n" })
+      mockFiles({
+        'tsconfig.json': '{"extends":"./tsconfig.base.json"}\n',
+        'tsconfig.base.json': '{"compilerOptions":{"paths":{"#/*":["./src/*"]}}}\n',
+        'src/lib.ts': 'export const value = 1\n',
+      })
+      const result = await resolveEditorDefinition(editor as any, { line: 2, column: 13 }, [editor as any])
+      expect(result).toMatchObject({ status: 'success', target: { path: 'src/lib.ts', line: 1 } })
+    })
+    it('prefers tsconfig paths over the hardcoded @/ fallback', async () => {
+      // '@/x' 若被 tsconfig paths 接管必须走 tsconfig：src/lib.ts 是迷惑项，命中它即回退顺序错误
+      const editor = tsEditor({
+        path: 'src/index.ts',
+        name: 'index.ts',
+        absolutePath: '/workspace/src/index.ts',
+        content: "import { value } from '@/lib'\nconsole.log(value)\n",
+      })
+      mockFiles({
+        'tsconfig.json': '{"compilerOptions":{"paths":{"@/*":["./*"]}}}\n',
+        'lib.ts': 'export const value = 1\n',
+        'src/lib.ts': 'export const value = 2\n',
+      })
+      const result = await resolveEditorDefinition(editor as any, { line: 2, column: 13 }, [editor as any])
+      expect(result).toMatchObject({
+        status: 'success',
+        target: { path: 'lib.ts', absolutePath: '/workspace/lib.ts', line: 1 },
+      })
+    })
+    it('reports not-found when a paths alias resolves nowhere', async () => {
+      const editor = tsEditor({ content: "import { missing } from '#/nope'\nmissing()\n" })
+      mockFiles({ 'tsconfig.json': '{"compilerOptions":{"paths":{"#/*":["./src/*"]}}}\n' })
+      const result = await resolveEditorDefinition(editor as any, { line: 2, column: 2 }, [editor as any])
+      expect(result).toEqual({ status: 'not-found' })
+    })
+    it('keeps not-found for an unknown bare specifier without tsconfig', async () => {
+      const editor = tsEditor({ content: "import { value } from 'ghost-pkg'\nconsole.log(value)\n" })
+      mockFiles({})
+      const result = await resolveEditorDefinition(editor as any, { line: 2, column: 13 }, [editor as any])
+      expect(result).toEqual({ status: 'not-found' })
+    })
   })
 })
