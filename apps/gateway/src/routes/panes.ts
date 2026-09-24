@@ -76,15 +76,11 @@ export async function paneRoutes(fastify: FastifyInstance) {
   fastify.post('/panes/zoom', async (request) => {
     const { paneId } = request.body as { paneId?: string }
     try {
-      const args = ['resize-pane', '-Z']
-      let hostId = 'local'
-      if (paneId) {
-        const parsed = parsePaneId(paneId)
-        hostId = parsed.hostId
-        if (hostId === 'local') await assertTargetAllowed(parsed.tmuxPaneId)
-        args.push('-t', parsed.tmuxPaneId)
-      }
-      await execTmux(hostId, args)
+      // 禁止无目标调用：gateway 自身跑在 tmux 内，裸 resize-pane 会命中 gateway 所在 pane
+      if (!paneId) throw new Error('paneId is required')
+      const { hostId, tmuxPaneId } = parsePaneId(paneId)
+      if (hostId === 'local') await assertTargetAllowed(tmuxPaneId)
+      await execTmux(hostId, ['resize-pane', '-Z', '-t', tmuxPaneId])
       return { ok: true }
     } catch (err: any) {
       return { ok: false, error: err.message }
@@ -108,15 +104,12 @@ export async function paneRoutes(fastify: FastifyInstance) {
   fastify.post('/panes/kill', async (request) => {
     const { paneId } = request.body as { paneId?: string }
     try {
-      const args = ['kill-pane']
-      let hostId = 'local'
-      if (paneId) {
-        const parsed = parsePaneId(paneId)
-        hostId = parsed.hostId
-        if (hostId === 'local') await assertTargetAllowed(parsed.tmuxPaneId)
-        args.push('-t', parsed.tmuxPaneId)
-      }
-      await execTmux(hostId, args)
+      // 禁止无目标调用：gateway 自身跑在 tmux 内，裸 kill-pane 会杀掉 gateway 所在
+      // pane；若恰好是最后 window 的最后 pane，会连带销毁 session 甚至 tmux server
+      if (!paneId) throw new Error('paneId is required')
+      const { hostId, tmuxPaneId } = parsePaneId(paneId)
+      if (hostId === 'local') await assertTargetAllowed(tmuxPaneId)
+      await execTmux(hostId, ['kill-pane', '-t', tmuxPaneId])
       return { ok: true }
     } catch (err: any) {
       return { ok: false, error: err.message }

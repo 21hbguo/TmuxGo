@@ -10,6 +10,10 @@ import { agentMonitor } from '../lib/agent-monitor.js'
 import { emitPluginEvent } from '../lib/plugin-manager.js'
 import { hostParamsSchema, sessionCreateBodySchema, sessionRenameBodySchema } from '../lib/request-validation.js'
 
+// tmux kill-session 的 -t 非精确匹配：目标 session 不存在时回退为前缀/fnmatch
+// 模式匹配并杀掉全部命中项（删已死 session 会误杀同名前缀的所有会话）。
+// '=' 前缀强制精确匹配。
+const exactSessionTarget = (sessionName: string) => `=${sessionName}`
 const batchDeleteLimitDefault = 1000
 const batchDeleteLimitMax = 5000
 const thumbnailCaptureConcurrency = 3
@@ -98,7 +102,11 @@ function toBatchDeleteTarget(session: HostTmuxSession): BatchDeleteTarget {
 }
 async function getHostTmuxSessions(hostId: string): Promise<HostTmuxSession[]> {
   try {
-    const { stdout } = await execTmux(hostId, ['list-sessions', '-F', '#{session_id}|#{session_name}|#{session_windows}|#{session_created}|#{session_activity}|#{session_attached}'])
+    const { stdout } = await execTmux(hostId, [
+      'list-sessions',
+      '-F',
+      '#{session_id}|#{session_name}|#{session_windows}|#{session_created}|#{session_activity}|#{session_attached}',
+    ])
     return stdout
       .trim()
       .split('\n')
@@ -117,7 +125,9 @@ async function getHostTmuxSessions(hostId: string): Promise<HostTmuxSession[]> {
         const createdAtUnix = parseInt(created, 10)
         const activityUnix = parseInt(activity, 10)
         const attachedCount = parseInt(attached, 10)
-        const createdAt = Number.isFinite(createdAtUnix) ? new Date(createdAtUnix * 1000).toISOString() : new Date().toISOString()
+        const createdAt = Number.isFinite(createdAtUnix)
+          ? new Date(createdAtUnix * 1000).toISOString()
+          : new Date().toISOString()
         const lastActiveAt = Number.isFinite(activityUnix) ? new Date(activityUnix * 1000).toISOString() : createdAt
         return {
           id: buildSessionId(hostId, name),
@@ -131,7 +141,11 @@ async function getHostTmuxSessions(hostId: string): Promise<HostTmuxSession[]> {
       })
   } catch (err: any) {
     const message = String(err?.message || '').toLowerCase()
-    if (emptySessionErrorMarkers.some((marker) => message.includes(marker)) || message.includes('error connecting to /tmp/tmux-') && message.includes('no such file or directory')) return []
+    if (
+      emptySessionErrorMarkers.some((marker) => message.includes(marker)) ||
+      (message.includes('error connecting to /tmp/tmux-') && message.includes('no such file or directory'))
+    )
+      return []
     console.error('Failed to list tmux sessions:', err)
     throw err
   }
@@ -140,16 +154,42 @@ async function getSessionThumbnails(hostId: string): Promise<SessionThumbnail[]>
   const sessions = await getHostTmuxSessions(hostId)
   if (!sessions.length) return []
   const sessionByName = new Map(sessions.map((session) => [session.name, session]))
-  const { stdout } = await execTmux(hostId, ['list-panes', '-a', '-F', '#{session_name}|#{window_id}|#{window_index}|#{window_name}|#{window_active}|#{window_zoomed_flag}|#{pane_id}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}|#{pane_left}|#{pane_top}'])
+  const { stdout } = await execTmux(hostId, [
+    'list-panes',
+    '-a',
+    '-F',
+    '#{session_name}|#{window_id}|#{window_index}|#{window_name}|#{window_active}|#{window_zoomed_flag}|#{pane_id}|#{pane_title}|#{pane_active}|#{pane_width}|#{pane_height}|#{pane_left}|#{pane_top}',
+  ])
   const thumbnails = new Map<string, SessionThumbnail>()
-  for (const session of sessions) thumbnails.set(session.name, { id: session.id, name: session.name, window: null, panes: [] })
+  for (const session of sessions)
+    thumbnails.set(session.name, { id: session.id, name: session.name, window: null, panes: [] })
   const captures: { pane: SessionThumbnailPane; target: string }[] = []
   for (const line of stdout.trim().split('\n').filter(Boolean)) {
-    const [sessionName, windowId, windowIndex, windowName, windowActive, windowZoomed, paneId, title, paneActive, width, height, left, top] = line.split('|')
+    const [
+      sessionName,
+      windowId,
+      windowIndex,
+      windowName,
+      windowActive,
+      windowZoomed,
+      paneId,
+      title,
+      paneActive,
+      width,
+      height,
+      left,
+      top,
+    ] = line.split('|')
     if (windowActive !== '1' || !sessionByName.has(sessionName)) continue
     const thumbnail = thumbnails.get(sessionName)
     if (!thumbnail) continue
-    if (!thumbnail.window) thumbnail.window = { id: `${hostId}:${windowId}`, index: parseInt(windowIndex, 10) || 0, name: windowName, zoomed: windowZoomed === '1' }
+    if (!thumbnail.window)
+      thumbnail.window = {
+        id: `${hostId}:${windowId}`,
+        index: parseInt(windowIndex, 10) || 0,
+        name: windowName,
+        zoomed: windowZoomed === '1',
+      }
     const pane = {
       id: `${hostId}:${paneId}`,
       title: title || 'shell',
@@ -163,15 +203,17 @@ async function getSessionThumbnails(hostId: string): Promise<SessionThumbnail[]>
     captures.push({ pane, target: paneId })
   }
   let captureIndex = 0
-  await Promise.all(Array.from({ length: Math.min(thumbnailCaptureConcurrency, captures.length) }, async () => {
-    while (captureIndex < captures.length) {
-      const { pane, target } = captures[captureIndex++]
-      try {
-        const { stdout: data } = await execTmux(hostId, ['capture-pane', '-pt', target, '-p'])
-        pane.data = data
-      } catch {}
-    }
-  }))
+  await Promise.all(
+    Array.from({ length: Math.min(thumbnailCaptureConcurrency, captures.length) }, async () => {
+      while (captureIndex < captures.length) {
+        const { pane, target } = captures[captureIndex++]
+        try {
+          const { stdout: data } = await execTmux(hostId, ['capture-pane', '-pt', target, '-p'])
+          pane.data = data
+        } catch {}
+      }
+    }),
+  )
   return sessions.map((session) => thumbnails.get(session.name)!).filter((thumbnail) => !!thumbnail.window)
 }
 function getBatchDeleteSelection(hostId: string, sessions: HostTmuxSession[], body: BatchDeleteRequest) {
@@ -192,12 +234,14 @@ function getBatchDeleteSelection(hostId: string, sessions: HostTmuxSession[], bo
   if (selectedSessionNames.size) matched = matched.filter((session) => selectedSessionNames.has(session.name))
   if (nameIncludes) matched = matched.filter((session) => session.name.toLowerCase().includes(nameIncludes))
   if (createdBeforeTs !== null) matched = matched.filter((session) => Date.parse(session.createdAt) < createdBeforeTs)
-  if (inactiveBeforeTs !== null) matched = matched.filter((session) => Date.parse(session.lastActiveAt) < inactiveBeforeTs)
+  if (inactiveBeforeTs !== null)
+    matched = matched.filter((session) => Date.parse(session.lastActiveAt) < inactiveBeforeTs)
   const skipped: BatchDeleteSkip[] = []
   if (selectedSessionNames.size) {
     const existingNames = new Set(sessions.map((session) => session.name))
     for (const sessionName of selectedSessionNames) {
-      if (!existingNames.has(sessionName)) skipped.push({ sessionId: buildSessionId(hostId, sessionName), name: sessionName, reason: 'not_found' })
+      if (!existingNames.has(sessionName))
+        skipped.push({ sessionId: buildSessionId(hostId, sessionName), name: sessionName, reason: 'not_found' })
     }
   }
   const eligible: HostTmuxSession[] = []
@@ -218,17 +262,36 @@ function quoteShellValue(value: string) {
 }
 function getPaneStartupCommand(pane: { command?: string; cwd?: string; env?: Record<string, string> }) {
   const parts: string[] = []
-  const env = pane.env && typeof pane.env === 'object' ? Object.entries(pane.env).filter(([key, value]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(key) && typeof value === 'string') : []
+  const env =
+    pane.env && typeof pane.env === 'object'
+      ? Object.entries(pane.env).filter(
+          ([key, value]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(key) && typeof value === 'string',
+        )
+      : []
   if (env.length) parts.push(`export ${env.map(([key, value]) => `${key}=${quoteShellValue(value)}`).join(' ')}`)
   if (pane.cwd?.trim()) parts.push(`cd -- ${quoteShellValue(pane.cwd.trim())}`)
   if (pane.command?.trim()) parts.push(pane.command.trim())
   return parts.join('; ')
 }
 async function getFirstWindowTarget(hostId: string, sessionName: string) {
-  const { stdout } = await execTmux(hostId, ['list-windows', '-t', sessionName, '-F', '#{window_index}', '-f', '#{==:#{window_active},1}'])
+  const { stdout } = await execTmux(hostId, [
+    'list-windows',
+    '-t',
+    sessionName,
+    '-F',
+    '#{window_index}',
+    '-f',
+    '#{==:#{window_active},1}',
+  ])
   const activeIndex = stdout.trim()
   if (activeIndex) return `${sessionName}:${activeIndex}`
-  const { stdout: fallbackStdout } = await execTmux(hostId, ['list-windows', '-t', sessionName, '-F', '#{window_index}'])
+  const { stdout: fallbackStdout } = await execTmux(hostId, [
+    'list-windows',
+    '-t',
+    sessionName,
+    '-F',
+    '#{window_index}',
+  ])
   const fallbackIndex = fallbackStdout.trim().split('\n').find(Boolean)
   if (!fallbackIndex) throw new Error(`No windows found for session ${sessionName}`)
   return `${sessionName}:${fallbackIndex}`
@@ -268,9 +331,17 @@ async function applyTemplateLayout(hostId: string, sessionName: string, layout: 
       if (panes[0]?.cwd?.trim()) args.push('-c', panes[0].cwd.trim())
       await execTmux(hostId, args)
     }
-    const paneBaseIndex = i === 0 ? await getFirstPaneIndex(hostId, firstWindowTarget) : await getFirstPaneIndex(hostId, windowTarget)
+    const paneBaseIndex =
+      i === 0 ? await getFirstPaneIndex(hostId, firstWindowTarget) : await getFirstPaneIndex(hostId, windowTarget)
     for (let p = 1; p < panes.length; p++) {
-      await execTmux(hostId, ['split-window', '-c', panes[p]?.cwd?.trim() || '#{pane_current_path}', '-t', windowTarget, splitFlag])
+      await execTmux(hostId, [
+        'split-window',
+        '-c',
+        panes[p]?.cwd?.trim() || '#{pane_current_path}',
+        '-t',
+        windowTarget,
+        splitFlag,
+      ])
     }
     await execTmux(hostId, ['select-layout', '-t', windowTarget, layoutPreset])
     for (let p = 0; p < panes.length; p++) {
@@ -283,7 +354,7 @@ async function applyTemplateLayout(hostId: string, sessionName: string, layout: 
 }
 async function cleanupSession(hostId: string, sessionName: string) {
   try {
-    await execTmux(hostId, ['kill-session', '-t', sessionName])
+    await execTmux(hostId, ['kill-session', '-t', exactSessionTarget(sessionName)])
   } catch {}
 }
 async function safePrepareSessionAttach(hostId: string, sessionName: string) {
@@ -314,7 +385,12 @@ export async function sessionRoutes(fastify: FastifyInstance) {
     const { hostId } = request.params as { hostId: string }
     const sessions = await getHostTmuxSessions(hostId)
     if (!sessions.length) return []
-    const agentPanes = agentMonitor.getStates(hostId) || await getHostAgentPanes(hostId, sessions.map((session) => session.name)).catch(() => [])
+    const agentPanes =
+      agentMonitor.getStates(hostId) ||
+      (await getHostAgentPanes(
+        hostId,
+        sessions.map((session) => session.name),
+      ).catch(() => []))
     return sessions.map((session) => {
       const agents = agentPanes.filter((pane) => pane.sessionName === session.name)
       return { ...session, agents, agentSummary: summarizeAgentPanes(agents) }
@@ -326,7 +402,11 @@ export async function sessionRoutes(fastify: FastifyInstance) {
   })
   fastify.post('/hosts/:hostId/sessions', async (request) => {
     const { hostId } = hostParamsSchema.parse(request.params)
-    const { name, layout, cwd } = sessionCreateBodySchema.parse(request.body) as { name: string; layout?: SessionTemplateLayout; cwd?: string }
+    const { name, layout, cwd } = sessionCreateBodySchema.parse(request.body) as {
+      name: string
+      layout?: SessionTemplateLayout
+      cwd?: string
+    }
     if (!isValidSessionName(name)) throw new Error('Invalid session name')
     const normalizedCwd = cwd && cwd.trim() && path.isAbsolute(cwd.trim()) ? cwd.trim() : undefined
     try {
@@ -343,7 +423,14 @@ export async function sessionRoutes(fastify: FastifyInstance) {
       await execTmux(hostId, ['new-session', ...newSessionArgs])
       if (layout?.windows?.length) {
         try {
-          const layoutWithCwd: SessionTemplateLayout = normalizedCwd ? { windows: layout.windows.map((window) => ({ ...window, panes: window.panes.map((pane) => ({ ...pane, cwd: pane.cwd || normalizedCwd })) })) } : layout
+          const layoutWithCwd: SessionTemplateLayout = normalizedCwd
+            ? {
+                windows: layout.windows.map((window) => ({
+                  ...window,
+                  panes: window.panes.map((pane) => ({ ...pane, cwd: pane.cwd || normalizedCwd })),
+                })),
+              }
+            : layout
           await applyTemplateLayout(hostId, name, layoutWithCwd)
         } catch (err: any) {
           await cleanupSession(hostId, name)
@@ -392,7 +479,12 @@ export async function sessionRoutes(fastify: FastifyInstance) {
         windowCount: 1,
         attached: false,
       }
-      emitPluginEvent('session.renamed', { hostId, sessionId: renamed.id, sessionName: name, previousSessionName: sessionName })
+      emitPluginEvent('session.renamed', {
+        hostId,
+        sessionId: renamed.id,
+        sessionName: name,
+        previousSessionName: sessionName,
+      })
       return renamed
     } catch (err: any) {
       throw new Error(err.message)
@@ -419,15 +511,21 @@ export async function sessionRoutes(fastify: FastifyInstance) {
         sessions: limited.map(toBatchDeleteTarget),
       }
     }
-    if (forceRequired && body.force !== true) throw new Error(`Delete candidate count ${eligible.length} exceeds limit ${limit}, set force=true to continue`)
+    if (forceRequired && body.force !== true)
+      throw new Error(`Delete candidate count ${eligible.length} exceeds limit ${limit}, set force=true to continue`)
     const targets = forceRequired && body.force === true ? eligible : limited
     const deleted: BatchDeleteTarget[] = []
     const failed: BatchDeleteSkip[] = []
     for (const session of targets) {
       try {
-        await execTmux(hostId, ['kill-session', '-t', session.name])
+        await execTmux(hostId, ['kill-session', '-t', exactSessionTarget(session.name)])
         deleted.push(toBatchDeleteTarget(session))
-        emitPluginEvent('session.deleted', { hostId, sessionId: session.id, sessionName: session.name, source: 'batch-delete' })
+        emitPluginEvent('session.deleted', {
+          hostId,
+          sessionId: session.id,
+          sessionName: session.name,
+          source: 'batch-delete',
+        })
       } catch (err: any) {
         failed.push({ sessionId: session.id, name: session.name, reason: err?.message || 'delete_failed' })
       }
@@ -452,7 +550,7 @@ export async function sessionRoutes(fastify: FastifyInstance) {
     const sessionName = normalizeSessionName(hostId, sessionId)
     assertSessionAllowed(sessionName)
     try {
-      await execTmux(hostId, ['kill-session', '-t', sessionName])
+      await execTmux(hostId, ['kill-session', '-t', exactSessionTarget(sessionName)])
       emitPluginEvent('session.deleted', { hostId, sessionId: buildSessionId(hostId, sessionName), sessionName })
       return { success: true, sessionId: buildSessionId(hostId, sessionName) }
     } catch (err: any) {
