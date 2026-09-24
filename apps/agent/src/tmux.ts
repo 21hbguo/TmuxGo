@@ -5,7 +5,12 @@ import * as pty from 'node-pty'
 
 const execAsync = promisify(exec)
 const execFileAsync = promisify(execFile)
-const allowedSessions = new Set((process.env.TMUX_WEB_ALLOWED_SESSIONS || '').split(',').map((name) => name.trim()).filter(Boolean))
+const allowedSessions = new Set(
+  (process.env.TMUX_WEB_ALLOWED_SESSIONS || '')
+    .split(',')
+    .map((name) => name.trim())
+    .filter(Boolean),
+)
 
 function isValidSessionName(name: string) {
   return /^[A-Za-z0-9._-]{1,64}$/.test(name)
@@ -25,7 +30,11 @@ function normalizeTmuxEnvArgs(args: string[]) {
 }
 function isTmuxServerMissingError(message: string) {
   const value = message.toLowerCase()
-  return value.includes('error connecting to') || value.includes('no server running') || value.includes('failed to connect to server')
+  return (
+    value.includes('error connecting to') ||
+    value.includes('no server running') ||
+    value.includes('failed to connect to server')
+  )
 }
 function assertSessionAllowed(name: string) {
   if (!isValidSessionName(name)) throw new Error('Invalid session name')
@@ -49,7 +58,7 @@ export class TmuxManager {
   async listSessions(): Promise<TmuxSession[]> {
     try {
       const { stdout } = await execAsync(
-        'tmux list-sessions -F "#{session_id}|#{session_name}|#{session_windows}|#{session_created}|#{session_attached}"'
+        'tmux list-sessions -F "#{session_id}|#{session_name}|#{session_windows}|#{session_created}|#{session_attached}"',
       )
 
       return stdout
@@ -90,7 +99,18 @@ export class TmuxManager {
     } catch (err: any) {
       if (!isTmuxServerMissingError(String(err?.message || ''))) throw err
     }
-    if (process.env.INVOCATION_ID) await execFileAsync('systemd-run', ['--user', '--scope', '--quiet', '--collect', 'tmux', 'new-session', '-d', '-s', name])
+    if (process.env.INVOCATION_ID)
+      await execFileAsync('systemd-run', [
+        '--user',
+        '--scope',
+        '--quiet',
+        '--collect',
+        'tmux',
+        'new-session',
+        '-d',
+        '-s',
+        name,
+      ])
     else await execFileAsync('tmux', ['new-session', '-d', '-s', name])
     try {
       await execFileAsync('tmux', ['setenv', '-g', 'TMUXGO_ENV', '1'])
@@ -106,11 +126,18 @@ export class TmuxManager {
 
   async killSession(name: string): Promise<void> {
     assertSessionAllowed(name)
-    await execFileAsync('tmux', ['kill-session', '-t', name])
+    // '=' 前缀强制精确匹配：裸 -t 在目标不存在时按前缀/模式匹配，会误杀同名前缀的全部 session
+    await execFileAsync('tmux', ['kill-session', '-t', `=${name}`])
   }
 
   async executeTmux(args: string[]) {
-    if (!Array.isArray(args) || !args.length || args.length > 64 || args.some((item) => typeof item !== 'string' || item.length > 4096)) throw new Error('Invalid tmux arguments')
+    if (
+      !Array.isArray(args) ||
+      !args.length ||
+      args.length > 64 ||
+      args.some((item) => typeof item !== 'string' || item.length > 4096)
+    )
+      throw new Error('Invalid tmux arguments')
     const normalized = normalizeTmuxEnvArgs(args)
     if (normalized.needsSetEnv) {
       try {
@@ -132,6 +159,11 @@ export class TmuxManager {
     const args = ['attach']
     if (!exclusive) args.push('-f', 'ignore-size,active-pane')
     args.push('-t', name)
-    return pty.spawn('tmux', args, { name: 'xterm-256color', cols, rows, env: { ...process.env, TERM: 'xterm-256color' } })
+    return pty.spawn('tmux', args, {
+      name: 'xterm-256color',
+      cols,
+      rows,
+      env: { ...process.env, TERM: 'xterm-256color' },
+    })
   }
 }
