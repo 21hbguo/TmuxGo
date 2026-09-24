@@ -79,7 +79,23 @@ function useQuickActionController() {
   const [newWindowName, setNewWindowName] = useState('')
   const repeatTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const repeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const pointerStateRef = useRef({ id: -1, x: 0, y: 0, moved: false, pointerType: '', repeatFired: false })
+  const pointerStateRef = useRef<{
+    id: number
+    target: HTMLButtonElement | null
+    x: number
+    y: number
+    moved: boolean
+    pointerType: string
+    repeatFired: boolean
+  }>({
+    id: -1,
+    target: null,
+    x: 0,
+    y: 0,
+    moved: false,
+    pointerType: '',
+    repeatFired: false,
+  })
   const dockScrollRef = useRef({
     pointerId: -1,
     startScrollLeft: 0,
@@ -190,6 +206,7 @@ function useQuickActionController() {
   const startPointer = useCallback((e: ReactPointerEvent<HTMLButtonElement>) => {
     pointerStateRef.current = {
       id: e.pointerId,
+      target: e.currentTarget,
       x: e.clientX,
       y: e.clientY,
       moved: false,
@@ -198,7 +215,7 @@ function useQuickActionController() {
     }
   }, [])
   const resetPointer = useCallback(() => {
-    pointerStateRef.current = { id: -1, x: 0, y: 0, moved: false, pointerType: '', repeatFired: false }
+    pointerStateRef.current = { id: -1, target: null, x: 0, y: 0, moved: false, pointerType: '', repeatFired: false }
   }, [])
   const startDockGesture = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.pointerType === 'mouse') return
@@ -242,7 +259,7 @@ function useQuickActionController() {
   const trackPointer = useCallback(
     (e: ReactPointerEvent<HTMLButtonElement>) => {
       const state = pointerStateRef.current
-      if (state.id !== e.pointerId || state.moved) return
+      if (state.id !== e.pointerId || state.target !== e.currentTarget || state.moved) return
       if (Math.abs(e.clientX - state.x) >= dragThreshold || Math.abs(e.clientY - state.y) >= dragThreshold) {
         state.moved = true
         stopRepeat()
@@ -609,11 +626,13 @@ function renderDockButton(def: ActionButtonDef, controller: ReturnType<typeof us
       }}
       onPointerMove={trackPointer}
       onPointerUp={(e) => {
-        const { moved, pointerType, repeatFired } = pointerStateRef.current
+        const { id, target, moved, pointerType, repeatFired } = pointerStateRef.current
         const blocked = isDockScrollBlocked()
         finishPointer()
         finishDockGesture(e.pointerId)
-        if (moved || blocked || def.disabled) return
+        // 仅当 pointerdown 在本按钮上发起的同一指针手势才允许触发；
+        // 否则外来手势(文件行拖动/划屏)在按钮上抬起时会误发按键(如 Ctrl+C)
+        if (id !== e.pointerId || target !== e.currentTarget || moved || blocked || def.disabled) return
         if (def.repeat && (def.data || def.onPress)) {
           if (pointerType !== 'mouse' && !repeatFired) triggerDockButton(def, controller)
           return
@@ -621,10 +640,15 @@ function renderDockButton(def: ActionButtonDef, controller: ReturnType<typeof us
         triggerDockButton(def, controller)
       }}
       onPointerCancel={(e) => {
-        finishPointer()
+        // 仅收尾本按钮发起的手势，外来指针的 cancel 不得清掉进行中的状态
+        if (pointerStateRef.current.id === e.pointerId && pointerStateRef.current.target === e.currentTarget)
+          finishPointer()
         finishDockGesture(e.pointerId)
       }}
-      onPointerLeave={finishPointer}
+      onPointerLeave={(e) => {
+        if (pointerStateRef.current.id === e.pointerId && pointerStateRef.current.target === e.currentTarget)
+          finishPointer()
+      }}
       onClick={(e) => {
         if (e.detail !== 0) return
         triggerDockButton(def, controller)

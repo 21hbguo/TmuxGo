@@ -11,14 +11,20 @@ vi.mock('@/hooks/usePreferences', () => ({
   usePreferences: () => ({ preferences: { attachExclusive: true }, updatePreferences }),
 }))
 vi.mock('@/i18n', () => ({
-  useTranslation: () => ({ t: (key: string) => {
-    if (key === 'quick.paste') return 'Paste'
-    if (key === 'quick.copy') return 'Copy'
-    return key
-  } }),
+  useTranslation: () => ({
+    t: (key: string) => {
+      if (key === 'quick.paste') return 'Paste'
+      if (key === 'quick.copy') return 'Copy'
+      return key
+    },
+  }),
 }))
 vi.mock('@/stores/useConsoleStore', () => ({
-  useConsoleStore: Object.assign(((selector: any) => selector({ activeHostId: 'local', activeSessionId: 'dev', activePaneId: '%1', pushToast })) as any, { setState: vi.fn() }),
+  useConsoleStore: Object.assign(
+    ((selector: any) =>
+      selector({ activeHostId: 'local', activeSessionId: 'dev', activePaneId: '%1', pushToast })) as any,
+    { setState: vi.fn() },
+  ),
 }))
 vi.mock('@/hooks/useApi', () => ({
   useWindows: () => ({ data: [{ id: '@1', active: true }] }),
@@ -28,20 +34,35 @@ vi.mock('@/hooks/useWebSocket', () => ({
 }))
 const customShortcutsState = vi.hoisted(() => ({ shortcuts: [] as any[] }))
 vi.mock('@/hooks/useCustomShortcuts', () => ({
-  useCustomShortcuts: () => ({ shortcuts: customShortcutsState.shortcuts, addShortcut: vi.fn(), updateShortcut: vi.fn(), removeShortcut: vi.fn(), removeShortcuts: vi.fn() }),
+  useCustomShortcuts: () => ({
+    shortcuts: customShortcutsState.shortcuts,
+    addShortcut: vi.fn(),
+    updateShortcut: vi.fn(),
+    removeShortcut: vi.fn(),
+    removeShortcuts: vi.fn(),
+  }),
   shortcutToSteps: (s: any) => s.steps || [],
   stepToInput: (s: any) => (s.type === 'keys' ? '\x1b[5~' : (s.text || '') + (s.appendEnter ? '\r' : '')),
   describeShortcut: vi.fn(() => ''),
   keysToEscape: vi.fn(() => ''),
 }))
 vi.mock('@/hooks/useSessionSnapshotSync', () => ({
-  useSessionSnapshotSync: () => ({ refreshSnapshot: vi.fn(), resolveActivePaneId: vi.fn(async () => '%1'), resolveFreshActivePaneId: vi.fn(async () => '%1'), optimisticallyToggleWindowZoom: vi.fn(), discardOptimisticWindowZoom: vi.fn() }),
+  useSessionSnapshotSync: () => ({
+    refreshSnapshot: vi.fn(),
+    resolveActivePaneId: vi.fn(async () => '%1'),
+    resolveFreshActivePaneId: vi.fn(async () => '%1'),
+    optimisticallyToggleWindowZoom: vi.fn(),
+    discardOptimisticWindowZoom: vi.fn(),
+  }),
 }))
 vi.mock('@/hooks/useWindowQueryState', () => ({
   useWindowQueryState: () => ({ setWindows: vi.fn() }),
 }))
 vi.mock('@/lib/api', () => ({
-  api: { panes: { split: vi.fn(), kill: vi.fn(), zoomByPane: vi.fn() }, windows: { create: vi.fn(), select: vi.fn(), list: vi.fn() } },
+  api: {
+    panes: { split: vi.fn(), kill: vi.fn(), zoomByPane: vi.fn() },
+    windows: { create: vi.fn(), select: vi.fn(), list: vi.fn() },
+  },
 }))
 vi.mock('@/lib/clipboard-text', () => ({
   writeClipboardText: vi.fn(async () => ({ copied: true, source: 'system', unavailable: false })),
@@ -128,7 +149,9 @@ describe('QuickActions', () => {
   })
   it('repeats a hold-to-repeat custom shortcut while held in the mobile shortcut bar', () => {
     vi.useFakeTimers()
-    customShortcutsState.shortcuts = [{ id: 'pgup', label: 'PgUp', repeat: true, steps: [{ type: 'keys', keys: 'PageUp' }] }]
+    customShortcutsState.shortcuts = [
+      { id: 'pgup', label: 'PgUp', repeat: true, steps: [{ type: 'keys', keys: 'PageUp' }] },
+    ]
     render(<QuickActions mode="dock" />)
     const button = screen.getByRole('button', { name: 'PgUp' })
     fireEvent(button, createEvent.pointerDown(button, { pointerId: 1, pointerType: 'touch' }))
@@ -143,6 +166,28 @@ describe('QuickActions', () => {
     act(() => vi.runOnlyPendingTimers())
     expect(send.mock.calls).toHaveLength(2)
     vi.useRealTimers()
+  })
+  it('ignores a stray pointerup on a dock button that did not start there', () => {
+    render(<QuickActions mode="dock" />)
+    for (const button of screen.getAllByRole('button', { name: 'Ctrl+C' })) {
+      fireEvent.pointerUp(button, { pointerId: 1, pointerType: 'mouse' })
+    }
+    expect(send).not.toHaveBeenCalled()
+  })
+  it('ignores a pointerup on a dock button when the gesture started on another button', () => {
+    render(<QuickActions mode="dock" />)
+    const esc = screen.getAllByRole('button', { name: 'Esc' })[0]
+    const ctrlC = screen.getAllByRole('button', { name: 'Ctrl+C' })[0]
+    fireEvent(esc, createEvent.pointerDown(esc, { pointerId: 1, pointerType: 'mouse' }))
+    fireEvent.pointerUp(ctrlC, { pointerId: 1, pointerType: 'mouse' })
+    expect(send).not.toHaveBeenCalled()
+  })
+  it('still fires a dock button on a normal tap', () => {
+    render(<QuickActions mode="dock" />)
+    const ctrlC = screen.getAllByRole('button', { name: 'Ctrl+C' })[0]
+    fireEvent(ctrlC, createEvent.pointerDown(ctrlC, { pointerId: 1, pointerType: 'touch' }))
+    fireEvent.pointerUp(ctrlC, { pointerId: 1, pointerType: 'touch' })
+    expect(send).toHaveBeenCalledWith({ type: 'input', data: '\x03' })
   })
   it('does not repeat a custom shortcut without the repeat flag', () => {
     vi.useFakeTimers()
