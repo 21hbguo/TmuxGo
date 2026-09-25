@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "tmuxgo": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["apps/mcp/index.mjs"]
+    }
+  }
+}
