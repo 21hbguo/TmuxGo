@@ -1,6 +1,6 @@
 # TmuxGo Agent Inbox / Push Protocol (v1)
 
-> Status: planned for R2 implementation. This document freezes the v1 wire contract used by the stdio MCP bridge and `POST /api/v1/control/push`.
+> Status: implemented (v1). This document is the wire contract used by the stdio MCP bridge and `POST /api/v1/control/push`.
 
 ## Transport and guard
 
@@ -109,8 +109,8 @@ The frontend stores only message ids/tab order locally. After refresh it hydrate
 The existing authenticated agent stream sends metadata-only events:
 
 - `inbox_message_created`
-- `inbox_message_updated`
-- `inbox_asset_ready`
+- `inbox_message_updated` (also emitted per-message on mark-read)
+- `inbox_message_deleted` `{ ids: string[] }` (REST/UI deletion fan-out)
 - `inbox_open_target` (navigation request for the UI)
 
 No binary data or base64 media is sent over WebSocket. The frontend invalidates/merges the inbox cursor and fetches content through REST. After reconnect, it uses the last cursor to fill gaps.
@@ -134,10 +134,10 @@ Duplicates are not errors: a repeated `dedupeKey` returns `200` with `deduplicat
 
 ## MCP stdio registration snippets
 
-The bridge command below is intentionally a placeholder until the implementation lands. Replace it with the installed command/path from `apps/mcp`; do not put a token in config because the bridge reads the injected pane environment.
+The bridge is `apps/mcp/index.mjs` (zero-dependency Node ≥18 script). Exposed tools: `tmuxgo_push_text`, `tmuxgo_push_file` (image/video/any file by path), `tmuxgo_push_link`, `tmuxgo_open_target`. Token resolution order: `TMUXGO_AGENT_EVENT_TOKEN` env → `~/.tmuxgo/agent-event-token` (0600, gateway-managed). Gateway URL: `TMUXGO_GATEWAY_URL` → default `http://127.0.0.1:3001`. Do not put a token in config.
 
 ```text
-TMUXGO_MCP_COMMAND=tmuxgo-mcp
+TMUXGO_MCP_COMMAND="node <repo>/apps/mcp/index.mjs"
 ```
 
 ### Codex
@@ -147,11 +147,11 @@ Config path: `~/.codex/config.toml` (or the project-scoped Codex config used by 
 ```toml
 [mcp_servers.tmuxgo]
 type = "stdio"
-command = "tmuxgo-mcp"
-args = []
+command = "node"
+args = ["/home/guo/project/other/TmuxGo/apps/mcp/index.mjs"]
 ```
 
-Equivalent CLI registration: `codex mcp add tmuxgo -- tmuxgo-mcp`.
+Equivalent CLI registration: `codex mcp add tmuxgo -- node <repo>/apps/mcp/index.mjs`. (Already applied to `~/.codex/config.toml`.)
 
 ### Claude Code
 
@@ -162,14 +162,14 @@ Config path: project `.mcp.json` (recommended for this repository) or user `~/.c
   "mcpServers": {
     "tmuxgo": {
       "type": "stdio",
-      "command": "tmuxgo-mcp",
-      "args": []
+      "command": "node",
+      "args": ["apps/mcp/index.mjs"]
     }
   }
 }
 ```
 
-Equivalent command: `claude mcp add --transport stdio tmuxgo -- tmuxgo-mcp`.
+Already applied both ways: repo `.mcp.json` (relative args above) and user scope via `claude mcp add tmuxgo --scope user -- node <repo>/apps/mcp/index.mjs`.
 
 ### DeepSeek harness / dsh
 
@@ -181,8 +181,8 @@ DSH registers MCP through the `@deepseek-ai/dsh-mcp-client` preset entry, not th
   config:
     serverName: tmuxgo
     transport: stdio
-    command: tmuxgo-mcp
-    args: []
+    command: node
+    args: [<repo>/apps/mcp/index.mjs]
 ```
 
 Keep it in the desired preset/scope (for example `aris`) rather than profile-global if only selected DSH sessions should see it. The stdio child inherits the pane environment; do not copy `TMUXGO_AGENT_EVENT_TOKEN` into YAML.
@@ -194,11 +194,11 @@ Config path: `~/.hermes/config.yaml`. Merge under the top-level `mcp_servers` ma
 ```yaml
 mcp_servers:
   tmuxgo:
-    command: tmuxgo-mcp
-    args: []
+    command: node
+    args: [<repo>/apps/mcp/index.mjs]
 ```
 
-The Hermes CLI equivalent is `hermes mcp add tmuxgo --command tmuxgo-mcp`. Existing `mcp_servers` entries must be preserved.
+The Hermes CLI equivalent is `hermes mcp add tmuxgo --command node --args <repo>/apps/mcp/index.mjs`. Existing `mcp_servers` entries must be preserved.
 
 ## Environment contract and examples
 
