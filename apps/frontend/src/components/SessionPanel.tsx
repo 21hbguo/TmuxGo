@@ -383,9 +383,14 @@ export function SessionPanel() {
   const currentWorkspace =
     workspaceGroups.find((group) => group.sessions.some((session) => session.id === activeSessionId))?.workspace || null
   // —— 跨组拖拽：DndContext 上移到此，预览序按组 key 存 ——
+  // 粗指针端（iPad/触屏本）：长按激活延迟加长+死区加大，列表滚动/长按菜单优先，
+  // 否则 TouchSensor 220ms 抢手势；桌面触控维持原延迟
+  const coarsePointer = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches
   const sessionDndSensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 220, tolerance: 8 } }),
+    useSensor(TouchSensor, {
+      activationConstraint: coarsePointer ? { delay: 550, tolerance: 16 } : { delay: 220, tolerance: 8 },
+    }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
   const [dragSessionId, setDragSessionId] = useState<string | null>(null)
@@ -468,7 +473,7 @@ export function SessionPanel() {
       {batchMode && (
         <button
           onClick={() => toggleBatchSession(session.id)}
-          className={`ml-2 flex h-7 w-5 shrink-0 items-center justify-center rounded-apple text-meta leading-none ${selectedSessionIds.includes(session.id) ? 'text-danger' : 'text-text-3'} hover:bg-bg-0`}
+          className={`ml-2 flex h-9 w-6 shrink-0 items-center justify-center rounded-apple text-meta leading-none ${selectedSessionIds.includes(session.id) ? 'text-danger' : 'text-text-3'} hover:bg-bg-0`}
         >
           {selectedSessionIds.includes(session.id) ? '☑' : '☐'}
         </button>
@@ -490,7 +495,7 @@ export function SessionPanel() {
       {!batchMode && (
         <button
           onClick={() => void handleRenameSession(session.id)}
-          className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-7 w-7 text-meta"
+          className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-9 w-9 text-meta"
           aria-label={t('sidebar.renameSession')}
           title={t('sidebar.renameSession')}
         >
@@ -500,7 +505,7 @@ export function SessionPanel() {
       {!batchMode && (
         <button
           onClick={() => setPendingDeleteSessionId(session.id)}
-          className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-7 w-7 text-meta hover:text-danger"
+          className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-9 w-9 text-meta hover:text-danger"
           aria-label={t('sidebar.deleteSession')}
           title={t('sidebar.deleteSession')}
         >

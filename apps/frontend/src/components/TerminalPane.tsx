@@ -182,6 +182,7 @@ export function TerminalPane({
   const sendRef = useRef(send)
   const sendInput = useCallback((data: string) => onInputRef.current?.(data), [])
   const { textareaRef, focusKeyboard, isMobile: isMobileDevice } = useMobileKeyboard(sendInput, terminalRef)
+  const keyboardFocusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const dropState = useTerminalDrop(sendInput, openUploadDialog, () => terminalInstance.current?.focus?.())
   const handlePasteFiles = useCallback(
     (files: File[]) => openUploadDialog({ files, insertPaths: true, temporary: true }),
@@ -246,15 +247,45 @@ export function TerminalPane({
     onBackpressure: handleTerminalBackpressure,
     onBackpressureSuppressed: handleBackpressureSuppressed,
   })
+  // pane_scroll 上行节流：touchmove/momentum 每 16-18px 一条会打满弱网 ws
+  // 队列——行数累积，80ms 窗口合并单条发送（远端连续滚动语义不变）
+  const scrollPendingRef = useRef(0)
+  const scrollFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const flushTouchScroll = useCallback(() => {
+    scrollFlushTimerRef.current = null
+    const lines = scrollPendingRef.current
+    scrollPendingRef.current = 0
+    if (!lines) return
+    send({
+      type: 'pane_scroll',
+      hostId: activeHostIdRef.current || 'local',
+      sessionName: sessionNameRef.current,
+      lines,
+    })
+  }, [send])
   const handleTouchScroll = useCallback(
-    (lines: number) =>
+    (lines: number) => {
+      if (scrollFlushTimerRef.current) {
+        scrollPendingRef.current += lines
+        return
+      }
+      // 窗口外首发即送（小幅滚动保持即时），随后 80ms 内并入 trailing flush
       send({
         type: 'pane_scroll',
         hostId: activeHostIdRef.current || 'local',
         sessionName: sessionNameRef.current,
         lines,
-      }),
-    [send],
+      })
+      scrollFlushTimerRef.current = setTimeout(flushTouchScroll, 80)
+    },
+    [flushTouchScroll, send],
+  )
+  useEffect(
+    () => () => {
+      if (scrollFlushTimerRef.current) clearTimeout(scrollFlushTimerRef.current)
+      if (keyboardFocusTimerRef.current) clearTimeout(keyboardFocusTimerRef.current)
+    },
+    [],
   )
   const handleTouchTap = useCallback((x: number, y: number) => {
     lastTapRef.current = { x, y }
@@ -513,7 +544,13 @@ export function TerminalPane({
           const tap = lastTapRef.current || (touch ? { x: touch.clientX, y: touch.clientY } : null)
           if (tap) dispatchTerminalTap(tap.x, tap.y)
           lastTapRef.current = null
-          focusKeyboard()
+          // 键盘唤起延迟一拍：点链接/选词/浮层外轻点不该弹半屏键盘；
+          // 期间再来手势（滚动/长按/双指）即取消——想输入的用户照常等 ~350ms
+          if (keyboardFocusTimerRef.current) clearTimeout(keyboardFocusTimerRef.current)
+          keyboardFocusTimerRef.current = setTimeout(() => {
+            keyboardFocusTimerRef.current = null
+            if (!touchMovedRef.current) focusKeyboard()
+          }, 350)
         } else if (!isMobileDevice) {
           terminalRef.current?.focus()
         }
