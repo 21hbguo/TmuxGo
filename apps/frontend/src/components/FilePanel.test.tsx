@@ -889,7 +889,7 @@ describe('FilePanel', () => {
     await waitFor(() =>
       expect(document.querySelector('.tmuxgo-file-tree [data-selected="true"]')?.textContent).toContain('index.ts'),
     )
-    // cwd 外的文件不高亮，也不挪动跟随的 currentPath
+    // cwd 外的文件：点 tab 视为显式定位——挂起跟随并 reveal(状态栏可恢复)
     consoleStoreState.openEditors = [
       {
         ...consoleStoreState.openEditors[0],
@@ -901,10 +901,11 @@ describe('FilePanel', () => {
     ]
     consoleStoreState.activeEditorId = 'local:root-workspace:docs/guide.md'
     view.rerender(React.createElement(FilePanel))
-    await waitFor(() => expect(screen.getByText('index.ts')).toBeInTheDocument())
-    expect(document.querySelector('.tmuxgo-file-tree [data-selected="true"]')?.textContent || '').not.toContain(
-      'guide.md',
+    await waitFor(() =>
+      expect(document.querySelector('.tmuxgo-file-tree [data-selected="true"]')?.textContent).toContain('guide.md'),
     )
+    expect(screen.getByText('Following paused')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Resume following' })).toBeInTheDocument()
   })
   it('suspends pane follow after manual navigation and resumes on pane change', async () => {
     consoleStoreState.activePaneId = 'local:%1'

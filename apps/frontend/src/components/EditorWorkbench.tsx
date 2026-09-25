@@ -844,8 +844,25 @@ export function EditorWorkbench({
       instance.setPosition?.({ lineNumber: line, column: Math.min(position.column, maxColumn) })
     }
     if (snapshot.selection) instance.setSelection?.(snapshot.selection)
-    instance.setScrollTop?.(snapshot.scrollTop)
-    instance.setScrollLeft?.(snapshot.scrollLeft)
+    // 目标值先取副本：setScrollTop 会同步触发 onDidScrollChange 把当前 scrollLeft(0) 写回快照，
+    // 若恢复时仍读 snapshot.scrollLeft 会拿到被覆盖的 0，横向位置永远还原不了
+    const targetTop = snapshot.scrollTop
+    const targetLeft = snapshot.scrollLeft
+    instance.setScrollTop?.(targetTop)
+    instance.setScrollLeft?.(targetLeft)
+    // 首帧布局未完成时 scrollHeight/scrollWidth 尚未撑开，setScrollTop/setScrollLeft 会被钳回 0：
+    // 两个轴向都进校验，按帧补到真实生效
+    retryViewApply(
+      editorId,
+      instance,
+      () =>
+        Math.abs((instance.getScrollTop?.() ?? 0) - targetTop) <= 2 &&
+        Math.abs((instance.getScrollLeft?.() ?? 0) - targetLeft) <= 2,
+      () => {
+        instance.setScrollTop?.(targetTop)
+        instance.setScrollLeft?.(targetLeft)
+      },
+    )
   }
   useEffect(() => {
     const handleOpenEditorLocation = (event: Event) => {
@@ -877,12 +894,18 @@ export function EditorWorkbench({
     window.addEventListener(OPEN_EDITOR_LOCATION_EVENT, handleOpenEditorLocation as EventListener)
     return () => window.removeEventListener(OPEN_EDITOR_LOCATION_EVENT, handleOpenEditorLocation as EventListener)
   }, [setActiveEditor])
-  // 已关闭 tab 的 pending/快照即时作废，重开同一文件不被陈旧落位劫持
+  // 已关闭 tab 的 pending/快照/光标即时作废：定位数据只随打开中的文件存活，重开同一文件不被陈旧落位劫持
   useEffect(() => {
     for (const id of Object.keys(pendingLocationRef.current))
       if (!openEditors.some((item) => item.id === id)) delete pendingLocationRef.current[id]
     for (const id of Object.keys(viewStateRef.current))
       if (!openEditors.some((item) => item.id === id)) delete viewStateRef.current[id]
+    setCursorById((current) => {
+      const kept = Object.fromEntries(
+        Object.entries(current).filter(([id]) => openEditors.some((item) => item.id === id)),
+      )
+      return Object.keys(kept).length === Object.keys(current).length ? current : kept
+    })
   }, [openEditors])
   const renderTab = (editor: FileEditorDocument, groupEditors: FileEditorDocument[], groupId: string) => (
     <div
@@ -1298,15 +1321,13 @@ export function EditorWorkbench({
                 snapshot.scrollTop = Number(event?.scrollTop ?? instance.getScrollTop?.() ?? 0)
                 snapshot.scrollLeft = Number(event?.scrollLeft ?? instance.getScrollLeft?.() ?? 0)
               })
-              // 卸载时清掉死引用并留最终快照：rAF 落位遇到死实例会落空,清掉后走 pendingLocation → remount 时 onMount 兜底
+              // 卸载只清死引用，不读实例补快照：@monaco-editor/react 卸载先 dispose model 再 dispose
+              // editor，此处 getScrollTop/getPosition 读到的是死模型值（-1/null），会把 onDidScrollChange
+              // 实时维护的快照覆盖成 -1，remount 后被钳回顶部。rAF 落位遇死实例会落空，清掉后走
+              // pendingLocation → remount 时 onMount 兜底
               instance.onDidDispose?.(() => {
                 releaseEditorWheelScroll(editor.id)
                 if (editorRefs.current[editor.id] === instance) delete editorRefs.current[editor.id]
-                const finalPosition = instance.getPosition?.()
-                if (finalPosition) snapshot.position = { line: finalPosition.lineNumber, column: finalPosition.column }
-                snapshot.selection = instance.getSelection?.() || snapshot.selection
-                snapshot.scrollTop = Number(instance.getScrollTop?.() ?? snapshot.scrollTop)
-                snapshot.scrollLeft = Number(instance.getScrollLeft?.() ?? snapshot.scrollLeft)
               })
               const pendingPosition = pendingLocationRef.current[editor.id]
               if (pendingPosition) applyPendingLocation(editor.id, instance)

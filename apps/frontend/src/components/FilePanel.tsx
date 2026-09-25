@@ -1310,23 +1310,26 @@ export function FilePanel({
   }, [activeEditor, fileHostId, rootOptions])
   useEffect(() => {
     if (isMobile || isPicker || !activeEditorFollowTarget) return
+    const parent = activeEditorFollowTarget.parentPath
+    // 跟随生效中(未挂起)且文件落在当前视图外：点 tab 属显式定位意图，
+    // 与手动导航同级——挂起终端跟随(状态栏可恢复)后走普通 reveal
+    const outsideFollowView =
+      !!followPaneId &&
+      !followSuspended &&
+      (activeEditorFollowTarget.rootId !== selectedRootId ||
+        (!!currentPath && parent !== currentPath && !parent.startsWith(`${currentPath}/`)))
+    const following = !!followPaneId && !followSuspended && !outsideFollowView
+    if (outsideFollowView) setFollowSuspended(true)
     if (activeEditorFollowTarget.rootId !== selectedRootId) {
-      // 跟随终端目录时不接管根切换：不同根的文件在当前视图不可见，无需处理
-      if (followPaneId) return
       if (lastFollowedEditorKeyRef.current === activeEditorFollowTarget.key) return
       switchRoot(activeEditorFollowTarget.rootId)
       return
     }
-    if (followPaneId) {
-      // 跟随模式不挪动 currentPath，只高亮落在当前目录视图内的文件
-      const parent = activeEditorFollowTarget.parentPath
-      if (currentPath && parent !== currentPath && !parent.startsWith(`${currentPath}/`)) return
-    }
     if (lastFollowedEditorKeyRef.current === activeEditorFollowTarget.key) return
     lastFollowedEditorKeyRef.current = activeEditorFollowTarget.key
-    const nextSearchNavigationPath = query.trim() ? activeEditorFollowTarget.parentPath || '/' : null
-    // 非跟随模式回根目录再展开父链，跨目录文件也能高亮；跟随模式保持 cwd 视图不动
-    if (!followPaneId) {
+    const nextSearchNavigationPath = query.trim() ? parent || '/' : null
+    // 非跟随(含刚挂起)回根目录再展开父链，跨目录文件也能高亮；跟随中保持 cwd 视图仅高亮
+    if (!following) {
       currentPathRef.current = ''
       setCurrentPath('')
     }
@@ -1361,6 +1364,7 @@ export function FilePanel({
     activeRoot,
     currentPath,
     followPaneId,
+    followSuspended,
     isMobile,
     isPicker,
     loadDirectoryChildren,
