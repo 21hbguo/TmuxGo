@@ -1051,6 +1051,24 @@ export const zh = {
   'nav.more': '更多',
   'nav.compactBar': '精简底栏',
   'nav.fullBar': '完整底栏',
+  'nav.inbox': '收件箱',
+
+  // Agent inbox
+  'inbox.title': '收件箱',
+  'inbox.empty': '暂无消息',
+  'inbox.unreadDot': '未读',
+  'inbox.markAllRead': '全部已读',
+  'inbox.markRead': '标为已读',
+  'inbox.delete': '删除',
+  'inbox.loadMore': '加载更多',
+  'inbox.jump': '跳转',
+  'inbox.view': '查看',
+  'inbox.newMessage': '新消息',
+  'inbox.targetMissing': '目标 pane 不存在或已关闭',
+  'inbox.download': '下载',
+  'inbox.loadMedia': '点击加载',
+  'inbox.expired': '消息不存在或已过期',
+  'inbox.noPreview': '选择一条消息预览',
 
   // FilePanel extra
   'file.inserted': '已插入 {name}',

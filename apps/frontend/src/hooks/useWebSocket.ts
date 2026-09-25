@@ -212,6 +212,18 @@ export function useWebSocket() {
         case 'agent_monitor_error':
           emitStreamEvent(STREAM_EVENT.agentMonitorError, data)
           break
+        case 'inbox_message_created':
+          emitStreamEvent(STREAM_EVENT.inboxMessageCreated, data)
+          break
+        case 'inbox_message_updated':
+          emitStreamEvent(STREAM_EVENT.inboxMessageUpdated, data)
+          break
+        case 'inbox_message_deleted':
+          emitStreamEvent(STREAM_EVENT.inboxMessageDeleted, data)
+          break
+        case 'inbox_open_target':
+          emitStreamEvent(STREAM_EVENT.inboxOpenTarget, data)
+          break
       }
     },
     [clearPongTimer, emitOutput, updateConnection],

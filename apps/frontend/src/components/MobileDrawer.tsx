@@ -31,6 +31,7 @@ import { usePrompt } from '@/hooks/usePrompt'
 import { useWindowQueryState } from '@/hooks/useWindowQueryState'
 import { useBatchKillWindows, useCreateWindow } from '@/hooks/useApi'
 import { api } from '@/lib/api'
+import { selectPaneInSession } from '@/lib/inbox-navigation'
 import { QuickActions } from './QuickActions'
 import { ConfirmDialog } from './ConfirmDialog'
 import { PromptDialog } from './PromptDialog'
@@ -60,7 +61,6 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
   const activeSessionId = useConsoleStore((state) => state.activeSessionId)
   const setActiveSession = useConsoleStore((state) => state.setActiveSession)
   const activePaneId = useConsoleStore((state) => state.activePaneId)
-  const setActivePane = useConsoleStore((state) => state.setActivePane)
   const activeHostId = useConsoleStore((state) => state.activeHostId)
   const queryClient = useOptionalQueryClient()
   const { data: workspaces = [] } = useWorkspaces(activeHostId || undefined)
@@ -357,12 +357,13 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
     try {
       // 与桌面端一致：跨 window 时先 select-window 再 select-pane，顺序不能颠倒
       const currentWindowId = sessionWindows.find((w: any) => w.active)?.id
-      if (pane.windowId && pane.windowId !== currentWindowId)
-        await api.windows.select(activeHostId, activeSessionId, pane.windowId)
-      await api.panes.select(pane.id)
-      const nextSnapshot = await api.snapshot.get(activeHostId, activeSessionId)
-      queryClient?.setQueryData(['session-snapshot', activeHostId, activeSessionId], nextSnapshot)
-      setActivePane(pane.id)
+      await selectPaneInSession({
+        hostId: activeHostId,
+        sessionId: activeSessionId,
+        pane,
+        activeWindowId: currentWindowId,
+        queryClient,
+      })
     } catch {
       pushToast({ type: 'error', message: t('pane.switchFailed') })
     }

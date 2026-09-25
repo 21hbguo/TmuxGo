@@ -13,6 +13,10 @@ export const STREAM_EVENT = {
   agentStatusRemoved: 'agent-status-removed',
   agentNotification: 'agent-notification',
   agentMonitorError: 'agent-monitor-error',
+  inboxMessageCreated: 'inbox-message-created',
+  inboxMessageUpdated: 'inbox-message-updated',
+  inboxMessageDeleted: 'inbox-message-deleted',
+  inboxOpenTarget: 'inbox-open-target',
 } as const
 export type StreamEventName = (typeof STREAM_EVENT)[keyof typeof STREAM_EVENT]
 type StreamEventListener = (detail: any) => void

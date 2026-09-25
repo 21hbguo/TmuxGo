@@ -1,0 +1,14 @@
+DONE-INBOX-UI
+
+完成: agent 推送收件箱前端（feat/agent-inbox-ui）
+
+- stores/useInboxStore: zustand+persist 消息镜像/unread/InboxTab(仅元数据)+过期过滤+hydrate
+- lib/api.ts: api.inbox(list/get/unread/markRead/batch/delete/assetUrl/fetchAsset+AbortSignal)
+- stream-events/useWebSocket: inbox_message_created/updated/deleted/open_target 接入
+- InboxPanel(桌面 dialog+tab 条 / 移动 sheet)+InboxPreview(md/img/video/file/link)
+- InboxNotifications: 到达 toast(查看 action)+open_target 导航(先 session 后 pane,失败不跳)
+- lib/inbox-navigation: selectPaneInSession 共享链,MobileDrawer 复用
+- MobileNav/ActivityBar inbox 入口+未读 badge;ConsoleLayout overlay 栈 inbox→inbox-preview 两级 back
+- i18n zh+en;deviceId 复用 tmuxgo-agent-device-id
+
+验证: tsc --noEmit ✓ | vitest 54/54 ✓ (useInboxStore/InboxPanel/MobileNav/ConsoleLayout/useWebSocket) | vite build ✓ | eslint 0 error

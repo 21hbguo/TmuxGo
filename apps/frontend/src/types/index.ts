@@ -643,6 +643,50 @@ export interface GitMergeResponse {
   conflicts: boolean
   message: string
 }
+// Agent inbox：与 docs/agent-inbox/PROTOCOL.md 的 wire schema 对齐（metadata-only）
+export type InboxMessageType = 'text' | 'image' | 'video' | 'file' | 'link'
+export interface InboxMessageRoute {
+  hostId?: string
+  sessionName?: string
+  paneId?: string
+  tmuxPaneId?: string
+}
+export interface InboxMessageSource {
+  provider?: string
+  agent?: string
+  agentSessionId?: string
+}
+export interface AgentInboxMessage {
+  id: string
+  type: InboxMessageType
+  title?: string
+  text?: string
+  assetId?: string
+  mime?: string
+  size?: number
+  sha256?: string
+  name?: string
+  source: InboxMessageSource
+  route: InboxMessageRoute
+  createdAt: string
+  readBy: string[]
+  expiresAt?: string
+  dedupeKey?: string
+  open?: boolean
+  metadata?: Record<string, unknown>
+}
+// 预览 tab 只持久化元数据；内容经 REST 重新拉取，过期消息 hydrate 时剔除
+export interface InboxTab {
+  id: string
+  messageId: string
+  hostId?: string
+  sessionName?: string
+  paneId?: string
+  title: string
+  type: InboxMessageType
+  pinned?: boolean
+  lastOpenedAt: string
+}
 export type GitMode = 'follow-editor' | 'locked'
 export type GitSource = 'editor' | 'pane' | 'manual' | null
 export interface GitRepoEntry {
