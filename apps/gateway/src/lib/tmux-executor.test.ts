@@ -19,16 +19,22 @@ test('normalizes -e TMUXGO_ENV=1 into setenv fallback without touching other -e 
   assert.deepEqual(normalizeTmuxEnvArgs(['new-session', '-d', '-s', 'name', '-e', 'TMUXGO_ENV=1']), {
     args: ['new-session', '-d', '-s', 'name'],
     needsSetEnv: true,
+    markerIndex: 4,
   })
   assert.deepEqual(
     normalizeTmuxEnvArgs(['split-window', '-c', '#{pane_current_path}', '-e', 'TMUXGO_ENV=1', '-t', '%1', '-h']),
-    { args: ['split-window', '-c', '#{pane_current_path}', '-t', '%1', '-h'], needsSetEnv: true },
+    { args: ['split-window', '-c', '#{pane_current_path}', '-t', '%1', '-h'], needsSetEnv: true, markerIndex: 3 },
   )
   assert.deepEqual(normalizeTmuxEnvArgs(['capture-pane', '-e', '-p', '-t', '%1']), {
     args: ['capture-pane', '-e', '-p', '-t', '%1'],
     needsSetEnv: false,
+    markerIndex: -1,
   })
-  assert.deepEqual(normalizeTmuxEnvArgs(['list-sessions']), { args: ['list-sessions'], needsSetEnv: false })
+  assert.deepEqual(normalizeTmuxEnvArgs(['list-sessions']), {
+    args: ['list-sessions'],
+    needsSetEnv: false,
+    markerIndex: -1,
+  })
 })
 
 // 真实 tmux 用例：只操作隔离 server 上的 test session（test-tmux.ts 约定）

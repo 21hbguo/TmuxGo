@@ -15,6 +15,7 @@ import {
 } from './ssh-options.js'
 import { agentManager, type AgentStatus } from '../agent-manager.js'
 import { getTmuxEnvEntries } from './tmux-env.js'
+import { detectTmuxVersion } from './security.js'
 
 const execFileAsync = promisify(execFile)
 const defaultTimeoutMs = 30000
@@ -51,19 +52,44 @@ function escapeShellSingleQuoted(input: string) {
 export function normalizeTmuxEnvArgs(args: string[]) {
   const result: string[] = []
   let needsSetEnv = false
+  let markerIndex = -1
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '-e' && args[i + 1] === 'TMUXGO_ENV=1') {
       needsSetEnv = true
+      if (markerIndex < 0) markerIndex = result.length
       i++
       continue
     }
     result.push(args[i])
   }
-  return { args: result, needsSetEnv }
+  return { args: result, needsSetEnv, markerIndex }
+}
+// tmux 3.2+ 的 create 命令支持 -e KEY=VAL 写进 pane 初始环境——与 setenv -g
+// 时序/新 server 是否已存活无关，冷启动首个 pane 也拿得到 env
+const INLINE_ENV_COMMANDS = new Set([
+  'new-session',
+  'new',
+  'new-window',
+  'neww',
+  'split-window',
+  'splitw',
+  'respawn-pane',
+  'respawnp',
+  'respawn-window',
+  'respawnw',
+])
+let inlineEnvSupported: boolean | null = null
+async function supportsInlineEnvArgs(hostIdRaw: string) {
+  if (hostIdRaw !== 'local') return false
+  if (inlineEnvSupported !== null) return inlineEnvSupported
+  const version = await detectTmuxVersion()
+  const match = version?.match(/(\d+)\.(\d+)/)
+  inlineEnvSupported = !!match && (Number(match[1]) > 3 || (Number(match[1]) === 3 && Number(match[2]) >= 2))
+  return inlineEnvSupported
 }
 // 创建命令触发 setenv 时补齐全套 TMUXGO_*（token/gateway url），
 // agent 在 pane 里回调 control plane 免手工 export
-async function applyTmuxGoEnv(hostIdRaw: string, options: TmuxExecOptions) {
+export async function applyTmuxGoEnv(hostIdRaw: string, options: TmuxExecOptions) {
   for (const entry of getTmuxEnvEntries(hostIdRaw)) {
     const sep = entry.indexOf('=')
     await execTmux(hostIdRaw, ['setenv', '-g', entry.slice(0, sep), entry.slice(sep + 1)], options)
@@ -279,7 +305,14 @@ export async function execTmux(
 ): Promise<TmuxExecResult> {
   const normalized = normalizeTmuxEnvArgs(args)
   let deferSetEnv = false
+  args = normalized.args
   if (normalized.needsSetEnv) {
+    // 支持 -e 时把整套 TMUXGO_* 直接内联回 marker 原位置——pane 创建即生效，
+    // 不依赖 setenv -g 是否先于 server 存活（零 session server 会立即退出丢 env）
+    if (INLINE_ENV_COMMANDS.has(args[0] || '') && (await supportsInlineEnvArgs(hostIdRaw))) {
+      const inline = getTmuxEnvEntries(hostIdRaw).flatMap((entry) => ['-e', entry])
+      args = [...args.slice(0, normalized.markerIndex), ...inline, ...args.slice(normalized.markerIndex)]
+    }
     try {
       await applyTmuxGoEnv(hostIdRaw, options)
     } catch (err: any) {
@@ -287,7 +320,6 @@ export async function execTmux(
       deferSetEnv = true
     }
   }
-  args = normalized.args
   const hostId = parseHostInput(hostIdRaw)
   const host = await getHostById(hostId)
   if (!host) {
