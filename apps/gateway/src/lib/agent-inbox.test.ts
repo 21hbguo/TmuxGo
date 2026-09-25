@@ -121,11 +121,18 @@ test('markInboxRead tracks readBy and emits update', async () => {
 
 test('deleteInboxMessages removes message and dedupe entry', async () => {
   _resetInboxForTest()
+  const events: InboxEvent[] = []
+  const unsubscribe = subscribeInbox((event) => events.push(event))
   const { message } = await createPush({ type: 'text', text: 'bye', dedupeKey: 'dk' })
   const { removed } = await deleteInboxMessages([message.id])
   assert.equal(removed, 1)
+  assert.deepEqual(
+    events.find((e) => e.type === 'inbox_message_deleted'),
+    { type: 'inbox_message_deleted', ids: [message.id] },
+  )
   const again = await createPush({ type: 'text', text: 'new', dedupeKey: 'dk' })
   assert.equal(again.deduplicated, false)
+  unsubscribe()
 })
 
 test('link type requires http url', async () => {
