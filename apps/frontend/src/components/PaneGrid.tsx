@@ -37,6 +37,9 @@ const RESIZE_POINTER_ACTIVITY_MS = 20
 const RESIZE_POINTER_COMMIT_CAP_MS = 50
 // 在途 resize 的 ACK 兜底超时：resized 不带代次，丢 ACK 不能永久卡住后续发送
 const RESIZE_ACK_STALE_MS = 1200
+// 链路中断告警延迟：短于该窗口的断线抖动完全静默（不弹条、不出重试），
+// 持续中断才升级为可见告警——避免 reconnect 抖动期状态条频闪误导用户
+const LINK_DOWN_ALERT_MS = 1200
 
 export interface PaneGridSocket {
   send: (data: any) => boolean
@@ -133,6 +136,11 @@ export function PaneGrid({
   // 「接管」进行中标记：完成条件是收到真实 attached 事件（handleAttached 清除），
   // 点击按钮本身不算接管完成；被 revoke 拒绝回落旁观时恢复可重试
   const [takeoverPending, setTakeoverPending] = useState(false)
+  // 链路中断已持续 LINK_DOWN_ALERT_MS：短暂波动不置位（状态条保持静默）。
+  // linkDown 只看连接态（reconnecting/disconnected 同属中断，防抖不随二者切换重置）；
+  // attach 在途（attaching）不算链路中断——「网络恢复」≠「会话可输入」
+  const linkDown = connectionStatus === 'reconnecting' || connectionStatus === 'disconnected'
+  const [linkDownAlerted, setLinkDownAlerted] = useState(false)
   // 失焦只降 passive（禁写），保持 exclusive 尺寸/渲染：
   // 若失焦就交出 exclusive，会走 shared 重附着并拆掉 height:100%，终端高度立刻变矮，
   // 且要刷新才能恢复。仅 ownership 被抢时才真正交出 exclusive。
@@ -739,6 +747,17 @@ export function PaneGrid({
     if (pageActive && !prevPageActiveRef.current) setOwnershipLost(false)
     prevPageActiveRef.current = pageActive
   }, [pageActive])
+  useEffect(() => {
+    // 链路中断告警防抖：状态条只在中断持续 LINK_DOWN_ALERT_MS 后升级，期内
+    // 恢复即复位；依赖布尔值而非 status——重连周期内 disconnected↔reconnecting
+    // 反复切换不重置计时，否则持续中断永远等不到告警
+    if (!linkDown) {
+      setLinkDownAlerted(false)
+      return
+    }
+    const timer = setTimeout(() => setLinkDownAlerted(true), LINK_DOWN_ALERT_MS)
+    return () => clearTimeout(timer)
+  }, [linkDown])
   const ownershipSessionRef = useRef<string | null>(targetSessionName)
   useEffect(() => {
     // 仅在真正切换 session 时清所有权丢失标记，避免与 exclusive-revoked 抢状态
@@ -1135,12 +1154,16 @@ export function PaneGrid({
   }
 
   // 控制权状态条：区分 可输入/旁观/附着中/只读分享——被动旁观时输入会被
-  // 服务端丢弃，若没有提示用户会以为键盘失灵；只读分享绝不显示接管入口
+  // 服务端丢弃，若没有提示用户会以为键盘失灵；只读分享绝不显示接管入口。
+  // 「网络恢复」不等于「会话可输入」：attach 未完成（ws 未就绪/attached 未回）
+  // 立即显示「正在附着」；链路掉线先静默，持续 LINK_DOWN_ALERT_MS 才升级告警
+  const attachPending = !isConnected || !isSocketReady
+  const showAttaching = linkDown ? linkDownAlerted : attachPending
   const ownershipStatus = shared
     ? 'readonly'
     : ownershipLost
       ? 'spectating'
-      : !isSocketReady || !isConnected || connectionStatus !== 'connected'
+      : showAttaching
         ? 'attaching'
         : !pageActive
           ? 'inactive'
@@ -1148,23 +1171,21 @@ export function PaneGrid({
   const ownershipLabel =
     ownershipStatus === 'attaching'
       ? connectionStatus === 'reconnecting'
-        ? t('status.reconnecting')
+        ? t('grid.control.reconnecting')
         : connectionStatus === 'disconnected'
           ? t('status.disconnected')
           : t('grid.control.attaching')
       : t(`grid.control.${ownershipStatus}`)
-  // 链路中断或存在待发输入时在状态条内给出可见提示与明确动作；
-  // 「网络恢复」不等于「会话可输入」——可输入仍由 ownershipStatus=owned 表达
-  const linkInterrupted = !isConnected || connectionStatus === 'reconnecting' || connectionStatus === 'disconnected'
   // 就绪态无可行动项时整条收起（不再常驻遮挡终端顶部）；旁观/附着中/断连/
   // 待发输入/接管请求中才展开为可行动条。max-w+flex-wrap 让 320px 窄屏下
-  // 按钮不被裁掉、可换行
+  // 按钮不被裁掉、可换行；容器 pointer-events-none 不吞终端首行触摸
   const statusCollapsed = ownershipStatus === 'owned' && pendingInputCount === 0 && !takeoverPending
   return (
     <div className="tmuxgo-content-surface relative h-full w-full min-h-0 min-w-0 overflow-hidden">
       <div
         data-ownership={ownershipStatus}
-        className={`absolute top-2 left-1/2 -translate-x-1/2 z-20 max-w-[calc(100%-1rem)] items-center justify-center gap-2 rounded-full border px-3 py-1 text-center text-xs transition-opacity ${
+        style={{ top: 'calc(0.5rem + env(safe-area-inset-top, 0px))' }}
+        className={`pointer-events-none absolute left-1/2 -translate-x-1/2 z-20 max-w-[calc(100%-1rem)] items-center justify-center gap-2 rounded-full border px-3 py-1 text-center text-xs transition-opacity ${
           statusCollapsed
             ? 'hidden'
             : `flex flex-wrap ${
@@ -1182,7 +1203,7 @@ export function PaneGrid({
         ) : (
           ownershipStatus === 'spectating' && (
             <button
-              className="text-accent hover:underline"
+              className="pointer-events-auto text-accent hover:underline"
               onClick={() => {
                 setTakeoverPending(true)
                 setOwnershipLost(false)
@@ -1192,15 +1213,15 @@ export function PaneGrid({
             </button>
           )
         )}
-        {linkInterrupted && retryConnection && (
-          <button className="text-accent hover:underline" onClick={retryConnection}>
+        {linkDown && linkDownAlerted && retryConnection && (
+          <button className="pointer-events-auto text-accent hover:underline" onClick={retryConnection}>
             {t('grid.input.retry')}
           </button>
         )}
         {pendingInputCount > 0 && (
           <>
-            <span className="text-warn">{t('grid.input.pending')}</span>
-            <button className="text-accent hover:underline" onClick={clearPendingInput}>
+            <span className="text-warn">{t('grid.input.pending', { count: pendingInputCount })}</span>
+            <button className="pointer-events-auto text-accent hover:underline" onClick={clearPendingInput}>
               {t('grid.input.clear')}
             </button>
           </>
