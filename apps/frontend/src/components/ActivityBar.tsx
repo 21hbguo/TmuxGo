@@ -1,7 +1,8 @@
 'use client'
 import { useConsoleStore } from '@/stores/useConsoleStore'
+import { useInboxStore } from '@/stores/useInboxStore'
 import { useTranslation } from '@/i18n'
-import { FiBell, FiFolder, FiGitBranch, FiServer, FiSettings } from 'react-icons/fi'
+import { FiBell, FiFolder, FiGitBranch, FiInbox, FiServer, FiSettings } from 'react-icons/fi'
 import {
   FiActivity,
   FiBox,
@@ -42,6 +43,8 @@ export function ActivityBar() {
   const activeDesktop = useConsoleStore((state) => state.activeDesktop)
   const toggleDesktop = useConsoleStore((state) => state.toggleDesktop)
   const toggleGitPanel = useConsoleStore((state) => state.toggleGitPanel)
+  const inboxPanelOpen = useInboxStore((state) => state.panelOpen)
+  const inboxUnread = useInboxStore((state) => state.unreadCount)
   const { t } = useTranslation()
   const { data } = usePlugins()
   const pluginViews = (data?.plugins || [])
@@ -53,6 +56,12 @@ export function ActivityBar() {
     { id: 'files', label: t('activity.explorer'), icon: FiFolder, onClick: toggleFilePanel },
     { id: 'git', label: t('git.title'), icon: FiGitBranch, onClick: toggleGitPanel },
     { id: 'desktop', label: t('vnc.title'), icon: FiMonitor, onClick: () => toggleDesktop(activeHostId || 'local') },
+    {
+      id: 'inbox',
+      label: t('inbox.title'),
+      icon: FiInbox,
+      onClick: () => window.dispatchEvent(new CustomEvent('tmuxgo-open-inbox')),
+    },
     {
       id: 'notifications',
       label: t('notification.title'),
@@ -81,8 +90,11 @@ export function ActivityBar() {
                   ? gitPanelOpen
                   : item.id === 'desktop'
                     ? !!activeDesktop
-                    : false
+                    : item.id === 'inbox'
+                      ? inboxPanelOpen
+                      : false
         const Icon = item.icon
+        const unread = item.id === 'inbox' ? inboxUnread : 0
         return (
           <button
             key={item.id}
@@ -91,7 +103,14 @@ export function ActivityBar() {
             onClick={item.onClick}
             className={`tmuxgo-toolbar-icon ${active ? 'tmuxgo-toolbar-icon--active' : ''}`}
           >
-            <Icon aria-hidden="true" size={18} />
+            <span className="relative">
+              <Icon aria-hidden="true" size={18} />
+              {unread > 0 && (
+                <span className="absolute -right-2.5 -top-1.5 min-w-4 rounded-full bg-danger px-0.5 text-center text-[9px] font-medium leading-4 text-white">
+                  {unread > 99 ? '99+' : unread}
+                </span>
+              )}
+            </span>
           </button>
         )
       })}
