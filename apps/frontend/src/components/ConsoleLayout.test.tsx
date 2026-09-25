@@ -3,6 +3,7 @@ import React from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConsoleLayout } from './ConsoleLayout'
 import { useConsoleStore } from '@/stores/useConsoleStore'
+import { useInboxStore } from '@/stores/useInboxStore'
 
 let snapshotDataMock: any = { windows: [], panes: [], activePaneId: null }
 let sessionsDataMock: any[] = []
@@ -15,12 +16,21 @@ vi.mock('./StatusBar', () => ({ StatusBar: () => React.createElement('div') }))
 vi.mock('./CommandPalette', () => ({ CommandPalette: () => React.createElement('div') }))
 vi.mock('./ClipboardController', () => ({ ClipboardController: () => React.createElement('div') }))
 vi.mock('./MobileNav', () => ({
-  MobileNav: ({ onOpenFiles, onOpenGit }: { onOpenFiles: () => void; onOpenGit: () => void }) =>
+  MobileNav: ({
+    onOpenFiles,
+    onOpenGit,
+    onOpenInbox,
+  }: {
+    onOpenFiles: () => void
+    onOpenGit: () => void
+    onOpenInbox: () => void
+  }) =>
     React.createElement(
       React.Fragment,
       null,
       React.createElement('button', { onClick: onOpenFiles }, 'open-files'),
       React.createElement('button', { onClick: onOpenGit }, 'open-git'),
+      React.createElement('button', { onClick: onOpenInbox }, 'open-inbox'),
     ),
 }))
 vi.mock('./MobileDrawer', () => ({ MobileDrawer: () => React.createElement('div') }))
@@ -67,6 +77,32 @@ vi.mock('@/hooks/useOrderedSessions', () => ({
 vi.mock('@/hooks/usePrompt', () => ({
   usePrompt: () => ({ prompt: vi.fn(), PromptElement: null }),
 }))
+vi.mock('./InboxPanel', () => ({
+  InboxPanel: ({ onPreview }: { onPreview?: (message: unknown) => void }) =>
+    React.createElement(
+      'div',
+      null,
+      'inbox-panel',
+      React.createElement(
+        'button',
+        {
+          onClick: () =>
+            onPreview?.({
+              id: 'm1',
+              type: 'text',
+              title: 'msg',
+              source: {},
+              route: {},
+              createdAt: '2026-09-26T10:00:00.000Z',
+              readBy: [],
+            }),
+        },
+        'open-inbox-preview',
+      ),
+    ),
+}))
+vi.mock('./InboxPreview', () => ({ InboxPreview: () => React.createElement('div', null, 'inbox-preview-pane') }))
+vi.mock('./InboxNotifications', () => ({ InboxNotifications: () => React.createElement('div') }))
 vi.mock('./FilePanel', () => ({
   FilePanel: () =>
     React.createElement(
@@ -107,6 +143,16 @@ describe('ConsoleLayout mobile files overlay stack', () => {
       toasts: [],
       connection: { status: 'disconnected', latency: 0, lastPing: new Date().toISOString() },
     } as any)
+    useInboxStore.setState({
+      deviceId: 'dev-test',
+      messages: [],
+      unreadCount: 0,
+      nextCursor: null,
+      listLoaded: false,
+      tabs: [],
+      activeTabId: null,
+      panelOpen: false,
+    })
     Object.defineProperty(window, 'matchMedia', {
       writable: true,
       value: vi.fn().mockImplementation(() => ({
@@ -244,6 +290,26 @@ describe('ConsoleLayout mobile files overlay stack', () => {
   it('does not render quick session bar when there are no sessions', () => {
     render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
     expect(screen.queryByRole('button', { name: 'alpha' })).toBeNull()
+  })
+  it('opens inbox and preview as two overlay levels and backs out one at a time', async () => {
+    const pushStateSpy = vi.spyOn(window.history, 'pushState')
+    render(React.createElement(ConsoleLayout, { initialIsMobile: true }))
+    fireEvent.click(screen.getByText('open-inbox'))
+    expect(useInboxStore.getState().panelOpen).toBe(true)
+    expect(pushStateSpy).toHaveBeenCalledWith({ overlay: 'inbox' }, '')
+    expect(await screen.findByText('inbox-panel')).toBeTruthy()
+    fireEvent.click(screen.getByText('open-inbox-preview'))
+    expect(useInboxStore.getState().activeTabId).toBe('m1')
+    expect(pushStateSpy).toHaveBeenCalledWith({ overlay: 'inbox-preview' }, '')
+    await screen.findByText('inbox-preview-pane')
+    window.dispatchEvent(new PopStateEvent('popstate'))
+    // 第一次 back 只关 preview，inbox 保留
+    await waitFor(() => expect(screen.queryByText('inbox-preview-pane')).toBeNull())
+    expect(screen.getByText('inbox-panel')).toBeTruthy()
+    expect(useInboxStore.getState().panelOpen).toBe(true)
+    window.dispatchEvent(new PopStateEvent('popstate'))
+    await waitFor(() => expect(useInboxStore.getState().panelOpen).toBe(false))
+    await waitFor(() => expect(screen.queryByText('inbox-panel')).toBeNull())
   })
   it('keeps trapping empty-stack back and does not exit on repeated back', () => {
     const pushStateSpy = vi.spyOn(window.history, 'pushState')

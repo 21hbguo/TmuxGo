@@ -26,6 +26,12 @@ import {
   normalizeKeyboardViewportState,
 } from './consoleLayoutViewport'
 import { useConsoleStore } from '@/stores/useConsoleStore'
+import { useInboxStore } from '@/stores/useInboxStore'
+import { useOptionalQueryClient } from '@/hooks/useOptionalQueryClient'
+import { navigateInboxRoute } from '@/lib/inbox-navigation'
+import { InboxNotifications } from './InboxNotifications'
+import { InboxPanel } from './InboxPanel'
+import { InboxPreview } from './InboxPreview'
 import { useDeleteSession, useHosts, useRenameSession, useSessionSnapshot } from '@/hooks/useApi'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import { usePreferences } from '@/hooks/usePreferences'
@@ -139,6 +145,11 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
   const [mobilePinnedSessionIds, setMobilePinnedSessionIds] = useState<string[]>([])
   const [mobileSessionMenuId, setMobileSessionMenuId] = useState<string | null>(null)
   const [pendingDeleteSessionId, setPendingDeleteSessionId] = useState<string | null>(null)
+  const inboxPanelOpen = useInboxStore((s) => s.panelOpen)
+  const inboxUnread = useInboxStore((s) => s.unreadCount)
+  const activeInboxTabId = useInboxStore((s) => s.activeTabId)
+  const [inboxPreviewOpen, setInboxPreviewOpen] = useState(false)
+  const inboxQueryClient = useOptionalQueryClient()
   const overlayRef = useRef<string[]>([])
   const ignoreNextPopRef = useRef(false)
   const lastExitBackAtRef = useRef(0)
@@ -252,6 +263,41 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
     setMobileGitSheetOpen(true)
     pushOverlay('mobile-git')
   }, [mobileGitSheetOpen, pushOverlay])
+  const openInbox = useCallback(() => {
+    if (useInboxStore.getState().panelOpen) return
+    // 先收软键盘再压 overlay：sheet 弹出时键盘残留会遮挡底部内容
+    const active = document.activeElement
+    if (active instanceof HTMLElement) active.blur()
+    window.dispatchEvent(new CustomEvent('tmuxgo-dismiss-keyboard'))
+    useInboxStore.getState().setPanelOpen(true)
+    pushOverlay('inbox')
+  }, [pushOverlay])
+  const closeInboxOverlays = useCallback(() => {
+    // 顺序必须是先 preview 后 inbox：两级各消费一次 history.back，
+    // 反过来会先触发 inbox 的 popstate 把整个面板卸掉
+    closeOverlay('inbox-preview')
+    closeOverlay('inbox')
+  }, [closeOverlay])
+  const openInboxPreview = useCallback(
+    (message: import('@/types').AgentInboxMessage) => {
+      // 激活预览 tab（幂等）：sheet 只认 activeTabId，保证点击与 toast 入口走同一状态
+      useInboxStore.getState().openTab(message)
+      if (inboxPreviewOpen) return
+      setInboxPreviewOpen(true)
+      pushOverlay('inbox-preview')
+    },
+    [inboxPreviewOpen, pushOverlay],
+  )
+  const handleInboxJump = useCallback(
+    (message: { route?: import('@/types').InboxMessageRoute }) => {
+      const route = message.route || {}
+      void navigateInboxRoute(route, inboxQueryClient).then((result) => {
+        if (result === 'pane' || result === 'session') closeInboxOverlays()
+        else pushToast({ type: 'error', message: t('inbox.targetMissing') })
+      })
+    },
+    [closeInboxOverlays, inboxQueryClient, pushToast, t],
+  )
   useEffect(() => {
     if (!mobileGitSheetOpen) return
     mobileGitCloseRef.current?.focus()
@@ -603,7 +649,11 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
       } else if (top === 'mobile-git-level') {
         window.dispatchEvent(new CustomEvent('tmuxgo-mobile-git-back', { detail: { handled: false } }))
       } else if (top === 'mobile-git') setMobileGitSheetOpen(false)
-      else if (top === 'mobile-plugin') setMobilePluginView(null)
+      else if (top === 'inbox-preview') setInboxPreviewOpen(false)
+      else if (top === 'inbox') {
+        useInboxStore.getState().setPanelOpen(false)
+        setInboxPreviewOpen(false)
+      } else if (top === 'mobile-plugin') setMobilePluginView(null)
       else if (top === 'desktop') useConsoleStore.getState().setDesktopMinimized(true)
       stack.pop()
     }
@@ -651,6 +701,14 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
     window.addEventListener('tmuxgo-open-tasks', handleOpenTasks as EventListener)
     return () => window.removeEventListener('tmuxgo-open-tasks', handleOpenTasks as EventListener)
   }, [openTasks])
+  useEffect(() => {
+    const handleOpenInbox = () => {
+      if (useInboxStore.getState().panelOpen) closeOverlay('inbox')
+      else openInbox()
+    }
+    window.addEventListener('tmuxgo-open-inbox', handleOpenInbox as EventListener)
+    return () => window.removeEventListener('tmuxgo-open-inbox', handleOpenInbox as EventListener)
+  }, [closeOverlay, openInbox])
   useEffect(() => {
     const handleOpenPluginView = (event: Event) => {
       const detail = (event as CustomEvent<{ pluginId?: string; viewId?: string }>).detail
@@ -792,10 +850,13 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
               filesOpen={mobileFileSheetOpen}
               desktopOpen={!!activeDesktop}
               settingsOpen={showSettings}
+              inboxOpen={inboxPanelOpen}
+              inboxUnread={inboxUnread}
               onOpenDrawer={openDrawer}
               onOpenSettings={openSettings}
               onOpenFiles={openMobileFiles}
               onOpenGit={openMobileGit}
+              onOpenInbox={openInbox}
               onOpenDesktop={() => useConsoleStore.getState().toggleDesktop(activeHostId || 'local')}
             />
           </div>
@@ -807,6 +868,9 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
       {showCommandPalette && <CommandPalette onClose={() => closeOverlay('palette')} />}
       {showSettings && <Settings onClose={dismissSettings} />}
       {showTasks && <TaskCenter onClose={dismissTasks} />}
+      {inboxPanelOpen && !isMobile && (
+        <InboxPanel mode="desktop" onClose={() => closeOverlay('inbox')} onJump={handleInboxJump} />
+      )}
       <MobileBottomSheet
         open={!!mobileSessionMenu}
         onClose={() => setMobileSessionMenuId(null)}
@@ -909,6 +973,35 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
           <GitPanel mode="mobile" />
         </div>
       </MobileBottomSheet>
+      <MobileBottomSheet
+        open={isMobile && inboxPanelOpen}
+        onClose={() => closeOverlay('inbox')}
+        zClass="z-[75]"
+        heightClass="flex h-[75%] flex-col"
+        ariaLabel={t('inbox.title')}
+      >
+        <InboxPanel
+          mode="mobile"
+          onClose={() => closeOverlay('inbox')}
+          onPreview={openInboxPreview}
+          onJump={handleInboxJump}
+        />
+      </MobileBottomSheet>
+      <MobileBottomSheet
+        open={isMobile && inboxPreviewOpen && !!activeInboxTabId}
+        onClose={() => closeOverlay('inbox-preview')}
+        zClass="z-[85]"
+        heightClass="flex h-[85%] flex-col"
+        ariaLabel={t('inbox.title')}
+      >
+        {activeInboxTabId && (
+          <InboxPreview
+            messageId={activeInboxTabId}
+            onClose={() => closeOverlay('inbox-preview')}
+            onJump={handleInboxJump}
+          />
+        )}
+      </MobileBottomSheet>
       {mobilePluginView && (
         <div className="fixed inset-0 z-[90] bg-bg-0" style={{ height: 'var(--app-height,100dvh)' }}>
           <PluginView
@@ -945,6 +1038,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
       <ToastViewport />
       <PaneNotifications />
       <TaskNotifications />
+      <InboxNotifications onOpenInbox={openInbox} onNavigate={closeInboxOverlays} />
       {PromptElement}
     </div>
   )

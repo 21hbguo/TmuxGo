@@ -2,6 +2,7 @@ import { getApiBase } from './runtime-endpoints'
 import { authenticatedFetch, getAccessToken, refreshAuth } from './auth'
 import { buildSessionId } from './session-id'
 import type {
+  AgentInboxMessage,
   AuditEvent,
   CustomShortcut,
   FavoriteDirectory,
@@ -218,6 +219,13 @@ export interface SshConfigHostEntry {
   sourceFile: string
   line: number
 }
+export interface InboxListResponse {
+  ok: true
+  messages: AgentInboxMessage[]
+  nextCursor: string | null
+  unreadCount?: number
+  total: number
+}
 export interface AgentNotificationRecord {
   id: string
   eventId: string
@@ -313,8 +321,8 @@ function parseApiError(status: number, raw: string) {
   error.code = code
   return error
 }
-export async function fetchApiBlob(path: string) {
-  const response = await authenticatedFetch(path)
+export async function fetchApiBlob(path: string, init?: RequestInit) {
+  const response = await authenticatedFetch(path, init)
   if (!response.ok) {
     const data = await readResponseBody(response)
     if (typeof data === 'string') throw parseApiError(response.status, data)
@@ -512,6 +520,48 @@ export const api = {
       }),
     revoke: (shareId: string) =>
       fetchApi<{ ok: true }>(`/api/shares/${encodeURIComponent(shareId)}`, { method: 'DELETE' }),
+  },
+  inbox: {
+    list: (
+      options: {
+        deviceId?: string
+        cursor?: string
+        limit?: number
+        sessionName?: string
+        paneId?: string
+      } = {},
+    ) => {
+      const params = new URLSearchParams()
+      if (options.deviceId) params.set('deviceId', options.deviceId)
+      if (options.cursor) params.set('cursor', options.cursor)
+      if (options.limit) params.set('limit', String(options.limit))
+      if (options.sessionName) params.set('sessionName', options.sessionName)
+      if (options.paneId) params.set('paneId', options.paneId)
+      return fetchApi<InboxListResponse>(`/api/inbox${params.size ? `?${params}` : ''}`)
+    },
+    get: (id: string) => fetchApi<{ ok: true; message: AgentInboxMessage }>(`/api/inbox/${encodeURIComponent(id)}`),
+    unreadCount: (deviceId: string) =>
+      fetchApi<{ ok: true; unreadCount: number }>(`/api/inbox/unread-count?deviceId=${encodeURIComponent(deviceId)}`),
+    markRead: (id: string, deviceId: string) =>
+      fetchApi<{ ok: true; changed: number }>(`/api/inbox/${encodeURIComponent(id)}/read`, {
+        method: 'POST',
+        body: JSON.stringify({ deviceId }),
+      }),
+    markReadBatch: (ids: string[], deviceId: string) =>
+      fetchApi<{ ok: true; changed: number }>('/api/inbox/read', {
+        method: 'POST',
+        body: JSON.stringify({ ids, deviceId }),
+      }),
+    remove: (ids: string[]) =>
+      fetchApi<{ ok: true; removed: number }>('/api/inbox/delete', {
+        method: 'POST',
+        body: JSON.stringify({ ids }),
+      }),
+    assetUrl: (id: string) => `${getApiBase()}/api/inbox/${encodeURIComponent(id)}/asset`,
+    // 媒体/文件预览一律走 REST blob（Authorization 头 img/video 直链带不上），
+    // 调用方负责 createObjectURL + 卸载 revoke
+    fetchAsset: (id: string, signal?: AbortSignal) =>
+      fetchApiBlob(`/api/inbox/${encodeURIComponent(id)}/asset`, signal ? { signal } : undefined),
   },
   agentNotifications: {
     vapidPublicKey: () => fetchApi<{ publicKey: string }>('/api/agent-notifications/vapid-public-key'),
