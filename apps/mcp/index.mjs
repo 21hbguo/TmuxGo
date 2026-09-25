@@ -4,11 +4,23 @@
 // /api/v1/control/*。鉴权从环境变量取（TmuxGo 创建 pane 时已注入）：
 //   TMUXGO_AGENT_EVENT_TOKEN / TMUXGO_GATEWAY_URL(默认 http://127.0.0.1:3001)
 // 无 token 时 tools/list 仍可用，tools/call 返回 isError 提示配置。
+import { readFileSync } from 'node:fs'
 
 const GATEWAY_URL = (process.env.TMUXGO_GATEWAY_URL || 'http://127.0.0.1:3001')
   .replace(/\/api\/stream\/?$/, '')
   .replace(/\/$/, '')
-const TOKEN = process.env.TMUXGO_AGENT_EVENT_TOKEN || ''
+// token 来源：pane env（TmuxGo 注入）→ ~/.tmuxgo/agent-event-token（gateway 自管理落盘），
+// 旧 pane 无 env 注入也能本地自取
+function resolveToken() {
+  if (process.env.TMUXGO_AGENT_EVENT_TOKEN) return process.env.TMUXGO_AGENT_EVENT_TOKEN
+  try {
+    const file = `${process.env.TMUXGO_CONFIG_DIR?.trim() || `${process.env.HOME}/.tmuxgo`}/agent-event-token`
+    return readFileSync(file, 'utf8').trim()
+  } catch {
+    return ''
+  }
+}
+const TOKEN = resolveToken()
 const PROTOCOL_VERSION = '2025-06-18'
 
 const TOOLS = [

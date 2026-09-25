@@ -9,7 +9,7 @@ The first release deliberately uses the existing control-plane guard rather than
 - HTTP endpoint: `POST /api/v1/control/push`.
 - Required request header: `x-tmuxgo-env: 1`.
 - Required credential: `x-tmuxgo-agent-token: $TMUXGO_AGENT_EVENT_TOKEN` (Bearer is accepted where the existing control-plane guard accepts it).
-- The pane environment must contain `TMUXGO_ENV=1`, `TMUXGO_AGENT_EVENT_TOKEN`, `TMUXGO_GATEWAY_URL`, and `TMUXGO_PANE_ID`. These are injected when the pane is created.
+- The pane environment must contain `TMUXGO_ENV=1`, `TMUXGO_AGENT_EVENT_TOKEN`, and `TMUXGO_GATEWAY_URL`. These are injected into the tmux global environment by the gateway (and re-applied on every pane/session creation), so new panes inherit them. The pane id comes from tmux's own `TMUX_PANE` (`%n`); the bridge composes `local:$TMUX_PANE` when it needs a host-prefixed `paneId`.
 - The stdio bridge is a thin JSON-RPC process. It reads MCP JSON-RPC from stdin, calls this endpoint, and writes JSON-RPC responses to stdout. It must write diagnostics only to stderr.
 - Remote-host agents call the gateway URL reachable from that host. v1 does not proxy push through the agent WebSocket.
 
@@ -121,15 +121,16 @@ No binary data or base64 media is sent over WebSocket. The frontend invalidates/
 
 | HTTP | code | Meaning |
 |---:|---|---|
-| 400 | `INVALID_PUSH` | Schema, route, mime, metadata, or size field is invalid. |
-| 401 | `AGENT_EVENT_AUTH_REQUIRED` | Missing or invalid agent token. |
-| 403 | `CONTROL_ENV_REQUIRED` | Missing `TMUXGO_ENV=1` / `x-tmuxgo-env: 1`, or token is not allowed for the host. |
-| 404 | `INBOX_MESSAGE_NOT_FOUND` / `ASSET_NOT_FOUND` | Message or asset does not exist or has expired. |
-| 409 | `PUSH_DEDUPLICATED` | Optional response code when a client asks for explicit duplicate reporting; response still includes original id. |
-| 413 | `PUSH_TOO_LARGE` | Text/base64/request/file exceeds its limit. |
-| 422 | `PUSH_PATH_DENIED` | Local path is outside the allowed workspace or hits the sensitive-path denylist. |
-| 429 | `PUSH_QUOTA_EXCEEDED` | Per-token rate or storage quota exceeded. |
-| 500 | `INBOX_STORE_ERROR` / `ASSET_STORE_ERROR` | Server could not persist the message or asset. |
+| 400 | `AGENT_PUSH_FAILED` / `AGENT_PUSH_INVALID` | Schema, route, mime, metadata, size, sha256 mismatch, sensitive-path denylist, or missing content carrier. |
+| 400 | `AGENT_OPEN_TARGET_FAILED` | Invalid open-target request. |
+| 400 | `INVALID_REQUEST` / `INVALID_DEVICE_ID` | Read-side validation failure. |
+| 401 | `AGENT_CONTROL_AUTH_REQUIRED` | Missing or invalid agent token (same as the rest of the control plane). |
+| 403 | `TMUXGO_ENV_GUARD` | Missing `TMUXGO_ENV=1` / `x-tmuxgo-env: 1`. |
+| 404 | `INBOX_MESSAGE_NOT_FOUND` / `INBOX_ASSET_NOT_FOUND` | Message or asset does not exist or has expired. |
+| 416 | `RANGE_NOT_SATISFIABLE` | Bad Range header on asset download. |
+| 500 | `INBOX_ASSET_PATH_INVALID` | Stored asset path resolves outside the asset root (store tamper guard). |
+
+Duplicates are not errors: a repeated `dedupeKey` returns `200` with `deduplicated: true` and the original `messageId`.
 
 ## MCP stdio registration snippets
 
@@ -207,7 +208,7 @@ Pane creation must inject values before launching the agent:
 export TMUXGO_ENV=1
 export TMUXGO_GATEWAY_URL="http://127.0.0.1:3001"
 export TMUXGO_AGENT_EVENT_TOKEN="<injected-secret>"
-export TMUXGO_PANE_ID="local:${TMUX_PANE}"
+# TMUX_PANE is provided by tmux itself inside every pane ("%n").
 ```
 
 Manual smoke test without MCP:
@@ -217,5 +218,5 @@ curl -sS -X POST "$TMUXGO_GATEWAY_URL/api/v1/control/push" \
   -H "x-tmuxgo-env: 1" \
   -H "x-tmuxgo-agent-token: $TMUXGO_AGENT_EVENT_TOKEN" \
   -H 'content-type: application/json' \
-  -d '{"type":"text","title":"smoke","text":"hello from pane","route":{"paneId":"'"$TMUXGO_PANE_ID"'"}}'
+  -d '{"type":"text","title":"smoke","text":"hello from pane","route":{"paneId":"local:'"$TMUX_PANE"'"}}'
 ```
