@@ -248,8 +248,12 @@ export async function streamRoutes(fastify: FastifyInstance) {
       if (agentId) agentManager.unregister(agentId, agentSocket, reason.toString() || `WebSocket closed (${code})`)
     })
     session.send({ type: 'connected', timestamp: Date.now() })
-    let unsubscribeAgentMonitor: (() => void) | null = agentMonitor.subscribe((event) => session.send(event))
+    // share-link 只读观众不能收 agent/inbox 事件：消息正文、title、route
+    // 全在内，扇出等于把用户收件箱泄露给持分享链接者
+    let unsubscribeAgentMonitor: (() => void) | null = shareTicket
+      ? null
+      : agentMonitor.subscribe((event) => session.send(event))
     // agent 推送收件箱事件与 monitor 同通道扇出（metadata-only，内容走 /api/inbox REST）
-    let unsubscribeInbox: (() => void) | null = subscribeInbox((event) => session.send(event))
+    let unsubscribeInbox: (() => void) | null = shareTicket ? null : subscribeInbox((event) => session.send(event))
   })
 }

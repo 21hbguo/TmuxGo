@@ -1,6 +1,7 @@
 import '../test-env.js'
 import assert from 'node:assert/strict'
 import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdir, mkdtemp, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
@@ -140,6 +141,37 @@ test('link type requires http url', async () => {
   await assert.rejects(() => createPush({ type: 'link', linkUrl: 'javascript:alert(1)' }), /http/)
   const { message } = await createPush({ type: 'link', linkUrl: 'https://example.com/x', title: 'ex' })
   assert.equal(message.type, 'link')
+})
+
+test('path push refuses sensitive targets through symlink', async () => {
+  _resetInboxForTest()
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'tmuxgo-inbox-link-'))
+  try {
+    const secret = path.join(dir, '.env.production')
+    await writeFile(secret, 'KEY=1')
+    const link = path.join(dir, 'innocent.png')
+    await symlink(secret, link)
+    await assert.rejects(() => createPush({ type: 'file', path: link }), /sensitive/i)
+    // 目录名含敏感段的真实目标同样拦截
+    const sshDir = path.join(dir, '.ssh')
+    await mkdir(sshDir)
+    await writeFile(path.join(sshDir, 'config'), 'Host x')
+    await assert.rejects(() => createPush({ type: 'file', path: path.join(sshDir, 'config') }), /sensitive/i)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('corrupt store is backed up instead of silently wiped', async () => {
+  _resetInboxForTest()
+  await createPush({ type: 'text', text: 'seed' })
+  const store = path.join(process.env.TMUXGO_CONFIG_DIR!, 'agent-inbox.json')
+  await writeFile(store, '{broken json')
+  _resetInboxForTest({ keepStore: true })
+  const { messages } = await listInboxMessages()
+  assert.equal(messages.length, 0)
+  const dir = await readdir(path.dirname(store))
+  assert.ok(dir.some((f) => f.includes('.corrupt-')))
 })
 
 test('sanitizeFileName keeps basename and strips unsafe chars', () => {
