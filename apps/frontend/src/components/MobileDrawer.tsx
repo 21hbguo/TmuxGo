@@ -61,6 +61,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
   const activeSessionId = useConsoleStore((state) => state.activeSessionId)
   const setActiveSession = useConsoleStore((state) => state.setActiveSession)
   const activePaneId = useConsoleStore((state) => state.activePaneId)
+  const setActivePane = useConsoleStore((state) => state.setActivePane)
   const activeHostId = useConsoleStore((state) => state.activeHostId)
   const queryClient = useOptionalQueryClient()
   const { data: workspaces = [] } = useWorkspaces(activeHostId || undefined)
@@ -167,6 +168,9 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
   const startYRef = useRef(0)
   const translateYRef = useRef(0)
   const panelRef = useRef<HTMLDivElement>(null)
+  // 列表滚动容器：到顶继续下拉 = 关抽屉（iOS 惯例）；非到顶时让位原生滚动
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const pullActiveRef = useRef(false)
 
   const resetPanelPosition = useCallback(() => {
     if (!panelRef.current) return
@@ -224,11 +228,20 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
   const handleTouchStart = (e: React.TouchEvent) => {
     startYRef.current = e.touches[0].clientY
     translateYRef.current = 0
+    // 仅当起始于列表顶部才可能进拉关手势；body overflow:hidden 下
+    // 列表到顶再拉本就无处可滚，跟手 translate 不影响原生滚动
+    pullActiveRef.current = (scrollRef.current?.scrollTop ?? 0) <= 0
     if (panelRef.current) panelRef.current.style.setProperty('transition-duration', '0ms')
   }
 
   const handleTouchMove = (e: React.TouchEvent) => {
-    const dy = Math.max(0, e.touches[0].clientY - startYRef.current)
+    if (!pullActiveRef.current) return
+    const dy = e.touches[0].clientY - startYRef.current
+    if (dy <= 0 || (scrollRef.current?.scrollTop ?? 0) > 0) {
+      translateYRef.current = 0
+      resetPanelPosition()
+      return
+    }
     translateYRef.current = dy
     if (panelRef.current) panelRef.current.style.transform = `translateY(${dy}px)`
   }
@@ -352,22 +365,20 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
     }
     handleClose()
   }
-  const handleSelectPane = async (pane: any) => {
+  const handleSelectPane = (pane: any) => {
     if (!activeHostId || !activeSessionId) return
-    try {
-      // 与桌面端一致：跨 window 时先 select-window 再 select-pane，顺序不能颠倒
-      const currentWindowId = sessionWindows.find((w: any) => w.active)?.id
-      await selectPaneInSession({
-        hostId: activeHostId,
-        sessionId: activeSessionId,
-        pane,
-        activeWindowId: currentWindowId,
-        queryClient,
-      })
-    } catch {
-      pushToast({ type: 'error', message: t('pane.switchFailed') })
-    }
+    // 乐观落位：先 setActivePane+关抽屉，弱网不再干等 select-window/select-pane/
+    // snapshot 三个 RTT；API 链后台跑完（其自身收尾会再 setActivePane 纠偏），失败只 toast
+    const currentWindowId = sessionWindows.find((w: any) => w.active)?.id
+    setActivePane(pane.id)
     handleClose()
+    void selectPaneInSession({
+      hostId: activeHostId,
+      sessionId: activeSessionId,
+      pane,
+      activeWindowId: currentWindowId,
+      queryClient,
+    }).catch(() => pushToast({ type: 'error', message: t('pane.switchFailed') }))
   }
   const handleOpenNewWindowPrompt = () => {
     if (!activeHostId || !activeSessionId) {
@@ -514,8 +525,13 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
           </div>
         </div>
         <div
-          className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 pb-4 scrollbar-none"
+          ref={scrollRef}
+          className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-4 pb-4 scrollbar-none"
           style={{ WebkitOverflowScrolling: 'touch' }}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          onTouchCancel={handleTouchEnd}
         >
           {type === 'sessions' && (
             <div className="space-y-2">
