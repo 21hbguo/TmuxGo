@@ -65,7 +65,10 @@ vi.mock('@/hooks/useWebSocket', () => ({
   }),
 }))
 vi.mock('@/i18n', () => ({
-  useTranslation: () => ({ t: (key: string) => key }),
+  useTranslation: () => ({
+    // 带插值的 key 后缀 JSON，便于断言「N 条」类参数真实传递
+    t: (key: string, params?: Record<string, string | number>) => (params ? `${key} ${JSON.stringify(params)}` : key),
+  }),
 }))
 vi.mock('@/hooks/usePreferences', () => ({
   usePreferences: () => ({ preferences: { attachExclusive: true } }),
@@ -1249,21 +1252,35 @@ describe('multi-device exclusive ownership', () => {
     act(() => {
       emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev1', cols: 120, rows: 36, hostId: 'local' })
     })
+    vi.useFakeTimers()
     act(() => {
+      // 真实 socket 掉线时 socketReady 同步为 false（attachNow 因此不会抢写 status）
       socketState.isConnected = false
+      socketState.isSocketReady = false
+      useConsoleStore.setState({
+        connection: { status: 'reconnecting', latency: 0, lastPing: new Date().toISOString() },
+      })
     })
     view.rerender(<PaneGrid />)
     act(() => {
       terminalProps.current?.onInput?.('pwd\n')
     })
+    // 持续中断超过告警阈值后才显示「立即重试」入口
+    act(() => {
+      vi.advanceTimersByTime(1300)
+    })
+    vi.useRealTimers()
     expect(screen.getByText(/grid\.input\.pending/)).toBeTruthy()
-    // 链路中断时提供「立即重试」入口
     fireEvent.click(screen.getByRole('button', { name: 'grid.input.retry' }))
     expect(retryConnectionMock).toHaveBeenCalled()
     // 恢复连接并重新附着成功：既有自动补发行为清空队列与提示
     sendMock.mockClear()
     act(() => {
       socketState.isConnected = true
+      socketState.isSocketReady = true
+      useConsoleStore.setState({
+        connection: { status: 'attaching', latency: 0, lastPing: new Date().toISOString() },
+      })
     })
     view.rerender(<PaneGrid />)
     act(() => {
@@ -1271,5 +1288,184 @@ describe('multi-device exclusive ownership', () => {
     })
     await waitFor(() => expect(sendMock).toHaveBeenCalledWith({ type: 'input', data: 'pwd\n' }))
     expect(screen.queryByText(/grid\.input\.pending/)).toBeNull()
+  })
+})
+
+describe('terminal control status bar', () => {
+  beforeEach(() => {
+    sendMock.mockClear()
+    subscribeOutputMock.mockClear()
+    retryConnectionMock.mockClear()
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true)
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' })
+    socketState.isConnected = false
+    socketState.isSocketReady = true
+    terminalProps.current = null
+    hostsMockData.value = [{ id: 'local' }]
+    orderedSessionsData.value = []
+    snapshotMockData.value = null
+    windowsData.length = 0
+    continuityState.value = {
+      enabled: false,
+      archive: { enabled: false, captureMode: 'none', maxBytesPerSession: 262144, retentionDays: 7 },
+      resumePoints: [],
+    }
+    continuityState.upsertResumePoint.mockReset()
+    useConsoleStore.setState({
+      activeHostId: 'local',
+      activeSessionId: 'session-dev1',
+      activePaneId: null,
+      connection: { status: 'attaching', latency: 0, lastPing: new Date().toISOString() },
+      terminalPerf: {
+        attachLatency: 0,
+        outputBytes: 0,
+        outputEvents: 0,
+        outputBacklog: 0,
+        layoutFitCount: 0,
+        lastOutputAt: '',
+      },
+    } as any)
+    sendMock.mockImplementation(() => true)
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+  const attachDev1 = () => {
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'attach', sessionName: 'dev1' }))
+  }
+  // attached 到达意味着链路已恢复：真实 socket 此时 socketReady/isConnected 均为 true
+  const emitAttached = () => {
+    act(() => {
+      socketState.isSocketReady = true
+      socketState.isConnected = true
+      emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev1', cols: 120, rows: 36, hostId: 'local' })
+    })
+  }
+  // attach 未完成即「看得到但不能输入」：必须明示附着中，与可输入态区分
+  it('shows attaching while pane attach is pending — socket open does not mean writable', () => {
+    socketState.isSocketReady = true
+    socketState.isConnected = false
+    render(<PaneGrid />)
+    attachDev1()
+    const bar = document.querySelector('[data-ownership]') as HTMLElement
+    expect(bar.getAttribute('data-ownership')).toBe('attaching')
+    expect(bar.className).not.toContain('hidden')
+    expect(screen.getByText('grid.control.attaching')).toBeTruthy()
+    // attached 事件到达后才视为可输入
+    emitAttached()
+    expect(bar.getAttribute('data-ownership')).toBe('owned')
+  })
+  // 短暂断线抖动：静默期内不弹告警、不出重试；恢复即复位，全程无闪现
+  it('stays silent through a brief link blip', () => {
+    vi.useFakeTimers()
+    socketState.isConnected = true
+    const view = render(<PaneGrid />)
+    attachDev1()
+    emitAttached()
+    expect(document.querySelector('[data-ownership]')?.getAttribute('data-ownership')).toBe('owned')
+    act(() => {
+      socketState.isConnected = false
+      socketState.isSocketReady = false
+      useConsoleStore.setState({
+        connection: { status: 'reconnecting', latency: 0, lastPing: new Date().toISOString() },
+      })
+    })
+    view.rerender(<PaneGrid />)
+    act(() => {
+      vi.advanceTimersByTime(1000)
+    })
+    expect(document.querySelector('[data-ownership]')?.getAttribute('data-ownership')).toBe('owned')
+    expect(screen.queryByRole('button', { name: 'grid.input.retry' })).toBeNull()
+    act(() => {
+      socketState.isConnected = true
+      socketState.isSocketReady = true
+      useConsoleStore.setState({
+        connection: { status: 'connected', latency: 0, lastPing: new Date().toISOString() },
+      })
+    })
+    view.rerender(<PaneGrid />)
+    act(() => {
+      vi.advanceTimersByTime(500)
+    })
+    expect(document.querySelector('[data-ownership]')?.getAttribute('data-ownership')).toBe('owned')
+    expect(screen.queryByText(/grid\.control\.reconnecting/)).toBeNull()
+  })
+  // 持续中断：升级为非遮挡告警条「连接中断 · 正在重连」+ 立即重试
+  it('shows a reconnect alert with retry after the interruption persists', () => {
+    vi.useFakeTimers()
+    socketState.isConnected = true
+    const view = render(<PaneGrid />)
+    attachDev1()
+    emitAttached()
+    act(() => {
+      socketState.isConnected = false
+      socketState.isSocketReady = false
+      useConsoleStore.setState({
+        connection: { status: 'reconnecting', latency: 0, lastPing: new Date().toISOString() },
+      })
+    })
+    view.rerender(<PaneGrid />)
+    act(() => {
+      vi.advanceTimersByTime(1300)
+    })
+    const bar = document.querySelector('[data-ownership]') as HTMLElement
+    expect(bar.getAttribute('data-ownership')).toBe('attaching')
+    expect(bar.className).toContain('pointer-events-none')
+    expect(screen.getByText('grid.control.reconnecting')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'grid.input.retry' }))
+    expect(retryConnectionMock).toHaveBeenCalled()
+  })
+  // 网络恢复≠会话可输入：重连回 ws 后 attached 未回期间仍是「正在附着」
+  it('keeps showing attaching after link recovers until the pane re-attaches', () => {
+    vi.useFakeTimers()
+    socketState.isConnected = true
+    const view = render(<PaneGrid />)
+    attachDev1()
+    emitAttached()
+    act(() => {
+      socketState.isConnected = false
+      socketState.isSocketReady = false
+      useConsoleStore.setState({
+        connection: { status: 'reconnecting', latency: 0, lastPing: new Date().toISOString() },
+      })
+    })
+    view.rerender(<PaneGrid />)
+    act(() => {
+      vi.advanceTimersByTime(1300)
+    })
+    expect(screen.getByText('grid.control.reconnecting')).toBeTruthy()
+    // ws 恢复进入重附着：中断告警与重试消失，但还不是可输入态
+    act(() => {
+      socketState.isSocketReady = true
+      useConsoleStore.setState({
+        connection: { status: 'attaching', latency: 0, lastPing: new Date().toISOString() },
+      })
+    })
+    expect(document.querySelector('[data-ownership]')?.getAttribute('data-ownership')).toBe('attaching')
+    expect(screen.queryByText('grid.control.reconnecting')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'grid.input.retry' })).toBeNull()
+    expect(screen.getByText('grid.control.attaching')).toBeTruthy()
+    act(() => {
+      socketState.isConnected = true
+      emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev1', cols: 120, rows: 36, hostId: 'local' })
+    })
+    expect(document.querySelector('[data-ownership]')?.getAttribute('data-ownership')).toBe('owned')
+  })
+  // 待发输入计数：断线键入可见「N 条」，队列计数真实传递给 i18n 插值
+  it('shows the queued input count while writes cannot flush', () => {
+    socketState.isConnected = true
+    const view = render(<PaneGrid />)
+    attachDev1()
+    emitAttached()
+    act(() => {
+      socketState.isConnected = false
+    })
+    view.rerender(<PaneGrid />)
+    act(() => {
+      terminalProps.current?.onInput?.('a')
+      terminalProps.current?.onInput?.('b')
+    })
+    expect(screen.getByText(/grid\.input\.pending \{.*"count":2/)).toBeTruthy()
   })
 })
