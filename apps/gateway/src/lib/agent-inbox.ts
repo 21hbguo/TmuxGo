@@ -52,6 +52,7 @@ export interface InboxAsset {
 export type InboxEvent =
   | { type: 'inbox_message_created'; message: AgentInboxMessage }
   | { type: 'inbox_message_updated'; message: AgentInboxMessage }
+  | { type: 'inbox_message_deleted'; ids: string[] }
   | { type: 'inbox_open_target'; route: InboxMessageRoute; messageId?: string }
 
 const STORE_VERSION = 1
@@ -184,6 +185,11 @@ async function sweepExpired(value: InboxStore) {
     }
   }
   for (const asset of value.assets) liveSha.add(asset.sha256)
+  // dedupe 只进不出会随时间无界增长：清掉已不在消息集里的映射
+  const liveIds = new Set(value.messages.map((m) => m.id))
+  for (const key of Object.keys(value.dedupe)) {
+    if (!liveIds.has(value.dedupe[key])) delete value.dedupe[key]
+  }
   // 孤儿 asset 文件回收（异步失败不影响主流程）
   void (async () => {
     try {
@@ -481,7 +487,10 @@ export async function deleteInboxMessages(ids: string[]) {
     if (idSet.has(value.dedupe[key])) delete value.dedupe[key]
   }
   await sweepExpired(value)
-  if (removed.length) await saveStore(value)
+  if (removed.length) {
+    await saveStore(value)
+    emitInbox({ type: 'inbox_message_deleted', ids: removed.map((m) => m.id) })
+  }
   return { removed: removed.length }
 }
 export async function requestOpenTarget(route: InboxMessageRoute, messageId?: string) {
