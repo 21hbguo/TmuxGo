@@ -14,6 +14,7 @@ import {
   resolveHostPassword,
 } from './ssh-options.js'
 import { agentManager, type AgentStatus } from '../agent-manager.js'
+import { getTmuxEnvEntries } from './tmux-env.js'
 
 const execFileAsync = promisify(execFile)
 const defaultTimeoutMs = 30000
@@ -59,6 +60,14 @@ export function normalizeTmuxEnvArgs(args: string[]) {
     result.push(args[i])
   }
   return { args: result, needsSetEnv }
+}
+// 创建命令触发 setenv 时补齐全套 TMUXGO_*（token/gateway url），
+// agent 在 pane 里回调 control plane 免手工 export
+async function applyTmuxGoEnv(hostIdRaw: string, options: TmuxExecOptions) {
+  for (const entry of getTmuxEnvEntries(hostIdRaw)) {
+    const sep = entry.indexOf('=')
+    await execTmux(hostIdRaw, ['setenv', '-g', entry.slice(0, sep), entry.slice(sep + 1)], options)
+  }
 }
 function toHostAddress(host: HostRecord) {
   return getSshTarget(host)
@@ -272,7 +281,7 @@ export async function execTmux(
   let deferSetEnv = false
   if (normalized.needsSetEnv) {
     try {
-      await execTmux(hostIdRaw, ['setenv', '-g', 'TMUXGO_ENV', '1'], options)
+      await applyTmuxGoEnv(hostIdRaw, options)
     } catch (err: any) {
       if (!isTmuxServerMissingError(String(err?.message || ''))) throw err
       deferSetEnv = true
@@ -306,7 +315,7 @@ export async function execTmux(
 async function retrySetEnvIfNeeded(deferSetEnv: boolean, hostIdRaw: string) {
   if (!deferSetEnv) return
   try {
-    await execTmux(hostIdRaw, ['setenv', '-g', 'TMUXGO_ENV', '1'])
+    await applyTmuxGoEnv(hostIdRaw, {})
   } catch {
     // setenv 是尽力而为的环境标记，失败不影响主流程
   }

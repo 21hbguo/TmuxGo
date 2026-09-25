@@ -55,3 +55,24 @@ The wait pins the pane occupant: if the pane is reused by a different process be
 - Never run these operations outside a TmuxGo environment (guard above).
 - Prefer `agent/wait` over shell `sleep` polling — it is event-driven and occupant-pinned.
 - Keep `lines` small (≤ 200) when reading panes; output can be large.
+
+## Push content to TmuxGo Inbox (v1)
+
+The push operation uses the same guard and token as the control plane. The gateway injects `TMUXGO_ENV=1`, `TMUXGO_AGENT_EVENT_TOKEN`, `TMUXGO_GATEWAY_URL`, and `TMUXGO_PANE_ID` into agent panes. Do not hard-code or print the token.
+
+```bash
+BASE="${TMUXGO_GATEWAY_URL%/}/api/v1/control"
+curl -sS -X POST "$BASE/push" \
+  -H "x-tmuxgo-agent-token: $TMUXGO_AGENT_EVENT_TOKEN" \
+  -H "x-tmuxgo-env: 1" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"text","title":"Build result","text":"All tests passed.","route":{"paneId":"'"$TMUXGO_PANE_ID"'"}}'
+```
+
+For images, video, or files, use the same endpoint with multipart. v1 supports a single streamed multipart upload (existing file limit: 200 MiB); small payloads may use `contentBase64` up to 32 MiB. A local `path` is accepted only after gateway workspace/realpath and sensitive-path checks. Binary content never goes through the WebSocket.
+
+Push routing priority is `hostId + paneId` → `hostId + tmuxPaneId` → `hostId + sessionName` → the authenticated agent's global inbox. Use `dedupeKey` for retries; a duplicate returns the original message id. See [`docs/agent-inbox/PROTOCOL.md`](../agent-inbox/PROTOCOL.md) for the complete schema, read endpoints, events, limits, and errors.
+
+### Open the pushed item in the UI
+
+The optional `tmuxgo_open_target` MCP tool emits an `inbox_open_target` event. It only asks the frontend to navigate to a validated host/session/pane/message; it does not execute browser actions. A pane can use the ordinary control endpoint to select a pane when direct control is intended.
