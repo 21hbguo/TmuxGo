@@ -21,7 +21,9 @@ export async function agentPushRoutes(fastify: FastifyInstance) {
     return null
   }
 
-  fastify.post('/v1/control/push', { bodyLimit: 40 * 1024 * 1024 }, async (request, reply) => {
+  // 32MiB base64 解码上限对应约 44.7MB 文本+JSON 开销——bodyLimit 必须
+  // 大于它，否则合法请求会先吃 413
+  fastify.post('/v1/control/push', { bodyLimit: 48 * 1024 * 1024 }, async (request, reply) => {
     const denied = guard(request)
     if (denied) return reply.code(denied.code).send({ message: denied.message, code: denied.codeName })
     try {
@@ -33,7 +35,18 @@ export async function agentPushRoutes(fastify: FastifyInstance) {
         const file = await request.file()
         if (!file)
           return reply.code(400).send({ message: 'multipart requires a file field', code: 'AGENT_PUSH_INVALID' })
-        const fields = file.fields as Record<string, { value?: unknown } | undefined>
+        // fields 在 file part 之后到达的客户端：file.fields 只含前序字段，
+        // 排后面的会静默丢——drain 剩余 parts 合并元数据
+        const fields = { ...(file.fields as Record<string, { value?: unknown } | undefined>) }
+        const trailing = request.parts()
+        for await (const part of trailing) {
+          if (part.type === 'field') {
+            if (!(part.fieldname in fields)) fields[part.fieldname] = part as unknown as { value?: unknown }
+          } else {
+            // 多余 file part 必须排空，否则流背压卡住后续字段读取
+            part.file.resume()
+          }
+        }
         const field = (name: string) => {
           const item = fields[name]
           return item && 'value' in item ? item.value : undefined

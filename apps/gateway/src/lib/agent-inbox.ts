@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'crypto'
-import { chmod, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'fs/promises'
+import { chmod, copyFile, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'fs/promises'
 import { createReadStream, rmSync } from 'fs'
 import os from 'os'
 import path from 'path'
@@ -102,6 +102,9 @@ async function writeStore(value: InboxStore, targetPath: string) {
   await rename(temporary, targetPath)
   await chmod(targetPath, 0o600)
 }
+async function backupCorruptStore() {
+  await copyFile(storePath(), `${storePath()}.corrupt-${Date.now()}`).catch(() => {})
+}
 async function saveStore(value: InboxStore) {
   const targetPath = storePath()
   const pending = savePromise.then(
@@ -143,7 +146,11 @@ async function loadStore() {
           assets: parsed.assets as InboxAsset[],
           dedupe: parsed.dedupe && typeof parsed.dedupe === 'object' ? parsed.dedupe : {},
         }
-    } catch {}
+      else await backupCorruptStore()
+    } catch (err: any) {
+      // JSON 损坏：留 .corrupt 副本供人工恢复再重建，别静默覆盖索引
+      if (err?.code !== 'ENOENT') await backupCorruptStore()
+    }
     store = loaded || { version: STORE_VERSION, messages: [], assets: [], dedupe: {} }
     loadedStorePath = currentPath
     await sweepExpired(store)
@@ -178,9 +185,13 @@ async function sweepExpired(value: InboxStore) {
       if (total <= MAX_ASSET_BYTES) break
       const asset = message.assetId ? value.assets.find((v) => v.id === message.assetId) : null
       if (asset) {
-        total -= asset.size || 0
-        value.assets = value.assets.filter((v) => v.id !== asset.id)
         value.messages = value.messages.filter((v) => v.id !== message.id)
+        // 同 sha 资产可能被多条消息共享——还有引用时只删消息，别留下悬空 assetId
+        const stillReferenced = value.messages.some((v) => v.assetId === asset.id)
+        if (!stillReferenced) {
+          total -= asset.size || 0
+          value.assets = value.assets.filter((v) => v.id !== asset.id)
+        }
       }
     }
   }
@@ -194,10 +205,14 @@ async function sweepExpired(value: InboxStore) {
   void (async () => {
     try {
       const root = assetsRoot()
+      // 只收 sha256 布局产物：2-hex 目录 + 64-hex 文件名。assetsRoot 指向
+      // 用户自选目录（TMUXGO_DATA_DIR）时绝不能误删其他文件
       for (const dir of await readdir(root).catch(() => [] as string[])) {
+        if (!/^[0-9a-f]{2}$/.test(dir)) continue
         const dirPath = path.join(root, dir)
         for (const file of await readdir(dirPath).catch(() => [] as string[])) {
-          if (!liveSha.has(file)) await rm(path.join(dirPath, file), { force: true }).catch(() => {})
+          if (/^[0-9a-f]{64}$/.test(file) && !liveSha.has(file))
+            await rm(path.join(dirPath, file), { force: true }).catch(() => {})
         }
       }
     } catch {}
@@ -223,12 +238,26 @@ const SENSITIVE_PATH_PATTERNS = [
   /(^|\/)\.ssh(\/|$)/,
   /(^|\/)\.gnupg(\/|$)/,
   /(^|\/)\.aws(\/|$)/,
+  /(^|\/)\.azure(\/|$)/,
   /(^|\/)\.kube(\/|$)/,
   /(^|\/)\.docker(\/|$)/,
   /(^|\/)\.env([./]|$)/i,
+  /(^|\/)\.envrc$/i,
   /(^|\/)\.netrc$/i,
+  /(^|\/)\.npmrc$/i,
+  /(^|\/)\.pypirc$/i,
   /(^|\/)id_(rsa|dsa|ecdsa|ed25519)(\.|$)/,
-  /(^|\/)\.tmuxgo\/agent-inbox\.json$/,
+  /(^|\/)\.tmuxgo\/(agent-inbox\.json|agent-event-token)$/,
+  /(^|\/)\.claude(\.json|\/|$)/,
+  /(^|\/)\.codex\/(auth|config)/,
+  /(^|\/)\.git-credentials$/,
+  /(^|\/)credentials\.json$/,
+  /(^|\/)config\.gcloud(\/|$)/,
+  /(^|\/)\.config\/gcloud(\/|$)/,
+  /(^|\/)\.config\/gh(\/|$)/,
+  /(^|\/)\.hermes\//,
+  /(^|\/)proc\/[^/]+\/environ$/,
+  /\.(pem|key|p12|pfx)$/i,
 ]
 export function isSensitivePath(filePath: string) {
   const normalized = filePath.replace(/\\/g, '/')
@@ -362,12 +391,15 @@ export async function createPush(input: PushInput) {
       content = input.buffer
     } else if (typeof input.path === 'string' && input.path.trim()) {
       const resolved = path.resolve(input.path.trim().replace(/^~(?=\/|$)/, os.homedir()))
-      if (isSensitivePath(resolved)) throw new Error('Refusing to read sensitive path')
-      const info = await stat(resolved)
+      // realpath 解符号链接再查 denylist——`ln -s ~/.ssh/id_rsa x.png`
+      // 这类链接名检查会漏判目标
+      const real = await realpath(resolved).catch(() => resolved)
+      if (isSensitivePath(resolved) || isSensitivePath(real)) throw new Error('Refusing to read sensitive path')
+      const info = await stat(real)
       if (!info.isFile()) throw new Error('Path is not a regular file')
       if (info.size > MAX_ASSET_BYTES) throw new Error('File exceeds asset size limit')
-      content = await readFile(resolved)
-      if (name === 'file') name = sanitizeFileName(path.basename(resolved))
+      content = await readFile(real)
+      if (name === 'file') name = sanitizeFileName(path.basename(real))
     } else if (typeof input.base64 === 'string' && input.base64) {
       content = Buffer.from(input.base64, 'base64')
       if (content.length > MAX_BASE64_BYTES) throw new Error('base64 payload exceeds 32MiB limit')
@@ -399,7 +431,7 @@ export async function createPush(input: PushInput) {
         mime,
         size: content.length,
         name,
-        path: path.relative(configDir(), assetPath),
+        path: path.relative(assetsRoot(), assetPath),
         createdAt: new Date().toISOString(),
       }
       value.assets.push(asset)
@@ -455,28 +487,35 @@ export async function getInboxAsset(assetId: string) {
   const value = await loadStore()
   return value.assets.find((a) => a.id === assetId) || null
 }
-// asset.path 相对 configDir 存储；解析后必须落在 assetsRoot 内，
-// 防 store 被篡改后越界读盘
+// asset.path 相对 assetsRoot 存储；解析后必须落在 assetsRoot 内，防 store
+// 被篡改后越界读盘。旧记录锚在 configDir（带 inbox-assets/ 前缀）——剥掉兼容
 export function resolveAssetPath(asset: InboxAsset) {
-  const resolved = path.resolve(configDir(), asset.path)
+  const rel = asset.path.replace(/^inbox-assets[\\/]/, '')
+  const resolved = path.resolve(assetsRoot(), rel)
   if (!resolved.startsWith(path.resolve(assetsRoot()) + path.sep)) throw new Error('Invalid asset path')
   return resolved
 }
 export async function getAssetStream(asset: InboxAsset, range?: { start: number; end: number }) {
   return createReadStream(resolveAssetPath(asset), range)
 }
+const MAX_READ_BY = 64
 export async function markInboxRead(ids: string[], deviceId: string) {
   const value = await loadStore()
   const idSet = new Set(ids.slice(0, 500))
-  let changed = 0
+  const changed: AgentInboxMessage[] = []
   for (const message of value.messages) {
     if (!idSet.has(message.id) || message.readBy.includes(deviceId)) continue
+    // readBy 无界增长会被灌水——超上限丢最老设备标记
+    if (message.readBy.length >= MAX_READ_BY) message.readBy.shift()
     message.readBy.push(deviceId)
-    changed++
-    emitInbox({ type: 'inbox_message_updated', message })
+    changed.push(message)
   }
-  if (changed) await saveStore(value)
-  return { changed }
+  // 先落盘再广播：崩溃窗口内前端状态不得领先盘上状态
+  if (changed.length) {
+    await saveStore(value)
+    for (const message of changed) emitInbox({ type: 'inbox_message_updated', message })
+  }
+  return { changed: changed.length }
 }
 export async function deleteInboxMessages(ids: string[]) {
   const value = await loadStore()
@@ -500,13 +539,15 @@ export async function requestOpenTarget(route: InboxMessageRoute, messageId?: st
 
 // 测试挂钩：重置内存态并让 loadStore 落到干净 store（test-env 的 config dir
 // 在进程内共享，不同步清文件会读到上个用例的持久化消息）
-export function _resetInboxForTest() {
+export function _resetInboxForTest(options: { keepStore?: boolean } = {}) {
   store = null
   storePromise = null
   loadedStorePath = null
   listeners.clear()
-  try {
-    rmSync(storePath(), { force: true })
-  } catch {}
+  if (!options.keepStore) {
+    try {
+      rmSync(storePath(), { force: true })
+    } catch {}
+  }
 }
 export { assetsRoot as _assetsRootForTest }

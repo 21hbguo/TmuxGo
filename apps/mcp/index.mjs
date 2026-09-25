@@ -88,6 +88,8 @@ function write(message) {
   process.stdout.write(JSON.stringify(message) + '\n')
 }
 function reply(id, result) {
+  // 通知（无 id）不产出响应——id undefined 时静默丢弃
+  if (id === undefined) return
   write({ jsonrpc: '2.0', id, result })
 }
 function replyError(id, code, message) {
@@ -134,6 +136,8 @@ async function callGateway(pathname, body) {
         'x-tmuxgo-agent-token': TOKEN,
       },
       body: JSON.stringify(body),
+      // gateway 挂起时 client 侧 MCP 调用也要能超时返回
+      signal: AbortSignal.timeout(30000),
     })
     const text = await res.text()
     return { ok: res.ok, status: res.status, body: text }
@@ -204,7 +208,12 @@ process.stdin.on('data', (chunk) => {
     } catch {
       continue
     }
-    handleMessage(message).catch(() => {})
+    handleMessage(message).catch((err) => {
+      // 异步异常不能吞——带 id 的请求必须回 JSON-RPC error，否则 client 挂死
+      try {
+        if (message && 'id' in message) replyError(message.id, -32603, String(err?.message || err))
+      } catch {}
+    })
   }
 })
 process.stdin.resume()
@@ -233,7 +242,9 @@ async function handleMessage(message) {
       reply(id, { tools: TOOLS })
       return
     case 'tools/call':
-      await handleToolCall(id, params)
+      // 通知式调用（无 id）按 JSON-RPC 不回结果，直接执行但不产出响应
+      if ('id' in message) await handleToolCall(id, params)
+      else await handleToolCall(undefined, params).catch(() => {})
       return
     default:
       if ('id' in message) replyError(id, -32601, `Method not found: ${method}`)
