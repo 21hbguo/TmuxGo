@@ -52,6 +52,7 @@ const previousPreferencesDir = process.env.TMUXGO_PREFERENCES_DIR
 const previousTmpDir = process.env.TMUXGO_TMP_DIR
 const previousTmux = process.env.TMUX
 const previousTmuxTmpDir = process.env.TMUX_TMPDIR
+const previousTmuxIsolated = process.env.TMUXGO_TEST_TMUX_ISOLATED
 const configDir = mkdtempSync(join(tmpdir(), 'tmuxgo-unit-tests-'))
 // 测试专用 tmux server：独立 socket 目录，清空 TMUX 避免继承外层 pane 的
 // socket 路径（run-e2e.ts 同款做法）。直接命令与应用子进程走同一 server
@@ -61,6 +62,8 @@ process.env.TMUXGO_PREFERENCES_DIR = join(configDir, 'preferences')
 process.env.TMUXGO_TMP_DIR = join(configDir, 'tmp')
 process.env.TMUX = ''
 process.env.TMUX_TMPDIR = tmuxDir
+// test-tmux.ts 据此确认处于隔离 server（用户 shell 自带 TMUX_TMPDIR 不误判）
+process.env.TMUXGO_TEST_TMUX_ISOLATED = '1'
 
 let cleaned = false
 function cleanup() {
@@ -78,6 +81,8 @@ function cleanup() {
   else process.env.TMUX = previousTmux
   if (previousTmuxTmpDir === undefined) delete process.env.TMUX_TMPDIR
   else process.env.TMUX_TMPDIR = previousTmuxTmpDir
+  if (previousTmuxIsolated === undefined) delete process.env.TMUXGO_TEST_TMUX_ISOLATED
+  else process.env.TMUXGO_TEST_TMUX_ISOLATED = previousTmuxIsolated
   rmSync(configDir, { recursive: true, force: true })
   rmSync(tmuxDir, { recursive: true, force: true })
 }

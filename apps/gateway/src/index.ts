@@ -6,7 +6,7 @@ import fastifyStatic from '@fastify/static'
 import websocket from '@fastify/websocket'
 import { existsSync } from 'fs'
 import path from 'path'
-import { cleanupMultiplexSockets } from './lib/tmux-executor.js'
+import { applyTmuxGoEnv, cleanupMultiplexSockets } from './lib/tmux-executor.js'
 import { hostRoutes } from './routes/hosts.js'
 import { sessionRoutes } from './routes/sessions.js'
 import { windowRoutes } from './routes/windows.js'
@@ -212,6 +212,9 @@ const start = async () => {
       )
     await fastify.listen({ port, host })
     void agentMonitor.start()
+    // token 轮换/重启后 tmux 全局环境仍是旧值：启动时重断言 setenv -g，
+    // 之后新建的 pane 才能继承当前 token（既有 pane 保留各自快照）
+    applyTmuxGoEnv('local', {}).catch(() => {})
     console.log(`Gateway listening on ${host}:${port}`)
   } catch (err) {
     fastify.log.error(err)
