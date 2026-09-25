@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { agentManager, type AgentSocket } from '../agent-manager.js'
 import { recordStreamMetric, updateStreamMetric } from '../lib/perf-metrics.js'
 import { agentMonitor } from '../lib/agent-monitor.js'
+import { subscribeInbox } from '../lib/agent-inbox.js'
 import { ingestAgentEvent } from '../lib/agent-events.js'
 import {
   streamAttachMessageSchema,
@@ -241,10 +242,14 @@ export async function streamRoutes(fastify: FastifyInstance) {
       if (shareStateTimer) clearInterval(shareStateTimer)
       unsubscribeAgentMonitor?.()
       unsubscribeAgentMonitor = null
+      unsubscribeInbox?.()
+      unsubscribeInbox = null
       updateStreamMetric('activeClients', streamPerfMetricsActiveClientsDelta(-1))
       if (agentId) agentManager.unregister(agentId, agentSocket, reason.toString() || `WebSocket closed (${code})`)
     })
     session.send({ type: 'connected', timestamp: Date.now() })
     let unsubscribeAgentMonitor: (() => void) | null = agentMonitor.subscribe((event) => session.send(event))
+    // agent 推送收件箱事件与 monitor 同通道扇出（metadata-only，内容走 /api/inbox REST）
+    let unsubscribeInbox: (() => void) | null = subscribeInbox((event) => session.send(event))
   })
 }

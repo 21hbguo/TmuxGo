@@ -1,0 +1,13 @@
+{
+  "name": "@21hbguo/tmuxgo-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "TmuxGo agent push MCP bridge: lets pane-hosted agents send text/image/video/file to the TmuxGo inbox",
+  "bin": {
+    "tmuxgo-mcp": "index.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

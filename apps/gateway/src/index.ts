@@ -40,6 +40,8 @@ import { agentMonitor } from './lib/agent-monitor.js'
 import { agentEventRoutes } from './routes/agent-events.js'
 import { agentNotificationRoutes } from './routes/agent-notifications.js'
 import { agentControlRoutes } from './routes/agent-control.js'
+import { agentPushRoutes } from './routes/agent-push.js'
+import { inboxRoutes } from './routes/inbox.js'
 import { agentRoutes } from './routes/agents.js'
 import {
   detectTmuxVersion,
@@ -79,6 +81,8 @@ fastify.addHook('onRequest', async (request, reply) => {
     routePath === '/api/v1/control/panes/split' ||
     routePath === '/api/v1/control/panes/read' ||
     routePath === '/api/v1/control/agent/wait' ||
+    routePath === '/api/v1/control/push' ||
+    routePath === '/api/v1/control/open-target' ||
     routePath === '/api/auth/status' ||
     routePath === '/api/auth/login' ||
     routePath === '/api/auth/refresh' ||
@@ -145,6 +149,8 @@ await fastify.register(pluginRoutes, { prefix: '/api' })
 await fastify.register(agentEventRoutes, { prefix: '/api' })
 await fastify.register(agentNotificationRoutes, { prefix: '/api' })
 await fastify.register(agentControlRoutes, { prefix: '/api' })
+await fastify.register(agentPushRoutes, { prefix: '/api' })
+await fastify.register(inboxRoutes, { prefix: '/api' })
 await fastify.register(agentRoutes, { prefix: '/api' })
 
 const frontendDist = process.env.TMUXGO_FRONTEND_DIST || path.resolve(process.cwd(), '../frontend/dist')
