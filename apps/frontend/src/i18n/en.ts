@@ -1058,6 +1058,24 @@ export const en = {
   'nav.more': 'More',
   'nav.compactBar': 'Compact bar',
   'nav.fullBar': 'Full bar',
+  'nav.inbox': 'Inbox',
+
+  // Agent inbox
+  'inbox.title': 'Inbox',
+  'inbox.empty': 'No messages',
+  'inbox.unreadDot': 'Unread',
+  'inbox.markAllRead': 'Mark all read',
+  'inbox.markRead': 'Mark read',
+  'inbox.delete': 'Delete',
+  'inbox.loadMore': 'Load more',
+  'inbox.jump': 'Jump',
+  'inbox.view': 'View',
+  'inbox.newMessage': 'New message',
+  'inbox.targetMissing': 'Target pane is gone or closed',
+  'inbox.download': 'Download',
+  'inbox.loadMedia': 'Tap to load',
+  'inbox.expired': 'Message is gone or expired',
+  'inbox.noPreview': 'Pick a message to preview',
 
   // FilePanel extra
   'file.inserted': 'Inserted {name}',

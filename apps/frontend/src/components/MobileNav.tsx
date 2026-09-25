@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
-import { FiGitBranch, FiMonitor, FiMoreHorizontal } from 'react-icons/fi'
+import { FiGitBranch, FiInbox, FiMonitor, FiMoreHorizontal } from 'react-icons/fi'
 
 const NAV_COMPACT_KEY = 'tmuxgo-mobile-nav-compact'
 function readNavCompact() {
@@ -20,6 +20,7 @@ interface MobileNavProps {
   onOpenFiles: () => void
   onOpenGit: () => void
   onOpenDesktop: () => void
+  onOpenInbox: () => void
   gitOpen?: boolean
   sessionsOpen?: boolean
   windowsOpen?: boolean
@@ -27,6 +28,8 @@ interface MobileNavProps {
   filesOpen?: boolean
   desktopOpen?: boolean
   settingsOpen?: boolean
+  inboxOpen?: boolean
+  inboxUnread?: number
   docked?: boolean
 }
 
@@ -62,6 +65,7 @@ export function MobileNav({
   onOpenFiles,
   onOpenGit,
   onOpenDesktop,
+  onOpenInbox,
   gitOpen = false,
   sessionsOpen = false,
   windowsOpen = false,
@@ -69,6 +73,8 @@ export function MobileNav({
   filesOpen = false,
   desktopOpen = false,
   settingsOpen = false,
+  inboxOpen = false,
+  inboxUnread = 0,
   docked = false,
 }: MobileNavProps) {
   const connection = useConsoleStore((state) => state.connection)
@@ -107,6 +113,18 @@ export function MobileNav({
   // 所有入口统一选中反馈（对齐 Git 的 aria-current + 选中样式）
   const navButtonClass = (active: boolean) =>
     `tmuxgo-mobile-nav-button flex flex-col items-center justify-center gap-px transition-all active:scale-95 active:bg-bg-2/50 ${active ? 'tmuxgo-mobile-nav-button--active' : 'text-text-3 active:text-accent'}`
+  // 收件箱未读角标：封顶 99+，避免长数字撑破触摸区
+  const inboxBadge = inboxUnread > 0 ? (inboxUnread > 99 ? '99+' : String(inboxUnread)) : null
+  const inboxIcon = (
+    <div className="relative">
+      <FiInbox aria-hidden="true" size={18} />
+      {inboxBadge && (
+        <span className="absolute -right-2.5 -top-1.5 min-w-4 rounded-full bg-danger px-0.5 text-center text-[9px] font-medium leading-4 text-white">
+          {inboxBadge}
+        </span>
+      )}
+    </div>
+  )
   // 更多面板内的条目：同语义、同选中反馈，点击后收起
   const moreEntries = [
     {
@@ -115,6 +133,13 @@ export function MobileNav({
       open: panesOpen,
       icon: <NavIcon d={icons.panes} />,
       onClick: () => onOpenDrawer('panes'),
+    },
+    {
+      key: 'files',
+      label: t('nav.files'),
+      open: filesOpen,
+      icon: <NavIcon d={icons.files} />,
+      onClick: onOpenFiles,
     },
     {
       key: 'git',
@@ -200,13 +225,13 @@ export function MobileNav({
             <span className="text-caption leading-none">{t('nav.windows')}</span>
           </button>
           <button
-            aria-label={t('nav.files')}
-            aria-current={filesOpen ? 'page' : undefined}
-            onClick={onOpenFiles}
-            className={navButtonClass(filesOpen)}
+            aria-label={t('nav.inbox')}
+            aria-current={inboxOpen ? 'page' : undefined}
+            onClick={onOpenInbox}
+            className={navButtonClass(inboxOpen)}
           >
-            <NavIcon d={icons.files} />
-            <span className="text-caption leading-none">{t('nav.files')}</span>
+            {inboxIcon}
+            <span className="text-caption leading-none">{t('nav.inbox')}</span>
           </button>
           <button
             aria-label={t('nav.more')}
@@ -220,7 +245,7 @@ export function MobileNav({
           </button>
         </div>
       ) : (
-        <div className="grid h-12 grid-cols-7 items-center">
+        <div className="grid h-12 grid-cols-8 items-center">
           <button
             aria-label={t('nav.sessions')}
             aria-current={sessionsOpen ? 'page' : undefined}
@@ -239,6 +264,16 @@ export function MobileNav({
           >
             <NavIcon d={icons.windows} />
             <span className="text-caption leading-none">{t('nav.windows')}</span>
+          </button>
+
+          <button
+            aria-label={t('nav.inbox')}
+            aria-current={inboxOpen ? 'page' : undefined}
+            onClick={onOpenInbox}
+            className={navButtonClass(inboxOpen)}
+          >
+            {inboxIcon}
+            <span className="text-caption leading-none">{t('nav.inbox')}</span>
           </button>
 
           <button

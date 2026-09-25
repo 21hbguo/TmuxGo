@@ -1,18 +1,31 @@
 import { api, type AgentNotificationRecord } from './api'
 
 const deviceIdKey = 'tmuxgo-agent-device-id'
-function getDeviceId() {
+// agent-notifications 的 viewer 设备 id：inbox readBy 复用同一 deviceId，
+// 保证一台设备上通知/收件箱已读状态一致
+export function getDeviceId() {
   if (typeof window === 'undefined') return ''
   try {
     const stored = window.localStorage.getItem(deviceIdKey)
     if (stored && /^[A-Za-z0-9._:-]{1,128}$/.test(stored)) return stored
   } catch {}
-  const generated = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `device-${Date.now()}-${Math.random().toString(36).slice(2)}`
-  try { window.localStorage.setItem(deviceIdKey, generated) } catch {}
+  const generated =
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `device-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  try {
+    window.localStorage.setItem(deviceIdKey, generated)
+  } catch {}
   return generated
 }
 function canUsePush() {
-  return typeof window !== 'undefined' && typeof navigator !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window && typeof Notification !== 'undefined'
+  return (
+    typeof window !== 'undefined' &&
+    typeof navigator !== 'undefined' &&
+    'serviceWorker' in navigator &&
+    'PushManager' in window &&
+    typeof Notification !== 'undefined'
+  )
 }
 function decodeVapidKey(value: string) {
   const normalized = value.replace(/-/g, '+').replace(/_/g, '/')
@@ -31,7 +44,10 @@ async function subscribePush() {
   let subscription = await serviceWorker.pushManager.getSubscription()
   if (!subscription) {
     const { publicKey } = await api.agentNotifications.vapidPublicKey()
-    subscription = await serviceWorker.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: decodeVapidKey(publicKey) })
+    subscription = await serviceWorker.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: decodeVapidKey(publicKey),
+    })
   }
   const deviceId = getDeviceId()
   if (!deviceId) return null
@@ -59,7 +75,7 @@ export async function markAgentNotificationsRead(ids: string[] = []) {
 export async function enableAgentPush() {
   if (!api.agentNotifications?.subscribe) return false
   try {
-    return !!await subscribePush()
+    return !!(await subscribePush())
   } catch {
     return false
   }
