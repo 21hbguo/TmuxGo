@@ -6,6 +6,7 @@ import {
 } from './terminal-keys'
 import { isApplePlatform, isImeKeyEvent, isPasteShortcut } from './terminal-platform'
 import { recordImeDebug } from './terminal-debug'
+import { consumeRecentDragGuard } from './editor-drag'
 interface TerminalKeyHandlerOptions {
   getSelectionText: () => string
   runCopySelection: (selection: string, a: boolean, b: boolean, after?: () => void) => void
@@ -36,6 +37,8 @@ export function createTerminalKeyEventHandler(options: TerminalKeyHandlerOptions
         options.runCopySelection(selection, true, true, options.focusTerminalInput)
         return false
       }
+      // 拖拽刚结束时到达的无选区 Ctrl+C 多半是取词工具(如有道)合成的,吞掉一次避免误清输入行
+      if (consumeRecentDragGuard()) return false
       return true
     }
     if (isPasteShortcut(e)) {

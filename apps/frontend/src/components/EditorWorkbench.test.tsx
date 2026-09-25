@@ -41,30 +41,33 @@ vi.mock('@/lib/dynamic', async () => {
       let selection: any = null
       let scrollTop = 0
       let scrollLeft = 0
+      // 对齐真实卸载顺序：@monaco-editor/react 先 dispose model 再 dispose editor，
+      // 之后 onDidDispose 回调里读到的是无 model 死值（getPosition null、getScrollTop -1）
+      let disposed = false
       let cursorHandler: ((event: any) => void) | undefined
       let scrollHandler: ((event: any) => void) | undefined
       const disposalHandlers: (() => void)[] = []
       const instance = {
-        getPosition: () => ({ ...position }),
+        getPosition: () => (disposed ? null : { ...position }),
         setPosition: (next: any) => {
           position = { lineNumber: next.lineNumber, column: next.column }
           editorInstanceMocks.setPosition(next)
           cursorHandler?.({ position })
         },
-        getSelection: () => (selection ? { ...selection } : null),
+        getSelection: () => (disposed ? null : selection ? { ...selection } : null),
         setSelection: (next: any) => {
           selection = { ...next }
           position = { lineNumber: next.endLineNumber, column: next.endColumn }
           editorInstanceMocks.setSelection(next)
           cursorHandler?.({ position })
         },
-        getScrollTop: () => scrollTop,
+        getScrollTop: () => (disposed ? -1 : scrollTop),
         setScrollTop: (next: number) => {
           scrollTop = next
           setScrollTop(next)
           scrollHandler?.({ scrollTop, scrollLeft })
         },
-        getScrollLeft: () => scrollLeft,
+        getScrollLeft: () => (disposed ? -1 : scrollLeft),
         setScrollLeft: (next: number) => {
           scrollLeft = next
           setScrollLeft(next)
@@ -102,6 +105,7 @@ vi.mock('@/lib/dynamic', async () => {
       liveEditors.set(path, instance)
       onMount?.(instance)
       return () => {
+        disposed = true
         disposalHandlers.forEach((handler) => handler())
         liveEditors.delete(path)
       }
@@ -1693,5 +1697,131 @@ describe('EditorWorkbench', () => {
     expect(remounted.getScrollTop()).toBe(200)
     expect(remounted.getScrollLeft()).toBe(30)
     expect(remounted.revealPositionInCenter).not.toHaveBeenCalled()
+  })
+  it('restores the exact scroll position after switching away and back', async () => {
+    const content = Array.from({ length: 200 }, (_, index) => `const l${index} = ${index}`).join('\n')
+    const a = { ...editor1, content }
+    const b = { ...editor2, content }
+    setWorkbenchState({
+      openEditors: [a, b],
+      activeEditorId: a.id,
+      editorGroups: [createGroup('group-1', [a.id, b.id], a.id)],
+      editorLayout: createLeaf('layout-1', 'group-1'),
+      activeEditorGroupId: 'group-1',
+    })
+    renderWorkbench()
+    act(() => {
+      const instance = liveEditors.get(a.absolutePath)
+      instance.setScrollTop(1600)
+      instance.setScrollLeft(80)
+      instance.setPosition({ lineNumber: 50, column: 3 })
+    })
+    act(() => useConsoleStore.getState().setActiveEditor(b.id))
+    act(() => useConsoleStore.getState().setActiveEditor(a.id))
+    await advanceNavigation()
+    const remounted = liveEditors.get(a.absolutePath)
+    expect(remounted.getScrollTop()).toBe(1600)
+    expect(remounted.getScrollLeft()).toBe(80)
+    expect(remounted.getPosition()).toEqual({ lineNumber: 50, column: 3 })
+  })
+  // 10 组随机翻动+随机切换：每个 tab 的滚动/光标各自独立还原，不得回到顶部
+  it('keeps per-tab scroll and cursor across 10 randomized tab switches', async () => {
+    const content = (tag: string) => Array.from({ length: 300 }, (_, index) => `// ${tag} line ${index + 1}`).join('\n')
+    const files = [
+      { ...editor1, content: content('a') },
+      { ...editor2, content: content('b') },
+      { ...editor3, content: content('c') },
+    ]
+    setWorkbenchState({
+      openEditors: files,
+      activeEditorId: files[0].id,
+      editorGroups: [
+        createGroup(
+          'group-1',
+          files.map((file) => file.id),
+          files[0].id,
+        ),
+      ],
+      editorLayout: createLeaf('layout-1', 'group-1'),
+      activeEditorGroupId: 'group-1',
+    })
+    renderWorkbench()
+    let seed = 20260924
+    const rand = (max: number) => {
+      seed = (seed * 1103515245 + 12345) % 2147483648
+      return Math.floor((seed / 2147483648) * max)
+    }
+    for (let round = 0; round < 10; round++) {
+      const from = files[round % files.length]
+      // rand(len-1)∈[0,len-2]：目标索引在 (i+1..i+len-1)%len 内，必与 from 不同
+      const to = files[(round + 1 + rand(files.length - 1)) % files.length]
+      const scrollTop = 1 + rand(200)
+      const scrollLeft = rand(120)
+      const position = { lineNumber: 1 + rand(300), column: 1 + rand(10) }
+      act(() => useConsoleStore.getState().setActiveEditor(from.id))
+      act(() => {
+        const instance = liveEditors.get(from.absolutePath)
+        instance.setScrollTop(scrollTop)
+        instance.setScrollLeft(scrollLeft)
+        instance.setPosition(position)
+      })
+      act(() => useConsoleStore.getState().setActiveEditor(to.id))
+      act(() => useConsoleStore.getState().setActiveEditor(from.id))
+      await advanceNavigation()
+      const remounted = liveEditors.get(from.absolutePath)
+      expect(remounted.getScrollTop(), `round ${round} scrollTop`).toBe(scrollTop)
+      expect(remounted.getScrollLeft(), `round ${round} scrollLeft`).toBe(scrollLeft)
+      expect(remounted.getPosition(), `round ${round} position`).toEqual(position)
+    }
+  })
+  it('clears the stored view state once the file is closed and reopened', async () => {
+    const content = Array.from({ length: 200 }, (_, index) => `// line ${index + 1}`).join('\n')
+    const a = { ...editor1, content }
+    const b = { ...editor2, content }
+    setWorkbenchState({
+      openEditors: [a, b],
+      activeEditorId: a.id,
+      editorGroups: [createGroup('group-1', [a.id, b.id], a.id)],
+      editorLayout: createLeaf('layout-1', 'group-1'),
+      activeEditorGroupId: 'group-1',
+    })
+    renderWorkbench()
+    act(() => {
+      liveEditors.get(a.absolutePath).setScrollTop(900)
+      liveEditors.get(a.absolutePath).setPosition({ lineNumber: 50, column: 3 })
+    })
+    act(() => useConsoleStore.getState().closeEditor(a.id))
+    await advanceNavigation()
+    // 重开同一文件：定位数据已随关闭清空，回到顶部 1:1 而不是旧位置
+    act(() => {
+      useConsoleStore.getState().openEditor({
+        id: a.id,
+        hostId: a.hostId,
+        rootId: a.rootId,
+        rootLabel: a.rootLabel,
+        rootPath: a.rootPath,
+        path: a.path,
+        name: a.name,
+        absolutePath: a.absolutePath,
+        type: 'file',
+        language: 'typescript',
+      } as any)
+      useConsoleStore.getState().setEditorLoaded(a.id, {
+        loading: false,
+        content,
+        savedContent: content,
+        modifiedAt: '',
+        size: content.length,
+        dirty: false,
+        saving: false,
+        binary: false,
+        truncated: false,
+      })
+    })
+    await advanceNavigation()
+    const reopened = liveEditors.get(a.absolutePath)
+    expect(reopened.getScrollTop()).toBe(0)
+    expect(reopened.getScrollLeft()).toBe(0)
+    expect(reopened.getPosition()).toEqual({ lineNumber: 1, column: 1 })
   })
 })
