@@ -146,20 +146,21 @@ describe('MobileNav', () => {
     expect(container.querySelectorAll('[aria-current="page"]')).toHaveLength(4)
   })
 
-  it('compact layout keeps inbox in the main bar and routes the rest through the More sheet', () => {
+  it('compact layout keeps panes in the main bar and routes inbox through the More sheet', () => {
     window.localStorage.setItem('tmuxgo-mobile-nav-compact', 'true')
     const onOpenGit = vi.fn()
     const onOpenFiles = vi.fn()
     const onOpenDrawer = vi.fn()
-    const { container } = renderNav({ onOpenGit, onOpenFiles, onOpenDrawer, gitOpen: true })
-    // 底栏仅 会话/窗口/收件箱/更多 四列
+    const onOpenInbox = vi.fn()
+    const { container } = renderNav({ onOpenGit, onOpenFiles, onOpenDrawer, onOpenInbox, gitOpen: true })
+    // 底栏仅 会话/窗口/面板/更多 四列（面板高频直接上栏，收件箱进更多）
     expect(container.querySelector('.grid-cols-4')).toBeTruthy()
     expect(container.querySelector('.grid-cols-8')).toBeNull()
-    expect(screen.getByRole('button', { name: 'Inbox' })).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Panes' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Panes' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Inbox' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Files' })).toBeNull()
     const moreButton = screen.getByRole('button', { name: 'More' })
-    // 打开面板在更多组内 → More 也带选中反馈
+    // 打开条目在更多组内 → More 也带选中反馈
     expect(moreButton.getAttribute('aria-current')).toBe('page')
     fireEvent.click(moreButton)
     const sheet = container.querySelector('[data-mobile-nav-more]') as HTMLElement
@@ -169,12 +170,15 @@ describe('MobileNav', () => {
     fireEvent.click(gitEntry)
     expect(onOpenGit).toHaveBeenCalledTimes(1)
     expect(container.querySelector('[data-mobile-nav-more]')).toBeNull()
-    // 文件入口移到更多面板
+    // 文件入口在更多面板
     fireEvent.click(moreButton)
     fireEvent.click(screen.getByRole('button', { name: 'Files' }))
     expect(onOpenFiles).toHaveBeenCalledTimes(1)
-    // 更多面板内的窗格入口与原 drawer 语义一致
+    // 收件箱收进更多面板，点击仍走原入口
     fireEvent.click(moreButton)
+    fireEvent.click(screen.getByRole('button', { name: 'Inbox' }))
+    expect(onOpenInbox).toHaveBeenCalledTimes(1)
+    // 底栏面板入口与原 drawer 语义一致
     fireEvent.click(screen.getByRole('button', { name: 'Panes' }))
     expect(onOpenDrawer).toHaveBeenCalledWith('panes')
   })

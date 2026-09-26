@@ -125,14 +125,14 @@ export function MobileNav({
       )}
     </div>
   )
-  // 更多面板内的条目：同语义、同选中反馈，点击后收起
+  // 精简栏位互换：面板更高频直接上栏，收件箱收进更多（角标随 icon 保留）
   const moreEntries = [
     {
-      key: 'panes',
-      label: t('nav.panes'),
-      open: panesOpen,
-      icon: <NavIcon d={icons.panes} />,
-      onClick: () => onOpenDrawer('panes'),
+      key: 'inbox',
+      label: t('nav.inbox'),
+      open: inboxOpen,
+      icon: inboxIcon,
+      onClick: onOpenInbox,
     },
     {
       key: 'files',
@@ -225,13 +225,13 @@ export function MobileNav({
             <span className="text-caption leading-none">{t('nav.windows')}</span>
           </button>
           <button
-            aria-label={t('nav.inbox')}
-            aria-current={inboxOpen ? 'page' : undefined}
-            onClick={onOpenInbox}
-            className={navButtonClass(inboxOpen)}
+            aria-label={t('nav.panes')}
+            aria-current={panesOpen ? 'page' : undefined}
+            onClick={() => onOpenDrawer('panes')}
+            className={navButtonClass(panesOpen)}
           >
-            {inboxIcon}
-            <span className="text-caption leading-none">{t('nav.inbox')}</span>
+            <NavIcon d={icons.panes} />
+            <span className="text-caption leading-none">{t('nav.panes')}</span>
           </button>
           <button
             aria-label={t('nav.more')}
@@ -240,7 +240,11 @@ export function MobileNav({
             onClick={() => setMoreOpen((value) => !value)}
             className={navButtonClass(moreEntries.some((entry) => entry.open))}
           >
-            <FiMoreHorizontal aria-hidden="true" size={18} />
+            <div className="relative">
+              <FiMoreHorizontal aria-hidden="true" size={18} />
+              {/* 收件箱在更多内：未读用角点数透出，不显示具体数字以免挤爆栏位 */}
+              {inboxBadge && <span className="absolute -right-1 -top-0.5 h-2 w-2 rounded-full bg-danger" />}
+            </div>
             <span className="text-caption leading-none">{t('nav.more')}</span>
           </button>
         </div>
