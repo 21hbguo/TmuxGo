@@ -2062,6 +2062,18 @@ describe('TerminalPane', () => {
     expect(webSocketMocks.send).toHaveBeenCalledWith({ type: 'copy_mode_cancel', hostId: 'local', sessionName: 'dev' })
     expect(mobileKeyboardMocks.focusKeyboard).toHaveBeenCalled()
   })
+  it('refocuses the mobile keyboard synchronously on tap while it is already open', async () => {
+    mobileKeyboardMocks.isMobile = true
+    const { container } = render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)
+    await waitFor(() => expect(customKeyHandler).toBeTruthy())
+    const mobileInput = container.querySelector('.mobile-kb-input') as HTMLTextAreaElement
+    mobileInput.focus()
+    mobileKeyboardMocks.focusKeyboard.mockClear()
+    const root = container.firstChild as HTMLElement
+    fireEvent.touchEnd(root, { changedTouches: [{ identifier: 1, clientX: 12, clientY: 18 }] })
+    // 键盘已开时 tap 走延迟唤起会先收后弹、整屏跳变——必须同步收回焦点
+    expect(mobileKeyboardMocks.focusKeyboard).toHaveBeenCalled()
+  })
   it('cancels tmux copy mode when the mobile keyboard opens', async () => {
     mobileKeyboardMocks.isMobile = true
     render(<TerminalPane sessionName="dev" onInput={vi.fn()} onResize={vi.fn()} />)

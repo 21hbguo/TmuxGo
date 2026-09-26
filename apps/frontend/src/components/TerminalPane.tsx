@@ -159,7 +159,7 @@ export function TerminalPane({
     } catch {}
     return paneCwdRef.current
   }, [])
-  const dispatchTerminalTap = useCallback((x: number, y: number) => {
+  const dispatchTerminalTap = useCallback((x: number, y: number, preserveFocus = false) => {
     const container = terminalRef.current
     if (!container) return
     const target =
@@ -172,7 +172,12 @@ export function TerminalPane({
     if (!(terminalTarget instanceof HTMLElement)) return
     const options = { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: 1, composed: true }
     terminalTarget.dispatchEvent(new MouseEvent('mousemove', options))
-    terminalTarget.dispatchEvent(new MouseEvent('mousedown', options))
+    // 移动键盘开着时 mousedown 默认行为会把焦点从 IME textarea 挪到容器 →
+    // blur→closeKeyboard→键盘收起→稍后 refocus 再弹回，整屏跳变。
+    // preventDefault 只取消焦点默认行为，xterm 收到的鼠标事件语义不变
+    const mousedown = new MouseEvent('mousedown', options)
+    if (preserveFocus) mousedown.preventDefault()
+    terminalTarget.dispatchEvent(mousedown)
     terminalTarget.dispatchEvent(new MouseEvent('mouseup', { ...options, buttons: 0 }))
     terminalTarget.dispatchEvent(new MouseEvent('click', { ...options, buttons: 0, detail: 1 }))
   }, [])
@@ -542,15 +547,22 @@ export function TerminalPane({
           e.preventDefault()
           const touch = e.changedTouches[0]
           const tap = lastTapRef.current || (touch ? { x: touch.clientX, y: touch.clientY } : null)
-          if (tap) dispatchTerminalTap(tap.x, tap.y)
+          // 键盘已开 = 用户正在输入，tap 只是点选/切 pane：同步收回焦点维持
+          // 键盘——走下方 350ms 延迟会先收后弹，造成整屏布局跳变
+          const kbWasOpen = document.activeElement === textareaRef.current
+          if (tap) dispatchTerminalTap(tap.x, tap.y, kbWasOpen)
           lastTapRef.current = null
-          // 键盘唤起延迟一拍：点链接/选词/浮层外轻点不该弹半屏键盘；
-          // 期间再来手势（滚动/长按/双指）即取消——想输入的用户照常等 ~350ms
-          if (keyboardFocusTimerRef.current) clearTimeout(keyboardFocusTimerRef.current)
-          keyboardFocusTimerRef.current = setTimeout(() => {
-            keyboardFocusTimerRef.current = null
-            if (!touchMovedRef.current) focusKeyboard()
-          }, 350)
+          if (kbWasOpen) {
+            focusKeyboard()
+          } else {
+            // 键盘唤起延迟一拍：点链接/选词/浮层外轻点不该弹半屏键盘；
+            // 期间再来手势（滚动/长按/双指）即取消——想输入的用户照常等 ~350ms
+            if (keyboardFocusTimerRef.current) clearTimeout(keyboardFocusTimerRef.current)
+            keyboardFocusTimerRef.current = setTimeout(() => {
+              keyboardFocusTimerRef.current = null
+              if (!touchMovedRef.current) focusKeyboard()
+            }, 350)
+          }
         } else if (!isMobileDevice) {
           terminalRef.current?.focus()
         }
