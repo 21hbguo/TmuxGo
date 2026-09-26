@@ -26,7 +26,8 @@ export function UploadConfirmDialog() {
   const pushToast = useConsoleStore((s) => s.pushToast)
   const addUploadJob = useConsoleStore((s) => s.addUploadJob)
   const updateUploadJob = useConsoleStore((s) => s.updateUploadJob)
-  const hostId = activeHostId || 'local'
+  // 转发等场景可显式指定目标 host；缺省跟随当前活动主机
+  const hostId = uploadRequest?.hostId || activeHostId || 'local'
   const { data: roots = [] } = useFileRoots(hostId)
   const { preferences } = usePreferences()
   const { t } = useTranslation()
@@ -243,7 +244,7 @@ export function UploadConfirmDialog() {
 
   return (
     <ModalPortal>
-      <div className="fixed inset-0 z-[95] flex items-center justify-center tmuxgo-scrim p-4" onClick={handleCancel}>
+      <div className="fixed inset-0 z-[120] flex items-center justify-center tmuxgo-scrim p-4" onClick={handleCancel}>
         <div
           className="tmuxgo-glass tmuxgo-glass-dialog w-full max-w-2xl rounded-apple border p-5"
           onClick={(e) => e.stopPropagation()}

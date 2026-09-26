@@ -385,6 +385,7 @@ interface ConsoleState {
   editorsHydrated: boolean
   uploadRequest: {
     files: File[]
+    hostId?: string
     preferredRootId?: string
     preferredPath?: string
     insertPaths?: boolean
@@ -446,6 +447,7 @@ interface ConsoleState {
   markEditorSaved: (id: string, content: string, modifiedAt: string, size: number) => void
   openUploadDialog: (request: {
     files: File[]
+    hostId?: string
     preferredRootId?: string
     preferredPath?: string
     insertPaths?: boolean

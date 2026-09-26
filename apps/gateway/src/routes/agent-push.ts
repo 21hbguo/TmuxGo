@@ -2,6 +2,8 @@ import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { getAgentEventToken, isAgentEventToken } from '../lib/agent-events.js'
 import {
   createPush,
+  getInboxMessage,
+  listInboxMessages,
   normalizeRoute,
   requestOpenTarget,
   type InboxMessageType,
@@ -76,6 +78,10 @@ export async function agentPushRoutes(fastify: FastifyInstance) {
         assetId: message.assetId,
         createdAt: message.createdAt,
         type: message.type,
+        name: message.name,
+        mime: message.mime,
+        size: message.size,
+        sha256: message.sha256,
         route: message.route,
       }
     } catch (error) {
@@ -97,6 +103,39 @@ export async function agentPushRoutes(fastify: FastifyInstance) {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Open target failed'
       return reply.code(400).send({ message, code: 'AGENT_OPEN_TARGET_FAILED' })
+    }
+  })
+
+  // agent 侧送达/已读回执查询：与 /inbox 同一份 store，但走 control-plane 凭证。
+  // 只能读 metadata（不含二进制）；readBy 长度用于区分「已送达」与「已读」。
+  fastify.post('/v1/control/inbox', { bodyLimit: 64 * 1024 }, async (request, reply) => {
+    const denied = guard(request)
+    if (denied) return reply.code(denied.code).send({ message: denied.message, code: denied.codeName })
+    try {
+      const body = (request.body || {}) as {
+        id?: unknown
+        cursor?: unknown
+        limit?: unknown
+        sessionName?: unknown
+        paneId?: unknown
+      }
+      if (typeof body.id === 'string' && body.id) {
+        const message = await getInboxMessage(body.id)
+        if (!message) return reply.code(404).send({ message: 'Not found', code: 'INBOX_MESSAGE_NOT_FOUND' })
+        reply.header('cache-control', 'no-store')
+        return { ok: true, message }
+      }
+      const result = await listInboxMessages({
+        cursor: typeof body.cursor === 'string' ? body.cursor : undefined,
+        limit: typeof body.limit === 'number' ? body.limit : undefined,
+        sessionName: typeof body.sessionName === 'string' ? body.sessionName : undefined,
+        paneId: typeof body.paneId === 'string' ? body.paneId : undefined,
+      })
+      reply.header('cache-control', 'no-store')
+      return { ok: true, ...result }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Inbox query failed'
+      return reply.code(400).send({ message, code: 'AGENT_INBOX_QUERY_FAILED' })
     }
   })
 }

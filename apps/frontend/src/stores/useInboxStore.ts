@@ -3,7 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware'
 import { createDebouncedStorage } from '@/lib/persist-storage'
 import { detectDeviceKind } from '@/lib/console-device-state'
 import { api } from '@/lib/api'
-import type { AgentInboxMessage, InboxTab } from '@/types'
+import type { AgentInboxMessage, InboxFilter, InboxTab } from '@/types'
 
 const INBOX_STORAGE_KEY = `tmuxgo-inbox-state:${detectDeviceKind()}`
 const MAX_TABS = 20
@@ -56,7 +56,13 @@ interface InboxState {
   tabs: InboxTab[]
   activeTabId: string | null
   panelOpen: boolean
+  // 列表筛选（内存态，不持久化）：面板重开/切预览 tab 时都保留
+  filter: InboxFilter
+  // 预览滚动位置按 messageId 记忆：切 tab 回来不丢阅读进度
+  previewScroll: Record<string, number>
   setDeviceId: (deviceId: string) => void
+  setFilter: (patch: Partial<InboxFilter>) => void
+  setPreviewScroll: (messageId: string, top: number) => void
   setList: (messages: AgentInboxMessage[], nextCursor: string | null) => void
   appendList: (messages: AgentInboxMessage[], nextCursor: string | null) => void
   upsertMessage: (message: AgentInboxMessage) => void
@@ -83,7 +89,12 @@ export const useInboxStore = create<InboxState>()(
       tabs: [],
       activeTabId: null,
       panelOpen: false,
+      filter: { query: '', type: 'all', unreadOnly: false },
+      previewScroll: {},
       setDeviceId: (deviceId) => set({ deviceId }),
+      setFilter: (patch) => set((state) => ({ filter: { ...state.filter, ...patch } })),
+      setPreviewScroll: (messageId, top) =>
+        set((state) => ({ previewScroll: { ...state.previewScroll, [messageId]: top } })),
       setList: (messages, nextCursor) =>
         set({
           messages: sortMessagesDesc(messages.filter((item) => !isExpiredMessage(item))).slice(0, MAX_MESSAGES),

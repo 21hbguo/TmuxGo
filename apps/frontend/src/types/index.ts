@@ -675,6 +675,22 @@ export interface AgentInboxMessage {
   open?: boolean
   metadata?: Record<string, unknown>
 }
+// 附件外链：token 只在创建响应里下发，列表/详情永远只见元数据
+export interface InboxShare {
+  id: string
+  messageId: string
+  name: string
+  mime: string
+  size: number
+  createdAt: string
+  expiresAt: string
+  revokedAt: string | null
+}
+export interface InboxFilter {
+  query: string
+  type: InboxMessageType | 'all'
+  unreadOnly: boolean
+}
 // 预览 tab 只持久化元数据；内容经 REST 重新拉取，过期消息 hydrate 时剔除
 export interface InboxTab {
   id: string
