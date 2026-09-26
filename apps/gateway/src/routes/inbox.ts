@@ -9,8 +9,10 @@ import {
   listInboxMessages,
   markInboxRead,
   resolveAssetPath,
+  type InboxAsset,
 } from '../lib/agent-inbox.js'
 import { normalizeAgentDeviceId } from '../lib/agent-notifications.js'
+import { inboxShareStore, INBOX_SHARE_MAX_MINUTES, INBOX_SHARE_MIN_MINUTES } from '../lib/inbox-shares.js'
 
 // 前端 REST：浏览器经正常登录 auth 访问（/api/* 默认 hook）。
 // asset 下载支持 Range（视频 seek），内容类型取受控 metadata，禁嗅探。
@@ -23,10 +25,52 @@ const deleteBodySchema = z.object({
 })
 const RANGE_RE = /^bytes=(\d+)-(\d*)$/
 
-function contentDispositionName(name: string) {
+function contentDispositionName(name: string, disposition: 'attachment' | 'inline' = 'attachment') {
   // RFC 5987 encode，避免引号/非 ASCII 注入 header
   const fallback = name.replace(/[^\w.-]/g, '_').slice(0, 120) || 'file'
-  return `attachment; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(name).slice(0, 300)}`
+  return `${disposition}; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(name).slice(0, 300)}`
+}
+
+// 登录区 /inbox 与公开区 /s/i 共用的 asset 响应：stat + Range + 受控 header。
+// disposition=inline 只由分享路由按 MIME 白名单传入，登录区始终 attachment
+export async function sendInboxAsset(
+  request: import('fastify').FastifyRequest,
+  reply: import('fastify').FastifyReply,
+  asset: InboxAsset,
+  name: string,
+  mime: string,
+  disposition: 'attachment' | 'inline' = 'attachment',
+) {
+  let resolved: string
+  try {
+    resolved = resolveAssetPath(asset)
+  } catch {
+    return reply.code(500).send({ message: 'Invalid asset path', code: 'INBOX_ASSET_PATH_INVALID' })
+  }
+  const info = await stat(resolved).catch(() => null)
+  if (!info?.isFile()) return reply.code(404).send({ message: 'Not found', code: 'INBOX_ASSET_NOT_FOUND' })
+  reply.header('Content-Type', mime)
+  reply.header('X-Content-Type-Options', 'nosniff')
+  reply.header('Content-Disposition', contentDispositionName(name, disposition))
+  // inline 场景兜底 CSP：即使 MIME 判断失误，sandbox 也能掐掉脚本/表单执行
+  if (disposition === 'inline') reply.header('Content-Security-Policy', 'sandbox')
+  reply.header('Accept-Ranges', 'bytes')
+  reply.header('Cache-Control', 'private, max-age=3600')
+  const rangeHeader = request.headers.range
+  const match = typeof rangeHeader === 'string' ? RANGE_RE.exec(rangeHeader) : null
+  if (match) {
+    const start = Number(match[1])
+    const end = match[2] ? Math.min(Number(match[2]), info.size - 1) : info.size - 1
+    if (Number.isFinite(start) && start >= 0 && end >= start && start < info.size) {
+      reply.code(206)
+      reply.header('Content-Range', `bytes ${start}-${end}/${info.size}`)
+      reply.header('Content-Length', end - start + 1)
+      return reply.send(await getAssetStream(asset, { start, end }))
+    }
+    return reply.code(416).send({ message: 'Range not satisfiable', code: 'RANGE_NOT_SATISFIABLE' })
+  }
+  reply.header('Content-Length', info.size)
+  return reply.send(await getAssetStream(asset))
 }
 
 export async function inboxRoutes(fastify: FastifyInstance) {
@@ -94,42 +138,6 @@ export async function inboxRoutes(fastify: FastifyInstance) {
       return reply.code(400).send({ message, code: 'INVALID_REQUEST' })
     }
   })
-  const sendAsset = async (
-    request: import('fastify').FastifyRequest,
-    reply: import('fastify').FastifyReply,
-    asset: NonNullable<Awaited<ReturnType<typeof getInboxAsset>>>,
-    name: string,
-    mime: string,
-  ) => {
-    let resolved: string
-    try {
-      resolved = resolveAssetPath(asset)
-    } catch {
-      return reply.code(500).send({ message: 'Invalid asset path', code: 'INBOX_ASSET_PATH_INVALID' })
-    }
-    const info = await stat(resolved).catch(() => null)
-    if (!info?.isFile()) return reply.code(404).send({ message: 'Not found', code: 'INBOX_ASSET_NOT_FOUND' })
-    reply.header('Content-Type', mime)
-    reply.header('X-Content-Type-Options', 'nosniff')
-    reply.header('Content-Disposition', contentDispositionName(name))
-    reply.header('Accept-Ranges', 'bytes')
-    reply.header('Cache-Control', 'private, max-age=3600')
-    const rangeHeader = request.headers.range
-    const match = typeof rangeHeader === 'string' ? RANGE_RE.exec(rangeHeader) : null
-    if (match) {
-      const start = Number(match[1])
-      const end = match[2] ? Math.min(Number(match[2]), info.size - 1) : info.size - 1
-      if (Number.isFinite(start) && start >= 0 && end >= start && start < info.size) {
-        reply.code(206)
-        reply.header('Content-Range', `bytes ${start}-${end}/${info.size}`)
-        reply.header('Content-Length', end - start + 1)
-        return reply.send(await getAssetStream(asset, { start, end }))
-      }
-      return reply.code(416).send({ message: 'Range not satisfiable', code: 'RANGE_NOT_SATISFIABLE' })
-    }
-    reply.header('Content-Length', info.size)
-    return reply.send(await getAssetStream(asset))
-  }
   // 两种寻址：按 messageId（前端 tab 只有它）与按 assetId（协议文档契约）
   fastify.get('/inbox/:id/asset', async (request, reply) => {
     const { id } = request.params as { id: string }
@@ -137,12 +145,54 @@ export async function inboxRoutes(fastify: FastifyInstance) {
     if (!message?.assetId) return reply.code(404).send({ message: 'Not found', code: 'INBOX_ASSET_NOT_FOUND' })
     const asset = await getInboxAsset(message.assetId)
     if (!asset) return reply.code(404).send({ message: 'Not found', code: 'INBOX_ASSET_NOT_FOUND' })
-    return sendAsset(request, reply, asset, message.name || asset.name, message.mime || asset.mime)
+    return sendInboxAsset(request, reply, asset, message.name || asset.name, message.mime || asset.mime)
   })
   fastify.get('/inbox/assets/:assetId', async (request, reply) => {
     const { assetId } = request.params as { assetId: string }
     const asset = await getInboxAsset(assetId)
     if (!asset) return reply.code(404).send({ message: 'Not found', code: 'INBOX_ASSET_NOT_FOUND' })
-    return sendAsset(request, reply, asset, asset.name, asset.mime)
+    return sendInboxAsset(request, reply, asset, asset.name, asset.mime)
+  })
+
+  // 附件外链管理（登录区内）：显式创建 / 可撤销 / 限时，token 只在创建响应里出现一次
+  fastify.post('/inbox/:id/share', { bodyLimit: 16 * 1024 }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const message = await getInboxMessage(id)
+    if (!message?.assetId) return reply.code(404).send({ message: 'Not found', code: 'INBOX_MESSAGE_NOT_FOUND' })
+    const asset = await getInboxAsset(message.assetId)
+    if (!asset) return reply.code(404).send({ message: 'Not found', code: 'INBOX_ASSET_NOT_FOUND' })
+    const expiresInMinutes = Number((request.body as { expiresInMinutes?: unknown } | undefined)?.expiresInMinutes)
+    if (
+      !Number.isInteger(expiresInMinutes) ||
+      expiresInMinutes < INBOX_SHARE_MIN_MINUTES ||
+      expiresInMinutes > INBOX_SHARE_MAX_MINUTES
+    )
+      return reply.code(400).send({
+        message: `expiresInMinutes must be between ${INBOX_SHARE_MIN_MINUTES} and ${INBOX_SHARE_MAX_MINUTES}`,
+        code: 'INVALID_EXPIRY',
+      })
+    const { share, token } = await inboxShareStore.create(
+      {
+        messageId: message.id,
+        assetId: asset.id,
+        name: message.name || asset.name,
+        mime: message.mime || asset.mime,
+        size: message.size || asset.size,
+      },
+      expiresInMinutes,
+    )
+    return { ok: true, share, path: `/s/i/${token}` }
+  })
+  fastify.get('/inbox/:id/shares', async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const message = await getInboxMessage(id)
+    if (!message) return reply.code(404).send({ message: 'Not found', code: 'INBOX_MESSAGE_NOT_FOUND' })
+    return { ok: true, shares: await inboxShareStore.listForMessage(id) }
+  })
+  fastify.delete('/inbox/shares/:shareId', async (request, reply) => {
+    const { shareId } = request.params as { shareId: string }
+    if (!shareId || !(await inboxShareStore.revoke(shareId)))
+      return reply.code(404).send({ message: 'Share not found', code: 'INBOX_SHARE_NOT_FOUND' })
+    return { ok: true }
   })
 }

@@ -3,6 +3,7 @@ import { authenticatedFetch, getAccessToken, refreshAuth } from './auth'
 import { buildSessionId } from './session-id'
 import type {
   AgentInboxMessage,
+  InboxShare,
   AuditEvent,
   CustomShortcut,
   FavoriteDirectory,
@@ -562,6 +563,15 @@ export const api = {
     // 调用方负责 createObjectURL + 卸载 revoke
     fetchAsset: (id: string, signal?: AbortSignal) =>
       fetchApiBlob(`/api/inbox/${encodeURIComponent(id)}/asset`, signal ? { signal } : undefined),
+    createShare: (id: string, expiresInMinutes: number) =>
+      fetchApi<{ ok: true; share: InboxShare; path: string }>(`/api/inbox/${encodeURIComponent(id)}/share`, {
+        method: 'POST',
+        body: JSON.stringify({ expiresInMinutes }),
+      }),
+    listShares: (id: string) =>
+      fetchApi<{ ok: true; shares: InboxShare[] }>(`/api/inbox/${encodeURIComponent(id)}/shares`),
+    revokeShare: (shareId: string) =>
+      fetchApi<{ ok: true }>(`/api/inbox/shares/${encodeURIComponent(shareId)}`, { method: 'DELETE' }),
   },
   agentNotifications: {
     vapidPublicKey: () => fetchApi<{ publicKey: string }>('/api/agent-notifications/vapid-public-key'),

@@ -101,6 +101,11 @@ The v1 REST read side is:
 - `GET /api/inbox/assets/:assetId` — authenticated asset download/preview; supports Range.
 - `POST /api/inbox/:messageId/read` with `{ "deviceId": "..." }` — idempotently adds the device to `readBy`.
 - `POST /api/inbox/read` with `{ "deviceId": "...", "ids": ["..."] }` — batch acknowledgement.
+- `POST /api/inbox/:messageId/share` `{ expiresInMinutes }` — creates a revocable, time-boxed public asset link (`/s/i/<id>.<secret>`); 5..10080 minutes. Only asset messages are shareable.
+- `GET /api/inbox/:messageId/shares` — lists active (non-expired, non-revoked) shares of a message; tokens are never returned after creation.
+- `DELETE /api/inbox/shares/:shareId` — revokes a share.
+- `GET /s/i/:token` — public download endpoint, deliberately outside `/api/*` auth. Serves `inline` only for a safe MIME whitelist (image except svg, video, audio, pdf, text/plain) with `nosniff` + `Content-Security-Policy: sandbox`; everything else downloads as attachment. Honors Range.
+- `POST /api/v1/control/inbox` — agent-token counterpart of the read side: `{ id? , cursor?, limit?, sessionName?, paneId? }` returns the same metadata (including `readBy`) so agents can confirm delivery vs read. Not readable as user auth; requires the control-plane guard.
 
 The frontend stores only message ids/tab order locally. After refresh it hydrates metadata through REST. `deviceId` is a viewer/device key, not part of the agent route.
 
@@ -119,22 +124,25 @@ No binary data or base64 media is sent over WebSocket. The frontend invalidates/
 
 ## Error codes
 
-| HTTP | code | Meaning |
-|---:|---|---|
-| 400 | `AGENT_PUSH_FAILED` / `AGENT_PUSH_INVALID` | Schema, route, mime, metadata, size, sha256 mismatch, sensitive-path denylist, or missing content carrier. |
-| 400 | `AGENT_OPEN_TARGET_FAILED` | Invalid open-target request. |
-| 400 | `INVALID_REQUEST` / `INVALID_DEVICE_ID` | Read-side validation failure. |
-| 401 | `AGENT_CONTROL_AUTH_REQUIRED` | Missing or invalid agent token (same as the rest of the control plane). |
-| 403 | `TMUXGO_ENV_GUARD` | Missing `TMUXGO_ENV=1` / `x-tmuxgo-env: 1`. |
-| 404 | `INBOX_MESSAGE_NOT_FOUND` / `INBOX_ASSET_NOT_FOUND` | Message or asset does not exist or has expired. |
-| 416 | `RANGE_NOT_SATISFIABLE` | Bad Range header on asset download. |
-| 500 | `INBOX_ASSET_PATH_INVALID` | Stored asset path resolves outside the asset root (store tamper guard). |
+| HTTP | code                                                | Meaning                                                                                                                                                                                 |
+| ---: | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+|  400 | `AGENT_PUSH_FAILED` / `AGENT_PUSH_INVALID`          | Schema, route, mime, metadata, size, sha256 mismatch, sensitive-path denylist, or missing content carrier. File-carrier failures name the cause (`File not found`/`Permission denied`). |
+|  400 | `AGENT_OPEN_TARGET_FAILED`                          | Invalid open-target request.                                                                                                                                                            |
+|  400 | `AGENT_INBOX_QUERY_FAILED`                          | Invalid agent-side inbox query.                                                                                                                                                         |
+|  400 | `INVALID_EXPIRY`                                    | Share `expiresInMinutes` outside 5..10080.                                                                                                                                              |
+|  404 | `INBOX_SHARE_NOT_FOUND` / `INBOX_SHARE_UNAVAILABLE` | Share id unknown, or link expired/revoked/regenerated token invalid.                                                                                                                    |
+|  400 | `INVALID_REQUEST` / `INVALID_DEVICE_ID`             | Read-side validation failure.                                                                                                                                                           |
+|  401 | `AGENT_CONTROL_AUTH_REQUIRED`                       | Missing or invalid agent token (same as the rest of the control plane).                                                                                                                 |
+|  403 | `TMUXGO_ENV_GUARD`                                  | Missing `TMUXGO_ENV=1` / `x-tmuxgo-env: 1`.                                                                                                                                             |
+|  404 | `INBOX_MESSAGE_NOT_FOUND` / `INBOX_ASSET_NOT_FOUND` | Message or asset does not exist or has expired.                                                                                                                                         |
+|  416 | `RANGE_NOT_SATISFIABLE`                             | Bad Range header on asset download.                                                                                                                                                     |
+|  500 | `INBOX_ASSET_PATH_INVALID`                          | Stored asset path resolves outside the asset root (store tamper guard).                                                                                                                 |
 
 Duplicates are not errors: a repeated `dedupeKey` returns `200` with `deduplicated: true` and the original `messageId`.
 
 ## MCP stdio registration snippets
 
-The bridge is `apps/mcp/index.mjs` (zero-dependency Node ≥18 script). Exposed tools: `tmuxgo_push_text`, `tmuxgo_push_file` (image/video/any file by path), `tmuxgo_push_link`, `tmuxgo_open_target`. Token resolution order: `TMUXGO_AGENT_EVENT_TOKEN` env → `~/.tmuxgo/agent-event-token` (0600, gateway-managed). Gateway URL: `TMUXGO_GATEWAY_URL` → default `http://127.0.0.1:3001`. Do not put a token in config.
+The bridge is `apps/mcp/index.mjs` (zero-dependency Node ≥18 script). Exposed tools: `tmuxgo_push_text`, `tmuxgo_push_file` (image/video/any file by path), `tmuxgo_push_link`, `tmuxgo_open_target`, `tmuxgo_inbox_list` (delivery/read receipt query). Token resolution order: `TMUXGO_AGENT_EVENT_TOKEN` env → `~/.tmuxgo/agent-event-token` (0600, gateway-managed). Gateway URL: `TMUXGO_GATEWAY_URL` → default `http://127.0.0.1:3001`. Do not put a token in config.
 
 ```text
 TMUXGO_MCP_COMMAND="node <repo>/apps/mcp/index.mjs"

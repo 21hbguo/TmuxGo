@@ -26,7 +26,8 @@ const PROTOCOL_VERSION = '2025-06-18'
 const TOOLS = [
   {
     name: 'tmuxgo_push_text',
-    description: 'Push a text/markdown message to the TmuxGo inbox (visible on PC and mobile UI).',
+    description:
+      'Push a text/markdown message to the TmuxGo inbox. The UI shows it in a searchable list and a preview tab with copy/forward/share actions. Returns messageId (usable with tmuxgo_inbox_list for delivery/read receipts).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -43,7 +44,8 @@ const TOOLS = [
   },
   {
     name: 'tmuxgo_push_file',
-    description: 'Push a local file (image/video/any file) to the TmuxGo inbox for preview or download in the UI.',
+    description:
+      'Push a local file to the TmuxGo inbox. Images get a zoomable preview, audio/video use the native player, PDFs open inline, text/code/markdown render readably, other types get a download card. Returns messageId, assetId, name, mime, size and sha256. Errors name the cause: missing file, permission denied, sensitive path, or size limit.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -57,7 +59,7 @@ const TOOLS = [
   },
   {
     name: 'tmuxgo_push_link',
-    description: 'Push an http(s) link to the TmuxGo inbox.',
+    description: 'Push an http(s) link to the TmuxGo inbox (opens in a preview card; copyable/shareable).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -79,6 +81,21 @@ const TOOLS = [
         sessionName: { type: 'string' },
         tmuxPaneId: { type: 'string', description: 'tmux pane id like %3' },
         messageId: { type: 'string' },
+      },
+    },
+  },
+  {
+    name: 'tmuxgo_inbox_list',
+    description:
+      'Query the TmuxGo inbox for pushed messages. Use messageId to confirm a specific push was delivered; without it returns recent messages (metadata only: id, type, title, name, size, mime, createdAt, route, readBy). A non-empty readBy means a user device has opened it — absent readBy means delivered but not yet read.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        messageId: { type: 'string', description: 'Fetch a single message by id (404 when gone/expired)' },
+        limit: { type: 'number', description: 'Page size 1-200 (default 50)' },
+        cursor: { type: 'string', description: 'Pagination cursor from a previous response (older messages)' },
+        sessionName: { type: 'string', description: 'Filter by route sessionName' },
+        paneId: { type: 'string', description: 'Filter by route paneId or tmuxPaneId' },
       },
     },
   },
@@ -185,6 +202,14 @@ async function handleToolCall(id, params) {
     })
   } else if (name === 'tmuxgo_open_target') {
     result = await callGateway('/v1/control/open-target', { route, messageId: args.messageId })
+  } else if (name === 'tmuxgo_inbox_list') {
+    result = await callGateway('/v1/control/inbox', {
+      id: typeof args.messageId === 'string' ? args.messageId : undefined,
+      limit: typeof args.limit === 'number' ? args.limit : undefined,
+      cursor: typeof args.cursor === 'string' ? args.cursor : undefined,
+      sessionName: typeof args.sessionName === 'string' ? args.sessionName : undefined,
+      paneId: typeof args.paneId === 'string' ? args.paneId : undefined,
+    })
   } else {
     return toolResult(id, `Unknown tool: ${name}`, true)
   }

@@ -395,10 +395,18 @@ export async function createPush(input: PushInput) {
       // 这类链接名检查会漏判目标
       const real = await realpath(resolved).catch(() => resolved)
       if (isSensitivePath(resolved) || isSensitivePath(real)) throw new Error('Refusing to read sensitive path')
-      const info = await stat(real)
+      // agent 侧最常见错误就是路径不存在/无权限——给出可定位文案而不是裸 errno
+      const info = await stat(real).catch((error: NodeJS.ErrnoException) => {
+        if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') throw new Error(`File not found: ${resolved}`)
+        if (error?.code === 'EACCES' || error?.code === 'EPERM') throw new Error(`Permission denied: ${resolved}`)
+        throw error
+      })
       if (!info.isFile()) throw new Error('Path is not a regular file')
       if (info.size > MAX_ASSET_BYTES) throw new Error('File exceeds asset size limit')
-      content = await readFile(real)
+      content = await readFile(real).catch((error: NodeJS.ErrnoException) => {
+        if (error?.code === 'EACCES' || error?.code === 'EPERM') throw new Error(`Permission denied: ${resolved}`)
+        throw error
+      })
       if (name === 'file') name = sanitizeFileName(path.basename(real))
     } else if (typeof input.base64 === 'string' && input.base64) {
       content = Buffer.from(input.base64, 'base64')
