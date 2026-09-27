@@ -191,6 +191,8 @@ export function MobileNav({
   // 用户挑选上栏的可调配项；其余留在「更多」。顺序固定，不随挑选次序漂移
   const barEntries = optionalEntries.filter((entry) => barItems.includes(entry.key))
   const moreEntries = optionalEntries.filter((entry) => !barItems.includes(entry.key))
+  // ≥7 列时小屏每格不足 ~45px，隐藏文字只留 icon 防溢出
+  const compactIconOnly = 3 + barEntries.length + (moreEntries.length ? 1 : 0) >= 7
 
   return (
     <div
@@ -210,7 +212,7 @@ export function MobileNav({
           {compact ? '⊞' : '⊟'}
         </button>
       </div>
-      {compact && moreOpen && (
+      {compact && moreOpen && moreEntries.length > 0 && (
         <div
           data-mobile-nav-more
           className="tmuxgo-float-surface absolute bottom-full left-2 right-2 z-50 mb-1 grid grid-cols-4 gap-1 rounded-apple border p-2"
@@ -247,7 +249,7 @@ export function MobileNav({
             className={navButtonClass(sessionsOpen)}
           >
             <NavIcon d={icons.sessions} />
-            <span className="text-caption leading-none">{t('nav.sessions')}</span>
+            {!compactIconOnly && <span className="text-caption leading-none">{t('nav.sessions')}</span>}
           </button>
           <button
             aria-label={t('nav.windows')}
@@ -256,7 +258,7 @@ export function MobileNav({
             className={navButtonClass(windowsOpen)}
           >
             <NavIcon d={icons.windows} />
-            <span className="text-caption leading-none">{t('nav.windows')}</span>
+            {!compactIconOnly && <span className="text-caption leading-none">{t('nav.windows')}</span>}
           </button>
           <button
             aria-label={t('nav.panes')}
@@ -265,7 +267,7 @@ export function MobileNav({
             className={navButtonClass(panesOpen)}
           >
             <NavIcon d={icons.panes} />
-            <span className="text-caption leading-none">{t('nav.panes')}</span>
+            {!compactIconOnly && <span className="text-caption leading-none">{t('nav.panes')}</span>}
           </button>
           {barEntries.map((entry) => (
             <button
@@ -276,7 +278,7 @@ export function MobileNav({
               className={navButtonClass(entry.open)}
             >
               {entry.icon}
-              <span className="text-caption leading-none">{entry.label}</span>
+              {!compactIconOnly && <span className="text-caption leading-none">{entry.label}</span>}
             </button>
           ))}
           {moreEntries.length > 0 && (
@@ -294,7 +296,7 @@ export function MobileNav({
                   <span className="absolute -right-1 -top-0.5 h-2 w-2 rounded-full bg-danger" />
                 )}
               </div>
-              <span className="text-caption leading-none">{t('nav.more')}</span>
+              {!compactIconOnly && <span className="text-caption leading-none">{t('nav.more')}</span>}
             </button>
           )}
         </div>
