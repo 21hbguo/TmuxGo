@@ -391,6 +391,9 @@ interface ConsoleState {
     insertPaths?: boolean
     temporary?: boolean
   } | null
+  uploadPanelOpen: boolean
+  // 上传页暂存文件：原生选择器返回后落全局——sheet/组件卸载不丢，重进仍在
+  stagedUploadFiles: File[]
   uploadJobs: UploadJob[]
   toasts: { id: string; type: 'success' | 'error' | 'info'; message: string; durationMs?: number }[]
   setActiveHost: (id: string) => void
@@ -454,6 +457,8 @@ interface ConsoleState {
     temporary?: boolean
   }) => void
   closeUploadDialog: () => void
+  setUploadPanelOpen: (open: boolean) => void
+  setStagedUploadFiles: (files: File[]) => void
   addUploadJob: (job: UploadJob) => void
   updateUploadJob: (id: string, patch: Partial<UploadJob>) => void
   removeUploadJob: (id: string) => void
@@ -582,6 +587,8 @@ export const useConsoleStore = create<ConsoleState>()(
       ...createEmptyEditorWorkspace(),
       editorsHydrated: true,
       uploadRequest: null,
+      uploadPanelOpen: false,
+      stagedUploadFiles: [],
       uploadJobs: [],
       toasts: [],
       setActiveHost: (id) => {
@@ -1131,6 +1138,8 @@ export const useConsoleStore = create<ConsoleState>()(
         })),
       openUploadDialog: (request) => set({ uploadRequest: request }),
       closeUploadDialog: () => set({ uploadRequest: null }),
+      setUploadPanelOpen: (open) => set({ uploadPanelOpen: open }),
+      setStagedUploadFiles: (files) => set({ stagedUploadFiles: files }),
       addUploadJob: (job) => set((state) => ({ uploadJobs: [job, ...state.uploadJobs].slice(0, 12) })),
       updateUploadJob: (id, patch) =>
         set((state) => ({ uploadJobs: state.uploadJobs.map((job) => (job.id === id ? { ...job, ...patch } : job)) })),
@@ -1236,6 +1245,8 @@ export const useConsoleStore = create<ConsoleState>()(
           activeDesktop: null,
           mobileFileSheetOpen: false,
           uploadRequest: null,
+          uploadPanelOpen: false,
+          stagedUploadFiles: [],
           uploadJobs: [],
           toasts: [],
           editorsHydrated: true,

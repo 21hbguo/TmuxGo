@@ -252,11 +252,22 @@ export async function fileRoutes(fastify: FastifyInstance, options: { taskManage
     let resolvedTarget: { root: FileRoot; absolutePath: string; relativePath: string } | null = null
     const uploadedFiles: { name: string; path: string; absolutePath: string; size: number }[] = []
     const stagedFiles: StagedUploadFile[] = []
+    // 客户端参数缺失按 400 返回——裸 Error 会被默认错误序列化成 500
+    const badRequest = (message: string) => {
+      const error = new Error(message) as Error & { statusCode: number }
+      error.statusCode = 400
+      return error
+    }
     for await (const part of parts) {
       if (part.type === 'file') {
-        if (!targetRootId) throw new Error('Missing target root')
-        if (conflictPolicy !== 'rename') throw new Error('Unsupported conflict policy')
-        const safeName = sanitizeUploadFileName(part.filename)
+        if (!targetRootId) throw badRequest('Missing target root')
+        if (conflictPolicy !== 'rename') throw badRequest('Unsupported conflict policy')
+        let safeName: string
+        try {
+          safeName = sanitizeUploadFileName(part.filename)
+        } catch (error) {
+          throw badRequest((error as Error).message)
+        }
         if (background) {
           stagedFiles.push(await stageUploadFile(part.file, safeName, rateLimitKBps))
           continue
@@ -312,7 +323,7 @@ export async function fileRoutes(fastify: FastifyInstance, options: { taskManage
       else if (part.fieldname === 'background') background = value === 'true'
     }
     if (background) {
-      if (!stagedFiles.length) throw new Error('No files uploaded')
+      if (!stagedFiles.length) throw badRequest('No files uploaded')
       return reply.status(202).send({
         task: await backgroundTasks.start({
           type: 'file-upload',
@@ -321,7 +332,7 @@ export async function fileRoutes(fastify: FastifyInstance, options: { taskManage
         }),
       })
     }
-    if (!resolvedTarget) throw new Error('No files uploaded')
+    if (!resolvedTarget) throw badRequest('No files uploaded')
     const result = {
       ok: true,
       target: {

@@ -16,6 +16,7 @@ import { PaneNotifications } from './PaneNotifications'
 import { TaskNotifications } from './TaskNotifications'
 import dynamic from '@/lib/dynamic'
 import { UploadConfirmDialog } from './UploadConfirmDialog'
+import { GlobalFilePicker } from './GlobalFilePicker'
 import { UploadQueue } from './UploadQueue'
 import { AppVersionGuard } from './AppVersionGuard'
 import { ConfirmDialog } from './ConfirmDialog'
@@ -55,6 +56,7 @@ const FilePanel = dynamic(() => import('./FilePanel').then((m) => ({ default: m.
 const GitPanel = dynamic(() => import('./GitPanel').then((m) => ({ default: m.GitPanel })))
 const PluginView = dynamic(() => import('./PluginView').then((m) => ({ default: m.PluginView })))
 const DesktopView = dynamic(() => import('./DesktopView').then((m) => ({ default: m.DesktopView })))
+const UploadPanel = dynamic(() => import('./UploadPanel').then((m) => ({ default: m.UploadPanel })))
 const MOBILE_RECENT_SESSIONS_KEY_PREFIX = 'tmuxgo-mobile-recent-sessions:'
 const MOBILE_PINNED_SESSIONS_KEY_PREFIX = 'tmuxgo-mobile-pinned-sessions:'
 const MOBILE_QUICK_SESSION_LIMIT = 5
@@ -263,6 +265,18 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
     setMobileGitSheetOpen(true)
     pushOverlay('mobile-git')
   }, [mobileGitSheetOpen, pushOverlay])
+  // 上传页：flag 与 history 配对——closeOverlay 可能在 palette 竞态下无对应栈项，
+  // 因此 closeUpload 兜底清 flag；openUpload 幂等
+  const uploadPanelOpen = useConsoleStore((s) => s.uploadPanelOpen)
+  const openUpload = useCallback(() => {
+    if (useConsoleStore.getState().uploadPanelOpen) return
+    useConsoleStore.getState().setUploadPanelOpen(true)
+    pushOverlay('upload')
+  }, [pushOverlay])
+  const closeUpload = useCallback(() => {
+    closeOverlay('upload')
+    useConsoleStore.getState().setUploadPanelOpen(false)
+  }, [closeOverlay])
   const openInbox = useCallback(() => {
     if (useInboxStore.getState().panelOpen) return
     // 先收软键盘再压 overlay：sheet 弹出时键盘残留会遮挡底部内容
@@ -653,7 +667,8 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
       else if (top === 'inbox') {
         useInboxStore.getState().setPanelOpen(false)
         setInboxPreviewOpen(false)
-      } else if (top === 'mobile-plugin') setMobilePluginView(null)
+      } else if (top === 'upload') useConsoleStore.getState().setUploadPanelOpen(false)
+      else if (top === 'mobile-plugin') setMobilePluginView(null)
       else if (top === 'desktop') useConsoleStore.getState().setDesktopMinimized(true)
       stack.pop()
     }
@@ -709,6 +724,11 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
     window.addEventListener('tmuxgo-open-inbox', handleOpenInbox as EventListener)
     return () => window.removeEventListener('tmuxgo-open-inbox', handleOpenInbox as EventListener)
   }, [closeOverlay, openInbox])
+  useEffect(() => {
+    const handleOpenUpload = () => openUpload()
+    window.addEventListener('tmuxgo-open-upload', handleOpenUpload as EventListener)
+    return () => window.removeEventListener('tmuxgo-open-upload', handleOpenUpload as EventListener)
+  }, [openUpload])
   useEffect(() => {
     const handleOpenPluginView = (event: Event) => {
       const detail = (event as CustomEvent<{ pluginId?: string; viewId?: string }>).detail
@@ -857,11 +877,13 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
               onOpenFiles={openMobileFiles}
               onOpenGit={openMobileGit}
               onOpenInbox={openInbox}
+              onOpenUpload={openUpload}
+              uploadOpen={uploadPanelOpen}
               onOpenDesktop={() => useConsoleStore.getState().toggleDesktop(activeHostId || 'local')}
             />
           </div>
           <div className={keyboardOpen ? 'block' : 'hidden'}>
-            <ShortcutBar mode="dock" onOpenFiles={openMobileFiles} />
+            <ShortcutBar mode="dock" onOpenFiles={openMobileFiles} onOpenUpload={openUpload} />
           </div>
         </div>
       )}
@@ -921,6 +943,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
         </button>
       </MobileBottomSheet>
       <UploadConfirmDialog />
+      <GlobalFilePicker />
       <UploadQueue />
       <AppVersionGuard />
       <ClipboardController />
@@ -1002,6 +1025,18 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
           />
         )}
       </MobileBottomSheet>
+      <MobileBottomSheet
+        open={isMobile && uploadPanelOpen}
+        onClose={closeUpload}
+        zClass="z-[76]"
+        heightClass="flex h-[78%] flex-col"
+        ariaLabel={t('uploadTab.title')}
+      >
+        <UploadPanel mode="mobile" onClose={closeUpload} />
+      </MobileBottomSheet>
+      {!isMobile && uploadPanelOpen && (
+        <UploadPanel mode="desktop" onClose={() => useConsoleStore.getState().setUploadPanelOpen(false)} />
+      )}
       {mobilePluginView && (
         <div className="fixed inset-0 z-[90] bg-bg-0" style={{ height: 'var(--app-height,100dvh)' }}>
           <PluginView

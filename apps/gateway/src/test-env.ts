@@ -5,3 +5,5 @@ import os from 'node:os'
 import path from 'node:path'
 
 process.env.TMUXGO_CONFIG_DIR = mkdtempSync(path.join(os.tmpdir(), 'tmuxgo-test-'))
+// 上传/文件路由测试落盘目标隔离到临时 workspace root（rootSpec 在模块加载时解析）
+process.env.TMUX_WEB_FILE_ROOTS = `workspace=${mkdtempSync(path.join(os.tmpdir(), 'tmuxgo-root-'))}`

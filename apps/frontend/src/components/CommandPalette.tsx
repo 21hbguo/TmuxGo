@@ -215,6 +215,15 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
       },
     },
     {
+      key: 'open-upload',
+      type: 'action',
+      title: t('palette.openUpload'),
+      meta: '',
+      keywords: ['上传', 'upload', 'upload files', 'send files'],
+      // 走事件而非直改 flag：ConsoleLayout 统一负责 history 栈配对
+      action: async () => window.dispatchEvent(new CustomEvent('tmuxgo-open-upload')),
+    },
+    {
       key: 'toggle-sessions',
       type: 'action',
       title: t('palette.toggleSessions'),

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useTranslation } from '@/i18n'
-import { FiGitBranch, FiInbox, FiMonitor, FiMoreHorizontal } from 'react-icons/fi'
+import { FiGitBranch, FiInbox, FiMonitor, FiMoreHorizontal, FiUpload } from 'react-icons/fi'
 
 const NAV_COMPACT_KEY = 'tmuxgo-mobile-nav-compact'
 function readNavCompact() {
@@ -21,6 +21,7 @@ interface MobileNavProps {
   onOpenGit: () => void
   onOpenDesktop: () => void
   onOpenInbox: () => void
+  onOpenUpload?: () => void
   gitOpen?: boolean
   sessionsOpen?: boolean
   windowsOpen?: boolean
@@ -30,6 +31,7 @@ interface MobileNavProps {
   settingsOpen?: boolean
   inboxOpen?: boolean
   inboxUnread?: number
+  uploadOpen?: boolean
   docked?: boolean
 }
 
@@ -66,6 +68,7 @@ export function MobileNav({
   onOpenGit,
   onOpenDesktop,
   onOpenInbox,
+  onOpenUpload,
   gitOpen = false,
   sessionsOpen = false,
   windowsOpen = false,
@@ -75,6 +78,7 @@ export function MobileNav({
   settingsOpen = false,
   inboxOpen = false,
   inboxUnread = 0,
+  uploadOpen = false,
   docked = false,
 }: MobileNavProps) {
   const connection = useConsoleStore((state) => state.connection)
@@ -133,6 +137,13 @@ export function MobileNav({
       open: inboxOpen,
       icon: inboxIcon,
       onClick: onOpenInbox,
+    },
+    {
+      key: 'upload',
+      label: t('uploadTab.title'),
+      open: uploadOpen,
+      icon: <FiUpload aria-hidden="true" size={18} />,
+      onClick: () => onOpenUpload?.(),
     },
     {
       key: 'files',

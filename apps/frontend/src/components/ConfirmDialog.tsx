@@ -107,7 +107,7 @@ export function ConfirmDialog({
   return (
     <ModalPortal>
       <div
-        className="fixed inset-0 z-[80] flex items-center justify-center tmuxgo-scrim p-4"
+        className="fixed inset-0 z-[115] flex items-center justify-center tmuxgo-scrim p-4"
         onClick={busyState ? undefined : onCancel}
       >
         <div
