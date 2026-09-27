@@ -3,7 +3,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { FiUpload, FiX } from 'react-icons/fi'
 import { api } from '@/lib/api'
-import { MAX_UPLOAD_FILE_BYTES, MAX_UPLOAD_FILES, fileTypeLabel, formatFileSize } from '@/lib/file-meta'
+import {
+  CATEGORY_ICON,
+  MAX_UPLOAD_FILE_BYTES,
+  MAX_UPLOAD_FILES,
+  fileCategory,
+  fileTypeLabel,
+  formatFileSize,
+  summarizeCategories,
+} from '@/lib/file-meta'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useFileRoots, useHosts } from '@/hooks/useApi'
 import { useEscapeClose } from '@/hooks/useEscapeClose'
@@ -130,6 +138,7 @@ export function UploadPanel({ mode = 'desktop', onClose }: { mode?: 'mobile' | '
   }
   const removeStaged = (index: number) => setStagedUploadFiles(stagedFiles.filter((_: File, i: number) => i !== index))
   const stagedSize = stagedFiles.reduce((sum: number, file: File) => sum + file.size, 0)
+  const stagedCategories = useMemo(() => summarizeCategories(stagedFiles), [stagedFiles])
   const submitStaged = () => {
     if (!stagedFiles.length || !targetRootId) return
     openUploadDialog({
@@ -171,37 +180,49 @@ export function UploadPanel({ mode = 'desktop', onClose }: { mode?: 'mobile' | '
         </div>
         {stagedFiles.length > 0 && (
           <div className="rounded-apple border border-[var(--line)] bg-bg-0">
-            <div className="flex items-center justify-between border-b border-[var(--line)] px-3 py-1.5">
-              <span className="text-caption text-text-3">{t('uploadTab.staged', { count: stagedFiles.length })}</span>
+            <div className="flex items-center justify-between gap-2 border-b border-[var(--line)] px-3 py-1.5">
+              <span className="min-w-0 truncate text-caption text-text-3">
+                {t('uploadTab.staged', { count: stagedFiles.length })}
+                {stagedCategories.length > 1 && (
+                  <span className="text-text-3/80">
+                    {' · '}
+                    {stagedCategories.map(([category, count]) => `${t(`uploadCat.${category}`)}×${count}`).join(' · ')}
+                  </span>
+                )}
+              </span>
               <button
                 type="button"
-                className="text-caption text-text-3 hover:text-text-1"
+                className="shrink-0 text-caption text-text-3 hover:text-text-1"
                 onClick={() => setStagedUploadFiles([])}
               >
                 {t('uploadTab.clear')}
               </button>
             </div>
             <div className="tmuxgo-scrollbar max-h-40 divide-y divide-[var(--line)] overflow-y-auto">
-              {stagedFiles.map((file: File, index: number) => (
-                <div
-                  key={`${file.name}-${file.size}-${file.lastModified}`}
-                  className="flex items-center gap-2 px-3 py-1.5"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate font-mono text-xs text-text-1">{file.name}</div>
-                    <div className="truncate text-meta text-text-3">{fileTypeLabel(file, t('uploadTab.noExt'))}</div>
-                  </div>
-                  <span className="shrink-0 text-meta text-text-3">{formatFileSize(file.size)}</span>
-                  <button
-                    type="button"
-                    aria-label={t('uploadTab.remove')}
-                    className="shrink-0 text-text-3 hover:text-danger"
-                    onClick={() => removeStaged(index)}
+              {stagedFiles.map((file: File, index: number) => {
+                const Icon = CATEGORY_ICON[fileCategory(file)]
+                return (
+                  <div
+                    key={`${file.name}-${file.size}-${file.lastModified}`}
+                    className="flex items-center gap-2 px-3 py-1.5"
                   >
-                    <FiX aria-hidden="true" size={14} />
-                  </button>
-                </div>
-              ))}
+                    <Icon aria-hidden="true" size={14} className="shrink-0 text-text-3" />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-mono text-xs text-text-1">{file.name}</div>
+                      <div className="truncate text-meta text-text-3">{fileTypeLabel(file, t('uploadTab.noExt'))}</div>
+                    </div>
+                    <span className="shrink-0 text-meta text-text-3">{formatFileSize(file.size)}</span>
+                    <button
+                      type="button"
+                      aria-label={t('uploadTab.remove')}
+                      className="shrink-0 text-text-3 hover:text-danger"
+                      onClick={() => removeStaged(index)}
+                    >
+                      <FiX aria-hidden="true" size={14} />
+                    </button>
+                  </div>
+                )
+              })}
             </div>
           </div>
         )}

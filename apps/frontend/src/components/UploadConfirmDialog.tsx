@@ -1,7 +1,15 @@
 'use client'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '@/lib/api'
-import { MAX_UPLOAD_FILE_BYTES, MAX_UPLOAD_FILES, fileTypeLabel, formatFileSize } from '@/lib/file-meta'
+import {
+  CATEGORY_ICON,
+  MAX_UPLOAD_FILE_BYTES,
+  MAX_UPLOAD_FILES,
+  fileCategory,
+  fileTypeLabel,
+  formatFileSize,
+  summarizeCategories,
+} from '@/lib/file-meta'
 import { quoteShellPath } from '@/lib/path-drop'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useFileRoots, useSessionSnapshot } from '@/hooks/useApi'
@@ -50,6 +58,7 @@ export function UploadConfirmDialog() {
   const files = uploadRequest?.files || []
   const open = files.length > 0
   const totalSize = useMemo(() => files.reduce((sum, file) => sum + file.size, 0), [files])
+  const categorySummary = useMemo(() => summarizeCategories(files), [files])
   // 上传类型不限；唯一硬约束是大小/数量（与服务端 multipart limits 对齐）。
   // 这里只做提交前的友好提示，服务端仍是权威拒绝
   const oversized = files.filter((file) => file.size > MAX_UPLOAD_FILE_BYTES)
@@ -315,6 +324,11 @@ export function UploadConfirmDialog() {
           <div className="mt-2 flex flex-wrap gap-2 text-xs text-text-3">
             <div className="tmuxgo-chip">{t('upload.file', { count: files.length })}</div>
             <div className="tmuxgo-chip">{formatFileSize(totalSize)}</div>
+            {categorySummary.length > 1 && (
+              <div className="tmuxgo-chip">
+                {categorySummary.map(([category, count]) => `${t(`uploadCat.${category}`)}×${count}`).join(' · ')}
+              </div>
+            )}
             <div className="tmuxgo-chip">{t('upload.renameConflict')}</div>
             <div className="tmuxgo-chip">{preferences.uploadRateLimitKBps}KB/s</div>
           </div>
@@ -347,19 +361,23 @@ export function UploadConfirmDialog() {
           <div className="mt-4 rounded-apple border border-[var(--line)] bg-bg-0 p-3">
             <div className="mb-2 text-xs text-text-3">{t('upload.filesLabel')}</div>
             <div className="tmuxgo-scrollbar max-h-48 space-y-1 overflow-auto">
-              {files.map((file) => (
-                <div
-                  key={`${file.name}-${file.size}-${file.lastModified}`}
-                  className="flex items-center gap-3 rounded-apple bg-bg-2 px-3 py-2 text-xs"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate font-mono text-text-1">{file.name}</div>
-                    {/* 显示实际 MIME/扩展名（未知→octet-stream），类型不限 */}
-                    <div className="truncate text-meta text-text-3">{fileTypeLabel(file, t('uploadTab.noExt'))}</div>
+              {files.map((file) => {
+                const Icon = CATEGORY_ICON[fileCategory(file)]
+                return (
+                  <div
+                    key={`${file.name}-${file.size}-${file.lastModified}`}
+                    className="flex items-center gap-3 rounded-apple bg-bg-2 px-3 py-2 text-xs"
+                  >
+                    <Icon aria-hidden="true" size={14} className="shrink-0 text-text-3" />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-mono text-text-1">{file.name}</div>
+                      {/* 显示实际 MIME/扩展名（未知→octet-stream），类型不限 */}
+                      <div className="truncate text-meta text-text-3">{fileTypeLabel(file, t('uploadTab.noExt'))}</div>
+                    </div>
+                    <div className="shrink-0 text-text-3">{formatFileSize(file.size)}</div>
                   </div>
-                  <div className="shrink-0 text-text-3">{formatFileSize(file.size)}</div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </div>
           {limitError && (
