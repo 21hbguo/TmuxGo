@@ -56,6 +56,14 @@ export interface ActiveDesktop {
 // 侧栏面板互斥时桌面挂后台而非销毁：RFB 连接保留，下次点开免重连；窗口态桌面保持浮窗不受影响
 const parkDesktop = (desktop: ActiveDesktop | null): ActiveDesktop | null =>
   desktop && desktop.view !== 'window' ? { ...desktop, minimized: true } : desktop
+export interface ActiveBrowser {
+  hostId: string
+  view: DesktopViewMode
+  minimized: boolean
+}
+// 与桌面同一套保活语义：面板互斥时浏览器挂后台不卸载，WS/screencast 不断流；窗口态保持浮窗
+const parkBrowser = (browser: ActiveBrowser | null): ActiveBrowser | null =>
+  browser && browser.view !== 'window' ? { ...browser, minimized: true } : browser
 interface EditorWorkspaceState {
   openEditors: FileEditorDocument[]
   activeEditorId: string | null
@@ -361,6 +369,7 @@ interface ConsoleState {
   activeSplitGroupId: string | null
   activePluginView: { pluginId: string; viewId: string } | null
   activeDesktop: ActiveDesktop | null
+  activeBrowser: ActiveBrowser | null
   gitPanelWidth: number
   sshPanelWidth: number
   gitByHost: Record<string, GitHostState>
@@ -415,6 +424,10 @@ interface ConsoleState {
   setActiveDesktop: (desktop: { hostId: string; port: number } | null) => void
   setDesktopView: (view: DesktopViewMode) => void
   setDesktopMinimized: (minimized: boolean) => void
+  toggleBrowser: (hostId: string) => void
+  setActiveBrowser: (browser: { hostId: string } | null) => void
+  setBrowserView: (view: DesktopViewMode) => void
+  setBrowserMinimized: (minimized: boolean) => void
   setGitPanelWidth: (width: number) => void
   setSshPanelWidth: (width: number) => void
   ensureGitHostState: (hostId: string) => void
@@ -577,6 +590,7 @@ export const useConsoleStore = create<ConsoleState>()(
       activeSplitGroupId: null,
       activePluginView: null,
       activeDesktop: null,
+      activeBrowser: null,
       gitPanelWidth: 560,
       sshPanelWidth: 320,
       gitByHost: {},
@@ -614,6 +628,7 @@ export const useConsoleStore = create<ConsoleState>()(
                 sshPanelOpen: false,
                 activePluginView: null,
                 activeDesktop: parkDesktop(state.activeDesktop),
+                activeBrowser: parkBrowser(state.activeBrowser),
               }
             : { sessionPanelExpanded: false },
         ),
@@ -627,6 +642,7 @@ export const useConsoleStore = create<ConsoleState>()(
                 sshPanelOpen: false,
                 activePluginView: null,
                 activeDesktop: parkDesktop(state.activeDesktop),
+                activeBrowser: parkBrowser(state.activeBrowser),
               },
         ),
       // 会话区与文件区可共存：打开文件不再折叠会话面板
@@ -639,6 +655,7 @@ export const useConsoleStore = create<ConsoleState>()(
                 sshPanelOpen: false,
                 activePluginView: null,
                 activeDesktop: parkDesktop(state.activeDesktop),
+                activeBrowser: parkBrowser(state.activeBrowser),
               }
             : { filePanelOpen: false },
         ),
@@ -652,6 +669,7 @@ export const useConsoleStore = create<ConsoleState>()(
                 sshPanelOpen: false,
                 activePluginView: null,
                 activeDesktop: parkDesktop(state.activeDesktop),
+                activeBrowser: parkBrowser(state.activeBrowser),
               },
         ),
       openSplitGroup: (id) =>
@@ -663,6 +681,7 @@ export const useConsoleStore = create<ConsoleState>()(
           sshPanelOpen: false,
           activePluginView: null,
           activeDesktop: parkDesktop(state.activeDesktop),
+          activeBrowser: parkBrowser(state.activeBrowser),
         })),
       closeSplitGroup: () => set({ activeSplitGroupId: null }),
       setGitPanelOpen: (open) =>
@@ -675,6 +694,7 @@ export const useConsoleStore = create<ConsoleState>()(
                 sshPanelOpen: false,
                 activePluginView: null,
                 activeDesktop: parkDesktop(state.activeDesktop),
+                activeBrowser: parkBrowser(state.activeBrowser),
               }
             : { gitPanelOpen: false },
         ),
@@ -689,6 +709,7 @@ export const useConsoleStore = create<ConsoleState>()(
                 sshPanelOpen: false,
                 activePluginView: null,
                 activeDesktop: parkDesktop(state.activeDesktop),
+                activeBrowser: parkBrowser(state.activeBrowser),
               },
         ),
       toggleSshPanel: () =>
@@ -702,6 +723,7 @@ export const useConsoleStore = create<ConsoleState>()(
                 gitPanelOpen: false,
                 activePluginView: null,
                 activeDesktop: parkDesktop(state.activeDesktop),
+                activeBrowser: parkBrowser(state.activeBrowser),
               },
         ),
       setActivePluginView: (view) =>
@@ -716,6 +738,7 @@ export const useConsoleStore = create<ConsoleState>()(
                   gitPanelOpen: false,
                   sshPanelOpen: false,
                   activeDesktop: parkDesktop(state.activeDesktop),
+                  activeBrowser: parkBrowser(state.activeBrowser),
                 }
               : { activePluginView: null },
         ),
@@ -735,13 +758,14 @@ export const useConsoleStore = create<ConsoleState>()(
                 gitPanelOpen: false,
                 sshPanelOpen: false,
                 activePluginView: null,
+                activeBrowser: parkBrowser(state.activeBrowser),
               }
             : {
                 activeDesktop: { ...state.activeDesktop, minimized: !state.activeDesktop.minimized },
               },
         ),
       setActiveDesktop: (desktop) =>
-        set(() =>
+        set((state) =>
           desktop
             ? {
                 activeDesktop: { ...desktop, view: 'full', minimized: false },
@@ -750,6 +774,7 @@ export const useConsoleStore = create<ConsoleState>()(
                 gitPanelOpen: false,
                 sshPanelOpen: false,
                 activePluginView: null,
+                activeBrowser: parkBrowser(state.activeBrowser),
               }
             : { activeDesktop: null },
         ),
@@ -759,6 +784,43 @@ export const useConsoleStore = create<ConsoleState>()(
         ),
       setDesktopMinimized: (minimized) =>
         set((state) => (state.activeDesktop ? { activeDesktop: { ...state.activeDesktop, minimized } } : {})),
+      // 浏览器 tab 与桌面同语义：开关/最小化挂后台保活（WS 不断），打开时互斥其他面板
+      toggleBrowser: (hostId) =>
+        set((state) =>
+          !state.activeBrowser
+            ? {
+                activeBrowser: { hostId, view: 'full', minimized: false },
+                filePanelOpen: false,
+                sessionPanelExpanded: false,
+                gitPanelOpen: false,
+                sshPanelOpen: false,
+                activePluginView: null,
+                activeDesktop: parkDesktop(state.activeDesktop),
+              }
+            : {
+                activeBrowser: { ...state.activeBrowser, minimized: !state.activeBrowser.minimized },
+              },
+        ),
+      setActiveBrowser: (browser) =>
+        set((state) =>
+          browser
+            ? {
+                activeBrowser: { ...browser, view: 'full', minimized: false },
+                filePanelOpen: false,
+                sessionPanelExpanded: false,
+                gitPanelOpen: false,
+                sshPanelOpen: false,
+                activePluginView: null,
+                activeDesktop: parkDesktop(state.activeDesktop),
+              }
+            : { activeBrowser: null },
+        ),
+      setBrowserView: (view) =>
+        set((state) =>
+          state.activeBrowser ? { activeBrowser: { ...state.activeBrowser, view, minimized: false } } : {},
+        ),
+      setBrowserMinimized: (minimized) =>
+        set((state) => (state.activeBrowser ? { activeBrowser: { ...state.activeBrowser, minimized } } : {})),
       setGitPanelWidth: (width) => set({ gitPanelWidth: Math.max(380, Math.min(920, width)) }),
       setSshPanelWidth: (width) => set({ sshPanelWidth: Math.max(260, Math.min(480, width)) }),
       ensureGitHostState: (hostId) =>
@@ -1246,6 +1308,7 @@ export const useConsoleStore = create<ConsoleState>()(
           showCommandPalette: false,
           activePluginView: null,
           activeDesktop: null,
+          activeBrowser: null,
           mobileFileSheetOpen: false,
           uploadRequest: null,
           uploadPanelOpen: false,
