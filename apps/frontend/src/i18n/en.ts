@@ -919,6 +919,10 @@ export const en = {
   'uploadQueue.done': 'Done',
   'uploadQueue.queued': 'Queued',
   'uploadQueue.close': 'Close',
+  'uploadQueue.retry': 'Retry',
+  'uploadQueue.copyPaths': 'Copy paths',
+  'uploadQueue.copied': 'Copied {count} path(s)',
+  'uploadQueue.copyFailed': 'Copy failed — clipboard unavailable',
 
   // ActivityBar
   'activity.sessions': 'Sessions',

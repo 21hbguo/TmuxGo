@@ -912,6 +912,10 @@ export const zh = {
   'uploadQueue.done': '完成',
   'uploadQueue.queued': '排队中',
   'uploadQueue.close': '关闭',
+  'uploadQueue.retry': '重试',
+  'uploadQueue.copyPaths': '复制路径',
+  'uploadQueue.copied': '已复制 {count} 个路径',
+  'uploadQueue.copyFailed': '复制失败——剪贴板不可用',
 
   // ActivityBar
   'activity.sessions': '会话',

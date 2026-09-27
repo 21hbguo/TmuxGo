@@ -218,7 +218,10 @@ export function UploadConfirmDialog() {
       uploadRequest.files.forEach((file) => body.append('files', file))
       addUploadJob({
         id: jobId,
+        hostId,
         files: uploadRequest.files.map((file) => ({ name: file.name, size: file.size })),
+        // 失败重试需要原 File 引用重开确认弹窗；成功后在下方分支释放
+        sourceFiles: uploadRequest.files,
         targetRootId,
         targetPath,
         insertPaths,
@@ -252,6 +255,7 @@ export function UploadConfirmDialog() {
                   totalBytes,
                   status: 'success',
                   finishedAt: new Date().toISOString(),
+                  sourceFiles: undefined,
                 })
                 if (insertPaths && uploadedFiles.length)
                   void deliverUploadedPaths(
@@ -287,6 +291,7 @@ export function UploadConfirmDialog() {
         status: 'success',
         finishedAt: new Date().toISOString(),
         result,
+        sourceFiles: undefined,
       })
       if (insertPaths && result.files.length)
         void deliverUploadedPaths(

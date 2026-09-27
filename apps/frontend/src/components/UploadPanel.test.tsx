@@ -176,6 +176,89 @@ describe('UploadPanel', () => {
     expect(removeUploadJob).toHaveBeenCalledWith('j2')
   })
 
+  it('retries a failed job by reopening the confirm dialog with the original snapshot', () => {
+    const sourceFiles = [file('retry.bin', 8)]
+    storeState.uploadJobs = [
+      {
+        id: 'j-retry',
+        hostId: 'remote-a',
+        files: [{ name: 'retry.bin', size: 8 }],
+        sourceFiles,
+        targetRootId: 'root-data',
+        targetPath: 'inbox',
+        insertPaths: true,
+        loadedBytes: 4,
+        totalBytes: 8,
+        status: 'error',
+        errorMessage: 'boom',
+        createdAt: '2026-09-26T00:00:00Z',
+      },
+      // 无 sourceFiles 的失败 job（如历史遗留）不提供重试
+      {
+        id: 'j-nofile',
+        hostId: 'local',
+        files: [{ name: 'gone.bin', size: 1 }],
+        targetRootId: 'root-workspace',
+        targetPath: '',
+        insertPaths: false,
+        loadedBytes: 0,
+        totalBytes: 1,
+        status: 'error',
+        createdAt: '2026-09-26T00:00:00Z',
+      },
+    ]
+    render(React.createElement(UploadPanel, { mode: 'mobile' }))
+    expect(screen.getAllByRole('button', { name: 'uploadQueue.retry' })).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: 'uploadQueue.retry' }))
+    expect(openUploadDialog).toHaveBeenCalledWith({
+      files: sourceFiles,
+      hostId: 'remote-a',
+      preferredRootId: 'root-data',
+      preferredPath: 'inbox',
+      insertPaths: true,
+    })
+    expect(removeUploadJob).toHaveBeenCalledWith('j-retry')
+  })
+
+  it('copies uploaded absolute paths from a successful job', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
+    storeState.uploadJobs = [
+      {
+        id: 'j-ok',
+        hostId: 'local',
+        files: [{ name: 'a.png', size: 4 }],
+        targetRootId: 'root-workspace',
+        targetPath: 'dl',
+        insertPaths: false,
+        loadedBytes: 4,
+        totalBytes: 4,
+        status: 'success',
+        createdAt: '2026-09-26T00:00:00Z',
+        result: {
+          ok: true,
+          target: {
+            rootId: 'root-workspace',
+            rootLabel: 'w',
+            rootPath: '/w',
+            path: 'dl',
+            absolutePath: '/w/dl',
+            source: 'pane',
+          },
+          files: [
+            { name: 'a.png', path: 'dl/a.png', absolutePath: '/w/dl/a.png', size: 4 },
+            { name: 'b.png', path: 'dl/b.png', absolutePath: '/w/dl/b.png', size: 4 },
+          ],
+        },
+      },
+    ]
+    render(React.createElement(UploadPanel, { mode: 'mobile' }))
+    fireEvent.click(screen.getByRole('button', { name: 'uploadQueue.copyPaths' }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('/w/dl/a.png\n/w/dl/b.png'))
+    await waitFor(() => expect(pushToast).toHaveBeenCalledWith(expect.objectContaining({ type: 'success' })))
+    vi.unstubAllGlobals()
+  })
+
   it('stages dropped real files and ignores non-file drags', () => {
     const { container } = render(React.createElement(UploadPanel, { mode: 'mobile' }))
     const zone = container.querySelector('.tmuxgo-scrollbar')!
