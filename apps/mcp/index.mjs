@@ -85,6 +85,153 @@ const TOOLS = [
     },
   },
   {
+    name: 'tmuxgo_browser_status',
+    description:
+      'Get the embedded browser status (state, engine, pages/tabs, active tab). The embedded browser is a Chromium instance displayed in the TmuxGo sidebar and shared between you and the user.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'tmuxgo_browser_launch',
+    description:
+      'Launch the embedded browser if not running (Chromium headless-shell with persistent profile). Returns status.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'tmuxgo_browser_navigate',
+    description:
+      'Navigate the embedded browser (current or given tab) to a URL. The sidebar view updates live so the user sees what you are doing.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'URL to open (https:// added when missing)' },
+        targetId: { type: 'string', description: 'Tab target id (default: active tab)' },
+      },
+      required: ['url'],
+    },
+  },
+  {
+    name: 'tmuxgo_browser_snapshot',
+    description:
+      'Read the page as structured data: {url,title,text,elements[]}. Interactive elements carry numbered refs (e1,e2,...) usable with tmuxgo_browser_click/type — address elements by ref, not coordinates.',
+    inputSchema: {
+      type: 'object',
+      properties: { targetId: { type: 'string', description: 'Tab target id (default: active tab)' } },
+    },
+  },
+  {
+    name: 'tmuxgo_browser_click',
+    description:
+      'Click an element by its ref from tmuxgo_browser_snapshot (e.g. "e5"). Dispatches real mouse events at the element center.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ref: { type: 'string' },
+        targetId: { type: 'string', description: 'Tab target id (default: active tab)' },
+      },
+      required: ['ref'],
+    },
+  },
+  {
+    name: 'tmuxgo_browser_type',
+    description: 'Focus an element by ref and insert text (fires real input events, works with controlled inputs).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ref: { type: 'string' },
+        text: { type: 'string' },
+        targetId: { type: 'string' },
+      },
+      required: ['ref', 'text'],
+    },
+  },
+  {
+    name: 'tmuxgo_browser_press',
+    description:
+      'Press a key on the active tab (Enter, Tab, Escape, Backspace, Delete, Arrow*, Home, End, PageUp, PageDown).',
+    inputSchema: {
+      type: 'object',
+      properties: { key: { type: 'string' }, targetId: { type: 'string' } },
+      required: ['key'],
+    },
+  },
+  {
+    name: 'tmuxgo_browser_scroll',
+    description: 'Scroll the page (mouse wheel at viewport center). dy>0 scrolls down.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        dx: { type: 'number' },
+        dy: { type: 'number' },
+        targetId: { type: 'string' },
+      },
+    },
+  },
+  {
+    name: 'tmuxgo_browser_screenshot',
+    description: 'Capture the active tab as JPEG (base64 in result.jpeg).',
+    inputSchema: {
+      type: 'object',
+      properties: { targetId: { type: 'string' } },
+    },
+  },
+  {
+    name: 'tmuxgo_browser_tabs',
+    description: 'List open tabs {id,url,title} plus activeTargetId.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'tmuxgo_browser_open',
+    description: 'Open a new tab with a URL and make it active.',
+    inputSchema: {
+      type: 'object',
+      properties: { url: { type: 'string' } },
+      required: ['url'],
+    },
+  },
+  {
+    name: 'tmuxgo_browser_close_tab',
+    description: 'Close a tab by targetId (see tmuxgo_browser_tabs).',
+    inputSchema: {
+      type: 'object',
+      properties: { targetId: { type: 'string' } },
+      required: ['targetId'],
+    },
+  },
+  {
+    name: 'tmuxgo_browser_activate_tab',
+    description: 'Make a tab active (agents read/act on the active tab by default).',
+    inputSchema: {
+      type: 'object',
+      properties: { targetId: { type: 'string' } },
+      required: ['targetId'],
+    },
+  },
+  {
+    name: 'tmuxgo_browser_nav',
+    description: 'History navigation on the active/given tab: back | forward | reload.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['back', 'forward', 'reload'] },
+        targetId: { type: 'string' },
+      },
+      required: ['action'],
+    },
+  },
+  {
+    name: 'tmuxgo_browser_eval',
+    description:
+      'Evaluate a JS expression in the page (awaitPromise on, result JSON-stringified, capped 64KB). Powerful — prefer snapshot/click/type first.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        expression: { type: 'string' },
+        targetId: { type: 'string' },
+      },
+      required: ['expression'],
+    },
+  },
+  {
     name: 'tmuxgo_inbox_list',
     description:
       'Query the TmuxGo inbox for pushed messages. Use messageId to confirm a specific push was delivered; without it returns recent messages (metadata only: id, type, title, name, size, mime, createdAt, route, readBy). A non-empty readBy means a user device has opened it — absent readBy means delivered but not yet read.',
@@ -202,6 +349,28 @@ async function handleToolCall(id, params) {
     })
   } else if (name === 'tmuxgo_open_target') {
     result = await callGateway('/v1/control/open-target', { route, messageId: args.messageId })
+  } else if (name.startsWith('tmuxgo_browser_')) {
+    // browser 系列统一走 /v1/control/browser 单端点 + op 分发（端点侧有 token+env guard）
+    const opMap = {
+      tmuxgo_browser_status: 'status',
+      tmuxgo_browser_launch: 'launch',
+      tmuxgo_browser_navigate: 'navigate',
+      tmuxgo_browser_snapshot: 'snapshot',
+      tmuxgo_browser_click: 'click',
+      tmuxgo_browser_type: 'type',
+      tmuxgo_browser_press: 'press',
+      tmuxgo_browser_scroll: 'scroll',
+      tmuxgo_browser_screenshot: 'screenshot',
+      tmuxgo_browser_tabs: 'tabs',
+      tmuxgo_browser_open: 'open',
+      tmuxgo_browser_close_tab: 'close',
+      tmuxgo_browser_activate_tab: 'activate',
+      tmuxgo_browser_nav: null, // action 参数映射 op
+      tmuxgo_browser_eval: 'eval',
+    }
+    const op = opMap[name] ?? args.action
+    if (!op) return toolResult(id, `Unknown tool: ${name}`, true)
+    result = await callGateway('/v1/control/browser', { op, ...args })
   } else if (name === 'tmuxgo_inbox_list') {
     result = await callGateway('/v1/control/inbox', {
       id: typeof args.messageId === 'string' ? args.messageId : undefined,
@@ -237,7 +406,9 @@ process.stdin.on('data', (chunk) => {
       // 异步异常不能吞——带 id 的请求必须回 JSON-RPC error，否则 client 挂死
       try {
         if (message && 'id' in message) replyError(message.id, -32603, String(err?.message || err))
-      } catch {}
+      } catch {
+        /* best-effort，失败静默 */
+      }
     })
   }
 })
