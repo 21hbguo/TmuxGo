@@ -65,19 +65,9 @@ const FAVORITE_UPDATED_AT_STORAGE_KEY = 'tmuxgo-favorite-directories-updated-at'
 const PREFERENCES_PROFILE = 'default'
 const SEARCH_INPUT_DEBOUNCE_MS = 160
 const SEARCH_RESULT_LIMIT = 200
-const IMAGE_EXTENSIONS = new Set([
-  '.avif',
-  '.bmp',
-  '.gif',
-  '.ico',
-  '.jpeg',
-  '.jpg',
-  '.png',
-  '.svg',
-  '.tif',
-  '.tiff',
-  '.webp',
-])
+// svg 不入列：<img> 会播放 SMIL 动画且 gateway 已拒绝 svg 的 inline image 直出
+// （同源脚本执行风险），svg 按文本源码预览
+const IMAGE_EXTENSIONS = new Set(['.avif', '.bmp', '.gif', '.ico', '.jpeg', '.jpg', '.png', '.tif', '.tiff', '.webp'])
 
 function formatSize(size: number) {
   if (size < 1024) return `${size}B`
@@ -489,7 +479,7 @@ export function FilePanel({
   const filePanelWidth = useConsoleStore((state) => state.filePanelWidth)
   const setFilePanelWidth = useConsoleStore((state) => state.setFilePanelWidth)
   const setFilePanelOpen = useConsoleStore((state) => state.setFilePanelOpen)
-  const openUploadDialog = useConsoleStore((state) => state.openUploadDialog)
+
   const pushToast = useConsoleStore((state) => state.pushToast)
   const { preferences } = usePreferences()
   const { t } = useTranslation()
@@ -559,7 +549,7 @@ export function FilePanel({
   // 跟随终端目录的返回锚点:跟随落到的 pane cwd 作为系统返回的"根目录",
   // 到达该层后再次返回直接关闭文件 tab;越过它(面板内 ‹ 上一级)亦同
   const mobileNavFloorRef = useRef<string | null>(null)
-  const uploadInputRef = useRef<HTMLInputElement>(null)
+
   const searchInputRef = useRef<HTMLInputElement>(null)
   const lastFollowedEditorKeyRef = useRef('')
   // 跟随时手动导航（收藏目录/根切换/上下级）先挂起跟随，等切换到别的 pane 再恢复
@@ -1962,16 +1952,14 @@ export function FilePanel({
     setFileSort(next)
     writeFileSort(next)
   }
-  const handleUploadSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFiles = Array.from(event.target.files || [])
-    if (!selectedFiles.length) return
-    openUploadDialog({
-      files: selectedFiles,
-      preferredRootId: activeRootId,
-      preferredPath: listQueryPath,
-      insertPaths: true,
-    })
-    event.target.value = ''
+  // 上传走全局常驻 input（GlobalFilePicker）：本面板可能随移动端 sheet 卸载，
+  // 事件派发保持同步手势栈，选择回调不因组件销毁而丢
+  const requestUploadPick = () => {
+    window.dispatchEvent(
+      new CustomEvent('tmuxgo-pick-upload-files', {
+        detail: { hostId: fileHostId, rootId: activeRootId, path: listQueryPath },
+      }),
+    )
   }
   const pickTarget = (relativeToRoot: string) => {
     if (!onPick) return
@@ -1996,11 +1984,7 @@ export function FilePanel({
     preview?.path &&
     preview.type === 'file' &&
     isImagePath(preview.path) &&
-    // svg 是文本不会被标 binary,也直接走图片预览(<img> 会播放 SMIL/CSS 动画)
-    (preview.binary ||
-      preview.reason === 'binary-file' ||
-      preview.reason === 'large-file' ||
-      preview.path.toLowerCase().endsWith('.svg'))
+    (preview.binary || preview.reason === 'binary-file' || preview.reason === 'large-file')
       ? api.files.imageUrl(
           fileHostId,
           activeRootId,
@@ -2496,7 +2480,6 @@ export function FilePanel({
 
   return (
     <aside className={shellClass} style={shellStyle}>
-      <input ref={uploadInputRef} type="file" multiple className="hidden" onChange={handleUploadSelect} />
       {!isMobile && !embedded && (
         <div
           className={`absolute top-0 h-full w-1 cursor-col-resize hover:bg-accent/40 ${dock === 'left' ? 'right-0' : 'left-0'}`}
@@ -2569,7 +2552,7 @@ export function FilePanel({
                   <button
                     title={t('file.upload')}
                     aria-label={t('file.upload')}
-                    onClick={() => uploadInputRef.current?.click()}
+                    onClick={requestUploadPick}
                     className="tmuxgo-toolbar-icon h-7 w-7 shrink-0"
                   >
                     <FiUpload size={14} />

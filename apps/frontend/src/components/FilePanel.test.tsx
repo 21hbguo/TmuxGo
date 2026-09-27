@@ -1419,4 +1419,35 @@ describe('FilePanel', () => {
     expect(await screen.findByText('Host offline')).toBeInTheDocument()
     expect(screen.queryByText('Empty directory')).not.toBeInTheDocument()
   })
+  it('mobile upload button dispatches the global pick event with the current root/path', async () => {
+    const events: any[] = []
+    const onPick = (e: Event) => events.push((e as CustomEvent).detail)
+    window.addEventListener('tmuxgo-pick-upload-files', onPick)
+    try {
+      render(React.createElement(FilePanel, { mode: 'mobile' }))
+      const uploadButton = await screen.findByRole('button', { name: 'file.upload' })
+      fireEvent.click(uploadButton)
+      // 选择器由全局常驻 input 承载——面板卸载也不丢回调；事件携带当前浏览上下文
+      expect(events).toEqual([{ hostId: 'local', rootId: 'root-workspace', path: '' }])
+    } finally {
+      window.removeEventListener('tmuxgo-pick-upload-files', onPick)
+    }
+  })
+  it('desktop upload button still dispatches the same pick event (regression)', async () => {
+    const events: any[] = []
+    const onPick = (e: Event) => events.push((e as CustomEvent).detail)
+    window.addEventListener('tmuxgo-pick-upload-files', onPick)
+    try {
+      render(React.createElement(FilePanel))
+      const uploadButton = await screen.findByRole('button', { name: 'file.upload' })
+      fireEvent.click(uploadButton)
+      expect(events).toEqual([{ hostId: 'local', rootId: 'root-workspace', path: '' }])
+    } finally {
+      window.removeEventListener('tmuxgo-pick-upload-files', onPick)
+    }
+  })
+  it('does not keep a per-panel file input that could be lost on sheet unmount', () => {
+    render(React.createElement(FilePanel, { mode: 'mobile' }))
+    expect(document.querySelector('aside input[type="file"]')).toBeNull()
+  })
 })

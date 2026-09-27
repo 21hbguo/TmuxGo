@@ -52,6 +52,8 @@ export const DEFAULT_DOWNLOAD_ARTIFACT_MAX_COUNT = 100
 export const DEFAULT_DOWNLOAD_ARTIFACT_MAX_BYTES = 1024 * 1024 * 1024
 export const homeRoot = os.homedir()
 export const rootSpec = process.env.TMUX_WEB_FILE_ROOTS || `workspace=${defaultRoot}${path.delimiter}home=${homeRoot}`
+// svg 不在内：image/svg+xml inline 直出会在应用源内执行脚本（存储型 XSS），
+// 上传的 svg 只能下载或按文本源码预览
 export const IMAGE_MIME_BY_EXT: Record<string, string> = {
   '.avif': 'image/avif',
   '.bmp': 'image/bmp',
@@ -60,7 +62,6 @@ export const IMAGE_MIME_BY_EXT: Record<string, string> = {
   '.jpeg': 'image/jpeg',
   '.jpg': 'image/jpeg',
   '.png': 'image/png',
-  '.svg': 'image/svg+xml',
   '.tif': 'image/tiff',
   '.tiff': 'image/tiff',
   '.webp': 'image/webp',

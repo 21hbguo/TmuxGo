@@ -659,7 +659,15 @@ function renderDockButton(def: ActionButtonDef, controller: ReturnType<typeof us
   )
 }
 
-export function QuickActions({ mode = 'panel', onOpenFiles }: { mode?: QuickActionsMode; onOpenFiles?: () => void }) {
+export function QuickActions({
+  mode = 'panel',
+  onOpenFiles,
+  onOpenUpload,
+}: {
+  mode?: QuickActionsMode
+  onOpenFiles?: () => void
+  onOpenUpload?: () => void
+}) {
   const controller = useQuickActionController()
   const {
     t,
@@ -775,6 +783,11 @@ export function QuickActions({ mode = 'panel', onOpenFiles }: { mode?: QuickActi
                 { key: 'files', label: t('nav.files'), onPress: onOpenFiles, tone: 'accent' },
                 controller,
               )}
+              {onOpenUpload &&
+                renderDockButton(
+                  { key: 'upload', label: t('uploadTab.title'), onPress: onOpenUpload, tone: 'accent' },
+                  controller,
+                )}
               {primaryButtons.map((def) => renderDockButton(def, controller))}
               <div className="w-px bg-[var(--line)] mx-1 self-stretch" />
               {renderDockButton(attachButton, controller)}
