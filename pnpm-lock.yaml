@@ -253,6 +253,9 @@ importers:
       web-push:
         specifier: ^3.6.7
         version: 3.6.7
+      ws:
+        specifier: ^8.21.1
+        version: 8.21.3
       zod:
         specifier: ^3.22.0
         version: 3.25.76
@@ -260,6 +263,9 @@ importers:
       '@types/node':
         specifier: ^20.10.0
         version: 20.19.43
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
       tsx:
         specifier: 4.23.15
         version: 4.23.15
