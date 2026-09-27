@@ -14,6 +14,8 @@ interface PromptDialogProps {
   cancelLabel: string
   onConfirm: (value: string) => void | Promise<unknown>
   onCancel: () => void
+  /** 嵌在高层弹窗（如目录浏览 z-130）内时须高于宿主 scrim，否则被遮挡且点击穿透关宿主 */
+  zIndex?: number
 }
 
 export function PromptDialog({
@@ -24,6 +26,7 @@ export function PromptDialog({
   cancelLabel,
   onConfirm,
   onCancel,
+  zIndex = 80,
 }: PromptDialogProps) {
   const [value, setValue] = useState(defaultValue)
   const [confirming, setConfirming] = useState(false)
@@ -60,7 +63,8 @@ export function PromptDialog({
   return (
     <ModalPortal>
       <div
-        className="fixed inset-0 z-[80] flex items-center justify-center tmuxgo-scrim p-4"
+        className="fixed inset-0 flex items-center justify-center tmuxgo-scrim p-4"
+        style={{ zIndex }}
         onClick={confirming ? undefined : onCancel}
       >
         <div

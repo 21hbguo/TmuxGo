@@ -28,7 +28,7 @@ export function WorkspaceDirectoryPicker({
   title,
   initialRootId,
   initialPath,
-  zClass = 'z-[80]',
+  zIndex = 80,
 }: {
   hostId: string
   onPick: (target: WorkspaceDirectoryTarget) => Promise<void> | void
@@ -37,10 +37,11 @@ export function WorkspaceDirectoryPicker({
   initialRootId?: string
   initialPath?: string
   /** 复用到更高层弹窗（如上传确认 z-120）时传入更高层级 */
-  zClass?: string
+  zIndex?: number
 }) {
   const { t } = useTranslation()
-  const { prompt, PromptElement } = usePrompt()
+  // 内嵌 prompt（新建文件夹）是同 body 下独立 portal，须高于本 scrim 否则不可见且点击穿透关 picker
+  const { prompt, PromptElement } = usePrompt({ zIndex: zIndex + 10 })
   const { data: roots = [] } = useFileRoots(hostId)
   const [rootId, setRootId] = useState(initialRootId || '')
   const [currentPath, setCurrentPath] = useState(initialPath || '')
@@ -127,7 +128,11 @@ export function WorkspaceDirectoryPicker({
   }
   return (
     <ModalPortal>
-      <div className={`fixed inset-0 ${zClass} flex items-center justify-center tmuxgo-scrim p-4`} onClick={onClose}>
+      <div
+        className="fixed inset-0 flex items-center justify-center tmuxgo-scrim p-4"
+        style={{ zIndex }}
+        onClick={onClose}
+      >
         <div
           className="tmuxgo-glass tmuxgo-glass-dialog flex h-[min(500px,calc(100vh-2rem))] w-full max-w-[680px] flex-col overflow-hidden rounded-apple border"
           onClick={(event) => event.stopPropagation()}

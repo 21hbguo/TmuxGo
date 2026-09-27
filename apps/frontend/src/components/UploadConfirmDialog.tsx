@@ -471,7 +471,7 @@ export function UploadConfirmDialog() {
           title={t('uploadTab.pickDirectory')}
           initialRootId={targetRootId}
           initialPath={targetPath}
-          zClass="z-[130]"
+          zIndex={130}
           onPick={(target) => {
             setTargetRootId(target.rootId)
             setTargetPath(target.relativePath)
