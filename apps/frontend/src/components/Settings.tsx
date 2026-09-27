@@ -20,6 +20,7 @@ import {
   type AuthSession,
 } from '@/lib/auth'
 import { parseSessionName } from '@/lib/session-id'
+import { NAV_BAR_ITEM_KEYS, readNavBarItems, writeNavBarItems, type NavBarItemKey } from '@/lib/mobile-nav-items'
 import type { SessionArchive, SessionArchiveSummary } from '@/types'
 import {
   useHosts,
@@ -40,6 +41,16 @@ interface SettingsProps {
   onClose: () => void
 }
 
+/** 紧凑底栏可调配项 → i18n 标签 */
+const NAV_ITEM_LABEL_KEYS: Record<NavBarItemKey, Parameters<ReturnType<typeof useTranslation>['t']>[0]> = {
+  inbox: 'nav.inbox',
+  upload: 'uploadTab.title',
+  files: 'nav.files',
+  git: 'nav.git',
+  desktop: 'vnc.title',
+  settings: 'nav.settings',
+}
+
 /** 主题卡 mini 预览：bg 底色 + accent 色点 + 文本条，配色与各主题 css var 对应 */
 const THEME_PREVIEW: Record<string, { bg: string; accent: string; fg: string }> = {
   dark: { bg: '#0c0d0f', accent: '#0a84ff', fg: '#f5f5f7' },
@@ -57,6 +68,7 @@ export function Settings({ onClose }: SettingsProps) {
   const { sessionContinuity, updateSessionContinuity } = useSessionContinuity()
   const { t } = useTranslation()
   const pushToast = useConsoleStore((state) => state.pushToast)
+  const [navBarItems, setNavBarItems] = useState<NavBarItemKey[]>(readNavBarItems)
   const activeHostId = useConsoleStore((state) => state.activeHostId)
   const activeSessionId = useConsoleStore((state) => state.activeSessionId)
   const { copy } = useClipboard()
@@ -608,6 +620,70 @@ export function Settings({ onClose }: SettingsProps) {
                         }`}
                       />
                     </button>
+                  </div>
+                  {/* 紧凑底栏自定义：两行互移，localStorage 持久化并即时同步到底栏 */}
+                  <div data-mobile-nav-editor>
+                    <div className="flex items-center justify-between">
+                      <span className="text-text-2 text-sm">{t('settings.mobileNavBar')}</span>
+                      <Chip
+                        onClick={() => {
+                          writeNavBarItems([])
+                          setNavBarItems([])
+                        }}
+                      >
+                        {t('settings.navBarReset')}
+                      </Chip>
+                    </div>
+                    <p className="text-text-3 text-xs mt-1 mb-2">{t('settings.mobileNavBarHint')}</p>
+                    {[
+                      {
+                        row: 'bar' as const,
+                        items: NAV_BAR_ITEM_KEYS.filter((key) => navBarItems.includes(key)),
+                      },
+                      {
+                        row: 'more' as const,
+                        items: NAV_BAR_ITEM_KEYS.filter((key) => !navBarItems.includes(key)),
+                      },
+                    ].map(({ row, items }) => (
+                      <div key={row} className="flex items-center gap-2 mb-1.5">
+                        <span className="text-text-3 text-xs w-8 shrink-0">
+                          {row === 'bar' ? t('settings.navBarOn') : t('settings.navBarInMore')}
+                        </span>
+                        <div
+                          role="group"
+                          aria-label={row === 'bar' ? t('settings.navBarOn') : t('settings.navBarInMore')}
+                          className="flex flex-wrap gap-1.5 flex-1 min-h-7"
+                        >
+                          {row === 'bar' &&
+                            (['nav.sessions', 'nav.windows', 'nav.panes'] as const).map((key) => (
+                              <span
+                                key={key}
+                                title={t('settings.navBarFixed')}
+                                className="px-2 py-1 rounded-md text-xs bg-bg-2 text-text-3 cursor-default"
+                              >
+                                {t(key)}
+                              </span>
+                            ))}
+                          {items.map((key) => (
+                            <button
+                              key={key}
+                              aria-label={t(NAV_ITEM_LABEL_KEYS[key])}
+                              onClick={() => {
+                                const next =
+                                  row === 'more' ? [...navBarItems, key] : navBarItems.filter((k) => k !== key)
+                                setNavBarItems(next)
+                                writeNavBarItems(next)
+                              }}
+                              className={`px-2 py-1 rounded-md text-xs transition-colors ${
+                                row === 'bar' ? 'bg-accent/20 text-accent' : 'bg-bg-2 text-text-2'
+                              }`}
+                            >
+                              {t(NAV_ITEM_LABEL_KEYS[key])}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>
