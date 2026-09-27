@@ -18,6 +18,7 @@ import type {
   FileRoot,
   TrashEntry,
 } from '@/types'
+import { formatFileSize } from '@/lib/file-meta'
 import { writeClipboardText } from '@/lib/clipboard-text'
 import { quoteShellPath } from '@/lib/path-drop'
 import { api, fetchApiBlob } from '@/lib/api'
@@ -69,11 +70,6 @@ const SEARCH_RESULT_LIMIT = 200
 // （同源脚本执行风险），svg 按文本源码预览
 const IMAGE_EXTENSIONS = new Set(['.avif', '.bmp', '.gif', '.ico', '.jpeg', '.jpg', '.png', '.tif', '.tiff', '.webp'])
 
-function formatSize(size: number) {
-  if (size < 1024) return `${size}B`
-  if (size < 1024 * 1024) return `${Math.round(size / 1024)}KB`
-  return `${Math.round(size / 1024 / 1024)}MB`
-}
 function formatModeBits(mode: number | undefined, type: 'file' | 'directory') {
   if (typeof mode !== 'number' || !Number.isFinite(mode)) return '-'
   const flags = ['r', 'w', 'x', 'r', 'w', 'x', 'r', 'w', 'x']
@@ -1638,7 +1634,7 @@ export function FilePanel({
     return activeSourceRootPath ? joinPath(activeSourceRootPath, rootRelativePath) : rootRelativePath
   }
   const getItemTooltip = (item: FileEntry) => {
-    const sizeLabel = item.type === 'directory' ? '—' : formatSize(item.size)
+    const sizeLabel = item.type === 'directory' ? '—' : formatFileSize(item.size)
     const modifiedLabel = item.modifiedAt ? new Date(item.modifiedAt).toLocaleString() : '—'
     const detail = `${t('file.type')}: ${item.type === 'directory' ? t('file.dir') : t('file.file')} · ${t('file.size')}: ${sizeLabel} · ${t('file.modified')}: ${modifiedLabel}`
     return `${getItemFullPath(item)}\n${detail}\n${t('file.permission')}: ${formatModeBits(item.mode, item.type)}`
@@ -2036,7 +2032,7 @@ export function FilePanel({
       <div className="flex h-full min-h-0 flex-col">
         <div className="shrink-0 p-3 text-xs text-text-3">
           <div className="font-mono text-text-1">{preview.path}</div>
-          <div className="mt-1">{formatSize(preview.size)}</div>
+          <div className="mt-1">{formatFileSize(preview.size)}</div>
         </div>
         <div className="min-h-0 flex-1">
           <ZoomSurface resetKey={preview.path} image className="h-full overflow-hidden">
@@ -2058,7 +2054,7 @@ export function FilePanel({
               ? t('file.previewSkippedBinary')
               : t('file.previewUnavailable')}
         </div>
-        <div className="mt-1">{formatSize(preview.size)}</div>
+        <div className="mt-1">{formatFileSize(preview.size)}</div>
       </div>
     ) : mobileRenderKind && !mobileSourceView && mobileFileContent !== null ? (
       mobileRenderKind === 'markdown' ? (
@@ -2246,7 +2242,7 @@ export function FilePanel({
               />
             ) : (
               <span className="opacity-0 text-caption text-text-3 group-hover:opacity-100 transition-opacity">
-                {formatSize(item.size)}
+                {formatFileSize(item.size)}
               </span>
             )}
           </div>
@@ -2381,7 +2377,7 @@ export function FilePanel({
                 {item.name}
               </span>
               <span className="opacity-0 text-caption text-text-3 group-hover:opacity-100 transition-opacity">
-                {item.type === 'file' ? formatSize(item.size) : 'dir'}
+                {item.type === 'file' ? formatFileSize(item.size) : 'dir'}
               </span>
             </div>
             {'matches' in item && item.matches?.[0] && (
@@ -2456,7 +2452,7 @@ export function FilePanel({
               {item.name}
             </span>
             <span className="opacity-0 text-caption text-text-3 group-hover:opacity-100 transition-opacity">
-              {item.type === 'file' ? formatSize(item.size) : 'dir'}
+              {item.type === 'file' ? formatFileSize(item.size) : 'dir'}
             </span>
           </div>
           {'matches' in item && item.matches?.[0] && (
