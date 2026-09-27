@@ -8,6 +8,7 @@ const closeUploadDialog = vi.fn()
 const pushToast = vi.fn()
 const addUploadJob = vi.fn()
 const updateUploadJob = vi.fn()
+const removeUploadJob = vi.fn()
 const setActivePane = vi.fn()
 
 const roots = [
@@ -34,6 +35,7 @@ const storeForSelector = () => ({
   pushToast,
   addUploadJob,
   updateUploadJob,
+  removeUploadJob,
 })
 
 vi.mock('@/stores/useConsoleStore', () => ({
@@ -134,6 +136,33 @@ describe('UploadConfirmDialog', () => {
     await waitFor(() =>
       expect(updateUploadJob).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ status: 'success' })),
     )
+  })
+
+  it('removes the replaced failed job only after the retry submission goes through', async () => {
+    setRequest({
+      files: [file('retry.bin')],
+      hostId: 'local',
+      preferredRootId: 'root-workspace',
+      preferredPath: 'downloads',
+      replacesJobId: 'old-failed-job',
+    })
+    render(React.createElement(UploadConfirmDialog))
+    // 取消不重试：旧失败记录必须保留
+    fireEvent.click(screen.getByRole('button', { name: 'upload.cancel' }))
+    expect(removeUploadJob).not.toHaveBeenCalled()
+  })
+
+  it('drops the replaced failed job once the retry is submitted', async () => {
+    setRequest({
+      files: [file('retry.bin')],
+      hostId: 'local',
+      preferredRootId: 'root-workspace',
+      preferredPath: 'downloads',
+      replacesJobId: 'old-failed-job',
+    })
+    render(React.createElement(UploadConfirmDialog))
+    fireEvent.click(screen.getByRole('button', { name: 'upload.upload' }))
+    await waitFor(() => expect(removeUploadJob).toHaveBeenCalledWith('old-failed-job'))
   })
 
   it('honours an explicit uploadRequest.hostId instead of silently falling back to the active host', async () => {
