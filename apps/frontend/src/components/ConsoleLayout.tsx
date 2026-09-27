@@ -875,6 +875,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
               panesOpen={drawerOpen && drawerType === 'panes'}
               filesOpen={mobileFileSheetOpen}
               desktopOpen={!!activeDesktop}
+              browserOpen={!!activeBrowser}
               settingsOpen={showSettings}
               inboxOpen={inboxPanelOpen}
               inboxUnread={inboxUnread}
@@ -886,6 +887,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
               onOpenUpload={openUpload}
               uploadOpen={uploadPanelOpen}
               onOpenDesktop={() => useConsoleStore.getState().toggleDesktop(activeHostId || 'local')}
+              onOpenBrowser={() => useConsoleStore.getState().toggleBrowser(activeHostId || 'local')}
             />
           </div>
           <div className={keyboardOpen ? 'block' : 'hidden'}>

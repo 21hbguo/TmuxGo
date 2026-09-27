@@ -48,6 +48,7 @@ const NAV_ITEM_LABEL_KEYS: Record<NavBarItemKey, Parameters<ReturnType<typeof us
   files: 'nav.files',
   git: 'nav.git',
   desktop: 'vnc.title',
+  browser: 'browser.title',
   settings: 'nav.settings',
 }
 
