@@ -161,6 +161,53 @@ export const CATEGORY_ICON: Record<FileCategory, IconType> = {
   other: FiFile,
 }
 
+export interface StageRejection {
+  file: { name: string; size: number }
+  reason: 'duplicate' | 'oversized' | 'overflow'
+}
+
+// 暂存入口统一校验：去重（同名同大小同 mtime 视为同一文件）、单文件超限、批量数上限。
+// 选择器/拖拽/粘贴三路共用，超限即拒收并由调用方 toast——不放入暂存让用户误以为会传
+export function stageUploadFiles(existing: File[], incoming: File[]): { files: File[]; rejected: StageRejection[] } {
+  const seen = new Set(existing.map((file) => `${file.name}:${file.size}:${file.lastModified}`))
+  const files = [...existing]
+  const rejected: StageRejection[] = []
+  for (const file of incoming) {
+    const key = `${file.name}:${file.size}:${file.lastModified}`
+    const reason =
+      file.size > MAX_UPLOAD_FILE_BYTES
+        ? 'oversized'
+        : seen.has(key)
+          ? 'duplicate'
+          : files.length >= MAX_UPLOAD_FILES
+            ? 'overflow'
+            : ''
+    if (!reason) {
+      seen.add(key)
+      files.push(file)
+    } else {
+      rejected.push({ file: { name: file.name, size: file.size }, reason })
+    }
+  }
+  return { files, rejected }
+}
+
+// 拒收原因汇总成一条 toast 文案（如 "超限×2 · 重复×1"）
+export function stageRejectionMessage(
+  rejected: StageRejection[],
+  t: ReturnType<typeof import('@/i18n').useTranslation>['t'],
+): string {
+  const count = (reason: StageRejection['reason']) => rejected.filter((item) => item.reason === reason).length
+  return [
+    count('oversized') &&
+      t('uploadTab.skipOversized', { count: count('oversized'), max: formatFileSize(MAX_UPLOAD_FILE_BYTES) }),
+    count('duplicate') && t('uploadTab.skipDuplicate', { count: count('duplicate') }),
+    count('overflow') && t('uploadTab.skipOverflow', { count: count('overflow'), max: MAX_UPLOAD_FILES }),
+  ]
+    .filter(Boolean)
+    .join(' · ')
+}
+
 // 行内标出扩展名与 MIME；浏览器报不出类型时落 octet-stream，
 // 未知类型不阻止上传（预览/下载分离由服务端与预览层负责）
 export function fileTypeLabel(file: File, unknownLabel: string) {

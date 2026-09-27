@@ -1,6 +1,8 @@
 'use client'
 import { useEffect, useRef } from 'react'
+import { stageRejectionMessage, stageUploadFiles } from '@/lib/file-meta'
 import { useConsoleStore } from '@/stores/useConsoleStore'
+import { useTranslation } from '@/i18n'
 
 export interface PickUploadFilesDetail {
   hostId?: string
@@ -20,6 +22,7 @@ export interface PickUploadFilesDetail {
 export function GlobalFilePicker() {
   const inputRef = useRef<HTMLInputElement>(null)
   const contextRef = useRef<PickUploadFilesDetail | null>(null)
+  const { t } = useTranslation()
   useEffect(() => {
     const handler = (event: Event) => {
       contextRef.current = (event as CustomEvent<PickUploadFilesDetail>).detail || null
@@ -42,7 +45,11 @@ export function GlobalFilePicker() {
         const ctx = contextRef.current
         const store = useConsoleStore.getState()
         if (ctx?.stage) {
-          store.setStagedUploadFiles([...store.stagedUploadFiles, ...files])
+          const staged = stageUploadFiles(store.stagedUploadFiles, files)
+          if (staged.files.length !== store.stagedUploadFiles.length) store.setStagedUploadFiles(staged.files)
+          // 拒收立即告知：不入暂存列表，避免误以为这些文件会随批上传
+          if (staged.rejected.length)
+            store.pushToast({ type: 'error', message: stageRejectionMessage(staged.rejected, t) })
           return
         }
         store.openUploadDialog({

@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import { fileCategory, formatFileSize, summarizeCategories } from './file-meta'
+import {
+  MAX_UPLOAD_FILE_BYTES,
+  MAX_UPLOAD_FILES,
+  fileCategory,
+  formatFileSize,
+  stageUploadFiles,
+  summarizeCategories,
+} from './file-meta'
+
+const makeFile = (name: string, size = 4, lastModified = 1) => {
+  const file = new File(['x'.repeat(Math.min(size, 64))], name)
+  Object.defineProperty(file, 'size', { value: size })
+  Object.defineProperty(file, 'lastModified', { value: lastModified })
+  return file
+}
 
 describe('fileCategory', () => {
   it('classifies by extension first, case-insensitive', () => {
@@ -37,6 +51,28 @@ describe('summarizeCategories', () => {
   })
   it('returns empty for no files', () => {
     expect(summarizeCategories([])).toEqual([])
+  })
+})
+
+describe('stageUploadFiles', () => {
+  it('appends new files and dedupes same name+size+mtime', () => {
+    const a = makeFile('a.txt')
+    const b = makeFile('b.txt', 4, 2)
+    const { files, rejected } = stageUploadFiles([a], [a, b])
+    expect(files).toEqual([a, b])
+    expect(rejected).toEqual([{ file: { name: 'a.txt', size: 4 }, reason: 'duplicate' }])
+  })
+  it('rejects oversized files', () => {
+    const big = makeFile('big.iso', MAX_UPLOAD_FILE_BYTES + 1)
+    const { files, rejected } = stageUploadFiles([], [big])
+    expect(files).toEqual([])
+    expect(rejected[0].reason).toBe('oversized')
+  })
+  it('caps the batch at MAX_UPLOAD_FILES', () => {
+    const existing = Array.from({ length: MAX_UPLOAD_FILES }, (_, i) => makeFile(`f${i}.txt`, 4, i))
+    const { files, rejected } = stageUploadFiles(existing, [makeFile('extra.txt', 4, 999)])
+    expect(files).toHaveLength(MAX_UPLOAD_FILES)
+    expect(rejected).toEqual([{ file: { name: 'extra.txt', size: 4 }, reason: 'overflow' }])
   })
 })
 
