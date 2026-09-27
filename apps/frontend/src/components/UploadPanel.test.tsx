@@ -210,14 +210,16 @@ describe('UploadPanel', () => {
     render(React.createElement(UploadPanel, { mode: 'mobile' }))
     expect(screen.getAllByRole('button', { name: 'uploadQueue.retry' })).toHaveLength(1)
     fireEvent.click(screen.getByRole('button', { name: 'uploadQueue.retry' }))
+    // 旧失败记录由弹窗在新任务提交后取代（replacesJobId）——点击瞬间不删
     expect(openUploadDialog).toHaveBeenCalledWith({
       files: sourceFiles,
       hostId: 'remote-a',
       preferredRootId: 'root-data',
       preferredPath: 'inbox',
       insertPaths: true,
+      replacesJobId: 'j-retry',
     })
-    expect(removeUploadJob).toHaveBeenCalledWith('j-retry')
+    expect(removeUploadJob).not.toHaveBeenCalledWith('j-retry')
   })
 
   it('copies uploaded absolute paths from a successful job', async () => {

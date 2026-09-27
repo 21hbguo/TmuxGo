@@ -390,6 +390,7 @@ interface ConsoleState {
     preferredPath?: string
     insertPaths?: boolean
     temporary?: boolean
+    replacesJobId?: string
   } | null
   uploadPanelOpen: boolean
   // 上传页暂存文件：原生选择器返回后落全局——sheet/组件卸载不丢，重进仍在
@@ -455,6 +456,8 @@ interface ConsoleState {
     preferredPath?: string
     insertPaths?: boolean
     temporary?: boolean
+    // 重试场景：新任务提交成功后取代的旧失败 job id（取消弹窗则旧记录保留）
+    replacesJobId?: string
   }) => void
   closeUploadDialog: () => void
   setUploadPanelOpen: (open: boolean) => void

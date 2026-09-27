@@ -29,6 +29,8 @@ export function UploadJobCard({ job, surface = 'panel' }: { job: UploadJob; surf
           ? t('uploadQueue.queued')
           : `${percent}%`
 
+  // 重试=以原快照重开确认弹窗（重新校验限额/目标）。replacesJobId 交给弹窗在
+  // 新任务真正提交后再删旧失败记录——用户取消或校验失败时错误记录仍在
   const retry = () => {
     if (!job.sourceFiles?.length) return
     openUploadDialog({
@@ -37,9 +39,8 @@ export function UploadJobCard({ job, surface = 'panel' }: { job: UploadJob; surf
       preferredRootId: job.targetRootId,
       preferredPath: job.targetPath,
       insertPaths: job.insertPaths,
+      replacesJobId: job.id,
     })
-    // 旧错误行即移除——新任务会作为新 job 入列，避免同一批文件双列并存
-    removeUploadJob(job.id)
   }
   const copyPaths = async () => {
     const paths = job.result?.files.map((file) => file.absolutePath) || []

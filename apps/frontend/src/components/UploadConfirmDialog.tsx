@@ -30,6 +30,7 @@ export function UploadConfirmDialog() {
   const pushToast = useConsoleStore((s) => s.pushToast)
   const addUploadJob = useConsoleStore((s) => s.addUploadJob)
   const updateUploadJob = useConsoleStore((s) => s.updateUploadJob)
+  const removeUploadJob = useConsoleStore((s) => s.removeUploadJob)
   // 转发等场景可显式指定目标 host；缺省跟随当前活动主机
   const hostId = uploadRequest?.hostId || activeHostId || 'local'
   const { data: roots = [] } = useFileRoots(hostId)
@@ -231,6 +232,8 @@ export function UploadConfirmDialog() {
         status: 'queued',
         createdAt: new Date().toISOString(),
       })
+      // 重试来源的旧失败 job 此时才移除——确认提交后取代，取消/校验失败则保留记录
+      if (uploadRequest.replacesJobId) removeUploadJob(uploadRequest.replacesJobId)
       closeUploadDialog()
       const result = await api.files.upload(hostId, body, (loadedBytes, uploadTotalBytes) => {
         updateUploadJob(jobId, { loadedBytes, totalBytes: uploadTotalBytes || totalBytes, status: 'uploading' })
