@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { NAV_BAR_ITEMS_EVENT, readNavBarItems, type NavBarItemKey } from '@/lib/mobile-nav-items'
 import { useTranslation } from '@/i18n'
-import { FiGitBranch, FiInbox, FiMonitor, FiMoreHorizontal, FiUpload } from 'react-icons/fi'
+import { FiCompass, FiGitBranch, FiInbox, FiMonitor, FiMoreHorizontal, FiUpload } from 'react-icons/fi'
 
 const NAV_COMPACT_KEY = 'tmuxgo-mobile-nav-compact'
 function readNavCompact() {
@@ -22,6 +22,7 @@ interface MobileNavProps {
   onOpenGit: () => void
   onOpenDesktop: () => void
   onOpenInbox: () => void
+  onOpenBrowser?: () => void
   onOpenUpload?: () => void
   gitOpen?: boolean
   sessionsOpen?: boolean
@@ -29,6 +30,7 @@ interface MobileNavProps {
   panesOpen?: boolean
   filesOpen?: boolean
   desktopOpen?: boolean
+  browserOpen?: boolean
   settingsOpen?: boolean
   inboxOpen?: boolean
   inboxUnread?: number
@@ -68,6 +70,7 @@ export function MobileNav({
   onOpenFiles,
   onOpenGit,
   onOpenDesktop,
+  onOpenBrowser,
   onOpenInbox,
   onOpenUpload,
   gitOpen = false,
@@ -76,6 +79,7 @@ export function MobileNav({
   panesOpen = false,
   filesOpen = false,
   desktopOpen = false,
+  browserOpen = false,
   settingsOpen = false,
   inboxOpen = false,
   inboxUnread = 0,
@@ -179,6 +183,13 @@ export function MobileNav({
       open: desktopOpen,
       icon: <FiMonitor aria-hidden="true" size={18} />,
       onClick: onOpenDesktop,
+    },
+    {
+      key: 'browser',
+      label: t('browser.title'),
+      open: browserOpen,
+      icon: <FiCompass aria-hidden="true" size={18} />,
+      onClick: () => onOpenBrowser?.(),
     },
     {
       key: 'settings',
@@ -301,7 +312,7 @@ export function MobileNav({
           )}
         </div>
       ) : (
-        <div className="grid h-12 grid-cols-8 items-center">
+        <div className="grid h-12 grid-cols-9 items-center">
           <button
             aria-label={t('nav.sessions')}
             aria-current={sessionsOpen ? 'page' : undefined}
@@ -370,6 +381,16 @@ export function MobileNav({
           >
             <FiMonitor aria-hidden="true" size={18} />
             <span className="text-caption leading-none">{t('vnc.title')}</span>
+          </button>
+
+          <button
+            aria-label={t('browser.title')}
+            aria-current={browserOpen ? 'page' : undefined}
+            onClick={() => onOpenBrowser?.()}
+            className={navButtonClass(browserOpen)}
+          >
+            <FiCompass aria-hidden="true" size={18} />
+            <span className="text-caption leading-none">{t('browser.title')}</span>
           </button>
 
           <button

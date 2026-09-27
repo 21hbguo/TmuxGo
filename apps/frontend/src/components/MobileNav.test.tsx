@@ -20,6 +20,7 @@ vi.mock('@/i18n', () => ({
         'nav.fullBar': 'Full bar',
         'nav.inbox': 'Inbox',
         'vnc.title': 'Desktop',
+        'browser.title': 'Browser',
         'uploadTab.title': 'Upload',
       }
       return map[key] || key
@@ -49,12 +50,22 @@ describe('MobileNav', () => {
     } as any)
   })
 
-  it('renders eight nav buttons including inbox and desktop', () => {
+  it('renders nine nav buttons including inbox, desktop and browser', () => {
     const { container } = renderNav()
-    expect(container.querySelector('.grid-cols-8')).toBeTruthy()
+    expect(container.querySelector('.grid-cols-9')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Desktop' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Browser' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Inbox' })).toBeTruthy()
-    expect(container.querySelectorAll('.tmuxgo-mobile-nav-button')).toHaveLength(8)
+    expect(container.querySelectorAll('.tmuxgo-mobile-nav-button')).toHaveLength(9)
+  })
+
+  it('invokes onOpenBrowser when the browser entry is tapped', () => {
+    const onOpenBrowser = vi.fn()
+    renderNav({ onOpenBrowser, browserOpen: true })
+    const browserButton = screen.getByRole('button', { name: 'Browser' })
+    expect(browserButton.getAttribute('aria-current')).toBe('page')
+    fireEvent.click(browserButton)
+    expect(onOpenBrowser).toHaveBeenCalledTimes(1)
   })
 
   it('invokes onOpenDesktop when the desktop entry is tapped', () => {
@@ -156,7 +167,7 @@ describe('MobileNav', () => {
     const { container } = renderNav({ onOpenGit, onOpenFiles, onOpenDrawer, onOpenInbox, gitOpen: true })
     // 底栏仅 会话/窗口/面板/更多 四项（面板高频直接上栏，收件箱进更多）
     expect(container.querySelectorAll('.tmuxgo-mobile-nav-button')).toHaveLength(4)
-    expect(container.querySelector('.grid-cols-8')).toBeNull()
+    expect(container.querySelector('.grid-cols-9')).toBeNull()
     expect(screen.getByRole('button', { name: 'Panes' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Inbox' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Files' })).toBeNull()
@@ -186,15 +197,15 @@ describe('MobileNav', () => {
 
   it('layout toggle switches between compact and full bar and persists the choice', () => {
     const { container } = renderNav()
-    expect(container.querySelector('.grid-cols-8')).toBeTruthy()
+    expect(container.querySelector('.grid-cols-9')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Compact bar' }))
     expect(window.localStorage.getItem('tmuxgo-mobile-nav-compact')).toBe('true')
     expect(screen.getByRole('button', { name: 'More' })).toBeTruthy()
     expect(container.querySelectorAll('.tmuxgo-mobile-nav-button')).toHaveLength(4)
-    // 可回退：切回完整八项布局
+    // 可回退：切回完整九项布局
     fireEvent.click(screen.getByRole('button', { name: 'Full bar' }))
     expect(window.localStorage.getItem('tmuxgo-mobile-nav-compact')).toBe('false')
-    expect(container.querySelector('.grid-cols-8')).toBeTruthy()
+    expect(container.querySelector('.grid-cols-9')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Settings' })).toBeTruthy()
   })
 
@@ -224,12 +235,12 @@ describe('MobileNav', () => {
     window.localStorage.setItem('tmuxgo-mobile-nav-compact', 'true')
     window.localStorage.setItem(
       'tmuxgo-mobile-nav-bar-items',
-      JSON.stringify(['inbox', 'upload', 'files', 'git', 'desktop', 'settings']),
+      JSON.stringify(['inbox', 'upload', 'files', 'git', 'desktop', 'browser', 'settings']),
     )
     const { container } = renderNav()
     expect(screen.queryByRole('button', { name: 'More' })).toBeNull()
-    // 固定3 + 全部6个可调配项
-    expect(container.querySelectorAll('.tmuxgo-mobile-nav-button')).toHaveLength(9)
+    // 固定3 + 全部7个可调配项
+    expect(container.querySelectorAll('.tmuxgo-mobile-nav-button')).toHaveLength(10)
   })
 
   it('upload entry stays in More by default and ignores unknown persisted keys', () => {
