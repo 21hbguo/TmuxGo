@@ -109,9 +109,16 @@ export function UploadPanel({ mode = 'desktop', onClose }: { mode?: 'mobile' | '
       if (!e.dataTransfer?.files?.length) return
       e.preventDefault()
       setDragActive(false)
-      stageIncoming(Array.from(e.dataTransfer.files))
+      // 目录项剔除：dataTransfer.files 会把拖入的目录伪装成 0 字节同名 File，
+      // 传上去就是个空文件——经 items.webkitGetAsEntry 识别，两者按索引一一对应
+      const items = Array.from(e.dataTransfer.items || [])
+      const files = Array.from(e.dataTransfer.files)
+      const accepted = files.filter((_, i) => items[i]?.webkitGetAsEntry?.()?.isDirectory !== true)
+      const dirCount = files.length - accepted.length
+      if (dirCount) pushToast({ type: 'info', message: t('uploadTab.skipDir', { count: dirCount }) })
+      stageIncoming(accepted)
     },
-    [stageIncoming],
+    [stageIncoming, pushToast, t],
   )
   // 剪贴板带文件才接管（preventDefault）；纯文本粘贴照常落到输入框
   useEffect(() => {

@@ -903,6 +903,7 @@ export const en = {
   'uploadTab.skipOversized': 'over {max}×{count}',
   'uploadTab.skipDuplicate': 'duplicate×{count}',
   'uploadTab.skipOverflow': 'over {max}/batch×{count}',
+  'uploadTab.skipDir': 'Skipped {count} folder(s) — archive them first',
   'uploadCat.image': 'Image',
   'uploadCat.video': 'Video',
   'uploadCat.audio': 'Audio',
