@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { FiChevronLeft, FiChevronRight, FiFolder, FiFolderPlus, FiX } from 'react-icons/fi'
 import { api } from '@/lib/api'
 import { useFileList, useFileRoots } from '@/hooks/useApi'
@@ -25,16 +25,25 @@ export function WorkspaceDirectoryPicker({
   hostId,
   onPick,
   onClose,
+  title,
+  initialRootId,
+  initialPath,
+  zClass = 'z-[80]',
 }: {
   hostId: string
   onPick: (target: WorkspaceDirectoryTarget) => Promise<void> | void
   onClose: () => void
+  title?: string
+  initialRootId?: string
+  initialPath?: string
+  /** 复用到更高层弹窗（如上传确认 z-120）时传入更高层级 */
+  zClass?: string
 }) {
   const { t } = useTranslation()
   const { prompt, PromptElement } = usePrompt()
   const { data: roots = [] } = useFileRoots(hostId)
-  const [rootId, setRootId] = useState('')
-  const [currentPath, setCurrentPath] = useState('')
+  const [rootId, setRootId] = useState(initialRootId || '')
+  const [currentPath, setCurrentPath] = useState(initialPath || '')
   const [selectedPath, setSelectedPath] = useState('')
   const [showHidden, setShowHidden] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -71,7 +80,12 @@ export function WorkspaceDirectoryPicker({
   useEffect(() => {
     if (!rootId && defaultRoot) setRootId(defaultRoot.id)
   }, [rootId, defaultRoot])
+  // 仅在已选定 root 再切换时回顶层；首挂及 '' → 默认 root 的自动回填不动 currentPath（保留 initialPath）
+  const lastRootId = useRef(rootId)
   useEffect(() => {
+    const prev = lastRootId.current
+    lastRootId.current = rootId
+    if (!prev || prev === rootId) return
     setCurrentPath('')
     setSelectedPath('')
   }, [rootId])
@@ -113,7 +127,7 @@ export function WorkspaceDirectoryPicker({
   }
   return (
     <ModalPortal>
-      <div className="fixed inset-0 z-[80] flex items-center justify-center tmuxgo-scrim p-4" onClick={onClose}>
+      <div className={`fixed inset-0 ${zClass} flex items-center justify-center tmuxgo-scrim p-4`} onClick={onClose}>
         <div
           className="tmuxgo-glass tmuxgo-glass-dialog flex h-[min(500px,calc(100vh-2rem))] w-full max-w-[680px] flex-col overflow-hidden rounded-apple border"
           onClick={(event) => event.stopPropagation()}
@@ -121,7 +135,7 @@ export function WorkspaceDirectoryPicker({
           <div className="flex shrink-0 items-center gap-2 border-b border-[var(--line)] px-4 py-3">
             <FiFolder aria-hidden="true" className="shrink-0 text-accent" size={16} />
             <div className="min-w-0 flex-1 truncate text-sm font-medium text-text-1">
-              {t('workspace.directoryTitle')}
+              {title || t('workspace.directoryTitle')}
             </div>
             <Button variant="ghost" size="icon-sm" aria-label={t('common.cancel')} onClick={onClose}>
               <FiX aria-hidden="true" size={16} />

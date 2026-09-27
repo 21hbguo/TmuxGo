@@ -906,6 +906,8 @@ export const en = {
   'uploadTab.clear': 'Clear',
   'uploadTab.remove': 'Remove',
   'uploadTab.dropHint': 'Drop or paste files onto this panel',
+  'uploadTab.browse': 'Browse',
+  'uploadTab.pickDirectory': 'Choose upload directory',
   'uploadTab.skipOversized': 'over {max}×{count}',
   'uploadTab.skipDuplicate': 'duplicate×{count}',
   'uploadTab.skipOverflow': 'over {max}/batch×{count}',

@@ -59,6 +59,23 @@ vi.mock('@/i18n', () => ({
     t: (key: string, vars?: Record<string, unknown>) => (vars ? `${key} ${JSON.stringify(vars)}` : key),
   }),
 }))
+// 目录浏览弹窗本身有独立测试覆盖；这里换成桩验证接线
+vi.mock('./WorkspaceDirectoryPicker', () => ({
+  WorkspaceDirectoryPicker: (props: any) =>
+    React.createElement('button', {
+      'data-testid': 'dir-picker',
+      'data-root': props.initialRootId,
+      'data-path': props.initialPath,
+      onClick: () =>
+        props.onPick({
+          rootId: 'root-workspace',
+          rootPath: '/workspace',
+          rootLabel: 'Workspace',
+          relativePath: 'picked/dir',
+          absolutePath: '/workspace/picked/dir',
+        }),
+    }),
+}))
 
 const file = (name: string, size = 4) => new File(['x'.repeat(size)], name, { type: 'text/plain' })
 
@@ -340,6 +357,25 @@ describe('UploadPanel', () => {
     fireEvent.paste(document, { clipboardData: { files: [oversized] } })
     expect(setStagedUploadFiles).not.toHaveBeenCalled()
     expect(pushToast).toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }))
+  })
+
+  it('opens the workspace directory picker from Browse and applies the pick', async () => {
+    storeState.stagedUploadFiles = [file('demo.txt', 10)]
+    render(React.createElement(UploadPanel, { mode: 'mobile' }))
+    await waitFor(() => expect(api.files.defaultUploadTarget).toHaveBeenCalled())
+    // 打开即停在当前解析出的目标
+    fireEvent.click(screen.getByRole('button', { name: 'uploadTab.browse' }))
+    const picker = await screen.findByTestId('dir-picker')
+    expect(picker.getAttribute('data-root')).toBe('root-workspace')
+    expect(picker.getAttribute('data-path')).toBe('downloads')
+    fireEvent.click(picker)
+    // 选中回填 root + 相对路径，提交时带走
+    const dirInput = screen.getByPlaceholderText('upload.directory') as HTMLInputElement
+    await waitFor(() => expect(dirInput.value).toBe('picked/dir'))
+    fireEvent.click(screen.getByRole('button', { name: /uploadTab\.submit/ }))
+    expect(openUploadDialog).toHaveBeenCalledWith(
+      expect.objectContaining({ preferredRootId: 'root-workspace', preferredPath: 'picked/dir' }),
+    )
   })
 
   it('renders empty-jobs placeholder and closes via header button', () => {
