@@ -3,6 +3,7 @@ import { authenticatedFetch, getAccessToken, refreshAuth } from './auth'
 import { buildSessionId } from './session-id'
 import type {
   AgentInboxMessage,
+  InboxListStats,
   InboxShare,
   AuditEvent,
   CustomShortcut,
@@ -226,6 +227,10 @@ export interface InboxListResponse {
   nextCursor: string | null
   unreadCount?: number
   total: number
+  // 容量权威口径：消息数（非回收站）/上限 + asset 占用（含回收站引用）
+  stats?: InboxListStats
+  // 服务端 inbox store 版本号：快照基线，事件 gap 判定靠它
+  revision?: number
 }
 export interface AgentNotificationRecord {
   id: string
@@ -528,6 +533,10 @@ export const api = {
         deviceId?: string
         cursor?: string
         limit?: number
+        // 显式 unread 才过滤列表；deviceId 只用于返回 unreadCount
+        unread?: boolean
+        // 'active' 默认 | 'archived' 归档 | 'trash' 回收站 | 'all' 镜像全量
+        view?: 'active' | 'archived' | 'trash' | 'all'
         sessionName?: string
         paneId?: string
       } = {},
@@ -535,6 +544,8 @@ export const api = {
       const params = new URLSearchParams()
       if (options.deviceId) params.set('deviceId', options.deviceId)
       if (options.cursor) params.set('cursor', options.cursor)
+      if (options.unread) params.set('unread', '1')
+      if (options.view && options.view !== 'active') params.set('view', options.view)
       if (options.limit) params.set('limit', String(options.limit))
       if (options.sessionName) params.set('sessionName', options.sessionName)
       if (options.paneId) params.set('paneId', options.paneId)
@@ -543,20 +554,36 @@ export const api = {
     get: (id: string) => fetchApi<{ ok: true; message: AgentInboxMessage }>(`/api/inbox/${encodeURIComponent(id)}`),
     unreadCount: (deviceId: string) =>
       fetchApi<{ ok: true; unreadCount: number }>(`/api/inbox/unread-count?deviceId=${encodeURIComponent(deviceId)}`),
-    markRead: (id: string, deviceId: string) =>
-      fetchApi<{ ok: true; changed: number }>(`/api/inbox/${encodeURIComponent(id)}/read`, {
+    markRead: (id: string, deviceId: string, read = true) =>
+      fetchApi<{ ok: true; changed: number; revision?: number }>(`/api/inbox/${encodeURIComponent(id)}/read`, {
         method: 'POST',
-        body: JSON.stringify({ deviceId }),
+        body: JSON.stringify({ deviceId, read }),
       }),
-    markReadBatch: (ids: string[], deviceId: string) =>
-      fetchApi<{ ok: true; changed: number }>('/api/inbox/read', {
+    markReadBatch: (ids: string[], deviceId: string, read = true) =>
+      fetchApi<{ ok: true; changed: number; revision?: number }>('/api/inbox/read', {
         method: 'POST',
-        body: JSON.stringify({ ids, deviceId }),
+        body: JSON.stringify({ ids, deviceId, read }),
       }),
+    // 删除=进回收站（服务端软删）；purge 才物理删除
     remove: (ids: string[]) =>
-      fetchApi<{ ok: true; removed: number }>('/api/inbox/delete', {
+      fetchApi<{ ok: true; removed: number; revision?: number }>('/api/inbox/delete', {
         method: 'POST',
         body: JSON.stringify({ ids }),
+      }),
+    restore: (ids: string[]) =>
+      fetchApi<{ ok: true; restored: number; revision?: number }>('/api/inbox/restore', {
+        method: 'POST',
+        body: JSON.stringify({ ids }),
+      }),
+    purge: (ids: string[]) =>
+      fetchApi<{ ok: true; purged: number; revision?: number }>('/api/inbox/purge', {
+        method: 'POST',
+        body: JSON.stringify({ ids }),
+      }),
+    archive: (ids: string[], archived: boolean) =>
+      fetchApi<{ ok: true; changed: number; skippedUnread: number; revision?: number }>('/api/inbox/archive', {
+        method: 'POST',
+        body: JSON.stringify({ ids, archived }),
       }),
     assetUrl: (id: string) => `${getApiBase()}/api/inbox/${encodeURIComponent(id)}/asset`,
     // 媒体/文件预览一律走 REST blob（Authorization 头 img/video 直链带不上），

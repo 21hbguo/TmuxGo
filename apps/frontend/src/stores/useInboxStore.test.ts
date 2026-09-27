@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { useInboxStore, inboxMessageTitle } from './useInboxStore'
+import { useInboxStore, inboxMessageTitle, isInboxArchivable } from './useInboxStore'
 import type { AgentInboxMessage } from '@/types'
 
 const apiMocks = vi.hoisted(() => ({
@@ -42,6 +42,12 @@ function resetInboxStore() {
     tabs: [],
     activeTabId: null,
     panelOpen: false,
+    filter: { query: '', type: 'all', status: 'all', view: 'active', source: '', range: 'all' },
+    lastRev: 0,
+    deletedRev: {},
+    stats: null,
+    pendingSync: 0,
+    syncError: false,
   })
 }
 
@@ -176,5 +182,171 @@ describe('useInboxStore', () => {
     expect(inboxMessageTitle(message({ title: ' T ' }))).toBe('T')
     expect(inboxMessageTitle(message({ title: '', name: 'report.png' }))).toBe('report.png')
     expect(inboxMessageTitle(message({ title: '', name: '', text: '\n\nfirst line\nsecond' }))).toBe('first line')
+  })
+
+  it('setList adopts server revision and clears tombstones', () => {
+    const store = useInboxStore.getState()
+    store.applyInboxDeleted(['ghost'], 9)
+    store.setList([message({ id: 'a', rev: 3 })], null, 5)
+    const state = useInboxStore.getState()
+    expect(state.lastRev).toBe(9) // rev 只升不降
+    expect(state.deletedRev).toEqual({}) // 快照即事实，墓碑清空
+  })
+
+  it('gates events by revision: stale drops, gap signals resync', () => {
+    const store = useInboxStore.getState()
+    store.setList([message({ id: 'a', rev: 5 })], null, 5)
+    // 旧事件：不覆盖新状态
+    expect(store.applyInboxUpdated([message({ id: 'a', title: 'stale' })], 4)).toBe('stale')
+    // 跳号：丢事件 → 调用方回源
+    expect(store.applyInboxCreated(message({ id: 'b' }), 9)).toBe('gap')
+    // 顺序事件正常应用
+    expect(store.applyInboxCreated(message({ id: 'b' }), 6)).toBe('applied')
+    // 重复事件幂等
+    expect(store.applyInboxCreated(message({ id: 'b' }), 6)).toBe('stale')
+    const state = useInboxStore.getState()
+    expect(state.lastRev).toBe(6)
+    expect(state.messages.find((item) => item.id === 'a')?.title).toBe('hello')
+  })
+
+  it('keeps tombstones so late updates cannot resurrect deleted messages', () => {
+    const store = useInboxStore.getState()
+    store.setList([message({ id: 'a' })], null, 3)
+    expect(store.applyInboxDeleted(['a'], 4)).toBe('applied')
+    expect(useInboxStore.getState().messages).toHaveLength(0)
+    // 迟到 update：id 在墓碑里被过滤，不复活
+    expect(store.applyInboxUpdated([message({ id: 'a', title: 'zombie' })], 5)).toBe('applied')
+    expect(useInboxStore.getState().messages).toHaveLength(0)
+    // 同 id 重新 push（rev 高于墓碑）可以进来
+    expect(store.applyInboxCreated(message({ id: 'a' }), 6)).toBe('applied')
+    expect(useInboxStore.getState().messages).toHaveLength(1)
+  })
+
+  it('markReadLocal writes global readAt and skips already-read messages', () => {
+    const store = useInboxStore.getState()
+    store.setList(
+      [message({ id: 'a' }), message({ id: 'b', readAt: '2026-09-26T09:00:00.000Z' }), message({ id: 'c' })],
+      null,
+    )
+    store.setUnreadCount(2)
+    expect(store.markReadLocal(['a', 'b', 'c'])).toBe(2)
+    const state = useInboxStore.getState()
+    expect(state.messages.find((item) => item.id === 'a')?.readAt).toBeTruthy()
+    expect(state.messages.find((item) => item.id === 'c')?.readBy).toContain('dev-1')
+    expect(state.unreadCount).toBe(0)
+    // 全局已读后其他设备视角也为已读：再次 mark 幂等
+    expect(store.markReadLocal(['a'])).toBe(0)
+  })
+
+  it('archiveLocal only closes read messages and unarchives idempotently', () => {
+    const store = useInboxStore.getState()
+    store.setList(
+      [
+        message({ id: 'unread' }),
+        message({ id: 'read', readAt: '2026-09-26T09:00:00.000Z' }),
+        message({ id: 'arch', readAt: '2026-09-26T08:00:00.000Z', archivedAt: '2026-09-26T09:00:00.000Z' }),
+      ],
+      null,
+    )
+    // 未读不归档（镜像服务端 guard）；已归档的再归档幂等
+    expect(store.archiveLocal(['unread', 'read', 'arch'], true)).toBe(1)
+    const state = useInboxStore.getState()
+    expect(state.messages.find((m) => m.id === 'unread')?.archivedAt).toBeUndefined()
+    expect(state.messages.find((m) => m.id === 'read')?.archivedAt).toBeTruthy()
+    // 恢复：只影响带 archivedAt 的，且幂等
+    expect(store.archiveLocal(['read', 'unread'], false)).toBe(1)
+    expect(useInboxStore.getState().messages.find((m) => m.id === 'read')?.archivedAt).toBeUndefined()
+    expect(store.archiveLocal(['read'], false)).toBe(0)
+  })
+
+  it('isInboxArchivable covers read-active messages only', () => {
+    expect(isInboxArchivable(message({ readAt: 'x' }), 'dev-1')).toBe(true)
+    expect(isInboxArchivable(message({}), 'dev-1')).toBe(false) // 未读不可归档
+    expect(isInboxArchivable(message({ readAt: 'x', archivedAt: 'y' }), 'dev-1')).toBe(false) // 已归档
+    expect(isInboxArchivable(message({ readAt: 'x', deletedAt: 'y' }), 'dev-1')).toBe(false) // 回收站
+    expect(isInboxArchivable(message({ readBy: ['dev-1'] }), 'dev-1')).toBe(true) // 旧 readBy 兼容
+  })
+
+  it('markUnreadLocal clears readAt and restores the unread badge', () => {
+    const store = useInboxStore.getState()
+    store.setList(
+      [
+        message({ id: 'read', readAt: '2026-09-26T09:00:00.000Z', readBy: ['dev-1'] }),
+        message({ id: 'unread' }),
+        message({ id: 'trashed', readAt: 'x', deletedAt: 'y' }),
+      ],
+      null,
+    )
+    store.setUnreadCount(1)
+    expect(store.markUnreadLocal(['read', 'unread', 'trashed'])).toBe(1)
+    const state = useInboxStore.getState()
+    const read = state.messages.find((m) => m.id === 'read')
+    expect(read?.readAt).toBeUndefined()
+    expect(read?.readBy).toEqual([])
+    // 回收站消息不计角标——标未读不动它
+    expect(state.messages.find((m) => m.id === 'trashed')?.readAt).toBe('x')
+    expect(state.unreadCount).toBe(2)
+  })
+
+  it('trashLocal soft-deletes with badge adjust and restores symmetrically', () => {
+    const store = useInboxStore.getState()
+    store.setList([message({ id: 'unread' }), message({ id: 'read', readAt: 'x' })], null)
+    store.setUnreadCount(1)
+    // 未读进回收站扣角标；已读不动
+    expect(store.trashLocal(['unread', 'read'], true)).toBe(2)
+    let state = useInboxStore.getState()
+    expect(state.unreadCount).toBe(0)
+    expect(state.messages.every((m) => m.deletedAt)).toBe(true)
+    // 幂等：再删一遍 changed=0
+    expect(store.trashLocal(['unread'], true)).toBe(0)
+    // 恢复未读回补角标
+    expect(store.trashLocal(['unread', 'read'], false)).toBe(2)
+    state = useInboxStore.getState()
+    expect(state.unreadCount).toBe(1)
+    expect(state.messages.every((m) => !m.deletedAt)).toBe(true)
+  })
+
+  it('closeAllTabs clears tabs without touching messages or read state', () => {
+    const store = useInboxStore.getState()
+    const read = message({ id: 'm1', readAt: 'x' })
+    store.setList([read, message({ id: 'm2' })], null)
+    store.openTab(read)
+    store.openTab(useInboxStore.getState().messages.find((m) => m.id === 'm2')!)
+    expect(useInboxStore.getState().tabs).toHaveLength(2)
+    store.closeAllTabs()
+    const state = useInboxStore.getState()
+    expect(state.tabs).toEqual([])
+    expect(state.activeTabId).toBeNull()
+    // 消息原样：不归档不删除不改已读
+    expect(state.messages).toHaveLength(2)
+    expect(state.messages.find((m) => m.id === 'm1')?.readAt).toBe('x')
+    expect(state.messages.every((m) => !m.archivedAt && !m.deletedAt)).toBe(true)
+  })
+
+  it('beginSync/endSync track pending mutations and error state', () => {
+    const store = useInboxStore.getState()
+    store.beginSync()
+    store.beginSync()
+    expect(useInboxStore.getState().pendingSync).toBe(2)
+    store.endSync()
+    expect(useInboxStore.getState().pendingSync).toBe(1)
+    expect(useInboxStore.getState().syncError).toBe(false)
+    store.endSync(true)
+    const state = useInboxStore.getState()
+    expect(state.pendingSync).toBe(0)
+    expect(state.syncError).toBe(true)
+    // 下一次成功同步清掉错误标记
+    store.beginSync()
+    store.endSync()
+    expect(useInboxStore.getState().syncError).toBe(false)
+  })
+
+  it('markReadLocal skips trashed messages (badge must not drop twice)', () => {
+    const store = useInboxStore.getState()
+    store.setList([message({ id: 'a', deletedAt: 'x' })], null)
+    store.setUnreadCount(0)
+    expect(store.markReadLocal(['a'])).toBe(0)
+    expect(useInboxStore.getState().unreadCount).toBe(0)
+    expect(useInboxStore.getState().messages[0].readAt).toBeUndefined()
   })
 })

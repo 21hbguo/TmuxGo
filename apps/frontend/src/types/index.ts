@@ -670,6 +670,15 @@ export interface AgentInboxMessage {
   route: InboxMessageRoute
   createdAt: string
   readBy: string[]
+  // 全局已读：任一设备读过即所有端消除未读；readBy 仍按设备记录明细
+  readAt?: string
+  // "关闭已打开"=归档：离开活动列表但历史保留（archived=1 可查/恢复），≠删除
+  archivedAt?: string
+  // 回收站：删除=软删可恢复，purge/TTL 才真正回收
+  deletedAt?: string
+  updatedAt?: string
+  // 服务端 store revision；按它丢乱序/重复事件
+  rev?: number
   expiresAt?: string
   dedupeKey?: string
   open?: boolean
@@ -686,10 +695,26 @@ export interface InboxShare {
   expiresAt: string
   revokedAt: string | null
 }
+export type InboxViewFilter = 'active' | 'archived' | 'trash'
+export type InboxStatusFilter = 'all' | 'unread' | 'read'
+export type InboxRangeFilter = 'all' | '1d' | '7d' | '30d'
 export interface InboxFilter {
   query: string
   type: InboxMessageType | 'all'
-  unreadOnly: boolean
+  // 已读状态筛选（全部/未读/已读）
+  status: InboxStatusFilter
+  // 活动/归档/回收站三个互斥视图；回收站是软删历史（可恢复）
+  view: InboxViewFilter
+  // 来源筛选：agent 名或路由标签，'' 不过滤
+  source: string
+  // 时间范围（按 createdAt）
+  range: InboxRangeFilter
+}
+export interface InboxListStats {
+  messages: number
+  maxMessages: number
+  assetBytes: number
+  maxAssetBytes: number
 }
 // 预览 tab 只持久化元数据；内容经 REST 重新拉取，过期消息 hydrate 时剔除
 export interface InboxTab {

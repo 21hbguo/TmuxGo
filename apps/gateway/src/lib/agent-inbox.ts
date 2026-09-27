@@ -34,6 +34,17 @@ export interface AgentInboxMessage {
   route: InboxMessageRoute
   createdAt: string
   readBy: string[]
+  // 全局已读：任一设备读过即对所有端已读（readBy 仍记录各设备明细做兼容）
+  readAt?: string
+  // 归档（"关闭已打开"）：fuera de la vista activa sin borrar nada；历史 sigue
+  // 可查 por el filtro archived=1。Solo mensajes ya leídos pueden archivarse.
+  archivedAt?: string
+  // 回收站（软删）：deletedAt 标记=进回收站可恢复；只有 purge/TTL 才真正
+  // 移除并回收 asset。归档≠删除≠回收站，三态互不影响
+  deletedAt?: string
+  updatedAt?: string
+  // 本条状态对应的 store revision；客户端据此丢弃乱序/重复事件
+  rev?: number
   expiresAt?: string
   dedupeKey?: string
   open?: boolean
@@ -50,9 +61,9 @@ export interface InboxAsset {
 }
 
 export type InboxEvent =
-  | { type: 'inbox_message_created'; message: AgentInboxMessage }
-  | { type: 'inbox_message_updated'; message: AgentInboxMessage }
-  | { type: 'inbox_message_deleted'; ids: string[] }
+  | { type: 'inbox_message_created'; message: AgentInboxMessage; rev: number }
+  | { type: 'inbox_message_updated'; messages: AgentInboxMessage[]; rev: number }
+  | { type: 'inbox_message_deleted'; ids: string[]; rev: number }
   | { type: 'inbox_open_target'; route: InboxMessageRoute; messageId?: string }
 
 const STORE_VERSION = 1
@@ -61,6 +72,8 @@ const MAX_TEXT_BYTES = 256 * 1024
 const MAX_BASE64_BYTES = 32 * 1024 * 1024
 const MAX_ASSET_BYTES = 512 * 1024 * 1024
 const MESSAGE_TTL_MS = 30 * 24 * 3600 * 1000
+// 回收站容量时限：软删后可恢复窗口，超期随 sweep 物理清除并回收 asset
+const TRASH_TTL_MS = 7 * 24 * 3600 * 1000
 const TITLE_MAX = 160
 const NAME_MAX = 256
 
@@ -69,6 +82,8 @@ interface InboxStore {
   messages: AgentInboxMessage[]
   assets: InboxAsset[]
   dedupe: Record<string, string>
+  // 全局单调递增版本号：每次状态迁移 +1 并随 store 持久化，多端靠它对账
+  revision: number
 }
 
 let store: InboxStore | null = null
@@ -125,9 +140,16 @@ function normalizeMessage(value: unknown): AgentInboxMessage | null {
   if (typeof item.createdAt !== 'string' || !item.createdAt) return null
   if (!item.source || typeof item.source !== 'object') return null
   if (!item.route || typeof item.route !== 'object') return null
+  const readBy = Array.isArray(item.readBy) ? item.readBy.filter((v): v is string => typeof v === 'string') : []
   return {
     ...item,
-    readBy: Array.isArray(item.readBy) ? item.readBy.filter((v): v is string => typeof v === 'string') : [],
+    readBy,
+    updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : item.createdAt,
+    // 迁移兼容：旧数据只有 readBy 没有 readAt——任一设备读过即按全局已读回填
+    readAt: typeof item.readAt === 'string' ? item.readAt : readBy.length ? item.createdAt : undefined,
+    archivedAt: typeof item.archivedAt === 'string' ? item.archivedAt : undefined,
+    deletedAt: typeof item.deletedAt === 'string' ? item.deletedAt : undefined,
+    rev: typeof item.rev === 'number' ? item.rev : undefined,
   } as AgentInboxMessage
 }
 async function loadStore() {
@@ -145,16 +167,24 @@ async function loadStore() {
           messages: parsed.messages.map(normalizeMessage).filter((v): v is AgentInboxMessage => !!v),
           assets: parsed.assets as InboxAsset[],
           dedupe: parsed.dedupe && typeof parsed.dedupe === 'object' ? parsed.dedupe : {},
+          revision: typeof parsed.revision === 'number' ? parsed.revision : 0,
         }
       else await backupCorruptStore()
     } catch (err: any) {
       // JSON 损坏：留 .corrupt 副本供人工恢复再重建，别静默覆盖索引
       if (err?.code !== 'ENOENT') await backupCorruptStore()
     }
-    store = loaded || { version: STORE_VERSION, messages: [], assets: [], dedupe: {} }
+    store = loaded || { version: STORE_VERSION, messages: [], assets: [], dedupe: {}, revision: 0 }
     loadedStorePath = currentPath
-    await sweepExpired(store)
-    await saveStore(store)
+    const evicted = await sweepExpired(store)
+    if (evicted.length) {
+      // 冷启动淘汰也算状态迁移：bump rev 并广播，在线的其他端同步剔除
+      const rev = bumpRevision(store)
+      await saveStore(store)
+      emitInbox({ type: 'inbox_message_deleted', ids: evicted, rev })
+    } else {
+      await saveStore(store)
+    }
     return store
   })().finally(() => {
     storePromise = null
@@ -162,15 +192,24 @@ async function loadStore() {
   return storePromise
 }
 
-// 过期/超限清理：message TTL + 总数上限 + asset 孤儿回收与总量配额
-async function sweepExpired(value: InboxStore) {
+// 过期/超限清理：message TTL + 总数上限 + asset 孤儿回收与总量配额。
+// 返回被移除的 messageId（TTL/FIFO/配额都算删除事件，多端要同步消失）
+async function sweepExpired(value: InboxStore): Promise<string[]> {
+  const removed = new Set<string>()
   const now = Date.now()
   value.messages = value.messages.filter((m) => {
-    if (m.expiresAt && Date.parse(m.expiresAt) < now) return false
-    return now - Date.parse(m.createdAt) < MESSAGE_TTL_MS
+    const dead =
+      (m.expiresAt && Date.parse(m.expiresAt) < now) ||
+      now - Date.parse(m.createdAt) >= MESSAGE_TTL_MS ||
+      // 回收站超期自动清空：恢复窗口只有 TRASH_TTL
+      (!!m.deletedAt && now - Date.parse(m.deletedAt) >= TRASH_TTL_MS)
+    if (dead) removed.add(m.id)
+    return !dead
   })
   if (value.messages.length > MAX_MESSAGES) {
     // FIFO：保留最新 MAX_MESSAGES 条
+    const evicted = value.messages.slice(0, value.messages.length - MAX_MESSAGES)
+    for (const m of evicted) removed.add(m.id)
     value.messages = value.messages.slice(value.messages.length - MAX_MESSAGES)
   }
   const liveAssetIds = new Set(value.messages.map((m) => m.assetId).filter(Boolean) as string[])
@@ -186,6 +225,7 @@ async function sweepExpired(value: InboxStore) {
       const asset = message.assetId ? value.assets.find((v) => v.id === message.assetId) : null
       if (asset) {
         value.messages = value.messages.filter((v) => v.id !== message.id)
+        removed.add(message.id)
         // 同 sha 资产可能被多条消息共享——还有引用时只删消息，别留下悬空 assetId
         const stillReferenced = value.messages.some((v) => v.assetId === asset.id)
         if (!stillReferenced) {
@@ -217,6 +257,13 @@ async function sweepExpired(value: InboxStore) {
       }
     } catch {}
   })()
+  return [...removed]
+}
+
+// 每次状态迁移 +1：客户端按 rev 丢旧/乱序事件，跳号则回源快照对账
+function bumpRevision(value: InboxStore) {
+  value.revision = (value.revision || 0) + 1
+  return value.revision
 }
 
 export function subscribeInbox(listener: (event: InboxEvent) => void) {
@@ -454,22 +501,44 @@ export async function createPush(input: PushInput) {
 
   value.messages.push(message)
   if (dedupeKey) value.dedupe[dedupeKey] = message.id
-  await sweepExpired(value)
+  const evicted = await sweepExpired(value)
+  // 淘汰与新增是两个迁移：各取一个 rev，客户端才能按序应用不丢事件
+  const evictedRev = evicted.length ? bumpRevision(value) : 0
+  const rev = bumpRevision(value)
+  message.rev = rev
+  message.updatedAt = message.createdAt
   await saveStore(value)
-  emitInbox({ type: 'inbox_message_created', message })
+  if (evicted.length) emitInbox({ type: 'inbox_message_deleted', ids: evicted, rev: evictedRev })
+  emitInbox({ type: 'inbox_message_created', message, rev })
   if (open) emitInbox({ type: 'inbox_open_target', route, messageId: message.id })
   return { message, deduplicated: false }
 }
 
+// vista del listado：active 默认（活动+未读+已读）| archived 归档 | trash 回收站
+// | all 镜像全量（前端镜像需要看到所有状态，视图过滤在客户端做）
+export type InboxListView = 'active' | 'archived' | 'trash' | 'all'
 export async function listInboxMessages(
-  options: { cursor?: string; limit?: number; unreadForDevice?: string; sessionName?: string; paneId?: string } = {},
+  options: {
+    cursor?: string
+    limit?: number
+    // unreadForDevice 只决定是否返回 unreadCount（兼容旧语义）；过滤列表用 unreadOnly
+    unreadForDevice?: string
+    unreadOnly?: boolean
+    view?: InboxListView
+    sessionName?: string
+    paneId?: string
+  } = {},
 ) {
   const value = await loadStore()
   let items = [...value.messages].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  const view = options.view || 'active'
+  if (view === 'trash') items = items.filter((m) => !!m.deletedAt)
+  else if (view === 'archived') items = items.filter((m) => !!m.archivedAt && !m.deletedAt)
+  else if (view === 'active') items = items.filter((m) => !m.archivedAt && !m.deletedAt)
   if (options.sessionName) items = items.filter((m) => m.route.sessionName === options.sessionName)
   if (options.paneId)
     items = items.filter((m) => m.route.paneId === options.paneId || m.route.tmuxPaneId === options.paneId)
-  if (options.unreadForDevice) items = items.filter((m) => !m.readBy.includes(options.unreadForDevice!))
+  if (options.unreadOnly) items = items.filter((m) => !m.readAt)
   // cursor = 上一页最后一条的 createdAt+id，翻更旧的消息
   if (options.cursor) {
     const index = items.findIndex((m) => `${m.createdAt}#${m.id}` === options.cursor)
@@ -481,15 +550,28 @@ export async function listInboxMessages(
     items.length > page.length
       ? `${items[items.length - page.length - 1].createdAt}#${items[items.length - page.length - 1].id}`
       : null
+  // deviceId 触发返回未读数；语义是全局已读（readAt），多端角标一致.
+  // 角标只 cuenta la vista activa: archivados/reciclados no suman badge
   const unreadCount = options.unreadForDevice
-    ? value.messages.filter((m) => !m.readBy.includes(options.unreadForDevice!)).length
+    ? value.messages.filter((m) => !m.readAt && !m.archivedAt && !m.deletedAt).length
     : undefined
-  return { messages: page, nextCursor, unreadCount, total: items.length }
+  // 容量提示用的权威口径：消息数按非回收站计，asset 字节是全量占用（回收站
+  // 里的消息仍引用 asset，purge/超期才释放）
+  const stats = {
+    messages: value.messages.filter((m) => !m.deletedAt).length,
+    maxMessages: MAX_MESSAGES,
+    assetBytes: value.assets.reduce((sum, asset) => sum + (asset.size || 0), 0),
+    maxAssetBytes: MAX_ASSET_BYTES,
+  }
+  return { messages: page, nextCursor, unreadCount, total: items.length, stats, revision: value.revision }
 }
 
 export async function getInboxMessage(id: string) {
   const value = await loadStore()
   return value.messages.find((m) => m.id === id) || null
+}
+export async function getInboxRevision() {
+  return (await loadStore()).revision
 }
 export async function getInboxAsset(assetId: string) {
   const value = await loadStore()
@@ -507,38 +589,131 @@ export async function getAssetStream(asset: InboxAsset, range?: { start: number;
   return createReadStream(resolveAssetPath(asset), range)
 }
 const MAX_READ_BY = 64
-export async function markInboxRead(ids: string[], deviceId: string) {
+// read=false 标未读：全局语义——清 readAt 并清空 readBy（否则其他端仍按已读看）
+export async function markInboxRead(ids: string[], deviceId: string, read = true) {
   const value = await loadStore()
   const idSet = new Set(ids.slice(0, 500))
   const changed: AgentInboxMessage[] = []
+  const now = new Date().toISOString()
   for (const message of value.messages) {
-    if (!idSet.has(message.id) || message.readBy.includes(deviceId)) continue
-    // readBy 无界增长会被灌水——超上限丢最老设备标记
-    if (message.readBy.length >= MAX_READ_BY) message.readBy.shift()
-    message.readBy.push(deviceId)
+    if (!idSet.has(message.id)) continue
+    if (!read) {
+      if (!message.readAt && !message.readBy.length) continue
+      message.readAt = undefined
+      message.readBy = []
+      message.updatedAt = now
+      changed.push(message)
+      continue
+    }
+    const known = message.readBy.includes(deviceId)
+    if (known && message.readAt) continue
+    if (!known) {
+      // readBy 无界增长会被灌水——超上限丢最老设备标记
+      if (message.readBy.length >= MAX_READ_BY) message.readBy.shift()
+      message.readBy.push(deviceId)
+    }
+    if (!message.readAt) message.readAt = now
+    message.updatedAt = now
     changed.push(message)
   }
   // 先落盘再广播：崩溃窗口内前端状态不得领先盘上状态
   if (changed.length) {
+    const rev = bumpRevision(value)
+    for (const message of changed) message.rev = rev
     await saveStore(value)
-    for (const message of changed) emitInbox({ type: 'inbox_message_updated', message })
+    // 批量已读一条事件全量带齐，避免多端对每条消息各收一次
+    emitInbox({ type: 'inbox_message_updated', messages: changed, rev })
   }
-  return { changed: changed.length }
+  return { changed: changed.length, revision: value.revision }
 }
-export async function deleteInboxMessages(ids: string[]) {
+// "关闭已打开" = archivar: fuera de la vista activa, historial intacto.
+// Guard de servidor: solo se archivan mensajes leídos (readAt) — un id sin
+// leer jamás se cierra, aunque el cliente lo pida. Idempotente: archivar lo
+// ya archivado no cuenta ni re-emite.
+export async function archiveInboxMessages(ids: string[], archived = true) {
   const value = await loadStore()
   const idSet = new Set(ids.slice(0, 500))
-  const removed = value.messages.filter((m) => idSet.has(m.id))
-  value.messages = value.messages.filter((m) => !idSet.has(m.id))
-  for (const key of Object.keys(value.dedupe)) {
-    if (idSet.has(value.dedupe[key])) delete value.dedupe[key]
+  const changed: AgentInboxMessage[] = []
+  const now = new Date().toISOString()
+  let skippedUnread = 0
+  for (const message of value.messages) {
+    if (!idSet.has(message.id) || message.deletedAt) continue
+    if (archived) {
+      if (!message.readAt) {
+        skippedUnread += 1
+        continue
+      }
+      if (message.archivedAt) continue
+      message.archivedAt = now
+    } else {
+      if (!message.archivedAt) continue
+      message.archivedAt = undefined
+    }
+    message.updatedAt = now
+    changed.push(message)
   }
-  await sweepExpired(value)
-  if (removed.length) {
+  if (changed.length) {
+    const rev = bumpRevision(value)
+    for (const message of changed) message.rev = rev
     await saveStore(value)
-    emitInbox({ type: 'inbox_message_deleted', ids: removed.map((m) => m.id) })
+    // El pipeline de updated ya trae rev+墓碑: el resto de clientes ven el
+    // cambio de vista sin evento nuevo ni riesgo de resurrección
+    emitInbox({ type: 'inbox_message_updated', messages: changed, rev })
   }
-  return { removed: removed.length }
+  return { changed: changed.length, skippedUnread, revision: value.revision }
+}
+// 回收站：删除=软删（deletedAt），可从回收站恢复；purge/TTL 才物理移除。
+// 进回收站即摘掉 dedupe——同 key 重新 push 生成新消息，旧的在回收站互不影响
+async function setInboxDeleted(ids: string[], deleted: boolean) {
+  const value = await loadStore()
+  const idSet = new Set(ids.slice(0, 500))
+  const changed: AgentInboxMessage[] = []
+  const now = new Date().toISOString()
+  for (const message of value.messages) {
+    if (!idSet.has(message.id) || !!message.deletedAt === deleted) continue
+    if (deleted) message.deletedAt = now
+    else message.deletedAt = undefined
+    message.updatedAt = now
+    changed.push(message)
+  }
+  if (deleted) {
+    const trashed = new Set(changed.map((m) => m.id))
+    for (const key of Object.keys(value.dedupe)) {
+      if (trashed.has(value.dedupe[key])) delete value.dedupe[key]
+    }
+  }
+  if (changed.length) {
+    const rev = bumpRevision(value)
+    for (const message of changed) message.rev = rev
+    await saveStore(value)
+    emitInbox({ type: 'inbox_message_updated', messages: changed, rev })
+  }
+  return { changed: changed.length, revision: value.revision }
+}
+export async function deleteInboxMessages(ids: string[]) {
+  const { changed, revision } = await setInboxDeleted(ids, true)
+  // 兼容旧响应字段：removed = 进回收站的条数（不再物理删除）
+  return { removed: changed, revision }
+}
+export async function restoreInboxMessages(ids: string[]) {
+  const { changed, revision } = await setInboxDeleted(ids, false)
+  return { restored: changed, revision }
+}
+// 只有已在回收站的才能物理清除——防止 purge 误删活动/归档消息
+export async function purgeInboxMessages(ids: string[]) {
+  const value = await loadStore()
+  const idSet = new Set(ids.slice(0, 500))
+  const purged = value.messages.filter((m) => idSet.has(m.id) && m.deletedAt)
+  const purgedIds = new Set(purged.map((m) => m.id))
+  value.messages = value.messages.filter((m) => !purgedIds.has(m.id))
+  const evicted = await sweepExpired(value)
+  const removedIds = [...purged.map((m) => m.id), ...evicted]
+  if (removedIds.length) {
+    const rev = bumpRevision(value)
+    await saveStore(value)
+    emitInbox({ type: 'inbox_message_deleted', ids: removedIds, rev })
+  }
+  return { purged: purged.length, revision: value.revision }
 }
 export async function requestOpenTarget(route: InboxMessageRoute, messageId?: string) {
   emitInbox({ type: 'inbox_open_target', route, messageId })
