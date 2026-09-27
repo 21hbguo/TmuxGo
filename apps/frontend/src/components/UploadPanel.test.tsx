@@ -306,6 +306,24 @@ describe('UploadPanel', () => {
     expect(setStagedUploadFiles).toHaveBeenCalledTimes(1)
   })
 
+  it('filters dropped directories out of staging', () => {
+    const { container } = render(React.createElement(UploadPanel, { mode: 'mobile' }))
+    const zone = container.querySelector('.tmuxgo-scrollbar')!
+    const dirEntry = { isDirectory: true }
+    const fileEntry = { isDirectory: false }
+    const dropped = file('real.txt', 6)
+    const pseudoDir = file('somedir', 0)
+    fireEvent.drop(zone, {
+      dataTransfer: {
+        files: [dropped, pseudoDir],
+        types: ['Files'],
+        items: [{ webkitGetAsEntry: () => fileEntry }, { webkitGetAsEntry: () => dirEntry }],
+      },
+    })
+    expect(setStagedUploadFiles).toHaveBeenCalledWith([dropped])
+    expect(pushToast).toHaveBeenCalledWith(expect.objectContaining({ type: 'info' }))
+  })
+
   it('stages clipboard files on paste and leaves text paste untouched', () => {
     render(React.createElement(UploadPanel, { mode: 'mobile' }))
     const pasted = file('clip.txt', 5)

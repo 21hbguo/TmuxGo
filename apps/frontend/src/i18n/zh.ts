@@ -896,6 +896,7 @@ export const zh = {
   'uploadTab.skipOversized': '超 {max} 上限×{count}',
   'uploadTab.skipDuplicate': '重复×{count}',
   'uploadTab.skipOverflow': '超单批 {max} 个上限×{count}',
+  'uploadTab.skipDir': '已跳过 {count} 个目录——请打包后上传',
   'uploadCat.image': '图片',
   'uploadCat.video': '视频',
   'uploadCat.audio': '音频',
