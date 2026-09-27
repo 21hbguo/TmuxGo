@@ -3,6 +3,7 @@ import { getAgentEventToken, isAgentEventToken } from '../lib/agent-events.js'
 import {
   createPush,
   getInboxMessage,
+  getInboxRevision,
   listInboxMessages,
   normalizeRoute,
   requestOpenTarget,
@@ -83,6 +84,7 @@ export async function agentPushRoutes(fastify: FastifyInstance) {
         size: message.size,
         sha256: message.sha256,
         route: message.route,
+        revision: message.rev,
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Push failed'
@@ -123,11 +125,13 @@ export async function agentPushRoutes(fastify: FastifyInstance) {
         const message = await getInboxMessage(body.id)
         if (!message) return reply.code(404).send({ message: 'Not found', code: 'INBOX_MESSAGE_NOT_FOUND' })
         reply.header('cache-control', 'no-store')
-        return { ok: true, message }
+        return { ok: true, message, revision: await getInboxRevision() }
       }
       const result = await listInboxMessages({
         cursor: typeof body.cursor === 'string' ? body.cursor : undefined,
         limit: typeof body.limit === 'number' ? body.limit : undefined,
+        // 送达确认覆盖全部状态：归档/回收站里的也算已送达
+        view: 'all',
         sessionName: typeof body.sessionName === 'string' ? body.sessionName : undefined,
         paneId: typeof body.paneId === 'string' ? body.paneId : undefined,
       })

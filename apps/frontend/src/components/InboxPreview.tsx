@@ -34,6 +34,15 @@ function formatBytes(size?: number) {
   return `${size} B`
 }
 
+// 与 gateway MESSAGE_TTL_MS 对齐：历史会被 TTL/数量/容量淘汰，已读不改 TTL
+const MESSAGE_TTL_MS = 30 * 24 * 3600 * 1000
+function retentionLeft(message?: AgentInboxMessage | null) {
+  if (!message) return null
+  const base = Date.parse(message.expiresAt || '') || Date.parse(message.createdAt) + MESSAGE_TTL_MS
+  if (!Number.isFinite(base)) return null
+  return { ms: base - Date.now(), date: new Date(base) }
+}
+
 type PreviewKind = 'audio' | 'pdf' | 'csv' | 'markdown' | 'code' | 'unsupported'
 
 const CODE_EXTENSIONS = new Set([
@@ -550,6 +559,21 @@ export function InboxPreview({
           </button>
         )}
         <div className="min-w-0 flex-1 truncate px-1 text-sm font-medium text-text-1">{title}</div>
+        {(() => {
+          const left = retentionLeft(message)
+          if (!left || left.ms <= 0) return null
+          const days = Math.floor(left.ms / 86400000)
+          return (
+            <span
+              className="shrink-0 text-caption text-text-3/70"
+              title={t('inbox.retainedUntil', { date: left.date.toLocaleString() })}
+            >
+              {days >= 1
+                ? t('inbox.retentionDays', { n: days })
+                : t('inbox.retentionHours', { n: Math.max(1, Math.ceil(left.ms / 3600000)) })}
+            </span>
+          )
+        })()}
         {message?.assetId && (
           <button
             type="button"

@@ -2,14 +2,18 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { stat } from 'fs/promises'
 import {
+  archiveInboxMessages,
   deleteInboxMessages,
   getAssetStream,
   getInboxAsset,
   getInboxMessage,
   listInboxMessages,
   markInboxRead,
+  purgeInboxMessages,
+  restoreInboxMessages,
   resolveAssetPath,
   type InboxAsset,
+  type InboxListView,
 } from '../lib/agent-inbox.js'
 import { normalizeAgentDeviceId } from '../lib/agent-notifications.js'
 import { inboxShareStore, INBOX_SHARE_MAX_MINUTES, INBOX_SHARE_MIN_MINUTES } from '../lib/inbox-shares.js'
@@ -19,9 +23,15 @@ import { inboxShareStore, INBOX_SHARE_MAX_MINUTES, INBOX_SHARE_MIN_MINUTES } fro
 const readBodySchema = z.object({
   ids: z.array(z.string().min(1).max(64)).min(1).max(500),
   deviceId: z.string().min(1).max(128),
+  // read=false 标未读（全局语义：清 readAt 与 readBy）
+  read: z.boolean().optional().default(true),
 })
 const deleteBodySchema = z.object({
   ids: z.array(z.string().min(1).max(64)).min(1).max(500),
+})
+const archiveBodySchema = z.object({
+  ids: z.array(z.string().min(1).max(64)).min(1).max(500),
+  archived: z.boolean().optional().default(true),
 })
 const RANGE_RE = /^bytes=(\d+)-(\d*)$/
 
@@ -84,7 +94,19 @@ export async function inboxRoutes(fastify: FastifyInstance) {
           : typeof query.limit === 'number'
             ? query.limit
             : undefined,
+      // deviceId 只换取 unreadCount；显式 unread=1 才过滤列表——
+      // 之前把 deviceId 映射成过滤导致「已读即消失」
       unreadForDevice: typeof query.deviceId === 'string' ? query.deviceId : undefined,
+      unreadOnly: query.unread === '1' || query.unread === 'true',
+      // view=active|archived|trash|all；兼容旧 archived=1/all；默认 vista activa
+      view:
+        query.view === 'archived' || query.view === 'trash' || query.view === 'all'
+          ? (query.view as InboxListView)
+          : query.archived === '1' || query.archived === 'true'
+            ? 'archived'
+            : query.archived === 'all'
+              ? 'all'
+              : undefined,
       sessionName: typeof query.sessionName === 'string' ? query.sessionName : undefined,
       paneId: typeof query.paneId === 'string' ? query.paneId : undefined,
     })
@@ -110,8 +132,11 @@ export async function inboxRoutes(fastify: FastifyInstance) {
   fastify.post('/inbox/:id/read', { bodyLimit: 64 * 1024 }, async (request, reply) => {
     try {
       const { id } = request.params as { id: string }
-      const deviceId = normalizeAgentDeviceId((request.body as Record<string, unknown>)?.deviceId)
-      const result = await markInboxRead([id], deviceId)
+      const body = request.body as Record<string, unknown> | undefined
+      const deviceId = normalizeAgentDeviceId(body?.deviceId)
+      // read:false 标未读——与批量路由同语义（默认 true 保持兼容）
+      const read = body?.read !== false
+      const result = await markInboxRead([id], deviceId, read)
       return { ok: true, ...result }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Invalid request'
@@ -121,17 +146,49 @@ export async function inboxRoutes(fastify: FastifyInstance) {
   fastify.post('/inbox/read', { bodyLimit: 256 * 1024 }, async (request, reply) => {
     try {
       const body = readBodySchema.parse(request.body)
-      const result = await markInboxRead(body.ids, normalizeAgentDeviceId(body.deviceId))
+      const result = await markInboxRead(body.ids, normalizeAgentDeviceId(body.deviceId), body.read)
       return { ok: true, ...result }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Invalid request'
       return reply.code(400).send({ message, code: 'INVALID_REQUEST' })
     }
   })
+  // 关闭已打开 = archivar（读过的可归档/可恢复；未读的服务端拒绝）——≠删除
+  fastify.post('/inbox/archive', { bodyLimit: 256 * 1024 }, async (request, reply) => {
+    try {
+      const body = archiveBodySchema.parse(request.body)
+      const result = await archiveInboxMessages(body.ids, body.archived)
+      return { ok: true, ...result }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Invalid request'
+      return reply.code(400).send({ message, code: 'INVALID_REQUEST' })
+    }
+  })
+  // 删除=进回收站（软删可恢复）；restore 回活动/归档态；purge 才物理删除+回收 asset
   fastify.post('/inbox/delete', { bodyLimit: 256 * 1024 }, async (request, reply) => {
     try {
       const body = deleteBodySchema.parse(request.body)
       const result = await deleteInboxMessages(body.ids)
+      return { ok: true, ...result }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Invalid request'
+      return reply.code(400).send({ message, code: 'INVALID_REQUEST' })
+    }
+  })
+  fastify.post('/inbox/restore', { bodyLimit: 256 * 1024 }, async (request, reply) => {
+    try {
+      const body = deleteBodySchema.parse(request.body)
+      const result = await restoreInboxMessages(body.ids)
+      return { ok: true, ...result }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Invalid request'
+      return reply.code(400).send({ message, code: 'INVALID_REQUEST' })
+    }
+  })
+  fastify.post('/inbox/purge', { bodyLimit: 256 * 1024 }, async (request, reply) => {
+    try {
+      const body = deleteBodySchema.parse(request.body)
+      const result = await purgeInboxMessages(body.ids)
       return { ok: true, ...result }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Invalid request'

@@ -8,13 +8,46 @@ import type { AgentInboxMessage, InboxFilter, InboxTab } from '@/types'
 const INBOX_STORAGE_KEY = `tmuxgo-inbox-state:${detectDeviceKind()}`
 const MAX_TABS = 20
 const MAX_MESSAGES = 500
+// 删除墓碑上限：防迟到 update 复活已删消息；条数有界，旧墓碑先丢
+const MAX_DELETED_REV = 1000
 
 function isExpiredMessage(message: AgentInboxMessage, now = Date.now()) {
   return !!message.expiresAt && Date.parse(message.expiresAt) < now
 }
+// 全局已读语义：服务端 readAt 为准；readBy 兼容旧数据（设备明细）
+export function isInboxUnread(message: AgentInboxMessage, deviceId: string) {
+  return !message.readAt && !message.readBy.includes(deviceId)
+}
+// 关闭已打开=归档：不删 nada，历史可查。未读消息服务端拒绝归档
+export function isInboxArchived(message: AgentInboxMessage) {
+  return !!message.archivedAt
+}
+// 回收站=软删可恢复：不是真删除，purge/TTL 才回收
+export function isInboxTrashed(message: AgentInboxMessage) {
+  return !!message.deletedAt
+}
+// 可归档集合 = 活动列表里已读的（不归档不进回收站）。
+// 注意：「已打开」仅指右侧预览 tab，与消息状态无关——别再用 opened 命名消息态
+export function isInboxArchivable(message: AgentInboxMessage, deviceId: string) {
+  return !isInboxArchived(message) && !isInboxTrashed(message) && !isInboxUnread(message, deviceId)
+}
 // 列表镜像统一按 createdAt 倒序（新→旧），id 做同刻稳定 tiebreak
 function sortMessagesDesc(list: AgentInboxMessage[]) {
   return [...list].sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id))
+}
+// rev 门控：无 rev（旧服务端）放行；rev<=lastRev 重复/乱序丢弃；
+// rev 跳号说明中间丢了事件 → 返回 gap 由调用方回源快照
+function revGate(lastRev: number, rev?: number): 'apply' | 'stale' | 'gap' {
+  if (typeof rev !== 'number' || !Number.isFinite(rev)) return 'apply'
+  if (rev <= lastRev) return 'stale'
+  if (lastRev > 0 && rev > lastRev + 1) return 'gap'
+  return 'apply'
+}
+function nextRev(lastRev: number, rev?: number) {
+  return typeof rev === 'number' && Number.isFinite(rev) ? Math.max(lastRev, rev) : lastRev
+}
+function maxMessageRev(messages: AgentInboxMessage[]) {
+  return messages.reduce((max, m) => Math.max(max, m.rev || 0), 0)
 }
 export function inboxMessageTitle(message: AgentInboxMessage) {
   if (message.title?.trim()) return message.title.trim()
@@ -60,15 +93,35 @@ interface InboxState {
   filter: InboxFilter
   // 预览滚动位置按 messageId 记忆：切 tab 回来不丢阅读进度
   previewScroll: Record<string, number>
+  // 服务端 revision 基线：rest 快照设置，WS 事件按它丢旧/检测 gap
+  lastRev: number
+  // 删除墓碑：迟到的 update 不许复活已删消息（rev 记录删除时的版本）
+  deletedRev: Record<string, number>
+  // 容量提示：来自列表响应的服务端权威口径（含回收站 asset 占用）
+  stats: { messages: number; maxMessages: number; assetBytes: number; maxAssetBytes: number } | null
+  // 同步提示：在途乐观写/对账数 + 最近一次失败标记
+  pendingSync: number
+  syncError: boolean
   setDeviceId: (deviceId: string) => void
   setFilter: (patch: Partial<InboxFilter>) => void
   setPreviewScroll: (messageId: string, top: number) => void
-  setList: (messages: AgentInboxMessage[], nextCursor: string | null) => void
-  appendList: (messages: AgentInboxMessage[], nextCursor: string | null) => void
+  setList: (messages: AgentInboxMessage[], nextCursor: string | null, revision?: number) => void
+  appendList: (messages: AgentInboxMessage[], nextCursor: string | null, revision?: number) => void
+  // WS 事件入口：返回 applied/stale/gap 让调用方决定是否回源快照
+  applyInboxCreated: (message: AgentInboxMessage, rev?: number) => 'applied' | 'stale' | 'gap'
+  applyInboxUpdated: (messages: AgentInboxMessage[], rev?: number) => 'applied' | 'stale' | 'gap'
+  applyInboxDeleted: (ids: string[], rev?: number) => 'applied' | 'stale' | 'gap'
   upsertMessage: (message: AgentInboxMessage) => void
   removeMessages: (ids: string[]) => void
   setUnreadCount: (count: number) => void
   markReadLocal: (ids: string[]) => number
+  markUnreadLocal: (ids: string[]) => number
+  archiveLocal: (ids: string[], archived: boolean) => number
+  trashLocal: (ids: string[], deleted: boolean) => number
+  setStats: (stats: InboxState['stats']) => void
+  beginSync: () => void
+  endSync: (error?: boolean) => void
+  closeAllTabs: () => void
   setPanelOpen: (open: boolean) => void
   openTab: (message: AgentInboxMessage) => void
   openTabById: (messageId: string) => Promise<AgentInboxMessage | null>
@@ -89,27 +142,89 @@ export const useInboxStore = create<InboxState>()(
       tabs: [],
       activeTabId: null,
       panelOpen: false,
-      filter: { query: '', type: 'all', unreadOnly: false },
+      filter: { query: '', type: 'all', status: 'all', view: 'active', source: '', range: 'all' },
       previewScroll: {},
+      lastRev: 0,
+      deletedRev: {},
+      stats: null,
+      pendingSync: 0,
+      syncError: false,
       setDeviceId: (deviceId) => set({ deviceId }),
       setFilter: (patch) => set((state) => ({ filter: { ...state.filter, ...patch } })),
       setPreviewScroll: (messageId, top) =>
         set((state) => ({ previewScroll: { ...state.previewScroll, [messageId]: top } })),
-      setList: (messages, nextCursor) =>
-        set({
+      setList: (messages, nextCursor, revision) =>
+        set((state) => ({
           messages: sortMessagesDesc(messages.filter((item) => !isExpiredMessage(item))).slice(0, MAX_MESSAGES),
           nextCursor,
           listLoaded: true,
-        }),
-      appendList: (messages, nextCursor) =>
+          // 快照是服务端基线：墓碑清空（快照里没有的就是真没有），rev 只升不降
+          lastRev: Math.max(state.lastRev, revision ?? maxMessageRev(messages)),
+          deletedRev: {},
+        })),
+      appendList: (messages, nextCursor, revision) =>
         set((state) => {
           const seen = new Set(state.messages.map((item) => item.id))
           const fresh = messages.filter((item) => !seen.has(item.id) && !isExpiredMessage(item))
           return {
             messages: sortMessagesDesc([...state.messages, ...fresh]).slice(0, MAX_MESSAGES),
             nextCursor,
+            lastRev: Math.max(state.lastRev, revision ?? maxMessageRev(messages)),
           }
         }),
+      applyInboxCreated: (message, rev) => {
+        const gate = revGate(get().lastRev, rev)
+        if (gate !== 'apply') return gate
+        if (isExpiredMessage(message)) return 'applied'
+        const tombstone = get().deletedRev[message.id]
+        if (tombstone && (rev === undefined || rev <= tombstone)) return 'stale'
+        set((state) => ({
+          messages: sortMessagesDesc(
+            state.messages.some((item) => item.id === message.id)
+              ? state.messages.map((item) => (item.id === message.id ? message : item))
+              : [...state.messages, message],
+          ).slice(0, MAX_MESSAGES),
+          lastRev: nextRev(state.lastRev, rev),
+        }))
+        return 'applied'
+      },
+      applyInboxUpdated: (messages, rev) => {
+        const gate = revGate(get().lastRev, rev)
+        if (gate !== 'apply') return gate
+        set((state) => {
+          // update 不创造消息：已删（墓碑）或未知 id 一律忽略，防复活/乱序
+          const patch = new Map(
+            messages.filter((m) => !isExpiredMessage(m) && !(m.id in state.deletedRev)).map((m) => [m.id, m]),
+          )
+          if (!patch.size) return { lastRev: nextRev(state.lastRev, rev) }
+          const nextMessages = sortMessagesDesc(state.messages.map((item) => patch.get(item.id) || item)).slice(
+            0,
+            MAX_MESSAGES,
+          )
+          const tabs = state.tabs.map((tab) =>
+            patch.has(tab.id)
+              ? { ...tab, title: inboxMessageTitle(patch.get(tab.id)!) || tab.title, type: patch.get(tab.id)!.type }
+              : tab,
+          )
+          return { messages: nextMessages, tabs, lastRev: nextRev(state.lastRev, rev) }
+        })
+        return 'applied'
+      },
+      applyInboxDeleted: (ids, rev) => {
+        const gate = revGate(get().lastRev, rev)
+        if (gate !== 'apply') return gate
+        get().removeMessages(ids)
+        set((state) => {
+          const deletedRev = { ...state.deletedRev }
+          for (const id of ids) deletedRev[id] = rev ?? state.lastRev + 1
+          // 墓碑集合有界：超出丢最老（对象 key 保序）
+          const keys = Object.keys(deletedRev)
+          if (keys.length > MAX_DELETED_REV)
+            for (const key of keys.slice(0, keys.length - MAX_DELETED_REV)) delete deletedRev[key]
+          return { deletedRev, lastRev: nextRev(state.lastRev, rev) }
+        })
+        return 'applied'
+      },
       upsertMessage: (message) =>
         set((state) => {
           if (isExpiredMessage(message)) return { messages: state.messages.filter((item) => item.id !== message.id) }
@@ -132,7 +247,7 @@ export const useInboxStore = create<InboxState>()(
         set((state) => {
           const removed = new Set(ids)
           const removedUnread = state.messages.filter(
-            (item) => removed.has(item.id) && !item.readBy.includes(state.deviceId),
+            (item) => removed.has(item.id) && isInboxUnread(item, state.deviceId),
           ).length
           const tabs = state.tabs.filter((tab) => !removed.has(tab.id))
           return {
@@ -145,18 +260,79 @@ export const useInboxStore = create<InboxState>()(
       setUnreadCount: (count) => set({ unreadCount: Math.max(0, count) }),
       markReadLocal: (ids) => {
         const marked = new Set(ids)
+        const now = new Date().toISOString()
         let changed = 0
         set((state) => ({
           messages: state.messages.map((item) => {
-            if (!marked.has(item.id) || item.readBy.includes(state.deviceId)) return item
+            // 全局已读：本端乐观写入 readAt，其他端靠 WS update 同步消除未读。
+            // 回收站消息不计角标，跳过防扣错数
+            if (!marked.has(item.id) || item.deletedAt || !isInboxUnread(item, state.deviceId)) return item
             changed += 1
-            return { ...item, readBy: [...item.readBy, state.deviceId] }
+            const readBy = item.readBy.includes(state.deviceId) ? item.readBy : [...item.readBy, state.deviceId]
+            return { ...item, readBy, readAt: item.readAt || now, updatedAt: now }
           }),
           unreadCount: state.unreadCount,
         }))
         if (changed) set((state) => ({ unreadCount: Math.max(0, state.unreadCount - changed) }))
         return changed
       },
+      // 标未读：清 readAt+readBy（同服务端全局语义），未读角标同步加回
+      markUnreadLocal: (ids) => {
+        const marked = new Set(ids)
+        const now = new Date().toISOString()
+        let changed = 0
+        set((state) => ({
+          messages: state.messages.map((item) => {
+            if (!marked.has(item.id) || item.deletedAt || !item.readAt) return item
+            changed += 1
+            return { ...item, readAt: undefined, readBy: [], updatedAt: now }
+          }),
+        }))
+        if (changed) set((state) => ({ unreadCount: state.unreadCount + changed }))
+        return changed
+      },
+      // 归档乐观写入：镜像服务端 guard（未读/回收站不归档），失败回源回滚
+      archiveLocal: (ids, archived) => {
+        const marked = new Set(ids)
+        const now = new Date().toISOString()
+        let changed = 0
+        set((state) => ({
+          messages: state.messages.map((item) => {
+            if (!marked.has(item.id) || item.deletedAt) return item
+            if (archived) {
+              if (!item.readAt || item.archivedAt) return item
+              changed += 1
+              return { ...item, archivedAt: now, updatedAt: now }
+            }
+            if (!item.archivedAt) return item
+            changed += 1
+            return { ...item, archivedAt: undefined, updatedAt: now }
+          }),
+        }))
+        return changed
+      },
+      // 回收站乐观写入：软删可恢复；未读进回收站扣角标，恢复未读回补角标
+      trashLocal: (ids, deleted) => {
+        const marked = new Set(ids)
+        const now = new Date().toISOString()
+        let changed = 0
+        let unreadDelta = 0
+        set((state) => {
+          const messages = state.messages.map((item) => {
+            if (!marked.has(item.id) || !!item.deletedAt === deleted) return item
+            changed += 1
+            if (isInboxUnread(item, state.deviceId)) unreadDelta += deleted ? 1 : -1
+            return { ...item, deletedAt: deleted ? now : undefined, updatedAt: now }
+          })
+          return { messages, unreadCount: Math.max(0, state.unreadCount - unreadDelta) }
+        })
+        return changed
+      },
+      setStats: (stats) => set({ stats }),
+      beginSync: () => set((state) => ({ pendingSync: state.pendingSync + 1 })),
+      endSync: (error) => set((state) => ({ pendingSync: Math.max(0, state.pendingSync - 1), syncError: !!error })),
+      // 关闭全部已打开 = 只清右侧预览 tab：纯本地 UI 态，不发事件不动消息
+      closeAllTabs: () => set({ tabs: [], activeTabId: null }),
       setPanelOpen: (open) => set({ panelOpen: open }),
       openTab: (message) =>
         set((state) => {

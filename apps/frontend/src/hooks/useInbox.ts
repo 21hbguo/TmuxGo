@@ -3,7 +3,7 @@ import { useEffect, useRef } from 'react'
 import { subscribeStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import { api } from '@/lib/api'
 import { getDeviceId } from '@/lib/agent-push'
-import { useInboxStore } from '@/stores/useInboxStore'
+import { useInboxStore, isInboxUnread, isInboxTrashed } from '@/stores/useInboxStore'
 import type { AgentInboxMessage } from '@/types'
 
 const INBOX_PAGE_SIZE = 100
@@ -15,16 +15,38 @@ let listSyncEpoch = 0
 
 export async function refreshInboxList(cursor?: string) {
   const store = useInboxStore.getState()
-  const res = await api.inbox.list({
-    deviceId: store.deviceId || undefined,
-    limit: INBOX_PAGE_SIZE,
-    cursor,
-  })
-  listSyncEpoch += 1
-  if (cursor) store.appendList(res.messages, res.nextCursor)
-  else store.setList(res.messages, res.nextCursor)
-  if (typeof res.unreadCount === 'number') store.setUnreadCount(res.unreadCount)
-  return res
+  store.beginSync()
+  try {
+    const res = await api.inbox.list({
+      deviceId: store.deviceId || undefined,
+      // 镜像是全量：归档/回收站也进 mirror，panel 的 filter 决定哪面可见
+      view: 'all',
+      limit: INBOX_PAGE_SIZE,
+      cursor,
+    })
+    listSyncEpoch += 1
+    // 快照落后于已应用的事件（请求发出期间有新变更）：不回退，等下轮对账
+    if (typeof res.revision === 'number' && res.revision < useInboxStore.getState().lastRev) {
+      store.endSync()
+      return res
+    }
+    if (cursor) store.appendList(res.messages, res.nextCursor, res.revision)
+    else store.setList(res.messages, res.nextCursor, res.revision)
+    if (typeof res.unreadCount === 'number') store.setUnreadCount(res.unreadCount)
+    if (res.stats) store.setStats(res.stats)
+    store.endSync()
+    return res
+  } catch (error) {
+    store.endSync(true)
+    throw error
+  }
+}
+// 事件合流后本地重算未读角标：已读/删除/新到消息统一收敛
+function recountUnread() {
+  const state = useInboxStore.getState()
+  state.setUnreadCount(
+    state.messages.filter((item) => isInboxUnread(item, state.deviceId) && !isInboxTrashed(item)).length,
+  )
 }
 export async function refreshInboxUnread() {
   const deviceId = useInboxStore.getState().deviceId
@@ -42,21 +64,62 @@ export function scheduleUnreadRefresh() {
   }, UNREAD_REFRESH_DEBOUNCE_MS)
 }
 
-// 先本地记账（badge/toast 即时），REST 失败时靠去抖刷新兜底
-export function markInboxRead(ids: string[]) {
+// 乐观变更统一收口：本地先记账（badge 即时），REST 挂 pendingSync，
+// 失败回源快照回滚（服务端才是权威）；WS updated 事件带 rev+权威态自会对账
+function optimisticInboxMutation<T>(mutate: () => Promise<T>) {
   const store = useInboxStore.getState()
-  const changed = store.markReadLocal(ids)
-  if (changed) void api.inbox.markReadBatch(ids, store.deviceId).catch(() => scheduleUnreadRefresh())
+  store.beginSync()
+  return mutate()
+    .then((res) => {
+      useInboxStore.getState().endSync()
+      return res
+    })
+    .catch((error) => {
+      useInboxStore.getState().endSync(true)
+      void refreshInboxList().catch(() => {})
+      throw error
+    })
+}
+
+export function markInboxRead(ids: string[], read = true) {
+  const store = useInboxStore.getState()
+  const changed = read ? store.markReadLocal(ids) : store.markUnreadLocal(ids)
+  if (changed) void optimisticInboxMutation(() => api.inbox.markReadBatch(ids, store.deviceId, read)).catch(() => {})
   return changed
 }
+// 删除=进回收站（软删），恢复/彻底删除是独立操作
 export function deleteInboxMessages(ids: string[]) {
   const store = useInboxStore.getState()
+  store.trashLocal(ids, true)
+  void optimisticInboxMutation(() => api.inbox.remove(ids)).catch(() => {})
+}
+export function restoreInboxMessages(ids: string[]) {
+  const store = useInboxStore.getState()
+  store.trashLocal(ids, false)
+  void optimisticInboxMutation(() => api.inbox.restore(ids)).catch(() => {})
+}
+export function purgeInboxMessages(ids: string[]) {
+  const store = useInboxStore.getState()
   store.removeMessages(ids)
-  void api.inbox.remove(ids).catch(() => void refreshInboxList())
+  void optimisticInboxMutation(() => api.inbox.purge(ids)).catch(() => {})
+}
+// 归档/恢复：乐观写 archivedAt（未读/回收站项被服务端跳过），
+// 失败回源快照回滚。归档后其他端靠 inbox_message_updated+rev 同步
+export function archiveInboxMessages(ids: string[], archived = true) {
+  const store = useInboxStore.getState()
+  const changed = store.archiveLocal(ids, archived)
+  if (changed)
+    void optimisticInboxMutation(() => api.inbox.archive(ids, archived))
+      .then((res) => {
+        // 服务端跳过了未读项：差异靠回源对账收正
+        if (res.skippedUnread > 0) void refreshInboxList().catch(() => {})
+      })
+      .catch(() => {})
+  return changed
 }
 
 function isUnreadForDevice(message: AgentInboxMessage, deviceId: string) {
-  return !!deviceId && !message.readBy.includes(deviceId)
+  return isInboxUnread(message, deviceId)
 }
 
 // WS 事件在断线/移动端后台休眠期间不重放：socket 死了推送全丢，
@@ -89,32 +152,35 @@ export function useInboxSync(options: { onMessageCreated?: (message: AgentInboxM
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') reconcile()
     }
-    const handleCreated = (detail: { message?: AgentInboxMessage }) => {
+    const handleCreated = (detail: { message?: AgentInboxMessage; rev?: number }) => {
       const message = detail?.message
       if (!message?.id) return
       const state = useInboxStore.getState()
       const known = state.messages.some((item) => item.id === message.id)
-      state.upsertMessage(message)
+      const verdict = state.applyInboxCreated(message, detail.rev)
+      // rev 跳号 = 丢事件：整个回源快照，不在这条事件上硬拼
+      if (verdict === 'gap') return void refreshInboxList().catch(() => {})
+      if (verdict !== 'applied') return
       if (!known && isUnreadForDevice(message, state.deviceId)) {
         useInboxStore.getState().setUnreadCount(state.unreadCount + 1)
         onMessageCreatedRef.current?.(message)
       } else scheduleUnreadRefresh()
     }
-    const handleUpdated = (detail: { message?: AgentInboxMessage }) => {
-      const message = detail?.message
-      if (!message?.id) return
+    const handleUpdated = (detail: { message?: AgentInboxMessage; messages?: AgentInboxMessage[]; rev?: number }) => {
+      // 兼容旧单条 payload 与新的批量 payload
+      const batch = detail?.messages || (detail?.message ? [detail.message] : [])
+      if (!batch.length) return
       const state = useInboxStore.getState()
-      const previous = state.messages.find((item) => item.id === message.id)
-      state.upsertMessage(message)
-      const wasUnread = previous ? isUnreadForDevice(previous, state.deviceId) : false
-      const nowUnread = isUnreadForDevice(message, state.deviceId)
-      if (wasUnread !== nowUnread) state.setUnreadCount(state.unreadCount + (nowUnread ? 1 : -1))
-      else if (!previous) scheduleUnreadRefresh()
+      const verdict = state.applyInboxUpdated(batch, detail.rev)
+      if (verdict === 'gap') return void refreshInboxList().catch(() => {})
+      if (verdict !== 'applied') return
+      recountUnread()
     }
-    const handleDeleted = (detail: { ids?: string[] }) => {
+    const handleDeleted = (detail: { ids?: string[]; rev?: number }) => {
       const ids = detail?.ids
       if (!Array.isArray(ids) || !ids.length) return
-      useInboxStore.getState().removeMessages(ids)
+      const verdict = useInboxStore.getState().applyInboxDeleted(ids, detail.rev)
+      if (verdict === 'gap') void refreshInboxList().catch(() => {})
     }
     const unsubs = [
       subscribeStreamEvent(STREAM_EVENT.inboxMessageCreated, handleCreated),

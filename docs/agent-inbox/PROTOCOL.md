@@ -42,6 +42,17 @@ interface AgentInboxMessage {
   }
   createdAt: string
   readBy: string[]
+  // readAt = global read timestamp: once any device reads, every device
+  // shows the message as read. readBy remains as per-device detail.
+  readAt?: string
+  // archivedAt = archived view: out of the active list, history kept.
+  // Only read messages may be archived; recoverable via view=archived.
+  archivedAt?: string
+  // deletedAt = trash (soft delete): recoverable via POST /api/inbox/restore;
+  // purged physically by POST /api/inbox/purge or after 7 days in trash.
+  deletedAt?: string
+  updatedAt?: string
+  rev?: number // store revision at the message's last state transition
   expiresAt?: string
   dedupeKey?: string
   metadata?: Record<string, unknown>
@@ -90,35 +101,51 @@ The existing multipart limit is 200 MiB per file and 20 files per request. v1 do
 }
 ```
 
-The response contains `messageId`, `assetId` (when applicable), `createdAt`, normalized `route`, and `deduplicated`. Assets are stored under the configured TmuxGo data directory in SHA-256 sharded paths. The server writes a temporary file, verifies size/hash, and renames atomically. Asset downloads are authenticated and support HTTP Range for video.
+The response contains `messageId`, `assetId` (when applicable), `createdAt`, normalized `route`, `deduplicated`, and `revision` (the store revision assigned to this push). Assets are stored under the configured TmuxGo data directory in SHA-256 sharded paths. The server writes a temporary file, verifies size/hash, and renames atomically. Asset downloads are authenticated and support HTTP Range for video.
 
 ## Read/acknowledge endpoints
 
 The v1 REST read side is:
 
-- `GET /api/inbox?cursor=&limit=&unread=&hostId=&sessionName=&paneId=` — paged metadata, newest first.
+- `GET /api/inbox?cursor=&limit=&unread=&view=&deviceId=&hostId=&sessionName=&paneId=` — paged metadata, newest first, plus `revision` (current store revision) and `stats` (`{messages,maxMessages,assetBytes,maxAssetBytes}`: message count excludes trash, asset bytes include trashed references). `unread=1` explicitly filters to unread; `deviceId` only requests the `unreadCount` field (global read semantics: `!readAt`, active view only) and never filters the list. `view` is `active` (default), `archived`, `trash`, or `all` (client mirror); legacy `archived=1`/`archived=all` still map to `view=archived`/`view=all`.
 - `GET /api/inbox/:messageId` — one message and metadata; no large blob in the list response.
 - `GET /api/inbox/assets/:assetId` — authenticated asset download/preview; supports Range.
-- `POST /api/inbox/:messageId/read` with `{ "deviceId": "..." }` — idempotently adds the device to `readBy`.
-- `POST /api/inbox/read` with `{ "deviceId": "...", "ids": ["..."] }` — batch acknowledgement.
+- `POST /api/inbox/:messageId/read` with `{ "deviceId": "...", "read?": true|false }` — idempotently adds the device to `readBy` and stamps `readAt`; `read:false` clears `readAt` and `readBy` (mark-unread, global semantics); response includes `revision`.
+- `POST /api/inbox/read` with `{ "deviceId": "...", "ids": ["..."], "read?": true|false }` — batch acknowledge/mark-unread (≤500 ids); response includes `revision`.
+- `POST /api/inbox/delete` with `{ "ids": ["..."] }` — moves messages to Trash (soft delete, ≤500 ids); response `removed` is the trashed count, fan-out is `inbox_message_updated` with `deletedAt` set. Read never deletes; archiving never deletes.
+- `POST /api/inbox/restore` with `{ "ids": ["..."] }` — restores trashed messages to their prior view (clears `deletedAt`); response `restored` count + `revision`.
+- `POST /api/inbox/purge` with `{ "ids": ["..."] }` — physically deletes **trashed** messages only and reclaims unreferenced assets; fan-out is `inbox_message_deleted`. Trashed messages also auto-purge after 7 days via sweep. This is the only operation that frees asset references.
+- `POST /api/inbox/archive` with `{ "ids": ["..."], "archived": true|false }` — archives read messages (hides them from the active view without deleting; `archived:false` restores). Idempotent, ≤500 ids, unread ids are refused and reported in `skippedUnread`; response includes `revision`. Fan-out is a regular `inbox_message_updated` batch. Read/archive/trash/tab-open are four separate states: reading never archives, archiving never deletes, only purge reclaims assets, and closing UI preview tabs touches none of them.
 - `POST /api/inbox/:messageId/share` `{ expiresInMinutes }` — creates a revocable, time-boxed public asset link (`/s/i/<id>.<secret>`); 5..10080 minutes. Only asset messages are shareable.
 - `GET /api/inbox/:messageId/shares` — lists active (non-expired, non-revoked) shares of a message; tokens are never returned after creation.
 - `DELETE /api/inbox/shares/:shareId` — revokes a share.
 - `GET /s/i/:token` — public download endpoint, deliberately outside `/api/*` auth. Serves `inline` only for a safe MIME whitelist (image except svg, video, audio, pdf, text/plain) with `nosniff` + `Content-Security-Policy: sandbox`; everything else downloads as attachment. Honors Range.
-- `POST /api/v1/control/inbox` — agent-token counterpart of the read side: `{ id? , cursor?, limit?, sessionName?, paneId? }` returns the same metadata (including `readBy`) so agents can confirm delivery vs read. Not readable as user auth; requires the control-plane guard.
+- `POST /api/v1/control/inbox` — agent-token counterpart of the read side: `{ id? , cursor?, limit?, sessionName?, paneId? }` returns the same metadata (including `readBy`, `readAt`) plus `revision`, so agents can confirm delivery vs read. Not readable as user auth; requires the control-plane guard.
 
 The frontend stores only message ids/tab order locally. After refresh it hydrates metadata through REST. `deviceId` is a viewer/device key, not part of the agent route.
+
+## Multi-device state model
+
+The gateway JSON store is the single source of truth. localStorage on clients persists UI prefs (tabs, filter, scroll) only — never message facts.
+
+- `revision`: a monotonic integer on the store, bumped once per state transition (push, mark-read/mark-unread, archive, trash, restore, purge, TTL/FIFO/quota/trash-expiry eviction) and persisted. Each mutation also stamps `rev` on the touched messages. List/push/mutation responses all return the current `revision`.
+- Read semantics: `readAt` marks a message read for the whole account — one device's read clears the unread state on every device. `readBy` keeps per-device detail (≤64) for compatibility. Legacy records with `readBy` entries are treated as read on load.
+- Tombstones: deleted ids are remembered client-side (bounded) so a late `inbox_message_updated` cannot resurrect a removed message; `updated` events never create messages.
 
 ## Realtime events
 
 The existing authenticated agent stream sends metadata-only events:
 
-- `inbox_message_created`
-- `inbox_message_updated` (also emitted per-message on mark-read)
-- `inbox_message_deleted` `{ ids: string[] }` (REST/UI deletion fan-out)
+- `inbox_message_created` `{ message, rev }`
+- `inbox_message_updated` `{ messages: AgentInboxMessage[], rev }` (one event per batch: mark-read/unread, archive/restore, trash/restore all use this shape)
+- `inbox_message_deleted` `{ ids: string[], rev }` (physical removal only: purge and TTL/FIFO/quota/trash-expiry eviction)
 - `inbox_open_target` (navigation request for the UI)
 
-No binary data or base64 media is sent over WebSocket. The frontend invalidates/merges the inbox cursor and fetches content through REST. After reconnect, it uses the last cursor to fill gaps.
+Closing preview tabs ("close all tabs" in the desktop panel) is a purely local UI action — it emits no inbox event and mutates no message state.
+
+Clients keep `lastRev` from the latest snapshot (`GET /api/inbox` → `revision`). Events apply only when `rev === lastRev + 1`; `rev <= lastRev` is a duplicate/out-of-order event and is dropped; a jump means a missed event and triggers a full list refetch. After reconnect the client refetches the snapshot rather than trusting replayed events. A stale snapshot (`revision < lastRev`) is discarded instead of rolling back live state.
+
+No binary data or base64 media is sent over WebSocket. The frontend invalidates/merges the inbox cursor and fetches content through REST.
 
 `inbox_open_target` contains only a validated route and optional `messageId`; the UI performs `setActiveSession`/`setActivePane` and never lets the MCP server directly control the browser.
 
