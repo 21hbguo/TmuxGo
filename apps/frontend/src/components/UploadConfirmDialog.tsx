@@ -20,6 +20,8 @@ import type { FileUploadTarget } from '@/types'
 import { Button } from './Button'
 import { ModalPortal } from './ModalPortal'
 import { Select } from './Select'
+import { WorkspaceDirectoryPicker } from './WorkspaceDirectoryPicker'
+import { FiFolder } from 'react-icons/fi'
 
 export function UploadConfirmDialog() {
   const uploadRequest = useConsoleStore((s) => s.uploadRequest)
@@ -38,6 +40,7 @@ export function UploadConfirmDialog() {
   const { t } = useTranslation()
   const [targetRootId, setTargetRootId] = useState('')
   const [targetPath, setTargetPath] = useState('')
+  const [dirPickerOpen, setDirPickerOpen] = useState(false)
   const [insertPaths, setInsertPaths] = useState(false)
   const [insertPaneId, setInsertPaneId] = useState('')
   const [insertFormat, setInsertFormat] = useState<'inline' | 'lines'>('inline')
@@ -355,13 +358,27 @@ export function UploadConfirmDialog() {
               className="rounded-apple px-3 py-2 text-sm disabled:opacity-70"
             />
             <label className="text-sm text-text-2">{t('upload.directory')}</label>
-            <input
-              value={targetPath}
-              onChange={(e) => setTargetPath(e.target.value)}
-              disabled={!!uploadRequest?.temporary}
-              placeholder={t('upload.directory')}
-              className="tmuxgo-control tmuxgo-input rounded-apple px-3 py-2 font-mono text-sm disabled:opacity-70"
-            />
+            <div className="flex gap-1.5">
+              <input
+                value={targetPath}
+                onChange={(e) => setTargetPath(e.target.value)}
+                disabled={!!uploadRequest?.temporary}
+                placeholder={t('upload.directory')}
+                className="tmuxgo-control tmuxgo-input min-w-0 flex-1 rounded-apple px-3 py-2 font-mono text-sm disabled:opacity-70"
+              />
+              {/* 与工作区目录选择同一弹窗；弹窗层级需高于本对话框（z-120） */}
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label={t('uploadTab.browse')}
+                title={t('uploadTab.browse')}
+                disabled={!!uploadRequest?.temporary}
+                onClick={() => setDirPickerOpen(true)}
+              >
+                <FiFolder aria-hidden="true" size={15} />
+                {t('uploadTab.browse')}
+              </Button>
+            </div>
             <label className="text-sm text-text-2">{t('upload.target')}</label>
             <div className="rounded-apple border border-[var(--line)] bg-bg-0 px-3 py-2 font-mono text-xs text-text-2">
               {loadingTarget ? t('upload.resolving') : pathPreview || '-'}
@@ -448,6 +465,21 @@ export function UploadConfirmDialog() {
           </div>
         </div>
       </div>
+      {dirPickerOpen && (
+        <WorkspaceDirectoryPicker
+          hostId={hostId}
+          title={t('uploadTab.pickDirectory')}
+          initialRootId={targetRootId}
+          initialPath={targetPath}
+          zClass="z-[130]"
+          onPick={(target) => {
+            setTargetRootId(target.rootId)
+            setTargetPath(target.relativePath)
+            setDirPickerOpen(false)
+          }}
+          onClose={() => setDirPickerOpen(false)}
+        />
+      )}
     </ModalPortal>
   )
 }

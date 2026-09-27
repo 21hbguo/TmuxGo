@@ -899,6 +899,8 @@ export const zh = {
   'uploadTab.clear': '清空',
   'uploadTab.remove': '移除',
   'uploadTab.dropHint': '可拖入或粘贴文件到此面板',
+  'uploadTab.browse': '浏览',
+  'uploadTab.pickDirectory': '选择上传目录',
   'uploadTab.skipOversized': '超 {max} 上限×{count}',
   'uploadTab.skipDuplicate': '重复×{count}',
   'uploadTab.skipOverflow': '超单批 {max} 个上限×{count}',

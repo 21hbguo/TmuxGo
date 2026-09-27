@@ -79,6 +79,23 @@ vi.mock('@/i18n', () => ({
     t: (key: string, vars?: Record<string, unknown>) => (vars ? `${key} ${JSON.stringify(vars)}` : key),
   }),
 }))
+// 目录浏览弹窗本身有独立测试覆盖；这里换成桩验证接线
+vi.mock('./WorkspaceDirectoryPicker', () => ({
+  WorkspaceDirectoryPicker: (props: any) =>
+    React.createElement('button', {
+      'data-testid': 'dir-picker',
+      'data-root': props.initialRootId,
+      'data-path': props.initialPath,
+      onClick: () =>
+        props.onPick({
+          rootId: 'root-home',
+          rootPath: '/home/user',
+          rootLabel: 'Home',
+          relativePath: 'picked/dir',
+          absolutePath: '/home/user/picked/dir',
+        }),
+    }),
+}))
 
 const file = (name: string, size = 4) => new File(['x'.repeat(size)], name, { type: 'text/plain' })
 const setRequest = (request: any) => {
@@ -136,6 +153,29 @@ describe('UploadConfirmDialog', () => {
     await waitFor(() =>
       expect(updateUploadJob).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ status: 'success' })),
     )
+  })
+
+  it('applies a directory picked from the workspace picker to the upload body', async () => {
+    setRequest({ files: [file('demo.txt', 10)], preferredRootId: 'root-workspace', preferredPath: 'src' })
+    render(React.createElement(UploadConfirmDialog))
+    fireEvent.click(screen.getByRole('button', { name: 'uploadTab.browse' }))
+    const picker = await screen.findByTestId('dir-picker')
+    // 打开即停在当前确认目标
+    expect(picker.getAttribute('data-root')).toBe('root-workspace')
+    expect(picker.getAttribute('data-path')).toBe('src')
+    fireEvent.click(picker)
+    fireEvent.click(screen.getByRole('button', { name: 'upload.upload' }))
+    await waitFor(() => expect(api.files.upload).toHaveBeenCalledTimes(1))
+    const [, body] = vi.mocked(api.files.upload).mock.calls[0] as any[]
+    expect(body.get('targetRootId')).toBe('root-home')
+    expect(body.get('targetPath')).toBe('picked/dir')
+  })
+
+  it('disables the browse entry for temporary uploads', async () => {
+    setRequest({ files: [file('demo.txt', 10)], temporary: true })
+    render(React.createElement(UploadConfirmDialog))
+    await waitFor(() => expect(api.files.temporaryUploadTarget).toHaveBeenCalled())
+    expect((screen.getByRole('button', { name: 'uploadTab.browse' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
   it('removes the replaced failed job only after the retry submission goes through', async () => {

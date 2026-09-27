@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { FiUpload, FiX } from 'react-icons/fi'
+import { FiFolder, FiUpload, FiX } from 'react-icons/fi'
 import { api } from '@/lib/api'
 import {
   CATEGORY_ICON,
@@ -22,6 +22,7 @@ import { Button } from './Button'
 import { ModalPortal } from './ModalPortal'
 import { Select } from './Select'
 import { UploadJobCard } from './UploadJobCard'
+import { WorkspaceDirectoryPicker } from './WorkspaceDirectoryPicker'
 
 // 独立上传入口页：选择文件（全局常驻 input）→ 目标预选可见可改 → 复用
 // UploadConfirmDialog 做安全确认与队列。任务存全局 store，离开本页不取消、重进可见。
@@ -41,6 +42,7 @@ export function UploadPanel({ mode = 'desktop', onClose }: { mode?: 'mobile' | '
   const { data: roots = [] } = useFileRoots(effectiveHostId)
   const [targetRootId, setTargetRootId] = useState('')
   const [targetPath, setTargetPath] = useState('')
+  const [dirPickerOpen, setDirPickerOpen] = useState(false)
   const [loadingTarget, setLoadingTarget] = useState(false)
   const [initializedHost, setInitializedHost] = useState('')
   useEscapeClose(() => onClose?.(), mode === 'desktop')
@@ -246,12 +248,25 @@ export function UploadPanel({ mode = 'desktop', onClose }: { mode?: 'mobile' | '
             aria-label={t('upload.root')}
           />
           <label className="block text-caption text-text-3">{t('upload.directory')}</label>
-          <input
-            value={targetPath}
-            onChange={(e) => setTargetPath(e.target.value)}
-            placeholder={t('upload.directory')}
-            className="tmuxgo-control tmuxgo-input w-full rounded-apple px-3 py-2 font-mono text-sm"
-          />
+          <div className="flex gap-1.5">
+            <input
+              value={targetPath}
+              onChange={(e) => setTargetPath(e.target.value)}
+              placeholder={t('upload.directory')}
+              className="tmuxgo-control tmuxgo-input min-w-0 flex-1 rounded-apple px-3 py-2 font-mono text-sm"
+            />
+            {/* 与工作区目录选择同一弹窗；选中回填 root + 相对路径 */}
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label={t('uploadTab.browse')}
+              title={t('uploadTab.browse')}
+              onClick={() => setDirPickerOpen(true)}
+            >
+              <FiFolder aria-hidden="true" size={15} />
+              {t('uploadTab.browse')}
+            </Button>
+          </div>
         </div>
         {stagedFiles.length > 0 && (
           <Button
@@ -294,6 +309,20 @@ export function UploadPanel({ mode = 'desktop', onClose }: { mode?: 'mobile' | '
           )}
         </div>
       </div>
+      {dirPickerOpen && (
+        <WorkspaceDirectoryPicker
+          hostId={effectiveHostId}
+          title={t('uploadTab.pickDirectory')}
+          initialRootId={targetRootId}
+          initialPath={targetPath}
+          onPick={(target) => {
+            setTargetRootId(target.rootId)
+            setTargetPath(target.relativePath)
+            setDirPickerOpen(false)
+          }}
+          onClose={() => setDirPickerOpen(false)}
+        />
+      )}
     </div>
   )
 
