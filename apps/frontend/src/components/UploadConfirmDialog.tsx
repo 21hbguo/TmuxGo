@@ -55,7 +55,8 @@ export function UploadConfirmDialog() {
   const [temporaryTarget, setTemporaryTarget] = useState<FileUploadTarget | null>(null)
   const initializedRequestRef = useRef('')
   const rootsRef = useRef(roots)
-  const files = uploadRequest?.files || []
+  // useMemo 包裹避免 `|| []` 每次渲染新引用导致下游 memo 失效（exhaustive-deps 告警）
+  const files = useMemo(() => uploadRequest?.files || [], [uploadRequest])
   const open = files.length > 0
   const totalSize = useMemo(() => files.reduce((sum, file) => sum + file.size, 0), [files])
   const categorySummary = useMemo(() => summarizeCategories(files), [files])
