@@ -261,6 +261,40 @@ describe('UploadPanel', () => {
     vi.unstubAllGlobals()
   })
 
+  it('reports copy failure when the clipboard API is unavailable', async () => {
+    vi.stubGlobal('navigator', { ...navigator, clipboard: undefined })
+    storeState.uploadJobs = [
+      {
+        id: 'j-ok',
+        hostId: 'local',
+        files: [{ name: 'a.png', size: 4 }],
+        targetRootId: 'root-workspace',
+        targetPath: 'dl',
+        insertPaths: false,
+        loadedBytes: 4,
+        totalBytes: 4,
+        status: 'success',
+        createdAt: '2026-09-26T00:00:00Z',
+        result: {
+          ok: true,
+          target: {
+            rootId: 'root-workspace',
+            rootLabel: 'w',
+            rootPath: '/w',
+            path: 'dl',
+            absolutePath: '/w/dl',
+            source: 'pane',
+          },
+          files: [{ name: 'a.png', path: 'dl/a.png', absolutePath: '/w/dl/a.png', size: 4 }],
+        },
+      },
+    ]
+    render(React.createElement(UploadPanel, { mode: 'mobile' }))
+    fireEvent.click(screen.getByRole('button', { name: 'uploadQueue.copyPaths' }))
+    await waitFor(() => expect(pushToast).toHaveBeenCalledWith(expect.objectContaining({ type: 'error' })))
+    vi.unstubAllGlobals()
+  })
+
   it('stages dropped real files and ignores non-file drags', () => {
     const { container } = render(React.createElement(UploadPanel, { mode: 'mobile' }))
     const zone = container.querySelector('.tmuxgo-scrollbar')!
