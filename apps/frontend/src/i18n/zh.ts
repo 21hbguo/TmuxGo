@@ -892,6 +892,14 @@ export const zh = {
   'uploadTab.noJobs': '暂无传输任务',
   'uploadTab.clear': '清空',
   'uploadTab.remove': '移除',
+  'uploadCat.image': '图片',
+  'uploadCat.video': '视频',
+  'uploadCat.audio': '音频',
+  'uploadCat.archive': '压缩包',
+  'uploadCat.document': '文档',
+  'uploadCat.code': '代码',
+  'uploadCat.text': '文本',
+  'uploadCat.other': '其他',
 
   // UploadQueue
   'uploadQueue.title': '上传队列',

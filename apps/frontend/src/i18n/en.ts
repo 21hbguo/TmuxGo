@@ -899,6 +899,14 @@ export const en = {
   'uploadTab.noJobs': 'No transfers yet',
   'uploadTab.clear': 'Clear',
   'uploadTab.remove': 'Remove',
+  'uploadCat.image': 'Image',
+  'uploadCat.video': 'Video',
+  'uploadCat.audio': 'Audio',
+  'uploadCat.archive': 'Archive',
+  'uploadCat.document': 'Document',
+  'uploadCat.code': 'Code',
+  'uploadCat.text': 'Text',
+  'uploadCat.other': 'Other',
 
   // UploadQueue
   'uploadQueue.title': 'Upload Queue',
