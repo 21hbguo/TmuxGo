@@ -56,6 +56,7 @@ const FilePanel = dynamic(() => import('./FilePanel').then((m) => ({ default: m.
 const GitPanel = dynamic(() => import('./GitPanel').then((m) => ({ default: m.GitPanel })))
 const PluginView = dynamic(() => import('./PluginView').then((m) => ({ default: m.PluginView })))
 const DesktopView = dynamic(() => import('./DesktopView').then((m) => ({ default: m.DesktopView })))
+const BrowserView = dynamic(() => import('./BrowserView').then((m) => ({ default: m.BrowserView })))
 const UploadPanel = dynamic(() => import('./UploadPanel').then((m) => ({ default: m.UploadPanel })))
 const MOBILE_RECENT_SESSIONS_KEY_PREFIX = 'tmuxgo-mobile-recent-sessions:'
 const MOBILE_PINNED_SESSIONS_KEY_PREFIX = 'tmuxgo-mobile-pinned-sessions:'
@@ -142,6 +143,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
   const [mobileGitSheetOpen, setMobileGitSheetOpen] = useState(false)
   const [mobilePluginView, setMobilePluginView] = useState<{ pluginId: string; viewId: string } | null>(null)
   const activeDesktop = useConsoleStore((s) => s.activeDesktop)
+  const activeBrowser = useConsoleStore((s) => s.activeBrowser)
   const [keyboardOpen, setKeyboardOpen] = useState(false)
   const [mobileRecentSessionIds, setMobileRecentSessionIds] = useState<string[]>([])
   const [mobilePinnedSessionIds, setMobilePinnedSessionIds] = useState<string[]>([])
@@ -753,6 +755,10 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
   useEffect(() => {
     if (activeDesktop && !activeDesktop.minimized && isMobile) pushOverlay('desktop')
   }, [activeDesktop, isMobile, pushOverlay])
+  // 浏览器视图同理：移动端全屏覆盖层进 history 栈
+  useEffect(() => {
+    if (activeBrowser && !activeBrowser.minimized && isMobile) pushOverlay('browser')
+  }, [activeBrowser, isMobile, pushOverlay])
   useEffect(() => {
     setMobileRecentSessionIds(readMobileRecentSessions(activeHostId || ''))
     setMobilePinnedSessionIds(readMobilePinnedSessions(activeHostId || ''))
@@ -1065,6 +1071,28 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
               onClose={() => {
                 useConsoleStore.getState().setActiveDesktop(null)
                 closeOverlay('desktop')
+              }}
+            />
+          </DesktopWindow>
+        </div>
+      )}
+      {activeBrowser && (
+        // 同 DesktopView 保活模式：minimized 用 visibility 隐藏不卸载，WS/screencast 不断流
+        <div
+          className={`fixed inset-0 z-[85] ${
+            activeBrowser.minimized ? 'invisible' : activeBrowser.view === 'window' ? 'pointer-events-none' : 'bg-bg-0'
+          }`}
+          style={{ height: 'var(--app-height,100dvh)' }}
+        >
+          <DesktopWindow windowed={activeBrowser.view === 'window'}>
+            <BrowserView
+              hostId={activeBrowser.hostId}
+              view={activeBrowser.view}
+              onViewChange={(view) => useConsoleStore.getState().setBrowserView(view)}
+              onMinimize={() => useConsoleStore.getState().setBrowserMinimized(true)}
+              onClose={() => {
+                useConsoleStore.getState().setActiveBrowser(null)
+                closeOverlay('browser')
               }}
             />
           </DesktopWindow>

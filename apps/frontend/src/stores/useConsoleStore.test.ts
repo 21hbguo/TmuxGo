@@ -331,6 +331,47 @@ describe('useConsoleStore editor persistence', () => {
     // 切视图同时解除最小化
     expect(useConsoleStore.getState().activeDesktop).toMatchObject({ view: 'full', minimized: false })
   })
+  it('minimizes and restores the browser instead of closing it', async () => {
+    const { useConsoleStore } = await import('./useConsoleStore')
+    useConsoleStore.getState().toggleBrowser('local')
+    let browser = useConsoleStore.getState().activeBrowser
+    expect(browser).toMatchObject({ hostId: 'local', view: 'full', minimized: false })
+    // 可见时再点 → 最小化挂后台（WS 不断），activeBrowser 保留
+    useConsoleStore.getState().toggleBrowser('local')
+    browser = useConsoleStore.getState().activeBrowser
+    expect(browser).toMatchObject({ hostId: 'local', minimized: true })
+    useConsoleStore.getState().toggleBrowser('local')
+    browser = useConsoleStore.getState().activeBrowser
+    expect(browser).toMatchObject({ hostId: 'local', minimized: false })
+    useConsoleStore.getState().setActiveBrowser(null)
+    expect(useConsoleStore.getState().activeBrowser).toBeNull()
+  })
+  it('parks the fullscreen browser when another panel opens but keeps a floating window', async () => {
+    const { useConsoleStore } = await import('./useConsoleStore')
+    useConsoleStore.getState().toggleBrowser('local')
+    useConsoleStore.getState().toggleGitPanel()
+    expect(useConsoleStore.getState().gitPanelOpen).toBe(true)
+    expect(useConsoleStore.getState().activeBrowser).toMatchObject({ minimized: true })
+    // 窗口态不受影响
+    useConsoleStore.getState().setBrowserView('window')
+    useConsoleStore.getState().setBrowserMinimized(false)
+    useConsoleStore.getState().toggleFilePanel()
+    expect(useConsoleStore.getState().filePanelOpen).toBe(true)
+    expect(useConsoleStore.getState().activeBrowser).toMatchObject({ view: 'window', minimized: false })
+  })
+  it('mutually parks browser and desktop when either opens', async () => {
+    const { useConsoleStore } = await import('./useConsoleStore')
+    useConsoleStore.getState().toggleBrowser('local')
+    useConsoleStore.getState().toggleDesktop('local', 5900)
+    // 开桌面 → 全屏浏览器挂后台
+    expect(useConsoleStore.getState().activeDesktop).toMatchObject({ minimized: false })
+    expect(useConsoleStore.getState().activeBrowser).toMatchObject({ minimized: true })
+    useConsoleStore.getState().setBrowserMinimized(false)
+    // 再开浏览器（setActiveBrowser 等价于新开）→ 桌面挂后台
+    useConsoleStore.getState().setActiveBrowser({ hostId: 'local' })
+    expect(useConsoleStore.getState().activeBrowser).toMatchObject({ view: 'full', minimized: false })
+    expect(useConsoleStore.getState().activeDesktop).toMatchObject({ minimized: true })
+  })
   it('replaces an unmodified preview tab when opening another file', async () => {
     const { useConsoleStore } = await import('./useConsoleStore')
     const editor2 = createEditor('local:root-workspace:src/other.ts', 'src/other.ts')

@@ -1162,6 +1162,18 @@ export const api = {
         body: JSON.stringify({ display }),
       }),
   },
+  // 侧边栏内嵌浏览器：P0 仅本机实例，REST 面不带 hostId；WS 走 /api/browser/stream + ticket
+  browser: {
+    status: () => fetchApi<BrowserStatusResponse>('/api/browser/status'),
+    setup: () => fetchApi<BrowserSetupResponse>('/api/browser/setup'),
+    launch: () => fetchApi<BrowserStatusResponse & { ok?: boolean }>('/api/browser/launch', { method: 'POST' }),
+    stop: () => fetchApi<{ ok: true }>('/api/browser/stop', { method: 'POST' }),
+    navigate: (url: string, targetId?: string) =>
+      fetchApi<{ ok: true }>('/api/browser/navigate', {
+        method: 'POST',
+        body: JSON.stringify({ url, targetId }),
+      }),
+  },
 }
 
 export interface VncDisplay {
@@ -1179,5 +1191,29 @@ export interface VncSetupStatus {
   listening: boolean
   sudo: boolean
   supported: boolean
+  hint: string
+}
+
+export interface BrowserPageInfo {
+  id: string
+  url: string
+  title: string
+  type?: string
+}
+
+export type BrowserEngineState = 'idle' | 'launching' | 'ready' | 'error'
+
+export interface BrowserStatusResponse {
+  state: BrowserEngineState
+  engine: string | null
+  pid: number | null
+  cdpPort: number | null
+  pages: BrowserPageInfo[]
+  activeTargetId: string | null
+  error?: string
+}
+
+export interface BrowserSetupResponse {
+  status: { installed: boolean; binary: string | null; headlessShell: boolean }
   hint: string
 }
