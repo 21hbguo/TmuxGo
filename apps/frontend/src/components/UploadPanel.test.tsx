@@ -3,11 +3,13 @@ import React from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { UploadPanel } from './UploadPanel'
 import { api } from '@/lib/api'
+import { MAX_UPLOAD_FILE_BYTES } from '@/lib/file-meta'
 
 const removeUploadJob = vi.fn()
 const clearFinishedUploadJobs = vi.fn()
 const openUploadDialog = vi.fn()
 const setStagedUploadFiles = vi.fn()
+const pushToast = vi.fn()
 
 let hostsData: any[] = [
   { id: 'local', name: 'Local', status: 'online' },
@@ -29,6 +31,7 @@ const storeForSelector = () => ({
   clearFinishedUploadJobs,
   openUploadDialog,
   setStagedUploadFiles,
+  pushToast,
 })
 
 vi.mock('@/stores/useConsoleStore', () => ({
@@ -171,6 +174,35 @@ describe('UploadPanel', () => {
     const closes = screen.getAllByRole('button', { name: 'uploadQueue.close' })
     fireEvent.click(closes[1])
     expect(removeUploadJob).toHaveBeenCalledWith('j2')
+  })
+
+  it('stages dropped real files and ignores non-file drags', () => {
+    const { container } = render(React.createElement(UploadPanel, { mode: 'mobile' }))
+    const zone = container.querySelector('.tmuxgo-scrollbar')!
+    const dropped = file('drop.png', 10)
+    fireEvent.drop(zone, { dataTransfer: { files: [dropped], types: ['Files'] } })
+    expect(setStagedUploadFiles).toHaveBeenCalledWith([dropped])
+    // 面板内部条目拖拽不带 files，不触发暂存
+    fireEvent.drop(zone, { dataTransfer: { files: [], types: ['tmuxgo/file'] } })
+    expect(setStagedUploadFiles).toHaveBeenCalledTimes(1)
+  })
+
+  it('stages clipboard files on paste and leaves text paste untouched', () => {
+    render(React.createElement(UploadPanel, { mode: 'mobile' }))
+    const pasted = file('clip.txt', 5)
+    fireEvent.paste(document, { clipboardData: { files: [pasted] } })
+    expect(setStagedUploadFiles).toHaveBeenCalledWith([pasted])
+    fireEvent.paste(document, { clipboardData: { files: [], getData: () => 'plain text' } })
+    expect(setStagedUploadFiles).toHaveBeenCalledTimes(1)
+  })
+
+  it('toasts rejections instead of staging oversized files', () => {
+    const oversized = file('huge.iso', 4)
+    Object.defineProperty(oversized, 'size', { value: MAX_UPLOAD_FILE_BYTES + 1 })
+    render(React.createElement(UploadPanel, { mode: 'mobile' }))
+    fireEvent.paste(document, { clipboardData: { files: [oversized] } })
+    expect(setStagedUploadFiles).not.toHaveBeenCalled()
+    expect(pushToast).toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }))
   })
 
   it('renders empty-jobs placeholder and closes via header button', () => {

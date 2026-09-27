@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { FiUpload, FiX } from 'react-icons/fi'
 import { api } from '@/lib/api'
 import {
@@ -10,6 +10,8 @@ import {
   fileCategory,
   fileTypeLabel,
   formatFileSize,
+  stageRejectionMessage,
+  stageUploadFiles,
   summarizeCategories,
 } from '@/lib/file-meta'
 import { useConsoleStore } from '@/stores/useConsoleStore'
@@ -88,6 +90,7 @@ export function UploadPanel({ mode = 'desktop', onClose }: { mode?: 'mobile' | '
   const stagedFiles = useConsoleStore((s) => s.stagedUploadFiles)
   const setStagedUploadFiles = useConsoleStore((s) => s.setStagedUploadFiles)
   const openUploadDialog = useConsoleStore((s) => s.openUploadDialog)
+  const pushToast = useConsoleStore((s) => s.pushToast)
   const removeUploadJob = useConsoleStore((s) => s.removeUploadJob)
   const clearFinishedUploadJobs = useConsoleStore((s) => s.clearFinishedUploadJobs)
   const { data: hosts = [] } = useHosts()
@@ -136,6 +139,49 @@ export function UploadPanel({ mode = 'desktop', onClose }: { mode?: 'mobile' | '
   const pickFiles = () => {
     window.dispatchEvent(new CustomEvent('tmuxgo-pick-upload-files', { detail: { stage: true } }))
   }
+  const [dragActive, setDragActive] = useState(false)
+  // 三条入口共用同一暂存校验；读 getState 保证拖拽/粘贴回调拿到最新暂存
+  const stageIncoming = useCallback(
+    (incoming: File[]) => {
+      if (!incoming.length) return
+      const before = useConsoleStore.getState().stagedUploadFiles
+      const staged = stageUploadFiles(before, incoming)
+      if (staged.files.length !== before.length) setStagedUploadFiles(staged.files)
+      if (staged.rejected.length) pushToast({ type: 'error', message: stageRejectionMessage(staged.rejected, t) })
+    },
+    [setStagedUploadFiles, pushToast, t],
+  )
+  // 拖放仅认真实文件（types 含 Files）——面板内部条目拖拽没有 files，不误触发；
+  // 移动端浏览器基本不产生文件拖拽/粘贴事件，挂着也无副作用
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (!e.dataTransfer?.types?.includes('Files')) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
+    setDragActive(true)
+  }, [])
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragActive(false)
+  }, [])
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      if (!e.dataTransfer?.files?.length) return
+      e.preventDefault()
+      setDragActive(false)
+      stageIncoming(Array.from(e.dataTransfer.files))
+    },
+    [stageIncoming],
+  )
+  // 剪贴板带文件才接管（preventDefault）；纯文本粘贴照常落到输入框
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const files = Array.from(e.clipboardData?.files || [])
+      if (!files.length) return
+      e.preventDefault()
+      stageIncoming(files)
+    }
+    window.addEventListener('paste', onPaste)
+    return () => window.removeEventListener('paste', onPaste)
+  }, [stageIncoming])
   const removeStaged = (index: number) => setStagedUploadFiles(stagedFiles.filter((_: File, i: number) => i !== index))
   const stagedSize = stagedFiles.reduce((sum: number, file: File) => sum + file.size, 0)
   const stagedCategories = useMemo(() => summarizeCategories(stagedFiles), [stagedFiles])
@@ -167,7 +213,12 @@ export function UploadPanel({ mode = 'desktop', onClose }: { mode?: 'mobile' | '
           </button>
         )}
       </div>
-      <div className="tmuxgo-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
+      <div
+        className={`tmuxgo-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto p-3 ${dragActive ? 'ring-1 ring-inset ring-accent' : ''}`}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
         <Button variant="primary" size="sm" className="w-full justify-center" onClick={pickFiles}>
           <FiUpload aria-hidden="true" size={14} className="mr-1.5 inline" />
           {t('uploadTab.chooseFiles')}
@@ -177,6 +228,8 @@ export function UploadPanel({ mode = 'desktop', onClose }: { mode?: 'mobile' | '
             maxFile: formatFileSize(MAX_UPLOAD_FILE_BYTES),
             maxCount: MAX_UPLOAD_FILES,
           })}
+          {' · '}
+          {t('uploadTab.dropHint')}
         </div>
         {stagedFiles.length > 0 && (
           <div className="rounded-apple border border-[var(--line)] bg-bg-0">
