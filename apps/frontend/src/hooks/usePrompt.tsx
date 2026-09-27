@@ -8,7 +8,7 @@ interface PromptState {
   resolve: (value: string | null) => void
 }
 
-export function usePrompt() {
+export function usePrompt(options?: { zIndex?: number }) {
   const [state, setState] = useState<PromptState | null>(null)
   const { t } = useTranslation()
 
@@ -18,10 +18,13 @@ export function usePrompt() {
     })
   }, [])
 
-  const handleConfirm = useCallback((value: string) => {
-    state?.resolve(value)
-    setState(null)
-  }, [state])
+  const handleConfirm = useCallback(
+    (value: string) => {
+      state?.resolve(value)
+      setState(null)
+    },
+    [state],
+  )
 
   const handleCancel = useCallback(() => {
     state?.resolve(null)
@@ -37,6 +40,7 @@ export function usePrompt() {
       cancelLabel={t('common.cancel')}
       onConfirm={handleConfirm}
       onCancel={handleCancel}
+      zIndex={options?.zIndex}
     />
   ) : null
 
