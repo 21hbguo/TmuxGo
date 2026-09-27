@@ -7,6 +7,7 @@ import {
   FiActivity,
   FiBox,
   FiCode,
+  FiCompass,
   FiCpu,
   FiDatabase,
   FiGlobe,
@@ -42,6 +43,8 @@ export function ActivityBar() {
   const activeHostId = useConsoleStore((state) => state.activeHostId)
   const activeDesktop = useConsoleStore((state) => state.activeDesktop)
   const toggleDesktop = useConsoleStore((state) => state.toggleDesktop)
+  const activeBrowser = useConsoleStore((state) => state.activeBrowser)
+  const toggleBrowser = useConsoleStore((state) => state.toggleBrowser)
   const toggleGitPanel = useConsoleStore((state) => state.toggleGitPanel)
   const inboxPanelOpen = useInboxStore((state) => state.panelOpen)
   const inboxUnread = useInboxStore((state) => state.unreadCount)
@@ -56,6 +59,12 @@ export function ActivityBar() {
     { id: 'files', label: t('activity.explorer'), icon: FiFolder, onClick: toggleFilePanel },
     { id: 'git', label: t('git.title'), icon: FiGitBranch, onClick: toggleGitPanel },
     { id: 'desktop', label: t('vnc.title'), icon: FiMonitor, onClick: () => toggleDesktop(activeHostId || 'local') },
+    {
+      id: 'browser',
+      label: t('browser.title'),
+      icon: FiCompass,
+      onClick: () => toggleBrowser(activeHostId || 'local'),
+    },
     {
       id: 'inbox',
       label: t('inbox.title'),
@@ -90,9 +99,11 @@ export function ActivityBar() {
                   ? gitPanelOpen
                   : item.id === 'desktop'
                     ? !!activeDesktop
-                    : item.id === 'inbox'
-                      ? inboxPanelOpen
-                      : false
+                    : item.id === 'browser'
+                      ? !!activeBrowser
+                      : item.id === 'inbox'
+                        ? inboxPanelOpen
+                        : false
         const Icon = item.icon
         const unread = item.id === 'inbox' ? inboxUnread : 0
         return (

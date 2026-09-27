@@ -12,6 +12,7 @@ import { sessionRoutes } from './routes/sessions.js'
 import { windowRoutes } from './routes/windows.js'
 import { streamRoutes } from './routes/stream.js'
 import { vncRoutes } from './routes/vnc.js'
+import { browserRoutes } from './routes/browser.js'
 import { systemRoutes } from './routes/system.js'
 import { paneRoutes } from './routes/panes.js'
 import { fileRoutes } from './routes/files.js'
@@ -78,6 +79,7 @@ fastify.addHook('onRequest', async (request, reply) => {
     !routePath.startsWith('/api/') ||
     routePath === '/api/stream' ||
     routePath === '/api/vnc' ||
+    routePath === '/api/browser/stream' ||
     routePath === '/api/agent-events' ||
     routePath === '/api/v1/control/panes/split' ||
     routePath === '/api/v1/control/panes/read' ||
@@ -85,6 +87,7 @@ fastify.addHook('onRequest', async (request, reply) => {
     routePath === '/api/v1/control/push' ||
     routePath === '/api/v1/control/open-target' ||
     routePath === '/api/v1/control/inbox' ||
+    routePath === '/api/v1/control/browser' ||
     routePath === '/api/auth/status' ||
     routePath === '/api/auth/login' ||
     routePath === '/api/auth/refresh' ||
@@ -137,6 +140,7 @@ await fastify.register(sessionRoutes, { prefix: '/api' })
 await fastify.register(windowRoutes, { prefix: '/api' })
 await fastify.register(streamRoutes, { prefix: '/api' })
 await fastify.register(vncRoutes, { prefix: '/api' })
+await fastify.register(browserRoutes, { prefix: '/api' })
 await fastify.register(systemRoutes, { prefix: '/api' })
 await fastify.register(paneRoutes, { prefix: '/api' })
 await fastify.register(fileRoutes, { prefix: '/api' })
