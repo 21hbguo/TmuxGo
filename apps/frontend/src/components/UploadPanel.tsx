@@ -18,67 +18,10 @@ import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useFileRoots, useHosts } from '@/hooks/useApi'
 import { useEscapeClose } from '@/hooks/useEscapeClose'
 import { useTranslation } from '@/i18n'
-import type { UploadJob } from '@/types'
 import { Button } from './Button'
 import { ModalPortal } from './ModalPortal'
 import { Select } from './Select'
-
-function formatPercent(loadedBytes: number, totalBytes: number) {
-  if (!totalBytes) return 0
-  return Math.max(0, Math.min(100, Math.round((loadedBytes / totalBytes) * 100)))
-}
-
-function UploadJobRow({
-  job,
-  onRemove,
-  t,
-}: {
-  job: UploadJob
-  onRemove: () => void
-  t: ReturnType<typeof useTranslation>['t']
-}) {
-  const percent = job.status === 'success' ? 100 : formatPercent(job.loadedBytes, job.totalBytes)
-  const statusText =
-    job.status === 'error'
-      ? t('uploadQueue.failed')
-      : job.status === 'success'
-        ? t('uploadQueue.done')
-        : job.status === 'queued'
-          ? t('uploadQueue.queued')
-          : `${percent}%`
-  return (
-    <div className="rounded-apple border border-[var(--line)] bg-bg-0 p-2.5">
-      <div className="flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="truncate font-mono text-xs text-text-1">
-            {job.files.length === 1 ? job.files[0]?.name : `${job.files[0]?.name || 'files'} +${job.files.length - 1}`}
-          </div>
-          <div className="mt-0.5 truncate text-meta text-text-3">{job.targetPath || '/'}</div>
-        </div>
-        <div
-          className={`shrink-0 text-meta ${job.status === 'error' ? 'text-danger' : job.status === 'success' ? 'text-accent-2' : 'text-accent'}`}
-        >
-          {statusText}
-        </div>
-      </div>
-      <div className="tmuxgo-progress mt-2">
-        <div
-          className={`tmuxgo-progress-bar ${job.status === 'error' ? 'tmuxgo-progress-bar--danger' : job.status === 'success' ? 'tmuxgo-progress-bar--success' : ''}`}
-          style={{ width: `${percent}%` }}
-        />
-      </div>
-      <div className="mt-2 flex items-center justify-between text-meta text-text-3">
-        <div>
-          {formatFileSize(job.loadedBytes)} / {formatFileSize(job.totalBytes)}
-        </div>
-        <button type="button" className="text-text-3 hover:text-text-1" onClick={onRemove}>
-          {t('uploadQueue.close')}
-        </button>
-      </div>
-      {job.errorMessage && <div className="mt-1.5 line-clamp-2 text-meta text-danger">{job.errorMessage}</div>}
-    </div>
-  )
-}
+import { UploadJobCard } from './UploadJobCard'
 
 // 独立上传入口页：选择文件（全局常驻 input）→ 目标预选可见可改 → 复用
 // UploadConfirmDialog 做安全确认与队列。任务存全局 store，离开本页不取消、重进可见。
@@ -91,7 +34,6 @@ export function UploadPanel({ mode = 'desktop', onClose }: { mode?: 'mobile' | '
   const setStagedUploadFiles = useConsoleStore((s) => s.setStagedUploadFiles)
   const openUploadDialog = useConsoleStore((s) => s.openUploadDialog)
   const pushToast = useConsoleStore((s) => s.pushToast)
-  const removeUploadJob = useConsoleStore((s) => s.removeUploadJob)
   const clearFinishedUploadJobs = useConsoleStore((s) => s.clearFinishedUploadJobs)
   const { data: hosts = [] } = useHosts()
   const [hostId, setHostId] = useState('')
@@ -339,7 +281,7 @@ export function UploadPanel({ mode = 'desktop', onClose }: { mode?: 'mobile' | '
           ) : (
             <div className="space-y-2">
               {uploadJobs.map((job) => (
-                <UploadJobRow key={job.id} job={job} onRemove={() => removeUploadJob(job.id)} t={t} />
+                <UploadJobCard key={job.id} job={job} />
               ))}
             </div>
           )}

@@ -301,7 +301,11 @@ export interface UploadJobResult {
 }
 export interface UploadJob {
   id: string
+  hostId: string
   files: { name: string; size: number }[]
+  // 重试快照：File 仅存活于内存——store persist 的 partialize 是白名单制不会带出；
+  // 成功/移除/清理时必须释放引用，错误态保留供重试
+  sourceFiles?: File[]
   targetRootId: string
   targetPath: string
   insertPaths: boolean
