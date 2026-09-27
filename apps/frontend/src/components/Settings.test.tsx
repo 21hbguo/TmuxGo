@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import React from 'react'
 import { act } from 'react'
@@ -123,7 +123,32 @@ describe('Settings restart rebuild', () => {
       errorMessage: null,
     }
     restartStatusState.refetch.mockReset()
+    localStorage.clear()
     localStorage.setItem('tmuxgo-preferences', JSON.stringify({ language: 'en' }))
+  })
+  it('moves mobile nav items between the bar and More rows and persists the choice', async () => {
+    const user = userEvent.setup()
+    const { container } = render(
+      React.createElement(I18nProvider, null, React.createElement(Settings, { onClose: vi.fn() })),
+    )
+    await act(async () => {
+      await user.click(screen.getByRole('button', { name: 'Appearance' }))
+    })
+    const editor = container.querySelector('[data-mobile-nav-editor]') as HTMLElement
+    const barRow = within(editor).getByRole('group', { name: 'Bar' })
+    const moreRow = within(editor).getByRole('group', { name: 'More' })
+    // 默认全部可调配项在「更多」，底栏行只有固定三项的静态标记
+    expect(within(barRow).queryAllByRole('button')).toHaveLength(0)
+    fireEvent.click(within(moreRow).getByRole('button', { name: 'Upload' }))
+    expect(JSON.parse(localStorage.getItem('tmuxgo-mobile-nav-bar-items') ?? '[]')).toEqual(['upload'])
+    expect(within(barRow).getByRole('button', { name: 'Upload' })).toBeTruthy()
+    expect(within(moreRow).queryByRole('button', { name: 'Upload' })).toBeNull()
+    // 点回「更多」并确认恢复默认按钮清空配置
+    fireEvent.click(within(barRow).getByRole('button', { name: 'Upload' }))
+    fireEvent.click(within(moreRow).getByRole('button', { name: 'Inbox' }))
+    expect(JSON.parse(localStorage.getItem('tmuxgo-mobile-nav-bar-items') ?? '[]')).toEqual(['inbox'])
+    fireEvent.click(within(editor).getByRole('button', { name: 'Reset' }))
+    expect(JSON.parse(localStorage.getItem('tmuxgo-mobile-nav-bar-items') ?? '[]')).toEqual([])
   })
   it('asks for confirmation before triggering restart rebuild', async () => {
     const user = userEvent.setup()

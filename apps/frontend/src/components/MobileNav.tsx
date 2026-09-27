@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
+import { NAV_BAR_ITEMS_EVENT, readNavBarItems, type NavBarItemKey } from '@/lib/mobile-nav-items'
 import { useTranslation } from '@/i18n'
 import { FiGitBranch, FiInbox, FiMonitor, FiMoreHorizontal, FiUpload } from 'react-icons/fi'
 
@@ -93,6 +94,13 @@ export function MobileNav({
   const [compact, setCompact] = useState(readNavCompact)
   const [moreOpen, setMoreOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
+  // 紧凑模式自定义栏位：设置页编辑后事件同步；默认空数组=全部在「更多」（现状）
+  const [barItems, setBarItems] = useState(readNavBarItems)
+  useEffect(() => {
+    const sync = () => setBarItems(readNavBarItems())
+    window.addEventListener(NAV_BAR_ITEMS_EVENT, sync)
+    return () => window.removeEventListener(NAV_BAR_ITEMS_EVENT, sync)
+  }, [])
   useEffect(() => {
     if (!moreOpen) return
     const close = (event: MouseEvent) => {
@@ -130,7 +138,13 @@ export function MobileNav({
     </div>
   )
   // 精简栏位互换：面板更高频直接上栏，收件箱收进更多（角标随 icon 保留）
-  const moreEntries = [
+  const optionalEntries: {
+    key: NavBarItemKey
+    label: string
+    open: boolean
+    icon: React.ReactNode
+    onClick: () => void
+  }[] = [
     {
       key: 'inbox',
       label: t('nav.inbox'),
@@ -174,6 +188,9 @@ export function MobileNav({
       onClick: onOpenSettings,
     },
   ]
+  // 用户挑选上栏的可调配项；其余留在「更多」。顺序固定，不随挑选次序漂移
+  const barEntries = optionalEntries.filter((entry) => barItems.includes(entry.key))
+  const moreEntries = optionalEntries.filter((entry) => !barItems.includes(entry.key))
 
   return (
     <div
@@ -216,7 +233,13 @@ export function MobileNav({
         </div>
       )}
       {compact ? (
-        <div className="grid h-12 grid-cols-4 items-center">
+        // 列数随自选栏位变化：固定3 + 上栏项 + （「更多」仅在有剩余项时出现）
+        <div
+          className="grid h-12 items-center"
+          style={{
+            gridTemplateColumns: `repeat(${3 + barEntries.length + (moreEntries.length ? 1 : 0)}, minmax(0, 1fr))`,
+          }}
+        >
           <button
             aria-label={t('nav.sessions')}
             aria-current={sessionsOpen ? 'page' : undefined}
@@ -244,20 +267,36 @@ export function MobileNav({
             <NavIcon d={icons.panes} />
             <span className="text-caption leading-none">{t('nav.panes')}</span>
           </button>
-          <button
-            aria-label={t('nav.more')}
-            aria-expanded={moreOpen}
-            aria-current={moreEntries.some((entry) => entry.open) ? 'page' : undefined}
-            onClick={() => setMoreOpen((value) => !value)}
-            className={navButtonClass(moreEntries.some((entry) => entry.open))}
-          >
-            <div className="relative">
-              <FiMoreHorizontal aria-hidden="true" size={18} />
-              {/* 收件箱在更多内：未读用角点数透出，不显示具体数字以免挤爆栏位 */}
-              {inboxBadge && <span className="absolute -right-1 -top-0.5 h-2 w-2 rounded-full bg-danger" />}
-            </div>
-            <span className="text-caption leading-none">{t('nav.more')}</span>
-          </button>
+          {barEntries.map((entry) => (
+            <button
+              key={entry.key}
+              aria-label={entry.label}
+              aria-current={entry.open ? 'page' : undefined}
+              onClick={entry.onClick}
+              className={navButtonClass(entry.open)}
+            >
+              {entry.icon}
+              <span className="text-caption leading-none">{entry.label}</span>
+            </button>
+          ))}
+          {moreEntries.length > 0 && (
+            <button
+              aria-label={t('nav.more')}
+              aria-expanded={moreOpen}
+              aria-current={moreEntries.some((entry) => entry.open) ? 'page' : undefined}
+              onClick={() => setMoreOpen((value) => !value)}
+              className={navButtonClass(moreEntries.some((entry) => entry.open))}
+            >
+              <div className="relative">
+                <FiMoreHorizontal aria-hidden="true" size={18} />
+                {/* 收件箱在更多内才透角点；被提栏后未读徽标随其 icon 走 */}
+                {inboxBadge && moreEntries.some((entry) => entry.key === 'inbox') && (
+                  <span className="absolute -right-1 -top-0.5 h-2 w-2 rounded-full bg-danger" />
+                )}
+              </div>
+              <span className="text-caption leading-none">{t('nav.more')}</span>
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid h-12 grid-cols-8 items-center">

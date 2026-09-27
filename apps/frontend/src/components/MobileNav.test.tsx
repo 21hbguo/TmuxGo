@@ -1,5 +1,5 @@
 import React from 'react'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MobileNav } from './MobileNav'
 import { useConsoleStore } from '@/stores/useConsoleStore'
@@ -20,6 +20,7 @@ vi.mock('@/i18n', () => ({
         'nav.fullBar': 'Full bar',
         'nav.inbox': 'Inbox',
         'vnc.title': 'Desktop',
+        'uploadTab.title': 'Upload',
       }
       return map[key] || key
     },
@@ -153,8 +154,8 @@ describe('MobileNav', () => {
     const onOpenDrawer = vi.fn()
     const onOpenInbox = vi.fn()
     const { container } = renderNav({ onOpenGit, onOpenFiles, onOpenDrawer, onOpenInbox, gitOpen: true })
-    // 底栏仅 会话/窗口/面板/更多 四列（面板高频直接上栏，收件箱进更多）
-    expect(container.querySelector('.grid-cols-4')).toBeTruthy()
+    // 底栏仅 会话/窗口/面板/更多 四项（面板高频直接上栏，收件箱进更多）
+    expect(container.querySelectorAll('.tmuxgo-mobile-nav-button')).toHaveLength(4)
     expect(container.querySelector('.grid-cols-8')).toBeNull()
     expect(screen.getByRole('button', { name: 'Panes' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Inbox' })).toBeNull()
@@ -188,11 +189,57 @@ describe('MobileNav', () => {
     expect(container.querySelector('.grid-cols-8')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Compact bar' }))
     expect(window.localStorage.getItem('tmuxgo-mobile-nav-compact')).toBe('true')
-    expect(container.querySelector('.grid-cols-4')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'More' })).toBeTruthy()
+    expect(container.querySelectorAll('.tmuxgo-mobile-nav-button')).toHaveLength(4)
     // 可回退：切回完整八项布局
     fireEvent.click(screen.getByRole('button', { name: 'Full bar' }))
     expect(window.localStorage.getItem('tmuxgo-mobile-nav-compact')).toBe('false')
     expect(container.querySelector('.grid-cols-8')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Settings' })).toBeTruthy()
+  })
+
+  it('compact bar renders persisted custom items and hides them from More', () => {
+    window.localStorage.setItem('tmuxgo-mobile-nav-compact', 'true')
+    window.localStorage.setItem('tmuxgo-mobile-nav-bar-items', JSON.stringify(['upload', 'files']))
+    const onOpenUpload = vi.fn()
+    const onOpenFiles = vi.fn()
+    const { container } = renderNav({ onOpenUpload, onOpenFiles, uploadOpen: true })
+    // 固定3 + 自选2 + 更多 = 6
+    expect(container.querySelectorAll('.tmuxgo-mobile-nav-button')).toHaveLength(6)
+    const uploadButton = screen.getByRole('button', { name: 'Upload' })
+    expect(uploadButton.getAttribute('aria-current')).toBe('page')
+    fireEvent.click(uploadButton)
+    expect(onOpenUpload).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Files' }))
+    expect(onOpenFiles).toHaveBeenCalledTimes(1)
+    // 已上栏的项不再出现在更多里（栏上同名按钮仍在，故限定在弹层内断言）
+    fireEvent.click(screen.getByRole('button', { name: 'More' }))
+    const sheet = container.querySelector('[data-mobile-nav-more]') as HTMLElement
+    expect(within(sheet).queryByRole('button', { name: 'Upload' })).toBeNull()
+    expect(within(sheet).queryByRole('button', { name: 'Files' })).toBeNull()
+    expect(within(sheet).getByRole('button', { name: 'Inbox' })).toBeTruthy()
+  })
+
+  it('hides the More button when every optional entry is on the bar', () => {
+    window.localStorage.setItem('tmuxgo-mobile-nav-compact', 'true')
+    window.localStorage.setItem(
+      'tmuxgo-mobile-nav-bar-items',
+      JSON.stringify(['inbox', 'upload', 'files', 'git', 'desktop', 'settings']),
+    )
+    const { container } = renderNav()
+    expect(screen.queryByRole('button', { name: 'More' })).toBeNull()
+    // 固定3 + 全部6个可调配项
+    expect(container.querySelectorAll('.tmuxgo-mobile-nav-button')).toHaveLength(9)
+  })
+
+  it('upload entry stays in More by default and ignores unknown persisted keys', () => {
+    window.localStorage.setItem('tmuxgo-mobile-nav-compact', 'true')
+    window.localStorage.setItem('tmuxgo-mobile-nav-bar-items', JSON.stringify(['bogus']))
+    const onOpenUpload = vi.fn()
+    renderNav({ onOpenUpload })
+    expect(screen.queryByRole('button', { name: 'Upload' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'More' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
+    expect(onOpenUpload).toHaveBeenCalledTimes(1)
   })
 })
