@@ -129,8 +129,6 @@ export class BrowserInstance extends EventEmitter {
   private sessionEventHandlers = new Map<string, Map<string, Set<(params: unknown) => void>>>()
   private targets = new Map<string, BrowserPage>()
   private clients = new Set<ViewClient>()
-  private clientSeq = 0
-  private screencastSeq = new Map<string, number>()
   activeTargetId: string | null = null
   state: BrowserState = 'idle'
   engine: string | null = null
@@ -409,11 +407,11 @@ export class BrowserInstance extends EventEmitter {
       client.send({ type: 'frame', data: p.data, width: p.metadata?.deviceWidth, height: p.metadata?.deviceHeight })
       // screencast 每帧必须 ack，否则 Chrome 停止发帧
       void this.cmd('Page.screencastFrameAck', { sessionId: p.sessionId }, sid)
-      if (!this.screencastSeq.has(sid)) this.screencastSeq.set(sid, 0)
     })
     this.onSessionEvent(sid, 'Page.frameNavigated', (params) => {
-      const frame = (params as { frame?: { url?: string } }).frame
-      if (frame?.url && !frame.url.startsWith('chrome-error://')) {
+      // frameNavigated 对子 iframe 也触发，只取主 frame（无 parentId）更新地址栏
+      const frame = (params as { frame?: { url?: string; parentId?: string } }).frame
+      if (frame?.url && !frame.parentId && !frame.url.startsWith('chrome-error://')) {
         const t = this.targets.get(targetId)
         if (t) t.url = frame.url
         client.send({ type: 'page', url: frame.url })
@@ -605,12 +603,10 @@ export class BrowserInstance extends EventEmitter {
     try {
       await this.refPoint(ref, sid)
       // focus 走 el.focus() 而非点击：避免点击触发 select/链接副作用
+      const sel = JSON.stringify(`[data-tg-ref="${ref}"]`)
       await this.cmd(
         'Runtime.evaluate',
-        {
-          expression: `document.querySelector('[data-tg-ref="${ref}"]')?.focus()`,
-          returnByValue: true,
-        },
+        { expression: `document.querySelector(${sel})?.focus()`, returnByValue: true },
         sid,
       )
       await this.cmd('Input.insertText', { text }, sid)

@@ -6,6 +6,8 @@ import websocket from '@fastify/websocket'
 
 // 免 ticket 路径：先置空密码再加载路由
 process.env.TMUXGO_AUTH_PASSWORD = ''
+const AGENT_TOKEN = 'test-browser-token'
+process.env.TMUXGO_AGENT_EVENT_TOKEN = AGENT_TOKEN
 const { browserRoutes } = await import('./browser.js')
 const { browserManager, resolveBrowserBinary } = await import('../lib/browser-manager.js')
 
@@ -41,6 +43,20 @@ test('browser control endpoint enforces env guard', async (t) => {
     body: JSON.stringify({ op: 'status' }),
   })
   assert.equal(res.status, 401)
+})
+
+test('browser control endpoint accepts valid token + env and returns status', async (t) => {
+  const { app, port } = await setup()
+  t.after(() => app.close())
+  const res = await fetch(`http://127.0.0.1:${port}/api/v1/control/browser`, {
+    method: 'POST',
+    headers: { 'x-tmuxgo-env': '1', 'x-tmuxgo-agent-token': AGENT_TOKEN, 'content-type': 'application/json' },
+    body: JSON.stringify({ op: 'status' }),
+  })
+  assert.equal(res.status, 200)
+  const body = await res.json()
+  assert.equal(body.ok, true)
+  assert.ok(['idle', 'launching', 'ready', 'error'].includes(body.state))
 })
 
 test('browser full loop: launch → WS frames → navigate → snapshot → click', { timeout: 45000 }, async (t) => {
