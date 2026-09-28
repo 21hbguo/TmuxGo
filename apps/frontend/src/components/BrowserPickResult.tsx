@@ -9,8 +9,6 @@ const TEXT_MAX = 80
 
 export function BrowserPickResultCard({ result, onClose }: { result: BrowserPickElement; onClose: () => void }) {
   const { t } = useTranslation()
-  // pick 文案 key 由 i18n 包统一合并（本包不改 zh/en）：缺失时 t 原样回退成 key 占位
-  const tp = t as (key: string) => string
   const [copied, setCopied] = useState<'selector' | 'ref' | null>(null)
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -29,7 +27,7 @@ export function BrowserPickResultCard({ result, onClose }: { result: BrowserPick
   return (
     <div className="tmuxgo-glass absolute bottom-3 left-1/2 z-20 flex w-[min(28rem,92%)] -translate-x-1/2 flex-col gap-1.5 rounded-apple-lg p-3 text-xs text-text-1">
       <div className="flex items-center justify-between">
-        <span className="font-medium">{tp('browser.pickResult')}</span>
+        <span className="font-medium">{t('browser.pickResult')}</span>
         <button
           type="button"
           onClick={onClose}
@@ -58,7 +56,7 @@ export function BrowserPickResultCard({ result, onClose }: { result: BrowserPick
           ) : (
             <FiCopy size={12} className="mr-1 inline" />
           )}
-          {tp('browser.pickCopySelector')}
+          {t('browser.pickCopySelector')}
         </Button>
         <Button variant="ghost" size="sm" onClick={() => void copy('ref', result.ref)} disabled={!result.ref}>
           {copied === 'ref' ? (
@@ -66,7 +64,7 @@ export function BrowserPickResultCard({ result, onClose }: { result: BrowserPick
           ) : (
             <FiCopy size={12} className="mr-1 inline" />
           )}
-          {tp('browser.pickCopyRef')}
+          {t('browser.pickCopyRef')}
         </Button>
         {copied && <span className="text-accent-2">{t('browser.copied')}</span>}
       </div>
