@@ -16,8 +16,9 @@ const tick = (count = 1) => {
 interface HarnessOptions {
   shared?: boolean
   mobile?: boolean
+  followedWindowSizeRef?: { current: { cols: number; rows: number } | null }
 }
-function createHarness({ shared = false, mobile = false }: HarnessOptions = {}) {
+function createHarness({ shared = false, mobile = false, followedWindowSizeRef }: HarnessOptions = {}) {
   const container = document.createElement('div')
   container.innerHTML =
     '<div class="xterm"><div class="xterm-screen"><div class="xterm-rows"></div></div><div class="xterm-viewport"></div></div>'
@@ -66,6 +67,7 @@ function createHarness({ shared = false, mobile = false }: HarnessOptions = {}) 
     lastSizeRef: { current: { cols: 80, rows: 24 } },
     // shared 路径读 sharedSessionSizeRef：传 null 会在 syncSharedLayout 入口 return，测试空跑
     sharedSessionSizeRef: { current: shared ? { cols: 80, rows: 24 } : null },
+    followedWindowSizeRef: followedWindowSizeRef ?? { current: null },
     pendingRemoteResizeRef,
     onResizeRef: { current: onResize },
     controlCarryRef: { current: '' },
@@ -224,6 +226,38 @@ describe('terminal-layout', () => {
     expect(h.mask.isPending()).toBe(false)
     h.layout.dispose()
     h.mask.dispose()
+  })
+  it('clears a stale followed window size once the exclusive client sees a real container change', () => {
+    // owner 收到自身主张的 window-size 回声会进入跟随态；真实容器变化必须解除
+    // 跟随重新独占 fit，否则网格被钉在推送尺寸上、只能缩放字体铺满容器
+    const followedWindowSizeRef: { current: { cols: number; rows: number } | null } = {
+      current: { cols: 137, rows: 23 },
+    }
+    const h = createHarness({ followedWindowSizeRef })
+    h.layout.primeContainerSize()
+    vi.setSystemTime(1000)
+    h.setSize(1000, 480)
+    h.layout.notifyObservedResize()
+    for (let i = 0; i < 8; i++) tick()
+    expect(followedWindowSizeRef.current).toBe(null)
+    expect(h.resizeCalls.at(-1)).toEqual([100, 24])
+    expect(h.onResize).toHaveBeenCalledWith(100, 24)
+    h.layout.dispose()
+  })
+  it('keeps the followed window size for a shared client across container changes', () => {
+    // 非独占端不得借容器变化清跟随重新主张：那会让旁观端用本机尺寸抢 window
+    const followedWindowSizeRef: { current: { cols: number; rows: number } | null } = {
+      current: { cols: 137, rows: 23 },
+    }
+    const h = createHarness({ shared: true, followedWindowSizeRef })
+    h.layout.primeContainerSize()
+    vi.setSystemTime(1000)
+    h.setSize(1000, 480)
+    h.layout.notifyObservedResize()
+    for (let i = 0; i < 8; i++) tick()
+    expect(followedWindowSizeRef.current).toEqual({ cols: 137, rows: 23 })
+    expect(h.onResize).not.toHaveBeenCalled()
+    h.layout.dispose()
   })
   it('keeps the mobile keyboard anchor across the renderer style-correction frame', () => {
     const h = createHarness({ mobile: true })

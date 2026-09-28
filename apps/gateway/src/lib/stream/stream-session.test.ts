@@ -328,6 +328,30 @@ test('applyWindowSize invalidates a pending resize ack whose target was overridd
   session.cleanup()
 })
 
+test('applyWindowSize suppresses the self-echo event to the exclusive owner', () => {
+  // owner 的主张经 resize() 同步写进 attachedCols/Rows 后，reconcile 的 force 恢复
+  // 在 tmux 读数滞后时仍会以同尺寸走到这里。此时推 window-size 会让前端把仍独占
+  // 的 owner 误判成仲裁降级转共享渲染（网格钉死、缩放字体）——回声只同步不推事件
+  const { session, sent, resized } = createPeer(137, 23)
+  session.attachedExclusive = true
+  session.desiredCols = 137
+  session.desiredRows = 23
+  session.applyWindowSize(137, 23, true)
+  assert.equal(
+    sent.some((m) => m.type === 'window-size'),
+    false,
+  )
+  // pty 未就位（attachedCols 落后于推送值，如 owner 被同步到旧尺寸后拉回）时
+  // 不是回声：pty 真被改尺寸，事件必须照常下发让前端对齐网格
+  sent.length = 0
+  session.attachedCols = 60
+  session.attachedRows = 24
+  session.applyWindowSize(137, 23, true)
+  assert.deepEqual(resized.at(-1), [137, 23])
+  assert.ok(sent.some((m) => m.type === 'window-size' && (m as any).cols === 137))
+  session.cleanup()
+})
+
 test('peer reconcile demotes peers to the window size and restores the surviving owner', async () => {
   // 模拟 tmux window 尺寸源：pty resize 到与 window 不同的值会抢占 window
   // （实测 window-size latest 行为），同值则保持——reconcile 两端都依赖这一点
