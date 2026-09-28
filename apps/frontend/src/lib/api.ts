@@ -1173,6 +1173,17 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ url, targetId }),
       }),
+    // 长挂起请求：gateway 直到用户选完/Esc/超时才返回；fetch 无默认超时，直接 await 即可
+    pick: (targetId?: string, timeoutMs?: number) =>
+      fetchApi<BrowserPickResponse>('/api/browser/pick', {
+        method: 'POST',
+        body: JSON.stringify({ targetId, timeoutMs }),
+      }),
+    pickCancel: (targetId?: string) =>
+      fetchApi<{ ok: true }>('/api/browser/pick/cancel', {
+        method: 'POST',
+        body: JSON.stringify({ targetId }),
+      }),
   },
 }
 
@@ -1211,6 +1222,24 @@ export interface BrowserStatusResponse {
   pages: BrowserPageInfo[]
   activeTargetId: string | null
   error?: string
+}
+
+export interface BrowserPickElement {
+  cancelled?: false
+  selector: string
+  ref: string
+  tag: string
+  text: string
+  rect: { x: number; y: number; width: number; height: number }
+  url: string
+  title: string
+}
+
+export type BrowserPickResult = { cancelled: true } | BrowserPickElement
+
+export interface BrowserPickResponse {
+  ok: true
+  result: BrowserPickResult
 }
 
 export interface BrowserSetupResponse {
