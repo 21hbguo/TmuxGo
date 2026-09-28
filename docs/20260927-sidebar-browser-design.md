@@ -54,7 +54,7 @@ client→server：
 
 ## MCP 工具（apps/mcp/index.mjs 新增）
 
-`tmuxgo_browser_navigate / snapshot / click / type / scroll / press / screenshot / tabs / open / close_tab / activate_tab / back / forward / reload` —— 全部转发 control REST。
+`tmuxgo_browser_navigate / snapshot / click / type / scroll / press / screenshot / tab{action:list|open|close|activate} / nav{action:back|forward|reload} / eval / status / launch` —— 全部转发 control REST。
 
 ## 文件所有权（双 agent 并行）
 
