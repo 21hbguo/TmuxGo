@@ -538,6 +538,21 @@ describe('FilePanel', () => {
     await chooseRoot('favorite:root-home:project')
     await waitFor(() => expect(screen.getByText('demo.txt')).toBeInTheDocument())
   })
+  it('shows up-to-parent on a root nested inside another root and hops across roots', async () => {
+    // /home/guo/project/other 的父目录落在 root-home 内，顶层也应能返回上一级
+    roots.push({ id: 'root-nested', label: 'nested', path: '/home/guo/project/other' })
+    render(React.createElement(FilePanel))
+    await chooseRoot('root-nested')
+    fireEvent.click(await screen.findByRole('button', { name: 'file.upToParent' }))
+    await waitFor(() => expect(rootValue()).toBe('root-home'))
+    await waitFor(() => expect(screen.getByText('demo.txt')).toBeInTheDocument())
+  })
+  it('keeps up-to-parent hidden at a root whose parent is outside all roots', async () => {
+    // /workspace 的父目录 / 不在任何 root 内，root 顶层即边界
+    render(React.createElement(FilePanel))
+    await waitFor(() => expect(screen.getByText('src')).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: 'file.upToParent' })).toBeNull()
+  })
   it('clears stale currentPath when opening a favorite shortcut after going to parent', async () => {
     // 回归：收藏 A(嵌套 src/nested)→..→收藏 B 时，桌面分支曾不清 currentPath，
     // 导致 listQueryPath 拼成 'project/src' 拉空表（真实环境表现为 retry 退避卡数秒）
