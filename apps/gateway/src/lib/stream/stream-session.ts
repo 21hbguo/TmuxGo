@@ -620,6 +620,18 @@ export class StreamSession {
         this.resizeAckTimer = null
       }
     }
+    // owner 的主张回声：reconcile 的 force 恢复路径在 attachedCols 已就位时仍会
+    // 走到这里。pty/attached 均已同步到本端主张值，仅 tmux window 读数滞后——
+    // 此时下发 window-size 会让前端把仍独占的 owner 误判成仲裁降级，转共享渲染
+    // （网格钉死只缩放字体，容器再拖不再主张尺寸）。纯回声只改状态不推事件；
+    // attachedCols 与目标不一致说明 pty 真被改了尺寸，事件必须照常下发
+    const selfAssertEcho =
+      this.attachedExclusive &&
+      this.isExclusiveOwner() &&
+      this.desiredCols === cols &&
+      this.desiredRows === rows &&
+      this.attachedCols === cols &&
+      this.attachedRows === rows
     if (this.sharedHub) {
       // 共享 PTY 只允许仲裁 force 或 exclusive owner 主张尺寸；其余 peer
       // （ignore-size 旁观端）只同步本地视图 + window-size 事件，避免互抢
@@ -632,13 +644,15 @@ export class StreamSession {
     this.attachedCols = cols
     this.attachedRows = rows
     if (this.cellOutputEnabled) this.cell.reset(cols, rows, this.cellOutputEnabled && this.binaryOutputEnabled)
-    this.send({
-      type: 'window-size',
-      sessionName: this.attachedSessionName,
-      hostId: this.attachedHostId,
-      cols,
-      rows,
-    })
+    if (!selfAssertEcho) {
+      this.send({
+        type: 'window-size',
+        sessionName: this.attachedSessionName,
+        hostId: this.attachedHostId,
+        cols,
+        rows,
+      })
+    }
   }
   flushOutput(): boolean | Promise<boolean> | undefined {
     if (!this.attachedSessionName) return

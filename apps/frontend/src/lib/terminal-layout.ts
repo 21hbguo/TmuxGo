@@ -615,11 +615,12 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
     const hadContainerSize = lastContainerSize.width > 0 && lastContainerSize.height > 0
     const widthChanged = Math.abs(width - lastContainerSize.width) > MOBILE_FIT_SIZE_TOLERANCE
     lastContainerSize = { width, height }
-    // 真实容器变化是新的尺寸主张：仅独占渲染时解除降级跟随并 fit；
-    // 非独占/跟随中清 followed 会误触发 doFit 抢 window
-    if (isExclusiveRender()) followedWindowSizeRef.current = null
+    // 真实容器变化是新的尺寸主张：仍独占的端解除降级跟随并重新 fit；
+    // 判定用 attachExclusiveRef 而非 isExclusiveRender——后者要求 followed
+    // 已为空，降级态会永远卡死跟随（网格钉住只缩放字体）。
+    // 非独占端清 followed 会误触发 doFit 抢 window，仅做共享布局对齐
+    if (attachExclusiveRef.current) followedWindowSizeRef.current = null
     else if (followedWindowSizeRef.current) {
-      // 保持跟随，但仍要走共享布局对齐
       scheduleLayoutSync(0, true)
     }
     resizeObservedSize = { width, height }
