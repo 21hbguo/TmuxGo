@@ -500,10 +500,12 @@ export function BrowserView({ hostId, view, onViewChange, onMinimize, onClose }:
   }
   const handleInput = (event: React.FormEvent<HTMLInputElement>) => {
     const ev = event.nativeEvent as InputEvent
+    // 组字期的 DOM 文本是 IME 暂存：不转发也不清空——动 value 会打断本次组字导致拼音上不了屏
+    if (composingRef.current || ev.isComposing) return
     if ((ev.inputType === 'insertText' || ev.inputType === 'insertCompositionText') && ev.data) {
       // 非 IME 路径的文本注入（移动端 GBoard 自动补全/滑动输入等不走 keydown）；
       // justComposed 排除 compositionend 已发过的提交串重放
-      if (!composingRef.current && !justComposedRef.current) {
+      if (!justComposedRef.current) {
         for (const ch of ev.data) send({ type: 'input', kind: 'char', key: '', code: '', text: ch })
       }
     } else if (ev.inputType === 'deleteContentBackward') {
@@ -728,10 +730,9 @@ export function BrowserView({ hostId, view, onViewChange, onMinimize, onClose }:
           onPointerCancel={handleCanvasPointerUp}
           onContextMenu={(event) => event.preventDefault()}
         />
+        {/* 键盘通道必须非受控：value="" 会在 IME 组字期被 React 拉回空串，直接打死拼音输入 */}
         <input
           ref={kbdInputRef}
-          value=""
-          onChange={() => {}}
           onInput={handleInput}
           onKeyDown={handleKeyDown}
           onKeyUp={handleKeyUp}
