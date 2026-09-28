@@ -1,4 +1,4 @@
-import { render, waitFor } from '@testing-library/react'
+import { fireEvent, render, waitFor } from '@testing-library/react'
 import React from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DesktopWorkbench } from './DesktopWorkbench'
@@ -47,6 +47,14 @@ describe('DesktopWorkbench', () => {
   beforeEach(() => {
     contentMock.mockReset()
     previewMock.mockReset()
+    // jsdom 无 pretendToBeVisual 不提供 rAF：拖拽预览走 rAF，补同步桩
+    if (typeof window.requestAnimationFrame !== 'function') {
+      window.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+        cb(0)
+        return 0
+      }) as typeof window.requestAnimationFrame
+      window.cancelAnimationFrame = (() => {}) as typeof window.cancelAnimationFrame
+    }
     useConsoleStore.setState({
       activeHostId: 'local',
       sessionPanelExpanded: true,
@@ -137,5 +145,44 @@ describe('DesktopWorkbench', () => {
     await waitFor(() => expect(contentMock).toHaveBeenCalledWith('local', 'root-workspace', 'src/index.ts'))
     expect(contentMock).toHaveBeenCalledTimes(1)
     expect(contentMock).not.toHaveBeenCalledWith('local', 'git', expect.anything())
+  })
+
+  // 1440 视口：sessionPanelMin=230、收起到窄栏阈值 raw<182、窄栏拖出展开阈值 raw>169
+  it('collapses the session panel when the resize drag ends past the collapse threshold', () => {
+    const { container } = render(React.createElement(DesktopWorkbench))
+    const handle = container.querySelector('.cursor-col-resize') as HTMLElement
+    fireEvent.mouseDown(handle)
+    fireEvent.mouseMove(window, { clientX: 200 })
+    fireEvent.mouseUp(window)
+    expect(useConsoleStore.getState().sessionPanelExpanded).toBe(false)
+    expect(useConsoleStore.getState().sessionPanelWidth).toBe(248)
+  })
+  it('keeps the session panel expanded and updates width when the drag ends above the threshold', () => {
+    const { container } = render(React.createElement(DesktopWorkbench))
+    const handle = container.querySelector('.cursor-col-resize') as HTMLElement
+    fireEvent.mouseDown(handle)
+    fireEvent.mouseMove(window, { clientX: 300 })
+    fireEvent.mouseUp(window)
+    expect(useConsoleStore.getState().sessionPanelExpanded).toBe(true)
+    expect(useConsoleStore.getState().sessionPanelWidth).toBe(244)
+  })
+  it('expands the session rail when the rail edge is dragged past the expand threshold', () => {
+    useConsoleStore.setState({ sessionPanelExpanded: false } as any)
+    const { container } = render(React.createElement(DesktopWorkbench))
+    const handle = container.querySelector('.cursor-col-resize') as HTMLElement
+    fireEvent.mouseDown(handle)
+    fireEvent.mouseMove(window, { clientX: 400 })
+    fireEvent.mouseUp(window)
+    expect(useConsoleStore.getState().sessionPanelExpanded).toBe(true)
+    expect(useConsoleStore.getState().sessionPanelWidth).toBe(316)
+  })
+  it('keeps the session rail collapsed when the rail edge drag stays below the threshold', () => {
+    useConsoleStore.setState({ sessionPanelExpanded: false } as any)
+    const { container } = render(React.createElement(DesktopWorkbench))
+    const handle = container.querySelector('.cursor-col-resize') as HTMLElement
+    fireEvent.mouseDown(handle)
+    fireEvent.mouseMove(window, { clientX: 150 })
+    fireEvent.mouseUp(window)
+    expect(useConsoleStore.getState().sessionPanelExpanded).toBe(false)
   })
 })

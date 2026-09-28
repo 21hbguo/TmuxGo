@@ -25,6 +25,9 @@ const PluginView = dynamic(() => import('./PluginView').then((m) => ({ default: 
 
 const ACTIVITY_BAR_WIDTH = 56
 const SESSION_RAIL_WIDTH = 109
+// 拖拽吸附阈值：展开态拖过 min-48 松手收起为窄栏；窄栏拖出 +60 即时展开并接管为宽度拖拽
+const SESSION_COLLAPSE_DELTA = 48
+const SESSION_EXPAND_DELTA = 60
 function clampValue(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value))
 }
@@ -53,6 +56,7 @@ export function DesktopWorkbench() {
   const setSshPanelWidth = useConsoleStore((state) => state.setSshPanelWidth)
   const openEditors = useConsoleStore((state) => state.openEditors)
   const setSessionPanelWidth = useConsoleStore((state) => state.setSessionPanelWidth)
+  const setSessionPanelExpanded = useConsoleStore((state) => state.setSessionPanelExpanded)
   const setFilePanelWidth = useConsoleStore((state) => state.setFilePanelWidth)
   const setFilePanelOpen = useConsoleStore((state) => state.setFilePanelOpen)
   const setEditorSaving = useConsoleStore((state) => state.setEditorSaving)
@@ -62,7 +66,8 @@ export function DesktopWorkbench() {
   const placeEditorInSplit = useConsoleStore((state) => state.placeEditorInSplit)
   const pushToast = useConsoleStore((state) => state.pushToast)
   const containerRef = useRef<HTMLDivElement>(null)
-  const resizingRef = useRef<'session' | 'file' | 'git' | 'ssh' | null>(null)
+  const resizingRef = useRef<'session' | 'file' | 'git' | 'ssh' | 'rail' | null>(null)
+  const sessionCollapseArmedRef = useRef(false)
   const restoredRef = useRef(false)
   const pendingSessionWidthRef = useRef(sessionPanelWidth)
   const pendingFileWidthRef = useRef(filePanelWidth)
@@ -73,6 +78,7 @@ export function DesktopWorkbench() {
   const [previewFileWidth, setPreviewFileWidth] = useState<number | null>(null)
   const [previewGitWidth, setPreviewGitWidth] = useState<number | null>(null)
   const [previewSshWidth, setPreviewSshWidth] = useState<number | null>(null)
+  const [sessionCollapseArmed, setSessionCollapseArmed] = useState(false)
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 })
   const viewportWidth = containerSize.width || 1440
   const viewportHeight = containerSize.height || 820
@@ -140,16 +146,36 @@ export function DesktopWorkbench() {
   useEffect(() => {
     const handleMove = (event: MouseEvent) => {
       if (resizingRef.current === 'session') {
-        pendingSessionWidthRef.current = clampValue(
-          event.clientX - ACTIVITY_BAR_WIDTH,
-          sessionPanelMin,
-          sessionPanelMax,
-        )
+        const raw = event.clientX - ACTIVITY_BAR_WIDTH
+        const armed = raw < sessionPanelMin - SESSION_COLLAPSE_DELTA
+        if (armed !== sessionCollapseArmedRef.current) {
+          sessionCollapseArmedRef.current = armed
+          setSessionCollapseArmed(armed)
+        }
+        pendingSessionWidthRef.current = clampValue(raw, sessionPanelMin, sessionPanelMax)
         if (frameRef.current) return
         frameRef.current = requestAnimationFrame(() => {
           frameRef.current = null
           setPreviewSessionWidth(pendingSessionWidthRef.current)
         })
+        return
+      }
+      if (resizingRef.current === 'rail') {
+        if (event.clientX - ACTIVITY_BAR_WIDTH > compactSessionWidth + SESSION_EXPAND_DELTA) {
+          resizingRef.current = 'session'
+          setSessionPanelExpanded(true)
+          pendingSessionWidthRef.current = clampValue(
+            event.clientX - ACTIVITY_BAR_WIDTH,
+            sessionPanelMin,
+            sessionPanelMax,
+          )
+          if (!frameRef.current) {
+            frameRef.current = requestAnimationFrame(() => {
+              frameRef.current = null
+              setPreviewSessionWidth(pendingSessionWidthRef.current)
+            })
+          }
+        }
         return
       }
       if (resizingRef.current === 'file') {
@@ -208,7 +234,8 @@ export function DesktopWorkbench() {
         frameRef.current = null
       }
       if (resizingRef.current === 'session') {
-        setSessionPanelWidth(pendingSessionWidthRef.current)
+        if (sessionCollapseArmedRef.current) setSessionPanelExpanded(false)
+        else setSessionPanelWidth(pendingSessionWidthRef.current)
         setPreviewSessionWidth(null)
       }
       if (resizingRef.current === 'file') {
@@ -225,6 +252,8 @@ export function DesktopWorkbench() {
       }
       if (resizingRef.current) emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'end' })
       resizingRef.current = null
+      sessionCollapseArmedRef.current = false
+      setSessionCollapseArmed(false)
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
     }
@@ -253,6 +282,7 @@ export function DesktopWorkbench() {
     sessionPanelMin,
     setFilePanelWidth,
     setGitPanelWidth,
+    setSessionPanelExpanded,
     setSessionPanelWidth,
     setSshPanelWidth,
     sshPanelMax,
@@ -382,14 +412,14 @@ export function DesktopWorkbench() {
       <>
         {sessionPanelExpanded ? (
           <div
-            className="tmuxgo-content-surface relative shrink-0 border-r border-[var(--line)]"
+            className={`tmuxgo-content-surface relative shrink-0 border-r border-[var(--line)] transition-opacity ${sessionCollapseArmed ? 'opacity-50' : ''}`}
             style={{ width: renderedSessionPanelWidth }}
           >
             <div className="h-full min-h-0">
               <SessionPanel />
             </div>
             <div
-              className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-accent/40"
+              className={`absolute right-0 top-0 h-full w-1 cursor-col-resize ${sessionCollapseArmed ? 'bg-accent' : 'hover:bg-accent/40'}`}
               onMouseDown={() => {
                 resizingRef.current = 'session'
                 emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'start' })
@@ -401,7 +431,18 @@ export function DesktopWorkbench() {
             />
           </div>
         ) : (
-          <SessionRail />
+          <div className="relative shrink-0">
+            <SessionRail />
+            <div
+              className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-accent/40"
+              onMouseDown={() => {
+                resizingRef.current = 'rail'
+                emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'start' })
+                document.body.style.cursor = 'col-resize'
+                document.body.style.userSelect = 'none'
+              }}
+            />
+          </div>
         )}
         {filePanelOpen && (
           <div
