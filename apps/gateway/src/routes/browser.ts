@@ -14,6 +14,11 @@ type StreamSocket = {
 const BROWSER_DEBUG = process.env.TMUXGO_BROWSER_DEBUG === '1'
 
 const navigateSchema = z.object({ url: z.string().min(1).max(4096), targetId: z.string().max(256).optional() })
+const pickSchema = z.object({
+  targetId: z.string().max(256).optional(),
+  timeoutMs: z.number().int().min(1).max(600000).optional(),
+})
+const pickCancelSchema = z.object({ targetId: z.string().max(256).optional() })
 // agent 控制面：单端点 + op 分发，ops 多而薄，逐个开路由只会膨胀 auth 豁免表
 const controlSchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('navigate'), url: z.string().min(1).max(4096), targetId: z.string().max(256).optional() }),
@@ -39,6 +44,13 @@ const controlSchema = z.discriminatedUnion('op', [
     expression: z.string().min(1).max(65536),
     targetId: z.string().max(256).optional(),
   }),
+  // pick 上限 120s：控制面调用方（MCP/agent）不适合无限挂起，超时走 {cancelled:true}
+  z.object({
+    op: z.literal('pick'),
+    targetId: z.string().max(256).optional(),
+    timeoutMs: z.number().int().min(1).max(120000).optional(),
+  }),
+  z.object({ op: z.literal('pickCancel'), targetId: z.string().max(256).optional() }),
   z.object({ op: z.literal('tabs') }),
   z.object({ op: z.literal('open'), url: z.string().min(1).max(4096) }),
   z.object({ op: z.literal('close'), targetId: z.string().min(1).max(256) }),
@@ -91,6 +103,26 @@ export async function browserRoutes(fastify: FastifyInstance) {
       return { ok: true }
     } catch (err) {
       return reply.code(400).send({ error: err instanceof Error ? err.message : 'navigate failed' })
+    }
+  })
+
+  fastify.post('/browser/pick', async (request, reply) => {
+    try {
+      const body = pickSchema.parse(request.body ?? {})
+      return { ok: true, result: await instance().pickElement(body.targetId, body.timeoutMs) }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'pick failed'
+      return reply.code(msg === 'PICK_ALREADY_ACTIVE' ? 409 : 400).send({ error: msg })
+    }
+  })
+
+  fastify.post('/browser/pick/cancel', async (request, reply) => {
+    try {
+      const body = pickCancelSchema.parse(request.body ?? {})
+      await instance().cancelPick(body.targetId)
+      return { ok: true }
+    } catch (err) {
+      return reply.code(400).send({ error: err instanceof Error ? err.message : 'pick cancel failed' })
     }
   })
 
@@ -182,6 +214,11 @@ export async function browserRoutes(fastify: FastifyInstance) {
           return { ok: true, jpeg: await inst.screenshot(body.targetId) }
         case 'eval':
           return { ok: true, result: await inst.evalJs(body.expression, body.targetId) }
+        case 'pick':
+          return { ok: true, result: await inst.pickElement(body.targetId, body.timeoutMs) }
+        case 'pickCancel':
+          await inst.cancelPick(body.targetId)
+          return { ok: true }
         case 'tabs':
           return { ok: true, targets: [...inst.status().pages], activeTargetId: inst.activeTargetId }
         case 'open':

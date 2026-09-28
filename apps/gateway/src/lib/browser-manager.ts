@@ -39,6 +39,19 @@ interface PendingCmd {
   resolve: (v: unknown) => void
   reject: (e: Error) => void
 }
+// 元素拾取结果：cancelled 分支覆盖 Esc/超时/导航中断/外部 cancel
+export type PickResult =
+  | { cancelled: true }
+  | {
+      cancelled?: false
+      selector: string
+      ref: string
+      tag: string
+      text: string
+      rect: { x: number; y: number; width: number; height: number }
+      url: string
+      title: string
+    }
 interface ViewClient {
   sessionId: string | null
   targetId: string | null
@@ -154,6 +167,151 @@ const REF_RECT_JS = `(ref) => {
   const r = el.getBoundingClientRect()
   return { x: r.left + r.width / 2, y: r.top + r.height / 2 }
 }`
+
+// 元素拾取注入脚本：页面内挂起 Promise，直到用户点击选中 / Esc / 外部 eval __tgPickCleanup。
+// 幂等可重复注入；拾取期间真实输入事件在 capture 阶段全部吞掉，避免选中动作误触发页面自身 handler
+const PICK_JS = `(() => {
+  if (window.__tgPickCleanup) return Promise.resolve({ alreadyActive: true })
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div')
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;pointer-events:none'
+    const box = document.createElement('div')
+    box.style.cssText = 'position:fixed;display:none;border:2px solid #4c8dff;background:rgba(76,141,255,.12)'
+    const chip = document.createElement('div')
+    chip.style.cssText =
+      'position:fixed;display:none;background:#4c8dff;color:#fff;font:11px monospace;padding:1px 6px;border-radius:3px;white-space:nowrap'
+    overlay.appendChild(box)
+    overlay.appendChild(chip)
+    ;(document.body || document.documentElement).appendChild(overlay)
+    let hover = null
+    let picked = null
+    // ref 序号挂 window 持久化：counter 随注入重置会让多轮 pick 撞同一个 p0
+    window.__tgPickN = window.__tgPickN || 0
+    // shadow DOM 里 e.target 只会给到 host，用 composedPath 取真实命中元素
+    const hitEl = (e) => {
+      const t = (e.composedPath && e.composedPath()[0]) || e.target
+      return t && t.nodeType === 1 ? t : null
+    }
+    const chipText = (el) => {
+      let s = el.tagName.toLowerCase()
+      if (el.id) s += '#' + el.id
+      const cls = (el.getAttribute('class') || '').trim().split(/\\s+/).filter(Boolean)
+      if (cls.length) s += '.' + cls.slice(0, 3).join('.')
+      return s
+    }
+    const paint = (el) => {
+      const r = el.getBoundingClientRect()
+      box.style.display = 'block'
+      box.style.left = r.left + 'px'
+      box.style.top = r.top + 'px'
+      box.style.width = r.width + 'px'
+      box.style.height = r.height + 'px'
+      chip.style.display = 'block'
+      chip.textContent = chipText(el)
+      const cy = r.top - 22
+      chip.style.left = Math.max(0, r.left) + 'px'
+      chip.style.top = (cy < 0 ? r.bottom + 4 : cy) + 'px'
+    }
+    // selector 逐级取 #id > [data-testid] > 文档内唯一 class，否则 nth-of-type 继续向上爬，6 层封顶
+    const getCssPath = (el) => {
+      const parts = []
+      for (let cur = el; cur && cur.nodeType === 1 && parts.length < 6; cur = cur.parentElement) {
+        const tag = cur.tagName.toLowerCase()
+        if (cur.id) {
+          parts.unshift(tag + '#' + CSS.escape(cur.id))
+          break
+        }
+        const tid = cur.getAttribute('data-testid')
+        if (tid) {
+          parts.unshift(tag + '[data-testid="' + tid.replace(/"/g, '') + '"]')
+          break
+        }
+        const cls = (cur.getAttribute('class') || '').trim().split(/\\s+/).filter(Boolean)
+        const uniq = cls.find((c) => document.getElementsByClassName(c).length === 1)
+        if (uniq) {
+          parts.unshift(tag + '.' + CSS.escape(uniq))
+          break
+        }
+        const sibs = cur.parentElement ? [...cur.parentElement.children].filter((s) => s.tagName === cur.tagName) : [cur]
+        parts.unshift(sibs.length > 1 ? tag + ':nth-of-type(' + (sibs.indexOf(cur) + 1) + ')' : tag)
+      }
+      return parts.join('>')
+    }
+    const buildResult = (el) => {
+      // data-tg-ref 用 p 前缀（snapshot 用 e 前缀），agent 侧 click {ref} 可直接复用
+      const ref = 'p' + window.__tgPickN++
+      el.setAttribute('data-tg-ref', ref)
+      const r = el.getBoundingClientRect()
+      return {
+        selector: getCssPath(el),
+        ref,
+        tag: el.tagName.toLowerCase(),
+        text: String(el.innerText || el.value || '').trim().slice(0, 200),
+        rect: { x: r.x, y: r.y, width: r.width, height: r.height },
+        url: location.href,
+        title: document.title,
+      }
+    }
+    const swallow = (e) => {
+      e.preventDefault()
+      e.stopImmediatePropagation()
+    }
+    // pointerdown 不能 preventDefault：会让整串兼容鼠标事件（mousedown 等）被抑制，pick 就收不到了。
+    // 只 stopImmediatePropagation 已足够静默页面自身的 pointer 监听
+    const swallowNoDefault = (e) => e.stopImmediatePropagation()
+    const onMove = (e) => {
+      const el = hitEl(e)
+      if (el) {
+        hover = el
+        paint(el)
+      }
+    }
+    // mousedown 记结果并立即 resolve；监听先不摘——同次物理点击的 mouseup/click 还要吞，
+    // 等 click 到达再 cleanup，否则拾取点击会漏进页面真触发一次元素点击
+    const onDown = (e) => {
+      swallow(e)
+      if (e.button !== 0 || picked) return
+      const el = hover || hitEl(e)
+      if (el) {
+        picked = buildResult(el)
+        resolve(picked)
+      }
+    }
+    const onClick = (e) => {
+      swallow(e)
+      if (picked) cleanup()
+    }
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        swallow(e)
+        done({ cancelled: true })
+      }
+    }
+    const opts = { capture: true }
+    window.addEventListener('mousemove', onMove, opts)
+    window.addEventListener('mousedown', onDown, opts)
+    window.addEventListener('click', onClick, opts)
+    window.addEventListener('pointerdown', swallowNoDefault, opts)
+    for (const t of ['mouseup', 'contextmenu']) window.addEventListener(t, swallow, opts)
+    window.addEventListener('keydown', onKey, opts)
+    function done(result) {
+      cleanup()
+      resolve(result)
+    }
+    function cleanup() {
+      window.removeEventListener('mousemove', onMove, opts)
+      window.removeEventListener('mousedown', onDown, opts)
+      window.removeEventListener('click', onClick, opts)
+      window.removeEventListener('pointerdown', swallowNoDefault, opts)
+      for (const t of ['mouseup', 'contextmenu']) window.removeEventListener(t, swallow, opts)
+      window.removeEventListener('keydown', onKey, opts)
+      overlay.remove()
+      delete window.__tgPickCleanup
+    }
+    // 暴露给二次 eval 兜底收尾（超时/外部 cancel）：resolve cancelled 而非让挂起的 evaluate 等死
+    window.__tgPickCleanup = () => done({ cancelled: true })
+  })
+})()`
 
 const KEYMAP: Record<string, { key: string; code: string; vk: number; text?: string }> = {
   Enter: { key: 'Enter', code: 'Enter', vk: 13, text: '\r' },
@@ -781,6 +939,79 @@ export class BrowserInstance extends EventEmitter {
       if (res.exceptionDetails) throw new Error(res.exceptionDetails.text || 'eval failed')
       const json = JSON.stringify(res.result?.value)
       return json && json.length > 65536 ? json.slice(0, 65536) : json
+    } finally {
+      await this.detach(sid)
+    }
+  }
+
+  // ---- 元素拾取 ----
+  // 每 target 同时只允许一个 pick；页面内 Promise 挂起期间，超时/取消都靠二次 eval 调
+  // window.__tgPickCleanup 让它以 {cancelled:true} 收尾（不 reject，调用方拿到的就是 cancelled）
+  private picks = new Set<string>()
+
+  async pickElement(targetId?: string, timeoutMs = 60000): Promise<PickResult> {
+    const tid = targetId || this.activeTargetId || ''
+    if (!tid) throw new Error('NO_ACTIVE_PAGE')
+    if (this.picks.has(tid)) throw new Error('PICK_ALREADY_ACTIVE')
+    let sid: string | null = null
+    let injected = false // 注入 eval 是否已发出（ws.send 同步，发出后同 session 命令按序排在其后）
+    const run = (async (): Promise<PickResult> => {
+      sid = await this.attach(tid)
+      const s = sid
+      try {
+        await this.cmd('Runtime.enable', {}, s).catch(() => {})
+        const pending = this.cmd(
+          'Runtime.evaluate',
+          { expression: PICK_JS, returnByValue: true, awaitPromise: true },
+          s,
+        ) as Promise<{ result?: { value?: unknown } }>
+        injected = true
+        const v = (await pending).result?.value
+        // 页面侧幂等闸：上次注入残留或并发注入时返回 alreadyActive，统一对外抛 PICK_ALREADY_ACTIVE
+        if (v && typeof v === 'object' && (v as { alreadyActive?: boolean }).alreadyActive)
+          throw new Error('PICK_ALREADY_ACTIVE')
+        return (v as PickResult | undefined) ?? { cancelled: true }
+      } catch (err) {
+        // 导航/关页/socket 断开会让挂起的 evaluate 报错：语义等同用户中断，回落 cancelled 不挂死调用方
+        const msg = err instanceof Error ? err.message : String(err)
+        if (/context|navigat|disconnect|destroy|clos/i.test(msg)) return { cancelled: true }
+        throw err
+      } finally {
+        sid = null
+        await this.detach(s)
+      }
+    })()
+    this.picks.add(tid)
+    run.catch(() => {}) // 结果统一由下方 await 接管，防竞态路径下 unhandled rejection
+    const started = Date.now()
+    const timer = setTimeout(() => {
+      // 超时收尾：同 session 补一个 cleanup eval 让页面内挂起 Promise resolve {cancelled:true}。
+      // 必须排在注入 eval 之后发出才有效，未注入时短轮询等它；run 提前收尾或兜 10s 后停手
+      const fire = () => {
+        if (!this.picks.has(tid) || Date.now() - started > timeoutMs + 10000) return
+        const s = sid
+        if (!injected || !s) return void setTimeout(fire, 50)
+        void this.cmd('Runtime.evaluate', { expression: 'window.__tgPickCleanup?.()', returnByValue: true }, s).catch(
+          () => {},
+        )
+      }
+      fire()
+    }, timeoutMs)
+    try {
+      return await run
+    } finally {
+      clearTimeout(timer)
+      this.picks.delete(tid)
+    }
+  }
+
+  async cancelPick(targetId?: string): Promise<void> {
+    const tid = targetId || this.activeTargetId || ''
+    if (!tid) throw new Error('NO_ACTIVE_PAGE')
+    const sid = await this.attach(tid)
+    try {
+      // 无进行中 pick 时 __tgPickCleanup 不存在，eval 为 no-op
+      await this.cmd('Runtime.evaluate', { expression: 'window.__tgPickCleanup?.()', returnByValue: true }, sid)
     } finally {
       await this.detach(sid)
     }

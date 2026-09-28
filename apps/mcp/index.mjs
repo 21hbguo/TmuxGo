@@ -214,6 +214,27 @@ const TOOLS = [
     },
   },
   {
+    name: 'tmuxgo_browser_pick',
+    description:
+      'Let the user pick an element on the page with the mouse: a highlight box follows the hover, primary click selects, Esc cancels. Blocks until the user acts or timeoutMs elapses; resolves with {selector,ref,tag,text,rect,url,title} or {cancelled:true}. The returned ref works directly with tmuxgo_browser_click/type.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        targetId: { type: 'string', description: 'Tab target id (default: active tab)' },
+        timeoutMs: { type: 'number', description: 'Max wait for the user, ms (default 60000, max 120000)' },
+      },
+    },
+  },
+  {
+    name: 'tmuxgo_browser_pick_cancel',
+    description:
+      'Cancel an in-progress tmuxgo_browser_pick on the active/given tab; the pending pick resolves with {cancelled:true}.',
+    inputSchema: {
+      type: 'object',
+      properties: { targetId: { type: 'string', description: 'Tab target id (default: active tab)' } },
+    },
+  },
+  {
     name: 'tmuxgo_inbox_list',
     description:
       'Query the TmuxGo inbox for pushed messages. Use messageId to confirm a specific push was delivered; without it returns recent messages (metadata only: id, type, title, name, size, mime, createdAt, route, readBy). A non-empty readBy means a user device has opened it — absent readBy means delivered but not yet read.',
@@ -265,7 +286,7 @@ function defaultRoute(args) {
   return route
 }
 
-async function callGateway(pathname, body) {
+async function callGateway(pathname, body, timeoutMs = 30000) {
   if (!TOKEN) {
     return {
       ok: false,
@@ -283,7 +304,7 @@ async function callGateway(pathname, body) {
       },
       body: JSON.stringify(body),
       // gateway 挂起时 client 侧 MCP 调用也要能超时返回
-      signal: AbortSignal.timeout(30000),
+      signal: AbortSignal.timeout(timeoutMs),
     })
     const text = await res.text()
     return { ok: res.ok, status: res.status, body: text }
@@ -346,10 +367,15 @@ async function handleToolCall(id, params) {
       tmuxgo_browser_tab: null, // action 参数映射 op，list→tabs
       tmuxgo_browser_nav: null, // action 参数映射 op
       tmuxgo_browser_eval: 'eval',
+      tmuxgo_browser_pick: 'pick',
+      tmuxgo_browser_pick_cancel: 'pickCancel',
     }
     const op = opMap[name] ?? (args.action === 'list' ? 'tabs' : args.action)
     if (!op) return toolResult(id, `Unknown tool: ${name}`, true)
-    result = await callGateway('/v1/control/browser', { op, ...args })
+    // pick 是长阻塞 op（等用户操作）：client 侧 fetch 超时要按 timeoutMs 放宽，否则会先于 gateway 返回
+    const reqTimeout =
+      op === 'pick' ? Math.min((Number(args.timeoutMs) > 0 ? Number(args.timeoutMs) : 60000) + 10000, 130000) : 30000
+    result = await callGateway('/v1/control/browser', { op, ...args }, reqTimeout)
   } else if (name === 'tmuxgo_inbox_list') {
     result = await callGateway('/v1/control/inbox', {
       id: typeof args.messageId === 'string' ? args.messageId : undefined,
