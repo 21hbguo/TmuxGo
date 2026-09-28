@@ -175,35 +175,17 @@ const TOOLS = [
     },
   },
   {
-    name: 'tmuxgo_browser_tabs',
-    description: 'List open tabs {id,url,title} plus activeTargetId.',
-    inputSchema: { type: 'object', properties: {} },
-  },
-  {
-    name: 'tmuxgo_browser_open',
-    description: 'Open a new tab with a URL and make it active.',
+    name: 'tmuxgo_browser_tab',
+    description:
+      'Manage browser tabs. action=list: show tabs {id,url,title} plus activeTargetId. action=open: open a new tab with url and make it active. action=close/activate: close or make a tab active by targetId (agents read/act on the active tab by default).',
     inputSchema: {
       type: 'object',
-      properties: { url: { type: 'string' } },
-      required: ['url'],
-    },
-  },
-  {
-    name: 'tmuxgo_browser_close_tab',
-    description: 'Close a tab by targetId (see tmuxgo_browser_tabs).',
-    inputSchema: {
-      type: 'object',
-      properties: { targetId: { type: 'string' } },
-      required: ['targetId'],
-    },
-  },
-  {
-    name: 'tmuxgo_browser_activate_tab',
-    description: 'Make a tab active (agents read/act on the active tab by default).',
-    inputSchema: {
-      type: 'object',
-      properties: { targetId: { type: 'string' } },
-      required: ['targetId'],
+      properties: {
+        action: { type: 'string', enum: ['list', 'open', 'close', 'activate'] },
+        url: { type: 'string', description: 'Required when action=open' },
+        targetId: { type: 'string', description: 'Required when action=close/activate' },
+      },
+      required: ['action'],
     },
   },
   {
@@ -361,14 +343,11 @@ async function handleToolCall(id, params) {
       tmuxgo_browser_press: 'press',
       tmuxgo_browser_scroll: 'scroll',
       tmuxgo_browser_screenshot: 'screenshot',
-      tmuxgo_browser_tabs: 'tabs',
-      tmuxgo_browser_open: 'open',
-      tmuxgo_browser_close_tab: 'close',
-      tmuxgo_browser_activate_tab: 'activate',
+      tmuxgo_browser_tab: null, // action 参数映射 op，list→tabs
       tmuxgo_browser_nav: null, // action 参数映射 op
       tmuxgo_browser_eval: 'eval',
     }
-    const op = opMap[name] ?? args.action
+    const op = opMap[name] ?? (args.action === 'list' ? 'tabs' : args.action)
     if (!op) return toolResult(id, `Unknown tool: ${name}`, true)
     result = await callGateway('/v1/control/browser', { op, ...args })
   } else if (name === 'tmuxgo_inbox_list') {
