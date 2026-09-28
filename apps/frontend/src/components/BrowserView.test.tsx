@@ -4,12 +4,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { BrowserView, normalizeBrowserAddress } from './BrowserView'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 
-const { launchMock, stopMock, navigateMock, setupMock, statusMock } = vi.hoisted(() => ({
+const { launchMock, stopMock, navigateMock, setupMock, statusMock, pickMock, pickCancelMock } = vi.hoisted(() => ({
   launchMock: vi.fn(),
   stopMock: vi.fn(),
   navigateMock: vi.fn(),
   setupMock: vi.fn(),
   statusMock: vi.fn(),
+  pickMock: vi.fn(),
+  pickCancelMock: vi.fn(),
 }))
 
 class MockWebSocket {
@@ -73,6 +75,8 @@ vi.mock('@/lib/api', () => ({
       launch: launchMock,
       stop: stopMock,
       navigate: navigateMock,
+      pick: pickMock,
+      pickCancel: pickCancelMock,
     },
   },
 }))
@@ -115,6 +119,8 @@ describe('BrowserView', () => {
     navigateMock.mockReset().mockResolvedValue({ ok: true })
     setupMock.mockReset().mockResolvedValue({ status: { installed: true, binary: '/usr/bin/chromium' }, hint: '' })
     statusMock.mockReset().mockResolvedValue({ state: 'idle' })
+    pickMock.mockReset().mockResolvedValue({ ok: true, result: { cancelled: true } })
+    pickCancelMock.mockReset().mockResolvedValue({ ok: true })
     Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
       configurable: true,
       value: () => ({ drawImage }),
@@ -129,7 +135,23 @@ describe('BrowserView', () => {
       })),
     })
     useConsoleStore.setState({ pushToast: vi.fn(), toasts: [] })
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+    })
   })
+
+  // ready + 已喂帧，避免 readyRebind 重连干扰断言；targets 带出 activeTargetId 供 pick 指认
+  const renderReady = async (targets?: { id: string; url: string; title: string }[]) => {
+    renderView()
+    await openWs()
+    await act(async () => {
+      lastWs().message({ type: 'status', state: 'ready' })
+      lastWs().message({ type: 'frame', data: 'eXt==', width: 1600, height: 1200 })
+      if (targets) lastWs().message({ type: 'targets', activeTargetId: targets[0].id, targets })
+    })
+    return lastWs()
+  }
 
   it('connects to the browser stream websocket through the ticket URL', async () => {
     renderView()
@@ -335,6 +357,98 @@ describe('BrowserView', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('disables the pick button until the engine is ready', async () => {
+    renderView()
+    await openWs()
+    await act(async () => {
+      lastWs().message({ type: 'status', state: 'idle' })
+    })
+    expect(screen.getByRole('button', { name: 'browser.pick' })).toBeDisabled()
+    await act(async () => {
+      lastWs().message({ type: 'status', state: 'ready' })
+      lastWs().message({ type: 'frame', data: 'eXt==', width: 1600, height: 1200 })
+    })
+    expect(screen.getByRole('button', { name: 'browser.pick' })).toBeEnabled()
+  })
+
+  it('starts pick on the active target and shows the result card', async () => {
+    let resolvePick: (value: unknown) => void = () => {}
+    pickMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolvePick = resolve
+      }),
+    )
+    await renderReady([{ id: 't1', url: 'https://a.dev', title: 'Alpha' }])
+    fireEvent.click(screen.getByRole('button', { name: 'browser.pick' }))
+    await waitFor(() => expect(pickMock).toHaveBeenCalledWith('t1'))
+    // 拾取态按钮变「取消选择」
+    expect(screen.getByRole('button', { name: 'browser.pickCancel' })).toBeTruthy()
+    await act(async () => {
+      resolvePick({
+        ok: true,
+        result: {
+          selector: '#main > button',
+          ref: 'p3',
+          tag: 'button',
+          text: 'Buy now',
+          rect: { x: 1, y: 2, width: 3, height: 4 },
+          url: 'https://a.dev',
+          title: 'Alpha',
+        },
+      })
+    })
+    expect(screen.getByText('#main > button')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'browser.pickCopySelector' }))
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith('#main > button'))
+    fireEvent.click(screen.getByRole('button', { name: 'browser.pickCopyRef' }))
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith('p3'))
+    // header 与结果卡各有一个 close：卡片在 DOM 中居后
+    const closes = screen.getAllByRole('button', { name: 'common.close' })
+    fireEvent.click(closes[closes.length - 1])
+    expect(screen.queryByText('#main > button')).toBeNull()
+  })
+
+  it('resets the button when pick resolves cancelled or fails', async () => {
+    await renderReady()
+    fireEvent.click(screen.getByRole('button', { name: 'browser.pick' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'browser.pickCancel' })).toBeTruthy())
+    // 默认 mock 即返回 cancelled：不出现结果卡
+    await waitFor(() => expect(screen.getByRole('button', { name: 'browser.pick' })).toBeTruthy())
+    const pushToast = useConsoleStore.getState().pushToast
+    pickMock.mockRejectedValue(Object.assign(new Error('HTTP 409'), { status: 409 }))
+    fireEvent.click(screen.getByRole('button', { name: 'browser.pick' }))
+    await waitFor(() => expect(pushToast).toHaveBeenCalledWith({ type: 'error', message: 'browser.pickBusy' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'browser.pick' })).toBeTruthy())
+  })
+
+  it('cancels an in-flight pick via the cancel button', async () => {
+    pickMock.mockReturnValue(new Promise(() => {}))
+    await renderReady([{ id: 't1', url: 'https://a.dev', title: 'Alpha' }])
+    fireEvent.click(screen.getByRole('button', { name: 'browser.pick' }))
+    await waitFor(() => expect(pickMock).toHaveBeenCalled())
+    fireEvent.click(screen.getByRole('button', { name: 'browser.pickCancel' }))
+    await waitFor(() => expect(pickCancelMock).toHaveBeenCalledWith('t1'))
+    expect(screen.getByRole('button', { name: 'browser.pick' })).toBeTruthy()
+  })
+
+  it('cancels pick when the active target switches mid-pick', async () => {
+    pickMock.mockReturnValue(new Promise(() => {}))
+    const ws = await renderReady([{ id: 't1', url: 'https://a.dev', title: 'Alpha' }])
+    fireEvent.click(screen.getByRole('button', { name: 'browser.pick' }))
+    await waitFor(() => expect(pickMock).toHaveBeenCalled())
+    await act(async () => {
+      ws.message({
+        type: 'targets',
+        activeTargetId: 't2',
+        targets: [
+          { id: 't1', url: 'https://a.dev', title: 'Alpha' },
+          { id: 't2', url: 'https://b.dev', title: 'Beta' },
+        ],
+      })
+    })
+    await waitFor(() => expect(pickCancelMock).toHaveBeenCalledWith('t1'))
   })
 })
 

@@ -5,6 +5,7 @@ import {
   FiArrowRight,
   FiCompass,
   FiCopy,
+  FiCrosshair,
   FiMaximize2,
   FiMinimize,
   FiMinimize2,
@@ -16,7 +17,8 @@ import {
   FiX,
 } from 'react-icons/fi'
 import { Button } from './Button'
-import { api, type BrowserEngineState } from '@/lib/api'
+import { BrowserPickResultCard } from './BrowserPickResult'
+import { api, type BrowserEngineState, type BrowserPickElement } from '@/lib/api'
 import { getWebSocketUrl } from '@/lib/auth'
 import { getApiBase } from '@/lib/runtime-endpoints'
 import { isImeKeyEvent } from '@/lib/terminal-platform'
@@ -67,6 +69,8 @@ interface BrowserViewProps {
 
 export function BrowserView({ hostId, view, onViewChange, onMinimize, onClose }: BrowserViewProps) {
   const { t } = useTranslation()
+  // pick 文案 key 由 i18n 包统一合并（本包不改 zh/en）：缺失时 t 原样回退成 key 占位
+  const tp = t as (key: string) => string
   const pushToast = useConsoleStore((state) => state.pushToast)
   const sectionRef = useRef<HTMLElement | null>(null)
   const stageRef = useRef<HTMLDivElement | null>(null)
@@ -95,6 +99,9 @@ export function BrowserView({ hostId, view, onViewChange, onMinimize, onClose }:
   const pressedButtonRef = useRef(0)
   const hiddenRef = useRef(typeof document !== 'undefined' && document.hidden)
   const wasActiveRef = useRef(true)
+  // pick 去抖/归属：seq 作废迟到的响应（取消/重发），targetRef 记发起时的 tab 供 cancel 指认
+  const pickSeqRef = useRef(0)
+  const pickTargetRef = useRef<string | null>(null)
 
   const [wsState, setWsState] = useState<WsState>('connecting')
   const [phase, setPhase] = useState<BrowserEngineState>('idle')
@@ -116,6 +123,10 @@ export function BrowserView({ hostId, view, onViewChange, onMinimize, onClose }:
   )
   // IME 候选窗跟随点击点：把隐藏 input 挪到最近一次 canvas 点击处
   const [kbdPos, setKbdPos] = useState({ x: 0, y: 0 })
+  const [picking, setPicking] = useState(false)
+  const pickingRef = useRef(false)
+  pickingRef.current = picking
+  const [pickResult, setPickResult] = useState<BrowserPickElement | null>(null)
 
   const send = useCallback((msg: Record<string, unknown>) => {
     const ws = wsRef.current
@@ -265,6 +276,41 @@ export function BrowserView({ hostId, view, onViewChange, onMinimize, onClose }:
   }, [clearReconnectTimer, clearReadyCheck, drawFrame, scheduleReconnect, send])
   connectRef.current = () => void connect()
 
+  // 本地立即复位；服务端挂起的 pick 由 cancel 端点收尾，其迟到响应被 seq 守卫丢弃
+  const cancelPick = useCallback(() => {
+    pickSeqRef.current += 1
+    const targetId = pickTargetRef.current
+    pickTargetRef.current = null
+    setPicking(false)
+    void api.browser.pickCancel(targetId ?? undefined).catch(() => {})
+  }, [])
+
+  const startPick = useCallback(async () => {
+    const seq = ++pickSeqRef.current
+    pickTargetRef.current = activeTargetIdRef.current
+    setPicking(true)
+    setPickResult(null)
+    pushToast({ type: 'info', message: tp('browser.pickHint') })
+    try {
+      const res = await api.browser.pick(activeTargetIdRef.current ?? undefined)
+      if (seq !== pickSeqRef.current) return
+      const result = res?.result
+      if (result && !result.cancelled) setPickResult(result)
+    } catch (err) {
+      if (seq !== pickSeqRef.current) return
+      const status = (err as { status?: number }).status
+      pushToast({
+        type: 'error',
+        message: status === 409 ? tp('browser.pickBusy') : err instanceof Error ? err.message : String(err),
+      })
+    } finally {
+      if (seq === pickSeqRef.current) {
+        pickTargetRef.current = null
+        setPicking(false)
+      }
+    }
+  }, [pushToast, tp])
+
   // 画布 CSS 像素 → 页面 CSS px：canvas 元素被 CSS 拉满容器，getBoundingClientRect 即显示尺寸
   const toPagePoint = useCallback((clientX: number, clientY: number) => {
     const canvas = canvasRef.current
@@ -346,10 +392,13 @@ export function BrowserView({ hostId, view, onViewChange, onMinimize, onClose }:
     if (!document.hidden) void connect()
     return () => {
       connectSeqRef.current += 1
+      pickSeqRef.current += 1
       clearReconnectTimer()
       clearReadyCheck()
       wsRef.current?.close()
       wsRef.current = null
+      // 卸载时若有挂起 pick，通知 gateway 收尾，避免远端 evaluate 挂到超时
+      if (pickingRef.current) void api.browser.pickCancel(pickTargetRef.current ?? undefined).catch(() => {})
     }
   }, [connect, clearReconnectTimer, clearReadyCheck])
   // 浏览器 tab 隐藏即断流：回前台若之前在连则自动恢复（与 DesktopView 同策略）
@@ -371,6 +420,12 @@ export function BrowserView({ hostId, view, onViewChange, onMinimize, onClose }:
     document.addEventListener('visibilitychange', onVisibility)
     return () => document.removeEventListener('visibilitychange', onVisibility)
   }, [connect, clearReconnectTimer])
+
+  // 拾取态绑定发起时的 target：切 tab/断线/引擎退出后结果已无意义，兜底取消让按钮复位
+  useEffect(() => {
+    if (!picking) return
+    if (phase !== 'ready' || wsState === 'closed' || activeTargetId !== pickTargetRef.current) cancelPick()
+  }, [picking, phase, wsState, activeTargetId, cancelPick])
 
   useEffect(() => {
     const mq = window.matchMedia(MOBILE_QUERY)
@@ -583,6 +638,24 @@ export function BrowserView({ hostId, view, onViewChange, onMinimize, onClose }:
             <FiRefreshCw size={14} />
           </Button>
         </div>
+        {picking ? (
+          <Button variant="accent" size="sm" onClick={cancelPick} className="shrink-0">
+            <FiCrosshair size={12} className="mr-1 inline" />
+            {tp('browser.pickCancel')}
+          </Button>
+        ) : (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => void startPick()}
+            disabled={phase !== 'ready'}
+            aria-label={tp('browser.pick')}
+            data-tip={tp('browser.pick')}
+            className="tmuxgo-tip"
+          >
+            <FiCrosshair size={14} />
+          </Button>
+        )}
         <form
           className="min-w-0 flex-1"
           onSubmit={(event) => {
@@ -834,6 +907,7 @@ export function BrowserView({ hostId, view, onViewChange, onMinimize, onClose }:
             </Button>
           </div>
         )}
+        {pickResult && <BrowserPickResultCard result={pickResult} onClose={() => setPickResult(null)} />}
         {phase === 'ready' && wsState === 'connecting' && (
           <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center p-3">
             <div className="rounded-apple bg-bg-1/90 px-3 py-1.5 text-xs text-text-2">{t('browser.connecting')}</div>
