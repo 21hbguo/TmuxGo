@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useConsoleStore } from '@/stores/useConsoleStore'
+import { useElementPickerStore } from '@/stores/useElementPickerStore'
 import { useTranslation } from '@/i18n'
 import { Button } from './Button'
 import { api } from '@/lib/api'
@@ -261,6 +262,14 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
       meta: t('palette.escToClose'),
       keywords: ['设置', 'settings', 'open settings', 'preferences'],
       action: async () => window.dispatchEvent(new CustomEvent('tmuxgo-open-settings')),
+    },
+    {
+      key: 'element-picker',
+      type: 'action',
+      title: t('palette.elementPicker'),
+      meta: `${mod}+Shift+I`,
+      keywords: ['元素选择', '元素', 'inspect', 'element', 'picker', '选择器', 'css'],
+      action: async () => useElementPickerStore.getState().start(),
     },
   ]
   const allItems: PaletteItem[] = [

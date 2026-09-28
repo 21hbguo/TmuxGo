@@ -1393,4 +1393,11 @@ export const zh = {
   'browser.reconnect': '重新连接',
   'browser.idle': '未运行',
   'browser.error': '浏览器出错',
+  // Element picker
+  'picker.title': '元素选择',
+  'picker.hint': '点击页面元素查看信息 · Esc 退出',
+  'picker.component': '组件',
+  'picker.copySelector': '复制选择器',
+  'picker.copied': '已复制选择器',
+  'palette.elementPicker': '元素选择',
 } as const

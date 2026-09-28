@@ -1400,4 +1400,11 @@ export const en = {
   'browser.reconnect': 'Reconnect',
   'browser.idle': 'Not running',
   'browser.error': 'Browser error',
+  // Element picker
+  'picker.title': 'Element picker',
+  'picker.hint': 'Click an element to inspect · Esc to exit',
+  'picker.component': 'Component',
+  'picker.copySelector': 'Copy selector',
+  'picker.copied': 'Selector copied',
+  'palette.elementPicker': 'Pick element',
 } as const
