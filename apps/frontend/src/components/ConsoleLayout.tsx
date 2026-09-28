@@ -20,6 +20,7 @@ import { GlobalFilePicker } from './GlobalFilePicker'
 import { UploadQueue } from './UploadQueue'
 import { AppVersionGuard } from './AppVersionGuard'
 import { ConfirmDialog } from './ConfirmDialog'
+import { ElementPickerOverlay } from './ElementPickerOverlay'
 import {
   createViewportStableState,
   getNextViewportStableState,
@@ -28,6 +29,7 @@ import {
 } from './consoleLayoutViewport'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useInboxStore } from '@/stores/useInboxStore'
+import { useElementPickerStore } from '@/stores/useElementPickerStore'
 import { useOptionalQueryClient } from '@/hooks/useOptionalQueryClient'
 import { navigateInboxRoute } from '@/lib/inbox-navigation'
 import { InboxNotifications } from './InboxNotifications'
@@ -597,6 +599,12 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null
+      // 元素选择器放在终端守卫之前：终端聚焦是常态，但 xterm 并不消费 Cmd/Ctrl+Shift+I
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'i') {
+        e.preventDefault()
+        useElementPickerStore.getState().toggle()
+        return
+      }
       if (target?.closest('[data-terminal],.xterm,.xterm-screen')) return
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault()
@@ -952,6 +960,7 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
       </MobileBottomSheet>
       <UploadConfirmDialog />
       <GlobalFilePicker />
+      <ElementPickerOverlay />
       <UploadQueue />
       <AppVersionGuard />
       <ClipboardController />
