@@ -69,8 +69,6 @@ interface BrowserViewProps {
 
 export function BrowserView({ hostId, view, onViewChange, onMinimize, onClose }: BrowserViewProps) {
   const { t } = useTranslation()
-  // pick 文案 key 由 i18n 包统一合并（本包不改 zh/en）：缺失时 t 原样回退成 key 占位
-  const tp = t as (key: string) => string
   const pushToast = useConsoleStore((state) => state.pushToast)
   const sectionRef = useRef<HTMLElement | null>(null)
   const stageRef = useRef<HTMLDivElement | null>(null)
@@ -290,7 +288,7 @@ export function BrowserView({ hostId, view, onViewChange, onMinimize, onClose }:
     pickTargetRef.current = activeTargetIdRef.current
     setPicking(true)
     setPickResult(null)
-    pushToast({ type: 'info', message: tp('browser.pickHint') })
+    pushToast({ type: 'info', message: t('browser.pickHint') })
     try {
       const res = await api.browser.pick(activeTargetIdRef.current ?? undefined)
       if (seq !== pickSeqRef.current) return
@@ -301,7 +299,7 @@ export function BrowserView({ hostId, view, onViewChange, onMinimize, onClose }:
       const status = (err as { status?: number }).status
       pushToast({
         type: 'error',
-        message: status === 409 ? tp('browser.pickBusy') : err instanceof Error ? err.message : String(err),
+        message: status === 409 ? t('browser.pickBusy') : err instanceof Error ? err.message : String(err),
       })
     } finally {
       if (seq === pickSeqRef.current) {
@@ -309,7 +307,7 @@ export function BrowserView({ hostId, view, onViewChange, onMinimize, onClose }:
         setPicking(false)
       }
     }
-  }, [pushToast, tp])
+  }, [pushToast, t])
 
   // 画布 CSS 像素 → 页面 CSS px：canvas 元素被 CSS 拉满容器，getBoundingClientRect 即显示尺寸
   const toPagePoint = useCallback((clientX: number, clientY: number) => {
@@ -641,7 +639,7 @@ export function BrowserView({ hostId, view, onViewChange, onMinimize, onClose }:
         {picking ? (
           <Button variant="accent" size="sm" onClick={cancelPick} className="shrink-0">
             <FiCrosshair size={12} className="mr-1 inline" />
-            {tp('browser.pickCancel')}
+            {t('browser.pickCancel')}
           </Button>
         ) : (
           <Button
@@ -649,8 +647,8 @@ export function BrowserView({ hostId, view, onViewChange, onMinimize, onClose }:
             size="icon-sm"
             onClick={() => void startPick()}
             disabled={phase !== 'ready'}
-            aria-label={tp('browser.pick')}
-            data-tip={tp('browser.pick')}
+            aria-label={t('browser.pick')}
+            data-tip={t('browser.pick')}
             className="tmuxgo-tip"
           >
             <FiCrosshair size={14} />

@@ -1393,6 +1393,13 @@ export const zh = {
   'browser.reconnect': '重新连接',
   'browser.idle': '未运行',
   'browser.error': '浏览器出错',
+  'browser.pick': '选择元素',
+  'browser.pickCancel': '取消选择',
+  'browser.pickHint': '在画面中点击目标元素，Esc 取消',
+  'browser.pickBusy': '已有元素拾取在进行中',
+  'browser.pickResult': '拾取结果',
+  'browser.pickCopySelector': '复制选择器',
+  'browser.pickCopyRef': '复制 ref',
   // Element picker
   'picker.title': '元素选择',
   'picker.hint': '点击页面元素查看信息 · Esc 退出',

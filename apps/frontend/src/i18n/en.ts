@@ -1400,6 +1400,13 @@ export const en = {
   'browser.reconnect': 'Reconnect',
   'browser.idle': 'Not running',
   'browser.error': 'Browser error',
+  'browser.pick': 'Pick element',
+  'browser.pickCancel': 'Cancel selection',
+  'browser.pickHint': 'Click an element on the page, Esc to cancel',
+  'browser.pickBusy': 'An element pick is already in progress',
+  'browser.pickResult': 'Picked element',
+  'browser.pickCopySelector': 'Copy selector',
+  'browser.pickCopyRef': 'Copy ref',
   // Element picker
   'picker.title': 'Element picker',
   'picker.hint': 'Click an element to inspect · Esc to exit',
