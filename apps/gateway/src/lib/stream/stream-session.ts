@@ -65,6 +65,13 @@ let assertOrderSeq = 0
 // 多端/多标签同时 pageActive 时后到的 exclusive claim 会踢掉前任，
 // 保证「当前在用」等同单实例，失焦/被抢端不再抢 window-size 或写输入。
 const exclusiveOwners = new Map<string, StreamSession>()
+// 尺寸协议代次（随事件下发的可选字段）：ownerEpoch 在 exclusive 所有权易主时
+// 递增，windowVersion 累计同 key 的每次尺寸决策（owner 主张与仲裁应用都算）。
+// 前端据这两个单调序号丢弃跨所有权世代或乱序到达的旧 window-size/resized；
+// requestId 由前端生成、resized 原样回声。字段缺失时行为与旧协议完全一致
+const ownerEpochs = new Map<string, number>()
+const windowVersions = new Map<string, number>()
+let ownerEpochSeq = 0
 const WINDOW_SYNC_DELAY_MS = 80
 const WINDOW_SYNC_SETTLE_MS = 60
 function peerKey(hostId: string, sessionName: string) {
@@ -77,11 +84,17 @@ export function setWindowSizeQueryForTest(fn: typeof getSessionWindowSize | null
 }
 export function resetExclusiveOwnershipForTest() {
   exclusiveOwners.clear()
+  ownerEpochs.clear()
+  windowVersions.clear()
+  ownerEpochSeq = 0
 }
 export function claimExclusiveOwnership(session: StreamSession) {
   if (!session.attachedSessionName) return
   const key = peerKey(session.attachedHostId, session.attachedSessionName)
   const prev = exclusiveOwners.get(key)
+  // 所有权易主（含首次 claim）开新 epoch；同 session 重复 claim 续用原世代
+  if (prev !== session) ownerEpochs.set(key, ++ownerEpochSeq)
+  session.ownerEpoch = ownerEpochs.get(key) ?? 0
   if (prev && prev !== session) prev.demoteFromExclusive()
   exclusiveOwners.set(key, session)
   session.exclusiveOwnerKey = key
@@ -91,6 +104,7 @@ export function releaseExclusiveOwnership(session: StreamSession) {
     exclusiveOwners.delete(session.exclusiveOwnerKey)
   }
   session.exclusiveOwnerKey = null
+  session.ownerEpoch = 0
 }
 export function schedulePeerWindowSync(hostId: string, sessionName: string, delay = WINDOW_SYNC_DELAY_MS) {
   const key = peerKey(hostId, sessionName)
@@ -165,6 +179,12 @@ interface PendingResizeAck {
   cols: number
   rows: number
   seq: number
+  // 尺寸协议字段：requestId 在 resized 中原样回声供前端配对请求；
+  // version/ownerEpoch 记主张落点的快照而非完成时现值——主张若已被
+  // 仲裁覆盖或所有权易主，ACK 携带的旧世代号让前端能识别并丢弃
+  requestId?: string | number
+  version?: number
+  ownerEpoch?: number
   refreshComplete: boolean
   outputObserved: boolean
   startedAt: number
@@ -179,6 +199,8 @@ export class StreamSession {
   // 被动旁观附着（后台/失焦页）：丢弃一切会话级写操作，见 input/queueScroll
   attachedPassive = false
   exclusiveOwnerKey: string | null = null
+  // 本端持有所有权时所属 epoch（claim 时由 ownerEpochs 表写入，release/demote 归零）
+  ownerEpoch = 0
   attachedCols = 0
   attachedRows = 0
   // 独占端期望的 window 尺寸与主张代次：reconcile 用最近主张者（assertSeq 最大）
@@ -603,7 +625,31 @@ export class StreamSession {
     if (!this.attachedSessionName) return
     const key = peerKey(this.attachedHostId, this.attachedSessionName)
     const set = streamPeers.get(key)
-    if (set && set.delete(this) && !set.size) streamPeers.delete(key)
+    if (set && set.delete(this) && !set.size) {
+      streamPeers.delete(key)
+      // 最后一名 peer 离开后仲裁时间线随之失效，清掉计数表防止按 session 名泄漏
+      ownerEpochs.delete(key)
+      windowVersions.delete(key)
+    }
+  }
+  // 尺寸协议字段来源：windowVersion/ownerEpoch 读同 key 的会话级计数表，
+  // 同 host+session 下所有 peer 共享同一条仲裁时间线；未附着时恒为 0
+  private currentOwnerEpoch() {
+    if (!this.attachedSessionName) return 0
+    return ownerEpochs.get(peerKey(this.attachedHostId, this.attachedSessionName)) ?? 0
+  }
+  private peekWindowVersion() {
+    if (!this.attachedSessionName) return 0
+    return windowVersions.get(peerKey(this.attachedHostId, this.attachedSessionName)) ?? 0
+  }
+  private nextWindowVersion() {
+    if (!this.attachedSessionName) return 0
+    const version = this.peekWindowVersion() + 1
+    windowVersions.set(peerKey(this.attachedHostId, this.attachedSessionName), version)
+    return version
+  }
+  private sizeProtocol(version?: number) {
+    return { windowVersion: version ?? this.peekWindowVersion(), ownerEpoch: this.currentOwnerEpoch() }
   }
   // 由 reconcile 调用：把本 client 的 pty 同步到 window 实际尺寸并推 window-size
   // 事件让前端跟随。对 ignore-size client 是纯视图同步；对独占 client 是等值
@@ -632,6 +678,9 @@ export class StreamSession {
       this.desiredRows === rows &&
       this.attachedCols === cols &&
       this.attachedRows === rows
+    // 尺寸决策计数随每次应用递增（含不推事件的回声）：同 key 单调，前端
+    // 按"大于最近所见"过滤即可，允许跳号
+    const version = this.nextWindowVersion()
     if (this.sharedHub) {
       // 共享 PTY 只允许仲裁 force 或 exclusive owner 主张尺寸；其余 peer
       // （ignore-size 旁观端）只同步本地视图 + window-size 事件，避免互抢
@@ -651,6 +700,7 @@ export class StreamSession {
         hostId: this.attachedHostId,
         cols,
         rows,
+        ...this.sizeProtocol(version),
       })
     }
   }
@@ -742,6 +792,9 @@ export class StreamSession {
       hostId: pending.hostId,
       cols: pending.cols,
       rows: pending.rows,
+      requestId: pending.requestId,
+      windowVersion: pending.version ?? this.peekWindowVersion(),
+      ownerEpoch: pending.ownerEpoch ?? this.currentOwnerEpoch(),
     })
   }
   queueOutput(output: string) {
@@ -1054,6 +1107,7 @@ export class StreamSession {
         cols: this.attachedCols || requestedCols,
         rows: this.attachedRows || requestedRows,
         exclusive,
+        ...this.sizeProtocol(),
       })
       // 切换模式后需整帧恢复：refresh-client 重绘经共享 PTY 扇出全部订阅者
       // （单 tmux client 无法只刷一端），各端靠 output_resync 边界原子替换
@@ -1094,6 +1148,7 @@ export class StreamSession {
         cols: this.attachedCols || requestedCols,
         rows: this.attachedRows || requestedRows,
         exclusive,
+        ...this.sizeProtocol(),
       })
       this.scheduleAttachRefresh(sessionName, this.attachSeq)
       console.log('Attach completed (reuse)', { sessionName, elapsedMs: Date.now() - attachStartedAt })
@@ -1138,7 +1193,15 @@ export class StreamSession {
       // fan-out 新 attach 首轮：hub 侧会 heavy；本端状态对齐边界语义
       this.sanitizeMode = 'heavy'
       if (!this.ptyProcess) throw new Error('Terminal attachment failed')
-      this.send({ type: 'attached', sessionName, hostId, cols: this.attachedCols, rows: this.attachedRows, exclusive })
+      this.send({
+        type: 'attached',
+        sessionName,
+        hostId,
+        cols: this.attachedCols,
+        rows: this.attachedRows,
+        exclusive,
+        ...this.sizeProtocol(),
+      })
       if (exclusive) schedulePeerWindowSync(hostId, sessionName)
       // 新订者：refresh-client 补整帧。单 tmux client 的重绘字节进共享 PTY 后
       // 扇出全部订阅者——各端以 output_resync 边界原子替换（见 broadcastRedrawBoundary）
@@ -1204,7 +1267,15 @@ export class StreamSession {
       if (seq !== this.attachSeq) return
       this.handleProcessExit(exitCode)
     })
-    this.send({ type: 'attached', sessionName, hostId, cols, rows, exclusive })
+    this.send({
+      type: 'attached',
+      sessionName,
+      hostId,
+      cols,
+      rows,
+      exclusive,
+      ...this.sizeProtocol(),
+    })
     if (exclusive) schedulePeerWindowSync(hostId, sessionName)
     this.scheduleAttachRefresh(sessionName, seq)
     console.log('Attach completed (new)', { sessionName, cols, rows, elapsedMs: Date.now() - attachStartedAt })
@@ -1277,6 +1348,7 @@ export class StreamSession {
     this.lastExclusiveCols = 0
     this.lastExclusiveRows = 0
     this.lastExclusiveSeq = 0
+    this.ownerEpoch = 0
     this.pendingResizeAck = null
     if (this.resizeAckTimer) {
       clearTimeout(this.resizeAckTimer)
@@ -1287,7 +1359,7 @@ export class StreamSession {
     this.attachRefresh = null
     if (exitedSessionName) schedulePeerWindowSync(exitedHostId, exitedSessionName)
   }
-  resize(cols: number, rows: number) {
+  resize(cols: number, rows: number, requestId?: string | number) {
     recordStreamMetric('resizeRequests')
     if (!this.ptyProcess) return
     // 被动/旁观端禁止改 client 尺寸，避免与 owner 的 window 主张打架
@@ -1298,6 +1370,8 @@ export class StreamSession {
         hostId: this.attachedHostId,
         cols: this.attachedCols,
         rows: this.attachedRows,
+        requestId,
+        ...this.sizeProtocol(),
       })
       return
     }
@@ -1309,6 +1383,8 @@ export class StreamSession {
         hostId: this.attachedHostId,
         cols: this.attachedCols,
         rows: this.attachedRows,
+        requestId,
+        ...this.sizeProtocol(),
       })
       return
     }
@@ -1322,15 +1398,22 @@ export class StreamSession {
         hostId: this.attachedHostId,
         cols: nextCols,
         rows: nextRows,
+        requestId,
+        ...this.sizeProtocol(),
       })
       return
     }
-    const pending = {
+    const pending: PendingResizeAck = {
       sessionName: this.attachedSessionName,
       hostId: this.attachedHostId,
       cols: nextCols,
       rows: nextRows,
       seq: this.attachSeq,
+      // 主张落点快照：version 计入尺寸决策序列，ownerEpoch 记当前所有权世代，
+      // ACK 按此下发——完成后即使世代已变，前端也能认出这是旧主张的回执
+      requestId,
+      version: this.nextWindowVersion(),
+      ownerEpoch: this.currentOwnerEpoch(),
       refreshComplete: false,
       outputObserved: false,
       startedAt: Date.now(),
@@ -1392,7 +1475,9 @@ export class StreamSession {
     this.desiredRows = 0
     this.assertSeq = 0
     releaseExclusiveOwnership(this)
-    this.send({ type: 'exclusive-revoked', hostId, sessionName })
+    // ownerEpoch 已随新 claim 易主递增：随事件下发新世代号，被抢端据此丢弃
+    // 自己旧世代在途的 window-size/resized 回执
+    this.send({ type: 'exclusive-revoked', hostId, sessionName, ownerEpoch: this.currentOwnerEpoch() })
     if (this.sharedHub) {
       // 共享 PTY 不随降级拆掉：本端转 passive 继续旁观，前端收到
       // exclusive-revoked 后以 shared+passive 原位重附着（hub reuse 分支）

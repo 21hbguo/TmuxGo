@@ -1,5 +1,6 @@
 import { createTerminalLayout } from '@/lib/terminal-layout'
 import { createTerminalResizeMask } from '@/lib/terminal-resize-mask'
+import { createTerminalSizeState } from '@/lib/terminal-size-state'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { emitStreamEvent, subscribeStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -143,17 +144,18 @@ function createHarness() {
   const mask = createTerminalResizeMask({ mask: maskElement, getTerminal: () => terminal })
   const onResize = vi.fn()
   const revealMask = vi.fn((generation?: number) => mask.reveal(generation))
-  const pendingRemoteResizeRef: { current: { cols: number; rows: number } | null } = { current: null }
+  const sizeState = createTerminalSizeState({
+    attachExclusiveRef: { current: true },
+    hasResizeConsumer: () => true,
+    lastSize: { cols: 80, rows: 24 },
+  })
   const layout = createTerminalLayout({
     container,
     isMobile: false,
     getTerminal: () => terminal,
     isDisposed: () => false,
     preferencesRef: { current: { fontSize: 16, fontFamily: 'monospace', cursorBlink: true, terminalPadding: 0 } },
-    attachExclusiveRef: { current: true },
-    lastSizeRef: { current: { cols: 80, rows: 24 } },
-    sharedSessionSizeRef: { current: null },
-    pendingRemoteResizeRef,
+    size: sizeState,
     onResizeRef: { current: onResize },
     onResizeActivityRef: { current: () => terminalProps.current?.onResizeActivity?.() },
     controlCarryRef: { current: '' },
@@ -180,11 +182,10 @@ function createHarness() {
     resizeCalls,
     onResize,
     revealMask,
-    pendingRemoteResizeRef,
+    sizeState,
     // 模拟服务端 resized/localOnly 确认到达（runtime handleResized 的尺寸匹配清零）
     ackResize(cols: number, rows: number) {
-      const pending = pendingRemoteResizeRef.current
-      if (pending && pending.cols === cols && pending.rows === rows) pendingRemoteResizeRef.current = null
+      sizeState.noteResized(cols, rows)
     },
     setSize(nextWidth: number, nextHeight: number) {
       width = nextWidth
@@ -396,7 +397,11 @@ describe('PaneGrid', () => {
     act(() => {
       terminalProps.current?.onResize?.(123, 36)
     })
-    await waitFor(() => expect(sendMock).toHaveBeenCalledWith({ type: 'resize', hostId: 'local', cols: 123, rows: 36 }))
+    await waitFor(() =>
+      expect(sendMock).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'resize', hostId: 'local', cols: 123, rows: 36 }),
+      ),
+    )
     expect(sendMock.mock.calls.filter(([message]) => message?.type === 'resize')).toHaveLength(1)
   })
   it('does not report normal input to the debug endpoint', async () => {
@@ -443,7 +448,9 @@ describe('PaneGrid', () => {
     act(() => {
       emitStreamEvent(STREAM_EVENT.attached, { sessionName: 'dev1', cols: 121, rows: 40, hostId: 'local' })
     })
-    expect(sendMock).not.toHaveBeenCalledWith({ type: 'resize', hostId: 'local', cols: 121, rows: 40 })
+    expect(sendMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'resize', hostId: 'local', cols: 121, rows: 40 }),
+    )
   })
   it('completes a local-only resize after detach without sending it', async () => {
     socketState.isConnected = true
@@ -639,7 +646,9 @@ describe('PaneGrid', () => {
     expect(sendMock.mock.calls.filter(([m]) => m.type === 'resize')).toHaveLength(1)
     // ACK 到 → 只补最终 140
     act(() => emitStreamEvent(STREAM_EVENT.resized, { sessionName: 'dev1', hostId: 'local', cols: 121, rows: 40 }))
-    expect(sendMock).toHaveBeenLastCalledWith({ type: 'resize', hostId: 'local', cols: 140, rows: 40 })
+    expect(sendMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ type: 'resize', hostId: 'local', cols: 140, rows: 40 }),
+    )
     expect(sendMock.mock.calls.filter(([m]) => m.type === 'resize')).toHaveLength(2)
   })
   it('does not let an ACK pierce the still-open quiet window', () => {
@@ -659,7 +668,9 @@ describe('PaneGrid', () => {
     expect(sendMock.mock.calls.filter(([m]) => m.type === 'resize')).toHaveLength(1)
     // 静止窗到期后才发 130
     act(() => vi.advanceTimersByTime(120))
-    expect(sendMock).toHaveBeenLastCalledWith({ type: 'resize', hostId: 'local', cols: 130, rows: 40 })
+    expect(sendMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ type: 'resize', hostId: 'local', cols: 130, rows: 40 }),
+    )
   })
   it('rejects a wrong-size stale ACK without releasing the in-flight resize', () => {
     vi.useFakeTimers()
@@ -677,7 +688,9 @@ describe('PaneGrid', () => {
     expect(sendMock.mock.calls.filter(([m]) => m.type === 'resize')).toHaveLength(1)
     // 正确的 121 ACK 到达后才补发最新 130（此时 130 静止窗已过）
     act(() => emitStreamEvent(STREAM_EVENT.resized, { sessionName: 'dev1', hostId: 'local', cols: 121, rows: 40 }))
-    expect(sendMock).toHaveBeenLastCalledWith({ type: 'resize', hostId: 'local', cols: 130, rows: 40 })
+    expect(sendMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ type: 'resize', hostId: 'local', cols: 130, rows: 40 }),
+    )
   })
   it('ignores a duplicate ACK with nothing in flight', () => {
     vi.useFakeTimers()
@@ -704,7 +717,9 @@ describe('PaneGrid', () => {
     act(() => terminalProps.current?.onResize?.(130, 40))
     // 121 的 ACK 丢失：1200ms 兜底清在途；此时 130 静止窗已过 → 补发最新 130
     act(() => vi.advanceTimersByTime(1300))
-    expect(sendMock).toHaveBeenLastCalledWith({ type: 'resize', hostId: 'local', cols: 130, rows: 40 })
+    expect(sendMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ type: 'resize', hostId: 'local', cols: 130, rows: 40 }),
+    )
     // 迟到的 121 旧 ACK 不得再推进任何状态
     sendMock.mockClear()
     act(() => emitStreamEvent(STREAM_EVENT.resized, { sessionName: 'dev1', hostId: 'local', cols: 121, rows: 40 }))
@@ -727,6 +742,40 @@ describe('PaneGrid', () => {
     act(() => terminalProps.current?.onResize?.(121, 40))
     act(() => vi.advanceTimersByTime(300))
     expect(sendMock.mock.calls.filter(([m]) => m.type === 'resize')).toHaveLength(0)
+  })
+  it('suppresses the layout echo after a window-size push without re-claiming the pushed size', () => {
+    vi.useFakeTimers()
+    socketState.isConnected = true
+    render(<PaneGrid />)
+    fireEvent.click(screen.getByRole('button', { name: 'dev1' }))
+    act(() =>
+      emitStreamEvent(STREAM_EVENT.attached, {
+        sessionName: 'dev1',
+        hostId: 'local',
+        cols: 120,
+        rows: 36,
+        exclusive: true,
+      }),
+    )
+    // 本地真实尺寸主张 121x40（记为期望尺寸）
+    act(() => terminalProps.current?.onResize?.(121, 40))
+    act(() => vi.advanceTimersByTime(160))
+    act(() => emitStreamEvent(STREAM_EVENT.resized, { sessionName: 'dev1', hostId: 'local', cols: 121, rows: 40 }))
+    sendMock.mockClear()
+    // 仲裁推送 window-size：布局回声到同一尺寸应走 localOnly 零发包
+    act(() => emitStreamEvent(STREAM_EVENT.windowSize, { sessionName: 'dev1', hostId: 'local', cols: 137, rows: 23 }))
+    const completed = vi.fn()
+    const unsubscribe = subscribeStreamEvent(STREAM_EVENT.resized, completed)
+    act(() => terminalProps.current?.onResize?.(137, 23))
+    act(() => vi.advanceTimersByTime(300))
+    unsubscribe()
+    expect(sendMock.mock.calls.filter(([m]) => m.type === 'resize')).toHaveLength(0)
+    expect(completed).toHaveBeenCalledWith(expect.objectContaining({ cols: 137, rows: 23, localOnly: true }))
+    // 回声不得覆盖期望尺寸：detach→reattach 仍按 121x40 主张
+    act(() => emitStreamEvent(STREAM_EVENT.detached, { sessionName: 'dev1', hostId: 'local' }))
+    act(() => vi.advanceTimersByTime(1000))
+    const attach = sendMock.mock.calls.filter(([m]) => m.type === 'attach').at(-1)?.[0]
+    expect(attach).toMatchObject({ cols: 121, rows: 40 })
   })
   it('clears the stale ACK timer and queued size on unmount', () => {
     vi.useFakeTimers()
@@ -823,7 +872,9 @@ describe('PaneGrid', () => {
     expect(sendMock.mock.calls.filter(([m]) => m.type === 'resize')).toHaveLength(0)
     settling = false
     act(() => vi.advanceTimersByTime(20))
-    expect(sendMock).toHaveBeenLastCalledWith({ type: 'resize', hostId: 'local', cols: 130, rows: 40 })
+    expect(sendMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ type: 'resize', hostId: 'local', cols: 130, rows: 40 }),
+    )
     expect(sendMock.mock.calls.filter(([m]) => m.type === 'resize')).toHaveLength(1)
   })
   it('suppresses all remote sends during pointer drag and commits once after pointerup settle', () => {
@@ -912,7 +963,9 @@ describe('PaneGrid', () => {
     // pointerup settle 后补发最终尺寸
     act(() => emitStreamEvent(STREAM_EVENT.resizeGesture, { phase: 'end' }))
     act(() => vi.advanceTimersByTime(60))
-    expect(sendMock).toHaveBeenLastCalledWith({ type: 'resize', hostId: 'local', cols: 130, rows: 40 })
+    expect(sendMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ type: 'resize', hostId: 'local', cols: 130, rows: 40 }),
+    )
     expect(sendMock.mock.calls.filter(([m]) => m.type === 'resize')).toHaveLength(2)
   })
   it('keeps sending final size when local fit is still settling after pointerup', () => {
@@ -935,7 +988,9 @@ describe('PaneGrid', () => {
     expect(sendMock.mock.calls.filter(([m]) => m.type === 'resize')).toHaveLength(0)
     settling = false
     act(() => vi.advanceTimersByTime(40))
-    expect(sendMock).toHaveBeenLastCalledWith({ type: 'resize', hostId: 'local', cols: 126, rows: 40 })
+    expect(sendMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ type: 'resize', hostId: 'local', cols: 126, rows: 40 }),
+    )
   })
   it('anchors the quiet window to the last container activity, not to the final fit', () => {
     vi.useFakeTimers()
@@ -966,7 +1021,9 @@ describe('PaneGrid', () => {
     act(() => vi.advanceTimersByTime(70))
     expect(sendMock.mock.calls.filter(([m]) => m.type === 'resize')).toHaveLength(0)
     act(() => vi.advanceTimersByTime(30))
-    expect(sendMock).toHaveBeenLastCalledWith({ type: 'resize', hostId: 'local', cols: 130, rows: 40 })
+    expect(sendMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ type: 'resize', hostId: 'local', cols: 130, rows: 40 }),
+    )
   })
 })
 

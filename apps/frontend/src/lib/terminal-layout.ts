@@ -1,4 +1,5 @@
 import { recordMobileDebug } from './terminal-debug'
+import type { TerminalSizeState } from './terminal-size-state'
 const TERMINAL_REPAINT_DELAYS = [0, 16, 48, 120, 260]
 const MOBILE_TERMINAL_REPAINT_DELAYS = [96]
 const TERMINAL_RECOVERY_REPAINT_DELAYS = [0, 16, 64, 180]
@@ -14,17 +15,9 @@ interface TerminalLayoutOptions {
   getTerminal: () => any
   isDisposed: () => boolean
   preferencesRef: { current: any }
-  attachExclusiveRef: { current: boolean }
-  lastSizeRef: { current: { cols: number; rows: number } | null }
-  sharedSessionSizeRef: { current: { cols: number; rows: number } | null }
-  // 独占端被服务端尺寸仲裁降级时非 null：跟随 window 尺寸按共享渲染（缩放字体
-  // 铺满容器），真实容器变化时清空并重新走独占 fit 主张自己的尺寸
-  followedWindowSizeRef?: { current: { cols: number; rows: number } | null }
-  // 最近一次本地 fit 发起、尚未等到 resized/localOnly 确认的行列数；null=无在途 resize。
-  // onResize 侧会合并后再实际发送，所以这里表示"已发起待确认"而非"已发送"；
-  // 由 runtime 侧 handleResized 按尺寸匹配清零（ACK 不带代次，只能对最后发起值消歧）。
-  // 可选：未接线的调用方退化为"永远无在途"，保持旧的即时揭开语义
-  pendingRemoteResizeRef?: { current: { cols: number; rows: number } | null }
+  // 尺寸协商状态（owner 主张/共享跟随/降级跟随/在途 ACK）：由 runtime 创建并
+  // 喂入协议事件，layout 只做本地转移，不再各自散写多个 ref
+  size: TerminalSizeState
   onResizeRef: { current: ((cols: number, rows: number) => void) | undefined }
   // 每次真实容器尺寸变化（RO 观察步长，远密于节流后的 fit/onResize）都回调：
   // 供上层把远端 resize 的静止截止挂在真实拖动活动上，而不是稀疏 fit 通知
@@ -54,11 +47,7 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
   const getTerminal = options.getTerminal
   const isDisposed = options.isDisposed
   const preferencesRef = options.preferencesRef
-  const attachExclusiveRef = options.attachExclusiveRef
-  const lastSizeRef = options.lastSizeRef
-  const sharedSessionSizeRef = options.sharedSessionSizeRef
-  const followedWindowSizeRef = options.followedWindowSizeRef ?? { current: null }
-  const pendingRemoteResizeRef = options.pendingRemoteResizeRef ?? { current: null }
+  const sizeState = options.size
   const onResizeRef = options.onResizeRef
   const controlCarryRef = options.controlCarryRef
   const updateTerminalPerf = options.updateTerminalPerf
@@ -120,7 +109,7 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
     const terminal = getTerminal()
     if (!terminal || isDisposed()) return
     try {
-      if (attachExclusiveRef.current) syncExclusiveViewport()
+      if (sizeState.isExclusiveOwner()) syncExclusiveViewport()
       else syncSharedViewport()
       if (stickToBottom) scrollTerminalToBottom()
       refreshTerminalRows(forceRefresh)
@@ -239,7 +228,7 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
   }
   // 降级跟随期间视共享：渲染修正/视口同步按共享语义走（独占 rows height:100%
   // 会把 60 列画面在 200 列容器里拉伸，共享渲染才是缩放字体铺满）
-  const isExclusiveRender = () => attachExclusiveRef.current && !followedWindowSizeRef.current
+  const isExclusiveRender = () => sizeState.isExclusiveRender()
   const applyRendererStyleCorrection = () => {
     if (isDisposed()) return
     const renderer = getRendererElements()
@@ -385,7 +374,7 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
     const terminal = getTerminal()
     if (!terminal || isDisposed()) return false
     // 仲裁降级跟随期间禁止独占 fit：否则容器 RO 抖动会用本机尺寸抢 window
-    if (!attachExclusiveRef.current || followedWindowSizeRef.current) return false
+    if (!sizeState.canExclusiveFit()) return false
     try {
       const stickToBottom = isMobileDevice && !isTerminalScrolledBack()
       const currentWidth = container.clientWidth
@@ -396,12 +385,12 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
         !force &&
         Math.abs(currentWidth - lastFitSize.width) <= MOBILE_FIT_SIZE_TOLERANCE &&
         Math.abs(currentHeight - lastFitSize.height) <= MOBILE_FIT_SIZE_TOLERANCE &&
-        lastSizeRef.current
+        sizeState.lastSize
       ) {
         recordMobileDebug('terminal-fit-noop', { width: currentWidth, height: currentHeight })
         // 本次 fit 没发 resize：拖动中本地反馈不等远端收敛（允许短暂错位后收敛），
         // 直接揭开；非拖动仍只有在途 resize 全清（resized/localOnly 已回）才本地揭开
-        if (mask.isVisible() && (!pendingRemoteResizeRef.current || observedResizeBurst > 2)) revealMask()
+        if (mask.isVisible() && (!sizeState.hasPending() || observedResizeBurst > 2)) revealMask()
         return true
       }
       applyTerminalOptions()
@@ -413,15 +402,11 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
         if (terminal.cols !== cols || terminal.rows !== rows) {
           terminal.resize(cols, rows)
         }
-        const prev = lastSizeRef.current
-        const sizeChanged = !prev || prev.cols !== cols || prev.rows !== rows
-        if (sizeChanged) {
-          lastSizeRef.current = { cols, rows }
+        if (sizeState.noteLocalApplied({ cols, rows })) {
           const perf = options.getTerminalPerf()
           updateTerminalPerf({ layoutFitCount: perf.layoutFitCount + 1 })
           // 先于 onResize 置位：onResize 里去重/断线会同步发 localOnly resized 清掉它；
           // 无回调则永远等不到确认，不置位
-          if (onResizeRef.current) pendingRemoteResizeRef.current = { cols, rows }
           onResizeRef.current?.(cols, rows)
         }
         requestAnimationFrame(() => {
@@ -437,7 +422,7 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
           // 拖动（burst>2）期间本地视觉反馈不等远端收敛：本地 reflow 落地即揭，
           // 允许短暂错位由后续远端重绘自动收敛；非拖动的离散 resize 仍等
           // resized/localOnly 确认后才揭，避免旧列宽帧闪进新网格
-          if (mask.isVisible() && (!pendingRemoteResizeRef.current || observedResizeBurst > 2)) revealMask()
+          if (mask.isVisible() && (!sizeState.hasPending() || observedResizeBurst > 2)) revealMask()
         })
         notifyReady()
         return true
@@ -450,7 +435,7 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
     const resetFont = pendingLayoutResetFont
     pendingLayoutForce = false
     pendingLayoutResetFont = false
-    if (!attachExclusiveRef.current || followedWindowSizeRef.current) {
+    if (!sizeState.canExclusiveFit()) {
       layoutRetryCount = 0
       initialFitPending = false
       mobileKeyboardTransition = false
@@ -462,7 +447,7 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
     const keyboardHeightOnly =
       isMobileDevice &&
       !force &&
-      lastSizeRef.current &&
+      sizeState.lastSize &&
       Math.abs(container.clientWidth - lastFitSize.width) <= MOBILE_FIT_SIZE_TOLERANCE &&
       document.body.classList.contains('keyboard-open')
     if (keyboardHeightOnly) {
@@ -547,7 +532,7 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
   const syncSharedLayout = (resetFont: boolean, attempt = 0) => {
     const terminal = getTerminal()
     if (!terminal || isDisposed() || isExclusiveRender()) return
-    const size = sharedSessionSizeRef.current
+    const size = sizeState.sharedSize
     if (!size || size.cols <= 0 || size.rows <= 0) return
     const stickToBottom = isMobileDevice && !isTerminalScrolledBack()
     if (sharedLayoutFrame) cancelAnimationFrame(sharedLayoutFrame)
@@ -585,17 +570,13 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
       }
       if (isMobileDevice) syncSharedViewport()
       repaintTerminalRenderer(isMobileDevice, stickToBottom)
-      const prev = lastSizeRef.current
-      lastSizeRef.current = { cols: size.cols, rows: size.rows }
-      const sizeChanged = !prev || prev.cols !== size.cols || prev.rows !== size.rows
-      if (sizeChanged) {
+      if (sizeState.noteLocalApplied(size)) {
         const perf = options.getTerminalPerf()
         updateTerminalPerf({ layoutFitCount: perf.layoutFitCount + 1 })
-        if (onResizeRef.current) pendingRemoteResizeRef.current = { cols: size.cols, rows: size.rows }
         onResizeRef.current?.(size.cols, size.rows)
       }
       // 与 doFit 同一规则：拖动中不等 ACK 直接揭，非拖动有在途 resize 等 ACK，无则立即揭
-      if (mask.isVisible() && (!pendingRemoteResizeRef.current || observedResizeBurst > 2)) revealMask()
+      if (mask.isVisible() && (!sizeState.hasPending() || observedResizeBurst > 2)) revealMask()
     })
     if (synchronous) sharedLayoutFrame = frame
   }
@@ -616,11 +597,8 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
     const widthChanged = Math.abs(width - lastContainerSize.width) > MOBILE_FIT_SIZE_TOLERANCE
     lastContainerSize = { width, height }
     // 真实容器变化是新的尺寸主张：仍独占的端解除降级跟随并重新 fit；
-    // 判定用 attachExclusiveRef 而非 isExclusiveRender——后者要求 followed
-    // 已为空，降级态会永远卡死跟随（网格钉住只缩放字体）。
-    // 非独占端清 followed 会误触发 doFit 抢 window，仅做共享布局对齐
-    if (attachExclusiveRef.current) followedWindowSizeRef.current = null
-    else if (followedWindowSizeRef.current) {
+    // 非独占端清跟随会误触发 doFit 抢 window，仅做共享布局对齐
+    if (sizeState.noteContainerChange()) {
       scheduleLayoutSync(0, true)
     }
     resizeObservedSize = { width, height }
@@ -631,7 +609,7 @@ export function createTerminalLayout(options: TerminalLayoutOptions) {
     // 键盘开着时纯高度变化不 refit（宽度变仍走正常流程，如旋转）
     if (
       isMobileDevice &&
-      attachExclusiveRef.current &&
+      sizeState.isExclusiveOwner() &&
       hadContainerSize &&
       !widthChanged &&
       document.body.classList.contains('keyboard-open')

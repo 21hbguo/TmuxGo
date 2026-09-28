@@ -19,6 +19,7 @@ import { useTerminalPinch } from '@/hooks/useTerminalPinch'
 import { useGithubDeviceLogin } from '@/hooks/useGithubDeviceLogin'
 import { createTerminalRuntime } from '@/lib/terminal-runtime'
 import { createTerminalResizeMask } from '@/lib/terminal-resize-mask'
+import type { TerminalSizeState } from '@/lib/terminal-size-state'
 import { Chip } from './Chip'
 import type { FileRoot } from '@/types'
 const DEFAULT_TERMINAL_PERF = {
@@ -39,6 +40,10 @@ interface TerminalPaneProps {
   // 同步读当前容器几何的目标行列：pointer settle 提交用它替代等 fit 管线收尾
   peekFitSizeRef?: { current: (() => { cols: number; rows: number } | null) | undefined }
   attachExclusive?: boolean
+  // 共享独占意图 ref 与尺寸协商 controller：PaneGrid 注入后与发送面同实例；
+  // 不传则回退本组件自管（独立挂载场景）
+  attachExclusiveRef?: { current: boolean }
+  sizeState?: TerminalSizeState
   onReady?: () => void
   subscribeOutput?: (
     hostId: string,
@@ -62,6 +67,8 @@ export function TerminalPane({
   layoutSyncPendingRef,
   peekFitSizeRef,
   attachExclusive = false,
+  attachExclusiveRef: attachExclusiveRefProp,
+  sizeState,
   onReady,
   subscribeOutput,
   send: sendProp,
@@ -117,13 +124,12 @@ export function TerminalPane({
   const onInputRef = useRef(onInput)
   const onResizeRef = useRef(onResize)
   const onResizeActivityRef = useRef(onResizeActivity)
-  const attachExclusiveRef = useRef(attachExclusive)
+  const ownAttachExclusiveRef = useRef(attachExclusive)
+  const attachExclusiveRef = attachExclusiveRefProp ?? ownAttachExclusiveRef
   const onReadyRef = useRef(onReady)
   const sessionNameRef = useRef(sessionName)
   const preferencesRef = useRef(preferences)
   const resubscribeOutputRef = useRef<() => void>(() => {})
-  const lastSizeRef = useRef<{ cols: number; rows: number } | null>(null)
-  const sharedSessionSizeRef = useRef<{ cols: number; rows: number } | null>(null)
   const controlCarryRef = useRef('')
   const lastTapRef = useRef<{ x: number; y: number } | null>(null)
   const scheduleLayoutRef = useRef<(delay?: number, force?: boolean, resetFont?: boolean) => void>(() => {})
@@ -362,7 +368,7 @@ export function TerminalPane({
   }, [onResizeActivity])
   useEffect(() => {
     attachExclusiveRef.current = attachExclusive
-  }, [attachExclusive])
+  }, [attachExclusive, attachExclusiveRef])
   useEffect(() => {
     onReadyRef.current = () => {
       attachViewportListeners()
@@ -453,8 +459,7 @@ export function TerminalPane({
       sessionNameRef,
       preferencesRef,
       resubscribeOutputRef,
-      lastSizeRef,
-      sharedSessionSizeRef,
+      sizeState,
       controlCarryRef,
       scheduleLayoutRef,
       activeHostIdRef,
@@ -519,6 +524,8 @@ export function TerminalPane({
     touchScroll,
     updateGithubDeviceLogin,
     updateTerminalPerf,
+    attachExclusiveRef,
+    sizeState,
   ])
   return (
     <div

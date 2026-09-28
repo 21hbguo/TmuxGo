@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createTerminalLayout } from './terminal-layout'
 import { createTerminalResizeMask } from './terminal-resize-mask'
+import { createTerminalSizeState } from './terminal-size-state'
 
 // 真实异步 rAF 队列：同步 mock 会让"跨帧"缺陷（pending 残留、样式修正擦除
 // 键盘锚定、resize 饥饿）在测试里隐形，必须手动逐帧排空
@@ -16,9 +17,9 @@ const tick = (count = 1) => {
 interface HarnessOptions {
   shared?: boolean
   mobile?: boolean
-  followedWindowSizeRef?: { current: { cols: number; rows: number } | null }
+  followedSize?: { cols: number; rows: number } | null
 }
-function createHarness({ shared = false, mobile = false, followedWindowSizeRef }: HarnessOptions = {}) {
+function createHarness({ shared = false, mobile = false, followedSize }: HarnessOptions = {}) {
   const container = document.createElement('div')
   container.innerHTML =
     '<div class="xterm"><div class="xterm-screen"><div class="xterm-rows"></div></div><div class="xterm-viewport"></div></div>'
@@ -56,19 +57,21 @@ function createHarness({ shared = false, mobile = false, followedWindowSizeRef }
   const mask = createTerminalResizeMask({ mask: maskElement, getTerminal: () => terminal })
   const onResize = vi.fn()
   const revealMask = vi.fn((generation?: number) => mask.reveal(generation))
-  const pendingRemoteResizeRef: { current: { cols: number; rows: number } | null } = { current: null }
+  const sizeState = createTerminalSizeState({
+    attachExclusiveRef: { current: !shared },
+    hasResizeConsumer: () => true,
+    lastSize: { cols: 80, rows: 24 },
+    // shared 路径读 sharedSize：不置初值会在 syncSharedLayout 入口 return，测试空跑
+    sharedSize: shared ? { cols: 80, rows: 24 } : null,
+    followedSize: followedSize ?? null,
+  })
   const layout = createTerminalLayout({
     container,
     isMobile: mobile,
     getTerminal: () => terminal,
     isDisposed: () => false,
     preferencesRef: { current: { fontSize: 16, fontFamily: 'monospace', cursorBlink: true, terminalPadding: 0 } },
-    attachExclusiveRef: { current: !shared },
-    lastSizeRef: { current: { cols: 80, rows: 24 } },
-    // shared 路径读 sharedSessionSizeRef：传 null 会在 syncSharedLayout 入口 return，测试空跑
-    sharedSessionSizeRef: { current: shared ? { cols: 80, rows: 24 } : null },
-    followedWindowSizeRef: followedWindowSizeRef ?? { current: null },
-    pendingRemoteResizeRef,
+    size: sizeState,
     onResizeRef: { current: onResize },
     controlCarryRef: { current: '' },
     mask,
@@ -94,11 +97,10 @@ function createHarness({ shared = false, mobile = false, followedWindowSizeRef }
     resizeCalls,
     onResize,
     revealMask,
-    pendingRemoteResizeRef,
+    sizeState,
     // 模拟服务端 resized/localOnly 确认到达（runtime handleResized 的尺寸匹配清零）
     ackResize(cols: number, rows: number) {
-      const pending = pendingRemoteResizeRef.current
-      if (pending && pending.cols === cols && pending.rows === rows) pendingRemoteResizeRef.current = null
+      sizeState.noteResized(cols, rows)
     },
     setSize(nextWidth: number, nextHeight: number) {
       width = nextWidth
@@ -230,34 +232,66 @@ describe('terminal-layout', () => {
   it('clears a stale followed window size once the exclusive client sees a real container change', () => {
     // owner 收到自身主张的 window-size 回声会进入跟随态；真实容器变化必须解除
     // 跟随重新独占 fit，否则网格被钉在推送尺寸上、只能缩放字体铺满容器
-    const followedWindowSizeRef: { current: { cols: number; rows: number } | null } = {
-      current: { cols: 137, rows: 23 },
-    }
-    const h = createHarness({ followedWindowSizeRef })
+    const h = createHarness({ followedSize: { cols: 137, rows: 23 } })
     h.layout.primeContainerSize()
     vi.setSystemTime(1000)
     h.setSize(1000, 480)
     h.layout.notifyObservedResize()
     for (let i = 0; i < 8; i++) tick()
-    expect(followedWindowSizeRef.current).toBe(null)
+    expect(h.sizeState.followedSize).toBe(null)
     expect(h.resizeCalls.at(-1)).toEqual([100, 24])
     expect(h.onResize).toHaveBeenCalledWith(100, 24)
     h.layout.dispose()
   })
   it('keeps the followed window size for a shared client across container changes', () => {
     // 非独占端不得借容器变化清跟随重新主张：那会让旁观端用本机尺寸抢 window
-    const followedWindowSizeRef: { current: { cols: number; rows: number } | null } = {
-      current: { cols: 137, rows: 23 },
-    }
-    const h = createHarness({ shared: true, followedWindowSizeRef })
+    const h = createHarness({ shared: true, followedSize: { cols: 137, rows: 23 } })
     h.layout.primeContainerSize()
     vi.setSystemTime(1000)
     h.setSize(1000, 480)
     h.layout.notifyObservedResize()
     for (let i = 0; i < 8; i++) tick()
-    expect(followedWindowSizeRef.current).toEqual({ cols: 137, rows: 23 })
+    expect(h.sizeState.followedSize).toEqual({ cols: 137, rows: 23 })
     expect(h.onResize).not.toHaveBeenCalled()
     h.layout.dispose()
+  })
+  it('aligns a demoted owner to the pushed window size through the shared layout path', () => {
+    // window-size 仲裁回声：owner 被降级跟随，布局必须走共享路径对齐推送尺寸，
+    // 不得跑独占 fit 用本机容器尺寸把 window 抢回去
+    const h = createHarness()
+    h.layout.primeContainerSize()
+    vi.setSystemTime(1000)
+    h.sizeState.noteWindowSize(120, 36)
+    h.layout.scheduleLayoutSync(0, true)
+    for (let i = 0; i < 8; i++) tick()
+    expect(h.resizeCalls.at(-1)).toEqual([120, 36])
+    expect(h.sizeState.followedSize).toEqual({ cols: 120, rows: 36 })
+    h.layout.dispose()
+  })
+  it('keeps the mask pending when only a stale mismatched ACK has arrived', () => {
+    // 旧尺寸 ACK（A->B->A 的旧 B）不确认末次在途：遮罩继续等正确 ACK
+    const h = createHarness()
+    h.layout.primeContainerSize()
+    vi.setSystemTime(1000)
+    h.setSize(900, 480)
+    h.layout.notifyObservedResize()
+    for (let i = 0; i < 8; i++) tick()
+    expect(h.onResize).toHaveBeenCalledWith(90, 24)
+    expect(h.sizeState.hasPending()).toBe(true)
+    h.ackResize(80, 24)
+    vi.setSystemTime(1200)
+    h.setSize(904, 480)
+    h.layout.notifyObservedResize()
+    for (let i = 0; i < 8; i++) tick()
+    expect(h.sizeState.hasPending()).toBe(true)
+    expect(h.mask.isPending()).toBe(true)
+    h.ackResize(90, 24)
+    h.setSize(908, 480)
+    h.layout.notifyObservedResize()
+    for (let i = 0; i < 8; i++) tick()
+    expect(h.sizeState.hasPending()).toBe(false)
+    h.layout.dispose()
+    h.mask.dispose()
   })
   it('keeps the mobile keyboard anchor across the renderer style-correction frame', () => {
     const h = createHarness({ mobile: true })

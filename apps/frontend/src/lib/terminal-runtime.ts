@@ -8,6 +8,7 @@ import { createTerminalResizeMask } from './terminal-resize-mask'
 import { createTerminalFocus } from './terminal-focus'
 import { createDeleteWordRepeat } from './terminal-key-repeat'
 import { createSessionSnapshotLoader } from './terminal-snapshot'
+import { createTerminalSizeState, type TerminalSizeState } from './terminal-size-state'
 import { createTerminalOutputInput } from './terminal-output-input'
 import { createTerminalKeyEventHandler } from './terminal-key-handler'
 import { createTerminalImeHandlers } from './terminal-ime-handlers'
@@ -43,8 +44,9 @@ interface TerminalRuntimeOptions {
   sessionNameRef: { current: string | undefined }
   preferencesRef: { current: any }
   resubscribeOutputRef: { current: () => void }
-  lastSizeRef: { current: { cols: number; rows: number } | null }
-  sharedSessionSizeRef: { current: { cols: number; rows: number } | null }
+  // 尺寸协商 controller：由 PaneGrid 注入时与发送面共享同一实例；
+  // 未注入（如独立挂载）则按本端 onResize 消费情况自建
+  sizeState?: TerminalSizeState
   controlCarryRef: { current: string }
   scheduleLayoutRef: { current: (delay?: number, force?: boolean, resetFont?: boolean) => void }
   activeHostIdRef: { current: string | null }
@@ -106,8 +108,6 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
   const sessionNameRef = options.sessionNameRef
   const preferencesRef = options.preferencesRef
   const resubscribeOutputRef = options.resubscribeOutputRef
-  const lastSizeRef = options.lastSizeRef
-  const sharedSessionSizeRef = options.sharedSessionSizeRef
   const controlCarryRef = options.controlCarryRef
   const scheduleLayoutRef = options.scheduleLayoutRef
   const activeHostIdRef = options.activeHostIdRef
@@ -165,12 +165,14 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
   }
   const mask = createTerminalResizeMask({ mask: options.resizeMaskElement, getTerminal })
   options.resizeMaskApiRef.current = mask
-  // 已发送未确认的最近一次 resize 请求（resized ACK 无代次，只能按尺寸对末次消歧；
-  // 同尺寸旧 ACK 无法区分但语义等价——服务端已到该尺寸即可揭）
-  const pendingRemoteResizeRef: { current: { cols: number; rows: number } | null } = { current: null }
-  // 服务端尺寸仲裁把本独占端降级（其它 client 抢走了 window 尺寸）时跟随
-  // window 尺寸渲染；真实容器变化由 layout 清空后重新主张
-  const followedWindowSizeRef: { current: { cols: number; rows: number } | null } = { current: null }
+  // 尺寸协商状态聚合：attached/resized/window-size/abort 与本地 fit 的转移都
+  // 经此 controller，替代原先 lastSize/shared/followed/pending 四个 ref 的散写
+  const sizeState =
+    options.sizeState ??
+    createTerminalSizeState({
+      attachExclusiveRef,
+      hasResizeConsumer: () => Boolean(onResizeRef.current),
+    })
   // resized/本地 fit 只代表"尺寸已改"：此前排队的输出可能仍在 scheduler backlog
   // 或 xterm.write 回调途中，先揭罩会把旧列宽帧闪进新网格。
   // 统一等输出写屏障落地再揭，并用代次+尺寸复核丢弃过期请求
@@ -189,11 +191,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
     getTerminal,
     isDisposed,
     preferencesRef,
-    attachExclusiveRef,
-    lastSizeRef,
-    sharedSessionSizeRef,
-    followedWindowSizeRef,
-    pendingRemoteResizeRef,
+    size: sizeState,
     onResizeRef,
     onResizeActivityRef: options.onResizeActivityRef,
     controlCarryRef,
@@ -529,19 +527,16 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
     const handleAttached = (detail: any = {}) => {
       if (detail.hostId && detail.hostId !== (activeHostIdRef.current || 'local')) return
       if (detail.sessionName && detail.sessionName !== sessionNameRef.current) return
-      // 新 attach 上下文里旧 session 的在途 resize 已无意义
-      pendingRemoteResizeRef.current = null
       const cols = Number(detail.cols)
       const rows = Number(detail.rows)
       // 必须以服务端 attached.exclusive 为准：ownership 降级后本地
       // attachExclusiveRef 可能仍短暂为 true，若此时清 followed 并走独占
       // fit，会用本机容器尺寸把刚被抢走的 window 再抢回来（xterm≠tmux）。
       const serverExclusive = detail.exclusive === true
-      if (!serverExclusive) {
-        if (cols > 0 && rows > 0) followedWindowSizeRef.current = { cols, rows }
-      } else {
-        followedWindowSizeRef.current = null
-      }
+      sizeState.noteAttached(serverExclusive, cols, rows, {
+        windowVersion: Number(detail.windowVersion) || 0,
+        ownerEpoch: Number(detail.ownerEpoch) || 0,
+      })
       if (!terminal || disposed) return
       const hadOutputBeforeAttach = outputInput.consumeAttachOutputFlag()
       const switching = outputInput.isSwitchHolding()
@@ -561,16 +556,12 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
         // 它们若揭开后落屏 = 二次重绘 + 字形重栅格化（先粗后细）。
         const willResize = cols > 0 && rows > 0 && (cols !== terminal.cols || rows !== terminal.rows)
         if (serverExclusive) {
-          const size = lastSizeRef.current
-          const sizeChanged = !size || size.cols !== cols || size.rows !== rows
           if (willResize) switchMask.show()
-          if (sizeChanged) layout.scheduleInitialFit()
+          if (sizeState.sizeChangedFromLast(cols, rows)) layout.scheduleInitialFit()
           return
         }
         if (cols > 0 && rows > 0) {
-          const prevSharedSize = sharedSessionSizeRef.current
-          const sizeChanged = !prevSharedSize || prevSharedSize.cols !== cols || prevSharedSize.rows !== rows
-          sharedSessionSizeRef.current = { cols, rows }
+          const sizeChanged = sizeState.setSharedSize(cols, rows)
           if (willResize) switchMask.show()
           if (sizeChanged) layout.scheduleLayoutSync(0, true, true)
         }
@@ -584,8 +575,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
           revealMaskAfterWrites(generation, () => cols === terminal?.cols && rows === terminal?.rows)
         })
       if (serverExclusive) {
-        const size = lastSizeRef.current
-        const sizeChanged = !size || size.cols !== cols || size.rows !== rows
+        const sizeChanged = sizeState.sizeChangedFromLast(cols, rows)
         if (sizeChanged) layout.scheduleInitialFit()
         if (softRecover)
           layout.scheduleTerminalRepaint(
@@ -595,9 +585,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
         return
       }
       if (cols > 0 && rows > 0) {
-        const prevSharedSize = sharedSessionSizeRef.current
-        const sizeChanged = !prevSharedSize || prevSharedSize.cols !== cols || prevSharedSize.rows !== rows
-        sharedSessionSizeRef.current = { cols, rows }
+        const sizeChanged = sizeState.setSharedSize(cols, rows)
         if (sizeChanged) layout.scheduleLayoutSync(0, true, true)
         if (softRecover)
           layout.scheduleTerminalRepaint(
@@ -613,8 +601,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
       const rows = Number(detail.rows)
       // resized（含 localOnly）= 一次 resize 请求的确认：与在途尺寸匹配即清，
       // 不匹配的是过期 ACK（A->B->A 中的旧 B），保持 pending 等末次确认
-      const pending = pendingRemoteResizeRef.current
-      if (pending && pending.cols === cols && pending.rows === rows) pendingRemoteResizeRef.current = null
+      sizeState.noteResized(cols, rows)
       if (!terminal || cols !== terminal.cols || rows !== terminal.rows || (detail.localOnly && !attachEventCount))
         return
       const generation = mask.getGeneration()
@@ -631,7 +618,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
       if (detail.hostId && detail.hostId !== (activeHostIdRef.current || 'local')) return
       if (detail.sessionName && detail.sessionName !== sessionNameRef.current) return
       // error/detached 后不会再有 resized ACK：清在途标记让遮罩走兜底揭开
-      pendingRemoteResizeRef.current = null
+      sizeState.noteAbort()
       if (mask.isPending()) mask.reveal()
       finishSessionSwitch()
     }
@@ -643,13 +630,16 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
       const cols = Number(detail.cols)
       const rows = Number(detail.rows)
       if (!terminal || disposed || cols <= 0 || rows <= 0) return
-      sharedSessionSizeRef.current = { cols, rows }
-      // 仲裁后的 ACK 语义：在途 resize 的目标已被推翻，按新尺寸确认清掉
-      pendingRemoteResizeRef.current = null
-      if (attachExclusiveRef.current) {
-        // 独占端被抢占降级：跟随 window 尺寸按共享渲染直到真实容器变化
-        followedWindowSizeRef.current = { cols, rows }
-      }
+      // 仲裁后的 ACK 语义：覆盖共享尺寸、推翻在途 resize 目标；独占端被
+      // 抢占降级时进入跟随，真实容器变化才解除（layout 侧转移）。
+      // 陈旧推送（旧版本/旧 owner 世代）整体丢弃，不得触发重排
+      if (
+        !sizeState.noteWindowSize(cols, rows, {
+          windowVersion: Number(detail.windowVersion) || 0,
+          ownerEpoch: Number(detail.ownerEpoch) || 0,
+        })
+      )
+        return
       layout.scheduleLayoutSync(0, true)
     }
     const handleLayoutChange = (event: Event) => {
