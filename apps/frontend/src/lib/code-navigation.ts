@@ -768,22 +768,35 @@ function escapeRegExpText(value: string) {
 // 非 TS/JS 语言的兜底定义跳转：按置信度排列的模式匹配（关键字定义 → 带返回类型 → 裸 name( → 标注/赋值）
 const GENERIC_DEFINITION_MODIFIERS =
   '(?:export|default|async|public|private|protected|static|final|abstract|override|open|virtual|inline|constexpr|extern|mut|unsafe|internal|pub|readonly|declare|global)\\s+'
-function buildGenericDefinitionPatterns(word: string) {
+// 裸 `foo(` 只在 shell 函数、K&R C 里才算定义；Python 行首 `foo(` 恒为调用点，
+// 不剔除会把跳转落在调用行（create_dir(log_dir) 挡住 utils.py 里的真 def）
+const NO_BARE_CALL_DEF_EXT = new Set(['.py', '.pyi'])
+function fileExtensionOf(name: string) {
+  return (/\.[^./]+$/.exec(name || '')?.[0] || '').toLowerCase()
+}
+function buildGenericDefinitionPatterns(word: string, bareCallDef = true) {
   const escaped = escapeRegExpText(word)
-  return [
+  const patterns = [
     // def foo( / function foo( / func (r *T) foo( / class Foo / const foo —— 关键字 + 可选接收者
     new RegExp(
       `^\\s*(?:${GENERIC_DEFINITION_MODIFIERS})*(?:def|function|func|fn|fun|class|interface|struct|enum|union|trait|impl|type|typedef|namespace|module|mod|sub|proc|procedure|macro|const|let|var|val|local)\\s+(?:\\([^()]*\\)\\s*)?${escaped}\\b`,
     ),
     // int foo( / public static String foo( —— 带返回类型的 C/Java 系定义
     new RegExp(`^\\s*(?:${GENERIC_DEFINITION_MODIFIERS})*(?:[\\w.<>\\[\\]*&?]+\\s+)+${escaped}\\s*\\(`),
+  ]
+  if (bareCallDef)
     // foo( / foo () { —— shell 函数、K&R C、类方法
-    new RegExp(`^\\s*${escaped}\\s*\\(`),
+    patterns.push(new RegExp(`^\\s*${escaped}\\s*\\(`))
+  patterns.push(
     // foo: / foo := —— 类型标注、Go 短变量声明
     new RegExp(`^\\s*${escaped}\\s*:`),
     // foo = / foo: T = —— 顶层赋值（排除 ==、=>）
     new RegExp(`^\\s*${escaped}\\s*(?::[^=\\n]+)?=(?![=>])`),
-  ]
+  )
+  return patterns
+}
+function genericDefinitionPatternsForFile(word: string, fileName: string) {
+  return buildGenericDefinitionPatterns(word, !NO_BARE_CALL_DEF_EXT.has(fileExtensionOf(fileName)))
 }
 function extractWordAtPosition(content: string, line: number, column: number) {
   const lineText = content.split(/\r?\n/)[Math.max(0, line - 1)] || ''
@@ -856,9 +869,9 @@ function wordColumn(lineText: string, word: string) {
   const match = new RegExp(`\\b${escapeRegExpText(word)}\\b`).exec(lineText)
   return match ? match.index + 1 : 1
 }
-function findGenericDefinition(content: string, word: string, excludeLine: number) {
+function findGenericDefinition(content: string, word: string, excludeLine: number, fileName = '') {
   const lines = content.split(/\r?\n/)
-  for (const pattern of buildGenericDefinitionPatterns(word)) {
+  for (const pattern of genericDefinitionPatternsForFile(word, fileName)) {
     let selfHit: { line: number; column: number } | null = null
     for (let index = 0; index < lines.length; index += 1) {
       if (!pattern.test(lines[index])) continue
@@ -915,7 +928,7 @@ async function resolvePythonImport(
         const file = await readResolverFile(context, candidate.path)
         if (!file) continue
         if (!candidate.member) return { file, line: 1, column: 1 }
-        const hit = findGenericDefinition(file.content, word, -1)
+        const hit = findGenericDefinition(file.content, word, -1, file.name)
         if (hit) return { file, line: hit.line, column: hit.column }
       }
     }
@@ -946,32 +959,57 @@ async function resolveGenericDefinition(
       column: hit.column,
     },
   })
-  const local = findGenericDefinition(entryFile.content, word, position.line)
+  const local = findGenericDefinition(
+    entryFile.content,
+    word,
+    position.line,
+    entryFile.name || basenamePath(entryFile.absolutePath),
+  )
   if (local) return toTarget(entryFile, local)
-  // 已打开编辑器的内容（含未保存修改）优先于远端搜索
-  for (const openEditor of context.openEditors.values()) {
-    if (normalizePath(openEditor.absolutePath) === entryFile.absolutePath) continue
-    if (openEditor.kind === 'compare' || openEditor.binary || openEditor.truncated || !openEditor.content) continue
-    const hit = findGenericDefinition(openEditor.content, word, -1)
-    if (hit) return toTarget(openEditor, hit)
-  }
-  // import 直解：module 提示映射到具体文件读内容定位，命中则完全不跑 rg（慢搜索根源）
+  // import 直解必须先于「打开着的标签页」与 rg：from X import w 已指明归属模块，
+  // 同名 def 散落在兄弟文件（loss.py vs loss_guo.py 各有一份 loss_sup）时只有它选得对
   const moduleHints = extractImportModuleHints(entryFile.content, word)
   if (moduleHints.length && !signal?.aborted) {
     const importHit = await resolvePythonImport(context, entryFile, word, moduleHints, signal)
     if (importHit) return toTarget(importHit.file, importHit)
   }
+  const entryDir = dirnamePath(entryFile.path)
+  // 已打开编辑器的内容（含未保存修改）优先于远端搜索；
+  // 但多个标签页都可能定义同名符号，须按 import 模块提示 + 目录邻近度排序，不能按打开顺序抢跳
+  const openEditorCandidates = [...context.openEditors.values()]
+    .filter(
+      (openEditor) =>
+        normalizePath(openEditor.absolutePath) !== entryFile.absolutePath &&
+        openEditor.kind !== 'compare' &&
+        !openEditor.binary &&
+        !openEditor.truncated &&
+        !!openEditor.content,
+    )
+    .sort(
+      (a, b) =>
+        moduleHintScore(b.path, moduleHints) - moduleHintScore(a.path, moduleHints) ||
+        sharedDirectoryDepth(entryDir, b.path) - sharedDirectoryDepth(entryDir, a.path),
+    )
+  for (const openEditor of openEditorCandidates) {
+    const hit = findGenericDefinition(
+      openEditor.content,
+      word,
+      -1,
+      openEditor.name || basenamePath(openEditor.absolutePath),
+    )
+    if (hit) return toTarget(openEditor, hit)
+  }
   // 跨文件搜索先限定入口文件所在子树，再退回整 root：
   // 1) 大 root（如整个 ~）全量内容搜索可达分钟级，期间导航互斥锁会静默吞掉后续点击
   // 2) 多 worktree/同名模块下按搜索返回序取首条会跳错目录，同子树优先也更贴近脚本式 import 语义
   // 兜底范围序列：入口目录逐级后退最多 3 级（去重），首个命中即返回；全部落空才整 root
-  const entryDir = dirnamePath(entryFile.path)
   const scopes: string[] = []
   for (let dir = entryDir, depth = 0; depth <= 3 && dir && dir !== '.'; depth += 1, dir = dirnamePath(dir)) {
     if (!scopes.includes(dir)) scopes.push(dir)
   }
   scopes.push('')
-  const patterns = buildGenericDefinitionPatterns(word)
+  // 候选被 rg 的 ext 过滤收窄到入口同扩展名，裸调用模式按入口语言判定（.py 没有行首 foo( 定义）
+  const patterns = genericDefinitionPatternsForFile(word, entryFile.name || basenamePath(entryFile.absolutePath))
   // 按入口扩展名收窄 rg 扫描面（.py 只扫 *.py），进一步压缩大 root 下的搜索耗时
   const entryExt = /\.[^./]+$/.exec(entryFile.name || basenamePath(entryFile.absolutePath))?.[0]
   for (const basePath of scopes) {
