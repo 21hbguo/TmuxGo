@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from 'child_process'
+import { execFileSync, spawn, type ChildProcess } from 'child_process'
 import { EventEmitter } from 'events'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'fs'
 import http from 'http'
@@ -72,6 +72,36 @@ export function resolveBrowserBinary(env = process.env): { bin: string; headless
     }
   }
   return null
+}
+
+// 反爬浅指纹伪装：webdriver/plugins/chrome 三项是最常被检查的低成本信号。
+// 经 Page.addScriptToEvaluateOnNewDocument 注入——对每个新文档在站点脚本前执行；脚本幂等，重复注册无副作用
+const STEALTH_JS = `Object.defineProperty(navigator,'webdriver',{get:()=>undefined,configurable:true})
+if(!window.chrome)window.chrome={runtime:{}}
+if(navigator.plugins&&navigator.plugins.length===0)Object.defineProperty(navigator,'plugins',{get:()=>({length:3,item:()=>null,namedItem:()=>null,refresh(){}}),configurable:true})`
+
+// TMUXGO_BROWSER_UA 可整体覆盖；默认从二进制 --version 推真版本号，把 HeadlessChrome 换成 Chrome
+const UA_PLATFORM =
+  process.platform === 'darwin'
+    ? 'Macintosh; Intel Mac OS X 10_15_7'
+    : process.platform === 'win32'
+      ? 'Windows NT 10.0; Win64; x64'
+      : 'X11; Linux x86_64'
+let cachedUA: string | null | undefined
+function stealthUserAgent(bin: string): string | null {
+  if (cachedUA !== undefined) return cachedUA
+  if (process.env.TMUXGO_BROWSER_UA) return (cachedUA = process.env.TMUXGO_BROWSER_UA)
+  try {
+    const ver = execFileSync(bin, ['--version'], { timeout: 5000 })
+      .toString()
+      .match(/(\d+\.\d+\.\d+\.\d+)/)?.[1]
+    cachedUA = ver
+      ? `Mozilla/5.0 (${UA_PLATFORM}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${ver} Safari/537.36`
+      : null
+  } catch {
+    cachedUA = null
+  }
+  return cachedUA
 }
 
 // 元素快照序列化器：可见可交互元素打 data-tg-ref 编号（agent 按编号寻址，dsh-browser 同款思路）
@@ -195,6 +225,9 @@ export class BrowserInstance extends EventEmitter {
       `--user-data-dir=${profileDir()}`,
       '--no-first-run',
       '--no-default-browser-check',
+      // AutomationControlled 开着时 navigator.webdriver=true 且 UA 带 HeadlessChrome，反爬一票否决
+      '--disable-blink-features=AutomationControlled',
+      ...(stealthUserAgent(resolved.bin) ? [`--user-agent=${stealthUserAgent(resolved.bin)}`] : []),
       ...(noSandbox ? ['--no-sandbox'] : []),
       // --remote-debugging-port=0 时真实端口落在 user-data-dir/DevToolsActivePort 首行
       'about:blank',
@@ -272,6 +305,7 @@ export class BrowserInstance extends EventEmitter {
     this.pending.clear()
     this.sessionEventHandlers.clear()
     this.targets.clear()
+    this.stealthSessions.clear()
     this.activeTargetId = null
     this.ws = null
   }
@@ -307,6 +341,7 @@ export class BrowserInstance extends EventEmitter {
         this.targets.set(info.targetId, { id: info.targetId, url: info.url, title: info.title, type: info.type })
         // setDiscoverTargets 的存量 target 是异步事件补进来的，首个 page 到位时补 activeTargetId
         if (!this.activeTargetId) this.activeTargetId = info.targetId
+        if (msg.method === 'Target.targetCreated') void this.ensureStealth(info.targetId).catch(() => {})
         this.emitTargets()
       }
       return
@@ -314,6 +349,7 @@ export class BrowserInstance extends EventEmitter {
     if (msg.method === 'Target.targetDestroyed') {
       const id = (msg.params as { targetId: string }).targetId
       this.targets.delete(id)
+      this.stealthSessions.delete(id)
       if (this.activeTargetId === id) this.activeTargetId = [...this.targets.keys()][0] ?? null
       // 被关的页上有 view client 在看：解绑旧 session 并跟随到新活动页
       for (const client of this.clients) {
@@ -374,7 +410,21 @@ export class BrowserInstance extends EventEmitter {
 
   async attach(targetId: string): Promise<string> {
     const res = (await this.cmd('Target.attachToTarget', { targetId, flatten: true })) as { sessionId: string }
+    // 每个 session attach 都重放 stealth：脚本只作用于「之后的」文档创建，navigate 前注册才赶得上
+    await this.cmd('Page.addScriptToEvaluateOnNewDocument', { source: STEALTH_JS }, res.sessionId).catch(() => {})
     return res.sessionId
+  }
+
+  // session 级 init script 随 detach 被移除——每个 page 保一条常驻 session 持有注册，保证后续所有文档都吃到
+  private stealthSessions = new Map<string, Promise<string>>()
+  private ensureStealth(targetId: string): Promise<string> {
+    let p = this.stealthSessions.get(targetId)
+    if (!p) {
+      p = this.attach(targetId)
+      this.stealthSessions.set(targetId, p)
+      p.catch(() => this.stealthSessions.delete(targetId))
+    }
+    return p
   }
 
   async detach(sessionId: string) {
@@ -516,9 +566,14 @@ export class BrowserInstance extends EventEmitter {
   }
 
   async openPage(url: string): Promise<BrowserPage | null> {
-    const res = (await this.cmd('Target.createTarget', { url })) as { targetId: string }
+    // 先建空白页再经常驻 stealth session 导航——createTarget 直接带 url 会让首个文档抢在注入前加载
+    const res = (await this.cmd('Target.createTarget', { url: 'about:blank' })) as { targetId: string }
     this.activeTargetId = res.targetId
     const t = this.targets.get(res.targetId)
+    if (url !== 'about:blank') {
+      const sid = await this.ensureStealth(res.targetId)
+      await this.cmd('Page.navigate', { url }, sid)
+    }
     return t ?? { id: res.targetId, url, title: '', type: 'page' }
   }
 
