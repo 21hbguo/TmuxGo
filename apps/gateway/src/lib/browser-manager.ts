@@ -74,11 +74,34 @@ export function resolveBrowserBinary(env = process.env): { bin: string; headless
   return null
 }
 
-// 反爬浅指纹伪装：webdriver/plugins/chrome 三项是最常被检查的低成本信号。
-// 经 Page.addScriptToEvaluateOnNewDocument 注入——对每个新文档在站点脚本前执行；脚本幂等，重复注册无副作用
-const STEALTH_JS = `Object.defineProperty(navigator,'webdriver',{get:()=>undefined,configurable:true})
-if(!window.chrome)window.chrome={runtime:{}}
-if(navigator.plugins&&navigator.plugins.length===0)Object.defineProperty(navigator,'plugins',{get:()=>({length:3,item:()=>null,namedItem:()=>null,refresh(){}}),configurable:true})`
+// 反爬浅指纹伪装。覆盖反爬最常查的低成本信号：webdriver、chrome 对象、plugins、vendor、
+// languages、Notification.permission。经 init script 注入（Page.enable 先于注册是关键——
+// 未开 Page domain 的 session 注册只在同进程导航生效，跨站换 renderer 即丢）；脚本幂等。
+const browserLang = () => {
+  const raw = process.env.TMUXGO_BROWSER_LANG || process.env.LANG || ''
+  const m = raw.match(/^([a-z]{2})[_-]?([A-Za-z]{2})?/) // zh_CN.UTF-8 → zh-CN
+  return m ? (m[2] ? `${m[1]}-${m[2].toUpperCase()}` : m[1]) : 'zh-CN'
+}
+const STEALTH_JS = `(lang => {
+  Object.defineProperty(navigator,'webdriver',{get:()=>undefined,configurable:true})
+  Object.defineProperty(navigator,'language',{get:()=>lang,configurable:true})
+  Object.defineProperty(navigator,'languages',{get:()=>[lang,'en-US','en'],configurable:true})
+  Object.defineProperty(navigator,'vendor',{get:()=>'Google Inc.',configurable:true})
+  if(!window.chrome)window.chrome={runtime:{},app:{isInstalled:false},csi:()=>({}),loadTimes:()=>({})}
+  if(navigator.plugins&&navigator.plugins.length===0){const ps=[{name:'Chrome PDF Plugin'},{name:'Chrome PDF Viewer'},{name:'Native Client'}]
+    ps.item=i=>ps[i];ps.namedItem=n=>ps.find(p=>p.name===n)||null;ps.refresh=()=>{}
+    Object.defineProperty(navigator,'plugins',{get:()=>ps,configurable:true})}
+  // headless 下 notifications 权限直接 'denied'，真浏览器默认 'default'（prompt 态）
+  try{if(typeof Notification!=='undefined'&&Notification.permission==='denied')
+    Object.defineProperty(Notification,'permission',{get:()=>'default',configurable:true})}catch(e){}
+  try{if(navigator.permissions&&navigator.permissions.query){const q=navigator.permissions.query.bind(navigator.permissions)
+    navigator.permissions.query=p=>p&&p.name==='notifications'?Promise.resolve({state:typeof Notification==='undefined'?'default':Notification.permission}):q(p)}}catch(e){}
+  // headless 的 WebGL 渲染器暴露 SwiftShader/llvmpipe，伪装成常见桌面集显
+  try{for(const P of [WebGLRenderingContext,window.WebGL2RenderingContext].filter(Boolean).map(c=>c.prototype)){
+    const gp=P.getParameter
+    P.getParameter=function(p){const v=gp.call(this,p)
+      return p===37445?'Intel Inc.':p===37446?'Intel Iris OpenGL Engine':(typeof v==='string'&&/swiftshader|llvmpipe/i.test(v)?v.replace(/swiftshader|llvmpipe[^)]*/i,'Intel Iris OpenGL Engine'):v)}}}catch(e){}
+})(${JSON.stringify('__LANG__')})`.replace('__LANG__', browserLang())
 
 // TMUXGO_BROWSER_UA 可整体覆盖；默认从二进制 --version 推真版本号，把 HeadlessChrome 换成 Chrome
 const UA_PLATFORM =
@@ -228,6 +251,10 @@ export class BrowserInstance extends EventEmitter {
       // AutomationControlled 开着时 navigator.webdriver=true 且 UA 带 HeadlessChrome，反爬一票否决
       '--disable-blink-features=AutomationControlled',
       ...(stealthUserAgent(resolved.bin) ? [`--user-agent=${stealthUserAgent(resolved.bin)}`] : []),
+      // 语言/窗口尺寸对齐真实用户画像；WebRTC 禁止非代理 UDP，防局域网 IP 泄露进指纹
+      `--lang=${browserLang()}`,
+      '--window-size=1280,800',
+      '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
       ...(noSandbox ? ['--no-sandbox'] : []),
       // --remote-debugging-port=0 时真实端口落在 user-data-dir/DevToolsActivePort 首行
       'about:blank',
@@ -410,17 +437,47 @@ export class BrowserInstance extends EventEmitter {
 
   async attach(targetId: string): Promise<string> {
     const res = (await this.cmd('Target.attachToTarget', { targetId, flatten: true })) as { sessionId: string }
-    // 每个 session attach 都重放 stealth：脚本只作用于「之后的」文档创建，navigate 前注册才赶得上
-    await this.cmd('Page.addScriptToEvaluateOnNewDocument', { source: STEALTH_JS }, res.sessionId).catch(() => {})
     return res.sessionId
   }
 
-  // session 级 init script 随 detach 被移除——每个 page 保一条常驻 session 持有注册，保证后续所有文档都吃到
+  // session 级 init script 随 detach 被移除——每个 page 保一条常驻 session 持有注册，保证后续所有文档都吃到。
+  // 注意必须先 Page.enable：未开 Page domain 的 session 注册只在同进程导航生效，跨站换 renderer 即丢
   private stealthSessions = new Map<string, Promise<string>>()
   private ensureStealth(targetId: string): Promise<string> {
     let p = this.stealthSessions.get(targetId)
     if (!p) {
-      p = this.attach(targetId)
+      p = (async () => {
+        const sid = await this.attach(targetId)
+        await this.cmd('Page.enable', {}, sid).catch(() => {})
+        await this.cmd('Page.addScriptToEvaluateOnNewDocument', { source: STEALTH_JS }, sid).catch(() => {})
+        // client hints（Sec-CH-UA 头/userAgentData）靠 UA 元数据对齐，仅 --user-agent 管不到这块
+        const ua = stealthUserAgent(this.engine || '')
+        const ver = ua?.match(/Chrome\/([\d.]+)/)?.[1]
+        if (ua && ver) {
+          const major = ver.split('.')[0]
+          await this.cmd(
+            'Emulation.setUserAgentOverride',
+            {
+              userAgent: ua,
+              userAgentMetadata: {
+                brands: [
+                  { brand: 'Not_A Brand', version: '8' },
+                  { brand: 'Chromium', version: major },
+                  { brand: 'Google Chrome', version: major },
+                ],
+                fullVersion: ver,
+                platform: 'Linux',
+                platformVersion: '6.8.0',
+                architecture: 'x86',
+                model: '',
+                mobile: false,
+              },
+            },
+            sid,
+          ).catch(() => {})
+        }
+        return sid
+      })()
       this.stealthSessions.set(targetId, p)
       p.catch(() => this.stealthSessions.delete(targetId))
     }
