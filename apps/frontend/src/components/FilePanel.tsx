@@ -669,7 +669,8 @@ export function FilePanel({
     () => Object.fromEntries(visibleRoots.map((item) => [item.id, item.path])),
     [visibleRoots],
   )
-  // 上一级目标：普通情况取 currentPath 父目录；位于收藏虚拟根时取其源 root 内收藏路径的父目录
+  // 上一级目标：普通情况取 currentPath 父目录；位于收藏虚拟根时取其源 root 内收藏路径的父目录；
+  // 真实根顶层时，根目录父路径若仍落在某个 root 内（如 workspace 的父目录在 home root 下）允许跨根上溯，否则 root 即边界
   const parentDirectory = useMemo(() => {
     if (currentPath) {
       const parent = getParentPath(currentPath)
@@ -687,8 +688,32 @@ export function FilePanel({
         label: joinPath(rootPathById[activeFavorite.rootId] || activeFavorite.rootPath, parent),
       }
     }
+    if (activeSourceRootPath) {
+      const trimmedRoot = activeSourceRootPath.replace(/\/+$/, '') || '/'
+      const sep = trimmedRoot.lastIndexOf('/')
+      const parentAbs = sep <= 0 ? '/' : trimmedRoot.slice(0, sep)
+      if (parentAbs !== trimmedRoot) {
+        const target = chooseFileRoot(visibleRoots, parentAbs)
+        if (target && target.id !== activeRootId) {
+          return {
+            rootOptionId: target.id,
+            path: getRootRelativePath(target.path, parentAbs) || '',
+            label: parentAbs,
+          }
+        }
+      }
+    }
     return null
-  }, [activeFavorite, activeRoot?.id, activeRootBasePath, activeSourceRootPath, currentPath, rootPathById])
+  }, [
+    activeFavorite,
+    activeRoot?.id,
+    activeRootBasePath,
+    activeRootId,
+    activeSourceRootPath,
+    currentPath,
+    rootPathById,
+    visibleRoots,
+  ])
   const activeEditor = useMemo(
     () => (activeEditorId ? openEditors.find((item) => item.id === activeEditorId) || null : null),
     [activeEditorId, openEditors],
