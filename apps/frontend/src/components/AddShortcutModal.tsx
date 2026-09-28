@@ -157,7 +157,6 @@ function KeyStepEditor({
 
 export function AddShortcutModal({ onSave, onClose, isMobile, initialShortcut }: Props) {
   const { t } = useTranslation()
-  useEscapeClose(onClose)
   const [label, setLabel] = useState(initialShortcut?.label || '')
   const [repeat, setRepeat] = useState(initialShortcut?.repeat === true)
   const [steps, setSteps] = useState<ShortcutStep[]>(() => {
@@ -295,7 +294,7 @@ export function AddShortcutModal({ onSave, onClose, isMobile, initialShortcut }:
   )
 
   return (
-    <ModalPortal>
+    <ModalPortal modal onEscape={onClose}>
       <div className="fixed inset-0 z-50 flex items-center justify-center tmuxgo-scrim" onClick={onClose}>
         <div
           className="tmuxgo-glass tmuxgo-glass-dialog w-96 rounded-apple border p-4 max-h-[85vh] overflow-y-auto"

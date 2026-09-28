@@ -11,7 +11,6 @@ import { writeClipboardText } from '@/lib/clipboard-text'
 import { requestTerminalSelection } from '@/lib/terminal-selection'
 import { isApplePlatform, isImeKeyEvent } from '@/lib/terminal-platform'
 import { useSessionSnapshotSync } from '@/hooks/useSessionSnapshotSync'
-import { useEscapeClose } from '@/hooks/useEscapeClose'
 import { useHosts, useInvokePluginAction, usePlugins, useWindows } from '@/hooks/useApi'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import { useWindowQueryState } from '@/hooks/useWindowQueryState'
@@ -60,7 +59,6 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
     setCommandPalette(false)
     onClose()
   }
-  useEscapeClose(close)
 
   useEffect(() => {
     setTimeout(() => inputRef.current?.focus(), 50)
@@ -368,7 +366,8 @@ export function CommandPalette({ onClose }: CommandPaletteProps) {
   }
 
   return (
-    <ModalPortal>
+    // modal 层接管 Esc/Enter：焦点不在输入框（如嵌套弹窗刚关掉）时按键不穿透到终端
+    <ModalPortal modal onEscape={close} onEnter={() => void handleSelect(selectedIndex)}>
       <div className="fixed inset-0 z-50 flex items-center justify-center tmuxgo-scrim p-4" onClick={close}>
         <div
           className="tmuxgo-glass tmuxgo-glass-dialog w-full max-w-[500px] overflow-hidden rounded-apple border"

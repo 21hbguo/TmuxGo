@@ -4,7 +4,6 @@ import { useEffect, useRef, type MouseEvent, type TouchEvent } from 'react'
 import { useTranslation } from '@/i18n'
 import { Button } from './Button'
 import { ModalPortal } from './ModalPortal'
-import { useEscapeClose } from '@/hooks/useEscapeClose'
 
 interface PasteConfirmDialogProps {
   open: boolean
@@ -33,7 +32,6 @@ export function PasteConfirmDialog({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
   const isManual = mode === 'manual'
-  useEscapeClose(onCancel, open)
   useEffect(() => {
     if (!open || !isManual) return
     const focusToEnd = () => {
@@ -51,24 +49,19 @@ export function PasteConfirmDialog({
       clearTimeout(timer)
     }
   }, [open, isManual])
-  useEffect(() => {
-    if (!open || isManual) return
-    const handleDocumentKeyDown = (e: KeyboardEvent) => {
-      if (dialogRef.current?.contains(e.target as Node)) return
-      if (e.key !== 'Enter' || e.isComposing || e.shiftKey) return
-      e.preventDefault()
-      e.stopPropagation()
-      if (text) onSend()
-    }
-    document.addEventListener('keydown', handleDocumentKeyDown, true)
-    return () => document.removeEventListener('keydown', handleDocumentKeyDown, true)
-  }, [open, isManual, text, onSend, onCancel])
   if (!open) return null
   const preventFocus = (e: MouseEvent<HTMLButtonElement> | TouchEvent<HTMLButtonElement>) => {
     e.preventDefault()
   }
   return (
-    <ModalPortal>
+    // modal 按键层接管 Esc/弹窗外 Enter；弹窗内 Enter 仍走下面 onKeyDownCapture（textarea 也直接发送）
+    <ModalPortal
+      modal
+      onEscape={onCancel}
+      onEnter={() => {
+        if (text) onSend()
+      }}
+    >
       <div className="fixed inset-0 z-[85] flex items-center justify-center tmuxgo-scrim p-4" onClick={onCancel}>
         <div
           ref={dialogRef}

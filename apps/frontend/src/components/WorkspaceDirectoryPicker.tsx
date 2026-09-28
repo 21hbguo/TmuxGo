@@ -4,7 +4,6 @@ import { FiChevronLeft, FiChevronRight, FiFolder, FiFolderPlus, FiX } from 'reac
 import { api } from '@/lib/api'
 import { useFileList, useFileRoots } from '@/hooks/useApi'
 import { usePrompt } from '@/hooks/usePrompt'
-import { useEscapeClose } from '@/hooks/useEscapeClose'
 import { useTranslation } from '@/i18n'
 import { Button } from './Button'
 import { ModalPortal } from './ModalPortal'
@@ -48,7 +47,6 @@ export function WorkspaceDirectoryPicker({
   const [selectedPath, setSelectedPath] = useState('')
   const [showHidden, setShowHidden] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  useEscapeClose(onClose, !submitting)
   const {
     data: currentDirectory,
     isLoading: currentLoading,
@@ -127,7 +125,16 @@ export function WorkspaceDirectoryPicker({
     setSelectedPath(path)
   }
   return (
-    <ModalPortal>
+    // submitting 期间 Esc 空转吞掉：关停登记会让按键穿透到背景终端
+    <ModalPortal
+      modal
+      onEscape={() => {
+        if (!submitting) onClose()
+      }}
+      onEnter={() => {
+        if (!submitting && activeRoot) void handleOpen()
+      }}
+    >
       <div
         className="fixed inset-0 flex items-center justify-center tmuxgo-scrim p-4"
         style={{ zIndex }}

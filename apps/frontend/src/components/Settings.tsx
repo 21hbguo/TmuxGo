@@ -8,7 +8,7 @@ import { useTranslation } from '@/i18n'
 import { useSessionContinuity } from '@/hooks/useSessionContinuity'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useClipboard } from '@/hooks/useClipboard'
-import { useEscapeClose } from '@/hooks/useEscapeClose'
+import { useModalLayer } from '@/hooks/useModalLayer'
 import { useAppVersion } from '@/hooks/useAppVersion'
 import { APP_BUILD_ID, APP_NAME, APP_VERSION } from '@/lib/app-version'
 import { api, type ShareLink } from '@/lib/api'
@@ -64,7 +64,8 @@ const THEME_PREVIEW: Record<string, { bg: string; accent: string; fg: string }> 
 }
 
 export function Settings({ onClose }: SettingsProps) {
-  useEscapeClose(onClose)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const archiveRef = useRef<HTMLDivElement>(null)
   const { preferences, updatePreferences, resetPreferences } = usePreferences()
   const { sessionContinuity, updateSessionContinuity } = useSessionContinuity()
   const { t } = useTranslation()
@@ -96,6 +97,13 @@ export function Settings({ onClose }: SettingsProps) {
   const [restartConfirmOpen, setRestartConfirmOpen] = useState(false)
   const [updateConfirmOpen, setUpdateConfirmOpen] = useState(false)
   const [archiveDialogOpen, setArchiveDialogOpen] = useState(false)
+  // 主面板与 archive 二级弹窗各占一层按键栈：archive 开着时 Esc 只关 archive
+  useModalLayer({ open: true, getEl: () => rootRef.current, onEscape: onClose })
+  useModalLayer({
+    open: archiveDialogOpen,
+    getEl: () => archiveRef.current,
+    onEscape: () => setArchiveDialogOpen(false),
+  })
   const [archives, setArchives] = useState<SessionArchiveSummary[]>([])
   const [archiveDetail, setArchiveDetail] = useState<SessionArchive | null>(null)
   const [archiveLoading, setArchiveLoading] = useState(false)
@@ -403,6 +411,7 @@ export function Settings({ onClose }: SettingsProps) {
 
   return (
     <div
+      ref={rootRef}
       className="fixed inset-0 z-50 flex items-center justify-center tmuxgo-scrim p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]"
       onClick={onClose}
     >
@@ -1280,6 +1289,7 @@ export function Settings({ onClose }: SettingsProps) {
 
       {archiveDialogOpen && (
         <div
+          ref={archiveRef}
           className="fixed inset-0 z-[70] flex items-center justify-center tmuxgo-scrim-strong p-4"
           onClick={() => setArchiveDialogOpen(false)}
         >

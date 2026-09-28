@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useCancelSystemTask, useRetrySystemTask, useSystemTasks } from '@/hooks/useApi'
-import { useEscapeClose } from '@/hooks/useEscapeClose'
+import { useModalLayer } from '@/hooks/useModalLayer'
 import { useTranslation } from '@/i18n'
 import { Button } from './Button'
 
@@ -41,7 +41,8 @@ function formatTaskResult(value: unknown, depth = 0): string {
   return JSON.stringify(String(value))
 }
 export function TaskCenter({ onClose }: { onClose: () => void }) {
-  useEscapeClose(onClose)
+  const rootRef = useRef<HTMLDivElement>(null)
+  useModalLayer({ open: true, getEl: () => rootRef.current, onEscape: onClose })
   const { t } = useTranslation()
   const { data, isLoading } = useSystemTasks()
   const cancelTask = useCancelSystemTask()
@@ -56,7 +57,11 @@ export function TaskCenter({ onClose }: { onClose: () => void }) {
     if (selectedTask) setSelectedTaskId(selectedTask.id)
   }, [selectedTask])
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center tmuxgo-scrim p-4" onMouseDown={onClose}>
+    <div
+      ref={rootRef}
+      className="fixed inset-0 z-[100] flex items-center justify-center tmuxgo-scrim p-4"
+      onMouseDown={onClose}
+    >
       <section
         className="tmuxgo-glass tmuxgo-glass-dialog flex h-[min(620px,calc(100dvh-32px))] w-full max-w-3xl flex-col overflow-hidden rounded-apple border sm:flex-row"
         onMouseDown={(event) => event.stopPropagation()}

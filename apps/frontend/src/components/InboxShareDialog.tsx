@@ -6,7 +6,6 @@ import { getApiBase } from '@/lib/runtime-endpoints'
 import { writeClipboardText } from '@/lib/clipboard-text'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { inboxMessageTitle } from '@/stores/useInboxStore'
-import { useEscapeClose } from '@/hooks/useEscapeClose'
 import { useTranslation } from '@/i18n'
 import type { AgentInboxMessage, InboxShare } from '@/types'
 import { FiCopy, FiLink, FiShare2, FiX } from 'react-icons/fi'
@@ -32,7 +31,6 @@ function formatExpiry(value: string) {
 export function InboxShareDialog({ message, onClose }: { message: AgentInboxMessage; onClose: () => void }) {
   const { t } = useTranslation()
   const pushToast = useConsoleStore((s) => s.pushToast)
-  useEscapeClose(onClose, true)
 
   const isLink = message.type === 'link'
   const hasAsset = !!message.assetId
@@ -112,7 +110,7 @@ export function InboxShareDialog({ message, onClose }: { message: AgentInboxMess
   }
 
   return (
-    <ModalPortal>
+    <ModalPortal modal onEscape={onClose}>
       <div className="fixed inset-0 z-[110] flex items-center justify-center tmuxgo-scrim p-4" onClick={onClose}>
         <div
           className="tmuxgo-glass tmuxgo-glass-dialog w-full max-w-md rounded-apple border p-4"

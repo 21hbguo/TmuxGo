@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState, type ReactNode } from 'react'
-import { useEscapeClose } from '@/hooks/useEscapeClose'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useModalLayer } from '@/hooks/useModalLayer'
 
 interface MobileBottomSheetProps {
   open: boolean
@@ -24,7 +24,8 @@ export function MobileBottomSheet({
 }: MobileBottomSheetProps) {
   const [visible, setVisible] = useState(false)
   const [closing, setClosing] = useState(false)
-  useEscapeClose(onClose, open)
+  const rootRef = useRef<HTMLDivElement>(null)
+  useModalLayer({ open: visible, getEl: () => rootRef.current, onEscape: onClose })
 
   useEffect(() => {
     if (open) {
@@ -45,6 +46,7 @@ export function MobileBottomSheet({
 
   return (
     <div
+      ref={rootRef}
       className={`fixed left-0 right-0 top-0 overscroll-none ${zClass}`}
       style={{ height: 'var(--app-height,100dvh)' }}
       onClick={closeOnBackdrop ? onClose : undefined}

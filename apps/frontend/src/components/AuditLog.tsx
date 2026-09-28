@@ -2,7 +2,6 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from '@/i18n'
 import { useAuditLog } from '@/hooks/useApi'
-import { useEscapeClose } from '@/hooks/useEscapeClose'
 import { Button } from './Button'
 import { ModalPortal } from './ModalPortal'
 import { Select } from './Select'
@@ -11,7 +10,6 @@ interface AuditLogProps {
   onClose: () => void
 }
 export function AuditLog({ onClose }: AuditLogProps) {
-  useEscapeClose(onClose)
   const [result, setResult] = useState<'' | 'success' | 'failure'>('')
   const [query, setQuery] = useState('')
   const { t } = useTranslation()
@@ -26,7 +24,7 @@ export function AuditLog({ onClose }: AuditLogProps) {
     [data?.events, query],
   )
   return (
-    <ModalPortal>
+    <ModalPortal modal onEscape={onClose}>
       <div className="fixed inset-0 z-50 flex items-center justify-center tmuxgo-scrim-strong p-4" onClick={onClose}>
         <div
           className="tmuxgo-glass tmuxgo-glass-dialog flex max-h-[85vh] w-full max-w-[820px] flex-col overflow-hidden rounded-apple border"
