@@ -168,7 +168,7 @@ export async function streamRoutes(fastify: FastifyInstance) {
           }
           case 'resize': {
             const resize = streamResizeMessageSchema.parse(data)
-            session.resize(resize.cols, resize.rows)
+            session.resize(resize.cols, resize.rows, resize.requestId)
             break
           }
           case 'redraw':

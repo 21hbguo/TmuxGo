@@ -117,6 +117,9 @@ export const streamResizeMessageSchema = z.object({
   type: z.literal('resize'),
   cols: z.number().finite(),
   rows: z.number().finite(),
+  // 可选请求标识：旧端不发不受影响（字段缺失时协议同旧版）；schema 不显式
+  // 声明会被 zod 默认剥离，网关 resized ACK 原样回声供前端配对/丢弃旧 ACK
+  requestId: z.union([z.string().min(1).max(128), z.number().int()]).optional(),
 })
 export const streamRegisterMessageSchema = z.object({
   type: z.literal('register'),
