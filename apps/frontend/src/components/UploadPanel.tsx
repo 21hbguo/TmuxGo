@@ -16,7 +16,6 @@ import {
 } from '@/lib/file-meta'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useFileRoots, useHosts } from '@/hooks/useApi'
-import { useEscapeClose } from '@/hooks/useEscapeClose'
 import { useTranslation } from '@/i18n'
 import { Button } from './Button'
 import { ModalPortal } from './ModalPortal'
@@ -45,7 +44,6 @@ export function UploadPanel({ mode = 'desktop', onClose }: { mode?: 'mobile' | '
   const [dirPickerOpen, setDirPickerOpen] = useState(false)
   const [loadingTarget, setLoadingTarget] = useState(false)
   const [initializedHost, setInitializedHost] = useState('')
-  useEscapeClose(() => onClose?.(), mode === 'desktop')
 
   // 目标预填：跟随当前主机 + 活动 pane 目录解析；失败回落到首个 root 顶层。
   // 仅每 host 首次执行一次，后续手改目录不被回源覆盖；切主机后重新解析
@@ -328,7 +326,7 @@ export function UploadPanel({ mode = 'desktop', onClose }: { mode?: 'mobile' | '
 
   if (mode === 'mobile') return content
   return (
-    <ModalPortal>
+    <ModalPortal modal onEscape={() => onClose?.()}>
       <div className="tmuxgo-scrim fixed inset-0 z-[70] flex items-center justify-center p-4" onClick={onClose}>
         <div
           className="tmuxgo-glass tmuxgo-glass-dialog h-[min(640px,85vh)] w-full max-w-lg rounded-apple border"

@@ -9,7 +9,6 @@ import dynamic from '@/lib/dynamic'
 import { isMobileDevice } from '@/hooks/useMobileKeyboard'
 import { useCreateWorkspace } from '@/hooks/useWorkspaces'
 import { usePrompt } from '@/hooks/usePrompt'
-import { useEscapeClose } from '@/hooks/useEscapeClose'
 import { isImeKeyEvent } from '@/lib/terminal-platform'
 import { useTranslation } from '@/i18n'
 import { useConsoleStore } from '@/stores/useConsoleStore'
@@ -87,9 +86,6 @@ export function CreateSessionDialog({
       return () => clearTimeout(timer)
     }
   }, [open, defaultName, initialWorkspace])
-  // 目录选择器展开时占顶层：ESC 先收选择器，再按一次才关整个弹窗
-  useEscapeClose(() => setPickerOpen(false), open && pickerOpen)
-  useEscapeClose(onClose, open && !pickerOpen)
   if (!open || !template) return null
   const handleSelectWorkspace = (workspaceId: string) => {
     if (!workspaceId) return setWorkspace(null)
@@ -157,7 +153,14 @@ export function CreateSessionDialog({
     ? 'flex min-h-0 flex-1 flex-col overflow-hidden'
     : 'flex min-h-0 flex-1 flex-col overflow-hidden'
   return (
-    <ModalPortal>
+    // 目录选择器展开时 ESC 先收选择器，再按一次才关整个弹窗
+    <ModalPortal
+      modal
+      onEscape={() => (pickerOpen ? setPickerOpen(false) : onClose())}
+      onEnter={() => {
+        if (!pickerOpen) void handleCreate()
+      }}
+    >
       <div className={containerClass} onClick={isMobile ? undefined : onClose}>
         <div className={dialogClass} onClick={(e) => e.stopPropagation()} onKeyDown={handleKeyDown}>
           <div className="shrink-0 border-b border-[var(--line)] px-4 py-3">

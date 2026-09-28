@@ -5,7 +5,6 @@ import { useTranslation } from '@/i18n'
 import { Button } from './Button'
 import { Chip } from './Chip'
 import { useSnippets, SNIPPET_NAME_KEYS } from '@/hooks/useSnippets'
-import { useEscapeClose } from '@/hooks/useEscapeClose'
 import { ModalPortal } from './ModalPortal'
 
 interface CommandSnippetsProps {
@@ -19,7 +18,6 @@ export function CommandSnippets({ onSend, onClose }: CommandSnippetsProps) {
   const [isAdding, setIsAdding] = useState(false)
   const [newSnippet, setNewSnippet] = useState({ name: '', command: '', description: '' })
   const { t } = useTranslation()
-  useEscapeClose(onClose)
 
   const filtered = snippets.filter(
     (s) =>
@@ -40,7 +38,7 @@ export function CommandSnippets({ onSend, onClose }: CommandSnippetsProps) {
   }
 
   return (
-    <ModalPortal>
+    <ModalPortal modal onEscape={onClose}>
       <div className="fixed inset-0 tmuxgo-scrim-strong flex items-center justify-center z-50 p-4" onClick={onClose}>
         <div
           className="tmuxgo-glass tmuxgo-glass-dialog border rounded-apple w-full max-w-[500px] max-h-[85vh] overflow-hidden"

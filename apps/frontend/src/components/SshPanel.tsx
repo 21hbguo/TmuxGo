@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { FiCode, FiFileText, FiRefreshCw, FiStar } from 'react-icons/fi'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import {
@@ -20,7 +20,7 @@ import { type CredentialStoreFile, type HostStoreFile } from '@/lib/api'
 import { isImeKeyEvent } from '@/lib/terminal-platform'
 import { useTranslation } from '@/i18n'
 import { useClipboard } from '@/hooks/useClipboard'
-import { useEscapeClose } from '@/hooks/useEscapeClose'
+import { useModalLayer } from '@/hooks/useModalLayer'
 import { Button } from './Button'
 import { Chip } from './Chip'
 import { ConfirmDialog } from './ConfirmDialog'
@@ -273,10 +273,13 @@ export function SshPanel() {
     setHostPasswordDraft('')
     setHostPrivateKeyPathDraft('')
   }
-  // 三个内嵌弹窗各占一层，共存时 ESC 只关最上层
-  useEscapeClose(closeHostDialog, hostDialogOpen)
-  useEscapeClose(closeSshConfig, sshConfigOpen)
-  useEscapeClose(closeJsonConfig, jsonConfigOpen)
+  const hostDialogRef = useRef<HTMLDivElement>(null)
+  const sshConfigRef = useRef<HTMLDivElement>(null)
+  const jsonConfigRef = useRef<HTMLDivElement>(null)
+  // 三个内嵌弹窗各占一层按键栈，共存时 ESC 只关最上层且按键不穿透到终端
+  useModalLayer({ open: hostDialogOpen, getEl: () => hostDialogRef.current, onEscape: closeHostDialog })
+  useModalLayer({ open: sshConfigOpen, getEl: () => sshConfigRef.current, onEscape: closeSshConfig })
+  useModalLayer({ open: jsonConfigOpen, getEl: () => jsonConfigRef.current, onEscape: closeJsonConfig })
   const saveHost = async () => {
     setHostActionMessage('')
     try {
@@ -663,6 +666,7 @@ export function SshPanel() {
       </div>
       {hostDialogOpen && (
         <div
+          ref={hostDialogRef}
           className="fixed inset-0 z-[60] flex items-center justify-center tmuxgo-scrim p-4"
           onClick={closeHostDialog}
         >
@@ -804,6 +808,7 @@ export function SshPanel() {
       )}
       {sshConfigOpen && (
         <div
+          ref={sshConfigRef}
           className="fixed inset-0 z-[60] flex items-center justify-center tmuxgo-scrim p-4"
           onClick={closeSshConfig}
         >
@@ -846,6 +851,7 @@ export function SshPanel() {
       )}
       {jsonConfigOpen && (
         <div
+          ref={jsonConfigRef}
           className="fixed inset-0 z-[60] flex items-center justify-center tmuxgo-scrim p-4"
           onClick={closeJsonConfig}
         >

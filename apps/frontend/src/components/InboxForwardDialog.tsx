@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { inboxMessageTitle } from '@/stores/useInboxStore'
-import { useEscapeClose } from '@/hooks/useEscapeClose'
 import { useTranslation } from '@/i18n'
 import type { AgentInboxMessage, Host } from '@/types'
 import { FiCornerUpRight, FiX } from 'react-icons/fi'
@@ -20,7 +19,6 @@ export function InboxForwardDialog({ message, onClose }: { message: AgentInboxMe
   const pushToast = useConsoleStore((s) => s.pushToast)
   const activePaneId = useConsoleStore((s) => s.activePaneId)
   const openUploadDialog = useConsoleStore((s) => s.openUploadDialog)
-  useEscapeClose(onClose, true)
 
   const isTextLike = message.type === 'text' || message.type === 'link'
   const hasAsset = !!message.assetId
@@ -88,7 +86,7 @@ export function InboxForwardDialog({ message, onClose }: { message: AgentInboxMe
     : [{ value: 'local', label: 'local' }]
 
   return (
-    <ModalPortal>
+    <ModalPortal modal onEscape={onClose}>
       <div className="fixed inset-0 z-[110] flex items-center justify-center tmuxgo-scrim p-4" onClick={onClose}>
         <div
           className="tmuxgo-glass tmuxgo-glass-dialog w-full max-w-md rounded-apple border p-4"

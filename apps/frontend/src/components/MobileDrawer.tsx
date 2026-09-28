@@ -11,7 +11,7 @@ import {
   useWindows,
 } from '@/hooks/useApi'
 import { useOptionalQueryClient } from '@/hooks/useOptionalQueryClient'
-import { useEscapeClose } from '@/hooks/useEscapeClose'
+import { useModalLayer } from '@/hooks/useModalLayer'
 import { useOrderedSessions } from '@/hooks/useOrderedSessions'
 import {
   useMigrateSessionWorkspace,
@@ -168,6 +168,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
   const startYRef = useRef(0)
   const translateYRef = useRef(0)
   const panelRef = useRef<HTMLDivElement>(null)
+  const drawerRootRef = useRef<HTMLDivElement>(null)
   // 列表滚动容器：到顶继续下拉 = 关抽屉（iOS 惯例）；非到顶时让位原生滚动
   const scrollRef = useRef<HTMLDivElement>(null)
   const pullActiveRef = useRef(false)
@@ -223,7 +224,8 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
     onClose()
   }, [isOpen, onClose, resetPanelPosition])
 
-  useEscapeClose(handleClose, isOpen)
+  // 抽屉带 scrim，视作模态层：visible（含关场动画）期间占住按键层，Esc 关闭、其余键不穿透
+  useModalLayer({ open: visible, getEl: () => drawerRootRef.current, onEscape: handleClose })
 
   const handleTouchStart = (e: React.TouchEvent) => {
     startYRef.current = e.touches[0].clientY
@@ -464,7 +466,7 @@ export function MobileDrawer({ isOpen, onClose, type }: MobileDrawerProps) {
   if (!visible) return null
 
   return (
-    <div className="fixed left-0 right-0 top-0 z-50" style={{ height: 'var(--app-height,100dvh)' }}>
+    <div ref={drawerRootRef} className="fixed left-0 right-0 top-0 z-50" style={{ height: 'var(--app-height,100dvh)' }}>
       <div
         className={`tmuxgo-scrim absolute inset-0 transition-opacity duration-200 ${closing ? 'opacity-0' : 'opacity-100'}`}
         onClick={handleClose}

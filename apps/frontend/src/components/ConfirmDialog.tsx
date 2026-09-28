@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button } from './Button'
 import { ModalPortal } from './ModalPortal'
-import { useEscapeClose } from '@/hooks/useEscapeClose'
 
 interface ConfirmDialogProps {
   open: boolean
@@ -55,8 +54,6 @@ export function ConfirmDialog({
     if (open && busyState) dialogRef.current?.focus()
   }, [open, busyState])
 
-  useEscapeClose(onCancel, open && !busyState)
-
   if (!open) return null
 
   const handleConfirm = () => {
@@ -105,7 +102,14 @@ export function ConfirmDialog({
   }
 
   return (
-    <ModalPortal>
+    // busy 也保持登记（onEscape 空转）：否则 Esc 会穿透到背后的终端
+    <ModalPortal
+      modal
+      onEscape={() => {
+        if (!busyState) onCancel()
+      }}
+      onEnter={handleConfirm}
+    >
       <div
         className="fixed inset-0 z-[115] flex items-center justify-center tmuxgo-scrim p-4"
         onClick={busyState ? undefined : onCancel}

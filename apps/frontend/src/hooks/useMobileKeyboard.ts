@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useCallback } from 'react'
+import { hasModalLayerOpen } from '@/lib/modal-layers'
 import { recordMobileDiagnostic } from '@/lib/mobile-diagnostics'
 
 const SENTINEL = '\u200b\u200b'
@@ -362,6 +363,8 @@ export function useMobileKeyboard(
       }
     }
     const handleWindowKeyDown = (e: KeyboardEvent) => {
+      // 有模态弹层开着时不代转发：按键归弹窗层处理，绝不写进终端
+      if (hasModalLayerOpen()) return
       recordMobileDebug('window-keydown', {
         key: e.key,
         keyCode: e.keyCode,

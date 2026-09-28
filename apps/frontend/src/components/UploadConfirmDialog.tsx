@@ -14,7 +14,6 @@ import { quoteShellPath } from '@/lib/path-drop'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import { useFileRoots, useSessionSnapshot } from '@/hooks/useApi'
 import { usePreferences } from '@/hooks/usePreferences'
-import { useEscapeClose } from '@/hooks/useEscapeClose'
 import { useTranslation } from '@/i18n'
 import type { FileUploadTarget } from '@/types'
 import { Button } from './Button'
@@ -171,7 +170,7 @@ export function UploadConfirmDialog() {
     if (submitting) return
     closeUploadDialog()
   }
-  useEscapeClose(handleCancel, open)
+  const submitDisabled = submitting || loadingTarget || !targetRootId || !!limitError
 
   // 上传成功后投递路径：非当前 pane 先经 tmux select（必要时先切 window），
   // 再走统一粘贴确认（analyzePaste 检查 + 用户确认发送），绝不自动追加 Enter/直写终端。
@@ -322,7 +321,14 @@ export function UploadConfirmDialog() {
   if (!open) return null
 
   return (
-    <ModalPortal>
+    // modal 按键层：弹窗开着而焦点还在终端时 Enter 不再写进 tmux，而是触发上传
+    <ModalPortal
+      modal
+      onEscape={handleCancel}
+      onEnter={() => {
+        if (!submitDisabled) void handleUpload()
+      }}
+    >
       {/* 移动端：弹窗高度受 --app-height 约束并自滚，确认/取消按钮不会被键盘或安全区挤出视口 */}
       <div
         className="fixed inset-0 z-[120] flex items-center justify-center tmuxgo-scrim p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]"
@@ -454,12 +460,7 @@ export function UploadConfirmDialog() {
             <Button variant="ghost" size="sm" onClick={handleCancel}>
               {t('upload.cancel')}
             </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              disabled={submitting || loadingTarget || !targetRootId || !!limitError}
-              onClick={() => void handleUpload()}
-            >
+            <Button variant="primary" size="sm" disabled={submitDisabled} onClick={() => void handleUpload()}>
               {submitting ? t('upload.starting') : t('upload.upload')}
             </Button>
           </div>

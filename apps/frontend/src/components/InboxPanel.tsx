@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useInboxStore, inboxMessageTitle, isInboxUnread, isInboxArchivable } from '@/stores/useInboxStore'
 import { useConsoleStore } from '@/stores/useConsoleStore'
 import {
@@ -11,7 +11,7 @@ import {
   purgeInboxMessages,
   archiveInboxMessages,
 } from '@/hooks/useInbox'
-import { useEscapeClose } from '@/hooks/useEscapeClose'
+import { useModalLayer } from '@/hooks/useModalLayer'
 import { api } from '@/lib/api'
 import { useTranslation } from '@/i18n'
 import type {
@@ -173,7 +173,9 @@ interface InboxPanelProps {
 }
 
 export function InboxPanel({ mode, onClose, onPreview, onJump }: InboxPanelProps) {
-  useEscapeClose(onClose, mode === 'desktop')
+  const rootRef = useRef<HTMLDivElement>(null)
+  // 桌面模式是近全屏 scrim 模态：登记按键层，Esc/Enter 不穿透到终端
+  useModalLayer({ open: mode === 'desktop', getEl: () => rootRef.current, onEscape: onClose })
   const { t } = useTranslation()
   const messages = useInboxStore((state) => state.messages)
   const unreadCount = useInboxStore((state) => state.unreadCount)
@@ -759,7 +761,11 @@ export function InboxPanel({ mode, onClose, onPreview, onJump }: InboxPanelProps
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId) || null
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center tmuxgo-scrim p-4" onMouseDown={onClose}>
+    <div
+      ref={rootRef}
+      className="fixed inset-0 z-[100] flex items-center justify-center tmuxgo-scrim p-4"
+      onMouseDown={onClose}
+    >
       {/* 桌面端接近全屏：92vw/92dvh，上限 1440x960；左栏 clamp 420-520px */}
       <section
         className="tmuxgo-glass tmuxgo-glass-dialog flex h-[min(92dvh,960px)] w-[min(92vw,1440px)] flex-col overflow-hidden rounded-apple border sm:flex-row"

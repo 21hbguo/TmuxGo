@@ -556,8 +556,7 @@ export function FilePanel({
   const [lastTrashedItem, setLastTrashedItem] = useState<TrashEntry | null>(null)
   const [trashEntries, setTrashEntries] = useState<TrashEntry[]>([])
   const [trashOpen, setTrashOpen] = useState(false)
-  // 回收站弹窗与两个浮层菜单各占一层 ESC
-  useEscapeClose(() => setTrashOpen(false), trashOpen)
+  // 两个浮层菜单各占一层 ESC（回收站走 ModalPortal modal 层）
   useEscapeClose(() => setContextMenu(null), contextMenu !== null)
   useEscapeClose(() => setSortMenu(null), sortMenu !== null)
   const [fileClipboard, setFileClipboard] = useState<{
@@ -3316,7 +3315,7 @@ export function FilePanel({
         </div>
       )}
       {trashOpen && (
-        <ModalPortal>
+        <ModalPortal modal onEscape={() => setTrashOpen(false)}>
           <div
             className="fixed inset-0 z-[95] flex items-center justify-center tmuxgo-scrim-strong p-4"
             onClick={() => setTrashOpen(false)}

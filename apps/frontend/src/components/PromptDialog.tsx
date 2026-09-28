@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button } from './Button'
 import { ModalPortal } from './ModalPortal'
-import { useEscapeClose } from '@/hooks/useEscapeClose'
 import { isImeKeyEvent } from '@/lib/terminal-platform'
 
 interface PromptDialogProps {
@@ -43,8 +42,6 @@ export function PromptDialog({
     }
   }, [open, defaultValue])
 
-  useEscapeClose(onCancel, open && !confirming)
-
   if (!open) return null
   const submit = () => {
     if (confirming) return
@@ -61,7 +58,14 @@ export function PromptDialog({
   }
 
   return (
-    <ModalPortal>
+    // confirming 期间 onEscape 空转：弹窗仍占栈吞掉 Esc，不穿透到背景
+    <ModalPortal
+      modal
+      onEscape={() => {
+        if (!confirming) onCancel()
+      }}
+      onEnter={submit}
+    >
       <div
         className="fixed inset-0 flex items-center justify-center tmuxgo-scrim p-4"
         style={{ zIndex }}
