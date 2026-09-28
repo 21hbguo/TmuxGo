@@ -449,6 +449,40 @@ describe('EditorWorkbench', () => {
     expect(useConsoleStore.getState().openEditors).toHaveLength(0)
     expect(screen.queryByText('/workspace/src/index.ts')).not.toBeInTheDocument()
   })
+  it('keeps a dirty editor open when closing is cancelled in the confirm dialog', () => {
+    useConsoleStore.setState({
+      openEditors: [{ ...editor1, content: 'const value=2', dirty: true }],
+    } as any)
+    renderWorkbench()
+    fireEvent.click(screen.getByRole('button', { name: 'Close index.ts' }))
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(useConsoleStore.getState().openEditors).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(useConsoleStore.getState().openEditors).toHaveLength(1)
+    expect(useConsoleStore.getState().openEditors[0]?.dirty).toBe(true)
+  })
+  it('closes a dirty editor after confirming the close dialog', () => {
+    useConsoleStore.setState({
+      openEditors: [{ ...editor1, content: 'const value=2', dirty: true }],
+    } as any)
+    renderWorkbench()
+    fireEvent.click(screen.getByRole('button', { name: 'Close index.ts' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(useConsoleStore.getState().openEditors).toHaveLength(0)
+  })
+  it('dismisses the dirty-close dialog with Escape and keeps the editor', () => {
+    useConsoleStore.setState({
+      openEditors: [{ ...editor1, content: 'const value=2', dirty: true }],
+    } as any)
+    renderWorkbench()
+    fireEvent.click(screen.getByRole('button', { name: 'Close index.ts' }))
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(useConsoleStore.getState().openEditors).toHaveLength(1)
+  })
   it('toggles middle-click auto-scroll mode and exits on escape', () => {
     renderWorkbench()
     fireEvent.mouseDown(screen.getByTestId('editor-auto-scroll-zone'), { button: 1, clientX: 140, clientY: 220 })
