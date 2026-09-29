@@ -11,13 +11,23 @@ while (!existsSync(join(directory, 'node_modules'))) {
 const pending = [join(directory, 'node_modules')]
 while (pending.length) {
   const current = pending.pop()
+  if (!current) continue
   for (const entry of readdirSync(current, { withFileTypes: true })) {
     const target = join(current, entry.name)
     if (entry.isDirectory()) {
       pending.push(target)
       continue
     }
-    if (!entry.isFile() || !(entry.name.endsWith('.node') || entry.name === 'spawn-helper' || entry.name === 'esbuild' || entry.name === 'swc')) continue
+    if (
+      !entry.isFile() ||
+      !(
+        entry.name.endsWith('.node') ||
+        entry.name === 'spawn-helper' ||
+        entry.name === 'esbuild' ||
+        entry.name === 'swc'
+      )
+    )
+      continue
     if ((statSync(target).mode & 0o100) === 0) chmodSync(target, 0o755)
   }
 }

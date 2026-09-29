@@ -28,5 +28,8 @@
     "node-pty": "1.1.0",
     "web-push": "3.6.7",
     "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0"
   }
 }

@@ -309,7 +309,11 @@ async function callGateway(pathname, body, timeoutMs = 30000) {
     const text = await res.text()
     return { ok: res.ok, status: res.status, body: text }
   } catch (error) {
-    return { ok: false, status: 0, body: `Gateway request failed: ${error?.message || error}` }
+    return {
+      ok: false,
+      status: 0,
+      body: `Gateway request failed: ${error instanceof Error ? error.message : String(error)}`,
+    }
   }
 }
 
