@@ -53,6 +53,32 @@ describe('dynamic lazy panel boundary', () => {
     expect(screen.getByText('panel-content')).toBeInTheDocument()
   })
 
+  it('reuses the resolved lazy across remounts so reopening never suspends', async () => {
+    const { loader, pending } = setupLoader()
+    const Panel = dynamic(loader)
+    const view = render(<Panel />)
+    await act(async () => pending[0].resolve({ default: LoadedPanel }))
+    view.unmount()
+    // 再次挂载时 lazy 已 fulfilled：同步渲染真实组件，不出 fallback、不重复 import
+    render(<Panel />)
+    expect(screen.getByText('panel-content')).toBeInTheDocument()
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(loader).toHaveBeenCalledTimes(1)
+  })
+
+  it('retries the import on remount after a failure instead of replaying the rejected lazy', async () => {
+    const { loader, pending } = setupLoader()
+    const Panel = dynamic(loader)
+    const view = render(<Panel />)
+    await act(async () => pending[0].reject(new Error('boom')))
+    expect(screen.getByText('common.loadFailed')).toBeInTheDocument()
+    view.unmount()
+    render(<Panel />)
+    expect(loader).toHaveBeenCalledTimes(2)
+    await act(async () => pending[1].resolve({ default: LoadedPanel }))
+    expect(screen.getByText('panel-content')).toBeInTheDocument()
+  })
+
   it('shows an in-panel error and retry re-issues the chunk request', async () => {
     const { loader, pending } = setupLoader()
     const Panel = dynamic(loader)
