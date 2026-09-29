@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { describeElement, elementLabel, getCssPath, resolvePickTarget, PICKER_UI_ATTR } from './element-picker'
+import {
+  describeElement,
+  elementLabel,
+  getCssPath,
+  insertText,
+  resolvePickTarget,
+  PICKER_UI_ATTR,
+} from './element-picker'
 
 describe('getCssPath', () => {
   afterEach(() => {
@@ -105,5 +112,34 @@ describe('describeElement', () => {
     document.body.innerHTML = '<div data-terminal><div class="xterm"></div></div>'
     const info = describeElement(document.querySelector('[data-terminal]')!)
     expect(info.terminal).toBe(true)
+  })
+})
+
+describe('insertText', () => {
+  it('keeps component name plus last two selector segments', () => {
+    expect(
+      insertText({
+        selector: '#root > main > div.panel > button.a:nth-of-type(2)',
+        label: '',
+        tagName: 'button',
+        componentName: 'QuickActions',
+        attributes: [],
+        rect: { x: 0, y: 0, width: 0, height: 0 },
+        terminal: false,
+      }),
+    ).toBe('QuickActions > div.panel > button.a:nth-of-type(2)')
+  })
+  it('falls back to selector tail without component', () => {
+    expect(
+      insertText({
+        selector: '#pick-me',
+        label: '',
+        tagName: 'button',
+        componentName: null,
+        attributes: [],
+        rect: { x: 0, y: 0, width: 0, height: 0 },
+        terminal: false,
+      }),
+    ).toBe('#pick-me')
   })
 })
