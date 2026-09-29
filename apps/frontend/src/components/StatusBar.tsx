@@ -254,7 +254,11 @@ export function StatusBar() {
                 </Chip>
                 {showAllDisks && (
                   <div className="absolute bottom-full right-0 z-50 pb-2" role="list" aria-label="All storage">
-                    <div className="min-w-56 tmuxgo-float-surface p-1.5">
+                    {/* 实底浮层：终端画面 backdrop-blur 压不住，玻璃透明度会透出字符看不清 */}
+                    <div
+                      className="min-w-56 tmuxgo-float-surface p-1.5"
+                      style={{ background: 'rgb(var(--bg-1))', backdropFilter: 'none', WebkitBackdropFilter: 'none' }}
+                    >
                       {disks.map((d) => (
                         <div
                           key={d.mount}
