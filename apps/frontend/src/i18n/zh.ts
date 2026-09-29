@@ -1403,6 +1403,8 @@ export const zh = {
   // Element picker
   'picker.title': '元素选择',
   'picker.hint': '点击页面元素查看信息 · Esc 退出',
+  'picker.insertHint': '点击插入当前 Pane',
+  'picker.inserted': '已插入到当前 Pane',
   'picker.component': '组件',
   'picker.copySelector': '复制选择器',
   'picker.copied': '已复制选择器',

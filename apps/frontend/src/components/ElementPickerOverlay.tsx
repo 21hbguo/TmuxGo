@@ -1,10 +1,11 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useEscapeClose } from '@/hooks/useEscapeClose'
 import { useElementPickerStore } from '@/stores/useElementPickerStore'
-import { elementLabel, resolvePickTarget, PICKER_UI_ATTR } from '@/lib/element-picker'
+import { useConsoleStore } from '@/stores/useConsoleStore'
+import { describeElement, elementLabel, resolvePickTarget, PICKER_UI_ATTR } from '@/lib/element-picker'
 import { ElementPickerPanel } from './ElementPickerPanel'
 import { useTranslation } from '@/i18n'
 
@@ -26,7 +27,11 @@ const BLOCKED_EVENTS = [
 export function ElementPickerOverlay() {
   const active = useElementPickerStore((s) => s.active)
   const selected = useElementPickerStore((s) => s.selected)
+  const activePaneId = useConsoleStore((s) => s.activePaneId)
   const { t } = useTranslation()
+  // t 每次渲染换新引用，effect 依赖它会反复解绑监听并清掉 hover——监听器里走 ref 取最新文案
+  const tRef = useRef(t)
+  tRef.current = t
   const [hover, setHover] = useState<{ label: string; rect: DOMRect } | null>(null)
 
   // 非模态层：弹窗叠在拾取器之上时 Esc 先归弹窗，再按一次才退出选择模式
@@ -50,7 +55,17 @@ export function ElementPickerOverlay() {
       if (ownUi(event.target)) return
       event.preventDefault()
       event.stopPropagation()
-      if (event.type === 'click') useElementPickerStore.getState().selectElement(event.target)
+      if (event.type !== 'click') return
+      // 有活动 pane 时走快速插入：选择器写进当前终端输入，不弹详情面板，保持拾取态可连续插入
+      const el = resolvePickTarget(event.target)
+      if (!el) return
+      if (useConsoleStore.getState().activePaneId) {
+        const { selector } = describeElement(el)
+        window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data: selector } }))
+        useConsoleStore.getState().pushToast({ type: 'info', message: tRef.current('picker.inserted') })
+        return
+      }
+      useElementPickerStore.getState().selectElement(el)
     }
     window.addEventListener('mousemove', onMove, true)
     window.addEventListener('scroll', onScroll, true)
@@ -71,7 +86,7 @@ export function ElementPickerOverlay() {
 
   return createPortal(
     <>
-      {hover && (
+      {hover && !selected && (
         <>
           <div
             aria-hidden="true"
@@ -94,6 +109,7 @@ export function ElementPickerOverlay() {
             }}
           >
             {hover.label}
+            {activePaneId ? ` · ${t('picker.insertHint')}` : ''}
           </div>
         </>
       )}
