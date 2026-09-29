@@ -9,6 +9,7 @@ import {
   FiCode,
   FiCompass,
   FiCpu,
+  FiCrosshair,
   FiDatabase,
   FiGlobe,
   FiMonitor,
@@ -17,6 +18,7 @@ import {
   FiZap,
 } from 'react-icons/fi'
 import { usePlugins } from '@/hooks/useApi'
+import { useElementPickerStore } from '@/stores/useElementPickerStore'
 
 const pluginIcons = {
   activity: FiActivity,
@@ -46,6 +48,8 @@ export function ActivityBar() {
   const activeBrowser = useConsoleStore((state) => state.activeBrowser)
   const toggleBrowser = useConsoleStore((state) => state.toggleBrowser)
   const toggleGitPanel = useConsoleStore((state) => state.toggleGitPanel)
+  const pickerActive = useElementPickerStore((state) => state.active)
+  const togglePicker = useElementPickerStore((state) => state.toggle)
   const inboxPanelOpen = useInboxStore((state) => state.panelOpen)
   const inboxUnread = useInboxStore((state) => state.unreadCount)
   const { t } = useTranslation()
@@ -78,6 +82,12 @@ export function ActivityBar() {
       onClick: () => window.dispatchEvent(new CustomEvent('tmuxgo-toggle-notifications')),
     },
     {
+      id: 'picker',
+      label: t('picker.title'),
+      icon: FiCrosshair,
+      onClick: togglePicker,
+    },
+    {
       id: 'settings',
       label: t('activity.settings'),
       icon: FiSettings,
@@ -103,7 +113,9 @@ export function ActivityBar() {
                       ? !!activeBrowser
                       : item.id === 'inbox'
                         ? inboxPanelOpen
-                        : false
+                        : item.id === 'picker'
+                          ? pickerActive
+                          : false
         const Icon = item.icon
         const unread = item.id === 'inbox' ? inboxUnread : 0
         return (
