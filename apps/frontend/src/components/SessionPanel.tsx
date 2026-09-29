@@ -41,8 +41,7 @@ import {
 } from '@dnd-kit/core'
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable'
 import {
-  SessionSortableList,
-  SessionGroupDropZone,
+  SessionGroupedSortableList,
   findPreviewGroup,
   movePreviewBetweenGroups,
   orderByIds,
@@ -399,10 +398,13 @@ export function SessionPanel() {
   // 拖拽期间未分类组即使为空也要渲染成可落点
   const displayedGroups = useMemo(() => {
     if (!dragPreview) return workspaceGroups
-    const list = workspaceGroups.map((group) => ({
-      ...group,
-      sessions: orderByIds(sessions, dragPreview[group.key] || []),
-    }))
+    // orderByIds 空 ids 时返回全量 sessions（其语义是「无保存序则原序」），
+    // 这里需要「按 id 过滤」语义——空预览组必须渲染为空，否则每行在每个组
+    // 重复渲染，同 id 重复注册进 SortableContext 会污染 dnd-kit 内部状态
+    const list = workspaceGroups.map((group) => {
+      const ids = dragPreview[group.key] || []
+      return { ...group, sessions: ids.length ? orderByIds(sessions, ids) : [] }
+    })
     if (!list.some((group) => group.key === '')) list.push({ key: '', workspace: null, sessions: [] })
     return list
   }, [dragPreview, workspaceGroups, sessions])
@@ -467,7 +469,7 @@ export function SessionPanel() {
     setCreateDialogOpen(true)
   }
   const sessionItemClassName = ({ session, isDragging, isOverlay }: GetClassNameArgs) =>
-    `tmuxgo-list-row border-b border-[var(--line)] ${batchMode ? (selectedSessionIds.includes(session.id) ? 'tmuxgo-list-row--batch' : 'tmuxgo-list-row--hover') : activeSessionId === session.id ? 'tmuxgo-list-row--active' : 'tmuxgo-list-row--hover'} ${isDragging && !isOverlay ? 'opacity-40' : ''} ${isOverlay ? 'rounded-apple border border-accent bg-bg-1' : ''}`
+    `group tmuxgo-list-row border-b border-[var(--line)] ${batchMode ? (selectedSessionIds.includes(session.id) ? 'tmuxgo-list-row--batch' : 'tmuxgo-list-row--hover') : activeSessionId === session.id ? 'tmuxgo-list-row--active' : 'tmuxgo-list-row--hover'} ${isDragging && !isOverlay ? 'opacity-40' : ''} ${isOverlay ? 'rounded-apple border border-accent bg-bg-1' : ''}`
   const renderSessionItem = ({ session }: RenderSessionArgs) => (
     <div className="flex items-center gap-1 pr-2">
       {batchMode && (
@@ -495,7 +497,7 @@ export function SessionPanel() {
       {!batchMode && (
         <button
           onClick={() => void handleRenameSession(session.id)}
-          className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-9 w-9 text-meta"
+          className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-9 w-9 text-meta opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
           aria-label={t('sidebar.renameSession')}
           title={t('sidebar.renameSession')}
         >
@@ -505,7 +507,7 @@ export function SessionPanel() {
       {!batchMode && (
         <button
           onClick={() => setPendingDeleteSessionId(session.id)}
-          className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-9 w-9 text-meta hover:text-danger"
+          className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-9 w-9 text-meta opacity-0 transition-opacity hover:text-danger group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
           aria-label={t('sidebar.deleteSession')}
           title={t('sidebar.deleteSession')}
         >
@@ -514,6 +516,81 @@ export function SessionPanel() {
       )}
     </div>
   )
+  const renderGroupHeader = (workspace: WorkspaceEntry | null, count: number) =>
+    workspace ? (
+      <div className="group sticky top-0 z-10 relative flex items-center gap-1 border-b border-[var(--line)] bg-bg-0/95 px-2 py-1 backdrop-blur">
+        <span className="min-w-0 flex-1 truncate text-xs font-semibold text-text-1">{workspace.name}</span>
+        <span className="text-meta text-text-3">{count}</span>
+        {!batchMode && (
+          <button
+            onClick={() => handleWorkspaceCreateSession(workspace)}
+            className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-6 w-6 text-meta opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+            aria-label={t('workspace.newSession')}
+            title={t('workspace.newSession')}
+          >
+            ＋
+          </button>
+        )}
+        {!batchMode && (
+          <button
+            onClick={() => void handleWorkspaceRename(workspace)}
+            className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-6 w-6 text-meta opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+            aria-label={t('workspace.rename')}
+            title={t('workspace.rename')}
+          >
+            ✎
+          </button>
+        )}
+        {!batchMode && (
+          <button
+            onClick={() => setTemplateMenuWorkspaceId(templateMenuWorkspaceId === workspace.id ? null : workspace.id)}
+            className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-6 w-6 text-meta opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+            aria-label={t('workspace.template')}
+            title={t('workspace.template')}
+          >
+            ▦
+          </button>
+        )}
+        {!batchMode && (
+          <button
+            onClick={() => setPendingDeleteWorkspace(workspace)}
+            className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-6 w-6 text-meta opacity-0 transition-opacity hover:text-danger group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+            aria-label={t('workspace.delete')}
+            title={t('workspace.delete')}
+          >
+            🗑
+          </button>
+        )}
+        {templateMenuWorkspaceId === workspace.id && (
+          <div className="absolute right-2 top-7 z-20 max-h-56 overflow-y-auto rounded-apple border border-[var(--line)] bg-bg-1 p-1">
+            {allTemplates.map((template) => (
+              <button
+                key={template.id}
+                onClick={() => void handleWorkspaceSetTemplate(workspace, template.id)}
+                className={`block w-full truncate rounded-apple px-2 py-1 text-left text-xs hover:bg-bg-0 ${workspace.templateId === template.id ? 'text-accent' : 'text-text-1'}`}
+              >
+                {template.name}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    ) : (
+      <div className="group sticky top-0 z-10 relative flex items-center gap-1 border-b border-[var(--line)] bg-bg-0/95 px-2 py-1 backdrop-blur">
+        <span className="min-w-0 flex-1 truncate text-xs text-text-3">{t('workspace.unclassified')}</span>
+        <span className="text-meta text-text-3">{count}</span>
+        {!batchMode && (
+          <button
+            onClick={handleUnclassifiedCreateSession}
+            className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-6 w-6 text-meta opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+            aria-label={t('sidebar.newAction')}
+            title={t('sidebar.newAction')}
+          >
+            ＋
+          </button>
+        )}
+      </div>
+    )
   const handleNewSession = () => {
     if (!activeHostId) return
     if (!hostWorkspaces.length) {
@@ -674,94 +751,16 @@ export function SessionPanel() {
               onDragEnd={handleSessionDragEnd}
               onDragCancel={resetSessionDrag}
             >
-              {displayedGroups.map(({ key, workspace, sessions: groupSessions }) => (
-                <SessionGroupDropZone key={key || 'unclassified'} id={`group:${key}`}>
-                  {workspace ? (
-                    <div className="sticky top-0 z-10 relative flex items-center gap-1 border-b border-[var(--line)] bg-bg-0/95 px-2 py-1 backdrop-blur">
-                      <span className="min-w-0 flex-1 truncate text-xs font-semibold text-text-1">
-                        {workspace.name}
-                      </span>
-                      <span className="text-meta text-text-3">{groupSessions.length}</span>
-                      {!batchMode && (
-                        <button
-                          onClick={() => handleWorkspaceCreateSession(workspace)}
-                          className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-6 w-6 text-meta"
-                          aria-label={t('workspace.newSession')}
-                          title={t('workspace.newSession')}
-                        >
-                          ＋
-                        </button>
-                      )}
-                      {!batchMode && (
-                        <button
-                          onClick={() => void handleWorkspaceRename(workspace)}
-                          className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-6 w-6 text-meta"
-                          aria-label={t('workspace.rename')}
-                          title={t('workspace.rename')}
-                        >
-                          ✎
-                        </button>
-                      )}
-                      {!batchMode && (
-                        <button
-                          onClick={() =>
-                            setTemplateMenuWorkspaceId(templateMenuWorkspaceId === workspace.id ? null : workspace.id)
-                          }
-                          className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-6 w-6 text-meta"
-                          aria-label={t('workspace.template')}
-                          title={t('workspace.template')}
-                        >
-                          ▦
-                        </button>
-                      )}
-                      {!batchMode && (
-                        <button
-                          onClick={() => setPendingDeleteWorkspace(workspace)}
-                          className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-6 w-6 text-meta hover:text-danger"
-                          aria-label={t('workspace.delete')}
-                          title={t('workspace.delete')}
-                        >
-                          🗑
-                        </button>
-                      )}
-                      {templateMenuWorkspaceId === workspace.id && (
-                        <div className="absolute right-2 top-7 z-20 max-h-56 overflow-y-auto rounded-apple border border-[var(--line)] bg-bg-1 p-1">
-                          {allTemplates.map((template) => (
-                            <button
-                              key={template.id}
-                              onClick={() => void handleWorkspaceSetTemplate(workspace, template.id)}
-                              className={`block w-full truncate rounded-apple px-2 py-1 text-left text-xs hover:bg-bg-0 ${workspace.templateId === template.id ? 'text-accent' : 'text-text-1'}`}
-                            >
-                              {template.name}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="sticky top-0 z-10 relative flex items-center gap-1 border-b border-[var(--line)] bg-bg-0/95 px-2 py-1 backdrop-blur">
-                      <span className="min-w-0 flex-1 truncate text-xs text-text-3">{t('workspace.unclassified')}</span>
-                      <span className="text-meta text-text-3">{groupSessions.length}</span>
-                      {!batchMode && (
-                        <button
-                          onClick={handleUnclassifiedCreateSession}
-                          className="tmuxgo-toolbar-icon tmuxgo-toolbar-icon--sm h-6 w-6 text-meta"
-                          aria-label={t('sidebar.newAction')}
-                          title={t('sidebar.newAction')}
-                        >
-                          ＋
-                        </button>
-                      )}
-                    </div>
-                  )}
-                  <SessionSortableList
-                    sessions={groupSessions}
-                    listClassName="min-h-full"
-                    getItemClassName={sessionItemClassName}
-                    renderItem={renderSessionItem}
-                  />
-                </SessionGroupDropZone>
-              ))}
+              <SessionGroupedSortableList
+                listClassName="min-h-full"
+                getItemClassName={sessionItemClassName}
+                renderItem={renderSessionItem}
+                groups={displayedGroups.map(({ key, workspace, sessions: groupSessions }) => ({
+                  key,
+                  sessions: groupSessions,
+                  header: renderGroupHeader(workspace, groupSessions.length),
+                }))}
+              />
               <DragOverlay dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.22,1,0.36,1)' }}>
                 {dragSession ? (
                   <div className={sessionItemClassName({ session: dragSession, isDragging: true, isOverlay: true })}>

@@ -126,6 +126,51 @@ export function SessionGroupDropZone({
   )
 }
 
+// 分组扁平列表——必须在 DndContext 内使用（共享 context 才能跨组拖）。
+// 关键约束：所有 sortable 行与组头 dropzone 用 flatMap 铺成同一父容器下的
+// 扁平 keyed 兄弟节点，使跨组预览移动 = 同父 DOM 搬移而非 unmount/remount；
+// 若每组建独立包裹节点，被拖行在拖动中途被 React 重建，dnd-kit 的活动节点
+// 引用失效（预览错乱、事件流断裂，drop 后内部状态残留导致无法再次拖动）。
+export function SessionGroupedSortableList({
+  groups,
+  listClassName,
+  getItemClassName,
+  renderItem,
+}: {
+  groups: { key: string; header: ReactNode; sessions: Session[] }[]
+  listClassName?: string
+  getItemClassName?: (args: GetClassNameArgs) => string
+  renderItem: (args: RenderSessionArgs) => ReactNode
+}) {
+  const { active } = useDndContext()
+  const activeId = active?.id ? String(active.id) : null
+  const flatIds = useMemo(() => groups.flatMap((group) => group.sessions.map((session) => session.id)), [groups])
+  return (
+    <SortableContext items={flatIds} strategy={verticalListSortingStrategy}>
+      <div className={listClassName}>
+        {groups.flatMap((group) => [
+          // 每组仅一个 group:key droppable 挂在组头上；空组加底部留白保证可落点
+          <SessionGroupDropZone
+            key={`group-drop:${group.key || 'unclassified'}`}
+            id={`group:${group.key}`}
+            className={group.sessions.length === 0 ? 'pb-5' : undefined}
+          >
+            {group.header}
+          </SessionGroupDropZone>,
+          ...group.sessions.map((session) => (
+            <SortableSessionItem
+              key={session.id}
+              session={session}
+              className={getItemClassName?.({ session, isDragging: activeId === session.id, isOverlay: false })}
+              renderItem={renderItem}
+            />
+          )),
+        ])}
+      </div>
+    </SortableContext>
+  )
+}
+
 // 纯 sortable 列表——必须在 DndContext 内使用（共享 context 才能跨组拖）
 export function SessionSortableList({
   sessions,

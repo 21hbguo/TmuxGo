@@ -177,6 +177,23 @@ vi.mock('./SessionSortableList', () => ({
         React.createElement('div', { key: session.id }, renderItem({ session, isDragging: false, isOverlay: false })),
       ),
     ),
+  SessionGroupedSortableList: ({
+    groups,
+    renderItem,
+  }: {
+    groups: { key: string; header: React.ReactNode; sessions: any[] }[]
+    renderItem: (args: { session: any; isDragging: boolean; isOverlay: boolean }) => React.ReactNode
+  }) =>
+    React.createElement(
+      'div',
+      null,
+      groups.flatMap((group) => [
+        React.createElement('div', { key: `group-drop:${group.key || 'unclassified'}` }, group.header),
+        ...group.sessions.map((session) =>
+          React.createElement('div', { key: session.id }, renderItem({ session, isDragging: false, isOverlay: false })),
+        ),
+      ]),
+    ),
   SessionGroupDropZone: ({ children }: { children: React.ReactNode }) => React.createElement('div', null, children),
   orderByIds: (sessions: any[], ids: string[]) => {
     const map = new Map(sessions.map((session) => [session.id, session]))
