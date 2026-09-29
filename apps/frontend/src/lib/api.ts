@@ -846,6 +846,27 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ paneId }),
       }),
+    selectionState: (paneId: string) =>
+      fetchApi<{
+        ok: boolean
+        inCopyMode?: boolean
+        selecting?: boolean
+        present?: boolean
+        startX?: number
+        startY?: number
+        endX?: number
+        endY?: number
+        rectangle?: boolean
+        error?: string
+      }>('/api/panes/selection-state', {
+        method: 'POST',
+        body: JSON.stringify({ paneId }),
+      }),
+    copySelection: (paneId: string, options?: { since?: string; peek?: boolean }) =>
+      fetchApi<{ ok: boolean; found?: boolean; name?: string; text?: string; error?: string }>(
+        '/api/panes/copy-selection',
+        { method: 'POST', body: JSON.stringify({ paneId, since: options?.since, peek: options?.peek }) },
+      ),
   },
   system: {
     info: (hostId = 'local') => fetchApi<SystemInfoResponse>(`/api/hosts/${encodeURIComponent(hostId)}/system`),

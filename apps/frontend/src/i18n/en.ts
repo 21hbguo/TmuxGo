@@ -1030,6 +1030,7 @@ export const en = {
   'terminal.dock.left': 'Left',
   'terminal.dock.right': 'Right',
   'terminal.dockHint': 'Terminal dock: {position} (click for options, drag this bar to a workspace edge to dock)',
+  'terminal.selectionChars': '{count} chars',
 
   // Clipboard
   'clipboard.copyFailed': 'Copy failed',

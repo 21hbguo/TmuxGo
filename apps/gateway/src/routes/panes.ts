@@ -4,6 +4,7 @@ import { execTmux } from '../lib/tmux-executor.js'
 import { markAgentPaneSeen } from '../lib/agent-state.js'
 import { agentMonitor } from '../lib/agent-monitor.js'
 import {
+  paneCopySelectionBodySchema,
   paneIdBodySchema,
   paneResizeBodySchema,
   paneSelectBodySchema,
@@ -37,6 +38,65 @@ export async function paneRoutes(fastify: FastifyInstance) {
       }
       agentMonitor.markSeen(paneId) || markAgentPaneSeen(paneId)
       return { ok: true }
+    } catch (err: any) {
+      return { ok: false, error: err.message }
+    }
+  })
+  // mouse on 时终端拖选全部归 tmux copy-mode：选区坐标只在 tmux 侧，
+  // 前端轮询此端点拿 pane 相对坐标，再用本地 buffer 切片算实时字符数
+  fastify.post('/panes/selection-state', async (request) => {
+    const { paneId } = paneIdBodySchema.parse(request.body)
+    try {
+      const { hostId, tmuxPaneId } = parsePaneId(paneId)
+      if (hostId === 'local') await assertTargetAllowed(tmuxPaneId)
+      const { stdout } = await execTmux(hostId, [
+        'display-message',
+        '-p',
+        '-t',
+        tmuxPaneId,
+        '#{pane_in_mode}\t#{selection_active}\t#{selection_present}\t#{selection_start_x}\t#{selection_start_y}\t#{selection_end_x}\t#{selection_end_y}\t#{rectangle_toggle}',
+      ])
+      const [inMode, active, present, sx, sy, ex, ey, rect] = stdout.trim().split('\t')
+      return {
+        ok: true,
+        inCopyMode: inMode === '1',
+        selecting: active === '1',
+        present: present === '1',
+        startX: Number(sx) || 0,
+        startY: Number(sy) || 0,
+        endX: Number(ex) || 0,
+        endY: Number(ey) || 0,
+        rectangle: rect === '1',
+      }
+    } catch (err: any) {
+      return { ok: false, error: err.message }
+    }
+  })
+  // 拖选松手后 tmux 经 copy-selection-and-cancel 落最新 paste buffer：浏览器拿不到
+  // release 事件对应的文本，靠"比对 since 之前的最新 buffer 名"等它落盘后回传。
+  // since 省略时直接返回当前最新 buffer（arm 时取基线用）
+  fastify.post('/panes/copy-selection', async (request) => {
+    const { paneId, since, peek } = paneCopySelectionBodySchema.parse(request.body)
+    try {
+      const { hostId, tmuxPaneId } = parsePaneId(paneId)
+      if (hostId === 'local') await assertTargetAllowed(tmuxPaneId)
+      const newestBufferName = async () => {
+        const { stdout } = await execTmux(hostId, ['list-buffers', '-F', '#{buffer_name}'])
+        return stdout.split('\n')[0]?.trim() || ''
+      }
+      let name = await newestBufferName()
+      if (since !== undefined) {
+        const deadline = Date.now() + 900
+        while (name === since && Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, 60))
+          name = await newestBufferName()
+        }
+        if (name === since) return { ok: true, found: false }
+      }
+      if (!name) return { ok: true, found: false }
+      if (peek) return { ok: true, found: true, name }
+      const { stdout } = await execTmux(hostId, ['show-buffer', '-b', name])
+      return { ok: true, found: true, name, text: stdout }
     } catch (err: any) {
       return { ok: false, error: err.message }
     }

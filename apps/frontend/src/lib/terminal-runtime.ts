@@ -10,6 +10,7 @@ import { createDeleteWordRepeat } from './terminal-key-repeat'
 import { createSessionSnapshotLoader } from './terminal-snapshot'
 import { createTerminalSizeState, type TerminalSizeState } from './terminal-size-state'
 import { createTerminalOutputInput } from './terminal-output-input'
+import { createTerminalTmuxSelectionTracker } from './terminal-selection-tracker'
 import { createTerminalKeyEventHandler } from './terminal-key-handler'
 import { createTerminalImeHandlers } from './terminal-ime-handlers'
 import { collectTerminalLineLinks, openUrlInNewWindow, type TerminalLineLink } from './terminal-links'
@@ -76,6 +77,7 @@ interface TerminalRuntimeOptions {
   updateTerminalPerf: (patch: Record<string, unknown>) => void
   getTerminalPerf: () => any
   selectionSync: any
+  onTerminalDragSelection: (info: { chars: number; x: number; y: number; source: 'xterm' | 'tmux' } | null) => void
   pasteBridge: any
   dropState: any
   touchScroll: any
@@ -219,9 +221,25 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
     hostIdRef: activeHostIdRef,
     sessionNameRef,
   })
-  const { getSelectionText, getMouseCell, getPaneIdByMouseCell, getPaneResizeTarget, getPaneIdAtPoint } =
-    createTerminalPaneInteractions(getTerminal, container, snapshotLoader.read)
+  const {
+    getSelectionText,
+    getMouseCell,
+    getPaneIdByMouseCell,
+    getPaneResizeTarget,
+    getPaneIdAtPoint,
+    getPaneBoundsById,
+  } = createTerminalPaneInteractions(getTerminal, container, snapshotLoader.read)
   options.resolvePaneAtPointRef.current = getPaneIdAtPoint
+  // tmux mouse on 时拖选归 copy-mode（xterm 选区被禁）：tracker 轮询 tmux 选区
+  // 坐标实时计数，松手再把 tmux buffer 文本回写剪贴板
+  const tmuxSelection = createTerminalTmuxSelectionTracker({
+    container,
+    getTerminal,
+    getPaneIdAtPoint,
+    getPaneBounds: getPaneBoundsById,
+    onDragSelection: options.onTerminalDragSelection,
+    pushToast,
+  })
   const outputInput = createTerminalOutputInput({
     getTerminal,
     pushOutput: pushTerminalOutput,
@@ -476,6 +494,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
       terminal.onSelectionChange(() => {
         const selection = getSelectionText()
         selectionSync.setSelection(selection)
+        tmuxSelection.noteXtermSelection(selection.length)
         if (selection) outputInput.holdSelection()
         else outputInput.releaseSelection()
       }),
@@ -719,6 +738,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
       dropState.handleDragLeave(e, container)
     }
     paneResize.attach()
+    tmuxSelection.attach()
     container.addEventListener('dragover', dropState.handleDragOver)
     container.addEventListener('dragleave', handleDragLeave)
     container.addEventListener('drop', dropState.handleDrop)
@@ -795,6 +815,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions) {
         window.removeEventListener('pageshow', handlePageShow)
         document.removeEventListener('visibilitychange', handleVisibilityChange)
         paneResize.dispose()
+        tmuxSelection.dispose()
         container.removeEventListener('dragover', dropState.handleDragOver)
         container.removeEventListener('dragleave', handleDragLeave)
         container.removeEventListener('drop', dropState.handleDrop)
