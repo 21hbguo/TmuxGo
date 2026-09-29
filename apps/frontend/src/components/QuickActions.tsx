@@ -926,25 +926,20 @@ export function QuickActions({
       <div className="grid grid-cols-3 gap-1">
         {primaryButtons.slice(15, 18).map((def) => renderPanelButton(def, controller))}
       </div>
-      <KeyCap
-        variant="panel"
-        tone="accent"
-        onPress={() => attachButton.onPress?.()}
-        className="w-full"
-        title={attachButton.label}
-      >
-        {attachButton.label}
-      </KeyCap>
-      <KeyCap
-        variant="panel"
-        tone="accent"
-        onPress={() => void fullscreenButton.onPress?.()}
-        className="w-full"
-        title={fullscreenButton.label}
-      >
-        {fullscreenButton.label}
-      </KeyCap>
-      <WatchButton paneId={activePaneId || ''} />
+      <div className="grid grid-cols-3 gap-1">
+        <KeyCap variant="panel" tone="accent" onPress={() => attachButton.onPress?.()} title={attachButton.label}>
+          {attachButton.label}
+        </KeyCap>
+        <KeyCap
+          variant="panel"
+          tone="accent"
+          onPress={() => void fullscreenButton.onPress?.()}
+          title={fullscreenButton.label}
+        >
+          {fullscreenButton.label}
+        </KeyCap>
+        <WatchButton paneId={activePaneId || ''} />
+      </div>
       {shortcuts.length > 0 && (
         <div className="border-t border-[var(--line)] pt-2">
           <div className="flex items-center justify-between mb-1">
