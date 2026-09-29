@@ -593,7 +593,9 @@ eval "$(/opt/homebrew/bin/brew shellenv)"
 
 ## :handshake: 贡献
 
-欢迎提交 Issue、PR 或使用反馈。开发与验证命令见 [开发与验证](#wrench-开发与验证)。
+欢迎提交 Issue、PR 或使用反馈。环境要求、验证命令与 PR 规范见 [CONTRIBUTING.md](CONTRIBUTING.md)；快速命令见 [开发与验证](#wrench-开发与验证)。
+
+> 发布包名为 `@21hbguo/tmuxgo`（个人 npm scope），当前保持不变，`npx` 老用户不受影响；scope 迁移策略见 [CONTRIBUTING.md](CONTRIBUTING.md#npm-scope-说明21hbguo)。
 
 ## :page_facing_up: License
 

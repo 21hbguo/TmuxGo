@@ -581,7 +581,9 @@ Troubleshooting order:
 
 ## :handshake: Contributing
 
-Issues, pull requests, and usage feedback are welcome. For development and verification commands, see [Development and Verification](#wrench-development-and-verification).
+Issues, pull requests, and usage feedback are welcome. Environment setup, verification commands, and PR rules are in [CONTRIBUTING.md](CONTRIBUTING.md); quick commands are under [Development and Verification](#wrench-development-and-verification).
+
+> The published package is `@21hbguo/tmuxgo` (a personal npm scope) and stays unchanged — existing `npx` users are unaffected. See [CONTRIBUTING.md](CONTRIBUTING.md#npm-scope-说明21hbguo) for the scope migration policy.
 
 ## :page_facing_up: License
 
