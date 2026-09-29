@@ -1410,6 +1410,8 @@ export const en = {
   // Element picker
   'picker.title': 'Element picker',
   'picker.hint': 'Click an element to inspect · Esc to exit',
+  'picker.insertHint': 'Click to insert into active pane',
+  'picker.inserted': 'Inserted into active pane',
   'picker.component': 'Component',
   'picker.copySelector': 'Copy selector',
   'picker.copied': 'Selector copied',
