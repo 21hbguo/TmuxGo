@@ -14,7 +14,7 @@ import { ShortcutBar } from './ShortcutBar'
 import { ToastViewport } from './ToastViewport'
 import { PaneNotifications } from './PaneNotifications'
 import { TaskNotifications } from './TaskNotifications'
-import dynamic from '@/lib/dynamic'
+import dynamic, { LazyOverlayLoading } from '@/lib/dynamic'
 import { UploadConfirmDialog } from './UploadConfirmDialog'
 import { GlobalFilePicker } from './GlobalFilePicker'
 import { UploadQueue } from './UploadQueue'
@@ -50,16 +50,24 @@ import { AgentStatusBadge } from './AgentStatusBadge'
 import { DesktopWindow } from './DesktopWindow'
 import { shouldResumeFromContinuity } from '@/lib/session-continuity-policy'
 import { MOBILE_QUERY } from '@/lib/console-device-state'
-// 默认关闭、无全局副作用的面板走动态加载，避免拖大主入口；占位限面板内部（fallback null）
-const Settings = dynamic(() => import('./Settings').then((m) => ({ default: m.Settings })))
-const TaskCenter = dynamic(() => import('./TaskCenter').then((m) => ({ default: m.TaskCenter })))
-const CommandPalette = dynamic(() => import('./CommandPalette').then((m) => ({ default: m.CommandPalette })))
+// 默认关闭、无全局副作用的面板走动态加载，避免拖大主入口；overlay 型面板 fallback 用同形 scrim 防闪帧
+const Settings = dynamic(() => import('./Settings').then((m) => ({ default: m.Settings })), {
+  fallback: <LazyOverlayLoading zClass="z-50" />,
+})
+const TaskCenter = dynamic(() => import('./TaskCenter').then((m) => ({ default: m.TaskCenter })), {
+  fallback: <LazyOverlayLoading zClass="z-[100]" />,
+})
+const CommandPalette = dynamic(() => import('./CommandPalette').then((m) => ({ default: m.CommandPalette })), {
+  fallback: <LazyOverlayLoading zClass="z-50" />,
+})
 const FilePanel = dynamic(() => import('./FilePanel').then((m) => ({ default: m.FilePanel })))
 const GitPanel = dynamic(() => import('./GitPanel').then((m) => ({ default: m.GitPanel })))
 const PluginView = dynamic(() => import('./PluginView').then((m) => ({ default: m.PluginView })))
 const DesktopView = dynamic(() => import('./DesktopView').then((m) => ({ default: m.DesktopView })))
 const BrowserView = dynamic(() => import('./BrowserView').then((m) => ({ default: m.BrowserView })))
-const UploadPanel = dynamic(() => import('./UploadPanel').then((m) => ({ default: m.UploadPanel })))
+const UploadPanel = dynamic(() => import('./UploadPanel').then((m) => ({ default: m.UploadPanel })), {
+  fallback: <LazyOverlayLoading zClass="z-[70]" />,
+})
 const MOBILE_RECENT_SESSIONS_KEY_PREFIX = 'tmuxgo-mobile-recent-sessions:'
 const MOBILE_PINNED_SESSIONS_KEY_PREFIX = 'tmuxgo-mobile-pinned-sessions:'
 const MOBILE_QUICK_SESSION_LIMIT = 5
