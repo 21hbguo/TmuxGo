@@ -212,6 +212,63 @@ async function getDependencies() {
 function quoteShellValue(value: string) {
   return `'${value.replace(/'/g, `'\\''`)}'`
 }
+// 进程级网速的零依赖近似：标准 Linux 无 per-process 字节计数（无 eBPF/nethogs/
+// conntrack 时 ss 也不给 bytes_*），改按 ss -tunp 单快照归属进程，统计每进程的
+// 在途字节（Send-Q/Recv-Q 之和）与活跃连接数——正在搬数据的进程队列非零排前。
+// users:(("name",pid=N,fd=M)) 可能在连接行或续行，按「非缩进行=新记录」分块归属；
+// 非 root 只能看到自己进程的 users:。无 ss（macOS 等）返回 available:false。
+const NET_TOP_CMD = `command -v ss >/dev/null 2>&1 || { echo __NOSS__; exit 0; }; ss -H -tunp 2>/dev/null`
+type NetTopProc = { name: string; pid: number; conns: number; txQueue: number; rxQueue: number }
+function parseNetTop(text: string): NetTopProc[] {
+  const map = new Map<string, NetTopProc>()
+  let proc: { name: string; pid: number } | null = null
+  let txq = 0
+  let rxq = 0
+  let isConn = false
+  const flush = () => {
+    if (proc && isConn) {
+      const key = `${proc.name} ${proc.pid}`
+      const prev = map.get(key) || { name: proc.name, pid: proc.pid, conns: 0, txQueue: 0, rxQueue: 0 }
+      prev.conns += 1
+      prev.txQueue += txq
+      prev.rxQueue += rxq
+      map.set(key, prev)
+    }
+    proc = null
+    txq = 0
+    rxq = 0
+    isConn = false
+  }
+  for (const line of text.split('\n')) {
+    if (line.length > 0 && line[0] !== ' ' && line[0] !== '\t') {
+      flush()
+      const cols = line.trim().split(/\s+/)
+      // 连接行可能带协议前缀（tcp ESTAB ... 或 ESTAB ...）：取第一对连续数字列作
+      // Recv-Q/Send-Q；地址里的端口在 host:port 字符串内不会是独立数字列
+      const q = cols.findIndex((c, i) => i + 1 < cols.length && /^\d+$/.test(c) && /^\d+$/.test(cols[i + 1]))
+      if (q !== -1) {
+        isConn = true
+        rxq = Number(cols[q])
+        txq = Number(cols[q + 1])
+      }
+    }
+    const u = /users:\(\("([^"]+)",pid=(\d+)/.exec(line)
+    if (u && !proc) proc = { name: u[1], pid: Number(u[2]) }
+  }
+  flush()
+  return [...map.values()]
+    .sort((a, b) => b.txQueue + b.rxQueue - (a.txQueue + a.rxQueue) || b.conns - a.conns)
+    .slice(0, 5)
+}
+async function getNetTop(hostId: string) {
+  try {
+    const { stdout } = await execHostShell(hostId, NET_TOP_CMD, { timeoutMs: 15000 })
+    if (stdout.includes('__NOSS__')) return { available: false, processes: [] }
+    return { available: true, processes: parseNetTop(stdout) }
+  } catch {
+    return { available: false, processes: [] }
+  }
+}
 function normalizeHostSystemInfo(hostId: string, value: any) {
   const dependencies = value?.dependencies && typeof value.dependencies === 'object' ? value.dependencies : {}
   const gpu =
@@ -356,6 +413,10 @@ export async function systemRoutes(fastify: FastifyInstance, options: SystemRout
   fastify.get('/hosts/:hostId/system', async (request) => {
     const { hostId } = request.params as { hostId: string }
     return getSystemInfo(hostId)
+  })
+  fastify.get('/hosts/:hostId/net-top', async (request) => {
+    const { hostId } = request.params as { hostId: string }
+    return getNetTop(hostId)
   })
   fastify.get('/system/tasks', async () => ({
     tasks: [getRestartTask(restartRunner), getUpdateTask(updateRunner), ...backgroundTasks.list()],

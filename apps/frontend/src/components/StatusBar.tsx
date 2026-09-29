@@ -9,6 +9,8 @@ import { Chip } from './Chip'
 import { AgentStatusBadge } from './AgentStatusBadge'
 import { subscribeStreamEvent, STREAM_EVENT } from '@/lib/stream-events'
 import { getNetStats } from '@/lib/net-stats'
+import { api, type NetTopResponse } from '@/lib/api'
+import { useStatusBarPrefs, STATUSBAR_ITEMS, type StatusBarItem } from '@/stores/useStatusBarPrefs'
 
 const gb = (mb: number) => (mb / 1024).toFixed(1)
 const SESSION_SYNC_DELAY_MS = 15000
@@ -86,10 +88,19 @@ export function StatusBar() {
   const { data: snapshotData } = useSessionSnapshot(activeHostId || '', activeSessionId || '')
   const panes = snapshotData?.panes || []
   const [traffic, setTraffic] = useState(0)
+  const [netRate, setNetRate] = useState({ rx: 0, tx: 0 })
+  const [showNetTop, setShowNetTop] = useState(false)
+  const [netTop, setNetTop] = useState<NetTopResponse | null>(null)
+  const [showCustomize, setShowCustomize] = useState(false)
+  const hidden = useStatusBarPrefs((s) => s.hidden)
+  const toggleItem = useStatusBarPrefs((s) => s.toggle)
+  const vis = (key: StatusBarItem) => !hidden.includes(key)
   const [now, setNow] = useState(Date.now())
   const [agentMonitorErrorAt, setAgentMonitorErrorAt] = useState(0)
   const lastBytesRef = useRef<number | null>(null)
   const lastTimeRef = useRef<number>(Date.now())
+  const lastNetRef = useRef<{ hostId: string; sent: number; recv: number; t: number } | null>(null)
+  const netTopReqRef = useRef(0)
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(timer)
@@ -115,6 +126,35 @@ export function StatusBar() {
     lastBytesRef.current = sys.stream.outputBytes
     lastTimeRef.current = now
   }, [sys?.stream?.outputBytes])
+  // 被控机网卡速率：sys.net 为累计计数器，按轮询差分得 B/s；换主机时重置基线防尖峰
+  useEffect(() => {
+    const net = sys?.net
+    if (!sys || !net) return
+    const now = Date.now()
+    const prev = lastNetRef.current
+    lastNetRef.current = { hostId: sys.hostId, sent: net.sentBytes, recv: net.recvBytes, t: now }
+    if (!prev || prev.hostId !== sys.hostId) {
+      setNetRate({ rx: 0, tx: 0 })
+      return
+    }
+    const elapsed = (now - prev.t) / 1000
+    if (elapsed <= 0) return
+    setNetRate({
+      rx: Math.max(0, (net.recvBytes - prev.recv) / elapsed),
+      tx: Math.max(0, (net.sentBytes - prev.sent) / elapsed),
+    })
+  }, [sys])
+  const loadNetTop = () => {
+    const req = ++netTopReqRef.current
+    api.system
+      .netTop(activeHostId || 'local')
+      .then((data) => {
+        if (netTopReqRef.current === req) setNetTop(data)
+      })
+      .catch(() => {
+        if (netTopReqRef.current === req) setNetTop({ available: false, processes: [] })
+      })
+  }
 
   const activePane = panes.find((p: any) => p.id === activePaneId)
   const activeHost = hosts.find((h: any) => h.id === activeHostId)
@@ -159,45 +199,117 @@ export function StatusBar() {
 
   return (
     <footer
-      className="tmuxgo-glass tmuxgo-glass-chrome relative h-7 shrink-0 overflow-visible border-t px-3 text-meta text-text-3"
+      className="tmuxgo-glass tmuxgo-glass-chrome relative z-40 h-7 shrink-0 overflow-visible border-t px-3 text-meta text-text-3"
       style={{ borderTopColor: 'var(--line)', boxShadow: 'none' }}
     >
+      {/* z-40：backdrop-filter 使 footer 成为层叠上下文且默认按 0 排序，终端的
+          .xterm-helpers(z:5) 会盖住行内浮层，鼠标移向浮层时命中的是 xterm 触发 mouseleave */}
       <div className="relative flex h-full items-center justify-between gap-3">
-        <section aria-label="Workspace context" className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
-          {activePane && (
-            <span className="inline-flex h-5 items-center rounded-md bg-bg-2/40 px-2 font-mono text-caption tabular-nums text-text-2">
-              {activePane.size.cols}×{activePane.size.rows}
-            </span>
-          )}
-          {activePane?.agent && (
-            <span className="inline-flex min-w-0 items-center gap-1.5">
-              <span className="max-w-24 truncate text-caption text-text-2">{activePane.agent}</span>
-              <AgentStatusBadge status={activePane.agentStatus} />
-            </span>
-          )}
-          {activePane?.display &&
-            (activePane.display.title ||
-              activePane.display.stateLabel ||
-              typeof activePane.display.tokens === 'number') && (
-              <span
-                className="inline-flex min-w-0 items-center gap-1.5 font-mono text-caption text-text-3"
-                title={activePane.display.title || ''}
-              >
-                <span className="max-w-40 truncate">{activePane.display.stateLabel || activePane.display.title}</span>
-                {typeof activePane.display.tokens === 'number' && (
-                  <span className="shrink-0 tabular-nums text-accent-2">{activePane.display.tokens}t</span>
-                )}
+        {vis('context') && (
+          <section aria-label="Workspace context" className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+            {activePane && (
+              <span className="inline-flex h-5 items-center rounded-md bg-bg-2/40 px-2 font-mono text-caption tabular-nums text-text-2">
+                {activePane.size.cols}×{activePane.size.rows}
               </span>
             )}
-          {activeHost && (
-            <span className="min-w-0 truncate rounded-md bg-bg-2/40 px-2 py-0.5 text-caption text-text-2">
-              {activeHost.name}
-            </span>
-          )}
-        </section>
+            {activePane?.agent && (
+              <span className="inline-flex min-w-0 items-center gap-1.5">
+                <span className="max-w-24 truncate text-caption text-text-2">{activePane.agent}</span>
+                <AgentStatusBadge status={activePane.agentStatus} />
+              </span>
+            )}
+            {activePane?.display &&
+              (activePane.display.title ||
+                activePane.display.stateLabel ||
+                typeof activePane.display.tokens === 'number') && (
+                <span
+                  className="inline-flex min-w-0 items-center gap-1.5 font-mono text-caption text-text-3"
+                  title={activePane.display.title || ''}
+                >
+                  <span className="max-w-40 truncate">{activePane.display.stateLabel || activePane.display.title}</span>
+                  {typeof activePane.display.tokens === 'number' && (
+                    <span className="shrink-0 tabular-nums text-accent-2">{activePane.display.tokens}t</span>
+                  )}
+                </span>
+              )}
+            {activeHost && (
+              <span className="min-w-0 truncate rounded-md bg-bg-2/40 px-2 py-0.5 text-caption text-text-2">
+                {activeHost.name}
+              </span>
+            )}
+          </section>
+        )}
         {sys && (
           <section aria-label="System resources" className="flex min-w-0 items-center gap-1.5 overflow-visible">
-            {sys.gpu && (
+            {vis('net') && (
+              <div
+                className="relative shrink-0"
+                onMouseEnter={() => {
+                  setShowNetTop(true)
+                  setNetTop(null)
+                  loadNetTop()
+                }}
+                onMouseLeave={() => setShowNetTop(false)}
+                onFocus={() => {
+                  setShowNetTop(true)
+                  setNetTop(null)
+                  loadNetTop()
+                }}
+                onBlur={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setShowNetTop(false)
+                }}
+              >
+                <Chip
+                  aria-label={t('status.hostNet')}
+                  aria-expanded={showNetTop}
+                  title={t('status.hostNet')}
+                  className="h-5 gap-1.5 px-2 font-mono text-caption font-semibold tabular-nums text-text-2 transition-colors hover:text-accent-2"
+                >
+                  <span className="text-caption font-medium uppercase tracking-[0.16em] text-text-3">
+                    {t('status.net')}
+                  </span>
+                  <span>{`↓${formatTraffic(netRate.rx)}/s ↑${formatTraffic(netRate.tx)}/s`}</span>
+                </Chip>
+                {showNetTop && (
+                  <div className="absolute bottom-full left-0 z-50 pb-2" role="list" aria-label={t('status.netTop')}>
+                    {/* 实底浮层：终端画面 backdrop-blur 压不住，玻璃透明度会透出字符看不清 */}
+                    <div
+                      className="min-w-64 tmuxgo-float-surface p-1.5"
+                      style={{ background: 'rgb(var(--bg-1))', backdropFilter: 'none', WebkitBackdropFilter: 'none' }}
+                    >
+                      {netTop === null ? (
+                        <div className="flex h-6 items-center px-2 text-caption text-text-3">
+                          {t('status.netTopLoading')}
+                        </div>
+                      ) : !netTop.available ? (
+                        <div className="flex h-6 items-center px-2 text-caption text-text-3">
+                          {t('status.netTopUnsupported')}
+                        </div>
+                      ) : netTop.processes.length === 0 ? (
+                        <div className="flex h-6 items-center px-2 text-caption text-text-3">
+                          {t('status.netTopEmpty')}
+                        </div>
+                      ) : (
+                        netTop.processes.map((p) => (
+                          <div
+                            key={`${p.name}:${p.pid}`}
+                            role="listitem"
+                            className="flex h-6 items-center justify-between gap-5 rounded-apple px-2 font-mono text-caption tabular-nums text-text-2 hover:bg-bg-2/70"
+                          >
+                            <span className="truncate text-text-3">
+                              {p.name}
+                              <span className="text-text-3/60">:{p.pid}</span>
+                            </span>
+                            <span className="shrink-0 text-text-2">{`↓${formatTraffic(p.rxQueue)} ↑${formatTraffic(p.txQueue)} · ${p.conns}`}</span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+            {sys.gpu && vis('gpu') && (
               <ResourceChip
                 label="GPU"
                 value={`${gb(sys.gpu.used)}/${gb(sys.gpu.total)}G`}
@@ -212,25 +324,30 @@ export function StatusBar() {
                 title={missingDependencies.join(', ')}
               />
             )}
-            <ResourceChip
-              label="CPU"
-              value={`${sys.cpu}%`}
-              tone={sys.cpu >= 90 ? 'danger' : sys.cpu >= 75 ? 'warn' : 'neutral'}
-            />
-            <ResourceChip
-              label="MEM"
-              value={`${gb(sys.mem.used)}/${gb(sys.mem.total)}G`}
-              tone={resourceTone(sys.mem.used, sys.mem.total)}
-            />
-            {visibleDisks.map((d) => (
+            {vis('cpu') && (
               <ResourceChip
-                key={d.mount}
-                label={d.mount}
-                value={`${gb(d.used)}/${gb(d.total)}G`}
-                tone={resourceTone(d.used, d.total)}
+                label="CPU"
+                value={`${sys.cpu}%`}
+                tone={sys.cpu >= 90 ? 'danger' : sys.cpu >= 75 ? 'warn' : 'neutral'}
               />
-            ))}
-            {disks.length > 3 && (
+            )}
+            {vis('mem') && (
+              <ResourceChip
+                label="MEM"
+                value={`${gb(sys.mem.used)}/${gb(sys.mem.total)}G`}
+                tone={resourceTone(sys.mem.used, sys.mem.total)}
+              />
+            )}
+            {vis('disks') &&
+              visibleDisks.map((d) => (
+                <ResourceChip
+                  key={d.mount}
+                  label={d.mount}
+                  value={`${gb(d.used)}/${gb(d.total)}G`}
+                  tone={resourceTone(d.used, d.total)}
+                />
+              ))}
+            {vis('disks') && disks.length > 3 && (
               <div
                 className="relative shrink-0"
                 onMouseEnter={() => setShowAllDisks(true)}
@@ -285,14 +402,16 @@ export function StatusBar() {
           </section>
         )}
         <section aria-label="Connection status" className="flex shrink-0 items-center gap-1.5">
-          <span aria-label={t('status.sessionSyncStatus')}>
-            <ResourceChip
-              label={t('status.sessionSync')}
-              value={sessionsQuery.isError ? `${t('status.failed')} ${sessionSyncAge}` : sessionSyncAge}
-              tone={sessionSyncTone}
-              title={sessionSyncTitle}
-            />
-          </span>
+          {vis('sync') && (
+            <span aria-label={t('status.sessionSyncStatus')}>
+              <ResourceChip
+                label={t('status.sessionSync')}
+                value={sessionsQuery.isError ? `${t('status.failed')} ${sessionSyncAge}` : sessionSyncAge}
+                tone={sessionSyncTone}
+                title={sessionSyncTitle}
+              />
+            </span>
+          )}
           {agentMonitorFailed && (
             <span aria-label={t('status.hostScanStatus')}>
               <ResourceChip
@@ -303,42 +422,88 @@ export function StatusBar() {
               />
             </span>
           )}
-          <span aria-label={t('status.netStats')}>
-            <ResourceChip
-              label={t('status.packets')}
-              value={t('status.netStatsValue', {
-                tx: formatCount(netStats.tx),
-                rx: formatCount(netStats.rx),
-                loss: formatLoss(netStats.lossPct),
-              })}
-              tone="success"
-              title={t('status.netStatsTitle', {
-                tx: netStats.tx,
-                rx: netStats.rx,
-                loss: formatLoss(netStats.lossPct),
-              })}
-            />
-          </span>
-          <span
-            className={`inline-flex h-5 items-center gap-1.5 rounded-md px-2 font-medium ${statusStyle.shell}`}
-            style={{ minWidth: '180px' }}
-          >
-            <span className={`h-1.5 w-1.5 rounded-full ${statusStyle.dot}`} />
-            <span className={statusStyle.text}>
-              {t(`status.${connection.status}`)}
-              {connection.status === 'connected' && (
-                <>
-                  <span className="ml-1 inline-block min-w-[3.2em] font-mono text-right tabular-nums">
-                    {connection.latency}ms
-                  </span>
-                  <span className="mx-1 text-text-3">·</span>
-                  <span className="inline-block min-w-[4em] font-mono text-right tabular-nums">
-                    {formatTraffic(traffic)}/s
-                  </span>
-                </>
-              )}
+          {vis('pkt') && (
+            <span aria-label={t('status.netStats')}>
+              <ResourceChip
+                label={t('status.packets')}
+                value={t('status.netStatsValue', {
+                  tx: formatCount(netStats.tx),
+                  rx: formatCount(netStats.rx),
+                  loss: formatLoss(netStats.lossPct),
+                })}
+                tone="success"
+                title={t('status.netStatsTitle', {
+                  tx: netStats.tx,
+                  rx: netStats.rx,
+                  loss: formatLoss(netStats.lossPct),
+                })}
+              />
             </span>
-          </span>
+          )}
+          {vis('conn') && (
+            <span
+              className={`inline-flex h-5 items-center gap-1.5 rounded-md px-2 font-medium ${statusStyle.shell}`}
+              style={{ minWidth: '180px' }}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${statusStyle.dot}`} />
+              <span className={statusStyle.text}>
+                {t(`status.${connection.status}`)}
+                {connection.status === 'connected' && (
+                  <>
+                    <span className="ml-1 inline-block min-w-[3.2em] font-mono text-right tabular-nums">
+                      {connection.latency}ms
+                    </span>
+                    <span className="mx-1 text-text-3">·</span>
+                    <span className="inline-block min-w-[4em] font-mono text-right tabular-nums">
+                      {formatTraffic(traffic)}/s
+                    </span>
+                  </>
+                )}
+              </span>
+            </span>
+          )}
+          <div
+            className="relative shrink-0"
+            onMouseLeave={() => setShowCustomize(false)}
+            onBlur={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setShowCustomize(false)
+            }}
+          >
+            <Chip
+              aria-label={t('statusbar.customize')}
+              aria-expanded={showCustomize}
+              title={t('statusbar.customize')}
+              onClick={() => setShowCustomize((v) => !v)}
+              className="h-5 px-1.5 font-mono text-caption font-semibold tabular-nums text-text-2 transition-colors hover:text-accent-2"
+            >
+              <span aria-hidden="true">···</span>
+            </Chip>
+            {showCustomize && (
+              <div className="absolute bottom-full right-0 z-50 pb-2" role="menu" aria-label={t('statusbar.customize')}>
+                {/* 实底浮层：终端画面 backdrop-blur 压不住，玻璃透明度会透出字符看不清 */}
+                <div
+                  className="min-w-44 tmuxgo-float-surface p-1.5"
+                  style={{ background: 'rgb(var(--bg-1))', backdropFilter: 'none', WebkitBackdropFilter: 'none' }}
+                >
+                  {STATUSBAR_ITEMS.map((key) => (
+                    <button
+                      key={key}
+                      type="button"
+                      role="menuitemcheckbox"
+                      aria-checked={vis(key)}
+                      onClick={() => toggleItem(key)}
+                      className="flex h-6 w-full items-center justify-between gap-5 rounded-apple px-2 font-mono text-caption tabular-nums text-text-2 hover:bg-bg-2/70"
+                    >
+                      <span className="truncate">{t(`statusbar.item.${key}`)}</span>
+                      <span className={`shrink-0 ${vis(key) ? 'text-accent-2' : 'text-text-3/40'}`} aria-hidden="true">
+                        {vis(key) ? '✓' : '·'}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </section>
       </div>
     </footer>
