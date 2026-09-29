@@ -29,6 +29,10 @@ export const fileRestoreBodySchema = z.object({ trashId: identifier })
 export const fileRemoveQuerySchema = z.object({ root: identifier, path: filePath })
 export const paneIdBodySchema = z.object({ paneId: z.string().min(3).max(256) })
 export const paneSelectBodySchema = paneIdBodySchema.extend({ keepZoom: z.boolean().optional() })
+export const paneCopySelectionBodySchema = paneIdBodySchema.extend({
+  since: z.string().max(128).optional(),
+  peek: z.boolean().optional(),
+})
 export const paneSplitBodySchema = paneIdBodySchema.extend({ direction: z.enum(['horizontal', 'vertical']) })
 export const paneResizeBodySchema = paneIdBodySchema.extend({
   cols: z.number().finite().optional(),

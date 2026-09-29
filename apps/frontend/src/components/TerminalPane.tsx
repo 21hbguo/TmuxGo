@@ -5,6 +5,7 @@ import { usePreferences, ensureAppFontLoaded } from '@/hooks/usePreferences'
 import { useMobileKeyboard } from '@/hooks/useMobileKeyboard'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useConsoleStore } from '@/stores/useConsoleStore'
+import { useTerminalSelectionStore } from '@/stores/useTerminalSelectionStore'
 import { api } from '@/lib/api'
 import { useTerminalOutput } from '@/hooks/useTerminalOutput'
 import { useTerminalDrop } from '@/hooks/useTerminalDrop'
@@ -201,6 +202,8 @@ export function TerminalPane({
   )
   const pasteBridge = useTerminalPasteBridge(handlePasteFiles)
   const selectionSync = useTerminalSelectionSync(pushToast)
+  const dragSelection = useTerminalSelectionStore((s) => s.dragSelection)
+  const setDragSelection = useTerminalSelectionStore((s) => s.setDragSelection)
   const writeTerminalOutput = useCallback((chunk: string, done?: () => void) => {
     const terminal = terminalInstance.current
     if (!terminal?.write) {
@@ -478,6 +481,7 @@ export function TerminalPane({
       updateTerminalPerf,
       getTerminalPerf: () => useConsoleStore.getState().terminalPerf || DEFAULT_TERMINAL_PERF,
       selectionSync,
+      onTerminalDragSelection: setDragSelection,
       pasteBridge,
       dropState,
       touchScroll,
@@ -520,6 +524,7 @@ export function TerminalPane({
     queryClient,
     selectionSync,
     setActivePane,
+    setDragSelection,
     syncPaneCwd,
     touchScroll,
     updateGithubDeviceLogin,
@@ -613,6 +618,20 @@ export function TerminalPane({
           {t('terminal.viewingHistory')}
           {historyState.fresh && <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-accent" />}
         </button>
+      )}
+      {dragSelection && dragSelection.chars > 0 && (
+        <div
+          data-testid="terminal-selection-count"
+          data-terminal-overlay
+          aria-live="polite"
+          className="pointer-events-none fixed z-30 whitespace-nowrap rounded-full border border-[var(--line)] bg-bg-0/92 px-2.5 py-0.5 font-mono text-[11px] text-text-1 shadow backdrop-blur"
+          style={{
+            left: Math.min(dragSelection.x + 14, window.innerWidth - 110),
+            top: Math.max(dragSelection.y - 30, 4),
+          }}
+        >
+          {t('terminal.selectionChars', { count: dragSelection.chars })}
+        </div>
       )}
       {dropState.isDropActive && (
         <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-apple border border-dashed border-accent bg-bg-0/70 text-sm text-accent shadow-[var(--glow)]">
