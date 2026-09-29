@@ -92,13 +92,15 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
-      # 轻量冒烟：登录 + 终端附着 + 基本输入；重量级 fluency/multiclient 仍走下方手动 e2e
+      # 轻量冒烟：登录 + 终端附着 + 基本输入；完整套件由下方 e2e job 承担
       - run: pnpm run test:smoke
         env:
           CI: '1'
+  # 完整 e2e 自动跑但不作合并门禁：PR/push 产出回归信号，暂不列 required check
+  # （单人仓库先测时长与 flake 率；升级为门禁需另配分支保护）
   e2e:
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch'
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
         with:
@@ -114,3 +116,13 @@ jobs:
       - run: pnpm run test:e2e
         env:
           CI: '1'
+      # 失败时保留 trace/截图便于定位；产物仅含隔离环境的测试凭据与测试终端输出
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-artifacts-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 7
+          if-no-files-found: ignore
