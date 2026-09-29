@@ -96,6 +96,10 @@ export interface SystemInfoResponse {
   dependencies: { tmux: boolean; git: boolean; python: boolean; rg: boolean; sshpass: boolean }
   stream: StreamSystemInfo
 }
+export interface NetTopResponse {
+  available: boolean
+  processes: { name: string; pid: number; conns: number; txQueue: number; rxQueue: number }[]
+}
 export interface RestartRebuildTaskResponse {
   status: 'idle' | 'running' | 'success' | 'error' | 'cancelled'
   startedAt: string | null
@@ -870,6 +874,7 @@ export const api = {
   },
   system: {
     info: (hostId = 'local') => fetchApi<SystemInfoResponse>(`/api/hosts/${encodeURIComponent(hostId)}/system`),
+    netTop: (hostId = 'local') => fetchApi<NetTopResponse>(`/api/hosts/${encodeURIComponent(hostId)}/net-top`),
     restartRebuildStatus: () => fetchApi<RestartRebuildTaskResponse>('/api/system/restart-rebuild'),
     restartRebuild: () => fetchApi<RestartRebuildTaskResponse>('/api/system/restart-rebuild', { method: 'POST' }),
     appUpdate: () => fetchApi<AppUpdateStatus>('/api/system/update'),
