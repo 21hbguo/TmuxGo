@@ -42,7 +42,8 @@
     "smoke:pty": "node scripts/smoke-node-pty.mjs",
     "lint": "eslint .",
     "check:eslint-warnings": "tsx scripts/check-eslint-warnings.ts",
-    "typecheck": "tsc -p apps/frontend/tsconfig.json && tsc -p apps/gateway/tsconfig.json --noEmit && tsc -p apps/agent/tsconfig.json --noEmit",
+    "typecheck": "tsc -p apps/frontend/tsconfig.json && tsc -p apps/gateway/tsconfig.json --noEmit && tsc -p apps/agent/tsconfig.json --noEmit && tsc -p apps/cli/tsconfig.json && tsc -p apps/mcp/tsconfig.json",
+    "check:entrypoints": "node scripts/check-mjs-entrypoints.mjs",
     "verify": "npm test && npm run test:frontend && npm run test:e2e && npm run build"
   },
   "simple-git-hooks": {
