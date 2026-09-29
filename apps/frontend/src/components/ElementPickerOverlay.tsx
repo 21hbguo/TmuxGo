@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom'
 import { useEscapeClose } from '@/hooks/useEscapeClose'
 import { useElementPickerStore } from '@/stores/useElementPickerStore'
 import { useConsoleStore } from '@/stores/useConsoleStore'
-import { describeElement, elementLabel, resolvePickTarget, PICKER_UI_ATTR } from '@/lib/element-picker'
+import { describeElement, elementLabel, insertText, resolvePickTarget, PICKER_UI_ATTR } from '@/lib/element-picker'
 import { ElementPickerPanel } from './ElementPickerPanel'
 import { useTranslation } from '@/i18n'
 
@@ -60,8 +60,9 @@ export function ElementPickerOverlay() {
       const el = resolvePickTarget(event.target)
       if (!el) return
       if (useConsoleStore.getState().activePaneId) {
-        const { selector } = describeElement(el)
-        window.dispatchEvent(new CustomEvent('tmuxgo-terminal-input', { detail: { data: selector } }))
+        window.dispatchEvent(
+          new CustomEvent('tmuxgo-terminal-input', { detail: { data: insertText(describeElement(el)) } }),
+        )
         useConsoleStore.getState().pushToast({ type: 'info', message: tRef.current('picker.inserted') })
         return
       }

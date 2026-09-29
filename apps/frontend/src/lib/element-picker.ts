@@ -72,6 +72,13 @@ export function getCssPath(el: Element): string {
   return parts.join(' > ')
 }
 
+// 喂给 pane/agent 的紧凑定位串：组件名 + selector 末两段。
+// 全长路径前几层（#root/main 外壳容器）对定位源码是噪音，组件名才是直指文件的锚点
+export function insertText(info: PickedElementInfo): string {
+  const tail = info.selector.split(' > ').slice(-2).join(' > ')
+  return info.componentName ? `${info.componentName} > ${tail}` : tail
+}
+
 export function elementLabel(el: Element): string {
   const id = el.id ? `#${el.id}` : ''
   const classes = [...el.classList]
