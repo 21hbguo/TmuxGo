@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+import { Readable } from 'stream'
 import { decodeAgentOutput } from './lib/agent-terminal-output.js'
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import os from 'os'
@@ -31,7 +32,13 @@ export interface AgentStatus {
 }
 interface AgentCaps {
   compressTerminalOutput?: boolean
+  // agent 支持 file-download-* 分块下载协议（gateway→agent 拉流）
+  fileDownload?: boolean
 }
+// 上传/下载共用的在途分块窗口：ack 逐块有序，按计数滑动；
+// 8×192KB≈1.5MB 在途上限，RTT 高时吞吐不再被单块 ack 卡死
+const AGENT_CHUNK_BYTES = 192 * 1024
+const AGENT_CHUNK_WINDOW = 8
 interface Agent extends AgentStatus {
   socket: AgentSocket
   caps?: AgentCaps
@@ -55,9 +62,21 @@ interface AgentUploadState {
   socket: AgentSocket
   uploadId: string
   ready: { resolve: () => void; reject: (error: Error) => void }
-  chunk: { resolve: () => void; reject: (error: Error) => void } | null
   complete: { resolve: () => void; reject: (error: Error) => void } | null
+  // inflight = 已发未 ack 的块数；达到窗口上限时生产者进 waiters 等位
+  inflight: number
+  waiters: { resolve: () => void; reject: (error: Error) => void }[]
   error: Error | null
+  timer: NodeJS.Timeout | null
+}
+interface AgentDownloadState {
+  agentId: string
+  socket: AgentSocket
+  downloadId: string
+  stream: Readable
+  queue: Buffer[]
+  ended: boolean
+  ready: { resolve: () => void; reject: (error: Error) => void }
   timer: NodeJS.Timeout | null
 }
 export interface AgentTerminal {
@@ -143,6 +162,7 @@ export class AgentManager {
   private pendingTmuxRequests = new Map<string, PendingTmuxRequest>()
   private pendingShellRequests = new Map<string, PendingShellRequest>()
   private uploads = new Map<string, AgentUploadState>()
+  private downloads = new Map<string, AgentDownloadState>()
   private terminals = new Map<string, AgentTerminalState>()
   private pendingTerminalRequests = new Map<string, PendingTerminalRequest>()
   private vncConnections = new Map<string, VncConnection>()
@@ -180,6 +200,7 @@ export class AgentManager {
       this.rejectTmuxRequests(id, previous.socket, 'Agent reconnected')
       this.rejectShellRequests(id, previous.socket, 'Agent reconnected')
       this.rejectUploads(id, previous.socket, 'Agent reconnected')
+      this.rejectDownloads(id, previous.socket, 'Agent reconnected')
       this.closeTerminals(id, previous.socket, -1)
       this.closeVncConnections(id, previous.socket, 'Agent reconnected')
     }
@@ -215,12 +236,18 @@ export class AgentManager {
     const agent = this.agents.get(id)
     return !!agent && agent.socket === socket && agent.caps?.compressTerminalOutput === true
   }
+  // getAgent() 只回 AgentStatus 不带 caps，下载能力判定要拿内部记录的 socket+caps
+  supportsFileDownload(id: string) {
+    const agent = this.agents.get(id)
+    return !!agent && this.toStatus(agent).online && agent.socket.readyState === 1 && agent.caps?.fileDownload === true
+  }
   unregister(id: string, socket: AgentSocket, reason = 'Disconnected') {
     const agent = this.agents.get(id)
     if (!agent || agent.socket !== socket) return false
     this.rejectTmuxRequests(id, socket, `Agent disconnected: ${reason}`)
     this.rejectShellRequests(id, socket, `Agent disconnected: ${reason}`)
     this.rejectUploads(id, socket, `Agent disconnected: ${reason}`)
+    this.rejectDownloads(id, socket, `Agent disconnected: ${reason}`)
     this.closeTerminals(id, socket, -1)
     this.closeVncConnections(id, socket, `Agent disconnected: ${reason}`)
     this.agents.delete(id)
@@ -242,6 +269,7 @@ export class AgentManager {
       this.rejectTmuxRequests(id, agent.socket, 'Agent removed')
       this.rejectShellRequests(id, agent.socket, 'Agent removed')
       this.rejectUploads(id, agent.socket, 'Agent removed')
+      this.rejectDownloads(id, agent.socket, 'Agent removed')
       this.closeTerminals(id, agent.socket, -1)
       this.closeVncConnections(id, agent.socket, 'Agent removed')
       this.agents.delete(id)
@@ -357,8 +385,9 @@ export class AgentManager {
         socket: agent.socket,
         uploadId,
         ready: { resolve, reject },
-        chunk: null,
         complete: null,
+        inflight: 0,
+        waiters: [],
         error: null,
         timer: null,
       }
@@ -374,7 +403,7 @@ export class AgentManager {
       this.uploads.delete(uploadId)
       state!.error = error
       state!.ready.reject(error)
-      state!.chunk?.reject(error)
+      for (const waiter of state!.waiters.splice(0)) waiter.reject(error)
       state!.complete?.reject(error)
     }
     const armTimeout = () => {
@@ -395,18 +424,29 @@ export class AgentManager {
       await ready
       if (state!.error) throw state!.error
       for await (const raw of source) {
-        if (state!.error) throw state!.error
-        if (signal?.aborted) throw new Error('Task cancelled')
         const data = Buffer.isBuffer(raw) ? raw : Buffer.from(raw)
-        for (let offset = 0; offset < data.length; offset += 192 * 1024) {
-          const chunk = data.subarray(offset, offset + 192 * 1024)
-          const acknowledged = new Promise<void>((resolve, reject) => {
-            state!.chunk = { resolve, reject }
-          })
-          armTimeout()
-          agent.socket.send(JSON.stringify({ type: 'file-upload-chunk', uploadId, data: chunk.toString('base64') }))
-          await acknowledged
-          state!.chunk = null
+        for (let offset = 0; offset < data.length; offset += AGENT_CHUNK_BYTES) {
+          if (state!.error) throw state!.error
+          if (signal?.aborted) throw new Error('Task cancelled')
+          // 窗口满则等一个 ack 腾位；ack 逐块有序，用计数即可不需序号
+          if (state!.inflight >= AGENT_CHUNK_WINDOW) {
+            armTimeout()
+            await new Promise<void>((resolve, reject) => state!.waiters.push({ resolve, reject }))
+            if (state!.error) throw state!.error
+          }
+          state!.inflight++
+          try {
+            agent.socket.send(
+              JSON.stringify({
+                type: 'file-upload-chunk',
+                uploadId,
+                data: data.subarray(offset, offset + AGENT_CHUNK_BYTES).toString('base64'),
+              }),
+            )
+          } catch (error) {
+            state!.inflight--
+            throw error
+          }
         }
       }
       if (state!.error) throw state!.error
@@ -428,6 +468,73 @@ export class AgentManager {
       signal?.removeEventListener('abort', abort)
       clearTimer()
       if (this.uploads.get(uploadId) === state) this.uploads.delete(uploadId)
+    }
+  }
+  // agent 侧拉流式下载：agent 读盘分块上行，gateway 每消费一块回 ack，
+  // agent 端在途窗口（AGENT_CHUNK_WINDOW）即内存上限；abort/cancel 发 abort 让对端收流
+  async downloadFile(
+    id: string,
+    absolutePath: string,
+    options: { directory?: boolean; offset?: number; signal?: AbortSignal } = {},
+  ): Promise<Readable> {
+    const agent = this.agents.get(id)
+    if (!agent || !this.toStatus(agent).online || agent.socket.readyState !== 1)
+      throw new Error(`Agent "${id}" is not connected`)
+    if (!agent.caps?.fileDownload) throw new Error(`Agent "${id}" does not support file download`)
+    if (!absolutePath || !absolutePath.startsWith('/') || absolutePath.length > 4096)
+      throw new Error('Invalid Agent download path')
+    const offset = Math.max(0, Math.floor(options.offset || 0))
+    if (options.signal?.aborted) throw new Error('Task cancelled')
+    const downloadId = randomUUID()
+    const state: AgentDownloadState = {
+      agentId: id,
+      socket: agent.socket,
+      downloadId,
+      // 先占位再回填：stream.destroy 回调需要 state.timer，stream 字段需要 stream
+      stream: undefined as unknown as Readable,
+      queue: [],
+      ended: false,
+      ready: { resolve: () => {}, reject: () => {} },
+      timer: null,
+    }
+    const stream = new Readable({
+      read: () => this.flushDownload(downloadId),
+      destroy: (error, callback) => {
+        if (state.timer) clearTimeout(state.timer)
+        this.downloads.delete(downloadId)
+        if (state.socket.readyState === 1) {
+          try {
+            state.socket.send(JSON.stringify({ type: 'file-download-abort', downloadId }))
+          } catch {}
+        }
+        callback(error)
+      },
+    })
+    state.stream = stream
+    const ready = new Promise<void>((resolve, reject) => {
+      state.ready = { resolve, reject }
+    })
+    const abort = () => stream.destroy(new Error('Task cancelled'))
+    options.signal?.addEventListener('abort', abort, { once: true })
+    stream.once('close', () => options.signal?.removeEventListener('abort', abort))
+    this.downloads.set(downloadId, state)
+    try {
+      this.armDownloadTimer(downloadId)
+      agent.socket.send(
+        JSON.stringify({
+          type: 'file-download-start',
+          downloadId,
+          path: absolutePath,
+          offset,
+          directory: options.directory === true,
+        }),
+      )
+      await ready
+      return stream
+    } catch (error) {
+      this.downloads.delete(downloadId)
+      stream.destroy()
+      throw error
     }
   }
   attachTerminal(id: string, sessionName: string, cols: number, rows: number, exclusive: boolean, timeoutMs = 30000) {
@@ -511,6 +618,7 @@ export class AgentManager {
       requestId?: unknown
       attachmentId?: unknown
       uploadId?: unknown
+      downloadId?: unknown
       connectionId?: unknown
       stdout?: unknown
       stderr?: unknown
@@ -559,8 +667,10 @@ export class AgentManager {
       const upload = this.uploads.get(payload.uploadId)
       if (!upload || upload.agentId !== id || upload.socket !== socket) return false
       if (payload.type === 'file-upload-ready') upload.ready.resolve()
-      else if (payload.type === 'file-upload-ack') upload.chunk?.resolve()
-      else if (payload.type === 'file-upload-result') {
+      else if (payload.type === 'file-upload-ack') {
+        upload.inflight = Math.max(0, upload.inflight - 1)
+        upload.waiters.shift()?.resolve()
+      } else if (payload.type === 'file-upload-result') {
         if (upload.timer) clearTimeout(upload.timer)
         this.uploads.delete(payload.uploadId)
         if (upload.complete) upload.complete.resolve()
@@ -568,7 +678,7 @@ export class AgentManager {
           const error = new Error('Agent file upload completed unexpectedly')
           upload.error = error
           upload.ready.reject(error)
-          upload.chunk?.reject(error)
+          for (const waiter of upload.waiters.splice(0)) waiter.reject(error)
         }
       } else {
         const error = new Error(
@@ -578,9 +688,37 @@ export class AgentManager {
         this.uploads.delete(payload.uploadId)
         upload.error = error
         upload.ready.reject(error)
-        upload.chunk?.reject(error)
+        for (const waiter of upload.waiters.splice(0)) waiter.reject(error)
         upload.complete?.reject(error)
       }
+      return true
+    }
+    if (
+      (payload.type === 'file-download-ready' ||
+        payload.type === 'file-download-chunk' ||
+        payload.type === 'file-download-end' ||
+        payload.type === 'file-download-error') &&
+      typeof payload.downloadId === 'string'
+    ) {
+      const download = this.downloads.get(payload.downloadId)
+      if (!download || download.agentId !== id || download.socket !== socket) return false
+      if (payload.type === 'file-download-ready') download.ready.resolve()
+      else if (payload.type === 'file-download-chunk') {
+        if (typeof payload.data !== 'string') return false
+        // base64 体积 ~1.33x；queue 在消费端水位压不住时缓冲，ack 节流即背压
+        download.queue.push(Buffer.from(payload.data, 'base64'))
+        this.armDownloadTimer(payload.downloadId)
+        this.flushDownload(payload.downloadId)
+      } else if (payload.type === 'file-download-end') {
+        download.ended = true
+        this.flushDownload(payload.downloadId)
+      } else
+        this.failDownload(
+          payload.downloadId,
+          new Error(
+            typeof payload.message === 'string' && payload.message ? payload.message : 'Agent file download failed',
+          ),
+        )
       return true
     }
     if (
@@ -758,9 +896,45 @@ export class AgentManager {
       const error = new Error(message)
       upload.error = error
       upload.ready.reject(error)
-      upload.chunk?.reject(error)
+      for (const waiter of upload.waiters.splice(0)) waiter.reject(error)
       upload.complete?.reject(error)
     }
+  }
+  private rejectDownloads(agentId: string, socket: AgentSocket, message: string) {
+    for (const [downloadId, download] of this.downloads) {
+      if (download.agentId !== agentId || download.socket !== socket) continue
+      this.failDownload(downloadId, new Error(message))
+    }
+  }
+  private armDownloadTimer(downloadId: string) {
+    const download = this.downloads.get(downloadId)
+    if (!download) return
+    if (download.timer) clearTimeout(download.timer)
+    download.timer = setTimeout(() => this.failDownload(downloadId, new Error('Agent file download timed out')), 120000)
+  }
+  private failDownload(downloadId: string, error: Error) {
+    const download = this.downloads.get(downloadId)
+    if (!download) return
+    if (download.timer) clearTimeout(download.timer)
+    this.downloads.delete(downloadId)
+    download.ready.reject(error)
+    download.stream.destroy(error)
+  }
+  private flushDownload(downloadId: string) {
+    const download = this.downloads.get(downloadId)
+    if (!download) return
+    while (download.queue.length) {
+      const chunk = download.queue.shift()!
+      // push 返回值仅表示消费侧是否还吃得下；push=false 停止回 ack，agent 在途窗口压住即背压
+      const wantsMore = download.stream.push(chunk)
+      if (download.socket.readyState === 1) {
+        try {
+          download.socket.send(JSON.stringify({ type: 'file-download-ack', downloadId }))
+        } catch {}
+      }
+      if (!wantsMore) break
+    }
+    if (!download.queue.length && download.ended) download.stream.push(null)
   }
   private sendTerminalInput(state: AgentTerminalState, data: string) {
     if (!data || state.exitCode !== null || state.socket.readyState !== 1) return

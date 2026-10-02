@@ -9,12 +9,13 @@ import { promisify } from 'util'
 import { mkdir, opendir, rename, rm, stat, unlink } from 'fs/promises'
 import { readFile as readPreferencesFile } from 'fs/promises'
 import { emitPluginEvent } from '../plugin-manager.js'
+import { getHostById } from '../hosts.js'
 import { isPathInside } from '../file-path.js'
 import { assertTargetAllowed } from '../tmux-policy.js'
 import {
+  buildRemotePythonCommand,
   getRemoteFileHost,
   normalizeRemoteFileErrorMessage,
-  quoteRemoteFileShellValue,
   spawnRemoteFileCommand,
 } from '../remote-file-command.js'
 import { taskManager, type TaskExecutionContext, type TaskManager } from '../task-manager.js'
@@ -191,7 +192,8 @@ export async function writeRemoteUpload(
   signal?: AbortSignal,
   progress?: Transform,
 ) {
-  if (agentManager.getAgent(hostId)) {
+  // agent 在线优先走 WS 通道；已注册但离线的 agent 回落 SSH（与文件 RPC 语义一致）
+  if (agentManager.getAgent(hostId)?.online === true) {
     const throttled = progress
       ? source.pipe(progress).pipe(createRateLimitStream(rateLimitKBps))
       : source.pipe(createRateLimitStream(rateLimitKBps))
@@ -200,11 +202,7 @@ export async function writeRemoteUpload(
   }
   const host = await getRemoteFileHost(hostId)
   const script = `import os,pathlib,sys;p=pathlib.Path(sys.argv[1]);p.parent.mkdir(parents=True,exist_ok=True);t=p.with_name('.tmuxgo-upload-'+str(os.getpid()));f=t.open('wb');\nwhile True:\n b=sys.stdin.buffer.read(1024*1024)\n if not b: break\n f.write(b)\nf.close();os.replace(t,p)`
-  const child = await spawnRemoteFileCommand(
-    host,
-    `python3 -c ${quoteRemoteFileShellValue(script)} -- ${quoteRemoteFileShellValue(absolutePath)}`,
-    signal,
-  )
+  const child = await spawnRemoteFileCommand(host, buildRemotePythonCommand(script, [absolutePath]), signal)
   const completion = waitForProcess(child, 'Remote upload failed')
   try {
     if (progress) await pipeline(source, progress, createRateLimitStream(rateLimitKBps), child.stdin!, { signal })
@@ -231,21 +229,35 @@ export async function getDownloadStream(
   absolutePath: string,
   directory: boolean,
   signal?: AbortSignal,
+  offset = 0,
 ) {
   const archiveScript = `import os,pathlib,sys,zipfile\np=pathlib.Path(sys.argv[1]);z=zipfile.ZipFile(sys.stdout.buffer,'w',zipfile.ZIP_DEFLATED)\nfor root,dirs,files in os.walk(p):\n for name in files:\n  item=pathlib.Path(root)/name;z.write(item,str(pathlib.Path(p.name)/item.relative_to(p)))\nz.close()`
-  const fileScript = `import pathlib,sys;f=pathlib.Path(sys.argv[1]).open('rb')\nwhile True:\n b=f.read(1024*1024)\n if not b: break\n sys.stdout.buffer.write(b)`
+  // argv[2]=offset：远端断点续传从已下载字节处续拉，目录 zip 流不续传
+  const fileScript = `import pathlib,sys;f=pathlib.Path(sys.argv[1]).open('rb');f.seek(int(sys.argv[2]))\nwhile True:\n b=f.read(1024*1024)\n if not b: break\n sys.stdout.buffer.write(b)`
   if (hostId === 'local')
     return getDownloadProcessStream(
-      spawn('python3', ['-c', directory ? archiveScript : fileScript, absolutePath], {
+      spawn('python3', ['-c', directory ? archiveScript : fileScript, absolutePath, String(offset)], {
         stdio: ['ignore', 'pipe', 'pipe'],
         signal,
       }),
       'Download failed',
     )
+  // agent 在线且声明 fileDownload cap → 走 WS 分块通道；老 agent/无 cap 回落 SSH
+  if (agentManager.supportsFileDownload(hostId)) {
+    try {
+      return await agentManager.downloadFile(hostId, absolutePath, {
+        directory,
+        offset,
+        signal,
+      })
+    } catch (error) {
+      if (!(await getHostById(hostId))) throw error
+    }
+  }
   const host = await getRemoteFileHost(hostId)
   const child = await spawnRemoteFileCommand(
     host,
-    `python3 -c ${quoteRemoteFileShellValue(directory ? archiveScript : fileScript)} -- ${quoteRemoteFileShellValue(absolutePath)}`,
+    buildRemotePythonCommand(directory ? archiveScript : fileScript, [absolutePath, String(offset)]),
     signal,
   )
   return getDownloadProcessStream(child, 'Remote download failed')
@@ -474,7 +486,8 @@ export async function runBackgroundDownloadTask(input: unknown, context: TaskExe
   const task = input as BackgroundDownloadInput
   const fileInfo = await resolveFileForHost(task.hostId, task.rootId, task.path)
   const directory = !fileInfo.isFile
-  const resumable = task.hostId === 'local' && fileInfo.isFile
+  // 远端文件同样可续传：fresh resolveFileForHost 已带 size+modifiedAt 做源端变更检测
+  const resumable = fileInfo.isFile
   const fileName = directory ? `${path.basename(fileInfo.absolutePath)}.zip` : path.basename(fileInfo.absolutePath)
   const artifactPath = getDownloadArtifactPath(task.artifactId)
   const temporaryPath = `${artifactPath}.tmp`
@@ -482,18 +495,17 @@ export async function runBackgroundDownloadTask(input: unknown, context: TaskExe
   let downloadSize = fileInfo.size
   let offset = 0
   if (resumable) {
-    const sourceInfo = await stat(fileInfo.absolutePath)
-    downloadSize = sourceInfo.size
-    if (task.sourceSize !== sourceInfo.size || task.sourceModifiedAt !== sourceInfo.mtime.toISOString()) {
-      task.sourceSize = sourceInfo.size
-      task.sourceModifiedAt = sourceInfo.mtime.toISOString()
+    downloadSize = fileInfo.size
+    if (task.sourceSize !== fileInfo.size || task.sourceModifiedAt !== fileInfo.modifiedAt) {
+      task.sourceSize = fileInfo.size
+      task.sourceModifiedAt = fileInfo.modifiedAt
       task.downloadedBytes = 0
       await unlink(temporaryPath).catch(() => {})
       context.checkpoint()
     } else {
       try {
         const temporaryInfo = await stat(temporaryPath)
-        if (temporaryInfo.isFile() && temporaryInfo.size <= sourceInfo.size) offset = temporaryInfo.size
+        if (temporaryInfo.isFile() && temporaryInfo.size <= fileInfo.size) offset = temporaryInfo.size
         else await unlink(temporaryPath).catch(() => {})
       } catch {}
       task.downloadedBytes = offset
@@ -521,11 +533,10 @@ export async function runBackgroundDownloadTask(input: unknown, context: TaskExe
     )
   }
   try {
-    const source = resumable
-      ? createReadStream(fileInfo.absolutePath, offset ? { start: offset } : undefined)
-      : task.hostId === 'local' && fileInfo.isFile
-        ? createReadStream(fileInfo.absolutePath)
-        : await getDownloadStream(task.hostId, fileInfo.absolutePath, directory, context.signal)
+    const source =
+      task.hostId === 'local' && fileInfo.isFile
+        ? createReadStream(fileInfo.absolutePath, offset ? { start: offset } : undefined)
+        : await getDownloadStream(task.hostId, fileInfo.absolutePath, directory, context.signal, offset)
     await pipeline(
       source,
       createTransferProgressStream(reportProgress),
