@@ -132,6 +132,7 @@ export const streamRegisterMessageSchema = z.object({
   caps: z
     .object({
       compressTerminalOutput: z.boolean().optional(),
+      fileDownload: z.boolean().optional(),
     })
     .optional(),
 })

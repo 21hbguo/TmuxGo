@@ -145,10 +145,12 @@ export async function execGit(
 ): Promise<GitExecResult> {
   const hostId = hostIdRaw.trim()
   if (!hostId) throw new Error('Missing host id')
+  // agent 在线优先于 SSH 记录：双通道主机统一走 WS（与 tmux/attach/文件一致）
+  const agent = agentManager.getAgent(hostId)
   const host = await getHostById(hostId)
   const timeout = timeoutMs || defaultTimeoutMs
-  if (!host) {
-    if (!agentManager.getAgent(hostId)) throw new Error(`Host "${hostId}" not found`)
+  if (!host || agent?.online === true) {
+    if (!agent) throw new Error(`Host "${hostId}" not found`)
     return runAgentGit(hostId, args, cwd, timeout, acceptExitCodeOne)
   }
   if (host.id === 'local') {

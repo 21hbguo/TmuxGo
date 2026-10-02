@@ -321,9 +321,10 @@ export async function execTmux(
     }
   }
   const hostId = parseHostInput(hostIdRaw)
+  const agent = agentManager.getAgent(hostId)
   const host = await getHostById(hostId)
-  if (!host) {
-    const agent = agentManager.getAgent(hostId)
+  // agent 在线优先于 SSH 记录：同一 host 双通道时统一走 WS，行为可预期
+  if (!host || agent?.online === true) {
     if (!agent) throw new Error(`Host "${hostId}" not found`)
     const result = await agentManager.executeTmux(hostId, args, options.timeoutMs || defaultTimeoutMs)
     await retrySetEnvIfNeeded(deferSetEnv, hostId)
@@ -358,9 +359,10 @@ export async function execHostShell(
   options: TmuxExecOptions = {},
 ): Promise<TmuxExecResult> {
   const hostId = parseHostInput(hostIdRaw)
+  const agent = agentManager.getAgent(hostId)
   const host = await getHostById(hostId)
-  if (!host) {
-    const agent = agentManager.getAgent(hostId)
+  // agent 在线优先于 SSH 记录（与 execTmux 同一优先级语义）
+  if (!host || agent?.online === true) {
     if (!agent) throw new Error(`Host "${hostId}" not found`)
     const result = await agentManager.executeShell(hostId, command, options.timeoutMs || defaultTimeoutMs)
     if (result.exitCode !== 0)
@@ -490,7 +492,8 @@ export async function verifyHostConnectivity(hostIdRaw: string) {
   const host = await getHostById(hostId)
   if (!host) {
     const agent = agentManager.getAgent(hostId)
-    if (agent) return { ok: true, message: 'agent ready', mode: 'agent' as const }
+    if (agent?.online === true) return { ok: true, message: 'agent ready', mode: 'agent' as const }
+    if (agent) throw new Error(`Agent "${hostId}" is not connected`)
     throw new Error(`Host "${hostId}" not found`)
   }
   const credentials = await getHostCredentials(host.id)

@@ -1,9 +1,10 @@
-import { execFile } from 'child_process'
+import { execFile, spawn } from 'child_process'
 import net from 'net'
 import os from 'os'
-import { createWriteStream } from 'fs'
+import { createReadStream, createWriteStream } from 'fs'
 import { mkdir, rename, unlink } from 'fs/promises'
 import path from 'path'
+import { Readable } from 'stream'
 import WebSocket from 'ws'
 import { TmuxManager } from './tmux.js'
 import { gzipSync } from 'zlib'
@@ -42,10 +43,26 @@ const vncDbg = (...args: unknown[]) => {
   if (VNC_DEBUG) console.log('[vnc]', ...args)
 }
 const execFileAsync = promisify(execFile)
+// 上行/下行共用分块窗口：ack 逐块有序，8×192KB≈1.5MB 在途上限
+const FILE_CHUNK_BYTES = 192 * 1024
+const FILE_CHUNK_WINDOW = 8
 interface FileUpload {
   path: string
   temporaryPath: string
   stream: ReturnType<typeof createWriteStream>
+}
+interface FileDownload {
+  // stream = 数据源（文件 readStream 或目录 zip 子进程 stdout）；child 仅目录打包时存在
+  stream: Readable
+  child: ReturnType<typeof spawn> | null
+  queue: Buffer[]
+  inflight: number
+  ended: boolean
+}
+// 目录打包复用 python zipfile（与 SSH 下载同一产物格式）；python3→python 兜底
+const ZIP_ARCHIVE_SCRIPT = `import os,pathlib,sys,zipfile\np=pathlib.Path(sys.argv[1]);z=zipfile.ZipFile(sys.stdout.buffer,'w',zipfile.ZIP_DEFLATED)\nfor root,dirs,files in os.walk(p):\n for name in files:\n  item=pathlib.Path(root)/name;z.write(item,str(pathlib.Path(p.name)/item.relative_to(p)))\nz.close()`
+function shellQuote(value: string) {
+  return `'${value.replace(/'/g, `'\\''`)}'`
 }
 function getGatewayHttpBase() {
   const url = new URL(GATEWAY_URL)
@@ -64,6 +81,7 @@ class Agent {
   private refreshToken = ''
   private terminals = new Map<string, ReturnType<TmuxManager['attach']>>()
   private uploads = new Map<string, FileUpload>()
+  private downloads = new Map<string, FileDownload>()
   private vncSockets = new Map<string, net.Socket>()
   private compressTerminalOutput = false
 
@@ -117,6 +135,7 @@ class Agent {
       this.compressTerminalOutput = false
       this.closeTerminals()
       this.closeUploads()
+      this.closeDownloads()
       this.closeVncSockets()
       this.scheduleReconnect()
     })
@@ -135,7 +154,7 @@ class Agent {
         address: process.env.HOST_ADDRESS || primaryIpv4(),
       },
       version: AGENT_VERSION,
-      caps: { compressTerminalOutput: true },
+      caps: { compressTerminalOutput: true, fileDownload: true },
     })
   }
 
@@ -188,6 +207,18 @@ class Agent {
 
       case 'file-upload-abort':
         this.abortFileUpload(message)
+        break
+
+      case 'file-download-start':
+        this.startFileDownload(message)
+        break
+
+      case 'file-download-ack':
+        this.ackFileDownload(message)
+        break
+
+      case 'file-download-abort':
+        this.abortFileDownload(message)
         break
 
       case 'terminal-attach':
@@ -335,6 +366,119 @@ class Agent {
       uploadId,
       message: error instanceof Error ? error.message : 'Agent file upload failed',
     })
+  }
+
+  private startFileDownload(message: any) {
+    const downloadId = typeof message.downloadId === 'string' ? message.downloadId : ''
+    const targetPath = typeof message.path === 'string' ? message.path : ''
+    const offset = Number.isInteger(message.offset) && message.offset > 0 ? message.offset : 0
+    try {
+      if (!/^[a-f0-9-]{36}$/i.test(downloadId) || !path.isAbsolute(targetPath) || targetPath.length > 4096)
+        throw new Error('Invalid file download')
+      if (this.downloads.has(downloadId)) throw new Error('Agent file download already active')
+      let stream: Readable
+      let child: ReturnType<typeof spawn> | null = null
+      if (message.directory === true) {
+        // 目录打包沿用 python zipfile，与 SSH 下载同一产物格式；offset 仅文件续传用
+        child = spawn(
+          'sh',
+          [
+            '-lc',
+            `PY="$(command -v python3 || command -v python)"; exec "$PY" -c ${shellQuote(ZIP_ARCHIVE_SCRIPT)} ${shellQuote(targetPath)}`,
+          ],
+          { stdio: ['ignore', 'pipe', 'pipe'] },
+        )
+        stream = child.stdout!
+        let stderr = ''
+        child.stderr?.on('data', (chunk) => {
+          stderr += chunk.toString()
+        })
+        child.once('error', (error) => this.failFileDownload(downloadId, error))
+        child.once('close', (code) => {
+          if (code !== 0) this.failFileDownload(downloadId, new Error(stderr.trim() || `zip process exited ${code}`))
+        })
+      } else {
+        stream = createReadStream(targetPath, { start: offset, highWaterMark: FILE_CHUNK_BYTES })
+      }
+      const download: FileDownload = { stream, child, queue: [], inflight: 0, ended: false }
+      this.downloads.set(downloadId, download)
+      stream.on('data', (chunk: Buffer | string) => {
+        if (this.downloads.get(downloadId) !== download) return
+        // 入队即停流，由 pump（ack 驱动）按需 resume，保证在途 ≤ FILE_CHUNK_WINDOW
+        download.stream.pause()
+        download.queue.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+        this.pumpFileDownload(downloadId)
+      })
+      stream.on('end', () => {
+        download.ended = true
+        this.pumpFileDownload(downloadId)
+      })
+      stream.on('error', (error) => this.failFileDownload(downloadId, error))
+      this.send({ type: 'file-download-ready', downloadId })
+    } catch (error) {
+      this.send({
+        type: 'file-download-error',
+        downloadId,
+        message: error instanceof Error ? error.message : 'Agent file download failed',
+      })
+    }
+  }
+
+  private pumpFileDownload(downloadId: string) {
+    const download = this.downloads.get(downloadId)
+    if (!download) return
+    while (download.queue.length && download.inflight < FILE_CHUNK_WINDOW) {
+      const head = download.queue[0]
+      const size = Math.min(head.length, FILE_CHUNK_BYTES)
+      this.send({ type: 'file-download-chunk', downloadId, data: head.subarray(0, size).toString('base64') })
+      download.inflight++
+      if (size === head.length) download.queue.shift()
+      else download.queue[0] = head.subarray(size)
+    }
+    // 窗口未满或队列清空即可继续拉流；窗口满则停等 ack
+    if (!download.queue.length || download.inflight < FILE_CHUNK_WINDOW) download.stream.resume()
+    if (download.ended && !download.queue.length) {
+      this.downloads.delete(downloadId)
+      this.send({ type: 'file-download-end', downloadId })
+    }
+  }
+
+  private ackFileDownload(message: any) {
+    const downloadId = typeof message.downloadId === 'string' ? message.downloadId : ''
+    const download = this.downloads.get(downloadId)
+    if (!download) return
+    download.inflight = Math.max(0, download.inflight - 1)
+    this.pumpFileDownload(downloadId)
+  }
+
+  private abortFileDownload(message: any) {
+    const downloadId = typeof message.downloadId === 'string' ? message.downloadId : ''
+    const download = this.downloads.get(downloadId)
+    if (!download) return
+    this.downloads.delete(downloadId)
+    download.stream.destroy()
+    download.child?.kill('SIGKILL')
+  }
+
+  private failFileDownload(downloadId: string, error: unknown) {
+    const download = this.downloads.get(downloadId)
+    if (!download) return
+    this.downloads.delete(downloadId)
+    download.stream.destroy()
+    download.child?.kill('SIGKILL')
+    this.send({
+      type: 'file-download-error',
+      downloadId,
+      message: error instanceof Error ? error.message : 'Agent file download failed',
+    })
+  }
+
+  private closeDownloads() {
+    for (const download of this.downloads.values()) {
+      download.stream.destroy()
+      download.child?.kill('SIGKILL')
+    }
+    this.downloads.clear()
   }
 
   private async attachTerminal(message: any) {

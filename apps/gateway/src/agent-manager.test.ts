@@ -366,3 +366,119 @@ test('closeVnc asks the agent to drop the TCP connection', () => {
   assert.equal(manager.handleMessage(id, agentSocket, { type: 'vnc-data', connectionId: 'conn-3', data: '' }), true)
   assert.equal(manager.unregister(id, agentSocket), true)
 })
+
+test('uploads up to the chunk window before waiting for acks', async () => {
+  const manager = new AgentManager({ historyPath: null })
+  const id = `agent-${Date.now()}-${Math.random()}`
+  const messages: string[] = []
+  const socket = { readyState: 1, send: (message: string) => messages.push(message) } as unknown as WebSocket
+  manager.register(id, 'agent', '127.0.0.1', '1.0.0', socket)
+  async function* source() {
+    for (let i = 0; i < 10; i++) yield Buffer.from(`chunk-${i}`)
+  }
+  const upload = manager.uploadFile(id, '/tmp/agent-window.bin', source())
+  await new Promise((resolve) => setImmediate(resolve))
+  const start = JSON.parse(messages[0])
+  assert.equal(start.type, 'file-upload-start')
+  manager.handleMessage(id, socket, { type: 'file-upload-ready', uploadId: start.uploadId })
+  await new Promise((resolve) => setImmediate(resolve))
+  await new Promise((resolve) => setImmediate(resolve))
+  // 窗口 8：8 个 chunk 无 ack 也先行发出，第 9 个起必须等 ack 腾位
+  const sent = () => messages.filter((message) => JSON.parse(message).type === 'file-upload-chunk').length
+  assert.equal(sent(), 8)
+  manager.handleMessage(id, socket, { type: 'file-upload-ack', uploadId: start.uploadId })
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(sent(), 9)
+  manager.handleMessage(id, socket, { type: 'file-upload-ack', uploadId: start.uploadId })
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(sent(), 10)
+  // 全部发出后进入 end/result 收尾
+  assert.equal(JSON.parse(messages[messages.length - 1]).type, 'file-upload-end')
+  manager.handleMessage(id, socket, { type: 'file-upload-result', uploadId: start.uploadId })
+  await upload
+  assert.equal(manager.unregister(id, socket), true)
+})
+
+test('upload aborts pending window waiters on agent error', async () => {
+  const manager = new AgentManager({ historyPath: null })
+  const id = `agent-${Date.now()}-${Math.random()}`
+  const messages: string[] = []
+  const socket = { readyState: 1, send: (message: string) => messages.push(message) } as unknown as WebSocket
+  manager.register(id, 'agent', '127.0.0.1', '1.0.0', socket)
+  async function* source() {
+    for (let i = 0; i < 20; i++) yield Buffer.from(`chunk-${i}`)
+  }
+  const upload = manager.uploadFile(id, '/tmp/agent-window.bin', source())
+  await new Promise((resolve) => setImmediate(resolve))
+  const start = JSON.parse(messages[0])
+  manager.handleMessage(id, socket, { type: 'file-upload-ready', uploadId: start.uploadId })
+  await new Promise((resolve) => setImmediate(resolve))
+  await new Promise((resolve) => setImmediate(resolve))
+  manager.handleMessage(id, socket, {
+    type: 'file-upload-error',
+    uploadId: start.uploadId,
+    message: 'Disk full',
+  })
+  await assert.rejects(upload, /Disk full/)
+  assert.equal(manager.unregister(id, socket), true)
+})
+
+test('streams agent downloads through the matching socket', async () => {
+  const manager = new AgentManager({ historyPath: null })
+  const id = `agent-${Date.now()}-${Math.random()}`
+  const messages: string[] = []
+  const socket = { readyState: 1, send: (message: string) => messages.push(message) } as unknown as WebSocket
+  manager.register(id, 'agent', '127.0.0.1', '1.0.0', socket, { fileDownload: true })
+  const download = manager.downloadFile(id, '/var/log/agent.log', { offset: 64 })
+  await new Promise((resolve) => setImmediate(resolve))
+  const start = JSON.parse(messages[0])
+  assert.equal(start.type, 'file-download-start')
+  assert.equal(start.path, '/var/log/agent.log')
+  assert.equal(start.offset, 64)
+  manager.handleMessage(id, socket, { type: 'file-download-ready', downloadId: start.downloadId })
+  const stream = await download
+  manager.handleMessage(id, socket, {
+    type: 'file-download-chunk',
+    downloadId: start.downloadId,
+    data: Buffer.from('hello ').toString('base64'),
+  })
+  manager.handleMessage(id, socket, {
+    type: 'file-download-chunk',
+    downloadId: start.downloadId,
+    data: Buffer.from('agent').toString('base64'),
+  })
+  manager.handleMessage(id, socket, { type: 'file-download-end', downloadId: start.downloadId })
+  const received = Buffer.concat(await stream.toArray())
+  assert.equal(received.toString(), 'hello agent')
+  // 每消费一块回一个 ack（推送进内部缓冲即视为已消费）
+  const acks = messages.filter((message) => JSON.parse(message).type === 'file-download-ack')
+  assert.equal(acks.length, 2)
+  assert.equal(manager.unregister(id, socket), true)
+})
+
+test('sends file-download-abort when the consumer destroys the stream', async () => {
+  const manager = new AgentManager({ historyPath: null })
+  const id = `agent-${Date.now()}-${Math.random()}`
+  const messages: string[] = []
+  const socket = { readyState: 1, send: (message: string) => messages.push(message) } as unknown as WebSocket
+  manager.register(id, 'agent', '127.0.0.1', '1.0.0', socket, { fileDownload: true })
+  const download = manager.downloadFile(id, '/var/log/agent.log')
+  await new Promise((resolve) => setImmediate(resolve))
+  const start = JSON.parse(messages[0])
+  manager.handleMessage(id, socket, { type: 'file-download-ready', downloadId: start.downloadId })
+  const stream = await download
+  stream.destroy()
+  await new Promise((resolve) => setImmediate(resolve))
+  const abort = messages.map((message) => JSON.parse(message)).find((m) => m.type === 'file-download-abort')
+  assert.equal(abort?.downloadId, start.downloadId)
+  assert.equal(manager.unregister(id, socket), true)
+})
+
+test('rejects downloads on agents without the fileDownload capability', async () => {
+  const manager = new AgentManager({ historyPath: null })
+  const id = `agent-${Date.now()}-${Math.random()}`
+  const socket = { readyState: 1, send: () => {} } as unknown as WebSocket
+  manager.register(id, 'agent', '127.0.0.1', '1.0.0', socket)
+  await assert.rejects(manager.downloadFile(id, '/tmp/x'), /does not support file download/)
+  assert.equal(manager.unregister(id, socket), true)
+})
