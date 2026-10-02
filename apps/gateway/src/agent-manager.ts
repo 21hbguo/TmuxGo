@@ -262,6 +262,10 @@ export class AgentManager {
     console.log(`Agent unregistered: ${id}`)
     return true
   }
+  /** Gateway 主动关停：先以重启原因批量下线，避免随后 ws close 把原因覆盖成 socket 错误 */
+  unregisterAll(reason: string) {
+    for (const agent of Array.from(this.agents.values())) this.unregister(agent.id, agent.socket, reason)
+  }
   removeAgent(id: string) {
     const agent = this.agents.get(id)
     const existed = !!agent || this.history.has(id)

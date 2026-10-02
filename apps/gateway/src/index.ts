@@ -37,6 +37,7 @@ import {
   isPasswordChangeRequired,
   verifyAccessToken,
 } from './lib/auth.js'
+import { agentManager } from './agent-manager.js'
 import { agentMonitor } from './lib/agent-monitor.js'
 import { agentEventRoutes } from './routes/agent-events.js'
 import { agentNotificationRoutes } from './routes/agent-notifications.js'
@@ -246,6 +247,8 @@ const shutdown = () => {
     forceExit.unref()
     try {
       agentMonitor.stop()
+      // 先以真实原因下线 agent，否则 terminate 触发的 ws close 会把原因写成 WebSocket closed
+      agentManager.unregisterAll('Gateway restarted')
       // ws 长连接不随 HTTP server 关闭自动断开，显式终止以免阻塞排空
       fastify.websocketServer.clients.forEach((socket: { terminate: () => void }) => socket.terminate())
       await pluginManager.shutdown()

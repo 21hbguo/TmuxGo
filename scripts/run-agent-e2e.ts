@@ -6,6 +6,7 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import WebSocket from 'ws'
+import { stripTerminalControlSequences } from '../apps/gateway/src/lib/terminal-output.ts'
 
 const root = process.cwd()
 let configDir = ''
@@ -161,7 +162,9 @@ async function verifyTerminal(url: string, hostId: string) {
         }
         if (message.type === 'output' || message.type === 'output_resync') {
           outputText += message.data || ''
-          if (outputText.split('\n').some((line) => line.trim() === expected)) {
+          // tmux 重绘把结果行包进 \x1b[K/光标定位序列，先剥 ANSI 再按行比对
+          const visible = stripTerminalControlSequences(outputText)
+          if (visible.split('\n').some((line) => line.trim() === expected)) {
             outputSeen = true
             complete()
           }
@@ -193,9 +196,11 @@ async function main() {
     const apiUrl = `http://127.0.0.1:${apiPort}`
     const hostId = 'agent-e2e'
     const tsxBin = resolveBin('tsx')
-    const tmuxEnv = { ...process.env, TMUX: '', TMUX_TMPDIR: tmuxDir }
+    // tmux/gateway 用空 HOME：用户 ~/.tmux.conf 的失效选项会让隔离 server 起在 config-error 屏吞掉输入
+    const tmuxEnv = { ...process.env, TMUX: '', TMUX_TMPDIR: tmuxDir, HOME: configDir }
     // 真实 tmux 行为测试只允许操作隔离 server 上名为 test 的 session（AGENTS.md）
-    if ((await run('tmux', ['new-session', '-d', '-s', 'test'], tmuxEnv)) !== 0)
+    // pane 固定跑 sh：空 HOME 下 zsh 会起 newuser-install 向导吞掉输入，且 sh 无 rc 文件依赖
+    if ((await run('tmux', ['new-session', '-d', '-s', 'test', 'sh'], tmuxEnv)) !== 0)
       throw new Error('Agent E2E tmux startup failed')
     gateway = startGateway(tsxBin, apiPort, tmuxEnv)
     await waitFor(`${apiUrl}/health`, gateway)
