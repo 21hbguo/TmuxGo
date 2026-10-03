@@ -233,6 +233,8 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
   touchModeRef.current = touchMode
   // 键盘条修饰键锁存态：按住期间普通按键自动组合
   const [lockedMods, setLockedMods] = useState<ReadonlySet<MobileModifier>>(new Set())
+  // 移动端虚拟指针指示器：noVNC 触屏 cursor 挂在 body，全屏子树外会被裁掉，故自绘
+  const pointerIndicatorRef = useRef<HTMLDivElement>(null)
   // 我们主动 lock 过横屏才在卸载/断开时 unlock，避免动用户原本的系统方向锁
   const orientationLockedRef = useRef(false)
   // 底层 WS 关闭码/原因：RFB 的 disconnect 事件不带这些，单独捕获用于错误提示
@@ -751,10 +753,18 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
         else rfb._handleMouseButton(x, y, mask)
       },
       moveCursor: (x, y) => {
+        // 继续同步 noVNC 原生 cursor（body 侧，非全屏时仍显示远端光标形状），不破坏原行为
         ;(rfbRef.current as unknown as { _cursor?: { move: (x: number, y: number) => void } } | null)?._cursor?.move(
           x,
           y,
         )
+        // 同步容器内指示器：client 坐标换算成容器相对坐标，全屏/普通窗口都可见
+        const indicator = pointerIndicatorRef.current
+        const host = indicator?.parentElement
+        if (!indicator || !host) return
+        const r = host.getBoundingClientRect()
+        indicator.style.transform = `translate(${x - r.left}px, ${y - r.top}px) translate(-50%, -50%)`
+        indicator.style.opacity = '1'
       },
     })
     return () => adapter.dispose()
@@ -1246,6 +1256,19 @@ export function DesktopView({ hostId, port, view, onViewChange, onMinimize, onCl
       <div className="relative min-h-0 flex-1 bg-black">
         {/* touch-action:none 禁浏览器默认手势（滚动/双指缩放），配合 capture 拦截自译触控 */}
         <div ref={containerRef} className="absolute inset-0 overflow-hidden" style={{ touchAction: 'none' }} />
+        {isMobileLayout && status === 'connected' && (
+          // 全屏安全的指针指示器：挂在 fullscreen 子树内，白边+黑描边保证深浅背景对比度
+          <div
+            ref={pointerIndicatorRef}
+            data-vnc-pointer
+            className="pointer-events-none absolute left-0 top-0 z-10 h-4 w-4 rounded-full opacity-0 transition-opacity"
+            style={{
+              border: '2px solid #fff',
+              background: 'rgba(255, 255, 255, 0.25)',
+              boxShadow: '0 0 0 2px rgba(0, 0, 0, 0.85), 0 0 6px rgba(0, 0, 0, 0.5)',
+            }}
+          />
+        )}
         {isMobileLayout && isPortrait && status === 'connected' && !rotateHintDismissed && (
           <div className="tmuxgo-glass absolute left-1/2 top-3 z-20 flex -translate-x-1/2 items-center gap-2 rounded-apple-lg px-3 py-1.5 text-xs text-text-1">
             <span>{t('vnc.rotateHint')}</span>
