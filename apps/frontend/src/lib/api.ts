@@ -98,7 +98,8 @@ export interface SystemInfoResponse {
 }
 export interface NetTopResponse {
   available: boolean
-  processes: { name: string; pid: number; conns: number; txQueue: number; rxQueue: number }[]
+  mode?: 'sock' | 'nopy' | 'nodiag'
+  processes: { name: string; pid: number; conns: number; txBps: number; rxBps: number }[]
 }
 export interface RestartRebuildTaskResponse {
   status: 'idle' | 'running' | 'success' | 'error' | 'cancelled'
