@@ -663,6 +663,7 @@ export const zh = {
   // Custom Shortcuts
   'shortcut.custom': '自定义快捷键',
   'shortcut.manage': '管理快捷键',
+  'shortcut.toggleDock': '快捷键栏',
   'shortcut.add': '添加快捷键',
   'shortcut.edit': '编辑快捷键',
   'shortcut.done': '完成',
@@ -982,6 +983,8 @@ export const zh = {
   'editor.binaryNotEditable': '二进制文件不可编辑',
   'editor.largePreviewOnly': '大文件暂仅支持预览模式',
   'editor.closeConfirm': '关闭 {name} 前是否保存？',
+  'editor.saveAndClose': '保存并关闭',
+  'editor.closeDiscard': '不保存',
   'editor.readOnly': '此文件为只读。',
   'editor.nothingToPreview': '没有可预览的内容。',
 
@@ -1344,6 +1347,9 @@ export const zh = {
   'vnc.landscapeFullscreen': '横屏全屏',
   'vnc.mobileKeyboard': '键盘输入',
   'vnc.mobileKeyboardPlaceholder': '输入内容发送到桌面…',
+  'vnc.touchMode': '触控模式',
+  'vnc.touchMode.trackpad': '屏幕鼠标',
+  'vnc.touchMode.touch': '触摸屏',
   'vnc.displays': '虚拟屏',
   'vnc.displaysLoading': '探测中…',
   'vnc.displayStart': '启动该虚拟屏',

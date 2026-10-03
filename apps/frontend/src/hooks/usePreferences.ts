@@ -21,6 +21,7 @@ export interface Preferences {
   sidebarPosition: 'left' | 'right'
   showStatusBar: boolean
   showQuickActions: boolean
+  showShortcutBar: boolean
   immersiveFullscreen: boolean
   agentNotificationsEnabled: boolean
   agentNotificationDurationMs: number
@@ -43,6 +44,7 @@ const defaultPreferences: Preferences = {
   sidebarPosition: 'left',
   showStatusBar: true,
   showQuickActions: true,
+  showShortcutBar: false,
   immersiveFullscreen: false,
   agentNotificationsEnabled: true,
   agentNotificationDurationMs: 10000,
@@ -105,6 +107,7 @@ function toUiPreferences(p: Preferences): UiPreferences {
     sidebarPosition: p.sidebarPosition,
     showStatusBar: p.showStatusBar,
     showQuickActions: p.showQuickActions,
+    showShortcutBar: p.showShortcutBar,
     agentNotificationsEnabled: p.agentNotificationsEnabled,
     agentNotificationDurationMs: p.agentNotificationDurationMs,
     autoReconnect: p.autoReconnect,
