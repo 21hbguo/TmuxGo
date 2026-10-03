@@ -118,6 +118,13 @@ export async function streamRoutes(fastify: FastifyInstance) {
           case 'register': {
             const register = streamRegisterMessageSchema.parse(data)
             agentId = register.host.id
+            // agent 通道只生产事件不消费 UI 事件：注册后即退订 monitor/inbox 扇出，
+            // 否则 agent 会收到它不认识的 agent_monitor_* 刷屏，且白占一个 listener
+            // 名额把 monitor 轮询卡在快速档
+            unsubscribeAgentMonitor?.()
+            unsubscribeAgentMonitor = null
+            unsubscribeInbox?.()
+            unsubscribeInbox = null
             agentManager.register(
               register.host.id,
               register.host.name,
