@@ -575,6 +575,32 @@ describe('DesktopView VNC password memory', () => {
     }
   })
 
+  it('positions an in-subtree pointer indicator after touch movement in trackpad mode', async () => {
+    mobileMatches = true
+    renderView()
+    await waitFor(() => expect(lastRfb()).toBeTruthy())
+    const spy = vi.spyOn(HTMLCanvasElement.prototype, 'getBoundingClientRect').mockReturnValue(canvasRect)
+    try {
+      // 未连接/未触摸时指示器不渲染
+      expect(document.querySelector('[data-vnc-pointer]')).toBeNull()
+      await act(async () => {
+        lastRfb().emit('connect', {})
+      })
+      fireTouch('touchstart', [{ identifier: 0, clientX: 100, clientY: 100 }])
+      fireTouch('touchmove', [{ identifier: 0, clientX: 130, clientY: 140 }])
+      const indicator = document.querySelector('[data-vnc-pointer]') as HTMLElement
+      expect(indicator).toBeTruthy()
+      // 挂点在 VNC 容器同级子树（fullscreen 覆盖范围内），不是 document.body
+      expect(indicator.parentElement).toBe(lastRfb().target.parentElement)
+      // 虚拟光标 (0,0)+delta(30,40)，client 与容器原点同为 0 → 相对坐标 (30,40)
+      expect(indicator.style.opacity).toBe('1')
+      expect(indicator.style.transform).toContain('translate(30px, 40px)')
+      expect(indicator.className).toContain('pointer-events-none')
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
   it('maps touch points to absolute coordinates after switching to touch mode', async () => {
     mobileMatches = true
     window.localStorage.setItem('tmuxgo:vnc-touch-mode', 'touch')
