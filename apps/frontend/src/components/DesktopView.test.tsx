@@ -11,10 +11,19 @@ const {
   displaysMock,
   sendCredentialsMock,
   sendKeyMock,
+  handleMouseMoveMock,
+  handleMouseButtonMock,
+  cursorMoveMock,
   MockRFB,
 } = vi.hoisted(() => {
   const sendCredentials = vi.fn()
   const sendKey = vi.fn()
+  const handleMouseMove = vi.fn()
+  // 同步 _mouseButtonMask：适配层按它分流 move/button，mock 与真实行为一致才能测对路径
+  const handleMouseButton = vi.fn(function (this: { _mouseButtonMask: number }, _x: number, _y: number, mask: number) {
+    this._mouseButtonMask = mask
+  })
+  const cursorMove = vi.fn()
   class RFB {
     static instances: RFB[] = []
     handlers = new Map<string, ((event: { detail: any }) => void)[]>()
@@ -26,11 +35,18 @@ const {
     viewOnly = false
     qualityLevel = 0
     compressionLevel = 0
+    _mouseButtonMask = 0
+    _mousePos = { x: 0, y: 0 }
+    _cursor = { move: cursorMove }
+    _handleMouseMove = handleMouseMove
+    _handleMouseButton = handleMouseButton
     constructor(
       public target: HTMLElement,
       public url: string,
       public options: unknown,
     ) {
+      // 真实 RFB 在容器内建 canvas，触控适配层以它为坐标基准
+      target.appendChild(document.createElement('canvas'))
       RFB.instances.push(this)
     }
     addEventListener(type: string, fn: (event: { detail: any }) => void) {
@@ -50,6 +66,9 @@ const {
     displaysMock: vi.fn(),
     sendCredentialsMock: sendCredentials,
     sendKeyMock: sendKey,
+    handleMouseMoveMock: handleMouseMove,
+    handleMouseButtonMock: handleMouseButton,
+    cursorMoveMock: cursorMove,
     MockRFB: RFB,
   }
 })
@@ -109,6 +128,9 @@ vi.mock('@/i18n', () => ({
         'vnc.landscapeFullscreen': 'Rotate & fullscreen',
         'vnc.mobileKeyboard': 'Keyboard input',
         'vnc.mobileKeyboardPlaceholder': 'Type to send keys',
+        'vnc.touchMode': 'Touch mode',
+        'vnc.touchMode.trackpad': 'Screen mouse',
+        'vnc.touchMode.touch': 'Touch screen',
         'vnc.viewOnly': 'View only',
         'vnc.sendCad': 'Send Ctrl+Alt+Del',
         'vnc.tuning': 'Display tuning',
@@ -158,6 +180,10 @@ describe('DesktopView VNC password memory', () => {
     displaysMock.mockReset().mockResolvedValue({ displays: [] })
     sendCredentialsMock.mockReset()
     sendKeyMock.mockReset()
+    // mockClear 保留 handleMouseButton 的 _mouseButtonMask 同步实现（mockReset 会连实现一起清掉）
+    handleMouseMoveMock.mockClear()
+    handleMouseButtonMock.mockClear()
+    cursorMoveMock.mockClear()
     mobileMatches = false
     portraitMatches = false
     Object.defineProperty(window, 'matchMedia', {
@@ -407,5 +433,186 @@ describe('DesktopView VNC password memory', () => {
     })
     await waitFor(() => expect(displaysMock).toHaveBeenCalled())
     expect(screen.queryByText('vnc.displayDetected')).toBeNull()
+  })
+
+  it('toggles the touch mode on mobile and persists the selection', async () => {
+    mobileMatches = true
+    renderView()
+    await waitFor(() => expect(lastRfb()).toBeTruthy())
+    const toggle = screen.getByRole('button', { name: /Touch mode/ })
+    expect(toggle.getAttribute('aria-label')).toBe('Touch mode: Screen mouse')
+    fireEvent.click(toggle)
+    expect(screen.getByRole('button', { name: /Touch mode/ }).getAttribute('aria-label')).toBe(
+      'Touch mode: Touch screen',
+    )
+    expect(window.localStorage.getItem('tmuxgo:vnc-touch-mode')).toBe('touch')
+  })
+
+  it('hides the touch-mode toggle on desktop layout', async () => {
+    renderView()
+    await waitFor(() => expect(lastRfb()).toBeTruthy())
+    expect(screen.queryByRole('button', { name: /Touch mode/ })).toBeNull()
+  })
+
+  // jsdom 无真实触摸事件：构造 Event 后挂 touches，经 capture 进适配层
+  const canvasRect = {
+    left: 0,
+    top: 0,
+    right: 400,
+    bottom: 300,
+    width: 400,
+    height: 300,
+    x: 0,
+    y: 0,
+    toJSON: () => ({}),
+  } as DOMRect
+  const fireTouch = (
+    type: 'touchstart' | 'touchmove' | 'touchend' | 'touchcancel',
+    touches: Array<{ identifier: number; clientX: number; clientY: number }>,
+  ) => {
+    const ev = new Event(type, { bubbles: true, cancelable: true })
+    Object.defineProperty(ev, 'touches', { value: touches })
+    fireEvent(lastRfb().target.querySelector('canvas')!, ev)
+  }
+
+  it('sends a left click at the virtual cursor on tap in trackpad mode', async () => {
+    mobileMatches = true
+    renderView()
+    await waitFor(() => expect(lastRfb()).toBeTruthy())
+    const spy = vi.spyOn(HTMLCanvasElement.prototype, 'getBoundingClientRect').mockReturnValue(canvasRect)
+    try {
+      lastRfb()._mousePos = { x: 120, y: 90 }
+      fireTouch('touchstart', [{ identifier: 0, clientX: 300, clientY: 200 }])
+      fireTouch('touchend', [])
+      // 屏幕鼠标模式触点无关：点击落在虚拟光标（_mousePos 种子）处
+      expect(handleMouseButtonMock).toHaveBeenNthCalledWith(1, 120, 90, 1)
+      expect(handleMouseButtonMock).toHaveBeenNthCalledWith(2, 120, 90, 0)
+      expect(cursorMoveMock).toHaveBeenCalled()
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('sends a right click on two-finger tap and wheel steps on two-finger scroll', async () => {
+    mobileMatches = true
+    renderView()
+    await waitFor(() => expect(lastRfb()).toBeTruthy())
+    const spy = vi.spyOn(HTMLCanvasElement.prototype, 'getBoundingClientRect').mockReturnValue(canvasRect)
+    try {
+      const t0 = { identifier: 0, clientX: 200, clientY: 150 }
+      const t1 = { identifier: 1, clientX: 240, clientY: 170 }
+      fireTouch('touchstart', [t0])
+      fireTouch('touchstart', [t0, t1])
+      // 两指必须在同一个 touchend 里一起抬起才构成双指短按
+      fireTouch('touchend', [])
+      expect(handleMouseButtonMock).toHaveBeenNthCalledWith(1, 0, 0, 4)
+      expect(handleMouseButtonMock).toHaveBeenNthCalledWith(2, 0, 0, 0)
+      handleMouseButtonMock.mockClear()
+      // 双指下移 60px 质心 → 一步滚轮上（拖内容约定）
+      fireTouch('touchstart', [t0])
+      fireTouch('touchstart', [t0, t1])
+      fireTouch('touchmove', [
+        { identifier: 0, clientX: 200, clientY: 210 },
+        { identifier: 1, clientX: 240, clientY: 230 },
+      ])
+      expect(handleMouseButtonMock).toHaveBeenCalledWith(0, 0, 8)
+      expect(handleMouseButtonMock).toHaveBeenCalledWith(0, 0, 0)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('does not right-click when two fingers lift one at a time', async () => {
+    mobileMatches = true
+    renderView()
+    await waitFor(() => expect(lastRfb()).toBeTruthy())
+    const spy = vi.spyOn(HTMLCanvasElement.prototype, 'getBoundingClientRect').mockReturnValue(canvasRect)
+    try {
+      const t0 = { identifier: 0, clientX: 200, clientY: 150 }
+      const t1 = { identifier: 1, clientX: 240, clientY: 170 }
+      fireTouch('touchstart', [t0])
+      fireTouch('touchstart', [t0, t1])
+      fireTouch('touchend', [t1])
+      fireTouch('touchend', [])
+      expect(handleMouseButtonMock).not.toHaveBeenCalled()
+      expect(handleMouseMoveMock).not.toHaveBeenCalled()
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('sends no pointer events at all in view-only mode on mobile', async () => {
+    mobileMatches = true
+    renderView()
+    await waitFor(() => expect(lastRfb()).toBeTruthy())
+    await act(async () => {
+      lastRfb().emit('connect', {})
+    })
+    const spy = vi.spyOn(HTMLCanvasElement.prototype, 'getBoundingClientRect').mockReturnValue(canvasRect)
+    try {
+      // 先验通：正常模式下单指 tap 有输出
+      fireTouch('touchstart', [{ identifier: 0, clientX: 100, clientY: 100 }])
+      fireTouch('touchend', [])
+      expect(handleMouseButtonMock).toHaveBeenCalled()
+      handleMouseButtonMock.mockClear()
+      handleMouseMoveMock.mockClear()
+      // 开 view-only 后适配器不接管：任何触点都不产生 pointer 事件
+      fireEvent.click(screen.getByRole('button', { name: 'More actions' }))
+      fireEvent.click(screen.getByText('View only'))
+      fireTouch('touchstart', [{ identifier: 0, clientX: 100, clientY: 100 }])
+      fireTouch('touchmove', [{ identifier: 0, clientX: 160, clientY: 140 }])
+      fireTouch('touchend', [])
+      fireTouch('touchstart', [{ identifier: 0, clientX: 200, clientY: 150 }])
+      fireTouch('touchstart', [
+        { identifier: 0, clientX: 200, clientY: 150 },
+        { identifier: 1, clientX: 240, clientY: 170 },
+      ])
+      fireTouch('touchend', [])
+      expect(handleMouseButtonMock).not.toHaveBeenCalled()
+      expect(handleMouseMoveMock).not.toHaveBeenCalled()
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('maps touch points to absolute coordinates after switching to touch mode', async () => {
+    mobileMatches = true
+    window.localStorage.setItem('tmuxgo:vnc-touch-mode', 'touch')
+    renderView()
+    await waitFor(() => expect(lastRfb()).toBeTruthy())
+    const spy = vi.spyOn(HTMLCanvasElement.prototype, 'getBoundingClientRect').mockReturnValue(canvasRect)
+    try {
+      fireTouch('touchstart', [{ identifier: 0, clientX: 150, clientY: 120 }])
+      // 触摸模式落下即悬停到触点
+      expect(handleMouseMoveMock).toHaveBeenCalledWith(150, 120)
+      fireTouch('touchend', [])
+      expect(handleMouseButtonMock).toHaveBeenNthCalledWith(1, 150, 120, 1)
+      expect(handleMouseButtonMock).toHaveBeenNthCalledWith(2, 150, 120, 0)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('sends special keys and releases latched modifiers from the mobile keyboard bar', async () => {
+    mobileMatches = true
+    renderView()
+    await waitFor(() => expect(lastRfb()).toBeTruthy())
+    await act(async () => {
+      lastRfb().emit('connect', {})
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Keyboard input' }))
+    // 修饰键锁存：按下不立即抬起，普通按键趁按住期间发出完成组合
+    fireEvent.click(screen.getByRole('button', { name: 'Ctrl' }))
+    expect(sendKeyMock).toHaveBeenCalledWith(0xffe3, 'ControlLeft', true)
+    expect(sendKeyMock).not.toHaveBeenCalledWith(0xffe3, 'ControlLeft', false)
+    fireEvent.click(screen.getByRole('button', { name: 'Esc' }))
+    expect(sendKeyMock).toHaveBeenCalledWith(0xff1b, 'Escape', true)
+    expect(sendKeyMock).toHaveBeenCalledWith(0xff1b, 'Escape', false)
+    fireEvent.click(screen.getByRole('button', { name: 'ArrowUp' }))
+    expect(sendKeyMock).toHaveBeenCalledWith(0xff52, 'ArrowUp', true)
+    // 收条时锁存的 Ctrl 必须抬起，避免远端修饰键卡死
+    const bar = screen.getByPlaceholderText('Type to send keys').parentElement!.parentElement!
+    fireEvent.click(within(bar).getByRole('button', { name: 'Close' }))
+    expect(sendKeyMock).toHaveBeenCalledWith(0xffe3, 'ControlLeft', false)
   })
 })

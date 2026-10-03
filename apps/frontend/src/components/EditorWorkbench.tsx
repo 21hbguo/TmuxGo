@@ -1617,8 +1617,9 @@ export function EditorWorkbench({
         open={!!pendingCloseEditorId}
         title={t('editor.closeConfirm', { name: openEditors.find((e) => e.id === pendingCloseEditorId)?.name || '' })}
         message=""
-        confirmLabel={t('common.confirm')}
+        confirmLabel={t('editor.closeDiscard')}
         cancelLabel={t('common.cancel')}
+        extraLabel={t('editor.saveAndClose')}
         tone="danger"
         onCancel={() => setPendingCloseEditorId(null)}
         onConfirm={() => {
@@ -1627,6 +1628,20 @@ export function EditorWorkbench({
             closeEditor(pendingCloseEditorId)
             setPendingCloseEditorId(null)
           }
+        }}
+        onExtra={async () => {
+          const id = pendingCloseEditorId
+          const target = openEditors.find((e) => e.id === id)
+          if (!id || !target) return setPendingCloseEditorId(null)
+          await onSaveEditor(target)
+          // onSaveEditor 吞错（写 saveError + toast）：只有确实落盘（不再 dirty）才允许关；
+          // 保存失败则收起弹窗回编辑器，内联错误条留在原处可重试
+          const latest = useConsoleStore.getState().openEditors.find((e) => e.id === id)
+          if (latest && !latest.dirty) {
+            cancelPendingDefinition()
+            closeEditor(id)
+          }
+          setPendingCloseEditorId(null)
         }}
       />
     </section>

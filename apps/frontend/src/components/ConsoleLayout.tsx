@@ -827,7 +827,12 @@ export function ConsoleLayout({ initialIsMobile = false }: { initialIsMobile?: b
           {isMobile ? <PaneGrid /> : <DesktopWorkbench />}
         </main>
       </div>
-      {!isMobile && preferences.showStatusBar && <StatusBar />}
+      {!isMobile &&
+        (preferences.showShortcutBar ? (
+          <ShortcutBar mode="dock" compact onOpenFiles={toggleFilePanel} onOpenUpload={openUpload} />
+        ) : (
+          preferences.showStatusBar && <StatusBar />
+        ))}
       {isMobile && (
         <div
           data-mobile-dock

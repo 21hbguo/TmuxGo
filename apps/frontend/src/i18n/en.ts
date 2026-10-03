@@ -669,6 +669,7 @@ export const en = {
   // Custom Shortcuts
   'shortcut.custom': 'Custom Shortcuts',
   'shortcut.manage': 'Manage Shortcuts',
+  'shortcut.toggleDock': 'Shortcut bar',
   'shortcut.add': 'Add Shortcut',
   'shortcut.edit': 'Edit Shortcut',
   'shortcut.done': 'Done',
@@ -988,7 +989,9 @@ export const en = {
   'editor.loading': 'Loading {name}...',
   'editor.binaryNotEditable': 'Binary files are not editable here.',
   'editor.largePreviewOnly': 'Large files open in preview only for now.',
-  'editor.closeConfirm': 'Close {name} without saving?',
+  'editor.closeConfirm': 'Save {name} before closing?',
+  'editor.saveAndClose': 'Save & Close',
+  'editor.closeDiscard': "Don't Save",
   'editor.readOnly': 'This file is read only.',
   'editor.nothingToPreview': 'Nothing to preview.',
 
@@ -1351,6 +1354,9 @@ export const en = {
   'vnc.landscapeFullscreen': 'Rotate & fullscreen',
   'vnc.mobileKeyboard': 'Keyboard input',
   'vnc.mobileKeyboardPlaceholder': 'Type to send keys…',
+  'vnc.touchMode': 'Touch mode',
+  'vnc.touchMode.trackpad': 'Screen mouse',
+  'vnc.touchMode.touch': 'Touch screen',
   'vnc.displays': 'Displays',
   'vnc.displaysLoading': 'Scanning…',
   'vnc.displayStart': 'Start this display',
